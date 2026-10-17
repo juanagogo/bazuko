@@ -1,2 +1,12 @@
 *.dmg
 /node_modules
+/dist
+.DS_Store
+**/.DS_Store
+bun.lock
+
+# Originales pesados (en uso: versiones .opt.glb)
+src/assets/
+public/models/bolsa.glb
+public/models/vagabundo.glb
+public/models/vagabundo2.glb
