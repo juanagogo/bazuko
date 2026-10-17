@@ -15,7 +15,7 @@ export const ITEMS = {
   anillo: { id: 'anillo', name: 'Anillo',        weight: 0.05, value: 60, rare: true },
 
   // ===== OBJETOS ROBADOS (AUTOS) =====
-  retrovisor: { id: 'retrovisor', name: 'Retrovisor',   weight: 0.8, value: 18 },
+  retrovisor: { id: 'retrovisor', name: 'Retrovisor',   weight: 0.3, value: 6, stack: 10 }, // se roba a autos detenidos; ~$6 en la Tienda
   radio:      { id: 'radio',      name: 'Radio auto',   weight: 1.5, value: 35 },
 
   // ===== CONSUMIBLES =====
@@ -149,3 +149,76 @@ export const SHOP_ITEMS = [
   { item: 'pegante',  buyPrice: 8 },
   { item: 'pastilla', buyPrice: 15 }
 ];
+
+
+// ===== METADATOS DE INVENTARIO (icono, descripción, stack) =====
+
+const ITEM_META = {
+  lata:        { emoji: '🥫', desc: 'Una lata aplastada. Se vende por kilo.' },
+  botella:     { emoji: '🍼', desc: 'Plástico reciclable.' },
+  carton:      { emoji: '📦', desc: 'Cartón seco, siempre hay quien lo compre.' },
+  chatarra:    { emoji: '🔩', desc: 'Metal viejo. Pesa, pero paga.' },
+  cable:       { emoji: '🔌', desc: 'Cobre pelado, bien cotizado.' },
+  reloj:       { emoji: '⌚', desc: 'Oxidado pero todavía vale algo.' },
+  moneda:      { emoji: '🪙', desc: 'Moneda antigua de coleccionista.' },
+  anillo:      { emoji: '💍', desc: 'Brilla incluso sucio.' },
+  retrovisor:  { emoji: '🪞', desc: 'Retrovisor robado a un auto detenido. Se vende en la Tienda.' },
+  radio:       { emoji: '📻', desc: 'Radio de auto, se vende bien.' },
+  pan:         { emoji: '🍞', desc: 'Duro, pero llena el estómago.' },
+  lataComida:  { emoji: '🐟', desc: 'Atún en lata. Comida sólida.' },
+  agua:        { emoji: '💧', desc: 'Agua para la sed.' },
+  refresco:    { emoji: '🥤', desc: 'Dulce y con cafeína.' },
+  cafe:        { emoji: '☕', desc: 'Caliente: despierta y anima.' },
+  vendaje:     { emoji: '🩹', desc: 'Cierra heridas y recupera salud.' },
+  jabon:       { emoji: '🧼', desc: 'Para quitarte la mugre.' },
+  cepillo:     { emoji: '🪥', desc: 'Higiene básica.' },
+  vacuna:      { emoji: '💉', desc: 'Cura el tétanos.' },
+  carbon:      { emoji: '⚫', desc: 'Cura la intoxicación.' },
+  jarabe:      { emoji: '🍯', desc: 'Cura la gripe.' },
+  pomada:      { emoji: '🧴', desc: 'Cura la sarna.' },
+  antibiotico: { emoji: '💊', desc: 'Cura la infección.' },
+  antiparasitario: { emoji: '🪱', desc: 'Cura los parásitos.' },
+  tintico:     { emoji: '☕', desc: 'Sustancia: ánimo y energía. Se revende al dealer.' },
+  pegante:     { emoji: '🧪', desc: 'Sustancia: sube el ánimo de golpe. Se revende al dealer.' },
+  pastilla:    { emoji: '💊', desc: 'Sustancia: ánimo intenso. Se revende al dealer.' }
+};
+
+// Fusiona en ITEMS (emoji, desc) para que cualquier sistema los lea del mismo sitio
+for (const id of Object.keys(ITEMS)) {
+  const m = ITEM_META[id];
+  ITEMS[id].emoji = m?.emoji ?? '📦';
+  ITEMS[id].desc = m?.desc ?? '';
+}
+
+/** ¿Se puede usar/consumir desde el inventario? */
+export function isUsable(def) {
+  return !!(def && (def.consumable || def.cure));
+}
+
+/** Máximo de unidades por casilla (def.stack tiene prioridad) */
+export function getStackMax(def) {
+  if (!def) return 1;
+  if (def.stack) return def.stack;
+  if (def.rare) return 5;
+  if (def.consumable || def.cure) return 10;
+  return 20;
+}
+
+const STAT_LABELS = {
+  hambre: '🍖 Hambre', sed: '💧 Sed', energia: '⚡ Energía', salud: '🩹 Salud',
+  higiene: '🧼 Higiene', animo: '🧠 Ánimo'
+};
+
+/** Líneas de efecto legibles para tooltip/detalle */
+export function describeEffects(def) {
+  const out = [];
+  if (!def) return out;
+  if (def.consumable) {
+    out.push(`${STAT_LABELS[def.consumable] ?? def.consumable} +${def.amount}`);
+    if (def.animo && def.consumable !== 'animo') out.push(`${STAT_LABELS.animo} +${def.animo}`);
+    if (def.energia && def.consumable !== 'energia') out.push(`${STAT_LABELS.energia} +${def.energia}`);
+  }
+  if (def.cure) out.push(`✨ Cura: ${def.cure}`);
+  if (def.substance) out.push('⚠️ Sustancia');
+  return out;
+}

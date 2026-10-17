@@ -11,7 +11,7 @@ import { ArbolMuerto } from './ArbolMuerto.js';
  * Crea un prop aleatorio en base a pesos por tipo.
  * Devuelve { instance, group, updatable }
  */
-export function createRandomProp(position, forcedType = null) {
+export function createRandomProp(position, forcedType = null, opts = {}) {
   const roll = Math.random();
   let type = forcedType;
 
@@ -28,7 +28,7 @@ export function createRandomProp(position, forcedType = null) {
   let needsUpdate = false;
 
   switch (type) {
-    case 'farol':    instance = new Farol(position); break;
+    case 'farol':    instance = new Farol(position, opts); break;
     case 'banca':    instance = new Banca(position, Math.random() * Math.PI * 2); break;
     case 'semaforo': instance = new Semaforo(position, Math.random() * Math.PI * 2); needsUpdate = true; break;
     case 'hidrante': instance = new Hidrante(position); break;

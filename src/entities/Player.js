@@ -1,10 +1,13 @@
 // src/entities/Player.js
 import * as THREE from 'three';
+import { loadGLTFCached } from '../utils/ModelCache.js';
 import {
   PLAYER_RADIUS,
   PLAYER_SPEED_WALK,
   PLAYER_SPEED_RUN
 } from '../utils/constants.js';
+import { ExhaustedGait, GAIT } from './ExhaustedGait.js';
+import { FootstepDetector } from './FootstepDetector.js';
 
 export class Player {
   constructor(scene, input, stats=null) {
@@ -25,12 +28,16 @@ export class Player {
     scene.add(this.root);
 
     this._buildBody();
+    this._loadGLB();
 
     this.animTime = 0;
     this.state = 'idle';
     this._boostActive = false;
     this._boostPulse = 0;
     this.beggingTimer = 0;
+    this.onFootstep = null; // (running: boolean, foot: 1|2) => void, disparado en cada contacto de pie
+    this._dir = new THREE.Vector3();
+    this._delta = new THREE.Vector3();
   }
 
   _buildBody() {
@@ -77,6 +84,107 @@ this.root.traverse((o) => {
     });
   }
 
+  // Carga async del modelo GLB; reemplaza el procedural al terminar
+  _loadGLB() {
+    // Cache compartida: usa la version optimizada (vagabundo2.opt.glb) y se puede precargar
+    loadGLTFCached('vagabundo2.glb').then((gltf) => {
+        if (!gltf || this._disposed) return;
+        const model = gltf.scene;
+
+        // Escala a la altura del personaje procedural y pies en y=0, centrado en XZ
+        const TARGET_HEIGHT = 1.85;
+        const box = new THREE.Box3().setFromObject(model);
+        const size = box.getSize(new THREE.Vector3());
+        if (!isFinite(size.y) || size.y <= 0) return;
+        const s = TARGET_HEIGHT / size.y;
+        model.scale.setScalar(s);
+        box.setFromObject(model);
+        const c = box.getCenter(new THREE.Vector3());
+        model.position.x -= c.x;
+        model.position.z -= c.z;
+        model.position.y -= box.min.y;
+
+        model.traverse((o) => {
+          if (o.isMesh) {
+            o.castShadow = true;
+            o.receiveShadow = true;
+            o.frustumCulled = false;
+          }
+        });
+
+        // Retirar procedural
+        Object.values(this.parts).forEach((p) => {
+          this.root.remove(p);
+          p.geometry?.dispose?.();
+        });
+        this.parts = null;
+
+        this.model = model;
+        this.root.add(model);
+
+        // Animaciones (si las trae)
+        if (gltf.animations?.length) {
+          // Quitar movimiento de raíz (Hips.position) para que no se desplace el modelo
+          gltf.animations.forEach((clip) => {
+            clip.tracks = clip.tracks.filter((t) => !/hips\.position$/i.test(t.name));
+          });
+          this.mixer = new THREE.AnimationMixer(model);
+          const find = (re) => gltf.animations.find((a) => re.test(a.name));
+          const walk = find(/walk|camin/i) || find(/run|corr/i);
+          const run = find(/run|corr|sprint/i) || walk;
+          // Quieto = pose estática congelada del propio clip Walking (sin idle).
+          // 0.25 del ciclo ~ pose de paso (piernas juntas, erguido), no T-pose ni zancada.
+          const STILL_PHASE = 0.25;
+          this._stillTime = walk ? walk.duration * STILL_PHASE : 0;
+          this.actions = {
+            idle: walk && this.mixer.clipAction(walk.clone()),
+            walk: walk && this.mixer.clipAction(walk),
+            run: run && this.mixer.clipAction(run)
+          };
+          if (this.actions.idle) {
+            this.actions.idle.timeScale = 0; // congelada
+            this.actions.idle.time = this._stillTime;
+          }
+          if (this.actions.walk) this.actions.walk.timeScale = GAIT.WALK_TIMESCALE;
+          if (this.actions.run) this.actions.run.timeScale = GAIT.RUN_TIMESCALE;
+          this._currentAction = null;
+
+          // Marcha agotada con cojera (capa procedural sobre el clip Walking)
+          this.gait = new ExhaustedGait(model);
+          this.footsteps = new FootstepDetector(model);
+          if (this.actions.idle) {
+            // Pose neutra (quieta) para amortiguar balanceos
+            this.actions.idle.play();
+            this.mixer.update(0);
+            this.gait.captureNeutral();
+            this.actions.idle.stop();
+          }
+        }
+    });
+  }
+
+  _playAction(name) {
+    const next = this.actions?.[name] || this.actions?.idle;
+    if (!next || next === this._currentAction) return;
+    const prev = this._currentAction;
+    const locomo = (a) => a === this.actions.walk || a === this.actions.run;
+    const swap = !!(prev && prev !== next && locomo(prev) && locomo(next) && this.actions.walk !== this.actions.run);
+    const FADE = swap ? GAIT.RUN_FADE : 0.15;
+    const phase = swap ? (prev.time / (prev.getClip().duration || 1)) % 1 : 0;
+    next.reset();
+    if (name === 'idle') {
+      next.timeScale = 0;
+      next.time = this._stillTime || 0;
+    } else if (name === 'walk' && this._currentAction === this.actions.idle) {
+      next.time = this._stillTime || 0; // arrancar desde la misma fase: sin salto
+    } else if (swap) {
+      next.time = phase * next.getClip().duration; // caminar<->correr con la misma fase de pasos
+    }
+    next.fadeIn(FADE).play();
+    this._currentAction?.fadeOut(FADE);
+    this._currentAction = next;
+  }
+
   playBeg() {
     this.beggingTimer = 1.0;
   }
@@ -93,15 +201,26 @@ this.root.traverse((o) => {
     if (this.stats?.getSpeedMultiplier) {
       speed *= this.stats.getSpeedMultiplier();
     }
+    // Marcha agotada: velocidad sincronizada con el timeScale del clip y el ritmo irregular
+    // (pausas al caminar, tropiezos al correr) para que los pies no patinen.
+    if (this.gait && this.mixer && moving) {
+      speed *= (running ? GAIT.RUN_SPEED_SCALE : GAIT.WALK_SPEED_SCALE) * this.gait.rate;
+    }
     // Movimiento
-    const dir = new THREE.Vector3(x, 0, z);
+    const dir = this._dir.set(x, 0, z);
     if (moving) dir.normalize();
-    const delta = dir.clone().multiplyScalar(moving ? speed * dt : 0);
+    const delta = this._delta.copy(dir).multiplyScalar(moving ? speed * dt : 0);
 
     if (collisions) {
-      this.position.copy(
-        collisions.resolveMove(this.position, delta, this.radius)
-      );
+      // Substeps: paso max ~0.15 u por resolución para no atravesar colliders finos al correr
+      const len = delta.length();
+      const n = Math.min(4, Math.max(1, Math.ceil(len / 0.15)));
+      if (n > 1) delta.multiplyScalar(1 / n);
+      for (let i = 0; i < n; i++) {
+        this.position.copy(
+          collisions.resolveMove(this.position, delta, this.radius)
+        );
+      }
     } else {
       this.position.add(delta);
     }
@@ -122,6 +241,40 @@ this.root.traverse((o) => {
     this.animTime += dt * (
       this.state === 'run' ? 10 : this.state === 'walk' ? 6 : 1.5
     );
+
+    if (this.model) {
+      if (this.mixer) {
+        this._playAction(this.state);
+        const g = this.gait;
+        const gMode = this.state === 'idle' ? null : this.state;
+        if (g && (gMode || g.active)) {
+          g.update(dt, gMode);
+          if (this.actions.walk && this.state === 'walk') {
+            this.actions.walk.timeScale = GAIT.WALK_TIMESCALE * g.rate;
+          } else if (this.actions.run && this.state === 'run') {
+            this.actions.run.timeScale = GAIT.RUN_TIMESCALE * g.rate;
+          }
+        }
+        this.mixer.update(dt);
+        if (g && g.active) g.apply();
+        // Pasos: contacto de pie detectado en la pose final (respeta pausas y ritmo irregular)
+        const fs = this.footsteps;
+        if (fs) {
+          if (this.state === 'idle') fs.reset();
+          else {
+            const foot = fs.update(dt, this.root.position.y);
+            if (foot && this.onFootstep) this.onFootstep(this.state === 'run', foot);
+          }
+        }
+      } else {
+        // Sin animaciones: bob/balanceo simple al caminar
+        const moveAmt = this.state === 'idle' ? 0 : 1;
+        const t = this.animTime;
+        this.model.rotation.z = Math.sin(t) * 0.05 * moveAmt;
+        this.model.rotation.x = Math.sin(t * 2) * 0.02 * moveAmt;
+      }
+      return;
+    }
     this._animateProcedural();
   }
 
@@ -165,6 +318,8 @@ this.root.traverse((o) => {
   }
 
   dispose() {
+    this._disposed = true;
+    this.mixer?.stopAllAction();
     this.root.traverse((o) => {
       o.geometry?.dispose?.();
       o.material?.dispose?.();

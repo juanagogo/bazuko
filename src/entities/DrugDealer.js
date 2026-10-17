@@ -75,14 +75,18 @@ export class DrugDealer {
     this.group.add(pillBox);
 
     // Luz de ambiente del puesto del dealer
-    const light = new THREE.PointLight(0x9b59b6, 2.5, 8);
+    const light = new THREE.PointLight(0x9b59b6, 0, 8); // apagada de día
+    this.light = light;
     light.position.set(0.8, 1.2, 0);
     this.group.add(light);
 
+    this._lanternOn = new THREE.Color(0x9b59b6);
+    this._lanternOff = new THREE.Color(0x2a2a30);
     const lantern = new THREE.Mesh(
       new THREE.SphereGeometry(0.12, 8, 8),
-      new THREE.MeshBasicMaterial({ color: 0x9b59b6 })
+      new THREE.MeshBasicMaterial({ color: 0x2a2a30 })
     );
+    this.lantern = lantern;
     lantern.position.set(0.8, 1.2, 0);
     this.group.add(lantern);
 
@@ -213,10 +217,7 @@ export class DrugDealer {
       return { bought: null, cost, reason: 'insufficient_money' };
     }
 
-    if (
-      inventory.totalWeight + item.weight >
-      inventory.maxWeight
-    ) {
+    if (!inventory.canAdd(item, 1)) {
       return { bought: null, cost, reason: 'inventory_full' };
     }
 
@@ -242,6 +243,12 @@ export class DrugDealer {
     if (this.marker) {
       this.marker.rotation.z += dt * 0.6;
     }
+  }
+
+  /** Luz/farol del puesto: intensidad gradual 0..1 */
+  setNightLevel(level) {
+    if (this.light) this.light.intensity = 2.5 * level;
+    if (this.lantern) this.lantern.material.color.copy(this._lanternOff).lerp(this._lanternOn, level);
   }
 
   setNight(isNight) {

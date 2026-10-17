@@ -34,6 +34,22 @@ export class HUD {
     // Toasts
     this._bindEvents();
 
+    // Indicador discreto de guardado y botón de Nueva partida
+    this._saveEl = document.getElementById('save-indicator');
+    window.addEventListener('game-saved', () => {
+      if (!this._saveEl) return;
+      this._saveEl.classList.add('show');
+      clearTimeout(this._saveTimer);
+      this._saveTimer = setTimeout(() => this._saveEl.classList.remove('show'), 1400);
+    });
+    document.getElementById('new-game-btn')?.addEventListener('click', (e) => {
+      e.currentTarget.blur();
+      if (window.confirm('¿Empezar una partida nueva? Se borrará tu progreso guardado.')) window.__game?.newGame();
+    });
+
+    // Abrir el inventario con clic en el resumen
+    this.invEl?.addEventListener('click', () => window.dispatchEvent(new Event('inventory-toggle')));
+
     // Controles de paneles
     window.addEventListener('keydown', (e) => {
       if (e.code === 'KeyT') this.toggleTalentPanel();
@@ -62,15 +78,27 @@ export class HUD {
   _bindEvents() {
     window.addEventListener('pickup', (e) => this._onPickup(e.detail));
     window.addEventListener('sell', (e) => this._onSell(e.detail));
+    window.addEventListener('run-over-hit', () => {
+      const f = document.createElement('div');
+      f.className = 'hit-flash';
+      document.body.appendChild(f);
+      setTimeout(() => f.remove(), 700);
+    });
+    window.addEventListener('run-over', (e) => this._toast(`🚌 ${e.detail.message}`, 'death'));
     window.addEventListener('disease', (e) => this._toast(`☠️ Enfermedad: ${e.detail.name}`, 'death'));
     window.addEventListener('disease-cured', (e) => this._toast(`✨ Curado: ${e.detail.name}`, 'info'));
     window.addEventListener('levelup', (e) => this._toast(`⭐ ¡Nivel ${e.detail.level}! +1 punto de talento`, 'rare'));
     window.addEventListener('talent-unlock', (e) => this._toast(`🌟 Talento: ${e.detail.name}`, 'rare'));
+    window.addEventListener('inventory-full', () => this._toast('🎒 Inventario lleno: lo que no cupo queda en la bolsa', 'warn'));
     window.addEventListener('craft', (e) => this._toast(`🔨 Crafteado: ${e.detail.name} x${e.detail.qty}`, 'info'));
     window.addEventListener('steal', (e) => {
       if (e.detail.caught) this._toast('🚨 ¡Atrapado robando!', 'death');
       else if (e.detail.added?.length) this._toast(`🪞 Robado: ${e.detail.added.join(', ')}`, 'warn');
     });
+    window.addEventListener('steal-full', () => this._toast('🎒 Inventario lleno', 'warn'));
+    window.addEventListener('steal-cancel', () => this._toast('✋ Robo cancelado', 'info'));
+    window.addEventListener('steal-fail', (e) => this._toast(
+      e.detail?.reason === 'seen' ? '🚨 ¡El conductor te vio! El auto arranca' : '🚗 El auto arrancó: robo fallido', 'warn'));
     window.addEventListener('substance-sell', (e) => this._toast(`💰 Sustancias vendidas: $${e.detail.earned}`, 'sell'));
     window.addEventListener('substance-buy', (e) => {
       this._toast(`📦 Comprado: ${e.detail.name} (-$${e.detail.cost})`, 'info');
@@ -138,25 +166,28 @@ export class HUD {
       higiene: stats.higiene,
       animo: stats.animo
     };
-    for (const [k, v] of Object.entries(map)) {
+    const lastBars = this._lastBars || (this._lastBars = {});
+    for (const k in map) {
       const el = this.bars[k];
-      if (el) el.style.width = `${Math.max(0, Math.min(100, v))}%`;
+      const w = `${Math.max(0, Math.min(100, map[k]))}%`;
+      if (el && lastBars[k] !== w) { lastBars[k] = w; el.style.width = w; }
     }
 
     // Reloj
     const h = Math.floor(clock.hour).toString().padStart(2, '0');
     const m = Math.floor((clock.hour % 1) * 60).toString().padStart(2, '0');
-    if (this.clockEl) this.clockEl.textContent = `Día ${clock.day} — ${h}:${m}`;
-    if (this.moneyEl) this.moneyEl.textContent = `$${stats.dinero ?? 0}`;
+    this._setText('clockEl', `Día ${clock.day} — ${h}:${m}`);
+    this._setText('moneyEl', `$${stats.dinero ?? 0}`);
 
     // Nivel y XP
-    if (this.levelEl) this.levelEl.textContent = `Nv ${stats.level}`;
+    this._setText('levelEl', `Nv ${stats.level}`);
     const xpNeeded = XP_PER_LEVEL * stats.level;
     if (this.xpFillEl) {
-      this.xpFillEl.style.width = `${Math.min(100, (stats.xp / xpNeeded) * 100)}%`;
+      const w = `${Math.min(100, (stats.xp / xpNeeded) * 100)}%`;
+      if (this._lastXpW !== w) { this._lastXpW = w; this.xpFillEl.style.width = w; }
     }
     if (this.talentPointsEl) {
-      this.talentPointsEl.textContent = `🌟 ${talentSystem?.points ?? 0}`;
+      this._setText('talentPointsEl', `🌟 ${talentSystem?.points ?? 0}`);
       this.talentPointsEl.style.opacity = (talentSystem?.points ?? 0) > 0 ? 1 : 0.4;
     }
 
@@ -167,7 +198,7 @@ export class HUD {
 
     // Prompt dinámico de interacción
     if (this.promptEl) {
-      const nearBed = window.__game?.bed && window.__game.bed.position.distanceTo(window.__game.player.position) < 2.5;
+      const nearBed = window.__game?.bed && window.__game.bed.isNear(window.__game.player.position);
       if (nearBed) {
         this.promptEl.textContent = '[E] Dormir (Solo de noche)';
         this.promptEl.classList.add('visible');
@@ -175,8 +206,9 @@ export class HUD {
         const type = interaction.currentTargetType;
         let text = '';
         if (type === 'pickup') text = '[E] Recoger basura · [Mantener Q] Seleccionar';
-        else if (type === 'car') text = '[E] Robar retrovisor de auto';
-        else if (type === 'sell') text = '[E] Vender objetos reciclables';
+        else if (type === 'car') text = '[E] Robar retrovisores';
+        else if (type === 'sell') text = '[E] Vender · Tienda';
+        else if (type === 'container') text = interaction.currentTarget.promptText();
         else if (type === 'dealer') text = '[Q / E] Tienda del Dealer · Comprar / Vender';
 
         if (text) {
@@ -186,7 +218,14 @@ export class HUD {
           this.promptEl.classList.remove('visible');
         }
       } else {
-        this.promptEl.classList.remove('visible');
+        // Estaciones TM: "[E] Colarse y pedir limosna" / "Vuelve más tarde (N s)" (ui/MinijuegoLimosna.js)
+        const lp = window.__game?.limosna?.prompt;
+        if (lp) {
+          if (this.promptEl.textContent !== lp) this.promptEl.textContent = lp;
+          this.promptEl.classList.add('visible');
+        } else {
+          this.promptEl.classList.remove('visible');
+        }
       }
     }
 
@@ -210,62 +249,28 @@ export class HUD {
     }
   }
 
-  _renderInventory(inv) {
-    const rows = inv.items.map((i) => {
-      const canUse = !!(i.consumable || i.cure);
-      return `<div class="inv-row ${canUse ? 'usable' : ''}" data-id="${i.id}" title="${canUse ? 'Clic para usar/consumir' : ''}">
-        ${i.name} <span>x${i.qty}</span>
-      </div>`;
-    }).join('');
-    const weight = `<div class="inv-weight">Peso: ${inv.totalWeight.toFixed(1)}/${inv.maxWeight}</div>`;
-    this.invEl.innerHTML = rows + weight;
-
-    this.invEl.querySelectorAll('.inv-row.usable').forEach((el) => {
-      el.addEventListener('click', () => {
-        const id = el.dataset.id;
-        this._useItem(id, inv);
-      });
-    });
+  // Escribe textContent solo si cambio (evita reflow/DOM por frame)
+  _setText(prop, text) {
+    const el = this[prop];
+    if (!el) return;
+    const key = '_t_' + prop;
+    if (this[key] !== text) { this[key] = text; el.textContent = text; }
   }
 
-  _useItem(itemId, inv) {
-    const item = inv.items.find((x) => x.id === itemId);
-    if (!item) return;
-    const game = window.__game;
-    if (!game) return;
-
-    if (item.consumable) {
-      const statKey = item.consumable;
-      if (game.stats[statKey] !== undefined) {
-        game.stats[statKey] = Math.min(100, game.stats[statKey] + item.amount);
-      }
-      if (item.animo) {
-        game.stats.animo = Math.min(100, game.stats.animo + item.animo);
-      }
-      if (item.energia && statKey !== 'energia') {
-        game.stats.energia = Math.min(100, game.stats.energia + item.energia);
-      }
-      inv.remove(itemId, 1);
-      game.audio?.play('pickup');
-      this._toast(`🍴 Consumiste: ${item.name}`, 'info');
-      this._renderInventory(inv);
-    } else if (item.cure) {
-      game.diseases?.cure?.(item.cure);
-      inv.remove(itemId, 1);
-      game.audio?.play('pickup');
-      this._toast(`✨ Curaste: ${item.cure} con ${item.name}`, 'info');
-      this._renderInventory(inv);
-    }
+  // Resumen de ocupación (el inventario completo está en ui/InventoryUI.js). Solo toca el DOM si cambia.
+  _renderInventory(inv) {
+    if (inv.version === this._invVersion) return;
+    this._invVersion = inv.version;
+    this.invEl.textContent =
+      `🎒 ${inv.usedSlots}/${inv.slotCount} · ${inv.totalWeight.toFixed(1)}/${inv.maxWeight} kg  [I]`;
+    this.invEl.classList.toggle('full', inv.isFull);
   }
 
   _renderDiseases(diseaseSystem) {
-    if (!diseaseSystem.hasAny) {
-      this.diseaseEl.innerHTML = '';
-      return;
-    }
-    this.diseaseEl.innerHTML = diseaseSystem.list.map((d) =>
+    const html = diseaseSystem.hasAny ? diseaseSystem.list.map((d) =>
       `<div class="disease-item">${d.emoji} ${d.name} <span>${Math.ceil(d.timeLeft)}s</span></div>`
-    ).join('');
+    ).join('') : '';
+    if (html !== this._lastDisHtml) { this._lastDisHtml = html; this.diseaseEl.innerHTML = html; }
   }
 
   renderTalents(talentSystem) {
@@ -360,6 +365,8 @@ export class HUD {
           const result = craftingSystem.craft(recipe, inventory);
           if (result && window.__game) {
             window.__game.stats.addXP(XP_CRAFT, window.__game.talents);
+          } else if (!result) {
+            this._toast('🎒 No hay espacio para el resultado', 'warn');
           }
           this.renderCrafting(craftingSystem, inventory, talentSystem);
         }
@@ -380,7 +387,7 @@ export class HUD {
 
     const itemsHtml = products.map((p) => {
       const canAfford = (stats?.dinero ?? 0) >= p.value;
-      const weightOk = inv ? (inv.totalWeight + p.weight <= inv.maxWeight) : true;
+      const weightOk = inv ? inv.canAdd(p, 1) : true;
       const canBuy = canAfford && weightOk;
       const effectDesc = p.id === 'tintico' ? '☕ Sube +30 ánimo y +20 energía'
                        : p.id === 'pegante' ? '🧴 Sube +40 ánimo de golpe'
