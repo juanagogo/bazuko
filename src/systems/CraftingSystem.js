@@ -19,20 +19,19 @@ export class CraftingSystem {
   craft(recipe, inventory) {
     if (!this.canCraft(recipe, inventory)) return null;
 
-    // Verificar peso del resultado
     const resultItem = ITEMS[recipe.result];
     if (!resultItem) return null;
-    if (inventory.totalWeight + resultItem.weight * recipe.qty > inventory.maxWeight) {
-      return null;
-    }
 
-    // Quitar ingredientes
+    // Quitar ingredientes (libera espacio) y añadir el resultado; si no cabe, se devuelven
     for (const [id, qty] of Object.entries(recipe.ingredients)) {
       inventory.remove(id, qty);
     }
-
-    // Añadir resultado
-    inventory.add(resultItem, recipe.qty);
+    if (!inventory.add(resultItem, recipe.qty)) {
+      for (const [id, qty] of Object.entries(recipe.ingredients)) {
+        if (ITEMS[id]) inventory.add(ITEMS[id], qty);
+      }
+      return null;
+    }
 
     window.dispatchEvent(new CustomEvent('craft', {
       detail: { name: resultItem.name, qty: recipe.qty }

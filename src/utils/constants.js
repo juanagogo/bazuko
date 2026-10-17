@@ -2,7 +2,25 @@
 
 // Mundo
 export const TILE_SIZE = 2;
-export const DISTRICT_SIZE = 32; // 20x20 tiles
+export const DISTRICT_SIZE = 40; // columnas (eje X) en tiles; patrón 8k+8 (antes 32)
+// Avenida TransMilenio (recta, a lo largo de X): [carril normal][TM][zona verde][TM][carril normal]
+// Carriles en tiles de 2 u: normal 2 (4 u) | TM 2 (4 u) | zona verde 4 (8 u) | TM 2 | normal 2 => 12 tiles = 24 u
+export const AVENUE_N_TILES = 2;
+export const AVENUE_TM_TILES = 2;
+export const AVENUE_G_TILES = 4;
+export const AVENUE_WIDTH = 2 * (AVENUE_N_TILES + AVENUE_TM_TILES) + AVENUE_G_TILES; // 12 tiles = 24 u
+// Dos avenidas TM perpendiculares: una a lo largo de X (reemplaza una calle horizontal) y otra a lo largo
+// de Z (reemplaza una calle vertical); cada una suma (AVENUE_WIDTH - 2) tiles sobre el patrón cuadrado.
+export const WORLD_COLS = DISTRICT_SIZE + (AVENUE_WIDTH - 2); // 50
+export const WORLD_ROWS = DISTRICT_SIZE + (AVENUE_WIDTH - 2); // 50
+// Tamaño del mundo en unidades (el tile 0 y el último son el muro perimetral)
+export const WORLD_W = WORLD_COLS * TILE_SIZE;
+export const WORLD_D = WORLD_ROWS * TILE_SIZE;
+// Borde interior de los muros (límite jugable)
+export const WORLD_MIN_X = TILE_SIZE - TILE_SIZE / 2;                    // 1
+export const WORLD_MAX_X = (WORLD_COLS - 1) * TILE_SIZE - TILE_SIZE / 2; // 97
+export const WORLD_MIN_Z = TILE_SIZE - TILE_SIZE / 2;                    // 1
+export const WORLD_MAX_Z = (WORLD_ROWS - 1) * TILE_SIZE - TILE_SIZE / 2; // 97 (WORLD_ROWS = 50)
 
 // Jugador
 export const PLAYER_RADIUS = 0.4;
@@ -20,6 +38,8 @@ export const BOOST_MIN_HEALTH = 5;     // no activar/cancelar si salud <= esto
 
 // Inventario
 export const INVENTORY_MAX_WEIGHT = 20;
+export const INVENTORY_SLOTS = 20;      // casillas de la cuadrícula
+export const HOTBAR_SLOTS = 5;           // acceso rápido (teclas 1-5)
 
 // Pickup
 export const PICKUP_COOLDOWN = 20;     // segundos hasta que revive la basura
@@ -107,3 +127,10 @@ export const RECOVERY = {
   animoPorCafe:     15,
   animoPorComida:   5
 };
+
+// ===== Silueta "rayos X" (src/core/XRay.js) =====
+export const XRAY_ENABLED = true;          // interruptor global del efecto
+export const XRAY_COLOR = 0x00e5ff;        // silueta del jugador (cian)
+export const XRAY_COLOR_INTERACT = 0xffd23f; // silueta de interactuables ocultos (amarillo)
+export const XRAY_RANGE = 18;              // alcance maximo de siluetas de interactuables
+export const XRAY_MAX_INTERACT = 10;       // maximo de interactuables con silueta a la vez

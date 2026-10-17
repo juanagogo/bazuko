@@ -10,8 +10,16 @@ import {
   XP_SELL,
   XP_STEAL,
   XP_CRAFT,
-  XP_BEG
+  XP_BEG,
+  SORT_BASE_TIME
 } from '../utils/constants.js';
+
+// Robo de retrovisores a autos detenidos (semáforo en rojo, fila, parqueados): acción de 2.5 s, quieto
+const ROB_RANGE = 2.2;        // u, medido al borde de la caja del vehículo
+const ROB_TIME = 2.5;         // s de acción
+const ROB_SEEN_CHANCE = 0.2;  // probabilidad de que el conductor te vea
+const ROB_MIRRORS = 2;        // retrovisores por robo
+const ROB_MOVE_TOL = 0.25;    // u: moverse más que esto cancela
 
 export class InteractionSystem {
   constructor(player, inventory, stats, audio, diseaseSystem, talentSystem, craftingSystem) {
@@ -33,6 +41,12 @@ export class InteractionSystem {
     // Estado de selección de basura
     this.sortingPickup = null;
     this.isHoldingQ = false;
+
+    // Robo de retrovisores en curso: { target, t, startX, startZ, seenAt }. robView alimenta la barra sobre la
+    // cabeza (PlayerOverhead la lee como un "pickup en selección")
+    this.robbing = null;
+    this.searching = null; // búsqueda en contenedor en curso: { target, t, startX, startZ } (comparte robView)
+    this.robView = { sorting: false, sortProgress: 0 };
 
     // Pedir limosna
     this._lastBegTime = -9999;
@@ -72,16 +86,30 @@ export class InteractionSystem {
     // Encontrar target más cercano
     let nearest = null;
     let nearestType = null;
-    let nearestDist = INTERACT_RANGE;
+    let nearestDist = Infinity;
+
+    if (this.robbing) this._updateRob(dt, input);
+    if (this.searching) this._updateSearch(dt, input);
 
     for (const t of this.targets) {
-      const d = t.position.distanceTo(this.player.position);
-      if (d < nearestDist) {
+      let d, lim = INTERACT_RANGE;
+      if (t.isContainer) { // contenedor de basura: siempre apuntable (vacío muestra el cooldown); distancia al borde
+        d = t.edgeDistance(this.player.position);
+        lim = t.searchRange;
+      } else if (typeof t.robMirrors === 'function') { // auto del tráfico: solo si está detenido; distancia al borde
+        if (!t.canRob()) continue;
+        d = t.edgeDistance(this.player.position);
+        lim = ROB_RANGE;
+      } else {
+        d = t.position.distanceTo(this.player.position);
+      }
+      if (d < lim && d < nearestDist) {
         nearestDist = d;
         nearest = t;
         // Determinar tipo por métodos disponibles
-        if (typeof t.harvest === 'function') nearestType = 'pickup';
-        else if (typeof t.steal === 'function') nearestType = 'car';
+        if (t.isContainer) nearestType = 'container';
+        else if (typeof t.harvest === 'function') nearestType = 'pickup';
+        else if (typeof t.robMirrors === 'function' || typeof t.steal === 'function') nearestType = 'car';
         else if (typeof t.sellSubstances === 'function') nearestType = 'dealer';
         else if (t instanceof Object && typeof t.sell === 'function') nearestType = 'sell';
       }
@@ -125,11 +153,15 @@ export class InteractionSystem {
         case 'pickup':
           this._harvestTrash(nearest, false);
           break;
+        case 'container':
+          this._startSearch(nearest);
+          break;
         case 'sell':
           this._sellItems(nearest);
           break;
         case 'car':
-          this._stealCar(nearest);
+          if (typeof nearest.robMirrors === 'function') this._startRob(nearest);
+          else this._stealCar(nearest);
           break;
         case 'dealer': {
           const hasSubstances = this.inventory.items.some((i) => ITEMS[i.id]?.substance);
@@ -173,28 +205,85 @@ export class InteractionSystem {
     if (!result) return;
 
     const added = [];
+    const leftover = [];
+    let rareAdded = false;
     for (const itemId of result.items) {
       const item = ITEMS[itemId];
-      if (item && this.inventory.add(item)) added.push(item.name);
+      if (item && this.inventory.add(item)) {
+        added.push(item.name);
+        if (itemId === result.rare) rareAdded = true;
+      } else if (item) {
+        leftover.push(itemId);
+      }
+    }
+
+    // Lo que no cupo se queda en la bolsa (no se pierde)
+    if (leftover.length) {
+      target.restore?.(leftover);
+      window.dispatchEvent(new CustomEvent('inventory-full', { detail: { left: leftover.length } }));
+    }
+    if (added.length === 0) {
+      this.audio?.play('full');
+      return; // nada recogido: sin XP, sin riesgo de enfermedad
     }
 
     this.audio?.play('pickup');
-    if (result.rare) {
+    if (rareAdded) {
       this.audio?.play('treasure');
       this.stats.saludMental = Math.min(100, this.stats.saludMental + MENTAL_RESTORE_RARE);
     }
-    if (added.length === 0) this.audio?.play('full');
 
     // Riesgo de enfermedad
     const diseaseResist = this.talents.getEffect('diseaseResist', 1);
     const sortDiseaseMult = this.talents.getEffect('sortDiseaseMult', 1);
-    this.disease.tryInfect(result.sorted, diseaseResist * (result.sorted ? sortDiseaseMult : 1));
+    this.disease.tryInfect(result.sorted, diseaseResist * (result.sorted ? sortDiseaseMult : 1) * (result.diseaseMult ?? 1));
 
-    this.stats.addXP(XP_PICKUP, this.talents);
+    this.stats.addXP(XP_PICKUP * (result.xpMult ?? 1), this.talents);
 
     window.dispatchEvent(new CustomEvent('pickup', {
       detail: { added, rare: result.rare, sorted: result.sorted }
     }));
+  }
+
+  // ===== Búsqueda en contenedores de basura (E, quieto ~4.5 s; moverse o Esc cancela) =====
+  get activeView() { // barra sobre la cabeza del jugador (PlayerOverhead)
+    return (this.robbing || this.searching) ? this.robView : this.sortingPickup;
+  }
+
+  _startSearch(c) {
+    if (this.searching || this.robbing) return;
+    if (!c.canSearch()) { this.audio?.play('empty'); return; }
+    this.searching = {
+      target: c, t: 0, startX: this.player.position.x, startZ: this.player.position.z
+    };
+    c.searching = true;
+    this.robView.sorting = true;
+    this.robView.sortProgress = 0;
+  }
+
+  _endSearch() {
+    if (this.searching) this.searching.target.searching = false;
+    this.searching = null;
+    this.robView.sorting = false;
+    this.robView.sortProgress = 0;
+  }
+
+  _updateSearch(dt, input) {
+    const s = this.searching;
+    const c = s.target;
+    const p = this.player.position;
+    const moved = Math.hypot(p.x - s.startX, p.z - s.startZ) > ROB_MOVE_TOL ||
+      input.forward || input.backward || input.left || input.right || input.isDown('Escape');
+    if (input.locked || moved || !c.canSearch() || c.edgeDistance(p) > c.searchRange + 0.4) {
+      this._endSearch();
+      return;
+    }
+    s.t += dt;
+    this.robView.sortProgress = Math.min(1, s.t / c.searchTime) * SORT_BASE_TIME;
+    if (s.t >= c.searchTime) {
+      this._endSearch();
+      this._harvestTrash(c, false);
+    }
   }
 
   _sellItems(target) {
@@ -207,6 +296,68 @@ export class InteractionSystem {
       this.audio?.play('sell');
     } else {
       this.audio?.play('empty');
+    }
+  }
+
+  // ===== Robo de retrovisores (autos del tráfico detenidos) =====
+  _startRob(car) {
+    if (this.robbing || !car.canRob()) return;
+    const item = ITEMS.retrovisor;
+    if (!this.inventory.canAdd(item, ROB_MIRRORS)) {
+      this.audio?.play('full');
+      window.dispatchEvent(new CustomEvent('steal-full'));
+      return;
+    }
+    const seenMult = this.talents.getEffect('stealCaughtMult', 1);
+    const seen = Math.random() < ROB_SEEN_CHANCE * seenMult;
+    this.robbing = {
+      target: car, t: 0, startX: this.player.position.x, startZ: this.player.position.z,
+      seenAt: seen ? 0.5 + Math.random() * 1.2 : Infinity
+    };
+    this.robView.sorting = true;
+    this.robView.sortProgress = 0;
+  }
+
+  _endRob() {
+    this.robbing = null;
+    this.robView.sorting = false;
+    this.robView.sortProgress = 0;
+  }
+
+  _updateRob(dt, input) {
+    const r = this.robbing;
+    const car = r.target;
+    const p = this.player.position;
+    const moved = Math.hypot(p.x - r.startX, p.z - r.startZ) > ROB_MOVE_TOL ||
+      input.forward || input.backward || input.left || input.right || input.isDown('Escape');
+    if (input.locked || moved) { this._endRob(); window.dispatchEvent(new CustomEvent('steal-cancel')); return; }
+    if (!car.canRob() || car.edgeDistance(p) > ROB_RANGE + 0.4) { // el auto arrancó (luz en verde) o se alejó
+      this._endRob();
+      this.audio?.play('empty');
+      window.dispatchEvent(new CustomEvent('steal-fail', { detail: { reason: 'moved' } }));
+      return;
+    }
+    r.t += dt;
+    this.robView.sortProgress = Math.min(1, r.t / ROB_TIME) * SORT_BASE_TIME;
+    if (r.t >= r.seenAt) { // el conductor te vio: alarma, el auto arranca de inmediato, bajón de ánimo
+      this._endRob();
+      car.startNow?.();
+      this.audio?.playAlarm?.();
+      this.stats.animo = Math.max(0, this.stats.animo - 6);
+      window.dispatchEvent(new CustomEvent('steal-fail', { detail: { reason: 'seen' } }));
+      return;
+    }
+    if (r.t >= ROB_TIME) {
+      this._endRob();
+      const item = ITEMS.retrovisor;
+      if (!this.inventory.add(item, ROB_MIRRORS)) {
+        window.dispatchEvent(new CustomEvent('steal-full'));
+        return;
+      }
+      car.markRobbed();
+      this.audio?.play('pickup');
+      this.stats.addXP(XP_STEAL, this.talents);
+      window.dispatchEvent(new CustomEvent('steal', { detail: { added: [`${item.name} x${ROB_MIRRORS}`], caught: false } }));
     }
   }
 

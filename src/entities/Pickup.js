@@ -1,11 +1,15 @@
 // src/entities/Pickup.js
 import * as THREE from 'three';
 import { LOOT_COMMON, LOOT_RARE } from '../data/items.js';
+import { loadModel, cloneModel } from '../utils/ModelCache.js';
 import { PICKUP_COOLDOWN, COLORS, SORT_BASE_TIME } from '../utils/constants.js';
 
+const PICKUP_COLLIDER_RADIUS = 0.45;
+
 export class Pickup {
-  constructor(scene, position) {
+  constructor(scene, position, collisions = null) {
     this.scene = scene;
+    this.collisions = collisions;
     this.used = false;
     this.cooldown = 0;
     this.sorting = false;
@@ -21,10 +25,19 @@ export class Pickup {
       color: COLORS.TRASH,
       flatShading: true
     });
-    this.mesh = new THREE.Mesh(geo, mat);
-    this.mesh.position.y = 0.4;
-    this.mesh.castShadow = true;
+    const proc = new THREE.Mesh(geo, mat);
+    proc.position.y = 0.4;
+    proc.castShadow = true;
+    // Contenedor: this.mesh conserva la API (visible on/off); contiene procedural o GLB
+    this.mesh = new THREE.Group();
+    this.mesh.add(proc);
+    this._proc = proc;
     this.group.add(this.mesh);
+    this._loadModel();
+
+    // Colisión: obstáculo circular pequeño (bolsa escalada a ~1.1 => radio ~0.45).
+    // INTERACT_RANGE (1.8) alcanza de sobra al jugador pegado a este círculo (0.45 + 0.4).
+    this.collider = collisions ? collisions.addCircle(position.x, position.z, PICKUP_COLLIDER_RADIUS) : null;
 
     // Marcador flotante (anillo)
     const markerGeo = new THREE.RingGeometry(0.5, 0.6, 12);
@@ -78,6 +91,20 @@ export class Pickup {
     this.onRespawn = null;
   }
 
+  // Reemplaza la bolsa procedural por el GLB compartido cuando termina de cargar
+  _loadModel() {
+    loadModel('bolsa.glb', 1.1).then((base) => {
+      if (!base || this._disposed) return; // fallback: queda la procedural
+      const model = cloneModel(base);
+      model.rotation.y = Math.random() * Math.PI * 2;
+      this.mesh.remove(this._proc);
+      this._proc.geometry.dispose();
+      this._proc.material.dispose();
+      this._proc = null;
+      this.mesh.add(model);
+    });
+  }
+
   get position() { return this.group.position; }
   get sortComplete() { return this.sortProgress >= SORT_BASE_TIME; }
 
@@ -90,8 +117,7 @@ export class Pickup {
     if (this.used || this.cooldown > 0) return false;
     this.sorting = true;
     this.sortProgress = 0;
-    this.sortBarBg.visible = true;
-    this.sortBarFill.visible = true;
+    // La barra ahora es DOM sobre la cabeza del jugador (ui/PlayerOverhead.js)
     return true;
   }
 
@@ -111,6 +137,15 @@ export class Pickup {
    */
   harvest(boostActive = false, sorted = false, talentEffects = {}) {
     if (this.used || this.cooldown > 0) return null;
+
+    // Sobrantes de una recolección anterior que no cupo en el inventario: se entregan tal cual
+    if (this.leftover?.length) {
+      const items = this.leftover;
+      this.leftover = null;
+      const rare = items.find((id) => LOOT_RARE.some((r) => r.item === id)) ?? null;
+      this._consume();
+      return { items, rare, sorted };
+    }
 
     const rareChanceMult = talentEffects.rareChanceMult ?? 1;
 
@@ -137,17 +172,55 @@ export class Pickup {
       items.push(rare);
     }
 
-    this.used = true;
-    this.cooldown = PICKUP_COOLDOWN;
-    this.mesh.visible = false;
-    this.marker.visible = false;
-    this.aura.visible = false;
-    this.stopSorting();
-
+    this._consume();
     return { items, rare, sorted };
   }
 
+  // Marca la bolsa como vaciada (oculta, en cooldown)
+  _consume() {
+    this.used = true;
+    this.cooldown = PICKUP_COOLDOWN;
+    this.mesh.visible = false;
+    if (this.collider) this.collider.enabled = false; // se puede atravesar mientras no hay bolsa
+    this.marker.visible = false;
+    this.aura.visible = false;
+    this.stopSorting();
+  }
+
+  /** Estado persistente (posición, si está vaciada y su reaparición) */
+  serialize() {
+    return {
+      x: this.group.position.x, z: this.group.position.z,
+      used: this.used, cooldown: this.cooldown,
+      leftover: this.leftover?.length ? this.leftover.slice() : null
+    };
+  }
+
+  restoreState(s) {
+    if (!s || !Number.isFinite(s.x) || !Number.isFinite(s.z)) return;
+    this.relocate({ x: s.x, y: 0, z: s.z });
+    if (Array.isArray(s.leftover) && s.leftover.length) {
+      this.restore(s.leftover.filter((id) => typeof id === 'string'));
+    } else if (s.used) {
+      this._consume();
+      this.cooldown = Math.max(0.1, Number(s.cooldown) || PICKUP_COOLDOWN);
+    }
+  }
+
+  /** Devuelve a la bolsa los items que no cupieron: vuelve a estar disponible sin perderlos. */
+  restore(leftoverIds) {
+    if (!leftoverIds?.length) return;
+    this.leftover = leftoverIds.slice();
+    this.used = false;
+    this.cooldown = 0;
+    if (this.collider) this.collider.enabled = true;
+    this.mesh.visible = true;
+    this.marker.visible = true;
+    this.aura.visible = true;
+  }
+
   update(dt) {
+    this._t = (this._t || 0) + dt;
     // Progreso de selección
     if (this.sorting && !this.used) {
       this.sortProgress += dt;
@@ -167,6 +240,7 @@ export class Pickup {
           this.onRespawn(this);
         }
         this.used = false;
+        if (this.collider) this.collider.enabled = true;
         this.mesh.visible = true;
         this.marker.visible = true;
         this.aura.visible = true;
@@ -180,7 +254,7 @@ export class Pickup {
     if (this.aura.visible) {
       const targetOpacity = this._boostActive ? 0.7 : 0.0;
       const targetScale = this._boostActive
-        ? 1.0 + Math.sin(performance.now() * 0.005) * 0.15
+        ? 1.0 + Math.sin(this._t * 5) * 0.15
         : 1.0;
 
       this.aura.material.opacity +=
@@ -195,6 +269,7 @@ export class Pickup {
 
   relocate(newPosition) {
     this.group.position.copy(newPosition);
+    if (this.collider) { this.collider.x = newPosition.x; this.collider.z = newPosition.z; }
   }
 
   _weightedPick(table) {
@@ -208,8 +283,11 @@ export class Pickup {
   }
 
   dispose() {
+    this._disposed = true;
+    if (this.collider) { this.collisions?.removeCircle(this.collider); this.collider = null; }
     this.scene.remove(this.group);
     this.group.traverse((o) => {
+      if (o.userData?.sharedAsset) return; // geometría/material compartidos del GLB
       o.geometry?.dispose?.();
       o.material?.dispose?.();
     });
