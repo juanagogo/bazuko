@@ -119,6 +119,30 @@ html, body { width: 100%; height: 100%; overflow: hidden; background: #000; }
 #boost-indicator.active { display: block; animation: pulse 0.6s infinite alternate; }
 @keyframes pulse { from { opacity: 0.7; } to { opacity: 1; } }
 
+/* === Forcejeo por la zorra === */
+#forcejeo-bar {
+  position: fixed; bottom: 120px; left: 50%;
+  transform: translateX(-50%);
+  display: none; width: 280px; padding: 8px 16px;
+  background: rgba(0,0,0,0.8);
+  color: #ffd166; font-family: monospace;
+  border: 1px solid #ffd166;
+  box-shadow: 0 0 12px rgba(255,209,102,0.6);
+  font-size: 13px; letter-spacing: 1px; text-align: center;
+  pointer-events: none; z-index: 100;
+}
+#forcejeo-bar.active { display: block; }
+#forcejeo-bar .forcejeo-pista {
+  margin-top: 6px; height: 10px;
+  background: rgba(255,255,255,0.12);
+  border: 1px solid rgba(255,209,102,0.5);
+}
+#forcejeo-bar .forcejeo-relleno {
+  height: 100%; width: 50%;
+  background: #ffd166;
+  transition: width 0.08s linear;
+}
+
 /* === Toasts === */
 .loot-toast {
   position: fixed; top: 40%; left: 50%;

@@ -4,6 +4,8 @@ import { ITEMS, SHOP_ITEMS, isRecyclable, itemIcon } from '../data/items.js';
 import { CAMBUCHE } from '../data/cambuche.js';
 import { originEffect } from '../data/origins.js';
 import { XP_SELL } from '../utils/constants.js';
+import { TEXTOS_ZORRA } from '../data/zorra.js';
+import { ofertaZorra } from '../systems/ZorraSystem.js';
 import { cop } from '../utils/money.js';
 import { el, button } from './dom.js';
 import { icon } from './icons.js';
@@ -20,7 +22,7 @@ export function openRecycler(game) {
   const render = () => {
     const sellable = inventory.items.filter((i) => isRecyclable(ITEMS[i.id] ?? i));
     const total = Math.round(sellable.reduce((a, i) => a + i.value * i.qty * mult, 0));
-    const body = sellable.length
+    const lista = sellable.length
       ? el('ul', { class: 'rows' }, sellable.map((i) => rowEl({
           ic: itemIcon(i.id),
           name: i.name,
@@ -29,6 +31,25 @@ export function openRecycler(game) {
           price: cop(i.value * i.qty * mult)
         })))
       : el('p', { class: 'empty', text: 'No traes nada para vender. Busca en las bolsas de basura: latas, botellas, cartón, chatarra y, con suerte, cobre.' });
+    const oferta = ofertaZorra({ dinero: stats.dinero, tieneZorra: game.zorra.tieneZorra(), originId: game.look?.origen });
+    const filaZorra = el('ul', { class: 'rows' }, el('li', { class: 'row' },
+      icon('package', { size: 24 }),
+      el('span', { class: 'row__name' }, TEXTOS_ZORRA.nombreCompra,
+        el('span', { class: 'row__desc', text: oferta.motivo === 'tiene' ? TEXTOS_ZORRA.yaTienes : TEXTOS_ZORRA.descCompra })),
+      el('span', { class: 'row__price', text: cop(oferta.precio) }),
+      button(oferta.motivo === 'tiene' ? 'Listo' : 'Comprar', {
+        disabled: !oferta.disponible,
+        onClick: () => {
+          stats.dinero -= oferta.precio;
+          game.zorra.obtener();
+          game._actualizarCapacidad();
+          game.audio.play('pickup');
+          toast(TEXTOS_ZORRA.comprada);
+          game.menu.refresh();
+        }
+      })
+    ));
+    const body = el('div', {}, filaZorra, lista);
     const foot = [
       moneyFoot(game),
       button(total ? `Vender todo · ${cop(total)}` : 'Vender todo', {

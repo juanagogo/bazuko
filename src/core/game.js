@@ -28,6 +28,8 @@ import { InteractionSystem } from '../systems/InteractionSystem.js';
 import { DiseaseSystem } from '../systems/DiseaseSystem.js';
 import { TalentSystem } from '../systems/TalentSystem.js';
 import { CraftingSystem } from '../systems/CraftingSystem.js';
+import { ZorraSystem } from '../systems/ZorraSystem.js';
+import { ZorraController } from '../systems/ZorraController.js';
 import { RadioSystem } from '../systems/RadioSystem.js';
 import { PoopSystem } from '../systems/PoopSystem.js';
 import { PsychosisSystem } from '../systems/PsychosisSystem.js';
@@ -94,6 +96,9 @@ export class Game {
       this.player, this.inventory, this.stats, this.audio,
       this.diseases, this.talents, this.crafting
     );
+    this.zorra = new ZorraSystem();
+    this.interaction.zorra = this.zorra;
+    this.zorraCtl = new ZorraController(this);
 
     // HUD, menús y creador de personaje
     this.hud = new HUD();
@@ -427,6 +432,8 @@ export class Game {
       new THREE.Vector3(2.4, 2, 1.5),
       new THREE.Vector3(0, 1, -0.7)
     );
+
+    this.zorraCtl?.spawn(district);
   }
 
   _loadIfSave() {
@@ -447,6 +454,7 @@ export class Game {
       this.built = data.built ?? {};
       this.costal = !!data.costal;
       this.cambuche?.setBuilt(this.built);
+      this.zorra.deserialize(data.zorra);
       if (data.look) this._applyLook(data.look);
       if (data.radio) {
         if (typeof data.radio.freq === 'number') this.radio.setFrequency(data.radio.freq);
@@ -471,6 +479,7 @@ export class Game {
       look: this.look,
       built: this.built,
       costal: this.costal,
+      zorra: this.zorra.serialize(),
       radio: this.radio ? { isOn: this.radio.isOn, freq: this.radio.frequency, battery: this.radio.battery } : null,
       dog: { isFriend: !!this.dog?.isFriend }
     });
@@ -564,6 +573,16 @@ export class Game {
     return true;
   }
 
+  /** Capacidad de carga sin contar la zorra */
+  _capacidadSinZorra() {
+    return INVENTORY_MAX_WEIGHT + this.talents.getEffect('maxWeightBonus', 0) + (this.costal ? COSTAL_BONUS : 0);
+  }
+
+  _actualizarCapacidad() {
+    this.inventory.maxWeight = this._capacidadSinZorra() + (this.zorra?.bonoPeso() ?? 0);
+    this.player.load = this.inventory.totalWeight / this.inventory.maxWeight;
+  }
+
   _respawn() {
     if (!this._deathPending) return;
     const half = Math.floor(this.inventory.items.length / 2);
@@ -571,6 +590,7 @@ export class Game {
       const it = this.inventory.items[0];
       if (it) this.inventory.remove(it.id, it.qty);
     }
+    this.zorraCtl?.alMorir();
 
     // Recuperar todas las necesidades evita seguir recibiendo daño al reaparecer.
     for (const need of NEEDS) this.stats[need] = Math.max(60, this.stats[need]);
@@ -630,6 +650,7 @@ export class Game {
     // Actualiza el rumbo antes de calcular WASD en relación con la cámara.
     this.cameraRig.prepareMovement();
     this.player.update(dt, this.cameraRig.camera, this.collisions);
+    this.zorraCtl.update(dt, this.input);
 
     // 4. Stats
     this.stats.update(dt, this.player, this.diseases, this.clock, this.talents);
@@ -637,9 +658,7 @@ export class Game {
     if (this._handleDeath()) return;
 
     // 4b. Aplicar bono de peso por talentos
-    const maxWeightBonus = this.talents.getEffect('maxWeightBonus', 0);
-    this.inventory.maxWeight = INVENTORY_MAX_WEIGHT + maxWeightBonus + (this.costal ? COSTAL_BONUS : 0);
-    this.player.load = this.inventory.totalWeight / this.inventory.maxWeight;
+    this._actualizarCapacidad();
 
     // 5. Debuff por salud mental baja (el desgaste se calcula en StatsSystem).
     if (this.stats.saludMental < MENTAL_LOW_THRESHOLD) {
@@ -688,7 +707,7 @@ export class Game {
 
     // 10. Audio
     const moving = this.input.axis.x !== 0 || this.input.axis.z !== 0;
-    this.audio.updateSteps(moving, this.input.isRunning);
+    this.audio.updateSteps(moving && this.player.zorraMult > 0, this.input.isRunning && this.player.canRun);
     this.audio.updateBoost(this.interaction.boostActive);
 
     // 12. Render
@@ -735,7 +754,8 @@ export class Game {
       { name: 'Tienda', icon: '🏪', x: this.shop?.position?.x ?? this.shop?.group?.position?.x ?? reserved.shop?.x ?? 34, z: this.shop?.position?.z ?? this.shop?.group?.position?.z ?? reserved.shop?.z ?? 29, color: '#2ecc71' },
       { name: 'Crafteo', icon: '🔨', x: this.craftingStation?.position?.x ?? this.craftingStation?.group?.position?.x ?? reserved.craft?.x ?? 16.5, z: this.craftingStation?.position?.z ?? this.craftingStation?.group?.position?.z ?? reserved.craft?.z ?? 24.5, color: '#e67e22' },
       { name: 'Dealer', icon: '💀', x: this.dealer?.position?.x ?? this.dealer?.group?.position?.x ?? reserved.dealer?.x ?? 56, z: this.dealer?.position?.z ?? this.dealer?.group?.position?.z ?? reserved.dealer?.z ?? 56, color: '#9b59b6' },
-      ...(this._dogPOI ? [this._dogPOI] : [])
+      ...(this._dogPOI ? [this._dogPOI] : []),
+      ...[this.zorraCtl?.poi?.()].filter(Boolean)
     ];
     return this._lastPOIs;
   }

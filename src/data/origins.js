@@ -1,11 +1,13 @@
 // src/data/origins.js
+import { ZORRA } from './zorra.js';
+
 // ¿Cómo llegó el personaje a la calle? Cada origen da una ventaja pequeña.
 
 export const ORIGINS = {
   reciclador: {
     name: 'Reciclador',
-    desc: 'Llevas años en el reciclaje y sabes qué sirve: encuentras un objeto más en cada bolsa.',
-    effects: { extraLoot: 1 }
+    desc: 'Llevas años en el reciclaje y sabes qué sirve: encuentras un objeto más en cada bolsa. Conoces el gremio: la zorra te sale más barata y forcejeas con más fuerza.',
+    effects: { extraLoot: 1, zorraDiscount: ZORRA.origen.descuento, forcejeoBonus: ZORRA.origen.fuerza }
   },
   desplazado: {
     name: 'Desplazado',

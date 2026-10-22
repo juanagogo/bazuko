@@ -16,6 +16,12 @@ mock.module('../src/character/RealisticCharacter.js', { namedExports: {
 const { Npc } = await import('../src/entities/Npc.js');
 const { Bogota } = await import('../src/world/districts/Bogota.js');
 
+const map3x5 = [
+  ['sidewalk', 'sidewalk', 'sidewalk', 'wall', 'sidewalk'],
+  ['sidewalk', 'building', 'sidewalk', 'wall', 'sidewalk'],
+  ['sidewalk', 'sidewalk', 'sidewalk', 'wall', 'sidewalk']
+];
+
 function district() {
   const city = new Bogota();
   city.map = city._layout();
@@ -25,12 +31,7 @@ function district() {
 }
 
 test('las rutas rodean edificios sin diagonales y no atraviesan componentes aislados', () => {
-  const map = [
-    ['sidewalk', 'sidewalk', 'sidewalk', 'wall', 'sidewalk'],
-    ['sidewalk', 'building', 'sidewalk', 'wall', 'sidewalk'],
-    ['sidewalk', 'sidewalk', 'sidewalk', 'wall', 'sidewalk']
-  ];
-  const nav = new PedestrianNavigation(map, 2);
+  const nav = new PedestrianNavigation(map3x5, 2);
   for (let seed = 1; seed <= 30; seed++) {
     const route = nav.createRoute(new THREE.Vector3(), rng(seed));
     assert.ok(route.length > 1);
@@ -44,6 +45,15 @@ test('las rutas rodean edificios sin diagonales y no atraviesan componentes aisl
   const isolated = new PedestrianNavigation([['sidewalk']], 2);
   assert.deepEqual(isolated.createRoute(new THREE.Vector3()), []);
   assert.deepEqual(nav.createRoute(new THREE.Vector3(-100, 0, 0)), []);
+});
+
+test('createRouteTo llega a la meta por andenes y no cruza componentes aislados', () => {
+  const nav = new PedestrianNavigation(map3x5, 2);
+  const route = nav.createRouteTo(new THREE.Vector3(0, 0, 0), new THREE.Vector3(4, 0, 4));
+  assert.deepEqual([route.at(-1).x, route.at(-1).z], [4, 4]);
+  for (const p of route) assert.ok(nav.isWalkableAt(p.x, p.z));
+  assert.deepEqual(nav.createRouteTo(new THREE.Vector3(0, 0, 0), new THREE.Vector3(8, 0, 0)), []);
+  assert.deepEqual(nav.createRouteTo(new THREE.Vector3(0, 0, 0), new THREE.Vector3(4, 0, 4), 1), []);
 });
 
 test('en Bogotá los recorridos usan andenes y cruces, evitan tienda y estación', () => {

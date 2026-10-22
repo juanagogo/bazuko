@@ -66,7 +66,7 @@ test('giro y zoom mantienen límites válidos y recuerdan el modo de cámara', (
 function move(camera, axis) {
   // Ejercita el movimiento real sin cargar modelos ni Canvas.
   const player = Object.assign(Object.create(Player.prototype), {
-    time: 0, actionTimer: 0, input: { axis, isRunning: false }, speedWalk: 3,
+    time: 0, actionTimer: 0, input: { axis, isRunning: false }, speedWalk: 3, zorraMult: 1, canRun: true,
     position: new THREE.Vector3(), root: new THREE.Group(), modelScale: 1,
     _direction: new THREE.Vector3(), _forward: new THREE.Vector3(), _right: new THREE.Vector3(),
     _delta: new THREE.Vector3(), _before: new THREE.Vector3(),

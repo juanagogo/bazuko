@@ -260,6 +260,7 @@ export class HUD {
         else if (type === 'shop') text = `[E] ${interaction.currentTarget.title ?? 'Tienda La Esquinita'} · Comprar`;
         else if (type === 'cambuche') text = '[E] Tu cambuche · Armar / Dormir';
         else if (type === 'dealer') text = '[Q / E] Tienda del Dealer · Comprar / Vender';
+        else if (type === 'zorra' || type === 'reciclador') text = interaction.currentTarget.prompt ?? '';
         else if (type === 'dog') text = interaction.currentTarget?.isFriend ? '[E] Acariciar a El Chato 🐕' : '[E] Dar comida o acariciar a El Chato 🐕';
 
         if (text) {

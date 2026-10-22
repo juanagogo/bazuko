@@ -64,7 +64,7 @@ test('cargar y volver a guardar una partida migra su ubicación una sola vez', (
   const game=Object.assign(Object.create(Game.prototype),{
     world:{active:city},player:{position:new THREE.Vector3()},
     save:{load:()=>data,save:state=>{data=state;}},
-    stats:serializable,clock:serializable,inventory:serializable,talents:serializable,diseases:serializable
+    stats:serializable,clock:serializable,inventory:serializable,talents:serializable,diseases:serializable,zorra:serializable
   });
   game._loadIfSave();
   assert.deepEqual(game.player.position.toArray(),expected);

@@ -19,6 +19,8 @@ export class Player {
     this.speedWalk = PLAYER_SPEED_WALK;
     this.speedRun = PLAYER_SPEED_RUN;
     this.speedMult = 1; // debuff por salud mental baja
+    this.zorraMult = 1; // multiplicador de la zorra (0 = no se mueve)
+    this.canRun = true; // false mientras se empuja la zorra
     this.velocity = new THREE.Vector3();
     this.hasInertia = true;
     this._direction = new THREE.Vector3();
@@ -98,9 +100,9 @@ export class Player {
     }
 
     const { x, z } = this.input.axis;
-    const moving = (x !== 0 || z !== 0);
-    const running = this.input.isRunning && moving;
-    let speed = running ? this.speedRun : this.speedWalk;
+    const moving = (x !== 0 || z !== 0) && this.zorraMult > 0;
+    const running = this.input.isRunning && moving && this.canRun;
+    let speed = (running ? this.speedRun : this.speedWalk) * this.zorraMult;
     if (this.stats?.getSpeedMultiplier) {
       speed *= this.stats.getSpeedMultiplier();
     }
@@ -123,7 +125,8 @@ export class Player {
       const accelRate = moving ? 22 : 18;
       this.velocity.x = THREE.MathUtils.lerp(this.velocity.x, targetVelX, 1 - Math.exp(-accelRate * dt));
       this.velocity.z = THREE.MathUtils.lerp(this.velocity.z, targetVelZ, 1 - Math.exp(-accelRate * dt));
-      if (!moving && this.velocity.lengthSq() < 0.0005) {
+      // La zorra en 0 frena en seco (forcejeo, anclado): sin deslizamiento por inercia.
+      if (this.zorraMult <= 0 || (!moving && this.velocity.lengthSq() < 0.0005)) {
         this.velocity.set(0, 0, 0);
       }
       delta = this._delta.copy(this.velocity).multiplyScalar(dt);

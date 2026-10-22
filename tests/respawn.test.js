@@ -90,3 +90,12 @@ test('Escape y el fondo no pueden omitir la pantalla de muerte; otros menús sig
   menu.dismiss();
   assert.equal(menu.isOpen, false);
 });
+
+test('al reaparecer, la zorra se desocupa después de la pérdida habitual', () => {
+  const game = fixture();
+  game._deathPending = true;
+  let objetosAlLlamar = null;
+  game.zorraCtl = { alMorir: () => { objetosAlLlamar = game.inventory.items.length; } };
+  game._respawn();
+  assert.equal(objetosAlLlamar, 1);
+});
