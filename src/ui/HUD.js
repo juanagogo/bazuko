@@ -119,8 +119,20 @@ export class HUD {
     window.addEventListener('talent-unlock', (e) => this._toast(`🌟 Talento: ${e.detail.name}`, 'rare'));
     window.addEventListener('craft', (e) => this._toast(`🔨 Crafteado: ${e.detail.name} x${e.detail.qty}`, 'info'));
     window.addEventListener('steal', (e) => {
-      if (e.detail.caught) this._toast('🚨 ¡Atrapado robando!', 'death');
+      if (e.detail.chase) {
+        this._toast('🚓 ¡Te vio la Policía! ¡Corre!', 'death');
+        if (e.detail.added?.length) this._toast(`🪞 Robado: ${e.detail.added.join(', ')}`, 'warn');
+      } else if (e.detail.caught) this._toast('🚨 ¡Atrapado robando!', 'death');
       else if (e.detail.added?.length) this._toast(`🪞 Robado: ${e.detail.added.join(', ')}`, 'warn');
+    });
+    window.addEventListener('police-chase', () => {
+      this._toast('🚨 Persecución: no dejes que te alcancen', 'warn');
+    });
+    window.addEventListener('police-arrest', () => {
+      this._toast('🚓 La Policía te alcanzó y confiscó todo', 'death');
+    });
+    window.addEventListener('police-escaped', () => {
+      this._toast('💨 Escapaste de la Policía', 'info');
     });
     window.addEventListener('withdrawal', (e) => {
       if (e.detail.active) this._toast('🚬 Abstinencia: caminas más lento y baja el ánimo', 'warn');

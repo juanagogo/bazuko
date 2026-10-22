@@ -94,6 +94,7 @@ export class Game {
       this.player, this.inventory, this.stats, this.audio,
       this.diseases, this.talents, this.crafting
     );
+    this.interaction.getTraffic = () => this.traffic;
 
     // HUD, menús y creador de personaje
     this.hud = new HUD();
@@ -117,6 +118,7 @@ export class Game {
     window.addEventListener('open-recycler', () => openRecycler(this));
     window.addEventListener('open-shop', (e) => openShop(this, e.detail?.target));
     window.addEventListener('open-cambuche', () => openCambuche(this));
+    window.addEventListener('police-arrest', () => this._policeArrest());
     window.addEventListener('open-pause-menu', () => openPauseMenu(this));
     window.addEventListener('open-radio-modal', () => openRadioModal(this));
     window.addEventListener('audio-toggle', () => this.audio?.toggleMute());
@@ -151,6 +153,7 @@ export class Game {
     this.isSleeping = false;
     this.deathCount = 0;
     this._deathPending = false;
+    this._arrestPending = false;
     this._wasNight = null;
 
     this._lastTime = performance.now();
@@ -278,7 +281,7 @@ export class Game {
 
   /** El mundo se congela mientras hay un menú o el creador abierto */
   get paused() {
-    return this._loading || this._deathPending || this.menu.isOpen || this.creator.isOpen;
+    return this._loading || this._deathPending || this._arrestPending || this.menu.isOpen || this.creator.isOpen;
   }
 
   _spawnEntities() {
@@ -531,7 +534,7 @@ export class Game {
   }
 
   _handleDeath() {
-    if (this._deathPending) return true;
+    if (this._deathPending || this._arrestPending) return true;
     if (this.stats.salud > 0) return false;
 
     this._deathPending = true;
@@ -562,6 +565,66 @@ export class Game {
     });
     window.dispatchEvent(new CustomEvent('death'));
     return true;
+  }
+
+  _policeArrest() {
+    if (this._arrestPending || this._deathPending) return;
+    this._arrestPending = true;
+    this.input.keys = {};
+    this.input.endFrame();
+    this.audio.updateSteps(false, false);
+    if (this.interaction.boostActive) this.interaction._endBoost();
+    this.menu.open({
+      title: 'Te atrapó la Policía',
+      sub: 'Una patrulla te alcanzó.',
+      ic: 'alert',
+      dismissible: false,
+      render: () => ({
+        body: el('div', {},
+          el('p', { text: 'Te persiguieron tras el robo y te alcanzaron. Confiscaron todo tu inventario y el dinero que llevabas.' }),
+          el('p', { text: 'Te sueltan en otro punto de la ciudad. La próxima vez, pierde a la patrulla.' })),
+        foot: [button('Continuar', { primary: true, onClick: () => this._finishArrest() })]
+      })
+    });
+  }
+
+  _randomWalkablePosition() {
+    const district = this.world.active;
+    const fallback = new THREE.Vector3(
+      district?.reserved?.spawn?.x ?? district?.reserved?.bed?.x ?? 32,
+      0,
+      district?.reserved?.spawn?.z ?? (district?.reserved?.bed?.z ?? 32) + 2,
+    );
+    if (!district?.isWalkableAt) return fallback;
+    const TILE_SIZE = 2;
+    const mapWidth = district.width ?? district.size ?? 32;
+    const mapHeight = district.height ?? district.size ?? 32;
+    for (let attempt = 0; attempt < 200; attempt++) {
+      const x = (3 + Math.floor(Math.random() * (mapWidth - 6))) * TILE_SIZE;
+      const z = (3 + Math.floor(Math.random() * (mapHeight - 6))) * TILE_SIZE;
+      if (!district.isWalkableAt(x, z)) continue;
+      if (district.isNearReserved?.(x, z)) continue;
+      return new THREE.Vector3(x, 0, z);
+    }
+    return fallback;
+  }
+
+  _finishArrest() {
+    if (!this._arrestPending) return;
+    this.inventory.clear();
+    this.stats.dinero = 0;
+    const pos = this._randomWalkablePosition();
+    this.player.position.copy(pos);
+    this.player.root.position.copy(this.player.position);
+    this.cameraRig._snap = true;
+    this.cameraRig.follow(this.player.position, 0, this.collisions);
+    this.interaction.currentTarget = null;
+    this.interaction.currentTargetType = null;
+    this.input.keys = {};
+    this.input.endFrame();
+    this.traffic?.endPursuit?.();
+    this._arrestPending = false;
+    this.menu.close();
   }
 
   _respawn() {

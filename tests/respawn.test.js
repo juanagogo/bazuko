@@ -10,18 +10,19 @@ beforeEach(() => { globalThis.window = new EventTarget(); });
 
 function fixture() {
   const game = Object.assign(Object.create(Game.prototype), {
-    stats: new StatsSystem(), deathCount: 0, _deathPending: false,
+    stats: new StatsSystem(), deathCount: 0, _deathPending: false, _arrestPending: false,
     talents: { getEffect: (key, fallback) => fallback }, clock: { isNight: false },
     player: { position: new THREE.Vector3(40, 0, 26), root: new THREE.Group() },
-    world: { active: { reserved: { bed: { x: 89, z: 80 } } } },
+    world: { active: { reserved: { bed: { x: 89, z: 80 }, spawn: { x: 32, z: 32 } } } },
     input: { keys: { KeyW: true }, endFrame() {} },
     audio: { updateSteps() {} },
-    interaction: { currentTarget: {}, currentTargetType: 'shop' },
+    interaction: { currentTarget: {}, currentTargetType: 'shop', boostActive: false },
     menu: { isOpen: false, open(options) { this.options = options; this.isOpen = true; }, close() { this.isOpen = false; } },
     creator: { isOpen: false },
     diseases: { hasAny: false, cureAll() { this.hasAny = false; } },
     inventory: new InventorySystem(),
-    cameraRig: { follow(position) { this.target = position.clone(); } }
+    cameraRig: { follow(position) { this.target = position.clone(); } },
+    collisions: null,
   });
   game.inventory.items = [{ id: 'papel', qty: 2 }, { id: 'carton', qty: 3 }];
   return game;
@@ -89,4 +90,37 @@ test('Escape y el fondo no pueden omitir la pantalla de muerte; otros menús sig
   menu._dismissible = true;
   menu.dismiss();
   assert.equal(menu.isOpen, false);
+});
+
+test('la captura policial confisca todo y reaparece en otro punto', () => {
+  const game = fixture();
+  game.stats.dinero = 12000;
+  const start = game.player.position.clone();
+  game.world.active.isWalkableAt = () => true;
+  game.world.active.width = 40;
+  game.world.active.height = 40;
+  let rolls = 0;
+  const originalRandom = Math.random;
+  Math.random = () => {
+    rolls += 1;
+    return rolls === 1 ? 0.9 : 0.1;
+  };
+  try {
+    game._policeArrest();
+    assert.equal(game.paused, true);
+    assert.equal(game.menu.options.dismissible, false);
+    assert.equal(game.inventory.items.length, 2);
+    assert.equal(game.stats.dinero, 12000);
+    game._finishArrest();
+  } finally {
+    Math.random = originalRandom;
+  }
+  assert.equal(game.paused, false);
+  assert.equal(game.inventory.items.length, 0);
+  assert.equal(game.stats.dinero, 0);
+  assert.ok(game.player.position.distanceTo(start) > 1);
+  assert.deepEqual(game.player.root.position, game.player.position);
+  assert.equal(game.interaction.currentTarget, null);
+  game._finishArrest();
+  assert.equal(game.inventory.items.length, 0);
 });

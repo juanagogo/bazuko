@@ -4,20 +4,22 @@ import { COLORS, CAR_COOLDOWN } from '../utils/constants.js';
 import { makeVehicle } from '../world/bogota/vehicles.js';
 
 export class Car {
-  constructor(scene, position, rotation = 0, { traffic = false } = {}) {
+  constructor(scene, position, rotation = 0, { traffic = false, kind = null } = {}) {
     this.scene = scene;
     this.used = false;
     this.cooldown = 0;
     this.traffic = traffic;
+    this.pursuit = false;
 
     this.group = new THREE.Group();
     this.group.position.copy(position);
     this.group.rotation.y = rotation;
     scene.add(this.group);
 
-    // Carro realista (portado de rebusque): particular o taxi amarillo, frente hacia +X local
-    const kind = Math.random() < 0.3 ? 'taxi' : 'carro';
-    const v = makeVehicle(kind, Math.floor(Math.random() * 8), { beams: false });
+    // Carro realista (portado de rebusque): particular, taxi, policía; frente hacia +X local
+    const resolvedKind = kind ?? (Math.random() < 0.3 ? 'taxi' : 'carro');
+    const v = makeVehicle(resolvedKind, Math.floor(Math.random() * 8), { beams: false });
+    this.kind = resolvedKind;
     this.vehicle = v;
     this.length = v.length;
     this.width = v.width;
@@ -100,6 +102,12 @@ export class Car {
     if (braking !== this._braking) {
       this.vehicle.tailMat.color.set('#ff1a12').multiplyScalar(braking ? 3 : 1.4);
       this._braking = braking;
+    }
+    const lights = this.vehicle.policeLights;
+    if (lights) {
+      const on = Math.floor(performance.now() / (this.pursuit ? 90 : 160)) % 2 === 0;
+      lights.blue.color.set(on ? '#1a6cff' : '#061028').multiplyScalar(on ? 4 : 0.35);
+      lights.red.color.set(on ? '#061028' : '#ff1a2a').multiplyScalar(on ? 0.35 : 4);
     }
   }
 

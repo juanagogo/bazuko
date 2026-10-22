@@ -256,6 +256,18 @@ export class InteractionSystem {
       if (item && this.inventory.add(item)) added.push(item.name);
     }
 
+    // Si una patrulla te ve, te persigue; solo te capturan si te alcanzan.
+    const chased = this.getTraffic?.()?.alertForTheft?.(this.player.position);
+    if (chased) {
+      this.audio?.play('pickup');
+      this.stats.addXP(XP_STEAL, this.talents);
+      window.dispatchEvent(new CustomEvent('police-chase', {}));
+      window.dispatchEvent(new CustomEvent('steal', {
+        detail: { added, caught: false, police: true, chase: true }
+      }));
+      return;
+    }
+
     if (result.caught) {
       this.stats.salud = Math.max(0, this.stats.salud - STEAL_CAUGHT_PENALTY);
       this.stats.dinero = Math.max(0, this.stats.dinero - STEAL_CAUGHT_MONEY);
@@ -266,7 +278,7 @@ export class InteractionSystem {
     }
 
     window.dispatchEvent(new CustomEvent('steal', {
-      detail: { added, caught: result.caught }
+      detail: { added, caught: result.caught, police: false, chase: false }
     }));
   }
 
