@@ -17,8 +17,9 @@ export class Car {
 
     // Carro realista (portado de rebusque): particular o taxi amarillo, frente hacia +X local
     const kind = Math.random() < 0.3 ? 'taxi' : 'carro';
-    const v = makeVehicle(kind, Math.floor(Math.random() * 8), { beams: false });
+    const v = makeVehicle(kind, Math.floor(Math.random() * 8), { beams: true });
     this.vehicle = v;
+    if (!traffic && v.beam) v.beam.visible = false;
     this.length = v.length;
     this.width = v.width;
     v.group.traverse((o) => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
@@ -98,8 +99,19 @@ export class Car {
   animateDrive(distance, braking) {
     for (const wheel of this.vehicle.wheels) wheel.rotation.z -= distance / 0.33;
     if (braking !== this._braking) {
-      this.vehicle.tailMat.color.set('#ff1a12').multiplyScalar(braking ? 3 : 1.4);
+      this.vehicle.tailMat.color.set('#ff1a12').multiplyScalar(braking ? 3.5 : 1.4);
       this._braking = braking;
+    }
+  }
+
+  setNight(isNight, isRaining = false) {
+    const on = this.traffic || isNight || isRaining;
+    if (this.vehicle?.beam) {
+      this.vehicle.beam.visible = on;
+      this.vehicle.beam.material.opacity = isNight ? 0.38 : (isRaining ? 0.28 : 0.18);
+    }
+    if (this.vehicle?.flares) {
+      for (const f of this.vehicle.flares) f.visible = on;
     }
   }
 

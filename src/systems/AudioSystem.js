@@ -47,6 +47,15 @@ export class AudioSystem {
     this._stepsPlaying = false;
     this._boostPlaying = false;
     this._ambientStarted = false;
+    this._lastGroundType = 'sidewalk';
+    this._lastRunning = false;
+    if (typeof window !== 'undefined' && window.addEventListener) {
+      window.addEventListener('car-honk', (e) => {
+        const pitch = 380 + Math.random() * 80;
+        this.playCarHorn(pitch, 0.22 + Math.random() * 0.12);
+      });
+    }
+
 
     // Desbloquear audio tras primer click (política de navegadores)
     const unlock = () => {
@@ -115,16 +124,44 @@ export class AudioSystem {
     this.sounds[name]?.stop();
   }
 
-  updateSteps(moving, running) {
+  updateSteps(moving, running, groundType = 'sidewalk', isRaining = false) {
     const s = this.sounds.steps;
     if (!s) return;
 
-    if (moving && !this._stepsPlaying) {
-      s.rate(running ? 1.4 : 1.0);
-      s.play();
-      this._stepsPlaying = true;
-    } else if (!moving && this._stepsPlaying) {
-      s.stop();
+    if (moving) {
+      let baseRate = running ? 1.4 : 1.0;
+      let vol = 0.5;
+
+      if (groundType === 'dirt' || groundType === 'grass') {
+        baseRate *= 0.88;
+        vol = 0.38;
+      } else if (groundType === 'road' || groundType === 'busway') {
+        baseRate *= 1.05;
+        vol = 0.48;
+      } else if (groundType === 'sidewalk' || groundType === 'floor' || groundType === 'plaza') {
+        baseRate *= 1.0;
+        vol = 0.52;
+      }
+
+      if (isRaining) {
+        baseRate *= 1.04;
+      }
+
+      if (!this._stepsPlaying) {
+        if (typeof s.rate === 'function') s.rate(baseRate);
+        if (typeof s.volume === 'function') s.volume(vol);
+        if (typeof s.play === 'function') s.play();
+        this._stepsPlaying = true;
+        this._lastGroundType = groundType;
+        this._lastRunning = running;
+      } else if (this._lastGroundType !== groundType || this._lastRunning !== running) {
+        if (typeof s.rate === 'function') s.rate(baseRate);
+        if (typeof s.volume === 'function') s.volume(vol);
+        this._lastGroundType = groundType;
+        this._lastRunning = running;
+      }
+    } else if (this._stepsPlaying) {
+      if (typeof s.stop === 'function') s.stop();
       this._stepsPlaying = false;
     }
   }
@@ -282,4 +319,133 @@ export class AudioSystem {
       src.stop(ctx.currentTime + dur);
     } catch {}
   }
+
+  playCarHorn(frequency = 415, duration = 0.28) {
+    if (this.muted || typeof window === 'undefined') return;
+    try {
+      const ctx = Howler.ctx;
+      if (!ctx || ctx.state === 'suspended') return;
+      const t = ctx.currentTime;
+
+      // Doble tono armónico típico de bocina de carro
+      const osc1 = ctx.createOscillator();
+      const osc2 = ctx.createOscillator();
+      const gain = ctx.createGain();
+
+      osc1.type = 'sawtooth';
+      osc1.frequency.setValueAtTime(frequency, t);
+
+      osc2.type = 'sawtooth';
+      osc2.frequency.setValueAtTime(frequency * 1.25, t); // tercera mayor
+
+      gain.gain.setValueAtTime(0.01, t);
+      gain.gain.linearRampToValueAtTime(0.35 * this._masterVolume, t + 0.02);
+      gain.gain.setValueAtTime(0.32 * this._masterVolume, t + duration - 0.04);
+      gain.gain.exponentialRampToValueAtTime(0.001, t + duration);
+
+      osc1.connect(gain);
+      osc2.connect(gain);
+      gain.connect(ctx.destination);
+
+      osc1.start(t);
+      osc2.start(t);
+      osc1.stop(t + duration);
+      osc2.stop(t + duration);
+    } catch {}
+  }
+
+  playCartRumble() {
+    if (this.muted || typeof window === 'undefined') return;
+    try {
+      const ctx = Howler.ctx;
+      if (!ctx || ctx.state === 'suspended') return;
+      const t = ctx.currentTime;
+      const dur = 0.15;
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'triangle';
+      osc.frequency.setValueAtTime(75 + Math.random() * 20, t);
+      osc.frequency.linearRampToValueAtTime(85, t + dur);
+      gain.gain.setValueAtTime(0.12 * this._masterVolume, t);
+      gain.gain.linearRampToValueAtTime(0.01, t + dur);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start(t);
+      osc.stop(t + dur);
+    } catch {}
+  }
+
+
+  playJump() {
+    if (this.muted || typeof window === 'undefined') return;
+    try {
+      const ctx = Howler.ctx;
+      if (!ctx || ctx.state === 'suspended') return;
+      const t = ctx.currentTime;
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(140, t);
+      osc.frequency.exponentialRampToValueAtTime(320, t + 0.16);
+      gain.gain.setValueAtTime(0.28 * this._masterVolume, t);
+      gain.gain.exponentialRampToValueAtTime(0.001, t + 0.16);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start(t);
+      osc.stop(t + 0.17);
+    } catch {}
+  }
+
+  playLanding() {
+    if (this.muted || typeof window === 'undefined') return;
+    try {
+      const ctx = Howler.ctx;
+      if (!ctx || ctx.state === 'suspended') return;
+      const t = ctx.currentTime;
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'triangle';
+      osc.frequency.setValueAtTime(95, t);
+      osc.frequency.exponentialRampToValueAtTime(35, t + 0.12);
+      gain.gain.setValueAtTime(0.42 * this._masterVolume, t);
+      gain.gain.exponentialRampToValueAtTime(0.001, t + 0.12);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start(t);
+      osc.stop(t + 0.13);
+    } catch {}
+  }
+
+  playPunchHit() {
+    if (this.muted || typeof window === 'undefined') return;
+    try {
+      const ctx = Howler.ctx;
+      if (!ctx || ctx.state === 'suspended') return;
+      const t = ctx.currentTime;
+      const osc1 = ctx.createOscillator();
+      const osc2 = ctx.createOscillator();
+      const gain = ctx.createGain();
+
+      osc1.type = 'square';
+      osc1.frequency.setValueAtTime(180, t);
+      osc1.frequency.exponentialRampToValueAtTime(50, t + 0.08);
+
+      osc2.type = 'sine';
+      osc2.frequency.setValueAtTime(120, t);
+      osc2.frequency.exponentialRampToValueAtTime(30, t + 0.15);
+
+      gain.gain.setValueAtTime(0.55 * this._masterVolume, t);
+      gain.gain.exponentialRampToValueAtTime(0.001, t + 0.15);
+
+      osc1.connect(gain);
+      osc2.connect(gain);
+      gain.connect(ctx.destination);
+
+      osc1.start(t);
+      osc2.start(t);
+      osc1.stop(t + 0.15);
+      osc2.stop(t + 0.15);
+    } catch {}
+  }
+
 }

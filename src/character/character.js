@@ -345,8 +345,11 @@ export function createCharacter(initial = DEFAULT_LOOK) {
       target.lean = 0.06 * amp + (running ? 0.1 : 0);
       target.bob = Math.abs(Math.cos(phase)) * 0.05 * amp;
     } else {
-      target.bob = Math.sin(t * 2.4) * 0.008;
-      target.headX = Math.sin(t * 0.8) * 0.05;
+      target.bob = Math.sin(t * 2.8) * 0.012;
+      target.headX = Math.sin(t * 0.9) * 0.06;
+      target.headY = Math.cos(t * 0.7) * 0.08 + lookAt;
+      target.armLz = 0.14 + Math.sin(t * 2.8) * 0.015;
+      target.armRz = -0.14 - Math.sin(t * 2.8) * 0.015;
     }
     if (wet > 0.5 && speed < 0.15) {
       target.armLz = -0.3; target.armRz = 0.3; target.armLx = -0.6; target.armRx = -0.6; target.elbL = -1.5; target.elbR = -1.5;
@@ -390,6 +393,28 @@ export function createCharacter(initial = DEFAULT_LOOK) {
       }
       case 'saludo': {
         target.armRx = -2.7; target.armRz = -0.3 + Math.sin(t * 9) * 0.35; target.elbR = -0.4;
+        break;
+      }
+      case 'saltar': {
+        target.bob = 0.16;
+        target.legL = 0.45; target.legR = 0.35;
+        target.kneeL = 0.95; target.kneeR = 0.8;
+        target.armLx = -0.55; target.armRx = -0.55;
+        target.armLz = -0.55; target.armRz = 0.55;
+        target.lean = 0.12;
+        break;
+      }
+      case 'golpear': {
+        const punchCycle = Math.sin(t * 18);
+        target.lean = 0.18;
+        target.armRx = -1.65 + punchCycle * 0.15;
+        target.elbR = -0.05;
+        target.armRz = -0.15;
+        target.armLx = -1.25;
+        target.elbL = -1.8;
+        target.armLz = 0.35;
+        target.legR = -0.35;
+        target.legL = 0.3;
         break;
       }
       case 'dormir':

@@ -82,6 +82,7 @@ test('PsychosisSystem se activa con abstinencia alta y se limpia al recuperar el
   assert.equal(psychosis.active, true);
 
   // Puede generar sombras fantasma
+  psychosis._clearShadowPeople();
   const shadow = psychosis._createShadowPerson(new THREE.Vector3(20, 0, 20));
   assert.ok(shadow);
   psychosis.shadowPeople.push(shadow);

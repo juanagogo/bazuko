@@ -5,20 +5,32 @@ export class Input {
     this.keys = {};
     this.pressedThisFrame = new Set();
 
-    window.addEventListener('keydown', (e) => {
-      if (e.target?.closest?.('input, textarea, select, [contenteditable="true"]')) return;
-      if (e.code.startsWith('Arrow')) e.preventDefault();
-      if (!this.keys[e.code]) this.pressedThisFrame.add(e.code);
-      this.keys[e.code] = true;
-    });
+    if (typeof window !== 'undefined') {
+      window.addEventListener('keydown', (e) => {
+        if (e.target?.closest?.('input, textarea, select, [contenteditable="true"]')) return;
+        if (e.code?.startsWith?.('Arrow') || e.code === 'Space') e.preventDefault?.();
+        if (!this.keys[e.code]) this.pressedThisFrame.add(e.code);
+        if (e.code === 'Space') this.pressedThisFrame.add('KeySpace');
+        this.keys[e.code] = true;
+      });
 
-    window.addEventListener('keyup', (e) => {
-      this.keys[e.code] = false;
-    });
-    window.addEventListener('blur', () => {
-      this.keys = {};
-      this.pressedThisFrame.clear();
-    });
+      window.addEventListener('keyup', (e) => {
+        this.keys[e.code] = false;
+        if (e.code === 'Space') this.keys['KeySpace'] = false;
+      });
+
+      window.addEventListener('mousedown', (e) => {
+        if (e.target?.closest?.('input, textarea, select, button, [contenteditable="true"], .menu, .creator, #hud, #topbar, #controls-help')) return;
+        if (e.button === 0) {
+          this.pressedThisFrame.add('Mouse0');
+        }
+      });
+
+      window.addEventListener('blur', () => {
+        this.keys = {};
+        this.pressedThisFrame.clear();
+      });
+    }
   }
 
   isDown(code) {

@@ -655,3 +655,141 @@ body.is-loading #creator-modal { visibility: visible; }
   animation: pulse 0.5s infinite alternate;
 }
 
+
+/* === Overlays Cinemáticos: Lluvia y Frío === */
+.cinematic-overlay {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 11;
+  overflow: hidden;
+}
+
+.rain-lens {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  transition: opacity 1.2s ease;
+  background-image: 
+    radial-gradient(circle at 18% 25%, rgba(180, 215, 255, 0.35) 0%, transparent 4px),
+    radial-gradient(circle at 45% 65%, rgba(180, 215, 255, 0.4) 0%, transparent 5px),
+    radial-gradient(circle at 78% 30%, rgba(180, 215, 255, 0.3) 0%, transparent 3px),
+    radial-gradient(circle at 85% 82%, rgba(180, 215, 255, 0.45) 0%, transparent 6px),
+    radial-gradient(circle at 30% 88%, rgba(180, 215, 255, 0.35) 0%, transparent 4px),
+    radial-gradient(circle at 62% 15%, rgba(180, 215, 255, 0.38) 0%, transparent 5px);
+  background-size: 100% 100%;
+  mix-blend-mode: screen;
+}
+
+.rain-lens.active {
+  animation: rain-lens-drift 4s infinite linear;
+}
+
+@keyframes rain-lens-drift {
+  0% { transform: translateY(-4px); }
+  50% { transform: translateY(3px); }
+  100% { transform: translateY(-4px); }
+}
+
+.cold-lens {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  transition: opacity 2s ease;
+  background: radial-gradient(circle at center, transparent 65%, rgba(140, 180, 220, 0.22) 85%, rgba(180, 220, 255, 0.45) 100%);
+  mix-blend-mode: overlay;
+}
+
+/* Aberración cromática óptica en psicosis */
+#psychosis-overlay.chromatic-aberration {
+  filter: drop-shadow(-3px 0px 0px rgba(255, 0, 0, 0.5)) drop-shadow(3px 0px 0px rgba(0, 180, 255, 0.5));
+  animation: chromatic-glitch 2.8s infinite ease-in-out;
+}
+
+@keyframes chromatic-glitch {
+  0%, 100% { transform: scale(1); filter: drop-shadow(-2px 0px 0px rgba(255, 0, 0, 0.4)) drop-shadow(2px 0px 0px rgba(0, 180, 255, 0.4)); }
+  50% { transform: scale(1.01) skew(0.3deg, 0.1deg); filter: drop-shadow(-5px 0px 0px rgba(255, 0, 0, 0.7)) drop-shadow(5px 0px 0px rgba(0, 180, 255, 0.7)); }
+}
+
+/* === Diálogos Flotantes de Peatones Bogotanos === */
+#npc-bubbles-container {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 15;
+  overflow: hidden;
+}
+
+.npc-bubble {
+  position: absolute;
+  background: rgba(255, 255, 255, 0.94);
+  color: #1a1a24;
+  font-family: var(--font, system-ui, sans-serif);
+  font-size: 11.5px;
+  font-weight: 700;
+  line-height: 1.3;
+  padding: 5px 11px;
+  border-radius: 12px;
+  border: 1.5px solid #2d3436;
+  box-shadow: 0 4px 14px rgba(0,0,0,0.45);
+  transform: translate(-50%, -100%);
+  white-space: nowrap;
+  animation: bubble-pop 0.25s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+
+.npc-bubble::after {
+  content: '';
+  position: absolute;
+  bottom: -6px;
+  left: 50%;
+  transform: translateX(-50%);
+  border-width: 6px 5px 0 5px;
+  border-style: solid;
+  border-color: #2d3436 transparent transparent transparent;
+}
+
+@keyframes bubble-pop {
+  0% { transform: translate(-50%, -80%) scale(0.6); opacity: 0; }
+  100% { transform: translate(-50%, -100%) scale(1); opacity: 1; }
+}
+
+/* === Indicador de Carreta Acoplada === */
+.cart-indicator {
+  position: fixed;
+  top: 74px;
+  left: 18px;
+  background: rgba(46, 204, 113, 0.92);
+  color: #0c1a11;
+  font-family: monospace;
+  font-weight: 800;
+  font-size: 12px;
+  padding: 6px 14px;
+  border-radius: 4px;
+  border: 1px solid #27ae60;
+  box-shadow: 0 2px 10px rgba(0,0,0,0.5), 0 0 8px rgba(46, 204, 113, 0.4);
+  z-index: 15;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  animation: pulse-cart 2s infinite ease-in-out;
+}
+
+@keyframes pulse-cart {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.03); }
+}
+
+/* === Viñeta Cinemática y Color Grading === */
+.cinematic-vignette {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(circle at 50% 50%, rgba(0, 0, 0, 0) 65%, rgba(6, 10, 16, 0.42) 100%);
+  mix-blend-mode: multiply;
+  opacity: 0.9;
+  transition: opacity 1.5s ease;
+}
+
+body.night-mode .cinematic-vignette {
+  background: radial-gradient(circle at 50% 50%, rgba(0, 0, 0, 0) 48%, rgba(4, 7, 12, 0.58) 100%);
+}

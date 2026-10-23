@@ -17,6 +17,13 @@ function shared() {
   cache.rimGeo.rotateX(Math.PI / 2);
   cache.beamTex = radialSprite(128, 'rgba(255,240,215,0.9)', 'rgba(255,240,215,0)');
   cache.flareTex = radialSprite(64, 'rgba(255,255,255,1)', 'rgba(255,255,255,0)');
+  cache.shadowTex = radialSprite(128, 'rgba(0,0,0,0.85)', 'rgba(0,0,0,0)');
+  cache.shadowMat = new THREE.MeshBasicMaterial({
+    map: cache.shadowTex,
+    transparent: true,
+    opacity: 0.58,
+    depthWrite: false
+  });
   cache.ready = true;
   return cache;
 }
@@ -107,6 +114,7 @@ export function makeVehicle(kind = 'carro', seedColor = 0, { beams = true } = {}
 
   const headGeo = new THREE.BoxGeometry(0.06, 0.16, 0.36);
   const hy = isBus ? 0.95 : 0.66;
+  const flares = [];
   for (const z of [W / 2 - 0.32, -(W / 2 - 0.32)]) {
     const h = new THREE.Mesh(headGeo, s.head);
     h.position.set(L / 2 + 0.01, hy, z);
@@ -115,6 +123,7 @@ export function makeVehicle(kind = 'carro', seedColor = 0, { beams = true } = {}
     flare.scale.set(0.9, 0.6, 1);
     flare.position.set(L / 2 + 0.12, hy, z);
     g.add(flare);
+    flares.push(flare);
   }
   const tailMat = s.tail.clone();
   for (const z of [W / 2 - 0.25, -(W / 2 - 0.25)]) {
@@ -150,5 +159,5 @@ export function makeVehicle(kind = 'carro', seedColor = 0, { beams = true } = {}
     for (const geometry of geometries) geometry.dispose();
     for (const texture of textures) texture.dispose();
   };
-  return { group: g, length: L, width: W, wheels, tailMat, beam, dispose };
+  return { group: g, length: L, width: W, wheels, tailMat, beam, flares, dispose };
 }

@@ -91,6 +91,7 @@ export class InteractionSystem {
         else if (t.kind === 'cambuche') nearestType = 'cambuche';
         else if (t.kind === 'recycler') nearestType = 'sell';
         else if (t.kind === 'dog') nearestType = 'dog';
+        else if (t.kind === 'cart') nearestType = 'cart';
         else if (typeof t.harvest === 'function') nearestType = 'pickup';
         else if (typeof t.steal === 'function') nearestType = 'car';
         else if (typeof t.sellSubstances === 'function') nearestType = 'dealer';
@@ -155,6 +156,9 @@ export class InteractionSystem {
           break;
         case 'dog':
           this._interactDog(nearest);
+          break;
+        case 'cart':
+          nearest.toggleGrab(this.player, this.inventory);
           break;
         case 'dealer': {
           const hasSubstances = this.inventory.items.some((i) => ITEMS[i.id]?.substance);

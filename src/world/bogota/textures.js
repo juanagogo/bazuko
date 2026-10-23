@@ -16,19 +16,48 @@ export function rng(seed) {
 export const pick = (r, arr) => arr[Math.floor(r() * arr.length)];
 
 function canvas(w, h) {
-  const c = document.createElement('canvas');
-  c.width = w;
-  c.height = h;
-  return [c, c.getContext('2d')];
+  const dummy = () => [
+    { width: w, height: h, getContext: () => null },
+    {
+      fillStyle: '', strokeStyle: '', lineWidth: 1, globalAlpha: 1,
+      fillRect() {}, strokeRect() {}, clearRect() {},
+      beginPath() {}, moveTo() {}, lineTo() {}, stroke() {}, fill() {},
+      arc() {}, save() {}, restore() {}, translate() {}, rotate() {},
+      scale() {}, fillText() {}, strokeText() {}, measureText: () => ({ width: 0 }),
+      createRadialGradient: () => ({ addColorStop() {} }),
+      createLinearGradient: () => ({ addColorStop() {} }),
+      getImageData: () => ({ data: new Uint8ClampedArray(w * h * 4) }),
+      putImageData() {}
+    }
+  ];
+  if (typeof document === 'undefined' || typeof document.createElement !== 'function') {
+    return dummy();
+  }
+  try {
+    const c = document.createElement('canvas');
+    if (!c || typeof c.getContext !== 'function') return dummy();
+    const ctx = c.getContext('2d');
+    if (!ctx) return dummy();
+    c.width = w;
+    c.height = h;
+    return [c, ctx];
+  } catch {
+    return dummy();
+  }
 }
 
 function toTexture(c, { srgb = true, repeat } = {}) {
-  const t = new THREE.CanvasTexture(c);
-  if (srgb) t.colorSpace = THREE.SRGBColorSpace;
-  t.wrapS = t.wrapT = THREE.RepeatWrapping;
-  t.anisotropy = 8;
-  if (repeat) t.repeat.set(repeat[0], repeat[1]);
-  return t;
+  if (typeof document === 'undefined' || !c || typeof c.getContext !== 'function') return new THREE.Texture();
+  try {
+    const t = new THREE.CanvasTexture(c);
+    if (srgb) t.colorSpace = THREE.SRGBColorSpace;
+    t.wrapS = t.wrapT = THREE.RepeatWrapping;
+    t.anisotropy = 8;
+    if (repeat) t.repeat.set(repeat[0], repeat[1]);
+    return t;
+  } catch {
+    return new THREE.Texture();
+  }
 }
 
 function speckle(ctx, w, h, r, count, colors, maxSize = 2) {
@@ -177,33 +206,47 @@ const TAGS = ['KLAN', 'LUZ', 'ZONA 7', 'RBQ', 'LA 33', 'PARCE', 'ÑERO', 'CALLE'
 export const BRICK_M = { w: 0.36, h: 0.12 };
 
 /** Dibuja ladrillo tolete a la vista en un rectángulo del canvas (pxPerM = píxeles por metro). */
-function brickWall(x, r, x0, y0, w, h, pxPerM = 36) {
+function brickWall(x, r, x0, y0, w, h, pxPerM = 36, xb = null) {
   x.fillStyle = '#5a4436';
   x.fillRect(x0, y0, w, h);
+  if (xb) {
+    xb.fillStyle = '#3a3a3a'; // Juntas de cemento hendidas en relieve
+    xb.fillRect(x0, y0, w, h);
+  }
   const bw = BRICK_M.w * pxPerM, bh = BRICK_M.h * pxPerM;
   for (let row = 0, y = y0; y < y0 + h; row++, y += bh) {
     const off = row % 2 ? bw / 2 : 0;
     for (let bx = x0 - bw; bx < x0 + w + bw; bx += bw) {
       x.fillStyle = pick(r, ['#8a4b32', '#7d4430', '#94553a', '#6e3b2a', '#a05f40', '#85482f']);
       x.fillRect(bx + off + 1, y + 1, bw - 2, bh - 2);
+      if (xb) {
+        xb.fillStyle = '#9c9c9c'; // Ladrillo sobresale de la junta
+        xb.fillRect(bx + off + 1, y + 1, bw - 2, bh - 2);
+      }
     }
   }
 }
 
-export function facade({ seed, width, floors, pxPerM = 28, shopFront = true, style = 'pintada' }) {
+export function facade({ seed, width, floors, pxPerM = 36, shopFront = true, style = 'pintada' }) {
   const r = rng(seed);
   const w = Math.max(64, Math.round(width * pxPerM));
   const fh = 3 * pxPerM;
   const h = Math.round(floors * fh);
   const [c, x] = canvas(w, h);
   const [ce, xe] = canvas(w, h);
+  const [cr, xr] = canvas(w, h);
+  const [cb, xb] = canvas(w, h);
   xe.fillStyle = '#000';
   xe.fillRect(0, 0, w, h);
+  xr.fillStyle = '#dedede'; // Base pared mate (rugosidad ~0.87)
+  xr.fillRect(0, 0, w, h);
+  xb.fillStyle = '#808080'; // Relieve neutro
+  xb.fillRect(0, 0, w, h);
 
   const wall = pick(r, WALLS);
   const ruin = style === 'ruina';
   if (style === 'ladrillo') {
-    brickWall(x, r, 0, 0, w, h, pxPerM);
+    brickWall(x, r, 0, 0, w, h, pxPerM, xb);
   } else {
     x.fillStyle = ruin ? pick(r, ['#8c8070', '#7a6e62', '#9a8a6a', '#6f6a60']) : wall;
     x.fillRect(0, 0, w, h);
@@ -212,7 +255,7 @@ export function facade({ seed, width, floors, pxPerM = 28, shopFront = true, sty
       for (let i = 0; i < 4 + r() * 6; i++) {
         const pw = w * (0.08 + r() * 0.25), ph = h * (0.06 + r() * 0.2);
         const px = r() * (w - pw), py = r() * (h - ph);
-        brickWall(x, r, px, py, pw, ph, pxPerM);
+        brickWall(x, r, px, py, pw, ph, pxPerM, xb);
       }
     }
   }
@@ -264,6 +307,15 @@ export function facade({ seed, width, floors, pxPerM = 28, shopFront = true, sty
       x.fillRect(wx - 3, wy - 3, ww + 6, wh + 6);
       x.fillStyle = glass;
       x.fillRect(wx, wy, ww, wh);
+
+      // PBR: ventana altamente reflectante y marco en relieve
+      xr.fillStyle = '#101010'; // Cristal reflectante (~0.06 rugosidad)
+      xr.fillRect(wx, wy, ww, wh);
+      xb.fillStyle = '#b8b8b8'; // Marco sobresale
+      xb.fillRect(wx - 2, wy - 2, ww + 4, wh + 4);
+      xb.fillStyle = '#606060'; // Cristal empotrado
+      xb.fillRect(wx, wy, ww, wh);
+
       if (emis) {
         // cortina a medio cerrar
         xe.fillStyle = emis;
@@ -316,6 +368,17 @@ export function facade({ seed, width, floors, pxPerM = 28, shopFront = true, sty
       x.fillRect(dx, dy, ddw, dh);
       x.fillStyle = 'rgba(0,0,0,0.3)';
       for (let l = dy; l < dy + dh; l += 5) x.fillRect(dx, l, ddw, 1.5);
+
+      // Persianas metálicas comerciales: satinadas con relieve horizontal
+      xr.fillStyle = '#555555';
+      xr.fillRect(dx, dy, ddw, dh);
+      xb.fillStyle = '#888888';
+      xb.fillRect(dx, dy, ddw, dh);
+      for (let l = dy; l < dy + dh; l += 5) {
+        xb.fillStyle = '#505050';
+        xb.fillRect(dx, l, ddw, 2);
+      }
+
       if (r() < (ruin ? 1 : 0.75)) {
         x.save();
         x.font = `900 ${Math.round(fh * 0.24)}px Overpass, sans-serif`;
@@ -361,7 +424,12 @@ export function facade({ seed, width, floors, pxPerM = 28, shopFront = true, sty
     x.fillRect(sx, 0, 6 + r() * 18, h * 0.5);
   }
 
-  return { map: toTexture(c), emissiveMap: toTexture(ce), bumpMap: toTexture(c, { srgb: false }) };
+  return {
+    map: toTexture(c),
+    emissiveMap: toTexture(ce),
+    bumpMap: toTexture(cb, { srgb: false }),
+    roughnessMap: toTexture(cr, { srgb: false })
+  };
 }
 
 /** Teja de barro (casas viejas del centro): filas de tejas curvas con musgo y hollín. Cubre 2 × 2 m. */
@@ -501,14 +569,21 @@ export function neon({ text, color = '#ff3b6b', w = 512, h = 160, font = 900 }) 
 /** Degradado radial suave (charcos de luz de faros, halos). */
 export function radialSprite(size = 128, inner = 'rgba(255,255,255,1)', outer = 'rgba(255,255,255,0)') {
   const [c, x] = canvas(size, size);
+  if (!c || typeof c.getContext !== 'function' || !x || typeof x.createRadialGradient !== 'function') {
+    return new THREE.Texture();
+  }
   const g = x.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2);
   g.addColorStop(0, inner);
   g.addColorStop(1, outer);
   x.fillStyle = g;
   x.fillRect(0, 0, size, size);
-  const t = new THREE.CanvasTexture(c);
-  t.colorSpace = THREE.SRGBColorSpace;
-  return t;
+  try {
+    const t = new THREE.CanvasTexture(c);
+    t.colorSpace = THREE.SRGBColorSpace;
+    return t;
+  } catch {
+    return new THREE.Texture();
+  }
 }
 
 /** Tierra/barro para el lote bajo el viaducto. */

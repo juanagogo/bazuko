@@ -19,6 +19,25 @@ export const NPC_LOD = {
   animStop: 40     // más allá: animación congelada
 };
 
+
+const BOGOTA_PHRASES = [
+  'Dios lo bendiga, vecino.',
+  'Pilas por la 19 que está caliente.',
+  '¿Tiene una monedita que le sobre?',
+  'Mucho juicio, mi rey.',
+  'Tome 500 para un pan, mijo.',
+  'Qué frío tan berraco hace hoy.',
+  'Pilas con los carros en la Caracas.',
+  'Buenas tardes, vecino.'
+];
+
+const BOGOTA_DIRTY_PHRASES = [
+  '¡Uff, aléjese que huele a caño!',
+  'Vaya al caño a pegarse una lavada.',
+  '¡Paso, paso, no se me pegue!',
+  '¡Gas, qué tufo!'
+];
+
 const _sphere = new THREE.Sphere(new THREE.Vector3(), 1.4);
 
 /** Apariencia al azar; `gastada` prefiere ropa vieja (El Cartucho). */
@@ -77,6 +96,14 @@ export class Npc {
     this.fleeTimer = 0;
     this.fleeDir = new THREE.Vector3();
     this.splatMesh = null;
+    this._bubbleEl = null;
+    this._bubbleTimer = 0;
+    this._lastSpokenTime = 0;
+    this._projPos = new THREE.Vector3();
+    this.umbrella = null;
+    this.panicTimer = 0;
+    this.panicDir = null;
+
     this.ready = (async () => {
       this.look = opts.look ?? await randomStreetLook({ gastada: opts.gastada });
       this.lodChar = await createRealisticCharacter(this.look, { lod: true });
@@ -281,6 +308,22 @@ export class Npc {
     if (!onScreen) { this.animAcc += dt; return; }
 
     this._updateDetail(dist);
+    this._updateSpeech(dt, ctx);
+    this._updateUmbrella(ctx.isRaining ?? false);
+
+    // Proyectar burbuja flotante a pantalla
+    if (this._bubbleEl && ctx.camera && typeof window !== 'undefined') {
+      this._projPos.set(this.position.x, this.position.y + 2.05, this.position.z).project(ctx.camera);
+      if (this._projPos.z < 1) {
+        const sx = (this._projPos.x * 0.5 + 0.5) * window.innerWidth;
+        const sy = (-(this._projPos.y * 0.5) + 0.5) * window.innerHeight;
+        this._bubbleEl.style.left = `${sx}px`;
+        this._bubbleEl.style.top = `${sy}px`;
+        this._bubbleEl.style.display = 'block';
+      } else {
+        this._bubbleEl.style.display = 'none';
+      }
+    }
 
     this.animAcc += dt;
     this.frame++;
@@ -290,7 +333,108 @@ export class Npc {
     this.animAcc = 0;
   }
 
+
+
+  takePunch(attacker) {
+    const PUNCH_REACTIONS = [
+      '¡Uy qué le pasa, ñero loco!',
+      '¡Ayúdenme, me están atracando!',
+      '¡Policía, policía!',
+      '¡Socio, no me pegue, tome esto!',
+      '¡Qué boleta, bájese de la nube!'
+    ];
+    const phrase = PUNCH_REACTIONS[Math.floor(Math.random() * PUNCH_REACTIONS.length)];
+    this.say(phrase, 4.0);
+
+    if (attacker && attacker.position) {
+      const dx = this.position.x - attacker.position.x;
+      const dz = this.position.z - attacker.position.z;
+      const len = Math.hypot(dx, dz) || 1;
+      this.panicDir = { x: dx / len, z: dz / len };
+      this.panicTimer = 5.0; // 5 segundos de huida veloz
+    }
+
+    const dropMoney = 200 + Math.floor(Math.random() * 400);
+    if (typeof window !== 'undefined' && window.dispatchEvent) {
+      window.dispatchEvent(new CustomEvent('toast', {
+        detail: { text: `💥 ¡Puñetazo! El transeúnte soltó ${dropMoney} y salió corriendo.`, kind: 'info' }
+      }));
+    }
+    return dropMoney;
+  }
+
+  say(text, duration = 3.5) {
+    if (typeof document === 'undefined') return;
+    const container = document.getElementById('npc-bubbles-container') ?? document.body;
+    if (!container) return;
+
+    if (this._bubbleEl) this._bubbleEl.remove();
+
+    this._bubbleEl = document.createElement('div');
+    this._bubbleEl.className = 'npc-bubble';
+    this._bubbleEl.textContent = text;
+    this._bubbleTimer = duration;
+    container.appendChild(this._bubbleEl);
+  }
+
+  _updateSpeech(dt, ctx) {
+    if (this._bubbleTimer > 0) {
+      this._bubbleTimer -= dt;
+      if (this._bubbleTimer <= 0 && this._bubbleEl) {
+        this._bubbleEl.remove();
+        this._bubbleEl = null;
+      }
+    }
+
+    if (!ctx.player) return;
+    const now = performance.now();
+    const dist = Math.hypot(this.position.x - ctx.player.x, this.position.z - ctx.player.z);
+
+    if (dist < 2.8 && (now - this._lastSpokenTime > 14000)) {
+      this._lastSpokenTime = now;
+      if (Math.random() < 0.5) {
+        const isDirty = (ctx.hygiene ?? 100) < 30;
+        const list = isDirty ? BOGOTA_DIRTY_PHRASES : BOGOTA_PHRASES;
+        const phrase = list[Math.floor(Math.random() * list.length)];
+        this.say(phrase);
+      }
+    }
+  }
+
+  _updateUmbrella(isRaining) {
+    if (isRaining) {
+      if (!this.umbrella) {
+        const group = new THREE.Group();
+        const domeMat = new THREE.MeshStandardMaterial({ color: 0x181a20, roughness: 0.65 });
+        const domeGeo = new THREE.ConeGeometry(0.68, 0.22, 10);
+        const dome = new THREE.Mesh(domeGeo, domeMat);
+        dome.position.y = 1.95;
+        group.add(dome);
+
+        const stickMat = new THREE.MeshStandardMaterial({ color: 0x222222, metalness: 0.8 });
+        const stickGeo = new THREE.CylinderGeometry(0.015, 0.015, 0.8, 6);
+        const stick = new THREE.Mesh(stickGeo, stickMat);
+        stick.position.set(0.18, 1.55, 0.1);
+        group.add(stick);
+
+        this.umbrella = group;
+        this.root.add(this.umbrella);
+      }
+      this.umbrella.visible = true;
+    } else if (this.umbrella) {
+      this.umbrella.visible = false;
+    }
+  }
+
   dispose() {
+    if (this._bubbleEl) {
+      this._bubbleEl.remove();
+      this._bubbleEl = null;
+    }
+    if (this.umbrella) {
+      this.root.remove(this.umbrella);
+      this.umbrella = null;
+    }
     if (this.splatMesh) {
       this.root.remove(this.splatMesh);
       this.splatMesh.geometry?.dispose?.();

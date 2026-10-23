@@ -16,6 +16,8 @@ import { Car } from '../entities/Car.js';
 import { DrugDealer } from '../entities/DrugDealer.js';
 import { CraftingStation } from '../entities/CraftingStation.js';
 import { Dog } from '../entities/Dog.js';
+import { Cart } from '../entities/Cart.js';
+import { CinematicOverlays } from '../ui/CinematicOverlays.js';
 
 import { StatsSystem, NEEDS } from '../systems/StatsSystem.js';
 import { TimeSystem } from '../systems/TimeSystem.js';
@@ -80,7 +82,7 @@ export class Game {
 
     // Mundo + jugador
     this.world = new World(this.sceneMgr.scene);
-    this.player = new Player(this.sceneMgr.scene, this.input, this.stats);
+    this.player = new Player(this.sceneMgr.scene, this.input, this.stats, this.audio);
 
     // Sistemas de nuevas mecánicas: Popó y Psicosis por abstinencia
     this.poopSystem = new PoopSystem(
@@ -143,6 +145,8 @@ export class Game {
     this.dealer = null;
     this.craftingStation = null;
     this.dog = null;
+    this.cart = null;
+    this.overlays = new CinematicOverlays();
 
     // Estado
     this.look = null;       // apariencia + nombre + origen (creador)
@@ -397,6 +401,10 @@ export class Game {
     this.dog = new Dog(this.sceneMgr.scene, new THREE.Vector3(26, 0, 32));
     this.interaction.register(this.dog);
 
+    // ===== Carreta de balineras de reciclaje =====
+    this.cart = new Cart(this.sceneMgr.scene, new THREE.Vector3(25, 0, 31));
+    this.interaction.register(this.cart);
+
 
     // ===== Cambuche (refugio por piezas) =====
     const bedX = district.reserved?.bed.x ?? 16;
@@ -455,6 +463,9 @@ export class Game {
       if (data.dog?.isFriend && this.dog) {
         this.dog.befriend();
       }
+      if (data.cart && this.cart) {
+        this.cart.loadState(data.cart, this.player, this.inventory);
+      }
 
     }
   }
@@ -472,7 +483,8 @@ export class Game {
       built: this.built,
       costal: this.costal,
       radio: this.radio ? { isOn: this.radio.isOn, freq: this.radio.frequency, battery: this.radio.battery } : null,
-      dog: { isFriend: !!this.dog?.isFriend }
+      dog: { isFriend: !!this.dog?.isFriend },
+      cart: this.cart ? this.cart.saveState() : null
     });
   }
 
@@ -616,20 +628,30 @@ export class Game {
     this.time.update(dt, this.clock);
 
     // 2. Día/noche: cielo nublado de Bogotá y sol que sigue al jugador (sombras nítidas)
-    this.sceneMgr.setTimeOfDay(this.clock.hour);
-    this.sceneMgr.followTarget(this.player.position);
+    this.sceneMgr.setTimeOfDay(this.clock.hour, this.weather?.isRaining, this.weather?.wetness);
+    this.sceneMgr.followTarget(this.player.position, this.clock.hour);
+    this.sceneMgr.update(dt);
     const isNight = this.clock.isNight;
-    if (this._wasNight !== isNight) {
+    const isRainingNow = this.weather?.isRaining ?? false;
+    if (this._wasNight !== isNight || this._wasRaining !== isRainingNow) {
       this._wasNight = isNight;
+      this._wasRaining = isRainingNow;
       this.world.active?.setNightMode?.(isNight);
       this.dealer?.setNight(isNight);
+      for (const car of this.cars) car.setNight?.(isNight, isRainingNow);
+      if (this.traffic) {
+        for (const v of this.traffic.vehicles) v.car?.setNight?.(isNight, isRainingNow);
+      }
+      if (typeof document !== 'undefined') {
+        document.body?.classList?.toggle('night-mode', isNight);
+      }
     }
 
     // 3. Jugador
     this.cameraRig.updateControls(dt, this.input);
     // Actualiza el rumbo antes de calcular WASD en relación con la cámara.
     this.cameraRig.prepareMovement();
-    this.player.update(dt, this.cameraRig.camera, this.collisions);
+    this.player.update(dt, this.cameraRig.camera, this.collisions, (x, z) => this.world.active?.getGroundHeight?.(x, z) ?? 0, this.world.active?.npcs ?? []);
 
     // 4. Stats
     this.stats.update(dt, this.player, this.diseases, this.clock, this.talents);
@@ -638,7 +660,8 @@ export class Game {
 
     // 4b. Aplicar bono de peso por talentos
     const maxWeightBonus = this.talents.getEffect('maxWeightBonus', 0);
-    this.inventory.maxWeight = INVENTORY_MAX_WEIGHT + maxWeightBonus + (this.costal ? COSTAL_BONUS : 0);
+    const cartBonus = (this.cart?.isAttached) ? this.cart.capacityBonus : 0;
+    this.inventory.maxWeight = INVENTORY_MAX_WEIGHT + maxWeightBonus + (this.costal ? COSTAL_BONUS : 0) + cartBonus;
     this.player.load = this.inventory.totalWeight / this.inventory.maxWeight;
 
     // 5. Debuff por salud mental baja (el desgaste se calcula en StatsSystem).
@@ -685,11 +708,15 @@ export class Game {
     this.cambuche?.update(dt);
     this.dealer?.update(dt);
     this.dog?.update(dt, this.player.position, this.pickups);
+    this.cart?.update(dt, this.player, this.audio);
 
     // 10. Audio
     const moving = this.input.axis.x !== 0 || this.input.axis.z !== 0;
-    this.audio.updateSteps(moving, this.input.isRunning);
+    const groundType = this.world.active?.getGroundTypeAt?.(this.player.position.x, this.player.position.z) ?? 'sidewalk';
+    const isRaining = this.weather?.isRaining ?? false;
+    this.audio.updateSteps(moving, this.input.isRunning, groundType, isRaining);
     this.audio.updateBoost(this.interaction.boostActive);
+    this.overlays?.update?.(dt, this.weather, this.clock, this.psychosis);
 
     // 12. Render
     this._renderFrame(now, true);
@@ -735,7 +762,8 @@ export class Game {
       { name: 'Tienda', icon: '🏪', x: this.shop?.position?.x ?? this.shop?.group?.position?.x ?? reserved.shop?.x ?? 34, z: this.shop?.position?.z ?? this.shop?.group?.position?.z ?? reserved.shop?.z ?? 29, color: '#2ecc71' },
       { name: 'Crafteo', icon: '🔨', x: this.craftingStation?.position?.x ?? this.craftingStation?.group?.position?.x ?? reserved.craft?.x ?? 16.5, z: this.craftingStation?.position?.z ?? this.craftingStation?.group?.position?.z ?? reserved.craft?.z ?? 24.5, color: '#e67e22' },
       { name: 'Dealer', icon: '💀', x: this.dealer?.position?.x ?? this.dealer?.group?.position?.x ?? reserved.dealer?.x ?? 56, z: this.dealer?.position?.z ?? this.dealer?.group?.position?.z ?? reserved.dealer?.z ?? 56, color: '#9b59b6' },
-      ...(this._dogPOI ? [this._dogPOI] : [])
+      ...(this._dogPOI ? [this._dogPOI] : []),
+      ...(this.cart ? [{ name: 'Carreta', icon: '🛒', x: this.cart.position.x, z: this.cart.position.z, color: '#f39c12' }] : [])
     ];
     return this._lastPOIs;
   }

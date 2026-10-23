@@ -3,7 +3,7 @@
 // los que tienen `userData.update(dt, t)` se animan (fuego, toldos).
 import * as THREE from 'three';
 import { signTexture } from '../../utils/signs.js';
-import { trashBag, cardboard } from './textures.js';
+import { trashBag, cardboard, radialSprite } from './textures.js';
 
 const lam = (color, opts = {}) => new THREE.MeshLambertMaterial({ color, ...opts });
 const std = (color, opts = {}) => new THREE.MeshStandardMaterial({ color, roughness: 0.85, ...opts });
@@ -217,7 +217,7 @@ export function streetSign(lines) {
   g.add(pole);
   lines.forEach((text, i) => {
     const map = signTexture({ title: text, bg: '#ffffff', fg: '#1b1b1b', w: 512, h: 128 });
-    const plate = new THREE.Mesh(new THREE.PlaneGeometry(1.1, 0.28), new THREE.MeshBasicMaterial({ map, side: THREE.DoubleSide }));
+    const plate = new THREE.Mesh(new THREE.PlaneGeometry(1.1, 0.28), new THREE.MeshStandardMaterial({ map, roughness: 0.7, side: THREE.DoubleSide }));
     plate.position.set(0, 2.65 - i * 0.32, 0);
     plate.rotation.y = i % 2 ? Math.PI / 2 : 0;
     g.add(plate);
@@ -225,19 +225,32 @@ export function streetSign(lines) {
   return shadow(g);
 }
 
-/** Árbol urbano (urapán / eucalipto) */
+/** Árbol urbano (urapán / eucalipto) con suave vaivén por viento andino */
 export function tree(scale = 1) {
   const g = new THREE.Group();
   const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.2, 3, 7), std('#4a3a2a'));
   trunk.position.y = 1.5;
   g.add(trunk);
+
+  const foliage = new THREE.Group();
+  foliage.position.y = 3.2;
   const greens = ['#2f5a2a', '#3a6b30', '#26492a'];
   for (let i = 0; i < 4; i++) {
     const c = new THREE.Mesh(new THREE.IcosahedronGeometry(rand(0.9, 1.4), 0), std(greens[i % 3], { flatShading: true }));
-    c.position.set(rand(-0.6, 0.6), 3.2 + rand(0, 1), rand(-0.6, 0.6));
-    g.add(c);
+    c.position.set(rand(-0.6, 0.6), rand(0, 1), rand(-0.6, 0.6));
+    foliage.add(c);
   }
+  g.add(foliage);
   g.scale.setScalar(scale);
+
+  // Animación orgánica de viento andino
+  const phase = rand(0, Math.PI * 2);
+  const freq = rand(1.4, 1.9);
+  g.userData.update = (dt, t) => {
+    foliage.rotation.z = Math.sin(t * freq + phase) * 0.05;
+    foliage.rotation.x = Math.cos(t * (freq * 0.8) + phase) * 0.035;
+  };
+
   return shadow(g);
 }
 
@@ -279,7 +292,7 @@ export function articulatedBus() {
   const g = new THREE.Group();
   const wheels = [];
   const red = std('#b3261e', { roughness: 0.5, metalness: 0.3 });
-  const glass = std('#1a2430', { roughness: 0.1, metalness: 0.5 });
+  const glass = std('#1a2430', { roughness: 0.1, metalness: 0.5, emissive: '#e6983b', emissiveIntensity: 0.18 });
   for (const [z, len] of [[-4.6, 9], [4.6, 9]]) {
     const body = new THREE.Mesh(new THREE.BoxGeometry(2.5, 2.8, len), red);
     body.position.set(0, 1.75, z);
@@ -305,10 +318,46 @@ export function articulatedBus() {
   joint.position.y = 1.8;
   g.add(joint);
   g.userData.wheels = wheels;
+
+  // Faros frontales hacia -Z y luces traseras hacia +Z
+  const headMat = new THREE.MeshBasicMaterial({ color: new THREE.Color('#fff4dc').multiplyScalar(2.5) });
+  const tailMat = new THREE.MeshBasicMaterial({ color: new THREE.Color('#ff1a12').multiplyScalar(2.0) });
+  for (const sx of [-0.85, 0.85]) {
+    const head = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.2, 0.08), headMat);
+    head.position.set(sx, 0.95, -9.11);
+    g.add(head);
+
+    const tail = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.22, 0.08), tailMat);
+    tail.position.set(sx, 0.95, 9.11);
+    g.add(tail);
+  }
+
+  // Haz de luz frontal sobre el asfalto (-Z)
+  const busBeam = new THREE.Mesh(
+    new THREE.PlaneGeometry(6.5, 3.2),
+    new THREE.MeshBasicMaterial({ color: '#ffe8c8', transparent: true, opacity: 0.25, blending: THREE.AdditiveBlending, depthWrite: false })
+  );
+  busBeam.rotation.x = -Math.PI / 2;
+  busBeam.position.set(0, 0.03, -12.5);
+  g.add(busBeam);
+
+  // Tablero digital de destino LED en el visor frontal (-Z)
+  let routeMap = null;
+  if (typeof document !== 'undefined') {
+    routeMap = signTexture({ title: 'B14 PORTAL NORTE', sub: 'TRONCAL CARACAS', bg: '#080c10', fg: '#ffb000', accent: '#ff8800', w: 512, h: 128 });
+  }
+  const routeSign = new THREE.Mesh(
+    new THREE.PlaneGeometry(1.7, 0.35),
+    new THREE.MeshBasicMaterial({ map: routeMap, color: new THREE.Color('#ffb81c').multiplyScalar(1.5), side: THREE.DoubleSide })
+  );
+  routeSign.rotation.y = Math.PI;
+  routeSign.position.set(0, 2.9, -9.13);
+  g.add(routeSign);
+
   return shadow(g);
 }
 
-/** Cerros orientales con la iglesia en la cima: silueta lejana que no recibe niebla */
+/** Cerros orientales con la iglesia de Monserrate en la cima y faro nocturno */
 export function cerros(width = 260) {
   const g = new THREE.Group();
   const geo = new THREE.PlaneGeometry(width, 70, 60, 12);
@@ -320,15 +369,93 @@ export function cerros(width = 260) {
     if (y > -35 + ridge) p.setY(i, -35 + ridge);
   }
   geo.computeVertexNormals();
-  const far = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color: '#3d5245', fog: false }));
+
+  const farMat = new THREE.MeshBasicMaterial({ color: '#3d5245', fog: false });
+  const far = new THREE.Mesh(geo, farMat);
   g.add(far);
-  const near = new THREE.Mesh(geo.clone(), new THREE.MeshBasicMaterial({ color: '#2c3d33', fog: false }));
+
+  const nearMat = new THREE.MeshBasicMaterial({ color: '#2c3d33', fog: false });
+  const near = new THREE.Mesh(geo.clone(), nearMat);
   near.scale.set(1.1, 0.75, 1);
   near.position.set(30, -8, 15);
   g.add(near);
-  // iglesia en el cerro más alto
-  const church = new THREE.Mesh(new THREE.BoxGeometry(3, 2.2, 1), new THREE.MeshBasicMaterial({ color: '#e8e3d6', fog: false }));
-  church.position.set(-18, -35 + 22 + Math.sin(-18 * 0.03) * 10 + Math.sin(-18 * 0.081 + 1) * 6 + 1.6, 2);
+
+  // Iglesia de Monserrate en la cima
+  const churchMat = new THREE.MeshBasicMaterial({ color: '#e8e3d6', fog: false });
+  const church = new THREE.Mesh(new THREE.BoxGeometry(3, 2.2, 1), churchMat);
+  const churchY = -35 + 22 + Math.sin(-18 * 0.03) * 10 + Math.sin(-18 * 0.081 + 1) * 6 + 1.6;
+  church.position.set(-18, churchY, 2);
   g.add(church);
+
+  // Cruz y faro luminoso de Monserrate
+  const crossMat = new THREE.MeshBasicMaterial({
+    color: '#ffffff',
+    fog: false,
+    transparent: true,
+    opacity: 0.25
+  });
+  const crossV = new THREE.Mesh(new THREE.BoxGeometry(0.35, 2.2, 0.2), crossMat);
+  crossV.userData.isCross = true;
+  crossV.position.set(-18, churchY + 1.9, 2.2);
+  const crossH = new THREE.Mesh(new THREE.BoxGeometry(1.3, 0.35, 0.2), crossMat);
+  crossH.position.set(-18, churchY + 2.3, 2.2);
+  g.add(crossV, crossH);
+
+  g.userData.setNight = (isNight) => {
+    if (isNight) {
+      farMat.color.set('#0d1816');
+      nearMat.color.set('#08100f');
+      churchMat.color.set('#fff8e7');
+      crossMat.opacity = 1.0;
+      crossMat.color.set('#ffffff');
+    } else {
+      farMat.color.set('#3d5245');
+      nearMat.color.set('#2c3d33');
+      churchMat.color.set('#e8e3d6');
+      crossMat.opacity = 0.25;
+      crossMat.color.set('#fffae8');
+    }
+  };
+
+  return g;
+}
+
+/** Letrero de neón comercial bogotano de fachada (Droguería, Panadería, Billar) */
+export function neonSign({ title = 'DROGUERÍA', sub = '24 HORAS', color = '#00ff88', accent = '#ff2255' } = {}) {
+  const g = new THREE.Group();
+  g.userData.noMerge = true;
+
+  // Soporte metálico a pared
+  const bracket = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.08, 0.5), std('#1a1a1a'));
+  bracket.position.set(0, 0, -0.25);
+  g.add(bracket);
+
+  // Marco de la caja de luz
+  const box = new THREE.Mesh(new THREE.BoxGeometry(1.8, 0.65, 0.12), std('#222222'));
+  g.add(box);
+
+  // Panel iluminado con texto
+  let map = null;
+  if (typeof document !== 'undefined') {
+    map = signTexture({ title, sub, bg: '#08080c', fg: color, accent, w: 512, h: 192 });
+  }
+  const neonMat = new THREE.MeshBasicMaterial({
+    map,
+    color: new THREE.Color(color).multiplyScalar(1.4),
+    side: THREE.DoubleSide
+  });
+  const faceFront = new THREE.Mesh(new THREE.PlaneGeometry(1.7, 0.58), neonMat);
+  faceFront.position.z = 0.065;
+  const faceBack = new THREE.Mesh(new THREE.PlaneGeometry(1.7, 0.58), neonMat);
+  faceBack.position.z = -0.065;
+  faceBack.rotation.y = Math.PI;
+  g.add(faceFront, faceBack);
+
+  // Parpadeo eléctrico sutil de neón nocturno
+  g.userData.update = (dt, t) => {
+    const flicker = 1.0 + Math.sin(t * 12.0) * 0.08 + (Math.random() < 0.015 ? -0.4 : 0);
+    neonMat.color.set(color).multiplyScalar(flicker * 1.3);
+  };
+
   return g;
 }

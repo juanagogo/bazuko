@@ -25,16 +25,36 @@ export class Farol {
     arm.position.set(0.3, 4, 0);
     this.group.add(arm);
 
-    // Lámpara
+    // Lámpara con material emisivo
     const lampGeo = new THREE.BoxGeometry(0.2, 0.15, 0.25);
-    const lampMat = new THREE.MeshBasicMaterial({ color: COLORS.ACCENT_AMBER });
-    const lamp = new THREE.Mesh(lampGeo, lampMat);
-    lamp.position.set(0.6, 3.9, 0);
-    this.group.add(lamp);
+    const lampMat = new THREE.MeshStandardMaterial({
+      color: COLORS.ACCENT_AMBER,
+      emissive: COLORS.ACCENT_AMBER,
+      emissiveIntensity: 0.2,
+      roughness: 0.3
+    });
+    this.lamp = new THREE.Mesh(lampGeo, lampMat);
+    this.lamp.position.set(0.6, 3.9, 0);
+    this.group.add(this.lamp);
 
-    // Luz (solo si no es de día — la controla el World)
+    // Cono de luz volumétrica nocturna sutil
+    const coneGeo = new THREE.CylinderGeometry(0.12, 1.4, 3.6, 10, 1, true);
+    const coneMat = new THREE.MeshBasicMaterial({
+      color: COLORS.ACCENT_AMBER,
+      transparent: true,
+      opacity: 0.0,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+      side: THREE.DoubleSide
+    });
+    this.lightBeam = new THREE.Mesh(coneGeo, coneMat);
+    this.lightBeam.position.set(0.6, 2.0, 0);
+    this.lightBeam.visible = false;
+    this.group.add(this.lightBeam);
+
+    // Luz puntual (solo si no es de día — la controla el World)
     if (opts.addLight !== false) {
-      this.light = new THREE.PointLight(COLORS.ACCENT_AMBER, 0, 8);
+      this.light = new THREE.PointLight(COLORS.ACCENT_AMBER, 0, 9);
       this.light.position.set(0.6, 3.8, 0);
       this.group.add(this.light);
     }
@@ -43,7 +63,14 @@ export class Farol {
   /** Enciende/apaga la luz según hora */
   setNight(isNight) {
     if (this.light) {
-      this.light.intensity = isNight ? 1.2 : 0;
+      this.light.intensity = isNight ? 1.4 : 0;
+    }
+    if (this.lamp && this.lamp.material) {
+      this.lamp.material.emissiveIntensity = isNight ? 2.8 : 0.2;
+    }
+    if (this.lightBeam) {
+      this.lightBeam.visible = isNight;
+      this.lightBeam.material.opacity = isNight ? 0.08 : 0.0;
     }
   }
 }
