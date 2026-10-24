@@ -1,6 +1,7 @@
 // src/ui/Creator.js — portado de rebusque; la vista previa y las opciones son del personaje realista
 import * as THREE from 'three';
-import { PALETTES, COLOR_NAMES, NAME_IDEAS, normalizeLook, randomLook, cleanName } from '../character/look.js';
+import { PALETTES, COLOR_NAMES, NAME_IDEAS, WEAR_LEVELS, ACCESSORIES, normalizeLook, randomLook, cleanName } from '../character/look.js';
+import { STREET_PRESETS, applyStreetPreset } from '../character/presets.js';
 import { createRealisticCharacter, loadCatalog, optionsFor, normalizeReal, randomReal } from '../character/RealisticCharacter.js';
 import { ORIGINS } from '../data/origins.js';
 import { el } from './dom.js';
@@ -10,6 +11,7 @@ const $ = (id) => document.getElementById(id);
 
 const TABS = [
   { id: 'identidad', label: 'Nombre', ic: 'idcard', focus: 'body' },
+  { id: 'estilo', label: 'Estilo', ic: 'sparkles', focus: 'body' },
   { id: 'cuerpo', label: 'Cuerpo', ic: 'body', focus: 'body' },
   { id: 'pelo', label: 'Pelo', ic: 'scissors', focus: 'face' },
   { id: 'cara', label: 'Barba', ic: 'eye', focus: 'face' },
@@ -149,6 +151,39 @@ export function createCreator({ audio }) {
       }, o.label)));
   }
 
+  /** ¿La apariencia actual es este estilo de calle? (con sus piezas aún no exportadas ya corregidas) */
+  const isPreset = (preset) => {
+    const real = normalizeReal(catalog, preset.look.real);
+    const same = (a = [], b = []) => a.length === b.length && a.every((id) => b.includes(id));
+    return Object.entries(real).every(([part, id]) => look.real[part] === id)
+      && same(preset.look.accesorios, look.accesorios)
+      && ['piel', 'peloColor', 'desgaste'].every((k) => look[k] === preset.look[k]);
+  };
+
+  function accessoryChips() {
+    return el('div', { class: 'cr-chips', role: 'group', 'aria-label': 'Accesorios' },
+      ACCESSORIES.map((a) => {
+        const on = look.accesorios.includes(a.id);
+        return el('button', {
+          type: 'button',
+          class: 'cr-chip',
+          'aria-pressed': String(on),
+          onclick: () => apply({ accesorios: on ? look.accesorios.filter((id) => id !== a.id) : [...look.accesorios, a.id] }),
+        }, a.label);
+      }));
+  }
+
+  function presetChips() {
+    return el('div', { class: 'cr-chips', role: 'group', 'aria-label': 'Estilo de calle' },
+      STREET_PRESETS.map((preset) => el('button', {
+        type: 'button',
+        class: 'cr-chip',
+        title: preset.desc,
+        'aria-pressed': String(isPreset(preset)),
+        onclick: () => { apply(applyStreetPreset(look, preset)); wave = 1.2; },
+      }, preset.label)));
+  }
+
   const section = (title, ...children) => el('section', { class: 'cr-section' }, el('h3', { class: 'cr-section__title', text: title }), ...children);
 
   function chips(field, opts) {
@@ -212,6 +247,16 @@ export function createCreator({ audio }) {
         ];
         break;
       }
+      case 'estilo': {
+        const active = STREET_PRESETS.find(isPreset);
+        body = [
+          section('Estilo de calle', presetChips(),
+            el('p', { class: 'cr-help', text: active?.desc ?? 'Elige un estilo y ajústalo a tu gusto en las otras pestañas.' })),
+          section('Desgaste', chips('desgaste', WEAR_LEVELS),
+            el('p', { class: 'cr-help', text: 'Qué tanto se nota la calle en la ropa y la piel.' })),
+        ];
+        break;
+      }
       case 'cuerpo':
         body = [
           section('Sexo', realChips('sexo', SEXOS)),
@@ -231,12 +276,16 @@ export function createCreator({ audio }) {
           ? [section('Barba', realChips('barba', optionsFor(catalog, 'barba', 'hombre')))]
           : [section('Barba', el('p', { class: 'cr-help', text: 'No aplica para este personaje.' }))];
         break;
-      case 'ropa':
+      case 'ropa': {
+        const hats = optionsFor(catalog, 'cabeza', L.real.sexo);
         body = [
           section('Ropa', realChips('ropa', optionsFor(catalog, 'ropa', L.real.sexo))),
           section('Calzado', realChips('calzado', optionsFor(catalog, 'calzado', L.real.sexo))),
+          hats.length > 1 && section('Cabeza', realChips('cabeza', hats)),
+          section('Accesorios', accessoryChips()),
         ];
         break;
+      }
       default:
         body = [];
     }

@@ -7,6 +7,9 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { clone as cloneSkinned } from 'three/examples/jsm/utils/SkeletonUtils.js';
 import { buildCharacterClips } from './actionforge.js';
 import { PALETTES } from './look.js';
+import { addGrime, addHairTone } from './weathering.js';
+import { attachAccessories } from './props.js';
+import { addHatClip, hatEdgeProfile } from './hatFit.js';
 
 const BASE = '/models/personaje/';
 // Animaciones descargadas de Mixamo (tools/personaje/mixamo_a_glb.py); si no están, las de prueba
@@ -18,7 +21,7 @@ export const REALISTIC_SCALE = 1.08;
 const ACTIONFORGE_URL = '/models/animaciones-actionforge.glb';
 
 export const REAL_DEFAULT = {
-  sexo: 'hombre', edad: 'adulto', pelo: 'desordenado', barba: 'descuidada', ropa: 'chaqueta', calzado: 'tenis-rotos'
+  sexo: 'hombre', edad: 'adulto', pelo: 'desordenado', barba: 'descuidada', ropa: 'chaqueta', calzado: 'tenis-rotos', cabeza: 'sin-sombrero'
 };
 
 const loader = new GLTFLoader();
@@ -35,9 +38,12 @@ export function loadCatalog() {
   return catalogPromise;
 }
 
+// Categorías de piezas; `cabeza` puede faltar en catálogos exportados antes de que existiera
+const PART_CATS = ['pelo', 'barba', 'ropa', 'calzado', 'cabeza'];
+
 /** Piezas válidas para un sexo */
 export function optionsFor(catalog, cat, sexo) {
-  return catalog.piezas[cat].filter((p) => !p.sexo || p.sexo === sexo);
+  return (catalog.piezas[cat] ?? []).filter((p) => !p.sexo || p.sexo === sexo);
 }
 
 /** Corrige una apariencia realista para que todas sus piezas existan en ese cuerpo. */
@@ -45,9 +51,9 @@ export function normalizeReal(catalog, raw = {}) {
   const r = { ...REAL_DEFAULT, ...(raw || {}) };
   if (!['hombre', 'mujer'].includes(r.sexo)) r.sexo = REAL_DEFAULT.sexo;
   if (!['joven', 'adulto', 'mayor'].includes(r.edad)) r.edad = REAL_DEFAULT.edad;
-  for (const cat of ['pelo', 'barba', 'ropa', 'calzado']) {
+  for (const cat of PART_CATS) {
     const opts = optionsFor(catalog, cat, r.sexo);
-    if (!opts.some((o) => o.id === r[cat])) r[cat] = opts[0].id;
+    if (!opts.some((o) => o.id === r[cat])) r[cat] = opts[0]?.id ?? REAL_DEFAULT[cat];
   }
   if (r.sexo === 'mujer') r.barba = 'ninguna';
   return r;
@@ -60,7 +66,8 @@ export function randomReal(catalog, base = {}) {
   const pick = (cat) => any(optionsFor(catalog, cat, sexo)).id;
   return normalizeReal(catalog, {
     sexo, edad: any(['joven', 'adulto', 'mayor']),
-    pelo: pick('pelo'), barba: Math.random() < 0.3 ? 'ninguna' : pick('barba'), ropa: pick('ropa'), calzado: pick('calzado')
+    pelo: pick('pelo'), barba: Math.random() < 0.3 ? 'ninguna' : pick('barba'), ropa: pick('ropa'), calzado: pick('calzado'),
+    cabeza: Math.random() < 0.6 ? REAL_DEFAULT.cabeza : optionsFor(catalog, 'cabeza', sexo).length ? pick('cabeza') : REAL_DEFAULT.cabeza
   });
 }
 
@@ -172,7 +179,7 @@ async function buildInstance(catalog, look, lod = false) {
   // LOD: cuerpo proxy y piezas simplificadas (si el catálogo las trae)
   const useLod = lod && body.piezas[real.ropa]?.lod;
   const bodyGltf = await load(folder + (useLod ? 'lod/cuerpo.gltf' : 'cuerpo.gltf'));
-  const parts = ['pelo', 'barba', 'ropa', 'calzado']
+  const parts = PART_CATS
     .map((cat) => ({ cat, info: body.piezas[real[cat]] }))
     .filter((p) => p.info?.file);
   const [clips, ...partGltfs] = await Promise.all([
@@ -193,19 +200,42 @@ async function buildInstance(catalog, look, lod = false) {
 
   const skinTone = new THREE.Color(PALETTES.piel[look.piel] ?? PALETTES.piel[2]).lerp(new THREE.Color(1, 1, 1), 0.25);
   const hairTone = new THREE.Color(PALETTES.pelo[look.peloColor] ?? PALETTES.pelo[0]).lerp(new THREE.Color(1, 1, 1), 0.15);
-  if (bodyMesh) bodyMesh.material.color.copy(skinTone);
+  const wear = look.desgaste ?? 0;
+  const seed = Math.random() * 100;
+  if (bodyMesh) {
+    bodyMesh.material.color.copy(skinTone);
+    addGrime(bodyMesh.material, wear, { skin: true, seed });
+  }
 
   const hidden = new Set();
+  const hair = [], hatPositions = [];
   parts.forEach((p, i) => {
     if (!useLod) for (const v of p.info.oculta) hidden.add(v);
     partGltfs[i].scene.traverse((o) => {
       if (!o.isSkinnedMesh) return;
       const mesh = attachPart(o, bones, bodyMesh?.parent ?? root, p.cat);
-      if (p.cat === 'pelo' || p.cat === 'barba') mesh.material.color.copy(hairTone);
+      if (p.cat === 'pelo' || p.cat === 'barba') {
+        mesh.material.color.copy(hairTone);
+        addHairTone(mesh.material);
+        if (p.cat === 'pelo') hair.push(mesh);
+      } else {
+        addGrime(mesh.material, wear, { seed });
+      }
+      if (p.cat === 'cabeza') for (const v of mesh.geometry.attributes.position.array) hatPositions.push(v);
     });
   });
+  // el pelo que quedaría por fuera del sombrero se recorta en su borde
+  if (hatPositions.length) {
+    const profile = hatEdgeProfile(hatPositions);
+    for (const mesh of hair) addHatClip(mesh.material, profile);
+  }
   // cejas del color del pelo
-  root.traverse((o) => { if (o.isSkinnedMesh && /eyebrow/.test(o.name.toLowerCase())) o.material.color.copy(hairTone); });
+  root.traverse((o) => {
+    if (!o.isSkinnedMesh || !/eyebrow/.test(o.name.toLowerCase())) return;
+    o.material.color.copy(hairTone);
+    addHairTone(o.material);
+  });
+  const accessories = useLod ? null : attachAccessories(root, bones, look.accesorios, wear);
   if (bodyMesh) hideCovered(bodyMesh, bodyGltf.scene.getObjectByName(bodyMesh.name)?.geometry.index ?? bodyMesh.geometry.index, hidden);
 
   const mixer = new THREE.AnimationMixer(root);
@@ -220,7 +250,7 @@ async function buildInstance(catalog, look, lod = false) {
     actions[name].setEffectiveWeight(name === 'idle' ? 1 : 0);
   }
   if (useLod) root.traverse((o) => { if (o.isMesh) o.castShadow = false; }); // lejos: sin sombra propia
-  return { root, mixer, actions, real, ownedGeometries: bodyMesh ? [bodyMesh.geometry] : [] };
+  return { root, mixer, actions, real, accessories, ownedGeometries: bodyMesh ? [bodyMesh.geometry] : [] };
 }
 
 /** Solo recursos de instancia; los modelos y texturas del banco siguen compartidos. */
@@ -307,6 +337,7 @@ export async function createRealisticCharacter(look = {}, { lod = false } = {}) 
       if (a.walk) a.walk.timeScale = THREE.MathUtils.clamp(speed / 1.4, 0.6, 1.6);
       if (a.run) a.run.timeScale = THREE.MathUtils.clamp(speed / 3.5, 0.7, 1.4);
       inst.mixer.update(dt);
+      inst.accessories?.update();
     }
   };
 }

@@ -29,6 +29,7 @@ export async function randomStreetLook({ gastada = false } = {}) {
   const viejas = ropaOpts.filter((id) => ['rota', 'saco', 'chaqueta', 'buzo', 'overol', 'sudadera'].includes(id));
   const look = randomLook(DEFAULT_LOOK);
   look.piel = 1 + Math.floor(Math.random() * 5);
+  look.desgaste = gastada ? 2 : 0;
   look.real = normalizeReal(catalog, {
     sexo,
     edad: any(['joven', 'adulto', 'adulto', 'mayor']),

@@ -17,6 +17,12 @@ export const COLOR_NAMES = {
   zapato: ['Negro', 'Blanco', 'Café', 'Azul', 'Rojo'],
 };
 
+// Qué tanto se nota la calle en la ropa y la piel (ver weathering.js)
+export const WEAR_LEVELS = [{ id: 0, label: 'Limpio' }, { id: 1, label: 'Gastado' }, { id: 2, label: 'Muy sucio' }];
+
+// Objetos que se cargan en el cuerpo (ver props.js); no son piezas exportadas de MakeHuman
+export const ACCESSORIES = [{ id: 'baston', label: 'Bastón' }, { id: 'mochila', label: 'Mochila' }];
+
 export const STYLES = {
   cuerpo: [{ id: 'a', label: 'Tipo A' }, { id: 'b', label: 'Tipo B' }],
   contextura: [{ id: 'delgado', label: 'Delgado' }, { id: 'normal', label: 'Normal' }, { id: 'robusto', label: 'Robusto' }],
@@ -53,6 +59,8 @@ export const DEFAULT_LOOK = {
   zapatoColor: 1,
   cabeza: 'gorra',
   cabezaColor: 0,
+  desgaste: 2,
+  accesorios: [],
 };
 
 export const NAME_IDEAS = ['Jairo', 'Yeison', 'Luz Dary', 'Wilmer', 'Yuli', 'Brayan', 'Marleny', 'Don Chepe', 'Nelson', 'Leidy', 'El Mono', 'Doña Gloria', 'Kevin', 'La Flaca', 'Fredy', 'Sandra'];
@@ -68,7 +76,7 @@ export function cleanName(s) {
 
 /** Normaliza (y migra) cualquier apariencia guardada al formato actual. */
 export function normalizeLook(raw = {}) {
-  const l = { ...DEFAULT_LOOK };
+  const l = { ...DEFAULT_LOOK, accesorios: [] };
   if (!raw || typeof raw !== 'object') return l;
   if (raw.v !== 2) {
     // formato anterior: { piel, buzo, gorra, barba, origen }
@@ -96,6 +104,10 @@ export function normalizeLook(raw = {}) {
   l.abajoColor = clampIdx(raw.abajoColor, PALETTES.ropa, l.abajoColor);
   l.zapatoColor = clampIdx(raw.zapatoColor, PALETTES.zapato, l.zapatoColor);
   l.cabezaColor = clampIdx(raw.cabezaColor, PALETTES.ropa, l.cabezaColor);
+  l.desgaste = clampIdx(raw.desgaste, WEAR_LEVELS, l.desgaste);
+  l.accesorios = Array.isArray(raw.accesorios)
+    ? ACCESSORIES.map((a) => a.id).filter((id) => raw.accesorios.includes(id))
+    : [];
   return l;
 }
 

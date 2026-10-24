@@ -1,5 +1,5 @@
 {
-  "_comentario": "Catálogo del personaje realista. exportar_variantes.py lo usa para generar los modelos y el juego para armar el creador. Todos los assets son CC0 (MakeHuman).",
+  "_comentario": "Catálogo del personaje realista. exportar_variantes.py lo usa para generar los modelos y el juego para armar el creador. Los assets son CC0 salvo los marcados con licencia CC-BY, que exigen crédito (ver docs/personaje-piezas.md).",
   "raza": { "asian": 0.35, "caucasian": 0.45, "african": 0.2 },
   "cuerpos": [
     { "id": "hombre-joven",  "sexo": "hombre", "edad": "joven",  "age": 0.5,  "skin": "young_caucasian_male/young_caucasian_male.mhmat" },
@@ -44,7 +44,13 @@
       { "id": "tenis",       "label": "Tenis",          "assets": ["clothes:shoes06/shoes06.mhclo"] },
       { "id": "tenis-rotos", "label": "Tenis viejos",   "assets": ["clothes:shoes02/shoes02.mhclo"] },
       { "id": "zapatos",     "label": "Zapatos",        "assets": ["clothes:shoes01/shoes01.mhclo"] },
-      { "id": "botas",       "label": "Botas",          "assets": ["clothes:toigo_ankle_boots_male/toigo_ankle_boots_male.mhclo"] }
+      { "id": "botas",       "label": "Botas",          "assets": ["clothes:toigo_ankle_boots_male/toigo_ankle_boots_male.mhclo"] },
+      { "id": "descalzo",    "label": "Descalzo",       "assets": [] }
+    ],
+    "cabeza": [
+      { "id": "sin-sombrero", "label": "Nada",          "assets": [] },
+      { "id": "boina",        "label": "Boina",         "assets": ["clothes:jujube_newsboy_cap/jujube_newsboy_cap.mhclo"] },
+      { "id": "gorro-lana",   "label": "Gorro de lana", "licencia": "CC-BY", "autor": "Mindfront", "assets": ["clothes:mindfront_knitted_hat_01/mindfront_knitted_hat_01.mhclo"] }
     ]
   }
 }

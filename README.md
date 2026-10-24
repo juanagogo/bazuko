@@ -183,6 +183,10 @@ docs/images/   Capturas del juego
 
 JavaScript con módulos ES, Three.js para el mundo 3D, Vite para desarrollo y compilación y Howler para el audio.
 
+## Recursos de terceros
+
+El personaje realista usa assets de [MakeHuman Community](https://static.makehumancommunity.org/assets/assetpacks/index.html), en su mayoría CC0. El gorro de lana es *knitted hat 01* de **Mindfront**, publicado bajo CC-BY en el pack [Hats 03](https://static.makehumancommunity.org/assets/assetpacks/hats03.html). Ver `docs/personaje-piezas.md`.
+
 ## Integración del original (21 de octubre de 2026)
 
 Integra los cambios de `juanagogo/bazuko` hasta `77f66bd`: radio AM/FM sintetizada con pilas y guardado, movimiento con inercia, ajustes de cámara al correr, humedad del asfalto y nuevas mecánicas de abstinencia, alucinaciones y reacción de peatones a proyectiles. Conserva el tráfico, los modelos, el cambuche, los sonidos y las optimizaciones de esta versión. La radio respeta volumen general, silencio y pausa; el asfalto húmedo se desactiva en calidad baja. Véase [la nota de integración](docs/integracion-upstream.md).

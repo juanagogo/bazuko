@@ -8,7 +8,8 @@ export function openDeveloperNote(game) {
     ['GrandaCoder / Vagabundo', 'Integración, mejoras y desarrollo de esta versión.', 'https://github.com/GrandaCoder/Vagabundo'],
     ['Cristianlv11 / bazuko', 'Radar, pausa, clima, cámara y El Chato.', 'https://github.com/Cristianlv11/bazuko'],
     ['Jonme-Mopri / bazuko', 'Pruebas de navegador y corrección de fabricación.', 'https://github.com/Jonme-Mopri/bazuko'],
-    ['mreyeswilson / bazuko', 'Modelos, mobiliario urbano e ideas de inventario y cambuche.', 'https://github.com/mreyeswilson/bazuko']
+    ['mreyeswilson / bazuko', 'Modelos, mobiliario urbano e ideas de inventario y cambuche.', 'https://github.com/mreyeswilson/bazuko'],
+    ['Mindfront / MakeHuman Community', 'Gorro de lana (knitted hat 01), licencia CC-BY.', 'https://static.makehumancommunity.org/assets/assetpacks/hats03.html']
   ];
   game.menu.open({
     title: 'Nota del desarrollador',

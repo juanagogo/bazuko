@@ -9,7 +9,9 @@
 # Además escribe public/models/personaje/catalogo.json con lo exportado y, por pieza,
 # los vértices del cuerpo que tapa (para ocultarlos y que la piel no atraviese la ropa).
 #
-# Uso: blender -b --python tools/personaje/exportar_variantes.py -- [solo_cuerpo]
+# Uso: blender -b --python tools/personaje/exportar_variantes.py -- [solo_cuerpo] [--piezas=id1,id2]
+#   --piezas: exporta solo esas piezas en cada cuerpo (sin rehacer cuerpo.gltf) y las suma al catálogo
+#             existente; sirve para añadir piezas nuevas sin tener instalados los assets de las demás.
 import json
 import os
 import sys
@@ -28,6 +30,8 @@ DECIMATE = {"hair": 0.5, "clothes": 0.35}  # proporción de caras que se conserv
 ALPHA_PARTS = ("hair", "beard", "moustache", "eyebrow", "eyelash", "short0", "afro", "long0", "ponytail", "bob0")
 
 argv = sys.argv[sys.argv.index("--") + 1:] if "--" in sys.argv else []
+PIECES = next((set(a.split("=", 1)[1].split(",")) for a in argv if a.startswith("--piezas=")), None)
+argv = [a for a in argv if not a.startswith("--")]
 ONLY = argv[0] if argv else None
 
 
@@ -89,6 +93,30 @@ def to_pbr(obj, alpha):
             nt.links.new(ntex.outputs["Color"], nmap.inputs["Color"])
             nt.links.new(nmap.outputs["Normal"], bsdf.inputs["Normal"])
         slot.material = mat
+
+
+def material_from_mhmat(obj, mhclo_path):
+    """Respaldo cuando MPFB no crea material: usa diffuse/normal del .mhmat junto al .mhclo."""
+    folder = os.path.dirname(mhclo_path)
+    mhmats = [f for f in os.listdir(folder) if f.endswith(".mhmat")]
+    if not mhmats:
+        return
+    textures = {}
+    for line in open(os.path.join(folder, mhmats[0]), encoding="utf-8", errors="ignore"):
+        parts = line.split(None, 1)
+        if len(parts) == 2 and parts[0] in ("diffuseTexture", "normalmapTexture"):
+            textures[parts[0]] = os.path.join(folder, parts[1].strip())
+    mat = bpy.data.materials.new(obj.name + "_mhmat")
+    mat.use_nodes = True
+    nt = mat.node_tree
+    for key, label in (("diffuseTexture", "diffuse"), ("normalmapTexture", "normal")):
+        if key in textures and os.path.exists(textures[key]):
+            tex = nt.nodes.new("ShaderNodeTexImage")
+            tex.image = bpy.data.images.load(textures[key])
+            tex.image.name = os.path.splitext(os.path.basename(textures[key]))[0] + ("_norm" if label == "normal" else "")
+    obj.data.materials.clear()
+    obj.data.materials.append(mat)
+    print("  MATERIAL desde", mhmats[0])
 
 
 def export(objs, rig, path, tex_dir="../texturas"):
@@ -161,16 +189,19 @@ def export_body(body, manifest, lod=False):
     folder = os.path.join(OUT, body["id"], "lod" if lod else "")
     os.makedirs(folder, exist_ok=True)
     tex_dir = "../../texturas" if lod else "../texturas"
-    export(meshes, rig, os.path.join(folder, "cuerpo.gltf"), tex_dir)
-    print("CUERPO", body["id"], "LOD" if lod else "")
+    if PIECES is None:
+        export(meshes, rig, os.path.join(folder, "cuerpo.gltf"), tex_dir)
+        print("CUERPO", body["id"], "LOD" if lod else "")
 
-    if lod:
+    if lod or PIECES is not None:
         entry = next(c for c in manifest["cuerpos"] if c["id"] == body["id"])
     else:
         entry = {"id": body["id"], "sexo": body["sexo"], "edad": body["edad"], "piezas": {}}
     for cat, items in CAT["piezas"].items():
         for item in items:
             if item.get("sexo") and item["sexo"] != body["sexo"]:
+                continue
+            if PIECES is not None and item["id"] not in PIECES and item["assets"]:
                 continue
             if not item["assets"]:
                 if not lod:
@@ -182,6 +213,8 @@ def export_body(body, manifest, lod=False):
                 path = AssetService.find_asset_absolute_path(rel, asset_subdir=subdir)
                 asset_type = "hair" if subdir == "hair" else "clothes"
                 obj = HumanService.add_mhclo_asset(path, basemesh, asset_type=asset_type, subdiv_levels=0, material_type="MAKESKIN")
+                if not any(s.material for s in obj.material_slots):
+                    material_from_mhmat(obj, path)
                 to_pbr(obj, alpha=(subdir == "hair" or any(k in obj.name.lower() for k in ALPHA_PARTS)))
                 if lod:
                     dec = obj.modifiers.new("LOD", 'DECIMATE')
@@ -210,14 +243,16 @@ def export_body(body, manifest, lod=False):
                 if g.name.startswith("Delete."):
                     basemesh.vertex_groups.remove(g)
             print("  PIEZA", item["id"], len(hidden), "vértices ocultos")
-    if not lod:
+    if not lod and PIECES is None:
         manifest["cuerpos"].append(entry)
 
 
 os.makedirs(os.path.join(OUT, "texturas"), exist_ok=True)
 manifest_path = os.path.join(OUT, "catalogo.json")
 manifest = {"cuerpos": []}
-if ONLY and os.path.exists(manifest_path):
+if PIECES is not None:
+    manifest = json.load(open(manifest_path, encoding="utf-8"))
+elif ONLY and os.path.exists(manifest_path):
     manifest = json.load(open(manifest_path, encoding="utf-8"))
     manifest["cuerpos"] = [c for c in manifest["cuerpos"] if c["id"] != ONLY]
 
