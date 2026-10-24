@@ -1,8 +1,11 @@
 #pragma once
 
 #include <memory>
+#include <glm/glm.hpp>
 
 namespace Bazuko {
+
+class Simulation;
 
 enum class AudioCue {
     Pickup,
@@ -25,8 +28,13 @@ public:
     void SetMuted(bool muted);
     float GetVolume() const;
     void SetVolume(float volume);
+    void SetRaining(bool raining);
     void Play(AudioCue cue);
+    void PlayCarAlarm(float distance);
+    void PlayTheftRemark(float distance);
     void Update(bool moving, bool running);
+    void UpdateVehicleAudio(float dt, const glm::vec3& listenerPosition,
+                            const Simulation& simulation, bool paused);
 
 private:
     struct Impl;

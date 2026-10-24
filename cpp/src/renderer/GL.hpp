@@ -1,4 +1,4 @@
-﻿#pragma once
+#pragma once
 #include <glad/gl.h>
 #include "../core/Log.hpp"
 

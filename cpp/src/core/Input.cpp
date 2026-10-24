@@ -1,4 +1,4 @@
-﻿#include "Input.hpp"
+#include "Input.hpp"
 #include <GLFW/glfw3.h>
 #include <cstring>
 #include <cmath>
@@ -41,6 +41,10 @@ void Input::Shutdown() {
 void Input::BeginFrame() {
     std::memcpy(s_PrevKeys,         s_Keys,        sizeof(s_Keys));
     std::memcpy(s_PrevMouseButtons, s_MouseButtons, sizeof(s_MouseButtons));
+    std::memset(s_KeyPressedEdge, 0, sizeof(s_KeyPressedEdge));
+    std::memset(s_KeyReleasedEdge, 0, sizeof(s_KeyReleasedEdge));
+    std::memset(s_MousePressedEdge, 0, sizeof(s_MousePressedEdge));
+    std::memset(s_MouseReleasedEdge, 0, sizeof(s_MouseReleasedEdge));
     s_MouseDelta  = {0.0f, 0.0f};
     s_ScrollDelta = 0.0f;
 }
@@ -59,11 +63,11 @@ void Input::PostPoll() {
 }
 
 bool Input::IsKeyDown      (int key)    { return key>=0&&key<512  ? s_Keys[key]                         : false; }
-bool Input::IsKeyPressed   (int key)    { return key>=0&&key<512  ? s_Keys[key] && !s_PrevKeys[key]     : false; }
-bool Input::IsKeyReleased  (int key)    { return key>=0&&key<512  ? !s_Keys[key] && s_PrevKeys[key]     : false; }
+bool Input::IsKeyPressed   (int key)    { return key>=0&&key<512  ? s_KeyPressedEdge[key]               : false; }
+bool Input::IsKeyReleased  (int key)    { return key>=0&&key<512  ? s_KeyReleasedEdge[key]              : false; }
 bool Input::IsMouseButtonDown    (int b){ return b>=0&&b<16       ? s_MouseButtons[b]                   : false; }
-bool Input::IsMouseButtonPressed (int b){ return b>=0&&b<16       ? s_MouseButtons[b]&&!s_PrevMouseButtons[b] : false; }
-bool Input::IsMouseButtonReleased(int b){ return b>=0&&b<16       ? !s_MouseButtons[b]&&s_PrevMouseButtons[b] : false; }
+bool Input::IsMouseButtonPressed (int b){ return b>=0&&b<16       ? s_MousePressedEdge[b]               : false; }
+bool Input::IsMouseButtonReleased(int b){ return b>=0&&b<16       ? s_MouseReleasedEdge[b]              : false; }
 
 void Input::SetCursorLocked(bool locked) {
     s_CursorLocked = locked;
@@ -91,10 +95,10 @@ void Input::SetCursorLocked(bool locked) {
 void Input::ToggleCursorLock() { SetCursorLocked(!s_CursorLocked); }
 
 void Input::KeyCallback(GLFWwindow*, int key, int, int action, int) {
-    if (key>=0&&key<512) { if(action==GLFW_PRESS) s_Keys[key]=true; else if(action==GLFW_RELEASE) s_Keys[key]=false; }
+    if (key>=0&&key<512) { if(action==GLFW_PRESS) { s_Keys[key]=true; s_KeyPressedEdge[key]=true; } else if(action==GLFW_RELEASE) { s_Keys[key]=false; s_KeyReleasedEdge[key]=true; } }
 }
 void Input::MouseButtonCallback(GLFWwindow*, int btn, int action, int) {
-    if (btn>=0&&btn<16) { if(action==GLFW_PRESS) s_MouseButtons[btn]=true; else if(action==GLFW_RELEASE) s_MouseButtons[btn]=false; }
+    if (btn>=0&&btn<16) { if(action==GLFW_PRESS) { s_MouseButtons[btn]=true; s_MousePressedEdge[btn]=true; } else if(action==GLFW_RELEASE) { s_MouseButtons[btn]=false; s_MouseReleasedEdge[btn]=true; } }
 }
 void Input::CursorPosCallback(GLFWwindow*, double xpos, double ypos) {
     glm::vec2 cur = {static_cast<float>(xpos), static_cast<float>(ypos)};

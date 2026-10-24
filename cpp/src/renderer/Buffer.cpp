@@ -1,4 +1,4 @@
-﻿#include "Buffer.hpp"
+#include "Buffer.hpp"
 #include <utility>
 
 namespace Bazuko {

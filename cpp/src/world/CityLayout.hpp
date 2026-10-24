@@ -1,10 +1,11 @@
-﻿#pragma once
+#pragma once
 #include <vector>
 #include <memory>
 #include <glm/glm.hpp>
 #include "../renderer/Mesh.hpp"
 #include "../renderer/Renderer.hpp"
 #include "../renderer/Texture.hpp"
+#include "SignAtlas.hpp"
 
 namespace Bazuko {
 
@@ -22,6 +23,8 @@ struct BuildingInstance {
     glm::vec3 position;
     glm::vec3 size;
     glm::vec4 color;
+    int urbanDesign = -1;
+    int floors = 0;
 };
 
 class CityLayout {
@@ -54,6 +57,8 @@ private:
     std::shared_ptr<Mesh> m_MarkingMesh;
     std::shared_ptr<Mesh> m_BuildingMesh;
     std::shared_ptr<Mesh> m_FacadeDetailMesh;
+    std::shared_ptr<Mesh> m_SignMesh;
+    SignAtlas m_SignAtlas;
     std::shared_ptr<Texture> m_AsphaltTexture;
     std::shared_ptr<Texture> m_SidewalkTexture;
     std::shared_ptr<Texture> m_BrickTexture;

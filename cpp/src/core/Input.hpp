@@ -1,4 +1,4 @@
-﻿#pragma once
+#pragma once
 #include <glm/glm.hpp>
 
 struct GLFWwindow;
@@ -40,6 +40,11 @@ private:
     static inline bool s_Keys[512] = {false};
     static inline bool s_PrevKeys[512] = {false};
     static inline bool s_MouseButtons[16] = {false};
+    // Flancos registrados en los callbacks: un toque más corto que un fotograma tampoco se pierde.
+    static inline bool s_KeyPressedEdge[512] = {false};
+    static inline bool s_KeyReleasedEdge[512] = {false};
+    static inline bool s_MousePressedEdge[16] = {false};
+    static inline bool s_MouseReleasedEdge[16] = {false};
     static inline bool s_PrevMouseButtons[16] = {false};
 
     static inline glm::vec2 s_MousePos = {0.0f, 0.0f};

@@ -1,4 +1,4 @@
-﻿#include "Mesh.hpp"
+#include "Mesh.hpp"
 
 #include <algorithm>
 #include <array>

@@ -1,4 +1,4 @@
-﻿#include "VertexArray.hpp"
+#include "VertexArray.hpp"
 #include <utility>
 
 namespace Bazuko {

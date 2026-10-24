@@ -1,7 +1,8 @@
-﻿#pragma once
+#pragma once
 #include <string>
 #include <string_view>
 #include <cstdint>
+#include <cstddef>
 #include <memory>
 #include <glad/gl.h>
 
@@ -9,7 +10,7 @@ namespace Bazuko {
 
 class Texture {
 public:
-    Texture(const std::string& filepath);
+    Texture(const std::string& filepath, bool flipY = true);
     Texture(uint32_t width, uint32_t height, const uint8_t* rgbaData);
     ~Texture();
 
@@ -25,6 +26,9 @@ public:
     uint32_t GetHeight() const { return m_Height; }
 
     static std::shared_ptr<Texture> GetDefaultWhite();
+    static std::shared_ptr<Texture> LoadFromMemory(const uint8_t* data, size_t size, const std::string& mimeType);
+    // Carga con cache por ruta (las texturas de glTF no se voltean: su origen de UV es arriba-izquierda).
+    static std::shared_ptr<Texture> LoadCached(const std::string& filepath, bool flipY = false);
 
 private:
     void InitFromRGBA(uint32_t width, uint32_t height, const uint8_t* data);

@@ -1,4 +1,5 @@
-﻿#include "Renderer.hpp"
+#include "Renderer.hpp"
+#include "../core/Paths.hpp"
 #include <glad/gl.h>
 #include <algorithm>
 
@@ -18,8 +19,8 @@ Renderer::Renderer() {
     glEnable(GL_MULTISAMPLE);
 
     m_DefaultShader = std::make_unique<Shader>(
-        "assets/shaders/default.vert",
-        "assets/shaders/default.frag"
+        Paths::Find("assets/shaders/default.vert"),
+        Paths::Find("assets/shaders/default.frag")
     );
 
     m_CameraUBO = std::make_unique<UniformBuffer>(sizeof(CameraBlockData), 0);

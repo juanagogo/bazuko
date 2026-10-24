@@ -1,4 +1,4 @@
-﻿#pragma once
+#pragma once
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/constants.hpp>
@@ -28,6 +28,14 @@ public:
     const glm::mat4& GetViewProjectionMatrix() const { return m_ViewProjectionMatrix; }
     const glm::vec3& GetPosition() const { return m_Position; }
     float GetYaw() const { return m_Yaw; }
+
+    // Posiciona la cámara directamente (usado por CharacterPreview)
+    void LookAt(const glm::vec3& eye, const glm::vec3& center, const glm::vec3& up) {
+        m_Position = eye;
+        m_Target = center;
+        m_ViewMatrix = glm::lookAt(eye, center, up);
+        m_ViewProjectionMatrix = m_ProjectionMatrix * m_ViewMatrix;
+    }
 
 private:
     void UpdateProjection();

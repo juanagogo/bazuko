@@ -37,14 +37,40 @@ std::shared_ptr<Model> Model::LoadFromFile(const std::string& filepath) {
         if (source.has_scale) node.scale = {source.scale[0], source.scale[1], source.scale[2]};
         if (source.parent) node.parent = static_cast<int>(cgltf_node_index(data, source.parent));
     }
+    std::vector<glm::mat4> nodeWorldTransforms(model->m_Nodes.size(), glm::mat4(1.0f));
+    std::vector<bool> nodeWorldResolved(model->m_Nodes.size(), false);
+    std::function<glm::mat4(size_t)> resolveNodeWorld = [&](size_t index) {
+        if (nodeWorldResolved[index]) return nodeWorldTransforms[index];
+        const auto& node = model->m_Nodes[index];
+        const glm::mat4 local = glm::translate(glm::mat4(1.0f), node.translation)
+            * glm::mat4_cast(node.rotation) * glm::scale(glm::mat4(1.0f), node.scale);
+        nodeWorldTransforms[index] = node.parent >= 0
+            ? resolveNodeWorld(static_cast<size_t>(node.parent)) * local : local;
+        nodeWorldResolved[index] = true;
+        return nodeWorldTransforms[index];
+    };
+    for (size_t i = 0; i < model->m_Nodes.size(); ++i) resolveNodeWorld(i);
+    model->m_BoundsMinimum = glm::vec3(std::numeric_limits<float>::max());
+    model->m_BoundsMaximum = glm::vec3(std::numeric_limits<float>::lowest());
     const std::filesystem::path modelDirectory = std::filesystem::path(filepath).parent_path();
     std::vector<std::shared_ptr<Texture>> textures(data->textures_count);
     for (cgltf_size i = 0; i < data->textures_count; ++i) {
         const cgltf_texture& sourceTexture = data->textures[i];
         const cgltf_image* image = sourceTexture.webp_image ? sourceTexture.webp_image : sourceTexture.image;
-        if (!image || !image->uri || std::string(image->uri).starts_with("data:")) continue;
-        const std::filesystem::path imagePath = (modelDirectory / image->uri).lexically_normal();
-        if (std::filesystem::exists(imagePath)) textures[i] = std::make_shared<Texture>(imagePath.string());
+        if (!image) continue;
+        if (image->buffer_view) {
+            const auto* imageData = cgltf_buffer_view_data(image->buffer_view);
+            if (imageData) {
+                textures[i] = Texture::LoadFromMemory(imageData, image->buffer_view->size,
+                                                       image->mime_type ? image->mime_type : "");
+            } else {
+                LogError("No se pudieron leer los bytes de la textura glTF embebida: {} (imagen {}).",
+                         filepath, static_cast<size_t>(i));
+            }
+        } else if (image->uri && !std::string(image->uri).starts_with("data:")) {
+            const std::filesystem::path imagePath = (modelDirectory / image->uri).lexically_normal();
+            if (std::filesystem::exists(imagePath)) textures[i] = std::make_shared<Texture>(imagePath.string());
+        }
     }
 
     for (cgltf_size ni = 0; ni < data->nodes_count; ++ni) {
@@ -72,6 +98,9 @@ std::shared_ptr<Model> Model::LoadFromFile(const std::string& filepath) {
                 float value[4]{};
                 cgltf_accessor_read_float(positions, i, value, 3);
                 vertices[i].position = {value[0], value[1], value[2]};
+                const glm::vec3 worldPosition = glm::vec3(nodeWorldTransforms[ni] * glm::vec4(vertices[i].position, 1.0f));
+                model->m_BoundsMinimum = glm::min(model->m_BoundsMinimum, worldPosition);
+                model->m_BoundsMaximum = glm::max(model->m_BoundsMaximum, worldPosition);
                 if (normals) {
                     cgltf_accessor_read_float(normals, i, value, 3);
                     vertices[i].normal = {value[0], value[1], value[2]};
@@ -139,6 +168,48 @@ std::shared_ptr<Model> Model::LoadFromFile(const std::string& filepath) {
             model->m_PartNodes.push_back(std::move(chain));
         }
     }
+    if (model->m_Parts.empty()) {
+        model->m_BoundsMinimum = glm::vec3(0.0f);
+        model->m_BoundsMaximum = glm::vec3(0.0f);
+        model->m_GroundAnchor = glm::vec3(0.0f);
+    } else {
+        const float groundThreshold = model->m_BoundsMinimum.y
+            + (model->m_BoundsMaximum.y - model->m_BoundsMinimum.y) * 0.04f;
+        glm::vec2 groundSum(0.0f);
+        size_t groundVertexCount = 0;
+        for (cgltf_size ni = 0; ni < data->nodes_count; ++ni) {
+            const cgltf_node& node = data->nodes[ni];
+            if (!node.mesh) continue;
+            for (cgltf_size primitiveIndex = 0; primitiveIndex < node.mesh->primitives_count; ++primitiveIndex) {
+                const cgltf_primitive& primitive = node.mesh->primitives[primitiveIndex];
+                const cgltf_accessor* positions = nullptr;
+                for (cgltf_size attributeIndex = 0; attributeIndex < primitive.attributes_count; ++attributeIndex) {
+                    const cgltf_attribute& attribute = primitive.attributes[attributeIndex];
+                    if (attribute.type == cgltf_attribute_type_position) {
+                        positions = attribute.data;
+                        break;
+                    }
+                }
+                if (!positions) continue;
+                for (cgltf_size vertexIndex = 0; vertexIndex < positions->count; ++vertexIndex) {
+                    float value[3]{};
+                    if (!cgltf_accessor_read_float(positions, vertexIndex, value, 3)) continue;
+                    const glm::vec3 point = glm::vec3(nodeWorldTransforms[ni] * glm::vec4(value[0], value[1], value[2], 1.0f));
+                    if (point.y <= groundThreshold) {
+                        groundSum += glm::vec2(point.x, point.z);
+                        ++groundVertexCount;
+                    }
+                }
+            }
+        }
+        const glm::vec3 boundsCenter = (model->m_BoundsMinimum + model->m_BoundsMaximum) * 0.5f;
+        model->m_GroundAnchor = {boundsCenter.x, model->m_BoundsMinimum.y, boundsCenter.z};
+        if (groundVertexCount > 0) {
+            const glm::vec2 center = groundSum / static_cast<float>(groundVertexCount);
+            model->m_GroundAnchor.x = center.x;
+            model->m_GroundAnchor.z = center.y;
+        }
+    }
 
     std::unordered_map<std::string, size_t> targetNodesByName;
     for (size_t i = 0; i < model->m_Nodes.size(); ++i) if (!model->m_Nodes[i].name.empty()) targetNodesByName.emplace(model->m_Nodes[i].name, i);
@@ -189,10 +260,14 @@ std::shared_ptr<Model> Model::LoadFromFile(const std::string& filepath) {
     return model;
 }
 
-void Model::SetAnimationSource(const Model& source) {
+void Model::SetAnimationSource(const Model& source, const std::unordered_map<std::string, std::string>& clipAliases) {
     m_AnimationChannels.clear();
     m_AnimationSamplers = source.m_AnimationSamplers;
     m_AnimationClips = source.m_AnimationClips;
+    for (auto& clip : m_AnimationClips) {
+        const auto alias = clipAliases.find(clip.name);
+        if (alias != clipAliases.end()) clip.name = alias->second;
+    }
     m_AnimationSourceNodes = source.m_Nodes;
     m_SourceToTargetNode.assign(source.m_Nodes.size(), -1);
     m_SourceRestWorldRotations.resize(source.m_Nodes.size(), glm::quat(1.0f, 0.0f, 0.0f, 0.0f));
@@ -332,7 +407,8 @@ int Model::FindAnimationClip(const std::string& name) const {
     return -1;
 }
 
-void Model::Draw(Renderer& renderer, const glm::mat4& transform, const glm::vec4& tint, float animationTime, bool animate, int animationClip) const {
+void Model::Draw(Renderer& renderer, const glm::mat4& transform, const glm::vec4& tint,
+                 float animationTime, bool animate, int animationClip, int alphaModeOverride) const {
     auto nodes = m_Nodes;
     if (animate && animationClip >= 0 && static_cast<size_t>(animationClip) < m_AnimationClips.size()) {
         const auto& clip = m_AnimationClips[static_cast<size_t>(animationClip)];
@@ -436,7 +512,10 @@ void Model::Draw(Renderer& renderer, const glm::mat4& transform, const glm::vec4
                 skinMatrices.push_back(inverseMeshWorld * nodeWorldTransforms[jointNode] * part.inverseBindMatrices[joint]);
             }
         }
-        renderer.Submit(*part.mesh, transform * meshWorld, tint * part.baseColor, static_cast<bool>(part.texture), part.doubleSided, &skinMatrices, part.alphaMode, part.alphaCutoff);
+        const int alphaMode = alphaModeOverride >= 0 ? alphaModeOverride : part.alphaMode;
+        renderer.Submit(*part.mesh, transform * meshWorld, tint * part.baseColor,
+                        static_cast<bool>(part.texture), part.doubleSided, &skinMatrices,
+                        alphaMode, part.alphaCutoff);
     }
 }
 } // namespace Bazuko

@@ -1,4 +1,4 @@
-﻿#include "Shader.hpp"
+#include "Shader.hpp"
 #include "../core/Log.hpp"
 #include <fstream>
 #include <sstream>

@@ -1,0 +1,43 @@
+{
+  "instructions": [
+    "Agrega cada emisora como un objeto dentro del arreglo stations.",
+    "Usa un id unico y completa name, frequency, genre y program para mostrarla en el sintonizador.",
+    "Pon la URL directa del stream en url, por ejemplo https://stream.example.com/radio.mp3; reemplaza el dominio de ejemplo por una URL real.",
+    "La seleccion de emisoras esta disponible en el menu de pausa, pero la reproduccion online aun no esta implementada."
+  ],
+  "url_example": "https://stream.example.com/radio.mp3",
+  "stations": [
+    {
+      "id": "recuerdos",
+      "name": "Radio Recuerdos",
+      "frequency": "540 kHz AM",
+      "genre": "Cumbia, bolero y musica popular",
+      "program": "Los clasicos de cantina bogotana",
+      "url": ""
+    },
+    {
+      "id": "noticias",
+      "name": "La Voz de la Capital",
+      "frequency": "890 kHz AM",
+      "genre": "Noticias y radionovela",
+      "program": "Noticiero popular del mediodia",
+      "url": ""
+    },
+    {
+      "id": "deportes",
+      "name": "El Campin",
+      "frequency": "1040 kHz AM",
+      "genre": "Futbol y deportes",
+      "program": "Transmision deportiva",
+      "url": ""
+    },
+    {
+      "id": "rock",
+      "name": "Radioactiva",
+      "frequency": "98.5 MHz FM",
+      "genre": "Rock y baladas en espanol",
+      "program": "Clasicos del rock en tu idioma",
+      "url": ""
+    }
+  ]
+}
