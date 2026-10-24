@@ -10,6 +10,9 @@ import { World } from '../world/World.js';
 import { Dog } from '../entities/Dog.js';
 import { CompanionNavigation } from '../systems/CompanionNavigation.js';
 import { Minimap } from '../ui/Minimap.js';
+import { WorldMap } from '../ui/WorldMap.js';
+import { buildCityMap, describeCity } from '../ui/CityMap.js';
+import { RouteFinder, routeProgress } from '../systems/RouteFinder.js';
 import { WeatherSystem } from '../world/WeatherSystem.js';
 import { openPauseMenu } from '../ui/PauseMenu.js';
 import { Player } from '../entities/Player.js';
@@ -56,7 +59,7 @@ import { createCreator } from '../ui/Creator.js';
 import { openRecycler, openShop, openCambuche } from '../ui/placeMenus.js';
 import { DEFAULT_LOOK, normalizeLook } from '../character/look.js';
 import { ITEMS, COSTAL_BONUS, isRecyclable } from '../data/items.js';
-import { SLEEP } from '../data/cambuche.js';
+import { SLEEP, CAMBUCHE } from '../data/cambuche.js';
 import { cop } from '../utils/money.js';
 
 import {
@@ -116,6 +119,18 @@ export class Game {
     this.renderer.overlayLights = [this.sceneMgr.ambient, this.sceneMgr.sun, ...this.localLights.pool];
     this.menu = new Menu();
     this.minimap = new Minimap();
+    // Mapa completo con destino y ruta (K o clic en el radar); se registra antes que las
+    // teclas del juego para que Escape y K lo cierren primero.
+    this.waypoint = null;
+    this.route = null;
+    this.worldMap = new WorldMap({
+      getState: () => ({
+        player: this.player.position, heading: this.player.root.rotation.y, pois: this._getPOIs(),
+        route: this.route, waypoint: this.waypoint, remaining: this._routeProgress?.remaining
+      }),
+      onSelect: (x, z, poi) => this.setWaypoint(x, z, poi?.name),
+      onClear: () => this.clearWaypoint()
+    });
     this.weather = new WeatherSystem(this.sceneMgr.scene);
     let quality = 'baja';
     try { quality = localStorage.getItem('bazuko.graphics_quality') || quality; } catch { /* sin almacenamiento */ }
@@ -134,9 +149,11 @@ export class Game {
     window.addEventListener('open-shop', (e) => openShop(this, e.detail?.target));
     window.addEventListener('open-cambuche', () => openCambuche(this));
     window.addEventListener('open-radio-modal', () => openRadioModal(this));
+    window.addEventListener('open-world-map', () => { if (!this.paused) this.worldMap.open(); });
     window.addEventListener('keydown', (e) => {
       if (e.repeat || e.target?.closest?.('input, textarea, select, [contenteditable="true"]')) return;
       if (e.code === 'KeyN' && !this.paused) this.minimap.toggle();
+      if (e.code === 'KeyK' && !e._panelHandled && !this.paused) this.worldMap.open();
       if (e.code === 'Escape' && !e._panelHandled && !this.paused && !this.isSleeping) openPauseMenu(this);
       if (e.code === 'KeyV') this._toggleCamera();
       if (e.code === 'KeyP' && !this.paused) this.pet?.toggleCustomizationMenu();
@@ -183,6 +200,7 @@ export class Game {
     await loading.stage('Construyendo la ciudad…', 1);
     this.world.loadDistrict('Bogota', this.collisions);
     this._spawnEntities();
+    this._setupMap(this.world.active);
 
     const district = this.world.active;
     this._loadIfSave();
@@ -315,9 +333,57 @@ export class Game {
     this.hud.setCameraMode(mode);
   }
 
+  /** Imagen de calles para radar y mapa, y grilla de rutas a pie del mismo distrito. */
+  _setupMap(district) {
+    if (!district?.map) return;
+    this.routeFinder = new RouteFinder(describeCity(district), (x, z) => district.isWalkableAt?.(x, z) ?? true);
+    const cityMap = this.cityMap = buildCityMap(district);
+    this.minimap?.setCityMap(cityMap);
+    this.worldMap?.setCityMap(cityMap);
+  }
+
+  /** Marca un destino desde el mapa y traza la ruta desde el jugador. */
+  setWaypoint(x, z, label = null) {
+    const target = this.routeFinder?.isWalkable(x, z) ? { x, z } : this.routeFinder?.nearestWalkable(x, z) ?? { x, z };
+    const place = this.cityMap?.describe?.(target.x, target.z);
+    target.label = label ?? place?.zone ?? place?.street ?? 'Destino';
+    this.waypoint = target;
+    this._reroute(true);
+  }
+
+  clearWaypoint() {
+    this.waypoint = null;
+    this.route = null;
+    this._routeProgress = null;
+  }
+
+  _reroute(force = false) {
+    if (!this.waypoint) return;
+    const now = performance.now();
+    if (!force && now - (this._lastReroute ?? 0) < 1000) return;
+    this._lastReroute = now;
+    const p = this.player.position;
+    this.route = this.routeFinder?.find({ x: p.x, z: p.z }, this.waypoint) ?? [{ x: p.x, z: p.z }, this.waypoint];
+    this._routeProgress = routeProgress(this.route, p.x, p.z);
+  }
+
+  /** Sigue el avance por la ruta: recalcula si te desvías y la quita al llegar. */
+  _updateWaypoint() {
+    if (!this.waypoint || !this.route) return;
+    const p = this.player.position;
+    if (Math.hypot(p.x - this.waypoint.x, p.z - this.waypoint.z) < 4) {
+      const label = this.waypoint.label;
+      this.clearWaypoint();
+      window.dispatchEvent(new CustomEvent('toast', { detail: { text: `📍 Llegaste a ${label ?? 'tu destino'}.`, type: 'info' } }));
+      return;
+    }
+    this._routeProgress = routeProgress(this.route, p.x, p.z);
+    if (this._routeProgress.offRoute > 6) this._reroute();
+  }
+
   /** El mundo se congela mientras hay un menú o el creador abierto */
   get paused() {
-    return this._loading || this._deathPending || this.menu.isOpen || this.creator.isOpen || !!this.inventoryUI?.isOpen || !!this.hud?._talentOpen || !!this.hud?._craftOpen || !!this.hud?._dealerOpen;
+    return this._loading || !!this.worldMap?.isOpen || this._deathPending || this.menu.isOpen || this.creator.isOpen || !!this.inventoryUI?.isOpen || !!this.hud?._talentOpen || !!this.hud?._craftOpen || !!this.hud?._dealerOpen;
   }
 
   _spawnEntities() {
@@ -831,7 +897,11 @@ export class Game {
     this._renderFrame(now, true);
     this.profiler?.mark('envioRenderLucesCulling');
 
-    this.minimap?.update(this.player.position, Math.atan2(this.cameraRig.camera.matrixWorld.elements[8], this.cameraRig.camera.matrixWorld.elements[10]), this._getPOIs(now), now);
+    this._updateWaypoint();
+    this.minimap?.update(this.player.position, Math.atan2(this.cameraRig.camera.matrixWorld.elements[8], this.cameraRig.camera.matrixWorld.elements[10]), this._getPOIs(now), now, {
+      route: this.route, waypoint: this.waypoint, segment: this._routeProgress?.segment,
+      remaining: this._routeProgress?.remaining, heading: this.player.root.rotation.y
+    });
 
     // 13. UI
     this.hud.update(
@@ -876,20 +946,40 @@ export class Game {
     const friend = !!this.dog?.isFriend;
     if (!this._poiCache || now - this._poiCacheTime >= 350 || this._poiDogFriend !== friend) {
       const reserved = this.world?.active?.reserved ?? {};
-      this._poiCache = [[this.cambuche, reserved.bed, 'Cambuche', '⛺', '#ffd166'],
-        [this.sellPoint, reserved.sell, 'Recicladora', '♻️', '#2ab7ca'],
-        [this.shop, reserved.shop, 'Tienda', '🏪', '#2ecc71'],
-        [this.craftingStation, reserved.craft, 'Crafteo', '🔨', '#e67e22'],
-        [this.dealer, reserved.dealer, 'Dealer', '💀', '#9b59b6']]
-        .flatMap(([entity, fallback, name, icon, color]) => {
-          const pos = entity?.position ?? fallback;
-          return pos ? [{ name, icon, color, x: pos.x, z: pos.z }] : [];
-        });
-      if (this.world?.active?.gasStation) this._poiCache.push({ name: 'Gasolinera', icon: '⛽', x: 154, z: 94, color: '#f25b5b' });
-      if (this.world?.active?.stationGroup) this._poiCache.push({ name: 'Portal del Centro', icon: '🚏', x: 75, z: -2, color: '#e45960' });
-      if (this.world?.active?.colpatria) this._poiCache.push({ name: 'Torre Colpatria', icon: '🏙️', x: 81, z: 154, color: '#ffcb45' });
-      if (this.world?.active?.lakePark) this._poiCache.push({ name: 'Parque del Lago', icon: '🌊', x: 138, z: 238, color: '#5ed4dc' });
-      this._dogPOI = friend ? { name: 'El Chato', icon: '🐕', color: '#e6b566' } : null;
+      const built = CAMBUCHE.filter(piece => this.built?.[piece.id]).length;
+      const night = !!this.clock?.isNight;
+      // info y acción se muestran en el mapa completo (K) al pasar el ratón o en su lista.
+      this._poiCache = [
+        [this.cambuche, reserved.bed, 'Cambuche', '⛺', '#ffd166', 'Refugio',
+          `Tu refugio: construye piezas con material reciclado y duerme para recuperarte. Piezas: ${built}/${CAMBUCHE.length}.`, 'E: construir o dormir'],
+        [this.sellPoint, reserved.sell, 'Recicladora', '♻️', '#2ab7ca', 'Servicios',
+          'Compra el cartón, las latas, el vidrio y la chatarra que cargas en el costal.', 'E: vender'],
+        [this.shop, reserved.shop, 'Tienda La Esquinita', '🏪', '#2ecc71', 'Comercio',
+          'Comida, agua y artículos básicos. Si estás muy sucio no te atienden.', 'E: comprar'],
+        [this.craftingStation, reserved.craft, 'Mesa de crafteo', '🔨', '#e67e22', 'Servicios',
+          'Fabrica objetos con las recetas que conoces.', 'C: abrir recetas'],
+        [this.dealer, reserved.dealer, 'Dealer de El Cartucho', '💀', '#9b59b6', 'Comercio',
+          night ? 'Es de noche: vende sustancias y también te las compra.' : 'Vende sustancias; de noche también te las compra.', 'E / Q: tratar']
+      ].flatMap(([entity, fallback, name, icon, color, category, info, action]) => {
+        const pos = entity?.position ?? fallback;
+        return pos ? [{ name, icon, color, category, info, action, x: pos.x, z: pos.z }] : [];
+      });
+      for (const vendor of this.world?.active?.vendors ?? []) {
+        const items = vendor.items.map(id => ITEMS[id]?.name ?? id).join(', ');
+        this._poiCache.push({ name: vendor.title, icon: vendor.title.startsWith('Fritanga') ? '🍢' : '🛒', color: '#8fd16a',
+          category: 'Comercio', info: `Vendedor ambulante: ${items}.`, action: 'E: comprar', x: vendor.position.x, z: vendor.position.z });
+      }
+      const active = this.world?.active;
+      if (active?.gasStation) this._poiCache.push({ name: 'Gasolinera', icon: '⛽', x: 154, z: 94, color: '#f25b5b', category: 'Lugares',
+        info: 'Estación de servicio con cubierta; se puede caminar por debajo.' });
+      if (active?.stationGroup) this._poiCache.push({ name: 'Portal del Centro', icon: '🚏', x: 75, z: -2, color: '#e45960', category: 'Lugares',
+        info: 'Estación del TransMilenio al norte. Los buses de ambos sentidos paran unos segundos en la isla.' });
+      if (active?.colpatria) this._poiCache.push({ name: 'Torre Colpatria', icon: '🏙️', x: 81, z: 154, color: '#ffcb45', category: 'Lugares',
+        info: 'Torre de 112 m; el viaducto del TransMilenio la rodea por el occidente.' });
+      if (active?.lakePark) this._poiCache.push({ name: 'Parque del Lago', icon: '🌊', x: 138, z: 238, color: '#5ed4dc', category: 'Lugares',
+        info: 'Parque grande al sur con lago y palomas. El agua no es transitable.' });
+      this._dogPOI = friend ? { name: 'El Chato', icon: '🐕', color: '#e6b566', category: 'Compañero',
+        info: 'Tu perro: te sigue y avisa cuando hay basura cerca. Le gusta el pan y el atún.', action: 'E: acariciar' } : null;
       if (this._dogPOI) this._poiCache.push(this._dogPOI);
       this._poiCacheTime = now;
       this._poiDogFriend = friend;

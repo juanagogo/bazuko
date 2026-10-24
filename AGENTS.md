@@ -104,3 +104,7 @@ LoadingArtwork.js administra parejas numeradas según loading-artwork.json. Las 
 ## Variedad urbana
 
 UrbanBuildings.js planifica sustituciones deterministas sobre tiles building exclusivamente. Conservar el mismo plan al construir las fachadas y las colisiones. Las huellas se incorporan a covered antes de generar casas y relleno; en _buildCollisions se excluyen esos tiles de las cajas genéricas de 8 metros y se añade una caja de altura real por solar. No cambiar el mapa ni ocupar ruinas, calles, parques, edificios especiales o reservas del viaducto. Los cinco diseños usan createBuildingShell y BuildingVisibility, con fachadas repetibles compartidas y sin luces nuevas. Las torres de 30 pisos miden 96 metros, menos que Colpatria.
+
+## Mapa, destino y ruta
+
+CityMap.js dibuja una sola vez la imagen de la ciudad desde `district.map` (2 m por tile) y la estación de inTerminal, y nombra las calles con CITY_CALLES, CITY_CARRERAS y Caracas. La comparten Minimap (gira con la cámara) y WorldMap (tecla K, pausa el juego; registra su tecla antes que Game para cerrar con Escape o K). RouteFinder hace A* sobre esa grilla con isWalkableAt: prefiere andenes, no cruza el asfalto en diagonal y se recalcula si el jugador se aleja más de 6 m de la ruta. Si cambian el trazado o los tipos de tile, actualizar MAP_COLORS y los costos de ruta.

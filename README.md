@@ -91,6 +91,7 @@ En PowerShell, si una política de ejecución impide usar `npm`, ejecuta los mis
 | `R` en la calle | Abrir o cerrar la radio AM/FM; permite sintonizar emisoras y cambiar pilas. |
 | `X` en la calle | Lanzar si llevas munición; de lo contrario, hacer popó. |
 | `Z` en la calle | Hacer popó. |
+| `K` | Abrir el mapa y marcar un destino con ruta. |
 | Clic en comida o bebida del inventario | Consumir el objeto. |
 
 ## Cómo empezar
@@ -110,7 +111,17 @@ Si la salud llega a cero, el juego se pausa y muestra una pantalla de recuperaci
 
 ## Radar, pausa y El Chato
 
-El radar gira con la cámara en las dos vistas: arriba representa el frente de la pantalla. La brújula y los puntos de interés se orientan en consecuencia; debajo aparecen la distancia y dirección al lugar más cercano. Es una guía de orientación, no un navegador que calcule el camino entre edificios. Usa **N** para ocultarlo o mostrarlo.
+El radar gira con la cámara en las dos vistas: arriba representa el frente de la pantalla. Muestra las calles, andenes, manzanas, parques y el lago del propio trazado del juego, con la flecha del jugador según su rumbo y el nombre de la calle por donde caminas. Debajo aparecen la distancia y la dirección al lugar más cercano. Usa **N** para ocultarlo o mostrarlo.
+
+Con **K**, o con un clic en el radar, se abre el mapa completo de la ciudad y el juego queda en pausa. Muestra las calles rotuladas (Calle 7 a Calle 10, Carreras 6 a 15 y Avenida Caracas), el Portal del Centro y los puntos de interés. Como en GTA V:
+
+- El panel de la izquierda muestra el destino con su distancia y tiempo a pie, los lugares agrupados (refugio, servicios, comercio, lugares y El Chato) con qué se hace en cada uno y su tecla, y la leyenda de colores.
+- Al pasar el ratón por un ícono aparece su información. Sobre el resto del mapa se ven la zona, la calle, el tipo de suelo y si se puede caminar.
+- Un clic en el mapa, en un ícono o en un lugar de la lista marca el destino, y una ruta morada a pie aparece en el mapa y en el radar.
+- La ruta sigue andenes y cruza las calles en ángulo recto. Evita manzanas, el agua y, en lo posible, el carril del TransMilenio.
+- Si te desvías, la ruta se recalcula, y el marcador queda en el borde del radar mientras esté lejos.
+- Al llegar, el destino se borra. Clic derecho o **Supr** lo quitan antes.
+- La rueda acerca o aleja el mapa, y arrastrar lo mueve. **K** o **Esc** lo cierran.
 
 **Esc** o **Pausa** abren los ajustes: volumen maestro, silencio, calidad gráfica y guardado manual. Cerrar una tienda o el inventario con Esc no abre a la vez la pausa. Abrir cualquier panel libera el cursor. El volumen afecta también a los motores y claxones actuales, que mantienen su reproducción normal y sus voces independientes.
 

@@ -1,5 +1,8 @@
 // src/ui/Minimap.js
-// Radar y minimapa urbano para Bogotá (240x222m)
+// Radar y minimapa urbano para Bogotá: calles reales del distrito, ruta al destino marcado
+// en el mapa completo (K) y nombre de la calle actual, al estilo del radar de GTA V.
+import { drawPlayerArrow, drawWaypoint, ROUTE_COLOR } from './WorldMap.js';
+import { streetNameAt } from './CityMap.js';
 
 export class Minimap {
   constructor() {
@@ -17,10 +20,13 @@ export class Minimap {
     this.canvas = document.getElementById('minimap-canvas');
     this.ctx = this.canvas?.getContext('2d');
     this.infoEl = document.getElementById('minimap-info');
+    this.streetEl = document.getElementById('minimap-street');
+    this.cityMap = null;
+    this.canvas?.addEventListener?.('click', () => window.dispatchEvent(new CustomEvent('open-world-map')));
     this.container?.classList.toggle('hidden', !this.visible);
 
     this.radarRadius = 54; // radio del radar en píxeles
-    this.radarRange = 85;  // metros representados en el radio
+    this.radarRange = 60;  // metros representados en el radio
 
     this._lastUpdate = 0;
     this._cachedNearest = '';
@@ -37,7 +43,8 @@ export class Minimap {
         <span class="minimap-title">🧭 Radar Bogotá</span>
         <button type="button" class="minimap-toggle-btn" id="minimap-toggle-btn" title="Alternar minimapa (N)">N</button>
       </div>
-      <canvas id="minimap-canvas" width="130" height="130" aria-label="Minimapa y radar"></canvas>
+      <canvas id="minimap-canvas" width="130" height="130" aria-label="Minimapa y radar: clic para abrir el mapa (K)" title="Abrir mapa (K)"></canvas>
+      <div id="minimap-street" class="minimap-street"></div>
       <div id="minimap-info" class="minimap-info">Cargando puntos…</div>
     `;
     document.body.appendChild(div);
@@ -46,6 +53,11 @@ export class Minimap {
     document.getElementById('minimap-toggle-btn')?.addEventListener('click', () => {
       this.toggle();
     });
+  }
+
+  /** Imagen de la ciudad (buildCityMap) para dibujar calles y manzanas bajo el radar. */
+  setCityMap(cityMap) {
+    this.cityMap = cityMap;
   }
 
   toggle() {
@@ -69,8 +81,10 @@ export class Minimap {
    * @param {number} cameraYaw Ángulo yaw de la cámara (arriba en radar = al frente en pantalla)
    * @param {Array} pois Lista de { name, icon, x, z, color }
    * @param {number} now Timestamp de performance.now()
+   * @param {{ route?: {x:number,z:number}[] | null, waypoint?: {x:number,z:number} | null,
+   *   remaining?: number, heading?: number }} nav ruta y destino marcados en el mapa
    */
-  update(playerPos, cameraYaw = 0, pois = [], now = performance.now()) {
+  update(playerPos, cameraYaw = 0, pois = [], now = performance.now(), nav = {}) {
     if (!this.visible || !this.ctx || !this.canvas || !playerPos) return;
 
     // Actualizar a ~20 FPS para eficiencia
@@ -96,7 +110,32 @@ export class Minimap {
     ctx.strokeStyle = '#3d564d';
     ctx.stroke();
 
-    // Círculos concéntricos de distancia (25m y 50m)
+    // Calles y manzanas reales, girando con la cámara (arriba = al frente en pantalla).
+    const scale = r / this.radarRange;
+    const map = this.cityMap;
+    if (map) {
+      ctx.save();
+      ctx.clip();
+      ctx.translate(cx, cy);
+      ctx.rotate(cameraYaw);
+      ctx.scale(scale, scale);
+      ctx.translate(-playerPos.x, -playerPos.z);
+      ctx.drawImage(map.canvas, map.bounds.x0, map.bounds.z0, map.canvas.width / map.scale, map.canvas.height / map.scale);
+      if (nav.route?.length > 1) {
+        ctx.beginPath();
+        ctx.moveTo(playerPos.x, playerPos.z);
+        for (let i = (nav.segment ?? 0) + 1; i < nav.route.length; i++) ctx.lineTo(nav.route[i].x, nav.route[i].z);
+        ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+        ctx.strokeStyle = 'rgba(0, 0, 0, .5)'; ctx.lineWidth = 5.5 / scale; ctx.stroke();
+        ctx.strokeStyle = ROUTE_COLOR; ctx.lineWidth = 3.5 / scale; ctx.stroke();
+      }
+      ctx.restore();
+      ctx.fillStyle = 'rgba(10, 15, 20, 0.15)';
+      ctx.fill();
+    }
+
+    // Círculos concéntricos de distancia (solo sin mapa de calles)
+    if (!map) {
     ctx.strokeStyle = 'rgba(65, 95, 80, 0.4)';
     ctx.lineWidth = 1;
     ctx.beginPath();
@@ -114,6 +153,7 @@ export class Minimap {
     ctx.lineTo(cx + r, cy);
     ctx.strokeStyle = 'rgba(65, 95, 80, 0.25)';
     ctx.stroke();
+    }
 
     // Letras cardinales que rotan según la vista de la cámara
     // En Three.js, Norte es -Z. En vista de cámara: nForward = cos(yaw), nRight = sin(yaw)
@@ -159,7 +199,6 @@ export class Minimap {
       }
 
       // 1 metro en el mundo = (r / radarRange) píxeles en el radar
-      const scale = r / this.radarRange;
       let px = cx + right * scale;
       let py = cy - forward * scale;
 
@@ -190,28 +229,58 @@ export class Minimap {
       }
     }
 
-    // Jugador (flecha en el centro apuntando siempre hacia ARRIBA = vista de la cámara)
-    ctx.save();
-    ctx.translate(cx, cy);
+    // Destino marcado: dentro del radar o pegado al borde en su dirección, como en GTA.
+    const waypoint = nav.waypoint;
+    if (waypoint) {
+      const dx = waypoint.x - playerPos.x, dz = waypoint.z - playerPos.z;
+      let px = cx + (dx * Math.cos(cameraYaw) - dz * Math.sin(cameraYaw)) * scale;
+      let py = cy + (dx * Math.sin(cameraYaw) + dz * Math.cos(cameraYaw)) * scale;
+      if (Math.hypot(px - cx, py - cy) > r - 6) {
+        const angle = Math.atan2(py - cy, px - cx);
+        px = cx + Math.cos(angle) * (r - 6);
+        py = cy + Math.sin(angle) * (r - 6);
+      }
+      drawWaypoint(ctx, px, py + 6, .8);
+    }
 
-    ctx.beginPath();
-    ctx.moveTo(0, -7);
-    ctx.lineTo(4, 5);
-    ctx.lineTo(0, 3);
-    ctx.lineTo(-4, 5);
-    ctx.closePath();
-    ctx.fillStyle = '#2ecc71';
-    ctx.fill();
-    ctx.strokeStyle = '#0e3a1f';
-    ctx.lineWidth = 1;
-    ctx.stroke();
-    ctx.restore();
+    // Jugador: flecha en el centro con su rumbo relativo a la cámara (arriba = al frente).
+    if (Number.isFinite(nav.heading)) {
+      drawPlayerArrow(ctx, cx, cy, nav.heading - cameraYaw, .9);
+    } else {
+      ctx.save();
+      ctx.translate(cx, cy);
+      ctx.beginPath();
+      ctx.moveTo(0, -7);
+      ctx.lineTo(4, 5);
+      ctx.lineTo(0, 3);
+      ctx.lineTo(-4, 5);
+      ctx.closePath();
+      ctx.fillStyle = '#2ecc71';
+      ctx.fill();
+      ctx.strokeStyle = '#0e3a1f';
+      ctx.lineWidth = 1;
+      ctx.stroke();
+      ctx.restore();
+    }
 
     ctx.restore();
 
     // Actualiza la caja de información inferior con distancia y dirección relativa
+    if (this.streetEl) {
+      const street = map ? streetNameAt(playerPos.x, playerPos.z, map.bands) ?? '' : '';
+      if (this.streetEl.textContent !== street) this.streetEl.textContent = street;
+    }
+
     if (this.infoEl) {
-      if (nearestPoi) {
+      if (waypoint) {
+        const dx = waypoint.x - playerPos.x, dz = waypoint.z - playerPos.z;
+        const forward = -(dx * Math.sin(cameraYaw) + dz * Math.cos(cameraYaw));
+        const right = dx * Math.cos(cameraYaw) - dz * Math.sin(cameraYaw);
+        const sector = (Math.round(Math.atan2(right, forward) / (Math.PI / 4)) + 8) % 8;
+        const arrows = ['⬆️', '↗️', '➡️', '↘️', '⬇️', '↙️', '⬅️', '↖️'];
+        const meters = Math.round(nav.remaining ?? Math.hypot(dx, dz));
+        this._cachedNearest = `📍 ${waypoint.label ?? 'Destino'}: ${meters}m ${arrows[sector]}`;
+      } else if (nearestPoi) {
         const sector = (Math.round(Math.atan2(nearestRight, nearestForward) / (Math.PI / 4)) + 8) % 8;
         const directions = ['⬆️ Al frente', '↗️ Diagonal der.', '➡️ Derecha', '↘️ Atrás der.',
           '⬇️ Atrás', '↙️ Atrás izq.', '⬅️ Izquierda', '↖️ Diagonal izq.'];
