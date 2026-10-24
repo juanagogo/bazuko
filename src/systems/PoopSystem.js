@@ -3,6 +3,15 @@ import * as THREE from 'three';
 import { PoopProjectile } from '../entities/PoopProjectile.js';
 import { ITEMS } from '../data/items.js';
 
+// Geometrías y materiales compartidos para evitar recreación y saturación de memoria GPU
+const _groundPoopGeo = new THREE.CylinderGeometry(0.18, 0.26, 0.08, 7);
+const _groundPoopMat = new THREE.MeshStandardMaterial({
+  color: 0x4a2810,
+  roughness: 0.95
+});
+const _splatGeo = new THREE.BoxGeometry(0.06, 0.06, 0.06);
+const _splatMat = new THREE.MeshBasicMaterial({ color: 0x3d2008 });
+
 export class PoopSystem {
   /**
    * @param {THREE.Scene} scene
@@ -125,12 +134,7 @@ export class PoopSystem {
 
   _spawnGroundPoop(position) {
     if (!this.scene) return;
-    const geo = new THREE.CylinderGeometry(0.18, 0.26, 0.08, 7);
-    const mat = new THREE.MeshStandardMaterial({
-      color: 0x4a2810,
-      roughness: 0.95
-    });
-    const mesh = new THREE.Mesh(geo, mat);
+    const mesh = new THREE.Mesh(_groundPoopGeo, _groundPoopMat);
     mesh.position.copy(position);
     mesh.rotation.y = Math.random() * Math.PI * 2;
     this.scene.add(mesh);
@@ -140,11 +144,9 @@ export class PoopSystem {
   _spawnSplatEffect(position) {
     if (!this.scene) return;
     const particleCount = 10;
-    const geo = new THREE.BoxGeometry(0.06, 0.06, 0.06);
-    const mat = new THREE.MeshBasicMaterial({ color: 0x3d2008 });
 
     for (let i = 0; i < particleCount; i++) {
-      const mesh = new THREE.Mesh(geo, mat);
+      const mesh = new THREE.Mesh(_splatGeo, _splatMat);
       mesh.position.copy(position);
       const angle = Math.random() * Math.PI * 2;
       const speed = 1.5 + Math.random() * 2.5;
@@ -198,8 +200,6 @@ export class PoopSystem {
       gp.lifetime -= dt;
       if (gp.lifetime <= 0) {
         this.scene.remove(gp.mesh);
-        gp.mesh.geometry?.dispose?.();
-        gp.mesh.material?.dispose?.();
         this.groundPoops.splice(i, 1);
       }
     }
@@ -212,8 +212,6 @@ export class PoopSystem {
       sp.mesh.position.addScaledVector(sp.vel, dt);
       if (sp.lifetime <= 0) {
         this.scene.remove(sp.mesh);
-        sp.mesh.geometry?.dispose?.();
-        sp.mesh.material?.dispose?.();
         this.splatParticles.splice(i, 1);
       }
     }
@@ -225,15 +223,11 @@ export class PoopSystem {
 
     for (const gp of this.groundPoops) {
       this.scene.remove(gp.mesh);
-      gp.mesh.geometry?.dispose?.();
-      gp.mesh.material?.dispose?.();
     }
     this.groundPoops = [];
 
     for (const sp of this.splatParticles) {
       this.scene.remove(sp.mesh);
-      sp.mesh.geometry?.dispose?.();
-      sp.mesh.material?.dispose?.();
     }
     this.splatParticles = [];
   }

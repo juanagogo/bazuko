@@ -193,13 +193,13 @@ export class InteractionSystem {
       dog.befriend();
       this.stats.saludMental = Math.min(100, this.stats.saludMental + 15);
       window.dispatchEvent(new CustomEvent('toast', {
-        detail: { text: `🐕 ¡Le diste ${ITEMS[foodItem.id]?.name ?? 'comida'} a El Chato! Ahora te acompaña.`, type: 'rare' }
+        detail: { text: `🐕 ¡Le diste ${ITEMS[foodItem.id]?.name ?? 'comida'} a ${dog.title || 'El Chato'}! Ahora te acompaña.`, type: 'rare' }
       }));
     } else {
       if (!dog.pet()) return;
       this.stats.saludMental = Math.min(100, this.stats.saludMental + 5);
       window.dispatchEvent(new CustomEvent('toast', {
-        detail: { text: '🐕 Acariciaste a El Chato (+5 salud mental).', type: 'info' }
+        detail: { text: `🐕 Acariciaste a ${dog.title || 'El Chato'} (+5 salud mental).`, type: 'info' }
       }));
     }
   }

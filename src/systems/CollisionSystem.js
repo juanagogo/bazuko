@@ -12,15 +12,26 @@ export class CollisionSystem {
     this._cameraCandidates = [];
     this._occlusionCandidates = [];
     this._extent = new THREE.Vector3();
+    this._movementVec = new THREE.Vector3();
+    this._orientedResult = { local: new THREE.Vector3(), half: new THREE.Vector3() };
+    this._sweepDelta = new THREE.Vector3();
   }
 
-  /** Registra un mesh como sólido. size opcional para hitbox custom. */
-  add(mesh, size) {
+  /** Registra un mesh como sólido. size opcional para hitbox custom; offset opcional respecto al mesh. */
+  add(mesh, size, offset = null) {
+    let center;
+    if (size) {
+      center = mesh.position.clone();
+      if (offset) {
+        const rotated = offset.clone();
+        if (mesh.quaternion) rotated.applyQuaternion(mesh.quaternion);
+        center.add(rotated);
+      } else {
+        center.y += size.y / 2;
+      }
+    }
     const box = size
-      ? new THREE.Box3().setFromCenterAndSize(
-          mesh.position.clone().setY(mesh.position.y + size.y / 2),
-          size
-        )
+      ? new THREE.Box3().setFromCenterAndSize(center, size)
       : new THREE.Box3().setFromObject(mesh);
     this.colliders.push({ box, mesh });
     this.invalidateStaticIndex();
@@ -94,13 +105,13 @@ export class CollisionSystem {
         continue;
       }
       delete entry.obb;
-      const c = isBus ? Math.abs(Math.sin(vehicle.group.rotation.y)) : Math.abs(Math.cos(vehicle.group.rotation.y));
-      const s = isBus ? Math.abs(Math.cos(vehicle.group.rotation.y)) : Math.abs(Math.sin(vehicle.group.rotation.y));
+      const c = Math.abs(Math.cos(vehicle.group.rotation.y));
+      const s = Math.abs(Math.sin(vehicle.group.rotation.y));
       const halfX = (c * vehicle.length + s * vehicle.width) / 2;
       const halfZ = (s * vehicle.length + c * vehicle.width) / 2;
       const p = vehicle.position;
       entry.box.min.set(p.x - halfX, p.y, p.z - halfZ);
-      entry.box.max.set(p.x + halfX, p.y + (isBus ? 3 : 1.65), p.z + halfZ);
+      entry.box.max.set(p.x + halfX, p.y + 1.65, p.z + halfZ);
       this.dynamicColliders.push(entry);
     }
   }
@@ -139,7 +150,8 @@ export class CollisionSystem {
     for (const { box, vehicle, layered, obb } of this._movementColliders(pos, radius, axis, delta)) {
       if ((vehicle || layered) && (pos.y > box.max.y || pos.y + 1.6 < box.min.y)) continue;
       if (obb) {
-        const movement = new THREE.Vector3(); movement[axis] = end - start;
+        const movement = this._movementVec.set(0, 0, 0);
+        movement[axis] = end - start;
         const t = this._orientedSweep(pos, movement, radius, obb);
         if (t !== null) end = start + (end - start) * Math.max(0, t - epsilon);
         continue;
@@ -164,13 +176,13 @@ export class CollisionSystem {
   }
 
   _orientedPlayer(pos, radius, obb) {
-    const local = new THREE.Vector3(pos.x, pos.y + .8, pos.z).sub(obb.center).applyQuaternion(obb.inverse);
-    const half = obb.halfSize.clone();
+    const local = this._orientedResult.local.set(pos.x, pos.y + .8, pos.z).sub(obb.center).applyQuaternion(obb.inverse);
+    const half = this._orientedResult.half.copy(obb.halfSize);
     for (let i = 0; i < 3; i++) {
       const a = obb.axes[i];
       half.setComponent(i, half.getComponent(i) + radius * Math.hypot(a.x, a.z) + .8 * Math.abs(a.y));
     }
-    return { local, half };
+    return this._orientedResult;
   }
 
   _pushFromOriented(pos, radius, obb) {
@@ -189,7 +201,7 @@ export class CollisionSystem {
 
   _orientedSweep(pos, movement, radius, obb) {
     const { local, half } = this._orientedPlayer(pos, radius, obb);
-    const delta = movement.clone().applyQuaternion(obb.inverse);
+    const delta = this._sweepDelta.copy(movement).applyQuaternion(obb.inverse);
     let near = 0, far = 1;
     for (const axis of ['x','y','z']) {
       if (Math.abs(delta[axis]) < 1e-10) {

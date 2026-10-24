@@ -105,7 +105,7 @@ export class Game {
       this.diseases, this.talents, this.crafting
     );
 
-    this.pet = new Pet(this.sceneMgr.scene, this.player);
+    this.pet = new Pet(null, this.player);
     this.steal = new StealSystem(this);
 
     // HUD, menús y creador de personaje
@@ -137,9 +137,17 @@ export class Game {
     window.addEventListener('keydown', (e) => {
       if (e.repeat || e.target?.closest?.('input, textarea, select, [contenteditable="true"]')) return;
       if (e.code === 'KeyN' && !this.paused) this.minimap.toggle();
-      if (e.code === 'Escape' && !e._panelHandled && !this.paused && !this.isSleeping) openPauseMenu(this);
+      if (e.code === 'Escape') {
+        if (this.steal?.minigameActive) {
+          e._panelHandled = true;
+          this.steal._endMinigame(false, 'cancel');
+          return;
+        }
+        if (!e._panelHandled && !this.paused && !this.isSleeping) openPauseMenu(this);
+      }
       if (e.code === 'KeyV') this._toggleCamera();
-      if (e.code === 'KeyP' && !this.paused) this.pet?.toggleCustomizationMenu();
+      if (e.code === 'KeyP' && !this.paused) this.editLook();
+      if (e.code === 'KeyG' && (!this.paused || this._petModalOpen)) this.pet?.toggleCustomizationMenu();
       if (e.code === 'KeyM' && !this.paused) this._toggleModel();
       if (e.code === 'KeyR') {
         if (this._radioModalOpen) this.menu.close();
@@ -317,7 +325,7 @@ export class Game {
 
   /** El mundo se congela mientras hay un menú o el creador abierto */
   get paused() {
-    return this._loading || this._deathPending || this.menu.isOpen || this.creator.isOpen || !!this.inventoryUI?.isOpen || !!this.hud?._talentOpen || !!this.hud?._craftOpen || !!this.hud?._dealerOpen;
+    return this._loading || this._deathPending || this.menu.isOpen || this.creator.isOpen || !!this.inventoryUI?.isOpen || !!this.hud?._talentOpen || !!this.hud?._craftOpen || !!this.hud?._dealerOpen || !!this._petModalOpen;
   }
 
   _spawnEntities() {
@@ -347,6 +355,9 @@ export class Game {
         const x = tx * TILE_SIZE;
         const z = tz * TILE_SIZE;
         if (!district.isWalkableAt(x, z)) continue;
+        const tile = district.map?.[tz]?.[tx];
+        if (tile && !['sidewalk', 'dirt', 'grass', 'plaza'].includes(tile)) continue;
+        if (x >= 68 && x <= 82) continue;
         if (district.isNearReserved?.(x, z)) continue;
         let tooClose = false;
         for (const other of [...this.pickups, ...this.cars]) {
@@ -398,6 +409,7 @@ export class Game {
       const container = new TrashContainer(this.sceneMgr.scene, position);
       this.pickups.push(container);
       this.interaction.register(container);
+      this.collisions.add(container.mesh, new THREE.Vector3(1.1, 1.3, 0.9));
     }
 
     // ===== Autos (robar retrovisores) =====
@@ -469,6 +481,7 @@ export class Game {
     this.dog = new Dog(this.sceneMgr.scene, new THREE.Vector3(bedX + 2, 0, bedZ + 3));
     this.dog.navigation = new CompanionNavigation(district, this.collisions);
     this.dog.resetNear(this.dog.position);
+    this.pet?.attachDog?.(this.dog);
     this.interaction.register(this.dog);
     district.trafficPedestrians = [...(district.npcs ?? []), this.dog];
 
@@ -514,10 +527,10 @@ export class Game {
       if (data.radio) {
         if (typeof data.radio.freq === 'number') this.radio.setFrequency(data.radio.freq);
         if (typeof data.radio.battery === 'number') this.radio.battery = data.radio.battery;
+        if (data.radio.isOn && !this.radio.isOn) this.radio.turnOn();
+        else if (!data.radio.isOn && this.radio.isOn) this.radio.turnOff();
       }
-      if (data.dog?.isFriend && this.dog) {
-        this.dog.befriend();
-      }
+
 
     }
   }
@@ -622,6 +635,7 @@ export class Game {
     this.audio.updateSteps(false, false);
     this.audio.setPaused?.(true);
     if (this.interaction.boostActive) this.interaction._endBoost();
+    if (this.steal?.minigameActive) this.steal._endMinigame(false, 'cancel');
     const causes = [];
     if (this._deathCause) causes.push(this._deathCause);
     for (const [stat, name] of [['sed', 'deshidratación'], ['hambre', 'hambre'],
@@ -889,12 +903,12 @@ export class Game {
       if (this.world?.active?.stationGroup) this._poiCache.push({ name: 'Portal del Centro', icon: '🚏', x: 75, z: -2, color: '#e45960' });
       if (this.world?.active?.colpatria) this._poiCache.push({ name: 'Torre Colpatria', icon: '🏙️', x: 81, z: 154, color: '#ffcb45' });
       if (this.world?.active?.lakePark) this._poiCache.push({ name: 'Parque del Lago', icon: '🌊', x: 138, z: 238, color: '#5ed4dc' });
-      this._dogPOI = friend ? { name: 'El Chato', icon: '🐕', color: '#e6b566' } : null;
+      this._dogPOI = friend ? { name: this.dog?.title || 'El Chato', icon: '🐕', color: '#e6b566' } : null;
       if (this._dogPOI) this._poiCache.push(this._dogPOI);
       this._poiCacheTime = now;
       this._poiDogFriend = friend;
     }
-    if (this._dogPOI) Object.assign(this._dogPOI, { x: this.dog.position.x, z: this.dog.position.z });
+    if (this._dogPOI) Object.assign(this._dogPOI, { name: this.dog?.title || 'El Chato', x: this.dog.position.x, z: this.dog.position.z });
     return this._poiCache;
   }
 

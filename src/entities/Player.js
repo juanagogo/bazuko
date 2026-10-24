@@ -53,6 +53,7 @@ export class Player {
     this.action = null;       // 'pedir' | 'buscar' | 'comer' | 'dormir' | 'saludo'
     this.actionTimer = 0;
     this.sorting = false;     // seleccionando basura (mantener Q)
+    this.frozen = false;
   }
 
   setLook(look) {
@@ -111,6 +112,7 @@ export class Player {
     this._impactVelocity.set(0, 0, 0);
     this._impactTime = 0;
     this.root.rotation.z = 0;
+    this.frozen = false;
   }
 
   update(dt, camera, collisions) {
@@ -129,7 +131,8 @@ export class Player {
 
     const { x, z } = this.input.axis;
     const stunned = this._impactTime > 0;
-    const moving = !stunned && (x !== 0 || z !== 0);
+    if (this.frozen) this.velocity?.set(0, 0, 0);
+    const moving = !stunned && !this.frozen && (x !== 0 || z !== 0);
     const running = this.input.isRunning && moving;
     let speed = running ? this.speedRun : this.speedWalk;
     if (this.stats?.getSpeedMultiplier) {

@@ -25,10 +25,93 @@ test('StealSystem detecta al NPC cercano y permite iniciar cosquilleo o robo dir
   assert.equal(steal.targetNpc, npc);
 });
 
+test('StealSystem da prioridad a InteractionSystem si currentTarget o isHoldingQ estan activos', () => {
+  const npc = { position: new THREE.Vector3(1, 0, 1), _robadoTimer: 0, alerta: 0.3 };
+  let consumedKey = null;
+  const game = {
+    player: { position: new THREE.Vector3(0, 0, 0) },
+    world: { active: { npcs: [npc] } },
+    input: {
+      consumePress: (code) => {
+        consumedKey = code;
+        return true;
+      }
+    },
+    interaction: { currentTarget: { type: 'trash' }, isHoldingQ: false },
+    paused: false
+  };
+
+  const steal = new StealSystem(game);
+  steal.update(0.1);
+
+  assert.equal(steal.targetNpc, null);
+  assert.equal(steal.minigameActive, false);
+  assert.equal(consumedKey, null);
+
+  // Probar cuando isHoldingQ esta activo clasificando basura
+  game.interaction.currentTarget = null;
+  game.interaction.isHoldingQ = true;
+  steal.update(0.1);
+
+  assert.equal(steal.targetNpc, null);
+  assert.equal(steal.minigameActive, false);
+  assert.equal(consumedKey, null);
+});
+
+test('Cosquilleo congela al jugador y lo descongela al finalizar', () => {
+  const npc = { position: new THREE.Vector3(1, 0, 1), _robadoTimer: 0, alerta: 0.2 };
+  const game = {
+    player: { position: new THREE.Vector3(0, 0, 0), frozen: false },
+    stats: { dinero: 1000 },
+    inventory: { add: () => true },
+    world: { active: { npcs: [npc] } },
+    input: { consumePress: () => false },
+    interaction: {}
+  };
+
+  const steal = new StealSystem(game);
+  steal.startCosquilleo(npc);
+
+  assert.equal(steal.minigameActive, true);
+  assert.equal(game.player.frozen, true);
+
+  steal.markerPos = steal.zoneStart + (steal.zoneSize / 2);
+  steal._endMinigame(true, 'play');
+
+  assert.equal(steal.minigameActive, false);
+  assert.equal(game.player.frozen, false);
+});
+
+test('Escape cancela el minijuego de cosquilleo sin penalizaciones ni alerta al peaton', () => {
+  const npc = { position: new THREE.Vector3(1, 0, 1), _robadoTimer: 0, alerta: 0.2 };
+  let hitCalled = false;
+  npc.hitByPoop = () => { hitCalled = true; };
+
+  const game = {
+    player: { position: new THREE.Vector3(0, 0, 0), frozen: false },
+    stats: { dinero: 1000 },
+    inventory: { add: () => true },
+    world: { active: { npcs: [npc] } },
+    input: { consumePress: (code) => code === 'Escape' },
+    interaction: {}
+  };
+
+  const steal = new StealSystem(game);
+  steal.startCosquilleo(npc);
+  assert.equal(game.player.frozen, true);
+
+  steal._updateMinigame(0.016);
+
+  assert.equal(steal.minigameActive, false);
+  assert.equal(game.player.frozen, false);
+  assert.equal(hitCalled, false);
+  assert.equal(steal.cooldown, 0);
+});
+
 test('Cosquilleo exitoso dentro de la zona verde otorga botín y activa cooldown', () => {
   const npc = { position: new THREE.Vector3(1, 0, 1), _robadoTimer: 0, alerta: 0.2 };
   const game = {
-    player: { position: new THREE.Vector3(0, 0, 0) },
+    player: { position: new THREE.Vector3(0, 0, 0), frozen: false },
     stats: { dinero: 1000 },
     inventory: { add: () => true },
     world: { active: { npcs: [npc] } },
@@ -53,7 +136,7 @@ test('Robo directo otorga botín mayor, sube buscado y daña al jugador si el NP
   npc.hitByPoop = () => { splatted = true; };
 
   const game = {
-    player: { position: new THREE.Vector3(0, 0, 0) },
+    player: { position: new THREE.Vector3(0, 0, 0), frozen: false },
     stats: { dinero: 500, salud: 100 },
     inventory: { add: () => true },
     world: { active: { npcs: [npc] } },

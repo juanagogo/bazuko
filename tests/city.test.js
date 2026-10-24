@@ -13,9 +13,9 @@ const textureSet=()=>({map:new THREE.Texture(),bumpMap:new THREE.Texture(),emiss
 const replacements={...textures};
 for(const name of ['asphalt','sidewalk','brick','facade','roofTiles','slab','cardboard','trashBag','dirt','concrete']) replacements[name]=textureSet;
 for(const name of ['radialSprite','lightbox','neon']) replacements[name]=()=>new THREE.Texture();
-mock.module('../src/world/bogota/textures.js',{namedExports:replacements});
-mock.module('../src/utils/signs.js',{namedExports:{signTexture:()=>new THREE.Texture()}});
-mock.module('../src/character/RealisticCharacter.js',{namedExports:{
+mock.module('../src/world/bogota/textures.js',{exports:replacements});
+mock.module('../src/utils/signs.js',{exports:{signTexture:()=>new THREE.Texture()}});
+mock.module('../src/character/RealisticCharacter.js',{exports:{
   REALISTIC_SCALE:1.08,createRealisticCharacter:async()=>({group:new THREE.Group(),update(){}}),
   loadCatalog:async()=>({}),normalizeReal:(_,look)=>look,optionsFor:()=>[{id:'test'}]
 }});
@@ -96,6 +96,10 @@ test('el distrito completo construye y actualiza barrios, vendedores, peatones y
     assert.ok(city.getSpawnGrid().some(point=>point.z>ORIGINAL_CITY_HEIGHT*2));
     assert.ok(collisions.colliders.some(({box})=>box.min.x>ORIGINAL_CITY_WIDTH*2));
     assert.ok(collisions.colliders.some(({box})=>box.min.z>ORIGINAL_CITY_HEIGHT*2));
+    assert.ok(collisions.colliders.some(({box})=>Math.abs(box.max.y - box.min.y - 4.0) < 0.1));
+    assert.ok(collisions.colliders.some(({box})=>Math.abs(box.max.y - box.min.y - 2.85) < 0.1));
+    assert.ok(collisions.colliders.some(({box})=>Math.abs(box.max.y - box.min.y - 0.9) < 0.1));
+    assert.ok(collisions.colliders.some(({box})=>box.max.y - box.min.y >= 2.5 && box.max.x - box.min.x <= 0.8));
     assert.ok(city.busService.startZ>ORIGINAL_CITY_HEIGHT*2);
     for(const point of Object.values(city.reserved)) assert.ok(city.isWalkableAt(point.x,point.z));
     assert.deepEqual(city.reserved.bed, { x: 112.98, z: 94.64 });
@@ -133,4 +137,29 @@ test('el distrito completo construye y actualiza barrios, vendedores, peatones y
     assert.ok(batchedFacades.every(mesh=>mesh.material.emissiveIntensity === 0));
   } finally { city.dispose(scene); }
   assert.ok(!scene.children.includes(city.group));
+});
+
+test('los faroles no se solapan, mantienen distancia minima y se orientan hacia la calzada', () => {
+  const scene = new THREE.Scene();
+  const collisions = new CollisionSystem();
+  const city = new Bogota();
+  try {
+    city.build(scene, collisions);
+    const faroles = city.props.map(p => p.instance).filter(p => p?.constructor?.name === 'Farol');
+    assert.ok(faroles.length > 50, 'debe haber faroles en la ciudad');
+
+    // Verificar que no hay dos faroles a menos de 12 metros entre si
+    for (let i = 0; i < faroles.length; i++) {
+      for (let j = i + 1; j < faroles.length; j++) {
+        const dist = faroles[i].group.position.distanceTo(faroles[j].group.position);
+        assert.ok(dist >= 12, 'faroles demasiado pegados (' + dist.toFixed(2) + 'm)');
+      }
+    }
+
+    // Verificar que los faroles tienen rotacion orientada segun la calzada vecina
+    const distinctRotations = new Set(faroles.map(f => f.group.rotation.y.toFixed(2)));
+    assert.ok(distinctRotations.size >= 2, 'los faroles deben tener distintas orientaciones segun la calle vecina');
+  } finally {
+    city.dispose(scene);
+  }
 });

@@ -139,4 +139,9 @@ test('los semáforos cubren todos los cruces de la ciudad ampliada con cuatro ac
     const detour = xa === CARACAS.lanes[0][0] && xb === CARACAS.lanes[1][1] && (za === 72 || za === 94);
     assert.ok(signals.nodes.some(node => node.x0 === xa * 2 - 1 && node.x1 === xb * 2 + 1 + (detour ? 32 : 0) && node.z0 === za * 2 - 1 && node.z1 === zb * 2 + 1));
   }
+  const map = new Bogota()._layout();
+  for (const pole of signals.poles) {
+    const tile = map[Math.round(pole.z / 2)]?.[Math.round(pole.x / 2)];
+    assert.ok(tile !== 'road' && tile !== 'busway', `Poste de semáforo fuera de la calzada: (${pole.x}, ${pole.z}) -> ${tile}`);
+  }
 });

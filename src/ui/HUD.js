@@ -258,10 +258,10 @@ export class HUD {
         else if (type === 'dog') {
           const hasFood = inventory?.items.some(item => item.qty > 0 && ['pan', 'lataComida', 'carne', 'hueso'].includes(item.id));
           text = interaction.currentTarget?.isFriend
-            ? '🐕 El Chato ya te sigue · [E] Acariciar (+5 ánimo)'
+            ? `🐕 ${interaction.currentTarget?.title ?? 'El Chato'} ya te sigue · [E] Acariciar (+5 ánimo) · [G] Personalizar`
             : hasFood
-              ? '🐕 [E] Darle 1 pan o 1 lata de atún para que te siga (consume una unidad)'
-              : '🐕 Para que El Chato te siga, trae pan o una lata de atún y pulsa E · Ahora: [E] acariciar';
+              ? '🐕 [E] Darle 1 pan o 1 lata de atún para que te siga · [G] Personalizar'
+              : `🐕 Para que ${interaction.currentTarget?.title ?? 'El Chato'} te siga, trae pan o una lata de atún y pulsa E · Ahora: [E] acariciar · [G] personalizar`;
         }
         else if (type === 'cambuche') text = '[E] Tu cambuche · Armar / Dormir';
         else if (type === 'dealer') text = '[Q / E] Tienda del Dealer · Comprar / Vender';

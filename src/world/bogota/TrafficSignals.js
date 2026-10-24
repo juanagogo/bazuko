@@ -4,7 +4,7 @@ import { CARACAS } from './StreetLayout.js';
 import { CITY_CARRERAS as CARRERAS, CITY_CALLES as CALLES } from './CityLayout.js';
 import { BUS_DETOUR } from './Colpatria.js';
 
-const SEM_HEIGHT = 4.3;
+const SEM_HEIGHT = 2.85;
 
 /** Ilumina las zonas de lente pintadas en el GLB, sobre su geometría real. */
 export function createSignalMaterial(source, states) {
@@ -55,15 +55,17 @@ export class TrafficSignals {
     this.lensStates = { value: new THREE.Vector2(signalState(0, 0), signalState(0, 1)) };
     const vertical = [...CARRERAS, [CARACAS.lanes[0][0], CARACAS.lanes[1][1]]];
     for (const [za, zb] of CALLES) for (const [xa, xb] of vertical) {
-      const node = { x0: xa * 2 - 1, x1: xb * 2 + 1, z0: za * 2 - 1, z1: zb * 2 + 1 };
-      // El desvío comparte la fase de la troncal y reserva el cruce completo.
+      const roadX0 = xa * 2 - 1, roadX1 = xb * 2 + 1;
+      const node = { x0: roadX0, x1: roadX1, roadX0, roadX1, z0: za * 2 - 1, z1: zb * 2 + 1 };
+      // El desvío comparte la fase de la troncal y reserva el cruce completo,
+      // pero los postes y las líneas de pare de carros usan los bordes reales de la calzada (roadX0/roadX1).
       if (node.x0 < 78.5 && node.x1 > 78.5 && node.z0 > BUS_DETOUR.z0 && node.z1 < BUS_DETOUR.z1) node.x1 = Math.min(node.x1 + BUS_DETOUR.offset, 125);
       this.nodes.push(node);
       this.poles.push(
-        { x: node.x0 - .5, z: node.z1 + .5, hx: 1, hz: 0, axis: 0 },
-        { x: node.x1 + .5, z: node.z0 - .5, hx: -1, hz: 0, axis: 0 },
-        { x: node.x0 - .5, z: node.z0 - .5, hx: 0, hz: 1, axis: 1 },
-        { x: node.x1 + .5, z: node.z1 + .5, hx: 0, hz: -1, axis: 1 }
+        { x: roadX0 - .5, z: node.z1 + .5, hx: 1, hz: 0, axis: 0 },
+        { x: roadX1 + .5, z: node.z0 - .5, hx: -1, hz: 0, axis: 0 },
+        { x: roadX0 - .5, z: node.z0 - .5, hx: 0, hz: 1, axis: 1 },
+        { x: roadX1 + .5, z: node.z1 + .5, hx: 0, hz: -1, axis: 1 }
       );
     }
   }
@@ -87,19 +89,21 @@ export class TrafficSignals {
     const red = signalState(this.time, axis) !== 0;
     if (!red && !vehicle) return false;
     for (const node of this.nodes) {
+      const x0 = node.roadX0 ?? node.x0;
+      const x1 = node.roadX1 ?? node.x1;
       const claim = this.reservations.get(node);
       if (vehicle && claim?.owners.get(vehicle)?.entered) continue;
       // Quien ya está en el cruce lo despeja aunque cambie la luz.
-      if (current.x >= node.x0 && current.x <= node.x1 && current.z >= node.z0 && current.z <= node.z1) continue;
+      if (current.x >= x0 && current.x <= x1 && current.z >= node.z0 && current.z <= node.z1) continue;
       // Solo obedece quien se acerca a ese acceso. Al salir, la cola del
       // vehículo puede seguir dentro del margen de frenado del mismo cruce.
       const approaching = axis === 0
-        ? (direction.x > 0 ? current.x < node.x0 : current.x > node.x1)
+        ? (direction.x > 0 ? current.x < x0 : current.x > x1)
         : (direction.z > 0 ? current.z < node.z0 : current.z > node.z1);
       if (!approaching) continue;
       const padX = axis === 0 ? length / 2 + .8 : 0;
       const padZ = axis === 1 ? length / 2 + .8 : 0;
-      if (point.x >= node.x0 - padX && point.x <= node.x1 + padX && point.z >= node.z0 - padZ && point.z <= node.z1 + padZ) {
+      if (point.x >= x0 - padX && point.x <= x1 + padX && point.z >= node.z0 - padZ && point.z <= node.z1 + padZ) {
         if (red || (vehicle && claim && !claim.owners.has(vehicle))) return true;
       }
     }
@@ -160,8 +164,6 @@ export class TrafficSignals {
     this.group.add(im);
     this.poleMesh = im;
   }
-
-
 
   dispose() {
     this.group.removeFromParent();

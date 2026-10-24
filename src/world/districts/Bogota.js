@@ -161,6 +161,7 @@ export class Bogota {
 
   build(scene, collisions) {
     this.scene = scene;
+    this.collisions = collisions;
     const map = this.map = this._layout();
     this._buildGround(map);
     this._buildMarkings();
@@ -210,6 +211,14 @@ export class Bogota {
     this.signals = new TrafficSignals();
     this.group.add(this.signals.group);
     for (const bus of this.busServices) bus.signals = this.signals;
+    if (this.collisions && this.signals.poles) {
+      for (const p of this.signals.poles) {
+        const semObj = new THREE.Object3D();
+        const gy = this.getGroundHeight(p.x, p.z);
+        semObj.position.set(p.x, gy, p.z);
+        this.collisions.add(semObj, new THREE.Vector3(0.35, 2.85, 0.35));
+      }
+    }
 
     this.isWalkableAt = (wx, wz) => {
       if (inTerminal(wx,wz)) return true;
@@ -742,20 +751,53 @@ export class Bogota {
 
   /** Faroles, placas de nomenclatura, estación y bus de la troncal */
   _buildStreetProps(map) {
-    // faroles cada ~14 m en los andenes junto a la calzada
+    // faroles cada ~14 m en los andenes junto a la calzada, sin duplicados ni superposiciones
+    const placedFaroles = [];
+    const MIN_FAROL_DIST = 12; // distancia mínima para que no queden dos postes pegados
+    const isRoad = (tx, tz) => map[tz]?.[tx] === 'road' || map[tz]?.[tx] === 'busway';
+    const getRoadDirection = (tx, tz) => {
+      for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+        if (isRoad(tx + dx, tz + dz)) return [dx, dz];
+      }
+      for (const [dx, dz] of [[1, 1], [-1, 1], [1, -1], [-1, -1]]) {
+        if (isRoad(tx + dx, tz + dz)) return [dx, dz];
+      }
+      return null;
+    };
+
     for (let z = 2; z < map.length - 2; z += 7) {
       for (let x = 2; x < map[0].length - 2; x += 7) {
         let best = null;
-        for (let dz = 0; dz < 7 && !best; dz++) for (let dx = 0; dx < 7 && !best; dx++) {
-          const tx = x + dx, tz = z + dz;
-          if (map[tz]?.[tx] !== 'sidewalk') continue;
-          if ([[1, 0], [-1, 0], [0, 1], [0, -1]].some(([a, b]) => map[tz + b]?.[tx + a] === 'road')) best = [tx, tz];
+        let bestRoadDir = null;
+        for (let dz = 0; dz < 7 && !best; dz++) {
+          for (let dx = 0; dx < 7 && !best; dx++) {
+            const tx = x + dx, tz = z + dz;
+            if (map[tz]?.[tx] !== 'sidewalk') continue;
+            const roadDir = getRoadDirection(tx, tz);
+            if (!roadDir) continue;
+            const wx = W(tx), wz = W(tz);
+            if (placedFaroles.some(p => Math.hypot(p.x - wx, p.z - wz) < MIN_FAROL_DIST)) continue;
+            best = [tx, tz];
+            bestRoadDir = roadDir;
+          }
         }
         if (!best) continue;
-        const farol = new Farol(new THREE.Vector3(W(best[0]), SIDEWALK_Y, W(best[1])));
+        const farolPos = new THREE.Vector3(W(best[0]), SIDEWALK_Y, W(best[1]));
+        placedFaroles.push({ x: farolPos.x, z: farolPos.z });
+
+        const farol = new Farol(farolPos);
+        // Orientar el farol apuntando con su brazo (en +X local) hacia la calzada más cercana
+        if (bestRoadDir) {
+          farol.group.rotation.y = Math.atan2(-bestRoadDir[1], bestRoadDir[0]);
+        }
         farol.group.userData.noMerge = true; // cambia de material de noche
         this.group.add(farol.group);
         this.props.push({ instance: farol });
+        if (this.collisions) {
+          const poleObj = new THREE.Object3D();
+          poleObj.position.copy(farolPos);
+          this.collisions.add(poleObj, new THREE.Vector3(0.35, 4.0, 0.35));
+        }
       }
     }
     // placas en las esquinas
@@ -788,17 +830,54 @@ export class Bogota {
       facing: rotY, isWalkable: () => false
     }));
     this.vendors.push({ kind: 'shop', title, items, position: new THREE.Vector3(x, 0, z) });
+    if (this.collisions) {
+      const isPerp = Math.abs(Math.sin(rotY)) > 0.5;
+      const baseW = kind === 'fritanga' ? 1.6 : 1.1;
+      const baseD = kind === 'fritanga' ? 1.0 : 0.8;
+      const w = isPerp ? baseD : baseW;
+      const d = isPerp ? baseW : baseD;
+      const stallObj = new THREE.Object3D();
+      stallObj.position.set(x, this.getGroundHeight(x, z), z);
+      this.collisions.add(stallObj, new THREE.Vector3(w, 1.4, d));
+    }
   }
 
   /** El Cartucho: humo, fuego, carretas, cambuches, ropa colgada y basura */
   _buildCartucho() {
     const cx = WX, cz = WZ;
     // canecas con fuego en la olla y el callejón
-    for (const [x, z] of [[13, 19], [16.5, 24.5], [10, 21.5], [19.5, 22]]) this._add(P.fireBarrel(), cx(x), cz(z));
+    for (const [x, z] of [[13, 19], [16.5, 24.5], [10, 21.5], [19.5, 22]]) {
+      this._add(P.fireBarrel(), cx(x), cz(z));
+      if (this.collisions) {
+        const obj = new THREE.Object3D();
+        obj.position.set(cx(x), this.getGroundHeight(cx(x), cz(z)), cz(z));
+        this.collisions.add(obj, new THREE.Vector3(0.65, 0.9, 0.65));
+      }
+    }
     // zorras de reciclaje
-    for (const [x, z, r] of [[9.5, 22.5, 0.3], [12.5, 24.5, 1.9], [18.5, 21, -0.8], [20.5, 15, 1.2]]) this._add(P.zorra(), cx(x), cz(z), r);
+    for (const [x, z, r] of [[9.5, 22.5, 0.3], [12.5, 24.5, 1.9], [18.5, 21, -0.8], [20.5, 15, 1.2]]) {
+      this._add(P.zorra(), cx(x), cz(z), r);
+      if (this.collisions) {
+        const isPerp = Math.abs(Math.sin(r)) > 0.5;
+        const w = isPerp ? 1.0 : 1.8;
+        const d = isPerp ? 1.8 : 1.0;
+        const obj = new THREE.Object3D();
+        obj.position.set(cx(x), this.getGroundHeight(cx(x), cz(z)), cz(z));
+        this.collisions.add(obj, new THREE.Vector3(w, 0.9, d));
+      }
+    }
     // cambuches ajenos contra las paredes
-    for (const [x, z, r] of [[12.5, 18.3, 0], [15, 18.3, 0], [17.4, 20, Math.PI / 2], [12.3, 25.5, Math.PI], [11, 22.5, Math.PI / 2]]) this._add(P.shack(), cx(x), cz(z), r);
+    for (const [x, z, r] of [[12.5, 18.3, 0], [15, 18.3, 0], [17.4, 20, Math.PI / 2], [12.3, 25.5, Math.PI], [11, 22.5, Math.PI / 2]]) {
+      this._add(P.shack(), cx(x), cz(z), r);
+      if (this.collisions) {
+        const isPerp = Math.abs(Math.sin(r)) > 0.5;
+        const w = isPerp ? 1.8 : 2.2;
+        const d = isPerp ? 2.2 : 1.8;
+        const obj = new THREE.Object3D();
+        obj.position.set(cx(x), this.getGroundHeight(cx(x), cz(z)), cz(z));
+        this.collisions.add(obj, new THREE.Vector3(w, 1.4, d));
+      }
+    }
     // basura y colchones
     for (let i = 0; i < 9; i++) {
       const x = rand(9.5, 20.5), z = Math.random() < 0.5 ? rand(21, 22.5) : rand(18.5, 25);
@@ -819,12 +898,26 @@ export class Bogota {
       const x = rand(29.5, 38.5), z = rand(33.5, 45.5);
       if (Math.abs(x - 33.5) < 1.6 || Math.abs(z - 39) < 1.2) continue;
       if (Math.hypot(WX(x) - SHELTER_LOCATION.x, WZ(z) - SHELTER_LOCATION.z) < 6) continue;
-      this._add(P.tree(rand(0.9, 1.3)), WX(x), WZ(z));
+      const scale = rand(0.9, 1.3);
+      this._add(P.tree(scale), WX(x), WZ(z));
+      if (this.collisions) {
+        const treeObj = new THREE.Object3D();
+        treeObj.position.set(WX(x), this.getGroundHeight(WX(x), WZ(z)), WZ(z));
+        this.collisions.add(treeObj, new THREE.Vector3(0.45 * scale, 3.0 * scale, 0.45 * scale));
+      }
     }
     for (const [x, z, r] of [[32, 37, Math.PI / 2], [35, 41, -Math.PI / 2], [31, 39.8, 0], [36.5, 38.2, Math.PI]]) {
       if (Math.hypot(WX(x) - SHELTER_LOCATION.x, WZ(z) - SHELTER_LOCATION.z) < 5) continue;
       const banca = new Banca(new THREE.Vector3(WX(x), 0.06, WZ(z)), r);
       this.group.add(banca.group);
+      if (this.collisions) {
+        const isPerp = Math.abs(Math.sin(r)) > 0.5;
+        const w = isPerp ? 0.65 : 1.6;
+        const d = isPerp ? 1.6 : 0.65;
+        const benchObj = new THREE.Object3D();
+        benchObj.position.set(WX(x), 0.06, WZ(z));
+        this.collisions.add(benchObj, new THREE.Vector3(w, 0.9, d));
+      }
     }
     // cartel del parque
     const sign = P.streetSign(['Parque', 'Tercer Milenio']);
@@ -834,12 +927,26 @@ export class Bogota {
   _buildExtensions() {
     for (const park of EXTENSION_PARKS) {
       for (let z=park.z0+1;z<park.z1;z+=4) for (let x=park.x0+1;x<park.x1;x+=4) {
-        if (this.map[z][x] === 'grass') this._add(P.tree(rand(0.9,1.3)), W(x), W(z));
+        if (this.map[z][x] === 'grass') {
+          const scale = rand(0.9, 1.3);
+          this._add(P.tree(scale), W(x), W(z));
+          if (this.collisions) {
+            const treeObj = new THREE.Object3D();
+            treeObj.position.set(W(x), this.getGroundHeight(W(x), W(z)), W(z));
+            this.collisions.add(treeObj, new THREE.Vector3(0.45 * scale, 3.0 * scale, 0.45 * scale));
+          }
+        }
       }
       const pathZ=Math.floor((park.z0+park.z1)/2);
       for (const x of [park.x0+2,park.x1-2]) {
-        const bench = new Banca(new THREE.Vector3(W(x), this.getGroundHeight(W(x),W(pathZ)), W(pathZ)), 0);
+        const gy = this.getGroundHeight(W(x), W(pathZ));
+        const bench = new Banca(new THREE.Vector3(W(x), gy, W(pathZ)), 0);
         this.group.add(bench.group);
+        if (this.collisions) {
+          const benchObj = new THREE.Object3D();
+          benchObj.position.set(W(x), gy, W(pathZ));
+          this.collisions.add(benchObj, new THREE.Vector3(1.6, 0.9, 0.65));
+        }
       }
       this._add(P.streetSign([park.name, 'Bogotá']), W(park.x0), W(pathZ));
     }
@@ -851,11 +958,23 @@ export class Bogota {
     // Arbolado espaciado; solo crece en césped, nunca dentro del lago o sobre el puente.
     for (let z = 230; z < 314; z += 12) for (let x = 14; x < 230; x += 12) {
       if (this.map[Math.round(z / T)]?.[Math.round(x / T)] !== 'grass' || onLakeBridge(x, z)) continue;
-      this._add(P.tree(1 + ((x + z) % 3) * .12), x, z);
+      const scale = 1 + ((x + z) % 3) * .12;
+      this._add(P.tree(scale), x, z);
+      if (this.collisions) {
+        const treeObj = new THREE.Object3D();
+        treeObj.position.set(x, this.getGroundHeight(x, z), z);
+        this.collisions.add(treeObj, new THREE.Vector3(0.45 * scale, 3.0 * scale, 0.45 * scale));
+      }
     }
     for (const [x, z] of [[20, 226], [132, 236], [134, 288], [20, 310], [156, 310]]) {
-      const bench = new Banca(new THREE.Vector3(x, this.getGroundHeight(x, z), z), 0);
+      const gy = this.getGroundHeight(x, z);
+      const bench = new Banca(new THREE.Vector3(x, gy, z), 0);
       this.group.add(bench.group);
+      if (this.collisions) {
+        const benchObj = new THREE.Object3D();
+        benchObj.position.set(x, gy, z);
+        this.collisions.add(benchObj, new THREE.Vector3(1.6, 0.9, 0.65));
+      }
     }
     this._add(P.streetSign([LAKE_PARK.name, 'Lago · Puente TransMilenio']), 150, 226);
   }

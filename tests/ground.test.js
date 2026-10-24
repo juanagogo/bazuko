@@ -8,7 +8,7 @@ import { TILE_SIZE } from '../src/utils/constants.js';
 // Se comprueba la geometría real sin necesitar Canvas para las texturas.
 const textureSet = () => ({ map: new THREE.Texture(), bumpMap: new THREE.Texture() });
 mock.module('../src/world/bogota/textures.js', {
-  namedExports: { ...textures, asphalt: textureSet, sidewalk: textureSet,
+  exports: { ...textures, asphalt: textureSet, sidewalk: textureSet,
     dirt: textureSet, concrete: textureSet, cardboard: textureSet, trashBag: textureSet }
 });
 const { Bogota } = await import('../src/world/districts/Bogota.js');

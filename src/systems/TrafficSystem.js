@@ -118,7 +118,8 @@ export class TrafficSystem {
     const c = Math.abs(heading?.x ?? Math.cos(car.group.rotation.y)), s = Math.abs(heading?.z ?? Math.sin(car.group.rotation.y));
     const x = c * car.length / 2 + s * car.width / 2;
     const z = s * car.length / 2 + c * car.width / 2;
-    return car.position.x + x > node.x0 && car.position.x - x < node.x1 &&
+    const nx0 = heading ? node.x0 : (node.roadX0 ?? node.x0), nx1 = heading ? node.x1 : (node.roadX1 ?? node.x1);
+    return car.position.x + x > nx0 && car.position.x - x < nx1 &&
       car.position.z + z > node.z0 && car.position.z - z < node.z1;
   }
 
@@ -135,12 +136,13 @@ export class TrafficSystem {
       for (const vehicle of this.vehicles) {
         if (this._overlapsNode(vehicle.car, node)) { candidates.push(vehicle); continue; }
         // Fuera de este radio no puede solicitar el cruce en los próximos metros.
-        const dx = Math.max(node.x0 - vehicle.car.position.x, 0, vehicle.car.position.x - node.x1);
+        const nx0 = node.roadX0 ?? node.x0, nx1 = node.roadX1 ?? node.x1;
+        const dx = Math.max(nx0 - vehicle.car.position.x, 0, vehicle.car.position.x - nx1);
         const dz = Math.max(node.z0 - vehicle.car.position.z, 0, vehicle.car.position.z - node.z1);
         if (dx * dx + dz * dz > 18 * 18) continue;
         for (let ahead = 1; ahead <= 18; ahead += 1) {
           vehicle.route.sample(vehicle.distance + ahead, this._probePosition, this._probeDirection);
-          if (this._probePosition.x >= node.x0 && this._probePosition.x <= node.x1 && this._probePosition.z >= node.z0 && this._probePosition.z <= node.z1) {
+          if (this._probePosition.x >= nx0 && this._probePosition.x <= nx1 && this._probePosition.z >= node.z0 && this._probePosition.z <= node.z1) {
             candidates.push(vehicle); break;
           }
         }
@@ -155,11 +157,20 @@ export class TrafficSystem {
       }
       for (const vehicle of state.plans.keys()) if (!candidates.includes(vehicle) && !state.owners.has(vehicle)) state.plans.delete(vehicle);
       for (const vehicle of candidates) if (!state.plans.has(vehicle)) state.plans.set(vehicle, this._crossingPlan(vehicle, node));
-      const busInside = this.busVehicle?.car.group.visible && this.busVehicle.car.position.y < 3 && this._overlapsNode(this.busVehicle.car, node, this.busVehicle.heading);
+      const buses = this.busVehicles ?? (this.busVehicle ? [this.busVehicle] : []);
+      const busInside = buses.some(b => b?.car.group.visible && b.car.position.y < 3 && this._overlapsNode(b.car, node, b.heading));
       const bus = this.busVehicle?.car;
       const busCrossingX = bus?.pathX?.(node.z1, bus.laneX) ?? bus?.position.x;
-      const busApproaching = bus?.group.visible && bus.position.y < 3 && bus.position.z > node.z1 &&
-        bus.position.z < node.z1 + bus.length / 2 + 15 && busCrossingX >= node.x0 && busCrossingX <= node.x1;
+      const busApproaching = buses.some(b => {
+        const c = b?.car;
+        if (!c?.group.visible || c.position.y >= 3) return false;
+        const dirZ = b.heading?.z ?? -1;
+        const crossZ = dirZ < 0 ? node.z1 : node.z0;
+        const crossX = c.pathX?.(crossZ, c.laneX) ?? c.position.x;
+        const inZ = dirZ < 0 ? (c.position.z > node.z1 && c.position.z < node.z1 + c.length / 2 + 15) : (c.position.z < node.z0 && c.position.z > node.z0 - c.length / 2 - 15);
+        return inZ && crossX >= node.x0 && crossX <= node.x1;
+      }); //
+
       const busClaims = busInside || (busApproaching && signalState(this.signals.time, 1) === 0);
       if (bus && !state.busPlan) {
         state.busPlan = { width: bus.width, points: [], axis: 1 };
@@ -190,7 +201,8 @@ export class TrafficSystem {
   _crossingPlan(vehicle, node) {
     const { route, distance, car } = vehicle;
     const pad = Math.hypot(car.length, car.width) / 2 + .4;
-    const inside = point => point.x >= node.x0 - pad && point.x <= node.x1 + pad && point.z >= node.z0 - pad && point.z <= node.z1 + pad;
+    const nx0 = node.roadX0 ?? node.x0, nx1 = node.roadX1 ?? node.x1;
+    const inside = point => point.x >= nx0 - pad && point.x <= nx1 + pad && point.z >= node.z0 - pad && point.z <= node.z1 + pad;
     let entry = 0;
     for (; entry < 30; entry += .75) {
       route.sample(distance + entry, this._probePosition, this._probeDirection);

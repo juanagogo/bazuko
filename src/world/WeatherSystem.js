@@ -10,11 +10,15 @@ export class WeatherSystem {
     this.isRaining = false;
     this.wetness = 0;
 
-    // Partículas de lluvia (Three.js Points)
-    this.rainCount = 350;
+    // Estelas de llovizna bogotana (Three.js LineSegments)
+    // Trazos finos inclinados por el viento de los cerros orientales
+    this.rainCount = 400;
     this.rainGeometry = null;
     this.rainParticles = null;
-    this.rainArea = { x: 26, y: 16, z: 26 };
+    this.rainArea = { x: 30, y: 16, z: 30 };
+    this.streakLength = 0.45;
+    this.windX = -0.09;
+    this.windZ = -0.04;
 
     if (this.scene) {
       this._initRain();
@@ -22,25 +26,35 @@ export class WeatherSystem {
   }
 
   _initRain() {
-    const coords = new Float32Array(this.rainCount * 3);
+    // Cada gota son 2 vértices (inicio y fin de la estela) = 6 floats por gota
+    const coords = new Float32Array(this.rainCount * 6);
     for (let i = 0; i < this.rainCount; i++) {
-      coords[i * 3] = (Math.random() - 0.5) * this.rainArea.x;
-      coords[i * 3 + 1] = Math.random() * this.rainArea.y;
-      coords[i * 3 + 2] = (Math.random() - 0.5) * this.rainArea.z;
+      const rx = (Math.random() - 0.5) * this.rainArea.x;
+      const ry = Math.random() * this.rainArea.y;
+      const rz = (Math.random() - 0.5) * this.rainArea.z;
+
+      const idx = i * 6;
+      // Vértice superior
+      coords[idx] = rx;
+      coords[idx + 1] = ry;
+      coords[idx + 2] = rz;
+      // Vértice inferior de la estela
+      coords[idx + 3] = rx + this.windX;
+      coords[idx + 4] = ry - this.streakLength;
+      coords[idx + 5] = rz + this.windZ;
     }
 
     this.rainGeometry = new THREE.BufferGeometry();
     this.rainGeometry.setAttribute('position', new THREE.BufferAttribute(coords, 3));
 
-    const material = new THREE.PointsMaterial({
-      color: 0x99bbdd,
-      size: 0.12,
+    const material = new THREE.LineBasicMaterial({
+      color: 0x9cb8d4,
       transparent: true,
       opacity: 0,
       depthWrite: false
     });
 
-    this.rainParticles = new THREE.Points(this.rainGeometry, material);
+    this.rainParticles = new THREE.LineSegments(this.rainGeometry, material);
     this.rainParticles.frustumCulled = false;
     this.rainParticles.visible = false;
     this.scene.add(this.rainParticles);
@@ -53,7 +67,7 @@ export class WeatherSystem {
 
     if (this.rainParticles) {
       this.rainParticles.visible = this.isRaining;
-      this.rainParticles.material.opacity = this.isRaining ? 0.45 : 0;
+      this.rainParticles.material.opacity = this.isRaining ? 0.55 : 0;
     }
 
     if (notify && typeof window !== 'undefined' && typeof window.dispatchEvent === 'function') {
@@ -95,13 +109,25 @@ export class WeatherSystem {
     this.rainParticles.position.x = playerPosition.x;
     this.rainParticles.position.z = playerPosition.z;
 
-    // Caída de gotas
+    // Caída continua de las estelas
     const positions = this.rainGeometry.attributes.position.array;
-    const speed = 24 * dt;
-    for (let i = 1; i < positions.length; i += 3) {
-      positions[i] -= speed;
-      if (positions[i] < 0) {
-        positions[i] = this.rainArea.y;
+    const speed = 26 * dt;
+    for (let i = 0; i < this.rainCount; i++) {
+      const idx = i * 6;
+      positions[idx + 1] -= speed;
+      positions[idx + 4] -= speed;
+
+      if (positions[idx + 4] < 0) {
+        const newY = this.rainArea.y + Math.random() * 2;
+        const newX = (Math.random() - 0.5) * this.rainArea.x;
+        const newZ = (Math.random() - 0.5) * this.rainArea.z;
+
+        positions[idx] = newX;
+        positions[idx + 1] = newY;
+        positions[idx + 2] = newZ;
+        positions[idx + 3] = newX + this.windX;
+        positions[idx + 4] = newY - this.streakLength;
+        positions[idx + 5] = newZ + this.windZ;
       }
     }
     this.rainGeometry.attributes.position.needsUpdate = true;

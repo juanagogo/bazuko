@@ -66,6 +66,14 @@ export class ZonaCero {
       this.props.push(result);
 
       if (result.updatable) this.propUpdatables.push(result.instance);
+      if (collisions) {
+        if (result.type === 'farol') collisions.add(result.group, new THREE.Vector3(0.35, 4, 0.35));
+        else if (result.type === 'banca') collisions.add(result.group, new THREE.Vector3(1.6, 0.9, 0.65));
+        else if (result.type === 'semaforo') collisions.add(result.group, new THREE.Vector3(0.35, 3, 0.35));
+        else if (result.type === 'hidrante') collisions.add(result.group, new THREE.Vector3(0.4, 0.8, 0.4));
+        else if (result.type === 'cartel') collisions.add(result.group, new THREE.Vector3(1.2, 2.5, 0.3));
+        else if (result.type === 'arbol') collisions.add(result.group, new THREE.Vector3(0.5, 3.5, 0.5));
+      }
     }
 
     scene.add(this.group);

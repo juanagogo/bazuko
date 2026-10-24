@@ -86,6 +86,7 @@ export function buildColpatriaViaduct(map, { pavement: streetAsphalt = null } = 
     const prism = new THREE.BufferGeometry(), vertices = [];
     for (const depth of [.06, .06 + VIADUCT.thickness]) for (const p of [a,b,c,d]) vertices.push(p.x,p.y-depth,p.z);
     prism.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
+    prism.setAttribute('uv', new THREE.Float32BufferAttribute([0, 0, 1, 0, 0, 1, 1, 1, 0, 0, 1, 0, 0, 1, 1, 1], 2));
     prism.setIndex([0,2,1,1,2,3,4,5,6,5,7,6,0,1,4,1,5,4,2,6,3,3,6,7,0,4,2,2,4,6,1,3,5,3,7,5]);
     prism.computeVertexNormals();
     const deck = new THREE.Mesh(prism, concrete); deck.castShadow = deck.receiveShadow = true;

@@ -28,6 +28,25 @@ test('las colisiones detienen pasos largos, permiten deslizar y no mueven al jug
   assert.ok(c.resolveMove(overlap, new THREE.Vector3(-0.1, 0, 0)).distanceTo(overlap) <= 0.100001);
 });
 
+test('CollisionSystem.add soporta offset posicional relativo y rotacion', () => {
+  const c = new CollisionSystem();
+  const shop = new THREE.Object3D();
+  shop.position.set(10, 0, 20);
+  const size = new THREE.Vector3(2.4, 2, 1.5);
+  const offset = new THREE.Vector3(0, 1, -0.7);
+  c.add(shop, size, offset);
+
+  assert.equal(c.colliders.length, 1);
+  const box = c.colliders[0].box;
+  const center = new THREE.Vector3();
+  box.getCenter(center);
+
+  // Posición esperada del centro: (10, 0, 20) + (0, 1, -0.7) = (10, 1, 19.3)
+  assert.ok(Math.abs(center.x - 10) < 1e-6);
+  assert.ok(Math.abs(center.y - 1) < 1e-6);
+  assert.ok(Math.abs(center.z - 19.3) < 1e-6);
+});
+
 test('el mapa real mantiene cada desplazamiento acotado junto a todas sus paredes', () => {
   const city = new Bogota(), c = new CollisionSystem();
   city._buildCollisions(city._layout(), c);

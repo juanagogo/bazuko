@@ -9,7 +9,7 @@ import { VehicleAudio } from '../src/systems/VehicleAudio.js';
 import * as textures from '../src/world/bogota/textures.js';
 import { TrafficRoute } from '../src/world/bogota/TrafficRoute.js';
 import { BusService } from '../src/world/bogota/BusService.js';
-mock.module('../src/world/bogota/textures.js', { namedExports: { ...textures, radialSprite: () => new THREE.Texture() } });
+mock.module('../src/world/bogota/textures.js', { exports: { ...textures, radialSprite: () => new THREE.Texture() } });
 const { TrafficSystem } = await import('../src/systems/TrafficSystem.js');
 
 let nextId = 0;

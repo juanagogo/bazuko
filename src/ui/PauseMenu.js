@@ -109,6 +109,12 @@ export function openPauseMenu(game) {
             window.dispatchEvent(new CustomEvent('open-radio-modal'));
           }
         }),
+        button('🐕 Personalizar compañero (G)', {
+          onClick: () => {
+            game.menu?.close?.();
+            game.pet?.toggleCustomizationMenu?.();
+          }
+        }),
         button('💾 Guardar partida ahora', {
           onClick: () => {
             game._save();
@@ -147,6 +153,7 @@ export function openPauseMenu(game) {
         el('li', {}, el('kbd', { text: 'T' }), ' — Abrir árbol de talentos.'),
         el('li', {}, el('kbd', { text: 'C' }), ' — Abrir mesa de crafteo.'),
         el('li', {}, el('kbd', { text: 'P' }), ' — Modificar apariencia del personaje.'),
+        el('li', {}, el('kbd', { text: 'G' }), ' — Personalizar nombre, pelaje y accesorios del perro.'),
         el('li', {}, el('kbd', { text: 'I / Tab' }), ' — Inventario y acceso rápido.'),
         el('li', {}, el('kbd', { text: 'N' }), ' — Alternar radar / minimapa urbano.'),
         el('li', {}, el('kbd', { text: 'M' }), ' — Alternar entre modelo 3D realista y liviano.'),

@@ -7,7 +7,7 @@ const point = (x, z) => [STREET_X.world(x / 2), STREET_Z.world(z / 2)];
 import { rng } from '../src/world/bogota/textures.js';
 
 // La navegación y los NPC son reales; solo se sustituye la carga de modelos GLB.
-mock.module('../src/character/RealisticCharacter.js', { namedExports: {
+mock.module('../src/character/RealisticCharacter.js', { exports: {
   REALISTIC_SCALE: 1.08,
   createRealisticCharacter: async () => ({ group: new THREE.Group(), update() {} }),
   loadCatalog: async () => ({}), normalizeReal: (_, look) => look,

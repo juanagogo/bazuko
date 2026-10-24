@@ -6,7 +6,7 @@ import * as textures from '../src/world/bogota/textures.js';
 import { TrafficRoute } from '../src/world/bogota/TrafficRoute.js';
 
 // Usa los carros reales, sustituyendo solo las texturas de Canvas por texturas vacías.
-mock.module('../src/world/bogota/textures.js', { namedExports: { ...textures, radialSprite: () => new THREE.Texture() } });
+mock.module('../src/world/bogota/textures.js', { exports: { ...textures, radialSprite: () => new THREE.Texture() } });
 const { TrafficSystem } = await import('../src/systems/TrafficSystem.js');
 const { Car } = await import('../src/entities/Car.js');
 const { Bogota } = await import('../src/world/districts/Bogota.js');

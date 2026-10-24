@@ -6,7 +6,7 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { IMPORTED_MODELS, fitImportedModel } from '../src/utils/ImportedModels.js';
 import * as textures from '../src/world/bogota/textures.js';
 
-mock.module('../src/world/bogota/textures.js', { namedExports: { ...textures, radialSprite: () => new THREE.Texture() } });
+mock.module('../src/world/bogota/textures.js', { exports: { ...textures, radialSprite: () => new THREE.Texture() } });
 const { Car } = await import('../src/entities/Car.js');
 const { Cambuche } = await import('../src/entities/Cambuche.js');
 const { BusService } = await import('../src/world/bogota/BusService.js');
@@ -154,6 +154,6 @@ test('las lentes del semáforo se iluminan sobre el GLB, sin discos flotantes ni
   assert.ok(shader.fragmentShader.includes('redLens'));
   const bounds = new THREE.Box3().setFromObject(signals.group);
   assert.ok(Number.isFinite(bounds.min.x));
-  assert.ok(bounds.max.y > 4);
+  assert.ok(bounds.max.y > 2.5 && bounds.max.y < 3.2);
   signals.dispose();
 });

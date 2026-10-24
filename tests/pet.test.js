@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { beforeEach, test } from 'node:test';
 import * as THREE from 'three';
 import { Pet, CONFIG } from '../src/features/pet.js';
+import { Dog } from '../src/entities/Dog.js';
 
 beforeEach(() => {
   globalThis.window = new EventTarget();
@@ -59,4 +60,23 @@ test('Pet aplica y persiste personalización de nombre, color y accesorios', () 
   const saved = JSON.parse(localStorage.getItem(CONFIG.storageKey));
   assert.equal(saved.nombre, 'Rex');
   assert.equal(saved.accesorio, 'collar');
+});
+
+test('Pet vinculado a Dog unifica el modelo en escena sin duplicar mallas', () => {
+  const scene = new THREE.Scene();
+  const player = { position: new THREE.Vector3(0, 0, 0) };
+  const pet = new Pet(null, player);
+  const dog = new Dog(scene, new THREE.Vector3(4, 0, 4));
+
+  pet.attachDog(dog);
+  assert.equal(scene.children.length, 1, 'Solo existe un perro en la escena 3D');
+  assert.equal(pet.group, dog.group);
+  assert.equal(pet.getDistractionBonus(), 0, 'Sin amistad aún no da bono de distracción');
+
+  dog.befriend();
+  assert.equal(pet.getDistractionBonus(), 0.10, 'Al hacerse amigo otorga bono de distracción');
+
+  pet.applyCustomization({ nombre: 'Parcerito', color: '#5c3317', accesorio: 'gorra', tamano: 1.1 });
+  assert.equal(dog.title, 'Parcerito');
+  assert.equal(dog.accesorio, 'gorra');
 });

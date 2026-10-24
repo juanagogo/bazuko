@@ -21,6 +21,7 @@ export class CompanionNavigation {
   isOpen(x, z) {
     if (!this.district.isWalkableAt(x, z)) return false;
     return !(this.collisions?.colliders ?? []).some(({ box }) =>
+      box && box.min.y <= 1.2 && box.max.y >= 0.05 &&
       x > box.min.x - .24 && x < box.max.x + .24 && z > box.min.z - .24 && z < box.max.z + .24);
   }
 
@@ -78,7 +79,11 @@ export class CompanionNavigation {
     const route = [];
     for (let id = target; id !== start; id = previous[id]) route.push(this.point(id));
     route.push(this.point(start)); route.reverse();
-    if (!this.clearLine(from, route[0])) return [];
+    if (!this.clearLine(from, route[0])) {
+      if (route.length > 1 && this.clearLine(from, route[1])) {
+        route.shift();
+      }
+    }
     return route;
   }
 }

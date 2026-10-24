@@ -83,6 +83,12 @@ export class StealSystem {
         nearest = n;
       }
     }
+    // Si InteractionSystem tiene un target activo o el jugador está clasificando basura, dar prioridad y no interferir
+    if (this.game.interaction?.currentTarget || this.game.interaction?.isHoldingQ) {
+      this.targetNpc = null;
+      if (this.game.interaction) this.game.interaction.stealPrompt = null;
+      return;
+    }
     this.targetNpc = nearest;
     if (!nearest || this.cooldown > 0) return;
     if (this.game.interaction) {
@@ -95,6 +101,7 @@ export class StealSystem {
   // Inicia el minijuego de timing para el cosquilleo.
   startCosquilleo(npc) {
     this.minigameActive = true;
+    if (this.game.player) this.game.player.frozen = true;
     this.targetNpc = npc;
     npc.alerta ??= 0.35 + Math.random() * 0.4;
     this.zoneSize = Math.max(0.18, CONFIG.baseZoneSize * (1.1 - npc.alerta * 0.4));
@@ -134,6 +141,7 @@ export class StealSystem {
 
   // Concluye el minijuego aplicando botín o alertando al peatón.
   _endMinigame(success, reason) {
+    if (this.game.player) this.game.player.frozen = false;
     this.minigameActive = false;
     if (this._dom) this._dom.box.style.display = 'none';
     if (reason === 'cancel') return;
