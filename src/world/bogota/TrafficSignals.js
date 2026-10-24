@@ -59,12 +59,24 @@ export class TrafficSignals {
       // El desvío comparte la fase de la troncal y reserva el cruce completo.
       if (node.x0 < 78.5 && node.x1 > 78.5 && node.z0 > BUS_DETOUR.z0 && node.z1 < BUS_DETOUR.z1) node.x1 = Math.min(node.x1 + BUS_DETOUR.offset, 125);
       this.nodes.push(node);
+      const x0 = xa * 2 - 1, x1 = xb * 2 + 1;
+      const z0 = za * 2 - 1, z1 = zb * 2 + 1;
+      const d = 1.5;
       this.poles.push(
-        { x: node.x0 - .5, z: node.z1 + .5, hx: 1, hz: 0, axis: 0 },
-        { x: node.x1 + .5, z: node.z0 - .5, hx: -1, hz: 0, axis: 0 },
-        { x: node.x0 - .5, z: node.z0 - .5, hx: 0, hz: 1, axis: 1 },
-        { x: node.x1 + .5, z: node.z1 + .5, hx: 0, hz: -1, axis: 1 }
+        { x: x0 - d, z: z1 + d, hx: 1, hz: 0, axis: 0 },
+        { x: x1 + d, z: z0 - d, hx: -1, hz: 0, axis: 0 },
+        { x: x0 - d, z: z0 - d, hx: 0, hz: 1, axis: 1 },
+        { x: x1 + d, z: z1 + d, hx: 0, hz: -1, axis: 1 }
       );
+    }
+  }
+
+  addColliders(collisions) {
+    if (!collisions) return;
+    for (const p of this.poles) {
+      const b = new THREE.Object3D();
+      b.position.set(p.x, 0, p.z);
+      collisions.add(b, new THREE.Vector3(0.4, SEM_HEIGHT, 0.4));
     }
   }
 

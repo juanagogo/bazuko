@@ -253,15 +253,19 @@ export class HUD {
         let text = interaction?.stealPrompt ?? '';
         if (type === 'pickup') text = '[E] Recoger basura · [Mantener Q] Seleccionar';
         else if (type === 'car') text = interaction.currentTarget?.traffic ? '[E] Robar retrovisor del carro en circulación' : '[E] Robar retrovisor de auto';
+        else if (type === 'fireBarrel') text = '🔥 [E] Calentarte las manos en la fogata (+Calor, +Ánimo, +Energía)';
         else if (type === 'sell') text = '[E] Recicladora El Progreso · Vender material';
         else if (type === 'shop') text = `[E] ${interaction.currentTarget.title ?? 'Tienda La Esquinita'} · Comprar`;
         else if (type === 'dog') {
-          const hasFood = inventory?.items.some(item => item.qty > 0 && ['pan', 'lataComida', 'carne', 'hueso'].includes(item.id));
+          const edible = ['pan', 'empanada', 'morcilla', 'papaCriolla', 'lataComida', 'carne', 'hueso'];
+          const hasFood = inventory?.items.some(item => item.qty > 0 && edible.includes(item.id));
           text = interaction.currentTarget?.isFriend
-            ? '🐕 El Chato ya te sigue · [E] Acariciar (+5 ánimo)'
+            ? hasFood && (interaction.currentTarget?.friendship < 100)
+              ? '🐕 [E] Alimentar a El Chato (+Amistad) · El Chato te acompaña'
+              : '🐕 El Chato ya te sigue · [E] Acariciar (+5 ánimo)'
             : hasFood
-              ? '🐕 [E] Darle 1 pan o 1 lata de atún para que te siga (consume una unidad)'
-              : '🐕 Para que El Chato te siga, trae pan o una lata de atún y pulsa E · Ahora: [E] acariciar';
+              ? '🐕 [E] Darle comida a El Chato para ganarte su lealtad'
+              : '🐕 Para que El Chato te siga, dale comida (empanada, pan, atún) · [E] Acariciar';
         }
         else if (type === 'cambuche') text = '[E] Tu cambuche · Armar / Dormir';
         else if (type === 'dealer') text = '[Q / E] Tienda del Dealer · Comprar / Vender';
@@ -284,6 +288,8 @@ export class HUD {
 
     if (this.statusEl) {
       const warnings = [];
+      if (stats.calor > 0) warnings.push(`🔥 Calientito (${Math.ceil(stats.calor)}s)`);
+      else if (stats.isFreezing) warnings.push('🥶 Congelándote: el frío y la lluvia te debilitan.');
       if (stats.sed <= 20) warnings.push(stats.sed <= 0 ? 'Sin agua: estás perdiendo salud.' : 'Sed crítica: bebe agua.');
       if (stats.hambre <= 20) warnings.push(stats.hambre <= 0 ? 'Sin alimento: estás perdiendo salud.' : 'Hambre crítica: come algo.');
       if (stats.energia <= 20) warnings.push('Energía baja: descansa.');
@@ -401,9 +407,15 @@ export class HUD {
         const delta = (k === item.consumable ? item.amount : 0) + (k !== item.consumable ? (item[k] ?? 0) : 0);
         if (delta) game.stats[k] = Math.max(0, Math.min(100, game.stats[k] + delta));
       }
+      if (item.calor) {
+        game.stats.calor = Math.min(300, (game.stats.calor || 0) + item.calor);
+      }
+      if (item.cure) {
+        game.diseases?.cure?.(item.cure);
+      }
       inv.remove(itemId, 1);
       game.audio?.play('pickup');
-      const isDrink = item.consumable === 'sed' || item.id === 'cafe' || item.id === 'refresco';
+      const isDrink = item.consumable === 'sed' || item.id === 'cafe' || item.id === 'refresco' || item.id === 'aguapanela';
       const verb = isDrink ? '🥤 Bebiste' : item.substance ? '🚬 Consumiste' : item.consumable === 'salud' ? '🩹 Te aplicaste' : '🍴 Comiste';
       game.player?.playAction?.(isDrink ? 'beber' : 'comer', 1.2);
       this._toast(`${verb}: ${item.name}`, 'info');

@@ -16,8 +16,10 @@ export class Car {
     this.group.rotation.y = rotation;
     scene.add(this.group);
 
-    // Carro realista (portado de rebusque): particular o taxi amarillo, frente hacia +X local
-    const kind = Math.random() < 0.3 ? 'taxi' : 'carro';
+    // Carro realista: particular, taxi o patrulla, frente hacia +X local
+    const r = Math.random();
+    const kind = r < 0.35 ? 'taxi' : (r < 0.42 ? 'police' : 'carro');
+    this.kind = kind;
     this.modelKind = kind === 'taxi' ? 'car2' : 'car1';
     const v = makeVehicle(kind, Math.floor(Math.random() * 8), { beams: false });
     this.vehicle = v;
@@ -55,6 +57,69 @@ export class Car {
     this.marker.position.y = 0.05;
     this.marker.visible = !traffic;
     this.group.add(this.marker);
+
+    // Conductor visible en vehículos en circulación
+    if (traffic) {
+      this.driver = this._createDriver(kind);
+      this.group.add(this.driver);
+    }
+  }
+
+  _createDriver(kind) {
+    const group = new THREE.Group();
+    group.name = 'Driver';
+    const seatX = 0.15;
+    const seatY = 0.55;
+    const seatZ = 0.35;
+    group.position.set(seatX, seatY, seatZ);
+
+    const skinTones = [0xc68642, 0x8d5524, 0xe0ac69, 0xf1c27d, 0x513524];
+    const skinColor = skinTones[Math.floor(Math.random() * skinTones.length)];
+    const shirtColors = kind === 'taxi'
+      ? [0x223344, 0x333333, 0x2c3e50, 0x4a6572]
+      : kind === 'police'
+        ? [0x15382b, 0x0f231b]
+        : [0x2c3e50, 0x7f8c8d, 0x34495e, 0x8e44ad, 0xc0392b, 0x27ae60];
+    const shirtColor = shirtColors[Math.floor(Math.random() * shirtColors.length)];
+    const mat = (col) => new THREE.MeshLambertMaterial({ color: col, flatShading: true });
+
+    // Torso
+    const torso = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.36, 0.34), mat(shirtColor));
+    torso.position.y = 0.22;
+    torso.castShadow = true;
+    group.add(torso);
+
+    // Cabeza
+    const head = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.19, 0.18), mat(skinColor));
+    head.position.y = 0.48;
+    head.castShadow = true;
+    group.add(head);
+
+    // Cabello / Gorra
+    const hairMat = mat(kind === 'police' ? 0x0f231b : [0x111111, 0x2d1e12, 0x4a3728][Math.floor(Math.random() * 3)]);
+    const hair = new THREE.Mesh(new THREE.BoxGeometry(0.19, 0.08, 0.19), hairMat);
+    hair.position.set(0, 0.58, 0);
+    group.add(hair);
+
+    // Volante
+    const wheel = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.12, 0.03, 8), mat(0x1a1a1a));
+    wheel.rotation.z = Math.PI / 4;
+    wheel.position.set(0.26, 0.32, 0);
+    group.add(wheel);
+
+    // Brazos
+    const armMat = mat(shirtColor);
+    const armL = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.09, 0.09), armMat);
+    armL.position.set(0.14, 0.26, 0.14);
+    armL.rotation.y = -0.3;
+    group.add(armL);
+
+    const armR = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.09, 0.09), armMat);
+    armR.position.set(0.14, 0.26, -0.14);
+    armR.rotation.y = 0.3;
+    group.add(armR);
+
+    return group;
   }
 
   get position() { return this.group.position; }
@@ -114,6 +179,12 @@ export class Car {
     if (this.vehicle.tailMat && braking !== this._braking) {
       this.vehicle.tailMat.color.set('#ff1a12').multiplyScalar(braking ? 3 : 1.4);
       this._braking = braking;
+    }
+    if (this.vehicle?.policeLights) {
+      this._sirenTime = (this._sirenTime || 0) + 0.15;
+      const phase = Math.sin(this._sirenTime * 8);
+      this.vehicle.policeLights.blue.color.set(phase > 0 ? '#1a6cff' : '#04153b').multiplyScalar(phase > 0 ? 3.5 : 0.4);
+      this.vehicle.policeLights.red.color.set(phase < 0 ? '#ff1a2a' : '#3b0408').multiplyScalar(phase < 0 ? 3.5 : 0.4);
     }
   }
 

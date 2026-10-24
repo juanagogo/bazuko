@@ -28,7 +28,12 @@ export class CollisionSystem {
 
   clear() {
     this.colliders = []; this.dynamicColliders = []; this._vehicles.clear();
+    this._pedestrians = null;
     this.invalidateStaticIndex(); this._staticGrid.clear(); this._staticOrder.clear();
+  }
+
+  setPedestrians(pedestrians = []) {
+    this._pedestrians = pedestrians;
   }
 
   invalidateStaticIndex() { this._indexedColliders = null; }
@@ -211,5 +216,15 @@ export class CollisionSystem {
     yield* this.queryStatic(Math.min(pos.x, endX) - radius, Math.min(pos.z, endZ) - radius,
       Math.max(pos.x, endX) + radius, Math.max(pos.z, endZ) + radius, this._moveCandidates);
     yield* this.dynamicColliders;
+    if (this._pedestrians) {
+      for (const p of this._pedestrians) {
+        const pPos = p.position ?? p.group?.position;
+        if (!pPos) continue;
+        const dx = pPos.x - pos.x, dz = pPos.z - pos.z;
+        if (dx * dx + dz * dz > 20) continue;
+        const box = p.getBoundingBox?.();
+        if (box) yield { box, vehicle: true };
+      }
+    }
   }
 }

@@ -6,3 +6,5 @@
 /work/
 /playwright-report/
 /test-results/
+.agents/
+GEMINI.md

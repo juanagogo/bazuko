@@ -380,13 +380,29 @@ body.is-loading #creator-modal { visibility: visible; }
   border: 1px solid #54776a; border-radius: 6px;
   display: flex; flex-direction: column; align-items: center;
   z-index: 25; font-family: monospace;
+  transition: width 0.2s ease;
 }
 #minimap-container.hidden { display: none; }
+#minimap-container.large {
+  width: 235px;
+}
+#minimap-container.large #minimap-canvas {
+  width: 220px; height: 220px; max-width: 220px; max-height: 220px;
+}
+#minimap-container.large .minimap-info {
+  max-width: 220px; font-size: 11px;
+}
 .minimap-header {
   width: 100%; display: flex; justify-content: space-between; align-items: center;
   padding: 0 2px 4px 2px; border-bottom: 1px solid #233830;
 }
 .minimap-title { color: #d9f9e6; font-size: 11px; font-weight: bold; }
+.minimap-actions { display: flex; gap: 4px; align-items: center; }
+.minimap-btn {
+  background: #1e332a; color: #ffe199; border: 1px solid #54776a;
+  border-radius: 3px; padding: 1px 5px; font-size: 10px; cursor: pointer;
+}
+.minimap-btn:hover { background: #2f4f41; }
 .minimap-toggle-btn {
   background: #1e332a; color: #ffe199; border: 1px solid #54776a;
   border-radius: 3px; padding: 1px 5px; font-size: 10px; cursor: pointer;
@@ -397,6 +413,70 @@ body.is-loading #creator-modal { visibility: visible; }
   color: #eed688; font-size: 10px; text-align: center;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 130px;
 }
+
+/* === Modal Mapa Completo de Bogotá === */
+#city-map-modal {
+  position: fixed; inset: 0;
+  background: rgba(4, 8, 12, 0.85);
+  backdrop-filter: blur(4px);
+  z-index: 999;
+  display: flex; justify-content: center; align-items: center;
+}
+#city-map-modal.hidden { display: none; }
+.city-map-card {
+  background: #0f171c;
+  border: 2px solid #3d6052;
+  border-radius: 8px;
+  padding: 12px;
+  max-width: 90vw;
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.7);
+  font-family: monospace;
+}
+.city-map-header {
+  width: 100%;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+  border-bottom: 1px solid #233830;
+  padding-bottom: 6px;
+}
+.city-map-title { color: #e0f2ea; font-size: 14px; font-weight: bold; }
+.city-map-close {
+  background: #331a1a; color: #ff9999; border: 1px solid #774444;
+  border-radius: 4px; padding: 2px 8px; cursor: pointer;
+}
+.city-map-close:hover { background: #552222; }
+#city-map-canvas {
+  background: #0a0f12;
+  border: 1px solid #3d6052;
+  border-radius: 4px;
+  cursor: crosshair;
+  display: block;
+  max-width: 80vw;
+  max-height: 65vh;
+}
+.city-map-hint {
+  width: 100%; text-align: center; color: #88a89b; font-size: 10px; margin-top: 6px;
+}
+.city-map-footer {
+  margin-top: 8px;
+  width: 100%;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  justify-content: center;
+  align-items: center;
+}
+.city-map-quick-btn {
+  background: #182822; color: #d1e7dd; border: 1px solid #3d6052;
+  border-radius: 4px; padding: 4px 8px; font-size: 11px; cursor: pointer;
+}
+.city-map-quick-btn:hover { background: #254238; }
 
 /* === Menú de Pausa === */
 .pause-menu-body {

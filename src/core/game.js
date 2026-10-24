@@ -134,13 +134,38 @@ export class Game {
     window.addEventListener('open-shop', (e) => openShop(this, e.detail?.target));
     window.addEventListener('open-cambuche', () => openCambuche(this));
     window.addEventListener('open-radio-modal', () => openRadioModal(this));
+    window.addEventListener('dry-clothes', () => {
+      if (this.weather) this.weather.wetness = 0;
+      this.world?.active?.setWetness?.(0);
+    });
+    window.addEventListener('dog-gift', (e) => {
+      const item = ITEMS[e.detail?.itemId];
+      if (item) {
+        const added = this.inventory.add(item, 1);
+        if (added) {
+          this.audio?.play('treasure');
+          window.dispatchEvent(new CustomEvent('toast', {
+            detail: { text: `🐕 ¡El Chato te trajo ${item.name} que encontró en la calle!`, type: 'rare' }
+          }));
+        }
+      }
+    });
     window.addEventListener('keydown', (e) => {
       if (e.repeat || e.target?.closest?.('input, textarea, select, [contenteditable="true"]')) return;
-      if (e.code === 'KeyN' && !this.paused) this.minimap.toggle();
-      if (e.code === 'Escape' && !e._panelHandled && !this.paused && !this.isSleeping) openPauseMenu(this);
+      if (e.code === 'KeyN' && !this.paused) this.minimap.toggleSize();
+      if (e.code === 'KeyM' && !this.paused) {
+        if (e.shiftKey) this._toggleModel();
+        else this.minimap.toggleCityMap(this.world.active);
+      }
+      if (e.code === 'Escape') {
+        if (this.minimap?.cityMapOpen) {
+          this.minimap.closeCityMap();
+          return;
+        }
+        if (!e._panelHandled && !this.paused && !this.isSleeping) openPauseMenu(this);
+      }
       if (e.code === 'KeyV') this._toggleCamera();
       if (e.code === 'KeyP' && !this.paused) this.pet?.toggleCustomizationMenu();
-      if (e.code === 'KeyM' && !this.paused) this._toggleModel();
       if (e.code === 'KeyR') {
         if (this._radioModalOpen) this.menu.close();
         else if (!this.paused) openRadioModal(this);
@@ -471,6 +496,7 @@ export class Game {
     this.dog.resetNear(this.dog.position);
     this.interaction.register(this.dog);
     district.trafficPedestrians = [...(district.npcs ?? []), this.dog];
+    this.collisions?.setPedestrians?.(district.trafficPedestrians);
 
     // ===== Tienda La Esquinita =====
     this.shop = new Shop(
@@ -482,8 +508,9 @@ export class Game {
     );
     this.interaction.register(this.shop);
 
-    // ===== Vendedores ambulantes del distrito (chazas, fritanga) =====
+    // ===== Vendedores ambulantes del distrito (chazas, fritanga) y fogatas de El Cartucho =====
     for (const v of district.vendors ?? []) this.interaction.register(v);
+    for (const fb of district.fireBarrels ?? []) this.interaction.register(fb);
     this.collisions.add(
       this.shop.group,
       new THREE.Vector3(2.4, 2, 1.5),
@@ -757,7 +784,7 @@ export class Game {
     this.profiler?.mark('jugadorCamaraColisiones');
 
     // 4. Stats
-    this.stats.update(dt, this.player, this.diseases, this.clock, this.talents);
+    this.stats.update(dt, this.player, this.diseases, this.clock, this.talents, this.weather);
     this.radio?.update(dt, this.stats, this.dog);
     if (this._handleDeath()) return;
 
@@ -889,6 +916,8 @@ export class Game {
       if (this.world?.active?.stationGroup) this._poiCache.push({ name: 'Portal del Centro', icon: '🚏', x: 75, z: -2, color: '#e45960' });
       if (this.world?.active?.colpatria) this._poiCache.push({ name: 'Torre Colpatria', icon: '🏙️', x: 81, z: 154, color: '#ffcb45' });
       if (this.world?.active?.lakePark) this._poiCache.push({ name: 'Parque del Lago', icon: '🌊', x: 138, z: 238, color: '#5ed4dc' });
+      if (this.world?.active?.vendors?.length) this._poiCache.push({ name: 'Fritanga La Mona', icon: '🥟', x: 56, z: 58, color: '#f39c12' });
+      if (this.world?.active?.fireBarrels?.length) this._poiCache.push({ name: 'Fogatas El Cartucho', icon: '🔥', x: 26, z: 38, color: '#e74c3c' });
       this._dogPOI = friend ? { name: 'El Chato', icon: '🐕', color: '#e6b566' } : null;
       if (this._dogPOI) this._poiCache.push(this._dogPOI);
       this._poiCacheTime = now;

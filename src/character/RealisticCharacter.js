@@ -201,7 +201,19 @@ async function buildInstance(catalog, look, lod = false) {
     partGltfs[i].scene.traverse((o) => {
       if (!o.isSkinnedMesh) return;
       const mesh = attachPart(o, bones, bodyMesh?.parent ?? root, p.cat);
-      if (p.cat === 'pelo' || p.cat === 'barba') mesh.material.color.copy(hairTone);
+      if (p.cat === 'pelo' || p.cat === 'barba') {
+        mesh.material.color.copy(hairTone);
+        // Si el pelo es rubio/mono (peloColor: 4) o cobrizo (3), desvincular textura base marrón para que brille mono
+        if (look.peloColor === 4) {
+          mesh.material.color.set('#f5d77f');
+          mesh.material.map = null;
+          mesh.material.needsUpdate = true;
+        } else if (look.peloColor === 3) {
+          mesh.material.color.set('#c87d3e');
+          mesh.material.map = null;
+          mesh.material.needsUpdate = true;
+        }
+      }
     });
   });
   // cejas del color del pelo

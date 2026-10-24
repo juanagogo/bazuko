@@ -39,9 +39,16 @@ export class InteractionSystem {
     this.sortingPickup = null;
     this.isHoldingQ = false;
 
-    // Pedir limosna
-    this._lastBegTime = -9999;
+    // Pedir limosna y calentarse
+    this._lastBegTime = -Infinity;
     this.begCooldown = 4; // segundos entre pedir limosna
+    this._lastWarmTime = -Infinity;
+    this.warmCooldown = 20; // segundos de espera entre calentarse en fogata
+    this.pedestrians = [];
+  }
+
+  setPedestrians(pedestrians) {
+    this.pedestrians = pedestrians ?? [];
   }
 
   _origin(key, base = 1) { return originEffect(this.originId, key, base); }
@@ -91,6 +98,7 @@ export class InteractionSystem {
         if (t.kind === 'shop') nearestType = 'shop';
         else if (t.kind === 'cambuche') nearestType = 'cambuche';
         else if (t.kind === 'dog') nearestType = 'dog';
+        else if (t.kind === 'fireBarrel') nearestType = 'fireBarrel';
         else if (t.kind === 'recycler') nearestType = 'sell';
         else if (typeof t.harvest === 'function') nearestType = 'pickup';
         else if (typeof t.steal === 'function') nearestType = 'car';
@@ -148,6 +156,9 @@ export class InteractionSystem {
         case 'cambuche':
           window.dispatchEvent(new CustomEvent('open-cambuche'));
           break;
+        case 'fireBarrel':
+          this._warmAtFire(nearest);
+          break;
         case 'dog':
           this._interactDog(nearest);
           break;
@@ -186,22 +197,74 @@ export class InteractionSystem {
 
   _interactDog(dog) {
     if (!dog) return;
-    const foodItem = this.inventory.items.find(i => ['pan', 'lataComida', 'carne', 'hueso'].includes(i.id));
+    const edibleFoods = ['pan', 'empanada', 'morcilla', 'papaCriolla', 'lataComida', 'carne', 'hueso'];
+    const foodItem = this.inventory.items.find(i => edibleFoods.includes(i.id));
 
-    if (!dog.isFriend && foodItem) {
-      this.inventory.remove(foodItem.id, 1);
-      dog.befriend();
-      this.stats.saludMental = Math.min(100, this.stats.saludMental + 15);
-      window.dispatchEvent(new CustomEvent('toast', {
-        detail: { text: `🐕 ¡Le diste ${ITEMS[foodItem.id]?.name ?? 'comida'} a El Chato! Ahora te acompaña.`, type: 'rare' }
-      }));
+    if (!dog.isFriend) {
+      if (foodItem) {
+        this.inventory.remove(foodItem.id, 1);
+        if (typeof dog.feed === 'function') dog.feed(foodItem);
+        else dog.befriend();
+        this.stats.saludMental = Math.min(100, this.stats.saludMental + 15);
+        window.dispatchEvent(new CustomEvent('toast', {
+          detail: { text: `🐕 ¡Le diste ${ITEMS[foodItem.id]?.name ?? 'comida'} a El Chato! Ahora te acompaña.`, type: 'rare' }
+        }));
+      } else {
+        if (!dog.pet()) return;
+        this.stats.saludMental = Math.min(100, this.stats.saludMental + 5);
+        window.dispatchEvent(new CustomEvent('toast', {
+          detail: { text: '🐕 Acariciaste a El Chato (+5 salud mental).', type: 'info' }
+        }));
+      }
     } else {
-      if (!dog.pet()) return;
-      this.stats.saludMental = Math.min(100, this.stats.saludMental + 5);
-      window.dispatchEvent(new CustomEvent('toast', {
-        detail: { text: '🐕 Acariciaste a El Chato (+5 salud mental).', type: 'info' }
-      }));
+      // Ya es amigo: si traes comida y su amistad no está al 100%, lo alimentas
+      if (foodItem && (dog.friendship === undefined || dog.friendship < 100)) {
+        this.inventory.remove(foodItem.id, 1);
+        if (typeof dog.feed === 'function') dog.feed(foodItem);
+        this.stats.saludMental = Math.min(100, this.stats.saludMental + 10);
+        window.dispatchEvent(new CustomEvent('toast', {
+          detail: {
+            text: `🍖 Le diste ${ITEMS[foodItem.id]?.name ?? 'comida'} a El Chato. ¡Amistad al ${dog.friendship ?? 100}%!`,
+            type: 'rare'
+          }
+        }));
+      } else {
+        if (!dog.pet()) return;
+        this.stats.saludMental = Math.min(100, this.stats.saludMental + 5);
+        window.dispatchEvent(new CustomEvent('toast', {
+          detail: { text: '🐕 Acariciaste a El Chato (+5 salud mental).', type: 'info' }
+        }));
+      }
     }
+  }
+
+  _warmAtFire(target) {
+    if (!target) return;
+    const now = performance.now();
+    const elapsed = (now - this._lastWarmTime) / 1000;
+    if (elapsed < this.warmCooldown) {
+      const waitSec = Math.ceil(this.warmCooldown - elapsed);
+      window.dispatchEvent(new CustomEvent('toast', {
+        detail: {
+          text: `⏳ Ya te calentaste las manos hace poco. El calor perdura (${waitSec}s).`,
+          type: 'info'
+        }
+      }));
+      return;
+    }
+    this._lastWarmTime = now;
+    this.player?.playAction?.('saludo', 2.0);
+    this.stats.calor = Math.min(300, (this.stats.calor || 0) + 180);
+    this.stats.energia = Math.min(100, (this.stats.energia || 0) + 8);
+    this.stats.animo = Math.min(100, (this.stats.animo || 0) + 12);
+    this.audio?.play?.('full');
+    window.dispatchEvent(new CustomEvent('dry-clothes'));
+    window.dispatchEvent(new CustomEvent('toast', {
+      detail: {
+        text: '🔥 Te calentaste las manos en la fogata. La ropa se secó (+Calor, +Ánimo, +Energía).',
+        type: 'info'
+      }
+    }));
   }
 
   _harvestTrash(target, sorted) {
@@ -340,6 +403,24 @@ export class InteractionSystem {
     if (this.stats.energia < 3) {
       this.audio?.play('empty');
       window.dispatchEvent(new CustomEvent('beg-fail', { detail: { reason: 'energy' } }));
+      return;
+    }
+
+    // Verificar si hay peatones a menos de 7 metros
+    const nearbyPedestrians = (this.pedestrians ?? []).filter(npc => {
+      const pos = npc.position ?? npc.group?.position;
+      return pos && pos.distanceTo(this.player.position) <= 7.0;
+    });
+
+    if (nearbyPedestrians.length === 0) {
+      this.audio?.play?.('empty');
+      window.dispatchEvent(new CustomEvent('beg-result', {
+        detail: {
+          success: false,
+          reason: 'no_pedestrians',
+          message: '👀 No hay nadie cerca a quien pedirle limosna. Acércate a los transeúntes.'
+        }
+      }));
       return;
     }
 

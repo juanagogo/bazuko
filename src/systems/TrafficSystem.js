@@ -107,8 +107,10 @@ export class TrafficSystem {
     const front = dx * this._probeDirection.x + dz * this._probeDirection.z;
     const side = dx * -this._probeDirection.z + dz * this._probeDirection.x;
     const headingDot = headingX * this._probeDirection.x + headingZ * this._probeDirection.z;
-    // Un seguidor en el mismo carril no debe bloquear al carro que lleva delante.
-    if (headingDot > .9 && front <= 0) return false;
+    // Un seguidor en el mismo carril o curva no debe bloquear al carro que lleva delante.
+    if (headingDot > 0.2 && front <= 0) return false;
+    const rearExtent = -(car.length / 2 + along * other.car.length / 2 + across * other.car.width / 2);
+    if (front < rearExtent) return false;
     const margin = along > .9 ? GAP : .35;
     return Math.abs(front) < car.length / 2 + along * other.car.length / 2 + across * other.car.width / 2 + margin &&
       Math.abs(side) < car.width / 2 + across * other.car.length / 2 + along * other.car.width / 2 + .15;
@@ -375,9 +377,18 @@ export class TrafficSystem {
             }
             start += segment.length;
           }
-          if (clearance < .05 && vehicle.speed < .1) vehicle.stopped = true;
+          if (clearance < .05 && vehicle.speed < .1) {
+            vehicle.stopped = true;
+            vehicle.stoppedTime = (vehicle.stoppedTime || 0) + stepTime;
+          } else {
+            vehicle.stoppedTime = 0;
+          }
           if (vehicle.stopped && clearance > .5) {
             vehicle.resumeDelay = vehicle.reactionTime; vehicle.stopped = false;
+          }
+          if (vehicle.stoppedTime > 8 && !vehicle.personBlocked && desiredSpeed === 0 && clearance > 0.05) {
+            desiredSpeed = Math.min(vehicle.cruiseSpeed * 0.4, 2.5);
+            vehicle.resumeDelay = 0;
           }
           if (vehicle.resumeDelay > 0) { vehicle.resumeDelay -= stepTime; desiredSpeed = 0; }
           const targetAcceleration = THREE.MathUtils.clamp((desiredSpeed - vehicle.speed) / .65, -braking, vehicle.accelerationLimit ?? ACCELERATION);

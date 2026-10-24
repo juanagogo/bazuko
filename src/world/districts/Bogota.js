@@ -106,6 +106,8 @@ export class Bogota {
     this._facadeTextures = new Map();
     this._facadeMaterials = new Map();
     this.npcs = [];
+    this.vendors = [];
+    this.fireBarrels = [];
     this.buildingVisibility = new BuildingVisibility();
     this.t = 0;
   }
@@ -172,11 +174,11 @@ export class Bogota {
     this.stationGroup = buildTransitTerminal({ createSign: signTexture, asphalt: this.groundMaterials.road });
     this.group.add(this.stationGroup);
     for (const entry of this.stationGroup.userData.colliders) collisions?.colliders.push(entry);
-    this._buildStreetProps(map);
-    this._buildCartucho();
-    this._buildPark();
-    this._buildExtensions();
-    this._buildLakePark();
+    this._buildStreetProps(map, collisions);
+    this._buildCartucho(collisions);
+    this._buildPark(collisions);
+    this._buildExtensions(collisions);
+    this._buildLakePark(collisions);
     this.group.add(buildAvenueOverpass());
     this.group.add(buildGasStation({ createSign: signTexture }));
     this.group.add(buildD69Store({ createSign: signTexture }));
@@ -209,6 +211,7 @@ export class Bogota {
     freezeStaticTransforms(this.group, new Set(this.busServices.map(bus => bus.group)));
     this.signals = new TrafficSignals();
     this.group.add(this.signals.group);
+    if (collisions) this.signals.addColliders(collisions);
     for (const bus of this.busServices) bus.signals = this.signals;
 
     this.isWalkableAt = (wx, wz) => {
@@ -741,7 +744,7 @@ export class Bogota {
   }
 
   /** Faroles, placas de nomenclatura, estación y bus de la troncal */
-  _buildStreetProps(map) {
+  _buildStreetProps(map, collisions = null) {
     // faroles cada ~14 m en los andenes junto a la calzada
     for (let z = 2; z < map.length - 2; z += 7) {
       for (let x = 2; x < map[0].length - 2; x += 7) {
@@ -756,6 +759,11 @@ export class Bogota {
         farol.group.userData.noMerge = true; // cambia de material de noche
         this.group.add(farol.group);
         this.props.push({ instance: farol });
+        if (collisions) {
+          const fObj = new THREE.Object3D();
+          fObj.position.set(W(best[0]), SIDEWALK_Y, W(best[1]));
+          collisions.add(fObj, new THREE.Vector3(0.35, 3.5, 0.35));
+        }
       }
     }
     // placas en las esquinas
@@ -774,31 +782,69 @@ export class Bogota {
     this.busServices = [this.busService, this.reverseBusService];
     // cerca de la estación: vendedor de tinto y una chaza
     this.vendors = [];
-    this._vendor(WX(21), WZ(18.5), Math.PI / 2, 'chaza', 'Chaza de don Efraín', ['cigarrillo', 'cafe', 'pan', 'agua']);
-    this._vendor(WX(28), WZ(29), 0, 'fritanga', 'Fritanga La Mona', ['lataComida', 'pan', 'refresco']);
-    this._vendor(WX(39), WZ(36), -Math.PI / 2, 'chaza', 'Dulces y minutos', ['cigarrillo', 'refresco', 'agua']);
+    this._vendor(WX(21), WZ(18.5), Math.PI / 2, 'chaza', 'Chaza de don Efraín', ['cigarrillo', 'cafe', 'pan', 'agua', 'empanada'], null, collisions);
+    this._vendor(WX(28), WZ(29), 0, 'fritanga', 'Fritanga La Mona', ['empanada', 'morcilla', 'papaCriolla', 'aguapanela', 'refresco'], {
+      sexo: 'mujer', edad: 'adulta', pelo: 'coleta', peloColor: 4, ropa: 'camiseta', torsoColor: 3, calzado: 'tenis-rotos'
+    }, collisions);
+    this._vendor(WX(39), WZ(36), -Math.PI / 2, 'chaza', 'Dulces y minutos', ['cigarrillo', 'refresco', 'agua', 'empanada'], null, collisions);
   }
 
   /** Vendedor ambulante: puesto + persona; se le puede comprar (lo atiende la tienda con otro catálogo) */
-  _vendor(x, z, rotY, kind, title, items) {
+  _vendor(x, z, rotY, kind, title, items, look = null, collisions = null) {
     const stall = kind === 'fritanga' ? P.fritanga() : P.chaza();
     this._add(stall, x, z, rotY);
     const back = new THREE.Vector3(Math.sin(rotY), 0, Math.cos(rotY)).multiplyScalar(-0.9);
     this.npcs.push(new Npc(this.scene, new THREE.Vector3(x + back.x, this.getGroundHeight(x, z), z + back.z), {
-      facing: rotY, isWalkable: () => false
+      facing: rotY, isWalkable: () => false, look
     }));
     this.vendors.push({ kind: 'shop', title, items, position: new THREE.Vector3(x, 0, z) });
+
+    if (collisions) {
+      const cos = Math.abs(Math.cos(rotY)), sin = Math.abs(Math.sin(rotY));
+      const sObj = new THREE.Object3D();
+      sObj.position.set(x, this.getGroundHeight(x, z), z);
+      const isFritanga = kind === 'fritanga';
+      const wStall = isFritanga ? 1.8 : 0.9;
+      const dStall = isFritanga ? 0.8 : 0.6;
+      collisions.add(sObj, new THREE.Vector3(wStall * cos + dStall * sin, 1.2, wStall * sin + dStall * cos));
+
+      const vObj = new THREE.Object3D();
+      vObj.position.set(x + back.x, this.getGroundHeight(x, z), z + back.z);
+      collisions.add(vObj, new THREE.Vector3(0.55, 1.8, 0.55));
+    }
   }
 
   /** El Cartucho: humo, fuego, carretas, cambuches, ropa colgada y basura */
-  _buildCartucho() {
+  _buildCartucho(collisions = null) {
     const cx = WX, cz = WZ;
+    this.fireBarrels = [];
     // canecas con fuego en la olla y el callejón
-    for (const [x, z] of [[13, 19], [16.5, 24.5], [10, 21.5], [19.5, 22]]) this._add(P.fireBarrel(), cx(x), cz(z));
+    for (const [x, z] of [[13, 19], [16.5, 24.5], [10, 21.5], [19.5, 22]]) {
+      this._add(P.fireBarrel(), cx(x), cz(z));
+      const pos = new THREE.Vector3(cx(x), 0, cz(z));
+      this.fireBarrels.push({
+        kind: 'fireBarrel',
+        position: pos,
+        title: 'Fogata de caneca'
+      });
+      if (collisions) {
+        const b = new THREE.Object3D();
+        b.position.copy(pos);
+        collisions.add(b, new THREE.Vector3(0.65, 1.1, 0.65));
+      }
+    }
     // zorras de reciclaje
     for (const [x, z, r] of [[9.5, 22.5, 0.3], [12.5, 24.5, 1.9], [18.5, 21, -0.8], [20.5, 15, 1.2]]) this._add(P.zorra(), cx(x), cz(z), r);
     // cambuches ajenos contra las paredes
-    for (const [x, z, r] of [[12.5, 18.3, 0], [15, 18.3, 0], [17.4, 20, Math.PI / 2], [12.3, 25.5, Math.PI], [11, 22.5, Math.PI / 2]]) this._add(P.shack(), cx(x), cz(z), r);
+    for (const [x, z, r] of [[12.5, 18.3, 0], [15, 18.3, 0], [17.4, 20, Math.PI / 2], [12.3, 25.5, Math.PI], [11, 22.5, Math.PI / 2]]) {
+      this._add(P.shack(), cx(x), cz(z), r);
+      if (collisions) {
+        const cos = Math.abs(Math.cos(r)), sin = Math.abs(Math.sin(r));
+        const sObj = new THREE.Object3D();
+        sObj.position.set(cx(x), 0, cz(z));
+        collisions.add(sObj, new THREE.Vector3(2.2 * cos + 1.8 * sin, 1.4, 2.2 * sin + 1.8 * cos));
+      }
+    }
     // basura y colchones
     for (let i = 0; i < 9; i++) {
       const x = rand(9.5, 20.5), z = Math.random() < 0.5 ? rand(21, 22.5) : rand(18.5, 25);
@@ -811,51 +857,84 @@ export class Bogota {
       this._add(line, cx(x), cz(21.5));
     }
     // chaza dentro del callejón
-    this._vendor(cx(18.5), cz(21.5), 0, 'chaza', 'Chaza del callejón', ['cigarrillo', 'pan', 'agua']);
+    this._vendor(cx(18.5), cz(21.5), 0, 'chaza', 'Chaza del callejón', ['cigarrillo', 'pan', 'agua'], null, collisions);
   }
 
-  _buildPark() {
+  _buildPark(collisions = null) {
     for (let i = 0; i < 9; i++) {
       const x = rand(29.5, 38.5), z = rand(33.5, 45.5);
       if (Math.abs(x - 33.5) < 1.6 || Math.abs(z - 39) < 1.2) continue;
       if (Math.hypot(WX(x) - SHELTER_LOCATION.x, WZ(z) - SHELTER_LOCATION.z) < 6) continue;
       this._add(P.tree(rand(0.9, 1.3)), WX(x), WZ(z));
+      if (collisions) {
+        const tObj = new THREE.Object3D();
+        tObj.position.set(WX(x), this.getGroundHeight(WX(x), WZ(z)), WZ(z));
+        collisions.add(tObj, new THREE.Vector3(0.45, 3.0, 0.45));
+      }
     }
     for (const [x, z, r] of [[32, 37, Math.PI / 2], [35, 41, -Math.PI / 2], [31, 39.8, 0], [36.5, 38.2, Math.PI]]) {
       if (Math.hypot(WX(x) - SHELTER_LOCATION.x, WZ(z) - SHELTER_LOCATION.z) < 5) continue;
       const banca = new Banca(new THREE.Vector3(WX(x), 0.06, WZ(z)), r);
       this.group.add(banca.group);
+      if (collisions) {
+        const cos = Math.abs(Math.cos(r)), sin = Math.abs(Math.sin(r));
+        const bObj = new THREE.Object3D();
+        bObj.position.set(WX(x), 0.06, WZ(z));
+        collisions.add(bObj, new THREE.Vector3(1.6 * cos + 0.6 * sin, 0.8, 1.6 * sin + 0.6 * cos));
+      }
     }
     // cartel del parque
     const sign = P.streetSign(['Parque', 'Tercer Milenio']);
     this._add(sign, WX(29), WZ(33), -0.6);
   }
 
-  _buildExtensions() {
+  _buildExtensions(collisions = null) {
     for (const park of EXTENSION_PARKS) {
       for (let z=park.z0+1;z<park.z1;z+=4) for (let x=park.x0+1;x<park.x1;x+=4) {
-        if (this.map[z][x] === 'grass') this._add(P.tree(rand(0.9,1.3)), W(x), W(z));
+        if (this.map[z][x] === 'grass') {
+          this._add(P.tree(rand(0.9,1.3)), W(x), W(z));
+          if (collisions) {
+            const tObj = new THREE.Object3D();
+            tObj.position.set(W(x), this.getGroundHeight(W(x), W(z)), W(z));
+            collisions.add(tObj, new THREE.Vector3(0.45, 3.0, 0.45));
+          }
+        }
       }
       const pathZ=Math.floor((park.z0+park.z1)/2);
       for (const x of [park.x0+2,park.x1-2]) {
         const bench = new Banca(new THREE.Vector3(W(x), this.getGroundHeight(W(x),W(pathZ)), W(pathZ)), 0);
         this.group.add(bench.group);
+        if (collisions) {
+          const bObj = new THREE.Object3D();
+          bObj.position.set(W(x), this.getGroundHeight(W(x), W(pathZ)), W(pathZ));
+          collisions.add(bObj, new THREE.Vector3(1.6, 0.8, 0.6));
+        }
       }
       this._add(P.streetSign([park.name, 'Bogotá']), W(park.x0), W(pathZ));
     }
-    this._vendor(W(CARRERAS[2][0]-1.5), W(55), Math.PI/2, 'chaza', 'Chaza de la Carrera 8', ['agua','pan','cafe']);
-    this._vendor(W(52), W(CALLES[2][0]-1.5), 0, 'fritanga', 'Fritanga del Sur', ['lataComida','pan','refresco']);
+    this._vendor(W(CARRERAS[2][0]-1.5), W(55), Math.PI/2, 'chaza', 'Chaza de la Carrera 8', ['agua','pan','cafe','empanada'], null, collisions);
+    this._vendor(W(52), W(CALLES[2][0]-1.5), 0, 'fritanga', 'Fritanga del Sur', ['empanada', 'morcilla', 'papaCriolla', 'aguapanela', 'refresco'], null, collisions);
   }
 
-  _buildLakePark() {
+  _buildLakePark(collisions = null) {
     // Arbolado espaciado; solo crece en césped, nunca dentro del lago o sobre el puente.
     for (let z = 230; z < 314; z += 12) for (let x = 14; x < 230; x += 12) {
       if (this.map[Math.round(z / T)]?.[Math.round(x / T)] !== 'grass' || onLakeBridge(x, z)) continue;
       this._add(P.tree(1 + ((x + z) % 3) * .12), x, z);
+      if (collisions) {
+        const tObj = new THREE.Object3D();
+        tObj.position.set(x, this.getGroundHeight(x, z), z);
+        collisions.add(tObj, new THREE.Vector3(0.45, 3.0, 0.45));
+      }
     }
     for (const [x, z] of [[20, 226], [132, 236], [134, 288], [20, 310], [156, 310]]) {
       const bench = new Banca(new THREE.Vector3(x, this.getGroundHeight(x, z), z), 0);
       this.group.add(bench.group);
+      if (collisions) {
+        const bObj = new THREE.Object3D();
+        bObj.position.set(x, this.getGroundHeight(x, z), z);
+        collisions.add(bObj, new THREE.Vector3(1.6, 0.8, 0.6));
+      }
     }
     this._add(P.streetSign([LAKE_PARK.name, 'Lago · Puente TransMilenio']), 150, 226);
   }

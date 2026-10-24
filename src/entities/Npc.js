@@ -294,6 +294,26 @@ export class Npc {
     this.animAcc = 0;
   }
 
+  /**
+   * Caja delimitadora en espacio de mundo para colisión física con el jugador.
+   */
+  getBoundingBox() {
+    this._boundingBox ??= new THREE.Box3();
+    this._boundingBox.min.set(this.position.x - 0.28, this.position.y, this.position.z - 0.28);
+    this._boundingBox.max.set(this.position.x + 0.28, this.position.y + 1.8, this.position.z + 0.28);
+    return this._boundingBox;
+  }
+
+  /**
+   * Caja delimitadora en espacio de mundo para colisión física con el jugador.
+   */
+  getBoundingBox() {
+    this._boundingBox ??= new THREE.Box3();
+    this._boundingBox.min.set(this.position.x - 0.28, this.position.y, this.position.z - 0.28);
+    this._boundingBox.max.set(this.position.x + 0.28, this.position.y + 1.8, this.position.z + 0.28);
+    return this._boundingBox;
+  }
+
   dispose() {
     if (this._disposed) return;
     this._disposed = true;

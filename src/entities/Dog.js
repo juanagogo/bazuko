@@ -8,10 +8,12 @@ export class Dog {
     this.kind = 'dog';
     this.title = 'El Chato';
     this.isFriend = false;
+    this.friendship = 20;
     this.time = 0;
     this._barkTimer = 0;
     this._lastBarkTime = -99999;
     this._petCooldown = 0;
+    this._fetchTimer = 0;
     this._routeTimer = 0;
     this._route = [];
     this._delta = new THREE.Vector3();
@@ -105,12 +107,23 @@ export class Dog {
 
   befriend() {
     this.isFriend = true;
+    this.friendship = Math.max(this.friendship ?? 20, 40);
     this._barkTimer = 0;
+  }
+
+  feed(foodItem = null) {
+    this.isFriend = true;
+    this.friendship = Math.min(100, (this.friendship ?? 20) + 25);
+    this._petCooldown = 0;
+    this.time += 3;
+    this.wake();
+    return this.friendship;
   }
 
   pet() {
     if (this._petCooldown > 0) return false;
     this._petCooldown = 20;
+    this.friendship = Math.min(100, (this.friendship ?? 20) + 5);
     // Reacciona agitando la cola
     this.time += 2;
     return true;
@@ -199,11 +212,34 @@ export class Dog {
           this.bark('¡Olfatea algo valioso en la basura cercana!');
         }
       }
+
+      // Recompensa / Rebusca de objetos por parte de El Chato
+      if (this.friendship >= 50) {
+        this._fetchTimer += dt;
+        if (this._fetchTimer >= 90) {
+          this._fetchTimer = 0;
+          if (Math.random() < 0.6) {
+            const gifts = ['moneda', 'cable', 'reloj', 'lata', 'chatarra'];
+            const gift = gifts[Math.floor(Math.random() * gifts.length)];
+            window.dispatchEvent(new CustomEvent('dog-gift', { detail: { itemId: gift } }));
+          }
+        }
+      }
     } else {
       // Si aún no es amigo: merodeo tranquilo
       const wander = Math.sin(this.time * 0.8) * 0.4;
       this.group.rotation.y += wander * dt;
     }
+  }
+
+  /**
+   * Caja delimitadora para colisiones del perro.
+   */
+  getBoundingBox() {
+    this._boundingBox ??= new THREE.Box3();
+    this._boundingBox.min.set(this.position.x - 0.25, 0, this.position.z - 0.25);
+    this._boundingBox.max.set(this.position.x + 0.25, 0.65, this.position.z + 0.25);
+    return this._boundingBox;
   }
 
   destroy() {
