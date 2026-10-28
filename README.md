@@ -71,7 +71,7 @@ En PowerShell, si una política de ejecución impide usar `npm`, ejecuta los mis
 | `W`, `A`, `S`, `D` | Moverse. En tercera persona, el movimiento sigue el rumbo de la cámara. |
 | `Shift` | Correr. |
 | `V` o botón de cámara | Alternar entre tercera persona e isométrica. |
-| Clic izquierdo en la calle | Fijar el ratón para girar la cámara en tercera persona. |
+| `G` o clic izquierdo en la calle | Lanzar un puñetazo. El clic también fija el ratón para girar la cámara en tercera persona. |
 | Arrastrar con botón izquierdo/derecho o flechas | Girar la cámara sin fijar el ratón. |
 | Rueda del ratón | Ajustar la distancia de la cámara en tercera persona. |
 | `I` / `Tab` o botón Inventario | Abrir el inventario por casillas; el mundo queda en pausa. |
@@ -107,6 +107,8 @@ La partida guarda datos localmente en el navegador al crear o editar el personaj
 Al cruzar delante de un carro, este intenta frenar progresivamente. Si te atraviesas demasiado cerca, puede atropellarte: el daño depende de la velocidad y puede ser mortal. El golpe activa un ragdoll articulado y lanza al personaje hacia arriba y hacia delante según la velocidad. Si sobrevive, se levanta después de caer; si muere, la pantalla de recuperación espera a que termine la caída. El conductor sigue frenando hasta detenerse y espera brevemente antes de continuar. Los vehículos en movimiento y estacionados tienen colisiones mediante cajas invisibles simples, sin calcular los triángulos de sus modelos.
 
 Si la salud llega a cero, el juego se pausa y muestra una pantalla de recuperación. El regreso al cambuche ocurre al pulsar **Volver al cambuche**.
+
+El puñetazo muestra preparación, extensión del brazo y recuperación, tanto con el personaje realista como con el liviano. Solo conecta al extender el brazo, con un peatón cercano al frente y a la misma altura; un muro o apartarse a tiempo evita el impacto. Cada peatón conserva un temperamento: unos huyen después de recibir el golpe, otros se cubren quietos y otros se ponen en guardia y pueden devolver un único puñetazo si el jugador permanece cerca. Después retoman su recorrido. El temperamento no depende de su apariencia, y golpear repetidamente a la misma persona no genera monedas sin límite.
 
 ## Radar, pausa y El Chato
 

@@ -19,6 +19,8 @@ Cada cuerpo recibe clips adaptados y guardados en caché, también para su versi
 
 Dormir y saludar mantienen las animaciones anteriores. Si el banco nuevo no carga, se utilizan los clips anteriores. El personaje liviano conserva su animación procedural y los atropellos mantienen el ragdoll.
 
+El combate añade poses de puñetazo, impacto, guardia y protección sobre el personaje, sin incorporar clips al banco ni sustituir prendas. El progreso de la acción sincroniza la preparación, el contacto a los 0,22 segundos y la recuperación del puñetazo, que dura 0,6 segundos. Las poses también se aplican durante el movimiento y tienen su equivalente en el personaje liviano.
+
 Para regenerar el banco, guardar la descarga como `work/exportaciones/animaciones-actionforge.glb` y ejecutar `tools/personaje/preparar_actionforge.py` con Python. `exportar_actionforge.py` genera el personaje para subirlo al editor y requiere Pillow. Los archivos grandes de intercambio en `work/` no se publican.
 
 Las pruebas comprueban carga, esqueleto, selección de clips, ausencia de recursos visuales duplicados, valores finitos, movimiento en el sitio y conservación del cuerpo original. La apariencia y las transiciones deben revisarse jugando en el navegador.

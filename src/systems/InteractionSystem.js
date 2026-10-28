@@ -135,7 +135,8 @@ export class InteractionSystem {
     }
 
     // === Interacción principal (E) ===
-    if (input.consumePress('KeyE') && nearest) {
+    // Sin un objeto cercano, deja la pulsación disponible para el robo a peatones.
+    if (nearest && input.consumePress('KeyE')) {
       switch (nearestType) {
         case 'pickup':
           this._harvestTrash(nearest, false);

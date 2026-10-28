@@ -703,6 +703,12 @@ export class Game {
     this.collisions.setVehicles(cars, this.world.active?.busServices ?? this.world.active?.busService);
   }
 
+  _playerGroundHeight(x, z) {
+    const district = this.world.active;
+    return district?.getMovementGroundHeight?.(x, z, this.player.position.y)
+      ?? district?.getGroundHeight?.(x, z) ?? 0;
+  }
+
   _loop = () => {
     if (!this._running) return;
     requestAnimationFrame(this._loop);
@@ -775,11 +781,9 @@ export class Game {
     this.cameraRig.prepareMovement();
     const previousX = this.player.position.x, previousZ = this.player.position.z;
     this._syncVehicleColliders?.();
-    this.player.update(dt, this.cameraRig.camera, this.collisions, (x, z) => this.world.active?.getGroundHeight?.(x, z) ?? 0, this.world.active?.npcs ?? []);
+    this.player.update(dt, this.cameraRig.camera, this.collisions, (x, z) => this._playerGroundHeight(x, z), this.world.active?.npcs ?? []);
     if (!this.player.isStunned) {
-      const district = this.world.active;
-      const ground = district?.getMovementGroundHeight?.(this.player.position.x, this.player.position.z, this.player.position.y)
-        ?? district?.getGroundHeight?.(this.player.position.x, this.player.position.z);
+      const ground = this._playerGroundHeight(this.player.position.x, this.player.position.z);
       if (Number.isFinite(ground)) this.player.position.y = ground;
       this.player.root.position.y = this.player.position.y;
     }

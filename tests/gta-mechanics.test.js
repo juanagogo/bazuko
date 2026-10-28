@@ -132,18 +132,25 @@ test('Combate callejero GTA: puñetazo, impacto con transeúnte, reacción y bot
   player.root.rotation.y = 0; // Mirando hacia +Z
 
   // Transeúnte ubicado 1 metro al frente
-  const npc = new Npc(scene, new THREE.Vector3(10, 0, 11), { look: {} });
-  assert.equal(npc.panicTimer, 0);
+  const npc = new Npc(scene, new THREE.Vector3(10, 0, 11), { look: {}, temperament: 'evasivo' });
+  assert.equal(npc.combatReaction, null);
 
   // Lanzar puñetazo
   player.update(0.1, null, null, null, [npc]);
 
   assert.equal(player.action, 'golpear');
   assert.equal(audio.whoosh, true);
+  assert.equal(audio.punchHit, false, 'Preparar el golpe todavía no produce el impacto');
+  player.update(0.23, null, null, null, [npc]);
   assert.equal(audio.punchHit, true, 'El golpe conecta con el peatón');
-  assert.ok(npc.panicTimer > 0, 'El transeúnte entra en estado de pánico y huida');
+  assert.equal(npc.combatReaction.phase, 'impact', 'El peatón muestra primero el impacto');
   assert.ok(stats.dinero > 1000, 'El jugador recoge el botín arrojado por el peatón');
   assert.ok(npc._bubbleEl !== null, 'El peatón grita una frase bogotana al ser golpeado');
+  const before = npc.position.clone();
+  for (let i = 0; i < 12; i++) npc.update(0.05);
+  assert.equal(npc.combatReaction.phase, 'flee');
+  assert.ok(npc.position.distanceTo(before) > 0.1, 'El peatón evasivo huye de verdad');
+  npc.dispose(); player.dispose();
 });
 
 test('Gráficos: Farol nocturno con cono volumétrico de luz y material emisivo', () => {

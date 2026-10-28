@@ -9,6 +9,8 @@ import {
 import { createCharacter } from '../character/character.js';
 import { createRealisticCharacter, REALISTIC_SCALE } from '../character/RealisticCharacter.js';
 import { PlayerRagdoll } from '../systems/PlayerRagdoll.js';
+import { PUNCH } from '../data/combat.js';
+import { hasMeleeLine } from '../systems/MeleeCombat.js';
 
 export class Player {
   constructor(scene, input, stats=null, audio=null) {
@@ -32,6 +34,10 @@ export class Player {
     this._before = new THREE.Vector3();
     this._impactVelocity = new THREE.Vector3();
     this._impactTime = 0;
+    this._punchKnockback = new THREE.Vector3();
+    this._punchTargets = null;
+    this._punchHitDone = false;
+    this._punchInvulnerability = 0;
 
     // Contenedor raíz (posición + rumbo); el personaje va escalado adentro
     this.root = new THREE.Group();
@@ -55,6 +61,7 @@ export class Player {
     this.load = 0;            // 0..1: llenado del costal (tamaño del saco)
     this.action = null;       // 'pedir' | 'buscar' | 'comer' | 'dormir' | 'saludo'
     this.actionTimer = 0;
+    this.actionDuration = 0;
     this.sorting = false;
     this.hasCart = false;     // seleccionando basura (mantener Q)
   }
@@ -93,35 +100,55 @@ export class Player {
   playAction(action, duration = 1) {
     this.action = action;
     this.actionTimer = duration;
+    this.actionDuration = duration;
+    this._punchTargets = null;
   }
 
 
   punch(npcs = []) {
-    this.playAction('golpear', 0.38);
+    if (this.isStunned || this.action || this.hasCart || this.sorting) return false;
+    this.playAction('golpear', PUNCH.duration);
+    this._punchTargets = npcs;
+    this._punchHitDone = false;
     this.audio?.playWhoosh?.();
+    return true;
+  }
 
+  _connectPunch() {
     const forwardX = Math.sin(this.root.rotation.y);
     const forwardZ = Math.cos(this.root.rotation.y);
-
-    for (const npc of npcs) {
-      if (!npc || !npc.position) continue;
+    let target = null, nearest = PUNCH.range;
+    for (const npc of this._punchTargets ?? []) {
+      if (!npc?.position || npc._disposed || typeof npc.takePunch !== 'function') continue;
+      if (Math.abs(npc.position.y - this.position.y) > PUNCH.verticalTolerance) continue;
       const dx = npc.position.x - this.position.x;
       const dz = npc.position.z - this.position.z;
       const dist = Math.hypot(dx, dz);
-      if (dist < 1.85) {
-        const dot = (dx * forwardX + dz * forwardZ) / (dist || 1);
-        if (dot > 0.25) {
-          if (typeof npc.takePunch === 'function') {
-            const drop = npc.takePunch(this);
-            this.audio?.playPunchHit?.();
-            if (drop && this.stats && typeof this.stats.dinero === 'number') {
-              this.stats.dinero += drop;
-            }
-          }
-          break;
-        }
-      }
+      if (dist >= nearest || dist < 0.001) continue;
+      if ((dx * forwardX + dz * forwardZ) / dist <= PUNCH.minFacingDot) continue;
+      if (!hasMeleeLine(this.position, npc.position, this._lastCollisions)) continue;
+      target = npc; nearest = dist;
     }
+    if (target) {
+      const drop = target.takePunch(this);
+      this.audio?.playPunchHit?.();
+      if (Number.isFinite(drop) && drop > 0 && typeof this.stats?.dinero === 'number') this.stats.dinero += drop;
+    }
+  }
+
+  receivePunch(attacker, damage = 6) {
+    if (this.isStunned || this._punchInvulnerability > 0 || !(this.stats?.salud > 0)) return false;
+    if (!attacker?.position || !Number.isFinite(damage) || damage <= 0) return false;
+    const dx = this.position.x - attacker.position.x, dz = this.position.z - attacker.position.z;
+    if (Math.hypot(dx, dz) > PUNCH.range || Math.abs(this.position.y - attacker.position.y) > PUNCH.verticalTolerance) return false;
+    if (!hasMeleeLine(attacker.position, this.position, this._lastCollisions)) return false;
+    this.stats.salud = Math.max(0, this.stats.salud - damage);
+    this._punchInvulnerability = 0.75;
+    this.velocity.set(0, 0, 0);
+    this._punchKnockback.set(dx, 0, dz).normalize().multiplyScalar(2);
+    this.playAction('recibirGolpe', 0.4);
+    this.audio?.playPunchHit?.();
+    return true;
   }
 
   playBeg() {
@@ -129,13 +156,15 @@ export class Player {
   }
 
   receiveVehicleImpact(direction, speed, { collisions = this._lastCollisions } = {}) {
+    this.playAction(null, 0);
+    this._punchKnockback.set(0, 0, 0);
     if (this.ragdoll.start(direction, speed, collisions)) return;
     this._impactVelocity.copy(direction).setY(0).normalize().multiplyScalar(Math.min(9, speed * .7));
     this._impactTime = 1;
     this.root.rotation.z = .85;
   }
 
-  get isStunned() { return !!this.ragdoll?.active || this._impactTime > 0; }
+  get isStunned() { return !!this.ragdoll?.active || this._impactTime > 0 || (this.action === 'recibirGolpe' && this.actionTimer > 0); }
   get isRagdollActive() { return !!this.ragdoll?.active; }
 
   clearVehicleImpact() {
@@ -143,12 +172,16 @@ export class Player {
     this.ragdoll.clear();
     this._impactVelocity.set(0, 0, 0);
     this._impactTime = 0;
+    this._punchKnockback?.set(0, 0, 0);
+    this._punchInvulnerability = 0;
+    if (this.action === 'golpear' || this.action === 'recibirGolpe') this.playAction(null, 0);
     this.root.rotation.z = 0;
   }
 
   update(dt, camera, collisions, groundHeight = null, npcs = []) {
     this.time += dt;
     this._lastCollisions = collisions;
+    this._punchInvulnerability = Math.max(0, (this._punchInvulnerability ?? 0) - dt);
     if (this.ragdoll?.active) {
       this.velocity?.set(0, 0, 0);
       this.ragdoll.update(dt, collisions);
@@ -156,8 +189,12 @@ export class Player {
       return;
     }
     if (this.actionTimer > 0) {
-      this.actionTimer -= dt;
-      if (this.actionTimer <= 0) this.action = null;
+      this.actionTimer = Math.max(0, this.actionTimer - dt);
+      if (this.action === 'golpear' && !this._punchHitDone && this.actionDuration - this.actionTimer >= PUNCH.impactTime - 1e-8) {
+        this._punchHitDone = true;
+        this._connectPunch();
+      }
+      if (this.actionTimer <= 0) { this.action = null; this._punchTargets = null; }
     }
 
     // Salto y combate cuerpo a cuerpo estilo GTA
@@ -176,7 +213,8 @@ export class Player {
 
     const { x = 0, z = 0 } = this.input?.axis ?? {};
     const stunned = this._impactTime > 0;
-    const moving = !stunned && (x !== 0 || z !== 0);
+    const hurt = this.action === 'recibirGolpe';
+    const moving = !stunned && !hurt && (x !== 0 || z !== 0);
     const running = Boolean(this.input?.isRunning && moving);
     let speed = running ? this.speedRun : this.speedWalk;
     if (this.stats?.getSpeedMultiplier) {
@@ -185,6 +223,7 @@ export class Player {
     if (this.hasCart) {
       speed *= 0.82;
     }
+    if (this.action === 'golpear') speed *= 0.35;
     // Movimiento
     const dir = this._direction.set(x, 0, z);
     if (camera?.userData?.cameraMode === 'third-person') {
@@ -215,6 +254,10 @@ export class Player {
       delta.addScaledVector(this._impactVelocity, (1 - Math.exp(-4 * dt)) / 4);
       this._impactVelocity.multiplyScalar(Math.exp(-4 * dt));
       this._impactTime = Math.max(0, this._impactTime - dt);
+    }
+    if (this._punchKnockback) {
+      delta.addScaledVector(this._punchKnockback, (1 - Math.exp(-8 * dt)) / 8);
+      this._punchKnockback.multiplyScalar(Math.exp(-8 * dt));
     }
     this.root.rotation.z = .85 * this._impactTime;
 
@@ -272,6 +315,7 @@ export class Player {
       speed: stunned ? 0 : this.speed / this.modelScale,
       running,
       action: stunned ? null : (this.sorting ? 'buscar' : this.action),
+      actionProgress: this.actionDuration > 0 ? THREE.MathUtils.clamp(1 - this.actionTimer / this.actionDuration, 0, 1) : 0,
       t: this.time,
       load: this.load,
       dirt: this.stats ? Math.max(0, (40 - this.stats.higiene) / 40) : 0
