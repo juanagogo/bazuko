@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { beforeEach, test } from 'node:test';
 import * as THREE from 'three';
 import { SceneManager } from '../src/core/Scene.js';
-import { cerros, articulatedBus, tree, neonSign } from '../src/world/bogota/props.js';
+import { cerros, articulatedBus, tree, foliageWind, neonSign } from '../src/world/bogota/props.js';
 import { WeatherSystem } from '../src/world/WeatherSystem.js';
 import { Car } from '../src/entities/Car.js';
 import { facade } from '../src/world/bogota/textures.js';
@@ -74,14 +74,17 @@ test('Salto Gráfico 3: Bus TransMilenio articulado con faros, haz de luz y luce
 
 test('Salto Gráfico 4: Árboles con vaivén orgánico por viento andino', () => {
   const t = tree(1.2);
-  assert.ok(typeof t.userData.update === 'function', 'El árbol debe tener update de viento');
+  // El vaivén ocurre en el shader para que el árbol pueda agruparse con la geometría estática.
+  assert.equal(t.userData.update, undefined, 'El árbol no debe actualizarse por fotograma');
 
   const foliage = t.children.find(c => c.isGroup);
   assert.ok(foliage, 'Debe tener subgrupo de follaje');
-  const initZ = foliage.rotation.z;
-
-  t.userData.update(0.05, 1.5);
-  assert.notEqual(foliage.rotation.z, initZ, 'El viento andino oscila la copa del árbol');
+  const leaves = foliage.children.filter(c => c.isMesh);
+  const shader = { uniforms: {}, vertexShader: '#include <begin_vertex>' };
+  leaves[0].material.onBeforeCompile(shader);
+  assert.equal(shader.uniforms.foliageTime, foliageWind, 'Todas las copas leen el mismo tiempo de viento');
+  assert.match(shader.vertexShader, /sin\(foliageTime \* uv\.y \+ uv\.x\)/, 'El viento andino oscila la copa del árbol');
+  assert.ok(leaves.every(c => c.customDepthMaterial), 'La sombra acompaña el vaivén');
 });
 
 test('Salto Gráfico 5: Charcos y ondas de lluvia (Puddle Ripples) en WeatherSystem', () => {

@@ -1007,6 +1007,7 @@ export class Bogota {
         replacedMaterials.add(source.material);
       }
       const mesh = new THREE.Mesh(merged, mat);
+      mesh.customDepthMaterial = sources[0].customDepthMaterial; // mismo material, misma sombra
       mesh.castShadow = cast;
       mesh.receiveShadow = recv;
       mesh.matrixAutoUpdate = false;
@@ -1040,6 +1041,7 @@ export class Bogota {
 
   update(dt, playerPos, camera, trafficVehicles = []) {
     this.t += dt;
+    P.foliageWind.value = this.t;
     this.signals?.update(this.t);
     for (const bus of this.busServices ?? []) bus.update(dt, { player: playerPos, pedestrians: this.trafficPedestrians ?? this.npcs, vehicles: trafficVehicles });
     for (const o of this.animated) o.userData.update(dt, this.t);
