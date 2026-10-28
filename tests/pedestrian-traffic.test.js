@@ -349,6 +349,30 @@ test('con El Chato a 2,4 m del jugador, donde se detiene al seguirlo, el carro r
   }
 });
 
+test('un carro de otra ruta detrás de uno que rodea no pierde de vista a la persona rodeada', () => {
+  // Dos rutas que comparten el carril: quien sigue al que rodea no puede tomarlo como cola y
+  // acelerar hacia la persona que ese carro le tapaba.
+  for (const gapBehind of [10, 16, 24]) {
+    const first = new TrafficRoute(0, 240, 0, 240, 3.2), second = new TrafficRoute(0, 240, 0, 240, 3.2);
+    const traffic = new TrafficSystem(new THREE.Scene(), [first, second], { carsPerRoute: 1, random: () => .5 });
+    traffic.setStreetQueries({ isDrivable: (_x, z) => z > -8.8 && z < 2.9 });
+    const [leader, follower] = traffic.vehicles;
+    place(leader, 40); place(follower, 40 - gapBehind);
+    follower.cruiseSpeed = 7;
+    const player = new THREE.Vector3(60, 0, 0), dog = { position: new THREE.Vector3(58.4, 0, -1.8) };
+    const hits = [];
+    let minimumGap = Infinity;
+    for (let frame = 0; frame < 1600 && follower.car.position.x < 70; frame++) {
+      traffic.update(.05, { player, pedestrians: [dog], onPlayerHit: hit => hits.push(hit) });
+      minimumGap = Math.min(minimumGap, gap(leader, player), gap(follower, player));
+    }
+    assert.equal(hits.length, 0, `Nadie atropella al jugador (seguidor a ${gapBehind} m)`);
+    assert.ok(minimumGap > .5, `Margen con el jugador: ${minimumGap.toFixed(2)}`);
+    assert.ok(follower.car.position.x > 70, 'El de atrás también termina pasando');
+    traffic.dispose();
+  }
+});
+
 test('cuando el primero de la fila consigue rodear, los demás aprovechan el hueco uno tras otro', () => {
   let seed = 7; const random = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
   const route = new TrafficRoute(0, 400, 0, 240, 3.2);

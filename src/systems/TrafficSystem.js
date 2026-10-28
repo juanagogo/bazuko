@@ -372,6 +372,8 @@ export class TrafficSystem {
     if (this.signals) route.sample(distance, this._probePosition, signalDirection);
     // Si el de adelante está rodeando a alguien, esa persona queda entre ambos: revisar todo el trayecto.
     const probeLimit = leader?.detour ? lookAhead : Math.min(lookAhead, clearance);
+    // Lo mismo con un carro de otra ruta que rodea delante: se le sigue sin dejar de mirar detrás de él.
+    let detouring = null, detouringClearance = Infinity;
     for (let ahead = 0; ahead <= probeLimit; ahead += PROBE_STEP) {
       this._sample(vehicle, distance + ahead, this._probePosition, this._probeDirection);
       if (this.signals?.blocks(this._probePosition, signalDirection, car.position, car.length, vehicle)) return finish(Math.max(0, ahead - PROBE_STEP), 'signal');
@@ -379,19 +381,25 @@ export class TrafficSystem {
         if (ahead <= 10) { vehicle.personBlocked = true; vehicle.personBlocker = 'player'; }
         vehicle.playerClearance = Math.max(0, ahead - PROBE_STEP - PERSON_STOP_GAP);
       }
-      for (const other of nearbyCars) if (this._carInPath(other, car)) {
+      for (const other of nearbyCars) if (other !== detouring && this._carInPath(other, car)) {
+        if (other.detour && !detouring) { detouring = other; detouringClearance = Math.max(0, ahead - PROBE_STEP); continue; }
+        if (other.detour) continue;
         // Un carro de otra ruta en el mismo carril se sigue como en una cola; uno transversal se cruza.
         const yaw = other.car.group.rotation.y, heading = other.heading ?? { x: Math.cos(yaw), z: -Math.sin(yaw) };
         const following = heading.x * Math.cos(car.group.rotation.y) - heading.z * Math.sin(car.group.rotation.y) > .7;
+        if (detouringClearance < Infinity) return finish(detouringClearance, 'car', detouring);
         return finish(Math.max(0, ahead - PROBE_STEP), following ? 'car' : 'cross', other);
       }
       for (const pedestrian of nearby) {
         if (this._personBlocksProbe(vehicle, pedestrian.position, car)) {
           if (ahead <= 10 && !vehicle.personBlocked) { vehicle.personBlocked = true; vehicle.personBlocker = 'pedestrian'; }
-          return finish(Math.max(0, ahead - PROBE_STEP - PERSON_STOP_GAP), 'person', pedestrian.position);
+          const personClearance = Math.max(0, ahead - PROBE_STEP - PERSON_STOP_GAP);
+          if (detouringClearance < personClearance) return finish(detouringClearance, 'car', detouring);
+          return finish(personClearance, 'person', pedestrian.position);
         }
       }
     }
+    if (detouringClearance < Math.min(clearance, lookAhead + 1)) return finish(detouringClearance, 'car', detouring);
     return clearance <= lookAhead ? finish(clearance, 'car', leader) : finish(clearance);
   }
 

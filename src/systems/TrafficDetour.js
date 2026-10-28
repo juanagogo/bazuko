@@ -8,6 +8,8 @@ export const DETOUR_SPEED = 2.5;
 export const REVERSE_SPEED = .8;
 // A paso de maniobra basta con unos 30 cm entre la carrocería y el cuerpo de quien se rodea.
 const PASS_MARGIN = PLAYER_RADIUS + .3;
+// Si el carro quedó casi tocando a alguien, avanzar nunca puede acercarlo más: primero retrocede.
+const CONTACT_MARGIN = PLAYER_RADIUS + .1;
 const VEHICLE_MARGIN = .25;
 // Del giro a tope a uno más abierto: cerca del andén conviene no barrer la esquina contraria.
 const TURN_RADII = [4.5, 6.5, 9];
@@ -127,7 +129,7 @@ export function planDetour({ sample, car, person, people = [], others = [], isDr
       const turnAt = -back - axle;
       const returnAt = Math.max(turnAt + length, personAt + REAR_OVERHANG + PASS_MARGIN + .3);
       const detour = { offset, back, radius, length, turnAt, returnAt, axle,
-        end: returnAt + length + axle + .2, personLimit: nearby[0].limit };
+        end: returnAt + length + axle + .2, personLimit: Math.max(nearby[0].limit, CONTACT_MARGIN) };
       const duration = back / REVERSE_SPEED + (detour.end + back) / DETOUR_SPEED;
       // Una pose de la maniobra es segura si no toca personas, calzada ajena ni vehículos.
       const clear = (s, shifted, time) => {
@@ -135,7 +137,7 @@ export function planDetour({ sample, car, person, people = [], others = [], isDr
         if (shifted) applyDetour(detour, s, position, direction);
         const hx = direction.x, hz = direction.z, halfLength = car.length / 2, halfWidth = car.width / 2;
         for (const { p, limit } of nearby) {
-          if (boxGap(position.x, position.z, hx, hz, halfLength, halfWidth, p.x, p.z) < limit) return false;
+          if (boxGap(position.x, position.z, hx, hz, halfLength, halfWidth, p.x, p.z) < (shifted ? Math.max(limit, CONTACT_MARGIN) : limit)) return false;
         }
         if (isDrivable) {
           for (const [f, w] of [[1, 1], [1, -1], [-1, 1], [-1, -1], [1, 0]]) {
