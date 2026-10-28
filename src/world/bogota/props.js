@@ -253,10 +253,12 @@ export function tree(scale = 1) {
   // Animación orgánica de viento andino
   const phase = rand(0, Math.PI * 2);
   const freq = rand(1.4, 1.9);
-  g.userData.update = (dt, t) => {
+  const windSway = (dt, t) => {
     foliage.rotation.z = Math.sin(t * freq + phase) * 0.05;
     foliage.rotation.x = Math.cos(t * (freq * 0.8) + phase) * 0.035;
   };
+  windSway.isWindSway = true;
+  g.userData.update = windSway;
 
   return shadow(g);
 }

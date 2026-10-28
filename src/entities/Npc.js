@@ -105,6 +105,7 @@ export class Npc {
     this.umbrella = null;
     this.panicTimer = 0;
     this.panicDir = null;
+    this.hasDroppedLoot = false;
 
     this.ready = (async () => {
       this.look = opts.look ?? await randomStreetLook({ gastada: opts.gastada });
@@ -341,22 +342,62 @@ export class Npc {
 
 
   takePunch(attacker) {
-    const PUNCH_REACTIONS = [
-      '¡Uy qué le pasa, ñero loco!',
-      '¡Ayúdenme, me están atracando!',
-      '¡Policía, policía!',
-      '¡Socio, no me pegue, tome esto!',
-      '¡Qué boleta, bájese de la nube!'
-    ];
-    const phrase = PUNCH_REACTIONS[Math.floor(Math.random() * PUNCH_REACTIONS.length)];
-    this.say(phrase, 4.0);
-
     if (attacker && attacker.position) {
       const dx = this.position.x - attacker.position.x;
       const dz = this.position.z - attacker.position.z;
       const len = Math.hypot(dx, dz) || 1;
       this.panicDir = { x: dx / len, z: dz / len };
       this.panicTimer = 5.0; // 5 segundos de huida veloz
+    }
+
+    // Límite de pelea: Un peatón solo tiene dinero una vez
+    if (this.hasDroppedLoot) {
+      const BROKE_PHRASES = [
+        '¡Ya no tengo más plata, déjeme en paz!',
+        '¡No me pegue más, ya le di todo!',
+        '¡Auxilio, auxilio, policía!',
+        '¡Ya me robó todo lo que tenía, suélteme!'
+      ];
+      const phrase = BROKE_PHRASES[Math.floor(Math.random() * BROKE_PHRASES.length)];
+      this.say(phrase, 4.0);
+      if (typeof window !== 'undefined' && window.dispatchEvent) {
+        window.dispatchEvent(new CustomEvent('toast', {
+          detail: { text: '⚠️ Este transeúnte ya no tiene nada de valor.', kind: 'warn' }
+        }));
+      }
+      return 0;
+    }
+
+    // Primer impacto: el peatón entrega su dinero
+    this.hasDroppedLoot = true;
+
+    // Resistencia: un porcentaje de transeúntes fuertes se defiende y contraataca
+    const isStrong = (this.look?.real?.edad === 'adulto' || Math.random() < 0.35);
+    if (isStrong && attacker?.stats && typeof attacker.stats.salud === 'number') {
+      const counterDmg = Math.floor(10 + Math.random() * 7); // 10 a 16 de daño
+      attacker.stats.salud = Math.max(0, attacker.stats.salud - counterDmg);
+      attacker.audio?.playPunchHit?.();
+      const DEFENSE_PHRASES = [
+        '¡A mí no me viene a montar la perseguidora, ñero!',
+        '¡Tome pa\' que lleve, respete a la gente!',
+        '¡Aquí no le vamos a copiar, atrevido!'
+      ];
+      this.say(DEFENSE_PHRASES[Math.floor(Math.random() * DEFENSE_PHRASES.length)], 4.0);
+      if (typeof window !== 'undefined' && window.dispatchEvent) {
+        window.dispatchEvent(new CustomEvent('toast', {
+          detail: { text: `👊 ¡El transeúnte se defendió y te devolvió el golpe! (-${counterDmg} de salud)`, kind: 'death' }
+        }));
+      }
+    } else {
+      const PUNCH_REACTIONS = [
+        '¡Uy qué le pasa, ñero loco!',
+        '¡Ayúdenme, me están atracando!',
+        '¡Policía, policía!',
+        '¡Socio, no me pegue, tome esto!',
+        '¡Qué boleta, bájese de la nube!'
+      ];
+      const phrase = PUNCH_REACTIONS[Math.floor(Math.random() * PUNCH_REACTIONS.length)];
+      this.say(phrase, 4.0);
     }
 
     const dropMoney = 200 + Math.floor(Math.random() * 400);

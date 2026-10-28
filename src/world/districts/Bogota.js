@@ -979,7 +979,7 @@ export class Bogota {
     const replacedGeometries = new Set();
     const replacedMaterials = new Set();
     const visit = (o) => {
-      if (o.userData.update || o.userData.noMerge) return; // animados y faroles quedan aparte
+      if ((o.userData.update && !o.userData.update.isWindSway) || o.userData.noMerge) return; // animados y faroles quedan aparte
       if (o.isMesh && !Array.isArray(o.material) && !o.isSkinnedMesh) {
         if (!o.geometry.attributes.uv || !o.geometry.attributes.normal) return;
         // Conserva los índices: expandir cajas y planos duplicaba sus vértices.

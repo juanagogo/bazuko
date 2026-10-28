@@ -55,6 +55,7 @@ export class Player {
     this.load = 0;            // 0..1: llenado del costal (tamaño del saco)
     this.action = null;       // 'pedir' | 'buscar' | 'comer' | 'dormir' | 'saludo'
     this.actionTimer = 0;
+    this.punchCooldown = 0;
     this.sorting = false;
     this.hasCart = false;     // seleccionando basura (mantener Q)
   }
@@ -97,12 +98,27 @@ export class Player {
 
 
   punch(npcs = []) {
+    // Si el jugador tiene estadísticas de energía y está exhausto, no puede pelear
+    if (this.stats && typeof this.stats.energia === 'number') {
+      if (this.stats.energia < 8) {
+        if (typeof window !== 'undefined' && window.dispatchEvent) {
+          window.dispatchEvent(new CustomEvent('toast', {
+            detail: { text: '⚠️ ¡Estás demasiado exhausto para pelear! Necesitas descansar.', kind: 'warn' }
+          }));
+        }
+        return false;
+      }
+      this.stats.energia = Math.max(0, this.stats.energia - 8);
+    }
+
+    this.punchCooldown = 0.75;
     this.playAction('golpear', 0.38);
     this.audio?.playWhoosh?.();
 
     const forwardX = Math.sin(this.root.rotation.y);
     const forwardZ = Math.cos(this.root.rotation.y);
 
+    let hitAny = false;
     for (const npc of npcs) {
       if (!npc || !npc.position) continue;
       const dx = npc.position.x - this.position.x;
@@ -117,11 +133,24 @@ export class Player {
             if (drop && this.stats && typeof this.stats.dinero === 'number') {
               this.stats.dinero += drop;
             }
+            hitAny = true;
           }
           break;
         }
       }
     }
+
+    // Agresión en vía pública: incrementa nivel de búsqueda policial
+    if (hitAny) {
+      if (this.game?.steal && typeof this.game.steal.buscado === 'number') {
+        this.game.steal.buscado = Math.min(3, this.game.steal.buscado + 1);
+      }
+      if (typeof window !== 'undefined' && window.dispatchEvent) {
+        window.dispatchEvent(new CustomEvent('street-fight', { detail: { attacker: this } }));
+      }
+    }
+
+    return true;
   }
 
   playBeg() {
@@ -155,6 +184,7 @@ export class Player {
       this.speed = 0; this.state = 'ragdoll';
       return;
     }
+    if (this.punchCooldown > 0) this.punchCooldown = Math.max(0, this.punchCooldown - dt);
     if (this.actionTimer > 0) {
       this.actionTimer -= dt;
       if (this.actionTimer <= 0) this.action = null;
@@ -170,7 +200,7 @@ export class Player {
     }
 
     const wantsPunch = typeof this.input?.consumePress === 'function' && (this.input.consumePress('KeyG') || this.input.consumePress('Mouse0'));
-    if (wantsPunch && !this.isStunned && !this.action && !this.hasCart && !this.sorting) {
+    if (wantsPunch && !this.isStunned && !this.action && !this.hasCart && !this.sorting && (this.punchCooldown || 0) <= 0) {
       this.punch(npcs);
     }
 
