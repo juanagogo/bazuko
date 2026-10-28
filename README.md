@@ -89,6 +89,7 @@ En PowerShell, si una política de ejecución impide usar `npm`, ejecuta los mis
 | `K` | Alternar entre el personaje realista y el modelo liviano. |
 | `Esc` o botón Pausa | Abrir la pausa en la pestaña Estado; cerrar primero el panel activo y liberar el cursor. |
 | `N` | Mostrar u ocultar el radar. |
+| `R` en la calle | Abrir o cerrar la radio AM/FM; permite sintonizar emisoras y cambiar pilas. En 890 AM se escuchan boletines de lluvia y de la ciudad. |
 | `+` / `−` | Acercar o alejar el radar. |
 | `F3` | Mostrar u ocultar el panel de rendimiento. |
 | `R` en la calle | Abrir o cerrar la radio AM/FM; permite sintonizar emisoras y cambiar pilas. |

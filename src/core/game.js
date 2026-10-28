@@ -90,6 +90,7 @@ export class Game {
     this.radio = new RadioSystem();
     this.radio.setMasterVolume(this.audio.volume, this.audio.muted);
     window.addEventListener('audio-settings-change', ({ detail }) => this.radio.setMasterVolume(detail.volume, detail.muted));
+    window.addEventListener('weather-change', ({ detail }) => this.radio.onWeatherChange(detail));
 
     // Mundo + jugador
     this.world = new World(this.sceneMgr.scene);
