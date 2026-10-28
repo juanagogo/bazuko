@@ -10,6 +10,10 @@ npm test
 npm run build
 ```
 
+## Integración continua
+
+`.github/workflows/ci.yml` ejecuta `npm ci`, `npm test` y `npm run build` en cada pull request y en cada push a `main`. Solo descarga de Git LFS los WAV de `public/audio`; los respaldos del port C++ en `cpp/assets/audio` no se descargan. Las pruebas de navegador no forman parte de la CI.
+
 ## Preparar Chromium
 
 ```sh
