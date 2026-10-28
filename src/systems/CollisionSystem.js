@@ -63,7 +63,10 @@ export class CollisionSystem {
     return candidates.some(intersects) || this.dynamicColliders.some(intersects);
   }
 
-  /** Cajas simples; el bus conserva además orientación para la colisión precisa. */
+  /**
+   * Cajas simples. El bus y los carros girados (curvas, rodeos) conservan además su orientación:
+   * la caja alineada de una carrocería inclinada sobresale casi un metro por cada costado.
+   */
   setVehicles(cars = [], bus = null) {
     const present = new Set(cars);
     const buses = new Set([bus].flat().filter(Boolean));
@@ -74,12 +77,15 @@ export class CollisionSystem {
       let entry = this._vehicles.get(vehicle);
       if (!entry) { entry = { vehicle, box: new THREE.Box3() }; this._vehicles.set(vehicle, entry); }
       const isBus = buses.has(vehicle);
-      if (isBus) {
+      // Los carros avanzan por su eje X local y el bus por su eje Z local.
+      const turned = Math.abs(Math.sin(2 * vehicle.group.rotation.y)) > 1e-3;
+      if (isBus || turned) {
         entry.obb ??= { center: new THREE.Vector3(), halfSize: new THREE.Vector3(), quaternion: new THREE.Quaternion(),
           inverse: new THREE.Quaternion(), axes: [new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3()] };
         const o = entry.obb;
         o.quaternion.copy(vehicle.group.quaternion); o.inverse.copy(o.quaternion).invert();
-        o.halfSize.set(vehicle.width / 2, 3.5 / 2, vehicle.length / 2);
+        if (isBus) o.halfSize.set(vehicle.width / 2, 3.5 / 2, vehicle.length / 2);
+        else o.halfSize.set(vehicle.length / 2, 1.65 / 2, vehicle.width / 2);
         o.center.set(0, o.halfSize.y, 0).applyQuaternion(o.quaternion).add(vehicle.position);
         o.axes[0].set(1,0,0).applyQuaternion(o.quaternion);
         o.axes[1].set(0,1,0).applyQuaternion(o.quaternion);

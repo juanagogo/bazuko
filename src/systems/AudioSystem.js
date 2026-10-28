@@ -38,7 +38,8 @@ export class AudioSystem {
       ambient: sound('city_atmosphere_soun.opus', { volume: .18, loop: true }),
       rain: sound('rain_sound_01.mp3', { volume: .45, loop: true })
     };
-    // Reproducción normal: sin posiciones, panners ni atenuación 3D.
+    // Sin posiciones ni panners: los motores suenan normales y los claxones
+    // expresan la distancia con volumen, filtro y reverberación (HornAcoustics).
     const vehicleOptions = { volume: 0, loop: true, pool: 10 };
     this.vehicleSounds = {
       carIdle: sound('car_idling_at_a_traf.opus', vehicleOptions),
@@ -46,9 +47,11 @@ export class AudioSystem {
       busIdle: sound('car_idling_at_a_traf_bus.opus', vehicleOptions),
       busDrive: sound('bus_vehicle_drivin.opus', vehicleOptions),
       // Tomar una sola pitada de cada grabación evita reproducir secuencias de casi 8 s.
-      horn1: sound('car_horn_sound1.opus', { ...vehicleOptions, loop: false, sprite: { honk: [900, 550] } }),
-      horn2: sound('car_horn_sound.opus', { ...vehicleOptions, loop: false, sprite: { honk: [1000, 600] } }),
-      horn3: sound('car_horn_sound_v3.opus', { ...vehicleOptions, loop: false, sprite: { honk: [200, 650] } })
+      // `hold` repite la parte estable de una pulsación larga para mantener el claxon:
+      // empieza en un cruce por cero y dura un número entero de ciclos, sin costura audible.
+      horn1: sound('car_horn_sound1.opus', { ...vehicleOptions, loop: false, sprite: { honk: [900, 550], hold: [1159.313, 1017.646, true] } }),
+      horn2: sound('car_horn_sound.opus', { ...vehicleOptions, loop: false, sprite: { honk: [1000, 600], hold: [1785.208, 314.083, true] } }),
+      horn3: sound('car_horn_sound_v3.opus', { ...vehicleOptions, loop: false, sprite: { honk: [200, 650], hold: [4655.146, 1793.396, true] } })
     };
     const driverFiles = [
       ...[1, 3, 4, 5, 6, 7].map(n => `valentina_n${n}.mp3`),
@@ -57,7 +60,7 @@ export class AudioSystem {
     this.driverSounds = driverFiles.map(file => sound(file, { volume: 0, loop: false, pool: 8 }));
     this.theftSounds = Array.from({ length: 5 }, (_, i) => sound(`roberto_robo_espejo_n${i + 1}.mp3`, { volume: 0, loop: false, pool: 6 }));
     this._theftVoices = new Map();
-    this.vehicles = new VehicleAudio(this.vehicleSounds, Math.random, this.driverSounds);
+    this.vehicles = new VehicleAudio(this.vehicleSounds, Math.random, this.driverSounds, { howler });
     this._carAlarms = new Map();
 
     // El audio es opcional: un archivo ausente o bloqueado no impide jugar.
@@ -79,13 +82,6 @@ export class AudioSystem {
     this._ambientStarted = false;
     this._lastGroundType = 'sidewalk';
     this._lastRunning = false;
-    if (typeof window !== 'undefined' && window.addEventListener) {
-      window.addEventListener('car-honk', (e) => {
-        const pitch = 380 + Math.random() * 80;
-        this.playCarHorn(pitch, 0.22 + Math.random() * 0.12);
-      });
-    }
-
 
     // Desbloquear audio tras primer click (política de navegadores)
     const unlock = () => {
@@ -463,40 +459,6 @@ export class AudioSystem {
       gain.connect(this.howler.masterGain ?? ctx.destination);
       src.start();
       src.stop(ctx.currentTime + dur);
-    } catch {}
-  }
-
-  playCarHorn(frequency = 415, duration = 0.28) {
-    if (this.muted || typeof window === 'undefined') return;
-    try {
-      const ctx = Howler.ctx;
-      if (!ctx || ctx.state === 'suspended') return;
-      const t = ctx.currentTime;
-
-      // Doble tono armónico típico de bocina de carro
-      const osc1 = ctx.createOscillator();
-      const osc2 = ctx.createOscillator();
-      const gain = ctx.createGain();
-
-      osc1.type = 'sawtooth';
-      osc1.frequency.setValueAtTime(frequency, t);
-
-      osc2.type = 'sawtooth';
-      osc2.frequency.setValueAtTime(frequency * 1.25, t); // tercera mayor
-
-      gain.gain.setValueAtTime(0.01, t);
-      gain.gain.linearRampToValueAtTime(0.35 * this._masterVolume, t + 0.02);
-      gain.gain.setValueAtTime(0.32 * this._masterVolume, t + duration - 0.04);
-      gain.gain.exponentialRampToValueAtTime(0.001, t + duration);
-
-      osc1.connect(gain);
-      osc2.connect(gain);
-      gain.connect(ctx.destination);
-
-      osc1.start(t);
-      osc2.start(t);
-      osc1.stop(t + duration);
-      osc2.stop(t + duration);
     } catch {}
   }
 

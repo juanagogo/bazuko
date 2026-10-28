@@ -921,16 +921,31 @@ export class Bogota {
     this._add(P.streetSign([LAKE_PARK.name, 'Lago · Puente TransMilenio']), 150, 226);
   }
 
-  _createPedestrianNavigation() {
+  // Prolongación de los andenes en los cruces; no pasean por los carriles ni la estación.
+  _isCrossingTile(x, z) {
     const carreras = [...CARRERAS, [CARACAS.lanes[0][0], CARACAS.lanes[1][1]]];
+    return CALLES.some(([a, b]) =>
+      (z >= a - SIDEWALK_TILES && z < a) || (z > b && z <= b + SIDEWALK_TILES)) ||
+      (z === 113 || z === 155 || z === 79 || z === 89) ||
+      (viaductHeight(z * T) > 2 && Math.abs(x * T - busPathX(z * T)) < 16) ||
+      carreras.some(([a, b]) =>
+        (x >= a - SIDEWALK_TILES && x < a) || (x > b && x <= b + SIDEWALK_TILES));
+  }
+
+  /** Calzada de carros (no troncal, andén ni separador), en coordenadas del mundo. */
+  isDrivable(x, z) {
+    return this.map?.[Math.round(z / T)]?.[Math.round(x / T)] === 'road';
+  }
+
+  /** Cebra o cruce peatonal sobre la calzada, en coordenadas del mundo. */
+  isCrosswalk(x, z) {
+    const tx = Math.round(x / T), tz = Math.round(z / T);
+    return ['road', 'busway'].includes(this.map?.[tz]?.[tx]) && this._isCrossingTile(tx, tz);
+  }
+
+  _createPedestrianNavigation() {
     return new PedestrianNavigation(this.map, T, {
-      // Prolongación de los andenes en los cruces; no pasean por los carriles ni la estación.
-      isCrossing: (x, z) => CALLES.some(([a, b]) =>
-        (z >= a - SIDEWALK_TILES && z < a) || (z > b && z <= b + SIDEWALK_TILES)) ||
-        (z === 113 || z === 155 || z === 79 || z === 89) ||
-        (viaductHeight(z * T) > 2 && Math.abs(x * T - busPathX(z * T)) < 16) ||
-        carreras.some(([a, b]) =>
-          (x >= a - SIDEWALK_TILES && x < a) || (x > b && x <= b + SIDEWALK_TILES)),
+      isCrossing: (x, z) => this._isCrossingTile(x, z),
       isBlocked: (x, z) => (x === Math.round(this.reserved.shop.x / T) && z === Math.round(this.reserved.shop.z / T)) ||
         GAS_OBSTACLES.some(o => Math.abs(x * T - o.x) < o.w / 2 + .3 && Math.abs(z * T - o.z) < o.d / 2 + .3),
       groundHeight: (x, z) => this.getGroundHeight(x, z)

@@ -12,6 +12,7 @@ const param = () => ({
   value: 0,
   setValueAtTime(value) { this.value = value; },
   setTargetAtTime(value) { this.value = value; },
+  linearRampToValueAtTime(value) { this.value = value; },
   cancelScheduledValues() {}
 });
 const audioNode = () => ({
@@ -33,7 +34,9 @@ class Context {
   createGain() { return audioNode(); }
   createPanner() { return audioNode(); }
   createBufferSource() { return audioNode(); }
-  createBuffer() { return {}; }
+  createBiquadFilter() { return { ...audioNode(), type: 'lowpass', frequency: param(), Q: param() }; }
+  createConvolver() { return audioNode(); }
+  createBuffer(_channels = 1, length = 1) { return { getChannelData: () => new Float32Array(length) }; }
   decodeAudioData(bytes, done) {
     const { duration } = audioMetadata(Buffer.from(bytes));
     setTimeout(() => done({ duration }), 0);
@@ -65,7 +68,7 @@ function realHowler() {
   return sandbox;
 }
 
-test('Howler real reproduce motores y claxones normales conectados a la salida sin panner', async () => {
+test('Howler real reproduce motores directos y claxones filtrados por distancia, sin panner', async () => {
   const { Howl, Howler } = realHowler();
   const audio = new AudioSystem({ HowlClass: Howl, howler: Howler, eventTarget: null });
   try {
@@ -81,7 +84,7 @@ test('Howler real reproduce motores y claxones normales conectados a la salida s
     assert.ok(carState.idle.sound._soundById(carState.idle.id)._node.gain.value > .30);
     assert.equal(busState.drive.sound._src, '/audio/bus_vehicle_drivin.opus');
     assert.ok(Math.abs(busState.drive.sound._soundById(busState.drive.id)._node.gain.value - .42) < .001);
-    const voices = [carState.idle, busState.drive, carState.horn];
+    const voices = [carState.idle, busState.drive], horns = [];
     vehicle.speed = 4; bus.speed = 0;
     for (let frame = 0; frame < 20; frame++) audio.updateWorld(.1, listener, camera, [vehicle], bus);
     voices.push(carState.drive, busState.idle);
@@ -100,23 +103,42 @@ test('Howler real reproduce motores y claxones normales conectados a la salida s
     vehicle.speed = 4;
     for (let frame = 0; frame < 20; frame++) audio.updateWorld(.1, listener, camera, [vehicle], bus);
     for (const hornIndex of [0, 2]) {
-      carState.hornIndex = hornIndex; carState.cooldown = 0;
+      carState.hornIndex = hornIndex; carState.cooldown = 0; carState.honks = 0;
       audio.updateWorld(.1, listener, camera, [vehicle], bus);
-      voices.push(carState.horn);
+      horns.push(carState.horn);
     }
     for (const { sound, id } of voices) {
-      // Los claxones anteriores pudieron terminar; su configuración se conserva.
       const actual = sound._soundById(id);
       assert.equal(actual._panner, undefined);
       assert.equal(actual._node.outputs[0], Howler.masterGain);
       assert.equal(Howler.masterGain.outputs[0], Howler.ctx.destination);
     }
+    for (const { sound, id } of horns) {
+      // Los claxones anteriores pudieron terminar; su cadena se conserva.
+      const actual = sound._soundById(id), [filter] = actual._node.outputs;
+      assert.equal(actual._panner, undefined);
+      assert.equal(actual._node.outputs.length, 1);
+      assert.equal(filter.type, 'lowpass');
+      assert.ok(filter.frequency.value > 10000, 'A tres metros el claxon conserva sus agudos');
+      const [dry, send] = filter.outputs;
+      assert.equal(dry.outputs[0], Howler.masterGain);
+      assert.ok(dry.gain.value > send.gain.value, 'Cerca domina el sonido directo');
+    }
+    voices.push(...horns);
     for (const voice of [carState.drive, busState.idle, carState.horn]) {
       const actual = voice.sound._soundById(voice.id);
       assert.equal(voice.sound.playing(voice.id), true);
       assert.ok(actual._node.gain.value > .05);
       assert.ok(actual._node.bufferSource.started);
       assert.equal(actual._node.bufferSource.outputs[0], actual._node);
+    }
+    // El claxon sostenido repite en bucle solo la parte estable de la pulsación larga.
+    for (const [key, start, length] of [['horn1', 1.159313, 1.017646], ['horn2', 1.785208, .314083], ['horn3', 4.655146, 1.793396]]) {
+      const sound = audio.vehicleSounds[key], id = sound.play('hold'), node = sound._soundById(id)._node;
+      assert.equal(node.bufferSource.loop, true);
+      assert.ok(Math.abs(node.bufferSource.loopStart - start) < 1e-6 && Math.abs(node.bufferSource.loopEnd - start - length) < 1e-6);
+      assert.ok(length < sound.duration(), 'El fragmento está dentro de la grabación');
+      sound.stop(id);
     }
     assert.equal(Howler.ctx.listener.positionX.value, 0);
     assert.equal(Howler.ctx.listener.positionZ.value, 0);

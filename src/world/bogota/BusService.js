@@ -120,6 +120,8 @@ export class BusService {
 
   update(dt, { player = null, pedestrians = [], vehicles = [] } = {}) {
     this.personBlocked = false;
+    this.personBlocker = null;
+    this.personPriority = null;
     let remaining = Math.min(Math.max(dt, 0), 0.5);
     while (remaining > 1e-8) {
       const step = Math.min(remaining, 0.05);
@@ -133,7 +135,8 @@ export class BusService {
       let clearance = this.direction * (this.endZ - this.position.z) / zPerMeter;
       clearance = Math.min(clearance, this.signals?.busClearance(this.position, this.length, this.direction) ?? Infinity);
       if (!this.servedStation) clearance = Math.min(clearance, this.direction * (this.stationZ - this.position.z) / zPerMeter);
-      let personClearance = player ? this._clearance(player) : Infinity;
+      const playerClearance = player ? this._clearance(player) : Infinity;
+      let personClearance = playerClearance;
       for (const npc of pedestrians) personClearance = Math.min(personClearance, this._clearance(npc.position));
       for (const { car } of vehicles) {
         if (car.position.y + 2 < this.position.y - .2 || car.position.y > this.position.y + 3) continue;
@@ -149,6 +152,9 @@ export class BusService {
         clearance = Math.min(clearance, Math.max(0, ahead - this.length / 2 - frontExtent - .8));
       }
       this.personBlocked = personClearance < 2.5 || personClearance < Math.min(clearance, 10);
+      this.personBlocker = !this.personBlocked ? null : playerClearance <= personClearance ? 'player' : 'pedestrian';
+      // Con rojo o detenido por otro motivo antes de la persona, el bus no tiene la vía.
+      this.personPriority = !this.personBlocked ? null : clearance <= personClearance + .5 ? 'pedestrian' : 'vehicle';
       clearance = Math.min(clearance, personClearance);
       const desiredSpeed = Math.min(CRUISE_SPEED * Math.max(.6, zPerMeter), Math.sqrt(2 * BRAKING * Math.max(0, clearance)));
       const rate = desiredSpeed < this.speed ? BRAKING : ACCELERATION;

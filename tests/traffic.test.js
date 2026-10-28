@@ -125,6 +125,8 @@ test('con distancia suficiente los carros frenan ante el jugador o un peatón y 
   for (const type of ['player', 'pedestrian']) {
     const traffic = new TrafficSystem(new THREE.Scene(), [new TrafficRoute(0, 240, 0, 240)], { carsPerRoute: 1, random: () => 0.5 });
     const vehicle = traffic.vehicles[0];
+    // Solo se mide el frenado: este conductor nunca decide rodear.
+    vehicle.evadePatience = Infinity;
     vehicle.distance = 2;
     vehicle.speed = vehicle.cruiseSpeed;
     const actor = new THREE.Vector3(), direction = new THREE.Vector3();
@@ -344,7 +346,7 @@ test('los giros que cortan otra trayectoria esperan y luego despejan sin atascar
 
 test('la salida y el frenado son progresivos y el conductor tarda en reaccionar al despejarse', () => {
   const traffic = new TrafficSystem(new THREE.Scene(), [new TrafficRoute(0, 240, 0, 240, 3.2)], { carsPerRoute: 1, random: () => .5 });
-  const vehicle = traffic.vehicles[0];
+  const vehicle = traffic.vehicles[0]; vehicle.evadePatience = Infinity;
   placeOnStraight(vehicle, 10, 0, 1, 0);
   for (let frame = 0; frame < 80; frame++) {
     const acceleration = vehicle.acceleration;
@@ -392,6 +394,7 @@ test('un cruce repentino provoca atropello sin eliminar la velocidad de frenado'
 test('el carro consigue detenerse sin atropellar si ve al jugador con suficiente anticipación', () => {
   const traffic = new TrafficSystem(new THREE.Scene(), [new TrafficRoute(0, 240, 0, 240, 3.2)], { carsPerRoute: 1, random: () => .5 });
   const vehicle = traffic.vehicles[0]; placeOnStraight(vehicle, 20, 0, 1, 0); vehicle.speed = 12;
+  vehicle.evadePatience = Infinity;
   const player = new THREE.Vector3(80, 0, 0), hits = [];
   for (let frame = 0; frame < 600; frame++) traffic.update(.05, { player, onPlayerHit: hit => hits.push(hit) });
   assert.equal(hits.length, 0);

@@ -115,7 +115,7 @@ test('cada pitada elige al azar entre las doce frases de Valentina y Roberto', (
   assert.equal(audio.driverSounds.length, 12);
   for (let i = 0; i < files.length; i++) {
     audio.vehicles.random = () => (i + .1) / files.length;
-    state.cooldown = 0;
+    state.cooldown = 0; state.honks = 0;
     audio.updateWorld(.1, origin, null, [vehicle]);
     const file = files[i];
     assert.equal(state.remark.sound.options.src[0], `/audio/${file}`);
@@ -291,9 +291,11 @@ test('el claxon espera una obstrucción peatonal y mantiene enfriamiento indepen
   second.personBlocked = true;
   for (let i = 0; i < 20; i++) audio.vehicles.update(.1, origin, [first, second]);
   assert.equal(bank.horn2.starts, 2);
-  const a = audio.vehicles.instances.get(first.car), b = audio.vehicles.instances.get(second.car);
-  assert.notEqual(a.horn.id, b.horn.id);
-  assert.equal(bank.horn2.voices.get(a.horn.id).volume, .48);
+  // Cada carro usa su propia voz; a cinco metros el claxon llega casi completo.
+  const voices = [...bank.horn2.voices.values()];
+  assert.equal(voices.length, 2);
+  assert.ok(voices.every(voice => voice.sprite === 'honk' && voice.volume > .4));
+  assert.equal(audio.vehicles.instances.get(first.car).horn, null, 'Una pitada corta termina y libera su voz');
   first.personBlocked = second.personBlocked = false;
   for (let i = 0; i < 100; i++) audio.vehicles.update(.1, origin, [first, second]);
   assert.equal(bank.horn2.starts, 2);

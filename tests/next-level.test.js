@@ -110,15 +110,12 @@ test('Detección de terreno y modulación de pasos en AudioSystem', () => {
   assert.equal(audio._stepsPlaying, false);
 });
 
-test('Bocina de carro y sonido de carreta en AudioSystem', () => {
+test('Sonido de carreta en AudioSystem; los claxones solo usan las grabaciones por vehículo', () => {
   const audio = new AudioSystem();
-  assert.equal(typeof audio.playCarHorn, 'function');
+  assert.equal(audio.playCarHorn, undefined);
   assert.equal(typeof audio.playCartRumble, 'function');
 
-  assert.doesNotThrow(() => {
-    audio.playCarHorn(400);
-    audio.playCartRumble();
-  });
+  assert.doesNotThrow(() => audio.playCartRumble());
 });
 
 test('Carreta de balineras: estructura 3D, acople al jugador, bonificación de carga y rodamiento', () => {

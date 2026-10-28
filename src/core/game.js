@@ -233,6 +233,10 @@ export class Game {
     await loading.stage('Preparando estación, lámparas y semáforos…', 3.7);
     await withLoadTimeout(district?.preloadDetails?.() ?? Promise.resolve(), 'La carga del mobiliario urbano tardó demasiado.');
     if (this.traffic) this.traffic.signals = district?.signals;
+    // El tráfico distingue calzada y cebras para rodear con seguridad a quien bloquea.
+    if (district?.isDrivable) this.traffic?.setStreetQueries?.({
+      isDrivable: (x, z) => district.isDrivable(x, z), isCrosswalk: (x, z) => district.isCrosswalk(x, z)
+    });
     this.traffic?.setBus?.(district?.busServices ?? district?.busService);
     if (this.cambuche) this.cambuche.group.position.y = district?.getGroundHeightUnder?.(this.cambuche.group)
       ?? district?.getGroundHeight?.(this.cambuche.position.x, this.cambuche.position.z) ?? 0;
