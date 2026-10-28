@@ -135,6 +135,15 @@ export class Player {
     this.root.rotation.z = .85;
   }
 
+  /** Golpe de un agresor: empujón y tambaleo breves, sin ragdoll. */
+  receiveHit(direction, strength = 2) {
+    if (this.ragdoll?.active) return;
+    this._impactVelocity.copy(direction).setY(0);
+    if (this._impactVelocity.lengthSq() < 1e-4) this._impactVelocity.set(0, 0, 1);
+    this._impactVelocity.normalize().multiplyScalar(strength);
+    this._impactTime = Math.max(this._impactTime, .3);
+  }
+
   get isStunned() { return !!this.ragdoll?.active || this._impactTime > 0; }
   get isRagdollActive() { return !!this.ragdoll?.active; }
 

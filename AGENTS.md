@@ -106,3 +106,7 @@ LoadingArtwork.js administra parejas numeradas según loading-artwork.json. Las 
 ## Variedad urbana
 
 UrbanBuildings.js planifica sustituciones deterministas sobre tiles building exclusivamente. Conservar el mismo plan al construir las fachadas y las colisiones. Las huellas se incorporan a covered antes de generar casas y relleno; en _buildCollisions se excluyen esos tiles de las cajas genéricas de 8 metros y se añade una caja de altura real por solar. No cambiar el mapa ni ocupar ruinas, calles, parques, edificios especiales o reservas del viaducto. Los cinco diseños usan createBuildingShell y BuildingVisibility, con fachadas repetibles compartidas y sin luces nuevas. Las torres de 30 pisos miden 96 metros, menos que Colpatria.
+
+## Conductores que se bajan
+
+RoadRageSystem reacciona al evento `mirror-stolen` de InteractionSystem. Solo actúa sobre carros en circulación, con una probabilidad de ROAD_RAGE.chance, y nunca hay más de un conductor fuera. TrafficSystem.hold detiene el carro con su frenado gradual normal y el conductor sale cuando la velocidad baja de 0,05 m/s. AngryDriver extiende Npc y se precarga con los demás NPC. Mientras está fuera se registra en `trafficPedestrians` y al subir se retira. Avisa antes de golpear y usa Player.receiveHit, sin ragdoll. La muerte usa la causa `golpiza` y la recuperación llama a `roadRage.reset()`. La figura del conductor sentado se oculta al cargar el GLB del carro, porque sus ventanas son opacas.

@@ -39,6 +39,7 @@ import { CraftingSystem } from '../systems/CraftingSystem.js';
 import { RadioSystem } from '../systems/RadioSystem.js';
 import { PoopSystem } from '../systems/PoopSystem.js';
 import { PsychosisSystem } from '../systems/PsychosisSystem.js';
+import { RoadRageSystem } from '../systems/RoadRageSystem.js';
 import { StealSystem } from '../features/steal.js';
 import { Pet } from '../features/pet.js';
 import { openRadioModal } from '../ui/RadioModal.js';
@@ -101,6 +102,10 @@ export class Game {
     this.psychosis = new PsychosisSystem(
       this.sceneMgr.scene, this.player, this.stats, this.audio, this.world
     );
+    // Conductores que se bajan con una varilla al robarles el retrovisor
+    this.roadRage = new RoadRageSystem(this.sceneMgr.scene, { player: this.player, stats: this.stats, audio: this.audio });
+    this.roadRage.onPlayerHurt = () => { if (this.stats.salud <= 0) this._deathCause = 'golpiza'; };
+    window.addEventListener('mirror-stolen', (e) => this.roadRage?.trigger(e.detail?.car));
     // Interacción
     this.interaction = new InteractionSystem(
       this.player, this.inventory, this.stats, this.audio,
@@ -218,7 +223,7 @@ export class Game {
     try { modelo = localStorage.getItem('bazuko.modelo'); } catch { /* sin almacenamiento */ }
     await withLoadTimeout(Promise.all([
       modelo !== 'procedural' ? this.player.setModel('realista') : Promise.resolve(),
-      loadInBatches(district?.npcs ?? [], npc => npc.preload(), (done, total) =>
+      loadInBatches([...(district?.npcs ?? []), ...(this.roadRage?.preloadables ?? [])], npc => npc.preload(), (done, total) =>
         loading.stage(`Cargando personajes… ${done}/${total}`, 2 + done / total)),
       this.audio.ready
     ]), 'La carga de personajes tardó demasiado.');
@@ -249,7 +254,7 @@ export class Game {
     this.world.update(0, this.player.position, this.cameraRig.camera);
     this.localLights.update(0, this.player.position, (x, z) => district?.getGroundHeight?.(x, z) ?? 0, this.cameraRig.camera);
     await loading.stage('Preparando texturas, luces y shaders…', 4);
-    const extraModels = (district?.npcs ?? []).flatMap(npc => [npc.lodChar?.group, npc.fullChar?.group]).filter(Boolean);
+    const extraModels = [...(district?.npcs ?? []), ...(this.roadRage?.preloadables ?? [])].flatMap(npc => [npc.lodChar?.group, npc.fullChar?.group]).filter(Boolean);
     const rain = this.weather?.rainParticles;
     if (rain) rain.visible = true;
     try {
@@ -479,6 +484,7 @@ export class Game {
     this.dog.resetNear(this.dog.position);
     this.interaction.register(this.dog);
     district.trafficPedestrians = [...(district.npcs ?? []), this.dog];
+    if (this.traffic) this.roadRage?.setup(district, this.traffic, district.trafficPedestrians);
 
     // ===== Tienda La Esquinita =====
     this.shop = new Shop(
@@ -643,7 +649,8 @@ export class Game {
     if (this.stats.inWithdrawal) causes.push('abstinencia');
     if (this.diseases.hasAny) causes.push('enfermedad');
     this.menu.open({
-      title: this._deathCause === 'atropello' ? 'Te atropellaron' : 'Te quedaste sin salud',
+      title: this._deathCause === 'atropello' ? 'Te atropellaron'
+        : this._deathCause === 'golpiza' ? 'Te dieron una golpiza' : 'Te quedaste sin salud',
       sub: 'La partida está en pausa.',
       ic: 'heart',
       dismissible: false,
@@ -653,7 +660,9 @@ export class Game {
           el('p', { text: 'Volverás al cambuche con salud y necesidades recuperadas al menos al 60 %. Perderás la mitad de los tipos de objetos del inventario.' }),
           el('p', { text: this._deathCause === 'atropello'
             ? 'Mira ambos sentidos y cruza con distancia: los carros necesitan espacio para frenar.'
-            : 'Come, bebe agua y descansa para mantener tus necesidades. Puedes consumir comida y agua haciendo clic en ellas en el inventario.' })),
+            : this._deathCause === 'golpiza'
+              ? 'Si un conductor se baja con una varilla, corre con Shift: es más lento que tú corriendo. Apártate cuando levante la varilla.'
+              : 'Come, bebe agua y descansa para mantener tus necesidades. Puedes consumir comida y agua haciendo clic en ellas en el inventario.' })),
         foot: [button('Volver al cambuche', { primary: true, onClick: () => this._respawn() })]
       })
     });
@@ -675,6 +684,7 @@ export class Game {
     this.psychosis?.dispose?.();
     this.poopSystem?.activeProjectiles?.forEach?.(p => p.dispose?.());
     if (this.poopSystem) this.poopSystem.activeProjectiles = [];
+    this.roadRage?.reset();
 
     const district = this.world.active;
     if (district?.reserved) {
@@ -836,6 +846,7 @@ export class Game {
     this.world.update(dt, this.player.position, this.cameraRig.camera, this.traffic?.vehicles ?? []);
     this.profiler?.mark('mundoNPC');
     this.traffic?.update(dt, { player: this.player.position, pedestrians: this.world.active?.trafficPedestrians ?? this.world.active?.npcs ?? [], onPlayerHit: this._onVehicleImpact });
+    this.roadRage?.update(dt);
     this.profiler?.mark('trafico');
     if (this._handleDeath()) return;
 
@@ -969,6 +980,7 @@ export class Game {
     this.pet?.dispose?.();
     this.psychosis?.dispose?.();
     this.poopSystem?.dispose?.();
+    this.roadRage?.dispose?.();
     this.radio?.destroy?.();
   }
 }

@@ -77,6 +77,16 @@ export class TrafficSystem {
 
   setParkedCars(cars) { this.parkedCars = cars.map(car => ({ car })); }
 
+  /**
+   * Detiene un carro en su carril de forma gradual (p. ej. el conductor se baja) o lo libera.
+   * @returns {object|null} el vehículo de tráfico
+   */
+  hold(car, held = true) {
+    const vehicle = this.vehicles.find(v => v.car === car) ?? null;
+    if (vehicle) vehicle.hold = held;
+    return vehicle;
+  }
+
   _chooseRoute(vehicle) {
     if (vehicle.crossingNode) return false;
     if (this.routes.length < 2) return false;
@@ -375,6 +385,8 @@ export class TrafficSystem {
               if (vehicle.impactWait <= 0) { vehicle.impactStop = false; vehicle.impactWait = undefined; }
             }
           }
+          // Conductor fuera del carro: frena con su aceleración normal y espera.
+          if (vehicle.hold) desiredSpeed = 0;
           // Anticipa las curvas y reduce la velocidad antes de girar.
           let start = 0;
           for (const segment of vehicle.route.segments) {

@@ -150,6 +150,26 @@ export class AudioSystem {
     source.start();
   }
 
+  /** Golpe seco sintetizado (varilla); usa el volumen maestro y el silencio generales. */
+  playThud() {
+    const ctx = this.howler.ctx;
+    if (this._paused || !ctx || ctx.state !== 'running' || !ctx.createBuffer || !this.howler.masterGain) return;
+    if (!this._thudBuffer) {
+      this._thudBuffer = ctx.createBuffer(1, Math.ceil(ctx.sampleRate * .16), ctx.sampleRate);
+      const data = this._thudBuffer.getChannelData(0);
+      for (let i = 0; i < data.length; i++) {
+        const t = i / ctx.sampleRate;
+        data[i] = ((Math.random() * 2 - 1) * .5 + Math.sin(t * 2 * Math.PI * 75) * .9) * Math.exp(-t * 30);
+      }
+    }
+    const source = ctx.createBufferSource(), filter = ctx.createBiquadFilter(), gain = ctx.createGain();
+    source.buffer = this._thudBuffer; filter.type = 'lowpass'; filter.frequency.value = 800;
+    gain.gain.value = .7;
+    source.connect(filter); filter.connect(gain); gain.connect(this.howler.masterGain);
+    source.onended = () => { source.disconnect(); filter.disconnect(); gain.disconnect(); };
+    source.start();
+  }
+
   stop(name) {
     this.sounds[name]?.stop();
   }

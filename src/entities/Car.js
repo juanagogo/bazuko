@@ -4,6 +4,25 @@ import { COLORS, CAR_COOLDOWN } from '../utils/constants.js';
 import { makeVehicle } from '../world/bogota/vehicles.js';
 import { createImportedModel, disposeImportedInstance } from '../utils/ImportedModels.js';
 
+const SHIRTS = [0x8a2b2b, 0x2b4a8a, 0x3a3a3a, 0xc9b27a, 0x2f6b45, 0xe0e0e0];
+const SKINS = [0xe0b08a, 0xc68a5e, 0x9a6440, 0x6e4529];
+
+/** Conductor sentado: torso y cabeza simples, visibles por las ventanas sin cargar un personaje completo. */
+function createSeatedDriver(height) {
+  const group = new THREE.Group();
+  group.name = 'Conductor';
+  const shirt = new THREE.MeshStandardMaterial({ color: SHIRTS[Math.floor(Math.random() * SHIRTS.length)], roughness: .9 });
+  const skin = new THREE.MeshStandardMaterial({ color: SKINS[Math.floor(Math.random() * SKINS.length)], roughness: .8 });
+  const torso = new THREE.Mesh(new THREE.BoxGeometry(.26, .42, .38), shirt);
+  torso.position.y = height - .62;
+  const head = new THREE.Mesh(new THREE.SphereGeometry(.11, 10, 8), skin);
+  head.position.y = height - .3;
+  group.add(torso, head);
+  // Frente hacia +X local; en Colombia se conduce desde el lado izquierdo (−Z).
+  group.position.set(.05, 0, -.36);
+  return group;
+}
+
 export class Car {
   constructor(scene, position, rotation = 0, { traffic = false } = {}) {
     this.scene = scene;
@@ -56,6 +75,22 @@ export class Car {
     this.marker.position.y = 0.05;
     this.marker.visible = !traffic;
     this.group.add(this.marker);
+
+    // Solo los carros en circulación llevan conductor; los estacionados activan la alarma.
+    this.driver = traffic ? createSeatedDriver(this.modelKind === 'car2' ? 1.45 : 1.62) : null;
+    if (this.driver) this.group.add(this.driver);
+  }
+
+  /** Muestra u oculta al conductor sentado (se baja del carro o vuelve a subir). */
+  setDriverInside(inside) {
+    this.driverInside = inside;
+    if (this.driver) this.driver.visible = inside && !this.driverHidden;
+  }
+
+  /** Punto junto a la puerta del conductor, en metros del mundo. */
+  driverDoor(target = new THREE.Vector3()) {
+    this.group.updateMatrixWorld();
+    return target.set(.05, 0, -(this.width / 2 + .55)).applyMatrix4(this.group.matrixWorld).setY(this.group.position.y);
   }
 
   get position() { return this.group.position; }
@@ -69,6 +104,9 @@ export class Car {
       this.group.add(model);
       // Las ruedas del GLB están integradas en una sola malla texturizada.
       this.vehicle = { group: model, wheels: [], tailMat: null, dispose() { disposeImportedInstance(model); } };
+      // Sus ventanas son opacas: el conductor sentado no se vería y solo añadiría llamadas de dibujo.
+      this.driverHidden = true;
+      if (this.driver) this.driver.visible = false;
     });
   }
 

@@ -263,6 +263,8 @@ export class InteractionSystem {
     if (result.items.includes('retrovisor')) {
       if (target.traffic) this.audio?.playMovingTheft?.(target);
       else this.audio?.playCarAlarm?.(target);
+      // El juego decide si el conductor del carro en circulación se baja a perseguirte.
+      window.dispatchEvent(new CustomEvent('mirror-stolen', { detail: { car: target } }));
     }
 
     const added = [];
