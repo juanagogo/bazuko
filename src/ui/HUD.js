@@ -455,6 +455,7 @@ else if (type === 'cart') text = interaction.currentTarget?.isAttached ? '[E] So
       game.player?.playAction?.(isDrink ? 'beber' : 'comer', 1.2);
       this._toast(`${verb}: ${item.name}`, 'info');
       this._renderInventory(inv);
+      if (item.substance) window.dispatchEvent(new CustomEvent('substance-consumed', { detail: { id: itemId } }));
     } else if (item.cure) {
       game.diseases?.cure?.(item.cure);
       inv.remove(itemId, 1);

@@ -198,7 +198,11 @@ export const LOOT_COMMON = [
   { item: 'madera',     weight: 3 },
   { item: 'lona',       weight: 0.6 },
   { item: 'colchon',    weight: 0.4 },
-  { item: 'vela',       weight: 0.8 }
+  { item: 'vela',       weight: 0.8 },
+  // Sustancias: poco frecuentes porque el dealer las compra caras (la pastilla, muy rara)
+  { item: 'pegante',    weight: 1.0 },
+  { item: 'hierba',     weight: 1.5 },
+  { item: 'pastilla',   weight: 0.3 }
 ];
 
 export const LOOT_RARE = [

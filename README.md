@@ -123,6 +123,16 @@ El Chato es el único perro del juego y aparece junto al cambuche, donde merodea
 
 El cielo sigue la posición del sol y la luna sobre Bogotá, con nubes que derivan con el viento. El tiempo pasa de forma gradual entre soleado, parcialmente nublado, nublado, neblina, llovizna, aguacero y tormenta según la temporada; ver [docs/clima.md](docs/clima.md). El clima y El Chato se detienen durante la pausa; el material de lluvia se prepara en la pantalla de carga.
 
+## Efectos de consumo
+
+El pegante, la hierba y la pastilla pueden aparecer en las bolsas de basura, con poca frecuencia; la pastilla es la más rara porque el dealer la compra cara. Al consumirlas desde el inventario o el acceso rápido, además de sus efectos sobre las necesidades, cada una cambia la imagen y el sonido durante un rato:
+
+- **Pegante (35 s):** mareo. La imagen se vuelve borrosa y verdosa, los bordes se oscurecen, la visión se duplica y la cámara se mece. Suena una inhalación dentro de la bolsa, un zumbido grave con un pitido de oídos tapados, y el resto de la ciudad se oye apagada, como bajo el agua.
+- **Pastilla (45 s):** euforia de colores. El tono oscila despacio, los colores se saturan, una capa de arcoíris gira y la imagen deja estela. Suena un trago, un brillo que sube y un acorde que ondula.
+- **Hierba (60 s):** cálido y lento. Tonos dorados, un brillo suave en el centro y una estela leve. Suena un encendedor, una inhalación larga y un fondo grave y cálido.
+
+Cada efecto entra en 3 segundos y se desvanece en los últimos 6. Repetir la misma sustancia renueva su duración; otra distinta reemplaza a la anterior después de desvanecerla en un segundo. Los menús, el inventario y la pestaña oculta congelan el efecto, aunque el sonido de consumir suena con el inventario abierto. Dormir, morir o recuperarse en el cambuche lo cortan con un desvanecido, nunca de golpe. Ninguna oscilación de color o brillo supera medio ciclo por segundo. En calidad baja no hay estela ni desenfoque; el sonido respeta el volumen general, el de efectos y el silencio, y con la preferencia de movimiento reducido del sistema la cámara y la estela se mueven al 20 %. El tintico y el cigarrillo no tienen efecto visual.
+
 ## Rendimiento
 
 **Pausa → Calidad** permite elegir Baja (sin sombras ni silueta, hasta 1× de resolución), Media (sombras de 1024 px, hasta 1.25×) y Alta (sombras de 2048 px, hasta 1.5×). Las primeras partidas usan Media; se conserva una preferencia ya guardada. La adaptación respeta el límite seleccionado y puede reducir temporalmente efectos y frecuencia de animación cuando bajar resolución no basta. La niebla y la distancia de cámara acompañan el perfil efectivo. La mejora de FPS depende del equipo y de la zona; no se garantiza una cantidad fija.

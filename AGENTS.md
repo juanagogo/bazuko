@@ -45,6 +45,7 @@ Para las pruebas de navegador, instalar Chromium con `npx playwright install chr
 - `src/ui/HUD.js`, `InventoryUI.js`, `placeMenus.js`: paneles y acciones del jugador.
 - `src/ui/ShelterPreview.js`: imagen del refugio terminado sin alterar la construcción.
 - `src/systems/GpsNavigation.js`, `src/world/bogota/CityMapRaster.js`, `src/ui/MapView.js`, `src/ui/PauseMenu.js`: GPS a pie, plano del radar, mapa grande y pausa por pestañas.
+- `src/systems/SubstanceEffects.js` y `SubstanceAudio.js`: imagen y sonido de los efectos de consumo; recetas en `src/data/substanceEffects.js`.
 
 ## Decisiones que deben conservarse
 
@@ -63,6 +64,7 @@ Para las pruebas de navegador, instalar Chromium con `npx playwright install chr
 - Las cajas estáticas usan un índice espacial: al mover una caja existente invalidarlo con `invalidateStaticIndex()`. Las luces añadidas dentro de ramas existentes se registran con `LocalLights.register`; refrescar posiciones tras mover fuentes estáticas.
 - El mobiliario con `staticMergeKey` comparte lotes solo si sus materiales son inmutables e iguales. Las lámparas se instancian después de cargar sus GLB, manteniendo las luces originales. Los semáforos conservan sus atributos de fase por instancia y se descartan por sector; no reunirlos en una sola malla sin descarte. La altura del viaducto usa un índice de los mismos triángulos dibujados: actualizar ambos si cambia su geometría. `npm run benchmark:performance` mide cinco vistas en un navegador aislado; comprobar el renderer y no confundir software con GPU real.
 - El render omite el recorrido de matrices de la ciudad congelada. Sus raíces móviles deben figurar en `renderer.dynamicWorldRoots`, que `_registerRenderGroups` llena con los buses y `district.animated`. Registrar allí cualquier raíz dinámica nueva que viva dentro de un grupo estático; los hijos directos dinámicos de la escena siguen actualizándose automáticamente.
+- `SubstanceEffects` escucha `substance-consumed`, que `HUD._useItem` emite para objetos con `substance`. Solo escribe `canvas.style.filter` mientras hay efecto y lo limpia una vez al terminar, para no pisar el filtro de la psicosis. La cámara se desplaza en `beforeRender` y se restaura en `afterRender`, alrededor de `renderer.render`; la estela se captura justo después del render. La duración avanza con el `dt` de la simulación; los reemplazos y los cortes forzados (dormir, morir, recuperarse) se desvanecen en un segundo de tiempo real. Ninguna oscilación de color o brillo supera ~0,5 Hz. En calidad baja no hay estela ni `blur`; el movimiento reducido baja cámara y estela al 20 %. El pegante inserta un pasa-bajos entre `Howler.masterGain` y los parlantes, y `stopSustain` debe restaurar esa conexión. Excepción a `_fx()`: los sonidos de `SubstanceAudio` salen a los parlantes por un nodo propio que copia `masterGain` por `getMix('effects')` en cada cuadro, para que el pasa-bajos no ahogue el pitido de oídos del pegante; el sonido de consumir suena aunque el juego esté en pausa y la capa sostenida calla.
 
 ## Forma de trabajar
 
