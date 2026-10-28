@@ -139,6 +139,7 @@ export function openPauseMenu(game) {
         el('li', {}, el('kbd', { text: 'WASD' }), ' — Desplazarse por el barrio.'),
         el('li', {}, el('kbd', { text: 'Ratón' }), ' — Clic para fijar cámara (o arrastrar) · Rueda para zoom.'),
         el('li', {}, el('kbd', { text: 'Shift' }), ' — Correr.'),
+        el('li', {}, el('kbd', { text: 'G / clic izquierdo' }), ' — Lanzar un puñetazo; algunos peatones huyen y otros se cubren o se defienden.'),
         el('li', {}, el('kbd', { text: 'V' }), ' — Alternar vista tercera persona / isométrica.'),
         el('li', {}, el('kbd', { text: 'E' }), ' — Interactuar con basura, tiendas, cambuche o autos.'),
         el('li', {}, el('kbd', { text: 'Q' }), ' — Mantener para clasificar basura / abrir tienda del dealer.'),

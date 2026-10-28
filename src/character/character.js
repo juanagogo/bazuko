@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { PALETTES, DEFAULT_LOOK, normalizeLook } from './look.js';
+import { isCombatAction, sampleCombatPose } from './CombatPose.js';
 
 export { DEFAULT_LOOK };
 
@@ -326,12 +327,12 @@ export function createCharacter(initial = DEFAULT_LOOK) {
   }
   build();
 
-  const pose = { lean: 0, armLx: 0, armRx: 0, armLz: 0, armRz: 0, elbL: 0, elbR: 0, legL: 0, legR: 0, kneeL: 0, kneeR: 0, bob: 0, lie: 0, headX: 0, headY: 0 };
+  const pose = { lean: 0, twist: 0, armLx: 0, armRx: 0, armLz: 0, armRz: 0, elbL: 0, elbR: 0, legL: 0, legR: 0, kneeL: 0, kneeR: 0, bob: 0, lie: 0, headX: 0, headY: 0 };
   let phase = 0;
   let blink = 2;
 
-  function update(dt, { speed = 0, running = false, action = null, t = 0, load = 0, dirt = 0, wet = 0, look: lookAt = 0 }) {
-    const target = { lean: 0, armLx: 0, armRx: 0, armLz: 0.12, armRz: -0.12, elbL: -0.2, elbR: -0.2, legL: 0, legR: 0, kneeL: 0, kneeR: 0, bob: 0, lie: 0, headX: 0, headY: lookAt };
+  function update(dt, { speed = 0, running = false, action = null, actionProgress = 0, t = 0, load = 0, dirt = 0, wet = 0, look: lookAt = 0 }) {
+    const target = { lean: 0, twist: 0, armLx: 0, armRx: 0, armLz: 0.12, armRz: -0.12, elbL: -0.2, elbR: -0.2, legL: 0, legR: 0, kneeL: 0, kneeR: 0, bob: 0, lie: 0, headX: 0, headY: lookAt };
     const amp = Math.min(1, speed / 3.6) * (running ? 1.1 : 0.9);
     if (speed > 0.15) {
       phase += dt * (5 + speed * 2.2);
@@ -404,30 +405,23 @@ export function createCharacter(initial = DEFAULT_LOOK) {
         target.lean = 0.12;
         break;
       }
-      case 'golpear': {
-        const punchCycle = Math.sin(t * 18);
-        target.lean = 0.18;
-        target.armRx = -1.65 + punchCycle * 0.15;
-        target.elbR = -0.05;
-        target.armRz = -0.15;
-        target.armLx = -1.25;
-        target.elbL = -1.8;
-        target.armLz = 0.35;
-        target.legR = -0.35;
-        target.legL = 0.3;
-        break;
-      }
       case 'dormir':
         target.lie = 1;
         break;
       default:
     }
+    const combat = isCombatAction(action);
+    const combatKeys = ['lean', 'twist', 'headX', 'armLx', 'armRx', 'armLz', 'armRz', 'elbL', 'elbR'];
+    if (combat) {
+      const sampled = sampleCombatPose(action, actionProgress);
+      for (const key of combatKeys) target[key] = lerp(target[key], sampled[key === 'headX' ? 'head' : key], sampled.weight);
+    }
     const k = Math.min(1, dt * 12);
-    for (const key of Object.keys(pose)) pose[key] = lerp(pose[key], target[key], k);
+    for (const key of Object.keys(pose)) pose[key] = combat && combatKeys.includes(key) ? target[key] : lerp(pose[key], target[key], k);
 
     const [aL, aR] = arms;
     const [lL, lR] = legs;
-    torso.rotation.x = pose.lean;
+    torso.rotation.set(pose.lean, pose.twist, 0);
     head.rotation.set(pose.headX, pose.headY, 0);
     aL.shoulder.rotation.set(pose.armLx, 0, pose.armLz);
     aR.shoulder.rotation.set(pose.armRx, 0, pose.armRz);

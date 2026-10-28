@@ -6,6 +6,7 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { clone as cloneSkinned } from 'three/examples/jsm/utils/SkeletonUtils.js';
 import { buildCharacterClips } from './actionforge.js';
+import { createCombatPose } from './CombatPose.js';
 import { PALETTES } from './look.js';
 import { addGrime, addHairTone } from './weathering.js';
 import { attachAccessories } from './props.js';
@@ -250,7 +251,7 @@ async function buildInstance(catalog, look, lod = false) {
     actions[name].setEffectiveWeight(name === 'idle' ? 1 : 0);
   }
   if (useLod) root.traverse((o) => { if (o.isMesh) o.castShadow = false; }); // lejos: sin sombra propia
-  return { root, mixer, actions, real, accessories, ownedGeometries: bodyMesh ? [bodyMesh.geometry] : [] };
+  return { root, mixer, actions, real, accessories, combatPose: createCombatPose(root, bones), ownedGeometries: bodyMesh ? [bodyMesh.geometry] : [] };
 }
 
 /** Solo recursos de instancia; los modelos y texturas del banco siguen compartidos. */
@@ -308,8 +309,9 @@ export async function createRealisticCharacter(look = {}, { lod = false } = {}) 
       disposeRealisticInstance(inst); inst = null;
       group.removeFromParent();
     },
-    update(dt, { speed = 0, running = false, action = null } = {}) {
+    update(dt, { speed = 0, running = false, action = null, actionProgress = 0 } = {}) {
       if (!inst) return;
+      inst.combatPose.restore();
       const a = inst.actions;
       // destino: acción especial si existe el clip; si no, idle / caminar / correr según la velocidad
       let target = speed < 0.15 ? 'idle' : running && a.run ? 'run' : 'walk';
@@ -337,6 +339,7 @@ export async function createRealisticCharacter(look = {}, { lod = false } = {}) 
       if (a.walk) a.walk.timeScale = THREE.MathUtils.clamp(speed / 1.4, 0.6, 1.6);
       if (a.run) a.run.timeScale = THREE.MathUtils.clamp(speed / 3.5, 0.7, 1.4);
       inst.mixer.update(dt);
+      inst.combatPose.apply(action, actionProgress);
       inst.accessories?.update();
     }
   };

@@ -8,6 +8,7 @@
 import * as THREE from 'three';
 import { createRealisticCharacter, loadCatalog, normalizeReal, optionsFor, REALISTIC_SCALE } from '../character/RealisticCharacter.js';
 import { randomLook, DEFAULT_LOOK } from '../character/look.js';
+import { PUNCH } from '../data/combat.js';
 
 const any = (arr) => arr[Math.floor(Math.random() * arr.length)];
 
@@ -17,6 +18,23 @@ export const NPC_LOD = {
   fullOut: 10,     // se aleja: vuelve al liviano (histéresis para que no parpadee)
   animEvery: 20,   // más allá: animación cada 3 cuadros
   animStop: 40     // más allá: animación congelada
+};
+
+export const NPC_COMBAT = {
+  impactDuration: 0.4,
+  fleeDuration: 5,
+  guardDuration: 3,
+  freezeDuration: 3,
+  counterDelay: 0.65,
+  counterRange: 1.65,
+  counterDamage: 6
+};
+
+const TEMPERAMENTS = ['evasivo', 'defensivo', 'inmovil'];
+const REACTION_PHRASES = {
+  evasivo: ['¡Auxilio, me están pegando!', '¡Socio, no me pegue!'],
+  defensivo: ['¡Quieto ahí! ¡No me vuelva a pegar!', '¡Aléjese, que me defiendo!'],
+  inmovil: ['¡No me haga daño!', '¡Por favor, déjeme tranquilo!']
 };
 
 
@@ -64,7 +82,7 @@ export class Npc {
   /**
    * @param {THREE.Scene} scene
    * @param {THREE.Vector3} position
-   * @param {{ wander?: number, facing?: number, isWalkable?: (x:number, z:number) => boolean, navigation?: object, groundHeight?: (x:number, z:number) => number, speed?: number, look?: object, gastada?: boolean }} opts
+   * @param {{ wander?: number, facing?: number, isWalkable?: (x:number, z:number) => boolean, navigation?: object, groundHeight?: (x:number, z:number) => number, speed?: number, look?: object, gastada?: boolean, temperament?: 'evasivo'|'defensivo'|'inmovil' }} opts
    */
   constructor(scene, position, opts = {}) {
     this.scene = scene;
@@ -86,6 +104,8 @@ export class Npc {
     this.target = null;
     this.wait = this.navigation ? 0 : Math.random() * 6;
     this.moving = false;
+    this.movementSpeed = 0;
+    this.running = false;
     this.animAcc = 0;
     this.animationBudget = 1;
     this.frame = Math.floor(Math.random() * 3); // reparte los cuadros de animación entre NPC
@@ -103,8 +123,14 @@ export class Npc {
     this._lastSpokenTime = 0;
     this._projPos = new THREE.Vector3();
     this.umbrella = null;
-    this.panicTimer = 0;
-    this.panicDir = null;
+    // Se elige una sola vez y no depende del cuerpo, el sexo ni la ropa.
+    const temperamentRoll = Math.random();
+    this.temperament = TEMPERAMENTS.includes(opts.temperament) ? opts.temperament
+      : temperamentRoll < 0.5 ? 'evasivo' : temperamentRoll < 0.8 ? 'defensivo' : 'inmovil';
+    this.combatReaction = null;
+    this.combatAction = null;
+    this.combatActionProgress = 0;
+    this._punchLootDropped = false;
 
     this.ready = (async () => {
       this.look = opts.look ?? await randomStreetLook({ gastada: opts.gastada });
@@ -158,6 +184,10 @@ export class Npc {
   }
 
   hitByPoop(projectileOrigin = null) {
+    // La huida por un proyectil sustituye cualquier respuesta cuerpo a cuerpo.
+    this.combatReaction = null;
+    this.combatAction = null;
+    this.combatActionProgress = 0;
     this.isSplatted = true;
     this.splatTimer = 12;
     this.fleeTimer = 8;
@@ -212,22 +242,29 @@ export class Npc {
 
   _walk(dt) {
     this.moving = false;
+    this.movementSpeed = 0;
+    this.running = false;
 
-    // Si fue impactado por popó: huye despavorido a gran velocidad
+    // La huida por un golpe y la de los proyectiles comparten transitabilidad.
     if (this.fleeTimer > 0) {
-      this.fleeTimer -= dt;
       const speed = this.walkSpeed * 2.4;
-      const step = speed * dt;
-      const next = this._nextPosition.copy(this.position).addScaledVector(this.fleeDir, step);
-      if (this.isWalkable(next.x, next.z)) {
+      const step = speed * Math.min(dt, this.fleeTimer);
+      this.fleeTimer = Math.max(0, this.fleeTimer - dt);
+      const angle = Math.atan2(this.fleeDir.x, this.fleeDir.z);
+      // Busca una salida sin atravesar paredes ni cortar esquinas de la red.
+      for (const turn of [0, 0.6, -0.6, Math.PI / 2, -Math.PI / 2, Math.PI]) {
+        const next = this._nextPosition.set(
+          this.position.x + Math.sin(angle + turn) * step, this.position.y,
+          this.position.z + Math.cos(angle + turn) * step
+        );
+        if (!this._canTraverseTo(next.x, next.z)) continue;
         next.y = this.groundHeight(next.x, next.z);
         this.position.copy(next);
-        this.moving = true;
-      } else {
-        // Esquiva paredes cambiando de rumbo
-        const oldX = this.fleeDir.x;
-        this.fleeDir.x = -this.fleeDir.z;
-        this.fleeDir.z = oldX;
+        this.fleeDir.set(Math.sin(angle + turn), 0, Math.cos(angle + turn));
+        this.moving = step > 0;
+        this.movementSpeed = this.moving ? speed : 0;
+        this.running = this.moving;
+        break;
       }
       let diff = Math.atan2(this.fleeDir.x, this.fleeDir.z) - this.root.rotation.y;
       while (diff > Math.PI) diff -= Math.PI * 2;
@@ -267,6 +304,7 @@ export class Npc {
       next.y = this.groundHeight(next.x, next.z);
       this.position.copy(next);
       this.moving = step > 0;
+      this.movementSpeed = this.moving ? this.walkSpeed : 0;
       let diff = Math.atan2(d.x, d.z) - this.root.rotation.y;
       while (diff > Math.PI) diff -= Math.PI * 2;
       while (diff < -Math.PI) diff += Math.PI * 2;
@@ -280,12 +318,116 @@ export class Npc {
     if (!this.target) this.wait = this.navigation ? 1 + Math.random() * 3 : 3 + Math.random() * 8;
   }
 
+  /** Comprueba todo el trayecto corto, también los cambios de tile junto a esquinas. */
+  _canTraverseTo(x, z) {
+    const dx = x - this.position.x, dz = z - this.position.z;
+    const samples = Math.max(1, Math.ceil(Math.hypot(dx, dz) / 0.15));
+    let previousNode = this.navigation?.nodeAt?.(this.position.x, this.position.z);
+    for (let i = 1; i <= samples; i++) {
+      const px = this.position.x + dx * i / samples, pz = this.position.z + dz * i / samples;
+      if (!this.isWalkable(px, pz)) return false;
+      if (this.navigation?.nodeAt) {
+        const node = this.navigation.nodeAt(px, pz);
+        if (node < 0 || (previousNode >= 0 && node !== previousNode &&
+          !this.navigation.nodes[previousNode]?.neighbors.includes(node))) return false;
+        previousNode = node;
+      }
+    }
+    return true;
+  }
+
+  _faceAttacker(dt) {
+    const position = this.combatReaction?.attacker?.position;
+    if (!position) return;
+    let diff = Math.atan2(position.x - this.position.x, position.z - this.position.z) - this.root.rotation.y;
+    while (diff > Math.PI) diff -= Math.PI * 2;
+    while (diff < -Math.PI) diff += Math.PI * 2;
+    this.root.rotation.y += diff * Math.min(1, dt * 12);
+  }
+
+  _canCounter(attacker) {
+    if (!attacker?.position || typeof attacker.receivePunch !== 'function') return false;
+    const position = attacker.position;
+    return Math.abs(position.y - this.position.y) <= PUNCH.verticalTolerance &&
+      Math.hypot(position.x - this.position.x, position.z - this.position.z) <= NPC_COMBAT.counterRange &&
+      this._canTraverseTo(position.x, position.z);
+  }
+
+  _finishCombatReaction() {
+    this.combatReaction = null;
+    this.combatAction = null;
+    this.combatActionProgress = 0;
+    this.target = null;
+    this.route = [];
+    this.wait = 0.5;
+  }
+
+  /** Devuelve si puede seguir caminando; las fases inmóviles siguen simulándose fuera de cámara. */
+  _updateCombatReaction(dt) {
+    const reaction = this.combatReaction;
+    this.combatAction = null;
+    this.combatActionProgress = 0;
+    if (!reaction) return true;
+    reaction.elapsed += dt;
+    if (reaction.phase === 'impact') {
+      this.combatAction = 'recibirGolpe';
+      this.combatActionProgress = Math.min(1, reaction.elapsed / NPC_COMBAT.impactDuration);
+      if (reaction.elapsed >= NPC_COMBAT.impactDuration) {
+        reaction.elapsed = 0;
+        if (reaction.temperament === 'evasivo') {
+          reaction.phase = 'flee';
+          this.fleeTimer = NPC_COMBAT.fleeDuration;
+          const origin = reaction.attacker?.position;
+          this.fleeDir.copy(this.position).sub(origin ?? this.home).setY(0);
+          if (this.fleeDir.lengthSq() < 0.001) this.fleeDir.set(0, 0, 1);
+          this.fleeDir.normalize();
+        } else {
+          reaction.phase = reaction.temperament === 'defensivo' ? 'guard' : 'freeze';
+          reaction.remaining = reaction.temperament === 'defensivo' ? NPC_COMBAT.guardDuration : NPC_COMBAT.freezeDuration;
+        }
+      }
+      return false;
+    }
+    if (reaction.phase === 'flee') {
+      if (this.fleeTimer <= 0) this._finishCombatReaction();
+      return true;
+    }
+    reaction.remaining -= dt;
+    this._faceAttacker(dt);
+    if (reaction.phase === 'counter') {
+      this.combatAction = 'golpear';
+      this.combatActionProgress = Math.min(1, reaction.elapsed / PUNCH.duration);
+      if (!reaction.counterImpacted && reaction.elapsed >= PUNCH.impactTime) {
+        reaction.counterImpacted = true;
+        if (this._canCounter(reaction.attacker)) reaction.attacker.receivePunch(this, NPC_COMBAT.counterDamage);
+      }
+      if (reaction.elapsed >= PUNCH.duration) {
+        reaction.phase = 'guard';
+        reaction.elapsed = 0;
+      }
+    } else {
+      this.combatAction = reaction.phase === 'guard' ? 'defender' : 'asustado';
+      if (reaction.remaining <= 0) this._finishCombatReaction();
+      else if (reaction.phase === 'guard' && !reaction.counterUsed &&
+        reaction.elapsed >= NPC_COMBAT.counterDelay && this._canCounter(reaction.attacker)) {
+        reaction.phase = 'counter';
+        reaction.elapsed = 0;
+        reaction.counterUsed = true;
+        this.combatAction = 'golpear';
+      }
+    }
+    return false;
+  }
+
   /**
    * @param {number} dt
    * @param {{ player?: THREE.Vector3, frustum?: THREE.Frustum }} ctx
    */
   update(dt, ctx = {}) {
-    this._walk(dt);
+    this.moving = false;
+    this.movementSpeed = 0;
+    this.running = false;
+    if (this._updateCombatReaction(dt)) this._walk(dt);
     this.root.position.copy(this.position);
 
     if (this.splatTimer > 0) {
@@ -301,17 +443,20 @@ export class Npc {
       }
     }
 
-    if (!this.character) return;
-
     const dist = ctx.player ? Math.hypot(this.position.x - ctx.player.x, this.position.z - ctx.player.z) : 0;
     // fuera de cámara: ni se dibuja ni se anima
     _sphere.center.set(this.position.x, this.position.y + 0.9, this.position.z);
     const onScreen = !ctx.frustum || ctx.frustum.intersectsSphere(_sphere);
     this.root.visible = onScreen;
-    if (!onScreen) { this.animAcc += dt; return; }
+    this._updateSpeech(dt, ctx, onScreen && !!this.character);
+    if (!this.character) return;
+    if (!onScreen) {
+      if (this._bubbleEl) this._bubbleEl.style.display = 'none';
+      this.animAcc += dt;
+      return;
+    }
 
     this._updateDetail(dist);
-    this._updateSpeech(dt, ctx);
     this._updateUmbrella(ctx.isRaining ?? false);
 
     // Proyectar burbuja flotante a pantalla
@@ -334,35 +479,34 @@ export class Npc {
     const budget = ctx.animationBudget ?? this.animationBudget;
     const interval = dist > NPC_LOD.animEvery ? .1 * budget : budget > 1 ? budget / 60 : 0;
     if (interval && this.animAcc < interval) return;
-    this.character.update(Math.min(this.animAcc, 0.2), { speed: this.moving ? this.walkSpeed / REALISTIC_SCALE : 0 });
+    this.character.update(Math.min(this.animAcc, 0.2), {
+      speed: this.movementSpeed / REALISTIC_SCALE, running: this.running,
+      action: this.combatAction, actionProgress: this.combatActionProgress
+    });
     this.animAcc = 0;
   }
 
 
 
   takePunch(attacker) {
-    const PUNCH_REACTIONS = [
-      '¡Uy qué le pasa, ñero loco!',
-      '¡Ayúdenme, me están atracando!',
-      '¡Policía, policía!',
-      '¡Socio, no me pegue, tome esto!',
-      '¡Qué boleta, bájese de la nube!'
-    ];
-    const phrase = PUNCH_REACTIONS[Math.floor(Math.random() * PUNCH_REACTIONS.length)];
-    this.say(phrase, 4.0);
+    if (this._disposed) return 0;
+    const counterUsed = this.combatReaction?.counterUsed ?? false;
+    this.combatReaction = { phase: 'impact', elapsed: 0, attacker, temperament: this.temperament, counterUsed };
+    this.combatAction = 'recibirGolpe';
+    this.combatActionProgress = 0;
+    this.fleeTimer = 0;
+    this.target = null;
+    this.route = [];
+    this.say(any(REACTION_PHRASES[this.temperament]), 4);
 
-    if (attacker && attacker.position) {
-      const dx = this.position.x - attacker.position.x;
-      const dz = this.position.z - attacker.position.z;
-      const len = Math.hypot(dx, dz) || 1;
-      this.panicDir = { x: dx / len, z: dz / len };
-      this.panicTimer = 5.0; // 5 segundos de huida veloz
-    }
-
-    const dropMoney = 200 + Math.floor(Math.random() * 400);
+    const dropMoney = !this._punchLootDropped && this.temperament === 'evasivo'
+      ? 200 + Math.floor(Math.random() * 400) : 0;
+    this._punchLootDropped = true;
     if (typeof window !== 'undefined' && window.dispatchEvent) {
+      const response = this.temperament === 'evasivo' ? 'intenta huir'
+        : this.temperament === 'defensivo' ? 'se prepara para defenderse' : 'se queda paralizado y se cubre';
       window.dispatchEvent(new CustomEvent('toast', {
-        detail: { text: `💥 ¡Puñetazo! El transeúnte soltó ${dropMoney} y salió corriendo.`, kind: 'info' }
+        detail: { text: `💥 El transeúnte recibió el golpe y ${response}.${dropMoney ? ` Soltó ${dropMoney} pesos.` : ''}`, type: 'info' }
       }));
     }
     return dropMoney;
@@ -382,7 +526,7 @@ export class Npc {
     container.appendChild(this._bubbleEl);
   }
 
-  _updateSpeech(dt, ctx) {
+  _updateSpeech(dt, ctx, allowAmbient = true) {
     if (this._bubbleTimer > 0) {
       this._bubbleTimer -= dt;
       if (this._bubbleTimer <= 0 && this._bubbleEl) {
@@ -391,7 +535,7 @@ export class Npc {
       }
     }
 
-    if (!ctx.player) return;
+    if (!allowAmbient || !ctx.player || this.combatReaction || this.fleeTimer > 0) return;
     const now = performance.now();
     const dist = Math.hypot(this.position.x - ctx.player.x, this.position.z - ctx.player.z);
 

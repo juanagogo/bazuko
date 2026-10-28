@@ -10,6 +10,10 @@ npm test
 npm run build
 ```
 
+Las pruebas de robo a peatones también ejecutan la interacción general y el robo en el orden de la partida, con la entrada real del juego. Comprueban que E inicie el cosquilleo junto a un peatón, que una tienda cercana conserve la prioridad y que una pulsación sin objetivos no se arrastre al siguiente cuadro.
+
+Las pruebas de combate verifican el impacto diferido, un solo objetivo por golpe, alcance, altura, paredes y cancelación al recibir daño. También comprueban las tres reacciones de los peatones, su regreso a la navegación, el contraataque y la ausencia de botín repetido. Las poses se comprueban sobre el esqueleto real y el personaje procedural; esos cálculos no sustituyen la revisión visual en el navegador.
+
 ## Preparar Chromium
 
 ```sh
