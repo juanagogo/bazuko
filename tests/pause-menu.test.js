@@ -43,3 +43,37 @@ test('openPauseMenu abre el menú con controles de audio, estado y opciones ráp
   assert.ok(rendered.foot);
   assert.equal(rendered.foot.length, 1);
 });
+
+test('la pausa tiene pestañas, abre en la pedida y Q/E/M cambian de sección', () => {
+  let cfg = null, refreshed = 0, closed = 0;
+  const game = {
+    creator: { isOpen: false },
+    audio: { volume: 0.5, isMuted: () => false, setVolume() {}, toggleMute() {} },
+    stats: { dinero: 0, level: 1, xp: 0 }, clock: { day: 2, hour: 22 },
+    minimap: { visible: true, zoomBase: 70, setZoomBase: v => v, toggle() {} },
+    menu: {
+      isOpen: false,
+      open(c) { cfg = c; this.isOpen = true; this._render = c.render; },
+      refresh() { refreshed++; },
+      close() { closed++; this.isOpen = false; cfg.onClose?.(); }
+    }
+  };
+  openPauseMenu(game, 'ajustes');
+  assert.equal(cfg.wide, true);
+  assert.equal(game._pauseTab, 'ajustes');
+  cfg.render();
+  const press = (code) => window.dispatchEvent(Object.assign(new Event('keydown'), { code }));
+  press('KeyE');
+  assert.equal(game._pauseTab, 'controles');
+  press('KeyE');
+  assert.equal(game._pauseTab, 'mapa');
+  press('KeyQ');
+  assert.equal(game._pauseTab, 'controles');
+  assert.equal(refreshed, 3);
+  for (const tab of ['estado', 'ajustes', 'controles']) { game._pauseTab = tab; assert.ok(cfg.render().body); }
+  game._pauseTab = 'mapa';
+  press('KeyM');
+  assert.equal(closed, 1, 'M en la pestaña Mapa cierra la pausa');
+  press('KeyE');
+  assert.equal(game._pauseTab, 'mapa', 'el listener se retira al cerrar');
+});

@@ -124,10 +124,13 @@ export class Renderer {
         }
       }
     });
-    let uploaded = 0;
+    let uploadStart = performance.now();
     for (const texture of textures) {
       this.instance.initTexture(texture);
-      if (++uploaded % 8 === 0) await paintLoadingFrame();
+      if (performance.now() - uploadStart >= 8) {
+        await paintLoadingFrame();
+        uploadStart = performance.now();
+      }
     }
     await this.instance.compileAsync(scene, camera);
     // Referencias temporales: no cambia los padres ni el LOD visible de cada NPC.

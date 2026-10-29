@@ -22,6 +22,7 @@ export function buildCharacterClips(body, legacy, actionforge = null) {
       out[action].name = action;
     }
   }
+  if (!legacy) return out;
   const retarget = createRetargeter(legacy.scene, clone(body.scene));
   for (const name of ['idle', 'walk', 'run', 'buscar', 'pedir', 'comer', 'dormir', 'saludo']) {
     if (out[name]) continue;

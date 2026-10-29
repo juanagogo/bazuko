@@ -9,6 +9,16 @@ export async function loadInBatches(items, load, onProgress = () => {}, concurre
   }));
 }
 
+/** Alterna familias para que una cola de personajes no retrase los otros modelos. */
+export function loadTaskGroups(groups, onProgress, concurrency = 6) {
+  const tasks = [];
+  const count = Math.max(0, ...groups.map(group => group.length));
+  for (let i = 0; i < count; i++) {
+    for (const group of groups) if (group[i]) tasks.push(group[i]);
+  }
+  return loadInBatches(tasks, task => task(), onProgress, concurrency);
+}
+
 export async function withLoadTimeout(promise, message, milliseconds = 120000) {
   let timer;
   try {

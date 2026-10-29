@@ -35,4 +35,6 @@ Si MPFB no crea el material de una pieza (pasó con la boina), el exportador lo 
 
 Para regenerar un solo cuerpo, añadir `-- hombre-mayor`. Para añadir piezas sin rehacer las demás (ni tener instalados sus assets), usar `-- --piezas=boina,gorro-lana`: solo exporta esas piezas y las suma al catálogo existente. Si un asset no está instalado, MPFB falla al buscar su `.mhclo`: revisar que el nombre de la carpeta coincida con el del catálogo.
 
+Las texturas compartidas miden como máximo 1024 px (`MAX_TEX` del exportador). Trece texturas normales y de ropa que habían quedado en 2048 o 4096 px se redujeron a 1024: el personaje nunca ocupa suficiente pantalla para usarlas, y cada normal de 4096 px ocupaba unos 89 MB de memoria de video. Si una exportación vuelve a producir texturas mayores, revisar `shrink()`.
+
 Después de exportar, ejecutar `npm test`: `tests/street-presets.test.js` comprueba que los estilos y ambos catálogos coincidan.

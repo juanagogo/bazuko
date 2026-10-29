@@ -70,7 +70,7 @@ test('Atmósfera y Gráficos: asfalto con reflectividad húmeda y PCFShadowMap',
 
   // WeatherSystem propaga humedad al distrito
   const weather = new WeatherSystem(null);
-  weather.isRaining = true;
+  weather.setWeather('llovizna', false);
   weather.update(1.0, new THREE.Vector3(0, 0, 0), city);
   assert.ok(weather.wetness > 0, 'El clima de lluvia debe aumentar la humedad');
 });

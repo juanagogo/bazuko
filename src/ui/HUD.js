@@ -5,6 +5,8 @@ import { NEEDS } from '../systems/StatsSystem.js';
 import { cop } from '../utils/money.js';
 import { ITEMS, itemRarityLabel } from '../data/items.js';
 import { itemArtHTML, itemCategory } from './itemArt.js';
+import { NEED_META, needLevel } from './needsMeta.js';
+import { describeWeather } from '../world/Climate.js';
 
 const NEED_LABELS = { hambre: 'hambre', sed: 'sed', energia: 'energía', salud: 'salud', higiene: 'higiene', animo: 'ánimo', vicio: 'vicio' };
 
@@ -13,9 +15,8 @@ export class HUD {
     this._htmlCache = new WeakMap();
     this._panelElapsed = 0.1;
     this.bars = {};
-    document.querySelectorAll('.stat-bar').forEach((el) => {
-      this.bars[el.dataset.stat] = el.querySelector('.fill');
-    });
+    this.barValues = {};
+    this._buildNeeds(document.getElementById('hud'));
 
     this.clockEl = document.getElementById('clock');
     this.moneyEl = document.getElementById('money');
@@ -102,6 +103,25 @@ export class HUD {
         this._toast('🚫 El vendedor te rechaza, estás muy sucio', 'warn');
       }
     });
+  }
+
+  /** Una fila por necesidad: icono, nombre, barra y valor. */
+  _buildNeeds(container) {
+    if (!container) return;
+    for (const { id, icon, label, color } of NEED_META) {
+      const row = document.createElement('div');
+      row.className = 'stat-bar';
+      row.dataset.stat = id;
+      row.style.setProperty('--c', color);
+      row.title = id === 'vicio' ? 'Vicio: si se vacía entras en abstinencia' : label;
+      row.innerHTML = `<span class="stat-bar__icon" aria-hidden="true">${icon}</span>`
+        + `<span class="stat-bar__name">${label}</span>`
+        + '<div class="bar"><div class="fill"></div></div>'
+        + '<span class="stat-bar__value">100</span>';
+      container.appendChild(row);
+      this.bars[id] = row.querySelector('.fill');
+      this.barValues[id] = row.querySelector('.stat-bar__value');
+    }
   }
 
   setCameraMode(mode) {
@@ -205,7 +225,13 @@ export class HUD {
     // Barras de stats
     for (const k of NEEDS) {
       const el = this.bars[k];
-      if (el) this._setWidth(el, stats[k]);
+      if (!el) continue;
+      const value = Math.max(0, Math.min(100, stats[k] ?? 0));
+      this._setWidth(el, value);
+      this._setText(this.barValues[k], String(Math.round(value)));
+      const level = needLevel(value);
+      const row = el.parentElement.parentElement;
+      if (row.dataset.level !== level) row.dataset.level = level;
     }
     this.bars.vicio?.parentElement.parentElement.classList.toggle('critical', stats.inWithdrawal);
     this.bars.vicio?.parentElement.parentElement.classList.toggle('high-withdrawal', !!stats.isHighWithdrawal);
@@ -230,7 +256,13 @@ export class HUD {
     // Reloj
     const h = Math.floor(clock.hour).toString().padStart(2, '0');
     const m = Math.floor((clock.hour % 1) * 60).toString().padStart(2, '0');
-    this._setText(this.clockEl, `Día ${clock.day} — ${h}:${m}`);
+    const sky = this.weather?.type ? describeWeather(this.weather.type, clock.isNight) : null;
+    this._setText(this.clockEl, sky ? `Día ${clock.day} — ${h}:${m} ∙ ${sky.icon}` : `Día ${clock.day} — ${h}:${m}`);
+    const skyKey = sky && `${sky.label}|${this.weather.season?.id}`;
+    if (this.clockEl && sky && this._weatherTitle !== skyKey) {
+      this._weatherTitle = skyKey;
+      this.clockEl.title = `${sky.label} ∙ ${this.weather.season?.label ?? ''}`;
+    }
     this._setText(this.moneyEl, cop(stats.dinero));
 
     // Nivel y XP

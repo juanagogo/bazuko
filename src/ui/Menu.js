@@ -29,11 +29,12 @@ export class Menu {
   get isOpen() { return !this.root.hidden; }
 
   /**
-   * @param {{title: string, sub?: string, ic?: string, render: () => {body: Node, foot: Node[]}, onClose?: Function, dismissible?: boolean}} opts
-   * `render` se vuelve a llamar con refresh() después de cada compra/venta.
+   * @param {{title: string, sub?: string, ic?: string, render: () => {body: Node, foot: Node[]}, onClose?: Function, dismissible?: boolean, wide?: boolean}} opts
+   * `render` se vuelve a llamar con refresh() después de cada compra/venta. `wide` amplía la ventana (pausa con mapa).
    */
-  open({ title, sub = '', ic = 'box', render, onClose = null, dismissible = true }) {
+  open({ title, sub = '', ic = 'box', render, onClose = null, dismissible = true, wide = false }) {
     window.__game?.cameraRig?.releaseControls?.();
+    this.root.querySelector('.sign--menu')?.classList.toggle('sign--wide', wide);
     this._dismissible = dismissible;
     $('menu-close').hidden = !dismissible;
     this._render = render;

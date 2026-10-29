@@ -2,11 +2,27 @@
 import { Howl, Howler } from 'howler';
 import { VehicleAudio } from './VehicleAudio.js';
 
+export const MIX_CATEGORIES = ['ambient', 'traffic', 'voices', 'effects'];
+// Mientras suena una frase, tráfico y ambiente bajan a esta fracción para que se entienda.
+const VOICE_DUCK = .45, DUCK_ATTACK = 10, DUCK_RELEASE = 2.5;
+// Pisadas aisladas de Sounds_of_a_steps.opus (inicio y duración en ms).
+const STEP_SPRITES = { step1: [215, 300], step2: [605, 300], step3: [995, 300], step4: [1385, 300],
+  step5: [1785, 300], step6: [2185, 300], step7: [2575, 280] };
+const STEP_NAMES = Object.keys(STEP_SPRITES);
+// Metros entre pisadas: con la animación escalada por velocidad mantiene el ritmo de los pies.
+const STRIDE_WALK = 1.15, STRIDE_RUN = 1.9;
+const STEP_SURFACES = {
+  grass: { volume: .3, rate: .88 }, dirt: { volume: .34, rate: .9 },
+  road: { volume: .46, rate: 1 }, busway: { volume: .46, rate: 1 },
+  sidewalk: { volume: .5, rate: 1 }, floor: { volume: .5, rate: 1 }, plaza: { volume: .5, rate: 1 }
+};
+
 export class AudioSystem {
   constructor({ HowlClass = Howl, howler = Howler, eventTarget = globalThis.window } = {}) {
     this.howler = howler;
     this.loadErrors = new Map();
-    const sound = (file, options = {}) => new HowlClass({
+    this._baseVolume = new Map();
+    const sound = (file, options = {}) => this._track(options.volume ?? 1, new HowlClass({
       src: [`/audio/${encodeURIComponent(file)}`], ...options,
       onload: () => this.loadErrors.delete(file),
       onloaderror: (_id, error) => {
@@ -14,7 +30,7 @@ export class AudioSystem {
         this.loadErrors.set(file, String(error));
       },
       onplayerror(id) { this.once('unlock', () => this.play(id)); }
-    });
+    }));
     // Volumen maestro (0.0 a 1.0)
     this.eventTarget = eventTarget;
     this._masterVolume = .7; this.muted = false;
@@ -24,6 +40,14 @@ export class AudioSystem {
       this.muted = globalThis.localStorage?.getItem('bazuko.audio_muted') === 'true';
     } catch { /* sin almacenamiento */ }
     howler.volume(this.muted ? 0 : this._masterVolume);
+    this.mix = Object.fromEntries(MIX_CATEGORIES.map(category => [category, 1]));
+    try {
+      const saved = JSON.parse(globalThis.localStorage?.getItem('bazuko.audio_mix') ?? 'null');
+      for (const category of MIX_CATEGORIES) {
+        if (Number.isFinite(saved?.[category])) this.mix[category] = Math.max(0, Math.min(1, saved[category]));
+      }
+    } catch { /* sin almacenamiento o valor dañado */ }
+    this._duck = 1;
 
     // Definir sonidos. Si el archivo no existe, Howl queda en silencio
     // pero NO crashea (maneja el error internamente).
@@ -34,7 +58,7 @@ export class AudioSystem {
       full: sound('full.wav', { volume: .5 }),
       empty: sound('empty.wav', { volume: .4 }),
       carAlarm: sound('Sonido De Alarma De Auto.opus', { volume: .6, loop: false, pool: 6 }),
-      steps: sound('Sounds_of_a_steps.opus', { volume: .65, loop: true }),
+      steps: sound('Sounds_of_a_steps.opus', { volume: .65, sprite: STEP_SPRITES, pool: 6 }),
       ambient: sound('city_atmosphere_soun.opus', { volume: .18, loop: true }),
       rain: sound('rain_sound_01.mp3', { volume: .45, loop: true })
     };
@@ -58,6 +82,7 @@ export class AudioSystem {
     this.theftSounds = Array.from({ length: 5 }, (_, i) => sound(`roberto_robo_espejo_n${i + 1}.mp3`, { volume: 0, loop: false, pool: 6 }));
     this._theftVoices = new Map();
     this.vehicles = new VehicleAudio(this.vehicleSounds, Math.random, this.driverSounds);
+    this.vehicles.externalVoiceActive = () => this._theftVoiceActive();
     this._carAlarms = new Map();
 
     // El audio es opcional: un archivo ausente o bloqueado no impide jugar.
@@ -75,17 +100,18 @@ export class AudioSystem {
     })));
 
     this._stepsPlaying = false;
+    this._stepDistance = 0;
+    this._lastStep = -1;
     this._boostPlaying = false;
     this._ambientStarted = false;
     this._lastGroundType = 'sidewalk';
     this._lastRunning = false;
-    if (typeof window !== 'undefined' && window.addEventListener) {
-      window.addEventListener('car-honk', (e) => {
-        const pitch = 380 + Math.random() * 80;
-        this.playCarHorn(pitch, 0.22 + Math.random() * 0.12);
-      });
-    }
-
+    // Las pitadas entre carros solo se oyen cerca del jugador y comparten el límite de claxones.
+    this._carHonk = (event) => {
+      const { x, z } = event.detail ?? {};
+      if (Number.isFinite(x) && Number.isFinite(z)) this.vehicles.ambientHonk(x, z, this._listenerPosition);
+    };
+    eventTarget?.addEventListener('car-honk', this._carHonk);
 
     // Desbloquear audio tras primer click (política de navegadores)
     const unlock = () => {
@@ -114,6 +140,41 @@ export class AudioSystem {
   setMuted(value) { this.muted = !!value; this._applySettings(); return this.muted; }
   toggleMute() { return this.setMuted(!this.muted); }
   isMuted() { return this.muted; }
+
+  _track(volume, howl) { this._baseVolume.set(howl, volume); return howl; }
+
+  /** Volumen de una categoría (ambiente, tráfico, voces, efectos), de 0 a 1. */
+  getMix(category) { return this.mix[category] ?? 1; }
+  setMix(category, value) {
+    if (!MIX_CATEGORIES.includes(category)) return 1;
+    this.mix[category] = Math.max(0, Math.min(1, Number(value) || 0));
+    if (this._effectsBus) this._effectsBus.gain.value = this.mix.effects;
+    this._applyLevels(true);
+    try { globalThis.localStorage?.setItem('bazuko.audio_mix', JSON.stringify(this.mix)); } catch { /* sin almacenamiento */ }
+    return this.mix[category];
+  }
+
+  /** Nivel efectivo: el de la categoría y, para tráfico y ambiente, la atenuación por voz. */
+  _level(category) {
+    return this.getMix(category) * (category === 'traffic' || category === 'ambient' ? this._duck : 1);
+  }
+
+  _theftVoiceActive() {
+    for (const voice of this._theftVoices.values()) if (voice.sound.playing(voice.id)) return true;
+    return false;
+  }
+
+  _voiceActive() { return this._theftVoiceActive() || this.vehicles.remarkPlaying(); }
+
+  /** Ajusta los bucles que no se recalculan cada cuadro (ambiente y lluvia). */
+  _applyLevels(force = false) {
+    this.vehicles.levels = { traffic: this._level('traffic'), voices: this._level('voices') };
+    const ambient = this._level('ambient');
+    if (!force && Math.abs(ambient - (this._appliedAmbient ?? -1)) < .002) return;
+    this._appliedAmbient = ambient;
+    if (this._ambientId !== undefined) this.sounds.ambient.volume(this._baseVolume.get(this.sounds.ambient) * ambient, this._ambientId);
+    if (this._rainId !== undefined) this.sounds.rain.volume(this._baseVolume.get(this.sounds.rain) * ambient, this._rainId);
+  }
   _applySettings() {
     this.howler.volume(this.muted ? 0 : this.volume);
     try {
@@ -126,13 +187,15 @@ export class AudioSystem {
   play(name) {
     const s = this.sounds[name];
     if (!s || s.playing()) return;
-    s.play();
+    const id = s.play();
+    s.volume(this._baseVolume.get(s) * this._level('effects'), id);
   }
 
   /** Ladrido breve sintetizado; usa el mismo volumen maestro y silencio que los vehículos. */
   barkDog() {
-    const ctx = this.howler.ctx;
-    if (this._paused || !ctx || ctx.state !== 'running' || !ctx.createBuffer || !this.howler.masterGain) return;
+    const fx = this._fx();
+    if (!fx || !fx.ctx.createBuffer) return;
+    const { ctx, out } = fx;
     if (!this._barkBuffer) {
       this._barkBuffer = ctx.createBuffer(1, Math.ceil(ctx.sampleRate * .18), ctx.sampleRate);
       const data = this._barkBuffer.getChannelData(0);
@@ -145,7 +208,7 @@ export class AudioSystem {
     const source = ctx.createBufferSource(), filter = ctx.createBiquadFilter(), gain = ctx.createGain();
     source.buffer = this._barkBuffer; filter.type = 'bandpass'; filter.frequency.value = 700; filter.Q.value = .7;
     gain.gain.value = .5;
-    source.connect(filter); filter.connect(gain); gain.connect(this.howler.masterGain);
+    source.connect(filter); filter.connect(gain); gain.connect(out);
     source.onended = () => { source.disconnect(); filter.disconnect(); gain.disconnect(); };
     source.start();
   }
@@ -166,79 +229,70 @@ export class AudioSystem {
   }
 
   _alarmVolume(car, listener) {
-    if (!car.position || !listener) return .6;
+    if (!car.position || !listener) return .6 * this._level('traffic');
     const distance = Math.hypot(car.position.x - listener.x, car.position.y - listener.y, car.position.z - listener.z);
     // Volumen completo a cinco metros; silencio desde los 41 m, sin panner espacial.
-    return .6 * Math.max(0, Math.min(1, (41 - distance) / 36));
+    return .6 * this._level('traffic') * Math.max(0, Math.min(1, (41 - distance) / 36));
   }
 
   playMovingTheft(car) {
     if (!car?.traffic || this._paused) return false;
     const sound = this.theftSounds[Math.min(4, Math.floor(this.vehicles.random() * 5))];
     if (sound.state() !== 'loaded') return false;
-    const previous = this._theftVoices.get(car);
-    if (previous) previous.sound.stop(previous.id);
+    // Una sola voz a la vez: el reclamo reemplaza cualquier otra frase en curso.
+    for (const previous of this._theftVoices.values()) previous.sound.stop(previous.id);
+    this._theftVoices.clear();
+    this.vehicles.stopRemarks();
     const voice = { sound, id: sound.play() };
     sound.volume(this._theftVolume(car, this._listenerPosition), voice.id);
     this._theftVoices.set(car, voice);
     // El reclamo por el robo reemplaza la frase normal de obstrucción de ese conductor.
     const driver = this.vehicles.instances.get(car);
     if (driver) {
-      if (driver.remark) { driver.remark.sound.stop(driver.remark.id); driver.remark = null; }
       driver.cooldown = Math.max(driver.cooldown, sound.duration() + .5);
     }
     return true;
   }
 
   _theftVolume(car, listener) {
-    if (!car.position || !listener) return .75;
+    if (!car.position || !listener) return .75 * this._level('voices');
     const distance = Math.hypot(car.position.x - listener.x, car.position.y - listener.y, car.position.z - listener.z);
-    return .75 * Math.max(0, Math.min(1, (12 - distance) / 10));
+    return .75 * this._level('voices') * Math.max(0, Math.min(1, (12 - distance) / 10));
   }
 
-  updateSteps(moving, running, groundType = 'sidewalk', isRaining = false) {
-    const s = this.sounds.steps;
-    if (!s) return;
-
-    if (moving) {
-      let baseRate = running ? 1.4 : 1.0;
-      let vol = 0.5;
-
-      if (groundType === 'dirt' || groundType === 'grass') {
-        baseRate *= 0.88;
-        vol = 0.38;
-      } else if (groundType === 'road' || groundType === 'busway') {
-        baseRate *= 1.05;
-        vol = 0.48;
-      } else if (groundType === 'sidewalk' || groundType === 'floor' || groundType === 'plaza') {
-        baseRate *= 1.0;
-        vol = 0.52;
-      }
-
-      if (isRaining) {
-        baseRate *= 1.04;
-      }
-
-      if (this._stepsRate !== baseRate) {
-        if (typeof s.rate === 'function') s.rate(baseRate);
-        this._stepsRate = baseRate;
-      }
-
-      if (!this._stepsPlaying) {
-        if (typeof s.volume === 'function') s.volume(vol);
-        if (typeof s.play === 'function') s.play();
-        this._stepsPlaying = true;
-        this._lastGroundType = groundType;
-        this._lastRunning = running;
-      } else if (this._lastGroundType !== groundType || this._lastRunning !== running) {
-        if (typeof s.volume === 'function') s.volume(vol);
-        this._lastGroundType = groundType;
-        this._lastRunning = running;
-      }
-    } else if (this._stepsPlaying) {
-      if (typeof s.stop === 'function') s.stop();
+  /**
+   * Pisadas sueltas cada cierta distancia recorrida en el suelo (travelled, en metros por cuadro).
+   * Sin distancia (llamadas antiguas) se estima con la velocidad nominal del jugador.
+   */
+  updateSteps(moving, running, groundType = 'sidewalk', isRaining = false, travelled = null, dt = 1 / 60) {
+    const stride = running ? STRIDE_RUN : STRIDE_WALK;
+    if (!moving) {
+      // Al arrancar, la primera pisada llega pronto en lugar de esperar un paso completo.
+      this._stepDistance = stride * .6;
       this._stepsPlaying = false;
+      return;
     }
+    this._stepsPlaying = true;
+    this._lastGroundType = groundType;
+    this._lastRunning = running;
+    if (this._paused) return;
+    this._stepDistance += travelled ?? (running ? 6 : 3) * dt;
+    if (this._stepDistance < stride) return;
+    this._stepDistance %= stride;
+    this._playStep(running, groundType);
+  }
+
+  _playStep(running, groundType) {
+    const s = this.sounds.steps;
+    if (!s || s.state() !== 'loaded') return;
+    // Evita repetir la misma pisada dos veces seguidas.
+    let index = Math.floor(Math.random() * (STEP_NAMES.length - 1));
+    if (index >= this._lastStep) index++;
+    this._lastStep = index;
+    const surface = STEP_SURFACES[groundType] ?? STEP_SURFACES.sidewalk;
+    const id = s.play(STEP_NAMES[index]);
+    s.volume(surface.volume * (running ? 1.12 : 1) * (.85 + Math.random() * .15) * this._level('effects'), id);
+    s.rate(surface.rate * (.98 + Math.random() * .04), id);
   }
 
   updateBoost(active) {
@@ -259,6 +313,7 @@ export class AudioSystem {
     if (this._ambientStarted) return;
     this._ambientId = this.sounds.ambient?.play();
     this._ambientStarted = true;
+    this._applyLevels(true);
   }
 
   setRaining(raining) {
@@ -275,6 +330,7 @@ export class AudioSystem {
       if (this._rainId !== undefined && sound.playing(this._rainId)) sound.pause(this._rainId);
     } else if (sound.state() === 'loaded' && (this._rainId === undefined || !sound.playing(this._rainId))) {
       this._rainId = sound.play(this._rainId);
+      sound.volume(this._baseVolume.get(sound) * this._level('ambient'), this._rainId);
     }
   }
 
@@ -304,6 +360,9 @@ export class AudioSystem {
   updateWorld(dt, position, _camera, vehicles, bus) {
     this._listenerPosition = position;
     this.setPaused(false);
+    const duckTarget = this._voiceActive() ? VOICE_DUCK : 1;
+    this._duck += (duckTarget - this._duck) * (1 - Math.exp(-dt * (duckTarget < this._duck ? DUCK_ATTACK : DUCK_RELEASE)));
+    this._applyLevels();
     this.vehicles.update(dt, position, vehicles, bus);
     for (const [car, voice] of this._theftVoices) {
       if (!voice.sound.playing(voice.id)) this._theftVoices.delete(car);
@@ -326,6 +385,7 @@ export class AudioSystem {
     this._theftVoices.clear();
     this._carAlarms.clear();
     this.eventTarget?.removeEventListener('dog-bark', this._dogBark);
+    this.eventTarget?.removeEventListener('car-honk', this._carHonk);
     this.vehicles.clear();
     this._removeUnlock();
     globalThis.document?.removeEventListener?.('visibilitychange', this._visibilityChanged);
@@ -334,11 +394,25 @@ export class AudioSystem {
 
   /** ===== Efectos Procedurales (Web Audio) ===== */
 
+  /** Contexto activo para efectos sintetizados; pasan por el volumen maestro y callan en pausa. */
+  _fx() {
+    if (this._paused || this.muted || typeof window === 'undefined') return null;
+    const ctx = this.howler.ctx;
+    if (!ctx || ctx.state !== 'running' || !this.howler.masterGain) return null;
+    if (!this._effectsBus || this._effectsBus.context !== ctx) {
+      this._effectsBus = ctx.createGain();
+      this._effectsBus.connect(this.howler.masterGain);
+    }
+    this._effectsBus.gain.value = this.mix.effects;
+    return { ctx, out: this._effectsBus };
+  }
+
+
   playFart() {
-    if (this._paused || this.muted || typeof window === 'undefined') return;
+    const fx = this._fx();
+    if (!fx) return;
     try {
-      const ctx = this.howler.ctx;
-      if (!ctx || ctx.state === 'suspended') return;
+      const { ctx, out } = fx;
       const t = ctx.currentTime;
       const osc = ctx.createOscillator();
       const gain = ctx.createGain();
@@ -352,22 +426,22 @@ export class AudioSystem {
       osc.frequency.setValueAtTime(130, t);
       osc.frequency.exponentialRampToValueAtTime(38, t + 0.38);
 
-      gain.gain.setValueAtTime(0.45 * (this.howler.masterGain ? 1 : this._masterVolume), t);
+      gain.gain.setValueAtTime(0.45, t);
       gain.gain.exponentialRampToValueAtTime(0.001, t + 0.38);
 
       osc.connect(filter);
       filter.connect(gain);
-      gain.connect(this.howler.masterGain ?? ctx.destination);
+      gain.connect(out);
       osc.start(t);
       osc.stop(t + 0.39);
     } catch {}
   }
 
   playWhoosh() {
-    if (this._paused || this.muted || typeof window === 'undefined') return;
+    const fx = this._fx();
+    if (!fx) return;
     try {
-      const ctx = this.howler.ctx;
-      if (!ctx || ctx.state === 'suspended') return;
+      const { ctx, out } = fx;
       const t = ctx.currentTime;
       const osc = ctx.createOscillator();
       const gain = ctx.createGain();
@@ -378,21 +452,21 @@ export class AudioSystem {
       osc.frequency.linearRampToValueAtTime(110, t + 0.24);
 
       gain.gain.setValueAtTime(0.01, t);
-      gain.gain.linearRampToValueAtTime(0.35 * (this.howler.masterGain ? 1 : this._masterVolume), t + 0.08);
+      gain.gain.linearRampToValueAtTime(0.35, t + 0.08);
       gain.gain.exponentialRampToValueAtTime(0.001, t + 0.24);
 
       osc.connect(gain);
-      gain.connect(this.howler.masterGain ?? ctx.destination);
+      gain.connect(out);
       osc.start(t);
       osc.stop(t + 0.25);
     } catch {}
   }
 
   playSplat() {
-    if (this._paused || this.muted || typeof window === 'undefined') return;
+    const fx = this._fx();
+    if (!fx) return;
     try {
-      const ctx = this.howler.ctx;
-      if (!ctx || ctx.state === 'suspended') return;
+      const { ctx, out } = fx;
       const t = ctx.currentTime;
       const osc = ctx.createOscillator();
       const gain = ctx.createGain();
@@ -401,21 +475,21 @@ export class AudioSystem {
       osc.frequency.setValueAtTime(290, t);
       osc.frequency.exponentialRampToValueAtTime(45, t + 0.18);
 
-      gain.gain.setValueAtTime(0.55 * (this.howler.masterGain ? 1 : this._masterVolume), t);
+      gain.gain.setValueAtTime(0.55, t);
       gain.gain.exponentialRampToValueAtTime(0.001, t + 0.18);
 
       osc.connect(gain);
-      gain.connect(this.howler.masterGain ?? ctx.destination);
+      gain.connect(out);
       osc.start(t);
       osc.stop(t + 0.19);
     } catch {}
   }
 
   playHeartbeat(intensity = 1) {
-    if (this._paused || this.muted || typeof window === 'undefined') return;
+    const fx = this._fx();
+    if (!fx) return;
     try {
-      const ctx = this.howler.ctx;
-      if (!ctx || ctx.state === 'suspended') return;
+      const { ctx, out } = fx;
       const t = ctx.currentTime;
       const makeThump = (offset, vol) => {
         const osc = ctx.createOscillator();
@@ -423,10 +497,10 @@ export class AudioSystem {
         osc.type = 'sine';
         osc.frequency.setValueAtTime(65, t + offset);
         osc.frequency.exponentialRampToValueAtTime(28, t + offset + 0.12);
-        gain.gain.setValueAtTime(vol * 0.45 * (this.howler.masterGain ? 1 : this._masterVolume), t + offset);
+        gain.gain.setValueAtTime(vol * 0.45, t + offset);
         gain.gain.exponentialRampToValueAtTime(0.001, t + offset + 0.12);
         osc.connect(gain);
-        gain.connect(this.howler.masterGain ?? ctx.destination);
+        gain.connect(out);
         osc.start(t + offset);
         osc.stop(t + offset + 0.13);
       };
@@ -436,10 +510,10 @@ export class AudioSystem {
   }
 
   playPsychosisWhisper() {
-    if (this._paused || this.muted || typeof window === 'undefined') return;
+    const fx = this._fx();
+    if (!fx) return;
     try {
-      const ctx = this.howler.ctx;
-      if (!ctx || ctx.state === 'suspended') return;
+      const { ctx, out } = fx;
       const dur = 1.1;
       const bufSize = Math.floor(ctx.sampleRate * dur);
       const buf = ctx.createBuffer(1, bufSize, ctx.sampleRate);
@@ -455,22 +529,22 @@ export class AudioSystem {
 
       const gain = ctx.createGain();
       gain.gain.setValueAtTime(0.01, ctx.currentTime);
-      gain.gain.linearRampToValueAtTime(0.22 * (this.howler.masterGain ? 1 : this._masterVolume), ctx.currentTime + 0.25);
+      gain.gain.linearRampToValueAtTime(0.22, ctx.currentTime + 0.25);
       gain.gain.linearRampToValueAtTime(0.01, ctx.currentTime + dur);
 
       src.connect(filter);
       filter.connect(gain);
-      gain.connect(this.howler.masterGain ?? ctx.destination);
+      gain.connect(out);
       src.start();
       src.stop(ctx.currentTime + dur);
     } catch {}
   }
 
   playCarHorn(frequency = 415, duration = 0.28) {
-    if (this.muted || typeof window === 'undefined') return;
+    const fx = this._fx();
+    if (!fx) return;
     try {
-      const ctx = Howler.ctx;
-      if (!ctx || ctx.state === 'suspended') return;
+      const { ctx, out } = fx;
       const t = ctx.currentTime;
 
       // Doble tono armónico típico de bocina de carro
@@ -485,13 +559,13 @@ export class AudioSystem {
       osc2.frequency.setValueAtTime(frequency * 1.25, t); // tercera mayor
 
       gain.gain.setValueAtTime(0.01, t);
-      gain.gain.linearRampToValueAtTime(0.35 * this._masterVolume, t + 0.02);
-      gain.gain.setValueAtTime(0.32 * this._masterVolume, t + duration - 0.04);
+      gain.gain.linearRampToValueAtTime(0.35, t + 0.02);
+      gain.gain.setValueAtTime(0.32, t + duration - 0.04);
       gain.gain.exponentialRampToValueAtTime(0.001, t + duration);
 
       osc1.connect(gain);
       osc2.connect(gain);
-      gain.connect(ctx.destination);
+      gain.connect(out);
 
       osc1.start(t);
       osc2.start(t);
@@ -501,10 +575,10 @@ export class AudioSystem {
   }
 
   playCartRumble() {
-    if (this.muted || typeof window === 'undefined') return;
+    const fx = this._fx();
+    if (!fx) return;
     try {
-      const ctx = Howler.ctx;
-      if (!ctx || ctx.state === 'suspended') return;
+      const { ctx, out } = fx;
       const t = ctx.currentTime;
       const dur = 0.15;
       const osc = ctx.createOscillator();
@@ -512,10 +586,10 @@ export class AudioSystem {
       osc.type = 'triangle';
       osc.frequency.setValueAtTime(75 + Math.random() * 20, t);
       osc.frequency.linearRampToValueAtTime(85, t + dur);
-      gain.gain.setValueAtTime(0.12 * this._masterVolume, t);
+      gain.gain.setValueAtTime(0.07, t);
       gain.gain.linearRampToValueAtTime(0.01, t + dur);
       osc.connect(gain);
-      gain.connect(ctx.destination);
+      gain.connect(out);
       osc.start(t);
       osc.stop(t + dur);
     } catch {}
@@ -523,50 +597,50 @@ export class AudioSystem {
 
 
   playJump() {
-    if (this.muted || typeof window === 'undefined') return;
+    const fx = this._fx();
+    if (!fx) return;
     try {
-      const ctx = Howler.ctx;
-      if (!ctx || ctx.state === 'suspended') return;
+      const { ctx, out } = fx;
       const t = ctx.currentTime;
       const osc = ctx.createOscillator();
       const gain = ctx.createGain();
       osc.type = 'sine';
       osc.frequency.setValueAtTime(140, t);
       osc.frequency.exponentialRampToValueAtTime(320, t + 0.16);
-      gain.gain.setValueAtTime(0.28 * this._masterVolume, t);
+      gain.gain.setValueAtTime(0.28, t);
       gain.gain.exponentialRampToValueAtTime(0.001, t + 0.16);
       osc.connect(gain);
-      gain.connect(ctx.destination);
+      gain.connect(out);
       osc.start(t);
       osc.stop(t + 0.17);
     } catch {}
   }
 
   playLanding() {
-    if (this.muted || typeof window === 'undefined') return;
+    const fx = this._fx();
+    if (!fx) return;
     try {
-      const ctx = Howler.ctx;
-      if (!ctx || ctx.state === 'suspended') return;
+      const { ctx, out } = fx;
       const t = ctx.currentTime;
       const osc = ctx.createOscillator();
       const gain = ctx.createGain();
       osc.type = 'triangle';
       osc.frequency.setValueAtTime(95, t);
       osc.frequency.exponentialRampToValueAtTime(35, t + 0.12);
-      gain.gain.setValueAtTime(0.42 * this._masterVolume, t);
+      gain.gain.setValueAtTime(0.42, t);
       gain.gain.exponentialRampToValueAtTime(0.001, t + 0.12);
       osc.connect(gain);
-      gain.connect(ctx.destination);
+      gain.connect(out);
       osc.start(t);
       osc.stop(t + 0.13);
     } catch {}
   }
 
   playPunchHit() {
-    if (this.muted || typeof window === 'undefined') return;
+    const fx = this._fx();
+    if (!fx) return;
     try {
-      const ctx = Howler.ctx;
-      if (!ctx || ctx.state === 'suspended') return;
+      const { ctx, out } = fx;
       const t = ctx.currentTime;
       const osc1 = ctx.createOscillator();
       const osc2 = ctx.createOscillator();
@@ -580,12 +654,12 @@ export class AudioSystem {
       osc2.frequency.setValueAtTime(120, t);
       osc2.frequency.exponentialRampToValueAtTime(30, t + 0.15);
 
-      gain.gain.setValueAtTime(0.55 * this._masterVolume, t);
+      gain.gain.setValueAtTime(0.55, t);
       gain.gain.exponentialRampToValueAtTime(0.001, t + 0.15);
 
       osc1.connect(gain);
       osc2.connect(gain);
-      gain.connect(ctx.destination);
+      gain.connect(out);
 
       osc1.start(t);
       osc2.start(t);
@@ -594,4 +668,55 @@ export class AudioSystem {
     } catch {}
   }
 
+  /** Volumen del bucle de lluvia según la intensidad del clima (llovizna suave, tormenta fuerte). */
+  setRainLevel(level = 0) {
+    const sound = this.sounds.rain;
+    if (this._rainId === undefined || !sound?.volume) return;
+    const mix = typeof this._level === 'function' ? this._level('ambient') : 1;
+    const volume = (this._baseVolume?.get(sound) ?? .45) * (.4 + .6 * Math.max(0, Math.min(1, level))) * mix;
+    if (this._rainVolumeId === this._rainId && Math.abs(volume - this._rainVolume) < .01) return;
+    this._rainVolumeId = this._rainId;
+    this._rainVolume = volume;
+    sound.volume(volume, this._rainId);
+  }
+
+  /**
+   * Trueno sintetizado: llega con el retraso del sonido (343 m/s) y los lejanos
+   * pierden agudos y volumen. Pasa por el volumen maestro mediante `_fx()`.
+   */
+  playThunder(distance = 1200) {
+    const fx = this._fx();
+    if (!fx || !fx.ctx.createBuffer) return;
+    try {
+      const { ctx, out } = fx;
+      if (!this._thunderBuffer) {
+        const length = Math.ceil(ctx.sampleRate * 4);
+        this._thunderBuffer = ctx.createBuffer(1, length, ctx.sampleRate);
+        const data = this._thunderBuffer.getChannelData(0);
+        let brown = 0;
+        for (let i = 0; i < length; i++) {
+          brown = (brown + .02 * (Math.random() * 2 - 1)) / 1.02;
+          data[i] = brown * 3.5;
+        }
+      }
+      const near = Math.max(0, Math.min(1, 1 - (distance - 300) / 2200));
+      const t = ctx.currentTime + Math.min(7, distance / 343);
+      const source = ctx.createBufferSource(), filter = ctx.createBiquadFilter(), gain = ctx.createGain();
+      source.buffer = this._thunderBuffer;
+      source.playbackRate.value = .75 + Math.random() * .3;
+      filter.type = 'lowpass';
+      filter.frequency.setValueAtTime(220 + near * 900, t);
+      filter.frequency.exponentialRampToValueAtTime(120 + near * 100, t + 3);
+      const peak = .25 + near * .55;
+      gain.gain.setValueAtTime(.0001, t);
+      gain.gain.linearRampToValueAtTime(peak, t + (near > .6 ? .03 : .35));
+      gain.gain.setValueAtTime(peak * .7, t + .5);
+      gain.gain.linearRampToValueAtTime(peak * .45, t + 1.4);
+      gain.gain.exponentialRampToValueAtTime(.001, t + 3.6);
+      source.connect(filter); filter.connect(gain); gain.connect(out);
+      source.onended = () => { source.disconnect(); filter.disconnect(); gain.disconnect(); };
+      source.start(t);
+      source.stop(t + 3.7);
+    } catch {}
+  }
 }

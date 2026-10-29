@@ -11,13 +11,27 @@ export class PerformanceHUD {
     this.text = this.element.querySelector('pre');
     this.element.querySelector('button').addEventListener('click', () => this.metrics.reset());
     document.body.appendChild(this.element);
+    // Oculto por defecto: F3 o Ajustes lo muestran. Las métricas se toman igual.
+    let saved = null;
+    try { saved = localStorage.getItem('bazuko.perf_visible'); } catch { /* sin almacenamiento */ }
+    this.setVisible(saved === 'true', false);
     this.onVisibility = () => { this.metrics.previous = null; };
     document.addEventListener('visibilitychange', this.onVisibility);
   }
 
+  setVisible(visible, save = true) {
+    this.visible = !!visible;
+    this.element.hidden = !this.visible;
+    this.nextPaint = 0;
+    if (save) try { localStorage.setItem('bazuko.perf_visible', String(this.visible)); } catch { /* sin almacenamiento */ }
+    return this.visible;
+  }
+
+  toggle() { return this.setVisible(!this.visible); }
+
   update(now, position, renderer, active, lighting = null) {
     const sampled = this.metrics.sample(now, active && !document.hidden);
-    if (now < this.nextPaint) return sampled;
+    if (now < this.nextPaint || this.visible === false) return sampled;
     this.nextPaint = now + 250; // 4 escrituras/s; las muestras sí se toman cada cuadro.
     const m = this.metrics;
     const fps = value => m.frames ? value.toFixed(1) : '—';

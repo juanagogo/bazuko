@@ -80,3 +80,76 @@ test('ayuda bajo demanda, inventario y pausa sin abrir dos paneles al pulsar Esc
   await page.keyboard.press('Escape');
   await expect(page.locator('#menu')).toBeHidden();
 });
+
+test('mapa con M, destino por clic y por la lista, ruta en el radar y pestañas de la pausa', async ({ page }) => {
+  await startNewGame(page);
+  await expect(page.locator('#minimap-canvas')).toBeVisible();
+  await expect(page.locator('#minimap-info')).not.toBeEmpty();
+
+  await page.keyboard.press('m');
+  await expect(page.locator('#menu-title')).toHaveText('Partida en Pausa');
+  await expect(page.getByRole('tab', { name: /Mapa/ })).toHaveAttribute('aria-selected', 'true');
+  const canvas = page.locator('.map-view__canvas');
+  await expect(canvas).toBeVisible();
+  if (process.env.GPS_SHOTS) await page.screenshot({ path: `${process.env.GPS_SHOTS}/mapa.png` });
+
+  // Clic sobre el mapa: marca destino y calcula ruta.
+  const box = await canvas.boundingBox();
+  await page.mouse.click(box.x + box.width * .3, box.y + box.height * .3);
+  await expect.poll(() => page.evaluate(() => window.__game.gps.waypoint?.name)).toBeTruthy();
+  await expect(page.locator('.map-view__dest strong')).toBeVisible();
+
+  // Lista «Ir a…»: la recicladora reemplaza el destino y tiene ruta a pie.
+  await page.locator('.map-view__place', { hasText: 'Recicladora' }).click();
+  const route = await page.evaluate(() => ({ name: window.__game.gps.waypoint.name, points: window.__game.gps.route.length }));
+  expect(route.name).toBe('Recicladora');
+  expect(route.points).toBeGreaterThan(1);
+  if (process.env.GPS_SHOTS) await page.screenshot({ path: `${process.env.GPS_SHOTS}/mapa-ruta.png` });
+
+  // Q/E recorren las pestañas; M desde otra pestaña vuelve al mapa y desde el mapa cierra.
+  await page.keyboard.press('e');
+  await expect(page.getByRole('tab', { name: /Estado/ })).toHaveAttribute('aria-selected', 'true');
+  await expect(page.locator('.pause-needs')).toBeVisible();
+  if (process.env.GPS_SHOTS) await page.screenshot({ path: `${process.env.GPS_SHOTS}/estado.png` });
+  await page.keyboard.press('e');
+  await expect(page.locator('.pause-settings')).toBeVisible();
+  if (process.env.GPS_SHOTS) await page.screenshot({ path: `${process.env.GPS_SHOTS}/ajustes.png` });
+  await page.keyboard.press('e');
+  await expect(page.locator('.pause-controls')).toContainText('Abrir / cerrar el mapa');
+  await page.keyboard.press('m');
+  await expect(page.getByRole('tab', { name: /Mapa/ })).toHaveAttribute('aria-selected', 'true');
+  await page.keyboard.press('m');
+  await expect(page.locator('#menu')).toBeHidden();
+
+  await expect(page.locator('#minimap-info')).toContainText('Recicladora');
+  await expect.poll(() => page.evaluate(() => window.__game.gpsBeacon.group.visible)).toBe(true);
+  await page.waitForTimeout(400);
+  if (process.env.GPS_SHOTS) await page.screenshot({ path: `${process.env.GPS_SHOTS}/radar.png` });
+
+  // Clic derecho en el mapa quita el destino.
+  await page.keyboard.press('m');
+  await page.locator('.map-view__canvas').click({ button: 'right' });
+  await expect.poll(() => page.evaluate(() => window.__game.gps.waypoint)).toBeNull();
+  await page.keyboard.press('Escape');
+  await expect(page.locator('#menu')).toBeHidden();
+});
+
+test('volumen por categoría en Ajustes y pisadas al caminar', async ({ page }) => {
+  await startNewGame(page);
+  await page.locator('#game-canvas').click();
+  await page.keyboard.down('w');
+  // A pocos FPS en el navegador de pruebas, caminar unos metros produce las primeras pisadas.
+  await expect.poll(() => page.evaluate(() => window.__game.audio._lastStep), { timeout: 30_000 }).toBeGreaterThanOrEqual(0);
+  await page.keyboard.up('w');
+
+  await page.keyboard.press('Escape');
+  await expect(page.locator('#menu-title')).toHaveText('Partida en Pausa');
+  await page.getByRole('tab', { name: /Ajustes/ }).click();
+  for (const name of ['ambiente', 'tráfico', 'voces', 'efectos']) {
+    await expect(page.getByRole('slider', { name: `Volumen de ${name}` })).toBeVisible();
+  }
+  await page.getByRole('slider', { name: 'Volumen de tráfico' }).fill('40');
+  await expect.poll(() => page.evaluate(() => window.__game.audio.getMix('traffic'))).toBe(.4);
+  await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem('bazuko.audio_mix')).traffic)).toBe(.4);
+  if (process.env.GPS_SHOTS) await page.screenshot({ path: `${process.env.GPS_SHOTS}/ajustes-sonido.png` });
+});

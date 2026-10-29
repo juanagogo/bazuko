@@ -241,25 +241,50 @@ export function tree(scale = 1) {
 
   const foliage = new THREE.Group();
   foliage.position.y = 3.2;
-  const greens = ['#2f5a2a', '#3a6b30', '#26492a'];
+  // Viento andino: fase y frecuencia del árbol viajan en las UV, así el vaivén
+  // sobrevive a la fusión en lotes estáticos sin actualizar cada árbol por fotograma.
+  const phase = rand(0, Math.PI * 2);
+  const freq = rand(1.4, 1.9);
   for (let i = 0; i < 4; i++) {
-    const c = new THREE.Mesh(new THREE.IcosahedronGeometry(rand(0.9, 1.4), 0), std(greens[i % 3], { flatShading: true }));
+    const geometry = new THREE.IcosahedronGeometry(rand(0.9, 1.4), 0);
+    const uv = geometry.attributes.uv;
+    for (let v = 0; v < uv.count; v++) uv.setXY(v, phase, freq);
+    const c = new THREE.Mesh(geometry, foliageMat(FOLIAGE_GREENS[i % 3]));
+    c.customDepthMaterial = foliageDepthMat();
     c.position.set(rand(-0.6, 0.6), rand(0, 1), rand(-0.6, 0.6));
     foliage.add(c);
   }
   g.add(foliage);
   g.scale.setScalar(scale);
 
-  // Animación orgánica de viento andino
-  const phase = rand(0, Math.PI * 2);
-  const freq = rand(1.4, 1.9);
-  g.userData.update = (dt, t) => {
-    foliage.rotation.z = Math.sin(t * freq + phase) * 0.05;
-    foliage.rotation.x = Math.cos(t * (freq * 0.8) + phase) * 0.035;
-  };
-
   return shadow(g);
 }
+
+/** Tiempo compartido del viento del follaje; lo avanza el distrito una vez por fotograma. */
+export const foliageWind = { value: 0 };
+const FOLIAGE_GREENS = ['#2f5a2a', '#3a6b30', '#26492a'];
+const swayFoliage = (material, key) => {
+  material.customProgramCacheKey = () => key;
+  material.onBeforeCompile = shader => {
+    shader.uniforms.foliageTime = foliageWind;
+    shader.vertexShader = 'uniform float foliageTime;\n' + shader.vertexShader.replace('#include <begin_vertex>', `#include <begin_vertex>
+      transformed.x += sin(foliageTime * uv.y + uv.x) * 0.06;
+      transformed.z += cos(foliageTime * uv.y * 0.8 + uv.x) * 0.045;`);
+  };
+  return material;
+};
+const _foliageMats = new Map();
+let _foliageDepth = null;
+const foliageMat = (color) => {
+  if (!_foliageMats.has(color)) {
+    const material = swayFoliage(std(color, { flatShading: true }), 'foliage-wind-v1');
+    material.userData.staticMergeKey += '|wind';
+    _foliageMats.set(color, material);
+  }
+  return _foliageMats.get(color);
+};
+// La sombra se mueve con la copa para no dejar franjas de autosombra.
+const foliageDepthMat = () => (_foliageDepth ??= swayFoliage(new THREE.MeshDepthMaterial(), 'foliage-wind-depth-v1'));
 
 /** Estación del sistema de buses troncal en el separador de la avenida */
 export function busStation(length = 16) {

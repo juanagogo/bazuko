@@ -45,6 +45,7 @@ export class LoadingArtwork {
       const img = new Image();
       img.alt = '';
       img.decoding = 'async';
+      img.fetchPriority = 'low';
       img.src = `${this.baseURL}images/pantalla-carga/${kind}_pantalla_carga_${id}.webp`;
       layer.append(img); scene.append(layer);
       return img;
@@ -54,7 +55,14 @@ export class LoadingArtwork {
       // La ilustración es opcional: un fallo nunca retrasa el arranque del juego.
       await Promise.race([
         Promise.all(pictures.map(img => img.decode())),
-        new Promise((_, reject) => { timeout = setTimeout(() => reject(new Error('Imagen no disponible')), 8000); })
+        new Promise((_, reject) => {
+          this.cancelPending = () => {
+            clearTimeout(timeout);
+            pictures.forEach(img => img.removeAttribute?.('src'));
+            reject(new Error('Galería detenida'));
+          };
+          timeout = setTimeout(() => reject(new Error('Imagen no disponible')), 8000);
+        })
       ]);
       if (!this.active || generation !== this.generation) return;
       const old = this.current;
@@ -70,6 +78,7 @@ export class LoadingArtwork {
       // Conserva la pareja anterior o el fondo de respaldo.
     } finally {
       clearTimeout(timeout);
+      if (generation === this.generation) this.cancelPending = null;
       if (this.active && generation === this.generation) this.timer = setTimeout(() => this.next(), 7500);
     }
   }
@@ -77,6 +86,8 @@ export class LoadingArtwork {
   stop({ remove = false } = {}) {
     this.active = false;
     this.generation++;
+    this.cancelPending?.();
+    this.cancelPending = null;
     clearTimeout(this.timer);
     clearTimeout(this.retireTimer);
     this.root.removeEventListener('pointermove', this.onPointer);

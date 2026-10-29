@@ -76,19 +76,22 @@ test('Howler real reproduce motores y claxones normales conectados a la salida s
     const listener = new THREE.Vector3(112, 0, 94), camera = new THREE.PerspectiveCamera();
     for (let frame = 0; frame < 20; frame++) audio.updateWorld(.1, listener, camera, [vehicle], bus);
     const carState = audio.vehicles.instances.get(vehicle.car), busState = audio.vehicles.instances.get(bus);
+    // La frase del conductor bloqueado atenúa el tráfico; los umbrales siguen ese nivel.
+    const traffic = () => audio.vehicles.levels.traffic;
+    assert.ok(carState.remark && traffic() < 1);
     assert.equal(audio.loadErrors.size, 0);
     assert.equal(carState.idle.sound._src, '/audio/car_idling_at_a_traf.opus');
-    assert.ok(carState.idle.sound._soundById(carState.idle.id)._node.gain.value > .30);
+    assert.ok(carState.idle.sound._soundById(carState.idle.id)._node.gain.value > .30 * traffic());
     assert.equal(busState.drive.sound._src, '/audio/bus_vehicle_drivin.opus');
-    assert.ok(Math.abs(busState.drive.sound._soundById(busState.drive.id)._node.gain.value - .42) < .001);
+    assert.ok(Math.abs(busState.drive.sound._soundById(busState.drive.id)._node.gain.value - .42 * traffic()) < .02);
     const voices = [carState.idle, busState.drive, carState.horn];
     vehicle.speed = 4; bus.speed = 0;
     for (let frame = 0; frame < 20; frame++) audio.updateWorld(.1, listener, camera, [vehicle], bus);
     voices.push(carState.drive, busState.idle);
     assert.equal(carState.drive.sound._src, '/audio/small_vehicle_drivin.opus');
     assert.equal(busState.idle.sound._src, '/audio/car_idling_at_a_traf_bus.opus');
-    assert.ok(carState.drive.sound._soundById(carState.drive.id)._node.gain.value > .35);
-    assert.ok(busState.idle.sound._soundById(busState.idle.id)._node.gain.value > .35);
+    assert.ok(carState.drive.sound._soundById(carState.drive.id)._node.gain.value > .35 * traffic());
+    assert.ok(busState.idle.sound._soundById(busState.idle.id)._node.gain.value > .35 * traffic());
     assert.ok(busState.drive.sound._soundById(busState.drive.id)._node.gain.value < .001);
     const idleId = carState.idle.id, busIdleId = busState.idle.id;
     vehicle.speed = 0;
@@ -96,7 +99,7 @@ test('Howler real reproduce motores y claxones normales conectados a la salida s
     assert.equal(carState.idle.id, idleId, 'Al detenerse debe conservar el bucle de ralentí');
     assert.equal(busState.idle.id, busIdleId);
     assert.ok(carState.idle.sound.playing(idleId));
-    assert.ok(carState.idle.sound._soundById(idleId)._node.gain.value > .30);
+    assert.ok(carState.idle.sound._soundById(idleId)._node.gain.value > .30 * traffic());
     vehicle.speed = 4;
     for (let frame = 0; frame < 20; frame++) audio.updateWorld(.1, listener, camera, [vehicle], bus);
     for (const hornIndex of [0, 2]) {

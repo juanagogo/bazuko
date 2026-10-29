@@ -12,46 +12,31 @@
 <body class="is-loading">
 <section id="loading-screen" aria-label="Carga del juego">
   <div class="loading-card">
+    <p class="loading-eyebrow">BOGOTÁ · SUPERVIVENCIA URBANA</p>
     <h1>BAZUKO</h1>
+    <p class="loading-tagline">Otra noche en la calle.</p>
+    <ol class="loading-steps" aria-label="Etapas de carga">
+      <li data-loading-step aria-current="step">Ciudad</li>
+      <li data-loading-step>Recursos</li>
+      <li data-loading-step>Últimos detalles</li>
+    </ol>
+    <div class="loading-progress-label">
     <p id="loading-status" role="status" aria-live="polite">Preparando el juego…</p>
+    <span id="loading-percent" aria-hidden="true">0 %</span>
+    </div>
     <progress id="loading-progress" max="5" value="0" aria-label="Progreso de carga"></progress>
-    <p class="loading-hint">La partida y el contador de FPS comenzarán cuando termine la carga.</p>
+    <p class="loading-hint">Prepara el costal. Recoge materiales, busca comida y construye tu cambuche.</p>
     <button id="loading-retry" type="button" hidden>Reintentar</button>
   </div>
 </section>
 <div id="app">
   <canvas id="game-canvas"></canvas>
 
-  <!-- HUD: barras de stats -->
-  <div id="hud">
-    <div class="stat-bar" data-stat="hambre">
-      <span class="label">🍞</span>
-      <div class="bar"><div class="fill"></div></div>
-    </div>
-    <div class="stat-bar" data-stat="sed">
-      <span class="label">💧</span>
-      <div class="bar"><div class="fill"></div></div>
-    </div>
-    <div class="stat-bar" data-stat="energia">
-      <span class="label">😴</span>
-      <div class="bar"><div class="fill"></div></div>
-    </div>
-    <div class="stat-bar" data-stat="salud">
-      <span class="label">🩹</span>
-      <div class="bar"><div class="fill"></div></div>
-    </div>
-    <div class="stat-bar" data-stat="higiene">
-      <span class="label">🧼</span>
-      <div class="bar"><div class="fill"></div></div>
-    </div>
-    <div class="stat-bar" data-stat="animo">
-      <span class="label">🧠</span>
-      <div class="bar"><div class="fill"></div></div>
-    </div>
-    <div class="stat-bar" data-stat="vicio" title="Vicio: si se vacía entras en abstinencia">
-      <span class="label">🚬</span>
-      <div class="bar"><div class="fill"></div></div>
-    </div>
+  <!-- Columna izquierda: avisos, necesidades y radar (el HUD crea las filas y el radar se monta aquí) -->
+  <div id="hud-dock" data-radar-size="m">
+    <div id="disease-panel"></div>
+    <div id="status" role="status" aria-live="polite" hidden></div>
+    <div id="hud" role="group" aria-label="Necesidades"></div>
   </div>
 
   <!-- Topbar -->
@@ -59,22 +44,18 @@
     <span id="player-name"></span>
     <span id="clock">Día 1 — 06:00</span>
     <span id="money">$ 0</span>
-    <span id="level-display">Nv 1</span>
+    <span class="topbar__level">
+      <span id="level-display">Nv 1</span>
+      <span id="xp-bar" aria-hidden="true"><span id="xp-fill"></span></span>
+    </span>
     <span id="talent-points">🌟 0</span>
   </div>
 
   <div id="game-settings"><button type="button" id="radio-toggle" title="Radio transistor (R)" aria-label="Radio transistor">📻</button><button id="pause-toggle" type="button" aria-label="Pausar y abrir ajustes">⏸️ Pausa</button><button id="audio-toggle" type="button" aria-label="Silenciar sonido">🔊</button></div>
-  <!-- XP bar -->
-  <div id="xp-bar">
-    <div id="xp-fill"></div>
-  </div>
 
-  <!-- NUEVOS -->
   <div id="boost-indicator">⚡ BOOST ACTIVO</div>
   <div id="interaction-prompt"></div>
   <div id="inventory-panel"></div>
-  <div id="disease-panel"></div>
-  <div id="status" role="status" aria-live="polite" hidden></div>
   <div id="poop-hud-ammo" class="empty">💩 [X] Hacer popó</div>
 
   <!-- Capa de Alucinaciones y Psicosis por Abstinencia -->
@@ -128,7 +109,8 @@
     <span class="control-extra"><kbd>T</kbd> Talentos</span>
     <span class="control-extra"><kbd>C</kbd> Fabricar</span>
     <span class="control-extra"><kbd>P</kbd> Personaje</span>
-    <span class="control-extra"><kbd>M</kbd> Modelo liviano</span>
+    <span class="control-extra"><kbd>M</kbd> Mapa y GPS</span>
+    <span class="control-extra"><kbd>K</kbd> Modelo liviano</span>
     <span class="control-extra"><kbd>N</kbd> Radar</span>
     <span class="control-extra"><kbd>R</kbd> Radio</span>
     <span class="control-extra"><kbd>X</kbd> Lanzar / recoger</span>

@@ -14,10 +14,10 @@ export function el(tag, attrs = {}, ...children) {
   return e;
 }
 
-export function button(label, { primary = false, small = true, disabled = false, onClick, ghost = !primary } = {}) {
+export function button(label, { primary = false, small = true, disabled = false, onClick, ghost = !primary, class: extra = '' } = {}) {
   return el('button', {
     type: 'button',
-    class: `btn ${primary ? 'btn--primary' : ''} ${ghost ? 'btn--ghost' : ''} ${small ? 'btn--small' : ''}`,
+    class: `btn ${primary ? 'btn--primary' : ''} ${ghost ? 'btn--ghost' : ''} ${small ? 'btn--small' : ''} ${extra}`.trim(),
     disabled: disabled || null,
     onclick: onClick,
   }, label);

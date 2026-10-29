@@ -4,7 +4,7 @@ import * as THREE from 'three';
 import { Game } from '../src/core/game.js';
 import { Renderer } from '../src/core/Renderer.js';
 import { FrameMetrics } from '../src/core/FrameMetrics.js';
-import { loadInBatches, withLoadTimeout } from '../src/core/Startup.js';
+import { loadInBatches, loadTaskGroups, withLoadTimeout } from '../src/core/Startup.js';
 import { Clock } from '../src/core/Clock.js';
 import { WeatherSystem } from '../src/world/WeatherSystem.js';
 
@@ -149,6 +149,32 @@ test('los vehículos y el refugio terminan de cargar antes del culling y de prep
   assert.equal(f.game._running, true);
 });
 
+test('vehículos y mobiliario avanzan mientras los personajes siguen descargándose', async t => {
+  const f = fixture(t);
+  f.game.cars = [{ async preloadModel() { f.events.push('vehicle'); } }];
+  f.game.world.active.preloadDetails = async () => { f.events.push('details'); };
+  const start = f.game.start(f.loading);
+  await tick();
+  assert.ok(f.events.includes('vehicle'));
+  assert.ok(f.events.includes('details'));
+  assert.ok(!f.events.includes('shaders'));
+  f.models.resolve(); f.shaders.resolve(); f.gpu.resolve();
+  await start;
+});
+
+test('colas alternadas comparten un límite de concurrencia y completan el progreso', async () => {
+  const pending = Array.from({ length: 5 }, deferred);
+  const started = [], progress = [];
+  const task = i => () => { started.push(i); return pending[i].promise; };
+  const work = loadTaskGroups([[task(0), task(2), task(4)], [task(1), task(3)]],
+    (done, total) => progress.push([done, total]), 2);
+  assert.deepEqual(started, [0, 1]);
+  pending[1].resolve(); await tick();
+  assert.deepEqual(started, [0, 1, 2]);
+  pending.forEach(item => item.resolve()); await work;
+  assert.deepEqual(progress, [[1, 5], [2, 5], [3, 5], [4, 5], [5, 5]]);
+});
+
 test('primera partida espera al creador y respeta el modelo liviano guardado', async t => {
   const f = fixture(t, { fresh: true, lightweight: true });
   const start = f.game.start(f.loading);
@@ -221,4 +247,23 @@ test('la espera GPU comprueba la señal sin bloquear el hilo y libera el fence',
   gl.clientWaitSync = () => gl.WAIT_FAILED;
   await assert.rejects(renderer.waitForGPU(), /preparación gráfica/);
   assert.deepEqual(calls, ['flush', 'fence', 'flush', 'fence']);
+});
+
+test('subir texturas cede por tiempo consumido y no por cantidad de archivos', async t => {
+  const scene = new THREE.Scene(), camera = new THREE.PerspectiveCamera();
+  const geometry = new THREE.BoxGeometry();
+  for (let i = 0; i < 24; i++) {
+    scene.add(new THREE.Mesh(geometry, new THREE.MeshBasicMaterial({ map: new THREE.Texture() })));
+  }
+  let time = 0, frames = 0, cost = .1;
+  t.mock.method(performance, 'now', () => time);
+  t.mock.method(globalThis, 'requestAnimationFrame', callback => { frames++; queueMicrotask(callback); });
+  const renderer = Object.assign(Object.create(Renderer.prototype), { instance: {
+    initTexture() { time += cost; }, async compileAsync() {}
+  } });
+  await renderer.prepare(scene, camera);
+  assert.equal(frames, 0, 'texturas baratas no añaden esperas de fotogramas');
+  cost = 4;
+  await renderer.prepare(scene, camera);
+  assert.ok(frames >= 2, 'las subidas costosas permiten repintar el progreso');
 });

@@ -118,10 +118,10 @@ test('alimentar al perro consume comida real del inventario y las caricias tiene
   interaction._interactDog(dog); assert.equal(stats.saludMental, 60);
   interaction._interactDog(dog); assert.equal(stats.saludMental, 60);
   dog.update(21, dog.position); interaction._interactDog(dog); assert.equal(stats.saludMental, 65);
-  dog.restAt(new THREE.Vector3(2, 0, 2)); assert.equal(dog.sleeping, true); assert.ok(dog.group.scale.y < 1);
+  dog.restAt(new THREE.Vector3(2, 0, 2)); assert.equal(dog.sleeping, true); assert.equal(dog._posture.lie, 1);
   const restingPosition = dog.position.clone(); dog.update(1, new THREE.Vector3(50, 0, 50));
   assert.deepEqual(dog.position, restingPosition);
-  dog.wake(); assert.equal(dog.group.scale.y, 1);
+  dog.wake(); assert.equal(dog.sleeping, false); assert.equal(dog.group.scale.y, 1);
   dog.destroy();
 });
 
@@ -137,7 +137,7 @@ test('el olfato ignora bolsas y canecas vacías y la amistad se incluye en el gu
     stats: serializable(), clock: serializable(), inventory: serializable(), talents: serializable(), diseases: serializable(),
     player: { position: new THREE.Vector3() }, world: {}, dog, save: { save: data => { saved = data; } }
   });
-  game._save(); assert.equal(saved.dog.isFriend, true); dog.destroy();
+  game._save(); assert.equal(saved.dog.isFriend, true); assert.deepEqual(saved.dog.look, dog.look); dog.destroy();
 });
 
 test('inventario y paneles existentes pausan la simulación y los POI usan la ubicación real del cambuche', () => {

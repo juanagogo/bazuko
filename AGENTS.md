@@ -44,6 +44,7 @@ Para las pruebas de navegador, instalar Chromium con `npx playwright install chr
 - `src/entities/PigeonFlock.js`: bandadas instanciadas y reacción a personas.
 - `src/ui/HUD.js`, `InventoryUI.js`, `placeMenus.js`: paneles y acciones del jugador.
 - `src/ui/ShelterPreview.js`: imagen del refugio terminado sin alterar la construcción.
+- `src/systems/GpsNavigation.js`, `src/world/bogota/CityMapRaster.js`, `src/ui/MapView.js`, `src/ui/PauseMenu.js`: GPS a pie, plano del radar, mapa grande y pausa por pestañas.
 
 ## Decisiones que deben conservarse
 
@@ -52,9 +53,9 @@ Para las pruebas de navegador, instalar Chromium con `npx playwright install chr
 - El juego y la medición de FPS comienzan después de cargar modelos, materiales y GPU. Menús, inventario, creador y pestaña oculta suspenden la simulación correspondiente.
 - La muerte requiere recuperación explícita; no teletransportar automáticamente al jugador. Dejar terminar una caída mortal antes de mostrar su pantalla.
 - El frenado de los carros es gradual. Mantener las prioridades de los cruces, rutas aleatorias y carril exclusivo del bus. Los vehículos usan cajas simples de colisión, no sus triángulos.
-- Motores y claxones usan reproducción normal con voces por vehículo. Los alcances se calculan con volumen, sin panners: alarma hasta 41 metros, frases de obstrucción hasta 8 metros y frases de robo a carros en circulación hasta 12 metros.
+- Motores y claxones usan reproducción normal con voces por vehículo. Los alcances se calculan con volumen, sin panners: motores hasta 40 metros (bus 55), claxon hasta 30, pitadas de tráfico (`car-honk`) hasta 25, alarma hasta 41 metros, frases de obstrucción hasta 8 metros y frases de robo a carros en circulación hasta 12 metros. Como mucho seis motores y dos claxones a la vez. Los efectos sintetizados usan `_fx()`, que los conecta a un canal de efectos sobre `Howler.masterGain`, nunca a `ctx.destination`. Cada volumen nuevo se multiplica por `_level(categoría)` (ambient, traffic, voices, effects); tráfico y ambiente incluyen la atenuación mientras hay una voz. Solo una voz a la vez. Las pisadas son sprites de `Sounds_of_a_steps.opus`, disparados según la distancia recorrida en el suelo.
 - Los carros en circulación permiten robar espejos con E; los estacionados activan alarma. Mantener el enfriamiento entre robos y evitar duplicar voces por fotograma.
-- El Chato conserva su amistad al guardar. Come pan o atún; las caricias tienen enfriamiento. Respetar su navegación y las colisiones existentes.
+- El Chato es el único perro: no volver a crear una segunda mascota. Conserva amistad y apariencia (`dog.look`) al guardar. Come pan o atún; las caricias tienen enfriamiento. Respetar su navegación y las colisiones existentes. Su modelo sale de `tools/modelos/generar_perro.py` y se anima moviendo huesos en `Dog.js`; P abre el creador de personaje.
 - Hay diez palomas en cada uno de los tres parques. Huyen del jugador o NPC a menos de 3,5 metros. Conservar instancias compartidas, filtro de personas cercanas y suspensión a distancia.
 - La ayuda «!» comienza plegada. El botón de cámara indica el modo de destino. Abrir paneles libera el ratón; Escape cierra primero el panel activo.
 - La calidad gráfica elegida limita la resolución automática. Mantener el descarte fuera de cámara, la geometría agrupada y los presupuestos de luces y audio.
@@ -87,6 +88,8 @@ AvenueLandmarks.js define alturas variadas y la pasarela en Z 8. GasStation.js r
 
 Al iniciar, después de cargar el guardado, fijar las 22:00 sin cambiar el día ni el progreso. Activar llovizna, reiniciar su temporizador y colocar partículas junto al jugador antes del primer render; luego continúan los ciclos normales.
 
+Climate.js define temporadas (cuatro días de juego cada una), estados del tiempo y la posición de sol y luna; los cerros orientales están en −X. WeatherSystem mezcla las transiciones y deriva `isRaining` de la intensidad; la lluvia se anima en el vertex shader y su presupuesto depende de la calidad. Cielo, nubes, luna y relámpagos viven en el shader de la cúpula, sin luces nuevas. Los truenos usan `_fx()`. Ver `docs/clima.md`.
+
 ## Estación y buses en ambos sentidos
 
 TransitTerminal.js extiende la avenida al norte: X 54–96, Z −74–0, conservando la ciudad anterior. paintTerminalEntrance abre el borde del mapa sin alterar los carriles de carros existentes. La isla de Portal del Centro mide 4 × 40 metros y está centrada en X 75, Z −30, a 0,92 metros. Sus rampas peatonales de 8 metros usan terminalGroundHeight; no añadir una caja sólida que impida subir. La estructura y el mobiliario sí tienen colliders layered. No cargar el antiguo modelo GLB de estación.
@@ -106,3 +109,7 @@ LoadingArtwork.js administra parejas numeradas según loading-artwork.json. Las 
 ## Variedad urbana
 
 UrbanBuildings.js planifica sustituciones deterministas sobre tiles building exclusivamente. Conservar el mismo plan al construir las fachadas y las colisiones. Las huellas se incorporan a covered antes de generar casas y relleno; en _buildCollisions se excluyen esos tiles de las cajas genéricas de 8 metros y se añade una caja de altura real por solar. No cambiar el mapa ni ocupar ruinas, calles, parques, edificios especiales o reservas del viaducto. Los cinco diseños usan createBuildingShell y BuildingVisibility, con fachadas repetibles compartidas y sin luces nuevas. Las torres de 30 pisos miden 96 metros, menos que Colpatria.
+
+## Radar, mapa y GPS
+
+El radar dibuja el plano rasterizado una sola vez desde `tileTypeAt` (incluye las filas de Z negativa del Portal) y la ruta en coordenadas del mundo, a 20 Hz. `Bogota.createGpsNavigation` comparte `_pedestrianRules` con los NPC: andenes 1, cruces 1,3, calzada 8, bloqueados los sólidos, el agua y los tiles con suelo sobre 1,2 m. La ruta es peatonal y no usa el viaducto; si cambia el mapa, revisar `gps-navigation.test.js`. M abre la pestaña Mapa y K alterna el modelo. `#hud-dock` apila enfermedades, avisos, necesidades y radar con un ancho común según `data-radar-size` (s, m, l); no posicionar esos elementos por separado. Las necesidades salen de `src/ui/needsMeta.js`, compartido con la pestaña Estado. El panel de rendimiento empieza oculto (F3) y sigue midiendo. La fuente Overpass dibuja «·» desplazado: en textos con Overpass usar «∙». Q/E cambian de pestaña solo mientras la pausa está abierta. El haz del destino es un hijo directo de la escena, sin luces. El destino se guarda en `gps` del guardado.

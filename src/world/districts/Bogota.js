@@ -25,6 +25,7 @@ import * as P from '../bogota/props.js';
 import { Npc } from '../../entities/Npc.js';
 import { BuildingVisibility, createBuildingShell } from '../bogota/BuildingVisibility.js';
 import { PedestrianNavigation } from '../bogota/PedestrianNavigation.js';
+import { GpsNavigation } from '../../systems/GpsNavigation.js';
 import { TrafficRoute } from '../bogota/TrafficRoute.js';
 import { BusService } from '../bogota/BusService.js';
 import { skylineFloors, buildAvenueOverpass, AVENUE_OVERPASS } from '../bogota/AvenueLandmarks.js';
@@ -921,9 +922,10 @@ export class Bogota {
     this._add(P.streetSign([LAKE_PARK.name, 'Lago · Puente TransMilenio']), 150, 226);
   }
 
-  _createPedestrianNavigation() {
+  /** Cruces y bloqueos peatonales compartidos por los NPC y el GPS. */
+  _pedestrianRules() {
     const carreras = [...CARRERAS, [CARACAS.lanes[0][0], CARACAS.lanes[1][1]]];
-    return new PedestrianNavigation(this.map, T, {
+    return {
       // Prolongación de los andenes en los cruces; no pasean por los carriles ni la estación.
       isCrossing: (x, z) => CALLES.some(([a, b]) =>
         (z >= a - SIDEWALK_TILES && z < a) || (z > b && z <= b + SIDEWALK_TILES)) ||
@@ -932,8 +934,39 @@ export class Bogota {
         carreras.some(([a, b]) =>
           (x >= a - SIDEWALK_TILES && x < a) || (x > b && x <= b + SIDEWALK_TILES)),
       isBlocked: (x, z) => (x === Math.round(this.reserved.shop.x / T) && z === Math.round(this.reserved.shop.z / T)) ||
-        GAS_OBSTACLES.some(o => Math.abs(x * T - o.x) < o.w / 2 + .3 && Math.abs(z * T - o.z) < o.d / 2 + .3),
+        GAS_OBSTACLES.some(o => Math.abs(x * T - o.x) < o.w / 2 + .3 && Math.abs(z * T - o.z) < o.d / 2 + .3)
+    };
+  }
+
+  _createPedestrianNavigation() {
+    return new PedestrianNavigation(this.map, T, {
+      ...this._pedestrianRules(),
       groundHeight: (x, z) => this.getGroundHeight(x, z)
+    });
+  }
+
+  /** Tipo de suelo de un tile, incluida la extensión del Portal (filas con Z negativa). */
+  tileTypeAt(tx, tz) {
+    if (tz >= 0) return this.map[tz]?.[tx] ?? null;
+    const x = tx * T, z = tz * T;
+    if (!inTerminal(x, z)) return null;
+    if (x >= 73 && x <= 77 && z >= -58 && z <= -2) return 'plaza';
+    return x <= 59 || x >= 91 ? 'sidewalk' : 'road';
+  }
+
+  /** GPS a pie: andenes y parques cuestan 1, cruces 1,3 y calzada 8; el tablero elevado queda fuera. */
+  createGpsNavigation() {
+    const rules = this._pedestrianRules();
+    return new GpsNavigation({
+      width: this.map[0].length, zMin: Math.ceil(TERMINAL.z0 / T), zMax: this.map.length - 1, tileSize: T,
+      cost: (tx, tz) => {
+        const type = this.tileTypeAt(tx, tz);
+        if (!type || !WALKABLE.has(type)) return Infinity;
+        if (tz < 0) return type !== 'road' ? 1 : tz === -29 || tz === -1 ? 1.3 : 8;
+        if (rules.isBlocked(tx, tz) || this.getGroundHeight(tx * T, tz * T) > 1.2) return Infinity;
+        if (type === 'road' || type === 'busway') return rules.isCrossing(tx, tz) ? 1.3 : 8;
+        return 1;
+      }
     });
   }
 
@@ -1007,6 +1040,7 @@ export class Bogota {
         replacedMaterials.add(source.material);
       }
       const mesh = new THREE.Mesh(merged, mat);
+      mesh.customDepthMaterial = sources[0].customDepthMaterial; // mismo material, misma sombra
       mesh.castShadow = cast;
       mesh.receiveShadow = recv;
       mesh.matrixAutoUpdate = false;
@@ -1040,6 +1074,7 @@ export class Bogota {
 
   update(dt, playerPos, camera, trafficVehicles = []) {
     this.t += dt;
+    P.foliageWind.value = this.t;
     this.signals?.update(this.t);
     for (const bus of this.busServices ?? []) bus.update(dt, { player: playerPos, pedestrians: this.trafficPedestrians ?? this.npcs, vehicles: trafficVehicles });
     for (const o of this.animated) o.userData.update(dt, this.t);

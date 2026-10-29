@@ -144,7 +144,7 @@ export class StealSystem {
       this._giveLoot(CONFIG.lootMoneyCosquilleo, true);
       this._toast('🧤 ¡Cosquilleo exitoso! Nadie se dio cuenta.', 'rare');
     } else {
-      const bonus = this.game?.pet?.getDistractionBonus?.() ?? 0;
+      const bonus = this.game?.dog?.distractionBonus?.(this.game.player?.position) ?? 0;
       const noticeChance = Math.max(0.2, (npc?.alerta ?? 0.5) - bonus);
       if (Math.random() < noticeChance) {
         npc?.hitByPoop?.(this.game.player.position);

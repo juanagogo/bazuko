@@ -17,7 +17,9 @@ El archivo original contiene 51 clips. El banco `public/models/animaciones-actio
 
 Cada cuerpo recibe clips adaptados y guardados en caché, también para su versión de detalle reducido. El cuerpo original no se modifica al preparar las animaciones. Se conserva la altura animada de la cadera, ajustada a cada cuerpo; el movimiento horizontal lo controla el juego. Comer, beber, lanzar y saludar se reinician al entrar en la acción y se reproducen una sola vez. Las transiciones mezclan los pesos de las animaciones.
 
-Dormir y saludar mantienen las animaciones anteriores. Si el banco nuevo no carga, se utilizan los clips anteriores. El personaje liviano conserva su animación procedural y los atropellos mantienen el ragdoll.
+Caminar y correr comparten una fase y se mezclan según la velocidad, para que el pie apoyado no deslice. `src/character/locomotion.js` mide, una vez por cuerpo, cuánto avanza el pie durante un ciclo con cinco proporciones de la mezcla; mezclar posturas no mezcla la zancada linealmente, por eso se mide en lugar de interpolar. La proporción se elige donde la mezcla, a su cadencia natural, avanza a la velocidad del personaje. Los NPC (0,8–1,3 m/s) caminan sin mezcla; el jugador trota al caminar (3 m/s) y corre con el sprint al 75 % (6 m/s). Medido en el navegador, el desplazamiento sistemático del pie apoyado bajó de 1,17 a 0,11 m/s al caminar y de 7,76 a 0,47 m/s al correr; en los NPC pasó de 0,25 a 0.
+
+Las acciones sin clip propio usan uno parecido: golpear reproduce el lanzamiento al doble de velocidad, saludar en el creador usa el gesto de hablar y hacer popó sin clip usa el de buscar. Dormir no tiene animación. El banco anterior (`animaciones-prueba.glb`, con Idle, Walk, Run y TPose) solo se descarga si al banco nuevo le falta caminar, correr o reposo. El personaje liviano conserva su animación procedural y los atropellos mantienen el ragdoll.
 
 ## Combate cuerpo a cuerpo
 

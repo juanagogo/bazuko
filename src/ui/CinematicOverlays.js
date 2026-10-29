@@ -27,9 +27,9 @@ export class CinematicOverlays {
     if (typeof document === 'undefined') return;
     if (!this.rainEl || !this.coldEl) this._initElements();
 
-    // 1. Gotas de lluvia en lente
+    // 1. Gotas de lluvia en lente: más densas con aguacero y tormenta
     const isRaining = weather?.isRaining ?? false;
-    const targetRain = isRaining ? 0.85 : 0;
+    const targetRain = isRaining ? 0.55 + 0.4 * (weather.rainIntensity ?? 0.75) : 0;
     const rainSpeed = isRaining ? 1.2 : 0.4;
     this.rainIntensity += (targetRain - this.rainIntensity) * Math.min(1, dt * rainSpeed);
     if (this.rainEl) {
@@ -39,10 +39,11 @@ export class CinematicOverlays {
       }
     }
 
-    // 2. Frío bogotano (madrugadas y noches andinas)
+    // 2. Frío bogotano: madrugadas y noches, heladas de temporada seca, lluvia y viento
     const h = clock?.hour ?? 12;
     const isColdHour = h < 6.5 || h > 21.0;
-    const targetCold = isColdHour ? 0.65 : 0;
+    const chill = (isRaining ? 0.15 * (weather.rainIntensity ?? 1) : 0) + 0.1 * Math.max(0, (weather?.windStrength ?? 0) - 0.5);
+    const targetCold = Math.min(0.85, (isColdHour ? 0.65 + (weather?.season?.cold ?? 0) * 0.6 : 0) + chill);
     this.coldIntensity += (targetCold - this.coldIntensity) * Math.min(1, dt * 0.8);
     if (this.coldEl) {
       this.coldEl.style.opacity = this.coldIntensity.toFixed(3);

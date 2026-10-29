@@ -7,9 +7,11 @@ import { Clock } from './Clock.js';
 import { Input } from './Input.js';
 
 import { World } from '../world/World.js';
-import { Dog } from '../entities/Dog.js';
+import { Dog, DOG_DEFAULT_LOOK, legacyPetLook } from '../entities/Dog.js';
 import { CompanionNavigation } from '../systems/CompanionNavigation.js';
 import { Minimap } from '../ui/Minimap.js';
+import { WaypointBeacon } from '../entities/WaypointBeacon.js';
+import { buildCityMapRaster, cityLandmarks } from '../world/bogota/CityMapRaster.js';
 import { WeatherSystem } from '../world/WeatherSystem.js';
 import { openPauseMenu } from '../ui/PauseMenu.js';
 import { Player } from '../entities/Player.js';
@@ -40,7 +42,6 @@ import { RadioSystem } from '../systems/RadioSystem.js';
 import { PoopSystem } from '../systems/PoopSystem.js';
 import { PsychosisSystem } from '../systems/PsychosisSystem.js';
 import { StealSystem } from '../features/steal.js';
-import { Pet } from '../features/pet.js';
 import { openRadioModal } from '../ui/RadioModal.js';
 
 
@@ -50,7 +51,7 @@ import { PerformanceHUD } from '../ui/PerformanceHUD.js';
 import { LocalLights } from './LocalLights.js';
 import { GRAPHICS_PROFILES } from './GraphicsQuality.js';
 import { FrameProfiler } from './FrameProfiler.js';
-import { loadInBatches, withLoadTimeout } from './Startup.js';
+import { loadTaskGroups, withLoadTimeout } from './Startup.js';
 import { paintLoadingFrame } from '../ui/LoadingScreen.js';
 import { el, button } from '../ui/dom.js';
 import { Menu } from '../ui/Menu.js';
@@ -108,7 +109,6 @@ export class Game {
       this.diseases, this.talents, this.crafting
     );
 
-    this.pet = new Pet(this.sceneMgr.scene, this.player);
     this.steal = new StealSystem(this);
 
     // HUD, menús y creador de personaje
@@ -120,6 +120,8 @@ export class Game {
     this.menu = new Menu();
     this.minimap = new Minimap();
     this.weather = new WeatherSystem(this.sceneMgr.scene);
+    this.hud.weather = this.weather;
+    window.addEventListener('weather-lightning', ({ detail }) => this.audio.playThunder?.(detail?.distance));
     let quality = 'baja';
     try { quality = localStorage.getItem('bazuko.graphics_quality') || quality; } catch { /* sin almacenamiento */ }
     this.setGraphicsQuality(quality, false);
@@ -142,8 +144,13 @@ export class Game {
       if (e.code === 'KeyN' && !this.paused) this.minimap.toggle();
       if (e.code === 'Escape' && !e._panelHandled && !this.paused && !this.isSleeping) openPauseMenu(this);
       if (e.code === 'KeyV') this._toggleCamera();
-      if (e.code === 'KeyP' && !this.paused) this.pet?.toggleCustomizationMenu();
-      if (e.code === 'KeyM' && !this.paused) this._toggleModel();
+      if (e.code === 'KeyP' && !this.paused && this.look) this.editLook();
+      // La pausa ya abierta atiende M con su propio listener; la marca evita cerrarla en la misma pulsación.
+      if (e.code === 'KeyM' && !this.paused && !this.isSleeping) { e._pauseOpened = true; openPauseMenu(this, 'mapa'); }
+      if (e.code === 'KeyK' && !this.paused) this._toggleModel();
+      if (e.code === 'F3') { e.preventDefault(); this.performanceHUD.toggle(); }
+      if ((e.code === 'Equal' || e.code === 'NumpadAdd') && !this.paused) this.minimap.zoomStep(1);
+      if ((e.code === 'Minus' || e.code === 'NumpadSubtract') && !this.paused) this.minimap.zoomStep(-1);
       if (e.code === 'KeyR') {
         if (this._radioModalOpen) this.menu.close();
         else if (!this.paused) openRadioModal(this);
@@ -188,6 +195,7 @@ export class Game {
     await loading.stage('Construyendo la ciudad…', 1);
     this.world.loadDistrict('Bogota', this.collisions);
     this._spawnEntities();
+    this._setupGps();
 
     const district = this.world.active;
     this._loadIfSave();
@@ -209,30 +217,36 @@ export class Game {
       this.player.root.position.copy(this.player.position);
     }
 
-    this.weather?.update(0, this.player.position, this.renderer.quality === 'baja' ? null : district);
+    this.weather?.update(0, this.player.position, this.renderer.quality === 'baja' ? null : district, this.clock);
 
     if (!this.look) {
       await this._createCharacter(loading);
     }
-    await loading.stage('Cargando personajes y sonidos…', 2);
+    await loading.stage('Cargando personajes, vehículos y ciudad…', 2);
     let modelo = null;
     try { modelo = localStorage.getItem('bazuko.modelo'); } catch { /* sin almacenamiento */ }
-    await withLoadTimeout(Promise.all([
-      modelo !== 'procedural' ? this.player.setModel('realista') : Promise.resolve(),
-      loadInBatches(district?.npcs ?? [], npc => npc.preload(), (done, total) =>
-        loading.stage(`Cargando personajes… ${done}/${total}`, 2 + done / total)),
-      this.audio.ready
-    ]), 'La carga de personajes tardó demasiado.');
-
-    await loading.stage('Cargando carros, TransMilenio y cambuche…', 3.2);
     const importedEntities = [
       ...(this.cars ?? []),
       ...(this.traffic?.vehicles ?? []).map(vehicle => vehicle.car),
-      ...(district?.busServices ?? [district?.busService]), this.cambuche, ...(this.pickups ?? [])
+      ...(district?.busServices ?? [district?.busService]), this.cambuche, this.dog, ...(this.pickups ?? [])
     ].filter(Boolean);
-    await withLoadTimeout(loadInBatches(importedEntities, entity => entity.preloadModel()), 'La carga de vehículos y refugio tardó demasiado.');
-    await loading.stage('Preparando estación, lámparas y semáforos…', 3.7);
-    await withLoadTimeout(district?.preloadDetails?.() ?? Promise.resolve(), 'La carga del mobiliario urbano tardó demasiado.');
+    let lastPaint = performance.now();
+    await withLoadTimeout(loadTaskGroups([
+      [() => modelo !== 'procedural' ? this.player.setModel('realista') : Promise.resolve(),
+        () => this.audio.ready],
+      (district?.npcs ?? []).map(npc => () => npc.preload()),
+      importedEntities.map(entity => () => entity.preloadModel()),
+      [() => district?.preloadDetails?.()]
+    ], (done, total) => {
+      const text = `Cargando recursos… ${done} de ${total}`;
+      const progress = 2 + 1.8 * done / total;
+      // Repintar por presupuesto temporal, no dos fotogramas por cada instancia.
+      if (performance.now() - lastPaint >= 50) {
+        lastPaint = performance.now();
+        return loading.stage(text, progress);
+      }
+      loading.update?.(text, progress);
+    }), 'La carga de los recursos de la ciudad tardó demasiado.');
     if (this.traffic) this.traffic.signals = district?.signals;
     this.traffic?.setBus?.(district?.busServices ?? district?.busService);
     if (this.cambuche) this.cambuche.group.position.y = district?.getGroundHeightUnder?.(this.cambuche.group)
@@ -242,7 +256,7 @@ export class Game {
 
     if (this.cameraRig.mode === 'third-person') this.player.root.rotation.y = this.cameraRig.yaw + Math.PI;
     this.cameraRig.follow(this.player.position, 0, this.collisions);
-    this.sceneMgr.setTimeOfDay(this.clock.hour);
+    this.sceneMgr.setTimeOfDay(this.clock.hour, this.weather, this.clock.day);
     this.sceneMgr.followTarget(this.player.position);
     this._wasNight = this.clock.isNight;
     district?.setNightMode?.(this._wasNight);
@@ -303,7 +317,54 @@ export class Game {
     return ready;
   }
 
-  /** Tecla M: alterna personaje realista / procedural (liviano) y lo recuerda */
+  /** GPS a pie, plano del radar y haz del destino; solo para distritos con grilla de navegación. */
+  _setupGps() {
+    const district = this.world.active;
+    if (!district?.createGpsNavigation) return;
+    this.gps = district.createGpsNavigation();
+    this.mapRaster = buildCityMapRaster(district);
+    this.minimap?.setRaster(this.mapRaster);
+    this.gpsBeacon = new WaypointBeacon(this.sceneMgr.scene);
+    try { this.showGpsBeacon = localStorage.getItem('bazuko.gps_beacon') !== 'false'; } catch { this.showGpsBeacon = true; }
+  }
+
+  /** Marca un destino y calcula la ruta desde el jugador. */
+  setGpsWaypoint(waypoint, { silent = false } = {}) {
+    if (!this.gps) return false;
+    const ok = this.gps.setWaypoint(waypoint, this.player.position);
+    this._syncGpsBeacon();
+    if (!silent) {
+      const { icon, name } = this.gps.waypoint ?? waypoint;
+      window.dispatchEvent(new CustomEvent('toast', { detail: {
+        text: ok ? `${icon ?? '📍'} Ruta marcada: ${name ?? 'destino'}` : '📍 Destino marcado, pero no hay ruta a pie', type: 'info'
+      } }));
+    }
+    return ok;
+  }
+
+  clearGpsWaypoint() {
+    this.gps?.clear();
+    this._syncGpsBeacon();
+  }
+
+  setGpsBeaconVisible(visible) {
+    this.showGpsBeacon = !!visible;
+    try { localStorage.setItem('bazuko.gps_beacon', String(this.showGpsBeacon)); } catch { /* sin almacenamiento */ }
+    this._syncGpsBeacon();
+  }
+
+  _syncGpsBeacon() {
+    const wp = this.showGpsBeacon !== false ? this.gps?.waypoint : null;
+    this.gpsBeacon?.set(wp, wp ? this.world.active?.getGroundHeight?.(wp.x, wp.z) ?? 0 : 0);
+  }
+
+  /** Yaw de la cámara a partir de su matriz real; sirve en vista isométrica y de tercera persona. */
+  _cameraYaw() {
+    const e = this.cameraRig.camera.matrixWorld.elements;
+    return Math.atan2(e[8], e[10]);
+  }
+
+  /** Tecla K: alterna personaje realista / procedural (liviano) y lo recuerda */
   async _toggleModel() {
     const next = this.player.modelKind === 'realista' ? 'procedural' : 'realista';
     try { localStorage.setItem('bazuko.modelo', next); } catch { /* sin almacenamiento */ }
@@ -528,9 +589,12 @@ export class Game {
       if (data.dog?.isFriend && this.dog) {
         this.dog.befriend();
       }
+      // La apariencia de la antigua mascota personalizable se conserva si la partida aún no tiene una.
+      this.dog?.setLook(data.dog?.look ?? legacyPetLook() ?? DOG_DEFAULT_LOOK);
       if (data.cart && this.cart) {
         this.cart.loadState(data.cart, this.player, this.inventory);
       }
+      if (data.gps && this.gps) this.setGpsWaypoint(data.gps, { silent: true });
 
     }
   }
@@ -549,8 +613,9 @@ export class Game {
       costal: this.costal,
       weapon: this.player.equippedWeapon,
       radio: this.radio ? { isOn: this.radio.isOn, freq: this.radio.frequency, battery: this.radio.battery } : null,
-      dog: { isFriend: !!this.dog?.isFriend },
-      cart: this.cart ? this.cart.saveState() : null
+      dog: { isFriend: !!this.dog?.isFriend, look: this.dog?.look ?? null },
+      cart: this.cart ? this.cart.saveState() : null,
+      gps: this.gps?.serialize() ?? null
     });
   }
 
@@ -752,8 +817,8 @@ export class Game {
     this.clock.update(dt);
     this.time.update(dt, this.clock);
 
-    // 2. Día/noche: cielo nublado de Bogotá y sol que sigue al jugador (sombras nítidas)
-    this.sceneMgr.setTimeOfDay(this.clock.hour, this.weather?.isRaining, this.weather?.wetness);
+    // 2. Día/noche: sol, luna, nubes y clima de Bogotá; la luz sigue al jugador (sombras nítidas)
+    this.sceneMgr.setTimeOfDay(this.clock.hour, this.weather, this.clock.day);
     this.sceneMgr.followTarget(this.player.position, this.clock.hour);
     this.sceneMgr.update(dt);
     const isNight = this.clock.isNight;
@@ -812,7 +877,6 @@ export class Game {
     // 7. Interacción (basura, autos, recicladora, tienda, cambuche, dealer)
     if (!this.player.isStunned) this.interaction.update(dt, this.input, this.clock);
     this.steal?.update(dt);
-    this.pet?.update(dt, this.player.position, this.world.active?.npcs ?? []);
     if (this._handleDeath()) return;
 
     // 7b. Mecánica de popó y lanzamiento a peatones
@@ -842,7 +906,8 @@ export class Game {
     this.profiler?.mark('trafico');
     if (this._handleDeath()) return;
 
-    this.weather?.update(dt, this.player.position, this.renderer.effectiveQuality === 'baja' ? null : this.world.active);
+    this.weather?.update(dt, this.player.position, this.renderer.effectiveQuality === 'baja' ? null : this.world.active, this.clock);
+    this.audio.setRainLevel?.(this.weather?.isRaining ? this.weather.rainIntensity : 0);
 
     // 9. Entidades
     for (const p of this.pickups) p.update(dt);
@@ -850,7 +915,7 @@ export class Game {
     for (const { car } of this.traffic?.vehicles ?? []) car.update(dt);
     this.cambuche?.update(dt);
     this.dealer?.update(dt);
-    this.dog?.update(dt, this.player.position, this.pickups);
+    this.dog?.update(dt, this.player.position, this.pickups, this.world.active?.npcs ?? []);
     this.cart?.update(dt, this.player, this.audio);
 
     // 10. Audio
@@ -859,7 +924,9 @@ export class Game {
     const isRaining = !!this.weather?.isRaining;
     this.audio.updateWorld?.(dt, this.player.position, this.cameraRig.camera, this.traffic?.vehicles ?? [], this.world.active?.busServices ?? this.world.active?.busService);
     this.audio.setRaining?.(isRaining);
-    this.audio.updateSteps(moving, this.input.isRunning, groundType, isRaining);
+    // Las pisadas siguen la distancia recorrida en el suelo; en el aire no suenan.
+    const travelled = this.player.isGrounded === false ? 0 : Math.hypot(this.player.position.x - previousX, this.player.position.z - previousZ);
+    this.audio.updateSteps(moving, this.input.isRunning, groundType, isRaining, travelled, dt);
     this.audio.updateBoost(this.interaction.boostActive);
     this.overlays?.update?.(dt, this.weather, this.clock, this.psychosis);
     this.profiler?.mark?.('entidadesClimaAudio');
@@ -868,7 +935,14 @@ export class Game {
     this._renderFrame(now, true);
     this.profiler?.mark('envioRenderLucesCulling');
 
-    this.minimap?.update(this.player.position, Math.atan2(this.cameraRig.camera.matrixWorld.elements[8], this.cameraRig.camera.matrixWorld.elements[10]), this._getPOIs(now), now);
+    if (this.gps?.update(this.player.position, now) === 'arrived') {
+      this._syncGpsBeacon();
+      const { icon, name } = this.gps.lastArrival;
+      window.dispatchEvent(new CustomEvent('toast', { detail: { text: `${icon} Llegaste a ${name}`, type: 'info' } }));
+    }
+    this.gpsBeacon?.update(dt, this.player.position);
+    this.minimap?.update(this.player.position, this._cameraYaw(), this._getPOIs(now), now,
+      { gps: this.gps, running: this.input.isRunning && (this.input.axis.x !== 0 || this.input.axis.z !== 0) });
 
     // 13. UI
     this.hud.update(
@@ -895,6 +969,7 @@ export class Game {
     if (this._effectiveQuality !== quality) {
       this._effectiveQuality = quality;
       this.sceneMgr.setQuality(quality);
+      this.weather?.setQuality(quality);
       this.cameraRig.setQuality?.(quality);
       if (this.world.active) this.world.active.animationBudget = GRAPHICS_PROFILES[quality].animationBudget;
       this.world.active?.setWetness?.(quality === 'baja' ? 0 : this.weather?.wetness ?? 0);
@@ -923,10 +998,7 @@ export class Game {
           const pos = entity?.position ?? fallback;
           return pos ? [{ name, icon, color, x: pos.x, z: pos.z }] : [];
         });
-      if (this.world?.active?.gasStation) this._poiCache.push({ name: 'Gasolinera', icon: '⛽', x: 154, z: 94, color: '#f25b5b' });
-      if (this.world?.active?.stationGroup) this._poiCache.push({ name: 'Portal del Centro', icon: '🚏', x: 75, z: -2, color: '#e45960' });
-      if (this.world?.active?.colpatria) this._poiCache.push({ name: 'Torre Colpatria', icon: '🏙️', x: 81, z: 154, color: '#ffcb45' });
-      if (this.world?.active?.lakePark) this._poiCache.push({ name: 'Parque del Lago', icon: '🌊', x: 138, z: 238, color: '#5ed4dc' });
+      if (this.world?.active?.tileTypeAt) this._poiCache.push(...(this._landmarks ??= cityLandmarks()));
       if (this.cart) this._poiCache.push({ name: 'Carreta', icon: '🛒', x: this.cart.position.x, z: this.cart.position.z, color: '#f39c12' });
       this._dogPOI = friend ? { name: 'El Chato', icon: '🐕', color: '#e6b566' } : null;
       if (this._dogPOI) this._poiCache.push(this._dogPOI);
@@ -969,7 +1041,7 @@ export class Game {
 
   stop() {
     this._running = false;
-    this.pet?.dispose?.();
+    this.gpsBeacon?.dispose();
     this.psychosis?.dispose?.();
     this.poopSystem?.dispose?.();
     this.radio?.destroy?.();
