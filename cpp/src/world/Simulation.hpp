@@ -48,6 +48,10 @@ struct Pedestrian {
     int punchKind = 0;                // 0 jab, 1 cruzado, 2 gancho (ver CombatMoves.hpp)
     float dodgeTime = -1.0f;          // >= 0 mientras esquiva un golpe del jugador
     int dodgeKind = 0;                // 0 esquive lateral, 1 esquive rotatorio
+    float returnStuck = 0.0f;         // s seguidos sin poder avanzar hacia la puerta de su vehiculo
+    float detourTime = 0.0f;          // s que le quedan rodeando un obstaculo (por ejemplo el propio vehiculo) rumbo a la puerta
+    float detourTurn = 0.0f;          // giro (rad) del rodeo
+    int detourCount = 0;
     // Burbuja de conversacion (Npc.js del original): frase flotante sobre la cabeza
     std::string bubbleText;
     float bubbleRemaining = 0.0f;

@@ -2896,7 +2896,9 @@ void Simulation::UpdateDrivers(float dt, const glm::vec3& playerPosition) {
                 const float toVehicle = glm::distance(glm::vec2(pedestrian.position.x, pedestrian.position.z), glm::vec2(stanceWorld.x, stanceWorld.z));
                 if (pedestrian.dead) { OnDriverDeath(index); break; }
                 // vuelve caminando: solo sube cuando llega; si tarda mucho y el jugador ya no lo ve, se sube sin teletransportarse a la vista
-                if (toVehicle < 0.5f || (driver.timer > 60.0f && playerDistance > 70.0f)) {
+                // si lleva demasiado intentando llegar (atascado tras los golpes) sube igual: pronto si el jugador esta lejos y, pase lo que pase, a los 25 s
+                const bool giveUp = (driver.timer > 12.0f && playerDistance > 25.0f) || driver.timer > 25.0f;
+                if (toVehicle < 0.5f || giveUp || (driver.timer > 60.0f && playerDistance > 70.0f)) {
                     pedestrian.departed = true;            // vuelve a subir: la animacion de entrada la dibuja el vehiculo
                     pedestrian.returning = false;
                     pedestrian.position = {0.0f, -1000.0f, 0.0f};
@@ -3070,8 +3072,26 @@ void Simulation::UpdatePedestrians(float dt, const glm::vec3& playerPosition) {
             toDoor.y = 0.0f;
             const float doorDistance = glm::length(toDoor);
             if (doorDistance > 0.3f) {
-                const glm::vec3 heading = toDoor / doorDistance;
-                if (!moveAround(pedestrian, heading, std::min(doorDistance, 2.2f * dt), false)) pedestrian.yaw = std::atan2(heading.x, heading.z);
+                glm::vec3 heading = toDoor / doorDistance;
+                const float step = std::min(doorDistance, 2.2f * dt);
+                if (pedestrian.detourTime > 0.0f) {   // rodea el obstaculo (casi siempre su propio vehiculo) en vez de empujar contra el
+                    pedestrian.detourTime -= dt;
+                    const float c = std::cos(pedestrian.detourTurn), s = std::sin(pedestrian.detourTurn);
+                    heading = glm::vec3(heading.x * c - heading.z * s, 0.0f, heading.x * s + heading.z * c);
+                }
+                if (moveAround(pedestrian, heading, step, false)) {
+                    pedestrian.returnStuck = std::max(0.0f, pedestrian.returnStuck - dt);
+                } else {
+                    // atascado (golpeado y empujado, o al otro lado del carro): alterna el sentido del rodeo y prueba un buen rato
+                    pedestrian.returnStuck += dt;
+                    pedestrian.yaw = std::atan2(heading.x, heading.z);
+                    if (pedestrian.returnStuck > 0.35f) {
+                        static constexpr std::array<float, 6> kTurns{{1.57f, -1.57f, 2.35f, -2.35f, 0.8f, -0.8f}};
+                        pedestrian.detourTurn = kTurns[static_cast<size_t>(pedestrian.detourCount++) % kTurns.size()];
+                        pedestrian.detourTime = 1.0f;
+                        pedestrian.returnStuck = 0.0f;
+                    }
+                }
             }
             continue;
         }
