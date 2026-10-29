@@ -63,6 +63,7 @@ struct InventoryOption {
     std::string effects;      // "+40 energía · +15 ánimo"
     std::string rarityLabel;
     int hotbarSlot = -1;      // 0..4 si esta en la barra rapida
+    int value = 0;            // precio de reciclaje por unidad (COP)
 };
 
 // Estado de la radio transistor que muestra el sintonizador
@@ -115,6 +116,7 @@ struct TalentOption {
     int cost = 0;
     bool unlocked = false;
     bool available = false;
+    std::string branch;
 };
 
 struct CambuchePieceOption {
@@ -166,6 +168,8 @@ public:
     bool ConsumeRecyclerSellRequest();
     void ToggleCraftMenu();
     bool IsPaused() const { return m_Paused; }
+    bool IsGpsBeaconVisible() const { return m_GpsBeaconVisible; }
+    void TogglePerformance() { m_PerfVisible = !m_PerfVisible; }
     bool IsCraftMenuOpen() const { return m_CraftMenuOpen; }
     bool IsDeathScreenOpen() const { return m_DeathScreenOpen; }
     void ShowDeathScreen(const std::string& causes, bool vehicleImpact);
@@ -290,7 +294,7 @@ private:
     bool m_SleepRequest = false;
     int m_PauseSection = 0;
     bool m_RadarVisible = true;
-    float m_RadarRange = 42.0f;   // metros desde el centro hasta el borde del radar (+/- cambian el zoom)
+    float m_RadarRange = 70.0f;   // metros desde el centro hasta el borde del radar (+/- cambian el zoom)
     GpsView m_GpsView;
     bool m_GpsSetPending = false;
     glm::vec2 m_GpsSetPosition{0.0f};
@@ -300,7 +304,58 @@ private:
     glm::vec3 m_CameraPosition{0.0f};   // para orientar la flecha del jugador en el mapa
     float m_MapZoom = 0.0f;       // pixeles por metro; 0 = ajustar a la ciudad al abrir
     bool m_MapNeedsCenter = true;
-    void RenderMapView(const glm::vec3& playerPos, const CityLayout& city, const Simulation& simulation);
+    void RenderMapView(const glm::vec3& playerPos, const CityLayout& city, const Simulation& simulation, ImVec2 origin, ImVec2 size);
+    // Datos que necesitan las pestanas de la pausa (WebPanels.cpp)
+    struct PauseContext {
+        glm::vec3 playerPos{0.0f};
+        Camera* camera = nullptr;
+        const CityLayout* city = nullptr;
+        const Simulation* simulation = nullptr;
+        AudioManager* audio = nullptr;
+        std::string playerName;
+        const std::array<float, 7>* needs = nullptr;
+        float money = 0.0f;
+        int level = 1, xp = 0;
+        float dayProgress = 0.0f;
+        bool companionIsFriend = false;
+    };
+    void RenderPauseTabs(const PauseContext& context);
+    void RenderStateTab(const PauseContext& context, float width);
+    void RenderSettingsTab(const PauseContext& context, float width);
+    void RenderControlsTab(float width);
+    void RenderRadioMenu();
+    void RenderTalentWindow(const std::vector<TalentOption>& talents, int points);
+    void RenderDealerWindow(const std::vector<DealerOption>& options, float money);
+    // HUD del juego web (WebPanels.cpp)
+    struct HudContext {
+        float dt = 0.0f;
+        glm::vec3 playerPos{0.0f};
+        Camera* camera = nullptr;
+        const CityLayout* city = nullptr;
+        const Simulation* simulation = nullptr;
+        AudioManager* audio = nullptr;
+        std::string playerName;
+        const std::array<float, 7>* needs = nullptr;
+        float money = 0.0f;
+        float dayProgress = 0.0f;
+        std::string diseaseSummary;
+        int level = 1, xp = 0, talentPoints = 0;
+        std::string objective;
+        size_t missionProgress = 0, missionTarget = 0;
+        bool boostActive = false;
+        float boostTimer = 0.0f;
+        const std::vector<InventoryOption>* inventory = nullptr;
+    };
+    void RenderWebHud(const HudContext& context);
+    std::shared_ptr<Texture> m_MinimapTexture;   // plano del radar, rasterizado una vez
+    void RenderMinimap(const HudContext& context, ImVec2 origin, ImVec2 size, float infoHeight);
+    void RenderInventoryWindow(const std::vector<InventoryOption>& items, float weight, float capacity);
+    void RenderCraftWindow(const std::vector<CraftingOption>& options, float weight, float capacity);
+    float m_RadioFrequency = 540.0f;   // frecuencia del dial (kHz AM o MHz FM)
+    float m_RadioDialStation = -1.0f;  // frecuencia de la emisora con que se sincronizo el dial
+    bool m_PerfVisible = false;       // panel de rendimiento (F3), oculto al empezar como en el juego web
+    int m_RadarSize = 1;              // 0 pequeno, 1 mediano, 2 grande
+    bool m_GpsBeaconVisible = true;   // haz de luz sobre el destino del GPS
     bool m_SaveRequest = false;
     bool m_NewGameRequest = false;
     bool m_NewGameConfirmOpen = false;   // confirmacion de partida nueva: reemplaza al menu de pausa mientras esta abierta

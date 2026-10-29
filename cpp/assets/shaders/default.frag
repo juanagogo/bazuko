@@ -34,10 +34,19 @@ uniform vec4 uAlbedo;
 uniform int uUseTexture;
 uniform int uUnlit = 0;   // 1 bombillas (sin iluminacion), 2 cielo (sin iluminacion ni niebla)
 uniform int uAlphaMode;
+uniform int uWater = 0;
+// Sombras: mapa de profundidad de la luz alrededor del jugador (ver Renderer::RenderShadowMap)
+uniform int uShadowEnabled = 0;
+uniform mat4 uShadowMatrix;
+uniform vec3 uShadowCenter;
+uniform vec3 uShadowParams;   // x alcance (m), y metros por pixel del mapa, z 1 / resolucion
+layout(binding = 4) uniform sampler2DShadow uShadowMap;
 uniform float uAlphaCutoff;
 layout(binding = 0) uniform sampler2D uTexture;
 layout(binding = 1) uniform sampler2D uSpecularTexture;
 uniform int uUseSpecularTexture;
+uniform float uMetallic = 0.0;    // acabado metalizado (pintura y aros del bus): reflejo del entorno y brillo nitido del sol
+uniform float uRoughness = 0.5;
 // Filtro de color de la psicosis: contrast(), saturate() y hue-rotate() del CSS del juego web
 uniform float uWetness = 0.0;   // lluvia: suelo oscuro y brillante
 uniform float uContrast = 1.0;
@@ -52,19 +61,38 @@ vec3 linearToSrgb(vec3 c) { c = max(c, vec3(0.0)); return mix(c * 12.92, 1.055 *
 
 out vec4 FragColor;
 
+// 1 = iluminado, 0 = en sombra. Pixel desplazado a lo largo de la normal contra el moire, filtro de 3 x 3 y desvanecido hacia el borde del mapa
+float shadowFactor(vec3 pos, vec3 n, vec3 l) {
+    float distanceFromCenter = distance(pos.xz, uShadowCenter.xz);
+    float fade = 1.0 - smoothstep(uShadowParams.x * 0.78, uShadowParams.x * 0.96, distanceFromCenter);
+    if (fade <= 0.0) return 1.0;
+    float slope = 1.0 - clamp(dot(n, l), 0.0, 1.0);
+    vec3 p = pos + n * (uShadowParams.y * (1.5 + 2.5 * slope));
+    vec4 c = uShadowMatrix * vec4(p, 1.0);
+    vec3 s = c.xyz / c.w;
+    if (s.x < 0.0 || s.x > 1.0 || s.y < 0.0 || s.y > 1.0 || s.z > 1.0) return 1.0;
+    float sum = 0.0;
+    for (int x = -1; x <= 1; ++x)
+        for (int y = -1; y <= 1; ++y)
+            sum += texture(uShadowMap, vec3(s.xy + vec2(float(x), float(y)) * uShadowParams.z, s.z - 0.0004));
+    return mix(1.0, sum / 9.0, fade);
+}
+
 void main() {
     vec3 norm = normalize(vNormal);
     vec3 lightDir = normalize(-uSunDir);
 
     float diff = max(dot(norm, lightDir), 0.0);
-    vec3 diffuse = diff * uSunColor;
+    float shadow = 1.0;
+    if (uShadowEnabled == 1 && uUnlit == 0 && uWater == 0 && diff > 0.0) shadow = shadowFactor(vFragPos, norm, lightDir);
+    vec3 diffuse = diff * uSunColor * shadow;
     vec3 ambient = uAmbientColor;
     vec3 viewDir = normalize(uCameraPos - vFragPos);
     vec3 reflectedLight = reflect(-lightDir, norm);
     float specularStrength = uUseSpecularTexture == 1
         ? texture(uSpecularTexture, vUV).r * 0.35 : 0.0;
     vec3 specular = pow(max(dot(viewDir, reflectedLight), 0.0), 24.0)
-        * uSunColor * specularStrength;
+        * uSunColor * specularStrength * shadow;
 
     vec4 baseColor = uAlbedo * vColor;
     if (uGammaCorrect == 1) baseColor.rgb = srgbToLinear(clamp(baseColor.rgb, 0.0, 1.0));
@@ -81,7 +109,41 @@ void main() {
         baseColor.a = 1.0;
     }
 
-    vec3 result = (ambient + diffuse) * baseColor.rgb + specular;
+    vec3 result = (ambient + diffuse) * baseColor.rgb * (1.0 - 0.15 * uMetallic) + specular;
+    if (uMetallic > 0.0) {
+        // entorno falso: cielo azul arriba, velo de niebla en el horizonte y suelo oscuro abajo; el color del metal tiñe el reflejo
+        const vec3 reflection = reflect(-viewDir, norm);
+        const float light = clamp(dot(uAmbientColor + uSunColor, vec3(0.34)), 0.08, 1.3);
+        const vec3 zenith = (uGammaCorrect == 1 ? vec3(0.07, 0.20, 0.55) : vec3(0.30, 0.50, 0.85)) * light;
+        const vec3 ground = fogColor * 0.35 + baseColor.rgb * 0.05;
+        vec3 environment = reflection.y > 0.0 ? mix(fogColor, zenith, smoothstep(0.0, 0.7, reflection.y))
+                                              : mix(fogColor * 0.7, ground, smoothstep(0.0, 0.4, -reflection.y));
+        environment += uSunColor * pow(max(dot(reflection, lightDir), 0.0), 160.0) * 4.0;   // sol reflejado
+        const float fresnel = pow(1.0 - max(dot(norm, viewDir), 0.0), 3.0);
+        const float mirror = uMetallic * (1.0 - 0.6 * uRoughness) * (0.20 + 0.60 * fresnel);
+        result = mix(result, environment * mix(vec3(1.0), baseColor.rgb * 2.4, uMetallic), mirror);
+        result += pow(max(dot(viewDir, reflectedLight), 0.0), mix(120.0, 18.0, uRoughness)) * uSunColor * uMetallic * 1.4;
+    }
+    if (uWater == 1) {
+        // agua: la textura se desliza en dos capas, el color viene por vertice (turquesa en la orilla, verde oscuro al fondo) y la
+        // transparencia crece con la profundidad; el cielo se refleja mas con el angulo rasante y el sol deja un brillo nitido
+        const vec2 flow1 = vFragPos.xz * 0.045 + vec2(uTime * 0.012, uTime * 0.007);
+        const vec2 flow2 = vFragPos.xz * 0.083 + vec2(-uTime * 0.009, uTime * 0.011);
+        vec3 detail = (texture(uTexture, flow1).rgb + texture(uTexture, flow2).rgb) * 0.5;
+        if (uGammaCorrect == 1) detail = srgbToLinear(detail);
+        const vec3 tint = uGammaCorrect == 1 ? srgbToLinear(clamp(vColor.rgb, 0.0, 1.0)) : vColor.rgb;
+        const vec3 body = tint * (0.45 + detail * 1.25);
+        const float fresnel = pow(1.0 - max(dot(norm, viewDir), 0.0), 3.0);
+        const float light = clamp(dot(uAmbientColor + uSunColor, vec3(0.34)), 0.08, 1.3);
+        const vec3 zenith = (uGammaCorrect == 1 ? vec3(0.07, 0.20, 0.55) : vec3(0.30, 0.50, 0.85)) * light;
+        const vec3 sky = mix(fogColor, zenith, 0.6);
+        vec3 water = (ambient + diffuse * 0.6) * body;
+        water = mix(water, sky, 0.12 + 0.6 * fresnel);
+        const vec3 mirror = reflect(-viewDir, norm);
+        water += uSunColor * pow(max(dot(mirror, lightDir), 0.0), 110.0) * 2.2 + uSunColor * pow(max(dot(mirror, lightDir), 0.0), 12.0) * 0.08;
+        result = water;
+        baseColor.a = clamp(vColor.a * uAlbedo.a + fresnel * 0.3, 0.0, 0.96);
+    }
     // farolas encendidas: luz puntual calida con caida suave hasta su alcance
     for (int i = 0; i < uLampCount; ++i) {
         const vec3 toLamp = uLampPosition[i].xyz - vFragPos;
@@ -93,7 +155,7 @@ void main() {
         const float facingLamp = max(dot(norm, toLamp / max(lampDistance, 0.001)), 0.0) * 0.8 + 0.2;
         result += baseColor.rgb * uLampColor[i].rgb * uLampColor[i].w * falloff * facingLamp;
     }
-    if (uWetness > 0.0) {
+    if (uWetness > 0.0 && uWater == 0) {
         // superficies que miran hacia arriba (calles, andenes): mas oscuras, con brillo del sol y reflejo del cielo
         const float wet = uWetness * smoothstep(0.75, 0.95, norm.y);
         const float facing = max(dot(norm, viewDir), 0.0);

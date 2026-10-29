@@ -8,7 +8,7 @@ namespace Bazuko::SignUI {
 
 enum class Icon {
     None, Pause, Close, Sound, Mute, Bolt, Chart, Gear, Radio, Save, Compass, Person, Home, Star, Book, Bag, Paw,
-    Check, Bread, Drop, Energy, Pill, Soap, Heart, Flame, Eye, Camera
+    Check, Bread, Drop, Energy, Pill, Soap, Heart, Flame, Eye, Camera, Keyboard, Pin, Gauge, Walk, Plus, Minus, Target, Expand
 };
 
 struct Fonts {
@@ -24,6 +24,8 @@ struct Fonts {
     ImFont* primary = nullptr;    // Overpass Black 16 (boton amarillo)
 };
 
+// Overpass en negrita (700) o negra (900) a `px` pixeles CSS (9..26), con la compensacion de alto de linea ya aplicada.
+ImFont* Ov(bool black, int px);
 // Cargar antes del primer fotograma. Usa Overpass (assets/fonts) y Consolas de Windows si existe.
 void LoadFonts();
 const Fonts& GetFonts();
@@ -77,5 +79,34 @@ void NoteText(const char* text);
 void KeyHint(const char* key, const char* description);
 // Barra de estado del HUD (160x10, fondo oscuro y borde gris).
 void StatBar(float fraction, ImU32 fill, float width = 160.0f, float height = 10.0f, bool critical = false);
+
+// ---- Widgets del menu de pausa del juego web (Overpass, .btn, .pause-section...) ----
+namespace Web {
+constexpr ImU32 kBlue = IM_COL32(11, 79, 163, 255);
+constexpr ImU32 kBlueText = IM_COL32(214, 228, 255, 255);
+constexpr ImU32 kYellow = IM_COL32(246, 196, 0, 255);
+constexpr ImU32 kInk = IM_COL32(14, 15, 18, 255);
+constexpr ImU32 kCarcasa = IM_COL32(21, 23, 28, 255);
+// Texto con tracking y fuente Overpass; devuelve el ancho dibujado.
+float Text(ImDrawList* draw, ImFont* font, ImVec2 pos, ImU32 color, const char* text, float spacing = 0.0f);
+float TextWidth(ImFont* font, const char* text, float spacing = 0.0f);
+// .btn: oscuro con filete blanco (ghost) o amarillo (primary). Devuelve true al pulsar. `px` es el tamano de letra (14 = btn--small).
+bool Button(const char* id, const char* label, Icon icon = Icon::None, bool primary = false, bool disabled = false, float height = 40.0f, int px = 14,
+            float minWidth = 0.0f, float fixedWidth = 0.0f);
+float ButtonWidth(const char* label, Icon icon, int px, float minWidth = 0.0f);
+// Panel .pause-section: fondo oscuro translucido con filete; el contenido va con relleno 14 x 12. `height` 0 = se ajusta al contenido.
+bool BeginPanel(const char* id, float width, float height = 0.0f, ImVec2 padding = ImVec2(14.0f, 12.0f), bool dashed = false);
+void EndPanel();
+// Titulo de seccion (amarillo, 13 px, mayusculas con tracking)
+void SectionTitle(const char* title, Icon icon = Icon::None);
+// Deslizador amarillo (.pause-slider). Devuelve true si cambia.
+bool Slider(const char* id, float* value, float minValue, float maxValue, float step, float width);
+// Medidor (.pause-meter)
+void Meter(float fraction, ImU32 fill, float width, float height = 12.0f);
+// <kbd> blanca de la lista de controles
+float Kbd(const char* text, bool inline_ = true);
+// Insignia de tecla de las pestanas (Q / E)
+void TabKey(ImDrawList* draw, ImVec2 center, const char* text);
+} // namespace Web
 
 } // namespace Bazuko::SignUI
