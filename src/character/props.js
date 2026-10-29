@@ -1,5 +1,5 @@
 // src/character/props.js
-// Accesorios rígidos del personaje realista (bastón, mochila). No son ropa de MakeHuman:
+// Accesorios rígidos del personaje realista (bastón, mochila) y armas en mano (cuchillo, botella picada). No son ropa de MakeHuman:
 // se arman con geometría simple y se atan a un hueso del esqueleto Mixamo, así siguen la animación.
 import * as THREE from 'three';
 
@@ -33,7 +33,7 @@ function geometries() {
 }
 
 /** Busca un hueso Mixamo aunque GLTFLoader haya quitado los dos puntos ("mixamorigRightHand"). */
-function findBone(bones, name) {
+export function findBone(bones, name) {
   for (const [key, bone] of bones) if (key.replace(/[^a-z0-9]/gi, '').endsWith(name)) return bone;
   return null;
 }
@@ -119,4 +119,93 @@ export function attachAccessories(root, bones, ids = [], wear = 0) {
     added.push(object);
   }
   return { objects: added, update: () => { for (const fn of updaters) fn(); } };
+}
+
+// ---------- armas en mano ----------
+// El origen del objeto es la muñeca y +Y va hacia donde apuntan los dedos; el mango queda dentro del puño.
+
+let weaponShared = null;
+function weaponGeometries() {
+  if (weaponShared) return weaponShared;
+  const blade = new THREE.BoxGeometry(0.022, 0.17, 0.005);
+  blade.translate(0, 0.075 + 0.085, 0); // sale del mango
+  // punta: se afina con un triángulo apilado sobre la hoja
+  const tip = new THREE.ConeGeometry(0.0125, 0.04, 3);
+  tip.rotateY(Math.PI / 2);
+  tip.scale(1, 1, 0.25);
+  tip.translate(0, 0.245 + 0.02, 0);
+  weaponShared = {
+    grip: new THREE.CylinderGeometry(0.014, 0.016, 0.11, 8).translate(0, 0.02, 0),
+    guard: new THREE.BoxGeometry(0.05, 0.012, 0.016).translate(0, 0.078, 0),
+    blade, tip,
+    neck: new THREE.CylinderGeometry(0.013, 0.017, 0.1, 8).translate(0, 0.01, 0),
+    shoulder: new THREE.CylinderGeometry(0.033, 0.017, 0.05, 8).translate(0, 0.085, 0),
+    body: new THREE.CylinderGeometry(0.033, 0.033, 0.1, 8).translate(0, 0.16, 0),
+    shard: new THREE.ConeGeometry(0.011, 0.045, 4).translate(0, 0.0225, 0)
+  };
+  return weaponShared;
+}
+
+function knife() {
+  const g = weaponGeometries();
+  const steel = new THREE.MeshStandardMaterial({ color: '#b9bec4', metalness: 0.85, roughness: 0.3 });
+  const wood = new THREE.MeshStandardMaterial({ color: '#4a3020', roughness: 0.85 });
+  const group = new THREE.Group();
+  group.name = 'weapon-cuchillo';
+  group.add(new THREE.Mesh(g.grip, wood), new THREE.Mesh(g.guard, steel), new THREE.Mesh(g.blade, steel), new THREE.Mesh(g.tip, steel));
+  return group;
+}
+
+function brokenBottle() {
+  const g = weaponGeometries();
+  const glass = new THREE.MeshStandardMaterial({ color: '#2f6b3a', transparent: true, opacity: 0.82, roughness: 0.15, metalness: 0.1 });
+  const group = new THREE.Group();
+  group.name = 'weapon-botella_picada';
+  group.add(new THREE.Mesh(g.neck, glass), new THREE.Mesh(g.shoulder, glass), new THREE.Mesh(g.body, glass));
+  // boca rota: picos de vidrio alrededor del borde
+  const rim = 0.21, n = 6;
+  for (let i = 0; i < n; i++) {
+    const a = (i / n) * Math.PI * 2;
+    const shard = new THREE.Mesh(g.shard, glass);
+    shard.position.set(Math.cos(a) * 0.026, rim, Math.sin(a) * 0.026);
+    shard.rotation.set(Math.sin(a) * 0.25, 0, -Math.cos(a) * 0.25);
+    shard.scale.y = i % 2 ? 1.4 : 0.8; // alternan para que el borde sea irregular
+    group.add(shard);
+  }
+  return group;
+}
+
+const WEAPON_BUILDERS = { cuchillo: knife, botella_picada: brokenBottle };
+
+const _wp = new THREE.Vector3();
+const _wq = new THREE.Quaternion();
+const _wr = new THREE.Quaternion();
+
+/**
+ * Pone un arma en la mano derecha. Devuelve { object, dispose } o null si no existe el arma o el hueso.
+ * Las geometrías son compartidas; `dispose` solo libera los materiales de esta instancia.
+ */
+export function attachWeapon(root, bones, id) {
+  const build = WEAPON_BUILDERS[id];
+  const hand = findBone(bones, 'RightHand');
+  if (!build || !hand) return null;
+  const object = build();
+  object.traverse((o) => { if (o.isMesh) { o.castShadow = true; o.frustumCulled = false; } });
+  // el objeto nace con los ejes de la mano, en el espacio de la raíz; attach() lo pasa al hueso sin mover nada
+  root.updateMatrixWorld(true);
+  root.worldToLocal(hand.getWorldPosition(_wp));
+  root.getWorldQuaternion(_wr).invert();
+  object.position.copy(_wp);
+  object.quaternion.copy(_wr.multiply(hand.getWorldQuaternion(_wq)));
+  root.add(object);
+  hand.attach(object);
+  return {
+    object,
+    dispose() {
+      const materials = new Set();
+      object.traverse((o) => { if (o.isMesh) materials.add(o.material); });
+      for (const m of materials) m.dispose();
+      object.removeFromParent();
+    }
+  };
 }

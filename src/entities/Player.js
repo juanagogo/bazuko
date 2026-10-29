@@ -9,6 +9,7 @@ import {
 import { createCharacter } from '../character/character.js';
 import { createRealisticCharacter, REALISTIC_SCALE } from '../character/RealisticCharacter.js';
 import { PlayerRagdoll } from '../systems/PlayerRagdoll.js';
+import { WEAPONS, DEFAULT_WEAPON, COMBO_WINDOW, CHAIN_AT, comboStep } from '../data/weapons.js';
 
 export class Player {
   constructor(scene, input, stats=null, audio=null) {
@@ -57,6 +58,44 @@ export class Player {
     this.actionTimer = 0;
     this.sorting = false;
     this.hasCart = false;     // seleccionando basura (mantener Q)
+
+    // Combate cuerpo a cuerpo: `attack` = { weapon, step, phase: windup|active|recovery, t, progress, timing }
+    this.equippedWeapon = DEFAULT_WEAPON;
+    this.attack = null;
+    this.comboStep = 0;       // golpe con el que arranca el próximo ataque
+    this.comboTimer = 0;      // ventana restante para continuar el combo
+    this._attackQueued = false;
+    this._targets = [];
+  }
+
+  get weapon() { return WEAPONS[this.equippedWeapon] ?? WEAPONS[DEFAULT_WEAPON]; }
+
+  /** Equipa un arma de la tabla (o puños); false si no existe. */
+  equipWeapon(id = DEFAULT_WEAPON) {
+    if (!WEAPONS[id]) return false;
+    this.equippedWeapon = id;
+    this.attack = null;
+    this.comboStep = 0;
+    this.comboTimer = 0;
+    this._attackQueued = false;
+    const held = id === DEFAULT_WEAPON ? null : id;
+    this.character?.setWeapon?.(held);
+    this._realistic?.setWeapon?.(held);
+    return true;
+  }
+
+  /** Equipa el arma o, si ya la tiene en la mano, vuelve a puños. Devuelve si quedó equipada. */
+  toggleWeapon(id) {
+    if (!WEAPONS[id] || id === DEFAULT_WEAPON) return false;
+    if (this.equippedWeapon === id) { this.equipWeapon(DEFAULT_WEAPON); return false; }
+    return this.equipWeapon(id);
+  }
+
+  /** Vuelve a puños si el arma equipada ya no está en el inventario. */
+  syncWeapon(inventory) {
+    if (this.equippedWeapon !== DEFAULT_WEAPON && inventory.count(this.equippedWeapon) <= 0) {
+      this.equipWeapon(DEFAULT_WEAPON);
+    }
   }
 
   setLook(look) {
@@ -81,6 +120,7 @@ export class Player {
       this.root.remove(this.character.group);
       this.character = this._realistic;
       this.modelScale = REALISTIC_SCALE;
+      this._realistic.setWeapon?.(this.equippedWeapon === DEFAULT_WEAPON ? null : this.equippedWeapon);
     } else {
       this.root.remove(this.character.group);
       this.character = this.procedural;
@@ -96,32 +136,97 @@ export class Player {
   }
 
 
-  punch(npcs = []) {
-    this.playAction('golpear', 0.38);
-    this.audio?.playWhoosh?.();
+  /**
+   * Pulsación de ataque: arranca el golpe que toca del combo o, si ya hay uno en curso, lo deja
+   * en cola para encadenarlo al final de su recuperación.
+   */
+  punch() {
+    if (this.attack) {
+      if (this.attack.step + 1 < this.weapon.combo) this._attackQueued = true;
+      return;
+    }
+    this._beginAttack(this.comboTimer > 0 ? this.comboStep : 0);
+  }
 
+  _beginAttack(step) {
+    const weapon = this.weapon;
+    const timing = comboStep(weapon, step);
+    this.attack = { weapon: weapon.id, step, phase: 'windup', t: 0, progress: 0, timing };
+    this._attackQueued = false;
+    this.comboTimer = 0;
+    this.playAction('golpear', timing.windup + timing.active + timing.recovery);
+    this.audio?.playWhoosh?.();
+  }
+
+  _endAttack(next) {
+    this.attack = null;
+    this._attackQueued = false;
+    if (this.action === 'golpear') { this.action = null; this.actionTimer = 0; }
+    this.comboStep = next;
+    this.comboTimer = next > 0 ? COMBO_WINDOW : 0;
+  }
+
+  _updateAttack(dt, npcs) {
+    const a = this.attack;
+    if (!a) {
+      if (this.comboTimer > 0 && (this.comboTimer -= dt) <= 0) this.comboStep = 0;
+      return;
+    }
+    if (this.isStunned || this.hasCart || this.sorting) { this._endAttack(0); return; }
+    a.t += dt;
+    const timing = a.timing;
+    for (;;) {
+      if (a.phase === 'windup') {
+        if (a.t < timing.windup) { a.progress = a.t / timing.windup; return; }
+        a.t -= timing.windup;
+        a.phase = 'active';
+        this._applyImpact(timing, a.weapon, npcs);
+      } else if (a.phase === 'active') {
+        if (a.t < timing.active) { a.progress = a.t / timing.active; return; }
+        a.t -= timing.active;
+        a.phase = 'recovery';
+      } else {
+        if (this._attackQueued && a.t >= timing.recovery * CHAIN_AT) { this._beginAttack(a.step + 1); return; }
+        if (a.t < timing.recovery) { a.progress = a.t / timing.recovery; return; }
+        this._endAttack(a.step + 1 < this.weapon.combo ? a.step + 1 : 0);
+        return;
+      }
+    }
+  }
+
+  /** Impacto: puños golpean al más cercano de frente; las armas, a todos los que alcancen. */
+  _applyImpact(timing, weaponId, npcs) {
+    const weapon = WEAPONS[weaponId];
     const forwardX = Math.sin(this.root.rotation.y);
     const forwardZ = Math.cos(this.root.rotation.y);
-
+    const targets = this._targets;
+    targets.length = 0;
+    let closest = null, closestDist = Infinity;
     for (const npc of npcs) {
-      if (!npc || !npc.position) continue;
+      if (!npc || !npc.position || npc.isKnockedOut) continue;
       const dx = npc.position.x - this.position.x;
       const dz = npc.position.z - this.position.z;
       const dist = Math.hypot(dx, dz);
-      if (dist < 1.85) {
-        const dot = (dx * forwardX + dz * forwardZ) / (dist || 1);
-        if (dot > 0.25) {
-          if (typeof npc.takePunch === 'function') {
-            const drop = npc.takePunch(this);
-            this.audio?.playPunchHit?.();
-            if (drop && this.stats && typeof this.stats.dinero === 'number') {
-              this.stats.dinero += drop;
-            }
-          }
-          break;
-        }
-      }
+      if (dist > timing.range) continue;
+      if ((dx * forwardX + dz * forwardZ) / (dist || 1) < weapon.arc) continue;
+      if (weapon.hitAll) targets.push(npc);
+      else if (dist < closestDist) { closest = npc; closestDist = dist; }
     }
+    if (closest) targets.push(closest);
+    let hit = false;
+    for (const npc of targets) {
+      const dx = npc.position.x - this.position.x;
+      const dz = npc.position.z - this.position.z;
+      const len = Math.hypot(dx, dz) || 1;
+      const info = { damage: timing.damage, dir: { x: dx / len, z: dz / len }, knockback: timing.knockback, attacker: this, weapon: weaponId };
+      const drop = typeof npc.takeHit === 'function' ? npc.takeHit(info)
+        : typeof npc.takePunch === 'function' ? npc.takePunch(this) : null;
+      if (drop === null) continue;
+      hit = true;
+      if (drop && this.stats && typeof this.stats.dinero === 'number') this.stats.dinero += drop;
+    }
+    if (hit) this.audio?.playPunchHit?.(); // una sola voz por impacto, aunque alcance a varios
+    targets.length = 0;
   }
 
   playBeg() {
@@ -150,6 +255,7 @@ export class Player {
     this.time += dt;
     this._lastCollisions = collisions;
     if (this.ragdoll?.active) {
+      this.attack = null;
       this.velocity?.set(0, 0, 0);
       this.ragdoll.update(dt, collisions);
       this.speed = 0; this.state = 'ragdoll';
@@ -170,9 +276,10 @@ export class Player {
     }
 
     const wantsPunch = typeof this.input?.consumePress === 'function' && (this.input.consumePress('KeyG') || this.input.consumePress('Mouse0'));
-    if (wantsPunch && !this.isStunned && !this.action && !this.hasCart && !this.sorting) {
-      this.punch(npcs);
+    if (wantsPunch && !this.isStunned && (!this.action || this.attack) && !this.hasCart && !this.sorting) {
+      this.punch();
     }
+    this._updateAttack(dt, npcs);
 
     const { x = 0, z = 0 } = this.input?.axis ?? {};
     const stunned = this._impactTime > 0;
@@ -272,6 +379,7 @@ export class Player {
       speed: stunned ? 0 : this.speed / this.modelScale,
       running,
       action: stunned ? null : (this.sorting ? 'buscar' : this.action),
+      attack: this.attack,
       t: this.time,
       load: this.load,
       dirt: this.stats ? Math.max(0, (40 - this.stats.higiene) / 40) : 0

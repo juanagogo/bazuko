@@ -8,6 +8,7 @@
 import * as THREE from 'three';
 import { createRealisticCharacter, loadCatalog, normalizeReal, optionsFor, REALISTIC_SCALE } from '../character/RealisticCharacter.js';
 import { randomLook, DEFAULT_LOOK } from '../character/look.js';
+import { WEAPONS } from '../data/weapons.js';
 
 const any = (arr) => arr[Math.floor(Math.random() * arr.length)];
 
@@ -39,6 +40,26 @@ const BOGOTA_DIRTY_PHRASES = [
 ];
 
 const _sphere = new THREE.Sphere(new THREE.Vector3(), 1.4);
+
+// Golpes: sin muerte ni desaparición. A 0 de salud el peatón cae, queda tendido y se levanta huyendo.
+export const NPC_HEALTH = 100;
+export const NPC_COMBAT = {
+  stagger: 0.28,   // s de sacudón tras cada golpe (no camina; el golpe lo empuja)
+  flee: 5,         // s de huida veloz tras recibir un golpe
+  fall: 0.4,       // s en caer
+  downMin: 6,      // s mínimos tendido
+  downExtra: 2,    // + hasta tantos s al azar
+  rise: 0.6,       // s en levantarse
+  riseFlee: 6      // s de huida al levantarse
+};
+const HIT_PHRASES = [
+  '¡Uy qué le pasa, ñero loco!',
+  '¡Ayúdenme, me están atracando!',
+  '¡Policía, policía!',
+  '¡Socio, no me pegue, tome esto!',
+  '¡Qué boleta, bájese de la nube!'
+];
+const easeInOut = (x) => x * x * (3 - 2 * x);
 
 /** Apariencia al azar; `gastada` prefiere ropa vieja (El Cartucho). */
 export async function randomStreetLook({ gastada = false } = {}) {
@@ -103,8 +124,18 @@ export class Npc {
     this._lastSpokenTime = 0;
     this._projPos = new THREE.Vector3();
     this.umbrella = null;
-    this.panicTimer = 0;
+    this.panicTimer = 0;       // s restantes de pánico: sin charla espontánea mientras dura
     this.panicDir = null;
+    this.maxHealth = NPC_HEALTH;
+    this.health = NPC_HEALTH;
+    this.koState = null;       // null | 'down' (cayendo o tendido) | 'rising'
+    this.koTimer = 0;
+    this._koBlend = 0;         // 0 de pie .. 1 tendido
+    this.staggerTimer = 0;
+    this._flinch = 0;
+    this._knockVel = new THREE.Vector3();
+    this._lastHit = new THREE.Vector3(0, 0, 1);
+    this.looted = false;       // el botín cae una sola vez por golpiza
 
     this.ready = (async () => {
       this.look = opts.look ?? await randomStreetLook({ gastada: opts.gastada });
@@ -127,11 +158,27 @@ export class Npc {
       .then(c => { if (this._disposed) c.dispose?.(); else this.fullChar = c; });
   }
 
+  get isKnockedOut() { return !!this.koState; }
+
   _show(char) {
     if (this.character === char) return;
-    if (this.character) this.root.remove(this.character.group);
+    if (this.character) {
+      this.root.remove(this.character.group);
+      this.character.group.rotation.x = 0; // el modelo que sale no conserva la pose tendida
+      this.character.group.position.y = 0;
+    }
     this.character = char;
     this.root.add(char.group);
+    this._applyPose();
+  }
+
+  /** Caída y sacudón del cuerpo: se aplica al grupo visible, así el KO sobrevive al cambio de detalle. */
+  _applyPose() {
+    const group = this.character?.group;
+    if (!group) return;
+    const lie = easeInOut(this._koBlend);
+    group.rotation.x = -lie * Math.PI / 2 - this._flinch * 0.28;
+    group.position.y = lie * 0.1; // tendido de espaldas: el cuerpo apoya sobre el suelo
   }
 
   /** Cambia de detalle según distancia; permite carga diferida fuera del arranque normal. */
@@ -160,7 +207,7 @@ export class Npc {
   hitByPoop(projectileOrigin = null) {
     this.isSplatted = true;
     this.splatTimer = 12;
-    this.fleeTimer = 8;
+    if (!this.koState) this.fleeTimer = 8;
     this.target = null;
     this.route = [];
 
@@ -212,6 +259,7 @@ export class Npc {
 
   _walk(dt) {
     this.moving = false;
+    if (this.koState || this.staggerTimer > 0) return; // noqueado o sacudido: no camina
 
     // Si fue impactado por popó: huye despavorido a gran velocidad
     if (this.fleeTimer > 0) {
@@ -285,6 +333,7 @@ export class Npc {
    * @param {{ player?: THREE.Vector3, frustum?: THREE.Frustum }} ctx
    */
   update(dt, ctx = {}) {
+    this._updateReaction(dt);
     this._walk(dt);
     this.root.position.copy(this.position);
 
@@ -302,6 +351,7 @@ export class Npc {
     }
 
     if (!this.character) return;
+    this._applyPose();
 
     const dist = ctx.player ? Math.hypot(this.position.x - ctx.player.x, this.position.z - ctx.player.z) : 0;
     // fuera de cámara: ni se dibuja ni se anima
@@ -312,7 +362,7 @@ export class Npc {
 
     this._updateDetail(dist);
     this._updateSpeech(dt, ctx);
-    this._updateUmbrella(ctx.isRaining ?? false);
+    this._updateUmbrella((ctx.isRaining ?? false) && !this.koState);
 
     // Proyectar burbuja flotante a pantalla
     if (this._bubbleEl && ctx.camera && typeof window !== 'undefined') {
@@ -331,6 +381,7 @@ export class Npc {
     this.animAcc += dt;
     this.frame++;
     if (dist > NPC_LOD.animStop) return; // navegación activa, pose lejana congelada
+    if (this.koState === 'down' && this._koBlend >= 1) return; // tendido: pose fija, sin animar
     const budget = ctx.animationBudget ?? this.animationBudget;
     const interval = dist > NPC_LOD.animEvery ? .1 * budget : budget > 1 ? budget / 60 : 0;
     if (interval && this.animAcc < interval) return;
@@ -340,32 +391,94 @@ export class Npc {
 
 
 
+  /** Compatibilidad: un golpe de puños del atacante (con la fuerza base de los puños). */
   takePunch(attacker) {
-    const PUNCH_REACTIONS = [
-      '¡Uy qué le pasa, ñero loco!',
-      '¡Ayúdenme, me están atracando!',
-      '¡Policía, policía!',
-      '¡Socio, no me pegue, tome esto!',
-      '¡Qué boleta, bájese de la nube!'
-    ];
-    const phrase = PUNCH_REACTIONS[Math.floor(Math.random() * PUNCH_REACTIONS.length)];
-    this.say(phrase, 4.0);
+    return this.takeHit({ damage: WEAPONS.punos.damage, knockback: WEAPONS.punos.knockback, attacker, weapon: 'punos' });
+  }
 
-    if (attacker && attacker.position) {
-      const dx = this.position.x - attacker.position.x;
-      const dz = this.position.z - attacker.position.z;
-      const len = Math.hypot(dx, dz) || 1;
-      this.panicDir = { x: dx / len, z: dz / len };
-      this.panicTimer = 5.0; // 5 segundos de huida veloz
+  /**
+   * Recibe un golpe cuerpo a cuerpo: resta salud, sacude y huye; a 0 de salud queda noqueado.
+   * Devuelve el dinero que soltó (0 si ya lo había soltado o está noqueado).
+   * @param {{ damage?: number, dir?: {x:number, z:number}, knockback?: number, attacker?: {position: THREE.Vector3}, weapon?: string }} hit
+   */
+  takeHit({ damage = 10, dir = null, knockback = 0, attacker = null, weapon = 'punos' } = {}) {
+    if (this.koState) return 0;
+
+    // sentido del golpe: el indicado o desde el atacante hacia el peatón
+    let dx = dir?.x ?? 0, dz = dir?.z ?? 0;
+    if (!dir && attacker?.position) { dx = this.position.x - attacker.position.x; dz = this.position.z - attacker.position.z; }
+    const len = Math.hypot(dx, dz);
+    if (len > 0.0001) this._lastHit.set(dx / len, 0, dz / len);
+    this.panicDir = { x: this._lastHit.x, z: this._lastHit.z };
+
+    this.health = Math.max(0, this.health - damage);
+    this.target = null;
+    this.route = [];
+    this.staggerTimer = NPC_COMBAT.stagger;
+    // empuje: velocidad inicial que decae linealmente, así recorre `knockback` metros en el sacudón
+    this._knockVel.copy(this._lastHit).multiplyScalar(knockback * 2 / NPC_COMBAT.stagger);
+
+    if (this.health <= 0) this._startKnockout();
+    else {
+      this.fleeDir.copy(this._lastHit);
+      this.fleeTimer = Math.max(this.fleeTimer, NPC_COMBAT.flee);
+      this.panicTimer = NPC_COMBAT.flee;
+      if (this._bubbleTimer <= 0) this.say(HIT_PHRASES[Math.floor(Math.random() * HIT_PHRASES.length)], 4.0);
     }
 
+    if (this.looted) return 0;
+    this.looted = true;
     const dropMoney = 200 + Math.floor(Math.random() * 400);
     if (typeof window !== 'undefined' && window.dispatchEvent) {
+      const verb = WEAPONS[weapon]?.hitVerb ?? 'Golpe';
+      const end = this.koState ? 'quedó tendido' : 'salió corriendo';
       window.dispatchEvent(new CustomEvent('toast', {
-        detail: { text: `💥 ¡Puñetazo! El transeúnte soltó ${dropMoney} y salió corriendo.`, kind: 'info' }
+        detail: { text: `💥 ¡${verb}! El transeúnte soltó ${dropMoney} y ${end}.`, kind: 'info' }
       }));
     }
     return dropMoney;
+  }
+
+  _startKnockout() {
+    this.koState = 'down';
+    this.koTimer = NPC_COMBAT.downMin + Math.random() * NPC_COMBAT.downExtra;
+    this.fleeTimer = 0;
+    this.panicTimer = 0;
+    if (this._bubbleEl) { this._bubbleEl.remove(); this._bubbleEl = null; }
+    this._bubbleTimer = 0;
+  }
+
+  /** Sacudón, caída, tendido y levantada; corre aunque el peatón esté fuera de cámara. */
+  _updateReaction(dt) {
+    if (this.panicTimer > 0) this.panicTimer = Math.max(0, this.panicTimer - dt);
+    if (this.staggerTimer > 0) {
+      const fade = this.staggerTimer / NPC_COMBAT.stagger;
+      const step = Math.min(dt, this.staggerTimer) * fade;
+      const next = this._nextPosition.set(this.position.x + this._knockVel.x * step, 0, this.position.z + this._knockVel.z * step);
+      if ((this._knockVel.x || this._knockVel.z) && this.isWalkable(next.x, next.z)) {
+        next.y = this.groundHeight(next.x, next.z);
+        this.position.copy(next);
+      }
+      this.staggerTimer = Math.max(0, this.staggerTimer - dt);
+      this._flinch = Math.sin(Math.PI * (1 - this.staggerTimer / NPC_COMBAT.stagger));
+    } else this._flinch = 0;
+
+    if (this.koState === 'down') {
+      if (this._koBlend < 1) this._koBlend = Math.min(1, this._koBlend + dt / NPC_COMBAT.fall);
+      else if ((this.koTimer -= dt) <= 0) this.koState = 'rising';
+    } else if (this.koState === 'rising') {
+      this._koBlend = Math.max(0, this._koBlend - dt / NPC_COMBAT.rise);
+      if (this._koBlend <= 0) this._recover();
+    }
+  }
+
+  _recover() {
+    this.koState = null;
+    this.health = this.maxHealth;
+    this.looted = false;
+    this.fleeDir.copy(this._lastHit);
+    this.fleeTimer = NPC_COMBAT.riseFlee;
+    this.panicTimer = NPC_COMBAT.riseFlee;
   }
 
   say(text, duration = 3.5) {
@@ -391,7 +504,7 @@ export class Npc {
       }
     }
 
-    if (!ctx.player) return;
+    if (!ctx.player || this.koState || this.panicTimer > 0) return; // sin charla espontánea tendido o en pánico
     const now = performance.now();
     const dist = Math.hypot(this.position.x - ctx.player.x, this.position.z - ctx.player.z);
 

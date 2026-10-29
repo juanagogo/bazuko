@@ -418,6 +418,13 @@ else if (type === 'cart') text = interaction.currentTarget?.isAttached ? '[E] So
       game.poopSystem?.throwPoop(game.player, game.cameraRig);
       return;
     }
+    if (item.weapon) {
+      if (!game.player || game.player.isStunned) return;
+      const equipped = game.player.toggleWeapon(item.weapon);
+      game.audio?.play('pickup');
+      this._toast(equipped ? `🔪 Equipaste: ${item.name}. Ataca con clic o G.` : `Guardaste: ${item.name}. Vuelves a los puños.`, 'info');
+      return;
+    }
     if (itemId === 'radioTransistor') {
       game.inventoryUI?.close();
       window.dispatchEvent(new CustomEvent('open-radio-modal'));

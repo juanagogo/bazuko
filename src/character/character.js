@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { PALETTES, DEFAULT_LOOK, normalizeLook } from './look.js';
+import { attackExtension, attackSide } from './melee.js';
 
 export { DEFAULT_LOOK };
 
@@ -330,7 +331,7 @@ export function createCharacter(initial = DEFAULT_LOOK) {
   let phase = 0;
   let blink = 2;
 
-  function update(dt, { speed = 0, running = false, action = null, t = 0, load = 0, dirt = 0, wet = 0, look: lookAt = 0 }) {
+  function update(dt, { speed = 0, running = false, action = null, t = 0, load = 0, dirt = 0, wet = 0, look: lookAt = 0, attack = null }) {
     const target = { lean: 0, armLx: 0, armRx: 0, armLz: 0.12, armRz: -0.12, elbL: -0.2, elbR: -0.2, legL: 0, legR: 0, kneeL: 0, kneeR: 0, bob: 0, lie: 0, headX: 0, headY: lookAt };
     const amp = Math.min(1, speed / 3.6) * (running ? 1.1 : 0.9);
     if (speed > 0.15) {
@@ -405,6 +406,18 @@ export function createCharacter(initial = DEFAULT_LOOK) {
         break;
       }
       case 'golpear': {
+        if (attack) {
+          // el brazo que golpea se estira según la fase; el otro queda en guardia
+          const e = attackExtension(attack);
+          const reach = -1.0 - 0.65 * Math.max(0, e) + 0.35 * Math.min(0, e);
+          const bend = -1.7 * (1 - Math.max(0, e));
+          const left = attackSide(attack) === 'L';
+          target.lean = 0.1 + 0.12 * e;
+          if (left) { target.armLx = reach; target.elbL = bend; target.armLz = 0.15; target.armRx = -1.25; target.elbR = -1.8; target.armRz = -0.35; }
+          else { target.armRx = reach; target.elbR = bend; target.armRz = -0.15; target.armLx = -1.25; target.elbL = -1.8; target.armLz = 0.35; }
+          target.legR = -0.35; target.legL = 0.3;
+          break;
+        }
         const punchCycle = Math.sin(t * 18);
         target.lean = 0.18;
         target.armRx = -1.65 + punchCycle * 0.15;

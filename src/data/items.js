@@ -115,6 +115,14 @@ export const ITEMS = {
   },
   rifa:  { id: 'rifa', name: 'Cartón de rifa', weight: 0.02, value: 1500 },
   arma:  { id: 'arma', name: 'Arma casera',    weight: 1.2,  value: 6000 },
+  cuchillo: {
+    id: 'cuchillo', name: 'Cuchillo', weight: 0.4, value: 2800, usable: true, weapon: 'cuchillo',
+    desc: 'Arma cuerpo a cuerpo rápida. Usar: equipar o guardar.'
+  },
+  botella_picada: {
+    id: 'botella_picada', name: 'Botella picada', weight: 0.3, value: 100, usable: true, weapon: 'botella_picada',
+    desc: 'Vidrio roto con buen alcance. Usar: equipar o guardar.'
+  },
 
   // ===== MATERIALES DEL CAMBUCHE =====
   lona:    { id: 'lona',    name: 'Lona azul',     weight: 2,    value: 4000, build: true, rarity: 'rare' },
@@ -144,7 +152,7 @@ const ITEM_EMOJIS = {
   agua: '💧', refresco: '🥤', cafe: '☕', lataComida: '🐟', vendaje: '🩹',
   reloj: '⌚', moneda: '🪙', anillo: '💍', jabon: '🧼', cepillo: '🪥',
   retrovisor: '🪞', radio: '📻', radioTransistor: '📻', pilas: '🔋', popo: '💩', cigarrillo: '🚬',
-  curita: '🩹', hierba: '🌿', rifa: '🎟️', arma: '🗡️'
+  curita: '🩹', hierba: '🌿', rifa: '🎟️', arma: '🗡️', cuchillo: '🔪', botella_picada: '🍾'
 };
 for (const item of Object.values(ITEMS)) {
   item.emoji = ITEM_EMOJIS[item.id] ?? (item.cure ? '💊' : item.substance ? '🧪' : '📦');
@@ -156,6 +164,7 @@ export function describeEffects(item) {
   if (item.id === 'radioTransistor') lines.push('Usar: abrir el sintonizador. También con R.');
   if (item.id === 'pilas') lines.push('Usar: recargar 50% de batería de la radio.');
   if (item.id === 'popo') lines.push('Usar o X en la calle: lanzar a un peatón.');
+  if (item.weapon) lines.push('Usar: equipar o guardar. Atacar con clic o G; golpes seguidos hacen combo.');
   if (item.consumable) lines.push(`${item.consumable}: +${item.amount}`);
   for (const key of ['hambre', 'sed', 'energia', 'salud', 'higiene', 'animo', 'vicio']) {
     if (item[key]) lines.push(`${key}: ${item[key] > 0 ? '+' : ''}${item[key]}`);
@@ -177,7 +186,7 @@ const ICONS = {
   pan: 'bread', lataComida: 'food', agua: 'water', refresco: 'water', cafe: 'coffee',
   vendaje: 'bandage', jabon: 'bath', cepillo: 'bath', cigarrillo: 'flame',
   lona: 'tent', madera: 'layers', colchon: 'bed', vela: 'flame', popo: 'alert-triangle',
-  curita: 'bandage', hierba: 'flame', rifa: 'dice', arma: 'wrench'
+  curita: 'bandage', hierba: 'flame', rifa: 'dice', arma: 'wrench', cuchillo: 'wrench', botella_picada: 'recycle'
 };
 export const itemIcon = (id) => ICONS[id] ?? (ITEMS[id]?.cure ? 'pill' : 'box');
 

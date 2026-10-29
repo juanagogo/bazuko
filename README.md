@@ -13,6 +13,7 @@ Este proyecto es un fork de [juanagogo/bazuko](https://github.com/juanagogo/bazu
 - Cámaras en tercera persona e isométrica, intercambiables durante la partida.
 - Techos y paredes que se ocultan cuando tapan al personaje en vista isométrica, con muros bajos y silueta del jugador.
 - Peatones que caminan por los andenes y cruzan las calles.
+- Combate cuerpo a cuerpo: golpes con preparación, impacto y recuperación, y combos de hasta tres golpes si se pulsa durante la recuperación. Los puños (jab, cruzado y gancho) pegan poco y a un solo peatón; el cuchillo, fabricado con chatarra y tablas, es rápido y alcanza a varios; la botella picada, hecha con una botella y una lata, llega un poco más lejos. Los peatones no mueren: al quedarse sin fuerzas caen, permanecen tendidos unos segundos y se levantan huyendo. Ver [animaciones del personaje](docs/animaciones-actionforge.md#combate-cuerpo-a-cuerpo).
 - Diez palomas en cada uno de los tres parques: caminan, levantan vuelo cuando el jugador o un NPC se acerca a menos de 3,5 metros y aterrizan en otro lugar. Cada bandada usa cinco lotes de geometría instanciada, sin luces ni física; se suspende a más de 90 metros del jugador.
 - Carros y taxis con recorridos aleatorios entre 90 alternativas transitables y un bus articulado que circula por la troncal y para en la estación.
 - Calzadas de 12 metros y andenes de 4 metros.
@@ -81,6 +82,8 @@ En PowerShell, si una política de ejecución impide usar `npm`, ejecuta los mis
 | Mantener y soltar `Q` junto a basura | Seleccionar materiales y recogerlos al soltar. |
 | `Q` junto al dealer | Abrir su tienda. |
 | `B` o `L` | Pedir limosna. |
+| Clic izquierdo o `G` en la calle | Atacar con los puños o con el arma equipada; pulsar de nuevo al final del golpe encadena el combo. |
+| Usar un cuchillo o una botella picada del inventario | Equiparla en la mano; usarla otra vez la guarda y vuelves a los puños. El arma equipada se conserva al guardar. |
 | `F` | Activar o desactivar el boost, que consume energía y salud. |
 | `T` | Abrir talentos. |
 | `C` | Abrir fabricación. |
