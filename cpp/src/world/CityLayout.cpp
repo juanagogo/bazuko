@@ -77,6 +77,31 @@ bool CityLayout::IsWalkable(float worldX, float worldZ) const {
     return tile != TileType::Building && tile != TileType::Wall && tile != TileType::Water && tile != TileType::Solid && tile != TileType::Ruin;
 }
 
+float CityLayout::GetGroundHeight(float worldX, float worldZ) const {
+    // altura de la malla de cada casilla (ver BuildMeshes): andenes, plazas y pisos 0,15; el resto, a nivel de calle
+    const auto tileHeight = [&](int x, int z) {
+        const TileType tile = GetTileAt(x, z);
+        return tile == TileType::Sidewalk || tile == TileType::Plaza || tile == TileType::Floor ? 0.15f : 0.0f;
+    };
+    const float fx = (worldX + ORIGIN_X) / TILE_SIZE, fz = (worldZ + ORIGIN_Z) / TILE_SIZE;
+    const int tx = static_cast<int>(std::floor(fx)), tz = static_cast<int>(std::floor(fz));
+    float height = tileHeight(tx, tz);
+    constexpr float kEdge = 0.3f;   // metros de rampa a cada lado del bordillo
+    const float inX = (fx - static_cast<float>(tx)) * TILE_SIZE, inZ = (fz - static_cast<float>(tz)) * TILE_SIZE;
+    const auto soften = [&](float distance, int nx, int nz) {
+        if (distance >= kEdge * 0.5f) return;
+        const float neighbor = tileHeight(nx, nz);
+        height = std::min(height, std::max(neighbor, height - (neighbor == height ? 0.0f : (height - neighbor) * (0.5f - distance / kEdge))));
+    };
+    if (height != 0.0f || true) {
+        soften(inX, tx - 1, tz);
+        soften(TILE_SIZE - inX, tx + 1, tz);
+        soften(inZ, tx, tz - 1);
+        soften(TILE_SIZE - inZ, tx, tz + 1);
+    }
+    return std::max(height, Station::Height(worldX, worldZ));
+}
+
 bool CityLayout::IsRoad(float worldX, float worldZ) const {
     const int x = static_cast<int>(std::floor((worldX + ORIGIN_X) / TILE_SIZE));
     const int z = static_cast<int>(std::floor((worldZ + ORIGIN_Z) / TILE_SIZE));

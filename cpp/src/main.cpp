@@ -766,6 +766,24 @@ int main(int argc, char** argv) {
             static bool openMapDone = false;
             if (openMapAt && !openMapDone && clock.GetElapsedTime() > static_cast<float>(std::atof(openMapAt))) { openMapDone = true; ui.OpenMapSection(); }
         }
+        {   // solo pruebas: BAZUKO_OPEN_UI=<panel>@<s> abre un panel (pausa0-3, radio, crafteo) a los s segundos
+            static const char* openUi = std::getenv("BAZUKO_OPEN_UI");
+            static bool openUiDone = false;
+            if (openUi && !openUiDone) {
+                const std::string spec(openUi);
+                const size_t at = spec.find('@');
+                if (clock.GetElapsedTime() > static_cast<float>(std::atof(spec.c_str() + (at == std::string::npos ? 0 : at + 1)))) {
+                    openUiDone = true;
+                    const std::string name = spec.substr(0, at);
+                    if (name.rfind("pausa", 0) == 0) { ui.OpenPauseSection(0); ui.SelectPauseTab(std::atoi(name.c_str() + 5)); }
+                    else if (name == "radio") ui.OpenRadioMenu(false);
+                    else if (name == "crafteo") ui.ToggleCraftMenu();
+                    else if (name == "dealer") ui.OpenDealerMenu();
+                    else if (name == "tienda") ui.OpenShopMenu("Tienda La Esquinita", "Doña Rosa fía, pero solo a los conocidos.");
+                    else if (name == "reciclaje") ui.OpenRecyclerMenu();
+                }
+            }
+        }
         if (!characterCreatorUI.IsOpen() && Input::IsKeyPressed(GLFW_KEY_T)) ui.OpenPauseSection(2);
         if (!characterCreatorUI.IsOpen() && Input::IsKeyPressed(GLFW_KEY_O)) ui.OpenPauseSection(3);
         if (characterCreatorUI.IsOpen()) {
@@ -1727,7 +1745,7 @@ int main(int argc, char** argv) {
         // Renderizar ciudad de Bogotá
         city.Render(renderer, playerPos);
         simulation.Render(renderer, clock.GetElapsedTime(), playerPos);
-        if (gps.Waypoint()) {   // haz del destino: columna translucida que se ve desde lejos
+        if (gps.Waypoint() && ui.IsGpsBeaconVisible()) {   // haz del destino: columna translucida que se ve desde lejos
             const float pulse = 0.30f + 0.12f * std::sin(clock.GetElapsedTime() * 2.5f);
             const glm::vec3 beaconBase(gps.Waypoint()->x, city.GetGroundHeight(gps.Waypoint()->x, gps.Waypoint()->z) + 20.0f, gps.Waypoint()->z);
             renderer.Submit(*gpsBeacon, glm::translate(glm::mat4(1.0f), beaconBase), glm::vec4(1.0f, 1.0f, 1.0f, pulse), false, false, nullptr, 2);
@@ -1892,7 +1910,7 @@ int main(int argc, char** argv) {
                 item.consumableNeed >= 0 || !item.cure.empty() || item.id == "vendaje" || item.id == "curita"
                     || item.id == "pilas" || item.id == "radioTransistor",
                 item.desc, DescribeItemEffects(item), item.rarityLabel,
-                hotbarSlot == hotbar.end() ? -1 : static_cast<int>(hotbarSlot - hotbar.begin())});
+                hotbarSlot == hotbar.end() ? -1 : static_cast<int>(hotbarSlot - hotbar.begin()), item.value});
         }
         std::vector<DealerOption> dealerOptions;
         for (const std::string& id : {std::string("tintico"), std::string("pegante"), std::string("pastilla")}) {
@@ -1906,6 +1924,7 @@ int main(int argc, char** argv) {
         for (const TalentDef& definition : gameData.talents) {
             talentOptions.push_back({definition.id, definition.name, definition.desc,
                                      definition.prerequisites.empty() ? std::string{} : definition.prerequisites.front(), definition.cost});
+            talentOptions.back().branch = definition.branch;
         }
         for (auto& talent : talentOptions) {
             talent.unlocked = hasTalent(talent.id);

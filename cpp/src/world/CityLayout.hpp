@@ -101,7 +101,8 @@ public:
     const std::vector<Landmark>& GetLandmarks() const { return m_Landmarks; }
     const std::vector<StaticBox>& GetObstacles() const { return m_Obstacles; }
     // Cota del suelo a nivel de calle: sube sobre la isla de la estacion y es 0 en el resto
-    float GetGroundHeight(float worldX, float worldZ) const { return Station::Height(worldX, worldZ); }
+    // Cota del suelo bajo un punto: andenes, plazas y pisos estan 0,15 m sobre la calle (con un bordillo suave de 0,3 m) y la isla de la estacion sube mas
+    float GetGroundHeight(float worldX, float worldZ) const;
     // 0..1: las luces de Colpatria se encienden de noche
     void SetNightGlow(float glow) { m_NightGlow = glow; }
 

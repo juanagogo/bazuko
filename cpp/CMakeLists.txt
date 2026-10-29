@@ -147,7 +147,7 @@ add_executable(bazuko
     src/renderer/Buffer.cpp src/renderer/VertexArray.cpp src/renderer/Shader.cpp
     src/renderer/Mesh.cpp src/renderer/Camera.cpp src/renderer/Renderer.cpp
     src/renderer/Texture.cpp src/renderer/Model.cpp
-    src/ui/UIManager.cpp src/ui/SignStyle.cpp src/ui/CharacterCreatorUI.cpp
+    src/ui/UIManager.cpp src/ui/SignStyle.cpp src/ui/WebPanels.cpp src/ui/CharacterCreatorUI.cpp
     src/character/CharacterManager.cpp src/character/CharacterPreview.cpp src/character/Ragdoll.cpp
     src/world/CityLayout.cpp src/world/Simulation.cpp src/world/BirdFlock.cpp
     src/world/TextRaster.cpp src/world/SignAtlas.cpp
