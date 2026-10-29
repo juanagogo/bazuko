@@ -235,4 +235,60 @@ inline void AppendMove(std::vector<Model::BoneTurn>& turns, Move move, float tim
     AppendFists(turns, 1.0f);
 }
 
+// Robar un retrovisor: el brazo derecho sale rapido hacia el costado, la mano se cierra sobre el retrovisor y el brazo vuelve a su
+// postura normal. Se superpone a cualquier pose (quieto o caminando) y no detiene al personaje.
+constexpr float kGrabDuration = 0.80f;
+inline void AppendGrab(std::vector<Model::BoneTurn>& turns, float time) {
+    using namespace detail;
+    struct Key { float t; glm::vec3 upper, lower; float weight, fist; };
+    static const std::array<Key, 6> keys{{
+        {0.00f, {0.30f, -0.9f, 0.25f}, {0.10f, 0.85f, 0.50f}, 0.0f, 0.0f},
+        {0.14f, {0.60f, -0.15f, 0.80f}, {0.45f, 0.10f, 0.90f}, 1.0f, 0.0f},   // salida rapida hacia el costado
+        {0.24f, {0.62f, -0.05f, 0.78f}, {0.50f, 0.20f, 0.85f}, 1.0f, 1.0f},    // la mano cierra el retrovisor
+        {0.34f, {0.62f, -0.05f, 0.78f}, {0.50f, 0.20f, 0.85f}, 1.0f, 1.0f},    // agarre
+        {0.52f, {0.45f, -0.70f, 0.45f}, {0.25f, 0.65f, 0.72f}, 0.8f, 0.7f},   // recoge el brazo con el retrovisor
+        {0.80f, {0.30f, -0.9f, 0.25f}, {0.10f, 0.85f, 0.50f}, 0.0f, 0.0f}}};  // vuelve a lo normal
+    time = std::clamp(time, 0.0f, kGrabDuration);
+    std::array<float, 6> times{};
+    for (size_t k = 0; k < keys.size(); ++k) times[k] = keys[k].t;
+    size_t next;
+    float u;
+    Segment(times, time, next, u);
+    const Key& a = keys[next - 1];
+    const Key& b = keys[next];
+    const glm::vec3 upper = glm::normalize(glm::mix(a.upper, b.upper, u)), lower = glm::normalize(glm::mix(a.lower, b.lower, u));
+    const float weight = glm::mix(a.weight, b.weight, u), fist = glm::mix(a.fist, b.fist, u);
+    Arm(turns, false, upper, lower, weight, 1.0f);
+    if (fist > 0.01f) AppendFists(turns, fist, false, true);
+}
+
+// Trabajo a ras de suelo (recoger y revisar basura): el personaje se agacha, el tronco cae hacia adelante y los brazos apuntan al objeto
+// y lo tocan. `crouch` 0..1 es cuanto se agacha; `localTarget` es el objeto en el marco del personaje (+x izquierda, +z al frente, metros desde
+// sus pies); `time` mueve los brazos al revisar (`scrub` 0..1 es la amplitud del roce); `bothArms` false usa solo el brazo derecho (recoger).
+inline void AppendGroundWork(std::vector<Model::BoneTurn>& turns, float crouch, const glm::vec3& localTarget, float time, float scrub, bool bothArms) {
+    using namespace detail;
+    crouch = std::clamp(crouch, 0.0f, 1.0f);
+    if (crouch <= 0.001f) return;
+    Torso(turns, {0.0f, 0.0f, 0.75f * crouch, 0.0f, {0.0f, -0.40f * crouch, -0.08f * crouch}, 0.0f}, 1.0f);
+    const glm::vec3 thigh = glm::normalize(glm::vec3(0.16f, -0.55f, 0.82f)), shin = glm::normalize(glm::vec3(0.08f, -0.9f, -0.42f));
+    for (const bool isLeft : {true, false}) Leg(turns, isLeft, thigh, shin, crouch, 1.0f);   // rodillas flexionadas: los pies siguen en el suelo
+    const float horizontal = std::max(0.25f, std::sqrt(localTarget.x * localTarget.x + localTarget.z * localTarget.z));
+    const float reachDown = 0.55f * (1.0f - 0.35f * crouch);   // altura de los hombros agachado sobre el objeto
+    for (const bool isLeft : {true, false}) {
+        if (!isLeft || bothArms) {
+            const float shoulder = isLeft ? 0.20f : -0.20f;   // el hombro esta a un lado del eje del cuerpo
+            const float phase = time * 7.5f + (isLeft ? 0.0f : 3.1416f);
+            const float sweepX = std::sin(phase) * 0.22f * scrub, sweepZ = std::cos(phase * 0.8f) * 0.18f * scrub;   // los brazos revuelven la basura
+            glm::vec3 reach(localTarget.x - shoulder + sweepX, -reachDown, std::max(0.15f, localTarget.z + sweepZ));
+            reach = glm::normalize(reach);
+            const glm::vec3 forearm = glm::normalize(glm::vec3(reach.x * 0.8f, reach.y - 0.25f, reach.z));
+            const float xSign = isLeft ? 1.0f : -1.0f;   // Arm() espeja el brazo derecho: se pasa en la convencion del izquierdo
+            Arm(turns, isLeft, glm::vec3(reach.x * xSign, reach.y, reach.z), glm::vec3(forearm.x * xSign, forearm.y, forearm.z), crouch, 1.0f);
+            (void)horizontal;
+        }
+    }
+    AppendFists(turns, 0.55f * crouch, true, bothArms || false);   // las manos van medio cerradas, tanteando
+    if (!bothArms) AppendFists(turns, 0.55f * crouch, false, true);
+}
+
 } // namespace Bazuko::Combat

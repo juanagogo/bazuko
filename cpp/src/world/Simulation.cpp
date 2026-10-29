@@ -25,6 +25,7 @@ constexpr size_t kRainDropCount = 350;   // gotas alrededor del jugador, como el
 constexpr float kBusLength = 22.0f;       // largo del bus biarticulado (colisiones, frenado y modelo)
 constexpr float kBusHalfLength = kBusLength * 0.5f;
 constexpr float kBusWidth = 2.72f;
+constexpr float kDogBaseScale = 1.35f;   // tamano base de El Chato (la escala del creador se multiplica por esta): el labrador se veia muy pequeno junto al personaje
 constexpr float kDayLengthSeconds = 3600.0f;   // un dia de juego = una hora real, como el original
 
 // Radio de las esquinas de un circuito: 3,5 m (el giro de un carro con direccion de 35 grados) o menos si la manzana es pequena
@@ -1765,7 +1766,7 @@ void Simulation::BeginPet(const glm::vec3& playerPosition, float playerYaw) {
     m_DogPetting = true;
     m_DogPetStage = 1;
     m_DogPetPlayer = playerPosition;
-    m_DogPetAnchor = playerPosition + glm::vec3(std::sin(playerYaw), 0.0f, std::cos(playerYaw)) * 0.78f;
+    m_DogPetAnchor = playerPosition + glm::vec3(std::sin(playerYaw), 0.0f, std::cos(playerYaw)) * (0.78f + 0.5f * (kDogBaseScale - 1.0f) * m_DogSize);
     m_DogPetAnchor.y = 0.0f;
     m_DogQueue.clear();
 }
@@ -1910,7 +1911,7 @@ void Simulation::UpdateDogAnimation(float dt, float targetSpeed) {
                 const float walkMax = wasTrot ? 1.9f : 2.1f, trotMax = wasRun ? 4.4f : 4.8f;
                 const int clip = m_DogSpeed < walkMax ? c.walk : m_DogSpeed < trotMax ? c.trot : c.run;
                 const float natural = m_DogGaitSpeed[clip == c.walk ? 0 : clip == c.trot ? 1 : 2];
-                const float rate = natural > 0.1f ? std::clamp(m_DogSpeed / (natural * m_DogSize), 0.6f, 2.4f) : 1.0f;
+                const float rate = natural > 0.1f ? std::clamp(m_DogSpeed / (natural * m_DogSize * kDogBaseScale), 0.6f, 2.4f) : 1.0f;
                 DogPlay(clip, true, rate);
                 break;
             }
@@ -4080,7 +4081,7 @@ void Simulation::Render(Renderer& renderer, float time, const glm::vec3& focusPo
         const glm::vec4 coat = coats[static_cast<size_t>(std::clamp(m_DogCoat, 0, 3))];
         glm::mat4 dog = glm::translate(glm::mat4(1.0f), m_DogPosition);
         dog = glm::rotate(dog, m_DogYaw, {0.0f, 1.0f, 0.0f});
-        dog = glm::scale(dog, glm::vec3(m_DogSize));
+        dog = glm::scale(dog, glm::vec3(m_DogSize * kDogBaseScale));
         if (m_ChatoModel) {
             // cola: se mueve mas rapido y amplio si esta contento; dormido no se mueve
             std::vector<Model::BoneTurn> tail;
@@ -4113,7 +4114,7 @@ void Simulation::Render(Renderer& renderer, float time, const glm::vec3& focusPo
             const glm::vec3 neck = glm::vec3(bone(m_DogRig.neck)[3]);
             const glm::vec3 head = glm::vec3(bone(m_DogRig.head)[3]);
             const glm::mat4 facing = glm::rotate(glm::translate(glm::mat4(1.0f), glm::vec3(0.0f)), m_DogYaw, {0.0f, 1.0f, 0.0f});
-            const auto at = [&](const glm::vec3& position, const glm::vec3& offset) { return glm::translate(glm::mat4(1.0f), position) * facing * glm::translate(glm::mat4(1.0f), offset * m_DogSize); };
+            const auto at = [&](const glm::vec3& position, const glm::vec3& offset) { return glm::translate(glm::mat4(1.0f), position) * facing * glm::translate(glm::mat4(1.0f), offset * m_DogSize * kDogBaseScale); };
             if (m_DogAccessory == 1) renderer.Submit(*m_DogScarf, at(neck, {0.0f, 0.0f, 0.0f}));
             else if (m_DogAccessory == 3) renderer.Submit(*m_DogBand, at(neck, {0.0f, 0.0f, 0.0f}));
             else if (m_DogAccessory == 2) {

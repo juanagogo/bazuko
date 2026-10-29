@@ -214,6 +214,9 @@ int main(int argc, char** argv) {
     int punchChain = 0;   // jab, cruzado y gancho en cadena (se reinicia si pasa mas de 1,4 s)
     float fightStanceRemaining = 0.0f, knifeStanceRemaining = 0.0f, stillSeconds = 0.0f;
     float jumpOffset = 0.0f;
+    float pickupTime = -1.0f;           // >= 0 mientras recoge una bolsa de un golpe (E): se agacha y el brazo baja al objeto
+    glm::vec3 pickupTarget{0.0f};
+    float grabTime = -1.0f;             // >= 0 mientras el brazo derecho roba un retrovisor (Combat::AppendGrab)
     bool jumpMoving = false;            // salto con carrera (camino o corriendo) en vez de salto estatico
     glm::vec3 jumpDirection{0.0f};      // hacia donde sale despedido el salto en movimiento
     float jumpSpeed = 0.0f;             // m/s horizontales en el aire: decide cuanto avanza
@@ -593,6 +596,8 @@ int main(int argc, char** argv) {
         }
         PickupItem pickup;
         if (nearest >= simulation.GetPickups().size() || !simulation.CollectPickup(nearest, pickup)) return false;
+        pickupTarget = pickup.position;   // hacia el que se agacha y baja el brazo
+        pickupTime = 0.0f;
 
         std::vector<std::string> items;
         std::string rareFound;
@@ -745,6 +750,8 @@ int main(int argc, char** argv) {
     if (const char* delay = std::getenv("BAZUKO_SHOT_DELAY")) shotDelay = static_cast<float>(std::atof(delay));
     if (shotPath) {
         const auto envFloat = [](const char* name, float fallback) { const char* v = std::getenv(name); return v ? static_cast<float>(std::atof(v)) : fallback; };
+        if (std::getenv("BAZUKO_PREVIEW_GRAB")) grabTime = static_cast<float>(std::atof(std::getenv("BAZUKO_PREVIEW_GRAB")));   // pruebas: congela el robo en ese segundo
+        if (std::getenv("BAZUKO_DOG_FRIEND")) simulation.BefriendDog();   // pruebas: El Chato ya es amigo (se puede acariciar)
         if (const char* weather = std::getenv("BAZUKO_WEATHER")) simulation.ForceWeather(static_cast<Climate::Weather>(std::clamp(std::atoi(weather), 0, Climate::kWeatherCount - 1)));   // pruebas: 0 soleado .. 6 tormenta
         if (const char* hour = std::getenv("BAZUKO_HOUR")) simulation.SetDayProgress(static_cast<float>(std::atof(hour)) / 24.0f);   // pruebas: hora del dia
         if (const char* where = std::getenv("BAZUKO_POS")) {   // pruebas: BAZUKO_POS=x,z coloca al jugador (p. ej. dentro del lago)
@@ -903,6 +910,7 @@ int main(int argc, char** argv) {
         if (playerCrouching || attacking || playerSwimming) isRunning = false;
         float moveSpeed = (isRunning ? 6.0f : 3.0f) * statusSpeedMultiplier;
         if (playerCrouching) moveSpeed *= 0.5f;
+        if (sorting) moveSpeed = 0.0f;   // revisando la basura: quieto y agachado
         if (playerSwimming) moveSpeed *= 0.55f;   // nadando
         else if (playerWaterDepth > 0.3f) moveSpeed *= 1.0f - 0.25f * std::min(1.0f, playerWaterDepth);   // el agua frena al vadear
         if (attacking) moveSpeed *= 0.3f;
@@ -1131,12 +1139,24 @@ int main(int argc, char** argv) {
                 }
             }
         }
+        if (static const char* sortHold = std::getenv("BAZUKO_SORT_HOLD"); sortHold && !sorting && clock.GetElapsedTime() > 1.0f && !simulation.GetPickups().empty()) {   // pruebas: se coloca junto a la primera bolsa y la revisa sin soltar Q
+            static bool placed = false;
+            if (!placed) {
+                placed = true;
+                size_t pick = static_cast<size_t>(std::atoi(sortHold));
+                pick = std::min(pick, simulation.GetPickups().size() - 1);
+                playerPos = simulation.GetPickups()[pick].position + glm::vec3(0.0f, 0.0f, 1.1f);
+                playerPos.y = city.GetGroundHeight(playerPos.x, playerPos.z);
+                sortPosition = simulation.GetPickups()[pick].position;
+                sorting = true;
+            }
+        }
         if (sorting) {
             const bool canSort = !ui.IsPaused() && !characterCreatorUI.IsOpen() && !ui.IsDeathScreenOpen();
             if (!canSort || glm::distance(playerPos, sortPosition) > 2.2f) {
                 sorting = false;
                 sortProgress = 0.0f;
-            } else if (Input::IsKeyDown(GLFW_KEY_Q)) {
+            } else if (Input::IsKeyDown(GLFW_KEY_Q) || std::getenv("BAZUKO_SORT_HOLD")) {
                 sortProgress = std::min(kSortSeconds, sortProgress + std::max(0.0f, dt));
             } else {
                 const bool complete = sortProgress >= kSortSeconds;
@@ -1322,6 +1342,7 @@ int main(int argc, char** argv) {
                 if (mirrorCapacity == 0) {
                     ui.SetPickupNotification("El costal está lleno; deja espacio para guardar los retrovisores.");
                 } else if (simulation.StealParkedCar(parkedCarIndex)) {
+                    grabTime = 0.0f;
                     audio.PlayTheftRemark(2.0f);
                     const bool caught = std::uniform_real_distribution<float>(0.0f, 1.0f)(lootRandom)
                         < 0.25f * talentEffect("stealCaughtMult");
@@ -1341,6 +1362,7 @@ int main(int argc, char** argv) {
             } else if (availableLootCount("retrovisor") == 0) {
                 ui.SetPickupNotification("El costal está lleno; deja espacio para guardar los retrovisores.");
             } else if (simulation.StealCar(carIndex)) {
+                grabTime = 0.0f;
                 audio.PlayTheftRemark(2.0f);
                 const float caughtChance = 0.25f * talentEffect("stealCaughtMult");
                 const bool caught = std::uniform_real_distribution<float>(0.0f, 1.0f)(lootRandom) < caughtChance;
@@ -1671,6 +1693,12 @@ int main(int argc, char** argv) {
                     jumpOffset = 0.0f;
                 }
             }
+            if (pickupTime >= 0.0f) { pickupTime += dt; if (pickupTime >= 0.85f) pickupTime = -1.0f; }
+            if (sorting) {   // de cara a la bolsa mientras se revisa
+                const glm::vec3 toBag = sortPosition - playerPos;
+                if (glm::length(glm::vec2(toBag.x, toBag.z)) > 0.05f) playerYaw = std::atan2(toBag.x, toBag.z);
+            }
+            if (grabTime >= 0.0f && !std::getenv("BAZUKO_PREVIEW_GRAB")) { grabTime += dt; if (grabTime >= Combat::kGrabDuration) grabTime = -1.0f; }
             fightStanceRemaining = std::max(0.0f, fightStanceRemaining - dt);
             knifeStanceRemaining = std::max(0.0f, knifeStanceRemaining - dt);
         }
@@ -1975,6 +2003,26 @@ int main(int argc, char** argv) {
                     bone("mixamorig:RightUpLeg", 0.38f * std::sin(kTau * 2.0f * swimPhase));
                     bone("mixamorig:LeftUpLeg", -0.38f * std::sin(kTau * 2.0f * swimPhase));
                 }
+                {   // basura: revisandola (Q mantenido) se agacha y revuelve con los dos brazos; al recogerla de un golpe baja el brazo derecho
+                    const auto toLocal = [&](const glm::vec3& target) {
+                        const glm::vec3 v = target - playerPos;
+                        const glm::vec3 forward(std::sin(playerYaw), 0.0f, std::cos(playerYaw)), left(std::cos(playerYaw), 0.0f, -std::sin(playerYaw));
+                        return glm::vec3(glm::dot(v, left), 0.0f, glm::dot(v, forward));
+                    };
+                    static float sortElapsed = 0.0f;
+                    if (sorting) {
+                        sortElapsed += std::max(0.0f, dt);
+                        Combat::AppendGroundWork(swimTurns, std::min(1.0f, sortElapsed / 0.30f), toLocal(sortPosition), sortElapsed, 1.0f, true);
+                    } else {
+                        sortElapsed = 0.0f;
+                        if (pickupTime >= 0.0f) {
+                            const float u = pickupTime / 0.85f;
+                            const float envelope = u < 0.35f ? glm::smoothstep(0.0f, 0.35f, u) : 1.0f - glm::smoothstep(0.55f, 1.0f, u);   // baja rapido, toca y sube
+                            Combat::AppendGroundWork(swimTurns, 0.75f * envelope, toLocal(pickupTarget), pickupTime, 0.5f, false);
+                        }
+                    }
+                }
+                if (grabTime >= 0.0f) Combat::AppendGrab(swimTurns, grabTime);   // robo de un retrovisor: el brazo derecho agarra rapido y vuelve
                 if (playerAction == PlayerAction::Jump) Jump::Append(swimTurns, actionTime, jumpMoving);
                 else if (const int combatMove = combatMoveOf(playerAction); combatMove >= 0 && playerAction != PlayerAction::None)
                     Combat::AppendMove(swimTurns, static_cast<Combat::Move>(combatMove), actionTime);
