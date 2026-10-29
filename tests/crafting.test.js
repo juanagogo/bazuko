@@ -44,16 +44,45 @@ test('todas las recetas se fabrican con sus materiales exactos', () => {
   }
 });
 
-test('si el resultado no cabe en el costal no se fabrica ni se pierden materiales', () => {
+test('fabricar con el costal lleno descuenta el peso de los ingredientes antes de comprobar el resultado', () => {
   const crafting = new CraftingSystem();
   const recipe = RECIPES.find((r) => r.id === 'arma');
   const inventory = stocked(recipe);
-  inventory.maxWeight = inventory.totalWeight;
+  assert.equal(inventory.add(ITEMS.lata, 78), true);
+  assert.equal(inventory.totalWeight, 20);
+  const shown = crafting.getAvailable(inventory).find((r) => r.id === 'arma');
+  assert.equal(shown.craftable, true);
+  assert.equal(shown.fits, true);
+  assert.equal(crafting.craft(recipe, inventory)?.id, 'arma');
+  assert.equal(inventory.totalWeight, 16.8);
+  assert.equal(inventory.count('arma'), 1);
+  assert.equal(inventory.count('lata'), 78);
+  for (const id of Object.keys(recipe.ingredients)) assert.equal(inventory.count(id), 0);
+});
+
+test('si el peso final sigue excediendo el costal no se fabrica ni se pierde ningún objeto', () => {
+  const crafting = new CraftingSystem();
+  const recipe = RECIPES.find((r) => r.id === 'arma');
+  const inventory = stocked(recipe, 140);
+  inventory.add(ITEMS.colchon, 4);
+  // Soltar la carreta puede dejar una carga mayor que la capacidad del costal.
+  inventory.maxWeight = 20;
+  const before = structuredClone(inventory.items);
   assert.equal(crafting.craft(recipe, inventory), null);
-  for (const [id, qty] of Object.entries(recipe.ingredients)) assert.equal(inventory.count(id), qty);
+  assert.deepEqual(inventory.items, before);
   const shown = crafting.getAvailable(inventory).find((r) => r.id === 'arma');
   assert.equal(shown.craftable, true);
   assert.equal(shown.fits, false);
+});
+
+test('una receta sin todos sus ingredientes no consume los materiales disponibles', () => {
+  const crafting = new CraftingSystem();
+  const recipe = RECIPES.find((r) => r.id === 'arma');
+  const inventory = stocked(recipe);
+  inventory.remove('cable');
+  const before = structuredClone(inventory.items);
+  assert.equal(crafting.craft(recipe, inventory), null);
+  assert.deepEqual(inventory.items, before);
 });
 
 test('fabricar sustancias no deja ganancia al revenderlas al dealer con el mejor talento', () => {

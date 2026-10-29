@@ -16,6 +16,8 @@ export class StatsSystem {
     this.dinero  = 0;     // pesos colombianos
     this.xp      = 0;
     this.level   = 1;
+    this.calor   = 0;     // segundos de calor corporal / protección contra el frío
+    this.isFreezing = false;
 
     this.diseaseSystem = null;
   }
@@ -56,7 +58,7 @@ export class StatsSystem {
     this.diseaseSystem = ds;
   }
 
-  update(dt, player, diseaseSystem = null, clock = null, talentSystem = null) {
+  update(dt, player, diseaseSystem = null, clock = null, talentSystem = null, weather = null) {
     if (diseaseSystem) this.diseaseSystem = diseaseSystem;
     const ds = diseaseSystem ?? this.diseaseSystem;
     // ===== Efectos agregados de enfermedades =====
@@ -71,6 +73,17 @@ export class StatsSystem {
     };
 
     const decayMult = talentSystem?.getEffect('decayMult', 1) ?? 1;
+
+    // ===== Sistema térmico y frío bogotano ("La Nevera") =====
+    if (this.calor > 0) {
+      this.calor = Math.max(0, this.calor - dt);
+    }
+    const isCold = !!(clock?.isNight && weather?.isRaining) && this.calor <= 0;
+    this.isFreezing = isCold;
+    if (isCold) {
+      // El frío nocturno con lluvia cala los huesos y desgasta la energía
+      this.energia = Math.max(0, this.energia - 0.35 * dt);
+    }
 
     // ===== Decay base =====
     this.hambre  = Math.max(0, this.hambre  - DECAY.hambre  * fx.hungerDrainMultiplier * dt * decayMult);
@@ -101,6 +114,8 @@ export class StatsSystem {
     if (this.hambre < 30) animoDecay *= 1.5;
     if (this.sed < 30)    animoDecay *= 1.5;
     if (this.energia < 30) animoDecay *= 1.3;
+    if (this.isFreezing)  animoDecay *= 1.25;
+    if (this.calor > 0)   animoDecay *= 0.8;
     if (this.inWithdrawal) {
       animoDecay *= WITHDRAWAL.animoMult;
       if (this.isCriticalWithdrawal) animoDecay *= 2.2;
@@ -205,7 +220,8 @@ export class StatsSystem {
       vicio: this.vicio,
       dinero: this.dinero,
       xp: this.xp,
-      level: this.level
+      level: this.level,
+      calor: Math.round(this.calor)
     };
   }
 
@@ -222,5 +238,6 @@ export class StatsSystem {
     if (d.dinero !== undefined)  this.dinero  = d.dinero;
     if (d.xp !== undefined)      this.xp      = d.xp;
     if (d.level !== undefined)   this.level   = d.level;
+    if (d.calor !== undefined)   this.calor   = d.calor;
   }
 }

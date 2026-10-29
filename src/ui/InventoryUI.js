@@ -169,6 +169,17 @@ export class InventoryUI {
 
   // ===== Teclado =====
 
+  /** El mando navega el costal; sus botones de juego nunca descartan objetos aquí. */
+  handleGamepad(action) {
+    if (!this.isOpen) return;
+    if (action === 'back') { this.close(); return; }
+    if (action === 'confirm') { this.useSelected(); return; }
+    const step = { left: -1, right: 1, up: -COLS, down: COLS }[action];
+    if (step === undefined) return;
+    this.select(this.selected + step);
+    this.slotEls[this.selected]?.el.scrollIntoView?.({ block: 'nearest' });
+  }
+
   _handleKey(e) {
     if (this.game._loading || this.game.creator?.isOpen || this.game.menu?.isOpen) return;
     if (e.repeat && !this.isOpen) return;

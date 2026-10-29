@@ -14,7 +14,8 @@ export default defineConfig({
     baseURL: 'http://127.0.0.1:5188',
     trace: 'on-first-retry', screenshot: 'only-on-failure', video: 'retain-on-failure',
     viewport: { width: 1280, height: 800 },
-    launchOptions: { args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader'] }
+    // Usar la GPU local cuando el renderizado por software no completa la carga.
+    launchOptions: { args: process.env.PLAYWRIGHT_GPU === '1' ? [] : ['--use-angle=swiftshader', '--enable-unsafe-swiftshader'] }
   },
   projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'] } }],
   webServer: {

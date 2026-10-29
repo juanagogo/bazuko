@@ -7,20 +7,20 @@ const C = hex => new THREE.Color(hex);
 
 // Paleta del cielo bogotano: despejado, cubierto y crepuscular.
 const SKY = {
-  nightTop: C(0x060c15), nightTopOvercast: C(0x17151a),
-  nightHorizon: C(0x121a24), nightHorizonOvercast: C(0x2b231f), // nubes con el reflejo de la ciudad
+  nightTop: C(0x101b2a), nightTopOvercast: C(0x263344),
+  nightHorizon: C(0x26394a), nightHorizonOvercast: C(0x394454),
   dayTop: C(0x2f6db0), dayTopOvercast: C(0x76838f),
   dayHorizon: C(0xa9c4da), dayHorizonOvercast: C(0x9aa3ab),
   twilightTop: C(0x34405e), twilightHorizon: C(0xd49a72),
-  rain: C(0x3c4651), mistDay: C(0xa9aeb2), mistNight: C(0x2b2c30), flash: C(0x8e98b0)
+  rain: C(0x3c4651), mistDay: C(0xa9aeb2), mistNight: C(0x384854), flash: C(0x8e98b0)
 };
 const CLOUD = {
   dayLight: C(0xf3f5f7), dayShadow: C(0x9aa6b1), overcastShadow: C(0x5e6771),
   twilightLight: C(0xe2a785), twilightShadow: C(0x6a5a66),
-  nightLight: C(0x3b322d), nightShadow: C(0x1b1819), rainShadow: C(0x3c434b)
+  nightLight: C(0x455160), nightShadow: C(0x222e3e), rainShadow: C(0x3c434b)
 };
-const SUN = { day: C(0xfff2e0), low: C(0xff9a55), overcast: C(0xdde4ec), night: C(0x506580), moon: C(0x93a7c8) };
-const HEMI = { day: C(0x9fb5cc), night: C(0x55657e) };
+const SUN = { day: C(0xfff2e0), low: C(0xff9a55), overcast: C(0xdde4ec), night: C(0xa5b9d2), moon: C(0xbecde0) };
+const HEMI = { day: C(0x9fb5cc), night: C(0x9aaac0), groundDay: C(0x786f60), groundNight: C(0x93806a) };
 const OCTAVES = { baja: 2, media: 3, alta: 4 };
 
 function createSkyDome() {
@@ -38,6 +38,8 @@ function createSkyDome() {
       moonPhase: { value: 0.5 },
       moonVisibility: { value: 0.0 },
       nightFactor: { value: 1.0 },
+      cityGlow: { value: 0.0 },
+      cityGlowColor: { value: C(0xb98251) },
       cloudCover: { value: 0.5 },
       cloudOffset: { value: new THREE.Vector2() },
       cloudLight: { value: new THREE.Color(0xf3f5f7) },
@@ -68,6 +70,8 @@ function createSkyDome() {
       uniform float moonPhase;
       uniform float moonVisibility;
       uniform float nightFactor;
+      uniform float cityGlow;
+      uniform vec3 cityGlowColor;
       uniform float cloudCover;
       uniform vec2 cloudOffset;
       uniform vec3 cloudLight;
@@ -104,6 +108,9 @@ function createSkyDome() {
         vec3 dir = normalize(vDirection);
         float h = max(dir.y + 0.04, 0.0);
         vec3 sky = mix(bottomColor, topColor, pow(h, 0.55));
+        // Luz de sodio dispersada por la humedad: una franja suave sobre la ciudad.
+        float urbanHaze = exp(-max(dir.y, 0.0) * 8.0);
+        sky += cityGlowColor * cityGlow * urbanHaze;
         float sunDot = max(dot(dir, sunDirection), 0.0);
         sky += sunGlowColor * (pow(sunDot, 5.0) * 0.6 + pow(sunDot, 48.0) * 0.5) * sunGlowIntensity;
 
@@ -149,6 +156,7 @@ function createSkyDome() {
           density *= smoothstep(0.0, 0.14, dir.y);
           float thickness = clamp((n - threshold) * 2.2 + cloudCover * 0.35, 0.0, 1.0);
           vec3 cloud = mix(cloudLight, cloudShadow, thickness);
+          cloud += cityGlowColor * cityGlow * (0.18 + urbanHaze * 0.6) * (1.0 - thickness * 0.4);
           cloud += sunGlowColor * pow(sunDot, 10.0) * (1.0 - thickness) * sunGlowIntensity * 0.8;
           cloud += vec3(0.75, 0.8, 0.95) * flash * (0.4 + thickness);
           sky = mix(sky, cloud, density);
@@ -157,6 +165,8 @@ function createSkyDome() {
         sky += vec3(0.5, 0.55, 0.7) * flash * 0.25;
 
         gl_FragColor = vec4(sky, 1.0);
+        #include <tonemapping_fragment>
+        #include <colorspace_fragment>
       }
     `,
     side: THREE.BackSide,
@@ -269,7 +279,7 @@ export class SceneManager {
 
     // Luz directa: el sol pierde fuerza con las nubes; de noche queda la luna y el brillo urbano.
     this.sun.intensity = sunLit * THREE.MathUtils.lerp(2.5, 0.45, Math.pow(cloud, 1.3)) * (1 - 0.3 * rain)
-      + (1 - sunLit) * (0.3 + moonLight);
+      + (1 - sunLit) * (0.52 + moonLight * .8);
     if (sunLit > 0.02) {
       this.sun.color.copy(SUN.day).lerp(SUN.low, lowSun * (1 - cloud * .6)).lerp(SUN.overcast, cloud * .5);
       this.sun.color.lerp(SUN.night, 1 - sunLit);
@@ -277,10 +287,15 @@ export class SceneManager {
       this.sun.color.copy(SUN.night).lerp(SUN.moon, clamp01(moonLight * 2.5));
     }
 
-    // Con cielo cubierto la luz es más difusa: sube la parte ambiental.
-    this.ambient.intensity = (0.55 + day * (0.8 + 0.25 * cloud) + twilight * 0.25) * (1 - 0.12 * rain) + flash * 2.2;
+    // Relleno difuso en espacio lineal: conserva detalle en ropa y andenes durante la noche.
+    // El contraste nocturno viene del cielo frío, el rebote cálido y la luz direccional.
+    this.ambient.intensity = (THREE.MathUtils.lerp(1.12, 1.35 + .25 * cloud, day) + twilight * .18)
+      * (1 - .06 * rain) + flash * 2.2;
     this.ambient.color.copy(HEMI.night).lerp(HEMI.day, day);
-    this.scene.environmentIntensity = 0.45 + day * 0.55 * (1 - 0.25 * cloud) + twilight * 0.2 + flash * .8;
+    this.ambient.groundColor.copy(HEMI.groundNight).lerp(HEMI.groundDay, day);
+    this.scene.environmentIntensity = .72 + day * .28 * (1 - .25 * cloud) + twilight * .12 + flash * .5;
+    // Adaptación fotográfica lenta ligada al ciclo solar, sin medir píxeles ni añadir pasadas.
+    this.scene.userData.toneMappingExposure = 1.22 - day * .17 - twilight * .06;
 
     // Colores del cielo: cenit (top) y horizonte (sky = fondo y niebla).
     const top = this._top.copy(SKY.nightTop).lerp(SKY.nightTopOvercast, cloud)
@@ -322,6 +337,7 @@ export class SceneManager {
     u.sunGlowIntensity.value = (twilight * 1.0 + day * 0.35 * (1 - cloud)) * (1 - rain * 0.85);
     u.sunDisc.value = smooth(sunAlt, -0.02, 0.03) * (1 - rain);
     u.nightFactor.value = night; // las nubes tapan las estrellas en el shader
+    u.cityGlow.value = night * (.035 + cloud * .055 + rain * .025);
     u.cloudCover.value = cloud;
     u.flash.value = flash;
     u.cloudLight.value.copy(CLOUD.nightLight).lerp(CLOUD.dayLight, day).lerp(CLOUD.twilightLight, twilight * 0.45);

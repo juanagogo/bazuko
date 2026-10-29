@@ -1,5 +1,11 @@
 // src/systems/RadioSystem.js
 // Sistema de Radio Transistor AM/FM portátil con síntesis de sonido Lo-Fi bogotano
+import { bulletinsFor } from '../data/radioBulletins.js';
+
+// Segundos de escucha continua en 890 AM entre boletines generales de la ciudad.
+export const CITY_BULLETIN_INTERVAL = 90;
+// Señal mínima para entender al locutor.
+const NEWS_MIN_SIGNAL = 0.4;
 
 const emitToast = (text, type = 'info') => {
   if (typeof window !== 'undefined' && typeof CustomEvent !== 'undefined' && window.dispatchEvent) {
@@ -67,6 +73,13 @@ export class RadioSystem {
     this._synthTimer = null;
     this._step = 0;
     this._lastMentalTick = 0;
+
+    // Boletines de 890 AM: como máximo uno por cada cambio de clima.
+    this.lastBulletin = null;
+    this.bulletinLog = [];
+    this._pendingWeather = null;
+    this._bulletinIndex = { lluvia: 0, despeje: 0, ciudad: 0 };
+    this._cityTimer = 0;
 
     // Cargar preferencias guardadas
     try {
@@ -353,6 +366,8 @@ export class RadioSystem {
       return;
     }
 
+    this._updateBulletins(dt);
+
     const { signal } = this.getStationInfo();
 
     // Efecto de bienestar: escuchar radio sube la salud mental (+0.8 por segundo)
@@ -366,6 +381,56 @@ export class RadioSystem {
     if (dog && signal > 0.4) {
       dog.time += dt * 0.5;
     }
+  }
+
+  /**
+   * Recibe el evento 'weather-change' de WeatherSystem. El boletín queda pendiente
+   * hasta que el jugador escuche 890 AM; un nuevo cambio reemplaza al anterior.
+   */
+  onWeatherChange({ isRaining } = {}) {
+    this._pendingWeather = isRaining ? 'lluvia' : 'despeje';
+    this._tryAirWeatherBulletin();
+  }
+
+  isListeningNews() {
+    if (!this.isOn || this.battery <= 0) return false;
+    const { station, signal } = this.getStationInfo();
+    return station.id === 'noticias' && signal >= NEWS_MIN_SIGNAL;
+  }
+
+  _updateBulletins(dt) {
+    if (!this.isListeningNews()) {
+      this._cityTimer = 0;
+      return;
+    }
+    this._tryAirWeatherBulletin();
+    this._cityTimer += dt;
+    if (this._cityTimer >= CITY_BULLETIN_INTERVAL) {
+      this._cityTimer = 0;
+      this._airNext('ciudad');
+    }
+  }
+
+  _tryAirWeatherBulletin() {
+    if (!this._pendingWeather || !this.isListeningNews()) return;
+    const trigger = this._pendingWeather;
+    this._pendingWeather = null;
+    this._airNext(trigger);
+  }
+
+  _airNext(trigger) {
+    const list = bulletinsFor(trigger);
+    if (!list.length) return null;
+    const bulletin = list[this._bulletinIndex[trigger]++ % list.length];
+    this.lastBulletin = bulletin;
+    this.bulletinLog = [bulletin, ...this.bulletinLog].slice(0, 5);
+    emitToast(`📻 890 AM · ${bulletin.titular}. ${bulletin.objetivo}`, trigger === 'lluvia' ? 'warn' : 'info');
+    if (typeof window !== 'undefined' && typeof CustomEvent !== 'undefined' && window.dispatchEvent) {
+      try {
+        window.dispatchEvent(new CustomEvent('radio-bulletin', { detail: bulletin }));
+      } catch { /* ignorar en entornos sin DOM completo */ }
+    }
+    return bulletin;
   }
 
   destroy() {

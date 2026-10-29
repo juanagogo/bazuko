@@ -4,22 +4,45 @@ import { COLORS, CAR_COOLDOWN } from '../utils/constants.js';
 import { makeVehicle } from '../world/bogota/vehicles.js';
 import { createImportedModel, disposeImportedInstance } from '../utils/ImportedModels.js';
 
+const SHIRTS = [0x8a2b2b, 0x2b4a8a, 0x3a3a3a, 0xc9b27a, 0x2f6b45, 0xe0e0e0];
+const SKINS = [0xe0b08a, 0xc68a5e, 0x9a6440, 0x6e4529];
+
+/** Conductor sentado: torso y cabeza simples, visibles por las ventanas sin cargar un personaje completo. */
+function createSeatedDriver(height) {
+  const group = new THREE.Group();
+  group.name = 'Conductor';
+  const shirt = new THREE.MeshStandardMaterial({ color: SHIRTS[Math.floor(Math.random() * SHIRTS.length)], roughness: .9 });
+  const skin = new THREE.MeshStandardMaterial({ color: SKINS[Math.floor(Math.random() * SKINS.length)], roughness: .8 });
+  const torso = new THREE.Mesh(new THREE.BoxGeometry(.26, .42, .38), shirt);
+  torso.position.y = height - .62;
+  const head = new THREE.Mesh(new THREE.SphereGeometry(.11, 10, 8), skin);
+  head.position.y = height - .3;
+  group.add(torso, head);
+  // Frente hacia +X local; en Colombia se conduce desde el lado izquierdo (−Z).
+  group.position.set(.05, 0, -.36);
+  return group;
+}
+
+const CRIOLLOS = new Set(['zapatico', 'huevito', 'amigofiel']);
+
 export class Car {
-  constructor(scene, position, rotation = 0, { traffic = false } = {}) {
+  constructor(scene, position, rotation = 0, { traffic = false, kind = null } = {}) {
     this.scene = scene;
     this.used = false;
     this.cooldown = 0;
     this.traffic = traffic;
+    this.pursuit = false;
 
     this.group = new THREE.Group();
     this.group.position.copy(position);
     this.group.rotation.y = rotation;
     scene.add(this.group);
 
-    // Carro realista (portado de rebusque): particular o taxi amarillo, frente hacia +X local
-    const kind = Math.random() < 0.3 ? 'taxi' : 'carro';
-    this.modelKind = kind === 'taxi' ? 'car2' : 'car1';
-    const v = makeVehicle(kind, Math.floor(Math.random() * 8), { beams: true });
+    // Carro realista (portado de rebusque): particular, taxi o policía; frente hacia +X local
+    const resolvedKind = kind ?? (Math.random() < 0.3 ? 'taxi' : 'carro');
+    this.kind = resolvedKind;
+    this.modelKind = resolvedKind === 'taxi' ? 'car2' : 'car1';
+    const v = makeVehicle(resolvedKind, Math.floor(Math.random() * 8), { beams: true });
     this.vehicle = v;
     if (!traffic && v.beam) v.beam.visible = false;
     this.length = v.length;
@@ -56,11 +79,30 @@ export class Car {
     this.marker.position.y = 0.05;
     this.marker.visible = !traffic;
     this.group.add(this.marker);
+
+    // Solo los carros en circulación llevan conductor; los estacionados activan la alarma.
+    this.driver = traffic ? createSeatedDriver(this.modelKind === 'car2' ? 1.45 : 1.62) : null;
+    if (this.driver) this.group.add(this.driver);
+  }
+
+  /** Muestra u oculta al conductor sentado (se baja del carro o vuelve a subir). */
+  setDriverInside(inside) {
+    this.driverInside = inside;
+    if (this.driver) this.driver.visible = inside && !this.driverHidden;
+  }
+
+  /** Punto junto a la puerta del conductor, en metros del mundo. */
+  driverDoor(target = new THREE.Vector3()) {
+    this.group.updateMatrixWorld();
+    return target.set(.05, 0, -(this.width / 2 + .55)).applyMatrix4(this.group.matrixWorld).setY(this.group.position.y);
   }
 
   get position() { return this.group.position; }
 
   preloadModel() {
+    // Patrullas y carros criollos (Zapatico, Huevito, Amigo Fiel) no tienen modelo
+    // importado: conservan su carrocería propia, con luces o vidrios transparentes.
+    if (this.kind === 'police' || CRIOLLOS.has(this.vehicle.model)) return this._modelPromise ??= Promise.resolve();
     return this._modelPromise ??= createImportedModel(this.modelKind).then(model => {
       if (this._disposed) { disposeImportedInstance(model); return; }
       this.group.remove(this.vehicle.group);
@@ -69,6 +111,9 @@ export class Car {
       this.group.add(model);
       // Las ruedas del GLB están integradas en una sola malla texturizada.
       this.vehicle = { group: model, wheels: [], tailMat: null, dispose() { disposeImportedInstance(model); } };
+      // Sus ventanas son opacas: el conductor sentado no se vería y solo añadiría llamadas de dibujo.
+      this.driverHidden = true;
+      if (this.driver) this.driver.visible = false;
     });
   }
 
@@ -78,7 +123,8 @@ export class Car {
    * @returns { items, caught }
    */
   steal(caughtMult = 1) {
-    if (this.used || this.cooldown > 0) return null;
+    // A una patrulla no se le roban los espejos.
+    if (this.kind === 'police' || this.used || this.cooldown > 0) return null;
 
     const items = [];
     const mirrorCount = Math.random() < 0.5 ? 2 : 1;
@@ -115,6 +161,12 @@ export class Car {
     if (this.vehicle.tailMat && braking !== this._braking) {
       this.vehicle.tailMat.color.set('#ff1a12').multiplyScalar(braking ? 3.5 : 1.4);
       this._braking = braking;
+    }
+    const lights = this.vehicle.policeLights;
+    if (lights) {
+      const on = Math.floor(performance.now() / (this.pursuit ? 90 : 160)) % 2 === 0;
+      lights.blue.color.set(on ? '#1a6cff' : '#061028').multiplyScalar(on ? 4 : 0.35);
+      lights.red.color.set(on ? '#061028' : '#ff1a2a').multiplyScalar(on ? 0.35 : 4);
     }
   }
 

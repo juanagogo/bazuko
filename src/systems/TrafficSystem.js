@@ -1,29 +1,45 @@
 import * as THREE from 'three';
 import { Car } from '../entities/Car.js';
 import { signalState } from '../world/bogota/TrafficSignals.js';
-import { PLAYER_RADIUS } from '../utils/constants.js';
+import {
+  PLAYER_RADIUS,
+  POLICE_SIGHT_RANGE,
+  POLICE_CLOSE_RANGE,
+  POLICE_CHASE_SPEED,
+  POLICE_CATCH_RANGE,
+  POLICE_GIVE_UP_RANGE,
+  POLICE_CHASE_TIMEOUT,
+} from '../utils/constants.js';
 import { SpatialGrid } from '../core/SpatialGrid.js';
+import { canReachCombatTarget, hasClearCombatLine } from './CombatGeometry.js';
 
 const GAP = 1.8;
 const ACCELERATION = 1.8;
 const BRAKING = 2;
+const CHASE_ACCELERATION = 3.2;
 const PROBE_STEP = 0.5;
+const ROUTE_SAMPLE_STEP = 2;
+const CHASE_HEIGHT_TOLERANCE = .85;
+const CHASE_PROBE_STEP = .25;
+const CHASE_STEERING = [0, .45, -.45, .9, -.9, 1.35, -1.35, Math.PI / 2, -Math.PI / 2];
 
-function emitHonk(x, z) {
+function emit(type, detail) {
   if (typeof window !== 'undefined' && typeof window.dispatchEvent === 'function') {
     try {
-      const detail = { x, z };
-      const event = typeof CustomEvent !== 'undefined' ? new CustomEvent('car-honk', { detail }) : { type: 'car-honk', detail };
+      const event = typeof CustomEvent !== 'undefined' ? new CustomEvent(type, { detail }) : { type, detail };
       window.dispatchEvent(event);
     } catch {}
   }
 }
 
+function emitHonk(x, z) { emit('car-honk', { x, z }); }
+
 export class TrafficSystem {
-  constructor(scene, routes, { carsPerRoute = 4, random = Math.random } = {}) {
+  constructor(scene, routes, { carsPerRoute = 4, policeCount = 0, random = Math.random } = {}) {
     this.vehicles = [];
     this.random = random;
     this.routes = routes.alternatives ?? routes;
+    this._arrestDispatched = false;
     this._position = new THREE.Vector3();
     this._direction = new THREE.Vector3();
     this._probePosition = new THREE.Vector3();
@@ -36,21 +52,134 @@ export class TrafficSystem {
     this._carCandidates = [];
     this._personCandidates = [];
     this._routeVehicles = new Map();
+    this._chaseColliders = [];
+    this._chaseBox = new THREE.Box3();
     for (const route of routes) {
       // Evita una población inicial mayor que el espacio disponible en el circuito.
       const count = Math.min(carsPerRoute, Math.floor(route.length / 12));
       for (let i = 0; i < count; i++) {
         const distance = (i + 0.4) * route.length / count;
-        route.sample(distance, this._position, this._direction);
-        const car = new Car(scene, this._position, Math.atan2(-this._direction.z, this._direction.x), { traffic: true });
-        const cruiseSpeed = 10 + random() * 4;
-        this.vehicles.push({ car, route, distance, speed: 0, cruiseSpeed, nextDistance: distance, nextSpeed: 0,
-          acceleration: 0, accelerationLimit: 1.8 + random() * .7, braking: 2.2 + random() * .6,
-          reactionTime: .18 + random() * .35, resumeDelay: 0, stopped: false,
-          routeTimer: 3 + random() * 5, recentRoutes: [route.key], routeChanges: 0,
-          lastHonkTime: 0 });
+        this._spawn(scene, route, distance, false);
       }
     }
+    // Las patrullas circulan como el resto del tráfico hasta que ven un robo.
+    const spawnRoutes = [...routes];
+    for (let i = 0; spawnRoutes.length && i < policeCount; i++) {
+      const route = spawnRoutes[Math.floor(random() * spawnRoutes.length)];
+      this._spawn(scene, route, random() * route.length, true);
+    }
+  }
+
+  _spawn(scene, route, distance, police) {
+    const random = this.random;
+    route.sample(distance, this._position, this._direction);
+    const car = new Car(scene, this._position, Math.atan2(-this._direction.z, this._direction.x),
+      { traffic: true, kind: police ? 'police' : null });
+    const cruiseSpeed = 10 + random() * 4;
+    this.vehicles.push({ car, route, distance, speed: 0, cruiseSpeed, patrolSpeed: cruiseSpeed, nextDistance: distance, nextSpeed: 0,
+      acceleration: 0, accelerationLimit: 1.8 + random() * .7, braking: 2.2 + random() * .6,
+      reactionTime: .18 + random() * .35, resumeDelay: 0, stopped: false,
+      routeTimer: 3 + random() * 5, recentRoutes: [route.key], routeChanges: 0,
+      lastHonkTime: 0, police, state: 'patrol', chaseTime: 0 });
+  }
+
+  _canWitness(vehicle, playerPosition) {
+    if (Math.abs((playerPosition.y ?? 0) - vehicle.car.position.y) > CHASE_HEIGHT_TOLERANCE) return false;
+    if (!hasClearCombatLine({ from: vehicle.car.position, to: playerPosition,
+      collisions: this.environment?.collisions, ignoreVehicle: vehicle.car })) return false;
+    const dx = playerPosition.x - vehicle.car.position.x;
+    const dz = playerPosition.z - vehicle.car.position.z;
+    const distSq = dx * dx + dz * dz;
+    if (distSq > POLICE_SIGHT_RANGE * POLICE_SIGHT_RANGE) return false;
+    const dist = Math.sqrt(distSq);
+    if (dist <= POLICE_CLOSE_RANGE) return true;
+    const yaw = vehicle.car.group.rotation.y;
+    const fx = Math.cos(yaw), fz = -Math.sin(yaw);
+    return (fx * dx + fz * dz) / dist > 0.2;
+  }
+
+  /** ¿Alguna patrulla tiene al jugador a la vista (cerca o de frente)? */
+  witnessesTheft(playerPosition) {
+    if (!playerPosition) return false;
+    return this.vehicles.some(vehicle => vehicle.police && vehicle.state === 'patrol' && this._canWitness(vehicle, playerPosition));
+  }
+
+  /** Pasa a persecución a las patrullas que ven el robo. */
+  alertForTheft(playerPosition) {
+    if (!playerPosition) return false;
+    let alerted = false;
+    for (const vehicle of this.vehicles) {
+      if (!vehicle.police || vehicle.state !== 'patrol' || !this._canWitness(vehicle, playerPosition)) continue;
+      this._startChase(vehicle);
+      alerted = true;
+    }
+    return alerted;
+  }
+
+  _startChase(vehicle) {
+    vehicle.state = 'chase';
+    vehicle.chaseTime = 0;
+    vehicle.cruiseSpeed = POLICE_CHASE_SPEED;
+    vehicle.impactStop = false;
+    vehicle.car.pursuit = true;
+    vehicle._chaseSteerTime = 0;
+    vehicle.rejoinTarget = null;
+  }
+
+  /** Consultas del distrito activo: la cota conserva la planta de calle o del viaducto. */
+  setEnvironment({ collisions = null, getGroundHeight = null, getWaterInfo = null } = {}) {
+    this.environment = { collisions, getGroundHeight, getWaterInfo };
+  }
+
+  /** Tras una captura o al escapar, todas las patrullas vuelven a rondar. */
+  endPursuit() {
+    this._arrestDispatched = false;
+    for (const vehicle of this.vehicles) {
+      if (vehicle.police && vehicle.state !== 'patrol') this._returnToPatrol(vehicle);
+    }
+  }
+
+  get inPursuit() {
+    return this.vehicles.some(vehicle => vehicle.police && vehicle.state === 'chase');
+  }
+
+  _returnToPatrol(vehicle) {
+    vehicle.state = 'patrol';
+    vehicle.chaseTime = 0;
+    vehicle.speed = vehicle.nextSpeed = vehicle.acceleration = 0;
+    vehicle.cruiseSpeed = vehicle.patrolSpeed;
+    vehicle.stopped = false;
+    vehicle.resumeDelay = vehicle.reactionTime;
+    vehicle.car.pursuit = false;
+    vehicle._chaseSteerTime = 0;
+    this._snapToNearestRoute(vehicle);
+  }
+
+  _snapToNearestRoute(vehicle) {
+    if (!this.routes.length) return;
+    let bestRoute = this.routes[0], bestDistance = 0, bestScore = Infinity;
+    for (const route of this.routes) {
+      for (let d = 0; d < route.length; d += ROUTE_SAMPLE_STEP) {
+        route.sample(d, this._probePosition, this._probeDirection);
+        const dx = this._probePosition.x - vehicle.car.position.x;
+        const dz = this._probePosition.z - vehicle.car.position.z;
+        const dy = this._probePosition.y - vehicle.car.position.y;
+        const score = dx * dx + dz * dz + dy * dy * 25;
+        if (score < bestScore) { bestScore = score; bestRoute = route; bestDistance = d; }
+      }
+    }
+    vehicle.route = bestRoute;
+    vehicle.distance = vehicle.nextDistance = bestDistance;
+    vehicle.recentRoutes = [bestRoute.key];
+    bestRoute.sample(bestDistance, this._position, this._direction);
+    if (this.environment && vehicle.car.position.distanceTo(this._position) > .2) {
+      // Regresar al carril también es movimiento físico; no saltar una manzana ni cambiar de planta.
+      vehicle.rejoinTarget = this._position.clone();
+      return;
+    }
+    vehicle.rejoinTarget = null;
+    vehicle.car.position.copy(this._position);
+    vehicle.car.group.rotation.y = Math.atan2(-this._direction.z, this._direction.x);
   }
 
   _personInCar(position, car) {
@@ -76,6 +205,16 @@ export class TrafficSystem {
   }
 
   setParkedCars(cars) { this.parkedCars = cars.map(car => ({ car })); }
+
+  /**
+   * Detiene un carro en su carril de forma gradual (p. ej. el conductor se baja) o lo libera.
+   * @returns {object|null} el vehículo de tráfico
+   */
+  hold(car, held = true) {
+    const vehicle = this.vehicles.find(v => v.car === car) ?? null;
+    if (vehicle) vehicle.hold = held;
+    return vehicle;
+  }
 
   _chooseRoute(vehicle) {
     if (vehicle.crossingNode) return false;
@@ -144,6 +283,7 @@ export class TrafficSystem {
       }
       const candidates = [];
       for (const vehicle of this.vehicles) {
+        if (vehicle.state === 'chase' || vehicle.rejoinTarget) continue;
         if (this._overlapsNode(vehicle.car, node)) { candidates.push(vehicle); continue; }
         // Fuera de este radio no puede solicitar el cruce en los próximos metros.
         const dx = Math.max(node.x0 - vehicle.car.position.x, 0, vehicle.car.position.x - node.x1);
@@ -266,7 +406,7 @@ export class TrafficSystem {
     const minZ = car.position.z - radius, maxZ = car.position.z + radius;
     this._carGrid.query(minX, minZ, maxX, maxZ, this._carCandidates);
     for (const other of this._carCandidates) {
-      if (other === vehicle || other.route === route) continue;
+      if (other === vehicle || (other.route === route && other.state !== 'chase' && !other.rejoinTarget)) continue;
       if (other.car.position.distanceToSquared(car.position) <= (radius + other.car.length) ** 2) nearbyCars.push(other);
     }
     this._personGrid.query(minX, minZ, maxX, maxZ, this._personCandidates);
@@ -310,6 +450,7 @@ export class TrafficSystem {
     };
     for (const vehicle of this.vehicles) {
       insert(vehicle);
+      if (vehicle.state === 'chase' || vehicle.rejoinTarget) continue;
       let list = this._routeVehicles.get(vehicle.route);
       if (!list) this._routeVehicles.set(vehicle.route, list = []);
       list.push(vehicle);
@@ -344,10 +485,154 @@ export class TrafficSystem {
     vehicle.playerContact = contact;
   }
 
+  _planChase(vehicle, stepTime, player, returning = false) {
+    vehicle._chaseCaught = vehicle._chaseGiveUp = false;
+    if (!player) {
+      vehicle.nextSpeed = Math.max(0, vehicle.speed - BRAKING * stepTime);
+      vehicle._chaseDist = 0;
+      return;
+    }
+    const dx = player.x - vehicle.car.position.x;
+    const dz = player.z - vehicle.car.position.z;
+    const dist = Math.hypot(dx, dz);
+    vehicle._chaseDx = dx;
+    vehicle._chaseDz = dz;
+    vehicle._chaseDist = dist;
+    if (returning && dist <= .2 && Math.abs(player.y - vehicle.car.position.y) <= .3) {
+      vehicle.car.position.copy(player);
+      vehicle.rejoinTarget = null;
+      vehicle._chaseDist = 0;
+      vehicle.nextSpeed = 0;
+      return;
+    }
+    const targetWater = this.environment?.getWaterInfo?.(player.x, player.z);
+    if (!returning && canReachCombatTarget({ from: vehicle.car.position, to: player,
+      maxDistance: POLICE_CATCH_RANGE, maxHeightDifference: CHASE_HEIGHT_TOLERANCE,
+      collisions: this.environment?.collisions, getWaterInfo: this.environment?.getWaterInfo,
+      toInWater: !!targetWater && player.y <= targetWater.surfaceY + .12,
+      ignoreVehicle: vehicle.car })) {
+      vehicle._chaseCaught = true;
+      vehicle.nextSpeed = 0;
+      return;
+    }
+    if (!returning && (dist > POLICE_GIVE_UP_RANGE || vehicle.chaseTime + stepTime >= POLICE_CHASE_TIMEOUT)) {
+      vehicle._chaseGiveUp = true;
+      vehicle.nextSpeed = 0;
+      return;
+    }
+    const rate = POLICE_CHASE_SPEED < vehicle.speed ? BRAKING : CHASE_ACCELERATION;
+    vehicle.nextSpeed = THREE.MathUtils.clamp(POLICE_CHASE_SPEED, vehicle.speed - rate * stepTime, vehicle.speed + rate * stepTime);
+    vehicle._chaseSteerTime = Math.max(0, (vehicle._chaseSteerTime ?? 0) - stepTime);
+  }
+
+  _chaseFootprint(vehicle, x, z, y, nx, nz) {
+    const { getGroundHeight, getWaterInfo, collisions } = this.environment;
+    const ground = getGroundHeight?.(x, z, y) ?? y;
+    if (!Number.isFinite(ground) || Math.abs(ground - y) > .3) return null;
+    const halfLength = vehicle.car.length / 2 + .12, halfWidth = vehicle.car.width / 2 + .12;
+    // El centro y los cuatro extremos de cada eje evitan meter media carrocería en el lago o en un desnivel.
+    for (const along of [-halfLength, 0, halfLength]) for (const side of [-halfWidth, 0, halfWidth]) {
+      const px = x + nx * along - nz * side, pz = z + nz * along + nx * side;
+      const support = getGroundHeight?.(px, pz, ground) ?? ground;
+      if (!Number.isFinite(support) || Math.abs(support - ground) > .75) return null;
+      const water = getWaterInfo?.(px, pz);
+      if (water && support <= water.surfaceY + .12) return null;
+    }
+    const halfX = Math.abs(nx) * halfLength + Math.abs(nz) * halfWidth;
+    const halfZ = Math.abs(nz) * halfLength + Math.abs(nx) * halfWidth;
+    const box = this._chaseBox;
+    box.min.set(x - halfX, ground + .25, z - halfZ);
+    box.max.set(x + halfX, ground + 1.65, z + halfZ);
+    const blocked = entry => entry?.box && entry.vehicle !== vehicle.car && box.intersectsBox(entry.box);
+    const obstacles = collisions?.queryStatic?.(box.min.x, box.min.z, box.max.x, box.max.z, this._chaseColliders)
+      ?? collisions?.colliders ?? [];
+    if (obstacles.some(blocked) || collisions?.dynamicColliders?.some(blocked)) return null;
+    return ground;
+  }
+
+  _chaseClearance(vehicle, nx, nz, travel) {
+    let y = vehicle.car.position.y, allowed = 0;
+    const count = Math.max(1, Math.ceil(travel / CHASE_PROBE_STEP));
+    for (let index = 0; index <= count; index++) {
+      const distance = travel * index / count;
+      const ground = this._chaseFootprint(vehicle, vehicle.car.position.x + nx * distance,
+        vehicle.car.position.z + nz * distance, y, nx, nz);
+      if (ground === null) break;
+      allowed = distance;
+      y = ground;
+    }
+    this._chaseSweepY = y;
+    return allowed;
+  }
+
+  _steerChase(vehicle, distance) {
+    const bearing = Math.atan2(vehicle._chaseDz, vehicle._chaseDx);
+    const lookAhead = Math.min(distance, 3 + vehicle.speed * .5);
+    let best = -Infinity, bestAngle = bearing;
+    for (const offset of CHASE_STEERING) {
+      const angle = bearing + offset;
+      const current = -vehicle.car.group.rotation.y;
+      const turn = Math.atan2(Math.sin(angle - current), Math.cos(angle - current));
+      const samples = Math.max(1, Math.ceil(Math.abs(turn) / .2));
+      let canTurn = true;
+      for (let i = 1; i <= samples; i++) {
+        const yaw = current + turn * i / samples, p = vehicle.car.position;
+        if (this._chaseFootprint(vehicle, p.x, p.z, p.y, Math.cos(yaw), Math.sin(yaw)) === null) {
+          canTurn = false; break;
+        }
+      }
+      if (!canTurn) continue;
+      const clear = this._chaseClearance(vehicle, Math.cos(angle), Math.sin(angle), lookAhead);
+      // Permite rodear el borde de un obstáculo; la preferencia leve conserva el lado elegido.
+      const previous = vehicle._chaseHeading ?? bearing;
+      const continuity = Math.cos(angle - previous) * .08;
+      const score = clear * (.35 + Math.cos(offset)) + continuity;
+      if (score > best) { best = score; bestAngle = angle; }
+    }
+    vehicle._chaseHeading = bestAngle;
+    vehicle._chaseCanMove = best > -Infinity;
+    vehicle._chaseSteerTime = .2;
+  }
+
+  _applyChase(vehicle, stepTime) {
+    if (vehicle._chaseGiveUp) {
+      this._returnToPatrol(vehicle);
+      if (!this.inPursuit && !this._arrestDispatched) emit('police-escaped', {});
+      return false;
+    }
+    vehicle.speed = vehicle.nextSpeed;
+    if (vehicle.state === 'chase') vehicle.chaseTime += stepTime;
+    if (vehicle._chaseCaught) {
+      vehicle.car.animateDrive(0, true);
+      return true;
+    }
+    const dist = vehicle._chaseDist || 0;
+    if (dist > 1e-6) {
+      let travel = Math.min(vehicle.speed * stepTime, Math.max(0, dist - (vehicle.rejoinTarget ? 0 : POLICE_CATCH_RANGE * .35)));
+      let nx = vehicle._chaseDx / dist, nz = vehicle._chaseDz / dist;
+      if (this.environment) {
+        if (vehicle._chaseSteerTime <= 0) this._steerChase(vehicle, dist);
+        nx = Math.cos(vehicle._chaseHeading); nz = Math.sin(vehicle._chaseHeading);
+        const safeTravel = vehicle._chaseCanMove ? this._chaseClearance(vehicle, nx, nz, travel) : 0;
+        if (safeTravel < travel) vehicle._chaseSteerTime = 0;
+        travel = safeTravel;
+        if (vehicle._chaseCanMove) vehicle.car.position.y = this._chaseSweepY;
+      }
+      vehicle.car.position.x += nx * travel;
+      vehicle.car.position.z += nz * travel;
+      if (travel > 0) vehicle.car.group.rotation.y = Math.atan2(-nz, nx);
+      vehicle.car.animateDrive(travel, false);
+      vehicle.speed = stepTime > 0 ? travel / stepTime : 0;
+    }
+    return false;
+  }
+
   update(dt, { player = null, pedestrians = [], onPlayerHit = null } = {}) {
     if (dt <= 0) return;
+    let caught = false;
     this._coordinateIntersections();
     for (const vehicle of this.vehicles) {
+      if (vehicle.state === 'chase' || vehicle.rejoinTarget) continue;
       vehicle.routeTimer -= Math.min(dt, .5);
       if (vehicle.routeTimer <= 0) {
         const changed = this._chooseRoute(vehicle);
@@ -362,6 +647,11 @@ export class TrafficSystem {
       this._updating = true;
       try {
         for (const vehicle of this.vehicles) {
+          if (vehicle.state === 'chase' || vehicle.rejoinTarget) {
+            vehicle._offRouteStep = true;
+            this._planChase(vehicle, stepTime, vehicle.rejoinTarget ?? player, !!vehicle.rejoinTarget);
+            continue;
+          }
           const clearance = this._clearance(vehicle, player, pedestrians);
           const braking = vehicle.braking ?? BRAKING;
           // Anticipa la respuesta gradual del conductor; el peatón no es una pared
@@ -375,6 +665,8 @@ export class TrafficSystem {
               if (vehicle.impactWait <= 0) { vehicle.impactStop = false; vehicle.impactWait = undefined; }
             }
           }
+          // Conductor fuera del carro: frena con su aceleración normal y espera.
+          if (vehicle.hold) desiredSpeed = 0;
           // Anticipa las curvas y reduce la velocidad antes de girar.
           let start = 0;
           for (const segment of vehicle.route.segments) {
@@ -413,6 +705,11 @@ export class TrafficSystem {
       }
       // Todos consultan las mismas posiciones antes de aplicar el movimiento.
       for (const vehicle of this.vehicles) {
+        if (vehicle._offRouteStep) {
+          vehicle._offRouteStep = false;
+          if (this._applyChase(vehicle, stepTime)) caught = true;
+          continue;
+        }
         const startDistance = vehicle.distance;
         const travel = vehicle.nextTravel;
         vehicle.distance = vehicle.nextDistance;
@@ -424,6 +721,10 @@ export class TrafficSystem {
         vehicle.car.animateDrive(vehicle.speed * stepTime, vehicle.speed < vehicle.cruiseSpeed * 0.7);
       }
       remaining -= stepTime;
+    }
+    if (caught && !this._arrestDispatched) {
+      this._arrestDispatched = true;
+      emit('police-arrest', { reason: 'chase' });
     }
   }
 

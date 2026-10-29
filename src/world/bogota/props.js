@@ -4,6 +4,8 @@
 import * as THREE from 'three';
 import { signTexture } from '../../utils/signs.js';
 import { trashBag, cardboard, radialSprite } from './textures.js';
+import { createUrbanTree } from './UrbanTrees.js';
+export { foliageWind } from './UrbanTrees.js';
 
 const lam = (color, opts = {}) => new THREE.MeshLambertMaterial({ color, ...opts });
 const std = (color, opts = {}) => {
@@ -232,59 +234,8 @@ export function streetSign(lines) {
   return shadow(g);
 }
 
-/** Árbol urbano (urapán / eucalipto) con suave vaivén por viento andino */
-export function tree(scale = 1) {
-  const g = new THREE.Group();
-  const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.2, 3, 7), std('#4a3a2a'));
-  trunk.position.y = 1.5;
-  g.add(trunk);
-
-  const foliage = new THREE.Group();
-  foliage.position.y = 3.2;
-  // Viento andino: fase y frecuencia del árbol viajan en las UV, así el vaivén
-  // sobrevive a la fusión en lotes estáticos sin actualizar cada árbol por fotograma.
-  const phase = rand(0, Math.PI * 2);
-  const freq = rand(1.4, 1.9);
-  for (let i = 0; i < 4; i++) {
-    const geometry = new THREE.IcosahedronGeometry(rand(0.9, 1.4), 0);
-    const uv = geometry.attributes.uv;
-    for (let v = 0; v < uv.count; v++) uv.setXY(v, phase, freq);
-    const c = new THREE.Mesh(geometry, foliageMat(FOLIAGE_GREENS[i % 3]));
-    c.customDepthMaterial = foliageDepthMat();
-    c.position.set(rand(-0.6, 0.6), rand(0, 1), rand(-0.6, 0.6));
-    foliage.add(c);
-  }
-  g.add(foliage);
-  g.scale.setScalar(scale);
-
-  return shadow(g);
-}
-
-/** Tiempo compartido del viento del follaje; lo avanza el distrito una vez por fotograma. */
-export const foliageWind = { value: 0 };
-const FOLIAGE_GREENS = ['#2f5a2a', '#3a6b30', '#26492a'];
-const swayFoliage = (material, key) => {
-  material.customProgramCacheKey = () => key;
-  material.onBeforeCompile = shader => {
-    shader.uniforms.foliageTime = foliageWind;
-    shader.vertexShader = 'uniform float foliageTime;\n' + shader.vertexShader.replace('#include <begin_vertex>', `#include <begin_vertex>
-      transformed.x += sin(foliageTime * uv.y + uv.x) * 0.06;
-      transformed.z += cos(foliageTime * uv.y * 0.8 + uv.x) * 0.045;`);
-  };
-  return material;
-};
-const _foliageMats = new Map();
-let _foliageDepth = null;
-const foliageMat = (color) => {
-  if (!_foliageMats.has(color)) {
-    const material = swayFoliage(std(color, { flatShading: true }), 'foliage-wind-v1');
-    material.userData.staticMergeKey += '|wind';
-    _foliageMats.set(color, material);
-  }
-  return _foliageMats.get(color);
-};
-// La sombra se mueve con la copa para no dejar franjas de autosombra.
-const foliageDepthMat = () => (_foliageDepth ??= swayFoliage(new THREE.MeshDepthMaterial(), 'foliage-wind-depth-v1'));
+/** Árbol sembrado: follaje recortado y ramas reales, compatibles con los lotes estáticos. */
+export function tree(scale = 1, options = {}) { return createUrbanTree(scale, options); }
 
 /** Estación del sistema de buses troncal en el separador de la avenida */
 export function busStation(length = 16) {

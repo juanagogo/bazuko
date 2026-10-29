@@ -48,6 +48,64 @@ test('avisa antes de agotar la sed y mantiene visible el daño hasta recuperarse
   assert.equal(hud.statusEl.hidden, true);
 });
 
+test('el estado compacto avisa de necesidades ocultas y retira la alerta al recuperarse', () => {
+  const hud = fixture();
+  hud.needsSummary = { textContent: '' };
+  hud.needsToggle = { dataset: {}, attributes: {}, setAttribute(name, value) { this.attributes[name] = value; } };
+  const stats = { sed: 12, vicio: 28, hambre: 70, higiene: 60, animo: 75 };
+  const update = () => hud.update(stats, { hour: 22, day: 1 }, null, null, null, null, null, .1);
+  update();
+  assert.equal(hud.needsSummary.textContent, 'Sed, Vicio');
+  assert.equal(hud.needsToggle.dataset.level, 'critical');
+  assert.match(hud.needsToggle.attributes['aria-label'], /niveles bajos de Sed, Vicio/);
+  stats.sed = 40;
+  update();
+  assert.equal(hud.needsSummary.textContent, 'Vicio');
+  assert.equal(hud.needsToggle.dataset.level, 'low');
+  stats.vicio = 70;
+  update();
+  assert.equal(hud.needsSummary.textContent, 'Estado');
+  assert.equal(hud.needsToggle.dataset.level, 'ok');
+  assert.equal(hud.needsToggle.attributes['aria-label'], 'Ver estado y necesidades');
+});
+
+test('las barras exponen el valor real limitado también a lectores de pantalla', () => {
+  const hud = fixture();
+  const row = { dataset: {} };
+  const attributes = {};
+  const meter = { parentElement: row, setAttribute(key, value) { attributes[key] = value; }, getAttribute(key) { return attributes[key]; } };
+  const fill = { style: {}, parentElement: meter };
+  hud.bars = { salud: fill };
+  hud.barValues = { salud: { textContent: '' } };
+  hud.update({ salud: 123 }, { hour: 22, day: 1 });
+  assert.equal(attributes['aria-valuenow'], '100');
+  assert.equal(parseFloat(fill.style.width), 100);
+  hud.update({ salud: 9.2 }, { hour: 22, day: 1 });
+  assert.equal(attributes['aria-valuenow'], '9');
+  assert.equal(row.dataset.level, 'critical');
+  assert.equal(hud.barValues.salud.textContent, '9');
+});
+
+test('el contexto distingue nadar, vadear y suelo seco sin anunciar cambios cada frame', () => {
+  const hud = fixture();
+  hud.movementEl = { hidden: true, dataset: {} };
+  hud.movementLabel = { textContent: '' };
+  let help = '', writes = 0;
+  hud.movementHelp = { get textContent() { return help; }, set textContent(value) { help = value; writes++; } };
+  hud.setMovementState({ isSwimming: true, waterDepth: 2 });
+  assert.equal(hud.movementEl.hidden, false);
+  assert.equal(hud.movementLabel.textContent, 'Nadando');
+  assert.match(help, /WASD.*Shift/);
+  for (let i = 0; i < 60; i++) hud.setMovementState({ isSwimming: true, waterDepth: 2 });
+  assert.equal(writes, 1);
+  hud.setMovementState({ isSwimming: false, waterDepth: .4 });
+  assert.equal(hud.movementEl.dataset.movement, 'wading');
+  assert.equal(hud.movementLabel.textContent, 'En el agua');
+  assert.doesNotMatch(help, /Shift/);
+  hud.setMovementState({ isSwimming: false, waterDepth: 0 });
+  assert.equal(hud.movementEl.hidden, true);
+});
+
 test('600 fotogramas no reconstruyen el inventario ni enfermedades sin cambios', () => {
   const hud = fixture();
   const inventory = { items: [{ id: 'pan', name: 'Pan', qty: 1 }], totalWeight: 0.2, maxWeight: 20 };
@@ -129,6 +187,10 @@ test('la mesa conserva la receta elegida y explica por qué no se puede fabricar
 
   inventory.add(ITEMS.chatarra, 2); inventory.add(ITEMS.cable, 1); inventory.add(ITEMS.madera, 1);
   inventory.maxWeight = inventory.totalWeight;
+  hud.renderCrafting(crafting, inventory, null);
+  assert.match(hud.craftPanel.html, /Listo para fabricar/);
+
+  inventory.maxWeight = 2; // Tras consumir materiales quedarían 2,4 kg.
   hud.renderCrafting(crafting, inventory, null);
   assert.match(hud.craftPanel.html, /No te cabe en el costal/);
   assert.match(hud.craftPanel.html, /data-id="arma"[^>]*no cabe en el costal/);

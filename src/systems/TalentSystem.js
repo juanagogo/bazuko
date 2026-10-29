@@ -43,8 +43,8 @@ export class TalentSystem {
     for (const id of Object.keys(this.unlocked)) {
       const eff = TALENTS[id]?.effects?.[effectKey];
       if (eff !== undefined) {
-        // Para multiplicadores, multiplicamos; para bonus, sumamos
-        if (effectKey.includes('Mult')) val *= eff;
+        // diseaseResist conserva su nombre en el catálogo, pero también es un multiplicador.
+        if (effectKey.includes('Mult') || effectKey === 'diseaseResist') val *= eff;
         else val += eff;
       }
     }

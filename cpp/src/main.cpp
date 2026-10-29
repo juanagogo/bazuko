@@ -15,6 +15,7 @@
 #include "renderer/Model.hpp"
 #include "ui/UIManager.hpp"
 #include "game/GameData.hpp"
+#include "game/PlayerState.hpp"
 #include "world/SafeSpawn.hpp"
 #include "world/Atmosphere.hpp"
 #include "world/Viaduct.hpp"
@@ -154,7 +155,6 @@ int main(int argc, char** argv) {
     const GameData& gameData = GameData::Get();
     using Item = ItemDef;
     const std::vector<Item>& lootTable = gameData.items;
-    struct InventoryEntry { size_t itemIndex; int quantity; };
     std::vector<InventoryEntry> inventory;
     float inventoryWeight = 0.0f;
     float money = 0.0f;
@@ -306,15 +306,10 @@ int main(int argc, char** argv) {
                     if (glm::distance(glm::vec2(savedPosition.x, savedPosition.z), glm::vec2(playerPos.x, playerPos.z)) > 0.05f)
                         ui.Notify("Tu posición guardada estaba bloqueada: te movimos al lugar libre más cercano.", ToastType::Warn);
                 }
-                for (const auto& entry : state.value("inventory", nlohmann::json::array())) {
-                    size_t itemIndex = entry.value("item", lootTable.size());
-                    int quantity = entry.value("quantity", 0);
-                    const float savedCapacity = 20.0f + (unlockedTalents.contains("collector2") ? 10.0f : 0.0f);
-                    if (itemIndex < lootTable.size() && quantity > 0 && inventoryWeight + lootTable[itemIndex].weight * quantity <= savedCapacity) {
-                        inventory.push_back({itemIndex, quantity});
-                        inventoryWeight += lootTable[itemIndex].weight * quantity;
-                    }
-                }
+                auto restoredInventory = RestoreInventory(state.value("inventory", nlohmann::json::array()),
+                                                          gameData, unlockedTalents, bigSack);
+                inventory = std::move(restoredInventory.entries);
+                inventoryWeight = restoredInventory.weight;
                 hasSavedCharacter = characterManager.Deserialize(state, [&](size_t completed, size_t total) {
                     const float progress = 0.91f + 0.06f * static_cast<float>(completed) / static_cast<float>(total);
                     const std::string stage = "Cargando apariencia del personaje (" + std::to_string(completed)
@@ -338,7 +333,7 @@ int main(int argc, char** argv) {
              : id == "cama" ? state.cama : id == "fogon" ? state.fogon : id == "vela" ? state.vela : false;
     };
     const auto inventoryCapacity = [&]() {
-        return 20.0f + talentEffect("maxWeightBonus", 0.0f) + (bigSack ? gameData.costalBonus : 0.0f);
+        return InventoryCapacity(gameData, unlockedTalents, bigSack);
     };
     const auto awardXp = [&](int amount, float activityMultiplier = 1.0f) {
         const float talentMultiplier = talentEffect("xpMult");
@@ -898,11 +893,7 @@ int main(int argc, char** argv) {
         if (needs[0] <= 0.0f) healthDrain += 100.0f / 1800.0f;
         if (needs[1] <= 0.0f) healthDrain += 100.0f / 1200.0f;
         needs[3] = std::max(0.0f, needs[3] - healthDrain * dtClamped);
-        if (needs[0] > 50.0f && needs[1] > 50.0f && needs[2] > 50.0f
-            && needs[4] > 40.0f && needs[5] > 40.0f && withdrawal <= 0.0f
-            && healthDrain == 0.0f) {
-            needs[3] = std::min(100.0f, needs[3] + 0.5f * dtClamped);
-        }
+        ApplyHealthRegeneration(needs, withdrawal, healthDrain, dtClamped);
 
         // Actualización de Boost (Adrenalina)
         if (boostActive && dtClamped > 0.0f) {

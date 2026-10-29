@@ -85,7 +85,7 @@ export function viaductSurface(x, z) {
   return null;
 }
 
-export function buildColpatriaViaduct(map, { pavement: streetAsphalt = null } = {}) {
+export function buildColpatriaViaduct(map, { pavement: streetAsphalt = null, groundHeight = null } = {}) {
   const group = new THREE.Group(); group.name = 'Puente continuo Colpatria–Lago';
   const concrete = new THREE.MeshStandardMaterial({ color: '#a5aaa5', roughness: .9 });
   const pavement = streetAsphalt ?? new THREE.MeshStandardMaterial({ color: '#343434', roughness: .82 });
@@ -126,9 +126,13 @@ export function buildColpatriaViaduct(map, { pavement: streetAsphalt = null } = 
     // Apoyos fuera de las calzadas inferiores.
     const x = busPathX(z) - 4;
     if (map?.[Math.round(z/2)]?.[Math.round(x/2)] === 'road') continue;
-    const h = viaductHeight(z) - .7;
+    const top = viaductHeight(z) - .7;
+    // La cubeta del lago queda por debajo de la calle: prolongar únicamente
+    // el apoyo, conservando techo, huella y trayecto del tablero.
+    const bottom = Math.min(0, groundHeight?.(x, z) ?? 0);
+    const h = top - bottom;
     const mesh = new THREE.Mesh(new THREE.BoxGeometry(1.3, h, 1.3), concrete);
-    mesh.position.set(x,h/2,z); mesh.castShadow = mesh.receiveShadow = true; mesh.name = 'Pilar'; group.add(mesh);
+    mesh.position.set(x,bottom+h/2,z); mesh.castShadow = mesh.receiveShadow = true; mesh.name = 'Pilar'; group.add(mesh);
     colliders.push(new THREE.Box3().setFromObject(mesh));
   }
   for (let z = VIADUCT.start + 4; z < VIADUCT.end - 3; z += 4) {

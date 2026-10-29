@@ -53,17 +53,25 @@ export function measureLocomotion(scene, walkClip, runClip = null) {
   return { walkDuration: walkClip.duration, runDuration: runClip?.duration ?? null, strides };
 }
 
+/** Zancada de la mezcla que se está dibujando, también durante una transición. */
+function strideAt(share, strides) {
+  if (strides.length < 2) return strides[0];
+  const x = THREE.MathUtils.clamp(share, 0, 1) * (strides.length - 1);
+  const i = Math.min(Math.floor(x), strides.length - 2);
+  return THREE.MathUtils.lerp(strides[i], strides[i + 1], x - i);
+}
+
+export function locomotionRate(speed, locomotion, share) {
+  return Math.max(0, speed) / strideAt(share, locomotion.strides);
+}
+
 /**
  * Peso de correr y ciclos por segundo para que la zancada coincida con `speed`. La proporción se
  * elige donde la mezcla, a su cadencia natural, ya avanza a esa velocidad.
  */
 export function locomotionBlend(speed, locomotion) {
   const { walkDuration, runDuration, strides } = locomotion;
-  const stride = share => {
-    const x = share * (strides.length - 1), i = Math.min(Math.floor(x), strides.length - 2);
-    return strides.length < 2 ? strides[0] : THREE.MathUtils.lerp(strides[i], strides[i + 1], x - i);
-  };
-  const natural = share => stride(share) / THREE.MathUtils.lerp(walkDuration, runDuration ?? walkDuration, share);
+  const natural = share => strideAt(share, strides) / THREE.MathUtils.lerp(walkDuration, runDuration ?? walkDuration, share);
   let share = 0;
   if (runDuration && speed >= natural(1)) share = 1;
   else if (runDuration && speed > natural(0)) {
@@ -74,5 +82,5 @@ export function locomotionBlend(speed, locomotion) {
     }
     share = (lo + hi) / 2;
   }
-  return { run: share, rate: speed / stride(share) };
+  return { run: share, rate: locomotionRate(speed, locomotion, share) };
 }

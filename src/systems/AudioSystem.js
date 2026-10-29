@@ -148,7 +148,7 @@ export class AudioSystem {
   setMix(category, value) {
     if (!MIX_CATEGORIES.includes(category)) return 1;
     this.mix[category] = Math.max(0, Math.min(1, Number(value) || 0));
-    if (this._effectsBus) this._effectsBus.gain.value = this.mix.effects;
+    if (this._effectsBus) this._effectsBus.gain.value = this._paused ? 0 : this._level('effects');
     this._applyLevels(true);
     try { globalThis.localStorage?.setItem('bazuko.audio_mix', JSON.stringify(this.mix)); } catch { /* sin almacenamiento */ }
     return this.mix[category];
@@ -208,6 +208,27 @@ export class AudioSystem {
     const source = ctx.createBufferSource(), filter = ctx.createBiquadFilter(), gain = ctx.createGain();
     source.buffer = this._barkBuffer; filter.type = 'bandpass'; filter.frequency.value = 700; filter.Q.value = .7;
     gain.gain.value = .5;
+    source.connect(filter); filter.connect(gain); gain.connect(out);
+    source.onended = () => { source.disconnect(); filter.disconnect(); gain.disconnect(); };
+    source.start();
+  }
+
+  /** Golpe seco sintetizado (varilla); comparte mezcla de efectos, maestro, silencio y pausa. */
+  playThud() {
+    const fx = this._fx();
+    if (!fx || !fx.ctx.createBuffer) return;
+    const { ctx, out } = fx;
+    if (!this._thudBuffer) {
+      this._thudBuffer = ctx.createBuffer(1, Math.ceil(ctx.sampleRate * .16), ctx.sampleRate);
+      const data = this._thudBuffer.getChannelData(0);
+      for (let i = 0; i < data.length; i++) {
+        const t = i / ctx.sampleRate;
+        data[i] = ((Math.random() * 2 - 1) * .5 + Math.sin(t * 2 * Math.PI * 75) * .9) * Math.exp(-t * 30);
+      }
+    }
+    const source = ctx.createBufferSource(), filter = ctx.createBiquadFilter(), gain = ctx.createGain();
+    source.buffer = this._thudBuffer; filter.type = 'lowpass'; filter.frequency.value = 800;
+    gain.gain.value = .7;
     source.connect(filter); filter.connect(gain); gain.connect(out);
     source.onended = () => { source.disconnect(); filter.disconnect(); gain.disconnect(); };
     source.start();
@@ -337,6 +358,7 @@ export class AudioSystem {
   setPaused(paused) {
     if (this._paused === paused) return;
     this._paused = paused;
+    if (this._effectsBus) this._effectsBus.gain.value = paused ? 0 : this._level('effects');
     this._syncRain();
     this.vehicles.setPaused(paused);
     if (paused) {
@@ -403,7 +425,7 @@ export class AudioSystem {
       this._effectsBus = ctx.createGain();
       this._effectsBus.connect(this.howler.masterGain);
     }
-    this._effectsBus.gain.value = this.mix.effects;
+    this._effectsBus.gain.value = this._level('effects');
     return { ctx, out: this._effectsBus };
   }
 
@@ -614,6 +636,27 @@ export class AudioSystem {
       osc.start(t);
       osc.stop(t + 0.17);
     } catch {}
+  }
+
+  /** Salpicadura breve reutilizable; sigue el canal de efectos, silencio y pausa. */
+  playWaterSplash(intensity = .5) {
+    const fx = this._fx();
+    if (!fx || !fx.ctx.createBuffer) return;
+    try {
+      const { ctx, out } = fx;
+      if (!this._splashBuffer || this._splashBuffer.sampleRate !== ctx.sampleRate) {
+        this._splashBuffer = ctx.createBuffer(1, Math.ceil(ctx.sampleRate * .36), ctx.sampleRate);
+        const data = this._splashBuffer.getChannelData(0);
+        for (let i = 0; i < data.length; i++) data[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / data.length, 1.6);
+      }
+      const source = ctx.createBufferSource(), filter = ctx.createBiquadFilter(), gain = ctx.createGain();
+      source.buffer = this._splashBuffer;
+      filter.type = 'bandpass'; filter.frequency.value = 750; filter.Q.value = .5;
+      gain.gain.value = .08 + Math.max(0, Math.min(1, intensity)) * .25;
+      source.connect(filter); filter.connect(gain); gain.connect(out);
+      source.onended = () => { source.disconnect(); filter.disconnect(); gain.disconnect(); };
+      source.start();
+    } catch { /* El audio opcional no bloquea la natación. */ }
   }
 
   playLanding() {

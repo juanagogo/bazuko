@@ -7,7 +7,7 @@ import { buildColpatriaViaduct } from '../src/world/bogota/ColpatriaViaduct.js';
 import { BusService } from '../src/world/bogota/BusService.js';
 import { CollisionSystem } from '../src/systems/CollisionSystem.js';
 
-test('el parque amplía la ciudad al sur con agua bloqueada y pasos transitables por el puente', () => {
+test('el lago permite entrar al jugador y conserva agua bloqueada para peatones y GPS', () => {
   const city = new Bogota(); city.map = city._layout();
   assert.equal(city.height * 2, 322);
   assert.ok(city.map.flat().filter(type => type === 'water').length > 700);
@@ -22,7 +22,8 @@ test('el parque amplía la ciudad al sur con agua bloqueada y pasos transitables
   const collisions = new CollisionSystem();
   city._buildCollisions(city.map, collisions);
   const point = new THREE.Vector3(40, -.1, LAKE_PARK.lakeZ);
-  assert.ok(collisions.colliders.some(({ box }) => box.containsPoint(point)));
+  assert.equal(collisions.colliders.some(({ box }) => box.containsPoint(point)), false);
+  assert.equal(collisions.resolveMove(new THREE.Vector3(20, .06, 262), new THREE.Vector3(20, 0, 0)).x, 40);
   assert.equal(city.getGroundHeight(78.5, 262), bridgeHeight(262));
   city.reserved = { shop: { x: 104, z: 69 } };
   const nav = city._createPedestrianNavigation();
@@ -30,6 +31,7 @@ test('el parque amplía la ciudad al sur con agua bloqueada y pasos transitables
   assert.equal(nav.isWalkableAt(66, 262), false);
   assert.equal(nav.isWalkableAt(70, 262), true);
   assert.equal(nav.isWalkableAt(78, 270), true);
+  assert.equal(city.createGpsNavigation().isRoutable(40, 262), false);
 });
 
 test('el perfil del puente tiene rampas suaves, centro elevado y barandas reales', () => {

@@ -2,12 +2,14 @@
 <html lang="es">
 <head>
   <meta charset="UTF-8" />
-  <title>Habitante de Calle</title>
+  <title>Bazuko · Bogotá</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <link rel="stylesheet" href="/src/ui/styles.css" />
   <link rel="stylesheet" href="/src/ui/inventory.css" />
   <link rel="stylesheet" href="/src/ui/crafting.css" />
   <link rel="stylesheet" href="/src/ui/menus.css" />
+  <link rel="stylesheet" href="/src/ui/visual-identity.css" />
+  <link rel="stylesheet" href="/src/ui/photo-mode.css" />
 </head>
 <body class="is-loading">
 <section id="loading-screen" aria-label="Carga del juego">
@@ -32,7 +34,7 @@
 <div id="app">
   <canvas id="game-canvas"></canvas>
 
-  <!-- Columna izquierda: avisos, necesidades y radar (el HUD crea las filas y el radar se monta aquí) -->
+  <!-- Radar, signos vitales y estado comparten una columna de ancho ajustable. -->
   <div id="hud-dock" data-radar-size="m">
     <div id="disease-panel"></div>
     <div id="status" role="status" aria-live="polite" hidden></div>
@@ -40,10 +42,10 @@
   </div>
 
   <!-- Topbar -->
-  <div id="topbar">
+  <div id="topbar" aria-label="Partida">
     <span id="player-name"></span>
     <span id="clock">Día 1 — 06:00</span>
-    <span id="money">$ 0</span>
+    <span id="money" title="Dinero disponible">$ 0</span>
     <span class="topbar__level">
       <span id="level-display">Nv 1</span>
       <span id="xp-bar" aria-hidden="true"><span id="xp-fill"></span></span>
@@ -51,10 +53,13 @@
     <span id="talent-points">🌟 0</span>
   </div>
 
-  <div id="game-settings"><button type="button" id="radio-toggle" title="Radio transistor (R)" aria-label="Radio transistor">📻</button><button id="pause-toggle" type="button" aria-label="Pausar y abrir ajustes">⏸️ Pausa</button><button id="audio-toggle" type="button" aria-label="Silenciar sonido">🔊</button></div>
+  <div id="game-settings" role="group" aria-label="Acciones del juego"><button type="button" id="radio-toggle" title="Radio transistor (R)" aria-label="Radio transistor">Radio <kbd>R</kbd></button><button id="pause-toggle" type="button" aria-label="Pausar y abrir ajustes">Pausa <kbd>Esc</kbd></button><button id="audio-toggle" type="button" aria-label="Silenciar sonido">🔊</button></div>
 
   <div id="boost-indicator">⚡ BOOST ACTIVO</div>
   <div id="interaction-prompt"></div>
+  <div id="movement-status" role="status" aria-live="polite" hidden>
+    <strong id="movement-label"></strong><span id="movement-help"></span>
+  </div>
   <div id="inventory-panel"></div>
   <div id="poop-hud-ammo" class="empty">💩 [X] Hacer popó</div>
 
@@ -113,12 +118,13 @@
     <span class="control-extra"><kbd>K</kbd> Modelo liviano</span>
     <span class="control-extra"><kbd>N</kbd> Radar</span>
     <span class="control-extra"><kbd>R</kbd> Radio</span>
+    <span class="control-extra"><kbd>F2</kbd> Modo foto</span>
+    <span class="control-extra"><kbd>H</kbd> Estado y necesidades</span>
     <span class="control-extra"><kbd>X</kbd> Lanzar / recoger</span>
     <span class="control-extra"><kbd>Z</kbd> Defecar</span>
     <span><kbd>Esc</kbd> Pausa y ayuda</span>
     </div>
     <button id="controls-help-toggle" type="button" aria-label="Mostrar controles" title="Mostrar controles" aria-controls="controls-help-content" aria-expanded="false">!</button>
-  </div>
   </div>
 </div>
 
@@ -142,6 +148,11 @@
   <section id="creator-modal" class="creator" hidden role="dialog" aria-modal="true" aria-labelledby="creator-title">
     <div class="creator__stage">
       <canvas id="creator-canvas" aria-label="Vista previa del personaje. Arrastra para girarlo."></canvas>
+      <div class="creator__intro" aria-hidden="true">
+        <p class="creator__eyebrow">BAZUKO <span>BOGOTÁ, D. C.</span></p>
+        <p class="creator__headline">Otra noche.<br><em>Tu historia.</em></p>
+      </div>
+      <p class="creator__scene-label" aria-hidden="true">EL REBUSQUE EMPIEZA CONTIGO <span>04° N / 74° O</span></p>
       <div class="creator__rot">
         <button type="button" class="cr-icon-btn" id="creator-rot-l" aria-label="Girar a la izquierda"></button>
         <span class="creator__hint">Arrastra para girar</span>
@@ -150,7 +161,7 @@
     </div>
     <div class="sign sign--info creator__side">
       <header class="creator__head">
-        <h2 class="menu__title" id="creator-title">Crea tu personaje</h2>
+        <div><p class="creator__kicker">ANTES DE SALIR A LA CALLE</p><h2 class="menu__title" id="creator-title">Crea tu personaje</h2></div>
         <button type="button" class="menu__close" id="creator-close" aria-label="Cerrar sin guardar"></button>
       </header>
       <nav class="creator__tabs" id="creator-tabs" role="tablist" aria-label="Categorías"></nav>

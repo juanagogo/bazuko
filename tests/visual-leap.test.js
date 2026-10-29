@@ -83,7 +83,7 @@ test('Salto Gráfico 4: Árboles con vaivén orgánico por viento andino', () =>
   const shader = { uniforms: {}, vertexShader: '#include <begin_vertex>' };
   leaves[0].material.onBeforeCompile(shader);
   assert.equal(shader.uniforms.foliageTime, foliageWind, 'Todas las copas leen el mismo tiempo de viento');
-  assert.match(shader.vertexShader, /sin\(foliageTime \* uv\.y \+ uv\.x\)/, 'El viento andino oscila la copa del árbol');
+  assert.match(shader.vertexShader, /sin\(foliageTime \* treeWind\.y \+ treeWind\.x\)/, 'El viento conserva las UV del atlas de hojas');
   assert.ok(leaves.every(c => c.customDepthMaterial), 'La sombra acompaña el vaivén');
 });
 

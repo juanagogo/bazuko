@@ -39,10 +39,12 @@ export function createCreator({ audio }) {
   let resolver = null;
   let yaw = 0.35, yawVel = 0;
   let wave = 0;
+  const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
+  const viewport = { width: 0, height: 0, pixelRatio: 0 };
   const camPos = new THREE.Vector3(0, 1.2, 4.2);
   const camLook = new THREE.Vector3(0, 0.8, 0);
   const FOCUS = {
-    body: { pos: new THREE.Vector3(0, 1.2, 5.2), look: new THREE.Vector3(0, 0.95, 0) },
+    body: { pos: new THREE.Vector3(0, 1.15, 4.4), look: new THREE.Vector3(0, 0.95, 0) },
     face: { pos: new THREE.Vector3(0, 1.6, 1.5), look: new THREE.Vector3(0, 1.52, 0) },
   };
 
@@ -52,28 +54,42 @@ export function createCreator({ audio }) {
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
     renderer.toneMappingExposure = 1.1;
     renderer.shadowMap.enabled = true;
-    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    renderer.shadowMap.type = THREE.PCFShadowMap;
     scene = new THREE.Scene();
     camera = new THREE.PerspectiveCamera(30, 1, 0.1, 50);
-    scene.add(new THREE.HemisphereLight('#dfe8ff', '#5a4632', 1.3));
-    const key = new THREE.DirectionalLight('#fff1dc', 2.6);
+    scene.add(new THREE.HemisphereLight('#bdd0de', '#34332d', 1.5));
+    const key = new THREE.DirectionalLight('#ffe0b1', 2.8);
     key.position.set(2.5, 4, 3);
     key.castShadow = true;
     key.shadow.mapSize.set(1024, 1024);
     const s = key.shadow.camera;
     s.left = -2; s.right = 2; s.top = 3; s.bottom = -1;
     scene.add(key);
-    const rim = new THREE.DirectionalLight('#8fb4ff', 1.4);
+    const rim = new THREE.DirectionalLight('#acc8db', 1.6);
     rim.position.set(-3, 2.5, -3);
     scene.add(rim);
-    // pedestal: tapa de caneca / cartón redondo
-    const disc = new THREE.Mesh(new THREE.CylinderGeometry(0.9, 0.95, 0.08, 40), new THREE.MeshLambertMaterial({ color: '#9a7449' }));
-    disc.position.y = -0.04;
-    disc.receiveShadow = true;
-    scene.add(disc);
-    const ring = new THREE.Mesh(new THREE.TorusGeometry(0.92, 0.02, 6, 48), new THREE.MeshBasicMaterial({ color: '#f6c400' }));
-    ring.rotation.x = Math.PI / 2;
-    scene.add(ring);
+    // Un fragmento de acera: el personaje pertenece a la ciudad desde el editor.
+    // Geometría fija y materiales compartidos; nada de luces ni física adicionales.
+    const concrete = new THREE.MeshStandardMaterial({ color: '#56616a', roughness: .84 });
+    const curbMaterial = new THREE.MeshStandardMaterial({ color: '#a79b7d', roughness: .9 });
+    const slabGeometry = new THREE.BoxGeometry(.79, .1, .79);
+    for (let x = -2; x <= 2; x++) {
+      for (let z = -1; z <= 1; z++) {
+        const slab = new THREE.Mesh(slabGeometry, concrete);
+        slab.position.set(x * .81, -.05, z * .81);
+        slab.receiveShadow = true;
+        scene.add(slab);
+      }
+    }
+    const curb = new THREE.Mesh(new THREE.BoxGeometry(4.05, .16, .16), curbMaterial);
+    curb.position.set(0, -.08, 1.29);
+    curb.receiveShadow = true;
+    scene.add(curb);
+    const road = new THREE.Mesh(new THREE.PlaneGeometry(30, 30), new THREE.MeshStandardMaterial({ color: '#1d2b33', roughness: .65 }));
+    road.rotation.x = -Math.PI / 2;
+    road.position.y = -.18;
+    road.receiveShadow = true;
+    scene.add(road);
     createRealisticCharacter(look).then((c) => {
       char = c;
       char.group.scale.setScalar(1);
@@ -84,9 +100,13 @@ export function createCreator({ audio }) {
   function resize() {
     const r = canvas.getBoundingClientRect();
     if (!r.width || !r.height) return;
-    renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
-    renderer.setSize(r.width, r.height, false);
-    camera.aspect = r.width / r.height;
+    const width = Math.round(r.width), height = Math.round(r.height);
+    const pixelRatio = Math.min(1.75, window.devicePixelRatio || 1);
+    if (viewport.width === width && viewport.height === height && viewport.pixelRatio === pixelRatio) return;
+    Object.assign(viewport, { width, height, pixelRatio });
+    renderer.setPixelRatio(pixelRatio);
+    renderer.setSize(width, height, false);
+    camera.aspect = width / height;
     camera.updateProjectionMatrix();
   }
 
@@ -100,12 +120,13 @@ export function createCreator({ audio }) {
     yawVel *= Math.exp(-dt * 4);
     if (char) char.group.rotation.y = yaw;
     const f = FOCUS[TABS.find((t) => t.id === tab)?.focus ?? 'body'];
-    camPos.lerp(f.pos, 1 - Math.exp(-dt * 6));
-    camLook.lerp(f.look, 1 - Math.exp(-dt * 6));
+    const cameraBlend = reducedMotion.matches ? 1 : 1 - Math.exp(-dt * 6);
+    camPos.lerp(f.pos, cameraBlend);
+    camLook.lerp(f.look, cameraBlend);
     camera.position.copy(camPos);
     camera.lookAt(camLook);
     wave = Math.max(0, wave - dt);
-    char?.update(dt, { speed: 0, t: now / 1000, action: wave > 0 ? 'saludo' : null });
+    char?.update(reducedMotion.matches ? 0 : dt, { speed: 0, t: reducedMotion.matches ? 0 : now / 1000, action: !reducedMotion.matches && wave > 0 ? 'saludo' : null });
     renderer.render(scene, camera);
   }
 
@@ -120,14 +141,18 @@ export function createCreator({ audio }) {
     const dx = e.clientX - drag.x;
     const now = performance.now();
     yaw += dx * 0.012;
-    yawVel = (dx * 0.012) / Math.max(0.016, (now - drag.t) / 1000);
+    yawVel = reducedMotion.matches ? 0 : (dx * 0.012) / Math.max(0.016, (now - drag.t) / 1000);
     drag = { x: e.clientX, t: now };
   });
   const endDrag = () => (drag = null);
   canvas.addEventListener('pointerup', endDrag);
   canvas.addEventListener('pointercancel', endDrag);
-  $('creator-rot-l').addEventListener('click', () => { yawVel = -5; });
-  $('creator-rot-r').addEventListener('click', () => { yawVel = 5; });
+  const rotate = (direction) => {
+    if (reducedMotion.matches) yaw += direction * Math.PI / 4;
+    else yawVel = direction * 5;
+  };
+  $('creator-rot-l').addEventListener('click', () => rotate(-1));
+  $('creator-rot-r').addEventListener('click', () => rotate(1));
 
   // ---------- controles ----------
   function apply(patch) {
@@ -218,6 +243,7 @@ export function createCreator({ audio }) {
           type: 'text',
           class: 'cr-input',
           id: 'cr-name',
+          'aria-label': 'Nombre del personaje',
           maxlength: '16',
           autocomplete: 'off',
           spellcheck: 'false',
@@ -310,6 +336,7 @@ export function createCreator({ audio }) {
   }, icon(t.ic, { size: 20 }), el('span', { text: t.label }))));
   tabsEl.addEventListener('keydown', (e) => {
     if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') return;
+    e.preventDefault();
     const i = TABS.findIndex((t) => t.id === tab);
     const n = (i + (e.key === 'ArrowRight' ? 1 : -1) + TABS.length) % TABS.length;
     tab = TABS[n].id;

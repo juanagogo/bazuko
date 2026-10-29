@@ -19,7 +19,7 @@ export const PAUSE_TABS = [
 const CONTROL_GROUPS = [
   ['Movimiento', [['WASD', 'Caminar'], ['Shift', 'Correr'], ['Espacio', 'Saltar'], ['Ratón', 'Clic fija la cámara ∙ rueda acerca'], ['V', 'Vista tercera persona / isométrica']]],
   ['Acciones', [['E', 'Interactuar: basura, tiendas, cambuche, carros'], ['Q', 'Mantener para clasificar basura ∙ dealer'], ['B / L', 'Pedir limosna'], ['F', 'Boost de adrenalina'], ['G / Clic', 'Golpear'], ['X', 'Lanzar / recoger'], ['Z', 'Defecar']]],
-  ['Paneles', [['I / Tab', 'Inventario ∙ 1-5 acceso rápido'], ['T', 'Talentos'], ['C', 'Fabricar'], ['P', 'Editar personaje'], ['R', 'Radio transistor'], ['K', 'Modelo realista / liviano'], ['F3', 'Panel de rendimiento'], ['Esc', 'Pausa ∙ cerrar panel']]],
+  ['Paneles', [['I / Tab', 'Inventario ∙ 1-5 acceso rápido'], ['H', 'Estado y necesidades'], ['T', 'Talentos'], ['C', 'Fabricar'], ['P', 'Editar personaje'], ['R', 'Radio transistor'], ['K', 'Modelo realista / liviano'], ['F2', 'Modo foto ∙ guardar una postal'], ['F3', 'Panel de rendimiento'], ['Esc', 'Pausa ∙ cerrar panel']]],
   ['Mapa y GPS', [['M', 'Abrir / cerrar el mapa'], ['N', 'Mostrar / ocultar radar'], ['+ / −', 'Zoom del radar'], ['Clic', 'Marcar destino en el mapa'], ['Clic der. / Supr', 'Quitar destino'], ['Q / E', 'Cambiar de pestaña en la pausa']]],
 ];
 
@@ -83,7 +83,7 @@ export function openPauseMenu(game, tab = 'estado') {
 
   game.menu.open({
     title: 'Partida en Pausa',
-    sub: 'Vagabundo / Habitante de Calle ∙ Bogotá',
+    sub: 'Bogotá, D. C. ∙ Tu partida',
     ic: 'pause',
     wide: true,
     render,

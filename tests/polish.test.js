@@ -66,13 +66,35 @@ test('Atmósfera y Gráficos: asfalto con reflectividad húmeda y PCFShadowMap',
   // Lluvia / Suelo mojado (reflejo de charcos)
   city.setWetness(1);
   assert.ok(city.groundMaterials.road.roughness < 0.5, 'La rugosidad debe bajar para dar reflejo mojado');
-  assert.ok(city.groundMaterials.road.metalness > 0.1, 'El metalness debe subir sutilmente para reflejar cielo');
+  assert.equal(city.groundMaterials.road.metalness, 0, 'El agua refleja como un dieléctrico, sin convertir el asfalto en metal');
 
   // WeatherSystem propaga humedad al distrito
   const weather = new WeatherSystem(null);
   weather.setWeather('llovizna', false);
   weather.update(1.0, new THREE.Vector3(0, 0, 0), city);
   assert.ok(weather.wetness > 0, 'El clima de lluvia debe aumentar la humedad');
+});
+
+test('la lluvia afecta los andenes de cada barrio en baja y restaura su color sin acumular oscurecimiento', () => {
+  const city = new Bogota();
+  city.graphicsQuality = 'baja';
+  city.groundMaterials = Object.fromEntries(['road', 'sidewalk_cambuche', 'sidewalk_comercio', 'sidewalk_lago']
+    .map(name => [name, new THREE.MeshStandardMaterial({ color: '#c1b8a0', roughness: .85 })]));
+  const original = city.groundMaterials.sidewalk_cambuche.color.clone();
+  city.setWetness(1);
+  for (const material of Object.values(city.groundMaterials)) {
+    assert.equal(material.metalness, 0);
+    assert.ok(material.color.r < original.r);
+    assert.ok(material.roughness < .85);
+  }
+  const firstWet = city.groundMaterials.sidewalk_lago.color.clone();
+  for (let i = 0; i < 10; i++) { city.setWetness(0); city.setWetness(1); }
+  assert.ok(city.groundMaterials.sidewalk_lago.color.equals(firstWet));
+  city.setWetness(0);
+  for (const material of Object.values(city.groundMaterials)) {
+    assert.ok(material.color.equals(original));
+    material.dispose();
+  }
 });
 
 test('Optimización: caché de POIs en Game para evitar asignaciones por fotograma', () => {

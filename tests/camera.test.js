@@ -87,16 +87,15 @@ test('giro y zoom mantienen límites válidos y recuerdan el modo de cámara', (
 });
 
 function move(camera, axis) {
-  // Ejercita el movimiento real sin cargar modelos ni Canvas.
-  const player = Object.assign(Object.create(Player.prototype), {
-    time: 0, actionTimer: 0, input: { axis, isRunning: false }, speedWalk: 3,
-    position: new THREE.Vector3(), root: new THREE.Group(), modelScale: 1,
-    _direction: new THREE.Vector3(), _forward: new THREE.Vector3(), _right: new THREE.Vector3(),
-    _delta: new THREE.Vector3(), _before: new THREE.Vector3(),
-    character: { update() {} }
-  });
+  // Constructor real: incluye los estados de agua/combate sin cargar GLB ni Canvas.
+  const player = new Player(new THREE.Scene(), { axis, isRunning: false });
+  player.hasInertia = false;
+  player.speedWalk = 3;
+  player.position.set(0, 0, 0);
   player.update(0.1, camera, null);
-  return player.position;
+  const position = player.position.clone();
+  player.dispose();
+  return position;
 }
 
 test('WASD sigue el rumbo de tercera persona sin acelerar en diagonal; isométrica conserva los ejes', () => {
@@ -176,4 +175,24 @@ test('permite arrastrar la cámara con botón izquierdo o derecho del ratón', (
   assert.equal(mockCanvas.captured, 2);
   camera.cancelDrag();
   assert.equal(camera._drag, null);
+});
+
+test('modo foto permite arrastrar sin bloquear el cursor y restaura el bloqueo al salir', () => {
+  const listeners = {}, canvas = {
+    addEventListener(event, fn) { listeners[event] = fn; },
+    requestPointerLock() { canvas.locks = (canvas.locks ?? 0) + 1; },
+    setPointerCapture(id) { canvas.captured = id; }
+  };
+  const camera = new CameraRig(new THREE.Scene(), canvas);
+  let photoActive = true;
+  camera.allowPointerLock = () => !photoActive;
+  const press = () => listeners.pointerdown({ button: 0, pointerId: 4, clientX: 0, clientY: 0, preventDefault() {} });
+  press();
+  assert.equal(canvas.locks, undefined);
+  assert.equal(canvas.captured, 4);
+  assert.equal(camera._drag.id, 4);
+  listeners.pointerup();
+  photoActive = false;
+  press();
+  assert.equal(canvas.locks, 1);
 });
