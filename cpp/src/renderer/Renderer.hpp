@@ -80,6 +80,8 @@ public:
     void SetUnlit(bool unlit) { m_Unlit = unlit; }
     // Cielo: sin iluminacion ni niebla (estrellas)
     void SetSky(bool sky) { m_Sky = sky; }
+    // Agua: oleaje en el vertex shader y color por profundidad, reflejo del cielo y brillo del sol en el fragment (textura en la unidad 0)
+    void SetWater(bool water) { m_Water = water; }
 
     Shader& GetDefaultShader() { return *m_DefaultShader; }
     LightBlockData& GetLighting() { return m_LightingData; }
@@ -112,6 +114,7 @@ private:
     bool m_ScaledActive = false;
     bool m_Unlit = false;
     bool m_Sky = false;
+    bool m_Water = false;
     float m_Wetness = 0.0f;
     float m_Contrast = 1.0f;
     float m_Saturation = 1.0f;

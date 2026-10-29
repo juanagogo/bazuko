@@ -21,6 +21,7 @@ uniform vec2 uUvOffset = vec2(0.0);   // desplazamiento de UV (letrero LED del b
 uniform float uSway = 0.0;      // arboles: amplitud (m) con que la copa se mece con el viento; crece con la altura sobre el pie
 uniform float uPushOut = 0.0;   // ropa y calzado: se separan unos milimetros de la piel a lo largo de la normal (ya deformada)
 uniform int uBoneCount;
+uniform int uWater = 0;   // superficie del lago: oleaje suave y normal analitica
 layout(std140, binding = 2) uniform SkinBlock {
     mat4 uBones[128];
 };
@@ -50,8 +51,18 @@ void main() {
         float phase = uTime * 1.7 + uModel[3].x * 0.31 + uModel[3].z * 0.23 + worldPos.y * 0.6;
         worldPos.xz += vec2(0.8, 0.6) * (sin(phase) + 0.35 * sin(phase * 2.3 + 1.1)) * uSway * h * h;
     }
+    vec3 waterNormal = vec3(0.0, 1.0, 0.0);
+    if (uWater == 1) {
+        const vec3 p = worldPos.xyz;
+        const float t = uTime;
+        float a1 = p.x * 0.9 + t * 1.3, a2 = p.z * 1.1 - t * 1.1, a3 = (p.x + p.z) * 1.7 + t * 2.1;
+        worldPos.y += 0.035 * sin(a1) + 0.03 * sin(a2) + 0.015 * sin(a3);
+        float dx = 0.035 * 0.9 * cos(a1) + 0.015 * 1.7 * cos(a3);
+        float dz = 0.03 * 1.1 * cos(a2) + 0.015 * 1.7 * cos(a3);
+        waterNormal = normalize(vec3(-dx * 2.0, 1.0, -dz * 2.0));
+    }
     vFragPos = worldPos.xyz;
-    vNormal = mat3(transpose(inverse(uModel))) * localNormal;
+    vNormal = uWater == 1 ? waterNormal : mat3(transpose(inverse(uModel))) * localNormal;
     vUV = aUV + uUvOffset;
     vColor = aColor;
 

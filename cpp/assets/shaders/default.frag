@@ -34,6 +34,7 @@ uniform vec4 uAlbedo;
 uniform int uUseTexture;
 uniform int uUnlit = 0;   // 1 bombillas (sin iluminacion), 2 cielo (sin iluminacion ni niebla)
 uniform int uAlphaMode;
+uniform int uWater = 0;
 uniform float uAlphaCutoff;
 layout(binding = 0) uniform sampler2D uTexture;
 layout(binding = 1) uniform sampler2D uSpecularTexture;
@@ -98,6 +99,26 @@ void main() {
         result = mix(result, environment * mix(vec3(1.0), baseColor.rgb * 2.4, uMetallic), mirror);
         result += pow(max(dot(viewDir, reflectedLight), 0.0), mix(120.0, 18.0, uRoughness)) * uSunColor * uMetallic * 1.4;
     }
+    if (uWater == 1) {
+        // agua: la textura se desliza en dos capas, el color viene por vertice (turquesa en la orilla, verde oscuro al fondo) y la
+        // transparencia crece con la profundidad; el cielo se refleja mas con el angulo rasante y el sol deja un brillo nitido
+        const vec2 flow1 = vFragPos.xz * 0.045 + vec2(uTime * 0.012, uTime * 0.007);
+        const vec2 flow2 = vFragPos.xz * 0.083 + vec2(-uTime * 0.009, uTime * 0.011);
+        vec3 detail = (texture(uTexture, flow1).rgb + texture(uTexture, flow2).rgb) * 0.5;
+        if (uGammaCorrect == 1) detail = srgbToLinear(detail);
+        const vec3 tint = uGammaCorrect == 1 ? srgbToLinear(clamp(vColor.rgb, 0.0, 1.0)) : vColor.rgb;
+        const vec3 body = tint * (0.45 + detail * 1.25);
+        const float fresnel = pow(1.0 - max(dot(norm, viewDir), 0.0), 3.0);
+        const float light = clamp(dot(uAmbientColor + uSunColor, vec3(0.34)), 0.08, 1.3);
+        const vec3 zenith = (uGammaCorrect == 1 ? vec3(0.07, 0.20, 0.55) : vec3(0.30, 0.50, 0.85)) * light;
+        const vec3 sky = mix(fogColor, zenith, 0.6);
+        vec3 water = (ambient + diffuse * 0.6) * body;
+        water = mix(water, sky, 0.12 + 0.6 * fresnel);
+        const vec3 mirror = reflect(-viewDir, norm);
+        water += uSunColor * pow(max(dot(mirror, lightDir), 0.0), 110.0) * 2.2 + uSunColor * pow(max(dot(mirror, lightDir), 0.0), 12.0) * 0.08;
+        result = water;
+        baseColor.a = clamp(vColor.a * uAlbedo.a + fresnel * 0.3, 0.0, 0.96);
+    }
     // farolas encendidas: luz puntual calida con caida suave hasta su alcance
     for (int i = 0; i < uLampCount; ++i) {
         const vec3 toLamp = uLampPosition[i].xyz - vFragPos;
@@ -109,7 +130,7 @@ void main() {
         const float facingLamp = max(dot(norm, toLamp / max(lampDistance, 0.001)), 0.0) * 0.8 + 0.2;
         result += baseColor.rgb * uLampColor[i].rgb * uLampColor[i].w * falloff * facingLamp;
     }
-    if (uWetness > 0.0) {
+    if (uWetness > 0.0 && uWater == 0) {
         // superficies que miran hacia arriba (calles, andenes): mas oscuras, con brillo del sol y reflejo del cielo
         const float wet = uWetness * smoothstep(0.75, 0.95, norm.y);
         const float facing = max(dot(norm, viewDir), 0.0);

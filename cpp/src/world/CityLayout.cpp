@@ -69,15 +69,26 @@ TileType CityLayout::GetTileAt(int x, int z) const {
     return m_Grid[z * WIDTH + x];
 }
 
-bool CityLayout::IsWalkable(float worldX, float worldZ) const {
+float CityLayout::LakeDepth(float worldX, float worldZ) {
+    const float nx = (worldX - kLakeX) / kLakeRadiusX, nz = (worldZ - kLakeZ) / kLakeRadiusZ;
+    const float r2 = nx * nx + nz * nz;
+    return r2 >= 1.0f ? 0.0f : kLakeMaxDepth * (1.0f - r2);
+}
+
+bool CityLayout::IsWalkable(float worldX, float worldZ, bool allowLake) const {
     int tileX = static_cast<int>(std::floor((worldX + ORIGIN_X) / TILE_SIZE));
     int tileZ = static_cast<int>(std::floor((worldZ + ORIGIN_Z) / TILE_SIZE));
 
     TileType tile = GetTileAt(tileX, tileZ);
+    // La orilla es la elipse del lago, no la cuadricula: dentro de ella solo entra quien puede nadar; fuera, una casilla de agua es suelo
+    if (tile == TileType::Water) return LakeDepth(worldX, worldZ) <= 0.0f || allowLake;
+    if (LakeDepth(worldX, worldZ) > 0.0f && tile != TileType::Building && tile != TileType::Wall && tile != TileType::Solid && tile != TileType::Ruin)
+        return allowLake;
     return tile != TileType::Building && tile != TileType::Wall && tile != TileType::Water && tile != TileType::Solid && tile != TileType::Ruin;
 }
 
 float CityLayout::GetGroundHeight(float worldX, float worldZ) const {
+    if (const float lake = LakeDepth(worldX, worldZ); lake > 0.0f) return -lake;   // fondo del lago
     // altura de la malla de cada casilla (ver BuildMeshes): andenes, plazas y pisos 0,15; el resto, a nivel de calle
     const auto tileHeight = [&](int x, int z) {
         const TileType tile = GetTileAt(x, z);
@@ -116,9 +127,9 @@ bool CityLayout::IsSidewalk(float worldX, float worldZ) const {
     return tile == TileType::Sidewalk || tile == TileType::Plaza || tile == TileType::Grass || tile == TileType::Floor || tile == TileType::Dirt;
 }
 
-bool CityLayout::IsBlocked(float worldX, float worldZ, float radius) const {
-    if (!IsWalkable(worldX - radius, worldZ - radius) || !IsWalkable(worldX + radius, worldZ - radius)
-        || !IsWalkable(worldX - radius, worldZ + radius) || !IsWalkable(worldX + radius, worldZ + radius)) return true;
+bool CityLayout::IsBlocked(float worldX, float worldZ, float radius, bool allowLake) const {
+    if (!IsWalkable(worldX - radius, worldZ - radius, allowLake) || !IsWalkable(worldX + radius, worldZ - radius, allowLake)
+        || !IsWalkable(worldX - radius, worldZ + radius, allowLake) || !IsWalkable(worldX + radius, worldZ + radius, allowLake)) return true;
     for (const StaticBox& box : m_Obstacles) {
         // circulo contra caja en planta
         const float nearestX = std::clamp(worldX, box.center.x - box.half.x, box.center.x + box.half.x);
@@ -246,6 +257,7 @@ void CityLayout::BuildMeshes(const CityLoadProgress& progressCallback) {
 
     float halfWidth = ORIGIN_X;
     float halfHeight = ORIGIN_Z;
+    std::vector<std::pair<float, float>> lakeTiles;   // esquina (x0, z0) de cada casilla que reemplaza el cuenco del lago
 
     auto getColorForTile = [](TileType type) -> glm::vec4 {
         switch (type) {
@@ -516,6 +528,23 @@ void CityLayout::BuildMeshes(const CityLoadProgress& progressCallback) {
                     }
                 }
             } else if (type != TileType::Wall && type != TileType::Solid) {
+                {   // casillas del lago: las reemplaza el cuenco suave (se dibuja tras el recorrido)
+                    const float cx = (x0 + x1) * 0.5f, cz = (z0 + z1) * 0.5f;
+                    const float nx = (cx - kLakeX) / kLakeRadiusX, nz = (cz - kLakeZ) / kLakeRadiusZ;
+                    const bool nearLake = nx * nx + nz * nz < 1.12f * 1.12f;
+                    const bool anyDepth = LakeDepth(x0, z0) > 0.0f || LakeDepth(x1, z0) > 0.0f || LakeDepth(x0, z1) > 0.0f || LakeDepth(x1, z1) > 0.0f;
+                    if ((nearLake && (type == TileType::Grass || type == TileType::Water)) || (type == TileType::Busway && anyDepth)) {
+                        lakeTiles.emplace_back(x0, z0);
+                        continue;
+                    }
+                    // paseo que rodea el lago: lo reemplaza una banda elipsoidal continua (las casillas lo dejaban en escalera);
+                    // las casillas de los paseos rectos que lo cruzan se conservan
+                    if (type == TileType::Plaza && std::abs(std::sqrt(nx * nx + nz * nz) - 1.14f) < 0.046f) {
+                        const int jsZ = z - NORTH_ROWS;
+                        const bool straight = jsZ == 113 || jsZ == 155 || x == 10 || x == 112 || (x == 86 && (cz < 234.0f || cz > 290.0f));
+                        if (!straight) continue;
+                    }
+                }
                 glm::vec4 col = getColorForTile(type);
                 const bool raised = type == TileType::Sidewalk || type == TileType::Plaza || type == TileType::Floor;
                 float y = raised ? 0.15f : type == TileType::Water ? -0.18f : 0.0f;
@@ -532,6 +561,50 @@ void CityLayout::BuildMeshes(const CityLoadProgress& progressCallback) {
         }
     }
 
+    {   // banda del paseo del lago: anillo elipsoidal a la cota de los andenes, con la misma textura
+        constexpr int kSegments = 192;
+        constexpr float kInner = 1.04f, kOuter = 1.245f, kHeight = 0.15f;
+        const uint32_t base = static_cast<uint32_t>(sidewalkVertices.size());
+        for (int i = 0; i < kSegments; ++i) {
+            const float a = glm::two_pi<float>() * static_cast<float>(i) / static_cast<float>(kSegments);
+            for (const float scale : {kInner, kOuter}) {
+                const float px = kLakeX + kLakeRadiusX * scale * std::cos(a), pz = kLakeZ + kLakeRadiusZ * scale * std::sin(a);
+                sidewalkVertices.push_back({{px, kHeight, pz}, {0.0f, 1.0f, 0.0f}, {px * 0.5f, pz * 0.5f}, getColorForTile(TileType::Plaza)});
+            }
+        }
+        for (int i = 0; i < kSegments; ++i) {
+            const uint32_t a = base + static_cast<uint32_t>(i * 2), b = a + 1;
+            const uint32_t d = base + static_cast<uint32_t>(((i + 1) % kSegments) * 2), cc = d + 1;
+            sidewalkIndices.insert(sidewalkIndices.end(), {a, cc, b, a, d, cc});
+        }
+    }
+    if (!lakeTiles.empty()) {   // cuenco: cada casilla en 4 x 4 cuadros de 0,5 m con la cota exacta de LakeDepth: orilla redonda, sin dientes de sierra
+        std::vector<Vertex> vertices;
+        std::vector<uint32_t> indices;
+        constexpr int kSub = 4;
+        const float step = TILE_SIZE / static_cast<float>(kSub);
+        const glm::vec3 grass(0.25f, 0.38f, 0.22f), mud(0.36f, 0.31f, 0.21f), bed(0.12f, 0.17f, 0.15f);
+        const auto vertexAt = [&](float x, float z) {
+            const float depth = LakeDepth(x, z);
+            const float nx = (x - kLakeX) / kLakeRadiusX, nz = (z - kLakeZ) / kLakeRadiusZ;
+            const glm::vec3 normal = glm::normalize(glm::vec3(-kLakeMaxDepth * 2.0f * nx / kLakeRadiusX * (depth > 0.0f ? 1.0f : 0.0f), 1.0f,
+                                                              -kLakeMaxDepth * 2.0f * nz / kLakeRadiusZ * (depth > 0.0f ? 1.0f : 0.0f)));
+            glm::vec3 color = glm::mix(grass, mud, glm::smoothstep(0.0f, 0.06f, depth));
+            color = glm::mix(color, bed, glm::smoothstep(0.2f, 1.6f, depth));
+            return Vertex{{x, -depth, z}, normal, {x * 0.5f, z * 0.5f}, {color, 1.0f}};
+        };
+        for (const auto& [tx, tz] : lakeTiles) {
+            const uint32_t base = static_cast<uint32_t>(vertices.size());
+            for (int j = 0; j <= kSub; ++j)
+                for (int i = 0; i <= kSub; ++i) vertices.push_back(vertexAt(tx + static_cast<float>(i) * step, tz + static_cast<float>(j) * step));
+            for (int j = 0; j < kSub; ++j)
+                for (int i = 0; i < kSub; ++i) {
+                    const uint32_t a = base + static_cast<uint32_t>(j * (kSub + 1) + i), b = a + 1, c = a + static_cast<uint32_t>(kSub + 1), d = c + 1;
+                    indices.insert(indices.end(), {c, d, b, b, a, c});
+                }
+        }
+        m_LakeBedMesh = std::make_shared<Mesh>(vertices, indices);
+    }
     if (!groundVertices.empty()) {
         m_GroundMesh = std::make_shared<Mesh>(groundVertices, groundIndices);
     }
@@ -1064,6 +1137,7 @@ void CityLayout::Render(Renderer& renderer, const glm::vec3& focusPosition) {
     if (m_NatureMesh) {
         renderer.Submit(*m_NatureMesh, glm::mat4(1.0f), glm::vec4(1.0f));
     }
+    if (m_LakeBedMesh) renderer.Submit(*m_LakeBedMesh, glm::mat4(1.0f), glm::vec4(1.0f));
 
     if (m_MarkingMesh) renderer.Submit(*m_MarkingMesh, glm::mat4(1.0f));
     if (m_LandmarkMesh) renderer.Submit(*m_LandmarkMesh, glm::mat4(1.0f));

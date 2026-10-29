@@ -1856,7 +1856,8 @@ void UIManager::RenderMapView(const glm::vec3& playerPos, const CityLayout& city
         const float edge = std::max(1.0f, tilePixels * 0.25f);   // 1 de 4 px por casilla, como el plano del original
         for (int z = tz0; z <= tz1; ++z) {
             for (int x = tx0; x <= tx1; ++x) {
-                const char code = city.GetMapCode(x, z);
+                char code = city.GetMapCode(x, z);
+                if (code == 'W') code = 'g';   // el agua se dibuja aparte como elipse suave, sin escalones
                 const ImVec2 a = toScreen(x * CityLayout::TILE_SIZE - CityLayout::ORIGIN_X, z * CityLayout::TILE_SIZE - CityLayout::ORIGIN_Z);
                 const ImVec2 b(a.x + tilePixels + 0.6f, a.y + tilePixels + 0.6f);
                 draw->AddRectFilled(a, b, colorOf(code));
@@ -1868,6 +1869,27 @@ void UIManager::RenderMapView(const glm::vec3& playerPos, const CityLayout& city
                 if (!isSolid(city.GetMapCode(x, z + 1))) draw->AddRectFilled(ImVec2(a.x, b.y - edge), b, dark);
                 if (!isSolid(city.GetMapCode(x + 1, z))) draw->AddRectFilled(ImVec2(b.x - edge, a.y), b, dark);
             }
+        }
+        {   // lago: elipse exacta (la misma que el agua del juego) con su orilla; el carril del puente se repinta encima
+            constexpr int kSegments = 72;
+            std::vector<ImVec2> shore;
+            for (int i = 0; i < kSegments; ++i) {
+                const float a = glm::two_pi<float>() * static_cast<float>(i) / static_cast<float>(kSegments);
+                shore.push_back(toScreen(CityLayout::kLakeX + CityLayout::kLakeRadiusX * std::cos(a), CityLayout::kLakeZ + CityLayout::kLakeRadiusZ * std::sin(a)));
+            }
+            draw->AddConvexPolyFilled(shore.data(), kSegments, colorOf('W'));
+            draw->AddPolyline(shore.data(), kSegments, IM_COL32(0x4c, 0x86, 0xa8, 140), ImDrawFlags_Closed, std::max(1.0f, 0.5f * m_MapZoom));
+            const int bz0 = static_cast<int>(std::floor((CityLayout::kLakeZ - CityLayout::kLakeRadiusZ - 2.0f + CityLayout::ORIGIN_Z) / CityLayout::TILE_SIZE));
+            const int bz1 = static_cast<int>(std::floor((CityLayout::kLakeZ + CityLayout::kLakeRadiusZ + 2.0f + CityLayout::ORIGIN_Z) / CityLayout::TILE_SIZE));
+            const int bx0 = static_cast<int>(std::floor((CityLayout::kLakeX - CityLayout::kLakeRadiusX + CityLayout::ORIGIN_X) / CityLayout::TILE_SIZE));
+            const int bx1 = static_cast<int>(std::floor((CityLayout::kLakeX + CityLayout::kLakeRadiusX + CityLayout::ORIGIN_X) / CityLayout::TILE_SIZE));
+            for (int z = std::max(bz0, tz0); z <= std::min(bz1, tz1); ++z)
+                for (int x = std::max(bx0, tx0); x <= std::min(bx1, tx1); ++x) {
+                    const char code = city.GetMapCode(x, z);
+                    if (code != 'B' && code != 'p') continue;
+                    const ImVec2 a = toScreen(x * CityLayout::TILE_SIZE - CityLayout::ORIGIN_X, z * CityLayout::TILE_SIZE - CityLayout::ORIGIN_Z);
+                    draw->AddRectFilled(a, ImVec2(a.x + tilePixels + 0.6f, a.y + tilePixels + 0.6f), colorOf(code));
+                }
         }
         // tablero del viaducto: franja translucida sobre la calle inferior
         {

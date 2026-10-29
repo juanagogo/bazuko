@@ -146,6 +146,7 @@ void Renderer::Submit(const Mesh& mesh, const glm::mat4& transform, const glm::v
     m_DefaultShader->SetInt("uUseTexture", useTexture ? 1 : 0);
     m_DefaultShader->SetInt("uUnlit", m_Sky ? 2 : (m_Unlit ? 1 : 0));
     m_DefaultShader->SetInt("uAlphaMode", alphaMode);
+    m_DefaultShader->SetInt("uWater", m_Water ? 1 : 0);
     m_DefaultShader->SetFloat("uAlphaCutoff", alphaCutoff);
     m_DefaultShader->SetInt("uUseSpecularTexture", specularTexture ? 1 : 0);
     m_DefaultShader->SetFloat("uPushOut", m_PushOut);

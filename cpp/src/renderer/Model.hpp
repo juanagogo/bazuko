@@ -43,7 +43,9 @@ public:
 
     // Giro procedural de un hueso (el perro se anima moviendo sus huesos por codigo): `angles` son radianes sobre los ejes del
     // modelo (x lateral, y vertical, z hacia delante) aplicados en ese orden sobre la pose de reposo; `offset` desplaza el hueso
-    struct BoneTurn { std::string name; glm::vec3 angles{0.0f}; glm::vec3 offset{0.0f}; };
+    struct BoneTurn { std::string name; glm::vec3 angles{0.0f}; glm::vec3 offset{0.0f};
+                      bool poseSpace = false;
+                      std::string aimChild; glm::vec3 aimDirection{0.0f, -1.0f, 0.0f}; };   // aimChild: apunta el hueso para que `aimChild` quede en esa direccion (espacio del modelo)   // poseSpace: los ejes se toman sobre la pose animada (brazada de nado con el brazo ya caido), no sobre el reposo
     void Draw(Renderer& renderer, const glm::mat4& transform, const glm::vec4& tint = glm::vec4(1.0f),
               float animationTime = 0.0f, bool animate = false, int animationClip = 0,
               int alphaModeOverride = -1, bool seatedPose = false, const glm::vec4& paintTint = glm::vec4(1.0f),

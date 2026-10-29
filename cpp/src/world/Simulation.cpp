@@ -2803,6 +2803,7 @@ void Simulation::UpdateDrivers(float dt, const glm::vec3& playerPosition) {
         }
     }
     constexpr float kCarClip = 3.0f;    // CarEnter y CarExit: 72 fotogramas a 24 fps
+    constexpr float kBoardSpeed = 1.6f; // subir y bajar del vehiculo se reproduce a 1,6x: el clip original se sentia lento
     for (size_t index = 0; index < m_Traffic.size(); ++index) {
         TrafficVehicle& vehicle = m_Traffic[index];
         DriverInfo& driver = vehicle.driver;
@@ -2826,7 +2827,7 @@ void Simulation::UpdateDrivers(float dt, const glm::vec3& playerPosition) {
                 else if (driver.timer > 8.0f) { vehicle.holdStop = false; driver.boost = 6.0f; driver.state = DriverState::Seated; }
                 break;
             case DriverState::Exiting:
-                driver.timer += dt;
+                driver.timer += dt * kBoardSpeed;
                 if (driver.timer >= exitLength) {
                     // el conductor sale a la calle: es un peaton agresivo que va por el jugador
                     Pedestrian pedestrian;
@@ -2893,7 +2894,7 @@ void Simulation::UpdateDrivers(float dt, const glm::vec3& playerPosition) {
                 break;
             }
             case DriverState::Entering:
-                driver.timer += dt;
+                driver.timer += dt * kBoardSpeed;
                 if (driver.timer >= enterLength) {
                     driver.state = DriverState::Seated;
                     driver.timer = 0.0f;
