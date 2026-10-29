@@ -67,10 +67,11 @@ test('los GLB reales caben en las dimensiones actuales y descansan sobre Y=0', (
   assert.ok(front.clone().applyAxisAngle(new THREE.Vector3(0, 1, 0), IMPORTED_MODELS.transmilenio.yaw).z < -.99);
 });
 
-test('carros comparten el GLB, conservan rumbo y robo, y eliminar uno conserva el otro', async () => {
+test('el respaldo GLB de carros conserva rumbo, robo y recursos compartidos al eliminar una instancia', async () => {
   const scene = new THREE.Scene();
   const cars = [new Car(scene, new THREE.Vector3(5, .1, 6), .7), new Car(scene, new THREE.Vector3(12, 0, 6))];
-  cars.forEach(car => { car.modelKind = 'car1'; });
+  // El aspecto administrado se conserva normalmente; aquí se fuerza la vía heredada de respaldo.
+  cars.forEach(car => { car.modelKind = 'car1'; car.vehicle.model = 'sedan'; car.vehicle.visualManaged = false; });
   await Promise.all(cars.map(car => car.preloadModel()));
   assert.equal(loads.get('car1.opt.glb'), 1);
   const first = cars[0].importedModel.children[0].children[0].children[0];
@@ -89,11 +90,14 @@ test('carros comparten el GLB, conservan rumbo y robo, y eliminar uno conserva e
   cars[1].dispose();
 });
 
-test('TransMilenio usa el GLB sin modificar su ruta y mantiene el desvanecimiento aislado', async () => {
+test('TransMilenio conserva su carrocería articulada al precargar, su ruta y el desvanecimiento aislado', async () => {
   const a = new BusService({ x: 10, startZ: 100, stationZ: 50, endZ: 0 });
   const b = new BusService({ x: 16, startZ: 100, stationZ: 50, endZ: 0 });
+  const group = a.group, visuals = a.visuals, loadsBefore = loads.get('tm.opt.glb') ?? 0;
   await Promise.all([a.preloadModel(), b.preloadModel()]);
-  assert.equal(loads.get('tm.opt.glb'), 1);
+  assert.equal(loads.get('tm.opt.glb') ?? 0, loadsBefore);
+  assert.equal(a.group, group); assert.equal(a.visuals, visuals);
+  assert.equal(a.group.userData.wheels.length, 6);
   const firstMaterial = [...a.materials.keys()][0], secondMaterial = [...b.materials.keys()][0];
   assert.notEqual(firstMaterial, secondMaterial);
   a.position.z = 70; a._updateVisibility();

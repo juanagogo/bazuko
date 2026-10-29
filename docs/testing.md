@@ -40,3 +40,7 @@ node node_modules/@playwright/test/cli.js test --list
 ```
 
 La ejecución con renderizado por software sirve para verificar flujos; sus FPS no representan el rendimiento de una GPU real.
+
+Para ejecutar Chromium con la GPU del equipo, usar `PLAYWRIGHT_GPU=1 npm run test:e2e:headed`. Esta opción no modifica el modo por defecto de la suite.
+
+Las pruebas de edificios y vegetación verifican el plan urbano, las huellas y reservas, el agrupado de atributos del follaje, las ventanas de noche y la liberación de recursos compartidos. `vegetation-lifecycle.test.js` comprueba que el mapa y las colisiones originales se mantienen. La revisión visual se describe en [Edificios y vegetación](edificios-vegetacion.md).

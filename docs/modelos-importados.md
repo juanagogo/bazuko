@@ -31,7 +31,7 @@ Canecas y cambuche se reducen sin soldar las costuras UV para que la textura no 
 
 Se adaptan escala y orientación en tiempo de carga. Los carros siguen apuntando a +X local y el bus a −Z local; sus dimensiones se ajustan a las rutas existentes. El cargador comparte geometrías y texturas entre instancias. El bus tiene materiales independientes para que su desvanecimiento no cambie otras instancias.
 
-Los modelos de vehículos contienen las ruedas y carrocería en una misma malla; las ruedas de estos GLB no giran por separado. La circulación, las paradas y el frenado siguen a cargo de los sistemas de esta versión.
+Los modelos de vehículos contienen las ruedas y carrocería en una misma malla; las ruedas de estos GLB no giran por separado. Sus archivos y créditos se conservan como recursos originales. La flota animada actual usa carrocerías con piezas separadas que sobreviven a la precarga, descritas en [Vehículos de Bogotá](vehiculos-bogota.md). La circulación, las paradas y el frenado siguen a cargo de los sistemas del juego.
 
 El cambuche también es una sola malla con mobiliario integrado. Se muestra al construir base y techo; antes solo se ven las piezas ya construidas y el anillo que señala el lugar. Los beneficios de las mejoras siguen dependiendo de lo construido, aunque el GLB incluya esos detalles visualmente. El fogón y la vela se muestran según lo construido. El refugio se ubica en X=112.98, Z=94.64. El inicio y la reaparición quedan delante, en X=112.98, Z=97.84, para evitar aparecer dentro del modelo. Los refugios decorativos de los NPC conservan su aspecto.
 

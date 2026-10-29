@@ -98,6 +98,8 @@ Bogota.busServices contiene ambos buses; busService conserva el primero por comp
 
 CollisionSystem mantiene una AABB de referencia y una OBB de dimensiones constantes por bus. El barrido del jugador se resuelve en el espacio local; PlayerRagdoll usa el mismo centro, dimensiones y quaternion. No usar la envolvente diagonal como colisión final. VehicleAudio mantiene voces independientes por instancia. Tráfico y semáforos no bloquean buses elevados por objetos de la calle inferior.
 
+La flota animada conserva sus carrocerías administradas durante preloadModel. Las ruedas, dirección, suspensión visual, señales y limpiaparabrisas usan tiempo de simulación; no mover la raíz física para animar la carrocería. El articulado conserva el frente −Z y las puertas de estación en −X; cerrar antes de avanzar y mantener el tiempo de parada. El desvanecimiento debe respetar transparent/depthWrite originales de cada material. No añadir luces dinámicas por vehículo. Ver docs/vehiculos-bogota.md.
+
 transit-terminal.test.js comprueba acceso a pie, parada y salida en ambos sentidos, carrocerías dentro del tablero y separación al cruzarse en las curvas. Las pruebas de lógica no sustituyen la revisión visual en el juego.
 
 El rodeo de Colpatria usa un eje con transiciones de curvatura suaves entre Z 80 y Z 260. Las barandas, el asfalto y el tablero comparten bordes a distancia perpendicular constante del eje. Los carriles de ambos sentidos siguen ese mismo trazado; el corredor del lago y sus consultas de altura acompañan la curva.
@@ -109,6 +111,8 @@ LoadingArtwork.js administra parejas numeradas según loading-artwork.json. Las 
 ## Variedad urbana
 
 UrbanBuildings.js planifica sustituciones deterministas sobre tiles building exclusivamente. Conservar el mismo plan al construir las fachadas y las colisiones. Las huellas se incorporan a covered antes de generar casas y relleno; en _buildCollisions se excluyen esos tiles de las cajas genéricas de 8 metros y se añade una caja de altura real por solar. No cambiar el mapa ni ocupar ruinas, calles, parques, edificios especiales o reservas del viaducto. Los cinco diseños usan createBuildingShell y BuildingVisibility, con fachadas repetibles compartidas y sin luces nuevas. Las torres de 30 pisos miden 96 metros, menos que Colpatria.
+
+BuildingDetails.js agrupa detalles por pared y conserva BuildingVisibility; las ventanas emisivas se actualizan también en closedMaterials. UrbanTrees.js comparte atlas y materiales de hojas y sombras, con atributos color/treeWind que deben sobrevivir al agrupado estático. UrbanPlanting.js y ParkVegetation.js usan semillas locales y reservas del cambuche, mobiliario, senderos y agua. No convertir su máscara visual del lago en una regla física. Conservar los sectores de vegetación y la liberación deduplicada de recursos. Ver docs/edificios-vegetacion.md.
 
 ## Radar, mapa y GPS
 

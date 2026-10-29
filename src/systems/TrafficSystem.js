@@ -19,6 +19,11 @@ function emitHonk(x, z) {
   }
 }
 
+// Los stops acompañan la desaceleración real o la espera; acelerar despacio no es frenar.
+function brakeEngaged(before, after, dt) {
+  return after < before - .08 * dt || (after <= .05 && after <= before + 1e-8);
+}
+
 export class TrafficSystem {
   constructor(scene, routes, { carsPerRoute = 4, random = Math.random } = {}) {
     this.vehicles = [];
@@ -29,6 +34,9 @@ export class TrafficSystem {
     this._probePosition = new THREE.Vector3();
     this._probeDirection = new THREE.Vector3();
     this._signalDirection = new THREE.Vector3();
+    this._visualDirection = new THREE.Vector3();
+    this._visualPosition = new THREE.Vector3();
+    this._time = 0;
     this._nearbyPedestrians = [];
     this._nearbyCars = [];
     this._carGrid = new SpatialGrid();
@@ -51,6 +59,26 @@ export class TrafficSystem {
           lastHonkTime: 0 });
       }
     }
+  }
+
+  /** Muestreo exclusivamente visual: no escribe el rumbo físico ni la planificación del tráfico. */
+  _animateRoute(vehicle, distance, dt, previousSpeed) {
+    const { car, route, speed } = vehicle;
+    const context = vehicle._driveContext ??= {};
+    const yaw = car.group.rotation.y;
+    route.sample(vehicle.distance + .65, this._visualPosition, this._visualDirection);
+    const heading = Math.atan2(-this._visualDirection.z, this._visualDirection.x);
+    const curve = Math.atan2(Math.sin(heading - yaw), Math.cos(heading - yaw)) / .65;
+    context.steering = Math.atan(curve * (car.vehicle.wheelbase ?? car.length * .58));
+    route.sample(vehicle.distance + Math.max(6, speed * 1.3), this._visualPosition, this._visualDirection);
+    const ahead = Math.atan2(-this._visualDirection.z, this._visualDirection.x);
+    const turn = Math.atan2(Math.sin(ahead - yaw), Math.cos(ahead - yaw));
+    context.turnSignal = Math.abs(turn) > .12 ? (turn > 0 ? 'left' : 'right')
+      : Math.abs(context.steering) > .08 ? (context.steering > 0 ? 'left' : 'right') : null;
+    context.dt = dt;
+    context.speed = speed;
+    context.acceleration = (speed - previousSpeed) / dt;
+    car.animateDrive(distance, brakeEngaged(previousSpeed, speed, dt), context);
   }
 
   _personInCar(position, car) {
@@ -358,6 +386,7 @@ export class TrafficSystem {
     let remaining = Math.min(dt, 0.5);
     while (remaining > 1e-8) {
       const stepTime = Math.min(remaining, 0.05);
+      this._time += stepTime;
       this._buildSpatialIndex(pedestrians);
       this._updating = true;
       try {
@@ -401,9 +430,9 @@ export class TrafficSystem {
           vehicle.nextTravel = travel;
 
           if (clearance < 3.5 && vehicle.speed > 0.8) {
-            const now = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
-            if (now - (vehicle.lastHonkTime || 0) > 4000) {
-              vehicle.lastHonkTime = now;
+            // Los cuatro segundos de espera no transcurren mientras la simulación está en pausa.
+            if (this._time - (vehicle.lastHonkTime || 0) > 4) {
+              vehicle.lastHonkTime = this._time;
               emitHonk(vehicle.car.position.x, vehicle.car.position.z);
             }
           }
@@ -415,13 +444,14 @@ export class TrafficSystem {
       for (const vehicle of this.vehicles) {
         const startDistance = vehicle.distance;
         const travel = vehicle.nextTravel;
+        const previousSpeed = vehicle.speed;
         vehicle.distance = vehicle.nextDistance;
         vehicle.speed = vehicle.nextSpeed;
         this._checkPlayerImpact(vehicle, player, startDistance, travel, onPlayerHit);
         vehicle.route.sample(vehicle.distance, this._position, this._direction);
         vehicle.car.position.copy(this._position);
         vehicle.car.group.rotation.y = Math.atan2(-this._direction.z, this._direction.x);
-        vehicle.car.animateDrive(vehicle.speed * stepTime, vehicle.speed < vehicle.cruiseSpeed * 0.7);
+        this._animateRoute(vehicle, travel, stepTime, previousSpeed);
       }
       remaining -= stepTime;
     }

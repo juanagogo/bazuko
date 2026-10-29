@@ -56,20 +56,20 @@ test('Salto Gráfico 2: Cerros Orientales con Santuario de Monserrate y faro noc
   assert.equal(crossMesh.material.opacity, 0.25);
 });
 
-test('Salto Gráfico 3: Bus TransMilenio articulado con faros, haz de luz y luces traseras', () => {
+test('Salto Gráfico 3: Bus TransMilenio articulado con tres ejes y faros/luces traseras reactivas', () => {
   const bus = articulatedBus();
-  assert.equal(bus.userData.wheels.length, 8, 'Conserva 8 ruedas intactas');
-
-  // Buscar haz de luz frontal sobre el asfalto
-  const beamMesh = bus.children.find(c => c.geometry?.parameters?.width === 6.5);
-  assert.ok(beamMesh, 'El bus articulado proyecta haz de luz frontal');
-  assert.equal(beamMesh.rotation.x, -Math.PI / 2);
-
-  // Luces traseras y delanteras
-  const headLights = bus.children.filter(c => c.geometry?.parameters?.width === 0.3 && c.position.z < -9);
-  assert.equal(headLights.length, 2, 'Cuenta con 2 faros delanteros');
-  const tailLights = bus.children.filter(c => c.geometry?.parameters?.width === 0.28 && c.position.z > 9);
-  assert.equal(tailLights.length, 2, 'Cuenta con 2 faros traseros rojos');
+  assert.equal(bus.userData.wheels.length, 6, 'Tres ejes con un conjunto de ruedas por lado');
+  const visuals = bus.userData.busVisuals, lights = visuals.lights;
+  const dayHead = lights.head.emissiveIntensity;
+  visuals.setNight(true);
+  assert.ok(lights.head.emissiveIntensity > dayHead);
+  const tail = lights.tail.emissiveIntensity;
+  visuals.setBraking(true);
+  assert.ok(lights.tail.emissiveIntensity > tail);
+  let dynamicLights = 0;
+  bus.traverse(object => { if (object.isLight) dynamicLights++; });
+  assert.equal(dynamicLights, 0, 'Faros y stops no añaden luces dinámicas al presupuesto');
+  visuals.dispose();
 });
 
 test('Salto Gráfico 4: Árboles con vaivén orgánico por viento andino', () => {
@@ -83,7 +83,7 @@ test('Salto Gráfico 4: Árboles con vaivén orgánico por viento andino', () =>
   const shader = { uniforms: {}, vertexShader: '#include <begin_vertex>' };
   leaves[0].material.onBeforeCompile(shader);
   assert.equal(shader.uniforms.foliageTime, foliageWind, 'Todas las copas leen el mismo tiempo de viento');
-  assert.match(shader.vertexShader, /sin\(foliageTime \* uv\.y \+ uv\.x\)/, 'El viento andino oscila la copa del árbol');
+  assert.match(shader.vertexShader, /sin\(foliageTime \* treeWind\.y \+ treeWind\.x\)/, 'El viento conserva las UV del atlas de hojas');
   assert.ok(leaves.every(c => c.customDepthMaterial), 'La sombra acompaña el vaivén');
 });
 

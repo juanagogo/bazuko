@@ -1,4 +1,8 @@
 import { planUrbanBuildings, buildUrbanBuilding, URBAN_DESIGNS } from '../bogota/UrbanBuildings.js';
+import { neighborhoodAt } from '../bogota/NeighborhoodIdentity.js';
+import { addBuildingDetails } from '../bogota/BuildingDetails.js';
+import { planUrbanTrees } from '../bogota/UrbanPlanting.js';
+import { planParkVegetation, buildParkVegetation, lakeVegetationMask } from '../bogota/ParkVegetation.js';
 import { buildSmallBuilding, SMALL_BUILDING } from '../bogota/SmallBuilding.js';
 // src/world/districts/Bogota.js
 // Centro de Bogotá (inspirado en Santa Inés / El Cartucho y la Av. Caracas).
@@ -178,6 +182,7 @@ export class Bogota {
     this._buildPark();
     this._buildExtensions();
     this._buildLakePark();
+    this._buildGreenery();
     this.group.add(buildAvenueOverpass());
     this.group.add(buildGasStation({ createSign: signTexture }));
     this.group.add(buildD69Store({ createSign: signTexture }));
@@ -528,7 +533,7 @@ export class Bogota {
       const shell=buildUrbanBuilding(plan,urbanPalette);
       this.group.add(shell.root);
       const building=this.buildingVisibility.register(shell);
-      for(const part of building.parts)for(const material of part.materials)if(material.emissiveMap)this.facadeMats.push(material);
+      for(const part of building.parts)for(const material of part.materials)if(material.emissiveMap || material.userData.windowGlow)this.facadeMats.push(material);
     }
 
     // direcciones: [dx, dz, índice de cara de BoxGeometry]
@@ -540,9 +545,13 @@ export class Bogota {
         // recorre la línea perpendicular buscando tramos de tiles con fachada hacia (dx, dz)
         let run = [];
         const flush = () => {
+          if (!run.length) return;
+          // La partición no depende de los UUID creados por ventanas, materiales o árboles.
+          const widthRandom = TX.rng((Math.imul(run[0][0] + 17, 73856093)
+            ^ Math.imul(run[0][1] + 31, 19349663) ^ Math.imul(face + 1, 83492791) ^ 0x4b4f474f) >>> 0);
           let i = 0;
           while (i < run.length) {
-            const wTiles = Math.min(run.length - i, 2 + Math.floor(Math.random() * 3));
+            const wTiles = Math.min(run.length - i, 2 + Math.floor(widthRandom() * 3));
             this._house(run.slice(i, i + wTiles), dx, dz, face, alongX, isB, map, sideMat, roofMat, tileRoof, covered);
             i += wTiles;
           }
@@ -592,16 +601,25 @@ export class Bogota {
     for (const [x, z] of tiles) for (let d = 0; d < depth; d++) covered.add(`${x - dx * d},${z - dz * d}`);
 
     const widthM = tiles.length * T;
-    const floors = skylineFloors(tiles[0][0], tiles[0][1], ruin);
+    const [x0, z0] = tiles[0], [x1, z1] = tiles[tiles.length - 1];
+    const cx = (W(x0) + W(x1)) / 2 - dx * (depth - 1) * T / 2;
+    const cz = (W(z0) + W(z1)) / 2 - dz * (depth - 1) * T / 2;
+    const houseSeed = (Math.imul(x0 + 17, 73856093) ^ Math.imul(z0 + 31, 19349663)
+      ^ Math.imul(tiles.length, 83492791) ^ Math.imul(depth, 2654435761) ^ Math.imul(face + 1, 97531)) >>> 0;
+    const random = TX.rng(houseSeed);
+    const choose = values => values[Math.floor(random() * values.length)];
+    const floors = skylineFloors(x0, z0, ruin, random());
     const h = floors * 3;
-    const style = ruin ? 'ruina' : Math.random() < 0.55 ? 'ladrillo' : 'pintada';
+    const style = ruin ? 'ruina' : random() < 0.55 ? 'ladrillo' : 'pintada';
     // el ladrillo necesita más resolución para que cada ladrillo (36 × 12 cm) se distinga
     // Variantes compartidas: ampliar el barrio no triplica las texturas de fachada en la GPU.
-    const variant = Math.floor(Math.random() * 2);
+    const variant = Math.floor(random() * 2);
     const textureKey = `${widthM}:${floors}:${style}:${variant}`;
     let tex = this._facadeTextures.get(textureKey);
     if (!tex) {
-      tex = TX.facade({ seed: Math.floor(Math.random() * 1e6), width: widthM, floors, pxPerM: style === 'pintada' ? 36 : 48, shopFront: true, style });
+      let seed = 2166136261;
+      for (const character of textureKey) seed = Math.imul(seed ^ character.charCodeAt(0), 16777619);
+      tex = TX.facade({ seed: seed >>> 0, width: widthM, floors, pxPerM: style === 'pintada' ? 36 : 48, shopFront: true, style });
       this._facadeTextures.set(textureKey, tex);
     }
     for (const t of [tex.map, tex.emissiveMap, tex.bumpMap, tex.roughnessMap]) {
@@ -623,12 +641,9 @@ export class Bogota {
       this.facadeMats.push(facadeMat);
     }
 
-    const [x0, z0] = tiles[0], [x1, z1] = tiles[tiles.length - 1];
-    const cx = (W(x0) + W(x1)) / 2 - dx * (depth - 1) * T / 2;
-    const cz = (W(z0) + W(z1)) / 2 - dz * (depth - 1) * T / 2;
     const sx = alongX ? widthM : depth * T;
     const sz = alongX ? depth * T : widthM;
-    const clay = Math.random() < 0.4 || ruin;
+    const clay = random() < 0.4 || ruin;
     const mats = [sideMat, sideMat, clay ? tileRoof : roofMat, roofMat, sideMat, sideMat];
     mats[face] = facadeMat;
     const U = this._uvUnits;
@@ -646,9 +661,9 @@ export class Bogota {
     const yaw = Math.atan2(dx, dz);
 
     // aviso de local en el primer piso
-    if (!ruin && Math.random() < 0.55) {
-      const [title, sub] = pick(SHOP_NAMES);
-      const map = signTexture({ title, sub, bg: pick(['#0b4fa3', '#c0392b', '#1f6b3a', '#f2c600', '#ffffff', '#6a1b9a']), fg: '#ffffff', w: 768, h: 192 });
+    if (!ruin && random() < 0.55) {
+      const [title, sub] = choose(SHOP_NAMES);
+      const map = signTexture({ title, sub, bg: choose(['#0b4fa3', '#c0392b', '#1f6b3a', '#f2c600', '#ffffff', '#6a1b9a']), fg: '#ffffff', w: 768, h: 192 });
       if (map) {
         const sign = new THREE.Mesh(new THREE.PlaneGeometry(Math.min(widthM * 0.85, 3.6), Math.min(widthM * 0.85, 3.6) / 4),
           new THREE.MeshBasicMaterial({ map }));
@@ -658,7 +673,7 @@ export class Bogota {
       }
     }
     // balcón de madera en las casas viejas (Cartucho) o en algunas de ladrillo
-    if ((ruin && Math.random() < 0.6) || (style === 'ladrillo' && Math.random() < 0.2)) {
+    if ((ruin && random() < 0.6) || (style === 'ladrillo' && random() < 0.2)) {
       const wood = new THREE.MeshStandardMaterial({ color: ruin ? '#4a3626' : '#5a3d24', roughness: 0.9 });
       const bal = new THREE.Group();
       const bw = Math.min(widthM * 0.7, 3.5);
@@ -677,16 +692,11 @@ export class Bogota {
       bal.traverse((o) => { if (o.isMesh) o.castShadow = true; });
       shell.walls.get(face).add(bal);
     }
-    // tanque de agua negro en la terraza
-    if (!ruin && Math.random() < 0.35) {
-      const tank = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.45, 0.9, 12), new THREE.MeshStandardMaterial({ color: '#1c1f22', roughness: 0.6 }));
-      tank.position.set(rand(-0.5, 0.5), h + 0.45, rand(-0.5, 0.5));
-      tank.castShadow = true;
-      shell.roof.add(tank);
-    }
+    addBuildingDetails({ shell, width: sx, depth: sz, height: h, floors, face,
+      seed: houseSeed, neighborhood: neighborhoodAt(cx, cz).id, ruin, balconies: false });
     const building = this.buildingVisibility.register(shell);
     for (const part of building.parts) for (const material of part.materials) {
-      if (material.emissiveMap) this.facadeMats.push(material);
+      if (material.emissiveMap || material.userData.windowGlow) this.facadeMats.push(material);
     }
   }
 
@@ -877,12 +887,6 @@ export class Bogota {
   }
 
   _buildPark() {
-    for (let i = 0; i < 9; i++) {
-      const x = rand(29.5, 38.5), z = rand(33.5, 45.5);
-      if (Math.abs(x - 33.5) < 1.6 || Math.abs(z - 39) < 1.2) continue;
-      if (Math.hypot(WX(x) - SHELTER_LOCATION.x, WZ(z) - SHELTER_LOCATION.z) < 6) continue;
-      this._add(P.tree(rand(0.9, 1.3)), WX(x), WZ(z));
-    }
     for (const [x, z, r] of [[32, 37, Math.PI / 2], [35, 41, -Math.PI / 2], [31, 39.8, 0], [36.5, 38.2, Math.PI]]) {
       if (Math.hypot(WX(x) - SHELTER_LOCATION.x, WZ(z) - SHELTER_LOCATION.z) < 5) continue;
       const banca = new Banca(new THREE.Vector3(WX(x), 0.06, WZ(z)), r);
@@ -895,9 +899,6 @@ export class Bogota {
 
   _buildExtensions() {
     for (const park of EXTENSION_PARKS) {
-      for (let z=park.z0+1;z<park.z1;z+=4) for (let x=park.x0+1;x<park.x1;x+=4) {
-        if (this.map[z][x] === 'grass') this._add(P.tree(rand(0.9,1.3)), W(x), W(z));
-      }
       const pathZ=Math.floor((park.z0+park.z1)/2);
       for (const x of [park.x0+2,park.x1-2]) {
         const bench = new Banca(new THREE.Vector3(W(x), this.getGroundHeight(W(x),W(pathZ)), W(pathZ)), 0);
@@ -910,16 +911,36 @@ export class Bogota {
   }
 
   _buildLakePark() {
-    // Arbolado espaciado; solo crece en césped, nunca dentro del lago o sobre el puente.
-    for (let z = 230; z < 314; z += 12) for (let x = 14; x < 230; x += 12) {
-      if (this.map[Math.round(z / T)]?.[Math.round(x / T)] !== 'grass' || onLakeBridge(x, z)) continue;
-      this._add(P.tree(1 + ((x + z) % 3) * .12), x, z);
-    }
     for (const [x, z] of [[20, 226], [132, 236], [134, 288], [20, 310], [156, 310]]) {
       const bench = new Banca(new THREE.Vector3(x, this.getGroundHeight(x, z), z), 0);
       this.group.add(bench.group);
     }
     this._add(P.streetSign([LAKE_PARK.name, 'Lago · Puente TransMilenio']), 150, 226);
+  }
+
+  _buildGreenery() {
+    // El arbolado y los jardines comparten reservas, sin cambiar tiles ni navegación.
+    const benches = this.group.children.filter(object => object.children.some(child =>
+      child.material?.userData?.staticMergeKey === 'banca:madera')).map(object => object.position);
+    const isReserved = (x, z, radius = 0) =>
+      Math.hypot(x - SHELTER_LOCATION.x, z - SHELTER_LOCATION.z) < 7 + radius ||
+      Math.hypot(x - SHELTER_RESPAWN.x, z - SHELTER_RESPAWN.z) < 5 + radius ||
+      benches.some(p => Math.hypot(x - p.x, z - p.z) < 1.8 + radius) ||
+      (this.vendors ?? []).some(({ position: p }) => Math.hypot(x - p.x, z - p.z) < 2 + radius);
+    const options = { map: this.map, tileSize: T, isReserved,
+      groundHeight: (x, z) => this.getGroundHeight(x, z),
+      getWaterInfo: (x, z) => lakeVegetationMask(x, z) || this.map[Math.round(z / T)]?.[Math.round(x / T)] === 'water' };
+    this.treePlan = planUrbanTrees(options);
+    for (const tree of this.treePlan) {
+      const object = P.tree(tree.scale, { seed: tree.seed, species: tree.species });
+      object.position.set(tree.x, tree.y, tree.z);
+      object.rotation.y = tree.rotation;
+      this.group.add(object);
+    }
+    this.vegetationPlan = planParkVegetation(options);
+    const vegetation = buildParkVegetation(this.vegetationPlan, { windTime: P.foliageWind });
+    // Hijos por sector: un contenedor de toda la ciudad impediría descartar jardines lejanos.
+    this.group.add(...vegetation.children.slice());
   }
 
   /** Cruces y bloqueos peatonales compartidos por los NPC y el GPS. */
@@ -1013,12 +1034,16 @@ export class Bogota {
     const replacedMaterials = new Set();
     const visit = (o) => {
       if (o.userData.update || o.userData.noMerge) return; // animados y faroles quedan aparte
-      if (o.isMesh && !Array.isArray(o.material) && !o.isSkinnedMesh) {
+      if (o.isMesh && !Array.isArray(o.material) && !o.isSkinnedMesh && !o.isInstancedMesh) {
         if (!o.geometry.attributes.uv || !o.geometry.attributes.normal) return;
         // Conserva los índices: expandir cajas y planos duplicaba sus vértices.
-        const key = `${o.material.userData.staticMergeKey ?? o.material.uuid}|${o.castShadow}|${o.receiveShadow}|${!!o.geometry.index}|${geometryChunk(o.geometry, o.matrixWorld)}`;
         const g = o.geometry.clone();
-        for (const name of Object.keys(g.attributes)) if (!['position', 'normal', 'uv'].includes(name)) g.deleteAttribute(name);
+        for (const name of Object.keys(g.attributes)) if (!['position', 'normal', 'uv', 'color', 'treeWind'].includes(name)) g.deleteAttribute(name);
+        const attributes = Object.keys(g.attributes).sort().map(name => {
+          const a = g.attributes[name];
+          return `${name}:${a.itemSize}:${a.array.constructor.name}:${a.normalized}`;
+        }).join(',');
+        const key = `${o.material.userData.staticMergeKey ?? o.material.uuid}|${o.castShadow}|${o.receiveShadow}|${!!g.index}|${attributes}|${o.customDepthMaterial?.uuid ?? ''}|${geometryChunk(o.geometry, o.matrixWorld)}`;
         g.applyMatrix4(o.matrixWorld);
         const bucket = buckets.get(key) ?? { mat: o.material, cast: o.castShadow, recv: o.receiveShadow, list: [], sources: [] };
         buckets.set(key, bucket);
@@ -1041,6 +1066,11 @@ export class Bogota {
       }
       const mesh = new THREE.Mesh(merged, mat);
       mesh.customDepthMaterial = sources[0].customDepthMaterial; // mismo material, misma sombra
+      if (merged.hasAttribute('treeWind')) {
+        // Después de geometryChunk: el recálculo de bounds no debe borrar el margen de viento.
+        merged.computeBoundingBox(); merged.boundingBox.expandByScalar(.25);
+        merged.computeBoundingSphere(); merged.boundingSphere.radius += .25;
+      }
       mesh.castShadow = cast;
       mesh.receiveShadow = recv;
       mesh.matrixAutoUpdate = false;
@@ -1094,14 +1124,38 @@ export class Bogota {
   setNightMode(isNight) {
     for (const material of this.towerLights ?? []) material.emissiveIntensity = isNight ? 1.8 : .05;
     for (const p of this.props) p.instance.setNight?.(isNight);
-    for (const m of this.facadeMats) m.emissiveIntensity = isNight ? 1.2 : 0;
+    for (const m of this.facadeMats) m.emissiveIntensity = isNight ? (m.userData.windowGlow ?? 1.2) : 0;
     this.cerros?.userData?.setNight?.(isNight);
     for (const material of this.buildingVisibility.closedMaterials.values()) {
-      if (material.emissiveMap) material.emissiveIntensity = isNight ? 1.2 : 0;
+      if (material.emissiveMap || material.userData.windowGlow) material.emissiveIntensity = isNight ? (material.userData.windowGlow ?? 1.2) : 0;
     }
   }
 
   dispose(scene) {
+    if (this._disposed) return;
+    this._disposed = true;
+    const textures = new Set();
+    const rememberTexture = value => {
+      if (value?.isTexture) textures.add(value);
+      else if (Array.isArray(value)) value.forEach(rememberTexture);
+    };
+    const rememberTextures = material => {
+      for (const value of Object.values(material ?? {})) rememberTexture(value);
+      for (const uniforms of [material?.uniforms, material?.userData?.uniforms]) {
+        for (const uniform of Object.values(uniforms ?? {})) rememberTexture(uniform?.value);
+      }
+    };
+    const meshMaterials = object => [object.material, object.customDepthMaterial, object.customDistanceMaterial].flat().filter(Boolean);
+    for (const material of Object.values(this.groundMaterials ?? {})) rememberTextures(material);
+    for (const maps of this._facadeTextures.values()) for (const texture of Object.values(maps)) {
+      rememberTexture(texture);
+    }
+    // BuildingVisibility sigue siendo dueño de estos materiales, incluidos los no usados por un lote.
+    const closedMaterials = new Set(this.buildingVisibility.closedMaterials.values());
+    for (const material of closedMaterials) rememberTextures(material);
+    this.group.traverse(object => {
+      for (const material of meshMaterials(object)) rememberTextures(material);
+    });
     for (const flock of this.pigeonFlocks ?? []) flock.dispose();
     this.signals?.dispose();
     this.stationGroup?.clear();
@@ -1112,11 +1166,14 @@ export class Bogota {
     this._facadeMaterials.clear();
     scene.remove(this.group);
     for (const n of this.npcs) n.dispose();
+    const geometries = new Set(), materials = new Set();
     this.group.traverse((o) => {
       if (o.isInstancedMesh) o.dispose();
-      o.geometry?.dispose?.();
-      const mats = Array.isArray(o.material) ? o.material : [o.material];
-      for (const m of mats) { m?.map?.dispose?.(); m?.dispose?.(); }
+      if (o.geometry) geometries.add(o.geometry);
+      for (const material of meshMaterials(o)) materials.add(material);
     });
+    for (const geometry of geometries) geometry.dispose();
+    for (const material of materials) if (!closedMaterials.has(material)) material.dispose();
+    for (const texture of textures) texture.dispose();
   }
 }

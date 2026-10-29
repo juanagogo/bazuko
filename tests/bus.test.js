@@ -25,7 +25,7 @@ test('el bus completo recorre la troncal sin invadir estación, separadores, and
   city.group.add(bus.group);
   city._mergeStatic();
   assert.equal(bus.group.parent,city.group);
-  assert.equal(bus.group.userData.wheels.length,8);
+  assert.equal(bus.group.userData.wheels.length,6);
 });
 
 test('el servicio avanza, para cuatro segundos en la estación y repite el recorrido sin giro brusco visible', () => {

@@ -8,13 +8,17 @@ Este proyecto es un fork de [juanagogo/bazuko](https://github.com/juanagogo/bazu
 
 ## Características
 
+- Carrocerías diferenciadas de carros y taxis bogotanos, ruedas con dirección, stops y direccionales, limpiaparabrisas con lluvia y buses articulados con puertas de estación. [Vehículos y comprobación](docs/vehiculos-bogota.md).
+
+- Fachadas con marcos, rejas, cortinas y azoteas; arbolado con hojas al viento y jardines bajos en los parques. Ver [edificios y vegetación](docs/edificios-vegetacion.md).
+
 - Integración experimental en `pruebas-integracion`: carriles rojos con SOLO BUS, estación, semáforos que regulan el tráfico, inventario por casillas y modelos de bolsas, canecas, lámparas, carros, taxi, TransMilenio y cambuche del fork de [mreyeswilson](https://github.com/mreyeswilson/bazuko). [Detalles de integración y procedencia](docs/modelos-importados.md).
 - Radar relativo a la cámara, pausa con volumen y calidad gráfica, llovizna y compañero canino El Chato, adaptados de [Cristianlv11/bazuko](https://github.com/Cristianlv11/bazuko/tree/feature/mejoras-navegacion-audio-pausa-clima). [Detalles de compatibilidad](docs/integracion-cristian.md).
 - Cámaras en tercera persona e isométrica, intercambiables durante la partida.
 - Techos y paredes que se ocultan cuando tapan al personaje en vista isométrica, con muros bajos y silueta del jugador.
 - Peatones que caminan por los andenes y cruzan las calles.
 - Diez palomas en cada uno de los tres parques: caminan, levantan vuelo cuando el jugador o un NPC se acerca a menos de 3,5 metros y aterrizan en otro lugar. Cada bandada usa cinco lotes de geometría instanciada, sin luces ni física; se suspende a más de 90 metros del jugador.
-- Carros y taxis con recorridos aleatorios entre 90 alternativas transitables y un bus articulado que circula por la troncal y para en la estación.
+- Carros y taxis con recorridos aleatorios entre 90 alternativas transitables y dos buses articulados que circulan en sentidos opuestos por la troncal y paran en la estación.
 - Calzadas de 12 metros y andenes de 4 metros.
 - Ciudad de 240 × 322 metros: conserva la ampliación urbana y añade un gran parque al sur, con barrios nuevos al oriente y al sur, dos calles y dos carreras adicionales y dos parques nuevos.
 - Creación de personaje, inventario, reciclaje, comercio, talentos y construcción del cambuche.

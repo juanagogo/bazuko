@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { articulatedBus, ARTICULATED_BUS_SIZE } from './props.js';
-import { createImportedModel, disposeImportedInstance } from '../../utils/ImportedModels.js';
+import { BUS_DOOR_SECONDS } from './ArticulatedBus.js';
 
 const ACCELERATION = 1.1, BRAKING = 4, CRUISE_SPEED = 5;
 const STOP_SECONDS = 4, END_FADE_METERS = 6;
@@ -10,6 +10,7 @@ export class BusService {
   constructor({ x, startZ, endZ, stationZ = null, height = 0.02, groundHeight = null, pathX = null }) {
     if (startZ === endZ || (stationZ !== null && !(stationZ > Math.min(startZ,endZ) && stationZ < Math.max(startZ,endZ)))) throw new Error('La estación debe quedar dentro del recorrido del bus.');
     this.group = articulatedBus();
+    this.visuals = this.group.userData.busVisuals;
     this.group.userData.noMerge = true;
     this.group.name = 'Bus troncal Caracas';
     this.position = this.group.position;
@@ -28,10 +29,13 @@ export class BusService {
     this.servedStation = stationZ === null;
     this.dwellRemaining = 0;
     this.materials = new Map();
+    this._materialStates = new Map();
     this.group.traverse(mesh => {
       if (!mesh.isMesh) return;
-      const material = mesh.material;
-      this.materials.set(material, material.opacity);
+      for (const material of [mesh.material].flat().filter(Boolean)) {
+        this.materials.set(material, material.opacity);
+        this._materialStates.set(material, { transparent: material.transparent, depthWrite: material.depthWrite });
+      }
     });
     this._alignToGround();
     this._updateVisibility();
@@ -62,28 +66,20 @@ export class BusService {
   }
 
   preloadModel() {
-    return this._modelPromise ??= createImportedModel('transmilenio', { ownMaterials: true }).then(model => {
-      if (this._disposed) { disposeImportedInstance(model); return; }
-      const geometries = new Set();
-      this.group.traverse(object => { if (object.geometry) geometries.add(object.geometry); });
-      for (const child of [...this.group.children]) this.group.remove(child);
-      for (const geometry of geometries) geometry.dispose();
-      for (const material of this.materials.keys()) material.dispose();
-      this.materials.clear();
-      this.group.userData.wheels = [];
-      this.model = model;
-      this.group.add(model);
-      model.traverse(object => {
-        for (const material of [object.material].flat().filter(Boolean)) this.materials.set(material, material.opacity);
-      });
-      this._updateVisibility();
-    });
+    // La carrocería administrada ya está lista. Conservar la promesa del
+    // cargador sin reemplazar las piezas móviles por un GLB estático.
+    return this._modelPromise ??= Promise.resolve(this.group);
   }
 
   dispose() {
+    if (this._disposed) return;
     this._disposed = true;
-    if (this.model) disposeImportedInstance(this.model);
+    this.visuals.dispose();
+    this.materials.clear(); this._materialStates.clear();
   }
+
+  setNight(isNight) { this.visuals.setNight(isNight); }
+  setWeather(weather) { this.visuals.setWeather(weather); }
 
   _alignToGround() {
     this._alignRoute();
@@ -111,14 +107,16 @@ export class BusService {
       this.direction * (this.endZ - this.position.z) / END_FADE_METERS), 0, 1);
     this.group.visible = opacity > 0;
     for (const [material, baseOpacity] of this.materials) {
-      const transparent = opacity < 1;
+      const base = this._materialStates.get(material);
+      const transparent = opacity < 1 || base.transparent;
       if (material.transparent !== transparent) { material.transparent = transparent; material.needsUpdate = true; }
       material.opacity = baseOpacity * opacity;
-      material.depthWrite = !transparent;
+      material.depthWrite = opacity < 1 ? false : base.depthWrite;
     }
   }
 
   update(dt, { player = null, pedestrians = [], vehicles = [] } = {}) {
+    if (this._disposed || dt <= 0) return;
     this.personBlocked = false;
     let remaining = Math.min(Math.max(dt, 0), 0.5);
     while (remaining > 1e-8) {
@@ -126,6 +124,12 @@ export class BusService {
       remaining -= step;
       if (this.dwellRemaining > 0) {
         this.dwellRemaining = Math.max(0, this.dwellRemaining - step);
+        this.visuals.update(step, { doorsOpen: this.dwellRemaining > BUS_DOOR_SECONDS + .05, braking: true });
+        continue;
+      }
+      if (this.visuals.doorOpenFraction > 1e-8) {
+        this.speed = 0;
+        this.visuals.update(step, { doorsOpen: false, braking: true });
         continue;
       }
       const heading = this.heading;
@@ -157,18 +161,20 @@ export class BusService {
       this.position.z += travel * heading.z;
       this._alignRoute();
       this.speed = travel / step;
-      for (const wheel of this.group.userData.wheels) wheel.rotateY(travel / 0.5);
+      let braking = rate === BRAKING || this.speed < .01;
       if (!this.servedStation && this.direction * (this.position.z - this.stationZ) >= -1e-8) {
         this.position.z = this.stationZ;
         this.servedStation = true;
         this.speed = 0;
         this.dwellRemaining = STOP_SECONDS;
+        braking = true;
       }
       if (this.direction * (this.position.z - this.endZ) >= -1e-8) {
         this.position.z = this.startZ;
         this.servedStation = this.stationZ === null;
         this.speed = 0;
       }
+      this.visuals.update(step, { distance: travel, doorsOpen: false, braking });
     }
     this._alignToGround();
     this._updateVisibility();

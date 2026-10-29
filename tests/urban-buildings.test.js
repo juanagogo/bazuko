@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import * as THREE from 'three';
 import {planUrbanBuildings,buildUrbanBuilding,URBAN_DESIGNS} from '../src/world/bogota/UrbanBuildings.js';
 import {BuildingVisibility} from '../src/world/bogota/BuildingVisibility.js';
@@ -11,6 +12,8 @@ const palette=()=>({facades:URBAN_DESIGNS.map(()=>new THREE.MeshStandardMaterial
 test('los nuevos edificios se distribuyen por la ciudad, de 3 a 30 pisos y sin ocupar calles o hitos',()=>{
   const map=new Bogota()._layout(),before=JSON.stringify(map),lots=planUrbanBuildings(map),occupied=new Set();
   assert.deepEqual(lots,planUrbanBuildings(map));
+  assert.equal(createHash('sha256').update(JSON.stringify(lots)).digest('hex'),
+    'e6b140f023aecccc93ac7f996b5cd235bd08446cba2dd378be42437fc873a0e3', 'conserva el plan físico de main: posiciones, huellas, alturas y semillas');
   assert.equal(JSON.stringify(map),before);
   assert.ok(lots.length>=18);
   assert.equal(Math.min(...lots.map(p=>p.floors)),3);assert.equal(Math.max(...lots.map(p=>p.floors)),30);
@@ -35,13 +38,29 @@ test('los cinco diseños respetan su solar y su altura, comparten texturas y usa
     assert.ok(bounds.min.z>=p.z-p.depth/2-.2&&bounds.max.z<=p.z+p.depth/2+.2);
     let triangles=0,meshes=0;
     shell.root.traverse(o=>{assert.ok(!o.isLight);if(o.isMesh){meshes++;triangles+=(o.geometry.index?.count??o.geometry.attributes.position.count)/3;}});
-    assert.ok(triangles<6000);counts.add(meshes);
+    assert.ok(triangles<9000, `${design}: ${triangles} triángulos`);counts.add(meshes);
+    for(const wall of shell.walls.values()) assert.ok(wall.children.filter(o=>o.userData.buildingDetails).length<=6);
     const visibility=new BuildingVisibility(),building=visibility.register(shell);
     assert.ok(building.bounds.max.y>=p.height);
     assert.equal(building.parts.length,5);
     assert.ok(visibility.buildClosedView().children.length>0);
   }
   assert.ok(counts.size>=3,'los diseños deben variar su geometría');
+});
+
+test('el port de detalles conserva los materiales de fachada de main sin recolorear barrios',()=>{
+  const materials=palette();
+  materials.facades.forEach((m,i)=>m.color.setHex(0x765432+i));
+  materials.trim.color.set('#b9a887');
+  const colors=materials.facades.map(m=>m.color.getHex());
+  const template=planUrbanBuildings(new Bogota()._layout())[0];
+  for(const [x,z] of [[112.98,97.84],[112,170],[112,230],[20,30]]) {
+    const shell=buildUrbanBuilding({...template,x,z},materials);
+    for(const wall of shell.walls.values()) assert.equal(wall.children[0].material,materials.facades[URBAN_DESIGNS.indexOf(template.design)]);
+    assert.equal(shell.root.getObjectByName('Dintel').material,materials.trim);
+    assert.deepEqual(materials.facades.map(m=>m.color.getHex()),colors);
+    assert.equal(materials.trim.color.getHex(),0xb9a887);
+  }
 });
 
 test('las colisiones de los edificios nuevos alcanzan todos sus pisos sin extenderse a las calles',()=>{

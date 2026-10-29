@@ -1,5 +1,7 @@
 import * as THREE from 'three';
 import { createBuildingShell } from './BuildingVisibility.js';
+import { addBuildingDetails } from './BuildingDetails.js';
+import { neighborhoodAt } from './NeighborhoodIdentity.js';
 
 const hash=(x,z)=>((Math.imul(x+17,73856093)^Math.imul(z+31,19349663))>>>0);
 const FLOOR_SEQUENCE=[3,5,8,12,4,18,6,24,10,30,7,16];
@@ -70,7 +72,6 @@ export function buildUrbanBuilding(plan,palette) {
       const step=design==='concreto-bandas'?1:3;
       for(let floor=2;floor<Math.floor(bodyHeight/3.2);floor+=step) {
         detail(0,floor*3.2,length-.2,.16,.22,palette.trim,'Banda entre pisos');
-        if(design==='ladrillo-balcones')detail(0,floor*3.2+.65,length*.6,.65,.3,palette.rail,'Antepecho de balcón');
       }
     }
     // Entrada y vitrina oscura: no repetir persianas en los pisos superiores.
@@ -81,5 +82,12 @@ export function buildUrbanBuilding(plan,palette) {
     top.position.set(0,bodyHeight+3.2,0);top.castShadow=top.receiveShadow=true;shell.roof.add(top);
     add(shell.roof,w*.8,.2,d*.8,0,h-.1,0,palette.trim,'Cornisa de coronación');
   } else add(shell.roof,w-.2,.3,d-.2,0,h-.15,0,palette.trim,'Remate de azotea');
+  for (const face of [0,1,4,5]) addBuildingDetails({
+    shell, width:w, depth:d, height:h, floors:plan.floors, face, seed:plan.seed,
+    neighborhood:neighborhoodAt(x,z), balconies:design==='ladrillo-balcones', facadeHeight:bodyHeight,
+    windowBayWidth:3,
+    roof:face===0, roofWidth:setback?w*.76:w, roofDepth:setback?d*.76:d,
+    materials:{trim:palette.trim,metal:palette.rail,glass:palette.glass,concrete:palette.concrete}
+  });
   return shell;
 }
