@@ -22,20 +22,20 @@ Permite usar el modelo gratis en un proyecto. Sketchfab no permite redistribuir 
 
 Los tres se convirtieron a glTF y se separaron en carrocería, ruedas y, en el Mercedes, la puerta del conductor.
 
-## Pendientes de permiso
+## Sin permiso de redistribución (fuera del repositorio)
 
-Estos modelos no son descargables de forma oficial (licencia «Standard» de pago, «Editorial» o sin licencia indicada). Se usaron en el desarrollo, pero **no hay un permiso que cubra publicarlos**: antes de publicar el proyecto hay que comprarlos o pedirlos al autor, o reemplazarlos por modelos con licencia libre.
+Estos modelos no son descargables de forma oficial (licencia «Standard» de pago, «Editorial» o sin licencia indicada), así que **no se suben al repositorio**: `.gitignore` los excluye y quien tenga una copia legítima puede colocarla en `public/models/` para usarlos en local. Sin ellos el juego funciona con los modelos de respaldo (perro anterior animado por código, otros carros de cabina y el bus de la versión web). Antes de publicar el proyecto con ellos hay que comprarlos o pedirlos al autor, o reemplazarlos por modelos de licencia libre.
 
-| Modelo | Autor | Licencia en la ficha | Enlace |
-|---|---|---|---|
-| Dog - Pitbull (El Chato) | RedDeer | Standard | https://sketchfab.com/models/001fab8be8174ebba05b4d5ae1f22b0c |
-| Ford F150 Raptor | codexito | Standard | https://sketchfab.com/models/7a96fa6484744fc9b0a99ad68f710a9a |
-| Renault 6 | codexito | Standard | https://sketchfab.com/models/9ffb467d90ec44d1a70a97cf7c6093e2 |
-| City Bus | Rescue3D Assets | Standard | https://sketchfab.com/models/51b9602a56a74c458a9bbdf4cd885c86 |
-| Tesla MODEL X [Animation] | Virtual Studio | Editorial | https://sketchfab.com/models/36e9d3598c554bb69f3d9cd00e161818 |
-| Transmilenio Bus - Colombian Bus | camilooh | Sin licencia indicada | https://sketchfab.com/models/7e465ccd0f2e4e088f8ebdeb5f575ed5 |
+| Modelo | Autor | Licencia en la ficha | Enlace | Archivos que se esperan |
+|---|---|---|---|---|
+| Dog - Pitbull (El Chato) | RedDeer | Standard | https://sketchfab.com/models/001fab8be8174ebba05b4d5ae1f22b0c | `chato.glb` |
+| Ford F150 Raptor | codexito | Standard | https://sketchfab.com/models/7a96fa6484744fc9b0a99ad68f710a9a | `vehiculos/raptor*` |
+| Renault 6 | codexito | Standard | https://sketchfab.com/models/9ffb467d90ec44d1a70a97cf7c6093e2 | `vehiculos/renault6*` |
+| City Bus | Rescue3D Assets | Standard | https://sketchfab.com/models/51b9602a56a74c458a9bbdf4cd885c86 | (no se usa) |
+| Tesla MODEL X [Animation] | Virtual Studio | Editorial | https://sketchfab.com/models/36e9d3598c554bb69f3d9cd00e161818 | `vehiculos/modelx*` |
+| Transmilenio Bus - Colombian Bus | camilooh | Sin licencia indicada | https://sketchfab.com/models/7e465ccd0f2e4e088f8ebdeb5f575ed5 | `transmilenio/` |
 
-El Pitbull se preparó con Blender (metros, textura de color a 1024 px y 38 de sus 130 animaciones, todas en el sitio) y se publica como `chato.glb`.
+El Pitbull se preparó con Blender (metros, textura de color a 1024 px y 38 de sus 130 animaciones, todas en el sitio).
 
 ## Otros modelos del juego
 
