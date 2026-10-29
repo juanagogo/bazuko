@@ -888,6 +888,14 @@ std::vector<glm::mat4> Model::EvaluatePose(float animationTime, bool animate, in
         for (const BoneTurn& turn : *turns) {
             for (size_t index = 0; index < nodes.size(); ++index) {
                 if (nodes[index].name != turn.name) continue;
+                if (turn.localSpace) {
+                    glm::quat local(1.0f, 0.0f, 0.0f, 0.0f);
+                    if (turn.angles.x != 0.0f) local = local * glm::angleAxis(turn.angles.x, glm::vec3(1.0f, 0.0f, 0.0f));
+                    if (turn.angles.y != 0.0f) local = local * glm::angleAxis(turn.angles.y, glm::vec3(0.0f, 1.0f, 0.0f));
+                    if (turn.angles.z != 0.0f) local = local * glm::angleAxis(turn.angles.z, glm::vec3(0.0f, 0.0f, 1.0f));
+                    nodes[index].rotation = glm::normalize(nodes[index].rotation * local);
+                    break;
+                }
                 if (!turn.aimChild.empty()) {
                     // apuntar: gira el hueso lo minimo para que el hueso hijo quede en la direccion pedida (brazada de nado, miembros por codigo)
                     size_t child = nodes.size();
@@ -926,6 +934,7 @@ std::vector<glm::mat4> Model::EvaluatePose(float animationTime, bool animate, in
                             const glm::vec3 axis = glm::cross(from, to);
                             alignment = glm::normalize(glm::quat(1.0f + dotValue, axis.x, axis.y, axis.z));
                         }
+                        if (turn.aimWeight < 0.9999f) alignment = glm::slerp(glm::quat(1.0f, 0.0f, 0.0f, 0.0f), alignment, std::clamp(turn.aimWeight, 0.0f, 1.0f));
                         const int parent = nodes[index].parent;
                         const glm::quat parentRotation = parent >= 0 ? rotations[static_cast<size_t>(parent)] : glm::quat(1.0f, 0.0f, 0.0f, 0.0f);
                         nodes[index].rotation = glm::normalize(glm::inverse(parentRotation) * glm::normalize(alignment * rotations[index]));

@@ -7,6 +7,7 @@
 #include <cmath>
 #include <filesystem>
 #include "../character/CharacterAnimations.hpp"
+#include "../character/CombatMoves.hpp"
 #include "../core/Log.hpp"
 #include "../core/Paths.hpp"
 #include "../game/Harvest.hpp"
@@ -694,6 +695,7 @@ Simulation::Simulation(const CityLayout& city, uint32_t seed,
                 appearance.getUpClip = appearance.parts.front()->FindAnimationClip("GetUp");
                 appearance.jabClip = appearance.parts.front()->FindAnimationClip("PunchJab");
                 appearance.crossClip = appearance.parts.front()->FindAnimationClip("PunchCross");
+                appearance.fightClip = appearance.parts.front()->FindAnimationClip("FightIdle");
                 m_PedestrianAppearances.push_back(std::move(appearance));
             }
         }
@@ -2591,7 +2593,7 @@ bool Simulation::HitPedestrian(const glm::vec3& from, const glm::vec2& forward, 
     Pedestrian* target = nullptr;
     float best = reach;
     for (auto& pedestrian : m_Pedestrians) {
-        if (pedestrian.reaction > 0) continue;
+        if (pedestrian.reaction > 0 || pedestrian.dodgeTime >= 0.0f) continue;
         const glm::vec2 offset = glm::vec2(pedestrian.position.x, pedestrian.position.z) - origin;
         const float distance = glm::length(offset);
         // delante del jugador: dentro de un cono de unos 70 grados
@@ -2600,6 +2602,13 @@ bool Simulation::HitPedestrian(const glm::vec3& from, const glm::vec2& forward, 
         target = &pedestrian;
     }
     if (!target) return false;
+    if (!target->dead && target->health > 0.0f && m_Unit(m_Random) < (kind >= 3 ? 0.18f : 0.30f)) {   // lo ve venir: esquive lateral o rotatorio, sin dano
+        target->dodgeTime = 0.0f;
+        target->dodgeKind = m_Unit(m_Random) < 0.5f ? 0 : 1;
+        target->punchTime = -1.0f;
+        target->yaw = std::atan2(-direction.x, -direction.y);
+        return true;
+    }
     target->bubbleText = kPunchedPhrases[static_cast<size_t>(m_Unit(m_Random) * 4.99f)];
     target->bubbleRemaining = 4.0f;
     target->health -= kind >= 3 ? 22.0f : kind == 2 ? 14.0f : 10.0f;   // patada, cruzado o navaja, jab
@@ -3019,6 +3028,20 @@ void Simulation::UpdatePedestrians(float dt, const glm::vec3& playerPosition) {
             pedestrian.bubbleRemaining = 0.0f;
             continue;
         }
+        if (pedestrian.dodgeTime >= 0.0f) {   // esquiva un golpe del jugador (esquive lateral o rotatorio) y luego retoma lo que hacia
+            pedestrian.dodgeTime += dt;
+            pedestrian.punchTime = -1.0f;
+            const float length = Combat::Info(pedestrian.dodgeKind == 0 ? Combat::Move::Slip : Combat::Move::RollingDuck).duration;
+            if (pedestrian.dodgeTime >= length) {
+                pedestrian.dodgeTime = -1.0f;
+                if (m_Unit(m_Random) < 0.45f) {   // algunos devuelven el golpe
+                    pedestrian.aggressive = true;
+                    pedestrian.aggressionRemaining = 12.0f;
+                    pedestrian.fleeAfterPunch = false;
+                }
+            }
+            continue;
+        }
         if (pedestrian.reaction > 0) {
             // golpeado: se queda en su reaccion (la animacion marca la duracion); luego se enoja o huye
             pedestrian.reactionTime += dt;
@@ -3075,14 +3098,15 @@ void Simulation::UpdatePedestrians(float dt, const glm::vec3& playerPosition) {
                 // lanza el puno: acierta hacia la mitad del movimiento si el jugador sigue al alcance
                 pedestrian.punchTime += dt;
                 pedestrian.yaw = std::atan2(toward.x, toward.z);
-                if (!pedestrian.punchLanded && pedestrian.punchTime >= (pedestrian.punchCross ? 0.30f : 0.22f)) {
+                const Combat::MoveInfo& blow = Combat::Info(pedestrian.punchKind == 0 ? Combat::Move::Jab : pedestrian.punchKind == 1 ? Combat::Move::Cross : Combat::Move::Hook);
+                if (!pedestrian.punchLanded && pedestrian.punchTime >= blow.impact) {
                     pedestrian.punchLanded = true;
                     if (playerDistance < 1.6f) {
                         const float roll = pedestrian.fleeAfterPunch ? 0.2f + 0.4f * m_Unit(m_Random) : m_Unit(m_Random);
                         m_PlayerHits.push_back({roll < 0.4f ? 1 : roll < 0.8f ? 2 : 3, -toward});
                     }
                 }
-                if (pedestrian.punchTime >= (pedestrian.punchCross ? 0.75f : 0.583f)) {
+                if (pedestrian.punchTime >= blow.duration) {
                     pedestrian.punchTime = -1.0f;
                     pedestrian.punchCooldown = 1.4f + m_Unit(m_Random) * 0.8f;
                     if (pedestrian.fleeAfterPunch) startFleeing();
@@ -3092,7 +3116,8 @@ void Simulation::UpdatePedestrians(float dt, const glm::vec3& playerPosition) {
             } else if (pedestrian.punchCooldown <= 0.0f) {
                 pedestrian.punchTime = 0.0f;
                 pedestrian.punchLanded = false;
-                pedestrian.punchCross = !pedestrian.punchCross;
+                pedestrian.punchKind = (pedestrian.punchKind + 1) % 3;
+                pedestrian.punchCross = pedestrian.punchKind == 1;
             } else {
                 pedestrian.yaw = std::atan2(toward.x, toward.z);
             }
@@ -4468,11 +4493,18 @@ void Simulation::Render(Renderer& renderer, float time, const glm::vec3& focusPo
         if (glm::dot(offset, offset) > 56.0f * 56.0f) continue;
         glm::mat4 character = glm::translate(glm::mat4(1.0f), pedestrian.position);
         character = glm::rotate(character, pedestrian.yaw, {0.0f, 1.0f, 0.0f});
+        if (std::getenv("BAZUKO_NPC_MOVE")) {   // pruebas: los peatones se acomodan en fila frente al jugador, de cara a el, para revisar cada cuerpo
+            static size_t previewIndex = 0;
+            const size_t slot = previewIndex++ % std::max<size_t>(1, m_Pedestrians.size());
+            character = glm::translate(glm::mat4(1.0f), focusPosition + glm::vec3(-1.6f + 1.6f * static_cast<float>(slot % 3), 0.0f, 2.2f + 1.0f * static_cast<float>(slot / 3)));
+            character = glm::rotate(character, glm::pi<float>(), {0.0f, 1.0f, 0.0f});
+        }
         character = glm::scale(character, glm::vec3(pedestrian.scale));
         if (pedestrian.appearance >= m_PedestrianAppearances.size()) continue;
         const auto& appearance = m_PedestrianAppearances[pedestrian.appearance];
         // los peatones asustados corren y los que esperan alternan dos reposos (mas natural)
         const bool relaxedIdle = appearance.relaxedClip >= 0 && std::fmod(pedestrian.animationOffset * 7.31f, 1.0f) < 0.5f;
+        std::vector<Model::BoneTurn> combatTurns;
         int clip = pedestrian.moving ? (pedestrian.fleeRemaining > 0.0f && appearance.runClip >= 0 ? appearance.runClip : appearance.walkClip)
                                      : (relaxedIdle ? appearance.relaxedClip : appearance.idleClip);
         float clipTime = pedestrian.animationTime + pedestrian.animationOffset;
@@ -4486,11 +4518,30 @@ void Simulation::Render(Renderer& renderer, float time, const glm::vec3& focusPo
             else if (pedestrian.reactionTime < 0.833f) clip = appearance.fallClip;
             else if (pedestrian.reactionTime < 1.733f) { clip = appearance.lyingClip; clipTime = pedestrian.reactionTime - 0.833f; }
             else { clip = appearance.getUpClip; clipTime = pedestrian.reactionTime - 1.733f; }
+        } else if (static const char* previewMove = std::getenv("BAZUKO_NPC_MOVE"); previewMove && appearance.fightClip >= 0 && Combat::FindMove(previewMove) >= 0) {
+            // pruebas: todos los peatones adoptan esa tecnica (BAZUKO_PREVIEW_TIME fija el segundo) para revisar cada cuerpo
+            static const char* previewTime = std::getenv("BAZUKO_PREVIEW_TIME");
+            clip = appearance.fightClip;
+            clipTime = 0.0f;
+            Combat::AppendMove(combatTurns, static_cast<Combat::Move>(Combat::FindMove(previewMove)), previewTime ? static_cast<float>(std::atof(previewTime)) : 0.0f);
+        } else if (pedestrian.dodgeTime >= 0.0f && appearance.fightClip >= 0) {
+            clip = appearance.fightClip;
+            clipTime = 0.0f;
+            Combat::AppendMove(combatTurns, pedestrian.dodgeKind == 0 ? Combat::Move::Slip : Combat::Move::RollingDuck, pedestrian.dodgeTime);
+        } else if (pedestrian.punchTime >= 0.0f && appearance.fightClip >= 0) {
+            clip = appearance.fightClip;   // la guardia es la base y el golpe gira los huesos encima
+            clipTime = 0.0f;
+            Combat::AppendMove(combatTurns, pedestrian.punchKind == 0 ? Combat::Move::Jab : pedestrian.punchKind == 1 ? Combat::Move::Cross : Combat::Move::Hook, pedestrian.punchTime);
         } else if (pedestrian.punchTime >= 0.0f) {
             clip = pedestrian.punchCross ? appearance.crossClip : appearance.jabClip;
             clipTime = pedestrian.punchTime;
         } else if (pedestrian.aggressive && pedestrian.moving && appearance.runClip >= 0) {
             clip = appearance.runClip;
+            Combat::AppendFists(combatTurns);   // corre hacia el jugador con los puños cerrados
+        } else if (pedestrian.aggressive && appearance.fightClip >= 0) {
+            clip = appearance.fightClip;
+            clipTime = 0.0f;
+            Combat::AppendFists(combatTurns);
         }
         if (pedestrian.dead && pedestrian.reactionTime > 0.8f && m_BloodMesh) {
             // el charco crece desde que cae y se queda mientras el cuerpo siga a la vista
@@ -4507,7 +4558,7 @@ void Simulation::Render(Renderer& renderer, float time, const glm::vec3& focusPo
             if (!model) continue;
             glm::vec4 tint = PedestrianPartTint(appearance, partIndex, pedestrian.color, pedestrian.animationOffset);
             if (pedestrian.splatRemaining > 0.0f) tint *= glm::vec4(0.42f, 0.32f, 0.20f, 1.0f);
-            model->Draw(renderer, character, tint, clipTime, clip >= 0, clip);
+            model->Draw(renderer, character, tint, clipTime, clip >= 0, clip, -1, false, glm::vec4(1.0f), -1, 0.0f, combatTurns.empty() ? nullptr : &combatTurns);
         }
     }
 

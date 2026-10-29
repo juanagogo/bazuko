@@ -35,6 +35,12 @@ uniform int uUseTexture;
 uniform int uUnlit = 0;   // 1 bombillas (sin iluminacion), 2 cielo (sin iluminacion ni niebla)
 uniform int uAlphaMode;
 uniform int uWater = 0;
+// Sombras: mapa de profundidad de la luz alrededor del jugador (ver Renderer::RenderShadowMap)
+uniform int uShadowEnabled = 0;
+uniform mat4 uShadowMatrix;
+uniform vec3 uShadowCenter;
+uniform vec3 uShadowParams;   // x alcance (m), y metros por pixel del mapa, z 1 / resolucion
+layout(binding = 4) uniform sampler2DShadow uShadowMap;
 uniform float uAlphaCutoff;
 layout(binding = 0) uniform sampler2D uTexture;
 layout(binding = 1) uniform sampler2D uSpecularTexture;
@@ -55,19 +61,38 @@ vec3 linearToSrgb(vec3 c) { c = max(c, vec3(0.0)); return mix(c * 12.92, 1.055 *
 
 out vec4 FragColor;
 
+// 1 = iluminado, 0 = en sombra. Pixel desplazado a lo largo de la normal contra el moire, filtro de 3 x 3 y desvanecido hacia el borde del mapa
+float shadowFactor(vec3 pos, vec3 n, vec3 l) {
+    float distanceFromCenter = distance(pos.xz, uShadowCenter.xz);
+    float fade = 1.0 - smoothstep(uShadowParams.x * 0.78, uShadowParams.x * 0.96, distanceFromCenter);
+    if (fade <= 0.0) return 1.0;
+    float slope = 1.0 - clamp(dot(n, l), 0.0, 1.0);
+    vec3 p = pos + n * (uShadowParams.y * (1.5 + 2.5 * slope));
+    vec4 c = uShadowMatrix * vec4(p, 1.0);
+    vec3 s = c.xyz / c.w;
+    if (s.x < 0.0 || s.x > 1.0 || s.y < 0.0 || s.y > 1.0 || s.z > 1.0) return 1.0;
+    float sum = 0.0;
+    for (int x = -1; x <= 1; ++x)
+        for (int y = -1; y <= 1; ++y)
+            sum += texture(uShadowMap, vec3(s.xy + vec2(float(x), float(y)) * uShadowParams.z, s.z - 0.0004));
+    return mix(1.0, sum / 9.0, fade);
+}
+
 void main() {
     vec3 norm = normalize(vNormal);
     vec3 lightDir = normalize(-uSunDir);
 
     float diff = max(dot(norm, lightDir), 0.0);
-    vec3 diffuse = diff * uSunColor;
+    float shadow = 1.0;
+    if (uShadowEnabled == 1 && uUnlit == 0 && uWater == 0 && diff > 0.0) shadow = shadowFactor(vFragPos, norm, lightDir);
+    vec3 diffuse = diff * uSunColor * shadow;
     vec3 ambient = uAmbientColor;
     vec3 viewDir = normalize(uCameraPos - vFragPos);
     vec3 reflectedLight = reflect(-lightDir, norm);
     float specularStrength = uUseSpecularTexture == 1
         ? texture(uSpecularTexture, vUV).r * 0.35 : 0.0;
     vec3 specular = pow(max(dot(viewDir, reflectedLight), 0.0), 24.0)
-        * uSunColor * specularStrength;
+        * uSunColor * specularStrength * shadow;
 
     vec4 baseColor = uAlbedo * vColor;
     if (uGammaCorrect == 1) baseColor.rgb = srgbToLinear(clamp(baseColor.rgb, 0.0, 1.0));

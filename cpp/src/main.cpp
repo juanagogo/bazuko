@@ -28,6 +28,9 @@
 #include "world/CityLayout.hpp"
 #include "world/Simulation.hpp"
 #include "world/Lake.hpp"
+#include "character/CombatMoves.hpp"
+#include "character/JumpMoves.hpp"
+#include "world/SkyDome.hpp"
 #include "character/CharacterManager.hpp"
 #include "character/Ragdoll.hpp"
 #include "ui/CharacterCreatorUI.hpp"
@@ -109,6 +112,9 @@ int main(int argc, char** argv) {
     });
     audio.SetRaining(simulation.IsRaining());
     Lake lake;   // agua del Parque del Lago, peces y salpicaduras
+    SkyDome skyDome;   // cielo con gradiente y nubes
+    SkyColors skyColors;
+    float moonVisibility = 0.0f, moonPhase = 0.5f;
 
     characterManager.Init([&](size_t completed, size_t total) {
         const float progress = 0.75f + 0.13f * static_cast<float>(completed) / static_cast<float>(total);
@@ -186,15 +192,32 @@ int main(int argc, char** argv) {
         {"hierba", 2, {{"carton", 1}, {"madera", 1}}},
     };
     // Acciones del personaje (animaciones de Blender): saltar (Espacio), agacharse (Ctrl), puños (J), patada (K) y navaja (H)
-    enum class PlayerAction { None, Jump, Jab, Cross, Kick, Slash, Stab, Pet };
+    enum class PlayerAction { None, Jump, Jab, Cross, Kick, Slash, Stab, Pet, Hook, HighKick, Slip, Duck };
     bool petWaiting = false, petRewardPending = false;   // caricia al Chato: se pide con E, el perro se sienta delante y luego la anima PetDog
     float petWaitTime = 0.0f;
     PlayerAction playerAction = PlayerAction::None;
+    const auto combatMoveOf = [](PlayerAction action) -> int {   // tecnica por codigo (CombatMoves.hpp) de cada accion de combate; -1 si no la tiene
+        switch (action) {
+            case PlayerAction::Jab: return static_cast<int>(Combat::Move::Jab);
+            case PlayerAction::Cross: return static_cast<int>(Combat::Move::Cross);
+            case PlayerAction::Hook: return static_cast<int>(Combat::Move::Hook);
+            case PlayerAction::Kick: return static_cast<int>(Combat::Move::Roundhouse);
+            case PlayerAction::HighKick: return static_cast<int>(Combat::Move::HighRoundhouse);
+            case PlayerAction::Slip: return static_cast<int>(Combat::Move::Slip);
+            case PlayerAction::Duck: return static_cast<int>(Combat::Move::RollingDuck);
+            default: return -1;
+        }
+    };
     int playerActionClip = -1;
     float actionTime = 0.0f, actionDuration = 0.0f;
-    bool nextPunchIsCross = false, nextKnifeIsStab = false;
+    bool nextKnifeIsStab = false, nextKickIsHigh = false, nextDodgeIsDuck = false;
+    int punchChain = 0;   // jab, cruzado y gancho en cadena (se reinicia si pasa mas de 1,4 s)
     float fightStanceRemaining = 0.0f, knifeStanceRemaining = 0.0f, stillSeconds = 0.0f;
     float jumpOffset = 0.0f;
+    bool jumpMoving = false;            // salto con carrera (camino o corriendo) en vez de salto estatico
+    glm::vec3 jumpDirection{0.0f};      // hacia donde sale despedido el salto en movimiento
+    float jumpSpeed = 0.0f;             // m/s horizontales en el aire: decide cuanto avanza
+
     bool playerCrouching = false;
     // Clic izquierdo: golpes encadenados (jab, cruzado y patada). Los golpes recibidos y el atropello tienen sus propias animaciones.
     int comboStep = 0;
@@ -722,6 +745,8 @@ int main(int argc, char** argv) {
     if (const char* delay = std::getenv("BAZUKO_SHOT_DELAY")) shotDelay = static_cast<float>(std::atof(delay));
     if (shotPath) {
         const auto envFloat = [](const char* name, float fallback) { const char* v = std::getenv(name); return v ? static_cast<float>(std::atof(v)) : fallback; };
+        if (const char* weather = std::getenv("BAZUKO_WEATHER")) simulation.ForceWeather(static_cast<Climate::Weather>(std::clamp(std::atoi(weather), 0, Climate::kWeatherCount - 1)));   // pruebas: 0 soleado .. 6 tormenta
+        if (const char* hour = std::getenv("BAZUKO_HOUR")) simulation.SetDayProgress(static_cast<float>(std::atof(hour)) / 24.0f);   // pruebas: hora del dia
         if (const char* where = std::getenv("BAZUKO_POS")) {   // pruebas: BAZUKO_POS=x,z coloca al jugador (p. ej. dentro del lago)
             float px = 0.0f, pz = 0.0f;
             if (std::sscanf(where, "%f,%f", &px, &pz) == 2) playerPos = glm::vec3(px, std::max(city.GetGroundHeight(px, pz), CityLayout::kLakeSurface - 1.25f), pz);
@@ -906,6 +931,10 @@ int main(int argc, char** argv) {
             if (Input::IsKeyDown(GLFW_KEY_D)) moveDir += glm::vec3( 1.0f, 0.0f, -1.0f);
         }
 
+        if (playerAction == PlayerAction::Jump && jumpMoving) {   // en el aire el salto conserva el rumbo y la velocidad con que se despego
+            const float airTime = actionTime - Jump::TimingFor(true).takeoff;
+            if (airTime >= 0.0f && airTime < Jump::TimingFor(true).air) { moveDir = jumpDirection; moveSpeed = jumpSpeed; }
+        }
         float currentSpeed = 0.0f;
         if (playerKnockedDown) {
             knockdownRemaining = std::max(0.0f, knockdownRemaining - dt);
@@ -1518,6 +1547,10 @@ int main(int argc, char** argv) {
             glm::vec3 hitFrom{};
             while (simulation.ConsumePlayerHit(hitKind, hitFrom)) {
                 if (playerKnockedDown || playerHitKind > 0) continue;
+                if ((playerAction == PlayerAction::Slip || playerAction == PlayerAction::Duck) && actionTime >= 0.10f && actionTime <= actionDuration * 0.85f) {
+                    ui.SetPickupNotification("¡Esquivaste el golpe!");   // el esquive lateral o rotatorio evita el golpe
+                    continue;
+                }
                 playerHitKind = hitKind;
                 playerHitTime = 0.0f;
                 playerAction = PlayerAction::None;
@@ -1545,11 +1578,21 @@ int main(int argc, char** argv) {
             playerCrouching = canAct && free && Input::IsKeyDown(GLFW_KEY_LEFT_CONTROL);
             if (canAct && !playerCrouching && (free || recovered)) {
                 if (Input::IsKeyPressed(GLFW_KEY_J)) {
-                    startAction(nextPunchIsCross ? PlayerAction::Cross : PlayerAction::Jab, nextPunchIsCross ? "PunchCross" : "PunchJab", 0.0f);
-                    nextPunchIsCross = !nextPunchIsCross;
+                    if (comboIdle > 1.4f) punchChain = 0;
+                    comboIdle = 0.0f;
+                    const PlayerAction punch = punchChain % 3 == 0 ? PlayerAction::Jab : punchChain % 3 == 1 ? PlayerAction::Cross : PlayerAction::Hook;
+                    ++punchChain;
+                    startAction(punch, "PunchJab", Combat::Info(static_cast<Combat::Move>(combatMoveOf(punch))).duration);
                     fightStanceRemaining = 3.0f;
                 } else if (Input::IsKeyPressed(GLFW_KEY_K)) {
-                    startAction(PlayerAction::Kick, "Kick", 0.0f);
+                    const PlayerAction kick = nextKickIsHigh ? PlayerAction::HighKick : PlayerAction::Kick;
+                    nextKickIsHigh = !nextKickIsHigh;
+                    startAction(kick, "Kick", Combat::Info(static_cast<Combat::Move>(combatMoveOf(kick))).duration);
+                    fightStanceRemaining = 3.0f;
+                } else if (Input::IsKeyPressed(GLFW_KEY_G)) {
+                    const PlayerAction dodge = nextDodgeIsDuck ? PlayerAction::Duck : PlayerAction::Slip;
+                    nextDodgeIsDuck = !nextDodgeIsDuck;
+                    startAction(dodge, "FightIdle", Combat::Info(static_cast<Combat::Move>(combatMoveOf(dodge))).duration);
                     fightStanceRemaining = 3.0f;
                 } else if (Input::IsKeyPressed(GLFW_KEY_H)) {
                     startAction(nextKnifeIsStab ? PlayerAction::Stab : PlayerAction::Slash, nextKnifeIsStab ? "KnifeStab" : "KnifeSlash", 0.0f);
@@ -1573,33 +1616,46 @@ int main(int argc, char** argv) {
                     if (clickWasLocked && clickTime < 0.3f && clickMove < 12.0f && canAct && !playerCrouching && (free || recovered)) {
                         if (comboIdle > 1.4f) comboStep = 0;
                         comboIdle = 0.0f;
-                        const int step = comboStep++ % 3;
-                        if (step == 0) startAction(PlayerAction::Jab, "PunchJab", 0.0f);
-                        else if (step == 1) startAction(PlayerAction::Cross, "PunchCross", 0.0f);
-                        else startAction(PlayerAction::Kick, "Kick", 0.0f);
+                        const int step = comboStep++ % 4;
+                        const PlayerAction blow = step == 0 ? PlayerAction::Jab : step == 1 ? PlayerAction::Cross : step == 2 ? PlayerAction::Hook
+                            : (comboStep % 8 == 0 ? PlayerAction::HighKick : PlayerAction::Kick);
+                        startAction(blow, "PunchJab", Combat::Info(static_cast<Combat::Move>(combatMoveOf(blow))).duration);
                         fightStanceRemaining = 3.0f;
                     }
                 } else if (!Input::IsMouseButtonDown(GLFW_MOUSE_BUTTON_LEFT)) {
                     clickTracking = false;
                 }
             }
-            if (canAct && free && Input::IsKeyPressed(GLFW_KEY_SPACE)) startAction(PlayerAction::Jump, "Jump", 1.0f);
+            if (canAct && free && Input::IsKeyPressed(GLFW_KEY_SPACE)) {
+                // desde quieto: salto vertical estatico; caminando o corriendo: salto con carrera, cuyo alcance sale de la velocidad
+                const float planarSpeed = glm::length(glm::vec2(playerVelocity.x, playerVelocity.z));
+                jumpMoving = planarSpeed > 1.2f;
+                if (jumpMoving) {
+                    jumpDirection = glm::normalize(glm::vec3(playerVelocity.x, 0.0f, playerVelocity.z));
+                    jumpSpeed = std::clamp(planarSpeed * 1.3f, 3.2f, 8.0f);   // a pie ~3 m de salto, corriendo ~6 m
+                }
+                startAction(PlayerAction::Jump, "Jump", Jump::TimingFor(jumpMoving).duration);
+            }
             if (playerAction != PlayerAction::None) {
                 actionTime += dt;
                 if (!actionHitDone && playerAction != PlayerAction::Jump) {
                     // el golpe alcanza a un peaton cuando el puno o el pie llegan al punto de impacto de la animacion
-                    const float impactAt = playerAction == PlayerAction::Jab ? 0.22f : playerAction == PlayerAction::Cross ? 0.30f
-                        : playerAction == PlayerAction::Kick ? 0.40f : playerAction == PlayerAction::Stab ? 0.28f : 0.30f;
-                    if (actionTime >= impactAt) {
+                    const int combatMove = combatMoveOf(playerAction);
+                    const bool dodging = playerAction == PlayerAction::Slip || playerAction == PlayerAction::Duck;
+                    const bool kicking = playerAction == PlayerAction::Kick || playerAction == PlayerAction::HighKick;
+                    const float impactAt = combatMove >= 0 ? Combat::Info(static_cast<Combat::Move>(combatMove)).impact
+                        : playerAction == PlayerAction::Stab ? 0.28f : 0.30f;
+                    if (dodging) actionHitDone = true;
+                    else if (actionTime >= impactAt) {
                         actionHitDone = true;
-                        const int hitKind = playerAction == PlayerAction::Jab ? 1 : playerAction == PlayerAction::Kick ? 3 : 2;
-                        if (!simulation.HitPedestrian(playerPos, {std::sin(playerYaw), std::cos(playerYaw)}, playerAction == PlayerAction::Kick ? 1.6f : 1.3f, hitKind))
+                        const int hitKind = playerAction == PlayerAction::Jab ? 1 : kicking ? 3 : 2;
+                        if (!simulation.HitPedestrian(playerPos, {std::sin(playerYaw), std::cos(playerYaw)}, kicking ? 1.6f : 1.3f, hitKind))
                             simulation.HitVehicle(playerPos, {std::sin(playerYaw), std::cos(playerYaw)}, 1.4f);
                     }
                 }
                 if (playerAction == PlayerAction::Jump) {
                     // se despega al final de la flexion (0,17 s) y se cae con la gravedad: unos 0,7 s en el aire y 0,66 m de altura
-                    const float air = actionTime - 0.17f;
+                    const float air = actionTime - Jump::TimingFor(jumpMoving).takeoff;
                     jumpOffset = air > 0.0f && air < 0.735f ? 3.6f * air - 4.9f * air * air : 0.0f;
                 }
                 if (playerAction == PlayerAction::Pet && petRewardPending && actionTime >= 1.5f) {   // la mano ya esta sobre la cabeza
@@ -1726,6 +1782,9 @@ int main(int argc, char** argv) {
             ui.SetEffectiveRenderScale(adaptiveResolution.ratio, adaptiveResolution.pressure);
         }
         renderer.SetWetness(simulation.GetWetness());
+        // sombras del sol y la luna alrededor del jugador: baja no las dibuja, media 1024 px en 40 m, alta 2048 px en 60 m
+        static const bool noShadows = std::getenv("BAZUKO_NOSHADOW") != nullptr;   // pruebas: compara el costo
+        renderer.ConfigureShadows(noShadows || graphicsQuality == 0 ? 0 : graphicsQuality == 1 ? 1024 : 2048, graphicsQuality == 1 ? 40.0f : 60.0f);
         {   // luz y cielo segun la hora y el clima (la calidad baja solo conserva la hora)
             const bool reducedWeather = graphicsQuality == 0;
             const Atmosphere atmosphere = ComputeAtmosphere(simulation.GetHour(), reducedWeather ? 0.0f : simulation.GetRainIntensity(), reducedWeather ? 0.0f : simulation.GetMist(),
@@ -1741,10 +1800,16 @@ int main(int argc, char** argv) {
                 celestialMoonLight = Climate::MoonIllumination(Climate::MoonPhase(simulation.GetDay(), simulation.GetHour()));
                 renderer.GetLighting().sunDir = -glm::normalize(toLight);
             }
+            // cielo: paleta del juego web segun la altura del sol y el clima; el horizonte es tambien el color de la niebla
+            skyColors = ComputeSkyColors(celestialSun.y, simulation.GetCloudCover(), reducedWeather ? 0.0f : simulation.GetRainIntensity(),
+                                         reducedWeather ? 0.0f : simulation.GetMist(), simulation.GetLightningFlash());
+            moonPhase = Climate::MoonPhase(simulation.GetDay(), simulation.GetHour());
+            moonVisibility = AtmosphereSmoothstep(-0.02f, 0.06f, celestialMoon.y) * (0.25f + 0.75f * skyColors.night);
+            skyDome.Update(std::max(0.0f, dt), simulation.GetWind());
             LightBlockData& lighting = renderer.GetLighting();
             lighting.sunColor = atmosphere.sunColor;
             lighting.ambientColor = atmosphere.ambientColor;
-            lighting.fogColor = atmosphere.fogColor;
+            lighting.fogColor = skyColors.horizon;
             lighting.fogDensity = atmosphere.fogDensity;
             // farolas: se encienden solas al oscurecer; solo las mas cercanas aportan luz
             lighting.lampCount = 0;
@@ -1764,6 +1829,8 @@ int main(int argc, char** argv) {
         renderer.BeginScaledTarget();
         renderer.BeginScene(camera, clock.GetElapsedTime());
 
+        skyDome.Render(renderer, skyColors, celestialSun, celestialMoon, moonPhase, moonVisibility, simulation.GetCloudCover(), simulation.GetLightningFlash(), graphicsQuality == 0 ? 2 : graphicsQuality == 1 ? 3 : 4);
+
         // Renderizar ciudad de Bogotá
         city.Render(renderer, playerPos);
         lake.DrawFish(renderer, clock.GetElapsedTime());
@@ -1774,13 +1841,6 @@ int main(int argc, char** argv) {
             renderer.Submit(*gpsBeacon, glm::translate(glm::mat4(1.0f), beaconBase), glm::vec4(1.0f, 1.0f, 1.0f, pulse), false, false, nullptr, 2);
         }
         starField.Render(renderer, camera.GetPosition(), starVisibility, clock.GetElapsedTime());
-        {   // sol y luna: se ven con el cielo despejado y se apagan con las nubes, la lluvia y la neblina
-            const float clear = std::clamp(1.0f - 0.95f * simulation.GetCloudCover() - 0.6f * simulation.GetMist(), 0.0f, 1.0f);
-            const float hour = simulation.GetHour();
-            const float night = 1.0f - AtmosphereSmoothstep(6.5f, 8.5f, hour) * (1.0f - AtmosphereSmoothstep(17.0f, 19.0f, hour));
-            starField.RenderCelestial(renderer, camera.GetPosition(), celestialSun, celestialMoon, celestialMoonLight, clear, night);
-        }
-
         // Renderizar personaje
         {
             if (playerKnockedDown) {
@@ -1829,6 +1889,12 @@ int main(int argc, char** argv) {
                 } else if (playerHitKind > 0) {
                     poseClip = characterManager.FindClip(playerHitKind == 1 ? "HitFace" : playerHitKind == 2 ? "HitChest" : "HitLegs");
                     poseTime = playerHitTime;
+                } else if (playerAction != PlayerAction::None && combatMoveOf(playerAction) >= 0) {
+                    poseClip = characterManager.FindClip("FightIdle");   // la guardia es la base; la tecnica gira huesos encima
+                    poseTime = 0.0f;
+                } else if (playerAction == PlayerAction::Jump) {
+                    poseClip = characterManager.FindClip("Idle");   // el salto gira huesos sobre el reposo (JumpMoves.hpp)
+                    poseTime = 0.0f;
                 } else if (playerAction != PlayerAction::None) {
                     poseClip = playerActionClip;
                     poseTime = actionTime;
@@ -1909,6 +1975,30 @@ int main(int argc, char** argv) {
                     bone("mixamorig:RightUpLeg", 0.38f * std::sin(kTau * 2.0f * swimPhase));
                     bone("mixamorig:LeftUpLeg", -0.38f * std::sin(kTau * 2.0f * swimPhase));
                 }
+                if (playerAction == PlayerAction::Jump) Jump::Append(swimTurns, actionTime, jumpMoving);
+                else if (const int combatMove = combatMoveOf(playerAction); combatMove >= 0 && playerAction != PlayerAction::None)
+                    Combat::AppendMove(swimTurns, static_cast<Combat::Move>(combatMove), actionTime);
+                else if (!movingNow && fightStanceRemaining > 0.0f && playerAction == PlayerAction::None)
+                    Combat::AppendFists(swimTurns);   // en guardia los puños van cerrados
+                if (static const char* previewJump = std::getenv("BAZUKO_PREVIEW_JUMP")) {   // pruebas: BAZUKO_PREVIEW_JUMP=static|moving con BAZUKO_PREVIEW_TIME=<s>
+                    static const char* jumpTime = std::getenv("BAZUKO_PREVIEW_TIME");
+                    poseClip = characterManager.FindClip("Idle");
+                    blendClip = -1;
+                    blendWeight = 0.0f;
+                    poseTime = 0.0f;
+                    Jump::Append(swimTurns, jumpTime ? static_cast<float>(std::atof(jumpTime)) : 0.0f, std::string(previewJump) == "moving");
+                }
+                if (static const char* previewMove = std::getenv("BAZUKO_PREVIEW_MOVE")) {   // pruebas: BAZUKO_PREVIEW_MOVE=<tecnica> con BAZUKO_PREVIEW_TIME=<s>
+                    const int move = Combat::FindMove(previewMove);
+                    if (move >= 0) {
+                        static const char* moveTime = std::getenv("BAZUKO_PREVIEW_TIME");
+                        poseClip = characterManager.FindClip("FightIdle");
+                        blendClip = -1;
+                        blendWeight = 0.0f;
+                        poseTime = 0.0f;
+                        Combat::AppendMove(swimTurns, static_cast<Combat::Move>(move), moveTime ? static_cast<float>(std::atof(moveTime)) : std::fmod(clock.GetElapsedTime(), Combat::Info(static_cast<Combat::Move>(move)).duration + 0.4f));
+                    }
+                }
                 characterManager.Draw(renderer, playerModel, poseTime, movingNow, isRunning, poseClip, blendClip, blendWeight, swimTurns.empty() ? nullptr : &swimTurns);
                 if (knifeModel && (playerAction == PlayerAction::Slash || playerAction == PlayerAction::Stab || knifeStanceRemaining > 0.0f)) {
                     // la navaja va en la mano derecha, con la hoja saliendo del puno
@@ -1923,6 +2013,7 @@ int main(int argc, char** argv) {
         lake.DrawSurface(renderer, clock.GetElapsedTime());   // al final: el agua translucida deja ver al jugador y a los peces sumergidos
         renderer.EndScene();
         renderer.EndScaledTarget();
+        renderer.RenderShadowMap(-renderer.GetLighting().sunDir, playerPos);   // con lo que se vio en este cuadro: lo usa el siguiente
 
         // 9. Interfaz gráfica (Dear ImGui)
         {   // burbujas de conversacion de los peatones cercanos

@@ -45,6 +45,9 @@ struct Pedestrian {
     float punchTime = -1.0f;          // >= 0 mientras lanza un punetazo
     bool punchLanded = false;
     bool punchCross = false;
+    int punchKind = 0;                // 0 jab, 1 cruzado, 2 gancho (ver CombatMoves.hpp)
+    float dodgeTime = -1.0f;          // >= 0 mientras esquiva un golpe del jugador
+    int dodgeKind = 0;                // 0 esquive lateral, 1 esquive rotatorio
     // Burbuja de conversacion (Npc.js del original): frase flotante sobre la cabeza
     std::string bubbleText;
     float bubbleRemaining = 0.0f;
@@ -64,7 +67,7 @@ struct PedestrianAppearance {
     std::string roles;               // rol de cada pieza: B cuerpo, C ropa, S calzado, H pelo, D barba, T sombrero
     int hitFaceClip = -1, hitChestClip = -1, hitLegsClip = -1;
     int fallClip = -1, lyingClip = -1, getUpClip = -1;
-    int jabClip = -1, crossClip = -1;
+    int jabClip = -1, crossClip = -1, fightClip = -1;
     std::vector<std::shared_ptr<Model>> parts;
     int walkClip = -1;
     int idleClip = -1;
@@ -415,6 +418,13 @@ public:
     // Dormir en el cambuche: amanece a las 6:00 del dia siguiente (o de este mismo dia si aun es de madrugada)
     void SleepUntilMorning() { if (m_DayProgress >= 0.30f) ++m_Day; SetDayProgress(0.30f); }
     void SetWeather(Climate::Weather weather) { m_WeatherType = weather; m_WeatherRemaining = 180.0f; }
+    // pruebas: fija el estado y sus nubes y lluvia al instante, sin la mezcla gradual
+    void ForceWeather(Climate::Weather weather) {
+        SetWeather(weather);
+        m_CloudCover = Climate::Info(weather).cloud;
+        m_RainIntensity = Climate::Info(weather).rain;
+        m_Mist = weather == Climate::Weather::Fog ? 1.0f : 0.0f;
+    }
     // Calidad baja: menos gotas y sin suelo mojado
     void SetReducedWeather(bool reduced) { m_ReducedWeather = reduced; }
     void SetDayProgress(float progress) { m_Clock = std::clamp(progress, 0.0f, 1.0f); m_DayProgress = m_Clock; }

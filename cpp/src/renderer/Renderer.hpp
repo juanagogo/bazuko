@@ -83,10 +83,43 @@ public:
     // Agua: oleaje en el vertex shader y color por profundidad, reflejo del cielo y brillo del sol en el fragment (textura en la unidad 0)
     void SetWater(bool water) { m_Water = water; }
 
+    // Sombras: mapa de profundidad de la luz del sol o la luna alrededor del jugador. Se llena con lo que se dibujo en el cuadro
+    // (solo lo que esta a la vista) y lo usa el cuadro siguiente. `resolution` 0 las apaga; `radius` es el alcance en metros.
+    void ConfigureShadows(int resolution, float radius);
+    void SetShadowCaster(bool caster) { m_ShadowCaster = caster; }   // false: el suelo y lo plano no proyectan
+    void SetShadowStatic(bool isStatic) { m_ShadowStatic = isStatic; }   // la ciudad fija se dibuja en el mapa solo al recentrar
+    // Al final del cuadro: `toLight` apunta de la escena hacia la luz. Deja el framebuffer y la vista como estaban.
+    void RenderShadowMap(const glm::vec3& toLight, const glm::vec3& focus);
+    bool ShadowsActive() const { return m_ShadowResolution > 0 && m_ShadowValid; }
+
     Shader& GetDefaultShader() { return *m_DefaultShader; }
     LightBlockData& GetLighting() { return m_LightingData; }
 
 private:
+    struct ShadowDraw {
+        const Mesh* mesh = nullptr;
+        glm::mat4 model{1.0f};
+        int alphaMode = 0;
+        float alphaCutoff = 0.5f, albedoAlpha = 1.0f, sway = 0.0f, pushOut = 0.0f;
+        unsigned int texture = 0;
+        bool useTexture = false;
+        std::vector<glm::mat4> skin;
+    };
+    void RecordShadowCaster(const Mesh& mesh, const glm::mat4& transform, const glm::vec4& albedo, bool useTexture, int alphaMode, float alphaCutoff,
+                            const std::vector<glm::mat4>* skinMatrices);
+    void DrawShadowCasters(const std::vector<ShadowDraw>& casters, bool cull);
+    void DestroyShadowResources();
+
+    std::unique_ptr<Shader> m_ShadowShader;
+    std::vector<ShadowDraw> m_StaticCasters, m_DynamicCasters;
+    unsigned int m_ShadowTexture = 0, m_ShadowFbo = 0, m_StaticShadowTexture = 0, m_StaticShadowFbo = 0;
+    int m_ShadowResolution = 0;
+    float m_ShadowRadius = 50.0f;
+    glm::mat4 m_LightViewProjection{1.0f}, m_ShadowMatrix{1.0f};
+    glm::vec3 m_ShadowCenter{0.0f}, m_ShadowLightDirection{0.0f, 1.0f, 0.0f};
+    bool m_ShadowValid = false, m_StaticCaptured = false, m_StaticDirty = true;
+    bool m_ShadowCaster = true, m_ShadowStatic = false;
+
     std::unique_ptr<Shader> m_DefaultShader;
     std::unique_ptr<UniformBuffer> m_CameraUBO;
     std::unique_ptr<UniformBuffer> m_LightUBO;

@@ -24,6 +24,9 @@ public:
     void Draw() const;
 
     uint32_t GetIndexCount() const { return m_IndexCount; }
+    // Esfera que envuelve la malla (centro y radio en su espacio local): sirve para descartar sombras fuera de alcance
+    const glm::vec3& GetBoundsCenter() const { return m_BoundsCenter; }
+    float GetBoundsRadius() const { return m_BoundsRadius; }
 
     // Procedural primitive factories
     static std::shared_ptr<Mesh> CreateCube(const glm::vec3& size = glm::vec3(1.0f), const glm::vec4& color = glm::vec4(1.0f));
@@ -36,6 +39,8 @@ private:
     std::unique_ptr<IndexBuffer> m_EBO;
     std::unique_ptr<VertexArray> m_VAO;
     uint32_t m_IndexCount = 0;
+    glm::vec3 m_BoundsCenter{0.0f};
+    float m_BoundsRadius = 0.0f;
 };
 
 } // namespace Bazuko

@@ -1126,6 +1126,7 @@ void CityLayout::BuildMeshes(const CityLoadProgress& progressCallback) {
 }
 
 void CityLayout::Render(Renderer& renderer, const glm::vec3& focusPosition) {
+    renderer.SetShadowCaster(false);   // el suelo recibe sombras pero no las proyecta
     if (m_GroundMesh) {
         m_AsphaltTexture->BindUnit(0);
         renderer.Submit(*m_GroundMesh, glm::mat4(1.0f), glm::vec4(1.0f), true);
@@ -1140,6 +1141,8 @@ void CityLayout::Render(Renderer& renderer, const glm::vec3& focusPosition) {
     if (m_LakeBedMesh) renderer.Submit(*m_LakeBedMesh, glm::mat4(1.0f), glm::vec4(1.0f));
 
     if (m_MarkingMesh) renderer.Submit(*m_MarkingMesh, glm::mat4(1.0f));
+    renderer.SetShadowCaster(true);
+    renderer.SetShadowStatic(true);   // edificios, torre, puente y fachadas: no se mueven, su sombra se guarda aparte
     if (m_LandmarkMesh) renderer.Submit(*m_LandmarkMesh, glm::mat4(1.0f));
     if (m_ColpatriaLightMesh) {
         // de dia las franjas de la torre son colores apagados; de noche brillan sin iluminacion
@@ -1155,6 +1158,7 @@ void CityLayout::Render(Renderer& renderer, const glm::vec3& focusPosition) {
         renderer.Submit(*m_BuildingMesh, glm::mat4(1.0f), glm::vec4(1.0f), true);
     }
     if (m_FacadeDetailMesh) renderer.Submit(*m_FacadeDetailMesh, glm::mat4(1.0f));
+    renderer.SetShadowStatic(false);
     if (m_WindowLightMesh && m_NightGlow > 0.05f) {
         // apartamentos con la luz encendida: aparecen al oscurecer, junto con las farolas
         renderer.SetUnlit(true);
