@@ -307,3 +307,5 @@ Las siete necesidades muestran nombre, barra de su color propio (`needsMeta`) y 
 
 Límites: el renderer solo usa la textura de color (no la normal ni la ORM del modelo); las patas de estos clips dan pasos cortos, así que a velocidad real los pies resbalan algo (se compensa reproduciéndolos más rápido, hasta 2,4×). Pruebas: `BAZUKO_AUTO_PET=<s>` pide la caricia a los `s` segundos.
 
+**Créditos y licencias de los modelos 3D:** ver [docs/creditos-modelos.md](../docs/creditos-modelos.md) (atribución del Hilux, modelos gratuitos de Sketchfab y los que aún esperan permiso).
+
