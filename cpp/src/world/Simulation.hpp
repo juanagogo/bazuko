@@ -560,6 +560,7 @@ private:
     glm::vec3 m_CambucheSpawnPosition{112.98f, 0.0f, 97.84f};
     CambucheState m_CambucheState{};
     std::shared_ptr<Mesh> m_CambucheBaseMesh;
+    std::shared_ptr<Mesh> m_CambucheRingMesh, m_CambucheGlowMesh;   // anillo naranja que palpita sobre el sitio del cambuche
     std::shared_ptr<Mesh> m_CambucheMarkerMesh;
     std::shared_ptr<Mesh> m_CambucheFireMesh;
     std::shared_ptr<Mesh> m_CambucheBedMesh;

@@ -1690,10 +1690,14 @@ void UIManager::RenderCambucheMenu(const std::vector<CambuchePieceOption>& piece
     Input::SetCursorLocked(false);
 
     using SignUI::Icon;
-    const SignUI::Fonts& fonts = SignUI::GetFonts();
+    SignUI::Fonts fonts = SignUI::GetFonts();   // Overpass como el resto de los menus de lugares del juego web
+    fonts.monoBold14 = SignUI::Ov(true, 15);
+    fonts.monoBold13 = SignUI::Ov(true, 14);
+    fonts.monoBold12 = SignUI::Ov(true, 13);
     const ImVec4 blueText(0.84f, 0.89f, 1.0f, 1.0f);
     SignUI::DrawBackdrop(0.55f);
     bool closeRequested = false;
+    ImGui::PushFont(SignUI::Ov(false, 14));
     if (SignUI::BeginMenu("Cambuche", "Cambuche · Refugio urbano", "Construye tu refugio paso a paso", Icon::Home, &closeRequested)) {
         ImGui::PushStyleColor(ImGuiCol_Text, blueText);
         ImGui::TextWrapped("Acércate a los materiales y recógelos antes de construir.");
@@ -1771,6 +1775,7 @@ void UIManager::RenderCambucheMenu(const std::vector<CambuchePieceOption>& piece
         if (SignUI::PrimaryButton("Cerrar (Esc)")) closeRequested = true;
     }
     SignUI::EndMenu();
+    ImGui::PopFont();
     if (closeRequested) {
         m_CambucheMenuOpen = false;
         Input::SetCursorLocked(true);

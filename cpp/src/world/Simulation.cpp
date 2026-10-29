@@ -936,6 +936,27 @@ Simulation::Simulation(const CityLayout& city, uint32_t seed,
     m_DealerLantern = Mesh::CreateRoundedBox({0.24f, 0.24f, 0.24f}, 0.10f, 2, {0.62f, 0.22f, 0.83f, 1.0f});
     m_CambucheBaseMesh = Mesh::CreateCube({2.8f, 0.08f, 2.2f}, {0.66f, 0.52f, 0.35f, 1.0f});
     m_CambucheMarkerMesh = Mesh::CreateCube({0.8f, 0.04f, 0.6f}, {0.55f, 0.42f, 0.28f, 1.0f});
+    {   // anillo plano (RingGeometry 1,9-2,1 del original) y un resplandor mas ancho que se desvanece hacia afuera
+        const auto annulus = [](float inner, float outer, const glm::vec4& innerColor, const glm::vec4& outerColor) {
+            constexpr int kSegments = 48;
+            std::vector<Vertex> vertices;
+            std::vector<uint32_t> indices;
+            for (int i = 0; i < kSegments; ++i) {
+                const float angle = glm::two_pi<float>() * static_cast<float>(i) / static_cast<float>(kSegments);
+                const float c = std::cos(angle), s = std::sin(angle);
+                vertices.push_back({{c * inner, 0.0f, s * inner}, {0.0f, 1.0f, 0.0f}, {0.0f, 0.0f}, innerColor});
+                vertices.push_back({{c * outer, 0.0f, s * outer}, {0.0f, 1.0f, 0.0f}, {1.0f, 0.0f}, outerColor});
+            }
+            for (int i = 0; i < kSegments; ++i) {
+                const uint32_t a = static_cast<uint32_t>(i * 2), b = static_cast<uint32_t>(((i + 1) % kSegments) * 2);
+                indices.insert(indices.end(), {a, a + 1, b + 1, a, b + 1, b});
+            }
+            return std::make_shared<Mesh>(vertices, indices);
+        };
+        const glm::vec4 orange(1.0f, 0.62f, 0.06f, 1.0f);
+        m_CambucheRingMesh = annulus(1.9f, 2.1f, orange, orange);
+        m_CambucheGlowMesh = annulus(1.25f, 3.1f, glm::vec4(1.0f, 0.55f, 0.05f, 0.55f), glm::vec4(1.0f, 0.55f, 0.05f, 0.0f));
+    }
     m_CambucheFireMesh = Mesh::CreateCylinder(0.12f, 0.25f, 8, {1.0f, 0.52f, 0.12f, 1.0f});
     m_CambucheBedMesh = Mesh::CreateRoundedBox({0.95f, 0.18f, 1.9f}, 0.04f, 2, {0.62f, 0.60f, 0.52f, 1.0f});
     m_ShadowHeadMesh = Mesh::CreateRoundedBox({0.35f, 0.38f, 0.35f}, 0.12f, 2, {0.03f, 0.03f, 0.04f, 1.0f});
@@ -3665,6 +3686,16 @@ void Simulation::Render(Renderer& renderer, float time, const glm::vec3& focusPo
                     renderer.Submit(*m_CambucheMarkerMesh, markerMat, glm::vec4(0.55f, 0.42f, 0.28f, 0.85f));
                 }
             }
+        }
+
+        // Anillo naranja que brilla y palpita para llamar la atencion sobre el sitio del cambuche
+        if (m_CambucheRingMesh && m_CambucheGlowMesh) {
+            const float pulse = 0.5f + 0.5f * std::sin(time * 2.4f);
+            const glm::mat4 ringMat = glm::translate(glm::mat4(1.0f), m_CambuchePosition + glm::vec3(0.0f, m_City.GetGroundHeight(m_CambuchePosition.x, m_CambuchePosition.z) + 0.05f, 0.0f));
+            renderer.SetUnlit(true);
+            renderer.Submit(*m_CambucheGlowMesh, glm::scale(ringMat, glm::vec3(1.0f + 0.08f * pulse)), glm::vec4(1.0f, 1.0f, 1.0f, 0.35f + 0.45f * pulse), false, true, nullptr, 2);
+            renderer.Submit(*m_CambucheRingMesh, ringMat, glm::vec4(1.0f, 1.0f, 1.0f, 0.55f + 0.4f * pulse), false, true, nullptr, 2);
+            renderer.SetUnlit(false);
         }
 
         // Fogón de latas con fuego encendido
