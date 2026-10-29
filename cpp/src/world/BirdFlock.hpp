@@ -32,6 +32,16 @@ struct Bird {
     BirdPerch perch = BirdPerch::Ground;
     BirdPerch targetPerch = BirdPerch::Ground;
     bool scared = false;
+    // Posada en el suelo: de vez en cuando da unos pasos cortos cerca de donde aterrizo
+    glm::vec3 home{0.0f};
+    glm::vec3 walkTarget{0.0f};
+    bool walking = false;
+    float walkCycle = 0.0f;          // fase del paso (radianes), avanza al caminar
+    float walkSpeed = 0.0f;          // m/s actual
+    float lookTimer = 0.0f;          // hasta el siguiente vistazo de vigilancia
+    float lookYaw = 0.0f;            // giro actual de la cabeza (rad)
+    float lookYawTarget = 0.0f;
+    float peckTimer = 0.0f;          // > 0 mientras picotea
 
     bool IsFlying() const { return flightRemaining > 0.0f; }
 };
@@ -62,6 +72,7 @@ public:
 private:
     void StartFlight(Bird& bird, const glm::vec3& playerPosition, bool scared);
     void AdvanceFlight(Bird& bird, float dt);
+    void UpdateGroundBehaviour(Bird& bird, float dt);   // pasos, vistazos y picoteo del ave posada
     float Unit() { return m_Unit(m_Random); }
 
     std::mt19937 m_Random;

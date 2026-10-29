@@ -104,6 +104,16 @@ bool CityLayout::IsBlocked(float worldX, float worldZ, float radius) const {
     return false;
 }
 
+bool CityLayout::HitsObstacle(float worldX, float worldZ, float radius) const {
+    for (const StaticBox& box : m_Obstacles) {
+        const float nearestX = std::clamp(worldX, box.center.x - box.half.x, box.center.x + box.half.x);
+        const float nearestZ = std::clamp(worldZ, box.center.z - box.half.z, box.center.z + box.half.z);
+        const float dx = worldX - nearestX, dz = worldZ - nearestZ;
+        if (dx * dx + dz * dz < radius * radius) return true;
+    }
+    return false;
+}
+
 glm::vec3 CityLayout::GetSpawnPoint() const {
     // La partida empieza junto al cambuche (SHELTER_RESPAWN del original)
     return glm::vec3(m_Data.spawn.x, 0.0f, m_Data.spawn.y);
@@ -919,14 +929,33 @@ void CityLayout::BuildMeshes(const CityLoadProgress& progressCallback) {
                 quad(corner(p0, -1, -1), corner(p0, -1, 1), corner(p1, -1, 1), corner(p1, -1, -1), {-1, 0, 0}, color);
             };
             using namespace Viaduct;
+            // Normal suave de la superficie (sigue la pendiente y la curva del eje): sin facetas entre segmentos
+            const auto deckNormal = [&](float zz) {
+                const glm::vec2 lateral2 = BridgeNormal(zz);
+                const float dc = (BridgeCenter(zz + 0.05f) - BridgeCenter(zz - 0.05f)) / 0.1f;
+                const float slope = (Height(zz + 0.05f) - Height(zz - 0.05f)) / 0.1f;
+                glm::vec3 up = glm::normalize(glm::cross(glm::vec3(dc, slope, 1.0f), glm::vec3(lateral2.x, 0.0f, lateral2.y)));
+                return up.y < 0.0f ? -up : up;
+            };
+            const auto smoothTop = [&](glm::vec3 a, glm::vec3 b, glm::vec3 c, glm::vec3 d, const glm::vec3& n0, const glm::vec3& n1, const glm::vec4& color) {
+                // a, b en el segmento de atras (borde izquierdo y derecho) y c, d en el de adelante
+                std::array<glm::vec3, 4> position{a, b, d, c};
+                std::array<glm::vec3, 4> normal{n0, n0, n1, n1};
+                if (glm::dot(glm::cross(position[1] - position[0], position[2] - position[0]), n0) < 0.0f) { std::swap(position[1], position[3]); std::swap(normal[1], normal[3]); }
+                const uint32_t first = static_cast<uint32_t>(landmarkVertices.size());
+                const std::array<glm::vec2, 4> uv{{{0, 0}, {1, 0}, {1, 1}, {0, 1}}};
+                for (size_t i = 0; i < 4; ++i) landmarkVertices.push_back({position[i], normal[i], uv[i], color});
+                landmarkIndices.insert(landmarkIndices.end(), {first, first + 1, first + 2, first + 2, first + 3, first});
+            };
             int step = 0;
-            for (float z = kStartZ; z < kEndZ; z = std::min(std::floor(z) + 1.0f, kEndZ), ++step) {
-                const float next = std::min(std::floor(z) + 1.0f, kEndZ);
+            // segmentos de 0,5 m: el perfil en coseno de las rampas se ve continuo, sin cortes poligonales
+            for (float z = kStartZ; z < kEndZ; z = std::min(std::floor(z * 2.0f) / 2.0f + 0.5f, kEndZ), ++step) {
+                const float next = std::min(std::floor(z * 2.0f) / 2.0f + 0.5f, kEndZ);
                 const float h0 = Height(z), h1 = Height(next);
                 const glm::vec2 a2 = Edge(z, -1.0f), b2 = Edge(z, 1.0f), c2 = Edge(next, -1.0f), d2 = Edge(next, 1.0f);
                 const glm::vec3 a(a2.x, h0, a2.y), b(b2.x, h0, b2.y), c(c2.x, h1, c2.y), d(d2.x, h1, d2.y);
                 const glm::vec3 drop(0.0f, -kThickness, 0.0f);
-                quad(a, b, d, c, {0, 1, 0}, asphalt);
+                smoothTop(a, b, c, d, deckNormal(z), deckNormal(next), asphalt);
                 quad(a + drop, b + drop, d + drop, c + drop, {0, -1, 0}, underside);
                 quad(a + drop, c + drop, c, a, {-1, 0, 0}, concreteSide);
                 quad(b + drop, d + drop, d, b, {1, 0, 0}, concreteSide);
@@ -936,10 +965,10 @@ void CityLayout::BuildMeshes(const CityLoadProgress& progressCallback) {
                     const glm::vec2 e0 = Edge(z, side) - normal0 * side * 0.25f, e1 = Edge(next, side) - normal1 * side * 0.25f;
                     beam({e0.x, h0 + 1.05f, e0.y}, {e1.x, h1 + 1.05f, e1.y}, 0.06f, 0.05f, railColor);
                     beam({e0.x, h0 + 0.55f, e0.y}, {e1.x, h1 + 0.55f, e1.y}, 0.04f, 0.035f, railColor);
-                    if (step % 3 == 0 && z > kStartZ + 1.5f) box({e0.x, h0 + 0.55f, e0.y}, {0.12f, 1.1f, 0.12f}, 0xc9c9c2);
+                    if (step % 6 == 0 && z > kStartZ + 1.5f) box({e0.x, h0 + 0.55f, e0.y}, {0.12f, 1.1f, 0.12f}, 0xc9c9c2);
                 }
                 // linea central discontinua
-                if (step % 4 < 2) {
+                if (step % 8 < 4) {
                     const glm::vec2 m0 = (a2 + b2) * 0.5f, m1 = (c2 + d2) * 0.5f;
                     quad({m0.x - 0.07f, h0 + 0.012f, m0.y}, {m0.x + 0.07f, h0 + 0.012f, m0.y}, {m1.x + 0.07f, h1 + 0.012f, m1.y},
                          {m1.x - 0.07f, h1 + 0.012f, m1.y}, {0, 1, 0}, marking);

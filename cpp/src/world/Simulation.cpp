@@ -12,6 +12,8 @@
 #include "../game/Harvest.hpp"
 #include <limits>
 #include <queue>
+#include <fstream>
+#include <nlohmann/json.hpp>
 #include <unordered_map>
 
 namespace Bazuko {
@@ -19,10 +21,18 @@ namespace Bazuko {
 namespace {
 
 constexpr size_t kRainDropCount = 350;   // gotas alrededor del jugador, como el original
+constexpr float kBusLength = 22.0f;       // largo del bus biarticulado (colisiones, frenado y modelo)
+constexpr float kBusHalfLength = kBusLength * 0.5f;
+constexpr float kBusWidth = 2.52f;
 constexpr float kDayLengthSeconds = 3600.0f;   // un dia de juego = una hora real, como el original
 
+// Radio de las esquinas de un circuito: 3,5 m (el giro de un carro con direccion de 35 grados) o menos si la manzana es pequena
+float CircuitRadius(float left, float right, float top, float bottom) {
+    return std::min({6.0f, 0.45f * (right - left), 0.45f * (bottom - top)});
+}
+
 std::vector<glm::vec3> MakeTrafficCircuit(float left, float right, float top, float bottom) {
-    constexpr float radius = 1.0f;
+    const float radius = CircuitRadius(left, right, top, bottom);
     constexpr float spacing = 0.45f;
     std::vector<glm::vec3> points;
     const auto appendLine = [&](const glm::vec3& start, const glm::vec3& end) {
@@ -85,6 +95,17 @@ bool OrientedBoxesOverlap(const glm::vec3& positionA, const glm::vec2& direction
         if (std::abs(glm::dot(offset, axis)) > radiusA + radiusB) return false;
     }
     return true;
+}
+
+// Tinte de cada pieza de un peaton segun su rol (ropa, calzado, pelo, sombrero): el mismo dentro y fuera del vehiculo
+glm::vec4 PedestrianPartTint(const PedestrianAppearance& appearance, size_t partIndex, const glm::vec3& color, float animationOffset) {
+    const char role = partIndex < appearance.roles.size() ? appearance.roles[partIndex] : 'X';
+    const float hairShade = 0.55f + 0.5f * std::fmod(animationOffset * 3.7f, 1.0f);
+    if (role == 'C') return glm::vec4(color, 1.0f);
+    if (role == 'S') return glm::vec4(0.68f, 0.65f, 0.61f, 1.0f);
+    if (role == 'H' || role == 'D') return glm::vec4(0.66f * hairShade, 0.58f * hairShade, 0.47f * hairShade, 1.0f);
+    if (role == 'T') return glm::vec4(color * 0.8f + glm::vec3(0.08f), 1.0f);
+    return glm::vec4(1.0f);
 }
 
 bool PointInVehicleBox(const glm::vec3& point, const glm::vec3& center,
@@ -236,43 +257,335 @@ std::shared_ptr<Mesh> MakeTrashBagMesh(size_t variant) {
 
 }
 
+VehicleParts Simulation::LoadVehicleParts(const std::string& modelsRoot, const std::string& stem) const {
+    VehicleParts parts;
+    const std::string folder = modelsRoot + "vehiculos/";
+    std::ifstream file(folder + stem + ".json");
+    if (!file) return parts;
+    nlohmann::json info;
+    try { file >> info; } catch (...) { return parts; }
+    const auto resolve = [&](const std::string& name) {
+        return std::filesystem::exists(folder + name + ".glb") ? folder + name + ".glb" : folder + name + ".gltf";
+    };
+    parts.body = Model::LoadFromFile(resolve(stem + "_body"));
+    glm::vec3 frontSum(0.0f), rearSum(0.0f);
+    int frontCount = 0, rearCount = 0;
+    for (const auto& entry : info.value("wheels", nlohmann::json::array())) {
+        VehicleParts::Wheel wheel;
+        wheel.model = Model::LoadFromFile(resolve(stem + "_" + entry.value("part", std::string())));
+        const auto& center = entry["center"];
+        wheel.center = {center[0].get<float>(), center[1].get<float>(), center[2].get<float>()};
+        wheel.front = entry.value("front", false);
+        wheel.radius = entry.value("radius", 0.1f);
+        (wheel.front ? frontSum : rearSum) += wheel.center;
+        (wheel.front ? frontCount : rearCount) += 1;
+        if (wheel.model) parts.wheels.push_back(std::move(wheel));
+    }
+    if (frontCount > 0 && rearCount > 0) {
+        glm::vec3 forward = frontSum / static_cast<float>(frontCount) - rearSum / static_cast<float>(rearCount);
+        forward.y = 0.0f;
+        if (glm::length(forward) > 1.0e-4f) parts.forward = glm::normalize(forward);
+        parts.rollAxis = glm::cross(glm::vec3(0.0f, 1.0f, 0.0f), parts.forward);
+    }
+        if (info.contains("door")) {
+            const auto& door = info["door"];
+            parts.door = Model::LoadFromFile(resolve(stem + "_door"));
+            parts.doorHinge = {door["hinge"][0].get<float>(), door["hinge"][1].get<float>(), door["hinge"][2].get<float>()};
+        }
+        if (info.contains("driver")) {
+            const auto& driver = info["driver"];
+            parts.driver.valid = true;
+            parts.driver.suffix = driver.value("profile", std::string());
+            if (driver.contains("seat")) parts.driver.seat = {driver["seat"][0].get<float>(), driver["seat"][1].get<float>()};
+            if (driver.contains("stance")) parts.driver.stance = {driver["stance"][0].get<float>(), driver["stance"][1].get<float>()};
+            parts.driver.hipsZ = driver.value("hipsZ", 0.0f);
+            parts.driver.roofZ = driver.value("roofZ", 0.0f);
+        }
+    if (info.contains("targetLength") && info.contains("min") && info.contains("max")) {
+        // escala uniforme: el largo del modelo (eje Z) pasa a `targetLength` metros; se gira para que el frente quede en +X
+        const auto& lo = info["min"]; const auto& hi = info["max"];
+        const glm::vec3 low(lo[0].get<float>(), lo[1].get<float>(), lo[2].get<float>());
+        const glm::vec3 high(hi[0].get<float>(), hi[1].get<float>(), hi[2].get<float>());
+        const float scale = info["targetLength"].get<float>() / std::max(0.01f, high.z - low.z);
+        const float centerX = (low.x + high.x) * 0.5f, centerZ = (low.z + high.z) * 0.5f;
+        parts.fit = glm::scale(glm::mat4(1.0f), glm::vec3(scale))
+            * glm::translate(glm::mat4(1.0f), {-centerZ, -low.y, centerX})
+            * glm::rotate(glm::mat4(1.0f), glm::half_pi<float>(), {0.0f, 1.0f, 0.0f});
+        parts.scale = scale;
+        parts.length = info["targetLength"].get<float>();
+        if (frontCount > 0 && rearCount > 0)
+            parts.wheelbase = glm::length(frontSum / static_cast<float>(frontCount) - rearSum / static_cast<float>(rearCount)) * scale;
+        parts.width = (high.x - low.x) * scale;
+        parts.ownFit = true;
+        for (const auto& seat : info.value("seats", nlohmann::json::array())) {
+            const auto& pos = seat["pos"];
+            parts.seats.push_back({{pos[0].get<float>(), pos[1].get<float>(), pos[2].get<float>()}, seat.value("yaw", 0.0f), seat.value("driver", false)});
+        }
+    }
+    for (const ModelPart& part : parts.body ? parts.body->GetParts() : std::vector<ModelPart>{}) if (part.paint) parts.hasPaint = true;
+    if (!parts.valid()) return VehicleParts{};
+    return parts;
+}
+
+void Simulation::LoadArticulatedBus(const std::string& modelsRoot) {
+    const std::string folder = modelsRoot + "transmilenio/";
+    std::ifstream file(folder + "tm.json");
+    if (!file) return;
+    nlohmann::json info;
+    try { file >> info; } catch (...) { return; }
+    ArticulatedBus bus;
+    const auto& sections = info["sections"];
+    if (sections.size() != 3 || info["pivots"].size() != 2) return;
+    for (size_t index = 0; index < 3; ++index) bus.sections[index] = Model::LoadFromFile(folder + sections[index].value("file", std::string()));
+    for (size_t index = 0; index < 2 && index < info.value("accordions", nlohmann::json::array()).size(); ++index)
+        bus.bellows[index] = Model::LoadFromFile(folder + info["accordions"][index].value("file", std::string()));
+    // el frente es +Z en el modelo: la seccion 0 llega al extremo mayor y la 2 al menor
+    const float frontEnd = std::max(sections[0]["max"][2].get<float>(), sections[0]["min"][2].get<float>());
+    const float rearEnd = std::min(sections[2]["min"][2].get<float>(), sections[2]["max"][2].get<float>());
+    const float pivotFront = info["pivots"][0][2].get<float>(), pivotRear = info["pivots"][1][2].get<float>();
+    bus.reference = {(frontEnd + pivotFront) * 0.5f, (pivotFront + pivotRear) * 0.5f, (pivotRear + rearEnd) * 0.5f};
+    bus.pivotZ = {pivotFront, pivotRear};
+    bus.centerZ = (frontEnd + rearEnd) * 0.5f;
+    bus.scale = kBusLength / (frontEnd - rearEnd);
+    bus.groundY = std::numeric_limits<float>::max();
+    for (const auto& entry : info["wheels"]) {
+        ArticulatedBus::Wheel wheel;
+        wheel.model = Model::LoadFromFile(folder + entry.value("file", std::string()));
+        const auto& center = entry["center"];
+        wheel.center = {center[0].get<float>(), center[1].get<float>(), center[2].get<float>()};
+        wheel.radius = entry.value("radius", 0.4f);
+        wheel.axle = entry.value("axle", 0);
+        wheel.front = entry.value("front", false);
+        bus.groundY = std::min(bus.groundY, wheel.center.y - wheel.radius);
+        if (wheel.model) bus.wheels.push_back(std::move(wheel));
+    }
+    if (info.contains("driver")) {
+        const auto& driver = info["driver"]["pos"];
+        bus.driver = {{driver[0].get<float>(), driver[1].get<float>(), driver[2].get<float>()}, info["driver"].value("yaw", 0.0f)};
+        bus.hasDriver = true;
+    }
+    for (const auto& entry : info.value("standing", nlohmann::json::array())) {
+        const auto& pos = entry["pos"];
+        bus.standing.push_back({{pos[0].get<float>(), pos[1].get<float>(), pos[2].get<float>()}, entry.value("yaw", 0.0f)});
+    }
+    if (bus.valid()) m_ArticulatedBus = std::move(bus);
+    else LogWarn("No se pudo cargar el bus articulado de {}", folder);
+}
+
+void Simulation::DrawArticulatedBus(Renderer& renderer, const BusState& bus, size_t busIndex, float opacity, float time, const glm::vec3& focus) const {
+    const ArticulatedBus& model = m_ArticulatedBus;
+    const int alphaMode = opacity < 1.0f ? 2 : -1;   // -1: cada pieza usa su propio modo (el vidrio es translucido)
+    const glm::vec4 tint(1.0f, 1.0f, 1.0f, opacity);
+    std::array<glm::mat4, 3> placement;
+    float frontYaw = 0.0f;
+    for (size_t index = 0; index < 3; ++index) {
+        // cada seccion se ancla al eje del carril a la distancia que le corresponde desde el centro del bus (+ hacia el frente)
+        const float ahead = (model.reference[index] - model.centerZ) * model.scale;
+        const float z = bus.position.z + bus.direction * ahead;
+        const glm::vec3 position(Viaduct::BusPathX(z, bus.laneX), Viaduct::Height(z), z);
+        const glm::vec2 heading = Viaduct::BusHeading(z, bus.laneX, bus.direction);
+        const float yaw = std::atan2(-heading.x, -heading.y);
+        if (index == 0) frontYaw = yaw;
+        glm::mat4 root = glm::translate(glm::mat4(1.0f), position);
+        root = glm::rotate(root, yaw, glm::vec3(0.0f, 1.0f, 0.0f));
+        root = glm::rotate(root, std::atan(bus.direction * Viaduct::Slope(z)), glm::vec3(1.0f, 0.0f, 0.0f));
+        root = glm::scale(root, glm::vec3(model.scale));
+        root = glm::rotate(root, glm::pi<float>(), glm::vec3(0.0f, 1.0f, 0.0f));   // el frente del modelo es +Z; el del bus, -Z
+        placement[index] = glm::translate(root, glm::vec3(0.0f, -model.groundY, -model.reference[index]));
+        if (index > 0) {
+            // las secciones se unen por la articulacion: el extremo de esta coincide con el de la anterior
+            const glm::vec4 joint(0.0f, 0.0f, model.pivotZ[index - 1], 1.0f);
+            const glm::vec3 gap = glm::vec3(placement[index - 1] * joint) - glm::vec3(placement[index] * joint);
+            placement[index] = glm::translate(glm::mat4(1.0f), gap) * placement[index];
+        }
+        model.sections[index]->Draw(renderer, placement[index], tint, 0.0f, false, 0, alphaMode);
+    }
+    // Fuelles: acordeon flexible. Se deforma entre las dos secciones por mezcla de huesos: el extremo delantero sigue a la seccion
+    // de delante, el trasero a la de atras y el centro gira la mitad; asi se estira por fuera de la curva, se comprime por dentro
+    // y acompana la pendiente sin cortes.
+    for (size_t index = 0; index < 2; ++index) {
+        if (!model.bellows[index]) continue;
+        const glm::mat4& front = placement[index];
+        const glm::mat4& rear = placement[index + 1];
+        const glm::vec3 pivot(0.0f, 0.0f, model.pivotZ[index]);
+        const glm::vec3 pivotWorld = glm::vec3(front * glm::vec4(pivot, 1.0f));
+        const glm::quat frontRotation = glm::quat_cast(glm::mat3(front) * (1.0f / model.scale));
+        const glm::quat rearRotation = glm::quat_cast(glm::mat3(rear) * (1.0f / model.scale));
+        glm::mat4 middle = glm::translate(glm::mat4(1.0f), pivotWorld) * glm::mat4_cast(glm::slerp(frontRotation, rearRotation, 0.5f));
+        middle = glm::scale(middle, glm::vec3(model.scale));
+        middle = glm::translate(middle, -pivot);
+        const std::vector<glm::mat4> skin{front, middle, rear};
+        for (const ModelPart& part : model.bellows[index]->GetParts()) {
+            if (part.texture) part.texture->BindUnit(0);
+            renderer.Submit(*part.mesh, glm::mat4(1.0f), tint * part.baseColor, static_cast<bool>(part.texture), part.doubleSided, &skin,
+                            alphaMode >= 0 ? alphaMode : part.alphaMode, part.alphaCutoff, part.specularTexture.get());
+        }
+    }
+    // direccion: el primer eje vira hacia donde va el eje del carril unos metros mas adelante
+    const float lookZ = bus.position.z + bus.direction * ((model.reference[0] - model.centerZ) * model.scale + 5.0f);
+    const glm::vec2 lookHeading = Viaduct::BusHeading(lookZ, bus.laneX, bus.direction);
+    const float steer = std::clamp(std::remainder(std::atan2(-lookHeading.x, -lookHeading.y) - frontYaw, glm::two_pi<float>()) * 2.0f, -0.5f, 0.5f);
+    for (const ArticulatedBus::Wheel& wheel : model.wheels) {
+        const size_t section = wheel.axle <= 1 ? 0 : (wheel.axle == 2 ? 1 : 2);
+        const float roll = bus.wheelRotation * 0.5f / (wheel.radius * model.scale);   // wheelRotation avanza distancia / 0,5 m
+        glm::mat4 motion = glm::translate(placement[section], wheel.center);
+        if (wheel.front) motion = glm::rotate(motion, steer, glm::vec3(0.0f, 1.0f, 0.0f));
+        motion = glm::rotate(motion, roll, glm::vec3(1.0f, 0.0f, 0.0f));
+        motion = glm::translate(motion, -wheel.center);
+        wheel.model->Draw(renderer, motion, tint, 0.0f, false, 0, alphaMode);
+    }
+    // Ocupantes: solo si el bus esta cerca de la camara (cada uno es un personaje animado completo)
+    if (opacity < 1.0f || m_PedestrianAppearances.empty()) return;
+    if (glm::distance(glm::vec2(bus.position.x, bus.position.z), glm::vec2(focus.x, focus.z)) > 38.0f) return;
+    const auto drawOccupant = [&](const ArticulatedBus::Occupant& occupant, size_t slot, bool seated) {
+        const uint32_t hash = static_cast<uint32_t>((slot + 1) * 2654435761u) ^ static_cast<uint32_t>((busIndex + 3) * 40503u);
+        const PedestrianAppearance& appearance = m_PedestrianAppearances[(hash >> 7) % m_PedestrianAppearances.size()];
+        const size_t section = occupant.position.z > model.pivotZ[0] ? 0 : (occupant.position.z > model.pivotZ[1] ? 1 : 2);
+        glm::mat4 person = glm::translate(placement[section], occupant.position);
+        person = glm::scale(person, glm::vec3(1.0f / model.scale));      // personajes en metros
+        person = glm::rotate(person, occupant.yaw, glm::vec3(0.0f, 1.0f, 0.0f));
+        person = glm::scale(person, glm::vec3(0.95f));
+        if (seated) person = glm::translate(person, glm::vec3(0.0f, -0.93f, 0.0f));   // cadera a la altura del asiento
+        const float phase = static_cast<float>(hash & 255u) * 0.0371f;
+        const int clip = seated ? appearance.sitClip : (((hash >> 3) & 1u) && appearance.relaxedClip >= 0 ? appearance.relaxedClip : appearance.idleClip);
+        for (const auto& part : appearance.parts) {
+            if (part) part->Draw(renderer, person, glm::vec4(1.0f), time + phase, clip >= 0, clip, -1, seated);
+        }
+    };
+    if (model.hasDriver) drawOccupant(model.driver, 0, true);
+    for (size_t slot = 0; slot < model.standing.size(); ++slot) {
+        const uint32_t fill = static_cast<uint32_t>((slot + 1) * 2246822519u) ^ static_cast<uint32_t>((busIndex + 7) * 3266489917u);
+        if ((fill >> 9) % 100u < 55u) drawOccupant(model.standing[slot], slot + 1, false);
+    }
+}
+
+// Pose fisica del carro: modelo de bicicleta con el eje trasero como referencia. La ruta (centro del carro) marca el punto que se
+// persigue unos metros adelante; el rumbo y la posicion dibujados salen de integrar el modelo, asi las llantas traseras no
+// derrapan y la direccion gira con suavidad al entrar y salir de las esquinas.
+static void StepVehicleKinematics(TrafficVehicle& vehicle, float dt) {
+    if (vehicle.parked || vehicle.route.empty() || vehicle.routeLength < 1.0f) return;
+    BicycleParams params;
+    params.wheelbase = std::max(1.2f, vehicle.wheelbase);
+    if (vehicle.emergency == 3) params.maxSteer = 0.5f;   // la moto
+    const glm::vec2 reference(vehicle.position.x, vehicle.position.z);
+    const glm::vec2 referenceDirection(vehicle.direction.x, vehicle.direction.z);
+    // salto de la ruta (cambio de circuito, reaparicion): se vuelve a colocar sobre la ruta
+    if (!vehicle.bike.ready || glm::distance(vehicle.bike.Center(params), reference) > 2.5f) {
+        ResetBicycle(vehicle.bike, params, reference, referenceDirection);
+        return;
+    }
+    const float lookahead = std::clamp(1.0f + 0.55f * vehicle.speed, 1.8f, 4.5f);
+    glm::vec3 targetPosition, targetDirection;
+    size_t waypoint = vehicle.nextWaypoint;
+    SampleCircuit(vehicle.route, vehicle.routeCumulative, vehicle.routeLength, vehicle.distance + lookahead,
+                  targetPosition, targetDirection, waypoint);
+    const glm::vec2 target(targetPosition.x, targetPosition.z);
+    // curvatura de la ruta unos decimos de segundo adelante (el yaw responde al instante a la direccion: basta el retardo del volante)
+    float routeCurvature = 0.0f;
+    {
+        const float preview = 0.35f + 0.12f * vehicle.speed;
+        glm::vec3 pa, da, pb, db;
+        size_t w = vehicle.nextWaypoint;
+        SampleCircuit(vehicle.route, vehicle.routeCumulative, vehicle.routeLength, vehicle.distance + preview - 0.3f, pa, da, w);
+        SampleCircuit(vehicle.route, vehicle.routeCumulative, vehicle.routeLength, vehicle.distance + preview + 0.3f, pb, db, w);
+        routeCurvature = std::remainder(std::atan2(db.z, db.x) - std::atan2(da.z, da.x), 6.2831853f) / 0.6f;
+    }
+    (void)target;
+    const glm::vec2 center = vehicle.bike.Center(params);
+    const glm::vec2 forwardNow = vehicle.bike.Forward();
+    // la ruta va un poco adelante o atras segun el carro corte o abra la esquina: la velocidad se ajusta para no acumular desfase
+    const float alongTrack = (reference.x - center.x) * forwardNow.x + (reference.y - center.y) * forwardNow.y;
+    const float bikeSpeed = vehicle.speed <= 0.01f ? 0.0f : std::clamp(vehicle.speed + 1.5f * alongTrack, 0.4f * vehicle.speed, 1.6f * vehicle.speed + 0.3f);
+    StepBicycle(vehicle.bike, params, bikeSpeed, TrackingSteer(vehicle.bike, params, reference, referenceDirection, routeCurvature, vehicle.speed), dt);
+    // corrige la deriva lenta hacia la ruta (sin cambiar el rumbo): el centro nunca queda a mas de ~0,4 m
+    const glm::vec2 offset = reference - vehicle.bike.Center(params);
+    const float error = glm::length(offset);
+    if (error > 5.0f) vehicle.bike.rear += offset * ((error - 5.0f) / error);
+}
+
 Simulation::Simulation(const CityLayout& city, uint32_t seed,
                        ModelLoadProgress modelLoadProgress)
     : m_City(city), m_Random(seed) {
     m_PedestrianBody = Mesh::CreateCube({0.34f, 1.05f, 0.25f}, {0.48f, 0.34f, 0.25f, 1.0f});
+    m_BloodMesh = Mesh::CreateCylinder(1.0f, 1.0f, 20, {0.26f, 0.01f, 0.015f, 1.0f});   // charco de sangre de los peatones muertos
     m_PedestrianHead = Mesh::CreateCube({0.24f, 0.25f, 0.24f}, {0.62f, 0.46f, 0.34f, 1.0f});
     std::string modelsRoot;
     {
-        std::string animationFile = Paths::Find("public/models/animaciones-actionforge.glb");
+        std::string animationFile = Paths::Find("public/models/animaciones-cpp.glb");
+        if (!std::filesystem::exists(animationFile)) animationFile = Paths::Find("public/models/animaciones-actionforge.glb");
         if (!std::filesystem::exists(animationFile)) animationFile = Paths::Find("public/models/animaciones-prueba.glb");
         if (std::filesystem::exists(animationFile)) modelsRoot = std::filesystem::path(animationFile).parent_path().generic_string() + "/";
     }
     if (!modelsRoot.empty()) {
-        const std::array<std::array<std::string, 4>, 12> outfits{{
-            {{"hombre-joven", "chaqueta", "tenis-rotos", "corto"}},
-            {{"hombre-joven", "buzo", "tenis", "crespo"}},
-            {{"hombre-adulto", "buzo", "zapatos", "desordenado"}},
-            {{"hombre-adulto", "camisa", "botas", "largo"}},
-            {{"hombre-mayor", "saco", "botas", "rapado"}},
-            {{"hombre-mayor", "overol", "tenis", "candado"}},
-            {{"mujer-joven", "sudadera", "tenis", "largo"}},
-            {{"mujer-joven", "blusa", "botas", "crespo"}},
-            {{"mujer-adulta", "blusa", "tenis", "corto"}},
-            {{"mujer-adulta", "sudadera", "botas", "melena"}},
-            {{"mujer-mayor", "saco", "botas", "melena"}},
-            {{"mujer-mayor", "sudadera", "tenis-rotos", "rapado"}}
-        }};
+        std::vector<std::vector<std::string>> outfits{
+            {"hombre-joven", "chaqueta", "tenis-rotos", "corto"},
+            {"hombre-joven", "buzo", "tenis", "crespo"},
+            {"hombre-adulto", "buzo", "zapatos", "desordenado"},
+            {"hombre-adulto", "camisa", "botas", "largo"},
+            {"hombre-mayor", "saco", "botas", "rapado"},
+            {"hombre-mayor", "overol", "tenis", "candado"},
+            {"mujer-joven", "sudadera", "tenis", "largo"},
+            {"mujer-joven", "blusa", "botas", "crespo"},
+            {"mujer-adulta", "blusa", "tenis", "corto"},
+            {"mujer-adulta", "sudadera", "botas", "melena"},
+            {"mujer-mayor", "saco", "botas", "melena"},
+            {"mujer-mayor", "sudadera", "tenis-rotos", "rapado"}
+        };
+        // Variedad de peatones (randomStreetLook del original): cada uno combina ropa, calzado, pelo, barba y sombrero del catalogo del
+        // personaje segun su sexo y edad. Los doce primeros conjuntos se conservan (los usan la mision, el dealer y los vendedores);
+        // 12 combinaciones normales y 8 gastadas para El Cartucho (ropa rota, tenis rotos, barba descuidada, gorro de lana) se generan
+        // con una semilla fija y solo se cargan los archivos que existan.
+        const size_t baseOutfitCount = outfits.size();
+        std::vector<bool> wornOutfit(baseOutfitCount, false);
+        {
+            std::mt19937 outfitRandom(20261027u);
+            const std::array<const char*, 6> bodies{"hombre-joven", "hombre-adulto", "hombre-mayor", "mujer-joven", "mujer-adulta", "mujer-mayor"};
+            const auto pick = [&](const std::vector<std::string>& options) { return options[outfitRandom() % options.size()]; };
+            const auto available = [&](const std::string& body, std::vector<std::string> names) {
+                std::vector<std::string> found;
+                for (const std::string& name : names)
+                    if (std::filesystem::exists(modelsRoot + "personaje/" + body + "/" + name + ".gltf")) found.push_back(name);
+                return found;
+            };
+            for (int index = 0; index < 20; ++index) {
+                const bool worn = index >= 12;
+                const std::string body = bodies[outfitRandom() % bodies.size()];
+                const bool man = body.starts_with("hombre");
+                std::vector<std::string> clothes = available(body, man
+                    ? std::vector<std::string>{"chaqueta", "rayas", "camisa", "buzo", "camiseta", "overol", "saco"}
+                    : std::vector<std::string>{"blusa", "short", "sudadera", "saco"});
+                std::vector<std::string> shoes = available(body, {"tenis", "zapatos", "botas"});
+                std::vector<std::string> hair = available(body, {"rapado", "corto", "desordenado", "crespo", "largo", "cola", "melena"});
+                if (worn) {
+                    const auto old = available(body, {"rota"});
+                    if (!old.empty()) clothes = old;
+                    shoes = available(body, {"tenis-rotos", "botas"});
+                }
+                if (clothes.empty() || shoes.empty() || hair.empty()) continue;
+                std::vector<std::string> outfit{body, pick(clothes), pick(shoes), pick(hair)};
+                outfit.push_back("");
+                if (man) {
+                    const auto beards = available(body, worn ? std::vector<std::string>{"descuidada", "larga", "bigote"} : std::vector<std::string>{"bigote", "candado", "descuidada"});
+                    if (!beards.empty() && (worn || outfitRandom() % 100 < 45)) outfit.back() = "D:" + pick(beards);
+                }
+                const auto hats = available(body, worn ? std::vector<std::string>{"gorro-lana", "boina"} : std::vector<std::string>{"boina", "gorro-lana"});
+                if (!hats.empty() && outfitRandom() % 100 < (worn ? 60 : 30)) outfit.push_back("T:" + pick(hats));
+                outfits.push_back(std::move(outfit));
+                wornOutfit.push_back(worn);
+            }
+        }
         const std::array<std::string, 8> importedFiles{{
-            "car1.opt.glb", "car2.opt.glb", "tm.opt.glb", "cambuche.opt.glb",
+            "vehiculo1.opt.glb", "vehiculo2.opt.glb", "tm.opt.glb", "cambuche.opt.glb",
             "bolsa.opt.glb", "contenedor.opt.glb", "lamparas.opt.glb", "semaforo.opt.glb"
         }};
-        const size_t totalModelLoads = 1 + outfits.size() * outfits.front().size() + importedFiles.size() + 9;
+        const size_t totalModelLoads = 1 + outfits.size() * 5 + importedFiles.size() + 12;
         size_t completedModelLoads = 0;
         const auto reportModelLoad = [&](const std::string& name = "") {
             if (modelLoadProgress) modelLoadProgress(++completedModelLoads, totalModelLoads, name);
         };
 
-        std::string animationPath = modelsRoot + "animaciones-actionforge.glb";
+        std::string animationPath = modelsRoot + "animaciones-cpp.glb";
+        if (!std::filesystem::exists(animationPath)) animationPath = modelsRoot + "animaciones-actionforge.glb";
         if (!std::filesystem::exists(animationPath)) animationPath = modelsRoot + "animaciones-prueba.glb";
         m_PedestrianAnimation = Model::LoadFromFile(animationPath);
         reportModelLoad("Animaciones de peatones (ActionForge)");
@@ -280,8 +593,14 @@ Simulation::Simulation(const CityLayout& city, uint32_t seed,
         std::unordered_map<std::string, std::shared_ptr<Model>> modelCache;
         for (const auto& outfit : outfits) {
             PedestrianAppearance appearance;
+            appearance.worn = wornOutfit[static_cast<size_t>(&outfit - outfits.data())];
             for (size_t partIndex = 0; partIndex < outfit.size(); ++partIndex) {
-                const std::string filename = partIndex == 0 ? "cuerpo.gltf" : outfit[partIndex] + ".gltf";
+                std::string partName = outfit[partIndex];
+                char role = partIndex == 0 ? 'B' : partIndex == 1 ? 'C' : partIndex == 2 ? 'S' : partIndex == 3 ? 'H' : 'X';
+                if (partName.size() > 2 && partName[1] == ':') { role = partName[0]; partName = partName.substr(2); }
+                if (partName.empty()) continue;
+                appearance.roles.push_back(role);
+                const std::string filename = partIndex == 0 ? "cuerpo.gltf" : partName + ".gltf";
                 const std::string path = modelsRoot + "personaje/" + outfit[0] + "/" + filename;
                 auto found = modelCache.find(path);
                 std::shared_ptr<Model> model;
@@ -292,6 +611,7 @@ Simulation::Simulation(const CityLayout& city, uint32_t seed,
                         model->SetAnimationSource(*m_PedestrianAnimation, CharacterAnimationAliases());
                     if (model) modelCache.emplace(path, model);
                 }
+                if (model && (role == 'C' || role == 'S')) model->SetPushOut(0.008f);   // la ropa y el calzado no dejan pasar la piel
                 appearance.parts.push_back(std::move(model));
                 reportModelLoad();
             }
@@ -299,9 +619,41 @@ Simulation::Simulation(const CityLayout& city, uint32_t seed,
                 appearance.idleClip = appearance.parts.front()->FindAnimationClip("Idle");
                 appearance.walkClip = appearance.parts.front()->FindAnimationClip("Walk");
                 appearance.sitClip = appearance.idleClip;
+                appearance.runClip = appearance.parts.front()->FindAnimationClip("Run");
+                appearance.relaxedClip = appearance.parts.front()->FindAnimationClip("IdleRelaxed");
+                appearance.hitFaceClip = appearance.parts.front()->FindAnimationClip("HitFace");
+                appearance.hitChestClip = appearance.parts.front()->FindAnimationClip("HitChest");
+                appearance.hitLegsClip = appearance.parts.front()->FindAnimationClip("HitLegs");
+                appearance.fallClip = appearance.parts.front()->FindAnimationClip("FallBack");
+                appearance.lyingClip = appearance.parts.front()->FindAnimationClip("LyingLoop");
+                appearance.getUpClip = appearance.parts.front()->FindAnimationClip("GetUp");
+                appearance.jabClip = appearance.parts.front()->FindAnimationClip("PunchJab");
+                appearance.crossClip = appearance.parts.front()->FindAnimationClip("PunchCross");
                 m_PedestrianAppearances.push_back(std::move(appearance));
             }
         }
+        {   // vehiculos de emergencia (Blender: reducidos a ~24 mil triangulos y textura de 1024 px). El frente local del juego es +X.
+            struct EmergencySpec { const char* file; glm::vec3 size; float yaw; };
+            const std::array<EmergencySpec, 3> specs{{
+                {"ambulancia.opt.glb", {5.5f, 2.5f, 2.4f}, glm::half_pi<float>()},
+                {"vehiculo_policia.opt.glb", {4.4f, 1.9f, 2.1f}, 0.0f},
+                {"moto_policia.opt.glb", {2.1f, 1.3f, 0.74f}, -glm::half_pi<float>()}}};
+            for (size_t index = 0; index < specs.size(); ++index) {
+                const std::string path = modelsRoot + specs[index].file;
+                if (std::filesystem::exists(path)) m_EmergencyModels[index] = Model::LoadFromFile(path);
+                else LogWarn("No se encontro el vehiculo de emergencia: {}", path);
+                if (m_EmergencyModels[index]) m_EmergencyFits[index] = FitModelTransform(*m_EmergencyModels[index], specs[index].size, specs[index].yaw);
+                reportModelLoad(specs[index].file);
+            }
+        }
+        LoadArticulatedBus(modelsRoot);
+        m_VehicleParts[0] = LoadVehicleParts(modelsRoot, "vehiculo1");
+        m_VehicleParts[1] = LoadVehicleParts(modelsRoot, "vehiculo2");
+        m_VehicleParts[2] = LoadVehicleParts(modelsRoot, "ambulancia");
+        m_VehicleParts[3] = LoadVehicleParts(modelsRoot, "vehiculo_policia");
+        m_VehicleParts[4] = LoadVehicleParts(modelsRoot, "moto_policia");
+        static const std::array<const char*, kCabinVariants> kCabinModels{{"raptor", "renault6", "jetta", "mercedes", "modelx", "crafter", "hilux"}};
+        for (size_t variant = 0; variant < kCabinVariants; ++variant) m_VehicleParts[5 + variant] = LoadVehicleParts(modelsRoot, kCabinModels[variant]);
         for (size_t index = 0; index < importedFiles.size(); ++index) {
             const std::string path = modelsRoot + importedFiles[index];
             std::shared_ptr<Model> model;
@@ -310,15 +662,15 @@ Simulation::Simulation(const CityLayout& city, uint32_t seed,
             switch (index) {
                 case 0:
                     m_CarModel = std::move(model);
-                    if (m_CarModel) m_CarModelFit = FitModelTransform(*m_CarModel, {4.3f, 1.75f, 1.76f}, glm::pi<float>());
+                    if (m_CarModel) m_CarModelFit = FitModelTransform(*m_CarModel, {4.5f, 2.0f, 2.19f}, glm::half_pi<float>());
                     break;
                 case 1:
                     m_TaxiModel = std::move(model);
-                    if (m_TaxiModel) m_TaxiModelFit = FitModelTransform(*m_TaxiModel, {4.3f, 1.45f, 1.76f}, glm::pi<float>());
+                    if (m_TaxiModel) m_TaxiModelFit = FitModelTransform(*m_TaxiModel, {4.5f, 1.58f, 2.02f}, glm::half_pi<float>());
                     break;
                 case 2:
                     m_BusModel = std::move(model);
-                    if (m_BusModel) m_BusModelFit = FitModelTransform(*m_BusModel, {2.52f, 3.5f, 18.2f}, -glm::half_pi<float>());
+                    if (m_BusModel) m_BusModelFit = FitModelTransform(*m_BusModel, {kBusWidth, 3.5f, kBusLength}, -glm::half_pi<float>());
                     break;
                 case 3:
                     m_ShelterModel = std::move(model);
@@ -359,7 +711,7 @@ Simulation::Simulation(const CityLayout& city, uint32_t seed,
         reportModelLoad("Vegetación: Pasto FBX");
         // Piezas separadas del ave (hechas en Blender a partir del modelo): cuerpo, ala I interior/exterior, ala D interior/exterior
         const auto loadBirdParts = [&](size_t bird, const std::string& stem) {
-            static const char* suffixes[kBirdPartCount] = {"_body", "_L_in", "_L_out", "_R_in", "_R_out"};
+            static const char* suffixes[kBirdPartCount] = {"_body", "_head", "_legL", "_legR", "_L_in", "_L_out", "_R_in", "_R_out"};
             bool complete = true;
             for (size_t part = 0; part < kBirdPartCount; ++part) {
                 m_BirdParts[bird][part] = Model::LoadFromFile(modelsRoot + stem + suffixes[part] + ".gltf");
@@ -386,6 +738,8 @@ Simulation::Simulation(const CityLayout& city, uint32_t seed,
             m_PetModelFit = glm::translate(glm::mat4(1.0f), {0.0f, 0.08f, 0.0f})
                 * FitModelTransform(*m_PetModel, {0.6175f, 0.507f, 0.8125f}, glm::pi<float>(), true);
         reportModelLoad("Compañero: Mascota canina (El Chato) FBX");
+        m_DogModel = Model::LoadFromFile(modelsRoot + "perro.glb");
+        reportModelLoad("Compañero: El Chato (perro.glb)");
         m_VendorCartModel = Model::LoadFromFile(modelsRoot + "comida rapida/food+cart.fbx");
         if (m_VendorCartModel)
             m_VendorCartModelFit = FitModelTransform(
@@ -672,37 +1026,55 @@ Simulation::Simulation(const CityLayout& city, uint32_t seed,
     // Las bandas de las calles estan en filas del original: las 37 filas del norte (estacion) desplazan la cuadricula
     auto calles = m_City.GetData().calles;
     for (auto& band : calles) { band.first += CityLayout::NORTH_ROWS; band.last += CityLayout::NORTH_ROWS; }
-    const float top = laneZ(calles[0].first, calles[0].last, 1);
-    const float bottom = laneZ(calles[1].first, calles[1].last, -1);
-    const float farBottom = laneZ(calles.back().first, calles.back().last, -1);
-    const float upperMiddle = laneZ(calles[1].first, calles[1].last, 1);
-    // El costado oriental ocupado por Colpatria deja de ser via de paso: los circuitos que pasan por la Caracas oriental
-    // giran en la calle 8 (getTrafficRoutes del original).
-    const float colpatriaTurn = laneZ(calles[2].first, calles[2].last, -1);
-    const auto clampBottom = [&](float left, float right, float lowest) {
-        const bool nearColpatria = (left >= 83.0f && left <= 93.0f) || (right >= 83.0f && right <= 93.0f);
-        return nearColpatria && lowest > 155.0f ? colpatriaTurn : lowest;
-    };
-    const auto routeLeft = [&](const std::array<float, 4>& r) { return std::min(r[0], r[1]); };
-    std::array<std::array<float, 4>, 6> routeBounds{{
-        {{laneX(carreras[0].first, carreras[0].last, 1), laneX(caracas[0].first, caracas[0].last, -1), top, bottom}},
-        {{laneX(caracas[1].first, caracas[1].last, 1), laneX(carreras[1].first, carreras[1].last, -1), top, bottom}},
-        {{laneX(carreras[1].first, carreras[1].last, 1), laneX(carreras[2].first, carreras[2].last, -1), top, farBottom}},
-        {{laneX(carreras[2].first, carreras[2].last, 1), laneX(carreras[3].first, carreras[3].last, -1), top, farBottom}},
-        {{laneX(carreras[0].first, carreras[0].last, 1), laneX(caracas[0].first, caracas[0].last, -1), upperMiddle, farBottom}},
-        {{laneX(caracas[1].first, caracas[1].last, 1), laneX(carreras[1].first, carreras[1].last, -1), upperMiddle, farBottom}}
-    }};
-    (void)routeLeft;
-    for (auto& bounds : routeBounds) bounds[3] = clampBottom(bounds[0], bounds[1], bounds[3]);
+    // Los circuitos salen de las bandas del mapa (cualquier numero de carreras y calles): una manzana por cada par de
+    // avenidas contiguas (sin la troncal de la Caracas, que es el carril del bus). Las que tocan la Caracas se parten en
+    // dos circuitos (calles 1-2 y 2-ultima); las demas recorren de la primera calle a la ultima.
+    std::vector<std::array<float, 4>> routeBounds;
+    std::vector<int> caracasSide;   // 0 no toca la Caracas; +1 la tiene a la derecha (oriente del circuito); -1 a la izquierda
+    if (calles.size() >= 2 && !carreras.empty() && caracas.size() >= 2) {
+        const float top = laneZ(calles[0].first, calles[0].last, 1);
+        const float bottom = laneZ(calles[1].first, calles[1].last, -1);
+        const float farBottom = laneZ(calles.back().first, calles.back().last, -1);
+        const float upperMiddle = laneZ(calles[1].first, calles[1].last, 1);
+        // El costado oriental ocupado por Colpatria deja de ser via de paso: los circuitos que pasan por la Caracas oriental
+        // giran en la calle 8 (getTrafficRoutes del original).
+        const float colpatriaTurn = laneZ(calles[std::min<size_t>(2, calles.size() - 1)].first, calles[std::min<size_t>(2, calles.size() - 1)].last, -1);
+        struct Avenue { CityLayout::Band band; int caracas; };   // caracas: -1 no, 0 carril occidental, 1 carril oriental
+        std::vector<Avenue> avenues;
+        for (const auto& band : carreras) avenues.push_back({band, -1});
+        avenues.push_back({caracas[0], 0});
+        avenues.push_back({caracas[1], 1});
+        std::sort(avenues.begin(), avenues.end(), [](const Avenue& a, const Avenue& b) { return a.band.first < b.band.first; });
+        const auto addRoute = [&](float left, float right, float routeTop, float routeBottom, int side) {
+            routeBounds.push_back({left, right, routeTop, routeBottom});
+            caracasSide.push_back(side);
+        };
+        for (size_t i = 0; i + 1 < avenues.size(); ++i) {
+            const Avenue& a = avenues[i];
+            const Avenue& b = avenues[i + 1];
+            if (a.caracas == 0 && b.caracas == 1) continue;   // entre los dos carriles de la Caracas va el busway
+            const float left = laneX(a.band.first, a.band.last, 1);
+            const float right = laneX(b.band.first, b.band.last, -1);
+            const int side = b.caracas == 0 ? 1 : a.caracas == 1 ? -1 : 0;
+            if (side == 0) {
+                addRoute(left, right, top, farBottom, 0);
+            } else {
+                const float lower = side < 0 ? std::min(farBottom, colpatriaTurn) : farBottom;
+                addRoute(left, right, top, bottom, side);
+                addRoute(left, right, upperMiddle, side < 0 && lower < farBottom ? lower : farBottom, side);
+            }
+        }
+    } else {
+        LogWarn("El mapa no tiene las bandas de carreras, calles y Caracas necesarias para generar circuitos de trafico.");
+    }
     for (size_t routeIndex = 0; routeIndex < routeBounds.size(); ++routeIndex) {
         const float left = std::min(routeBounds[routeIndex][0], routeBounds[routeIndex][1]);
         const float right = std::max(routeBounds[routeIndex][0], routeBounds[routeIndex][1]);
         const float topEdge = std::min(routeBounds[routeIndex][2], routeBounds[routeIndex][3]);
         const float bottomEdge = std::max(routeBounds[routeIndex][2], routeBounds[routeIndex][3]);
-        const bool hasCaracasApproach = routeIndex == 0 || routeIndex == 1 || routeIndex == 4 || routeIndex == 5;
-        if (!hasCaracasApproach) continue;
+        if (caracasSide[routeIndex] == 0) continue;   // solo las manzanas que tocan la Caracas llevan semaforo
 
-        const std::array<std::pair<glm::vec3, glm::vec3>, 2> approaches = routeIndex == 0 || routeIndex == 4
+        const std::array<std::pair<glm::vec3, glm::vec3>, 2> approaches = caracasSide[routeIndex] > 0
             ? std::array<std::pair<glm::vec3, glm::vec3>, 2>{{
                 {{right, 0.0f, topEdge}, {1.0f, 0.0f, 0.0f}},
                 {{right, 0.0f, bottomEdge}, {0.0f, 0.0f, 1.0f}}
@@ -762,7 +1134,7 @@ Simulation::Simulation(const CityLayout& city, uint32_t seed,
     // y para en la estacion Portal del Centro; el del sur parte de la estacion, cruza el viaducto y el puente, y relevan
     // en los extremos. Siguen la curva del rodeo de Colpatria.
     {
-        const float southEnd = static_cast<float>(CityLayout::HEIGHT - CityLayout::NORTH_ROWS - 2) * CityLayout::TILE_SIZE - 9.1f;   // 308,9
+        const float southEnd = static_cast<float>(CityLayout::HEIGHT - CityLayout::NORTH_ROWS - 2) * CityLayout::TILE_SIZE - kBusHalfLength;   // 308,9
         const float northEnd = Station::kTerminalNorthZ + 12.0f;                                                                        // -62
         const auto placeBus = [&](BusState& bus, float z) {
             bus.position = {Viaduct::BusPathX(z, bus.laneX), Viaduct::Height(z), z};
@@ -793,6 +1165,72 @@ Simulation::Simulation(const CityLayout& city, uint32_t seed,
         const float routeBottom = std::max(bounds[2], bounds[3]);
         if (right - left <= 2.0f || routeBottom - routeTop <= 2.0f) continue;
         m_TrafficRoutes.push_back(MakeTrafficCircuit(left, right, routeTop, routeBottom));
+    }
+    {   // acumulados de cada circuito y conexiones entre manzanas contiguas
+        std::vector<std::array<float, 4>> boxes;   // left, right, top, bottom de cada circuito creado
+        for (const auto& bounds : routeBounds) {
+            const float left = std::min(bounds[0], bounds[1]), right = std::max(bounds[0], bounds[1]);
+            const float top = std::min(bounds[2], bounds[3]), bottom = std::max(bounds[2], bounds[3]);
+            if (right - left <= 2.0f || bottom - top <= 2.0f) continue;
+            boxes.push_back({left, right, top, bottom});
+        }
+        m_RouteCumulative.resize(m_TrafficRoutes.size());
+        for (size_t index = 0; index < m_TrafficRoutes.size(); ++index) {
+            const auto& route = m_TrafficRoutes[index];
+            m_RouteCumulative[index].assign(route.size(), 0.0f);
+            for (size_t point = 1; point < route.size(); ++point)
+                m_RouteCumulative[index][point] = m_RouteCumulative[index][point - 1] + glm::distance(route[point - 1], route[point]);
+        }
+        const auto distanceOnRoute = [&](size_t routeIndex, const glm::vec3& point, float& found) {
+            const auto& route = m_TrafficRoutes[routeIndex];
+            for (size_t i = 0; i < route.size(); ++i) {
+                const glm::vec3 a = route[i], b = route[(i + 1) % route.size()];
+                const glm::vec3 ab = b - a;
+                const float lengthSquared = glm::dot(ab, ab);
+                if (lengthSquared < 1.0e-8f) continue;
+                const float t = glm::dot(point - a, ab) / lengthSquared;
+                if (t < 0.0f || t > 1.0f) continue;
+                if (glm::distance(point, a + ab * t) < 0.06f) { found = m_RouteCumulative[routeIndex][i] + std::sqrt(lengthSquared) * t; return true; }
+            }
+            return false;
+        };
+        // bordes rectos de cada circuito (esquinas de `CircuitRadius`): inicio, fin y sentido de la marcha
+        struct Edge { glm::vec3 start, end, direction; };
+        const auto edgesOf = [](const std::array<float, 4>& box) {
+            const float l = box[0], r = box[1], t = box[2], b = box[3], k = CircuitRadius(l, r, t, b);
+            return std::array<Edge, 4>{{{{l + k, 0, t}, {r - k, 0, t}, {1, 0, 0}}, {{r, 0, t + k}, {r, 0, b - k}, {0, 0, 1}},
+                                       {{r - k, 0, b}, {l + k, 0, b}, {-1, 0, 0}}, {{l, 0, b - k}, {l, 0, t + k}, {0, 0, -1}}}};
+        };
+        m_RouteBranches.assign(m_TrafficRoutes.size(), {});
+        constexpr float kMaxGap = 14.0f;   // no se cruza la troncal: el carril exclusivo del bus queda libre
+        for (size_t a = 0; a < boxes.size() && a < m_TrafficRoutes.size(); ++a) {
+            for (size_t b = 0; b < boxes.size() && b < m_TrafficRoutes.size(); ++b) {
+                if (a == b) continue;
+                for (const Edge& ea : edgesOf(boxes[a])) {
+                    for (const Edge& eb : edgesOf(boxes[b])) {
+                        if (glm::dot(ea.direction, eb.direction) < 0.99f) continue;
+                        const glm::vec3 across = glm::vec3(ea.direction.z, 0.0f, -ea.direction.x);
+                        if (std::abs(glm::dot(eb.start - ea.end, across)) > 0.05f) continue;   // misma linea
+                        const float gap = glm::dot(eb.start - ea.end, ea.direction);
+                        float fromDistance = 0.0f, toDistance = 0.0f;
+                        if (gap > 0.5f && gap <= kMaxGap) {
+                            // tramo recto entre el fin de una manzana y el inicio de la siguiente
+                            if (!distanceOnRoute(a, ea.end, fromDistance) || !distanceOnRoute(b, eb.start, toDistance)) continue;
+                            m_RouteBranches[a].push_back({fromDistance, b, toDistance, gap, ea.end, eb.start});
+                        } else if (gap <= 0.5f && gap >= -80.0f) {
+                            // los dos circuitos comparten el carril: se pasa al otro donde empieza su borde
+                            const glm::vec3 joinPoint = eb.start;
+                            if (glm::dot(joinPoint - ea.start, ea.direction) < 0.5f || glm::dot(ea.end - joinPoint, ea.direction) < 2.0f) continue;
+                            if (!distanceOnRoute(a, joinPoint, fromDistance) || !distanceOnRoute(b, joinPoint, toDistance)) continue;
+                            m_RouteBranches[a].push_back({fromDistance, b, toDistance, 0.0f, joinPoint, joinPoint});
+                        }
+                    }
+                }
+            }
+        }
+        size_t branchCount = 0;
+        for (const auto& list : m_RouteBranches) branchCount += list.size();
+        LogInfo("Circuitos de trafico: {}; conexiones entre manzanas: {}", m_TrafficRoutes.size(), branchCount);
     }
     for (size_t routeIndex = 0; routeIndex < m_TrafficRoutes.size(); ++routeIndex) {
         const auto& route = m_TrafficRoutes[routeIndex];
@@ -827,6 +1265,28 @@ Simulation::Simulation(const CityLayout& city, uint32_t seed,
             vehicle.taxi = m_Unit(m_Random) < 0.3f;
             vehicle.color = vehicle.taxi ? glm::vec3(0.949f, 0.765f, 0.0f)
                 : paints[static_cast<size_t>(m_Unit(m_Random) * paints.size()) % paints.size()];
+            // tres de los carros del tráfico son de emergencia: ambulancia, patrulla y moto de policia
+            if (m_Traffic.size() == 5 || m_Traffic.size() == 11 || m_Traffic.size() == 17) {
+                const int kind = m_Traffic.size() == 5 ? 1 : m_Traffic.size() == 11 ? 2 : 3;
+                if (m_EmergencyModels[static_cast<size_t>(kind - 1)]) {
+                    vehicle.emergency = kind;
+                    vehicle.taxi = false;
+                    vehicle.mirrorsAvailable = false;
+                    vehicle.length = kind == 1 ? 5.5f : kind == 2 ? 4.4f : 2.1f;
+                    vehicle.width = kind == 1 ? 2.4f : kind == 2 ? 2.1f : 0.9f;
+                    vehicle.cruiseSpeed = 3.0f + m_Unit(m_Random) * 1.0f;
+                }
+            }
+            AssignVehicleModel(vehicle);
+            vehicle.driver.appearance = static_cast<size_t>(m_Unit(m_Random) * 1000.0f);
+            vehicle.driver.color = {0.22f + m_Unit(m_Random) * 0.55f, 0.18f + m_Unit(m_Random) * 0.48f, 0.15f + m_Unit(m_Random) * 0.42f};
+            vehicle.driver.shade = m_Unit(m_Random) * 2.0f;
+            if (vehicle.variant > 0 && vehicle.emergency == 0 && (m_Unit(m_Random) < 0.35f || std::getenv("BAZUKO_FORCE_PASSENGER"))) {
+                vehicle.driver.hasPassenger = true;   // acompanante en el asiento delantero
+                vehicle.driver.passengerAppearance = static_cast<size_t>(m_Unit(m_Random) * 1000.0f);
+                vehicle.driver.passengerColor = {0.22f + m_Unit(m_Random) * 0.55f, 0.18f + m_Unit(m_Random) * 0.48f, 0.15f + m_Unit(m_Random) * 0.42f};
+                vehicle.driver.passengerShade = m_Unit(m_Random) * 2.0f;
+            }
             m_Traffic.push_back(std::move(vehicle));
             m_CarCooldowns.push_back(0.0f);
         }
@@ -863,6 +1323,7 @@ Simulation::Simulation(const CityLayout& city, uint32_t seed,
             parked.taxi = m_Unit(m_Random) < 0.3f;
             parked.color = parked.taxi ? glm::vec3(0.949f, 0.765f, 0.0f)
                 : parkedPaints[static_cast<size_t>(m_Unit(m_Random) * parkedPaints.size()) % parkedPaints.size()];
+            AssignVehicleModel(parked);
             m_ParkedCars.push_back(parked);
             m_ParkedCarCooldowns.push_back(0.0f);
         }
@@ -909,7 +1370,44 @@ Simulation::Simulation(const CityLayout& city, uint32_t seed,
     m_RecyclerPosition = {cityData.sell.x, 0.15f, cityData.sell.y};
     m_MissionNpcPosition = {cityData.sell.x + 2.0f, 0.15f, cityData.sell.y};
     m_DealerPosition = {cityData.dealer.x, 0.15f, cityData.dealer.y};
+    BuildPropColliders();
     BuildBirdSpots();
+}
+
+void Simulation::BuildPropColliders() {
+    m_PropColliders.clear();
+    const auto circle = [&](float x, float z, float radius) { m_PropColliders.push_back({{x, z}, {radius, radius}, 1.0f, 0.0f, false}); };
+    const auto box = [&](float x, float z, float halfWidth, float halfDepth, float yaw) {
+        m_PropColliders.push_back({{x, z}, {halfWidth, halfDepth}, std::cos(yaw), std::sin(yaw), true});
+    };
+    for (const glm::vec3& tree : m_TreePositions) circle(tree.x, tree.z, 0.22f);                 // el tronco; la copa queda por encima de la cabeza
+    for (const StreetLamp& lamp : m_StreetLamps) circle(lamp.position.x, lamp.position.z, 0.16f);
+    for (const TrafficSignal& signal : m_TrafficSignals) circle(signal.polePosition.x, signal.polePosition.z, 0.16f);
+    for (const StreetVendor& vendor : m_StreetVendors) {
+        const float yaw = std::atan2(vendor.facing.x, vendor.facing.z);   // el mostrador mira hacia `facing`; el vendedor queda detras
+        box(vendor.position.x, vendor.position.z, 0.62f, 0.40f, yaw);
+    }
+    box(m_RecyclerPosition.x, m_RecyclerPosition.z, 0.80f, 0.55f, 0.0f);
+}
+
+bool Simulation::HitsProp(float x, float z, float radius) const {
+    for (const PropCollider& prop : m_PropColliders) {
+        const float dx = x - prop.center.x, dz = z - prop.center.y;
+        const float reach = std::max(prop.half.x, prop.half.y) + radius;
+        if (std::abs(dx) > reach || std::abs(dz) > reach) continue;
+        if (!prop.box) {
+            const float r = prop.half.x + radius;
+            if (dx * dx + dz * dz < r * r) return true;
+            continue;
+        }
+        // al espacio local de la caja (la rotacion en Y es la de glm: x' = x*c + z*s, z' = -x*s + z*c)
+        const float lx = dx * prop.cosYaw - dz * prop.sinYaw;
+        const float lz = dx * prop.sinYaw + dz * prop.cosYaw;
+        const float cx = std::clamp(lx, -prop.half.x, prop.half.x), cz = std::clamp(lz, -prop.half.y, prop.half.y);
+        const float ex = lx - cx, ez = lz - cz;
+        if (ex * ex + ez * ez < radius * radius) return true;
+    }
+    return false;
 }
 
 bool Simulation::FindSidewalkPoint(glm::vec3& point, const glm::vec3& center, float radius) {
@@ -1114,6 +1612,8 @@ bool Simulation::PetDog() {
     if (!m_DogIsFriend || m_DogPetCooldown > 0.0f) return false;
     m_DogPetCooldown = 20.0f;
     m_DogTime += 2.0f;
+    m_DogHappy = 1.0f;   // mueve la cola mas rapido y da un salto
+    m_DogHop = 0.0f;
     return true;
 }
 
@@ -1128,6 +1628,7 @@ bool Simulation::StealCar(size_t index) {
     if (index >= m_Traffic.size() || m_Traffic[index].bus || m_CarCooldowns[index] > 0.0f) return false;
     m_CarCooldowns[index] = 40.0f;
     m_Traffic[index].mirrorsAvailable = false;
+    ProvokeDriver(index);
     return true;
 }
 
@@ -1136,6 +1637,18 @@ bool Simulation::StealParkedCar(size_t index) {
     m_ParkedCarCooldowns[index] = 40.0f;
     m_ParkedCars[index].mirrorsAvailable = false;
     return true;
+}
+
+namespace {
+const std::array<const char*, 8> kGreetings{
+    "Dios lo bendiga, vecino.", "Pilas por la 19 que está caliente.", "¿Tiene una monedita que le sobre?", "Mucho juicio, mi rey.",
+    "Tome 500 para un pan, mijo.", "Qué frío tan berraco hace hoy.", "Pilas con los carros en la Caracas.", "Buenas tardes, vecino."};
+const std::array<const char*, 4> kDirtyPhrases{
+    "¡Uff, aléjese que huele a caño!", "Vaya al caño a pegarse una lavada.", "¡Paso, paso, no se me pegue!", "¡Gas, qué tufo!"};
+const std::array<const char*, 5> kPunchedPhrases{
+    "¡Uy qué le pasa, ñero loco!", "¡Ayúdenme, me están atracando!", "¡Policía, policía!", "¡Socio, no me pegue!", "¡Qué boleta, bájese de la nube!"};
+const std::array<const char*, 4> kCaughtPhrases{
+    "¡Ladrón, devuélvame eso!", "¡Mano quieta, ñero!", "¡Me estaba robando!", "¡Aquí no, aquí no!"};
 }
 
 RobberyOutcome Simulation::RobPedestrian(size_t index, bool direct, const glm::vec3& source) {
@@ -1153,7 +1666,15 @@ RobberyOutcome Simulation::RobPedestrian(size_t index, bool direct, const glm::v
         outcome.money = minimum + m_Unit(m_Random) * (maximum - minimum);
     }
     if (outcome.caught) {
-        pedestrian.fleeRemaining = 8.0f;
+        // se da cuenta: se vuelve contra el jugador, le pega una vez y luego huye
+        pedestrian.bubbleText = kCaughtPhrases[static_cast<size_t>(m_Unit(m_Random) * 3.99f)];
+        pedestrian.bubbleRemaining = 3.5f;
+        pedestrian.aggressive = true;
+        pedestrian.fleeAfterPunch = true;
+        pedestrian.aggressionRemaining = 6.0f;
+        pedestrian.punchTime = -1.0f;
+        pedestrian.punchCooldown = 0.0f;
+        pedestrian.fleeRemaining = 0.0f;
         pedestrian.fleeDirection = pedestrian.position - source;
         pedestrian.fleeDirection.y = 0.0f;
         if (glm::dot(pedestrian.fleeDirection, pedestrian.fleeDirection) < 0.001f) {
@@ -1212,30 +1733,42 @@ std::vector<glm::vec4> Simulation::GetNearestLampLights(const glm::vec3& focus, 
 }
 
 void Simulation::Update(float dt, const glm::vec3& playerPosition) {
-    m_Clock = std::fmod(m_Clock + dt / kDayLengthSeconds, 1.0f);
+    const float nextClock = m_Clock + dt / kDayLengthSeconds;
+    if (nextClock >= 1.0f) ++m_Day;                       // pasa la medianoche: empieza otro dia (y a veces otra temporada)
+    m_Clock = std::fmod(nextClock, 1.0f);
     m_DayProgress = m_Clock;
+    // Clima: cada 3-6 min elige el siguiente estado con los pesos de la temporada; nubes, lluvia, viento y niebla se mezclan despacio
+    const Climate::Season& season = Climate::SeasonForDay(m_Day);
     m_WeatherRemaining -= dt;
     if (m_WeatherRemaining <= 0.0f) {
-        // despejado -> llovizna (60 %) o neblina (40 %); desde cualquiera de las dos vuelve a despejar
-        const Weather previous = m_Weather;
-        if (previous == Weather::Clear) m_Weather = m_Unit(m_Random) < 0.6f ? Weather::Drizzle : Weather::Mist;
-        else m_Weather = Weather::Clear;
-        m_WeatherChange = m_Weather == Weather::Drizzle ? 1 : m_Weather == Weather::Mist ? 3 : previous == Weather::Drizzle ? 2 : 4;
-        m_RainTarget = m_Weather == Weather::Drizzle ? 0.35f + 0.65f * m_Unit(m_Random) : 0.0f;
-        m_MistTarget = m_Weather == Weather::Mist ? 0.5f + 0.5f * m_Unit(m_Random) : 0.0f;
-        m_RainRetarget = 40.0f + m_Unit(m_Random) * 50.0f;
-        m_WeatherRemaining = 150.0f + m_Unit(m_Random) * 150.0f;
+        m_WeatherType = Climate::PickNext(m_WeatherType, season, m_DayProgress * 24.0f, m_Random);
+        m_WeatherToast = Climate::Info(m_WeatherType).toast;
+        m_WeatherRemaining = 180.0f + m_Unit(m_Random) * 200.0f;
     }
-    // mientras llovizna, la intensidad cambia de ritmo cada 40-90 s
-    if (m_Weather == Weather::Drizzle) {
-        m_RainRetarget -= dt;
-        if (m_RainRetarget <= 0.0f) {
-            m_RainTarget = 0.3f + 0.7f * m_Unit(m_Random);
-            m_RainRetarget = 40.0f + m_Unit(m_Random) * 50.0f;
+    {
+        const Climate::WeatherInfo& target = Climate::Info(m_WeatherType);
+        const float k = 1.0f - std::exp(-dt / 14.0f);
+        m_CloudCover += (target.cloud - m_CloudCover) * k;
+        // la lluvia arranca cuando las nubes ya cerraron el cielo; al escampar baja primero
+        const float rainTarget = m_CloudCover >= target.cloud - 0.08f ? target.rain : std::min(target.rain, m_RainIntensity);
+        m_RainIntensity += (rainTarget - m_RainIntensity) * std::min(1.0f, k * 1.4f);
+        if (std::abs(rainTarget - m_RainIntensity) < 0.002f) m_RainIntensity = rainTarget;
+        m_Wind += (target.wind * season.windMul - m_Wind) * k;
+        m_FogMultiplier += (target.fog - m_FogMultiplier) * k;
+        m_LightningChance += (target.lightning - m_LightningChance) * k;
+        const float mistTarget = m_WeatherType == Climate::Weather::Fog ? 1.0f : 0.0f;
+        m_Mist += std::clamp(mistTarget - m_Mist, -0.02f * dt, 0.03f * dt);
+        // relampagos: dos destellos seguidos; la frecuencia crece con la probabilidad de rayos del estado
+        if (m_FlashTime >= 0.0f) {
+            m_FlashTime += dt;
+            m_LightningFlash = std::max(0.0f, 1.0f - m_FlashTime / 0.12f) + (m_FlashTime > 0.18f ? std::max(0.0f, 0.7f - (m_FlashTime - 0.18f) / 0.25f) : 0.0f);
+            if (m_FlashTime > 0.5f) { m_FlashTime = -1.0f; m_LightningFlash = 0.0f; }
+        }
+        if (m_LightningChance >= 0.05f) {
+            m_NextLightning -= dt * m_LightningChance;
+            if (m_NextLightning <= 0.0f) { m_NextLightning = 5.0f + m_Unit(m_Random) * 11.0f; m_FlashTime = 0.0f; }
         }
     }
-    m_RainIntensity += std::clamp(m_RainTarget - m_RainIntensity, -0.08f * dt, 0.12f * dt);
-    m_Mist += std::clamp(m_MistTarget - m_Mist, -0.02f * dt, 0.03f * dt);
     m_Wetness = IsRaining() ? std::min(1.0f, m_Wetness + dt * 0.25f * std::min(1.0f, m_RainIntensity * 2.0f))
                             : std::max(0.0f, m_Wetness - dt * 0.04f);
     if (IsRaining()) {
@@ -1250,24 +1783,50 @@ void Simulation::Update(float dt, const glm::vec3& playerPosition) {
     }
     m_DogTime += dt;
     m_DogPetCooldown = std::max(0.0f, m_DogPetCooldown - dt);
+    float dogTargetSpeed = 0.0f;
     if (m_DogIsFriend) {
+        // Sigue al jugador: se detiene a 2,2 m, trota si se queda atras y galopa si lo pierde de vista; a mas de 45 m lo alcanza
         const glm::vec2 offset(playerPosition.x - m_DogPosition.x, playerPosition.z - m_DogPosition.z);
         const float distance = glm::length(offset);
-        if (distance > 2.4f) {
-            const float move = std::min(3.2f * dt, distance - 2.4f);
+        constexpr float kStopDistance = 2.2f, kCatchUpDistance = 45.0f;
+        if (distance > kCatchUpDistance) {
+            const glm::vec2 behind = glm::vec2(playerPosition.x, playerPosition.z) - (distance > 0.01f ? offset / distance : glm::vec2(0.0f, 1.0f)) * 3.0f;
+            if (m_City.IsWalkable(behind.x, behind.y) && !IsBlocked({behind.x, 0.0f, behind.y}, 0.3f)) m_DogPosition = {behind.x, 0.0f, behind.y};
+        } else if (distance > kStopDistance) {
+            dogTargetSpeed = distance > 12.0f ? 6.0f : distance > 5.0f ? 3.6f : 1.6f + (distance - kStopDistance) * 0.7f;
             const glm::vec2 direction = offset / distance;
+            const float move = std::min(m_DogSpeed * dt, distance - kStopDistance);
             const glm::vec3 nextPosition = m_DogPosition + glm::vec3(direction.x * move, 0.0f, direction.y * move);
-            if (m_City.IsWalkable(nextPosition.x, nextPosition.z)) m_DogPosition = nextPosition;
+            if (m_City.IsWalkable(nextPosition.x, nextPosition.z) && !IsBlocked(nextPosition, 0.25f)) m_DogPosition = nextPosition;
+            else dogTargetSpeed = 0.0f;
             m_DogYaw = std::atan2(direction.x, direction.y);
         } else {
             m_DogYaw = std::atan2(offset.x, offset.y);
         }
+    }
+    m_DogSpeed += (dogTargetSpeed - m_DogSpeed) * (1.0f - std::exp(-6.0f * dt));
+    if (dogTargetSpeed == 0.0f && m_DogSpeed < 0.05f) m_DogSpeed = 0.0f;
+    m_DogStill = m_DogSpeed < 0.1f ? m_DogStill + dt : 0.0f;
+    m_DogHappy = std::max(0.0f, m_DogHappy - dt / 6.0f);
+    if (m_DogHop >= 0.0f) { m_DogHop += dt * 2.4f; if (m_DogHop > 1.0f) m_DogHop = -1.0f; }
+    {   // posturas: sentado tras 2,5 s quieto, echado tras 14 s; olfatea de vez en cuando
+        const bool resting = m_DogStill > 14.0f;
+        const bool sitting = !resting && m_DogStill > 2.5f;
+        const auto approach = [&](float current, float target, float rate) { return current + (target - current) * (1.0f - std::exp(-rate * dt)); };
+        m_DogLie = approach(m_DogLie, resting ? 1.0f : 0.0f, 3.0f);
+        m_DogSit = approach(m_DogSit, sitting ? 1.0f : 0.0f, 4.0f);
+        m_DogSniff = approach(m_DogSniff, (m_DogSpeed < 0.3f && std::sin(m_DogTime * 0.7f) > 0.6f) ? 1.0f : 0.0f, 3.0f) * (1.0f - m_DogLie);
+    }
+    {   // marcha: la fase avanza con la velocidad para que las patas apoyadas no resbalen (zancada segun el paso, trote o galope)
+        const float swing = m_DogSpeed < 2.4f ? 0.32f : m_DogSpeed < 5.2f ? 0.45f : 0.62f;
+        m_DogPhase = std::fmod(m_DogPhase + (m_DogSpeed / (0.4f * swing)) * dt / 6.2831853f, 1.0f);
     }
     UpdatePedestrians(dt, playerPosition);
     UpdatePigeons(dt, playerPosition);
     UpdateRats(dt, playerPosition);
     UpdatePoop(dt);
     UpdateTraffic(dt);
+    UpdateDrivers(dt, playerPosition);
     UpdateBus(dt);
     for (size_t index = 0; index < m_ParkedCarCooldowns.size(); ++index) {
         m_ParkedCarCooldowns[index] = std::max(0.0f, m_ParkedCarCooldowns[index] - dt);
@@ -1275,6 +1834,66 @@ void Simulation::Update(float dt, const glm::vec3& playerPosition) {
     }
     m_Elapsed += dt;
     UpdatePickups(dt, playerPosition);
+}
+
+// Pose del perro (port de Dog._animate del juego web): gira los huesos de perro.glb segun la marcha y las posturas
+std::vector<Model::BoneTurn> Simulation::BuildDogPose() const {
+    std::vector<Model::BoneTurn> turns;
+    const auto turn = [&](const char* name, float x = 0.0f, float y = 0.0f, float z = 0.0f) {
+        turns.push_back({name, {x, y, z}, {0.0f, 0.0f, 0.0f}});
+    };
+    const float speed = m_DogSpeed;
+    struct Gait { float speed; std::array<float, 4> offsets; float swing; };
+    static const std::array<Gait, 3> gaits{{{0.0f, {0.25f, 0.75f, 0.0f, 0.5f}, 0.32f}, {2.4f, {0.0f, 0.5f, 0.5f, 0.0f}, 0.45f}, {5.2f, {0.0f, 0.12f, 0.55f, 0.67f}, 0.62f}}};
+    size_t gaitIndex = 0;
+    while (gaitIndex < gaits.size() - 2 && speed > gaits[gaitIndex + 1].speed) ++gaitIndex;
+    const Gait& a = gaits[gaitIndex];
+    const Gait& b = gaits[gaitIndex + 1];
+    const float blendT = AtmosphereSmoothstep(a.speed + (b.speed - a.speed) * 0.6f, b.speed, speed);
+    std::array<float, 4> offsets{};
+    for (size_t k = 0; k < 4; ++k) offsets[k] = glm::mix(a.offsets[k], b.offsets[k], blendT);
+    const float swingAmount = glm::mix(a.swing, b.swing, blendT);
+    const float move = std::clamp(speed / 0.4f, 0.0f, 1.0f) * (1.0f - m_DogLie) * (1.0f - m_DogSit);
+    const float sit = m_DogSit, lie = m_DogLie;
+    const float tau = 6.2831853f;
+    struct Leg { const char* upper; const char* lower; const char* foot; char side; bool front; };
+    static const std::array<Leg, 4> legs{{{"brazo", "antebrazo", "mano", 'L', true}, {"brazo", "antebrazo", "mano", 'R', true},
+                                         {"muslo", "pierna", "pie", 'L', false}, {"muslo", "pierna", "pie", 'R', false}}};
+    for (size_t i = 0; i < legs.size(); ++i) {
+        const Leg& leg = legs[i];
+        const float t = (m_DogPhase + offsets[i]) * tau;
+        const float swing = std::sin(t) * swingAmount * move;
+        const float lift = std::max(0.0f, -std::cos(t)) * move;
+        const std::string upper = std::string(leg.upper) + "_" + leg.side, lower = std::string(leg.lower) + "_" + leg.side, foot = std::string(leg.foot) + "_" + leg.side;
+        if (leg.front) {
+            turn(upper.c_str(), swing + sit * 0.55f - lie * 1.25f);
+            turn(lower.c_str(), lift * 0.9f - sit * 0.15f + lie * 0.15f);
+            turn(foot.c_str(), lift * 0.5f + lie * 0.9f);
+        } else {
+            turn(upper.c_str(), swing - sit * 0.75f - lie * 1.1f);
+            turn(lower.c_str(), -lift * 0.7f + sit * 1.9f + lie * 2.1f);
+            turn(foot.c_str(), lift * 0.6f - sit * 1.2f - lie * 1.1f);
+        }
+    }
+    const float gallop = AtmosphereSmoothstep(4.4f, 6.0f, speed);
+    const float bounce = std::abs(std::sin(m_DogPhase * tau)) * move;
+    const float hop = m_DogHop >= 0.0f ? std::sin(m_DogHop * 3.14159265f) * 0.16f : 0.0f;
+    const float breath = std::sin(m_DogTime * 3.2f) * 0.006f;
+    turns.push_back({"raiz", {0.0f, 0.0f, 0.0f}, {0.0f, -0.012f * bounce - sit * 0.3f - lie * 0.29f + hop, -sit * 0.04f}});
+    turn("pelvis", -sit * 0.55f + std::sin(m_DogPhase * tau) * 0.09f * gallop);
+    turn("pecho", breath * 4.0f - std::sin(m_DogPhase * tau) * 0.08f * gallop);
+    const float nod = std::sin(m_DogPhase * tau * 2.0f) * 0.05f * move;
+    turn("cuello", sit * 0.5f + m_DogSniff * 0.75f + lie * 0.2f + nod, 0.0f);
+    turn("cabeza", m_DogSniff * 0.35f, 0.0f, std::sin(m_DogTime * 1.3f) * 0.06f * (1.0f - move) * (1.0f - lie));
+    const float flop = std::sin(m_DogPhase * tau * 2.0f + 0.8f) * 0.25f * move;
+    turn("oreja_L", flop, 0.0f, -flop * 0.3f);
+    turn("oreja_R", flop, 0.0f, flop * 0.3f);
+    const float mood = m_DogIsFriend ? 0.45f + m_DogHappy * 0.55f : 0.2f;
+    const float rate = m_DogIsFriend ? 9.0f + m_DogHappy * 9.0f : 4.0f;
+    turn("cola_1", -0.25f * (1.0f - lie) + lie * 0.35f, std::sin(m_DogTime * rate) * mood * 0.6f * (1.0f - lie * 0.8f) + lie * 0.35f);
+    turn("cola_2", 0.15f * lie, std::sin(m_DogTime * rate - 0.6f) * mood * 0.7f * (1.0f - lie * 0.8f) + lie * 0.35f);
+    turn("cola_3", 0.0f, std::sin(m_DogTime * rate - 1.2f) * mood * 0.8f * (1.0f - lie * 0.8f) + lie * 0.3f);
+    return turns;
 }
 
 void Simulation::BuildBirdSpots() {
@@ -1612,10 +2231,358 @@ std::vector<PickupItem> Simulation::CollectPickups(const glm::vec3& position, fl
     return collected;
 }
 
+std::vector<Simulation::PedestrianBubble> Simulation::GetPedestrianBubbles(const glm::vec3& focus) const {
+    std::vector<PedestrianBubble> bubbles;
+    for (const Pedestrian& pedestrian : m_Pedestrians) {
+        if (pedestrian.dead || pedestrian.bubbleRemaining <= 0.0f || pedestrian.bubbleText.empty()) continue;
+        if (glm::distance(glm::vec2(pedestrian.position.x, pedestrian.position.z), glm::vec2(focus.x, focus.z)) > 14.0f) continue;
+        const float lying = pedestrian.reaction == 4 && pedestrian.reactionTime > 0.6f && pedestrian.reactionTime < 1.9f ? -1.1f : 0.0f;
+        bubbles.push_back({pedestrian.position + glm::vec3(0.0f, 2.05f * pedestrian.scale + lying, 0.0f), pedestrian.bubbleText,
+                           std::clamp(pedestrian.bubbleRemaining / 0.5f, 0.0f, 1.0f)});
+    }
+    return bubbles;
+}
+
+bool Simulation::HitPedestrian(const glm::vec3& from, const glm::vec2& forward, float reach, int kind) {
+    const glm::vec2 origin(from.x, from.z);
+    const glm::vec2 direction = glm::length(forward) > 0.001f ? glm::normalize(forward) : glm::vec2(0.0f, 1.0f);
+    Pedestrian* target = nullptr;
+    float best = reach;
+    for (auto& pedestrian : m_Pedestrians) {
+        if (pedestrian.reaction > 0) continue;
+        const glm::vec2 offset = glm::vec2(pedestrian.position.x, pedestrian.position.z) - origin;
+        const float distance = glm::length(offset);
+        // delante del jugador: dentro de un cono de unos 70 grados
+        if (distance > best || (distance > 0.05f && glm::dot(offset / distance, direction) < 0.55f)) continue;
+        best = distance;
+        target = &pedestrian;
+    }
+    if (!target) return false;
+    target->bubbleText = kPunchedPhrases[static_cast<size_t>(m_Unit(m_Random) * 4.99f)];
+    target->bubbleRemaining = 4.0f;
+    target->health -= kind >= 3 ? 22.0f : kind == 2 ? 14.0f : 10.0f;   // patada, cruzado o navaja, jab
+    if (target->health <= 0.0f) {
+        // muere: cae, queda tendido en un charco de sangre y no se levanta
+        target->dead = true;
+        target->robberyCooldown = 1.0e9f;
+        target->bubbleRemaining = 0.0f;
+        kind = 3;
+    }
+    target->reaction = kind >= 3 ? 4 : std::max(1, kind);
+    target->reactionTime = 0.0f;
+    target->punchTime = -1.0f;
+    target->aggressive = false;
+    target->yaw = std::atan2(-direction.x, -direction.y);   // mira hacia quien lo golpeo
+    const glm::vec3 pushed = target->position + glm::vec3(direction.x, 0.0f, direction.y) * (kind >= 3 ? 0.45f : 0.2f);
+    if (m_City.IsWalkable(pushed.x, pushed.z) && !m_City.IsBlocked(pushed.x, pushed.z, 0.18f)) target->position = pushed;
+    return true;
+}
+
+bool Simulation::ConsumePlayerHit(int& kind, glm::vec3& fromDirection) {
+    if (m_PlayerHits.empty()) return false;
+    kind = m_PlayerHits.front().kind;
+    fromDirection = m_PlayerHits.front().from;
+    m_PlayerHits.erase(m_PlayerHits.begin());
+    return true;
+}
+
+// Los carros comunes (circulando o estacionados) solo usan modelos cuya puerta del conductor es una pieza que se abre y cierra;
+// los taxis, ademas, uno que se pueda pintar de amarillo. Las ambulancias, patrullas y motos de policia conservan su modelo.
+void Simulation::AssignVehicleModel(TrafficVehicle& vehicle) {
+    if (vehicle.emergency != 0) return;
+    std::vector<int> available;
+    for (size_t variant = 0; variant < kCabinVariants; ++variant) {
+        const VehicleParts& parts = m_VehicleParts[5 + variant];
+        if (!parts.valid() || !parts.ownFit || !parts.door) continue;
+        if (vehicle.taxi && !parts.hasPaint) continue;
+        available.push_back(static_cast<int>(variant) + 1);
+    }
+    if (const char* forcedEnv = std::getenv("BAZUKO_FORCE_VARIANT")) {   // solo pruebas: todos usan ese modelo
+        const int forced = std::atoi(forcedEnv);
+        if (forced > 0 && forced <= static_cast<int>(kCabinVariants) && m_VehicleParts[4 + static_cast<size_t>(forced)].valid()) available = {forced};
+    }
+    if (available.empty()) return;
+    vehicle.variant = available[static_cast<size_t>(m_Unit(m_Random) * static_cast<float>(available.size())) % available.size()];
+    const VehicleParts& chosen = m_VehicleParts[4 + static_cast<size_t>(vehicle.variant)];
+    vehicle.length = chosen.length;
+    vehicle.width = std::max(1.7f, chosen.width);
+    if (chosen.wheelbase > 1.0f) vehicle.wheelbase = chosen.wheelbase;
+}
+
+void Simulation::VehiclePose(const TrafficVehicle& vehicle, glm::vec3& position, float& yaw) const {
+    position = vehicle.position;
+    yaw = vehicle.yaw;
+    if (vehicle.bike.ready) {
+        BicycleParams params;
+        params.wheelbase = std::max(1.2f, vehicle.wheelbase);
+        const glm::vec2 center = vehicle.bike.Center(params);
+        position = {center.x, vehicle.position.y, center.y};
+        yaw = vehicle.bike.Yaw();
+    }
+}
+
+glm::vec3 Simulation::VehicleLocalToWorld(const glm::vec3& position, float yaw, const glm::vec2& carFrame) const {
+    // marco del carro (frente +X, lado del conductor +Y) -> marco local del dibujo (frente +X, lado del conductor -Z) -> mundo
+    const float x = carFrame.x, z = -carFrame.y;
+    const float c = std::cos(yaw), s = std::sin(yaw);
+    return position + glm::vec3(x * c + z * s, 0.0f, -x * s + z * c);
+}
+
+DriverProfile Simulation::ProfileFor(const TrafficVehicle& vehicle) const {
+    DriverProfile profile;
+    profile.valid = true;
+    if (vehicle.emergency == 3) {
+        profile.seat = {-0.15f, 0.0f};
+        profile.stance = {-0.10f, 1.08f};
+        return profile;
+    }
+    if (vehicle.variant > 0) {
+        const VehicleParts& parts = m_VehicleParts[4 + static_cast<size_t>(vehicle.variant)];
+        if (parts.driver.valid) return parts.driver;
+    }
+    return profile;
+}
+
+bool Simulation::ProvokeDriver(size_t index) {
+    if (index >= m_Traffic.size() || m_PedestrianAppearances.empty()) return false;
+    TrafficVehicle& vehicle = m_Traffic[index];
+    DriverInfo& driver = vehicle.driver;
+    if (vehicle.bus || vehicle.parked || driver.state != DriverState::Seated || driver.cooldown > 0.0f) return false;
+    driver.cooldown = 25.0f;
+    if (m_Unit(m_Random) < 0.5f) {
+        driver.boost = 7.0f;   // acelera para huir
+    } else {
+        vehicle.holdStop = true;   // frena, se baja y va por el jugador
+        driver.state = DriverState::Braking;
+        driver.timer = 0.0f;
+    }
+    return true;
+}
+
+bool Simulation::HitVehicle(const glm::vec3& from, const glm::vec2& forward, float reach) {
+    const glm::vec2 direction = glm::length(forward) > 0.001f ? glm::normalize(forward) : glm::vec2(0.0f, 1.0f);
+    const glm::vec3 point = from + glm::vec3(direction.x, 0.0f, direction.y) * reach;
+    for (size_t index = 0; index < m_Traffic.size(); ++index) {
+        const TrafficVehicle& vehicle = m_Traffic[index];
+        if (vehicle.bus || vehicle.parked || std::abs(from.y - vehicle.position.y) > 2.0f) continue;
+        if (!PointInVehicleBox(point, vehicle.position, glm::vec2(vehicle.direction.x, vehicle.direction.z), vehicle.length * 0.5f, vehicle.width * 0.5f, 0.35f)) continue;
+        if (ProvokeDriver(index)) return true;
+    }
+    return false;
+}
+
+void Simulation::OnDriverDeath(size_t index) {
+    TrafficVehicle& vehicle = m_Traffic[index];
+    DriverInfo& driver = vehicle.driver;
+    vehicle.holdStop = true;   // el vehiculo se queda quieto en la carretera
+    if (driver.hasPassenger && vehicle.emergency != 3) {
+        // el acompanante se pasa al asiento del conductor y maneja: toma su identidad y su ropa
+        driver.appearance = driver.passengerAppearance;
+        driver.color = driver.passengerColor;
+        driver.shade = driver.passengerShade;
+        driver.hasPassenger = false;
+        driver.state = DriverState::Swapping;
+    } else {
+        driver.state = DriverState::Abandoned;
+    }
+    driver.timer = 0.0f;
+}
+
+void Simulation::RespawnAbandoned(TrafficVehicle& vehicle) {
+    if (m_TrafficRoutes.empty()) return;
+    const glm::vec2 player(m_LastPlayerPosition.x, m_LastPlayerPosition.z);
+    for (int attempt = 0; attempt < 40; ++attempt) {
+        const size_t routeIndex = static_cast<size_t>(m_Unit(m_Random) * static_cast<float>(m_TrafficRoutes.size())) % m_TrafficRoutes.size();
+        const std::vector<float>& cumulative = m_RouteCumulative[routeIndex];
+        const float length = GetCircuitLength(m_TrafficRoutes[routeIndex]);
+        const float distance = m_Unit(m_Random) * length;
+        glm::vec3 position, direction;
+        size_t waypoint = 0;
+        SampleCircuit(m_TrafficRoutes[routeIndex], cumulative, length, distance, position, direction, waypoint);
+        if (glm::distance(glm::vec2(position.x, position.z), player) < 70.0f) continue;
+        bool free = true;
+        for (const TrafficVehicle& other : m_Traffic) {
+            if (&other != &vehicle && glm::distance(other.position, position) < 9.0f) { free = false; break; }
+        }
+        if (!free) continue;
+        vehicle.route = m_TrafficRoutes[routeIndex];
+        vehicle.routeCumulative = cumulative;
+        vehicle.routeLength = length;
+        vehicle.routeIndex = routeIndex;
+        vehicle.connectorRoute = -1;
+        vehicle.distance = vehicle.nextDistance = distance;
+        vehicle.speed = vehicle.nextSpeed = 0.0f;
+        vehicle.position = vehicle.previousPosition = position;
+        vehicle.direction = direction;
+        vehicle.nextWaypoint = waypoint;
+        vehicle.yaw = std::atan2(-direction.z, direction.x);
+        vehicle.bike.ready = false;
+        vehicle.holdStop = false;
+        vehicle.stalledTime = 0.0f;
+        DriverInfo& driver = vehicle.driver;
+        driver = DriverInfo{};
+        driver.appearance = static_cast<size_t>(m_Unit(m_Random) * 1000.0f);
+        driver.color = {0.22f + m_Unit(m_Random) * 0.55f, 0.18f + m_Unit(m_Random) * 0.48f, 0.15f + m_Unit(m_Random) * 0.42f};
+        driver.shade = m_Unit(m_Random) * 2.0f;
+        if (vehicle.variant > 0 && vehicle.emergency == 0 && m_Unit(m_Random) < 0.35f) {
+            driver.hasPassenger = true;
+            driver.passengerAppearance = static_cast<size_t>(m_Unit(m_Random) * 1000.0f);
+            driver.passengerColor = {0.22f + m_Unit(m_Random) * 0.55f, 0.18f + m_Unit(m_Random) * 0.48f, 0.15f + m_Unit(m_Random) * 0.42f};
+            driver.passengerShade = m_Unit(m_Random) * 2.0f;
+        }
+        return;
+    }
+}
+
+void Simulation::UpdateDrivers(float dt, const glm::vec3& playerPosition) {
+    m_LastPlayerPosition = playerPosition;
+    {   // pruebas: BAZUKO_PROVOKE_AT=<s> provoca al conductor mas cercano (BAZUKO_PROVOKE_CAR=<indice> elige uno; BAZUKO_PROVOKE_MODE=flee|fight)
+        static float debugClock = 0.0f;
+        static bool debugDone = false;
+        debugClock += dt;
+        const char* at = std::getenv("BAZUKO_PROVOKE_AT");
+        if (at && !debugDone && debugClock >= static_cast<float>(std::atof(at))) {
+            debugDone = true;
+            size_t best = m_Traffic.size();
+            if (const char* car = std::getenv("BAZUKO_PROVOKE_CAR")) best = static_cast<size_t>(std::atoi(car));
+            else {
+                float bestDistance = 1.0e9f;
+                for (size_t i = 0; i < m_Traffic.size(); ++i) {
+                    const float d = glm::distance(glm::vec2(m_Traffic[i].position.x, m_Traffic[i].position.z), glm::vec2(playerPosition.x, playerPosition.z));
+                    if (!m_Traffic[i].bus && d < bestDistance) { bestDistance = d; best = i; }
+                }
+            }
+            if (best < m_Traffic.size()) {
+                LogInfo("PRUEBA conductor {} (emergencia {}) en ({:.1f}, {:.1f})", best, m_Traffic[best].emergency, m_Traffic[best].position.x, m_Traffic[best].position.z);
+                const char* mode = std::getenv("BAZUKO_PROVOKE_MODE");
+                if (mode && std::string(mode) == "flee") m_Traffic[best].driver.boost = 7.0f;
+                else { m_Traffic[best].holdStop = true; m_Traffic[best].driver.state = DriverState::Braking; m_Traffic[best].driver.timer = 0.0f; }
+            }
+        }
+    }
+    constexpr float kCarClip = 3.0f;    // CarEnter y CarExit: 72 fotogramas a 24 fps
+    for (size_t index = 0; index < m_Traffic.size(); ++index) {
+        TrafficVehicle& vehicle = m_Traffic[index];
+        DriverInfo& driver = vehicle.driver;
+        driver.cooldown = std::max(0.0f, driver.cooldown - dt);
+        if (vehicle.bus || vehicle.parked) continue;
+        const bool moto = vehicle.emergency == 3;
+        const float enterLength = moto ? 2.0f : 4.5f;           // BikeMount 48 f / CarEnter 108 f
+        const float exitLength = moto ? 2.5f : 5.75f;           // BikeDismount 60 f / CarExit 138 f
+        const float playerDistance = glm::distance(glm::vec2(vehicle.position.x, vehicle.position.z), glm::vec2(playerPosition.x, playerPosition.z));
+        glm::vec3 pose;
+        float yaw = 0.0f;
+        VehiclePose(vehicle, pose, yaw);
+        const DriverProfile profile = ProfileFor(vehicle);
+        const glm::vec3 stanceWorld = VehicleLocalToWorld(pose, yaw, profile.stance);
+        switch (driver.state) {
+            case DriverState::Seated:
+                break;
+            case DriverState::Braking:
+                driver.timer += dt;
+                if (vehicle.speed < 0.25f) { driver.state = DriverState::Exiting; driver.timer = 0.0f; }
+                else if (driver.timer > 8.0f) { vehicle.holdStop = false; driver.boost = 6.0f; driver.state = DriverState::Seated; }
+                break;
+            case DriverState::Exiting:
+                driver.timer += dt;
+                if (driver.timer >= exitLength) {
+                    // el conductor sale a la calle: es un peaton agresivo que va por el jugador
+                    Pedestrian pedestrian;
+                    pedestrian.position = stanceWorld;
+                    pedestrian.position.y = m_City.GetGroundHeight(stanceWorld.x, stanceWorld.z);
+                    pedestrian.target = pedestrian.position;
+                    pedestrian.yaw = moto ? yaw : yaw + glm::pi<float>();   // al terminar CarExit mira hacia la calle
+                    pedestrian.speed = 1.2f;
+                    pedestrian.scale = 1.0f;
+                    pedestrian.appearance = driver.appearance % m_PedestrianAppearances.size();
+                    pedestrian.color = driver.color;               // la misma ropa que llevaba al volante
+                    pedestrian.animationOffset = driver.shade;
+                    pedestrian.aggressive = true;
+                    pedestrian.aggressionRemaining = 18.0f;
+                    pedestrian.punchCooldown = 0.6f;
+                    pedestrian.vehicleIndex = static_cast<int>(index);
+                    size_t slot = m_Pedestrians.size();
+                    for (size_t i = 0; i < m_Pedestrians.size(); ++i) if (m_Pedestrians[i].departed) { slot = i; break; }
+                    if (slot == m_Pedestrians.size()) m_Pedestrians.push_back(pedestrian); else m_Pedestrians[slot] = pedestrian;
+                    driver.pedestrianIndex = slot;
+                    driver.state = DriverState::OnFoot;
+                    driver.timer = 0.0f;
+                }
+                break;
+            case DriverState::OnFoot: {
+                driver.timer += dt;
+                Pedestrian& pedestrian = m_Pedestrians[driver.pedestrianIndex];
+                if (const char* killAfter = std::getenv("BAZUKO_KILL_DRIVER_AFTER")) {   // solo pruebas: lo mata tras N segundos a pie
+                    if (driver.timer > static_cast<float>(std::atof(killAfter))) { pedestrian.health = 0.0f; pedestrian.dead = true; pedestrian.reaction = 4; pedestrian.reactionTime = 0.0f; }
+                }
+                if (pedestrian.dead) { OnDriverDeath(index); break; }
+                if (pedestrian.vehicleIndex != static_cast<int>(index)) { OnDriverDeath(index); break; }
+                const bool scared = pedestrian.fleeRemaining > 0.0f;
+                const bool fighting = pedestrian.aggressive || pedestrian.punchTime >= 0.0f || pedestrian.reaction > 0 || scared;
+                driver.idle = fighting ? 0.0f : driver.idle + dt;
+                if (playerDistance > 14.0f || driver.timer > 35.0f || scared || driver.idle > 1.5f) {
+                    pedestrian.aggressive = false;
+                    pedestrian.punchTime = -1.0f;
+                    pedestrian.fleeRemaining = 0.0f;
+                    pedestrian.returning = true;
+                    pedestrian.returnTarget = stanceWorld;
+                    driver.state = DriverState::Returning;
+                    driver.timer = 0.0f;
+                } else if (!pedestrian.aggressive && pedestrian.reaction == 0) {
+                    pedestrian.aggressive = true;
+                    pedestrian.aggressionRemaining = 18.0f;
+                }
+                break;
+            }
+            case DriverState::Returning: {
+                driver.timer += dt;
+                Pedestrian& pedestrian = m_Pedestrians[driver.pedestrianIndex];
+                pedestrian.returnTarget = stanceWorld;
+                const float toVehicle = glm::distance(glm::vec2(pedestrian.position.x, pedestrian.position.z), glm::vec2(stanceWorld.x, stanceWorld.z));
+                if (pedestrian.dead) { OnDriverDeath(index); break; }
+                // vuelve caminando: solo sube cuando llega; si tarda mucho y el jugador ya no lo ve, se sube sin teletransportarse a la vista
+                if (toVehicle < 0.5f || (driver.timer > 60.0f && playerDistance > 70.0f)) {
+                    pedestrian.departed = true;            // vuelve a subir: la animacion de entrada la dibuja el vehiculo
+                    pedestrian.returning = false;
+                    pedestrian.position = {0.0f, -1000.0f, 0.0f};
+                    driver.state = DriverState::Entering;
+                    driver.timer = 0.0f;
+                }
+                break;
+            }
+            case DriverState::Entering:
+                driver.timer += dt;
+                if (driver.timer >= enterLength) {
+                    driver.state = DriverState::Seated;
+                    driver.timer = 0.0f;
+                    vehicle.holdStop = false;
+                    driver.cooldown = 25.0f;
+                }
+                break;
+            case DriverState::Swapping:
+                driver.timer += dt;
+                vehicle.holdStop = true;
+                if (driver.timer >= 2.5f) {   // CarSwap: 60 fotogramas
+                    driver.state = DriverState::Seated;
+                    driver.timer = 0.0f;
+                    vehicle.holdStop = false;
+                    driver.cooldown = 25.0f;
+                }
+                break;
+            case DriverState::Abandoned:
+                vehicle.holdStop = true;      // queda quieto en la carretera hasta que el jugador no lo vea
+                driver.timer = playerDistance > 70.0f ? driver.timer + dt : 0.0f;
+                if (driver.timer > 4.0f) RespawnAbandoned(vehicle);
+                break;
+        }
+    }
+}
+
 void Simulation::UpdatePedestrians(float dt, const glm::vec3& playerPosition) {
     m_PedestrianSpawnTimer -= dt;
     const size_t populationLimit = IsNight() ? 9 : 22;
-    if (m_Pedestrians.size() < populationLimit && m_PedestrianSpawnTimer <= 0.0f) {
+    const size_t alivePedestrians = static_cast<size_t>(std::count_if(m_Pedestrians.begin(), m_Pedestrians.end(), [](const Pedestrian& p) { return !p.dead && !p.departed; }));
+    if (alivePedestrians < populationLimit && m_PedestrianSpawnTimer <= 0.0f) {
         glm::vec3 spawn(0.0f);
         bool foundSpawn = false;
         for (int attempt = 0; attempt < 60 && !foundSpawn; ++attempt) {
@@ -1630,6 +2597,7 @@ void Simulation::UpdatePedestrians(float dt, const glm::vec3& playerPosition) {
         }
         if (foundSpawn) {
             Pedestrian pedestrian;
+            spawn.y = m_City.GetGroundHeight(spawn.x, spawn.z);   // a pie de calle: el jugador puede estar sobre el viaducto
             pedestrian.position = spawn;
             glm::vec3 destination;
             if (FindSidewalkPoint(destination, spawn, 48.0f) && FindSidewalkPath(spawn, destination, pedestrian.route)) {
@@ -1642,8 +2610,21 @@ void Simulation::UpdatePedestrians(float dt, const glm::vec3& playerPosition) {
             pedestrian.scale = 0.94f + m_Unit(m_Random) * 0.16f;
             pedestrian.animationOffset = m_Unit(m_Random) * 2.0f;
             if (!m_PedestrianAppearances.empty()) {
-                std::uniform_int_distribution<size_t> appearanceDistribution(0, m_PedestrianAppearances.size() - 1);
-                pedestrian.appearance = appearanceDistribution(m_Random);
+                // en El Cartucho (ruinas y tierra a la vista) se ve gente de ropa gastada; en el resto, la gente comun
+                int ruinTiles = 0;
+                const int tileX = static_cast<int>((spawn.x + CityLayout::ORIGIN_X) / CityLayout::TILE_SIZE);
+                const int tileZ = static_cast<int>((spawn.z + CityLayout::ORIGIN_Z) / CityLayout::TILE_SIZE);
+                for (int dz = -4; dz <= 4; ++dz)
+                    for (int dx = -4; dx <= 4; ++dx) {
+                        const TileType near = m_City.GetTileAt(tileX + dx, tileZ + dz);
+                        if (near == TileType::Ruin || near == TileType::Dirt) ++ruinTiles;
+                    }
+                const bool cartucho = ruinTiles > 12;
+                std::vector<size_t> pool;
+                for (size_t index = 0; index < m_PedestrianAppearances.size(); ++index)
+                    if (m_PedestrianAppearances[index].worn == (cartucho && m_Unit(m_Random) < 0.75f)) pool.push_back(index);
+                if (pool.empty()) for (size_t index = 0; index < m_PedestrianAppearances.size(); ++index) pool.push_back(index);
+                pedestrian.appearance = pool[static_cast<size_t>(m_Unit(m_Random) * static_cast<float>(pool.size() - 1) + 0.5f)];
             }
             pedestrian.color = {0.22f + m_Unit(m_Random) * 0.55f, 0.18f + m_Unit(m_Random) * 0.48f, 0.15f + m_Unit(m_Random) * 0.42f};
             m_Pedestrians.push_back(pedestrian);
@@ -1651,20 +2632,132 @@ void Simulation::UpdatePedestrians(float dt, const glm::vec3& playerPosition) {
         m_PedestrianSpawnTimer = 0.6f;
     }
 
+    // Avanza `distance` metros en `direction`; si un vehiculo estorba, lo rodea girando el rumbo (hasta ~70 grados a cada lado).
+    // Quien ya esta dentro de la caja de un vehiculo (por ejemplo, porque este avanzo sobre el) puede salir de ella.
+    const auto moveAround = [&](Pedestrian& walker, const glm::vec3& direction, float distance, bool sidewalkOnly) {
+        const bool inside = IsBlocked(walker.position, 0.32f);
+        for (const float turn : {0.0f, 0.6f, -0.6f, 1.2f, -1.2f}) {
+            const float c = std::cos(turn), s = std::sin(turn);
+            const glm::vec3 heading(direction.x * c - direction.z * s, 0.0f, direction.x * s + direction.z * c);
+            const glm::vec3 next = walker.position + heading * distance;
+            const bool terrain = sidewalkOnly ? m_City.IsSidewalk(next.x, next.z) : m_City.IsWalkable(next.x, next.z);
+            if (!terrain || m_City.IsBlocked(next.x, next.z, 0.18f)) continue;
+            if (!inside && IsBlocked(next, 0.32f)) continue;
+            walker.position = next;
+            walker.yaw = std::atan2(heading.x, heading.z);
+            walker.moving = true;
+            return true;
+        }
+        return false;
+    };
     for (auto& pedestrian : m_Pedestrians) {
+        if (pedestrian.departed) continue;
+        pedestrian.position.y = m_City.GetGroundHeight(pedestrian.position.x, pedestrian.position.z);   // siempre pisan el suelo
         pedestrian.robberyCooldown = std::max(0.0f, pedestrian.robberyCooldown - dt);
         pedestrian.fleeRemaining = std::max(0.0f, pedestrian.fleeRemaining - dt);
         pedestrian.splatRemaining = std::max(0.0f, pedestrian.splatRemaining - dt);
+        pedestrian.punchCooldown = std::max(0.0f, pedestrian.punchCooldown - dt);
+        pedestrian.bubbleRemaining = std::max(0.0f, pedestrian.bubbleRemaining - dt);
+        pedestrian.bubbleCooldown = std::max(0.0f, pedestrian.bubbleCooldown - dt);
+        if (pedestrian.bubbleCooldown <= 0.0f && pedestrian.reaction == 0 && !pedestrian.aggressive
+            && glm::distance(glm::vec2(pedestrian.position.x, pedestrian.position.z), glm::vec2(playerPosition.x, playerPosition.z)) < 2.8f) {
+            // al pasar cerca del jugador saluda (una de cada dos veces); si esta sucio, se queja del olor
+            pedestrian.bubbleCooldown = 14.0f;
+            if (m_Unit(m_Random) < 0.5f) {
+                pedestrian.bubbleText = m_PlayerHygiene < 30.0f ? kDirtyPhrases[static_cast<size_t>(m_Unit(m_Random) * 3.99f)]
+                                                                : kGreetings[static_cast<size_t>(m_Unit(m_Random) * 7.99f)];
+                pedestrian.bubbleRemaining = 3.5f;
+            }
+        }
         pedestrian.moving = false;
         pedestrian.animationTime += dt;
+        if (pedestrian.dead) {
+            pedestrian.reactionTime = std::min(pedestrian.reactionTime + dt, 4.0f);   // tendido: se queda en el suelo
+            pedestrian.bubbleRemaining = 0.0f;
+            continue;
+        }
+        if (pedestrian.reaction > 0) {
+            // golpeado: se queda en su reaccion (la animacion marca la duracion); luego se enoja o huye
+            pedestrian.reactionTime += dt;
+            const float reactionLength = pedestrian.reaction == 1 ? 0.667f : pedestrian.reaction == 2 ? 0.75f : pedestrian.reaction == 3 ? 0.833f : 3.233f;
+            if (pedestrian.reactionTime >= reactionLength) {
+                pedestrian.reaction = 0;
+                pedestrian.reactionTime = 0.0f;
+                if (m_Unit(m_Random) < 0.5f) {
+                    pedestrian.aggressive = true;
+                    pedestrian.aggressionRemaining = 14.0f;
+                } else {
+                    pedestrian.fleeRemaining = 6.0f;
+                    glm::vec3 away = pedestrian.position - playerPosition;
+                    away.y = 0.0f;
+                    pedestrian.fleeDirection = glm::length(away) > 0.01f ? glm::normalize(away) : glm::vec3(1.0f, 0.0f, 0.0f);
+                }
+            }
+            continue;
+        }
+        if (pedestrian.vehicleIndex >= 0 && pedestrian.returning) {
+            // el conductor vuelve caminando a la puerta de su vehiculo
+            glm::vec3 toDoor = pedestrian.returnTarget - pedestrian.position;
+            toDoor.y = 0.0f;
+            const float doorDistance = glm::length(toDoor);
+            if (doorDistance > 0.3f) {
+                const glm::vec3 heading = toDoor / doorDistance;
+                if (!moveAround(pedestrian, heading, std::min(doorDistance, 2.2f * dt), false)) pedestrian.yaw = std::atan2(heading.x, heading.z);
+            }
+            continue;
+        }
+        if (pedestrian.aggressive) {
+            pedestrian.aggressionRemaining -= dt;
+            glm::vec3 toPlayer = playerPosition - pedestrian.position;
+            toPlayer.y = 0.0f;
+            const float playerDistance = glm::length(toPlayer);
+            const auto startFleeing = [&]() {
+                pedestrian.aggressive = false;
+                pedestrian.fleeAfterPunch = false;
+                pedestrian.punchTime = -1.0f;
+                pedestrian.fleeRemaining = 8.0f;
+                glm::vec3 away = pedestrian.position - playerPosition;
+                away.y = 0.0f;
+                pedestrian.fleeDirection = glm::length(away) > 0.01f ? glm::normalize(away) : glm::vec3(1.0f, 0.0f, 0.0f);
+                pedestrian.route.clear();
+                pedestrian.nextWaypoint = 0;
+            };
+            if (pedestrian.aggressionRemaining <= 0.0f || playerDistance > 30.0f) {
+                if (pedestrian.fleeAfterPunch) startFleeing();
+                else { pedestrian.aggressive = false; pedestrian.punchTime = -1.0f; }
+                continue;
+            }
+            const glm::vec3 toward = playerDistance > 0.01f ? toPlayer / playerDistance : glm::vec3(0.0f, 0.0f, 1.0f);
+            if (pedestrian.punchTime >= 0.0f) {
+                // lanza el puno: acierta hacia la mitad del movimiento si el jugador sigue al alcance
+                pedestrian.punchTime += dt;
+                pedestrian.yaw = std::atan2(toward.x, toward.z);
+                if (!pedestrian.punchLanded && pedestrian.punchTime >= (pedestrian.punchCross ? 0.30f : 0.22f)) {
+                    pedestrian.punchLanded = true;
+                    if (playerDistance < 1.6f) {
+                        const float roll = pedestrian.fleeAfterPunch ? 0.2f + 0.4f * m_Unit(m_Random) : m_Unit(m_Random);
+                        m_PlayerHits.push_back({roll < 0.4f ? 1 : roll < 0.8f ? 2 : 3, -toward});
+                    }
+                }
+                if (pedestrian.punchTime >= (pedestrian.punchCross ? 0.75f : 0.583f)) {
+                    pedestrian.punchTime = -1.0f;
+                    pedestrian.punchCooldown = 1.4f + m_Unit(m_Random) * 0.8f;
+                    if (pedestrian.fleeAfterPunch) startFleeing();
+                }
+            } else if (playerDistance > 1.1f) {
+                if (!moveAround(pedestrian, toward, (pedestrian.fleeAfterPunch ? 3.4f : 2.2f) * dt, false)) pedestrian.yaw = std::atan2(toward.x, toward.z);
+            } else if (pedestrian.punchCooldown <= 0.0f) {
+                pedestrian.punchTime = 0.0f;
+                pedestrian.punchLanded = false;
+                pedestrian.punchCross = !pedestrian.punchCross;
+            } else {
+                pedestrian.yaw = std::atan2(toward.x, toward.z);
+            }
+            continue;
+        }
         if (pedestrian.fleeRemaining > 0.0f) {
             const glm::vec3 direction = glm::normalize(pedestrian.fleeDirection);
-            const glm::vec3 next = pedestrian.position + direction * (pedestrian.speed * 2.4f * dt);
-            if (m_City.IsSidewalk(next.x, next.z) && !m_City.IsBlocked(next.x, next.z, 0.18f)) {
-                pedestrian.position = next;
-                pedestrian.yaw = std::atan2(direction.x, direction.z);
-                pedestrian.moving = true;
-            } else {
+            if (!moveAround(pedestrian, direction, pedestrian.speed * 2.4f * dt, true)) {
                 pedestrian.fleeDirection = {-pedestrian.fleeDirection.z, 0.0f, pedestrian.fleeDirection.x};
             }
             continue;
@@ -1691,7 +2784,7 @@ void Simulation::UpdatePedestrians(float dt, const glm::vec3& playerPosition) {
         }
         direction /= distance;
         const glm::vec3 next = pedestrian.position + direction * (pedestrian.speed * dt);
-        if (m_City.IsSidewalk(next.x, next.z) && !m_City.IsBlocked(next.x, next.z, 0.18f)) {
+        if (m_City.IsSidewalk(next.x, next.z) && !m_City.IsBlocked(next.x, next.z, 0.18f) && !IsBlocked(next, 0.2f)) {
             pedestrian.position = next;
             pedestrian.yaw = std::atan2(direction.x, direction.z);
             pedestrian.moving = true;
@@ -1705,7 +2798,8 @@ void Simulation::UpdatePedestrians(float dt, const glm::vec3& playerPosition) {
             } else pedestrian.target = pedestrian.position;
         }
     }
-    std::erase_if(m_Pedestrians, [&](const Pedestrian& pedestrian) { return glm::distance(pedestrian.position, playerPosition) > 96.0f; });
+    // los muertos se quedan donde cayeron mientras el jugador los tenga a la vista (los peatones se dibujan hasta 56 m)
+    std::erase_if(m_Pedestrians, [&](const Pedestrian& pedestrian) { return glm::distance(pedestrian.position, playerPosition) > (pedestrian.dead ? 62.0f : 96.0f); });
 }
 
 void Simulation::UpdateTraffic(float dt) {
@@ -1832,7 +2926,7 @@ void Simulation::UpdateTraffic(float dt) {
                     for (float busAhead = 0.0f; busAhead <= busLookAhead && !committedInBusLane; busAhead += probeStep) {
                         const float aheadZ = bus.position.z + bus.direction * busAhead;
                         committedInBusLane = OrientedBoxesOverlap({Viaduct::BusPathX(aheadZ, bus.laneX), bus.position.y, aheadZ},
-                                                                  bus.heading, 18.2f, 2.52f, vehicle.position, forward,
+                                                                  bus.heading, kBusLength, kBusWidth, vehicle.position, forward,
                                                                   vehicle.length, vehicle.width);
                     }
                     if (committedInBusLane) break;
@@ -1895,7 +2989,7 @@ void Simulation::UpdateTraffic(float dt) {
                 if (!committedInBusLane
                     && std::any_of(m_Buses.begin(), m_Buses.end(), [&](const BusState& bus) {
                         return !bus.Elevated() && OrientedBoxesOverlap(probePosition, probeForward, vehicle.length, vehicle.width,
-                                                                       bus.position, bus.heading, 18.2f, 2.52f);
+                                                                       bus.position, bus.heading, kBusLength, kBusWidth);
                     })) {
                     clearance = std::min(clearance, std::max(0.0f, ahead - probeStep));
                     break;
@@ -1928,7 +3022,18 @@ void Simulation::UpdateTraffic(float dt) {
                 if (stoppedForPedestrian) break;
             }
             vehicle.blockedForPerson = stoppedForPerson;
-            const float desiredSpeed = std::min(vehicle.cruiseSpeed, std::sqrt(2.0f * braking * clearance));
+            // esquina por delante: se baja la velocidad para tomarla con la aceleracion lateral que permite la direccion
+            float cornerLimit = std::numeric_limits<float>::max();
+            {
+                glm::vec3 nearPosition, nearDirection, farPosition, farDirection;
+                size_t cornerWaypoint = vehicle.nextWaypoint;
+                SampleCircuit(vehicle.route, vehicle.routeCumulative, routeLength, vehicle.distance + 0.5f, nearPosition, nearDirection, cornerWaypoint);
+                SampleCircuit(vehicle.route, vehicle.routeCumulative, routeLength, vehicle.distance + 7.0f, farPosition, farDirection, cornerWaypoint);
+                if (glm::dot(glm::vec2(nearDirection.x, nearDirection.z), glm::vec2(farDirection.x, farDirection.z)) < 0.94f) cornerLimit = 3.0f;
+            }
+            const bool fleeing = vehicle.driver.boost > 0.0f;
+            float desiredSpeed = std::min({vehicle.cruiseSpeed * (fleeing ? 2.4f : 1.0f), std::sqrt(2.0f * braking * clearance), fleeing ? 5.0f : cornerLimit});
+            if (vehicle.holdStop) desiredSpeed = 0.0f;
             const float rate = desiredSpeed < vehicle.speed ? braking : acceleration;
             const float speed = std::clamp(desiredSpeed, vehicle.speed - rate * stepTime, vehicle.speed + rate * stepTime);
             const float travel = std::min(std::max(0.0f, speed * stepTime), clearance);
@@ -1964,10 +3069,65 @@ void Simulation::UpdateTraffic(float dt) {
             }
         }
         for (auto& vehicle : m_Traffic) {
+            const float previousDistance = vehicle.distance;
             vehicle.distance = vehicle.nextDistance;
             vehicle.speed = vehicle.nextSpeed;
+            // Recorrido por todo el mapa: al llegar a una conexion el carro puede seguir derecho a la manzana contigua
+            if (vehicle.connectorRoute >= 0) {
+                if (vehicle.distance >= vehicle.connectorLength) {
+                    const size_t target = static_cast<size_t>(vehicle.connectorRoute);
+                    const float overshoot = vehicle.distance - vehicle.connectorLength;
+                    vehicle.route = m_TrafficRoutes[target];
+                    vehicle.routeCumulative = m_RouteCumulative[target];
+                    vehicle.routeLength = GetCircuitLength(vehicle.route);
+                    vehicle.routeIndex = target;
+                    vehicle.distance = vehicle.nextDistance = vehicle.connectorTargetDistance + overshoot;
+                    vehicle.connectorRoute = -1;
+                }
+            } else if (vehicle.routeIndex < m_RouteBranches.size() && vehicle.routeLength > 1.0f) {
+                const float length = vehicle.routeLength;
+                const float from = std::fmod(previousDistance, length), to = std::fmod(vehicle.distance, length);
+                for (const RouteBranch& branch : m_RouteBranches[vehicle.routeIndex]) {
+                    const bool crossed = from <= to ? (branch.distance > from && branch.distance <= to)
+                                                    : (branch.distance > from || branch.distance <= to);
+                    if (!crossed || m_Unit(m_Random) > 0.5f) continue;
+                    // solo se cambia de circuito si el punto de entrada esta libre (nadie llegando por detras ni pasando por delante)
+                    {
+                        const float targetLength = static_cast<float>(GetCircuitLength(m_TrafficRoutes[branch.target]));
+                        bool occupied = false;
+                        for (const auto& other : m_Traffic) {
+                            if (&other == &vehicle) continue;
+                            if (other.connectorRoute == static_cast<int>(branch.target)) { occupied = true; break; }
+                            if (other.routeIndex != branch.target) continue;
+                            const float relative = std::fmod(other.distance - branch.targetDistance + 2.0f * targetLength, targetLength);
+                            if (relative < 10.0f || relative > targetLength - 22.0f) { occupied = true; break; }
+                        }
+                        if (occupied) continue;
+                    }
+                    const float overshoot = std::fmod(vehicle.distance - branch.distance + length, length);
+                    if (branch.connectorLength <= 0.01f) {
+                        vehicle.route = m_TrafficRoutes[branch.target];
+                        vehicle.routeCumulative = m_RouteCumulative[branch.target];
+                        vehicle.routeLength = GetCircuitLength(vehicle.route);
+                        vehicle.routeIndex = branch.target;
+                        vehicle.distance = vehicle.nextDistance = branch.targetDistance + overshoot;
+                    } else {
+                        // tramo recto entre las dos manzanas: dos puntos y, al terminarlo, se pasa al circuito destino
+                        vehicle.route = {branch.from, branch.to};
+                        vehicle.routeCumulative = {0.0f, branch.connectorLength};
+                        vehicle.routeLength = branch.connectorLength * 2.0f;
+                        vehicle.routeIndex = 1000 + branch.target;   // mientras cruza no comparte "carro de adelante" con ningun circuito: se evalua por geometria
+                        vehicle.connectorRoute = static_cast<int>(branch.target);
+                        vehicle.connectorLength = branch.connectorLength;
+                        vehicle.connectorTargetDistance = branch.targetDistance;
+                        vehicle.distance = vehicle.nextDistance = overshoot;
+                    }
+                    break;
+                }
+            }
             vehicle.forcingRemaining = std::max(0.0f, vehicle.forcingRemaining - stepTime);
-            const bool legitimateStop = vehicle.waitingAtSignal || vehicle.blockedForPerson;
+            vehicle.driver.boost = std::max(0.0f, vehicle.driver.boost - stepTime);
+            const bool legitimateStop = vehicle.waitingAtSignal || vehicle.blockedForPerson || vehicle.holdStop;
             vehicle.stalledTime = (vehicle.speed < 0.1f && !legitimateStop) ? vehicle.stalledTime + stepTime : 0.0f;
             vehicle.wheelRotation -= vehicle.speed * stepTime / 0.33f;
             SampleCircuit(vehicle.route, vehicle.routeCumulative, vehicle.routeLength, vehicle.distance,
@@ -1975,6 +3135,7 @@ void Simulation::UpdateTraffic(float dt) {
             vehicle.horizontalLane = std::abs(vehicle.direction.x) > std::abs(vehicle.direction.z);
             vehicle.laneCoordinate = vehicle.horizontalLane ? vehicle.position.z : vehicle.position.x;
             vehicle.yaw = std::atan2(-vehicle.direction.z, vehicle.direction.x);
+            StepVehicleKinematics(vehicle, stepTime);
         }
         // Ultimo recurso: dos carros que llevan segundos detenidos y atravesados (el paso forzado los dejo uno dentro
         // del otro y ninguno puede avanzar) se separan: el que lleva mas tiempo parado avanza por su ruta.
@@ -2026,7 +3187,7 @@ void Simulation::UpdateBus(float dt) {
                 if (Viaduct::Height(probe.z) > Viaduct::kElevated && Viaduct::Height(bus.position.z) > Viaduct::kElevated) break;
                 bool blockedByVehicle = false;
                 const auto checkVehicle = [&](const TrafficVehicle& vehicle) {
-                    return OrientedBoxesOverlap(probe, bus.heading, 18.2f, 2.52f,
+                    return OrientedBoxesOverlap(probe, bus.heading, kBusLength, kBusWidth,
                                                 vehicle.position, {vehicle.direction.x, vehicle.direction.z},
                                                 vehicle.length, vehicle.width);
                 };
@@ -2048,15 +3209,15 @@ void Simulation::UpdateBus(float dt) {
                 }
             }
             const bool busOverStreet = Viaduct::Height(bus.position.z) > Viaduct::kElevated
-                && Viaduct::Height(bus.position.z + bus.direction * 9.1f) > Viaduct::kElevated;
+                && Viaduct::Height(bus.position.z + bus.direction * kBusHalfLength) > Viaduct::kElevated;
             const auto actorClearance = [&](const glm::vec3& actor) {
                 if (busOverStreet) return std::numeric_limits<float>::infinity();
                 const glm::vec2 fromBus(actor.x - bus.position.x, actor.z - bus.position.z);
                 const float sideways = fromBus.x * -bus.heading.y + fromBus.y * bus.heading.x;
-                if (std::abs(sideways) > 2.52f * 0.5f + 0.55f) return std::numeric_limits<float>::infinity();
+                if (std::abs(sideways) > kBusWidth * 0.5f + 0.55f) return std::numeric_limits<float>::infinity();
                 const float aheadOfBus = glm::dot(fromBus, bus.heading);   // >0: delante del bus
-                if (aheadOfBus < -(18.2f * 0.5f + 0.55f)) return std::numeric_limits<float>::infinity();
-                return std::max(0.0f, aheadOfBus - 18.2f * 0.5f - 0.8f);
+                if (aheadOfBus < -(kBusHalfLength + 0.55f)) return std::numeric_limits<float>::infinity();
+                return std::max(0.0f, aheadOfBus - kBusHalfLength - 0.8f);
             };
             for (const auto& pedestrian : m_Pedestrians) clearance = std::min(clearance, actorClearance(pedestrian.position));
             const float desiredSpeed = std::min(5.0f, std::sqrt(2.0f * braking * std::max(0.0f, clearance)));
@@ -2096,6 +3257,7 @@ bool Simulation::IsBlocked(const glm::vec3& position, float radius) const {
                                  vehicle.length * 0.5f, vehicle.width * 0.5f, radius);
     };
     if (!onDeck) {
+        if (HitsProp(position.x, position.z, radius)) return true;
         for (const auto& vehicle : m_Traffic) {
             if (collidesWithVehicle(vehicle)) return true;
         }
@@ -2105,7 +3267,7 @@ bool Simulation::IsBlocked(const glm::vec3& position, float radius) const {
     }
     for (const BusState& bus : m_Buses) {
         if (std::abs(position.y - bus.position.y) < 2.5f
-            && PointInVehicleBox(position, bus.position, bus.heading, 9.1f, 1.26f, radius)) {
+            && PointInVehicleBox(position, bus.position, bus.heading, kBusHalfLength, kBusWidth * 0.5f, radius)) {
             return true;
         }
     }
@@ -2135,12 +3297,12 @@ bool Simulation::GetVehicleImpact(const glm::vec3& position, float& speed, glm::
     for (const BusState& bus : m_Buses) {
         if (bus.speed < 1.5f || std::abs(position.y - bus.position.y) >= 2.5f) continue;
         bool frontContact = PointAtVehicleFront(position, bus.position, bus.heading,
-                                                9.1f, 1.26f, 0.4f);
+                                                kBusHalfLength, kBusWidth * 0.5f, 0.4f);
         for (int sample = 0; !frontContact && sample <= 8; ++sample) {
             const float fraction = static_cast<float>(sample) / 8.0f;
             const glm::vec3 sweptPosition = glm::mix(bus.previousPosition, bus.position, fraction);
             frontContact = PointAtVehicleFront(position, sweptPosition, bus.heading,
-                                               9.1f, 1.26f, 0.4f);
+                                               kBusHalfLength, kBusWidth * 0.5f, 0.4f);
         }
         if (frontContact) {
             speed = bus.speed;
@@ -2234,11 +3396,15 @@ void Simulation::Render(Renderer& renderer, float time, const glm::vec3& focusPo
             m_GrassModel->Draw(renderer, grass * m_GrassModelFit,
                                glm::vec4(0.35f, 0.58f, 0.25f, 1.0f));
     }
+    // el viento (Climate) mece los arboles: brisa suave siempre y mas amplitud con vientos fuertes
+    const float treeSway = m_ReducedWeather ? 0.0f : 0.04f + 0.22f * m_Wind;
     for (const auto& position : m_TreePositions) {
         if (glm::distance(glm::vec2(focusPosition.x, focusPosition.z),
                           glm::vec2(position.x, position.z)) > 60.0f) continue;
         if (m_TreeModel) {
+            renderer.SetSway(treeSway);
             m_TreeModel->Draw(renderer, glm::translate(glm::mat4(1.0f), position) * m_TreeModelFit);
+            renderer.SetSway(0.0f);
             continue;
         }
         renderer.Submit(*m_TreeTrunk, glm::translate(glm::mat4(1.0f), position + glm::vec3(0.0f, 0.8f, 0.0f)));
@@ -2285,46 +3451,99 @@ void Simulation::Render(Renderer& renderer, float time, const glm::vec3& focusPo
             bird = glm::rotate(bird, pigeon.pitch, {1.0f, 0.0f, 0.0f});
             bird = glm::rotate(bird, std::sin(time * pigeon.flapRate * 0.5f + pigeon.phase) * 0.12f, {0.0f, 0.0f, 1.0f});
         }
-        if (flying && m_BirdModels[pigeon.modelIndex]) {
+        if (m_BirdModels[pigeon.modelIndex] && m_BirdParts[pigeon.modelIndex][0]) {
             const glm::mat4 fit = bird * m_BirdModelFits[pigeon.modelIndex];
             const auto& parts = m_BirdParts[pigeon.modelIndex];
-            if (!parts[0]) {
-                m_BirdModels[pigeon.modelIndex]->Draw(renderer, fit);
-                continue;
+            // Articulaciones en el espacio del modelo (glTF: Y arriba, el frente hacia +Z, las alas sobre X), medidas en Blender
+            // al separar las piezas: hombro y codo de cada ala, cadera de cada pata y base del cuello.
+            struct Rig { glm::vec3 shoulder, elbow, hip, neck; float stride; float peck; };
+            static const Rig rigs[2] = {
+                {{0.045f, 0.0631f, 0.0f}, {0.105f, 0.0660f, 0.0f}, {0.015f, 0.018f, 0.007f}, {0.0f, 0.05f, 0.045f}, 0.50f, 0.9f},
+                {{0.10f, 0.1807f, 0.04f}, {0.38f, 0.1782f, 0.04f}, {0.045f, 0.0870f, 0.03f}, {0.0f, 0.1870f, 0.16f}, 0.45f, 0.8f}};
+            const Rig& rig = rigs[pigeon.modelIndex];
+            const auto pivot = [](const glm::mat4& base, const glm::vec3& at, const glm::mat4& motion) {
+                return base * glm::translate(glm::mat4(1.0f), at) * motion * glm::translate(glm::mat4(1.0f), -at);
+            };
+            // Cuanto estan plegadas las alas: posada, siempre; al despegar se abren y al aterrizar se recogen
+            const float elapsed = pigeon.flightDuration - pigeon.flightRemaining;
+            float fold = 1.0f;
+            if (flying) {
+                const float opening = 1.0f - glm::smoothstep(0.0f, 0.30f, elapsed);
+                const float closing = glm::smoothstep(pigeon.flightDuration - 0.40f, pigeon.flightDuration - 0.05f, elapsed);
+                fold = std::max(opening, closing);
             }
-            // Pivotes en el espacio del modelo (glTF, Y arriba, el frente hacia -Z; las alas se abren sobre X): hombro en el
-            // borde del cuerpo y muneca a media envergadura. Medidos en Blender al separar las piezas.
-            struct WingRig { float shoulderX, shoulderY, elbowX, elbowY; };
-            static const WingRig rigs[2] = {{0.045f, 0.0631f, 0.105f, 0.0660f}, {0.10f, 0.1807f, 0.38f, 0.1782f}};
-            const WingRig& rig = rigs[pigeon.modelIndex];
-            // Ciclo real de aleteo: la bajada es la fase de potencia y la subida recoge el ala doblando la muneca; la punta va
-            // retrasada respecto al hombro. Despegando y aterrizando bate con toda la amplitud; en crucero alterna rafagas de
-            // aleteo con planeo (alas extendidas con un leve diedro).
-            const float progress = pigeon.flightDuration > 0.001f ? 1.0f - pigeon.flightRemaining / pigeon.flightDuration : 0.0f;
-            const float cycle = time * pigeon.flapRate * 0.85f + pigeon.phase;
-            const float glideWave = std::sin(progress * 6.2831853f * (1.5f + std::fmod(pigeon.phase, 1.0f)) + pigeon.phase * 3.0f);
-            const bool cruising = pigeon.flightDuration > 2.2f && progress > 0.22f && progress < 0.78f;
-            const float glide = cruising ? glm::smoothstep(0.35f, 0.75f, glideWave) : 0.0f;
-            const float amplitude = glm::mix(1.0f, 0.12f, glide);
-            const float phaseSin = std::sin(cycle), phaseCos = std::cos(cycle);
-            const float shoulder = 0.62f * amplitude * phaseSin + 0.10f + 0.12f * glide;
-            const float wrist = (phaseCos > 0.0f ? -0.85f : -0.30f) * phaseCos * amplitude + 0.05f - 0.04f * glide;
-            const float bob = 0.012f * amplitude * (-phaseSin);   // el cuerpo sube con la bajada de las alas
-            const glm::mat4 body = fit * glm::translate(glm::mat4(1.0f), {0.0f, bob, 0.0f});
+            glm::mat4 body = fit;
+            float shoulderAngle = 0.0f, wristAngle = 0.0f;
+            float legSwing[2] = {0.0f, 0.0f}, legLift[2] = {0.0f, 0.0f};
+            float headYaw = 0.0f, headPitch = 0.0f, headThrust = 0.0f;
+            if (flying) {
+                // Ciclo real de aleteo: la bajada es la fase de potencia y la subida recoge el ala doblando la muneca; la punta
+                // va retrasada respecto al hombro. Despegando y aterrizando bate con toda la amplitud; en crucero alterna
+                // rachas de aleteo con planeo (alas extendidas con un leve diedro).
+                const float progress = pigeon.flightDuration > 0.001f ? elapsed / pigeon.flightDuration : 0.0f;
+                const float cycle = time * pigeon.flapRate * 0.85f + pigeon.phase;
+                const float glideWave = std::sin(progress * 6.2831853f * (1.5f + std::fmod(pigeon.phase, 1.0f)) + pigeon.phase * 3.0f);
+                const bool cruising = pigeon.flightDuration > 2.2f && progress > 0.22f && progress < 0.78f;
+                const float glide = cruising ? glm::smoothstep(0.35f, 0.75f, glideWave) : 0.0f;
+                const float amplitude = glm::mix(1.0f, 0.12f, glide);
+                const float phaseSin = std::sin(cycle), phaseCos = std::cos(cycle);
+                shoulderAngle = (0.62f * amplitude * phaseSin + 0.10f + 0.12f * glide) * (1.0f - fold);
+                wristAngle = ((phaseCos > 0.0f ? -0.85f : -0.30f) * phaseCos * amplitude + 0.05f - 0.04f * glide) * (1.0f - fold);
+                body = body * glm::translate(glm::mat4(1.0f), {0.0f, 0.012f * amplitude * (-phaseSin), 0.0f});
+                // patas recogidas hacia atras en vuelo y cuello estirado
+                legSwing[0] = legSwing[1] = 1.05f * (1.0f - fold);
+                headPitch = -0.08f;
+            } else {
+                // Posada: vigila girando la cabeza con pausas; en el suelo picotea y, al andar, avanza las patas alternadas
+                headYaw = pigeon.lookYaw;
+                headPitch = 0.12f * std::sin(pigeon.phase * 0.9f) + (pigeon.perch == BirdPerch::Ground ? 0.0f : 0.05f);
+                if (pigeon.peckTimer > 0.0f) {
+                    const float peckPhase = 1.0f - pigeon.peckTimer / 0.9f;
+                    headPitch += rig.peck * std::pow(std::abs(std::sin(6.2831853f * peckPhase)), 0.8f);
+                    headYaw *= 0.2f;
+                }
+                if (pigeon.walkSpeed > 0.05f) {
+                    for (int leg = 0; leg < 2; ++leg) {
+                        const float legPhase = pigeon.walkCycle + (leg == 0 ? 0.0f : 3.14159265f);
+                        legSwing[leg] = rig.stride * std::sin(legPhase);
+                        legLift[leg] = 0.012f * std::max(0.0f, std::cos(legPhase));
+                    }
+                    headThrust = 0.012f * std::sin(pigeon.walkCycle);   // cabeceo hacia delante y atras al caminar
+                    body = body * glm::translate(glm::mat4(1.0f), {0.0f, 0.004f * std::abs(std::sin(pigeon.walkCycle)), 0.0f});
+                }
+            }
             parts[0]->Draw(renderer, body);
+            // cabeza y cuello: giro de vigilancia, picoteo y cabeceo de marcha desde la base del cuello
+            parts[1]->Draw(renderer, pivot(body, rig.neck,
+                glm::translate(glm::mat4(1.0f), {0.0f, 0.0f, headThrust})
+                * glm::rotate(glm::mat4(1.0f), headYaw, {0.0f, 1.0f, 0.0f})
+                * glm::rotate(glm::mat4(1.0f), headPitch, {1.0f, 0.0f, 0.0f})));
             for (int sideIndex = 0; sideIndex < 2; ++sideIndex) {
                 const float side = sideIndex == 0 ? -1.0f : 1.0f;   // izquierda -X, derecha +X
-                const glm::vec3 shoulderPivot(side * rig.shoulderX, rig.shoulderY, 0.0f);
-                const glm::vec3 elbowPivot(side * rig.elbowX, rig.elbowY, 0.0f);
-                glm::mat4 inner = body * glm::translate(glm::mat4(1.0f), shoulderPivot)
-                    * glm::rotate(glm::mat4(1.0f), side * shoulder, {0.0f, 0.0f, 1.0f})
-                    * glm::translate(glm::mat4(1.0f), -shoulderPivot);
-                glm::mat4 outer = inner * glm::translate(glm::mat4(1.0f), elbowPivot)
-                    * glm::rotate(glm::mat4(1.0f), side * wrist, {0.0f, 0.0f, 1.0f})
-                    * glm::translate(glm::mat4(1.0f), -elbowPivot);
-                parts[1 + sideIndex * 2]->Draw(renderer, inner);
-                parts[2 + sideIndex * 2]->Draw(renderer, outer);
+                const glm::vec3 hip(side * rig.hip.x, rig.hip.y, rig.hip.z);
+                parts[2 + sideIndex]->Draw(renderer, pivot(body, hip,
+                    glm::translate(glm::mat4(1.0f), {0.0f, legLift[sideIndex], 0.0f})
+                    * glm::rotate(glm::mat4(1.0f), legSwing[sideIndex], {1.0f, 0.0f, 0.0f})));
+                const glm::vec3 shoulder(side * rig.shoulder.x, rig.shoulder.y, rig.shoulder.z);
+                const glm::vec3 elbow(side * rig.elbow.x, rig.elbow.y, rig.elbow.z);
+                // ala extendida y batiendo (rotacion sobre el eje del cuerpo) ...
+                const glm::mat4 flap = glm::rotate(glm::mat4(1.0f), side * shoulderAngle, {0.0f, 0.0f, 1.0f});
+                const glm::mat4 flapWrist = glm::rotate(glm::mat4(1.0f), side * wristAngle, {0.0f, 0.0f, 1.0f});
+                // ... o recogida: gira hacia atras sobre el hombro, se apoya de canto sobre el costado y se estrecha, y la parte
+                // exterior se dobla sobre la interior en el codo
+                const glm::mat4 folded = glm::rotate(glm::mat4(1.0f), side * 1.50f * fold, {0.0f, 1.0f, 0.0f})
+                    * glm::rotate(glm::mat4(1.0f), 1.35f * fold, {1.0f, 0.0f, 0.0f})
+                    * glm::scale(glm::mat4(1.0f), {1.0f, 1.0f, glm::mix(1.0f, 0.38f, fold)});
+                const glm::mat4 inner = pivot(body, shoulder, folded * flap);
+                const glm::mat4 outer = pivot(inner, elbow, glm::translate(glm::mat4(1.0f), {0.0f, 0.004f * fold, 0.0f})
+                    * glm::rotate(glm::mat4(1.0f), side * 3.05f * fold, {0.0f, 1.0f, 0.0f}) * flapWrist);
+                parts[4 + sideIndex * 2]->Draw(renderer, inner);
+                parts[5 + sideIndex * 2]->Draw(renderer, outer);
             }
+            continue;
+        }
+        if (flying && m_BirdModels[pigeon.modelIndex]) {
+            m_BirdModels[pigeon.modelIndex]->Draw(renderer, bird * m_BirdModelFits[pigeon.modelIndex]);
             continue;
         }
         if (!flying && pigeon.perch == BirdPerch::Ground) {
@@ -2414,14 +3633,26 @@ void Simulation::Render(Renderer& renderer, float time, const glm::vec3& focusPo
     if (glm::distance(glm::vec2(focusPosition.x, focusPosition.z),
                       glm::vec2(m_DogPosition.x, m_DogPosition.z)) < 70.0f) {
         const std::array<glm::vec4, 4> coats{{
-            {0.59f, 0.32f, 0.15f, 1.0f}, {0.36f, 0.20f, 0.12f, 1.0f},
-            {0.43f, 0.45f, 0.46f, 1.0f}, {0.13f, 0.12f, 0.12f, 1.0f}
+            {0.659f, 0.396f, 0.180f, 1.0f}, {0.361f, 0.227f, 0.133f, 1.0f},   // canela y chocolate
+            {0.490f, 0.471f, 0.447f, 1.0f}, {0.180f, 0.161f, 0.145f, 1.0f}    // gris y negro
         }};
         const glm::vec4 coat = coats[static_cast<size_t>(std::clamp(m_DogCoat, 0, 3))];
         glm::mat4 dog = glm::translate(glm::mat4(1.0f), m_DogPosition);
         dog = glm::rotate(dog, m_DogYaw, {0.0f, 1.0f, 0.0f});
         dog = glm::scale(dog, glm::vec3(m_DogSize));
-        if (m_PetModel) {
+        if (m_DogModel) {
+            const std::vector<Model::BoneTurn> pose = BuildDogPose();
+            m_DogModel->Draw(renderer, dog, glm::vec4(1.0f), 0.0f, false, 0, -1, false, coat, -1, 0.0f, &pose);
+            // accesorios: siguen al cuello y la cabeza en la pose actual (sentado, echado, olfateando)
+            const glm::mat4 neck = dog * m_DogModel->GetNodeWorld("cuello", 0.0f, false, 0, -1, 0.0f, &pose);
+            const glm::mat4 head = dog * m_DogModel->GetNodeWorld("cabeza", 0.0f, false, 0, -1, 0.0f, &pose);
+            if (m_DogAccessory == 1) renderer.Submit(*m_DogScarf, glm::translate(neck, {0.0f, 0.0f, 0.06f}));
+            else if (m_DogAccessory == 3) renderer.Submit(*m_DogBand, glm::translate(neck, {0.0f, 0.0f, 0.06f}));
+            else if (m_DogAccessory == 2) {
+                renderer.Submit(*m_DogCap, glm::translate(head, {0.0f, 0.13f, 0.02f}));
+                renderer.Submit(*m_DogVisor, glm::translate(head, {0.0f, 0.10f, 0.15f}));
+            }
+        } else if (m_PetModel) {
             m_PetModel->Draw(renderer, dog * m_PetModelFit, coat);
             const float bounce = m_DogIsFriend ? std::abs(std::sin(m_DogTime * 8.0f)) * 0.012f : 0.0f;
             if (m_DogAccessory == 1) renderer.Submit(*m_DogScarf, glm::translate(dog, {0.0f, 0.37f + bounce, 0.20f}));
@@ -2476,11 +3707,164 @@ void Simulation::Render(Renderer& renderer, float time, const glm::vec3& focusPo
         else renderer.Submit(*m_PickupMeshes[pickup.itemIndex % m_PickupMeshes.size()], model);
     }
     const auto drawCar = [&](const TrafficVehicle& vehicle) {
-        glm::mat4 model = glm::translate(glm::mat4(1.0f), vehicle.position);
-        model = glm::rotate(model, vehicle.yaw, {0.0f, 1.0f, 0.0f});
-        const std::shared_ptr<Model>& imported = vehicle.taxi ? m_TaxiModel : m_CarModel;
-        const glm::mat4& fit = vehicle.taxi ? m_TaxiModelFit : m_CarModelFit;
-        if (imported) {
+        // Pose visual: en las esquinas el carro no gira de golpe. Se promedia la ruta un poco antes y un poco despues (corta la
+        // esquina en una curva) y la direccion sale de esos dos puntos; las ruedas delanteras se orientan hacia donde va la ruta.
+        glm::vec3 visualPosition = vehicle.position;
+        float visualYaw = vehicle.yaw, steer = 0.0f;
+        if (!vehicle.parked && vehicle.bike.ready) {
+            // pose del modelo de bicicleta: el rumbo y la posicion salen de integrar la direccion; las delanteras viran con su angulo real
+            BicycleParams bikeParams;
+            bikeParams.wheelbase = std::max(1.2f, vehicle.wheelbase);
+            const glm::vec2 center = vehicle.bike.Center(bikeParams);
+            visualPosition = {center.x, vehicle.position.y, center.y};
+            visualYaw = vehicle.bike.Yaw();
+            steer = -vehicle.bike.steer;   // el angulo del modelo crece con el rumbo (antihorario); las llantas se giran con el yaw
+        } else if (!vehicle.parked && vehicle.routeLength > 1.0f && !vehicle.route.empty()) {
+            glm::vec3 behind, ahead, near, lookahead, directionTemp;
+            size_t waypoint = 0;
+            const float span = 1.9f, look = 3.2f;
+            SampleCircuit(vehicle.route, vehicle.routeCumulative, vehicle.routeLength, vehicle.distance - span, behind, directionTemp, waypoint);
+            SampleCircuit(vehicle.route, vehicle.routeCumulative, vehicle.routeLength, vehicle.distance + span, ahead, directionTemp, waypoint);
+            SampleCircuit(vehicle.route, vehicle.routeCumulative, vehicle.routeLength, vehicle.distance, near, directionTemp, waypoint);
+            SampleCircuit(vehicle.route, vehicle.routeCumulative, vehicle.routeLength, vehicle.distance + look, lookahead, directionTemp, waypoint);
+            const glm::vec3 chord = ahead - behind;
+            if (glm::dot(chord, chord) > 1.0e-4f) {
+                visualYaw = std::atan2(-chord.z, chord.x);
+                visualPosition = (behind + ahead) * 0.5f;
+                visualPosition.y = vehicle.position.y;
+                const glm::vec3 turn = lookahead - near;
+                if (glm::dot(turn, turn) > 1.0e-4f) {
+                    float difference = std::atan2(-turn.z, turn.x) - visualYaw;
+                    difference = std::remainder(difference, glm::two_pi<float>());
+                    steer = std::clamp(difference * 0.9f, -0.55f, 0.55f);
+                }
+            }
+        }
+        glm::mat4 model = glm::translate(glm::mat4(1.0f), visualPosition);
+        model = glm::rotate(model, visualYaw, {0.0f, 1.0f, 0.0f});
+        const size_t emergencySlot = vehicle.emergency > 0 ? static_cast<size_t>(vehicle.emergency - 1) : 0;
+        const std::shared_ptr<Model>& imported = vehicle.emergency > 0 ? m_EmergencyModels[emergencySlot] : vehicle.taxi ? m_TaxiModel : m_CarModel;
+        const glm::mat4& fit = vehicle.emergency > 0 ? m_EmergencyFits[emergencySlot] : vehicle.taxi ? m_TaxiModelFit : m_CarModelFit;
+        const size_t partsSlot = vehicle.emergency > 0 ? static_cast<size_t>(1 + vehicle.emergency) : vehicle.taxi ? 1 : 0;
+        const VehicleParts& parts = m_VehicleParts[partsSlot];
+        const VehicleParts& cabinParts = m_VehicleParts[vehicle.variant > 0 ? 4 + static_cast<size_t>(vehicle.variant) : 0];
+        if (vehicle.variant > 0 && vehicle.emergency == 0 && cabinParts.valid() && cabinParts.ownFit) {
+            // modelo con cabina: vidrio translucido y ocupantes sentados
+            const glm::mat4 carFit = model * cabinParts.fit;
+            // la pintura de cada carro es una de ocho (la misma que ya tenian los modelos anteriores); las texturas propias no se tiñen
+            static const std::array<glm::vec3, 8> bodyPaints{{
+                {1.00f, 1.00f, 1.00f}, {0.80f, 0.82f, 0.86f}, {0.32f, 0.34f, 0.40f}, {0.95f, 0.22f, 0.18f},
+                {0.28f, 0.45f, 1.00f}, {0.30f, 0.80f, 0.42f}, {1.00f, 0.60f, 0.20f}, {0.95f, 0.86f, 0.68f}}};
+            static const std::array<glm::vec3, 8> assignedPaints{{
+                {0.91f, 0.91f, 0.90f}, {0.73f, 0.75f, 0.77f}, {0.11f, 0.12f, 0.13f}, {0.48f, 0.08f, 0.08f},
+                {0.12f, 0.24f, 0.42f}, {0.30f, 0.35f, 0.23f}, {0.55f, 0.56f, 0.57f}, {0.82f, 0.79f, 0.70f}}};
+            size_t paintPick = 0;
+            float paintBest = 1.0e9f;
+            for (size_t index = 0; index < assignedPaints.size(); ++index) {
+                const float distance = glm::distance(assignedPaints[index], vehicle.color);
+                if (distance < paintBest) { paintBest = distance; paintPick = index; }
+            }
+            const glm::vec4 paintTint = vehicle.taxi ? glm::vec4(1.0f, 0.82f, 0.18f, 1.0f) : glm::vec4(bodyPaints[paintPick], 1.0f);
+            cabinParts.body->Draw(renderer, carFit, glm::vec4(1.0f), 0.0f, false, 0, -1, false, paintTint);
+            if (cabinParts.door) {
+                // la puerta se abre y cierra encadenada con la animacion del conductor (los mismos fotogramas que usan sus manos)
+                float doorAngle = 0.0f;
+                const float frame = vehicle.driver.timer * 24.0f;
+                constexpr float kOpen = 62.0f;   // misma apertura y fotogramas que car_clips.py (door_angle_enter / door_angle_exit)
+                if (vehicle.driver.state == DriverState::Entering) {
+                    doorAngle = frame < 12.0f ? 0.0f : frame < 22.0f ? 28.0f * (frame - 12.0f) / 10.0f
+                              : frame < 34.0f ? 28.0f + (kOpen - 28.0f) * (frame - 22.0f) / 12.0f : frame < 92.0f ? kOpen
+                              : frame < 108.0f ? kOpen * (1.0f - (frame - 92.0f) / 16.0f) : 0.0f;
+                } else if (vehicle.driver.state == DriverState::Exiting) {
+                    doorAngle = frame < 4.0f ? 0.0f : frame < 16.0f ? kOpen * (frame - 4.0f) / 12.0f : frame < 104.0f ? kOpen
+                              : frame < 109.0f ? kOpen - 12.0f * (frame - 104.0f) / 5.0f
+                              : frame < 130.0f ? (kOpen - 12.0f) * (1.0f - (frame - 109.0f) / 21.0f) : 0.0f;
+                }
+                glm::mat4 doorModel = glm::translate(carFit, cabinParts.doorHinge);
+                doorModel = glm::rotate(doorModel, -glm::radians(doorAngle), glm::vec3(0.0f, 1.0f, 0.0f));   // el borde trasero sale hacia el lado del conductor (+X del modelo)
+                doorModel = glm::translate(doorModel, -cabinParts.doorHinge);
+                cabinParts.door->Draw(renderer, doorModel, glm::vec4(1.0f), 0.0f, false, 0, -1, false, paintTint);
+            }
+            const float roll = -vehicle.wheelRotation * 0.33f / (cabinParts.wheels.front().radius * cabinParts.scale);
+            for (const VehicleParts::Wheel& wheel : cabinParts.wheels) {
+                glm::mat4 motion = glm::translate(glm::mat4(1.0f), wheel.center);
+                if (wheel.front) motion = glm::rotate(motion, steer, glm::vec3(0.0f, 1.0f, 0.0f));
+                motion = glm::rotate(motion, roll, cabinParts.rollAxis);
+                motion = glm::translate(motion, -wheel.center);
+                wheel.model->Draw(renderer, carFit * motion);
+            }
+            if (!vehicle.parked && !m_PedestrianAppearances.empty()
+                && glm::distance(glm::vec2(vehicle.position.x, vehicle.position.z), glm::vec2(focusPosition.x, focusPosition.z)) < 30.0f) {
+                const size_t carIndex = static_cast<size_t>(&vehicle - m_Traffic.data());
+                for (size_t seatIndex = 0; seatIndex < cabinParts.seats.size(); ++seatIndex) {
+                    const VehicleParts::Seat& seat = cabinParts.seats[seatIndex];
+                    const uint32_t hash = static_cast<uint32_t>((seatIndex + 1) * 2654435761u) ^ static_cast<uint32_t>((carIndex + 11) * 40503u);
+                    if (seat.driver) continue;                                                  // el conductor lo dibuja su animacion
+                    const bool frontPassenger = seatIndex == 1;
+                    if (vehicle.driver.state == DriverState::Abandoned || vehicle.driver.state == DriverState::Swapping) continue;   // se bajaron o ya manejan
+                    if (frontPassenger) { if (!vehicle.driver.hasPassenger) continue; }
+                    else if ((hash >> 11) % 100u >= 40u) continue;                            // pasajeros traseros: reparto fijo
+                    const size_t appearanceIndex = frontPassenger ? vehicle.driver.passengerAppearance % m_PedestrianAppearances.size() : (hash >> 5) % m_PedestrianAppearances.size();
+                    const PedestrianAppearance& appearance = m_PedestrianAppearances[appearanceIndex];
+                    const glm::vec3 clothes = frontPassenger ? vehicle.driver.passengerColor : glm::vec3(0.45f, 0.40f, 0.35f);
+                    const float shadeOffset = frontPassenger ? vehicle.driver.passengerShade : static_cast<float>(hash & 255u) * 0.0371f;
+                    glm::mat4 person = glm::translate(carFit, seat.position);
+                    person = glm::scale(person, glm::vec3(1.0f / cabinParts.scale));
+                    person = glm::rotate(person, seat.yaw, glm::vec3(0.0f, 1.0f, 0.0f));
+                    person = glm::scale(person, glm::vec3(0.95f));
+                    person = glm::translate(person, glm::vec3(0.0f, -0.93f, 0.0f));
+                    for (size_t partIndex = 0; partIndex < appearance.parts.size(); ++partIndex) {
+                        const auto& part = appearance.parts[partIndex];
+                        if (part) part->Draw(renderer, person, PedestrianPartTint(appearance, partIndex, clothes, shadeOffset), time + shadeOffset,
+                                             appearance.sitClip >= 0, appearance.sitClip, -1, true);
+                    }
+                }
+            }
+        } else if (imported && parts.valid()) {
+            // carroceria fija y ruedas articuladas: giran al rodar y las delanteras tambien viran
+            glm::mat4 bodyModel = model;
+            if (vehicle.emergency == 3) bodyModel = glm::rotate(bodyModel, -steer * std::min(1.0f, vehicle.speed / 3.0f) * 0.45f, {1.0f, 0.0f, 0.0f});   // la moto se inclina al girar
+            // los taxis son de color amarillo: el modelo es plateado y se tiñe
+            // Pintura: el modelo es plateado y se tiñe. Los taxis van de amarillo y los carros comunes toman uno de ocho colores segun
+            // su pintura (la misma para cada carro, parqueado o en circulacion); los vehiculos de emergencia conservan su textura.
+            glm::vec4 paint(1.0f);
+            if (vehicle.taxi) {
+                paint = {1.0f, 0.82f, 0.18f, 1.0f};
+            } else if (vehicle.emergency == 0) {
+                static const std::array<glm::vec3, 8> bodyColors{{
+                    {1.00f, 1.00f, 1.00f},   // blanco
+                    {0.80f, 0.82f, 0.86f},   // plata
+                    {0.32f, 0.34f, 0.40f},   // grafito
+                    {0.95f, 0.22f, 0.18f},   // rojo
+                    {0.28f, 0.45f, 1.00f},   // azul
+                    {0.30f, 0.80f, 0.42f},   // verde
+                    {1.00f, 0.60f, 0.20f},   // naranja
+                    {0.95f, 0.86f, 0.68f}}}; // arena
+                // la pintura asignada al carro (una de ocho) elige su color: se busca la mas cercana de la lista original
+                static const std::array<glm::vec3, 8> assigned{{
+                    {0.91f, 0.91f, 0.90f}, {0.73f, 0.75f, 0.77f}, {0.11f, 0.12f, 0.13f}, {0.48f, 0.08f, 0.08f},
+                    {0.12f, 0.24f, 0.42f}, {0.30f, 0.35f, 0.23f}, {0.55f, 0.56f, 0.57f}, {0.82f, 0.79f, 0.70f}}};
+                size_t pick = 0;
+                float best = 1.0e9f;
+                for (size_t index = 0; index < assigned.size(); ++index) {
+                    const float distance = glm::distance(assigned[index], vehicle.color);
+                    if (distance < best) { best = distance; pick = index; }
+                }
+                static const std::array<size_t, 8> colorOf{{0, 1, 2, 3, 4, 5, 6, 7}};
+                pick = colorOf[pick];
+                paint = glm::vec4(bodyColors[pick], 1.0f);
+            }
+            parts.body->Draw(renderer, bodyModel * fit, paint);
+            const float scale = glm::length(glm::vec3(fit * glm::vec4(parts.forward, 0.0f)));
+            const float roll = scale > 1.0e-4f ? -vehicle.wheelRotation * 0.33f / (parts.wheels.front().radius * scale) : 0.0f;
+            for (const VehicleParts::Wheel& wheel : parts.wheels) {
+                glm::mat4 motion = glm::translate(glm::mat4(1.0f), wheel.center);
+                if (wheel.front) motion = glm::rotate(motion, steer, glm::vec3(0.0f, 1.0f, 0.0f));
+                motion = glm::rotate(motion, roll, parts.rollAxis);
+                motion = glm::translate(motion, -wheel.center);
+                wheel.model->Draw(renderer, bodyModel * fit * motion);
+            }
+        } else if (imported) {
             imported->Draw(renderer, model * fit);
         } else {
             glm::mat4 body = glm::translate(model, {0.0f, 0.62f, 0.0f});
@@ -2506,11 +3890,69 @@ void Simulation::Render(Renderer& renderer, float time, const glm::vec3& focusPo
                 renderer.Submit(*m_CarLamp, lamp);
             }
         }
-        if (vehicle.mirrorsAvailable) {
+        if (vehicle.mirrorsAvailable && vehicle.emergency == 0) {
             for (float side : {-1.0f, 1.0f}) {
                 renderer.Submit(*m_CarMirrorMesh, glm::translate(model, {0.82f, 1.02f, side * 0.98f}));
                 glm::mat4 glass = glm::translate(model, {0.75f, 1.02f, side * 0.98f});
                 renderer.Submit(*m_CarMirrorGlass, glass);
+            }
+        }
+        // Conductor o motociclista: sentado manejando, o con la animacion de bajarse y subirse ajustada a este vehiculo
+        if (!vehicle.parked && !m_PedestrianAppearances.empty() && vehicle.driver.state != DriverState::OnFoot
+            && vehicle.driver.state != DriverState::Returning && vehicle.driver.state != DriverState::Abandoned
+            && glm::distance(glm::vec2(vehicle.position.x, vehicle.position.z), glm::vec2(focusPosition.x, focusPosition.z)) < 40.0f) {
+            const PedestrianAppearance& appearance = m_PedestrianAppearances[vehicle.driver.appearance % m_PedestrianAppearances.size()];
+            const bool moto = vehicle.emergency == 3;
+            const DriverProfile profile = ProfileFor(vehicle);
+            const std::string suffix = profile.suffix.empty() ? std::string() : "_" + profile.suffix;
+            std::string clipName;
+            float clipTime = 0.0f;
+            glm::vec2 anchor = profile.seat;
+            float anchorYaw = glm::half_pi<float>();       // sentado mira al frente del vehiculo
+            switch (vehicle.driver.state) {
+                case DriverState::Exiting:
+                    clipName = (moto ? "BikeDismount" : "CarExit") + suffix;
+                    clipTime = vehicle.driver.timer; anchor = profile.stance; anchorYaw = 0.0f;
+                    break;
+                case DriverState::Swapping:
+                    clipName = "CarSwap" + suffix;
+                    clipTime = vehicle.driver.timer;
+                    break;
+                case DriverState::Entering:
+                    clipName = (moto ? "BikeMount" : "CarEnter") + suffix;
+                    clipTime = vehicle.driver.timer; anchor = profile.stance; anchorYaw = 0.0f;
+                    break;
+                default:
+                    clipName = (moto ? "BikeRide" : "CarDrive") + suffix;
+                    clipTime = time + static_cast<float>(vehicle.driver.appearance % 97) * 0.13f;
+                    break;
+            }
+            glm::mat4 person = model * glm::translate(glm::mat4(1.0f), glm::vec3(anchor.x, 0.0f, -anchor.y));
+            person = glm::rotate(person, anchorYaw, glm::vec3(0.0f, 1.0f, 0.0f));
+            // la cabeza no puede sobresalir del techo: si el techo es bajo, el ocupante se hunde un poco en el asiento y se encoge lo justo
+            if (!moto && profile.roofZ > 0.0f && profile.hipsZ > 0.0f) {
+                constexpr float kHeadAboveHips = 0.75f, kHeadroom = 0.06f, kMaxSink = 0.05f;
+                const float need = profile.hipsZ + kHeadAboveHips - (profile.roofZ - kHeadroom);
+                if (need > 0.0f) {
+                    const float sink = std::min(need, kMaxSink);
+                    const float fit = std::clamp(1.0f - (need - sink) / kHeadAboveHips, 0.82f, 1.0f);
+                    float weight = 1.0f;   // al bajar o subir se recupera el tamano normal para no dar un salto
+                    if (vehicle.driver.state == DriverState::Exiting) weight = 1.0f - glm::smoothstep(0.0f, 1.2f, vehicle.driver.timer);
+                    else if (vehicle.driver.state == DriverState::Entering) weight = glm::smoothstep(3.2f, 4.4f, vehicle.driver.timer);
+                    const float s = 1.0f + (fit - 1.0f) * weight;
+                    person = glm::translate(person, glm::vec3(0.0f, -sink * weight, 0.0f));
+                    person = glm::translate(person, glm::vec3(0.0f, profile.hipsZ, 0.0f));
+                    person = glm::scale(person, glm::vec3(s));
+                    person = glm::translate(person, glm::vec3(0.0f, -profile.hipsZ, 0.0f));
+                }
+            }
+            for (size_t partIndex = 0; partIndex < appearance.parts.size(); ++partIndex) {
+                const auto& part = appearance.parts[partIndex];
+                if (!part) continue;
+                int clip = part->FindAnimationClip(clipName);
+                if (clip < 0 && !suffix.empty()) clip = part->FindAnimationClip(clipName.substr(0, clipName.size() - suffix.size()));   // sin perfil propio: clip de referencia
+                if (clip < 0) continue;
+                part->Draw(renderer, person, PedestrianPartTint(appearance, partIndex, vehicle.driver.color, vehicle.driver.shade), clipTime, true, clip, -1, false);
             }
         }
     };
@@ -2527,7 +3969,9 @@ void Simulation::Render(Renderer& renderer, float time, const glm::vec3& focusPo
         busRoot = glm::rotate(busRoot, std::atan2(-bus.heading.x, -bus.heading.y), glm::vec3(0.0f, 1.0f, 0.0f));
         // el frente (-Z local) sube cuando la cota crece en el sentido de la marcha
         busRoot = glm::rotate(busRoot, std::atan(bus.direction * Viaduct::Slope(bus.position.z)), glm::vec3(1.0f, 0.0f, 0.0f));
-        if (m_BusModel) {
+        if (m_ArticulatedBus.valid()) {
+            DrawArticulatedBus(renderer, bus, static_cast<size_t>(&bus - m_Buses.data()), busOpacity, time, focusPosition);
+        } else if (m_BusModel) {
             m_BusModel->Draw(renderer, busRoot * m_BusModelFit,
                              glm::vec4(1.0f, 1.0f, 1.0f, busOpacity), 0.0f, false, 0,
                              busOpacity < 1.0f ? 2 : 0);
@@ -2633,16 +4077,43 @@ void Simulation::Render(Renderer& renderer, float time, const glm::vec3& focusPo
         character = glm::scale(character, glm::vec3(pedestrian.scale));
         if (pedestrian.appearance >= m_PedestrianAppearances.size()) continue;
         const auto& appearance = m_PedestrianAppearances[pedestrian.appearance];
-        const int clip = pedestrian.moving ? appearance.walkClip : appearance.idleClip;
+        // los peatones asustados corren y los que esperan alternan dos reposos (mas natural)
+        const bool relaxedIdle = appearance.relaxedClip >= 0 && std::fmod(pedestrian.animationOffset * 7.31f, 1.0f) < 0.5f;
+        int clip = pedestrian.moving ? (pedestrian.fleeRemaining > 0.0f && appearance.runClip >= 0 ? appearance.runClip : appearance.walkClip)
+                                     : (relaxedIdle ? appearance.relaxedClip : appearance.idleClip);
+        float clipTime = pedestrian.animationTime + pedestrian.animationOffset;
+        if (pedestrian.reaction > 0) {
+            // golpes en la cara, el pecho o las piernas; la patada los derriba (caida, tendido y levantarse)
+            clipTime = pedestrian.reactionTime;
+            if (pedestrian.reaction == 1) clip = appearance.hitFaceClip;
+            else if (pedestrian.reaction == 2) clip = appearance.hitChestClip;
+            else if (pedestrian.reaction == 3) clip = appearance.hitLegsClip;
+            else if (pedestrian.dead && pedestrian.reactionTime >= 0.833f) { clip = appearance.lyingClip; clipTime = pedestrian.reactionTime - 0.833f; }
+            else if (pedestrian.reactionTime < 0.833f) clip = appearance.fallClip;
+            else if (pedestrian.reactionTime < 1.733f) { clip = appearance.lyingClip; clipTime = pedestrian.reactionTime - 0.833f; }
+            else { clip = appearance.getUpClip; clipTime = pedestrian.reactionTime - 1.733f; }
+        } else if (pedestrian.punchTime >= 0.0f) {
+            clip = pedestrian.punchCross ? appearance.crossClip : appearance.jabClip;
+            clipTime = pedestrian.punchTime;
+        } else if (pedestrian.aggressive && pedestrian.moving && appearance.runClip >= 0) {
+            clip = appearance.runClip;
+        }
+        if (pedestrian.dead && pedestrian.reactionTime > 0.8f && m_BloodMesh) {
+            // el charco crece desde que cae y se queda mientras el cuerpo siga a la vista
+            const float grow = std::clamp((pedestrian.reactionTime - 0.8f) / 3.2f, 0.0f, 1.0f);
+            const float radius = 0.95f * grow * grow * (3.0f - 2.0f * grow);
+            glm::mat4 puddle = glm::translate(glm::mat4(1.0f), glm::vec3(pedestrian.position.x, m_City.IsSidewalk(pedestrian.position.x, pedestrian.position.z) ? 0.165f : 0.035f, pedestrian.position.z));
+            puddle = glm::rotate(puddle, pedestrian.yaw, {0.0f, 1.0f, 0.0f});
+            puddle = glm::rotate(puddle, glm::half_pi<float>(), {1.0f, 0.0f, 0.0f});   // el cilindro se extiende sobre Z: se tumba para que quede plano
+            puddle = glm::scale(puddle, glm::vec3(radius * 1.15f, radius * 0.85f, 0.012f));
+            renderer.Submit(*m_BloodMesh, puddle);
+        }
         for (size_t partIndex = 0; partIndex < appearance.parts.size(); ++partIndex) {
             const auto& model = appearance.parts[partIndex];
             if (!model) continue;
-            glm::vec4 tint(1.0f);
-            if (partIndex == 1) tint = glm::vec4(pedestrian.color, 1.0f);
-            if (partIndex == 2) tint = glm::vec4(0.68f,0.65f,0.61f,1.0f);
-            if (partIndex == 3) tint = glm::vec4(0.66f,0.58f,0.47f,1.0f);
+            glm::vec4 tint = PedestrianPartTint(appearance, partIndex, pedestrian.color, pedestrian.animationOffset);
             if (pedestrian.splatRemaining > 0.0f) tint *= glm::vec4(0.42f, 0.32f, 0.20f, 1.0f);
-            model->Draw(renderer, character, tint, pedestrian.animationTime + pedestrian.animationOffset, clip >= 0, clip);
+            model->Draw(renderer, character, tint, clipTime, clip >= 0, clip);
         }
     }
 

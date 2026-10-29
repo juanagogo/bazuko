@@ -68,6 +68,8 @@ public:
     bool IsRoad(float worldX, float worldZ) const;
     bool IsSidewalk(float worldX, float worldZ) const;
     bool IsBlocked(float worldX, float worldZ, float radius = 0.0f) const;
+    // Solo las cajas estaticas (bombas, pilares, columnas...): el jugador ya respeta el mapa por casillas
+    bool HitsObstacle(float worldX, float worldZ, float radius) const;
 
     glm::vec3 GetSpawnPoint() const;
 

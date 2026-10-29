@@ -99,7 +99,7 @@ Texture::~Texture() {
 }
 
 Texture::Texture(Texture&& other) noexcept
-    : m_ID(other.m_ID), m_Width(other.m_Width), m_Height(other.m_Height) {
+    : m_ID(other.m_ID), m_HasTransparency(other.m_HasTransparency), m_Width(other.m_Width), m_Height(other.m_Height) {
     other.m_ID = 0;
     other.m_Width = 0;
     other.m_Height = 0;
@@ -109,6 +109,7 @@ Texture& Texture::operator=(Texture&& other) noexcept {
     if (this != &other) {
         if (m_ID != 0) glDeleteTextures(1, &m_ID);
         m_ID = other.m_ID;
+        m_HasTransparency = other.m_HasTransparency;
         m_Width = other.m_Width;
         m_Height = other.m_Height;
         other.m_ID = 0;
@@ -130,12 +131,16 @@ void Texture::InitFromRGBA(uint32_t width, uint32_t height, const uint8_t* data)
     glTextureStorage2D(m_ID, static_cast<GLsizei>(levels), GL_RGBA8, m_Width, m_Height);
 
     if (data) {
+        size_t transparent = 0;
+        const size_t pixels = static_cast<size_t>(m_Width) * m_Height;
+        for (size_t pixel = 0; pixel < pixels; pixel += 7) if (data[pixel * 4 + 3] < 128) ++transparent;
+        m_HasTransparency = transparent * 7 > pixels / 100;   // mas del 1 % de pixeles transparentes
         glTextureSubImage2D(m_ID, 0, 0, 0, m_Width, m_Height, GL_RGBA, GL_UNSIGNED_BYTE, data);
         if (levels > 1) glGenerateTextureMipmap(m_ID);
     }
 
     if (GLAD_GL_EXT_texture_filter_anisotropic) {
-        glTextureParameterf(m_ID, GL_TEXTURE_MAX_ANISOTROPY_EXT, 8.0f);
+        glTextureParameterf(m_ID, GL_TEXTURE_MAX_ANISOTROPY_EXT, 16.0f);
     }
     glTextureParameteri(m_ID, GL_TEXTURE_MIN_FILTER, levels > 1 ? GL_LINEAR_MIPMAP_LINEAR : GL_LINEAR);
     glTextureParameteri(m_ID, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
