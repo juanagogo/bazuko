@@ -339,27 +339,49 @@
     },
     {
       "id": "arma",
-      "portOnly": true,
       "name": "Arma casera",
       "weight": 1.2,
-      "value": 0,
-      "recyclable": false
+      "value": 6000,
+      "rarity": "",
+      "rarityLabel": "",
+      "recyclable": false,
+      "usable": false,
+      "build": false,
+      "substance": false,
+      "cure": "",
+      "desc": "Fabricado en la mesa de crafteo."
     },
     {
       "id": "curita",
-      "portOnly": true,
       "name": "Curita",
       "weight": 0.05,
-      "value": 500,
-      "recyclable": true
+      "value": 800,
+      "rarity": "",
+      "rarityLabel": "",
+      "recyclable": true,
+      "usable": false,
+      "build": false,
+      "substance": false,
+      "cure": "",
+      "desc": "Fabricado en la mesa de crafteo.",
+      "consumable": {
+        "stat": "salud",
+        "amount": 12
+      }
     },
     {
       "id": "rifa",
-      "portOnly": true,
       "name": "Cartón de rifa",
-      "weight": 0.05,
-      "value": 1000,
-      "recyclable": true
+      "weight": 0.02,
+      "value": 1500,
+      "rarity": "",
+      "rarityLabel": "",
+      "recyclable": true,
+      "usable": false,
+      "build": false,
+      "substance": false,
+      "cure": "",
+      "desc": "Fabricado en la mesa de crafteo."
     },
     {
       "id": "cafe",
@@ -623,6 +645,27 @@
       "substance": false,
       "cure": "",
       "desc": "Se puede vender."
+    },
+    {
+      "id": "hierba",
+      "name": "Hierba seca",
+      "weight": 0.05,
+      "value": 250,
+      "rarity": "",
+      "rarityLabel": "",
+      "recyclable": false,
+      "usable": false,
+      "build": false,
+      "substance": true,
+      "cure": "",
+      "desc": "Fabricado en la mesa de crafteo.",
+      "consumable": {
+        "stat": "vicio",
+        "amount": 25
+      },
+      "effects": {
+        "salud": -1
+      }
     }
   ],
   "shop": [

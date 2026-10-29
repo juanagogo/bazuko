@@ -172,6 +172,7 @@ std::shared_ptr<Model> Model::LoadFromFile(const std::string& filepath,
                 part.alphaMode = static_cast<int>(material.alpha_mode);
                 part.alphaCutoff = material.alpha_cutoff;
                 part.doubleSided = material.double_sided;
+                part.paint = material.name && (std::strncmp(material.name, "Paint", 5) == 0 || std::strcmp(material.name, "pelaje") == 0);   // el pelaje del perro toma el color elegido
             }
             model->m_Parts.push_back(std::move(part));
             std::vector<size_t> chain;
@@ -514,7 +515,7 @@ std::shared_ptr<Model> Model::LoadWithAssimp(const std::string& filepath,
                     } else {
                         const std::filesystem::path resolvedTexture = resolveTexturePath(texturePath);
                         if (std::filesystem::exists(resolvedTexture))
-                            part.texture = Texture::LoadCached(resolvedTexture.string());
+                            part.texture = Texture::LoadCached(resolvedTexture.string(), filepath.find("Arbol ") != std::string::npos);   // las texturas de los arboles FBX tienen el origen de V abajo
                     }
                 }
                 aiString specularPath;
@@ -542,6 +543,10 @@ std::shared_ptr<Model> Model::LoadWithAssimp(const std::string& filepath,
                         LogInfo("Textura de color asignada por convencion: {} ({})",
                                 fallbackTexture.string(), filepath);
                     }
+                }
+                if (part.texture && part.texture->HasTransparency() && part.alphaMode == 0) {
+                    part.alphaMode = 1;       // hojas y pasto: se recortan por la transparencia de su textura
+                    part.alphaCutoff = 0.08f;
                 }
                 if (!part.texture && hasColorTexture && !isNonColorMap) {
                     LogWarn("No se encontro la textura {} del modelo {}.", texturePath.C_Str(), filepath);
@@ -717,6 +722,14 @@ void Model::SetAnimationSource(const Model& source, const std::unordered_map<std
         m_Nodes[targetIndex].rotation = glm::normalize(glm::inverse(parentWorld) * alignedWorld);
     }
     m_TargetRestWorldRotations = worldRotations(m_Nodes);
+    {
+        const auto hips = [](const std::vector<AnimationNode>& nodes) {
+            for (const auto& node : nodes) if (node.name.ends_with("Hips")) return node.translation.y;
+            return 0.0f;
+        };
+        const float sourceHeight = hips(source.m_Nodes), targetHeight = hips(m_Nodes);
+        m_HipsScale = sourceHeight > 0.01f && targetHeight > 0.01f ? targetHeight / sourceHeight : 1.0f;
+    }
     std::vector<size_t> channelMap(source.m_AnimationChannels.size(), std::numeric_limits<size_t>::max());
     for (size_t i = 0; i < source.m_AnimationChannels.size(); ++i) {
         const auto& channel = source.m_AnimationChannels[i];
@@ -745,50 +758,75 @@ int Model::FindAnimationClip(const std::string& name) const {
     return -1;
 }
 
-void Model::Draw(Renderer& renderer, const glm::mat4& transform, const glm::vec4& tint,
-                 float animationTime, bool animate, int animationClip, int alphaModeOverride,
-                 bool seatedPose) const {
+std::vector<glm::mat4> Model::EvaluatePose(float animationTime, bool animate, int animationClip, bool seatedPose, int blendClip, float blendWeight,
+                                           const std::vector<BoneTurn>* turns, float blendTime) const {
     auto nodes = m_Nodes;
+    glm::vec3 hipsDelta(0.0f);
+    bool hasHipsDelta = false;
     if (animate && animationClip >= 0 && static_cast<size_t>(animationClip) < m_AnimationClips.size()) {
         const auto& clip = m_AnimationClips[static_cast<size_t>(animationClip)];
         if (clip.duration > 0.0f) {
             const float time = std::fmod(std::max(animationTime, 0.0f), clip.duration);
+            const auto sampleClip = [&](const AnimationClip& source, float at, std::vector<AnimationNode>& pose, glm::vec3& delta, bool& hasDelta) {
+                pose = m_AnimationSourceNodes;
+                for (size_t channelIndex : source.channels) {
+                    if (channelIndex >= m_AnimationChannels.size()) continue;
+                    const auto& channel = m_AnimationChannels[channelIndex];
+                    const auto& sampler = m_AnimationSamplers[channel.samplerIndex];
+                    if (sampler.times.empty() || sampler.values.empty()) continue;
+                    auto upper = std::upper_bound(sampler.times.begin(), sampler.times.end(), at);
+                    size_t next = upper == sampler.times.end() ? sampler.times.size() - 1 : static_cast<size_t>(upper - sampler.times.begin());
+                    size_t prev = next == 0 ? 0 : next - 1;
+                    float start = sampler.times[prev], end = sampler.times[next];
+                    float alpha = sampler.interpolation == 1 || end <= start ? 0.0f : std::clamp((at - start) / (end - start), 0.0f, 1.0f);
+                    size_t stride = sampler.interpolation == 2 ? 3 : 1;
+                    size_t a = prev * stride + (stride == 3 ? 1 : 0);
+                    size_t b = next * stride + (stride == 3 ? 1 : 0);
+                    glm::vec4 value = glm::mix(sampler.values[a], sampler.values[b], alpha);
+                    if (channel.path == 1 && sampler.interpolation == 0 && next != prev) {
+                        const glm::quat first = glm::normalize(glm::quat(sampler.values[a].w, sampler.values[a].x, sampler.values[a].y, sampler.values[a].z));
+                        const glm::quat second = glm::normalize(glm::quat(sampler.values[b].w, sampler.values[b].x, sampler.values[b].y, sampler.values[b].z));
+                        const glm::quat interpolated = glm::normalize(glm::slerp(first, second, alpha));
+                        value = glm::vec4(interpolated.x, interpolated.y, interpolated.z, interpolated.w);
+                    }
+                    if (sampler.interpolation == 2 && next != prev) {
+                        float interval = end - start;
+                        float t2 = alpha * alpha;
+                        float t3 = t2 * alpha;
+                        glm::vec4 outTangent = sampler.values[prev * 3 + 2] * interval;
+                        glm::vec4 inTangent = sampler.values[next * 3] * interval;
+                        value = (2.0f * t3 - 3.0f * t2 + 1.0f) * sampler.values[a]
+                              + (t3 - 2.0f * t2 + alpha) * outTangent
+                              + (-2.0f * t3 + 3.0f * t2) * sampler.values[b]
+                              + (t3 - t2) * inTangent;
+                    }
+                    auto& node = pose[channel.sourceNodeIndex];
+                    if (channel.path == 0 && m_AnimationSourceNodes[channel.sourceNodeIndex].name.ends_with(m_HeightBone)) {
+                        delta = glm::vec3(value.x, value.y, value.z) - channel.sourceRestTranslation;
+                        hasDelta = true;
+                    }
+                    if (channel.path == 1) {
+                        glm::quat sourceRotation = glm::normalize(glm::quat(value.w, value.x, value.y, value.z));
+                        node.rotation = sourceRotation;
+                    }
+                }
+            };
             auto sourcePose = m_AnimationSourceNodes;
-            for (size_t channelIndex : clip.channels) {
-                if (channelIndex >= m_AnimationChannels.size()) continue;
-                const auto& channel = m_AnimationChannels[channelIndex];
-                const auto& sampler = m_AnimationSamplers[channel.samplerIndex];
-                if (sampler.times.empty() || sampler.values.empty()) continue;
-                auto upper = std::upper_bound(sampler.times.begin(), sampler.times.end(), time);
-                size_t next = upper == sampler.times.end() ? sampler.times.size() - 1 : static_cast<size_t>(upper - sampler.times.begin());
-                size_t prev = next == 0 ? 0 : next - 1;
-                float start = sampler.times[prev], end = sampler.times[next];
-                float alpha = sampler.interpolation == 1 || end <= start ? 0.0f : std::clamp((time - start) / (end - start), 0.0f, 1.0f);
-                size_t stride = sampler.interpolation == 2 ? 3 : 1;
-                size_t a = prev * stride + (stride == 3 ? 1 : 0);
-                size_t b = next * stride + (stride == 3 ? 1 : 0);
-                glm::vec4 value = glm::mix(sampler.values[a], sampler.values[b], alpha);
-                if (channel.path == 1 && sampler.interpolation == 0 && next != prev) {
-                    const glm::quat first = glm::normalize(glm::quat(sampler.values[a].w, sampler.values[a].x, sampler.values[a].y, sampler.values[a].z));
-                    const glm::quat second = glm::normalize(glm::quat(sampler.values[b].w, sampler.values[b].x, sampler.values[b].y, sampler.values[b].z));
-                    const glm::quat interpolated = glm::normalize(glm::slerp(first, second, alpha));
-                    value = glm::vec4(interpolated.x, interpolated.y, interpolated.z, interpolated.w);
-                }
-                if (sampler.interpolation == 2 && next != prev) {
-                    float interval = end - start;
-                    float t2 = alpha * alpha;
-                    float t3 = t2 * alpha;
-                    glm::vec4 outTangent = sampler.values[prev * 3 + 2] * interval;
-                    glm::vec4 inTangent = sampler.values[next * 3] * interval;
-                    value = (2.0f * t3 - 3.0f * t2 + 1.0f) * sampler.values[a]
-                          + (t3 - 2.0f * t2 + alpha) * outTangent
-                          + (-2.0f * t3 + 3.0f * t2) * sampler.values[b]
-                          + (t3 - t2) * inTangent;
-                }
-                auto& node = sourcePose[channel.sourceNodeIndex];
-                if (channel.path == 1) {
-                    glm::quat sourceRotation = glm::normalize(glm::quat(value.w, value.x, value.y, value.z));
-                    node.rotation = sourceRotation;
+            sampleClip(clip, time, sourcePose, hipsDelta, hasHipsDelta);
+            if (blendClip >= 0 && static_cast<size_t>(blendClip) < m_AnimationClips.size() && blendWeight > 0.0f) {
+                // mezcla de dos clips en la misma fase (caminar y correr): las rotaciones se interpolan hueso a hueso
+                const AnimationClip& other = m_AnimationClips[static_cast<size_t>(blendClip)];
+                if (other.duration > 0.0f) {
+                    std::vector<AnimationNode> otherPose;
+                    glm::vec3 otherDelta(0.0f);
+                    bool otherHasDelta = false;
+                    const float otherTime = blendTime >= 0.0f ? std::fmod(blendTime, other.duration) : time / clip.duration * other.duration;
+                    sampleClip(other, otherTime, otherPose, otherDelta, otherHasDelta);
+                    const float weight = std::clamp(blendWeight, 0.0f, 1.0f);
+                    for (size_t n = 0; n < sourcePose.size() && n < otherPose.size(); ++n)
+                        sourcePose[n].rotation = glm::normalize(glm::slerp(sourcePose[n].rotation, otherPose[n].rotation, weight));
+                    hipsDelta = glm::mix(hipsDelta, otherDelta, weight);
+                    hasHipsDelta = hasHipsDelta || otherHasDelta;
                 }
             }
             std::vector<glm::quat> sourceWorld(sourcePose.size(), glm::quat(1.0f, 0.0f, 0.0f, 0.0f));
@@ -822,6 +860,39 @@ void Model::Draw(Renderer& renderer, const glm::mat4& transform, const glm::vec4
                 return desiredWorld;
             };
             for (size_t i = 0; i < nodes.size(); ++i) resolveTarget(i);
+            if (hasHipsDelta) {
+                // altura animada de la cadera (agacharse, saltar, estocadas): se adapta al tamano de este cuerpo
+                for (auto& node : nodes) {
+                    if (!node.name.ends_with(m_HeightBone)) continue;
+                    node.translation += m_AnimationOrientationCorrection * hipsDelta * m_HipsScale;
+                    break;
+                }
+            }
+        }
+    }
+    if (turns && !turns->empty()) {
+        // rotacion mundial de cada hueso en reposo: los ejes del modelo se expresan en el espacio de cada hueso
+        std::vector<glm::quat> restWorld(m_Nodes.size(), glm::quat(1.0f, 0.0f, 0.0f, 0.0f));
+        std::vector<bool> restResolved(m_Nodes.size(), false);
+        std::function<glm::quat(size_t)> resolveRest = [&](size_t index) {
+            if (restResolved[index]) return restWorld[index];
+            const auto& node = m_Nodes[index];
+            restWorld[index] = node.parent >= 0 ? glm::normalize(resolveRest(static_cast<size_t>(node.parent)) * node.rotation) : node.rotation;
+            restResolved[index] = true;
+            return restWorld[index];
+        };
+        for (const BoneTurn& turn : *turns) {
+            for (size_t index = 0; index < nodes.size(); ++index) {
+                if (nodes[index].name != turn.name) continue;
+                const glm::quat toLocal = glm::inverse(resolveRest(index));
+                glm::quat combined(1.0f, 0.0f, 0.0f, 0.0f);
+                static const glm::vec3 axes[3] = {{1.0f, 0.0f, 0.0f}, {0.0f, 1.0f, 0.0f}, {0.0f, 0.0f, 1.0f}};
+                for (int a = 0; a < 3; ++a)
+                    if (turn.angles[a] != 0.0f) combined = combined * glm::angleAxis(turn.angles[a], glm::normalize(toLocal * axes[a]));
+                nodes[index].rotation = glm::normalize(nodes[index].rotation * combined);
+                nodes[index].translation += turn.offset;
+                break;
+            }
         }
     }
     if (seatedPose) {
@@ -898,6 +969,26 @@ void Model::Draw(Renderer& renderer, const glm::mat4& transform, const glm::vec4
         return nodeWorldTransforms[index];
     };
     for (size_t i = 0; i < nodes.size(); ++i) resolveWorld(i);
+    return nodeWorldTransforms;
+}
+
+glm::mat4 Model::GetNodeWorld(const std::string& nameSuffix, float animationTime, bool animate, int animationClip,
+                              int blendClip, float blendWeight, const std::vector<BoneTurn>* turns, float blendTime) const {
+    const auto world = EvaluatePose(animationTime, animate, animationClip, false, blendClip, blendWeight, turns, blendTime);
+    for (size_t i = 0; i < m_Nodes.size(); ++i)
+        if (m_Nodes[i].name.ends_with(nameSuffix)) return world[i];
+    return glm::mat4(1.0f);
+}
+
+float Model::GetAnimationClipDuration(int clip) const {
+    return clip >= 0 && static_cast<size_t>(clip) < m_AnimationClips.size() ? m_AnimationClips[static_cast<size_t>(clip)].duration : 0.0f;
+}
+
+void Model::Draw(Renderer& renderer, const glm::mat4& transform, const glm::vec4& tint,
+                 float animationTime, bool animate, int animationClip, int alphaModeOverride,
+                 bool seatedPose, const glm::vec4& paintTint, int blendClip, float blendWeight, const std::vector<BoneTurn>* turns, float blendTime) const {
+    const std::vector<glm::mat4> nodeWorldTransforms = EvaluatePose(animationTime, animate, animationClip, seatedPose, blendClip, blendWeight, turns, blendTime);
+    renderer.SetPushOut(m_PushOut);
     for (size_t i = 0; i < m_Parts.size(); ++i) {
         const auto& part = m_Parts[i];
         if (part.texture) part.texture->BindUnit(0);
@@ -915,9 +1006,10 @@ void Model::Draw(Renderer& renderer, const glm::mat4& transform, const glm::vec4
             }
         }
         const int alphaMode = alphaModeOverride >= 0 ? alphaModeOverride : part.alphaMode;
-        renderer.Submit(*part.mesh, transform * meshWorld, tint * part.baseColor,
+        renderer.Submit(*part.mesh, transform * meshWorld, part.paint ? tint * paintTint * part.baseColor : tint * part.baseColor,
                         static_cast<bool>(part.texture), part.doubleSided, &skinMatrices,
                         alphaMode, part.alphaCutoff, part.specularTexture.get());
     }
+    renderer.SetPushOut(0.0f);
 }
 } // namespace Bazuko

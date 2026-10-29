@@ -54,6 +54,10 @@ public:
 
     void Submit(const Mesh& mesh, const glm::mat4& transform, const glm::vec4& albedo = glm::vec4(1.0f), bool useTexture = false, bool doubleSided = false, const std::vector<glm::mat4>* skinMatrices = nullptr, int alphaMode = 0, float alphaCutoff = 0.5f, const Texture* specularTexture = nullptr);
     void SetWireframe(bool wireframe);
+    // Separacion en metros (espacio del modelo) a lo largo de la normal: evita que la piel atraviese la ropa y el calzado
+    void SetPushOut(float meters) { m_PushOut = meters; }
+    // Amplitud en metros del vaiven de los arboles por el viento (0 = quietos); se aplica en el vertex shader
+    void SetSway(float meters) { m_Sway = meters; }
     // Filtro de color de toda la escena (1, 1, 0 = sin cambios)
     void SetColorGrade(float contrast, float saturation, float hueDegrees) {
         m_Contrast = contrast;
@@ -63,6 +67,10 @@ public:
 
     // Humedad del suelo 0..1 (lluvia): oscurece un poco y da brillo de charco a las superficies horizontales
     void SetWetness(float wetness) { m_Wetness = std::clamp(wetness, 0.0f, 1.0f); }
+
+    // Iluminacion en espacio lineal con texturas sRGB (por defecto activa; BAZUKO_GAMMA=0 la apaga)
+    void SetGammaCorrect(bool enabled) { m_GammaCorrect = enabled; }
+    bool GetGammaCorrect() const { return m_GammaCorrect; }
 
     // Dibuja sin iluminacion (bombillas, ventanas): el color es el propio albedo
     void SetUnlit(bool unlit) { m_Unlit = unlit; }
@@ -81,10 +89,14 @@ private:
     CameraBlockData m_CameraData{};
     LightBlockData m_LightingData{};
     bool m_Wireframe = false;
+    bool m_GammaCorrect = true;
+    float m_PushOut = 0.0f;
+    float m_Sway = 0.0f;
     float m_RenderScale = 1.0f;
     unsigned int m_ScaledFbo = 0;
     unsigned int m_ScaledColor = 0;
     unsigned int m_ScaledDepth = 0;
+    unsigned int m_MsFbo = 0, m_MsColor = 0, m_MsDepth = 0;   // destino multimuestra cuando se renderiza a otra escala
     int m_ScaledWidth = 0;
     int m_ScaledHeight = 0;
     int m_ScreenViewport[4] = {0, 0, 0, 0};

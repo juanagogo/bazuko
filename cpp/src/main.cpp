@@ -19,6 +19,8 @@
 #include "world/Atmosphere.hpp"
 #include "world/Viaduct.hpp"
 #include "world/StarField.hpp"
+#include "world/Climate.hpp"
+#include "world/GpsNavigation.hpp"
 #include "core/ScreenshotPng.hpp"
 #include "core/AdaptiveResolution.hpp"
 #include "game/Harvest.hpp"
@@ -35,6 +37,8 @@
 #include <cmath>
 #include <filesystem>
 #include <array>
+#include <optional>
+#include <tuple>
 #include <algorithm>
 #include <random>
 #include <fstream>
@@ -69,6 +73,7 @@ int main(int argc, char** argv) {
     Input::Init(window.GetNativeWindow());
 
     Renderer renderer;
+    if (const char* gammaEnv = std::getenv("BAZUKO_GAMMA")) renderer.SetGammaCorrect(std::atoi(gammaEnv) != 0);   // pruebas: 0 compara sin gamma
     AudioManager audio;
     UIManager ui(window.GetNativeWindow());
     Camera camera(55.0f, window.GetAspectRatio());
@@ -115,22 +120,39 @@ int main(int argc, char** argv) {
     ui.RenderLoadingScreen(window, 0.89f, "Configurando estudio 3D y vista previa...",
                            "💡 Consejo: Puedes personalizar tu aspecto, sexo, corte y ropa con la tecla [P].");
     glm::vec3 playerPos = city.GetSpawnPoint();
+    // GPS a pie sobre la grilla del mapa: anden 1, cruce de calzada 6 (busway 10); edificios, agua, solidos y obstaculos no se pisan
+    GpsNavigation gps(CityLayout::WIDTH, CityLayout::HEIGHT, CityLayout::TILE_SIZE, CityLayout::ORIGIN_X, CityLayout::ORIGIN_Z,
+        [&city](int tx, int tz) {
+            const float wx = static_cast<float>(tx) * CityLayout::TILE_SIZE + CityLayout::TILE_SIZE * 0.5f - CityLayout::ORIGIN_X;
+            const float wz = static_cast<float>(tz) * CityLayout::TILE_SIZE + CityLayout::TILE_SIZE * 0.5f - CityLayout::ORIGIN_Z;
+            if (!city.IsWalkable(wx, wz) || city.HitsObstacle(wx, wz, 0.9f) || Viaduct::BlockedOnGround(wx, wz)) return GpsNavigation::kBlocked;
+            const TileType tile = city.GetTileAt(tx, tz);
+            if (tile == TileType::Road) return 6.0f;
+            if (tile == TileType::Busway) return 10.0f;
+            if (tile == TileType::Grass || tile == TileType::Dirt) return 1.15f;
+            return 1.0f;
+        });
+    std::optional<std::tuple<float, float, std::string>> pendingGps;   // destino guardado: se planifica en el primer cuadro
+    const std::shared_ptr<Mesh> gpsBeacon = Mesh::CreateCube({0.5f, 40.0f, 0.5f}, {1.0f, 0.35f, 0.68f, 1.0f});
     playerPos.y = 0.0f;
     bool knockedOnDeck = false;  // la caida empezo sobre el tablero: se levanta alli
     StarField starField;
+    float locomotionPhase = 0.0f;   // fase 0..1 del ciclo de caminar/correr: avanza segun la velocidad del personaje
     float starVisibility = 0.0f;   // 0..1: las estrellas aparecen al oscurecer y con el cielo despejado
+    glm::vec3 celestialSun(0.0f, 1.0f, 0.0f), celestialMoon(0.0f, -1.0f, 0.0f);   // direcciones hacia el sol y la luna
+    float celestialMoonLight = 1.0f;                                                // fraccion iluminada de la luna
     bool playerOnDeck = false;   // sobre el tablero del viaducto (capa elevada); en la calle pasa por debajo
     // Regla estricta: el jugador nunca aparece ni se carga dentro de un edificio, un modelo o un recinto sin salida.
     // Toda posicion que se le asigna (inicio, partida guardada, partida nueva, recuperacion, fin de una caida)
     // pasa por aqui: si esta bloqueada o encerrada se mueve al lugar libre con salida mas cercano.
     const auto isFreeForPlayer = [&](float x, float z) {
-        return city.IsWalkable(x, z) && !simulation.IsBlocked({x, 0.0f, z}, 0.5f);
+        return city.IsWalkable(x, z) && !city.HitsObstacle(x, z, 0.5f) && !simulation.IsBlocked({x, 0.0f, z}, 0.5f);
     };
     // Donde se puede pisar segun la capa: sobre el tablero solo entre las barandas (y el bus elevado); en la calle,
     // el mapa, los vehiculos y el muro bajo de la rampa
     const auto canStand = [&](float x, float z) {
         if (playerOnDeck) return !Viaduct::BlockedOnDeck(x, z, 0.35f) && !simulation.IsBlocked({x, playerPos.y, z}, 0.35f);
-        return city.IsWalkable(x, z) && !Viaduct::BlockedOnGround(x, z) && !simulation.IsBlocked({x, 0.0f, z}, 0.35f);
+        return city.IsWalkable(x, z) && !city.HitsObstacle(x, z, 0.35f) && !Viaduct::BlockedOnGround(x, z) && !simulation.IsBlocked({x, 0.0f, z}, 0.35f);
     };
     const auto placeSafely = [&](const glm::vec3& wanted) {
         glm::vec3 safe = FindSafePlayerPosition(wanted, isFreeForPlayer, city.GetSpawnPoint());
@@ -147,6 +169,41 @@ int main(int argc, char** argv) {
     bool deathByVehicleImpact = false;
     float poopCooldown = 0.0f;
     float poopAnimationRemaining = 0.0f;
+    int poopMode = 0;                 // 0 nada, 1 agacharse a hacer popo, 2 recoger el mojon con la mano y lanzarlo
+    float poopElapsed = 0.0f;
+    bool poopStepDone = false;
+    glm::vec3 poopThrowDirection{0.0f, 0.0f, 1.0f};
+    // Recetas de la mesa de crafteo: las de src/data/recipes.js del original (todos los materiales salen de la basura, la tienda o el dealer)
+    struct RecipeDef { std::string id; int quantity; std::vector<std::pair<std::string, int>> ingredients; };
+    const std::vector<RecipeDef> recipes{
+        {"radioTransistor", 1, {{"chatarra", 1}, {"cable", 2}, {"pilas", 1}}},
+        {"arma", 1, {{"chatarra", 2}, {"cable", 1}, {"madera", 1}}},
+        {"curita", 2, {{"botella", 1}, {"carton", 1}}},
+        {"antibiotico", 1, {{"pastilla", 1}, {"botella", 1}}},
+        {"rifa", 1, {{"carton", 2}, {"lata", 1}}},
+        {"hierba", 2, {{"carton", 1}, {"madera", 1}}},
+    };
+    // Acciones del personaje (animaciones de Blender): saltar (Espacio), agacharse (Ctrl), puños (J), patada (K) y navaja (H)
+    enum class PlayerAction { None, Jump, Jab, Cross, Kick, Slash, Stab, Pet };
+    bool petWaiting = false, petRewardPending = false;   // caricia al Chato: se pide con E, el perro se sienta delante y luego la anima PetDog
+    float petWaitTime = 0.0f;
+    PlayerAction playerAction = PlayerAction::None;
+    int playerActionClip = -1;
+    float actionTime = 0.0f, actionDuration = 0.0f;
+    bool nextPunchIsCross = false, nextKnifeIsStab = false;
+    float fightStanceRemaining = 0.0f, knifeStanceRemaining = 0.0f, stillSeconds = 0.0f;
+    float jumpOffset = 0.0f;
+    bool playerCrouching = false;
+    // Clic izquierdo: golpes encadenados (jab, cruzado y patada). Los golpes recibidos y el atropello tienen sus propias animaciones.
+    int comboStep = 0;
+    float comboIdle = 0.0f, clickTime = 0.0f, clickMove = 0.0f;
+    bool clickTracking = false, clickWasLocked = false, actionHitDone = false;
+    int playerHitKind = 0;          // 0 ninguno, 1 cara, 2 pecho, 3 piernas
+    float playerHitTime = 0.0f;
+    glm::vec3 playerStaggerDirection{0.0f};   // hacia donde lo empuja el golpe: da pasos atras por la desestabilizacion
+    float knockdownLyingYaw = 0.0f;
+    constexpr float kKnockdownSeconds = 3.4f;   // vuelo (0,8 s), tendido (0,8 s), levantarse (1,5 s) y una pausa
+    std::shared_ptr<Model> knifeModel = Model::LoadFromFile(Paths::Find("public/models/arma/cuchillo.glb"));
     bool boostActive = false;
     float boostTimer = 0.0f;
     // Objetos, tienda, botin y talentos vienen de assets/data/game-data.json (generado desde src/data del juego web).
@@ -167,7 +224,7 @@ int main(int argc, char** argv) {
     bool radioOn = false;          // radio transistor: encendida, volumen propio y bateria (100 % dura unos 40 min)
     float radioVolume = 0.7f;
     float radioBattery = 100.0f;
-    int graphicsQuality = 1;   // 0 baja, 1 media, 2 alta: escala de resolucion interna 0,75 / 1 / 1,25
+    int graphicsQuality = 1;   // 0 baja, 1 media, 2 alta: escala de resolucion interna 1 / 1 / 1,5
     glm::vec3 playerVelocity{0.0f};   // inercia de movimiento (como Player.js: 22/s al moverse, 18/s al frenar)
     std::array<std::string, 5> hotbar{};   // objetos de la barra de acceso rapido (teclas 1-5)
     bool sorting = false;   // manteniendo Q sobre una bolsa
@@ -190,7 +247,10 @@ int main(int argc, char** argv) {
         vehicleImpactCooldown = 1.5f;
         if (needs[3] <= 0.0f) deathByVehicleImpact = true;
         playerKnockedDown = true;
-        knockdownRemaining = 1.8f;
+        knockdownRemaining = kKnockdownSeconds;
+        // cae con el cuerpo girado de forma distinta cada vez (no siempre alineado con el golpe)
+        knockdownLyingYaw = std::atan2(-impactDirection.x, -impactDirection.z) + (static_cast<float>(std::rand() % 1000) / 1000.0f - 0.5f) * 1.4f;
+        playerHitKind = 0;
         const glm::vec3 impactVelocity = impactDirection * std::max(2.0f, impactSpeed * 0.8f)
             + glm::vec3(0.0f, std::max(2.0f, impactSpeed * 0.55f), 0.0f);
         // sobre el tablero cae sobre el tablero (contenido por las barandas); en la calle, sobre la calzada
@@ -286,6 +346,9 @@ int main(int argc, char** argv) {
                     if (disease.remaining > 0.0f && disease.healthDrain > 0.0f) diseases.push_back(std::move(disease));
                 }
                 if (state.contains("dayProgress")) simulation.SetDayProgress(state.value("dayProgress", 0.30f));
+                simulation.SetDay(state.value("day", 1));
+                if (state.contains("gps") && state["gps"].is_object())
+                    pendingGps = std::make_tuple(state["gps"].value("x", 0.0f), state["gps"].value("z", 0.0f), state["gps"].value("name", std::string("Punto marcado")));
                 // Las partidas guardadas con la distribucion de calles anterior (sin mapVersion) usan otro marco de
                 // coordenadas: conservan todo menos la posicion, y el jugador vuelve al cambuche
                 const bool sameMap = state.value("mapVersion", 1) >= 2;
@@ -370,6 +433,8 @@ int main(int argc, char** argv) {
         state["missionComplete"] = simulation.IsMissionComplete();
         state["objective"] = objective;
         state["dayProgress"] = simulation.GetDayProgress();
+        state["day"] = simulation.GetDay();
+        if (gps.Waypoint()) state["gps"] = {{"x", gps.Waypoint()->x}, {"z", gps.Waypoint()->z}, {"name", gps.Name()}};
         state["diseases"] = nlohmann::json::array();
         for (const auto& disease : diseases) {
             state["diseases"].push_back({{"id", disease.id}, {"remaining", disease.remaining}, {"healthDrain", disease.healthDrain}, {"mentalDrain", disease.mentalDrain}});
@@ -446,6 +511,7 @@ int main(int argc, char** argv) {
 
         simulation.ResetMission();
         simulation.SetDayProgress(0.30f);
+        simulation.SetDay(1);
 
         CharacterLook defaultLook;
         characterManager.ApplyLook(defaultLook, true);
@@ -694,6 +760,12 @@ int main(int argc, char** argv) {
             ui.HandleRadioShortcut();
         }
         if (!characterCreatorUI.IsOpen() && Input::IsKeyPressed(GLFW_KEY_I)) ui.OpenPauseSection(1);
+        if (!characterCreatorUI.IsOpen() && Input::IsKeyPressed(GLFW_KEY_M)) ui.OpenMapSection();
+        {   // solo pruebas: BAZUKO_OPEN_MAP=<s> abre el mapa grande a los s segundos
+            static const char* openMapAt = std::getenv("BAZUKO_OPEN_MAP");
+            static bool openMapDone = false;
+            if (openMapAt && !openMapDone && clock.GetElapsedTime() > static_cast<float>(std::atof(openMapAt))) { openMapDone = true; ui.OpenMapSection(); }
+        }
         if (!characterCreatorUI.IsOpen() && Input::IsKeyPressed(GLFW_KEY_T)) ui.OpenPauseSection(2);
         if (!characterCreatorUI.IsOpen() && Input::IsKeyPressed(GLFW_KEY_O)) ui.OpenPauseSection(3);
         if (characterCreatorUI.IsOpen()) {
@@ -708,6 +780,8 @@ int main(int argc, char** argv) {
         if (ui.IsPaused()) dt = 0.0f;
         vehicleImpactCooldown = std::max(0.0f, vehicleImpactCooldown - dt);
         if (Input::IsKeyPressed(GLFW_KEY_C)) ui.ToggleCraftMenu();
+        // con la mesa de crafteo abierta el raton queda libre para usar el menu (se vuelve a fijar con un clic al cerrarla)
+        if (ui.IsCraftMenuOpen() && Input::IsCursorLocked()) Input::SetCursorLocked(false);
 
         if (!characterCreatorUI.IsOpen() && Input::IsKeyPressed(GLFW_KEY_TAB)) ui.OpenPauseSection(1);
 
@@ -723,14 +797,14 @@ int main(int argc, char** argv) {
         ImGuiIO& io = ImGui::GetIO();
 
         // Si el usuario hace click en la pantalla cuando el cursor está libre, volver a bloquearlo
-        if (!ui.IsPaused() && !characterCreatorUI.IsOpen() && !Input::IsCursorLocked() && !io.WantCaptureMouse) {
+        if (!ui.IsPaused() && !ui.IsCraftMenuOpen() && !characterCreatorUI.IsOpen() && !Input::IsCursorLocked() && !io.WantCaptureMouse) {
             if (Input::IsMouseButtonPressed(GLFW_MOUSE_BUTTON_LEFT) || Input::IsMouseButtonPressed(GLFW_MOUSE_BUTTON_RIGHT)) {
                 Input::SetCursorLocked(true);
             }
         }
 
         // Si el cursor está bloqueado (oculto) O si el usuario arrastra con click:
-        bool shouldRotate = !ui.IsPaused() && !characterCreatorUI.IsOpen() && (Input::IsCursorLocked() ||
+        bool shouldRotate = !ui.IsPaused() && !ui.IsCraftMenuOpen() && !characterCreatorUI.IsOpen() && (Input::IsCursorLocked() ||
                            ((Input::IsMouseButtonDown(GLFW_MOUSE_BUTTON_LEFT) || Input::IsMouseButtonDown(GLFW_MOUSE_BUTTON_RIGHT)) && !io.WantCaptureMouse));
 
         if (shouldRotate) {
@@ -772,7 +846,14 @@ int main(int argc, char** argv) {
             else if (highWithdrawal) statusSpeedMultiplier *= 0.88f;
         }
         if (boostActive) statusSpeedMultiplier *= 1.35f;
+        const bool attacking = playerAction != PlayerAction::None && playerAction != PlayerAction::Jump;
+        if (playerCrouching || attacking) isRunning = false;
         float moveSpeed = (isRunning ? 6.0f : 3.0f) * statusSpeedMultiplier;
+        if (playerCrouching) moveSpeed *= 0.5f;
+        if (attacking) moveSpeed *= 0.3f;
+        if (playerAction == PlayerAction::Pet || petWaiting) moveSpeed = 0.0f;   // acariciando al Chato (o esperando que se siente)
+        if (playerHitKind > 0) moveSpeed *= 0.1f;
+        if (poopMode != 0) moveSpeed = 0.0f;   // agachado o recogiendo el mojon
 
         glm::vec3 moveDir(0.0f);
         if (!ui.IsPaused() && camera.GetMode() == CameraMode::ThirdPerson) {
@@ -799,6 +880,7 @@ int main(int argc, char** argv) {
             playerVelocity = glm::vec3(0.0f);
             if (knockdownRemaining <= 0.0f) {
                 playerKnockedDown = false;
+                playerYaw = knockdownLyingYaw;
                 float deckY = 0.0f;
                 if (knockedOnDeck && Viaduct::StepLayer(true, playerPos.x, playerPos.z, deckY)) {
                     playerOnDeck = true;   // se levanta sobre el tablero
@@ -837,7 +919,13 @@ int main(int argc, char** argv) {
 
             if (moving) playerYaw = std::atan2(moveDir.x, moveDir.z);
         }
-        audio.Update(currentSpeed > 0.25f, isRunning);
+        {   // superficie bajo los pies: tierra y pasto, calzada o anden
+            const TileType ground = city.GetTileAt(static_cast<int>(std::floor((playerPos.x + CityLayout::ORIGIN_X) / CityLayout::TILE_SIZE)),
+                                                   static_cast<int>(std::floor((playerPos.z + CityLayout::ORIGIN_Z) / CityLayout::TILE_SIZE)));
+            const int surface = playerOnDeck || ground == TileType::Road || ground == TileType::Busway ? 1
+                : ground == TileType::Grass || ground == TileType::Dirt ? 2 : 0;
+            audio.Update(currentSpeed > 0.25f, isRunning, surface, simulation.IsRaining(), currentSpeed * dt, dt);
+        }
 
         const float dtClamped = std::max(0.0f, dt);
         begCooldownRemaining = std::max(0.0f, begCooldownRemaining - dtClamped);
@@ -1103,10 +1191,14 @@ int main(int argc, char** argv) {
                 simulation.StartMission();
             } else if (simulation.IsNearDog(playerPos, 2.0f)) {
                 if (simulation.IsDogFriend()) {
-                    if (simulation.PetDog()) {
-                        needs[5] = std::min(100.0f, needs[5] + 5.0f);
-                        ui.SetPickupNotification("El Chato mueve la cola. +5 de ánimo.");
-                    } else ui.SetPickupNotification("El Chato ya recibió sus caricias por ahora.");
+                    if (simulation.CanPetDog() && playerAction == PlayerAction::None && !playerCrouching && !playerKnockedDown && !petWaiting) {
+                        const glm::vec3 dogAt = simulation.GetDogPosition();
+                        playerYaw = std::atan2(dogAt.x - playerPos.x, dogAt.z - playerPos.z);
+                        simulation.BeginPet(playerPos, playerYaw);   // el Chato va a sentarse delante del jugador
+                        petWaiting = true;
+                        petWaitTime = 0.0f;
+                    }
+                    else if (!simulation.CanPetDog()) ui.SetPickupNotification("El Chato ya recibió sus caricias por ahora.");
                 } else {
                     simulation.BefriendDog();
                     needs[5] = std::min(100.0f, needs[5] + 15.0f);
@@ -1224,25 +1316,22 @@ int main(int argc, char** argv) {
                 return quantity;
             };
             std::string resultId;
-            std::array<std::pair<std::string, int>, 3> ingredients;
-            if (craftRequest == "radioTransistor" && countItem("chatarra") >= 1 && countItem("cable") >= 2 && countItem("pilas") >= 1 && inventoryWeight + 0.6f <= inventoryCapacity()) {
-                resultId = "radioTransistor";
-                ingredients = {{{"chatarra", 1}, {"cable", 2}, {"pilas", 1}}};
-            } else if (craftRequest == "antibiotico" && countItem("pastilla") >= 1 && countItem("botella") >= 1 && inventoryWeight + 0.1f <= inventoryCapacity()) {
-                resultId = "antibiotico";
-                ingredients = {{{"pastilla", 1}, {"botella", 1}, {"", 0}}};
-            } else if (craftRequest == "arma" && countItem("chatarra") >= 2 && countItem("alambre") >= 1 && countItem("madera") >= 1 && inventoryWeight + 1.2f <= inventoryCapacity()) {
-                resultId = "arma";
-                ingredients = {{{"chatarra", 2}, {"alambre", 1}, {"madera", 1}}};
-            } else if (craftRequest == "mochila" && countItem("tela") >= 3 && countItem("alambre") >= 1 && inventoryWeight + 0.8f <= inventoryCapacity()) {
-                resultId = "mochila";
-                ingredients = {{{"tela", 3}, {"alambre", 1}, {"", 0}}};
-            } else if (craftRequest == "curita" && countItem("tela") >= 1 && countItem("plastico") >= 1 && inventoryWeight + 0.1f <= inventoryCapacity()) {
-                resultId = "curita";
-                ingredients = {{{"tela", 1}, {"plastico", 1}, {"", 0}}};
-            } else if (craftRequest == "rifa" && countItem("carton") >= 2 && countItem("lata") >= 1 && inventoryWeight + 0.05f <= inventoryCapacity()) {
-                resultId = "rifa";
-                ingredients = {{{"carton", 2}, {"lata", 1}, {"", 0}}};
+            std::vector<std::pair<std::string, int>> ingredients;
+            int resultQuantity = 1;
+            for (const RecipeDef& recipe : recipes) {
+                if (recipe.id != craftRequest) continue;
+                const auto resultItem = std::find_if(lootTable.begin(), lootTable.end(), [&](const Item& item) { return item.id == recipe.id; });
+                if (resultItem == lootTable.end()) break;
+                bool hasMaterials = true;
+                for (const auto& [id, quantity] : recipe.ingredients) hasMaterials = hasMaterials && countItem(id) >= quantity;
+                if (hasMaterials && inventoryWeight + resultItem->weight * static_cast<float>(recipe.quantity) <= inventoryCapacity()) {
+                    resultId = recipe.id;
+                    ingredients = recipe.ingredients;
+                    resultQuantity = recipe.quantity;
+                } else {
+                    audio.Play(AudioCue::Full);
+                }
+                break;
             }
             if (!resultId.empty()) {
                 for (const auto& [id, quantity] : ingredients) {
@@ -1256,9 +1345,8 @@ int main(int argc, char** argv) {
                 }
                 size_t resultIndex = static_cast<size_t>(std::find_if(lootTable.begin(), lootTable.end(), [&](const Item& item) { return item.id == resultId; }) - lootTable.begin());
                 auto result = std::find_if(inventory.begin(), inventory.end(), [&](const InventoryEntry& entry) { return entry.itemIndex == resultIndex; });
-                const int resultQuantity = resultId == "curita" ? 2 : 1;
                 if (result == inventory.end()) inventory.push_back({resultIndex, resultQuantity}); else result->quantity += resultQuantity;
-                inventoryWeight += lootTable[resultIndex].weight;
+                inventoryWeight += lootTable[resultIndex].weight * static_cast<float>(resultQuantity);
                 awardXp(10);
                 audio.Play(AudioCue::Treasure);
                 ui.Notify("Crafteado: " + lootTable[resultIndex].name + " ×" + std::to_string(resultQuantity), ToastType::Info);
@@ -1305,7 +1393,7 @@ int main(int argc, char** argv) {
             needs[2] = std::min(100.0f, needs[2] + 60.0f); // Recupera energía
             needs[3] = std::min(100.0f, needs[3] + 20.0f); // Recupera algo de salud
             needs[5] = std::min(100.0f, needs[5] + 15.0f); // Mejora el ánimo
-            simulation.SetDayProgress(0.30f);               // Avanza al día siguiente
+            simulation.SleepUntilMorning();                 // Avanza al día siguiente
             ui.SetPickupNotification("Dormiste en el cambuche. Energía y salud recuperadas. ¡Buenos días!");
             saveGame("Partida guardada al despertar");
         }
@@ -1325,31 +1413,186 @@ int main(int argc, char** argv) {
         simulation.Update(dt, playerPos);
         poopCooldown = std::max(0.0f, poopCooldown - dt);
         poopAnimationRemaining = std::max(0.0f, poopAnimationRemaining - dt);
-        if (!ui.IsPaused() && !characterCreatorUI.IsOpen() && !playerKnockedDown
-            && (Input::IsKeyPressed(GLFW_KEY_Z) || Input::IsKeyPressed(GLFW_KEY_X))) {
-            const bool throwPressed = Input::IsKeyPressed(GLFW_KEY_X) && inventoryCount("popo") > 0;
-            if (throwPressed) {
-                auto poop = std::find_if(inventory.begin(), inventory.end(),
-                    [&](const InventoryEntry& entry) { return lootTable[entry.itemIndex].id == "popo"; });
-                const float yaw = camera.GetMode() == CameraMode::ThirdPerson ? camera.GetYaw() : playerYaw;
-                const float facingSign = camera.GetMode() == CameraMode::ThirdPerson ? -1.0f : 1.0f;
-                const glm::vec3 direction(facingSign * std::sin(yaw), 0.0f, facingSign * std::cos(yaw));
-                if (poop != inventory.end() && simulation.ThrowPoop(playerPos, direction)) {
+        if (poopMode != 0) {
+            poopElapsed += dt;
+            if (!poopStepDone && poopMode == 1 && poopElapsed >= 0.9f) {
+                poopStepDone = true;
+                simulation.DropPoop(playerPos);
+                needs[0] = std::max(0.0f, needs[0] - 2.0f);
+                needs[4] = std::max(0.0f, needs[4] - 3.0f);
+                ui.SetPickupNotification(addLootById("popo") ? "Hiciste popó. El mojón queda listo para lanzarlo con X." : "Hiciste popó, pero el costal está lleno.");
+            } else if (!poopStepDone && poopMode == 2 && poopElapsed >= 1.25f) {
+                poopStepDone = true;
+                auto poop = std::find_if(inventory.begin(), inventory.end(), [&](const InventoryEntry& entry) { return lootTable[entry.itemIndex].id == "popo"; });
+                if (poop != inventory.end() && simulation.ThrowPoop(playerPos, poopThrowDirection)) {
                     inventoryWeight = std::max(0.0f, inventoryWeight - lootTable[poop->itemIndex].weight);
                     if (--poop->quantity <= 0) inventory.erase(poop);
                     ui.SetPickupNotification("Lanzaste un mojón. Si impacta a un peatón, obtienes experiencia.");
                 }
-            } else if (poopCooldown <= 0.0f) {
-                poopCooldown = 2.2f;
-                poopAnimationRemaining = 0.8f;
-                simulation.DropPoop(playerPos);
-                needs[0] = std::max(0.0f, needs[0] - 2.0f);
-                needs[4] = std::max(0.0f, needs[4] - 3.0f);
-                if (!addLootById("popo")) {
-                    ui.SetPickupNotification("Hiciste popó, pero el costal está lleno.");
-                } else {
-                    ui.SetPickupNotification("Hiciste popó. El mojón queda listo para lanzarlo con X.");
+            }
+            if (poopAnimationRemaining <= 0.0f || playerKnockedDown) poopMode = 0;
+        }
+        {   // acciones del personaje
+            const bool canAct = !ui.IsPaused() && !characterCreatorUI.IsOpen() && !playerKnockedDown && poopAnimationRemaining <= 0.0f;
+            const auto faceForward = [&]() {
+                if (camera.GetMode() != CameraMode::ThirdPerson) return;
+                const float yaw = camera.GetYaw();
+                playerYaw = std::atan2(-std::sin(yaw), -std::cos(yaw));   // hacia donde mira la camara
+            };
+            const auto startAction = [&](PlayerAction action, const char* clipName, float seconds) {
+                playerAction = action;
+                actionTime = 0.0f;
+                actionHitDone = false;
+                playerActionClip = characterManager.FindClip(clipName);
+                const float clipLength = characterManager.ClipDuration(playerActionClip);
+                actionDuration = seconds > 0.0f ? seconds : clipLength;
+                faceForward();
+            };
+            {   // caricia: espera a que el Chato este sentado delante y entonces se agacha y le acaricia la cabeza (PetDog)
+                static const char* autoPet = std::getenv("BAZUKO_AUTO_PET");   // solo pruebas: pide la caricia a los s segundos
+                static bool autoPetDone = false;
+                if (autoPet && !autoPetDone && clock.GetElapsedTime() > static_cast<float>(std::atof(autoPet)) && simulation.CanPetDog() && !petWaiting) {
+                    autoPetDone = true;
+                    const glm::vec3 dogAt = simulation.GetDogPosition();
+                    playerYaw = std::atan2(dogAt.x - playerPos.x, dogAt.z - playerPos.z);
+                    simulation.BeginPet(playerPos, playerYaw);
+                    petWaiting = true;
+                    petWaitTime = 0.0f;
                 }
+                if (petWaiting) {
+                    petWaitTime += dt;
+                    if (!simulation.IsDogPetting() || playerKnockedDown || playerHitKind != 0) {
+                        petWaiting = false;
+                    } else if (simulation.IsDogReadyForPet() || petWaitTime > 5.0f) {
+                        petWaiting = false;
+                        const glm::vec3 dogAt = simulation.GetDogPosition();
+                        startAction(PlayerAction::Pet, "PetDog", 0.0f);
+                        actionHitDone = true;   // no es un golpe
+                        playerYaw = std::atan2(dogAt.x - playerPos.x, dogAt.z - playerPos.z);
+                        petRewardPending = true;
+                    }
+                }
+            }
+            // golpes recibidos de peatones agresivos
+            int hitKind = 0;
+            glm::vec3 hitFrom{};
+            while (simulation.ConsumePlayerHit(hitKind, hitFrom)) {
+                if (playerKnockedDown || playerHitKind > 0) continue;
+                playerHitKind = hitKind;
+                playerHitTime = 0.0f;
+                playerAction = PlayerAction::None;
+                jumpOffset = 0.0f;
+                const float blowDamage = hitKind == 1 ? 8.0f : hitKind == 2 ? 6.0f : 5.0f;   // cara, pecho, piernas
+                needs[3] = std::max(0.0f, needs[3] - blowDamage);
+                needs[5] = std::max(0.0f, needs[5] - 2.0f);   // y el animo
+                playerYaw = std::atan2(hitFrom.x, hitFrom.z);   // queda de frente a quien lo golpeo
+                playerStaggerDirection = -glm::normalize(glm::vec3(hitFrom.x, 0.0f, hitFrom.z));
+                ui.SetPickupNotification(hitKind == 1 ? "Te golpearon en la cara: -8 de salud." : hitKind == 2 ? "Te golpearon en el pecho: -6 de salud." : "Te patearon las piernas: -5 de salud.");
+            }
+            if (playerHitKind > 0) {
+                playerHitTime += dt;
+                {   // pasos cortos hacia atras (unos 0,8 m en total), mas fuertes al principio y sin atravesar nada
+                    const float hitLength = playerHitKind == 1 ? 0.667f : playerHitKind == 2 ? 0.75f : 0.833f;
+                    const float strength = 2.4f * std::max(0.0f, 1.0f - playerHitTime / hitLength);
+                    const glm::vec3 step = playerStaggerDirection * strength * dt;
+                    if (canStand(playerPos.x + step.x, playerPos.z + step.z)) { playerPos.x += step.x; playerPos.z += step.z; }
+                }
+                const float hitLength = playerHitKind == 1 ? 0.667f : playerHitKind == 2 ? 0.75f : 0.833f;
+                if (playerHitTime >= hitLength || playerKnockedDown) playerHitKind = 0;
+            }
+            const bool free = playerAction == PlayerAction::None && playerHitKind == 0;
+            const bool recovered = playerAction != PlayerAction::None && playerAction != PlayerAction::Jump && actionTime > actionDuration * 0.62f;
+            playerCrouching = canAct && free && Input::IsKeyDown(GLFW_KEY_LEFT_CONTROL);
+            if (canAct && !playerCrouching && (free || recovered)) {
+                if (Input::IsKeyPressed(GLFW_KEY_J)) {
+                    startAction(nextPunchIsCross ? PlayerAction::Cross : PlayerAction::Jab, nextPunchIsCross ? "PunchCross" : "PunchJab", 0.0f);
+                    nextPunchIsCross = !nextPunchIsCross;
+                    fightStanceRemaining = 3.0f;
+                } else if (Input::IsKeyPressed(GLFW_KEY_K)) {
+                    startAction(PlayerAction::Kick, "Kick", 0.0f);
+                    fightStanceRemaining = 3.0f;
+                } else if (Input::IsKeyPressed(GLFW_KEY_H)) {
+                    startAction(nextKnifeIsStab ? PlayerAction::Stab : PlayerAction::Slash, nextKnifeIsStab ? "KnifeStab" : "KnifeSlash", 0.0f);
+                    nextKnifeIsStab = !nextKnifeIsStab;
+                    knifeStanceRemaining = 4.0f;
+                }
+            }
+            // clic izquierdo corto (sin arrastrar la camara): jab, cruzado y patada
+            comboIdle += dt;
+            if (!ui.IsPaused() && !ui.IsCraftMenuOpen() && !io.WantCaptureMouse && Input::IsMouseButtonPressed(GLFW_MOUSE_BUTTON_LEFT)) {
+                clickTracking = true;
+                clickTime = 0.0f;
+                clickMove = 0.0f;
+                clickWasLocked = Input::IsCursorLocked();
+            }
+            if (clickTracking) {
+                clickTime += dt;
+                clickMove += glm::length(Input::GetMouseDelta());
+                if (Input::IsMouseButtonReleased(GLFW_MOUSE_BUTTON_LEFT)) {
+                    clickTracking = false;
+                    if (clickWasLocked && clickTime < 0.3f && clickMove < 12.0f && canAct && !playerCrouching && (free || recovered)) {
+                        if (comboIdle > 1.4f) comboStep = 0;
+                        comboIdle = 0.0f;
+                        const int step = comboStep++ % 3;
+                        if (step == 0) startAction(PlayerAction::Jab, "PunchJab", 0.0f);
+                        else if (step == 1) startAction(PlayerAction::Cross, "PunchCross", 0.0f);
+                        else startAction(PlayerAction::Kick, "Kick", 0.0f);
+                        fightStanceRemaining = 3.0f;
+                    }
+                } else if (!Input::IsMouseButtonDown(GLFW_MOUSE_BUTTON_LEFT)) {
+                    clickTracking = false;
+                }
+            }
+            if (canAct && free && Input::IsKeyPressed(GLFW_KEY_SPACE)) startAction(PlayerAction::Jump, "Jump", 1.0f);
+            if (playerAction != PlayerAction::None) {
+                actionTime += dt;
+                if (!actionHitDone && playerAction != PlayerAction::Jump) {
+                    // el golpe alcanza a un peaton cuando el puno o el pie llegan al punto de impacto de la animacion
+                    const float impactAt = playerAction == PlayerAction::Jab ? 0.22f : playerAction == PlayerAction::Cross ? 0.30f
+                        : playerAction == PlayerAction::Kick ? 0.40f : playerAction == PlayerAction::Stab ? 0.28f : 0.30f;
+                    if (actionTime >= impactAt) {
+                        actionHitDone = true;
+                        const int hitKind = playerAction == PlayerAction::Jab ? 1 : playerAction == PlayerAction::Kick ? 3 : 2;
+                        if (!simulation.HitPedestrian(playerPos, {std::sin(playerYaw), std::cos(playerYaw)}, playerAction == PlayerAction::Kick ? 1.6f : 1.3f, hitKind))
+                            simulation.HitVehicle(playerPos, {std::sin(playerYaw), std::cos(playerYaw)}, 1.4f);
+                    }
+                }
+                if (playerAction == PlayerAction::Jump) {
+                    // se despega al final de la flexion (0,17 s) y se cae con la gravedad: unos 0,7 s en el aire y 0,66 m de altura
+                    const float air = actionTime - 0.17f;
+                    jumpOffset = air > 0.0f && air < 0.735f ? 3.6f * air - 4.9f * air * air : 0.0f;
+                }
+                if (playerAction == PlayerAction::Pet && petRewardPending && actionTime >= 1.5f) {   // la mano ya esta sobre la cabeza
+                    petRewardPending = false;
+                    if (simulation.PetDog()) {
+                        needs[5] = std::min(100.0f, needs[5] + 5.0f);
+                        ui.SetPickupNotification("El Chato se pone feliz. +5 de ánimo.");
+                    }
+                }
+                if (actionTime >= actionDuration || playerKnockedDown) {
+                    if (playerAction == PlayerAction::Pet) { simulation.EndPet(); petRewardPending = false; }
+                    playerAction = PlayerAction::None;
+                    jumpOffset = 0.0f;
+                }
+            }
+            fightStanceRemaining = std::max(0.0f, fightStanceRemaining - dt);
+            knifeStanceRemaining = std::max(0.0f, knifeStanceRemaining - dt);
+        }
+        if (!ui.IsPaused() && !characterCreatorUI.IsOpen() && !playerKnockedDown
+            && (Input::IsKeyPressed(GLFW_KEY_Z) || Input::IsKeyPressed(GLFW_KEY_X))) {
+            const bool throwPressed = Input::IsKeyPressed(GLFW_KEY_X) && inventoryCount("popo") > 0;
+            if (poopMode != 0) {
+                // ya esta en plena accion
+            } else if (throwPressed) {
+                // se agacha, recoge el mojon del suelo con la mano y lo lanza (se suelta hacia el segundo 1,25 de la animacion)
+                const float yaw = camera.GetMode() == CameraMode::ThirdPerson ? camera.GetYaw() : playerYaw;
+                const float facingSign = camera.GetMode() == CameraMode::ThirdPerson ? -1.0f : 1.0f;
+                poopThrowDirection = glm::vec3(facingSign * std::sin(yaw), 0.0f, facingSign * std::cos(yaw));
+                playerYaw = std::atan2(poopThrowDirection.x, poopThrowDirection.z);
+                poopMode = 2; poopElapsed = 0.0f; poopStepDone = false; poopAnimationRemaining = 1.84f;
+            } else if (poopCooldown <= 0.0f) {
+                poopMode = 1; poopElapsed = 0.0f; poopStepDone = false; poopAnimationRemaining = 2.0f;
+                poopCooldown = 2.6f;
             } else {
                 ui.SetPickupNotification("Espera un momento antes de volver a hacer popó.");
             }
@@ -1371,11 +1614,45 @@ int main(int argc, char** argv) {
         if (ui.IsDeathScreenOpen()) dt = 0.0f;
         audio.SetRaining(simulation.IsRaining(), simulation.GetRainIntensity());
         simulation.SetReducedWeather(graphicsQuality == 0);
-        if (const int weatherChange = simulation.ConsumeWeatherChange(); weatherChange != 0) {
-            static const char* const weatherMessages[] = {
-                "", "Comienza a lloviznar en el centro de Bogotá…", "La llovizna cesa sobre los cerros orientales.",
-                "Una neblina baja cubre el centro de la ciudad…", "La neblina se disipa."};
-            ui.Notify(weatherMessages[weatherChange], ToastType::Info);
+        if (const char* weatherToast = simulation.ConsumeWeatherChange()) ui.Notify(weatherToast, ToastType::Info);
+        {   // GPS: destinos pedidos en el mapa, avance de la ruta, llegada y datos para el radar
+            const GpsNavigation::Point here{playerPos.x, playerPos.z};
+            const float gpsNow = clock.GetElapsedTime();
+            if (pendingGps) {
+                if (!gps.SetWaypoint({std::get<0>(*pendingGps), std::get<1>(*pendingGps)}, std::get<2>(*pendingGps), here, gpsNow)) gps.Clear();
+                pendingGps.reset();
+            }
+            if (ui.ConsumeGpsClearRequest() && gps.Waypoint()) {
+                gps.Clear();
+                ui.Notify("GPS: destino quitado", ToastType::Info);
+            }
+            glm::vec2 requested;
+            std::string requestedName;
+            if (ui.ConsumeGpsSetRequest(requested, requestedName)) {
+                if (gps.SetWaypoint({requested.x, requested.y}, requestedName, here, gpsNow)) {
+                    char text[128];
+                    std::snprintf(text, sizeof(text), "GPS: ruta a %s (%.0f m)", requestedName.c_str(), gps.RouteLength());
+                    ui.Notify(text, ToastType::Info);
+                } else {
+                    gps.Clear();
+                    ui.Notify("GPS: no hay camino a pie hasta ese punto.", ToastType::Warn);
+                }
+            }
+            if (gps.Update(here, gpsNow) == GpsNavigation::Event::Arrived) ui.Notify("Llegaste a " + gps.LastArrivalName(), ToastType::Info);
+            UIManager::GpsView view;
+            if (gps.Waypoint()) {
+                view.active = true;
+                view.waypoint = {gps.Waypoint()->x, gps.Waypoint()->z};
+                view.name = gps.Name();
+                view.distance = gps.RemainingDistance(here);
+                for (const GpsNavigation::Point& point : gps.RemainingRoute(here)) view.route.emplace_back(point.x, point.z);
+            }
+            ui.SetGpsView(std::move(view));
+        }
+        {
+            const bool night = simulation.IsNight();
+            const Climate::WeatherInfo& info = Climate::Info(simulation.GetWeather());
+            ui.SetWorldInfo(simulation.GetDay(), (night && info.nightLabel) ? info.nightLabel : info.label, simulation.GetSeason().label);
         }
         audio.UpdateVehicleAudio(dt, playerPos, simulation, ui.IsPaused());
 
@@ -1384,7 +1661,7 @@ int main(int argc, char** argv) {
 
         // 8. Renderizado 3D con OpenGL 4.5 DSA
         {
-            static const std::array<float, 3> renderScales{0.75f, 1.0f, 1.25f};
+            static const std::array<float, 3> renderScales{1.0f, 1.0f, 1.5f};   // baja y media a resolucion nativa (con MSAA 4x); alta sobremuestrea 1,5x
             if (const int requested = ui.ConsumeGraphicsQualityRequest(); requested >= 0 && requested <= 2 && requested != graphicsQuality) {
                 graphicsQuality = requested;
                 static const std::array<const char*, 3> qualityNames{"baja", "media", "alta"};
@@ -1411,7 +1688,19 @@ int main(int argc, char** argv) {
         renderer.SetWetness(simulation.GetWetness());
         {   // luz y cielo segun la hora y el clima (la calidad baja solo conserva la hora)
             const bool reducedWeather = graphicsQuality == 0;
-            const Atmosphere atmosphere = ComputeAtmosphere(simulation.GetHour(), reducedWeather ? 0.0f : simulation.GetRainIntensity(), reducedWeather ? 0.0f : simulation.GetMist());
+            const Atmosphere atmosphere = ComputeAtmosphere(simulation.GetHour(), reducedWeather ? 0.0f : simulation.GetRainIntensity(), reducedWeather ? 0.0f : simulation.GetMist(),
+                                                            simulation.GetCloudCover(), simulation.GetLightningFlash());
+            {   // el sol cruza el cielo segun la hora y la temporada; de noche la luz direccional (y las sombras) pasa a la luna
+                const glm::vec3 toSun = Climate::SunDirection(simulation.GetHour(), simulation.GetDay());
+                const glm::vec3 toMoon = Climate::MoonDirection(simulation.GetHour(), simulation.GetDay());
+                const float sunWeight = AtmosphereSmoothstep(-0.12f, 0.12f, toSun.y);
+                glm::vec3 toLight = glm::mix(toMoon, toSun, sunWeight);
+                toLight.y = std::max(toLight.y, 0.30f);   // sin sombras rasantes
+                celestialSun = toSun;
+                celestialMoon = toMoon;
+                celestialMoonLight = Climate::MoonIllumination(Climate::MoonPhase(simulation.GetDay(), simulation.GetHour()));
+                renderer.GetLighting().sunDir = -glm::normalize(toLight);
+            }
             LightBlockData& lighting = renderer.GetLighting();
             lighting.sunColor = atmosphere.sunColor;
             lighting.ambientColor = atmosphere.ambientColor;
@@ -1438,26 +1727,100 @@ int main(int argc, char** argv) {
         // Renderizar ciudad de Bogotá
         city.Render(renderer, playerPos);
         simulation.Render(renderer, clock.GetElapsedTime(), playerPos);
+        if (gps.Waypoint()) {   // haz del destino: columna translucida que se ve desde lejos
+            const float pulse = 0.30f + 0.12f * std::sin(clock.GetElapsedTime() * 2.5f);
+            const glm::vec3 beaconBase(gps.Waypoint()->x, city.GetGroundHeight(gps.Waypoint()->x, gps.Waypoint()->z) + 20.0f, gps.Waypoint()->z);
+            renderer.Submit(*gpsBeacon, glm::translate(glm::mat4(1.0f), beaconBase), glm::vec4(1.0f, 1.0f, 1.0f, pulse), false, false, nullptr, 2);
+        }
         starField.Render(renderer, camera.GetPosition(), starVisibility, clock.GetElapsedTime());
+        {   // sol y luna: se ven con el cielo despejado y se apagan con las nubes, la lluvia y la neblina
+            const float clear = std::clamp(1.0f - 0.95f * simulation.GetCloudCover() - 0.6f * simulation.GetMist(), 0.0f, 1.0f);
+            const float hour = simulation.GetHour();
+            const float night = 1.0f - AtmosphereSmoothstep(6.5f, 8.5f, hour) * (1.0f - AtmosphereSmoothstep(17.0f, 19.0f, hour));
+            starField.RenderCelestial(renderer, camera.GetPosition(), celestialSun, celestialMoon, celestialMoonLight, clear, night);
+        }
 
         // Renderizar personaje
         {
             if (playerKnockedDown) {
-                const float recovery = std::clamp((0.35f - knockdownRemaining) / 0.35f, 0.0f, 1.0f);
-                const glm::mat4 playerModel = playerRagdoll.GetCharacterTransform(playerYaw, recovery);
-                const float fallElapsed = 1.8f - knockdownRemaining;
-                const int fallClip = characterManager.GetKnockdownAnimationClip(recovery > 0.0f);
-                characterManager.Draw(renderer, playerModel, fallElapsed, false, false, fallClip);
+                // atropello: vuela y rueda (0,8 s), queda tendido, y se levanta del suelo como una persona (rodar, rodillas, zancada)
+                const float fallElapsed = kKnockdownSeconds - knockdownRemaining;
+                glm::mat4 playerModel;
+                int fallClip;
+                float fallTime = fallElapsed;
+                if (fallElapsed < 0.8f) {
+                    playerModel = playerRagdoll.GetCharacterTransform(playerYaw, 0.0f);
+                    fallClip = characterManager.FindClip("RunOverTumble");
+                } else {
+                    const float groundY = knockedOnDeck ? Viaduct::DeckHeightAt(playerPos.x, playerPos.z) : city.GetGroundHeight(playerPos.x, playerPos.z);
+                    playerModel = glm::rotate(glm::translate(glm::mat4(1.0f), glm::vec3(playerPos.x, groundY, playerPos.z)), knockdownLyingYaw, glm::vec3(0.0f, 1.0f, 0.0f));
+                    if (fallElapsed < 1.6f || deathByVehicleImpact) {
+                        fallClip = characterManager.FindClip("LyingLoop");
+                        fallTime = fallElapsed - 0.8f;
+                    } else if (fallElapsed < 3.1f) {
+                        fallClip = characterManager.FindClip("GetUp");
+                        fallTime = fallElapsed - 1.6f;
+                    } else {
+                        fallClip = characterManager.FindClip("Idle");
+                    }
+                }
+                characterManager.Draw(renderer, playerModel, fallTime, false, false, fallClip);
             } else {
                 glm::mat4 playerModel = glm::translate(glm::mat4(1.0f), playerPos);
                 playerModel = glm::rotate(playerModel, playerYaw, glm::vec3(0.0f, 1.0f, 0.0f));
-                const float crouchProgress = 1.0f - poopAnimationRemaining / 0.8f;
-                const float crouchAmount = std::sin(glm::pi<float>() * std::clamp(crouchProgress, 0.0f, 1.0f));
-                playerModel = glm::translate(playerModel, glm::vec3(0.0f, -0.06f * crouchAmount, 0.0f));
-                playerModel = glm::rotate(playerModel, 0.12f * crouchAmount, glm::vec3(1.0f, 0.0f, 0.0f));
-                playerModel = glm::scale(playerModel,
-                    glm::vec3(1.0f, 1.0f - 0.07f * crouchAmount, 1.0f));
-                characterManager.Draw(renderer, playerModel, clock.GetElapsedTime(), currentSpeed > 0.25f, isRunning);
+                playerModel = glm::translate(playerModel, glm::vec3(0.0f, jumpOffset, 0.0f));
+                const bool movingNow = currentSpeed > 0.25f;
+                stillSeconds = movingNow || playerAction != PlayerAction::None ? 0.0f : stillSeconds + dt;
+                int poseClip = -1;
+                float poseTime = clock.GetElapsedTime();
+                if (poopMode != 0) {
+                    poseClip = characterManager.FindClip(poopMode == 1 ? "PoopSquat" : "PoopPickThrow");
+                    poseTime = poopElapsed;
+                } else if (playerHitKind > 0) {
+                    poseClip = characterManager.FindClip(playerHitKind == 1 ? "HitFace" : playerHitKind == 2 ? "HitChest" : "HitLegs");
+                    poseTime = playerHitTime;
+                } else if (playerAction != PlayerAction::None) {
+                    poseClip = playerActionClip;
+                    poseTime = actionTime;
+                } else if (playerCrouching) {
+                    poseClip = characterManager.FindClip(movingNow ? "CrouchWalk" : "Crouch");
+                } else if (!movingNow && knifeStanceRemaining > 0.0f) {
+                    poseClip = characterManager.FindClip("KnifeIdle");
+                } else if (!movingNow && fightStanceRemaining > 0.0f) {
+                    poseClip = characterManager.FindClip("FightIdle");
+                } else if (!movingNow && stillSeconds > 6.0f) {
+                    poseClip = characterManager.FindClip("IdleRelaxed");
+                }
+                int blendClip = -1;
+                float blendWeight = 0.0f;
+                if (poseClip < 0 && movingNow) {   // caminar y correr se mezclan y avanzan al ritmo de la velocidad real: los pies no resbalan
+                    const CharacterManager::LocomotionBlend blend = characterManager.ComputeLocomotion(currentSpeed);
+                    if (blend.valid) {
+                        locomotionPhase = std::fmod(locomotionPhase + std::max(0.0f, dt) * blend.rate, 1.0f);
+                        poseClip = characterManager.GetWalkClip();
+                        blendClip = characterManager.GetRunClip();
+                        blendWeight = blend.run;
+                        poseTime = locomotionPhase * characterManager.GetWalkDuration();
+                    }
+                } else if (!movingNow) {
+                    locomotionPhase = 0.0f;
+                }
+                {   // pruebas: BAZUKO_PREVIEW_CLIP=<clip> reproduce ese clip en el jugador (BAZUKO_PREVIEW_TIME fija el segundo)
+                    static const char* previewName = std::getenv("BAZUKO_PREVIEW_CLIP");
+                    static const char* previewTime = std::getenv("BAZUKO_PREVIEW_TIME");
+                    if (previewName) {
+                        poseClip = characterManager.FindClip(previewName);
+                        poseTime = previewTime ? static_cast<float>(std::atof(previewTime)) : std::fmod(clock.GetElapsedTime(), 3.0f);
+                    }
+                }
+                characterManager.Draw(renderer, playerModel, poseTime, movingNow, isRunning, poseClip, blendClip, blendWeight);
+                if (knifeModel && (playerAction == PlayerAction::Slash || playerAction == PlayerAction::Stab || knifeStanceRemaining > 0.0f)) {
+                    // la navaja va en la mano derecha, con la hoja saliendo del puno
+                    const glm::mat4 hand = characterManager.HandMatrix(playerModel, poseTime, poseClip >= 0 ? poseClip : characterManager.FindClip("Idle"), true);
+                    glm::mat4 grip = glm::rotate(glm::mat4(1.0f), glm::radians(75.0f), glm::vec3(1.0f, 0.0f, 0.0f));
+                    grip = glm::scale(grip, glm::vec3(1.3f));
+                    knifeModel->Draw(renderer, hand * grip);
+                }
             }
         }
 
@@ -1465,6 +1828,15 @@ int main(int argc, char** argv) {
         renderer.EndScaledTarget();
 
         // 9. Interfaz gráfica (Dear ImGui)
+        {   // burbujas de conversacion de los peatones cercanos
+            simulation.SetPlayerHygiene(needs[4]);
+            std::vector<UIManager::WorldBubble> bubbles;
+            for (const auto& bubble : simulation.GetPedestrianBubbles(playerPos)) {
+                const glm::vec4 clip = camera.GetViewProjectionMatrix() * glm::vec4(bubble.position, 1.0f);
+                if (clip.w > 0.1f) bubbles.push_back({clip.x / clip.w, clip.y / clip.w, bubble.text, bubble.alpha});
+            }
+            ui.SetWorldBubbles(std::move(bubbles));
+        }
         ui.BeginFrame();
         std::string inventorySummary = inventory.empty() ? "Vacío" : "";
         for (const auto& entry : inventory) {
@@ -1476,15 +1848,41 @@ int main(int argc, char** argv) {
             if (!diseaseSummary.empty()) diseaseSummary += "  |  ";
             diseaseSummary += disease.id + " (" + std::to_string(static_cast<int>(disease.remaining)) + " s)";
         }
-        const std::vector<CraftingOption> craftingOptions{
-            {"radioTransistor", "Radio transistor AM/FM x1", "Chatarra (" + std::to_string(inventoryCount("chatarra")) + "/1) · Cable (" + std::to_string(inventoryCount("cable")) + "/2) · Pilas (" + std::to_string(inventoryCount("pilas")) + "/1)", inventoryCount("chatarra") >= 1 && inventoryCount("cable") >= 2 && inventoryCount("pilas") >= 1 && inventoryWeight + 0.6f <= inventoryCapacity()},
-            {"arma", "Arma casera x1", "Chatarra (" + std::to_string(inventoryCount("chatarra")) + "/2) · Alambre (" + std::to_string(inventoryCount("alambre")) + "/1) · Tablas (" + std::to_string(inventoryCount("madera")) + "/1)", inventoryCount("chatarra") >= 2 && inventoryCount("alambre") >= 1 && inventoryCount("madera") >= 1 && inventoryWeight + 1.2f <= inventoryCapacity()},
-            {"mochila", "Mochila x1", "Tela (" + std::to_string(inventoryCount("tela")) + "/3) · Alambre (" + std::to_string(inventoryCount("alambre")) + "/1)", inventoryCount("tela") >= 3 && inventoryCount("alambre") >= 1 && inventoryWeight + 0.8f <= inventoryCapacity()},
-            {"curita", "Curita x2", "Tela (" + std::to_string(inventoryCount("tela")) + "/1) · Plastico (" + std::to_string(inventoryCount("plastico")) + "/1)", inventoryCount("tela") >= 1 && inventoryCount("plastico") >= 1 && inventoryWeight + 0.1f <= inventoryCapacity()},
-            {"antibiotico", "Antibiotico x1", "Pastilla (" + std::to_string(inventoryCount("pastilla")) + "/1) · Botella (" + std::to_string(inventoryCount("botella")) + "/1)", inventoryCount("pastilla") >= 1 && inventoryCount("botella") >= 1 && inventoryWeight + 0.1f <= inventoryCapacity()},
-            {"rifa", "Carton de rifa x1", "Carton (" + std::to_string(inventoryCount("carton")) + "/2) · Lata (" + std::to_string(inventoryCount("lata")) + "/1)", inventoryCount("carton") >= 2 && inventoryCount("lata") >= 1 && inventoryWeight + 0.05f <= inventoryCapacity()},
-            {"hierba", "Hierba seca x2", "Tela (" + std::to_string(inventoryCount("tela")) + "/1) · Tablas (" + std::to_string(inventoryCount("madera")) + "/1) · Resultado sin definir", false}
-        };
+        const std::array<const char*, kNeedCount> needLabels{"hambre", "sed", "energía", "salud", "higiene", "ánimo", "vicio"};
+        std::vector<CraftingOption> craftingOptions;
+        for (const RecipeDef& recipe : recipes) {
+            const auto resultItem = std::find_if(lootTable.begin(), lootTable.end(), [&](const Item& item) { return item.id == recipe.id; });
+            if (resultItem == lootTable.end()) continue;
+            CraftingOption option;
+            option.id = recipe.id;
+            option.name = resultItem->name;
+            option.quantity = recipe.quantity;
+            option.weight = resultItem->weight;
+            option.craftable = true;
+            for (const auto& [id, quantity] : recipe.ingredients) {
+                const auto material = std::find_if(lootTable.begin(), lootTable.end(), [&](const Item& item) { return item.id == id; });
+                const std::string materialName = material != lootTable.end() ? material->name : id;
+                option.materials.push_back({id, materialName, inventoryCount(id), quantity});
+                option.craftable = option.craftable && inventoryCount(id) >= quantity;
+                option.ingredients += (option.ingredients.empty() ? "" : " · ") + materialName + " (" + std::to_string(inventoryCount(id)) + "/" + std::to_string(quantity) + ")";
+            }
+            option.fits = inventoryWeight + resultItem->weight * static_cast<float>(recipe.quantity) <= inventoryCapacity();
+            // efecto del objeto a partir de sus datos
+            std::string effect;
+            const auto addEffect = [&](const std::string& piece) { effect += (effect.empty() ? "" : " · ") + piece; };
+            const auto signed1 = [](float v) { return (v > 0 ? "+" : "") + std::to_string(static_cast<int>(v)); };
+            if (resultItem->consumableNeed >= 0) addEffect(signed1(resultItem->amount) + " " + needLabels[static_cast<size_t>(resultItem->consumableNeed)]);
+            for (int need = 0; need < kNeedCount; ++need)
+                if (need != resultItem->consumableNeed && resultItem->deltas[static_cast<size_t>(need)] != 0.0f)
+                    addEffect(signed1(resultItem->deltas[static_cast<size_t>(need)]) + " " + needLabels[static_cast<size_t>(need)]);
+            if (!resultItem->cure.empty()) addEffect("Cura: " + resultItem->cure);
+            if (effect.empty()) addEffect(resultItem->usable ? "Se usa desde el inventario" : "Se vende por $" + std::to_string(resultItem->value));
+            char weightText[32];
+            std::snprintf(weightText, sizeof(weightText), "%.2f kg", resultItem->weight);
+            addEffect(weightText);
+            option.effect = effect;
+            craftingOptions.push_back(std::move(option));
+        }
         std::vector<InventoryOption> inventoryOptions;
         inventoryOptions.reserve(inventory.size());
         for (const auto& entry : inventory) {
@@ -1796,6 +2194,7 @@ int main(int argc, char** argv) {
 
 
         if (shotPath && glfwGetTime() - shotStart > shotDelay) {
+            if (std::getenv("BAZUKO_BENCH")) LogInfo("BENCH {}", ui.PerformanceSummary());
             int shotWidth = 0, shotHeight = 0;
             glfwGetFramebufferSize(glfwGetCurrentContext(), &shotWidth, &shotHeight);
             std::vector<uint8_t> pixels(static_cast<size_t>(shotWidth) * shotHeight * 3), flipped(pixels.size());

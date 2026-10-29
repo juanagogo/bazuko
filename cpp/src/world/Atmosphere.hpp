@@ -20,8 +20,8 @@ inline float AtmosphereSmoothstep(float edge0, float edge1, float x) {
     return t * t * (3.0f - 2.0f * t);
 }
 
-// hour 0..24; rain y mist 0..1
-inline Atmosphere ComputeAtmosphere(float hour, float rain, float mist) {
+// hour 0..24; rain, mist y cloud 0..1; flash 0..1,8 es el destello de un relampago
+inline Atmosphere ComputeAtmosphere(float hour, float rain, float mist, float cloud = 0.0f, float flash = 0.0f) {
     const float day = AtmosphereSmoothstep(6.5f, 8.5f, hour) * (1.0f - AtmosphereSmoothstep(17.0f, 19.0f, hour));
     const float dawn = std::max(0.0f, 1.0f - std::fabs(hour - 6.2f) / 1.3f);
     const float dusk = std::max(0.0f, 1.0f - std::fabs(hour - 18.2f) / 1.2f);
@@ -42,7 +42,7 @@ inline Atmosphere ComputeAtmosphere(float hour, float rain, float mist) {
     const float sunPower = 0.3f + day * 1.7f + dawn * 0.8f + dusk * 0.9f;
     const float ambientPower = (0.7f + day * 0.4f + dawn * 0.1f) / 1.1f;
     // cielo cubierto: menos sol directo y cielo mas gris y apagado
-    const float overcast = 1.0f - 0.4f * rain - 0.5f * mist;
+    const float overcast = (1.0f - 0.4f * rain - 0.5f * mist) * (1.0f - 0.25f * cloud);
     result.sunColor = sun * sunPower * 0.48f * overcast;
     result.ambientColor = glm::mix(glm::vec3(0.35f, 0.38f, 0.45f), glm::vec3(0.16f, 0.2f, 0.3f), 1.0f - day) * ambientPower;
     const glm::vec3 grey(glm::dot(sky, glm::vec3(0.333f)));
@@ -52,6 +52,11 @@ inline Atmosphere ComputeAtmosphere(float hour, float rain, float mist) {
     result.fogColor = sky;
     result.lampPower = 1.0f - AtmosphereSmoothstep(0.05f, 0.7f, day * (1.0f - 0.4f * std::max(rain, mist)));
     result.fogDensity = 0.015f + 0.006f * rain + 0.03f * mist;
+    if (flash > 0.0f) {   // relampago: el cielo y la luz ambiente se iluminan un instante
+        const float f = std::min(flash, 1.0f);
+        result.ambientColor += glm::vec3(0.55f, 0.6f, 0.75f) * f;
+        result.fogColor = glm::mix(result.fogColor, glm::vec3(0.78f, 0.82f, 0.95f), 0.6f * f);
+    }
     return result;
 }
 

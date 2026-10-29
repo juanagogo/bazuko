@@ -8,6 +8,7 @@
 namespace Bazuko {
 
 Renderer::Renderer() {
+    glEnable(GL_MULTISAMPLE);
     glEnable(GL_DEPTH_TEST);
     glDepthFunc(GL_LESS);
 
@@ -56,6 +57,7 @@ void Renderer::BeginScene(const Camera& camera, float time) {
     m_LightUBO->SetData(&m_LightingData, sizeof(LightBlockData));
 
     m_DefaultShader->Bind();
+    m_DefaultShader->SetInt("uGammaCorrect", m_GammaCorrect ? 1 : 0);
     m_DefaultShader->SetFloat("uWetness", m_Wetness);
     m_DefaultShader->SetFloat("uContrast", m_Contrast);
     m_DefaultShader->SetFloat("uSaturation", m_Saturation);
@@ -76,7 +78,18 @@ void Renderer::BeginScaledTarget() {
             glDeleteFramebuffers(1, &m_ScaledFbo);
             glDeleteTextures(1, &m_ScaledColor);
             glDeleteRenderbuffers(1, &m_ScaledDepth);
+            glDeleteFramebuffers(1, &m_MsFbo);
+            glDeleteRenderbuffers(1, &m_MsColor);
+            glDeleteRenderbuffers(1, &m_MsDepth);
         }
+        // Destino multimuestra (MSAA 4x) donde se dibuja; se resuelve en la textura escalada y de ahi pasa a la ventana
+        glCreateFramebuffers(1, &m_MsFbo);
+        glCreateRenderbuffers(1, &m_MsColor);
+        glNamedRenderbufferStorageMultisample(m_MsColor, 4, GL_RGBA8, scaledWidth, scaledHeight);
+        glCreateRenderbuffers(1, &m_MsDepth);
+        glNamedRenderbufferStorageMultisample(m_MsDepth, 4, GL_DEPTH_COMPONENT24, scaledWidth, scaledHeight);
+        glNamedFramebufferRenderbuffer(m_MsFbo, GL_COLOR_ATTACHMENT0, GL_RENDERBUFFER, m_MsColor);
+        glNamedFramebufferRenderbuffer(m_MsFbo, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, m_MsDepth);
         glCreateFramebuffers(1, &m_ScaledFbo);
         glCreateTextures(GL_TEXTURE_2D, 1, &m_ScaledColor);
         glTextureStorage2D(m_ScaledColor, 1, GL_RGBA8, scaledWidth, scaledHeight);
@@ -89,13 +102,15 @@ void Renderer::BeginScaledTarget() {
         m_ScaledWidth = scaledWidth;
         m_ScaledHeight = scaledHeight;
     }
-    glBindFramebuffer(GL_FRAMEBUFFER, m_ScaledFbo);
+    glBindFramebuffer(GL_FRAMEBUFFER, m_MsFbo);
     glViewport(0, 0, m_ScaledWidth, m_ScaledHeight);
     m_ScaledActive = true;
 }
 
 void Renderer::EndScaledTarget() {
     if (!m_ScaledActive) return;
+    glBlitNamedFramebuffer(m_MsFbo, m_ScaledFbo, 0, 0, m_ScaledWidth, m_ScaledHeight, 0, 0, m_ScaledWidth, m_ScaledHeight,
+                           GL_COLOR_BUFFER_BIT, GL_NEAREST);   // resuelve el suavizado
     glBlitNamedFramebuffer(m_ScaledFbo, 0, 0, 0, m_ScaledWidth, m_ScaledHeight,
                            m_ScreenViewport[0], m_ScreenViewport[1], m_ScreenViewport[0] + m_ScreenViewport[2],
                            m_ScreenViewport[1] + m_ScreenViewport[3], GL_COLOR_BUFFER_BIT, GL_LINEAR);
@@ -116,6 +131,8 @@ void Renderer::Submit(const Mesh& mesh, const glm::mat4& transform, const glm::v
     m_DefaultShader->SetInt("uAlphaMode", alphaMode);
     m_DefaultShader->SetFloat("uAlphaCutoff", alphaCutoff);
     m_DefaultShader->SetInt("uUseSpecularTexture", specularTexture ? 1 : 0);
+    m_DefaultShader->SetFloat("uPushOut", m_PushOut);
+    m_DefaultShader->SetFloat("uSway", m_Sway);
     if (specularTexture) specularTexture->BindUnit(1);
     const bool skinned = skinMatrices && !skinMatrices->empty();
     m_DefaultShader->SetInt("uSkinned", skinned ? 1 : 0);

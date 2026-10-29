@@ -17,6 +17,8 @@ layout(std140, binding = 0) uniform CameraBlock {
 
 uniform mat4 uModel;
 uniform int uSkinned;
+uniform float uSway = 0.0;      // arboles: amplitud (m) con que la copa se mece con el viento; crece con la altura sobre el pie
+uniform float uPushOut = 0.0;   // ropa y calzado: se separan unos milimetros de la piel a lo largo de la normal (ya deformada)
 uniform int uBoneCount;
 layout(std140, binding = 2) uniform SkinBlock {
     mat4 uBones[128];
@@ -40,7 +42,13 @@ void main() {
             localNormal = mat3(skin) * localNormal;
         }
     }
+    if (uPushOut != 0.0) localPos.xyz += normalize(localNormal) * uPushOut;
     vec4 worldPos = uModel * localPos;
+    if (uSway > 0.0) {   // el viento mece el arbol en el shader, asi los arboles siguen compartiendo lote sin tocar la CPU
+        float h = clamp((worldPos.y - uModel[3].y) / 5.4, 0.0, 1.0);
+        float phase = uTime * 1.7 + uModel[3].x * 0.31 + uModel[3].z * 0.23 + worldPos.y * 0.6;
+        worldPos.xz += vec2(0.8, 0.6) * (sin(phase) + 0.35 * sin(phase * 2.3 + 1.1)) * uSway * h * h;
+    }
     vFragPos = worldPos.xyz;
     vNormal = mat3(transpose(inverse(uModel))) * localNormal;
     vUV = aUV;

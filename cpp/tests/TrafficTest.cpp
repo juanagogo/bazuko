@@ -9,6 +9,7 @@
 #include <GLFW/glfw3.h>
 #include <algorithm>
 #include <cmath>
+#include <set>
 #include <cstdio>
 #include <cstdlib>
 #include <vector>
@@ -44,6 +45,12 @@ int main(int argc, char** argv) {
     int stuckEvents = 0;
     float busStopped = 0.0f, busWorst = 0.0f;
     long overlapFrames = 0, frames = 0, offRoadFrames = 0;
+    std::vector<glm::vec2> lastRear(count, glm::vec2(0.0f));
+    std::vector<float> lastHeading(count, 0.0f);
+    std::vector<char> hadPose(count, 0);
+    float worstSlip = 0.0f, worstTurnStep = 0.0f, worstDeviation = 0.0f;
+    std::set<std::pair<int, int>> visitedCells;                 // celdas de 20 m recorridas por todos los carros
+    std::vector<std::set<std::pair<int, int>>> carCells(count); // y por cada carro
     for (float t = 0.0f; t < totalSeconds; t += dt) {
         simulation.Update(dt, farPlayer);
         const auto& cars = simulation.GetTrafficVehicles();
@@ -55,6 +62,48 @@ int main(int argc, char** argv) {
         busWorst = std::max(busWorst, busStopped);
         // carros cuyos centros estan a menos de 2 m (la longitud es 4.3 m) estan atravesados entre si
         ++frames;
+        for (size_t a = 0; a < count; ++a) { const std::pair<int, int> cell{static_cast<int>(std::floor(cars[a].position.x / 20.0f)), static_cast<int>(std::floor(cars[a].position.z / 20.0f))}; visitedCells.insert(cell); carCells[a].insert(cell); }
+        // pose cinematica: el eje trasero no derrapa, el rumbo cambia sin saltos y el carro sigue la ruta
+        for (size_t a = 0; a < count; ++a) {
+            const TrafficVehicle& car = cars[a];
+            if (!car.bike.ready) { hadPose[a] = 0; continue; }
+            BicycleParams params; params.wheelbase = std::max(1.2f, car.wheelbase);
+            if (hadPose[a]) {
+                const glm::vec2 moved = car.bike.rear - lastRear[a];
+                if (glm::length(moved) < 1.5f) {   // sin contar reapariciones
+                    const float mid = 0.5f * (car.bike.heading + lastHeading[a]);
+                    const float sideways = std::fabs(moved.x * -std::sin(mid) + moved.y * std::cos(mid));
+                    // una correccion de deriva hacia la ruta mueve el eje de lado; se mide solo cuando no actua
+                    const float deviation = glm::distance(car.bike.Center(params), glm::vec2(car.position.x, car.position.z));
+                    if (deviation < 0.3f) worstSlip = std::max(worstSlip, sideways);
+                    worstTurnStep = std::max(worstTurnStep, std::fabs(std::remainder(car.bike.heading - lastHeading[a], 6.2831853f)));
+                }
+            }
+            {
+                // distancia lateral: al segmento de la ruta mas cercano al centro del carro (no al punto de la ruta del mismo instante)
+                float dev = 1.0e9f;
+                const glm::vec2 c = car.bike.Center(params);
+                for (size_t i = 0; i + 1 < car.route.size(); ++i) {
+                    const glm::vec2 p0(car.route[i].x, car.route[i].z), p1(car.route[i + 1].x, car.route[i + 1].z);
+                    const glm::vec2 d = p1 - p0; const float l2 = glm::dot(d, d);
+                    if (l2 < 1.0e-8f) continue;
+                    const float u = std::clamp(glm::dot(c - p0, d) / l2, 0.0f, 1.0f);
+                    dev = std::min(dev, glm::distance(c, p0 + d * u));
+                }
+                if (car.route.size() > 2) {   // cierre del circuito
+                    const glm::vec2 p0(car.route.back().x, car.route.back().z), p1(car.route.front().x, car.route.front().z);
+                    const glm::vec2 d = p1 - p0; const float l2 = glm::dot(d, d);
+                    if (l2 > 1.0e-8f) dev = std::min(dev, glm::distance(c, p0 + d * std::clamp(glm::dot(c - p0, d) / l2, 0.0f, 1.0f)));
+                }
+                if (std::getenv("TRAFFIC_BIKE") && a == 4 && t > 2.0f && t < 6.0f && static_cast<int>(t * 30.0f) % 3 == 0)
+                    std::printf("  t=%.2f v=%.2f dist=%.2f dev=%.2f ref(%.2f,%.2f) dir(%.2f,%.2f) rumbo=%.3f dir=%.3f steer=%.3f\n", t, car.speed, car.distance, dev, car.position.x, car.position.z, car.direction.x, car.direction.z, car.bike.heading, std::atan2(car.direction.z, car.direction.x), car.bike.steer);
+                worstDeviation = std::max(worstDeviation, dev);
+                static int printed = 0;
+                if (dev > 1.0f && printed < 6) { ++printed; std::printf("  desviacion %.2f t=%.1f carro %zu ruta %zu conector=%d v=%.2f pos(%.1f,%.1f) dir(%.2f,%.2f) rumbo=%.2f direccion=%.2f\n", dev, t, a, car.routeIndex, car.connectorRoute, car.speed, car.position.x, car.position.z, car.direction.x, car.direction.z, car.bike.heading, car.bike.steer); }
+            }
+            { /* la desviacion lateral se acumula arriba */ }
+            lastRear[a] = car.bike.rear; lastHeading[a] = car.bike.heading; hadPose[a] = 1;
+        }
         // los carros circulan por calzada: ningun centro cae fuera de la calzada
         for (size_t a = 0; a < count; ++a) {
             if (city.IsRoad(cars[a].position.x, cars[a].position.z)) continue;
@@ -116,6 +165,22 @@ int main(int argc, char** argv) {
             if (stopped[i] <= 1.0f) reported[i] = 0;
         }
     }
+    size_t mostRoaming = 0, leastRoaming = 1000000;
+    for (const auto& cells : carCells) { mostRoaming = std::max(mostRoaming, cells.size()); leastRoaming = std::min(leastRoaming, cells.size()); }
+    std::printf("recorrido: %zu celdas de 20 m visitadas en total; por carro entre %zu y %zu\n", visitedCells.size(), leastRoaming, mostRoaming);
+    if (std::getenv("TRAFFIC_DUMP")) {
+        const auto& dumped = simulation.GetTrafficVehicles();
+        for (size_t a = 0; a < count; ++a)
+            std::printf("  carro %zu ruta %zu pos (%.1f, %.1f) dir (%.0f, %.0f) v=%.2f conector=%d dist=%.1f/%.1f\n", a, dumped[a].routeIndex,
+                        dumped[a].position.x, dumped[a].position.z, dumped[a].direction.x, dumped[a].direction.z, dumped[a].speed,
+                        dumped[a].connectorRoute, dumped[a].distance, dumped[a].routeLength);
+        for (size_t a = 0; a < count; ++a)
+            if (dumped[a].emergency > 0) std::printf("  emergencia %d (carro %zu): %zu celdas recorridas\n", dumped[a].emergency, a, carCells[a].size());
+    }
+    std::printf("cinematica: desviacion maxima del centro respecto de la ruta %.2f m; giro maximo por cuadro %.4f rad; derrape trasero maximo %.5f m por cuadro\n",
+                worstDeviation, worstTurnStep, worstSlip);
+    if (worstDeviation > 0.9f) { std::printf("FALLO: el carro se aparta %.2f m de su ruta\n", worstDeviation); ++stuckEvents; }
+    if (worstTurnStep > 0.12f) { std::printf("FALLO: el rumbo salta %.3f rad en un cuadro\n", worstTurnStep); ++stuckEvents; }
     float globalWorst = 0.0f;
     for (float w : worst) globalWorst = std::max(globalWorst, w);
     std::printf("bus: espera maxima %.0f s; carros atravesados en %.2f%% del tiempo\n", busWorst,
@@ -123,6 +188,10 @@ int main(int argc, char** argv) {
     if (busWorst > stuckSeconds) { std::printf("el bus se quedo detenido %.0f s%c", busWorst, 10); ++stuckEvents; }
     std::printf("semilla %u, %.0f s, %zu carros: recorrido total %.0f m, espera maxima %.0f s, atascos %d\n",
                 seed, totalSeconds, count, movedTotal, globalWorst, stuckEvents);
+    if (totalSeconds >= 300.0f && leastRoaming < 8) {
+        std::printf("FALLO: hay carros que solo dan vueltas a una manzana (%zu celdas)\n", leastRoaming);
+        ++stuckEvents;
+    }
     glfwDestroyWindow(window);
     glfwTerminate();
     if (offRoadFrames > 0) { std::printf("FALLO: carros fuera de la calzada en %ld cuadros\n", offRoadFrames); ++stuckEvents; }

@@ -22,6 +22,8 @@ public:
     void BindUnit(uint32_t unit = 0) const;
 
     GLuint GetID() const { return m_ID; }
+    // true si la imagen tiene zonas transparentes (hojas, pasto): el material debe recortarlas en vez de pintarlas de negro
+    bool HasTransparency() const { return m_HasTransparency; }
     uint32_t GetWidth() const { return m_Width; }
     uint32_t GetHeight() const { return m_Height; }
 
@@ -34,6 +36,7 @@ private:
     void InitFromRGBA(uint32_t width, uint32_t height, const uint8_t* data);
 
     GLuint m_ID = 0;
+    bool m_HasTransparency = false;
     uint32_t m_Width = 0;
     uint32_t m_Height = 0;
 };

@@ -43,6 +43,12 @@ uniform float uWetness = 0.0;   // lluvia: suelo oscuro y brillante
 uniform float uContrast = 1.0;
 uniform float uSaturation = 1.0;
 uniform float uHueDegrees = 0.0;
+// Iluminacion en espacio lineal: los colores de textura y de vertice se pasan de sRGB a lineal antes de iluminar y el resultado
+// vuelve a sRGB al final. Con luz completa (ambiente + sol = 1) el color es el original; las zonas en sombra quedan mas claras
+// y con detalle, en lugar de aplastarse a negro.
+uniform int uGammaCorrect = 1;
+vec3 srgbToLinear(vec3 c) { return mix(c / 12.92, pow((c + 0.055) / 1.055, vec3(2.4)), step(vec3(0.04045), c)); }
+vec3 linearToSrgb(vec3 c) { c = max(c, vec3(0.0)); return mix(c * 12.92, 1.055 * pow(c, vec3(1.0 / 2.4)) - 0.055, step(vec3(0.0031308), c)); }
 
 out vec4 FragColor;
 
@@ -61,9 +67,13 @@ void main() {
         * uSunColor * specularStrength;
 
     vec4 baseColor = uAlbedo * vColor;
+    if (uGammaCorrect == 1) baseColor.rgb = srgbToLinear(clamp(baseColor.rgb, 0.0, 1.0));
     if (uUseTexture == 1) {
-        baseColor *= texture(uTexture, vUV);
+        vec4 texel = texture(uTexture, vUV);
+        if (uGammaCorrect == 1) texel.rgb = srgbToLinear(texel.rgb);
+        baseColor *= texel;
     }
+    const vec3 fogColor = uGammaCorrect == 1 ? srgbToLinear(uFogColor) : uFogColor;
     if (uAlphaMode == 1) {
         if (baseColor.a < uAlphaCutoff) discard;
         baseColor.a = 1.0;
@@ -89,16 +99,19 @@ void main() {
         const float facing = max(dot(norm, viewDir), 0.0);
         result *= 1.0 - 0.2 * wet;
         result += pow(max(dot(viewDir, reflectedLight), 0.0), 40.0) * uSunColor * 0.7 * wet;
-        result = mix(result, uFogColor, 0.2 * wet * pow(1.0 - facing, 3.0));
+        result = mix(result, fogColor, 0.2 * wet * pow(1.0 - facing, 3.0));
     }
 
     float dist = length(uCameraPos - vFragPos);
     float fogFactor = 1.0 - exp(-dist * uFogDensity);
     fogFactor = clamp(fogFactor, 0.0, 1.0);
-    result = mix(result, uFogColor, fogFactor);
+    // la niebla se mezcla ya en sRGB (espacio de pantalla): asi la distancia conserva el mismo velo que antes de la correccion gamma
+    vec3 displayColor = uGammaCorrect == 1 ? linearToSrgb(result) : result;
+    vec3 displayBase = uGammaCorrect == 1 ? linearToSrgb(baseColor.rgb) : baseColor.rgb;
+    result = mix(displayColor, uFogColor, fogFactor);
     // bombillas y halos: casi no los apaga la niebla, se ven encendidos desde lejos
-    if (uUnlit == 1) result = mix(baseColor.rgb, uFogColor, fogFactor * 0.25);
-    else if (uUnlit == 2) result = baseColor.rgb;   // cielo: las estrellas no llevan niebla
+    if (uUnlit == 1) result = mix(displayBase, uFogColor, fogFactor * 0.25);
+    else if (uUnlit == 2) result = displayBase;   // cielo: las estrellas no llevan niebla
 
     if (uContrast != 1.0 || uSaturation != 1.0 || uHueDegrees != 0.0) {
         const vec3 luma = vec3(0.2126, 0.7152, 0.0722);
