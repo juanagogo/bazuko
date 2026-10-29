@@ -93,61 +93,44 @@ GLuint Shader::CompileShader(GLenum type, const std::string& source, const std::
     return id;
 }
 
-Shader::UniformSlot& Shader::Slot(std::string_view name) {
-    auto it = m_Slots.find(name);
-    if (it != m_Slots.end()) return it->second;
-    UniformSlot slot;
-    slot.location = glGetUniformLocation(m_ProgramID, std::string(name).c_str());
-    return m_Slots.emplace(std::string(name), slot).first->second;
+GLint Shader::GetUniformLocation(std::string_view name) {
+    std::string key(name);
+    auto it = m_UniformLocationCache.find(key);
+    if (it != m_UniformLocationCache.end()) return it->second;
+
+    GLint location = glGetUniformLocation(m_ProgramID, key.c_str());
+    m_UniformLocationCache[key] = location;
+    return location;
 }
 
 void Shader::SetInt(std::string_view name, int value) {
-    UniformSlot& slot = Slot(name);
-    if (slot.location == -1) return;
-    const float key = static_cast<float>(value);
-    if (slot.valid && slot.value[0] == key) return;
-    slot.value[0] = key; slot.valid = true;
-    glProgramUniform1i(m_ProgramID, slot.location, value);
+    GLint loc = GetUniformLocation(name);
+    if (loc != -1) glProgramUniform1i(m_ProgramID, loc, value);
 }
 
 void Shader::SetFloat(std::string_view name, float value) {
-    UniformSlot& slot = Slot(name);
-    if (slot.location == -1) return;
-    if (slot.valid && slot.value[0] == value) return;
-    slot.value[0] = value; slot.valid = true;
-    glProgramUniform1f(m_ProgramID, slot.location, value);
+    GLint loc = GetUniformLocation(name);
+    if (loc != -1) glProgramUniform1f(m_ProgramID, loc, value);
 }
 
 void Shader::SetVec2(std::string_view name, const glm::vec2& value) {
-    UniformSlot& slot = Slot(name);
-    if (slot.location == -1) return;
-    if (slot.valid && slot.value[0] == value.x && slot.value[1] == value.y) return;
-    slot.value[0] = value.x; slot.value[1] = value.y; slot.valid = true;
-    glProgramUniform2f(m_ProgramID, slot.location, value.x, value.y);
+    GLint loc = GetUniformLocation(name);
+    if (loc != -1) glProgramUniform2f(m_ProgramID, loc, value.x, value.y);
 }
 
 void Shader::SetVec3(std::string_view name, const glm::vec3& value) {
-    UniformSlot& slot = Slot(name);
-    if (slot.location == -1) return;
-    if (slot.valid && std::memcmp(slot.value.data(), &value[0], sizeof(float) * 3) == 0) return;
-    std::memcpy(slot.value.data(), &value[0], sizeof(float) * 3); slot.valid = true;
-    glProgramUniform3f(m_ProgramID, slot.location, value.x, value.y, value.z);
+    GLint loc = GetUniformLocation(name);
+    if (loc != -1) glProgramUniform3f(m_ProgramID, loc, value.x, value.y, value.z);
 }
 
 void Shader::SetVec4(std::string_view name, const glm::vec4& value) {
-    UniformSlot& slot = Slot(name);
-    if (slot.location == -1) return;
-    if (slot.valid && std::memcmp(slot.value.data(), &value[0], sizeof(float) * 4) == 0) return;
-    std::memcpy(slot.value.data(), &value[0], sizeof(float) * 4); slot.valid = true;
-    glProgramUniform4f(m_ProgramID, slot.location, value.x, value.y, value.z, value.w);
+    GLint loc = GetUniformLocation(name);
+    if (loc != -1) glProgramUniform4f(m_ProgramID, loc, value.x, value.y, value.z, value.w);
 }
 
 void Shader::SetMat4(std::string_view name, const glm::mat4& value) {
-    UniformSlot& slot = Slot(name);
-    if (slot.location == -1) return;
-    if (slot.valid && std::memcmp(slot.value.data(), &value[0][0], sizeof(float) * 16) == 0) return;
-    std::memcpy(slot.value.data(), &value[0][0], sizeof(float) * 16); slot.valid = true;
-    glProgramUniformMatrix4fv(m_ProgramID, slot.location, 1, GL_FALSE, &value[0][0]);
+    GLint loc = GetUniformLocation(name);
+    if (loc != -1) glProgramUniformMatrix4fv(m_ProgramID, loc, 1, GL_FALSE, &value[0][0]);
 }
 
 } // namespace Bazuko

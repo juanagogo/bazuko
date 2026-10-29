@@ -2,8 +2,6 @@
 #include <string>
 #include <string_view>
 #include <unordered_map>
-#include <array>
-#include <cstring>
 #include <glm/glm.hpp>
 #include <glad/gl.h>
 
@@ -35,15 +33,7 @@ public:
 private:
     static std::string ReadFile(const std::string& filepath);
     static GLuint CompileShader(GLenum type, const std::string& source, const std::string& debugName);
-    // Busqueda sin crear std::string y con el ultimo valor enviado: los uniformes que no cambian entre dibujos no tocan el driver
-    struct UniformSlot { GLint location = -1; std::array<float, 16> value{}; bool valid = false; };
-    struct NameHash {
-        using is_transparent = void;
-        size_t operator()(std::string_view text) const { return std::hash<std::string_view>{}(text); }
-        size_t operator()(const std::string& text) const { return std::hash<std::string_view>{}(text); }
-    };
-    UniformSlot& Slot(std::string_view name);
-    std::unordered_map<std::string, UniformSlot, NameHash, std::equal_to<>> m_Slots;
+    GLint GetUniformLocation(std::string_view name);
 
     GLuint m_ProgramID = 0;
     std::unordered_map<std::string, GLint> m_UniformLocationCache;

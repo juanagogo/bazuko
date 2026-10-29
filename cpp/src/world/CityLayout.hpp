@@ -69,17 +69,10 @@ public:
         if (x < 0 || x >= WIDTH || z < 0 || z >= HEIGHT) return 'w';
         return m_MapCodes.empty() ? 'b' : m_MapCodes[static_cast<size_t>(z * WIDTH + x)];
     }
-    // Lago (Parque del Lago): elipse suave de 50 x 26 m con fondo en cuenco. `allowLake` deja pisar el agua (solo el jugador nada);
-    // peatones, perro y carros siguen fuera de ella
-    static constexpr float kLakeX = 75.0f, kLakeZ = 262.0f, kLakeRadiusX = 50.0f, kLakeRadiusZ = 26.0f;
-    static constexpr float kLakeMaxDepth = 2.6f;    // profundidad del fondo en el centro (m bajo la calle)
-    static constexpr float kLakeSurface = -0.12f;   // cota de la superficie del agua
-    static float LakeDepth(float worldX, float worldZ);   // 0 fuera de la orilla; metros bajo el nivel de la calle dentro
-    static float WaterDepth(float worldX, float worldZ) { return std::max(0.0f, LakeDepth(worldX, worldZ) + kLakeSurface); }   // agua sobre el fondo
-    bool IsWalkable(float worldX, float worldZ, bool allowLake = false) const;
+    bool IsWalkable(float worldX, float worldZ) const;
     bool IsRoad(float worldX, float worldZ) const;
     bool IsSidewalk(float worldX, float worldZ) const;
-    bool IsBlocked(float worldX, float worldZ, float radius = 0.0f, bool allowLake = false) const;
+    bool IsBlocked(float worldX, float worldZ, float radius = 0.0f) const;
     // Solo las cajas estaticas (bombas, pilares, columnas...): el jugador ya respeta el mapa por casillas
     bool HitsObstacle(float worldX, float worldZ, float radius) const;
 
@@ -108,8 +101,7 @@ public:
     const std::vector<Landmark>& GetLandmarks() const { return m_Landmarks; }
     const std::vector<StaticBox>& GetObstacles() const { return m_Obstacles; }
     // Cota del suelo a nivel de calle: sube sobre la isla de la estacion y es 0 en el resto
-    // Cota del suelo bajo un punto: andenes, plazas y pisos estan 0,15 m sobre la calle (con un bordillo suave de 0,3 m) y la isla de la estacion sube mas
-    float GetGroundHeight(float worldX, float worldZ) const;
+    float GetGroundHeight(float worldX, float worldZ) const { return Station::Height(worldX, worldZ); }
     // 0..1: las luces de Colpatria se encienden de noche
     void SetNightGlow(float glow) { m_NightGlow = glow; }
 
@@ -123,7 +115,6 @@ private:
     std::shared_ptr<Mesh> m_GroundMesh;
     std::shared_ptr<Mesh> m_SidewalkMesh;
     std::shared_ptr<Mesh> m_NatureMesh;
-    std::shared_ptr<Mesh> m_LakeBedMesh;   // orilla y fondo del lago en cuenco (reemplaza las casillas de pasto y agua)
     std::shared_ptr<Mesh> m_MarkingMesh;
     std::shared_ptr<Mesh> m_BuildingMesh;
     std::shared_ptr<Mesh> m_FacadeDetailMesh;

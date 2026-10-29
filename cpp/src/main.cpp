@@ -27,10 +27,6 @@
 #include "audio/AudioManager.hpp"
 #include "world/CityLayout.hpp"
 #include "world/Simulation.hpp"
-#include "world/Lake.hpp"
-#include "character/CombatMoves.hpp"
-#include "character/JumpMoves.hpp"
-#include "world/SkyDome.hpp"
 #include "character/CharacterManager.hpp"
 #include "character/Ragdoll.hpp"
 #include "ui/CharacterCreatorUI.hpp"
@@ -111,10 +107,6 @@ int main(int argc, char** argv) {
                                "💡 Consejo: Cuida tus niveles de hambre, sed y salud para no enfermarte.");
     });
     audio.SetRaining(simulation.IsRaining());
-    Lake lake;   // agua del Parque del Lago, peces y salpicaduras
-    SkyDome skyDome;   // cielo con gradiente y nubes
-    SkyColors skyColors;
-    float moonVisibility = 0.0f, moonPhase = 0.5f;
 
     characterManager.Init([&](size_t completed, size_t total) {
         const float progress = 0.75f + 0.13f * static_cast<float>(completed) / static_cast<float>(total);
@@ -160,7 +152,7 @@ int main(int argc, char** argv) {
     // el mapa, los vehiculos y el muro bajo de la rampa
     const auto canStand = [&](float x, float z) {
         if (playerOnDeck) return !Viaduct::BlockedOnDeck(x, z, 0.35f) && !simulation.IsBlocked({x, playerPos.y, z}, 0.35f);
-        return city.IsWalkable(x, z, true) && !city.HitsObstacle(x, z, 0.35f) && !Viaduct::BlockedOnGround(x, z) && !simulation.IsBlocked({x, 0.0f, z}, 0.35f);   // el jugador puede meterse al lago
+        return city.IsWalkable(x, z) && !city.HitsObstacle(x, z, 0.35f) && !Viaduct::BlockedOnGround(x, z) && !simulation.IsBlocked({x, 0.0f, z}, 0.35f);
     };
     const auto placeSafely = [&](const glm::vec3& wanted) {
         glm::vec3 safe = FindSafePlayerPosition(wanted, isFreeForPlayer, city.GetSpawnPoint());
@@ -192,35 +184,15 @@ int main(int argc, char** argv) {
         {"hierba", 2, {{"carton", 1}, {"madera", 1}}},
     };
     // Acciones del personaje (animaciones de Blender): saltar (Espacio), agacharse (Ctrl), puños (J), patada (K) y navaja (H)
-    enum class PlayerAction { None, Jump, Jab, Cross, Kick, Slash, Stab, Pet, Hook, HighKick, Slip, Duck };
+    enum class PlayerAction { None, Jump, Jab, Cross, Kick, Slash, Stab, Pet };
     bool petWaiting = false, petRewardPending = false;   // caricia al Chato: se pide con E, el perro se sienta delante y luego la anima PetDog
     float petWaitTime = 0.0f;
     PlayerAction playerAction = PlayerAction::None;
-    const auto combatMoveOf = [](PlayerAction action) -> int {   // tecnica por codigo (CombatMoves.hpp) de cada accion de combate; -1 si no la tiene
-        switch (action) {
-            case PlayerAction::Jab: return static_cast<int>(Combat::Move::Jab);
-            case PlayerAction::Cross: return static_cast<int>(Combat::Move::Cross);
-            case PlayerAction::Hook: return static_cast<int>(Combat::Move::Hook);
-            case PlayerAction::Kick: return static_cast<int>(Combat::Move::Roundhouse);
-            case PlayerAction::HighKick: return static_cast<int>(Combat::Move::HighRoundhouse);
-            case PlayerAction::Slip: return static_cast<int>(Combat::Move::Slip);
-            case PlayerAction::Duck: return static_cast<int>(Combat::Move::RollingDuck);
-            default: return -1;
-        }
-    };
     int playerActionClip = -1;
     float actionTime = 0.0f, actionDuration = 0.0f;
-    bool nextKnifeIsStab = false, nextKickIsHigh = false, nextDodgeIsDuck = false;
-    int punchChain = 0;   // jab, cruzado y gancho en cadena (se reinicia si pasa mas de 1,4 s)
+    bool nextPunchIsCross = false, nextKnifeIsStab = false;
     float fightStanceRemaining = 0.0f, knifeStanceRemaining = 0.0f, stillSeconds = 0.0f;
     float jumpOffset = 0.0f;
-    float pickupTime = -1.0f;           // >= 0 mientras recoge una bolsa de un golpe (E): se agacha y el brazo baja al objeto
-    glm::vec3 pickupTarget{0.0f};
-    float grabTime = -1.0f;             // >= 0 mientras el brazo derecho roba un retrovisor (Combat::AppendGrab)
-    bool jumpMoving = false;            // salto con carrera (camino o corriendo) en vez de salto estatico
-    glm::vec3 jumpDirection{0.0f};      // hacia donde sale despedido el salto en movimiento
-    float jumpSpeed = 0.0f;             // m/s horizontales en el aire: decide cuanto avanza
-
     bool playerCrouching = false;
     // Clic izquierdo: golpes encadenados (jab, cruzado y patada). Los golpes recibidos y el atropello tienen sus propias animaciones.
     int comboStep = 0;
@@ -247,10 +219,6 @@ int main(int argc, char** argv) {
     int level = 1;
     int talentPoints = 0;
     bool bigSack = false;   // Costal grande comprado en la tienda
-    float playerWaterDepth = 0.0f;   // metros de agua del lago sobre el fondo donde pisa el jugador
-    bool playerSwimming = false;     // agua profunda: nada en lugar de caminar
-    float swimPhase = 0.0f;          // fase 0..1 de la brazada
-    float swimPitch = 0.0f;          // 0 de pie en el agua .. 1 tendido nadando (se suaviza)
     float playerWetness = 0.0f;    // 0 seco .. 1 empapado: la lluvia moja, el tiempo seca; no se guarda
     float coldCheckTimer = 0.0f;
     bool radioOn = false;          // radio transistor: encendida, volumen propio y bateria (100 % dura unos 40 min)
@@ -596,8 +564,6 @@ int main(int argc, char** argv) {
         }
         PickupItem pickup;
         if (nearest >= simulation.GetPickups().size() || !simulation.CollectPickup(nearest, pickup)) return false;
-        pickupTarget = pickup.position;   // hacia el que se agacha y baja el brazo
-        pickupTime = 0.0f;
 
         std::vector<std::string> items;
         std::string rareFound;
@@ -750,14 +716,6 @@ int main(int argc, char** argv) {
     if (const char* delay = std::getenv("BAZUKO_SHOT_DELAY")) shotDelay = static_cast<float>(std::atof(delay));
     if (shotPath) {
         const auto envFloat = [](const char* name, float fallback) { const char* v = std::getenv(name); return v ? static_cast<float>(std::atof(v)) : fallback; };
-        if (std::getenv("BAZUKO_PREVIEW_GRAB")) grabTime = static_cast<float>(std::atof(std::getenv("BAZUKO_PREVIEW_GRAB")));   // pruebas: congela el robo en ese segundo
-        if (std::getenv("BAZUKO_DOG_FRIEND")) simulation.BefriendDog();   // pruebas: El Chato ya es amigo (se puede acariciar)
-        if (const char* weather = std::getenv("BAZUKO_WEATHER")) simulation.ForceWeather(static_cast<Climate::Weather>(std::clamp(std::atoi(weather), 0, Climate::kWeatherCount - 1)));   // pruebas: 0 soleado .. 6 tormenta
-        if (const char* hour = std::getenv("BAZUKO_HOUR")) simulation.SetDayProgress(static_cast<float>(std::atof(hour)) / 24.0f);   // pruebas: hora del dia
-        if (const char* where = std::getenv("BAZUKO_POS")) {   // pruebas: BAZUKO_POS=x,z coloca al jugador (p. ej. dentro del lago)
-            float px = 0.0f, pz = 0.0f;
-            if (std::sscanf(where, "%f,%f", &px, &pz) == 2) playerPos = glm::vec3(px, std::max(city.GetGroundHeight(px, pz), CityLayout::kLakeSurface - 1.25f), pz);
-        }
         camera.SetOrbit(envFloat("BAZUKO_YAW", camera.GetYaw()), envFloat("BAZUKO_PITCH", 0.22f), envFloat("BAZUKO_DIST", 5.5f));
     } else {
         ui.OpenDeveloperNote();
@@ -807,24 +765,6 @@ int main(int argc, char** argv) {
             static const char* openMapAt = std::getenv("BAZUKO_OPEN_MAP");
             static bool openMapDone = false;
             if (openMapAt && !openMapDone && clock.GetElapsedTime() > static_cast<float>(std::atof(openMapAt))) { openMapDone = true; ui.OpenMapSection(); }
-        }
-        {   // solo pruebas: BAZUKO_OPEN_UI=<panel>@<s> abre un panel (pausa0-3, radio, crafteo) a los s segundos
-            static const char* openUi = std::getenv("BAZUKO_OPEN_UI");
-            static bool openUiDone = false;
-            if (openUi && !openUiDone) {
-                const std::string spec(openUi);
-                const size_t at = spec.find('@');
-                if (clock.GetElapsedTime() > static_cast<float>(std::atof(spec.c_str() + (at == std::string::npos ? 0 : at + 1)))) {
-                    openUiDone = true;
-                    const std::string name = spec.substr(0, at);
-                    if (name.rfind("pausa", 0) == 0) { ui.OpenPauseSection(0); ui.SelectPauseTab(std::atoi(name.c_str() + 5)); }
-                    else if (name == "radio") ui.OpenRadioMenu(false);
-                    else if (name == "crafteo") ui.ToggleCraftMenu();
-                    else if (name == "dealer") ui.OpenDealerMenu();
-                    else if (name == "tienda") ui.OpenShopMenu("Tienda La Esquinita", "Doña Rosa fía, pero solo a los conocidos.");
-                    else if (name == "reciclaje") ui.OpenRecyclerMenu();
-                }
-            }
         }
         if (!characterCreatorUI.IsOpen() && Input::IsKeyPressed(GLFW_KEY_T)) ui.OpenPauseSection(2);
         if (!characterCreatorUI.IsOpen() && Input::IsKeyPressed(GLFW_KEY_O)) ui.OpenPauseSection(3);
@@ -907,22 +847,15 @@ int main(int argc, char** argv) {
         }
         if (boostActive) statusSpeedMultiplier *= 1.35f;
         const bool attacking = playerAction != PlayerAction::None && playerAction != PlayerAction::Jump;
-        if (playerCrouching || attacking || playerSwimming) isRunning = false;
+        if (playerCrouching || attacking) isRunning = false;
         float moveSpeed = (isRunning ? 6.0f : 3.0f) * statusSpeedMultiplier;
         if (playerCrouching) moveSpeed *= 0.5f;
-        if (sorting) moveSpeed = 0.0f;   // revisando la basura: quieto y agachado
-        if (playerSwimming) moveSpeed *= 0.55f;   // nadando
-        else if (playerWaterDepth > 0.3f) moveSpeed *= 1.0f - 0.25f * std::min(1.0f, playerWaterDepth);   // el agua frena al vadear
         if (attacking) moveSpeed *= 0.3f;
         if (playerAction == PlayerAction::Pet || petWaiting) moveSpeed = 0.0f;   // acariciando al Chato (o esperando que se siente)
         if (playerHitKind > 0) moveSpeed *= 0.1f;
         if (poopMode != 0) moveSpeed = 0.0f;   // agachado o recogiendo el mojon
 
         glm::vec3 moveDir(0.0f);
-        if (static const char* autoWalk = std::getenv("BAZUKO_AUTOWALK"); autoWalk && !ui.IsPaused()) {   // pruebas: BAZUKO_AUTOWALK=x,z camina en esa direccion
-            float ax = 0.0f, az = 0.0f;
-            if (std::sscanf(autoWalk, "%f,%f", &ax, &az) == 2) moveDir += glm::vec3(ax, 0.0f, az);
-        }
         if (!ui.IsPaused() && camera.GetMode() == CameraMode::ThirdPerson) {
             float camYaw = camera.GetYaw();
             glm::vec3 forward = glm::normalize(glm::vec3(std::sin(camYaw), 0.0f, std::cos(camYaw)));
@@ -939,10 +872,6 @@ int main(int argc, char** argv) {
             if (Input::IsKeyDown(GLFW_KEY_D)) moveDir += glm::vec3( 1.0f, 0.0f, -1.0f);
         }
 
-        if (playerAction == PlayerAction::Jump && jumpMoving) {   // en el aire el salto conserva el rumbo y la velocidad con que se despego
-            const float airTime = actionTime - Jump::TimingFor(true).takeoff;
-            if (airTime >= 0.0f && airTime < Jump::TimingFor(true).air) { moveDir = jumpDirection; moveSpeed = jumpSpeed; }
-        }
         float currentSpeed = 0.0f;
         if (playerKnockedDown) {
             knockdownRemaining = std::max(0.0f, knockdownRemaining - dt);
@@ -986,15 +915,10 @@ int main(int argc, char** argv) {
             }
             // capa: se sube al tablero solo por la rampa y se baja al salir por un extremo; la altura sigue al tablero
             playerOnDeck = Viaduct::StepLayer(playerOnDeck, playerPos.x, playerPos.z, playerPos.y);
-            if (!playerOnDeck) {   // la isla de la estacion se sube por sus rampas; en el lago pisa el fondo hasta que el agua le llega al pecho y entonces flota
-                playerPos.y = std::max(city.GetGroundHeight(playerPos.x, playerPos.z), CityLayout::kLakeSurface - 1.25f);
-            }
+            if (!playerOnDeck) playerPos.y = city.GetGroundHeight(playerPos.x, playerPos.z);   // la isla de la estacion se sube por sus rampas
 
             if (moving) playerYaw = std::atan2(moveDir.x, moveDir.z);
         }
-        playerWaterDepth = playerOnDeck || playerKnockedDown ? 0.0f : CityLayout::WaterDepth(playerPos.x, playerPos.z);
-        playerSwimming = playerWaterDepth > (playerSwimming ? 1.0f : 1.15f);
-        lake.Update(dt, clock.GetElapsedTime(), playerPos, currentSpeed, playerWaterDepth, playerSwimming);
         {   // superficie bajo los pies: tierra y pasto, calzada o anden
             const TileType ground = city.GetTileAt(static_cast<int>(std::floor((playerPos.x + CityLayout::ORIGIN_X) / CityLayout::TILE_SIZE)),
                                                    static_cast<int>(std::floor((playerPos.z + CityLayout::ORIGIN_Z) / CityLayout::TILE_SIZE)));
@@ -1016,7 +940,6 @@ int main(int argc, char** argv) {
         {
             const float rain = simulation.GetRainIntensity();
             const bool wasSoaked = playerWetness >= 0.7f;
-            if (playerWaterDepth > 0.35f) playerWetness = std::min(1.0f, playerWetness + dtClamped * 0.8f);   // metido en el lago
             if (rain > 0.1f) {
                 playerWetness = std::min(1.0f, playerWetness + dtClamped * rain / 45.0f);
                 needs[4] = std::min(100.0f, needs[4] + 0.03f * rain * dtClamped);
@@ -1139,24 +1062,12 @@ int main(int argc, char** argv) {
                 }
             }
         }
-        if (static const char* sortHold = std::getenv("BAZUKO_SORT_HOLD"); sortHold && !sorting && clock.GetElapsedTime() > 1.0f && !simulation.GetPickups().empty()) {   // pruebas: se coloca junto a la primera bolsa y la revisa sin soltar Q
-            static bool placed = false;
-            if (!placed) {
-                placed = true;
-                size_t pick = static_cast<size_t>(std::atoi(sortHold));
-                pick = std::min(pick, simulation.GetPickups().size() - 1);
-                playerPos = simulation.GetPickups()[pick].position + glm::vec3(0.0f, 0.0f, 1.1f);
-                playerPos.y = city.GetGroundHeight(playerPos.x, playerPos.z);
-                sortPosition = simulation.GetPickups()[pick].position;
-                sorting = true;
-            }
-        }
         if (sorting) {
             const bool canSort = !ui.IsPaused() && !characterCreatorUI.IsOpen() && !ui.IsDeathScreenOpen();
             if (!canSort || glm::distance(playerPos, sortPosition) > 2.2f) {
                 sorting = false;
                 sortProgress = 0.0f;
-            } else if (Input::IsKeyDown(GLFW_KEY_Q) || std::getenv("BAZUKO_SORT_HOLD")) {
+            } else if (Input::IsKeyDown(GLFW_KEY_Q)) {
                 sortProgress = std::min(kSortSeconds, sortProgress + std::max(0.0f, dt));
             } else {
                 const bool complete = sortProgress >= kSortSeconds;
@@ -1342,7 +1253,6 @@ int main(int argc, char** argv) {
                 if (mirrorCapacity == 0) {
                     ui.SetPickupNotification("El costal está lleno; deja espacio para guardar los retrovisores.");
                 } else if (simulation.StealParkedCar(parkedCarIndex)) {
-                    grabTime = 0.0f;
                     audio.PlayTheftRemark(2.0f);
                     const bool caught = std::uniform_real_distribution<float>(0.0f, 1.0f)(lootRandom)
                         < 0.25f * talentEffect("stealCaughtMult");
@@ -1362,7 +1272,6 @@ int main(int argc, char** argv) {
             } else if (availableLootCount("retrovisor") == 0) {
                 ui.SetPickupNotification("El costal está lleno; deja espacio para guardar los retrovisores.");
             } else if (simulation.StealCar(carIndex)) {
-                grabTime = 0.0f;
                 audio.PlayTheftRemark(2.0f);
                 const float caughtChance = 0.25f * talentEffect("stealCaughtMult");
                 const bool caught = std::uniform_real_distribution<float>(0.0f, 1.0f)(lootRandom) < caughtChance;
@@ -1554,7 +1463,7 @@ int main(int argc, char** argv) {
                     petWaitTime += dt;
                     if (!simulation.IsDogPetting() || playerKnockedDown || playerHitKind != 0) {
                         petWaiting = false;
-                    } else if (simulation.IsDogReadyForPet() || petWaitTime > 8.0f) {
+                    } else if (simulation.IsDogReadyForPet() || petWaitTime > 5.0f) {
                         petWaiting = false;
                         const glm::vec3 dogAt = simulation.GetDogPosition();
                         startAction(PlayerAction::Pet, "PetDog", 0.0f);
@@ -1569,10 +1478,6 @@ int main(int argc, char** argv) {
             glm::vec3 hitFrom{};
             while (simulation.ConsumePlayerHit(hitKind, hitFrom)) {
                 if (playerKnockedDown || playerHitKind > 0) continue;
-                if ((playerAction == PlayerAction::Slip || playerAction == PlayerAction::Duck) && actionTime >= 0.10f && actionTime <= actionDuration * 0.85f) {
-                    ui.SetPickupNotification("¡Esquivaste el golpe!");   // el esquive lateral o rotatorio evita el golpe
-                    continue;
-                }
                 playerHitKind = hitKind;
                 playerHitTime = 0.0f;
                 playerAction = PlayerAction::None;
@@ -1600,21 +1505,11 @@ int main(int argc, char** argv) {
             playerCrouching = canAct && free && Input::IsKeyDown(GLFW_KEY_LEFT_CONTROL);
             if (canAct && !playerCrouching && (free || recovered)) {
                 if (Input::IsKeyPressed(GLFW_KEY_J)) {
-                    if (comboIdle > 1.4f) punchChain = 0;
-                    comboIdle = 0.0f;
-                    const PlayerAction punch = punchChain % 3 == 0 ? PlayerAction::Jab : punchChain % 3 == 1 ? PlayerAction::Cross : PlayerAction::Hook;
-                    ++punchChain;
-                    startAction(punch, "PunchJab", Combat::Info(static_cast<Combat::Move>(combatMoveOf(punch))).duration);
+                    startAction(nextPunchIsCross ? PlayerAction::Cross : PlayerAction::Jab, nextPunchIsCross ? "PunchCross" : "PunchJab", 0.0f);
+                    nextPunchIsCross = !nextPunchIsCross;
                     fightStanceRemaining = 3.0f;
                 } else if (Input::IsKeyPressed(GLFW_KEY_K)) {
-                    const PlayerAction kick = nextKickIsHigh ? PlayerAction::HighKick : PlayerAction::Kick;
-                    nextKickIsHigh = !nextKickIsHigh;
-                    startAction(kick, "Kick", Combat::Info(static_cast<Combat::Move>(combatMoveOf(kick))).duration);
-                    fightStanceRemaining = 3.0f;
-                } else if (Input::IsKeyPressed(GLFW_KEY_G)) {
-                    const PlayerAction dodge = nextDodgeIsDuck ? PlayerAction::Duck : PlayerAction::Slip;
-                    nextDodgeIsDuck = !nextDodgeIsDuck;
-                    startAction(dodge, "FightIdle", Combat::Info(static_cast<Combat::Move>(combatMoveOf(dodge))).duration);
+                    startAction(PlayerAction::Kick, "Kick", 0.0f);
                     fightStanceRemaining = 3.0f;
                 } else if (Input::IsKeyPressed(GLFW_KEY_H)) {
                     startAction(nextKnifeIsStab ? PlayerAction::Stab : PlayerAction::Slash, nextKnifeIsStab ? "KnifeStab" : "KnifeSlash", 0.0f);
@@ -1638,46 +1533,33 @@ int main(int argc, char** argv) {
                     if (clickWasLocked && clickTime < 0.3f && clickMove < 12.0f && canAct && !playerCrouching && (free || recovered)) {
                         if (comboIdle > 1.4f) comboStep = 0;
                         comboIdle = 0.0f;
-                        const int step = comboStep++ % 4;
-                        const PlayerAction blow = step == 0 ? PlayerAction::Jab : step == 1 ? PlayerAction::Cross : step == 2 ? PlayerAction::Hook
-                            : (comboStep % 8 == 0 ? PlayerAction::HighKick : PlayerAction::Kick);
-                        startAction(blow, "PunchJab", Combat::Info(static_cast<Combat::Move>(combatMoveOf(blow))).duration);
+                        const int step = comboStep++ % 3;
+                        if (step == 0) startAction(PlayerAction::Jab, "PunchJab", 0.0f);
+                        else if (step == 1) startAction(PlayerAction::Cross, "PunchCross", 0.0f);
+                        else startAction(PlayerAction::Kick, "Kick", 0.0f);
                         fightStanceRemaining = 3.0f;
                     }
                 } else if (!Input::IsMouseButtonDown(GLFW_MOUSE_BUTTON_LEFT)) {
                     clickTracking = false;
                 }
             }
-            if (canAct && free && Input::IsKeyPressed(GLFW_KEY_SPACE)) {
-                // desde quieto: salto vertical estatico; caminando o corriendo: salto con carrera, cuyo alcance sale de la velocidad
-                const float planarSpeed = glm::length(glm::vec2(playerVelocity.x, playerVelocity.z));
-                jumpMoving = planarSpeed > 1.2f;
-                if (jumpMoving) {
-                    jumpDirection = glm::normalize(glm::vec3(playerVelocity.x, 0.0f, playerVelocity.z));
-                    jumpSpeed = std::clamp(planarSpeed * 1.3f, 3.2f, 8.0f);   // a pie ~3 m de salto, corriendo ~6 m
-                }
-                startAction(PlayerAction::Jump, "Jump", Jump::TimingFor(jumpMoving).duration);
-            }
+            if (canAct && free && Input::IsKeyPressed(GLFW_KEY_SPACE)) startAction(PlayerAction::Jump, "Jump", 1.0f);
             if (playerAction != PlayerAction::None) {
                 actionTime += dt;
                 if (!actionHitDone && playerAction != PlayerAction::Jump) {
                     // el golpe alcanza a un peaton cuando el puno o el pie llegan al punto de impacto de la animacion
-                    const int combatMove = combatMoveOf(playerAction);
-                    const bool dodging = playerAction == PlayerAction::Slip || playerAction == PlayerAction::Duck;
-                    const bool kicking = playerAction == PlayerAction::Kick || playerAction == PlayerAction::HighKick;
-                    const float impactAt = combatMove >= 0 ? Combat::Info(static_cast<Combat::Move>(combatMove)).impact
-                        : playerAction == PlayerAction::Stab ? 0.28f : 0.30f;
-                    if (dodging) actionHitDone = true;
-                    else if (actionTime >= impactAt) {
+                    const float impactAt = playerAction == PlayerAction::Jab ? 0.22f : playerAction == PlayerAction::Cross ? 0.30f
+                        : playerAction == PlayerAction::Kick ? 0.40f : playerAction == PlayerAction::Stab ? 0.28f : 0.30f;
+                    if (actionTime >= impactAt) {
                         actionHitDone = true;
-                        const int hitKind = playerAction == PlayerAction::Jab ? 1 : kicking ? 3 : 2;
-                        if (!simulation.HitPedestrian(playerPos, {std::sin(playerYaw), std::cos(playerYaw)}, kicking ? 1.6f : 1.3f, hitKind))
+                        const int hitKind = playerAction == PlayerAction::Jab ? 1 : playerAction == PlayerAction::Kick ? 3 : 2;
+                        if (!simulation.HitPedestrian(playerPos, {std::sin(playerYaw), std::cos(playerYaw)}, playerAction == PlayerAction::Kick ? 1.6f : 1.3f, hitKind))
                             simulation.HitVehicle(playerPos, {std::sin(playerYaw), std::cos(playerYaw)}, 1.4f);
                     }
                 }
                 if (playerAction == PlayerAction::Jump) {
                     // se despega al final de la flexion (0,17 s) y se cae con la gravedad: unos 0,7 s en el aire y 0,66 m de altura
-                    const float air = actionTime - Jump::TimingFor(jumpMoving).takeoff;
+                    const float air = actionTime - 0.17f;
                     jumpOffset = air > 0.0f && air < 0.735f ? 3.6f * air - 4.9f * air * air : 0.0f;
                 }
                 if (playerAction == PlayerAction::Pet && petRewardPending && actionTime >= 1.5f) {   // la mano ya esta sobre la cabeza
@@ -1693,12 +1575,6 @@ int main(int argc, char** argv) {
                     jumpOffset = 0.0f;
                 }
             }
-            if (pickupTime >= 0.0f) { pickupTime += dt; if (pickupTime >= 0.85f) pickupTime = -1.0f; }
-            if (sorting) {   // de cara a la bolsa mientras se revisa
-                const glm::vec3 toBag = sortPosition - playerPos;
-                if (glm::length(glm::vec2(toBag.x, toBag.z)) > 0.05f) playerYaw = std::atan2(toBag.x, toBag.z);
-            }
-            if (grabTime >= 0.0f && !std::getenv("BAZUKO_PREVIEW_GRAB")) { grabTime += dt; if (grabTime >= Combat::kGrabDuration) grabTime = -1.0f; }
             fightStanceRemaining = std::max(0.0f, fightStanceRemaining - dt);
             knifeStanceRemaining = std::max(0.0f, knifeStanceRemaining - dt);
         }
@@ -1810,9 +1686,6 @@ int main(int argc, char** argv) {
             ui.SetEffectiveRenderScale(adaptiveResolution.ratio, adaptiveResolution.pressure);
         }
         renderer.SetWetness(simulation.GetWetness());
-        // sombras del sol y la luna alrededor del jugador: baja no las dibuja, media 1024 px en 40 m, alta 2048 px en 60 m
-        static const bool noShadows = std::getenv("BAZUKO_NOSHADOW") != nullptr;   // pruebas: compara el costo
-        renderer.ConfigureShadows(noShadows || graphicsQuality == 0 ? 0 : graphicsQuality == 1 ? 1024 : 2048, graphicsQuality == 1 ? 40.0f : 60.0f);
         {   // luz y cielo segun la hora y el clima (la calidad baja solo conserva la hora)
             const bool reducedWeather = graphicsQuality == 0;
             const Atmosphere atmosphere = ComputeAtmosphere(simulation.GetHour(), reducedWeather ? 0.0f : simulation.GetRainIntensity(), reducedWeather ? 0.0f : simulation.GetMist(),
@@ -1828,16 +1701,10 @@ int main(int argc, char** argv) {
                 celestialMoonLight = Climate::MoonIllumination(Climate::MoonPhase(simulation.GetDay(), simulation.GetHour()));
                 renderer.GetLighting().sunDir = -glm::normalize(toLight);
             }
-            // cielo: paleta del juego web segun la altura del sol y el clima; el horizonte es tambien el color de la niebla
-            skyColors = ComputeSkyColors(celestialSun.y, simulation.GetCloudCover(), reducedWeather ? 0.0f : simulation.GetRainIntensity(),
-                                         reducedWeather ? 0.0f : simulation.GetMist(), simulation.GetLightningFlash());
-            moonPhase = Climate::MoonPhase(simulation.GetDay(), simulation.GetHour());
-            moonVisibility = AtmosphereSmoothstep(-0.02f, 0.06f, celestialMoon.y) * (0.25f + 0.75f * skyColors.night);
-            skyDome.Update(std::max(0.0f, dt), simulation.GetWind());
             LightBlockData& lighting = renderer.GetLighting();
             lighting.sunColor = atmosphere.sunColor;
             lighting.ambientColor = atmosphere.ambientColor;
-            lighting.fogColor = skyColors.horizon;
+            lighting.fogColor = atmosphere.fogColor;
             lighting.fogDensity = atmosphere.fogDensity;
             // farolas: se encienden solas al oscurecer; solo las mas cercanas aportan luz
             lighting.lampCount = 0;
@@ -1857,18 +1724,22 @@ int main(int argc, char** argv) {
         renderer.BeginScaledTarget();
         renderer.BeginScene(camera, clock.GetElapsedTime());
 
-        skyDome.Render(renderer, skyColors, celestialSun, celestialMoon, moonPhase, moonVisibility, simulation.GetCloudCover(), simulation.GetLightningFlash(), graphicsQuality == 0 ? 2 : graphicsQuality == 1 ? 3 : 4);
-
         // Renderizar ciudad de Bogotá
         city.Render(renderer, playerPos);
-        lake.DrawFish(renderer, clock.GetElapsedTime());
         simulation.Render(renderer, clock.GetElapsedTime(), playerPos);
-        if (gps.Waypoint() && ui.IsGpsBeaconVisible()) {   // haz del destino: columna translucida que se ve desde lejos
+        if (gps.Waypoint()) {   // haz del destino: columna translucida que se ve desde lejos
             const float pulse = 0.30f + 0.12f * std::sin(clock.GetElapsedTime() * 2.5f);
             const glm::vec3 beaconBase(gps.Waypoint()->x, city.GetGroundHeight(gps.Waypoint()->x, gps.Waypoint()->z) + 20.0f, gps.Waypoint()->z);
             renderer.Submit(*gpsBeacon, glm::translate(glm::mat4(1.0f), beaconBase), glm::vec4(1.0f, 1.0f, 1.0f, pulse), false, false, nullptr, 2);
         }
         starField.Render(renderer, camera.GetPosition(), starVisibility, clock.GetElapsedTime());
+        {   // sol y luna: se ven con el cielo despejado y se apagan con las nubes, la lluvia y la neblina
+            const float clear = std::clamp(1.0f - 0.95f * simulation.GetCloudCover() - 0.6f * simulation.GetMist(), 0.0f, 1.0f);
+            const float hour = simulation.GetHour();
+            const float night = 1.0f - AtmosphereSmoothstep(6.5f, 8.5f, hour) * (1.0f - AtmosphereSmoothstep(17.0f, 19.0f, hour));
+            starField.RenderCelestial(renderer, camera.GetPosition(), celestialSun, celestialMoon, celestialMoonLight, clear, night);
+        }
+
         // Renderizar personaje
         {
             if (playerKnockedDown) {
@@ -1899,15 +1770,6 @@ int main(int argc, char** argv) {
                 playerModel = glm::rotate(playerModel, playerYaw, glm::vec3(0.0f, 1.0f, 0.0f));
                 playerModel = glm::translate(playerModel, glm::vec3(0.0f, jumpOffset, 0.0f));
                 const bool movingNow = currentSpeed > 0.25f;
-                {   // nadando: el cuerpo se tiende sobre el agua (brazada de crol con el ciclo de la carrera) y al parar flota de pie
-                    const float swimTarget = playerSwimming && movingNow ? 1.0f : 0.0f;
-                    swimPitch += (swimTarget - swimPitch) * std::min(1.0f, std::max(0.0f, dt) * 4.0f);
-                    if (swimPitch > 0.01f) {
-                        const float bob = 0.04f * std::sin(clock.GetElapsedTime() * 2.2f);
-                        playerModel = glm::translate(playerModel, glm::vec3(0.0f, 0.95f * swimPitch + bob * swimPitch, -0.85f * swimPitch));   // el cuerpo va metido en el agua, con la espalda a flor
-                        playerModel = glm::rotate(playerModel, glm::radians(78.0f) * swimPitch, glm::vec3(1.0f, 0.0f, 0.0f));
-                    }
-                }
                 stillSeconds = movingNow || playerAction != PlayerAction::None ? 0.0f : stillSeconds + dt;
                 int poseClip = -1;
                 float poseTime = clock.GetElapsedTime();
@@ -1917,12 +1779,6 @@ int main(int argc, char** argv) {
                 } else if (playerHitKind > 0) {
                     poseClip = characterManager.FindClip(playerHitKind == 1 ? "HitFace" : playerHitKind == 2 ? "HitChest" : "HitLegs");
                     poseTime = playerHitTime;
-                } else if (playerAction != PlayerAction::None && combatMoveOf(playerAction) >= 0) {
-                    poseClip = characterManager.FindClip("FightIdle");   // la guardia es la base; la tecnica gira huesos encima
-                    poseTime = 0.0f;
-                } else if (playerAction == PlayerAction::Jump) {
-                    poseClip = characterManager.FindClip("Idle");   // el salto gira huesos sobre el reposo (JumpMoves.hpp)
-                    poseTime = 0.0f;
                 } else if (playerAction != PlayerAction::None) {
                     poseClip = playerActionClip;
                     poseTime = actionTime;
@@ -1957,97 +1813,7 @@ int main(int argc, char** argv) {
                         poseTime = previewTime ? static_cast<float>(std::atof(previewTime)) : std::fmod(clock.GetElapsedTime(), 3.0f);
                     }
                 }
-                std::vector<Model::BoneTurn> swimTurns;
-                if (swimPitch > 0.5f) {   // nadando: brazos en molino de crol y patada alterna sobre la pose de reposo
-                    constexpr float kTau = 6.2831853f;
-                    swimPhase = std::fmod(swimPhase + std::max(0.0f, dt) * (playerWaterDepth > 1.15f ? 0.62f : 0.52f), 1.0f);
-                    if (static const char* fixedPhase = std::getenv("BAZUKO_SWIMPHASE")) swimPhase = static_cast<float>(std::atof(fixedPhase));   // pruebas: congela la brazada
-                    poseClip = characterManager.FindClip("Idle");
-                    blendClip = -1;
-                    blendWeight = 0.0f;
-                    poseTime = 0.0f;
-                    const auto bone = [&](const char* name, float angle) { swimTurns.push_back({name, {angle, 0.0f, 0.0f}, {0.0f, 0.0f, 0.0f}, true}); };
-                    // Brazada de crol (esquema por etapas): entrada con el brazo estirado al frente, jalada bajo el cuerpo con el codo alto,
-                    // salida junto a la cadera y recobro fuera del agua con el codo alto y el antebrazo colgando. Direcciones en el espacio
-                    // del modelo con el cuerpo tendido: +y avance, +z hacia el agua, -z hacia el cielo, x lateral (`s` segun el lado)
-                    struct ArmKey { float q; glm::vec3 upper, fore; };
-                    static const std::array<ArmKey, 8> keys{{
-                        {0.00f, {0.25f, 1.00f, 0.20f}, {0.20f, 1.00f, 0.25f}},    // a: mano al frente, entrada
-                        {0.14f, {0.30f, 0.75f, 0.60f}, {0.15f, 0.10f, 1.00f}},    // b-c: agarre, antebrazo hacia abajo
-                        {0.30f, {0.20f, 0.05f, 1.00f}, {0.10f, -0.65f, 0.90f}},   // d: jalada bajo el cuerpo
-                        {0.50f, {0.15f, -1.00f, 0.30f}, {0.10f, -1.00f, 0.25f}},  // e: empuje hasta la cadera
-                        {0.60f, {0.60f, -0.70f, -0.45f}, {0.30f, -0.80f, 0.25f}}, // salida del agua
-                        {0.74f, {1.00f, -0.15f, -0.40f}, {0.35f, 0.40f, 0.95f}},  // f: codo alto, antebrazo colgando
-                        {0.88f, {0.80f, 0.55f, -0.25f}, {0.25f, 0.85f, 0.45f}},   // g: la mano pasa junto a la cabeza
-                        {1.00f, {0.25f, 1.00f, 0.20f}, {0.20f, 1.00f, 0.25f}}}};
-                    const auto stroke = [&](const char* arm, const char* forearm, const char* hand, float side, float q) {
-                        q = q - std::floor(q);
-                        size_t next = 1;
-                        while (next < keys.size() - 1 && keys[next].q < q) ++next;
-                        const ArmKey& from = keys[next - 1];
-                        const ArmKey& to = keys[next];
-                        const float u = glm::smoothstep(0.0f, 1.0f, (q - from.q) / std::max(0.0001f, to.q - from.q));
-                        const auto mirrored = [&](glm::vec3 v) { v.x *= side; return glm::normalize(v); };
-                        const glm::vec3 upper = glm::normalize(glm::mix(mirrored(from.upper), mirrored(to.upper), u));
-                        const glm::vec3 fore = glm::normalize(glm::mix(mirrored(from.fore), mirrored(to.fore), u));
-                        swimTurns.push_back({arm, {0.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 0.0f}, true, forearm, upper});
-                        swimTurns.push_back({forearm, {0.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 0.0f}, true, hand, fore});
-                    };
-                    stroke("mixamorig:LeftArm", "mixamorig:LeftForeArm", "mixamorig:LeftHand", 1.0f, swimPhase);
-                    stroke("mixamorig:RightArm", "mixamorig:RightForeArm", "mixamorig:RightHand", -1.0f, swimPhase + 0.5f);
-                    {   // el torso rueda un poco hacia el brazo que recobra
-                        const float roll = 0.28f * std::sin(kTau * swimPhase);
-                        swimTurns.push_back({"mixamorig:Spine1", {0.0f, roll, 0.0f}, {0.0f, 0.0f, 0.0f}, true});
-                        swimTurns.push_back({"mixamorig:Spine2", {0.0f, roll, 0.0f}, {0.0f, 0.0f, 0.0f}, true});
-                    }
-                    bone("mixamorig:RightUpLeg", 0.38f * std::sin(kTau * 2.0f * swimPhase));
-                    bone("mixamorig:LeftUpLeg", -0.38f * std::sin(kTau * 2.0f * swimPhase));
-                }
-                {   // basura: revisandola (Q mantenido) se agacha y revuelve con los dos brazos; al recogerla de un golpe baja el brazo derecho
-                    const auto toLocal = [&](const glm::vec3& target) {
-                        const glm::vec3 v = target - playerPos;
-                        const glm::vec3 forward(std::sin(playerYaw), 0.0f, std::cos(playerYaw)), left(std::cos(playerYaw), 0.0f, -std::sin(playerYaw));
-                        return glm::vec3(glm::dot(v, left), 0.0f, glm::dot(v, forward));
-                    };
-                    static float sortElapsed = 0.0f;
-                    if (sorting) {
-                        sortElapsed += std::max(0.0f, dt);
-                        Combat::AppendGroundWork(swimTurns, std::min(1.0f, sortElapsed / 0.30f), toLocal(sortPosition), sortElapsed, 1.0f, true);
-                    } else {
-                        sortElapsed = 0.0f;
-                        if (pickupTime >= 0.0f) {
-                            const float u = pickupTime / 0.85f;
-                            const float envelope = u < 0.35f ? glm::smoothstep(0.0f, 0.35f, u) : 1.0f - glm::smoothstep(0.55f, 1.0f, u);   // baja rapido, toca y sube
-                            Combat::AppendGroundWork(swimTurns, 0.75f * envelope, toLocal(pickupTarget), pickupTime, 0.5f, false);
-                        }
-                    }
-                }
-                if (grabTime >= 0.0f) Combat::AppendGrab(swimTurns, grabTime);   // robo de un retrovisor: el brazo derecho agarra rapido y vuelve
-                if (playerAction == PlayerAction::Jump) Jump::Append(swimTurns, actionTime, jumpMoving);
-                else if (const int combatMove = combatMoveOf(playerAction); combatMove >= 0 && playerAction != PlayerAction::None)
-                    Combat::AppendMove(swimTurns, static_cast<Combat::Move>(combatMove), actionTime);
-                else if (!movingNow && fightStanceRemaining > 0.0f && playerAction == PlayerAction::None)
-                    Combat::AppendFists(swimTurns);   // en guardia los puños van cerrados
-                if (static const char* previewJump = std::getenv("BAZUKO_PREVIEW_JUMP")) {   // pruebas: BAZUKO_PREVIEW_JUMP=static|moving con BAZUKO_PREVIEW_TIME=<s>
-                    static const char* jumpTime = std::getenv("BAZUKO_PREVIEW_TIME");
-                    poseClip = characterManager.FindClip("Idle");
-                    blendClip = -1;
-                    blendWeight = 0.0f;
-                    poseTime = 0.0f;
-                    Jump::Append(swimTurns, jumpTime ? static_cast<float>(std::atof(jumpTime)) : 0.0f, std::string(previewJump) == "moving");
-                }
-                if (static const char* previewMove = std::getenv("BAZUKO_PREVIEW_MOVE")) {   // pruebas: BAZUKO_PREVIEW_MOVE=<tecnica> con BAZUKO_PREVIEW_TIME=<s>
-                    const int move = Combat::FindMove(previewMove);
-                    if (move >= 0) {
-                        static const char* moveTime = std::getenv("BAZUKO_PREVIEW_TIME");
-                        poseClip = characterManager.FindClip("FightIdle");
-                        blendClip = -1;
-                        blendWeight = 0.0f;
-                        poseTime = 0.0f;
-                        Combat::AppendMove(swimTurns, static_cast<Combat::Move>(move), moveTime ? static_cast<float>(std::atof(moveTime)) : std::fmod(clock.GetElapsedTime(), Combat::Info(static_cast<Combat::Move>(move)).duration + 0.4f));
-                    }
-                }
-                characterManager.Draw(renderer, playerModel, poseTime, movingNow, isRunning, poseClip, blendClip, blendWeight, swimTurns.empty() ? nullptr : &swimTurns);
+                characterManager.Draw(renderer, playerModel, poseTime, movingNow, isRunning, poseClip, blendClip, blendWeight);
                 if (knifeModel && (playerAction == PlayerAction::Slash || playerAction == PlayerAction::Stab || knifeStanceRemaining > 0.0f)) {
                     // la navaja va en la mano derecha, con la hoja saliendo del puno
                     const glm::mat4 hand = characterManager.HandMatrix(playerModel, poseTime, poseClip >= 0 ? poseClip : characterManager.FindClip("Idle"), true);
@@ -2058,10 +1824,8 @@ int main(int argc, char** argv) {
             }
         }
 
-        lake.DrawSurface(renderer, clock.GetElapsedTime());   // al final: el agua translucida deja ver al jugador y a los peces sumergidos
         renderer.EndScene();
         renderer.EndScaledTarget();
-        renderer.RenderShadowMap(-renderer.GetLighting().sunDir, playerPos);   // con lo que se vio en este cuadro: lo usa el siguiente
 
         // 9. Interfaz gráfica (Dear ImGui)
         {   // burbujas de conversacion de los peatones cercanos
@@ -2128,7 +1892,7 @@ int main(int argc, char** argv) {
                 item.consumableNeed >= 0 || !item.cure.empty() || item.id == "vendaje" || item.id == "curita"
                     || item.id == "pilas" || item.id == "radioTransistor",
                 item.desc, DescribeItemEffects(item), item.rarityLabel,
-                hotbarSlot == hotbar.end() ? -1 : static_cast<int>(hotbarSlot - hotbar.begin()), item.value});
+                hotbarSlot == hotbar.end() ? -1 : static_cast<int>(hotbarSlot - hotbar.begin())});
         }
         std::vector<DealerOption> dealerOptions;
         for (const std::string& id : {std::string("tintico"), std::string("pegante"), std::string("pastilla")}) {
@@ -2142,7 +1906,6 @@ int main(int argc, char** argv) {
         for (const TalentDef& definition : gameData.talents) {
             talentOptions.push_back({definition.id, definition.name, definition.desc,
                                      definition.prerequisites.empty() ? std::string{} : definition.prerequisites.front(), definition.cost});
-            talentOptions.back().branch = definition.branch;
         }
         for (auto& talent : talentOptions) {
             talent.unlocked = hasTalent(talent.id);

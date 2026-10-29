@@ -10,19 +10,6 @@ namespace Bazuko {
 Mesh::Mesh(const std::vector<Vertex>& vertices, const std::vector<uint32_t>& indices)
     : m_IndexCount(static_cast<uint32_t>(indices.size())) {
     
-    if (s_KeepPositions) {
-        m_Positions.reserve(vertices.size());
-        for (const Vertex& vertex : vertices) m_Positions.push_back(vertex.position);
-    }
-    if (!vertices.empty()) {
-        glm::vec3 low = vertices.front().position, high = low;
-        for (const Vertex& vertex : vertices) {
-            low = glm::min(low, vertex.position);
-            high = glm::max(high, vertex.position);
-        }
-        m_BoundsCenter = (low + high) * 0.5f;
-        m_BoundsRadius = glm::length(high - low) * 0.5f;
-    }
     m_VBO = std::make_unique<VertexBuffer>(vertices.data(), vertices.size() * sizeof(Vertex));
     m_EBO = std::make_unique<IndexBuffer>(indices.data(), m_IndexCount);
     m_VAO = std::make_unique<VertexArray>();

@@ -7,7 +7,6 @@
 #include <cmath>
 #include <filesystem>
 #include "../character/CharacterAnimations.hpp"
-#include "../character/CombatMoves.hpp"
 #include "../core/Log.hpp"
 #include "../core/Paths.hpp"
 #include "../game/Harvest.hpp"
@@ -24,8 +23,7 @@ namespace {
 constexpr size_t kRainDropCount = 350;   // gotas alrededor del jugador, como el original
 constexpr float kBusLength = 22.0f;       // largo del bus biarticulado (colisiones, frenado y modelo)
 constexpr float kBusHalfLength = kBusLength * 0.5f;
-constexpr float kBusWidth = 2.72f;
-constexpr float kDogBaseScale = 1.35f;   // tamano base de El Chato (la escala del creador se multiplica por esta): el labrador se veia muy pequeno junto al personaje
+constexpr float kBusWidth = 2.52f;
 constexpr float kDayLengthSeconds = 3600.0f;   // un dia de juego = una hora real, como el original
 
 // Radio de las esquinas de un circuito: 3,5 m (el giro de un carro con direccion de 35 grados) o menos si la manzana es pequena
@@ -329,46 +327,24 @@ VehicleParts Simulation::LoadVehicleParts(const std::string& modelsRoot, const s
     return parts;
 }
 
-namespace {
-// Modelos de Sketchfab sin permiso de redistribucion (Pitbull de El Chato, Raptor, Renault 6, Model X y el Transmilenio articulado; ver
-// docs/creditos-modelos.md): el port no los carga. Quien tenga copias con licencia puede colocarlas en public/models/ y activarlas con
-// BAZUKO_MODELOS_RESTRINGIDOS=1; sin esa variable el juego usa los modelos de respaldo.
-bool RestrictedModelsEnabled() {
-    static const bool enabled = [] {
-        const char* value = std::getenv("BAZUKO_MODELOS_RESTRINGIDOS");
-        return value != nullptr && value[0] == '1';
-    }();
-    return enabled;
-}
-} // namespace
-
 void Simulation::LoadArticulatedBus(const std::string& modelsRoot) {
-    // El Transmilenio biarticulado es un modelo restringido (ver docs/creditos-modelos.md): solo con BAZUKO_MODELOS_RESTRINGIDOS=1.
-    // Por defecto se usa el bus del juego base dividido en dos secciones con fuelle y seis ruedas (bus-articulado/).
-    if (RestrictedModelsEnabled() && LoadArticulatedBusFrom(modelsRoot + "transmilenio/", "tm.json")) return;
-    LoadArticulatedBusFrom(modelsRoot + "bus-articulado/", "bus.json");
-}
-
-bool Simulation::LoadArticulatedBusFrom(const std::string& folder, const char* specFile) {
-    std::ifstream file(folder + specFile);
-    if (!file) return false;
+    const std::string folder = modelsRoot + "transmilenio/";
+    std::ifstream file(folder + "tm.json");
+    if (!file) return;
     nlohmann::json info;
-    try { file >> info; } catch (...) { return false; }
+    try { file >> info; } catch (...) { return; }
     ArticulatedBus bus;
     const auto& sections = info["sections"];
-    const size_t sectionCount = sections.size();
-    if (sectionCount < 2 || info["pivots"].size() + 1 != sectionCount) return false;
-    for (size_t index = 0; index < sectionCount; ++index) bus.sections.push_back(Model::LoadFromFile(folder + sections[index].value("file", std::string())));
-    bus.bellows.resize(sectionCount - 1);
-    for (size_t index = 0; index + 1 < sectionCount && index < info.value("accordions", nlohmann::json::array()).size(); ++index)
+    if (sections.size() != 3 || info["pivots"].size() != 2) return;
+    for (size_t index = 0; index < 3; ++index) bus.sections[index] = Model::LoadFromFile(folder + sections[index].value("file", std::string()));
+    for (size_t index = 0; index < 2 && index < info.value("accordions", nlohmann::json::array()).size(); ++index)
         bus.bellows[index] = Model::LoadFromFile(folder + info["accordions"][index].value("file", std::string()));
-    // el frente es +Z en el modelo: la primera seccion llega al extremo mayor y la ultima al menor
+    // el frente es +Z en el modelo: la seccion 0 llega al extremo mayor y la 2 al menor
     const float frontEnd = std::max(sections[0]["max"][2].get<float>(), sections[0]["min"][2].get<float>());
-    const float rearEnd = std::min(sections[sectionCount - 1]["min"][2].get<float>(), sections[sectionCount - 1]["max"][2].get<float>());
-    std::vector<float> boundaries{frontEnd};
-    for (const auto& pivot : info["pivots"]) { bus.pivotZ.push_back(pivot[2].get<float>()); boundaries.push_back(bus.pivotZ.back()); }
-    boundaries.push_back(rearEnd);
-    for (size_t index = 0; index < sectionCount; ++index) bus.reference.push_back((boundaries[index] + boundaries[index + 1]) * 0.5f);
+    const float rearEnd = std::min(sections[2]["min"][2].get<float>(), sections[2]["max"][2].get<float>());
+    const float pivotFront = info["pivots"][0][2].get<float>(), pivotRear = info["pivots"][1][2].get<float>();
+    bus.reference = {(frontEnd + pivotFront) * 0.5f, (pivotFront + pivotRear) * 0.5f, (pivotRear + rearEnd) * 0.5f};
+    bus.pivotZ = {pivotFront, pivotRear};
     bus.centerZ = (frontEnd + rearEnd) * 0.5f;
     bus.scale = kBusLength / (frontEnd - rearEnd);
     bus.groundY = std::numeric_limits<float>::max();
@@ -380,35 +356,8 @@ bool Simulation::LoadArticulatedBusFrom(const std::string& folder, const char* s
         wheel.radius = entry.value("radius", 0.4f);
         wheel.axle = entry.value("axle", 0);
         wheel.front = entry.value("front", false);
-        wheel.section = entry.value("section", -1);
         bus.groundY = std::min(bus.groundY, wheel.center.y - wheel.radius);
         if (wheel.model) bus.wheels.push_back(std::move(wheel));
-    }
-    if (info.contains("sign")) {
-        const auto& sign = info["sign"];
-        bus.signTexture = Texture::LoadCached(folder + sign.value("file", std::string()), false);
-        bus.signColumns = std::max(1.0f, sign.value("columns", 1.0f));
-        const float window = sign.value("window", 64.0f) / bus.signColumns;
-        std::vector<Vertex> vertices;
-        std::vector<uint32_t> indices;
-        const auto& points = sign["points"];
-        const size_t count = points.size();
-        for (size_t i = 0; i < count; ++i) {
-            const auto& p = points[i];
-            const float u = window * static_cast<float>(i) / static_cast<float>(count - 1);
-            for (int row = 0; row < 2; ++row) {   // 0: borde inferior, 1: borde superior (la fila 0 de la imagen es la de arriba)
-                Vertex vertex;
-                vertex.position = {p[row * 3].get<float>(), p[row * 3 + 1].get<float>(), p[row * 3 + 2].get<float>()};
-                vertex.normal = {0.0f, 0.0f, 1.0f};
-                vertex.uv = {u, row == 0 ? 1.0f : 0.0f};
-                vertices.push_back(vertex);
-            }
-            if (i > 0) {
-                const uint32_t a = static_cast<uint32_t>(2 * (i - 1));
-                indices.insert(indices.end(), {a, a + 2, a + 3, a, a + 3, a + 1});
-            }
-        }
-        if (vertices.size() >= 4 && bus.signTexture) bus.signMesh = std::make_shared<Mesh>(vertices, indices);
     }
     if (info.contains("driver")) {
         const auto& driver = info["driver"]["pos"];
@@ -419,22 +368,17 @@ bool Simulation::LoadArticulatedBusFrom(const std::string& folder, const char* s
         const auto& pos = entry["pos"];
         bus.standing.push_back({{pos[0].get<float>(), pos[1].get<float>(), pos[2].get<float>()}, entry.value("yaw", 0.0f)});
     }
-    if (!bus.valid()) {
-        LogWarn("No se pudo cargar el bus articulado de {}", folder);
-        return false;
-    }
-    m_ArticulatedBus = std::move(bus);
-    LogInfo("Bus articulado: {} secciones, {} ruedas ({})", sectionCount, m_ArticulatedBus.wheels.size(), folder);
-    return true;
+    if (bus.valid()) m_ArticulatedBus = std::move(bus);
+    else LogWarn("No se pudo cargar el bus articulado de {}", folder);
 }
 
 void Simulation::DrawArticulatedBus(Renderer& renderer, const BusState& bus, size_t busIndex, float opacity, float time, const glm::vec3& focus) const {
     const ArticulatedBus& model = m_ArticulatedBus;
     const int alphaMode = opacity < 1.0f ? 2 : -1;   // -1: cada pieza usa su propio modo (el vidrio es translucido)
     const glm::vec4 tint(1.0f, 1.0f, 1.0f, opacity);
-    std::vector<glm::mat4> placement(model.sections.size());
+    std::array<glm::mat4, 3> placement;
     float frontYaw = 0.0f;
-    for (size_t index = 0; index < model.sections.size(); ++index) {
+    for (size_t index = 0; index < 3; ++index) {
         // cada seccion se ancla al eje del carril a la distancia que le corresponde desde el centro del bus (+ hacia el frente)
         const float ahead = (model.reference[index] - model.centerZ) * model.scale;
         const float z = bus.position.z + bus.direction * ahead;
@@ -459,7 +403,7 @@ void Simulation::DrawArticulatedBus(Renderer& renderer, const BusState& bus, siz
     // Fuelles: acordeon flexible. Se deforma entre las dos secciones por mezcla de huesos: el extremo delantero sigue a la seccion
     // de delante, el trasero a la de atras y el centro gira la mitad; asi se estira por fuera de la curva, se comprime por dentro
     // y acompana la pendiente sin cortes.
-    for (size_t index = 0; index + 1 < model.sections.size(); ++index) {
+    for (size_t index = 0; index < 2; ++index) {
         if (!model.bellows[index]) continue;
         const glm::mat4& front = placement[index];
         const glm::mat4& rear = placement[index + 1];
@@ -477,22 +421,12 @@ void Simulation::DrawArticulatedBus(Renderer& renderer, const BusState& bus, siz
                             alphaMode >= 0 ? alphaMode : part.alphaMode, part.alphaCutoff, part.specularTexture.get());
         }
     }
-    // letrero LED: el texto corre de derecha a izquierda; cada bus va en un punto distinto de la tira
-    if (model.signMesh && model.signTexture) {
-        const float offset = std::fmod(time * 14.0f / model.signColumns + static_cast<float>(busIndex) * 0.37f, 1.0f);   // 14 columnas por segundo
-        model.signTexture->BindUnit(0);
-        renderer.SetUnlit(true);
-        renderer.SetUvOffset({offset, 0.0f});
-        renderer.Submit(*model.signMesh, placement[0], tint, true, true, nullptr, opacity < 1.0f ? 2 : 0);
-        renderer.SetUvOffset({0.0f, 0.0f});
-        renderer.SetUnlit(false);
-    }
     // direccion: el primer eje vira hacia donde va el eje del carril unos metros mas adelante
     const float lookZ = bus.position.z + bus.direction * ((model.reference[0] - model.centerZ) * model.scale + 5.0f);
     const glm::vec2 lookHeading = Viaduct::BusHeading(lookZ, bus.laneX, bus.direction);
     const float steer = std::clamp(std::remainder(std::atan2(-lookHeading.x, -lookHeading.y) - frontYaw, glm::two_pi<float>()) * 2.0f, -0.5f, 0.5f);
     for (const ArticulatedBus::Wheel& wheel : model.wheels) {
-        const size_t section = wheel.section >= 0 ? static_cast<size_t>(wheel.section) : (wheel.axle <= 1 ? 0 : (wheel.axle == 2 ? 1 : 2));
+        const size_t section = wheel.axle <= 1 ? 0 : (wheel.axle == 2 ? 1 : 2);
         const float roll = bus.wheelRotation * 0.5f / (wheel.radius * model.scale);   // wheelRotation avanza distancia / 0,5 m
         glm::mat4 motion = glm::translate(placement[section], wheel.center);
         if (wheel.front) motion = glm::rotate(motion, steer, glm::vec3(0.0f, 1.0f, 0.0f));
@@ -506,8 +440,7 @@ void Simulation::DrawArticulatedBus(Renderer& renderer, const BusState& bus, siz
     const auto drawOccupant = [&](const ArticulatedBus::Occupant& occupant, size_t slot, bool seated) {
         const uint32_t hash = static_cast<uint32_t>((slot + 1) * 2654435761u) ^ static_cast<uint32_t>((busIndex + 3) * 40503u);
         const PedestrianAppearance& appearance = m_PedestrianAppearances[(hash >> 7) % m_PedestrianAppearances.size()];
-        size_t section = model.pivotZ.size();   // por defecto la ultima; la primera articulacion que queda por detras decide la seccion
-        for (size_t k = 0; k < model.pivotZ.size(); ++k) if (occupant.position.z > model.pivotZ[k]) { section = k; break; }
+        const size_t section = occupant.position.z > model.pivotZ[0] ? 0 : (occupant.position.z > model.pivotZ[1] ? 1 : 2);
         glm::mat4 person = glm::translate(placement[section], occupant.position);
         person = glm::scale(person, glm::vec3(1.0f / model.scale));      // personajes en metros
         person = glm::rotate(person, occupant.yaw, glm::vec3(0.0f, 1.0f, 0.0f));
@@ -696,7 +629,6 @@ Simulation::Simulation(const CityLayout& city, uint32_t seed,
                 appearance.getUpClip = appearance.parts.front()->FindAnimationClip("GetUp");
                 appearance.jabClip = appearance.parts.front()->FindAnimationClip("PunchJab");
                 appearance.crossClip = appearance.parts.front()->FindAnimationClip("PunchCross");
-                appearance.fightClip = appearance.parts.front()->FindAnimationClip("FightIdle");
                 m_PedestrianAppearances.push_back(std::move(appearance));
             }
         }
@@ -715,22 +647,13 @@ Simulation::Simulation(const CityLayout& city, uint32_t seed,
             }
         }
         LoadArticulatedBus(modelsRoot);
-        Mesh::s_KeepPositions = true;   // las carrocerias conservan sus posiciones para medir donde van los retrovisores
         m_VehicleParts[0] = LoadVehicleParts(modelsRoot, "vehiculo1");
         m_VehicleParts[1] = LoadVehicleParts(modelsRoot, "vehiculo2");
         m_VehicleParts[2] = LoadVehicleParts(modelsRoot, "ambulancia");
         m_VehicleParts[3] = LoadVehicleParts(modelsRoot, "vehiculo_policia");
         m_VehicleParts[4] = LoadVehicleParts(modelsRoot, "moto_policia");
         static const std::array<const char*, kCabinVariants> kCabinModels{{"raptor", "renault6", "jetta", "mercedes", "modelx", "crafter", "hilux"}};
-        for (size_t variant = 0; variant < kCabinVariants; ++variant) {
-            const std::string name = kCabinModels[variant];
-            const bool restricted = name == "raptor" || name == "renault6" || name == "modelx";   // sin permiso de redistribucion
-            if (restricted && !RestrictedModelsEnabled()) continue;                                // la variante queda sin modelo y no se sortea
-            m_VehicleParts[5 + variant] = LoadVehicleParts(modelsRoot, kCabinModels[variant]);
-        }
-        Mesh::s_KeepPositions = false;
-        if (!RestrictedModelsEnabled())
-            LogInfo("Modelos sin permiso de redistribucion excluidos (Pitbull, Raptor, Renault 6, Model X, Transmilenio articulado); BAZUKO_MODELOS_RESTRINGIDOS=1 los activa si tienes copias con licencia.");
+        for (size_t variant = 0; variant < kCabinVariants; ++variant) m_VehicleParts[5 + variant] = LoadVehicleParts(modelsRoot, kCabinModels[variant]);
         for (size_t index = 0; index < importedFiles.size(); ++index) {
             const std::string path = modelsRoot + importedFiles[index];
             std::shared_ptr<Model> model;
@@ -817,30 +740,11 @@ Simulation::Simulation(const CityLayout& city, uint32_t seed,
         reportModelLoad("Compañero: Mascota canina (El Chato) FBX");
         m_DogModel = Model::LoadFromFile(modelsRoot + "perro.glb");
         reportModelLoad("Compañero: El Chato (perro.glb)");
-        // El Labrador (kenchoo, CC BY 4.0) con animaciones propias es el perro por defecto; el Pitbull de El Chato no tiene permiso de
-        // redistribucion y solo se usa con BAZUKO_MODELOS_RESTRINGIDOS=1; si no hay ninguno, perro.glb animado por codigo.
-        nlohmann::json labradorInfo;
-        bool labrador = false;
-        if (std::ifstream infoFile(modelsRoot + "labrador.json"); infoFile) {
-            try { infoFile >> labradorInfo; labrador = true; } catch (...) { labrador = false; }
-        }
-        const char* dogFile = labrador ? "labrador.glb" : (RestrictedModelsEnabled() ? "chato.glb" : nullptr);
-        if (dogFile) {
-            m_ChatoModel = Model::LoadFromFile(modelsRoot + dogFile);
-            m_ChatoLibrary = Model::LoadFromFile(modelsRoot + dogFile);
-        }
-        if (labrador) {
-            m_DogRig.tail = {"Tail2", "Tail3", "Tail4", "Tail5"};
-            m_DogRig.neck = "Neck3";
-            m_DogRig.head = "Head";
-            m_DogRig.heightBone = "Body";
-            m_DogRig.tailAxis = 2;
-            m_DogRig.liftSit = m_DogRig.liftLie = m_DogRig.liftSleep = 0.0f;   // las posturas ya salen apoyadas en el suelo desde Blender
-            m_DogRig.liftOther = 0.004f;
-        }
+        m_ChatoModel = Model::LoadFromFile(modelsRoot + "chato.glb");
+        m_ChatoLibrary = Model::LoadFromFile(modelsRoot + "chato.glb");
         if (m_ChatoModel && m_ChatoLibrary) {
             m_ChatoModel->SetAnimationSource(*m_ChatoLibrary);
-            m_ChatoModel->SetHeightBone(m_DogRig.heightBone);   // al sentarse o echarse el cuerpo baja: la traslacion de la raiz/pelvis lo anima
+            m_ChatoModel->SetHeightBone("Spine_base_02");   // al sentarse o echarse el cuerpo baja: la traslacion de la pelvis lo anima
             DogClips& c = m_DogClips;
             const auto find = [&](const char* name) { return m_ChatoModel->FindAnimationClip(name); };
             c.idle = find("Idle"); c.idleLook = find("IdleLook"); c.idleSniff = find("IdleSniff"); c.idleAlert = find("IdleAlert");
@@ -853,16 +757,12 @@ Simulation::Simulation(const CityLayout& city, uint32_t seed,
             else {
                 // Las patas de estas animaciones dan pasos cortos: a su ritmo natural el pie apoyado avanza solo la mitad de lo que un perro
                 // de este tamano camina, trota o galopa. Se reproducen mas rapido (hasta 2,4x) para acercar la zancada a la velocidad real.
-                std::array<float, 3> measured{MeasureDogGait(c.walk), MeasureDogGait(c.trot), MeasureDogGait(c.run)};
-                if (labrador && labradorInfo.contains("speeds")) {   // medidas en Blender sobre el pie trasero apoyado de cada ciclo
-                    const auto& speeds = labradorInfo["speeds"];
-                    measured = {speeds.value("walk", 0.4f), speeds.value("trot", 1.0f), speeds.value("run", 1.5f)};
-                }
+                const std::array<float, 3> measured{MeasureDogGait(c.walk), MeasureDogGait(c.trot), MeasureDogGait(c.run)};
                 m_DogGaitSpeed = {measured[0] * 2.0f, measured[1] * 2.0f, measured[2] * 2.0f};
                 LogInfo("El Chato: marcha natural {:.2f} / {:.2f} / {:.2f} m/s (caminar, trotar, correr)", m_DogGaitSpeed[0], m_DogGaitSpeed[1], m_DogGaitSpeed[2]);
             }
         }
-        reportModelLoad("Compañero: El Chato animado");
+        reportModelLoad("Compañero: El Chato animado (chato.glb)");
         m_VendorCartModel = Model::LoadFromFile(modelsRoot + "comida rapida/food+cart.fbx");
         if (m_VendorCartModel)
             m_VendorCartModelFit = FitModelTransform(
@@ -941,27 +841,6 @@ Simulation::Simulation(const CityLayout& city, uint32_t seed,
     m_DealerLantern = Mesh::CreateRoundedBox({0.24f, 0.24f, 0.24f}, 0.10f, 2, {0.62f, 0.22f, 0.83f, 1.0f});
     m_CambucheBaseMesh = Mesh::CreateCube({2.8f, 0.08f, 2.2f}, {0.66f, 0.52f, 0.35f, 1.0f});
     m_CambucheMarkerMesh = Mesh::CreateCube({0.8f, 0.04f, 0.6f}, {0.55f, 0.42f, 0.28f, 1.0f});
-    {   // anillo plano (RingGeometry 1,9-2,1 del original) y un resplandor mas ancho que se desvanece hacia afuera
-        const auto annulus = [](float inner, float outer, const glm::vec4& innerColor, const glm::vec4& outerColor) {
-            constexpr int kSegments = 48;
-            std::vector<Vertex> vertices;
-            std::vector<uint32_t> indices;
-            for (int i = 0; i < kSegments; ++i) {
-                const float angle = glm::two_pi<float>() * static_cast<float>(i) / static_cast<float>(kSegments);
-                const float c = std::cos(angle), s = std::sin(angle);
-                vertices.push_back({{c * inner, 0.0f, s * inner}, {0.0f, 1.0f, 0.0f}, {0.0f, 0.0f}, innerColor});
-                vertices.push_back({{c * outer, 0.0f, s * outer}, {0.0f, 1.0f, 0.0f}, {1.0f, 0.0f}, outerColor});
-            }
-            for (int i = 0; i < kSegments; ++i) {
-                const uint32_t a = static_cast<uint32_t>(i * 2), b = static_cast<uint32_t>(((i + 1) % kSegments) * 2);
-                indices.insert(indices.end(), {a, a + 1, b + 1, a, b + 1, b});
-            }
-            return std::make_shared<Mesh>(vertices, indices);
-        };
-        const glm::vec4 orange(1.0f, 0.62f, 0.06f, 1.0f);
-        m_CambucheRingMesh = annulus(1.9f, 2.1f, orange, orange);
-        m_CambucheGlowMesh = annulus(1.25f, 3.1f, glm::vec4(1.0f, 0.55f, 0.05f, 0.55f), glm::vec4(1.0f, 0.55f, 0.05f, 0.0f));
-    }
     m_CambucheFireMesh = Mesh::CreateCylinder(0.12f, 0.25f, 8, {1.0f, 0.52f, 0.12f, 1.0f});
     m_CambucheBedMesh = Mesh::CreateRoundedBox({0.95f, 0.18f, 1.9f}, 0.04f, 2, {0.62f, 0.60f, 0.52f, 1.0f});
     m_ShadowHeadMesh = Mesh::CreateRoundedBox({0.35f, 0.38f, 0.35f}, 0.12f, 2, {0.03f, 0.03f, 0.04f, 1.0f});
@@ -1766,7 +1645,7 @@ void Simulation::BeginPet(const glm::vec3& playerPosition, float playerYaw) {
     m_DogPetting = true;
     m_DogPetStage = 1;
     m_DogPetPlayer = playerPosition;
-    m_DogPetAnchor = playerPosition + glm::vec3(std::sin(playerYaw), 0.0f, std::cos(playerYaw)) * (0.78f + 0.5f * (kDogBaseScale - 1.0f) * m_DogSize);
+    m_DogPetAnchor = playerPosition + glm::vec3(std::sin(playerYaw), 0.0f, std::cos(playerYaw)) * 0.78f;
     m_DogPetAnchor.y = 0.0f;
     m_DogQueue.clear();
 }
@@ -1911,7 +1790,7 @@ void Simulation::UpdateDogAnimation(float dt, float targetSpeed) {
                 const float walkMax = wasTrot ? 1.9f : 2.1f, trotMax = wasRun ? 4.4f : 4.8f;
                 const int clip = m_DogSpeed < walkMax ? c.walk : m_DogSpeed < trotMax ? c.trot : c.run;
                 const float natural = m_DogGaitSpeed[clip == c.walk ? 0 : clip == c.trot ? 1 : 2];
-                const float rate = natural > 0.1f ? std::clamp(m_DogSpeed / (natural * m_DogSize * kDogBaseScale), 0.6f, 2.4f) : 1.0f;
+                const float rate = natural > 0.1f ? std::clamp(m_DogSpeed / (natural * m_DogSize), 0.6f, 2.4f) : 1.0f;
                 DogPlay(clip, true, rate);
                 break;
             }
@@ -2124,7 +2003,7 @@ void Simulation::Update(float dt, const glm::vec3& playerPosition) {
         // Sigue al jugador: se detiene a 2,2 m, trota si se queda atras y galopa si lo pierde de vista; a mas de 45 m lo alcanza
         const glm::vec2 offset(playerPosition.x - m_DogPosition.x, playerPosition.z - m_DogPosition.z);
         const float distance = glm::length(offset);
-        constexpr float kStopDistance = 1.7f, kCatchUpDistance = 45.0f;   // se queda dentro del alcance de E (2,0 m) para poder acariciarlo a la primera
+        constexpr float kStopDistance = 2.2f, kCatchUpDistance = 45.0f;
         if (distance > kCatchUpDistance) {
             const glm::vec2 behind = glm::vec2(playerPosition.x, playerPosition.z) - (distance > 0.01f ? offset / distance : glm::vec2(0.0f, 1.0f)) * 3.0f;
             if (m_City.IsWalkable(behind.x, behind.y) && !IsBlocked({behind.x, 0.0f, behind.y}, 0.3f)) m_DogPosition = {behind.x, 0.0f, behind.y};
@@ -2596,7 +2475,7 @@ bool Simulation::HitPedestrian(const glm::vec3& from, const glm::vec2& forward, 
     Pedestrian* target = nullptr;
     float best = reach;
     for (auto& pedestrian : m_Pedestrians) {
-        if (pedestrian.reaction > 0 || pedestrian.dodgeTime >= 0.0f) continue;
+        if (pedestrian.reaction > 0) continue;
         const glm::vec2 offset = glm::vec2(pedestrian.position.x, pedestrian.position.z) - origin;
         const float distance = glm::length(offset);
         // delante del jugador: dentro de un cono de unos 70 grados
@@ -2605,13 +2484,6 @@ bool Simulation::HitPedestrian(const glm::vec3& from, const glm::vec2& forward, 
         target = &pedestrian;
     }
     if (!target) return false;
-    if (!target->dead && target->health > 0.0f && m_Unit(m_Random) < (kind >= 3 ? 0.18f : 0.30f)) {   // lo ve venir: esquive lateral o rotatorio, sin dano
-        target->dodgeTime = 0.0f;
-        target->dodgeKind = m_Unit(m_Random) < 0.5f ? 0 : 1;
-        target->punchTime = -1.0f;
-        target->yaw = std::atan2(-direction.x, -direction.y);
-        return true;
-    }
     target->bubbleText = kPunchedPhrases[static_cast<size_t>(m_Unit(m_Random) * 4.99f)];
     target->bubbleRemaining = 4.0f;
     target->health -= kind >= 3 ? 22.0f : kind == 2 ? 14.0f : 10.0f;   // patada, cruzado o navaja, jab
@@ -2815,7 +2687,6 @@ void Simulation::UpdateDrivers(float dt, const glm::vec3& playerPosition) {
         }
     }
     constexpr float kCarClip = 3.0f;    // CarEnter y CarExit: 72 fotogramas a 24 fps
-    constexpr float kBoardSpeed = 1.6f; // subir y bajar del vehiculo se reproduce a 1,6x: el clip original se sentia lento
     for (size_t index = 0; index < m_Traffic.size(); ++index) {
         TrafficVehicle& vehicle = m_Traffic[index];
         DriverInfo& driver = vehicle.driver;
@@ -2839,7 +2710,7 @@ void Simulation::UpdateDrivers(float dt, const glm::vec3& playerPosition) {
                 else if (driver.timer > 8.0f) { vehicle.holdStop = false; driver.boost = 6.0f; driver.state = DriverState::Seated; }
                 break;
             case DriverState::Exiting:
-                driver.timer += dt * kBoardSpeed;
+                driver.timer += dt;
                 if (driver.timer >= exitLength) {
                     // el conductor sale a la calle: es un peaton agresivo que va por el jugador
                     Pedestrian pedestrian;
@@ -2906,7 +2777,7 @@ void Simulation::UpdateDrivers(float dt, const glm::vec3& playerPosition) {
                 break;
             }
             case DriverState::Entering:
-                driver.timer += dt * kBoardSpeed;
+                driver.timer += dt;
                 if (driver.timer >= enterLength) {
                     driver.state = DriverState::Seated;
                     driver.timer = 0.0f;
@@ -3031,20 +2902,6 @@ void Simulation::UpdatePedestrians(float dt, const glm::vec3& playerPosition) {
             pedestrian.bubbleRemaining = 0.0f;
             continue;
         }
-        if (pedestrian.dodgeTime >= 0.0f) {   // esquiva un golpe del jugador (esquive lateral o rotatorio) y luego retoma lo que hacia
-            pedestrian.dodgeTime += dt;
-            pedestrian.punchTime = -1.0f;
-            const float length = Combat::Info(pedestrian.dodgeKind == 0 ? Combat::Move::Slip : Combat::Move::RollingDuck).duration;
-            if (pedestrian.dodgeTime >= length) {
-                pedestrian.dodgeTime = -1.0f;
-                if (m_Unit(m_Random) < 0.45f) {   // algunos devuelven el golpe
-                    pedestrian.aggressive = true;
-                    pedestrian.aggressionRemaining = 12.0f;
-                    pedestrian.fleeAfterPunch = false;
-                }
-            }
-            continue;
-        }
         if (pedestrian.reaction > 0) {
             // golpeado: se queda en su reaccion (la animacion marca la duracion); luego se enoja o huye
             pedestrian.reactionTime += dt;
@@ -3101,15 +2958,14 @@ void Simulation::UpdatePedestrians(float dt, const glm::vec3& playerPosition) {
                 // lanza el puno: acierta hacia la mitad del movimiento si el jugador sigue al alcance
                 pedestrian.punchTime += dt;
                 pedestrian.yaw = std::atan2(toward.x, toward.z);
-                const Combat::MoveInfo& blow = Combat::Info(pedestrian.punchKind == 0 ? Combat::Move::Jab : pedestrian.punchKind == 1 ? Combat::Move::Cross : Combat::Move::Hook);
-                if (!pedestrian.punchLanded && pedestrian.punchTime >= blow.impact) {
+                if (!pedestrian.punchLanded && pedestrian.punchTime >= (pedestrian.punchCross ? 0.30f : 0.22f)) {
                     pedestrian.punchLanded = true;
                     if (playerDistance < 1.6f) {
                         const float roll = pedestrian.fleeAfterPunch ? 0.2f + 0.4f * m_Unit(m_Random) : m_Unit(m_Random);
                         m_PlayerHits.push_back({roll < 0.4f ? 1 : roll < 0.8f ? 2 : 3, -toward});
                     }
                 }
-                if (pedestrian.punchTime >= blow.duration) {
+                if (pedestrian.punchTime >= (pedestrian.punchCross ? 0.75f : 0.583f)) {
                     pedestrian.punchTime = -1.0f;
                     pedestrian.punchCooldown = 1.4f + m_Unit(m_Random) * 0.8f;
                     if (pedestrian.fleeAfterPunch) startFleeing();
@@ -3119,8 +2975,7 @@ void Simulation::UpdatePedestrians(float dt, const glm::vec3& playerPosition) {
             } else if (pedestrian.punchCooldown <= 0.0f) {
                 pedestrian.punchTime = 0.0f;
                 pedestrian.punchLanded = false;
-                pedestrian.punchKind = (pedestrian.punchKind + 1) % 3;
-                pedestrian.punchCross = pedestrian.punchKind == 1;
+                pedestrian.punchCross = !pedestrian.punchCross;
             } else {
                 pedestrian.yaw = std::atan2(toward.x, toward.z);
             }
@@ -3684,67 +3539,6 @@ bool Simulation::GetVehicleImpact(const glm::vec3& position, float& speed, glm::
     return false;
 }
 
-// Retrovisor de un modelo, en el marco del carro (frente +X, arriba +Y, lado Z). Si la carroceria trae retrovisores modelados, el de caja se
-// pone sobre ellos: se toma el vertice mas saliente hacia un lado entre la mitad delantera y sobre la cintura, y el centro de los vertices que lo
-// rodean. Si no los trae, va en la base del parante delantero (38 % del largo desde el frente, pegado al ancho y a 60 % de la altura).
-static glm::vec3 MirrorAnchor(const Model& body, const glm::mat4& fit, int key) {
-    static std::unordered_map<int, glm::vec3> cache;
-    if (const auto found = cache.find(key); found != cache.end()) return found->second;
-    std::vector<glm::vec3> points;
-    glm::vec3 low(1.0e9f), high(-1.0e9f);
-    const std::vector<glm::mat4> rest = body.GetRestPartTransforms();
-    for (size_t part = 0; part < body.GetParts().size(); ++part) {
-        const Mesh* mesh = body.GetParts()[part].mesh.get();
-        if (!mesh) continue;
-        const glm::mat4 world = fit * rest[part];
-        for (const glm::vec3& vertex : mesh->GetPositions()) {
-            const glm::vec3 point = glm::vec3(world * glm::vec4(vertex, 1.0f));
-            points.push_back(point);
-            low = glm::min(low, point);
-            high = glm::max(high, point);
-        }
-    }
-    if (points.empty()) {   // sin posiciones guardadas: se usan los limites del modelo
-        for (int corner = 0; corner < 8; ++corner) {
-            const glm::vec3 local((corner & 1) ? body.GetBoundsMaximum().x : body.GetBoundsMinimum().x, (corner & 2) ? body.GetBoundsMaximum().y : body.GetBoundsMinimum().y,
-                                  (corner & 4) ? body.GetBoundsMaximum().z : body.GetBoundsMinimum().z);
-            const glm::vec3 point = glm::vec3(fit * glm::vec4(local, 1.0f));
-            low = glm::min(low, point);
-            high = glm::max(high, point);
-        }
-    }
-    const glm::vec3 size = high - low;
-    // la furgoneta (Crafter, 106) tiene el parante delantero mas cerca del frente que un carro: el retrovisor va al 20 % del largo
-    const float frontRatio = key == 106 ? 0.20f : 0.38f;
-    glm::vec3 anchor(high.x - frontRatio * size.x, low.y + (key == 106 ? 0.52f : 0.60f) * size.y, 0.5f * size.z - 0.02f);
-    bool measured = false;
-    if (!points.empty()) {
-        float widest = 0.0f;
-        glm::vec3 tip(0.0f);
-        for (const glm::vec3& p : points) {
-            if (p.x < high.x - 0.75f * size.x || p.x > high.x - 0.12f * size.x || p.y < low.y + 0.40f * size.y) continue;
-            if (p.z > widest) { widest = p.z; tip = p; }   // un solo lado: el modelo es simetrico
-        }
-        float bodyHalf = 0.0f;   // semiancho de la carroceria sin retrovisores: el de los vertices bajos (puertas y faldones)
-        for (const glm::vec3& p : points)
-            if (p.y < low.y + 0.55f * size.y && p.y > low.y + 0.15f * size.y && p.x > low.x + 0.2f * size.x && p.x < high.x - 0.2f * size.x) bodyHalf = std::max(bodyHalf, p.z);
-        if (widest > 0.0f && widest > bodyHalf + 0.03f) {
-            glm::vec3 sum(0.0f);
-            int count = 0;
-            for (const glm::vec3& p : points)
-                if (p.z > widest - 0.14f && glm::distance(glm::vec2(p.x, p.y), glm::vec2(tip.x, tip.y)) < 0.22f) { sum += p; ++count; }
-            if (count > 0) {
-                const glm::vec3 center = sum / static_cast<float>(count);
-                anchor = glm::vec3(center.x, center.y, std::min(center.z, widest - 0.06f));
-                measured = true;
-            }
-        }
-    }
-    if (std::getenv("BAZUKO_LOG_MIRROR")) LogInfo("RETROVISOR modelo {}: largo {:.2f} alto {:.2f} ancho {:.2f} {} -> x {:.2f} y {:.2f} z {:.2f}", key, size.x, size.y, size.z, measured ? "(medido sobre el retrovisor modelado)" : "(por proporciones)", anchor.x, anchor.y, anchor.z);
-    cache[key] = anchor;
-    return anchor;
-}
-
 void Simulation::Render(Renderer& renderer, float time, const glm::vec3& focusPosition) const {
     const float distToCambuche = glm::distance(glm::vec2(focusPosition.x, focusPosition.z),
                                                glm::vec2(m_CambuchePosition.x, m_CambuchePosition.z));
@@ -3776,16 +3570,6 @@ void Simulation::Render(Renderer& renderer, float time, const glm::vec3& focusPo
                     renderer.Submit(*m_CambucheMarkerMesh, markerMat, glm::vec4(0.55f, 0.42f, 0.28f, 0.85f));
                 }
             }
-        }
-
-        // Anillo naranja que brilla y palpita para llamar la atencion sobre el sitio del cambuche
-        if (m_CambucheRingMesh && m_CambucheGlowMesh) {
-            const float pulse = 0.5f + 0.5f * std::sin(time * 2.4f);
-            const glm::mat4 ringMat = glm::translate(glm::mat4(1.0f), m_CambuchePosition + glm::vec3(0.0f, m_City.GetGroundHeight(m_CambuchePosition.x, m_CambuchePosition.z) + 0.05f, 0.0f));
-            renderer.SetUnlit(true);
-            renderer.Submit(*m_CambucheGlowMesh, glm::scale(ringMat, glm::vec3(1.0f + 0.08f * pulse)), glm::vec4(1.0f, 1.0f, 1.0f, 0.35f + 0.45f * pulse), false, true, nullptr, 2);
-            renderer.Submit(*m_CambucheRingMesh, ringMat, glm::vec4(1.0f, 1.0f, 1.0f, 0.55f + 0.4f * pulse), false, true, nullptr, 2);
-            renderer.SetUnlit(false);
         }
 
         // Fogón de latas con fuego encendido
@@ -4081,7 +3865,7 @@ void Simulation::Render(Renderer& renderer, float time, const glm::vec3& focusPo
         const glm::vec4 coat = coats[static_cast<size_t>(std::clamp(m_DogCoat, 0, 3))];
         glm::mat4 dog = glm::translate(glm::mat4(1.0f), m_DogPosition);
         dog = glm::rotate(dog, m_DogYaw, {0.0f, 1.0f, 0.0f});
-        dog = glm::scale(dog, glm::vec3(m_DogSize * kDogBaseScale));
+        dog = glm::scale(dog, glm::vec3(m_DogSize));
         if (m_ChatoModel) {
             // cola: se mueve mas rapido y amplio si esta contento; dormido no se mueve
             std::vector<Model::BoneTurn> tail;
@@ -4089,21 +3873,19 @@ void Simulation::Render(Renderer& renderer, float time, const glm::vec3& focusPo
                 const float asleep = m_DogPosture == DogPosture::Sleep ? 0.0f : m_DogPosture == DogPosture::Lie ? 0.5f : 1.0f;
                 const float mood = (m_DogIsFriend ? 0.30f + m_DogHappy * 0.70f : 0.10f) * asleep;
                 const float rate = m_DogIsFriend ? 6.0f + m_DogHappy * 7.0f : 3.0f;
-                for (int k = 0; k < 4; ++k) {
-                    glm::vec3 turn(0.0f);
-                    turn[m_DogRig.tailAxis] = std::sin(m_DogTime * rate - 0.55f * static_cast<float>(k)) * mood * (k == 0 ? 0.30f : 0.26f);
-                    tail.push_back({m_DogRig.tail[static_cast<size_t>(k)], turn, {0.0f, 0.0f, 0.0f}});
-                }
+                const char* names[4] = {"tail_01_031", "tail_02_032", "tail_03_033", "tail_04_034"};
+                for (int k = 0; k < 4; ++k)
+                    tail.push_back({names[k], {0.0f, std::sin(m_DogTime * rate - 0.55f * static_cast<float>(k)) * mood * (k == 0 ? 0.30f : 0.26f), 0.0f}, {0.0f, 0.0f, 0.0f}});
             }
             const float fade = m_DogFade * m_DogFade * (3.0f - 2.0f * m_DogFade);
             // sin la textura tenida el pelaje es el natural del modelo; los otros colores lo tiñen
             const glm::vec4 chatoCoat = m_DogCoat == 0 ? glm::vec4(1.0f) : glm::min(coat * 1.9f, glm::vec4(1.0f));
             // en estas posturas la malla queda 1,6-2,1 cm bajo el suelo (medido sobre los clips): se sube lo justo para que apoye sin flotar
             const auto groundLift = [&](int clip) {
-                if (clip == m_DogClips.sit || clip == m_DogClips.sitStart || clip == m_DogClips.sitEnd) return m_DogRig.liftSit;
-                if (clip == m_DogClips.lie || clip == m_DogClips.lieStart || clip == m_DogClips.lieEnd) return m_DogRig.liftLie;
-                if (clip == m_DogClips.sleep || clip == m_DogClips.sleepStart || clip == m_DogClips.sleepEnd) return m_DogRig.liftSleep;
-                return m_DogRig.liftOther;
+                if (clip == m_DogClips.sit || clip == m_DogClips.sitStart || clip == m_DogClips.sitEnd) return 0.018f;
+                if (clip == m_DogClips.lie || clip == m_DogClips.lieStart || clip == m_DogClips.lieEnd) return 0.016f;
+                if (clip == m_DogClips.sleep || clip == m_DogClips.sleepStart || clip == m_DogClips.sleepEnd) return 0.021f;
+                return 0.003f;
             };
             const float lift = glm::mix(groundLift(m_DogClip), m_DogPrevClip >= 0 ? groundLift(m_DogPrevClip) : groundLift(m_DogClip), fade);
             dog = glm::translate(dog, glm::vec3(0.0f, lift, 0.0f));
@@ -4111,10 +3893,10 @@ void Simulation::Render(Renderer& renderer, float time, const glm::vec3& focusPo
             const auto bone = [&](const char* name) {
                 return dog * m_ChatoModel->GetNodeWorld(name, m_DogClipTime, true, m_DogClip, m_DogPrevClip, fade, &tail, m_DogPrevTime);
             };
-            const glm::vec3 neck = glm::vec3(bone(m_DogRig.neck)[3]);
-            const glm::vec3 head = glm::vec3(bone(m_DogRig.head)[3]);
+            const glm::vec3 neck = glm::vec3(bone("neck_07")[3]);
+            const glm::vec3 head = glm::vec3(bone("head_08")[3]);
             const glm::mat4 facing = glm::rotate(glm::translate(glm::mat4(1.0f), glm::vec3(0.0f)), m_DogYaw, {0.0f, 1.0f, 0.0f});
-            const auto at = [&](const glm::vec3& position, const glm::vec3& offset) { return glm::translate(glm::mat4(1.0f), position) * facing * glm::translate(glm::mat4(1.0f), offset * m_DogSize * kDogBaseScale); };
+            const auto at = [&](const glm::vec3& position, const glm::vec3& offset) { return glm::translate(glm::mat4(1.0f), position) * facing * glm::translate(glm::mat4(1.0f), offset * m_DogSize); };
             if (m_DogAccessory == 1) renderer.Submit(*m_DogScarf, at(neck, {0.0f, 0.0f, 0.0f}));
             else if (m_DogAccessory == 3) renderer.Submit(*m_DogBand, at(neck, {0.0f, 0.0f, 0.0f}));
             else if (m_DogAccessory == 2) {
@@ -4188,8 +3970,6 @@ void Simulation::Render(Renderer& renderer, float time, const glm::vec3& focusPo
         else renderer.Submit(*m_PickupMeshes[pickup.itemIndex % m_PickupMeshes.size()], model);
     }
     const auto drawCar = [&](const TrafficVehicle& vehicle) {
-        // los carros a mas de 140 m quedan tras la niebla: no se dibujan (ahorra decenas de dibujos con sus ruedas y ocupantes)
-        if (glm::distance(glm::vec2(vehicle.position.x, vehicle.position.z), glm::vec2(focusPosition.x, focusPosition.z)) > 140.0f) return;
         // Pose visual: en las esquinas el carro no gira de golpe. Se promedia la ruta un poco antes y un poco despues (corta la
         // esquina en una curva) y la direccion sale de esos dos puntos; las ruedas delanteras se orientan hacia donde va la ruta.
         glm::vec3 visualPosition = vehicle.position;
@@ -4374,14 +4154,9 @@ void Simulation::Render(Renderer& renderer, float time, const glm::vec3& focusPo
             }
         }
         if (vehicle.mirrorsAvailable && vehicle.emergency == 0) {
-            // posicion de los retrovisores segun la carroceria de este modelo (ver MirrorAnchor)
-            const bool usesCabin = vehicle.variant > 0 && vehicle.emergency == 0 && cabinParts.valid() && cabinParts.ownFit;
-            const std::shared_ptr<Model>& bodyModel = usesCabin ? cabinParts.body : parts.body;
-            const glm::mat4& bodyFit = usesCabin ? cabinParts.fit : fit;
-            const glm::vec3 anchor = bodyModel ? MirrorAnchor(*bodyModel, bodyFit, usesCabin ? 100 + vehicle.variant : static_cast<int>(partsSlot)) : glm::vec3(0.82f, 1.02f, 0.98f);
             for (float side : {-1.0f, 1.0f}) {
-                renderer.Submit(*m_CarMirrorMesh, glm::translate(model, {anchor.x, anchor.y, side * anchor.z}));
-                glm::mat4 glass = glm::translate(model, {anchor.x - 0.07f, anchor.y, side * anchor.z});
+                renderer.Submit(*m_CarMirrorMesh, glm::translate(model, {0.82f, 1.02f, side * 0.98f}));
+                glm::mat4 glass = glm::translate(model, {0.75f, 1.02f, side * 0.98f});
                 renderer.Submit(*m_CarMirrorGlass, glass);
             }
         }
@@ -4562,18 +4337,11 @@ void Simulation::Render(Renderer& renderer, float time, const glm::vec3& focusPo
         if (glm::dot(offset, offset) > 56.0f * 56.0f) continue;
         glm::mat4 character = glm::translate(glm::mat4(1.0f), pedestrian.position);
         character = glm::rotate(character, pedestrian.yaw, {0.0f, 1.0f, 0.0f});
-        if (std::getenv("BAZUKO_NPC_MOVE")) {   // pruebas: los peatones se acomodan en fila frente al jugador, de cara a el, para revisar cada cuerpo
-            static size_t previewIndex = 0;
-            const size_t slot = previewIndex++ % std::max<size_t>(1, m_Pedestrians.size());
-            character = glm::translate(glm::mat4(1.0f), focusPosition + glm::vec3(-1.6f + 1.6f * static_cast<float>(slot % 3), 0.0f, 2.2f + 1.0f * static_cast<float>(slot / 3)));
-            character = glm::rotate(character, glm::pi<float>(), {0.0f, 1.0f, 0.0f});
-        }
         character = glm::scale(character, glm::vec3(pedestrian.scale));
         if (pedestrian.appearance >= m_PedestrianAppearances.size()) continue;
         const auto& appearance = m_PedestrianAppearances[pedestrian.appearance];
         // los peatones asustados corren y los que esperan alternan dos reposos (mas natural)
         const bool relaxedIdle = appearance.relaxedClip >= 0 && std::fmod(pedestrian.animationOffset * 7.31f, 1.0f) < 0.5f;
-        std::vector<Model::BoneTurn> combatTurns;
         int clip = pedestrian.moving ? (pedestrian.fleeRemaining > 0.0f && appearance.runClip >= 0 ? appearance.runClip : appearance.walkClip)
                                      : (relaxedIdle ? appearance.relaxedClip : appearance.idleClip);
         float clipTime = pedestrian.animationTime + pedestrian.animationOffset;
@@ -4587,30 +4355,11 @@ void Simulation::Render(Renderer& renderer, float time, const glm::vec3& focusPo
             else if (pedestrian.reactionTime < 0.833f) clip = appearance.fallClip;
             else if (pedestrian.reactionTime < 1.733f) { clip = appearance.lyingClip; clipTime = pedestrian.reactionTime - 0.833f; }
             else { clip = appearance.getUpClip; clipTime = pedestrian.reactionTime - 1.733f; }
-        } else if (static const char* previewMove = std::getenv("BAZUKO_NPC_MOVE"); previewMove && appearance.fightClip >= 0 && Combat::FindMove(previewMove) >= 0) {
-            // pruebas: todos los peatones adoptan esa tecnica (BAZUKO_PREVIEW_TIME fija el segundo) para revisar cada cuerpo
-            static const char* previewTime = std::getenv("BAZUKO_PREVIEW_TIME");
-            clip = appearance.fightClip;
-            clipTime = 0.0f;
-            Combat::AppendMove(combatTurns, static_cast<Combat::Move>(Combat::FindMove(previewMove)), previewTime ? static_cast<float>(std::atof(previewTime)) : 0.0f);
-        } else if (pedestrian.dodgeTime >= 0.0f && appearance.fightClip >= 0) {
-            clip = appearance.fightClip;
-            clipTime = 0.0f;
-            Combat::AppendMove(combatTurns, pedestrian.dodgeKind == 0 ? Combat::Move::Slip : Combat::Move::RollingDuck, pedestrian.dodgeTime);
-        } else if (pedestrian.punchTime >= 0.0f && appearance.fightClip >= 0) {
-            clip = appearance.fightClip;   // la guardia es la base y el golpe gira los huesos encima
-            clipTime = 0.0f;
-            Combat::AppendMove(combatTurns, pedestrian.punchKind == 0 ? Combat::Move::Jab : pedestrian.punchKind == 1 ? Combat::Move::Cross : Combat::Move::Hook, pedestrian.punchTime);
         } else if (pedestrian.punchTime >= 0.0f) {
             clip = pedestrian.punchCross ? appearance.crossClip : appearance.jabClip;
             clipTime = pedestrian.punchTime;
         } else if (pedestrian.aggressive && pedestrian.moving && appearance.runClip >= 0) {
             clip = appearance.runClip;
-            Combat::AppendFists(combatTurns);   // corre hacia el jugador con los puños cerrados
-        } else if (pedestrian.aggressive && appearance.fightClip >= 0) {
-            clip = appearance.fightClip;
-            clipTime = 0.0f;
-            Combat::AppendFists(combatTurns);
         }
         if (pedestrian.dead && pedestrian.reactionTime > 0.8f && m_BloodMesh) {
             // el charco crece desde que cae y se queda mientras el cuerpo siga a la vista
@@ -4627,7 +4376,7 @@ void Simulation::Render(Renderer& renderer, float time, const glm::vec3& focusPo
             if (!model) continue;
             glm::vec4 tint = PedestrianPartTint(appearance, partIndex, pedestrian.color, pedestrian.animationOffset);
             if (pedestrian.splatRemaining > 0.0f) tint *= glm::vec4(0.42f, 0.32f, 0.20f, 1.0f);
-            model->Draw(renderer, character, tint, clipTime, clip >= 0, clip, -1, false, glm::vec4(1.0f), -1, 0.0f, combatTurns.empty() ? nullptr : &combatTurns);
+            model->Draw(renderer, character, tint, clipTime, clip >= 0, clip);
         }
     }
 

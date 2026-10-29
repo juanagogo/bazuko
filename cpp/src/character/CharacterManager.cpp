@@ -212,8 +212,7 @@ CharacterManager::LocomotionBlend CharacterManager::ComputeLocomotion(float spee
 }
 
 void CharacterManager::Draw(Renderer& renderer, const glm::mat4& playerTransform, float animTime,
-                            bool moving, bool isRunning, int animationClipOverride, int blendClip, float blendWeight,
-                            const std::vector<Model::BoneTurn>* turns) {
+                            bool moving, bool isRunning, int animationClipOverride, int blendClip, float blendWeight) {
     if (m_Body) {
         glm::mat4 mScale = glm::scale(playerTransform, glm::vec3(1.08f));
         const int defaultClip = moving ? (isRunning && m_RunClip >= 0 ? m_RunClip : m_WalkClip) : m_IdleClip;
@@ -225,11 +224,11 @@ void CharacterManager::Draw(Renderer& renderer, const glm::mat4& playerTransform
         const glm::vec4 shoesTint = ShoePalettes[m_Look.calzadoColorIdx];
         const glm::vec4 hairTint = HairPalettes[m_Look.peloColorIdx];
 
-        m_Body->Draw(renderer, mScale, skinTint, animTime, animate, clip, -1, false, glm::vec4(1.0f), blendClip, blendWeight, turns);
-        if (m_Clothes) m_Clothes->Draw(renderer, mScale, clothesTint, animTime, animate, clip, -1, false, glm::vec4(1.0f), blendClip, blendWeight, turns);
-        if (m_Shoes)   m_Shoes->Draw(renderer, mScale, shoesTint, animTime, animate, clip, -1, false, glm::vec4(1.0f), blendClip, blendWeight, turns);
-        if (m_Hair)    m_Hair->Draw(renderer, mScale, hairTint, animTime, animate, clip, -1, false, glm::vec4(1.0f), blendClip, blendWeight, turns);
-        if (m_Beard)   m_Beard->Draw(renderer, mScale, hairTint, animTime, animate, clip, -1, false, glm::vec4(1.0f), blendClip, blendWeight, turns);
+        m_Body->Draw(renderer, mScale, skinTint, animTime, animate, clip, -1, false, glm::vec4(1.0f), blendClip, blendWeight);
+        if (m_Clothes) m_Clothes->Draw(renderer, mScale, clothesTint, animTime, animate, clip, -1, false, glm::vec4(1.0f), blendClip, blendWeight);
+        if (m_Shoes)   m_Shoes->Draw(renderer, mScale, shoesTint, animTime, animate, clip, -1, false, glm::vec4(1.0f), blendClip, blendWeight);
+        if (m_Hair)    m_Hair->Draw(renderer, mScale, hairTint, animTime, animate, clip, -1, false, glm::vec4(1.0f), blendClip, blendWeight);
+        if (m_Beard)   m_Beard->Draw(renderer, mScale, hairTint, animTime, animate, clip, -1, false, glm::vec4(1.0f), blendClip, blendWeight);
     } else {
         // Fallback procedural
         glm::mat4 bodyModel = glm::translate(playerTransform, glm::vec3(0.0f, 0.6f, 0.0f));

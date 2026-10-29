@@ -46,13 +46,7 @@ void Camera::Follow(const glm::vec3& targetPos, float dt, float speed, bool isRu
         UpdateProjection();
     }
 
-    // La altura del objetivo se suaviza: los bordillos entre andenes y calle son escalones de 15 cm que de otro modo sacuden la camara
-    glm::vec3 smoothedTarget = targetPos;
-    if (!m_SmoothHeightReady || dt <= 0.0f || std::abs(targetPos.y - m_SmoothHeight) > 1.5f) m_SmoothHeight = targetPos.y;
-    else m_SmoothHeight += (targetPos.y - m_SmoothHeight) * (1.0f - std::exp(-5.0f * dt));
-    m_SmoothHeightReady = true;
-    smoothedTarget.y = m_SmoothHeight;
-    glm::vec3 lookAt = smoothedTarget + m_LookOffset;
+    glm::vec3 lookAt = targetPos + m_LookOffset;
 
     // Head bobbing
     if (m_Mode == CameraMode::ThirdPerson && dt > 0.0f && speed > 0.4f) {

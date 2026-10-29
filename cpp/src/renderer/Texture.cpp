@@ -149,7 +149,6 @@ void Texture::InitFromRGBA(uint32_t width, uint32_t height, const uint8_t* data)
 }
 
 void Texture::BindUnit(uint32_t unit) const {
-    if (unit == 0) s_LastBoundUnit0 = m_ID;
     glBindTextureUnit(unit, m_ID);
 }
 

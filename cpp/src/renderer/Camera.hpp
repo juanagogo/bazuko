@@ -59,8 +59,6 @@ private:
     float m_Pitch = 0.22f;
     float m_Distance = 5.5f;
 
-    float m_SmoothHeight = 0.0f;   // altura suavizada del objetivo
-    bool m_SmoothHeightReady = false;
     float m_BobTime = 0.0f;
     float m_BobAmount = 0.0f;
     float m_PsychosisFovOffset = 0.0f;

@@ -23,8 +23,7 @@ public:
     const CharacterLook& GetLook() const { return m_Look; }
 
     void Draw(Renderer& renderer, const glm::mat4& playerTransform, float animTime, bool moving, bool isRunning,
-              int animationClipOverride = -1, int blendClip = -1, float blendWeight = 0.0f,
-              const std::vector<Model::BoneTurn>* turns = nullptr);   // turns: giros de huesos por codigo (brazada de nado)
+              int animationClipOverride = -1, int blendClip = -1, float blendWeight = 0.0f);
     // Clips de animacion por nombre (Jump, Kick, PunchJab, PunchCross, FightIdle, KnifeIdle, KnifeSlash, KnifeStab, CrouchWalk,
     // IdleRelaxed...), su duracion en segundos y la matriz de una mano en la pose indicada (para sostener objetos)
     int FindClip(const std::string& name) const { return m_Body ? m_Body->FindAnimationClip(name) : -1; }
