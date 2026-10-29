@@ -102,6 +102,8 @@ private:
     float m_RenderScale = 1.0f;
     unsigned int m_ScaledFbo = 0;
     unsigned int m_ScaledColor = 0;
+    std::unique_ptr<Shader> m_PresentShader;   // copia la imagen escalada a la ventana multimuestra
+    unsigned int m_PresentVao = 0;
     unsigned int m_ScaledDepth = 0;
     unsigned int m_MsFbo = 0, m_MsColor = 0, m_MsDepth = 0;   // destino multimuestra cuando se renderiza a otra escala
     int m_ScaledWidth = 0;

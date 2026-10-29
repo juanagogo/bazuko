@@ -111,11 +111,28 @@ void Renderer::EndScaledTarget() {
     if (!m_ScaledActive) return;
     glBlitNamedFramebuffer(m_MsFbo, m_ScaledFbo, 0, 0, m_ScaledWidth, m_ScaledHeight, 0, 0, m_ScaledWidth, m_ScaledHeight,
                            GL_COLOR_BUFFER_BIT, GL_NEAREST);   // resuelve el suavizado
-    glBlitNamedFramebuffer(m_ScaledFbo, 0, 0, 0, m_ScaledWidth, m_ScaledHeight,
-                           m_ScreenViewport[0], m_ScreenViewport[1], m_ScreenViewport[0] + m_ScreenViewport[2],
-                           m_ScreenViewport[1] + m_ScreenViewport[3], GL_COLOR_BUFFER_BIT, GL_LINEAR);
+    // La ventana es multimuestra (MSAA 4x): glBlit a ella con otro tamano da GL_INVALID_OPERATION y la pantalla quedaba negra.
+    // Se presenta con un triangulo de pantalla completa que muestrea la textura escalada.
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
     glViewport(m_ScreenViewport[0], m_ScreenViewport[1], m_ScreenViewport[2], m_ScreenViewport[3]);
+    if (!m_PresentShader) {
+        m_PresentShader = std::make_unique<Shader>(Paths::Find("assets/shaders/present.vert"), Paths::Find("assets/shaders/present.frag"));
+        glCreateVertexArrays(1, &m_PresentVao);
+    }
+    const GLboolean depthTest = glIsEnabled(GL_DEPTH_TEST), cull = glIsEnabled(GL_CULL_FACE), blend = glIsEnabled(GL_BLEND);
+    glDisable(GL_DEPTH_TEST);
+    glDisable(GL_CULL_FACE);
+    glDisable(GL_BLEND);
+    m_PresentShader->Bind();
+    glTextureParameteri(m_ScaledColor, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glBindTextureUnit(0, m_ScaledColor);
+    glBindVertexArray(m_PresentVao);
+    glDrawArrays(GL_TRIANGLES, 0, 3);
+    glBindVertexArray(0);
+    m_PresentShader->Unbind();
+    if (depthTest) glEnable(GL_DEPTH_TEST);
+    if (cull) glEnable(GL_CULL_FACE);
+    if (blend) glEnable(GL_BLEND);
     m_ScaledActive = false;
 }
 
