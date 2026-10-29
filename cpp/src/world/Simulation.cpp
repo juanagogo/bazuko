@@ -714,6 +714,7 @@ Simulation::Simulation(const CityLayout& city, uint32_t seed,
             }
         }
         LoadArticulatedBus(modelsRoot);
+        Mesh::s_KeepPositions = true;   // las carrocerias conservan sus posiciones para medir donde van los retrovisores
         m_VehicleParts[0] = LoadVehicleParts(modelsRoot, "vehiculo1");
         m_VehicleParts[1] = LoadVehicleParts(modelsRoot, "vehiculo2");
         m_VehicleParts[2] = LoadVehicleParts(modelsRoot, "ambulancia");
@@ -726,6 +727,7 @@ Simulation::Simulation(const CityLayout& city, uint32_t seed,
             if (restricted && !RestrictedModelsEnabled()) continue;                                // la variante queda sin modelo y no se sortea
             m_VehicleParts[5 + variant] = LoadVehicleParts(modelsRoot, kCabinModels[variant]);
         }
+        Mesh::s_KeepPositions = false;
         if (!RestrictedModelsEnabled())
             LogInfo("Modelos sin permiso de redistribucion excluidos (Pitbull, Raptor, Renault 6, Model X, Transmilenio articulado); BAZUKO_MODELOS_RESTRINGIDOS=1 los activa si tienes copias con licencia.");
         for (size_t index = 0; index < importedFiles.size(); ++index) {
@@ -3681,6 +3683,67 @@ bool Simulation::GetVehicleImpact(const glm::vec3& position, float& speed, glm::
     return false;
 }
 
+// Retrovisor de un modelo, en el marco del carro (frente +X, arriba +Y, lado Z). Si la carroceria trae retrovisores modelados, el de caja se
+// pone sobre ellos: se toma el vertice mas saliente hacia un lado entre la mitad delantera y sobre la cintura, y el centro de los vertices que lo
+// rodean. Si no los trae, va en la base del parante delantero (38 % del largo desde el frente, pegado al ancho y a 60 % de la altura).
+static glm::vec3 MirrorAnchor(const Model& body, const glm::mat4& fit, int key) {
+    static std::unordered_map<int, glm::vec3> cache;
+    if (const auto found = cache.find(key); found != cache.end()) return found->second;
+    std::vector<glm::vec3> points;
+    glm::vec3 low(1.0e9f), high(-1.0e9f);
+    const std::vector<glm::mat4> rest = body.GetRestPartTransforms();
+    for (size_t part = 0; part < body.GetParts().size(); ++part) {
+        const Mesh* mesh = body.GetParts()[part].mesh.get();
+        if (!mesh) continue;
+        const glm::mat4 world = fit * rest[part];
+        for (const glm::vec3& vertex : mesh->GetPositions()) {
+            const glm::vec3 point = glm::vec3(world * glm::vec4(vertex, 1.0f));
+            points.push_back(point);
+            low = glm::min(low, point);
+            high = glm::max(high, point);
+        }
+    }
+    if (points.empty()) {   // sin posiciones guardadas: se usan los limites del modelo
+        for (int corner = 0; corner < 8; ++corner) {
+            const glm::vec3 local((corner & 1) ? body.GetBoundsMaximum().x : body.GetBoundsMinimum().x, (corner & 2) ? body.GetBoundsMaximum().y : body.GetBoundsMinimum().y,
+                                  (corner & 4) ? body.GetBoundsMaximum().z : body.GetBoundsMinimum().z);
+            const glm::vec3 point = glm::vec3(fit * glm::vec4(local, 1.0f));
+            low = glm::min(low, point);
+            high = glm::max(high, point);
+        }
+    }
+    const glm::vec3 size = high - low;
+    // la furgoneta (Crafter, 106) tiene el parante delantero mas cerca del frente que un carro: el retrovisor va al 20 % del largo
+    const float frontRatio = key == 106 ? 0.20f : 0.38f;
+    glm::vec3 anchor(high.x - frontRatio * size.x, low.y + (key == 106 ? 0.52f : 0.60f) * size.y, 0.5f * size.z - 0.02f);
+    bool measured = false;
+    if (!points.empty()) {
+        float widest = 0.0f;
+        glm::vec3 tip(0.0f);
+        for (const glm::vec3& p : points) {
+            if (p.x < high.x - 0.75f * size.x || p.x > high.x - 0.12f * size.x || p.y < low.y + 0.40f * size.y) continue;
+            if (p.z > widest) { widest = p.z; tip = p; }   // un solo lado: el modelo es simetrico
+        }
+        float bodyHalf = 0.0f;   // semiancho de la carroceria sin retrovisores: el de los vertices bajos (puertas y faldones)
+        for (const glm::vec3& p : points)
+            if (p.y < low.y + 0.55f * size.y && p.y > low.y + 0.15f * size.y && p.x > low.x + 0.2f * size.x && p.x < high.x - 0.2f * size.x) bodyHalf = std::max(bodyHalf, p.z);
+        if (widest > 0.0f && widest > bodyHalf + 0.03f) {
+            glm::vec3 sum(0.0f);
+            int count = 0;
+            for (const glm::vec3& p : points)
+                if (p.z > widest - 0.14f && glm::distance(glm::vec2(p.x, p.y), glm::vec2(tip.x, tip.y)) < 0.22f) { sum += p; ++count; }
+            if (count > 0) {
+                const glm::vec3 center = sum / static_cast<float>(count);
+                anchor = glm::vec3(center.x, center.y, std::min(center.z, widest - 0.06f));
+                measured = true;
+            }
+        }
+    }
+    if (std::getenv("BAZUKO_LOG_MIRROR")) LogInfo("RETROVISOR modelo {}: largo {:.2f} alto {:.2f} ancho {:.2f} {} -> x {:.2f} y {:.2f} z {:.2f}", key, size.x, size.y, size.z, measured ? "(medido sobre el retrovisor modelado)" : "(por proporciones)", anchor.x, anchor.y, anchor.z);
+    cache[key] = anchor;
+    return anchor;
+}
+
 void Simulation::Render(Renderer& renderer, float time, const glm::vec3& focusPosition) const {
     const float distToCambuche = glm::distance(glm::vec2(focusPosition.x, focusPosition.z),
                                                glm::vec2(m_CambuchePosition.x, m_CambuchePosition.z));
@@ -4310,9 +4373,14 @@ void Simulation::Render(Renderer& renderer, float time, const glm::vec3& focusPo
             }
         }
         if (vehicle.mirrorsAvailable && vehicle.emergency == 0) {
+            // posicion de los retrovisores segun la carroceria de este modelo (ver MirrorAnchor)
+            const bool usesCabin = vehicle.variant > 0 && vehicle.emergency == 0 && cabinParts.valid() && cabinParts.ownFit;
+            const std::shared_ptr<Model>& bodyModel = usesCabin ? cabinParts.body : parts.body;
+            const glm::mat4& bodyFit = usesCabin ? cabinParts.fit : fit;
+            const glm::vec3 anchor = bodyModel ? MirrorAnchor(*bodyModel, bodyFit, usesCabin ? 100 + vehicle.variant : static_cast<int>(partsSlot)) : glm::vec3(0.82f, 1.02f, 0.98f);
             for (float side : {-1.0f, 1.0f}) {
-                renderer.Submit(*m_CarMirrorMesh, glm::translate(model, {0.82f, 1.02f, side * 0.98f}));
-                glm::mat4 glass = glm::translate(model, {0.75f, 1.02f, side * 0.98f});
+                renderer.Submit(*m_CarMirrorMesh, glm::translate(model, {anchor.x, anchor.y, side * anchor.z}));
+                glm::mat4 glass = glm::translate(model, {anchor.x - 0.07f, anchor.y, side * anchor.z});
                 renderer.Submit(*m_CarMirrorGlass, glass);
             }
         }

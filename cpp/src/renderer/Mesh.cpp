@@ -10,6 +10,10 @@ namespace Bazuko {
 Mesh::Mesh(const std::vector<Vertex>& vertices, const std::vector<uint32_t>& indices)
     : m_IndexCount(static_cast<uint32_t>(indices.size())) {
     
+    if (s_KeepPositions) {
+        m_Positions.reserve(vertices.size());
+        for (const Vertex& vertex : vertices) m_Positions.push_back(vertex.position);
+    }
     if (!vertices.empty()) {
         glm::vec3 low = vertices.front().position, high = low;
         for (const Vertex& vertex : vertices) {

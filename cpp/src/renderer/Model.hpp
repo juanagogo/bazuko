@@ -61,6 +61,8 @@ public:
                            float blendTime = -1.0f) const;
     float GetAnimationClipDuration(int clip) const;
     const std::vector<ModelPart>& GetParts() const { return m_Parts; }
+    // Transformacion de cada pieza en el reposo (sin animar): para medir la geometria estatica de una carroceria
+    std::vector<glm::mat4> GetRestPartTransforms() const;
     size_t GetAnimationClipCount() const { return m_AnimationClips.size(); }
     const glm::vec3& GetBoundsMinimum() const { return m_BoundsMinimum; }
     const glm::vec3& GetBoundsMaximum() const { return m_BoundsMaximum; }

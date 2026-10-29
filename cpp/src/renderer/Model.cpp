@@ -1053,6 +1053,14 @@ float Model::GetAnimationClipDuration(int clip) const {
     return clip >= 0 && static_cast<size_t>(clip) < m_AnimationClips.size() ? m_AnimationClips[static_cast<size_t>(clip)].duration : 0.0f;
 }
 
+std::vector<glm::mat4> Model::GetRestPartTransforms() const {
+    const std::vector<glm::mat4> nodes = EvaluatePose(0.0f, false, 0, false);
+    std::vector<glm::mat4> result(m_Parts.size(), glm::mat4(1.0f));
+    for (size_t i = 0; i < m_Parts.size(); ++i)
+        if (i < m_PartNodes.size() && !m_PartNodes[i].empty() && m_PartNodes[i].back() < nodes.size()) result[i] = nodes[m_PartNodes[i].back()];
+    return result;
+}
+
 void Model::Draw(Renderer& renderer, const glm::mat4& transform, const glm::vec4& tint,
                  float animationTime, bool animate, int animationClip, int alphaModeOverride,
                  bool seatedPose, const glm::vec4& paintTint, int blendClip, float blendWeight, const std::vector<BoneTurn>* turns, float blendTime) const {

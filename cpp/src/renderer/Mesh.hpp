@@ -25,6 +25,9 @@ public:
 
     uint32_t GetIndexCount() const { return m_IndexCount; }
     // Esfera que envuelve la malla (centro y radio en su espacio local): sirve para descartar sombras fuera de alcance
+    // Con s_KeepPositions activo al construirla, la malla conserva sus posiciones (carrocerias de vehiculos: se miden sus retrovisores)
+    static inline bool s_KeepPositions = false;
+    const std::vector<glm::vec3>& GetPositions() const { return m_Positions; }
     const glm::vec3& GetBoundsCenter() const { return m_BoundsCenter; }
     float GetBoundsRadius() const { return m_BoundsRadius; }
 
@@ -39,6 +42,7 @@ private:
     std::unique_ptr<IndexBuffer> m_EBO;
     std::unique_ptr<VertexArray> m_VAO;
     uint32_t m_IndexCount = 0;
+    std::vector<glm::vec3> m_Positions;
     glm::vec3 m_BoundsCenter{0.0f};
     float m_BoundsRadius = 0.0f;
 };
