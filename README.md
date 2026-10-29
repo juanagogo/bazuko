@@ -74,16 +74,16 @@ En PowerShell, si una política de ejecución impide usar `npm`, ejecuta los mis
 | Clic izquierdo en la calle | Fijar el ratón para girar la cámara en tercera persona. |
 | Arrastrar con botón izquierdo/derecho o flechas | Girar la cámara sin fijar el ratón. |
 | Rueda del ratón | Ajustar la distancia de la cámara en tercera persona. |
-| `I` / `Tab` o botón Inventario | Abrir el inventario por casillas; el mundo queda en pausa. |
+| `I` / `Tab` o botón Inventario | Abrir el inventario por casillas; el mundo queda en pausa. Comparte con la mesa la paleta azul de la pausa: casillas teñidas por familia, banco con el objeto en su pedestal y la carga del costal. |
+| `C` o botón Fabricar | Abrir la mesa de crafteo. Los botones Inventario y Fabricar están bajo Pausa, con su tecla al lado. |
 | `1`–`5` | Asignar el objeto seleccionado a acceso rápido mientras el inventario está abierto; usarlo cuando está cerrado. |
-| `Enter`, `X`, `R` en el inventario | Usar, tirar una unidad (Mayús: todo), ordenar. |
+| `Enter`, `X`, `R` en el inventario | Usar, tirar una unidad (Mayús: todo), ordenar. Las flechas o WASD mueven la selección. |
 | `E` | Interactuar con el objetivo cercano. |
 | Mantener y soltar `Q` junto a basura | Seleccionar materiales y recogerlos al soltar. |
 | `Q` junto al dealer | Abrir su tienda. |
 | `B` o `L` | Pedir limosna. |
 | `F` | Activar o desactivar el boost, que consume energía y salud. |
 | `T` | Abrir talentos. |
-| `C` | Abrir fabricación. |
 | `P` | Editar el personaje. |
 | `M` | Abrir el mapa para marcar un destino; en el mapa, cerrarlo. |
 | `K` | Alternar entre el personaje realista y el modelo liviano. |
@@ -94,7 +94,7 @@ En PowerShell, si una política de ejecución impide usar `npm`, ejecuta los mis
 | `R` en la calle | Abrir o cerrar la radio AM/FM; permite sintonizar emisoras y cambiar pilas. |
 | `X` en la calle | Lanzar si llevas munición; de lo contrario, hacer popó. |
 | `Z` en la calle | Hacer popó. |
-| Clic en comida o bebida del inventario | Consumir el objeto. |
+| Clic en una casilla del inventario | Ver el objeto en el banco; doble clic o el botón principal lo usan (comer, beber, aplicar, lanzar…). |
 
 ## Cómo empezar
 
@@ -170,7 +170,7 @@ Las pruebas automatizadas cubren colisiones, cámaras, visibilidad de edificios,
 
 ## Estructura
 
-El archivo [AGENTS.md](AGENTS.md) reúne el contexto técnico, los comandos de trabajo, los puntos de entrada y las decisiones que deben conservarse al continuar el desarrollo. La procedencia de las integraciones está documentada en [modelos importados](docs/modelos-importados.md) e [integración de funcionalidades](docs/integracion-cristian.md). Los iconos de la mesa de fabricación y sus autores se detallan en [iconos de objetos](docs/iconos.md).
+El archivo [AGENTS.md](AGENTS.md) reúne el contexto técnico, los comandos de trabajo, los puntos de entrada y las decisiones que deben conservarse al continuar el desarrollo. La procedencia de las integraciones está documentada en [modelos importados](docs/modelos-importados.md) e [integración de funcionalidades](docs/integracion-cristian.md). Los iconos de objetos de la mesa de fabricación, el inventario y la barra rápida, con sus autores, se detallan en [iconos de objetos](docs/iconos.md).
 
 ```text
 src/

@@ -4,7 +4,8 @@ import {
   Thermometer, TriangleAlert, ShoppingBag, Hammer, Flame, Footprints, Trash2, Volume2, VolumeX, Save,
   Smartphone, Watch, GlassWater, Utensils, Heart, Smile, Bath, Layers, Box, Play, Check, Lock, Bandage,
   Banknote, Croissant, Wrench, Map, MapPin, Scissors, Shirt, User, Dices, RotateCcw, RotateCw, Sparkles,
-  Crown, Eye, IdCard, PersonStanding, Palette, Radio,
+  Crown, Eye, IdCard, PersonStanding, Palette, Radio, CloudSun, CloudMoon, CloudFog, Wind, Zap, Droplet,
+  Cigarette, Clock, Settings, Keyboard, ChartColumn, Dog,
 } from 'lucide';
 
 const ICONS = {
@@ -18,7 +19,11 @@ const ICONS = {
   lock: Lock, bandage: Bandage, banknote: Banknote, bread: Croissant, wrench: Wrench, map: Map, pin: MapPin,
   scissors: Scissors, shirt: Shirt, user: User, dice: Dices, rotl: RotateCcw, rotr: RotateCw, sparkles: Sparkles,
   crown: Crown, eye: Eye, idcard: IdCard, body: PersonStanding, palette: Palette, radio: Radio,
+  'cloud-sun': CloudSun, 'cloud-moon': CloudMoon, fog: CloudFog, wind: Wind, zap: Zap, droplet: Droplet,
+  cigarette: Cigarette, clock: Clock, settings: Settings, keyboard: Keyboard, chart: ChartColumn, dog: Dog,
 };
+
+export const hasIcon = (name) => name in ICONS;
 
 /** Devuelve un SVG de lucide con trazo uniforme. */
 export function icon(name, { size = 24, stroke = 2.25 } = {}) {

@@ -14,26 +14,27 @@ const LUNAR_DAYS = 29.53;
  * fog: multiplicador de bruma (1 normal) · lightning: probabilidad de rayos.
  */
 export const WEATHER_TYPES = Object.freeze({
-  soleado:  { level: 0, icon: '☀️', nightIcon: '🌙', label: 'Soleado', nightLabel: 'Despejado', cloud: .1, rain: 0, wind: .2, fog: .75, lightning: 0,
+  soleado:  { level: 0, icon: '☀️', nightIcon: '🌙', glyph: 'sun', nightGlyph: 'moon', label: 'Soleado', nightLabel: 'Despejado', cloud: .1, rain: 0, wind: .2, fog: .75, lightning: 0,
     toast: '☀️ Se despeja el cielo: sale el sol sobre Monserrate.' },
-  parcial:  { level: 1, icon: '⛅', nightIcon: '☁️', label: 'Parcialmente nublado', cloud: .42, rain: 0, wind: .35, fog: .9, lightning: 0,
+  parcial:  { level: 1, icon: '⛅', nightIcon: '☁️', glyph: 'cloud-sun', nightGlyph: 'cloud-moon', label: 'Parcialmente nublado', cloud: .42, rain: 0, wind: .35, fog: .9, lightning: 0,
     toast: '⛅ Las nubes se abren a ratos sobre el centro.' },
-  nublado:  { level: 2, icon: '☁️', label: 'Nublado', cloud: .85, rain: 0, wind: .3, fog: 1, lightning: 0,
+  nublado:  { level: 2, icon: '☁️', glyph: 'cloud', label: 'Nublado', cloud: .85, rain: 0, wind: .3, fog: 1, lightning: 0,
     toast: '☁️ El cielo se cierra: típico día gris bogotano.' },
-  niebla:   { level: 2, icon: '🌫️', label: 'Neblina', cloud: .75, rain: 0, wind: .05, fog: 2.4, lightning: 0,
+  niebla:   { level: 2, icon: '🌫️', glyph: 'fog', label: 'Neblina', cloud: .75, rain: 0, wind: .05, fog: 2.4, lightning: 0,
     toast: '🌫️ Baja la neblina de los cerros orientales.' },
-  llovizna: { level: 3, icon: '🌦️', label: 'Llovizna', cloud: .92, rain: .3, wind: .3, fog: 1.25, lightning: 0,
+  llovizna: { level: 3, icon: '🌦️', glyph: 'drizzle', label: 'Llovizna', cloud: .92, rain: .3, wind: .3, fog: 1.25, lightning: 0,
     toast: '🌦️ Comienza a lloviznar en el centro de Bogotá…' },
-  aguacero: { level: 4, icon: '🌧️', label: 'Aguacero', cloud: .97, rain: .72, wind: .55, fog: 1.5, lightning: .15,
+  aguacero: { level: 4, icon: '🌧️', glyph: 'rain', label: 'Aguacero', cloud: .97, rain: .72, wind: .55, fog: 1.5, lightning: .15,
     toast: '🌧️ ¡Se largó el aguacero! Busca dónde escampar.' },
-  tormenta: { level: 5, icon: '⛈️', label: 'Tormenta eléctrica', cloud: 1, rain: 1, wind: .9, fog: 1.7, lightning: 1,
+  tormenta: { level: 5, icon: '⛈️', glyph: 'storm', label: 'Tormenta eléctrica', cloud: 1, rain: 1, wind: .9, fog: 1.7, lightning: 1,
     toast: '⛈️ Tormenta eléctrica sobre la ciudad. Truenos en los cerros.' }
 });
 
-/** Icono y nombre visibles: de noche el cielo despejado muestra la luna. */
+/** Icono y nombre visibles: de noche el cielo despejado muestra la luna. `glyph` es el icono del HUD. */
 export function describeWeather(type, isNight = false) {
   return {
     icon: (isNight && type.nightIcon) || type.icon,
+    glyph: (isNight && type.nightGlyph) || type.glyph,
     label: (isNight && type.nightLabel) || type.label
   };
 }
@@ -47,13 +48,13 @@ export const RAIN_THRESHOLD = .12;
  * cold: frío adicional de madrugadas y noches (heladas de la temporada seca).
  */
 export const SEASONS = Object.freeze([
-  { id: 'seca', icon: '🌞', label: 'Temporada seca', months: 'dic – feb', windMul: 1, cold: .25,
+  { id: 'seca', icon: '🌞', glyph: 'sun', label: 'Temporada seca', months: 'dic – feb', windMul: 1, cold: .25,
     weights: { soleado: 4, parcial: 4, nublado: 2, niebla: 1.2, llovizna: 1, aguacero: .35, tormenta: .12 } },
-  { id: 'lluvias1', icon: '🌧️', label: 'Primeras lluvias', months: 'mar – may', windMul: 1, cold: .1,
+  { id: 'lluvias1', icon: '🌧️', glyph: 'rain', label: 'Primeras lluvias', months: 'mar – may', windMul: 1, cold: .1,
     weights: { soleado: 1, parcial: 2, nublado: 3, niebla: 1, llovizna: 3, aguacero: 2.4, tormenta: 1.2 } },
-  { id: 'veranillo', icon: '🪁', label: 'Veranillo de vientos', months: 'jun – ago', windMul: 1.6, cold: .05,
+  { id: 'veranillo', icon: '🪁', glyph: 'wind', label: 'Veranillo de vientos', months: 'jun – ago', windMul: 1.6, cold: .05,
     weights: { soleado: 3, parcial: 4, nublado: 2.5, niebla: .5, llovizna: 1.5, aguacero: .5, tormenta: .2 } },
-  { id: 'lluvias2', icon: '⛈️', label: 'Segundas lluvias', months: 'sep – nov', windMul: 1.1, cold: .15,
+  { id: 'lluvias2', icon: '⛈️', glyph: 'storm', label: 'Segundas lluvias', months: 'sep – nov', windMul: 1.1, cold: .15,
     weights: { soleado: .8, parcial: 1.5, nublado: 3, niebla: 1.2, llovizna: 3, aguacero: 3, tormenta: 1.6 } }
 ]);
 

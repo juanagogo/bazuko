@@ -14,9 +14,12 @@ beforeEach(() => {
         attributes: {},
         addEventListener() {},
         setAttribute(k, v) { this.attributes[k] = v; },
-        append(...nodes) { this.children.push(...nodes); }
+        append(...nodes) { this.children.push(...nodes); },
+        appendChild(node) { this.children.push(node); return node; }
       };
-    }
+    },
+    // Los iconos lucide se dibujan como SVG
+    createElementNS(ns, tag) { return this.createElement(tag); }
   };
 });
 

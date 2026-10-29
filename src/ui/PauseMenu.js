@@ -7,13 +7,14 @@ import { MapView } from './MapView.js';
 import { formatDistance, RADAR_ZOOM_MIN, RADAR_ZOOM_MAX, RADAR_SIZES } from './Minimap.js';
 import { NEED_META, needLevel } from './needsMeta.js';
 import { describeWeather } from '../world/Climate.js';
+import { icon } from './icons.js';
 import { DOG_ACCESSORIES, DOG_COATS } from '../entities/Dog.js';
 
 export const PAUSE_TABS = [
-  { id: 'mapa', label: 'Mapa', icon: '🗺️' },
-  { id: 'estado', label: 'Estado', icon: '📊' },
-  { id: 'ajustes', label: 'Ajustes', icon: '⚙️' },
-  { id: 'controles', label: 'Controles', icon: '⌨️' },
+  { id: 'mapa', label: 'Mapa', glyph: 'map' },
+  { id: 'estado', label: 'Estado', glyph: 'chart' },
+  { id: 'ajustes', label: 'Ajustes', glyph: 'settings' },
+  { id: 'controles', label: 'Controles', glyph: 'keyboard' },
 ];
 
 const CONTROL_GROUPS = [
@@ -64,7 +65,7 @@ export function openPauseMenu(game, tab = 'estado') {
         type: 'button', role: 'tab', class: `pause-tab${t.id === current ? ' is-active' : ''}`,
         'aria-selected': t.id === current ? 'true' : 'false',
         onclick: () => select(t.id),
-      }, el('span', { class: 'pause-tab__icon', text: t.icon }), t.label)),
+      }, el('span', { class: 'pause-tab__icon' }, icon(t.glyph, { size: 18 })), t.label)),
       el('kbd', { class: 'pause-tabs__key', text: 'E' }));
 
     const panels = { mapa: mapPanel, estado: statePanel, ajustes: settingsPanel, controles: controlsPanel };
@@ -135,17 +136,18 @@ function statePanel(game) {
   const pos = game.player?.position;
 
   const sky = game.weather?.type && describeWeather(game.weather.type, clock.isNight ?? (hour < 6 || hour >= 20));
-  const card = (label, value) => el('div', { class: 'pause-card' },
-    el('span', { class: 'pause-card__label', text: label }), el('strong', { class: 'pause-card__value', text: value }));
+  const card = (label, value, glyph) => el('div', { class: 'pause-card' },
+    el('span', { class: 'pause-card__label', text: label }),
+    el('strong', { class: 'pause-card__value' }, glyph ? icon(glyph, { size: 18 }) : null, el('span', { text: value })));
 
   return el('div', { class: 'pause-state' },
     el('div', { class: 'pause-cards' },
       card('Personaje', game.look?.nombre ?? 'Parcero'),
       card('Dinero', cop(stats.dinero ?? 0)),
       card('Tiempo', `Día ${clock.day ?? 1} ∙ ${h}:${m}`),
-      ...(sky ? [card('Clima', `${sky.icon} ${sky.label}`),
-        card('Temporada', `${game.weather.season.icon} ${game.weather.season.label} (${game.weather.season.months})`)] : []),
-      card('El Chato', game.dog?.isFriend ? '🐕 Te acompaña' : 'Sin adoptar'),
+      ...(sky ? [card('Clima', sky.label, sky.glyph),
+        card('Temporada', `${game.weather.season.label} (${game.weather.season.months})`, game.weather.season.glyph)] : []),
+      card('El Chato', game.dog?.isFriend ? 'Te acompaña' : 'Sin adoptar', game.dog?.isFriend ? 'dog' : null),
     ),
     dogSection(game),
     el('div', { class: 'pause-level' },
@@ -153,18 +155,18 @@ function statePanel(game) {
       el('div', { class: 'pause-meter' }, el('div', { class: 'pause-meter__fill', style: `width:${xpPct}%;--c:#19c463` })),
       el('span', { class: 'pause-level__xp', text: `${stats.xp ?? 0} / ${xpNeeded} XP` })),
     el('h3', { class: 'pause-section-title', text: 'Necesidades' }),
-    el('ul', { class: 'pause-needs' }, NEED_META.map(({ id, icon, label, color }) => {
+    el('ul', { class: 'pause-needs' }, NEED_META.map(({ id, glyph, label, color }) => {
       const value = Math.round(stats[id] ?? 0);
       return el('li', { class: `pause-need is-${needLevel(value)}` },
-        el('span', { class: 'pause-need__label', text: `${icon} ${label}` }),
+        el('span', { class: 'pause-need__label', style: `--c:${color}` }, icon(glyph, { size: 16, stroke: 2.5 }), el('span', { text: label })),
         el('div', { class: 'pause-meter' }, el('div', { class: 'pause-meter__fill', style: `width:${value}%;--c:${color}` })),
         el('span', { class: 'pause-need__value', text: `${value}%` }));
     })),
     el('div', { class: 'pause-row pause-row--split' },
-      el('span', { class: 'pause-gps-summary', text: wp
-        ? `📍 Destino: ${wp.icon} ${wp.name}${pos && game.gps.route.length ? ` ∙ ${formatDistance(game.gps.remainingDistance(pos))}` : ''}`
-        : '📍 Sin destino marcado ∙ abre el mapa con M' }),
-      button('💾 Guardar partida', {
+      el('span', { class: 'pause-gps-summary' }, icon('pin', { size: 16 }), el('span', { text: wp
+        ? `Destino: ${wp.name}${pos && game.gps.route.length ? ` ∙ ${formatDistance(game.gps.remainingDistance(pos))}` : ''}`
+        : 'Sin destino marcado ∙ abre el mapa con M' })),
+      button([icon('save', { size: 16 }), 'Guardar partida'], {
         onClick: () => {
           game._save?.();
           window.dispatchEvent(new CustomEvent('toast', {

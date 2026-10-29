@@ -7,6 +7,7 @@
   <link rel="stylesheet" href="/src/ui/styles.css" />
   <link rel="stylesheet" href="/src/ui/inventory.css" />
   <link rel="stylesheet" href="/src/ui/crafting.css" />
+  <link rel="stylesheet" href="/src/ui/item-ui.css" />
   <link rel="stylesheet" href="/src/ui/menus.css" />
 </head>
 <body class="is-loading">
@@ -39,19 +40,26 @@
     <div id="hud" role="group" aria-label="Necesidades"></div>
   </div>
 
-  <!-- Topbar -->
-  <div id="topbar">
-    <span id="player-name"></span>
-    <span id="clock">Día 1 — 06:00</span>
-    <span id="money">$ 0</span>
-    <span class="topbar__level">
-      <span id="level-display">Nv 1</span>
-      <span id="xp-bar" aria-hidden="true"><span id="xp-fill"></span></span>
-    </span>
-    <span id="talent-points">🌟 0</span>
+  <!-- Topbar: identidad y progreso arriba; hora, clima, dinero y talentos abajo.
+       Los [data-icon] se llenan con iconos lucide al crear el HUD. -->
+  <div id="topbar" role="group" aria-label="Estado del personaje">
+    <div class="topbar__row">
+      <span id="player-name"></span>
+      <span class="topbar__level">
+        <span id="level-display">Nv 1</span>
+        <span id="xp-bar" aria-hidden="true"><span id="xp-fill"></span></span>
+        <span id="xp-text">0/100</span>
+      </span>
+    </div>
+    <div class="topbar__row topbar__row--world">
+      <span class="topbar__item topbar__time"><span class="topbar__icon" data-icon="clock"></span><span id="clock">06:00</span><span id="day-display">Día 1</span></span>
+      <span class="topbar__item" id="weather-display" hidden><span class="topbar__icon" data-icon="cloud"></span></span>
+      <span class="topbar__item topbar__money"><span class="topbar__icon" data-icon="coins"></span><span id="money">$ 0</span></span>
+      <span class="topbar__item" id="talent-points" title="Puntos de talento (T)"><span class="topbar__icon" data-icon="sparkles"></span><span id="talent-count">0</span></span>
+    </div>
   </div>
 
-  <div id="game-settings"><button type="button" id="radio-toggle" title="Radio transistor (R)" aria-label="Radio transistor">📻</button><button id="pause-toggle" type="button" aria-label="Pausar y abrir ajustes">⏸️ Pausa</button><button id="audio-toggle" type="button" aria-label="Silenciar sonido">🔊</button></div>
+  <div id="game-settings"><button type="button" id="radio-toggle" class="is-icon" title="Radio transistor (R)" aria-label="Radio transistor (R)"><span data-icon="radio"></span></button><button id="pause-toggle" type="button" title="Pausa (Esc)" aria-label="Pausar y abrir ajustes"><span data-icon="pause"></span><span>Pausa</span></button><button id="audio-toggle" type="button" class="is-icon" title="Silenciar sonido" aria-label="Silenciar sonido"><span data-icon="sound"></span></button></div>
 
   <div id="boost-indicator">⚡ BOOST ACTIVO</div>
   <div id="interaction-prompt"></div>

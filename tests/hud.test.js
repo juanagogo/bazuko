@@ -125,7 +125,7 @@ test('la mesa conserva la receta elegida y explica por qué no se puede fabricar
   hud.renderCrafting(crafting, inventory, null);
   assert.equal(hud._craftSelected, 'arma', 'la selección sobrevive a los redibujados');
   assert.match(hud.craftPanel.html, /Te faltan 4 materiales/);
-  assert.match(hud.craftPanel.html, /class="craft-go" data-act="craft" disabled/);
+  assert.match(hud.craftPanel.html, /class="item-primary craft-go" data-act="craft" disabled/);
 
   inventory.add(ITEMS.chatarra, 2); inventory.add(ITEMS.cable, 1); inventory.add(ITEMS.madera, 1);
   inventory.maxWeight = inventory.totalWeight;
