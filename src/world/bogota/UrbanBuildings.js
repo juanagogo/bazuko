@@ -1,9 +1,40 @@
 import * as THREE from 'three';
 import { createBuildingShell } from './BuildingVisibility.js';
+import { neighborhoodAt } from './NeighborhoodIdentity.js';
+import { addBuildingDetails } from './BuildingDetails.js';
 
 const hash=(x,z)=>((Math.imul(x+17,73856093)^Math.imul(z+31,19349663))>>>0);
 const FLOOR_SEQUENCE=[3,5,8,12,4,18,6,24,10,30,7,16];
 export const URBAN_DESIGNS=['ladrillo-balcones','concreto-bandas','marcos-verticales','torre-retranqueada','esquina-acristalada'];
+const neighborhoodPalettes = new WeakMap();
+
+// Una variante por barrio y paleta de ciudad, nunca una por edificio. Las
+// texturas siguen compartidas; BuildingVisibility conserva su propio fundido.
+function paletteForNeighborhood(base, profile) {
+  let variants = neighborhoodPalettes.get(base);
+  if (!variants) { variants = new Map(); neighborhoodPalettes.set(base, variants); }
+  if (variants.has(profile.id)) return variants.get(profile.id);
+  const colors = profile.palette;
+  const override = base.neighborhoods?.[profile.id] ?? {};
+  const tinted = (source, color, label) => {
+    const material = source.clone();
+    material.color.set(color);
+    material.name = `${profile.id} · ${label}`;
+    return material;
+  };
+  const palette = {
+    ...base, ...override,
+    facades: base.facades.map((material, i) => override.facades?.[i]
+      ?? tinted(material, colors.facadeBase, URBAN_DESIGNS[i])),
+    concrete: override.concrete ?? tinted(base.concrete, colors.plinth, 'zócalo'),
+    trim: override.trim ?? tinted(base.trim, colors.trim, 'cornisas'),
+    accent: override.accent ?? tinted(base.trim, colors.facadeAccent, 'dintel'),
+    rail: override.rail ?? tinted(base.rail, colors.metal, 'metal'),
+    glass: override.glass ?? tinted(base.glass, colors.metal, 'entrada')
+  };
+  variants.set(profile.id, palette);
+  return palette;
+}
 
 /** Solo sustituye solares de casas genéricas; nunca calles, ruinas o hitos. */
 export function planUrbanBuildings(map) {
@@ -39,6 +70,8 @@ function tiledBox(w,h,d,unitW=6,unitH=9.6) {
 /** Fachadas y detalles comparten materiales y se ocultan junto a cada pared. */
 export function buildUrbanBuilding(plan,palette) {
   const {x,z,width:w,depth:d,height:h,design}=plan;
+  const neighborhood = neighborhoodAt(x,z);
+  palette = paletteForNeighborhood(palette, neighborhood);
   const material=palette.facades[URBAN_DESIGNS.indexOf(design)];
   const setback=design==='torre-retranqueada'&&plan.floors>=8;
   const bodyHeight=setback?h-6.4:h;
@@ -47,6 +80,7 @@ export function buildUrbanBuilding(plan,palette) {
   });
   shell.root.name=`Edificio ${plan.floors} pisos · ${design}`;
   shell.root.userData.urbanBuilding={...plan};
+  shell.root.userData.neighborhood=neighborhood.id;
   shell.height=h;
   const add=(parent,w,h,d,x,y,z,mat,name)=>{
     const mesh=new THREE.Mesh(new THREE.BoxGeometry(w,h,d),mat);mesh.position.set(x,y,z);mesh.name=name;
@@ -60,7 +94,7 @@ export function buildUrbanBuilding(plan,palette) {
     };
     // Zócalo y dintel comercial conservan la escala de los barrios existentes.
     detail(0,.3,length,.6,.12,palette.concrete,'Zócalo');
-    detail(0,3.05,length,.18,.16,palette.trim,'Dintel');
+    detail(0,3.05,length,.18,.16,palette.accent,'Dintel');
     if(design==='marcos-verticales'||design==='esquina-acristalada') {
       for(const a of [-.35,0,.35])detail(a*length,bodyHeight/2,.2,bodyHeight,.22,palette.trim,'Marco vertical');
       if(design==='esquina-acristalada') {
@@ -70,7 +104,6 @@ export function buildUrbanBuilding(plan,palette) {
       const step=design==='concreto-bandas'?1:3;
       for(let floor=2;floor<Math.floor(bodyHeight/3.2);floor+=step) {
         detail(0,floor*3.2,length-.2,.16,.22,palette.trim,'Banda entre pisos');
-        if(design==='ladrillo-balcones')detail(0,floor*3.2+.65,length*.6,.65,.3,palette.rail,'Antepecho de balcón');
       }
     }
     // Entrada y vitrina oscura: no repetir persianas en los pisos superiores.
@@ -81,5 +114,12 @@ export function buildUrbanBuilding(plan,palette) {
     top.position.set(0,bodyHeight+3.2,0);top.castShadow=top.receiveShadow=true;shell.roof.add(top);
     add(shell.roof,w*.8,.2,d*.8,0,h-.1,0,palette.trim,'Cornisa de coronación');
   } else add(shell.roof,w-.2,.3,d-.2,0,h-.15,0,palette.trim,'Remate de azotea');
+  for (const face of [0,1,4,5]) addBuildingDetails({
+    shell, width:w, depth:d, height:h, floors:plan.floors, face, seed:plan.seed,
+    neighborhood, balconies:design==='ladrillo-balcones', facadeHeight:bodyHeight,
+    windowBayWidth:3,
+    roof:face===0, roofWidth:setback?w*.76:w, roofDepth:setback?d*.76:d,
+    materials:{trim:palette.trim,metal:palette.rail,glass:palette.glass,concrete:palette.concrete}
+  });
   return shell;
 }

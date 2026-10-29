@@ -13,7 +13,7 @@ test('el viaducto comienza en la ubicación indicada, sube suavemente y conecta 
   const route = new Bogota().getBusRoute();
   const bus = new BusService(route);
   assert.equal(route.stationZ, -30);
-  bus.position.z = 49; bus._alignToGround();
+  bus.position.z = 51; bus._alignToGround();   // el bus (22,1 m) queda entero sobre el tablero plano (la rampa llega a la cota en Z 39)
   assert.ok(Math.abs(bus.position.y - 7.82) < 1e-8);
   assert.equal(bus.group.rotation.x, 0);
   assert.ok(Math.abs(viaductHeight(220) - 7.82) < 1e-8);

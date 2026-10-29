@@ -234,7 +234,8 @@ export class DrugDealer {
     return [
       ITEMS.tintico,
       ITEMS.pegante,
-      ITEMS.pastilla
+      ITEMS.pastilla,
+      ITEMS.basuco
     ];
   }
 

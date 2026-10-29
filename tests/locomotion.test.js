@@ -6,7 +6,8 @@ import { fileURLToPath } from 'node:url';
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { buildCharacterClips } from '../src/character/actionforge.js';
-import { locomotionBlend, measureLocomotion } from '../src/character/locomotion.js';
+import { locomotionBlend, locomotionRate, measureLocomotion } from '../src/character/locomotion.js';
+import { animationDamping } from '../src/character/SecondaryMotion.js';
 
 globalThis.ProgressEvent ??= class { constructor(type, values) { Object.assign(this, { type }, values); } };
 const models = new URL('../public/models/', import.meta.url);
@@ -68,4 +69,23 @@ test('la mezcla avanza la zancada a la misma velocidad que el personaje', () => 
   assert.ok(Math.abs(half.run - .5) < .01 && Math.abs(half.rate - 1) < .01, JSON.stringify(half));
   const walkOnly = { walkDuration: 1.33, runDuration: null, strides: [1.41] };
   assert.deepEqual(locomotionBlend(2, walkOnly), { run: 0, rate: 2 / 1.41 });
+});
+
+test('los cambios caminar/correr avanzan la distancia real incluso mientras cambia el reparto', () => {
+  const locomotion = { walkDuration: 1.33, runDuration: .67, strides: [1.41, 2.02, 2.65, 4.65, 6.19] };
+  for (const fps of [20, 60, 144]) {
+    let share = 0, drawnDistance = 0, actualDistance = 0;
+    for (let frame = 0; frame < fps * 3; frame++) {
+      const speed = frame < fps ? 1 : frame < fps * 2 ? 6 : .4;
+      const desired = locomotionBlend(speed, locomotion);
+      share += (desired.run - share) * animationDamping(1 / fps, 8);
+      const x = share * 4, index = Math.min(Math.floor(x), 3);
+      const stride = THREE.MathUtils.lerp(locomotion.strides[index], locomotion.strides[index + 1], x - index);
+      drawnDistance += stride * locomotionRate(speed, locomotion, share) / fps;
+      actualDistance += speed / fps;
+    }
+    assert.ok(Math.abs(drawnDistance - actualDistance) < 1e-10, `${fps} FPS`);
+  }
+  assert.equal(locomotionRate(0, locomotion, .8), 0);
+  assert.equal(locomotionRate(-2, locomotion, .8), 0);
 });

@@ -1,0 +1,50 @@
+/* La fotografía usa solo el canvas; estos controles nunca entran en el PNG. */
+.is-photo-mode #app > :not(#game-canvas),
+.is-photo-mode #inventory-open,
+.is-photo-mode #quickbar,
+.is-photo-mode #controls-help,
+.is-photo-mode #controls-help *,
+.is-photo-mode #performance-panel,
+.is-photo-mode .loot-toast { visibility: hidden !important; pointer-events: none !important; }
+
+#photo-mode[hidden] { display: none; }
+#photo-mode {
+  position: fixed; inset: 0; z-index: 450;
+  display: flex; align-items: flex-end; justify-content: center;
+  padding: max(16px, env(safe-area-inset-bottom)) 16px;
+  pointer-events: none; color: #edf1ed;
+  font: 400 14px/1.5 'Overpass', system-ui, sans-serif;
+}
+.photo-mode__panel {
+  width: min(560px, 100%); max-height: min(70vh, 460px); overflow: auto;
+  padding: 22px 24px; pointer-events: auto;
+  background: rgba(16, 27, 34, .96); border: 1px solid #53656e;
+  border-radius: 8px; box-shadow: 0 16px 48px #0008;
+}
+.photo-mode__head { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.photo-mode__head h2 { margin: 0; font-size: 21px; font-weight: 800; letter-spacing: -.025em; }
+.photo-mode__badge { color: #eeb65c; white-space: nowrap; }
+#photo-mode-help { margin: 10px 0 16px; color: #b4c1c6; }
+.photo-mode__tools { display: flex; flex-wrap: wrap; gap: 8px; }
+#photo-mode button {
+  min-height: 44px; min-width: 44px; padding: 10px 15px;
+  border: 1px solid #61717a; border-radius: 8px; background: #1d303c;
+  color: #edf1ed; font: 700 14px/1.25 'Overpass', system-ui, sans-serif;
+  cursor: pointer; transition: background-color .15s ease, border-color .15s ease;
+}
+#photo-mode button:hover { background: #2b4453; border-color: #b4c1c6; }
+#photo-mode button:focus-visible, #photo-mode-open:focus-visible { outline: 3px solid #eeb65c; outline-offset: 3px; }
+.photo-mode__tools button { font-size: 19px; padding: 6px; }
+.photo-mode__status { color: #b4c1c6; margin: 14px 0; min-height: 21px; }
+.photo-mode__actions { display: flex; flex-wrap: wrap; gap: 10px; }
+#photo-mode .photo-mode__capture { background: #eeb65c; color: #182027; border-color: #eeb65c; }
+#photo-mode .photo-mode__capture:hover { background: #ffcd81; }
+#photo-mode .photo-mode__capture:disabled { opacity: .65; cursor: progress; }
+#photo-mode kbd, #photo-mode-open kbd { font: inherit; margin-left: 5px; opacity: .7; }
+@media (max-width: 520px) {
+  .photo-mode__panel { padding: 16px; }
+  .photo-mode__head { align-items: flex-start; gap: 8px; }
+  .photo-mode__head h2 { font-size: 18px; }
+  .photo-mode__tools { gap: 6px; }
+}
+@media (prefers-reduced-motion: reduce) { #photo-mode button { transition: none; } }

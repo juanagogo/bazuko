@@ -100,7 +100,8 @@ export class CameraRig {
       e.preventDefault();
 
       // En clic izquierdo solicita Pointer Lock para control fluido estilo juego 3D
-      if (e.button === 0 && (typeof document === 'undefined' || document.pointerLockElement !== canvas) && canvas.requestPointerLock) {
+      if (e.button === 0 && this.allowPointerLock?.() !== false &&
+          (typeof document === 'undefined' || document.pointerLockElement !== canvas) && canvas.requestPointerLock) {
         try { canvas.requestPointerLock()?.catch?.(() => {}); } catch { /* sin permiso */ }
       }
 
@@ -165,9 +166,10 @@ export class CameraRig {
 
   updateControls(dt, input) {
     if (this.mode !== 'third-person' || !(this.canControl?.() ?? true)) return;
+    const look = input.look ?? { x: 0, y: 0 };
     this.orbit(
-      ((input.isDown('ArrowRight') ? 1 : 0) - (input.isDown('ArrowLeft') ? 1 : 0)) * dt * 250,
-      ((input.isDown('ArrowDown') ? 1 : 0) - (input.isDown('ArrowUp') ? 1 : 0)) * dt * 180
+      ((input.isDown('ArrowRight') ? 1 : 0) - (input.isDown('ArrowLeft') ? 1 : 0) + look.x) * dt * 250,
+      ((input.isDown('ArrowDown') ? 1 : 0) - (input.isDown('ArrowUp') ? 1 : 0) + look.y) * dt * 180
     );
   }
 

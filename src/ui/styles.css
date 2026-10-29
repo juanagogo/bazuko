@@ -37,16 +37,18 @@ canvas { display: block; width: 100vw; height: 100vh; }
   box-shadow: 0 6px 18px rgba(0, 0, 0, .35);
   backdrop-filter: blur(6px);
 }
-#hud { display: grid; gap: 4px; }
+#hud { display: grid; gap: 6px; padding: 10px 12px 9px; }
 .stat-bar {
-  display: grid; grid-template-columns: 18px 62px minmax(0, 1fr) 26px; align-items: center; gap: 7px;
+  display: grid; grid-template-columns: 16px 64px minmax(0, 1fr) 26px; align-items: center; gap: 8px;
   font-size: 12px; font-weight: 800; line-height: 1;
 }
-.stat-bar__icon { font-size: 13px; text-align: center; }
+/* Icono lucide teñido con el color de la necesidad */
+.stat-bar__icon { display: grid; place-items: center; color: var(--c, #c9d3e3); }
+.stat-bar__icon svg { width: 14px; height: 14px; }
 .stat-bar__name { color: #c9d3e3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding-top: 2px; }
 .stat-bar__value { text-align: right; font-variant-numeric: tabular-nums; color: #fff; padding-top: 2px; }
 .stat-bar .bar {
-  height: 8px; border-radius: 99px; overflow: hidden;
+  height: 6px; border-radius: 99px; overflow: hidden;
   background: rgba(255, 255, 255, .09); box-shadow: inset 0 1px 2px rgba(0, 0, 0, .5);
 }
 .stat-bar .fill {
@@ -58,24 +60,57 @@ canvas { display: block; width: 100vw; height: 100vh; }
 .stat-bar[data-level="critical"] .stat-bar__value,
 .stat-bar[data-level="critical"] .stat-bar__name { color: #ff6b5e; }
 .stat-bar[data-level="critical"] .bar { animation: stat-critical .9s ease-in-out infinite alternate; }
-#hud-dock[data-radar-size="s"] .stat-bar { grid-template-columns: 18px minmax(0, 1fr) 26px; }
+#hud-dock[data-radar-size="s"] .stat-bar { grid-template-columns: 16px minmax(0, 1fr) 26px; }
 #hud-dock[data-radar-size="s"] .stat-bar__name { display: none; }
 
+/* Barra superior: tarjeta de dos filas con iconos lucide (identidad y progreso; mundo y recursos) */
 #topbar {
   position: fixed; top: 12px; left: 12px;
-  display: flex; align-items: center; gap: 4px; padding: 4px;
-  border-radius: 10px; background: rgba(12, 15, 20, .74); border: 1px solid rgba(255, 255, 255, .1);
+  display: grid; gap: 7px; min-width: 260px; max-width: calc(100vw - 212px);
+  padding: 9px 12px 8px; border-radius: 12px;
+  background: rgba(12, 15, 20, .74); border: 1px solid rgba(255, 255, 255, .1);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, .35); backdrop-filter: blur(6px);
   font: 800 13px/1 'Overpass', system-ui, sans-serif; color: #eef2f8;
   font-variant-numeric: tabular-nums;
   pointer-events: none;
 }
-#topbar > span { padding: 6px 9px 4px; border-radius: 7px; }
-#topbar > span + span { border-left: 1px solid rgba(255, 255, 255, .08); border-radius: 0; }
-#money { color: #7fe0a0; }
-.topbar__level { display: grid; gap: 4px; }
-#xp-bar { display: block; width: 64px; height: 4px; border-radius: 99px; background: rgba(255, 255, 255, .12); overflow: hidden; }
+.topbar__row { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.topbar__row--world { flex-wrap: wrap; row-gap: 6px; padding-top: 7px; border-top: 1px solid rgba(255, 255, 255, .08); }
+#player-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; padding-top: 2px; }
+.topbar__level { display: flex; align-items: center; gap: 7px; margin-left: auto; }
+#level-display {
+  padding: 4px 6px 2px; border-radius: 5px;
+  background: #f6c400; color: #0e0f12; font-size: 11px; letter-spacing: .04em; text-transform: uppercase;
+}
+#xp-bar { display: block; width: 64px; height: 5px; border-radius: 99px; background: rgba(255, 255, 255, .12); overflow: hidden; }
 #xp-fill { display: block; height: 100%; width: 0%; background: #19c463; transition: width .3s ease; }
-#talent-points { color: #ffd166; cursor: pointer; }
+#xp-text { color: #9fb0c8; font-size: 11px; padding-top: 2px; }
+.topbar__item { display: inline-flex; align-items: center; gap: 6px; }
+.topbar__item + .topbar__item { padding-left: 12px; border-left: 1px solid rgba(255, 255, 255, .08); }
+.topbar__icon, #weather-display { display: inline-grid; place-items: center; color: #9fb0c8; }
+.topbar__icon svg, #weather-display svg { width: 16px; height: 16px; }
+#weather-display[hidden] { display: none; }
+#clock { font-size: 15px; padding-top: 2px; }
+#day-display { color: #9fb0c8; font-size: 11px; letter-spacing: .06em; text-transform: uppercase; padding-top: 3px; }
+/* El clima y los talentos aceptan el puntero para mostrar su nombre */
+#weather-display, #talent-points { pointer-events: auto; cursor: default; }
+#weather-display { color: #d6e4ff; }
+#money { color: #7fe0a0; padding-top: 2px; }
+.topbar__money .topbar__icon { color: #7fe0a0; }
+#talent-points { opacity: .45; }
+#talent-points.has-points { opacity: 1; color: #f6c400; }
+#talent-points.has-points .topbar__icon { color: #f6c400; }
+#talent-count { padding-top: 2px; }
+@media (max-width: 560px) {
+  /* Ocupa justo el espacio libre a la izquierda de Pausa y sonido */
+  #topbar { min-width: 0; width: calc(100vw - 212px); padding: 8px 10px 7px; gap: 6px; }
+  #xp-text { display: none; }
+  #xp-bar { width: 36px; }
+  .topbar__row--world { column-gap: 10px; }
+  .topbar__item + .topbar__item { padding-left: 0; border-left: 0; }
+  /* Las indicaciones de ratón no aplican en pantallas táctiles estrechas */
+  #camera-hint { display: none; }
+}
 
 #status {
   padding: 8px 10px 6px; border-radius: 10px; border: 1px solid #e6a23c;
@@ -197,7 +232,7 @@ canvas { display: block; width: 100vw; height: 100vh; }
 
 /* === Controles help === */
 #camera-controls {
-  position: fixed; top: 55px; left: 12px;
+  position: fixed; top: var(--topbar-bottom, 92px); left: 12px;
   display: flex; align-items: flex-start; flex-direction: column; gap: 6px;
   max-width: calc(100vw - 220px); font: 800 12px 'Overpass', system-ui, sans-serif; color: #eee;
   pointer-events: none;
@@ -258,7 +293,7 @@ body #interaction-prompt { bottom: 160px; max-width: calc(100vw - 40px); text-al
   #performance-panel { bottom: 165px; }
 }
 #player-name { font-weight: 800; color: #f6c400; }
-#player-name:empty { display: none; }
+#player-name:empty { visibility: hidden; }
 .stat-bar.critical .bar { animation: stat-critical 0.9s ease-in-out infinite alternate; }
 @keyframes stat-critical { to { box-shadow: 0 0 0 1px #ff5a4a, 0 0 8px #ff5a4a; } }
 
@@ -385,7 +420,37 @@ body.is-loading #hud-dock { visibility: hidden; }
   background: rgba(12, 15, 20, .74); color: #eef2f8; border: 1px solid rgba(255, 255, 255, .14);
   font: 800 13px/1 'Overpass', system-ui, sans-serif;
 }
+#game-settings button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; }
+#game-settings button.is-icon { width: 34px; padding: 0; }
+#game-settings button svg { width: 16px; height: 16px; flex: none; }
+#game-settings button > span:last-child:not(:first-child) { padding-top: 2px; }
 #game-settings button:hover { background: #f6c400; color: #0e0f12; }
+#game-settings button:focus-visible { outline: 2px solid #f6c400; outline-offset: 2px; }
+#audio-toggle.is-muted { color: #ff8a7d; }
+
+/* Accesos al inventario y a la mesa (PanelDock): mismo estilo que Pausa y sonido */
+#panel-dock { position: fixed; top: 56px; right: 12px; z-index: 50; display: flex; flex-direction: column; align-items: stretch; gap: 6px; }
+body.is-loading #panel-dock { visibility: hidden; }
+#panel-dock .dock-btn {
+  display: flex; align-items: center; gap: 8px; min-height: 34px; padding: 5px 7px 5px 10px; border-radius: 9px; cursor: pointer;
+  background: rgba(12, 15, 20, .74); color: #eef2f8; border: 1px solid rgba(255, 255, 255, .14);
+  font: 800 13px/1 'Overpass', system-ui, sans-serif;
+}
+#panel-dock .dock-art { display: inline-grid; place-items: center; width: 18px; height: 18px; color: #f6c400; }
+#panel-dock .dock-art svg { width: 18px; height: 18px; }
+#panel-dock .dock-label { flex: 1; padding-top: 2px; text-align: left; }
+#panel-dock .dock-key {
+  min-width: 20px; padding: 3px 5px 2px; border-radius: 4px; text-align: center;
+  border: 1px solid rgba(255, 255, 255, .35); border-bottom-width: 2px; background: rgba(255, 255, 255, .06);
+  color: #d6e4ff; font: 700 11px/1 monospace;
+}
+#panel-dock .dock-btn:hover { background: #f6c400; color: #0e0f12; }
+#panel-dock .dock-btn:hover .dock-art { color: #0e0f12; }
+#panel-dock .dock-btn:hover .dock-key { color: #0e0f12; border-color: rgba(14, 15, 18, .5); background: rgba(14, 15, 18, .08); }
+#panel-dock .dock-btn:focus-visible { outline: 2px solid #f6c400; outline-offset: 2px; }
+@media (max-width: 560px) {
+  #panel-dock .dock-label { display: none; }
+}
 
 /* Radio Transistor Modal */
 .radio-status-row {

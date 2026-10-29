@@ -67,7 +67,11 @@ export class LocalLights {
       if (distance > 80 * 80) continue;
       // La llama parpadea, pero no debe intercambiar las luces elegidas en cada oscilación.
       entry.peakIntensity = Math.max(entry.peakIntensity ?? 0, light.intensity);
-      entry.score = entry.peakIntensity / (1 + distance);
+      // Usar el mismo alcance y caída que el shader: una fuente fuerte fuera
+      // de alcance no debe desplazar al farol que sí ilumina al personaje.
+      const rangeRatioSquared = light.distance > 0 ? distance / (light.distance * light.distance) : 0;
+      const cutoff = Math.max(0, 1 - rangeRatioSquared * rangeRatioSquared);
+      entry.score = entry.peakIntensity * cutoff * cutoff / Math.max(Math.pow(distance, light.decay * .5), .01);
       this.candidates.push(entry);
     }
     this.candidates.sort((a, b) => b.score - a.score);

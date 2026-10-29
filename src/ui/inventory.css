@@ -1,82 +1,131 @@
-/* === Panel de inventario === */
+/* === Panel de inventario ===
+   Mismo lenguaje que la mesa de crafteo (item-ui.css): casillas por familia, banco con
+   pedestal y botón principal, con la paleta azul de la pausa y los menús. */
 #inventory-panel { display: none; }
 #performance-panel { bottom: 78px; }
-#inventory-open { position: fixed; right: 12px; top: 72px; z-index: 50; padding: 8px 12px;
-  background: #121218; color: #edc55e; border: 1px solid #c9a227; font: bold 13px monospace; cursor: pointer; }
-body.is-loading #inventory-open { visibility: hidden; }
 #inv-overlay {
   position: fixed; inset: 0; z-index: 210;
   display: none; align-items: center; justify-content: center;
-  background: rgba(0,0,0,0.55);
-  font-family: monospace; color: #ddd;
+  background: rgba(3, 4, 7, 0.55);
+  font-family: monospace; color: var(--item-text);
 }
+/* Sin animación de entrada: con el render en pausa podría quedarse invisible. */
 #inv-overlay.open { display: flex; }
 .inv-window {
-  width: 640px; max-width: 96vw; max-height: 94vh; overflow-y: auto;
-  background: rgba(15,15,20,0.97);
-  border: 2px solid #c9a227;
-  box-shadow: 0 0 25px rgba(201,162,39,0.25);
+  width: 720px; max-width: 96vw; max-height: 94vh; overflow-y: auto;
+  background: var(--item-panel);
+  border: 2px solid var(--item-ink);
+  box-shadow: 0 0 0 4px var(--item-panel), var(--shadow-sign, 0 6px 18px rgba(0,0,0,0.55));
   padding: 14px;
 }
+
+/* Cabecera con la carga del costal */
 .inv-head {
-  display: flex; align-items: center; gap: 12px;
-  border-bottom: 1px solid #444; padding-bottom: 8px; margin-bottom: 12px;
+  display: flex; align-items: center; gap: 10px;
+  border-bottom: 1px solid var(--item-line); padding-bottom: 8px; margin-bottom: 12px;
 }
-.inv-head h2 { color: #c9a227; font-size: 18px; flex: 1; }
-.inv-cap { color: #888; font-size: 12px; }
+.inv-head-art { width: 26px; height: 26px; color: var(--item-gold); }
+.inv-head h2 { flex: 1; color: var(--item-gold); font-size: 18px; }
+.inv-load { display: flex; align-items: center; gap: 6px; color: var(--item-text); font-size: 12px; font-variant-numeric: tabular-nums; }
+.inv-load-bar { position: relative; width: 64px; height: 6px; background: var(--item-deep); border: 1px solid var(--item-line); }
+.inv-load-bar i { position: absolute; inset: 0 auto 0 0; width: 0; background: var(--item-gold); }
+.inv-load-flag { font-weight: bold; }
+.inv-load.near .inv-load-bar i { background: var(--item-warn); }
+.inv-load.near .inv-load-flag, .inv-load.near .inv-load-text { color: var(--item-warn); }
+.inv-load.full .inv-load-bar i { background: var(--item-bad); }
+.inv-load.full .inv-load-flag, .inv-load.full .inv-load-text { color: var(--item-bad-text); }
 .inv-close {
-  background: none; border: 1px solid #444; color: #aaa; cursor: pointer;
-  font-family: inherit; width: 26px; height: 26px;
+  width: 26px; height: 26px; cursor: pointer;
+  background: none; border: 1px solid var(--item-line); color: var(--item-text); font-family: inherit;
 }
-.inv-close:hover { color: #fff; border-color: #c9a227; }
-.inv-body { display: flex; gap: 14px; }
+.inv-close:hover, .inv-close:focus-visible { color: var(--item-ink); border-color: var(--item-gold); outline: none; }
+
+.inv-body { display: flex; gap: 14px; align-items: stretch; }
+.inv-side { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 8px; }
+
+/* Casillas: .item-slot de la mesa con cantidad, tecla rápida y rareza */
 .inv-grid {
-  display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px;
-  flex: 1 1 auto; align-content: start;
+  display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; align-content: start;
 }
-.inv-slot {
-  position: relative; aspect-ratio: 1; min-width: 0;
-  background: rgba(0,0,0,0.45); border: 1px solid #333;
-  display: flex; align-items: center; justify-content: center;
-  cursor: pointer; user-select: none;
+.inv-slot { padding: 0; color: var(--item-ink); user-select: none; }
+.inv-slot.is-empty { background: var(--item-row); }
+.inv-slot[hidden] { display: none; }
+.inv-slot.usable { border-color: color-mix(in srgb, var(--item-green) 55%, transparent); }
+.inv-slot-art { width: clamp(26px, 5.4vw, 40px); height: clamp(26px, 5.4vw, 40px); color: color-mix(in srgb, var(--cat) 35%, var(--item-ink)); }
+.inv-slot .item-art--emoji { width: auto; height: auto; font-size: clamp(20px, 4.2vw, 28px); }
+.inv-slot-qty {
+  position: absolute; right: 4px; top: 2px;
+  font-size: 11px; color: var(--item-qty); text-shadow: 0 0 3px #000;
 }
-.inv-slot:hover { border-color: #777; }
-.inv-slot.filled { background: rgba(40,40,50,0.7); }
-.inv-slot.rare { border-color: #8a7220; }
-.inv-slot.selected { border-color: #ffd166; box-shadow: 0 0 8px rgba(255,209,102,0.55); }
-.inv-slot .si { font-size: clamp(18px, 4.2vw, 28px); line-height: 1; }
-.inv-slot .sq {
-  position: absolute; right: 3px; bottom: 1px;
-  font-size: 11px; color: #c9a227; text-shadow: 0 0 3px #000;
+.inv-slot-key {
+  position: absolute; left: 3px; top: 3px; min-width: 13px; padding: 0 2px;
+  font-size: 9px; line-height: 13px; text-align: center;
+  color: var(--item-ink); background: var(--item-deep); border: 1px solid var(--item-line);
 }
-.inv-slot .sk {
-  position: absolute; left: 3px; top: 1px; font-size: 9px; color: #4ab5e8;
+/* La rareza se marca con ★ y no con el borde, para no confundirla con la selección */
+.inv-slot-rare { position: absolute; left: 4px; bottom: 2px; font-size: 11px; color: var(--item-gold); text-shadow: 0 0 3px #000; }
+.inv-grid-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; color: var(--item-text); font-size: 11px; }
+
+/* Botones secundarios: claramente por debajo del principal */
+.inv-ghost {
+  padding: 5px 8px; cursor: pointer;
+  background: transparent; border: 1px solid rgba(214, 228, 255, 0.5); color: var(--item-text);
+  font: 11px monospace;
+  transition: border-color 120ms, color 120ms;
 }
-.inv-detail {
-  flex: 0 0 190px; display: flex; flex-direction: column; gap: 6px;
-  border: 1px solid #333; padding: 10px; background: rgba(0,0,0,0.4);
+.inv-ghost:hover { border-color: var(--item-ink); color: var(--item-ink); }
+.inv-ghost:focus-visible { outline: 2px solid var(--item-ink); outline-offset: 2px; }
+.inv-ghost:disabled { opacity: 0.4; cursor: not-allowed; border-color: var(--item-line); color: var(--item-dim); }
+
+/* Banco: el detalle del objeto, como el de la mesa */
+.inv-bench { flex: 0 0 280px; min-width: 0; }
+.inv-bench.is-empty { --cat: #5f6f8f; }
+.inv-ped-art { display: contents; }
+.inv-pedestal .item-art--emoji { width: auto; height: auto; font-size: 52px; }
+.inv-name {
+  max-width: 100%; overflow: hidden;
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2;
+  color: var(--item-ink); font-size: 15px; text-align: center;
 }
-.inv-d-icon { font-size: 36px; line-height: 1; min-height: 36px; }
-.inv-d-name { font-weight: bold; color: #eee; font-size: 14px; }
-.inv-d-desc { color: #aaa; font-size: 12px; }
-.inv-d-fx { list-style: none; color: #27ae60; font-size: 12px; }
-.inv-d-meta { color: #888; font-size: 11px; }
-.inv-d-btns { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: auto; }
-.inv-d-btns button {
-  background: #27ae60; color: #fff; border: none; padding: 5px 4px;
-  cursor: pointer; font-family: inherit; font-size: 12px;
+.inv-rarity { color: var(--item-gold); font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase; }
+.inv-rarity:empty, .inv-effect:empty, .inv-note:empty, .inv-meta:empty, .inv-reason:empty { display: none; }
+.inv-effect { color: var(--item-text); font-size: 12px; text-align: center; }
+.inv-note { color: var(--item-dim); font-size: 11px; text-align: center; }
+.inv-meta { color: var(--item-qty); font-size: 11px; font-variant-numeric: tabular-nums; text-align: center; }
+.inv-reason { margin-top: auto; padding-top: 6px; color: var(--item-text); font-size: 12px; text-align: center; }
+.inv-bench.usable .inv-reason { color: var(--item-green); }
+.inv-use[hidden] { display: none; }
+.inv-use .item-art--emoji { width: auto; height: auto; font-size: 16px; }
+.inv-secondary { align-self: stretch; display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 4px; }
+.inv-secondary .inv-ghost:not(:disabled):hover { border-color: var(--item-bad-text); color: var(--item-bad-text); }
+.inv-hot {
+  align-self: stretch; display: flex; align-items: center; justify-content: space-between; gap: 6px;
+  margin-top: 4px; padding-top: 6px; border-top: 1px solid var(--item-line);
 }
-.inv-d-btns button[data-act="drop1"], .inv-d-btns button[data-act="dropAll"] { background: #8a3a2e; }
-.inv-d-btns button[data-act="sort"] { background: #3a5a7a; grid-column: span 2; }
-.inv-d-btns button:disabled { background: #444; color: #888; cursor: not-allowed; }
-.inv-d-hot { color: #666; font-size: 10px; }
-.inv-hint { color: #666; font-size: 11px; margin-top: 12px; text-align: center; }
+.inv-hot-label { color: var(--item-gold); font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase; }
+.inv-hot-keys { display: flex; gap: 4px; }
+.inv-hot-key {
+  position: relative; width: 24px; height: 24px; padding: 0; cursor: pointer;
+  background: var(--item-deep); border: 1px solid var(--item-line); color: var(--item-ink);
+  font: bold 11px monospace;
+}
+.inv-hot-key.taken::after { content: '•'; position: absolute; right: 1px; top: -4px; color: var(--item-text); font-size: 10px; }
+.inv-hot-key[aria-pressed="true"] { border-color: var(--item-gold); color: var(--item-gold); box-shadow: 0 0 6px rgba(246, 196, 0, 0.45); }
+.inv-hot-key:hover:not(:disabled) { border-color: var(--item-text); }
+.inv-hot-key:focus-visible { outline: 2px solid var(--item-ink); outline-offset: 2px; }
+.inv-hot-key:disabled { opacity: 0.35; cursor: not-allowed; }
+
+/* Respuesta al usar o tirar */
+.inv-bench.just-used .item-pedestal { animation: item-pop 380ms ease-out; }
+.inv-bench.just-dropped .item-pedestal { animation: item-drop 300ms ease-out; }
+
+.inv-hint { color: var(--item-dim); font-size: 11px; margin-top: 12px; text-align: center; }
 .inv-tip {
   position: fixed; display: none; z-index: 220; pointer-events: none;
-  max-width: 220px; padding: 6px 9px; font-size: 11px; line-height: 1.5;
-  background: rgba(10,10,15,0.95); border: 1px solid #c9a227; color: #ccc;
+  max-width: 240px; padding: 6px 9px; font-size: 11px; line-height: 1.5;
+  background: var(--item-deep); border: 1px solid var(--item-gold); color: var(--item-text);
 }
-.inv-tip b { color: #ffd166; }
+.inv-tip b { color: var(--item-gold); }
 
 /* === Barra de acceso rápido === */
 #quickbar {
@@ -85,21 +134,40 @@ body.is-loading #inventory-open { visibility: hidden; }
   font-family: monospace;
 }
 #quickbar.visible { display: flex; }
-.qb-slot {
-  position: relative; width: 44px; height: 44px;
-  background: rgba(0,0,0,0.6); border: 1px solid #555;
-  display: flex; align-items: center; justify-content: center; cursor: pointer;
-}
-.qb-slot:hover { border-color: #ffd166; }
-.qb-slot.empty { opacity: 0.4; }
-.qb-slot .si { font-size: 22px; line-height: 1; }
-.qb-slot .qk { position: absolute; left: 3px; top: 1px; font-size: 9px; color: #4ab5e8; }
-.qb-slot .sq { position: absolute; right: 3px; bottom: 1px; font-size: 11px; color: #c9a227; text-shadow: 0 0 3px #000; }
+#quickbar .qb-slot { width: 44px; height: 44px; gap: 0; color: var(--item-ink); }
+#quickbar .qb-slot:hover { border-color: var(--item-gold); }
+.qb-slot.is-empty { opacity: 0.45; }
+.qb-art { display: contents; }
+.qb-art-icon { width: 26px; height: 26px; color: color-mix(in srgb, var(--cat) 35%, var(--item-ink)); }
+.qb-slot .item-art--emoji { width: auto; height: auto; font-size: 22px; }
+.qb-slot .qk { position: absolute; left: 3px; top: 1px; font-size: 9px; color: var(--item-ink); }
+.qb-slot .sq { position: absolute; right: 3px; bottom: 1px; font-size: 11px; color: var(--item-qty); text-shadow: 0 0 3px #000; }
+.qb-slot.just-used .qb-art-icon { animation: item-pop 300ms ease-out; }
 
 @media (max-width: 560px) {
-  .inv-body { flex-direction: column; }
-  .inv-detail { flex: none; }
-  .inv-d-icon { display: none; }
+  .inv-window { padding: 10px; max-height: 92vh; }
+  .inv-head h2 { font-size: 16px; }
+  .inv-load-bar { width: 40px; }
+  .inv-body { flex-direction: column; gap: 10px; }
+  /* Banco compacto arriba, como la mesa, para que la cuadrícula quede a la vista */
+  .inv-bench {
+    flex: none; order: -1;
+    display: grid; grid-template-columns: 76px 1fr; column-gap: 10px; row-gap: 3px;
+    align-items: center; padding: 10px;
+  }
+  .inv-bench > * { grid-column: 2; }
+  .inv-bench .item-pedestal { grid-column: 1; grid-row: 1 / span 5; width: 72px; height: 72px; margin: 0; }
+  .inv-bench .item-pedestal .item-art { width: 42px; height: 42px; }
+  .inv-pedestal .item-art--emoji { font-size: 36px; }
+  .inv-name, .inv-effect, .inv-meta, .inv-reason { text-align: left; }
+  .inv-reason { margin-top: 0; padding-top: 0; }
+  .inv-note { display: none; }
+  .inv-bench > .item-primary, .inv-secondary, .inv-hot { grid-column: 1 / -1; }
   .inv-hint { display: none; }
-  .qb-slot { width: 38px; height: 38px; }
+  #quickbar .qb-slot { width: 38px; height: 38px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .inv-bench.just-used .item-pedestal, .inv-bench.just-dropped .item-pedestal, .qb-slot.just-used .qb-art-icon { animation: none; }
+  .inv-ghost { transition: none; }
 }

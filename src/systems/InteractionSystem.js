@@ -39,9 +39,16 @@ export class InteractionSystem {
     this.sortingPickup = null;
     this.isHoldingQ = false;
 
-    // Pedir limosna
-    this._lastBegTime = -9999;
+    // Pedir limosna y calentarse
+    this._lastBegTime = -Infinity;
     this.begCooldown = 4; // segundos entre pedir limosna
+    this._lastWarmTime = -Infinity;
+    this.warmCooldown = 20; // segundos de espera entre calentarse en fogata
+    this.pedestrians = [];
+  }
+
+  setPedestrians(pedestrians) {
+    this.pedestrians = pedestrians ?? [];
   }
 
   _origin(key, base = 1) { return originEffect(this.originId, key, base); }
@@ -92,6 +99,7 @@ export class InteractionSystem {
         else if (t.kind === 'cambuche') nearestType = 'cambuche';
         else if (t.kind === 'dog') nearestType = 'dog';
         else if (t.kind === 'cart') nearestType = 'cart';
+        else if (t.kind === 'fireBarrel') nearestType = 'fireBarrel';
         else if (t.kind === 'recycler') nearestType = 'sell';
         else if (typeof t.harvest === 'function') nearestType = 'pickup';
         else if (typeof t.steal === 'function') nearestType = 'car';
@@ -148,6 +156,9 @@ export class InteractionSystem {
           break;
         case 'cambuche':
           window.dispatchEvent(new CustomEvent('open-cambuche'));
+          break;
+        case 'fireBarrel':
+          this._warmAtFire(nearest);
           break;
         case 'dog':
           this._interactDog(nearest);
@@ -208,6 +219,34 @@ export class InteractionSystem {
     }
   }
 
+  _warmAtFire(target) {
+    if (!target) return;
+    const now = performance.now();
+    const elapsed = (now - this._lastWarmTime) / 1000;
+    if (elapsed < this.warmCooldown) {
+      const waitSec = Math.ceil(this.warmCooldown - elapsed);
+      window.dispatchEvent(new CustomEvent('toast', {
+        detail: {
+          text: `⏳ Ya te calentaste las manos hace poco. El calor perdura (${waitSec}s).`,
+          type: 'info'
+        }
+      }));
+      return;
+    }
+    this._lastWarmTime = now;
+    this.player?.playAction?.('saludo', 2.0);
+    this.stats.calor = Math.min(300, (this.stats.calor || 0) + 180);
+    this.stats.energia = Math.min(100, (this.stats.energia || 0) + 8);
+    this.stats.animo = Math.min(100, (this.stats.animo || 0) + 12);
+    this.audio?.play?.('full');
+    window.dispatchEvent(new CustomEvent('toast', {
+      detail: {
+        text: '🔥 Te calentaste las manos en la fogata (+Calor, +Ánimo, +Energía).',
+        type: 'info'
+      }
+    }));
+  }
+
   _harvestTrash(target, sorted) {
     if (typeof target.harvest !== 'function') return;
 
@@ -263,12 +302,26 @@ export class InteractionSystem {
     if (result.items.includes('retrovisor')) {
       if (target.traffic) this.audio?.playMovingTheft?.(target);
       else this.audio?.playCarAlarm?.(target);
+      // El juego decide si el conductor del carro en circulación se baja a perseguirte.
+      window.dispatchEvent(new CustomEvent('mirror-stolen', { detail: { car: target } }));
     }
 
     const added = [];
     for (const itemId of result.items) {
       const item = ITEMS[itemId];
       if (item && this.inventory.add(item)) added.push(item.name);
+    }
+
+    // Si una patrulla te ve, te persigue; solo te capturan si te alcanzan.
+    const chased = this.getTraffic?.()?.alertForTheft?.(this.player.position);
+    if (chased) {
+      this.audio?.play('pickup');
+      this.stats.addXP(XP_STEAL, this.talents);
+      window.dispatchEvent(new CustomEvent('police-chase', {}));
+      window.dispatchEvent(new CustomEvent('steal', {
+        detail: { added, caught: false, police: true, chase: true }
+      }));
+      return;
     }
 
     if (result.caught) {
@@ -281,7 +334,7 @@ export class InteractionSystem {
     }
 
     window.dispatchEvent(new CustomEvent('steal', {
-      detail: { added, caught: result.caught }
+      detail: { added, caught: result.caught, police: false, chase: false }
     }));
   }
 
@@ -344,6 +397,24 @@ export class InteractionSystem {
     if (this.stats.energia < 3) {
       this.audio?.play('empty');
       window.dispatchEvent(new CustomEvent('beg-fail', { detail: { reason: 'energy' } }));
+      return;
+    }
+
+    // Verificar si hay peatones a menos de 7 metros
+    const nearbyPedestrians = (this.pedestrians ?? []).filter(npc => {
+      const pos = npc.position ?? npc.group?.position;
+      return pos && pos.distanceTo(this.player.position) <= 7.0;
+    });
+
+    if (nearbyPedestrians.length === 0) {
+      this.audio?.play?.('empty');
+      window.dispatchEvent(new CustomEvent('beg-result', {
+        detail: {
+          success: false,
+          reason: 'no_pedestrians',
+          message: '👀 No hay nadie cerca a quien pedirle limosna. Acércate a los transeúntes.'
+        }
+      }));
       return;
     }
 

@@ -29,6 +29,28 @@ export const RECIPES = [
     }
   },
   {
+    id: 'cuchillo',
+    name: 'Cuchillo',
+    emoji: '🔪',
+    result: 'cuchillo',
+    qty: 1,
+    ingredients: {
+      chatarra: 1,
+      madera: 1
+    }
+  },
+  {
+    id: 'botella_picada',
+    name: 'Botella picada',
+    emoji: '🍾',
+    result: 'botella_picada',
+    qty: 1,
+    ingredients: {
+      botella: 1,
+      lata: 1
+    }
+  },
+  {
     id: 'curita',
     name: 'Curita',
     emoji: '🩹',

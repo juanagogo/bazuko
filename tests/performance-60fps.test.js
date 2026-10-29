@@ -99,19 +99,19 @@ test('bancas y árboles iguales comparten lotes; los objetos animados conservan 
 
 test('el viento de los árboles vive en el shader y sobrevive a la fusión en lotes', () => {
   const group = new THREE.Group();
-  for (let i = 0; i < 12; i++) { const plant = tree(1); plant.position.set(4 + i, 0, 4); group.add(plant); }
+  for (let i = 0; i < 12; i++) { const plant = tree(1, { seed: i + 1 }); plant.position.set(4 + i, 0, 4); group.add(plant); }
   assert.ok(group.children.every(plant => !plant.userData.update));
   const phases = group.children.map(plant => {
     const leaves = []; plant.traverse(mesh => { if (mesh.isMesh && mesh.material.userData.staticMergeKey.endsWith('|wind')) leaves.push(mesh); });
-    assert.equal(leaves.length, 4);
-    assert.ok(leaves.every(mesh => mesh.geometry.attributes.uv.getX(0) === leaves[0].geometry.attributes.uv.getX(0)));
-    return leaves[0].geometry.attributes.uv.getX(0);
+    assert.equal(leaves.length, 1, 'las hojas se construyen juntas antes de agrupar la ciudad');
+    return leaves[0].geometry.attributes.treeWind.getX(0);
   });
   assert.ok(new Set(phases).size > 1, 'cada árbol conserva su propia fase');
   Bogota.prototype._mergeStatic.call({ group });
   const leaves = []; group.traverse(mesh => { if (mesh.isMesh && mesh.material.userData.staticMergeKey?.endsWith('|wind')) leaves.push(mesh); });
   assert.ok(leaves.length <= 3, `${leaves.length} lotes de follaje`);
   assert.ok(leaves.every(mesh => mesh.customDepthMaterial?.onBeforeCompile));
+  assert.ok(leaves.every(mesh => mesh.geometry.attributes.treeWind && mesh.geometry.attributes.color), 'el lote conserva viento y variación de color');
   const shader = { uniforms: {}, vertexShader: '#include <begin_vertex>' };
   leaves[0].material.onBeforeCompile(shader);
   assert.equal(shader.uniforms.foliageTime, foliageWind);

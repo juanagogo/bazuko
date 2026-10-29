@@ -1,5 +1,4 @@
 import * as THREE from 'three';
-import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import { PlayerSilhouette } from './PlayerSilhouette.js';
 import { AdaptiveResolution } from './AdaptiveResolution.js';
 import { FrustumCulling } from './FrustumCulling.js';
@@ -12,26 +11,26 @@ export class OutdoorUrbanEnvironment extends THREE.Scene {
     super();
     this.name = 'OutdoorUrbanEnvironment';
 
-    // Bóveda celeste con gradiente andino
+    // Entorno de reflexión neutro: la intensidad de escena sigue la hora del día.
     const skyGeo = new THREE.SphereGeometry(30, 24, 16);
-    const skyMat = new THREE.MeshBasicMaterial({ color: 0x5682ad, side: THREE.BackSide });
+    const skyMat = new THREE.MeshBasicMaterial({ color: 0x98a8bb, side: THREE.BackSide });
     this.add(new THREE.Mesh(skyGeo, skyMat));
 
     // Bruma cálida en el horizonte urbano
     const horizGeo = new THREE.CylinderGeometry(29, 29, 12, 24, 1, true);
-    const horizMat = new THREE.MeshBasicMaterial({ color: 0xd4b898, side: THREE.BackSide, transparent: true, opacity: 0.7 });
+    const horizMat = new THREE.MeshBasicMaterial({ color: 0xb7a58a, side: THREE.BackSide, transparent: true, opacity: 0.35 });
     const horiz = new THREE.Mesh(horizGeo, horizMat);
     horiz.position.y = 2;
     this.add(horiz);
 
-    // Sol con alta intensidad para brillos especulares PBR en carrocerías y asfalto
-    const sunPoint = new THREE.PointLight(0xfff5ea, 1200, 60, 1.8);
+    // Solo se usa al hornear el cubemap; no añade luces al presupuesto de la ciudad.
+    const sunPoint = new THREE.PointLight(0xfff5ea, 450, 60, 1.8);
     sunPoint.position.set(16, 22, 12);
     this.add(sunPoint);
 
     // Suelo reflectante oscuro de asfalto bogotano
     const groundGeo = new THREE.PlaneGeometry(60, 60);
-    const groundMat = new THREE.MeshStandardMaterial({ color: 0x181a1d, roughness: 0.75 });
+    const groundMat = new THREE.MeshStandardMaterial({ color: 0x4b505b, roughness: 0.75 });
     const ground = new THREE.Mesh(groundGeo, groundMat);
     ground.rotation.x = -Math.PI / 2;
     ground.position.y = -0.5;
@@ -39,19 +38,34 @@ export class OutdoorUrbanEnvironment extends THREE.Scene {
 
     // Siluetas de edificios para reflejos urbanos realistas en ventanas y vehículos
     const boxGeo = new THREE.BoxGeometry(6, 14, 6);
-    const bMat = new THREE.MeshStandardMaterial({ color: 0x3a332d, roughness: 0.8 });
+    const bMat = new THREE.MeshBasicMaterial({ color: 0x3c4654 });
+    const shopGeo = new THREE.PlaneGeometry(2.4, 3.2);
+    const windowGeo = new THREE.PlaneGeometry(2.5, 1.3);
+    const glowMat = new THREE.MeshBasicMaterial({
+      color: new THREE.Color(0xffc385).multiplyScalar(3.5), side: THREE.DoubleSide
+    });
     for (const [bx, bz] of [[-14, 8], [15, -10], [-10, -14], [12, 12]]) {
       const b = new THREE.Mesh(boxGeo, bMat);
       b.position.set(bx, 6.5, bz);
       this.add(b);
+      // Fuentes anchas y cálidas: charcos y carrocerías reflejan comercios, no un estudio blanco.
+      for (const [geometry, y] of [[shopGeo, 1.6], [windowGeo, 8]]) {
+        const glow = new THREE.Mesh(geometry, glowMat);
+        glow.position.set(bx * .75, y, bz * .75);
+        glow.rotation.y = Math.atan2(-bx, -bz);
+        this.add(glow);
+      }
     }
   }
 
   dispose() {
+    const geometries = new Set(), materials = new Set();
     this.traverse(o => {
-      o.geometry?.dispose?.();
-      o.material?.dispose?.();
+      if (o.geometry) geometries.add(o.geometry);
+      for (const material of [o.material].flat()) if (material) materials.add(material);
     });
+    for (const geometry of geometries) geometry.dispose();
+    for (const material of materials) material.dispose();
   }
 }
 
@@ -103,9 +117,12 @@ export class Renderer {
   /** Mapa de entorno neutro: da reflejos (charcos, vidrios) y luz rebotada a los materiales PBR */
   createEnvironment() {
     const pmrem = new THREE.PMREMGenerator(this.instance);
-    const tex = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
-    pmrem.dispose();
-    return tex;
+    const environment = new OutdoorUrbanEnvironment();
+    try { return pmrem.fromScene(environment, 0.04).texture; }
+    finally {
+      environment.dispose();
+      pmrem.dispose();
+    }
   }
 
   _onResize() {
@@ -161,6 +178,8 @@ export class Renderer {
 
   render(scene, camera, playerRoot = null, shadowLights = [], showSilhouette = true) {
     this.instance.info.reset();
+    const exposure = scene.userData?.toneMappingExposure;
+    this.instance.toneMappingExposure = Number.isFinite(exposure) ? THREE.MathUtils.clamp(exposure, .8, 1.3) : 1.05;
     const autoUpdate = scene.matrixWorldAutoUpdate;
     try {
       // Los inmuebles ya tienen matrices mundiales fijas. El recorrido automático

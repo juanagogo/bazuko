@@ -67,8 +67,8 @@ export class Minimap {
           <button type="button" data-radar="toggle" title="Ocultar radar (N)" aria-label="Ocultar radar">✕</button>
         </div>
       </div>
-      <div id="minimap-info" class="minimap-info">Cargando puntos…</div>
-      <button type="button" class="radar__show" data-radar="toggle" title="Mostrar radar (N)">🧭 Radar · N</button>
+      <div id="minimap-info" class="minimap-info" aria-label="Orientación y destino">Cargando puntos…</div>
+      <button type="button" class="radar__show" data-radar="toggle" title="Mostrar radar (N)">Radar <kbd>N</kbd></button>
     `;
     (document.getElementById('hud-dock') ?? document.body).appendChild(div);
     this.container = div;

@@ -1,0 +1,124 @@
+/* === Piezas comunes de objetos: mesa de crafteo, inventario y barra rápida ===
+   Casilla con gradiente por familia, pedestal iluminado, banco y botón principal,
+   con la paleta azul y amarilla de la pausa y los menús (variables de menus.css).
+   Las reglas base van en :where() (especificidad cero) para que cada panel pueda
+   ajustarlas sin depender del orden de carga; los estados sí pesan más.
+   Se carga después de crafting.css e inventory.css. */
+:root {
+  --item-panel: var(--azul, #0b4fa3);
+  --item-well: var(--azul-hondo, #083c7d);
+  --item-deep: var(--noche, #06080d);
+  --item-row: rgba(6, 8, 13, 0.35);
+  --item-line: rgba(255, 255, 255, 0.2);
+  --item-ink: var(--blanco, #fff);
+  --item-text: var(--azul-texto, #d6e4ff);
+  --item-dim: rgba(214, 228, 255, 0.6);
+  --item-gold: var(--amarillo, #f6c400);
+  --item-qty: var(--amarillo, #f6c400);
+  --item-green: var(--verde, #19c463);
+  --item-warn: var(--ambar, #ffb000);
+  --item-bad: var(--rojo, #ff4433);
+  /* El rojo del menú no alcanza 4,5:1 en texto pequeño sobre azul hondo */
+  --item-bad-text: #ff8a7d;
+}
+
+/* Familias de objetos: tiñen casillas, materiales y el pedestal. Todas superan 3:1
+   sobre --azul-hondo. Comida toma el tono de Hambre llevado al naranja para
+   separarse del dorado de valor; sustancia se aclaró para leerse sobre azul. */
+.cat-material  { --cat: #9aa3ad; }
+.cat-medico    { --cat: #27ae60; }
+.cat-sustancia { --cat: #c48ae6; }
+.cat-valor     { --cat: #c9a227; }
+.cat-equipo    { --cat: #2ab7ca; }
+.cat-comida    { --cat: #e07b39; }
+
+/* Iconos de game-icons teñidos con currentColor */
+:where(.item-art) {
+  display: inline-block; flex: none; width: 32px; height: 32px;
+  background-color: currentColor;
+  -webkit-mask: var(--art) center / contain no-repeat;
+  mask: var(--art) center / contain no-repeat;
+}
+:where(.item-art--emoji) { background: none; -webkit-mask: none; mask: none; line-height: 1; text-align: center; }
+
+/* Casilla */
+:where(.item-slot) {
+  position: relative; aspect-ratio: 1; min-width: 0;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px;
+  background:
+    radial-gradient(circle at 50% 38%, color-mix(in srgb, var(--cat) 28%, transparent), transparent 70%),
+    var(--item-well);
+  border: 1px solid var(--item-line);
+  font-family: inherit; cursor: pointer;
+  transition: border-color 120ms, box-shadow 120ms, transform 120ms;
+}
+:where(.item-slot):hover { border-color: var(--item-text); }
+:where(.item-slot):focus-visible { outline: 2px solid var(--item-ink); outline-offset: 2px; }
+:where(.item-slot):active { transform: scale(0.97); }
+.item-slot.selected { border-color: var(--item-gold); box-shadow: 0 0 0 1px var(--item-gold), 0 0 10px rgba(246, 196, 0, 0.55); }
+
+/* Banco: panel de detalle */
+:where(.item-bench) {
+  display: flex; flex-direction: column; align-items: center; gap: 6px;
+  padding: 14px 12px 12px;
+  background: var(--item-well);
+  border: 1px solid var(--item-line);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08), inset 0 -12px 24px rgba(0, 0, 0, 0.25);
+}
+
+/* Pedestal con el objeto grande; .lit lo ilumina con el color de su familia */
+:where(.item-pedestal) {
+  position: relative; display: grid; place-items: center;
+  width: 112px; height: 112px; margin-bottom: 4px;
+  border: 1px solid var(--item-line); border-radius: 50%;
+  background: radial-gradient(circle, color-mix(in srgb, var(--cat) 22%, var(--item-deep)) 0 55%, var(--item-deep) 74%);
+  color: var(--item-dim);
+}
+.item-pedestal.lit {
+  border-color: color-mix(in srgb, var(--cat) 75%, #000);
+  box-shadow: 0 0 18px color-mix(in srgb, var(--cat) 50%, transparent), inset 0 0 18px color-mix(in srgb, var(--cat) 30%, transparent);
+  color: var(--item-ink);
+}
+.item-pedestal .item-art { width: 64px; height: 64px; }
+:where(.item-badge) {
+  position: absolute; right: 6px; bottom: 8px;
+  padding: 1px 5px; font-size: 12px; color: var(--item-qty);
+  background: var(--item-deep); border: 1px solid var(--item-line);
+}
+
+/* Botón principal: amarillo con texto negro, como «Continuar jugando» */
+:where(.item-primary) {
+  align-self: stretch; display: flex; align-items: center; justify-content: center; gap: 8px;
+  min-height: 40px; padding: 6px 12px; cursor: pointer;
+  background: var(--item-gold); color: var(--negro, #0e0f12); border: none;
+  font: bold 14px monospace; letter-spacing: 0.08em; text-transform: uppercase;
+  box-shadow: 0 3px 0 var(--amarillo-hondo, #d9a900);
+  transition: background-color 120ms, transform 120ms, box-shadow 120ms;
+}
+.item-primary .item-art { width: 20px; height: 20px; }
+:where(.item-primary):hover { background: #ffd21a; }
+:where(.item-primary):focus-visible { outline: 2px solid var(--item-ink); outline-offset: 2px; }
+:where(.item-primary):active { transform: translateY(2px); box-shadow: 0 1px 0 var(--amarillo-hondo, #d9a900); }
+:where(.item-primary):disabled { background: var(--apagado, #2b2f37); color: var(--item-dim); box-shadow: none; cursor: not-allowed; transform: none; }
+
+/* Respuestas breves; sin fill-mode, el elemento vuelve solo a su estado */
+@keyframes item-pop {
+  0%   { transform: scale(1); }
+  35%  { transform: scale(1.12); box-shadow: 0 0 34px color-mix(in srgb, var(--cat) 80%, transparent); }
+  100% { transform: scale(1); }
+}
+@keyframes item-spend { 0% { background: rgba(246, 196, 0, 0.28); } 100% { background: var(--item-row); } }
+@keyframes item-drop {
+  0%   { transform: translateY(0) scale(1); }
+  40%  { transform: translateY(8px) scale(0.9); }
+  100% { transform: translateY(0) scale(1); }
+}
+
+@media (max-width: 560px) {
+  :where(.item-pedestal) { width: 88px; height: 88px; }
+  .item-pedestal .item-art { width: 50px; height: 50px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .item-slot, .item-primary { transition: none; }
+}

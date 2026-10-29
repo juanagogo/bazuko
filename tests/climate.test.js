@@ -125,7 +125,15 @@ test('el cielo usa el clima: nubes, lluvia y luna llegan al shader sin crear col
 
 test('de noche el cielo despejado muestra la luna en el HUD', async () => {
   const { describeWeather } = await import('../src/world/Climate.js');
-  assert.deepEqual(describeWeather(WEATHER_TYPES.soleado, true), { icon: '🌙', label: 'Despejado' });
-  assert.deepEqual(describeWeather(WEATHER_TYPES.soleado, false), { icon: '☀️', label: 'Soleado' });
+  assert.deepEqual(describeWeather(WEATHER_TYPES.soleado, true), { icon: '🌙', glyph: 'moon', label: 'Despejado' });
+  assert.deepEqual(describeWeather(WEATHER_TYPES.soleado, false), { icon: '☀️', glyph: 'sun', label: 'Soleado' });
   assert.equal(describeWeather(WEATHER_TYPES.tormenta, true).icon, '⛈️');
+  assert.equal(describeWeather(WEATHER_TYPES.tormenta, true).glyph, 'storm');
+  // Cada clima y temporada tiene un icono del HUD conocido
+  const { hasIcon } = await import('../src/ui/icons.js');
+  const { SEASONS } = await import('../src/world/Climate.js');
+  for (const type of Object.values(WEATHER_TYPES)) {
+    assert.ok(hasIcon(type.glyph) && (!type.nightGlyph || hasIcon(type.nightGlyph)), type.label);
+  }
+  for (const season of SEASONS) assert.ok(hasIcon(season.glyph), season.label);
 });

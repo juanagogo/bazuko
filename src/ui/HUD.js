@@ -4,11 +4,13 @@ import { XP_PER_LEVEL, XP_CRAFT } from '../utils/constants.js';
 import { NEEDS } from '../systems/StatsSystem.js';
 import { cop } from '../utils/money.js';
 import { ITEMS, itemRarityLabel } from '../data/items.js';
-import { itemArtHTML, itemCategory } from './itemArt.js';
+import { SMOKABLES, smokable } from '../character/smoking.js';
+import { itemArtHTML, itemCategory, itemEffectLine } from './itemArt.js';
 import { NEED_META, needLevel } from './needsMeta.js';
 import { describeWeather } from '../world/Climate.js';
+import { icon, setIcon } from './icons.js';
 
-const NEED_LABELS = { hambre: 'hambre', sed: 'sed', energia: 'energía', salud: 'salud', higiene: 'higiene', animo: 'ánimo', vicio: 'vicio' };
+const PRIMARY_NEEDS = new Set(['salud', 'energia']);
 
 export class HUD {
   constructor() {
@@ -17,6 +19,9 @@ export class HUD {
     this.bars = {};
     this.barValues = {};
     this._buildNeeds(document.getElementById('hud'));
+    this.movementEl = document.getElementById('movement-status');
+    this.movementLabel = document.getElementById('movement-label');
+    this.movementHelp = document.getElementById('movement-help');
 
     this.clockEl = document.getElementById('clock');
     this.moneyEl = document.getElementById('money');
@@ -28,12 +33,25 @@ export class HUD {
     this.xpFillEl = document.getElementById('xp-fill');
     this.levelEl = document.getElementById('level-display');
     this.talentPointsEl = document.getElementById('talent-points');
+    this.talentCountEl = document.getElementById('talent-count');
+    this.dayEl = document.getElementById('day-display');
+    this.xpTextEl = document.getElementById('xp-text');
+    this.weatherEl = document.getElementById('weather-display');
     this.nameEl = document.getElementById('player-name');
     this.cameraButton = document.getElementById('camera-toggle');
     this.cameraHint = document.getElementById('camera-hint');
     this.audioBtn = document.getElementById('audio-toggle');
     this.pauseBtn = document.getElementById('pause-toggle');
     this.radioBtn = document.getElementById('radio-toggle');
+    // Iconos lucide de la barra superior y los botones (marcados con data-icon en index.html)
+    for (const slot of document.querySelectorAll?.('[data-icon]') ?? []) setIcon(slot, slot.dataset.icon, { size: 16 });
+    // Los controles de cámara siguen a la barra superior, cuya altura cambia con el ancho.
+    const topbar = document.getElementById('topbar');
+    if (topbar && typeof ResizeObserver !== 'undefined') {
+      new ResizeObserver(() => {
+        document.documentElement.style.setProperty('--topbar-bottom', `${Math.round(topbar.getBoundingClientRect().bottom + 8)}px`);
+      }).observe(topbar);
+    }
     this.radioBtn?.addEventListener('click', () => {
       window.dispatchEvent(new CustomEvent('open-radio-modal'));
       this.radioBtn.blur();
@@ -48,11 +66,7 @@ export class HUD {
       this.pauseBtn.blur();
     });
     window.addEventListener('audio-settings-change', (e) => {
-      if (this.audioBtn) {
-        this.audioBtn.textContent = e.detail?.muted ? '🔇' : '🔊';
-        this.audioBtn.setAttribute('title', e.detail?.muted ? 'Activar sonido' : 'Silenciar sonido');
-        this.audioBtn.setAttribute('aria-label', e.detail?.muted ? 'Activar sonido' : 'Silenciar sonido');
-      }
+      this.setMuted(!!e.detail?.muted);
     });
     this.cameraButton?.addEventListener('click', () => {
       window.dispatchEvent(new CustomEvent('camera-toggle'));
@@ -83,6 +97,7 @@ export class HUD {
       if (e.code !== 'Escape' && window.__game?.paused) return;
       if (e.code === 'KeyT') this.toggleTalentPanel();
       if (e.code === 'KeyC') this.toggleCraftPanel();
+      if (e.code === 'KeyH' && !e.repeat) this.needsToggle?.click();
       if (e.code === 'Escape') {
         if (this._talentOpen || this._craftOpen || this._dealerOpen) e._panelHandled = true;
         this.talentPanel?.classList.remove('open');
@@ -105,30 +120,83 @@ export class HUD {
     });
   }
 
-  /** Una fila por necesidad: icono, nombre, barra y valor. */
+  /** Botón de sonido: icono y textos según el silencio. */
+  setMuted(muted) {
+    if (!this.audioBtn) return;
+    const label = muted ? 'Activar sonido' : 'Silenciar sonido';
+    setIcon(this.audioBtn, muted ? 'mute' : 'sound', { size: 16 });
+    this.audioBtn.setAttribute('title', label);
+    this.audioBtn.setAttribute('aria-label', label);
+    this.audioBtn.classList.toggle('is-muted', muted);
+  }
+
+  /** Salud y energía siempre a la vista; el resto se consulta sin abrir una pausa. */
   _buildNeeds(container) {
     if (!container) return;
-    for (const { id, icon, label, color } of NEED_META) {
+    const vitals = document.createElement('div');
+    vitals.id = 'hud-vitals';
+    const details = document.createElement('div');
+    details.id = 'needs-details';
+    details.hidden = true;
+    const toggle = document.createElement('button');
+    toggle.id = 'needs-toggle';
+    toggle.type = 'button';
+    toggle.setAttribute('aria-expanded', 'false');
+    toggle.setAttribute('aria-controls', details.id);
+    toggle.setAttribute('aria-keyshortcuts', 'H');
+    toggle.title = 'Estado y necesidades (H)';
+    toggle.innerHTML = '<span id="needs-summary">Estado</span><span class="needs-toggle__key" aria-hidden="true">H</span><span class="needs-toggle__chevron" aria-hidden="true">⌃</span>';
+    toggle.addEventListener('click', () => {
+      details.hidden = !details.hidden;
+      toggle.setAttribute('aria-expanded', String(!details.hidden));
+    });
+    // El control conserva la activación nativa con Espacio sin disparar un salto.
+    toggle.addEventListener('keydown', event => {
+      if (event.code === 'Space') event.stopPropagation();
+    });
+    container.append(vitals, toggle, details);
+    this.needsSummary = toggle.querySelector('#needs-summary');
+    this.needsToggle = toggle;
+    for (const { id, glyph, label, color } of NEED_META) {
       const row = document.createElement('div');
       row.className = 'stat-bar';
       row.dataset.stat = id;
       row.style.setProperty('--c', color);
       row.title = id === 'vicio' ? 'Vicio: si se vacía entras en abstinencia' : label;
-      row.innerHTML = `<span class="stat-bar__icon" aria-hidden="true">${icon}</span>`
+      row.innerHTML = '<span class="stat-bar__icon" aria-hidden="true"></span>'
         + `<span class="stat-bar__name">${label}</span>`
         + '<div class="bar"><div class="fill"></div></div>'
         + '<span class="stat-bar__value">100</span>';
-      container.appendChild(row);
+      row.firstChild.append(icon(glyph, { size: 14, stroke: 2.5 }));
+      const meter = row.querySelector('.bar');
+      meter.setAttribute('role', 'meter');
+      meter.setAttribute('aria-label', label);
+      meter.setAttribute('aria-valuemin', '0');
+      meter.setAttribute('aria-valuemax', '100');
+      meter.setAttribute('aria-valuenow', '100');
+      (PRIMARY_NEEDS.has(id) ? vitals : details).appendChild(row);
       this.bars[id] = row.querySelector('.fill');
       this.barValues[id] = row.querySelector('.stat-bar__value');
     }
   }
 
+  setMovementState(player) {
+    if (!this.movementEl) return;
+    const swimming = !!player?.isSwimming;
+    const inWater = swimming || (player?.waterDepth ?? 0) > .1;
+    this.movementEl.hidden = !inWater;
+    if (!inWater) return;
+    this.movementEl.dataset.movement = swimming ? 'swimming' : 'wading';
+    this._setText(this.movementLabel, swimming ? 'Nadando' : 'En el agua');
+    this._setText(this.movementHelp, swimming
+      ? 'WASD para moverte ∙ Shift para acelerar'
+      : 'Busca la orilla para salir');
+  }
+
   setCameraMode(mode) {
     const thirdPerson = mode === 'third-person';
     if (this.cameraButton) {
-      const action = thirdPerson ? 'Cambiar a vista isométrica' : 'Cambiar a tercera persona';
-      this.cameraButton.textContent = `⇄ ${action} · V`;
+      this.cameraButton.textContent = `${thirdPerson ? 'Vista isométrica' : 'Tercera persona'} ∙ V`;
       this.cameraButton.dataset.targetView = thirdPerson ? 'isometric' : 'third-person';
       this.cameraButton.title = `Vista actual: ${thirdPerson ? 'tercera persona' : 'isométrica'}. Haz clic o pulsa V para cambiar.`;
       this.cameraButton.setAttribute('aria-pressed', String(thirdPerson));
@@ -149,8 +217,20 @@ export class HUD {
     window.addEventListener('talent-unlock', (e) => this._toast(`🌟 Talento: ${e.detail.name}`, 'rare'));
     window.addEventListener('craft', (e) => this._toast(`🔨 Crafteado: ${e.detail.name} x${e.detail.qty}`, 'info'));
     window.addEventListener('steal', (e) => {
-      if (e.detail.caught) this._toast('🚨 ¡Atrapado robando!', 'death');
+      if (e.detail.chase) {
+        this._toast('🚓 ¡Te vio la Policía! ¡Corre!', 'death');
+        if (e.detail.added?.length) this._toast(`🪞 Robado: ${e.detail.added.join(', ')}`, 'warn');
+      } else if (e.detail.caught) this._toast('🚨 ¡Atrapado robando!', 'death');
       else if (e.detail.added?.length) this._toast(`🪞 Robado: ${e.detail.added.join(', ')}`, 'warn');
+    });
+    window.addEventListener('police-chase', () => {
+      this._toast('🚨 Persecución: no dejes que te alcancen', 'warn');
+    });
+    window.addEventListener('police-arrest', () => {
+      this._toast('🚓 La Policía te alcanzó y confiscó todo', 'death');
+    });
+    window.addEventListener('police-escaped', () => {
+      this._toast('💨 Escapaste de la Policía', 'info');
     });
     window.addEventListener('withdrawal', (e) => {
       if (e.detail.active) this._toast('🚬 Abstinencia: caminas más lento y baja el ánimo', 'warn');
@@ -229,9 +309,25 @@ export class HUD {
       const value = Math.max(0, Math.min(100, stats[k] ?? 0));
       this._setWidth(el, value);
       this._setText(this.barValues[k], String(Math.round(value)));
+      const meter = el.parentElement;
+      const rounded = String(Math.round(value));
+      if (meter.getAttribute?.('aria-valuenow') !== rounded) meter.setAttribute?.('aria-valuenow', rounded);
       const level = needLevel(value);
       const row = el.parentElement.parentElement;
       if (row.dataset.level !== level) row.dataset.level = level;
+    }
+    if (this.needsSummary) {
+      const low = NEED_META.filter(({ id }) => !PRIMARY_NEEDS.has(id) && (stats[id] ?? 100) < 30);
+      this._setText(this.needsSummary, low.length ? low.map(({ label }) => label).join(', ') : 'Estado');
+      const level = low.some(({ id }) => (stats[id] ?? 100) < 15) ? 'critical' : low.length ? 'low' : 'ok';
+      if (this.needsToggle.dataset.level !== level) this.needsToggle.dataset.level = level;
+      const announcement = low.length
+        ? `Estado: niveles bajos de ${low.map(({ label }) => label).join(', ')}. Ver todas las necesidades`
+        : 'Ver estado y necesidades';
+      if (this._needsAnnouncement !== announcement) {
+        this._needsAnnouncement = announcement;
+        this.needsToggle.setAttribute('aria-label', announcement);
+      }
     }
     this.bars.vicio?.parentElement.parentElement.classList.toggle('critical', stats.inWithdrawal);
     this.bars.vicio?.parentElement.parentElement.classList.toggle('high-withdrawal', !!stats.isHighWithdrawal);
@@ -257,11 +353,19 @@ export class HUD {
     const h = Math.floor(clock.hour).toString().padStart(2, '0');
     const m = Math.floor((clock.hour % 1) * 60).toString().padStart(2, '0');
     const sky = this.weather?.type ? describeWeather(this.weather.type, clock.isNight) : null;
-    this._setText(this.clockEl, sky ? `Día ${clock.day} — ${h}:${m} ∙ ${sky.icon}` : `Día ${clock.day} — ${h}:${m}`);
-    const skyKey = sky && `${sky.label}|${this.weather.season?.id}`;
-    if (this.clockEl && sky && this._weatherTitle !== skyKey) {
+    this._setText(this.clockEl, `${h}:${m}`);
+    this._setText(this.dayEl, `Día ${clock.day}`);
+    // Clima: solo el icono; el nombre y la temporada aparecen al pasar el ratón.
+    const skyKey = sky ? `${sky.glyph}|${sky.label}|${this.weather.season?.id}` : '';
+    if (this.weatherEl && this._weatherTitle !== skyKey) {
       this._weatherTitle = skyKey;
-      this.clockEl.title = `${sky.label} ∙ ${this.weather.season?.label ?? ''}`;
+      this.weatherEl.hidden = !sky;
+      if (sky) {
+        const title = `${sky.label} ∙ ${this.weather.season?.label ?? ''}`;
+        setIcon(this.weatherEl, sky.glyph ?? 'cloud', { size: 16 });
+        this.weatherEl.title = title;
+        this.weatherEl.setAttribute('aria-label', `Clima: ${title}`);
+      }
     }
     this._setText(this.moneyEl, cop(stats.dinero));
 
@@ -272,10 +376,10 @@ export class HUD {
     if (this.xpFillEl) {
       this._setWidth(this.xpFillEl, (stats.xp / xpNeeded) * 100);
     }
-    if (this.talentPointsEl) {
-      this._setText(this.talentPointsEl, `🌟 ${talentSystem?.points ?? 0}`);
-      this.talentPointsEl.style.opacity = (talentSystem?.points ?? 0) > 0 ? 1 : 0.4;
-    }
+    this._setText(this.xpTextEl, `${Math.floor(stats.xp ?? 0)}/${xpNeeded}`);
+    const points = talentSystem?.points ?? 0;
+    this._setText(this.talentCountEl, String(points));
+    this.talentPointsEl?.classList.toggle('has-points', points > 0);
 
     // Boost
     if (this.boostEl) {
@@ -291,6 +395,7 @@ export class HUD {
         let text = interaction?.stealPrompt ?? '';
         if (type === 'pickup') text = '[E] Recoger basura · [Mantener Q] Seleccionar';
         else if (type === 'car') text = interaction.currentTarget?.traffic ? '[E] Robar retrovisor del carro en circulación' : '[E] Robar retrovisor de auto';
+        else if (type === 'fireBarrel') text = '🔥 [E] Calentarte las manos en la fogata (+Calor, +Ánimo, +Energía)';
         else if (type === 'sell') text = '[E] Recicladora El Progreso · Vender material';
         else if (type === 'shop') text = `[E] ${interaction.currentTarget.title ?? 'Tienda La Esquinita'} · Comprar`;
         else if (type === 'dog') {
@@ -323,6 +428,8 @@ else if (type === 'cart') text = interaction.currentTarget?.isAttached ? '[E] So
 
     if (this.statusEl) {
       const warnings = [];
+      if (stats.calor > 0) warnings.push(`🔥 Calientito (${Math.ceil(stats.calor)}s)`);
+      else if (stats.isFreezing) warnings.push('🥶 Congelándote: el frío y la lluvia te debilitan.');
       if (stats.sed <= 20) warnings.push(stats.sed <= 0 ? 'Sin agua: estás perdiendo salud.' : 'Sed crítica: bebe agua.');
       if (stats.hambre <= 20) warnings.push(stats.hambre <= 0 ? 'Sin alimento: estás perdiendo salud.' : 'Hambre crítica: come algo.');
       if (stats.energia <= 20) warnings.push('Energía baja: descansa.');
@@ -418,6 +525,13 @@ else if (type === 'cart') text = interaction.currentTarget?.isAttached ? '[E] So
       game.poopSystem?.throwPoop(game.player, game.cameraRig);
       return;
     }
+    if (item.weapon) {
+      if (!game.player || game.player.isStunned) return;
+      const equipped = game.player.toggleWeapon(item.weapon);
+      game.audio?.play('pickup');
+      this._toast(equipped ? `🔪 Equipaste: ${item.name}. Ataca con clic o G.` : `Guardaste: ${item.name}. Vuelves a los puños.`, 'info');
+      return;
+    }
     if (itemId === 'radioTransistor') {
       game.inventoryUI?.close();
       window.dispatchEvent(new CustomEvent('open-radio-modal'));
@@ -438,6 +552,22 @@ else if (type === 'cart') text = interaction.currentTarget?.isAttached ? '[E] So
       return;
     }
 
+    const smokes = !!SMOKABLES[item.id];
+    if (smokes && game.player?.smoking) {
+      this._toast(`${smokable(game.player.smoking.kind).emoji} Ya tienes uno prendido.`, 'info');
+      return;
+    }
+    // Si la pose no puede empezar (nado, caída o golpe), conserva objeto y necesidades.
+    if (smokes && game.player?.startSmoking && !game.player.startSmoking(item.id)) {
+      this._toast('🚬 Ahora no puedes prenderlo.', 'info');
+      return;
+    }
+    // el basuco se fuma en pipa: si está ocupado (pelea, otra acción) no se gasta
+    const pipe = item.id === 'basuco';
+    if (pipe && game.player?.startBasuco && !game.player.startBasuco()) {
+      this._toast('💨 Ahora no: tienes las manos ocupadas.', 'info');
+      return;
+    }
     if (item.consumable) {
       if (item.consumable === 'hambre' && game.stats.canEat?.() === false) {
         this._toast('No puedes comer mientras tienes náuseas.', 'warning');
@@ -448,13 +578,21 @@ else if (type === 'cart') text = interaction.currentTarget?.isAttached ? '[E] So
         const delta = (k === item.consumable ? item.amount : 0) + (k !== item.consumable ? (item[k] ?? 0) : 0);
         if (delta) game.stats[k] = Math.max(0, Math.min(100, game.stats[k] + delta));
       }
+      if (item.calor) {
+        game.stats.calor = Math.min(300, (game.stats.calor || 0) + item.calor);
+      }
       inv.remove(itemId, 1);
       game.audio?.play('pickup');
-      const isDrink = item.consumable === 'sed' || item.id === 'cafe' || item.id === 'refresco';
+      const isDrink = item.consumable === 'sed' || item.id === 'cafe' || item.id === 'refresco' || item.id === 'aguapanela';
       const verb = isDrink ? '🥤 Bebiste' : item.substance ? '🚬 Consumiste' : item.consumable === 'salud' ? '🩹 Te aplicaste' : '🍴 Comiste';
-      game.player?.playAction?.(isDrink ? 'beber' : 'comer', 1.2);
-      this._toast(`${verb}: ${item.name}`, 'info');
+      // el cigarrillo y el porro no se comen: se quedan en la mano y se fuman caminando
+      if (!smokes && !pipe) game.player?.playAction?.(isDrink ? 'beber' : 'comer', 1.2);
+      const lit = smokable(item.id);
+      this._toast(smokes ? `${lit.emoji} Prendiste un ${lit.name}` : pipe ? '💨 Prendiste la pipa' : `${verb}: ${item.name}`, 'info');
       this._renderInventory(inv);
+      // lo que se fuma pega al aspirar: el jugador avisa en cada calada o al soltar la pipa
+      const smokedLater = (smokes || pipe) && game.player?.startSmoking;
+      if (item.substance && !smokedLater) window.dispatchEvent(new CustomEvent('substance-consumed', { detail: { id: itemId } }));
     } else if (item.cure) {
       game.diseases?.cure?.(item.cure);
       inv.remove(itemId, 1);
@@ -543,7 +681,7 @@ else if (type === 'cart') text = interaction.currentTarget?.isAttached ? '[E] So
       const heavy = r.craftable && !ready;
       const selected = r.id === this._craftSelected;
       const state = ready ? 'disponible' : heavy ? 'no cabe en el costal' : 'faltan materiales';
-      const cls = ['craft-recipe', `cat-${itemCategory(r.result)}`, ready && 'craftable', heavy && 'heavy', selected && 'selected']
+      const cls = ['item-slot', 'craft-recipe', `cat-${itemCategory(r.result)}`, ready && 'craftable', heavy && 'heavy', selected && 'selected']
         .filter(Boolean).join(' ');
       const flag = ready ? '✓' : heavy ? 'kg' : '';
       return `
@@ -573,7 +711,7 @@ else if (type === 'cart') text = interaction.currentTarget?.isAttached ? '[E] So
 
   /** Banco de trabajo: resultado grande, materiales y acción principal. */
   _craftBench(r, inventory) {
-    if (!r) return '<section class="craft-bench"><p class="craft-reason">No hay recetas.</p></section>';
+    if (!r) return '<section class="item-bench craft-bench"><p class="craft-reason">No hay recetas.</p></section>';
     const item = ITEMS[r.result];
     const ready = r.craftable && r.fits !== false;
     let missing = 0;
@@ -596,17 +734,17 @@ else if (type === 'cart') text = interaction.currentTarget?.isAttached ? '[E] So
       : missing === 1 ? 'Te falta 1 material' : `Te faltan ${missing} materiales`;
 
     return `
-      <section class="craft-bench cat-${itemCategory(r.result)} ${state}">
-        <div class="craft-pedestal">
+      <section class="item-bench craft-bench cat-${itemCategory(r.result)} ${state}">
+        <div class="item-pedestal craft-pedestal${ready ? ' lit' : ''}">
           ${itemArtHTML(r.result, 'craft-result-art')}
-          <span class="craft-yield">×${r.qty}</span>
+          <span class="item-badge craft-yield">×${r.qty}</span>
         </div>
         <h3 class="craft-result-name">${r.name}</h3>
         <p class="craft-effect">${this._craftEffect(item)}</p>
         <h4 class="craft-mats-title">Materiales</h4>
         <ul class="craft-mats">${mats}</ul>
         <p class="craft-reason" role="status">${reason}</p>
-        <button type="button" class="craft-go" data-act="craft" ${ready ? '' : 'disabled'}>
+        <button type="button" class="item-primary craft-go" data-act="craft" ${ready ? '' : 'disabled'}>
           ${itemArtHTML('yunque', 'craft-go-art')}<span>Fabricar</span>
         </button>
       </section>
@@ -615,16 +753,7 @@ else if (type === 'cart') text = interaction.currentTarget?.isAttached ? '[E] So
 
   /** Una línea con lo que hace el objeto, a partir de sus datos reales. */
   _craftEffect(item) {
-    if (!item) return '';
-    const parts = [];
-    if (item.consumable) parts.push(`+${item.amount} ${NEED_LABELS[item.consumable]}`);
-    for (const k of NEEDS) {
-      if (k !== item.consumable && item[k]) parts.push(`${item[k] > 0 ? '+' : ''}${item[k]} ${NEED_LABELS[k]}`);
-    }
-    if (item.cure) parts.push(`Cura: ${item.cure}`);
-    if (!parts.length) parts.push(item.usable ? 'Se usa desde el inventario' : `Se vende por ${cop(item.value)}`);
-    parts.push(`${item.weight} kg`);
-    return parts.join(' · ');
+    return itemEffectLine(item);
   }
 
   _onCraftClick(e) {

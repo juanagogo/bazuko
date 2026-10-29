@@ -1,10 +1,48 @@
 // src/ui/InventoryUI.js
 // Panel de inventario (overlay DOM, tecla I / Tab) + barra de acceso rápido (teclas 1-5).
-// El DOM se construye una vez; solo se actualiza lo que cambia (onChange del InventorySystem).
-import { ITEMS, isUsable, describeEffects } from '../data/items.js';
-
+// Usa las piezas de la mesa de crafteo (item-ui.css): casillas por familia, banco con
+// pedestal y botón principal. El DOM se construye una vez; solo se actualiza lo que
+// cambia (onChange del InventorySystem) y la selección y el foco sobreviven al redibujado.
+import { ITEMS, isUsable, isRecyclable, describeEffects, itemRarityLabel } from '../data/items.js';
+import { itemArtHTML, itemCategory, itemEffectLine } from './itemArt.js';
+import { cop } from '../utils/money.js';
 
 const COLS = 5;
+const NEAR_FULL = 0.85;
+
+const isRare = (def) => !!(def?.rare || def?.rarity === 'rare' || def?.rarity === 'veryRare');
+// Los tesoros marcan `rare` sin una rareza del catálogo.
+const rarityText = (id) => itemRarityLabel(id) || (ITEMS[id]?.rare ? 'Raro' : '');
+
+/** Verbo del botón principal según lo que hace el objeto. */
+export function useVerb(def) {
+  if (!def) return 'Usar';
+  if (def.id === 'popo') return 'Lanzar';
+  if (def.id === 'radioTransistor') return 'Sintonizar';
+  if (def.id === 'pilas') return 'Cambiar pilas';
+  if (def.cure) return 'Curarse';
+  if (def.substance || def.consumable === 'vicio') return 'Consumir';
+  if (def.consumable === 'salud') return 'Aplicar';
+  if (def.consumable === 'higiene') return 'Asearse';
+  if (def.consumable === 'sed' || def.id === 'cafe' || def.id === 'refresco') return 'Beber';
+  if (def.consumable) return 'Comer';
+  return 'Usar';
+}
+
+/** Para qué sirve un objeto que no se usa. */
+function idleReason(def) {
+  if (def.build) return 'Material para el cambuche';
+  if (isRecyclable(def)) return 'Se vende en la recicladora';
+  return 'No se usa desde aquí';
+}
+
+// Descripciones por defecto de items.js: el banco ya lo dice con su estado.
+const GENERIC_DESC = new Set(['Material para mejorar el cambuche.', 'Consumible.', 'Tratamiento.', 'Se puede vender.']);
+
+/** Cómo se usa: las indicaciones propias del objeto o su descripción, si es propia. */
+function itemNote(def) {
+  return describeEffects(def).find((t) => t.startsWith('Usar')) ?? (GENERIC_DESC.has(def.desc) ? '' : def.desc);
+}
 
 export class InventoryUI {
   /**
@@ -17,7 +55,8 @@ export class InventoryUI {
     this.isOpen = false;
     this.selected = 0;
     this._raf = 0;
-    this._cache = { slots: [], detail: null, quick: [], cap: '' };
+    this._focusSlot = false;
+    this._cache = { slots: [], selected: [], detail: null, quick: [], cap: '' };
 
     this._build();
 
@@ -35,63 +74,80 @@ export class InventoryUI {
   _build() {
     const root = document.createElement('div');
     root.id = 'inv-overlay';
+    const hotKeys = this.inv.hotbar.map((_, i) =>
+      `<button type="button" class="inv-hot-key" tabindex="-1" data-hot="${i}" aria-pressed="false">${i + 1}</button>`).join('');
     root.innerHTML = `
       <div class="inv-window" role="dialog" aria-label="Inventario">
-        <div class="inv-head">
-          <h2>🎒 Inventario</h2>
-          <span class="inv-cap"></span>
-          <button class="inv-close" type="button" tabindex="-1" aria-label="Cerrar">✕</button>
-        </div>
-        <div class="inv-body">
-          <div class="inv-grid"></div>
-          <div class="inv-detail">
-            <div class="inv-d-icon"></div>
-            <div class="inv-d-name"></div>
-            <div class="inv-d-desc"></div>
-            <ul class="inv-d-fx"></ul>
-            <div class="inv-d-meta"></div>
-            <div class="inv-d-btns">
-              <button type="button" tabindex="-1" data-act="use">Usar</button>
-              <button type="button" tabindex="-1" data-act="drop1">Tirar 1</button>
-              <button type="button" tabindex="-1" data-act="dropAll">Tirar todo</button>
-              <button type="button" tabindex="-1" data-act="sort">Ordenar</button>
-            </div>
-            <div class="inv-d-hot">Acceso rápido: pulsa 1-5 para asignar</div>
+        <header class="inv-head">
+          ${itemArtHTML('costal', 'inv-head-art')}
+          <h2>Inventario</h2>
+          <div class="inv-load" title="Carga del costal">
+            <span class="inv-load-text"></span>
+            <span class="inv-load-bar" aria-hidden="true"><i></i></span>
+            <span class="inv-load-flag"></span>
           </div>
+          <button class="inv-close" type="button" tabindex="-1" aria-label="Cerrar inventario">✕</button>
+        </header>
+        <div class="inv-body">
+          <div class="inv-side">
+            <div class="inv-grid" role="group" aria-label="Casillas del costal"></div>
+            <div class="inv-grid-foot">
+              <span class="inv-count"></span>
+              <button type="button" class="inv-ghost" tabindex="-1" data-act="sort">Ordenar · R</button>
+            </div>
+          </div>
+          <section class="item-bench inv-bench" aria-live="polite">
+            <div class="item-pedestal inv-pedestal"><span class="inv-ped-art"></span><span class="item-badge inv-ped-qty"></span></div>
+            <h3 class="inv-name"></h3>
+            <p class="inv-rarity"></p>
+            <p class="inv-effect"></p>
+            <p class="inv-note"></p>
+            <p class="inv-meta"></p>
+            <p class="inv-reason" role="status"></p>
+            <button type="button" class="item-primary inv-use" tabindex="-1" data-act="use"><span class="inv-use-art"></span><span class="inv-use-label">Usar</span></button>
+            <div class="inv-secondary">
+              <button type="button" class="inv-ghost" tabindex="-1" data-act="drop1">Tirar 1 · X</button>
+              <button type="button" class="inv-ghost" tabindex="-1" data-act="dropAll">Tirar todo · ⇧X</button>
+            </div>
+            <div class="inv-hot" role="group" aria-label="Acceso rápido">
+              <span class="inv-hot-label">Acceso rápido</span>
+              <div class="inv-hot-keys">${hotKeys}</div>
+            </div>
+          </section>
         </div>
-        <div class="inv-hint">I / Tab / Esc cerrar · Flechas o WASD mover · Enter usar · X tirar (Mayús: todo) · R ordenar</div>
+        <div class="inv-hint">I / Tab / Esc cerrar · Flechas o WASD mover · Enter usar · X tirar (Mayús: todo) · R ordenar · 1-5 acceso rápido</div>
       </div>
       <div class="inv-tip"></div>`;
     document.body.appendChild(root);
-    this.root = root;
-    this.openButton = document.createElement('button');
-    this.openButton.id = 'inventory-open';
-    this.openButton.type = 'button';
-    this.openButton.textContent = '🎒 Inventario · I';
-    this.openButton.onclick = () => this.toggle();
-    document.body.appendChild(this.openButton);
+    this.root = root; // el acceso visible en el juego vive en PanelDock
 
-    this.gridEl = root.querySelector('.inv-grid');
-    this.capEl = root.querySelector('.inv-cap');
-    this.tipEl = root.querySelector('.inv-tip');
-    this.dIcon = root.querySelector('.inv-d-icon');
-    this.dName = root.querySelector('.inv-d-name');
-    this.dDesc = root.querySelector('.inv-d-desc');
-    this.dFx = root.querySelector('.inv-d-fx');
-    this.dMeta = root.querySelector('.inv-d-meta');
-    this.btnUse = root.querySelector('[data-act="use"]');
-    this.btnDrop1 = root.querySelector('[data-act="drop1"]');
-    this.btnDropAll = root.querySelector('[data-act="dropAll"]');
+    const $ = (s) => root.querySelector(s);
+    this.gridEl = $('.inv-grid');
+    this.tipEl = $('.inv-tip');
+    this.loadEl = $('.inv-load');
+    this.loadText = $('.inv-load-text');
+    this.loadFill = $('.inv-load-bar i');
+    this.loadFlag = $('.inv-load-flag');
+    this.countEl = $('.inv-count');
+    this.bench = $('.inv-bench');
+    this.dPedestal = $('.inv-pedestal');
+    this.dArt = $('.inv-ped-art');
+    this.dQty = $('.inv-ped-qty');
+    this.dName = $('.inv-name');
+    this.dRarity = $('.inv-rarity');
+    this.dEffect = $('.inv-effect');
+    this.dNote = $('.inv-note');
+    this.dMeta = $('.inv-meta');
+    this.dReason = $('.inv-reason');
+    this.btnUse = $('[data-act="use"]');
+    this.useArt = $('.inv-use-art');
+    this.useLabel = $('.inv-use-label');
+    this.btnDrop1 = $('[data-act="drop1"]');
+    this.btnDropAll = $('[data-act="dropAll"]');
+    this.hotEls = [...root.querySelectorAll('.inv-hot-key')];
 
     this.slotEls = [];
-    for (let i = 0; i < this.inv.slotCount; i++) {
-      const el = document.createElement('div');
-      el.className = 'inv-slot';
-      el.dataset.i = i;
-      el.innerHTML = '<span class="si"></span><span class="sq"></span><span class="sk"></span>';
-      this.gridEl.appendChild(el);
-      this.slotEls.push({ el, ico: el.firstChild, qty: el.children[1], key: el.children[2] });
-    }
+    this._growSlots(this.inv.slotCount);
 
     // Una sola delegación de eventos para todo el panel
     this._onClick = (e) => {
@@ -99,6 +155,8 @@ export class InventoryUI {
       if (slot) { this.select(+slot.dataset.i); return; }
       if (e.target.closest('.inv-close')) { this.close(); return; }
       if (e.target === this.root) { this.close(); return; } // clic en el fondo
+      const hot = e.target.closest('[data-hot]');
+      if (hot) { this._bindSelected(+hot.dataset.hot); return; }
       const act = e.target.closest('[data-act]')?.dataset.act;
       if (act) this._action(act);
     };
@@ -124,10 +182,10 @@ export class InventoryUI {
     this.quickEls = [];
     for (let i = 0; i < this.inv.hotbar.length; i++) {
       const el = document.createElement('div');
-      el.className = 'qb-slot';
-      el.innerHTML = `<span class="qk">${i + 1}</span><span class="si"></span><span class="sq"></span>`;
+      el.className = 'item-slot qb-slot is-empty';
+      el.innerHTML = `<span class="qk">${i + 1}</span><span class="qb-art"></span><span class="sq"></span>`;
       qb.appendChild(el);
-      this.quickEls.push({ el, ico: el.children[1], qty: el.children[2] });
+      this.quickEls.push({ el, art: el.children[1], qty: el.children[2] });
     }
     this._onQuickClick = (e) => {
       const i = this.quickEls.findIndex((q) => q.el === e.target.closest('.qb-slot'));
@@ -138,6 +196,20 @@ export class InventoryUI {
     this.quickEl = qb;
   }
 
+  // Las partidas antiguas con más de 20 tipos mantienen todos sus objetos.
+  _growSlots(n) {
+    while (this.slotEls.length < n) {
+      const el = document.createElement('button');
+      el.type = 'button';
+      el.tabIndex = -1;
+      el.className = 'item-slot inv-slot is-empty';
+      el.dataset.i = this.slotEls.length;
+      el.setAttribute('aria-pressed', 'false');
+      this.gridEl.appendChild(el);
+      this.slotEls.push({ el });
+    }
+  }
+
   // ===== Abrir / cerrar =====
 
   open() {
@@ -146,6 +218,7 @@ export class InventoryUI {
     this.isOpen = true;
     this.root.classList.add('open');
     if (this.game.input) this.game.input.locked = true; // WASD/E dejan de afectar al personaje
+    this._focusSlot = true;
     this._schedule();
     this._render();
   }
@@ -155,19 +228,31 @@ export class InventoryUI {
     this.isOpen = false;
     this.root.classList.remove('open');
     this.tipEl.style.display = 'none';
+    if (typeof document !== 'undefined' && this.root.contains(document.activeElement)) document.activeElement.blur();
     if (this.game.input) { this.game.input.locked = false; this.game.input.keys = {}; this.game.input.endFrame(); }
   }
 
   toggle() { this.isOpen ? this.close() : this.open(); }
 
-  select(i) {
+  select(i, { focus = true } = {}) {
     const n = this.inv.slotCount;
     this.selected = Math.max(0, Math.min(n - 1, i));
-    this._cache.detail = null; // fuerza refresco del detalle
+    this._focusSlot ||= focus;
     this._schedule();
   }
 
   // ===== Teclado =====
+
+  /** El mando navega el costal; sus botones de juego nunca descartan objetos aquí. */
+  handleGamepad(action) {
+    if (!this.isOpen) return;
+    if (action === 'back') { this.close(); return; }
+    if (action === 'confirm') { this.useSelected(); return; }
+    const step = { left: -1, right: 1, up: -COLS, down: COLS }[action];
+    if (step === undefined) return;
+    this.select(this.selected + step);
+    this.slotEls[this.selected]?.el.scrollIntoView?.({ block: 'nearest' });
+  }
 
   _handleKey(e) {
     if (this.game._loading || this.game.creator?.isOpen || this.game.menu?.isOpen) return;
@@ -186,7 +271,8 @@ export class InventoryUI {
       return;
     }
 
-    // Abierto: este panel captura el teclado por completo
+    // Abierto: este panel captura el teclado por completo (también evita que Enter
+    // o Espacio activen dos veces el botón que tenga el foco).
     e.preventDefault();
     e.stopImmediatePropagation();
     if (e.repeat && !['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'KeyW', 'KeyA', 'KeyS', 'KeyD'].includes(k)) return;
@@ -219,6 +305,9 @@ export class InventoryUI {
     if (!s) return;
     const def = ITEMS[s.id];
     const n = this.inv.removeAt(this.selected, all ? s.qty : 1);
+    if (!n) return;
+    this.game.audio?.play?.('empty');
+    this._feedback('just-dropped');
     this._toast(`🗑️ Tiraste ${def.name}${n > 1 ? ' x' + n : ''}`, 'warn');
   }
 
@@ -231,10 +320,12 @@ export class InventoryUI {
     const id = this.inv.hotbar[i];
     if (!id) return;
     if (this.inv.count(id) <= 0) {
+      this.game.audio?.play?.('full');
       this._toast(`No te queda ${ITEMS[id]?.name ?? 'eso'}`, 'warn');
       return;
     }
     this._useItem(id, -1);
+    this._pulseQuick(i);
   }
 
   _bindSelected(n) {
@@ -248,7 +339,27 @@ export class InventoryUI {
   // Comparte los mismos efectos y descuentos que el resto de la interfaz del juego.
   _useItem(id) {
     if (this.game._loading || this.game.isSleeping || (this.game.paused && !this.isOpen)) return;
-    if (this.inv.count(id) > 0) this.game.hud._useItem(id, this.inv);
+    const before = this.inv.count(id);
+    if (before <= 0) return;
+    this.game.hud._useItem(id, this.inv);
+    if (this.isOpen && this.inv.count(id) < before) this._feedback('just-used');
+  }
+
+  /** Reinicia una animación breve del banco aunque el contenido no cambie. */
+  _feedback(cls) {
+    const bench = this.bench;
+    if (!bench?.classList) return;
+    bench.classList.remove('just-used', 'just-dropped');
+    void bench.offsetWidth;
+    bench.classList.add(cls);
+  }
+
+  _pulseQuick(i) {
+    const el = this.quickEls[i]?.el;
+    if (!el?.classList) return;
+    el.classList.remove('just-used');
+    void el.offsetWidth;
+    el.classList.add('just-used');
   }
 
   // ===== Render (solo lo que cambió) =====
@@ -264,57 +375,113 @@ export class InventoryUI {
     if (!this.isOpen) return;
     this._renderGrid();
     this._renderDetail();
+    this._restoreFocus();
   }
 
   _renderGrid() {
     const inv = this.inv;
-    // Las partidas antiguas con más de 20 tipos mantienen todos sus objetos.
-    while (this.slotEls.length < inv.slotCount) {
-      const el = document.createElement('div');
-      el.className = 'inv-slot'; el.dataset.i = this.slotEls.length;
-      el.innerHTML = '<span class="si"></span><span class="sq"></span><span class="sk"></span>';
-      this.gridEl.appendChild(el);
-      this.slotEls.push({ el, ico: el.firstChild, qty: el.children[1], key: el.children[2] });
-    }
-    const c = this._cache.slots;
+    this._growSlots(inv.slotCount);
+    if (this.selected >= inv.slotCount) this.selected = inv.slotCount - 1;
+    const c = this._cache.slots, sel = this._cache.selected;
     for (let i = 0; i < this.slotEls.length; i++) {
       const s = inv.slots[i];
+      const el = this.slotEls[i].el;
       const hk = s ? inv.hotbar.indexOf(s.id) : -1;
-      const key = (s ? s.id + ':' + s.qty : '') + (i === this.selected ? '*' : '') + hk;
-      if (c[i] === key) continue;
-      c[i] = key;
-      const v = this.slotEls[i];
-      v.el.classList.toggle('selected', i === this.selected);
-      v.el.classList.toggle('filled', !!s);
-      v.el.classList.toggle('rare', !!(s && (ITEMS[s.id]?.rare || ['rare', 'veryRare'].includes(ITEMS[s.id]?.rarity))));
-      v.ico.textContent = s ? ITEMS[s.id].emoji : '';
-      v.qty.textContent = s && s.qty > 1 ? s.qty : '';
-      v.key.textContent = hk >= 0 ? hk + 1 : '';
+      const key = s ? `${s.id}:${s.qty}:${hk}` : (i < inv.slotCount ? '' : '-');
+      if (c[i] !== key) {
+        c[i] = key;
+        el.hidden = key === '-'; // casillas sobrantes tras vaciar una partida grande
+        if (s) {
+          const def = ITEMS[s.id];
+          const rare = isRare(def);
+          el.className = ['item-slot', 'inv-slot', `cat-${itemCategory(s.id)}`, isUsable(def) && 'usable', rare && 'rare']
+            .filter(Boolean).join(' ');
+          el.innerHTML = itemArtHTML(s.id, 'inv-slot-art')
+            + (s.qty > 1 ? `<span class="inv-slot-qty">×${s.qty}</span>` : '')
+            + (hk >= 0 ? `<span class="inv-slot-key" title="Tecla ${hk + 1}">${hk + 1}</span>` : '')
+            + (rare ? `<span class="inv-slot-rare" title="${rarityText(s.id)}">★</span>` : '');
+          const extra = [isUsable(def) ? 'usable' : '', rare ? rarityText(s.id).toLowerCase() : '', hk >= 0 ? `tecla ${hk + 1}` : ''];
+          el.setAttribute('aria-label', [`${def.name} ×${s.qty}`, ...extra].filter(Boolean).join(', '));
+        } else {
+          el.className = 'item-slot inv-slot is-empty';
+          el.textContent = '';
+          el.setAttribute('aria-label', 'Casilla vacía');
+        }
+        sel[i] = undefined;
+      }
+      const isSel = i === this.selected;
+      if (sel[i] !== isSel) {
+        sel[i] = isSel;
+        el.classList.toggle('selected', isSel);
+        el.setAttribute('aria-pressed', String(isSel));
+      }
     }
-    const cap = `${inv.usedSlots}/${inv.slotCount} casillas · ${inv.totalWeight.toFixed(1)}/${inv.maxWeight} kg`;
-    if (cap !== this._cache.cap) { this._cache.cap = cap; this.capEl.textContent = cap; }
+
+    const ratio = inv.maxWeight > 0 ? inv.totalWeight / inv.maxWeight : 0;
+    const state = ratio >= 1 ? 'full' : ratio >= NEAR_FULL ? 'near' : '';
+    const cap = `${inv.usedSlots}/${inv.slotCount}|${inv.totalWeight.toFixed(1)}/${inv.maxWeight}|${state}`;
+    if (cap !== this._cache.cap) {
+      this._cache.cap = cap;
+      this.countEl.textContent = `${inv.usedSlots}/${inv.slotCount} casillas`;
+      this.loadText.textContent = `${inv.totalWeight.toFixed(1)}/${inv.maxWeight} kg`;
+      this.loadFill.style.width = `${Math.min(100, ratio * 100).toFixed(1)}%`;
+      this.loadFlag.textContent = state === 'full' ? 'lleno' : state === 'near' ? 'casi lleno' : '';
+      this.loadEl.className = `inv-load ${state}`.trim();
+    }
   }
 
   _renderDetail() {
-    const s = this.inv.slots[this.selected];
-    const key = s ? s.id + ':' + s.qty : '';
+    const inv = this.inv;
+    const s = inv.slots[this.selected];
+    const hk = s ? inv.hotbar.indexOf(s.id) : -1;
+    const key = s ? `${s.id}:${s.qty}:${inv.hotbar.join(',')}` : '';
     if (key === this._cache.detail) return;
+    const sameItem = (this._cache.detail ?? '').split(':')[0] === (s?.id ?? '');
     this._cache.detail = key;
     const def = s && ITEMS[s.id];
-    this.dIcon.textContent = def ? def.emoji : '';
-    this.dName.textContent = def ? `${def.name} ×${s.qty}` : 'Casilla vacía';
-    this.dDesc.textContent = def ? def.desc : '';
-    this.dFx.replaceChildren(...(def ? describeEffects(def) : []).map((t) => {
-      const li = document.createElement('li');
-      li.textContent = t;
-      return li;
-    }));
+    const usable = !!def && isUsable(def);
+
+    this.bench.className = ['item-bench', 'inv-bench', def ? `cat-${itemCategory(s.id)}` : 'is-empty', usable && 'usable']
+      .filter(Boolean).join(' ');
+    if (!sameItem || !def) {
+      this.dArt.innerHTML = def ? itemArtHTML(s.id) : '';
+      this.useArt.innerHTML = def && usable ? itemArtHTML(s.id) : '';
+    }
+    this.dPedestal.classList.toggle('lit', !!def);
+    this.dQty.textContent = def ? `×${s.qty}` : '';
+    this.dQty.hidden = !def;
+    this.dName.textContent = def ? def.name : 'Casilla vacía';
+    this.dRarity.textContent = def ? rarityText(s.id) : '';
+    this.dEffect.textContent = def ? itemEffectLine(def, { weight: false, fallback: false }) : '';
+    this.dNote.textContent = def ? itemNote(def) : 'Elige un objeto del costal.';
     this.dMeta.textContent = def
-      ? `Peso ${def.weight} kg · Valor $${def.value}${s.qty > 1 ? ` · Total $${def.value * s.qty}` : ''}`
+      ? `${def.weight} kg · ${cop(def.value)}${s.qty > 1 ? ` · total ${cop(def.value * s.qty)}` : ''}`
       : '';
-    this.btnUse.disabled = !(def && isUsable(def));
+    this.dReason.textContent = !def ? '' : usable ? `Enter o doble clic: ${useVerb(def).toLowerCase()}` : idleReason(def);
+
+    this.btnUse.hidden = !!def && !usable;
+    this.btnUse.disabled = !usable;
+    this.useLabel.textContent = useVerb(def);
     this.btnDrop1.disabled = !def;
     this.btnDropAll.disabled = !def || s.qty < 2;
+    for (let i = 0; i < this.hotEls.length; i++) {
+      const b = this.hotEls[i];
+      const bound = inv.hotbar[i];
+      b.disabled = !usable;
+      b.setAttribute('aria-pressed', String(hk === i));
+      b.classList.toggle('taken', !!bound && bound !== s?.id);
+      b.title = bound ? `Tecla ${i + 1}: ${ITEMS[bound]?.name ?? bound}` : `Tecla ${i + 1}: libre`;
+    }
+  }
+
+  /** Lleva el foco a la casilla elegida al abrir, al moverse con el teclado o si se perdió. */
+  _restoreFocus() {
+    const el = this.slotEls[this.selected]?.el;
+    if (!el?.focus || typeof document === 'undefined') return;
+    const active = document.activeElement;
+    const lost = !active || active.disabled || active.hidden || !this.root.contains(active);
+    if (this._focusSlot || lost) el.focus({ preventScroll: false });
+    this._focusSlot = false;
   }
 
   _renderQuickbar() {
@@ -327,12 +494,15 @@ export class InventoryUI {
       const n = id ? inv.count(id) : 0;
       const key = id ? id + ':' + n : '';
       if (c[i] === key) continue;
-      c[i] = key;
       const q = this.quickEls[i];
-      q.ico.textContent = id ? ITEMS[id].emoji : '';
+      if ((c[i] ?? '').split(':')[0] !== (id ?? '')) {
+        q.art.innerHTML = id ? itemArtHTML(id, 'qb-art-icon') : '';
+        q.el.className = `item-slot qb-slot ${id ? `cat-${itemCategory(id)}` : ''}`.trim();
+      }
+      c[i] = key;
       q.qty.textContent = id ? n : '';
-      q.el.classList.toggle('empty', !id || n === 0);
-      q.el.title = id ? ITEMS[id].name : '';
+      q.el.classList.toggle('is-empty', !id || n === 0);
+      q.el.title = id ? `${ITEMS[id].name} · tecla ${i + 1}` : `Tecla ${i + 1}: libre`;
     }
     this.quickEl.classList.toggle('visible', any);
   }
@@ -341,12 +511,12 @@ export class InventoryUI {
     const s = this.inv.slots[i];
     if (!s) { this.tipEl.style.display = 'none'; return; }
     const def = ITEMS[s.id];
-    const fx = describeEffects(def);
     this.tipEl.textContent = '';
     const b = document.createElement('b');
-    b.textContent = `${def.emoji} ${def.name}`;
-    this.tipEl.append(b, document.createElement('br'), def.desc);
-    for (const t of fx) this.tipEl.append(document.createElement('br'), t);
+    b.textContent = s.qty > 1 ? `${def.name} ×${s.qty}` : def.name;
+    const lines = [rarityText(s.id), itemEffectLine(def, { weight: false, fallback: false }), itemNote(def)].filter(Boolean);
+    this.tipEl.append(b);
+    for (const t of lines) this.tipEl.append(document.createElement('br'), t);
     const tip = this.tipEl;
     tip.style.display = 'block';
     const r = slotEl.getBoundingClientRect();
@@ -379,6 +549,5 @@ export class InventoryUI {
     this.quickEl.removeEventListener('click', this._onQuickClick);
     this.root.remove();
     this.quickEl.remove();
-    this.openButton.remove();
   }
 }

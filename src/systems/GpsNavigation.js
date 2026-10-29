@@ -193,6 +193,12 @@ export class GpsNavigation {
   setWaypoint(waypoint, from, now = performance.now()) {
     if (!waypoint || !Number.isFinite(waypoint.x) || !Number.isFinite(waypoint.z)) return false;
     this.waypoint = { name: 'Punto marcado', icon: '📍', ...waypoint };
+    // El marcador, la llegada y el guardado comparten el mismo punto accesible.
+    // Un clic sobre un edificio dirige a la acera que utiliza el buscador de rutas.
+    if (!this.isRoutable(waypoint.x, waypoint.z)) {
+      const accessible = this._nearestOpen(waypoint.x, waypoint.z);
+      if (accessible >= 0) Object.assign(this.waypoint, this._point(accessible));
+    }
     return this._plan(from, now);
   }
 
@@ -213,7 +219,7 @@ export class GpsNavigation {
       this._suffix = [];
       return false;
     }
-    // El último punto es el destino real aunque esté dentro de un solar.
+    // Conserva la coordenada exacta cuando el destino está dentro de un tile transitable.
     const end = path[path.length - 1];
     if (Math.hypot(end.x - this.waypoint.x, end.z - this.waypoint.z) > .5 && this.isRoutable(this.waypoint.x, this.waypoint.z)) {
       path.push({ x: this.waypoint.x, z: this.waypoint.z });

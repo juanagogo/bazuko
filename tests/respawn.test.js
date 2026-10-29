@@ -5,25 +5,27 @@ import { Game } from '../src/core/game.js';
 import { StatsSystem, NEEDS } from '../src/systems/StatsSystem.js';
 import { InventorySystem } from '../src/systems/InventorySystem.js';
 import { Menu } from '../src/ui/Menu.js';
+import { Player } from '../src/entities/Player.js';
 
 beforeEach(() => { globalThis.window = new EventTarget(); });
 
 function fixture() {
   const game = Object.assign(Object.create(Game.prototype), {
-    stats: new StatsSystem(), deathCount: 0, _deathPending: false,
+    stats: new StatsSystem(), deathCount: 0, _deathPending: false, _arrestPending: false,
     talents: { getEffect: (key, fallback) => fallback }, clock: { isNight: false },
     player: { position: new THREE.Vector3(40, 0, 26), root: new THREE.Group(),
       receiveVehicleImpact(direction, speed) { this.lastImpact = { direction, speed }; },
       clearVehicleImpact() { this.lastImpact = null; } },
-    world: { active: { reserved: { bed: { x: 89, z: 80 } } } },
+    world: { active: { reserved: { bed: { x: 89, z: 80 }, spawn: { x: 32, z: 32 } } } },
     input: { keys: { KeyW: true }, endFrame() {} },
     audio: { updateSteps() {} },
-    interaction: { currentTarget: {}, currentTargetType: 'shop' },
+    interaction: { currentTarget: {}, currentTargetType: 'shop', boostActive: false },
     menu: { isOpen: false, open(options) { this.options = options; this.isOpen = true; }, close() { this.isOpen = false; } },
     creator: { isOpen: false },
     diseases: { hasAny: false, cureAll() { this.hasAny = false; } },
     inventory: new InventorySystem(),
-    cameraRig: { follow(position) { this.target = position.clone(); } }
+    cameraRig: { follow(position) { this.target = position.clone(); } },
+    collisions: null,
   });
   game.inventory.items = [{ id: 'papel', qty: 2 }, { id: 'carton', qty: 3 }];
   return game;
@@ -133,4 +135,81 @@ test('Escape y el fondo no pueden omitir la pantalla de muerte; otros menús sig
   menu._dismissible = true;
   menu.dismiss();
   assert.equal(menu.isOpen, false);
+});
+
+test('la captura policial confisca todo y reaparece en otro punto', () => {
+  const game = fixture();
+  game.stats.dinero = 12000;
+  const start = game.player.position.clone();
+  game.world.active.isWalkableAt = () => true;
+  game.world.active.width = 40;
+  game.world.active.height = 40;
+  let rolls = 0;
+  const originalRandom = Math.random;
+  Math.random = () => {
+    rolls += 1;
+    return rolls === 1 ? 0.9 : 0.1;
+  };
+  try {
+    game._policeArrest();
+    assert.equal(game.paused, true);
+    assert.equal(game.menu.options.dismissible, false);
+    assert.equal(game.inventory.items.length, 2);
+    assert.equal(game.stats.dinero, 12000);
+    game._finishArrest();
+  } finally {
+    Math.random = originalRandom;
+  }
+  assert.equal(game.paused, false);
+  assert.equal(game.inventory.items.length, 0);
+  assert.equal(game.stats.dinero, 0);
+  assert.ok(game.player.position.distanceTo(start) > 1);
+  assert.deepEqual(game.player.root.position, game.player.position);
+  assert.equal(game.interaction.currentTarget, null);
+  game._finishArrest();
+  assert.equal(game.inventory.items.length, 0);
+});
+
+test('arresto desde el agua restaura el Player real en la calle y termina amenazas y acciones', () => {
+  const game = fixture();
+  game.player = new Player(new THREE.Scene(), { axis: {}, consumePress: () => false }, game.stats, game.audio);
+  game.player.position.set(40, -1.2, 262);
+  game.player.isSwimming = game.player.inWater = true;
+  game.player.waterMovement.state = 'swimming';
+  game.player.waterDepth = 5;
+  game.player.jumpVelocity = -3;
+  game.player.isGrounded = false;
+  game.player.groundSurface = { layer: 'bridge', height: 7.82 };
+  game.player.action = 'saltar'; game.player.actionTimer = .3;
+  game.player.velocity.set(2, -3, 1);
+  game.world.active.getSpawnGrid = () => [{ x: 80, z: 260 }];
+  game.world.active.getGroundHeight = () => 7.82;
+  game.world.active.getMovementGroundHeight = (_x, _z, y) => { assert.equal(y, 0); return .08; };
+  const finished = [];
+  game.waterEffects = { reset: () => finished.push('agua') };
+  game.traffic = { endPursuit: () => finished.push('policia') };
+  game.roadRage = { reset: () => finished.push('conductor') };
+  game.limpieza = { reset: () => finished.push('agresores') };
+  game.substanceEffects = { end: () => finished.push('efectos') };
+  game.psychosis = { clearInduced: () => finished.push('paranoia') };
+  game.steal = { buscado: 3, targetNpc: {}, _endMinigame: (_success, reason) => assert.equal(reason, 'cancel') };
+  game._arrestPending = true;
+  game._finishArrest();
+  assert.deepEqual(game.player.position.toArray(), [80, .08, 260]);
+  assert.equal(game.player.isSwimming, false); assert.equal(game.player.inWater, false);
+  assert.equal(game.player.waterMovement.state, 'dry'); assert.equal(game.player.waterDepth, 0);
+  assert.equal(game.player.jumpVelocity, 0); assert.equal(game.player.isGrounded, true);
+  assert.equal(game.player.groundSurface, null); assert.equal(game.player.action, null);
+  assert.equal(game.player.actionTimer, 0); assert.equal(game.player.velocity.length(), 0);
+  assert.equal(game.steal.buscado, 0); assert.equal(game.steal.targetNpc, null);
+  assert.deepEqual(finished, ['agua', 'policia', 'conductor', 'agresores', 'efectos', 'paranoia']);
+  game.player.dispose();
+});
+
+test('una muerte pendiente tiene prioridad sobre un aviso policial', () => {
+  const game = fixture(); game.stats.salud = 0;
+  game._policeArrest();
+  assert.equal(game._arrestPending, false);
+  assert.equal(game._handleDeath(), true);
+  assert.equal(game._deathPending, true);
 });

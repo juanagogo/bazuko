@@ -14,7 +14,10 @@ test('el edificio ocupa el lugar indicado, bloquea su interior y deja libre el p
   assert.ok(building.getObjectByName('Puerta'));
   const wall=building.getObjectByName('Cuerpo de cinco pisos');
   assert.equal(wall.material.map,wallMap);assert.equal(wall.material.bumpMap,wallBump);
-  assert.ok(Math.max(...wall.geometry.attributes.uv.array)>6);
+  // Cada repetición contiene 24 hiladas de tolete de 12 cm: el material
+  // mantiene su escala real sobre los 16 m de fachada, sin estirar ladrillos.
+  const verticalUV=Array.from(wall.geometry.attributes.uv.array).filter((_,i)=>i%2===1);
+  assert.ok(Math.abs(Math.max(...verticalUV)*24*.12-16)<.0001);
   assert.equal(SMALL_BUILDING.floors,5);
   assert.ok(bounds.max.y>16);
   assert.ok(bounds.max.x-bounds.min.x>12);

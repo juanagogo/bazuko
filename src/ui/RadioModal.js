@@ -155,7 +155,13 @@ export function openRadioModal(game) {
         el('span', { class: `radio-signal-badge ${signalClass}`, text: `📶 ${signalRating}` })
       ),
       el('div', { class: 'radio-info-program', text: `Programa: ${station.program}` }),
-      el('div', { class: 'radio-info-genre', text: `Género: ${station.genre}` })
+      el('div', { class: 'radio-info-genre', text: `Género: ${station.genre}` }),
+      ...(station.id === 'noticias' && radio.lastBulletin ? [
+        el('div', {
+          class: 'radio-info-program',
+          text: `Último boletín (${radio.lastBulletin.fuente}, ${radio.lastBulletin.fecha}): ${radio.lastBulletin.titular}. ${radio.lastBulletin.objetivo}`
+        })
+      ] : [])
     );
 
     // 5. Control de volumen de radio
