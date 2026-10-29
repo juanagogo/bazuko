@@ -138,12 +138,14 @@ void CityLayout::GenerateCityMap() {
         {'p', TileType::Plaza}, {'w', TileType::Wall}, {'W', TileType::Water}, {'f', TileType::Floor}, {'d', TileType::Dirt},
         {'R', TileType::Ruin}, {'S', TileType::Solid}, {'C', TileType::Solid}, {'A', TileType::Solid}, {'M', TileType::Solid}}};
     const auto& rows = json.at("rows");
+    m_MapCodes.assign(static_cast<size_t>(WIDTH * HEIGHT), 'w');
     for (int z = 0; z < HEIGHT && z < static_cast<int>(rows.size()); ++z) {
         const std::string row = rows[static_cast<size_t>(z)].get<std::string>();
         for (int x = 0; x < WIDTH && x < static_cast<int>(row.size()); ++x) {
             TileType tile = TileType::Wall;
             for (const auto& [code, type] : kCodes) if (code == row[static_cast<size_t>(x)]) { tile = type; break; }
             m_Grid[static_cast<size_t>(z * WIDTH + x)] = tile;
+            m_MapCodes[static_cast<size_t>(z * WIDTH + x)] = row[static_cast<size_t>(x)];
         }
     }
     const auto bands = [&](const char* key) {

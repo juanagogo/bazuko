@@ -297,6 +297,7 @@ private:
     std::string m_GpsSetName;
     bool m_GpsClearRequest = false;
     glm::vec2 m_MapCenter{0.0f};
+    glm::vec3 m_CameraPosition{0.0f};   // para orientar la flecha del jugador en el mapa
     float m_MapZoom = 0.0f;       // pixeles por metro; 0 = ajustar a la ciudad al abrir
     bool m_MapNeedsCenter = true;
     void RenderMapView(const glm::vec3& playerPos, const CityLayout& city, const Simulation& simulation);

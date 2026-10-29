@@ -759,7 +759,7 @@ int Model::FindAnimationClip(const std::string& name) const {
 }
 
 std::vector<glm::mat4> Model::EvaluatePose(float animationTime, bool animate, int animationClip, bool seatedPose, int blendClip, float blendWeight,
-                                           const std::vector<BoneTurn>* turns) const {
+                                           const std::vector<BoneTurn>* turns, float blendTime) const {
     auto nodes = m_Nodes;
     glm::vec3 hipsDelta(0.0f);
     bool hasHipsDelta = false;
@@ -801,7 +801,7 @@ std::vector<glm::mat4> Model::EvaluatePose(float animationTime, bool animate, in
                               + (t3 - t2) * inTangent;
                     }
                     auto& node = pose[channel.sourceNodeIndex];
-                    if (channel.path == 0 && m_AnimationSourceNodes[channel.sourceNodeIndex].name.ends_with("Hips")) {
+                    if (channel.path == 0 && m_AnimationSourceNodes[channel.sourceNodeIndex].name.ends_with(m_HeightBone)) {
                         delta = glm::vec3(value.x, value.y, value.z) - channel.sourceRestTranslation;
                         hasDelta = true;
                     }
@@ -820,7 +820,8 @@ std::vector<glm::mat4> Model::EvaluatePose(float animationTime, bool animate, in
                     std::vector<AnimationNode> otherPose;
                     glm::vec3 otherDelta(0.0f);
                     bool otherHasDelta = false;
-                    sampleClip(other, time / clip.duration * other.duration, otherPose, otherDelta, otherHasDelta);
+                    const float otherTime = blendTime >= 0.0f ? std::fmod(blendTime, other.duration) : time / clip.duration * other.duration;
+                    sampleClip(other, otherTime, otherPose, otherDelta, otherHasDelta);
                     const float weight = std::clamp(blendWeight, 0.0f, 1.0f);
                     for (size_t n = 0; n < sourcePose.size() && n < otherPose.size(); ++n)
                         sourcePose[n].rotation = glm::normalize(glm::slerp(sourcePose[n].rotation, otherPose[n].rotation, weight));
@@ -862,7 +863,7 @@ std::vector<glm::mat4> Model::EvaluatePose(float animationTime, bool animate, in
             if (hasHipsDelta) {
                 // altura animada de la cadera (agacharse, saltar, estocadas): se adapta al tamano de este cuerpo
                 for (auto& node : nodes) {
-                    if (!node.name.ends_with("Hips")) continue;
+                    if (!node.name.ends_with(m_HeightBone)) continue;
                     node.translation += m_AnimationOrientationCorrection * hipsDelta * m_HipsScale;
                     break;
                 }
@@ -972,8 +973,8 @@ std::vector<glm::mat4> Model::EvaluatePose(float animationTime, bool animate, in
 }
 
 glm::mat4 Model::GetNodeWorld(const std::string& nameSuffix, float animationTime, bool animate, int animationClip,
-                              int blendClip, float blendWeight, const std::vector<BoneTurn>* turns) const {
-    const auto world = EvaluatePose(animationTime, animate, animationClip, false, blendClip, blendWeight, turns);
+                              int blendClip, float blendWeight, const std::vector<BoneTurn>* turns, float blendTime) const {
+    const auto world = EvaluatePose(animationTime, animate, animationClip, false, blendClip, blendWeight, turns, blendTime);
     for (size_t i = 0; i < m_Nodes.size(); ++i)
         if (m_Nodes[i].name.ends_with(nameSuffix)) return world[i];
     return glm::mat4(1.0f);
@@ -985,8 +986,8 @@ float Model::GetAnimationClipDuration(int clip) const {
 
 void Model::Draw(Renderer& renderer, const glm::mat4& transform, const glm::vec4& tint,
                  float animationTime, bool animate, int animationClip, int alphaModeOverride,
-                 bool seatedPose, const glm::vec4& paintTint, int blendClip, float blendWeight, const std::vector<BoneTurn>* turns) const {
-    const std::vector<glm::mat4> nodeWorldTransforms = EvaluatePose(animationTime, animate, animationClip, seatedPose, blendClip, blendWeight, turns);
+                 bool seatedPose, const glm::vec4& paintTint, int blendClip, float blendWeight, const std::vector<BoneTurn>* turns, float blendTime) const {
+    const std::vector<glm::mat4> nodeWorldTransforms = EvaluatePose(animationTime, animate, animationClip, seatedPose, blendClip, blendWeight, turns, blendTime);
     renderer.SetPushOut(m_PushOut);
     for (size_t i = 0; i < m_Parts.size(); ++i) {
         const auto& part = m_Parts[i];

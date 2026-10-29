@@ -46,11 +46,13 @@ public:
               float animationTime = 0.0f, bool animate = false, int animationClip = 0,
               int alphaModeOverride = -1, bool seatedPose = false, const glm::vec4& paintTint = glm::vec4(1.0f),
               int blendClip = -1, float blendWeight = 0.0f,   // blendClip: segundo clip (misma fase) mezclado con peso blendWeight
-              const std::vector<BoneTurn>* turns = nullptr) const;
+              const std::vector<BoneTurn>* turns = nullptr,
+              float blendTime = -1.0f) const;   // blendTime >= 0: tiempo propio del segundo clip (fundido entre clips); < 0: misma fase
 
     // Matriz mundial (en el espacio del modelo) de un hueso en una pose de la animacion: para colocar objetos en la mano
     glm::mat4 GetNodeWorld(const std::string& nameSuffix, float animationTime, bool animate, int animationClip,
-                           int blendClip = -1, float blendWeight = 0.0f, const std::vector<BoneTurn>* turns = nullptr) const;
+                           int blendClip = -1, float blendWeight = 0.0f, const std::vector<BoneTurn>* turns = nullptr,
+                           float blendTime = -1.0f) const;
     float GetAnimationClipDuration(int clip) const;
     const std::vector<ModelPart>& GetParts() const { return m_Parts; }
     size_t GetAnimationClipCount() const { return m_AnimationClips.size(); }
@@ -60,6 +62,8 @@ public:
     // Ropa y calzado: se dibujan separados `meters` de la piel (ver Renderer::SetPushOut)
     void SetPushOut(float meters) { m_PushOut = meters; }
     float GetPushOut() const { return m_PushOut; }
+    // Nombre (o final del nombre) del hueso cuya traslacion anima la altura del cuerpo: sin ella un perro sentado o echado queda en el aire
+    void SetHeightBone(std::string suffix) { m_HeightBone = std::move(suffix); }
 
 private:
     static std::shared_ptr<Model> LoadWithAssimp(const std::string& filepath,
@@ -68,8 +72,10 @@ private:
                                                  float maximumWorldX);
 
     std::vector<glm::mat4> EvaluatePose(float animationTime, bool animate, int animationClip, bool seatedPose,
-                                        int blendClip = -1, float blendWeight = 0.0f, const std::vector<BoneTurn>* turns = nullptr) const;
+                                        int blendClip = -1, float blendWeight = 0.0f, const std::vector<BoneTurn>* turns = nullptr,
+                                        float blendTime = -1.0f) const;
     float m_PushOut = 0.0f;
+    std::string m_HeightBone = "Hips";   // hueso cuya traslacion anima la altura del cuerpo (la cadera de los personajes; la pelvis del perro)
     float m_HipsScale = 1.0f;   // altura de la cadera de este cuerpo respecto al esqueleto de las animaciones
 
     std::vector<ModelPart> m_Parts;

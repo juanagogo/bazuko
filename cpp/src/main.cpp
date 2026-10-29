@@ -184,7 +184,9 @@ int main(int argc, char** argv) {
         {"hierba", 2, {{"carton", 1}, {"madera", 1}}},
     };
     // Acciones del personaje (animaciones de Blender): saltar (Espacio), agacharse (Ctrl), puños (J), patada (K) y navaja (H)
-    enum class PlayerAction { None, Jump, Jab, Cross, Kick, Slash, Stab };
+    enum class PlayerAction { None, Jump, Jab, Cross, Kick, Slash, Stab, Pet };
+    bool petWaiting = false, petRewardPending = false;   // caricia al Chato: se pide con E, el perro se sienta delante y luego la anima PetDog
+    float petWaitTime = 0.0f;
     PlayerAction playerAction = PlayerAction::None;
     int playerActionClip = -1;
     float actionTime = 0.0f, actionDuration = 0.0f;
@@ -849,6 +851,7 @@ int main(int argc, char** argv) {
         float moveSpeed = (isRunning ? 6.0f : 3.0f) * statusSpeedMultiplier;
         if (playerCrouching) moveSpeed *= 0.5f;
         if (attacking) moveSpeed *= 0.3f;
+        if (playerAction == PlayerAction::Pet || petWaiting) moveSpeed = 0.0f;   // acariciando al Chato (o esperando que se siente)
         if (playerHitKind > 0) moveSpeed *= 0.1f;
         if (poopMode != 0) moveSpeed = 0.0f;   // agachado o recogiendo el mojon
 
@@ -1188,10 +1191,14 @@ int main(int argc, char** argv) {
                 simulation.StartMission();
             } else if (simulation.IsNearDog(playerPos, 2.0f)) {
                 if (simulation.IsDogFriend()) {
-                    if (simulation.PetDog()) {
-                        needs[5] = std::min(100.0f, needs[5] + 5.0f);
-                        ui.SetPickupNotification("El Chato mueve la cola. +5 de ánimo.");
-                    } else ui.SetPickupNotification("El Chato ya recibió sus caricias por ahora.");
+                    if (simulation.CanPetDog() && playerAction == PlayerAction::None && !playerCrouching && !playerKnockedDown && !petWaiting) {
+                        const glm::vec3 dogAt = simulation.GetDogPosition();
+                        playerYaw = std::atan2(dogAt.x - playerPos.x, dogAt.z - playerPos.z);
+                        simulation.BeginPet(playerPos, playerYaw);   // el Chato va a sentarse delante del jugador
+                        petWaiting = true;
+                        petWaitTime = 0.0f;
+                    }
+                    else if (!simulation.CanPetDog()) ui.SetPickupNotification("El Chato ya recibió sus caricias por ahora.");
                 } else {
                     simulation.BefriendDog();
                     needs[5] = std::min(100.0f, needs[5] + 15.0f);
@@ -1441,6 +1448,31 @@ int main(int argc, char** argv) {
                 actionDuration = seconds > 0.0f ? seconds : clipLength;
                 faceForward();
             };
+            {   // caricia: espera a que el Chato este sentado delante y entonces se agacha y le acaricia la cabeza (PetDog)
+                static const char* autoPet = std::getenv("BAZUKO_AUTO_PET");   // solo pruebas: pide la caricia a los s segundos
+                static bool autoPetDone = false;
+                if (autoPet && !autoPetDone && clock.GetElapsedTime() > static_cast<float>(std::atof(autoPet)) && simulation.CanPetDog() && !petWaiting) {
+                    autoPetDone = true;
+                    const glm::vec3 dogAt = simulation.GetDogPosition();
+                    playerYaw = std::atan2(dogAt.x - playerPos.x, dogAt.z - playerPos.z);
+                    simulation.BeginPet(playerPos, playerYaw);
+                    petWaiting = true;
+                    petWaitTime = 0.0f;
+                }
+                if (petWaiting) {
+                    petWaitTime += dt;
+                    if (!simulation.IsDogPetting() || playerKnockedDown || playerHitKind != 0) {
+                        petWaiting = false;
+                    } else if (simulation.IsDogReadyForPet() || petWaitTime > 5.0f) {
+                        petWaiting = false;
+                        const glm::vec3 dogAt = simulation.GetDogPosition();
+                        startAction(PlayerAction::Pet, "PetDog", 0.0f);
+                        actionHitDone = true;   // no es un golpe
+                        playerYaw = std::atan2(dogAt.x - playerPos.x, dogAt.z - playerPos.z);
+                        petRewardPending = true;
+                    }
+                }
+            }
             // golpes recibidos de peatones agresivos
             int hitKind = 0;
             glm::vec3 hitFrom{};
@@ -1530,7 +1562,15 @@ int main(int argc, char** argv) {
                     const float air = actionTime - 0.17f;
                     jumpOffset = air > 0.0f && air < 0.735f ? 3.6f * air - 4.9f * air * air : 0.0f;
                 }
+                if (playerAction == PlayerAction::Pet && petRewardPending && actionTime >= 1.5f) {   // la mano ya esta sobre la cabeza
+                    petRewardPending = false;
+                    if (simulation.PetDog()) {
+                        needs[5] = std::min(100.0f, needs[5] + 5.0f);
+                        ui.SetPickupNotification("El Chato se pone feliz. +5 de ánimo.");
+                    }
+                }
                 if (actionTime >= actionDuration || playerKnockedDown) {
+                    if (playerAction == PlayerAction::Pet) { simulation.EndPet(); petRewardPending = false; }
                     playerAction = PlayerAction::None;
                     jumpOffset = 0.0f;
                 }

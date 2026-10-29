@@ -740,6 +740,29 @@ Simulation::Simulation(const CityLayout& city, uint32_t seed,
         reportModelLoad("Compañero: Mascota canina (El Chato) FBX");
         m_DogModel = Model::LoadFromFile(modelsRoot + "perro.glb");
         reportModelLoad("Compañero: El Chato (perro.glb)");
+        m_ChatoModel = Model::LoadFromFile(modelsRoot + "chato.glb");
+        m_ChatoLibrary = Model::LoadFromFile(modelsRoot + "chato.glb");
+        if (m_ChatoModel && m_ChatoLibrary) {
+            m_ChatoModel->SetAnimationSource(*m_ChatoLibrary);
+            m_ChatoModel->SetHeightBone("Spine_base_02");   // al sentarse o echarse el cuerpo baja: la traslacion de la pelvis lo anima
+            DogClips& c = m_DogClips;
+            const auto find = [&](const char* name) { return m_ChatoModel->FindAnimationClip(name); };
+            c.idle = find("Idle"); c.idleLook = find("IdleLook"); c.idleSniff = find("IdleSniff"); c.idleAlert = find("IdleAlert");
+            c.walk = find("Walk"); c.trot = find("Trot"); c.run = find("Run"); c.turnLeft = find("TurnLeft"); c.turnRight = find("TurnRight");
+            c.sitStart = find("SitStart"); c.sit = find("Sit"); c.sitEnd = find("SitEnd");
+            c.lieStart = find("LieStart"); c.lie = find("Lie"); c.lieEnd = find("LieEnd");
+            c.sleepStart = find("SleepStart"); c.sleep = find("Sleep"); c.sleepEnd = find("SleepEnd");
+            c.bowStart = find("BowStart"); c.bow = find("Bow"); c.bowEnd = find("BowEnd"); c.jump = find("Jump");
+            if (c.idle < 0 || c.walk < 0) { m_ChatoModel.reset(); m_ChatoLibrary.reset(); }
+            else {
+                // Las patas de estas animaciones dan pasos cortos: a su ritmo natural el pie apoyado avanza solo la mitad de lo que un perro
+                // de este tamano camina, trota o galopa. Se reproducen mas rapido (hasta 2,4x) para acercar la zancada a la velocidad real.
+                const std::array<float, 3> measured{MeasureDogGait(c.walk), MeasureDogGait(c.trot), MeasureDogGait(c.run)};
+                m_DogGaitSpeed = {measured[0] * 2.0f, measured[1] * 2.0f, measured[2] * 2.0f};
+                LogInfo("El Chato: marcha natural {:.2f} / {:.2f} / {:.2f} m/s (caminar, trotar, correr)", m_DogGaitSpeed[0], m_DogGaitSpeed[1], m_DogGaitSpeed[2]);
+            }
+        }
+        reportModelLoad("Compañero: El Chato animado (chato.glb)");
         m_VendorCartModel = Model::LoadFromFile(modelsRoot + "comida rapida/food+cart.fbx");
         if (m_VendorCartModel)
             m_VendorCartModelFit = FitModelTransform(
@@ -1617,6 +1640,179 @@ bool Simulation::PetDog() {
     return true;
 }
 
+void Simulation::BeginPet(const glm::vec3& playerPosition, float playerYaw) {
+    if (!m_DogIsFriend) return;
+    m_DogPetting = true;
+    m_DogPetStage = 1;
+    m_DogPetPlayer = playerPosition;
+    m_DogPetAnchor = playerPosition + glm::vec3(std::sin(playerYaw), 0.0f, std::cos(playerYaw)) * 0.78f;
+    m_DogPetAnchor.y = 0.0f;
+    m_DogQueue.clear();
+}
+
+void Simulation::EndPet() {
+    if (!m_DogPetting) return;
+    // celebra: se pone de pie, hace la reverencia de juego (cola y cuerpo contentos) y, casi siempre, da un salto
+    m_DogPetStage = 4;
+    m_DogQueue.clear();
+    m_DogQueueLoop = 0.0f;
+    if (m_ChatoModel) {
+        m_DogQueue.push_back({m_DogClips.bowStart, 0.0f});
+        m_DogQueue.push_back({m_DogClips.bow, 2.2f});
+        m_DogQueue.push_back({m_DogClips.bowEnd, 0.0f});
+        if (m_Unit(m_Random) < 0.7f) m_DogQueue.push_back({m_DogClips.jump, 0.0f});
+    } else {
+        m_DogPetting = false;
+    }
+    m_DogHappy = 1.0f;
+}
+
+void Simulation::DogPlay(int clip, bool loop, float rate) {
+    if (clip < 0) return;
+    if (clip == m_DogClip && loop == m_DogClipLoop) { m_DogRate = rate; return; }
+    m_DogPrevClip = m_DogClip;
+    m_DogPrevTime = m_DogClipTime;
+    m_DogFade = m_DogPrevClip >= 0 ? 1.0f : 0.0f;   // fundido de 0,25 s entre clips
+    m_DogClip = clip;
+    m_DogClipTime = 0.0f;
+    m_DogClipLoop = loop;
+    m_DogRate = rate;
+}
+
+// Velocidad (m/s) a la que avanza la garra trasera apoyada en un ciclo del clip: la marcha del perro se escala con ella para no resbalar
+float Simulation::MeasureDogGait(int clip) const {
+    if (!m_ChatoModel || clip < 0) return 0.0f;
+    const float duration = m_ChatoModel->GetAnimationClipDuration(clip);
+    if (duration < 0.1f) return 0.0f;
+    constexpr int kSamples = 60;
+    std::array<std::array<glm::vec3, 2>, kSamples + 1> feet;
+    for (int i = 0; i <= kSamples; ++i) {
+        const float time = duration * static_cast<float>(i) / static_cast<float>(kSamples);
+        feet[static_cast<size_t>(i)][0] = glm::vec3(m_ChatoModel->GetNodeWorld("claws_b.L_040", time, true, clip)[3]);
+        feet[static_cast<size_t>(i)][1] = glm::vec3(m_ChatoModel->GetNodeWorld("claws_b.R_046", time, true, clip)[3]);
+    }
+    float floorY[2] = {1.0e9f, 1.0e9f};
+    for (const auto& pair : feet) for (size_t f = 0; f < 2; ++f) floorY[f] = std::min(floorY[f], pair[f].y);
+    std::vector<float> strides;
+    for (int i = 1; i <= kSamples; ++i) {
+        for (size_t f = 0; f < 2; ++f) {
+            const glm::vec3& p = feet[static_cast<size_t>(i)][f];
+            const glm::vec3& q = feet[static_cast<size_t>(i - 1)][f];
+            if (std::max(p.y, q.y) < floorY[f] + 0.02f) strides.push_back(std::abs(q.z - p.z) * static_cast<float>(kSamples));
+        }
+    }
+    if (strides.empty()) return 0.0f;
+    std::sort(strides.begin(), strides.end());
+    return strides[strides.size() / 2] / duration;   // m/s del modelo a ritmo natural
+}
+
+void Simulation::UpdateDogAnimation(float dt, float targetSpeed) {
+    const DogClips& c = m_DogClips;
+    const auto duration = [&](int clip) { return m_ChatoModel->GetAnimationClipDuration(clip); };
+    // avance del clip actual y del que se funde
+    m_DogClipTime += dt * m_DogRate;
+    bool finished = false;
+    const float length = duration(m_DogClip);
+    if (length > 0.0f && m_DogClipTime >= length) {
+        if (m_DogClipLoop) m_DogClipTime = std::fmod(m_DogClipTime, length);
+        else { m_DogClipTime = length - 0.001f; finished = true; }
+    }
+    m_DogPrevTime += dt;
+    m_DogFade = std::max(0.0f, m_DogFade - dt / 0.25f);
+    if (m_DogBusy && finished) m_DogBusy = false;
+
+    const auto rank = [](DogPosture p) { return static_cast<int>(p); };
+    // un paso entre posturas contiguas (Dormido - Echado - De pie - Sentado): devuelve el clip de la transicion
+    const auto stepTo = [&](DogPosture target) {
+        const int from = rank(m_DogPosture), to = rank(target);
+        if (from == to) return;
+        const int dir = to > from ? 1 : -1;
+        int clip = -1;
+        DogPosture next = static_cast<DogPosture>(from + dir);
+        if (from == rank(DogPosture::Stand) && dir > 0) clip = c.sitStart;
+        else if (from == rank(DogPosture::Sit)) clip = c.sitEnd;
+        else if (from == rank(DogPosture::Stand) && dir < 0) clip = c.lieStart;
+        else if (from == rank(DogPosture::Lie) && dir > 0) clip = c.lieEnd;
+        else if (from == rank(DogPosture::Lie) && dir < 0) clip = c.sleepStart;
+        else if (from == rank(DogPosture::Sleep)) clip = c.sleepEnd;
+        if (clip < 0) { m_DogPosture = target; return; }
+        m_DogPosture = next;
+        m_DogBusy = true;
+        DogPlay(clip, false);
+    };
+
+    if (m_DogBusy) return;   // termina la transicion o el clip en curso
+
+    // cola de clips (celebracion tras la caricia)
+    if (!m_DogQueue.empty() || m_DogQueueLoop > 0.0f) {
+        if (m_DogPosture != DogPosture::Stand) { stepTo(DogPosture::Stand); return; }
+        if (m_DogQueueLoop > 0.0f) {
+            m_DogQueueLoop -= dt;
+            if (m_DogQueueLoop > 0.0f) return;   // sigue en el bucle
+            m_DogQueueLoop = 0.0f;
+        }
+        if (!m_DogQueue.empty()) {
+            const auto [clip, loopSeconds] = m_DogQueue.front();
+            m_DogQueue.erase(m_DogQueue.begin());
+            if (loopSeconds > 0.0f) { DogPlay(clip, true); m_DogQueueLoop = loopSeconds; }
+            else { DogPlay(clip, false); m_DogBusy = true; }
+            return;
+        }
+    }
+    if (m_DogPetting && m_DogPetStage == 4 && m_DogQueue.empty() && m_DogQueueLoop <= 0.0f) {
+        m_DogPetting = false;   // termino la celebracion
+        m_DogPetStage = 0;
+        m_DogStill = 0.0f;
+    }
+
+    // postura deseada: sentado si el jugador se queda quieto un rato, echado si sigue sin moverse y dormido de noche
+    DogPosture desired = DogPosture::Stand;
+    if (m_DogPetting && m_DogPetStage >= 2 && m_DogPetStage <= 3) desired = DogPosture::Sit;
+    else if (m_DogPetting) desired = DogPosture::Stand;
+    else if (targetSpeed > 0.15f || m_DogSpeed > 0.3f) desired = DogPosture::Stand;
+    else if (m_DogStill > 45.0f && IsNight()) desired = DogPosture::Sleep;
+    else if (m_DogStill > 14.0f) desired = DogPosture::Lie;
+    else if (m_DogStill > 2.5f) desired = DogPosture::Sit;
+    if (m_DogPosture != desired) { stepTo(desired); return; }
+    if (m_DogPetting && m_DogPetStage == 2) {   // ya sentado: espera la mano del jugador
+        const float diff = std::atan2(std::sin(m_DogYawTarget - m_DogYaw), std::cos(m_DogYawTarget - m_DogYaw));
+        if (std::abs(diff) < 0.25f) m_DogPetStage = 3;
+    }
+
+    switch (m_DogPosture) {
+        case DogPosture::Sit: DogPlay(c.sit, true); break;
+        case DogPosture::Lie: DogPlay(c.lie, true); break;
+        case DogPosture::Sleep: DogPlay(c.sleep, true); break;
+        case DogPosture::Stand: {
+            if (m_DogSpeed > 0.25f) {
+                // caminar, trotar o correr: el ritmo sigue la velocidad real del perro
+                const bool wasRun = m_DogClip == c.run, wasTrot = m_DogClip == c.trot;
+                const float walkMax = wasTrot ? 1.9f : 2.1f, trotMax = wasRun ? 4.4f : 4.8f;
+                const int clip = m_DogSpeed < walkMax ? c.walk : m_DogSpeed < trotMax ? c.trot : c.run;
+                const float natural = m_DogGaitSpeed[clip == c.walk ? 0 : clip == c.trot ? 1 : 2];
+                const float rate = natural > 0.1f ? std::clamp(m_DogSpeed / (natural * m_DogSize), 0.6f, 2.4f) : 1.0f;
+                DogPlay(clip, true, rate);
+                break;
+            }
+            // quieto de pie: gira en el sitio si hace falta y, si no, alterna sus gestos (mirar, olfatear, alerta)
+            const float diff = std::atan2(std::sin(m_DogYawTarget - m_DogYaw), std::cos(m_DogYawTarget - m_DogYaw));
+            if (std::abs(diff) > 0.7f && c.turnLeft >= 0) {
+                DogPlay(diff > 0.0f ? c.turnLeft : c.turnRight, true);
+                break;
+            }
+            m_DogIdleTimer -= dt;
+            const bool idleNow = m_DogClip == c.idle || m_DogClip == c.idleLook || m_DogClip == c.idleSniff || m_DogClip == c.idleAlert;
+            if (!idleNow || m_DogIdleTimer <= 0.0f || finished) {
+                const float roll = m_Unit(m_Random);
+                const int clip = roll < 0.45f ? c.idle : roll < 0.70f ? c.idleLook : roll < 0.88f ? c.idleSniff : c.idleAlert;
+                DogPlay(clip, true);
+                m_DogIdleTimer = 4.0f + m_Unit(m_Random) * 5.0f;
+            }
+            break;
+        }
+    }
+}
+
 void Simulation::SetDogState(bool isFriend, const glm::vec3& position, int coat) {
     m_DogIsFriend = isFriend;
     m_DogPosition = position;
@@ -1784,7 +1980,26 @@ void Simulation::Update(float dt, const glm::vec3& playerPosition) {
     m_DogTime += dt;
     m_DogPetCooldown = std::max(0.0f, m_DogPetCooldown - dt);
     float dogTargetSpeed = 0.0f;
-    if (m_DogIsFriend) {
+    glm::vec2 dogHeading(0.0f);
+    bool dogHasHeading = false;
+    if (m_DogPetting) {
+        // la caricia manda a El Chato a sentarse de frente al jugador, a un paso de distancia
+        const glm::vec2 toAnchor(m_DogPetAnchor.x - m_DogPosition.x, m_DogPetAnchor.z - m_DogPosition.z);
+        const float anchorDistance = glm::length(toAnchor);
+        if (m_DogPetStage == 1) {
+            if (anchorDistance > 0.12f) {
+                dogHeading = toAnchor / anchorDistance;
+                dogHasHeading = true;
+                dogTargetSpeed = std::min(2.6f, 0.8f + anchorDistance * 1.6f);
+            } else {
+                m_DogPetStage = 2;
+            }
+        }
+        if (m_DogPetStage >= 2 && m_DogPetStage <= 3) {
+            const glm::vec2 toPlayer(m_DogPetPlayer.x - m_DogPosition.x, m_DogPetPlayer.z - m_DogPosition.z);
+            if (glm::length(toPlayer) > 0.01f) m_DogYawTarget = std::atan2(toPlayer.x, toPlayer.y);
+        }
+    } else if (m_DogIsFriend) {
         // Sigue al jugador: se detiene a 2,2 m, trota si se queda atras y galopa si lo pierde de vista; a mas de 45 m lo alcanza
         const glm::vec2 offset(playerPosition.x - m_DogPosition.x, playerPosition.z - m_DogPosition.z);
         const float distance = glm::length(offset);
@@ -1794,30 +2009,41 @@ void Simulation::Update(float dt, const glm::vec3& playerPosition) {
             if (m_City.IsWalkable(behind.x, behind.y) && !IsBlocked({behind.x, 0.0f, behind.y}, 0.3f)) m_DogPosition = {behind.x, 0.0f, behind.y};
         } else if (distance > kStopDistance) {
             dogTargetSpeed = distance > 12.0f ? 6.0f : distance > 5.0f ? 3.6f : 1.6f + (distance - kStopDistance) * 0.7f;
-            const glm::vec2 direction = offset / distance;
-            const float move = std::min(m_DogSpeed * dt, distance - kStopDistance);
-            const glm::vec3 nextPosition = m_DogPosition + glm::vec3(direction.x * move, 0.0f, direction.y * move);
-            if (m_City.IsWalkable(nextPosition.x, nextPosition.z) && !IsBlocked(nextPosition, 0.25f)) m_DogPosition = nextPosition;
-            else dogTargetSpeed = 0.0f;
-            m_DogYaw = std::atan2(direction.x, direction.y);
+            dogHeading = offset / distance;
+            dogHasHeading = true;
         } else {
-            m_DogYaw = std::atan2(offset.x, offset.y);
+            m_DogYawTarget = std::atan2(offset.x, offset.y);   // quieto: mira al jugador
         }
     }
+    if (m_ChatoModel && (m_DogBusy || m_DogPosture != DogPosture::Stand)) dogTargetSpeed = 0.0f;   // sentado, echado o en plena transicion no camina
+    if (dogHasHeading && dogTargetSpeed > 0.0f) {
+        const glm::vec3 nextPosition = m_DogPosition + glm::vec3(dogHeading.x, 0.0f, dogHeading.y) * (m_DogSpeed * dt);
+        if (m_City.IsWalkable(nextPosition.x, nextPosition.z) && !IsBlocked(nextPosition, 0.25f)) m_DogPosition = nextPosition;
+        else dogTargetSpeed = 0.0f;
+        m_DogYawTarget = std::atan2(dogHeading.x, dogHeading.y);
+    }
+    m_DogPosition.y = m_City.GetGroundHeight(m_DogPosition.x, m_DogPosition.z);   // siempre apoyado en el suelo, tambien sobre la isla de la estacion
     m_DogSpeed += (dogTargetSpeed - m_DogSpeed) * (1.0f - std::exp(-6.0f * dt));
     if (dogTargetSpeed == 0.0f && m_DogSpeed < 0.05f) m_DogSpeed = 0.0f;
+    {   // giro suave del cuerpo: rapido al caminar, mas despacio en el sitio
+        float diff = m_DogYawTarget - m_DogYaw;
+        diff = std::atan2(std::sin(diff), std::cos(diff));
+        const float rate = (m_DogSpeed > 0.3f ? 7.0f : 2.4f) * dt;
+        m_DogYaw += std::clamp(diff, -rate, rate);
+    }
     m_DogStill = m_DogSpeed < 0.1f ? m_DogStill + dt : 0.0f;
     m_DogHappy = std::max(0.0f, m_DogHappy - dt / 6.0f);
     if (m_DogHop >= 0.0f) { m_DogHop += dt * 2.4f; if (m_DogHop > 1.0f) m_DogHop = -1.0f; }
-    {   // posturas: sentado tras 2,5 s quieto, echado tras 14 s; olfatea de vez en cuando
+    if (m_ChatoModel) {
+        UpdateDogAnimation(dt, dogTargetSpeed);
+    } else {
+        // respaldo con perro.glb (sin clips): posturas y marcha por codigo
         const bool resting = m_DogStill > 14.0f;
         const bool sitting = !resting && m_DogStill > 2.5f;
         const auto approach = [&](float current, float target, float rate) { return current + (target - current) * (1.0f - std::exp(-rate * dt)); };
         m_DogLie = approach(m_DogLie, resting ? 1.0f : 0.0f, 3.0f);
         m_DogSit = approach(m_DogSit, sitting ? 1.0f : 0.0f, 4.0f);
         m_DogSniff = approach(m_DogSniff, (m_DogSpeed < 0.3f && std::sin(m_DogTime * 0.7f) > 0.6f) ? 1.0f : 0.0f, 3.0f) * (1.0f - m_DogLie);
-    }
-    {   // marcha: la fase avanza con la velocidad para que las patas apoyadas no resbalen (zancada segun el paso, trote o galope)
         const float swing = m_DogSpeed < 2.4f ? 0.32f : m_DogSpeed < 5.2f ? 0.45f : 0.62f;
         m_DogPhase = std::fmod(m_DogPhase + (m_DogSpeed / (0.4f * swing)) * dt / 6.2831853f, 1.0f);
     }
@@ -3640,7 +3866,44 @@ void Simulation::Render(Renderer& renderer, float time, const glm::vec3& focusPo
         glm::mat4 dog = glm::translate(glm::mat4(1.0f), m_DogPosition);
         dog = glm::rotate(dog, m_DogYaw, {0.0f, 1.0f, 0.0f});
         dog = glm::scale(dog, glm::vec3(m_DogSize));
-        if (m_DogModel) {
+        if (m_ChatoModel) {
+            // cola: se mueve mas rapido y amplio si esta contento; dormido no se mueve
+            std::vector<Model::BoneTurn> tail;
+            {
+                const float asleep = m_DogPosture == DogPosture::Sleep ? 0.0f : m_DogPosture == DogPosture::Lie ? 0.5f : 1.0f;
+                const float mood = (m_DogIsFriend ? 0.30f + m_DogHappy * 0.70f : 0.10f) * asleep;
+                const float rate = m_DogIsFriend ? 6.0f + m_DogHappy * 7.0f : 3.0f;
+                const char* names[4] = {"tail_01_031", "tail_02_032", "tail_03_033", "tail_04_034"};
+                for (int k = 0; k < 4; ++k)
+                    tail.push_back({names[k], {0.0f, std::sin(m_DogTime * rate - 0.55f * static_cast<float>(k)) * mood * (k == 0 ? 0.30f : 0.26f), 0.0f}, {0.0f, 0.0f, 0.0f}});
+            }
+            const float fade = m_DogFade * m_DogFade * (3.0f - 2.0f * m_DogFade);
+            // sin la textura tenida el pelaje es el natural del modelo; los otros colores lo tiñen
+            const glm::vec4 chatoCoat = m_DogCoat == 0 ? glm::vec4(1.0f) : glm::min(coat * 1.9f, glm::vec4(1.0f));
+            // en estas posturas la malla queda 1,6-2,1 cm bajo el suelo (medido sobre los clips): se sube lo justo para que apoye sin flotar
+            const auto groundLift = [&](int clip) {
+                if (clip == m_DogClips.sit || clip == m_DogClips.sitStart || clip == m_DogClips.sitEnd) return 0.018f;
+                if (clip == m_DogClips.lie || clip == m_DogClips.lieStart || clip == m_DogClips.lieEnd) return 0.016f;
+                if (clip == m_DogClips.sleep || clip == m_DogClips.sleepStart || clip == m_DogClips.sleepEnd) return 0.021f;
+                return 0.003f;
+            };
+            const float lift = glm::mix(groundLift(m_DogClip), m_DogPrevClip >= 0 ? groundLift(m_DogPrevClip) : groundLift(m_DogClip), fade);
+            dog = glm::translate(dog, glm::vec3(0.0f, lift, 0.0f));
+            m_ChatoModel->Draw(renderer, dog, glm::vec4(1.0f), m_DogClipTime, true, m_DogClip, -1, false, chatoCoat, m_DogPrevClip, fade, &tail, m_DogPrevTime);
+            const auto bone = [&](const char* name) {
+                return dog * m_ChatoModel->GetNodeWorld(name, m_DogClipTime, true, m_DogClip, m_DogPrevClip, fade, &tail, m_DogPrevTime);
+            };
+            const glm::vec3 neck = glm::vec3(bone("neck_07")[3]);
+            const glm::vec3 head = glm::vec3(bone("head_08")[3]);
+            const glm::mat4 facing = glm::rotate(glm::translate(glm::mat4(1.0f), glm::vec3(0.0f)), m_DogYaw, {0.0f, 1.0f, 0.0f});
+            const auto at = [&](const glm::vec3& position, const glm::vec3& offset) { return glm::translate(glm::mat4(1.0f), position) * facing * glm::translate(glm::mat4(1.0f), offset * m_DogSize); };
+            if (m_DogAccessory == 1) renderer.Submit(*m_DogScarf, at(neck, {0.0f, 0.0f, 0.0f}));
+            else if (m_DogAccessory == 3) renderer.Submit(*m_DogBand, at(neck, {0.0f, 0.0f, 0.0f}));
+            else if (m_DogAccessory == 2) {
+                renderer.Submit(*m_DogCap, at(head, {0.0f, 0.07f, 0.0f}));
+                renderer.Submit(*m_DogVisor, at(head, {0.0f, 0.045f, 0.12f}));
+            }
+        } else if (m_DogModel) {
             const std::vector<Model::BoneTurn> pose = BuildDogPose();
             m_DogModel->Draw(renderer, dog, glm::vec4(1.0f), 0.0f, false, 0, -1, false, coat, -1, 0.0f, &pose);
             // accesorios: siguen al cuello y la cabeza en la pose actual (sentado, echado, olfateando)

@@ -8,6 +8,7 @@
 #include "../core/Paths.hpp"
 #include "../renderer/Texture.hpp"
 #include "SignStyle.hpp"
+#include "../world/Viaduct.hpp"
 #include <array>
 #include <algorithm>
 #include <cfloat>
@@ -979,6 +980,7 @@ void UIManager::RenderHUD(float dt, const glm::vec3& playerPos, Camera& camera, 
         if (closeRequested) m_NewGameConfirmOpen = false;   // vuelve al menu de pausa
     } else if (m_Paused && m_PauseSection == 8) {
         SignUI::DrawBackdrop(0.55f);
+        m_CameraPosition = camera.GetPosition();
         RenderMapView(playerPos, city, simulation);
     } else if (m_Paused) {
         using SignUI::Icon;
@@ -1833,14 +1835,25 @@ void UIManager::RenderHUD(float dt, const glm::vec3& playerPos, Camera& camera, 
                     const float worldZ = playerPos.z + localZ * range;
                     const int tileX = static_cast<int>(std::floor((worldX + CityLayout::ORIGIN_X) / CityLayout::TILE_SIZE));
                     const int tileZ = static_cast<int>(std::floor((worldZ + CityLayout::ORIGIN_Z) / CityLayout::TILE_SIZE));
-                    const TileType tile = city.GetTileAt(tileX, tileZ);
-                    ImU32 color = IM_COL32(48, 50, 53, 255);
-                    if (tile == TileType::Road) color = IM_COL32(104, 106, 108, 255);
-                    else if (tile == TileType::Busway) color = IM_COL32(133, 87, 60, 255);
-                    else if (tile == TileType::Sidewalk || tile == TileType::Plaza || tile == TileType::Floor) color = IM_COL32(115, 112, 105, 255);
-                    else if (tile == TileType::Water) color = IM_COL32(48, 96, 128, 255);
-                    else if (tile == TileType::Solid) color = IM_COL32(92, 78, 70, 255);
-                    else if (tile == TileType::Grass) color = IM_COL32(62, 92, 58, 255);
+                    // misma paleta que el mapa grande y que el plano del juego original
+                    ImU32 color;
+                    switch (city.GetMapCode(tileX, tileZ)) {
+                        case 'r': color = IM_COL32(0x24, 0x27, 0x2d, 255); break;
+                        case 'B': color = IM_COL32(0x5b, 0x2c, 0x31, 255); break;
+                        case 's': color = IM_COL32(0x6b, 0x6e, 0x72, 255); break;
+                        case 'f': color = IM_COL32(0x58, 0x5c, 0x61, 255); break;
+                        case 'p': color = IM_COL32(0x77, 0x73, 0x6a, 255); break;
+                        case 'd': color = IM_COL32(0x5d, 0x4b, 0x37, 255); break;
+                        case 'g': color = IM_COL32(0x2f, 0x5b, 0x35, 255); break;
+                        case 'W': color = IM_COL32(0x1e, 0x5a, 0x86, 255); break;
+                        case 'R': color = IM_COL32(0x4a, 0x40, 0x38, 255); break;
+                        case 'w': color = IM_COL32(0x15, 0x17, 0x1b, 255); break;
+                        case 'S': color = IM_COL32(0x2c, 0x6b, 0x4b, 255); break;
+                        case 'C': color = IM_COL32(0x8a, 0x6d, 0x22, 255); break;
+                        case 'A': color = IM_COL32(0x6f, 0x6a, 0x5e, 255); break;
+                        case 'M': color = IM_COL32(0x45, 0x4b, 0x56, 255); break;
+                        default: color = IM_COL32(0x3b, 0x41, 0x4c, 255); break;
+                    }
                     const ImVec2 cell0(center.x - radius + x * cell, center.y - radius + z * cell);
                     draw->AddRectFilled(cell0, ImVec2(cell0.x + cell + 0.5f, cell0.y + cell + 0.5f), color);
                 }
@@ -1887,14 +1900,14 @@ void UIManager::RenderHUD(float dt, const glm::vec3& playerPos, Camera& camera, 
                     const auto inside = [&](const ImVec2& p) { const float dx = (p.x - center.x) / radius, dy = (p.y - center.y) / radius; return dx * dx + dy * dy <= 0.94f; };
                     for (size_t i = 0; i + 1 < m_GpsView.route.size(); ++i) {
                         const ImVec2 a = toRadar(m_GpsView.route[i]), b = toRadar(m_GpsView.route[i + 1]);
-                        if (inside(a) || inside(b)) draw->AddLine(a, b, IM_COL32(255, 90, 170, 235), 2.5f);
+                        if (inside(a) || inside(b)) { draw->AddLine(a, b, IM_COL32(0, 0, 0, 178), 5.0f); draw->AddLine(a, b, IM_COL32(246, 196, 0, 255), 3.0f); }
                     }
                     glm::vec2 offset((m_GpsView.waypoint.x - playerPos.x) / range, (m_GpsView.waypoint.y - playerPos.z) / range);
                     const float offsetLength = glm::length(offset);
                     if (offsetLength > 0.94f) offset *= 0.94f / offsetLength;
                     const ImVec2 flag(center.x + offset.x * radius, center.y + offset.y * radius);
-                    draw->AddCircleFilled(flag, 5.5f, IM_COL32(255, 90, 170, 255));
-                    draw->AddCircle(flag, 7.5f, IM_COL32(255, 255, 255, 230), 20, 1.5f);
+                    draw->AddCircleFilled(flag, 5.5f, IM_COL32(246, 196, 0, 255));
+                    draw->AddCircle(flag, 7.5f, IM_COL32(14, 15, 18, 255), 20, 1.5f);
                 }
                 draw->AddCircleFilled(center, 4.0f, IM_COL32(49, 220, 115, 255));
                 draw->AddCircle(center, 7.0f, IM_COL32(12, 38, 24, 255));
@@ -1909,7 +1922,7 @@ void UIManager::RenderHUD(float dt, const glm::vec3& playerPos, Camera& camera, 
                 if (m_GpsView.active) {
                     char gpsInfo[96];
                     std::snprintf(gpsInfo, sizeof(gpsInfo), "GPS %s: %.0f m", m_GpsView.name.c_str(), m_GpsView.distance);
-                    draw->AddText(fonts.mono11, 10.0f, ImVec2(origin.x + 10.0f, origin.y + 28.0f + diameter + 20.0f), IM_COL32(255, 130, 190, 255), gpsInfo);
+                    draw->AddText(fonts.mono11, 10.0f, ImVec2(origin.x + 10.0f, origin.y + 28.0f + diameter + 20.0f), IM_COL32(246, 196, 0, 255), gpsInfo);
                 } else if (nearestPlace) {
                     char placeInfo[64];
                     std::snprintf(placeInfo, sizeof(placeInfo), "%s: %.0f m", nearestPlace->name, nearestPlaceDistance);
@@ -2259,7 +2272,8 @@ void UIManager::RenderCambucheMenu(const std::vector<CambuchePieceOption>& piece
     }
 }
 
-// Mapa grande de la pausa: norte arriba, arrastrar mueve, la rueda acerca, clic marca el destino del GPS y clic derecho lo quita
+// Mapa grande de la pausa (como MapView del juego web): norte arriba, arrastrar mueve, la rueda acerca, clic marca el destino
+// del GPS y clic derecho lo quita. Pinta el plano con la paleta del original y los bordes de manzana.
 void UIManager::RenderMapView(const glm::vec3& playerPos, const CityLayout& city, const Simulation& simulation) {
     const SignUI::Fonts& fonts = SignUI::GetFonts();
     const ImVec2 display = ImGui::GetIO().DisplaySize;
@@ -2284,9 +2298,9 @@ void UIManager::RenderMapView(const glm::vec3& playerPos, const CityLayout& city
         const float worldHeight = CityLayout::HEIGHT * CityLayout::TILE_SIZE;
         const float fitZoom = std::min(canvasWidth / worldWidth, canvasHeight / worldHeight) * 0.97f;
         const glm::vec2 cityCenter(worldWidth * 0.5f - CityLayout::ORIGIN_X, worldHeight * 0.5f - CityLayout::ORIGIN_Z);
-        if (m_MapZoom <= 0.0f) m_MapZoom = std::max(fitZoom, 3.0f);   // abre con la zona del jugador a buen tamano
+        if (m_MapZoom <= 0.0f) m_MapZoom = std::max(fitZoom, 2.2f);   // abre acercado a la zona del jugador (2,2 px/m como el original)
         if (m_MapNeedsCenter) { m_MapCenter = {playerPos.x, playerPos.z}; m_MapNeedsCenter = false; }
-        m_MapZoom = std::clamp(m_MapZoom, fitZoom, 14.0f);
+        m_MapZoom = std::clamp(m_MapZoom, fitZoom, 9.0f);
         const auto toScreen = [&](float x, float z) {
             return ImVec2((canvasMin.x + canvasMax.x) * 0.5f + (x - m_MapCenter.x) * m_MapZoom, (canvasMin.y + canvasMax.y) * 0.5f + (z - m_MapCenter.y) * m_MapZoom);
         };
@@ -2301,7 +2315,7 @@ void UIManager::RenderMapView(const glm::vec3& playerPos, const CityLayout& city
         ImGuiIO& io = ImGui::GetIO();
         if (hovered && std::abs(io.MouseWheel) > 0.01f) {   // el zoom conserva el punto bajo el cursor
             const glm::vec2 before = toWorld(io.MousePos);
-            m_MapZoom = std::clamp(m_MapZoom * (io.MouseWheel > 0.0f ? 1.2f : 1.0f / 1.2f), fitZoom, 14.0f);
+            m_MapZoom = std::clamp(m_MapZoom * (io.MouseWheel > 0.0f ? 1.18f : 1.0f / 1.18f), fitZoom, 9.0f);
             const glm::vec2 after = toWorld(io.MousePos);
             m_MapCenter += before - after;
         }
@@ -2309,65 +2323,174 @@ void UIManager::RenderMapView(const glm::vec3& playerPos, const CityLayout& city
         if (dragging) m_MapCenter -= glm::vec2(io.MouseDelta.x, io.MouseDelta.y) / m_MapZoom;
 
         draw->PushClipRect(canvasMin, canvasMax, true);
-        draw->AddRectFilled(canvasMin, canvasMax, IM_COL32(18, 20, 22, 255));
-        // casillas visibles
+        draw->AddRectFilled(canvasMin, canvasMax, IM_COL32(11, 13, 17, 255));   // #0b0d11
+        // Paleta del original (MAP_COLORS de CityMapRaster.js)
+        const auto colorOf = [](char code) -> ImU32 {
+            switch (code) {
+                case 'r': return IM_COL32(0x24, 0x27, 0x2d, 255);   // calle
+                case 'B': return IM_COL32(0x5b, 0x2c, 0x31, 255);   // carril exclusivo
+                case 's': return IM_COL32(0x6b, 0x6e, 0x72, 255);   // anden
+                case 'f': return IM_COL32(0x58, 0x5c, 0x61, 255);   // piso
+                case 'p': return IM_COL32(0x77, 0x73, 0x6a, 255);   // plaza
+                case 'd': return IM_COL32(0x5d, 0x4b, 0x37, 255);   // tierra
+                case 'g': return IM_COL32(0x2f, 0x5b, 0x35, 255);   // pasto
+                case 'W': return IM_COL32(0x1e, 0x5a, 0x86, 255);   // agua
+                case 'R': return IM_COL32(0x4a, 0x40, 0x38, 255);   // ruina
+                case 'w': return IM_COL32(0x15, 0x17, 0x1b, 255);   // muro
+                case 'S': return IM_COL32(0x2c, 0x6b, 0x4b, 255);   // tienda D69
+                case 'C': return IM_COL32(0x8a, 0x6d, 0x22, 255);   // torre Colpatria
+                case 'A': return IM_COL32(0x6f, 0x6a, 0x5e, 255);   // anexo de Colpatria
+                case 'M': return IM_COL32(0x45, 0x4b, 0x56, 255);   // edificio pequeno
+                default: return IM_COL32(0x3b, 0x41, 0x4c, 255);    // edificio
+            }
+        };
+        const auto isSolid = [](char code) { return code != 'r' && code != 'B' && code != 's' && code != 'f' && code != 'p' && code != 'd' && code != 'g' && code != 'W'; };
         const glm::vec2 topLeft = toWorld(canvasMin), bottomRight = toWorld(canvasMax);
         const int tx0 = std::max(0, static_cast<int>(std::floor((topLeft.x + CityLayout::ORIGIN_X) / CityLayout::TILE_SIZE)));
         const int tx1 = std::min(CityLayout::WIDTH - 1, static_cast<int>(std::floor((bottomRight.x + CityLayout::ORIGIN_X) / CityLayout::TILE_SIZE)));
         const int tz0 = std::max(0, static_cast<int>(std::floor((topLeft.y + CityLayout::ORIGIN_Z) / CityLayout::TILE_SIZE)));
         const int tz1 = std::min(CityLayout::HEIGHT - 1, static_cast<int>(std::floor((bottomRight.y + CityLayout::ORIGIN_Z) / CityLayout::TILE_SIZE)));
         const float tilePixels = CityLayout::TILE_SIZE * m_MapZoom;
+        const float edge = std::max(1.0f, tilePixels * 0.25f);   // 1 de 4 px por casilla, como el plano del original
         for (int z = tz0; z <= tz1; ++z) {
             for (int x = tx0; x <= tx1; ++x) {
-                const TileType tile = city.GetTileAt(x, z);
-                ImU32 color = IM_COL32(52, 54, 58, 255);   // edificio
-                if (tile == TileType::Road) color = IM_COL32(104, 106, 108, 255);
-                else if (tile == TileType::Busway) color = IM_COL32(133, 87, 60, 255);
-                else if (tile == TileType::Sidewalk || tile == TileType::Plaza || tile == TileType::Floor) color = IM_COL32(150, 146, 138, 255);
-                else if (tile == TileType::Water) color = IM_COL32(48, 96, 128, 255);
-                else if (tile == TileType::Solid) color = IM_COL32(92, 78, 70, 255);
-                else if (tile == TileType::Grass || tile == TileType::Dirt) color = IM_COL32(62, 92, 58, 255);
-                else if (tile == TileType::Wall) continue;
+                const char code = city.GetMapCode(x, z);
                 const ImVec2 a = toScreen(x * CityLayout::TILE_SIZE - CityLayout::ORIGIN_X, z * CityLayout::TILE_SIZE - CityLayout::ORIGIN_Z);
-                draw->AddRectFilled(a, ImVec2(a.x + tilePixels + 0.6f, a.y + tilePixels + 0.6f), color);
+                const ImVec2 b(a.x + tilePixels + 0.6f, a.y + tilePixels + 0.6f);
+                draw->AddRectFilled(a, b, colorOf(code));
+                if (!isSolid(code)) continue;
+                // bordes de manzana: claro arriba y a la izquierda, oscuro abajo y a la derecha
+                const ImU32 light = IM_COL32(255, 255, 255, 23), dark = IM_COL32(0, 0, 0, 64);
+                if (!isSolid(city.GetMapCode(x, z - 1))) draw->AddRectFilled(a, ImVec2(b.x, a.y + edge), light);
+                if (!isSolid(city.GetMapCode(x - 1, z))) draw->AddRectFilled(a, ImVec2(a.x + edge, b.y), light);
+                if (!isSolid(city.GetMapCode(x, z + 1))) draw->AddRectFilled(ImVec2(a.x, b.y - edge), b, dark);
+                if (!isSolid(city.GetMapCode(x + 1, z))) draw->AddRectFilled(ImVec2(b.x - edge, a.y), b, dark);
             }
         }
-        // ruta
-        if (m_GpsView.active) {
-            for (size_t i = 0; i + 1 < m_GpsView.route.size(); ++i)
-                draw->AddLine(toScreen(m_GpsView.route[i].x, m_GpsView.route[i].y), toScreen(m_GpsView.route[i + 1].x, m_GpsView.route[i + 1].y), IM_COL32(255, 90, 170, 240), 3.5f);
+        // tablero del viaducto: franja translucida sobre la calle inferior
+        {
+            std::vector<ImVec2> deck;
+            for (float z = Viaduct::kStartZ; z <= Viaduct::kEndZ; z += 2.0f) deck.push_back(toScreen(Viaduct::BridgeCenter(z), z));
+            if (deck.size() > 1) draw->AddPolyline(deck.data(), static_cast<int>(deck.size()), IM_COL32(205, 210, 220, 82), ImDrawFlags_RoundCornersAll, Viaduct::kHalfWidth * 2.0f * m_MapZoom);
         }
-        // lugares
-        struct Place { std::string name; glm::vec3 position; ImU32 color; };
+        // nombres de vias (solo con espacio para leerlos): carreras, Caracas y calles
+        if (m_MapZoom > 1.1f) {
+            const auto upper = [](std::string text) { for (char& c : text) c = static_cast<char>(std::toupper(static_cast<unsigned char>(c))); return text; };
+            const auto& data = city.GetData();
+            const auto labelColor = IM_COL32(214, 228, 255, 190);
+            const ImVec2 cityTop = toScreen(0.0f, -CityLayout::ORIGIN_Z), cityBottom = toScreen(0.0f, worldHeight - CityLayout::ORIGIN_Z);
+            const ImVec2 cityLeft = toScreen(-CityLayout::ORIGIN_X, 0.0f), cityRight = toScreen(worldWidth - CityLayout::ORIGIN_X, 0.0f);
+            const auto vertical = [&](const std::string& name, float worldX) {
+                const ImVec2 at = toScreen(worldX, 0.0f);
+                if (at.x < canvasMin.x + 20.0f || at.x > canvasMax.x - 20.0f) return;
+                const float y = std::min(std::max((canvasMin.y + canvasMax.y) * 0.5f - canvasHeight * 0.2f, cityTop.y + 50.0f), cityBottom.y - 50.0f);
+                const std::string text = upper(name);
+                const ImVec2 extent = fonts.monoBold12->CalcTextSizeA(12.0f, FLT_MAX, 0.0f, text.c_str());
+                // ImGui no gira texto: las letras se apilan de arriba hacia abajo, una bajo otra
+                float cursor = y - 6.0f * static_cast<float>(text.size()) * 0.5f;
+                for (char c : text) {
+                    const char glyph[2] = {c, 0};
+                    draw->AddText(fonts.monoBold12, 12.0f, ImVec2(at.x - 3.5f, cursor), labelColor, glyph);
+                    cursor += 11.0f;
+                }
+            };
+            const auto horizontal = [&](const std::string& name, float worldZ) {
+                const ImVec2 at = toScreen(0.0f, worldZ);
+                if (at.y < canvasMin.y + 20.0f || at.y > canvasMax.y - 20.0f) return;
+                const float x = std::min(std::max((canvasMin.x + canvasMax.x) * 0.5f - canvasWidth * 0.2f, cityLeft.x + 50.0f), cityRight.x - 50.0f);
+                const std::string text = upper(name);
+                const ImVec2 extent = fonts.monoBold12->CalcTextSizeA(12.0f, FLT_MAX, 0.0f, text.c_str());
+                draw->AddText(fonts.monoBold12, 12.0f, ImVec2(x - extent.x * 0.5f, at.y - 6.0f), labelColor, text.c_str());
+            };
+            for (size_t i = 0; i < data.carreras.size() && i < data.carrerasNames.size(); ++i)
+                vertical(data.carrerasNames[i], static_cast<float>(data.carreras[i].first + data.carreras[i].last) * 0.5f * CityLayout::TILE_SIZE);
+            if (data.caracasLanes.size() >= 2)
+                vertical("Av. Caracas", static_cast<float>(data.caracasLanes[0].first + data.caracasLanes[1].last) * 0.5f * CityLayout::TILE_SIZE);
+            for (size_t i = 0; i < data.calles.size() && i < data.callesNames.size(); ++i)
+                horizontal(data.callesNames[i], static_cast<float>(data.calles[i].first + data.calles[i].last) * 0.5f * CityLayout::TILE_SIZE);
+        }
+        // ruta: trazo negro de 7 px con el amarillo de 4 px encima
+        if (m_GpsView.active && m_GpsView.route.size() > 1) {
+            std::vector<ImVec2> line;
+            for (const glm::vec2& point : m_GpsView.route) line.push_back(toScreen(point.x, point.y));
+            draw->AddPolyline(line.data(), static_cast<int>(line.size()), IM_COL32(0, 0, 0, 178), ImDrawFlags_RoundCornersAll, 7.0f);
+            draw->AddPolyline(line.data(), static_cast<int>(line.size()), IM_COL32(246, 196, 0, 255), ImDrawFlags_RoundCornersAll, 4.0f);
+        }
+        // lugares: circulo oscuro con el borde de su color y un icono
+        struct Place { std::string name; glm::vec3 position; ImU32 color; SignUI::Icon icon; };
         std::vector<Place> places{
-            {"Cambuche", simulation.GetCambuchePosition(), IM_COL32(255, 209, 102, 255)},
-            {"Recicladora", simulation.GetRecyclerPosition(), IM_COL32(42, 183, 202, 255)},
-            {"Dealer", simulation.GetDealerPosition(), IM_COL32(155, 89, 182, 255)},
+            {"Cambuche", simulation.GetCambuchePosition(), IM_COL32(255, 209, 102, 255), SignUI::Icon::Home},
+            {"Recicladora", simulation.GetRecyclerPosition(), IM_COL32(42, 183, 202, 255), SignUI::Icon::Bag},
+            {"Dealer", simulation.GetDealerPosition(), IM_COL32(155, 89, 182, 255), SignUI::Icon::Pill},
         };
         for (const auto& landmark : city.GetLandmarks()) {
             if (landmark.name == "Pasarela") continue;
-            places.push_back({landmark.name, landmark.position, landmark.name == "Gasolinera" ? IM_COL32(222, 62, 62, 255)
-                : landmark.name == "Tienda D69" ? IM_COL32(236, 76, 118, 255) : IM_COL32(92, 168, 226, 255)});
+            ImU32 color = IM_COL32(228, 89, 96, 255);
+            SignUI::Icon icon = SignUI::Icon::Compass;
+            if (landmark.name == "Gasolinera") { color = IM_COL32(0xf2, 0x5b, 0x5b, 255); icon = SignUI::Icon::Flame; }
+            else if (landmark.name == "Torre Colpatria") { color = IM_COL32(0xff, 0xcb, 0x45, 255); icon = SignUI::Icon::Star; }
+            else if (landmark.name == "Parque del Lago") { color = IM_COL32(0x5e, 0xd4, 0xdc, 255); icon = SignUI::Icon::Drop; }
+            else if (landmark.name == "Tienda D69") { color = IM_COL32(0x3c, 0xc4, 0x7c, 255); icon = SignUI::Icon::Bag; }
+            places.push_back({landmark.name, landmark.position, color, icon});
         }
         const Place* hoveredPlace = nullptr;
         for (const Place& place : places) {
             const ImVec2 at = toScreen(place.position.x, place.position.z);
-            const float r = 7.0f;
-            draw->AddQuadFilled(ImVec2(at.x, at.y - r), ImVec2(at.x + r, at.y), ImVec2(at.x, at.y + r), ImVec2(at.x - r, at.y), place.color);
-            draw->AddQuad(ImVec2(at.x, at.y - r), ImVec2(at.x + r, at.y), ImVec2(at.x, at.y + r), ImVec2(at.x - r, at.y), IM_COL32(0, 0, 0, 220), 1.2f);
-            draw->AddText(fonts.mono11, 11.0f, ImVec2(at.x + 10.0f, at.y - 6.0f), IM_COL32(245, 245, 245, 255), place.name.c_str());
-            if (hovered && std::hypot(io.MousePos.x - at.x, io.MousePos.y - at.y) < 14.0f) hoveredPlace = &place;
+            if (at.x < canvasMin.x - 20.0f || at.y < canvasMin.y - 20.0f || at.x > canvasMax.x + 20.0f || at.y > canvasMax.y + 20.0f) continue;
+            const bool big = hovered && std::hypot(io.MousePos.x - at.x, io.MousePos.y - at.y) < 14.0f;
+            if (big) hoveredPlace = &place;
+            const float radius = big ? 12.0f : 10.0f;
+            draw->AddCircleFilled(at, radius, IM_COL32(14, 15, 18, 217), 24);
+            draw->AddCircle(at, radius, place.color, 24, 2.0f);
+            SignUI::DrawIcon(draw, place.icon, at, 12.0f);
+            if (big || m_MapZoom > 3.5f) {   // etiqueta sobre el lugar al pasar el cursor o con mucho zoom
+                const ImVec2 extent = fonts.monoBold12->CalcTextSizeA(12.0f, FLT_MAX, 0.0f, place.name.c_str());
+                const ImVec2 tag(at.x - extent.x * 0.5f, at.y - 18.0f - extent.y);
+                draw->AddRectFilled(ImVec2(tag.x - 5.0f, tag.y - 2.0f), ImVec2(tag.x + extent.x + 5.0f, tag.y + extent.y + 2.0f), IM_COL32(14, 15, 18, 230), 3.0f);
+                draw->AddText(fonts.monoBold12, 12.0f, tag, IM_COL32(245, 245, 245, 255), place.name.c_str());
+            }
         }
+        // destino: alfiler amarillo con centro oscuro
         if (m_GpsView.active) {
-            const ImVec2 flag = toScreen(m_GpsView.waypoint.x, m_GpsView.waypoint.y);
-            draw->AddCircleFilled(flag, 8.0f, IM_COL32(255, 90, 170, 255));
-            draw->AddCircle(flag, 11.0f, IM_COL32(255, 255, 255, 240), 24, 2.0f);
+            const ImVec2 tip = toScreen(m_GpsView.waypoint.x, m_GpsView.waypoint.y);
+            const ImVec2 head(tip.x, tip.y - 14.0f);
+            draw->AddTriangleFilled(tip, ImVec2(head.x - 7.0f, head.y + 3.0f), ImVec2(head.x + 7.0f, head.y + 3.0f), IM_COL32(246, 196, 0, 255));
+            draw->AddCircleFilled(head, 9.0f, IM_COL32(246, 196, 0, 255), 24);
+            draw->AddCircle(head, 9.0f, IM_COL32(14, 15, 18, 255), 24, 2.0f);
+            draw->AddCircleFilled(head, 3.2f, IM_COL32(14, 15, 18, 255), 12);
         }
-        const ImVec2 me = toScreen(playerPos.x, playerPos.z);
-        draw->AddCircleFilled(me, 6.0f, IM_COL32(49, 220, 115, 255));
-        draw->AddCircle(me, 9.0f, IM_COL32(12, 38, 24, 255), 20, 2.0f);
+        // jugador: flecha hacia donde mira la camara, con halo azul
+        {
+            const ImVec2 me = toScreen(playerPos.x, playerPos.z);
+            glm::vec2 facing(playerPos.x - m_CameraPosition.x, playerPos.z - m_CameraPosition.z);
+            facing = glm::length(facing) > 0.01f ? glm::normalize(facing) : glm::vec2(0.0f, -1.0f);
+            const glm::vec2 side(-facing.y, facing.x);
+            const auto at = [&](float forward, float lateral) { return ImVec2(me.x + facing.x * forward + side.x * lateral, me.y + facing.y * forward + side.y * lateral); };
+            draw->AddCircleFilled(me, 13.0f, IM_COL32(11, 79, 163, 89), 24);
+            const ImVec2 arrow[4] = {at(10.0f, 0.0f), at(-7.0f, 7.0f), at(-3.0f, 0.0f), at(-7.0f, -7.0f)};
+            draw->AddConvexPolyFilled(arrow, 4, IM_COL32(255, 255, 255, 255));
+            draw->AddPolyline(arrow, 4, IM_COL32(11, 79, 163, 255), ImDrawFlags_Closed, 2.0f);
+        }
         draw->PopClipRect();
         draw->AddRect(canvasMin, canvasMax, IM_COL32(120, 140, 170, 255));
+
+        // leyenda y ayuda sobre el lienzo
+        {
+            struct Entry { const char* name; ImU32 color; };
+            static const std::array<Entry, 6> legend{{{"Andén", IM_COL32(0x6b, 0x6e, 0x72, 255)}, {"Calle", IM_COL32(0x24, 0x27, 0x2d, 255)}, {"Parque", IM_COL32(0x2f, 0x5b, 0x35, 255)},
+                                                      {"Agua", IM_COL32(0x1e, 0x5a, 0x86, 255)}, {"Edificio", IM_COL32(0x3b, 0x41, 0x4c, 255)}, {"Ruta", IM_COL32(246, 196, 0, 255)}}};
+            float x = canvasMin.x + 8.0f;
+            const float y = canvasMax.y - 34.0f;
+            draw->AddRectFilled(ImVec2(canvasMin.x + 2.0f, y - 4.0f), ImVec2(canvasMax.x - 2.0f, canvasMax.y - 2.0f), IM_COL32(11, 13, 17, 210));
+            for (const Entry& entry : legend) {
+                draw->AddRectFilled(ImVec2(x, y + 2.0f), ImVec2(x + 11.0f, y + 13.0f), entry.color, 2.0f);
+                draw->AddRect(ImVec2(x, y + 2.0f), ImVec2(x + 11.0f, y + 13.0f), IM_COL32(255, 255, 255, 80), 2.0f);
+                draw->AddText(fonts.mono11, 11.0f, ImVec2(x + 15.0f, y + 2.0f), IM_COL32(220, 226, 236, 255), entry.name);
+                x += 15.0f + fonts.mono11->CalcTextSizeA(11.0f, FLT_MAX, 0.0f, entry.name).x + 14.0f;
+            }
+            draw->AddText(fonts.mono11, 11.0f, ImVec2(canvasMin.x + 8.0f, canvasMax.y - 17.0f), IM_COL32(200, 205, 215, 255),
+                          "Clic marcar · Clic der. quitar · Arrastrar mover · Rueda zoom");
+        }
 
         // clic: marca destino (sobre un lugar usa su nombre); clic derecho: lo quita
         if (hovered && ImGui::IsMouseReleased(ImGuiMouseButton_Left) && !dragging && ImGui::GetMouseDragDelta(ImGuiMouseButton_Left, 4.0f).x == 0.0f
@@ -2381,42 +2504,58 @@ void UIManager::RenderMapView(const glm::vec3& playerPos, const CityLayout& city
         if (hovered) {
             const glm::vec2 cursor = toWorld(io.MousePos);
             char coords[64];
-            std::snprintf(coords, sizeof(coords), "X %.0f  Z %.0f", cursor.x, cursor.y);
-            draw->AddText(fonts.mono11, 11.0f, ImVec2(canvasMin.x + 8.0f, canvasMax.y - 18.0f), IM_COL32(230, 230, 230, 255), coords);
+            std::snprintf(coords, sizeof(coords), "X %.0f · Z %.0f", cursor.x, cursor.y);
+            const ImVec2 extent = fonts.mono11->CalcTextSizeA(11.0f, FLT_MAX, 0.0f, coords);
+            draw->AddText(fonts.mono11, 11.0f, ImVec2(canvasMax.x - extent.x - 8.0f, canvasMax.y - 17.0f), IM_COL32(230, 230, 230, 255), coords);
         }
-        draw->AddText(fonts.mono11, 11.0f, ImVec2(canvasMin.x + 8.0f, canvasMin.y + 6.0f), IM_COL32(200, 205, 215, 255), "Clic: marcar destino · Clic der.: quitar · Arrastrar: mover · Rueda: zoom");
 
-        // columna derecha: estado del GPS y lugares
+        // columna derecha: destino actual y lugares, del mas cercano al mas lejano
         ImGui::SetCursorScreenPos(ImVec2(canvasMax.x + 10.0f, canvasMin.y));
         ImGui::BeginChild("##gps_lado", ImVec2(sideWidth, canvasHeight), false, ImGuiWindowFlags_NoBackground);
-        ImGui::PushFont(fonts.monoBold13);
-        ImGui::TextColored(ImVec4(1.0f, 0.55f, 0.75f, 1.0f), "GPS");
-        ImGui::PopFont();
         if (m_GpsView.active) {
-            ImGui::TextWrapped("Destino: %s", m_GpsView.name.c_str());
-            ImGui::Text("Faltan %.0f m (%.0f min a pie)", m_GpsView.distance, std::max(1.0f, m_GpsView.distance / 90.0f));
+            ImGui::TextColored(ImVec4(0.96f, 0.77f, 0.0f, 1.0f), "DESTINO");
+            ImGui::PushFont(fonts.monoBold13);
+            ImGui::TextWrapped("%s", m_GpsView.name.c_str());
+            ImGui::PopFont();
+            const float meters = m_GpsView.distance;
+            if (meters >= 1000.0f) ImGui::TextDisabled("%.1f km a pie", meters / 1000.0f); else ImGui::TextDisabled("%.0f m a pie", meters);
             if (ImGui::Button("Quitar destino", ImVec2(sideWidth - 12.0f, 0.0f))) m_GpsClearRequest = true;
         } else {
+            ImGui::TextColored(ImVec4(0.6f, 0.65f, 0.72f, 1.0f), "SIN DESTINO");
             ImGui::PushTextWrapPos(0.0f);
-            ImGui::TextDisabled("Sin destino. Haz clic en el mapa o elige un lugar.");
+            ImGui::TextDisabled("Haz clic en el mapa o elige un lugar.");
             ImGui::PopTextWrapPos();
         }
         ImGui::Spacing();
         ImGui::Separator();
         ImGui::PushFont(fonts.monoBold13);
-        ImGui::Text("Lugares");
+        ImGui::Text("Ir a… (más cerca primero)");
         ImGui::PopFont();
+        std::vector<const Place*> ordered;
+        for (const Place& place : places) ordered.push_back(&place);
+        const glm::vec2 here(playerPos.x, playerPos.z);
+        std::sort(ordered.begin(), ordered.end(), [&](const Place* a, const Place* b) {
+            return glm::distance(here, glm::vec2(a->position.x, a->position.z)) < glm::distance(here, glm::vec2(b->position.x, b->position.z));
+        });
         int placeId = 0;
-        for (const Place& place : places) {
+        for (const Place* place : ordered) {
             ImGui::PushID(placeId++);
-            const float distance = glm::distance(glm::vec2(playerPos.x, playerPos.z), glm::vec2(place.position.x, place.position.z));
+            const float distance = glm::distance(here, glm::vec2(place->position.x, place->position.z));
+            const ImVec2 row = ImGui::GetCursorScreenPos();
+            const bool active = m_GpsView.active && m_GpsView.name == place->name;
             char label[96];
-            std::snprintf(label, sizeof(label), "%s · %.0f m", place.name.c_str(), distance);
-            if (ImGui::Selectable(label)) {
+            if (distance >= 1000.0f) std::snprintf(label, sizeof(label), "      %s · %.1f km", place->name.c_str(), distance / 1000.0f);
+            else std::snprintf(label, sizeof(label), "      %s · %.0f m", place->name.c_str(), distance);
+            if (ImGui::Selectable(label, active)) {
                 m_GpsSetPending = true;
-                m_GpsSetPosition = {place.position.x, place.position.z};
-                m_GpsSetName = place.name;
+                m_GpsSetPosition = {place->position.x, place->position.z};
+                m_GpsSetName = place->name;
+                m_MapCenter = {place->position.x, place->position.z};
             }
+            ImDrawList* rowDraw = ImGui::GetWindowDrawList();
+            rowDraw->AddCircleFilled(ImVec2(row.x + 9.0f, row.y + 9.0f), 8.0f, IM_COL32(14, 15, 18, 217), 20);
+            rowDraw->AddCircle(ImVec2(row.x + 9.0f, row.y + 9.0f), 8.0f, place->color, 20, 1.5f);
+            SignUI::DrawIcon(rowDraw, place->icon, ImVec2(row.x + 9.0f, row.y + 9.0f), 10.0f);
             ImGui::PopID();
         }
         ImGui::Spacing();

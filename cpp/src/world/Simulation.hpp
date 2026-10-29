@@ -351,6 +351,13 @@ public:
     bool IsNearDog(const glm::vec3& position, float radius) const;
     void BefriendDog();
     bool PetDog();
+    // Caricia animada: el jugador se agacha frente al perro. BeginPet lo manda a sentarse delante (a `distance` m) y EndPet lo deja
+    // celebrar (reverencia de juego y un salto). CanPetDog respeta el enfriamiento de las caricias.
+    bool CanPetDog() const { return m_DogIsFriend && m_DogPetCooldown <= 0.0f && !m_DogPetting; }
+    void BeginPet(const glm::vec3& playerPosition, float playerYaw);
+    void EndPet();
+    bool IsDogPetting() const { return m_DogPetting; }
+    bool IsDogReadyForPet() const { return m_DogPetting && m_DogPetStage == 3 && !m_DogBusy; }   // ya esta sentado delante, de frente
     bool IsDogFriend() const { return m_DogIsFriend; }
     const glm::vec3& GetDogPosition() const { return m_DogPosition; }
     void SetDogState(bool isFriend, const glm::vec3& position, int coat);
@@ -565,6 +572,27 @@ private:
     float m_DogSpeed = 0.0f, m_DogStill = 0.0f, m_DogPhase = 0.0f, m_DogHappy = 0.0f, m_DogHop = -1.0f;
     float m_DogSit = 0.0f, m_DogLie = 0.0f, m_DogSniff = 0.0f, m_DogHeadYaw = 0.0f;
     std::vector<Model::BoneTurn> BuildDogPose() const;
+    // El Chato con animaciones propias (chato.glb: 38 clips del Pitbull): marcha, posturas, juego y caricias
+    std::shared_ptr<Model> m_ChatoModel, m_ChatoLibrary;
+    struct DogClips { int idle = -1, idleLook = -1, idleSniff = -1, idleAlert = -1, walk = -1, trot = -1, run = -1, turnLeft = -1, turnRight = -1,
+                      sitStart = -1, sit = -1, sitEnd = -1, lieStart = -1, lie = -1, lieEnd = -1, sleepStart = -1, sleep = -1, sleepEnd = -1,
+                      bowStart = -1, bow = -1, bowEnd = -1, jump = -1; } m_DogClips;
+    std::array<float, 3> m_DogGaitSpeed{};   // m/s a ritmo natural de caminar, trotar y correr (se mide al cargar)
+    enum class DogPosture { Sleep = 0, Lie = 1, Stand = 2, Sit = 3 };
+    DogPosture m_DogPosture = DogPosture::Stand;
+    int m_DogClip = -1, m_DogPrevClip = -1;
+    float m_DogClipTime = 0.0f, m_DogPrevTime = 0.0f, m_DogFade = 0.0f, m_DogRate = 1.0f, m_DogIdleTimer = 0.0f;
+    bool m_DogClipLoop = true, m_DogBusy = false;   // m_DogBusy: suena un clip que no se interrumpe (transicion de postura, salto...)
+    std::vector<std::pair<int, float>> m_DogQueue;  // clips encadenados {clip, segundos en bucle (0 = una vez)}
+    float m_DogQueueLoop = 0.0f;
+    bool m_DogPetting = false;
+    int m_DogPetStage = 0;   // 1 se acerca, 2 se sienta de frente, 3 espera la caricia, 4 celebra
+    glm::vec3 m_DogPetAnchor{0.0f};
+    glm::vec3 m_DogPetPlayer{0.0f};
+    float m_DogYawTarget = 0.0f;
+    void UpdateDogAnimation(float dt, float targetSpeed);
+    void DogPlay(int clip, bool loop, float rate = 1.0f);
+    float MeasureDogGait(int clip) const;
     glm::mat4 m_CarModelFit{1.0f};
     glm::mat4 m_TaxiModelFit{1.0f};
     // carro, taxi, ambulancia, patrulla, moto y despues los modelos con cabina (variant 1..N en `kCabinModels`)

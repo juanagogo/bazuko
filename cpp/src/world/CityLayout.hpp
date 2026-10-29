@@ -64,6 +64,11 @@ public:
     void Render(Renderer& renderer, const glm::vec3& focusPosition);
 
     TileType GetTileAt(int x, int z) const;
+    // Letra original de la casilla (b, r, B, s, g, p, w, W, f, d, R, S, C, A, M); 'w' fuera del mapa
+    char GetMapCode(int x, int z) const {
+        if (x < 0 || x >= WIDTH || z < 0 || z >= HEIGHT) return 'w';
+        return m_MapCodes.empty() ? 'b' : m_MapCodes[static_cast<size_t>(z * WIDTH + x)];
+    }
     bool IsWalkable(float worldX, float worldZ) const;
     bool IsRoad(float worldX, float worldZ) const;
     bool IsSidewalk(float worldX, float worldZ) const;
@@ -106,6 +111,7 @@ private:
 
     CityData m_Data;
     std::vector<TileType> m_Grid;
+    std::vector<char> m_MapCodes;   // letra original de cada casilla en city-map.json (distingue Colpatria, su anexo, la tienda D69...)
     std::shared_ptr<Mesh> m_GroundMesh;
     std::shared_ptr<Mesh> m_SidewalkMesh;
     std::shared_ptr<Mesh> m_NatureMesh;
