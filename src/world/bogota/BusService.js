@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { articulatedBus, ARTICULATED_BUS_SIZE } from './props.js';
-import { createImportedModel, disposeImportedInstance } from '../../utils/ImportedModels.js';
+import { createArticulatedBus } from './ArticulatedBusRig.js';
 
 const ACCELERATION = 1.1, BRAKING = 4, CRUISE_SPEED = 5;
 const STOP_SECONDS = 4, END_FADE_METERS = 6;
@@ -62,27 +62,33 @@ export class BusService {
   }
 
   preloadModel() {
-    return this._modelPromise ??= createImportedModel('transmilenio', { ownMaterials: true }).then(model => {
-      if (this._disposed) { disposeImportedInstance(model); return; }
+    return this._modelPromise ??= createArticulatedBus().then(rig => {
+      if (this._disposed) { rig.dispose(); return; }
       const geometries = new Set();
       this.group.traverse(object => { if (object.geometry) geometries.add(object.geometry); });
       for (const child of [...this.group.children]) this.group.remove(child);
       for (const geometry of geometries) geometry.dispose();
       for (const material of this.materials.keys()) material.dispose();
       this.materials.clear();
-      this.group.userData.wheels = [];
-      this.model = model;
-      this.group.add(model);
-      model.traverse(object => {
+      this.rig = rig;
+      this.group.userData.wheels = rig.wheels;
+      this.group.add(rig.root);
+      rig.root.traverse(object => {
         for (const material of [object.material].flat().filter(Boolean)) this.materials.set(material, material.opacity);
       });
+      this._articulate();
       this._updateVisibility();
     });
   }
 
   dispose() {
     this._disposed = true;
-    if (this.model) disposeImportedInstance(this.model);
+    this.rig?.dispose();
+  }
+
+  /** Las secciones del modelo siguen el eje del carril por separado (curvas y rampas del viaducto). */
+  _articulate(dt = 0) {
+    this.rig?.articulate(this, dt);
   }
 
   _alignToGround() {
@@ -157,7 +163,8 @@ export class BusService {
       this.position.z += travel * heading.z;
       this._alignRoute();
       this.speed = travel / step;
-      for (const wheel of this.group.userData.wheels) wheel.rotateY(travel / 0.5);
+      if (this.rig) this.rig.roll(travel);
+      else for (const wheel of this.group.userData.wheels) wheel.rotateY(travel / 0.5);
       if (!this.servedStation && this.direction * (this.position.z - this.stationZ) >= -1e-8) {
         this.position.z = this.stationZ;
         this.servedStation = true;
@@ -171,6 +178,7 @@ export class BusService {
       }
     }
     this._alignToGround();
+    this._articulate(dt);
     this._updateVisibility();
   }
 }

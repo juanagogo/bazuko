@@ -10,6 +10,7 @@ mock.module('../src/world/bogota/textures.js', { namedExports: { ...textures, ra
 const { Car } = await import('../src/entities/Car.js');
 const { Cambuche } = await import('../src/entities/Cambuche.js');
 const { BusService } = await import('../src/world/bogota/BusService.js');
+const { setArticulatedBusAssets } = await import('../src/world/bogota/ArticulatedBusRig.js');
 const { TrafficSignals } = await import('../src/world/bogota/TrafficSignals.js');
 
 // Lee posiciones e índices reales del GLB; las imágenes no requieren decodificador de navegador.
@@ -89,22 +90,46 @@ test('carros comparten el GLB, conservan rumbo y robo, y eliminar uno conserva e
   cars[1].dispose();
 });
 
-test('TransMilenio usa el GLB sin modificar su ruta y mantiene el desvanecimiento aislado', async () => {
-  const a = new BusService({ x: 10, startZ: 100, stationZ: 50, endZ: 0 });
-  const b = new BusService({ x: 16, startZ: 100, stationZ: 50, endZ: 0 });
+test('TransMilenio se arma con las piezas del bus articulado, se dobla en la ruta y mantiene el desvanecimiento aislado', async () => {
+  const spec = JSON.parse(readFileSync(new URL('../public/models/bus-articulado/bus.json', import.meta.url), 'utf8'));
+  const piece = () => {
+    const group = new THREE.Group();
+    const material = new THREE.MeshStandardMaterial({ name: 'metal_rojo', metalness: 0.65 });
+    group.add(new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), material));
+    return group;
+  };
+  const bellows = () => {
+    const bones = ['F', 'M', 'R'].map((name, i) => { const bone = new THREE.Bone(); bone.name = name; bone.position.z = -i; return bone; });
+    const mesh = new THREE.SkinnedMesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshStandardMaterial());
+    const group = new THREE.Group();
+    group.add(mesh, ...bones);
+    mesh.bind(new THREE.Skeleton(bones));
+    return group;
+  };
+  setArticulatedBusAssets({ spec, sections: spec.sections.map(piece), bellows: spec.accordions.map(bellows), wheels: spec.wheels.map(piece), signTexture: null });
+  const pathX = (z, x) => x + 6 * Math.sin(z / 9);
+  const a = new BusService({ x: 10, startZ: 100, stationZ: 50, endZ: 0, pathX });
+  const b = new BusService({ x: 16, startZ: 100, stationZ: 50, endZ: 0, pathX });
   await Promise.all([a.preloadModel(), b.preloadModel()]);
-  assert.equal(loads.get('tm.opt.glb'), 1);
+  assert.equal(a.group.userData.wheels.length, 6);
   const firstMaterial = [...a.materials.keys()][0], secondMaterial = [...b.materials.keys()][0];
   assert.notEqual(firstMaterial, secondMaterial);
+  assert.ok([...a.materials.keys()].every(material => material.metalness <= 0.3));
   a.position.z = 70; a._updateVisibility();
   assert.equal(firstMaterial.opacity, 1);
   assert.equal(secondMaterial.opacity, 0);
+  const turned = a.rig.wheels[0].rotation.x;
   for (let i = 0; i < 100; i++) a.update(.1);
   assert.ok(a.position.z < 70);
-  assert.equal(a.position.x, 10);
+  assert.notEqual(a.rig.wheels[0].rotation.x, turned);
+  // en la curva las dos secciones apuntan a rumbos distintos (el bus se dobla en la articulacion)
+  const [front, rear] = a.rig.sectionRoots;
+  assert.ok(Math.abs(front.quaternion.angleTo(rear.quaternion)) > 1e-3);
   let disposed = false;
   secondMaterial.addEventListener('dispose', () => { disposed = true; });
   a.dispose(); assert.equal(disposed, false); b.dispose();
+  assert.equal(disposed, true);
+  setArticulatedBusAssets(null);
 });
 
 test('el cambuche permanece oculto hasta construir base y techo y conserva las mejoras', async () => {

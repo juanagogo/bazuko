@@ -317,7 +317,7 @@ export function busStation(length = 16) {
   return shadow(g);
 }
 
-export const ARTICULATED_BUS_SIZE = Object.freeze({ length: 18.2, width: 2.52 });
+export const ARTICULATED_BUS_SIZE = Object.freeze({ length: 22.1, width: 2.72 });
 
 /** Bus articulado rojo; el frente apunta hacia −Z local. */
 export function articulatedBus() {
