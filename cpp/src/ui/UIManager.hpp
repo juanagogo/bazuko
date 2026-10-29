@@ -347,6 +347,7 @@ private:
         const std::vector<InventoryOption>* inventory = nullptr;
     };
     void RenderWebHud(const HudContext& context);
+    std::shared_ptr<Texture> m_MinimapTexture;   // plano del radar, rasterizado una vez
     void RenderMinimap(const HudContext& context, ImVec2 origin, ImVec2 size, float infoHeight);
     void RenderInventoryWindow(const std::vector<InventoryOption>& items, float weight, float capacity);
     void RenderCraftWindow(const std::vector<CraftingOption>& options, float weight, float capacity);

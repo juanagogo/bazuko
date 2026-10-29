@@ -1389,38 +1389,47 @@ void UIManager::RenderMinimap(const HudContext& c, ImVec2 origin, ImVec2 size, f
         draw->AddRectFilled(origin + ImVec2(-static_cast<float>(layer), 6.0f - static_cast<float>(layer)), max + ImVec2(static_cast<float>(layer), 6.0f + static_cast<float>(layer)), IM_COL32(0, 0, 0, 14), 12.0f + static_cast<float>(layer));
     draw->AddRectFilled(origin, max, IM_COL32(16, 19, 24, 255), 12.0f);
     draw->PushClipRect(origin, max, true);
-    // plano: se muestrea el mapa por celdas de 4 px
-    const float cell = 3.0f;
-    const int columns = static_cast<int>(std::ceil(size.x / cell)), rows = static_cast<int>(std::ceil(size.y / cell));
-    for (int row = 0; row < rows; ++row) {
-        for (int column = 0; column < columns; ++column) {
-            const float px = origin.x + (static_cast<float>(column) + 0.5f) * cell, py = origin.y + (static_cast<float>(row) + 0.5f) * cell;
-            const float screenX = (px - cx) / scale, screenZ = (py - cy) / scale;
-            const float worldX = c.playerPos.x + screenX * cosT + screenZ * sinT;
-            const float worldZ = c.playerPos.z - screenX * sinT + screenZ * cosT;
-            const int tileX = static_cast<int>(std::floor((worldX + CityLayout::ORIGIN_X) / CityLayout::TILE_SIZE));
-            const int tileZ = static_cast<int>(std::floor((worldZ + CityLayout::ORIGIN_Z) / CityLayout::TILE_SIZE));
-            ImU32 color;
-            switch (c.city->GetMapCode(tileX, tileZ)) {
-                case 'r': color = IM_COL32(0x24, 0x27, 0x2d, 255); break;
-                case 'B': color = IM_COL32(0x5b, 0x2c, 0x31, 255); break;
-                case 's': color = IM_COL32(0x6b, 0x6e, 0x72, 255); break;
-                case 'f': color = IM_COL32(0x58, 0x5c, 0x61, 255); break;
-                case 'p': color = IM_COL32(0x77, 0x73, 0x6a, 255); break;
-                case 'd': color = IM_COL32(0x5d, 0x4b, 0x37, 255); break;
-                case 'g': color = IM_COL32(0x2f, 0x5b, 0x35, 255); break;
-                case 'W': color = IM_COL32(0x1e, 0x5a, 0x86, 255); break;
-                case 'R': color = IM_COL32(0x4a, 0x40, 0x38, 255); break;
-                case 'w': color = IM_COL32(0x15, 0x17, 0x1b, 255); break;
-                case 'S': color = IM_COL32(0x2c, 0x6b, 0x4b, 255); break;
-                case 'C': color = IM_COL32(0x8a, 0x6d, 0x22, 255); break;
-                case 'A': color = IM_COL32(0x6f, 0x6a, 0x5e, 255); break;
-                case 'M': color = IM_COL32(0x45, 0x4b, 0x56, 255); break;
-                default: color = IM_COL32(0x3b, 0x41, 0x4c, 255); break;
+    // plano: textura rasterizada una sola vez (6 px por casilla, con el borde claro/oscuro de las manzanas del original) y dibujada girada con filtro lineal
+    if (!m_MinimapTexture) {
+        constexpr int S = 6;
+        const int W_ = CityLayout::WIDTH * S, H_ = CityLayout::HEIGHT * S;
+        std::vector<uint8_t> pixels(static_cast<size_t>(W_) * static_cast<size_t>(H_) * 4);
+        const auto colorOf = [](char code) -> std::array<uint8_t, 3> {
+            switch (code) {
+                case 'r': return {0x24, 0x27, 0x2d}; case 'B': return {0x5b, 0x2c, 0x31}; case 's': return {0x6b, 0x6e, 0x72};
+                case 'f': return {0x58, 0x5c, 0x61}; case 'p': return {0x77, 0x73, 0x6a}; case 'd': return {0x5d, 0x4b, 0x37};
+                case 'g': return {0x2f, 0x5b, 0x35}; case 'W': return {0x1e, 0x5a, 0x86}; case 'R': return {0x4a, 0x40, 0x38};
+                case 'w': return {0x15, 0x17, 0x1b}; case 'S': return {0x2c, 0x6b, 0x4b}; case 'C': return {0x8a, 0x6d, 0x22};
+                case 'A': return {0x6f, 0x6a, 0x5e}; case 'M': return {0x45, 0x4b, 0x56}; default: return {0x3b, 0x41, 0x4c};
             }
-            const ImVec2 a(origin.x + static_cast<float>(column) * cell, origin.y + static_cast<float>(row) * cell);
-            draw->AddRectFilled(a, ImVec2(a.x + cell + 0.5f, a.y + cell + 0.5f), color);
+        };
+        const auto solid = [](char code) { return code != 'r' && code != 'B' && code != 's' && code != 'f' && code != 'p' && code != 'd' && code != 'g' && code != 'W'; };
+        for (int z = 0; z < CityLayout::HEIGHT; ++z) {
+            for (int x = 0; x < CityLayout::WIDTH; ++x) {
+                const char code = c.city->GetMapCode(x, z);
+                const auto base = colorOf(code);
+                const bool isSolid = solid(code);
+                const bool openN = isSolid && !solid(c.city->GetMapCode(x, z - 1)), openW = isSolid && !solid(c.city->GetMapCode(x - 1, z));
+                const bool openS = isSolid && !solid(c.city->GetMapCode(x, z + 1)), openE = isSolid && !solid(c.city->GetMapCode(x + 1, z));
+                for (int py = 0; py < S; ++py) {
+                    for (int px = 0; px < S; ++px) {
+                        float r = base[0], g = base[1], b = base[2];
+                        const bool light = (openN && py == 0) || (openW && px == 0), dark = (openS && py == S - 1) || (openE && px == S - 1);
+                        if (light) { r += (255 - r) * 0.09f; g += (255 - g) * 0.09f; b += (255 - b) * 0.09f; }
+                        else if (dark) { r *= 0.75f; g *= 0.75f; b *= 0.75f; }
+                        uint8_t* out = &pixels[(static_cast<size_t>(z * S + py) * static_cast<size_t>(W_) + static_cast<size_t>(x * S + px)) * 4];
+                        out[0] = static_cast<uint8_t>(r); out[1] = static_cast<uint8_t>(g); out[2] = static_cast<uint8_t>(b); out[3] = 255;
+                    }
+                }
+            }
         }
+        m_MinimapTexture = std::make_shared<Texture>(static_cast<uint32_t>(W_), static_cast<uint32_t>(H_), pixels.data());
+    }
+    {
+        const float x0 = -CityLayout::ORIGIN_X, z0 = -CityLayout::ORIGIN_Z;
+        const float x1 = CityLayout::WIDTH * CityLayout::TILE_SIZE - CityLayout::ORIGIN_X, z1 = CityLayout::HEIGHT * CityLayout::TILE_SIZE - CityLayout::ORIGIN_Z;
+        draw->AddImageQuad((ImTextureID)(intptr_t)m_MinimapTexture->GetID(), project(x0, z0), project(x1, z0), project(x1, z1), project(x0, z1),
+                           ImVec2(0, 0), ImVec2(1, 0), ImVec2(1, 1), ImVec2(0, 1));
     }
     // ruta del GPS
     if (m_GpsView.active && m_GpsView.route.size() > 1) {

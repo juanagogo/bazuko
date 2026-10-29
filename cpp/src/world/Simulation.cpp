@@ -4098,6 +4098,8 @@ void Simulation::Render(Renderer& renderer, float time, const glm::vec3& focusPo
         else renderer.Submit(*m_PickupMeshes[pickup.itemIndex % m_PickupMeshes.size()], model);
     }
     const auto drawCar = [&](const TrafficVehicle& vehicle) {
+        // los carros a mas de 140 m quedan tras la niebla: no se dibujan (ahorra decenas de dibujos con sus ruedas y ocupantes)
+        if (glm::distance(glm::vec2(vehicle.position.x, vehicle.position.z), glm::vec2(focusPosition.x, focusPosition.z)) > 140.0f) return;
         // Pose visual: en las esquinas el carro no gira de golpe. Se promedia la ruta un poco antes y un poco despues (corta la
         // esquina en una curva) y la direccion sale de esos dos puntos; las ruedas delanteras se orientan hacia donde va la ruta.
         glm::vec3 visualPosition = vehicle.position;
