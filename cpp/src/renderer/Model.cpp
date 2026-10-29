@@ -172,6 +172,10 @@ std::shared_ptr<Model> Model::LoadFromFile(const std::string& filepath,
                 part.alphaMode = static_cast<int>(material.alpha_mode);
                 part.alphaCutoff = material.alpha_cutoff;
                 part.doubleSided = material.double_sided;
+                if (material.name && std::strncmp(material.name, "metal", 5) == 0) {
+                    part.metallic = pbr.metallic_factor;
+                    part.roughness = pbr.roughness_factor;
+                }
                 part.paint = material.name && (std::strncmp(material.name, "Paint", 5) == 0 || std::strcmp(material.name, "pelaje") == 0);   // el pelaje del perro toma el color elegido
             }
             model->m_Parts.push_back(std::move(part));
@@ -1006,10 +1010,12 @@ void Model::Draw(Renderer& renderer, const glm::mat4& transform, const glm::vec4
             }
         }
         const int alphaMode = alphaModeOverride >= 0 ? alphaModeOverride : part.alphaMode;
+        renderer.SetFinish(part.metallic, part.roughness);
         renderer.Submit(*part.mesh, transform * meshWorld, part.paint ? tint * paintTint * part.baseColor : tint * part.baseColor,
                         static_cast<bool>(part.texture), part.doubleSided, &skinMatrices,
                         alphaMode, part.alphaCutoff, part.specularTexture.get());
     }
     renderer.SetPushOut(0.0f);
+    renderer.SetFinish(0.0f, 0.5f);
 }
 } // namespace Bazuko

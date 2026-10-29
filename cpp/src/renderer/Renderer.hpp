@@ -58,6 +58,10 @@ public:
     void SetPushOut(float meters) { m_PushOut = meters; }
     // Amplitud en metros del vaiven de los arboles por el viento (0 = quietos); se aplica en el vertex shader
     void SetSway(float meters) { m_Sway = meters; }
+    // Desplazamiento de las coordenadas de textura de lo que se dibuja a continuacion (letreros que corren)
+    void SetUvOffset(const glm::vec2& offset) { m_UvOffset = offset; }
+    // Acabado metalico de lo que se dibuja a continuacion: metallic 0..1 (pintura metalizada, aros) y rugosidad 0..1 (0 = espejo)
+    void SetFinish(float metallic, float roughness) { m_Metallic = metallic; m_Roughness = roughness; }
     // Filtro de color de toda la escena (1, 1, 0 = sin cambios)
     void SetColorGrade(float contrast, float saturation, float hueDegrees) {
         m_Contrast = contrast;
@@ -92,6 +96,9 @@ private:
     bool m_GammaCorrect = true;
     float m_PushOut = 0.0f;
     float m_Sway = 0.0f;
+    glm::vec2 m_UvOffset{0.0f};
+    float m_Metallic = 0.0f;
+    float m_Roughness = 0.5f;
     float m_RenderScale = 1.0f;
     unsigned int m_ScaledFbo = 0;
     unsigned int m_ScaledColor = 0;

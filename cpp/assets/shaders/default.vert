@@ -17,6 +17,7 @@ layout(std140, binding = 0) uniform CameraBlock {
 
 uniform mat4 uModel;
 uniform int uSkinned;
+uniform vec2 uUvOffset = vec2(0.0);   // desplazamiento de UV (letrero LED del bus)
 uniform float uSway = 0.0;      // arboles: amplitud (m) con que la copa se mece con el viento; crece con la altura sobre el pie
 uniform float uPushOut = 0.0;   // ropa y calzado: se separan unos milimetros de la piel a lo largo de la normal (ya deformada)
 uniform int uBoneCount;
@@ -51,7 +52,7 @@ void main() {
     }
     vFragPos = worldPos.xyz;
     vNormal = mat3(transpose(inverse(uModel))) * localNormal;
-    vUV = aUV;
+    vUV = aUV + uUvOffset;
     vColor = aColor;
 
     gl_Position = uViewProjection * worldPos;

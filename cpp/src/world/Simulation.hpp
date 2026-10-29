@@ -134,7 +134,8 @@ struct VehicleParts {
     bool valid() const { return body && !wheels.empty(); }
 };
 
-// Bus biarticulado (Transmilenio) por piezas hechas en Blender: tres secciones unidas por fuelles y ocho ruedas.
+// Bus articulado por piezas hechas en Blender: N secciones unidas por N-1 fuelles flexibles y ruedas que giran (el bus del juego base tiene
+// dos secciones y seis ruedas; el Transmilenio biarticulado, tres y ocho).
 // Cada seccion sigue el eje del carril por separado, asi que en las curvas del puente el bus se dobla en las articulaciones;
 // las ruedas giran al rodar y las del primer eje viran. Las coordenadas de las piezas son las del modelo original (glTF, frente +Z).
 struct ArticulatedBus {
@@ -144,13 +145,17 @@ struct ArticulatedBus {
         float radius = 0.4f;
         int axle = 0;
         bool front = false;
+        int section = -1;   // seccion a la que va unida (-1: se deduce del eje, como en el biarticulado)
     };
-    std::array<std::shared_ptr<Model>, 3> sections;
-    // Fuelles: mallas con tres huesos (extremo delantero, centro, extremo trasero) que se deforman entre las dos secciones
-    std::array<std::shared_ptr<Model>, 2> bellows;
-    std::array<float, 3> reference{};   // Z del modelo donde cada seccion se ancla al eje del carril
-    std::array<float, 2> pivotZ{};      // Z del modelo de las dos articulaciones (centro de los fuelles)
+    std::vector<std::shared_ptr<Model>> sections;
+    // Fuelles: mallas con tres huesos (extremo delantero, centro, extremo trasero) que se deforman entre dos secciones contiguas
+    std::vector<std::shared_ptr<Model>> bellows;
+    std::vector<float> reference;   // Z del modelo donde cada seccion se ancla al eje del carril
+    std::vector<float> pivotZ;      // Z del modelo de las articulaciones (centro de los fuelles)
     std::vector<Wheel> wheels;
+    std::shared_ptr<Mesh> signMesh;          // letrero LED del frente: tira curva con la textura de puntos
+    std::shared_ptr<Texture> signTexture;
+    float signColumns = 1.0f;                // columnas de la tira completa (se desplaza por UV)
     // Ocupantes (coordenadas del modelo): el conductor va sentado en `driver` (punto sobre el asiento) y los pasajeros de pie
     // ocupan casillas del pasillo; cada bus llena unas cuantas segun un reparto fijo.
     struct Occupant { glm::vec3 position{0.0f}; float yaw = 0.0f; };
@@ -160,7 +165,11 @@ struct ArticulatedBus {
     float scale = 0.01f;     // metros por unidad del modelo
     float centerZ = 0.0f;    // Z del modelo en el centro del bus
     float groundY = 0.0f;    // Y del modelo en el suelo
-    bool valid() const { return sections[0] && sections[1] && sections[2] && !wheels.empty(); }
+    bool valid() const {
+        if (sections.size() < 2 || wheels.empty() || pivotZ.size() + 1 != sections.size() || reference.size() != sections.size()) return false;
+        for (const auto& section : sections) if (!section) return false;
+        return true;
+    }
 };
 
 struct TrafficVehicle {
@@ -577,6 +586,15 @@ private:
     struct DogClips { int idle = -1, idleLook = -1, idleSniff = -1, idleAlert = -1, walk = -1, trot = -1, run = -1, turnLeft = -1, turnRight = -1,
                       sitStart = -1, sit = -1, sitEnd = -1, lieStart = -1, lie = -1, lieEnd = -1, sleepStart = -1, sleep = -1, sleepEnd = -1,
                       bowStart = -1, bow = -1, bowEnd = -1, jump = -1; } m_DogClips;
+    // Nombres de huesos del modelo animado del perro (cambian segun el modelo: Labrador o el Pitbull restringido) y apoyo en el suelo
+    struct DogRig {
+        std::array<const char*, 4> tail{"tail_01_031", "tail_02_032", "tail_03_033", "tail_04_034"};
+        const char* neck = "neck_07";
+        const char* head = "head_08";
+        const char* heightBone = "Spine_base_02";
+        int tailAxis = 1;                                  // eje local (0 x, 1 y, 2 z) sobre el que se mueve la cola de lado a lado
+        float liftSit = 0.018f, liftLie = 0.016f, liftSleep = 0.021f, liftOther = 0.003f;   // subida (m) para que la malla apoye sin hundirse
+    } m_DogRig;
     std::array<float, 3> m_DogGaitSpeed{};   // m/s a ritmo natural de caminar, trotar y correr (se mide al cargar)
     enum class DogPosture { Sleep = 0, Lie = 1, Stand = 2, Sit = 3 };
     DogPosture m_DogPosture = DogPosture::Stand;
@@ -601,6 +619,7 @@ private:
     VehicleParts LoadVehicleParts(const std::string& modelsRoot, const std::string& stem) const;
     ArticulatedBus m_ArticulatedBus;
     void LoadArticulatedBus(const std::string& modelsRoot);
+    bool LoadArticulatedBusFrom(const std::string& folder, const char* specFile);
     void DrawArticulatedBus(Renderer& renderer, const BusState& bus, size_t busIndex, float opacity, float time, const glm::vec3& focus) const;
     std::array<std::shared_ptr<Model>, 3> m_EmergencyModels;   // ambulancia, patrulla, moto
     std::array<glm::mat4, 3> m_EmergencyFits{{glm::mat4(1.0f), glm::mat4(1.0f), glm::mat4(1.0f)}};

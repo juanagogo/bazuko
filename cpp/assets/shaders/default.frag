@@ -38,6 +38,8 @@ uniform float uAlphaCutoff;
 layout(binding = 0) uniform sampler2D uTexture;
 layout(binding = 1) uniform sampler2D uSpecularTexture;
 uniform int uUseSpecularTexture;
+uniform float uMetallic = 0.0;    // acabado metalizado (pintura y aros del bus): reflejo del entorno y brillo nitido del sol
+uniform float uRoughness = 0.5;
 // Filtro de color de la psicosis: contrast(), saturate() y hue-rotate() del CSS del juego web
 uniform float uWetness = 0.0;   // lluvia: suelo oscuro y brillante
 uniform float uContrast = 1.0;
@@ -81,7 +83,21 @@ void main() {
         baseColor.a = 1.0;
     }
 
-    vec3 result = (ambient + diffuse) * baseColor.rgb + specular;
+    vec3 result = (ambient + diffuse) * baseColor.rgb * (1.0 - 0.15 * uMetallic) + specular;
+    if (uMetallic > 0.0) {
+        // entorno falso: cielo azul arriba, velo de niebla en el horizonte y suelo oscuro abajo; el color del metal tiñe el reflejo
+        const vec3 reflection = reflect(-viewDir, norm);
+        const float light = clamp(dot(uAmbientColor + uSunColor, vec3(0.34)), 0.08, 1.3);
+        const vec3 zenith = (uGammaCorrect == 1 ? vec3(0.07, 0.20, 0.55) : vec3(0.30, 0.50, 0.85)) * light;
+        const vec3 ground = fogColor * 0.35 + baseColor.rgb * 0.05;
+        vec3 environment = reflection.y > 0.0 ? mix(fogColor, zenith, smoothstep(0.0, 0.7, reflection.y))
+                                              : mix(fogColor * 0.7, ground, smoothstep(0.0, 0.4, -reflection.y));
+        environment += uSunColor * pow(max(dot(reflection, lightDir), 0.0), 160.0) * 4.0;   // sol reflejado
+        const float fresnel = pow(1.0 - max(dot(norm, viewDir), 0.0), 3.0);
+        const float mirror = uMetallic * (1.0 - 0.6 * uRoughness) * (0.20 + 0.60 * fresnel);
+        result = mix(result, environment * mix(vec3(1.0), baseColor.rgb * 2.4, uMetallic), mirror);
+        result += pow(max(dot(viewDir, reflectedLight), 0.0), mix(120.0, 18.0, uRoughness)) * uSunColor * uMetallic * 1.4;
+    }
     // farolas encendidas: luz puntual calida con caida suave hasta su alcance
     for (int i = 0; i < uLampCount; ++i) {
         const vec3 toLamp = uLampPosition[i].xyz - vFragPos;

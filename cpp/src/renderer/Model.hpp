@@ -21,6 +21,8 @@ struct ModelPart {
     int alphaMode = 0;
     float alphaCutoff = 0.5f;
     bool doubleSided = false;
+    float metallic = 0.0f;    // materiales "metal_*": acabado metalizado (ver Renderer::SetFinish)
+    float roughness = 0.5f;
     bool paint = false;   // material "Paint": la pintura del carro, que se tiñe con `paintTint` al dibujar
     std::vector<size_t> jointNodes;
     std::vector<glm::mat4> inverseBindMatrices;

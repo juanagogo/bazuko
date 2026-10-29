@@ -133,6 +133,9 @@ void Renderer::Submit(const Mesh& mesh, const glm::mat4& transform, const glm::v
     m_DefaultShader->SetInt("uUseSpecularTexture", specularTexture ? 1 : 0);
     m_DefaultShader->SetFloat("uPushOut", m_PushOut);
     m_DefaultShader->SetFloat("uSway", m_Sway);
+    m_DefaultShader->SetFloat("uMetallic", m_Metallic);
+    m_DefaultShader->SetVec2("uUvOffset", m_UvOffset);
+    m_DefaultShader->SetFloat("uRoughness", m_Roughness);
     if (specularTexture) specularTexture->BindUnit(1);
     const bool skinned = skinMatrices && !skinMatrices->empty();
     m_DefaultShader->SetInt("uSkinned", skinned ? 1 : 0);

@@ -1463,7 +1463,7 @@ int main(int argc, char** argv) {
                     petWaitTime += dt;
                     if (!simulation.IsDogPetting() || playerKnockedDown || playerHitKind != 0) {
                         petWaiting = false;
-                    } else if (simulation.IsDogReadyForPet() || petWaitTime > 5.0f) {
+                    } else if (simulation.IsDogReadyForPet() || petWaitTime > 8.0f) {
                         petWaiting = false;
                         const glm::vec3 dogAt = simulation.GetDogPosition();
                         startAction(PlayerAction::Pet, "PetDog", 0.0f);
