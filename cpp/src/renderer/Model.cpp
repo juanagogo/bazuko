@@ -172,6 +172,10 @@ std::shared_ptr<Model> Model::LoadFromFile(const std::string& filepath,
                 part.alphaMode = static_cast<int>(material.alpha_mode);
                 part.alphaCutoff = material.alpha_cutoff;
                 part.doubleSided = material.double_sided;
+                if (material.name && std::strncmp(material.name, "metal", 5) == 0) {
+                    part.metallic = pbr.metallic_factor;
+                    part.roughness = pbr.roughness_factor;
+                }
                 part.paint = material.name && (std::strncmp(material.name, "Paint", 5) == 0 || std::strcmp(material.name, "pelaje") == 0);   // el pelaje del perro toma el color elegido
             }
             model->m_Parts.push_back(std::move(part));
@@ -884,6 +888,71 @@ std::vector<glm::mat4> Model::EvaluatePose(float animationTime, bool animate, in
         for (const BoneTurn& turn : *turns) {
             for (size_t index = 0; index < nodes.size(); ++index) {
                 if (nodes[index].name != turn.name) continue;
+                if (turn.localSpace) {
+                    glm::quat local(1.0f, 0.0f, 0.0f, 0.0f);
+                    if (turn.angles.x != 0.0f) local = local * glm::angleAxis(turn.angles.x, glm::vec3(1.0f, 0.0f, 0.0f));
+                    if (turn.angles.y != 0.0f) local = local * glm::angleAxis(turn.angles.y, glm::vec3(0.0f, 1.0f, 0.0f));
+                    if (turn.angles.z != 0.0f) local = local * glm::angleAxis(turn.angles.z, glm::vec3(0.0f, 0.0f, 1.0f));
+                    nodes[index].rotation = glm::normalize(nodes[index].rotation * local);
+                    break;
+                }
+                if (!turn.aimChild.empty()) {
+                    // apuntar: gira el hueso lo minimo para que el hueso hijo quede en la direccion pedida (brazada de nado, miembros por codigo)
+                    size_t child = nodes.size();
+                    for (size_t k = 0; k < nodes.size(); ++k)
+                        if (nodes[k].parent == static_cast<int>(index) && nodes[k].name == turn.aimChild) { child = k; break; }
+                    if (child == nodes.size()) break;
+                    std::vector<glm::mat4> worlds(nodes.size(), glm::mat4(1.0f));
+                    std::vector<glm::quat> rotations(nodes.size(), glm::quat(1.0f, 0.0f, 0.0f, 0.0f));
+                    std::vector<bool> done(nodes.size(), false);
+                    std::function<void(size_t)> solve = [&](size_t n) {
+                        if (done[n]) return;
+                        const auto& node = nodes[n];
+                        const glm::mat4 local = glm::translate(glm::mat4(1.0f), node.translation) * glm::mat4_cast(node.rotation) * glm::scale(glm::mat4(1.0f), node.scale);
+                        if (node.parent >= 0) {
+                            solve(static_cast<size_t>(node.parent));
+                            worlds[n] = worlds[static_cast<size_t>(node.parent)] * local;
+                            rotations[n] = glm::normalize(rotations[static_cast<size_t>(node.parent)] * node.rotation);
+                        } else {
+                            worlds[n] = local;
+                            rotations[n] = node.rotation;
+                        }
+                        done[n] = true;
+                    };
+                    solve(index);
+                    solve(child);
+                    const glm::vec3 current = glm::vec3(worlds[child][3]) - glm::vec3(worlds[index][3]);
+                    if (glm::length(current) > 0.0001f && glm::length(turn.aimDirection) > 0.0001f) {
+                        const glm::vec3 from = glm::normalize(current), to = glm::normalize(turn.aimDirection);
+                        const float dotValue = std::clamp(glm::dot(from, to), -1.0f, 1.0f);
+                        glm::quat alignment(1.0f, 0.0f, 0.0f, 0.0f);
+                        if (dotValue < -0.9999f) {
+                            glm::vec3 axis = glm::cross(from, glm::vec3(1.0f, 0.0f, 0.0f));
+                            if (glm::length(axis) < 0.0001f) axis = glm::cross(from, glm::vec3(0.0f, 0.0f, 1.0f));
+                            alignment = glm::angleAxis(glm::pi<float>(), glm::normalize(axis));
+                        } else if (dotValue < 0.9999f) {
+                            const glm::vec3 axis = glm::cross(from, to);
+                            alignment = glm::normalize(glm::quat(1.0f + dotValue, axis.x, axis.y, axis.z));
+                        }
+                        if (turn.aimWeight < 0.9999f) alignment = glm::slerp(glm::quat(1.0f, 0.0f, 0.0f, 0.0f), alignment, std::clamp(turn.aimWeight, 0.0f, 1.0f));
+                        const int parent = nodes[index].parent;
+                        const glm::quat parentRotation = parent >= 0 ? rotations[static_cast<size_t>(parent)] : glm::quat(1.0f, 0.0f, 0.0f, 0.0f);
+                        nodes[index].rotation = glm::normalize(glm::inverse(parentRotation) * glm::normalize(alignment * rotations[index]));
+                    }
+                    break;
+                }
+                if (turn.poseSpace) {
+                    glm::quat parentWorld(1.0f, 0.0f, 0.0f, 0.0f);
+                    for (int ancestor = nodes[index].parent; ancestor >= 0; ancestor = nodes[static_cast<size_t>(ancestor)].parent)
+                        parentWorld = nodes[static_cast<size_t>(ancestor)].rotation * parentWorld;
+                    glm::quat world(1.0f, 0.0f, 0.0f, 0.0f);
+                    static const glm::vec3 worldAxes[3] = {{1.0f, 0.0f, 0.0f}, {0.0f, 1.0f, 0.0f}, {0.0f, 0.0f, 1.0f}};
+                    for (int a = 0; a < 3; ++a)
+                        if (turn.angles[a] != 0.0f) world = world * glm::angleAxis(turn.angles[a], worldAxes[a]);
+                    nodes[index].rotation = glm::normalize(glm::inverse(parentWorld) * world * parentWorld * nodes[index].rotation);
+                    nodes[index].translation += turn.offset;
+                    break;
+                }
                 const glm::quat toLocal = glm::inverse(resolveRest(index));
                 glm::quat combined(1.0f, 0.0f, 0.0f, 0.0f);
                 static const glm::vec3 axes[3] = {{1.0f, 0.0f, 0.0f}, {0.0f, 1.0f, 0.0f}, {0.0f, 0.0f, 1.0f}};
@@ -984,6 +1053,14 @@ float Model::GetAnimationClipDuration(int clip) const {
     return clip >= 0 && static_cast<size_t>(clip) < m_AnimationClips.size() ? m_AnimationClips[static_cast<size_t>(clip)].duration : 0.0f;
 }
 
+std::vector<glm::mat4> Model::GetRestPartTransforms() const {
+    const std::vector<glm::mat4> nodes = EvaluatePose(0.0f, false, 0, false);
+    std::vector<glm::mat4> result(m_Parts.size(), glm::mat4(1.0f));
+    for (size_t i = 0; i < m_Parts.size(); ++i)
+        if (i < m_PartNodes.size() && !m_PartNodes[i].empty() && m_PartNodes[i].back() < nodes.size()) result[i] = nodes[m_PartNodes[i].back()];
+    return result;
+}
+
 void Model::Draw(Renderer& renderer, const glm::mat4& transform, const glm::vec4& tint,
                  float animationTime, bool animate, int animationClip, int alphaModeOverride,
                  bool seatedPose, const glm::vec4& paintTint, int blendClip, float blendWeight, const std::vector<BoneTurn>* turns, float blendTime) const {
@@ -1006,10 +1083,12 @@ void Model::Draw(Renderer& renderer, const glm::mat4& transform, const glm::vec4
             }
         }
         const int alphaMode = alphaModeOverride >= 0 ? alphaModeOverride : part.alphaMode;
+        renderer.SetFinish(part.metallic, part.roughness);
         renderer.Submit(*part.mesh, transform * meshWorld, part.paint ? tint * paintTint * part.baseColor : tint * part.baseColor,
                         static_cast<bool>(part.texture), part.doubleSided, &skinMatrices,
                         alphaMode, part.alphaCutoff, part.specularTexture.get());
     }
     renderer.SetPushOut(0.0f);
+    renderer.SetFinish(0.0f, 0.5f);
 }
 } // namespace Bazuko

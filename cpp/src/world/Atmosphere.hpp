@@ -60,4 +60,51 @@ inline Atmosphere ComputeAtmosphere(float hour, float rain, float mist, float cl
     return result;
 }
 
+// Colores del cielo segun la altura del sol, las nubes, la lluvia y la neblina: la paleta y las mezclas de Scene.setTimeOfDay del
+// juego web (cenit, horizonte, nubes y resplandor del sol). `horizon` tambien es el color de la niebla.
+struct SkyColors {
+    glm::vec3 top{0.0f}, horizon{0.0f};
+    glm::vec3 cloudLight{1.0f}, cloudShadow{0.5f};
+    glm::vec3 sunGlow{1.0f};
+    float sunGlowIntensity = 0.0f;
+    float sunDisc = 0.0f;   // 0..1: el disco del sol aparece al cruzar el horizonte y se apaga con la lluvia
+    float night = 0.0f;     // 0 de dia .. 1 de noche
+};
+
+inline glm::vec3 HexColor(unsigned int rgb) {
+    return {static_cast<float>((rgb >> 16) & 255u) / 255.0f, static_cast<float>((rgb >> 8) & 255u) / 255.0f, static_cast<float>(rgb & 255u) / 255.0f};
+}
+
+inline SkyColors ComputeSkyColors(float sunAltitude, float cloud, float rain, float mist, float flash) {
+    const auto clamp01 = [](float v) { return std::clamp(v, 0.0f, 1.0f); };
+    cloud = clamp01(cloud);
+    rain = clamp01(rain);
+    mist = clamp01(mist);
+    const float day = AtmosphereSmoothstep(-0.08f, 0.22f, sunAltitude);
+    const float twilight = clamp01(1.0f - std::fabs(sunAltitude - 0.02f) / 0.17f) * (1.0f - cloud * 0.55f);
+    const float lowSun = 1.0f - AtmosphereSmoothstep(0.05f, 0.4f, sunAltitude);
+
+    SkyColors sky;
+    sky.night = 1.0f - AtmosphereSmoothstep(-0.18f, 0.02f, sunAltitude);
+    sky.sunDisc = AtmosphereSmoothstep(-0.02f, 0.03f, sunAltitude) * (1.0f - rain);
+    sky.top = glm::mix(glm::mix(HexColor(0x060c15), HexColor(0x17151a), cloud), glm::mix(HexColor(0x2f6db0), HexColor(0x76838f), cloud), day);
+    sky.top = glm::mix(sky.top, HexColor(0x34405e), twilight * 0.7f);
+    sky.horizon = glm::mix(glm::mix(HexColor(0x121a24), HexColor(0x2b231f), cloud), glm::mix(HexColor(0xa9c4da), HexColor(0x9aa3ab), cloud), day);
+    sky.horizon = glm::mix(sky.horizon, HexColor(0xd49a72), twilight * 0.6f);
+    if (rain > 0.01f) {
+        sky.top = glm::mix(sky.top, HexColor(0x3c4651), rain * 0.45f);
+        sky.horizon = glm::mix(sky.horizon, HexColor(0x3c4651), rain * 0.4f);
+    }
+    if (mist > 0.01f) sky.horizon = glm::mix(sky.horizon, glm::mix(HexColor(0x2b2c30), HexColor(0xa9aeb2), day), mist * 0.75f);
+    if (flash > 0.01f) sky.horizon = glm::mix(sky.horizon, HexColor(0x8e98b0), std::min(1.0f, flash) * 0.5f);
+
+    sky.sunGlow = glm::mix(HexColor(0xfff2e0), HexColor(0xff9a55), lowSun);
+    sky.sunGlowIntensity = (twilight + day * 0.35f * (1.0f - cloud)) * (1.0f - rain * 0.85f);
+    sky.cloudLight = glm::mix(glm::mix(HexColor(0x3b322d), HexColor(0xf3f5f7), day), HexColor(0xe2a785), twilight * 0.45f);
+    sky.cloudShadow = glm::mix(HexColor(0x1b1819), glm::mix(HexColor(0x9aa6b1), HexColor(0x5e6771), cloud), day);
+    sky.cloudShadow = glm::mix(sky.cloudShadow, HexColor(0x6a5a66), twilight * 0.5f);
+    sky.cloudShadow = glm::mix(sky.cloudShadow, HexColor(0x3c434b), rain * 0.6f * day);
+    return sky;
+}
+
 } // namespace Bazuko

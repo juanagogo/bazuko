@@ -1,4 +1,6 @@
 #pragma once
+
+#include "PoliceSound.hpp"
 #include "Atmosphere.hpp"
 #include "Climate.hpp"
 
@@ -20,6 +22,7 @@
 namespace Bazuko {
 
 struct Pedestrian {
+    float pathPlan = 0.0f;   // s hasta volver a trazar el camino a pie (policias)
     glm::vec3 position{0.0f};
     glm::vec3 target{0.0f};
     float speed = 1.1f;
@@ -45,6 +48,14 @@ struct Pedestrian {
     float punchTime = -1.0f;          // >= 0 mientras lanza un punetazo
     bool punchLanded = false;
     bool punchCross = false;
+    bool police = false;              // policia de una patrulla: persigue sin huir aunque lo golpeen y vuelve a su vehiculo cuando el jugador se aleja
+    int punchKind = 0;                // 0 jab, 1 cruzado, 2 gancho (ver CombatMoves.hpp)
+    float dodgeTime = -1.0f;          // >= 0 mientras esquiva un golpe del jugador
+    int dodgeKind = 0;                // 0 esquive lateral, 1 esquive rotatorio
+    float returnStuck = 0.0f;         // s seguidos sin poder avanzar hacia la puerta de su vehiculo
+    float detourTime = 0.0f;          // s que le quedan rodeando un obstaculo (por ejemplo el propio vehiculo) rumbo a la puerta
+    float detourTurn = 0.0f;          // giro (rad) del rodeo
+    int detourCount = 0;
     // Burbuja de conversacion (Npc.js del original): frase flotante sobre la cabeza
     std::string bubbleText;
     float bubbleRemaining = 0.0f;
@@ -61,10 +72,11 @@ struct Pedestrian {
 
 struct PedestrianAppearance {
     bool worn = false;               // ropa vieja y gastada (El Cartucho)
+    bool police = false;             // uniforme de la Policia Nacional (solo los ocupantes de la patrulla)
     std::string roles;               // rol de cada pieza: B cuerpo, C ropa, S calzado, H pelo, D barba, T sombrero
     int hitFaceClip = -1, hitChestClip = -1, hitLegsClip = -1;
     int fallClip = -1, lyingClip = -1, getUpClip = -1;
-    int jabClip = -1, crossClip = -1;
+    int jabClip = -1, crossClip = -1, fightClip = -1;
     std::vector<std::shared_ptr<Model>> parts;
     int walkClip = -1;
     int idleClip = -1;
@@ -98,6 +110,20 @@ struct DriverInfo {
     float shade = 0.0f;                      // tono del pelo y desfase de animacion (animationOffset del peaton)
     float idle = 0.0f;                       // s que lleva a pie sin pelear ni huir (si pasa de 1,5 s vuelve al vehiculo)
     // Acompanante del asiento delantero: si el conductor muere, pasa a manejar
+    bool dispatched = false;                 // la patrulla acude desde lejos con la sirena encendida (conduce hasta acercarse al jugador)
+    bool siren = false;                      // sirena encendida: desde que sale a atender el delito hasta que frena para bajarse
+    float dispatchTime = 0.0f;               // s que lleva acudiendo (si pasa de 3 min se rinde)
+    int pathMode = 0;                        // 0 sigue su circuito; 1 recorre un camino propio hasta el jugador; 2 vuelve por un camino propio a su circuito
+    float pathLength = 0.0f;                 // largo del camino propio (sin el cierre del circuito)
+    float pathAge = 0.0f;                    // s desde que se trazo el camino
+    glm::vec3 pathGoal{0.0f};                // donde estaba el jugador al trazarlo (si se aleja, se traza de nuevo)
+    size_t returnRoute = 0;                  // circuito y distancia a los que se reincorpora al terminar el camino de regreso
+    float returnDistance = 0.0f;
+    float radioTimer = 0.0f;                 // s hasta que la radio pueda sonar de nuevo durante la persecucion a pie
+    bool reengage = false;                   // un delito nuevo mientras los policias bajaban, volvian o subian: retoman la persecucion
+    bool partnerBoarding = false;            // el acompanante sube junto con el conductor (animacion de entrada del lado del acompanante)
+    bool partnerOut = false;                 // el acompanante de la patrulla tambien bajo a perseguir (su peaton esta en partnerIndex)
+    size_t partnerIndex = 0;
     bool hasPassenger = false;
     size_t passengerAppearance = 0;
     glm::vec3 passengerColor{0.5f, 0.4f, 0.3f};
@@ -124,6 +150,10 @@ struct VehicleParts {
     DriverProfile driver;   // medidas de las animaciones del conductor (json "driver")
     // Puerta del conductor como pieza aparte (solo los modelos cuya puerta es un objeto propio): gira sobre su bisagra al abrir
     std::shared_ptr<Model> door;
+    // Demas puertas (acompanante delantero y traseras): piezas aparte que se abren segun el ocupante que sube o baja (json "doors")
+    struct ExtraDoor { std::shared_ptr<Model> model; glm::vec3 hinge{0.0f}; int side = -1; int row = 0; };
+    std::vector<ExtraDoor> extraDoors;
+    std::shared_ptr<Model> barRed, barBlue;   // lentes rojo y azul de la baliza (solo la patrulla): estroboscopicas
     bool hasPaint = false;       // tiene material "Paint": se puede teñir (los taxis van de amarillo)
     glm::vec3 doorHinge{0.0f};   // bisagra en el espacio del modelo (borde delantero, eje vertical)
     glm::mat4 fit{1.0f};
@@ -134,7 +164,8 @@ struct VehicleParts {
     bool valid() const { return body && !wheels.empty(); }
 };
 
-// Bus biarticulado (Transmilenio) por piezas hechas en Blender: tres secciones unidas por fuelles y ocho ruedas.
+// Bus articulado por piezas hechas en Blender: N secciones unidas por N-1 fuelles flexibles y ruedas que giran (el bus del juego base tiene
+// dos secciones y seis ruedas; el Transmilenio biarticulado, tres y ocho).
 // Cada seccion sigue el eje del carril por separado, asi que en las curvas del puente el bus se dobla en las articulaciones;
 // las ruedas giran al rodar y las del primer eje viran. Las coordenadas de las piezas son las del modelo original (glTF, frente +Z).
 struct ArticulatedBus {
@@ -144,13 +175,17 @@ struct ArticulatedBus {
         float radius = 0.4f;
         int axle = 0;
         bool front = false;
+        int section = -1;   // seccion a la que va unida (-1: se deduce del eje, como en el biarticulado)
     };
-    std::array<std::shared_ptr<Model>, 3> sections;
-    // Fuelles: mallas con tres huesos (extremo delantero, centro, extremo trasero) que se deforman entre las dos secciones
-    std::array<std::shared_ptr<Model>, 2> bellows;
-    std::array<float, 3> reference{};   // Z del modelo donde cada seccion se ancla al eje del carril
-    std::array<float, 2> pivotZ{};      // Z del modelo de las dos articulaciones (centro de los fuelles)
+    std::vector<std::shared_ptr<Model>> sections;
+    // Fuelles: mallas con tres huesos (extremo delantero, centro, extremo trasero) que se deforman entre dos secciones contiguas
+    std::vector<std::shared_ptr<Model>> bellows;
+    std::vector<float> reference;   // Z del modelo donde cada seccion se ancla al eje del carril
+    std::vector<float> pivotZ;      // Z del modelo de las articulaciones (centro de los fuelles)
     std::vector<Wheel> wheels;
+    std::shared_ptr<Mesh> signMesh;          // letrero LED del frente: tira curva con la textura de puntos
+    std::shared_ptr<Texture> signTexture;
+    float signColumns = 1.0f;                // columnas de la tira completa (se desplaza por UV)
     // Ocupantes (coordenadas del modelo): el conductor va sentado en `driver` (punto sobre el asiento) y los pasajeros de pie
     // ocupan casillas del pasillo; cada bus llena unas cuantas segun un reparto fijo.
     struct Occupant { glm::vec3 position{0.0f}; float yaw = 0.0f; };
@@ -160,7 +195,11 @@ struct ArticulatedBus {
     float scale = 0.01f;     // metros por unidad del modelo
     float centerZ = 0.0f;    // Z del modelo en el centro del bus
     float groundY = 0.0f;    // Y del modelo en el suelo
-    bool valid() const { return sections[0] && sections[1] && sections[2] && !wheels.empty(); }
+    bool valid() const {
+        if (sections.size() < 2 || wheels.empty() || pivotZ.size() + 1 != sections.size() || reference.size() != sections.size()) return false;
+        for (const auto& section : sections) if (!section) return false;
+        return true;
+    }
 };
 
 struct TrafficVehicle {
@@ -200,6 +239,10 @@ struct TrafficVehicle {
     bool waitingAtSignal = false;
     float forcingRemaining = 0.0f;   // s restantes de paso forzado tras un atasco
     float stalledTime = 0.0f;   // s seguidos detenido sin semaforo ni peaton
+    bool clearForSiren = false;   // una patrulla con sirena viene detras: despeja el cruce sin esperar el semaforo
+    float lateral = 0.0f;         // desvio lateral actual (m, positivo a la derecha) al rodear un vehiculo detenido
+    float lateralTarget = 0.0f;   // desvio al que va
+    int swerveAround = -1;        // indice del vehiculo detenido que esta rodeando
     std::vector<glm::vec3> route;
     std::vector<float> routeCumulative;
     size_t nextWaypoint = 0;
@@ -370,6 +413,12 @@ public:
     bool StealCar(size_t index);
     // Conductores: robarles el retrovisor o golpear el vehiculo los provoca (huyen acelerando o se bajan a pelear y despues vuelven)
     bool ProvokeDriver(size_t index);
+    // Delito del jugador en `at` (robo de retrovisor, cosquilleo, robo directo o golpear a un peaton): con probabilidad `chance` alguien llama a la policia y,
+    // si hay una patrulla libre a menos de 55 m, frena, se baja con su companero y persigue al jugador hasta que este se aleja. Devuelve true si salio una patrulla.
+    bool CallPolice(const glm::vec3& at, float chance);
+    // Sonidos de la policia para el audio: posiciones de las sirenas encendidas y eventos puntuales (parada de sirena, radio), que se entregan una sola vez
+    std::vector<glm::vec3> GetSirenPositions() const;
+    std::vector<PoliceSound> ConsumePoliceSounds();
     bool HitVehicle(const glm::vec3& from, const glm::vec2& forward, float reach);
     bool StealParkedCar(size_t index);
     RobberyOutcome RobPedestrian(size_t index, bool direct, const glm::vec3& source);
@@ -379,6 +428,9 @@ public:
     // Farolas mas cercanas al foco (posicion de la bombilla), para encender solo las que se ven
     // Cada elemento: posicion de la bombilla (xyz) y atenuacion 0..1 (w) que apaga suavemente la ultima de la lista
     // para que no aparezcan de golpe al avanzar.
+    // Luces de las balizas: una por patrulla cercana mientras destella su rojo o su azul (xyz posicion, w alcance) y su color
+    struct StrobeLight { glm::vec4 position; glm::vec3 color; };   // color ya multiplicado por la intensidad del destello (0..1)
+    std::vector<StrobeLight> GetStrobeLights(const glm::vec3& focus, float time, float maxDistance) const;
     std::vector<glm::vec4> GetNearestLampLights(const glm::vec3& focus, size_t maxCount, float maxDistance) const;
     // 0..1: las bombillas se dibujan encendidas
     void SetLampGlow(float glow) { m_LampGlow = glow; }
@@ -406,6 +458,13 @@ public:
     // Dormir en el cambuche: amanece a las 6:00 del dia siguiente (o de este mismo dia si aun es de madrugada)
     void SleepUntilMorning() { if (m_DayProgress >= 0.30f) ++m_Day; SetDayProgress(0.30f); }
     void SetWeather(Climate::Weather weather) { m_WeatherType = weather; m_WeatherRemaining = 180.0f; }
+    // pruebas: fija el estado y sus nubes y lluvia al instante, sin la mezcla gradual
+    void ForceWeather(Climate::Weather weather) {
+        SetWeather(weather);
+        m_CloudCover = Climate::Info(weather).cloud;
+        m_RainIntensity = Climate::Info(weather).rain;
+        m_Mist = weather == Climate::Weather::Fog ? 1.0f : 0.0f;
+    }
     // Calidad baja: menos gotas y sin suelo mojado
     void SetReducedWeather(bool reduced) { m_ReducedWeather = reduced; }
     void SetDayProgress(float progress) { m_Clock = std::clamp(progress, 0.0f, 1.0f); m_DayProgress = m_Clock; }
@@ -477,6 +536,8 @@ private:
     };
 
     bool FindSidewalkPoint(glm::vec3& point, const glm::vec3& center, float radius);
+    // Camino a pie por las baldosas libres (anden y calzada, sin edificios ni objetos) para los policias que van a su patrulla o tras el jugador
+    bool FindWalkPath(const glm::vec3& start, const glm::vec3& target, std::vector<glm::vec3>& path) const;
     bool FindSidewalkPath(const glm::vec3& start, const glm::vec3& target, std::vector<glm::vec3>& path) const;
     void UpdatePedestrians(float dt, const glm::vec3& playerPosition);
     void UpdateDrivers(float dt, const glm::vec3& playerPosition);
@@ -513,10 +574,17 @@ private:
     // (en `targetDistance`), por un tramo recto de `connectorLength` metros (0 si los circuitos comparten el carril)
     struct RouteBranch { float distance; size_t target; float targetDistance; float connectorLength; glm::vec3 from, to; };
     std::vector<std::vector<RouteBranch>> m_RouteBranches;
+    std::vector<PoliceSound> m_PoliceSounds;
+    // Camino por las calles (baldosas Road) de un punto a otro, con las esquinas redondeadas y por el carril derecho: la patrulla que acude lo recorre sin depender de los circuitos
+    bool PlanRoadPath(const glm::vec3& from, const glm::vec3& heading, const glm::vec3& to, bool pullOver, std::vector<glm::vec3>& path) const;
+    void FollowPath(TrafficVehicle& vehicle, std::vector<glm::vec3> path, int mode);
+    void RejoinCircuit(TrafficVehicle& vehicle);
     std::vector<std::vector<float>> m_RouteCumulative;
     std::shared_ptr<Mesh> m_PedestrianBody;
     std::shared_ptr<Mesh> m_PedestrianHead;
     std::vector<PedestrianAppearance> m_PedestrianAppearances;
+    std::shared_ptr<Mesh> m_StrobeHalo;   // disco con borde transparente: halo de la baliza, siempre de cara a la camara
+    size_t m_PoliceAppearanceFirst = 0;   // desde este indice las apariencias son de policia (no salen en la calle)
     std::shared_ptr<Model> m_PedestrianAnimation;
     std::shared_ptr<Mesh> m_CarBody;
     std::shared_ptr<Mesh> m_CarCabin;
@@ -551,6 +619,7 @@ private:
     glm::vec3 m_CambucheSpawnPosition{112.98f, 0.0f, 97.84f};
     CambucheState m_CambucheState{};
     std::shared_ptr<Mesh> m_CambucheBaseMesh;
+    std::shared_ptr<Mesh> m_CambucheRingMesh, m_CambucheGlowMesh;   // anillo naranja que palpita sobre el sitio del cambuche
     std::shared_ptr<Mesh> m_CambucheMarkerMesh;
     std::shared_ptr<Mesh> m_CambucheFireMesh;
     std::shared_ptr<Mesh> m_CambucheBedMesh;
@@ -577,6 +646,15 @@ private:
     struct DogClips { int idle = -1, idleLook = -1, idleSniff = -1, idleAlert = -1, walk = -1, trot = -1, run = -1, turnLeft = -1, turnRight = -1,
                       sitStart = -1, sit = -1, sitEnd = -1, lieStart = -1, lie = -1, lieEnd = -1, sleepStart = -1, sleep = -1, sleepEnd = -1,
                       bowStart = -1, bow = -1, bowEnd = -1, jump = -1; } m_DogClips;
+    // Nombres de huesos del modelo animado del perro (cambian segun el modelo: Labrador o el Pitbull restringido) y apoyo en el suelo
+    struct DogRig {
+        std::array<const char*, 4> tail{"tail_01_031", "tail_02_032", "tail_03_033", "tail_04_034"};
+        const char* neck = "neck_07";
+        const char* head = "head_08";
+        const char* heightBone = "Spine_base_02";
+        int tailAxis = 1;                                  // eje local (0 x, 1 y, 2 z) sobre el que se mueve la cola de lado a lado
+        float liftSit = 0.018f, liftLie = 0.016f, liftSleep = 0.021f, liftOther = 0.003f;   // subida (m) para que la malla apoye sin hundirse
+    } m_DogRig;
     std::array<float, 3> m_DogGaitSpeed{};   // m/s a ritmo natural de caminar, trotar y correr (se mide al cargar)
     enum class DogPosture { Sleep = 0, Lie = 1, Stand = 2, Sit = 3 };
     DogPosture m_DogPosture = DogPosture::Stand;
@@ -601,6 +679,7 @@ private:
     VehicleParts LoadVehicleParts(const std::string& modelsRoot, const std::string& stem) const;
     ArticulatedBus m_ArticulatedBus;
     void LoadArticulatedBus(const std::string& modelsRoot);
+    bool LoadArticulatedBusFrom(const std::string& folder, const char* specFile);
     void DrawArticulatedBus(Renderer& renderer, const BusState& bus, size_t busIndex, float opacity, float time, const glm::vec3& focus) const;
     std::array<std::shared_ptr<Model>, 3> m_EmergencyModels;   // ambulancia, patrulla, moto
     std::array<glm::mat4, 3> m_EmergencyFits{{glm::mat4(1.0f), glm::mat4(1.0f), glm::mat4(1.0f)}};

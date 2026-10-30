@@ -1,1 +1,111 @@
-{"wheels": [{"part": "wheelLF", "center": [0.7494, 0.18363, 1.19319], "radius": 0.3252, "front": true}, {"part": "wheelLR", "center": [0.74835, 0.17898, -1.2347], "radius": 0.3202, "front": false}, {"part": "wheelRF", "center": [-0.57783, 0.18429, 1.1941], "radius": 0.359, "front": true}, {"part": "wheelRR", "center": [-0.74925, 0.17898, -1.23446], "radius": 0.3202, "front": false}], "seats": [{"pos": [0.36, 0.41805, -0.4], "yaw": 0.0, "driver": true}, {"pos": [-0.36, 0.41805, -0.4], "yaw": 0.0, "driver": false}], "targetLength": 4.1, "door": {"hinge": [0.84304, 0.60806, 0.44488], "length": 1.3234, "zmin": 0.1432, "zmax": 1.0729}, "min": [-1.0059, -0.13248, -2.06414], "max": [1.00591, 1.1783, 2.06743], "tris": 69810, "driver": {"profile": "mercedes", "seat": [-0.399, 0.357], "stance": [-1.092, 1.497], "hipsZ": 0.646, "roofZ": 1.301}}
+{
+ "wheels": [
+  {
+   "part": "wheelLF",
+   "center": [
+    0.7494,
+    0.18363,
+    1.19319
+   ],
+   "radius": 0.3252,
+   "front": true
+  },
+  {
+   "part": "wheelLR",
+   "center": [
+    0.74835,
+    0.17898,
+    -1.2347
+   ],
+   "radius": 0.3202,
+   "front": false
+  },
+  {
+   "part": "wheelRF",
+   "center": [
+    -0.57783,
+    0.18429,
+    1.1941
+   ],
+   "radius": 0.359,
+   "front": true
+  },
+  {
+   "part": "wheelRR",
+   "center": [
+    -0.74925,
+    0.17898,
+    -1.23446
+   ],
+   "radius": 0.3202,
+   "front": false
+  }
+ ],
+ "seats": [
+  {
+   "pos": [
+    0.36,
+    0.41805,
+    -0.4
+   ],
+   "yaw": 0.0,
+   "driver": true
+  },
+  {
+   "pos": [
+    -0.36,
+    0.41805,
+    -0.4
+   ],
+   "yaw": 0.0,
+   "driver": false
+  }
+ ],
+ "targetLength": 4.1,
+ "door": {
+  "hinge": [
+   0.84304,
+   0.60806,
+   0.44488
+  ],
+  "length": 1.3234,
+  "zmin": 0.1432,
+  "zmax": 1.0729
+ },
+ "min": [
+  -1.0059,
+  -0.13248,
+  -2.06414
+ ],
+ "max": [
+  1.00591,
+  1.1783,
+  2.06743
+ ],
+ "tris": 69810,
+ "driver": {
+  "profile": "mercedes",
+  "seat": [
+   -0.399,
+   0.357
+  ],
+  "stance": [
+   -1.092,
+   1.497
+  ],
+  "hipsZ": 0.646,
+  "roofZ": 1.301
+ },
+ "doors": [
+  {
+   "part": "doorFR",
+   "hinge": [
+    -0.91132,
+    0.60815,
+    0.44518
+   ],
+   "side": -1,
+   "row": 0
+  }
+ ]
+}
