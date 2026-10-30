@@ -147,9 +147,9 @@ add_executable(bazuko
     src/renderer/Buffer.cpp src/renderer/VertexArray.cpp src/renderer/Shader.cpp
     src/renderer/Mesh.cpp src/renderer/Camera.cpp src/renderer/Renderer.cpp
     src/renderer/Texture.cpp src/renderer/Model.cpp
-    src/ui/UIManager.cpp src/ui/SignStyle.cpp src/ui/CharacterCreatorUI.cpp
+    src/ui/UIManager.cpp src/ui/SignStyle.cpp src/ui/WebPanels.cpp src/ui/CharacterCreatorUI.cpp
     src/character/CharacterManager.cpp src/character/CharacterPreview.cpp src/character/Ragdoll.cpp
-    src/world/CityLayout.cpp src/world/Simulation.cpp src/world/BirdFlock.cpp
+    src/world/CityLayout.cpp src/world/Simulation.cpp src/world/BirdFlock.cpp src/world/Lake.cpp
     src/world/TextRaster.cpp src/world/SignAtlas.cpp
     src/game/GameData.cpp src/game/Harvest.cpp
     src/audio/RadioSynth.cpp src/world/SafeSpawn.cpp
@@ -225,6 +225,20 @@ add_executable(bazuko_viaduct_test tests/ViaductTest.cpp)
 target_include_directories(bazuko_viaduct_test PRIVATE src)
 target_link_libraries(bazuko_viaduct_test PRIVATE glm::glm)
 add_test(NAME bazuko_viaduct COMMAND bazuko_viaduct_test)
+add_executable(bazuko_bicycle_test tests/BicycleTest.cpp)
+target_include_directories(bazuko_bicycle_test PRIVATE src)
+target_link_libraries(bazuko_bicycle_test PRIVATE glm::glm)
+add_test(NAME bazuko_bicycle COMMAND bazuko_bicycle_test)
+
+add_executable(bazuko_climate_test tests/ClimateTest.cpp)
+target_include_directories(bazuko_climate_test PRIVATE src)
+target_link_libraries(bazuko_climate_test PRIVATE glm::glm)
+add_test(NAME bazuko_climate COMMAND bazuko_climate_test)
+
+add_executable(bazuko_gps_test tests/GpsTest.cpp)
+target_include_directories(bazuko_gps_test PRIVATE src)
+target_link_libraries(bazuko_gps_test PRIVATE glm::glm)
+add_test(NAME bazuko_gps COMMAND bazuko_gps_test)
 
 # Resolucion adaptativa (calidad efectiva bajo carga)
 add_executable(bazuko_adaptive_test tests/AdaptiveResolutionTest.cpp)
@@ -245,7 +259,7 @@ add_executable(bazuko_traffic_test
     src/renderer/Buffer.cpp src/renderer/VertexArray.cpp src/renderer/Shader.cpp
     src/renderer/Mesh.cpp src/renderer/Camera.cpp src/renderer/Renderer.cpp
     src/renderer/Texture.cpp src/renderer/Model.cpp
-    src/world/CityLayout.cpp src/world/Simulation.cpp src/world/BirdFlock.cpp
+    src/world/CityLayout.cpp src/world/Simulation.cpp src/world/BirdFlock.cpp src/world/Lake.cpp
     src/world/TextRaster.cpp src/world/SignAtlas.cpp
     src/game/GameData.cpp src/game/Harvest.cpp
 )
@@ -262,7 +276,7 @@ add_executable(bazuko_spawn_city_test
     src/renderer/Buffer.cpp src/renderer/VertexArray.cpp src/renderer/Shader.cpp
     src/renderer/Mesh.cpp src/renderer/Camera.cpp src/renderer/Renderer.cpp
     src/renderer/Texture.cpp src/renderer/Model.cpp
-    src/world/CityLayout.cpp src/world/Simulation.cpp src/world/BirdFlock.cpp
+    src/world/CityLayout.cpp src/world/Simulation.cpp src/world/BirdFlock.cpp src/world/Lake.cpp
     src/world/TextRaster.cpp src/world/SignAtlas.cpp
     src/game/GameData.cpp src/game/Harvest.cpp
 )

@@ -28,7 +28,8 @@ int main() {
     const GameData& data = *loaded;
 
     // Las partidas guardadas referencian el indice del objeto: el orden no puede cambiar.
-    CHECK(data.items.size() == 42, "se esperaban 42 objetos, hay %zu", data.items.size());
+    CHECK(data.items.size() == 43, "se esperaban 43 objetos, hay %zu", data.items.size());
+    CHECK(data.ItemIndex("hierba") == 42, "hierba va al final (indice 42): %d", data.ItemIndex("hierba"));
     const char* expectedOrder[] = {"lata", "botella", "carton", "chatarra", "cable", "pan", "agua", "reloj", "vendaje", "antibiotico"};
     for (size_t index = 0; index < 10; ++index)
         CHECK(data.items[index].id == expectedOrder[index], "indice %zu: %s", index, data.items[index].id.c_str());

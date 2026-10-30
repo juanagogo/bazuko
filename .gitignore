@@ -9,3 +9,13 @@
 
 # Modelos 3D pesados que superan el límite de GitHub (opcional)
 public/models/Edificio 1/Building01.glb
+
+# Modelos de Sketchfab sin permiso de redistribucion (ver docs/creditos-modelos.md): se usan en local, no se suben
+public/models/chato.glb
+public/models/transmilenio/
+public/models/vehiculos/raptor*
+public/models/vehiculos/renault6*
+public/models/vehiculos/modelx*
+public/models/perro_nuevo/
+public/models/vehiculos animados/
+

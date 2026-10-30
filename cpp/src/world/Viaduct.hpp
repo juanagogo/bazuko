@@ -19,7 +19,7 @@ constexpr float kHalfWidth = 7.0f;       // el tablero mide 14 m
 constexpr float kWalkHalfWidth = 6.45f;  // las barandas dejan 6,45 m de paso a cada lado del eje
 constexpr float kThickness = 0.71f;      // canto del tablero (0,06 de losa + 0,65 de concreto)
 constexpr float kStartZ = 15.43f;        // el tablero empieza a subir aqui (antes de la calle 10)
-constexpr float kCrestStartZ = 39.0f;    // y llega a la cota maxima aqui
+constexpr float kCrestStartZ = kStartZ + 38.0f;   // y llega a la cota maxima aqui (38 m, igual que el descenso sur)
 constexpr float kRampLength = kCrestStartZ - kStartZ;
 constexpr float kJoinZ = 220.0f;         // desde aqui sigue el perfil del puente del lago
 constexpr float kCrestEndZ = 280.0f;     // aqui empieza el descenso hacia la orilla sur
@@ -32,37 +32,43 @@ constexpr float kAxisX = 75.0f;          // eje recto de la troncal (centro del 
 // ---- trazado: el eje se desplaza hacia el este para rodear Colpatria (Colpatria.js) ----
 constexpr float kDetourStart = 80.0f, kDetourEnd = 260.0f, kDetourOffset = 44.0f;
 
-inline float BridgeCenter(float z) {
-    const float t = std::clamp(z < 154.0f ? (z - kDetourStart) / (154.0f - kDetourStart) : (kDetourEnd - z) / (kDetourEnd - 182.0f), 0.0f, 1.0f);
-    const float ease = t * t * t * (10.0f + t * (-15.0f + 6.0f * t));
+// El eje y el carril se calculan en doble precision: en float el ruido de redondeo (7e-6 m a X ~100) alcanza 5e-3 rad en el
+// rumbo del bus y se ve como temblor al tomar las curvas.
+inline double BridgeCenterD(double z) {
+    const double t = std::clamp(z < 154.0 ? (z - kDetourStart) / (154.0 - kDetourStart) : (kDetourEnd - z) / (kDetourEnd - 182.0), 0.0, 1.0);
+    const double ease = t * t * t * (10.0 + t * (-15.0 + 6.0 * t));
     return kAxisX + kDetourOffset * ease;
 }
+inline float BridgeCenter(float z) { return static_cast<float>(BridgeCenterD(z)); }
 
 // Normal del eje en el plano (x, z): x = 1/escala, z = -dx/escala
-inline glm::vec2 BridgeNormal(float z) {
-    const float dx = (BridgeCenter(z + 0.01f) - BridgeCenter(z - 0.01f)) / 0.02f;
-    const float scale = std::hypot(1.0f, dx);
-    return {1.0f / scale, -dx / scale};
+inline glm::dvec2 BridgeNormalD(double z) {
+    const double dx = (BridgeCenterD(z + 0.01) - BridgeCenterD(z - 0.01)) / 0.02;
+    const double scale = std::hypot(1.0, dx);
+    return {1.0 / scale, -dx / scale};
 }
+inline glm::vec2 BridgeNormal(float z) { return glm::vec2(BridgeNormalD(z)); }
 
 // X del carril `laneX` (78,5 hacia el norte, 71,5 hacia el sur) a la altura Z: desplazamiento perpendicular del eje
-inline float BusPathX(float z, float laneX = 78.5f) {
-    if (z <= kDetourStart - 5.0f || z >= kDetourEnd + 5.0f) return laneX;
-    const float offset = laneX - kAxisX;
-    float lo = z - 10.0f, hi = z + 10.0f;
-    for (int i = 0; i < 28; ++i) {
-        const float t = (lo + hi) * 0.5f;
-        if (t + BridgeNormal(t).y * offset < z) lo = t; else hi = t;
+inline double BusPathXD(double z, double laneX = 78.5) {
+    if (z <= kDetourStart - 5.0 || z >= kDetourEnd + 5.0) return laneX;
+    const double offset = laneX - kAxisX;
+    double lo = z - 10.0, hi = z + 10.0;
+    for (int i = 0; i < 40; ++i) {
+        const double t = (lo + hi) * 0.5;
+        if (t + BridgeNormalD(t).y * offset < z) lo = t; else hi = t;
     }
-    const float t = (lo + hi) * 0.5f;
-    return BridgeCenter(t) + BridgeNormal(t).x * offset;
+    const double t = (lo + hi) * 0.5;
+    return BridgeCenterD(t) + BridgeNormalD(t).x * offset;
 }
+inline float BusPathX(float z, float laneX = 78.5f) { return static_cast<float>(BusPathXD(z, laneX)); }
 
 // Direccion de la marcha (x, z) del carril: `direction` -1 hacia el norte y +1 hacia el sur
 inline glm::vec2 BusHeading(float z, float laneX, float direction) {
-    const float dx = BusPathX(z + direction * 0.01f, laneX) - BusPathX(z - direction * 0.01f, laneX);
-    const float scale = std::hypot(dx, 0.02f);
-    return {dx / scale, direction * 0.02f / scale};
+    constexpr double kStep = 0.05;
+    const double dx = BusPathXD(z + direction * kStep, laneX) - BusPathXD(z - direction * kStep, laneX);
+    const double scale = std::hypot(dx, 2.0 * kStep);
+    return {static_cast<float>(dx / scale), static_cast<float>(direction * 2.0 * kStep / scale)};
 }
 
 // Borde izquierdo (-1) o derecho (+1) del tablero a la altura Z del eje: (x, z)
@@ -80,36 +86,45 @@ inline float LakeBridgeHeight(float z) {
     return kBase + kRise * (0.5f - 0.5f * std::cos(3.14159265f * t));
 }
 
-// Cota del tablero a lo largo del eje: rampa norte con transiciones suaves, cresta y descenso en coseno
+// Cota del tablero a lo largo del eje: rampa norte y descenso sur con el mismo perfil en coseno (pendiente cero en el pie y en la
+// cresta, sin aristas) y cresta plana entre ambos
 inline float Height(float z) {
     if (z <= kStartZ) return kBase;
     if (z >= kJoinZ) return LakeBridgeHeight(z);
     if (z >= kCrestStartZ) return kBase + kRise;
-    constexpr float ease = 1.0f;
-    const float distance = z - kStartZ;
-    const float grade = kRise / (kRampLength - ease);
-    const auto eased = [&](float d) { return grade * (d / 2.0f - ease * std::sin(3.14159265f * d / ease) / (2.0f * 3.14159265f)); };
-    if (distance < ease) return kBase + eased(distance);
-    if (distance > kRampLength - ease) return kBase + kRise - eased(kRampLength - distance);
-    return kBase + grade * (distance - ease / 2.0f);
+    const float t = (z - kStartZ) / kRampLength;
+    return kBase + kRise * (0.5f - 0.5f * std::cos(3.14159265f * t));
 }
 
 inline float Slope(float z) { return Height(z + 0.5f) - Height(z - 0.5f); }   // metros de subida por metro de recorrido
 
 // Distancia lateral con signo de (x, z) al eje del tablero y la Z del eje que le corresponde
+// Se busca el punto del eje mas cercano a (x, z): una iteracion de punto fijo sobre la normal converge a otra rama de la curva
+// cuando el punto esta lejos del tablero (junto a la curva del rodeo daba ese lado como "sobre el tablero" a 16 m del eje).
 inline float Lateral(float x, float z, float* axisZ = nullptr) {
-    float axis = z, distance = 0.0f;
-    for (int i = 0; i < 4; ++i) {
-        const glm::vec2 normal = BridgeNormal(axis);
-        distance = (x - BridgeCenter(axis)) / normal.x;
-        axis = z - normal.y * distance;
+    const auto distanceSquared = [&](float s) {
+        const float dx = x - BridgeCenter(s), dz = z - s;
+        return dx * dx + dz * dz;
+    };
+    float best = z - 30.0f, bestDistance = distanceSquared(best);
+    for (float s = z - 29.0f; s <= z + 30.0f; s += 1.0f) {
+        const float d = distanceSquared(s);
+        if (d < bestDistance) { bestDistance = d; best = s; }
     }
+    float low = best - 1.0f, high = best + 1.0f;
+    for (int i = 0; i < 18; ++i) {
+        const float a = low + (high - low) / 3.0f, b = high - (high - low) / 3.0f;
+        if (distanceSquared(a) < distanceSquared(b)) high = b; else low = a;
+    }
+    const float axis = (low + high) * 0.5f;
+    const glm::vec2 normal = BridgeNormal(axis);
     if (axisZ) *axisZ = axis;
-    return distance;
+    return (x - BridgeCenter(axis)) * normal.x + (z - axis) * normal.y;
 }
 
 inline bool Covers(float x, float z) {
     if (z <= kStartZ - 8.0f || z >= kEndZ + 8.0f) return false;
+    if (x < kAxisX - kHalfWidth - 2.0f || x > kAxisX + kDetourOffset + kHalfWidth + 2.0f) return false;   // fuera de la franja del tablero
     float axis = z;
     const float lateral = Lateral(x, z, &axis);
     return std::fabs(lateral) <= kHalfWidth && axis > kStartZ && axis < kEndZ;

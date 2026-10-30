@@ -1,3 +1,4 @@
+#define IMGUI_DEFINE_MATH_OPERATORS
 #include "UIManager.hpp"
 #include <imgui.h>
 #include <imgui_impl_glfw.h>
@@ -8,6 +9,7 @@
 #include "../core/Paths.hpp"
 #include "../renderer/Texture.hpp"
 #include "SignStyle.hpp"
+#include "../world/Viaduct.hpp"
 #include <array>
 #include <algorithm>
 #include <cfloat>
@@ -210,6 +212,29 @@ void UIManager::OpenPauseSection(int section) {
     }
     m_Paused = true;
     m_PauseSection = requestedSection;
+    m_RadioMenuOpen = false;
+    m_RadioReturnsToPause = false;
+    m_CraftMenuOpen = false;
+    Input::SetCursorLocked(false);
+}
+
+void UIManager::SelectPauseTab(int section) {
+    m_PauseSection = section;
+    m_RadioMenuOpen = false;
+    m_RadioReturnsToPause = false;
+    m_CraftMenuOpen = false;
+    if (section == 8) m_MapNeedsCenter = true;
+}
+
+void UIManager::OpenMapSection() {
+    if (m_DeathScreenOpen) return;
+    if (m_Paused && m_PauseSection == 8) {
+        TogglePause();
+        return;
+    }
+    m_Paused = true;
+    m_PauseSection = 8;
+    m_MapNeedsCenter = true;
     m_RadioMenuOpen = false;
     m_RadioReturnsToPause = false;
     m_CraftMenuOpen = false;
@@ -459,6 +484,30 @@ void UIManager::SetSaveNotification(const std::string& message) {
     m_SaveNotificationTimer = 3.5f;
 }
 
+void UIManager::DrawItemIcon(ImDrawList* draw, ImVec2 center, float size, const std::string& id, const std::string& name, unsigned int color) {
+    auto found = m_ItemIcons.find(id);
+    if (found == m_ItemIcons.end()) {
+        std::shared_ptr<Texture> texture;
+        const std::string path = Paths::Find("assets/icons/" + id + ".png");
+        if (!path.empty() && std::filesystem::exists(path)) {
+            try { texture = std::make_shared<Texture>(path, false); } catch (...) { texture.reset(); }
+        }
+        found = m_ItemIcons.emplace(id, std::move(texture)).first;
+    }
+    if (found->second) {
+        const float half = size * 0.5f;
+        draw->AddImage((ImTextureID)(intptr_t)found->second->GetID(), ImVec2(center.x - half, center.y - half), ImVec2(center.x + half, center.y + half),
+                       ImVec2(0.0f, 0.0f), ImVec2(1.0f, 1.0f), color);
+        return;
+    }
+    // sin silueta propia: medallon con la inicial del objeto
+    draw->AddCircle(center, size * 0.42f, color, 32, 1.5f);
+    const std::string initial = name.empty() ? "?" : name.substr(0, name.size() > 1 && static_cast<unsigned char>(name[0]) >= 0xC0 ? 2 : 1);
+    ImFont* font = SignUI::GetFonts().monoBold14;
+    const ImVec2 extent = font->CalcTextSizeA(size * 0.5f, FLT_MAX, 0.0f, initial.c_str());
+    draw->AddText(font, size * 0.5f, ImVec2(center.x - extent.x * 0.5f, center.y - extent.y * 0.5f), color, initial.c_str());
+}
+
 void UIManager::Notify(const std::string& message, ToastType type) {
     if (message.empty()) return;
     // El mismo aviso repetido solo reinicia su tiempo
@@ -469,7 +518,7 @@ void UIManager::Notify(const std::string& message, ToastType type) {
         }
     }
     m_Toasts.push_back({message, type, 2.5f});
-    if (m_Toasts.size() > 5) m_Toasts.erase(m_Toasts.begin());
+    if (m_Toasts.size() > 4) m_Toasts.erase(m_Toasts.begin());
 }
 
 void UIManager::SetPickupNotification(const std::string& message, bool rare) {
@@ -574,42 +623,62 @@ void UIManager::RenderLoadingScreen(Window& window, float progress, const std::s
     BeginFrame();
     DrawLoadingArtwork();
 
+    // Tarjeta de carga del juego web (#loading-screen .loading-card): etiqueta, titulo, lema, tres etapas, estado con porcentaje y barra de 6 px
     ImGuiIO& io = ImGui::GetIO();
-    ImGui::SetNextWindowPos(ImVec2(48.0f, io.DisplaySize.y - 36.0f), ImGuiCond_Always, ImVec2(0.0f, 1.0f));
-    ImGui::SetNextWindowSize(ImVec2(std::max(1.0f, std::min(500.0f, io.DisplaySize.x - 64.0f)), 0.0f), ImGuiCond_Always);
-
-    ImGuiWindowFlags flags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove |
-                             ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_AlwaysAutoResize |
-                             ImGuiWindowFlags_NoBackground | ImGuiWindowFlags_NoInputs;
-
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
-
-    if (ImGui::Begin("LoadingModal", nullptr, flags)) {
-        ImGui::SetWindowFontScale(1.55f);
-        ImGui::TextColored(ImVec4(0.96f, 0.72f, 0.16f, 1.0f), "B A Z U K O");
-        ImGui::SetWindowFontScale(1.0f);
-
-        ImGui::TextDisabled("SUPERVIVENCIA URBANA · BOGOTÁ");
-        ImGui::Spacing();
-        ImGui::TextWrapped("%s", stageText.c_str());
-
-        ImGui::PushStyleColor(ImGuiCol_PlotHistogram, ImVec4(0.88f, 0.58f, 0.15f, 1.0f));
-        ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(0.12f, 0.14f, 0.17f, 0.90f));
-        char progressOverlay[32];
-        snprintf(progressOverlay, sizeof(progressOverlay), "%.0f %%", std::clamp(progress, 0.0f, 1.0f) * 100.0f);
-        ImGui::ProgressBar(std::clamp(progress, 0.0f, 1.0f), ImVec2(-1.0f, 16.0f), progressOverlay);
-        ImGui::PopStyleColor(2);
-
-        if (!tipText.empty()) {
-            ImGui::Spacing();
-            ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.88f, 0.86f, 0.80f, 1.0f));
-            ImGui::TextWrapped("%s", tipText.c_str());
-            ImGui::PopStyleColor();
+    {
+        namespace W = SignUI::Web;
+        const ImVec2 display = io.DisplaySize;
+        const float cardWidth = std::min(520.0f, display.x - 40.0f);
+        const float left = std::clamp(display.x * 0.04f, 20.0f, 70.0f);
+        const float bottom = std::clamp(display.y * 0.05f, 22.0f, 60.0f);
+        const float titleSize = std::clamp(display.x * 0.06f, 36.0f, 60.0f);
+        ImFont* titleFont = SignUI::Ov(true, 26);
+        const float titleScale = titleSize / titleFont->FontSize;
+        const float cardHeight = 24.0f + 14.0f + 12.0f + titleSize * 1.1f + 8.0f + 20.0f + 24.0f + 28.0f + 20.0f + 44.0f + 6.0f + 16.0f + 18.0f + 24.0f;
+        const ImVec2 min(left, display.y - bottom - cardHeight), max(left + cardWidth, display.y - bottom);
+        ImDrawList* draw = ImGui::GetForegroundDrawList();
+        const ImU32 gold = IM_COL32(0xed, 0xc5, 0x5e, 255);
+        for (int layer = 1; layer <= 6; ++layer)
+            draw->AddRectFilled(min + ImVec2(-static_cast<float>(layer) * 4.0f, 16.0f - static_cast<float>(layer) * 4.0f), max + ImVec2(static_cast<float>(layer) * 4.0f, 16.0f + static_cast<float>(layer) * 4.0f), IM_COL32(0, 0, 0, 8), 16.0f + static_cast<float>(layer) * 4.0f);
+        draw->AddRectFilledMultiColor(min, max, IM_COL32(0x10, 0x15, 0x1a, 235), IM_COL32(0x10, 0x15, 0x1a, 201), IM_COL32(0x10, 0x15, 0x1a, 201), IM_COL32(0x10, 0x15, 0x1a, 235));
+        draw->AddRect(min, max, IM_COL32(0xed, 0xc5, 0x5e, 48), 16.0f, 0, 1.0f);
+        float y = min.y + 24.0f;
+        const float x = min.x + 24.0f, inner = cardWidth - 48.0f;
+        W::Text(draw, SignUI::Ov(true, 11), ImVec2(x, y), gold, "BOGOTÁ · SUPERVIVENCIA URBANA", 1.76f);
+        y += 12.0f + 12.0f;
+        SignUI::AddSpacedText(draw, titleFont, titleSize, ImVec2(x, y - 2.0f), gold, "BAZUKO", titleSize * 0.15f);
+        (void)titleScale;
+        y += titleSize * 1.1f + 8.0f;
+        W::Text(draw, SignUI::Ov(false, 16), ImVec2(x, y), IM_COL32(0xe3, 0xdc, 0xcd, 255), "Otra noche en la calle.");
+        y += 24.0f + 24.0f;
+        // etapas: la barra de 5 pasos se divide en Ciudad (0-1), Recursos (2-3) y Ultimos detalles (4-5)
+        const float value = std::clamp(progress, 0.0f, 1.0f) * 5.0f;
+        const int step = value < 2.0f ? 0 : value < 4.0f ? 1 : 2;
+        static const std::array<const char*, 3> stepNames{{"Ciudad", "Recursos", "Últimos detalles"}};
+        const float stepWidth = (inner - 32.0f) / 3.0f;
+        for (int i = 0; i < 3; ++i) {
+            const float sx = x + static_cast<float>(i) * (stepWidth + 16.0f);
+            const bool active = i <= step || value >= 5.0f;
+            draw->AddRectFilled(ImVec2(sx, y), ImVec2(sx + stepWidth, y + 2.0f), active ? gold : IM_COL32(255, 255, 255, 37));
+            W::Text(draw, SignUI::Ov(false, 12), ImVec2(sx, y + 8.0f), active ? gold : IM_COL32(0xa9, 0xa9, 0x9f, 255), stepNames[static_cast<size_t>(i)]);
         }
+        y += 20.0f + 20.0f;
+        // estado y porcentaje
+        char percent[16];
+        std::snprintf(percent, sizeof(percent), "%d %%", static_cast<int>(std::round(std::clamp(progress, 0.0f, 1.0f) * 100.0f)));
+        const float percentWidth = W::TextWidth(SignUI::Ov(true, 14), percent);
+        draw->AddText(SignUI::Ov(false, 14), SignUI::Ov(false, 14)->FontSize, ImVec2(x, y), IM_COL32(0xec, 0xe3, 0xce, 255), stageText.c_str(), nullptr, inner - percentWidth - 12.0f);
+        W::Text(draw, SignUI::Ov(true, 14), ImVec2(x + inner - percentWidth, y), gold, percent);
+        y += 28.0f;
+        // barra de progreso de 6 px
+        draw->AddRectFilled(ImVec2(x, y), ImVec2(x + inner, y + 6.0f), IM_COL32(255, 255, 255, 32), 10.0f);
+        const float fill = inner * std::clamp(progress, 0.0f, 1.0f);
+        if (fill > 1.0f) draw->AddRectFilled(ImVec2(x, y), ImVec2(x + fill, y + 6.0f), gold, 10.0f);
+        y += 6.0f + 16.0f;
+        (void)tipText;
+        const std::string hint = "Prepara el costal. Recoge materiales, busca comida y construye tu cambuche.";
+        draw->AddText(SignUI::Ov(false, 12), SignUI::Ov(false, 12)->FontSize, ImVec2(x, y), IM_COL32(0xc3, 0xbf, 0xb5, 255), hint.c_str(), nullptr, inner);
     }
-    ImGui::End();
-
-    ImGui::PopStyleVar();
 
     EndFrame();
     window.SwapBuffers();
@@ -675,12 +744,29 @@ void UIManager::RenderHUD(float dt, const glm::vec3& playerPos, Camera& camera, 
         return;
     }
 
+    if (!m_Paused && !m_WorldBubbles.empty()) {
+        // Burbujas blancas con borde oscuro sobre la cabeza de cada peatón (.npc-bubble del original)
+        const SignUI::Fonts& bubbleFonts = SignUI::GetFonts();
+        ImDrawList* bubbleDraw = ImGui::GetBackgroundDrawList();
+        const ImVec2 screen = ImGui::GetIO().DisplaySize;
+        for (const WorldBubble& bubble : m_WorldBubbles) {
+            const float sx = (bubble.x * 0.5f + 0.5f) * screen.x, sy = (-bubble.y * 0.5f + 0.5f) * screen.y;
+            const ImVec2 size = bubbleFonts.monoBold14->CalcTextSizeA(13.0f, screen.x * 0.4f, 0.0f, bubble.text.c_str());
+            const ImVec2 min(sx - size.x * 0.5f - 10.0f, sy - size.y - 24.0f), max(sx + size.x * 0.5f + 10.0f, sy - 8.0f);
+            const int fade = static_cast<int>(240.0f * bubble.alpha);
+            bubbleDraw->AddRectFilled(min, max, IM_COL32(255, 255, 255, fade), 12.0f);
+            bubbleDraw->AddRect(min, max, IM_COL32(45, 52, 54, static_cast<int>(255.0f * bubble.alpha)), 12.0f, 0, 1.5f);
+            bubbleDraw->AddTriangleFilled(ImVec2(sx - 6.0f, max.y - 0.5f), ImVec2(sx + 6.0f, max.y - 0.5f), ImVec2(sx, max.y + 6.0f), IM_COL32(255, 255, 255, fade));
+            bubbleDraw->AddText(bubbleFonts.monoBold14, 13.0f, ImVec2(min.x + 10.0f, min.y + 6.0f), IM_COL32(26, 26, 36, static_cast<int>(255.0f * bubble.alpha)), bubble.text.c_str());
+        }
+    }
+
     if (!m_Paused && !m_Toasts.empty()) {
-        // Avisos apilados a 40 % de la altura, con borde de color segun el tipo (.loot-toast del juego web)
+        // Avisos apilados cerca del borde superior (sobre el personaje, que queda hacia el centro), con borde de color segun el tipo (.loot-toast del juego web)
         const SignUI::Fonts& toastFonts = SignUI::GetFonts();
         ImDrawList* toastDraw = ImGui::GetForegroundDrawList();
         const ImVec2 display = ImGui::GetIO().DisplaySize;
-        float y = display.y * 0.40f;
+        float y = display.y * 0.055f;
         for (const Toast& toast : m_Toasts) {
             const float alpha = std::clamp(toast.remaining / 0.5f, 0.0f, 1.0f);
             ImU32 accent = IM_COL32(102, 102, 102, 255);
@@ -704,45 +790,7 @@ void UIManager::RenderHUD(float dt, const glm::vec3& playerPos, Camera& camera, 
         }
     }
 
-    if (m_CraftMenuOpen && !m_Paused) {
-        SignUI::DrawBackdrop(0.45f);
-        const ImVec4 blueText(0.84f, 0.89f, 1.0f, 1.0f);
-        bool closeRequested = false;
-        if (SignUI::BeginMenu("Mesa de crafteo", "Mesa de crafteo", "Selecciona una receta · C o Esc para cerrar",
-                              SignUI::Icon::Gear, &closeRequested)) {
-            ImGui::PushStyleColor(ImGuiCol_Text, blueText);
-            ImGui::TextWrapped("Los ingredientes se descuentan solo cuando se puede fabricar.");
-            ImGui::PopStyleColor();
-            ImGui::Spacing();
-            int rowIndex = 0;
-            for (const auto& option : craftingOptions) {
-                ImGui::PushID(option.id.c_str());
-                if (SignUI::BeginRow("receta", rowIndex++)) {
-                    const float buttonWidth = SignUI::RowButtonWidth("Craftear");
-                    const float rowTop = SignUI::RowBegin();
-                    ImGui::PushFont(SignUI::GetFonts().monoBold14);
-                    ImGui::Text("%s", option.name.c_str());
-                    ImGui::PopFont();
-                    SignUI::RowCluster(rowTop, ImGui::GetWindowWidth() - 10.0f - buttonWidth);
-                    if (SignUI::RowButton("Craftear", option.craftable, true)) m_CraftRequest = option.id;
-                    SignUI::RowBelow(rowTop);
-                    ImGui::PushStyleColor(ImGuiCol_Text, blueText);
-                    ImGui::PushTextWrapPos(ImGui::GetWindowWidth() - 18.0f - buttonWidth);
-                    ImGui::TextWrapped("Ingredientes: %s", option.ingredients.c_str());
-                    ImGui::PopTextWrapPos();
-                    ImGui::PopStyleColor();
-                }
-                SignUI::EndRow();
-                ImGui::PopID();
-            }
-            ImGui::Spacing();
-            SignUI::NoteText("Hierba seca aparece en las recetas originales, pero no tiene resultado definido en items.js.");
-            SignUI::BeginFooter();
-            if (SignUI::PrimaryButton("Cerrar")) closeRequested = true;
-        }
-        SignUI::EndMenu();
-        if (closeRequested) m_CraftMenuOpen = false;
-    }
+    if (m_CraftMenuOpen && !m_Paused) RenderCraftWindow(craftingOptions, inventoryWeight, inventoryCapacity);
 
     if (m_Paused && m_NewGameConfirmOpen) {
         // Confirmacion: solo se ve este mensaje, centrado y fijo, sobre el juego oscurecido (el menu de pausa se oculta)
@@ -774,10 +822,36 @@ void UIManager::RenderHUD(float dt, const glm::vec3& playerPos, Camera& camera, 
         }
         SignUI::EndMenu();
         if (closeRequested) m_NewGameConfirmOpen = false;   // vuelve al menu de pausa
+    } else if (m_Paused && m_RadioMenuOpen) {
+        RenderRadioMenu();
+    } else if (m_Paused && m_PauseSection == 1) {
+        RenderInventoryWindow(inventoryOptions, inventoryWeight, inventoryCapacity);
+    } else if (m_Paused && m_PauseSection == 2) {
+        RenderTalentWindow(talentOptions, talentPoints);
+    } else if (m_Paused && m_PauseSection == 4) {
+        RenderDealerWindow(dealerOptions, money);
+    } else if (m_Paused && !m_RadioMenuOpen && (m_PauseSection == 0 || m_PauseSection == 3 || m_PauseSection == 8 || m_PauseSection == 9 || m_PauseSection == 10)) {
+        PauseContext context;
+        context.playerPos = playerPos;
+        context.camera = &camera;
+        context.city = &city;
+        context.simulation = &simulation;
+        context.audio = &audio;
+        context.playerName = playerName;
+        context.needs = &needs;
+        context.money = money;
+        context.level = level;
+        context.xp = xp;
+        context.dayProgress = dayProgress;
+        context.companionIsFriend = companionIsFriend;
+        RenderPauseTabs(context);
     } else if (m_Paused) {
         using SignUI::Icon;
         SignUI::DrawBackdrop(0.45f);
-        const SignUI::Fonts& fonts = SignUI::GetFonts();
+        SignUI::Fonts fonts = SignUI::GetFonts();   // copia: los menus de lugares usan Overpass como el juego web
+        fonts.monoBold14 = SignUI::Ov(true, 15);
+        fonts.monoBold13 = SignUI::Ov(true, 14);
+        fonts.monoBold12 = SignUI::Ov(true, 13);
         const ImVec4 blueText(0.84f, 0.89f, 1.0f, 1.0f);
         const ImVec4 gold(0.93f, 0.84f, 0.53f, 1.0f);
         const auto fmt = [](const char* pattern, auto... values) {
@@ -845,6 +919,7 @@ void UIManager::RenderHUD(float dt, const glm::vec3& playerPos, Camera& camera, 
         // ancho de la columna derecha de una fila: cantidad + botones
         const auto rowRight = [](float contentWidth) { return ImGui::GetWindowWidth() - 10.0f - contentWidth; };
         bool closeRequested = false;
+        ImGui::PushFont(SignUI::Ov(false, 14));
         if (SignUI::BeginMenu(pauseTitle.c_str(), pauseTitle.c_str(), pauseSubtitle.c_str(), pauseIcon, &closeRequested,
                                560.0f, m_PauseSection == 7 ? 312.0f : 680.0f)) {
             if (m_RadioMenuOpen) {
@@ -959,10 +1034,7 @@ void UIManager::RenderHUD(float dt, const glm::vec3& playerPos, Camera& camera, 
                         draw->AddRect(min, max, selected ? IM_COL32(246, 196, 0, 255) : IM_COL32(74, 100, 140, 200), 6.0f, 0, selected ? 2.5f : 1.0f);
                         if (!filled) continue;
                         const InventoryOption& slotItem = inventoryOptions[index];
-                        draw->PushClipRect(ImVec2(min.x + 3.0f, min.y + 3.0f), ImVec2(max.x - 3.0f, max.y - 14.0f), true);
-                        draw->AddText(fonts.mono11, 11.0f, ImVec2(min.x + 5.0f, min.y + 14.0f), IM_COL32(230, 236, 246, 255),
-                                      slotItem.name.c_str(), nullptr, slotSize - 10.0f);
-                        draw->PopClipRect();
+                        DrawItemIcon(draw, ImVec2((min.x + max.x) * 0.5f, min.y + slotSize * 0.42f), slotSize * 0.55f, slotItem.id, slotItem.name, IM_COL32(236, 240, 248, 255));
                         char amount[16];
                         std::snprintf(amount, sizeof(amount), "x%d", slotItem.quantity);
                         const float amountWidth = fonts.monoBold12->CalcTextSizeA(12.0f, FLT_MAX, 0.0f, amount).x;
@@ -981,6 +1053,13 @@ void UIManager::RenderHUD(float dt, const glm::vec3& playerPos, Camera& camera, 
                     const float detailWidth = std::max(120.0f, base.x + totalWidth - detailX);
                     ImGui::SetCursorScreenPos(ImVec2(detailX, base.y));
                     ImGui::BeginGroup();
+                    {
+                        const ImVec2 iconBase = ImGui::GetCursorScreenPos();
+                        draw->AddRectFilled(iconBase, ImVec2(iconBase.x + 64.0f, iconBase.y + 64.0f), IM_COL32(14, 24, 40, 235), 8.0f);
+                        draw->AddRect(iconBase, ImVec2(iconBase.x + 64.0f, iconBase.y + 64.0f), IM_COL32(246, 196, 0, 220), 8.0f, 0, 1.5f);
+                        DrawItemIcon(draw, ImVec2(iconBase.x + 32.0f, iconBase.y + 32.0f), 46.0f, chosen.id, chosen.name, IM_COL32(246, 220, 120, 255));
+                        ImGui::Dummy(ImVec2(64.0f, 70.0f));
+                    }
                     ImGui::PushTextWrapPos(ImGui::GetCursorPos().x + detailWidth);
                     ImGui::PushFont(fonts.monoBold14);
                     ImGui::TextUnformatted(chosen.name.c_str());
@@ -1234,6 +1313,19 @@ void UIManager::RenderHUD(float dt, const glm::vec3& playerPos, Camera& camera, 
                     ImGui::SetCursorPosY(rowTop);
                     SignUI::FlexReset();
                     if (SignUI::Button(muted ? "Activar" : "Silenciar", muted ? Icon::Mute : Icon::Sound)) audio.SetMuted(!muted);
+                    // mezcla por categoria (se multiplica por el volumen maestro)
+                    static const std::array<std::pair<const char*, MixCategory>, 4> mixRows{{
+                        {"Ambiente", MixCategory::Ambient}, {"Tráfico", MixCategory::Traffic}, {"Voces", MixCategory::Voices}, {"Efectos", MixCategory::Effects}}};
+                    for (const auto& [label, category] : mixRows) {
+                        float level = audio.GetMix(category);
+                        ImGui::PushID(label);
+                        ImGui::TextUnformatted(label);
+                        ImGui::SameLine(110.0f);
+                        if (SignUI::Slider("mezcla", &level, std::max(80.0f, available - 200.0f))) audio.SetMix(category, level);
+                        ImGui::SameLine(0.0f, 10.0f);
+                        ImGui::TextColored(gold, "%d%%", static_cast<int>(level * 100.0f + 0.5f));
+                        ImGui::PopID();
+                    }
                 }
                 SignUI::EndSection();
 
@@ -1264,7 +1356,8 @@ void UIManager::RenderHUD(float dt, const glm::vec3& playerPos, Camera& camera, 
                     ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(8.0f, 6.0f));
                     pair("Personaje:", playerName.empty() ? "Parcero" : playerName, false);
                     pair("Dinero:", fmt("$ %.0f", money), true);
-                    pair("Tiempo:", fmt("Día %d — %02d:%02d", static_cast<int>(dayProgress) + 1, hour, minute), false);
+                    pair("Tiempo:", fmt("Día %d — %02d:%02d", m_Day, hour, minute), false);
+                    if (!m_WeatherLabel.empty()) pair("Clima:", m_WeatherLabel + " · " + m_SeasonLabel, true);
                     pair("Nivel:", fmt("Nv %d · XP %d", level, xp), true);
                     pair("Salud:", fmt("%.0f%%", needs[3]), false);
                     pair("Sed / Hambre:", fmt("%.0f%% / %.0f%%", needs[1], needs[0]), true);
@@ -1290,6 +1383,7 @@ void UIManager::RenderHUD(float dt, const glm::vec3& playerPos, Camera& camera, 
                         m_CharacterCreatorRequest = true;
                         TogglePause();
                     }
+                    if (SignUI::Button("Mapa y GPS (M)", Icon::Compass)) OpenMapSection();
                     if (SignUI::Button("Inventario (I)", Icon::Bag)) OpenPauseSection(1);
                     if (SignUI::Button("Talentos (T)", Icon::Star)) OpenPauseSection(2);
                     if (SignUI::Button("El Chato (O)", Icon::Paw)) OpenPauseSection(3);
@@ -1343,89 +1437,39 @@ void UIManager::RenderHUD(float dt, const glm::vec3& playerPos, Camera& camera, 
             }
         }
         SignUI::EndMenu();
+        ImGui::PopFont();
         if (closeRequested) {
             if (m_RadioMenuOpen) CloseRadioMenu();
             else TogglePause();
         }
     }
 
+    if (!m_Paused || m_DeathScreenOpen) {
+        // el HUD queda visible bajo los paneles (como en el juego web); solo se oculta al morir
+    }
     {
-        using SignUI::Icon;
-        const SignUI::Fonts& fonts = SignUI::GetFonts();
-        const float displayHeight = ImGui::GetIO().DisplaySize.y;
-        const ImGuiWindowFlags plainFlags = hudFlags | ImGuiWindowFlags_NoBackground | ImGuiWindowFlags_NoInputs;
-
-        // Barra superior plana: nombre, día y hora, dinero, nivel y puntos de talento
-        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
-        ImGui::SetNextWindowPos(ImVec2(12, 12), ImGuiCond_Always);
-        if (ImGui::Begin("Topbar", nullptr, plainFlags)) {
-            ImDrawList* draw = ImGui::GetWindowDrawList();
-            const ImVec2 at = ImGui::GetCursorScreenPos();
-            float x = at.x;
-            const auto item = [&](const std::string& text, ImU32 color) {
-                SignUI::AddShadowText(draw, fonts.mono14, 14.0f, ImVec2(x, at.y), color, text.c_str());
-                x += fonts.mono14->CalcTextSizeA(14.0f, FLT_MAX, 0.0f, text.c_str()).x + 24.0f;
-            };
-            char buffer[96];
-            item(playerName.empty() ? "Parcero" : playerName, IM_COL32(222, 184, 64, 255));
-            std::snprintf(buffer, sizeof(buffer), "Día %d — %02d:%02d", static_cast<int>(dayProgress) + 1, hour, minute);
-            item(buffer, IM_COL32(238, 238, 238, 255));
-            std::snprintf(buffer, sizeof(buffer), "$ %.0f", money);
-            item(buffer, IM_COL32(238, 238, 238, 255));
-            std::snprintf(buffer, sizeof(buffer), "Nv %d", level);
-            item(buffer, IM_COL32(238, 238, 238, 255));
-            SignUI::DrawIcon(draw, Icon::Star, ImVec2(x + 7.0f, at.y + 8.0f), 15.0f);
-            std::snprintf(buffer, sizeof(buffer), "%d", talentPoints);
-            SignUI::AddShadowText(draw, fonts.mono14, 14.0f, ImVec2(x + 22.0f, at.y), IM_COL32(255, 209, 102, 255), buffer);
-            x += 22.0f + 12.0f;
-            ImGui::Dummy(ImVec2(std::max(210.0f, x - at.x), 18.0f));
-            ImGui::SetCursorScreenPos(ImVec2(at.x, at.y + 25.0f));
-            SignUI::StatBar(std::clamp(static_cast<float>(xp) / static_cast<float>(std::max(1, level * 100)), 0.0f, 1.0f),
-                            IM_COL32(39, 174, 96, 255), 200.0f, 6.0f);
-        }
-        ImGui::End();
-
-        // Barras de necesidades (abajo a la izquierda) con avisos encima
-        ImGui::SetNextWindowPos(ImVec2(20, displayHeight - 20), ImGuiCond_Always, ImVec2(0, 1));
-        if (ImGui::Begin("Necesidades", nullptr, plainFlags)) {
-            ImDrawList* draw = ImGui::GetWindowDrawList();
-            if (needs[3] <= 10.0f) {
-                ImGui::TextColored(ImVec4(1.0f, 0.35f, 0.27f, 1.0f), "Salud crítica: usa vendajes o evita los vehículos.");
-            } else if (needs[3] <= 25.0f) {
-                ImGui::TextColored(ImVec4(1.0f, 0.72f, 0.24f, 1.0f), "Salud baja: usa vendajes y evita los vehículos.");
-            }
-            if (boostActive) {
-                ImGui::TextColored(ImVec4(0.25f, 0.95f, 1.0f, 1.0f), "ADRENALINA: %.1fs (+35%% vel, +botín)", std::max(0.0f, boostTimer));
-            }
-            const float withdrawal = needs[6] < 20.0f ? (20.0f - needs[6]) * 5.0f : 0.0f;
-            if (withdrawal >= 80.0f) {
-                const float flash = 0.5f + 0.5f * static_cast<float>(std::sin(ImGui::GetTime() * 8.0));
-                ImGui::TextColored(ImVec4(1.0f, 0.15f * flash, 0.15f * flash, 1.0f), "¡ABSTINENCIA CRÍTICA: PSICOSIS!");
-            } else if (withdrawal >= 50.0f) {
-                ImGui::TextColored(ImVec4(1.0f, 0.60f, 0.20f, 1.0f), "Síndrome de abstinencia: paranoia");
-            }
-            static const Icon needIcons[] = {Icon::Bread, Icon::Drop, Icon::Energy, Icon::Pill, Icon::Soap, Icon::Heart, Icon::Flame};
-            static const ImU32 needFills[] = {
-                IM_COL32(201, 162, 39, 255), IM_COL32(58, 123, 213, 255), IM_COL32(176, 106, 214, 255), IM_COL32(192, 57, 43, 255),
-                IM_COL32(48, 168, 204, 255), IM_COL32(142, 68, 173, 255), IM_COL32(224, 122, 30, 255)
-            };
-            const ImVec2 origin = ImGui::GetCursorScreenPos();
-            for (size_t i = 0; i < needs.size(); ++i) {
-                const float value = std::clamp(needs[i], 0.0f, 100.0f);
-                const bool critical = i == 3 ? value <= 10.0f
-                    : i == 4 ? value <= 20.0f
-                    : i == 5 ? value <= 10.0f
-                    : i == 6 ? value <= 4.0f : value <= 0.0f;
-                const float rowY = origin.y + static_cast<float>(i) * 20.0f;
-                SignUI::DrawIcon(draw, needIcons[i], ImVec2(origin.x + 8.0f, rowY + 7.0f), 14.0f);
-                ImGui::SetCursorScreenPos(ImVec2(origin.x + 32.0f, rowY + 2.0f));
-                SignUI::StatBar(value / 100.0f, needFills[i], 160.0f, 10.0f, critical);
-            }
-            ImGui::SetCursorScreenPos(origin);
-            ImGui::Dummy(ImVec2(192.0f, static_cast<float>(needs.size()) * 20.0f));
-        }
-        ImGui::End();
-        ImGui::PopStyleVar();
+        HudContext hud;
+        hud.dt = dt;
+        hud.playerPos = playerPos;
+        hud.camera = &camera;
+        hud.city = &city;
+        hud.simulation = &simulation;
+        hud.audio = &audio;
+        hud.playerName = playerName;
+        hud.needs = &needs;
+        hud.money = money;
+        hud.dayProgress = dayProgress;
+        hud.diseaseSummary = diseaseSummary;
+        hud.level = level;
+        hud.xp = xp;
+        hud.talentPoints = talentPoints;
+        hud.objective = objective;
+        hud.missionProgress = missionProgress;
+        hud.missionTarget = missionTarget;
+        hud.boostActive = boostActive;
+        hud.boostTimer = boostTimer;
+        hud.inventory = &inventoryOptions;
+        RenderWebHud(hud);
     }
 
     // Viñeta roja oscura pulsante en los bordes de la pantalla durante psicosis
@@ -1473,248 +1517,6 @@ void UIManager::RenderHUD(float dt, const glm::vec3& playerPos, Camera& camera, 
         }
     }
 
-    {
-        using SignUI::Icon;
-        const SignUI::Fonts& fonts = SignUI::GetFonts();
-        const ImVec2 display = ImGui::GetIO().DisplaySize;
-        const ImGuiWindowFlags plainFlags = hudFlags | ImGuiWindowFlags_NoBackground;
-
-        // Botones de vista y paneles de ayuda y objetivo (arriba a la izquierda)
-        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
-        ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(6.0f, 6.0f));
-        ImGui::SetNextWindowPos(ImVec2(12, 49), ImGuiCond_Always);
-        if (ImGui::Begin("Vista y objetivo", nullptr, plainFlags)) {
-            ImDrawList* draw = ImGui::GetWindowDrawList();
-            const auto hudButton = [&](const char* id, const char* label, Icon icon, float width, const char* tip) {
-                ImGui::PushID(id);
-                const bool pressed = ImGui::InvisibleButton("##hud", ImVec2(width, 32.0f));
-                ImGui::PopID();
-                const bool hovered = ImGui::IsItemHovered();
-                const ImVec2 min = ImGui::GetItemRectMin();
-                const ImVec2 max = ImGui::GetItemRectMax();
-                draw->AddRectFilled(min, max, hovered ? IM_COL32(24, 34, 52, 235) : IM_COL32(8, 12, 20, 210), 3.0f);
-                draw->AddRect(min, max, hovered ? IM_COL32(150, 165, 190, 255) : IM_COL32(74, 86, 108, 255), 3.0f);
-                if (label) draw->AddText(fonts.mono12, 12.0f, ImVec2(min.x + 10.0f, (min.y + max.y) * 0.5f - 7.0f), IM_COL32(208, 214, 226, 255), label);
-                else SignUI::DrawIcon(draw, icon, ImVec2((min.x + max.x) * 0.5f, (min.y + max.y) * 0.5f), 16.0f);
-                if (hovered && tip) ImGui::SetTooltip("%s", tip);
-                return pressed;
-            };
-            const char* cameraLabel = camera.GetMode() == CameraMode::ThirdPerson ? "Tercera persona · V" : "Isométrica · V";
-            if (hudButton("camara", cameraLabel, Icon::None, 150.0f, "Alternar vista")) camera.ToggleMode();
-            ImGui::SameLine();
-            if (hudButton("inventario", nullptr, Icon::Bag, 38.0f, "Inventario [I]")) OpenPauseSection(1);
-            ImGui::SameLine();
-            if (hudButton("sonido", nullptr, audio.IsMuted() ? Icon::Mute : Icon::Sound, 38.0f, "Silenciar o activar el audio")) audio.SetMuted(!audio.IsMuted());
-            ImGui::SameLine();
-            ImGui::SameLine();
-            if (hudButton("radio", nullptr, Icon::Radio, 38.0f, "Radio transistor [R]")) OpenRadioMenu(false);
-            ImGui::SameLine();
-            if (hudButton("pausa", nullptr, Icon::Pause, 38.0f, "Pausa [Esc]")) TogglePause();
-
-            const auto panel = [&](const char* id, auto&& content) {
-                ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(8.0f, 6.0f));
-                ImGui::PushStyleVar(ImGuiStyleVar_ChildRounding, 3.0f);
-                ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0, 0, 0, 0.58f));
-                ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(0.2f, 0.2f, 0.2f, 1.0f));
-                ImGui::BeginChild(id, ImVec2(344.0f, 0.0f), ImGuiChildFlags_AutoResizeY | ImGuiChildFlags_Borders,
-                                  ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoInputs);
-                ImGui::PopStyleColor(2);
-                ImGui::PopStyleVar(2);
-                content();
-                ImGui::EndChild();
-            };
-            panel("ayuda", [&] {
-                ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.80f, 0.83f, 0.89f, 1.0f));
-                ImGui::TextWrapped("Mueve el ratón (o arrastra) para girar la cámara · Rueda: zoom");
-                ImGui::PopStyleColor();
-            });
-            panel("objetivo", [&] {
-                ImGui::TextWrapped("%s", objective.c_str());
-                if (simulation.IsMissionComplete()) ImGui::TextColored(ImVec4(0.35f, 0.85f, 0.48f, 1.0f), "Misión completada");
-                else if (simulation.IsMissionStarted()) ImGui::TextColored(ImVec4(0.96f, 0.77f, 0.0f, 1.0f), "Reciclables: %llu / %llu",
-                    static_cast<unsigned long long>(missionProgress), static_cast<unsigned long long>(missionTarget));
-                else ImGui::TextDisabled("Acércate al marcador para iniciar la misión");
-            });
-
-            // Enfermedades activas: una línea roja por cada una
-            if (diseaseSummary != "Sin enfermedades" && !diseaseSummary.empty()) {
-                std::istringstream diseases(diseaseSummary);
-                std::string part;
-                while (std::getline(diseases, part, '|')) {
-                    const size_t first = part.find_first_not_of(" \t");
-                    const size_t last = part.find_last_not_of(" \t");
-                    if (first == std::string::npos) continue;
-                    part = part.substr(first, last - first + 1);
-                    std::string name = part, remaining;
-                    const size_t paren = part.find(" (");
-                    if (paren != std::string::npos) {
-                        name = part.substr(0, paren);
-                        remaining = part.substr(paren + 2, part.size() - paren - 3);
-                    }
-                    const ImVec2 min = ImGui::GetCursorScreenPos();
-                    const ImVec2 max(min.x + 220.0f, min.y + 21.0f);
-                    draw->AddRectFilled(min, max, IM_COL32(192, 57, 43, 52));
-                    draw->AddRect(min, max, IM_COL32(192, 57, 43, 255));
-                    draw->AddText(fonts.mono12, 12.0f, ImVec2(min.x + 8.0f, min.y + 3.0f), IM_COL32(231, 76, 60, 255), name.c_str());
-                    const float width = fonts.mono12->CalcTextSizeA(12.0f, FLT_MAX, 0.0f, remaining.c_str()).x;
-                    draw->AddText(fonts.mono12, 12.0f, ImVec2(max.x - 8.0f - width, min.y + 3.0f), IM_COL32(136, 136, 136, 255), remaining.c_str());
-                    ImGui::Dummy(ImVec2(220.0f, 21.0f));
-                }
-            }
-        }
-        ImGui::End();
-        ImGui::PopStyleVar(2);
-
-        if (!m_Paused && Input::IsKeyPressed(GLFW_KEY_N)) m_RadarVisible = !m_RadarVisible;
-        const float panelWidth = 175.0f;
-        const float panelLeft = display.x - 16.0f - panelWidth;
-
-        // Radar circular (arriba a la derecha)
-        if (m_RadarVisible) {
-            ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
-            ImGui::SetNextWindowPos(ImVec2(panelLeft, 18.0f), ImGuiCond_Always);
-            ImGui::SetNextWindowSize(ImVec2(panelWidth, 196.0f), ImGuiCond_Always);
-            ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.03f, 0.06f, 0.09f, 0.86f));
-            ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(0.33f, 0.47f, 0.42f, 0.75f));
-            if (ImGui::Begin("Radar Bogota [N]", nullptr, (hudFlags & ~ImGuiWindowFlags_AlwaysAutoResize) | ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoInputs)) {
-                ImDrawList* draw = ImGui::GetWindowDrawList();
-                const ImVec2 origin = ImGui::GetWindowPos();
-                SignUI::DrawIcon(draw, Icon::Compass, ImVec2(origin.x + 16.0f, origin.y + 12.0f), 13.0f);
-                draw->AddText(fonts.monoBold12, 11.0f, ImVec2(origin.x + 28.0f, origin.y + 5.0f), IM_COL32(238, 238, 238, 255), "Radar Bogotá");
-                draw->AddRect(ImVec2(origin.x + panelWidth - 30.0f, origin.y + 4.0f), ImVec2(origin.x + panelWidth - 10.0f, origin.y + 19.0f), IM_COL32(220, 225, 235, 180), 2.0f);
-                draw->AddText(fonts.monoBold12, 11.0f, ImVec2(origin.x + panelWidth - 24.0f, origin.y + 5.5f), IM_COL32(238, 238, 238, 255), "N");
-
-                const float diameter = 130.0f;
-                const float radius = diameter * 0.5f;
-                const ImVec2 center(origin.x + panelWidth * 0.5f, origin.y + 28.0f + radius);
-                const float range = 42.0f;
-                constexpr int samples = 26;
-                const float cell = diameter / samples;
-                draw->AddCircleFilled(center, radius, IM_COL32(26, 29, 32, 245), 48);
-                for (int z = 0; z < samples; ++z) for (int x = 0; x < samples; ++x) {
-                    const float localX = (x + 0.5f) / samples * 2.0f - 1.0f;
-                    const float localZ = (z + 0.5f) / samples * 2.0f - 1.0f;
-                    if (localX * localX + localZ * localZ > 0.94f) continue;
-                    const float worldX = playerPos.x + localX * range;
-                    const float worldZ = playerPos.z + localZ * range;
-                    const int tileX = static_cast<int>(std::floor((worldX + CityLayout::ORIGIN_X) / CityLayout::TILE_SIZE));
-                    const int tileZ = static_cast<int>(std::floor((worldZ + CityLayout::ORIGIN_Z) / CityLayout::TILE_SIZE));
-                    const TileType tile = city.GetTileAt(tileX, tileZ);
-                    ImU32 color = IM_COL32(48, 50, 53, 255);
-                    if (tile == TileType::Road) color = IM_COL32(104, 106, 108, 255);
-                    else if (tile == TileType::Busway) color = IM_COL32(133, 87, 60, 255);
-                    else if (tile == TileType::Sidewalk || tile == TileType::Plaza || tile == TileType::Floor) color = IM_COL32(115, 112, 105, 255);
-                    else if (tile == TileType::Water) color = IM_COL32(48, 96, 128, 255);
-                    else if (tile == TileType::Solid) color = IM_COL32(92, 78, 70, 255);
-                    else if (tile == TileType::Grass) color = IM_COL32(62, 92, 58, 255);
-                    const ImVec2 cell0(center.x - radius + x * cell, center.y - radius + z * cell);
-                    draw->AddRectFilled(cell0, ImVec2(cell0.x + cell + 0.5f, cell0.y + cell + 0.5f), color);
-                }
-                draw->AddCircle(center, radius, IM_COL32(120, 140, 170, 255), 48, 1.5f);
-                const auto marker = [&](const glm::vec3& position, float size, ImU32 color) {
-                    const float dx = (position.x - playerPos.x) / range;
-                    const float dz = (position.z - playerPos.z) / range;
-                    if (dx * dx + dz * dz <= 0.94f) draw->AddCircleFilled(ImVec2(center.x + dx * radius, center.y + dz * radius), size, color);
-                };
-                for (const auto& pickup : simulation.GetPickups()) marker(pickup.position, 2.0f, IM_COL32(248, 204, 78, 255));
-                if (!simulation.IsMissionComplete()) marker(simulation.GetMissionNpcPosition(), 3.0f, IM_COL32(237, 84, 72, 255));
-                marker(simulation.GetDogPosition(), 2.5f, IM_COL32(117, 184, 255, 255));
-                struct Place { const char* name; glm::vec3 position; ImU32 color; };
-                std::vector<Place> places{
-                    {"Cambuche", simulation.GetCambuchePosition(), IM_COL32(255, 209, 102, 255)},
-                    {"Recicladora", simulation.GetRecyclerPosition(), IM_COL32(42, 183, 202, 255)},
-                    {"Dealer", simulation.GetDealerPosition(), IM_COL32(155, 89, 182, 255)},
-                };
-                for (const auto& landmark : city.GetLandmarks()) {
-                    if (landmark.name == "Pasarela") continue;
-                    const ImU32 landmarkColor = landmark.name == "Gasolinera" ? IM_COL32(222, 62, 62, 255)
-                        : landmark.name == "Tienda D69" ? IM_COL32(236, 76, 118, 255) : IM_COL32(92, 168, 226, 255);
-                    places.push_back({landmark.name.c_str(), landmark.position, landmarkColor});
-                }
-                const Place* nearestPlace = nullptr;
-                float nearestPlaceDistance = 1.0e9f;
-                for (const Place& place : places) {
-                    const float placeDistance = glm::distance(glm::vec2(playerPos.x, playerPos.z), glm::vec2(place.position.x, place.position.z));
-                    if (placeDistance < nearestPlaceDistance) {
-                        nearestPlaceDistance = placeDistance;
-                        nearestPlace = &place;
-                    }
-                    glm::vec2 offset((place.position.x - playerPos.x) / range, (place.position.z - playerPos.z) / range);
-                    const float offsetLength = glm::length(offset);
-                    const bool outside = offsetLength > 0.94f;
-                    if (outside) offset *= 0.94f / offsetLength;
-                    const ImVec2 at(center.x + offset.x * radius, center.y + offset.y * radius);
-                    const float size = outside ? 3.5f : 5.0f;
-                    draw->AddQuadFilled(ImVec2(at.x, at.y - size), ImVec2(at.x + size, at.y), ImVec2(at.x, at.y + size), ImVec2(at.x - size, at.y), place.color);
-                    draw->AddQuad(ImVec2(at.x, at.y - size), ImVec2(at.x + size, at.y), ImVec2(at.x, at.y + size), ImVec2(at.x - size, at.y), IM_COL32(0, 0, 0, 200), 1.0f);
-                }
-                draw->AddCircleFilled(center, 4.0f, IM_COL32(49, 220, 115, 255));
-                draw->AddCircle(center, 7.0f, IM_COL32(12, 38, 24, 255));
-                const ImU32 compassColor = IM_COL32(210, 216, 228, 200);
-                draw->AddText(fonts.mono11, 10.0f, ImVec2(center.x - 3.0f, center.y - radius + 3.0f), compassColor, "N");
-                draw->AddText(fonts.mono11, 10.0f, ImVec2(center.x + radius - 11.0f, center.y - 5.0f), compassColor, "E");
-                draw->AddText(fonts.mono11, 10.0f, ImVec2(center.x - 3.0f, center.y + radius - 13.0f), compassColor, "S");
-                draw->AddText(fonts.mono11, 10.0f, ImVec2(center.x - radius + 4.0f, center.y - 5.0f), compassColor, "O");
-                char info[64];
-                std::snprintf(info, sizeof(info), "El Chato: %.0f m", glm::distance(playerPos, simulation.GetDogPosition()));
-                draw->AddText(fonts.mono11, 10.0f, ImVec2(origin.x + 10.0f, origin.y + 28.0f + diameter + 8.0f), IM_COL32(238, 214, 136, 255), info);
-                if (nearestPlace) {
-                    char placeInfo[64];
-                    std::snprintf(placeInfo, sizeof(placeInfo), "%s: %.0f m", nearestPlace->name, nearestPlaceDistance);
-                    draw->AddText(fonts.mono11, 10.0f, ImVec2(origin.x + 10.0f, origin.y + 28.0f + diameter + 20.0f), IM_COL32(238, 214, 136, 255), placeInfo);
-                }
-            }
-            ImGui::End();
-            ImGui::PopStyleColor(2);
-            ImGui::PopStyleVar();
-        }
-
-        // Costal: lista de objetos y peso
-        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(8.0f, 8.0f));
-        ImGui::SetNextWindowPos(ImVec2(display.x - 16.0f, 222.0f), ImGuiCond_Always, ImVec2(1.0f, 0.0f));
-        ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0, 0, 0, 0.60f));
-        ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(0.2f, 0.2f, 0.2f, 1.0f));
-        if (ImGui::Begin("Inventario", nullptr, hudFlags | ImGuiWindowFlags_NoInputs)) {
-            ImDrawList* draw = ImGui::GetWindowDrawList();
-            const float width = panelWidth - 16.0f;
-            const size_t maxRows = static_cast<size_t>(std::max(3.0f, (display.y - 222.0f - 80.0f) / 19.0f));
-            if (inventoryOptions.empty()) {
-                ImGui::TextDisabled("Costal vacío");
-                ImGui::Dummy(ImVec2(width, 1.0f));
-            }
-            size_t shown = 0;
-            for (const auto& item : inventoryOptions) {
-                if (shown++ >= maxRows) break;
-                const ImVec2 at = ImGui::GetCursorScreenPos();
-                char amount[24];
-                std::snprintf(amount, sizeof(amount), "x%d", item.quantity);
-                float right = at.x + width;
-                if (item.usable) {
-                    const float tagWidth = fonts.mono11->CalcTextSizeA(10.0f, FLT_MAX, 0.0f, "[usar]").x;
-                    draw->AddText(fonts.mono11, 10.0f, ImVec2(right - tagWidth, at.y + 2.0f), IM_COL32(136, 136, 136, 255), "[usar]");
-                    right -= tagWidth + 8.0f;
-                }
-                const float amountWidth = fonts.mono12->CalcTextSizeA(12.0f, FLT_MAX, 0.0f, amount).x;
-                draw->AddText(fonts.mono12, 12.0f, ImVec2(right - amountWidth, at.y + 1.0f), IM_COL32(201, 162, 39, 255), amount);
-                draw->PushClipRect(at, ImVec2(right - amountWidth - 6.0f, at.y + 18.0f), true);
-                draw->AddText(fonts.mono12, 12.0f, ImVec2(at.x, at.y + 1.0f), IM_COL32(204, 204, 204, 255), item.name.c_str());
-                draw->PopClipRect();
-                draw->AddLine(ImVec2(at.x, at.y + 17.0f), ImVec2(at.x + width, at.y + 17.0f), IM_COL32(34, 34, 34, 255));
-                ImGui::Dummy(ImVec2(width, 19.0f));
-            }
-            if (inventoryOptions.size() > maxRows) ImGui::TextDisabled("+%zu más…", inventoryOptions.size() - maxRows);
-            char weight[48];
-            std::snprintf(weight, sizeof(weight), "Peso: %.1f/%.0f", inventoryWeight, inventoryCapacity);
-            const ImVec2 at = ImGui::GetCursorScreenPos();
-            const float weightWidth = fonts.mono11->CalcTextSizeA(11.0f, FLT_MAX, 0.0f, weight).x;
-            draw->AddText(fonts.mono11, 11.0f, ImVec2(at.x + width - weightWidth, at.y + 4.0f), IM_COL32(136, 136, 136, 255), weight);
-            ImGui::Dummy(ImVec2(width, 20.0f));
-        }
-        ImGui::End();
-        ImGui::PopStyleColor(2);
-        ImGui::PopStyleVar();
-    }
-
     std::string interactionPrompt;
     const bool nearMissionNpc = simulation.IsNearMissionNpc(playerPos, 2.0f);
     const size_t nearbyCar = simulation.GetNearbyCar(playerPos, 2.0f);
@@ -1744,14 +1546,14 @@ void UIManager::RenderHUD(float dt, const glm::vec3& playerPos, Camera& camera, 
     else if (nearContainer) interactionPrompt = "[E] Revisar caneca · mantén [Q] para clasificar (más botín)";
     else if (nearPickup) interactionPrompt = "[E] Recoger bolsa · mantén [Q] para clasificar (más botín)";
     else if (inventorySummary.find("Pan duro") != std::string::npos || inventorySummary.find("Botella agua") != std::string::npos || inventorySummary.find("Vendaje") != std::string::npos || inventorySummary.find("Curita") != std::string::npos || inventorySummary.find("Tinto") != std::string::npos || inventorySummary.find("Comida enlatada") != std::string::npos || inventorySummary.find("Refresco") != std::string::npos || inventorySummary.find("Tintico") != std::string::npos || inventorySummary.find("Pegante") != std::string::npos || inventorySummary.find("Pastilla") != std::string::npos || inventorySummary.find("Cigarrillo") != std::string::npos || inventorySummary.find("Jabón") != std::string::npos || inventorySummary.find("Cepillo") != std::string::npos || inventorySummary.find("Vacuna") != std::string::npos || inventorySummary.find("Carbón activo") != std::string::npos || inventorySummary.find("Jarabe") != std::string::npos || inventorySummary.find("Pomada") != std::string::npos || inventorySummary.find("Antiparasitario") != std::string::npos || inventorySummary.find("Antibiótico") != std::string::npos) interactionPrompt = "[E] Usar el primer consumible o medicamento del costal";
-    if (!m_Paused && !m_DeathScreenOpen) {
-        // Barra de acceso rapido (teclas 1-5): se asigna desde el inventario
+    if (!m_Paused && !m_DeathScreenOpen && std::any_of(m_Hotbar.begin(), m_Hotbar.end(), [](const HotbarSlot& slot) { return !slot.id.empty(); })) {
+        // Barra de acceso rapido (teclas 1-5), abajo a la derecha: solo aparece cuando hay objetos asignados desde el inventario (#quickbar)
         const SignUI::Fonts& quickFonts = SignUI::GetFonts();
         const ImVec2 display = ImGui::GetIO().DisplaySize;
-        constexpr float slotSize = 46.0f;
-        constexpr float slotGap = 6.0f;
+        constexpr float slotSize = 44.0f;
+        constexpr float slotGap = 5.0f;
         const float barWidth = 5.0f * slotSize + 4.0f * slotGap;
-        ImGui::SetNextWindowPos(ImVec2((display.x - barWidth) * 0.5f, display.y - 70.0f), ImGuiCond_Always, ImVec2(0.0f, 1.0f));
+        ImGui::SetNextWindowPos(ImVec2(display.x - 20.0f, display.y - 20.0f), ImGuiCond_Always, ImVec2(1.0f, 1.0f));
         ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
         if (ImGui::Begin("Barra rapida", nullptr, hudFlags | ImGuiWindowFlags_NoBackground)) {
             ImDrawList* draw = ImGui::GetWindowDrawList();
@@ -1766,20 +1568,18 @@ void UIManager::RenderHUD(float dt, const glm::vec3& playerPos, Camera& camera, 
                 const bool hovered = ImGui::IsItemHovered();
                 ImGui::PopID();
                 const bool filled = !entry.id.empty();
-                draw->AddRectFilled(min, max, hovered ? IM_COL32(24, 34, 52, 235) : IM_COL32(8, 12, 20, 205), 4.0f);
-                draw->AddRect(min, max, filled && entry.quantity > 0 ? IM_COL32(201, 162, 39, 255) : IM_COL32(74, 86, 108, 255), 4.0f);
-                const ImU32 dim = entry.quantity > 0 ? IM_COL32(230, 236, 246, 255) : IM_COL32(120, 128, 142, 255);
+                const float fade = filled ? 1.0f : 0.4f;
+                draw->AddRectFilled(min, max, IM_COL32(0, 0, 0, static_cast<int>(153 * fade)));
+                draw->AddRect(min, max, hovered ? IM_COL32(255, 209, 102, 255) : IM_COL32(85, 85, 85, static_cast<int>(255 * fade)));
                 char key[4];
                 std::snprintf(key, sizeof(key), "%d", slot + 1);
-                draw->AddText(quickFonts.monoBold12, 12.0f, ImVec2(min.x + 4.0f, min.y + 2.0f), IM_COL32(255, 209, 102, 255), key);
+                draw->AddText(quickFonts.mono11, 10.0f, ImVec2(min.x + 3.0f, min.y + 1.0f), IM_COL32(74, 181, 232, static_cast<int>(255 * fade)), key);
                 if (!filled) continue;
-                draw->PushClipRect(ImVec2(min.x + 2.0f, min.y + 14.0f), ImVec2(max.x - 2.0f, max.y - 13.0f), true);
-                draw->AddText(quickFonts.mono11, 10.0f, ImVec2(min.x + 4.0f, min.y + 15.0f), dim, entry.name.c_str(), nullptr, slotSize - 8.0f);
-                draw->PopClipRect();
+                DrawItemIcon(draw, ImVec2((min.x + max.x) * 0.5f, (min.y + max.y) * 0.5f), 26.0f, entry.id, entry.name, entry.quantity > 0 ? IM_COL32(236, 240, 248, 255) : IM_COL32(120, 128, 142, 255));
                 char amount[16];
-                std::snprintf(amount, sizeof(amount), "x%d", entry.quantity);
+                std::snprintf(amount, sizeof(amount), "%d", entry.quantity);
                 const float amountWidth = quickFonts.mono11->CalcTextSizeA(11.0f, FLT_MAX, 0.0f, amount).x;
-                draw->AddText(quickFonts.mono11, 11.0f, ImVec2(max.x - amountWidth - 4.0f, max.y - 13.0f), IM_COL32(201, 162, 39, 255), amount);
+                draw->AddText(quickFonts.mono11, 11.0f, ImVec2(max.x - amountWidth - 3.0f, max.y - 14.0f), IM_COL32(201, 162, 39, 255), amount);
             }
             ImGui::SetCursorScreenPos(base);
             ImGui::Dummy(ImVec2(barWidth, slotSize));
@@ -1807,38 +1607,28 @@ void UIManager::RenderHUD(float dt, const glm::vec3& playerPos, Camera& camera, 
     }
 
     if (!interactionPrompt.empty()) {
-        ImGui::SetNextWindowPos(ImVec2(ImGui::GetIO().DisplaySize.x * 0.5f, ImGui::GetIO().DisplaySize.y - 128.0f), ImGuiCond_Always, ImVec2(0.5f, 1.0f));
-        ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0, 0, 0, 0.80f));
-        ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(0.79f, 0.64f, 0.15f, 0.85f));
-        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(14.0f, 8.0f));
-        ImGui::PushFont(SignUI::GetFonts().mono14);
-        if (ImGui::Begin("Interaccion", nullptr, hudFlags | ImGuiWindowFlags_NoInputs)) {
-            ImGui::TextUnformatted(interactionPrompt.c_str());
+        // #interaction-prompt: pastilla oscura con borde y texto dorados, 160 px sobre el borde inferior
+        ImFont* font = SignUI::Ov(true, 13);
+        const float width = SignUI::Web::TextWidth(font, interactionPrompt.c_str()) + 28.0f;
+        const ImVec2 display = ImGui::GetIO().DisplaySize;
+        ImGui::SetNextWindowPos(ImVec2(display.x * 0.5f, display.y - 160.0f), ImGuiCond_Always, ImVec2(0.5f, 1.0f));
+        ImGui::SetNextWindowSize(ImVec2(width, 32.0f), ImGuiCond_Always);
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
+        if (ImGui::Begin("Interaccion", nullptr, hudFlags | ImGuiWindowFlags_NoBackground | ImGuiWindowFlags_NoInputs)) {
+            ImDrawList* draw = ImGui::GetWindowDrawList();
+            const ImVec2 at = ImGui::GetWindowPos();
+            draw->AddRectFilled(at + ImVec2(0, 2), at + ImVec2(width, 34), IM_COL32(0, 0, 0, 120), 9.0f);
+            draw->AddRectFilled(at, at + ImVec2(width, 32.0f), IM_COL32(10, 10, 15, 230), 9.0f);
+            draw->AddRect(at, at + ImVec2(width, 32.0f), IM_COL32(255, 209, 102, 255), 9.0f);
+            SignUI::Web::Text(draw, font, at + ImVec2(14.0f, 8.0f), IM_COL32(255, 209, 102, 255), interactionPrompt.c_str());
         }
         ImGui::End();
-        ImGui::PopFont();
-        ImGui::PopStyleVar();
-        ImGui::PopStyleColor(2);
+        ImGui::PopStyleVar(2);
     }
 
-    // Recordatorio de teclas (tenue, al pie de la pantalla)
-    {
-        const SignUI::Fonts& fonts = SignUI::GetFonts();
-        const ImVec2 display = ImGui::GetIO().DisplaySize;
-        const char* lines[2] = {
-            "WASD mover · Shift correr · V cámara · N radar · R radio · E interactuar · Q recoger/dealer · B limosna · X lanzar · Z popó",
-            "I inventario · T talentos · O El Chato · C crafteo · P personaje · F11 pantalla completa · ESC pausa"
-        };
-        for (int line = 0; line < 2; ++line) {
-            const float width = fonts.mono11->CalcTextSizeA(11.0f, FLT_MAX, 0.0f, lines[line]).x;
-            ImGui::GetBackgroundDrawList()->AddText(fonts.mono11, 11.0f,
-                ImVec2((display.x - width) * 0.5f, display.y - 36.0f + static_cast<float>(line) * 14.0f),
-                IM_COL32(255, 255, 255, 80), lines[line]);
-        }
-    }
-
-    {
-        // Panel de rendimiento y coordenadas (abajo a la derecha, como #performance-panel del juego web)
+    if (m_PerfVisible) {
+        // Panel de rendimiento y coordenadas (#performance-panel): oculto al empezar, F3 o Ajustes lo muestran
         const FrameMetrics::Recent recent = m_Metrics.RecentStats();
         const auto fps = [&](float value) {
             char buffer[24];
@@ -1853,7 +1643,7 @@ void UIManager::RenderHUD(float dt, const glm::vec3& playerPos, Camera& camera, 
             fps(m_Metrics.current).c_str(), m_Paused ? " · pausa" : "", fps(m_Metrics.min).c_str(), fps(m_Metrics.max).c_str(),
             fps(m_Metrics.average).c_str(), m_Metrics.frameMs, recent.frames, recent.p95, recent.p99, recent.low1Percent,
             recent.over100ms, playerPos.x, playerPos.y, playerPos.z, m_EffectiveScale, m_RenderPressure > 0 ? " · bajo presión" : "");
-        ImGui::SetNextWindowPos(ImVec2(ImGui::GetIO().DisplaySize.x - 12.0f, ImGui::GetIO().DisplaySize.y - 48.0f), ImGuiCond_Always, ImVec2(1.0f, 1.0f));
+        ImGui::SetNextWindowPos(ImVec2(ImGui::GetIO().DisplaySize.x - 12.0f, ImGui::GetIO().DisplaySize.y - 78.0f), ImGuiCond_Always, ImVec2(1.0f, 1.0f));
         ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.035f, 0.067f, 0.082f, 0.88f));
         ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(0.33f, 0.47f, 0.42f, 1.0f));
         ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.85f, 0.976f, 0.90f, 1.0f));
@@ -1869,45 +1659,28 @@ void UIManager::RenderHUD(float dt, const glm::vec3& playerPos, Camera& camera, 
         ImGui::PopStyleColor(3);
     }
 
-    ImGui::SetNextWindowPos(ImVec2(ImGui::GetIO().DisplaySize.x - 330, 16), ImGuiCond_FirstUseEver);
-    ImGui::SetNextWindowSize(ImVec2(314, 0), ImGuiCond_FirstUseEver);
-    ImGui::SetNextWindowCollapsed(true, ImGuiCond_FirstUseEver);
-    if (ImGui::Begin("Ajustes de Render & Clima")) {
-        // Controles de ventana
-        if (ImGui::Button(window.IsFullscreen() ? "Modo Ventana [F11]" : "Pantalla Completa [F11]")) {
-            window.ToggleFullscreen();
+    // Panel de depuracion de iluminacion y ventana: solo con BAZUKO_DEBUG_UI=1 (el juego web no lo tiene)
+    static const bool debugUi = std::getenv("BAZUKO_DEBUG_UI") != nullptr;
+    if (debugUi) {
+        ImGui::SetNextWindowPos(ImVec2(ImGui::GetIO().DisplaySize.x - 330, 120), ImGuiCond_FirstUseEver);
+        ImGui::SetNextWindowSize(ImVec2(314, 0), ImGuiCond_FirstUseEver);
+        if (ImGui::Begin("Ajustes de Render & Clima")) {
+            if (ImGui::Button(window.IsFullscreen() ? "Modo Ventana [F11]" : "Pantalla Completa [F11]")) window.ToggleFullscreen();
+            ImGui::SameLine();
+            if (ImGui::Button("Maximizar")) window.Maximize();
+            ImGui::Separator();
+            auto& lighting = renderer.GetLighting();
+            ImGui::SliderFloat("Densidad Niebla", &lighting.fogDensity, 0.001f, 0.06f, "%.3f");
+            ImGui::ColorEdit3("Color Niebla", &lighting.fogColor.r);
+            ImGui::ColorEdit3("Luz Ambiente", &lighting.ambientColor.r);
+            ImGui::ColorEdit3("Color Sol", &lighting.sunColor.r);
+            bool gamma = renderer.GetGammaCorrect();
+            if (ImGui::Checkbox("Iluminación lineal (gamma sRGB)", &gamma)) renderer.SetGammaCorrect(gamma);
+            static bool wireframe = false;
+            if (ImGui::Checkbox("Modo Wireframe", &wireframe)) renderer.SetWireframe(wireframe);
         }
-        ImGui::SameLine();
-        if (ImGui::Button("Maximizar")) {
-            window.Maximize();
-        }
-
-        ImGui::Separator();
-        auto& lighting = renderer.GetLighting();
-        ImGui::SliderFloat("Densidad Niebla", &lighting.fogDensity, 0.001f, 0.06f, "%.3f");
-        ImGui::ColorEdit3("Color Niebla", &lighting.fogColor.r);
-        ImGui::ColorEdit3("Luz Ambiente", &lighting.ambientColor.r);
-        ImGui::ColorEdit3("Color Sol", &lighting.sunColor.r);
-
-        static bool wireframe = false;
-        if (ImGui::Checkbox("Modo Wireframe", &wireframe)) {
-            renderer.SetWireframe(wireframe);
-        }
-
-        ImGui::Separator();
-        ImGui::TextColored(ImVec4(0.95f, 0.70f, 0.20f, 1.0f), "Controles:");
-        ImGui::BulletText("Mouse: Giro 360 continuo (confinado)");
-        ImGui::BulletText("Tab / Esc: Mostrar/Ocultar cursor");
-        ImGui::BulletText("F11: Pantalla completa");
-        ImGui::BulletText("Flechas: Control de vista");
-        ImGui::BulletText("W, A, S, D: Moverse");
-        ImGui::BulletText("Shift: Correr");
-        ImGui::BulletText("V: Tercera Persona / Isometrica");
-        ImGui::BulletText("N: Mostrar / ocultar radar");
-        ImGui::BulletText("Z: Hacer popo · X: Lanzar mojón si tienes uno");
-        ImGui::BulletText("E / Q cerca de peatones: Cosquilleo / robo directo");
+        ImGui::End();
     }
-    ImGui::End();
 }
 
 void UIManager::RenderCambucheMenu(const std::vector<CambuchePieceOption>& pieces, bool hasBase, bool isNight) {
@@ -1917,10 +1690,14 @@ void UIManager::RenderCambucheMenu(const std::vector<CambuchePieceOption>& piece
     Input::SetCursorLocked(false);
 
     using SignUI::Icon;
-    const SignUI::Fonts& fonts = SignUI::GetFonts();
+    SignUI::Fonts fonts = SignUI::GetFonts();   // Overpass como el resto de los menus de lugares del juego web
+    fonts.monoBold14 = SignUI::Ov(true, 15);
+    fonts.monoBold13 = SignUI::Ov(true, 14);
+    fonts.monoBold12 = SignUI::Ov(true, 13);
     const ImVec4 blueText(0.84f, 0.89f, 1.0f, 1.0f);
     SignUI::DrawBackdrop(0.55f);
     bool closeRequested = false;
+    ImGui::PushFont(SignUI::Ov(false, 14));
     if (SignUI::BeginMenu("Cambuche", "Cambuche · Refugio urbano", "Construye tu refugio paso a paso", Icon::Home, &closeRequested)) {
         ImGui::PushStyleColor(ImGuiCol_Text, blueText);
         ImGui::TextWrapped("Acércate a los materiales y recógelos antes de construir.");
@@ -1998,9 +1775,388 @@ void UIManager::RenderCambucheMenu(const std::vector<CambuchePieceOption>& piece
         if (SignUI::PrimaryButton("Cerrar (Esc)")) closeRequested = true;
     }
     SignUI::EndMenu();
+    ImGui::PopFont();
     if (closeRequested) {
         m_CambucheMenuOpen = false;
         Input::SetCursorLocked(true);
+    }
+}
+
+// Mapa grande de la pausa (como MapView del juego web): norte arriba, arrastrar mueve, la rueda acerca, clic marca el destino
+// del GPS y clic derecho lo quita. Pinta el plano con la paleta del original y los bordes de manzana.
+void UIManager::RenderMapView(const glm::vec3& playerPos, const CityLayout& city, const Simulation& simulation, ImVec2 origin, ImVec2 size) {
+    const SignUI::Fonts& fonts = SignUI::GetFonts();
+    namespace W = SignUI::Web;
+    {
+        ImDrawList* draw = ImGui::GetWindowDrawList();
+        constexpr float sideWidth = 250.0f;
+        // lienzo .map-view__canvas: alto = clamp(260, alto de la ventana - 290, 560)
+        const float canvasHeight = std::clamp(size.y - 76.0f, 260.0f, 560.0f);
+        const ImVec2 canvasMin(origin.x, origin.y);
+        const ImVec2 canvasMax(origin.x + size.x - sideWidth - 12.0f, origin.y + canvasHeight);
+        const float canvasWidth = canvasMax.x - canvasMin.x;
+
+        const float worldWidth = CityLayout::WIDTH * CityLayout::TILE_SIZE;
+        const float worldHeight = CityLayout::HEIGHT * CityLayout::TILE_SIZE;
+        const float fitZoom = std::min(canvasWidth / worldWidth, canvasHeight / worldHeight) * 0.97f;
+        const glm::vec2 cityCenter(worldWidth * 0.5f - CityLayout::ORIGIN_X, worldHeight * 0.5f - CityLayout::ORIGIN_Z);
+        if (m_MapZoom <= 0.0f) m_MapZoom = std::max(fitZoom, 2.2f);   // abre acercado a la zona del jugador (2,2 px/m como el original)
+        if (m_MapNeedsCenter) { m_MapCenter = {playerPos.x, playerPos.z}; m_MapNeedsCenter = false; }
+        m_MapZoom = std::clamp(m_MapZoom, fitZoom, 9.0f);
+        const auto toScreen = [&](float x, float z) {
+            return ImVec2((canvasMin.x + canvasMax.x) * 0.5f + (x - m_MapCenter.x) * m_MapZoom, (canvasMin.y + canvasMax.y) * 0.5f + (z - m_MapCenter.y) * m_MapZoom);
+        };
+        const auto toWorld = [&](const ImVec2& p) {
+            return glm::vec2(m_MapCenter.x + (p.x - (canvasMin.x + canvasMax.x) * 0.5f) / m_MapZoom, m_MapCenter.y + (p.y - (canvasMin.y + canvasMax.y) * 0.5f) / m_MapZoom);
+        };
+
+        // interaccion sobre el lienzo
+        ImGui::SetCursorScreenPos(canvasMin);
+        ImGui::InvisibleButton("##mapa", ImVec2(canvasWidth, canvasHeight), ImGuiButtonFlags_MouseButtonLeft | ImGuiButtonFlags_MouseButtonRight);
+        const bool hovered = ImGui::IsItemHovered();
+        ImGuiIO& io = ImGui::GetIO();
+        if (hovered && std::abs(io.MouseWheel) > 0.01f) {   // el zoom conserva el punto bajo el cursor
+            const glm::vec2 before = toWorld(io.MousePos);
+            m_MapZoom = std::clamp(m_MapZoom * (io.MouseWheel > 0.0f ? 1.18f : 1.0f / 1.18f), fitZoom, 9.0f);
+            const glm::vec2 after = toWorld(io.MousePos);
+            m_MapCenter += before - after;
+        }
+        const bool dragging = ImGui::IsItemActive() && ImGui::IsMouseDragging(ImGuiMouseButton_Left, 4.0f);
+        if (dragging) m_MapCenter -= glm::vec2(io.MouseDelta.x, io.MouseDelta.y) / m_MapZoom;
+
+        draw->PushClipRect(canvasMin, canvasMax, true);
+        draw->AddRectFilled(canvasMin, canvasMax, IM_COL32(11, 13, 17, 255));   // #0b0d11
+        // Paleta del original (MAP_COLORS de CityMapRaster.js)
+        const auto colorOf = [](char code) -> ImU32 {
+            switch (code) {
+                case 'r': return IM_COL32(0x24, 0x27, 0x2d, 255);   // calle
+                case 'B': return IM_COL32(0x5b, 0x2c, 0x31, 255);   // carril exclusivo
+                case 's': return IM_COL32(0x6b, 0x6e, 0x72, 255);   // anden
+                case 'f': return IM_COL32(0x58, 0x5c, 0x61, 255);   // piso
+                case 'p': return IM_COL32(0x77, 0x73, 0x6a, 255);   // plaza
+                case 'd': return IM_COL32(0x5d, 0x4b, 0x37, 255);   // tierra
+                case 'g': return IM_COL32(0x2f, 0x5b, 0x35, 255);   // pasto
+                case 'W': return IM_COL32(0x1e, 0x5a, 0x86, 255);   // agua
+                case 'R': return IM_COL32(0x4a, 0x40, 0x38, 255);   // ruina
+                case 'w': return IM_COL32(0x15, 0x17, 0x1b, 255);   // muro
+                case 'S': return IM_COL32(0x2c, 0x6b, 0x4b, 255);   // tienda D69
+                case 'C': return IM_COL32(0x8a, 0x6d, 0x22, 255);   // torre Colpatria
+                case 'A': return IM_COL32(0x6f, 0x6a, 0x5e, 255);   // anexo de Colpatria
+                case 'M': return IM_COL32(0x45, 0x4b, 0x56, 255);   // edificio pequeno
+                default: return IM_COL32(0x3b, 0x41, 0x4c, 255);    // edificio
+            }
+        };
+        const auto isSolid = [](char code) { return code != 'r' && code != 'B' && code != 's' && code != 'f' && code != 'p' && code != 'd' && code != 'g' && code != 'W'; };
+        const glm::vec2 topLeft = toWorld(canvasMin), bottomRight = toWorld(canvasMax);
+        const int tx0 = std::max(0, static_cast<int>(std::floor((topLeft.x + CityLayout::ORIGIN_X) / CityLayout::TILE_SIZE)));
+        const int tx1 = std::min(CityLayout::WIDTH - 1, static_cast<int>(std::floor((bottomRight.x + CityLayout::ORIGIN_X) / CityLayout::TILE_SIZE)));
+        const int tz0 = std::max(0, static_cast<int>(std::floor((topLeft.y + CityLayout::ORIGIN_Z) / CityLayout::TILE_SIZE)));
+        const int tz1 = std::min(CityLayout::HEIGHT - 1, static_cast<int>(std::floor((bottomRight.y + CityLayout::ORIGIN_Z) / CityLayout::TILE_SIZE)));
+        const float tilePixels = CityLayout::TILE_SIZE * m_MapZoom;
+        const float edge = std::max(1.0f, tilePixels * 0.25f);   // 1 de 4 px por casilla, como el plano del original
+        for (int z = tz0; z <= tz1; ++z) {
+            for (int x = tx0; x <= tx1; ++x) {
+                char code = city.GetMapCode(x, z);
+                if (code == 'W') code = 'g';   // el agua se dibuja aparte como elipse suave, sin escalones
+                const ImVec2 a = toScreen(x * CityLayout::TILE_SIZE - CityLayout::ORIGIN_X, z * CityLayout::TILE_SIZE - CityLayout::ORIGIN_Z);
+                const ImVec2 b(a.x + tilePixels + 0.6f, a.y + tilePixels + 0.6f);
+                draw->AddRectFilled(a, b, colorOf(code));
+                if (!isSolid(code)) continue;
+                // bordes de manzana: claro arriba y a la izquierda, oscuro abajo y a la derecha
+                const ImU32 light = IM_COL32(255, 255, 255, 23), dark = IM_COL32(0, 0, 0, 64);
+                if (!isSolid(city.GetMapCode(x, z - 1))) draw->AddRectFilled(a, ImVec2(b.x, a.y + edge), light);
+                if (!isSolid(city.GetMapCode(x - 1, z))) draw->AddRectFilled(a, ImVec2(a.x + edge, b.y), light);
+                if (!isSolid(city.GetMapCode(x, z + 1))) draw->AddRectFilled(ImVec2(a.x, b.y - edge), b, dark);
+                if (!isSolid(city.GetMapCode(x + 1, z))) draw->AddRectFilled(ImVec2(b.x - edge, a.y), b, dark);
+            }
+        }
+        {   // lago: elipse exacta (la misma que el agua del juego) con su orilla; el carril del puente se repinta encima
+            constexpr int kSegments = 72;
+            std::vector<ImVec2> shore;
+            for (int i = 0; i < kSegments; ++i) {
+                const float a = glm::two_pi<float>() * static_cast<float>(i) / static_cast<float>(kSegments);
+                shore.push_back(toScreen(CityLayout::kLakeX + CityLayout::kLakeRadiusX * std::cos(a), CityLayout::kLakeZ + CityLayout::kLakeRadiusZ * std::sin(a)));
+            }
+            draw->AddConvexPolyFilled(shore.data(), kSegments, colorOf('W'));
+            draw->AddPolyline(shore.data(), kSegments, IM_COL32(0x4c, 0x86, 0xa8, 140), ImDrawFlags_Closed, std::max(1.0f, 0.5f * m_MapZoom));
+            const int bz0 = static_cast<int>(std::floor((CityLayout::kLakeZ - CityLayout::kLakeRadiusZ - 2.0f + CityLayout::ORIGIN_Z) / CityLayout::TILE_SIZE));
+            const int bz1 = static_cast<int>(std::floor((CityLayout::kLakeZ + CityLayout::kLakeRadiusZ + 2.0f + CityLayout::ORIGIN_Z) / CityLayout::TILE_SIZE));
+            const int bx0 = static_cast<int>(std::floor((CityLayout::kLakeX - CityLayout::kLakeRadiusX + CityLayout::ORIGIN_X) / CityLayout::TILE_SIZE));
+            const int bx1 = static_cast<int>(std::floor((CityLayout::kLakeX + CityLayout::kLakeRadiusX + CityLayout::ORIGIN_X) / CityLayout::TILE_SIZE));
+            for (int z = std::max(bz0, tz0); z <= std::min(bz1, tz1); ++z)
+                for (int x = std::max(bx0, tx0); x <= std::min(bx1, tx1); ++x) {
+                    const char code = city.GetMapCode(x, z);
+                    if (code != 'B' && code != 'p') continue;
+                    const ImVec2 a = toScreen(x * CityLayout::TILE_SIZE - CityLayout::ORIGIN_X, z * CityLayout::TILE_SIZE - CityLayout::ORIGIN_Z);
+                    draw->AddRectFilled(a, ImVec2(a.x + tilePixels + 0.6f, a.y + tilePixels + 0.6f), colorOf(code));
+                }
+        }
+        // tablero del viaducto: franja translucida sobre la calle inferior
+        {
+            std::vector<ImVec2> deck;
+            for (float z = Viaduct::kStartZ; z <= Viaduct::kEndZ; z += 2.0f) deck.push_back(toScreen(Viaduct::BridgeCenter(z), z));
+            if (deck.size() > 1) draw->AddPolyline(deck.data(), static_cast<int>(deck.size()), IM_COL32(205, 210, 220, 82), ImDrawFlags_RoundCornersAll, Viaduct::kHalfWidth * 2.0f * m_MapZoom);
+        }
+        // nombres de vias (solo con espacio para leerlos): carreras, Caracas y calles
+        if (m_MapZoom > 1.1f) {
+            const auto upper = [](std::string text) { for (char& c : text) c = static_cast<char>(std::toupper(static_cast<unsigned char>(c))); return text; };
+            const auto& data = city.GetData();
+            const auto labelColor = IM_COL32(214, 228, 255, 190);
+            const ImVec2 cityTop = toScreen(0.0f, -CityLayout::ORIGIN_Z), cityBottom = toScreen(0.0f, worldHeight - CityLayout::ORIGIN_Z);
+            const ImVec2 cityLeft = toScreen(-CityLayout::ORIGIN_X, 0.0f), cityRight = toScreen(worldWidth - CityLayout::ORIGIN_X, 0.0f);
+            const auto vertical = [&](const std::string& name, float worldX) {
+                const ImVec2 at = toScreen(worldX, 0.0f);
+                if (at.x < canvasMin.x + 20.0f || at.x > canvasMax.x - 20.0f) return;
+                const float y = std::min(std::max((canvasMin.y + canvasMax.y) * 0.5f - canvasHeight * 0.2f, cityTop.y + 50.0f), cityBottom.y - 50.0f);
+                const std::string text = upper(name);
+                const ImVec2 extent = fonts.monoBold12->CalcTextSizeA(12.0f, FLT_MAX, 0.0f, text.c_str());
+                // ImGui no gira texto: las letras se apilan de arriba hacia abajo, una bajo otra
+                float cursor = y - 6.0f * static_cast<float>(text.size()) * 0.5f;
+                for (char c : text) {
+                    const char glyph[2] = {c, 0};
+                    draw->AddText(fonts.monoBold12, 12.0f, ImVec2(at.x - 3.5f, cursor), labelColor, glyph);
+                    cursor += 11.0f;
+                }
+            };
+            const auto horizontal = [&](const std::string& name, float worldZ) {
+                const ImVec2 at = toScreen(0.0f, worldZ);
+                if (at.y < canvasMin.y + 20.0f || at.y > canvasMax.y - 20.0f) return;
+                const float x = std::min(std::max((canvasMin.x + canvasMax.x) * 0.5f - canvasWidth * 0.2f, cityLeft.x + 50.0f), cityRight.x - 50.0f);
+                const std::string text = upper(name);
+                const ImVec2 extent = fonts.monoBold12->CalcTextSizeA(12.0f, FLT_MAX, 0.0f, text.c_str());
+                draw->AddText(fonts.monoBold12, 12.0f, ImVec2(x - extent.x * 0.5f, at.y - 6.0f), labelColor, text.c_str());
+            };
+            for (size_t i = 0; i < data.carreras.size() && i < data.carrerasNames.size(); ++i)
+                vertical(data.carrerasNames[i], static_cast<float>(data.carreras[i].first + data.carreras[i].last) * 0.5f * CityLayout::TILE_SIZE);
+            if (data.caracasLanes.size() >= 2)
+                vertical("Av. Caracas", static_cast<float>(data.caracasLanes[0].first + data.caracasLanes[1].last) * 0.5f * CityLayout::TILE_SIZE);
+            for (size_t i = 0; i < data.calles.size() && i < data.callesNames.size(); ++i)
+                horizontal(data.callesNames[i], static_cast<float>(data.calles[i].first + data.calles[i].last) * 0.5f * CityLayout::TILE_SIZE);
+        }
+        // ruta: trazo negro de 7 px con el amarillo de 4 px encima
+        if (m_GpsView.active && m_GpsView.route.size() > 1) {
+            std::vector<ImVec2> line;
+            for (const glm::vec2& point : m_GpsView.route) line.push_back(toScreen(point.x, point.y));
+            draw->AddPolyline(line.data(), static_cast<int>(line.size()), IM_COL32(0, 0, 0, 178), ImDrawFlags_RoundCornersAll, 7.0f);
+            draw->AddPolyline(line.data(), static_cast<int>(line.size()), IM_COL32(246, 196, 0, 255), ImDrawFlags_RoundCornersAll, 4.0f);
+        }
+        // lugares: circulo oscuro con el borde de su color y un icono
+        struct Place { std::string name; glm::vec3 position; ImU32 color; SignUI::Icon icon; };
+        std::vector<Place> places{
+            {"Cambuche", simulation.GetCambuchePosition(), IM_COL32(255, 209, 102, 255), SignUI::Icon::Home},
+            {"Recicladora", simulation.GetRecyclerPosition(), IM_COL32(42, 183, 202, 255), SignUI::Icon::Bag},
+            {"Dealer", simulation.GetDealerPosition(), IM_COL32(155, 89, 182, 255), SignUI::Icon::Pill},
+        };
+        for (const auto& landmark : city.GetLandmarks()) {
+            if (landmark.name == "Pasarela") continue;
+            ImU32 color = IM_COL32(228, 89, 96, 255);
+            SignUI::Icon icon = SignUI::Icon::Compass;
+            if (landmark.name == "Gasolinera") { color = IM_COL32(0xf2, 0x5b, 0x5b, 255); icon = SignUI::Icon::Flame; }
+            else if (landmark.name == "Torre Colpatria") { color = IM_COL32(0xff, 0xcb, 0x45, 255); icon = SignUI::Icon::Star; }
+            else if (landmark.name == "Parque del Lago") { color = IM_COL32(0x5e, 0xd4, 0xdc, 255); icon = SignUI::Icon::Drop; }
+            else if (landmark.name == "Tienda D69") { color = IM_COL32(0x3c, 0xc4, 0x7c, 255); icon = SignUI::Icon::Bag; }
+            places.push_back({landmark.name, landmark.position, color, icon});
+        }
+        const Place* hoveredPlace = nullptr;
+        for (const Place& place : places) {
+            const ImVec2 at = toScreen(place.position.x, place.position.z);
+            if (at.x < canvasMin.x - 20.0f || at.y < canvasMin.y - 20.0f || at.x > canvasMax.x + 20.0f || at.y > canvasMax.y + 20.0f) continue;
+            const bool big = hovered && std::hypot(io.MousePos.x - at.x, io.MousePos.y - at.y) < 14.0f;
+            if (big) hoveredPlace = &place;
+            const float radius = big ? 12.0f : 10.0f;
+            draw->AddCircleFilled(at, radius, IM_COL32(14, 15, 18, 217), 24);
+            draw->AddCircle(at, radius, place.color, 24, 2.0f);
+            SignUI::DrawIcon(draw, place.icon, at, 12.0f);
+            if (big || m_MapZoom > 3.5f) {   // etiqueta sobre el lugar al pasar el cursor o con mucho zoom
+                const ImVec2 extent = fonts.monoBold12->CalcTextSizeA(12.0f, FLT_MAX, 0.0f, place.name.c_str());
+                const ImVec2 tag(at.x - extent.x * 0.5f, at.y - 18.0f - extent.y);
+                draw->AddRectFilled(ImVec2(tag.x - 5.0f, tag.y - 2.0f), ImVec2(tag.x + extent.x + 5.0f, tag.y + extent.y + 2.0f), IM_COL32(14, 15, 18, 230), 3.0f);
+                draw->AddText(fonts.monoBold12, 12.0f, tag, IM_COL32(245, 245, 245, 255), place.name.c_str());
+            }
+        }
+        // destino: alfiler amarillo con centro oscuro
+        if (m_GpsView.active) {
+            const ImVec2 tip = toScreen(m_GpsView.waypoint.x, m_GpsView.waypoint.y);
+            const ImVec2 head(tip.x, tip.y - 14.0f);
+            draw->AddTriangleFilled(tip, ImVec2(head.x - 7.0f, head.y + 3.0f), ImVec2(head.x + 7.0f, head.y + 3.0f), IM_COL32(246, 196, 0, 255));
+            draw->AddCircleFilled(head, 9.0f, IM_COL32(246, 196, 0, 255), 24);
+            draw->AddCircle(head, 9.0f, IM_COL32(14, 15, 18, 255), 24, 2.0f);
+            draw->AddCircleFilled(head, 3.2f, IM_COL32(14, 15, 18, 255), 12);
+        }
+        // jugador: flecha hacia donde mira la camara, con halo azul
+        {
+            const ImVec2 me = toScreen(playerPos.x, playerPos.z);
+            glm::vec2 facing(playerPos.x - m_CameraPosition.x, playerPos.z - m_CameraPosition.z);
+            facing = glm::length(facing) > 0.01f ? glm::normalize(facing) : glm::vec2(0.0f, -1.0f);
+            const glm::vec2 side(-facing.y, facing.x);
+            const auto at = [&](float forward, float lateral) { return ImVec2(me.x + facing.x * forward + side.x * lateral, me.y + facing.y * forward + side.y * lateral); };
+            draw->AddCircleFilled(me, 13.0f, IM_COL32(11, 79, 163, 89), 24);
+            const ImVec2 arrow[4] = {at(10.0f, 0.0f), at(-7.0f, 7.0f), at(-3.0f, 0.0f), at(-7.0f, -7.0f)};
+            draw->AddConvexPolyFilled(arrow, 4, IM_COL32(255, 255, 255, 255));
+            draw->AddPolyline(arrow, 4, IM_COL32(11, 79, 163, 255), ImDrawFlags_Closed, 2.0f);
+        }
+        draw->PopClipRect();
+        draw->AddRect(canvasMin, canvasMax, IM_COL32(14, 15, 18, 255), 8.0f, 0, 3.0f);
+
+        // leyenda (arriba a la izquierda), herramientas (arriba a la derecha) y ayuda (abajo), como .map-view__legend / __tools / __hint
+        {
+            struct Entry { const char* name; ImU32 color; };
+            static const std::array<Entry, 6> legend{{{"Andén", IM_COL32(0x6b, 0x6e, 0x72, 255)}, {"Calle", IM_COL32(0x24, 0x27, 0x2d, 255)}, {"Parque", IM_COL32(0x2f, 0x5b, 0x35, 255)},
+                                                      {"Agua", IM_COL32(0x1e, 0x5a, 0x86, 255)}, {"Edificio", IM_COL32(0x3b, 0x41, 0x4c, 255)}, {"Ruta", IM_COL32(246, 196, 0, 255)}}};
+            ImFont* legendFont = SignUI::Ov(true, 11);
+            float total = 20.0f;
+            for (const Entry& entry : legend) total += 15.0f + W::TextWidth(legendFont, entry.name) + 10.0f;
+            const ImVec2 legendMin(canvasMin.x + 10.0f, canvasMin.y + 10.0f);
+            draw->AddRectFilled(legendMin, legendMin + ImVec2(total - 6.0f, 25.0f), IM_COL32(14, 15, 18, 204), 7.0f);
+            float x = legendMin.x + 10.0f;
+            for (const Entry& entry : legend) {
+                const bool route = std::string(entry.name) == "Ruta";
+                if (route) draw->AddRectFilled(ImVec2(x, legendMin.y + 10.0f), ImVec2(x + 10.0f, legendMin.y + 14.0f), entry.color, 2.0f);
+                else {
+                    draw->AddRectFilled(ImVec2(x, legendMin.y + 7.0f), ImVec2(x + 10.0f, legendMin.y + 17.0f), entry.color, 3.0f);
+                    draw->AddRect(ImVec2(x, legendMin.y + 7.0f), ImVec2(x + 10.0f, legendMin.y + 17.0f), IM_COL32(255, 255, 255, 90), 3.0f);
+                }
+                W::Text(draw, legendFont, ImVec2(x + 15.0f, legendMin.y + 5.5f), IM_COL32(255, 255, 255, 255), entry.name);
+                x += 15.0f + W::TextWidth(legendFont, entry.name) + 10.0f;
+            }
+            // herramientas: norte, acercar, alejar, centrar en el jugador y ver toda la ciudad
+            const float toolX = canvasMax.x - 10.0f - 32.0f;
+            draw->AddCircleFilled(ImVec2(toolX + 16.0f, canvasMin.y + 10.0f + 16.0f), 16.0f, IM_COL32(14, 15, 18, 217), 24);
+            draw->AddCircle(ImVec2(toolX + 16.0f, canvasMin.y + 10.0f + 16.0f), 16.0f, IM_COL32(255, 255, 255, 64), 24, 1.0f);
+            {
+                const ImVec2 c(toolX + 16.0f, canvasMin.y + 26.0f);
+                draw->AddTriangleFilled(ImVec2(c.x, c.y - 11.0f), ImVec2(c.x - 4.0f, c.y - 4.0f), ImVec2(c.x + 4.0f, c.y - 4.0f), IM_COL32(246, 196, 0, 255));
+                W::Text(draw, SignUI::Ov(true, 12), ImVec2(c.x - 4.0f, c.y - 3.0f), IM_COL32(255, 255, 255, 255), "N");
+            }
+            struct Tool { const char* id; SignUI::Icon icon; };
+            static const std::array<Tool, 4> tools{{{"acercar", SignUI::Icon::Plus}, {"alejar", SignUI::Icon::Minus}, {"centrar", SignUI::Icon::Target}, {"ciudad", SignUI::Icon::Expand}}};
+            for (size_t i = 0; i < tools.size(); ++i) {
+                const ImVec2 min(toolX, canvasMin.y + 10.0f + 36.0f + static_cast<float>(i) * 36.0f);
+                ImGui::SetCursorScreenPos(min);
+                ImGui::PushID(tools[i].id);
+                const bool pressed = ImGui::InvisibleButton("##herramienta", ImVec2(32.0f, 32.0f));
+                ImGui::PopID();
+                const bool over = ImGui::IsItemHovered();
+                draw->AddRectFilled(min, min + ImVec2(32, 32), over ? IM_COL32(246, 196, 0, 255) : IM_COL32(14, 15, 18, 217), 7.0f);
+                draw->AddRect(min, min + ImVec2(32, 32), IM_COL32(255, 255, 255, 64), 7.0f);
+                SignUI::DrawIcon(draw, tools[i].icon, min + ImVec2(16, 16), 17.0f);
+                if (pressed) {
+                    if (i == 0) m_MapZoom = std::clamp(m_MapZoom * 1.35f, fitZoom, 9.0f);
+                    else if (i == 1) m_MapZoom = std::clamp(m_MapZoom / 1.35f, fitZoom, 9.0f);
+                    else if (i == 2) m_MapCenter = {playerPos.x, playerPos.z};
+                    else { m_MapZoom = fitZoom; m_MapCenter = cityCenter; }
+                }
+            }
+            // ayuda: teclas blancas sobre el lienzo
+            ImFont* hintFont = SignUI::Ov(true, 12);
+            float hx = canvasMin.x + 10.0f;
+            const float hy = canvasMax.y - 28.0f;
+            const std::array<std::pair<const char*, const char*>, 3> hints{{{"Clic", "marcar"}, {"Clic der.", "quitar"}, {"Rueda", "zoom"}}};
+            for (const auto& [key, text] : hints) {
+                const float keyWidth = W::TextWidth(hintFont, key) + 14.0f;
+                draw->AddRectFilled(ImVec2(hx, hy + 1.0f), ImVec2(hx + keyWidth, hy + 21.0f), IM_COL32(154, 163, 181, 255), 5.0f);
+                draw->AddRectFilled(ImVec2(hx, hy + 1.0f), ImVec2(hx + keyWidth, hy + 18.0f), IM_COL32(255, 255, 255, 255), 5.0f);
+                W::Text(draw, hintFont, ImVec2(hx + 7.0f, hy + 3.5f), W::kInk, key);
+                const float textWidth = W::Text(draw, hintFont, ImVec2(hx + keyWidth + 6.0f, hy + 3.5f), IM_COL32(255, 255, 255, 255), text);
+                hx += keyWidth + 6.0f + textWidth + 14.0f;
+            }
+        }
+
+        // clic: marca destino (sobre un lugar usa su nombre); clic derecho: lo quita
+        if (hovered && ImGui::IsMouseReleased(ImGuiMouseButton_Left) && !dragging && ImGui::GetMouseDragDelta(ImGuiMouseButton_Left, 4.0f).x == 0.0f
+            && ImGui::GetMouseDragDelta(ImGuiMouseButton_Left, 4.0f).y == 0.0f) {
+            const glm::vec2 target = hoveredPlace ? glm::vec2(hoveredPlace->position.x, hoveredPlace->position.z) : toWorld(io.MousePos);
+            m_GpsSetPending = true;
+            m_GpsSetPosition = target;
+            m_GpsSetName = hoveredPlace ? hoveredPlace->name : "Punto marcado";
+        }
+        if (hovered && ImGui::IsMouseClicked(ImGuiMouseButton_Right)) m_GpsClearRequest = true;
+        {
+            const glm::vec2 cursor = hovered ? toWorld(io.MousePos) : glm::vec2(m_MapCenter.x, m_MapCenter.y);
+            char coords[64];
+            std::snprintf(coords, sizeof(coords), "X %.0f  Z %.0f", cursor.x, cursor.y);
+            ImFont* coordFont = SignUI::Ov(true, 12);
+            const float width = W::TextWidth(coordFont, coords);
+            W::Text(draw, coordFont, ImVec2(canvasMax.x - width - 10.0f, canvasMax.y - 24.0f), IM_COL32(214, 228, 255, 255), coords);
+        }
+
+        // columna derecha: destino actual y lugares, del mas cercano al mas lejano
+        const float sideX = canvasMax.x + 12.0f;
+        ImGui::SetCursorScreenPos(ImVec2(sideX, canvasMin.y));
+        ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(0.0f, 10.0f));
+        ImGui::BeginGroup();
+        {
+            const bool hasDestination = m_GpsView.active;
+            const float boxHeight = hasDestination ? 112.0f : 66.0f;
+            if (W::BeginPanel("##destino", sideWidth, boxHeight, ImVec2(12.0f, 10.0f), !hasDestination)) {
+                ImDrawList* d = ImGui::GetWindowDrawList();
+                const ImVec2 at = ImGui::GetCursorScreenPos();
+                W::Text(d, SignUI::Ov(true, 11), at, IM_COL32(246, 196, 0, 255), hasDestination ? "DESTINO" : "SIN DESTINO", 1.1f);
+                if (hasDestination) {
+                    W::Text(d, SignUI::Ov(true, 16), at + ImVec2(0, 17), IM_COL32(255, 255, 255, 255), m_GpsView.name.c_str());
+                    char meta[48];
+                    if (m_GpsView.distance >= 1000.0f) std::snprintf(meta, sizeof(meta), "%.1f km a pie", m_GpsView.distance / 1000.0f);
+                    else std::snprintf(meta, sizeof(meta), "%.0f m a pie", m_GpsView.distance);
+                    W::Text(d, SignUI::Ov(true, 13), at + ImVec2(0, 40), IM_COL32(214, 228, 255, 255), meta);
+                    ImGui::SetCursorScreenPos(at + ImVec2(0, 58));
+                    if (W::Button("quitarDestino", "Quitar destino", SignUI::Icon::None, false, false, 32.0f, 12)) m_GpsClearRequest = true;
+                } else {
+                    d->AddText(SignUI::Ov(true, 13), SignUI::Ov(true, 13)->FontSize, at + ImVec2(0, 17), IM_COL32(214, 228, 255, 255), "Haz clic en el mapa o elige un lugar.", nullptr, sideWidth - 28.0f);
+                }
+            }
+            W::EndPanel();
+        }
+        ImGui::Dummy(ImVec2(0, -6.0f));
+        W::Text(ImGui::GetWindowDrawList(), SignUI::Ov(true, 12), ImGui::GetCursorScreenPos(), IM_COL32(214, 228, 255, 255), "IR A... (MÁS CERCA PRIMERO)", 1.2f);
+        ImGui::Dummy(ImVec2(1, 14.0f));
+        std::vector<const Place*> ordered;
+        for (const Place& place : places) ordered.push_back(&place);
+        const glm::vec2 here(playerPos.x, playerPos.z);
+        std::sort(ordered.begin(), ordered.end(), [&](const Place* a, const Place* b) {
+            return glm::distance(here, glm::vec2(a->position.x, a->position.z)) < glm::distance(here, glm::vec2(b->position.x, b->position.z));
+        });
+        const float listHeight = canvasMax.y - ImGui::GetCursorScreenPos().y;
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
+        ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(0.0f, 4.0f));
+        ImGui::BeginChild("##lugares", ImVec2(sideWidth, listHeight), ImGuiChildFlags_None, ImGuiWindowFlags_None);
+        ImGui::PopStyleVar(2);
+        {
+            int placeId = 0;
+            for (const Place* place : ordered) {
+                ImGui::PushID(placeId++);
+                const float distance = glm::distance(here, glm::vec2(place->position.x, place->position.z));
+                const bool active = m_GpsView.active && m_GpsView.name == place->name;
+                const float rowWidth = sideWidth - 12.0f;
+                const bool pressed = ImGui::InvisibleButton("##lugar", ImVec2(rowWidth, 40.0f));
+                const bool over = ImGui::IsItemHovered();
+                ImDrawList* d = ImGui::GetWindowDrawList();
+                const ImVec2 min = ImGui::GetItemRectMin(), max = ImGui::GetItemRectMax();
+                d->AddRectFilled(min, max, active ? IM_COL32(246, 196, 0, 41) : IM_COL32(255, 255, 255, over ? 36 : 15), 6.0f);
+                d->AddRect(min, max, active ? IM_COL32(246, 196, 0, 255) : IM_COL32(0, 0, 0, 0), 6.0f, 0, 2.0f);
+                const ImVec2 iconCenter(min.x + 22.0f, (min.y + max.y) * 0.5f);
+                d->AddCircleFilled(iconCenter, 13.0f, W::kCarcasa, 22);
+                d->AddCircle(iconCenter, 13.0f, place->color, 22, 2.0f);
+                SignUI::DrawIcon(d, place->icon, iconCenter, 13.0f);
+                W::Text(d, SignUI::Ov(true, 14), ImVec2(min.x + 44.0f, (min.y + max.y) * 0.5f - 8.0f), IM_COL32(255, 255, 255, 255), place->name.c_str());
+                char label[32];
+                if (distance >= 1000.0f) std::snprintf(label, sizeof(label), "%.1fkm", distance / 1000.0f);
+                else std::snprintf(label, sizeof(label), "%.0fm", distance);
+                const float labelWidth = W::TextWidth(SignUI::Ov(true, 12), label);
+                W::Text(d, SignUI::Ov(true, 12), ImVec2(max.x - labelWidth - 10.0f, (min.y + max.y) * 0.5f - 7.0f), IM_COL32(214, 228, 255, 255), label);
+                if (pressed) {
+                    m_GpsSetPending = true;
+                    m_GpsSetPosition = {place->position.x, place->position.z};
+                    m_GpsSetName = place->name;
+                    m_MapCenter = {place->position.x, place->position.z};
+                }
+                ImGui::PopID();
+            }
+        }
+        ImGui::EndChild();
+        ImGui::EndGroup();
+        ImGui::PopStyleVar();
+        ImGui::SetCursorScreenPos(ImVec2(origin.x, canvasMax.y + 1.0f));
+        ImGui::Dummy(ImVec2(1.0f, 1.0f));
     }
 }
 

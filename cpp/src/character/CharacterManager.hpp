@@ -3,6 +3,7 @@
 #include "../renderer/Model.hpp"
 #include "../renderer/Mesh.hpp"
 #include "../renderer/Renderer.hpp"
+#include <array>
 #include <functional>
 #include <memory>
 #include <string>
@@ -22,7 +23,23 @@ public:
     const CharacterLook& GetLook() const { return m_Look; }
 
     void Draw(Renderer& renderer, const glm::mat4& playerTransform, float animTime, bool moving, bool isRunning,
-              int animationClipOverride = -1);
+              int animationClipOverride = -1, int blendClip = -1, float blendWeight = 0.0f,
+              const std::vector<Model::BoneTurn>* turns = nullptr);   // turns: giros de huesos por codigo (brazada de nado)
+    // Clips de animacion por nombre (Jump, Kick, PunchJab, PunchCross, FightIdle, KnifeIdle, KnifeSlash, KnifeStab, CrouchWalk,
+    // IdleRelaxed...), su duracion en segundos y la matriz de una mano en la pose indicada (para sostener objetos)
+    int FindClip(const std::string& name) const { return m_Body ? m_Body->FindAnimationClip(name) : -1; }
+    float ClipDuration(int clip) const { return m_Body ? m_Body->GetAnimationClipDuration(clip) : 0.0f; }
+    // Mezcla caminar/correr para que la zancada coincida con `speed` (m/s): peso de correr (0..1) y ciclos por segundo.
+    // Mezclar posturas no mezcla la zancada linealmente, por eso se mide (como locomotionBlend del juego web).
+    struct LocomotionBlend { float run = 0.0f; float rate = 1.0f; bool valid = false; };
+    LocomotionBlend ComputeLocomotion(float speed) const;
+    int GetWalkClip() const { return m_WalkClip; }
+    int GetRunClip() const { return m_RunClip; }
+    float GetWalkDuration() const { return m_WalkDuration; }
+    glm::mat4 HandMatrix(const glm::mat4& playerTransform, float animTime, int clip, bool rightHand) const {
+        if (!m_Body) return playerTransform;
+        return glm::scale(playerTransform, glm::vec3(1.08f)) * m_Body->GetNodeWorld(rightHand ? "RightHand" : "LeftHand", animTime, clip >= 0, clip);
+    }
     int GetKnockdownAnimationClip(bool recovering) const {
         if (recovering && m_CrouchClip >= 0) return m_CrouchClip;
         if (m_SearchClip >= 0) return m_SearchClip;
@@ -60,6 +77,10 @@ private:
     std::shared_ptr<Mesh> m_FallbackBody;
     std::shared_ptr<Mesh> m_FallbackHead;
 
+    // Velocidad (m/s del mundo) a la que avanza el pie apoyado al reproducir un clip a su ritmo natural; 0 = no medible
+    float MeasureStride(float runShare) const;
+    std::array<float, 5> m_Strides{};   // zancada (m del mundo por ciclo) con 0, 25, 50, 75 y 100 % de correr
+    float m_WalkDuration = 0.0f, m_RunDuration = 0.0f;
     int m_WalkClip = -1;
     int m_RunClip = -1;
     int m_IdleClip = -1;

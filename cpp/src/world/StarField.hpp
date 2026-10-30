@@ -10,6 +10,7 @@
 #include <glm/gtc/matrix_transform.hpp>
 #include "../renderer/Mesh.hpp"
 #include "../renderer/Renderer.hpp"
+#include "Atmosphere.hpp"
 
 namespace Bazuko {
 
@@ -45,6 +46,45 @@ public:
             indices.insert(indices.end(), {base, base + 1, base + 2, base + 2, base + 3, base});
         }
         m_Mesh = std::make_shared<Mesh>(vertices, indices);
+        // disco unitario (32 lados) para el sol y la luna; mira a +Z
+        std::vector<Vertex> disc;
+        std::vector<uint32_t> discIndices;
+        disc.push_back({{0.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 1.0f}, {0.5f, 0.5f}, {1.0f, 1.0f, 1.0f, 1.0f}});
+        for (int i = 0; i <= 32; ++i) {
+            const float angle = static_cast<float>(i) / 32.0f * 6.2831853f;
+            disc.push_back({{std::cos(angle), std::sin(angle), 0.0f}, {0.0f, 0.0f, 1.0f}, {0.5f, 0.5f}, {1.0f, 1.0f, 1.0f, 1.0f}});
+            if (i > 0) discIndices.insert(discIndices.end(), {0u, static_cast<uint32_t>(i), static_cast<uint32_t>(i + 1)});
+        }
+        m_Disc = std::make_shared<Mesh>(disc, discIndices);
+    }
+
+    // Sol y luna sobre la boveda: direcciones hacia cada astro; `clear` 0..1 = cielo despejado; `night` 0..1 = oscuridad
+    // La luna brilla segun su fase (fraccion iluminada) y se ve tenue de dia; el sol solo sobre el horizonte.
+    void RenderCelestial(Renderer& renderer, const glm::vec3& cameraPosition, const glm::vec3& sunDirection,
+                         const glm::vec3& moonDirection, float moonIllumination, float clear, float night) const {
+        if (!m_Disc) return;
+        const auto draw = [&](const glm::vec3& direction, float radius, const glm::vec4& color) {
+            if (color.a <= 0.01f) return;
+            const glm::vec3 forward = -glm::normalize(direction);   // el disco mira a la camara
+            const glm::vec3 right = glm::normalize(glm::cross(glm::vec3(0.0f, 1.0f, 0.0f), forward));
+            const glm::vec3 up = glm::cross(forward, right);
+            glm::mat4 basis(1.0f);
+            basis[0] = glm::vec4(right * radius, 0.0f);
+            basis[1] = glm::vec4(up * radius, 0.0f);
+            basis[2] = glm::vec4(forward, 0.0f);
+            basis[3] = glm::vec4(cameraPosition + glm::normalize(direction) * (kRadius * 0.96f), 1.0f);
+            renderer.Submit(*m_Disc, basis, color, false, true, nullptr, 2);
+        };
+        renderer.SetSky(true);
+        const float sunAbove = AtmosphereSmoothstep(-0.02f, 0.12f, sunDirection.y);
+        const float sunAlpha = sunAbove * (0.25f + 0.75f * clear);
+        draw(sunDirection, 30.0f, glm::vec4(1.0f, 0.86f, 0.55f, 0.18f * sunAlpha));   // halo
+        draw(sunDirection, 15.0f, glm::vec4(1.0f, 0.97f, 0.85f, sunAlpha));
+        const float moonAbove = AtmosphereSmoothstep(-0.02f, 0.10f, moonDirection.y);
+        const float moonAlpha = moonAbove * clear * (0.25f + 0.75f * night) * (0.25f + 0.75f * moonIllumination);
+        draw(moonDirection, 22.0f, glm::vec4(0.7f, 0.8f, 1.0f, 0.12f * moonAlpha));    // halo
+        draw(moonDirection, 11.0f, glm::vec4(0.93f, 0.95f, 1.0f, moonAlpha));
+        renderer.SetSky(false);
     }
 
     // visibility 0..1: 0 de dia o con cielo cubierto, 1 en una noche despejada
@@ -60,6 +100,7 @@ public:
 
 private:
     std::shared_ptr<Mesh> m_Mesh;
+    std::shared_ptr<Mesh> m_Disc;
 };
 
 } // namespace Bazuko
