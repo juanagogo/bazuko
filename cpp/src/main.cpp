@@ -1783,6 +1783,7 @@ int main(int argc, char** argv) {
             ui.SetWorldInfo(simulation.GetDay(), (night && info.nightLabel) ? info.nightLabel : info.label, simulation.GetSeason().label);
         }
         audio.UpdateVehicleAudio(dt, playerPos, simulation, ui.IsPaused());
+        audio.UpdatePolice(playerPos, simulation.GetSirenPositions(), simulation.ConsumePoliceSounds(), ui.IsPaused());
 
         // 7. Actualizar cámara
         camera.Follow(playerPos, dt, currentSpeed, isRunning);

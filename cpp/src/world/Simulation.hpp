@@ -1,4 +1,6 @@
 #pragma once
+
+#include "PoliceSound.hpp"
 #include "Atmosphere.hpp"
 #include "Climate.hpp"
 
@@ -20,6 +22,7 @@
 namespace Bazuko {
 
 struct Pedestrian {
+    float pathPlan = 0.0f;   // s hasta volver a trazar el camino a pie (policias)
     glm::vec3 position{0.0f};
     glm::vec3 target{0.0f};
     float speed = 1.1f;
@@ -107,6 +110,16 @@ struct DriverInfo {
     float shade = 0.0f;                      // tono del pelo y desfase de animacion (animationOffset del peaton)
     float idle = 0.0f;                       // s que lleva a pie sin pelear ni huir (si pasa de 1,5 s vuelve al vehiculo)
     // Acompanante del asiento delantero: si el conductor muere, pasa a manejar
+    bool dispatched = false;                 // la patrulla acude desde lejos con la sirena encendida (conduce hasta acercarse al jugador)
+    bool siren = false;                      // sirena encendida: desde que sale a atender el delito hasta que frena para bajarse
+    float dispatchTime = 0.0f;               // s que lleva acudiendo (si pasa de 3 min se rinde)
+    int pathMode = 0;                        // 0 sigue su circuito; 1 recorre un camino propio hasta el jugador; 2 vuelve por un camino propio a su circuito
+    float pathLength = 0.0f;                 // largo del camino propio (sin el cierre del circuito)
+    float pathAge = 0.0f;                    // s desde que se trazo el camino
+    glm::vec3 pathGoal{0.0f};                // donde estaba el jugador al trazarlo (si se aleja, se traza de nuevo)
+    size_t returnRoute = 0;                  // circuito y distancia a los que se reincorpora al terminar el camino de regreso
+    float returnDistance = 0.0f;
+    float radioTimer = 0.0f;                 // s hasta que la radio pueda sonar de nuevo durante la persecucion a pie
     bool reengage = false;                   // un delito nuevo mientras los policias bajaban, volvian o subian: retoman la persecucion
     bool partnerBoarding = false;            // el acompanante sube junto con el conductor (animacion de entrada del lado del acompanante)
     bool partnerOut = false;                 // el acompanante de la patrulla tambien bajo a perseguir (su peaton esta en partnerIndex)
@@ -226,6 +239,10 @@ struct TrafficVehicle {
     bool waitingAtSignal = false;
     float forcingRemaining = 0.0f;   // s restantes de paso forzado tras un atasco
     float stalledTime = 0.0f;   // s seguidos detenido sin semaforo ni peaton
+    bool clearForSiren = false;   // una patrulla con sirena viene detras: despeja el cruce sin esperar el semaforo
+    float lateral = 0.0f;         // desvio lateral actual (m, positivo a la derecha) al rodear un vehiculo detenido
+    float lateralTarget = 0.0f;   // desvio al que va
+    int swerveAround = -1;        // indice del vehiculo detenido que esta rodeando
     std::vector<glm::vec3> route;
     std::vector<float> routeCumulative;
     size_t nextWaypoint = 0;
@@ -399,6 +416,9 @@ public:
     // Delito del jugador en `at` (robo de retrovisor, cosquilleo, robo directo o golpear a un peaton): con probabilidad `chance` alguien llama a la policia y,
     // si hay una patrulla libre a menos de 55 m, frena, se baja con su companero y persigue al jugador hasta que este se aleja. Devuelve true si salio una patrulla.
     bool CallPolice(const glm::vec3& at, float chance);
+    // Sonidos de la policia para el audio: posiciones de las sirenas encendidas y eventos puntuales (parada de sirena, radio), que se entregan una sola vez
+    std::vector<glm::vec3> GetSirenPositions() const;
+    std::vector<PoliceSound> ConsumePoliceSounds();
     bool HitVehicle(const glm::vec3& from, const glm::vec2& forward, float reach);
     bool StealParkedCar(size_t index);
     RobberyOutcome RobPedestrian(size_t index, bool direct, const glm::vec3& source);
@@ -516,6 +536,8 @@ private:
     };
 
     bool FindSidewalkPoint(glm::vec3& point, const glm::vec3& center, float radius);
+    // Camino a pie por las baldosas libres (anden y calzada, sin edificios ni objetos) para los policias que van a su patrulla o tras el jugador
+    bool FindWalkPath(const glm::vec3& start, const glm::vec3& target, std::vector<glm::vec3>& path) const;
     bool FindSidewalkPath(const glm::vec3& start, const glm::vec3& target, std::vector<glm::vec3>& path) const;
     void UpdatePedestrians(float dt, const glm::vec3& playerPosition);
     void UpdateDrivers(float dt, const glm::vec3& playerPosition);
@@ -552,6 +574,11 @@ private:
     // (en `targetDistance`), por un tramo recto de `connectorLength` metros (0 si los circuitos comparten el carril)
     struct RouteBranch { float distance; size_t target; float targetDistance; float connectorLength; glm::vec3 from, to; };
     std::vector<std::vector<RouteBranch>> m_RouteBranches;
+    std::vector<PoliceSound> m_PoliceSounds;
+    // Camino por las calles (baldosas Road) de un punto a otro, con las esquinas redondeadas y por el carril derecho: la patrulla que acude lo recorre sin depender de los circuitos
+    bool PlanRoadPath(const glm::vec3& from, const glm::vec3& heading, const glm::vec3& to, bool pullOver, std::vector<glm::vec3>& path) const;
+    void FollowPath(TrafficVehicle& vehicle, std::vector<glm::vec3> path, int mode);
+    void RejoinCircuit(TrafficVehicle& vehicle);
     std::vector<std::vector<float>> m_RouteCumulative;
     std::shared_ptr<Mesh> m_PedestrianBody;
     std::shared_ptr<Mesh> m_PedestrianHead;

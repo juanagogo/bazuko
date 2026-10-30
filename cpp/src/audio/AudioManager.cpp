@@ -8,6 +8,8 @@
 #include <array>
 #include <algorithm>
 #include <cmath>
+#include <cstdlib>
+#include <ctime>
 #include <filesystem>
 #include "../core/Paths.hpp"
 #include <glm/gtc/constants.hpp>
@@ -33,14 +35,18 @@ enum class SoundSlot : size_t {
 };
 
 std::string FindAudioPath(const char* filename) {
-    // Los respaldos WAV propios del port viven en cpp/assets/audio, fuera del build web.
-    const std::array<std::filesystem::path, 7> candidates{
-        std::filesystem::path(Paths::Find((std::filesystem::path("public/audio") / filename).generic_string())),
+    // Los respaldos WAV y audios propios del port viven en cpp/assets/audio, fuera del build web.
+    const std::array<std::filesystem::path, 11> candidates{
         std::filesystem::path(Paths::Find((std::filesystem::path("assets/audio") / filename).generic_string())),
+        std::filesystem::path(Paths::Find((std::filesystem::path("cpp/assets/audio") / filename).generic_string())),
+        std::filesystem::path(Paths::Find((std::filesystem::path("public/audio") / filename).generic_string())),
+        std::filesystem::path("cpp/assets/audio") / filename,
+        std::filesystem::path("../cpp/assets/audio") / filename,
+        std::filesystem::path("assets/audio") / filename,
+        std::filesystem::path("../assets/audio") / filename,
         std::filesystem::path("public/audio") / filename,
         std::filesystem::path("../public/audio") / filename,
         std::filesystem::path("../../public/audio") / filename,
-        std::filesystem::path("assets/audio") / filename,
         std::filesystem::path("audio") / filename
     };
     for (const auto& path : candidates) {
@@ -154,6 +160,9 @@ struct AudioManager::Impl {
     std::array<VehicleChannel, MaxTrafficAudio + BusChannels> vehicleChannels{};
     std::array<Sound, 3> horns{};
     Sound carAlarm;
+    std::array<Sound, 2> sirens{};   // dos patrullas con sirena a la vez como mucho (las mas cercanas)
+    Sound sirenStop;
+    Sound policeRadio;
     Sound heartbeat;
     std::unique_ptr<RadioSynth> radioSynth;
     RadioSource radioSource{};
@@ -270,6 +279,12 @@ struct AudioManager::Impl {
             }
         }
         LoadOpusSound(carAlarm, "Sonido De Alarma De Auto.opus", false);
+        for (Sound& siren : sirens) {
+            LoadOptionalSound(siren, "sirena_policia.mp3");
+            if (siren.initialized) ma_sound_set_looping(&siren.value, MA_TRUE);
+        }
+        LoadOptionalSound(sirenStop, "sirena_stop_policia.mp3");
+        LoadOptionalSound(policeRadio, "radio_policia.mp3");
         const std::array<const char*, 12> driverFiles{{
             "valentina_n1.mp3", "valentina_n3.mp3", "valentina_n4.mp3", "valentina_n5.mp3",
             "valentina_n6.mp3", "valentina_n7.mp3", "roberto_n1.mp3", "roberto_n2.mp3",
@@ -512,6 +527,9 @@ struct AudioManager::Impl {
                 ma_sound_uninit(&radioSound);
                 ma_data_source_uninit(&radioSource.base);
             }
+            for (Sound& siren : sirens) if (siren.initialized) ma_sound_uninit(&siren.value);
+            if (sirenStop.initialized) ma_sound_uninit(&sirenStop.value);
+            if (policeRadio.initialized) ma_sound_uninit(&policeRadio.value);
             if (heartbeat.initialized) ma_sound_uninit(&heartbeat.value);
             if (heartbeat.bufferInitialized) ma_audio_buffer_uninit(&heartbeat.buffer);
             if (carAlarm.initialized) ma_sound_uninit(&carAlarm.value);
@@ -621,6 +639,54 @@ void AudioManager::PlayCarAlarm(float distance) {
     ma_sound_set_volume(&m_Impl->carAlarm.value,
                         0.6f * std::clamp((41.0f - distance) / 36.0f, 0.0f, 1.0f) * m_Impl->Level(MixCategory::Traffic));
     ma_sound_start(&m_Impl->carAlarm.value);
+}
+
+void AudioManager::UpdatePolice(const glm::vec3& listenerPosition, const std::vector<glm::vec3>& sirenPositions,
+                                const std::vector<PoliceSound>& events, bool paused) {
+    if (!m_Impl || !m_Impl->ready) return;
+    // Volumen segun la distancia: cae con el cuadrado hasta cero en el alcance de cada sonido (la sirena se oye lejos; la radio de un policia, solo cerca)
+    constexpr float kSirenRange = 110.0f, kStopRange = 90.0f, kRadioRange = 28.0f;
+    const auto reach = [](float distance, float range) {
+        const float t = std::clamp(1.0f - distance / range, 0.0f, 1.0f);
+        return t * t;
+    };
+    static const bool logAudio = std::getenv("BAZUKO_LOG_AUDIO") != nullptr;
+    std::vector<float> distances;
+    for (const glm::vec3& position : sirenPositions) distances.push_back(glm::distance(listenerPosition, position));
+    std::sort(distances.begin(), distances.end());
+    for (size_t i = 0; i < m_Impl->sirens.size(); ++i) {
+        auto& siren = m_Impl->sirens[i];
+        if (!siren.initialized) continue;
+        const float volume = (!paused && !m_Impl->muted && i < distances.size()) ? 0.8f * reach(distances[i], kSirenRange) * m_Impl->Level(MixCategory::Traffic) : 0.0f;
+        if (volume <= 0.0005f) {
+            if (ma_sound_is_playing(&siren.value)) ma_sound_stop(&siren.value);
+            continue;
+        }
+        ma_sound_set_volume(&siren.value, volume);
+        if (!ma_sound_is_playing(&siren.value)) {
+            ma_sound_seek_to_pcm_frame(&siren.value, 0);
+            ma_sound_start(&siren.value);
+        }
+        if (logAudio) {
+            static float lastLog = -1.0f;
+            const float now = static_cast<float>(std::clock()) / CLOCKS_PER_SEC;
+            if (now - lastLog > 2.0f) { lastLog = now; std::cerr << "Audio: sirena " << i << " a " << distances[i] << " m, volumen " << volume << '\n'; }
+        }
+    }
+    if (paused || m_Impl->muted) return;
+    for (const PoliceSound& event : events) {
+        const float distance = glm::distance(listenerPosition, event.position);
+        const bool stop = event.kind == PoliceSound::Kind::Stop;
+        auto& sound = stop ? m_Impl->sirenStop : m_Impl->policeRadio;
+        const float volume = stop ? 0.8f * reach(distance, kStopRange) * m_Impl->Level(MixCategory::Traffic)
+                                  : 0.6f * reach(distance, kRadioRange) * m_Impl->Level(MixCategory::Effects);
+        if (logAudio) std::cerr << "Audio: " << (stop ? "parada de sirena" : "radio policia") << " a " << distance << " m, volumen " << volume << '\n';
+        if (!sound.initialized || volume <= 0.0005f) continue;
+        ma_sound_stop(&sound.value);
+        ma_sound_seek_to_pcm_frame(&sound.value, 0);
+        ma_sound_set_volume(&sound.value, volume);
+        ma_sound_start(&sound.value);
+    }
 }
 
 void AudioManager::UpdateVehicleAudio(float dt, const glm::vec3& listenerPosition,

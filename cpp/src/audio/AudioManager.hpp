@@ -2,6 +2,8 @@
 
 #include <memory>
 #include <glm/glm.hpp>
+#include <vector>
+#include "../world/PoliceSound.hpp"
 #include "RadioSynth.hpp"
 
 namespace Bazuko {
@@ -49,6 +51,10 @@ public:
     void Update(bool moving, bool running, int surface = 0, bool raining = false, float travelled = -1.0f, float dt = 1.0f / 60.0f);
     void UpdateVehicleAudio(float dt, const glm::vec3& listenerPosition,
                             const Simulation& simulation, bool paused);
+    // Sirenas de las patrullas (bucle mientras estan encendidas) y sonidos puntuales de la policia (parada de sirena, radio).
+    // El volumen de todos baja con la distancia al oyente y se anula fuera de su alcance: nada suena cerca si esta lejos.
+    void UpdatePolice(const glm::vec3& listenerPosition, const std::vector<glm::vec3>& sirenPositions,
+                      const std::vector<PoliceSound>& events, bool paused);
 
 private:
     struct Impl;
