@@ -68,6 +68,7 @@ struct Pedestrian {
 
 struct PedestrianAppearance {
     bool worn = false;               // ropa vieja y gastada (El Cartucho)
+    bool police = false;             // uniforme de la Policia Nacional (solo los ocupantes de la patrulla)
     std::string roles;               // rol de cada pieza: B cuerpo, C ropa, S calzado, H pelo, D barba, T sombrero
     int hitFaceClip = -1, hitChestClip = -1, hitLegsClip = -1;
     int fallClip = -1, lyingClip = -1, getUpClip = -1;
@@ -131,6 +132,7 @@ struct VehicleParts {
     DriverProfile driver;   // medidas de las animaciones del conductor (json "driver")
     // Puerta del conductor como pieza aparte (solo los modelos cuya puerta es un objeto propio): gira sobre su bisagra al abrir
     std::shared_ptr<Model> door;
+    std::shared_ptr<Model> barRed, barBlue;   // lentes rojo y azul de la baliza (solo la patrulla): estroboscopicas
     bool hasPaint = false;       // tiene material "Paint": se puede teñir (los taxis van de amarillo)
     glm::vec3 doorHinge{0.0f};   // bisagra en el espacio del modelo (borde delantero, eje vertical)
     glm::mat4 fit{1.0f};
@@ -395,6 +397,9 @@ public:
     // Farolas mas cercanas al foco (posicion de la bombilla), para encender solo las que se ven
     // Cada elemento: posicion de la bombilla (xyz) y atenuacion 0..1 (w) que apaga suavemente la ultima de la lista
     // para que no aparezcan de golpe al avanzar.
+    // Luces de las balizas: una por patrulla cercana mientras destella su rojo o su azul (xyz posicion, w alcance) y su color
+    struct StrobeLight { glm::vec4 position; glm::vec3 color; };   // color ya multiplicado por la intensidad del destello (0..1)
+    std::vector<StrobeLight> GetStrobeLights(const glm::vec3& focus, float time, float maxDistance) const;
     std::vector<glm::vec4> GetNearestLampLights(const glm::vec3& focus, size_t maxCount, float maxDistance) const;
     // 0..1: las bombillas se dibujan encendidas
     void SetLampGlow(float glow) { m_LampGlow = glow; }
@@ -540,6 +545,8 @@ private:
     std::shared_ptr<Mesh> m_PedestrianBody;
     std::shared_ptr<Mesh> m_PedestrianHead;
     std::vector<PedestrianAppearance> m_PedestrianAppearances;
+    std::shared_ptr<Mesh> m_StrobeHalo;   // disco con borde transparente: halo de la baliza, siempre de cara a la camara
+    size_t m_PoliceAppearanceFirst = 0;   // desde este indice las apariencias son de policia (no salen en la calle)
     std::shared_ptr<Model> m_PedestrianAnimation;
     std::shared_ptr<Mesh> m_CarBody;
     std::shared_ptr<Mesh> m_CarCabin;

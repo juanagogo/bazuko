@@ -748,16 +748,16 @@ int main(int argc, char** argv) {
     const char* shotPath = std::getenv("BAZUKO_SHOT");
     float shotDelay = 6.0f;
     if (const char* delay = std::getenv("BAZUKO_SHOT_DELAY")) shotDelay = static_cast<float>(std::atof(delay));
+    if (const char* where = std::getenv("BAZUKO_POS")) {   // pruebas: BAZUKO_POS=x,z coloca al jugador (p. ej. dentro del lago), con o sin captura
+        float px = 0.0f, pz = 0.0f;
+        if (std::sscanf(where, "%f,%f", &px, &pz) == 2) playerPos = glm::vec3(px, std::max(city.GetGroundHeight(px, pz), CityLayout::kLakeSurface - 1.25f), pz);
+    }
     if (shotPath) {
         const auto envFloat = [](const char* name, float fallback) { const char* v = std::getenv(name); return v ? static_cast<float>(std::atof(v)) : fallback; };
         if (std::getenv("BAZUKO_PREVIEW_GRAB")) grabTime = static_cast<float>(std::atof(std::getenv("BAZUKO_PREVIEW_GRAB")));   // pruebas: congela el robo en ese segundo
         if (std::getenv("BAZUKO_DOG_FRIEND")) simulation.BefriendDog();   // pruebas: El Chato ya es amigo (se puede acariciar)
         if (const char* weather = std::getenv("BAZUKO_WEATHER")) simulation.ForceWeather(static_cast<Climate::Weather>(std::clamp(std::atoi(weather), 0, Climate::kWeatherCount - 1)));   // pruebas: 0 soleado .. 6 tormenta
         if (const char* hour = std::getenv("BAZUKO_HOUR")) simulation.SetDayProgress(static_cast<float>(std::atof(hour)) / 24.0f);   // pruebas: hora del dia
-        if (const char* where = std::getenv("BAZUKO_POS")) {   // pruebas: BAZUKO_POS=x,z coloca al jugador (p. ej. dentro del lago)
-            float px = 0.0f, pz = 0.0f;
-            if (std::sscanf(where, "%f,%f", &px, &pz) == 2) playerPos = glm::vec3(px, std::max(city.GetGroundHeight(px, pz), CityLayout::kLakeSurface - 1.25f), pz);
-        }
         camera.SetOrbit(envFloat("BAZUKO_YAW", camera.GetYaw()), envFloat("BAZUKO_PITCH", 0.22f), envFloat("BAZUKO_DIST", 5.5f));
     } else {
         ui.OpenDeveloperNote();
@@ -1842,12 +1842,18 @@ int main(int argc, char** argv) {
             // farolas: se encienden solas al oscurecer; solo las mas cercanas aportan luz
             lighting.lampCount = 0;
             if (atmosphere.lampPower > 0.01f) {
-                const size_t lampBudget = graphicsQuality == 0 ? 12 : graphicsQuality == 1 ? 20 : static_cast<size_t>(LightBlockData::kMaxLampLights);
+                const size_t lampBudget = graphicsQuality == 0 ? 12 : graphicsQuality == 1 ? 20 : static_cast<size_t>(LightBlockData::kMaxLampLights) - 4;   // quedan 4 casillas para las luces de las balizas
                 for (const glm::vec4& lamp : simulation.GetNearestLampLights(playerPos, lampBudget, 110.0f)) {
                     lighting.lampPosition[lighting.lampCount] = glm::vec4(glm::vec3(lamp), 18.0f);
                     lighting.lampColor[lighting.lampCount] = glm::vec4(1.0f, 0.78f, 0.45f, 2.4f * atmosphere.lampPower * lamp.w);
                     ++lighting.lampCount;
                 }
+            }
+            for (const Simulation::StrobeLight& strobe : simulation.GetStrobeLights(playerPos, clock.GetElapsedTime(), 70.0f)) {   // la baliza ilumina la calle de rojo y de azul
+                if (lighting.lampCount >= LightBlockData::kMaxLampLights) break;
+                lighting.lampPosition[lighting.lampCount] = strobe.position;
+                lighting.lampColor[lighting.lampCount] = glm::vec4(strobe.color, 16.0f);
+                ++lighting.lampCount;
             }
             simulation.SetLampGlow(atmosphere.lampPower);
             starVisibility = std::clamp((atmosphere.lampPower - 0.35f) / 0.5f, 0.0f, 1.0f)

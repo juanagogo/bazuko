@@ -7,6 +7,7 @@ Modelos de terceros que usa el port C++ (carpeta `public/models/`). Las licencia
 | Modelo | Autor | Licencia | Enlace |
 |---|---|---|---|
 | Toyota Hilux Revo Prerunner 2021 | Asadawut.Kaewma | [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) | https://sketchfab.com/models/04ae6d8e07e84f55a9e1d7e3261be171 |
+| Renault Duster (patrulla de policía) | ANDREO12 | [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) | https://sketchfab.com/3d-models/renault-duster-a253d913f99d4611860e8dd955c476d7 |
 
 | Labrador Dog | kenchoo (basado en «Dog» de all of life, según la descripción de la ficha) | [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) | https://sketchfab.com/3d-models/labrador-dog-1f56cfbab07e4fe49b5d9e521c82073a |
 | Guppy Fish | BlueMesh | [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) | https://sketchfab.com/3d-models/guppy-fish-21e14e4b961e406385539f79eacdb1dc |
@@ -16,6 +17,8 @@ Modelos de terceros que usa el port C++ (carpeta `public/models/`). Las licencia
 **Uso en el juego (Parque del Lago):** los dos peces (`pez1/`, `pez2/`) nadan bajo la superficie del lago y huyen de quien se mete al agua; el guppy conserva su ciclo de nado y el otro solo se mueve con el coletazo. De `agua/` solo se usa la textura de color, que el shader desliza en dos capas para dar movimiento al agua; la malla animada del FBX no se carga.
 
 **Cambios sobre el original (Labrador):** `public/models/labrador.glb` se preparó con Blender a partir de la exportación completa de la ficha (`perro_nuevo/source/Labrador.glb`): se unió la malla del hocico a la cabeza, se quitó la forma clave (morph) y se escaló a metros, se dejó un solo material de pelaje con la textura de color a 2048 px (JPEG), se reasignaron al pie de cada pata los pesos que estaban en huesos de IK fijos y se suavizaron los pesos de piel. Su único clip original (un Idle de 13 s) se conserva como `Idle`; los demás se crearon moviendo sus huesos: caminar, trotar, correr, giros, mirar, olfatear, alerta, sentarse, echarse, dormir, reverencia y salto, con los nombres que usa el juego. La carpeta `perro_nuevo/` (descarga original) no se sube: `.gitignore` la excluye.
+
+**Cambios sobre el original (Duster):** el archivo trae dos Duster; se usó el de puertas cerradas y se giró 180° para que su frente quede hacia el eje del juego. Con `cpp/tools/convert_patrulla.py` (Blender) se separó la carrocería de las cuatro ruedas, se extrajo la puerta del conductor como pieza articulada, se reunieron los cristales y las luces, se simplificó a unos 50 mil triángulos y se repintó como patrulla de la Policía Nacional: blanco metalizado, franja azul con cuadros verde limón, la palabra «POLICÍA» con la bandera de Colombia y una barra de luces azul y roja en el techo. La pintura es una textura generada por el script; el modelo original es rojo y sin escudo de la Policía.
 
 **Cambios sobre el original (Hilux):** se convirtió a glTF, se separó la carrocería de las cuatro ruedas para que giren y viren, se midieron su caja y sus asientos para colocar al conductor y se ajustó la escala. La geometría y las texturas no se rediseñaron.
 

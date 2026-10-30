@@ -92,6 +92,7 @@ public:
     void RenderShadowMap(const glm::vec3& toLight, const glm::vec3& focus);
     bool ShadowsActive() const { return m_ShadowResolution > 0 && m_ShadowValid; }
 
+    glm::vec3 GetCameraPosition() const { return m_CameraData.cameraPos; }   // posicion de la camara en el cuadro actual (halos que la miran)
     Shader& GetDefaultShader() { return *m_DefaultShader; }
     LightBlockData& GetLighting() { return m_LightingData; }
 

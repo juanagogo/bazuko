@@ -99,10 +99,28 @@ bool OrientedBoxesOverlap(const glm::vec3& positionA, const glm::vec2& direction
     return true;
 }
 
+// Baliza estroboscopica: destellos alternados rojo, azul, rojo, azul en ciclos de 0,8 s (cada patrulla con su fase). Cada destello entra de golpe y se
+// apaga en 0,17 s, asi que el color fisico y el halo se encienden y se apagan con el efecto. Devuelve la intensidad 0..1 de cada color.
+void StrobeState(size_t carIndex, float time, float& red, float& blue) {
+    const float phase = std::fmod(time + static_cast<float>(carIndex) * 0.37f, 0.8f);
+    const auto flash = [&](float start) {
+        const float local = phase - start;
+        return local >= 0.0f && local < 0.17f ? 1.0f - local / 0.17f : 0.0f;
+    };
+    red = std::max(flash(0.0f), flash(0.4f));
+    blue = std::max(flash(0.2f), flash(0.6f));
+    if (const char* forced = std::getenv("BAZUKO_STROBE")) { red = forced[0] == '1' ? 1.0f : 0.0f; blue = forced[0] == '2' ? 1.0f : 0.0f; }   // pruebas: 1 rojo fijo, 2 azul fijo
+}
+
 // Tinte de cada pieza de un peaton segun su rol (ropa, calzado, pelo, sombrero): el mismo dentro y fuera del vehiculo
 glm::vec4 PedestrianPartTint(const PedestrianAppearance& appearance, size_t partIndex, const glm::vec3& color, float animationOffset) {
     const char role = partIndex < appearance.roles.size() ? appearance.roles[partIndex] : 'X';
     const float hairShade = 0.55f + 0.5f * std::fmod(animationOffset * 3.7f, 1.0f);
+    if (appearance.police) {   // uniforme azul oscuro completo (camisa, pantalon y gorra) y zapatos totalmente negros
+        if (role == 'C') return glm::vec4(1.0f);   // la tela, las letras y los distintivos vienen en la textura de la prenda
+        if (role == 'S') return glm::vec4(0.02f, 0.02f, 0.022f, 1.0f);
+        if (role == 'T') return glm::vec4(0.10f, 0.14f, 0.34f, 1.0f);
+    }
     if (role == 'C') return glm::vec4(color, 1.0f);
     if (role == 'S') return glm::vec4(0.68f, 0.65f, 0.61f, 1.0f);
     if (role == 'H' || role == 'D') return glm::vec4(0.66f * hairShade, 0.58f * hairShade, 0.47f * hairShade, 1.0f);
@@ -270,6 +288,8 @@ VehicleParts Simulation::LoadVehicleParts(const std::string& modelsRoot, const s
         return std::filesystem::exists(folder + name + ".glb") ? folder + name + ".glb" : folder + name + ".gltf";
     };
     parts.body = Model::LoadFromFile(resolve(stem + "_body"));
+    if (std::filesystem::exists(folder + stem + "_barRed.glb")) parts.barRed = Model::LoadFromFile(folder + stem + "_barRed.glb");
+    if (std::filesystem::exists(folder + stem + "_barBlue.glb")) parts.barBlue = Model::LoadFromFile(folder + stem + "_barBlue.glb");
     glm::vec3 frontSum(0.0f), rearSum(0.0f);
     int frontCount = 0, rearCount = 0;
     for (const auto& entry : info.value("wheels", nlohmann::json::array())) {
@@ -505,7 +525,7 @@ void Simulation::DrawArticulatedBus(Renderer& renderer, const BusState& bus, siz
     if (glm::distance(glm::vec2(bus.position.x, bus.position.z), glm::vec2(focus.x, focus.z)) > 38.0f) return;
     const auto drawOccupant = [&](const ArticulatedBus::Occupant& occupant, size_t slot, bool seated) {
         const uint32_t hash = static_cast<uint32_t>((slot + 1) * 2654435761u) ^ static_cast<uint32_t>((busIndex + 3) * 40503u);
-        const PedestrianAppearance& appearance = m_PedestrianAppearances[(hash >> 7) % m_PedestrianAppearances.size()];
+        const PedestrianAppearance& appearance = m_PedestrianAppearances[(hash >> 7) % std::max<size_t>(1, std::min(m_PoliceAppearanceFirst, m_PedestrianAppearances.size()))];
         size_t section = model.pivotZ.size();   // por defecto la ultima; la primera articulacion que queda por detras decide la seccion
         for (size_t k = 0; k < model.pivotZ.size(); ++k) if (occupant.position.z > model.pivotZ[k]) { section = k; break; }
         glm::mat4 person = glm::translate(placement[section], occupant.position);
@@ -657,10 +677,26 @@ Simulation::Simulation(const CityLayout& city, uint32_t seed,
         m_PedestrianAnimation = Model::LoadFromFile(animationPath);
         reportModelLoad("Animaciones de peatones (ActionForge)");
 
+        // uniformes de policia (se anaden al final): prenda con piel modelada en Blender (policia.gltf: camisa y pantalon largos con letras e insignias),
+        // botas negras y gorra azul
+        const size_t policeFirst = outfits.size();
+        for (const std::vector<std::string>& police : std::vector<std::vector<std::string>>{
+                 {"hombre-adulto", "policia", "botas", "rapado", "", "T:boina"}, {"hombre-joven", "policia", "botas", "corto", "", "T:boina"},
+                 {"mujer-adulta", "policia", "botas", "cola", "", "T:boina"}, {"mujer-joven", "policia", "botas", "cola", "", "T:boina"}}) {
+            bool complete = true;
+            for (size_t k = 1; k < police.size(); ++k) {
+                std::string name = police[k];
+                if (name.size() > 2 && name[1] == ':') name = name.substr(2);
+                if (!name.empty() && !std::filesystem::exists(modelsRoot + "personaje/" + police[0] + "/" + name + ".gltf")) complete = false;
+            }
+            if (complete) { outfits.push_back(police); wornOutfit.push_back(false); }
+        }
+        m_PoliceAppearanceFirst = policeFirst;
         std::unordered_map<std::string, std::shared_ptr<Model>> modelCache;
         for (const auto& outfit : outfits) {
             PedestrianAppearance appearance;
             appearance.worn = wornOutfit[static_cast<size_t>(&outfit - outfits.data())];
+            appearance.police = static_cast<size_t>(&outfit - outfits.data()) >= policeFirst;
             for (size_t partIndex = 0; partIndex < outfit.size(); ++partIndex) {
                 std::string partName = outfit[partIndex];
                 char role = partIndex == 0 ? 'B' : partIndex == 1 ? 'C' : partIndex == 2 ? 'S' : partIndex == 3 ? 'H' : 'X';
@@ -719,7 +755,9 @@ Simulation::Simulation(const CityLayout& city, uint32_t seed,
         m_VehicleParts[0] = LoadVehicleParts(modelsRoot, "vehiculo1");
         m_VehicleParts[1] = LoadVehicleParts(modelsRoot, "vehiculo2");
         m_VehicleParts[2] = LoadVehicleParts(modelsRoot, "ambulancia");
-        m_VehicleParts[3] = LoadVehicleParts(modelsRoot, "vehiculo_policia");
+        // patrulla: Renault Duster de la Policia (public/models/vehiculos/patrulla_*), con puerta del conductor articulada; si falta, el modelo anterior
+        m_VehicleParts[3] = LoadVehicleParts(modelsRoot, "patrulla");
+        if (!m_VehicleParts[3].valid()) m_VehicleParts[3] = LoadVehicleParts(modelsRoot, "vehiculo_policia");
         m_VehicleParts[4] = LoadVehicleParts(modelsRoot, "moto_policia");
         static const std::array<const char*, kCabinVariants> kCabinModels{{"raptor", "renault6", "jetta", "mercedes", "modelx", "crafter", "hilux"}};
         for (size_t variant = 0; variant < kCabinVariants; ++variant) {
@@ -920,6 +958,26 @@ Simulation::Simulation(const CityLayout& city, uint32_t seed,
     m_SignalPole = Mesh::CreateCube({0.10f, 3.2f, 0.10f}, {0.18f, 0.19f, 0.20f, 1.0f});
     m_SignalHead = Mesh::CreateCube({0.38f, 0.82f, 0.28f}, {0.10f, 0.11f, 0.12f, 1.0f});
     m_SignalLamp = Mesh::CreateCylinder(0.09f, 0.10f, 12);
+    {   // halo de la baliza: disco de 8 anillos cuya opacidad cae suave (curva (1 - r)^2,2) del centro al borde, sin canto visible; el color llega por el tinte
+        constexpr int kRings = 8, kSegments = 40;
+        std::vector<Vertex> vertices;
+        std::vector<uint32_t> indices;
+        vertices.push_back({{0.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 1.0f}, {0.5f, 0.5f}, {1.0f, 1.0f, 1.0f, 1.0f}});
+        for (int ring = 1; ring <= kRings; ++ring) {
+            const float r = static_cast<float>(ring) / static_cast<float>(kRings);
+            const float alpha = std::pow(1.0f - r, 2.2f);
+            for (int i = 0; i < kSegments; ++i) {
+                const float angle = static_cast<float>(i) / static_cast<float>(kSegments) * glm::two_pi<float>();
+                vertices.push_back({{std::cos(angle) * r, std::sin(angle) * r, 0.0f}, {0.0f, 0.0f, 1.0f}, {0.5f, 0.5f}, {1.0f, 1.0f, 1.0f, alpha}});
+            }
+        }
+        const auto at = [&](int ring, int i) { return static_cast<uint32_t>(1 + (ring - 1) * kSegments + (i % kSegments)); };
+        for (int i = 0; i < kSegments; ++i) indices.insert(indices.end(), {0u, at(1, i), at(1, i + 1)});
+        for (int ring = 1; ring < kRings; ++ring)
+            for (int i = 0; i < kSegments; ++i)
+                indices.insert(indices.end(), {at(ring, i), at(ring + 1, i), at(ring + 1, i + 1), at(ring, i), at(ring + 1, i + 1), at(ring, i + 1)});
+        m_StrobeHalo = std::make_shared<Mesh>(vertices, indices);
+    }
     m_CarMirrorMesh = Mesh::CreateRoundedBox({0.12f, 0.13f, 0.20f}, 0.025f, 2, {0.08f, 0.08f, 0.08f, 1.0f});
     m_CarMirrorGlass = Mesh::CreateCube({0.02f, 0.09f, 0.13f}, {0.56f, 0.68f, 0.75f, 1.0f});
     m_PoopMesh = Mesh::CreateRoundedBox({0.28f, 0.16f, 0.28f}, 0.07f, 3, {0.29f, 0.14f, 0.055f, 1.0f});
@@ -1423,11 +1481,18 @@ Simulation::Simulation(const CityLayout& city, uint32_t seed,
             }
             AssignVehicleModel(vehicle);
             vehicle.driver.appearance = static_cast<size_t>(m_Unit(m_Random) * 1000.0f);
+            if (vehicle.emergency == 2 && m_PedestrianAppearances.size() > m_PoliceAppearanceFirst)   // el conductor de la patrulla es policia
+                vehicle.driver.appearance = m_PoliceAppearanceFirst + static_cast<size_t>(m_Unit(m_Random) * 100.0f) % (m_PedestrianAppearances.size() - m_PoliceAppearanceFirst);
             vehicle.driver.color = {0.22f + m_Unit(m_Random) * 0.55f, 0.18f + m_Unit(m_Random) * 0.48f, 0.15f + m_Unit(m_Random) * 0.42f};
             vehicle.driver.shade = m_Unit(m_Random) * 2.0f;
-            if (vehicle.variant > 0 && vehicle.emergency == 0 && (m_Unit(m_Random) < 0.35f || std::getenv("BAZUKO_FORCE_PASSENGER"))) {
+            const bool patrolWithPartner = vehicle.emergency == 2 && m_VehicleParts[3].valid() && m_VehicleParts[3].ownFit;   // las patrullas van de a dos
+            if (patrolWithPartner || (vehicle.variant > 0 && vehicle.emergency == 0 && (m_Unit(m_Random) < 0.35f || std::getenv("BAZUKO_FORCE_PASSENGER")))) {
                 vehicle.driver.hasPassenger = true;   // acompanante en el asiento delantero
                 vehicle.driver.passengerAppearance = static_cast<size_t>(m_Unit(m_Random) * 1000.0f);
+                if (patrolWithPartner) {   // el acompanante de la patrulla tambien es policia
+                    const size_t policeCount = m_PedestrianAppearances.size() > m_PoliceAppearanceFirst ? m_PedestrianAppearances.size() - m_PoliceAppearanceFirst : 0;
+                    if (policeCount > 0) vehicle.driver.passengerAppearance = m_PoliceAppearanceFirst + static_cast<size_t>(m_Unit(m_Random) * 100.0f) % policeCount;
+                }
                 vehicle.driver.passengerColor = {0.22f + m_Unit(m_Random) * 0.55f, 0.18f + m_Unit(m_Random) * 0.48f, 0.15f + m_Unit(m_Random) * 0.42f};
                 vehicle.driver.passengerShade = m_Unit(m_Random) * 2.0f;
             }
@@ -1579,7 +1644,8 @@ bool Simulation::FindSidewalkPath(const glm::vec3& start, const glm::vec3& targe
         goalX < 0 || goalX >= CityLayout::WIDTH || goalZ < 0 || goalZ >= CityLayout::HEIGHT) return false;
     const auto traversable = [&](int x, int z) {
         const TileType tile = m_City.GetTileAt(x, z);
-        return tile == TileType::Sidewalk || tile == TileType::Plaza || tile == TileType::Grass;
+        // las mismas baldosas que pisa un peaton (IsSidewalk): sin Floor y Dirt, quien estaba en la gasolinera o en tierra no encontraba ruta y se quedaba parado
+        return tile == TileType::Sidewalk || tile == TileType::Plaza || tile == TileType::Grass || tile == TileType::Floor || tile == TileType::Dirt;
     };
     if (!traversable(startX, startZ) || !traversable(goalX, goalZ)) return false;
     const auto index = [](int x, int z) { return z * CityLayout::WIDTH + x; };
@@ -2028,6 +2094,30 @@ glm::vec3 LampBulbPosition(const StreetLamp& lamp) {
     return lamp.position + glm::vec3(std::cos(lamp.yaw) * 1.7f, 3.92f, -std::sin(lamp.yaw) * 1.7f);
 }
 } // namespace
+
+std::vector<Simulation::StrobeLight> Simulation::GetStrobeLights(const glm::vec3& focus, float time, float maxDistance) const {
+    std::vector<StrobeLight> lights;
+    if (!(m_VehicleParts[3].valid() && m_VehicleParts[3].ownFit)) return lights;
+    for (size_t index = 0; index < m_Traffic.size() && lights.size() < 4; ++index) {
+        const TrafficVehicle& vehicle = m_Traffic[index];
+        if (vehicle.emergency != 2) continue;
+        const glm::vec3 offset = vehicle.position - focus;
+        if (glm::dot(offset, offset) > maxDistance * maxDistance) continue;
+        float red = 0.0f, blue = 0.0f;
+        StrobeState(index, time, red, blue);
+        if (red <= 0.02f && blue <= 0.02f) continue;
+        const glm::vec3 color = red >= blue ? glm::vec3(1.0f, 0.08f, 0.05f) * red : glm::vec3(0.08f, 0.25f, 1.0f) * blue;
+        lights.push_back({glm::vec4(vehicle.position.x, vehicle.position.y + 2.3f, vehicle.position.z, 34.0f), color});
+    }
+    if (const char* forced = std::getenv("BAZUKO_PARK_EMERGENCY"); forced && forced[0] == '2' && !m_ParkedCars.empty()) {   // pruebas: la patrulla parqueada de muestra tambien destella
+        float red = 0.0f, blue = 0.0f;
+        StrobeState(0, time, red, blue);
+        const glm::vec3& at = m_ParkedCars.front().position;
+        if (red > 0.02f || blue > 0.02f)
+            lights.push_back({glm::vec4(at.x, at.y + 2.3f, at.z, 34.0f), red >= blue ? glm::vec3(1.0f, 0.08f, 0.05f) * red : glm::vec3(0.08f, 0.25f, 1.0f) * blue});
+    }
+    return lights;
+}
 
 std::vector<glm::vec4> Simulation::GetNearestLampLights(const glm::vec3& focus, size_t maxCount, float maxDistance) const {
     std::vector<std::pair<float, glm::vec3>> candidates;
@@ -2694,6 +2784,10 @@ DriverProfile Simulation::ProfileFor(const TrafficVehicle& vehicle) const {
         const VehicleParts& parts = m_VehicleParts[4 + static_cast<size_t>(vehicle.variant)];
         if (parts.driver.valid) return parts.driver;
     }
+    if (vehicle.emergency == 2 && m_VehicleParts[3].valid() && m_VehicleParts[3].driver.valid) return m_VehicleParts[3].driver;   // la patrulla con puerta trae sus medidas
+    // ambulancia y patrulla (camioneta): sin clip propio; la altura del asiento y del techo sirve para subir al ocupante sobre el umbral y no dejarlo sobresalir
+    if (vehicle.emergency == 1) { profile.hipsZ = 1.00f; profile.roofZ = 2.30f; }
+    else if (vehicle.emergency == 2) { profile.hipsZ = 0.80f; profile.roofZ = 1.62f; }
     return profile;
 }
 
@@ -2979,8 +3073,8 @@ void Simulation::UpdatePedestrians(float dt, const glm::vec3& playerPosition) {
                 const bool cartucho = ruinTiles > 12;
                 std::vector<size_t> pool;
                 for (size_t index = 0; index < m_PedestrianAppearances.size(); ++index)
-                    if (m_PedestrianAppearances[index].worn == (cartucho && m_Unit(m_Random) < 0.75f)) pool.push_back(index);
-                if (pool.empty()) for (size_t index = 0; index < m_PedestrianAppearances.size(); ++index) pool.push_back(index);
+                    if (!m_PedestrianAppearances[index].police && m_PedestrianAppearances[index].worn == (cartucho && m_Unit(m_Random) < 0.75f)) pool.push_back(index);
+                if (pool.empty()) for (size_t index = 0; index < m_PedestrianAppearances.size(); ++index) if (!m_PedestrianAppearances[index].police) pool.push_back(index);
                 pedestrian.appearance = pool[static_cast<size_t>(m_Unit(m_Random) * static_cast<float>(pool.size() - 1) + 0.5f)];
             }
             pedestrian.color = {0.22f + m_Unit(m_Random) * 0.55f, 0.18f + m_Unit(m_Random) * 0.48f, 0.15f + m_Unit(m_Random) * 0.42f};
@@ -3006,6 +3100,22 @@ void Simulation::UpdatePedestrians(float dt, const glm::vec3& playerPosition) {
             return true;
         }
         return false;
+    };
+    // Si no hay ruta (casilla sin salida, obstaculos alrededor), camina unos metros a un lado libre en lugar de quedarse parado
+    const auto wanderOut = [&](Pedestrian& walker) {
+        const float start = m_Unit(m_Random) * glm::two_pi<float>();
+        for (int attempt = 0; attempt < 8; ++attempt) {
+            const float angle = start + static_cast<float>(attempt) * glm::quarter_pi<float>();
+            const float length = 2.0f + 2.0f * m_Unit(m_Random);
+            const glm::vec3 candidate = walker.position + glm::vec3(std::sin(angle), 0.0f, std::cos(angle)) * length;
+            if (m_City.IsSidewalk(candidate.x, candidate.z) && !m_City.IsBlocked(candidate.x, candidate.z, 0.2f) && !IsBlocked(candidate, 0.25f)) {
+                walker.route.clear();
+                walker.nextWaypoint = 0;
+                walker.target = candidate;
+                return;
+            }
+        }
+        walker.target = walker.position;
     };
     for (auto& pedestrian : m_Pedestrians) {
         if (pedestrian.departed) continue;
@@ -3166,7 +3276,7 @@ void Simulation::UpdatePedestrians(float dt, const glm::vec3& playerPosition) {
                 if (FindSidewalkPoint(destination, pedestrian.position, 48.0f) && FindSidewalkPath(pedestrian.position, destination, pedestrian.route)) {
                     pedestrian.target = pedestrian.route.front();
                     pedestrian.nextWaypoint = 1;
-                } else pedestrian.target = pedestrian.position;
+                } else wanderOut(pedestrian);
             }
             direction = pedestrian.target - pedestrian.position;
             direction.y = 0.0f;
@@ -3186,7 +3296,7 @@ void Simulation::UpdatePedestrians(float dt, const glm::vec3& playerPosition) {
             if (FindSidewalkPoint(destination, pedestrian.position, 32.0f) && FindSidewalkPath(pedestrian.position, destination, pedestrian.route)) {
                 pedestrian.target = pedestrian.route.front();
                 pedestrian.nextWaypoint = 1;
-            } else pedestrian.target = pedestrian.position;
+            } else wanderOut(pedestrian);
         }
     }
     // los muertos se quedan donde cayeron mientras el jugador los tenga a la vista (los peatones se dibujan hasta 56 m)
@@ -4250,8 +4360,9 @@ void Simulation::Render(Renderer& renderer, float time, const glm::vec3& focusPo
         const glm::mat4& fit = vehicle.emergency > 0 ? m_EmergencyFits[emergencySlot] : vehicle.taxi ? m_TaxiModelFit : m_CarModelFit;
         const size_t partsSlot = vehicle.emergency > 0 ? static_cast<size_t>(1 + vehicle.emergency) : vehicle.taxi ? 1 : 0;
         const VehicleParts& parts = m_VehicleParts[partsSlot];
-        const VehicleParts& cabinParts = m_VehicleParts[vehicle.variant > 0 ? 4 + static_cast<size_t>(vehicle.variant) : 0];
-        if (vehicle.variant > 0 && vehicle.emergency == 0 && cabinParts.valid() && cabinParts.ownFit) {
+        const bool patrolCabin = vehicle.emergency == 2 && m_VehicleParts[3].valid() && m_VehicleParts[3].ownFit;   // la patrulla usa el modelo con cabina y puerta
+        const VehicleParts& cabinParts = patrolCabin ? m_VehicleParts[3] : m_VehicleParts[vehicle.variant > 0 ? 4 + static_cast<size_t>(vehicle.variant) : 0];
+        if (((vehicle.variant > 0 && vehicle.emergency == 0) || patrolCabin) && cabinParts.valid() && cabinParts.ownFit) {
             // modelo con cabina: vidrio translucido y ocupantes sentados
             const glm::mat4 carFit = model * cabinParts.fit;
             // la pintura de cada carro es una de ocho (la misma que ya tenian los modelos anteriores); las texturas propias no se tiñen
@@ -4283,10 +4394,46 @@ void Simulation::Render(Renderer& renderer, float time, const glm::vec3& focusPo
                               : frame < 109.0f ? kOpen - 12.0f * (frame - 104.0f) / 5.0f
                               : frame < 130.0f ? (kOpen - 12.0f) * (1.0f - (frame - 109.0f) / 21.0f) : 0.0f;
                 }
+                if (const char* forcedDoor = std::getenv("BAZUKO_DOOR_ANGLE")) doorAngle = static_cast<float>(std::atof(forcedDoor));   // pruebas: fija el angulo de la puerta (grados)
                 glm::mat4 doorModel = glm::translate(carFit, cabinParts.doorHinge);
                 doorModel = glm::rotate(doorModel, -glm::radians(doorAngle), glm::vec3(0.0f, 1.0f, 0.0f));   // el borde trasero sale hacia el lado del conductor (+X del modelo)
                 doorModel = glm::translate(doorModel, -cabinParts.doorHinge);
                 cabinParts.door->Draw(renderer, doorModel, glm::vec4(1.0f), 0.0f, false, 0, -1, false, paintTint);
+            }
+            if (patrolCabin && cabinParts.barRed && cabinParts.barBlue) {
+                // baliza estroboscopica: dos destellos rapidos del rojo y luego dos del azul (ciclo de 0,9 s); apagados quedan oscuros. Cada patrulla con su fase.
+                float redLevel = 0.0f, blueLevel = 0.0f;
+                // fase propia de cada patrulla del trafico; la patrulla parqueada de prueba es una copia fuera del arreglo (su indice no sirve): usa 0 como GetStrobeLights
+                const bool inTraffic = &vehicle >= m_Traffic.data() && &vehicle < m_Traffic.data() + m_Traffic.size();
+                StrobeState(inTraffic ? static_cast<size_t>(&vehicle - m_Traffic.data()) : 0, time, redLevel, blueLevel);
+                const glm::vec3 cameraAt = renderer.GetCameraPosition();
+                const auto drawLens = [&](const std::shared_ptr<Model>& lens, float level, const glm::vec3& color) {
+                    const bool on = level > 0.25f;
+                    if (on) renderer.SetUnlit(true);   // encendido: color pleno sin sombreado; apagado: casi negro
+                    lens->Draw(renderer, carFit, on ? glm::vec4(1.6f, 1.6f, 1.6f, 1.0f) : glm::vec4(0.025f, 0.025f, 0.03f, 1.0f));
+                    renderer.SetUnlit(false);
+                    if (level <= 0.02f || !m_StrobeHalo) return;
+                    // halo: disco de cara a la camara que sale del lente; nace pequeno y brillante y se abre y se desvanece con el destello
+                    const glm::vec3 center = glm::vec3(carFit * glm::vec4((lens->GetBoundsMinimum() + lens->GetBoundsMaximum()) * 0.5f, 1.0f));
+                    glm::vec3 toCamera = cameraAt - center;
+                    const float distance = std::max(0.5f, glm::length(toCamera));
+                    toCamera /= distance;
+                    const glm::vec3 right = glm::normalize(glm::cross(glm::vec3(0.0f, 1.0f, 0.0f), toCamera));
+                    const glm::vec3 up = glm::cross(toCamera, right);
+                    renderer.SetUnlit(true);
+                    for (const float layer : {1.0f, 2.4f}) {   // nucleo y halo exterior mas suave
+                        const float radius = layer * (0.60f + 0.95f * (1.0f - level));   // 0,5 m al encender, hasta 1,3 m al apagarse
+                        glm::mat4 basis(1.0f);
+                        basis[0] = glm::vec4(right * radius, 0.0f);
+                        basis[1] = glm::vec4(up * radius, 0.0f);
+                        basis[2] = glm::vec4(toCamera, 0.0f);
+                        basis[3] = glm::vec4(center + toCamera * 0.18f, 1.0f);
+                        renderer.Submit(*m_StrobeHalo, basis, glm::vec4(color, (layer > 1.0f ? 0.30f : 0.80f) * level), false, true, nullptr, 2);
+                    }
+                    renderer.SetUnlit(false);
+                };
+                drawLens(cabinParts.barRed, redLevel, glm::vec3(1.0f, 0.10f, 0.06f));
+                drawLens(cabinParts.barBlue, blueLevel, glm::vec3(0.12f, 0.32f, 1.0f));
             }
             const float roll = -vehicle.wheelRotation * 0.33f / (cabinParts.wheels.front().radius * cabinParts.scale);
             for (const VehicleParts::Wheel& wheel : cabinParts.wheels) {
@@ -4296,13 +4443,14 @@ void Simulation::Render(Renderer& renderer, float time, const glm::vec3& focusPo
                 motion = glm::translate(motion, -wheel.center);
                 wheel.model->Draw(renderer, carFit * motion);
             }
-            if (!vehicle.parked && !m_PedestrianAppearances.empty()
+            if ((!vehicle.parked || std::getenv("BAZUKO_DRIVER_PARKED")) && !m_PedestrianAppearances.empty()
                 && glm::distance(glm::vec2(vehicle.position.x, vehicle.position.z), glm::vec2(focusPosition.x, focusPosition.z)) < 30.0f) {
                 const size_t carIndex = static_cast<size_t>(&vehicle - m_Traffic.data());
                 for (size_t seatIndex = 0; seatIndex < cabinParts.seats.size(); ++seatIndex) {
                     const VehicleParts::Seat& seat = cabinParts.seats[seatIndex];
                     const uint32_t hash = static_cast<uint32_t>((seatIndex + 1) * 2654435761u) ^ static_cast<uint32_t>((carIndex + 11) * 40503u);
                     if (seat.driver) continue;                                                  // el conductor lo dibuja su animacion
+                    if (patrolCabin && seatIndex > 1) continue;                                  // la patrulla lleva conductor y acompanante, sin pasajeros atras
                     const bool frontPassenger = seatIndex == 1;
                     if (vehicle.driver.state == DriverState::Abandoned || vehicle.driver.state == DriverState::Swapping) continue;   // se bajaron o ya manejan
                     if (frontPassenger) { if (!vehicle.driver.hasPassenger) continue; }
@@ -4406,7 +4554,7 @@ void Simulation::Render(Renderer& renderer, float time, const glm::vec3& focusPo
             }
         }
         // Conductor o motociclista: sentado manejando, o con la animacion de bajarse y subirse ajustada a este vehiculo
-        if (!vehicle.parked && !m_PedestrianAppearances.empty() && vehicle.driver.state != DriverState::OnFoot
+        if ((!vehicle.parked || std::getenv("BAZUKO_DRIVER_PARKED")) && !m_PedestrianAppearances.empty() && vehicle.driver.state != DriverState::OnFoot
             && vehicle.driver.state != DriverState::Returning && vehicle.driver.state != DriverState::Abandoned
             && glm::distance(glm::vec2(vehicle.position.x, vehicle.position.z), glm::vec2(focusPosition.x, focusPosition.z)) < 40.0f) {
             const PedestrianAppearance& appearance = m_PedestrianAppearances[vehicle.driver.appearance % m_PedestrianAppearances.size()];
@@ -4437,6 +4585,24 @@ void Simulation::Render(Renderer& renderer, float time, const glm::vec3& focusPo
             }
             glm::mat4 person = model * glm::translate(glm::mat4(1.0f), glm::vec3(anchor.x, 0.0f, -anchor.y));
             person = glm::rotate(person, anchorYaw, glm::vec3(0.0f, 1.0f, 0.0f));
+            // Los modelos sin clip propio (Jetta, Crafter, Hilux) usan el CarDrive de referencia, cuya cadera queda mas baja que el asiento de
+            // este modelo: los pies asomaban por debajo de la carroceria. Se sube al ocupante lo que falta para que su cadera quede en la altura
+            // del asiento (profile.hipsZ, con un margen de 4 cm), y asi los pies quedan sobre el umbral.
+            if (!moto && profile.hipsZ > 0.0f && !appearance.parts.empty() && appearance.parts.front()
+                && (vehicle.driver.state == DriverState::Seated || vehicle.driver.state == DriverState::Braking)) {
+                const auto& body = appearance.parts.front();
+                if (suffix.empty() || body->FindAnimationClip(clipName) < 0) {
+                    const int reference = body->FindAnimationClip(suffix.empty() ? clipName : clipName.substr(0, clipName.size() - suffix.size()));
+                    if (reference >= 0) {
+                        const float hipsY = body->GetNodeWorld("Hips", clipTime, true, reference)[3].y;
+                        // ajuste fino por modelo (volante distinto al del CarDrive de referencia): sube/baja y adelanta (+z = hacia el frente del carro)
+                        float trim = 0.0f, forward = 0.0f;
+                        if (profile.suffix == "crafter") { trim = -0.20f; forward = 0.22f; }
+                        else if (profile.suffix == "patrulla") trim = 0.12f;   // el piso de la patrulla queda alto: sin esto los pies asoman bajo el umbral   // la furgoneta: volante mas adelantado y mas bajo
+                        person = glm::translate(person, glm::vec3(0.0f, std::clamp(profile.hipsZ - hipsY + 0.04f + trim, 0.0f, 0.45f), forward));
+                    }
+                }
+            }
             // la cabeza no puede sobresalir del techo: si el techo es bajo, el ocupante se hunde un poco en el asiento y se encoge lo justo
             if (!moto && profile.roofZ > 0.0f && profile.hipsZ > 0.0f) {
                 constexpr float kHeadAboveHips = 0.75f, kHeadroom = 0.06f, kMaxSink = 0.05f;
@@ -4465,7 +4631,23 @@ void Simulation::Render(Renderer& renderer, float time, const glm::vec3& focusPo
         }
     };
     for (const auto& vehicle : m_Traffic) drawCar(vehicle);
-    for (const auto& vehicle : m_ParkedCars) drawCar(vehicle);
+    for (const auto& vehicle : m_ParkedCars) {
+        if (const char* forced = std::getenv("BAZUKO_PARK_EMERGENCY"); forced && &vehicle == &m_ParkedCars.front()) {   // pruebas: el primer carro parqueado es de emergencia (1 ambulancia, 2 patrulla)
+            TrafficVehicle copy = vehicle;
+            copy.emergency = std::atoi(forced);
+            copy.driver.hasPassenger = copy.emergency == 2;
+            if (copy.emergency == 2 && m_PedestrianAppearances.size() > m_PoliceAppearanceFirst) {
+                const size_t count = m_PedestrianAppearances.size() - m_PoliceAppearanceFirst;
+                copy.driver.appearance = m_PoliceAppearanceFirst + (std::getenv("BAZUKO_POLICE_WOMAN") ? 2 : 0) % count;
+                copy.driver.passengerAppearance = m_PoliceAppearanceFirst + (std::getenv("BAZUKO_POLICE_WOMAN") ? 0 : 2) % count;
+            }
+            copy.variant = 0;
+            copy.taxi = false;
+            drawCar(copy);
+            continue;
+        }
+        drawCar(vehicle);
+    }
     for (const BusState& bus : m_Buses) {
     const float busOpacity = std::clamp(std::min(bus.direction * (bus.position.z - bus.startZ) / 6.0f,
                                                   bus.direction * (bus.endZ - bus.position.z) / 6.0f), 0.0f, 1.0f);
@@ -4575,6 +4757,15 @@ void Simulation::Render(Renderer& renderer, float time, const glm::vec3& focusPo
         } else {
             renderer.Submit(*m_PedestrianBody, glm::translate(server, {0.0f, 0.62f, 0.0f}));
             renderer.Submit(*m_PedestrianHead, glm::translate(server, {0.0f, 1.30f, 0.0f}));
+        }
+    }
+    if (std::getenv("BAZUKO_POLICE_STAND")) {   // pruebas: los uniformes de policia de pie frente al jugador, de cara a el
+        for (size_t i = m_PoliceAppearanceFirst; i < m_PedestrianAppearances.size(); ++i) {
+            const auto& appearance = m_PedestrianAppearances[i];
+            glm::mat4 stand = glm::translate(glm::mat4(1.0f), focusPosition + glm::vec3(-1.6f + 1.1f * static_cast<float>(i - m_PoliceAppearanceFirst), 0.0f, 1.3f));
+            stand = glm::rotate(stand, glm::pi<float>(), {0.0f, 1.0f, 0.0f});
+            for (size_t k = 0; k < appearance.parts.size(); ++k)
+                if (appearance.parts[k]) appearance.parts[k]->Draw(renderer, stand, PedestrianPartTint(appearance, k, glm::vec3(0.5f), 0.0f), time, appearance.idleClip >= 0, appearance.idleClip);
         }
     }
     for (const auto& pedestrian : m_Pedestrians) {
