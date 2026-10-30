@@ -10,6 +10,7 @@ import { createCharacter } from '../character/character.js';
 import { createRealisticCharacter, REALISTIC_SCALE } from '../character/RealisticCharacter.js';
 import { PlayerRagdoll } from '../systems/PlayerRagdoll.js';
 import { CombatSystem } from '../systems/CombatSystem.js';
+import { GrappleSystem } from '../systems/GrappleSystem.js';
 
 export class Player {
   constructor(scene, input, stats=null, audio=null) {
@@ -59,6 +60,7 @@ export class Player {
     this.sorting = false;
     this.hasCart = false;     // seleccionando basura (mantener Q)
     this.combat = new CombatSystem();
+    this.grapple = new GrappleSystem(this);
   }
 
   setLook(look) {
@@ -93,13 +95,16 @@ export class Player {
 
   /** Anima una acción breve (segundos) */
   playAction(action, duration = 1) {
+    this.actionDuration = duration;
     this.action = action;
     this.actionTimer = duration;
   }
 
   receiveAssaultHit(direction = null) {
-    this.playAction('recibirGolpe', 0.42);
-    this._assaultJolt = 0.42;
+    if (this.action === 'pivotar') return;
+    this.combat?.dispose();
+    this.playAction(this.isBlocking ? 'bloquear' : 'reaccion_pecho', this.isBlocking ? .6 : .42);
+    this._assaultJolt = this.modelKind === 'realista' ? 0 : .42;
     if (direction?.clone) this._assaultDirection = direction.clone().setY(0).normalize();
   }
 
@@ -131,8 +136,13 @@ export class Player {
   }
 
   update(dt, camera, collisions, groundHeight = null, npcs = []) {
+    this.isBlocking = !!this.input?.isDown?.('KeyU') && !this.isStunned && !this.grapple?.target && !this.combat?.pending && this.action !== 'pivotar';
     this.time += dt;
     this._lastCollisions = collisions;
+    if (this.grapple?.update(dt, npcs, collisions)) {
+      this.character.update(dt, { speed: 0, action: 'agarrar', t: this.time });
+      return;
+    }
     if (this.ragdoll?.active) {
       this.velocity?.set(0, 0, 0);
       this.ragdoll.update(dt, collisions);
@@ -144,6 +154,11 @@ export class Player {
       if (this.actionTimer <= 0) this.action = null;
     }
     this.combat?.update(dt);
+    if (this.input?.consumePress?.('KeyO') && !this.isStunned && !this.action && !this.grapple?.target && !this.hasCart) {
+      this.combat?.dispose(); this.velocity.set(0, 0, 0);
+      this.playAction('pivotar', .97); this._dodgeYaw = this.root.rotation.y;
+    }
+    if (this.isBlocking) this.playAction('bloquear', .6);
 
     // Salto y combate cuerpo a cuerpo estilo GTA
     const wantsJump = typeof this.input?.consumePress === 'function' && (this.input.consumePress('Space') || this.input.consumePress('KeySpace'));
@@ -161,7 +176,8 @@ export class Player {
 
     const { x = 0, z = 0 } = this.input?.axis ?? {};
     const stunned = this._impactTime > 0;
-    const moving = !stunned && (x !== 0 || z !== 0);
+    const dodging = this.action === 'pivotar';
+    const moving = !stunned && !dodging && (x !== 0 || z !== 0);
     const running = Boolean(this.input?.isRunning && moving);
     let speed = running ? this.speedRun : this.speedWalk;
     if (this.stats?.getSpeedMultiplier) {
@@ -196,6 +212,7 @@ export class Player {
     } else {
       delta = this._delta.copy(dir).multiplyScalar(moving ? speed * dt : 0);
     }
+    if (dodging) delta.set(Math.cos(this._dodgeYaw) * .65 * dt, 0, -Math.sin(this._dodgeYaw) * .65 * dt);
     if (stunned) {
       delta.addScaledVector(this._impactVelocity, (1 - Math.exp(-4 * dt)) / 4);
       this._impactVelocity.multiplyScalar(Math.exp(-4 * dt));
@@ -262,12 +279,13 @@ export class Player {
     this.state = (this.speed < 0.25) ? 'idle' : (running ? 'run' : 'walk');
 
     // Animación del personaje (velocidad en metros del modelo, no del mundo)
-    const assaultReaction = this.action === 'recibirGolpe';
+    const assaultReaction = ['recibirGolpe', 'reaccion_pecho', 'reaccion_cabeza'].includes(this.action);
     this.character.update(dt, {
       // La reacción de impacto debe verse aunque el jugador siga intentando caminar.
       speed: (stunned || assaultReaction) ? 0 : this.speed / this.modelScale,
       running,
       action: stunned ? null : (this.sorting ? 'buscar' : this.action),
+      actionDuration: this.actionDuration,
       t: this.time,
       load: this.load,
       dirt: this.stats ? Math.max(0, (40 - this.stats.higiene) / 40) : 0
@@ -275,6 +293,8 @@ export class Player {
   }
 
   dispose() {
+    this.grapple?.release();
+    this.combat?.dispose();
     this.ragdoll.clear();
     this._realistic?.dispose?.();
     this._realisticPromise?.then(character => character.dispose?.()).catch(() => {});

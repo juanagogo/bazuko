@@ -23,6 +23,13 @@ export const REALISTIC_SCALE = 1.08;
 
 const ACTIONFORGE_URL = `${MODEL_BASE}animaciones-actionforge.glb`;
 const ASSAULT_ANIM_URLS = {
+  bloquear: `${MODEL_BASE}combat-block.fbx`,
+  fueraCombate: `${MODEL_BASE}combat-fall.fbx`,
+  golpe_jab: `${MODEL_BASE}combat-jab-cross.fbx`,
+  reaccion_cabeza: `${MODEL_BASE}combat-hit-head.fbx`,
+  reaccion_pecho: `${MODEL_BASE}combat-hit-body.fbx`,
+  provocar: `${MODEL_BASE}combat-taunt.fbx`,
+  pivotar: `${MODEL_BASE}combat-pivot.fbx`,
   golpear: `${MODEL_BASE}assault-hook.fbx`,
   patear: `${MODEL_BASE}assault-kick.fbx`,
   recibirGolpe: `${MODEL_BASE}assault-hit-react.fbx`,
@@ -34,6 +41,7 @@ const ASSAULT_ANIM_URLS = {
 const LOCOMOTION = 'locomocion';
 // Acciones sin clip propio: clip sustituto y velocidad de reproducción.
 const ACTION_FALLBACKS = {
+  agarrar: ['pedir'], ser_agarrado: ['pedir'], forcejear: ['pedir'],
   cagar: ['buscar'], lanzar: ['pedir'], saludo: ['pedir'],
   // Los clips reales entrarán al banco ActionForge; mientras tanto no se bloquea el juego.
   golpe_jab: ['golpear'], golpe_cross: ['golpear'], patada: ['patear'],
@@ -278,7 +286,7 @@ async function buildInstance(catalog, look, lod = false) {
   const actions = {};
   for (const [name, clip] of Object.entries(clips)) {
     actions[name] = mixer.clipAction(clip);
-    if (['comer', 'beber', 'lanzar', 'saludo', 'golpear', 'patear', 'recibirGolpe', 'derribo', 'levantarse', 'golpe_jab', 'golpe_cross', 'patada', 'reaccion_pecho', 'reaccion_cabeza', 'caida'].includes(name)) {
+    if (['comer', 'beber', 'lanzar', 'saludo', 'golpear', 'patear', 'recibirGolpe', 'derribo', 'levantarse', 'golpe_jab', 'golpe_cross', 'patada', 'reaccion_pecho', 'reaccion_cabeza', 'caida', 'fueraCombate', 'bloquear', 'pivotar'].includes(name)) {
       actions[name].setLoop(THREE.LoopOnce, 1);
       actions[name].clampWhenFinished = true;
     }
@@ -346,17 +354,20 @@ export async function createRealisticCharacter(look = {}, { lod = false } = {}) 
       disposeRealisticInstance(inst); inst = null;
       group.removeFromParent();
     },
-    update(dt, { speed = 0, running = false, action = null } = {}) {
+    update(dt, { speed = 0, running = false, action = null, actionDuration = 0 } = {}) {
       if (!inst) return;
       const a = inst.actions;
       // destino: acción especial si existe el clip (o su sustituto); si no, reposo o locomoción
       let target = speed < 0.15 ? 'idle' : a.walk ? LOCOMOTION : 'idle';
       let scale = 1;
       // Los golpes deben verse aunque la inercia conserve velocidad al soltar WASD.
-      const combatAction = ['golpe_jab', 'golpe_cross', 'patada', 'reaccion_pecho', 'reaccion_cabeza', 'caida', 'golpear', 'patear', 'recibirGolpe'].includes(action);
+      const combatAction = ['golpe_jab', 'golpe_cross', 'patada', 'reaccion_pecho', 'reaccion_cabeza', 'caida', 'golpear', 'patear', 'recibirGolpe', 'provocar', 'pivotar', 'bloquear', 'fueraCombate'].includes(action);
       if (action && (speed < 0.15 || combatAction)) {
         const [clip, clipScale = 1] = a[action] ? [action] : ACTION_FALLBACKS[action] ?? [];
-        if (a[clip]) { target = clip; scale = clipScale; }
+        if (a[clip]) {
+          target = clip;
+          scale = actionDuration > 0 ? a[clip].getClip().duration / actionDuration : clipScale;
+        }
       }
       if (inst?.root) {
         const targetY = action === 'cagar' && !a.cagar ? -0.3 : 0;
@@ -366,7 +377,7 @@ export async function createRealisticCharacter(look = {}, { lod = false } = {}) 
         if (target !== 'idle' && target !== LOCOMOTION) a[target].reset().setEffectiveTimeScale(scale).play();
         inst.previousTarget = target;
       }
-      const k = Math.min(1, dt * 8);
+      const k = 1 - Math.exp(-dt * (combatAction ? 18 : 8));
       for (const key of Object.keys(weights)) {
         weights[key] += ((key === target ? 1 : 0) - weights[key]) * k;
         if (key !== target && weights[key] < .001) weights[key] = 0;

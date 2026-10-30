@@ -73,7 +73,7 @@ export function createRetargeter(srcRoot, tgtRoot, { preserveHipHeight = false }
   const restSrc = new Map([...src].map(([n, b]) => [n, b.getWorldQuaternion(new THREE.Quaternion())]));
   const restTgt = new Map([...tgt].map(([n, b]) => [n, b.getWorldQuaternion(new THREE.Quaternion())]));
   const restLocal = new Map([...tgt].map(([n, b]) => [n, b.quaternion.clone()]));
-  const hipName = [...src.keys()].find(n => /(^|:)Hips$/.test(n) && tgt.has(n));
+  const hipName = [...src.keys()].find(n => /Hips$/.test(n) && tgt.has(n));
   const sourceHip = hipName && src.get(hipName);
   const targetHip = hipName && tgt.get(hipName);
   const sourceHipRest = sourceHip?.position.clone();

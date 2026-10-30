@@ -8,6 +8,7 @@
 import * as THREE from 'three';
 import { createRealisticCharacter, loadCatalog, normalizeReal, optionsFor, REALISTIC_SCALE } from '../character/RealisticCharacter.js';
 import { randomLook, DEFAULT_LOOK } from '../character/look.js';
+import { NpcCombat } from '../systems/NpcCombat.js'; // <-- IMPORTAMOS EL CEREBRO DE COMBATE
 
 const any = (arr) => arr[Math.floor(Math.random() * arr.length)];
 
@@ -18,7 +19,6 @@ export const NPC_LOD = {
   animEvery: 20,   // más allá: animación cada 3 cuadros
   animStop: 40     // más allá: animación congelada
 };
-
 
 const BOGOTA_PHRASES = [
   'Dios lo bendiga, vecino.',
@@ -110,6 +110,20 @@ export class Npc {
     this.assaultAction = null;
     this.assaultKind = null;
     this.assaultDelay = 0;
+
+    // ==========================================
+    // PROPIEDADES DE COMBATE Y COLISIONES
+    // ==========================================
+    this.valentia = Math.random(); // 0 es cobarde, 1 es valiente
+    this.maxHp = 100;
+    this.hp = this.maxHp;
+    this.healthBar = new THREE.Sprite(new THREE.SpriteMaterial({ color: 0xd83232, depthTest: false }));
+    this.healthBar.position.set(0, 2.3, 0);
+    this.healthBar.scale.set(.8, .07, 1);
+    this.healthBar.visible = false;
+    this.root.add(this.healthBar);
+    this.velocity = new THREE.Vector3(); // Vector para que NpcCombat empuje y no se amontonen
+    this.combatAI = new NpcCombat(this);
 
     this.ready = (async () => {
       this.look = opts.look ?? await randomStreetLook({ gastada: opts.gastada });
@@ -217,6 +231,8 @@ export class Npc {
 
   _walk(dt) {
     this.moving = false;
+    if (this.combatAI?.state !== 'libre' && this.combatAI?.objetivo) return;
+    if (this.grabbed || this.reactionTimer > 0 || this.hp <= 0) return;
 
     // Escena breve de agresión: acercarse al objetivo, mirar hacia él y ejecutar el clip recibido.
     if (this.assaultTimer > 0 && this.assaultTarget) {
@@ -263,6 +279,12 @@ export class Npc {
       while (diff > Math.PI) diff -= Math.PI * 2;
       while (diff < -Math.PI) diff += Math.PI * 2;
       this.root.rotation.y += diff * Math.min(1, dt * 10);
+      return;
+    }
+
+    // Si está en combate, la IA de NpcCombat se encarga del movimiento
+    if (this.combatAI && this.combatAI.state !== 'libre') {
+      // NpcCombat modificará this.velocity y nosotros lo aplicamos abajo
       return;
     }
 
@@ -315,7 +337,35 @@ export class Npc {
    * @param {{ player?: THREE.Vector3, frustum?: THREE.Frustum }} ctx
    */
   update(dt, ctx = {}) {
+    this._combatBefore ??= new THREE.Vector3();
+    this._combatBefore.copy(this.position);
+    if (this.healthBar) {
+      this.healthBar.visible = this.hp > 0 && this.hp < this.maxHp && (!ctx.player || this.position.distanceTo(ctx.player) < 12);
+      this.healthBar.scale.x = .8 * this.hp / this.maxHp;
+    }
+    if (this.reactionTimer > 0) {
+      this.reactionTimer = Math.max(0, this.reactionTimer - dt);
+      if (!this.reactionTimer) this.assaultAction = null;
+    }
+    // 1. Actualizar el cerebro de combate
+    if (this.combatAI && !this.grabbed && !this.reactionTimer) {
+      this.combatAI.update(dt);
+    }
+
+    // 2. Aplicar empuje de separación (para que no se amontonen)
+    if (this.velocity && this.velocity.lengthSq() > 0.001) {
+      const next = this._nextPosition.copy(this.position).addScaledVector(this.velocity, dt);
+      if (this.isWalkable(next.x, next.z)) {
+        next.y = this.groundHeight(next.x, next.z);
+        this.position.copy(next);
+      }
+      // Fricción para que se detengan suavemente
+      this.velocity.multiplyScalar(Math.exp(-10 * dt));
+    }
+
+    // 3. Comportamiento normal o de combate
     this._walk(dt);
+    this.combatSpeed = dt > 0 ? this._combatBefore.distanceTo(this.position) / dt : 0;
     this.root.position.copy(this.position);
 
     if (this.splatTimer > 0) {
@@ -364,7 +414,7 @@ export class Npc {
     const budget = ctx.animationBudget ?? this.animationBudget;
     const interval = dist > NPC_LOD.animEvery ? .1 * budget : budget > 1 ? budget / 60 : 0;
     if (interval && this.animAcc < interval) return;
-    this.character.update(Math.min(this.animAcc, 0.2), { speed: this.moving ? this.walkSpeed / REALISTIC_SCALE : 0, action: this.assaultAction });
+    this.character.update(Math.min(this.animAcc, 0.2), { speed: this.combatSpeed / REALISTIC_SCALE, action: this.assaultAction, actionDuration: this.hp <= 0 ? 1.4 : this.reactionTimer > 0 ? .42 : this.combatActionDuration });
     this.animAcc = 0;
   }
 
@@ -379,9 +429,26 @@ export class Npc {
     this.route = [];
   }
 
+  takePunch(attacker, info = {}) {
+    if (this.hp <= 0 || this._disposed) return 0;
+    const canBlock = this.combatAI?.state === 'acercarse' || this.combatAI?.state === 'advertido';
+    const blocked = canBlock && this.valentia > .3 && Math.random() < .25;
+    this.assaultAction = info.tipo === 'cross' ? 'reaccion_cabeza' : 'reaccion_pecho'; this.reactionTimer = .42;
+    if (info.dir) this.velocity.copy(info.dir).multiplyScalar((info.knock ?? .2) * 6);
+    // 1. Restar vida
+    this.applyDamage((info.dmg ?? 5) * (blocked ? .4 : 1));
+    if (blocked) this.assaultAction = 'bloquear';
+    if (this.hp <= 0) return 0;
+    
+    // 2. Decidir: ¿Pelear o huir?
+    if (this.valentia > 0.3 && this.hp > 0) {
+      // Es valiente, se une al linchamiento
+      this.combatAI.entrarEnCombate(attacker, true);
+      this.say(any(['¡Malparido!', '¡Gonorrea!', '¡Hijueputa!']), 3.0);
+      return 0; // No suelta plata, se queda a pelear
+    }
 
-
-  takePunch(attacker) {
+    // Si es cobarde o ya no tiene vida, huye (comportamiento original)
     const PUNCH_REACTIONS = [
       '¡Uy qué le pasa, ñero loco!',
       '¡Ayúdenme, me están atracando!',
@@ -409,6 +476,19 @@ export class Npc {
     return dropMoney;
   }
 
+  applyDamage(amount) {
+    if (!Number.isFinite(amount) || amount <= 0 || this.hp <= 0) return;
+    this.hp = Math.max(0, this.hp - amount);
+    if (this.hp === 0) {
+      this.combatAI?.dispose();
+      this.assaultTarget = null; this.assaultTimer = 0;
+      this.panicTimer = 0; this.fleeTimer = 0; this.grabbed = false;
+      this.assaultAction = 'fueraCombate'; this.reactionTimer = Infinity;
+      this.velocity.set(0, 0, 0);
+      this.say('Fuera de combate', 3);
+    }
+  }
+
   say(text, duration = 3.5) {
     if (typeof document === 'undefined') return;
     const container = document.getElementById('npc-bubbles-container') ?? document.body;
@@ -432,7 +512,7 @@ export class Npc {
       }
     }
 
-    if (!ctx.player) return;
+    if (!ctx.player || this.hp <= 0 || this.combatAI?.state !== 'libre') return;
     const now = performance.now();
     const dist = Math.hypot(this.position.x - ctx.player.x, this.position.z - ctx.player.z);
 
@@ -475,6 +555,13 @@ export class Npc {
   dispose() {
     if (this._disposed) return;
     this._disposed = true;
+    this.healthBar?.material.dispose();
+
+    // Limpieza de combate
+    if (this.combatAI) {
+      this.combatAI.dispose();
+    }
+
     if (this._bubbleEl) {
       this._bubbleEl.remove();
       this._bubbleEl = null;

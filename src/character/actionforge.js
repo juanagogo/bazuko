@@ -1,4 +1,5 @@
 import { clone } from 'three/examples/jsm/utils/SkeletonUtils.js';
+import { AnimationUtils } from 'three';
 import { createRetargeter } from './retarget.js';
 
 export const ACTIONFORGE_CLIPS = {
@@ -34,9 +35,18 @@ export function buildCharacterClips(body, legacy, actionforge = null, assault = 
     const clip = source?.animations?.[0];
     if (!clip) continue;
     try {
-      const retarget = createRetargeter(source.scene, clone(body.scene));
+      // FBXLoader devuelve directamente un Group; GLTFLoader devuelve { scene }.
+      const retarget = createRetargeter(source.scene ?? source, clone(body.scene), {
+        preserveHipHeight: ['fueraCombate', 'derribo', 'caida', 'levantarse'].includes(name)
+      });
       out[name] = retarget(clip);
       out[name].name = name;
+      if (name === 'golpe_jab') {
+        const sequence = out[name];
+        const middle = Math.round(sequence.duration * 30);
+        out.golpe_jab = AnimationUtils.subclip(sequence, 'golpe_jab', 0, middle, 60);
+        out.golpe_cross = AnimationUtils.subclip(sequence, 'golpe_cross', middle, Math.round(sequence.duration * 60), 60);
+      }
     } catch (error) {
       // Un clip externo no compatible no debe impedir iniciar una partida.
       console.warn(`No se pudo adaptar la animación ${name}; se usará el gesto temporal.`, error);

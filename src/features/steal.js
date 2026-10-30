@@ -244,18 +244,19 @@ export class StealSystem {
       const remaining = scene.damage - scene.appliedDamage;
       const hitDamage = Math.min(remaining, Math.max(1, Math.ceil(scene.damage / totalHits)));
       scene.appliedDamage += hitDamage;
-      this.game.stats.salud = Math.max(0, this.game.stats.salud - hitDamage);
+      const receivedDamage = hitDamage * (this.game.player.isBlocking ? .4 : 1);
+      this.game.stats.salud = Math.max(0, this.game.stats.salud - receivedDamage);
       const impactDirection = playerPos.clone().sub(attacker.position).setY(0);
       if (impactDirection.lengthSq() < .001) impactDirection.copy(scene.direction);
       this.game.player.receiveAssaultHit?.(impactDirection.normalize());
       this._flashImpact(impactDirection);
-      this._toast(`👊 Impacto ${scene.hits}/${totalHits}: −${hitDamage} de salud.`, 'death');
+      this._toast(`👊 Impacto ${scene.hits}/${totalHits}: −${receivedDamage} de salud.`, 'death');
     }
     // Da tiempo a que los NPC lleguen y terminen sus clips antes de aplicar la caída.
     if (scene.time < 5.8) return;
     const player = this.game.player;
     const stats = this.game.stats;
-    stats.salud = Math.max(0, stats.salud - (scene.damage - scene.appliedDamage));
+    stats.salud = Math.max(0, stats.salud - (scene.damage - scene.appliedDamage) * (player.isBlocking ? .4 : 1));
     stats.higiene = Math.max(0, (stats.higiene ?? 100) - scene.attackers * 6);
     this.game._deathCause = stats.salud === 0 ? 'agresión colectiva' : this.game._deathCause;
     this._toast(`👊 La golpiza termina: −${scene.damage} de salud.`, 'death');
