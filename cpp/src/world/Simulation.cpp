@@ -314,6 +314,15 @@ VehicleParts Simulation::LoadVehicleParts(const std::string& modelsRoot, const s
             parts.door = Model::LoadFromFile(resolve(stem + "_door"));
             parts.doorHinge = {door["hinge"][0].get<float>(), door["hinge"][1].get<float>(), door["hinge"][2].get<float>()};
         }
+        for (const auto& entry : info.value("doors", nlohmann::json::array())) {   // puertas del acompanante y traseras (convert_puertas.py)
+            VehicleParts::ExtraDoor extra;
+            extra.model = Model::LoadFromFile(resolve(stem + "_" + entry.value("part", std::string())));
+            const auto& hinge = entry["hinge"];
+            extra.hinge = {hinge[0].get<float>(), hinge[1].get<float>(), hinge[2].get<float>()};
+            extra.side = entry.value("side", -1);
+            extra.row = entry.value("row", 0);
+            if (extra.model) parts.extraDoors.push_back(std::move(extra));
+        }
         if (info.contains("driver")) {
             const auto& driver = info["driver"];
             parts.driver.valid = true;
@@ -2713,6 +2722,7 @@ bool Simulation::HitPedestrian(const glm::vec3& from, const glm::vec2& forward, 
         kind = 3;
     }
     target->reaction = kind >= 3 ? 4 : std::max(1, kind);
+    CallPolice(from, 0.7f);   // golpear a un peaton puede atraer a la policia
     target->reactionTime = 0.0f;
     target->punchTime = -1.0f;
     target->aggressive = false;
@@ -2795,9 +2805,9 @@ bool Simulation::ProvokeDriver(size_t index) {
     if (index >= m_Traffic.size() || m_PedestrianAppearances.empty()) return false;
     TrafficVehicle& vehicle = m_Traffic[index];
     DriverInfo& driver = vehicle.driver;
-    if (vehicle.bus || vehicle.parked || driver.state != DriverState::Seated || driver.cooldown > 0.0f) return false;
-    driver.cooldown = 25.0f;
-    if (m_Unit(m_Random) < 0.5f) {
+    if (vehicle.bus || vehicle.parked || driver.state != DriverState::Seated || (driver.cooldown > 0.0f && vehicle.emergency != 2)) return false;
+    driver.cooldown = vehicle.emergency == 2 ? 0.0f : 25.0f;
+    if (vehicle.emergency != 2 && m_Unit(m_Random) < 0.5f) {   // la patrulla nunca huye
         driver.boost = 7.0f;   // acelera para huir
     } else {
         vehicle.holdStop = true;   // frena, se baja y va por el jugador
@@ -2805,6 +2815,34 @@ bool Simulation::ProvokeDriver(size_t index) {
         driver.timer = 0.0f;
     }
     return true;
+}
+
+bool Simulation::CallPolice(const glm::vec3& at, float chance) {
+    size_t best = m_Traffic.size();
+    float bestDistance = 55.0f;
+    for (size_t index = 0; index < m_Traffic.size(); ++index) {
+        const TrafficVehicle& vehicle = m_Traffic[index];
+        if (vehicle.emergency != 2) continue;
+        const DriverState state = vehicle.driver.state;
+        const bool busy = state == DriverState::OnFoot || state == DriverState::Returning || state == DriverState::Entering;   // ya bajados, volviendo o subiendo: otro delito los reactiva
+        if (!busy && state != DriverState::Seated) continue;   // la patrulla no tiene espera: responde al instante
+        const float distance = glm::distance(glm::vec2(vehicle.position.x, vehicle.position.z), glm::vec2(at.x, at.z));
+        if (distance < bestDistance) { bestDistance = distance; best = index; }
+    }
+    if (best >= m_Traffic.size()) return false;
+    if (bestDistance > 30.0f && m_Unit(m_Random) >= chance) return false;   // si la patrulla esta cerca (30 m) siempre responde; mas lejos depende de la gravedad del delito
+    // alguien cercano grita que llamen a la policia
+    float nearest = 14.0f;
+    Pedestrian* witness = nullptr;
+    for (Pedestrian& pedestrian : m_Pedestrians) {
+        if (pedestrian.dead || pedestrian.departed || pedestrian.aggressive) continue;
+        const float distance = glm::distance(glm::vec2(pedestrian.position.x, pedestrian.position.z), glm::vec2(at.x, at.z));
+        if (distance < nearest) { nearest = distance; witness = &pedestrian; }
+    }
+    if (witness) { witness->bubbleText = "¡Llamen a la policía!"; witness->bubbleRemaining = 3.5f; }
+    DriverInfo& called = m_Traffic[best].driver;
+    if (called.state != DriverState::Seated) { called.reengage = true; return true; }   // UpdateDrivers los devuelve a la calle
+    return ProvokeDriver(best);
 }
 
 bool Simulation::HitVehicle(const glm::vec3& from, const glm::vec2& forward, float reach) {
@@ -2823,7 +2861,7 @@ void Simulation::OnDriverDeath(size_t index) {
     TrafficVehicle& vehicle = m_Traffic[index];
     DriverInfo& driver = vehicle.driver;
     vehicle.holdStop = true;   // el vehiculo se queda quieto en la carretera
-    if (driver.hasPassenger && vehicle.emergency != 3) {
+    if (driver.hasPassenger && !driver.partnerOut && vehicle.emergency != 3) {
         // el acompanante se pasa al asiento del conductor y maneja: toma su identidad y su ropa
         driver.appearance = driver.passengerAppearance;
         driver.color = driver.passengerColor;
@@ -2836,6 +2874,8 @@ void Simulation::OnDriverDeath(size_t index) {
     driver.timer = 0.0f;
 }
 
+constexpr float kUnseenDistance = 150.0f;   // los vehiculos se dibujan hasta 140 m: mas lejos que eso nada se ve aparecer ni desaparecer
+
 void Simulation::RespawnAbandoned(TrafficVehicle& vehicle) {
     if (m_TrafficRoutes.empty()) return;
     const glm::vec2 player(m_LastPlayerPosition.x, m_LastPlayerPosition.z);
@@ -2847,7 +2887,7 @@ void Simulation::RespawnAbandoned(TrafficVehicle& vehicle) {
         glm::vec3 position, direction;
         size_t waypoint = 0;
         SampleCircuit(m_TrafficRoutes[routeIndex], cumulative, length, distance, position, direction, waypoint);
-        if (glm::distance(glm::vec2(position.x, position.z), player) < 70.0f) continue;
+        if (glm::distance(glm::vec2(position.x, position.z), player) < kUnseenDistance) continue;   // reaparece solo fuera de la vista del jugador
         bool free = true;
         for (const TrafficVehicle& other : m_Traffic) {
             if (&other != &vehicle && glm::distance(other.position, position) < 9.0f) { free = false; break; }
@@ -2872,7 +2912,7 @@ void Simulation::RespawnAbandoned(TrafficVehicle& vehicle) {
         driver.appearance = static_cast<size_t>(m_Unit(m_Random) * 1000.0f);
         driver.color = {0.22f + m_Unit(m_Random) * 0.55f, 0.18f + m_Unit(m_Random) * 0.48f, 0.15f + m_Unit(m_Random) * 0.42f};
         driver.shade = m_Unit(m_Random) * 2.0f;
-        if (vehicle.variant > 0 && vehicle.emergency == 0 && m_Unit(m_Random) < 0.35f) {
+        if ((vehicle.variant > 0 && vehicle.emergency == 0 && m_Unit(m_Random) < 0.35f) || vehicle.emergency == 2) {   // la patrulla siempre lleva companero
             driver.hasPassenger = true;
             driver.passengerAppearance = static_cast<size_t>(m_Unit(m_Random) * 1000.0f);
             driver.passengerColor = {0.22f + m_Unit(m_Random) * 0.55f, 0.18f + m_Unit(m_Random) * 0.48f, 0.15f + m_Unit(m_Random) * 0.42f};
@@ -2908,6 +2948,63 @@ void Simulation::UpdateDrivers(float dt, const glm::vec3& playerPosition) {
             }
         }
     }
+    if (const char* policeTest = std::getenv("BAZUKO_POLICE_TEST")) {   // pruebas: a los s segundos pone la patrulla en la ruta mas cercana al jugador y la llama; luego registra su estado
+        static float testClock = 0.0f, lastLog = 0.0f;
+        static bool placed = false;
+        testClock += dt;
+        if (!placed && testClock >= static_cast<float>(std::atof(policeTest))) {
+            placed = true;
+            for (TrafficVehicle& vehicle : m_Traffic) {
+                if (vehicle.emergency != 2) continue;
+                float bestDistance = 1.0e9f;
+                size_t bestRoute = 0;
+                float bestAt = 0.0f;
+                for (size_t routeIndex = 0; routeIndex < m_TrafficRoutes.size(); ++routeIndex) {
+                    const float length = GetCircuitLength(m_TrafficRoutes[routeIndex]);
+                    for (float at = 0.0f; at < length; at += 2.0f) {
+                        glm::vec3 position, direction;
+                        size_t waypoint = 0;
+                        SampleCircuit(m_TrafficRoutes[routeIndex], m_RouteCumulative[routeIndex], length, at, position, direction, waypoint);
+                        const float d = glm::distance(glm::vec2(position.x, position.z), glm::vec2(playerPosition.x, playerPosition.z));
+                        if (d > 12.0f && d < bestDistance) { bestDistance = d; bestRoute = routeIndex; bestAt = at; }
+                    }
+                }
+                glm::vec3 position, direction;
+                size_t waypoint = 0;
+                const float length = GetCircuitLength(m_TrafficRoutes[bestRoute]);
+                SampleCircuit(m_TrafficRoutes[bestRoute], m_RouteCumulative[bestRoute], length, bestAt, position, direction, waypoint);
+                vehicle.route = m_TrafficRoutes[bestRoute];
+                vehicle.routeCumulative = m_RouteCumulative[bestRoute];
+                vehicle.routeLength = length;
+                vehicle.routeIndex = bestRoute;
+                vehicle.connectorRoute = -1;
+                vehicle.distance = vehicle.nextDistance = bestAt;
+                vehicle.speed = vehicle.nextSpeed = 0.0f;
+                vehicle.position = vehicle.previousPosition = position;
+                vehicle.direction = direction;
+                vehicle.nextWaypoint = waypoint;
+                vehicle.yaw = std::atan2(-direction.z, direction.x);
+                vehicle.driver.cooldown = 0.0f;
+                const bool called = !std::getenv("BAZUKO_POLICE_NOCALL") && CallPolice(playerPosition, 1.0f);   // con NOCALL solo la deja cerca: el delito lo comete quien prueba
+                LogInfo("PRUEBA patrulla puesta a {:.1f} m del jugador en ({:.1f}, {:.1f}); CallPolice -> {}", bestDistance, position.x, position.z, called);
+                break;
+            }
+        }
+        if (placed && testClock - lastLog >= 1.0f) {
+            lastLog = testClock;
+            for (const TrafficVehicle& vehicle : m_Traffic) {
+                if (vehicle.emergency != 2) continue;
+                const DriverInfo& d = vehicle.driver;
+                std::string where;
+                if (d.state == DriverState::OnFoot || d.state == DriverState::Returning) {
+                    const Pedestrian& p = m_Pedestrians[d.pedestrianIndex];
+                    where = std::format(" policia ({:.1f},{:.1f}) agresivo {} golpe {:.2f}", p.position.x, p.position.z, p.aggressive, p.punchTime);
+                    if (d.partnerOut) { const Pedestrian& q = m_Pedestrians[d.partnerIndex]; where += std::format(" companero ({:.1f},{:.1f}) agresivo {} reaccion {} esquive {:.2f} huida {:.1f} aggrRest {:.1f} golpe {:.2f}", q.position.x, q.position.z, q.aggressive, q.reaction, q.dodgeTime, q.fleeRemaining, q.aggressionRemaining, q.punchTime); }
+                }
+                LogInfo("POLICIA jugador ({:.1f},{:.1f}) estado {} t {:.1f} vehiculo a {:.1f} m{}", playerPosition.x, playerPosition.z, static_cast<int>(d.state), d.timer, glm::distance(glm::vec2(vehicle.position.x, vehicle.position.z), glm::vec2(playerPosition.x, playerPosition.z)), where);
+            }
+        }
+    }
     constexpr float kCarClip = 3.0f;    // CarEnter y CarExit: 72 fotogramas a 24 fps
     constexpr float kBoardSpeed = 1.6f; // subir y bajar del vehiculo se reproduce a 1,6x: el clip original se sentia lento
     for (size_t index = 0; index < m_Traffic.size(); ++index) {
@@ -2924,6 +3021,40 @@ void Simulation::UpdateDrivers(float dt, const glm::vec3& playerPosition) {
         VehiclePose(vehicle, pose, yaw);
         const DriverProfile profile = ProfileFor(vehicle);
         const glm::vec3 stanceWorld = VehicleLocalToWorld(pose, yaw, profile.stance);
+        if (driver.reengage) {   // delito nuevo: la patrulla retoma la persecucion sin importar si bajaba, volvia o subia
+            driver.reengage = false;
+            const auto resume = [&](Pedestrian& person, const glm::vec3& at, bool respawn) {
+                if (person.dead) return;
+                if (respawn) {
+                    person.departed = false;
+                    person.position = at;
+                    person.position.y = m_City.GetGroundHeight(at.x, at.z);
+                    person.target = person.position;
+                }
+                person.returning = false;
+                person.aggressive = true;
+                person.aggressionRemaining = 45.0f;
+                person.punchTime = -1.0f;
+                person.dodgeTime = -1.0f;
+            };
+            if (driver.state == DriverState::Entering) {   // se bajan de nuevo por sus puertas
+                if (driver.pedestrianIndex < m_Pedestrians.size()) resume(m_Pedestrians[driver.pedestrianIndex], stanceWorld, true);
+                if (driver.partnerBoarding && driver.partnerIndex < m_Pedestrians.size()) {
+                    resume(m_Pedestrians[driver.partnerIndex], VehicleLocalToWorld(pose, yaw, {profile.stance.x, -profile.stance.y}), true);
+                    driver.partnerOut = true;
+                }
+                driver.partnerBoarding = false;
+                driver.state = DriverState::OnFoot;
+                driver.timer = 0.0f;
+                driver.idle = 0.0f;
+            } else if (driver.state == DriverState::Returning || driver.state == DriverState::OnFoot) {
+                if (driver.pedestrianIndex < m_Pedestrians.size()) resume(m_Pedestrians[driver.pedestrianIndex], stanceWorld, false);
+                if (driver.partnerOut && driver.partnerIndex < m_Pedestrians.size()) resume(m_Pedestrians[driver.partnerIndex], stanceWorld, false);
+                driver.state = DriverState::OnFoot;
+                driver.timer = 0.0f;
+                driver.idle = 0.0f;
+            }
+        }
         switch (driver.state) {
             case DriverState::Seated:
                 break;
@@ -2947,13 +3078,30 @@ void Simulation::UpdateDrivers(float dt, const glm::vec3& playerPosition) {
                     pedestrian.color = driver.color;               // la misma ropa que llevaba al volante
                     pedestrian.animationOffset = driver.shade;
                     pedestrian.aggressive = true;
-                    pedestrian.aggressionRemaining = 18.0f;
+                    pedestrian.aggressionRemaining = vehicle.emergency == 2 ? 45.0f : 18.0f;
+                    pedestrian.police = vehicle.emergency == 2;
                     pedestrian.punchCooldown = 0.6f;
                     pedestrian.vehicleIndex = static_cast<int>(index);
                     size_t slot = m_Pedestrians.size();
                     for (size_t i = 0; i < m_Pedestrians.size(); ++i) if (m_Pedestrians[i].departed) { slot = i; break; }
                     if (slot == m_Pedestrians.size()) m_Pedestrians.push_back(pedestrian); else m_Pedestrians[slot] = pedestrian;
                     driver.pedestrianIndex = slot;
+                    if (vehicle.emergency == 2 && driver.hasPassenger && !driver.partnerOut) {   // el companero de la patrulla baja por el lado del acompanante
+                        Pedestrian partner = pedestrian;
+                        const glm::vec3 partnerStance = VehicleLocalToWorld(pose, yaw, {profile.stance.x, -profile.stance.y});
+                        partner.position = partnerStance;
+                        partner.position.y = m_City.GetGroundHeight(partnerStance.x, partnerStance.z);
+                        partner.target = partner.position;
+                        partner.appearance = driver.passengerAppearance % m_PedestrianAppearances.size();
+                        partner.color = driver.passengerColor;
+                        partner.animationOffset = driver.passengerShade;
+                        partner.punchCooldown = 1.0f;
+                        size_t partnerSlot = m_Pedestrians.size();
+                        for (size_t i = 0; i < m_Pedestrians.size(); ++i) if (m_Pedestrians[i].departed && i != slot) { partnerSlot = i; break; }
+                        if (partnerSlot == m_Pedestrians.size()) m_Pedestrians.push_back(partner); else m_Pedestrians[partnerSlot] = partner;
+                        driver.partnerIndex = partnerSlot;
+                        driver.partnerOut = true;
+                    }
                     driver.state = DriverState::OnFoot;
                     driver.timer = 0.0f;
                 }
@@ -2966,20 +3114,35 @@ void Simulation::UpdateDrivers(float dt, const glm::vec3& playerPosition) {
                 }
                 if (pedestrian.dead) { OnDriverDeath(index); break; }
                 if (pedestrian.vehicleIndex != static_cast<int>(index)) { OnDriverDeath(index); break; }
-                const bool scared = pedestrian.fleeRemaining > 0.0f;
+                const bool police = vehicle.emergency == 2;
+                const bool scared = !police && pedestrian.fleeRemaining > 0.0f;   // la policia no se asusta
                 const bool fighting = pedestrian.aggressive || pedestrian.punchTime >= 0.0f || pedestrian.reaction > 0 || scared;
                 driver.idle = fighting ? 0.0f : driver.idle + dt;
-                if (playerDistance > 14.0f || driver.timer > 35.0f || scared || driver.idle > 1.5f) {
+                // la policia persigue mas lejos y por mas tiempo: se rinde solo cuando el jugador se aleja (a mas de 45 m) o pasan 2 minutos
+                const float giveUpDistance = police ? 45.0f : 14.0f, giveUpTime = police ? 120.0f : 35.0f, idleLimit = police ? 6.0f : 1.5f;
+                if (playerDistance > giveUpDistance || driver.timer > giveUpTime || scared || driver.idle > idleLimit) {
                     pedestrian.aggressive = false;
                     pedestrian.punchTime = -1.0f;
                     pedestrian.fleeRemaining = 0.0f;
                     pedestrian.returning = true;
                     pedestrian.returnTarget = stanceWorld;
+                    if (driver.partnerOut && driver.partnerIndex < m_Pedestrians.size()) {   // el companero tambien vuelve
+                        Pedestrian& partner = m_Pedestrians[driver.partnerIndex];
+                        partner.aggressive = false;
+                        partner.punchTime = -1.0f;
+                        partner.dodgeTime = -1.0f;
+                        partner.returning = true;
+                        partner.returnTarget = VehicleLocalToWorld(pose, yaw, {profile.stance.x, -profile.stance.y});
+                    }
                     driver.state = DriverState::Returning;
                     driver.timer = 0.0f;
                 } else if (!pedestrian.aggressive && pedestrian.reaction == 0) {
                     pedestrian.aggressive = true;
-                    pedestrian.aggressionRemaining = 18.0f;
+                    pedestrian.aggressionRemaining = police ? 45.0f : 18.0f;
+                }
+                if (police && driver.partnerOut && driver.partnerIndex < m_Pedestrians.size()) {   // el companero mantiene la persecucion
+                    Pedestrian& partner = m_Pedestrians[driver.partnerIndex];
+                    if (!partner.dead && !partner.aggressive && partner.reaction == 0 && partner.dodgeTime < 0.0f) { partner.aggressive = true; partner.aggressionRemaining = 45.0f; }
                 }
                 break;
             }
@@ -2992,7 +3155,26 @@ void Simulation::UpdateDrivers(float dt, const glm::vec3& playerPosition) {
                 // vuelve caminando: solo sube cuando llega; si tarda mucho y el jugador ya no lo ve, se sube sin teletransportarse a la vista
                 // si lleva demasiado intentando llegar (atascado tras los golpes) sube igual: pronto si el jugador esta lejos y, pase lo que pase, a los 25 s
                 const bool giveUp = (driver.timer > 12.0f && playerDistance > 25.0f) || driver.timer > 25.0f;
-                if (toVehicle < 0.5f || giveUp || (driver.timer > 60.0f && playerDistance > 70.0f)) {
+                if (driver.partnerOut && driver.partnerIndex < m_Pedestrians.size()) {
+                    Pedestrian& partner = m_Pedestrians[driver.partnerIndex];
+                    partner.returnTarget = VehicleLocalToWorld(pose, yaw, {profile.stance.x, -profile.stance.y});
+                    if (partner.dead) driver.partnerOut = false;   // murio: su vehiculo sigue sin el
+                }
+                bool partnerReady = true;   // el conductor espera a que su companero llegue a su puerta (o se rinde por el tiempo)
+                if (driver.partnerOut && driver.partnerIndex < m_Pedestrians.size()) {
+                    const Pedestrian& partner = m_Pedestrians[driver.partnerIndex];
+                    const glm::vec3 partnerStance = VehicleLocalToWorld(pose, yaw, {profile.stance.x, -profile.stance.y});
+                    partnerReady = glm::distance(glm::vec2(partner.position.x, partner.position.z), glm::vec2(partnerStance.x, partnerStance.z)) < 0.6f;
+                }
+                if ((toVehicle < 0.5f && (partnerReady || driver.timer > 14.0f)) || giveUp || (driver.timer > 60.0f && playerDistance > 70.0f)) {
+                    if (driver.partnerOut && driver.partnerIndex < m_Pedestrians.size()) {   // sube el companero junto con el conductor, por su puerta
+                        Pedestrian& partner = m_Pedestrians[driver.partnerIndex];
+                        partner.departed = true;
+                        partner.returning = false;
+                        partner.position = {0.0f, -1000.0f, 0.0f};
+                        driver.partnerBoarding = true;
+                    }
+                    driver.partnerOut = false;
                     pedestrian.departed = true;            // vuelve a subir: la animacion de entrada la dibuja el vehiculo
                     pedestrian.returning = false;
                     pedestrian.position = {0.0f, -1000.0f, 0.0f};
@@ -3004,10 +3186,11 @@ void Simulation::UpdateDrivers(float dt, const glm::vec3& playerPosition) {
             case DriverState::Entering:
                 driver.timer += dt * kBoardSpeed;
                 if (driver.timer >= enterLength) {
+                    driver.partnerBoarding = false;
                     driver.state = DriverState::Seated;
                     driver.timer = 0.0f;
                     vehicle.holdStop = false;
-                    driver.cooldown = 25.0f;
+                    driver.cooldown = vehicle.emergency == 2 ? 0.0f : 25.0f;   // la patrulla responde de nuevo al instante
                 }
                 break;
             case DriverState::Swapping:
@@ -3022,7 +3205,7 @@ void Simulation::UpdateDrivers(float dt, const glm::vec3& playerPosition) {
                 break;
             case DriverState::Abandoned:
                 vehicle.holdStop = true;      // queda quieto en la carretera hasta que el jugador no lo vea
-                driver.timer = playerDistance > 70.0f ? driver.timer + dt : 0.0f;
+                driver.timer = playerDistance > kUnseenDistance ? driver.timer + dt : 0.0f;
                 if (driver.timer > 4.0f) RespawnAbandoned(vehicle);
                 break;
         }
@@ -3149,7 +3332,7 @@ void Simulation::UpdatePedestrians(float dt, const glm::vec3& playerPosition) {
             const float length = Combat::Info(pedestrian.dodgeKind == 0 ? Combat::Move::Slip : Combat::Move::RollingDuck).duration;
             if (pedestrian.dodgeTime >= length) {
                 pedestrian.dodgeTime = -1.0f;
-                if (m_Unit(m_Random) < 0.45f) {   // algunos devuelven el golpe
+                if (pedestrian.police || m_Unit(m_Random) < 0.45f) {   // algunos devuelven el golpe (la policia siempre)
                     pedestrian.aggressive = true;
                     pedestrian.aggressionRemaining = 12.0f;
                     pedestrian.fleeAfterPunch = false;
@@ -3164,9 +3347,9 @@ void Simulation::UpdatePedestrians(float dt, const glm::vec3& playerPosition) {
             if (pedestrian.reactionTime >= reactionLength) {
                 pedestrian.reaction = 0;
                 pedestrian.reactionTime = 0.0f;
-                if (m_Unit(m_Random) < 0.5f) {
+                if (pedestrian.police || m_Unit(m_Random) < 0.5f) {   // la policia contraataca siempre
                     pedestrian.aggressive = true;
-                    pedestrian.aggressionRemaining = 14.0f;
+                    pedestrian.aggressionRemaining = pedestrian.police ? 45.0f : 14.0f;
                 } else {
                     pedestrian.fleeRemaining = 6.0f;
                     glm::vec3 away = pedestrian.position - playerPosition;
@@ -3221,7 +3404,7 @@ void Simulation::UpdatePedestrians(float dt, const glm::vec3& playerPosition) {
                 pedestrian.route.clear();
                 pedestrian.nextWaypoint = 0;
             };
-            if (pedestrian.aggressionRemaining <= 0.0f || playerDistance > 30.0f) {
+            if (pedestrian.aggressionRemaining <= 0.0f || playerDistance > (pedestrian.police ? 48.0f : 30.0f)) {
                 if (pedestrian.fleeAfterPunch) startFleeing();
                 else { pedestrian.aggressive = false; pedestrian.punchTime = -1.0f; }
                 continue;
@@ -3245,7 +3428,24 @@ void Simulation::UpdatePedestrians(float dt, const glm::vec3& playerPosition) {
                     if (pedestrian.fleeAfterPunch) startFleeing();
                 }
             } else if (playerDistance > 1.1f) {
-                if (!moveAround(pedestrian, toward, (pedestrian.fleeAfterPunch ? 3.4f : 2.2f) * dt, false)) pedestrian.yaw = std::atan2(toward.x, toward.z);
+                glm::vec3 heading = toward;
+                if (pedestrian.detourTime > 0.0f) {   // rodea el obstaculo (casi siempre el vehiculo del que bajo) en vez de empujar contra el
+                    pedestrian.detourTime -= dt;
+                    const float cs = std::cos(pedestrian.detourTurn), sn = std::sin(pedestrian.detourTurn);
+                    heading = glm::vec3(toward.x * cs - toward.z * sn, 0.0f, toward.x * sn + toward.z * cs);
+                }
+                if (moveAround(pedestrian, heading, (pedestrian.police ? 3.8f : pedestrian.fleeAfterPunch ? 3.4f : 2.2f) * dt, false)) {
+                    pedestrian.returnStuck = std::max(0.0f, pedestrian.returnStuck - dt);
+                } else {
+                    pedestrian.returnStuck += dt;
+                    pedestrian.yaw = std::atan2(toward.x, toward.z);
+                    if (pedestrian.returnStuck > 0.35f) {
+                        static constexpr std::array<float, 6> kTurns{{1.57f, -1.57f, 2.35f, -2.35f, 0.8f, -0.8f}};
+                        pedestrian.detourTurn = kTurns[static_cast<size_t>(pedestrian.detourCount++) % kTurns.size()];
+                        pedestrian.detourTime = 1.0f;
+                        pedestrian.returnStuck = 0.0f;
+                    }
+                }
             } else if (pedestrian.punchCooldown <= 0.0f) {
                 pedestrian.punchTime = 0.0f;
                 pedestrian.punchLanded = false;
@@ -3299,8 +3499,48 @@ void Simulation::UpdatePedestrians(float dt, const glm::vec3& playerPosition) {
             } else wanderOut(pedestrian);
         }
     }
+    {   // los peatones (y los policias, que tambien lo son) no se atraviesan: se empujan hasta quedar a un cuerpo de distancia, sin meterse en obstaculos
+        constexpr float kBody = 0.55f;
+        constexpr float kReach = 56.0f;   // solo los que el jugador ve
+        for (size_t i = 0; i < m_Pedestrians.size(); ++i) {
+            Pedestrian& a = m_Pedestrians[i];
+            if (a.dead || a.departed || glm::distance(a.position, playerPosition) > kReach) continue;
+            for (size_t j = i + 1; j < m_Pedestrians.size(); ++j) {
+                Pedestrian& b = m_Pedestrians[j];
+                if (b.dead || b.departed || std::abs(a.position.y - b.position.y) > 1.0f) continue;
+                glm::vec2 offset(b.position.x - a.position.x, b.position.z - a.position.z);
+                float distance = glm::length(offset);
+                if (distance >= kBody) continue;
+                if (distance < 0.001f) { offset = glm::vec2(std::cos(static_cast<float>(i)), std::sin(static_cast<float>(i))); distance = 1.0f; }   // encimados: cada par se abre hacia su propio lado
+                const glm::vec2 push = offset / distance * ((kBody - glm::min(distance, kBody)) * std::min(1.0f, 14.0f * dt) * 0.5f);
+                const glm::vec3 nextA = a.position - glm::vec3(push.x, 0.0f, push.y);
+                const glm::vec3 nextB = b.position + glm::vec3(push.x, 0.0f, push.y);
+                if (!m_City.IsBlocked(nextA.x, nextA.z, 0.18f) && !IsBlocked(nextA, 0.2f)) a.position = nextA;
+                if (!m_City.IsBlocked(nextB.x, nextB.z, 0.18f) && !IsBlocked(nextB, 0.2f)) b.position = nextB;
+            }
+        }
+    }
     // los muertos se quedan donde cayeron mientras el jugador los tenga a la vista (los peatones se dibujan hasta 56 m)
-    std::erase_if(m_Pedestrians, [&](const Pedestrian& pedestrian) { return glm::distance(pedestrian.position, playerPosition) > (pedestrian.dead ? 62.0f : 96.0f); });
+    {   // los muertos se retiran a 62 m y el resto a 96 m; los peatones ligados a un vehiculo se conservan y los indices que guardan los conductores se reajustan
+        const auto removable = [&](const Pedestrian& p) { return p.vehicleIndex < 0 && glm::distance(p.position, playerPosition) > (p.dead ? 62.0f : 96.0f); };
+        std::vector<size_t> remap(m_Pedestrians.size(), 0);
+        size_t kept = 0;
+        for (size_t i = 0; i < m_Pedestrians.size(); ++i) if (!removable(m_Pedestrians[i])) remap[i] = kept++;
+        if (kept != m_Pedestrians.size()) {
+            for (TrafficVehicle& vehicle : m_Traffic) {
+                DriverInfo& d = vehicle.driver;
+                if (d.pedestrianIndex < remap.size()) d.pedestrianIndex = remap[d.pedestrianIndex];
+                if (d.partnerIndex < remap.size()) d.partnerIndex = remap[d.partnerIndex];
+            }
+            size_t write = 0;
+            for (size_t i = 0; i < m_Pedestrians.size(); ++i) {
+                if (removable(m_Pedestrians[i])) continue;
+                if (write != i) m_Pedestrians[write] = std::move(m_Pedestrians[i]);
+                ++write;
+            }
+            m_Pedestrians.resize(write);
+        }
+    }
 }
 
 void Simulation::UpdateTraffic(float dt) {
@@ -4400,6 +4640,30 @@ void Simulation::Render(Renderer& renderer, float time, const glm::vec3& focusPo
                 doorModel = glm::translate(doorModel, -cabinParts.doorHinge);
                 cabinParts.door->Draw(renderer, doorModel, glm::vec4(1.0f), 0.0f, false, 0, -1, false, paintTint);
             }
+            {   // demas puertas: la del acompanante se abre con su animacion (la patrulla lleva companero); las traseras quedan listas para sus ocupantes
+                float passengerAngle = 0.0f;
+                if (patrolCabin && vehicle.driver.hasPassenger && (vehicle.driver.state == DriverState::Exiting || (vehicle.driver.state == DriverState::Entering && vehicle.driver.partnerBoarding))) {
+                    const float frame = vehicle.driver.timer * 24.0f;
+                    constexpr float kOpenP = 62.0f;
+                    if (vehicle.driver.state == DriverState::Entering)
+                        passengerAngle = frame < 12.0f ? 0.0f : frame < 22.0f ? 28.0f * (frame - 12.0f) / 10.0f
+                                       : frame < 34.0f ? 28.0f + (kOpenP - 28.0f) * (frame - 22.0f) / 12.0f : frame < 92.0f ? kOpenP
+                                       : frame < 108.0f ? kOpenP * (1.0f - (frame - 92.0f) / 16.0f) : 0.0f;
+                    else
+                        passengerAngle = frame < 4.0f ? 0.0f : frame < 16.0f ? kOpenP * (frame - 4.0f) / 12.0f : frame < 104.0f ? kOpenP
+                                       : frame < 109.0f ? kOpenP - 12.0f * (frame - 104.0f) / 5.0f
+                                       : frame < 130.0f ? (kOpenP - 12.0f) * (1.0f - (frame - 109.0f) / 21.0f) : 0.0f;
+                }
+                const char* forcedDoor = std::getenv("BAZUKO_DOOR_ANGLE");   // pruebas: todas las puertas a ese angulo
+                for (const VehicleParts::ExtraDoor& extra : cabinParts.extraDoors) {
+                    float angle = extra.row == 0 && extra.side < 0 ? passengerAngle : 0.0f;
+                    if (forcedDoor) angle = static_cast<float>(std::atof(forcedDoor));
+                    glm::mat4 extraModel = glm::translate(carFit, extra.hinge);
+                    extraModel = glm::rotate(extraModel, glm::radians(angle) * (extra.side > 0 ? -1.0f : 1.0f), glm::vec3(0.0f, 1.0f, 0.0f));   // el borde trasero sale hacia su lado
+                    extraModel = glm::translate(extraModel, -extra.hinge);
+                    extra.model->Draw(renderer, extraModel, glm::vec4(1.0f), 0.0f, false, 0, -1, false, paintTint);
+                }
+            }
             if (patrolCabin && cabinParts.barRed && cabinParts.barBlue) {
                 // baliza estroboscopica: dos destellos rapidos del rojo y luego dos del azul (ciclo de 0,9 s); apagados quedan oscuros. Cada patrulla con su fase.
                 float redLevel = 0.0f, blueLevel = 0.0f;
@@ -4453,7 +4717,7 @@ void Simulation::Render(Renderer& renderer, float time, const glm::vec3& focusPo
                     if (patrolCabin && seatIndex > 1) continue;                                  // la patrulla lleva conductor y acompanante, sin pasajeros atras
                     const bool frontPassenger = seatIndex == 1;
                     if (vehicle.driver.state == DriverState::Abandoned || vehicle.driver.state == DriverState::Swapping) continue;   // se bajaron o ya manejan
-                    if (frontPassenger) { if (!vehicle.driver.hasPassenger) continue; }
+                    if (frontPassenger) { if (!vehicle.driver.hasPassenger || vehicle.driver.partnerOut || (vehicle.emergency == 2 && (vehicle.driver.state == DriverState::Exiting || (vehicle.driver.state == DriverState::Entering && vehicle.driver.partnerBoarding)))) continue; }
                     else if ((hash >> 11) % 100u >= 40u) continue;                            // pasajeros traseros: reparto fijo
                     const size_t appearanceIndex = frontPassenger ? vehicle.driver.passengerAppearance % m_PedestrianAppearances.size() : (hash >> 5) % m_PedestrianAppearances.size();
                     const PedestrianAppearance& appearance = m_PedestrianAppearances[appearanceIndex];
@@ -4554,10 +4818,9 @@ void Simulation::Render(Renderer& renderer, float time, const glm::vec3& focusPo
             }
         }
         // Conductor o motociclista: sentado manejando, o con la animacion de bajarse y subirse ajustada a este vehiculo
-        if ((!vehicle.parked || std::getenv("BAZUKO_DRIVER_PARKED")) && !m_PedestrianAppearances.empty() && vehicle.driver.state != DriverState::OnFoot
-            && vehicle.driver.state != DriverState::Returning && vehicle.driver.state != DriverState::Abandoned
-            && glm::distance(glm::vec2(vehicle.position.x, vehicle.position.z), glm::vec2(focusPosition.x, focusPosition.z)) < 40.0f) {
-            const PedestrianAppearance& appearance = m_PedestrianAppearances[vehicle.driver.appearance % m_PedestrianAppearances.size()];
+        // Ocupante animado (conductor, o acompanante de la patrulla al subir y bajar, espejado al lado contrario del vehiculo)
+        const auto drawOccupant = [&](size_t appearanceIndex, const glm::vec3& occupantColor, float occupantShade, bool mirror) {
+            const PedestrianAppearance& appearance = m_PedestrianAppearances[appearanceIndex % m_PedestrianAppearances.size()];
             const bool moto = vehicle.emergency == 3;
             const DriverProfile profile = ProfileFor(vehicle);
             const std::string suffix = profile.suffix.empty() ? std::string() : "_" + profile.suffix;
@@ -4583,7 +4846,9 @@ void Simulation::Render(Renderer& renderer, float time, const glm::vec3& focusPo
                     clipTime = time + static_cast<float>(vehicle.driver.appearance % 97) * 0.13f;
                     break;
             }
+            if (mirror) anchor.y = -anchor.y;   // el acompanante usa el lado contrario
             glm::mat4 person = model * glm::translate(glm::mat4(1.0f), glm::vec3(anchor.x, 0.0f, -anchor.y));
+            if (mirror) person = glm::scale(person, glm::vec3(1.0f, 1.0f, -1.0f));   // y la misma animacion en espejo
             person = glm::rotate(person, anchorYaw, glm::vec3(0.0f, 1.0f, 0.0f));
             // Los modelos sin clip propio (Jetta, Crafter, Hilux) usan el CarDrive de referencia, cuya cadera queda mas baja que el asiento de
             // este modelo: los pies asomaban por debajo de la carroceria. Se sube al ocupante lo que falta para que su cadera quede en la altura
@@ -4626,8 +4891,16 @@ void Simulation::Render(Renderer& renderer, float time, const glm::vec3& focusPo
                 int clip = part->FindAnimationClip(clipName);
                 if (clip < 0 && !suffix.empty()) clip = part->FindAnimationClip(clipName.substr(0, clipName.size() - suffix.size()));   // sin perfil propio: clip de referencia
                 if (clip < 0) continue;
-                part->Draw(renderer, person, PedestrianPartTint(appearance, partIndex, vehicle.driver.color, vehicle.driver.shade), clipTime, true, clip, -1, false);
+                part->Draw(renderer, person, PedestrianPartTint(appearance, partIndex, occupantColor, occupantShade), clipTime, true, clip, -1, false);
             }
+        };
+        if ((!vehicle.parked || std::getenv("BAZUKO_DRIVER_PARKED")) && !m_PedestrianAppearances.empty() && vehicle.driver.state != DriverState::OnFoot
+            && vehicle.driver.state != DriverState::Returning && vehicle.driver.state != DriverState::Abandoned
+            && glm::distance(glm::vec2(vehicle.position.x, vehicle.position.z), glm::vec2(focusPosition.x, focusPosition.z)) < 40.0f) {
+            drawOccupant(vehicle.driver.appearance, vehicle.driver.color, vehicle.driver.shade, false);
+            if (vehicle.emergency == 2 && vehicle.driver.hasPassenger
+                && (vehicle.driver.state == DriverState::Exiting || (vehicle.driver.state == DriverState::Entering && vehicle.driver.partnerBoarding)))
+                drawOccupant(vehicle.driver.passengerAppearance, vehicle.driver.passengerColor, vehicle.driver.passengerShade, true);
         }
     };
     for (const auto& vehicle : m_Traffic) drawCar(vehicle);

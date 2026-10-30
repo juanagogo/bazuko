@@ -174,11 +174,14 @@ void Renderer::Submit(const Mesh& mesh, const glm::mat4& transform, const glm::v
 
     if (m_ShadowResolution > 0 && m_ShadowCaster && alphaMode != 2 && !m_Sky && !m_Unlit && !m_Water && !m_Wireframe)
         RecordShadowCaster(mesh, transform, albedo, useTexture, alphaMode, alphaCutoff, skinMatrices);
+    const bool mirrored = glm::determinant(glm::mat3(transform)) < 0.0f;   // una escala negativa (personaje espejado en el asiento del acompanante) invierte las caras
+    if (mirrored) glFrontFace(GL_CW);
     if (doubleSided) glDisable(GL_CULL_FACE);
     if (alphaMode == 2) glDepthMask(GL_FALSE);
     mesh.Draw();
     if (alphaMode == 2) glDepthMask(GL_TRUE);
     if (doubleSided) glEnable(GL_CULL_FACE);
+    if (mirrored) glFrontFace(GL_CCW);
 }
 
 void Renderer::RecordShadowCaster(const Mesh& mesh, const glm::mat4& transform, const glm::vec4& albedo, bool useTexture, int alphaMode, float alphaCutoff,

@@ -45,6 +45,7 @@ struct Pedestrian {
     float punchTime = -1.0f;          // >= 0 mientras lanza un punetazo
     bool punchLanded = false;
     bool punchCross = false;
+    bool police = false;              // policia de una patrulla: persigue sin huir aunque lo golpeen y vuelve a su vehiculo cuando el jugador se aleja
     int punchKind = 0;                // 0 jab, 1 cruzado, 2 gancho (ver CombatMoves.hpp)
     float dodgeTime = -1.0f;          // >= 0 mientras esquiva un golpe del jugador
     int dodgeKind = 0;                // 0 esquive lateral, 1 esquive rotatorio
@@ -106,6 +107,10 @@ struct DriverInfo {
     float shade = 0.0f;                      // tono del pelo y desfase de animacion (animationOffset del peaton)
     float idle = 0.0f;                       // s que lleva a pie sin pelear ni huir (si pasa de 1,5 s vuelve al vehiculo)
     // Acompanante del asiento delantero: si el conductor muere, pasa a manejar
+    bool reengage = false;                   // un delito nuevo mientras los policias bajaban, volvian o subian: retoman la persecucion
+    bool partnerBoarding = false;            // el acompanante sube junto con el conductor (animacion de entrada del lado del acompanante)
+    bool partnerOut = false;                 // el acompanante de la patrulla tambien bajo a perseguir (su peaton esta en partnerIndex)
+    size_t partnerIndex = 0;
     bool hasPassenger = false;
     size_t passengerAppearance = 0;
     glm::vec3 passengerColor{0.5f, 0.4f, 0.3f};
@@ -132,6 +137,9 @@ struct VehicleParts {
     DriverProfile driver;   // medidas de las animaciones del conductor (json "driver")
     // Puerta del conductor como pieza aparte (solo los modelos cuya puerta es un objeto propio): gira sobre su bisagra al abrir
     std::shared_ptr<Model> door;
+    // Demas puertas (acompanante delantero y traseras): piezas aparte que se abren segun el ocupante que sube o baja (json "doors")
+    struct ExtraDoor { std::shared_ptr<Model> model; glm::vec3 hinge{0.0f}; int side = -1; int row = 0; };
+    std::vector<ExtraDoor> extraDoors;
     std::shared_ptr<Model> barRed, barBlue;   // lentes rojo y azul de la baliza (solo la patrulla): estroboscopicas
     bool hasPaint = false;       // tiene material "Paint": se puede teñir (los taxis van de amarillo)
     glm::vec3 doorHinge{0.0f};   // bisagra en el espacio del modelo (borde delantero, eje vertical)
@@ -388,6 +396,9 @@ public:
     bool StealCar(size_t index);
     // Conductores: robarles el retrovisor o golpear el vehiculo los provoca (huyen acelerando o se bajan a pelear y despues vuelven)
     bool ProvokeDriver(size_t index);
+    // Delito del jugador en `at` (robo de retrovisor, cosquilleo, robo directo o golpear a un peaton): con probabilidad `chance` alguien llama a la policia y,
+    // si hay una patrulla libre a menos de 55 m, frena, se baja con su companero y persigue al jugador hasta que este se aleja. Devuelve true si salio una patrulla.
+    bool CallPolice(const glm::vec3& at, float chance);
     bool HitVehicle(const glm::vec3& from, const glm::vec2& forward, float reach);
     bool StealParkedCar(size_t index);
     RobberyOutcome RobPedestrian(size_t index, bool direct, const glm::vec3& source);

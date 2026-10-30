@@ -1122,6 +1122,7 @@ int main(int argc, char** argv) {
                 const size_t pedestrian = simulation.GetNearbyPedestrian(playerPos, 1.8f);
                 if (pedestrian < simulation.GetPedestrianCount()) {
                 const RobberyOutcome outcome = simulation.RobPedestrian(pedestrian, true, playerPos);
+                if (outcome.attempted && simulation.CallPolice(playerPos, outcome.caught ? 1.0f : 0.8f)) ui.SetPickupNotification("¡Llamaron a la policía! Una patrulla va hacia ti.");
                 if (outcome.attempted) {
                     money += outcome.money;
                     if (outcome.successful) {
@@ -1324,6 +1325,7 @@ int main(int argc, char** argv) {
                 ui.OpenShopMenu(vendor.name, "Venta ambulante: lo justo para el día.", vendor.items);
             } else if (pedestrianIndex < simulation.GetPedestrianCount()) {
                 const RobberyOutcome outcome = simulation.RobPedestrian(pedestrianIndex, false, playerPos);
+                if (outcome.attempted && simulation.CallPolice(playerPos, outcome.caught ? 1.0f : outcome.successful ? 0.35f : 0.2f)) ui.SetPickupNotification("¡Llamaron a la policía! Una patrulla va hacia ti.");
                 if (outcome.attempted && outcome.successful) {
                     money += outcome.money;
                     awardXp(8);
@@ -1346,6 +1348,7 @@ int main(int argc, char** argv) {
                     audio.PlayTheftRemark(2.0f);
                     const bool caught = std::uniform_real_distribution<float>(0.0f, 1.0f)(lootRandom)
                         < 0.25f * talentEffect("stealCaughtMult");
+                    if (simulation.CallPolice(playerPos, caught ? 1.0f : 0.6f)) ui.SetPickupNotification("¡Llamaron a la policía! Una patrulla va hacia ti.");
                     if (caught) {
                         needs[3] = std::max(0.0f, needs[3] - 25.0f);
                         money = std::max(0.0f, money - 5000.0f);
@@ -1366,6 +1369,7 @@ int main(int argc, char** argv) {
                 audio.PlayTheftRemark(2.0f);
                 const float caughtChance = 0.25f * talentEffect("stealCaughtMult");
                 const bool caught = std::uniform_real_distribution<float>(0.0f, 1.0f)(lootRandom) < caughtChance;
+                if (simulation.CallPolice(playerPos, caught ? 1.0f : 0.6f)) ui.SetPickupNotification("¡Llamaron a la policía! Una patrulla va hacia ti.");
                 if (caught) {
                     needs[3] = std::max(0.0f, needs[3] - 25.0f);
                     money = std::max(0.0f, money - 5000.0f);
