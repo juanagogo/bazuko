@@ -132,6 +132,8 @@ cmake --build build-win
 
 El juego localiza `assets/` (shaders, fuente de los rótulos) y `public/` (modelos y audio) junto al ejecutable,
 en las carpetas superiores y en el directorio actual, así que arranca desde `build/`, `build/Release/` o con doble clic.
+Benchmark: `BAZUKO_BENCH=1` imprime al terminar la captura el resumen de rendimiento (FPS medios, mínimo, p95/p99, 1 % bajo y tirones); `BAZUKO_QUALITY=<0|1|2>` fija la calidad (baja, media, alta) y `BAZUKO_NOADAPT=1` desactiva la bajada automática de resolución, para comparar equipos con la misma carga. Ejemplo: `BAZUKO_BENCH=1 BAZUKO_QUALITY=1 BAZUKO_NOADAPT=1 BAZUKO_HOUR=12 BAZUKO_POS=54,26 BAZUKO_SHOT_DELAY=45 BAZUKO_SHOT=captura.png bazuko`. Los collages de `docs/images/novedades-*.png` se tomaron con los ganchos `BAZUKO_*` descritos en cada sección.
+
 Para indicar otra carpeta: `bazuko --public <ruta a public/>` o la variable `BAZUKO_PUBLIC`.
 Con `-DBAZUKO_COPY_PUBLIC=ON` se copia `public/` junto al ejecutable (~50 MB) para llevarlo a otro equipo.
 

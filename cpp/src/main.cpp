@@ -1798,6 +1798,7 @@ int main(int argc, char** argv) {
             ui.SetGraphicsQuality(graphicsQuality);
             // Resolucion adaptativa: la calidad elegida es el techo; si los FPS reales se mantienen bajos la escala baja
             // y se recupera sola, sin cambiar la preferencia guardada
+            if (static const char* forcedQuality = std::getenv("BAZUKO_QUALITY"); forcedQuality) graphicsQuality = std::clamp(std::atoi(forcedQuality), 0, 2);   // pruebas y benchmark: calidad fija
             static AdaptiveResolution adaptiveResolution(1.0f);
             static int adaptiveQuality = -1;
             static auto previousFrame = std::chrono::steady_clock::now();
@@ -1808,7 +1809,8 @@ int main(int argc, char** argv) {
                 adaptiveQuality = graphicsQuality;
                 adaptiveResolution.SetLimit(renderScales[static_cast<size_t>(graphicsQuality)]);
             }
-            if (!ui.IsPaused() && frameMs < 1000.0f && adaptiveResolution.Sample(frameMs) && adaptiveResolution.ratio < renderScales[static_cast<size_t>(graphicsQuality)])
+            static const bool fixedScale = std::getenv("BAZUKO_NOADAPT") != nullptr;   // benchmark: sin bajar la resolucion por carga
+            if (!fixedScale && !ui.IsPaused() && frameMs < 1000.0f && adaptiveResolution.Sample(frameMs) && adaptiveResolution.ratio < renderScales[static_cast<size_t>(graphicsQuality)])
                 ui.Notify("Resolución ajustada por rendimiento", ToastType::Warn);
             renderer.SetRenderScale(adaptiveResolution.ratio);
             ui.SetEffectiveRenderScale(adaptiveResolution.ratio, adaptiveResolution.pressure);
