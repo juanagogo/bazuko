@@ -35,7 +35,9 @@ const LOCOMOTION = 'locomocion';
 // Acciones sin clip propio: clip sustituto y velocidad de reproducción.
 const ACTION_FALLBACKS = {
   cagar: ['buscar'], lanzar: ['pedir'], saludo: ['pedir'],
-  golpear: ['lanzar', 2] // respaldo si el banco de agresión no llega a cargar
+  // Los clips reales entrarán al banco ActionForge; mientras tanto no se bloquea el juego.
+  golpe_jab: ['golpear'], golpe_cross: ['golpear'], patada: ['patear'],
+  reaccion_pecho: ['recibirGolpe'], reaccion_cabeza: ['recibirGolpe'], caida: ['derribo']
 };
 
 export const REAL_DEFAULT = {
@@ -276,7 +278,7 @@ async function buildInstance(catalog, look, lod = false) {
   const actions = {};
   for (const [name, clip] of Object.entries(clips)) {
     actions[name] = mixer.clipAction(clip);
-    if (['comer', 'beber', 'lanzar', 'saludo', 'golpear', 'patear', 'recibirGolpe', 'derribo', 'levantarse'].includes(name)) {
+    if (['comer', 'beber', 'lanzar', 'saludo', 'golpear', 'patear', 'recibirGolpe', 'derribo', 'levantarse', 'golpe_jab', 'golpe_cross', 'patada', 'reaccion_pecho', 'reaccion_cabeza', 'caida'].includes(name)) {
       actions[name].setLoop(THREE.LoopOnce, 1);
       actions[name].clampWhenFinished = true;
     }

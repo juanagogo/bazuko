@@ -9,6 +9,7 @@ import {
 import { createCharacter } from '../character/character.js';
 import { createRealisticCharacter, REALISTIC_SCALE } from '../character/RealisticCharacter.js';
 import { PlayerRagdoll } from '../systems/PlayerRagdoll.js';
+import { CombatSystem } from '../systems/CombatSystem.js';
 
 export class Player {
   constructor(scene, input, stats=null, audio=null) {
@@ -57,6 +58,7 @@ export class Player {
     this.actionTimer = 0;
     this.sorting = false;
     this.hasCart = false;     // seleccionando basura (mantener Q)
+    this.combat = new CombatSystem();
   }
 
   setLook(look) {
@@ -103,31 +105,7 @@ export class Player {
 
 
   punch(npcs = []) {
-    this.playAction('golpear', 0.38);
-    this.audio?.playWhoosh?.();
-
-    const forwardX = Math.sin(this.root.rotation.y);
-    const forwardZ = Math.cos(this.root.rotation.y);
-
-    for (const npc of npcs) {
-      if (!npc || !npc.position) continue;
-      const dx = npc.position.x - this.position.x;
-      const dz = npc.position.z - this.position.z;
-      const dist = Math.hypot(dx, dz);
-      if (dist < 1.85) {
-        const dot = (dx * forwardX + dz * forwardZ) / (dist || 1);
-        if (dot > 0.25) {
-          if (typeof npc.takePunch === 'function') {
-            const drop = npc.takePunch(this);
-            this.audio?.playPunchHit?.();
-            if (drop && this.stats && typeof this.stats.dinero === 'number') {
-              this.stats.dinero += drop;
-            }
-          }
-          break;
-        }
-      }
-    }
+    return this.combat.begin(this, npcs);
   }
 
   playBeg() {
@@ -165,6 +143,7 @@ export class Player {
       this.actionTimer -= dt;
       if (this.actionTimer <= 0) this.action = null;
     }
+    this.combat?.update(dt);
 
     // Salto y combate cuerpo a cuerpo estilo GTA
     const wantsJump = typeof this.input?.consumePress === 'function' && (this.input.consumePress('Space') || this.input.consumePress('KeySpace'));
