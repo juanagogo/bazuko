@@ -95,6 +95,12 @@ export class Player {
     this.actionTimer = duration;
   }
 
+  receiveAssaultHit(direction = null) {
+    this.playAction('recibirGolpe', 0.42);
+    this._assaultJolt = 0.42;
+    if (direction?.clone) this._assaultDirection = direction.clone().setY(0).normalize();
+  }
+
 
   punch(npcs = []) {
     this.playAction('golpear', 0.38);
@@ -265,11 +271,22 @@ export class Player {
       this.root.rotation.x = THREE.MathUtils.lerp(this.root.rotation.x, 0, 1 - Math.exp(-10 * dt));
     }
 
+    // Respuesta visual garantizada aunque un FBX externo no pueda retargetearse al esqueleto.
+    if (this._assaultJolt > 0) {
+      this._assaultJolt = Math.max(0, this._assaultJolt - dt);
+      const strength = this._assaultJolt / .42;
+      this.root.rotation.x -= .18 * strength;
+      this.root.rotation.z += Math.sin(this.time * 32) * .12 * strength;
+      if (this._assaultDirection) this.root.position.addScaledVector(this._assaultDirection, .025 * strength);
+    }
+
     this.state = (this.speed < 0.25) ? 'idle' : (running ? 'run' : 'walk');
 
     // Animación del personaje (velocidad en metros del modelo, no del mundo)
+    const assaultReaction = this.action === 'recibirGolpe';
     this.character.update(dt, {
-      speed: stunned ? 0 : this.speed / this.modelScale,
+      // La reacción de impacto debe verse aunque el jugador siga intentando caminar.
+      speed: (stunned || assaultReaction) ? 0 : this.speed / this.modelScale,
       running,
       action: stunned ? null : (this.sorting ? 'buscar' : this.action),
       t: this.time,

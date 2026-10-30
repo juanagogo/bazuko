@@ -707,7 +707,11 @@ export class Game {
     if (this.stats.inWithdrawal) causes.push('abstinencia');
     if (this.diseases.hasAny) causes.push('enfermedad');
     this.menu.open({
-      title: this._deathCause === 'atropello' ? 'Te atropellaron' : 'Te quedaste sin salud',
+      title: this._deathCause === 'atropello'
+        ? 'Te atropellaron'
+        : this._deathCause === 'agresión colectiva'
+          ? 'Te agredieron tras un robo'
+          : 'Te quedaste sin salud',
       sub: 'La partida está en pausa.',
       ic: 'heart',
       dismissible: false,
@@ -717,7 +721,9 @@ export class Game {
           el('p', { text: 'Volverás al cambuche con salud y necesidades recuperadas al menos al 60 %. Perderás la mitad de los tipos de objetos del inventario.' }),
           el('p', { text: this._deathCause === 'atropello'
             ? 'Mira ambos sentidos y cruza con distancia: los carros necesitan espacio para frenar.'
-            : 'Come, bebe agua y descansa para mantener tus necesidades. Puedes consumir comida y agua haciendo clic en ellas en el inventario.' })),
+            : this._deathCause === 'agresión colectiva'
+              ? 'Un robo detectado puede escalar: aléjate, recupera salud y evita repetirlo frente a otras personas.'
+              : 'Come, bebe agua y descansa para mantener tus necesidades. Puedes consumir comida y agua haciendo clic en ellas en el inventario.' })),
         foot: [button('Volver al cambuche', { primary: true, onClick: () => this._respawn() })]
       })
     });

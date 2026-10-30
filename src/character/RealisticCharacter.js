@@ -4,6 +4,7 @@
 // Expone la misma interfaz que createCharacter(): { group, setLook, update }.
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import { FBXLoader } from 'three/examples/jsm/loaders/FBXLoader.js';
 import { clone as cloneSkinned } from 'three/examples/jsm/utils/SkeletonUtils.js';
 import { ACTIONFORGE_CLIPS, buildCharacterClips } from './actionforge.js';
 import { locomotionBlend, measureLocomotion } from './locomotion.js';
@@ -21,13 +22,20 @@ const ANIM_URLS = ['animaciones.glb', 'animaciones-prueba.glb'].map(file => MODE
 export const REALISTIC_SCALE = 1.08;
 
 const ACTIONFORGE_URL = `${MODEL_BASE}animaciones-actionforge.glb`;
+const ASSAULT_ANIM_URLS = {
+  golpear: `${MODEL_BASE}assault-hook.fbx`,
+  patear: `${MODEL_BASE}assault-kick.fbx`,
+  recibirGolpe: `${MODEL_BASE}assault-hit-react.fbx`,
+  derribo: `${MODEL_BASE}assault-knockdown.fbx`,
+  levantarse: `${MODEL_BASE}assault-get-up.fbx`
+};
 
 // Peso compartido de caminar y correr; su reparto lo decide la velocidad.
 const LOCOMOTION = 'locomocion';
 // Acciones sin clip propio: clip sustituto y velocidad de reproducción.
 const ACTION_FALLBACKS = {
   cagar: ['buscar'], lanzar: ['pedir'], saludo: ['pedir'],
-  golpear: ['lanzar', 2] // el brazo baja dentro de los 0,38 s del golpe
+  golpear: ['lanzar', 2] // respaldo si el banco de agresión no llega a cargar
 };
 
 export const REAL_DEFAULT = {
@@ -35,6 +43,7 @@ export const REAL_DEFAULT = {
 };
 
 const loader = new GLTFLoader();
+const fbxLoader = new FBXLoader();
 const cache = new Map();
 const load = (url) => {
   if (!cache.has(url)) cache.set(url, loader.loadAsync(url));
@@ -96,6 +105,14 @@ function loadAnimations() {
 
 const clipCache = new Map();
 let actionforgePromise;
+let assaultPromise;
+function loadAssaultAnimations() {
+  assaultPromise ??= Promise.all(Object.entries(ASSAULT_ANIM_URLS).map(async ([name, url]) => {
+    try { return [name, await fbxLoader.loadAsync(url)]; }
+    catch (error) { console.warn(`No se pudo cargar la animación ${name}.`, error); return [name, null]; }
+  })).then(Object.fromEntries);
+  return assaultPromise;
+}
 async function clipsForBody(bodyId, bodyGltf) { // bodyId incluye el nivel de detalle
   if (!clipCache.has(bodyId)) {
     clipCache.set(bodyId, (async () => {
@@ -107,7 +124,7 @@ async function clipsForBody(bodyId, bodyGltf) { // bodyId incluye el nivel de de
       // El banco anterior (2 MB con mallas y texturas) solo se descarga si falta locomoción.
       const complete = actionforge && ['idle', 'walk', 'run']
         .every(key => actionforge.animations.some(clip => clip.name === ACTIONFORGE_CLIPS[key]));
-      const clips = buildCharacterClips(bodyGltf, complete ? null : await loadAnimations(), actionforge);
+      const clips = buildCharacterClips(bodyGltf, complete ? null : await loadAnimations(), actionforge, await loadAssaultAnimations());
       if (clips.walk) clips.walk.userData.locomotion = measureLocomotion(bodyGltf.scene, clips.walk, clips.run);
       return clips;
     })());
@@ -259,7 +276,7 @@ async function buildInstance(catalog, look, lod = false) {
   const actions = {};
   for (const [name, clip] of Object.entries(clips)) {
     actions[name] = mixer.clipAction(clip);
-    if (['comer', 'beber', 'lanzar', 'saludo'].includes(name)) {
+    if (['comer', 'beber', 'lanzar', 'saludo', 'golpear', 'patear', 'recibirGolpe', 'derribo', 'levantarse'].includes(name)) {
       actions[name].setLoop(THREE.LoopOnce, 1);
       actions[name].clampWhenFinished = true;
     }

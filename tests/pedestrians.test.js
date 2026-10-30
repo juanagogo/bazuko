@@ -104,7 +104,7 @@ test('la población incluye peatones junto al inicio y mantiene quietos a los ve
   const city = district();
   city._spawnPeople();
   await Promise.all(city.npcs.map(npc => npc.ready));
-  assert.equal(city.npcs.length, 66);
+  assert.equal(city.npcs.length, 108);
   assert.ok(city.npcs.some(npc => npc.position.distanceTo(new THREE.Vector3(STREET_X.world(20), 0, STREET_Z.world(11))) < 5));
   const starts = city.npcs.map(npc => npc.position.clone());
   for (let frame = 0; frame < 100; frame++) for (const npc of city.npcs) npc.update(0.05);

@@ -105,6 +105,11 @@ export class Npc {
     this.umbrella = null;
     this.panicTimer = 0;
     this.panicDir = null;
+    this.assaultTarget = null;
+    this.assaultTimer = 0;
+    this.assaultAction = null;
+    this.assaultKind = null;
+    this.assaultDelay = 0;
 
     this.ready = (async () => {
       this.look = opts.look ?? await randomStreetLook({ gastada: opts.gastada });
@@ -212,6 +217,31 @@ export class Npc {
 
   _walk(dt) {
     this.moving = false;
+
+    // Escena breve de agresión: acercarse al objetivo, mirar hacia él y ejecutar el clip recibido.
+    if (this.assaultTimer > 0 && this.assaultTarget) {
+      if (this.assaultDelay > 0) {
+        this.assaultDelay = Math.max(0, this.assaultDelay - dt);
+        return;
+      }
+      this.assaultTimer -= dt;
+      const d = this._direction.copy(this.assaultTarget).sub(this.position); d.y = 0;
+      const distance = d.length();
+      if (distance > 1.35 && this.assaultTimer > .45) {
+        const next = this._nextPosition.copy(this.position).addScaledVector(d.normalize(), Math.min(distance - 1.35, 5.2 * dt));
+        if (this.isWalkable(next.x, next.z)) { next.y = this.groundHeight(next.x, next.z); this.position.copy(next); this.moving = true; }
+      }
+      if (distance > .01) {
+        const targetAngle = Math.atan2(d.x, d.z);
+        let diff = targetAngle - this.root.rotation.y;
+        while (diff > Math.PI) diff -= Math.PI * 2;
+        while (diff < -Math.PI) diff += Math.PI * 2;
+        this.root.rotation.y += diff * Math.min(1, dt * 12);
+      }
+      this.assaultAction = distance <= 1.7 ? this.assaultKind : null;
+      if (this.assaultTimer <= 0) { this.assaultTarget = null; this.assaultAction = null; this.assaultKind = null; }
+      return;
+    }
 
     // Si fue impactado por popó: huye despavorido a gran velocidad
     if (this.fleeTimer > 0) {
@@ -334,8 +364,19 @@ export class Npc {
     const budget = ctx.animationBudget ?? this.animationBudget;
     const interval = dist > NPC_LOD.animEvery ? .1 * budget : budget > 1 ? budget / 60 : 0;
     if (interval && this.animAcc < interval) return;
-    this.character.update(Math.min(this.animAcc, 0.2), { speed: this.moving ? this.walkSpeed / REALISTIC_SCALE : 0 });
+    this.character.update(Math.min(this.animAcc, 0.2), { speed: this.moving ? this.walkSpeed / REALISTIC_SCALE : 0, action: this.assaultAction });
     this.animAcc = 0;
+  }
+
+  beginAssault(target, action = 'golpear', delay = 0) {
+    if (!target) return;
+    this.assaultTarget = target;
+    this.assaultTimer = 7;
+    this.assaultDelay = delay;
+    this.assaultKind = action;
+    this.assaultAction = null;
+    this.target = null;
+    this.route = [];
   }
 
 

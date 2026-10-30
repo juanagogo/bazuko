@@ -70,3 +70,30 @@ test('Robo directo otorga botín mayor, sube buscado y daña al jugador si el NP
   assert.ok(game.stats.salud < 100);
   assert.equal(steal.cooldown, CONFIG.globalCooldown);
 });
+
+test('Un robo detectado con testigos puede causar agresión colectiva y caída', () => {
+  const victim = { position: new THREE.Vector3(1, 0, 0), _robadoTimer: 0 };
+  const witness = { position: new THREE.Vector3(2, 0, 0), _robadoTimer: 0 };
+  let impact = null;
+  const game = {
+    player: {
+      position: new THREE.Vector3(0, 0, 0),
+      receiveVehicleImpact: (direction, speed) => { impact = { direction, speed }; }
+    },
+    stats: { salud: 100, higiene: 100 },
+    world: { active: { npcs: [victim, witness] } }
+  };
+  const steal = new StealSystem(game);
+  const originalRandom = Math.random;
+  Math.random = () => 0;
+  try {
+    assert.equal(steal._triggerCrowdConsequence(victim, 'robo directo'), true);
+    steal._updateAssaultScene(6);
+  } finally {
+    Math.random = originalRandom;
+  }
+
+  assert.equal(game.stats.salud, 100 - 2 * CONFIG.crowdDamagePerAttacker);
+  assert.ok(game.stats.higiene < 100);
+  assert.ok(impact?.speed > 0);
+});

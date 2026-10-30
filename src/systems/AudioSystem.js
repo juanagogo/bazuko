@@ -81,6 +81,7 @@ export class AudioSystem {
     this.driverSounds = driverFiles.map(file => sound(file, { volume: 0, loop: false, pool: 8 }));
     this.theftSounds = Array.from({ length: 5 }, (_, i) => sound(`roberto_robo_espejo_n${i + 1}.mp3`, { volume: 0, loop: false, pool: 6 }));
     this._theftVoices = new Map();
+    this._crowdVoice = null;
     this.vehicles = new VehicleAudio(this.vehicleSounds, Math.random, this.driverSounds);
     this.vehicles.externalVoiceActive = () => this._theftVoiceActive();
     this._carAlarms = new Map();
@@ -258,6 +259,21 @@ export class AudioSystem {
     if (!car.position || !listener) return .75 * this._level('voices');
     const distance = Math.hypot(car.position.x - listener.x, car.position.y - listener.y, car.position.z - listener.z);
     return .75 * this._level('voices') * Math.max(0, Math.min(1, (12 - distance) / 10));
+  }
+
+  /** Reutiliza una frase de tráfico para una multitud cercana; nunca superpone voces. */
+  playCrowdVoice(position, listener = this._listenerPosition) {
+    if (this._paused || !position || !this.driverSounds.length) return false;
+    if (this._crowdVoice?.sound.playing(this._crowdVoice.id)) return false;
+    this._crowdVoice = null;
+    const distance = listener ? Math.hypot(position.x - listener.x, position.y - listener.y, position.z - listener.z) : 0;
+    if (distance >= 14) return false;
+    const sound = this.driverSounds[Math.floor(Math.random() * this.driverSounds.length)];
+    if (sound.state() !== 'loaded') return false;
+    const id = sound.play();
+    sound.volume(.75 * this._level('voices') * Math.max(0, Math.min(1, (14 - distance) / 10)), id);
+    this._crowdVoice = { sound, id };
+    return true;
   }
 
   /**

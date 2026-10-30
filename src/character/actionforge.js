@@ -9,7 +9,7 @@ export const ACTIONFORGE_CLIPS = {
 };
 
 // Cada cuerpo recibe sus propios clips. Ropa y texturas siguen siendo las del juego.
-export function buildCharacterClips(body, legacy, actionforge = null) {
+export function buildCharacterClips(body, legacy, actionforge = null, assault = {}) {
   const out = {};
   if (actionforge) {
     const retarget = createRetargeter(actionforge.scene, clone(body.scene), { preserveHipHeight: true });
@@ -22,12 +22,25 @@ export function buildCharacterClips(body, legacy, actionforge = null) {
       out[action].name = action;
     }
   }
-  if (!legacy) return out;
-  const retarget = createRetargeter(legacy.scene, clone(body.scene));
-  for (const name of ['idle', 'walk', 'run', 'buscar', 'pedir', 'comer', 'dormir', 'saludo']) {
-    if (out[name]) continue;
-    const source = legacy.animations.find(c => c.name.toLowerCase() === name);
-    if (source) out[name] = retarget(source);
+  if (legacy) {
+    const retarget = createRetargeter(legacy.scene, clone(body.scene));
+    for (const name of ['idle', 'walk', 'run', 'buscar', 'pedir', 'comer', 'dormir', 'saludo']) {
+      if (out[name]) continue;
+      const source = legacy.animations.find(c => c.name.toLowerCase() === name);
+      if (source) out[name] = retarget(source);
+    }
+  }
+  for (const [name, source] of Object.entries(assault)) {
+    const clip = source?.animations?.[0];
+    if (!clip) continue;
+    try {
+      const retarget = createRetargeter(source.scene, clone(body.scene));
+      out[name] = retarget(clip);
+      out[name].name = name;
+    } catch (error) {
+      // Un clip externo no compatible no debe impedir iniciar una partida.
+      console.warn(`No se pudo adaptar la animación ${name}; se usará el gesto temporal.`, error);
+    }
   }
   return out;
 }

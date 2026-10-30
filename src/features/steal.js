@@ -12,7 +12,12 @@ export const CONFIG = {
   lootMoneyDirect: [12000, 45000],
   lootItems: ['pan', 'lataComida', 'cigarrillo', 'tintico', 'moneda', 'reloj'],
   directDamageMin: 6,
-  directDamageMax: 16
+  directDamageMax: 16,
+  crowdRadius: 12,
+  crowdMaxAttackers: 6,
+  crowdWitnessChance: 0.72,
+  crowdChancePerWitness: 0.15,
+  crowdDamagePerAttacker: 9
 };
 
 export class StealSystem {
@@ -27,6 +32,8 @@ export class StealSystem {
     this.markerDir = 1;
     this.zoneStart = 0.35;
     this.zoneSize = CONFIG.baseZoneSize;
+    this._strongLanguageWarningShown = false;
+    this.assaultScene = null;
     this._dom = null;
     this._buildUI();
   }
@@ -50,6 +57,11 @@ export class StealSystem {
       zone: box.querySelector('#steal-zone'),
       marker: box.querySelector('#steal-marker')
     };
+    const impact = document.createElement('div');
+    impact.id = 'assault-impact-overlay';
+    impact.style.cssText = 'position:fixed;inset:0;pointer-events:none;z-index:120;opacity:0;transition:opacity .12s ease-out;background:radial-gradient(ellipse at center,transparent 42%,rgba(170,0,0,.22) 74%,rgba(255,0,0,.8) 100%);mix-blend-mode:screen;';
+    document.body.appendChild(impact);
+    this._dom.impact = impact;
   }
 
   // Actualiza tiempos, detección de peatones y el minijuego de cosquilleo.
@@ -59,6 +71,7 @@ export class StealSystem {
     for (const n of npcs) {
       if (n._robadoTimer > 0) n._robadoTimer = Math.max(0, n._robadoTimer - dt);
     }
+    if (this.assaultScene) { this._updateAssaultScene(dt); return; }
     if (this.minigameActive) {
       this._updateMinigame(dt);
       return;
@@ -149,6 +162,7 @@ export class StealSystem {
       if (Math.random() < noticeChance) {
         npc?.hitByPoop?.(this.game.player.position);
         this._toast('🚨 ¡Lo cogieron con las manos en la masa! El peatón gritó.', 'death');
+        this._triggerCrowdConsequence(npc, 'cosquilleo');
       } else {
         this._toast('💨 Fallaste el cosquilleo, pero lograste disimular.', 'warn');
       }
@@ -170,6 +184,96 @@ export class StealSystem {
     } else {
       this._toast(`⚡ ¡Robo directo ejecutado! Peatón asustado. Buscado: ${this.buscado}/3`, 'warn');
     }
+    this._triggerCrowdConsequence(npc, 'robo directo');
+  }
+
+  /** Personas cercanas pueden responder a un robo detectado. La agresión no ofrece recompensa. */
+  _triggerCrowdConsequence(victim, kind) {
+    const player = this.game?.player;
+    const playerPos = player?.position;
+    const npcs = this.game?.world?.active?.npcs ?? [];
+    if (!playerPos || !this.game?.stats) return false;
+
+    const witnesses = npcs.filter(npc => npc !== victim && npc?.position &&
+      npc.position.distanceTo(playerPos) <= CONFIG.crowdRadius);
+    const chance = Math.min(.9, CONFIG.crowdWitnessChance + witnesses.length * CONFIG.crowdChancePerWitness);
+    if (!witnesses.length || Math.random() >= chance) return false;
+
+    const attackers = Math.min(CONFIG.crowdMaxAttackers, witnesses.length + 1);
+    const damage = attackers * CONFIG.crowdDamagePerAttacker;
+
+    if (!this._strongLanguageWarningShown) {
+      this._strongLanguageWarningShown = true;
+      this._toast('⚠️ Aviso: la siguiente escena contiene lenguaje fuerte y xenófobo.', 'warn');
+    }
+    this._toast('🚨 “¡Ladrón! ¡Ayuden!”', 'death');
+    this._toast('👥 “¡Trabaja, malparido!”', 'death');
+    this._toast('👥 “¡Veneco tenía que ser!”', 'death');
+    this._toast('👊 La gente se acerca. Puedes intentar alejarte.', 'death');
+
+    const assaultNpcs = [victim, ...witnesses].filter(Boolean).slice(0, attackers);
+    const crowdPhrases = ['¡Ladrón!', '¡Ayuden!', '¡Trabaja, malparido!', '¡Déjenlo ahí!'];
+    assaultNpcs.forEach((npc, index) => {
+      npc.fleeTimer = 0;
+      npc.beginAssault?.(playerPos, index % 3 === 1 ? 'patear' : 'golpear', 0);
+      npc.say?.(crowdPhrases[index % crowdPhrases.length], 3.5);
+    });
+    this.game.audio?.playCrowdVoice?.(assaultNpcs[0]?.position, playerPos);
+
+    const source = witnesses.reduce((sum, npc) => sum.add(npc.position), victim?.position?.clone?.() ?? playerPos.clone());
+    const direction = playerPos.clone().sub(source).setY(0);
+    if (direction.lengthSq() < .001) direction.set(0, 0, 1);
+    this.assaultScene = { time: 0, damage, attackers, direction: direction.normalize(), kind, assaultNpcs, nextHit: .55, hits: 0, appliedDamage: 0 };
+    return true;
+  }
+
+  _updateAssaultScene(dt) {
+    const scene = this.assaultScene;
+    scene.time += dt;
+    const totalHits = scene.attackers * 2;
+    if (scene.time >= scene.nextHit && scene.hits < totalHits) {
+      const attacker = scene.assaultNpcs[scene.hits % scene.assaultNpcs.length];
+      const playerPos = this.game.player.position;
+      // Sistema de coordenadas de impacto: no hay daño ni reacción si el atacante aún está lejos.
+      if (!attacker?.position || attacker.position.distanceTo(playerPos) > 2.15) {
+        scene.nextHit = scene.time + .12;
+        return;
+      }
+      scene.hits++;
+      scene.nextHit += .68;
+      const remaining = scene.damage - scene.appliedDamage;
+      const hitDamage = Math.min(remaining, Math.max(1, Math.ceil(scene.damage / totalHits)));
+      scene.appliedDamage += hitDamage;
+      this.game.stats.salud = Math.max(0, this.game.stats.salud - hitDamage);
+      const impactDirection = playerPos.clone().sub(attacker.position).setY(0);
+      if (impactDirection.lengthSq() < .001) impactDirection.copy(scene.direction);
+      this.game.player.receiveAssaultHit?.(impactDirection.normalize());
+      this._flashImpact(impactDirection);
+      this._toast(`👊 Impacto ${scene.hits}/${totalHits}: −${hitDamage} de salud.`, 'death');
+    }
+    // Da tiempo a que los NPC lleguen y terminen sus clips antes de aplicar la caída.
+    if (scene.time < 5.8) return;
+    const player = this.game.player;
+    const stats = this.game.stats;
+    stats.salud = Math.max(0, stats.salud - (scene.damage - scene.appliedDamage));
+    stats.higiene = Math.max(0, (stats.higiene ?? 100) - scene.attackers * 6);
+    this.game._deathCause = stats.salud === 0 ? 'agresión colectiva' : this.game._deathCause;
+    this._toast(`👊 La golpiza termina: −${scene.damage} de salud.`, 'death');
+    // Caída física suave: sin la velocidad de lanzamiento propia de un atropello.
+    player.receiveVehicleImpact?.(scene.direction, .1, { collisions: this.game.collisions });
+    this.assaultScene = null;
+  }
+
+  _flashImpact(direction) {
+    const overlay = this._dom?.impact;
+    if (!overlay) return;
+    const x = direction.x, z = direction.z;
+    const side = Math.abs(x) > Math.abs(z) ? (x > 0 ? 'right' : 'left') : (z > 0 ? 'bottom' : 'top');
+    const positions = { left: '0% 50%', right: '100% 50%', top: '50% 0%', bottom: '50% 100%' };
+    overlay.style.background = `radial-gradient(ellipse at ${positions[side]},rgba(255,0,0,.88) 0%,rgba(145,0,0,.34) 28%,transparent 67%)`;
+    overlay.style.opacity = '1';
+    clearTimeout(this._impactFlashTimer);
+    this._impactFlashTimer = setTimeout(() => { if (overlay) overlay.style.opacity = '0'; }, 260);
   }
 
   // Otorga botín aleatorio entre dinero e ítems al inventario del jugador.
