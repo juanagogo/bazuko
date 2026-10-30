@@ -5,6 +5,12 @@ export class PlayerSilhouette {
   constructor() {
     this._lightLayers = [];
     this._overlayObjects = [];
+    // WebGPU guarda un LightsNode por escena. Si la silueta reutilizara la escena principal,
+    // su lista reducida de luces cambiaría la clave de los RenderObject del jugador en cada
+    // pasada y obligaría a recompilar sus shaders (cada build crea otro buffer de huesos).
+    this._scene = new THREE.Scene();
+    this._scene.matrixWorldAutoUpdate = false;
+    this._scene.children = this._overlayObjects;
     this.material = new THREE.MeshBasicMaterial({
       color: 0x73e5ef, transparent: true, opacity: 0.65,
       depthTest: true, depthFunc: THREE.GreaterDepth, depthWrite: false,
@@ -17,12 +23,9 @@ export class PlayerSilhouette {
     // También recoge modelos que terminan de cargarse o se cambian durante la partida.
     playerRoot.traverse(o => { if (o.isMesh) o.layers.enable(1); });
     const mask = camera.layers.mask;
-    const override = scene.overrideMaterial;
-    const background = scene.background;
     const autoClear = renderer.autoClear;
     const shadowUpdate = renderer.shadowMap.autoUpdate;
-    const worldUpdate = scene.matrixWorldAutoUpdate;
-    const children = scene.children;
+    const overlay = this._scene;
     const overlayObjects = this._overlayObjects;
     overlayObjects.length = 0;
     overlayObjects.push(playerRoot);
@@ -35,27 +38,26 @@ export class PlayerSilhouette {
         o.layers.enable(1);
       }
     }
+    // Mismo entorno y niebla para que el repintado coincida con la pasada principal.
+    overlay.environment = scene.environment;
+    overlay.environmentIntensity = scene.environmentIntensity;
+    overlay.environmentRotation.copy(scene.environmentRotation);
+    overlay.fog = scene.fog;
+    overlay.background = null;
     try {
       camera.layers.set(1);
-      scene.overrideMaterial = this.material;
-      scene.background = null;
+      overlay.overrideMaterial = this.material;
       renderer.autoClear = false;
       renderer.shadowMap.autoUpdate = false;
       // Conserva padre y matrices mundiales. Solo visita jugador y luces en estas pasadas;
       // recorrer otra vez toda la ciudad no aporta ningún píxel a la silueta.
-      scene.children = overlayObjects;
-      scene.matrixWorldAutoUpdate = false;
-      renderer.render(scene, camera);
+      renderer.render(overlay, camera);
       // La ropa y el cuerpo pueden ocultarse entre sí. Repintar las superficies visibles
       // elimina esa falsa silueta, conservándola solo donde las tapa el entorno.
-      scene.overrideMaterial = override;
-      renderer.render(scene, camera);
+      overlay.overrideMaterial = scene.overrideMaterial;
+      renderer.render(overlay, camera);
     } finally {
-      scene.children = children;
-      scene.matrixWorldAutoUpdate = worldUpdate;
       camera.layers.mask = mask;
-      scene.overrideMaterial = override;
-      scene.background = background;
       renderer.autoClear = autoClear;
       renderer.shadowMap.autoUpdate = shadowUpdate;
       for (let i = 0; i < lightLayers.length; i += 2) lightLayers[i].layers.mask = lightLayers[i + 1];

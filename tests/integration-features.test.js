@@ -13,6 +13,7 @@ import { InteractionSystem } from '../src/systems/InteractionSystem.js';
 import { StatsSystem } from '../src/systems/StatsSystem.js';
 import { ITEMS } from '../src/data/items.js';
 import { Game } from '../src/core/game.js';
+import { isShadowActive } from '../src/graphics/ShadowState.js';
 
 beforeEach(() => {
   globalThis.window = new EventTarget();
@@ -26,15 +27,16 @@ test('los perfiles respetan su límite de resolución incluso después de la ada
     resolution: new AdaptiveResolution(2),
     instance: { shadowMap: {}, setPixelRatio(value) { this.ratio = value; }, getPixelRatio() { return this.ratio; } }
   });
-  for (const [quality, cap] of [['baja', 1], ['media', 1.25], ['alta', 1.5]]) {
+  for (const [quality, cap] of [['baja', 1], ['media', 1], ['alta', 1]]) {
     renderer.setQuality(quality);
-    assert.equal(renderer.instance.ratio, cap);
+    assert.equal(renderer.instance.ratio, cap, 'todas las calidades dibujan a 1×');
     for (let i = 0; i < 300; i++) renderer.adaptResolution(40);
-    assert.ok(renderer.instance.ratio < cap);
+    assert.equal(renderer.instance.ratio, cap, 'la carga baja efectos, no píxeles');
     for (let i = 0; i < 4000; i++) renderer.adaptResolution(10);
-    assert.ok(renderer.instance.ratio <= cap);
-    assert.equal(renderer.instance.shadowMap.enabled, quality !== 'baja');
-    assert.equal(localStorage.getItem('bazuko.graphics_quality'), quality);
+    assert.equal(renderer.instance.ratio, cap);
+    // Nunca se alterna: cambiar shadowMap.enabled reconstruye todos los RenderObject.
+    assert.equal(renderer.instance.shadowMap.enabled, undefined);
+    assert.equal(localStorage.getItem('bazuko.webgpu.graphics_quality'), quality);
   }
 });
 
@@ -42,6 +44,8 @@ test('el ciclo de iluminación mantiene la calidad elegida y libera el mapa de s
   const manager = new SceneManager(); let disposed = 0;
   manager.sun.shadow.map = { dispose() { disposed++; } };
   manager.setQuality('media');
+  assert.equal(disposed, 0);
+  manager.setShadowQuality('media');
   assert.equal(disposed, 1);
   assert.equal(manager.sun.shadow.map, null);
   assert.equal(manager.sun.shadow.mapSize.x, 1024);
@@ -49,12 +53,13 @@ test('el ciclo de iluminación mantiene la calidad elegida y libera el mapa de s
     manager.setTimeOfDay(hour);
     assert.ok(manager.scene.fog.far <= 160);
   }
-  manager.setQuality('baja'); manager.setTimeOfDay(12);
-  assert.equal(manager.sun.castShadow, false);
-  assert.ok(manager.scene.fog.far <= 130);
-  manager.setQuality('alta');
-  assert.equal(manager.sun.shadow.mapSize.x, 2048);
+  manager.setQuality('baja'); manager.setShadowQuality('baja'); manager.setTimeOfDay(12);
   assert.equal(manager.sun.castShadow, true);
+  assert.equal(isShadowActive(manager.sun), false);
+  assert.ok(manager.scene.fog.far <= 130);
+  manager.setQuality('alta'); manager.setShadowQuality('alta');
+  assert.equal(manager.sun.shadow.mapSize.x, 2048);
+  assert.equal(isShadowActive(manager.sun), true);
   assert.ok(manager.scene.fog.far > 160);
   assert.equal(manager.sun.shadow.normalBias, .035);
 });

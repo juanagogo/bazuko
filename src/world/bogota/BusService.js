@@ -54,8 +54,9 @@ export class BusService {
   }
 
   _alignRoute() {
-    if (this.pathX) this.position.x = this.pathX(this.position.z, this.laneX);
+    this.position.x = this.pathX ? this.pathX(this.position.z, this.laneX) : this.laneX;
     const h = this.heading;
+    const offset=this.collisionLateral??0;this.position.x-=h.z*offset;
     // YXZ conserva la inclinación de las rampas al girar sobre el eje vertical.
     this.group.rotation.order = 'YXZ';
     this.group.rotation.y = h.x === 0 ? (this.direction < 0 ? 0 : Math.PI) : Math.atan2(-h.x, -h.z);
@@ -170,6 +171,7 @@ export class BusService {
         this.speed = 0;
       }
     }
+    this.collisionLateral=(this.collisionLateral??0)*Math.exp(-Math.max(0,dt)*1.8);
     this._alignToGround();
     this._updateVisibility();
   }

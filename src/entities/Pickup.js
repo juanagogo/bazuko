@@ -3,6 +3,7 @@ import * as THREE from 'three';
 import { ITEMS, LOOT_COMMON, LOOT_RARE } from '../data/items.js';
 import { PICKUP_COOLDOWN, COLORS, SORT_BASE_TIME } from '../utils/constants.js';
 import { createImportedModel, disposeImportedInstance } from '../utils/ImportedModels.js';
+import { instanceBatches } from '../graphics/InstanceBatches.js';
 
 export class Pickup {
   constructor(scene, position, { modelKind = 'bolsa', cooldown = PICKUP_COOLDOWN } = {}) {
@@ -56,6 +57,10 @@ export class Pickup {
     this.aura.position.y = 0.03;
     this.group.add(this.aura);
 
+    // Modelo y aro se dibujan en lotes compartidos; su `visible` sigue marcando recogida y reaparición.
+    this._batchReleases = [];
+    if (scene.isScene) this._batchReleases.push(instanceBatches(scene).add(this.marker, 'aro de recogible'));
+
     // Barra de selección (oculta inicialmente)
     const barBgGeo = new THREE.PlaneGeometry(1.2, 0.12);
     const barBgMat = new THREE.MeshBasicMaterial({
@@ -94,6 +99,7 @@ export class Pickup {
       this.mesh = model;
       this.importedModel = model;
       this.group.add(model);
+      if (this.scene.isScene) model.traverse(o => { if (o.isMesh) this._batchReleases.push(instanceBatches(this.scene).add(o)); });
     });
   }
 
@@ -221,6 +227,9 @@ export class Pickup {
         currentScale + (targetScale - currentScale) * Math.min(1, dt * 8)
       );
       this.aura.rotation.z -= dt * 1.5;
+      // Sin potenciador su opacidad es 0: no cuesta un dibujo. Se apaga en partida, después del
+      // calentamiento de carga, para que su pipeline ya esté preparado al activarse.
+      this.aura.material.visible = this.aura.material.opacity > .01;
     }
   }
 
@@ -240,6 +249,7 @@ export class Pickup {
 
   dispose() {
     this._disposed = true;
+    for (const release of this._batchReleases.splice(0)) release();
     if (this.importedModel) disposeImportedInstance(this.importedModel);
     this.scene.remove(this.group);
     this.group.traverse((o) => {

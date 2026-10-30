@@ -85,6 +85,7 @@ export class PoopProjectile {
 
     // 1. Colisión con NPCs peatones
     for (const npc of this.npcs) {
+      if(npc.debugDisabled)continue;
       if (!npc?.position) continue;
       const dx = npc.position.x - this.position.x;
       const dz = npc.position.z - this.position.z;

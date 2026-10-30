@@ -58,6 +58,12 @@ export const STEAL_CAUGHT_CHANCE = 0.25;   // probabilidad de ser atrapado
 export const STEAL_CAUGHT_PENALTY = 25;    // salud perdida al ser atrapado
 export const STEAL_CAUGHT_MONEY = 5000;    // pesos perdidos al ser atrapado
 export const CAR_COOLDOWN = 40;            // segundos hasta que revive el auto
+export const POLICE_SIGHT_RANGE = 28;      // metros a los que una patrulla puede verte robar
+export const POLICE_CLOSE_RANGE = 12;      // a esta distancia te ven aunque no miren de frente
+export const POLICE_CHASE_SPEED = 7.5;     // más rápido que el sprint del jugador (6)
+export const POLICE_CATCH_RANGE = 3;       // distancia para darte alcance
+export const POLICE_GIVE_UP_RANGE = 55;    // si te alejas tanto, vuelven a patrullar
+export const POLICE_CHASE_TIMEOUT = 40;    // segundos máximos de persecución
 
 // === Venta de sustancias ===
 export const SUBSTANCE_PRICE_MULT = 1.8;   // las sustancias se venden más caras de noche

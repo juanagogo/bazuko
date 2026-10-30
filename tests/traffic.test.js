@@ -1,9 +1,11 @@
 import { CALLES } from '../src/world/bogota/StreetLayout.js';
 import assert from 'node:assert/strict';
-import { mock, test } from 'node:test';
+import { beforeEach, mock, test } from 'node:test';
 import * as THREE from 'three';
 import * as textures from '../src/world/bogota/textures.js';
 import { TrafficRoute } from '../src/world/bogota/TrafficRoute.js';
+
+beforeEach(() => { globalThis.window = new EventTarget(); });
 
 // Usa los carros reales, sustituyendo solo las texturas de Canvas por texturas vacías.
 mock.module('../src/world/bogota/textures.js', { namedExports: { ...textures, radialSprite: () => new THREE.Texture() } });
@@ -12,6 +14,29 @@ const { Car } = await import('../src/entities/Car.js');
 const { Bogota } = await import('../src/world/districts/Bogota.js');
 const { TrafficSignals } = await import('../src/world/bogota/TrafficSignals.js');
 const { BusService } = await import('../src/world/bogota/BusService.js');
+
+test('las sondas reutilizan orientación por subpaso y respetan giros y alturas posteriores', () => {
+  const route = new TrafficRoute(0, 30, 0, 30);
+  const traffic = new TrafficSystem(new THREE.Scene(), [route], { carsPerRoute: 1 });
+  const car = traffic.vehicles[0].car;
+  car.position.set(0, 0, 0);
+  const obstacle = { car: { position: new THREE.Vector3(3, 0, 0), length: 4, width: 2, group: new THREE.Group() } };
+  let reads = 0;
+  Object.defineProperty(obstacle, 'heading', { get() { reads++; return { x: 1, z: 0 }; } });
+  traffic.parkedCars = [obstacle];
+  traffic._probePosition.set(0, 0, 0); traffic._probeDirection.set(1, 0, 0);
+  traffic._buildSpatialIndex([]); traffic._updating = true;
+  assert.equal(reads, 1);
+  for (let n = 0; n < 30; n++) assert.equal(traffic._carInPath(obstacle, car), true);
+  assert.equal(reads, 1, 'no vuelve a calcular orientación por cada sonda');
+  obstacle.car.position.y = 7.82;
+  traffic._buildSpatialIndex([]);
+  assert.equal(traffic._carInPath(obstacle, car), false, 'el bus elevado no bloquea la calle inferior');
+  traffic._updating = false;
+  obstacle.car.position.set(3, 0, 0);
+  assert.equal(traffic._carInPath(obstacle, car), true, 'fuera del subpaso consulta la posición actual');
+  traffic.parkedCars = []; traffic.dispose();
+});
 
 test('el bus completa el desvío de Colpatria con tráfico y semáforos durante diez minutos', () => {
   let seed = 12345;
@@ -35,7 +60,7 @@ test('el bus completa el desvío de Colpatria con tráfico y semáforos durante 
 
 test('descartar peatones lejanos mantiene el mismo frenado en rectas y giros', () => {
   const route = new TrafficRoute(0, 30, 0, 30);
-  const traffic = new TrafficSystem(new THREE.Scene(), [route], { carsPerRoute: 1 });
+  const traffic = new TrafficSystem(new THREE.Scene(), [route], { carsPerRoute: 1, policeCount: 0 });
   const vehicle = traffic.vehicles[0], direction = new THREE.Vector3();
   const pedestrians = [];
   for (let x = -4; x <= 34; x += 2) for (let z = -4; z <= 34; z += 2) {
@@ -88,7 +113,7 @@ test('los circuitos son continuos y toda la carrocería permanece en la calzada'
 });
 
 test('el tráfico recorre vueltas completas, gira las ruedas y mantiene la distancia', () => {
-  const traffic = new TrafficSystem(new THREE.Scene(), [new TrafficRoute(14, 44, 26, 60)], { random: () => 0.7 });
+  const traffic = new TrafficSystem(new THREE.Scene(), [new TrafficRoute(14, 44, 26, 60)], { random: () => 0.7, policeCount: 0 });
   traffic.vehicles[1].cruiseSpeed = 1.4;
   const starts = traffic.vehicles.map(vehicle => vehicle.distance);
   let passedSeam = false;
@@ -123,7 +148,7 @@ test('el tráfico recorre vueltas completas, gira las ruedas y mantiene la dista
 
 test('con distancia suficiente los carros frenan ante el jugador o un peatón y reanudan la marcha', () => {
   for (const type of ['player', 'pedestrian']) {
-    const traffic = new TrafficSystem(new THREE.Scene(), [new TrafficRoute(0, 240, 0, 240)], { carsPerRoute: 1, random: () => 0.5 });
+    const traffic = new TrafficSystem(new THREE.Scene(), [new TrafficRoute(0, 240, 0, 240)], { carsPerRoute: 1, policeCount: 0, random: () => 0.5 });
     const vehicle = traffic.vehicles[0];
     vehicle.distance = 2;
     vehicle.speed = vehicle.cruiseSpeed;
@@ -138,6 +163,97 @@ test('con distancia suficiente los carros frenan ante el jugador o un peatón y 
     assert.ok(vehicle.distance > stopped + 3);
     traffic.dispose();
   }
+});
+
+function sequence(...values) {
+  let index = 0;
+  return () => values[index++ % values.length];
+}
+
+test('las patrullas usan el modelo policial y circulan como el resto del tráfico', () => {
+  const routes = [
+    new TrafficRoute(0, 40, 0, 40),
+    new TrafficRoute(50, 90, 0, 40),
+    new TrafficRoute(0, 40, 50, 90),
+  ];
+  const traffic = new TrafficSystem(new THREE.Scene(), routes, { carsPerRoute: 0, policeCount: 2, random: sequence(0.1, 0.8, 0.5, 0.3) });
+  assert.equal(traffic.vehicles.length, 2);
+  for (const vehicle of traffic.vehicles) {
+    assert.equal(vehicle.police, true);
+    assert.equal(vehicle.car.kind, 'police');
+    assert.ok(vehicle.car.policeLights, 'la patrulla lleva su barra de luces');
+    assert.equal(vehicle.car.variant, 'police');
+    assert.equal(vehicle.car.steal(), null);
+  }
+  // Los cambios de recorrido usan el mismo `_chooseRoute` que los carros civiles.
+  const starts = traffic.vehicles.map(vehicle => vehicle.distance);
+  for (let frame = 0; frame < 20; frame++) traffic.update(0.1);
+  assert.ok(traffic.vehicles.every((vehicle, i) => vehicle.distance !== starts[i]));
+  traffic.dispose();
+});
+
+test('una patrulla cercana o de frente presencia el robo', () => {
+  const route = new TrafficRoute(0, 40, 0, 40);
+  const traffic = new TrafficSystem(new THREE.Scene(), [route], { carsPerRoute: 0, policeCount: 1, random: () => 0.2 });
+  const vehicle = traffic.vehicles[0];
+  vehicle.route.sample(5, vehicle.car.position, new THREE.Vector3());
+  vehicle.car.group.rotation.y = 0;
+  assert.equal(traffic.witnessesTheft(new THREE.Vector3(8, 0, 0)), true);
+  assert.equal(traffic.witnessesTheft(new THREE.Vector3(8, 0, 20)), false);
+  assert.equal(traffic.witnessesTheft(new THREE.Vector3(-5, 0, 0)), true);
+  assert.equal(traffic.witnessesTheft(new THREE.Vector3(80, 0, 80)), false);
+  traffic.dispose();
+});
+
+test('al ver un robo la patrulla pasa a persecución y solo captura al alcanzar', () => {
+  const route = new TrafficRoute(0, 40, 0, 40);
+  const traffic = new TrafficSystem(new THREE.Scene(), [route], { carsPerRoute: 0, policeCount: 1, random: () => 0.2 });
+  const vehicle = traffic.vehicles[0];
+  vehicle.route.sample(5, vehicle.car.position, new THREE.Vector3());
+  vehicle.car.group.rotation.y = 0;
+  const player = new THREE.Vector3(10, 0, 0);
+  assert.equal(vehicle.state, 'patrol');
+  assert.equal(traffic.alertForTheft(player), true);
+  assert.equal(vehicle.state, 'chase');
+  assert.equal(vehicle.car.pursuit, true);
+  assert.equal(traffic.inPursuit, true);
+
+  let arrests = 0;
+  window.addEventListener('police-arrest', () => arrests++);
+  for (let frame = 0; frame < 40; frame++) {
+    player.x = vehicle.car.position.x + 8;
+    traffic.update(0.1, { player });
+    assert.equal(arrests, 0);
+    assert.equal(vehicle.state, 'chase');
+  }
+  assert.ok(vehicle.car.position.x > 5);
+
+  player.copy(vehicle.car.position);
+  for (let frame = 0; frame < 30 && arrests === 0; frame++) {
+    traffic.update(0.1, { player });
+  }
+  assert.equal(arrests, 1);
+  traffic.endPursuit();
+  assert.equal(vehicle.state, 'patrol');
+  assert.equal(vehicle.car.pursuit, false);
+  assert.equal(traffic.inPursuit, false);
+  traffic.dispose();
+});
+
+test('si te alejas lo suficiente la patrulla vuelve a rondar', () => {
+  const route = new TrafficRoute(0, 40, 0, 40);
+  const traffic = new TrafficSystem(new THREE.Scene(), [route], { carsPerRoute: 0, policeCount: 1, random: () => 0.2 });
+  const vehicle = traffic.vehicles[0];
+  vehicle.route.sample(5, vehicle.car.position, new THREE.Vector3());
+  vehicle.car.group.rotation.y = 0;
+  assert.equal(traffic.alertForTheft(new THREE.Vector3(8, 0, 0)), true);
+  let escaped = 0;
+  window.addEventListener('police-escaped', () => escaped++);
+  traffic.update(0.1, { player: new THREE.Vector3(200, 0, 200) });
+  assert.equal(vehicle.state, 'patrol');
+  assert.equal(escaped, 1);
+  assert.equal(traffic.inPursuit, false);
+  traffic.dispose();
 });
 
 test('el parqueo queda fuera de los circuitos y eliminar un carro conserva recursos compartidos', () => {
@@ -342,27 +458,27 @@ test('los giros que cortan otra trayectoria esperan y luego despejan sin atascar
   traffic.dispose();
 });
 
-test('la salida y el frenado son progresivos y el conductor tarda en reaccionar al despejarse', () => {
+test('IDM de Slop acelera y frena dentro de sus limites y reanuda al despejarse', () => {
   const traffic = new TrafficSystem(new THREE.Scene(), [new TrafficRoute(0, 240, 0, 240, 3.2)], { carsPerRoute: 1, random: () => .5 });
   const vehicle = traffic.vehicles[0];
   placeOnStraight(vehicle, 10, 0, 1, 0);
   for (let frame = 0; frame < 80; frame++) {
     const acceleration = vehicle.acceleration;
     traffic.update(.05);
-    assert.ok(Math.abs(vehicle.acceleration - acceleration) <= 3 * .05 + 1e-6);
+    assert.ok(vehicle.acceleration >= -9 && vehicle.acceleration <= 2);
     assert.ok(vehicle.acceleration <= vehicle.accelerationLimit + 1e-6);
   }
   const player = vehicle.car.position.clone().add(new THREE.Vector3(60, 0, 0));
   for (let frame = 0; frame < 500; frame++) {
     const acceleration = vehicle.acceleration;
     traffic.update(.05, { player });
-    assert.ok(Math.abs(vehicle.acceleration - acceleration) <= 3 * .05 + 1e-6);
+    assert.ok(vehicle.acceleration >= -9 && vehicle.acceleration <= 2);
     assert.ok(vehicle.acceleration >= -vehicle.braking - 1e-6);
   }
   assert.equal(vehicle.speed, 0);
   const stopped = vehicle.distance;
   traffic.update(.1);
-  assert.equal(vehicle.distance, stopped, 'La salida no es instantánea al quitar el obstáculo');
+  assert.ok(vehicle.distance >= stopped && vehicle.distance-stopped<.05,'La salida de IDM integra la aceleracion, sin saltar de posicion');
   for (let frame = 0; frame < 50; frame++) traffic.update(.05);
   assert.ok(vehicle.distance > stopped + 1);
   traffic.dispose();
@@ -374,7 +490,7 @@ test('un cruce repentino provoca atropello sin eliminar la velocidad de frenado'
   const player = new THREE.Vector3(20 + vehicle.car.length / 2 + .6, 0, 0), hits = [];
   const context = { player, onPlayerHit: hit => hits.push(hit) };
   traffic.update(.05, context);
-  assert.ok(vehicle.speed >= 12 - vehicle.braking * .05, 'El peatón no puede frenar el carro en seco');
+  assert.ok(vehicle.speed + 1e-9 >= 12 - vehicle.braking * .05, 'El peatón no puede frenar el carro en seco');
   assert.ok(vehicle.car.position.x > 20.5);
   assert.equal(hits.length, 1);
   assert.ok(hits[0].speed > 11);
@@ -471,4 +587,21 @@ test('los 24 carros siguen circulando durante diez minutos sin bloqueos permanen
   }
   assert.ok(travel.every(distance => distance > 500));
   traffic.dispose();
+});
+
+test('la patrulla conserva su carrocería con luces al precargar modelos', async () => {
+  const traffic = new TrafficSystem(new THREE.Scene(), [new TrafficRoute(0, 40, 0, 40)], { carsPerRoute: 0, policeCount: 1, random: () => 0.3 });
+  const { car } = traffic.vehicles[0];
+  await car.preloadModel();
+  assert.ok(car.policeLights && car.lightbar.parent === car.group, 'la barra de luces sobrevive a la carrocería del donante');
+  assert.equal(car.vehicle.variant, 'police');
+  traffic.dispose();
+});
+
+test('los carros estacionados nunca son criollos: civilianVariant solo entrega carrocerías del donante sin patrullas ni buses', async () => {
+  const { civilianVariant, VEHICLE_TYPES } = await import('../src/vehicles/VehicleTypes.js');
+  const seen = new Set();
+  for (let i = 0; i < 400; i++) seen.add(civilianVariant(() => i / 400));
+  assert.ok(seen.has('taxi') && seen.has('sedan') && seen.has('audio_hatch'));
+  for (const id of seen) assert.ok(VEHICLE_TYPES[id] && id !== 'bus' && !id.startsWith('police'), id);
 });

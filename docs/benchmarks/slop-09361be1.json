@@ -1,0 +1,1332 @@
+{
+  "donor": "09361be1fe6a2efaee6ef62420a664c677e577b9",
+  "date": "2026-10-25",
+  "viewport": "1280x720",
+  "dpr": 1,
+  "quality": "alta",
+  "seed": 44117,
+  "browser": "Edge headless / WebGPU",
+  "note": "HTTP cold context, not GPU-driver cache purge; RAF/CPU counters are not GPU timings. Final bus-driver/animation-request cleanup is later than this capture.",
+  "measurements": [
+    {
+      "stage": "before",
+      "sample": 0,
+      "cache": "cold",
+      "startup": {
+        "shaderFamilies": 101,
+        "preparedBindings": 8062,
+        "renderObjects": 8616,
+        "textures": {
+          "unique": 641,
+          "resized": 204,
+          "reused": 0,
+          "prepareMs": 1271.4000000003725,
+          "uploadMs": 431.79999999981374
+        },
+        "compileMs": 13564.199999999255,
+        "fullWarmupMs": 12567.900000000373,
+        "verification": {
+          "programs": 0,
+          "pipelines": 0,
+          "renderObjects": 0,
+          "discarded": 0,
+          "nodeBuilds": 0,
+          "nodeBuildMs": 0
+        },
+        "assetsMs": 1022.5,
+        "warmupMs": 12740.700000000186,
+        "totalMs": 33582.60000000056
+      },
+      "idle": {
+        "name": "quieto",
+        "frames": 116,
+        "max": 40.3,
+        "p95": 29.5,
+        "p99": 31,
+        "over500ms": 0,
+        "work": {
+          "programs": 0,
+          "pipelines": 0,
+          "renderObjects": 0,
+          "discarded": 0,
+          "nodeBuilds": 0,
+          "nodeBuildMs": 0
+        },
+        "bakes": 0,
+        "events": [],
+        "quality": "alta",
+        "pixelRatio": 1,
+        "drawCalls": 827,
+        "triangles": 708747,
+        "memoryMB": 1019
+      },
+      "turn": {
+        "name": "giro 360",
+        "frames": 146,
+        "max": 70.4,
+        "p95": 36.5,
+        "p99": 50.7,
+        "over500ms": 0,
+        "work": {
+          "programs": 1,
+          "pipelines": 1,
+          "renderObjects": 375,
+          "discarded": 0,
+          "nodeBuilds": 375,
+          "nodeBuildMs": 63
+        },
+        "bakes": 0,
+        "events": [],
+        "quality": "alta",
+        "pixelRatio": 1,
+        "drawCalls": 828,
+        "triangles": 705441,
+        "memoryMB": 1050
+      },
+      "camera": {
+        "name": "cámara isometric",
+        "frames": 91,
+        "max": 29.4,
+        "p95": 24.5,
+        "p99": 29.4,
+        "over500ms": 0,
+        "work": {
+          "programs": 0,
+          "pipelines": 0,
+          "renderObjects": 0,
+          "discarded": 0,
+          "nodeBuilds": 0,
+          "nodeBuildMs": 0
+        },
+        "bakes": 0,
+        "events": [],
+        "quality": "alta",
+        "pixelRatio": 1,
+        "drawCalls": 591,
+        "triangles": 602639,
+        "memoryMB": 1079
+      },
+      "transfer": {
+        "transfer": 19600212,
+        "decoded": 24983834
+      }
+    },
+    {
+      "stage": "before",
+      "sample": 0,
+      "cache": "warm",
+      "startup": {
+        "shaderFamilies": 96,
+        "preparedBindings": 8069,
+        "renderObjects": 8616,
+        "textures": {
+          "unique": 661,
+          "resized": 211,
+          "reused": 0,
+          "prepareMs": 1248.5,
+          "uploadMs": 387.6000000005588
+        },
+        "compileMs": 16761.39999999944,
+        "fullWarmupMs": 13059.799999999814,
+        "verification": {
+          "programs": 0,
+          "pipelines": 0,
+          "renderObjects": 0,
+          "discarded": 0,
+          "nodeBuilds": 0,
+          "nodeBuildMs": 0
+        },
+        "assetsMs": 2055.2999999998137,
+        "warmupMs": 13257.200000000186,
+        "totalMs": 35408.40000000037
+      },
+      "idle": {
+        "name": "quieto",
+        "frames": 115,
+        "max": 56.7,
+        "p95": 30.3,
+        "p99": 32.8,
+        "over500ms": 0,
+        "work": {
+          "programs": 0,
+          "pipelines": 0,
+          "renderObjects": 8,
+          "discarded": 0,
+          "nodeBuilds": 8,
+          "nodeBuildMs": 0
+        },
+        "bakes": 0,
+        "events": [],
+        "quality": "alta",
+        "pixelRatio": 1,
+        "drawCalls": 600,
+        "triangles": 633016,
+        "memoryMB": 2140
+      },
+      "turn": {
+        "name": "giro 360",
+        "frames": 131,
+        "max": 45.8,
+        "p95": 40.9,
+        "p99": 45,
+        "over500ms": 0,
+        "work": {
+          "programs": 0,
+          "pipelines": 0,
+          "renderObjects": 0,
+          "discarded": 0,
+          "nodeBuilds": 0,
+          "nodeBuildMs": 0
+        },
+        "bakes": 0,
+        "events": [],
+        "quality": "alta",
+        "pixelRatio": 1,
+        "drawCalls": 619,
+        "triangles": 696626,
+        "memoryMB": 2144
+      },
+      "camera": {
+        "name": "cámara third-person",
+        "frames": 34,
+        "max": 231,
+        "p95": 144.3,
+        "p99": 231,
+        "over500ms": 0,
+        "work": {
+          "programs": 1,
+          "pipelines": 1,
+          "renderObjects": 235,
+          "discarded": 0,
+          "nodeBuilds": 235,
+          "nodeBuildMs": 70
+        },
+        "bakes": 0,
+        "events": [
+          {
+            "name": "render",
+            "ms": 136.4,
+            "t": 43454,
+            "newPrograms": 1,
+            "quality": "alta"
+          }
+        ],
+        "quality": "alta",
+        "pixelRatio": 1,
+        "drawCalls": 1291,
+        "triangles": 1202697,
+        "memoryMB": 2159
+      },
+      "transfer": {
+        "transfer": 1113709,
+        "decoded": 26087712
+      }
+    },
+    {
+      "stage": "before",
+      "sample": 1,
+      "cache": "cold",
+      "startup": {
+        "shaderFamilies": 101,
+        "preparedBindings": 8062,
+        "renderObjects": 8616,
+        "textures": {
+          "unique": 641,
+          "resized": 204,
+          "reused": 0,
+          "prepareMs": 1404.4000000003725,
+          "uploadMs": 525.6999999992549
+        },
+        "compileMs": 15824.599999999627,
+        "fullWarmupMs": 14102,
+        "verification": {
+          "programs": 0,
+          "pipelines": 0,
+          "renderObjects": 0,
+          "discarded": 0,
+          "nodeBuilds": 0,
+          "nodeBuildMs": 0
+        },
+        "assetsMs": 1047.9000000003725,
+        "warmupMs": 14335,
+        "totalMs": 38030.200000000186
+      },
+      "idle": {
+        "name": "quieto",
+        "frames": 88,
+        "max": 54.8,
+        "p95": 44.4,
+        "p99": 54.8,
+        "over500ms": 0,
+        "work": {
+          "programs": 0,
+          "pipelines": 0,
+          "renderObjects": 0,
+          "discarded": 0,
+          "nodeBuilds": 0,
+          "nodeBuildMs": 0
+        },
+        "bakes": 0,
+        "events": [],
+        "quality": "alta",
+        "pixelRatio": 1,
+        "drawCalls": 827,
+        "triangles": 708747,
+        "memoryMB": 1023
+      },
+      "turn": {
+        "name": "giro 360",
+        "frames": 106,
+        "max": 130.8,
+        "p95": 54.7,
+        "p99": 80.9,
+        "over500ms": 0,
+        "work": {
+          "programs": 1,
+          "pipelines": 1,
+          "renderObjects": 375,
+          "discarded": 0,
+          "nodeBuilds": 375,
+          "nodeBuildMs": 76
+        },
+        "bakes": 0,
+        "events": [],
+        "quality": "alta",
+        "pixelRatio": 1,
+        "drawCalls": 823,
+        "triangles": 705399,
+        "memoryMB": 1054
+      },
+      "camera": {
+        "name": "cámara isometric",
+        "frames": 77,
+        "max": 32.4,
+        "p95": 29.7,
+        "p99": 32.4,
+        "over500ms": 0,
+        "work": {
+          "programs": 0,
+          "pipelines": 0,
+          "renderObjects": 0,
+          "discarded": 0,
+          "nodeBuilds": 0,
+          "nodeBuildMs": 0
+        },
+        "bakes": 0,
+        "events": [],
+        "quality": "alta",
+        "pixelRatio": 1,
+        "drawCalls": 591,
+        "triangles": 602639,
+        "memoryMB": 1038
+      },
+      "transfer": {
+        "transfer": 19592985,
+        "decoded": 24880743
+      }
+    },
+    {
+      "stage": "before",
+      "sample": 1,
+      "cache": "warm",
+      "startup": {
+        "shaderFamilies": 96,
+        "preparedBindings": 8069,
+        "renderObjects": 8616,
+        "textures": {
+          "unique": 661,
+          "resized": 211,
+          "reused": 0,
+          "prepareMs": 1615,
+          "uploadMs": 443.59999999962747
+        },
+        "compileMs": 19385.400000000373,
+        "fullWarmupMs": 14627.399999999441,
+        "verification": {
+          "programs": 0,
+          "pipelines": 0,
+          "renderObjects": 0,
+          "discarded": 0,
+          "nodeBuilds": 0,
+          "nodeBuildMs": 0
+        },
+        "assetsMs": 2704.100000000559,
+        "warmupMs": 14895,
+        "totalMs": 40968.799999999814
+      },
+      "idle": {
+        "name": "quieto",
+        "frames": 78,
+        "max": 63.1,
+        "p95": 52,
+        "p99": 63.1,
+        "over500ms": 0,
+        "work": {
+          "programs": 0,
+          "pipelines": 0,
+          "renderObjects": 8,
+          "discarded": 0,
+          "nodeBuilds": 8,
+          "nodeBuildMs": 0
+        },
+        "bakes": 0,
+        "events": [],
+        "quality": "alta",
+        "pixelRatio": 1,
+        "drawCalls": 600,
+        "triangles": 633016,
+        "memoryMB": 1063
+      },
+      "turn": {
+        "name": "giro 360",
+        "frames": 114,
+        "max": 45.4,
+        "p95": 43.3,
+        "p99": 45.2,
+        "over500ms": 0,
+        "work": {
+          "programs": 0,
+          "pipelines": 0,
+          "renderObjects": 0,
+          "discarded": 0,
+          "nodeBuilds": 0,
+          "nodeBuildMs": 0
+        },
+        "bakes": 0,
+        "events": [],
+        "quality": "alta",
+        "pixelRatio": 1,
+        "drawCalls": 619,
+        "triangles": 696626,
+        "memoryMB": 1085
+      },
+      "camera": {
+        "name": "cámara third-person",
+        "frames": 46,
+        "max": 208.5,
+        "p95": 89.1,
+        "p99": 208.5,
+        "over500ms": 0,
+        "work": {
+          "programs": 1,
+          "pipelines": 1,
+          "renderObjects": 235,
+          "discarded": 0,
+          "nodeBuilds": 235,
+          "nodeBuildMs": 109
+        },
+        "bakes": 0,
+        "events": [
+          {
+            "name": "render",
+            "ms": 199.2,
+            "t": 49367,
+            "newPrograms": 1,
+            "quality": "alta"
+          }
+        ],
+        "quality": "alta",
+        "pixelRatio": 1,
+        "drawCalls": 1291,
+        "triangles": 1202697,
+        "memoryMB": 1101
+      },
+      "transfer": {
+        "transfer": 997529,
+        "decoded": 26793510
+      }
+    },
+    {
+      "stage": "before",
+      "sample": 2,
+      "cache": "cold",
+      "startup": {
+        "shaderFamilies": 101,
+        "preparedBindings": 8062,
+        "renderObjects": 8616,
+        "textures": {
+          "unique": 641,
+          "resized": 204,
+          "reused": 0,
+          "prepareMs": 1401.4000000003725,
+          "uploadMs": 474.40000000037253
+        },
+        "compileMs": 16067.900000000373,
+        "fullWarmupMs": 13885.300000000745,
+        "verification": {
+          "programs": 0,
+          "pipelines": 0,
+          "renderObjects": 0,
+          "discarded": 0,
+          "nodeBuilds": 0,
+          "nodeBuildMs": 0
+        },
+        "assetsMs": 1183.7000000001863,
+        "warmupMs": 14088.900000000373,
+        "totalMs": 37753.700000000186
+      },
+      "idle": {
+        "name": "quieto",
+        "frames": 94,
+        "max": 45.3,
+        "p95": 41.3,
+        "p99": 45.3,
+        "over500ms": 0,
+        "work": {
+          "programs": 0,
+          "pipelines": 0,
+          "renderObjects": 0,
+          "discarded": 0,
+          "nodeBuilds": 0,
+          "nodeBuildMs": 0
+        },
+        "bakes": 0,
+        "events": [],
+        "quality": "alta",
+        "pixelRatio": 1,
+        "drawCalls": 827,
+        "triangles": 708747,
+        "memoryMB": 1033
+      },
+      "turn": {
+        "name": "giro 360",
+        "frames": 106,
+        "max": 94.3,
+        "p95": 57.2,
+        "p99": 78.5,
+        "over500ms": 0,
+        "work": {
+          "programs": 1,
+          "pipelines": 1,
+          "renderObjects": 375,
+          "discarded": 0,
+          "nodeBuilds": 375,
+          "nodeBuildMs": 71
+        },
+        "bakes": 0,
+        "events": [],
+        "quality": "alta",
+        "pixelRatio": 1,
+        "drawCalls": 827,
+        "triangles": 731893,
+        "memoryMB": 1033
+      },
+      "camera": {
+        "name": "cámara isometric",
+        "frames": 73,
+        "max": 84.7,
+        "p95": 53.6,
+        "p99": 84.7,
+        "over500ms": 0,
+        "work": {
+          "programs": 0,
+          "pipelines": 0,
+          "renderObjects": 0,
+          "discarded": 0,
+          "nodeBuilds": 0,
+          "nodeBuildMs": 0
+        },
+        "bakes": 0,
+        "events": [],
+        "quality": "alta",
+        "pixelRatio": 1,
+        "drawCalls": 591,
+        "triangles": 602639,
+        "memoryMB": 1040
+      },
+      "transfer": {
+        "transfer": 19323059,
+        "decoded": 25308391
+      }
+    },
+    {
+      "stage": "before",
+      "sample": 2,
+      "cache": "warm",
+      "startup": {
+        "shaderFamilies": 96,
+        "preparedBindings": 8069,
+        "renderObjects": 8616,
+        "textures": {
+          "unique": 661,
+          "resized": 211,
+          "reused": 0,
+          "prepareMs": 1597.4000000003725,
+          "uploadMs": 763
+        },
+        "compileMs": 20472.5,
+        "fullWarmupMs": 13210.099999999627,
+        "verification": {
+          "programs": 0,
+          "pipelines": 0,
+          "renderObjects": 0,
+          "discarded": 0,
+          "nodeBuilds": 0,
+          "nodeBuildMs": 0
+        },
+        "assetsMs": 2314.800000000745,
+        "warmupMs": 13408.799999999814,
+        "totalMs": 40363.10000000056
+      },
+      "idle": {
+        "name": "quieto",
+        "frames": 109,
+        "max": 65.3,
+        "p95": 31.2,
+        "p99": 38.9,
+        "over500ms": 0,
+        "work": {
+          "programs": 0,
+          "pipelines": 0,
+          "renderObjects": 8,
+          "discarded": 0,
+          "nodeBuilds": 8,
+          "nodeBuildMs": 1
+        },
+        "bakes": 0,
+        "events": [],
+        "quality": "alta",
+        "pixelRatio": 1,
+        "drawCalls": 600,
+        "triangles": 633016,
+        "memoryMB": 2147
+      },
+      "turn": {
+        "name": "giro 360",
+        "frames": 150,
+        "max": 31.8,
+        "p95": 30.1,
+        "p99": 31.6,
+        "over500ms": 0,
+        "work": {
+          "programs": 0,
+          "pipelines": 0,
+          "renderObjects": 0,
+          "discarded": 0,
+          "nodeBuilds": 0,
+          "nodeBuildMs": 0
+        },
+        "bakes": 0,
+        "events": [],
+        "quality": "alta",
+        "pixelRatio": 1,
+        "drawCalls": 619,
+        "triangles": 696626,
+        "memoryMB": 2146
+      },
+      "camera": {
+        "name": "cámara third-person",
+        "frames": 45,
+        "max": 154,
+        "p95": 57.9,
+        "p99": 154,
+        "over500ms": 0,
+        "work": {
+          "programs": 1,
+          "pipelines": 1,
+          "renderObjects": 235,
+          "discarded": 0,
+          "nodeBuilds": 235,
+          "nodeBuildMs": 83
+        },
+        "bakes": 0,
+        "events": [
+          {
+            "name": "render",
+            "ms": 144.7,
+            "t": 48498,
+            "newPrograms": 1,
+            "quality": "alta"
+          }
+        ],
+        "quality": "alta",
+        "pixelRatio": 1,
+        "drawCalls": 1291,
+        "triangles": 1202697,
+        "memoryMB": 2160
+      },
+      "transfer": {
+        "transfer": 1236395,
+        "decoded": 26726318
+      }
+    },
+    {
+      "stage": "webp",
+      "sample": 0,
+      "cache": "cold",
+      "startup": {
+        "shaderFamilies": 105,
+        "preparedBindings": 8094,
+        "renderObjects": 8644,
+        "textures": {
+          "unique": 448,
+          "resized": 149,
+          "reused": 528,
+          "prepareMs": 436.19999999925494,
+          "uploadMs": 119.80000000074506
+        },
+        "compileMs": 11558,
+        "fullWarmupMs": 10527.599999999627,
+        "verification": {
+          "programs": 0,
+          "pipelines": 0,
+          "renderObjects": 0,
+          "discarded": 0,
+          "nodeBuilds": 0,
+          "nodeBuildMs": 0
+        },
+        "assetsMs": 1075.1000000005588,
+        "warmupMs": 10721,
+        "totalMs": 28918.700000000186
+      },
+      "idle": {
+        "name": "quieto",
+        "frames": 112,
+        "max": 40.1,
+        "p95": 31,
+        "p99": 36.8,
+        "over500ms": 0,
+        "meanMs": 26.991071428571427,
+        "elapsedMs": 3023,
+        "work": {
+          "programs": 0,
+          "pipelines": 0,
+          "renderObjects": 0,
+          "discarded": 0,
+          "nodeBuilds": 0,
+          "nodeBuildMs": 0
+        },
+        "bakes": 0,
+        "events": [],
+        "quality": "alta",
+        "pixelRatio": 1,
+        "drawCalls": 842,
+        "triangles": 486890,
+        "memoryMB": 1154
+      },
+      "turn": {
+        "name": "giro 360",
+        "frames": 132,
+        "max": 67.8,
+        "p95": 39.6,
+        "p99": 53.9,
+        "over500ms": 0,
+        "meanMs": 30.515151515151516,
+        "elapsedMs": 4028,
+        "work": {
+          "programs": 1,
+          "pipelines": 1,
+          "renderObjects": 357,
+          "discarded": 0,
+          "nodeBuilds": 357,
+          "nodeBuildMs": 60
+        },
+        "bakes": 0,
+        "events": [],
+        "quality": "alta",
+        "pixelRatio": 1,
+        "drawCalls": 842,
+        "triangles": 484478,
+        "memoryMB": 1195
+      },
+      "camera": {
+        "name": "cámara isometric",
+        "frames": 76,
+        "max": 41.7,
+        "p95": 29,
+        "p99": 41.7,
+        "over500ms": 0,
+        "meanMs": 26.43552631578457,
+        "elapsedMs": 2009.0999999996275,
+        "work": {
+          "programs": 0,
+          "pipelines": 0,
+          "renderObjects": 0,
+          "discarded": 0,
+          "nodeBuilds": 0,
+          "nodeBuildMs": 0
+        },
+        "bakes": 0,
+        "events": [],
+        "quality": "alta",
+        "pixelRatio": 1,
+        "drawCalls": 638,
+        "triangles": 485724,
+        "memoryMB": 1196
+      },
+      "transfer": {
+        "transfer": 19494985,
+        "decoded": 23517183
+      }
+    },
+    {
+      "stage": "webp",
+      "sample": 0,
+      "cache": "warm",
+      "startup": {
+        "shaderFamilies": 100,
+        "preparedBindings": 8097,
+        "renderObjects": 8650,
+        "textures": {
+          "unique": 446,
+          "resized": 150,
+          "reused": 517,
+          "prepareMs": 464.40000000037253,
+          "uploadMs": 162.8999999994412
+        },
+        "compileMs": 14179.300000000745,
+        "fullWarmupMs": 9784.900000000373,
+        "verification": {
+          "programs": 0,
+          "pipelines": 0,
+          "renderObjects": 0,
+          "discarded": 0,
+          "nodeBuilds": 0,
+          "nodeBuildMs": 0
+        },
+        "assetsMs": 2650.0999999996275,
+        "warmupMs": 9985.899999999441,
+        "totalMs": 28768
+      },
+      "idle": {
+        "name": "quieto",
+        "frames": 117,
+        "max": 36.3,
+        "p95": 29.4,
+        "p99": 33,
+        "over500ms": 0,
+        "meanMs": 25.805982905989275,
+        "elapsedMs": 3019.300000000745,
+        "work": {
+          "programs": 0,
+          "pipelines": 0,
+          "renderObjects": 8,
+          "discarded": 0,
+          "nodeBuilds": 8,
+          "nodeBuildMs": 0
+        },
+        "bakes": 0,
+        "events": [],
+        "quality": "alta",
+        "pixelRatio": 1,
+        "drawCalls": 629,
+        "triangles": 512816,
+        "memoryMB": 1187
+      },
+      "turn": {
+        "name": "giro 360",
+        "frames": 144,
+        "max": 81.2,
+        "p95": 41.8,
+        "p99": 64.3,
+        "over500ms": 0,
+        "meanMs": 27.852777777776485,
+        "elapsedMs": 4010.7999999998137,
+        "work": {
+          "programs": 0,
+          "pipelines": 0,
+          "renderObjects": 0,
+          "discarded": 0,
+          "nodeBuilds": 0,
+          "nodeBuildMs": 0
+        },
+        "bakes": 0,
+        "events": [],
+        "quality": "alta",
+        "pixelRatio": 1,
+        "drawCalls": 622,
+        "triangles": 498304,
+        "memoryMB": 1198
+      },
+      "camera": {
+        "name": "cámara third-person",
+        "frames": 28,
+        "max": 210.7,
+        "p95": 89.2,
+        "p99": 210.7,
+        "over500ms": 0,
+        "meanMs": 71.5821428571362,
+        "elapsedMs": 2004.2999999998137,
+        "work": {
+          "programs": 1,
+          "pipelines": 1,
+          "renderObjects": 242,
+          "discarded": 0,
+          "nodeBuilds": 242,
+          "nodeBuildMs": 95
+        },
+        "bakes": 0,
+        "events": [
+          {
+            "name": "render",
+            "ms": 195.7,
+            "t": 36902,
+            "newPrograms": 1,
+            "quality": "alta"
+          }
+        ],
+        "quality": "alta",
+        "pixelRatio": 1,
+        "drawCalls": 1317,
+        "triangles": 1031873,
+        "memoryMB": 1198
+      },
+      "transfer": {
+        "transfer": 400172,
+        "decoded": 25848254
+      }
+    },
+    {
+      "stage": "webp",
+      "sample": 1,
+      "cache": "cold",
+      "startup": {
+        "shaderFamilies": 105,
+        "preparedBindings": 8094,
+        "renderObjects": 8644,
+        "textures": {
+          "unique": 448,
+          "resized": 149,
+          "reused": 528,
+          "prepareMs": 451.70000000018626,
+          "uploadMs": 152.40000000037253
+        },
+        "compileMs": 14315.200000000186,
+        "fullWarmupMs": 10376.5,
+        "verification": {
+          "programs": 0,
+          "pipelines": 0,
+          "renderObjects": 0,
+          "discarded": 0,
+          "nodeBuilds": 0,
+          "nodeBuildMs": 0
+        },
+        "assetsMs": 1115.7000000001863,
+        "warmupMs": 10591.599999999627,
+        "totalMs": 31675.599999999627
+      },
+      "idle": {
+        "name": "quieto",
+        "frames": 113,
+        "max": 35.8,
+        "p95": 29.4,
+        "p99": 30.6,
+        "over500ms": 0,
+        "meanMs": 26.63008849557687,
+        "elapsedMs": 3009.2000000001863,
+        "work": {
+          "programs": 0,
+          "pipelines": 0,
+          "renderObjects": 0,
+          "discarded": 0,
+          "nodeBuilds": 0,
+          "nodeBuildMs": 0
+        },
+        "bakes": 0,
+        "events": [],
+        "quality": "alta",
+        "pixelRatio": 1,
+        "drawCalls": 842,
+        "triangles": 486890,
+        "memoryMB": 1143
+      },
+      "turn": {
+        "name": "giro 360",
+        "frames": 100,
+        "max": 86.8,
+        "p95": 52.8,
+        "p99": 77.3,
+        "over500ms": 0,
+        "meanMs": 40.12,
+        "elapsedMs": 4012,
+        "work": {
+          "programs": 1,
+          "pipelines": 1,
+          "renderObjects": 357,
+          "discarded": 0,
+          "nodeBuilds": 357,
+          "nodeBuildMs": 82
+        },
+        "bakes": 0,
+        "events": [],
+        "quality": "alta",
+        "pixelRatio": 1,
+        "drawCalls": 837,
+        "triangles": 484124,
+        "memoryMB": 1160
+      },
+      "camera": {
+        "name": "cámara isometric",
+        "frames": 59,
+        "max": 52.8,
+        "p95": 41.9,
+        "p99": 52.8,
+        "over500ms": 0,
+        "meanMs": 33.9118644067765,
+        "elapsedMs": 2000.7999999998137,
+        "work": {
+          "programs": 0,
+          "pipelines": 0,
+          "renderObjects": 0,
+          "discarded": 0,
+          "nodeBuilds": 0,
+          "nodeBuildMs": 0
+        },
+        "bakes": 0,
+        "events": [],
+        "quality": "alta",
+        "pixelRatio": 1,
+        "drawCalls": 638,
+        "triangles": 485724,
+        "memoryMB": 1160
+      },
+      "transfer": {
+        "transfer": 19620749,
+        "decoded": 23398401
+      }
+    },
+    {
+      "stage": "webp",
+      "sample": 1,
+      "cache": "warm",
+      "startup": {
+        "shaderFamilies": 100,
+        "preparedBindings": 8097,
+        "renderObjects": 8650,
+        "textures": {
+          "unique": 446,
+          "resized": 150,
+          "reused": 517,
+          "prepareMs": 524.2000000001863,
+          "uploadMs": 194.5
+        },
+        "compileMs": 18106.400000000373,
+        "fullWarmupMs": 12377,
+        "verification": {
+          "programs": 0,
+          "pipelines": 0,
+          "renderObjects": 0,
+          "discarded": 0,
+          "nodeBuilds": 0,
+          "nodeBuildMs": 0
+        },
+        "assetsMs": 2782.899999999441,
+        "warmupMs": 12640.399999999441,
+        "totalMs": 36161.699999999255
+      },
+      "idle": {
+        "name": "quieto",
+        "frames": 102,
+        "max": 42.9,
+        "p95": 37.1,
+        "p99": 42.8,
+        "over500ms": 0,
+        "meanMs": 29.53725490196809,
+        "elapsedMs": 3012.800000000745,
+        "work": {
+          "programs": 0,
+          "pipelines": 0,
+          "renderObjects": 8,
+          "discarded": 0,
+          "nodeBuilds": 8,
+          "nodeBuildMs": 0
+        },
+        "bakes": 0,
+        "events": [],
+        "quality": "alta",
+        "pixelRatio": 1,
+        "drawCalls": 629,
+        "triangles": 512816,
+        "memoryMB": 2180
+      },
+      "turn": {
+        "name": "giro 360",
+        "frames": 140,
+        "max": 37.3,
+        "p95": 33.1,
+        "p99": 35.5,
+        "over500ms": 0,
+        "meanMs": 28.784285714284383,
+        "elapsedMs": 4029.7999999998137,
+        "work": {
+          "programs": 0,
+          "pipelines": 0,
+          "renderObjects": 0,
+          "discarded": 0,
+          "nodeBuilds": 0,
+          "nodeBuildMs": 0
+        },
+        "bakes": 0,
+        "events": [],
+        "quality": "alta",
+        "pixelRatio": 1,
+        "drawCalls": 622,
+        "triangles": 498304,
+        "memoryMB": 2219
+      },
+      "camera": {
+        "name": "cámara third-person",
+        "frames": 37,
+        "max": 356,
+        "p95": 164.8,
+        "p99": 356,
+        "over500ms": 0,
+        "meanMs": 54.38918918919926,
+        "elapsedMs": 2012.4000000003725,
+        "work": {
+          "programs": 1,
+          "pipelines": 1,
+          "renderObjects": 242,
+          "discarded": 0,
+          "nodeBuilds": 242,
+          "nodeBuildMs": 85
+        },
+        "bakes": 0,
+        "events": [
+          {
+            "name": "render",
+            "ms": 154.3,
+            "t": 44377,
+            "newPrograms": 1,
+            "quality": "alta"
+          }
+        ],
+        "quality": "alta",
+        "pixelRatio": 1,
+        "drawCalls": 1317,
+        "triangles": 1035323,
+        "memoryMB": 1109
+      },
+      "transfer": {
+        "transfer": 566856,
+        "decoded": 25112926
+      }
+    },
+    {
+      "stage": "webp",
+      "sample": 2,
+      "cache": "cold",
+      "startup": {
+        "shaderFamilies": 105,
+        "preparedBindings": 8094,
+        "renderObjects": 8644,
+        "textures": {
+          "unique": 448,
+          "resized": 149,
+          "reused": 528,
+          "prepareMs": 417.40000000037253,
+          "uploadMs": 154.29999999981374
+        },
+        "compileMs": 11410.600000000559,
+        "fullWarmupMs": 9718.299999999814,
+        "verification": {
+          "programs": 0,
+          "pipelines": 0,
+          "renderObjects": 0,
+          "discarded": 0,
+          "nodeBuilds": 0,
+          "nodeBuildMs": 0
+        },
+        "assetsMs": 904.5,
+        "warmupMs": 9869.299999999814,
+        "totalMs": 26482.900000000373
+      },
+      "idle": {
+        "name": "quieto",
+        "frames": 114,
+        "max": 37.2,
+        "p95": 29.5,
+        "p99": 29.7,
+        "over500ms": 0,
+        "meanMs": 26.42894736841615,
+        "elapsedMs": 3012.899999999441,
+        "work": {
+          "programs": 0,
+          "pipelines": 0,
+          "renderObjects": 0,
+          "discarded": 0,
+          "nodeBuilds": 0,
+          "nodeBuildMs": 0
+        },
+        "bakes": 0,
+        "events": [],
+        "quality": "alta",
+        "pixelRatio": 1,
+        "drawCalls": 842,
+        "triangles": 486890,
+        "memoryMB": 1183
+      },
+      "turn": {
+        "name": "giro 360",
+        "frames": 130,
+        "max": 70.5,
+        "p95": 38.8,
+        "p99": 54.1,
+        "over500ms": 0,
+        "meanMs": 30.92769230768944,
+        "elapsedMs": 4020.5999999996275,
+        "work": {
+          "programs": 1,
+          "pipelines": 1,
+          "renderObjects": 357,
+          "discarded": 0,
+          "nodeBuilds": 357,
+          "nodeBuildMs": 61
+        },
+        "bakes": 0,
+        "events": [],
+        "quality": "alta",
+        "pixelRatio": 1,
+        "drawCalls": 839,
+        "triangles": 484448,
+        "memoryMB": 1186
+      },
+      "camera": {
+        "name": "cámara isometric",
+        "frames": 78,
+        "max": 40.8,
+        "p95": 28.6,
+        "p99": 40.8,
+        "over500ms": 0,
+        "meanMs": 25.97564102563625,
+        "elapsedMs": 2026.0999999996275,
+        "work": {
+          "programs": 0,
+          "pipelines": 0,
+          "renderObjects": 0,
+          "discarded": 0,
+          "nodeBuilds": 0,
+          "nodeBuildMs": 0
+        },
+        "bakes": 0,
+        "events": [],
+        "quality": "alta",
+        "pixelRatio": 1,
+        "drawCalls": 638,
+        "triangles": 485724,
+        "memoryMB": 1189
+      },
+      "transfer": {
+        "transfer": 19221109,
+        "decoded": 24381181
+      }
+    },
+    {
+      "stage": "webp",
+      "sample": 2,
+      "cache": "warm",
+      "startup": {
+        "shaderFamilies": 100,
+        "preparedBindings": 8097,
+        "renderObjects": 8650,
+        "textures": {
+          "unique": 446,
+          "resized": 150,
+          "reused": 517,
+          "prepareMs": 470,
+          "uploadMs": 158
+        },
+        "compileMs": 15312.5,
+        "fullWarmupMs": 11953.099999999627,
+        "verification": {
+          "programs": 0,
+          "pipelines": 0,
+          "renderObjects": 0,
+          "discarded": 0,
+          "nodeBuilds": 0,
+          "nodeBuildMs": 0
+        },
+        "assetsMs": 2614.7999999998137,
+        "warmupMs": 12190.299999999814,
+        "totalMs": 32111.10000000056
+      },
+      "idle": {
+        "name": "quieto",
+        "frames": 100,
+        "max": 53.4,
+        "p95": 44.2,
+        "p99": 51.8,
+        "over500ms": 0,
+        "meanMs": 30.182999999998138,
+        "elapsedMs": 3018.2999999998137,
+        "work": {
+          "programs": 0,
+          "pipelines": 0,
+          "renderObjects": 8,
+          "discarded": 0,
+          "nodeBuilds": 8,
+          "nodeBuildMs": 0
+        },
+        "bakes": 0,
+        "events": [],
+        "quality": "alta",
+        "pixelRatio": 1,
+        "drawCalls": 629,
+        "triangles": 512816,
+        "memoryMB": 1174
+      },
+      "turn": {
+        "name": "giro 360",
+        "frames": 163,
+        "max": 34.2,
+        "p95": 27.1,
+        "p99": 28.8,
+        "over500ms": 0,
+        "meanMs": 24.683435582818657,
+        "elapsedMs": 4023.399999999441,
+        "work": {
+          "programs": 0,
+          "pipelines": 0,
+          "renderObjects": 0,
+          "discarded": 0,
+          "nodeBuilds": 0,
+          "nodeBuildMs": 0
+        },
+        "bakes": 0,
+        "events": [],
+        "quality": "alta",
+        "pixelRatio": 1,
+        "drawCalls": 622,
+        "triangles": 498304,
+        "memoryMB": 1182
+      },
+      "camera": {
+        "name": "cámara third-person",
+        "frames": 49,
+        "max": 141.1,
+        "p95": 53.6,
+        "p99": 141.1,
+        "over500ms": 0,
+        "meanMs": 41.08367346938015,
+        "elapsedMs": 2013.0999999996275,
+        "work": {
+          "programs": 1,
+          "pipelines": 1,
+          "renderObjects": 242,
+          "discarded": 0,
+          "nodeBuilds": 242,
+          "nodeBuildMs": 65
+        },
+        "bakes": 0,
+        "events": [
+          {
+            "name": "render",
+            "ms": 132.3,
+            "t": 40346,
+            "newPrograms": 1,
+            "quality": "alta"
+          }
+        ],
+        "quality": "alta",
+        "pixelRatio": 1,
+        "drawCalls": 1317,
+        "triangles": 1031873,
+        "memoryMB": 1203
+      },
+      "transfer": {
+        "transfer": 566856,
+        "decoded": 25008240
+      }
+    }
+  ]
+}

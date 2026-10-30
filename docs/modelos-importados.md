@@ -1,6 +1,6 @@
 # Modelos incorporados en pruebas-integracion
 
-Se incorporan estos nueve archivos del fork [mreyeswilson/bazuko](https://github.com/mreyeswilson/bazuko), commit `dd3656fb3c6ccf68d7760987e4d9263ff72cd566`:
+Se incorporan estos ocho archivos del fork [mreyeswilson/bazuko](https://github.com/mreyeswilson/bazuko), commit `dd3656fb3c6ccf68d7760987e4d9263ff72cd566`:
 
 | Archivo | Uso | SHA del blob de origen |
 | --- | --- | --- |
@@ -10,7 +10,6 @@ Se incorporan estos nueve archivos del fork [mreyeswilson/bazuko](https://github
 | `cambuche.opt.glb` | Refugio del jugador | `5c7b4f63d94a46e3d84d59c3bee5ac2d12f130af` |
 | `bolsa.opt.glb` | Bolsas de basura recogibles | `c28ae6b1d36ce68e3019da5c32c86eec58d3c685` |
 | `contenedor.opt.glb` | Doce canecas permanentes | `c397c0493335eccdb02f23993f2d7bb71fa7d576` |
-| `estacion.opt.glb` | Estación de la Caracas | `a7377b9ea950bcddad525767f78f51e516765fa8` |
 | `semaforo.opt.glb` | Semáforos instanciados | `ce667cb18b60d88806ff94ca235492d281afc211` |
 | `lamparas.opt.glb` | Lámparas sobre los andenes | `69c565a575235631215903d9d489524559801f1f` |
 
@@ -30,6 +29,8 @@ Canecas y cambuche se reducen sin soldar las costuras UV para que la textura no 
 `perro.glb` (El Chato) no es importado: lo genera `tools/modelos/generar_perro.py` en Blender con un modificador Skin sobre un esqueleto de aristas, una subdivisión y pesos por distancia a 21 huesos. Tiene 1.684 triángulos, colores de vértice como tonos relativos del pelaje y ningún clip: `src/entities/Dog.js` mueve sus huesos con marchas de paso, trote y galope, y posturas de sentarse, echarse y dormir. Para regenerarlo: `blender -b --factory-startup --python tools/modelos/generar_perro.py`.
 
 Se adaptan escala y orientación en tiempo de carga. Los carros siguen apuntando a +X local y el bus a −Z local; sus dimensiones se ajustan a las rutas existentes. El cargador comparte geometrías y texturas entre instancias. El bus tiene materiales independientes para que su desvanecimiento no cambie otras instancias.
+
+El antiguo `estacion.opt.glb` (blob de origen `a7377b9ea950bcddad525767f78f51e516765fa8`) fue retirado al auditar recursos sin consumidores: Portal del Centro usa geometría propia transitable. Los dos GLB de carros se conservan para el selector de comparación de representaciones.
 
 Los modelos de vehículos contienen las ruedas y carrocería en una misma malla; las ruedas de estos GLB no giran por separado. La circulación, las paradas y el frenado siguen a cargo de los sistemas de esta versión.
 

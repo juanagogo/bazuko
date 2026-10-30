@@ -2,11 +2,15 @@
 
 La mesa de fabricación muestra los objetos con iconos de [game-icons.net](https://game-icons.net), publicados bajo la licencia [Creative Commons BY 3.0](https://creativecommons.org/licenses/by/3.0/). Se tomaron del repositorio [game-icons/icons](https://github.com/game-icons/icons), commit `82d948812bfe3f269ef8f731dcdb07b08160edc4`.
 
-Cada archivo de `src/ui/item-art/` se adaptó de la misma forma: se quitó el fondo negro cuadrado y el trazo pasó a `currentColor`, para que la interfaz lo tiña según la familia del objeto (material, médico, sustancia, valor o equipo). El dibujo no se modificó.
+`cuchillo.svg` y `botella_picada.svg` son siluetas dibujadas para el proyecto, sin relación con game-icons.net.
+
+Cada archivo de `src/ui/item-art/` (salvo esos dos) se adaptó de la misma forma: se quitó el fondo negro cuadrado y el trazo pasó a `currentColor`, para que la interfaz lo tiña según la familia del objeto (material, médico, sustancia, valor o equipo). El dibujo no se modificó.
 
 | Archivo | Objeto en el juego | Icono original | Autor |
 | --- | --- | --- | --- |
 | `radioTransistor.svg` | Radio transistor AM/FM | [Pocket radio](https://game-icons.net/1x1/delapouite/pocket-radio.html) | Delapouite |
+| `cuchillo.svg` | Cuchillo | Dibujo propio del proyecto (silueta de cuchillo) | Equipo del proyecto |
+| `botella_picada.svg` | Botella picada | Dibujo propio del proyecto (botella con la boca rota) | Equipo del proyecto |
 | `arma.svg` | Arma casera | [Spiked bat](https://game-icons.net/1x1/skoll/spiked-bat.html) | Skoll |
 | `curita.svg` | Curita | [Sticking plaster](https://game-icons.net/1x1/lorc/sticking-plaster.html) | Lorc |
 | `antibiotico.svg` | Antibiótico | [Medicine pills](https://game-icons.net/1x1/delapouite/medicine-pills.html) | Delapouite |

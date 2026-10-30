@@ -90,6 +90,7 @@ test('Salto Gráfico 4: Árboles con vaivén orgánico por viento andino', () =>
 test('Salto Gráfico 5: Charcos y ondas de lluvia (Puddle Ripples) en WeatherSystem', () => {
   const scene = new THREE.Scene();
   const weather = new WeatherSystem(scene);
+  weather.rainEnabled = true; // la lluvia está desactivada por defecto; aquí se prueban sus charcos
 
   assert.ok(weather.rippleMesh, 'WeatherSystem inicializa malla de ondas de charcos');
   assert.equal(weather.rippleMesh.count, 36);
@@ -107,9 +108,9 @@ test('Salto Gráfico 6: Vehículos con faros volumétricos y luces de freno reac
   const scene = new THREE.Scene();
   const car = new Car(scene, new THREE.Vector3(10, 0, 10), 0, { traffic: true });
 
-  assert.ok(car.vehicle.beam, 'Carro de tráfico cuenta con haz de luz');
+  // Con WebGPU los faros son luces locales (SpotLight) en lugar de conos translúcidos.
   car.setNight(true, false);
-  assert.equal(car.vehicle.beam.visible, true);
+  assert.ok(car.headlights.length === 2 && car.headlights.every(light => light.intensity > 0), 'de noche los faros alumbran');
 
   // Freno intensifica el rojo de las luces traseras
   const baseColor = car.vehicle.tailMat.color.r;
@@ -162,6 +163,7 @@ test('Salto Gráfico 10: Entorno PBR y preparación de Renderer', () => {
   const sunLight = env.children.find(c => c.isPointLight);
   assert.ok(sunLight, 'Cuenta con sol de alta intensidad para brillos especulares');
 
-  assert.ok(typeof Renderer.prototype.setupPostprocessing === 'function');
+  // El postproceso de WebGPU vive en VisualPipeline; el renderer lo prepara por calidad.
+  assert.ok(typeof Renderer.prototype._ensurePipeline === 'function');
   env.dispose();
 });

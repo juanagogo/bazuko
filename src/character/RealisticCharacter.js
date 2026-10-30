@@ -1,3 +1,4 @@
+import {tagAssetTextures} from '../core/TextureBudget.js';
 // src/character/RealisticCharacter.js
 // Personaje realista armado por piezas: cuerpo de MakeHuman/MPFB2 (esqueleto Mixamo) + pelo, barba,
 // ropa y calzado exportados por tools/personaje/exportar_variantes.py, con animaciones Mixamo.
@@ -9,13 +10,19 @@ import { ACTIONFORGE_CLIPS, buildCharacterClips } from './actionforge.js';
 import { locomotionBlend, measureLocomotion } from './locomotion.js';
 import { PALETTES } from './look.js';
 import { addGrime, addHairTone } from './weathering.js';
-import { attachAccessories } from './props.js';
+import { attachAccessories, attachWeapon, FAR_ACCESSORIES } from './props.js';
+import { attachCigaretteToHand, createSmokeOverlay, emberGlow } from './smoking.js';
+import { attachBasucoProps, createBasucoOverlay } from './pipe.js';
+import { rotateInFrame } from './melee.js';
+import { findBone } from './props.js';
+import { createMeleeOverlay } from './melee.js';
+import { createPointOverlay } from './pointing.js';
 import { addHatClip, hatEdgeProfile } from './hatFit.js';
 
 const MODEL_BASE = `${import.meta.env?.BASE_URL ?? '/'}models/`;
 const BASE = `${MODEL_BASE}personaje/`;
-// Animaciones descargadas de Mixamo (tools/personaje/mixamo_a_glb.py); si no están, las de prueba
-const ANIM_URLS = ['animaciones.glb', 'animaciones-prueba.glb'].map(file => MODEL_BASE + file);
+// Banco existente de respaldo; ActionForge sigue aportando los clips principales.
+const ANIM_URL = MODEL_BASE + 'animaciones-prueba.glb';
 
 // El modelo mide ~1,7 m; el mundo usa la escala del personaje procedural (~1,85 m)
 export const REALISTIC_SCALE = 1.08;
@@ -37,7 +44,7 @@ export const REAL_DEFAULT = {
 const loader = new GLTFLoader();
 const cache = new Map();
 const load = (url) => {
-  if (!cache.has(url)) cache.set(url, loader.loadAsync(url));
+  if (!cache.has(url)) cache.set(url, loader.loadAsync(url).then(tagAssetTextures));
   return cache.get(url);
 };
 
@@ -85,12 +92,7 @@ export function randomReal(catalog, base = {}) {
 
 let animsPromise = null;
 function loadAnimations() {
-  animsPromise ??= (async () => {
-    for (const url of ANIM_URLS) {
-      try { return await loader.loadAsync(url); } catch { /* probar la siguiente */ }
-    }
-    throw new Error('No hay animaciones del personaje');
-  })();
+  animsPromise ??= loader.loadAsync(ANIM_URL);
   return animsPromise;
 }
 
@@ -128,6 +130,8 @@ function setupMaterial(mesh, kind) {
   mesh.frustumCulled = false; // las mallas con skin se recortan mal al animar
   if (kind === 'pelo' || HAIR_LIKE.test(name)) {
     m.transparent = false;
+    // Imported BLEND hair disables depth writes. Once cut out, it must occlude the scalp.
+    m.depthWrite = true;
     m.alphaTest = 0.08;
     m.side = THREE.DoubleSide;
   } else if (SOFT_ALPHA.test(name)) {
@@ -226,6 +230,7 @@ async function buildInstance(catalog, look, lod = false) {
 
   const hidden = new Set();
   const hair = [], hatPositions = [];
+  const uniform = look.uniforme ? new THREE.Color(look.uniforme) : null;
   parts.forEach((p, i) => {
     if (!useLod) for (const v of p.info.oculta) hidden.add(v);
     partGltfs[i].scene.traverse((o) => {
@@ -235,6 +240,9 @@ async function buildInstance(catalog, look, lod = false) {
         mesh.material.color.copy(hairTone);
         addHairTone(mesh.material);
         if (p.cat === 'pelo') hair.push(mesh);
+      } else if (uniform && p.cat !== 'barba') {
+        // uniforme: la prenda entera de un color (la textura conserva costuras y pliegues)
+        mesh.material.color.copy(uniform);
       } else {
         addGrime(mesh.material, wear, { seed });
       }
@@ -252,7 +260,8 @@ async function buildInstance(catalog, look, lod = false) {
     o.material.color.copy(hairTone);
     addHairTone(o.material);
   });
-  const accessories = useLod ? null : attachAccessories(root, bones, look.accesorios, wear);
+  const worn = (look.accesorios ?? []).filter((id) => !useLod || FAR_ACCESSORIES.has(id));
+  const accessories = worn.length ? attachAccessories(root, bones, worn, wear) : null;
   if (bodyMesh) hideCovered(bodyMesh, bodyGltf.scene.getObjectByName(bodyMesh.name)?.geometry.index ?? bodyMesh.geometry.index, hidden);
 
   const mixer = new THREE.AnimationMixer(root);
@@ -269,7 +278,7 @@ async function buildInstance(catalog, look, lod = false) {
     actions[name].setEffectiveWeight(name === 'idle' ? 1 : 0);
   }
   if (useLod) root.traverse((o) => { if (o.isMesh) o.castShadow = false; }); // lejos: sin sombra propia
-  return { root, mixer, actions, real, accessories, phase: 0, runShare: 0, ownedGeometries: bodyMesh ? [bodyMesh.geometry] : [] };
+  return { root, bones, mixer, actions, real, accessories, phase: 0, runShare: 0, ownedGeometries: bodyMesh ? [bodyMesh.geometry] : [] };
 }
 
 /** Solo recursos de instancia; los modelos y texturas del banco siguen compartidos. */
@@ -302,6 +311,29 @@ export async function createRealisticCharacter(look = {}, { lod = false } = {}) 
   let token = 0;
   let disposed = false;
   const weights = {};
+  let weaponId = null; // arma en mano (cuchillo, botella_picada) o null
+  let smoking = null;   // qué se fuma en la mano izquierda ('cigarrillo', 'hierba') o null
+  let basuco = false;   // pipa en la izquierda y encendedor en la derecha
+
+  function syncWeapon() {
+    if (!inst || inst.weaponId === weaponId) return;
+    inst.weapon?.dispose();
+    inst.weapon = weaponId ? attachWeapon(inst.root, inst.bones, weaponId) : null;
+    inst.weaponId = weaponId;
+  }
+
+  function syncCigarette() {
+    if (!inst || (inst.cigarette?.kind ?? null) === smoking) return;
+    inst.cigarette?.dispose();
+    inst.cigarette = smoking ? attachCigaretteToHand(inst.root, inst.bones, smoking) : null;
+    if (inst.cigarette) inst.cigarette.kind = smoking;
+  }
+
+  function syncBasuco() {
+    if (!inst || !!inst.basucoProps === basuco) return;
+    inst.basucoProps?.dispose();
+    inst.basucoProps = basuco ? attachBasucoProps(inst.root, inst.bones) : null;
+  }
 
   async function setLook(l) {
     if (disposed) return;
@@ -311,6 +343,9 @@ export async function createRealisticCharacter(look = {}, { lod = false } = {}) 
     disposeRealisticInstance(inst);
     inst = next;
     group.add(inst.root);
+    syncWeapon();
+    syncCigarette();
+    syncBasuco();
     for (const k of Object.keys(weights)) delete weights[k];
     for (const k of [...Object.keys(inst.actions), LOCOMOTION]) if (k !== 'walk' && k !== 'run') weights[k] = k === 'idle' ? 1 : 0;
   }
@@ -321,13 +356,25 @@ export async function createRealisticCharacter(look = {}, { lod = false } = {}) 
     group,
     get look() { return look; },
     setLook(l) { look = l; return setLook(l); },
+    /** Arma visible en la mano derecha; null para ir con las manos vacías */
+    setWeapon(id) { weaponId = id || null; syncWeapon(); },
+    /** Cigarrillo (o porro, con kind = 'hierba') en la mano izquierda */
+    setSmoking(on, kind = 'cigarrillo') { smoking = on ? kind : null; syncCigarette(); },
+    /** Brasa del cigarrillo en el mundo, o null si no está fumando */
+    cigaretteTip(target) { return inst?.cigarette ? inst.cigarette.tip.getWorldPosition(target) : null; },
+    /** Pipa de basuco y encendedor en las manos */
+    setBasuco(on) { basuco = !!on; syncBasuco(); },
+    /** Cazoleta de la pipa en el mundo, o null si no la tiene */
+    pipeBowl(target) { return inst?.basucoProps ? inst.basucoProps.pipe.top.getWorldPosition(target) : null; },
+    /** Boca en el mundo, para el humo de la calada */
+    mouth(target) { return inst ? (inst.smoke ??= createSmokeOverlay(inst.bones, inst.root)).mouth(target) : null; },
     dispose() {
       if (disposed) return;
       disposed = true; token++;
       disposeRealisticInstance(inst); inst = null;
       group.removeFromParent();
     },
-    update(dt, { speed = 0, running = false, action = null } = {}) {
+    update(dt, { speed = 0, running = false, action = null, attack = null, smoke = null, basuco: pipeT = null, look = 0, point = 0 } = {}) {
       if (!inst) return;
       const a = inst.actions;
       // destino: acción especial si existe el clip (o su sustituto); si no, reposo o locomoción
@@ -338,7 +385,8 @@ export async function createRealisticCharacter(look = {}, { lod = false } = {}) 
         if (a[clip]) { target = clip; scale = clipScale; }
       }
       if (inst?.root) {
-        const targetY = action === 'cagar' && !a.cagar ? -0.3 : 0;
+        // agacharse a fumar basuco baja el cuerpo lo que doblan las rodillas
+        const targetY = action === 'cagar' && !a.cagar ? -0.3 : -(inst.pipe?.drop ?? 0);
         inst.root.position.y += (targetY - inst.root.position.y) * Math.min(1, dt * 10);
       }
       if (target !== inst.previousTarget) {
@@ -370,6 +418,24 @@ export async function createRealisticCharacter(look = {}, { lod = false } = {}) 
         a[key].setEffectiveWeight(weight);
       }
       inst.mixer.update(dt);
+      // el golpe se suma sobre la pose del mixer, también caminando; se crea al primer ataque
+      if (attack || inst.melee?.active) (inst.melee ??= createMeleeOverlay(inst.bones, inst.root)).apply(dt, attack);
+      // la calada también se suma encima, así se fuma caminando
+      if (smoke || inst.smoke?.active) (inst.smoke ??= createSmokeOverlay(inst.bones, inst.root)).apply(dt, smoke);
+      inst.cigarette?.setGlow(emberGlow(smoke?.puff));
+      // el basuco: agachado con las dos manos en la boca
+      if (pipeT != null || inst.pipe?.active) (inst.pipe ??= createBasucoOverlay(inst.bones, inst.root)).apply(dt, pipeT);
+      inst.basucoProps?.update(pipeT ?? 0);
+      // señalar con el brazo estirado (el jefe de la limpieza social da la orden)
+      if (point || inst.point?.active) (inst.point ??= createPointOverlay(inst.bones, inst.root)).apply(dt, point);
+      // paranoia: la cabeza voltea a los lados (el cuello se lleva parte del giro)
+      inst.glance = (inst.glance ?? 0) + (look - (inst.glance ?? 0)) * Math.min(1, dt * 16);
+      if (Math.abs(inst.glance) > 0.002) {
+        inst.neck ??= findBone(inst.bones, 'Neck');
+        inst.head ??= findBone(inst.bones, 'Head');
+        if (inst.neck) rotateInFrame(inst.root, inst.neck, 0, inst.glance * 0.4, 0);
+        if (inst.head) rotateInFrame(inst.root, inst.head, 0, inst.glance * 0.6, 0);
+      }
       inst.accessories?.update();
     }
   };

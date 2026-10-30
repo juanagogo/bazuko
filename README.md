@@ -4,7 +4,7 @@ Juego de supervivencia urbana en 3D para el navegador, ambientado en un barrio i
 
 Este proyecto es un fork de [juanagogo/bazuko](https://github.com/juanagogo/bazuko), con mejoras de cámara, visibilidad, circulación y equilibrio de supervivencia.
 
-![Cruce nocturno en tercera persona con gasolinera, edificios altos, carros y viaducto](docs/images/ciudad-nocturna-tercera-persona.webp)
+![Camioneta Prado blanca en un cruce, con el viaducto y los edificios al fondo a contraluz](docs/images/cruce-de-dia-con-prado.webp)
 
 ## Características
 
@@ -13,8 +13,12 @@ Este proyecto es un fork de [juanagogo/bazuko](https://github.com/juanagogo/bazu
 - Cámaras en tercera persona e isométrica, intercambiables durante la partida.
 - Techos y paredes que se ocultan cuando tapan al personaje en vista isométrica, con muros bajos y silueta del jugador.
 - Peatones que caminan por los andenes y cruzan las calles.
+- Combate cuerpo a cuerpo: golpes con preparación, impacto y recuperación, y combos de hasta tres golpes si se pulsa durante la recuperación. Los puños (jab, cruzado y gancho) pegan poco y a un solo peatón; el cuchillo, fabricado con chatarra y tablas, es rápido y alcanza a varios; la botella picada, hecha con una botella y una lata, llega un poco más lejos. Los peatones no mueren: al quedarse sin fuerzas caen, permanecen tendidos unos segundos y se levantan huyendo. Ver [animaciones del personaje](docs/animaciones-actionforge.md#combate-cuerpo-a-cuerpo).
 - Diez palomas en cada uno de los tres parques: caminan, levantan vuelo cuando el jugador o un NPC se acerca a menos de 3,5 metros y aterrizan en otro lugar. Cada bandada usa cinco lotes de geometría instanciada, sin luces ni física; se suspende a más de 90 metros del jugador.
 - Carros y taxis con recorridos aleatorios entre 90 alternativas transitables y un bus articulado que circula por la troncal y para en la estación.
+- Carros con placas bogotanas y patrullas de la Policía Nacional que persiguen a quien ven robando.
+- Comida callejera en chazas y fritangas: empanada, morcilla, papa criolla y aguapanela, que además dan calor. En las noches con lluvia, sin calor se pierde energía y ánimo; las fogatas de El Cartucho calientan cada 20 segundos.
+- Pedir limosna requiere alguien a menos de 7 metros.
 - Calzadas de 12 metros y andenes de 4 metros.
 - Ciudad de 240 × 322 metros: conserva la ampliación urbana y añade un gran parque al sur, con barrios nuevos al oriente y al sur, dos calles y dos carreras adicionales y dos parques nuevos.
 - Creación de personaje, inventario, reciclaje, comercio, talentos y construcción del cambuche.
@@ -25,25 +29,25 @@ Este proyecto es un fork de [juanagogo/bazuko](https://github.com/juanagogo/bazu
 
 ## Capturas
 
-Las capturas actuales muestran la ciudad de noche en tercera persona, con edificios de distintas alturas, tráfico y los nuevos espacios urbanos. Son imágenes reales del juego compartidas durante el desarrollo.
+Las capturas muestran la ciudad de día y de noche, con el tráfico, el viaducto y el comercio callejero. Son imágenes reales del juego compartidas durante el desarrollo.
 
-### Parque, palomas y El Chato
+### Carro estacionado bajo el viaducto
 
-![Parque de noche con palomas, El Chato, vendedor ambulante y bus sobre el viaducto](docs/images/parque-palomas-y-chato.webp)
+![Personaje junto a un sedán blanco estacionado bajo el viaducto, con la indicación para conducirlo](docs/images/carro-estacionado-bajo-el-viaducto.webp)
 
-### Estación Portal del Centro
+### Calle de noche con tráfico
 
-![Bus articulado junto a la estación Portal del Centro, con la pasarela y el viaducto al fondo](docs/images/estacion-portal-del-centro.webp)
+![Calle de noche con una farola encendida, taxis, edificios y el viaducto al fondo](docs/images/noche-con-farola-y-trafico.webp)
 
-### Calles y comercio bajo el viaducto
+### Semáforo y vendedor bajo el viaducto
 
-![Cruce bajo el viaducto con semáforos, peatones, vendedor de frutas y fachadas de ladrillo](docs/images/acceso-al-viaducto.webp)
+![Semáforo en rojo y un vendedor de frutas junto a un paso peatonal bajo el viaducto de noche](docs/images/noche-semaforo-y-vendedor.webp)
 
-### Recorrido elevado junto a Colpatria
+### Gasolinera, Audio Hatch y bailarines
 
-![Buses articulados sobre el viaducto, junto a la Torre Colpatria y los edificios del barrio](docs/images/viaducto-y-colpatria.webp)
+![Gasolinera de noche con un Audio Hatch de parlantes iluminados y personas bailando a su lado](docs/images/gasolinera-audio-hatch-y-bailarines.png)
 
-Las cinco capturas están en [docs/images](docs/images), en formato WebP optimizado y con su resolución original.
+Las cinco capturas están en [docs/images](docs/images), en formato WebP optimizado salvo la de la gasolinera, que es PNG, y con su resolución original.
 
 ## Ejecutar en el navegador
 
@@ -64,6 +68,10 @@ En la primera partida se abre el creador de personaje. El juego se sirve con Vit
 
 En PowerShell, si una política de ejecución impide usar `npm`, ejecuta los mismos comandos con `npm.cmd`.
 
+### Sala de pruebas
+
+Con `npm run dev` activo, abre **/sala.html** (por ejemplo http://localhost:5173/sala.html?prueba=fumar). Es un piso plano sin ciudad, tráfico ni guardado donde aparece tu personaje con la misma cámara y los mismos controles, y carga en segundos. Cada prueba monta solo lo que necesita y tiene sus botones: personaje, fumar, pelea, efectos de sustancias, carros y limpieza social. El panel también cambia de modelo (realista o liviano), acelera el tiempo (x5, x30) y pasa de día a noche. Desde la consola se maneja con `__sala`. Para agregar una prueba, suma una entrada en `src/sala/pruebas.js`. La sala no forma parte de la compilación.
+
 ## Controles
 
 | Tecla o acción | Función |
@@ -81,6 +89,8 @@ En PowerShell, si una política de ejecución impide usar `npm`, ejecuta los mis
 | Mantener y soltar `Q` junto a basura | Seleccionar materiales y recogerlos al soltar. |
 | `Q` junto al dealer | Abrir su tienda. |
 | `B` o `L` | Pedir limosna. |
+| Clic izquierdo o `G` en la calle | Atacar con los puños o con el arma equipada; pulsar de nuevo al final del golpe encadena el combo. |
+| Usar un cuchillo o una botella picada del inventario | Equiparla en la mano; usarla otra vez la guarda y vuelves a los puños. El arma equipada se conserva al guardar. |
 | `F` | Activar o desactivar el boost, que consume energía y salud. |
 | `T` | Abrir talentos. |
 | `C` | Abrir fabricación. |
@@ -89,12 +99,34 @@ En PowerShell, si una política de ejecución impide usar `npm`, ejecuta los mis
 | `K` | Alternar entre el personaje realista y el modelo liviano. |
 | `Esc` o botón Pausa | Abrir la pausa en la pestaña Estado; cerrar primero el panel activo y liberar el cursor. |
 | `N` | Mostrar u ocultar el radar. |
+| `R` en la calle | Abrir o cerrar la radio AM/FM; permite sintonizar emisoras y cambiar pilas. En 890 AM se escuchan boletines de lluvia y de la ciudad. |
 | `+` / `−` | Acercar o alejar el radar. |
 | `F3` | Mostrar u ocultar el panel de rendimiento. |
 | `R` en la calle | Abrir o cerrar la radio AM/FM; permite sintonizar emisoras y cambiar pilas. |
 | `X` en la calle | Lanzar si llevas munición; de lo contrario, hacer popó. |
 | `Z` en la calle | Hacer popó. |
 | Clic en comida o bebida del inventario | Consumir el objeto. |
+
+### Mando
+
+Funciona con mandos de Xbox, PlayStation o genéricos conectados por USB o Bluetooth. El navegador los detecta al pulsar cualquier botón. Los botones equivalen a las teclas de la tabla anterior; los menús siguen usando el ratón.
+
+| Mando (Xbox) | Función |
+| --- | --- |
+| Stick izquierdo | Moverse. |
+| Stick derecho | Girar la cámara en tercera persona. |
+| `RT` o pulsar el stick izquierdo | Correr. |
+| `A` | Interactuar (`E`). |
+| `B` | Cerrar el panel activo (`Esc`). |
+| `X` | Mantener junto a basura o abrir la tienda del dealer (`Q`). |
+| `Y` | Inventario (`I`). |
+| `LB` | Cambiar de cámara (`V`). |
+| `RB` | Golpear (`G`). |
+| `LT` | Saltar (`Espacio`). |
+| `View` | Mapa (`M`). |
+| `Menu` | Pausa (`Esc`). |
+| Pulsar el stick derecho | Radar (`N`). |
+| Cruceta ↑ ↓ ← → | Radio (`R`), lanzar o popó (`X`), limosna (`B`), boost (`F`). |
 
 ## Cómo empezar
 
@@ -109,6 +141,22 @@ La partida guarda datos localmente en el navegador al crear o editar el personaj
 
 Al cruzar delante de un carro, este intenta frenar progresivamente. Si te atraviesas demasiado cerca, puede atropellarte: el daño depende de la velocidad y puede ser mortal. El golpe activa un ragdoll articulado y lanza al personaje hacia arriba y hacia delante según la velocidad. Si sobrevive, se levanta después de caer; si muere, la pantalla de recuperación espera a que termine la caída. El conductor sigue frenando hasta detenerse y espera brevemente antes de continuar. Los vehículos en movimiento y estacionados tienen colisiones mediante cajas invisibles simples, sin calcular los triángulos de sus modelos.
 
+Al robar el retrovisor de un carro en circulación, el conductor se baja con una varilla en un 35 % de los casos:
+
+- El carro frena de forma gradual hasta detenerse en su carril, y entonces el conductor sale por su puerta.
+- Te persigue a 4,4 m/s: alcanza a quien camina, pero no a quien corre con **Shift**.
+- Antes de cada golpe levanta la varilla, así que apartarse a tiempo evita el daño. Cada golpe quita entre 10 y 16 de salud.
+- Si te alejas más de 28 metros o pasan 18 segundos, se rinde, vuelve a su carro y el tráfico sigue.
+- Solo hay un conductor fuera a la vez. Si te mata, la pantalla de recuperación lo indica, y al volver al cambuche ya está otra vez en su carro.
+
+De noche, de vez en cuando, llega la **limpieza social**: una camioneta 4x4 negra de lujo (vidrios polarizados, parrilla y rines cromados) que viene por la calle más cercana y frena en seco junto al jugador. Se bajan tres hombres todo de negro, con buzo, botas, pasamontañas y pistola corta:
+
+- El jefe, con gorra, se queda junto a la camioneta, de pie con el brazo estirado señalando al jugador, y da la orden a gritos («¡Denle a ese chirrete hijueputa!»).
+- Los otros dos lo persiguen insultándolo a 5,2 m/s: alcanzan a quien camina, no a quien corre con **Shift** sin parar.
+- Antes de cada cachazo levantan la pistola. Cada golpe quita entre 20 y 30 de salud y, a diferencia del conductor de la varilla, siguen pegando aunque el jugador esté tambaleando: si lo alcanzan, casi siempre lo matan.
+- A los 22 segundos, o si se aleja más de 32 metros, se rinden y vuelven; cuando los dos están arriba, el jefe se sube y la camioneta se va.
+- Hay como mucho una visita cada cinco minutos de juego, solo de noche, y nunca a menos de 15 metros del cambuche ni mientras duerme. Golpearlos no sirve de nada.
+
 Si la salud llega a cero, el juego se pausa y muestra una pantalla de recuperación. El regreso al cambuche ocurre al pulsar **Volver al cambuche**.
 
 ## Radar, mapa, GPS y pausa
@@ -122,6 +170,17 @@ La pausa tiene cuatro pestañas de alto fijo, que se recorren con **Q** y **E**:
 El Chato es el único perro del juego y aparece junto al cambuche, donde merodea y olfatea mientras no tiene dueño. Acércate y pulsa **E**: si llevas pan o una lata de atún, lo alimentas y se vuelve compañero; también puedes acariciarlo para recuperar 5 de ánimo, con 20 segundos entre caricias, y lo celebra con un brinco y la cola. Te sigue al paso, al trote o al galope según lo lejos que estés, rodea paredes y respeta las cajas de los vehículos; si lo dejas muy atrás, por ejemplo al tomar el bus, aparece cerca de ti. Cuando te detienes se sienta y, si sigues quieto, se echa. Avisa de basura cercana que aún no se haya vaciado y ladra a los peatones que sospechan de ti; mientras te acompaña de cerca, distrae y reduce la probabilidad de que te pillen robando. Dormir con él aporta 15 de ánimo adicional y lo muestra dormido a tu lado. En la pestaña Estado de la pausa puedes elegir su pelaje, accesorio y tamaño. La amistad y la apariencia se guardan sin invalidar partidas anteriores.
 
 El cielo sigue la posición del sol y la luna sobre Bogotá, con nubes que derivan con el viento. El tiempo pasa de forma gradual entre soleado, parcialmente nublado, nublado, neblina, llovizna, aguacero y tormenta según la temporada; ver [docs/clima.md](docs/clima.md). El clima y El Chato se detienen durante la pausa; el material de lluvia se prepara en la pantalla de carga.
+
+## Efectos de consumo
+
+El pegante, la hierba y la pastilla pueden aparecer en las bolsas de basura (el basuco solo lo vende el dealer), con poca frecuencia; la pastilla es la más rara porque el dealer la compra cara. Al consumirlas desde el inventario o el acceso rápido, además de sus efectos sobre las necesidades, cada una cambia la imagen y el sonido durante un rato:
+
+- **Pegante (35 s):** mareo. La imagen se vuelve borrosa y verdosa, los bordes se oscurecen, la visión se duplica y la cámara se mece. Suena una inhalación dentro de la bolsa, un zumbido grave con un pitido de oídos tapados, y el resto de la ciudad se oye apagada, como bajo el agua.
+- **Pastilla (45 s):** euforia de colores. El tono oscila despacio, los colores se saturan, una capa de arcoíris gira y la imagen deja estela. Suena un trago, un brillo que sube y un acorde que ondula.
+- **Hierba (60 s):** se fuma en porro, como el cigarrillo, con humo verdoso, y pega en cada calada (cada 30 s, durante 10 minutos), así que el efecto dura mientras se fuma. Cálido y lento: tonos dorados, un brillo suave en el centro y una estela leve. Suena un encendedor, una inhalación larga y un fondo grave y cálido.
+- **Basuco (40 s):** se fuma en pipa. El personaje se queda quieto, se agacha con la pipa en la boca y el encendedor debajo de la cazoleta, aspira unos tres segundos y bota una bocanada espesa al pararse; el efecto llega al soltar la pipa. Imagen fría y dura con visión de túnel y un pulso rojizo lento en los bordes. Suena el chispazo, el crujido de la pipa, un pitido de oídos y un pulso grave. Además trae 50 s de paranoia: el personaje voltea la cabeza de golpe a un lado y al otro, aparecen de reojo figuras demoníacas (cuernos, ojos rojos, garras, flotando) que se desvanecen si se las mira de frente o al acercarse, y hay susurros en pantalla, latidos, temblores y frases paranoicas. El dealer lo vende; si el personaje está ocupado no se gasta.
+
+Cada efecto entra en 3 segundos y se desvanece en los últimos 6. Repetir la misma sustancia renueva su duración; otra distinta reemplaza a la anterior después de desvanecerla en un segundo. Los menús, el inventario y la pestaña oculta congelan el efecto, aunque el sonido de consumir suena con el inventario abierto. Dormir, morir o recuperarse en el cambuche lo cortan con un desvanecido, nunca de golpe. Ninguna oscilación de color o brillo supera medio ciclo por segundo. En calidad baja no hay estela ni desenfoque; el sonido respeta el volumen general, el de efectos y el silencio, y con la preferencia de movimiento reducido del sistema la cámara y la estela se mueven al 20 %. El tintico y el cigarrillo no tienen efecto visual.
 
 ## Rendimiento
 
@@ -241,3 +300,13 @@ Las antiguas franjas rojas a nivel del suelo bajo el viaducto se convierten en p
 Veinte solares de casas genéricas se sustituyen por edificios de 3 a 30 pisos, repartidos entre los sectores de la ciudad. Se conservan las casas bajas y los hitos existentes. Los cinco diseños combinan ladrillo con balcones, concreto con bandas horizontales, marcos verticales, coronaciones retranqueadas y esquinas acristaladas, con iluminación nocturna en ventanas. Las torres de mayor altura ocupan solares de al menos 12 × 12 metros; no invaden calles, parques ni el viaducto.
 
 La distribución es determinista. Sus colisiones llegan a la altura de cada edificio y conservan el sistema de ocultación de paredes, la agrupación por sectores y texturas pequeñas compartidas, sin nuevas luces dinámicas.
+
+## Experimento de vehículos
+
+La rama `pruebas-slop-newyork` incorpora sedán y taxi procedurales adaptados a WebGL. En pausa, el selector **Vehículos: actuales / nuevos** permite compararlos en la misma partida. [Implementación, capturas y mediciones](docs/adaptacion-slop-newyork.md). Procedencia y licencia en [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+
+## Migración WebGPU en la rama experimental
+
+`pruebas-slop-newyork` usa WebGPU y TSL, con iluminación agrupada, sombras en cascada y efectos escalonados por calidad. Conserva Bogotá y sus mecánicas. Requiere un equipo y navegador con WebGPU; no tiene respaldo WebGL. [Arquitectura, corrección de la carga y validación](docs/migracion-webgpu.md).
+
+El tráfico experimental adapta del mismo código fuente el seguimiento IDM, frenado y velocidad en curvas, junto con impulsos de choque, carambolas y recuperación del carril. Mantiene la red de Bogotá y el servicio de TransMilenio. [Comportamiento, procedencia y pruebas](docs/trafico-slop.md).

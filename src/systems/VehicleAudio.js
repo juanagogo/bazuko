@@ -15,7 +15,8 @@ export function distanceGain(distance, near, far) {
 
 /** Buffers compartidos; identificadores, mezcla y claxon independientes por vehículo. */
 export class VehicleAudio {
-  constructor(sounds, random = Math.random, driverSounds = []) {
+  constructor(sounds, random = Math.random, driverSounds = [], synthesis = null) {
+    this.synthesis=synthesis;
     this.sounds = sounds;
     this.random = random;
     this.driverSounds = driverSounds;
@@ -44,7 +45,13 @@ export class VehicleAudio {
     return this._hornClock - this._lastHornAt >= HORN_GAP && this._activeHorns() < MAX_ACTIVE_HORNS;
   }
 
-  _startHorn(index, volume, rate) {
+  _startHorn(index, volume, rate, car = null) {
+    // Con Web Audio disponible el claxon es el sintetizado de Slop; respeta igual el límite de pitadas simultáneas.
+    if (this.synthesis?.available) {
+      this.synthesis.honk(car, volume);
+      this._lastHornAt = this._hornClock;
+      return { sound: { stop() {}, playing: () => false }, id: 0 };
+    }
     const sound = this.sounds[`horn${index + 1}`];
     if (!sound || sound.state() !== 'loaded') return null;
     const id = sound.play('honk');
@@ -90,13 +97,20 @@ export class VehicleAudio {
   }
 
   clear() {
+    this.synthesis?.clear();
     for (const state of this.instances.values()) this._stop(state);
     this.instances.clear();
     for (const voice of this._ambientHorns) voice.sound.stop(voice.id);
     this._ambientHorns = [];
   }
 
+  suppress(cars) {
+    this.synthesis?.suppress(cars);
+    for(const car of cars){const state=this.instances.get(car);if(state)this._stop(state);this.instances.delete(car);}
+  }
+
   setPaused(paused) {
+    this.synthesis?.setPaused(paused);
     if (this.paused === paused) return;
     this.paused = paused;
     for (const state of this.instances.values()) {
@@ -124,7 +138,10 @@ export class VehicleAudio {
     return state[key];
   }
 
-  update(dt, position, vehicles = [], bus = null) {
+  /** `gain(car)` es la atenuación por edificios entre el vehículo y el jugador (1 si no hay). */
+  update(dt, position, vehicles = [], bus = null, gain = () => 1) {
+    // Los motores sintetizados siguen el volumen de Tráfico del menú, como las grabaciones.
+    this.synthesis?.update(dt,position,vehicles,bus,car=>gain(car)*(this.levels?.traffic??1));
     const present = new Set(vehicles.map(vehicle => vehicle.car));
     const buses = [bus].flat().filter(Boolean);
     for (const vehicle of buses) present.add(vehicle);
@@ -160,9 +177,9 @@ export class VehicleAudio {
       state.cooldown = Math.max(0, state.cooldown - dt);
       state.blockedFor = entry.source.personBlocked ? state.blockedFor + dt : 0;
       if (!nearby.has(entry.car)) { this._stop(state); continue; }
-      const idle = this._loop(state, 'idle', this.sounds[entry.bus ? 'busIdle' : 'carIdle']);
-      const drive = this._loop(state, 'drive', this.sounds[entry.bus ? 'busDrive' : 'carDrive']);
-      const mix = Math.min(1, Math.max(0, entry.source.speed) / 2.5);
+      const idle = this.synthesis?.available?null:this._loop(state, 'idle', this.sounds[entry.bus ? 'busIdle' : 'carIdle']);
+      const drive = this.synthesis?.available?null:this._loop(state, 'drive', this.sounds[entry.bus ? 'busDrive' : 'carDrive']);
+      const mix = Math.min(1, Math.max(0, entry.source.speed) / 2.5), heard = gain(entry.car);
       const smoothing = 1 - Math.exp(-dt * 7);
       const level = entry.gain * crowdScale * this.levels.traffic;
       state.idleVolume += ((1 - mix) * (entry.bus ? .38 : .34) * level - state.idleVolume) * smoothing;
@@ -170,13 +187,13 @@ export class VehicleAudio {
       for (const [voice, volume, rate] of [[idle, state.idleVolume, state.pitch],
         [drive, state.driveVolume, state.pitch * (.85 + Math.min(entry.source.speed, 5) * .065)]]) {
         if (!voice) continue;
-        voice.sound.volume(volume, voice.id);
+        voice.sound.volume(volume * heard, voice.id);
         voice.sound.rate(rate, voice.id);
       }
       // Fuera del alcance del claxon el conductor espera sin pitar; sigue pudiendo hacerlo al acercarse.
       if (state.blockedFor >= state.patience && state.cooldown === 0 && entry.voiceDistance < HORN_FAR && this._hornAllowed()) {
         if (state.horn) state.horn.sound.stop(state.horn.id);
-        const horn = this._startHorn(state.hornIndex, HORN_VOLUME * this.levels.traffic * distanceGain(entry.voiceDistance, HORN_NEAR, HORN_FAR), state.pitch);
+        const horn = this._startHorn(state.hornIndex, HORN_VOLUME * this.levels.traffic * distanceGain(entry.voiceDistance, HORN_NEAR, HORN_FAR) * heard, state.pitch, entry.car);
         if (horn) {
           state.horn = horn;
           // Una sola voz a la vez: si otro conductor o el reclamo por robo ya hablan, solo pita.
@@ -195,7 +212,7 @@ export class VehicleAudio {
       if (state.remark) {
         const { sound, id } = state.remark;
         if (!sound.playing(id)) state.remark = null;
-        else sound.volume(.7 * this.levels.voices * Math.max(0, Math.min(1, (8 - entry.voiceDistance) / 6)), id);
+        else sound.volume(.7 * this.levels.voices * Math.max(0, Math.min(1, (8 - entry.voiceDistance) / 6)) * heard, id);
       }
     }
   }

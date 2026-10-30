@@ -9,7 +9,7 @@ export class FrameMetrics {
     this.frames = 0;
     this.elapsed = 0;
     this.current = this.min = this.max = this.average = 0;
-    this.frameMs = 0;
+    this.frameMs = 0;this.maxFrameMs=0;
   }
 
   sample(now, active = true) {
@@ -17,7 +17,7 @@ export class FrameMetrics {
     const previous = this.previous;
     this.previous = now;
     if (previous === null || now <= previous) return false;
-    this.frameMs = now - previous;
+    this.frameMs = now - previous;this.maxFrameMs=Math.max(this.maxFrameMs,this.frameMs);
     this.current = 1000 / this.frameMs;
     this.frames++;
     this.elapsed += this.frameMs;

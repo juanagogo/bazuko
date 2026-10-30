@@ -4,6 +4,7 @@ import * as THREE from 'three';
 import * as textures from '../src/world/bogota/textures.js';
 import { STREET_X, STREET_Z } from '../src/world/bogota/StreetLayout.js';
 import { TILE_SIZE } from '../src/utils/constants.js';
+import { materialSignature } from '../src/world/bogota/StaticGeometry.js';
 
 // Se comprueba la geometría real sin necesitar Canvas para las texturas.
 const textureSet = () => ({ map: new THREE.Texture(), bumpMap: new THREE.Texture() });
@@ -86,7 +87,8 @@ test('todos los refugios de El Cartucho quedan separados del terreno, incluso al
       const hits = ray.intersectObject(city.group, true);
       const ground = hits.find(hit => groundMaterials.has(hit.object.material));
       if (!ground) continue; // Hay partes de la base sobre tiles de edificios sin suelo dibujado.
-      const card = hits.find(hit => hit.object.material === material ||
+      // Tras la fusión estática el cartón usa el material canónico idéntico, no la misma instancia.
+      const card = hits.find(hit => hit.object.material === material || materialSignature(hit.object.material) === materialSignature(material) ||
         (material.userData.staticMergeKey && hit.object.material.userData.staticMergeKey === material.userData.staticMergeKey));
       assert.ok(card, `base no visible en ${point.x},${point.z}`);
       assert.ok(card.point.y - ground.point.y > 0.03, `cartón y suelo superpuestos en ${point.x},${point.z}`);

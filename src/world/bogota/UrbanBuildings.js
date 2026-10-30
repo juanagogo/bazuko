@@ -73,6 +73,10 @@ export function buildUrbanBuilding(plan,palette) {
         if(design==='ladrillo-balcones')detail(0,floor*3.2+.65,length*.6,.65,.3,palette.rail,'Antepecho de balcón');
       }
     }
+    // Narrow inset piers vary the facade rhythm without widening the building or adding collisions.
+    const rhythm=2+(plan.seed%3);
+    for(let bay=1;bay<rhythm;bay++)detail((bay/rhythm-.5)*length,(bodyHeight+3.2)/2,.09,bodyHeight-3.2,.08,palette.trim,'Junta vertical de fachada');
+    detail(0,bodyHeight-.28,length-.16,.16,.12,palette.concrete,'Cornisa interior');
     // Entrada y vitrina oscura: no repetir persianas en los pisos superiores.
     detail(0,1.4,Math.min(2.6,length*.32),2.4,.2,palette.glass,'Entrada');
   }
