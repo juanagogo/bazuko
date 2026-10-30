@@ -35,14 +35,18 @@ enum class SoundSlot : size_t {
 };
 
 std::string FindAudioPath(const char* filename) {
-    // Los respaldos WAV propios del port viven en cpp/assets/audio, fuera del build web.
-    const std::array<std::filesystem::path, 7> candidates{
-        std::filesystem::path(Paths::Find((std::filesystem::path("public/audio") / filename).generic_string())),
+    // Los respaldos WAV y audios propios del port viven en cpp/assets/audio, fuera del build web.
+    const std::array<std::filesystem::path, 11> candidates{
         std::filesystem::path(Paths::Find((std::filesystem::path("assets/audio") / filename).generic_string())),
+        std::filesystem::path(Paths::Find((std::filesystem::path("cpp/assets/audio") / filename).generic_string())),
+        std::filesystem::path(Paths::Find((std::filesystem::path("public/audio") / filename).generic_string())),
+        std::filesystem::path("cpp/assets/audio") / filename,
+        std::filesystem::path("../cpp/assets/audio") / filename,
+        std::filesystem::path("assets/audio") / filename,
+        std::filesystem::path("../assets/audio") / filename,
         std::filesystem::path("public/audio") / filename,
         std::filesystem::path("../public/audio") / filename,
         std::filesystem::path("../../public/audio") / filename,
-        std::filesystem::path("assets/audio") / filename,
         std::filesystem::path("audio") / filename
     };
     for (const auto& path : candidates) {
