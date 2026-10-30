@@ -352,7 +352,9 @@ export async function createRealisticCharacter(look = {}, { lod = false } = {}) 
       // destino: acción especial si existe el clip (o su sustituto); si no, reposo o locomoción
       let target = speed < 0.15 ? 'idle' : a.walk ? LOCOMOTION : 'idle';
       let scale = 1;
-      if (action && speed < 0.15) {
+      // Los golpes deben verse aunque la inercia conserve velocidad al soltar WASD.
+      const combatAction = ['golpe_jab', 'golpe_cross', 'patada', 'reaccion_pecho', 'reaccion_cabeza', 'caida', 'golpear', 'patear', 'recibirGolpe'].includes(action);
+      if (action && (speed < 0.15 || combatAction)) {
         const [clip, clipScale = 1] = a[action] ? [action] : ACTION_FALLBACKS[action] ?? [];
         if (a[clip]) { target = clip; scale = clipScale; }
       }
