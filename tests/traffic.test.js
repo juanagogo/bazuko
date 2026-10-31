@@ -182,7 +182,7 @@ test('las patrullas usan el modelo policial y circulan como el resto del tráfic
     assert.equal(vehicle.police, true);
     assert.equal(vehicle.car.kind, 'police');
     assert.ok(vehicle.car.policeLights, 'la patrulla lleva su barra de luces');
-    assert.equal(vehicle.car.variant, 'police');
+    assert.equal(vehicle.car.variant, 'police_pickup');
     assert.equal(vehicle.car.steal(), null);
   }
   // Los cambios de recorrido usan el mismo `_chooseRoute` que los carros civiles.
@@ -594,7 +594,7 @@ test('la patrulla conserva su carrocería con luces al precargar modelos', async
   const { car } = traffic.vehicles[0];
   await car.preloadModel();
   assert.ok(car.policeLights && car.lightbar.parent === car.group, 'la barra de luces sobrevive a la carrocería del donante');
-  assert.equal(car.vehicle.variant, 'police');
+  assert.equal(car.vehicle.variant, 'police_pickup');
   traffic.dispose();
 });
 
