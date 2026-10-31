@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { NPC_VOICE_BANK } from '../src/entities/Npc.js';
 import { readFileSync, readdirSync } from 'node:fs';
 import { mock, test } from 'node:test';
 import * as THREE from 'three';
@@ -57,6 +58,26 @@ test('volumen y silencio persistentes controlan el maestro sin reemplazar motore
 });
 const car = (x, z = 0) => ({ car: { position: new THREE.Vector3(x, 0, z), group: new THREE.Group() }, speed: 0 });
 const origin = new THREE.Vector3();
+
+test('las voces de combate están precargadas, no se pisan y respetan pausa y distancia', () => {
+  const { audio } = fixture();
+  const owner = { position: new THREE.Vector3(1, 0, 0), hp: 100 };
+  audio.updateWorld(.1, origin, null, []);
+  const voice = NPC_VOICE_BANK.mob[0].audio;
+  assert.ok(audio._npcSounds.has(voice.split('/').pop()));
+  assert.equal(audio.playNpcVoice(voice, owner), true);
+  assert.equal(audio.playNpcVoice(voice, owner), false);
+  const { sound, id } = audio._npcVoice;
+  owner.position.x = 20;
+  audio.updateWorld(.1, origin, null, []);
+  assert.equal(sound.playing(id), false);
+  owner.position.x = 1;
+  assert.equal(audio.playNpcVoice(voice, owner), true);
+  audio.setPaused(true);
+  assert.equal(sound.playing(), false);
+  assert.equal(audio.playNpcVoice(voice, owner), false);
+  audio.dispose();
+});
 
 test('el robo en circulación selecciona inmediatamente cualquiera de las cinco frases exclusivas', () => {
   const { audio } = fixture(), vehicle = car(2); vehicle.car.traffic = true;
@@ -205,7 +226,7 @@ test('la carpeta de audio contiene únicamente archivos utilizados y todos tiene
   const { audio } = fixture();
   try {
     const sounds = [...Object.values(audio.sounds), ...Object.values(audio.vehicleSounds), ...audio.driverSounds, ...audio.theftSounds];
-    const used = sounds.map(sound => decodeURIComponent(sound.options.src[0].split('/').at(-1))).sort();
+    const used = [...sounds.map(sound => decodeURIComponent(sound.options.src[0].split('/').at(-1))), ...Object.values(NPC_VOICE_BANK).flat().map(entry => entry.audio.split('/').at(-1))].sort();
     const files = readdirSync(new URL('../public/audio/', import.meta.url)).sort();
     assert.deepEqual(files, used);
     assert.equal(files.filter(file => file.endsWith('.opus')).length, 10);

@@ -23,6 +23,17 @@ Este proyecto es un fork de [juanagogo/bazuko](https://github.com/juanagogo/bazu
 - Pantalla de carga con precarga de personajes, texturas y shaders antes de iniciar la partida y la medición de FPS.
 - Descarte de sectores fuera de cámara, geometría agrupada, iluminación limitada y resolución adaptable para reducir el trabajo de renderizado.
 
+- **Combate cuerpo a cuerpo en desarrollo:** golpes jab/cross mediante `G` o clic, con impacto diferido; los peatones más decididos pueden responder, perseguir al jugador y encadenar intercambios. Se incorporan estados de combate, reacciones, bloqueos y animaciones FBX. [Detalles y limitaciones](docs/combate.md).
+- **Agarres experimentales:** `H` permite sujetar o soltar a un NPC vivo cercano y `J` derribarlo. El agarre tiene duración limitada y aún utiliza animaciones sustitutas; faltan recursos y comportamientos adicionales. [Recursos pendientes](docs/combate-recursos-pendientes.md).
+
+## Combate y agarres (experimental)
+
+Esta rama agrega sistemas de enfrentamiento entre el jugador y los peatones. Con `G` o clic se ejecutan golpes jab/cross; los impactos no se aplican de forma instantánea, sino al momento correspondiente de la acción. Los NPC pueden reaccionar y, según su comportamiento, responder al ataque. La persecución y los empujes verifican que el terreno sea transitable.
+
+Para los agarres, `H` sujeta a un NPC vivo a menos de 1,4 metros o lo suelta, y `J` lo derriba. El agarre termina como máximo a los tres segundos. Las animaciones actuales reutilizan recursos existentes; todavía no están implementados todos los clips específicos de forcejeo. Tampoco están terminados los agarres iniciados por NPC, la barra de liberación con A/D, la cancelación desde menús ni todas las pruebas de interacción. **Estas mecánicas están en desarrollo y no se ha confirmado su funcionamiento visual completo en navegador.**
+
+Los nuevos sistemas están en `src/systems/CombatSystem.js`, `GrappleSystem.js` y `NpcCombat.js`; las pruebas específicas incluyen `tests/npc-combat.test.js`. Consulta [documentación de combate](docs/combate.md) y [recursos pendientes](docs/combate-recursos-pendientes.md). Los efectos de estas mecánicas reutilizan audio sintetizado; los audios adicionales que solo estén en el PC no se consideran incluidos en la rama publicada.
+
 ## Capturas
 
 Las capturas actuales muestran la ciudad de noche en tercera persona, con edificios de distintas alturas, tráfico y los nuevos espacios urbanos. Son imágenes reales del juego compartidas durante el desarrollo.
@@ -70,6 +81,9 @@ En PowerShell, si una política de ejecución impide usar `npm`, ejecuta los mis
 | --- | --- |
 | `W`, `A`, `S`, `D` | Moverse. En tercera persona, el movimiento sigue el rumbo de la cámara. |
 | `Shift` | Correr. |
+| `G` o clic (en contexto de combate) | Ejecutar un golpe jab/cross. |
+| `H` junto a un NPC vivo | Sujetarlo o soltarlo (experimental). |
+| `J` durante un agarre | Derribar al NPC (experimental). |
 | `V` o botón de cámara | Alternar entre tercera persona e isométrica. |
 | Clic izquierdo en la calle | Fijar el ratón para girar la cámara en tercera persona. |
 | Arrastrar con botón izquierdo/derecho o flechas | Girar la cámara sin fijar el ratón. |

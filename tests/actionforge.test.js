@@ -5,6 +5,7 @@ import pathModule from 'node:path';
 import { fileURLToPath } from 'node:url';
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import { FBXLoader } from 'three/examples/jsm/loaders/FBXLoader.js';
 import { ACTIONFORGE_CLIPS, buildCharacterClips } from '../src/character/actionforge.js';
 
 const path = new URL('../public/models/animaciones-actionforge.glb', import.meta.url);
@@ -12,6 +13,27 @@ async function bank() {
   const data = fs.readFileSync(path);
   return new GLTFLoader().parseAsync(data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength), '');
 }
+
+test('los FBX de combate se adaptan como Group y producen pistas animadas', async () => {
+  const body = await bank();
+  for (const [action, file] of Object.entries({ fueraCombate: 'fallingdown', golpe_jab: 'combat-jab-cross', reaccion_pecho: 'combat-hit-body', reaccion_cabeza: 'combat-hit-head', provocar: 'combat-taunt', bloquear: 'center-block' })) {
+    const bytes = fs.readFileSync(new URL(`../public/models/${file}.fbx`, import.meta.url));
+    const source = new FBXLoader().parse(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength), '');
+    const clips = buildCharacterClips(body, null, null, { [action]: source });
+    assert.ok(clips[action]?.duration > 0);
+    assert.ok(clips[action].tracks.length > 10);
+    if (action === 'fueraCombate') {
+      const hip = clips[action].tracks.find(track => track.name.endsWith('Hips.position'));
+      assert.ok(hip, 'Falling Down conserva la traslación vertical de la cadera');
+      assert.ok(hip.values[1] > 0.8, 'La animación empieza con la cadera erguida');
+      assert.ok(hip.values[hip.values.length - 2] < 0.15, 'La cadera termina junto al suelo');
+      assert.ok(Math.abs(hip.values[hip.values.length - 3] - hip.values[0]) < 1e-6, 'La caída conserva la posición horizontal X');
+      assert.ok(Math.abs(hip.values[hip.values.length - 1] - hip.values[2]) < 1e-6, 'La caída conserva la posición horizontal Z');
+    }
+    for (const track of clips[action].tracks) assert.ok(track.values.every(Number.isFinite));
+    if (action === 'golpe_jab') assert.ok(clips.golpe_cross.duration > 0);
+  }
+});
 
 test('banco ActionForge incluye solo ocho clips y esqueleto, sin ropa ni texturas duplicadas', async () => {
   const data = fs.readFileSync(path);

@@ -47,7 +47,7 @@ test('Cosquilleo exitoso dentro de la zona verde otorga botín y activa cooldown
   assert.equal(npc._robadoTimer, CONFIG.npcCooldown);
 });
 
-test('Robo directo otorga botín mayor, sube buscado y daña al jugador si el NPC es fuerte', () => {
+test('Robo directo otorga botín y sube buscado sin aplicar daño antes del contacto', () => {
   const npc = { position: new THREE.Vector3(1, 0, 1), _robadoTimer: 0, look: { real: { edad: 'adulto' } } };
   let splatted = false;
   npc.hitByPoop = () => { splatted = true; };
@@ -66,7 +66,34 @@ test('Robo directo otorga botín mayor, sube buscado y daña al jugador si el NP
 
   assert.ok(game.stats.dinero >= 500 + CONFIG.lootMoneyDirect[0]);
   assert.equal(steal.buscado, 1);
-  assert.equal(splatted, true);
-  assert.ok(game.stats.salud < 100);
+  assert.equal(splatted, false);
+  assert.equal(game.stats.salud, 100);
   assert.equal(steal.cooldown, CONFIG.globalCooldown);
+});
+
+test('La escena de robo no duplica daño ni usa la física de atropello', () => {
+  const victim = { position: new THREE.Vector3(1, 0, 0), _robadoTimer: 0 };
+  const witness = { position: new THREE.Vector3(2, 0, 0), _robadoTimer: 0 };
+  let impact = null;
+  const game = {
+    player: {
+      position: new THREE.Vector3(0, 0, 0),
+      receiveVehicleImpact: (direction, speed) => { impact = { direction, speed }; }
+    },
+    stats: { salud: 100, higiene: 100 },
+    world: { active: { npcs: [victim, witness] } }
+  };
+  const steal = new StealSystem(game);
+  const originalRandom = Math.random;
+  Math.random = () => 0;
+  try {
+    assert.equal(steal._triggerCrowdConsequence(victim, 'robo directo'), true);
+    steal._updateAssaultScene(6);
+  } finally {
+    Math.random = originalRandom;
+  }
+
+  assert.equal(game.stats.salud, 100);
+  assert.equal(game.stats.higiene, 100);
+  assert.equal(impact, null);
 });

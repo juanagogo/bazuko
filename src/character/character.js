@@ -404,6 +404,18 @@ export function createCharacter(initial = DEFAULT_LOOK) {
         target.lean = 0.12;
         break;
       }
+      case 'bloquear': {
+        target.lean = .08;
+        target.armLx = -1.15; target.armRx = -1.15;
+        target.elbL = -2; target.elbR = -2;
+        target.armLz = .2; target.armRz = -.2;
+        target.legL = .15; target.legR = -.15;
+        break;
+      }
+      case 'agarrar':
+      case 'ser_agarrado':
+      case 'golpe_jab':
+      case 'golpe_cross':
       case 'golpear': {
         const punchCycle = Math.sin(t * 18);
         target.lean = 0.18;
@@ -417,6 +429,7 @@ export function createCharacter(initial = DEFAULT_LOOK) {
         target.legL = 0.3;
         break;
       }
+      case 'fueraCombate':
       case 'dormir':
         target.lie = 1;
         break;

@@ -980,7 +980,10 @@ export class Bogota {
       [17, 19], [12.5, 21], [19.8, 21.5], [33.5, 36], [34, 43], [21, 30],
       // Andenes, incluyendo la calle donde empieza el jugador.
       [18, 11], [21, 11], [21, 16], [28, 19], [39, 20], [8, 27],
-      [5, 18], [30, 29], [37, 32], [8, 37]
+      [5, 18], [30, 29], [37, 32], [8, 37],
+      // Corredores más concurridos: dan grupos visibles y más testigos ante un robo.
+      [25, 25], [27, 25.5], [29, 26], [31, 26.5], [22, 33], [24, 34],
+      [35, 18], [37, 18.5], [39, 19], [42, 20], [14, 31], [16, 32]
     ];
     for (const [x, z] of spots) {
       const position = navigation.nearestPoint(WX(x), WZ(z));
@@ -988,6 +991,16 @@ export class Bogota {
       this.npcs.push(new Npc(this.scene, position, {
         navigation, groundHeight: navigation.groundHeight, isWalkable: walk, gastada: true
       }));
+    }
+    // Pequeñas cuadrillas que empiezan juntas y después siguen la navegación normal.
+    for (const [x, z] of [[25, 25], [35, 18], [14, 31]]) {
+      for (const [ox, oz] of [[-.9, .7], [.8, .5]]) {
+        const position = navigation.nearestPoint(WX(x + ox), WZ(z + oz));
+        if (!position) continue;
+        this.npcs.push(new Npc(this.scene, position, {
+          navigation, groundHeight: navigation.groundHeight, isWalkable: walk, gastada: true
+        }));
+      }
     }
     // Mantiene la densidad del centro y distribuye peatones por los barrios nuevos.
     const candidates = navigation.nodes.filter(node => !node.crossing &&
@@ -1086,7 +1099,7 @@ export class Bogota {
       _projView.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
       frustum = _frustum.setFromProjectionMatrix(_projView);
     }
-    const ctx = { player: playerPos, frustum, camera, isRaining: (this.wetness ?? 0) > 0.05, animationBudget: this.animationBudget ?? 1 };
+    const ctx = { player: playerPos, npcs: this.npcs, frustum, camera, isRaining: (this.wetness ?? 0) > 0.05, animationBudget: this.animationBudget ?? 1 };
     for (const n of this.npcs) n.update(dt, ctx);
     for (const flock of this.pigeonFlocks ?? []) flock.update(dt, playerPos, this.npcs);
   }

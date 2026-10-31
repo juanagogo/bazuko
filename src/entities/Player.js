@@ -9,20 +9,22 @@ import {
 import { createCharacter } from '../character/character.js';
 import { createRealisticCharacter, REALISTIC_SCALE } from '../character/RealisticCharacter.js';
 import { PlayerRagdoll } from '../systems/PlayerRagdoll.js';
+import { CombatSystem } from '../systems/CombatSystem.js';
+import { GrappleSystem } from '../systems/GrappleSystem.js';
 
 export class Player {
-  constructor(scene, input, stats=null, audio=null) {
+  constructor(scene, input, stats = null, audio = null) {
     this.audio = audio;
     this.jumpVelocity = 0;
     this.isGrounded = true;
     this.input = input;
     this.scene = scene;
     this.stats = stats;
-    this.position = new THREE.Vector3(16, 0, 16); // zona reservada spawn
+    this.position = new THREE.Vector3(16, 0, 16);
     this.radius = PLAYER_RADIUS;
     this.speedWalk = PLAYER_SPEED_WALK;
     this.speedRun = PLAYER_SPEED_RUN;
-    this.speedMult = 1; // debuff por salud mental baja
+    this.speedMult = 1;
     this.velocity = new THREE.Vector3();
     this.hasInertia = true;
     this._direction = new THREE.Vector3();
@@ -33,7 +35,6 @@ export class Player {
     this._impactVelocity = new THREE.Vector3();
     this._impactTime = 0;
 
-    // Contenedor raíz (posición + rumbo); el personaje va escalado adentro
     this.root = new THREE.Group();
     this.root.position.copy(this.position);
     scene.add(this.root);
@@ -52,11 +53,13 @@ export class Player {
     this.time = 0;
     this.speed = 0;
     this.state = 'idle';
-    this.load = 0;            // 0..1: llenado del costal (tamaño del saco)
-    this.action = null;       // 'pedir' | 'buscar' | 'comer' | 'dormir' | 'saludo'
+    this.load = 0;
+    this.action = null;
     this.actionTimer = 0;
     this.sorting = false;
-    this.hasCart = false;     // seleccionando basura (mantener Q)
+    this.hasCart = false;
+    this.combat = new CombatSystem();
+    this.grapple = new GrappleSystem(this);
   }
 
   setLook(look) {
@@ -68,7 +71,6 @@ export class Player {
     return this._realistic?.setLook(look);
   }
 
-  /** Cambia entre el personaje realista (MakeHuman, por defecto) y el procedural (liviano) */
   async setModel(kind) {
     if (kind === this.modelKind) return;
     this.clearVehicleImpact();
@@ -77,7 +79,7 @@ export class Player {
       this._realisticPromise ??= createRealisticCharacter(this.look ?? {});
       this._realistic = await this._realisticPromise;
       if (this._realistic.look !== this.look && this.look) await this._realistic.setLook(this.look);
-      if (this.modelKind !== 'realista') return; // se cambió mientras cargaba
+      if (this.modelKind !== 'realista') return;
       this.root.remove(this.character.group);
       this.character = this._realistic;
       this.modelScale = REALISTIC_SCALE;
@@ -89,39 +91,28 @@ export class Player {
     this.root.add(this.character.group);
   }
 
-  /** Anima una acción breve (segundos) */
   playAction(action, duration = 1) {
+    this.actionSequence = (this.actionSequence ?? 0) + 1;
+    this.actionDuration = duration;
     this.action = action;
     this.actionTimer = duration;
   }
 
+  receiveAssaultHit(direction = null, damage = 0) {
+    const received = Math.max(0, damage) * (this.isBlocking ? .4 : 1);
+    if (this.stats && received) this.stats.salud = Math.max(0, this.stats.salud - received);
+    this.combat?.dispose();
+    if (!this.isBlocking || this.action !== 'bloquear') {
+      this.playAction(this.isBlocking ? 'bloquear' : 'reaccion_pecho', this.isBlocking ? .6 : .45);
+    }
+    this._assaultJolt = this.modelKind === 'realista' ? 0 : .42;
+    if (direction?.clone) this._assaultDirection = direction.clone().setY(0).normalize();
+    this.lastCombatHit = { sequence: (this.lastCombatHit?.sequence ?? 0) + 1, direction: this._assaultDirection?.clone() };
+    return received;
+  }
 
   punch(npcs = []) {
-    this.playAction('golpear', 0.38);
-    this.audio?.playWhoosh?.();
-
-    const forwardX = Math.sin(this.root.rotation.y);
-    const forwardZ = Math.cos(this.root.rotation.y);
-
-    for (const npc of npcs) {
-      if (!npc || !npc.position) continue;
-      const dx = npc.position.x - this.position.x;
-      const dz = npc.position.z - this.position.z;
-      const dist = Math.hypot(dx, dz);
-      if (dist < 1.85) {
-        const dot = (dx * forwardX + dz * forwardZ) / (dist || 1);
-        if (dot > 0.25) {
-          if (typeof npc.takePunch === 'function') {
-            const drop = npc.takePunch(this);
-            this.audio?.playPunchHit?.();
-            if (drop && this.stats && typeof this.stats.dinero === 'number') {
-              this.stats.dinero += drop;
-            }
-          }
-          break;
-        }
-      }
-    }
+    return this.combat.begin(this, npcs);
   }
 
   playBeg() {
@@ -147,20 +138,36 @@ export class Player {
   }
 
   update(dt, camera, collisions, groundHeight = null, npcs = []) {
+    const holdingBlock = !!this.input?.isDown?.('KeyO');
+    this.isBlocking = (holdingBlock || this.action === 'bloquear') && !this.isStunned && !this.grapple?.target && !this.combat?.pending;
+
     this.time += dt;
     this._lastCollisions = collisions;
+    if (this.grapple?.update(dt, npcs, collisions)) {
+      this.character.update(dt, { speed: 0, action: 'agarrar', t: this.time });
+      return;
+    }
     if (this.ragdoll?.active) {
       this.velocity?.set(0, 0, 0);
       this.ragdoll.update(dt, collisions);
       this.speed = 0; this.state = 'ragdoll';
       return;
     }
+
     if (this.actionTimer > 0) {
       this.actionTimer -= dt;
       if (this.actionTimer <= 0) this.action = null;
     }
 
-    // Salto y combate cuerpo a cuerpo estilo GTA
+    this.combat?.update(dt);
+
+
+    if (holdingBlock && !this.action && !this.isStunned) {
+      this.playAction('bloquear', 0.6);
+    }
+    if (holdingBlock && this.action === 'bloquear') this.actionTimer = Math.max(.1, this.actionTimer);
+    if (!holdingBlock && this.action === 'bloquear') { this.action = null; this.actionTimer = 0; this.isBlocking = false; }
+
     const wantsJump = typeof this.input?.consumePress === 'function' && (this.input.consumePress('Space') || this.input.consumePress('KeySpace'));
     if (wantsJump && this.isGrounded && !this.isStunned && !this.hasCart && !this.sorting) {
       this.jumpVelocity = 5.2;
@@ -185,7 +192,7 @@ export class Player {
     if (this.hasCart) {
       speed *= 0.82;
     }
-    // Movimiento
+
     const dir = this._direction.set(x, 0, z);
     if (camera?.userData?.cameraMode === 'third-person') {
       const forward = camera.getWorldDirection(this._forward);
@@ -211,6 +218,8 @@ export class Player {
     } else {
       delta = this._delta.copy(dir).multiplyScalar(moving ? speed * dt : 0);
     }
+
+
     if (stunned) {
       delta.addScaledVector(this._impactVelocity, (1 - Math.exp(-4 * dt)) / 4);
       this._impactVelocity.multiplyScalar(Math.exp(-4 * dt));
@@ -226,6 +235,36 @@ export class Player {
     } else {
       this.position.add(delta);
     }
+
+    // === COLISIÓN FÍSICA CONTRA NPCs (Jugador vs NPCs) ===
+    if (npcs && npcs.length > 0) {
+      for (const npc of npcs) {
+        if (!npc || npc.hp <= 0 || npc.grabbed || Math.abs(npc.position.y - this.position.y) > 1.2) continue;
+
+        const npcRadius = npc.radius || 0.4;
+        const minDist = this.radius + npcRadius;
+        const dx = this.position.x - npc.position.x;
+        const dz = this.position.z - npc.position.z;
+        const distSq = dx * dx + dz * dz;
+
+        if (distSq < minDist * minDist && distSq > 0.00001) {
+          const dist = Math.sqrt(distSq);
+          const overlap = minDist - dist;
+          const nx = dx / dist;
+          const nz = dz / dist;
+
+          this._delta.set(nx * overlap * .6, 0, nz * overlap * .6);
+          if (collisions) collisions.resolveMove(this.position, this._delta, this.radius, this.position);
+          else this.position.add(this._delta);
+
+          if (npc.velocity) {
+            npc.velocity.x -= nx * overlap * 8;
+            npc.velocity.z -= nz * overlap * 8;
+          }
+        }
+      }
+    }
+
     this.speed = dt > 0 ? before.distanceTo(this.position) / dt : 0;
     this.isGrounded ??= true;
     this.jumpVelocity ??= 0;
@@ -247,7 +286,6 @@ export class Player {
 
     this.root.position.copy(this.position);
 
-    // Rotación suave
     if (moving) {
       const targetAngle = Math.atan2(dir.x, dir.z);
       let diff = targetAngle - this.root.rotation.y;
@@ -255,23 +293,31 @@ export class Player {
       while (diff < -Math.PI) diff += Math.PI * 2;
       this.root.rotation.y += diff * Math.min(1, 14 * dt);
 
-      // Inclinación centrífuga (banking lateral en giros)
       const targetBank = THREE.MathUtils.clamp(-diff * (running ? 0.38 : 0.22), -0.22, 0.22);
       this.root.rotation.z = THREE.MathUtils.lerp(this.root.rotation.z, targetBank, 1 - Math.exp(-14 * dt));
-      // Inclinación hacia adelante con la aceleración
       this.root.rotation.x = THREE.MathUtils.lerp(this.root.rotation.x, running ? 0.08 : 0.02, 1 - Math.exp(-10 * dt));
     } else {
       this.root.rotation.z = THREE.MathUtils.lerp(this.root.rotation.z, 0, 1 - Math.exp(-12 * dt));
       this.root.rotation.x = THREE.MathUtils.lerp(this.root.rotation.x, 0, 1 - Math.exp(-10 * dt));
     }
 
+    if (this._assaultJolt > 0) {
+      this._assaultJolt = Math.max(0, this._assaultJolt - dt);
+      const strength = this._assaultJolt / .42;
+      this.root.rotation.x -= .18 * strength;
+      this.root.rotation.z += Math.sin(this.time * 32) * .12 * strength;
+      if (this._assaultDirection) this.root.position.addScaledVector(this._assaultDirection, .025 * strength);
+    }
+
     this.state = (this.speed < 0.25) ? 'idle' : (running ? 'run' : 'walk');
 
-    // Animación del personaje (velocidad en metros del modelo, no del mundo)
+    const assaultReaction = ['recibirGolpe', 'reaccion_pecho', 'reaccion_cabeza'].includes(this.action);
     this.character.update(dt, {
-      speed: stunned ? 0 : this.speed / this.modelScale,
+      speed: (stunned || assaultReaction) ? 0 : this.speed / this.modelScale,
       running,
       action: stunned ? null : (this.sorting ? 'buscar' : this.action),
+      actionDuration: this.actionDuration,
+      actionSequence: this.actionSequence,
       t: this.time,
       load: this.load,
       dirt: this.stats ? Math.max(0, (40 - this.stats.higiene) / 40) : 0
@@ -279,6 +325,8 @@ export class Player {
   }
 
   dispose() {
+    this.grapple?.release();
+    this.combat?.dispose();
     this.ragdoll.clear();
     this._realistic?.dispose?.();
     this._realisticPromise?.then(character => character.dispose?.()).catch(() => {});

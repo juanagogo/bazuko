@@ -7,9 +7,12 @@ const _q = new THREE.Quaternion();
 const _a = new THREE.Vector3();
 const _b = new THREE.Vector3();
 
+// Mixamo exporta "mixamorigHips" y el personaje local "mixamorig:Hips".
+// La clave canónica permite reutilizar el mismo clip en ambos esqueletos.
+const boneKey = (name) => name.replace(/^mixamorig:?/i, 'mixamorig');
 const bonesOf = (root) => {
   const map = new Map();
-  root.traverse((o) => { if (o.isBone) map.set(o.name, o); });
+  root.traverse((o) => { if (o.isBone) map.set(boneKey(o.name), o); });
   return map;
 };
 
@@ -33,12 +36,13 @@ function matchRestPose(src, tgtRoot, C) {
   const order = [];
   tgtRoot.traverse((o) => { if (o.isBone) order.push(o); });
   for (const bone of order) {
-    const s = src.get(bone.name);
-    const child = bone.children.find((c) => c.isBone && src.has(c.name));
+    const key = boneKey(bone.name);
+    const s = src.get(key);
+    const child = bone.children.find((c) => c.isBone && src.has(boneKey(c.name)));
     if (!s || !child) continue;
     tgtRoot.updateMatrixWorld(true);
     _a.copy(worldPos(child)).sub(worldPos(bone)).normalize();
-    _b.copy(worldPos(src.get(child.name))).sub(worldPos(s)).applyQuaternion(C).normalize();
+    _b.copy(worldPos(src.get(boneKey(child.name)))).sub(worldPos(s)).applyQuaternion(C).normalize();
     if (_a.lengthSq() < 1e-8 || _b.lengthSq() < 1e-8) continue;
     r.setFromUnitVectors(_a, _b);
     bone.getWorldQuaternion(w);
@@ -69,7 +73,7 @@ export function createRetargeter(srcRoot, tgtRoot, { preserveHipHeight = false }
   const restSrc = new Map([...src].map(([n, b]) => [n, b.getWorldQuaternion(new THREE.Quaternion())]));
   const restTgt = new Map([...tgt].map(([n, b]) => [n, b.getWorldQuaternion(new THREE.Quaternion())]));
   const restLocal = new Map([...tgt].map(([n, b]) => [n, b.quaternion.clone()]));
-  const hipName = [...src.keys()].find(n => /(^|:)Hips$/.test(n) && tgt.has(n));
+  const hipName = [...src.keys()].find(n => /Hips$/.test(n) && tgt.has(n));
   const sourceHip = hipName && src.get(hipName);
   const targetHip = hipName && tgt.get(hipName);
   const sourceHipRest = sourceHip?.position.clone();
@@ -113,25 +117,26 @@ export function createRetargeter(srcRoot, tgtRoot, { preserveHipHeight = false }
       }
       srcRoot.updateMatrixWorld(true);
       for (const b of order) {
-        const parentW = b.parent?.isBone ? world.get(b.parent.name) : rootParentWorld.get(b.name);
-        const s = src.get(b.name);
+        const key = boneKey(b.name);
+        const parentW = b.parent?.isBone ? world.get(boneKey(b.parent.name)) : rootParentWorld.get(key);
+        const s = src.get(key);
         let w;
         if (s) {
-          const delta = s.getWorldQuaternion(new THREE.Quaternion()).multiply(_q.copy(restSrc.get(b.name)).invert());
-          w = C.clone().multiply(delta).multiply(Cinv).multiply(restTgt.get(b.name));
+          const delta = s.getWorldQuaternion(new THREE.Quaternion()).multiply(_q.copy(restSrc.get(key)).invert());
+          w = C.clone().multiply(delta).multiply(Cinv).multiply(restTgt.get(key));
         } else {
-          w = parentW.clone().multiply(restLocal.get(b.name));
+          w = parentW.clone().multiply(restLocal.get(key));
         }
-        world.set(b.name, w);
-        parentW.clone().invert().multiply(w).toArray(values.get(b.name), f * 4);
+        world.set(key, w);
+        parentW.clone().invert().multiply(w).toArray(values.get(key), f * 4);
       }
     }
     mixer.stopAllAction();
     mixer.uncacheRoot(srcRoot);
     restoreSource();
 
-    const tracks = [...values].map(([n, v]) => new THREE.QuaternionKeyframeTrack(`${n}.quaternion`, times, v));
-    if (hipPositions) tracks.push(new THREE.VectorKeyframeTrack(`${hipName}.position`, times, hipPositions));
+    const tracks = [...values].map(([n, v]) => new THREE.QuaternionKeyframeTrack(`${tgt.get(n).name}.quaternion`, times, v));
+    if (hipPositions) tracks.push(new THREE.VectorKeyframeTrack(`${tgt.get(hipName).name}.position`, times, hipPositions));
     return new THREE.AnimationClip(srcClip.name, srcClip.duration, tracks);
   };
 }
