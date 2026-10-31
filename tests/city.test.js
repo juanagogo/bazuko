@@ -74,7 +74,7 @@ test('el distrito completo construye y actualiza barrios, vendedores, peatones y
   assert.equal(city.busServices.length, 2);
   try {
     await Promise.all(city.npcs.map(npc=>npc.ready));
-    assert.equal(city.npcs.length,72); // 66 peatones y 6 vendedores.
+    assert.equal(city.npcs.length,76); // 66 peatones, 6 vendedores, el bailarín y sus 3 acompañantes.
     assert.equal(city.vendors.length,6);
     assert.equal(city.pigeonFlocks.length, 3);
     for (const flock of city.pigeonFlocks) {
@@ -124,13 +124,13 @@ test('el distrito completo construye y actualiza barrios, vendedores, peatones y
       assert.ok(city.renderSectors.every(sector => sector.visible));
     }
     city.setNightMode(true);
-    assert.ok(city.facadeMats.some(material=>material.emissiveIntensity===1.2));
-    const batchedFacades = [];
-    city.buildingVisibility.closedView.traverse(mesh=>{ if (mesh.material?.emissiveMap) batchedFacades.push(mesh); });
-    assert.ok(batchedFacades.length > 0);
-    assert.ok(batchedFacades.every(mesh=>mesh.material.emissiveIntensity === 1.2));
+    // Todas las casas comparten un único material de fachada; su variación va en los vértices.
+    const houseFacades = new Set(), facadeMeshes = [];
+    city.buildingVisibility.closedView.traverse(mesh=>{ if (mesh.material?.userData.cityFacade) { facadeMeshes.push(mesh); houseFacades.add(mesh.material); } });
+    assert.ok(facadeMeshes.length > 0);
+    assert.equal(houseFacades.size, 1);
+    assert.ok(facadeMeshes.every(mesh=>mesh.geometry.attributes.facadeParams && mesh.geometry.attributes.facadeTone));
     city.setNightMode(false);
-    assert.ok(batchedFacades.every(mesh=>mesh.material.emissiveIntensity === 0));
   } finally { city.dispose(scene); }
   assert.ok(!scene.children.includes(city.group));
 });

@@ -63,7 +63,7 @@ export class CollisionSystem {
     return candidates.some(intersects) || this.dynamicColliders.some(intersects);
   }
 
-  /** Cajas simples; el bus conserva además orientación para la colisión precisa. */
+  /** Envolvente amplia para consultas; caja orientada para el contacto preciso. */
   setVehicles(cars = [], bus = null) {
     const present = new Set(cars);
     const buses = new Set([bus].flat().filter(Boolean));
@@ -74,12 +74,15 @@ export class CollisionSystem {
       let entry = this._vehicles.get(vehicle);
       if (!entry) { entry = { vehicle, box: new THREE.Box3() }; this._vehicles.set(vehicle, entry); }
       const isBus = buses.has(vehicle);
-      if (isBus) {
+      {
         entry.obb ??= { center: new THREE.Vector3(), halfSize: new THREE.Vector3(), quaternion: new THREE.Quaternion(),
           inverse: new THREE.Quaternion(), axes: [new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3()] };
         const o = entry.obb;
         o.quaternion.copy(vehicle.group.quaternion); o.inverse.copy(o.quaternion).invert();
-        o.halfSize.set(vehicle.width / 2, 3.5 / 2, vehicle.length / 2);
+        // TransMilenio avanza en +Z; los carros (incluidos buses urbanos) en +X.
+        o.halfSize.set((isBus ? vehicle.width : vehicle.length) / 2,
+          (isBus ? 3.5 : (vehicle.height ?? 1.65)) / 2,
+          (isBus ? vehicle.length : vehicle.width) / 2);
         o.center.set(0, o.halfSize.y, 0).applyQuaternion(o.quaternion).add(vehicle.position);
         o.axes[0].set(1,0,0).applyQuaternion(o.quaternion);
         o.axes[1].set(0,1,0).applyQuaternion(o.quaternion);
@@ -93,15 +96,6 @@ export class CollisionSystem {
         this.dynamicColliders.push(entry);
         continue;
       }
-      delete entry.obb;
-      const c = isBus ? Math.abs(Math.sin(vehicle.group.rotation.y)) : Math.abs(Math.cos(vehicle.group.rotation.y));
-      const s = isBus ? Math.abs(Math.cos(vehicle.group.rotation.y)) : Math.abs(Math.sin(vehicle.group.rotation.y));
-      const halfX = (c * vehicle.length + s * vehicle.width) / 2;
-      const halfZ = (s * vehicle.length + c * vehicle.width) / 2;
-      const p = vehicle.position;
-      entry.box.min.set(p.x - halfX, p.y, p.z - halfZ);
-      entry.box.max.set(p.x + halfX, p.y + (isBus ? 3 : 1.65), p.z + halfZ);
-      this.dynamicColliders.push(entry);
     }
   }
 

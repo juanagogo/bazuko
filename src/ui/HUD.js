@@ -4,6 +4,7 @@ import { XP_PER_LEVEL, XP_CRAFT } from '../utils/constants.js';
 import { NEEDS } from '../systems/StatsSystem.js';
 import { cop } from '../utils/money.js';
 import { ITEMS, itemRarityLabel } from '../data/items.js';
+import { SMOKABLES, smokable } from '../character/smoking.js';
 import { itemArtHTML, itemCategory } from './itemArt.js';
 import { NEED_META, needLevel } from './needsMeta.js';
 import { describeWeather } from '../world/Climate.js';
@@ -149,8 +150,20 @@ export class HUD {
     window.addEventListener('talent-unlock', (e) => this._toast(`🌟 Talento: ${e.detail.name}`, 'rare'));
     window.addEventListener('craft', (e) => this._toast(`🔨 Crafteado: ${e.detail.name} x${e.detail.qty}`, 'info'));
     window.addEventListener('steal', (e) => {
-      if (e.detail.caught) this._toast('🚨 ¡Atrapado robando!', 'death');
+      if (e.detail.chase) {
+        this._toast('🚓 ¡Te vio la Policía! ¡Corre!', 'death');
+        if (e.detail.added?.length) this._toast(`🪞 Robado: ${e.detail.added.join(', ')}`, 'warn');
+      } else if (e.detail.caught) this._toast('🚨 ¡Atrapado robando!', 'death');
       else if (e.detail.added?.length) this._toast(`🪞 Robado: ${e.detail.added.join(', ')}`, 'warn');
+    });
+    window.addEventListener('police-chase', () => {
+      this._toast('🚨 Persecución: no dejes que te alcancen', 'warn');
+    });
+    window.addEventListener('police-arrest', () => {
+      this._toast('🚓 La Policía te alcanzó y confiscó todo', 'death');
+    });
+    window.addEventListener('police-escaped', () => {
+      this._toast('💨 Escapaste de la Policía', 'info');
     });
     window.addEventListener('withdrawal', (e) => {
       if (e.detail.active) this._toast('🚬 Abstinencia: caminas más lento y baja el ánimo', 'warn');
@@ -291,6 +304,7 @@ export class HUD {
         let text = interaction?.stealPrompt ?? '';
         if (type === 'pickup') text = '[E] Recoger basura · [Mantener Q] Seleccionar';
         else if (type === 'car') text = interaction.currentTarget?.traffic ? '[E] Robar retrovisor del carro en circulación' : '[E] Robar retrovisor de auto';
+        else if (type === 'fireBarrel') text = '🔥 [E] Calentarte las manos en la fogata (+Calor, +Ánimo, +Energía)';
         else if (type === 'sell') text = '[E] Recicladora El Progreso · Vender material';
         else if (type === 'shop') text = `[E] ${interaction.currentTarget.title ?? 'Tienda La Esquinita'} · Comprar`;
         else if (type === 'dog') {
@@ -323,6 +337,8 @@ else if (type === 'cart') text = interaction.currentTarget?.isAttached ? '[E] So
 
     if (this.statusEl) {
       const warnings = [];
+      if (stats.calor > 0) warnings.push(`🔥 Calientito (${Math.ceil(stats.calor)}s)`);
+      else if (stats.isFreezing) warnings.push('🥶 Congelándote: el frío y la lluvia te debilitan.');
       if (stats.sed <= 20) warnings.push(stats.sed <= 0 ? 'Sin agua: estás perdiendo salud.' : 'Sed crítica: bebe agua.');
       if (stats.hambre <= 20) warnings.push(stats.hambre <= 0 ? 'Sin alimento: estás perdiendo salud.' : 'Hambre crítica: come algo.');
       if (stats.energia <= 20) warnings.push('Energía baja: descansa.');
@@ -418,6 +434,13 @@ else if (type === 'cart') text = interaction.currentTarget?.isAttached ? '[E] So
       game.poopSystem?.throwPoop(game.player, game.cameraRig);
       return;
     }
+    if (item.weapon) {
+      if (!game.player || game.player.isStunned) return;
+      const equipped = game.player.toggleWeapon(item.weapon);
+      game.audio?.play('pickup');
+      this._toast(equipped ? `🔪 Equipaste: ${item.name}. Ataca con clic o G.` : `Guardaste: ${item.name}. Vuelves a los puños.`, 'info');
+      return;
+    }
     if (itemId === 'radioTransistor') {
       game.inventoryUI?.close();
       window.dispatchEvent(new CustomEvent('open-radio-modal'));
@@ -438,6 +461,17 @@ else if (type === 'cart') text = interaction.currentTarget?.isAttached ? '[E] So
       return;
     }
 
+    const smokes = !!SMOKABLES[item.id];
+    if (smokes && game.player?.smoking) {
+      this._toast(`${smokable(game.player.smoking.kind).emoji} Ya tienes uno prendido.`, 'info');
+      return;
+    }
+    // el basuco se fuma en pipa: si está ocupado (pelea, otra acción) no se gasta
+    const pipe = item.id === 'basuco';
+    if (pipe && game.player?.startBasuco && !game.player.startBasuco()) {
+      this._toast('💨 Ahora no: tienes las manos ocupadas.', 'info');
+      return;
+    }
     if (item.consumable) {
       if (item.consumable === 'hambre' && game.stats.canEat?.() === false) {
         this._toast('No puedes comer mientras tienes náuseas.', 'warning');
@@ -448,13 +482,22 @@ else if (type === 'cart') text = interaction.currentTarget?.isAttached ? '[E] So
         const delta = (k === item.consumable ? item.amount : 0) + (k !== item.consumable ? (item[k] ?? 0) : 0);
         if (delta) game.stats[k] = Math.max(0, Math.min(100, game.stats[k] + delta));
       }
+      if (item.calor) {
+        game.stats.calor = Math.min(300, (game.stats.calor || 0) + item.calor);
+      }
       inv.remove(itemId, 1);
       game.audio?.play('pickup');
-      const isDrink = item.consumable === 'sed' || item.id === 'cafe' || item.id === 'refresco';
+      const isDrink = item.consumable === 'sed' || item.id === 'cafe' || item.id === 'refresco' || item.id === 'aguapanela';
       const verb = isDrink ? '🥤 Bebiste' : item.substance ? '🚬 Consumiste' : item.consumable === 'salud' ? '🩹 Te aplicaste' : '🍴 Comiste';
-      game.player?.playAction?.(isDrink ? 'beber' : 'comer', 1.2);
-      this._toast(`${verb}: ${item.name}`, 'info');
+      // el cigarrillo y el porro no se comen: se quedan en la mano y se fuman caminando
+      if (smokes) game.player?.startSmoking?.(item.id);
+      else if (!pipe) game.player?.playAction?.(isDrink ? 'beber' : 'comer', 1.2);
+      const lit = smokable(item.id);
+      this._toast(smokes ? `${lit.emoji} Prendiste un ${lit.name}` : pipe ? '💨 Prendiste la pipa' : `${verb}: ${item.name}`, 'info');
       this._renderInventory(inv);
+      // lo que se fuma pega al aspirar: el jugador avisa en cada calada o al soltar la pipa
+      const smokedLater = (smokes || pipe) && game.player?.startSmoking;
+      if (item.substance && !smokedLater) window.dispatchEvent(new CustomEvent('substance-consumed', { detail: { id: itemId } }));
     } else if (item.cure) {
       game.diseases?.cure?.(item.cure);
       inv.remove(itemId, 1);

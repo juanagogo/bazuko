@@ -1,5 +1,7 @@
+import {prepareSceneTextures} from '../core/TextureBudget.js';
+import {createWebGPURenderer,initializeWebGPU} from '../core/WebGPU.js';
 // src/ui/Creator.js — portado de rebusque; la vista previa y las opciones son del personaje realista
-import * as THREE from 'three';
+import * as THREE from 'three/webgpu';
 import { PALETTES, COLOR_NAMES, NAME_IDEAS, WEAR_LEVELS, ACCESSORIES, normalizeLook, randomLook, cleanName } from '../character/look.js';
 import { STREET_PRESETS, applyStreetPreset } from '../character/presets.js';
 import { createRealisticCharacter, loadCatalog, optionsFor, normalizeReal, randomReal } from '../character/RealisticCharacter.js';
@@ -46,8 +48,10 @@ export function createCreator({ audio }) {
     face: { pos: new THREE.Vector3(0, 1.6, 1.5), look: new THREE.Vector3(0, 1.52, 0) },
   };
 
-  function setupScene() {
-    renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true, powerPreference: 'high-performance' });
+  async function setupScene() {
+    renderer = createWebGPURenderer({ canvas, antialias: true, alpha: true, powerPreference: 'high-performance' });
+    await initializeWebGPU(renderer);
+    renderer.onDeviceLost=()=>{cancelAnimationFrame(raf);close(null);window.dispatchEvent(new Event('bazuko-gpu-lost'));};
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
     renderer.toneMappingExposure = 1.1;
@@ -74,7 +78,8 @@ export function createCreator({ audio }) {
     const ring = new THREE.Mesh(new THREE.TorusGeometry(0.92, 0.02, 6, 48), new THREE.MeshBasicMaterial({ color: '#f6c400' }));
     ring.rotation.x = Math.PI / 2;
     scene.add(ring);
-    createRealisticCharacter(look).then((c) => {
+    await createRealisticCharacter(look).then(async(c) => {
+      await prepareSceneTextures([c.group]);
       char = c;
       char.group.scale.setScalar(1);
       scene.add(char.group);
@@ -364,7 +369,7 @@ export function createCreator({ audio }) {
       initial = { ...look };
       void initial;
       tab = look.nombre ? 'cuerpo' : 'identidad';
-      if (!renderer) setupScene();
+      if (!renderer) await setupScene();
       else char?.setLook(look);
       yaw = 0.35;
       yawVel = 0;

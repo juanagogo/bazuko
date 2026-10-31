@@ -1,6 +1,9 @@
 // src/systems/PsychosisSystem.js
 import * as THREE from 'three';
 
+const _forward = new THREE.Vector3();
+const _toGhost = new THREE.Vector3();
+
 const PARANOIA_WHISPERS = [
   '¿QUIÉN ESTÁ AHÍ?',
   'TE ESTÁN SIGUIENDO',
@@ -42,6 +45,7 @@ export class PsychosisSystem {
     this.spasmTimer = 10;
     this.paranoiaUtteranceTimer = 15;
     this.active = false;
+    this.induced = null; // { left, severity }: paranoia por consumo (basuco), sin abstinencia
 
     // Elementos DOM
     this.overlayEl = null;
@@ -77,7 +81,7 @@ export class PsychosisSystem {
     group.add(head);
 
     // Ojos rojizos brillantes
-    const eyeMat = new THREE.MeshBasicMaterial({ color: 0xff1a1a });
+    const eyeMat = new THREE.MeshBasicMaterial({ color: 0xff1a1a, transparent: true, opacity: 1 });
     const eyeL = new THREE.Mesh(new THREE.SphereGeometry(0.035, 5, 5), eyeMat);
     eyeL.position.set(-0.07, 1.62, 0.18);
     const eyeR = new THREE.Mesh(new THREE.SphereGeometry(0.035, 5, 5), eyeMat);
@@ -85,18 +89,44 @@ export class PsychosisSystem {
     group.add(eyeL);
     group.add(eyeR);
 
-    // Torso
-    const torso = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.22, 0.75, 7), mat);
+    // Torso encorvado
+    const torso = new THREE.Mesh(new THREE.CylinderGeometry(0.17, 0.24, 0.75, 7), mat);
     torso.position.y = 1.1;
+    torso.rotation.x = 0.18;
     group.add(torso);
 
-    // Piernas
-    const legL = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.07, 0.75, 6), mat);
-    legL.position.set(-0.1, 0.38, 0);
-    const legR = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.07, 0.75, 6), mat);
-    legR.position.set(0.1, 0.38, 0);
-    group.add(legL);
-    group.add(legR);
+    // Cuernos curvos hacia atrás
+    for (const side of [-1, 1]) {
+      const horn = new THREE.Mesh(new THREE.ConeGeometry(0.045, 0.26, 6), mat);
+      horn.position.set(side * 0.12, 1.8, -0.02);
+      horn.rotation.set(-0.5, 0, side * -0.45);
+      group.add(horn);
+    }
+
+    // Boca rasgada que brilla como los ojos
+    const mouth = new THREE.Mesh(new THREE.BoxGeometry(0.11, 0.018, 0.02), eyeMat);
+    mouth.position.set(0, 1.5, 0.185);
+    group.add(mouth);
+
+    // Brazos largos colgando, con garras
+    for (const side of [-1, 1]) {
+      const arm = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.03, 0.95, 5), mat);
+      arm.position.set(side * 0.27, 0.95, 0.05);
+      arm.rotation.z = side * 0.12;
+      group.add(arm);
+      for (let f = -1; f <= 1; f++) {
+        const claw = new THREE.Mesh(new THREE.ConeGeometry(0.012, 0.12, 4), mat);
+        claw.position.set(side * 0.33 + f * 0.025, 0.42, 0.06);
+        claw.rotation.x = Math.PI;
+        group.add(claw);
+      }
+    }
+
+    // Sin piernas: flota sobre una cola rasgada que se deshace hacia el piso
+    const tail = new THREE.Mesh(new THREE.ConeGeometry(0.26, 0.85, 7, 1, true), mat);
+    tail.position.y = 0.38;
+    tail.rotation.x = Math.PI;
+    group.add(tail);
 
     group.position.copy(position);
     this.scene.add(group);
@@ -104,6 +134,8 @@ export class PsychosisSystem {
     return {
       group,
       position: group.position,
+      baseY: position.y,
+      phase: Math.random() * Math.PI * 2,
       lifetime: 18 + Math.random() * 12,
       dissolving: false
     };
@@ -141,15 +173,37 @@ export class PsychosisSystem {
   }
 
   /**
-   * Actualiza el sistema de psicosis y alucinaciones por abstinencia.
+   * Paranoia sin abstinencia (p. ej. después del basuco): `seconds` de alucinaciones con esta
+   * intensidad (0 a 1). Un segundo consumo alarga la que ya está.
+   */
+  induce(seconds, severity = 0.7) {
+    this.induced = {
+      left: Math.max(this.induced?.left ?? 0, seconds),
+      severity: Math.max(this.induced?.severity ?? 0, severity)
+    };
+    // los primeros susurros y frases llegan enseguida
+    this.whisperTimer = Math.min(this.whisperTimer, 1.5);
+    this.paranoiaUtteranceTimer = Math.min(this.paranoiaUtteranceTimer, 5);
+  }
+
+  /** Corta la paranoia inducida (dormir, morir, recuperarse) */
+  clearInduced() { this.induced = null; }
+
+  /**
+   * Actualiza el sistema de psicosis y alucinaciones por abstinencia o por consumo.
    * @param {number} dt
    * @param {object} cameraRig
    */
   update(dt, cameraRig = null) {
     const abstinencia = this.stats?.abstinencia ?? 0;
-    const isHigh = abstinencia >= 50;
+    if (this.induced && (this.induced.left -= dt) <= 0) this.induced = null;
+    const fromWithdrawal = abstinencia >= 50 ? Math.min(1, (abstinencia - 50) / 50) : null;
+    // la paranoia inducida se apaga en sus últimos 8 s
+    const fromDrug = this.induced ? this.induced.severity * Math.min(1, this.induced.left / 8) : null;
+    const isHigh = fromWithdrawal != null || fromDrug != null;
 
     if (!isHigh) {
+      if (this.player) { this.player.paranoia = 0; this.player.paranoiaFocus = null; }
       if (this.active) {
         this.active = false;
         this._clearShadowPeople();
@@ -168,7 +222,7 @@ export class PsychosisSystem {
     }
 
     this.active = true;
-    const severity = Math.min(1, Math.max(0, (abstinencia - 50) / 50)); // 0 a 1
+    const severity = Math.max(fromWithdrawal ?? 0, fromDrug ?? 0); // 0 a 1
 
     // 1. Efectos DOM y distorsión cromática visual
     if (typeof document !== 'undefined') {
@@ -178,7 +232,8 @@ export class PsychosisSystem {
         this.warningEl.style.display = abstinencia >= 80 ? 'block' : 'none';
       }
 
-      const canvas = document.getElementById('game-canvas');
+      // la imagen de la paranoia inducida la pone su efecto de consumo (SubstanceEffects)
+      const canvas = fromWithdrawal != null ? document.getElementById('game-canvas') : null;
       if (canvas) {
         const time = performance.now();
         const hue = Math.sin(time * 0.003) * 14 * severity;
@@ -216,10 +271,16 @@ export class PsychosisSystem {
     // 4. Sombras espectrales (Gente Sombra)
     const playerPos = this.player?.position;
     if (playerPos && this.scene) {
-      // Generar sombra si hay menos de 3
+      // Generar sombra si hay menos de 3. Con la paranoia del basuco aparecen más cerca, a los
+      // lados o detrás de la cámara: de reojo.
+      const camera = cameraRig?.camera;
+      if (camera) camera.getWorldDirection(_forward);
       if (this.shadowPeople.length < 3 && Math.random() < 0.025) {
-        const angle = Math.random() * Math.PI * 2;
-        const dist = 14 + Math.random() * 9;
+        const sideways = fromDrug != null && camera;
+        const angle = sideways
+          ? Math.atan2(_forward.z, _forward.x) + (Math.random() < 0.5 ? 1 : -1) * (Math.PI / 2 + Math.random() * Math.PI / 2)
+          : Math.random() * Math.PI * 2;
+        const dist = sideways ? 7 + Math.random() * 6 : 14 + Math.random() * 9;
         const spawnX = playerPos.x + Math.cos(angle) * dist;
         const spawnZ = playerPos.z + Math.sin(angle) * dist;
         const spawnY = this.world?.active?.getGroundHeight?.(spawnX, spawnZ) ?? 0;
@@ -232,12 +293,17 @@ export class PsychosisSystem {
         const sp = this.shadowPeople[i];
         sp.lifetime -= dt;
 
-        // Mirar hacia el jugador
+        // Flota meciéndose y mira al jugador
+        if (!sp.dissolving) sp.group.position.y = sp.baseY + 0.15 + Math.sin(performance.now() * 0.0013 + sp.phase) * 0.08;
         sp.group.lookAt(playerPos.x, sp.position.y + 1.6, playerPos.z);
 
         const distToPlayer = sp.position.distanceTo(playerPos);
-        // Si el jugador se acerca demasiado o la sombra expira, se desvanece
-        if (distToPlayer < 5.5 || sp.lifetime <= 0) {
+        // Si el jugador se acerca demasiado, la sombra expira o la mira de frente un momento, se desvanece
+        if (camera && !sp.dissolving) {
+          _toGhost.copy(sp.position).setY(sp.position.y + 1.4).sub(camera.position).normalize();
+          sp.stared = _toGhost.dot(_forward) > 0.985 ? (sp.stared ?? 0) + dt : 0;
+        }
+        if (distToPlayer < 5.5 || sp.lifetime <= 0 || sp.stared > 1) {
           sp.dissolving = true;
         }
 
@@ -260,6 +326,17 @@ export class PsychosisSystem {
           }
         }
       }
+    }
+
+    // 4b. El personaje mira nervioso a los lados y voltea hacia la sombra más cercana
+    if (this.player) {
+      this.player.paranoia = severity;
+      let nearest = null, best = Infinity;
+      for (const sp of this.shadowPeople) {
+        const d = playerPos ? sp.position.distanceToSquared(playerPos) : Infinity;
+        if (!sp.dissolving && d < best) { best = d; nearest = sp.position; }
+      }
+      this.player.paranoiaFocus = nearest;
     }
 
     // 5. Comportamientos extraños del personaje: espasmos motores involuntarios

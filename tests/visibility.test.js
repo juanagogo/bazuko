@@ -191,3 +191,29 @@ test('la silueta utiliza el modelo animado, solo detrás de obstáculos, sin alt
   overlay.render(renderer, scene, camera, player);
   assert.equal(loadedLater.layers.mask, 3);
 });
+
+test('la silueta usa una escena propia y estable para no recompilar los shaders del jugador', () => {
+  const overlay = new PlayerSilhouette();
+  const scene = new THREE.Scene();
+  scene.environment = new THREE.Texture();scene.fog = new THREE.Fog('black', 1, 100);scene.environmentIntensity = .4;
+  const camera = new THREE.PerspectiveCamera();
+  const player = new THREE.Group();
+  player.add(new THREE.SkinnedMesh(new THREE.BoxGeometry(), new THREE.MeshStandardMaterial()));
+  const light = new THREE.PointLight();
+  scene.add(player, light, new THREE.Mesh());
+  const children = scene.children, used = [];
+  const renderer = { autoClear: true, shadowMap: { autoUpdate: true }, render(s) {
+    used.push(s);
+    assert.notEqual(s, scene);
+    assert.deepEqual(s.children, [player, light]);
+    assert.equal(s.environment, scene.environment);assert.equal(s.fog, scene.fog);assert.equal(s.environmentIntensity, .4);
+    assert.equal(s.background, null);assert.equal(s.matrixWorldAutoUpdate, false);
+  } };
+  overlay.render(renderer, scene, camera, player);
+  overlay.render(renderer, scene, camera, player);
+  assert.equal(used.length, 4);
+  assert.ok(used.every(s => s === used[0]));
+  assert.equal(scene.children, children);
+  assert.equal(scene.overrideMaterial, null);
+  assert.equal(player.parent, scene);
+});

@@ -37,6 +37,7 @@ function fixture(t, { fresh = false, lightweight = false } = {}) {
     clock: { hour: 6, isNight: false },
     localLights: { update() {} },
     renderer: {
+      async initialize(){events.push('webgpu');},createEnvironment(){return null;},
       async prepare() { events.push('shaders'); await shaders.promise; },
       render() { events.push('render'); assert.equal(game._running, false); },
       async waitForGPU() { events.push('gpu'); await gpu.promise; },
@@ -72,6 +73,7 @@ test('el inicio espera modelos, shaders y GPU antes de mostrar, medir o simular;
   const f = fixture(t);
   f.game.clock = new Clock();
   f.game.weather = new WeatherSystem(f.game.sceneMgr.scene);
+  f.game.weather.rainEnabled = true;
   f.game.world.active.reserved = { spawn: { x: 112.98, z: 97.84 } };
   f.game.world.active.getGroundHeight = () => .08;
   f.game._loadIfSave = () => {
@@ -229,24 +231,10 @@ test('preparación incluye texturas ocultas y modelos LOD sin cambiar padres o v
   assert.equal(hidden.visible, false);
 });
 
-test('la espera GPU comprueba la señal sin bloquear el hilo y libera el fence', async t => {
-  const calls = [];
-  let polls = 0;
-  const gl = {
-    SYNC_GPU_COMMANDS_COMPLETE: 1, ALREADY_SIGNALED: 2, CONDITION_SATISFIED: 3, WAIT_FAILED: 4,
-    isContextLost: () => false, fenceSync: () => 'fence',
-    flush() { calls.push('flush'); },
-    clientWaitSync() { return ++polls < 3 ? 0 : 3; },
-    deleteSync(value) { calls.push(value); }
-  };
-  t.mock.method(globalThis, 'requestAnimationFrame', cb => queueMicrotask(cb));
-  const renderer = Object.assign(Object.create(Renderer.prototype), { instance: { getContext: () => gl } });
-  await renderer.waitForGPU();
-  assert.equal(polls, 3);
-  assert.deepEqual(calls, ['flush', 'fence']);
-  gl.clientWaitSync = () => gl.WAIT_FAILED;
-  await assert.rejects(renderer.waitForGPU(), /preparación gráfica/);
-  assert.deepEqual(calls, ['flush', 'fence', 'flush', 'fence']);
+test('la espera WebGPU aguarda la cola sin bloquear el hilo', async()=>{
+  const pending=deferred();let finished=false;
+  const renderer=Object.assign(Object.create(Renderer.prototype),{instance:{backend:{device:{queue:{onSubmittedWorkDone:()=>pending.promise}}}}});
+  const wait=renderer.waitForGPU().then(()=>finished=true);await tick();assert.equal(finished,false);pending.resolve();await wait;assert.equal(finished,true);
 });
 
 test('subir texturas cede por tiempo consumido y no por cantidad de archivos', async t => {

@@ -10,7 +10,10 @@ mock.module('../src/world/bogota/textures.js', { namedExports: { ...textures, ra
 const { Car } = await import('../src/entities/Car.js');
 const { Cambuche } = await import('../src/entities/Cambuche.js');
 const { BusService } = await import('../src/world/bogota/BusService.js');
+mock.module('../src/utils/signs.js',{namedExports:{signTexture:()=>new THREE.Texture(),signMesh:()=>new THREE.Group()}});
 const { TrafficSignals } = await import('../src/world/bogota/TrafficSignals.js');
+const { Pickup } = await import('../src/entities/Pickup.js');
+const { instanceBatches, disposeInstanceBatches } = await import('../src/graphics/InstanceBatches.js');
 
 // Lee posiciones e índices reales del GLB; las imágenes no requieren decodificador de navegador.
 function geometryFromAsset(file) {
@@ -67,16 +70,15 @@ test('los GLB reales caben en las dimensiones actuales y descansan sobre Y=0', (
   assert.ok(front.clone().applyAxisAngle(new THREE.Vector3(0, 1, 0), IMPORTED_MODELS.transmilenio.yaw).z < -.99);
 });
 
-test('carros comparten el GLB, conservan rumbo y robo, y eliminar uno conserva el otro', async () => {
+test('los carros usan la carrocería procedural del donante, comparten geometría y conservan rumbo y robo', async () => {
   const scene = new THREE.Scene();
-  const cars = [new Car(scene, new THREE.Vector3(5, .1, 6), .7), new Car(scene, new THREE.Vector3(12, 0, 6))];
-  cars.forEach(car => { car.modelKind = 'car1'; });
-  await Promise.all(cars.map(car => car.preloadModel()));
-  assert.equal(loads.get('car1.opt.glb'), 1);
-  const first = cars[0].importedModel.children[0].children[0].children[0];
-  const second = cars[1].importedModel.children[0].children[0].children[0];
+  const cars = [new Car(scene, new THREE.Vector3(5, .1, 6), .7, { variant: 'sedan' }), new Car(scene, new THREE.Vector3(12, 0, 6), 0, { variant: 'sedan' })];
+  // El modo antiguo (GLB) ya no existe: 'actual' y 'slop' dibujan el mismo vehículo del donante.
+  await Promise.all(cars.map(car => car.setVisualMode('actual')));
+  assert.equal(loads.get('car1.opt.glb'), undefined, 'no se cargan los modelos antiguos');
+  const [first, second] = cars.map(car => car.vehicle.headlightFrame);
   assert.equal(first.geometry, second.geometry);
-  assert.equal(first.material, second.material);
+  assert.notEqual(first.material, second.material, 'cada carro conserva su pintura y estado de luces');
   let disposed = false;
   first.geometry.addEventListener('dispose', () => { disposed = true; });
   assert.equal(cars[0].group.rotation.y, .7);
@@ -137,7 +139,8 @@ test('las lentes del semáforo se iluminan sobre el GLB, sin discos flotantes ni
   const signals = new TrafficSignals();
   await signals.preloadModel();
   assert.equal(signals.poleMeshes.reduce((sum, mesh) => sum + mesh.count, 0), signals.poles.length);
-  assert.equal(signals.group.children.length, signals.poleMeshes.length);
+  assert.ok(signals.poleMeshes.length > 1, 'los semáforos se reparten por celdas para que el descarte y las sombras los separen');
+  assert.equal(signals.group.children.length, signals.poleMeshes.length + (signals.stopSigns?.length ?? 0));
   for (const pole of signals.poles) {
     const batch = signals.poleMeshes[pole.batchIndex];
     assert.equal(batch.geometry.getAttribute('trafficAxis').getX(pole.instanceIndex), pole.axis);
@@ -147,7 +150,8 @@ test('las lentes del semáforo se iluminan sobre el GLB, sin discos flotantes ni
   camera.position.set(75, 8, 95); camera.lookAt(75, 0, 70); camera.updateMatrixWorld();
   const frustum = new THREE.Frustum().setFromProjectionMatrix(new THREE.Matrix4().multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse));
   const visible = signals.poleMeshes.filter(mesh => frustum.intersectsObject(mesh));
-  assert.ok(visible.reduce((sum, mesh) => sum + mesh.count, 0) < signals.poles.length / 2);
+  // Con lotes de 96 m (STATIC_CHUNK_SIZE) la vista no dibuja todos los semáforos de la ciudad.
+  assert.ok(visible.reduce((sum, mesh) => sum + mesh.count, 0) < signals.poles.length);
   assert.ok(signals.poleMeshes.every(mesh => mesh.frustumCulled && mesh.boundingSphere));
   let pointLights = 0;
   signals.group.traverse(object => { if (object.isLight) pointLights++; });
@@ -155,14 +159,63 @@ test('las lentes del semáforo se iluminan sobre el GLB, sin discos flotantes ni
   const before = signals.lensStates.value.clone();
   signals.update(25);
   assert.ok(!signals.lensStates.value.equals(before));
-  const shader = { uniforms: {}, vertexShader: THREE.ShaderLib.standard.vertexShader, fragmentShader: THREE.ShaderLib.standard.fragmentShader };
-  signals.poleMesh.material.onBeforeCompile(shader);
-  assert.equal(shader.uniforms.trafficStates, signals.lensStates);
-  assert.ok(shader.vertexShader.includes('vTrafficAxis = trafficAxis;'));
-  assert.ok(shader.fragmentShader.includes('totalEmissiveRadiance += trafficLensColor * trafficLensOn'));
-  assert.ok(shader.fragmentShader.includes('redLens'));
+  assert.equal(signals.poleMesh.material.isMeshStandardNodeMaterial,true);
+  assert.equal(signals.poleMesh.material.userData.trafficStates.value,signals.lensStates.value);
+  assert.ok(signals.poleMesh.material.colorNode);assert.ok(signals.poleMesh.material.emissiveNode);
   const bounds = new THREE.Box3().setFromObject(signals.group);
   assert.ok(Number.isFinite(bounds.min.x));
   assert.ok(bounds.max.y > 4);
   signals.dispose();
+});
+
+test('bolsas y contenedores se dibujan en lotes que siguen recogida, reaparición y reubicación', async () => {
+  const scene = new THREE.Scene();
+  const bags = [new Pickup(scene, new THREE.Vector3(1, 0, 1)), new Pickup(scene, new THREE.Vector3(9, 0, 4))];
+  const bin = new Pickup(scene, new THREE.Vector3(20, 0, 2), { modelKind: 'contenedor', cooldown: 5 });
+  await Promise.all([...bags, bin].map(p => p.preloadModel()));
+  const batches = instanceBatches(scene);
+  batches.sync();
+  const lot = mesh => [...batches.groups.values()].find(g => g.members.has(mesh)).mesh;
+  const bagModel = bags[0].mesh.getObjectByProperty('isMesh', true), binModel = bin.mesh.getObjectByProperty('isMesh', true);
+  assert.equal(lot(bagModel), lot(bags[1].mesh.getObjectByProperty('isMesh', true)), 'las bolsas comparten un lote');
+  assert.notEqual(lot(bagModel), lot(binModel));
+  assert.equal(lot(bagModel).count, 2);assert.equal(lot(binModel).count, 1);assert.equal(lot(bags[0].marker).count, 3);
+  assert.equal(lot(bagModel).castShadow, true);
+  assert.ok([bagModel, binModel, bags[0].marker].every(o => o.layers.mask === 0 && o.visible), 'el estado visible se conserva; solo el lote se dibuja');
+  const matrix = new THREE.Matrix4();lot(binModel).getMatrixAt(0, matrix);
+  binModel.updateWorldMatrix(true, false);assert.ok(matrix.elements.every((v, i) => Math.abs(v - binModel.matrixWorld.elements[i]) < 1e-5));
+
+  assert.ok(bin.harvest());batches.sync();
+  assert.equal(lot(binModel).count, 0, 'recogido: desaparece del lote');assert.equal(lot(bags[0].marker).count, 2);
+  bin.onRespawn = pickup => pickup.relocate(new THREE.Vector3(40, 0, 8));
+  bin.update(6);batches.sync();
+  assert.equal(lot(binModel).count, 1, 'reaparece');lot(binModel).getMatrixAt(0, matrix);
+  binModel.updateWorldMatrix(true, false);
+  assert.ok(Math.abs(matrix.elements[12] - binModel.matrixWorld.elements[12]) < 1e-5 && Math.abs(bin.position.x - 40) < 1e-9, 'en su nuevo sitio');
+
+  bags[1].group.visible = false;batches.sync();
+  assert.equal(lot(bagModel).count, 1, 'lo descartado por el frustum no entra en el lote');bags[1].group.visible = true;
+
+  bags[0].dispose();batches.sync();
+  assert.equal(bagModel.layers.mask, 1);assert.equal(lot(bags[1].mesh.getObjectByProperty('isMesh', true)).count, 1);
+  bags[1].dispose();bin.dispose();disposeInstanceBatches(scene);
+  assert.equal(batches.root.parent, null);
+});
+
+test('los objetos sueltos lejanos se dibujan sin sombra y los lotes vacíos se ocultan tras el calentamiento', () => {
+  const scene = new THREE.Scene(), camera = new THREE.PerspectiveCamera();
+  const mesh = (x) => { const m = new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshBasicMaterial()); m.castShadow = true; m.position.x = x; scene.add(m); m.updateMatrixWorld(); return m; };
+  const nearOne = mesh(5), farOne = mesh(200);
+  const batches = instanceBatches(scene);
+  batches.add(nearOne, 'k');batches.add(farOne, 'k');
+  batches.sync(camera);
+  const group = [...batches.groups.values()][0];
+  assert.equal(group.mesh.count, 1);assert.equal(group.mesh.castShadow, true);
+  assert.equal(group.far.count, 1);assert.equal(group.far.castShadow, false, 'el lejano se dibuja sin sombra');
+  assert.equal(group.far.visible, true, 'durante el calentamiento los lotes se dibujan aunque estén vacíos');
+  scene.userData.skipEmptyBatches = true;
+  farOne.visible = false;
+  batches.sync(camera);
+  assert.equal(group.far.visible, false, 'tras el calentamiento un lote vacío no cuesta dibujo');
+  disposeInstanceBatches(scene);
 });

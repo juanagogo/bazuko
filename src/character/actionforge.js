@@ -5,7 +5,8 @@ export const ACTIONFORGE_CLIPS = {
   idle: 'idle_loop_fit', walk: 'walk_loop_fit', run: 'sprint_loop_fit',
   buscar: 'fixing_kneeling_fit', pedir: 'idle_talking_loop_fit',
   comer: 'consume_fit', beber: 'consume_fit', cagar: 'crouch_idle_loop_fit',
-  lanzar: 'overhandthrow_fit'
+  lanzar: 'overhandthrow_fit', bailar: 'dance_loop_fit',
+  brazos: 'idle_foldarms_loop_fit', telefono: 'idle_talkingphone_loop_fit'
 };
 
 // Cada cuerpo recibe sus propios clips. Ropa y texturas siguen siendo las del juego.

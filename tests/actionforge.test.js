@@ -13,13 +13,13 @@ async function bank() {
   return new GLTFLoader().parseAsync(data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength), '');
 }
 
-test('banco ActionForge incluye solo ocho clips y esqueleto, sin ropa ni texturas duplicadas', async () => {
+test('banco ActionForge incluye solo once clips y esqueleto, sin ropa ni texturas duplicadas', async () => {
   const data = fs.readFileSync(path);
   const json = JSON.parse(data.subarray(20, 20 + data.readUInt32LE(12)));
-  assert.ok(data.length < 1024 * 1024);
+  assert.ok(data.length < 2 * 1024 * 1024);
   assert.equal(json.images, undefined);
   assert.equal(json.meshes, undefined);
-  assert.equal(json.animations.length, 8);
+  assert.equal(json.animations.length, 11);
   const gltf = await bank();
   const names = new Set(gltf.animations.map(c => c.name));
   assert.ok(Object.values(ACTIONFORGE_CLIPS).every(name => names.has(name)));

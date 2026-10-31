@@ -16,7 +16,14 @@ canvas { display: block; width: 100vw; height: 100vh; }
   color: #d9f9e6; background: #243d35; border: 1px solid #54776a;
   border-radius: 3px; font: inherit; pointer-events: auto;
 }
+#top-readout {
+  position: fixed; top: 12px; left: 50%; transform: translateX(-50%); z-index: 20; padding: 5px 9px;
+  color: #eef2f8; background: rgba(12, 15, 20, .74); border: 1px solid rgba(255, 255, 255, .1);
+  border-radius: 8px; font: 700 12px/1 monospace; font-variant-numeric: tabular-nums;
+  pointer-events: none; white-space: nowrap;
+}
 @media (max-width: 650px) {
+  #top-readout { top: 6px; font-size: 10px; padding: 4px 6px; }
   #performance-panel { font-size: 10px; right: 6px; bottom: 38px; padding: 6px; }
 }
 
@@ -793,6 +800,28 @@ body.night-mode .cinematic-vignette {
   .loading-art-scene, .loading-art-scene.is-leaving { animation-duration: .01s; }
 }
 
+#driving-controls{position:fixed;bottom:110px;left:50%;transform:translateX(-50%);z-index:12;max-width:90vw;padding:8px 14px;background:#111c;color:#ffdf75;border-radius:5px;font:600 13px monospace;pointer-events:none;text-align:center}
+#driving-controls:empty{display:none}
+
+/* Session-only diagnostic tools, also available in production. */
+#dev-button { position:fixed; top:12px; right:190px; z-index:1500; padding:7px 12px; color:#f3ce64; background:#10252e; border:1px solid #638b87; border-radius:4px; cursor:pointer; }
+#developer-panel { position:fixed; top:54px; left:12px; width:350px; max-width:calc(100vw - 24px); max-height:calc(100dvh - 70px); overflow:auto; z-index:2000; color:#e5efee; background:#101f2bf5; border:1px solid #638b87; border-radius:8px; box-shadow:0 8px 30px #0009; font:13px/1.5 monospace; }
+#developer-panel[hidden], #developer-panel [hidden] { display:none; }
+#developer-panel header { display:flex; align-items:center; gap:8px; padding:10px 12px; background:#163344; position:sticky; top:0; }
+#developer-panel header strong { flex:1; color:#f3ce64; }
+#developer-panel button { cursor:pointer; color:inherit; background:#244638; border:1px solid #638b87; border-radius:4px; padding:5px 9px; }
+#developer-panel button:disabled, #dev-button:disabled { opacity:.5; cursor:wait; }
+.dev-content { padding:10px 12px; }
+.dev-toggle { display:flex; gap:9px; align-items:center; min-height:31px; cursor:pointer; }
+.dev-toggle input { accent-color:#53c68b; width:16px; height:16px; }
+.dev-metrics { white-space:pre-wrap; padding:10px; background:#08151b; font:12px/1.6 monospace; }
+.dev-actions { display:flex; gap:8px; flex-wrap:wrap; }
+.dev-command { flex:1 1 150px; min-width:0; padding:5px 8px; font:inherit; color:inherit; background:rgba(0,0,0,.35); border:1px solid rgba(255,255,255,.25); border-radius:4px; }
+.dev-status { color:#ffd06c; }
+.dev-hint { color:#a5bbb9; font-size:11px; }
+.dev-section { margin:10px 0 6px; color:#f3ce64; font-size:12px; font-weight:700; }
+.dev-time { margin-bottom:8px; }
+#developer-panel .dev-time button[aria-pressed="true"] { background:#53c68b; color:#08151b; border-color:#53c68b; }
 /* La tarjeta conserva su posición aunque la ilustración aún se esté descargando. */
 #loading-screen .loading-card {
   position: absolute; left: clamp(20px, 4vw, 70px); bottom: clamp(22px, 5vh, 60px);

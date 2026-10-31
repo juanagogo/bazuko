@@ -135,11 +135,11 @@ test('Combate callejero GTA: puñetazo, impacto con transeúnte, reacción y bot
   const npc = new Npc(scene, new THREE.Vector3(10, 0, 11), { look: {} });
   assert.equal(npc.panicTimer, 0);
 
-  // Lanzar puñetazo
+  // Lanzar puñetazo: preparación y después impacto
   player.update(0.1, null, null, null, [npc]);
-
   assert.equal(player.action, 'golpear');
   assert.equal(audio.whoosh, true);
+  player.update(0.1, null, null, null, [npc]);
   assert.equal(audio.punchHit, true, 'El golpe conecta con el peatón');
   assert.ok(npc.panicTimer > 0, 'El transeúnte entra en estado de pánico y huida');
   assert.ok(stats.dinero > 1000, 'El jugador recoge el botín arrojado por el peatón');

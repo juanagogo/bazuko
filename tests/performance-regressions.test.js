@@ -43,15 +43,16 @@ test('el barrido indexado conserva la resolución exhaustiva en movimientos larg
   assert.ok(indexed.queryStatic(0, 0, 0, 0).includes(added));
 });
 
-test('un tirón aislado no baja la calidad y una carga sostenida respeta el límite elegido', () => {
+test('un tirón aislado no baja la calidad y una carga sostenida solo baja efectos sin tocar la resolución', () => {
   const resolution = new AdaptiveResolution(1.25);
   resolution.sample(200);
   for (let i = 0; i < 180; i++) resolution.sample(1000 / 60);
-  assert.equal(resolution.ratio, 1.25);
+  assert.equal(resolution.ratio, 1);
+  assert.equal(resolution.pressure, 0);
   for (let i = 0; i < 300; i++) resolution.sample(40);
-  assert.equal(resolution.ratio, .75);
+  assert.equal(resolution.ratio, 1);
   assert.equal(resolution.pressure, 2);
-  resolution.setLimit(1);
+  resolution.setLimit(1.5);
   assert.equal(resolution.pressure, 0);
   assert.equal(resolution.ratio, 1);
 });

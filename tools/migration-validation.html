@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <title>Validación de migración BAZUKO</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="stylesheet" href="/src/ui/styles.css" />
+  <link rel="stylesheet" href="/src/ui/inventory.css" />
+  <link rel="stylesheet" href="/src/ui/menus.css" />
+</head>
+<body class="is-loading">
+<section id="loading-screen" aria-label="Carga del juego">
+  <div class="loading-card">
+    <h1>BAZUKO</h1>
+    <p id="loading-status" role="status" aria-live="polite">Preparando el juego…</p>
+    <progress id="loading-progress" max="5" value="0" aria-label="Progreso de carga"></progress>
+    <p class="loading-hint">La partida y el contador de FPS comenzarán cuando termine la carga.</p>
+    <button id="loading-retry" type="button" hidden>Reintentar</button>
+  </div>
+</section>
+<div id="app">
+  <canvas id="game-canvas"></canvas>
+
+  <!-- HUD: barras de stats -->
+  <div id="hud">
+    <div class="stat-bar" data-stat="hambre">
+      <span class="label">🍞</span>
+      <div class="bar"><div class="fill"></div></div>
+    </div>
+    <div class="stat-bar" data-stat="sed">
+      <span class="label">💧</span>
+      <div class="bar"><div class="fill"></div></div>
+    </div>
+    <div class="stat-bar" data-stat="energia">
+      <span class="label">😴</span>
+      <div class="bar"><div class="fill"></div></div>
+    </div>
+    <div class="stat-bar" data-stat="salud">
+      <span class="label">🩹</span>
+      <div class="bar"><div class="fill"></div></div>
+    </div>
+    <div class="stat-bar" data-stat="higiene">
+      <span class="label">🧼</span>
+      <div class="bar"><div class="fill"></div></div>
+    </div>
+    <div class="stat-bar" data-stat="animo">
+      <span class="label">🧠</span>
+      <div class="bar"><div class="fill"></div></div>
+    </div>
+    <div class="stat-bar" data-stat="vicio" title="Vicio: si se vacía entras en abstinencia">
+      <span class="label">🚬</span>
+      <div class="bar"><div class="fill"></div></div>
+    </div>
+  </div>
+
+  <!-- Topbar -->
+  <div id="topbar">
+    <span id="player-name"></span>
+    <span id="clock">Día 1 — 06:00</span>
+    <span id="money">$ 0</span>
+    <span id="level-display">Nv 1</span>
+    <span id="talent-points">🌟 0</span>
+  </div>
+
+  <div id="game-settings"><button type="button" id="radio-toggle" title="Radio transistor (R)" aria-label="Radio transistor">📻</button><button id="pause-toggle" type="button" aria-label="Pausar y abrir ajustes">⏸️ Pausa</button><button id="audio-toggle" type="button" aria-label="Silenciar sonido">🔊</button></div>
+  <!-- XP bar -->
+  <div id="xp-bar">
+    <div id="xp-fill"></div>
+  </div>
+
+  <!-- NUEVOS -->
+  <div id="boost-indicator">⚡ BOOST ACTIVO</div>
+  <div id="interaction-prompt"></div>
+  <div id="inventory-panel"></div>
+  <div id="disease-panel"></div>
+  <div id="status" role="status" aria-live="polite" hidden></div>
+  <div id="poop-hud-ammo" class="empty">💩 [X] Hacer popó</div>
+
+  <!-- Capa de Alucinaciones y Psicosis por Abstinencia -->
+  <div id="psychosis-overlay" aria-hidden="true">
+    <div class="psychosis-vignette"></div>
+    <div class="psychosis-voices"></div>
+    <div class="psychosis-warning" id="psychosis-warning">
+      ⚠️ SÍNDROME DE ABSTINENCIA SEVERA · PSICOSIS INDUCIDA
+    </div>
+  </div>
+
+  <!-- Panel de talentos -->
+  <div id="talent-panel"></div>
+
+  <!-- Panel de crafteo -->
+  <div id="craft-panel"></div>
+
+  <!-- Panel de la tienda del Dealer -->
+  <div id="dealer-panel"></div>
+
+  <!-- Controles -->
+  <div id="camera-controls">
+    <button type="button" id="camera-toggle" data-target-view="isometric" aria-pressed="true" aria-label="Cambiar a vista isométrica (V)">⇄ Cambiar a vista isométrica · V</button>
+    <span id="camera-hint">Botón derecho + arrastrar o flechas: girar · Rueda: distancia</span>
+  </div>
+  <div id="controls-help" class="is-collapsed" role="note" aria-label="Guía de controles">
+    <div id="controls-help-content" aria-hidden="true">
+    <span><kbd>WASD</kbd> Mover</span>
+    <span><kbd>Shift</kbd> Correr</span>
+    <span><kbd>E</kbd> Interactuar</span>
+    <span><kbd>I / Tab</kbd> Inventario</span>
+    <span class="control-extra"><kbd>V</kbd> Cámara</span>
+    <span class="control-extra"><kbd>Q</kbd> Seleccionar / dealer</span>
+    <span class="control-extra"><kbd>B</kbd> Limosna</span>
+    <span class="control-extra"><kbd>F</kbd> Boost</span>
+    <span class="control-extra"><kbd>T</kbd> Talentos</span>
+    <span class="control-extra"><kbd>C</kbd> Fabricar</span>
+    <span class="control-extra"><kbd>P</kbd> Personaje</span>
+    <span class="control-extra"><kbd>M</kbd> Modelo liviano</span>
+    <span class="control-extra"><kbd>N</kbd> Radar</span>
+    <span class="control-extra"><kbd>R</kbd> Radio</span>
+    <span class="control-extra"><kbd>X</kbd> Lanzar / recoger</span>
+    <span class="control-extra"><kbd>Z</kbd> Defecar</span>
+    <span><kbd>Esc</kbd> Pausa y ayuda</span>
+    </div>
+    <button id="controls-help-toggle" type="button" aria-label="Mostrar controles" title="Mostrar controles" aria-controls="controls-help-content" aria-expanded="false">!</button>
+  </div>
+</div>
+
+  <!-- Menú de lugares: recicladora, tienda, cambuche -->
+  <section id="menu" class="menu" hidden role="dialog" aria-modal="true" aria-labelledby="menu-title">
+    <div class="sign sign--info sign--menu">
+      <header class="menu__head">
+        <span class="menu__icon" id="menu-icon"></span>
+        <div>
+          <h2 class="menu__title" id="menu-title"></h2>
+          <p class="menu__sub" id="menu-sub"></p>
+        </div>
+        <button type="button" class="menu__close" id="menu-close" aria-label="Cerrar"></button>
+      </header>
+      <div class="menu__body" id="menu-body"></div>
+      <footer class="menu__foot" id="menu-foot"></footer>
+    </div>
+  </section>
+
+  <!-- Creador de personaje -->
+  <section id="creator-modal" class="creator" hidden role="dialog" aria-modal="true" aria-labelledby="creator-title">
+    <div class="creator__stage">
+      <canvas id="creator-canvas" aria-label="Vista previa del personaje. Arrastra para girarlo."></canvas>
+      <div class="creator__rot">
+        <button type="button" class="cr-icon-btn" id="creator-rot-l" aria-label="Girar a la izquierda"></button>
+        <span class="creator__hint">Arrastra para girar</span>
+        <button type="button" class="cr-icon-btn" id="creator-rot-r" aria-label="Girar a la derecha"></button>
+      </div>
+    </div>
+    <div class="sign sign--info creator__side">
+      <header class="creator__head">
+        <h2 class="menu__title" id="creator-title">Crea tu personaje</h2>
+        <button type="button" class="menu__close" id="creator-close" aria-label="Cerrar sin guardar"></button>
+      </header>
+      <nav class="creator__tabs" id="creator-tabs" role="tablist" aria-label="Categorías"></nav>
+      <div class="creator__panel" id="creator-panel" role="tabpanel"></div>
+      <footer class="creator__foot">
+        <p class="cr-error" id="creator-error" hidden>Ponle un nombre a tu personaje.</p>
+        <button type="button" class="btn btn--ghost btn--small" id="creator-random">Al azar</button>
+        <button type="button" class="btn btn--primary btn--small" id="creator-done">Listo</button>
+      </footer>
+    </div>
+  </section>
+
+  <script type="module" src="/tools/migration-validation.js"></script>
+</body>
+</html>

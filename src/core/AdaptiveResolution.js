@@ -1,8 +1,8 @@
 /** Ventanas largas e histéresis para no cambiar resolución por un tirón aislado. */
 export class AdaptiveResolution {
   constructor(deviceRatio = 1) {
-    this.max = Math.min(deviceRatio || 1, 1.5);
-    this.min = Math.min(this.max, 0.75);
+    this.max = 1;
+    this.min = 1;
     this.ratio = this.max;
     this.pressure = 0;
     this.resetWindow();
@@ -11,9 +11,9 @@ export class AdaptiveResolution {
   resetWindow() { this.elapsed = 0; this.frames = 0; this.work = 0; this.slowFrames = 0; this.fastWindows = 0; }
 
   setLimit(max) {
-    this.max = max;
-    this.min = Math.min(max, .75);
-    this.ratio = max;
+    this.max = 1;
+    this.min = 1;
+    this.ratio = 1;
     this.pressure = 0;
     this.resetWindow();
   }

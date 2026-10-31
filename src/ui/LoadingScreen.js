@@ -52,7 +52,7 @@ export class LoadingScreen {
     this.artwork.stop();
     console.error('[Inicio]', error);
     this.root.hidden = false;
-    this.status.textContent = 'No se pudo completar la carga. Revisa la conexión y vuelve a intentarlo.';
+    this.status.textContent = error?.message?.includes('WebGPU') ? error.message : 'No se pudo completar la carga. Revisa la conexión y vuelve a intentarlo.';
     this.progress.hidden = true;
     document.getElementById('loading-retry').hidden = false;
   }

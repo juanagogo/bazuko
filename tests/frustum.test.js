@@ -130,3 +130,22 @@ test('un error de render no deja sectores ocultos para la simulación o la sigui
   assert.throws(() => renderer.render(scene, camera()), /render falló/);
   assert.equal(mesh.visible, true);
 });
+
+test('los objetos pequeños dejan de proyectar sombra más allá de su alcance sin dejar de verse', () => {
+  const scene = new THREE.Scene(), culling = new FrustumCulling(), view = camera();
+  const near = box(0, -10), far = box(0, -80);
+  near.castShadow = far.castShadow = true;
+  scene.add(near, far);
+  culling.register(near, { shadowRange: 40 });
+  culling.register(far, { shadowRange: 40 });
+  view.far = 200;
+  view.updateProjectionMatrix();
+  culling.apply(view);
+  assert.equal(near.castShadow, true);
+  assert.equal(far.visible, true, 'sigue dibujándose en la vista');
+  assert.equal(far.castShadow, false, 'su sombra lejana se omite');
+  view.position.z = -70;
+  culling.apply(view);
+  assert.equal(far.castShadow, true, 'al acercarse vuelve a proyectar sombra');
+  assert.equal(near.castShadow, false);
+});

@@ -42,6 +42,8 @@ export class LightHalos {
     }
     let count = 0;
     for (const { light, position } of candidates) {
+      // Directional headlights illuminate through their cone, never a circular ground decal.
+      if (light.isSpotLight) continue;
       const distance = position.distanceTo(target);
       if (distance >= 45 || count === this.capacity) continue;
       const radius = Math.min(4, (light.distance || 8) * .45);

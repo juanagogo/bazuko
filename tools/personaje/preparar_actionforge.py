@@ -7,7 +7,8 @@ ROOT = Path(__file__).resolve().parents[2]
 SOURCE = ROOT / 'work/exportaciones/animaciones-actionforge.glb'
 OUTPUT = ROOT / 'public/models/animaciones-actionforge.glb'
 CLIPS = {'idle_loop_fit', 'walk_loop_fit', 'sprint_loop_fit', 'fixing_kneeling_fit',
-         'idle_talking_loop_fit', 'consume_fit', 'crouch_idle_loop_fit', 'overhandthrow_fit'}
+         'idle_talking_loop_fit', 'consume_fit', 'crouch_idle_loop_fit', 'overhandthrow_fit', 'dance_loop_fit',
+         'idle_foldarms_loop_fit', 'idle_talkingphone_loop_fit'}
 raw = SOURCE.read_bytes()
 assert struct.unpack_from('<II', raw) == (0x46546C67, 2)
 size = struct.unpack_from('<I', raw, 12)[0]

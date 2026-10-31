@@ -1,7 +1,9 @@
-import * as THREE from 'three';
+import * as THREE from 'three/webgpu';
+import {uniform,texture,uv,color,attribute,step,max,min,float,mix} from 'three/tsl';
 import { createImportedModel } from '../../utils/ImportedModels.js';
 import { CARACAS } from './StreetLayout.js';
 import { CITY_CARRERAS as CARRERAS, CITY_CALLES as CALLES } from './CityLayout.js';
+import { signTexture } from '../../utils/signs.js';
 import { BUS_DETOUR } from './Colpatria.js';
 import { STATIC_CHUNK_SIZE } from './StaticGeometry.js';
 
@@ -9,33 +11,16 @@ const SEM_HEIGHT = 4.3;
 
 /** Ilumina las zonas de lente pintadas en el GLB, sobre su geometría real. */
 export function createSignalMaterial(source, states) {
-  const material = source.clone();
-  material.metalnessMap = null; material.roughnessMap = null; material.normalMap = null;
-  material.metalness = .1; material.roughness = .8;
-  material.customProgramCacheKey = () => 'traffic-lenses-v1';
-  material.onBeforeCompile = shader => {
-    shader.uniforms.trafficStates = states;
-    shader.vertexShader = 'attribute float trafficAxis;\nvarying float vTrafficAxis;\n' + shader.vertexShader;
-    shader.vertexShader = shader.vertexShader.replace('#include <begin_vertex>', 'vTrafficAxis = trafficAxis;\n#include <begin_vertex>');
-    shader.fragmentShader = 'uniform vec2 trafficStates;\nvarying float vTrafficAxis;\n' + shader.fragmentShader;
-    shader.fragmentShader = shader.fragmentShader.replace('#include <map_fragment>', `
-      #include <map_fragment>
-      vec3 trafficLensColor = diffuseColor.rgb;
-      float tr = trafficLensColor.r, tg = trafficLensColor.g, tb = trafficLensColor.b;
-      float redLens = step(0.12, tr) * step(tg * 1.8, tr) * step(tb * 1.8, tr);
-      float greenLens = step(0.12, tg) * step(tr * 1.8, tg) * step(tb * 1.8, tg);
-      float amberLens = step(0.12, tr) * step(0.12, tg) * step(tb * 2.0, tg)
-        * step(tr * 0.4, tg) * step(tg * 0.65, tr) * (1.0 - redLens) * (1.0 - greenLens);
-      float trafficState = vTrafficAxis < 0.5 ? trafficStates.x : trafficStates.y;
-      float trafficLensOn = trafficState < 0.5 ? greenLens : trafficState < 1.5 ? amberLens : redLens;
-      float trafficLensMask = min(1.0, redLens + amberLens + greenLens);
-      diffuseColor.rgb *= 1.0 - 0.94 * trafficLensMask * (1.0 - trafficLensOn);
-    `);
-    shader.fragmentShader = shader.fragmentShader.replace('#include <emissivemap_fragment>', `
-      #include <emissivemap_fragment>
-      totalEmissiveRadiance += trafficLensColor * trafficLensOn * 1.2;
-    `);
-  };
+  const material=new THREE.MeshStandardNodeMaterial({map:source.map,color:source.color,roughness:.8,metalness:.1});
+  const c=source.map?texture(source.map,uv()).rgb.mul(color(source.color)):color(source.color);
+  const red=step(.12,c.r).mul(step(c.g.mul(1.8),c.r)).mul(step(c.b.mul(1.8),c.r));
+  const green=step(.12,c.g).mul(step(c.r.mul(1.8),c.g)).mul(step(c.b.mul(1.8),c.g));
+  const amber=step(.12,c.r).mul(step(.12,c.g)).mul(step(c.b.mul(2),c.g)).mul(step(c.r.mul(.4),c.g)).mul(step(c.g.mul(.65),c.r)).mul(float(1).sub(red)).mul(float(1).sub(green));
+  const state=uniform(states.value),axis=attribute('trafficAxis','float');
+  const selected=mix(state.x,state.y,step(.5,axis));
+  const on=mix(mix(green,amber,step(.5,selected)),red,step(1.5,selected));
+  material.colorNode=c.mul(float(1).sub(min(1,red.add(green).add(amber)).mul(float(1).sub(on)).mul(.94)));
+  material.emissiveNode=c.mul(on).mul(1.2);material.userData.trafficStates=state;
   return material;
 }
 
@@ -44,6 +29,9 @@ export function signalState(time, axis) {
   const phase = ((time - axis * 18) % 36 + 36) % 36;
   return phase < 14 ? 0 : phase < 17 ? 1 : 2;
 }
+
+export function intersectionPhase(signals,node,axis){return node.control==='priority'?0:signalState(signals.time,axis);}
+
 
 export class TrafficSignals {
   constructor() {
@@ -58,7 +46,7 @@ export class TrafficSignals {
     for (const [za, zb] of CALLES) for (const [xa, xb] of vertical) {
       const node = { x0: xa * 2 - 1, x1: xb * 2 + 1, z0: za * 2 - 1, z1: zb * 2 + 1 };
       // El desvío comparte la fase de la troncal y reserva el cruce completo.
-      if (node.x0 < 78.5 && node.x1 > 78.5 && node.z0 > BUS_DETOUR.z0 && node.z1 < BUS_DETOUR.z1) node.x1 = Math.min(node.x1 + BUS_DETOUR.offset, 125);
+      // El rodeo ahora va sobre el viaducto: no reservar cruces vecinos de la calle inferior.
       this.nodes.push(node);
       this.poles.push(
         { x: node.x0 - .5, z: node.z1 + .5, hx: 1, hz: 0, axis: 0 },
@@ -67,12 +55,29 @@ export class TrafficSignals {
         { x: node.x1 + .5, z: node.z1 + .5, hx: 0, hz: -1, axis: 1 }
       );
     }
+    const count=Math.ceil(this.nodes.length/4);
+    const ranked=[...this.nodes].sort((a,b)=>Number(b.x0<=CARACAS.lanes[1][1]*2&&b.x1>=CARACAS.lanes[0][0]*2)-Number(a.x0<=CARACAS.lanes[1][1]*2&&a.x1>=CARACAS.lanes[0][0]*2)|| (b.x1-b.x0+b.z1-b.z0)-(a.x1-a.x0+a.z1-a.z0)||a.z0-b.z0||a.x0-b.x0);
+    const selected=new Set(ranked.slice(0,count));
+    for(const node of this.nodes){node.control=selected.has(node)?'signal':'priority';node.mainAxis=node.x1-node.x0>=node.z1-node.z0?1:0;}
+    this.poles=this.poles.filter((pole,i)=>this.nodes[Math.floor(i/4)].control==='signal');
   }
 
   async preloadModel() {
     const base = await createImportedModel('semaforo');
     this._buildPoles(base);
     this.update(this.time);
+    const priority=this.nodes.filter(n=>n.control==='priority'),count=priority.length*2;
+    const map=signTexture({title:'PARE',bg:'#ad201e',fg:'#ffffff',w:256,h:256});
+    const signs=new THREE.InstancedMesh(new THREE.CircleGeometry(.45,8).rotateZ(Math.PI/8),new THREE.MeshStandardMaterial({map,side:THREE.DoubleSide,roughness:.8}),count);
+    const posts=new THREE.InstancedMesh(new THREE.CylinderGeometry(.035,.035,2,6),new THREE.MeshStandardMaterial({color:'#686b6d',roughness:.8}),count);
+    const dummy=new THREE.Object3D();let index=0;
+    for(const node of priority)for(const side of [-1,1]){
+      dummy.position.set(side<0?node.x0-.6:node.x1+.6,2,side<0?node.z0-.6:node.z1+.6);
+      dummy.rotation.set(0,node.mainAxis===1?side*Math.PI/2:side<0?0:Math.PI,0);dummy.updateMatrix();signs.setMatrixAt(index,dummy.matrix);
+      dummy.position.y=1;dummy.rotation.set(0,0,0);dummy.updateMatrix();posts.setMatrixAt(index++,dummy.matrix);
+    }
+    signs.name='Señales PARE agrupadas';posts.name='Postes PARE agrupados';signs.instanceMatrix.needsUpdate=posts.instanceMatrix.needsUpdate=true;
+    this.group.add(signs,posts);this.stopSigns=[signs,posts];
   }
 
   update(time) {
@@ -83,13 +88,12 @@ export class TrafficSignals {
     this.lensStates.value.set(states[0], states[1]);
   }
 
-  blocks(point, direction, current, length = 0, vehicle = null) {
+  blocks(point, direction, current, length = 0, vehicle = null, nodes = this.nodes) {
     const axis = Math.abs(direction.x) >= Math.abs(direction.z) ? 0 : 1;
-    const red = signalState(this.time, axis) !== 0;
-    if (!red && !vehicle) return false;
-    for (const node of this.nodes) {
+    for (const node of nodes) {
+      const red=intersectionPhase(this,node,axis)!==0;
       const claim = this.reservations.get(node);
-      if (vehicle && claim?.owners.get(vehicle)?.entered) continue;
+      if (vehicle && (claim?.owners.get(vehicle)?.entered||claim?.owners.get(vehicle)?.committed)) continue;
       // Quien ya está en el cruce lo despeja aunque cambie la luz.
       if (current.x >= node.x0 && current.x <= node.x1 && current.z >= node.z0 && current.z <= node.z1) continue;
       // Solo obedece quien se acerca a ese acceso. Al salir, la cola del
@@ -109,9 +113,9 @@ export class TrafficSignals {
 
   busClearance(position, length, direction = -1) {
     if (position.y > 3) return Infinity;
-    const red = signalState(this.time, 1) !== 0;
     let clearance = Infinity;
     for (const node of this.nodes) {
+      const red=intersectionPhase(this,node,1)!==0;
       if (!red && !this.reservations.get(node)?.busBlocked) continue;
       if (position.x < node.x0 || position.x > node.x1) continue;
       if (direction < 0 && position.z > node.z1) clearance = Math.min(clearance, Math.max(0, position.z - node.z1 - length / 2 - .8));
@@ -188,5 +192,6 @@ export class TrafficSignals {
     this.group.removeFromParent();
     for (const mesh of this.poleMeshes ?? []) { mesh.dispose(); mesh.geometry.dispose(); }
     this.poleMesh?.material.dispose();
+    for(const mesh of this.stopSigns??[]){mesh.geometry.dispose();mesh.material.map?.dispose();mesh.material.dispose();mesh.dispose();}
   }
 }

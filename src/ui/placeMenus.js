@@ -90,13 +90,15 @@ export function openShop(game, target = null) {
 /** Texto corto con los efectos de un objeto consumible */
 function describe(it) {
   if (!it) return '';
-  if (it.cure) return `Cura: ${it.cure}.`;
+
   const names = { hambre: 'hambre', sed: 'sed', energia: 'energía', salud: 'salud', higiene: 'higiene', animo: 'ánimo', vicio: 'vicio' };
   const parts = [];
   if (it.consumable) parts.push(`+${it.amount} ${names[it.consumable]}`);
   for (const k of Object.keys(names)) {
     if (k !== it.consumable && it[k]) parts.push(`${it[k] > 0 ? '+' : ''}${it[k]} ${names[k]}`);
   }
+  if (it.calor) parts.push(`+${Math.round(it.calor / 60)}m calor`);
+  if (it.cure) parts.push(`Cura: ${it.cure}`);
   return parts.join(' · ');
 }
 

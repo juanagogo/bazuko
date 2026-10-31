@@ -1,7 +1,7 @@
 export const GRAPHICS_PROFILES = Object.freeze({
-  baja: { pixelRatio: 1, shadowSize: 0, silhouette: false, animationBudget: 3, far: 180 },
-  media: { pixelRatio: 1.25, shadowSize: 1024, silhouette: true, animationBudget: 2, far: 220 },
-  alta: { pixelRatio: 1.5, shadowSize: 2048, silhouette: true, animationBudget: 1, far: 300 }
+  baja: { pixelRatio: 1, shadowSize: 0, localLights:16,ssr:false,bloom:true,bloomResolution:.25, silhouette: false, animationBudget: 3, far: 180 },
+  media: { pixelRatio: 1, shadowSize: 1024,localLights:48,ssr:false,bloom:true,bloomResolution:.5, silhouette: true, animationBudget: 2, far: 220 },
+  alta: { pixelRatio: 1, shadowSize: 2048,localLights:96,ssr:true,bloom:true,bloomResolution:.5, silhouette: true, animationBudget: 1, far: 300 }
 });
 
 export function effectiveQuality(selected = 'alta', pressure = 0) {

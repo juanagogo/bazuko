@@ -34,7 +34,7 @@ Solo `idle`, `walk` y `run` son obligatorias; las demás se usan si existen.
 "C:/Program Files/Blender Foundation/Blender 5.2/blender.exe" -b --python tools/personaje/mixamo_a_glb.py -- "../bazuko-arte/mixamo" public/models/animaciones.glb
 ```
 
-El juego carga `public/models/animaciones.glb` si existe; si no, usa las de prueba.
+El banco de respaldo se configura explícitamente con `ANIM_URL` en `src/character/RealisticCharacter.js`. Después de exportar `animaciones.glb`, actualizar esa ruta para usarlo. ActionForge sigue aportando los clips principales. No se solicita un archivo inexistente durante cada arranque.
 
 ## Licencia
 

@@ -206,10 +206,22 @@ function settingsPanel(game) {
   });
 
   const curQuality = game.renderer?.quality || 'alta';
-  const quality = (id, label) => button(label, {
-    primary: curQuality === id, class: 'pause-choice',
-    onClick: () => { game.setGraphicsQuality?.(id); game.menu?.refresh(); }
-  });
+  const qualityStatus = el('p', { class: 'pause-hint', text: game.qualityChanging ? 'Preparando calidad…' : '' });
+  // El cambio prepara la calidad nueva antes de activarla; mientras tanto el selector queda bloqueado.
+  const qualityButtons = [];
+  const quality = (id, label) => {
+    const btn = button(label, {
+      primary: curQuality === id, class: 'pause-choice', disabled: !!game.qualityChanging,
+      onClick: async () => {
+        if (game.qualityChanging || curQuality === id) return;
+        for (const b of qualityButtons) b.disabled = true;
+        await game.changeGraphicsQuality?.(id, { onProgress: text => { qualityStatus.textContent = text; } });
+        game.menu?.refresh();
+      }
+    });
+    qualityButtons.push(btn);
+    return btn;
+  };
 
   const minimap = game.minimap;
   const zoom = minimap?.zoomBase ?? 70;
@@ -226,6 +238,7 @@ function settingsPanel(game) {
       row('Volumen', volumeInput, volumeLabel), ...mixRows, row('Silencio', muteBtn)),
     section('⚡ Calidad gráfica',
       el('div', { class: 'pause-segmented' }, quality('baja', '⚡ Baja'), quality('media', '⚖️ Media'), quality('alta', '✨ Alta')),
+      qualityStatus,
       el('p', { class: 'pause-hint', text: 'Baja da más FPS. Bajo carga la calidad puede bajar sola sin cambiar tu elección.' }),
       row('Rendimiento', button(game.performanceHUD?.visible ? 'Visible (F3)' : 'Oculto (F3)', {
         primary: !!game.performanceHUD?.visible, class: 'pause-choice',

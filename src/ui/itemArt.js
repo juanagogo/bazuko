@@ -11,6 +11,8 @@ const art = (file) => new URL(`./item-art/${file}.svg`, import.meta.url).href.re
 const ART = {
   radioTransistor: art('radioTransistor'),
   arma: art('arma'),
+  cuchillo: art('cuchillo'),
+  botella_picada: art('botella_picada'),
   curita: art('curita'),
   antibiotico: art('antibiotico'),
   rifa: art('rifa'),

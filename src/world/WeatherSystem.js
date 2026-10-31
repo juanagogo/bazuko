@@ -1,5 +1,6 @@
 // src/world/WeatherSystem.js
-import * as THREE from 'three';
+import * as THREE from 'three/webgpu';
+import { uniform, attribute, vec3, float, mod, abs, max, mix, smoothstep } from 'three/tsl';
 import { WEATHER_TYPES, RAIN_THRESHOLD, seasonForDay, pickNextWeather } from './Climate.js';
 
 // Gotas visibles por perfil gráfico: el resto del búfer no se dibuja.
@@ -14,56 +15,34 @@ const RIPPLE_COUNT = 36;
  * lluvia no se desplace con el jugador.
  */
 function createRainMaterial(area) {
-  return new THREE.ShaderMaterial({
-    name: 'BogotaRainShader',
-    uniforms: {
-      uTime: { value: 0 },
-      uArea: { value: new THREE.Vector3(area.x, area.y, area.z) },
-      uOrigin: { value: new THREE.Vector3() },
-      uWind: { value: new THREE.Vector2() },
-      uSpeed: { value: 22 },
-      uLength: { value: .55 },
-      uColor: { value: new THREE.Color(0xaec6dc) },
-      uOpacity: { value: 0 }
-    },
-    vertexShader: `
-      attribute vec4 aDrop;
-      attribute float aTail;
-      uniform float uTime;
-      uniform vec3 uArea;
-      uniform vec3 uOrigin;
-      uniform vec2 uWind;
-      uniform float uSpeed;
-      uniform float uLength;
-      varying float vAlpha;
-      void main() {
-        float fall = uSpeed * aDrop.w;
-        float y = mod(aDrop.y - uTime * fall, uArea.y) - 2.0;
-        vec2 xz = mod(aDrop.xz - uOrigin.xz + uWind * uTime, uArea.xz) - uArea.xz * 0.5;
-        vec3 velocity = vec3(uWind.x, -fall, uWind.y);
-        vec3 local = vec3(xz.x, y, xz.y) - velocity * (aTail * uLength / fall);
-        vec2 edge = abs(xz) / (uArea.xz * 0.5);
-        vAlpha = (1.0 - smoothstep(0.55, 1.0, max(edge.x, edge.y))) * mix(1.0, 0.15, aTail);
-        gl_Position = projectionMatrix * modelViewMatrix * vec4(local, 1.0);
-      }
-    `,
-    fragmentShader: `
-      uniform vec3 uColor;
-      uniform float uOpacity;
-      varying float vAlpha;
-      void main() {
-        gl_FragColor = vec4(uColor, uOpacity * vAlpha);
-      }
-    `,
-    transparent: true,
-    depthWrite: false,
-    fog: false
-  });
+  // Mismo cálculo que el shader GLSL del original, en TSL: el renderer WebGPU no ejecuta ShaderMaterial.
+  const uniforms = {
+    uTime: uniform(0), uArea: uniform(new THREE.Vector3(area.x, area.y, area.z)), uOrigin: uniform(new THREE.Vector3()),
+    uWind: uniform(new THREE.Vector2()), uSpeed: uniform(22), uLength: uniform(.55), uColor: uniform(new THREE.Color(0xaec6dc)), uOpacity: uniform(0)
+  };
+  const drop = attribute('aDrop', 'vec4'), tail = attribute('aTail', 'float');
+  const fall = uniforms.uSpeed.mul(drop.w);
+  const y = mod(drop.y.sub(uniforms.uTime.mul(fall)), uniforms.uArea.y).sub(2);
+  const xz = mod(drop.xz.sub(uniforms.uOrigin.xz).add(uniforms.uWind.mul(uniforms.uTime)), uniforms.uArea.xz).sub(uniforms.uArea.xz.mul(.5));
+  const velocity = vec3(uniforms.uWind.x, fall.negate(), uniforms.uWind.y);
+  const material = new THREE.LineBasicNodeMaterial({ transparent: true, depthWrite: false, fog: false });
+  material.name = 'BogotaRainShader';
+  material.positionNode = vec3(xz.x, y, xz.y).sub(velocity.mul(tail.mul(uniforms.uLength).div(fall)));
+  const edge = abs(xz).div(uniforms.uArea.xz.mul(.5));
+  const fade = float(1).sub(smoothstep(.55, 1, max(edge.x, edge.y))).mul(mix(1, .15, tail));
+  material.colorNode = uniforms.uColor;
+  material.opacityNode = uniforms.uOpacity.mul(fade);
+  material.uniforms = uniforms;
+  return material;
 }
+
+// Desactivada temporalmente; cambiar a true para volver a tener llovizna al iniciar y en el ciclo.
+export const RAIN_ENABLED = false;
 
 export class WeatherSystem {
   constructor(scene) {
     this.scene = scene;
+    this.rainEnabled = RAIN_ENABLED;
     this.weather = 'nublado';
     this.timer = 0;
     this.nextChange = 180 + Math.random() * 120; // 3 a 5 minutos
@@ -167,6 +146,8 @@ export class WeatherSystem {
    */
   setWeather(type, notify = true, { transition = false } = {}) {
     if (!WEATHER_TYPES[type] || this.weather === type) return;
+    // La lluvia sigue desactivada temporalmente: los climas lluviosos se omiten hasta reactivarla.
+    if (!this.rainEnabled && WEATHER_TYPES[type].rain >= RAIN_THRESHOLD) return;
     this.weather = type;
     const target = WEATHER_TYPES[type];
     if (!transition) {
@@ -184,6 +165,20 @@ export class WeatherSystem {
       window.dispatchEvent(new CustomEvent('weather-change', {
         detail: { weather: this.weather, isRaining: target.rain >= RAIN_THRESHOLD, season: this.season.id }
       }));
+    }
+  }
+
+  /** Herramienta de desarrollo: fuerza un aguacero (o lo quita) ignorando el interruptor global de lluvia. */
+  forceRain(on) {
+    if (on) {
+      this.rainEnabled = true;
+      this.setWeather('aguacero', false);
+      this.timer = 0;
+      this.nextChange = 600;
+    } else {
+      this.setWeather('nublado', false);
+      this.rainEnabled = RAIN_ENABLED;
+      this.nextChange = 180 + this.random() * 200;
     }
   }
 

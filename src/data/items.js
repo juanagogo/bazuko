@@ -28,6 +28,18 @@ export const ITEMS = {
     id: 'pan', name: 'Pan duro', weight: 0.3, value: 1000,
     consumable: 'hambre', amount: 25, animo: 5
   },
+  empanada: {
+    id: 'empanada', name: 'Empanada con ají', weight: 0.2, value: 1200,
+    consumable: 'hambre', amount: 35, animo: 15, calor: 120, desc: 'Empanada de carne y papa con ají casero.'
+  },
+  morcilla: {
+    id: 'morcilla', name: 'Morcilla criolla', weight: 0.35, value: 2500,
+    consumable: 'hambre', amount: 60, energia: 20, animo: 10, calor: 180, desc: 'Rellena de la Mona: contundente y calórica.'
+  },
+  papaCriolla: {
+    id: 'papaCriolla', name: 'Papa criolla', weight: 0.25, value: 1000,
+    consumable: 'hambre', amount: 25, animo: 10, calor: 90, desc: 'Porción de papa criolla doradita con sal.'
+  },
   lataComida: {
     id: 'lataComida', name: 'Lata de atún', weight: 0.4, value: 4500,
     consumable: 'hambre', amount: 45, animo: 8
@@ -35,6 +47,10 @@ export const ITEMS = {
   agua: {
     id: 'agua', name: 'Botella agua', weight: 0.5, value: 1500,
     consumable: 'sed', amount: 35
+  },
+  aguapanela: {
+    id: 'aguapanela', name: 'Aguapanela caliente', weight: 0.35, value: 1200,
+    consumable: 'sed', amount: 40, energia: 25, animo: 15, calor: 180, cure: 'gripe', desc: 'Aguapanela con limón: revive y cura la gripe.'
   },
   refresco: {
     id: 'refresco', name: 'Refresco', weight: 0.4, value: 2500,
@@ -98,6 +114,11 @@ export const ITEMS = {
     id: 'pastilla', name: 'Pastilla', weight: 0.05, value: 8000,
     consumable: 'vicio', amount: 60, animo: 40, salud: -5, substance: true
   },
+  basuco: {
+    id: 'basuco', name: 'Basuco', weight: 0.02, value: 4000,
+    consumable: 'vicio', amount: 70, animo: 30, energia: 15, salud: -6, hambre: -10, substance: true,
+    desc: 'Se fuma en pipa, agachado. Sube el ánimo de golpe pero trae paranoia y alucinaciones.'
+  },
   cigarrillo: {
     id: 'cigarrillo', name: 'Cigarrillo suelto', weight: 0.01, value: 300,
     consumable: 'vicio', amount: 35, salud: -1
@@ -115,6 +136,14 @@ export const ITEMS = {
   },
   rifa:  { id: 'rifa', name: 'Cartón de rifa', weight: 0.02, value: 1500 },
   arma:  { id: 'arma', name: 'Arma casera',    weight: 1.2,  value: 6000 },
+  cuchillo: {
+    id: 'cuchillo', name: 'Cuchillo', weight: 0.4, value: 2800, usable: true, weapon: 'cuchillo',
+    desc: 'Arma cuerpo a cuerpo rápida. Usar: equipar o guardar.'
+  },
+  botella_picada: {
+    id: 'botella_picada', name: 'Botella picada', weight: 0.3, value: 100, usable: true, weapon: 'botella_picada',
+    desc: 'Vidrio roto con buen alcance. Usar: equipar o guardar.'
+  },
 
   // ===== MATERIALES DEL CAMBUCHE =====
   lona:    { id: 'lona',    name: 'Lona azul',     weight: 2,    value: 4000, build: true, rarity: 'rare' },
@@ -143,8 +172,9 @@ const ITEM_EMOJIS = {
   lona: '⛺', madera: '🪵', colchon: '🛏️', vela: '🕯️', pan: '🍞',
   agua: '💧', refresco: '🥤', cafe: '☕', lataComida: '🐟', vendaje: '🩹',
   reloj: '⌚', moneda: '🪙', anillo: '💍', jabon: '🧼', cepillo: '🪥',
-  retrovisor: '🪞', radio: '📻', radioTransistor: '📻', pilas: '🔋', popo: '💩', cigarrillo: '🚬',
-  curita: '🩹', hierba: '🌿', rifa: '🎟️', arma: '🗡️'
+  empanada: '🥟', morcilla: '🌭', papaCriolla: '🥔', aguapanela: '🍵',
+  retrovisor: '🪞', radio: '📻', radioTransistor: '📻', pilas: '🔋', popo: '💩', cigarrillo: '🚬', basuco: '💨',
+  curita: '🩹', hierba: '🌿', rifa: '🎟️', arma: '🗡️', cuchillo: '🔪', botella_picada: '🍾'
 };
 for (const item of Object.values(ITEMS)) {
   item.emoji = ITEM_EMOJIS[item.id] ?? (item.cure ? '💊' : item.substance ? '🧪' : '📦');
@@ -156,7 +186,9 @@ export function describeEffects(item) {
   if (item.id === 'radioTransistor') lines.push('Usar: abrir el sintonizador. También con R.');
   if (item.id === 'pilas') lines.push('Usar: recargar 50% de batería de la radio.');
   if (item.id === 'popo') lines.push('Usar o X en la calle: lanzar a un peatón.');
+  if (item.weapon) lines.push('Usar: equipar o guardar. Atacar con clic o G; golpes seguidos hacen combo.');
   if (item.consumable) lines.push(`${item.consumable}: +${item.amount}`);
+  if (item.calor) lines.push(`Calor: +${Math.round(item.calor / 60)} min contra el frío`);
   for (const key of ['hambre', 'sed', 'energia', 'salud', 'higiene', 'animo', 'vicio']) {
     if (item[key]) lines.push(`${key}: ${item[key] > 0 ? '+' : ''}${item[key]}`);
   }
@@ -174,10 +206,10 @@ export const isRecyclable = (item) =>
 const ICONS = {
   lata: 'recycle', botella: 'recycle', carton: 'package', chatarra: 'wrench', cable: 'flame',
   reloj: 'watch', moneda: 'coins', anillo: 'sparkles', retrovisor: 'eye', radio: 'phone', radioTransistor: 'radio', pilas: 'flame',
-  pan: 'bread', lataComida: 'food', agua: 'water', refresco: 'water', cafe: 'coffee',
-  vendaje: 'bandage', jabon: 'bath', cepillo: 'bath', cigarrillo: 'flame',
+  pan: 'bread', empanada: 'food', morcilla: 'food', papaCriolla: 'food', aguapanela: 'coffee', lataComida: 'food', agua: 'water', refresco: 'water', cafe: 'coffee',
+  vendaje: 'bandage', jabon: 'bath', cepillo: 'bath', cigarrillo: 'flame', basuco: 'flame',
   lona: 'tent', madera: 'layers', colchon: 'bed', vela: 'flame', popo: 'alert-triangle',
-  curita: 'bandage', hierba: 'flame', rifa: 'dice', arma: 'wrench'
+  curita: 'bandage', hierba: 'flame', rifa: 'dice', arma: 'wrench', cuchillo: 'wrench', botella_picada: 'recycle'
 };
 export const itemIcon = (id) => ICONS[id] ?? (ITEMS[id]?.cure ? 'pill' : 'box');
 
@@ -198,7 +230,11 @@ export const LOOT_COMMON = [
   { item: 'madera',     weight: 3 },
   { item: 'lona',       weight: 0.6 },
   { item: 'colchon',    weight: 0.4 },
-  { item: 'vela',       weight: 0.8 }
+  { item: 'vela',       weight: 0.8 },
+  // Sustancias: poco frecuentes porque el dealer las compra caras (la pastilla, muy rara)
+  { item: 'pegante',    weight: 1.0 },
+  { item: 'hierba',     weight: 1.5 },
+  { item: 'pastilla',   weight: 0.3 }
 ];
 
 export const LOOT_RARE = [
@@ -210,15 +246,20 @@ export const LOOT_RARE = [
 export const LOOT_SUBSTANCE = [
   { item: 'tintico',  weight: 50 },
   { item: 'pegante',  weight: 30 },
-  { item: 'pastilla', weight: 20 }
+  { item: 'pastilla', weight: 20 },
+  { item: 'basuco',   weight: 20 }
 ];
 
 // ===== TIENDA LA ESQUINITA (precios en COP) =====
 
 export const SHOP_ITEMS = [
   { item: 'pan',        price: 1500 },
+  { item: 'empanada',   price: 1200, desc: 'Empanada con carne y papa: quita el hambre y el frío.' },
+  { item: 'morcilla',   price: 2500, desc: 'Rellena criolla: potente dosis de energía y llenura.' },
+  { item: 'papaCriolla', price: 1000, desc: 'Papas criollas calientes.' },
   { item: 'lataComida', price: 6000 },
   { item: 'agua',       price: 2000 },
+  { item: 'aguapanela', price: 1200, desc: 'Aguapanela caliente con limón: cura el resfriado.' },
   { item: 'refresco',   price: 3500 },
   { item: 'cafe',       price: 2000, desc: 'Un tinto caliente: quita el sueño.' },
   { item: 'cigarrillo', price: 500,  desc: 'Calma el vicio. Le quita un poquito a la salud.' },

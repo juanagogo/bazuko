@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <title>Sala de pruebas</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <!-- estilos del juego: capa de psicosis (susurros, viñeta) -->
+  <link rel="stylesheet" href="/src/ui/styles.css" />
+  <style>
+    html, body { margin: 0; height: 100%; overflow: hidden; background: #111418; font: 14px/1.35 system-ui, sans-serif; color: #e8e6e1; }
+    #sala-canvas { display: block; width: 100vw; height: 100vh; }
+    #sala-panel {
+      z-index: 30; position: fixed; top: 12px; left: 12px; width: 250px; max-height: calc(100vh - 24px); overflow: auto;
+      background: rgba(16, 19, 24, .88); border: 1px solid #3a3f47; border-radius: 8px; padding: 10px 12px;
+    }
+    #sala-panel h1 { margin: 0 0 2px; font-size: 15px; }
+    #sala-panel h2 { margin: 12px 0 6px; font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: #9aa3ad; }
+    #sala-panel p { margin: 0 0 6px; color: #b9bec4; font-size: 12px; }
+    #sala-panel select, #sala-panel button {
+      font: inherit; color: inherit; background: #252a31; border: 1px solid #434a53; border-radius: 5px; padding: 4px 8px; cursor: pointer;
+    }
+    #sala-panel select { width: 100%; }
+    #sala-panel button:hover { background: #313740; }
+    #sala-panel button[aria-pressed="true"] { background: #4b6a2e; border-color: #79a94a; }
+    .sala-fila { display: flex; flex-wrap: wrap; gap: 5px; }
+    #sala-estado { margin-top: 10px; font: 12px/1.4 ui-monospace, monospace; color: #c9d3a8; white-space: pre-wrap; }
+    #sala-toasts { z-index: 30; position: fixed; top: 12px; left: 50%; transform: translateX(-50%); display: flex; flex-direction: column; gap: 6px; pointer-events: none; }
+    #sala-toasts div { background: rgba(10, 12, 15, .9); border-left: 3px solid #79a94a; padding: 6px 12px; border-radius: 4px; }
+    #sala-ayuda { position: fixed; bottom: 10px; left: 12px; font-size: 12px; color: #8d959e; }
+  </style>
+</head>
+<body>
+  <canvas id="sala-canvas"></canvas>
+  <div id="psychosis-overlay" aria-hidden="true">
+    <div class="psychosis-vignette"></div>
+    <div class="psychosis-voices"></div>
+    <div class="psychosis-warning" id="psychosis-warning"></div>
+  </div>
+  <aside id="sala-panel" aria-label="Sala de pruebas">
+    <h1>Sala de pruebas</h1>
+    <p>Piso plano sin ciudad: solo carga lo que pide la prueba.</p>
+    <select id="sala-prueba" aria-label="Prueba"></select>
+    <p id="sala-descripcion"></p>
+    <div id="sala-acciones"></div>
+    <h2>Sala</h2>
+    <div id="sala-generales"></div>
+    <div id="sala-estado" aria-live="polite"></div>
+  </aside>
+  <div id="npc-bubbles-container" aria-hidden="true"></div>
+  <div id="sala-toasts" role="status" aria-live="polite"></div>
+  <p id="sala-ayuda">WASD mover · Shift correr · G o clic golpear · arrastrar para girar la cámara · rueda: distancia · consola: <code>__sala</code></p>
+  <script type="module" src="/src/sala/main.js"></script>
+</body>
+</html>

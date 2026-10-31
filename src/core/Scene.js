@@ -1,3 +1,6 @@
+import {Atmosphere} from '../graphics/Atmosphere.js';
+import {setShadowActive,setShadowResolution,shadowResolutionFor} from '../graphics/ShadowState.js';
+import {enableShadowProxyLayer} from '../graphics/ShadowProxies.js';
 import * as THREE from 'three';
 import { sunDirection, moonDirection, moonPhase, moonIllumination } from '../world/Climate.js';
 
@@ -173,6 +176,9 @@ function createSkyDome() {
 export class SceneManager {
   constructor() {
     this.scene = new THREE.Scene();
+    // The world root never moves. An automatic identity update forced ALL frozen
+    // city branches to traverse again, including both solar shadow passes.
+    this.scene.matrixAutoUpdate = false;
     this.scene.background = new THREE.Color(0x1a222d);
 
     // Bóveda celeste procedural andina: sol, luna con fases, estrellas y nubes
@@ -199,6 +205,7 @@ export class SceneManager {
     this.sun.shadow.camera.bottom = -45;
     this.sun.shadow.bias = -0.0002;
     this.sun.shadow.normalBias = 0.035;
+    enableShadowProxyLayer(this.sun);
     this.scene.add(this.sun);
 
     this.sun.target.position.set(0, 0, 0);
@@ -239,7 +246,21 @@ export class SceneManager {
    * `weather` es el WeatherSystem (cloudCover, rainIntensity, fogDensity, flash, wind).
    * Por compatibilidad acepta también `(hour, isRaining, wetness)`.
    */
+  initializeAtmosphere(renderer){
+    // La cúpula de cielo GLSL es de WebGL: con WebGPU el cielo lo dibuja el SkyMesh de la atmósfera.
+    if(this.skyDome){this.skyDome.removeFromParent();this.skyDome.geometry.dispose();this.skyDome.material.dispose();this.skyDome=null;}
+    this.sun.removeFromParent();this.sun.target.removeFromParent();this.sun.dispose();
+    this.atmosphere=new Atmosphere(this.scene,renderer,this.ambient);this.sun=this.atmosphere.sun;this.atmosphere.setQuality(this.quality);this.atmosphere.setShadowQuality(this.shadowLevel??this.quality);
+  }
+
   setTimeOfDay(hour, weather = null, dayOrWetness = undefined) {
+    // Con la atmósfera de Slop (WebGPU) el cielo, el sol y la niebla salen de ella; el clima solo aporta la humedad.
+    if(this.atmosphere){
+      if(weather&&typeof weather==='object'){this._lastWeather=weather;if(Number.isFinite(dayOrWetness))this.day=dayOrWetness;}
+      this._hour=hour;const wetness=this.wetness??0;
+      if(this._timeProfileOverride)this.atmosphere.updateProfile(this._timeProfileOverride,wetness);else this.atmosphere.update(hour,wetness);
+      return;
+    }
     if (weather == null) weather = this._lastWeather ?? this._legacyWeather;
     else if (typeof weather === 'boolean') {
       weather = Object.assign(this._legacyWeather, {
@@ -331,33 +352,34 @@ export class SceneManager {
       .lerp(CLOUD.rainShadow, rain * 0.6 * day);
   }
 
+  /** Selector temporal de desarrollo: no cambia el reloj ni se guarda. */
+  get isVisualNight() {
+    if (this._timeProfileOverride) return ['blue-hour', 'night'].includes(this._timeProfileOverride);
+    const hour = this._hour ?? 22;
+    return hour < 6 || hour >= 20;
+  }
+
+  setTimeProfile(profileId = null) {
+    const valid = ['golden','midday','blue-hour','night'];
+    this._timeProfileOverride = profileId && valid.includes(profileId) ? profileId : null;
+    if (this.atmosphere) this.setTimeOfDay(this._hour ?? 22);
+    return this._timeProfileOverride;
+  }
+
   setQuality(level = 'alta') {
     this.quality = ['baja', 'media', 'alta'].includes(level) ? level : 'alta';
     level = this.quality;
-    const size = level === 'media' ? 1024 : 2048;
-    if (this.sun.shadow.mapSize.x !== size) {
-      this.sun.shadow.map?.dispose();
-      this.sun.shadow.mapPass?.dispose();
-      this.sun.shadow.map = this.sun.shadow.mapPass = null;
-      this.sun.shadow.mapSize.set(size, size);
-      this.sun.shadow.needsUpdate = true;
-    }
+    if(this.atmosphere){this.atmosphere.setQuality(level);this.setTimeOfDay(this._hour??22);return;}
     if (level === 'baja') {
-      this.sun.castShadow = false;
       if (this.scene.fog) {
         this.scene.fog.near = 40;
         this.scene.fog.far = 130;
       }
     } else if (level === 'media') {
-      this.sun.castShadow = true;
-      this.sun.shadow.mapSize.set(1024, 1024);
       if (this.scene.fog) {
         this.scene.fog.near = 45;
         this.scene.fog.far = 160;
       }
-    } else {
-      this.sun.castShadow = true;
-      this.sun.shadow.mapSize.set(2048, 2048);
     }
     // La cúpula se dibuja en el plano lejano en todas las calidades; baja usa menos octavas de nubes.
     if (this.skyDome) {
@@ -365,6 +387,17 @@ export class SceneManager {
       this.skyDome.material.uniforms.octaves.value = OCTAVES[level];
     }
     this.setTimeOfDay(this._hour ?? 6);
+  }
+
+  /**
+   * Sombras de la calidad elegida en el menú: resolución y, en baja, pausa (sin cambiar castShadow,
+   * clave de todos los RenderObject). La presión de FPS no las toca.
+   */
+  setShadowQuality(level = 'alta') {
+    this.shadowLevel = level;
+    if (this.atmosphere) return this.atmosphere.setShadowQuality(level);
+    setShadowActive(this.sun, level !== 'baja');
+    return setShadowResolution(this.sun, shadowResolutionFor(level));
   }
 
   _limitFog() {
@@ -376,6 +409,7 @@ export class SceneManager {
 
   /** La luz direccional (y su caja de sombras) sigue al jugador para sombras nítidas en un mapa grande */
   followTarget(pos, hour = this._hour ?? 12) {
+    if(this.atmosphere){this.atmosphere.followTarget(pos);return;}
     this._celestial(hour);
     this.sun.target.position.copy(pos);
     this.sun.position.copy(this._lightDir).multiplyScalar(90).add(pos);

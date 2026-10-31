@@ -11,7 +11,6 @@ export const IMPORTED_MODELS = Object.freeze({
   cambuche: { file: 'cambuche.opt.glb', yaw: 0, size: [3.91, 2.1, 2.875] },
   bolsa: { file: 'bolsa.opt.glb', yaw: 0, size: [1.1, 1.095, .864] },
   contenedor: { file: 'contenedor.opt.glb', yaw: 0, size: [1.56, 1.4, 1.12] },
-  estacion: { file: 'estacion.opt.glb', yaw: Math.PI / 2, size: [2.6, 4.2, 16] },
   semaforo: { file: 'semaforo.opt.glb', yaw: 0, size: [1.66, 4.3, .893] },
   lampara: { file: 'lamparas.opt.glb', yaw: Math.PI / 2, size: [2.163, 4.2, .53], anchor: 'pole' }
 });

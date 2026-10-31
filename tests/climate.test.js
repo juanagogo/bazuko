@@ -68,6 +68,7 @@ test('la luna llena sale al anochecer y la nueva casi no ilumina', () => {
 test('WeatherSystem mezcla gradualmente las transiciones y lanza rayos en tormenta', () => {
   const scene = new THREE.Scene();
   const weather = new WeatherSystem(scene);
+  weather.rainEnabled = true; // la lluvia está desactivada por defecto; aquí se prueban sus climas
   weather.setWeather('soleado', false);
   assert.equal(weather.isRaining, false);
   weather.setWeather('tormenta', false, { transition: true });
@@ -93,6 +94,7 @@ test('WeatherSystem mezcla gradualmente las transiciones y lanza rayos en tormen
 test('el cielo usa el clima: nubes, lluvia y luna llegan al shader sin crear colores por cuadro', () => {
   const mgr = new SceneManager();
   const weather = new WeatherSystem(null);
+  weather.rainEnabled = true; // la lluvia está desactivada por defecto; aquí se prueban sus climas
   weather.setWeather('soleado', false);
   mgr.setTimeOfDay(12, weather, 1);
   const clearSun = mgr.sun.intensity;
