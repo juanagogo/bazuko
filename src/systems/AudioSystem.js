@@ -175,8 +175,14 @@ export class AudioSystem {
     if (this._ambientId !== undefined) this.sounds.ambient.volume(this._baseVolume.get(this.sounds.ambient) * ambient, this._ambientId);
     if (this._rainId !== undefined) this.sounds.rain.volume(this._baseVolume.get(this.sounds.rain) * ambient, this._rainId);
   }
+  // Silencia el banco de la calle y conserva la preferencia de volumen general.
+  setVenueMuted(muted) {
+    this._venueMuted = !!muted;
+    this.howler.volume(this.muted || this._venueMuted ? 0 : this.volume);
+  }
+
   _applySettings() {
-    this.howler.volume(this.muted ? 0 : this.volume);
+    this.howler.volume(this.muted || this._venueMuted ? 0 : this.volume);
     try {
       globalThis.localStorage?.setItem('bazuko.audio_volume', String(this.volume));
       globalThis.localStorage?.setItem('bazuko.audio_muted', String(this.muted));
