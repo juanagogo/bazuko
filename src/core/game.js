@@ -20,6 +20,8 @@ import { TrashContainer } from '../entities/TrashContainer.js';
 import { SellPoint } from '../entities/SellPoint.js';
 import { Cambuche } from '../entities/Cambuche.js';
 import { Shop } from '../entities/Shop.js';
+import { BoliranaVenue } from '../entities/BoliranaVenue.js';
+import { openBolirana } from '../ui/BoliranaVenue.js';
 import { Car } from '../entities/Car.js';
 import { DrugDealer } from '../entities/DrugDealer.js';
 import { CraftingStation } from '../entities/CraftingStation.js';
@@ -135,6 +137,7 @@ export class Game {
     window.addEventListener('audio-toggle', () => this.audio.toggleMute());
     window.addEventListener('camera-toggle', () => this._toggleCamera());
     window.addEventListener('open-recycler', () => openRecycler(this));
+    window.addEventListener('open-bolirana', (e) => openBolirana(this, e.detail?.target));
     window.addEventListener('open-shop', (e) => openShop(this, e.detail?.target));
     window.addEventListener('open-cambuche', () => openCambuche(this));
     window.addEventListener('open-radio-modal', () => openRadioModal(this));
@@ -171,6 +174,7 @@ export class Game {
     this.overlays = new CinematicOverlays();
 
     // Estado
+    this.bolirana = { level: 1, pending: false };
     this.look = null;       // apariencia + nombre + origen (creador)
     this.built = {};        // piezas del cambuche
     this.costal = false;    // costal grande comprado
@@ -382,10 +386,11 @@ export class Game {
 
   /** El mundo se congela mientras hay un menú o el creador abierto */
   get paused() {
-    return this._loading || this._deathPending || this.menu.isOpen || this.creator.isOpen || !!this.inventoryUI?.isOpen || !!this.hud?._talentOpen || !!this.hud?._craftOpen || !!this.hud?._dealerOpen;
+    return this._boliranaOpen || this._loading || this._deathPending || this.menu.isOpen || this.creator.isOpen || !!this.inventoryUI?.isOpen || !!this.hud?._talentOpen || !!this.hud?._craftOpen || !!this.hud?._dealerOpen;
   }
 
   _spawnEntities() {
+    this.boliranaVenue?.dispose();
     this.dog?.destroy();
     this.audio.vehicles?.clear();
     this.traffic?.dispose();
@@ -550,6 +555,8 @@ export class Game {
       )
     );
     this.interaction.register(this.shop);
+    this.boliranaVenue = new BoliranaVenue(this.sceneMgr.scene, district);
+    this.interaction.register(this.boliranaVenue);
 
     // ===== Vendedores ambulantes del distrito (chazas, fritanga) =====
     for (const v of district.vendors ?? []) this.interaction.register(v);
@@ -564,6 +571,11 @@ export class Game {
     const data = this.save.load();
     if (data) {
       this.stats.deserialize(data.stats);
+      this.bolirana = {
+        level: data.bolirana?.pending ? 1 : Math.max(1, Math.min(100, Number.isInteger(data.bolirana?.level) ? data.bolirana.level : 1)),
+        pending: false,
+        lastResult: data.bolirana?.lastResult ?? null
+      };
       this.clock.deserialize(data.clock);
       this.inventory.deserialize(data.inventory ?? {});
       this.talents.deserialize(data.talents ?? {});
@@ -598,6 +610,7 @@ export class Game {
 
   _save() {
     this.save.save({
+      bolirana: this.bolirana,
       stats: this.stats.serialize(),
       clock: this.clock.serialize(),
       inventory: this.inventory.serialize(),
@@ -988,6 +1001,7 @@ export class Game {
       this._poiCache = [[this.cambuche, reserved.bed, 'Cambuche', '⛺', '#ffd166'],
         [this.sellPoint, reserved.sell, 'Recicladora', '♻️', '#2ab7ca'],
         [this.shop, reserved.shop, 'Tienda', '🏪', '#2ecc71'],
+        [this.boliranaVenue, null, 'El Rumbiadero · Bolirana', '🐸', '#ef52a2'],
         [this.craftingStation, reserved.craft, 'Crafteo', '🔨', '#e67e22'],
         [this.dealer, reserved.dealer, 'Dealer', '💀', '#9b59b6']]
         .flatMap(([entity, fallback, name, icon, color]) => {

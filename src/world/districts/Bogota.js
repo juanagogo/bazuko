@@ -14,6 +14,7 @@ import { buildSmallBuilding, SMALL_BUILDING } from '../bogota/SmallBuilding.js';
 // bodega de reciclaje (x 8-21, z 32-46), parque (x 28-39, z 32-46), lote baldío con el
 // cambuche (x 42-46, z 32-46) y la tienda (frente a la Calle 9, x 34).
 import * as THREE from 'three';
+import { BOLIRANA_LOCATION } from '../bogota/BoliranaLocation.js';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { TILE_SIZE } from '../../utils/constants.js';
 import { Farol } from '../props/Farol.js';
@@ -223,6 +224,7 @@ export class Bogota {
 
     // Zonas reservadas (en metros)
     this.reserved = {
+      bolirana: { x: BOLIRANA_LOCATION.x, z: BOLIRANA_LOCATION.z },
       spawn:  { ...SHELTER_RESPAWN },
       respawn: { ...SHELTER_RESPAWN },
       sell:   { x: WX(14.5), z: WZ(34) },     // dentro del portón de la bodega
