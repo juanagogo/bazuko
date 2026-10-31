@@ -4,6 +4,7 @@
 import * as THREE from 'three';
 import { signTexture } from '../../utils/signs.js';
 import { trashBag, cardboard, radialSprite } from './textures.js';
+import { rand } from '../../utils/random.js';
 
 const lam = (color, opts = {}) => new THREE.MeshLambertMaterial({ color, ...opts });
 const std = (color, opts = {}) => {
@@ -15,8 +16,6 @@ const std = (color, opts = {}) => {
   return material;
 };
 const shadow = (o) => { o.traverse((m) => { if (m.isMesh) { m.castShadow = true; m.receiveShadow = true; } }); return o; };
-const rand = (a, b) => a + Math.random() * (b - a);
-
 let _bagTex = null, _cardTex = null;
 const bagMat = () => std('#ffffff', { map: (_bagTex ??= trashBag(5)).map ?? _bagTex, roughness: 0.4 });
 const cardMat = () => std('#ffffff', { map: (_cardTex ??= cardboard(21)).map ?? _cardTex });

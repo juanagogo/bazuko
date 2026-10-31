@@ -1,5 +1,6 @@
 // Catálogo de apariencia. Las paletas están curadas para que cualquier
 // combinación (incluido "Al azar") se vea bien.
+import { pick } from '../utils/random.js';
 
 export const PALETTES = {
   piel: ['#f6d3b3', '#e8b88f', '#d39a6d', '#b07a52', '#8a5a3b', '#5e3b27'],
@@ -114,10 +115,9 @@ export function normalizeLook(raw = {}) {
 /** Combinación al azar, curada: pelo casi siempre natural, ropa que contrasta. */
 export function randomLook(base = DEFAULT_LOOK) {
   const r = Math.random;
-  const any = (arr) => arr[Math.floor(r() * arr.length)];
-  const style = (k) => any(STYLES[k]).id;
+  const style = (k) => pick(STYLES[k], r).id;
   const top = Math.floor(r() * PALETTES.ropa.length);
-  let bottom = any([10, 6, 3, 12, 2]);
+  let bottom = pick([10, 6, 3, 12, 2], r);
   if (bottom === top) bottom = 10;
   return normalizeLook({
     ...base,

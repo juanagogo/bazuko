@@ -4,6 +4,7 @@
 // Expone la misma interfaz que createCharacter(): { group, setLook, update }.
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import { FBXLoader } from 'three/examples/jsm/loaders/FBXLoader.js';
 import { clone as cloneSkinned } from 'three/examples/jsm/utils/SkeletonUtils.js';
 import { ACTIONFORGE_CLIPS, buildCharacterClips } from './actionforge.js';
 import { locomotionBlend, measureLocomotion } from './locomotion.js';
@@ -11,6 +12,7 @@ import { PALETTES } from './look.js';
 import { addGrime, addHairTone } from './weathering.js';
 import { attachAccessories } from './props.js';
 import { addHatClip, hatEdgeProfile } from './hatFit.js';
+import { pick } from '../utils/random.js';
 
 const MODEL_BASE = `${import.meta.env?.BASE_URL ?? '/'}models/`;
 const BASE = `${MODEL_BASE}personaje/`;
@@ -21,13 +23,31 @@ const ANIM_URLS = ['animaciones.glb', 'animaciones-prueba.glb'].map(file => MODE
 export const REALISTIC_SCALE = 1.08;
 
 const ACTIONFORGE_URL = `${MODEL_BASE}animaciones-actionforge.glb`;
+// src/character/RealisticCharacter.js
+
+const ASSAULT_ANIM_URLS = {
+  bloquear: `${MODEL_BASE}center-block.fbx`,
+  fueraCombate: `${MODEL_BASE}fallingdown.fbx`, // <--- Asignado a fallingdown.fbx
+  golpe_jab: `${MODEL_BASE}combat-jab-cross.fbx`,
+  reaccion_cabeza: `${MODEL_BASE}combat-hit-head.fbx`,
+  reaccion_pecho: `${MODEL_BASE}combat-hit-body.fbx`,
+  provocar: `${MODEL_BASE}combat-taunt.fbx`,
+  golpear: `${MODEL_BASE}assault-hook.fbx`,
+  patear: `${MODEL_BASE}assault-kick.fbx`,
+  recibirGolpe: `${MODEL_BASE}assault-hit-react.fbx`,
+  derribo: `${MODEL_BASE}assault-knockdown.fbx`,
+  levantarse: `${MODEL_BASE}assault-get-up.fbx`
+};
 
 // Peso compartido de caminar y correr; su reparto lo decide la velocidad.
 const LOCOMOTION = 'locomocion';
 // Acciones sin clip propio: clip sustituto y velocidad de reproducción.
 const ACTION_FALLBACKS = {
+  agarrar: ['pedir'], ser_agarrado: ['pedir'], forcejear: ['pedir'],
   cagar: ['buscar'], lanzar: ['pedir'], saludo: ['pedir'],
-  golpear: ['lanzar', 2] // el brazo baja dentro de los 0,38 s del golpe
+  // Los clips reales entrarán al banco ActionForge; mientras tanto no se bloquea el juego.
+  golpe_jab: ['golpear'], golpe_cross: ['golpear'], patada: ['patear'],
+  reaccion_pecho: ['recibirGolpe'], reaccion_cabeza: ['recibirGolpe'], caida: ['derribo']
 };
 
 export const REAL_DEFAULT = {
@@ -35,7 +55,9 @@ export const REAL_DEFAULT = {
 };
 
 const loader = new GLTFLoader();
+const fbxLoader = new FBXLoader();
 const cache = new Map();
+const coveredGeometryCache = new WeakMap();
 const load = (url) => {
   if (!cache.has(url)) cache.set(url, loader.loadAsync(url));
   return cache.get(url);
@@ -71,13 +93,12 @@ export function normalizeReal(catalog, raw = {}) {
 
 /** Combinación al azar de piezas realistas */
 export function randomReal(catalog, base = {}) {
-  const any = (arr) => arr[Math.floor(Math.random() * arr.length)];
-  const sexo = base.sexo ?? any(['hombre', 'mujer']);
-  const pick = (cat) => any(optionsFor(catalog, cat, sexo)).id;
+  const pickOption = (cat) => pick(optionsFor(catalog, cat, sexo)).id;
+  const sexo = base.sexo ?? pick(['hombre', 'mujer']);
   return normalizeReal(catalog, {
-    sexo, edad: any(['joven', 'adulto', 'mayor']),
-    pelo: pick('pelo'), barba: Math.random() < 0.3 ? 'ninguna' : pick('barba'), ropa: pick('ropa'), calzado: pick('calzado'),
-    cabeza: Math.random() < 0.6 ? REAL_DEFAULT.cabeza : optionsFor(catalog, 'cabeza', sexo).length ? pick('cabeza') : REAL_DEFAULT.cabeza
+    sexo, edad: pick(['joven', 'adulto', 'mayor']),
+    pelo: pickOption('pelo'), barba: Math.random() < 0.3 ? 'ninguna' : pickOption('barba'), ropa: pickOption('ropa'), calzado: pickOption('calzado'),
+    cabeza: Math.random() < 0.6 ? REAL_DEFAULT.cabeza : optionsFor(catalog, 'cabeza', sexo).length ? pickOption('cabeza') : REAL_DEFAULT.cabeza
   });
 }
 
@@ -96,6 +117,14 @@ function loadAnimations() {
 
 const clipCache = new Map();
 let actionforgePromise;
+let assaultPromise;
+function loadAssaultAnimations() {
+  assaultPromise ??= Promise.all(Object.entries(ASSAULT_ANIM_URLS).map(async ([name, url]) => {
+    try { return [name, await fbxLoader.loadAsync(url)]; }
+    catch (error) { console.warn(`No se pudo cargar la animación ${name}.`, error); return [name, null]; }
+  })).then(Object.fromEntries);
+  return assaultPromise;
+}
 async function clipsForBody(bodyId, bodyGltf) { // bodyId incluye el nivel de detalle
   if (!clipCache.has(bodyId)) {
     clipCache.set(bodyId, (async () => {
@@ -107,7 +136,7 @@ async function clipsForBody(bodyId, bodyGltf) { // bodyId incluye el nivel de de
       // El banco anterior (2 MB con mallas y texturas) solo se descarga si falta locomoción.
       const complete = actionforge && ['idle', 'walk', 'run']
         .every(key => actionforge.animations.some(clip => clip.name === ACTIONFORGE_CLIPS[key]));
-      const clips = buildCharacterClips(bodyGltf, complete ? null : await loadAnimations(), actionforge);
+      const clips = buildCharacterClips(bodyGltf, complete ? null : await loadAnimations(), actionforge, await loadAssaultAnimations());
       if (clips.walk) clips.walk.userData.locomotion = measureLocomotion(bodyGltf.scene, clips.walk, clips.run);
       return clips;
     })());
@@ -164,14 +193,24 @@ function attachPart(srcMesh, bones, parent, kind) {
 /** Oculta los triángulos del cuerpo tapados por la ropa (vértices originales en `hidden`). */
 function hideCovered(bodyMesh, baseIndex, hidden) {
   const src = bodyMesh.geometry;
+  if (!hidden.size) return null;
+  const key = [...hidden].sort((a, b) => a - b).join(',');
+  let variants = coveredGeometryCache.get(src);
+  if (!variants) coveredGeometryCache.set(src, variants = new Map());
+  let entry = variants.get(key);
+  if (entry) {
+    entry.references++;
+    bodyMesh.geometry = entry.geometry;
+    return { source: src, key, geometry: entry.geometry };
+  }
+
   const geo = new THREE.BufferGeometry();
-  // Esta geometría se libera por instancia: sus buffers no pueden pertenecer al caché.
   for (const [k, v] of Object.entries(src.attributes)) geo.setAttribute(k, v.clone());
   geo.morphAttributes = Object.fromEntries(Object.entries(src.morphAttributes).map(([key, values]) => [key, values.map(v => v.clone())]));
   geo.boundingSphere = src.boundingSphere;
   const vid = src.attributes._vid;
-  if (!hidden.size || !vid) {
-    geo.setIndex(baseIndex.clone());
+  if (!vid) {
+    if (baseIndex) geo.setIndex(baseIndex.clone());
   } else {
     const out = [];
     const idx = baseIndex.array;
@@ -182,7 +221,19 @@ function hideCovered(bodyMesh, baseIndex, hidden) {
     }
     geo.setIndex(out);
   }
+  entry = { geometry: geo, references: 1 };
+  variants.set(key, entry);
   bodyMesh.geometry = geo;
+  return { source: src, key, geometry: geo };
+}
+
+function releaseCoveredGeometry(reference) {
+  if (!reference) return;
+  const variants = coveredGeometryCache.get(reference.source);
+  const entry = variants?.get(reference.key);
+  if (!entry || --entry.references > 0) return;
+  entry.geometry.dispose();
+  variants.delete(reference.key);
 }
 
 // ---------- instancia ----------
@@ -253,13 +304,16 @@ async function buildInstance(catalog, look, lod = false) {
     addHairTone(o.material);
   });
   const accessories = useLod ? null : attachAccessories(root, bones, look.accesorios, wear);
-  if (bodyMesh) hideCovered(bodyMesh, bodyGltf.scene.getObjectByName(bodyMesh.name)?.geometry.index ?? bodyMesh.geometry.index, hidden);
+  const coveredGeometry = bodyMesh
+    ? hideCovered(bodyMesh, bodyGltf.scene.getObjectByName(bodyMesh.name)?.geometry.index ?? bodyMesh.geometry.index, hidden)
+    : null;
 
   const mixer = new THREE.AnimationMixer(root);
   const actions = {};
   for (const [name, clip] of Object.entries(clips)) {
+    if (useLod && !['idle', 'walk', 'run'].includes(name)) continue;
     actions[name] = mixer.clipAction(clip);
-    if (['comer', 'beber', 'lanzar', 'saludo'].includes(name)) {
+    if (['comer', 'beber', 'lanzar', 'saludo', 'golpear', 'patear', 'recibirGolpe', 'derribo', 'levantarse', 'golpe_jab', 'golpe_cross', 'patada', 'reaccion_pecho', 'reaccion_cabeza', 'caida', 'fueraCombate', 'bloquear'].includes(name)) {
       actions[name].setLoop(THREE.LoopOnce, 1);
       actions[name].clampWhenFinished = true;
     }
@@ -269,7 +323,8 @@ async function buildInstance(catalog, look, lod = false) {
     actions[name].setEffectiveWeight(name === 'idle' ? 1 : 0);
   }
   if (useLod) root.traverse((o) => { if (o.isMesh) o.castShadow = false; }); // lejos: sin sombra propia
-  return { root, mixer, actions, real, accessories, phase: 0, runShare: 0, ownedGeometries: bodyMesh ? [bodyMesh.geometry] : [] };
+  return { root, mixer, actions, real, accessories, phase: 0, runShare: 0,
+    coveredGeometryRefs: coveredGeometry ? [coveredGeometry] : [] };
 }
 
 /** Solo recursos de instancia; los modelos y texturas del banco siguen compartidos. */
@@ -286,6 +341,7 @@ export function disposeRealisticInstance(instance) {
   });
   for (const material of materials) material.dispose();
   for (const skeleton of skeletons) skeleton.dispose();
+  for (const reference of instance.coveredGeometryRefs ?? []) releaseCoveredGeometry(reference);
   for (const geometry of instance.ownedGeometries ?? []) geometry.dispose();
   instance.root.removeFromParent();
 }
@@ -327,25 +383,31 @@ export async function createRealisticCharacter(look = {}, { lod = false } = {}) 
       disposeRealisticInstance(inst); inst = null;
       group.removeFromParent();
     },
-    update(dt, { speed = 0, running = false, action = null } = {}) {
+    update(dt, { speed = 0, running = false, action = null, actionDuration = 0, actionSequence = 0 } = {}) {
       if (!inst) return;
       const a = inst.actions;
       // destino: acción especial si existe el clip (o su sustituto); si no, reposo o locomoción
       let target = speed < 0.15 ? 'idle' : a.walk ? LOCOMOTION : 'idle';
       let scale = 1;
-      if (action && speed < 0.15) {
+      // Los golpes deben verse aunque la inercia conserve velocidad al soltar WASD.
+      const combatAction = ['golpe_jab', 'golpe_cross', 'patada', 'reaccion_pecho', 'reaccion_cabeza', 'caida', 'golpear', 'patear', 'recibirGolpe', 'provocar', 'bloquear', 'fueraCombate'].includes(action);
+      if (action && (speed < 0.15 || combatAction)) {
         const [clip, clipScale = 1] = a[action] ? [action] : ACTION_FALLBACKS[action] ?? [];
-        if (a[clip]) { target = clip; scale = clipScale; }
+        if (a[clip]) {
+          target = clip;
+          scale = actionDuration > 0 ? a[clip].getClip().duration / actionDuration : clipScale;
+        }
       }
       if (inst?.root) {
         const targetY = action === 'cagar' && !a.cagar ? -0.3 : 0;
         inst.root.position.y += (targetY - inst.root.position.y) * Math.min(1, dt * 10);
       }
-      if (target !== inst.previousTarget) {
+      if (target !== inst.previousTarget || actionSequence !== inst.previousActionSequence) {
         if (target !== 'idle' && target !== LOCOMOTION) a[target].reset().setEffectiveTimeScale(scale).play();
         inst.previousTarget = target;
+        inst.previousActionSequence = actionSequence;
       }
-      const k = Math.min(1, dt * 8);
+      const k = 1 - Math.exp(-dt * (combatAction ? 18 : 8));
       for (const key of Object.keys(weights)) {
         weights[key] += ((key === target ? 1 : 0) - weights[key]) * k;
         if (key !== target && weights[key] < .001) weights[key] = 0;
@@ -370,6 +432,12 @@ export async function createRealisticCharacter(look = {}, { lod = false } = {}) 
         a[key].setEffectiveWeight(weight);
       }
       inst.mixer.update(dt);
+      // Mantener la guardia mientras dure el bloqueo, sin volver a bajar los brazos.
+      if (target === 'bloquear') {
+        const guard = a.bloquear;
+        const holdTime = guard.getClip().duration * .55;
+        if (guard.time >= holdTime) { guard.time = holdTime; guard.paused = true; }
+      }
       inst.accessories?.update();
     }
   };

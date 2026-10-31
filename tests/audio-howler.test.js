@@ -50,11 +50,11 @@ class LocalXHR {
     setTimeout(() => this.onload(), 0);
   }
 }
-function realHowler() {
+function realHowler({ supportsOpus = true } = {}) {
   const sandbox = {
     console, setTimeout, clearTimeout, setInterval, clearInterval,
     AudioContext: Context, XMLHttpRequest: LocalXHR,
-    Audio: class { canPlayType() { return 'probably'; } },
+    Audio: class { canPlayType(type) { return supportsOpus || !type.includes('opus') ? 'probably' : ''; } },
     navigator: { vendor: '', userAgent: 'Node', platform: 'Windows', appVersion: '' },
     location: { protocol: 'http:' }
   };
@@ -124,4 +124,23 @@ test('Howler real reproduce motores y claxones normales conectados a la salida s
     assert.equal(Howler.ctx.listener.positionX.value, 0);
     assert.equal(Howler.ctx.listener.positionZ.value, 0);
   } finally { audio.dispose(); }
+});
+
+test('Howler usa los MP3 alternativos de tráfico cuando el navegador no admite Opus', async () => {
+  const { Howl, Howler } = realHowler({ supportsOpus: false });
+  const sound = new Howl({
+    src: ['/audio/car_horn_sound.opus', '/audio/car_horn_sound.mp3'],
+    loop: false,
+    sprite: { honk: [1000, 600] }
+  });
+  try {
+    await new Promise((resolve, reject) => {
+      if (sound.state() === 'loaded') { resolve(); return; }
+      sound.once('load', resolve);
+      sound.once('loaderror', (_id, error) => reject(error));
+    });
+    const id = sound.play('honk');
+    assert.equal(sound._src, '/audio/car_horn_sound.mp3');
+    assert.ok(sound._soundById(id)._node.bufferSource.started);
+  } finally { sound.unload(); }
 });

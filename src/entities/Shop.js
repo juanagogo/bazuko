@@ -2,6 +2,7 @@
 // Tienda La Esquinita: comida, remedios y materiales para el cambuche.
 import * as THREE from 'three';
 import { signMesh } from '../utils/signs.js';
+import { disposeSceneGroup, lam } from '../utils/entityHelpers.js';
 
 export class Shop {
   constructor(scene, position) {
@@ -12,7 +13,6 @@ export class Shop {
     this.group.position.copy(position);
     scene.add(this.group);
 
-    const lam = (color) => new THREE.MeshLambertMaterial({ color, flatShading: true });
 
     // Mostrador
     const counter = new THREE.Mesh(new THREE.BoxGeometry(2.4, 1.0, 0.7), lam(0xe8e3d6));
@@ -75,11 +75,6 @@ export class Shop {
   update() {}
 
   dispose() {
-    this.scene.remove(this.group);
-    this.group.traverse((o) => {
-      o.geometry?.dispose?.();
-      o.material?.map?.dispose?.();
-      o.material?.dispose?.();
-    });
+    disposeSceneGroup(this.scene, this.group);
   }
 }

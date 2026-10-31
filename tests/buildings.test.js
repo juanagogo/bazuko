@@ -3,9 +3,9 @@ import { mock, test } from 'node:test';
 import * as THREE from 'three';
 import * as textures from '../src/world/bogota/textures.js';
 import { TILE_SIZE } from '../src/utils/constants.js';
+import { textureSet } from './helpers/fixtures.js';
 
 // Conserva la geometría real; evita depender de Canvas para pintar las texturas.
-const textureSet = () => ({ map: new THREE.Texture(), bumpMap: new THREE.Texture(), emissiveMap: new THREE.Texture() });
 mock.module('../src/world/bogota/textures.js', {
   namedExports: { ...textures, brick: textureSet, slab: textureSet, roofTiles: textureSet, facade: textureSet }
 });

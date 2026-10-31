@@ -1,19 +1,10 @@
 // src/world/bogota/textures.js — texturas procedurales portadas de rebusque.
 // Añade a facade() los estilos de Bogotá: 'ladrillo' (ladrillo a la vista) y 'ruina' (El Cartucho).
 import * as THREE from 'three';
+import { mulberry32 as rng, pickWithRandom } from '../../utils/random.js';
 
-/** Generador pseudoaleatorio determinista (mulberry32). */
-export function rng(seed) {
-  let s = seed >>> 0;
-  return () => {
-    s = (s + 0x6d2b79f5) | 0;
-    let t = Math.imul(s ^ (s >>> 15), 1 | s);
-    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-}
-
-export const pick = (r, arr) => arr[Math.floor(r() * arr.length)];
+export { rng };
+export const pick = pickWithRandom;
 
 function canvas(w, h) {
   const dummy = () => [

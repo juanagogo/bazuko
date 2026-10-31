@@ -7,9 +7,9 @@ import { CITY_WIDTH, CITY_HEIGHT, ORIGINAL_CITY_WIDTH, ORIGINAL_CITY_HEIGHT,
 import { migrateStreetPosition } from '../src/world/bogota/StreetLayout.js';
 import { CollisionSystem } from '../src/systems/CollisionSystem.js';
 import { FrustumCulling } from '../src/core/FrustumCulling.js';
+import { textureSet } from './helpers/fixtures.js';
 
 // La construcción completa usa geometría real; solo Canvas y GLB se sustituyen.
-const textureSet=()=>({map:new THREE.Texture(),bumpMap:new THREE.Texture(),emissiveMap:new THREE.Texture()});
 const replacements={...textures};
 for(const name of ['asphalt','sidewalk','brick','facade','roofTiles','slab','cardboard','trashBag','dirt','concrete']) replacements[name]=textureSet;
 for(const name of ['radialSprite','lightbox','neon']) replacements[name]=()=>new THREE.Texture();
@@ -74,7 +74,7 @@ test('el distrito completo construye y actualiza barrios, vendedores, peatones y
   assert.equal(city.busServices.length, 2);
   try {
     await Promise.all(city.npcs.map(npc=>npc.ready));
-    assert.equal(city.npcs.length,72); // 66 peatones y 6 vendedores.
+    assert.equal(city.npcs.length,114); // población ampliada en grupos y 6 vendedores.
     assert.equal(city.vendors.length,6);
     assert.equal(city.pigeonFlocks.length, 3);
     for (const flock of city.pigeonFlocks) {

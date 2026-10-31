@@ -1,3 +1,5 @@
+import { percentile } from '../utils/percentile.js';
+
 /** Mide intervalos reales de RAF, nunca el dt limitado de la simulación. */
 export class FrameMetrics {
   constructor() { this.reset(); }
@@ -32,10 +34,9 @@ export class FrameMetrics {
 
   recentStats() {
     const values = Array.from(this.recent.subarray(0, this.recentCount)).sort((a, b) => a - b);
-    const percentile = p => values.length ? values[Math.ceil(values.length * p) - 1] : 0;
     const slowest = values.slice(-Math.max(1, Math.ceil(values.length * .01)));
     const lowMean = slowest.reduce((sum, value) => sum + value, 0) / slowest.length;
-    return { frames: values.length, p50: percentile(.5), p95: percentile(.95), p99: percentile(.99),
+    return { frames: values.length, p50: percentile(values, .5), p95: percentile(values, .95), p99: percentile(values, .99),
       low1Percent: lowMean > 0 ? 1000 / lowMean : 0, over100ms: values.filter(value => value > 100).length };
   }
 }

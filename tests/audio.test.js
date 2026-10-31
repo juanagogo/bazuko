@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { NPC_VOICE_BANK } from '../src/entities/Npc.js';
 import { readFileSync, readdirSync } from 'node:fs';
 import { mock, test } from 'node:test';
 import * as THREE from 'three';
@@ -58,6 +59,43 @@ test('volumen y silencio persistentes controlan el maestro sin reemplazar motore
 const car = (x, z = 0) => ({ car: { position: new THREE.Vector3(x, 0, z), group: new THREE.Group() }, speed: 0 });
 const origin = new THREE.Vector3();
 
+test('las voces de combate están precargadas, no se pisan y respetan pausa y distancia', () => {
+  const { audio } = fixture();
+  const owner = { position: new THREE.Vector3(1, 0, 0), hp: 100 };
+  audio.updateWorld(.1, origin, null, []);
+  const voice = NPC_VOICE_BANK.mob[0].audio;
+  assert.ok(audio._npcSounds.has(voice.split('/').pop()));
+  assert.equal(audio.playNpcVoice(voice, owner), true);
+  assert.equal(audio.playNpcVoice(voice, owner), false);
+  const { sound, id } = audio._npcVoice;
+  owner.position.x = 20;
+  audio.updateWorld(.1, origin, null, []);
+  assert.equal(sound.playing(id), false);
+  owner.position.x = 1;
+  assert.equal(audio.playNpcVoice(voice, owner), true);
+  audio.setPaused(true);
+  assert.equal(sound.playing(), false);
+  assert.equal(audio.playNpcVoice(voice, owner), false);
+  audio.dispose();
+});
+
+test('fuera de combate conserva la voz del NPC y la muerte del jugador reproduce solo AHH aun en pausa', () => {
+  const { audio } = fixture();
+  const npc = { position: new THREE.Vector3(1, 0, 0), hp: 0 };
+  audio.updateWorld(.1, origin, null, []);
+  assert.equal(audio.playNpcVoice('/audio/derrota.mp3', npc, { allowKnockedOut: true }), true);
+  const knockoutVoice = audio._npcVoice;
+  audio.updateWorld(.1, origin, null, []);
+  assert.equal(knockoutVoice.sound.playing(knockoutVoice.id), true);
+
+  audio.setPaused(true);
+  const player = { position: new THREE.Vector3(), hp: 0 };
+  assert.equal(audio.playPlayerDeath(player), true);
+  assert.equal(audio._npcVoice.sound.options.src[0], '/audio/ahh.mp3');
+  assert.equal(audio._npcVoice.sound.playing(audio._npcVoice.id), true);
+  audio.dispose();
+});
+
 test('el robo en circulación selecciona inmediatamente cualquiera de las cinco frases exclusivas', () => {
   const { audio } = fixture(), vehicle = car(2); vehicle.car.traffic = true;
   audio.updateWorld(.1, origin, null, [vehicle]);
@@ -115,7 +153,9 @@ test('cada pitada elige al azar entre las doce frases de Valentina y Roberto', (
   assert.equal(audio.driverSounds.length, 12);
   for (let i = 0; i < files.length; i++) {
     audio.vehicles.random = () => (i + .1) / files.length;
-    state.cooldown = 0; audio.vehicles._lastHornAt = -Infinity;
+    if (state.remark) state.remark.sound.stop(state.remark.id);
+    state.remark = null;
+    state.cooldown = 0; state.remarkCooldown = 0; audio.vehicles._lastHornAt = -Infinity;
     audio.updateWorld(.1, origin, null, [vehicle]);
     const file = files[i];
     assert.equal(state.remark.sound.options.src[0], `/audio/${file}`);
@@ -205,7 +245,7 @@ test('la carpeta de audio contiene únicamente archivos utilizados y todos tiene
   const { audio } = fixture();
   try {
     const sounds = [...Object.values(audio.sounds), ...Object.values(audio.vehicleSounds), ...audio.driverSounds, ...audio.theftSounds];
-    const used = sounds.map(sound => decodeURIComponent(sound.options.src[0].split('/').at(-1))).sort();
+    const used = [...sounds.flatMap(sound => sound.options.src.map(source => decodeURIComponent(source.split('/').at(-1)))), ...Object.values(NPC_VOICE_BANK).flat().map(entry => entry.audio.split('/').at(-1))].sort();
     const files = readdirSync(new URL('../public/audio/', import.meta.url)).sort();
     assert.deepEqual(files, used);
     assert.equal(files.filter(file => file.endsWith('.opus')).length, 10);
@@ -222,7 +262,7 @@ test('los nueve audios nuevos existen y las rutas de claxon coinciden con los no
     const file = decodeURIComponent(sound.options.src[0].replace('/audio/', ''));
     const bytes = readFileSync(new URL(`../public/audio/${encodeURIComponent(file)}`, import.meta.url));
     const metadata = audioMetadata(bytes);
-    assert.equal(metadata.format, 'opus');
+    assert.equal(metadata.format, file.endsWith('.mp3') ? 'mp3' : 'opus');
     assert.ok(bytes.length > 1000);
     for (const [start, length] of Object.values(sound.options.sprite ?? {})) {
       assert.ok(metadata.duration * 1000 >= start + length, 'El fragmento cabe en el archivo');
@@ -230,6 +270,8 @@ test('los nueve audios nuevos existen y las rutas de claxon coinciden con los no
   }
   assert.deepEqual([bank.horn1, bank.horn2, bank.horn3].map(sound => sound.options.src[0]),
     ['/audio/car_horn_sound1.opus', '/audio/car_horn_sound.opus', '/audio/car_horn_sound_v3.opus']);
+  assert.deepEqual([bank.horn1, bank.horn2, bank.horn3].map(sound => sound.options.src[1]),
+    ['/audio/car_horn_sound1.mp3', '/audio/car_horn_sound.mp3', '/audio/car_horn_sound_v3.mp3']);
   assert.equal(audio.sounds.steps.options.src[0], '/audio/Sounds_of_a_steps.opus');
   assert.ok(bank.horn1.options.sprite.honk[1] < 1000);
   audio.dispose();
@@ -296,6 +338,21 @@ test('el claxon espera una obstrucción peatonal y mantiene enfriamiento indepen
   first.personBlocked = second.personBlocked = false;
   for (let i = 0; i < 100; i++) audio.vehicles.update(.1, origin, [first, second]);
   assert.equal(bank.horn2.starts, 2);
+  audio.dispose();
+});
+
+test('el conductor habla ante una obstrucción aunque los claxones no estén disponibles', () => {
+  const { audio, bank } = fixture(), vehicle = car(2);
+  vehicle.personBlocked = true;
+  for (const horn of [bank.horn1, bank.horn2, bank.horn3]) horn.loaded = false;
+  for (let frame = 0; frame < 30; frame++) audio.vehicles.update(.1, origin, [vehicle]);
+
+  const state = audio.vehicles.instances.get(vehicle.car);
+  assert.ok(state.remark);
+  assert.equal(audio.driverSounds.reduce((count, sound) => count + sound.starts, 0), 1);
+  const { sound, id } = state.remark;
+  assert.equal(sound.playing(id), true);
+  assert.ok(sound.voices.get(id).volume > 0);
   audio.dispose();
 });
 
@@ -502,6 +559,8 @@ test('mientras alguien habla bajan tráfico y ambiente, y solo suena una voz a l
   for (const voice of audio._theftVoices.values()) voice.sound.stop(voice.id);
   first.personBlocked = second.personBlocked = false;
   for (let i = 0; i < 60; i++) audio.updateWorld(.1, origin, null, [first, second]);
+  assert.equal(a.remark, null, 'El conductor deja de hablar al desaparecer la obstrucción');
+  assert.equal(b.remark, undefined, 'El otro conductor no empieza a hablar sin obstrucción');
   assert.ok(Math.abs(a.idleVolume - quiet) < .01);
   assert.ok(Math.abs(ambient.volume - .18) < .002);
   audio.dispose();

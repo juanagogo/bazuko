@@ -5,10 +5,12 @@ import { Game } from '../src/core/game.js';
 import { StatsSystem, NEEDS } from '../src/systems/StatsSystem.js';
 import { InventorySystem } from '../src/systems/InventorySystem.js';
 import { Menu } from '../src/ui/Menu.js';
+import { resetTestWindow } from './helpers/fixtures.js';
 
-beforeEach(() => { globalThis.window = new EventTarget(); });
+beforeEach(resetTestWindow);
 
 function fixture() {
+  const deathAudioCalls = [];
   const game = Object.assign(Object.create(Game.prototype), {
     stats: new StatsSystem(), deathCount: 0, _deathPending: false,
     talents: { getEffect: (key, fallback) => fallback }, clock: { isNight: false },
@@ -17,7 +19,12 @@ function fixture() {
       clearVehicleImpact() { this.lastImpact = null; } },
     world: { active: { reserved: { bed: { x: 89, z: 80 } } } },
     input: { keys: { KeyW: true }, endFrame() {} },
-    audio: { updateSteps() {} },
+    audio: {
+      updateSteps() {},
+      setPaused(paused) { deathAudioCalls.push(['pause', paused]); },
+      playPlayerDeath(player) { deathAudioCalls.push(['death', player]); }
+    },
+    deathAudioCalls,
     interaction: { currentTarget: {}, currentTargetType: 'shop' },
     menu: { isOpen: false, open(options) { this.options = options; this.isOpen = true; }, close() { this.isOpen = false; } },
     creator: { isOpen: false },
@@ -49,9 +56,11 @@ test('un atropello grave pausa la muerte y limpia el golpe solo al recuperar en 
   assert.equal(game.stats.salud, 0);
   assert.equal(game._handleDeath(), true);
   assert.equal(game.menu.options.title, 'Te atropellaron');
+  assert.deepEqual(game.deathAudioCalls, [['pause', true], ['death', game.player]]);
   assert.ok(game.player.position.equals(position));
   assert.equal(game.deathCount, 1);
   game._handleDeath(); assert.equal(game.deathCount, 1);
+  assert.equal(game.deathAudioCalls.filter(([type]) => type === 'death').length, 1);
   game._respawn();
   assert.equal(game.player.lastImpact, null);
   assert.equal(game._deathCause, null);

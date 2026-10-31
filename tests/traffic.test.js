@@ -389,6 +389,22 @@ test('un cruce repentino provoca atropello sin eliminar la velocidad de frenado'
   traffic.dispose();
 });
 
+test('el contacto al frenar a baja velocidad también registra el atropello', () => {
+  const traffic = new TrafficSystem(new THREE.Scene(), [new TrafficRoute(0, 240, 0, 240, 3.2)], { carsPerRoute: 1, random: () => .5 });
+  const vehicle = traffic.vehicles[0], direction = new THREE.Vector3();
+  placeOnStraight(vehicle, 20, 0, 1, 0);
+  vehicle.speed = 0.8;
+  vehicle.route.sample(vehicle.distance, vehicle.car.position, direction);
+  const player = vehicle.car.position.clone().addScaledVector(direction, vehicle.car.length / 2 + 0.55);
+  const hits = [];
+
+  traffic._checkPlayerImpact(vehicle, player, vehicle.distance, 0.02, hit => hits.push(hit));
+  assert.equal(hits.length, 1);
+  assert.equal(hits[0].speed, 0.8);
+  assert.ok(vehicle.impactStop);
+  traffic.dispose();
+});
+
 test('el carro consigue detenerse sin atropellar si ve al jugador con suficiente anticipación', () => {
   const traffic = new TrafficSystem(new THREE.Scene(), [new TrafficRoute(0, 240, 0, 240, 3.2)], { carsPerRoute: 1, random: () => .5 });
   const vehicle = traffic.vehicles[0]; placeOnStraight(vehicle, 20, 0, 1, 0); vehicle.speed = 12;
