@@ -33,6 +33,7 @@ import { CollisionSystem } from '../systems/CollisionSystem.js';
 import { TrafficSystem } from '../systems/TrafficSystem.js';
 import { distributeShelterLoot, spreadPickupPositions } from '../systems/ShelterLoot.js';
 import { InventorySystem } from '../systems/InventorySystem.js';
+import { DroppedItemSystem } from '../systems/DroppedItemSystem.js';
 import { AudioSystem } from '../systems/AudioSystem.js';
 import { InteractionSystem } from '../systems/InteractionSystem.js';
 import { DiseaseSystem } from '../systems/DiseaseSystem.js';
@@ -108,6 +109,7 @@ export class Game {
       this.diseases, this.talents, this.crafting
     );
 
+    this.droppedItems = new DroppedItemSystem(this);
     this.steal = new StealSystem(this);
 
     // HUD, menús y creador de personaje
@@ -386,6 +388,7 @@ export class Game {
   }
 
   _spawnEntities() {
+    this.droppedItems?.clear();
     this.dog?.destroy();
     this.audio.vehicles?.clear();
     this.traffic?.dispose();
@@ -870,6 +873,8 @@ export class Game {
     // 6. Enfermedades
     this.diseases.update(dt);
 
+    // Los objetos caducan antes de procesar E; los menús y la pestaña oculta pausan el plazo.
+    this.droppedItems.update(dt);
     // 7. Interacción (basura, autos, recicladora, tienda, cambuche, dealer)
     if (!this.player.isStunned) this.interaction.update(dt, this.input, this.clock);
     this.steal?.update(dt);
