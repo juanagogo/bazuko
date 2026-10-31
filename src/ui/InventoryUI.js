@@ -217,9 +217,9 @@ export class InventoryUI {
   _drop(all) {
     const s = this.inv.slots[this.selected];
     if (!s) return;
-    const def = ITEMS[s.id];
-    const n = this.inv.removeAt(this.selected, all ? s.qty : 1);
-    this._toast(`🗑️ Tiraste ${def.name}${n > 1 ? ' x' + n : ''}`, 'warn');
+    const result = this.game.droppedItems.drop(s.id, all ? s.qty : 1);
+    if (!result.quantity) { this._toast(result.error, 'warn'); return; }
+    this._toast(`Tiraste ${s.name}${result.quantity > 1 ? ' ×' + result.quantity : ''} · Puedes recogerlo durante 10 s`, 'info');
   }
 
   useSelected() {

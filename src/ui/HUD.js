@@ -289,7 +289,11 @@ export class HUD {
       } else if (interaction?.currentTarget || interaction?.stealPrompt) {
         const type = interaction.currentTargetType;
         let text = interaction?.stealPrompt ?? '';
-        if (type === 'pickup') text = '[E] Recoger basura · [Mantener Q] Seleccionar';
+        if (type === 'dropped-item') {
+          const dropped = interaction.currentTarget;
+          text = `[E] Recoger ${dropped.item.name}${dropped.quantity > 1 ? ` ×${dropped.quantity}` : ''} · ${Math.ceil(dropped.remaining)} s`;
+        }
+        else if (type === 'pickup') text = '[E] Recoger basura · [Mantener Q] Seleccionar';
         else if (type === 'car') text = interaction.currentTarget?.traffic ? '[E] Robar retrovisor del carro en circulación' : '[E] Robar retrovisor de auto';
         else if (type === 'sell') text = '[E] Recicladora El Progreso · Vender material';
         else if (type === 'shop') text = `[E] ${interaction.currentTarget.title ?? 'Tienda La Esquinita'} · Comprar`;
