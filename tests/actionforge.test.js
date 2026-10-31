@@ -16,7 +16,7 @@ async function bank() {
 
 test('los FBX de combate se adaptan como Group y producen pistas animadas', async () => {
   const body = await bank();
-  for (const [action, file] of Object.entries({ fueraCombate: 'combat-fall', golpe_jab: 'combat-jab-cross', reaccion_pecho: 'combat-hit-body', reaccion_cabeza: 'combat-hit-head', provocar: 'combat-taunt', pivotar: 'combat-pivot' })) {
+  for (const [action, file] of Object.entries({ fueraCombate: 'fallingdown', golpe_jab: 'combat-jab-cross', reaccion_pecho: 'combat-hit-body', reaccion_cabeza: 'combat-hit-head', provocar: 'combat-taunt', bloquear: 'center-block' })) {
     const bytes = fs.readFileSync(new URL(`../public/models/${file}.fbx`, import.meta.url));
     const source = new FBXLoader().parse(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength), '');
     const clips = buildCharacterClips(body, null, null, { [action]: source });
@@ -24,8 +24,11 @@ test('los FBX de combate se adaptan como Group y producen pistas animadas', asyn
     assert.ok(clips[action].tracks.length > 10);
     if (action === 'fueraCombate') {
       const hip = clips[action].tracks.find(track => track.name.endsWith('Hips.position'));
-      assert.ok(hip, 'La caída conserva la traslación vertical');
-      assert.ok(hip.values[hip.values.length - 2] < hip.values[1], 'La cadera termina más cerca del suelo');
+      assert.ok(hip, 'Falling Down conserva la traslación vertical de la cadera');
+      assert.ok(hip.values[1] > 0.8, 'La animación empieza con la cadera erguida');
+      assert.ok(hip.values[hip.values.length - 2] < 0.15, 'La cadera termina junto al suelo');
+      assert.ok(Math.abs(hip.values[hip.values.length - 3] - hip.values[0]) < 1e-6, 'La caída conserva la posición horizontal X');
+      assert.ok(Math.abs(hip.values[hip.values.length - 1] - hip.values[2]) < 1e-6, 'La caída conserva la posición horizontal Z');
     }
     for (const track of clips[action].tracks) assert.ok(track.values.every(Number.isFinite));
     if (action === 'golpe_jab') assert.ok(clips.golpe_cross.duration > 0);

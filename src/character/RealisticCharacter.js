@@ -22,14 +22,15 @@ const ANIM_URLS = ['animaciones.glb', 'animaciones-prueba.glb'].map(file => MODE
 export const REALISTIC_SCALE = 1.08;
 
 const ACTIONFORGE_URL = `${MODEL_BASE}animaciones-actionforge.glb`;
+// src/character/RealisticCharacter.js
+
 const ASSAULT_ANIM_URLS = {
-  bloquear: `${MODEL_BASE}combat-block.fbx`,
-  fueraCombate: `${MODEL_BASE}combat-fall.fbx`,
+  bloquear: `${MODEL_BASE}center-block.fbx`,
+  fueraCombate: `${MODEL_BASE}fallingdown.fbx`, // <--- Asignado a fallingdown.fbx
   golpe_jab: `${MODEL_BASE}combat-jab-cross.fbx`,
   reaccion_cabeza: `${MODEL_BASE}combat-hit-head.fbx`,
   reaccion_pecho: `${MODEL_BASE}combat-hit-body.fbx`,
   provocar: `${MODEL_BASE}combat-taunt.fbx`,
-  pivotar: `${MODEL_BASE}combat-pivot.fbx`,
   golpear: `${MODEL_BASE}assault-hook.fbx`,
   patear: `${MODEL_BASE}assault-kick.fbx`,
   recibirGolpe: `${MODEL_BASE}assault-hit-react.fbx`,
@@ -286,7 +287,7 @@ async function buildInstance(catalog, look, lod = false) {
   const actions = {};
   for (const [name, clip] of Object.entries(clips)) {
     actions[name] = mixer.clipAction(clip);
-    if (['comer', 'beber', 'lanzar', 'saludo', 'golpear', 'patear', 'recibirGolpe', 'derribo', 'levantarse', 'golpe_jab', 'golpe_cross', 'patada', 'reaccion_pecho', 'reaccion_cabeza', 'caida', 'fueraCombate', 'bloquear', 'pivotar'].includes(name)) {
+    if (['comer', 'beber', 'lanzar', 'saludo', 'golpear', 'patear', 'recibirGolpe', 'derribo', 'levantarse', 'golpe_jab', 'golpe_cross', 'patada', 'reaccion_pecho', 'reaccion_cabeza', 'caida', 'fueraCombate', 'bloquear'].includes(name)) {
       actions[name].setLoop(THREE.LoopOnce, 1);
       actions[name].clampWhenFinished = true;
     }
@@ -354,14 +355,14 @@ export async function createRealisticCharacter(look = {}, { lod = false } = {}) 
       disposeRealisticInstance(inst); inst = null;
       group.removeFromParent();
     },
-    update(dt, { speed = 0, running = false, action = null, actionDuration = 0 } = {}) {
+    update(dt, { speed = 0, running = false, action = null, actionDuration = 0, actionSequence = 0 } = {}) {
       if (!inst) return;
       const a = inst.actions;
       // destino: acción especial si existe el clip (o su sustituto); si no, reposo o locomoción
       let target = speed < 0.15 ? 'idle' : a.walk ? LOCOMOTION : 'idle';
       let scale = 1;
       // Los golpes deben verse aunque la inercia conserve velocidad al soltar WASD.
-      const combatAction = ['golpe_jab', 'golpe_cross', 'patada', 'reaccion_pecho', 'reaccion_cabeza', 'caida', 'golpear', 'patear', 'recibirGolpe', 'provocar', 'pivotar', 'bloquear', 'fueraCombate'].includes(action);
+      const combatAction = ['golpe_jab', 'golpe_cross', 'patada', 'reaccion_pecho', 'reaccion_cabeza', 'caida', 'golpear', 'patear', 'recibirGolpe', 'provocar', 'bloquear', 'fueraCombate'].includes(action);
       if (action && (speed < 0.15 || combatAction)) {
         const [clip, clipScale = 1] = a[action] ? [action] : ACTION_FALLBACKS[action] ?? [];
         if (a[clip]) {
@@ -373,9 +374,10 @@ export async function createRealisticCharacter(look = {}, { lod = false } = {}) 
         const targetY = action === 'cagar' && !a.cagar ? -0.3 : 0;
         inst.root.position.y += (targetY - inst.root.position.y) * Math.min(1, dt * 10);
       }
-      if (target !== inst.previousTarget) {
+      if (target !== inst.previousTarget || actionSequence !== inst.previousActionSequence) {
         if (target !== 'idle' && target !== LOCOMOTION) a[target].reset().setEffectiveTimeScale(scale).play();
         inst.previousTarget = target;
+        inst.previousActionSequence = actionSequence;
       }
       const k = 1 - Math.exp(-dt * (combatAction ? 18 : 8));
       for (const key of Object.keys(weights)) {
@@ -402,6 +404,12 @@ export async function createRealisticCharacter(look = {}, { lod = false } = {}) 
         a[key].setEffectiveWeight(weight);
       }
       inst.mixer.update(dt);
+      // Mantener la guardia mientras dure el bloqueo, sin volver a bajar los brazos.
+      if (target === 'bloquear') {
+        const guard = a.bloquear;
+        const holdTime = guard.getClip().duration * .55;
+        if (guard.time >= holdTime) { guard.time = holdTime; guard.paused = true; }
+      }
       inst.accessories?.update();
     }
   };

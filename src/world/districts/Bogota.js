@@ -1099,7 +1099,7 @@ export class Bogota {
       _projView.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
       frustum = _frustum.setFromProjectionMatrix(_projView);
     }
-    const ctx = { player: playerPos, frustum, camera, isRaining: (this.wetness ?? 0) > 0.05, animationBudget: this.animationBudget ?? 1 };
+    const ctx = { player: playerPos, npcs: this.npcs, frustum, camera, isRaining: (this.wetness ?? 0) > 0.05, animationBudget: this.animationBudget ?? 1 };
     for (const n of this.npcs) n.update(dt, ctx);
     for (const flock of this.pigeonFlocks ?? []) flock.update(dt, playerPos, this.npcs);
   }

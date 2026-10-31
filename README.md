@@ -70,6 +70,8 @@ En PowerShell, si una política de ejecución impide usar `npm`, ejecuta los mis
 | --- | --- |
 | `W`, `A`, `S`, `D` | Moverse. En tercera persona, el movimiento sigue el rumbo de la cámara. |
 | `Shift` | Correr. |
+| `G` | Lanzar un puñetazo; encadenar golpes combina jab y cross. |
+| Mantener `O` | Bloquear: reduce el daño de los golpes un 60 %. Soltar baja la guardia. |
 | `V` o botón de cámara | Alternar entre tercera persona e isométrica. |
 | Clic izquierdo en la calle | Fijar el ratón para girar la cámara en tercera persona. |
 | Arrastrar con botón izquierdo/derecho o flechas | Girar la cámara sin fijar el ratón. |

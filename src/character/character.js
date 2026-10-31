@@ -404,13 +404,14 @@ export function createCharacter(initial = DEFAULT_LOOK) {
         target.lean = 0.12;
         break;
       }
-      case 'pivotar':
-        target.lean = -.2;
-        target.armLx = -1.2; target.armRx = -1.2;
-        target.elbL = -1.5; target.elbR = -1.5;
-        target.legL = .3; target.legR = -.3;
+      case 'bloquear': {
+        target.lean = .08;
+        target.armLx = -1.15; target.armRx = -1.15;
+        target.elbL = -2; target.elbR = -2;
+        target.armLz = .2; target.armRz = -.2;
+        target.legL = .15; target.legR = -.15;
         break;
-      case 'bloquear':
+      }
       case 'agarrar':
       case 'ser_agarrado':
       case 'golpe_jab':

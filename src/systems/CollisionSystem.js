@@ -12,6 +12,9 @@ export class CollisionSystem {
     this._cameraCandidates = [];
     this._occlusionCandidates = [];
     this._extent = new THREE.Vector3();
+    this._strikeRay = new THREE.Ray();
+    this._strikePoint = new THREE.Vector3();
+    this._strikeCandidates = [];
   }
 
   /** Registra un mesh como sólido. size opcional para hitbox custom. */
@@ -49,6 +52,21 @@ export class CollisionSystem {
     // Mantener el orden de resolución anterior, incluso si una caja ocupa varias celdas.
     result.sort((a, b) => this._staticOrder.get(a) - this._staticOrder.get(b));
     return result;
+  }
+
+  /** Segmento a la altura del torso: un puñetazo no atraviesa un sólido. */
+  hasClearStrike(from, to) {
+    const ray = this._strikeRay;
+    ray.origin.copy(from); ray.origin.y += 1.1;
+    ray.direction.copy(to).sub(from);
+    const distance = ray.direction.length();
+    if (distance < .001) return true;
+    ray.direction.divideScalar(distance);
+    const candidates = this.queryStatic(Math.min(from.x, to.x), Math.min(from.z, to.z),
+      Math.max(from.x, to.x), Math.max(from.z, to.z), this._strikeCandidates);
+    const blocked = ({ box }) => ray.intersectBox(box, this._strikePoint) &&
+      ray.origin.distanceToSquared(this._strikePoint) < distance * distance;
+    return !candidates.some(blocked) && !this.dynamicColliders.some(blocked);
   }
 
   /** Consulta conservadora del volumen cámara/jugador; admite falsos positivos. */

@@ -6,7 +6,7 @@ export function startControlsHelp() {
   if (!root || !content || !toggle) return;
   if (!document.getElementById('combat-block-help')) {
     const hint = document.createElement('p');
-    hint.id = 'combat-block-help'; hint.textContent = 'O: esquivar con Right Pivot. Mantén U: bloquear. G: golpear. H: agarrar/soltar. J: derribar.';
+    hint.id = 'combat-block-help'; hint.textContent = 'Mantén O: bloquear (reduce el daño un 60 %). G: golpear. H: agarrar/soltar. J: derribar.';
     content.appendChild(hint);
   }
   const collapse = () => {

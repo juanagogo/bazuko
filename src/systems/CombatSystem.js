@@ -12,14 +12,6 @@ export const COMBO_VENTANA = .55;
 export const HITSTOP_MS = 70;
 const _v = new THREE.Vector3();
 
-const INSULTOS_BANDA = [
-  "¡Malparido!",
-  "¡Hijueputa!",
-  "¡Gonorrea, se metió con la gente equivocada!",
-  "¡Gonorrea!",
-  "¡Qué boleta, bájese de la nube!"
-];
-
 export class CombatSystem {
   constructor({ audio = null, camera = null } = {}) {
     this.audio = audio; 
@@ -56,29 +48,29 @@ export class CombatSystem {
       event.impacted = true;
       const { player, hit, npcs, kind } = event;
       const pp = player.getPosition?.() ?? player.position ?? player.root?.position;
+      if (!pp) { this.pending = null; return; }
       const yaw = player.getYaw?.() ?? player.root?.rotation?.y ?? 0;
       const fx = Math.sin(yaw), fz = Math.cos(yaw);
       
       let target = null, mejor = Infinity;
       for (const npc of npcs) {
         if (!npc?.position || npc.hp <= 0 || npc._disposed) continue;
+        if (Math.abs(npc.position.y - pp.y) > 1.2) continue;
         const dx = npc.position.x - pp.x, dz = npc.position.z - pp.z, d = Math.hypot(dx, dz);
         if (d > 1e-3 && d <= hit.reach && (dx * fx + dz * fz) / d > hit.arc && d < mejor) { 
+          if (player._lastCollisions?.hasClearStrike?.(pp, npc.position) === false) continue;
           mejor = d; 
           target = npc; 
         }
       }
       
       if (target?.takePunch) {
-        // La esquiva gana prioridad antes del impacto: no dispara reacción ni sonido de golpe.
-        if (target.combatAI?.state === 'pivotar' || target.combatAI?.intentarEsquiva?.()) return;
         const drop = target.takePunch(player, { tipo: kind, dmg: hit.dmg, knock: hit.knock, stun: hit.stun, derriba: !!hit.derriba, dir: _v.set(fx, 0, fz).clone() });
         (this.audio ?? player.audio)?.playPunchHit?.(hit.peso === 'fuerte');
         if (drop && typeof player.stats?.dinero === 'number') player.stats.dinero += drop;
         this.camera?.shake?.(hit.peso === 'fuerte' ? .35 : .18, HITSTOP_MS / 1000);
         this._hitstopUntil = this.clock + HITSTOP_MS / 1000;
 
-        // 👇 ¡AQUÍ SE DISPARA EL LINCHAMIENTO (pasando el array de npcs) 👇
         this.alertarALaBanda(player, target, npcs);
       }
     }
@@ -91,25 +83,15 @@ export class CombatSystem {
   alertarALaBanda(atacante, victima, npcs) {
     if (!victima?.position || !npcs) return;
     
-    for (const npc of npcs) {
-      // Ignoramos a la víctima original, a los muertos y al mismo atacante
-      if (npc === victima || npc.hp <= 0 || npc === atacante) continue;
-      
-      // Calculamos distancia rápida (sin raíz cuadrada)
-      const dx = npc.position.x - victima.position.x;
-      const dz = npc.position.z - victima.position.z;
-      if (dx * dx + dz * dz > 64) continue; // Si está a más de 8 metros (8^2 = 64), lo ignoramos
-      
-      // Si el NPC es valiente, se une al linchamiento
-      const valentia = npc.valentia ?? Math.random();
-      if (valentia > 0.3) {
-        if (npc.combatAI) {
-          npc.combatAI.entrarEnCombate(atacante);
-        }
-        if (typeof npc.say === 'function') {
-          npc.say(INSULTOS_BANDA[Math.floor(Math.random() * INSULTOS_BANDA.length)]);
-        }
-      }
+    const candidates = npcs.filter(npc => npc?.position && npc !== victima && npc !== atacante &&
+      !(npc.hp <= 0) && !npc._disposed && (npc.valentia ?? 0) > .3 &&
+      Math.abs(npc.position.y - victima.position.y) < 1.2 &&
+      npc.position.distanceToSquared(victima.position) <= 64)
+      .sort((a, b) => a.position.distanceToSquared(victima.position) - b.position.distanceToSquared(victima.position));
+    for (const [index, npc] of candidates.slice(0, 5).entries()) {
+      if (npc.combatAI?.state !== 'libre') continue;
+      npc.beginAssault?.(atacante, 'golpe_jab', index * .15);
+      npc.speakScenario?.('mob');
     }
   }
 
