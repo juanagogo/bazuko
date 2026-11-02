@@ -3,9 +3,10 @@ import { mock, test } from 'node:test';
 import * as THREE from 'three';
 import * as textures from '../src/world/bogota/textures.js';
 import { TILE_SIZE } from '../src/utils/constants.js';
+import { EAST_SEAM } from '../src/world/bogota/EastZones.js';
 
 // Conserva la geometría real; evita depender de Canvas para pintar las texturas.
-const textureSet = () => ({ map: new THREE.Texture(), bumpMap: new THREE.Texture(), emissiveMap: new THREE.Texture() });
+const textureSet = () => ({ map: new THREE.Texture(), bumpMap: new THREE.Texture(), roughnessMap: new THREE.Texture(), emissiveMap: new THREE.Texture() });
 mock.module('../src/world/bogota/textures.js', {
   namedExports: { ...textures, brick: textureSet, slab: textureSet, roofTiles: textureSet, facade: textureSet }
 });
@@ -30,7 +31,8 @@ function checkBuildings(map, seed) {
       // La base física de cada edificio conserva su huella cuando se ocultan las partes altas.
       claim(new THREE.Box3().setFromObject(building.base));
     }
-    for (let z = 0; z < map.length; z++) for (let x = 0; x < map[z].length; x++) {
+    // Los barrios del oriente tienen su propio plano de lotes, comprobado en east-zones.test.js.
+    for (let z = 0; z < map.length; z++) for (let x = 0; x < Math.min(map[z].length, EAST_SEAM); x++) {
       const expected = ['building', 'ruin'].includes(map[z][x]) ? 1 : 0;
       assert.equal(occupancy[z][x], expected, `seed ${seed}, tile ${x},${z}: cobertura sin huecos ni solapamientos`);
     }

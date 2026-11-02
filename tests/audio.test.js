@@ -419,7 +419,7 @@ test('las pisadas siguen la distancia recorrida, sin repetir la misma ni sonar e
   assert.equal(steps.options.loop, undefined, 'Ya no es un bucle continuo');
   const played = () => [...steps.voices.values()].map(voice => voice.sprite);
   audio.updateSteps(false, false);
-  // Caminando a 3 m/s durante 2 s: una pisada cada 1,15 m y la primera llega pronto.
+  // Caminando a 3 m/s durante 2 s: una pisada cada 1,25 m y la primera llega pronto.
   for (let i = 0; i < 120; i++) audio.updateSteps(true, false, 'sidewalk', false, 3 / 60);
   const walking = steps.starts;
   assert.ok(walking >= 5 && walking <= 6, `Unas cinco pisadas en seis metros (${walking})`);

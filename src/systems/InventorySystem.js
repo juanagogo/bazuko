@@ -68,6 +68,12 @@ export class InventorySystem {
     return this.items.find((i) => i.id === itemId)?.qty ?? 0;
   }
 
+  /** Vacía el inventario sin devolver valor. */
+  clear() {
+    this.items = [];
+    this._notify();
+  }
+
   /** Vacía y devuelve el dinero total */
   sellAll(priceMultiplier = 1) {
     const total = this.items.reduce(

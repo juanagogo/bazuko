@@ -1,6 +1,9 @@
 import * as THREE from 'three';
 import { GRAPHICS_PROFILES } from './GraphicsQuality.js';
 
+// Brazo de cámara con el que el cuerpo tapa la vista; al salir pide más, para que no parpadee en el límite.
+const INSIDE_BODY_IN = .75, INSIDE_BODY_OUT = 1;
+
 export class CameraRig {
   constructor(scene, canvas) {
     this.camera = new THREE.PerspectiveCamera(
@@ -22,6 +25,7 @@ export class CameraRig {
     this._box = new THREE.Box3();
     this._ray = new THREE.Ray();
     this._snap = true;
+    this.insideBody = false;
     this._drag = null;
     this.baseFov = 55;
     this.targetFov = 55;
@@ -95,17 +99,25 @@ export class CameraRig {
     canvas.addEventListener('contextmenu', (e) => { if (active()) e.preventDefault(); });
 
     canvas.addEventListener('pointerdown', (e) => {
+      // Al dedo lo atiende TouchControls: aquí pediría bloquear el puntero, que un toque no puede soltar.
+      if (e.pointerType === 'touch' || e.pointerType === 'pen') return;
       if (!active()) return;
       if (e.button !== 0 && e.button !== 2) return;
-      e.preventDefault();
 
       // En clic izquierdo solicita Pointer Lock para control fluido estilo juego 3D
-      if (e.button === 0 && (typeof document === 'undefined' || document.pointerLockElement !== canvas) && canvas.requestPointerLock) {
+      if (e.button === 0 && this.allowPointerLock?.() !== false &&
+          (typeof document === 'undefined' || document.pointerLockElement !== canvas) && canvas.requestPointerLock) {
         try { canvas.requestPointerLock()?.catch?.(() => {}); } catch { /* sin permiso */ }
       }
 
       this._drag = { id: e.pointerId, x: e.clientX, y: e.clientY };
       try { canvas.setPointerCapture?.(e.pointerId); } catch { /* sin captura */ }
+    });
+
+    // Sin seleccionar ni arrastrar nada al apretar el botón. Va aquí y no en el pointerdown: cancelar aquel cancela
+    // también este mousedown, y entonces Input nunca se entera del clic y el ratón no pega.
+    canvas.addEventListener('mousedown', (e) => {
+      if (active() && (e.button === 0 || e.button === 2)) e.preventDefault();
     });
 
     const onPointerMove = (e) => {
@@ -165,9 +177,10 @@ export class CameraRig {
 
   updateControls(dt, input) {
     if (this.mode !== 'third-person' || !(this.canControl?.() ?? true)) return;
+    const look = input.look ?? { x: 0, y: 0 };
     this.orbit(
-      ((input.isDown('ArrowRight') ? 1 : 0) - (input.isDown('ArrowLeft') ? 1 : 0)) * dt * 250,
-      ((input.isDown('ArrowDown') ? 1 : 0) - (input.isDown('ArrowUp') ? 1 : 0)) * dt * 180
+      ((input.isDown('ArrowRight') ? 1 : 0) - (input.isDown('ArrowLeft') ? 1 : 0) + look.x) * dt * 250,
+      ((input.isDown('ArrowDown') ? 1 : 0) - (input.isDown('ArrowUp') ? 1 : 0) + look.y) * dt * 180
     );
   }
 
@@ -228,6 +241,7 @@ export class CameraRig {
       else this._armDistance = THREE.MathUtils.lerp(this._armDistance, distance, 1 - Math.exp(-8 * dt));
       this.camera.position.copy(this._look).addScaledVector(this._direction, this._armDistance);
     }
+    this.insideBody = this.mode === 'third-person' && this._armDistance < (this.insideBody ? INSIDE_BODY_OUT : INSIDE_BODY_IN);
     // Orientación definida incluso si un obstáculo obliga a acercarse hasta el punto de mira.
     this._desired.copy(this._look);
     if (this.mode === 'third-person') this._desired.addScaledVector(this._direction, -1);

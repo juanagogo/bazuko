@@ -96,3 +96,36 @@ test('descarta NPC lejanos y detecta a quienes entran al parque sin revisar toda
   assert.equal(flock._people.length, 1); assert.equal(bird.state, 'flying');
   flock.dispose();
 });
+
+test('una paloma pegada a la cámara no se dibuja: tan cerca, se vería como una mole', () => {
+  const { flock } = fixture(3);
+  const bird = flock.birds[0], far = new THREE.Vector3(40, 0, 40), camera = new THREE.PerspectiveCamera();
+  const paintedAt = (offset, cam = camera) => {
+    camera.position.copy(bird.position).add(offset);
+    flock.update(.016, far, [], cam);
+    const matrix = new THREE.Matrix4();
+    flock.meshes[0].getMatrixAt(0, matrix);
+    return Math.hypot(...matrix.elements.slice(0, 3)) > .01;
+  };
+  assert.equal(paintedAt(new THREE.Vector3(0, 3, 0)), true);
+  assert.equal(paintedAt(new THREE.Vector3(.5, .6, 0)), false, 'a menos de 1,2 m se oculta');
+  assert.equal(paintedAt(new THREE.Vector3(1.5, .6, 0)), true);
+  // Sin cámara se pinta como siempre, y volar cerca no cambia nada más: la paloma sigue su camino.
+  assert.equal(paintedAt(new THREE.Vector3(.1, .1, 0), null), true);
+  flock.dispose();
+});
+
+test('quien está sentado o dormido en su sitio no espanta a las palomas; si se levanta y anda, sí', () => {
+  const { flock } = fixture(1);
+  const bird = flock.birds[0], far = new THREE.Vector3(40, 0, 40);
+  const person = { position: bird.position.clone(), fijo: { out: false } };
+  for (let i = 0; i < 20; i++) {
+    person.position.copy(bird.position);
+    flock.update(.05, far, [person]);
+    assert.ok(bird.state === 'idle' || bird.state === 'walking', bird.state);
+  }
+  person.fijo.out = true;
+  for (let i = 0; i < 6; i++) flock.update(.05, far, [person]);
+  assert.ok(bird.state === 'startled' || bird.state === 'flying', bird.state);
+  flock.dispose();
+});

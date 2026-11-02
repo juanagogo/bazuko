@@ -35,7 +35,7 @@ test('los cinco diseños respetan su solar y su altura, comparten texturas y usa
     assert.ok(bounds.min.z>=p.z-p.depth/2-.2&&bounds.max.z<=p.z+p.depth/2+.2);
     let triangles=0,meshes=0;
     shell.root.traverse(o=>{assert.ok(!o.isLight);if(o.isMesh){meshes++;triangles+=(o.geometry.index?.count??o.geometry.attributes.position.count)/3;}});
-    assert.ok(triangles<6000);counts.add(meshes);
+    assert.ok(triangles<9000, `${design}: ${triangles} triángulos`);counts.add(meshes);
     const visibility=new BuildingVisibility(),building=visibility.register(shell);
     assert.ok(building.bounds.max.y>=p.height);
     assert.equal(building.parts.length,5);

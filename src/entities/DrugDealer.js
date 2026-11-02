@@ -3,7 +3,7 @@
 
 import * as THREE from 'three';
 import { COLORS } from '../utils/constants.js';
-import { ITEMS, LOOT_SUBSTANCE } from '../data/items.js';
+import { ITEMS, LOOT_SUBSTANCE, dealerPrice, dealerOffer } from '../data/items.js';
 
 export class DrugDealer {
   constructor(scene, position) {
@@ -108,12 +108,14 @@ export class DrugDealer {
   }
 
   /**
-   * Vende las sustancias del inventario durante la noche.
+   * Vende durante la noche una sustancia del inventario (`itemId`) o, sin `itemId`, todas.
+   * Paga `dealerOffer` por unidad, siempre menos de lo que él cobra (`dealerPrice`).
    * @param {InventorySystem} inventory
    * @param {boolean} isNight
    * @param {number} priceMult
+   * @param {string|null} itemId
    */
-  sellSubstances(inventory, isNight, priceMult = 1) {
+  sellSubstances(inventory, isNight, priceMult = 1, itemId = null) {
     if (!isNight) {
       return { earned: 0, reason: 'day' };
     }
@@ -126,7 +128,7 @@ export class DrugDealer {
 
     // Copia para evitar problemas si el inventario cambia al retirar objetos.
     const substances = inventory.items
-      .filter((entry) => ITEMS[entry.id]?.substance)
+      .filter((entry) => ITEMS[entry.id]?.substance && (!itemId || entry.id === itemId))
       .map((entry) => ({ id: entry.id, qty: entry.qty }));
 
     for (const substance of substances) {
@@ -135,12 +137,7 @@ export class DrugDealer {
 
       if (!item || qty <= 0) continue;
 
-      let price = item.value * qty;
-      price *= 1.8;      // Valor base de reventa
-      price *= 1.3;      // Bonificación nocturna
-      price *= priceMult;
-
-      total += price;
+      total += dealerOffer(item, priceMult) * qty;
       inventory.remove(substance.id, qty);
     }
 
@@ -207,7 +204,7 @@ export class DrugDealer {
       return { bought: null, cost: 0, reason: 'invalid_item' };
     }
 
-    const cost = item.value;
+    const cost = dealerPrice(item);
 
     if (stats.dinero < cost) {
       return { bought: null, cost, reason: 'insufficient_money' };
@@ -234,7 +231,8 @@ export class DrugDealer {
     return [
       ITEMS.tintico,
       ITEMS.pegante,
-      ITEMS.pastilla
+      ITEMS.pastilla,
+      ITEMS.basuco
     ];
   }
 

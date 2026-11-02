@@ -1,0 +1,51 @@
+/* Avisos y burbujas de la gente. */
+/* Los avisos son hijos de body y encima de todo. Se apilan por su altura real: la posición la pone avisos.js. */
+.loot-toast {
+  position: fixed; z-index: 500;
+  left: calc(20px + var(--safe-l)); top: 80px;
+  max-width: min(440px, 30vw); padding: 4px 13px 6px 10px;
+  font-weight: 800; font-size: 18px; line-height: 1.1;
+  pointer-events: none;
+}
+/* Advertencia: invertido, igual que una cifra baja. Muerte y peligro: placa. Lo raro lleva su raya. */
+.loot-toast.warn { --cara: var(--marcador); color: var(--cinta); }
+.loot-toast.death { --cara: var(--rojo); color: var(--cinta); }
+.loot-toast.rare { background: var(--m-regla) left bottom / 100% 6px no-repeat, var(--flauta), var(--cara); padding-bottom: 8px; }
+@media (max-width: 899px) and (orientation: landscape), (max-height: 500px) and (orientation: landscape) {
+  .loot-toast { left: auto; right: calc(6px + var(--safe-r)); max-width: 39vw; font-size: 16px; padding: 2px 9px 4px 7px; }
+}
+@media (max-width: 899px) and (orientation: portrait) {
+  .loot-toast { left: calc(6px + var(--safe-l)); max-width: calc(100vw - 12px); font-size: 16px; padding: 2px 9px 4px 7px; }
+}
+
+/* Con un menú abierto el HUD se esconde pero conserva su caja: sin esto, la pila queda en medio del menú.
+   Sube a lo que menos estorba, el título; si el menú tiene pestañas, justo debajo de ellas. */
+@media (max-width: 899px), (max-height: 500px) and (orientation: landscape) {
+  body:has(#menu:not([hidden]), #inv-overlay.open, #craft-panel.open, #talent-panel.open, #dealer-panel.open, #creator-modal:not([hidden])) .loot-toast {
+    top: calc(6px + var(--safe-t) + var(--pila, 0px)) !important;
+    left: calc(6px + var(--safe-l)); right: auto;
+  }
+  body:has(#menu:not([hidden]) .pause-tabs) .loot-toast { top: calc(54px + var(--safe-t) + var(--pila, 0px)) !important; }
+}
+/* De pie, el aviso no pasa por encima de la X del menú. */
+@media (max-width: 899px) and (orientation: portrait) {
+  body:has(#menu:not([hidden]), #inv-overlay.open, #craft-panel.open, #talent-panel.open, #dealer-panel.open) .loot-toast { max-width: calc(100vw - 72px - var(--safe-l) - var(--safe-r)); }
+}
+/* La hoja de «Más» llega hasta donde iría el aviso, en el celular más bajo y en cualquiera acostado. */
+@media (max-height: 600px) and (orientation: portrait), (max-width: 899px) and (orientation: landscape), (max-height: 500px) and (orientation: landscape) {
+  body.tactil--mas .loot-toast { top: calc(6px + var(--safe-t) + var(--pila, 0px)) !important; }
+}
+
+/* La gente de la calle habla en un cartoncito. */
+#npc-bubbles-container { position: fixed; inset: 0; pointer-events: none; z-index: 15; overflow: hidden; }
+.npc-bubble {
+  position: absolute;
+  max-width: 240px; padding: 3px 9px 4px;
+  background: var(--cara); color: var(--marcador);
+  box-shadow: 0 0 0 1.5px var(--marcador), 1px 3px 0 1.5px var(--canto);
+  font-family: var(--letra); font-weight: 400; font-size: 16px; line-height: 1.12; text-align: center;
+}
+.npc-bubble::after {
+  content: ''; position: absolute; bottom: -7px; left: 50%; transform: translateX(-50%);
+  border-width: 7px 5px 0; border-style: solid; border-color: var(--marcador) transparent transparent;
+}

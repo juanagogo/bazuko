@@ -2,136 +2,161 @@
 <html lang="es">
 <head>
   <meta charset="UTF-8" />
-  <title>Habitante de Calle</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <link rel="stylesheet" href="/src/ui/styles.css" />
-  <link rel="stylesheet" href="/src/ui/inventory.css" />
-  <link rel="stylesheet" href="/src/ui/crafting.css" />
-  <link rel="stylesheet" href="/src/ui/menus.css" />
+  <title>Bazuko, Bogotá</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <link rel="stylesheet" href="/src/ui/css/marcas.css" />
+  <link rel="stylesheet" href="/src/ui/css/base.css" />
+  <link rel="stylesheet" href="/src/ui/css/hud.css" />
+  <link rel="stylesheet" href="/src/ui/css/radar.css" />
+  <link rel="stylesheet" href="/src/ui/css/avisos.css" />
+  <link rel="stylesheet" href="/src/ui/css/momentos.css" />
+  <link rel="stylesheet" href="/src/ui/css/pausa.css" />
+  <link rel="stylesheet" href="/src/ui/css/mapa.css" />
+  <link rel="stylesheet" href="/src/ui/css/costal.css" />
+  <link rel="stylesheet" href="/src/ui/css/mesa.css" />
+  <link rel="stylesheet" href="/src/ui/css/paneles.css" />
+  <link rel="stylesheet" href="/src/ui/css/entrada.css" />
+  <link rel="stylesheet" href="/src/ui/css/foto.css" />
+  <link rel="stylesheet" href="/src/ui/css/tactil.css" />
 </head>
 <body class="is-loading">
 <section id="loading-screen" aria-label="Carga del juego">
-  <div class="loading-card">
-    <p class="loading-eyebrow">BOGOTÁ · SUPERVIVENCIA URBANA</p>
-    <h1>BAZUKO</h1>
-    <p class="loading-tagline">Otra noche en la calle.</p>
-    <ol class="loading-steps" aria-label="Etapas de carga">
-      <li data-loading-step aria-current="step">Ciudad</li>
-      <li data-loading-step>Recursos</li>
-      <li data-loading-step>Últimos detalles</li>
-    </ol>
-    <div class="loading-progress-label">
-    <p id="loading-status" role="status" aria-live="polite">Preparando el juego…</p>
-    <span id="loading-percent" aria-hidden="true">0 %</span>
-    </div>
-    <progress id="loading-progress" max="5" value="0" aria-label="Progreso de carga"></progress>
-    <p class="loading-hint">Prepara el costal. Recoge materiales, busca comida y construye tu cambuche.</p>
-    <button id="loading-retry" type="button" hidden>Reintentar</button>
+  <h1 class="solo-lector">BAZUKO</h1>
+  <div id="loading-progress" class="carga__marca" role="progressbar" aria-label="Progreso de carga" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"></div>
+  <div class="carga__texto">
+    <p id="loading-status" role="status" aria-live="polite">Un momentico</p>
+    <button id="loading-retry" class="cinta cinta--verbo" type="button" hidden>Reintentar</button>
   </div>
 </section>
 <div id="app">
   <canvas id="game-canvas"></canvas>
 
-  <!-- Columna izquierda: avisos, necesidades y radar (el HUD crea las filas y el radar se monta aquí) -->
-  <div id="hud-dock" data-radar-size="m">
-    <div id="disease-panel"></div>
-    <div id="status" role="status" aria-live="polite" hidden></div>
+  <!-- El cartón del radar: destino, radar y filas, en una sola pieza. Encima, lo más urgente. -->
+  <div id="hud-dock" class="carton" data-radar-size="m">
+    <div id="retazo" class="retazo" aria-hidden="true" hidden><b class="retazo__grito"></b><span class="retazo__orden"></span></div>
+    <div id="status" class="solo-lector" role="status" aria-live="polite" hidden></div>
     <div id="hud" role="group" aria-label="Necesidades"></div>
+    <div id="disease-panel"></div>
   </div>
 
-  <!-- Topbar -->
-  <div id="topbar">
-    <span id="player-name"></span>
-    <span id="clock">Día 1 — 06:00</span>
-    <span id="money">$ 0</span>
-    <span class="topbar__level">
-      <span id="level-display">Nv 1</span>
-      <span id="xp-bar" aria-hidden="true"><span id="xp-fill"></span></span>
-    </span>
-    <span id="talent-points">🌟 0</span>
+  <!-- Plata, hora y clima; debajo, quién soy. Bajo eso, la búsqueda: no existe si nadie me busca. -->
+  <div id="topbar" role="group" aria-label="Estado del personaje">
+    <div class="topbar__hoja carton corte-c">
+      <span id="money" title="La plata">$ 0</span>
+      <div class="topbar__mundo">
+        <span id="clock">06:00</span>
+        <span id="day-display">Día 1</span>
+        <span id="weather-display" hidden><span class="clima__palabra"></span></span>
+      </div>
+      <div class="topbar__yo">
+        <span id="player-name"></span>
+        <span id="level-display">nivel 1</span>
+        <span id="xp-bar" aria-hidden="true"><i id="xp-fill" class="masa"></i></span>
+        <span id="xp-text" class="solo-lector">0/100</span>
+        <span id="talent-points" title="Mañas por escoger (T)" hidden><span id="talent-count">0</span> <span id="talent-word">mañas</span></span>
+      </div>
+    </div>
+    <div id="wanted" hidden>
+      <b class="wanted__grito" aria-hidden="true"></b>
+      <i class="wanted__rayas" aria-hidden="true"></i>
+      <span class="wanted__dato" aria-hidden="true"></span>
+      <span class="wanted__barra" aria-hidden="true"><i class="masa"></i></span>
+      <span class="wanted__voz solo-lector" role="status" aria-live="polite"></span>
+    </div>
   </div>
 
-  <div id="game-settings"><button type="button" id="radio-toggle" title="Radio transistor (R)" aria-label="Radio transistor">📻</button><button id="pause-toggle" type="button" aria-label="Pausar y abrir ajustes">⏸️ Pausa</button><button id="audio-toggle" type="button" aria-label="Silenciar sonido">🔊</button></div>
+  <div id="game-settings" class="cinta" role="group" aria-label="Acciones del juego"><button type="button" id="radio-toggle" class="is-icon" title="Radio (R)" aria-label="Radio (R)"><span data-icon="radio"></span></button><button id="pause-toggle" type="button" class="is-icon" title="Pausa (Esc)" aria-label="Pausar y abrir ajustes"><span data-icon="pause"></span></button><button id="audio-toggle" type="button" class="is-icon" title="Silenciar sonido" aria-label="Silenciar sonido"><span data-icon="sound"></span></button></div>
 
-  <div id="boost-indicator">⚡ BOOST ACTIVO</div>
+  <div id="mision" class="carton corte-b" hidden></div>
+  <div id="boost-indicator" class="placa"><b>Envión</b> <span id="boost-time" class="cifra"></span></div>
   <div id="interaction-prompt"></div>
-  <div id="inventory-panel"></div>
-  <div id="poop-hud-ammo" class="empty">💩 [X] Hacer popó</div>
+  <div id="movement-status" class="carton" role="status" aria-live="polite" hidden>
+    <strong id="movement-label"></strong><span id="movement-help"></span>
+  </div>
+  <div id="poop-hud-ammo" class="empty"></div>
+
+  <!-- Los pulgares en el celular: el joystick a la izquierda y las acciones a la derecha. Se ven solo con el modo táctil. -->
+  <div id="joystick" aria-hidden="true"></div>
+  <div id="acciones" role="group" aria-label="Acciones"></div>
 
   <!-- Capa de Alucinaciones y Psicosis por Abstinencia -->
   <div id="psychosis-overlay" aria-hidden="true">
     <div class="psychosis-vignette"></div>
     <div class="psychosis-voices"></div>
-    <div class="psychosis-warning" id="psychosis-warning">
-      ⚠️ SÍNDROME DE ABSTINENCIA SEVERA · PSICOSIS INDUCIDA
-    </div>
   </div>
 
   <!-- Overlays Cinemáticos: Lluvia y Frío Bogotano -->
   <div id="cinematic-lens-overlay" class="cinematic-overlay" aria-hidden="true">
-    <div id="rain-lens" class="rain-lens"></div>
-    <div id="cold-lens" class="cold-lens"></div>
     <div id="cinematic-vignette" class="cinematic-vignette"></div>
+    <div id="cinematic-cold" class="cold-lens"></div>
   </div>
+
+  <!-- Noqueado: baja a media altura y deja ver al personaje en el suelo. Sin botón y sin pausa. -->
+  <div id="cascado" class="carton corte-c" role="status" hidden><strong>TE CASCARON</strong><span>Ya me levanto</span></div>
+  <!-- Dormir -->
+  <div id="cerrado" role="status" hidden><div class="carton corte-b"><strong class="cerrado__arriba">CERRADO</strong><span id="cerrado-hora"></span></div></div>
 
   <!-- Diálogos Flotantes de Peatones -->
   <div id="npc-bubbles-container" aria-hidden="true"></div>
 
   <!-- Indicador de Carreta -->
-  <div id="cart-indicator" class="cart-indicator" hidden>🛒 Carreta acoplada (+120 kg) · [E] Soltar</div>
+  <div id="cart-indicator" class="cart-indicator carton corte-d" hidden><span data-icon="carreta" aria-hidden="true"></span> Con la carreta (+120 kg)</div>
 
-  <!-- Panel de talentos -->
-  <div id="talent-panel"></div>
+  <!-- Mañas -->
+  <div id="talent-panel" class="carton corte-c" role="dialog" aria-modal="true" aria-label="Mañas"></div>
 
-  <!-- Panel de crafteo -->
-  <div id="craft-panel" role="dialog" aria-label="Mesa de crafteo"></div>
+  <!-- La mesa: fabricar -->
+  <div id="craft-panel" class="carton corte-d" role="dialog" aria-modal="true" aria-label="La mesa"></div>
 
-  <!-- Panel de la tienda del Dealer -->
-  <div id="dealer-panel"></div>
+  <!-- El jíbaro -->
+  <div id="dealer-panel" class="carton corte-b" role="dialog" aria-modal="true" aria-label="El jíbaro"></div>
 
   <!-- Controles -->
   <div id="camera-controls">
-    <button type="button" id="camera-toggle" data-target-view="isometric" aria-pressed="true" aria-label="Cambiar a vista isométrica (V)">⇄ Cambiar a vista isométrica · V</button>
-    <span id="camera-hint">Botón derecho + arrastrar o flechas: girar · Rueda: distancia</span>
+    <button type="button" id="camera-toggle" class="cinta" data-target-view="isometric" aria-pressed="true" aria-label="Cambiar a vista isométrica (V)"><span data-icon="eye" aria-hidden="true"></span><kbd>V</kbd></button>
+    <span id="camera-hint" class="carton">Botón derecho + arrastrar o flechas: girar. Rueda: distancia.</span>
   </div>
   <div id="controls-help" class="is-collapsed" role="note" aria-label="Guía de controles">
-    <div id="controls-help-content" aria-hidden="true">
+    <div id="controls-help-content" class="carton" aria-hidden="true">
     <span><kbd>WASD</kbd> Mover</span>
-    <span><kbd>Espacio</kbd> Saltar</span>
-    <span><kbd>Click / G</kbd> Puñetazo</span>
+    <span><kbd>Espacio</kbd> Brincar</span>
+    <span><kbd>Clic / G</kbd> Pegar</span>
     <span><kbd>Shift</kbd> Correr</span>
-    <span><kbd>E</kbd> Interactuar</span>
-    <span><kbd>I / Tab</kbd> Inventario</span>
+    <span><kbd>E</kbd> Hacer lo que dice</span>
+    <span><kbd>I / Tab</kbd> El costal</span>
     <span class="control-extra"><kbd>V</kbd> Cámara</span>
-    <span class="control-extra"><kbd>Q</kbd> Seleccionar / dealer</span>
+    <span class="control-extra"><kbd>Q</kbd> Seleccionar / jíbaro</span>
     <span class="control-extra"><kbd>B</kbd> Limosna</span>
-    <span class="control-extra"><kbd>F</kbd> Boost</span>
-    <span class="control-extra"><kbd>T</kbd> Talentos</span>
+    <span class="control-extra"><kbd>F</kbd> Envión</span>
+    <span class="control-extra"><kbd>T</kbd> Mañas</span>
     <span class="control-extra"><kbd>C</kbd> Fabricar</span>
     <span class="control-extra"><kbd>P</kbd> Personaje</span>
     <span class="control-extra"><kbd>M</kbd> Mapa y GPS</span>
-    <span class="control-extra"><kbd>K</kbd> Modelo liviano</span>
+    <span class="control-extra"><kbd>K</kbd> Personaje liviano</span>
     <span class="control-extra"><kbd>N</kbd> Radar</span>
     <span class="control-extra"><kbd>R</kbd> Radio</span>
+    <span class="control-extra"><kbd>F2</kbd> Foto</span>
+    <span class="control-extra"><kbd>H</kbd> Estado y necesidades</span>
     <span class="control-extra"><kbd>X</kbd> Lanzar / recoger</span>
-    <span class="control-extra"><kbd>Z</kbd> Defecar</span>
-    <span><kbd>Esc</kbd> Pausa y ayuda</span>
+    <span class="control-extra"><kbd>Z</kbd> Popó</span>
+    <span><kbd>Esc</kbd> Pausa</span>
     </div>
-    <button id="controls-help-toggle" type="button" aria-label="Mostrar controles" title="Mostrar controles" aria-controls="controls-help-content" aria-expanded="false">!</button>
-  </div>
+    <button id="controls-help-toggle" class="cinta" type="button" aria-label="Mostrar controles" title="Mostrar controles" aria-controls="controls-help-content" aria-expanded="false">!</button>
   </div>
 </div>
 
   <!-- Menú de lugares: recicladora, tienda, cambuche -->
   <section id="menu" class="menu" hidden role="dialog" aria-modal="true" aria-labelledby="menu-title">
-    <div class="sign sign--info sign--menu">
+    <div class="sign--menu carton corte-b">
+      <div class="menu__tabs" id="menu-tabs"></div>
       <header class="menu__head">
         <span class="menu__icon" id="menu-icon"></span>
         <div>
           <h2 class="menu__title" id="menu-title"></h2>
+          <div class="menu__dato" id="menu-dato"></div>
           <p class="menu__sub" id="menu-sub"></p>
         </div>
-        <button type="button" class="menu__close" id="menu-close" aria-label="Cerrar"></button>
+        <button type="button" class="menu__close cierre" id="menu-close" aria-label="Cerrar"></button>
       </header>
       <div class="menu__body" id="menu-body"></div>
       <footer class="menu__foot" id="menu-foot"></footer>
@@ -141,24 +166,30 @@
   <!-- Creador de personaje -->
   <section id="creator-modal" class="creator" hidden role="dialog" aria-modal="true" aria-labelledby="creator-title">
     <div class="creator__stage">
-      <canvas id="creator-canvas" aria-label="Vista previa del personaje. Arrastra para girarlo."></canvas>
+      <div class="creator__intro" aria-hidden="true">
+        <div class="creator__marca"></div>
+        <p class="creator__lema">Otra noche. Mi historia.</p>
+      </div>
+      <canvas id="creator-canvas" role="img" aria-label="Vista previa del personaje. Arrastre para girarlo."></canvas>
+      <p class="creator__espera" id="creator-wait" role="status">Un momentico</p>
       <div class="creator__rot">
-        <button type="button" class="cr-icon-btn" id="creator-rot-l" aria-label="Girar a la izquierda"></button>
-        <span class="creator__hint">Arrastra para girar</span>
-        <button type="button" class="cr-icon-btn" id="creator-rot-r" aria-label="Girar a la derecha"></button>
+        <button type="button" class="cinta cr-icon-btn" id="creator-rot-l" aria-label="Girar a la izquierda"></button>
+        <span class="creator__hint">Arrastre para girar</span>
+        <button type="button" class="cinta cr-icon-btn" id="creator-rot-r" aria-label="Girar a la derecha"></button>
       </div>
     </div>
-    <div class="sign sign--info creator__side">
+    <div class="carton corte-c creator__side">
       <header class="creator__head">
-        <h2 class="menu__title" id="creator-title">Crea tu personaje</h2>
-        <button type="button" class="menu__close" id="creator-close" aria-label="Cerrar sin guardar"></button>
+        <h2 class="creator__titulo" id="creator-title">Su personaje</h2>
+        <button type="button" class="cinta cr-icon-btn" id="creator-close" aria-label="Cerrar sin guardar"></button>
       </header>
       <nav class="creator__tabs" id="creator-tabs" role="tablist" aria-label="Categorías"></nav>
+      <hr class="regla">
       <div class="creator__panel" id="creator-panel" role="tabpanel"></div>
       <footer class="creator__foot">
-        <p class="cr-error" id="creator-error" hidden>Ponle un nombre a tu personaje.</p>
-        <button type="button" class="btn btn--ghost btn--small" id="creator-random">Al azar</button>
-        <button type="button" class="btn btn--primary btn--small" id="creator-done">Listo</button>
+        <p class="placa cr-error" id="creator-error" role="alert" hidden>Póngale un nombre.</p>
+        <button type="button" class="cinta" id="creator-random">Al azar</button>
+        <button type="button" class="cinta cinta--verbo" id="creator-done">Listo</button>
       </footer>
     </div>
   </section>

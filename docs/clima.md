@@ -28,9 +28,9 @@ Al iniciar o continuar una partida se mantienen las 22:00 con llovizna inmediata
 
 ## Sol, luna y cielo
 
-`sunDirection` calcula el sol para la latitud de Bogotá (4,6° N) con la declinación de la época del año: sale por los cerros orientales (−X) hacia las 6:00 y pasa casi por el cenit. La luna tiene fases de 29,5 días y sale más tarde según su fase. Una sola luz direccional con sombra hace de sol o de luna; con ambos bajo el horizonte queda una luz nocturna mínima para que la ciudad siga siendo legible.
+`sunDirection` calcula el sol para la latitud de Bogotá (4,6° N) con la declinación de la época del año: sale por los cerros orientales (−X) hacia las 6:00 y pasa casi por el cenit. La luna tiene fases de 29,5 días y sale más tarde según su fase. Una sola luz direccional con sombra hace de sol o de luna; con ambos bajo el horizonte queda una luz nocturna mínima para que la ciudad siga siendo legible. Con la luna a ras del piso esa luz baja hasta un cuarto y se recupera a medida que sube, sin saltos: si no, rebota en la calzada como una franja blanca de borde duro, y se nota sobre todo hacia las 5:30. El sol no tiene ese límite, porque su hora dorada es rasante a propósito. La luz ambiente y los reflejos salen de un mapa de entorno de día y otro de noche, que se funden sobre una misma textura (`EnvironmentMix`) mientras el sol cruza el horizonte: cerca de un minuto real en cada amanecer y atardecer, sin saltos en el brillo del piso.
 
-El shader de la cúpula (`src/core/Scene.js`) dibuja degradado, disco solar, luna con fase, estrellas y nubes procedurales que derivan con el viento. Se dibuja en el plano lejano, por eso funciona con la distancia de cámara de cualquier calidad. Con cielo cubierto baja la luz directa y sube la ambiental; de noche las nubes reflejan el tono anaranjado de la ciudad. Niebla y fondo comparten el color del horizonte.
+El shader de la cúpula (`src/core/Scene.js`) dibuja degradado, disco solar, luna con fase, estrellas y nubes procedurales que derivan con el viento. Se dibuja en el plano lejano, por eso funciona con la distancia de cámara de cualquier calidad. Con cielo cubierto baja la luz directa y sube la ambiental; de noche las nubes reflejan el tono anaranjado de la ciudad. El fondo usa el color del horizonte. La niebla toma el color de la cúpula en la dirección en que se mira, con la misma curva del degradado: un edificio lejano se funde con el cielo que tiene detrás o queda como silueta apenas más oscura, nunca más clara. Suelo y cielo siguen empalmando sin franja.
 
 ## Lluvia, rayos y sonido
 
@@ -38,7 +38,7 @@ El shader de la cúpula (`src/core/Scene.js`) dibuja degradado, disco solar, lun
 - Las ondas en el piso aumentan con la intensidad (hasta 36 instancias).
 - En tormenta y, a veces, en aguacero, los relámpagos iluminan nubes, cielo y escena con un doble destello. El evento `weather-lightning` dispara un trueno sintetizado con el retraso del sonido según la distancia; pasa por `_fx()` y el volumen maestro.
 - El bucle de lluvia ajusta su volumen según la intensidad.
-- Las gotas en la lente y el frío en pantalla dependen de la intensidad, el viento y la temporada.
+- Los bordes de la pantalla se enfrían mientras el jugador se está congelando: el frío entra de a poco, pesa más con lluvia y se va en un par de segundos junto al fuego.
 
 ## Interfaz
 

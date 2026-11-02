@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { beforeEach, test } from 'node:test';
 import * as THREE from 'three';
 import { CinematicOverlays } from '../src/ui/CinematicOverlays.js';
@@ -38,7 +39,7 @@ beforeEach(() => {
   };
 });
 
-test('CinematicOverlays: inicializa elementos del DOM y actualiza gotas y frío según clima', () => {
+test('CinematicOverlays: el frío sale del estado del jugador, entra de a poco y el calor lo quita rápido', () => {
   const rainEl = {
     style: {},
     classList: {
@@ -69,24 +70,43 @@ test('CinematicOverlays: inicializa elementos del DOM y actualiza gotas y frío 
   const overlays = new CinematicOverlays();
   assert.ok(overlays);
 
-  // Clima despejado y medio día: opacidad 0
+  // Sin frío: opacidad 0
   const weatherClear = { isRaining: false };
-  const clockNoon = { hour: 13, isNight: false };
+  const warm = { isFreezing: false };
   const psychosisCalm = { active: false };
 
-  overlays.update(0.1, weatherClear, clockNoon, psychosisCalm);
+  overlays.update(0.1, weatherClear, warm, psychosisCalm);
   assert.equal(parseFloat(rainEl.style.opacity), 0);
-  assert.equal(parseFloat(coldEl.style.opacity), 0);
+  assert.equal(coldEl.style.opacity, undefined, 'sin cambios no se escribe en el DOM');
 
   // Lluvia: aumenta gotas en la lente
-  const weatherRain = { isRaining: true };
-  for (let i = 0; i < 20; i++) overlays.update(0.1, weatherRain, clockNoon, psychosisCalm);
+  const weatherRain = { isRaining: true, rainIntensity: 1 };
+  for (let i = 0; i < 20; i++) overlays.update(0.1, weatherRain, warm, psychosisCalm);
   assert.ok(parseFloat(rainEl.style.opacity) > 0.3, 'Las gotas de lluvia aparecen en la lente');
+  assert.equal(coldEl.style.opacity, undefined, 'la lluvia con calor no enfría la imagen');
 
-  // Madrugada fría (4 AM): viñeta de frío andino
-  const clockDawn = { hour: 4, isNight: true };
-  for (let i = 0; i < 25; i++) overlays.update(0.1, weatherClear, clockDawn, psychosisCalm);
-  assert.ok(parseFloat(coldEl.style.opacity) > 0.4, 'El frío bogotano de madrugada oscurece los bordes');
+  // Congelándose: entra despacio, sin saltos
+  const freezing = { isFreezing: true };
+  overlays.update(0.5, weatherRain, freezing, psychosisCalm);
+  const first = parseFloat(coldEl.style.opacity);
+  assert.ok(first > 0 && first < 0.1, 'el frío no aparece de golpe');
+  for (let i = 0; i < 300; i++) overlays.update(0.1, weatherRain, freezing, psychosisCalm);
+  assert.ok(parseFloat(coldEl.style.opacity) > 0.9, 'tras un rato a la intemperie los bordes se enfrían');
+
+  // La fogata lo quita en un par de segundos
+  for (let i = 0; i < 20; i++) overlays.update(0.1, weatherRain, warm, psychosisCalm);
+  assert.ok(parseFloat(coldEl.style.opacity) < 0.05, 'el calor limpia los bordes');
+  for (let i = 0; i < 40; i++) overlays.update(0.1, weatherRain, warm, psychosisCalm);
+  assert.equal(parseFloat(coldEl.style.opacity), 0);
+});
+
+test('index.html trae la capa de frío que busca CinematicOverlays', () => {
+  const html = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
+  assert.match(html, /id="cinematic-cold"/);
+  assert.doesNotMatch(html, /id="cold-lens"/);
+  assert.ok(html.indexOf('id="cinematic-vignette"') < html.indexOf('id="cinematic-cold"'), 'la viñeta encima apagaría las esquinas frías');
+  const css = readFileSync(new URL('../src/ui/css/momentos.css', import.meta.url), 'utf8');
+  assert.doesNotMatch(css.match(/\.cold-lens\.active\s*\{([^}]*)\}/)[1], /visibility/, 'un visibility propio le ganaría al modo foto');
 });
 
 test('Detección de terreno y modulación de pasos en AudioSystem', () => {
