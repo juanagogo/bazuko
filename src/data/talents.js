@@ -1,13 +1,13 @@
 // src/data/talents.js
-// Árbol de talentos: cada nodo tiene id, nombre, descripción, costo,
-// rama (rama) y efectos que se aplican al juego.
+// Las mañas: lo que se aprende en la calle, dicho en primera persona. Cada una tiene id, nombre, descripción, costo,
+// rama y efectos que se aplican al juego. Los ids y las ramas no se tocan: los usan las partidas guardadas.
 
 export const TALENTS = {
   // ===== RAMA: Recolección =====
   collector1: {
     id: 'collector1',
-    name: 'Ojo de Águila',
-    desc: '+25% de probabilidad de objeto raro en basura',
+    name: 'Buen ojo',
+    desc: 'Aprendí a ver lo que vale en la basura: 25 % más de cosas raras.',
     branch: 'recoleccion',
     cost: 1,
     requires: [],
@@ -15,8 +15,8 @@ export const TALENTS = {
   },
   collector2: {
     id: 'collector2',
-    name: 'Bolsas Llenas',
-    desc: '+10 de peso máximo en inventario',
+    name: 'Saber cargar',
+    desc: 'Acomodo mejor lo que llevo: me caben 10 kg más en el costal.',
     branch: 'recoleccion',
     cost: 1,
     requires: ['collector1'],
@@ -24,8 +24,8 @@ export const TALENTS = {
   },
   collector3: {
     id: 'collector3',
-    name: 'Selección Experta',
-    desc: 'Seleccionar basura da +50% de valor y -20% de enfermedad',
+    name: 'Escoger con calma',
+    desc: 'Escogiendo la basura saco 50 % más de valor y me enfermo 20 % menos.',
     branch: 'recoleccion',
     cost: 2,
     requires: ['collector2'],
@@ -35,8 +35,8 @@ export const TALENTS = {
   // ===== RAMA: Supervivencia =====
   surv1: {
     id: 'surv1',
-    name: 'Estómago de Hierro',
-    desc: '-30% de desgaste de hambre y sed',
+    name: 'Estirar la comida',
+    desc: 'Aprendí a aguantar: el hambre y la sed me bajan 30 % más despacio.',
     branch: 'supervivencia',
     cost: 1,
     requires: [],
@@ -44,8 +44,8 @@ export const TALENTS = {
   },
   surv2: {
     id: 'surv2',
-    name: 'Piel Dura',
-    desc: '-40% de riesgo de enfermedad en la basura',
+    name: 'Saber cuidarme',
+    desc: 'La basura me enferma 40 % menos, y dormir también me da menos sarna.',
     branch: 'supervivencia',
     cost: 1,
     requires: ['surv1'],
@@ -53,8 +53,8 @@ export const TALENTS = {
   },
   surv3: {
     id: 'surv3',
-    name: 'Mente de Acero',
-    desc: '-50% de desgaste de salud mental',
+    name: 'Cabeza fría',
+    desc: 'Aprendí a no darle vueltas: el ánimo me baja a la mitad.',
     branch: 'supervivencia',
     cost: 2,
     requires: ['surv2'],
@@ -64,8 +64,8 @@ export const TALENTS = {
   // ===== RAMA: Crimen =====
   crime1: {
     id: 'crime1',
-    name: 'Manos Ligeras',
-    desc: '-20% de probabilidad de ser atrapado robando',
+    name: 'Mano suave',
+    desc: 'Me pillan robando 20 % menos.',
     branch: 'crimen',
     cost: 1,
     requires: [],
@@ -73,8 +73,8 @@ export const TALENTS = {
   },
   crime2: {
     id: 'crime2',
-    name: 'Contactos',
-    desc: '+30% de precio en sustancias',
+    name: 'Conocidos',
+    desc: 'Ya me conocen: me pagan 30 % más por las sustancias.',
     branch: 'crimen',
     cost: 1,
     requires: ['crime1'],
@@ -82,8 +82,8 @@ export const TALENTS = {
   },
   crime3: {
     id: 'crime3',
-    name: 'Rey de la Calle',
-    desc: '+50% de XP por todas las actividades',
+    name: 'Cogerle el tiro',
+    desc: 'Aprendo 50 % más de todo lo que hago.',
     branch: 'crimen',
     cost: 2,
     requires: ['crime2'],
@@ -92,7 +92,7 @@ export const TALENTS = {
 };
 
 export const BRANCHES = [
-  { id: 'recoleccion',  name: 'Recolección', emoji: '🗑️' },
-  { id: 'supervivencia', name: 'Supervivencia', emoji: '🩹' },
-  { id: 'crimen',        name: 'Crimen', emoji: '🔪' }
+  { id: 'recoleccion',  name: 'El rebusque', emoji: '🗑️' },
+  { id: 'supervivencia', name: 'El aguante', emoji: '🩹' },
+  { id: 'crimen',        name: 'La viveza', emoji: '🔪' }
 ];

@@ -1,0 +1,110 @@
+/* La mesa: las recetas son sumas, una por renglón. Lo que falta va tachado, lo que sale subrayado y lo elegido en círculo. */
+#craft-panel {
+  position: fixed; left: 50%; top: 50%; z-index: 200; transform: translate(-50%, -50%);
+  display: none; grid-template-rows: auto minmax(0, 1fr) auto; gap: 6px;
+  width: min(1190px, calc(100vw - 32px - var(--safe-l) - var(--safe-r)));
+  height: min(760px, calc(100vh - 32px - var(--safe-t) - var(--safe-b)));
+  padding: 14px 24px 12px;
+  box-shadow: 0 0 0 100vmax rgba(20, 17, 12, .58);
+  color: var(--marcador);
+}
+#craft-panel.open { display: grid; }
+.craft-header { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 22px; }
+.craft-header h2 { font-weight: 800; font-size: 50px; line-height: 1; }
+.craft-load { font-weight: 800; font-size: var(--letra-cifra); white-space: nowrap; }
+.craft-body { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 8px 26px; min-height: 0; }
+.craft-recipes { display: flex; flex-direction: column; min-width: 0; min-height: 0; overflow: auto; scrollbar-width: thin; scrollbar-color: var(--marcador) transparent; }
+/* Se escribe .item-slot por compatibilidad con el mando; aquí es un renglón. */
+.craft-recipe {
+  flex: none; flex-direction: row; flex-wrap: wrap; align-items: center; justify-content: flex-start; gap: 5px 11px;
+  width: 100%; min-height: 70px; padding: 9px 12px 12px 6px;
+  background: var(--m-regla) center bottom / 100% 5px no-repeat;
+  font-weight: 800; font-size: 22px; line-height: 1.05; text-align: left;
+}
+.craft-parte, .craft-res { position: relative; display: inline-flex; align-items: center; gap: 5px; }
+.craft-parte.tachado { background: var(--m-tachon) center / 100% .8em no-repeat; }
+.craft-parte .item-art, .craft-res .item-art { width: 30px; height: 30px; }
+.craft-parte .item-art--dibujo, .craft-res .item-art--dibujo { width: auto; height: auto; font-size: 28px; }
+.craft-oper { font-size: 26px; }
+.craft-res.elegido { margin-inline: 9px 14px; }
+.craft-res:not(.elegido) { padding-bottom: 5px; background: var(--m-regla) center bottom / 100% 4px no-repeat; }
+.craft-slot-qty { font-size: var(--letra-cifra); }
+.craft-slot-flag { font-size: 24px; }
+.craft-slot-flag.chulo::before { content: '\2713'; }
+.craft-slot-nota { flex: 1 0 100%; font-weight: 400; font-size: 16px; }
+@media (hover: hover) { .craft-recipe:hover .craft-slot-name { text-decoration: underline; text-underline-offset: 3px; } }
+
+.craft-bench { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; min-width: 0; min-height: 0; overflow: auto; padding: 0 3px 3px 22px; background: var(--m-regla-v) left center / 5px 100% no-repeat; scrollbar-width: thin; scrollbar-color: var(--marcador) transparent; }
+.craft-pedestal { display: flex; align-items: flex-end; gap: 10px; min-height: 92px; }
+.craft-pedestal .item-art { display: block; width: 88px; height: 88px; }
+.craft-pedestal .item-art--dibujo { width: auto; height: auto; font-size: 84px; }
+.craft-yield { font-size: 28px; line-height: 1; }
+.craft-result-name { font-weight: 800; font-size: 34px; line-height: 1; }
+.craft-effect { font-size: 17px; line-height: 1.15; }
+.craft-mats { list-style: none; width: 100%; }
+.craft-mat { display: grid; grid-template-columns: 34px minmax(0, 1fr) auto; align-items: center; gap: 8px; min-height: 42px; padding: 3px 0 7px; background: var(--m-regla) center bottom / 100% 5px no-repeat; font-size: 18px; }
+.craft-mat .item-art { width: 28px; height: 28px; }
+.craft-mat .item-art--dibujo { width: auto; height: auto; font-size: 26px; }
+.craft-mat-name { justify-self: start; }
+.craft-mat-count { font-weight: 800; white-space: nowrap; }
+.craft-reason { font-weight: 800; font-size: 19px; line-height: 1.1; }
+.craft-go { margin-top: auto; flex: none; }
+.craft-hint { font-size: 15px; }
+.craft-bench.just-crafted .craft-pedestal .item-art { animation: inv-usado 260ms ease-out; }
+
+@media (max-width: 1080px) {
+  .craft-header h2 { font-size: 38px; }
+  .craft-body { grid-template-columns: minmax(0, 1fr) 280px; gap: 6px 16px; }
+  .craft-recipe { font-size: 19px; }
+  .craft-bench { padding-left: 14px; }
+}
+@media (max-width: 759px) {
+  #craft-panel {
+    left: 0; top: 0; transform: none; width: 100vw; height: 100dvh;
+    padding: calc(8px + var(--safe-t)) calc(12px + var(--safe-r)) calc(8px + var(--safe-b)) calc(12px + var(--safe-l));
+    border-image: none; border-color: transparent; border-radius: 0; box-shadow: none;
+  }
+  .craft-header { gap: 2px 10px; }
+  .craft-header h2 { font-size: 30px; }
+  .craft-load { font-size: 16px; }
+  .craft-body { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(160px, 1fr) auto; }
+  .craft-recipe { min-height: 50px; padding-block: 6px 9px; gap: 3px 7px; font-size: 16px; }
+  .craft-parte .item-art, .craft-res .item-art { width: 22px; height: 22px; }
+  .craft-parte .item-art--dibujo, .craft-res .item-art--dibujo { font-size: 20px; }
+  .craft-oper { font-size: 18px; }
+  .craft-bench { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 2px 10px; max-height: 48dvh; padding: 6px 0 0; background: var(--m-regla) center top / 100% 5px no-repeat; }
+  .craft-bench > * { grid-column: 1 / -1; }
+  .craft-pedestal { grid-column: 1; grid-row: 1 / span 2; min-height: 0; }
+  .craft-pedestal .item-art { width: 52px; height: 52px; }
+  .craft-pedestal .item-art--dibujo { font-size: 48px; }
+  .craft-yield { font-size: 20px; }
+  .craft-result-name { grid-column: 2; font-size: 24px; }
+  .craft-effect { grid-column: 2; font-size: 15px; }
+  .craft-mat { min-height: 34px; font-size: 16px; }
+  .craft-go { justify-self: stretch; margin-top: 6px; margin-inline: 8px 9px; }
+  .craft-hint { display: none; }
+}
+@media (max-height: 520px) and (min-width: 600px) {
+  #craft-panel {
+    left: 0; top: 0; transform: none; width: 100vw; height: 100dvh; gap: 2px;
+    padding: calc(4px + var(--safe-t)) calc(10px + var(--safe-r)) calc(4px + var(--safe-b)) calc(10px + var(--safe-l));
+    border-image: none; border-color: transparent; border-radius: 0; box-shadow: none;
+  }
+  .craft-header { flex-wrap: nowrap; gap: 14px; }
+  .craft-header h2 { font-size: 26px; }
+  .craft-load { font-size: 17px; }
+  .craft-body { grid-template-columns: minmax(0, 1fr) minmax(0, 300px); gap: 12px; }
+  .craft-recipe { min-height: 44px; padding-block: 5px 8px; gap: 3px 7px; font-size: 16px; }
+  .craft-parte .item-art, .craft-res .item-art { width: 22px; height: 22px; }
+  .craft-parte .item-art--dibujo, .craft-res .item-art--dibujo { font-size: 20px; }
+  .craft-oper { font-size: 18px; }
+  .craft-bench { padding-left: 12px; gap: 3px; }
+  .craft-pedestal { min-height: 0; }
+  .craft-pedestal .item-art { width: 44px; height: 44px; }
+  .craft-pedestal .item-art--dibujo { font-size: 42px; }
+  .craft-result-name { font-size: 22px; }
+  .craft-effect { font-size: 15px; }
+  .craft-mat { min-height: 32px; font-size: 16px; }
+  .craft-go { min-height: 44px; font-size: 18px; }
+  .craft-hint { display: none; }
+}

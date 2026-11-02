@@ -36,6 +36,7 @@ export const DISEASE_SORT_MULT = 1.8;      // +probabilidad al seleccionar (más
 export const DISEASE_HEALTH_DRAIN = 0.12;  // salud/seg: una enfermedad deja margen para tratarse
 export const DISEASE_MENTAL_DRAIN = 0.02;  // salud mental/seg por enfermedad
 export const DISEASE_DURATION = 45;        // segundos que dura una enfermedad
+export const DISEASE_DIRTY_SLEEP_CHANCE = 0.35; // dormir con higiene baja: probabilidad de sarna
 
 // === Salud mental ===
 export const MENTAL_DECAY_NIGHT = 100 / (6 * DAY_LENGTH_SECONDS);
@@ -58,10 +59,17 @@ export const STEAL_CAUGHT_CHANCE = 0.25;   // probabilidad de ser atrapado
 export const STEAL_CAUGHT_PENALTY = 25;    // salud perdida al ser atrapado
 export const STEAL_CAUGHT_MONEY = 5000;    // pesos perdidos al ser atrapado
 export const CAR_COOLDOWN = 40;            // segundos hasta que revive el auto
+export const POLICE_SIGHT_RANGE = 28;      // metros a los que una patrulla puede verte robar
+export const POLICE_CLOSE_RANGE = 12;      // a esta distancia te ven aunque no miren de frente
+export const POLICE_CHASE_SPEED = 7.5;     // más rápido que el sprint del jugador (6)
+export const POLICE_CATCH_RANGE = 3;       // distancia para darte alcance
+export const POLICE_GIVE_UP_RANGE = 55;    // si te alejas tanto, vuelven a patrullar
+export const POLICE_CHASE_TIMEOUT = 40;    // segundos máximos de persecución
 
 // === Venta de sustancias ===
-export const SUBSTANCE_PRICE_MULT = 1.8;   // las sustancias se venden más caras de noche
-export const SUBSTANCE_RISK_CHANCE = 0.15; // probabilidad de problema con la ley
+export const SUBSTANCE_PRICE_MULT = 1.8;   // de noche, el dealer paga 1,8 veces el valor de lo que le traes
+export const DEALER_MARKUP = 2.5;          // y cobra 2,5 veces: más de lo que paga, aun con «Contactos» (+30 %)
+export const SUBSTANCE_RISK_CHANCE = 0.15; // requisa en cada venta: la policía se lleva lo que ibas a vender
 // Removed duplicate SORT_BASE_TIME declaration to fix redeclaration error
 // Colores del juego (estética Noir)
 export const COLORS = {

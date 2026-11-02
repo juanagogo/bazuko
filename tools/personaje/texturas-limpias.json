@@ -1,0 +1,38 @@
+{
+  "brown_eye.webp": {
+    "original": "1f7a7f34891b661bd29d8370eab8d0bb7166895ff936690228516bb675d33aa4",
+    "limpia": "995cf4a7b5bab99e65d105fe8b12f7d8278be4b50fb18c0da10b3c7be30b7613"
+  },
+  "female_casualsuit01_diffuse.webp": {
+    "original": "229d4fb6cab6981b94a347f5104cedc654d3aa7164f1a5b69267b27cd33d8c7c",
+    "limpia": "521aa1224010f2854e4ead08ee49d4045f7ccc1cb0946137dafcb6ecd2069cff"
+  },
+  "female_casualsuit02_diffuse.webp": {
+    "original": "8014bc365a0a2418de4f8e56f140669ce26e0d0fd89a320efc044ad88434a1c3",
+    "limpia": "212327746758743e808e76a42f8711e3d5f82fd5ccd95230f0e0e0998c9bc1c2"
+  },
+  "male_casualsuit02_diffuse.webp": {
+    "original": "337e517a2aa1702121d28c894104d1f46dec2b0edcebd397c719c77c26e48f5a",
+    "limpia": "560c86c1bb24f5356bbfe89eb20b2e6f46871879d66e0d6dd0d3224f86c0238a"
+  },
+  "male_casualsuit03_diffuse.webp": {
+    "original": "1e9d504530f98d59af5ed92683b4ccd3d7dbac435a7fa34e02adf33b2c5154ad",
+    "limpia": "d94f111e4e9a90d373df8c71c6a9ac19849cc33cbfb5b1a60ef1c41d997ee372"
+  },
+  "male_casualsuit05_diffuse.webp": {
+    "original": "d10bbf6dfe93242a72e32a678421d64f7d77210e41b48fa0aea1659158178295",
+    "limpia": "5a58b616d21683531203516c4abb9b5c4f8d4d3a8c6d65209dd666c04c6ae35e"
+  },
+  "male_casualsuit06_diffuse.webp": {
+    "original": "36c78325d70f6a5e38c5dfbfa5567c4c0b8b942d61e0b2cbe75e943d5e169d6f",
+    "limpia": "3dccda1c2b2bcb60fc5a1e7f8228cc4fa3adbfbe4292170cbafa076968dcda81"
+  },
+  "male_worksuit01_diffuse.webp": {
+    "original": "19eabfa8941d6b3da3924144fd5c0a8552e161e1188a606a34d0b7af2755e618",
+    "limpia": "e67042b2c92cddd60f1891fe1deba1e2e98479b553fe673ec4dbb25c08045ffb"
+  },
+  "shoes06_diffuse.webp": {
+    "original": "834c89b0fa7b4a1c8eff0b10fb15e2fa808ac5d503865b8088c584abd823533a",
+    "limpia": "c079a843f74388dc7c97b1ed7da4714413320566806a450aaca9dd40c67c9071"
+  }
+}

@@ -1,0 +1,143 @@
+/* Base: la letra, los materiales y las marcas que comparten todas las áreas. Cada pantalla vive en su propia hoja.
+   Cómo se usa cada cosa: docs/identidad-visual.md. */
+
+/* ---------- la letra: dos cortes y nada más ---------- */
+@font-face { font-family: 'Dios Le Pague'; src: url('../fuentes/dios-le-pague-grueso.woff') format('woff'); font-weight: 800; font-display: block; }
+@font-face { font-family: 'Dios Le Pague'; src: url('../fuentes/dios-le-pague-fino.woff') format('woff'); font-weight: 400; font-display: block; }
+
+:root {
+  /* Seis colores. */
+  --carton: #CBA26C;        /* toda pieza de información */
+  --carton-mojado: #BA8D56; /* la misma pieza bajo la lluvia */
+  --canto: #3B2913;         /* el grueso del cartón, en lugar de sombra */
+  --marcador: #14110C;      /* toda letra y trazo sobre cartón */
+  --cinta: #E9DBB4;         /* solo lo que se oprime, y la letra sobre rojo */
+  --rojo: #AB1D17;          /* elegido, destino, ruta, tombos, peligro. Sobre cartón mojado, solo como placa */
+
+  --cara: var(--carton);    /* la cara de cada pieza: la lluvia solo cambia esto */
+  --flauta: repeating-linear-gradient(90deg, rgba(20, 17, 12, .035) 0 2px, rgba(255, 240, 205, .03) 2px 4px, transparent 4px 11px);
+
+  --letra: 'Dios Le Pague', sans-serif;
+  --letra-menu: 14px;   /* lo mínimo en menús */
+  --letra-juego: 16px;  /* lo mínimo en juego, Grueso o Fino */
+  --letra-cifra: 20px;  /* lo mínimo para una cifra */
+  --letra-verbo: 22px;  /* la tecla de contexto */
+  --letra-titulo: 28px;
+  --letra-retazo: 40px; /* lo más urgente */
+  --letra-plata: 44px;
+  --letra-grito: 46px;  /* ¡PILAS! */
+}
+body.mojado { --cara: var(--carton-mojado); }
+
+html, body { font-family: var(--letra); font-synthesis: none; }
+button, input, select, textarea { font-family: inherit; }
+.grueso { font-weight: 800; }
+.fino { font-weight: 400; }
+.cifra { font-weight: 800; font-size: max(var(--letra-cifra), 1em); }
+.picto { display: inline-block; font-family: var(--letra); font-size: var(--picto, 1em); font-weight: 400; font-style: normal; line-height: 1; }
+.picto::before { content: attr(data-dibujo); }
+
+/* ---------- la pieza de cartón ----------
+   La cara es el fondo de la caja. El corte, el canto y el filo oscuro salen de una sola imagen por partes, que se
+   sale de la caja sin ocupar sitio. Sin seudoelementos ni clip-path: una pieza, una sola cosa que pintar.
+   El filo es lo que separa del mundo: el cartón es del color del ladrillo y del andén con luz de sodio. */
+.carton, .placa, .retazo {
+  --corte: var(--corte-a);
+  padding: 8px 12px;
+  background: var(--flauta), var(--cara);
+  color: var(--marcador);
+  border: 1px solid transparent;
+  border-image: var(--corte) 12 / 12px / 3px 6px 6px 3px stretch;
+  border-radius: 2px; /* solo recoge las puntas del fondo: el corte no se redondea */
+}
+/* Peligro: rojo con letra de cinta, y no cambia con la lluvia. */
+.placa { --cara: var(--rojo); color: var(--cinta); }
+/* Lo más urgente: un retazo chico con letra grande. */
+.retazo { --corte: var(--corte-d); padding: 6px 14px 8px; font-weight: 800; font-size: var(--letra-retazo); line-height: 1; }
+/* Cuatro cortes, para que dos piezas juntas no salgan iguales. */
+.corte-b { --corte: var(--corte-b); }
+.corte-c { --corte: var(--corte-c); }
+.corte-d { --corte: var(--corte-d); }
+
+/* ---------- hacer es cinta ---------- */
+.cinta {
+  display: inline-flex; align-items: center; justify-content: center; gap: .42em;
+  min-height: 38px; padding: 5px 14px;
+  background: var(--cinta); color: var(--marcador);
+  border: 0; border-radius: 0;
+  box-shadow: 0 0 0 1.5px var(--marcador), 1px 3px 0 1.5px var(--marcador);
+  font-family: var(--letra); font-weight: 800; font-size: 19px; line-height: 1;
+  text-decoration: none; cursor: pointer;
+}
+/* El verbo principal de cada pantalla, y ningún otro: extremos en zigzag. */
+.cinta--verbo {
+  min-height: 48px; padding: 8px 18px; margin: 0 9px 4px 8px;
+  border: 1px solid transparent;
+  border-image: var(--m-zigzag) 2 9 4 8 / 2px 9px 4px 8px / 2px 9px 4px 8px stretch;
+  box-shadow: none;
+  font-size: var(--letra-verbo);
+}
+
+/* La tecla, en celda de marcador. */
+kbd, .tecla {
+  display: inline-grid; place-items: center; min-width: 1.55em; height: 1.55em; padding: 0 .28em;
+  background: var(--marcador); color: var(--cinta);
+  font-family: var(--letra); font-weight: 800; font-size: .86em; line-height: 1;
+}
+
+/* ---------- las marcas de la mano ---------- */
+/* Elegir es círculo rojo: rodea lo elegido sin estirarse y sin mover nada. Va sobre la palabra, no sobre una pieza. */
+.elegido { position: relative; }
+.elegido::after {
+  content: ''; position: absolute; inset: 0; pointer-events: none;
+  border: 1px solid transparent;
+  border-image: var(--m-circulo) 28 44 / 28px 44px / 9px 15px stretch;
+}
+/* No disponible es tachado. El color se aclara poco: lo dice la raya, no el tono. */
+.tachado, .cinta:disabled, .cinta[aria-disabled="true"] {
+  background: var(--m-tachon) center / 100% .8em no-repeat;
+  color: color-mix(in srgb, var(--marcador) 86%, transparent);
+}
+/* Una cinta sin nada que hacer deja de ser cinta: queda cartón tachado, con su raya para no perderse sobre la calle. */
+.cinta:disabled, .cinta[aria-disabled="true"] {
+  background: var(--m-tachon) center / 100% .8em no-repeat, var(--flauta), var(--cara);
+  box-shadow: 0 0 0 1.5px var(--marcador); border-image: none; cursor: not-allowed;
+}
+/* Hecho es chulo. */
+.chulo::before { content: '\2713\00A0'; font-weight: 800; }
+/* La masa de una barra: en todo el alto de su celda, igual al achurado de las manzanas del mapa. */
+.masa { background: var(--m-rayado) 0 50% / auto 100% repeat-x; }
+.placa .masa { background-image: var(--m-rayado-cinta); }
+.regla { display: block; height: 6px; border: 0; background: var(--m-regla) center / 100% 100% no-repeat; }
+.solo-lector { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+
+/* ---------- el foco: uno solo, para toda la interfaz ----------
+   Dos rayas de color contrario: se ve sobre cartón, sobre cinta y sobre la calle de noche.
+   Ninguna otra hoja escribe :focus-visible ni apaga el contorno. */
+:focus-visible {
+  outline: 3px solid var(--cinta) !important;
+  outline-offset: 3px !important;
+  box-shadow: 0 0 0 3px var(--marcador) !important;
+}
+
+/* ---------- el dedo: nada se oprime con menos de 44 px bajo 900 de ancho ---------- */
+@media (max-width: 899px), (pointer: coarse) {
+  :where(button, a, select, summary, [role="button"], [role="tab"], input:not([type="checkbox"], [type="radio"], [type="hidden"])) { min-height: 44px !important; min-width: 44px !important; }
+}
+
+/* ---------- movimiento reducido: nada se anima ---------- */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; }
+}
+
+/* ---------- la página ---------- */
+:root { color-scheme: dark; }
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html, body { width: 100%; height: 100%; overflow: hidden; background: #000; }
+body { color: var(--cinta); }
+canvas { display: block; width: 100vw; height: 100vh; }
+body.is-loading #app { visibility: hidden; }
+[hidden] { display: none !important; }
+:where(.menu, .creator) button { font: inherit; color: inherit; cursor: pointer; }
+button, a, input, select { -webkit-tap-highlight-color: transparent; }
+button { touch-action: manipulation; }

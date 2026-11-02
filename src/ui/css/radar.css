@@ -1,0 +1,58 @@
+/* El radar: un plano a marcador sobre el cartón, con el destino siempre arriba. */
+#minimap-container { order: 1; display: flex; flex-direction: column; gap: 5px; padding: 8px 12px 0; --radar-alto: clamp(132px, 19.5vh, 176px); }
+#hud-dock[data-radar-size="s"] #minimap-container { --radar-alto: 132px; }
+#hud-dock[data-radar-size="l"] #minimap-container { --radar-alto: clamp(176px, 25.8vh, 232px); }
+
+.radar__destino { display: grid; grid-template-columns: 34px minmax(0, 1fr) auto; align-items: center; column-gap: 6px; min-height: 36px; padding-right: 44px; }
+.radar__flecha { grid-row: 1 / span 2; font-weight: 800; font-size: 32px; line-height: 1; text-align: center; }
+.radar__nombre { min-width: 0; font-weight: 800; font-size: 21px; line-height: 1.02; }
+.radar__metros { font-weight: 800; font-size: 21px; line-height: 1; white-space: nowrap; }
+/* La segunda línea solo está cuando el radar sugiere algo: el precio y qué hacer. */
+.radar__orden { grid-column: 2 / -1; display: flex; flex-wrap: wrap; gap: 0 8px; font-weight: 400; font-size: 17px; line-height: 1.05; }
+.radar__orden:empty { display: none; }
+.radar__precio { font-weight: 800; white-space: nowrap; }
+.radar__hacer { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
+.radar__hacer kbd { font-size: 14px; }
+.minimap-info { white-space: pre-line; }
+
+.radar__screen { position: relative; display: grid; grid-template-columns: minmax(0, 1fr) 36px; gap: 8px; }
+.radar__papel { position: relative; display: block; min-width: 0; }
+#minimap-canvas { display: block; width: 100%; height: var(--radar-alto); }
+.radar__papel::after { content: ''; position: absolute; inset: -4px; background: var(--m-marco) center / 100% 100% no-repeat; pointer-events: none; }
+.radar__abrir { display: none; }
+.radar__tools { display: flex; flex-direction: column; gap: 5px; }
+.radar__tools .cinta { flex: 1; width: 100%; min-height: 0; padding: 0; font-size: 20px; }
+.radar__show { display: none; margin-bottom: 4px; align-self: flex-start; }
+#minimap-container.hidden .radar__screen { display: none; }
+#minimap-container.hidden .radar__show { display: inline-flex; }
+
+/* En el celular las herramientas salen al tocar el radar. */
+@media (max-width: 899px), (max-height: 500px) and (orientation: landscape) {
+  .radar__screen { display: block; }
+  .radar__abrir { display: block; position: absolute; inset: 0; width: 100%; height: 100%; background: none; border: 0; padding: 0; cursor: pointer; }
+  .radar__tools { display: none; position: absolute; z-index: 2; left: 0; top: calc(100% + 6px); flex-direction: row; }
+  #minimap-container.abierto .radar__tools { display: flex; }
+  .radar__tools .cinta { flex: none; width: 44px; min-height: 44px; }
+}
+@media (max-width: 899px) and (orientation: landscape), (max-height: 500px) and (orientation: landscape) {
+  #minimap-container { grid-column: 1; padding: 0 3px 7px 8px; gap: 0; --radar-alto: 92px !important; }
+  .radar__destino { position: absolute; left: 8px; right: 54px; top: 0; height: 42px; grid-template-columns: 26px minmax(0, 1fr) auto; }
+  .radar__flecha { font-size: 26px; }
+  .radar__nombre { font-size: 19px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .radar__metros { font-size: 20px; }
+  .radar__orden { font-size: 16px; flex-wrap: nowrap; overflow: hidden; }
+}
+@media (max-width: 899px) and (orientation: portrait) {
+  #minimap-container { grid-column: 1; padding: 0 3px 7px 8px; gap: 0; --radar-alto: 108px !important; }
+  .radar__destino { position: absolute; left: 8px; right: 54px; top: 0; height: 44px; grid-template-columns: 28px minmax(0, 1fr) auto; }
+  .radar__flecha { font-size: 28px; }
+  .radar__nombre { font-size: 19px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .radar__metros { font-size: 20px; }
+  .radar__orden { font-size: 16px; flex-wrap: nowrap; overflow: hidden; }
+}
+@media (max-width: 359px) and (orientation: portrait) {
+  #minimap-container { --radar-alto: 91px !important; }
+  .radar__nombre { font-size: 17px; }
+  /* No caben los dos: queda lo que hay que hacer, o el precio si no hay nada más que decir. */
+  .radar__precio:not(:only-child) { display: none; }
+}

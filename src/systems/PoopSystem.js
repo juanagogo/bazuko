@@ -35,7 +35,7 @@ export class PoopSystem {
     if (this.poopCooldown > 0) {
       if (typeof window !== 'undefined') {
         window.dispatchEvent(new CustomEvent('toast', {
-          detail: { text: `⏳ Espera ${this.poopCooldown.toFixed(1)}s para volver a cagar`, type: 'info' }
+          detail: { text: `Espere ${this.poopCooldown.toFixed(1).replace('.', ',')} s para otro popó`, type: 'info' }
         }));
       }
       return false;
@@ -67,7 +67,7 @@ export class PoopSystem {
 
     if (typeof window !== 'undefined') {
       window.dispatchEvent(new CustomEvent('toast', {
-        detail: { text: '💩 ¡Te echaste una cagada! Tienes un mojón listo. Presiona [X] para lanzarlo.', type: 'warn' }
+        detail: { text: 'Popó listo. Oprima [X] para lanzarlo.', type: 'warn' }
       }));
       window.dispatchEvent(new CustomEvent('poop-produced'));
     }
@@ -115,7 +115,7 @@ export class PoopSystem {
     const remaining = this.inventory.count('popo');
     if (typeof window !== 'undefined') {
       window.dispatchEvent(new CustomEvent('toast', {
-        detail: { text: `💩 ¡Mojón al aire! (Te quedan: ${remaining})`, type: 'info' }
+        detail: { text: `¡Popó al aire! (Quedan: ${remaining})`, type: 'info' }
       }));
       window.dispatchEvent(new CustomEvent('poop-thrown', { detail: { remaining } }));
     }
@@ -182,7 +182,7 @@ export class PoopSystem {
           }
           if (typeof window !== 'undefined') {
             window.dispatchEvent(new CustomEvent('toast', {
-              detail: { text: '🎯 ¡Diana! Le pegaste con el mojón al peatón (+5 XP).', type: 'rare' }
+              detail: { text: '¡Diana! Le pegué con el popó al peatón.', type: 'rare' }
             }));
           }
         } else if (res.type === 'ground') {

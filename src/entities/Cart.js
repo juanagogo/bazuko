@@ -118,14 +118,9 @@ export class Cart {
       if (player) player.hasCart = true;
       if (inventory) inventory.maxWeight += this.capacityBonus;
 
-      if (typeof document !== 'undefined') {
-        const ind = document.getElementById('cart-indicator');
-        if (ind) ind.classList.remove('hidden');
-      }
-
       if (typeof window !== 'undefined' && window.dispatchEvent) {
         window.dispatchEvent(new CustomEvent('toast', {
-          detail: { text: '🛒 Carreta acoplada (+120 kg de capacidad). Movimiento con peso de carga.', kind: 'info' }
+          detail: { text: 'Enganché la carreta: +120 kg, pero pesa.', kind: 'info' }
         }));
       }
     } else {
@@ -133,14 +128,9 @@ export class Cart {
       if (player) player.hasCart = false;
       if (inventory) inventory.maxWeight = Math.max(10, inventory.maxWeight - this.capacityBonus);
 
-      if (typeof document !== 'undefined') {
-        const ind = document.getElementById('cart-indicator');
-        if (ind) ind.classList.add('hidden');
-      }
-
       if (typeof window !== 'undefined' && window.dispatchEvent) {
         window.dispatchEvent(new CustomEvent('toast', {
-          detail: { text: '🛒 Carreta desenganchada y estacionada.', kind: 'info' }
+          detail: { text: 'Dejé la carreta aquí.', kind: 'info' }
         }));
       }
     }
