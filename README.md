@@ -6,6 +6,10 @@ Este proyecto es un fork de [juanagogo/bazuko](https://github.com/juanagogo/bazu
 
 ![Cruce nocturno en tercera persona con gasolinera, edificios altos, carros y viaducto](docs/images/ciudad-nocturna-tercera-persona.webp)
 
+## Versiones nativas
+
+El repositorio guarda dos ports en C++, independientes del juego web: [`cpp/`](cpp/README.md) y [`native/`](native/README.md). `native/` es una reescritura con SDL3, OpenGL 4.5, Dear ImGui y miniaudio, y toma modelos y audio de `public/`. Sus datos corresponden a una versión anterior de la ciudad.
+
 ## Características
 
 - Carreta de reciclaje con madera envejecida, llantas de caucho y carga detallada, conservando su manejo. [Comparación visual](docs/carreta-visual.md).
