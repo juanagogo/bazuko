@@ -178,7 +178,7 @@ export class ZorraController {
 
     game._actualizarCapacidad(); // el paso 4b del juego corre después: evita un frame con capacidad vieja
 
-    // Una sola lectura de J por frame: una pulsación hace exactamente una cosa
+    // Una sola lectura de U por frame: una pulsación hace exactamente una cosa
     const pulsoG = input.consumePress(ZORRA.teclas.soltar);
     if (this.forcejeo) {
       this._actualizarForcejeo(dt, input, pulsoG);

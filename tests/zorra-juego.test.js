@@ -184,26 +184,26 @@ function controlador({ rival = null } = {}) {
   return { ctl, game, zorraJugador };
 }
 
-test('J empujando suelta la zorra', () => {
+test('U empujando suelta la zorra', () => {
   const { ctl, game } = controlador();
   game.zorra.obtener();
-  ctl.update(0.016, entradaCon('KeyJ'));
+  ctl.update(0.016, entradaCon('KeyU'));
   assert.equal(game.zorra.estado, 'dropped');
 });
 
-test('J junto a la zorra propia soltada la agarra', () => {
+test('U junto a la zorra propia soltada la agarra', () => {
   const { ctl, game, zorraJugador } = controlador();
   game.zorra.obtener(); game.zorra.soltar([0.5, 0, 0], 0);
   zorraJugador.colocarDelante(new THREE.Vector3(0.5, 0, 0), 0);
-  ctl.update(0.016, entradaCon('KeyJ'));
+  ctl.update(0.016, entradaCon('KeyU'));
   assert.equal(game.zorra.estado, 'pushing');
 });
 
-test('J lejos de la zorra soltada no hace nada', () => {
+test('U lejos de la zorra soltada no hace nada', () => {
   const { ctl, game, zorraJugador } = controlador();
   game.zorra.obtener(); game.zorra.soltar([5, 0, 0], 0);
   zorraJugador.colocarDelante(new THREE.Vector3(5, 0, 0), 0);
-  ctl.update(0.016, entradaCon('KeyJ'));
+  ctl.update(0.016, entradaCon('KeyU'));
   assert.equal(game.zorra.estado, 'dropped');
 });
 
@@ -215,7 +215,7 @@ test('E junto a la zorra soltada no hace nada', () => {
   assert.equal(game.zorra.estado, 'dropped');
 });
 
-test('J junto a la zorra desatendida de un reciclador se la lleva', () => {
+test('U junto a la zorra desatendida de un reciclador se la lleva', () => {
   let robos = 0;
   const zorraRec = new Zorra(new THREE.Scene(), {
     crearModelo: () => new THREE.Group(),
@@ -224,12 +224,12 @@ test('J junto a la zorra desatendida de un reciclador se la lleva', () => {
   });
   zorraRec.colocarDelante(new THREE.Vector3(1, 0, 0), 0);
   const { ctl, game } = controlador({ rival: { zorra: zorraRec } });
-  ctl.update(0.016, entradaCon('KeyJ'));
+  ctl.update(0.016, entradaCon('KeyU'));
   assert.equal(robos, 1);
   assert.equal(game.zorra.estado, 'none');
 });
 
-test('J durante el forcejeo se rinde, aplica el castigo y no suelta ni agarra en el mismo frame', () => {
+test('U durante el forcejeo se rinde, aplica el castigo y no suelta ni agarra en el mismo frame', () => {
   const { ctl, game, rival } = forcejeoEnCurso();
   game.stats.salud = 50; game.stats.animo = 50;
   let tocada = 0;
@@ -237,7 +237,7 @@ test('J durante el forcejeo se rinde, aplica el castigo y no suelta ni agarra en
     crearModelo: () => new THREE.Group(), interactable: () => true, interactuar: () => { tocada++; }
   });
   ctl.recicladores = [];
-  ctl.update(0.016, entradaCon('KeyJ'));
+  ctl.update(0.016, entradaCon('KeyU'));
   assert.equal(game.stats.salud, 35);
   assert.equal(game.stats.animo, 40);
   assert.equal(ctl.forcejeo, null);

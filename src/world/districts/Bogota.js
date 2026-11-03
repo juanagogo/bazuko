@@ -24,6 +24,7 @@ import * as THREE from 'three';
 import { BOLIRANA_LOCATION } from '../bogota/BoliranaLocation.js';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { TILE_SIZE } from '../../utils/constants.js';
+import { pick, rand } from '../../utils/random.js';
 import { Farol } from '../props/Farol.js';
 import { TrafficSignals } from '../bogota/TrafficSignals.js';
 import { signTexture } from '../../utils/signs.js';
@@ -112,7 +113,6 @@ const benchFootprint = ({ x, z, rot }) => { // medio largo .83 m, medio fondo .3
   return { minX: x - hx, maxX: x + hx, minZ: z - hz, maxZ: z + hz };
 };
 const FIXED_REACH = 4;   // m: lo que se le permite alejarse de la red a quien vuelve a su sitio
-const rand = (a, b) => a + Math.random() * (b - a);
 const _frustum = new THREE.Frustum();
 const _projView = new THREE.Matrix4();
 
@@ -133,7 +133,6 @@ function worldUVs(geo, sx, sy, sz, units) {
   return geo;
 }
 const repeatAll = (t) => { if (!t) return t; t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(1, 1); t.anisotropy = 8; t.needsUpdate = true; return t; };
-const pick = (arr) => arr[Math.floor(Math.random() * arr.length)];
 const W = (t) => t * T; // tile → metros (centro del tile)
 
 export class Bogota {
@@ -1608,7 +1607,7 @@ export class Bogota {
     const chasers = this._chasers ??= [];
     chasers.length = 0;
     for (const vehicle of trafficVehicles) if (vehicle.state === 'chase' || vehicle.rejoinTarget) chasers.push(vehicle);
-    const ctx = { player: playerPos, frustum, camera, isRaining: (this.wetness ?? 0) > 0.05, animationBudget: this.animationBudget ?? 1,
+    const ctx = { player: playerPos, npcs: this.npcs, frustum, camera, isRaining: (this.wetness ?? 0) > 0.05, animationBudget: this.animationBudget ?? 1,
       drawDistance: this.farDetailDistance, skipHiddenMatrices: true, hygiene: this.playerHygiene ?? 100, chasers };
     for (const n of this.npcs) n.update(dt, ctx);
     for (const flock of this.pigeonFlocks ?? []) flock.update(dt, playerPos, this.npcs, camera);

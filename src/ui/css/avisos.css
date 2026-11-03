@@ -62,3 +62,6 @@
 #forcejeo-bar.active { display: block; }
 #forcejeo-bar .forcejeo-pista { margin-top: 6px; height: 10px; border: 2px solid var(--marcador); }
 #forcejeo-bar .forcejeo-relleno { height: 100%; width: 50%; background: var(--rojo); transition: width .08s linear; }
+
+/* El golpe que llega de un lado: `_flashImpact` le pone el degradado según de dónde vino. */
+.assault-impact { position: fixed; inset: 0; z-index: 120; opacity: 0; pointer-events: none; transition: opacity .12s ease-out; }

@@ -8,14 +8,12 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { buildCharacterClips } from '../src/character/actionforge.js';
 import { locomotionBlend, locomotionRate, measureLocomotion } from '../src/character/locomotion.js';
 import { animationDamping } from '../src/character/SecondaryMotion.js';
+import { loadActionForgeBank } from './helpers/actionforge-bank.js';
 
 globalThis.ProgressEvent ??= class { constructor(type, values) { Object.assign(this, { type }, values); } };
 const models = new URL('../public/models/', import.meta.url);
 
-async function bank() {
-  const data = fs.readFileSync(new URL('animaciones-actionforge.glb', models));
-  return new GLTFLoader().parseAsync(data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength), '');
-}
+const bank = () => loadActionForgeBank(new URL('animaciones-actionforge.glb', models));
 
 async function body(id) {
   const location = pathModule.join(fileURLToPath(models), 'personaje', id);

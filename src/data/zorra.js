@@ -12,11 +12,11 @@ export const ZORRA = {
     fuerza: 1.2            // ×: fuerza en el forcejeo para el origen reciclador
   },
   teclas: {
-    soltar: 'KeyJ',        // tecla para soltar la zorra
-    agarrar: 'KeyJ',       // tecla para agarrar la zorra propia soltada
-    robar: 'KeyJ',         // tecla para llevarse la zorra descuidada de un reciclador
+    soltar: 'KeyU',        // tecla para soltar la zorra
+    agarrar: 'KeyU',       // tecla para agarrar la zorra propia soltada
+    robar: 'KeyU',         // tecla para llevarse la zorra descuidada de un reciclador
     forcejear: 'KeyE',     // tecla para iniciar y machacar el forcejeo
-    cancelar: 'KeyJ'       // tecla para rendirse en el forcejeo
+    cancelar: 'KeyU'       // tecla para rendirse en el forcejeo
   },
   mapa: {
     nombre: 'Mi zorra',    // etiqueta en el radar cuando la zorra está en el suelo
@@ -63,8 +63,8 @@ export const TEXTOS_ZORRA = {
   sobrepeso: 'Con tanto peso no doy ni un paso',
   muerte: 'Me desmayé y me desocuparon la zorra',
   yaTienes: 'Ya tengo zorra',
-  agarrar: '[J] Agarrar zorra',
-  robar: '[J] Llevarse la zorra',
+  agarrar: '[U] Agarrar zorra',
+  robar: '[U] Llevarse la zorra',
   forcejear: '[E] Forcejear por la zorra',
   enojado: 'Este reciclador no quiere más forcejeos',
   nombreCompra: 'Zorra de reciclador',
@@ -75,7 +75,7 @@ export const TEXTOS_ZORRA = {
   robada: 'Me llevé la zorra',
   ganaste: 'Le gané la zorra al reciclador',
   perdiste: 'El reciclador me sacó a empujones',
-  ayudaForcejeo: '[E] Machacar · [J] Rendirme'
+  ayudaForcejeo: '[E] Machacar · [U] Rendirme'
 };
 
 export const INSULTOS_RECICLADOR = [

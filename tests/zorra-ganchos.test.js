@@ -47,7 +47,7 @@ test('los objetivos no interactuables se ignoran; la zorra es el objetivo más c
   const lejos = { harvest() {}, position: new THREE.Vector3(1.5, 0, 0) };
   const oculto = { kind: 'reciclador', interactable: false, position: new THREE.Vector3(0.2, 0, 0) };
   let usos = 0;
-  const zorra = { kind: 'zorra', interactable: true, prompt: '[J] Agarrar zorra', position: new THREE.Vector3(0.5, 0, 0), interactuar: () => usos++ };
+  const zorra = { kind: 'zorra', interactable: true, prompt: '[U] Agarrar zorra', position: new THREE.Vector3(0.5, 0, 0), interactuar: () => usos++ };
   const sys = interaccion([lejos, oculto, zorra]);
   sys.update(0.016, entradaE(), { isNight: false });
   assert.equal(sys.currentTargetType, 'zorra');

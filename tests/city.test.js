@@ -7,9 +7,9 @@ import { CITY_WIDTH, CITY_HEIGHT, ORIGINAL_CITY_WIDTH, ORIGINAL_CITY_HEIGHT,
 import { migrateStreetPosition } from '../src/world/bogota/StreetLayout.js';
 import { CollisionSystem } from '../src/systems/CollisionSystem.js';
 import { FrustumCulling } from '../src/core/FrustumCulling.js';
+import { textureSet } from './helpers/fixtures.js';
 
 // La construcción completa usa geometría real; solo Canvas y GLB se sustituyen.
-const textureSet=()=>({map:new THREE.Texture(),bumpMap:new THREE.Texture(),emissiveMap:new THREE.Texture()});
 const replacements={...textures};
 for(const name of ['asphalt','sidewalk','brick','facade','roofTiles','slab','cardboard','trashBag','dirt','concrete']) replacements[name]=textureSet;
 for(const name of ['radialSprite','lightbox','neon']) replacements[name]=()=>new THREE.Texture();

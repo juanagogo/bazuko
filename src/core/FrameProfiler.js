@@ -1,3 +1,5 @@
+import { percentile } from '../utils/percentile.js';
+
 /** Tiempos de CPU optativos y acotados; renderer.render no mide la GPU. */
 export class FrameProfiler {
   constructor(capacity = 1800) {
@@ -41,8 +43,7 @@ export class FrameProfiler {
     const phases = {};
     for (const [name, values] of this.samples) {
       const sorted = Array.from(values.subarray(0, this.frames)).sort((a, b) => a - b);
-      const percentile = p => sorted.length ? sorted[Math.ceil(sorted.length * p) - 1] : 0;
-      phases[name] = { p50: percentile(.5), p95: percentile(.95), p99: percentile(.99) };
+      phases[name] = { p50: percentile(sorted, .5), p95: percentile(sorted, .95), p99: percentile(sorted, .99) };
     }
     return { frames: this.frames, capacity: this.capacity, unit: 'ms de CPU; no incluye tiempo GPU', phases };
   }
