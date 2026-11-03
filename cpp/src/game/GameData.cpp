@@ -88,6 +88,7 @@ std::optional<GameData> GameData::LoadFromFile(const std::string& path, std::str
             item.desc = source.value("desc", std::string{});
             item.recyclable = source.value("recyclable", false);
             item.usable = source.value("usable", false);
+            item.weapon = source.value("weapon", std::string{});
             item.build = source.value("build", false);
             item.substance = source.value("substance", false);
             item.portOnly = source.value("portOnly", false);

@@ -16,6 +16,7 @@ struct ModelPart {
     std::shared_ptr<Mesh> mesh;
     std::shared_ptr<Texture> texture;
     std::shared_ptr<Texture> specularTexture;
+    std::shared_ptr<Texture> normalTexture;   // mapa de normales del material (relieve), si lo trae
     glm::vec4 baseColor = glm::vec4(1.0f);
     glm::mat4 transform{1.0f};
     int alphaMode = 0;

@@ -1,5 +1,6 @@
 #define IMGUI_DEFINE_MATH_OPERATORS
 #include "SignStyle.hpp"
+#include "Carton.hpp"
 #include <imgui_internal.h>
 #include "../core/Log.hpp"
 #include "../core/Paths.hpp"
@@ -93,6 +94,7 @@ void LoadFonts() {
 const Fonts& GetFonts() { return g_fonts; }
 
 ImFont* Ov(bool black, int px) {
+    if (Carton::FontsReady() && !std::getenv("BAZUKO_UI_OSCURA")) return Carton::Font(black, std::max(px, 13));
     px = std::clamp(px, 9, 26);
     ImFont* font = g_ov[black ? 1 : 0][px];
     if (font) return font;
@@ -434,8 +436,13 @@ bool BeginMenu(const char* id, const char* title, const char* subtitle, Icon ico
         const float grow = static_cast<float>(layer) * 2.0f;
         back->AddRectFilled(p0 + ImVec2(-grow, 6.0f - grow), p1 + ImVec2(grow, 6.0f + grow), IM_COL32(0, 0, 0, 14), 10.0f + grow);
     }
-    draw->AddRectFilled(p0, p1, kBlue, 10.0f);
-    draw->AddRect(p0 + ImVec2(5, 5), p1 - ImVec2(5, 5), White(0.95f), 6.0f, 0, 2.0f);
+    if (Carton::FontsReady() && !std::getenv("BAZUKO_UI_OSCURA")) {   // carton y marcador: la pieza va en la capa de fondo y el resto se invierte al dibujar
+        Carton::RegisterWindow(id);
+        Carton::Panel(back, p0, p1, 77u, 9.0f);
+    } else {
+        draw->AddRectFilled(p0, p1, kBlue, 10.0f);
+        draw->AddRect(p0 + ImVec2(5, 5), p1 - ImVec2(5, 5), White(0.95f), 6.0f, 0, 2.0f);
+    }
 
     // cabecera: icono, titulo, subtitulo y boton de cerrar
     const Fonts& fonts = g_fonts;

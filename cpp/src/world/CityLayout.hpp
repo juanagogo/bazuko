@@ -64,6 +64,7 @@ public:
     void Render(Renderer& renderer, const glm::vec3& focusPosition);
 
     TileType GetTileAt(int x, int z) const;
+    const std::vector<BuildingInstance>& GetBuildings() const { return m_Buildings; }   // cajas de edificios y muros (decals de pared)
     // Letra original de la casilla (b, r, B, s, g, p, w, W, f, d, R, S, C, A, M); 'w' fuera del mapa
     char GetMapCode(int x, int z) const {
         if (x < 0 || x >= WIDTH || z < 0 || z >= HEIGHT) return 'w';

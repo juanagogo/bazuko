@@ -6,6 +6,7 @@ layout(location = 2) in vec2 aUV;
 layout(location = 3) in vec4 aColor;
 layout(location = 4) in vec4 aJoints;
 layout(location = 5) in vec4 aWeights;
+layout(location = 6) in vec4 aTangent;
 
 layout(std140, binding = 0) uniform CameraBlock {
     mat4 uView;
@@ -18,6 +19,7 @@ layout(std140, binding = 0) uniform CameraBlock {
 uniform mat4 uModel;
 uniform int uSkinned;
 uniform vec2 uUvOffset = vec2(0.0);   // desplazamiento de UV (letrero LED del bus)
+uniform int uGrass = 0;          // matas de pasto: se mecen con el viento desde la raiz (la amplitud viene de uTime y la posicion de la mata)
 uniform float uSway = 0.0;      // arboles: amplitud (m) con que la copa se mece con el viento; crece con la altura sobre el pie
 uniform float uPushOut = 0.0;   // ropa y calzado: se separan unos milimetros de la piel a lo largo de la normal (ya deformada)
 uniform int uBoneCount;
@@ -30,10 +32,13 @@ out vec3 vFragPos;
 out vec3 vNormal;
 out vec2 vUV;
 out vec4 vColor;
+out vec2 vGrass;   // x altura sobre la raiz de la mata, y valor aleatorio por mata
+out vec4 vTangent;   // xyz tangente en el mundo, w signo de la bitangente
 
 void main() {
     vec4 localPos = vec4(aPos, 1.0);
     vec3 localNormal = aNormal;
+    vec3 localTangent = aTangent.xyz;
     if (uSkinned == 1) {
         ivec4 joints = clamp(ivec4(aJoints), ivec4(0), ivec4(max(uBoneCount - 1, 0)));
         float weightSum = dot(aWeights, vec4(1.0));
@@ -42,6 +47,7 @@ void main() {
             mat4 skin = uBones[joints.x] * weights.x + uBones[joints.y] * weights.y + uBones[joints.z] * weights.z + uBones[joints.w] * weights.w;
             localPos = skin * localPos;
             localNormal = mat3(skin) * localNormal;
+            localTangent = mat3(skin) * localTangent;
         }
     }
     if (uPushOut != 0.0) localPos.xyz += normalize(localNormal) * uPushOut;
@@ -50,6 +56,13 @@ void main() {
         float h = clamp((worldPos.y - uModel[3].y) / 5.4, 0.0, 1.0);
         float phase = uTime * 1.7 + uModel[3].x * 0.31 + uModel[3].z * 0.23 + worldPos.y * 0.6;
         worldPos.xz += vec2(0.8, 0.6) * (sin(phase) + 0.35 * sin(phase * 2.3 + 1.1)) * uSway * h * h;
+    }
+    vGrass = vec2(0.0);
+    if (uGrass == 1) {
+        const float h = max(worldPos.y - uModel[3].y, 0.0);
+        const float phase = uTime * 1.9 + uModel[3].x * 0.7 + uModel[3].z * 0.5 + worldPos.x * 1.3;
+        worldPos.xz += vec2(0.9, 0.5) * (sin(phase) + 0.4 * sin(phase * 2.1)) * 0.035 * h * h;
+        vGrass = vec2(h, fract(sin(dot(uModel[3].xz, vec2(12.9898, 78.233))) * 43758.5453));
     }
     vec3 waterNormal = vec3(0.0, 1.0, 0.0);
     if (uWater == 1) {
@@ -63,6 +76,7 @@ void main() {
     }
     vFragPos = worldPos.xyz;
     vNormal = uWater == 1 ? waterNormal : mat3(transpose(inverse(uModel))) * localNormal;
+    vTangent = vec4(mat3(uModel) * localTangent, aTangent.w);
     vUV = aUV + uUvOffset;
     vColor = aColor;
 

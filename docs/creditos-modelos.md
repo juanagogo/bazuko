@@ -56,3 +56,7 @@ El Pitbull se preparó con Blender (metros, textura de color a 1024 px y 38 de s
 ## Otros modelos del juego
 
 El resto de los modelos importados (peatones, vehículos del tráfico, mobiliario urbano, fauna, árboles) conserva la procedencia que indica [modelos-importados.md](modelos-importados.md).
+
+## Tipografía y dibujos de la interfaz de cartón
+
+`cpp/assets/fonts/DiosLePague-Grueso.ttf` y `DiosLePague-Fino.ttf` son la tipografía «Dios Le Pague» de la interfaz del juego original (rama principal de `juanagogo/bazuko`, `src/ui/fuentes/`), dibujada por un programa del repositorio original (`npm run fuente`) y convertida de WOFF a TTF para ImGui. Trae también los dibujos de objetos y menús en la zona privada de Unicode. Los trazos de la palabra BAZUKO de la pantalla de carga (`cpp/src/ui/MarcaBazuko.hpp`) salen de `src/ui/marcaBazuko.js` del mismo repositorio. Autoría de esos archivos: colaboradores del juego original.

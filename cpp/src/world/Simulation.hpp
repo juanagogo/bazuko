@@ -22,6 +22,9 @@
 namespace Bazuko {
 
 struct Pedestrian {
+    float slope = 0.0f;   // pendiente del suelo que recorre (suavizada): inclina los pies
+    float slopeX = 0.0f, slopeY = 0.0f, slopeZ = 0.0f;
+    bool slopeReady = false;
     float pathPlan = 0.0f;   // s hasta volver a trazar el camino a pie (policias)
     glm::vec3 position{0.0f};
     glm::vec3 target{0.0f};
@@ -370,7 +373,8 @@ public:
     const std::vector<PickupItem>& GetPickups() const { return m_Pickups; }
     // Pelea. HitPedestrian: el golpe del jugador alcanza al peaton mas cercano delante (kind 1 cara, 2 pecho, 3 piernas: derriba).
     // ConsumePlayerHit: un peaton agresivo que acierta devuelve el tipo de golpe y de donde viene.
-    bool HitPedestrian(const glm::vec3& from, const glm::vec2& forward, float reach, int kind);
+    // damage > 0 sustituye el dano del golpe (arma en la mano); knockback escala el empuje
+    bool HitPedestrian(const glm::vec3& from, const glm::vec2& forward, float reach, int kind, float damage = -1.0f, float knockback = 1.0f);
     bool ConsumePlayerHit(int& kind, glm::vec3& fromDirection);
     // Burbujas de los peatones cercanos: posicion sobre la cabeza, texto y opacidad
     struct PedestrianBubble { glm::vec3 position; std::string text; float alpha; };
@@ -431,6 +435,10 @@ public:
     // Luces de las balizas: una por patrulla cercana mientras destella su rojo o su azul (xyz posicion, w alcance) y su color
     struct StrobeLight { glm::vec4 position; glm::vec3 color; };   // color ya multiplicado por la intensidad del destello (0..1)
     std::vector<StrobeLight> GetStrobeLights(const glm::vec3& focus, float time, float maxDistance) const;
+    // Faros de los vehiculos en circulacion mas cercanos al foco (xyz delante del capo, w 1): luces extra para los clusters de noche
+    struct HeadlightBeam { glm::vec3 position{0.0f}; glm::vec3 direction{0.0f, 0.0f, 1.0f}; };
+    std::vector<HeadlightBeam> GetHeadlightBeams(const glm::vec3& focus, size_t maxCount, float maxDistance) const;
+    std::vector<glm::vec4> GetHeadlightLights(const glm::vec3& focus, size_t maxCount, float maxDistance) const;
     std::vector<glm::vec4> GetNearestLampLights(const glm::vec3& focus, size_t maxCount, float maxDistance) const;
     // 0..1: las bombillas se dibujan encendidas
     void SetLampGlow(float glow) { m_LampGlow = glow; }
@@ -467,6 +475,7 @@ public:
     }
     // Calidad baja: menos gotas y sin suelo mojado
     void SetReducedWeather(bool reduced) { m_ReducedWeather = reduced; }
+    void SetTreeRange(float meters) { m_TreeRange = meters; }
     void SetDayProgress(float progress) { m_Clock = std::clamp(progress, 0.0f, 1.0f); m_DayProgress = m_Clock; }
     // Noche de 20:00 a 6:00, como el original
     bool IsNight() const { return m_DayProgress >= 20.0f / 24.0f || m_DayProgress < 6.0f / 24.0f; }
@@ -744,6 +753,7 @@ private:
     size_t m_PoopHitCount = 0;
     std::vector<TrafficSignal> m_TrafficSignals;
     std::vector<glm::vec3> m_TreePositions;
+    float m_TreeRange = 60.0f;   // distancia maxima a la que se dibujan los arboles (segun la calidad grafica)
     std::vector<glm::vec3> m_GrassPositions;
     std::array<std::vector<glm::vec3>, 3> m_ParkGrassPositions;
     BirdFlock m_Birds{11};

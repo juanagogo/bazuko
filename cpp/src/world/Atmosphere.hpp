@@ -51,7 +51,7 @@ inline Atmosphere ComputeAtmosphere(float hour, float rain, float mist, float cl
     sky = glm::mix(sky, glm::vec3(0.62f, 0.65f, 0.68f) * (0.12f + 0.88f * day) + sky * 0.15f, 0.7f * mist);
     result.fogColor = sky;
     result.lampPower = 1.0f - AtmosphereSmoothstep(0.05f, 0.7f, day * (1.0f - 0.4f * std::max(rain, mist)));
-    result.fogDensity = 0.015f + 0.006f * rain + 0.03f * mist;
+    result.fogDensity = 0.010f + 0.006f * rain + 0.03f * mist;
     if (flash > 0.0f) {   // relampago: el cielo y la luz ambiente se iluminan un instante
         const float f = std::min(flash, 1.0f);
         result.ambientColor += glm::vec3(0.55f, 0.6f, 0.75f) * f;

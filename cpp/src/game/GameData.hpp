@@ -22,6 +22,7 @@ struct ItemDef {
     std::string rarityLabel;
     std::string cure;            // enfermedad que cura
     std::string desc;
+    std::string weapon;          // arma cuerpo a cuerpo que se saca al usarlo ("cuchillo", ...), vacio si no es arma
     bool recyclable = false;
     bool usable = false;
     bool build = false;

@@ -21,6 +21,7 @@ uniform float uMoonVisibility;
 uniform float uSunDisc;
 
 out vec4 FragColor;
+layout(location = 1) out vec4 GBuffer;   // el cielo no se refleja en pantalla: reflectividad 0
 
 float hash21(vec2 p) {
     return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453123);
@@ -90,5 +91,6 @@ void main() {
         sky += uSunGlowColor * pow(sunDot, 24.0) * density * (1.0 - thickness) * uSunDisc * 0.5;
     }
     sky += vec3(0.5, 0.55, 0.7) * uFlash * 0.25;
+    GBuffer = vec4(0.5, 1.0, 0.0, 1.0);
     FragColor = vec4(sky, 1.0);
 }

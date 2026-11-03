@@ -1477,8 +1477,11 @@ Simulation::Simulation(const CityLayout& city, uint32_t seed,
             vehicle.color = vehicle.taxi ? glm::vec3(0.949f, 0.765f, 0.0f)
                 : paints[static_cast<size_t>(m_Unit(m_Random) * paints.size()) % paints.size()];
             // tres de los carros del tráfico son de emergencia: ambulancia, patrulla y moto de policia
-            if (m_Traffic.size() == 5 || m_Traffic.size() == 11 || m_Traffic.size() == 17) {
-                const int kind = m_Traffic.size() == 5 ? 1 : m_Traffic.size() == 11 ? 2 : 3;
+            // (una ambulancia, una moto y tres patrullas repartidas por los circuitos: una de cada doce vehiculos)
+            const size_t patrolsSoFar = static_cast<size_t>(std::count_if(m_Traffic.begin(), m_Traffic.end(), [](const TrafficVehicle& other) { return other.emergency == 2; }));
+            const bool patrolSlot = m_Traffic.size() % 12 == 11 && patrolsSoFar < 3;
+            if (m_Traffic.size() == 5 || patrolSlot || m_Traffic.size() == 17) {
+                const int kind = m_Traffic.size() == 5 ? 1 : patrolSlot ? 2 : 3;
                 if (m_EmergencyModels[static_cast<size_t>(kind - 1)]) {
                     vehicle.emergency = kind;
                     vehicle.taxi = false;
@@ -1489,6 +1492,7 @@ Simulation::Simulation(const CityLayout& city, uint32_t seed,
                 }
             }
             AssignVehicleModel(vehicle);
+            if (vehicle.emergency == 2) LogInfo("Patrulla de policia en el circuito {} (vehiculo {})", routeIndex, m_Traffic.size());
             vehicle.driver.appearance = static_cast<size_t>(m_Unit(m_Random) * 1000.0f);
             if (vehicle.emergency == 2 && m_PedestrianAppearances.size() > m_PoliceAppearanceFirst)   // el conductor de la patrulla es policia
                 vehicle.driver.appearance = m_PoliceAppearanceFirst + static_cast<size_t>(m_Unit(m_Random) * 100.0f) % (m_PedestrianAppearances.size() - m_PoliceAppearanceFirst);
@@ -2190,6 +2194,39 @@ std::vector<Simulation::StrobeLight> Simulation::GetStrobeLights(const glm::vec3
     return lights;
 }
 
+std::vector<Simulation::HeadlightBeam> Simulation::GetHeadlightBeams(const glm::vec3& focus, size_t maxCount, float maxDistance) const {
+    std::vector<std::pair<float, HeadlightBeam>> candidates;
+    for (const TrafficVehicle& vehicle : m_Traffic) {
+        if (vehicle.parked || vehicle.driver.state == DriverState::Abandoned) continue;
+        const float distance = glm::distance(glm::vec2(vehicle.position.x, vehicle.position.z), glm::vec2(focus.x, focus.z));
+        if (distance > maxDistance) continue;
+        HeadlightBeam beam;
+        beam.direction = glm::normalize(glm::vec3(vehicle.direction.x, 0.0f, vehicle.direction.z));
+        beam.position = vehicle.position + beam.direction * (vehicle.length * 0.5f - 0.2f) + glm::vec3(0.0f, 0.75f, 0.0f);
+        candidates.emplace_back(distance, beam);
+    }
+    const size_t count = std::min(maxCount, candidates.size());
+    std::partial_sort(candidates.begin(), candidates.begin() + static_cast<std::ptrdiff_t>(count), candidates.end(), [](const auto& a, const auto& b) { return a.first < b.first; });
+    std::vector<HeadlightBeam> beams;
+    for (size_t index = 0; index < count; ++index) beams.push_back(candidates[index].second);
+    return beams;
+}
+
+std::vector<glm::vec4> Simulation::GetHeadlightLights(const glm::vec3& focus, size_t maxCount, float maxDistance) const {
+    std::vector<std::pair<float, glm::vec3>> candidates;
+    for (const TrafficVehicle& vehicle : m_Traffic) {
+        if (vehicle.parked || vehicle.driver.state == DriverState::Abandoned) continue;
+        const float distance = glm::distance(glm::vec2(vehicle.position.x, vehicle.position.z), glm::vec2(focus.x, focus.z));
+        if (distance > maxDistance) continue;
+        candidates.emplace_back(distance, vehicle.position + vehicle.direction * (vehicle.length * 0.5f + 1.5f) + glm::vec3(0.0f, 0.9f, 0.0f));
+    }
+    const size_t count = std::min(maxCount, candidates.size());
+    std::partial_sort(candidates.begin(), candidates.begin() + static_cast<std::ptrdiff_t>(count), candidates.end(), [](const auto& a, const auto& b) { return a.first < b.first; });
+    std::vector<glm::vec4> lights;
+    for (size_t index = 0; index < count; ++index) lights.emplace_back(candidates[index].second, 1.0f);
+    return lights;
+}
+
 std::vector<glm::vec4> Simulation::GetNearestLampLights(const glm::vec3& focus, size_t maxCount, float maxDistance) const {
     std::vector<std::pair<float, glm::vec3>> candidates;
     for (const StreetLamp& lamp : m_StreetLamps) {
@@ -2248,7 +2285,7 @@ void Simulation::Update(float dt, const glm::vec3& playerPosition) {
         }
     }
     m_Wetness = IsRaining() ? std::min(1.0f, m_Wetness + dt * 0.25f * std::min(1.0f, m_RainIntensity * 2.0f))
-                            : std::max(0.0f, m_Wetness - dt * 0.04f);
+                            : std::max(0.0f, m_Wetness - dt * (0.0035f + 0.011f * (1.0f - m_CloudCover) + 0.002f * m_Wind));   // el suelo se seca despacio: ~70 s con sol, ~3 min nublado
     if (IsRaining()) {
         for (auto& drop : m_RainOffsets) {
             drop.y -= 24.0f * dt;
@@ -2764,7 +2801,7 @@ std::vector<Simulation::PedestrianBubble> Simulation::GetPedestrianBubbles(const
     return bubbles;
 }
 
-bool Simulation::HitPedestrian(const glm::vec3& from, const glm::vec2& forward, float reach, int kind) {
+bool Simulation::HitPedestrian(const glm::vec3& from, const glm::vec2& forward, float reach, int kind, float damage, float knockback) {
     const glm::vec2 origin(from.x, from.z);
     const glm::vec2 direction = glm::length(forward) > 0.001f ? glm::normalize(forward) : glm::vec2(0.0f, 1.0f);
     Pedestrian* target = nullptr;
@@ -2788,7 +2825,7 @@ bool Simulation::HitPedestrian(const glm::vec3& from, const glm::vec2& forward, 
     }
     target->bubbleText = kPunchedPhrases[static_cast<size_t>(m_Unit(m_Random) * 4.99f)];
     target->bubbleRemaining = 4.0f;
-    target->health -= kind >= 3 ? 22.0f : kind == 2 ? 14.0f : 10.0f;   // patada, cruzado o navaja, jab
+    target->health -= damage > 0.0f ? damage : kind >= 3 ? 22.0f : kind == 2 ? 14.0f : 10.0f;   // patada, cruzado o navaja, jab (o el arma en la mano)
     if (target->health <= 0.0f) {
         // muere: cae, queda tendido en un charco de sangre y no se levanta
         target->dead = true;
@@ -2802,7 +2839,7 @@ bool Simulation::HitPedestrian(const glm::vec3& from, const glm::vec2& forward, 
     target->punchTime = -1.0f;
     target->aggressive = false;
     target->yaw = std::atan2(-direction.x, -direction.y);   // mira hacia quien lo golpeo
-    const glm::vec3 pushed = target->position + glm::vec3(direction.x, 0.0f, direction.y) * (kind >= 3 ? 0.45f : 0.2f);
+    const glm::vec3 pushed = target->position + glm::vec3(direction.x, 0.0f, direction.y) * ((kind >= 3 ? 0.45f : 0.2f) * knockback);
     if (m_City.IsWalkable(pushed.x, pushed.z) && !m_City.IsBlocked(pushed.x, pushed.z, 0.18f)) target->position = pushed;
     return true;
 }
@@ -3146,11 +3183,14 @@ void Simulation::RespawnAbandoned(TrafficVehicle& vehicle) {
         DriverInfo& driver = vehicle.driver;
         driver = DriverInfo{};
         driver.appearance = static_cast<size_t>(m_Unit(m_Random) * 1000.0f);
+        const size_t policeCount = m_PedestrianAppearances.size() > m_PoliceAppearanceFirst ? m_PedestrianAppearances.size() - m_PoliceAppearanceFirst : 0;
+        if (vehicle.emergency == 2 && policeCount > 0) driver.appearance = m_PoliceAppearanceFirst + static_cast<size_t>(m_Unit(m_Random) * 100.0f) % policeCount;   // la patrulla repone policias, no civiles
         driver.color = {0.22f + m_Unit(m_Random) * 0.55f, 0.18f + m_Unit(m_Random) * 0.48f, 0.15f + m_Unit(m_Random) * 0.42f};
         driver.shade = m_Unit(m_Random) * 2.0f;
         if ((vehicle.variant > 0 && vehicle.emergency == 0 && m_Unit(m_Random) < 0.35f) || vehicle.emergency == 2) {   // la patrulla siempre lleva companero
             driver.hasPassenger = true;
             driver.passengerAppearance = static_cast<size_t>(m_Unit(m_Random) * 1000.0f);
+            if (vehicle.emergency == 2 && policeCount > 0) driver.passengerAppearance = m_PoliceAppearanceFirst + static_cast<size_t>(m_Unit(m_Random) * 100.0f) % policeCount;
             driver.passengerColor = {0.22f + m_Unit(m_Random) * 0.55f, 0.18f + m_Unit(m_Random) * 0.48f, 0.15f + m_Unit(m_Random) * 0.42f};
             driver.passengerShade = m_Unit(m_Random) * 2.0f;
         }
@@ -3317,6 +3357,14 @@ void Simulation::UpdateDrivers(float dt, const glm::vec3& playerPosition) {
         }
         switch (driver.state) {
             case DriverState::Seated:
+                if (vehicle.emergency == 2 && !driver.hasPassenger && !driver.dispatched && playerDistance > kUnseenDistance
+                    && m_PedestrianAppearances.size() > m_PoliceAppearanceFirst) {   // la patrulla que perdio a su companero sale de la vista y vuelve con otro policia
+                    const size_t policeCount = m_PedestrianAppearances.size() - m_PoliceAppearanceFirst;
+                    driver.hasPassenger = true;
+                    driver.passengerAppearance = m_PoliceAppearanceFirst + static_cast<size_t>(m_Unit(m_Random) * 100.0f) % policeCount;
+                    driver.passengerColor = {0.22f + m_Unit(m_Random) * 0.55f, 0.18f + m_Unit(m_Random) * 0.48f, 0.15f + m_Unit(m_Random) * 0.42f};
+                    driver.passengerShade = m_Unit(m_Random) * 2.0f;
+                }
                 if (driver.dispatched) {   // acude manejando por las calles, mas rapido que el trafico, hasta llegar al jugador
                     driver.dispatchTime += dt;
                     driver.pathAge += dt;
@@ -3621,6 +3669,17 @@ void Simulation::UpdatePedestrians(float dt, const glm::vec3& playerPosition) {
     for (auto& pedestrian : m_Pedestrians) {
         if (pedestrian.departed) continue;
         pedestrian.position.y = m_City.GetGroundHeight(pedestrian.position.x, pedestrian.position.z);   // siempre pisan el suelo
+        {   // pendiente del suelo que recorre (rampas del viaducto y de la estacion): inclina los pies
+            if (!pedestrian.slopeReady) { pedestrian.slopeReady = true; pedestrian.slopeX = pedestrian.position.x; pedestrian.slopeY = pedestrian.position.y; pedestrian.slopeZ = pedestrian.position.z; }
+            const float moved = glm::distance(glm::vec2(pedestrian.position.x, pedestrian.position.z), glm::vec2(pedestrian.slopeX, pedestrian.slopeZ));
+            if (moved > 0.02f) {
+                const float measured = std::clamp((pedestrian.position.y - pedestrian.slopeY) / moved, -0.7f, 0.7f);
+                pedestrian.slope += (measured - pedestrian.slope) * (1.0f - std::exp(-6.0f * dt));
+                pedestrian.slopeX = pedestrian.position.x; pedestrian.slopeY = pedestrian.position.y; pedestrian.slopeZ = pedestrian.position.z;
+            } else {
+                pedestrian.slope += (0.0f - pedestrian.slope) * (1.0f - std::exp(-4.0f * dt));
+            }
+        }
         pedestrian.robberyCooldown = std::max(0.0f, pedestrian.robberyCooldown - dt);
         pedestrian.fleeRemaining = std::max(0.0f, pedestrian.fleeRemaining - dt);
         pedestrian.splatRemaining = std::max(0.0f, pedestrian.splatRemaining - dt);
@@ -4611,15 +4670,18 @@ void Simulation::Render(Renderer& renderer, float time, const glm::vec3& focusPo
         const float yaw = static_cast<float>((index * 37) % 360) * glm::pi<float>() / 180.0f;
         const glm::mat4 grass = glm::translate(glm::mat4(1.0f), position)
             * glm::rotate(glm::mat4(1.0f), yaw, {0.0f, 1.0f, 0.0f});
-        if (m_GrassModel)
+        if (m_GrassModel) {
+            renderer.SetGrass(true);
             m_GrassModel->Draw(renderer, grass * m_GrassModelFit,
                                glm::vec4(0.35f, 0.58f, 0.25f, 1.0f));
+            renderer.SetGrass(false);
+        }
     }
     // el viento (Climate) mece los arboles: brisa suave siempre y mas amplitud con vientos fuertes
     const float treeSway = m_ReducedWeather ? 0.0f : 0.04f + 0.22f * m_Wind;
     for (const auto& position : m_TreePositions) {
         if (glm::distance(glm::vec2(focusPosition.x, focusPosition.z),
-                          glm::vec2(position.x, position.z)) > 60.0f) continue;
+                          glm::vec2(position.x, position.z)) > m_TreeRange) continue;
         if (m_TreeModel) {
             renderer.SetSway(treeSway);
             m_TreeModel->Draw(renderer, glm::translate(glm::mat4(1.0f), position) * m_TreeModelFit);
@@ -5502,6 +5564,12 @@ void Simulation::Render(Renderer& renderer, float time, const glm::vec3& focusPo
             clip = appearance.fightClip;
             clipTime = 0.0f;
             Combat::AppendFists(combatTurns);
+        }
+        if (combatTurns.empty() && pedestrian.moving && !pedestrian.dead && pedestrian.reaction == 0 && std::abs(pedestrian.slope) > 0.04f && !std::getenv("BAZUKO_NOFOOTIK")) {
+            // pies sobre la pendiente (la punta sigue la inclinacion) y cadera mas baja al bajar (y un poco al subir): los peatones tambien pisan las rampas
+            const float angle = std::atan(pedestrian.slope) * 0.85f;
+            for (const char* side : {"Left", "Right"}) combatTurns.push_back({std::string("mixamorig:") + side + "Foot", {-angle, 0.0f, 0.0f}, {0.0f, 0.0f, 0.0f}, true});
+            combatTurns.push_back({"mixamorig:Hips", {0.0f, 0.0f, 0.0f}, {0.0f, -std::min(0.10f, 0.18f * std::max(-pedestrian.slope, 0.0f) + 0.10f * std::max(pedestrian.slope, 0.0f)), 0.0f}, true});
         }
         if (pedestrian.dead && pedestrian.reactionTime > 0.8f && m_BloodMesh) {
             // el charco crece desde que cae y se queda mientras el cuerpo siga a la vista

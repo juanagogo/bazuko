@@ -18,7 +18,7 @@
     },
     {
       "id": "botella",
-      "name": "Botella PET",
+      "name": "Botella",
       "weight": 0.3,
       "value": 150,
       "rarity": "",
@@ -60,7 +60,7 @@
     },
     {
       "id": "cable",
-      "name": "Cable cobre",
+      "name": "Cable de cobre",
       "weight": 0.4,
       "value": 2400,
       "rarity": "",
@@ -95,7 +95,7 @@
     },
     {
       "id": "agua",
-      "name": "Botella agua",
+      "name": "Botella de agua",
       "weight": 0.5,
       "value": 1500,
       "rarity": "",
@@ -215,7 +215,7 @@
     },
     {
       "id": "radio",
-      "name": "Radio auto",
+      "name": "Radio de carro",
       "weight": 1.5,
       "value": 35000,
       "rarity": "",
@@ -301,7 +301,7 @@
     },
     {
       "id": "popo",
-      "name": "Mojón de popó",
+      "name": "Popó",
       "weight": 0.3,
       "value": 50,
       "rarity": "",
@@ -345,11 +345,12 @@
       "rarity": "",
       "rarityLabel": "",
       "recyclable": false,
-      "usable": false,
+      "usable": true,
       "build": false,
       "substance": false,
       "cure": "",
-      "desc": "Fabricado en la mesa de crafteo."
+      "desc": "Tabla con chatarra amarrada con cable: lenta, pero pega duro y alcanza más. Usar: sacar o guardar.",
+      "weapon": "arma"
     },
     {
       "id": "curita",
@@ -427,7 +428,7 @@
     },
     {
       "id": "refresco",
-      "name": "Refresco",
+      "name": "Gaseosa",
       "weight": 0.4,
       "value": 2500,
       "rarity": "",
@@ -666,6 +667,146 @@
       "effects": {
         "salud": -1
       }
+    },
+    {
+      "id": "empanada",
+      "name": "Empanada con ají",
+      "weight": 0.2,
+      "value": 1200,
+      "rarity": "",
+      "rarityLabel": "",
+      "recyclable": false,
+      "usable": false,
+      "build": false,
+      "substance": false,
+      "cure": "",
+      "desc": "Empanada de carne y papa con ají casero.",
+      "consumable": {
+        "stat": "hambre",
+        "amount": 35
+      },
+      "effects": {
+        "animo": 15
+      }
+    },
+    {
+      "id": "morcilla",
+      "name": "Morcilla criolla",
+      "weight": 0.35,
+      "value": 2500,
+      "rarity": "",
+      "rarityLabel": "",
+      "recyclable": false,
+      "usable": false,
+      "build": false,
+      "substance": false,
+      "cure": "",
+      "desc": "Rellena de la Mona: contundente y calórica.",
+      "consumable": {
+        "stat": "hambre",
+        "amount": 60
+      },
+      "effects": {
+        "energia": 20,
+        "animo": 10
+      }
+    },
+    {
+      "id": "papaCriolla",
+      "name": "Papa criolla",
+      "weight": 0.25,
+      "value": 1000,
+      "rarity": "",
+      "rarityLabel": "",
+      "recyclable": false,
+      "usable": false,
+      "build": false,
+      "substance": false,
+      "cure": "",
+      "desc": "Porción de papa criolla doradita con sal.",
+      "consumable": {
+        "stat": "hambre",
+        "amount": 25
+      },
+      "effects": {
+        "animo": 10
+      }
+    },
+    {
+      "id": "aguapanela",
+      "name": "Aguapanela caliente",
+      "weight": 0.35,
+      "value": 1200,
+      "rarity": "",
+      "rarityLabel": "",
+      "recyclable": false,
+      "usable": false,
+      "build": false,
+      "substance": false,
+      "cure": "gripe",
+      "desc": "Aguapanela con limón: revive y cura la gripe.",
+      "consumable": {
+        "stat": "sed",
+        "amount": 40
+      },
+      "effects": {
+        "energia": 25,
+        "animo": 15
+      }
+    },
+    {
+      "id": "basuco",
+      "name": "Basuco",
+      "weight": 0.02,
+      "value": 4000,
+      "rarity": "",
+      "rarityLabel": "",
+      "recyclable": false,
+      "usable": false,
+      "build": false,
+      "substance": true,
+      "cure": "",
+      "desc": "Sube el ánimo de golpe pero trae paranoia y alucinaciones.",
+      "consumable": {
+        "stat": "vicio",
+        "amount": 70
+      },
+      "effects": {
+        "animo": 30,
+        "energia": 15,
+        "salud": -6,
+        "hambre": -10
+      }
+    },
+    {
+      "id": "cuchillo",
+      "name": "Cuchillo",
+      "weight": 0.4,
+      "value": 2800,
+      "rarity": "",
+      "rarityLabel": "",
+      "recyclable": false,
+      "usable": true,
+      "build": false,
+      "substance": false,
+      "cure": "",
+      "desc": "Corta y rápida. Usar: sacar o guardar.",
+      "weapon": "cuchillo"
+    },
+    {
+      "id": "botella_picada",
+      "name": "Botella picada",
+      "weight": 0.3,
+      "value": 100,
+      "rarity": "",
+      "rarityLabel": "",
+      "recyclable": false,
+      "usable": true,
+      "build": false,
+      "substance": false,
+      "cure": "",
+      "desc": "Vidrio roto con buen alcance. Usar: sacar o guardar.",
+      "weapon": "botella_picada"
     }
   ],
   "shop": [
@@ -836,6 +977,38 @@
       "qty": 1,
       "label": "Costal grande",
       "desc": "Cargas 20 kg más."
+    },
+    {
+      "item": "empanada",
+      "upgrade": "",
+      "price": 1200,
+      "qty": 1,
+      "label": "",
+      "desc": "Empanada con carne y papa: quita el hambre y el frío."
+    },
+    {
+      "item": "morcilla",
+      "upgrade": "",
+      "price": 2500,
+      "qty": 1,
+      "label": "",
+      "desc": "Rellena criolla: potente dosis de energía y llenura."
+    },
+    {
+      "item": "papaCriolla",
+      "upgrade": "",
+      "price": 1000,
+      "qty": 1,
+      "label": "",
+      "desc": "Papas criollas calientes."
+    },
+    {
+      "item": "aguapanela",
+      "upgrade": "",
+      "price": 1200,
+      "qty": 1,
+      "label": "",
+      "desc": "Aguapanela caliente con limón: cura la gripe."
     }
   ],
   "lootCommon": [
@@ -898,6 +1071,18 @@
     {
       "item": "vela",
       "weight": 0.8
+    },
+    {
+      "item": "pegante",
+      "weight": 1.0
+    },
+    {
+      "item": "hierba",
+      "weight": 1.5
+    },
+    {
+      "item": "pastilla",
+      "weight": 0.3
     }
   ],
   "lootRare": [
@@ -926,6 +1111,10 @@
     {
       "item": "pastilla",
       "weight": 20
+    },
+    {
+      "item": "basuco",
+      "weight": 20
     }
   ],
   "cambuche": [
@@ -936,7 +1125,7 @@
         "carton": 8
       },
       "needs": "",
-      "desc": "Para dormir sin tocar el piso. Sin base no se puede dormir."
+      "desc": "Para dormir sin tocar el piso."
     },
     {
       "id": "techo",
@@ -945,7 +1134,7 @@
         "lona": 1
       },
       "needs": "base",
-      "desc": "Duermes mejor: recuperas más salud."
+      "desc": "Duermo mejor: recupero más salud."
     },
     {
       "id": "paredes",
@@ -954,7 +1143,7 @@
         "madera": 6
       },
       "needs": "base",
-      "desc": "Nadie te roba mientras duermes."
+      "desc": "Nadie me roba mientras duermo."
     },
     {
       "id": "cama",
@@ -963,7 +1152,7 @@
         "colchon": 1
       },
       "needs": "base",
-      "desc": "Recuperas mucha más energía al dormir."
+      "desc": "Recupero mucha más energía al dormir."
     },
     {
       "id": "fogon",
@@ -973,7 +1162,7 @@
         "madera": 2
       },
       "needs": "base",
-      "desc": "Calienta: despiertas con más ánimo y sin tanta hambre."
+      "desc": "Calienta: despierto con más ánimo y sin tanta hambre."
     },
     {
       "id": "vela",
@@ -982,7 +1171,7 @@
         "vela": 1
       },
       "needs": "base",
-      "desc": "Despiertas más tranquilo: calma el vicio."
+      "desc": "Despierto más tranquilo: calma el vicio."
     }
   ],
   "sleep": {

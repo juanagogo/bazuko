@@ -1,5 +1,8 @@
 #define IMGUI_DEFINE_MATH_OPERATORS
 #include "UIManager.hpp"
+#include "Carton.hpp"
+#include "Halftone.hpp"
+#include "MarcaBazuko.hpp"
 #include <imgui.h>
 #include <imgui_impl_glfw.h>
 #include <imgui_impl_opengl3.h>
@@ -82,6 +85,7 @@ UIManager::UIManager(GLFWwindow* window) {
     io.ConfigFlags |= ImGuiConfigFlags_NoMouseCursorChange;
 
     SignUI::LoadFonts();
+    Carton::LoadFonts();
     SetupDarkUrbanBogotaTheme();
 
     ImGui_ImplGlfw_InitForOpenGL(window, true);
@@ -135,6 +139,7 @@ void UIManager::BeginFrame() {
 
 void UIManager::EndFrame() {
     ImGui::Render();
+    if (!std::getenv("BAZUKO_UI_OSCURA")) Carton::RemapDrawData(ImGui::GetDrawData());   // los menus de senal azul se pintan con la paleta de carton
     ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
 }
 
@@ -637,6 +642,54 @@ void UIManager::RenderLoadingScreen(Window& window, float progress, const std::s
         const float cardHeight = 24.0f + 14.0f + 12.0f + titleSize * 1.1f + 8.0f + 20.0f + 24.0f + 28.0f + 20.0f + 44.0f + 6.0f + 16.0f + 18.0f + 24.0f;
         const ImVec2 min(left, display.y - bottom - cardHeight), max(left + cardWidth, display.y - bottom);
         ImDrawList* draw = ImGui::GetForegroundDrawList();
+        if (Carton::FontsReady() && !std::getenv("BAZUKO_UI_OSCURA")) {   // pantalla de carga del original: cartón, arte en semitono de una tinta y BAZUKO que se escribe solo
+            namespace C = Carton;
+            const float margin = std::clamp(display.x * 0.02f, 16.0f, 30.0f);
+            const float wordWidth = display.x - margin * 2.0f;
+            const float wordScale = wordWidth / C::kMarcaWidth;
+            const float wordHeight = C::kMarcaHeight * wordScale;
+            const float ceilingY = margin + wordHeight;
+            static int artwork = -1;
+            static float builtWidth = 0.0f, builtHeight = 0.0f;
+            static std::vector<C::HalftoneDot> dots;
+            if (artwork < 0) { static std::mt19937 pick(static_cast<unsigned>(std::chrono::steady_clock::now().time_since_epoch().count())); artwork = static_cast<int>(pick() % 4u); }
+            if (std::abs(builtWidth - display.x) > 0.5f || std::abs(builtHeight - display.y) > 0.5f) {   // se imprime una vez por tamaño de pantalla
+                const std::string folder = "public/images/pantalla-carga/";
+                dots = C::BuildHalftone(Paths::Find(folder + "fondo_pantalla_carga_" + std::to_string(artwork + 1) + ".webp"),
+                                        Paths::Find(folder + "personaje_pantalla_carga_" + std::to_string(artwork + 1) + ".webp"), display.x, display.y, ceilingY);
+                builtWidth = display.x;
+                builtHeight = display.y;
+            }
+            // cartón de fondo con la flauta (las ondas del corrugado)
+            draw->AddRectFilled(ImVec2(0, 0), display, C::kCarton);
+            for (float fx = 0.0f; fx < display.x; fx += 7.0f) draw->AddLine(ImVec2(fx, 0.0f), ImVec2(fx, display.y), IM_COL32(90, 60, 25, 26), 1.0f);
+            for (const C::HalftoneDot& dot : dots) draw->AddCircleFilled(ImVec2(dot.x, dot.y), dot.radius, C::kMarcador, 8);
+            // BAZUKO se escribe trazo a trazo según el avance
+            const std::vector<C::MarcaStroke>& strokes = C::MarcaBazuko();
+            float total = 0.0f;
+            for (const C::MarcaStroke& stroke : strokes) total += stroke.length;
+            float remaining = (0.05f + 0.95f * std::clamp(progress, 0.0f, 1.0f)) * total;
+            for (const C::MarcaStroke& stroke : strokes) {
+                const float written = std::clamp(remaining / stroke.length, 0.0f, 1.0f);
+                remaining = std::max(0.0f, remaining - stroke.length);
+                if (written <= 0.0f) continue;
+                std::vector<ImVec2> points;
+                float minX = 1.0e9f, maxX = -1.0e9f;
+                for (size_t i = 0; i + 1 < stroke.xy.size(); i += 2) {
+                    const ImVec2 point(margin + stroke.xy[i] * wordScale, margin + (stroke.xy[i + 1] - C::kMarcaTop) * wordScale);
+                    points.push_back(point);
+                    minX = std::min(minX, point.x);
+                    maxX = std::max(maxX, point.x);
+                }
+                draw->PushClipRect(ImVec2(minX - 2.0f, 0.0f), ImVec2(minX + (maxX - minX) * written + 2.0f, display.y), true);
+                draw->AddConcavePolyFilled(points.data(), static_cast<int>(points.size()), C::kMarcador);
+                draw->PopClipRect();
+            }
+            C::Text(draw, true, 46, ImVec2(margin, display.y - margin - 58.0f), C::kMarcador, "Un momentico");
+            EndFrame();
+            window.SwapBuffers();
+            return;
+        }
         const ImU32 gold = IM_COL32(0xed, 0xc5, 0x5e, 255);
         for (int layer = 1; layer <= 6; ++layer)
             draw->AddRectFilled(min + ImVec2(-static_cast<float>(layer) * 4.0f, 16.0f - static_cast<float>(layer) * 4.0f), max + ImVec2(static_cast<float>(layer) * 4.0f, 16.0f + static_cast<float>(layer) * 4.0f), IM_COL32(0, 0, 0, 8), 16.0f + static_cast<float>(layer) * 4.0f);

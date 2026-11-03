@@ -100,6 +100,7 @@ std::shared_ptr<Model> Model::LoadFromFile(const std::string& filepath,
             const cgltf_accessor* uvs = nullptr;
             const cgltf_accessor* joints = nullptr;
             const cgltf_accessor* weights = nullptr;
+            const cgltf_accessor* tangents = nullptr;
             for (cgltf_size a = 0; a < prim.attributes_count; ++a) {
                 const auto& attr = prim.attributes[a];
                 if (attr.type == cgltf_attribute_type_position) positions = attr.data;
@@ -107,6 +108,7 @@ std::shared_ptr<Model> Model::LoadFromFile(const std::string& filepath,
                 else if (attr.type == cgltf_attribute_type_texcoord && attr.index == 0) uvs = attr.data;
                 else if (attr.type == cgltf_attribute_type_joints && attr.index == 0) joints = attr.data;
                 else if (attr.type == cgltf_attribute_type_weights && attr.index == 0) weights = attr.data;
+                else if (attr.type == cgltf_attribute_type_tangent) tangents = attr.data;
             }
             if (!positions) continue;
             std::vector<Vertex> vertices(positions->count);
@@ -133,6 +135,10 @@ std::shared_ptr<Model> Model::LoadFromFile(const std::string& filepath,
                     cgltf_accessor_read_float(weights, i, value, 4);
                     vertices[i].weights = {value[0], value[1], value[2], value[3]};
                 }
+                if (tangents) {   // tangentes del propio archivo
+                    cgltf_accessor_read_float(tangents, i, value, 4);
+                    vertices[i].tangent = {value[0], value[1], value[2], value[3]};
+                }
             }
             std::vector<uint32_t> indices;
             if (prim.indices) {
@@ -145,7 +151,8 @@ std::shared_ptr<Model> Model::LoadFromFile(const std::string& filepath,
             }
 
             ModelPart part;
-            part.mesh = std::make_shared<Mesh>(vertices, indices);
+            const bool hasNormalMap = prim.material && prim.material->normal_texture.texture && uvs;
+            part.mesh = std::make_shared<Mesh>(vertices, indices, hasNormalMap && !tangents);   // sin tangentes en el archivo se calculan con las UV
             if (node.skin) {
                 const cgltf_skin& skin = *node.skin;
                 part.jointNodes.reserve(skin.joints_count);
@@ -168,6 +175,10 @@ std::shared_ptr<Model> Model::LoadFromFile(const std::string& filepath,
                 if (pbr.base_color_texture.texture) {
                     const auto textureIndex = cgltf_texture_index(data, pbr.base_color_texture.texture);
                     if (textureIndex < textures.size()) part.texture = textures[textureIndex];
+                }
+                if (material.normal_texture.texture) {   // mapa de normales (relieve)
+                    const auto normalIndex = cgltf_texture_index(data, material.normal_texture.texture);
+                    if (normalIndex < textures.size()) part.normalTexture = textures[normalIndex];
                 }
                 part.alphaMode = static_cast<int>(material.alpha_mode);
                 part.alphaCutoff = material.alpha_cutoff;
@@ -469,9 +480,27 @@ std::shared_ptr<Model> Model::LoadWithAssimp(const std::string& filepath,
             }
 
             ModelPart part;
-            part.mesh = std::make_shared<Mesh>(vertices, indices);
+            const aiMaterial* partMaterial = sourceMesh->mMaterialIndex < scene->mNumMaterials ? scene->mMaterials[sourceMesh->mMaterialIndex] : nullptr;
+            const bool hasNormalMap = partMaterial && sourceMesh->HasTextureCoords(0) && partMaterial->GetTextureCount(aiTextureType_NORMALS) > 0;
+            part.mesh = std::make_shared<Mesh>(vertices, indices, hasNormalMap);
             if (sourceMesh->mMaterialIndex < scene->mNumMaterials) {
                 const aiMaterial* material = scene->mMaterials[sourceMesh->mMaterialIndex];
+                if (hasNormalMap) LogInfo("Mapa de normales: {} (malla {})", filepath, sourceMesh->mName.C_Str());
+                if (hasNormalMap) {   // mapa de normales (datos, no color: se lee tal cual)
+                    aiString normalPath;
+                    if (material->GetTexture(aiTextureType_NORMALS, 0, &normalPath) == AI_SUCCESS) {
+                        if (const aiTexture* embedded = scene->GetEmbeddedTexture(normalPath.C_Str())) {
+                            if (embedded->mHeight == 0) {
+                                std::string mimeType = embedded->achFormatHint;
+                                if (mimeType == "webp") mimeType = "image/webp";
+                                part.normalTexture = Texture::LoadFromMemory(reinterpret_cast<const uint8_t*>(embedded->pcData), embedded->mWidth, mimeType);
+                            }
+                        } else {
+                            const std::filesystem::path resolvedNormal = resolveTexturePath(normalPath);
+                            if (std::filesystem::exists(resolvedNormal)) part.normalTexture = Texture::LoadCached(resolvedNormal.string());
+                        }
+                    }
+                }
                 aiColor4D color;
                 if (aiGetMaterialColor(material, AI_MATKEY_BASE_COLOR, &color) != AI_SUCCESS
                     && aiGetMaterialColor(material, AI_MATKEY_COLOR_DIFFUSE, &color) == AI_SUCCESS) {
@@ -550,7 +579,7 @@ std::shared_ptr<Model> Model::LoadWithAssimp(const std::string& filepath,
                 }
                 if (part.texture && part.texture->HasTransparency() && part.alphaMode == 0) {
                     part.alphaMode = 1;       // hojas y pasto: se recortan por la transparencia de su textura
-                    part.alphaCutoff = 0.08f;
+                    part.alphaCutoff = 0.4f;
                 }
                 if (!part.texture && hasColorTexture && !isNonColorMap) {
                     LogWarn("No se encontro la textura {} del modelo {}.", texturePath.C_Str(), filepath);
@@ -1086,7 +1115,7 @@ void Model::Draw(Renderer& renderer, const glm::mat4& transform, const glm::vec4
         renderer.SetFinish(part.metallic, part.roughness);
         renderer.Submit(*part.mesh, transform * meshWorld, part.paint ? tint * paintTint * part.baseColor : tint * part.baseColor,
                         static_cast<bool>(part.texture), part.doubleSided, &skinMatrices,
-                        alphaMode, part.alphaCutoff, part.specularTexture.get());
+                        alphaMode, part.alphaCutoff, part.specularTexture.get(), part.normalTexture.get());
     }
     renderer.SetPushOut(0.0f);
     renderer.SetFinish(0.0f, 0.5f);

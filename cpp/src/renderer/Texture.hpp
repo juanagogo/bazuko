@@ -36,6 +36,7 @@ public:
 private:
     static inline GLuint s_LastBoundUnit0 = 0;
     void InitFromRGBA(uint32_t width, uint32_t height, const uint8_t* data);
+    void UploadCutoutMipmaps(const uint8_t* data, uint32_t levels);
 
     GLuint m_ID = 0;
     bool m_HasTransparency = false;

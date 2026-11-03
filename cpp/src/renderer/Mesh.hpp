@@ -14,11 +14,13 @@ struct Vertex {
     glm::vec4 color{1.0f, 1.0f, 1.0f, 1.0f};
     glm::vec4 joints{0.0f};
     glm::vec4 weights{0.0f};
+    glm::vec4 tangent{1.0f, 0.0f, 0.0f, 1.0f};   // xyz tangente (direccion de U) y w signo de la bitangente: base TBN de los mapas de normales
 };
 
 class Mesh {
 public:
-    Mesh(const std::vector<Vertex>& vertices, const std::vector<uint32_t>& indices);
+    // generateTangents: calcula las tangentes a partir de las UV (solo hace falta si el material trae mapa de normales)
+    Mesh(const std::vector<Vertex>& vertices, const std::vector<uint32_t>& indices, bool generateTangents = false);
     ~Mesh() = default;
 
     void Draw() const;

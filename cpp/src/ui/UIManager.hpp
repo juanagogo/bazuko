@@ -347,9 +347,12 @@ private:
         const std::vector<InventoryOption>* inventory = nullptr;
     };
     void RenderWebHud(const HudContext& context);
+    void RenderHudCarton(const HudContext& context);   // HUD de carton y marcador (HudCarton.cpp)
     std::shared_ptr<Texture> m_MinimapTexture;   // plano del radar, rasterizado una vez
     void RenderMinimap(const HudContext& context, ImVec2 origin, ImVec2 size, float infoHeight);
     void RenderInventoryWindow(const std::vector<InventoryOption>& items, float weight, float capacity);
+    void RenderMesaCarton(const std::vector<CraftingOption>& craftingOptions, float weight, float capacity);
+    void RenderCostal(const std::vector<InventoryOption>& items, float weight, float capacity);   // costal de carton y marcador (Costal.cpp)
     void RenderCraftWindow(const std::vector<CraftingOption>& options, float weight, float capacity);
     float m_RadioFrequency = 540.0f;   // frecuencia del dial (kHz AM o MHz FM)
     float m_RadioDialStation = -1.0f;  // frecuencia de la emisora con que se sincronizo el dial

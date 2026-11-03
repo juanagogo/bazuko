@@ -132,10 +132,16 @@ cmake --build build-win
 
 El juego localiza `assets/` (shaders, fuente de los rótulos) y `public/` (modelos y audio) junto al ejecutable,
 en las carpetas superiores y en el directorio actual, así que arranca desde `build/`, `build/Release/` o con doble clic.
+Acabado gráfico (ver `docs/plan-hacia-aa.md`): la escena se dibuja en un buffer HDR (RGBA16F) con mapeo tonal ACES (`BAZUKO_NOHDR=1` lo desactiva); los materiales con mapa de normales muestran relieve (`BAZUKO_NONORMALMAP=1` lo desactiva); con lluvia, el suelo mojado forma charcos que reflejan el sol, el cielo y las luces y se mueven con las gotas; y las luces locales usan clustered shading (16×9×24 celdas, hasta 256 luces: farolas, faros de los vehículos y balizas, con presupuestos de 32, 96 y 250 según la calidad). En calidad media y alta se añaden SSAO a media resolución, bloom de los brillos que superan 1 y, en alta, rayos de luz del sol (`BAZUKO_NOPOST=1` los desactiva; `BAZUKO_POST_MODE=ao|bloom` deja solo uno). Además: reflejos en pantalla de los charcos, sombra lejana en calidad alta, niebla por altura con haces de luz de los faros, decals (aceite, grietas y mugre en el suelo, grafitis y afiches en paredes y postes), niebla volumétrica con haces de luz en calidad alta, pies que siguen la pendiente y mezcla de reposo y caminata. Estado y mediciones de cada paso: `docs/plan-hacia-aa.md`.
+
 Benchmark: `BAZUKO_BENCH=1` imprime al terminar la captura el resumen de rendimiento (FPS medios, mínimo, p95/p99, 1 % bajo y tirones); `BAZUKO_QUALITY=<0|1|2>` fija la calidad (baja, media, alta) y `BAZUKO_NOADAPT=1` desactiva la bajada automática de resolución, para comparar equipos con la misma carga. Ejemplo: `BAZUKO_BENCH=1 BAZUKO_QUALITY=1 BAZUKO_NOADAPT=1 BAZUKO_HOUR=12 BAZUKO_POS=54,26 BAZUKO_SHOT_DELAY=45 BAZUKO_SHOT=captura.png bazuko`. Los collages de `docs/images/novedades-*.png` se tomaron con los ganchos `BAZUKO_*` descritos en cada sección.
 
 Para indicar otra carpeta: `bazuko --public <ruta a public/>` o la variable `BAZUKO_PUBLIC`.
 Con `-DBAZUKO_COPY_PUBLIC=ON` se copia `public/` junto al ejecutable (~50 MB) para llevarlo a otro equipo.
+
+### Interfaz de cartón y marcador (del juego original)
+
+El port usa la identidad visual del original (`docs/identidad-visual.md` en el repositorio base): cartón con canto y filo oscuro, letra «Dios Le Pague», dibujos de objetos en la propia tipografía y trazos a mano. Está hecha con ImGui en `src/ui/Carton.cpp` (piezas, cintas, círculos, masa rayada y texto), `Costal.cpp` (costal de 5 × 4 con acceso rápido 1 a 5 y mesa de crafteo), `HudCarton.cpp` (botones, misión, plata y hora, necesidades y botones inferiores) y `Halftone.cpp` (pantalla de carga con el arte en semitono de una tinta y BAZUKO que se escribe trazo a trazo). Los menús que aún dibujan con la señal azul (pausa, ajustes, controles, mapa, tiendas, dealer, radio, talentos y cambuche) se registran por nombre y sus colores se invierten por luminosidad al dibujar (`Carton::RemapDrawData`), con las letras ya cambiadas. Con la calle mojada (humedad desde 0,4 hasta que baja de 0,25) el cartón pasa a cartón mojado. `BAZUKO_UI_OSCURA=1` devuelve la interfaz anterior. Armas del original: cuchillo, botella picada y arma casera se sacan con «Usar» (acceso rápido incluido) y pegan según `src/game/Weapons.hpp`.
 
 ### Ratón en WSL2
 

@@ -7,6 +7,7 @@
 #include <GLFW/glfw3.h>
 #include "../core/Input.hpp"
 #include "SignStyle.hpp"
+#include "Carton.hpp"
 #include <algorithm>
 #include <cfloat>
 #include <cmath>
@@ -685,6 +686,7 @@ struct DarkWindow {
 DarkWindow BeginDarkWindow(const char* id, float width, float height, ImU32 border, ImU32 glow) {
     const ImVec2 display = ImGui::GetIO().DisplaySize;
     DarkWindow window;
+    if (Carton::FontsReady() && !std::getenv("BAZUKO_UI_OSCURA")) Carton::RegisterWindow(id);   // ventana oscura: se pinta con la paleta de carton
     width = std::min(width, display.x - 16.0f);
     height = std::min(height, display.y - 16.0f);
     ImGui::SetNextWindowSize(ImVec2(width, height), ImGuiCond_Always);
@@ -755,6 +757,7 @@ bool DarkButton(const char* id, const char* label, ImVec2 size, ImU32 background
 } // namespace
 
 void UIManager::RenderInventoryWindow(const std::vector<InventoryOption>& items, float weight, float capacity) {
+    if (Carton::FontsReady() && !std::getenv("BAZUKO_UI_OSCURA")) { RenderCostal(items, weight, capacity); return; }
     const SignUI::Fonts& fonts = SignUI::GetFonts();
     SignUI::DrawBackdrop(0.55f);
     const ImU32 gold = IM_COL32(201, 162, 39, 255);
@@ -874,6 +877,7 @@ void UIManager::RenderInventoryWindow(const std::vector<InventoryOption>& items,
 }
 
 void UIManager::RenderCraftWindow(const std::vector<CraftingOption>& craftingOptions, float weight, float capacity) {
+    if (Carton::FontsReady() && !std::getenv("BAZUKO_UI_OSCURA")) { RenderMesaCarton(craftingOptions, weight, capacity); return; }
     const SignUI::Fonts& fonts = SignUI::GetFonts();
     SignUI::DrawBackdrop(0.55f);
     const ImU32 green = IM_COL32(39, 174, 96, 255);
@@ -1060,6 +1064,7 @@ void UIManager::RenderWebHud(const HudContext& c) {
     if (!m_Paused && (Input::IsKeyPressed(GLFW_KEY_MINUS) || Input::IsKeyPressed(GLFW_KEY_KP_SUBTRACT))) m_RadarRange = std::min(140.0f, std::round(m_RadarRange * 1.2f));
     m_RadarRange = std::clamp(m_RadarRange, 40.0f, 140.0f);
     if (Input::IsKeyPressed(GLFW_KEY_F3)) m_PerfVisible = !m_PerfVisible;
+    if (Carton::FontsReady() && !std::getenv("BAZUKO_UI_OSCURA")) { RenderHudCarton(c); return; }
 
     // ---- barra superior: nombre, dia y hora, dinero, nivel y puntos de talento ----
     {
