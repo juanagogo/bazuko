@@ -29,6 +29,8 @@ ImFont* Ov(bool black, int px);
 // Cargar antes del primer fotograma. Usa Overpass (assets/fonts) y Consolas de Windows si existe.
 void LoadFonts();
 const Fonts& GetFonts();
+// Con la tipografia de carton cargada, la monoespaciada y los titulos pasan a Dios Le Pague (llamar despues de Carton::LoadFonts).
+void UseCartonFonts();
 // Colores base de ImGui (ventanas, botones, deslizadores) al estilo del juego web.
 void ApplyTheme();
 

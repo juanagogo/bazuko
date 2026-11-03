@@ -93,6 +93,21 @@ void LoadFonts() {
 
 const Fonts& GetFonts() { return g_fonts; }
 
+void UseCartonFonts() {
+    if (!Carton::FontsReady() || std::getenv("BAZUKO_UI_OSCURA")) return;
+    g_fonts.body = Carton::Font(false, 15);
+    g_fonts.mono11 = Carton::Font(false, 13);
+    g_fonts.mono12 = Carton::Font(false, 14);
+    g_fonts.mono14 = Carton::Font(false, 16);
+    g_fonts.monoBold12 = Carton::Font(true, 14);
+    g_fonts.monoBold13 = Carton::Font(true, 15);
+    g_fonts.monoBold14 = Carton::Font(true, 16);
+    g_fonts.sub = Carton::Font(false, 15);
+    g_fonts.title = Carton::Font(true, 26);
+    g_fonts.primary = Carton::Font(true, 18);
+    ImGui::GetIO().FontDefault = g_fonts.body;
+}
+
 ImFont* Ov(bool black, int px) {
     if (Carton::FontsReady() && !std::getenv("BAZUKO_UI_OSCURA")) return Carton::Font(black, std::max(px, 13));
     px = std::clamp(px, 9, 26);

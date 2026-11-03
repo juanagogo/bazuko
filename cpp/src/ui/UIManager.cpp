@@ -86,6 +86,7 @@ UIManager::UIManager(GLFWwindow* window) {
 
     SignUI::LoadFonts();
     Carton::LoadFonts();
+    SignUI::UseCartonFonts();
     SetupDarkUrbanBogotaTheme();
 
     ImGui_ImplGlfw_InitForOpenGL(window, true);
@@ -1675,6 +1676,7 @@ void UIManager::RenderHUD(float dt, const glm::vec3& playerPos, Camera& camera, 
         ImGui::PopStyleColor(2);
     }
 
+    if (m_Paused || m_DeathScreenOpen) interactionPrompt.clear();   // con un menu abierto no se muestra la tecla de contexto
     if (!interactionPrompt.empty() && Carton::FontsReady() && !std::getenv("BAZUKO_UI_OSCURA")) {
         // tecla de contexto de carton: cinta con la tecla en una celda de marcador y el verbo; lo que sobra del texto va en una linea chica
         namespace C = Carton;

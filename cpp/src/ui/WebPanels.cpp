@@ -750,7 +750,8 @@ bool DarkButton(const char* id, const char* label, ImVec2 size, ImU32 background
     ImFont* font = bold ? fonts.monoBold14 : fonts.mono12;
     const float size_ = bold ? 14.0f : 12.0f;
     const ImVec2 extent = font->CalcTextSizeA(size_, FLT_MAX, 0.0f, label);
-    draw->AddText(font, size_, ImVec2((min.x + max.x - extent.x) * 0.5f, (min.y + max.y - extent.y) * 0.5f), enabled ? IM_COL32(255, 255, 255, 255) : IM_COL32(136, 136, 136, 255), label);
+    const bool cardboard = Carton::FontsReady() && !std::getenv("BAZUKO_UI_OSCURA");   // la conversion de colores invierte el negro a carton: letra clara sobre el boton oscuro
+    draw->AddText(font, size_, ImVec2((min.x + max.x - extent.x) * 0.5f, (min.y + max.y - extent.y) * 0.5f), enabled ? (cardboard ? IM_COL32(0, 0, 0, 255) : IM_COL32(255, 255, 255, 255)) : IM_COL32(136, 136, 136, 255), label);
     return pressed;
 }
 
