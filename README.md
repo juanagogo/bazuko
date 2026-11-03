@@ -8,6 +8,9 @@ Este proyecto es un fork de [juanagogo/bazuko](https://github.com/juanagogo/bazu
 
 ## Características
 
+- Carreta de reciclaje con madera envejecida, llantas de caucho y carga detallada, conservando su manejo. [Comparación visual](docs/carreta-visual.md).
+
+- Integración experimental en `pruebas-integracion`: carriles rojos con SOLO BUS, estación, semáforos que regulan el tráfico, inventario por casillas y modelos de bolsas, canecas, lámparas, carros, taxi, TransMilenio y cambuche del fork de [mreyeswilson](https://github.com/mreyeswilson/bazuko). [Detalles de integración y procedencia](docs/modelos-importados.md).
 - Identidad de cartón y marcador: letra propia, dibujos de la misma mano, HUD por zonas, inventario y fabricación coherentes, carga impresa en una tinta y creador adaptable. [Sistema visual](docs/identidad-visual.md).
 
 - Diez tipos de vehículo de los que más se ven en Colombia, sin marcas ni logos: citadino, sedán familiar, hatchback, sedán bajo, camioneta, pick-up, caja de los 70, sedán de los 90, furgoneta y buseta, más motos parqueadas contra el andén. Ruedas con dirección, stops y direccionales, limpiaparabrisas con lluvia. [Vehículos y comprobación](docs/vehiculos-bogota.md).
