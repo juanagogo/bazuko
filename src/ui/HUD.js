@@ -69,6 +69,7 @@ export function textoDelPrompt(interaction, inventory) {
   if (type === 'car') return interaction.currentTarget?.traffic ? '[E] Robar retrovisor del carro en circulación' : '[E] Robar retrovisor del carro';
   if (type === 'fireBarrel') return '[E] Calentarme en la fogata';
   if (type === 'sell') return '[E] Vender material en la recicladora';
+  if (type === 'bolirana') return '[E] Entrar a El Rumbiadero · Bolirana';
   if (type === 'shop') return `[E] Comprar en ${interaction.currentTarget.title ?? 'Tienda La Esquinita'}`;
   if (type === 'dog') {
     const hasFood = inventory?.items?.some(item => item.qty > 0 && ['pan', 'lataComida', 'carne', 'hueso'].includes(item.id));
@@ -91,6 +92,7 @@ const VERBO_CORTO = [
   [/^Calentarme/, 'Calentarme'],
   [/^Vender material/, 'Vender material'],
   [/^Comprar en /, 'Comprar'],
+  [/^Entrar a El Rumbiadero/, 'Entrar'],
   [/^Mi cambuche/, 'Mi cambuche'],
   [/^El jíbaro/, 'El jíbaro'],
   [/^Agarrar la carreta/, 'Agarrar carreta'],

@@ -100,6 +100,7 @@ export class InteractionSystem {
         nearest = t;
         // Determinar tipo por `kind` o por métodos disponibles
         if (t.kind === 'dropped-item') nearestType = 'dropped-item';
+        if (t.kind === 'bolirana') nearestType = 'bolirana';
         else if (t.kind === 'shop') nearestType = 'shop';
         else if (t.kind === 'cambuche') nearestType = 'cambuche';
         else if (t.kind === 'dog') nearestType = 'dog';
@@ -162,6 +163,9 @@ export class InteractionSystem {
           break;
         case 'sell':
           window.dispatchEvent(new CustomEvent('open-recycler'));
+          break;
+        case 'bolirana':
+          window.dispatchEvent(new CustomEvent('open-bolirana', { detail: { target: nearest } }));
           break;
         case 'shop':
           window.dispatchEvent(new CustomEvent('open-shop', { detail: { target: nearest } }));

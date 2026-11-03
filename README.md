@@ -10,6 +10,7 @@ Este proyecto es un fork de [juanagogo/bazuko](https://github.com/juanagogo/bazu
 
 - Carreta de reciclaje con madera envejecida, llantas de caucho y carga detallada, conservando su manejo. [Comparación visual](docs/carreta-visual.md).
 - **Objetos soltados:** Tirar 1 y Tirar todo dejan modelos visibles en la calle, recuperables con E durante diez segundos de juego activo. [Detalles y pruebas](docs/objetos-soltados.md).
+- **El Rumbiadero · Bolirana:** local junto al cambuche con marcador en el mapa, práctica gratuita, apuestas contra NPC y resultados integrados al saldo. [Reglas, capturas y pruebas](docs/bolirana.md). [Créditos y condiciones de la música](docs/bolirana-audio.md).
 
 - Integración experimental en `pruebas-integracion`: carriles rojos con SOLO BUS, estación, semáforos que regulan el tráfico, inventario por casillas y modelos de bolsas, canecas, lámparas, carros, taxi, TransMilenio y cambuche del fork de [mreyeswilson](https://github.com/mreyeswilson/bazuko). [Detalles de integración y procedencia](docs/modelos-importados.md).
 - Identidad de cartón y marcador: letra propia, dibujos de la misma mano, HUD por zonas, inventario y fabricación coherentes, carga impresa en una tinta y creador adaptable. [Sistema visual](docs/identidad-visual.md).
