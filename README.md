@@ -118,6 +118,7 @@ Con `npm run dev` activo, abre **/sala.html** (por ejemplo http://localhost:5173
 | `H` junto a un peatón | Sujetarlo o soltarlo (experimental). |
 | `J` durante un agarre | Derribarlo (experimental). |
 | `O` | Mantener la guardia: los golpes quitan menos. |
+| `U` | Soltar, agarrar o llevarse una zorra de reciclador; rendirse en el forcejeo. |
 | `V` o botón de cámara | Alternar entre tercera persona e isométrica. |
 | Clic izquierdo en la calle | Fijar el ratón para girar la cámara en tercera persona. |
 | Arrastrar con botón izquierdo/derecho o flechas | Girar la cámara sin fijar el ratón. |

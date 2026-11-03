@@ -6,6 +6,7 @@
 /work/
 /playwright-report/
 /test-results/
+/native/build/
 
 # Modelos 3D pesados que superan el límite de GitHub (opcional)
 public/models/Edificio 1/Building01.glb
