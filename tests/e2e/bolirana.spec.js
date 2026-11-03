@@ -47,7 +47,7 @@ test('Bolirana: mapa, práctica, abandono, victoria y saldo persistente', async 
   await page.getByRole('button', { name: /El Rumbiadero/ }).click();
   assert.equal(
     await page.evaluate(() => window.__game.gps.waypoint.name),
-    'El Rumbiadero · Bolirana'
+    'El Rumbiadero: Bolirana'
   );
   assert.ok(await page.evaluate(() => window.__game.gps.route.length > 1));
   await capture('map-marker.png');

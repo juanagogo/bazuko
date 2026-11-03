@@ -32,7 +32,7 @@ function panel(inv) {
   globalThis.document = { createElement: () => new FakeEl(), activeElement: null };
   globalThis.requestAnimationFrame = () => 0; // la prueba dibuja a mano con render()
   const sounds = [];
-  const game = { audio: { play: (s) => sounds.push(s) }, hud: { _useItem: (id, i) => i.remove(id, 1) } };
+  const game = { audio: { play: (s) => sounds.push(s) }, hud: { _useItem: (id, i) => i.remove(id, 1) }, droppedItems: { drop: (id, qty) => { const antes = inv.count(id); inv.remove(id, qty); return { quantity: antes - inv.count(id) }; } } };
   const ui = Object.assign(Object.create(InventoryUI.prototype), {
     inv, game, isOpen: true, selected: 0, _focusSlot: false,
     _cache: { slots: [], selected: [], detail: null, quick: [], cap: '' },

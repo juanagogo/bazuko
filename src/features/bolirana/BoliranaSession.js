@@ -13,7 +13,7 @@ export class BoliranaSession {
     return {
       balance: Math.floor(g.stats.dinero),
       level: g.bolirana.level,
-      playerName: g.look?.nombre || 'Tu personaje',
+      playerName: g.look?.nombre || 'El personaje',
       quality: g.renderer?.effectiveQuality ?? 'media',
       muted: g.audio.muted,
       volume: g.audio.volume * (g.audio.getMix?.('effects') ?? 1),

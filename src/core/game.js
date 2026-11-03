@@ -1348,7 +1348,7 @@ export class Game {
       this._poiCache = [...services, ...[[this.cambuche, reserved.bed, 'Cambuche', '⛺', '#ffd166'],
         [this.sellPoint, reserved.sell, 'Recicladora El Progreso', '♻️', '#2ab7ca', { prices: { vender: 0 } }],
         [this.shop, reserved.shop, 'Tienda La Esquinita', '🏪', '#2ecc71', { prices: SHOP_PRICES, offers: SHOP_OFFERS }],
-        [this.boliranaVenue, null, 'El Rumbiadero · Bolirana', '🐸', '#ef52a2'],
+        [this.boliranaVenue, null, 'El Rumbiadero: Bolirana', '🐸', '#ef52a2'],
         [this.craftingStation, reserved.craft, 'Crafteo', '🔨', '#e67e22'],
         [this.dealer, reserved.dealer, 'Dealer', '💀', '#9b59b6', { dealer: true }]]
         .flatMap(([entity, fallback, name, icon, color, extra]) => {

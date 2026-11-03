@@ -22,7 +22,7 @@ export function openBolirana(game, target) {
   const shell = document.createElement('div');
   shell.id = 'bolirana-venue';
   shell.setAttribute('role', 'dialog');
-  shell.setAttribute('aria-label', 'El Rumbiadero · Bolirana');
+  shell.setAttribute('aria-label', 'El Rumbiadero: Bolirana');
   shell.setAttribute('aria-modal', 'true');
   Object.assign(shell.style, {
     position: 'fixed',

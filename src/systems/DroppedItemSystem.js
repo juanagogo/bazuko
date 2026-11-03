@@ -38,7 +38,7 @@ export class DroppedItemSystem {
     const position = existing?.position ?? findDropPosition(g.player, g.world.active, g.collisions, this.items);
     if (!position) return { quantity: 0, error: 'No hay espacio libre cerca para tirar el objeto.' };
     if (!existing && this.items.length >= MAX_DROPPED_STACKS)
-      return { quantity: 0, error: 'Hay muchos objetos en el suelo. Recoge alguno o espera unos segundos.' };
+      return { quantity: 0, error: 'Hay muchos objetos en el suelo. Recoja alguno o espere unos segundos.' };
     const dropped = existing ?? new DroppedItem(g.sceneMgr.scene, position, stack, quantity);
     const before = g.inventory.serialize().items.map(item => ({ ...item }));
     try {
@@ -47,7 +47,7 @@ export class DroppedItemSystem {
     } catch {
       g.inventory.items = before; g.inventory._notify();
       if (!existing) dropped.dispose();
-      return { quantity: 0, error: 'No se pudo guardar. El objeto sigue en tu inventario.' };
+      return { quantity: 0, error: 'No se pudo guardar. El objeto sigue en el costal.' };
     }
     if (existing) {
       dropped.quantity += quantity;

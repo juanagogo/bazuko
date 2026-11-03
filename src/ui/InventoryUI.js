@@ -313,7 +313,7 @@ export class InventoryUI {
     if (!result.quantity) { this._toast(result.error, 'warn'); return; }
     this.game.audio?.play?.('empty');
     this._feedback('just-dropped');
-    this._toast(`Boté ${def.name}${result.quantity > 1 ? ' ×' + result.quantity : ''} · Lo puedo recoger durante 10 s`, 'warn');
+    this._toast(`Boté ${def.name}${result.quantity > 1 ? ' ×' + result.quantity : ''}. Lo puedo recoger durante 10 s`, 'warn');
   }
 
   useSelected() {
