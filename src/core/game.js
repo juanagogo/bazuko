@@ -55,6 +55,8 @@ import { InteractionSystem } from '../systems/InteractionSystem.js';
 import { DiseaseSystem } from '../systems/DiseaseSystem.js';
 import { TalentSystem } from '../systems/TalentSystem.js';
 import { CraftingSystem } from '../systems/CraftingSystem.js';
+import { ZorraSystem } from '../systems/ZorraSystem.js';
+import { ZorraController } from '../systems/ZorraController.js';
 import { RadioSystem } from '../systems/RadioSystem.js';
 import { PoopSystem } from '../systems/PoopSystem.js';
 import { PsychosisSystem } from '../systems/PsychosisSystem.js';
@@ -167,6 +169,9 @@ export class Game {
     this.droppedItems = new DroppedItemSystem(this);
     this.steal = new StealSystem(this);
     this.interaction.personCloserThan = (distance) => this.steal.personCloserThan(distance);
+    this.zorra = new ZorraSystem();
+    this.interaction.zorra = this.zorra;
+    this.zorraCtl = new ZorraController(this);
 
     // HUD, menús y creador de personaje
     this.hud = new HUD();
@@ -692,6 +697,8 @@ export class Game {
       new THREE.Vector3(2.4, 2, 1.5),
       new THREE.Vector3(0, 1, -0.7)
     );
+
+    this.zorraCtl?.spawn(district);
   }
 
   /** Una partida que no se deja leer no detiene la carga: se aparta sin borrarla y se juega sin ella. */
@@ -729,6 +736,7 @@ export class Game {
       this.costal = !!data.costal;
       if (data.weapon && this.inventory.count(data.weapon) > 0) this.player.equipWeapon(data.weapon);
       this.cambuche?.setBuilt(this.built);
+      this.zorra?.deserialize(data.zorra);
       if (data.look) this._applyLook(data.look);
       if (data.radio) {
         if (typeof data.radio.freq === 'number') this.radio.setFrequency(data.radio.freq);
@@ -761,6 +769,7 @@ export class Game {
       built: this.built,
       costal: this.costal,
       weapon: this.player.equippedWeapon,
+      zorra: this.zorra?.serialize(),
       radio: this.radio ? { isOn: this.radio.isOn, freq: this.radio.frequency, battery: this.radio.battery } : null,
       dog: { isFriend: !!this.dog?.isFriend, look: this.dog?.look ?? null },
       cart: this.cart ? this.cart.saveState() : null,
@@ -1003,6 +1012,16 @@ export class Game {
     this.menu.close();
   }
 
+  /** Capacidad de carga sin contar la zorra */
+  _capacidadSinZorra() {
+    return INVENTORY_MAX_WEIGHT + this.talents.getEffect('maxWeightBonus', 0) + (this.costal ? COSTAL_BONUS : 0) + (this.cart?.isAttached ? this.cart.capacityBonus : 0);
+  }
+
+  _actualizarCapacidad() {
+    this.inventory.maxWeight = this._capacidadSinZorra() + (this.zorra?.bonoPeso() ?? 0);
+    this.player.load = this.inventory.totalWeight / this.inventory.maxWeight;
+  }
+
   _respawn() {
     if (!this._deathPending) return;
     const half = Math.floor(this.inventory.items.length / 2);
@@ -1010,6 +1029,7 @@ export class Game {
       const it = this.inventory.items[0];
       if (it) this.inventory.remove(it.id, it.qty);
     }
+    this.zorraCtl?.alMorir();
 
     // Recuperar todas las necesidades evita seguir recibiendo daño al reaparecer.
     for (const need of NEEDS) this.stats[need] = Math.max(60, this.stats[need]);
@@ -1145,6 +1165,7 @@ export class Game {
     const previousX = this.player.position.x, previousZ = this.player.position.z;
     this._syncVehicleColliders?.();
     this._updatePlayerMovement(dt);
+    this.zorraCtl?.update(dt, this.input);
     this.waterEffects?.update(dt, this.player);
     if (this.player.waterFrame?.entered) this.audio.playWaterSplash?.(this.player.waterFrame.entryIntensity);
     this._swimSoundTimer = Math.max(0, (this._swimSoundTimer ?? 0) - dt);
@@ -1160,10 +1181,7 @@ export class Game {
     if (this._handleDeath()) return;
 
     // 4b. Aplicar bono de peso por talentos
-    const maxWeightBonus = this.talents.getEffect('maxWeightBonus', 0);
-    const cartBonus = (this.cart?.isAttached) ? this.cart.capacityBonus : 0;
-    this.inventory.maxWeight = INVENTORY_MAX_WEIGHT + maxWeightBonus + (this.costal ? COSTAL_BONUS : 0) + cartBonus;
-    this.player.load = this.inventory.totalWeight / this.inventory.maxWeight;
+    this._actualizarCapacidad();
 
     // 5. Debuff por salud mental baja (el desgaste se calcula en StatsSystem).
     if (this.stats.saludMental < MENTAL_LOW_THRESHOLD) {
@@ -1251,7 +1269,7 @@ export class Game {
     this.audio.setRaining?.(isRaining);
     // Las pisadas siguen la distancia recorrida en el suelo; en el aire no suenan.
     const travelled = this.player.isGrounded === false || this.player.inWater ? 0 : Math.hypot(this.player.position.x - previousX, this.player.position.z - previousZ);
-    this.audio.updateSteps(moving, this.input.isRunning, groundType, isRaining, travelled, dt);
+    this.audio.updateSteps(moving && this.player.zorraMult > 0, this.input.isRunning && this.player.canRun, groundType, isRaining, travelled, dt);
     this.audio.updateBoost(this.interaction.boostActive);
     this.overlays?.update?.(dt, this.weather, this.stats, this.psychosis);
     this.profiler?.mark?.('entidadesClimaAudio');
@@ -1359,6 +1377,8 @@ export class Game {
       if (this.cart) this._poiCache.push({ name: 'Carreta', icon: '🛒', x: this.cart.position.x, z: this.cart.position.z, color: '#f39c12' });
       this._dogPOI = friend ? { name: 'El Chato', icon: '🐕', color: '#e6b566' } : null;
       if (this._dogPOI) this._poiCache.push(this._dogPOI);
+      const zorraPOI = this.zorraCtl?.poi?.();
+      if (zorraPOI) this._poiCache.push(zorraPOI);
       this._needs = needContext({
         stats: this.stats, inventory: this.inventory, load: this.player?.load, night: this.clock?.isNight,
         sellMult: originEffect(this.look?.origen, 'sellMult'), substanceMult: this.talents?.getEffect?.('substancePriceMult', 1),

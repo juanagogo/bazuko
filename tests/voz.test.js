@@ -75,7 +75,7 @@ test('un solo signo de menos y coma decimal en lo que se lee', () => {
 
 test('los orígenes: la historia no explica el efecto, y ids y efectos no cambian', () => {
   assert.deepEqual(Object.fromEntries(Object.entries(ORIGINS).map(([id, o]) => [id, o.effects])), {
-    reciclador: { extraLoot: 1 },
+    reciclador: { extraLoot: 1, zorraDiscount: .75, forcejeoBonus: 1.2 },
     desplazado: { diseaseResist: 0.7 },
     migrante: { begMult: 1.3 },
     endeudado: { sellMult: 1.15 },

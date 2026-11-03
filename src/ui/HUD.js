@@ -65,6 +65,7 @@ export function textoDelPrompt(interaction, inventory) {
     const dropped = interaction.currentTarget;
     return `[E] Recoger ${dropped.item.name}${dropped.quantity > 1 ? ` ×${dropped.quantity}` : ''} · ${Math.ceil(dropped.remaining)} s`;
   }
+  if (type === 'zorra' || type === 'reciclador') return interaction.currentTarget.prompt ?? '';
   if (type === 'pickup') return '[E] Recoger basura · [Mantener Q] Seleccionar';
   if (type === 'car') return interaction.currentTarget?.traffic ? '[E] Robar retrovisor del carro en circulación' : '[E] Robar retrovisor del carro';
   if (type === 'fireBarrel') return '[E] Calentarme en la fogata';

@@ -213,3 +213,12 @@ test('una muerte pendiente tiene prioridad sobre un aviso policial', () => {
   assert.equal(game._handleDeath(), true);
   assert.equal(game._deathPending, true);
 });
+
+test('al reaparecer, la zorra se desocupa después de la pérdida habitual', () => {
+  const game = fixture();
+  game._deathPending = true;
+  let objetosAlLlamar = null;
+  game.zorraCtl = { alMorir: () => { objetosAlLlamar = game.inventory.items.length; } };
+  game._respawn();
+  assert.equal(objetosAlLlamar, 1);
+});

@@ -1,4 +1,6 @@
 // src/data/origins.js
+import { ZORRA } from './zorra.js';
+
 // ¿Cómo llegó el personaje a la calle? `relato` es la historia, sobria y sin justificar nada; `efecto` es lo que cambia
 // en el juego, en su propia línea. El uno no explica al otro: nadie gana una ventaja por lo que le pasó.
 
@@ -6,8 +8,8 @@ export const ORIGINS = {
   reciclador: {
     name: 'Perdí el trabajo',
     relato: 'Cerraron donde trabajaba y no alcancé a pagar la pieza.',
-    efecto: 'Saco un objeto más de cada bolsa.',
-    effects: { extraLoot: 1 }
+    efecto: 'Saco un objeto más de cada bolsa. La zorra me sale más barata y forcejeo con más fuerza.',
+    effects: { extraLoot: 1, zorraDiscount: ZORRA.origen.descuento, forcejeoBonus: ZORRA.origen.fuerza }
   },
   desplazado: {
     name: 'Me desplazaron',

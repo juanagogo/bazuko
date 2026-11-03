@@ -17,6 +17,7 @@ import {
 } from '../utils/constants.js';
 import { cop } from '../utils/money.js';
 import { originEffect } from '../data/origins.js';
+import { TEXTOS_ZORRA } from '../data/zorra.js';
 
 export class InteractionSystem {
   constructor(player, inventory, stats, audio, diseaseSystem, talentSystem, craftingSystem) {
@@ -32,6 +33,7 @@ export class InteractionSystem {
     this.originId = null;   // origen del personaje (ver data/origins.js)
     this.currentTarget = null;
     this.currentTargetType = null;
+    this.zorra = null;      // ZorraSystem; lo asigna el juego
 
     this.boostActive = false;
     this.boostTimer = 0;
@@ -91,6 +93,7 @@ export class InteractionSystem {
     let nearestDist = INTERACT_RANGE;
 
     for (const t of this.targets) {
+      if (t.interactable === false) continue;
       // Un carro sin nada que robar no da aviso ni le quita el turno a lo que tenga al lado.
       if (t.stealable === false) continue;
       // Un carro se alcanza también desde sus espejos; lo demás, desde su centro.
@@ -101,6 +104,7 @@ export class InteractionSystem {
         // Determinar tipo por `kind` o por métodos disponibles
         if (t.kind === 'dropped-item') nearestType = 'dropped-item';
         if (t.kind === 'bolirana') nearestType = 'bolirana';
+        if (t.kind === 'zorra' || t.kind === 'reciclador') nearestType = t.kind;
         else if (t.kind === 'shop') nearestType = 'shop';
         else if (t.kind === 'cambuche') nearestType = 'cambuche';
         else if (t.kind === 'dog') nearestType = 'dog';
@@ -179,6 +183,9 @@ export class InteractionSystem {
         case 'fireBarrel':
           this._warmAtFire(nearest);
           break;
+        case 'reciclador':
+          nearest.interactuar();
+          break;
         case 'dog':
           this._interactDog(nearest);
           break;
@@ -186,6 +193,10 @@ export class InteractionSystem {
           nearest.toggleGrab(this.player, this.inventory);
           break;
         case 'car':
+          if (this.zorra?.empujando) {
+            window.dispatchEvent(new CustomEvent('toast', { detail: { text: TEXTOS_ZORRA.sueltaPrimero, type: 'warn' } }));
+            break;
+          }
           this._stealCar(nearest);
           break;
         case 'dealer':
