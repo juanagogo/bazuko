@@ -19,7 +19,7 @@ Window::Window(const WindowConfig& config)
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 5);
     glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
     glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GLFW_TRUE);
-    glfwWindowHint(GLFW_SAMPLES, 0);
+    glfwWindowHint(GLFW_SAMPLES, 4);   // suavizado de bordes (MSAA 4x)
 
     // Habilitar expresamente que la ventana sea redimensionable y tenga decoraciones completas (maximizar, minimizar, cerrar)
     glfwWindowHint(GLFW_RESIZABLE, config.resizable ? GLFW_TRUE : GLFW_FALSE);

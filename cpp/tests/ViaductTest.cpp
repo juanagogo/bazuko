@@ -41,6 +41,38 @@ int main() {
         CHECK(std::fabs(Lateral(BridgeCenter(z), z)) < 0.001f, "el eje no esta a distancia cero de si mismo en z=%.1f", z);
     }
 
+    // Fuera del tablero (a mas de 7 m del eje, en cualquier punto de la curva) no se esta sobre el tablero ni a su altura
+    for (float z = 60.0f; z < 280.0f; z += 1.0f) {
+        for (float offset = kHalfWidth + 0.5f; offset < 45.0f; offset += 0.5f) {
+            for (float side : {-1.0f, 1.0f}) {
+                const float x = BridgeCenter(z) + side * offset;
+                CHECK(!Covers(x, z) || std::fabs(Lateral(x, z)) <= kHalfWidth + 0.05f,
+                      "(%.1f, %.1f) a %.1f m del eje cuenta como sobre el tablero (lateral %.2f)", x, z, offset, Lateral(x, z));
+            }
+        }
+    }
+
+    // El rumbo del bus en las curvas es suave: sin ruido entre cuadros consecutivos (a 8 m/s y 240 FPS avanza ~3 cm por cuadro)
+    {
+        float worstNoise = 0.0f;
+        for (float lane : {71.5f, 78.5f}) {
+            for (float direction : {-1.0f, 1.0f}) {
+                float lastYaw = 0.0f, lastStep = 0.0f;
+                int count = 0;
+                for (float z = 70.0f; z < 270.0f; z += 0.03f, ++count) {
+                    const glm::vec2 heading = BusHeading(z, lane, direction);
+                    const float yaw = std::atan2(-heading.x, -heading.y);
+                    const float step = std::remainder(yaw - lastYaw, 6.2831853f);   // cambio de rumbo entre cuadros (sin el salto de +-pi)
+                    if (count >= 2) worstNoise = std::max(worstNoise, std::fabs(step - lastStep));
+                    lastStep = step;
+                    lastYaw = yaw;
+                }
+            }
+        }
+        std::printf("ruido maximo del rumbo del bus (segunda diferencia, rad): %.6f\n", worstNoise);
+        CHECK(worstNoise < 0.0004f, "el rumbo del bus tiembla en las curvas: %.6f rad", worstNoise);
+    }
+
     // Subir al tablero solo por el extremo bajo; por debajo se pasa en la cresta
     float y = 0.0f;
     bool onDeck = false;
@@ -61,7 +93,7 @@ int main() {
     CHECK(!below && y == 0.0f, "bajo la cresta se pasa por debajo, en la calle");
     below = StepLayer(below, kAxisX, kStartZ + 8.0f, y);
     CHECK(!below, "no se sube a la rampa por la mitad");
-    CHECK(BlockedOnGround(kAxisX, kStartZ + 4.0f) && !BlockedOnGround(kAxisX, kStartZ + 0.5f) && !BlockedOnGround(kAxisX, 100.0f),
+    CHECK(BlockedOnGround(kAxisX, kStartZ + 9.0f) && !BlockedOnGround(kAxisX, kStartZ + 0.5f) && !BlockedOnGround(kAxisX, 100.0f),
           "el muro bajo de la rampa bloquea, el extremo y la cresta no");
     CHECK(!BlockedOnGround(kAxisX + kHalfWidth + 1.0f, kStartZ + 4.0f), "fuera del tablero no hay muro");
 

@@ -8,6 +8,8 @@
 #include <array>
 #include <algorithm>
 #include <cmath>
+#include <cstdlib>
+#include <ctime>
 #include <filesystem>
 #include "../core/Paths.hpp"
 #include <glm/gtc/constants.hpp>
@@ -33,14 +35,18 @@ enum class SoundSlot : size_t {
 };
 
 std::string FindAudioPath(const char* filename) {
-    // Los respaldos WAV propios del port viven en cpp/assets/audio, fuera del build web.
-    const std::array<std::filesystem::path, 7> candidates{
-        std::filesystem::path(Paths::Find((std::filesystem::path("public/audio") / filename).generic_string())),
+    // Los respaldos WAV y audios propios del port viven en cpp/assets/audio, fuera del build web.
+    const std::array<std::filesystem::path, 11> candidates{
         std::filesystem::path(Paths::Find((std::filesystem::path("assets/audio") / filename).generic_string())),
+        std::filesystem::path(Paths::Find((std::filesystem::path("cpp/assets/audio") / filename).generic_string())),
+        std::filesystem::path(Paths::Find((std::filesystem::path("public/audio") / filename).generic_string())),
+        std::filesystem::path("cpp/assets/audio") / filename,
+        std::filesystem::path("../cpp/assets/audio") / filename,
+        std::filesystem::path("assets/audio") / filename,
+        std::filesystem::path("../assets/audio") / filename,
         std::filesystem::path("public/audio") / filename,
         std::filesystem::path("../public/audio") / filename,
         std::filesystem::path("../../public/audio") / filename,
-        std::filesystem::path("assets/audio") / filename,
         std::filesystem::path("audio") / filename
     };
     for (const auto& path : candidates) {
@@ -107,20 +113,56 @@ struct AudioManager::Impl {
         bool started = false;
     };
 
-    static constexpr size_t MaxTrafficAudio = 8;
-    static constexpr size_t BusChannels = 2;   // una voz propia por bus
-    static constexpr float VehicleHearingDistance = 55.0f;
+    static constexpr size_t MaxTrafficAudio = 6;             // como mucho seis motores a la vez
+    static constexpr size_t BusChannels = 2;                 // una voz propia por bus
+    static constexpr float VehicleHearingDistance = 40.0f;   // motores de carros hasta 40 m
+    static constexpr float BusHearingDistance = 55.0f;       // el bus se oye hasta 55 m
+    static constexpr float HornHearingDistance = 30.0f;      // claxon hasta 30 m
+    static constexpr size_t MaxHorns = 2;                    // como mucho dos claxones a la vez
+    static constexpr float VoiceDuck = 0.45f, DuckAttack = 10.0f, DuckRelease = 2.5f;   // mientras suena una frase, trafico y ambiente bajan
+    static constexpr float StrideWalk = 1.15f, StrideRun = 1.9f;                          // metros entre pisadas
+    std::array<float, 4> mix{{1.0f, 1.0f, 1.0f, 1.0f}};
+    float duck = 1.0f;
+    float rainIntensity = 0.0f;
+    float stepDistance = 0.0f;
+    int lastStep = -1;
+    std::array<Sound, 7> stepSprites{};
     ma_engine engine{};
     bool ready = false;
     bool muted = false;
     float masterVolume = 0.7f;
     bool stepsPlaying = false;
+    float Level(MixCategory category) const {
+        const float base = mix[static_cast<size_t>(category)];
+        return (category == MixCategory::Traffic || category == MixCategory::Ambient) ? base * duck : base;
+    }
+    bool AnyVoicePlaying() const {
+        for (const Sound& voice : driverVoices) if (voice.initialized && ma_sound_is_playing(&voice.value)) return true;
+        for (const Sound& voice : theftVoices) if (voice.initialized && ma_sound_is_playing(&voice.value)) return true;
+        return false;
+    }
+    int HornsPlaying() const {
+        int count = 0;
+        for (const Sound& horn : horns) if (horn.initialized && ma_sound_is_playing(&horn.value)) ++count;
+        return count;
+    }
+    // Una sola voz a la vez: si ya suena otra frase, esta no entra
+    bool PlayVoice(Sound& voice, float volume) {
+        if (!voice.initialized || AnyVoicePlaying()) return false;
+        ma_sound_set_volume(&voice.value, volume * Level(MixCategory::Voices));
+        ma_sound_seek_to_pcm_frame(&voice.value, 0);
+        ma_sound_start(&voice.value);
+        return true;
+    }
     bool raining = false;
     std::array<Sound, static_cast<size_t>(SoundSlot::Count)> sounds{};
     std::array<std::vector<float>, 4> vehicleAudioSamples{};
     std::array<VehicleChannel, MaxTrafficAudio + BusChannels> vehicleChannels{};
     std::array<Sound, 3> horns{};
     Sound carAlarm;
+    std::array<Sound, 2> sirens{};   // dos patrullas con sirena a la vez como mucho (las mas cercanas)
+    Sound sirenStop;
+    Sound policeRadio;
     Sound heartbeat;
     std::unique_ptr<RadioSynth> radioSynth;
     RadioSource radioSource{};
@@ -203,6 +245,11 @@ struct AudioManager::Impl {
         }
 
         ReplaceWithOpusSound(SoundSlot::Steps, "Sounds_of_a_steps.opus", true);
+        {   // pisadas sueltas de Sounds_of_a_steps.opus (inicio y duracion en ms), como en el juego web
+            const std::array<int, 7> starts{{215, 605, 995, 1385, 1785, 2185, 2575}};
+            const std::array<int, 7> lengths{{300, 300, 300, 300, 300, 300, 280}};
+            for (size_t i = 0; i < stepSprites.size(); ++i) LoadOpusSound(stepSprites[i], "Sounds_of_a_steps.opus", false, starts[i], lengths[i]);
+        }
         ReplaceWithOpusSound(SoundSlot::Ambient, "city_atmosphere_soun.opus", true);
 
         const std::array<float, static_cast<size_t>(SoundSlot::Count)> volumes{0.6f, 0.9f, 0.8f, 0.5f, 0.4f, 0.5f, 0.25f, 0.45f};
@@ -232,6 +279,12 @@ struct AudioManager::Impl {
             }
         }
         LoadOpusSound(carAlarm, "Sonido De Alarma De Auto.opus", false);
+        for (Sound& siren : sirens) {
+            LoadOptionalSound(siren, "sirena_policia.mp3");
+            if (siren.initialized) ma_sound_set_looping(&siren.value, MA_TRUE);
+        }
+        LoadOptionalSound(sirenStop, "sirena_stop_policia.mp3");
+        LoadOptionalSound(policeRadio, "radio_policia.mp3");
         const std::array<const char*, 12> driverFiles{{
             "valentina_n1.mp3", "valentina_n3.mp3", "valentina_n4.mp3", "valentina_n5.mp3",
             "valentina_n6.mp3", "valentina_n7.mp3", "roberto_n1.mp3", "roberto_n2.mp3",
@@ -436,6 +489,8 @@ struct AudioManager::Impl {
     }
 
     void PlayHorn(float volume) {
+        if (HornsPlaying() >= static_cast<int>(MaxHorns)) return;
+        volume *= Level(MixCategory::Traffic);
         std::uniform_int_distribution<size_t> choose(0, horns.size() - 1);
         for (size_t attempt = 0; attempt < horns.size(); ++attempt) {
             Sound& sound = horns[choose(random)];
@@ -460,6 +515,10 @@ struct AudioManager::Impl {
                 if (channel.idle.bufferInitialized) ma_audio_buffer_uninit(&channel.idle.buffer);
                 if (channel.drive.bufferInitialized) ma_audio_buffer_uninit(&channel.drive.buffer);
             }
+            for (Sound& sound : stepSprites) {
+                if (sound.initialized) ma_sound_uninit(&sound.value);
+                if (sound.bufferInitialized) ma_audio_buffer_uninit(&sound.buffer);
+            }
             for (Sound& sound : horns) {
                 if (sound.initialized) ma_sound_uninit(&sound.value);
                 if (sound.bufferInitialized) ma_audio_buffer_uninit(&sound.buffer);
@@ -468,6 +527,9 @@ struct AudioManager::Impl {
                 ma_sound_uninit(&radioSound);
                 ma_data_source_uninit(&radioSource.base);
             }
+            for (Sound& siren : sirens) if (siren.initialized) ma_sound_uninit(&siren.value);
+            if (sirenStop.initialized) ma_sound_uninit(&sirenStop.value);
+            if (policeRadio.initialized) ma_sound_uninit(&policeRadio.value);
             if (heartbeat.initialized) ma_sound_uninit(&heartbeat.value);
             if (heartbeat.bufferInitialized) ma_audio_buffer_uninit(&heartbeat.buffer);
             if (carAlarm.initialized) ma_sound_uninit(&carAlarm.value);
@@ -501,7 +563,8 @@ void AudioManager::SetMuted(bool muted) {
 void AudioManager::SetRaining(bool raining, float intensity) {
     if (!m_Impl || !m_Impl->ready) return;
     auto& sound = m_Impl->sounds[static_cast<size_t>(SoundSlot::Rain)];
-    if (raining && sound.initialized) ma_sound_set_volume(&sound.value, 0.45f * (0.25f + 0.75f * std::clamp(intensity, 0.0f, 1.0f)));
+    m_Impl->rainIntensity = std::clamp(intensity, 0.0f, 1.0f);
+    if (raining && sound.initialized) ma_sound_set_volume(&sound.value, 0.45f * (0.25f + 0.75f * m_Impl->rainIntensity) * m_Impl->Level(MixCategory::Ambient));
     if (m_Impl->raining == raining) return;
     m_Impl->raining = raining;
     if (!sound.initialized) return;
@@ -524,9 +587,22 @@ void AudioManager::Play(AudioCue cue) {
     }
     auto& sound = m_Impl->sounds[static_cast<size_t>(slot)];
     if (!sound.initialized) return;
+    static const std::array<float, 5> baseVolumes{0.6f, 0.9f, 0.8f, 0.5f, 0.4f};   // pickup, treasure, sell, full, empty
+    ma_sound_set_volume(&sound.value, baseVolumes[static_cast<size_t>(slot) < baseVolumes.size() ? static_cast<size_t>(slot) : 0] * m_Impl->Level(MixCategory::Effects));
     ma_sound_stop(&sound.value);
     ma_sound_seek_to_pcm_frame(&sound.value, 0);
     ma_sound_start(&sound.value);
+}
+
+float AudioManager::GetMix(MixCategory category) const { return m_Impl ? m_Impl->mix[static_cast<size_t>(category)] : 1.0f; }
+
+void AudioManager::SetMix(MixCategory category, float level) {
+    if (!m_Impl) return;
+    m_Impl->mix[static_cast<size_t>(category)] = std::clamp(level, 0.0f, 1.0f);
+    if (m_Impl->ready && category == MixCategory::Ambient) {   // el ambiente cambia de inmediato; el resto se aplica al sonar
+        auto& ambient = m_Impl->sounds[static_cast<size_t>(SoundSlot::Ambient)];
+        if (ambient.initialized) ma_sound_set_volume(&ambient.value, 0.25f * m_Impl->Level(MixCategory::Ambient));
+    }
 }
 
 void AudioManager::UpdateRadio(bool on, RadioProgram program, float signal, float volume) {
@@ -539,7 +615,7 @@ void AudioManager::UpdateRadio(bool on, RadioProgram program, float signal, floa
 
 void AudioManager::PlayHeartbeat(float intensity) {
     if (!m_Impl || !m_Impl->ready || m_Impl->muted || !m_Impl->heartbeat.initialized) return;
-    ma_sound_set_volume(&m_Impl->heartbeat.value, std::clamp(0.4f + 0.6f * intensity, 0.0f, 1.0f));
+    ma_sound_set_volume(&m_Impl->heartbeat.value, std::clamp(0.4f + 0.6f * intensity, 0.0f, 1.0f) * m_Impl->Level(MixCategory::Effects));
     ma_sound_stop(&m_Impl->heartbeat.value);
     ma_sound_seek_to_pcm_frame(&m_Impl->heartbeat.value, 0);
     ma_sound_start(&m_Impl->heartbeat.value);
@@ -551,10 +627,7 @@ void AudioManager::PlayTheftRemark(float distance) {
     for (size_t attempt = 0; attempt < m_Impl->theftVoices.size(); ++attempt) {
         auto& sound = m_Impl->theftVoices[choose(m_Impl->random)];
         if (!sound.initialized) continue;
-        ma_sound_set_volume(&sound.value, 0.7f * std::clamp(1.0f - distance / 12.0f, 0.0f, 1.0f));
-        ma_sound_stop(&sound.value);
-        ma_sound_seek_to_pcm_frame(&sound.value, 0);
-        ma_sound_start(&sound.value);
+        m_Impl->PlayVoice(sound, 0.75f * std::clamp((12.0f - distance) / 10.0f, 0.0f, 1.0f));   // solo suena una voz a la vez
         return;
     }
 }
@@ -564,13 +637,68 @@ void AudioManager::PlayCarAlarm(float distance) {
     ma_sound_stop(&m_Impl->carAlarm.value);
     ma_sound_seek_to_pcm_frame(&m_Impl->carAlarm.value, 0);
     ma_sound_set_volume(&m_Impl->carAlarm.value,
-                        0.6f * std::clamp(1.0f - distance / 41.0f, 0.0f, 1.0f));
+                        0.6f * std::clamp((41.0f - distance) / 36.0f, 0.0f, 1.0f) * m_Impl->Level(MixCategory::Traffic));
     ma_sound_start(&m_Impl->carAlarm.value);
+}
+
+void AudioManager::UpdatePolice(const glm::vec3& listenerPosition, const std::vector<glm::vec3>& sirenPositions,
+                                const std::vector<PoliceSound>& events, bool paused) {
+    if (!m_Impl || !m_Impl->ready) return;
+    // Volumen segun la distancia: cae con el cuadrado hasta cero en el alcance de cada sonido (la sirena se oye lejos; la radio de un policia, solo cerca)
+    constexpr float kSirenRange = 110.0f, kStopRange = 90.0f, kRadioRange = 28.0f;
+    const auto reach = [](float distance, float range) {
+        const float t = std::clamp(1.0f - distance / range, 0.0f, 1.0f);
+        return t * t;
+    };
+    static const bool logAudio = std::getenv("BAZUKO_LOG_AUDIO") != nullptr;
+    std::vector<float> distances;
+    for (const glm::vec3& position : sirenPositions) distances.push_back(glm::distance(listenerPosition, position));
+    std::sort(distances.begin(), distances.end());
+    for (size_t i = 0; i < m_Impl->sirens.size(); ++i) {
+        auto& siren = m_Impl->sirens[i];
+        if (!siren.initialized) continue;
+        const float volume = (!paused && !m_Impl->muted && i < distances.size()) ? 0.8f * reach(distances[i], kSirenRange) * m_Impl->Level(MixCategory::Traffic) : 0.0f;
+        if (volume <= 0.0005f) {
+            if (ma_sound_is_playing(&siren.value)) ma_sound_stop(&siren.value);
+            continue;
+        }
+        ma_sound_set_volume(&siren.value, volume);
+        if (!ma_sound_is_playing(&siren.value)) {
+            ma_sound_seek_to_pcm_frame(&siren.value, 0);
+            ma_sound_start(&siren.value);
+        }
+        if (logAudio) {
+            static float lastLog = -1.0f;
+            const float now = static_cast<float>(std::clock()) / CLOCKS_PER_SEC;
+            if (now - lastLog > 2.0f) { lastLog = now; std::cerr << "Audio: sirena " << i << " a " << distances[i] << " m, volumen " << volume << '\n'; }
+        }
+    }
+    if (paused || m_Impl->muted) return;
+    for (const PoliceSound& event : events) {
+        const float distance = glm::distance(listenerPosition, event.position);
+        const bool stop = event.kind == PoliceSound::Kind::Stop;
+        auto& sound = stop ? m_Impl->sirenStop : m_Impl->policeRadio;
+        const float volume = stop ? 0.8f * reach(distance, kStopRange) * m_Impl->Level(MixCategory::Traffic)
+                                  : 0.6f * reach(distance, kRadioRange) * m_Impl->Level(MixCategory::Effects);
+        if (logAudio) std::cerr << "Audio: " << (stop ? "parada de sirena" : "radio policia") << " a " << distance << " m, volumen " << volume << '\n';
+        if (!sound.initialized || volume <= 0.0005f) continue;
+        ma_sound_stop(&sound.value);
+        ma_sound_seek_to_pcm_frame(&sound.value, 0);
+        ma_sound_set_volume(&sound.value, volume);
+        ma_sound_start(&sound.value);
+    }
 }
 
 void AudioManager::UpdateVehicleAudio(float dt, const glm::vec3& listenerPosition,
                                       const Simulation& simulation, bool paused) {
     if (!m_Impl || !m_Impl->ready) return;
+    {   // mientras suena una frase, trafico y ambiente bajan para que se entienda (baja rapido, sube despacio)
+        const float duckTarget = m_Impl->AnyVoicePlaying() ? Impl::VoiceDuck : 1.0f;
+        const float rate = duckTarget < m_Impl->duck ? Impl::DuckAttack : Impl::DuckRelease;
+        m_Impl->duck += (duckTarget - m_Impl->duck) * (1.0f - std::exp(-std::max(dt, 1.0f / 60.0f) * rate));
+        auto& ambient = m_Impl->sounds[static_cast<size_t>(SoundSlot::Ambient)];
+        if (ambient.initialized) ma_sound_set_volume(&ambient.value, 0.25f * m_Impl->Level(MixCategory::Ambient));
+    }
     if (paused) {
         m_Impl->StopVehicleSounds();
         for (auto& horn : m_Impl->horns) if (horn.initialized) ma_sound_stop(&horn.value);
@@ -603,14 +731,15 @@ void AudioManager::UpdateVehicleAudio(float dt, const glm::vec3& listenerPositio
     const auto& buses = simulation.GetBuses();
     for (size_t busIndex = 0; busIndex < buses.size() && busIndex < Impl::BusChannels; ++busIndex) {
         const float busDistance = glm::distance(listenerPosition, buses[busIndex].position);
-        if (busDistance < Impl::VehicleHearingDistance) {
+        if (busDistance < Impl::BusHearingDistance) {
             sources.push_back({Impl::MaxTrafficAudio + busIndex, buses[busIndex].position, buses[busIndex].speed, true, false,
                                busDistance});
         }
     }
     std::array<bool, Impl::MaxTrafficAudio + Impl::BusChannels> audible{};
     for (const auto& source : sources) {
-        if (source.distance >= Impl::VehicleHearingDistance) continue;
+        const float hearing = source.bus ? Impl::BusHearingDistance : Impl::VehicleHearingDistance;
+        if (source.distance >= hearing) continue;
         audible[source.channel] = true;
         auto& channel = m_Impl->vehicleChannels[source.channel];
         if (!channel.idle.initialized || !channel.drive.initialized) continue;
@@ -619,7 +748,7 @@ void AudioManager::UpdateVehicleAudio(float dt, const glm::vec3& listenerPositio
             ma_sound_start(&channel.drive.value);
             channel.started = true;
         }
-        const float attenuation = std::pow(std::clamp(1.0f - source.distance / Impl::VehicleHearingDistance, 0.0f, 1.0f), 1.4f);
+        const float attenuation = std::pow(std::clamp(1.0f - source.distance / hearing, 0.0f, 1.0f), 1.4f) * m_Impl->Level(MixCategory::Traffic);
         const float mix = std::clamp(source.speed / 2.5f, 0.0f, 1.0f);
         const float idleGain = source.bus ? 0.38f : 0.34f;
         const float driveGain = source.bus ? 0.42f : 0.40f;
@@ -631,16 +760,14 @@ void AudioManager::UpdateVehicleAudio(float dt, const glm::vec3& listenerPositio
         channel.blockedFor = source.blockedForPerson ? channel.blockedFor + dt : 0.0f;
         if (!source.bus && source.blockedForPerson && channel.blockedFor >= channel.patience
             && channel.hornCooldown <= 0.0f) {
-            m_Impl->PlayHorn(attenuation * 0.48f);
+            const float hornReach = std::clamp(1.0f - source.distance / Impl::HornHearingDistance, 0.0f, 1.0f);
+            if (hornReach > 0.0f) m_Impl->PlayHorn(hornReach * 0.48f);   // claxon hasta 30 m, como mucho dos a la vez
             if (source.distance < 8.0f) {
                 std::uniform_int_distribution<size_t> choose(0, m_Impl->driverVoices.size() - 1);
                 for (size_t attempt = 0; attempt < m_Impl->driverVoices.size(); ++attempt) {
                     auto& voice = m_Impl->driverVoices[choose(m_Impl->random)];
                     if (!voice.initialized) continue;
-                    ma_sound_set_volume(&voice.value, 0.7f * std::clamp((8.0f - source.distance) / 6.0f, 0.0f, 1.0f));
-                    ma_sound_stop(&voice.value);
-                    ma_sound_seek_to_pcm_frame(&voice.value, 0);
-                    ma_sound_start(&voice.value);
+                    m_Impl->PlayVoice(voice, 0.7f * std::clamp((8.0f - source.distance) / 6.0f, 0.0f, 1.0f));   // solo una voz a la vez
                     break;
                 }
             }
@@ -659,19 +786,36 @@ void AudioManager::UpdateVehicleAudio(float dt, const glm::vec3& listenerPositio
     }
 }
 
-void AudioManager::Update(bool moving, bool running) {
+void AudioManager::Update(bool moving, bool running, int surface, bool raining, float travelled, float dt) {
     if (!m_Impl || !m_Impl->ready) return;
-    auto& steps = m_Impl->sounds[static_cast<size_t>(SoundSlot::Steps)];
-    if (!steps.initialized) return;
-    if (moving && !m_Impl->stepsPlaying) {
-        ma_sound_set_pitch(&steps.value, running ? 1.4f : 1.0f);
-        ma_sound_start(&steps.value);
-        m_Impl->stepsPlaying = true;
-    } else if (!moving && m_Impl->stepsPlaying) {
-        ma_sound_stop(&steps.value);
+    // Pisadas sueltas cada cierta distancia recorrida (la animacion escalada por velocidad mantiene el ritmo de los pies);
+    // al arrancar, la primera llega pronto en lugar de esperar un paso completo
+    const float stride = running ? Impl::StrideRun : Impl::StrideWalk;
+    if (!moving) {
+        m_Impl->stepDistance = stride * 0.6f;
         m_Impl->stepsPlaying = false;
+        return;
     }
-    if (moving && m_Impl->stepsPlaying) ma_sound_set_pitch(&steps.value, running ? 1.4f : 1.0f);
+    m_Impl->stepsPlaying = true;
+    m_Impl->stepDistance += travelled >= 0.0f ? travelled : (running ? 6.0f : 3.0f) * dt;
+    if (m_Impl->stepDistance < stride) return;
+    m_Impl->stepDistance = std::fmod(m_Impl->stepDistance, stride);
+    if (m_Impl->muted) return;
+    // sin repetir la misma pisada dos veces seguidas; tierra y pasto mas suaves y lentos, calzada y anden un poco mas fuertes
+    std::uniform_int_distribution<int> pick(0, static_cast<int>(m_Impl->stepSprites.size()) - 2);
+    int index = pick(m_Impl->random);
+    if (index >= m_Impl->lastStep) ++index;
+    m_Impl->lastStep = index;
+    Impl::Sound& step = m_Impl->stepSprites[static_cast<size_t>(index)];
+    if (!step.initialized) return;
+    const float surfaceVolume = surface == 2 ? 0.30f : surface == 1 ? 0.46f : 0.50f;
+    const float surfaceRate = surface == 2 ? 0.88f : 1.0f;
+    std::uniform_real_distribution<float> jitter(0.0f, 1.0f);
+    ma_sound_set_volume(&step.value, std::clamp(surfaceVolume * (running ? 1.12f : 1.0f) * (0.85f + jitter(m_Impl->random) * 0.15f) * 1.3f, 0.0f, 1.0f) * m_Impl->Level(MixCategory::Effects));
+    ma_sound_set_pitch(&step.value, surfaceRate * (0.98f + jitter(m_Impl->random) * 0.04f) * (raining ? 1.02f : 1.0f));
+    ma_sound_stop(&step.value);
+    ma_sound_seek_to_pcm_frame(&step.value, 0);
+    ma_sound_start(&step.value);
 }
 
 } // namespace Bazuko

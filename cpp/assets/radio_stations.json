@@ -9,34 +9,34 @@
   "stations": [
     {
       "id": "recuerdos",
-      "name": "Radio Recuerdos",
+      "name": "Radio Recuerdos 540 AM",
       "frequency": "540 kHz AM",
-      "genre": "Cumbia, bolero y musica popular",
-      "program": "Los clasicos de cantina bogotana",
+      "genre": "Cumbia, Bolero y Música Popular",
+      "program": "Los Clásicos de Cantina Bogotana",
       "url": ""
     },
     {
       "id": "noticias",
-      "name": "La Voz de la Capital",
+      "name": "La Voz de la Capital 890 AM",
       "frequency": "890 kHz AM",
-      "genre": "Noticias y radionovela",
-      "program": "Noticiero popular del mediodia",
+      "genre": "Noticias y Radionovela",
+      "program": "Noticiero Popular del Mediodía",
       "url": ""
     },
     {
       "id": "deportes",
-      "name": "El Campin",
+      "name": "El Campín 1040 AM",
       "frequency": "1040 kHz AM",
-      "genre": "Futbol y deportes",
-      "program": "Transmision deportiva",
+      "genre": "Fútbol y Deportes",
+      "program": "Transmisión En Vivo: Santa Fe vs Millonarios",
       "url": ""
     },
     {
       "id": "rock",
-      "name": "Radioactiva",
+      "name": "Radioactiva 98.5 FM",
       "frequency": "98.5 MHz FM",
-      "genre": "Rock y baladas en espanol",
-      "program": "Clasicos del rock en tu idioma",
+      "genre": "Rock y Baladas en Español",
+      "program": "Clásicos del Rock en tu Idioma",
       "url": ""
     }
   ]

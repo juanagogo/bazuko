@@ -47,7 +47,8 @@ void BirdFlock::SetSpots(std::vector<BirdSpot> spots, size_t modelCount, const B
         const size_t amount = std::min(counts[kind], list.size());
         for (size_t i = 0; i < amount; ++i) {
             Bird bird;
-            bird.position = bird.origin = bird.target = m_Spots[list[i]].position;
+            bird.position = bird.origin = bird.target = bird.home = m_Spots[list[i]].position;
+            bird.lookTimer = Unit() * 3.0f;
             bird.perch = bird.targetPerch = static_cast<BirdPerch>(kind);
             bird.phase = Unit() * 30.0f;
             bird.yaw = Unit() * glm::two_pi<float>();
@@ -93,6 +94,7 @@ void BirdFlock::Update(float dt, const glm::vec3& playerPosition, const std::vec
             m_Flush[index] = 1;
             continue;
         }
+        UpdateGroundBehaviour(bird, dt);
         bird.restRemaining -= dt;
         if (bird.restRemaining <= 0.0f) StartFlight(bird, playerPosition, false);
     }
@@ -173,6 +175,8 @@ void BirdFlock::StartFlight(Bird& bird, const glm::vec3& playerPosition, bool sc
     const float horizontal = glm::distance(from, glm::vec2(best->position.x, best->position.z));
     const float speed = scared ? 8.5f : 5.5f;
     bird.origin = bird.position;
+    bird.walking = false;
+    bird.walkSpeed = 0.0f;
     bird.target = best->position;
     bird.targetPerch = best->kind;
     bird.scared = scared;
@@ -183,6 +187,47 @@ void BirdFlock::StartFlight(Bird& bird, const glm::vec3& playerPosition, bool sc
     bird.flapRate = scared ? 24.0f : 16.0f;
     const glm::vec2 heading(bird.target.x - bird.origin.x, bird.target.z - bird.origin.z);
     if (glm::dot(heading, heading) > 1.0e-4f) bird.yaw = std::atan2(heading.x, heading.y);
+}
+
+void BirdFlock::UpdateGroundBehaviour(Bird& bird, float dt) {
+    // Vigilancia: la cabeza gira a un lado y a otro con pausas, como un ave atenta a su alrededor
+    bird.lookTimer -= dt;
+    if (bird.lookTimer <= 0.0f) {
+        const float side = Unit() < 0.5f ? -1.0f : 1.0f;
+        bird.lookYawTarget = Unit() < 0.25f ? 0.0f : side * (0.35f + Unit() * 0.8f);
+        bird.lookTimer = 0.6f + Unit() * 2.4f;
+    }
+    bird.lookYaw += (bird.lookYawTarget - bird.lookYaw) * std::min(1.0f, dt * 9.0f);
+    if (bird.peckTimer > 0.0f) bird.peckTimer = std::max(0.0f, bird.peckTimer - dt);
+
+    if (bird.perch != BirdPerch::Ground) return;
+    if (bird.walking) {
+        glm::vec3 toTarget = bird.walkTarget - bird.position;
+        toTarget.y = 0.0f;
+        const float distance = glm::length(toTarget);
+        if (distance < 0.04f) {
+            bird.walking = false;
+            bird.walkSpeed = 0.0f;
+            return;
+        }
+        const glm::vec3 direction = toTarget / distance;
+        // se orienta hacia donde camina (giro suave) y avanza al paso de un ave que anda con calma
+        const float wantedYaw = std::atan2(direction.x, direction.z);
+        float difference = std::remainder(wantedYaw - bird.yaw, glm::two_pi<float>());
+        bird.yaw += difference * std::min(1.0f, dt * 7.0f);
+        bird.walkSpeed = 0.45f;
+        bird.position += direction * std::min(distance, bird.walkSpeed * dt);
+        bird.walkCycle += dt * 2.0f * glm::pi<float>() * 3.2f;
+    } else {
+        bird.walkSpeed = 0.0f;
+        if (bird.peckTimer <= 0.0f && Unit() < dt * 0.22f) bird.peckTimer = 0.9f;
+        if (bird.peckTimer <= 0.0f && Unit() < dt * 0.10f) {
+            const float angle = Unit() * glm::two_pi<float>();
+            const float reach = 0.25f + Unit() * 0.4f;
+            bird.walkTarget = bird.home + glm::vec3(std::sin(angle), 0.0f, std::cos(angle)) * reach;
+            bird.walking = true;
+        }
+    }
 }
 
 void BirdFlock::AdvanceFlight(Bird& bird, float dt) {
@@ -205,6 +250,9 @@ void BirdFlock::AdvanceFlight(Bird& bird, float dt) {
 
     if (bird.flightRemaining <= 0.0f) {
         bird.position = bird.target;
+        bird.home = bird.target;
+        bird.walking = false;
+        bird.walkSpeed = 0.0f;
         bird.perch = bird.targetPerch;
         bird.pitch = 0.0f;
         bird.restRemaining = (bird.scared ? 10.0f : 8.0f) + Unit() * (bird.scared ? 20.0f : 25.0f);

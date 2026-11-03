@@ -14,6 +14,7 @@ namespace Bazuko::SignUI {
 namespace {
 
 Fonts g_fonts;
+ImFont* g_ov[2][27] = {};
 
 constexpr ImU32 kBlue = IM_COL32(11, 79, 163, 255);
 constexpr ImU32 kBlueText = IM_COL32(214, 228, 255, 255);
@@ -72,6 +73,11 @@ void LoadFonts() {
     g_fonts.sub = AddFont(regular, 13.0f * kOverpassLine, kRanges);
     g_fonts.title = AddFont(black, 22.0f * kOverpassLine, kRanges);
     g_fonts.primary = AddFont(black, 16.0f * kOverpassLine, kRanges);
+    static const ImWchar kOvRanges[] = {0x0020, 0x00FF, 0x2010, 0x203A, 0x2190, 0x2193, 0x2212, 0x2212, 0x2219, 0x2219, 0};
+    for (int px = 9; px <= 26; ++px) {
+        g_ov[0][px] = AddFont(bold, static_cast<float>(px) * kOverpassLine, kOvRanges);
+        g_ov[1][px] = AddFont(black, static_cast<float>(px) * kOverpassLine, kOvRanges);
+    }
 
     if (!g_fonts.body) {
         LogWarn("No se pudieron cargar las fuentes del juego (assets/fonts); se usa la fuente por defecto de ImGui.");
@@ -85,6 +91,13 @@ void LoadFonts() {
 }
 
 const Fonts& GetFonts() { return g_fonts; }
+
+ImFont* Ov(bool black, int px) {
+    px = std::clamp(px, 9, 26);
+    ImFont* font = g_ov[black ? 1 : 0][px];
+    if (font) return font;
+    return black ? (g_fonts.title ? g_fonts.title : g_fonts.body) : (g_fonts.sub ? g_fonts.sub : g_fonts.body);
+}
 
 void ApplyTheme() {
     ImGuiStyle& style = ImGui::GetStyle();
@@ -337,6 +350,49 @@ void DrawIcon(ImDrawList* draw, Icon icon, ImVec2 c, float s, float alpha) {
         draw->AddEllipse(c, ImVec2(s * 0.44f, s * 0.26f), col(255, 90, 80), 0.0f, 20, t);
         draw->AddCircleFilled(c, s * 0.14f, col(255, 90, 80), 10);
         break;
+    case Icon::Keyboard:
+        draw->AddRectFilled(P(-0.46f, -0.26f), P(0.46f, 0.28f), col(190, 198, 212), s * 0.09f);
+        for (int row = 0; row < 2; ++row)
+            for (int k = 0; k < 5; ++k)
+                draw->AddRectFilled(P(-0.38f + k * 0.17f, -0.18f + row * 0.16f), P(-0.27f + k * 0.17f, -0.09f + row * 0.16f), col(60, 70, 90));
+        draw->AddRectFilled(P(-0.26f, 0.12f), P(0.26f, 0.21f), col(60, 70, 90));
+        break;
+    case Icon::Pin: {
+        draw->AddCircleFilled(P(0.0f, -0.12f), s * 0.28f, col(232, 70, 70), 16);
+        const ImVec2 tip[] = {P(-0.2f, 0.04f), P(0.2f, 0.04f), P(0.0f, 0.46f)};
+        draw->AddConvexPolyFilled(tip, 3, col(232, 70, 70));
+        draw->AddCircleFilled(P(0.0f, -0.12f), s * 0.1f, col(255, 255, 255), 10);
+        break;
+    }
+    case Icon::Gauge:
+        draw->PathArcTo(c, s * 0.38f, 2.6f, 6.82f, 16);
+        draw->PathStroke(col(140, 190, 255), 0, std::max(1.5f, s * 0.12f));
+        draw->AddLine(c, P(0.24f, -0.22f), col(255, 214, 90), std::max(1.5f, s * 0.1f));
+        break;
+    case Icon::Walk:
+        draw->AddCircleFilled(P(0.04f, -0.34f), s * 0.11f, col(220, 228, 240), 10);
+        draw->AddLine(P(0.02f, -0.22f), P(-0.04f, 0.1f), col(220, 228, 240), std::max(2.0f, s * 0.13f));
+        draw->AddLine(P(-0.04f, 0.1f), P(-0.2f, 0.42f), col(220, 228, 240), std::max(2.0f, s * 0.12f));
+        draw->AddLine(P(-0.04f, 0.1f), P(0.18f, 0.4f), col(220, 228, 240), std::max(2.0f, s * 0.12f));
+        draw->AddLine(P(0.0f, -0.12f), P(0.26f, -0.02f), col(220, 228, 240), std::max(1.5f, s * 0.1f));
+        break;
+    case Icon::Plus:
+        draw->AddLine(P(-0.3f, 0.0f), P(0.3f, 0.0f), col(238, 242, 248), std::max(2.0f, s * 0.14f));
+        draw->AddLine(P(0.0f, -0.3f), P(0.0f, 0.3f), col(238, 242, 248), std::max(2.0f, s * 0.14f));
+        break;
+    case Icon::Minus:
+        draw->AddLine(P(-0.3f, 0.0f), P(0.3f, 0.0f), col(238, 242, 248), std::max(2.0f, s * 0.14f));
+        break;
+    case Icon::Target:
+        draw->AddCircle(c, s * 0.34f, col(238, 242, 248), 20, std::max(1.5f, s * 0.1f));
+        draw->AddCircleFilled(c, s * 0.12f, col(238, 242, 248), 10);
+        break;
+    case Icon::Expand:
+        for (int sx = -1; sx <= 1; sx += 2) for (int sy = -1; sy <= 1; sy += 2) {
+            draw->AddLine(P(0.34f * sx, 0.34f * sy), P(0.34f * sx, 0.12f * sy), col(238, 242, 248), std::max(1.5f, s * 0.11f));
+            draw->AddLine(P(0.34f * sx, 0.34f * sy), P(0.12f * sx, 0.34f * sy), col(238, 242, 248), std::max(1.5f, s * 0.11f));
+        }
+        break;
     case Icon::Camera:
         draw->AddRectFilled(P(-0.44f, -0.22f), P(0.44f, 0.34f), col(190, 198, 212), s * 0.08f);
         draw->AddRectFilled(P(-0.18f, -0.36f), P(0.12f, -0.22f), col(190, 198, 212));
@@ -542,33 +598,12 @@ void EndRow() {
 }
 
 float RowButtonWidth(const char* label) {
-    return SpacedTextWidth(g_fonts.monoBold12, 12.0f, Upper(label).c_str(), 0.8f) + 24.0f;
+    return Web::ButtonWidth(label, Icon::None, 13, 92.0f);
 }
 
 bool RowButton(const char* label, bool enabled, bool primary) {
-    ImDrawList* draw = ImGui::GetWindowDrawList();
-    const std::string upper = Upper(label);
-    const float spacing = 0.8f;
-    ImFont* font = g_fonts.monoBold12;
-    const float textWidth = SpacedTextWidth(font, 12.0f, upper.c_str(), spacing);
-    const ImVec2 size(textWidth + 24.0f, 30.0f);
-    ImGui::PushID(label);
-    const bool pressed = ImGui::InvisibleButton("##fila", size) && enabled;
-    ImGui::PopID();
-    const bool hovered = enabled && ImGui::IsItemHovered();
-    const ImVec2 min = ImGui::GetItemRectMin();
-    const ImVec2 max = ImGui::GetItemRectMax();
-    const int fade = enabled ? 255 : 110;
-    if (primary) {
-        draw->AddRectFilled(min, max, hovered ? IM_COL32(255, 210, 26, fade) : IM_COL32(246, 196, 0, fade), 6.0f);
-        draw->AddRect(min, max, IM_COL32(14, 15, 18, fade), 6.0f, 0, 2.0f);
-    } else {
-        draw->AddRectFilled(min, max, hovered ? IM_COL32(26, 44, 72, 250) : IM_COL32(14, 24, 40, 245), 6.0f);
-        draw->AddRect(min, max, IM_COL32(255, 255, 255, enabled ? 120 : 50), 6.0f, 0, 1.5f);
-    }
-    AddSpacedText(draw, font, 12.0f, ImVec2(min.x + 12.0f, (min.y + max.y) * 0.5f - 6.5f),
-                  primary ? IM_COL32(14, 15, 18, fade) : IM_COL32(244, 248, 255, fade), upper.c_str(), spacing);
-    return pressed;
+    (void)primary;
+    return Web::Button(label, label, Icon::None, false, !enabled, 34.0f, 13, 92.0f);
 }
 
 bool PrimaryButton(const char* label, bool fullWidth, bool enabled, float height, float minWidth) {
@@ -653,5 +688,180 @@ void StatBar(float fraction, ImU32 fill, float width, float height, bool critica
     draw->AddRect(min, max, critical ? IM_COL32(192, 57, 43, 255) : IM_COL32(68, 68, 68, 255));
     ImGui::Dummy(ImVec2(width, height));
 }
+
+namespace Web {
+
+namespace {
+ImU32 Alpha(ImU32 color, float factor) {
+    const int a = static_cast<int>(static_cast<float>((color >> 24) & 0xFF) * std::clamp(factor, 0.0f, 1.0f));
+    return (color & 0x00FFFFFF) | (static_cast<ImU32>(a) << 24);
+}
+float Baseline(ImFont* font) { return font->FontSize * 0.5f - font->FontSize * 0.05f; }
+} // namespace
+
+float Text(ImDrawList* draw, ImFont* font, ImVec2 pos, ImU32 color, const char* text, float spacing) {
+    if (spacing == 0.0f) {
+        draw->AddText(font, font->FontSize, pos, color, text);
+        return font->CalcTextSizeA(font->FontSize, FLT_MAX, 0.0f, text).x;
+    }
+    AddSpacedText(draw, font, font->FontSize, pos, color, text, spacing);
+    return SpacedTextWidth(font, font->FontSize, text, spacing);
+}
+
+float TextWidth(ImFont* font, const char* text, float spacing) {
+    return spacing == 0.0f ? font->CalcTextSizeA(font->FontSize, FLT_MAX, 0.0f, text).x : SpacedTextWidth(font, font->FontSize, text, spacing);
+}
+
+float ButtonWidth(const char* label, Icon icon, int px, float minWidth) {
+    ImFont* font = Ov(true, px);
+    const std::string upper = Upper(label);
+    const float icons = icon != Icon::None ? static_cast<float>(px) + 8.0f : 0.0f;
+    return std::max(minWidth, 28.0f + icons + SpacedTextWidth(font, font->FontSize, upper.c_str(), 0.08f * static_cast<float>(px)));
+}
+
+bool Button(const char* id, const char* label, Icon icon, bool primary, bool disabled, float height, int px, float minWidth, float fixedWidth) {
+    ImDrawList* draw = ImGui::GetWindowDrawList();
+    ImFont* font = Ov(true, px);
+    const std::string upper = Upper(label);
+    const float spacing = 0.08f * static_cast<float>(px);
+    const float width = fixedWidth > 0.0f ? fixedWidth : ButtonWidth(label, icon, px, minWidth);
+    ImGui::PushID(id);
+    const bool pressed = ImGui::InvisibleButton("##boton", ImVec2(width, height)) && !disabled;
+    ImGui::PopID();
+    const bool hovered = !disabled && ImGui::IsItemHovered();
+    const bool active = !disabled && ImGui::IsItemActive();
+    const ImVec2 min = ImGui::GetItemRectMin() + (active ? ImVec2(0.0f, 1.0f) : ImVec2(0, 0));
+    const ImVec2 max = ImGui::GetItemRectMax() + (active ? ImVec2(0.0f, 1.0f) : ImVec2(0, 0));
+    const float fade = disabled ? 0.45f : 1.0f;
+    ImU32 textColor;
+    if (primary) {
+        draw->AddRectFilled(min + ImVec2(0, 3), max + ImVec2(0, 3), IM_COL32(0, 0, 0, static_cast<int>(70 * fade)), 8.0f);
+        draw->AddRectFilled(min, max, Alpha(hovered ? IM_COL32(255, 210, 26, 255) : kYellow, fade), 8.0f);
+        draw->PushClipRect(min + ImVec2(2, 2), max - ImVec2(2, 2), true);
+        for (float x = min.x - 40.0f; x < max.x + 40.0f; x += 8.0f)
+            draw->AddLine(ImVec2(x, max.y), ImVec2(x + 22.0f, min.y), IM_COL32(255, 255, 255, static_cast<int>(20 * fade)), 2.0f);
+        draw->PopClipRect();
+        draw->AddRect(min, max, Alpha(kInk, fade), 8.0f, 0, 3.0f);
+        textColor = Alpha(kInk, fade);
+    } else {
+        draw->AddRectFilled(min, max, Alpha(IM_COL32(6, 8, 13, 153), fade), 8.0f);
+        if (hovered) draw->AddRectFilled(min, max, IM_COL32(255, 255, 255, 16), 8.0f);
+        draw->AddRect(min, max, IM_COL32(255, 255, 255, static_cast<int>((hovered ? 210 : 128) * fade)), 8.0f, 0, 2.0f);
+        textColor = IM_COL32(255, 255, 255, static_cast<int>(255 * fade));
+    }
+    const float icons = icon != Icon::None ? static_cast<float>(px) + 8.0f : 0.0f;
+    const float textWidth = SpacedTextWidth(font, font->FontSize, upper.c_str(), spacing);
+    float x = (min.x + max.x) * 0.5f - (icons + textWidth) * 0.5f;
+    const float cy = (min.y + max.y) * 0.5f;
+    const bool twoLines = fixedWidth > 0.0f && textWidth + icons > width - 20.0f;
+    if (icon != Icon::None && !twoLines) {
+        DrawIcon(draw, icon, ImVec2(x + static_cast<float>(px) * 0.5f, cy), static_cast<float>(px) + 2.0f, fade);
+        x += icons;
+    }
+    if (fixedWidth > 0.0f && textWidth + icons > width - 20.0f) {
+        // texto largo: se parte en dos lineas por el espacio mas cercano al centro
+        size_t cut = std::string::npos, best = upper.size();
+        for (size_t i = 0; i < upper.size(); ++i)
+            if (upper[i] == ' ' && std::abs(static_cast<int>(i) - static_cast<int>(upper.size() / 2)) < static_cast<int>(best)) { best = static_cast<size_t>(std::abs(static_cast<int>(i) - static_cast<int>(upper.size() / 2))); cut = i; }
+        if (cut != std::string::npos) {
+            const std::string first = upper.substr(0, cut), second = upper.substr(cut + 1);
+            const float w1 = SpacedTextWidth(font, font->FontSize, first.c_str(), spacing), w2 = SpacedTextWidth(font, font->FontSize, second.c_str(), spacing);
+            const float lineHeight = font->FontSize * 1.05f;
+            const float cx = (min.x + max.x) * 0.5f + (icons * 0.5f);
+            if (icon != Icon::None) DrawIcon(draw, icon, ImVec2(min.x + 16.0f, cy), static_cast<float>(px) + 2.0f, fade);
+            AddSpacedText(draw, font, font->FontSize, ImVec2(cx - w1 * 0.5f, cy - lineHeight + 2.0f), textColor, first.c_str(), spacing);
+            AddSpacedText(draw, font, font->FontSize, ImVec2(cx - w2 * 0.5f, cy + 1.0f), textColor, second.c_str(), spacing);
+            return pressed;
+        }
+    }
+    AddSpacedText(draw, font, font->FontSize, ImVec2(x, cy - Baseline(font) + 0.5f), textColor, upper.c_str(), spacing);
+    return pressed;
+}
+
+bool BeginPanel(const char* id, float width, float height, ImVec2 padding, bool dashed) {
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, padding);
+    ImGui::PushStyleVar(ImGuiStyleVar_ChildRounding, 8.0f);
+    ImGui::PushStyleVar(ImGuiStyleVar_ChildBorderSize, 2.0f);
+    ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(6 / 255.0f, 8 / 255.0f, 13 / 255.0f, 0.45f));
+    ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(1, 1, 1, dashed ? 0.30f : 0.18f));
+    const ImGuiChildFlags flags = ImGuiChildFlags_Borders | (height <= 0.0f ? ImGuiChildFlags_AutoResizeY : ImGuiChildFlags_None);
+    const bool open = ImGui::BeginChild(id, ImVec2(width, height), flags, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
+    ImGui::PopStyleColor(2);
+    ImGui::PopStyleVar(3);
+    return open;
+}
+
+void EndPanel() { ImGui::EndChild(); }
+
+void SectionTitle(const char* title, Icon icon) {
+    ImDrawList* draw = ImGui::GetWindowDrawList();
+    ImFont* font = Ov(true, 13);
+    const ImVec2 at = ImGui::GetCursorScreenPos();
+    float x = at.x;
+    if (icon != Icon::None) {
+        DrawIcon(draw, icon, ImVec2(x + 8.0f, at.y + 9.0f), 14.0f);
+        x += 22.0f;
+    }
+    const std::string upper = Upper(title);
+    Text(draw, font, ImVec2(x, at.y + 1.0f), kYellow, upper.c_str(), 1.3f);
+    ImGui::Dummy(ImVec2(1.0f, 18.0f));
+}
+
+bool Slider(const char* id, float* value, float minValue, float maxValue, float step, float width) {
+    ImDrawList* draw = ImGui::GetWindowDrawList();
+    ImGui::PushID(id);
+    ImGui::InvisibleButton("##deslizador", ImVec2(width, 20.0f));
+    ImGui::PopID();
+    const ImVec2 min = ImGui::GetItemRectMin();
+    const ImVec2 max = ImGui::GetItemRectMax();
+    const float left = min.x + 8.0f, right = max.x - 8.0f;
+    bool changed = false;
+    if (ImGui::IsItemActive()) {
+        float next = minValue + std::clamp((ImGui::GetIO().MousePos.x - left) / std::max(1.0f, right - left), 0.0f, 1.0f) * (maxValue - minValue);
+        if (step > 0.0f) next = minValue + std::round((next - minValue) / step) * step;
+        next = std::clamp(next, minValue, maxValue);
+        if (next != *value) { *value = next; changed = true; }
+    }
+    const float cy = (min.y + max.y) * 0.5f;
+    const float knob = left + (right - left) * std::clamp((*value - minValue) / std::max(1.0e-4f, maxValue - minValue), 0.0f, 1.0f);
+    draw->AddRectFilled(ImVec2(left, cy - 2.0f), ImVec2(right, cy + 2.0f), IM_COL32(255, 255, 255, 64), 2.0f);
+    draw->AddRectFilled(ImVec2(left, cy - 2.0f), ImVec2(knob, cy + 2.0f), kYellow, 2.0f);
+    draw->AddCircleFilled(ImVec2(knob, cy), 8.0f, kYellow, 18);
+    draw->AddCircle(ImVec2(knob, cy), 8.0f, IM_COL32(90, 70, 0, 200), 18, 1.0f);
+    return changed;
+}
+
+void Meter(float fraction, ImU32 fill, float width, float height) {
+    ImDrawList* draw = ImGui::GetWindowDrawList();
+    const ImVec2 min = ImGui::GetCursorScreenPos();
+    const ImVec2 max = min + ImVec2(width, height);
+    const float r = height * 0.5f;
+    draw->AddRectFilled(min, max, IM_COL32(0, 0, 0, 140), r);
+    const float inner = std::clamp(fraction, 0.0f, 1.0f) * (width - 2.0f);
+    if (inner > 1.0f) draw->AddRectFilled(min + ImVec2(1, 1), ImVec2(min.x + 1.0f + inner, max.y - 1.0f), fill, r - 1.0f);
+    draw->AddRect(min, max, IM_COL32(255, 255, 255, 51), r, 0, 1.0f);
+    ImGui::Dummy(ImVec2(width, height));
+}
+
+float Kbd(const char* text, bool inline_) {
+    ImDrawList* draw = ImGui::GetWindowDrawList();
+    ImFont* font = Ov(true, 12);
+    const float w = TextWidth(font, text) + 16.0f;
+    const ImVec2 at = ImGui::GetCursorScreenPos();
+    if (inline_) ImGui::Dummy(ImVec2(w, 22.0f));
+    draw->AddRectFilled(at, at + ImVec2(w, 22.0f), IM_COL32(154, 163, 181, 255), 5.0f);
+    draw->AddRectFilled(at, at + ImVec2(w, 19.0f), IM_COL32(255, 255, 255, 255), 5.0f);
+    Text(draw, font, at + ImVec2(8.0f, 3.5f), kInk, text);
+    return w;
+}
+
+void TabKey(ImDrawList* draw, ImVec2 center, const char* text) {
+    ImFont* font = Ov(true, 12);
+    const float w = std::max(26.0f, TextWidth(font, text) + 12.0f);
+    draw->AddRect(center - ImVec2(w * 0.5f, 13.0f), center + ImVec2(w * 0.5f, 13.0f), IM_COL32(255, 255, 255, 115), 5.0f, 0, 2.0f);
+    Text(draw, font, ImVec2(center.x - TextWidth(font, text) * 0.5f, center.y - Baseline(font) + 1.0f), kBlueText, text);
+}
+
+} // namespace Web
 
 } // namespace Bazuko::SignUI
