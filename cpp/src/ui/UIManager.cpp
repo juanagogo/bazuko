@@ -1606,7 +1606,8 @@ void UIManager::RenderHUD(float dt, const glm::vec3& playerPos, Camera& camera, 
         constexpr float slotSize = 44.0f;
         constexpr float slotGap = 5.0f;
         const float barWidth = 5.0f * slotSize + 4.0f * slotGap;
-        ImGui::SetNextWindowPos(ImVec2(display.x - 20.0f, display.y - 20.0f), ImGuiCond_Always, ImVec2(1.0f, 1.0f));
+        const bool cardboard = Carton::FontsReady() && !std::getenv("BAZUKO_UI_OSCURA");
+        ImGui::SetNextWindowPos(cardboard ? ImVec2(display.x - 14.0f, display.y - 76.0f - 40.0f) : ImVec2(display.x - 20.0f, display.y - 20.0f), ImGuiCond_Always, ImVec2(1.0f, 1.0f));
         ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
         if (ImGui::Begin("Barra rapida", nullptr, hudFlags | ImGuiWindowFlags_NoBackground)) {
             ImDrawList* draw = ImGui::GetWindowDrawList();
@@ -1622,6 +1623,21 @@ void UIManager::RenderHUD(float dt, const glm::vec3& playerPos, Camera& camera, 
                 ImGui::PopID();
                 const bool filled = !entry.id.empty();
                 const float fade = filled ? 1.0f : 0.4f;
+                if (cardboard) {   // casilla de carton: dibujo del objeto, numero de la tecla y cantidad
+                    Carton::Panel(draw, min, max, 600u + static_cast<unsigned int>(slot), 3.5f);
+                    char key[4], amount[16];
+                    std::snprintf(key, sizeof(key), "%d", slot + 1);
+                    Carton::Text(draw, true, 13, min + ImVec2(4.0f, 1.0f), Carton::kMarcador, key);
+                    if (filled) {
+                        const ImVec2 center((min.x + max.x) * 0.5f, (min.y + max.y) * 0.5f);
+                        const ImU32 ink = entry.quantity > 0 ? Carton::kMarcador : IM_COL32(20, 17, 12, 110);
+                        if (!Carton::DrawGlyph(draw, Carton::ItemGlyph(entry.id), center, 28.0f, ink)) DrawItemIcon(draw, center, 26.0f, entry.id, entry.name, ink);
+                        std::snprintf(amount, sizeof(amount), "%d", entry.quantity);
+                        Carton::Text(draw, true, 14, ImVec2(max.x - Carton::TextWidth(true, 14, amount) - 3.0f, max.y - 17.0f), Carton::kMarcador, amount);
+                    }
+                    if (hovered) Carton::HandCircle(draw, (min + max) * 0.5f, slotSize * 0.55f, slotSize * 0.55f, 700u + static_cast<unsigned int>(slot), Carton::kRojo, 2.5f);
+                    continue;
+                }
                 draw->AddRectFilled(min, max, IM_COL32(0, 0, 0, static_cast<int>(153 * fade)));
                 draw->AddRect(min, max, hovered ? IM_COL32(255, 209, 102, 255) : IM_COL32(85, 85, 85, static_cast<int>(255 * fade)));
                 char key[4];
@@ -1659,7 +1675,37 @@ void UIManager::RenderHUD(float dt, const glm::vec3& playerPos, Camera& camera, 
         ImGui::PopStyleColor(2);
     }
 
-    if (!interactionPrompt.empty()) {
+    if (!interactionPrompt.empty() && Carton::FontsReady() && !std::getenv("BAZUKO_UI_OSCURA")) {
+        // tecla de contexto de carton: cinta con la tecla en una celda de marcador y el verbo; lo que sobra del texto va en una linea chica
+        namespace C = Carton;
+        std::string text = interactionPrompt, key = "E", rest;
+        if (text.size() > 3 && text[0] == '[') {
+            const size_t close = text.find(']');
+            if (close != std::string::npos) { key = text.substr(1, close - 1); text = text.substr(close + 1); }
+        }
+        const size_t dot = text.find(" · ");
+        if (dot != std::string::npos) { rest = text.substr(dot + 5); text = text.substr(0, dot); }
+        while (!text.empty() && text.front() == ' ') text.erase(text.begin());
+        const ImVec2 display = ImGui::GetIO().DisplaySize;
+        const float width = C::TextWidth(true, 22, text.c_str()) + 90.0f;
+        ImGui::SetNextWindowPos(ImVec2(display.x * 0.5f, display.y - 76.0f), ImGuiCond_Always, ImVec2(0.5f, 1.0f));
+        ImGui::SetNextWindowSize(ImVec2(std::max(width, rest.empty() ? 0.0f : C::TextWidth(false, 15, rest.c_str()) + 24.0f), 80.0f), ImGuiCond_Always);
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
+        if (ImGui::Begin("Interaccion", nullptr, hudFlags | ImGuiWindowFlags_NoBackground | ImGuiWindowFlags_NoInputs)) {
+            ImDrawList* draw = ImGui::GetWindowDrawList();
+            const ImVec2 at = ImGui::GetWindowPos();
+            const float tapeWidth = width;
+            const float left = at.x + (ImGui::GetWindowWidth() - tapeWidth) * 0.5f;
+            draw->AddRectFilled(ImVec2(left + 2.0f, at.y + 3.0f), ImVec2(left + tapeWidth + 2.0f, at.y + 49.0f), IM_COL32(20, 14, 6, 150));
+            draw->AddRectFilled(ImVec2(left, at.y), ImVec2(left + tapeWidth, at.y + 46.0f), C::kCinta);
+            C::Key(draw, ImVec2(left + 12.0f, at.y + 9.0f), key.c_str(), 20);
+            C::Text(draw, true, 22, ImVec2(left + 62.0f, at.y + 9.0f), C::kMarcador, text.c_str());
+            if (!rest.empty()) C::Text(draw, false, 15, ImVec2(at.x + 12.0f, at.y + 54.0f), C::kMarcador, rest.c_str());
+        }
+        ImGui::End();
+        ImGui::PopStyleVar(2);
+    } else if (!interactionPrompt.empty()) {
         // #interaction-prompt: pastilla oscura con borde y texto dorados, 160 px sobre el borde inferior
         ImFont* font = SignUI::Ov(true, 13);
         const float width = SignUI::Web::TextWidth(font, interactionPrompt.c_str()) + 28.0f;

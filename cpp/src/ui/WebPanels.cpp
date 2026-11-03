@@ -1390,6 +1390,7 @@ void UIManager::RenderMinimap(const HudContext& c, ImVec2 origin, ImVec2 size, f
     };
 
     // sombra y fondo
+    if (Carton::FontsReady() && !std::getenv("BAZUKO_UI_OSCURA")) Carton::Panel(draw, origin - ImVec2(5.0f, 5.0f), origin + size + ImVec2(5.0f, 5.0f + infoHeight), 91u, 6.0f);   // marco de carton del radar
     for (int layer = 3; layer >= 1; --layer)
         draw->AddRectFilled(origin + ImVec2(-static_cast<float>(layer), 6.0f - static_cast<float>(layer)), max + ImVec2(static_cast<float>(layer), 6.0f + static_cast<float>(layer)), IM_COL32(0, 0, 0, 14), 12.0f + static_cast<float>(layer));
     draw->AddRectFilled(origin, max, IM_COL32(16, 19, 24, 255), 12.0f);
