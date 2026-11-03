@@ -1568,21 +1568,28 @@ void UIManager::RenderMinimap(const HudContext& c, ImVec2 origin, ImVec2 size, f
             title = "Sin puntos cercanos";
         }
         const ImVec2 infoMin(origin.x, max.y + 6.0f), infoMax(max.x, max.y + 6.0f + infoHeight - 6.0f + 6.0f);
-        draw->AddRectFilled(infoMin, ImVec2(infoMax.x, infoMin.y + 40.0f), IM_COL32(12, 15, 20, 209), 10.0f);
-        draw->AddRect(infoMin, ImVec2(infoMax.x, infoMin.y + 40.0f), IM_COL32(255, 255, 255, 26), 10.0f);
-        draw->PushClipRect(infoMin, ImVec2(infoMax.x, infoMin.y + 40.0f), true);
-        draw->AddRectFilled(infoMin, ImVec2(infoMin.x + 4.0f, infoMin.y + 40.0f), m_GpsView.active ? W::kYellow : IM_COL32(108, 122, 144, 255));
-        draw->PopClipRect();
-        W::Text(draw, Ov(true, 13), infoMin + ImVec2(14.0f, 5.0f), IM_COL32(255, 255, 255, 255), title.c_str());
+        const bool cardboard = Carton::FontsReady() && !std::getenv("BAZUKO_UI_OSCURA");
+        const ImU32 inkTitle = cardboard ? Carton::kMarcador : IM_COL32(255, 255, 255, 255), inkDetail = cardboard ? Carton::kMarcador : IM_COL32(201, 211, 227, 255);
+        if (cardboard) {   // tarjeta de carton: el destino del GPS lleva una raya roja a la izquierda
+            Carton::Panel(draw, infoMin + ImVec2(2.0f, 2.0f), ImVec2(infoMax.x - 2.0f, infoMin.y + 38.0f), 93u, 4.0f);
+            if (m_GpsView.active) draw->AddRectFilled(infoMin + ImVec2(2.0f, 6.0f), ImVec2(infoMin.x + 6.0f, infoMin.y + 34.0f), Carton::kRojo);
+        } else {
+            draw->AddRectFilled(infoMin, ImVec2(infoMax.x, infoMin.y + 40.0f), IM_COL32(12, 15, 20, 209), 10.0f);
+            draw->AddRect(infoMin, ImVec2(infoMax.x, infoMin.y + 40.0f), IM_COL32(255, 255, 255, 26), 10.0f);
+            draw->PushClipRect(infoMin, ImVec2(infoMax.x, infoMin.y + 40.0f), true);
+            draw->AddRectFilled(infoMin, ImVec2(infoMin.x + 4.0f, infoMin.y + 40.0f), m_GpsView.active ? W::kYellow : IM_COL32(108, 122, 144, 255));
+            draw->PopClipRect();
+        }
+        W::Text(draw, Ov(true, 13), infoMin + ImVec2(14.0f, 5.0f), inkTitle, title.c_str());
         // "<distancia> · <flecha> <direccion>"
         float detailX = infoMin.x + 14.0f;
         const size_t dot = detail.find(" · ");
         const std::string distanceText = dot == std::string::npos ? detail : detail.substr(0, dot + 3);
         const std::string directionText = dot == std::string::npos ? std::string() : detail.substr(dot + 4);
-        detailX += W::Text(draw, Ov(true, 12), ImVec2(detailX, infoMin.y + 21.0f), IM_COL32(201, 211, 227, 255), (distanceText + " ").c_str());
-        if (arrow >= 0) { DrawArrow(draw, ImVec2(detailX + 6.0f, infoMin.y + 29.0f), static_cast<float>(arrow) * glm::pi<float>() / 4.0f, 11.0f, IM_COL32(201, 211, 227, 255)); detailX += 15.0f; }
+        detailX += W::Text(draw, Ov(true, 12), ImVec2(detailX, infoMin.y + 21.0f), inkDetail, (distanceText + " ").c_str());
+        if (arrow >= 0) { DrawArrow(draw, ImVec2(detailX + 6.0f, infoMin.y + 29.0f), static_cast<float>(arrow) * glm::pi<float>() / 4.0f, 11.0f, inkDetail); detailX += 15.0f; }
         else if (nearest && nearestDistance < 2.0f && dot != std::string::npos) { DrawIcon(draw, Icon::Pin, ImVec2(detailX + 6.0f, infoMin.y + 29.0f), 12.0f); detailX += 15.0f; }
-        W::Text(draw, Ov(true, 12), ImVec2(detailX, infoMin.y + 21.0f), IM_COL32(201, 211, 227, 255), directionText.c_str());
+        W::Text(draw, Ov(true, 12), ImVec2(detailX, infoMin.y + 21.0f), inkDetail, directionText.c_str());
     }
 }
 
