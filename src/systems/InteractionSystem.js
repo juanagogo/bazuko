@@ -99,7 +99,8 @@ export class InteractionSystem {
         nearestDist = d;
         nearest = t;
         // Determinar tipo por `kind` o por métodos disponibles
-        if (t.kind === 'shop') nearestType = 'shop';
+        if (t.kind === 'dropped-item') nearestType = 'dropped-item';
+        else if (t.kind === 'shop') nearestType = 'shop';
         else if (t.kind === 'cambuche') nearestType = 'cambuche';
         else if (t.kind === 'dog') nearestType = 'dog';
         else if (t.kind === 'cart') nearestType = 'cart';
@@ -153,6 +154,9 @@ export class InteractionSystem {
     // Sin objetivo la tecla sigue libre: el cosquilleo la lee después, en `StealSystem`.
     if (nearest && input.consumePress('KeyE')) {
       switch (nearestType) {
+        case 'dropped-item':
+          this._collectDroppedItem(nearest);
+          break;
         case 'pickup':
           this._harvestTrash(nearest, false);
           break;
@@ -250,6 +254,23 @@ export class InteractionSystem {
         text: 'Me calenté las manos en la fogata: +calor, +ánimo, +energía.',
         type: 'info'
       }
+    }));
+  }
+
+  _collectDroppedItem(target) {
+    const quantity = target.collect();
+    if (!quantity) {
+      this.audio?.play('full');
+      window.dispatchEvent(new CustomEvent('toast', {
+        detail: { text: target.collectError || 'El objeto ya no está disponible.', type: 'info' }
+      }));
+      return;
+    }
+    this.audio?.play('pickup');
+    this.player.playAction?.('buscar', .4);
+    // Recuperar lo propio no vuelve a dar XP, rareza, ánimo ni riesgo de enfermedad.
+    window.dispatchEvent(new CustomEvent('pickup', {
+      detail: { added: [`${target.item.name}${quantity > 1 ? ` ×${quantity}` : ''}`], rare: null, sorted: false }
     }));
   }
 

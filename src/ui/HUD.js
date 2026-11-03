@@ -61,6 +61,10 @@ export function piezasDelPrompt(texto) {
 export function textoDelPrompt(interaction, inventory) {
   if (!interaction?.currentTarget && !interaction?.stealPrompt) return '';
   const type = interaction.currentTargetType;
+  if (type === 'dropped-item') {
+    const dropped = interaction.currentTarget;
+    return `[E] Recoger ${dropped.item.name}${dropped.quantity > 1 ? ` ×${dropped.quantity}` : ''} · ${Math.ceil(dropped.remaining)} s`;
+  }
   if (type === 'pickup') return '[E] Recoger basura · [Mantener Q] Seleccionar';
   if (type === 'car') return interaction.currentTarget?.traffic ? '[E] Robar retrovisor del carro en circulación' : '[E] Robar retrovisor del carro';
   if (type === 'fireBarrel') return '[E] Calentarme en la fogata';
@@ -80,6 +84,7 @@ export function textoDelPrompt(interaction, inventory) {
 
 // Con el dedo la cinta va a un lado del personaje, y ahí no cabe la frase entera: lo mismo, en corto.
 const VERBO_CORTO = [
+  [/^Recoger (?!basura)/, 'Recoger'],
   [/^Robar retrovisor/, 'Robar retrovisor'],
   [/^Darle pan o atún/, 'Darle comida'],
   [/^Acariciar a El Chato/, 'Acariciar'],
