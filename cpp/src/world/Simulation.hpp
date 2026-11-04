@@ -730,6 +730,8 @@ private:
     std::shared_ptr<Mesh> m_SignalPole;
     std::shared_ptr<Mesh> m_SignalHead;
     std::shared_ptr<Mesh> m_SignalLamp;
+    std::shared_ptr<Mesh> m_SignalBody;       // semaforo de codigo del original (SignalModel.hpp): poste, brazo y cabezas
+    std::shared_ptr<Mesh> m_SignalLens;       // lente de 13,8 cm de radio, eje Y
     std::shared_ptr<Mesh> m_PoopMesh;
     std::shared_ptr<Mesh> m_GroundPoopMesh;
     std::shared_ptr<Mesh> m_VendorCounter;

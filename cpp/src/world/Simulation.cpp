@@ -4,6 +4,7 @@
 #include <glm/gtc/matrix_transform.hpp>
 #include <algorithm>
 #include <array>
+#include "SignalModel.hpp"
 #include <cmath>
 #include <filesystem>
 #include "../character/CharacterAnimations.hpp"
@@ -967,6 +968,8 @@ Simulation::Simulation(const CityLayout& city, uint32_t seed,
     m_SignalPole = Mesh::CreateCube({0.10f, 3.2f, 0.10f}, {0.18f, 0.19f, 0.20f, 1.0f});
     m_SignalHead = Mesh::CreateCube({0.38f, 0.82f, 0.28f}, {0.10f, 0.11f, 0.12f, 1.0f});
     m_SignalLamp = Mesh::CreateCylinder(0.09f, 0.10f, 12);
+    m_SignalBody = SignalModel::BuildBody();
+    m_SignalLens = Mesh::CreateCylinder(SignalModel::kLensRadius, 0.03f, 16);
     {   // halo de la baliza: disco de 8 anillos cuya opacidad cae suave (curva (1 - r)^2,2) del centro al borde, sin canto visible; el color llega por el tinte
         constexpr int kRings = 8, kSegments = 40;
         std::vector<Vertex> vertices;
@@ -1340,6 +1343,7 @@ Simulation::Simulation(const CityLayout& city, uint32_t seed,
         LogWarn("No se encontraron aceras para ubicar semaforos en las intersecciones de las rutas.");
     } else {
         LogInfo("Semaforos de trafico preparados: {}", m_TrafficSignals.size());
+        if (std::getenv("BAZUKO_LOG_SIGNALS")) for (const TrafficSignal& signal : m_TrafficSignals) LogInfo("SEMAFORO poste ({:.1f}, {:.1f}) guiaa ({:.1f}, {:.1f}) eje {}", signal.polePosition.x, signal.polePosition.z, signal.approachDirection.x, signal.approachDirection.z, signal.phaseGroup);
     }
     // Dos buses (Bogota.js, getBusRoute): el del norte sale del extremo sur del puente del lago, sube por el viaducto
     // y para en la estacion Portal del Centro; el del sur parte de la estacion, cruza el viaducto y el puente, y relevan
@@ -4720,6 +4724,42 @@ void Simulation::Render(Renderer& renderer, float time, const glm::vec3& focusPo
                           glm::vec2(signal.polePosition.x, signal.polePosition.z)) > 80.0f) continue;
         const glm::mat4 poleRoot = glm::translate(glm::mat4(1.0f), signal.polePosition)
             * glm::rotate(glm::mat4(1.0f), signal.yaw, {0.0f, 1.0f, 0.0f});
+        const size_t state = GetSignalState(m_Elapsed, signal.phaseGroup);        // eje propio
+        const size_t crossState = GetSignalState(m_Elapsed, 1 - signal.phaseGroup);   // eje que cruza
+        if (m_SignalBody && !std::getenv("BAZUKO_SEMAFORO_GLB")) {
+            renderer.Submit(*m_SignalBody, poleRoot, glm::vec4(1.0f), false, true);
+            // Cada lente va encendido solo en su fase: rojo con el eje en rojo, amarillo en amarillo, verde en verde. La cabeza peatonal cruzada
+            // se guia por el otro eje (camina cuando ese esta en rojo) y la paralela por el propio, como en el original.
+            const auto lens = [&](glm::vec3 at, glm::mat4 turn, float scale, bool lit, glm::vec3 on, glm::vec3 off) {
+                const glm::mat4 m = glm::scale(glm::translate(poleRoot, at) * turn, glm::vec3(scale));
+                if (lit) {
+                    renderer.SetUnlit(true);
+                    renderer.Submit(*m_SignalLens, m, glm::vec4(on * 2.2f, 1.0f));
+                    renderer.SetUnlit(false);
+                } else {
+                    renderer.Submit(*m_SignalLens, m, glm::vec4(off, 1.0f));
+                }
+            };
+            const glm::mat4 faceMinusX = glm::rotate(glm::mat4(1.0f), glm::half_pi<float>(), {0.0f, 0.0f, 1.0f});
+            const glm::mat4 faceMinusZ = glm::rotate(glm::mat4(1.0f), -glm::half_pi<float>(), {1.0f, 0.0f, 0.0f});
+            const glm::mat4 facePlusX = glm::rotate(glm::mat4(1.0f), -glm::half_pi<float>(), {0.0f, 0.0f, 1.0f});
+            const glm::vec3 redOn(1.0f, 0.10f, 0.05f), redOff(0.20f, 0.03f, 0.02f), amberOn(1.0f, 0.58f, 0.05f), amberOff(0.20f, 0.10f, 0.02f);
+            const glm::vec3 greenOn(0.10f, 1.0f, 0.30f), greenOff(0.02f, 0.16f, 0.05f);
+            const float lensX = -0.075f - SignalModel::kHeadDepth * 0.5f - 0.004f;
+            for (int i = 0; i < 3; ++i) {   // cabeza principal sobre el carril y cabeza baja en el poste
+                const bool lit = state == (i == 0 ? 2u : i == 1 ? 1u : 0u);
+                const glm::vec3 on = i == 0 ? redOn : i == 1 ? amberOn : greenOn, off = i == 0 ? redOff : i == 1 ? amberOff : greenOff;
+                const float dy = SignalModel::kModule * (1.0f - static_cast<float>(i));
+                lens({lensX, SignalModel::kHeadY + dy, -SignalModel::kReach}, faceMinusX, 1.0f, lit, on, off);
+                lens({-(SignalModel::kPoleRadius + 0.165f) - SignalModel::kHeadDepth * 0.5f - 0.004f, SignalModel::kLowHeadY + dy, 0.0f}, faceMinusX, 1.0f, lit, on, off);
+            }
+            const float pedOffset = SignalModel::kPoleRadius + 0.105f + 0.065f + 0.003f;
+            lens({0.0f, SignalModel::kPedY + 0.125f, -pedOffset}, faceMinusZ, 0.72f, crossState != 0, redOn, redOff);           // parar, cruzada
+            lens({0.0f, SignalModel::kPedY - 0.125f, -pedOffset}, faceMinusZ, 0.72f, crossState == 0, greenOn, greenOff);       // caminar, cruzada
+            lens({pedOffset, SignalModel::kPedY + 0.125f, 0.0f}, facePlusX, 0.72f, state != 0, redOn, redOff);                  // parar, paralela
+            lens({pedOffset, SignalModel::kPedY - 0.125f, 0.0f}, facePlusX, 0.72f, state == 0, greenOn, greenOff);              // caminar, paralela
+            continue;
+        }
         if (m_TrafficSignalModel) {
             m_TrafficSignalModel->Draw(renderer, poleRoot * m_TrafficSignalModelFit);
         } else {
@@ -4727,7 +4767,6 @@ void Simulation::Render(Renderer& renderer, float time, const glm::vec3& focusPo
             renderer.Submit(*m_SignalPole, post);
             renderer.Submit(*m_SignalHead, glm::translate(poleRoot, {0.0f, 2.9f, 0.0f}));
         }
-        const size_t state = GetSignalState(m_Elapsed, signal.phaseGroup);
         const glm::vec4 redColor = state == 2 ? glm::vec4(1.0f, 0.06f, 0.035f, 1.0f) : glm::vec4(0.28f, 0.035f, 0.025f, 1.0f);
         const glm::vec4 amberColor = state == 1 ? glm::vec4(1.0f, 0.55f, 0.04f, 1.0f) : glm::vec4(0.27f, 0.12f, 0.02f, 1.0f);
         const glm::vec4 greenColor = state == 0 ? glm::vec4(0.08f, 1.0f, 0.20f, 1.0f) : glm::vec4(0.025f, 0.25f, 0.055f, 1.0f);

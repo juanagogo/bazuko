@@ -143,6 +143,10 @@ Con `-DBAZUKO_COPY_PUBLIC=ON` se copia `public/` junto al ejecutable (~50 MB) pa
 
 El port usa la identidad visual del original (`docs/identidad-visual.md` en el repositorio base): cartón con canto y filo oscuro, letra «Dios Le Pague», dibujos de objetos en la propia tipografía y trazos a mano. Está hecha con ImGui en `src/ui/Carton.cpp` (piezas, cintas, círculos, masa rayada y texto), `Costal.cpp` (costal de 5 × 4 con acceso rápido 1 a 5 y mesa de crafteo), `HudCarton.cpp` (botones, misión, plata y hora, necesidades y botones inferiores) y `Halftone.cpp` (pantalla de carga con el arte en semitono de una tinta y BAZUKO que se escribe trazo a trazo). Los menús que aún dibujan con la señal azul (pausa, ajustes, controles, mapa, tiendas, dealer, radio, talentos y cambuche) se registran por nombre y sus colores se invierten por luminosidad al dibujar (`Carton::RemapDrawData`), con las letras ya cambiadas. Con la calle mojada (humedad desde 0,4 hasta que baja de 0,25) el cartón pasa a cartón mojado. `BAZUKO_UI_OSCURA=1` devuelve la interfaz anterior. Armas del original: cuchillo, botella picada y arma casera se sacan con «Usar» (acceso rápido incluido) y pegan según `src/game/Weapons.hpp`.
 
+### Semáforos del original
+
+Los semáforos usan el modelo por código del juego original (`src/world/SignalModel.hpp`, de `SignalModel.js`): poste galvanizado de 6,6 m, brazo de 3,95 m sobre el carril con la cabeza principal de tres lentes y contraplaca, cabeza baja en el poste y dos cabezas peatonales. El ciclo no cambió (36 s: verde 14, amarillo 3 y despeje 1 antes de abrir el otro eje). Cada lente se enciende solo en su fase; la cabeza peatonal que cruza camina cuando el otro eje está en rojo, y la paralela, cuando el propio está en verde. `BAZUKO_SEMAFORO_GLB=1` vuelve al modelo anterior. Falta del original: resplandor nocturno con reflejo en el piso mojado, calcomanías, modelo liviano a distancia y no dibujar los postes que caen sobre la calzada del desvío.
+
 ### Ratón en WSL2
 
 WSLg no entrega bien el modo de cursor oculto/bloqueado de GLFW, por eso la cámara con el ratón puede fallar allí.
