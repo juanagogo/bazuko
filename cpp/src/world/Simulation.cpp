@@ -1390,7 +1390,28 @@ Simulation::Simulation(const CityLayout& city, uint32_t seed,
             }};
         for (const auto& [intersection, direction] : approaches) {
             const size_t axis = std::abs(direction.x) > 0.5f ? 0 : 1;
-            const glm::vec3 stopPosition = intersection - direction * 2.4f;
+            glm::vec3 stopPosition = intersection - direction * 2.4f;
+            {   // la linea de pare va antes de la cebra: se busca la calle que cruza y se detiene el carro 1,2 m antes del borde exterior de su paso peatonal
+                // (la cebra ocupa de 0,2 a 3,8 m fuera de la calzada, como la dibuja CityLayout)
+                std::vector<std::pair<int, int>> crossings;
+                if (axis == 0) {
+                    for (const auto& band : carreras) crossings.emplace_back(band.first, band.last);
+                    if (!caracas.empty()) crossings.emplace_back(caracas.front().first, caracas.back().last);
+                } else {
+                    for (const auto& band : calles) crossings.emplace_back(band.first, band.last);
+                }
+                const float origin = axis == 0 ? CityLayout::ORIGIN_X : CityLayout::ORIGIN_Z;
+                const float along = axis == 0 ? intersection.x : intersection.z;
+                const float sign = axis == 0 ? direction.x : direction.z;
+                for (const auto& [first, last] : crossings) {
+                    const float start = static_cast<float>(first) * CityLayout::TILE_SIZE - origin;
+                    const float end = static_cast<float>(last + 1) * CityLayout::TILE_SIZE - origin;
+                    if (along < start - 0.5f || along > end + 0.5f) continue;
+                    const float stop = sign > 0.0f ? start - 3.8f - 0.2f : end + 3.8f + 0.2f;
+                    if (axis == 0) stopPosition.x = stop; else stopPosition.z = stop;
+                    break;
+                }
+            }
             glm::vec3 polePosition(0.0f);
             float bestDistanceSquared = 9.5f * 9.5f;
             const int centerTileX = static_cast<int>(std::floor(
@@ -4932,7 +4953,8 @@ void Simulation::Render(Renderer& renderer, float time, const glm::vec3& focusPo
                 const auto colorOf = [&](int color) { return color == 0 ? greenOn : color == 1 ? amberOn : redOn; };
                 int color = 0;
                 const int own = SignalCountdown(m_Elapsed, signal.phaseGroup, false, color);
-                number({lensX - 0.002f, SignalModel::kHeadY + SignalModel::kModule, -SignalModel::kReach + SignalModel::kCounterOffset}, faceMinusX, 1.0f, own, colorOf(color));
+                if (color != 1)   // el amarillo no lleva contador: dura 3 s fijos
+                    number({lensX - 0.002f, SignalModel::kHeadY + SignalModel::kModule, -SignalModel::kReach + SignalModel::kCounterOffset}, faceMinusX, 1.0f, own, colorOf(color));
                 const float pedY = SignalModel::kPedY + SignalModel::kPedCounterY;
                 const int cross = SignalCountdown(m_Elapsed, 1 - signal.phaseGroup, true, color);
                 number({0.0f, pedY, -pedOffset - 0.003f}, glm::rotate(glm::mat4(1.0f), glm::pi<float>(), {0.0f, 1.0f, 0.0f}), 0.82f, cross, color == 0 ? greenOn : redOn);
