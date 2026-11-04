@@ -131,6 +131,9 @@ void CharacterManager::ReloadModels(const ModelLoadProgress& modelLoadProgress) 
         m_SearchClip = m_Body->FindAnimationClip("Search");
         m_CrouchClip = m_Body->FindAnimationClip("Crouch");
         m_WalkDuration = m_Body->GetAnimationClipDuration(m_WalkClip);
+        m_TiredClip = m_Body->FindAnimationClip("WalkTired");
+        m_TiredDuration = m_Body->GetAnimationClipDuration(m_TiredClip);
+        m_TiredStride = m_TiredClip >= 0 ? MeasureStride(0.0f, m_TiredClip, m_TiredDuration) : 0.0f;
         m_RunDuration = m_Body->GetAnimationClipDuration(m_RunClip);
         for (size_t k = 0; k < m_Strides.size(); ++k) m_Strides[k] = MeasureStride(static_cast<float>(k) / 4.0f);
         LogInfo("Locomocion: zancada {:.2f} / {:.2f} / {:.2f} / {:.2f} / {:.2f} m (0-100 % de correr)", m_Strides[0], m_Strides[1], m_Strides[2], m_Strides[3], m_Strides[4]);
@@ -150,15 +153,16 @@ void CharacterManager::ReloadModels(const ModelLoadProgress& modelLoadProgress) 
 // Metros del mundo que avanza el pie apoyado en un ciclo con caminar y correr en fase, mezclados con peso `runShare` para
 // correr: mediana de la velocidad del dedo mientras toca el suelo (a menos de 5 cm de su altura minima), como measureLocomotion
 // del juego web. Se mide sobre el cuerpo sin modificarlo.
-float CharacterManager::MeasureStride(float runShare) const {
-    if (!m_Body || m_WalkClip < 0 || m_WalkDuration < 0.1f) return 0.0f;
+float CharacterManager::MeasureStride(float runShare, int baseClip, float baseDuration) const {
+    if (baseClip < 0) { baseClip = m_WalkClip; baseDuration = m_WalkDuration; }
+    if (!m_Body || baseClip < 0 || baseDuration < 0.1f) return 0.0f;
     constexpr int kSamples = 120;
     const int blendClip = m_RunClip >= 0 && runShare > 0.0f ? m_RunClip : -1;
     std::array<std::array<glm::vec3, 2>, kSamples + 1> feet;
     for (int i = 0; i <= kSamples; ++i) {
-        const float time = m_WalkDuration * static_cast<float>(i) / static_cast<float>(kSamples);
-        feet[static_cast<size_t>(i)][0] = glm::vec3(m_Body->GetNodeWorld("LeftToeBase", time, true, m_WalkClip, blendClip, runShare)[3]);
-        feet[static_cast<size_t>(i)][1] = glm::vec3(m_Body->GetNodeWorld("RightToeBase", time, true, m_WalkClip, blendClip, runShare)[3]);
+        const float time = baseDuration * static_cast<float>(i) / static_cast<float>(kSamples);
+        feet[static_cast<size_t>(i)][0] = glm::vec3(m_Body->GetNodeWorld("LeftToeBase", time, true, baseClip, blendClip, runShare)[3]);
+        feet[static_cast<size_t>(i)][1] = glm::vec3(m_Body->GetNodeWorld("RightToeBase", time, true, baseClip, blendClip, runShare)[3]);
     }
     float floorY[2] = {1.0e9f, 1.0e9f};
     glm::vec2 low(1.0e9f), high(-1.0e9f);

@@ -35,6 +35,10 @@ public:
     LocomotionBlend ComputeLocomotion(float speed) const;
     int GetWalkClip() const { return m_WalkClip; }
     int GetRunClip() const { return m_RunClip; }
+    // Andar cansado (jugador sin energia): clip, duracion y zancada medida; -1 / 0 si el banco no lo trae
+    int GetTiredClip() const { return m_TiredStride > 0.05f ? m_TiredClip : -1; }
+    float GetTiredDuration() const { return m_TiredDuration; }
+    float GetTiredStride() const { return m_TiredStride; }
     float GetWalkDuration() const { return m_WalkDuration; }
     glm::mat4 HandMatrix(const glm::mat4& playerTransform, float animTime, int clip, bool rightHand) const {
         if (!m_Body) return playerTransform;
@@ -78,10 +82,12 @@ private:
     std::shared_ptr<Mesh> m_FallbackHead;
 
     // Velocidad (m/s del mundo) a la que avanza el pie apoyado al reproducir un clip a su ritmo natural; 0 = no medible
-    float MeasureStride(float runShare) const;
+    float MeasureStride(float runShare, int baseClip = -1, float baseDuration = 0.0f) const;
     std::array<float, 5> m_Strides{};   // zancada (m del mundo por ciclo) con 0, 25, 50, 75 y 100 % de correr
     float m_WalkDuration = 0.0f, m_RunDuration = 0.0f;
     int m_WalkClip = -1;
+    int m_TiredClip = -1;
+    float m_TiredDuration = 0.0f, m_TiredStride = 0.0f;
     int m_RunClip = -1;
     int m_IdleClip = -1;
     int m_SearchClip = -1;

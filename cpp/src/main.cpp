@@ -262,6 +262,7 @@ int main(int argc, char** argv) {
     bool playerSwimming = false;     // agua profunda: nada en lugar de caminar
     float swimPhase = 0.0f;          // fase 0..1 de la brazada
     float swimPitch = 0.0f;          // 0 de pie en el agua .. 1 tendido nadando (se suaviza)
+    bool tiredGait = false;   // el jugador camina cansado por falta de energia
     bool playerFreezing = false;   // frio nocturno con lluvia y sin calor (La Nevera)
     float warmTimer = 0.0f;        // s de calor contra el frio: lo dan la comida caliente y el fogon del cambuche; se guarda
     float playerWetness = 0.0f;    // 0 seco .. 1 empapado: la lluvia moja, el tiempo seca; no se guarda
@@ -2029,6 +2030,16 @@ int main(int argc, char** argv) {
                         blendClip = characterManager.GetRunClip();
                         blendWeight = blend.run;
                         poseTime = locomotionPhase * characterManager.GetWalkDuration();
+                        // sin energia (bajo 20; vuelve a andar normal sobre 30) camina cansado: encorvado y arrastrando los pies
+                        if (static const char* forcedEnergy = std::getenv("BAZUKO_ENERGIA")) needs[2] = static_cast<float>(std::atof(forcedEnergy));   // pruebas
+                        if (needs[2] < 20.0f) tiredGait = true; else if (needs[2] > 30.0f) tiredGait = false;
+                        if (tiredGait && characterManager.GetTiredClip() >= 0 && blend.run < 0.2f && currentSpeed >= 1.1f) {
+                            locomotionPhase = std::fmod(locomotionPhase - std::max(0.0f, dt) * blend.rate + std::max(0.0f, dt) * currentSpeed / characterManager.GetTiredStride(), 1.0f);
+                            poseClip = characterManager.GetTiredClip();
+                            blendClip = -1;
+                            blendWeight = 0.0f;
+                            poseTime = locomotionPhase * characterManager.GetTiredDuration();
+                        }
                         if (currentSpeed < 1.1f && characterManager.FindClip("Idle") >= 0) {   // al arrancar y al frenar el reposo se mezcla con la caminata en vez de cambiar de golpe
                             const float t = std::clamp((currentSpeed - 0.25f) / 0.85f, 0.0f, 1.0f);
                             poseClip = characterManager.FindClip("Idle");

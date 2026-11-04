@@ -742,6 +742,7 @@ Simulation::Simulation(const CityLayout& city, uint32_t seed,
             if (!appearance.parts.empty() && appearance.parts.front()) {
                 appearance.idleClip = appearance.parts.front()->FindAnimationClip("Idle");
                 appearance.walkClip = appearance.parts.front()->FindAnimationClip("Walk");
+                appearance.tiredWalkClip = appearance.parts.front()->FindAnimationClip("WalkTired");
                 appearance.sitClip = appearance.idleClip;
                 appearance.runClip = appearance.parts.front()->FindAnimationClip("Run");
                 appearance.relaxedClip = appearance.parts.front()->FindAnimationClip("IdleRelaxed");
@@ -5768,7 +5769,9 @@ void Simulation::Render(Renderer& renderer, float time, const glm::vec3& focusPo
         // los peatones asustados corren y los que esperan alternan dos reposos (mas natural)
         const bool relaxedIdle = appearance.relaxedClip >= 0 && std::fmod(pedestrian.animationOffset * 7.31f, 1.0f) < 0.5f;
         std::vector<Model::BoneTurn> combatTurns;
-        int clip = pedestrian.moving ? (pedestrian.fleeRemaining > 0.0f && appearance.runClip >= 0 ? appearance.runClip : appearance.walkClip)
+        // 1 de cada 10 peatones camina cansado (encorvado); se decide por su desfase de animacion, que no cambia
+        const bool tiredGait = appearance.tiredWalkClip >= 0 && std::fmod(pedestrian.animationOffset * 13.37f + 0.5f, 1.0f) < 0.10f;
+        int clip = pedestrian.moving ? (pedestrian.fleeRemaining > 0.0f && appearance.runClip >= 0 ? appearance.runClip : tiredGait ? appearance.tiredWalkClip : appearance.walkClip)
                                      : (relaxedIdle ? appearance.relaxedClip : appearance.idleClip);
         float clipTime = pedestrian.animationTime + pedestrian.animationOffset;
         if (pedestrian.reaction > 0) {

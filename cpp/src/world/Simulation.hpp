@@ -82,6 +82,7 @@ struct PedestrianAppearance {
     int jabClip = -1, crossClip = -1, fightClip = -1;
     std::vector<std::shared_ptr<Model>> parts;
     int walkClip = -1;
+    int tiredWalkClip = -1;   // andar cansado de Mixamo: lo usan unos pocos peatones
     int idleClip = -1;
     int sitClip = -1;
     int runClip = -1;       // huida
