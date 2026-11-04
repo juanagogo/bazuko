@@ -5199,7 +5199,8 @@ void Simulation::Render(Renderer& renderer, float time, const glm::vec3& focusPo
                         {0.92f, 0.92f, 0.86f, 1.0f});
         renderer.Submit(*m_DealerLantern, glm::translate(dealer, {0.68f, 1.35f, 0.0f}));
         if (!m_PedestrianAppearances.empty()) {
-            const auto& appearance = m_PedestrianAppearances.back();
+            // el ultimo civil: los uniformes de policia van al final de la lista y no son para el dealer
+            const auto& appearance = m_PedestrianAppearances[std::min(m_PoliceAppearanceFirst, m_PedestrianAppearances.size()) > 0 ? std::min(m_PoliceAppearanceFirst, m_PedestrianAppearances.size()) - 1 : 0];
             glm::mat4 character = glm::translate(dealer, {0.0f, 0.0f, -1.05f});
             character = glm::rotate(character, glm::pi<float>(), {0.0f, 1.0f, 0.0f});
             character = glm::scale(character, glm::vec3(1.0f));
