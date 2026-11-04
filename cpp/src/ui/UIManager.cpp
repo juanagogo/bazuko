@@ -313,8 +313,10 @@ bool UIManager::ConsumeRecyclerSellRequest() {
     return requested;
 }
 
-void UIManager::ShowDeathScreen(const std::string& causes, bool vehicleImpact) {
+void UIManager::ShowDeathScreen(const std::string& causes, bool vehicleImpact, const std::string& name, const std::string& place) {
     if (m_DeathScreenOpen) return;
+    m_DeathName = name;
+    m_DeathPlace = place;
     m_DeathScreenOpen = true;
     m_DeathByVehicleImpact = vehicleImpact;
     m_DeathCauses = causes;
@@ -775,6 +777,10 @@ void UIManager::RenderHUD(float dt, const glm::vec3& playerPos, Camera& camera, 
     const int minute = totalMinutes % 60;
     const float fps = dt > 0.0f ? 1.0f / dt : 0.0f;
 
+    if (m_DeathScreenOpen && Carton::FontsReady() && !std::getenv("BAZUKO_UI_OSCURA")) {
+        RenderDeathCarton();
+        return;
+    }
     if (m_DeathScreenOpen) {
         SignUI::DrawBackdrop(0.85f);
         const ImVec4 blueText(0.84f, 0.89f, 1.0f, 1.0f);

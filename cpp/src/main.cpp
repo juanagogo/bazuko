@@ -326,7 +326,33 @@ int main(int argc, char** argv) {
             if (!summary.empty()) summary += ", ";
             summary += cause;
         }
-        ui.ShowDeathScreen(summary, deathByVehicleImpact);
+        // lugar de la muerte para el recorte de periodico: la franja de calle mas cercana
+        std::string place = "la calle";
+        {
+            const auto& data = city.GetData();
+            const auto nearest = [&](const std::vector<CityLayout::Band>& bands, bool alongX, float origin, float coordinate, float& best) {
+                int found = -1;
+                for (size_t i = 0; i < bands.size(); ++i) {
+                    const float center = ((bands[i].first + bands[i].last + 1) * 0.5f) * CityLayout::TILE_SIZE - origin;
+                    if (std::abs(coordinate - center) < best) { best = std::abs(coordinate - center); found = static_cast<int>(i); }
+                }
+                (void)alongX;
+                return found;
+            };
+            float bestDistance = 1.0e9f;
+            static const char* const calles[] = {"la Calle 10", "la Calle 9", "la Calle 8", "la Calle 7"};
+            static const char* const carreras[] = {"la Carrera 15", "la Carrera 10", "la Carrera 8", "la Carrera 7", "la Carrera 6"};
+            std::vector<CityLayout::Band> calleBands = data.calles;
+            for (auto& band : calleBands) { band.first += CityLayout::NORTH_ROWS; band.last += CityLayout::NORTH_ROWS; }
+            const int street = nearest(calleBands, false, CityLayout::ORIGIN_Z, playerPos.z, bestDistance);
+            const int avenue = nearest(data.carreras, true, CityLayout::ORIGIN_X, playerPos.x, bestDistance);
+            if (bestDistance < 30.0f) {
+                if (avenue >= 0 && bestDistance < 1.0e8f && std::abs(playerPos.x - (((data.carreras[static_cast<size_t>(avenue)].first + data.carreras[static_cast<size_t>(avenue)].last + 1) * 0.5f) * CityLayout::TILE_SIZE - CityLayout::ORIGIN_X)) <= bestDistance + 0.01f)
+                    place = carreras[std::min<size_t>(static_cast<size_t>(avenue), 4)];
+                else if (street >= 0) place = calles[std::min<size_t>(static_cast<size_t>(street), 3)];
+            }
+        }
+        ui.ShowDeathScreen(summary, deathByVehicleImpact, characterManager.GetLook().nombre, place);
     };
     const fs::path savePath = "savegame.json";
     bool hasSavedCharacter = false;
@@ -842,6 +868,7 @@ int main(int argc, char** argv) {
                     else if (name == "radio") ui.OpenRadioMenu(false);
                     else if (name == "crafteo") ui.ToggleCraftMenu();
                     else if (name == "dealer") ui.OpenDealerMenu();
+                    else if (name == "muerte") ui.ShowDeathScreen("atropello", true, characterManager.GetLook().nombre, "la Calle 7");
                     else if (name == "tienda") ui.OpenShopMenu("Tienda La Esquinita", "Doña Rosa fía, pero solo a los conocidos.");
                     else if (name == "reciclaje") ui.OpenRecyclerMenu();
                 }

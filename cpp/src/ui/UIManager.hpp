@@ -172,7 +172,7 @@ public:
     void TogglePerformance() { m_PerfVisible = !m_PerfVisible; }
     bool IsCraftMenuOpen() const { return m_CraftMenuOpen; }
     bool IsDeathScreenOpen() const { return m_DeathScreenOpen; }
-    void ShowDeathScreen(const std::string& causes, bool vehicleImpact);
+    void ShowDeathScreen(const std::string& causes, bool vehicleImpact, const std::string& name = {}, const std::string& place = {});
     bool ConsumeRespawnRequest();
     void CompleteDeathRecovery();
     std::string ConsumeCraftRequest();
@@ -352,6 +352,8 @@ public:
 private:
     void RenderWebHud(const HudContext& context);
     void RenderHudCarton(const HudContext& context);
+    void RenderDeathCarton();   // pantalla de muerte de carton con el recorte de periodico (HudCarton.cpp)
+    std::string m_DeathName, m_DeathPlace;
     bool m_Freezing = false, m_InWithdrawal = false;   // frio de noche con lluvia y sin calor; malilla (para el retazo de lo mas urgente)
     bool m_NeedsExpanded = false;   // higiene, animo y vicio a la vista aunque esten bien (boton del pie de las necesidades)
     float m_Warmth = 0.0f;   // s de calor contra el frio (la comida caliente y el fogon)   // HUD de carton y marcador (HudCarton.cpp)

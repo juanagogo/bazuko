@@ -42,6 +42,42 @@ std::string Thousands(int value) {
 
 } // namespace
 
+// Pantalla de muerte del original: todo el carton, el recorte de periodico en el centro, la causa abajo a la izquierda y el boton a la derecha.
+void UIManager::RenderDeathCarton() {
+    namespace C = Carton;
+    const ImVec2 display = ImGui::GetIO().DisplaySize;
+    if (BeginHud("##cartonMuerte", ImVec2(0.0f, 0.0f), display)) {
+        ImDrawList* draw = ImGui::GetWindowDrawList();
+        draw->AddRectFilled(ImVec2(0, 0), display, C::kCarton);
+        for (float x = 0.0f; x < display.x; x += 4.0f) draw->AddLine(ImVec2(x, 0), ImVec2(x, display.y), IM_COL32(60, 40, 15, 14));   // las canales del carton
+        // recorte de periodico: sin exclamaciones, sin cuentas
+        const std::string place = m_DeathPlace.empty() ? std::string("la calle") : m_DeathPlace;
+        const std::string name = m_DeathName.empty() ? std::string("un habitante de calle") : m_DeathName;
+        const std::string headline = "Hallan muerto a " + name + ", habitante de calle, en " + place + ". Nadie vio nada.";
+        const float width = std::min(340.0f, display.x - 80.0f);
+        const float height = C::TextHeight(false, 19, headline.c_str(), width - 30.0f) + 26.0f;
+        const ImVec2 min((display.x - width) * 0.5f, display.y * 0.40f), max(min.x + width, min.y + height);
+        draw->AddRectFilled(min + ImVec2(3, 4), max + ImVec2(3, 4), IM_COL32(20, 14, 6, 90));
+        draw->AddRectFilled(min, max, IM_COL32(0xE2, 0xDF, 0xD2, 255));
+        draw->AddRect(min, max, C::kMarcador, 0.0f, 0, 1.5f);
+        draw->AddLine(ImVec2(min.x, max.y), ImVec2(max.x, max.y), C::kMarcador, 3.5f);
+        C::Text(draw, false, 19, min + ImVec2(15.0f, 12.0f), C::kMarcador, headline.c_str(), width - 30.0f);
+        // causa y consecuencia abajo a la izquierda
+        const std::string cause = m_DeathByVehicleImpact ? "Te atropelló un carro" : "Te quedaste sin fuerzas";
+        C::Text(draw, false, 20, ImVec2(24.0f, display.y - 84.0f), C::kMarcador, cause.c_str());
+        C::Text(draw, false, 16, ImVec2(24.0f, display.y - 50.0f), C::kMarcador, "Se vuelve al cambuche. Se pierde la mitad de lo que hay en el costal.");
+        // boton oscuro abajo a la derecha
+        const ImVec2 size(224.0f, 52.0f), bmin(display.x - size.x - 24.0f, display.y - size.y - 16.0f);
+        ImGui::SetCursorScreenPos(bmin);
+        const bool pressed = ImGui::InvisibleButton("##volverCambuche", size);
+        const bool hot = ImGui::IsItemHovered();
+        draw->AddRectFilled(bmin, bmin + size, hot ? IM_COL32(0x2A, 0x22, 0x18, 255) : C::kMarcador);
+        C::TextCentered(draw, true, 20, bmin + size * 0.5f, C::kCinta, "Volver al cambuche");
+        if (pressed) m_RespawnRequest = true;
+    }
+    ImGui::End();
+}
+
 // HUD de carton y marcador (docs/identidad-visual.md del original): botones arriba a la izquierda, la mision como retazo arriba al centro, dinero y hora
 // arriba a la derecha, las necesidades en masa rayada abajo a la izquierda con el radar, y Ayuda, Vista, Costal y Fabricar abajo a la derecha.
 void UIManager::RenderHudCarton(const HudContext& c) {
