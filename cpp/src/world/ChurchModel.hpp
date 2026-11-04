@@ -26,17 +26,18 @@ inline std::shared_ptr<Mesh> BuildChurch() {
         const float x = -kLength * 0.5f + kLength * (static_cast<float>(i) + 0.5f) / 4.0f;
         for (float side : {-1.0f, 1.0f}) {
             b.Box({x - kLength / 8.0f, 4.3f, side * (kWidth * 0.5f + 0.2f)}, {0.8f, 8.6f, 0.4f}, stoneGray);
-            b.Box({x, 6.5f, side * (kWidth * 0.5f + 0.02f)}, {1.3f, 3.2f, 0.06f}, glass);
+            b.Box({x, 6.5f, side * (kWidth * 0.5f + 0.07f)}, {1.3f, 3.2f, 0.3f}, glass);   // los detalles sobresalen 15 cm o mas del muro: con menos parpadean (z-fighting) a distancia
         }
     }
     // dos torres que sobresalen de la nave, con tres cuerpos, campanario abierto y remate piramidal de teja con cruz
     const float towerW = 6.2f, towerH = 24.0f, towerX = frontX - 0.9f + 2.95f, belfry = towerH - 7.5f, up = 4.6f;
     for (float side : {-1.0f, 1.0f}) {
         const float z = side * (kWidth * 0.5f - towerW * 0.5f);
-        b.Box({towerX, belfry * 0.5f, z}, {5.9f, belfry, towerW}, wall);
+        // 4 cm mas ancha que la nave por cada lado: si los costados de la torre y de la nave quedaran en el mismo plano parpadearian (z-fighting) al mover la camara
+        b.Box({towerX, belfry * 0.5f, z}, {5.9f, belfry, towerW + 0.08f}, wall);
         b.Box({frontX - 0.85f, 0.45f, z}, {0.2f, 0.9f, towerW + 0.1f}, stoneGray);   // zocalo
-        for (float y : {7.0f, 14.0f}) b.Box({towerX, y - 0.12f, z}, {6.1f, 0.24f, towerW + 0.2f}, stoneLight);   // cornisas
-        for (float y : {7.4f, 11.2f}) b.Box({frontX - 0.92f, y + 1.1f, z}, {0.06f, 2.2f, 1.2f}, glass);
+        for (float y : {7.0f, 14.0f}) b.Box({towerX, y - 0.12f, z}, {6.4f, 0.3f, towerW + 0.5f}, stoneLight);   // cornisas
+        for (float y : {7.4f, 11.2f}) b.Box({frontX - 1.0f, y + 1.1f, z}, {0.2f, 2.2f, 1.2f}, glass);
         for (float dx : {-2.45f, 2.45f}) for (float dz : {-2.6f, 2.6f}) b.Box({towerX + dx, belfry + up * 0.5f, z + dz}, {1.0f, up, 1.0f}, stoneLight);   // pilares
         b.Box({towerX, belfry - 0.1f, z}, {6.1f, 0.3f, towerW + 0.2f}, stoneGray);
         b.Box({towerX, belfry + up + 0.25f, z}, {6.1f, 0.5f, towerW + 0.2f}, stoneLight);
@@ -53,7 +54,7 @@ inline std::shared_ptr<Mesh> BuildChurch() {
     const float centerW = kWidth - towerW * 2.0f;
     b.Box({frontX - 0.25f, 4.7f, 0.0f}, {0.5f, 9.2f, centerW * 0.6f}, stoneLight);
     b.Box({frontX - 0.62f, 2.9f, 0.0f}, {0.24f, 5.6f, 3.6f}, stoneGray);
-    b.Box({frontX - 0.78f, 2.1f, 0.0f}, {0.1f, 3.9f, 2.6f}, wood);
+    b.Box({frontX - 0.85f, 2.1f, 0.0f}, {0.3f, 3.9f, 2.6f}, wood);
     for (float side : {-1.0f, 1.0f}) {
         b.Box({frontX - 0.7f, 3.4f, side * 2.5f}, {0.34f, 6.5f, 0.5f}, stoneLight);
         b.Box({frontX - 0.55f, 4.4f, side * 3.3f}, {0.3f, 8.6f, 0.3f}, stoneGray);
@@ -63,7 +64,7 @@ inline std::shared_ptr<Mesh> BuildChurch() {
         b.Box({frontX - 0.82f, 4.05f + std::sin(a) * 1.55f, std::cos(a) * 1.55f}, {0.16f, 0.44f, 0.46f}, stoneLight);
     }
     b.Box({frontX - 0.72f, 6.77f, 0.0f}, {0.42f, 0.34f, 6.4f}, stoneLight);
-    b.Box({frontX - 0.55f, 8.0f, 0.0f}, {0.1f, 1.7f, 2.1f}, glass);   // roseton
+    b.Box({frontX - 0.65f, 8.0f, 0.0f}, {0.3f, 1.7f, 2.1f}, glass);   // roseton
     b.Box({frontX - 0.4f, 9.45f, 0.0f}, {0.6f, 0.3f, centerW + 0.4f}, stoneLight);
     b.Tri({frontX - 0.1f, 9.6f, -centerW * 0.5f}, {frontX - 0.1f, 9.6f, centerW * 0.5f}, {frontX - 0.1f, 13.4f, 0.0f}, wall);
     b.Box({frontX - 0.1f, 14.0f, 0.0f}, {0.16f, 1.5f, 0.16f}, iron);
