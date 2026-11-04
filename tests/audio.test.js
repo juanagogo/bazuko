@@ -204,7 +204,7 @@ test('robar un retrovisor activa la alarma aunque te atrapen, pero un carro ya s
 test('la carpeta de audio contiene únicamente archivos utilizados y todos tienen duración válida', () => {
   const { audio } = fixture();
   try {
-    const sounds = [...Object.values(audio.sounds), ...Object.values(audio.vehicleSounds), ...audio.driverSounds, ...audio.theftSounds];
+    const sounds = [...Object.values(audio.sounds), ...Object.values(audio.vehicleSounds), ...audio.driverSounds, ...audio.theftSounds, ...Object.values(audio.streetVoiceSounds)];
     const used = sounds.map(sound => decodeURIComponent(sound.options.src[0].split('/').at(-1))).sort();
     const files = readdirSync(new URL('../public/audio/', import.meta.url)).sort();
     assert.deepEqual(files, used);
