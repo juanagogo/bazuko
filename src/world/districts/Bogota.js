@@ -1522,7 +1522,7 @@ export class Bogota {
           return `${name}:${a.itemSize}:${a.array.constructor.name}:${a.normalized}`;
         }).join(',');
         // Como los lotes cerrados, por trozos anchos: mobiliario y ladrillos pesan en llamadas, no en triángulos.
-        const key = `${o.material.userData.staticMergeKey ?? o.material.uuid}|${o.castShadow}|${o.receiveShadow}|${!!g.index}|${attributes}|${o.customDepthMaterial?.uuid ?? ''}|${geometryChunk(o.geometry, o.matrixWorld, CLOSED_CHUNK_SIZE)}`;
+        const key = `${o.material.userData.staticMergeKey ?? o.material.uuid}|${o.castShadow}|${o.receiveShadow}|${!!g.index}|${attributes}|${o.customDepthMaterial?.uuid ?? ''}|${geometryChunk(o.geometry, o.matrixWorld, CLOSED_CHUNK_SIZE * 2)}`;
         g.applyMatrix4(o.matrixWorld);
         const bucket = buckets.get(key) ?? { mat: o.material, cast: o.castShadow, recv: o.receiveShadow, list: [], sources: [] };
         buckets.set(key, bucket);

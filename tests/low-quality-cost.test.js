@@ -289,12 +289,12 @@ test('los lotes cerrados de una misma cuadra se agrupan sin mover los edificios'
 test('la fusión estática y los sectores agrupan con el tamaño pedido', () => {
   const material = new THREE.MeshStandardMaterial();
   const merged = new THREE.Group();
-  for (const x of [10, 50]) merged.add(cube(x, material));
+  for (const x of [10, 50, 110]) merged.add(cube(x, material));
   Bogota.prototype._mergeStatic.call({ group: merged });
   let meshes = 0, triangleCount = 0;
   merged.traverse(o => { if (o.isMesh) { meshes++; triangleCount += o.geometry.index.count / 3; } });
-  assert.equal(meshes, 1, 'dos piezas a 40 m van en un lote');
-  assert.equal(triangleCount, 24);
+  assert.equal(meshes, 1, 'tres piezas hasta 100 m de distancia van en un lote');
+  assert.equal(triangleCount, 36);
   const box = new THREE.BoxGeometry(1, 1, 1);
   assert.equal(geometryChunk(box, new THREE.Matrix4().makeTranslation(50, 0, 0)), '1,0');
   assert.equal(geometryChunk(box, new THREE.Matrix4().makeTranslation(50, 0, 0), 64), '0,0');
