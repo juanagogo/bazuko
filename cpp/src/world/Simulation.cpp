@@ -4178,7 +4178,7 @@ void Simulation::UpdateTraffic(float dt) {
                     const TrafficVehicle& blocker = m_Traffic[static_cast<size_t>(vehicle.swerveAround)];
                     const glm::vec2 offset(blocker.position.x - vehicle.position.x, blocker.position.z - vehicle.position.z);
                     const bool stillBlocking = (blocker.holdStop && blocker.speed <= 0.5f) || (vehicle.driver.siren && blocker.speed < 2.5f);
-                    if (!stillBlocking || glm::dot(offset, own) < -(vehicle.length + blocker.length) * 0.5f - 1.0f) {
+                    if (!stillBlocking || vehicle.stalledTime > 5.0f || glm::dot(offset, own) < -(vehicle.length + blocker.length) * 0.5f - 1.0f) {
                         vehicle.lateralTarget = 0.0f;   // ya lo paso (o se fue): vuelve a su carril
                         vehicle.swerveAround = -1;
                     }
@@ -4319,6 +4319,7 @@ void Simulation::UpdateTraffic(float dt) {
                 bool blockedByVehicle = false;
                 for (size_t otherIndex = 0; otherIndex < m_Traffic.size(); ++otherIndex) {
                     const auto& other = m_Traffic[otherIndex];
+                    if (clearOfBlocker(other)) continue;   // el vehiculo detenido que estoy rodeando: no cuenta como obstaculo (si no, el carro queda trabado a medio salir)
                     if (otherIndex == vehicleIndex || (other.routeIndex == vehicle.routeIndex)
                         || (otherIndex > vehicleIndex && other.speed > 0.1f)) continue;
                     const bool alreadyOverlapping = OrientedBoxesOverlap(
@@ -4514,7 +4515,7 @@ void Simulation::UpdateTraffic(float dt) {
                           vehicle.position, vehicle.direction, vehicle.nextWaypoint);
             vehicle.lateralVelocity = 0.0f;
             if (vehicle.lateral != vehicle.lateralTarget) {   // desvio hacia el carril libre o de vuelta al propio: solo avanza al ritmo del carro (como mucho 48 grados de giro)
-                const float step = std::min(2.8f, 1.1f * vehicle.speed) * stepTime;
+                const float step = std::min(2.8f, 1.1f * std::max(0.0f, vehicle.speed - 0.6f)) * stepTime;   // primero arranca derecho; no gira estando casi quieto
                 const float change = std::clamp(vehicle.lateralTarget - vehicle.lateral, -step, step);
                 vehicle.lateral += change;
                 vehicle.lateralVelocity = change / std::max(stepTime, 1.0e-4f);
