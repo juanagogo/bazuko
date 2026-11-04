@@ -1885,6 +1885,11 @@ int main(int argc, char** argv) {
                     ++lighting.lampCount;
                 }
             }
+            if (glm::vec4 fire; graphicsQuality > 0 && lighting.lampCount < LightBlockData::kMaxLampLights - 4 && simulation.GetCambucheFireLight(clock.GetElapsedTime(), playerPos, fire)) {   // fogon del cambuche
+                lighting.lampPosition[lighting.lampCount] = glm::vec4(glm::vec3(fire), 9.0f);
+                lighting.lampColor[lighting.lampCount] = glm::vec4(1.0f, 0.52f, 0.18f, 2.2f * fire.w);
+                ++lighting.lampCount;
+            }
             if (atmosphere.lampPower > 0.2f && graphicsQuality > 0) {   // faros de los vehiculos cercanos (8 en media, 24 en alta)
                 for (const glm::vec4& headlight : simulation.GetHeadlightLights(playerPos, graphicsQuality == 1 ? 8 : 24, 70.0f)) {
                     if (lighting.lampCount >= LightBlockData::kMaxLampLights - 4) break;

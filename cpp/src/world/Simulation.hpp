@@ -438,6 +438,8 @@ public:
     // Faros de los vehiculos en circulacion mas cercanos al foco (xyz delante del capo, w 1): luces extra para los clusters de noche
     struct HeadlightBeam { glm::vec3 position{0.0f}; glm::vec3 direction{0.0f, 0.0f, 1.0f}; };
     std::vector<HeadlightBeam> GetHeadlightBeams(const glm::vec3& focus, size_t maxCount, float maxDistance) const;
+    // Luz del fogon del cambuche (xyz posicion, w intensidad con el titileo del fuego); false si no hay fogon o esta lejos
+    bool GetCambucheFireLight(float time, const glm::vec3& focus, glm::vec4& light) const;
     std::vector<glm::vec4> GetHeadlightLights(const glm::vec3& focus, size_t maxCount, float maxDistance) const;
     std::vector<glm::vec4> GetNearestLampLights(const glm::vec3& focus, size_t maxCount, float maxDistance) const;
     // 0..1: las bombillas se dibujan encendidas

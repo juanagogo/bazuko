@@ -2212,6 +2212,16 @@ std::vector<Simulation::HeadlightBeam> Simulation::GetHeadlightBeams(const glm::
     return beams;
 }
 
+bool Simulation::GetCambucheFireLight(float time, const glm::vec3& focus, glm::vec4& light) const {
+    if (!m_CambucheState.fogon || glm::distance(glm::vec2(focus.x, focus.z), glm::vec2(m_CambuchePosition.x, m_CambuchePosition.z)) > 60.0f) return false;
+    const float yaw = glm::pi<float>() * 0.08f;
+    const float c = std::cos(yaw), s = std::sin(yaw);
+    const glm::vec3 offset(1.0f * c + 1.2f * s, 0.5f, -1.0f * s + 1.2f * c);   // el fogon en el sistema del cambuche, girado como el cambuche
+    const float flicker = 0.85f + 0.14f * std::sin(time * 8.0f) + 0.08f * std::sin(time * 18.4f + 1.0f);
+    light = glm::vec4(m_CambuchePosition + offset, flicker);
+    return true;
+}
+
 std::vector<glm::vec4> Simulation::GetHeadlightLights(const glm::vec3& focus, size_t maxCount, float maxDistance) const {
     std::vector<std::pair<float, glm::vec3>> candidates;
     for (const TrafficVehicle& vehicle : m_Traffic) {
@@ -4624,17 +4634,31 @@ void Simulation::Render(Renderer& renderer, float time, const glm::vec3& focusPo
             renderer.SetUnlit(false);
         }
 
-        // Fogón de latas con fuego encendido
+        // Fogón de latas con fuego vivo: tres lenguas (naranja, amarilla y casi blanca) que se alargan y se mecen a ritmos distintos; el color pasa de 1
+        // para que el bloom las haga brillar
         if (m_CambucheState.fogon && m_CambucheFireMesh) {
-            glm::mat4 fogonMat = glm::translate(cambucheRoot, {1.0f, 0.12f, 1.2f});
-            renderer.Submit(*m_CambucheFireMesh, fogonMat, glm::vec4(1.0f, 0.48f, 0.10f, 1.0f));
+            renderer.SetUnlit(true);
+            static const std::array<glm::vec4, 3> tongue{{{2.4f, 0.75f, 0.10f, 1.0f}, {3.0f, 1.55f, 0.25f, 1.0f}, {3.4f, 2.6f, 0.9f, 1.0f}}};
+            for (int k = 0; k < 3; ++k) {
+                const float phase = time * (8.0f + 3.1f * static_cast<float>(k)) + 1.7f * static_cast<float>(k);
+                const float flicker = 0.85f + 0.14f * std::sin(phase) + 0.08f * std::sin(phase * 2.3f + 1.0f);
+                const float height = (1.9f - 0.45f * static_cast<float>(k)) * flicker;
+                const float width = (1.0f - 0.27f * static_cast<float>(k)) * (0.94f + 0.08f * std::sin(phase * 1.7f));
+                glm::mat4 flame = glm::translate(cambucheRoot, {1.0f + 0.03f * std::sin(phase * 0.6f), 0.12f + 0.125f * height, 1.2f + 0.03f * std::cos(phase * 0.5f)});
+                flame = glm::scale(flame, {width, height, width});
+                renderer.Submit(*m_CambucheFireMesh, flame, tongue[static_cast<size_t>(k)]);
+            }
+            renderer.SetUnlit(false);
         }
 
-        // Vela encendida
+        // Vela encendida: llama pequeña que titila
         if (m_CambucheState.vela && m_CambucheFireMesh) {
-            glm::mat4 velaMat = glm::translate(cambucheRoot, {0.6f, 0.08f, -0.9f});
-            velaMat = glm::scale(velaMat, {0.25f, 0.5f, 0.25f});
-            renderer.Submit(*m_CambucheFireMesh, velaMat, glm::vec4(1.0f, 0.85f, 0.40f, 1.0f));
+            const float flicker = 0.9f + 0.1f * std::sin(time * 11.0f) + 0.05f * std::sin(time * 23.0f);
+            glm::mat4 velaMat = glm::translate(cambucheRoot, {0.6f, 0.08f + 0.125f * 0.5f * flicker, -0.9f});
+            velaMat = glm::scale(velaMat, {0.2f, 0.5f * flicker, 0.2f});
+            renderer.SetUnlit(true);
+            renderer.Submit(*m_CambucheFireMesh, velaMat, glm::vec4(3.0f, 2.2f, 0.8f, 1.0f));
+            renderer.SetUnlit(false);
         }
     }
     for (const auto& lamp : m_StreetLamps) {
