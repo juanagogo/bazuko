@@ -968,6 +968,29 @@ Simulation::Simulation(const CityLayout& city, uint32_t seed,
     m_SignalPole = Mesh::CreateCube({0.10f, 3.2f, 0.10f}, {0.18f, 0.19f, 0.20f, 1.0f});
     m_SignalHead = Mesh::CreateCube({0.38f, 0.82f, 0.28f}, {0.10f, 0.11f, 0.12f, 1.0f});
     m_SignalLamp = Mesh::CreateCylinder(0.09f, 0.10f, 12);
+    {   // carton ondulado procedural (128 x 128): franjas de la flauta, fibras y manchas de mugre, sin imagenes
+        constexpr int kSize = 128;
+        std::vector<uint8_t> pixels(static_cast<size_t>(kSize) * kSize * 4);
+        const auto noise = [](int x, int y, int seed) {
+            const float h = std::sin(static_cast<float>(x) * 12.9898f + static_cast<float>(y) * 78.233f + static_cast<float>(seed) * 37.719f) * 43758.5453f;
+            return h - std::floor(h);
+        };
+        for (int y = 0; y < kSize; ++y) {
+            for (int x = 0; x < kSize; ++x) {
+                const float flute = 0.5f + 0.5f * std::sin(static_cast<float>(x) * 6.2831853f / 8.0f);   // una onda cada 8 px
+                const float grime = 0.75f + 0.25f * noise(x / 8, y / 8, 3);
+                const float fibre = 0.93f + 0.07f * noise(x, y, 11);
+                const float tone = (0.80f + 0.2f * flute) * grime * fibre;
+                const glm::vec3 base(0.82f, 0.68f, 0.46f);
+                const size_t i = (static_cast<size_t>(y) * kSize + static_cast<size_t>(x)) * 4;
+                pixels[i] = static_cast<uint8_t>(std::clamp(base.r * tone, 0.0f, 1.0f) * 255.0f);
+                pixels[i + 1] = static_cast<uint8_t>(std::clamp(base.g * tone, 0.0f, 1.0f) * 255.0f);
+                pixels[i + 2] = static_cast<uint8_t>(std::clamp(base.b * tone, 0.0f, 1.0f) * 255.0f);
+                pixels[i + 3] = 255;
+            }
+        }
+        m_CardboardTexture = std::make_shared<Texture>(kSize, kSize, pixels.data());
+    }
     m_SignalBody = SignalModel::BuildBody();
     m_SignalLens = Mesh::CreateCylinder(SignalModel::kLensRadius, 0.03f, 16);
     m_SignalReflection = Mesh::CreatePlane(4.4f, 0.38f, glm::vec4(1.0f));
@@ -4611,7 +4634,8 @@ void Simulation::Render(Renderer& renderer, float time, const glm::vec3& focusPo
             // Solo base: se dibuja la tarima de cartones/madera
             if (m_CambucheBaseMesh) {
                 glm::mat4 baseMat = glm::translate(cambucheRoot, {0.0f, 0.04f, 0.0f});
-                renderer.Submit(*m_CambucheBaseMesh, baseMat);
+                if (m_CardboardTexture) m_CardboardTexture->BindUnit(0);
+                renderer.Submit(*m_CambucheBaseMesh, baseMat, glm::vec4(1.0f), m_CardboardTexture != nullptr);
             }
             if (m_CambucheState.cama && m_CambucheBedMesh) {
                 glm::mat4 bedMat = glm::translate(cambucheRoot, {-0.4f, 0.14f, 0.0f});
@@ -4625,7 +4649,8 @@ void Simulation::Render(Renderer& renderer, float time, const glm::vec3& focusPo
                     float oz = (i < 2 ? -0.3f : 0.3f);
                     glm::mat4 markerMat = glm::translate(cambucheRoot, {ox, 0.02f + i * 0.005f, oz});
                     markerMat = glm::rotate(markerMat, 0.3f * i, {0.0f, 1.0f, 0.0f});
-                    renderer.Submit(*m_CambucheMarkerMesh, markerMat, glm::vec4(0.55f, 0.42f, 0.28f, 0.85f));
+                    if (m_CardboardTexture) m_CardboardTexture->BindUnit(0);
+                    renderer.Submit(*m_CambucheMarkerMesh, markerMat, glm::vec4(0.8f, 0.8f, 0.8f, 0.9f), m_CardboardTexture != nullptr);
                 }
             }
         }

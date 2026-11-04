@@ -731,6 +731,7 @@ private:
     std::shared_ptr<Mesh> m_SignalHead;
     std::shared_ptr<Mesh> m_SignalLamp;
     std::shared_ptr<Mesh> m_SignalBody;       // semaforo de codigo del original (SignalModel.hpp): poste, brazo y cabezas
+    std::shared_ptr<Texture> m_CardboardTexture;   // carton ondulado con mugre: tarima, cartones y colchon del cambuche
     std::shared_ptr<Mesh> m_SignalReflection;   // estela alargada del lente sobre el asfalto mojado
     std::shared_ptr<Mesh> m_SignalSticker;      // calcomania sobre el poste
     std::shared_ptr<Mesh> m_SignalLens;       // lente de 13,8 cm de radio, eje Y
