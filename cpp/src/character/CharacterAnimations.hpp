@@ -12,7 +12,7 @@ inline const std::unordered_map<std::string, std::string>& CharacterAnimationAli
     static const bool previous = std::getenv("BAZUKO_ANDAR_ANTERIOR") != nullptr;
     static const std::unordered_map<std::string, std::string> aliases{
         {"idle_loop_fit", "Idle"},
-        {previous ? "walk_loop_fit" : "walk_mixamo", "Walk"},
+        {std::getenv("BAZUKO_ANDAR_CANSADO") ? "walk_mixamo" : "walk_loop_fit", "Walk"},
         {previous ? "sprint_loop_fit" : "run_mixamo", "Run"},
         {"fixing_kneeling_fit", "Search"},
         {"idle_talking_loop_fit", "Talk"},
