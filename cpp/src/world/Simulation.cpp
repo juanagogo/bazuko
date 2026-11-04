@@ -2662,6 +2662,48 @@ void Simulation::BuildStreetFurniture() {
             }
         }
     }
+    {   // cierres de calle: donde una calzada llega al borde del mapa, una valla de lamina con lona, barreras rayadas, conos y la señal de via cerrada
+        SignalModel::Builder closure;
+        const glm::vec4 sheetA(0.50f, 0.47f, 0.43f, 1.0f), sheetB(0.43f, 0.28f, 0.20f, 1.0f), tarp(0.10f, 0.27f, 0.19f, 1.0f), post(0.30f, 0.17f, 0.10f, 1.0f);
+        const glm::vec4 red(0.78f, 0.12f, 0.10f, 1.0f), white(0.92f, 0.90f, 0.86f, 1.0f), orange(0.95f, 0.42f, 0.08f, 1.0f), black(0.07f, 0.07f, 0.08f, 1.0f);
+        size_t pieces = 0;
+        for (int z = 1; z < CityLayout::HEIGHT - 1; ++z) {
+            for (int x = 1; x < CityLayout::WIDTH - 1; ++x) {
+                const TileType type = m_City.GetTileAt(x, z);
+                if (type != TileType::Road && type != TileType::Busway) continue;
+                for (const auto& offset : kOffsets) {
+                    if (m_City.GetTileAt(x + offset[0], z + offset[1]) != TileType::Wall) continue;
+                    const glm::vec2 toWall(static_cast<float>(offset[0]), static_cast<float>(offset[1])), along(-toWall.y, toWall.x);
+                    const float cx = worldOf(x, CityLayout::ORIGIN_X) + toWall.x * 0.9f, cz = worldOf(z, CityLayout::ORIGIN_Z) + toWall.y * 0.9f;
+                    const uint32_t h = hashOf(x, z);
+                    const auto at = [&](float distanceToWall, float lateral, float y) { return glm::vec3(cx - toWall.x * distanceToWall + along.x * lateral, y, cz - toWall.y * distanceToWall + along.y * lateral); };
+                    const auto size = [&](float thickness, float width, float height) { return glm::vec3(std::abs(toWall.x) > 0.5f ? thickness : width, height, std::abs(toWall.x) > 0.5f ? width : thickness); };
+                    closure.Box(at(0.0f, 0.0f, 1.5f), size(0.14f, CityLayout::TILE_SIZE, 3.0f), (h & 1u) ? sheetA : sheetB);   // lamina ondulada, a tramos oxidada
+                    closure.Box(at(0.02f, 0.0f, 3.5f), size(0.10f, CityLayout::TILE_SIZE, 1.0f), tarp);                          // lona verde sobre la lamina
+                    if ((x + z) % 2 == 0) closure.Box(at(0.1f, 1.0f, 2.0f), size(0.22f, 0.16f, 4.0f), post);                        // poste de madera
+                    // barrera rayada a dos metros, con dos tablas y patas
+                    closure.Box(at(2.3f, 0.0f, 0.95f), size(0.06f, CityLayout::TILE_SIZE - 0.1f, 0.24f), (x + z) % 2 == 0 ? red : white);
+                    closure.Box(at(2.3f, 0.0f, 0.62f), size(0.06f, CityLayout::TILE_SIZE - 0.1f, 0.24f), (x + z) % 2 == 0 ? white : red);
+                    closure.Box(at(2.3f, 0.9f, 0.5f), size(0.08f, 0.08f, 1.0f), black);
+                    if ((x + z) % 3 == 0) {   // cono naranja con su franja blanca
+                        closure.Box(at(3.2f, 0.3f, 0.3f), size(0.3f, 0.3f, 0.6f), orange);
+                        closure.Box(at(3.2f, 0.3f, 0.34f), size(0.32f, 0.32f, 0.1f), white);
+                    }
+                    if ((x * 7 + z * 3) % 5 == 0) {   // cartel de via cerrada: tablero naranja con franjas negras
+                        closure.Box(at(1.2f, 0.0f, 2.2f), size(0.06f, 1.9f, 0.7f), orange);
+                        closure.Box(at(1.17f, 0.0f, 2.2f), size(0.02f, 1.7f, 0.1f), black);
+                        closure.Box(at(1.2f, 0.7f, 1.0f), size(0.08f, 0.08f, 2.0f), black);
+                        closure.Box(at(1.2f, -0.7f, 1.0f), size(0.08f, 0.08f, 2.0f), black);
+                    }
+                    if (std::getenv("BAZUKO_LOG_MOBILIARIO") && pieces % 12 == 0) LogInfo("CIERRE {:.1f} {:.1f} hacia ({:.0f}, {:.0f})", cx, cz, toWall.x, toWall.y);
+                    ++pieces;
+                    break;
+                }
+            }
+        }
+        if (pieces > 0) m_EdgeClosures = closure.Build();
+        LogInfo("Cierres de calle en el borde del mapa: {}", pieces);
+    }
     LogInfo("Mobiliario de calle: {} bancas y {} motos parqueadas", m_Benches.size(), m_ParkedMotos.size());
     if (std::getenv("BAZUKO_LOG_MOBILIARIO")) {
         for (size_t i = 0; i < std::min<size_t>(m_Benches.size(), 6); ++i) LogInfo("BANCA {:.1f} {:.1f}", m_Benches[i].position.x, m_Benches[i].position.z);
@@ -5070,6 +5112,7 @@ void Simulation::Render(Renderer& renderer, float time, const glm::vec3& focusPo
             renderer.SetGrass(false);
         }
     }
+    if (m_EdgeClosures) renderer.Submit(*m_EdgeClosures, glm::mat4(1.0f), glm::vec4(1.0f), false, true);   // cierres de calle del borde del mapa
     {   // bancas y motos parqueadas cercanas
         static const std::shared_ptr<Mesh> plank = Mesh::CreateCube({1.7f, 0.05f, 0.14f}, {0.55f, 0.32f, 0.14f, 1.0f});
         static const std::shared_ptr<Mesh> leg = Mesh::CreateCube({0.05f, 0.45f, 0.5f}, {0.10f, 0.11f, 0.12f, 1.0f});

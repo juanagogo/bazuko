@@ -781,6 +781,7 @@ private:
     std::vector<glm::vec3> m_TreePositions;
     struct FurniturePiece { glm::vec3 position; float yaw; };
     std::vector<FurniturePiece> m_Benches, m_ParkedMotos;
+    std::shared_ptr<Mesh> m_EdgeClosures;   // cierres de las calles que llegan al borde del mapa: lamina, lona, barreras, conos y señales
     float m_TreeRange = 60.0f;   // distancia maxima a la que se dibujan los arboles (segun la calidad grafica)
     std::vector<glm::vec3> m_GrassPositions;
     std::array<std::vector<glm::vec3>, 3> m_ParkGrassPositions;
