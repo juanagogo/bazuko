@@ -6,6 +6,7 @@
 #include <array>
 #include "SignalModel.hpp"
 #include "BusetaModel.hpp"
+#include "MotoModel.hpp"
 #include <cmath>
 #include <filesystem>
 #include "../character/CharacterAnimations.hpp"
@@ -979,6 +980,7 @@ Simulation::Simulation(const CityLayout& city, uint32_t seed,
     m_StreetLampHead = Mesh::CreateCube({0.44f, 0.10f, 0.18f}, {0.88f, 0.76f, 0.48f, 1.0f});
     m_LampBulb = Mesh::CreateRoundedBox({0.32f, 0.32f, 0.32f}, 0.15f, 3, {1.0f, 1.0f, 1.0f, 1.0f});
     m_BusetaMesh = BusetaModel::Build();
+    for (size_t i = 0; i < m_MotoMeshes.size(); ++i) m_MotoMeshes[i] = MotoModel::Build(MotoModel::kPaints[i]);
     m_BusetaWheel = Mesh::CreateCylinder(BusetaModel::kWheelRadius, 0.25f, 18, {0.05f, 0.05f, 0.06f, 1.0f});
     m_LampHalo = Mesh::CreateRoundedBox({2.2f, 2.2f, 2.2f}, 1.05f, 4, {1.0f, 1.0f, 1.0f, 1.0f});
     {   // brillo de faro: nucleo + resplandor gaussiano (anillos) y cuatro estelas finas; mira a +Z, radio 1
@@ -2661,60 +2663,23 @@ void Simulation::BuildStreetFurniture() {
                     m_Benches.push_back({{bx, m_City.GetGroundHeight(bx, bz), bz}, std::atan2(static_cast<float>(offset[0]), static_cast<float>(offset[1]))});
                     break;
                 }
-            } else if (type == TileType::Sidewalk && h % 131 == 0 && m_ParkedMotos.size() < 10) {
-                // dos motos juntas en el anden, paralelas a la calzada que lo bordea
+            } else if (type == TileType::Sidewalk && h % 197 == 0 && m_ParkedMotos.size() < 6) {
+                // una moto en el anden, paralela a la calzada que lo bordea; nunca dos a menos de 60 m una de otra
+                const float mxTile = worldOf(x, CityLayout::ORIGIN_X), mzTile = worldOf(z, CityLayout::ORIGIN_Z);
+                bool crowded = false;
+                for (const FurniturePiece& other : m_ParkedMotos)
+                    if (glm::distance(glm::vec2(other.position.x, other.position.z), glm::vec2(mxTile, mzTile)) < 60.0f) crowded = true;
+                if (crowded) continue;
                 for (const auto& offset : kOffsets) {
                     if (m_City.GetTileAt(x + offset[0], z + offset[1]) != TileType::Road) continue;
-                    const float mx = worldOf(x, CityLayout::ORIGIN_X) - static_cast<float>(offset[0]) * 0.35f, mz = worldOf(z, CityLayout::ORIGIN_Z) - static_cast<float>(offset[1]) * 0.35f;
+                    const float mx = mxTile - static_cast<float>(offset[0]) * 0.35f, mz = mzTile - static_cast<float>(offset[1]) * 0.35f;
                     if (m_City.IsBlocked(mx, mz, 0.7f)) break;
-                    const float along = offset[0] != 0 ? 0.0f : glm::half_pi<float>();   // la moto se alinea con la calzada
-                    m_ParkedMotos.push_back({{mx, m_City.GetGroundHeight(mx, mz), mz}, along});
+                    const float along = (offset[0] != 0 ? 0.0f : glm::half_pi<float>()) + ((h >> 5) % 2 ? glm::pi<float>() : 0.0f);
+                    m_ParkedMotos.push_back({{mx, m_City.GetGroundHeight(mx, mz), mz}, along, static_cast<int>((h >> 8) % 9)});
                     break;
                 }
             }
         }
-    }
-    {   // cierres de calle: donde una calzada llega al borde del mapa, una valla de lamina con lona, barreras rayadas, conos y la señal de via cerrada
-        SignalModel::Builder closure;
-        const glm::vec4 sheetA(0.50f, 0.47f, 0.43f, 1.0f), sheetB(0.43f, 0.28f, 0.20f, 1.0f), tarp(0.10f, 0.27f, 0.19f, 1.0f), post(0.30f, 0.17f, 0.10f, 1.0f);
-        const glm::vec4 red(0.78f, 0.12f, 0.10f, 1.0f), white(0.92f, 0.90f, 0.86f, 1.0f), orange(0.95f, 0.42f, 0.08f, 1.0f), black(0.07f, 0.07f, 0.08f, 1.0f);
-        size_t pieces = 0;
-        for (int z = 1; z < CityLayout::HEIGHT - 1; ++z) {
-            for (int x = 1; x < CityLayout::WIDTH - 1; ++x) {
-                const TileType type = m_City.GetTileAt(x, z);
-                if (type != TileType::Road && type != TileType::Busway) continue;
-                for (const auto& offset : kOffsets) {
-                    if (m_City.GetTileAt(x + offset[0], z + offset[1]) != TileType::Wall) continue;
-                    const glm::vec2 toWall(static_cast<float>(offset[0]), static_cast<float>(offset[1])), along(-toWall.y, toWall.x);
-                    const float cx = worldOf(x, CityLayout::ORIGIN_X) + toWall.x * 0.9f, cz = worldOf(z, CityLayout::ORIGIN_Z) + toWall.y * 0.9f;
-                    const uint32_t h = hashOf(x, z);
-                    const auto at = [&](float distanceToWall, float lateral, float y) { return glm::vec3(cx - toWall.x * distanceToWall + along.x * lateral, y, cz - toWall.y * distanceToWall + along.y * lateral); };
-                    const auto size = [&](float thickness, float width, float height) { return glm::vec3(std::abs(toWall.x) > 0.5f ? thickness : width, height, std::abs(toWall.x) > 0.5f ? width : thickness); };
-                    closure.Box(at(0.0f, 0.0f, 1.5f), size(0.14f, CityLayout::TILE_SIZE, 3.0f), (h & 1u) ? sheetA : sheetB);   // lamina ondulada, a tramos oxidada
-                    closure.Box(at(0.02f, 0.0f, 3.5f), size(0.10f, CityLayout::TILE_SIZE, 1.0f), tarp);                          // lona verde sobre la lamina
-                    if ((x + z) % 2 == 0) closure.Box(at(0.1f, 1.0f, 2.0f), size(0.22f, 0.16f, 4.0f), post);                        // poste de madera
-                    // barrera rayada a dos metros, con dos tablas y patas
-                    closure.Box(at(2.3f, 0.0f, 0.95f), size(0.06f, CityLayout::TILE_SIZE - 0.1f, 0.24f), (x + z) % 2 == 0 ? red : white);
-                    closure.Box(at(2.3f, 0.0f, 0.62f), size(0.06f, CityLayout::TILE_SIZE - 0.1f, 0.24f), (x + z) % 2 == 0 ? white : red);
-                    closure.Box(at(2.3f, 0.9f, 0.5f), size(0.08f, 0.08f, 1.0f), black);
-                    if ((x + z) % 3 == 0) {   // cono naranja con su franja blanca
-                        closure.Box(at(3.2f, 0.3f, 0.3f), size(0.3f, 0.3f, 0.6f), orange);
-                        closure.Box(at(3.2f, 0.3f, 0.34f), size(0.32f, 0.32f, 0.1f), white);
-                    }
-                    if ((x * 7 + z * 3) % 5 == 0) {   // cartel de via cerrada: tablero naranja con franjas negras
-                        closure.Box(at(1.2f, 0.0f, 2.2f), size(0.06f, 1.9f, 0.7f), orange);
-                        closure.Box(at(1.17f, 0.0f, 2.2f), size(0.02f, 1.7f, 0.1f), black);
-                        closure.Box(at(1.2f, 0.7f, 1.0f), size(0.08f, 0.08f, 2.0f), black);
-                        closure.Box(at(1.2f, -0.7f, 1.0f), size(0.08f, 0.08f, 2.0f), black);
-                    }
-                    if (std::getenv("BAZUKO_LOG_MOBILIARIO") && pieces % 12 == 0) LogInfo("CIERRE {:.1f} {:.1f} hacia ({:.0f}, {:.0f})", cx, cz, toWall.x, toWall.y);
-                    ++pieces;
-                    break;
-                }
-            }
-        }
-        if (pieces > 0) m_EdgeClosures = closure.Build();
-        LogInfo("Cierres de calle en el borde del mapa: {}", pieces);
     }
     LogInfo("Mobiliario de calle: {} bancas y {} motos parqueadas", m_Benches.size(), m_ParkedMotos.size());
     if (std::getenv("BAZUKO_LOG_MOBILIARIO")) {
@@ -5135,14 +5100,13 @@ void Simulation::Render(Renderer& renderer, float time, const glm::vec3& focusPo
             for (int i = 0; i < 3; ++i) renderer.Submit(*plank, glm::translate(base, {0.0f, 0.46f, -0.2f + 0.2f * static_cast<float>(i)}));   // asiento
             for (int i = 0; i < 2; ++i) renderer.Submit(*plank, glm::rotate(glm::translate(base, {0.0f, 0.72f + 0.17f * static_cast<float>(i), -0.34f}), -0.15f, glm::vec3(1.0f, 0.0f, 0.0f)));   // respaldo
         }
-        if (m_EmergencyModels[2]) {   // el modelo de la moto de la policia, sin pintura de servicio, como moto civil parqueada
-            for (const FurniturePiece& moto : m_ParkedMotos) {
-                if (glm::distance(glm::vec2(moto.position.x, moto.position.z), glm::vec2(focusPosition.x, focusPosition.z)) > 60.0f) continue;
-                for (int pair = 0; pair < 1; ++pair) {
-                    glm::mat4 at = glm::translate(glm::mat4(1.0f), moto.position + glm::vec3(std::sin(moto.yaw) * 0.0f, 0.0f, 0.0f) + glm::vec3(pair == 0 ? 0.0f : 0.5f * std::cos(moto.yaw), 0.0f, pair == 0 ? 0.0f : -0.5f * std::sin(moto.yaw)));
-                    at = glm::rotate(at, moto.yaw + (pair == 0 ? 0.0f : 0.25f), glm::vec3(0.0f, 1.0f, 0.0f));
-                    m_EmergencyModels[2]->Draw(renderer, at * m_EmergencyFits[2], glm::vec4(0.55f, 0.58f, 0.62f, 1.0f));
-                }
+        for (const FurniturePiece& moto : m_ParkedMotos) {   // moto del original (siete pinturas) y, de vez en cuando, el modelo de la moto de la policia sin servicio
+            if (glm::distance(glm::vec2(moto.position.x, moto.position.z), glm::vec2(focusPosition.x, focusPosition.z)) > 70.0f) continue;
+            glm::mat4 at = glm::rotate(glm::translate(glm::mat4(1.0f), moto.position), moto.yaw, glm::vec3(0.0f, 1.0f, 0.0f));
+            if (moto.seed >= 7 && m_EmergencyModels[2]) {
+                m_EmergencyModels[2]->Draw(renderer, glm::rotate(at, 0.25f, glm::vec3(0.0f, 1.0f, 0.0f)) * m_EmergencyFits[2], glm::vec4(0.55f, 0.58f, 0.62f, 1.0f));
+            } else if (const auto& mesh = m_MotoMeshes[static_cast<size_t>(moto.seed % 7)]) {
+                renderer.Submit(*mesh, glm::rotate(at, -0.12f, glm::vec3(1.0f, 0.0f, 0.0f)));   // apoyada en el gato, ladeada
             }
         }
     }

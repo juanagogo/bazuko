@@ -989,30 +989,246 @@ void CityLayout::BuildMeshes(const CityLoadProgress& progressCallback) {
             };
             ramp(kNorthEnd, kNorthEnd + kRampLength);
             ramp(kSouthEnd, kSouthEnd - kRampLength);
-            // estructura esbelta: columnas, cubierta y franjas rojas
-            for (float z : {-49.0f, -43.0f, -35.0f, -27.0f, -19.0f, -11.0f})
-                for (float x : {73.12f, 76.88f}) { box({x, 2.67f, z}, {0.14f, 3.5f, 0.14f}, steel); obstacle({x, 0.0f, z}, 0.14f, 0.14f, 0.05f); }
-            box({kCenterX, 4.5f, kCenterZ}, {4.8f, 0.16f, 41.0f}, steel);
-            for (float x : {73.0f, 77.0f}) box({x, 4.3f, kCenterZ}, {0.12f, 0.28f, 41.0f}, red);
-            // galerias de vidrio con dos puertas por lado
-            for (const auto& [a, b] : std::array<std::pair<float, float>, 3>{{{-50.0f, -43.0f}, {-39.0f, -25.0f}, {-21.0f, -10.0f}}}) {
-                for (float x : {73.02f, 76.98f}) {
-                    boxTo(glassVertices, glassIndices, 0.30f, {x, 2.15f, (a + b) * 0.5f}, {0.06f, 2.1f, b - a}, glassTint, 0.0f);
-                    box({x, 1.1f, (a + b) * 0.5f}, {0.08f, 0.3f, b - a}, steel);
+            // ---- estructura del original: columnas, cerchas, cubierta curva, cielo raso, muros de vidrio con puertas, accesos y mobiliario ----
+            constexpr float kFloor = 0.92f, kWallW = 73.12f, kWallE = 76.88f, kDoorHead = 3.02f, kFrieze = 3.4f, kCeil = 3.42f;
+            constexpr float kRoofHalf = 2.92f, kEave = 3.95f, kRise = 0.74f, zN = -50.0f, zS = -10.0f;
+            constexpr uint32_t steelLight = 0x7b8186, steelDark = 0x2a2e31, redStation = 0xa8141c, yellowStation = 0xe9b714, stainless = 0x9aa1a6;
+            const auto rgbv = [](uint32_t c, float s = 1.0f, float a = 1.0f) {
+                return glm::vec4(std::min(1.0f, ((c >> 16) & 0xFF) / 255.0f * s), std::min(1.0f, ((c >> 8) & 0xFF) / 255.0f * s), std::min(1.0f, (c & 0xFF) / 255.0f * s), a);
+            };
+            const auto roofY = [&](float x) { const float t = (x - kCenterX) / kRoofHalf; return kEave + kRise * (1.0f - t * t); };
+            const auto sq = [&](glm::vec3 a, glm::vec3 b, glm::vec3 c, glm::vec3 d, const glm::vec3& outward, const glm::vec4& color) {
+                glm::vec3 n = glm::cross(b - a, c - a);
+                if (glm::dot(n, outward) < 0.0f) { std::swap(b, d); n = glm::cross(b - a, c - a); }
+                n = glm::normalize(n);
+                const uint32_t base = static_cast<uint32_t>(landmarkVertices.size());
+                landmarkVertices.push_back({a, n, {0, 0}, color});
+                landmarkVertices.push_back({b, n, {1, 0}, color});
+                landmarkVertices.push_back({c, n, {1, 1}, color});
+                landmarkVertices.push_back({d, n, {0, 1}, color});
+                landmarkIndices.insert(landmarkIndices.end(), {base, base + 1, base + 2, base + 2, base + 3, base});
+            };
+            const auto bar = [&](const glm::vec3& p0, const glm::vec3& p1, float r, const glm::vec4& color) {   // varilla de seccion cuadrada entre dos puntos (tubos, cerchas, barandas)
+                const glm::vec3 delta = p1 - p0;
+                const float length = glm::length(delta);
+                if (length < 1e-4f) return;
+                const glm::vec3 d = delta / length, helper = std::fabs(d.y) > 0.9f ? glm::vec3(1, 0, 0) : glm::vec3(0, 1, 0);
+                const glm::vec3 u = glm::normalize(glm::cross(d, helper)) * r, v = glm::normalize(glm::cross(d, u)) * r;
+                const glm::vec3 c[4] = {-u - v, u - v, u + v, -u + v};
+                for (int i = 0; i < 4; ++i) { const int j = (i + 1) % 4; sq(p0 + c[i], p1 + c[i], p1 + c[j], p0 + c[j], c[i] + c[j], color); }
+            };
+            const glm::vec4 cSteel = rgbv(0x4b5155), cDark = rgbv(steelDark), cLight = rgbv(steelLight), cRed = rgbv(redStation);
+
+            // columnas (cada una con su obstaculo) y cerchas cada 4 m: cordon inferior recto, superior siguiendo la curva y diagonales en zigzag
+            for (float z : {-50.0f, -46.0f, -42.0f, -38.0f, -30.0f, -22.0f, -18.0f, -14.0f, -10.0f})
+                for (float x : {kWallW, kWallE}) {
+                    box({x, (kFloor + kCeil) * 0.5f, z}, {0.16f, kCeil - kFloor, 0.16f}, 0x8a9096);
+                    box({x, kFloor + 0.08f, z}, {0.24f, 0.16f, 0.28f}, steelDark);
+                    obstacle({x, 0.0f, z}, 0.16f, 0.16f, 0.05f);
+                }
+            for (float z = -50.0f; z <= -9.99f; z += 4.0f) {
+                const float chordY = kCeil + 0.06f;
+                bar({kWallW, chordY, z}, {kWallE, chordY, z}, 0.04f, cSteel);
+                glm::vec3 previous(kCenterX - kRoofHalf + 0.02f, roofY(kCenterX - kRoofHalf + 0.02f) - 0.055f, z);
+                for (int i = 1; i <= 12; ++i) {
+                    const float x = glm::mix(kCenterX - kRoofHalf + 0.02f, kCenterX + kRoofHalf - 0.02f, static_cast<float>(i) / 12.0f);
+                    const glm::vec3 next(x, roofY(x) - 0.055f, z);
+                    bar(previous, next, 0.045f, cSteel);
+                    previous = next;
+                }
+                for (int i = 0; i < 8; ++i) {
+                    const float xa = glm::mix(kWallW, kWallE, static_cast<float>(i) / 8.0f), xb = glm::mix(kWallW, kWallE, static_cast<float>(i + 1) / 8.0f);
+                    const glm::vec3 pa = i % 2 ? glm::vec3(xa, roofY(xa) - 0.07f, z) : glm::vec3(xa, chordY, z);
+                    const glm::vec3 pb = i % 2 ? glm::vec3(xb, chordY, z) : glm::vec3(xb, roofY(xb) - 0.07f, z);
+                    bar(pa, pb, 0.017f, cSteel * glm::vec4(0.85f, 0.85f, 0.85f, 1.0f));
+                }
+                for (float wall : {kWallW, kWallE}) {   // voladizo con su tornapunta
+                    const float tip = wall < kCenterX ? kCenterX - kRoofHalf + 0.1f : kCenterX + kRoofHalf - 0.1f;
+                    bar({wall, chordY, z}, {tip, roofY(tip) - 0.08f, z}, 0.03f, cSteel);
                 }
             }
-            for (float z : {-46.0f, -30.0f, -14.0f}) {
-                box({74.0f, 1.12f, z}, {0.5f, 0.4f, 2.0f}, steel);
-                box({73.8f, 1.55f, z}, {0.08f, 0.55f, 2.0f}, steel);
+            for (float x : {kWallW, kWallE}) box({x, kCeil + 0.02f, kCenterZ}, {0.14f, 0.16f, 40.0f}, 0x4b5155);   // vigas largas
+
+            // lamina curva con su cara inferior mas oscura, canales y fascia roja
+            {
+                const float x0 = kCenterX - kRoofHalf, x1 = kCenterX + kRoofHalf, zStart = zN - 0.7f, zEnd = zS + 0.7f;
+                for (int i = 0; i < 12; ++i) {
+                    const float a = glm::mix(x0, x1, static_cast<float>(i) / 12.0f), b = glm::mix(x0, x1, static_cast<float>(i + 1) / 12.0f);
+                    const glm::vec4 top = rgbv(0xb3b7b7, i % 2 ? 0.93f : 1.04f);
+                    sq({a, roofY(a), zStart}, {b, roofY(b), zStart}, {b, roofY(b), zEnd}, {a, roofY(a), zEnd}, {0, 1, 0}, top);
+                    sq({a, roofY(a) - 0.025f, zStart}, {b, roofY(b) - 0.025f, zStart}, {b, roofY(b) - 0.025f, zEnd}, {a, roofY(a) - 0.025f, zEnd}, {0, -1, 0}, rgbv(0x6d7274));
+                    for (float z : {zStart, zEnd})
+                        for (float s : {-1.0f, 1.0f})
+                            sq({a, roofY(a) - 0.16f, z}, {b, roofY(b) - 0.16f, z}, {b, roofY(b) + 0.02f, z}, {a, roofY(a) + 0.02f, z}, {0, 0, s}, cRed);
+                }
+                for (float s : {-1.0f, 1.0f}) {
+                    const float x = s < 0 ? x0 : x1;
+                    box({x + s * 0.07f, roofY(x) - 0.1f, kCenterZ}, {0.16f, 0.2f, zEnd - zStart + 0.1f}, redStation);
+                }
+                // cielo raso en paneles, cada uno con su tono, y dos filas de luminarias
+                for (float z = zN; z < zS - 0.01f; z += 1.2f) {
+                    const float zb = std::min(zS, z + 1.2f);
+                    const float tone = 0.88f + 0.14f * static_cast<float>((static_cast<int>(std::fabs(z) * 10.0f) * 7) % 10) / 10.0f;
+                    sq({kWallW + 0.08f, kCeil, z + 0.012f}, {kWallE - 0.08f, kCeil, z + 0.012f}, {kWallE - 0.08f, kCeil, zb - 0.012f}, {kWallW + 0.08f, kCeil, zb - 0.012f}, {0, -1, 0}, rgbv(0xd6d6cf, tone));
+                }
+                sq({kWallW, kCeil + 0.03f, zN}, {kWallE, kCeil + 0.03f, zN}, {kWallE, kCeil + 0.03f, zS}, {kWallW, kCeil + 0.03f, zS}, {0, 1, 0}, rgbv(steelDark, 0.7f));
+                for (float x : {74.1f, 75.9f})
+                    for (float z = zN + 0.6f; z < zS - 0.4f; z += 2.4f) box({x, kCeil - 0.02f, z + 0.6f}, {0.2f, 0.04f, 1.2f}, 0xfff4dc);
             }
-            for (float x : {73.2f, 76.8f}) box({x, 0.935f, kCenterZ}, {0.09f, 0.015f, 40.0f}, yellow);
-            for (float z : {-41.0f, -23.0f}) for (float x : {72.9f, 77.1f}) box({x, 3.75f, z}, {0.04f, 0.6f, 3.0f}, red);
-            if (m_SignAtlas.GetTexture()) {
-                for (const glm::vec3& normal : {glm::vec3(0, 0, 1), glm::vec3(0, 0, -1)}) {
-                    appendSignQuad({75.0f, 3.9f, -9.8f}, normal, 3.6f, 0.8f, m_SignAtlas.Landmark(5), 0.0f, 0.0f);
-                    appendSignQuad({75.0f, 3.9f, -30.0f}, normal, 3.6f, 0.8f, m_SignAtlas.Landmark(6), 0.0f, 0.0f);
+            // franja roja, canto amarillo y baldosa tactil (con puntos) a lo largo de las puertas
+            for (float x : {73.03f, 76.97f}) box({x, kFloor + 0.002f, kCenterZ}, {0.06f, 0.012f, 40.0f}, yellowStation);
+            for (float x : {74.02f, 75.98f}) {
+                box({x, kFloor + 0.006f, kCenterZ}, {0.36f, 0.012f, 40.0f}, 0xd9ad14);
+                for (float z = zN + 0.4f; z < zS; z += 0.8f) box({x, kFloor + 0.014f, z}, {0.28f, 0.006f, 0.05f}, 0xf0c52a);
+            }
+            // muros de vidrio con parales, zocalo y friso rojo; se abren donde para el bus (cuatro puertas por lado, en las posiciones de las del bus)
+            {
+                const std::array<float, 4> doorsWest{-35.1f, -32.55f, -26.3f, -23.7f}, doorsEast{-36.3f, -33.7f, -27.45f, -24.9f};
+                for (int sideIndex = 0; sideIndex < 2; ++sideIndex) {
+                    const float x = sideIndex == 0 ? kWallW : kWallE, side = sideIndex == 0 ? -1.0f : 1.0f;
+                    const std::array<float, 4>& doors = sideIndex == 0 ? doorsWest : doorsEast;
+                    std::vector<float> cuts{zN, zS};
+                    for (float c : doors) { cuts.push_back(c - 0.65f); cuts.push_back(c + 0.65f); }
+                    std::sort(cuts.begin(), cuts.end());
+                    const auto inOpening = [&](float z) { for (float c : doors) if (z > c - 0.65f + 1e-3f && z < c + 0.65f - 1e-3f) return true; return false; };
+                    for (size_t i = 0; i + 1 < cuts.size(); ++i) {
+                        const float a = cuts[i], b = cuts[i + 1];
+                        if (b - a < 0.05f || inOpening((a + b) * 0.5f)) continue;
+                        const int count = std::max(1, static_cast<int>(std::lround((b - a) / 1.3f)));
+                        for (int k = 0; k < count; ++k) {
+                            const float za = glm::mix(a, b, static_cast<float>(k) / count), zb = glm::mix(a, b, static_cast<float>(k + 1) / count);
+                            boxTo(glassVertices, glassIndices, 0.26f, {x, (kFloor + 0.16f + kDoorHead) * 0.5f, (za + zb) * 0.5f}, {0.04f, kDoorHead - kFloor - 0.16f, zb - za - 0.06f}, 0x1d2c30, 0.0f);
+                            boxTo(glassVertices, glassIndices, 0.5f, {x, 2.43f, (za + zb) * 0.5f}, {0.045f, 0.14f, zb - za - 0.06f}, 0xdde0e0, 0.0f);   // banda esmerilada a la altura de los ojos
+                            box({x, (kFloor + kDoorHead) * 0.5f, zb}, {0.05f, kDoorHead - kFloor, 0.07f}, 0x7a8085);
+                            box({x, kFloor + 0.08f, (za + zb) * 0.5f}, {0.07f, 0.16f, zb - za}, 0x4b5155);
+                            box({x, 2.02f, (za + zb) * 0.5f}, {0.03f, 0.03f, zb - za}, 0x4b5155);
+                        }
+                    }
+                    box({x, (kFloor + kDoorHead) * 0.5f, zN}, {0.05f, kDoorHead - kFloor, 0.07f}, 0x7a8085);
+                    box({x + side * 0.03f, (kDoorHead + kFrieze) * 0.5f, kCenterZ}, {0.06f, kFrieze - kDoorHead, 40.0f}, redStation);   // friso rojo continuo
+                    box({x, kDoorHead + 0.012f, kCenterZ}, {0.1f, 0.035f, 40.0f}, 0x7b8186);
+                    box({x, kFrieze - 0.008f, kCenterZ}, {0.1f, 0.025f, 40.0f}, steelDark);
+                    for (size_t index = 0; index < doors.size(); ++index) {   // puertas: marco rojo, dos hojas de vidrio, linea amarilla al piso y letrero de vagon
+                        const float center = doors[index], a = center - 0.65f, b = center + 0.65f;
+                        for (float z : {a - 0.045f, b + 0.045f}) box({x, (kFloor + kDoorHead) * 0.5f, z}, {0.12f, kDoorHead - kFloor, 0.09f}, redStation);
+                        box({x, kDoorHead - 0.04f, center}, {0.14f, 0.09f, 1.38f}, redStation);
+                        box({x - side * 0.12f, kDoorHead - 0.13f, center}, {0.14f, 0.15f, 2.6f}, 0x84898c);   // caja del mecanismo
+                        for (float leaf : {-0.325f, 0.325f}) {
+                            boxTo(glassVertices, glassIndices, 0.22f, {x - side * 0.08f, (kFloor + 0.13f + kDoorHead - 0.085f) * 0.5f, center + leaf}, {0.03f, kDoorHead - kFloor - 0.22f, 0.62f}, 0x1d2c30, 0.0f);
+                            box({x - side * 0.08f, (kFloor + 0.03f + kDoorHead - 0.085f) * 0.5f, center + leaf + (leaf > 0 ? 0.3f : -0.3f)}, {0.03f, kDoorHead - kFloor - 0.115f, 0.055f}, redStation);
+                            box({x - side * 0.08f, kFloor + 0.08f, center + leaf}, {0.03f, 0.1f, 0.64f}, steelDark);
+                        }
+                        box({x - side * 0.08f, kDoorHead - 0.11f, center}, {0.03f, 0.055f, 1.3f}, redStation);
+                        box({x - side * 0.35f, kFloor + 0.006f, center - 0.7f}, {0.5f, 0.008f, 0.06f}, yellowStation);   // linea amarilla alrededor de la puerta
+                        box({x - side * 0.35f, kFloor + 0.006f, center + 0.7f}, {0.5f, 0.008f, 0.06f}, yellowStation);
+                        box({x - side * 0.6f, kFloor + 0.006f, center}, {0.06f, 0.008f, 1.46f}, yellowStation);
+                        if (m_SignAtlas.GetTexture()) {   // letrero de vagon colgado perpendicular al muro, legible por los dos lados
+                            const size_t wagon = sideIndex == 1 ? index : doors.size() - 1 - index;
+                            for (float s : {-1.0f, 1.0f}) appendSignQuad({x - side * 0.62f, 2.96f, center + s * 0.004f}, {0, 0, s}, 0.96f, 0.32f, m_SignAtlas.Landmark(10 + wagon), 0.0f, 0.0f);
+                            for (float dx : {-0.3f, 0.3f}) bar({x - side * 0.62f + dx, 3.12f, center}, {x - side * 0.62f + dx, kCeil, center}, 0.008f, cDark);
+                        }
+                    }
+                }
+                obstacle({kWallW, 0.0f, kCenterZ}, 0.12f, 40.0f, 0.04f);   // los muros cierran el costado: se entra por las rampas y se sube al bus por sus puertas
+                obstacle({kWallE, 0.0f, kCenterZ}, 0.12f, 40.0f, 0.04f);
+            }
+            // accesos: letrero del portal sobre cada entrada, cuatro molinetes y taquilla
+            for (const auto& entry : std::array<std::array<float, 5>, 2>{{{zS, 1.0f, -14.9f, -12.6f, 1.0f}, {zN, -1.0f, -45.1f, -47.4f, 0.0f}}}) {
+                const float zFace = entry[0], s = entry[1], line = entry[2], boothZ = entry[3];
+                const bool west = entry[4] > 0.5f;
+                const float zSign = zFace + s * 0.12f;
+                box({kCenterX, 3.0f, zSign}, {3.7f, 0.1f, 0.12f}, steelDark);
+                box({kCenterX, 3.94f, zSign}, {3.7f, 0.08f, 0.12f}, steelDark);
+                if (m_SignAtlas.GetTexture()) {
+                    appendSignQuad({kCenterX, 3.475f, zSign + s * 0.065f}, {0, 0, s}, 3.6f, 0.85f, m_SignAtlas.Landmark(5), 0.0f, 0.0f);
+                    appendSignQuad({kCenterX, 3.23f, zSign - s * 0.065f}, {0, 0, -s}, 3.6f, 0.36f, m_SignAtlas.Landmark(6), 0.0f, 0.0f);
+                }
+                for (float x : {73.34f, 74.26f, 75.74f, 76.66f}) {   // molinetes: cuerpo de acero, tope negro, lector inclinado y raya de paso
+                    box({x, kFloor + 0.06f, line}, {0.18f, 0.12f, 0.76f}, steelDark);
+                    box({x, kFloor + 0.51f, line}, {0.2f, 0.78f, 0.75f}, stainless);
+                    box({x, kFloor + 0.91f, line}, {0.212f, 0.02f, 0.75f}, 0x121315);
+                    box({x, kFloor + 0.945f, line + 0.2f * s * 0.0f + 0.2f}, {0.13f, 0.05f, 0.2f}, 0x1d2022);
+                    box({x, kFloor + 0.972f, line + 0.175f}, {0.08f, 0.01f, 0.09f}, 0x7fc4ff);
+                    box({x, kFloor + 0.922f, line + 0.38f}, {0.024f, 0.006f, 0.12f}, 0x32e070);
+                    box({x, kFloor + 0.922f, line - 0.38f}, {0.024f, 0.006f, 0.12f}, 0xff4426);
+                    obstacle({x, 0.0f, line}, 0.22f, 0.96f, 0.0f);
+                }
+                for (float x : {74.38f, 75.62f}) boxTo(glassVertices, glassIndices, 0.4f, {x, kFloor + 0.7f, line - 0.22f}, {0.02f, 0.64f, 0.46f}, 0x3c5c64, 0.0f);   // paletas de vidrio del paso central
+                // taquilla: caseta de acero y vidrio contra un costado, con el taquillero detras
+                const float bx0 = west ? 73.18f : 75.68f, bx1 = west ? 74.32f : 76.82f, bz0 = boothZ - 1.4f, bz1 = boothZ + 1.4f, bcx = (bx0 + bx1) * 0.5f;
+                const float innerX = west ? bx1 : bx0, face = west ? 1.0f : -1.0f, topY = 3.0f;
+                box({bcx, kFloor + 0.5f, boothZ}, {bx1 - bx0, 1.0f, bz1 - bz0}, 0x565d62);
+                box({bcx, topY + 0.08f, boothZ}, {bx1 - bx0 + 0.1f, 0.16f, bz1 - bz0 + 0.1f}, redStation);
+                boxTo(glassVertices, glassIndices, 0.46f, {innerX, (kFloor + 1.0f + topY) * 0.5f, boothZ}, {0.04f, topY - kFloor - 1.0f, bz1 - bz0}, 0x1d2c30, 0.0f);
+                for (float zEdge : {bz0, bz1}) {
+                    boxTo(glassVertices, glassIndices, 0.46f, {bcx, (kFloor + 1.0f + topY) * 0.5f, zEdge}, {bx1 - bx0, topY - kFloor - 1.0f, 0.04f}, 0x1d2c30, 0.0f);
+                    for (float x : {bx0 + 0.03f, bx1 - 0.03f}) box({x, (kFloor + topY + 1.0f) * 0.5f, zEdge}, {0.06f, topY - kFloor - 1.0f, 0.06f}, steelDark);
+                }
+                box({innerX + face * 0.1f, kFloor + 1.02f, boothZ}, {0.28f, 0.04f, 1.1f}, 0x9aa1a6);   // mostrador
+                box({bcx, kFloor + 1.0f, boothZ}, {0.5f, 0.04f, 1.6f}, 0x5b4530);
+                box({bcx - face * 0.2f, kFloor + 1.3f, boothZ}, {0.34f, 0.68f, 0.3f}, 0x26364e);   // taquillero
+                box({bcx - face * 0.2f, kFloor + 1.72f, boothZ}, {0.19f, 0.24f, 0.2f}, 0xa57a59);
+                if (m_SignAtlas.GetTexture()) appendSignQuad({innerX + face * 0.03f, topY - 0.2f, boothZ}, {face, 0, 0}, 2.5f, 0.28f, m_SignAtlas.Landmark(14), 0.0f, 0.0f);
+                obstacle({bcx, 0.0f, boothZ}, bx1 - bx0, bz1 - bz0, 0.0f);
+            }
+            // mobiliario: bancas de listones, canecas verdes, aviso de seguridad y tableros de proximos buses sobre el pasillo
+            {
+                const auto bench = [&](float x, float z, float facing) {
+                    box({x, kFloor + 0.46f, z}, {0.42f, 0.05f, 2.1f}, 0xa8aeb3);
+                    for (int k = -8; k <= 8; ++k) box({x, kFloor + 0.49f, z + 0.125f * static_cast<float>(k)}, {0.4f, 0.006f, 0.05f}, steelDark);
+                    box({x - facing * 0.19f, kFloor + 0.72f, z}, {0.05f, 0.44f, 2.1f}, 0x8d9398);
+                    for (float dz : {-0.85f, 0.0f, 0.85f}) { box({x, kFloor + 0.22f, z + dz}, {0.05f, 0.44f, 0.06f}, steelDark); box({x, kFloor + 0.025f, z + dz}, {0.4f, 0.05f, 0.08f}, steelDark); }
+                    obstacle({x, 0.0f, z}, 0.48f, 2.1f, 0.0f);
+                };
+                const auto bin = [&](float x, float z) {
+                    box({x, kFloor + 0.43f, z}, {0.44f, 0.86f, 0.44f}, 0x2f5e3a);
+                    box({x, kFloor + 0.92f, z}, {0.5f, 0.12f, 0.5f}, 0x6f757a);
+                    box({x, kFloor + 0.92f, z}, {0.5f, 0.05f, 0.12f}, 0x121315);
+                    obstacle({x, 0.0f, z}, 0.52f, 0.52f, 0.0f);
+                };
+                const float east = kWallE - 0.36f, west = kWallW + 0.36f;
+                for (float z : {-41.2f, -30.2f, -19.4f}) bench(east, z, -1.0f);
+                for (float z : {-41.2f, -29.6f, -19.4f}) bench(west, z, 1.0f);
+                for (float z : {-43.0f, -15.9f}) bin(east, z);
+                for (float z : {-37.1f, -16.6f}) bin(west, z);
+                for (float z : {-40.0f, -30.4f, -21.0f}) {   // tablero electronico, legible por las dos caras
+                    box({kCenterX, 3.03f, z}, {2.22f, 0.6f, 0.1f}, 0x121315);
+                    if (m_SignAtlas.GetTexture())
+                        for (float s : {-1.0f, 1.0f}) appendSignQuad({kCenterX, 3.03f, z + s * 0.056f}, {0, 0, s}, 2.1f, 0.5f, m_SignAtlas.Landmark(15), 0.0f, 0.0f);
+                    for (float dx : {-0.8f, 0.8f}) bar({kCenterX + dx, 3.28f, z}, {kCenterX + dx, kCeil, z}, 0.008f, cDark);
+                }
+                if (m_SignAtlas.GetTexture()) {
+                    appendSignQuad({kWallW + 0.1f, 2.59f, kCenterZ}, {1, 0, 0}, 1.8f, 0.18f, m_SignAtlas.Landmark(16), 0.0f, 0.0f);
+                    appendSignQuad({kWallE - 0.1f, 2.59f, kCenterZ}, {-1, 0, 0}, 1.8f, 0.18f, m_SignAtlas.Landmark(16), 0.0f, 0.0f);
                 }
             }
+            // barandas de dos tubos con parales en las rampas, bolardos en las puntas y bandas amarillas de arranque
+            for (const auto& ends : std::array<std::array<float, 2>, 2>{{{zS, -2.0f}, {zN, -58.0f}}}) {
+                for (float x : {73.06f, 76.94f}) {
+                    const auto at = [&](float t, float h) { return glm::vec3(x, glm::mix(kFloor, 0.02f, t) + h, glm::mix(ends[0], ends[1], t)); };
+                    bar(at(-0.02f, 1.02f), at(1.02f, 1.02f), 0.024f, cLight);
+                    bar(at(-0.02f, 0.58f), at(1.02f, 0.58f), 0.018f, cLight);
+                    for (int k = 0; k <= 6; ++k) bar(at(static_cast<float>(k) / 6.0f, -0.02f), at(static_cast<float>(k) / 6.0f, 1.03f), 0.022f, cLight);
+                }
+                for (const auto& band : std::array<std::array<float, 2>, 2>{{{0.0f, 0.03f}, {0.96f, 1.0f}}}) {
+                    const float za = glm::mix(ends[0], ends[1], band[0]), zb = glm::mix(ends[0], ends[1], band[1]);
+                    const float ya = glm::mix(kFloor, 0.02f, band[0]) + 0.006f, yb = glm::mix(kFloor, 0.02f, band[1]) + 0.006f;
+                    sq({kCenterX - 1.9f, ya, za}, {kCenterX + 1.9f, ya, za}, {kCenterX + 1.9f, yb, zb}, {kCenterX - 1.9f, yb, zb}, {0, 1, 0}, rgbv(yellowStation));
+                }
+            }
+            for (float z : {-1.4f, -58.6f})
+                for (float x : {73.45f, 74.2f, 75.8f, 76.55f}) {
+                    box({x, 0.48f, z}, {0.12f, 0.92f, 0.12f}, 0x3a4044);
+                    box({x, 0.75f, z}, {0.126f, 0.1f, 0.126f}, yellowStation);
+                    obstacle({x, 0.0f, z}, 0.16f, 0.16f, 0.0f);
+                }
+            // fin de via: barrera roja y blanca al fondo de la calle ampliada
+            for (float x = 54.4f; x < 95.6f; x += 2.2f) {
+                const bool white = static_cast<int>(std::lround((x - 54.4f) / 2.2f)) % 2 == 0;
+                box({x + 1.0f, 0.45f, -73.6f}, {2.1f, 0.86f, 0.5f}, white ? 0xe8e8e2 : redStation);
+                box({x + 1.0f, 0.96f, -73.6f}, {1.9f, 0.05f, 0.05f}, 0x8b9196);
+            }
+            obstacle({75.0f, 0.0f, -73.6f}, 41.2f, 0.8f, 0.0f);
             m_Landmarks.push_back({"Estación Portal del Centro", {kCenterX, 0.0f, kCenterZ}});
         }
 
@@ -1159,10 +1375,14 @@ void CityLayout::BuildMeshes(const CityLoadProgress& progressCallback) {
                 for (size_t line = 0; line < lines.size(); ++line) {
                     if (lines[line].empty()) continue;
                     const SignUV uv = m_SignAtlas.StreetName(lines[line]);
-                    const float y = 2.65f - static_cast<float>(line) * 0.32f;
+                    const float y = 2.65f - static_cast<float>(line) * 0.42f;
                     const glm::vec3 front = line % 2 == 0 ? glm::vec3(0, 0, 1) : glm::vec3(1, 0, 0);
-                    appendSignQuad({px, y, pz}, front, 1.1f, 0.28f, uv, 0.0f, 0.0f);
-                    appendSignQuad({px, y, pz}, -front, 1.1f, 0.28f, uv, 0.0f, 0.0f);
+                    for (const float side : {1.0f, -1.0f}) {   // una placa por cara, separadas del poste y entre si: dos caras en el mismo plano se transparentaban segun el angulo
+                        const glm::vec3 n = front * side, center = glm::vec3(px, y, pz) + n * 0.065f;
+                        const glm::vec3 size = line % 2 == 0 ? glm::vec3(1.28f, 0.36f, 0.035f) : glm::vec3(0.035f, 0.36f, 1.28f);
+                        box(center, size, 0xcfcbbd);   // respaldo de lamina
+                        appendSignQuad(center + n * 0.0185f, n, 1.24f, 0.31f, uv, 0.0f, 0.0f);
+                    }
                 }
             };
             std::vector<std::pair<Band, std::string>> avenues;

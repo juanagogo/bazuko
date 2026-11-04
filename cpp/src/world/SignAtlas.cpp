@@ -50,7 +50,9 @@ const std::array<LandmarkSign, SignAtlas::kLandmarks> kLandmarkSigns{{
     {"NORTE · SUR", "ANDENES A AMBOS LADOS", 0xb32c35},
     {"TORRE COLPATRIA", "ACCESO PRINCIPAL", 0xa9aaa5},
     {"TORRE COLPATRIA", "EDIFICIO ANEXO", 0xa9aaa5},
-    {"LOCALES", "CAFÉ · SERVICIOS", 0xa9aaa5}}};
+    {"LOCALES", "CAFÉ · SERVICIOS", 0xa9aaa5},
+    {"VAGÓN 1", "B12 · H27", 0xad1620}, {"VAGÓN 2", "B12 · H27", 0xad1620}, {"VAGÓN 3", "B12 · H27", 0xad1620}, {"VAGÓN 4", "B12 · H27", 0xad1620},
+    {"TAQUILLA · RECARGAS", "", 0xad1620}, {"PRÓXIMOS BUSES", "B12 PORTAL CENTRO 2 MIN", 0x0c0b0a}, {"ESPERE DETRÁS DE LA LÍNEA AMARILLA", "", 0xf0c52a}}};
 
 bool IsLight(uint32_t rgb) {
     const int r = static_cast<int>((rgb >> 16) & 0xFF), g = static_cast<int>((rgb >> 8) & 0xFF), b = static_cast<int>(rgb & 0xFF);
@@ -109,8 +111,10 @@ bool SignAtlas::Build(const std::string& fontPath) {
     }
 
     for (size_t i = 0; i < kStreetNames.size(); ++i, ++index) {
-        Image cell(kCellW, kCellH, HexColor(0xffffff));   // placa blanca con letras oscuras, como streetSign del original
-        font.DrawCentered(cell, kStreetNames[i], kCellW * 0.5f, 64.0f, 70.0f, 480.0f, HexColor(0x1b1b1b));
+        Image cell(kCellW, kCellH, HexColor(0x167a62));   // placa verde azulada de Bogota: borde claro de lamina, filete interior y letras crema
+        cell.StrokeRect(0, 0, kCellW, kCellH, 7, HexColor(0xd9d5c8));
+        cell.StrokeRect(14, 14, kCellW - 28, kCellH - 28, 3, HexColor(0xeee9dc));
+        font.DrawCentered(cell, kStreetNames[i], kCellW * 0.5f, 66.0f, 66.0f, 440.0f, HexColor(0xf3eee2));
         place(index, cell);
     }
 

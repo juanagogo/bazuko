@@ -780,9 +780,10 @@ private:
     size_t m_PoopHitCount = 0;
     std::vector<TrafficSignal> m_TrafficSignals;
     std::vector<glm::vec3> m_TreePositions;
-    struct FurniturePiece { glm::vec3 position; float yaw; };
+    struct FurniturePiece { glm::vec3 position; float yaw; int seed = 0; };
     std::vector<FurniturePiece> m_Benches, m_ParkedMotos;
     std::shared_ptr<Mesh> m_BusetaMesh, m_BusetaWheel;
+    std::array<std::shared_ptr<Mesh>, 7> m_MotoMeshes;   // moto urbana del original en sus siete pinturas
     std::shared_ptr<Mesh> m_EdgeClosures;   // cierres de las calles que llegan al borde del mapa: lamina, lona, barreras, conos y señales
     float m_TreeRange = 60.0f;   // distancia maxima a la que se dibujan los arboles (segun la calidad grafica)
     std::vector<glm::vec3> m_GrassPositions;
