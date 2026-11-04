@@ -1394,7 +1394,8 @@ void UIManager::RenderMinimap(const HudContext& c, ImVec2 origin, ImVec2 size, f
     if (Carton::FontsReady() && !std::getenv("BAZUKO_UI_OSCURA")) Carton::Panel(draw, origin - ImVec2(5.0f, 5.0f), origin + size + ImVec2(5.0f, 5.0f + infoHeight), 91u, 6.0f);   // marco de carton del radar
     for (int layer = 3; layer >= 1; --layer)
         draw->AddRectFilled(origin + ImVec2(-static_cast<float>(layer), 6.0f - static_cast<float>(layer)), max + ImVec2(static_cast<float>(layer), 6.0f + static_cast<float>(layer)), IM_COL32(0, 0, 0, 14), 12.0f + static_cast<float>(layer));
-    draw->AddRectFilled(origin, max, IM_COL32(16, 19, 24, 255), 12.0f);
+    const bool cardboardRadar = Carton::FontsReady() && !std::getenv("BAZUKO_UI_OSCURA");
+    draw->AddRectFilled(origin, max, cardboardRadar ? Carton::Face() : IM_COL32(16, 19, 24, 255), cardboardRadar ? 4.0f : 12.0f);
     draw->PushClipRect(origin, max, true);
     // plano: textura rasterizada una sola vez (6 px por casilla, con el borde claro/oscuro de las manzanas del original) y dibujada girada con filtro lineal
     if (!m_MinimapTexture) {
@@ -1411,6 +1412,29 @@ void UIManager::RenderMinimap(const HudContext& c, ImVec2 origin, ImVec2 size, f
             }
         };
         const auto solid = [](char code) { return code != 'r' && code != 'B' && code != 's' && code != 'f' && code != 'p' && code != 'd' && code != 'g' && code != 'W'; };
+        if (cardboardRadar) {   // plano a marcador sobre el carton: calles a tinta suave, edificios rayados, parques de matas, agua con olas y filo en las manzanas
+            for (int z = 0; z < CityLayout::HEIGHT; ++z) {
+                for (int x = 0; x < CityLayout::WIDTH; ++x) {
+                    const char code = c.city->GetMapCode(x, z);
+                    const bool isSolid = solid(code);
+                    const bool edge[4] = {isSolid && !solid(c.city->GetMapCode(x, z - 1)), isSolid && !solid(c.city->GetMapCode(x, z + 1)),
+                                          isSolid && !solid(c.city->GetMapCode(x - 1, z)), isSolid && !solid(c.city->GetMapCode(x + 1, z))};
+                    for (int py = 0; py < S; ++py) {
+                        for (int px = 0; px < S; ++px) {
+                            float alpha = 0.0f;
+                            if (code == 'r') alpha = 0.16f;
+                            else if (code == 'B') alpha = ((px + py) % 6 < 3) ? 0.34f : 0.22f;
+                            else if (code == 'g') alpha = (px % 3 == 1 && py % 3 == 1) ? 0.55f : 0.06f;
+                            else if (code == 'W') alpha = ((py * 2 + px) % 8 < 2) ? 0.5f : 0.08f;
+                            else if (isSolid) alpha = ((px + py) % 4 == 0) ? 0.5f : 0.16f;
+                            if ((edge[0] && py == 0) || (edge[1] && py == S - 1) || (edge[2] && px == 0) || (edge[3] && px == S - 1)) alpha = 0.95f;
+                            uint8_t* out = &pixels[(static_cast<size_t>(z * S + py) * static_cast<size_t>(W_) + static_cast<size_t>(x * S + px)) * 4];
+                            out[0] = 20; out[1] = 17; out[2] = 12; out[3] = static_cast<uint8_t>(alpha * 255.0f);
+                        }
+                    }
+                }
+            }
+        } else
         for (int z = 0; z < CityLayout::HEIGHT; ++z) {
             for (int x = 0; x < CityLayout::WIDTH; ++x) {
                 const char code = c.city->GetMapCode(x, z);
@@ -1442,8 +1466,13 @@ void UIManager::RenderMinimap(const HudContext& c, ImVec2 origin, ImVec2 size, f
     if (m_GpsView.active && m_GpsView.route.size() > 1) {
         std::vector<ImVec2> line;
         for (const glm::vec2& point : m_GpsView.route) line.push_back(project(point.x, point.y));
-        draw->AddPolyline(line.data(), static_cast<int>(line.size()), IM_COL32(0, 0, 0, 166), ImDrawFlags_RoundCornersAll, 7.0f * u);
-        draw->AddPolyline(line.data(), static_cast<int>(line.size()), IM_COL32(246, 196, 0, 255), ImDrawFlags_RoundCornersAll, 4.0f * u);
+        if (cardboardRadar) {   // la ruta: rojo con halo de cinta para leerse sobre el plano
+            draw->AddPolyline(line.data(), static_cast<int>(line.size()), Carton::kCinta, ImDrawFlags_RoundCornersAll, 7.0f * u);
+            draw->AddPolyline(line.data(), static_cast<int>(line.size()), Carton::kRojo, ImDrawFlags_RoundCornersAll, 4.0f * u);
+        } else {
+            draw->AddPolyline(line.data(), static_cast<int>(line.size()), IM_COL32(0, 0, 0, 166), ImDrawFlags_RoundCornersAll, 7.0f * u);
+            draw->AddPolyline(line.data(), static_cast<int>(line.size()), IM_COL32(246, 196, 0, 255), ImDrawFlags_RoundCornersAll, 4.0f * u);
+        }
     }
     // vineta del borde
     draw->AddRect(origin + ImVec2(u, u), max - ImVec2(u, u), IM_COL32(0, 0, 0, 140), 10.0f, 0, 2.0f * u);

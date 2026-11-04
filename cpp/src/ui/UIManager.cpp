@@ -1926,9 +1926,10 @@ void UIManager::RenderMapView(const glm::vec3& playerPos, const CityLayout& city
         if (dragging) m_MapCenter -= glm::vec2(io.MouseDelta.x, io.MouseDelta.y) / m_MapZoom;
 
         draw->PushClipRect(canvasMin, canvasMax, true);
-        draw->AddRectFilled(canvasMin, canvasMax, IM_COL32(11, 13, 17, 255));   // #0b0d11
+        const bool ink = Carton::FontsReady() && !std::getenv("BAZUKO_UI_OSCURA");
+        if (!ink) draw->AddRectFilled(canvasMin, canvasMax, IM_COL32(11, 13, 17, 255));   // #0b0d11; en cartón el lienzo es transparente: fuera de la ciudad solo queda el cartón
         // Paleta del original (MAP_COLORS de CityMapRaster.js)
-        const auto colorOf = [](char code) -> ImU32 {
+        const auto paletteOf = [](char code) -> ImU32 {
             switch (code) {
                 case 'r': return IM_COL32(0x24, 0x27, 0x2d, 255);   // calle
                 case 'B': return IM_COL32(0x5b, 0x2c, 0x31, 255);   // carril exclusivo
@@ -1948,6 +1949,18 @@ void UIManager::RenderMapView(const glm::vec3& playerPos, const CityLayout& city
             }
         };
         const auto isSolid = [](char code) { return code != 'r' && code != 'B' && code != 's' && code != 'f' && code != 'p' && code != 'd' && code != 'g' && code != 'W'; };
+        // Plano a marcador (el blanco se invierte a marcador al dibujar el menu): calles a tinta suave, carril exclusivo rayado, edificios a media tinta
+        const auto colorOf = [&](char code) -> ImU32 {
+            if (!ink) return paletteOf(code);
+            switch (code) {
+                case 'r': return IM_COL32(255, 255, 255, 36);
+                case 'B': return IM_COL32(255, 255, 255, 80);
+                case 'g': return IM_COL32(255, 255, 255, 22);
+                case 'W': return IM_COL32(255, 255, 255, 30);
+                case 's': case 'f': case 'p': case 'd': return IM_COL32(255, 255, 255, 0);
+                default: return IM_COL32(255, 255, 255, 70);
+            }
+        };
         const glm::vec2 topLeft = toWorld(canvasMin), bottomRight = toWorld(canvasMax);
         const int tx0 = std::max(0, static_cast<int>(std::floor((topLeft.x + CityLayout::ORIGIN_X) / CityLayout::TILE_SIZE)));
         const int tx1 = std::min(CityLayout::WIDTH - 1, static_cast<int>(std::floor((bottomRight.x + CityLayout::ORIGIN_X) / CityLayout::TILE_SIZE)));
@@ -1962,6 +1975,18 @@ void UIManager::RenderMapView(const glm::vec3& playerPos, const CityLayout& city
                 const ImVec2 a = toScreen(x * CityLayout::TILE_SIZE - CityLayout::ORIGIN_X, z * CityLayout::TILE_SIZE - CityLayout::ORIGIN_Z);
                 const ImVec2 b(a.x + tilePixels + 0.6f, a.y + tilePixels + 0.6f);
                 draw->AddRectFilled(a, b, colorOf(code));
+                if (ink) {
+                    if (code == 'g') draw->AddCircleFilled(ImVec2((a.x + b.x) * 0.5f, (a.y + b.y) * 0.5f), std::max(0.8f, tilePixels * 0.1f), IM_COL32(255, 255, 255, 120));   // matas
+                    if (!isSolid(code)) continue;
+                    draw->AddLine(ImVec2(a.x, b.y), ImVec2(b.x, a.y), IM_COL32(255, 255, 255, 80), 1.0f);   // rayado del edificio
+                    const float lineWidth = std::max(1.2f, tilePixels * 0.16f);
+                    const ImU32 line = IM_COL32(255, 255, 255, 235);
+                    if (!isSolid(city.GetMapCode(x, z - 1))) draw->AddLine(a, ImVec2(b.x, a.y), line, lineWidth);
+                    if (!isSolid(city.GetMapCode(x - 1, z))) draw->AddLine(a, ImVec2(a.x, b.y), line, lineWidth);
+                    if (!isSolid(city.GetMapCode(x, z + 1))) draw->AddLine(ImVec2(a.x, b.y), b, line, lineWidth);
+                    if (!isSolid(city.GetMapCode(x + 1, z))) draw->AddLine(ImVec2(b.x, a.y), b, line, lineWidth);
+                    continue;
+                }
                 if (!isSolid(code)) continue;
                 // bordes de manzana: claro arriba y a la izquierda, oscuro abajo y a la derecha
                 const ImU32 light = IM_COL32(255, 255, 255, 23), dark = IM_COL32(0, 0, 0, 64);
