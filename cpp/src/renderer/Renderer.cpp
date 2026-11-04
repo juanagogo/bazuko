@@ -708,7 +708,7 @@ void Renderer::RenderShadowMap(const glm::vec3& toLight, const glm::vec3& focus)
     glBindFramebuffer(GL_FRAMEBUFFER, m_ShadowFbo);
     DrawShadowCasters(m_DynamicCasters, true);   // personas, carros y objetos que se vieron en este cuadro
     m_DynamicCasters.clear();
-    if (m_FarEnabled) {   // sombra lejana: se graba un cuadro de cada 90 y en el siguiente se dibuja el mapa con lo grabado
+    if (m_FarEnabled) {   // sombra lejana: se graba un cuadro de cada 45 y en el siguiente se dibuja el mapa con lo grabado
         if (!m_FarTexture) {
             glCreateTextures(GL_TEXTURE_2D, 1, &m_FarTexture);
             glTextureStorage2D(m_FarTexture, 1, GL_DEPTH_COMPONENT24, kFarResolution, kFarResolution);
@@ -742,7 +742,7 @@ void Renderer::RenderShadowMap(const glm::vec3& toLight, const glm::vec3& focus)
             m_FarCasters.clear();
             m_FarRecording = false;
             m_FarValid = true;
-        } else if (m_FarFrame % 90 == 1 || (!m_FarValid && m_FarFrame > 4)) {
+        } else if (m_FarFrame % 45 == 1 || (!m_FarValid && m_FarFrame > 4)) {
             m_FarRecording = true;
             m_FarCenter = glm::vec3(focus.x, 0.0f, focus.z);
             m_FarCasters.clear();
