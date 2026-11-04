@@ -4,6 +4,7 @@
 // peatonales. Origen en la base, a nivel de la calzada; +X es el rumbo del conductor (las luces miran a -X) y -Z sale sobre la calzada.
 // Aqui solo va la carcasa; las lentes se dibujan aparte con el color de cada fase (ver Simulation::Render).
 #include "../renderer/Mesh.hpp"
+#include <algorithm>
 #include <cmath>
 #include <memory>
 #include <vector>
@@ -67,7 +68,22 @@ public:
         if (capB) cap(b, radiusB, axis);
     }
 
-    std::shared_ptr<Mesh> Build() const { return std::make_shared<Mesh>(m_Vertices, m_Indices); }
+    // Pintura gastada: variacion de tono por posicion (mugre), oxido que sube desde la base y manchas de calle en el zocalo.
+    std::shared_ptr<Mesh> Build() {
+        const auto hash = [](float x, float y, float z) {
+            const float h = std::sin(x * 127.1f + y * 311.7f + z * 74.7f) * 43758.5453f;
+            return h - std::floor(h);
+        };
+        for (Vertex& v : m_Vertices) {
+            const float grime = hash(std::floor(v.position.x * 9.0f), std::floor(v.position.y * 9.0f), std::floor(v.position.z * 9.0f));
+            float tone = 0.88f + 0.24f * grime;
+            glm::vec3 rgb = glm::vec3(v.color) * tone;
+            const float low = std::clamp(1.0f - v.position.y / 1.1f, 0.0f, 1.0f);
+            rgb = glm::mix(rgb, glm::vec3(0.34f, 0.21f, 0.13f), low * low * (0.25f + 0.35f * grime));   // oxido y salpicado de calle cerca del piso
+            v.color = glm::vec4(rgb, v.color.a);
+        }
+        return std::make_shared<Mesh>(m_Vertices, m_Indices);
+    }
 
 private:
     std::vector<Vertex> m_Vertices;

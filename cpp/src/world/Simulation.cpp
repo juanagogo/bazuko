@@ -970,6 +970,8 @@ Simulation::Simulation(const CityLayout& city, uint32_t seed,
     m_SignalLamp = Mesh::CreateCylinder(0.09f, 0.10f, 12);
     m_SignalBody = SignalModel::BuildBody();
     m_SignalLens = Mesh::CreateCylinder(SignalModel::kLensRadius, 0.03f, 16);
+    m_SignalReflection = Mesh::CreatePlane(4.4f, 0.38f, glm::vec4(1.0f));
+    m_SignalSticker = Mesh::CreateCube({0.008f, 0.17f, 0.13f}, glm::vec4(1.0f));
     {   // halo de la baliza: disco de 8 anillos cuya opacidad cae suave (curva (1 - r)^2,2) del centro al borde, sin canto visible; el color llega por el tinte
         constexpr int kRings = 8, kSegments = 40;
         std::vector<Vertex> vertices;
@@ -4758,6 +4760,38 @@ void Simulation::Render(Renderer& renderer, float time, const glm::vec3& focusPo
             lens({0.0f, SignalModel::kPedY - 0.125f, -pedOffset}, faceMinusZ, 0.72f, crossState == 0, greenOn, greenOff);       // caminar, cruzada
             lens({pedOffset, SignalModel::kPedY + 0.125f, 0.0f}, facePlusX, 0.72f, state != 0, redOn, redOff);                  // parar, paralela
             lens({pedOffset, SignalModel::kPedY - 0.125f, 0.0f}, facePlusX, 0.72f, state == 0, greenOn, greenOff);              // caminar, paralela
+            // Resplandor de noche: un halo suave alrededor de cada lente encendido y, con el piso mojado, su reflejo alargado sobre el asfalto
+            const float glow = m_LampGlow, wet = GetWetness();
+            if (glow > 0.05f) {
+                renderer.SetUnlit(true);
+                const auto halo = [&](glm::vec3 at, float size, glm::vec3 color, float strength) {
+                    renderer.Submit(*m_LampHalo, glm::scale(glm::translate(poleRoot, at), glm::vec3(size)), glm::vec4(color, strength * glow), false, false, nullptr, 2, 0.0f);
+                };
+                const glm::vec3 litColor = state == 2 ? redOn : state == 1 ? amberOn : greenOn;
+                const float dy = SignalModel::kModule * (1.0f - static_cast<float>(state == 2 ? 0 : state == 1 ? 1 : 2));
+                halo({lensX - 0.05f, SignalModel::kHeadY + dy, -SignalModel::kReach}, 0.42f, litColor, 0.16f);
+                halo({lensX - 0.05f - 0.06f, SignalModel::kLowHeadY + dy, 0.0f}, 0.28f, litColor, 0.12f);
+                halo({0.0f, SignalModel::kPedY + (crossState != 0 ? 0.125f : -0.125f), -pedOffset - 0.05f}, 0.2f, crossState != 0 ? redOn : greenOn, 0.12f);
+                halo({pedOffset + 0.05f, SignalModel::kPedY + (state != 0 ? 0.125f : -0.125f), 0.0f}, 0.2f, state != 0 ? redOn : greenOn, 0.12f);
+                if (wet > 0.15f && m_SignalReflection) {
+                    const glm::mat4 streak = glm::scale(glm::translate(poleRoot, {lensX - 1.7f, 0.03f, -SignalModel::kReach}), {1.0f, 1.0f, 1.0f});
+                    renderer.Submit(*m_SignalReflection, streak, glm::vec4(litColor, 0.2f * wet * glow), false, true, nullptr, 2, 0.0f);
+                }
+                renderer.SetUnlit(false);
+            }
+            // calcomanias y restos de carteles: dos por poste, de colores de calle, a la altura de la mano
+            {
+                static const std::array<glm::vec3, 6> stickers{{{0.91f, 0.90f, 0.86f}, {0.91f, 0.75f, 0.14f}, {0.73f, 0.16f, 0.13f}, {0.12f, 0.28f, 0.59f}, {0.82f, 0.79f, 0.71f}, {0.94f, 0.53f, 0.11f}}};
+                const size_t seed = static_cast<size_t>(std::abs(signal.polePosition.x * 31.0f + signal.polePosition.z * 17.0f));
+                for (size_t k = 0; k < 2; ++k) {
+                    const float angle = 0.9f + static_cast<float>((seed * 7 + k * 5) % 11) * 0.45f;
+                    const float y = 1.45f + 0.2f * static_cast<float>(k) + 0.05f * static_cast<float>(seed % 4);
+                    glm::mat4 sticker = glm::rotate(poleRoot, angle, {0.0f, 1.0f, 0.0f});
+                    sticker = glm::translate(sticker, {SignalModel::kPoleRadius + 0.004f, y, 0.0f});
+                    sticker = glm::rotate(sticker, 0.06f * static_cast<float>(seed % 5) - 0.12f, {1.0f, 0.0f, 0.0f});
+                    renderer.Submit(*m_SignalSticker, sticker, glm::vec4(stickers[(seed + k * 3) % stickers.size()] * 0.8f, 1.0f));
+                }
+            }
             continue;
         }
         if (m_TrafficSignalModel) {
