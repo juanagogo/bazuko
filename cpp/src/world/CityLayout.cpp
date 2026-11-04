@@ -1,5 +1,6 @@
 #include "CityLayout.hpp"
 #include "Viaduct.hpp"
+#include "ChurchModel.hpp"
 #include "../core/Paths.hpp"
 #include "../core/Log.hpp"
 #include <fstream>
@@ -333,6 +334,15 @@ void CityLayout::BuildMeshes(const CityLoadProgress& progressCallback) {
             const float coverage = static_cast<float>(componentQueue.size()) / static_cast<float>(boundingArea);
             const uint32_t seed = urbanHash(minX, minZ);
             const int variant = availableBuildingVariant(static_cast<int>(seed % 3u));
+            // La iglesia de La Candelaria (baldosas 160-171 x 23-32 del original, con las filas de la estacion al norte) no es una manzana
+            // cualquiera: sus baldosas siguen siendo solidas, pero se dibuja con su propio modelo (variante 99, ver Render)
+            if (minX >= 160 && maxX <= 171 && minZ >= 23 + NORTH_ROWS && maxZ <= 32 + NORTH_ROWS) {
+                for (const size_t tile : componentQueue) modelOccupied[tile] = 1;
+                m_Buildings.push_back({{static_cast<float>(minX + maxX + 1) * TILE_SIZE * 0.5f - ORIGIN_X, 12.0f,
+                                        static_cast<float>(minZ + maxZ + 1) * TILE_SIZE * 0.5f - ORIGIN_Z},
+                                       {24.0f, 24.0f, 20.0f}, {0.93f, 0.91f, 0.85f, 1.0f}, -1, 6, kChurchVariant});
+                continue;
+            }
             if (variant < 0 || tilesX < 4 || tilesZ < 4 || coverage < 1.0f) continue;
             for (const size_t tile : componentQueue) modelOccupied[tile] = 1;
             const int floors = seed % 17u == 0u ? 24
@@ -347,6 +357,12 @@ void CityLayout::BuildMeshes(const CityLoadProgress& progressCallback) {
                                    urbanColors[seed % urbanColors.size()], -1, floors, variant});
         }
     }
+    // Fuente de piedra de la plaza de La Candelaria: se rodea sin trabarse (cruz de cajas que cubre el circulo) y lleva su propio modelo
+    m_ChurchMesh = ChurchModel::BuildChurch();
+    m_FountainMesh = ChurchModel::BuildFountain(kFountainRadius);
+    m_Obstacles.push_back({{kFountainX, 0.0f, kFountainZ}, {kFountainRadius, 1.0f, 1.5f}});
+    m_Obstacles.push_back({{kFountainX, 0.0f, kFountainZ}, {1.5f, 1.0f, kFountainRadius}});
+    m_Obstacles.push_back({{kFountainX, 0.0f, kFountainZ}, {2.55f, 1.0f, 2.55f}});
     // Rotulos con texto: si no hay fuente se vuelve a los letreros de color liso.
     const bool hasSigns = m_SignAtlas.Build(Paths::Find("assets/fonts/Roboto-Medium.ttf"));
     const auto appendSignQuad = [&](const glm::vec3& center, const glm::vec3& normal, float width, float height,
@@ -1171,7 +1187,14 @@ void CityLayout::Render(Renderer& renderer, const glm::vec3& focusPosition) {
         m_SignAtlas.GetTexture()->BindUnit(0);
         renderer.Submit(*m_SignMesh, glm::mat4(1.0f), glm::vec4(1.0f), true, false, nullptr, 2); // mezcla alfa: grafitis con fondo transparente
     }
+    if (m_FountainMesh && glm::distance(glm::vec2(kFountainX, kFountainZ), glm::vec2(focusPosition.x, focusPosition.z)) < 140.0f)
+        renderer.Submit(*m_FountainMesh, glm::translate(glm::mat4(1.0f), {kFountainX, GetGroundHeight(kFountainX, kFountainZ), kFountainZ}), glm::vec4(1.0f), false, true);
     for (const auto& building : m_Buildings) {
+        if (building.modelVariant == kChurchVariant) {   // la iglesia se ve de lejos: es la torre mas alta del barrio
+            if (m_ChurchMesh && glm::distance(glm::vec2(building.position.x, building.position.z), glm::vec2(focusPosition.x, focusPosition.z)) < 220.0f)
+                renderer.Submit(*m_ChurchMesh, glm::translate(glm::mat4(1.0f), {building.position.x, 0.0f, building.position.z}), glm::vec4(1.0f), false, true);
+            continue;
+        }
         if (building.modelVariant < 0) continue;
         const glm::vec2 offset(building.position.x - focusPosition.x,
                                building.position.z - focusPosition.z);
@@ -1263,7 +1286,7 @@ float RayModel(const Model& model, const glm::mat4& fit, const glm::vec3& origin
 float CityLayout::RayBuildingDistance(size_t index, const glm::vec3& origin, const glm::vec3& direction) const {
     if (index >= m_Buildings.size()) return -1.0f;
     const BuildingInstance& building = m_Buildings[index];
-    if (building.modelVariant < 0) return -1.0f;
+    if (building.modelVariant < 0 || building.modelVariant == kChurchVariant) return -1.0f;
     const float groundY = building.position.y - building.size.y * 0.5f;
     const glm::vec3 footprint(std::max(0.5f, building.size.x - 1.0f), building.size.y, std::max(0.5f, building.size.z - 1.0f));
     if (building.modelVariant == 1) {

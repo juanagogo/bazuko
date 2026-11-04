@@ -36,6 +36,18 @@ public:
         }
     }
 
+    // Triangulo y cuadrilatero planos (la cara se dibuja por los dos lados)
+    void Tri(glm::vec3 a, glm::vec3 b, glm::vec3 c, glm::vec4 color) {
+        glm::vec3 normal = glm::cross(b - a, c - a);
+        normal = glm::length(normal) > 1.0e-8f ? glm::normalize(normal) : glm::vec3(0, 1, 0);
+        const uint32_t base = static_cast<uint32_t>(m_Vertices.size());
+        m_Vertices.push_back({a, normal, {0, 0}, color});
+        m_Vertices.push_back({b, normal, {1, 0}, color});
+        m_Vertices.push_back({c, normal, {0.5f, 1}, color});
+        for (uint32_t i : {0u, 1u, 2u}) m_Indices.push_back(base + i);
+    }
+    void Quad(glm::vec3 a, glm::vec3 b, glm::vec3 c, glm::vec3 d, glm::vec4 color) { Tri(a, b, c, color); Tri(a, c, d, color); }
+
     // Tronco de cono entre dos puntos, con tapas opcionales.
     void Tube(glm::vec3 a, glm::vec3 b, float radiusA, float radiusB, int sides, glm::vec4 color, bool capA = false, bool capB = true) {
         const glm::vec3 axis = glm::normalize(b - a);

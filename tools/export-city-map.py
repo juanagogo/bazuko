@@ -285,14 +285,137 @@ CODES = {'building': 'b', 'road': 'r', 'busway': 'B', 'sidewalk': 's', 'grass': 
 NORTH_ROWS = 37   # estacion Portal del Centro: Z -74 a -2 del original (TransitTerminal.js)
 
 
+
+
+# ---------------------------------------------------------------- EastZones.js (ampliacion oriental: La Candelaria y Chapinero-Teusaquillo)
+BASE_CITY_WIDTH, EAST_CITY_WIDTH = 120, 200
+EAST_SEAM = BASE_CITY_WIDTH - 1
+CANDELARIA_END_Z = 60
+CARRERA_5 = [128, 133, 'Carrera 5']
+CARRERA_4 = [154, 157, 'Carrera 4']
+CARRERA_3 = [174, 177, 'Carrera 3']
+CALLE_8A = [56, 59, 'Calle 8A']
+CALLE_6 = [118, 123, 'Calle 6']
+CALLE_5 = [140, 145, 'Calle 5']
+NARROW_CALLES = [[13, 18], [37, 42]]
+WIDE_CALLES = [[72, 77], [94, 99]]
+WEST_CALLES = [[13, 18], [37, 42], [72, 77], [94, 99]]
+EAST_START = CARRERA_5[1] + 1
+PLAZA = {'x0': 136, 'x1': 172, 'z0': 18, 'z1': 37, 'name': 'Plaza de la Candelaria'}
+CHURCH = {'x0': 160, 'x1': 171, 'z0': 23, 'z1': 32}
+FOUNTAIN = {'x': 294, 'z': 55, 'radius': 3.6}
+TEUSAQUILLO_PARK = {'x0': 158, 'x1': 173, 'z0': 124, 'z1': 159, 'name': 'Parque de Teusaquillo'}
+TOWERS_LOT = {'x0': 178, 'x1': 198, 'z0': 124, 'z1': 159, 'name': 'Torres de ladrillo'}
+MARKET = {'x0': 161, 'x1': 170, 'z0': 81, 'z1': 90, 'name': 'Plaza de mercado'}
+TOWERS = [
+    {'cx': 391, 'cz': 268, 'radius': 22, 'thickness': 13, 'a0': 2.2, 'a1': 4.1, 'floors': 25},
+    {'cx': 402, 'cz': 292, 'radius': 21, 'thickness': 12, 'a0': 2.4, 'a1': 4.3, 'floors': 30},
+    {'cx': 393, 'cz': 311, 'radius': 19, 'thickness': 11, 'a0': 2.6, 'a1': 4.6, 'floors': 20},
+]
+
+
+def inside_tower(t, wx, wz):
+    dx, dz = wx - t['cx'], wz - t['cz']
+    r = math.hypot(dx, dz)
+    if r > t['radius'] or r < t['radius'] - t['thickness']:
+        return False
+    angle = math.atan2(dz, dx)
+    if angle < 0:
+        angle += math.pi * 2
+    return t['a0'] <= angle <= t['a1']
+
+
+def paint_east_city(m):
+    """Amplia el mapa hacia +X: las filas llegan con 120 tiles y salen con 200 (EastZones.paintEastCity)."""
+    height = len(m)
+
+    def fill(x0, x1, z0, z1, kind):
+        for z in range(max(1, z0), min(height - 2, z1) + 1):
+            for x in range(x0, min(len(m[z]) - 2, x1) + 1):
+                m[z][x] = kind
+
+    for z in range(height):
+        while len(m[z]) < EAST_CITY_WIDTH:
+            m[z].append('building')
+        m[z][EAST_SEAM] = 'building'
+    fill(EAST_SEAM, 125, 111, height, 'grass')
+    for z in (113, 155):
+        fill(EAST_SEAM, 125, z, z, 'plaza')
+    fill(CARRERA_5[0] - 2, CARRERA_5[1] + 2, 1, height, 'sidewalk')
+    fill(CARRERA_5[0], CARRERA_5[1], 1, height, 'road')
+    for a, b in WEST_CALLES:
+        fill(EAST_SEAM, 125, a - 2, a - 1, 'sidewalk')
+        fill(EAST_SEAM, 125, b + 1, b + 2, 'sidewalk')
+        fill(EAST_SEAM, CARRERA_5[0] - 1, a, b, 'road')
+    south_calles = [*WIDE_CALLES, CALLE_6[:2], CALLE_5[:2]]
+    for a, b in south_calles:
+        fill(EAST_START, 198, a - 3, a - 1, 'sidewalk')
+        fill(EAST_START, 198, b + 1, b + 3, 'sidewalk')
+    for a, b in (CARRERA_4[:2], CARRERA_3[:2]):
+        fill(a - 3, a - 1, CANDELARIA_END_Z, height, 'sidewalk')
+        fill(b + 1, b + 3, CANDELARIA_END_Z, height, 'sidewalk')
+    for a, b in (CARRERA_4[:2], CARRERA_3[:2]):
+        fill(a - 1, a - 1, 1, CANDELARIA_END_Z, 'sidewalk')
+        fill(b + 1, b + 1, 1, CANDELARIA_END_Z, 'sidewalk')
+    for a, b in [*NARROW_CALLES, CALLE_8A[:2]]:
+        edge_a = a - 1 if a == CALLE_8A[0] else a
+        edge_b = b + 1 if b == CALLE_8A[1] else b
+        fill(EAST_START, 198, edge_a, edge_a, 'sidewalk')
+        fill(EAST_START, 198, edge_b, edge_b, 'sidewalk')
+    for a, b in (CARRERA_4[:2], CARRERA_3[:2]):
+        fill(a, b, 1, height, 'road')
+    for a, b in NARROW_CALLES:
+        fill(EAST_START, 198, a + 1, b - 1, 'road')
+    fill(EAST_START, 198, CALLE_8A[0], CALLE_8A[1], 'road')
+    for a, b in south_calles:
+        fill(EAST_START, 198, a, b, 'road')
+    fill(PLAZA['x0'], PLAZA['x1'], PLAZA['z0'], PLAZA['z1'], 'plaza')
+    fill(CHURCH['x0'], CHURCH['x1'], CHURCH['z0'], CHURCH['z1'], 'building')
+    fill(CARRERA_4[1] + 1, CARRERA_3[0] - 1, TEUSAQUILLO_PARK['z0'], height, 'sidewalk')
+    fill(CARRERA_3[1] + 1, 198, TOWERS_LOT['z0'], height, 'sidewalk')
+    park = TEUSAQUILLO_PARK
+    fill(park['x0'] + 3, park['x1'] - 3, park['z0'] + 3, height, 'grass')
+    for z in range(park['z0'] + 3, height - 1):
+        for x in range(park['x0'] + 3, park['x1'] - 3 + 1):
+            mid = (park['x0'] + park['x1']) / 2
+            if abs(x - mid) < 1 or z in (141, 142):
+                m[z][x] = 'plaza'
+    lot = TOWERS_LOT
+    fill(lot['x0'] + 3, lot['x1'], lot['z0'] + 3, height, 'plaza')
+    for z in range(lot['z0'], height - 1):
+        for x in range(lot['x0'], lot['x1'] + 1):
+            if any(inside_tower(t, x * 2, z * 2) for t in TOWERS):
+                m[z][x] = 'building'
+    reachable = {(lot['x0'], lot['z0'])}
+    queue = [(lot['x0'], lot['z0'])]
+    while queue:
+        x, z = queue.pop()
+        for dx, dz in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+            nx, nz = x + dx, z + dz
+            if nx < lot['x0'] or nx > lot['x1'] or nz < lot['z0'] or nz >= height - 1 or (nx, nz) in reachable or m[nz][nx] == 'building':
+                continue
+            reachable.add((nx, nz))
+            queue.append((nx, nz))
+    for z in range(lot['z0'], height - 1):
+        for x in range(lot['x0'], lot['x1'] + 1):
+            if m[z][x] != 'building' and (x, z) not in reachable:
+                m[z][x] = 'building'
+    fill(MARKET['x0'], MARKET['x1'], MARKET['z0'], MARKET['z1'], 'plaza')
+    for x in range(EAST_SEAM, EAST_CITY_WIDTH):
+        m[0][x] = m[height - 1][x] = 'wall'
+    for z in range(height):
+        m[z][EAST_CITY_WIDTH - 1] = 'wall'
+    return m
+
+
 def main():
-    city = expand_city(expand_streets(layout_center()))
-    assert len(city) == CITY_HEIGHT and all(len(row) == CITY_WIDTH for row in city)
+    city = paint_east_city(expand_city(expand_streets(layout_center())))
+    assert len(city) == CITY_HEIGHT and all(len(row) == EAST_CITY_WIDTH for row in city)
     # estacion al norte: misma seccion que la entrada (paintTerminalEntrance) y muros fuera de ella
     north = []
     for _ in range(NORTH_ROWS):
         row = []
-        for x in range(CITY_WIDTH):
+        for x in range(EAST_CITY_WIDTH):
             if 27 <= x <= 48:
                 row.append('sidewalk' if (x <= 28 or x >= 47) else 'busway' if 35 <= x <= 40 else 'road')
             else:
@@ -303,10 +426,10 @@ def main():
 
     lane = lambda band, side: ((band[0] + band[1]) / 2 + side * (band[1] - band[0] + 1) / 4) * TILE
     data = {
-        'width': CITY_WIDTH, 'height': len(grid), 'northRows': NORTH_ROWS, 'tile': TILE,
+        'width': EAST_CITY_WIDTH, 'height': len(grid), 'northRows': NORTH_ROWS, 'tile': TILE,
         'codes': {v: k for k, v in CODES.items()},
         'rows': rows,
-        'carreras': [b[:2] for b in CITY_CARRERAS], 'carrerasNames': [b[2] for b in CITY_CARRERAS],
+        'carreras': [b[:2] for b in [*CITY_CARRERAS, CARRERA_5]], 'carrerasNames': [b[2] for b in [*CITY_CARRERAS, CARRERA_5]],
         'calles': [b[:2] for b in CITY_CALLES], 'callesNames': [b[2] for b in CITY_CALLES],
         'caracasLanes': CARACAS['lanes'], 'caracasBusway': CARACAS['busway'],
         'extensionParks': EXTENSION_PARKS,
@@ -330,7 +453,10 @@ def main():
                       *[{'x': p['x0'] * TILE, 'z': ((p['z0'] + p['z1']) // 2) * TILE, 'lines': [p['name'], 'Bogotá']} for p in EXTENSION_PARKS],
                       {'x': 150, 'z': 226, 'lines': ['Parque del Lago', 'Lago · Puente TransMilenio']}],
         'busRoute': {'centerX': (CARACAS['busway'][0] * TILE + CARACAS['busway'][1] * TILE) / 2, 'endZ': -62, 'stationZ': -30},
-        'streetLanes': {'carreras': [[lane(b, -1), lane(b, 1)] for b in CITY_CARRERAS]},
+        'streetLanes': {'carreras': [[lane(b, -1), lane(b, 1)] for b in [*CITY_CARRERAS, CARRERA_5]]},
+        'east': {'church': CHURCH, 'fountain': FOUNTAIN, 'plaza': PLAZA, 'market': MARKET, 'teusaquilloPark': TEUSAQUILLO_PARK,
+                 'towersLot': TOWERS_LOT, 'towers': TOWERS, 'carrera4': CARRERA_4[:2], 'carrera3': CARRERA_3[:2], 'calle8a': CALLE_8A[:2],
+                 'calle6': CALLE_6[:2], 'calle5': CALLE_5[:2], 'candelariaEndZ': CANDELARIA_END_Z},
     }
     out = pathlib.Path(__file__).resolve().parent.parent / 'cpp' / 'assets' / 'data' / 'city-map.json'
     out.write_text(json.dumps(data, ensure_ascii=False, indent=1), encoding='utf-8')

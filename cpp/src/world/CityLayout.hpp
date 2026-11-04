@@ -46,13 +46,15 @@ struct BuildingInstance {
 
 class CityLayout {
 public:
-    static constexpr int WIDTH = 120;
+    static constexpr int WIDTH = 200;
     static constexpr float TILE_SIZE = 2.0f;
     // El mapa es el del juego original (src/world/bogota/CityLayout.js), generado por tools/export-city-map.py:
     // 120 baldosas de ancho y 198 de alto (las 161 del original mas 37 al norte con la estacion Portal del Centro).
     // El marco de coordenadas es el del original: la baldosa (x, z) del original esta centrada en (2x, 2z) metros, asi que
     // todas las posiciones del original (cambuche, hitos, bus...) se usan tal cual.
     static constexpr int NORTH_ROWS = 37;
+    static constexpr int kChurchVariant = 99;   // BuildingInstance::modelVariant de la iglesia de La Candelaria (modelo propio, ChurchModel.hpp)
+    static constexpr float kFountainX = 294.0f, kFountainZ = 55.0f, kFountainRadius = 3.6f;   // fuente de la plaza (EastZones.FOUNTAIN)
     static constexpr int HEIGHT = 161 + NORTH_ROWS;
     static constexpr float ORIGIN_X = 1.0f;
     static constexpr float ORIGIN_Z = 1.0f + NORTH_ROWS * TILE_SIZE;
@@ -132,6 +134,7 @@ private:
     std::shared_ptr<Mesh> m_BuildingMesh;
     std::shared_ptr<Mesh> m_FacadeDetailMesh;
     std::shared_ptr<Mesh> m_SignMesh;
+    std::shared_ptr<Mesh> m_ChurchMesh, m_FountainMesh;
     std::shared_ptr<Mesh> m_WindowLightMesh;      // ventanas encendidas de los edificios (brillan de noche)
     std::shared_ptr<Mesh> m_ColpatriaLightMesh;   // franjas de colores de la torre (brillan de noche)
     std::shared_ptr<Mesh> m_GlassMesh;            // vidrios de la estacion (mezcla alfa)

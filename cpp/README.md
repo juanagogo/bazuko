@@ -147,6 +147,10 @@ El port usa la identidad visual del original (`docs/identidad-visual.md` en el r
 
 Los semáforos usan el modelo por código del juego original (`src/world/SignalModel.hpp`, de `SignalModel.js`): poste galvanizado de 6,6 m, brazo de 3,95 m sobre el carril con la cabeza principal de tres lentes y contraplaca, cabeza baja en el poste y dos cabezas peatonales. El ciclo no cambió (36 s: verde 14, amarillo 3 y despeje 1 antes de abrir el otro eje). Cada lente se enciende solo en su fase; la cabeza peatonal que cruza camina cuando el otro eje está en rojo, y la paralela, cuando el propio está en verde. `BAZUKO_SEMAFORO_GLB=1` vuelve al modelo anterior. Falta del original: resplandor nocturno con reflejo en el piso mojado, calcomanías, modelo liviano a distancia y no dibujar los postes que caen sobre la calzada del desvío.
 
+### Ampliación oriental (La Candelaria y Chapinero-Teusaquillo)
+
+La ciudad pasó de 120 a 200 baldosas de ancho, como en el original (`EastZones.js`): `tools/export-city-map.py` pinta ahora la Carrera 5, las calles que la alcanzan, las carreras 4 y 3, la plaza de la Candelaria, el mercado, el parque de Teusaquillo y el lote de las torres curvas, y deja intactas todas las baldosas con X menor que la vieja columna del muro (las partidas guardadas y las manzanas anteriores no cambian). La iglesia colonial (dos torres con campanario, portada de piedra, roseton y gradas) y la fuente de piedra de la plaza se dibujan con modelos de geometría sencilla (`src/world/ChurchModel.hpp`); la iglesia es una manzana sólida y la fuente tiene su cruz de colisiones. Falta de esa ampliación: las torres curvas con su fachada propia (hoy son manzanas rectangulares), el detalle de fachadas y suelos de esos barrios y los vendedores y parques con palomas del oriente.
+
 ### Ratón en WSL2
 
 WSLg no entrega bien el modo de cursor oculto/bloqueado de GLFW, por eso la cámara con el ratón puede fallar allí.
