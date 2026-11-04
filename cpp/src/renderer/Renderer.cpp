@@ -429,6 +429,9 @@ void Renderer::RunPostEffects() {
         DrawFullscreen(*m_SsaoShader);
         glBindFramebuffer(GL_FRAMEBUFFER, m_AoFbo[1]);
         glBindTextureUnit(0, m_AoTexture[0]);
+        glBindTextureUnit(1, m_ScaledDepth);
+        m_SsaoBlurShader->Bind();
+        m_SsaoBlurShader->SetMat4("uInvProjection", glm::inverse(m_CameraData.projection));
         DrawFullscreen(*m_SsaoBlurShader);
         m_PostAoReady = true;
     }
