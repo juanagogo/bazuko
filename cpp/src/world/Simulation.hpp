@@ -144,6 +144,8 @@ struct VehicleParts {
     };
     std::shared_ptr<Model> body;
     std::vector<Wheel> wheels;
+    glm::vec3 headlight{0.0f};   // faro derecho en el marco del carro (adelante, arriba, separacion lateral); solo si hasHeadlight
+    bool hasHeadlight = false;
     glm::vec3 forward{1.0f, 0.0f, 0.0f};   // frente del vehiculo en el espacio del modelo
     glm::vec3 rollAxis{0.0f, 0.0f, 1.0f};  // eje de giro de las ruedas (arriba x frente): positivo = rodar hacia delante
     // Modelos con cabina (Raptor, Renault 6): traen su propia escala y los asientos donde se sientan el conductor y los pasajeros.
@@ -217,6 +219,9 @@ struct TrafficVehicle {
     glm::vec3 color{0.75f, 0.18f, 0.12f};
     bool bus = false;
     bool taxi = false;
+    mutable glm::vec3 drawPosition{0.0f};   // pose con la que se dibujo el carro en el ultimo cuadro (sigue la curva del circuito): los faros usan esta
+    mutable float drawYaw = 0.0f;
+    mutable bool drawValid = false;
     DriverInfo driver;       // quien conduce y que hace
     bool holdStop = false;   // el conductor pidio detenerse (se baja a pelear)
     BicycleState bike;       // pose cinematica (eje trasero y direccion): lo que se dibuja; la ruta solo la guia
@@ -436,6 +441,8 @@ public:
     struct StrobeLight { glm::vec4 position; glm::vec3 color; };   // color ya multiplicado por la intensidad del destello (0..1)
     std::vector<StrobeLight> GetStrobeLights(const glm::vec3& focus, float time, float maxDistance) const;
     // Faros de los vehiculos en circulacion mas cercanos al foco (xyz delante del capo, w 1): luces extra para los clusters de noche
+    void HeadlightFrame(const TrafficVehicle& vehicle, glm::vec3& position, glm::vec3& forward, glm::vec3& side) const;   // centro, frente y lado del carro tal como se ve
+    glm::vec3 HeadlightOffset(const TrafficVehicle& vehicle) const;   // faro: (adelante, arriba, lateral) desde el centro del carro
     struct HeadlightBeam { glm::vec3 position{0.0f}; glm::vec3 direction{0.0f, 0.0f, 1.0f}; };
     std::vector<HeadlightBeam> GetHeadlightBeams(const glm::vec3& focus, size_t maxCount, float maxDistance) const;
     // Luz del fogon del cambuche (xyz posicion, w intensidad con el titileo del fuego); false si no hay fogon o esta lejos
@@ -711,6 +718,7 @@ private:
     std::shared_ptr<Mesh> m_StreetLampHead;
     std::shared_ptr<Mesh> m_LampBulb;
     std::shared_ptr<Mesh> m_LampHalo;
+    std::shared_ptr<Mesh> m_GlowDisc;   // brillo de los faros: disco radial difuso con estelas en cruz, siempre mirando a la camara
     std::vector<StreetLamp> m_StreetLamps;
     std::vector<PropCollider> m_PropColliders;
     void BuildPropColliders();

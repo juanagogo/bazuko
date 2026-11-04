@@ -354,6 +354,17 @@ VehicleParts Simulation::LoadVehicleParts(const std::string& modelsRoot, const s
             parts.seats.push_back({{pos[0].get<float>(), pos[1].get<float>(), pos[2].get<float>()}, seat.value("yaw", 0.0f), seat.value("driver", false)});
         }
     }
+    if (parts.ownFit) {   // faro derecho en el espacio del modelo (glTF, frente +Z), medido sobre el material de cada faro; `fit` lo lleva al marco del carro
+        struct Lamp { const char* stem; glm::vec3 model; };
+        static const Lamp lamps[] = {{"patrulla", {0.59f, 0.80f, 1.98f}}, {"jetta", {0.64f, 0.67f, 1.89f}}, {"hilux", {0.59f, 0.98f, 2.04f}},
+                                      {"mercedes", {0.64f, 0.46f, 1.72f}}, {"crafter", {0.58f, 0.71f, 2.49f}}};
+        for (const Lamp& lamp : lamps) {
+            if (stem != lamp.stem) continue;
+            const glm::vec3 local = glm::vec3(parts.fit * glm::vec4(lamp.model, 1.0f));
+            parts.headlight = {local.x, local.y, std::abs(local.z)};
+            parts.hasHeadlight = true;
+        }
+    }
     for (const ModelPart& part : parts.body ? parts.body->GetParts() : std::vector<ModelPart>{}) if (part.paint) parts.hasPaint = true;
     if (!parts.valid()) return VehicleParts{};
     return parts;
@@ -948,6 +959,46 @@ Simulation::Simulation(const CityLayout& city, uint32_t seed,
     m_StreetLampHead = Mesh::CreateCube({0.44f, 0.10f, 0.18f}, {0.88f, 0.76f, 0.48f, 1.0f});
     m_LampBulb = Mesh::CreateRoundedBox({0.32f, 0.32f, 0.32f}, 0.15f, 3, {1.0f, 1.0f, 1.0f, 1.0f});
     m_LampHalo = Mesh::CreateRoundedBox({2.2f, 2.2f, 2.2f}, 1.05f, 4, {1.0f, 1.0f, 1.0f, 1.0f});
+    {   // brillo de faro: nucleo + resplandor gaussiano (anillos) y cuatro estelas finas; mira a +Z, radio 1
+        std::vector<Vertex> vertices;
+        std::vector<uint32_t> indices;
+        const auto push = [&](float x, float y, float alpha) {
+            Vertex vertex;
+            vertex.position = {x, y, 0.0f};
+            vertex.normal = {0.0f, 0.0f, 1.0f};
+            vertex.color = {1.0f, 1.0f, 1.0f, alpha};
+            vertices.push_back(vertex);
+            return static_cast<uint32_t>(vertices.size() - 1);
+        };
+        constexpr int kSegments = 28, kRings = 9;
+        const uint32_t center = push(0.0f, 0.0f, 1.0f);
+        std::vector<uint32_t> previous(kSegments, center);
+        for (int ring = 1; ring <= kRings; ++ring) {
+            const float r = static_cast<float>(ring) / static_cast<float>(kRings);
+            const float alpha = ring == kRings ? 0.0f : std::exp(-5.5f * r * r) * (1.0f - r * r * r);   // campana: sin borde visible
+            std::vector<uint32_t> current;
+            for (int i = 0; i < kSegments; ++i) {
+                const float angle = static_cast<float>(i) / static_cast<float>(kSegments) * 6.2831853f;
+                current.push_back(push(std::cos(angle) * r, std::sin(angle) * r, alpha));
+            }
+            for (int i = 0; i < kSegments; ++i) {
+                const size_t a0 = static_cast<size_t>(i), a1 = static_cast<size_t>((i + 1) % kSegments);
+                if (ring == 1) indices.insert(indices.end(), {center, current[a0], current[a1]});
+                else indices.insert(indices.end(), {previous[a0], current[a0], previous[a1], previous[a1], current[a0], current[a1]});
+            }
+            previous = current;
+        }
+        for (int streak = 0; streak < 4; ++streak) {   // estelas: rombos finos (las diagonales mas cortas), brillan en el centro y se apagan en la punta
+            const float angle = (streak == 0 ? 0.0f : streak == 1 ? 1.5707963f : streak == 2 ? 0.7853982f : 2.3561945f) + 0.12f;
+            const float length = streak < 2 ? 2.6f : 1.5f, width = 0.05f, peak = streak < 2 ? 0.55f : 0.32f;
+            const float c = std::cos(angle), sn = std::sin(angle);
+            const uint32_t middle = push(0.0f, 0.0f, peak);
+            const uint32_t tipA = push(c * length, sn * length, 0.0f), tipB = push(-c * length, -sn * length, 0.0f);
+            const uint32_t sideA = push(-sn * width, c * width, peak * 0.5f), sideB = push(sn * width, -c * width, peak * 0.5f);
+            indices.insert(indices.end(), {middle, sideA, tipA, middle, tipA, sideB, middle, sideB, tipB, middle, tipB, sideA});
+        }
+        m_GlowDisc = std::make_shared<Mesh>(vertices, indices);
+    }
     m_MissionMarker = Mesh::CreateCube({0.42f, 1.5f, 0.42f}, {0.92f, 0.64f, 0.12f, 1.0f});
     m_DogBody = Mesh::CreateRoundedBox({0.78f, 0.42f, 1.12f}, 0.12f, 3);
     m_DogHead = Mesh::CreateRoundedBox({0.48f, 0.42f, 0.48f}, 0.10f, 3);
@@ -2223,18 +2274,43 @@ std::vector<Simulation::StrobeLight> Simulation::GetStrobeLights(const glm::vec3
     return lights;
 }
 
+void Simulation::HeadlightFrame(const TrafficVehicle& vehicle, glm::vec3& position, glm::vec3& forward, glm::vec3& side) const {
+    if (vehicle.drawValid) {
+        position = vehicle.drawPosition;
+        forward = {std::cos(vehicle.drawYaw), 0.0f, -std::sin(vehicle.drawYaw)};
+    } else {
+        position = vehicle.position;
+        forward = glm::normalize(glm::vec3(vehicle.direction.x, 0.0f, vehicle.direction.z));
+    }
+    side = {-forward.z, 0.0f, forward.x};
+}
+
+glm::vec3 Simulation::HeadlightOffset(const TrafficVehicle& vehicle) const {
+    if (vehicle.variant > 0) {
+        const VehicleParts& parts = m_VehicleParts[4 + static_cast<size_t>(vehicle.variant)];
+        if (parts.hasHeadlight) return parts.headlight;
+    }
+    if (vehicle.emergency == 2 && m_VehicleParts[3].hasHeadlight) return m_VehicleParts[3].headlight;
+    if (vehicle.emergency == 3) return {vehicle.length * 0.5f - 0.2f, 0.75f, 0.06f};   // moto: un solo faro al centro
+    if (vehicle.emergency == 1) return {vehicle.length * 0.5f - 0.35f, 0.95f, 0.85f};
+    if (vehicle.bus) return {vehicle.length * 0.5f - 0.3f, 0.85f, 0.85f};
+    return {vehicle.length * 0.5f - 0.35f, 0.62f, vehicle.width * 0.31f};
+}
+
 std::vector<Simulation::HeadlightBeam> Simulation::GetHeadlightBeams(const glm::vec3& focus, size_t maxCount, float maxDistance) const {
     std::vector<std::pair<float, HeadlightBeam>> candidates;
     for (const TrafficVehicle& vehicle : m_Traffic) {
         if (vehicle.parked || vehicle.driver.state == DriverState::Abandoned) continue;
         const float distance = glm::distance(glm::vec2(vehicle.position.x, vehicle.position.z), glm::vec2(focus.x, focus.z));
         if (distance > maxDistance) continue;
-        const glm::vec3 forward = glm::normalize(glm::vec3(vehicle.direction.x, 0.0f, vehicle.direction.z));
-        const glm::vec3 side(-forward.z, 0.0f, forward.x);
+        glm::vec3 center, forward, side;
+        HeadlightFrame(vehicle, center, forward, side);
+        const glm::vec3 lamp = HeadlightOffset(vehicle);
         for (float sign : {-1.0f, 1.0f}) {   // un haz por faro, abiertos unos grados hacia afuera
+            if (lamp.z < 0.1f && sign > 0.0f) continue;   // la moto tiene un solo faro
             HeadlightBeam beam;
             beam.direction = glm::normalize(forward + side * sign * 0.07f);
-            beam.position = vehicle.position + forward * (vehicle.length * 0.5f - 0.45f) + side * sign * vehicle.width * 0.34f + glm::vec3(0.0f, 0.6f, 0.0f);
+            beam.position = center + forward * lamp.x + side * sign * lamp.z + glm::vec3(0.0f, lamp.y, 0.0f);
             candidates.emplace_back(distance, beam);
         }
     }
@@ -2261,9 +2337,13 @@ std::vector<glm::vec4> Simulation::GetHeadlightLights(const glm::vec3& focus, si
         if (vehicle.parked || vehicle.driver.state == DriverState::Abandoned) continue;
         const float distance = glm::distance(glm::vec2(vehicle.position.x, vehicle.position.z), glm::vec2(focus.x, focus.z));
         if (distance > maxDistance) continue;
-        const glm::vec3 side(-vehicle.direction.z, 0.0f, vehicle.direction.x);
-        for (float sign : {-1.0f, 1.0f})   // una luz por faro, sobre el suelo delante de cada uno
-            candidates.emplace_back(distance, vehicle.position + vehicle.direction * (vehicle.length * 0.5f + 2.2f) + side * sign * vehicle.width * 0.36f + glm::vec3(0.0f, 0.8f, 0.0f));
+        glm::vec3 center, forward, side;
+        HeadlightFrame(vehicle, center, forward, side);
+        const glm::vec3 lamp = HeadlightOffset(vehicle);
+        for (float sign : {-1.0f, 1.0f}) {   // una luz por faro, sobre el suelo delante de cada uno
+            if (lamp.z < 0.1f && sign > 0.0f) continue;
+            candidates.emplace_back(distance, center + forward * (lamp.x + 1.8f) + side * sign * lamp.z + glm::vec3(0.0f, 0.8f, 0.0f));
+        }
     }
     const size_t count = std::min(maxCount * 2, candidates.size());
     std::partial_sort(candidates.begin(), candidates.begin() + static_cast<std::ptrdiff_t>(count), candidates.end(), [](const auto& a, const auto& b) { return a.first < b.first; });
@@ -4724,27 +4804,32 @@ void Simulation::Render(Renderer& renderer, float time, const glm::vec3& focusPo
         }
         renderer.SetUnlit(false);
     }
-    // Faros de los vehiculos en circulacion: lente encendida en cada faro y un halo de capas que se difumina hacia afuera; solo se ve de frente
-    if (m_LampGlow > 0.05f) {
+    // Faros de los vehiculos en circulacion: lente encendida sobre cada faro y un brillo difuso que mira a la camara (nucleo, resplandor y estelas)
+    if (m_LampGlow > 0.05f && m_GlowDisc) {
         renderer.SetUnlit(true);
+        const glm::vec3 eye = renderer.GetCameraPosition();
         for (const TrafficVehicle& vehicle : m_Traffic) {
             if (vehicle.parked || vehicle.driver.state == DriverState::Abandoned) continue;
             const float distance = glm::distance(glm::vec2(vehicle.position.x, vehicle.position.z), glm::vec2(focusPosition.x, focusPosition.z));
             if (distance > 140.0f) continue;
-            const glm::vec3 forward = glm::normalize(glm::vec3(vehicle.direction.x, 0.0f, vehicle.direction.z));
-            const glm::vec3 side(-forward.z, 0.0f, forward.x);
-            const glm::vec3 toViewer = glm::normalize(glm::vec3(focusPosition.x - vehicle.position.x, 0.0f, focusPosition.z - vehicle.position.z) + glm::vec3(1.0e-4f));
-            const float frontal = AtmosphereSmoothstep(0.05f, 0.55f, glm::dot(forward, toViewer));   // visto de lado o por detras el halo no se ve
-            const float haloScale = 0.8f + 1.1f * AtmosphereSmoothstep(8.0f, 90.0f, distance);
+            glm::vec3 center, forward, side;
+            HeadlightFrame(vehicle, center, forward, side);
+            const glm::vec3 lamp = HeadlightOffset(vehicle);
+            if (std::getenv("BAZUKO_LOG_BEAMS") && distance < 25.0f) LogInfo("Faro: emerg {} variante {} largo {:.2f} ancho {:.2f} faro ({:.2f}, {:.2f}, {:.2f}) dir ({:.2f}, {:.2f}) yaw {:.2f}", vehicle.emergency, vehicle.variant, vehicle.length, vehicle.width, lamp.x, lamp.y, lamp.z, vehicle.direction.x, vehicle.direction.z, vehicle.yaw);
+            const glm::vec3 toEye = glm::normalize(glm::vec3(eye.x - center.x, 0.0f, eye.z - center.z) + glm::vec3(1.0e-4f));
+            const float frontal = AtmosphereSmoothstep(-0.25f, 0.6f, glm::dot(forward, toEye));   // de lado el brillo se apaga poco a poco; por detras no hay
+            const float farAway = AtmosphereSmoothstep(8.0f, 90.0f, distance);
             for (float sign : {-1.0f, 1.0f}) {
-                const glm::vec3 lens = vehicle.position + forward * (vehicle.length * 0.5f - 0.5f) + side * sign * vehicle.width * 0.34f + glm::vec3(0.0f, 0.6f, 0.0f);
-                const glm::mat4 at = glm::translate(glm::mat4(1.0f), lens);
-                renderer.Submit(*m_LampBulb, glm::scale(at, glm::vec3(0.95f, 0.7f, 0.8f)), glm::vec4(1.0f, 0.97f, 0.86f, 1.0f));
+                if (lamp.z < 0.1f && sign > 0.0f) continue;
+                const glm::vec3 at = center + forward * (lamp.x + 0.12f) + side * sign * lamp.z + glm::vec3(0.0f, lamp.y, 0.0f);   // 12 cm adelante: la lente asoma del faro
+                renderer.Submit(*m_LampBulb, glm::scale(glm::translate(glm::mat4(1.0f), at), glm::vec3(0.8f, 0.55f, 0.7f)), glm::vec4(1.0f, 0.97f, 0.88f, 1.0f));
                 if (frontal <= 0.01f) continue;
-                static const float scales[4] = {1.0f, 0.62f, 0.36f, 0.18f};   // capas anidadas: el centro es mas denso y el borde se pierde sin un contorno
-                static const float alphas[4] = {0.09f, 0.12f, 0.17f, 0.24f};
-                for (int layer = 0; layer < 4; ++layer)
-                    renderer.Submit(*m_LampHalo, glm::scale(at, glm::vec3(haloScale * scales[layer])), glm::vec4(1.0f, 0.93f, 0.76f, alphas[layer] * m_LampGlow * frontal), false, false, nullptr, 2);
+                const glm::vec3 z = glm::normalize(eye - at);   // base que mira a la camara
+                const glm::vec3 x = glm::normalize(glm::cross(glm::vec3(0.0f, 1.0f, 0.0f), z));
+                const glm::vec3 y = glm::cross(z, x);
+                const glm::mat4 facing(glm::vec4(x, 0.0f), glm::vec4(y, 0.0f), glm::vec4(z, 0.0f), glm::vec4(at + z * 0.3f, 1.0f));
+                const float radius = 0.55f + 0.85f * farAway;
+                renderer.Submit(*m_GlowDisc, glm::scale(facing, glm::vec3(radius)), glm::vec4(1.0f, 0.94f, 0.80f, 0.85f * m_LampGlow * frontal), false, true, nullptr, 2, 0.0f);
             }
         }
         renderer.SetUnlit(false);
@@ -5215,6 +5300,9 @@ void Simulation::Render(Renderer& renderer, float time, const glm::vec3& focusPo
                 }
             }
         }
+        vehicle.drawPosition = visualPosition;
+        vehicle.drawYaw = visualYaw;
+        vehicle.drawValid = true;
         glm::mat4 model = glm::translate(glm::mat4(1.0f), visualPosition);
         model = glm::rotate(model, visualYaw, {0.0f, 1.0f, 0.0f});
         const size_t emergencySlot = vehicle.emergency > 0 ? static_cast<size_t>(vehicle.emergency - 1) : 0;
