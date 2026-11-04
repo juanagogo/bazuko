@@ -14,6 +14,7 @@ import { Momentos } from '../src/ui/Momentos.js';
 import { Avisos } from '../src/ui/avisos.js';
 import { LimpiezaSocialSystem } from '../src/systems/LimpiezaSocialSystem.js';
 import { ITEMS } from '../src/data/items.js';
+import { tablas } from '../tools/fuente/woff.mjs';
 
 const leer = (...p) => fs.readFileSync(path.join(...p), 'utf8');
 const HOMBRE = { nombre: 'Jairo', real: { sexo: 'hombre' } };
@@ -249,7 +250,10 @@ test('la letra de imprenta sale del programa, y el presupuesto de letra se cumpl
     execFileSync(process.execPath, ['tools/fuente/imprenta.mjs', dir], { stdio: 'pipe' });
     for (const f of ['titular.woff', 'tira.woff']) {
       assert.ok(fs.statSync(path.join(dir, f)).size > 1000);
-      assert.equal(fs.statSync(path.join(dir, f)).size, fs.statSync(path.join('src/ui/imprenta', f)).size, f);
+      // El compresor no da los mismos bytes en todos los procesadores: los .woff se comparan por dentro.
+      const [a, b] = [tablas(fs.readFileSync(path.join('src/ui/imprenta', f))), tablas(fs.readFileSync(path.join(dir, f)))];
+      assert.deepEqual(Object.keys(a), Object.keys(b), f);
+      for (const t of Object.keys(a)) assert.ok(a[t].equals(b[t]), `${f}: ${t}`);
     }
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
   const carpetas = ['src/ui/fuentes', 'src/ui/imprenta'];
