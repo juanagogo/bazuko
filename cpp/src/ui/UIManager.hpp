@@ -106,6 +106,14 @@ struct DealerOption {
     int price = 0;
     bool affordable = false;
     bool canCarry = false;
+    std::string detail;   // «+20 vicio, +15 animo, pesa 0,1 kg»
+};
+
+struct DealerSale {   // lo que lleva el jugador y el jibaro le compra de noche
+    std::string id;
+    std::string name;
+    int quantity = 0;
+    int unitPrice = 0;
 };
 
 struct TalentOption {
@@ -202,6 +210,8 @@ public:
     bool ConsumeInventorySortRequest();
     std::string ConsumeTalentUnlockRequest();
     std::string ConsumeDealerPurchaseRequest();
+    std::string ConsumeDealerSellRequest() { std::string request = std::move(m_DealerSellRequest); m_DealerSellRequest.clear(); return request; }
+    void SetDealerSales(std::vector<DealerSale> sales, bool night) { m_DealerSales = std::move(sales); m_DealerNight = night; }
     bool ConsumePetRequest();
     void SetCompanionCustomization(const std::string& name, int coat, float size = 1.0f, int accessory = 0);
     std::string GetCompanionName() const;
@@ -326,6 +336,10 @@ private:
     void RenderRadioMenu();
     void RenderTalentWindow(const std::vector<TalentOption>& talents, int points);
     void RenderDealerWindow(const std::vector<DealerOption>& options, float money);
+    void RenderJibaro(const std::vector<DealerOption>& options, float money);   // menu del jibaro de carton (Costal.cpp)
+    std::vector<DealerSale> m_DealerSales;
+    bool m_DealerNight = false;
+    std::string m_DealerSellRequest;
     // HUD del juego web (WebPanels.cpp)
     struct HudContext {
         float dt = 0.0f;

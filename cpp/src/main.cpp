@@ -2284,13 +2284,28 @@ int main(int argc, char** argv) {
                 item.desc, DescribeItemEffects(item), item.rarityLabel,
                 hotbarSlot == hotbar.end() ? -1 : static_cast<int>(hotbarSlot - hotbar.begin()), item.value});
         }
+        {   // lo que el jibaro le compra de noche al jugador: sustancias del costal a 1,8 veces su valor
+            std::vector<DealerSale> sales;
+            for (const auto& entry : inventory) {
+                const Item& item = lootTable[entry.itemIndex];
+                if (!item.substance) continue;
+                sales.push_back({item.id, item.name, entry.quantity, static_cast<int>(std::round(static_cast<float>(item.value) * 1.8f * 1.3f * talentEffect("substancePriceMult")))});
+            }
+            ui.SetDealerSales(std::move(sales), simulation.IsNight());
+        }
         std::vector<DealerOption> dealerOptions;
-        for (const std::string& id : {std::string("tintico"), std::string("pegante"), std::string("pastilla")}) {
+        for (const std::string& id : {std::string("tintico"), std::string("pegante"), std::string("pastilla"), std::string("basuco")}) {
             const auto item = std::find_if(lootTable.begin(), lootTable.end(),
                 [&](const Item& entry) { return entry.id == id; });
             if (item == lootTable.end()) continue;
+            std::string detail = DescribeItemEffects(*item);
+            for (size_t at = detail.find(" · "); at != std::string::npos; at = detail.find(" · ")) detail.replace(at, 4, ", ");
+            char weightText[32];
+            std::snprintf(weightText, sizeof(weightText), "%.2g", item->weight);
+            for (char* c = weightText; *c; ++c) if (*c == '.') *c = ',';
+            detail += std::string(", pesa ") + weightText + " kg";
             dealerOptions.push_back({item->id, item->name, item->value, money >= item->value,
-                                     inventoryWeight + item->weight <= inventoryCapacity()});
+                                     inventoryWeight + item->weight <= inventoryCapacity(), detail});
         }
         std::vector<TalentOption> talentOptions;
         for (const TalentDef& definition : gameData.talents) {
@@ -2384,6 +2399,24 @@ int main(int argc, char** argv) {
         }
         if (ui.ConsumeRecyclerSellRequest()) sellRecyclables();
 
+        if (const std::string dealerSale = ui.ConsumeDealerSellRequest(); !dealerSale.empty() && simulation.IsNight()) {
+            const auto entry = std::find_if(inventory.begin(), inventory.end(), [&](const InventoryEntry& candidate) { return lootTable[candidate.itemIndex].id == dealerSale && lootTable[candidate.itemIndex].substance; });
+            if (entry != inventory.end()) {
+                const Item& item = lootTable[entry->itemIndex];
+                const int quantity = entry->quantity;
+                inventoryWeight = std::max(0.0f, inventoryWeight - item.weight * static_cast<float>(quantity));
+                if (std::uniform_real_distribution<float>(0.0f, 1.0f)(lootRandom) < 0.15f) {   // en cada venta hay un 15 % de que caiga la policia y se lleve la mercancia
+                    ui.SetPickupNotification("Cayó la policía y se llevó la mercancía.");
+                    simulation.CallPolice(playerPos, 0.5f);
+                } else {
+                    const float earned = std::round(static_cast<float>(item.value * quantity) * 1.8f * 1.3f * talentEffect("substancePriceMult"));
+                    money += earned;
+                    audio.Play(AudioCue::Sell);
+                    ui.SetPickupNotification("Vendiste " + std::to_string(quantity) + " " + item.name + " al jíbaro por $" + std::to_string(static_cast<int>(earned)) + ".");
+                }
+                inventory.erase(entry);
+            }
+        }
         const std::string dealerPurchase = ui.ConsumeDealerPurchaseRequest();
         if (!dealerPurchase.empty()) {
             const auto item = std::find_if(lootTable.begin(), lootTable.end(),

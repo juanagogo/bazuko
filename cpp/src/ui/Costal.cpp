@@ -311,3 +311,105 @@ void UIManager::RenderMesaCarton(const std::vector<CraftingOption>& craftingOpti
 }
 
 } // namespace Bazuko
+
+namespace Bazuko {
+
+// El jibaro (docs/identidad-visual.md del original): comprar tinto, pegante, pastilla y basuco; vender de noche lo que lleves.
+void UIManager::RenderJibaro(const std::vector<DealerOption>& options, float money) {
+    namespace C = Carton;
+    SignUI::DrawBackdrop(0.5f);
+    const ImVec2 display = ImGui::GetIO().DisplaySize;
+    const float width = std::min(display.x - 24.0f, 700.0f);
+    const float rowHeight = 76.0f;
+    const float sellRows = m_DealerSales.empty() ? 1.0f : static_cast<float>(m_DealerSales.size());
+    const float height = std::min(display.y - 24.0f, 88.0f + 40.0f + static_cast<float>(options.size()) * rowHeight + 46.0f + (m_DealerSales.empty() ? 34.0f : sellRows * 56.0f) + 70.0f);
+    ImGui::SetNextWindowSize(ImVec2(width, height), ImGuiCond_Always);
+    ImGui::SetNextWindowPos(ImVec2(display.x * 0.5f, display.y * 0.5f), ImGuiCond_Always, ImVec2(0.5f, 0.5f));
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
+    ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0, 0, 0, 0));
+    const bool open = ImGui::Begin("##jibaroCarton", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings |
+                                                                  ImGuiWindowFlags_NoScrollWithMouse | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoScrollbar);
+    ImGui::PopStyleColor();
+    ImGui::PopStyleVar(2);
+    if (!open) { ImGui::End(); return; }
+    ImDrawList* draw = ImGui::GetWindowDrawList();
+    const ImVec2 min = ImGui::GetWindowPos(), max = min + ImVec2(width, height);
+    C::Panel(draw, min, max, 21u, 8.0f);
+    const float pad = 24.0f;
+    C::Text(draw, true, 38, min + ImVec2(pad, 12.0f), C::kMarcador, "El jíbaro");
+    char cash[48];
+    std::snprintf(cash, sizeof(cash), "Plata: $ %s", Thousands(static_cast<int>(money)).c_str());
+    C::Text(draw, true, 18, min + ImVec2(pad + C::TextWidth(true, 38, "El jíbaro") + 16.0f, 30.0f), C::kMarcador, cash);
+    // cerrar: caja con la equis y la tecla
+    const ImVec2 closeMin(max.x - 96.0f, min.y + 14.0f), closeSize(78.0f, 40.0f);
+    ImGui::SetCursorScreenPos(closeMin);
+    if (ImGui::InvisibleButton("##cerrarJibaro", closeSize)) TogglePause();
+    draw->AddRectFilled(closeMin, closeMin + closeSize, ImGui::IsItemHovered() ? IM_COL32(0xF2, 0xE6, 0xC4, 255) : C::kCinta);
+    draw->AddRect(closeMin, closeMin + closeSize, C::kMarcador, 0.0f, 0, 2.0f);
+    C::Text(draw, true, 30, closeMin + ImVec2(8.0f, 1.0f), C::kMarcador, "×");
+    draw->AddRectFilled(closeMin + ImVec2(34.0f, 9.0f), closeMin + ImVec2(70.0f, 31.0f), C::kMarcador);
+    C::Text(draw, true, 15, closeMin + ImVec2(40.0f, 11.0f), C::kCinta, "Esc");
+    C::HandLine(draw, ImVec2(min.x + pad, min.y + 66.0f), ImVec2(max.x - pad, min.y + 66.0f), 2101u, 2.5f);
+
+    const auto tapeButton = [&](const char* id, const char* label, ImVec2 at, ImVec2 size, bool enabled) {
+        ImGui::SetCursorScreenPos(at);
+        const bool pressed = ImGui::InvisibleButton(id, size) && enabled;
+        draw->AddRect(at, at + size, C::kMarcador, 0.0f, 0, 2.0f);
+        if (enabled && ImGui::IsItemHovered()) draw->AddRectFilled(at, at + size, IM_COL32(0xF2, 0xE6, 0xC4, 255));
+        const float textWidth = C::TextWidth(true, 17, label);
+        C::Text(draw, true, 17, at + ImVec2((size.x - textWidth) * 0.5f, 10.0f), C::kMarcador, label);
+        if (!enabled) draw->AddLine(at + ImVec2(8.0f, size.y * 0.5f + 1.0f), at + ImVec2(size.x - 8.0f, size.y * 0.5f - 3.0f), C::kMarcador, 2.0f);   // tachado: no se puede
+        return pressed;
+    };
+
+    float y = min.y + 78.0f;
+    C::Text(draw, true, 26, ImVec2(min.x + pad, y), C::kMarcador, "Comprar");
+    y += 38.0f;
+    int row = 0;
+    for (const DealerOption& option : options) {
+        const bool enabled = option.affordable && option.canCarry;
+        C::Text(draw, true, 20, ImVec2(min.x + pad, y), C::kMarcador, option.name.c_str());
+        std::string detail = option.detail;
+        if (!option.affordable) detail += ". No me alcanza";
+        else if (!option.canCarry) detail += ". No cabe en el costal";
+        C::Text(draw, false, 15, ImVec2(min.x + pad, y + 25.0f), C::kMarcador, detail.c_str(), width - 280.0f);
+        char price[32];
+        std::snprintf(price, sizeof(price), "$ %s", Thousands(option.price).c_str());
+        C::Text(draw, true, 21, ImVec2(max.x - pad - 118.0f - 12.0f - C::TextWidth(true, 21, price), y + 8.0f), C::kMarcador, price);
+        ImGui::PushID(row++);
+        if (tapeButton("##comprar", "Comprar", ImVec2(max.x - pad - 118.0f, y + 4.0f), ImVec2(118.0f, 42.0f), enabled)) m_DealerPurchaseRequest = option.id;
+        ImGui::PopID();
+        y += rowHeight - 6.0f;
+        C::HandLine(draw, ImVec2(min.x + pad, y), ImVec2(max.x - pad, y), 2110u + static_cast<unsigned int>(row), 1.8f);
+        y += 6.0f;
+    }
+
+    y += 8.0f;
+    C::Text(draw, true, 26, ImVec2(min.x + pad, y), C::kMarcador, "Vender");
+    y += 38.0f;
+    if (m_DealerSales.empty()) {
+        C::Text(draw, false, 17, ImVec2(min.x + pad, y), C::kMarcador, m_DealerNight ? "No llevo nada que venderle." : "Solo compra de noche.");
+        y += 34.0f;
+    } else {
+        int sellRow = 0;
+        for (const DealerSale& sale : m_DealerSales) {
+            char line[96];
+            std::snprintf(line, sizeof(line), "%s ×%d", sale.name.c_str(), sale.quantity);
+            C::Text(draw, true, 19, ImVec2(min.x + pad, y + 8.0f), C::kMarcador, line);
+            char price[48];
+            std::snprintf(price, sizeof(price), "$ %s c/u", Thousands(sale.unitPrice).c_str());
+            C::Text(draw, true, 18, ImVec2(max.x - pad - 118.0f - 12.0f - C::TextWidth(true, 18, price), y + 9.0f), C::kMarcador, price);
+            ImGui::PushID(1000 + sellRow++);
+            if (tapeButton("##vender", "Vender", ImVec2(max.x - pad - 118.0f, y + 2.0f), ImVec2(118.0f, 40.0f), m_DealerNight)) m_DealerSellRequest = sale.id;
+            ImGui::PopID();
+            y += 56.0f;
+        }
+    }
+    C::HandLine(draw, ImVec2(min.x + pad, y), ImVec2(max.x - pad, y), 2190u, 1.8f);
+    C::Text(draw, false, 14, ImVec2(min.x + pad, y + 8.0f), C::kMarcador,
+            "De noche paga 1,8× el valor de lo que se le traiga, pero en cada venta hay un 15 % de que caiga la policía y se lleve la mercancía.", width - pad * 2.0f);
+    ImGui::End();
+}
+
+} // namespace Bazuko

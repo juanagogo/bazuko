@@ -889,7 +889,8 @@ void UIManager::RenderHUD(float dt, const glm::vec3& playerPos, Camera& camera, 
     } else if (m_Paused && m_PauseSection == 2) {
         RenderTalentWindow(talentOptions, talentPoints);
     } else if (m_Paused && m_PauseSection == 4) {
-        RenderDealerWindow(dealerOptions, money);
+        if (Carton::FontsReady() && !std::getenv("BAZUKO_UI_OSCURA")) RenderJibaro(dealerOptions, money);
+        else RenderDealerWindow(dealerOptions, money);
     } else if (m_Paused && !m_RadioMenuOpen && (m_PauseSection == 0 || m_PauseSection == 3 || m_PauseSection == 8 || m_PauseSection == 9 || m_PauseSection == 10)) {
         PauseContext context;
         context.playerPos = playerPos;
