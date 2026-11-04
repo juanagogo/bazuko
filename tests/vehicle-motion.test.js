@@ -49,6 +49,8 @@ test('dirección, patrulla, intermitentes y limpiaparabrisas usan el mismo tiemp
     car.update(0);
     car.animateDrive(0, false, { dt: 0, speed: 5, steering: .3, turnSignal: 'left' });
     assert.deepEqual(visualState(car), before);
+    // El esmalte se comparte entre carros: se deja seco para que la lluvia del siguiente no arrastre estado.
+    car.setNight(false, false);
     car.dispose();
   }
   for (const state of states.slice(1)) {
@@ -90,11 +92,12 @@ test('frenos y direccionales son independientes entre lados y carros; la lluvia 
   assert.ok(a.vehicle.signalMaterials.left.emissiveIntensity > a.vehicle.signalMaterials.right.emissiveIntensity);
   assert.equal(b.vehicle.signalMaterials.left.emissiveIntensity, .12);
   const dry = a.vehicle.wetMaterials.map(material => material.roughness);
-  const otherDry = b.vehicle.wetMaterials.map(material => material.roughness);
   a.setNight(false, true);
   a.setNight(false, true);
   a.vehicle.wetMaterials.forEach((material, i) => near(material.roughness, dry[i] * .75));
-  assert.deepEqual(b.vehicle.wetMaterials.map(material => material.roughness), otherDry);
+  // El esmalte y el vidrio se comparten: la lluvia moja a la vez a toda la flota.
+  assert.equal(b.vehicle.wetMaterials[0], a.vehicle.wetMaterials[0]);
+  assert.equal(b.vehicle.wetMaterials[1], a.vehicle.wetMaterials[1]);
   assert.ok(a.vehicle.headlightMaterial.emissiveIntensity > b.vehicle.headlightMaterial.emissiveIntensity);
   a.animateDrive(0, true, { dt: .25, speed: 0 });
   assert.ok(a.vehicle.wipers.every(wiper => wiper.rotation.z > wiper.userData.restAngle));
@@ -118,7 +121,7 @@ test('precarga mantiene carrocería, conductor que entra/sale y los únicos dos 
     });
     return resources;
   };
-  // Lo propio del carro se libera una vez; conductor, espejos y contorno se comparten con el resto de la flota.
+  // Lo propio del carro se libera una vez; esmalte, vidrio, conductor, espejos y contorno se comparten con la flota.
   const resources = watch([]), sharedResources = watch([car.driver, ...car.mirrors, car.marker]);
   resources.set(v.wetMaterials[0], 0);
   v.wetMaterials[0].addEventListener('dispose', () => resources.set(v.wetMaterials[0], resources.get(v.wetMaterials[0]) + 1));
@@ -138,7 +141,7 @@ test('precarga mantiene carrocería, conductor que entra/sale y los únicos dos 
   assert.ok(car.mirrors.every(mirror => !mirror.visible));
   assert.equal(driver.visible, true);
   car.dispose(); car.dispose();
-  assert.ok([...resources.values()].every(count => count === 1));
+  assert.ok([...resources.values()].every(count => count === 0));
   assert.ok([...sharedResources.values()].every(count => count === 0));
 });
 

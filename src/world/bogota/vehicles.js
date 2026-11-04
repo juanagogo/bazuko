@@ -64,6 +64,36 @@ const glassWithShadow = material => {
   return chainSunField(material);
 };
 
+// Esmalte y vidrio se comparten por modelo y color: la flota entera usa unas pocas variantes y la GPU no rearma su
+// estado en cada carro. No se liberan: viven lo que dura la sesión, como el atlas y las geometrías.
+const PAINTS = new Map();
+function sharedPaint(modelId, color, spec, body) {
+  // Los tonos llegan como texto o como Color; la clave usa su hexadecimal.
+  const key = `${modelId}:${color?.isColor ? color.getHexString() : color}`;
+  let paint = PAINTS.get(key);
+  if (!paint) {
+    paint = new THREE.MeshPhysicalMaterial({ color, map: getDetailMap(spec, body), vertexColors: true });
+    Object.assign(paint, finishOf(paint.color));
+    paint.name = 'Esmalte';
+    // La lluvia cambia la rugosidad del material compartido: se guarda la de seco para poder volver.
+    paint.userData.dryRoughness = paint.roughness;
+    neutralReflection(paint);
+    PAINTS.set(key, paint);
+  }
+  return paint;
+}
+
+let GLASS = null;
+function sharedGlass() {
+  if (GLASS) return GLASS;
+  GLASS = new THREE.MeshPhysicalMaterial({ color: '#1d282c', metalness: .05, roughness: .1, envMapIntensity: .75,
+    transparent: true, opacity: .66, depthWrite: false });
+  GLASS.name = 'Vidrio ahumado';
+  GLASS.userData.dryRoughness = GLASS.roughness;
+  glassWithShadow(GLASS);
+  return GLASS;
+}
+
 const SHARED = {};
 function shared() {
   if (SHARED.ready) return SHARED;
@@ -185,14 +215,8 @@ export function makeVehicle(kind = 'carro', seedColor = 0, { beams = true, model
   const { L, W } = spec, isPolice = kind === 'police', isTaxi = kind === 'taxi';
   const paints = MODEL_PAINTS[modelId], color = isTaxi ? TAXI_COLOR : isPolice ? POLICE_COLOR : paints[(h >>> 7) % paints.length];
 
-  const paint = new THREE.MeshPhysicalMaterial({ color, map: getDetailMap(spec, body), vertexColors: true });
-  Object.assign(paint, finishOf(paint.color));
-  paint.name = 'Esmalte';
-  neutralReflection(paint);
-  const glass = new THREE.MeshPhysicalMaterial({ color: '#1d282c', metalness: .05, roughness: .1, envMapIntensity: .75,
-    transparent: true, opacity: .66, depthWrite: false });
-  glass.name = 'Vidrio ahumado';
-  glassWithShadow(glass);
+  const paint = sharedPaint(modelId, color, spec, body);
+  const glass = sharedGlass();
 
   // Direccionales, stops y patrulla: valores de este carro; nunca se enciende el vecino.
   const signalMaterials = { left: new LampChannel('Direccional left', '#ff8a24', .12), right: new LampChannel('Direccional right', '#ff8a24', .12) };
@@ -218,14 +242,15 @@ export function makeVehicle(kind = 'carro', seedColor = 0, { beams = true, model
   bodyVisual.add(trimMesh, lampMesh, glassMesh);
 
   const wipers = parked ? [] : makeWipers(spec, body, geo.wiper, s.trim);
-  for (const wiper of wipers) bodyVisual.add(wiper.parent);
+  const wiperParents = wipers.map(wiper => wiper.parent);
+  for (const parent of wiperParents) bodyVisual.add(parent);
 
-  const wheels = [], frontWheelPivots = [], r = spec.r;
+  const wheels = [], frontWheelPivots = [], wheelPivots = [], r = spec.r;
   if (!parked) for (const [x, z, sideZ] of wheelSeats(spec, body)) {
     const pivot = new THREE.Group(); pivot.position.set(x, r, z); pivot.name = x > 0 && x === spec.axleF ? 'Eje delantero dirigible' : 'Eje trasero';
     const wheel = new THREE.Mesh(sideZ > 0 ? geo.wheelRight : geo.wheelLeft, s.trim); wheel.name = 'Rueda'; wheel.castShadow = wheel.receiveShadow = true;
     wheel.userData.radius = r; wheel.userData.front = x === spec.axleF;
-    pivot.add(wheel); group.add(pivot); wheels.push(wheel);
+    pivot.add(wheel); group.add(pivot); wheels.push(wheel); wheelPivots.push(pivot);
     if (x === spec.axleF) frontWheelPivots.push(pivot);
   }
 
@@ -246,15 +271,18 @@ export function makeVehicle(kind = 'carro', seedColor = 0, { beams = true, model
   let disposed = false;
   const dispose = () => {
     if (disposed) return; disposed = true;
-    paint.dispose(); glass.dispose(); lamp.dispose(); beam?.material.dispose();
+    lamp.dispose(); beam?.material.dispose();
   };
+
+  // Piezas que se apagan de lejos: el carro lejano se queda con su chapa, sus lámparas y su resplandor.
+  const details = [trimMesh, glassMesh, ...wheelPivots, ...wiperParents, beam].filter(Boolean);
 
   return {
     group, length: L, width: W, model: modelId, wheels, tailMat, beam, flares: [flareMesh], policeLights, dispose,
     frontWheelPivots, bodyVisual, signalMaterials, wipers, visualManaged: true, wheelRadius: r, wheelbase: spec.wb,
     mirrorAnchors: geo.mirrorAnchors.map(anchor => anchor.clone()), mirrorGeometry: geo.mirror, trimMaterial: s.trim,
     driverAnchor: new THREE.Vector3(spec.driver.x, 0, spec.driver.z), driverHeight: spec.driver.h,
-    driverDoor: spec.driver.door ?? { x: spec.driver.x, side: -1 }, routeIndex,
+    driverDoor: spec.driver.door ?? { x: spec.driver.x, side: -1 }, routeIndex, details,
     wetMaterials: [paint, glass], headlightMaterial,
   };
 }

@@ -304,14 +304,15 @@ test('el presupuesto de seis vehículos cercanos evita motores lejanos y libera 
   const cars = Array.from({ length: 20 }, (_, index) => car(index * 4));
   audio.vehicles.update(.1, origin, cars);
   assert.equal(bank.carIdle.starts, 6); assert.equal(bank.carDrive.starts, 6);
-  assert.equal(audio.vehicles.instances.get(cars[19].car).idle, null);
+  // Más allá del alcance del motor no se guarda ni la voz ni su estado.
+  assert.equal(audio.vehicles.instances.has(cars[19].car), false);
   const removed = audio.vehicles.instances.get(cars[0].car).idle.id;
   audio.vehicles.update(.1, origin, cars.slice(1));
   assert.equal(audio.vehicles.instances.has(cars[0].car), false);
   assert.equal(bank.carIdle.playing(removed), false);
   cars[1].car.position.x = 200;
   audio.vehicles.update(.1, origin, cars.slice(1));
-  assert.equal(audio.vehicles.instances.get(cars[1].car).idle, null);
+  assert.equal(audio.vehicles.instances.has(cars[1].car), false);
   audio.dispose();
 });
 
@@ -321,7 +322,7 @@ test('los motores se atenúan con la distancia y quedan sin voz desde los 40 met
   const a = audio.vehicles.instances.get(near.car), b = audio.vehicles.instances.get(mid.car);
   assert.ok(Math.abs(a.idleVolume - .34) < .01, 'Pleno a menos de seis metros');
   assert.ok(b.idleVolume > .05 && b.idleVolume < .34 * .5, 'A media distancia suena bastante más bajo');
-  assert.equal(audio.vehicles.instances.get(far.car).idle, null);
+  assert.equal(audio.vehicles.instances.has(far.car), false);
   assert.equal(bank.carIdle.starts, 2);
   audio.dispose();
 });

@@ -143,8 +143,10 @@ test('frenos, direccionales, lluvia y patrulla se animan por instancia; dispose 
   assert.notEqual(first.tailMat,second.tailMat);
   assert.notEqual(first.signalMaterials.left,second.signalMaterials.left);
   assert.notEqual(first.policeLights.blue,second.policeLights.blue);
-  assert.notEqual(first.wetMaterials[0],second.wetMaterials[0]);
-  assert.notEqual(first.wetMaterials[1],second.wetMaterials[1]);
+  // Esmalte y vidrio se comparten por modelo y color: toda la flota gasta una variante.
+  assert.equal(first.wetMaterials[0],second.wetMaterials[0]);
+  assert.equal(first.wetMaterials[1],second.wetMaterials[1]);
+  assert.notEqual(first.headlightMaterial,second.headlightMaterial);
   const intensity=second.signalMaterials.left.emissiveIntensity;
   first.signalMaterials.left.emissiveIntensity=3; assert.equal(second.signalMaterials.left.emissiveIntensity,intensity);
   assert.equal(first.wheels[0].geometry,second.wheels[0].geometry);
@@ -154,7 +156,7 @@ test('frenos, direccionales, lluvia y patrulla se animan por instancia; dispose 
   first.wheels[0].geometry.addEventListener('dispose',()=>events.sharedWheel++);
   getCarAtlas().addEventListener('dispose',()=>events.atlas++);
   first.dispose(); first.dispose();
-  assert.deepEqual(events,{body:0,paint:1,sharedWheel:0,atlas:0});
+  assert.deepEqual(events,{body:0,paint:0,sharedWheel:0,atlas:0});
   second.dispose();
 });
 
