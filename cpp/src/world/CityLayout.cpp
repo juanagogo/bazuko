@@ -1191,7 +1191,7 @@ void CityLayout::Render(Renderer& renderer, const glm::vec3& focusPosition) {
         renderer.Submit(*m_FountainMesh, glm::translate(glm::mat4(1.0f), {kFountainX, GetGroundHeight(kFountainX, kFountainZ), kFountainZ}), glm::vec4(1.0f), false, true);
     for (const auto& building : m_Buildings) {
         if (building.modelVariant == kChurchVariant) {   // la iglesia se ve de lejos: es la torre mas alta del barrio
-            if (m_ChurchMesh && glm::distance(glm::vec2(building.position.x, building.position.z), glm::vec2(focusPosition.x, focusPosition.z)) < 220.0f)
+            if (m_ChurchMesh && glm::distance(glm::vec2(building.position.x, building.position.z), glm::vec2(focusPosition.x, focusPosition.z)) < 420.0f)
                 renderer.Submit(*m_ChurchMesh, glm::translate(glm::mat4(1.0f), {building.position.x, 0.0f, building.position.z}), glm::vec4(1.0f), false, true);
             continue;
         }
