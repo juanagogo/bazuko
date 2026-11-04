@@ -154,6 +154,24 @@ body:has(#menu[data-momento]:not([hidden])) > .loot-toast { display: none; }
   #menu[data-momento="muerte"] .momento__boton { min-height: 44px; font-size: 19px; }
 }
 
+/* ---------- dónde estoy: el cartel de la zona, sin pausar ---------- */
+#zona-cartel {
+  position: fixed; z-index: 115; left: 50%; top: 12vh; translate: -50% 0;
+  width: max-content; max-width: 90vw;
+  padding: 8px clamp(16px, 2.4vw, 34px) 12px;
+  font-weight: 800; font-size: clamp(34px, 5.2vw, 74px); line-height: 1;
+  text-align: center; pointer-events: none;
+  animation: zona-baja .3s cubic-bezier(.2, .9, .3, 1.04);
+}
+@keyframes zona-baja { from { transform: translateY(-20vh); opacity: 0; } to { transform: none; opacity: 1; } }
+@media (max-width: 899px) {
+  /* Debajo del cartón del radar, que en el celular ocupa la parte de arriba. */
+  #zona-cartel { top: calc(var(--dock-bottom, 130px) + 6px); }
+}
+@media (max-width: 899px) and (orientation: landscape) {
+  #zona-cartel { left: calc(6px + var(--safe-l, 0px)); translate: none; font-size: 30px; }
+}
+
 /* ---------- te cascaron: baja a media altura, sin botón y sin pausar ---------- */
 #cascado {
   position: fixed; z-index: 120; left: 50%; top: 17vh; translate: -50% 0;
@@ -169,7 +187,7 @@ body:has(#menu[data-momento]:not([hidden])) > .loot-toast { display: none; }
 #cascado span { font-weight: 400; font-size: clamp(22px, 2.8vw, 40px); line-height: 1.1; }
 @keyframes cascado-baja { from { transform: translateY(-40vh); } to { transform: none; } }
 /* Lo que sobra mientras dura: lo más urgente y la misión no le compiten. */
-body:has(#cascado:not([hidden])) :is(#retazo, #mision, #interaction-prompt) { visibility: hidden; }
+body:has(#cascado:not([hidden])) :is(#retazo, #mision, #interaction-prompt, #zona-cartel) { visibility: hidden; }
 body:has(#menu:not([hidden])) #cascado { display: none; }
 @media (max-width: 899px) {
   #cascado { top: calc(var(--bajo-el-hud, 17vh) + 6px); }
