@@ -5032,7 +5032,7 @@ void Simulation::Render(Renderer& renderer, float time, const glm::vec3& focusPo
     // Farolas encendidas: la bombilla y su halo se dibujan en todas las que estan a la vista, aunque su luz sobre el
     // suelo solo llegue a las mas cercanas
     if (m_LampGlow > 0.05f) {
-        const float glowRange = 190.0f;
+        const float glowRange = 320.0f;
         renderer.SetUnlit(true);
         const glm::vec3 eye = renderer.GetCameraPosition();
         for (const auto& lamp : m_StreetLamps) {
@@ -5075,7 +5075,7 @@ void Simulation::Render(Renderer& renderer, float time, const glm::vec3& focusPo
         for (const TrafficVehicle& vehicle : m_Traffic) {
             if (vehicle.parked || vehicle.driver.state == DriverState::Abandoned) continue;
             const float distance = glm::distance(glm::vec2(vehicle.position.x, vehicle.position.z), glm::vec2(focusPosition.x, focusPosition.z));
-            if (distance > 140.0f) continue;
+            if (distance > 300.0f) continue;
             glm::vec3 center, forward, side;
             HeadlightFrame(vehicle, center, forward, side);
             const glm::vec3 lamp = HeadlightOffset(vehicle);
@@ -5086,13 +5086,13 @@ void Simulation::Render(Renderer& renderer, float time, const glm::vec3& focusPo
             for (float sign : {-1.0f, 1.0f}) {
                 if (lamp.z < 0.1f && sign > 0.0f) continue;
                 const glm::vec3 at = center + forward * (lamp.x + 0.12f) + side * sign * lamp.z + glm::vec3(0.0f, lamp.y, 0.0f);   // 12 cm adelante: la lente asoma del faro
-                renderer.Submit(*m_LampBulb, glm::scale(glm::translate(glm::mat4(1.0f), at), glm::vec3(0.8f, 0.55f, 0.7f)), glm::vec4(1.0f, 0.97f, 0.88f, 1.0f));
+                if (distance <= 140.0f) renderer.Submit(*m_LampBulb, glm::scale(glm::translate(glm::mat4(1.0f), at), glm::vec3(0.8f, 0.55f, 0.7f)), glm::vec4(1.0f, 0.97f, 0.88f, 1.0f));
                 if (frontal <= 0.01f) continue;
                 const glm::vec3 z = glm::normalize(eye - at);   // base que mira a la camara
                 const glm::vec3 x = glm::normalize(glm::cross(glm::vec3(0.0f, 1.0f, 0.0f), z));
                 const glm::vec3 y = glm::cross(z, x);
                 const glm::mat4 facing(glm::vec4(x, 0.0f), glm::vec4(y, 0.0f), glm::vec4(z, 0.0f), glm::vec4(at + z * 0.3f, 1.0f));
-                const float radius = 0.55f + 0.85f * farAway;
+                const float radius = 0.55f + 0.85f * farAway + 0.012f * std::max(0.0f, distance - 90.0f);   // lejos el brillo crece para que se vea
                 renderer.Submit(*m_GlowDisc, glm::scale(facing, glm::vec3(radius)), glm::vec4(1.0f, 0.94f, 0.80f, 0.85f * m_LampGlow * frontal), false, true, nullptr, 2, 0.0f);
             }
         }
@@ -5147,6 +5147,26 @@ void Simulation::Render(Renderer& renderer, float time, const glm::vec3& focusPo
         }
         renderer.Submit(*m_TreeTrunk, glm::translate(glm::mat4(1.0f), position + glm::vec3(0.0f, 0.8f, 0.0f)));
         renderer.Submit(*m_TreeCanopy, glm::translate(glm::mat4(1.0f), position + glm::vec3(0.0f, 2.0f, 0.0f)));
+    }
+    if (m_SoftDisc && m_LampGlow > 0.05f) {   // al fondo de las calles, de noche: el brillo de cada semaforo (rojo, amarillo o verde) y de las farolas lejanas
+        renderer.SetUnlit(true);
+        const glm::vec3 eye = renderer.GetCameraPosition();
+        for (const auto& signal : m_TrafficSignals) {
+            const float distance = glm::distance(glm::vec2(focusPosition.x, focusPosition.z), glm::vec2(signal.polePosition.x, signal.polePosition.z));
+            if (distance <= 70.0f || distance > 320.0f) continue;
+            const size_t farState = GetSignalState(m_Elapsed, signal.phaseGroup);
+            const glm::vec3 color = farState == 2 ? glm::vec3(1.0f, 0.10f, 0.05f) : farState == 1 ? glm::vec3(1.0f, 0.58f, 0.05f) : glm::vec3(0.10f, 1.0f, 0.30f);
+            const glm::vec3 at = signal.polePosition + glm::vec3(0.0f, SignalModel::kHeadY, 0.0f) + glm::vec3(signal.approachDirection.x, 0.0f, signal.approachDirection.z) * -0.1f;
+            const glm::vec3 z = glm::normalize(eye - at);
+            glm::vec3 x = glm::cross(glm::vec3(0.0f, 1.0f, 0.0f), z);
+            if (glm::dot(x, x) < 1.0e-6f) continue;
+            x = glm::normalize(x);
+            const glm::vec3 y = glm::cross(z, x);
+            const float radius = 0.7f + 0.016f * distance;
+            const glm::mat4 facing(glm::vec4(x, 0.0f), glm::vec4(y, 0.0f), glm::vec4(z, 0.0f), glm::vec4(at, 1.0f));
+            renderer.Submit(*m_SoftDisc, glm::scale(facing, glm::vec3(radius)), glm::vec4(color, 0.85f * m_LampGlow), false, true, nullptr, 2, 0.0f);
+        }
+        renderer.SetUnlit(false);
     }
     for (const auto& signal : m_TrafficSignals) {
         if (glm::distance(glm::vec2(focusPosition.x, focusPosition.z),
