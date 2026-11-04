@@ -250,6 +250,7 @@ struct TrafficVehicle {
     float forcingRemaining = 0.0f;   // s restantes de paso forzado tras un atasco
     float stalledTime = 0.0f;   // s seguidos detenido sin semaforo ni peaton
     bool clearForSiren = false;   // una patrulla con sirena viene detras: despeja el cruce sin esperar el semaforo
+    float swerveStuck = 0.0f;   // s casi detenido rodeando: si pasa de 5 desiste
     float lateralVelocity = 0.0f;   // m/s del desvio lateral: el carro gira hacia donde se desvia (no se desliza de lado)
     float lateral = 0.0f;         // desvio lateral actual (m, positivo a la derecha) al rodear un vehiculo detenido
     float lateralTarget = 0.0f;   // desvio al que va

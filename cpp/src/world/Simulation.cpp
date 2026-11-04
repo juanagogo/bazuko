@@ -1769,6 +1769,13 @@ bool Simulation::FindWalkPath(const glm::vec3& start, const glm::vec3& target, s
     const int goalTileX = tileOf(target.x, CityLayout::ORIGIN_X), goalTileZ = tileOf(target.z, CityLayout::ORIGIN_Z);
     const auto index = [](int x, int z) { return z * kWidth + x; };
     constexpr int offsets[4][2]{{1, 0}, {-1, 0}, {0, 1}, {0, -1}};
+    // los vehiculos detenidos (la fila detras de una patrulla, los estacionados) tambien son obstaculos del camino: si no, quien persigue planea
+    // atravesarlos, choca y se pone a dar vueltas
+    struct StoppedBox { glm::vec3 position; glm::vec2 direction; float halfLength, halfWidth; };
+    std::vector<StoppedBox> stopped;
+    for (const TrafficVehicle& vehicle : m_Traffic)
+        if (!vehicle.bus && vehicle.speed < 0.5f) stopped.push_back({vehicle.position, {vehicle.direction.x, vehicle.direction.z}, vehicle.length * 0.5f, vehicle.width * 0.5f});
+    for (const TrafficVehicle& vehicle : m_ParkedCars) stopped.push_back({vehicle.position, {vehicle.direction.x, vehicle.direction.z}, vehicle.length * 0.5f, vehicle.width * 0.5f});
     // Tres intentos cada vez mas tolerantes: ventana cercana con margen normal, ventana grande con margen estrecho y todo el mapa con el margen minimo
     // (muchos obstaculos juntos dejan solo pasos angostos que el primero descarta)
     struct Attempt { int window; float margin; };
@@ -1778,7 +1785,10 @@ bool Simulation::FindWalkPath(const glm::vec3& start, const glm::vec3& target, s
         const auto free = [&](int x, int z) {
             if (x < minX || x > maxX || z < minZ || z > maxZ) return false;
             const glm::vec3 point = center(x, z);
-            return m_City.IsWalkable(point.x, point.z) && !m_City.IsBlocked(point.x, point.z, attempt.margin) && !HitsProp(point.x, point.z, attempt.margin);
+            if (!(m_City.IsWalkable(point.x, point.z) && !m_City.IsBlocked(point.x, point.z, attempt.margin) && !HitsProp(point.x, point.z, attempt.margin))) return false;
+            for (const StoppedBox& box : stopped)
+                if (PointInVehicleBox(point, box.position, box.direction, box.halfLength, box.halfWidth, attempt.margin + 0.25f)) return false;
+            return true;
         };
         const auto nearestFree = [&](int tileX, int tileZ, int& outX, int& outZ) {
             int best = 1 << 30;
@@ -3404,6 +3414,21 @@ void Simulation::UpdateDrivers(float dt, const glm::vec3& playerPosition) {
             }
         }
     }
+    if (const char* blockTest = std::getenv("BAZUKO_BLOCK_TEST")) {   // pruebas: a los s segundos el carro comun mas cercano al jugador (a mas de 12 m) se detiene en su carril
+        static float blockClock = 0.0f;
+        static bool blocked = false;
+        blockClock += dt;
+        if (!blocked && blockClock >= static_cast<float>(std::atof(blockTest))) {
+            float best = 1.0e9f;
+            TrafficVehicle* chosen = nullptr;
+            for (TrafficVehicle& vehicle : m_Traffic) {
+                if (vehicle.bus || vehicle.emergency != 0 || vehicle.parked || vehicle.speed < 1.0f) continue;
+                const float d = glm::distance(glm::vec2(vehicle.position.x, vehicle.position.z), glm::vec2(playerPosition.x, playerPosition.z));
+                if (d > 12.0f && d < best) { best = d; chosen = &vehicle; }
+            }
+            if (chosen) { chosen->holdStop = true; blocked = true; LogInfo("PRUEBA vehiculo {} detenido en ({:.1f}, {:.1f}) a {:.1f} m del jugador", chosen - m_Traffic.data(), chosen->position.x, chosen->position.z, best); }
+        }
+    }
     if (const char* policeTest = std::getenv("BAZUKO_POLICE_TEST")) {   // pruebas: a los s segundos pone la patrulla en la ruta mas cercana al jugador y la llama; luego registra su estado
         static float testClock = 0.0f, lastLog = 0.0f;
         static bool placed = false;
@@ -4178,9 +4203,11 @@ void Simulation::UpdateTraffic(float dt) {
                     const TrafficVehicle& blocker = m_Traffic[static_cast<size_t>(vehicle.swerveAround)];
                     const glm::vec2 offset(blocker.position.x - vehicle.position.x, blocker.position.z - vehicle.position.z);
                     const bool stillBlocking = (blocker.holdStop && blocker.speed <= 0.5f) || (vehicle.driver.siren && blocker.speed < 2.5f);
-                    if (!stillBlocking || vehicle.stalledTime > 5.0f || glm::dot(offset, own) < -(vehicle.length + blocker.length) * 0.5f - 1.0f) {
+                    vehicle.swerveStuck = vehicle.speed < 0.3f ? vehicle.swerveStuck + stepTime : 0.0f;
+                    if (!stillBlocking || vehicle.swerveStuck > 6.0f || glm::dot(offset, own) < -(vehicle.length + blocker.length) * 0.5f - 1.0f) {
                         vehicle.lateralTarget = 0.0f;   // ya lo paso (o se fue): vuelve a su carril
                         vehicle.swerveAround = -1;
+                        vehicle.swerveStuck = 0.0f;
                     }
                 } else if (!vehicle.bus && !vehicle.holdStop) {
                     bool sawBlocker = false;
@@ -4195,29 +4222,89 @@ void Simulation::UpdateTraffic(float dt) {
                         const float room = (vehicle.width + other.width) * 0.5f;
                         if (std::abs(laneOffset - vehicle.lateral) > room + 0.3f) continue;   // no esta en mi camino actual
                         sawBlocker = true;
+                        {   // otro carro entre el vehiculo detenido y yo: es el que debe salir primero
+                            bool carBetween = false;
+                            for (size_t middle = 0; middle < m_Traffic.size() && !carBetween; ++middle) {
+                                if (middle == self || middle == otherIndex) continue;
+                                const TrafficVehicle& car = m_Traffic[middle];
+                                const glm::vec2 toCar(car.position.x - vehicle.position.x, car.position.z - vehicle.position.z);
+                                const float carAlong = glm::dot(toCar, own);
+                                const float carSide = std::abs(own.x * toCar.y - own.y * toCar.x);
+                                if (carAlong > 0.5f && carAlong < along - 0.5f && carSide < (vehicle.width + car.width) * 0.5f + 0.3f) carBetween = true;
+                            }
+                            if (carBetween) break;
+                        }
                         if (!vehicle.driver.siren) {   // no lo rodean al instante: esperan unos segundos (cada conductor, distinto) a ver si arranca
                             if (vehicle.speed < 1.0f) vehicle.blockedWait += stepTime;
                             if (vehicle.blockedWait < 3.5f + 0.9f * static_cast<float>(self % 5)) break;
                         }
-                        const float target = laneOffset + (laneOffset >= 0.0f ? -1.0f : 1.0f) * (room + 0.8f);
-                        bool free = true;   // el carril por el que paso debe estar libre y ser calzada
-                        for (float probe = -2.0f; probe <= along + other.length + 3.0f && free; probe += 3.0f) {
-                            const glm::vec3 spot = vehicle.position + glm::vec3(own.x, 0.0f, own.y) * probe + glm::vec3(right.x, 0.0f, right.y) * (target - vehicle.lateral);
-                            for (float edge : {-1.0f, 0.0f, 1.0f}) {   // los dos costados y el centro del carro deben quedar sobre la calle
-                                const glm::vec3 side = spot + glm::vec3(right.x, 0.0f, right.y) * (edge * (vehicle.width * 0.5f + 0.35f));
-                                if (!m_City.IsRoad(side.x, side.z) || m_City.IsSidewalk(side.x, side.z)) free = false;
+                        float target = 0.0f;
+                        bool free = false;
+                        for (int attempt = 0; attempt < 2 && !free; ++attempt) {   // primero el costado con mas espacio (el opuesto al que ya se arrimo el vehiculo), luego el otro
+                            const float direction = (laneOffset >= 0.0f ? -1.0f : 1.0f) * (attempt == 0 ? 1.0f : -1.0f);
+                            target = laneOffset + direction * (room + 0.8f);
+                            free = true;   // el carril por el que paso debe estar libre y ser calzada
+                            for (float probe = -2.0f; probe <= along + other.length + 3.0f && free; probe += 3.0f) {
+                                const glm::vec3 spot = vehicle.position + glm::vec3(own.x, 0.0f, own.y) * probe + glm::vec3(right.x, 0.0f, right.y) * (target - vehicle.lateral);
+                                for (float edge : {-1.0f, 0.0f, 1.0f}) {   // los dos costados y el centro del carro deben quedar sobre la calle
+                                    const glm::vec3 side = spot + glm::vec3(right.x, 0.0f, right.y) * (edge * (vehicle.width * 0.5f + 0.35f));
+                                    if (!m_City.IsRoad(side.x, side.z) || m_City.IsSidewalk(side.x, side.z)) free = false;
+                                }
+                                for (size_t third = 0; third < m_Traffic.size() && free; ++third) {
+                                    if (third == self || third == otherIndex) continue;
+                                    const TrafficVehicle& car = m_Traffic[third];
+                                    const glm::vec3 reach = car.position + car.direction * (car.speed * 1.0f);   // y por donde estara en un par de segundos
+                                    if (OrientedBoxesOverlap(spot, own, vehicle.length + 0.6f, vehicle.width + 0.4f, reach, {car.direction.x, car.direction.z}, car.length + car.speed * 2.0f, car.width)) free = false;
+                                }
                             }
-                            for (size_t third = 0; third < m_Traffic.size(); ++third) {
-                                if (third == self || third == otherIndex) continue;
-                                const TrafficVehicle& car = m_Traffic[third];
-                                const glm::vec3 reach = car.position + car.direction * (car.speed * 1.0f);   // y por donde estara en un par de segundos
-                                if (OrientedBoxesOverlap(spot, own, vehicle.length + 0.6f, vehicle.width + 0.4f, reach, {car.direction.x, car.direction.z}, car.length + car.speed * 2.0f, car.width)) { free = false; break; }
-                            }
+                        }
+                        if (static const bool logSwerve = std::getenv("BAZUKO_LOG_SWERVE") != nullptr; logSwerve) {
+                            static std::array<float, 128> lastCheck{};
+                            if (m_Elapsed - lastCheck[self % 128] > 1.0f) { lastCheck[self % 128] = m_Elapsed; LogInfo("SWERVE-EVAL v{} bloqueado por {} along {:.1f} laneOffset {:.2f} target {:.2f} libre {} espera {:.1f}", self, otherIndex, along, laneOffset, target, free, vehicle.blockedWait); }
                         }
                         if (free) { vehicle.lateralTarget = target; vehicle.swerveAround = static_cast<int>(otherIndex); vehicle.blockedWait = 0.0f; }
                         break;
                     }
                     if (!sawBlocker) vehicle.blockedWait = 0.0f;
+                }
+            }
+            if (vehicle.emergency == 2 && vehicle.swerveAround < 0) {   // la patrulla se arrima a la orilla (a la derecha) para dejar pasar a los demas
+                bool arriving = vehicle.driver.dispatched && vehicle.driver.pathMode == 1 && vehicle.distance >= vehicle.driver.pathLength - 30.0f;
+                if (arriving) {   // solo se adelanta hacia la orilla si lo que le queda es recto: la esquina se dobla por el centro del carril
+                    glm::vec3 here, end, hereDirection, endDirection;
+                    size_t waypoint = 0;
+                    const float last = std::max(0.0f, vehicle.driver.pathLength - 0.01f);
+                    SampleCircuit(vehicle.route, vehicle.routeCumulative, vehicle.routeLength, std::min(vehicle.distance, last), here, hereDirection, waypoint);
+                    SampleCircuit(vehicle.route, vehicle.routeCumulative, vehicle.routeLength, last, end, endDirection, waypoint);
+                    arriving = glm::dot(glm::vec2(hereDirection.x, hereDirection.z), glm::vec2(endDirection.x, endDirection.z)) > 0.998f;
+                }
+                bool straight = true;   // se arrima solo despues de pasar la esquina (rumbo estable los ultimos 3 m): doblando, el desvio la deja torcida y atravesada
+                {
+                    glm::vec3 before, ahead, directionBefore, directionAhead;
+                    size_t waypoint = 0;
+                    // ya paso la esquina: el rumbo de hace 3 m es el de ahora (en un camino propio no se mira mas alla de su final)
+                    const float cap = vehicle.driver.pathMode != 0 ? std::max(0.0f, vehicle.driver.pathLength - 0.01f) : std::numeric_limits<float>::max();
+                    SampleCircuit(vehicle.route, vehicle.routeCumulative, vehicle.routeLength, std::clamp(vehicle.distance - 3.0f, 0.0f, cap), before, directionBefore, waypoint);
+                    SampleCircuit(vehicle.route, vehicle.routeCumulative, vehicle.routeLength, std::clamp(vehicle.distance, 0.0f, cap), ahead, directionAhead, waypoint);
+                    straight = glm::dot(glm::vec2(directionBefore.x, directionBefore.z), glm::vec2(directionAhead.x, directionAhead.z)) > 0.998f;
+                }
+                if ((vehicle.holdStop || arriving) && straight) {
+                    const glm::vec2 own(vehicle.direction.x, vehicle.direction.z);
+                    const glm::vec2 right(-own.y, own.x);
+                    const glm::vec2 base(vehicle.position.x - right.x * vehicle.lateral, vehicle.position.z - right.y * vehicle.lateral);
+                    float best = 0.0f;
+                    for (float offset = 2.4f; offset > 0.05f; offset -= 0.2f) {   // el mayor desvio con las dos ruedas del lado sobre la calzada
+                        bool onRoad = true;
+                        for (float edge : {0.0f, vehicle.width * 0.5f + 0.35f}) {
+                            const glm::vec2 point = base + right * (offset + edge);
+                            if (!m_City.IsRoad(point.x, point.y) || m_City.IsSidewalk(point.x, point.y)) onRoad = false;
+                        }
+                        if (onRoad) { best = offset; break; }
+                    }
+                    if (std::getenv("BAZUKO_LOG_SWERVE") && vehicle.lateralTarget != best) LogInfo("PATRULLA se arrima: desvio {:.1f} m (velocidad {:.1f}, llegando {}, detenida {})", best, vehicle.speed, arriving, vehicle.holdStop);
+                    vehicle.lateralTarget = best;
+                } else if (vehicle.lateralTarget != 0.0f) {
+                    vehicle.lateralTarget = 0.0f;   // vuelve a su carril al arrancar
                 }
             }
             const float routeLength = vehicle.routeLength;
@@ -4414,6 +4501,10 @@ void Simulation::UpdateTraffic(float dt) {
             }
             const bool fleeing = vehicle.driver.boost > 0.0f;
             float desiredSpeed = std::min({vehicle.cruiseSpeed * (fleeing ? 2.4f : 1.0f), std::sqrt(2.0f * braking * clearance), fleeing ? 5.0f : cornerLimit});
+            if (static const bool logClear = std::getenv("BAZUKO_LOG_SWERVE") != nullptr; logClear && vehicle.swerveAround >= 0 && vehicle.speed < 0.3f) {
+                static std::array<float, 128> lastClear{};
+                if (m_Elapsed - lastClear[vehicleIndex % 128] > 2.0f) { lastClear[vehicleIndex % 128] = m_Elapsed; LogInfo("CLEARANCE v{} clearance {:.2f} persona {} senal {:.1f} esquina {:.1f} bus {} deseada {:.2f}", vehicleIndex, clearance, stoppedForPerson, signalDistance, cornerLimit, committedInBusLane, desiredSpeed); }
+            }
             if (vehicle.holdStop) desiredSpeed = 0.0f;
             const float rate = desiredSpeed < vehicle.speed ? braking : acceleration;
             const float speed = std::clamp(desiredSpeed, vehicle.speed - rate * stepTime, vehicle.speed + rate * stepTime);
@@ -4434,6 +4525,9 @@ void Simulation::UpdateTraffic(float dt) {
                 size_t waypointB = 0;
                 SampleCircuit(b.route, b.routeCumulative, b.routeLength, b.nextDistance,
                               predictedB, directionB, waypointB);
+                if (a.swerveAround == static_cast<int>(second) || b.swerveAround == static_cast<int>(first)) continue;   // el que rodea a un vehiculo detenido no cede ante el: sale por el costado
+                predictedA += glm::vec3(-directionA.z, 0.0f, directionA.x) * a.lateral;   // el desvio lateral tambien cuenta: sin el, el que rodea "choca" con su propio carril y queda parado
+                predictedB += glm::vec3(-directionB.z, 0.0f, directionB.x) * b.lateral;
                 if (!OrientedBoxesOverlap(predictedA, {directionA.x, directionA.z}, a.length, a.width,
                                           predictedB, {directionB.x, directionB.z}, b.length, b.width)) continue;
                 const size_t aIndex = first;
@@ -4515,12 +4609,16 @@ void Simulation::UpdateTraffic(float dt) {
                           vehicle.position, vehicle.direction, vehicle.nextWaypoint);
             vehicle.lateralVelocity = 0.0f;
             if (vehicle.lateral != vehicle.lateralTarget) {   // desvio hacia el carril libre o de vuelta al propio: solo avanza al ritmo del carro (como mucho 48 grados de giro)
-                const float step = std::min(2.8f, 1.1f * std::max(0.0f, vehicle.speed - 0.6f)) * stepTime;   // primero arranca derecho; no gira estando casi quieto
+                const float step = std::min(2.8f, 1.1f * std::max(0.0f, vehicle.speed - (vehicle.emergency == 2 ? 0.2f : 0.6f))) * stepTime;   // primero arranca derecho; no gira estando casi quieto
                 const float change = std::clamp(vehicle.lateralTarget - vehicle.lateral, -step, step);
                 vehicle.lateral += change;
                 vehicle.lateralVelocity = change / std::max(stepTime, 1.0e-4f);
             }
             if (std::abs(vehicle.lateral) > 0.001f) vehicle.position += glm::vec3(-vehicle.direction.z, 0.0f, vehicle.direction.x) * vehicle.lateral;
+            if (static const bool logSwerve = std::getenv("BAZUKO_LOG_SWERVE") != nullptr; logSwerve && (vehicle.swerveAround >= 0 || std::abs(vehicle.lateral) > 0.01f || vehicle.lateralTarget != 0.0f || vehicle.emergency == 2)) {
+                static std::array<float, 128> lastLog{};
+                if (m_Elapsed - lastLog[static_cast<size_t>(&vehicle - m_Traffic.data()) % 128] > 1.0f) { lastLog[static_cast<size_t>(&vehicle - m_Traffic.data()) % 128] = m_Elapsed; LogInfo("SWERVE t={:.1f} v{} vel {:.2f} lat {:.2f}->{:.2f} swerve {} stalled {:.1f} espera {:.1f} pos ({:.1f},{:.1f})", m_Elapsed, &vehicle - m_Traffic.data(), vehicle.speed, vehicle.lateral, vehicle.lateralTarget, vehicle.swerveAround, vehicle.stalledTime, vehicle.blockedWait, vehicle.position.x, vehicle.position.z); }
+            }
             vehicle.horizontalLane = std::abs(vehicle.direction.x) > std::abs(vehicle.direction.z);
             vehicle.laneCoordinate = vehicle.horizontalLane ? vehicle.position.z : vehicle.position.x;
             vehicle.yaw = std::atan2(-vehicle.direction.z, vehicle.direction.x);
@@ -5365,14 +5463,20 @@ void Simulation::Render(Renderer& renderer, float time, const glm::vec3& focusPo
             glm::vec3 behind, ahead, near, lookahead, directionTemp;
             size_t waypoint = 0;
             const float span = 1.9f, look = 3.2f;
-            SampleCircuit(vehicle.route, vehicle.routeCumulative, vehicle.routeLength, vehicle.distance - span, behind, directionTemp, waypoint);
-            SampleCircuit(vehicle.route, vehicle.routeCumulative, vehicle.routeLength, vehicle.distance + span, ahead, directionTemp, waypoint);
-            SampleCircuit(vehicle.route, vehicle.routeCumulative, vehicle.routeLength, vehicle.distance, near, directionTemp, waypoint);
-            SampleCircuit(vehicle.route, vehicle.routeCumulative, vehicle.routeLength, vehicle.distance + look, lookahead, directionTemp, waypoint);
+            // un camino propio (la patrulla que acude) es abierto, pero su largo cuenta el cierre hacia el inicio: pasado su final no hay ruta, asi que el
+            // rumbo se toma de los ultimos metros y no del tramo que "regresa" (antes la patrulla quedaba torcida al llegar a una esquina)
+            const bool openPath = vehicle.driver.pathMode != 0 && vehicle.driver.pathLength > 0.0f;
+            const float cap = openPath ? vehicle.driver.pathLength - 0.01f : std::numeric_limits<float>::max();
+            const auto at = [&](float distance, glm::vec3& out) { SampleCircuit(vehicle.route, vehicle.routeCumulative, vehicle.routeLength, openPath ? std::clamp(distance, 0.0f, cap) : distance, out, directionTemp, waypoint); };
+            const float centerDistance = openPath ? std::clamp(vehicle.distance, span, std::max(span, cap - span)) : vehicle.distance;
+            at(centerDistance - span, behind);
+            at(centerDistance + span, ahead);
+            at(vehicle.distance, near);
+            at(vehicle.distance + look, lookahead);
             const glm::vec3 chord = ahead - behind;
             if (glm::dot(chord, chord) > 1.0e-4f) {
                 visualYaw = std::atan2(-chord.z, chord.x);
-                visualPosition = (behind + ahead) * 0.5f;
+                visualPosition = openPath ? near : (behind + ahead) * 0.5f;
                 visualPosition.y = vehicle.position.y;
                 const glm::vec3 turn = lookahead - near;
                 if (glm::dot(turn, turn) > 1.0e-4f) {
