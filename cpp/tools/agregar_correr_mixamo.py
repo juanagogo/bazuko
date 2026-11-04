@@ -22,6 +22,7 @@ bank_actions = list(bpy.data.actions)
 before = set(bpy.data.objects)
 bpy.ops.import_scene.gltf(filepath=source_path)
 source = next(o for o in bpy.data.objects if o.type == 'ARMATURE' and o not in before)
+AIMED = ('Shoulder', 'Arm', 'ForeArm')   # huesos que se apuntan (los de la mano heredan su giro)
 CLIPS = [('run', 'run_mixamo'), ('walk', 'walk_mixamo')]   # (accion en andar-cansado.glb, nombre en el banco)
 source_actions = {a.name.lower(): a for a in bpy.data.actions if a not in bank_actions}
 for o in list(bpy.data.objects):
@@ -68,11 +69,25 @@ def bake(run, new_name):
 
     for frame in range(first, last + 1):
         bpy.context.scene.frame_set(frame)
+        correction = {}   # giro extra de cada hueso de los brazos (y de lo que cuelga de ellos) sobre el calculado por diferencia
         for name in order:
             spb, tpb = source.pose.bones[name], target.pose.bones[name]
             src_pose = (source.matrix_world @ spb.matrix).to_quaternion()
             delta = src_pose @ rest_world(source, name).inverted()
             wanted = facing @ delta @ facing.inverted() @ rest_world(target, name)
+            parent = target.data.bones[name].parent
+            if any(key in name for key in AIMED):
+                # los dos esqueletos parten de reposos distintos en los brazos (uno los trae abiertos, el otro caidos): girar el hueso igual
+                # que el original solo lo torcería sobre su eje. Se apunta el hueso hacia donde apunta el del original en ese cuadro.
+                y = Vector((0.0, 1.0, 0.0))
+                direction = facing @ (src_pose @ y)
+                rest_dir = rest_world(target, name) @ y
+                aimed = rest_dir.rotation_difference(direction) @ rest_world(target, name)
+                correction[name] = aimed @ wanted.inverted()
+                wanted = aimed
+            elif parent is not None and parent.name in correction:
+                correction[name] = correction[parent.name]
+                wanted = correction[name] @ wanted
             # al espacio del armazon del destino
             wanted_local = (target.matrix_world.to_quaternion().inverted() @ wanted)
             m = tpb.matrix.copy()

@@ -2234,7 +2234,7 @@ std::vector<Simulation::HeadlightBeam> Simulation::GetHeadlightBeams(const glm::
         for (float sign : {-1.0f, 1.0f}) {   // un haz por faro, abiertos unos grados hacia afuera
             HeadlightBeam beam;
             beam.direction = glm::normalize(forward + side * sign * 0.07f);
-            beam.position = vehicle.position + forward * (vehicle.length * 0.5f - 0.2f) + side * sign * vehicle.width * 0.36f + glm::vec3(0.0f, 0.72f, 0.0f);
+            beam.position = vehicle.position + forward * (vehicle.length * 0.5f - 0.45f) + side * sign * vehicle.width * 0.34f + glm::vec3(0.0f, 0.6f, 0.0f);
             candidates.emplace_back(distance, beam);
         }
     }
@@ -4721,6 +4721,31 @@ void Simulation::Render(Renderer& renderer, float time, const glm::vec3& focusPo
             // el halo es pequeno de cerca (para que no se vea como un bloque) y crece con la distancia
             const float haloScale = 0.3f + 0.9f * AtmosphereSmoothstep(6.0f, 70.0f, distance);
             renderer.Submit(*m_LampHalo, glm::scale(bulb, glm::vec3(haloScale)), glm::vec4(1.0f, 0.78f, 0.45f, 0.16f * m_LampGlow), false, false, nullptr, 2);
+        }
+        renderer.SetUnlit(false);
+    }
+    // Faros de los vehiculos en circulacion: lente encendida en cada faro y un halo de capas que se difumina hacia afuera; solo se ve de frente
+    if (m_LampGlow > 0.05f) {
+        renderer.SetUnlit(true);
+        for (const TrafficVehicle& vehicle : m_Traffic) {
+            if (vehicle.parked || vehicle.driver.state == DriverState::Abandoned) continue;
+            const float distance = glm::distance(glm::vec2(vehicle.position.x, vehicle.position.z), glm::vec2(focusPosition.x, focusPosition.z));
+            if (distance > 140.0f) continue;
+            const glm::vec3 forward = glm::normalize(glm::vec3(vehicle.direction.x, 0.0f, vehicle.direction.z));
+            const glm::vec3 side(-forward.z, 0.0f, forward.x);
+            const glm::vec3 toViewer = glm::normalize(glm::vec3(focusPosition.x - vehicle.position.x, 0.0f, focusPosition.z - vehicle.position.z) + glm::vec3(1.0e-4f));
+            const float frontal = AtmosphereSmoothstep(0.05f, 0.55f, glm::dot(forward, toViewer));   // visto de lado o por detras el halo no se ve
+            const float haloScale = 0.8f + 1.1f * AtmosphereSmoothstep(8.0f, 90.0f, distance);
+            for (float sign : {-1.0f, 1.0f}) {
+                const glm::vec3 lens = vehicle.position + forward * (vehicle.length * 0.5f - 0.5f) + side * sign * vehicle.width * 0.34f + glm::vec3(0.0f, 0.6f, 0.0f);
+                const glm::mat4 at = glm::translate(glm::mat4(1.0f), lens);
+                renderer.Submit(*m_LampBulb, glm::scale(at, glm::vec3(0.95f, 0.7f, 0.8f)), glm::vec4(1.0f, 0.97f, 0.86f, 1.0f));
+                if (frontal <= 0.01f) continue;
+                static const float scales[4] = {1.0f, 0.62f, 0.36f, 0.18f};   // capas anidadas: el centro es mas denso y el borde se pierde sin un contorno
+                static const float alphas[4] = {0.09f, 0.12f, 0.17f, 0.24f};
+                for (int layer = 0; layer < 4; ++layer)
+                    renderer.Submit(*m_LampHalo, glm::scale(at, glm::vec3(haloScale * scales[layer])), glm::vec4(1.0f, 0.93f, 0.76f, alphas[layer] * m_LampGlow * frontal), false, false, nullptr, 2);
+            }
         }
         renderer.SetUnlit(false);
     }
