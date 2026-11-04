@@ -50,6 +50,13 @@ cpp/
 └── third_party/               # GLAD, stb_image, cgltf, miniaudio, nlohmann/json
 ```
 
+## Novedades de esta tanda (capturas del juego)
+
+![HUD y paneles](docs/images/novedades-hud-ui.png)
+![Semáforos y faros](docs/images/novedades-semaforo-faros.png)
+![Ciudad](docs/images/novedades-ciudad.png)
+![Calidad baja, media y alta](docs/images/novedades-calidad.png)
+
 ## Compilación y Ejecución
 
 Un solo `CMakeLists.txt` para Windows y Linux. GLFW, GLM, Dear ImGui, libwebp, libogg, libopus y libopusfile se descargan y compilan solos
