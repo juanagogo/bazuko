@@ -4,6 +4,7 @@ import { beforeEach, mock, test } from 'node:test';
 import * as THREE from 'three';
 import * as textures from '../src/world/bogota/textures.js';
 import { TrafficRoute } from '../src/world/bogota/TrafficRoute.js';
+import { trafficTargetVehicles } from '../src/systems/trafficDensity.js';
 
 beforeEach(() => { globalThis.window = new EventTarget(); });
 
@@ -924,20 +925,24 @@ test('las redes del centro y del oriente no comparten carril', () => {
 });
 
 /** Monta el tráfico como Game al poblar Bogotá, con el azar sembrado, y lo corre con city.update como Game._loop. */
-async function runLikeTheGame(randomSeed, minutes, { chases = false } = {}) {
+async function runLikeTheGame(randomSeed, minutes, { chases = false, density = 'normal', hour = 7 } = {}) {
   const original = Math.random;
-  let state = Math.imul(randomSeed + 1, 2654435761) >>> 0;
-  Math.random = () => {
+  let state = 0;
+  const next = () => {
     state = (state + 0x6D2B79F5) >>> 0;
     let t = state;
     t = Math.imul(t ^ (t >>> 15), t | 1);
     t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
     return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
   };
+  const seed = () => { state = Math.imul(randomSeed + 1, 2654435761) >>> 0; Math.random = next; };
+  seed();
   try {
     const scene = new THREE.Scene(), collisions = new CollisionSystem(), city = new Bogota();
     city.build(scene, collisions);
     await Promise.all(city.npcs.map(npc => npc.ready));
+    // El tráfico se siembra de nuevo y lleva su propio generador: así no depende de cuánto azar gastó la ciudad al levantarse.
+    seed();
     const parking = city.getParkingSpots();
     for (let i = parking.length - 1; i > 0; i--) {
       const j = Math.floor(Math.random() * (i + 1));
@@ -953,7 +958,8 @@ async function runLikeTheGame(randomSeed, minutes, { chases = false } = {}) {
       car.position.x += offset.x; car.position.z += offset.z;
       parked.push(car);
     }
-    const traffic = new TrafficSystem(scene, city.getTrafficRoutes(), { policeCount: 2 });
+    const traffic = new TrafficSystem(scene, city.getTrafficRoutes(), { policeCount: 2, random: next });
+    traffic.setDensity(density);
     traffic.setParkedCars(parked);
     traffic.signals = city.signals;
     traffic.setBus(city.busServices);
@@ -988,7 +994,7 @@ async function runLikeTheGame(randomSeed, minutes, { chases = false } = {}) {
         collisions.setVehicles([...parked, ...traffic.vehicles.map(vehicle => vehicle.car)], city.busServices);
       }
       city.update(.1, player, null, traffic.vehicles);
-      traffic.update(.1, { player, pedestrians });
+      traffic.update(.1, { player, pedestrians, hour });
       for (const vehicle of traffic.vehicles) {
         travel.set(vehicle, (travel.get(vehicle) ?? 0) + vehicle.speed * .1);
         const seconds = vehicle.speed < .05 ? (stoppedFor.get(vehicle) ?? 0) + .1 : 0;
@@ -1007,16 +1013,50 @@ async function runLikeTheGame(randomSeed, minutes, { chases = false } = {}) {
 // Cinco minutos por semilla para no alargar la suite. Los atascos de la flota se cierran antes: con el vendedor en la
 // calzada o el empuje sin límite ya hay quien lleva más de 200 s a esa altura. El tope sale de medir 48 semillas de
 // diez minutos en este montaje (peor tiempo, entre 110 y 114 s): a 200 s solo llega un bloqueo.
+// La hora fija en el pico de la mañana llena la ciudad a tope: es el peor caso de la curva diaria. Con la flota diaria
+// el que menos anda espera más colas que con los 34 carros de partida, así que el piso de recorrido baja; lo que delata
+// un bloqueo sigue siendo el peor parado.
+const expectedFleet = density => trafficTargetVehicles(7, density) + 2;
 for (const seed of [1, 3, 11, 22, 29]) {
   test(`una sola flota con parqueados y NPC circula sin bloqueos, semilla ${seed}`, async () => {
     const { parked, npcs, vehicles, worst, shortest } = await runLikeTheGame(seed, 5);
     assert.equal(parked, 23);
     assert.ok(npcs >= 80, `${npcs} NPC`);
-    assert.equal(vehicles, 34);
+    assert.ok(vehicles <= expectedFleet('normal') && vehicles >= expectedFleet('normal') - 4,
+      `${vehicles} vehículos a densidad normal, se esperaban ${expectedFleet('normal')}`);
     assert.ok(worst.seconds < 200, `${worst.kind} parado ${worst.seconds.toFixed(0)} s en ${worst.x?.toFixed(1)},${worst.z?.toFixed(1)}`);
-    assert.ok(shortest > 300, `El que menos anduvo recorrió ${shortest.toFixed(0)} m`);
+    assert.ok(shortest > 150, `El que menos anduvo recorrió ${shortest.toFixed(0)} m`);
   });
 }
+
+// La densidad máxima lleva cada circuito a su tope de carros; también en el pico tiene que seguir fluyendo. Con la
+// ciudad llena el que menos anda pasa el rato en colas, no trabado: un bloqueo lo delata el peor parado.
+for (const seed of [1, 11, 29]) {
+  test(`con la densidad máxima la ciudad se llena sin bloqueos, semilla ${seed}`, async () => {
+    const { vehicles, worst, shortest } = await runLikeTheGame(seed, 5, { density: 'maxima' });
+    assert.ok(vehicles <= expectedFleet('maxima') && vehicles >= expectedFleet('maxima') - 4,
+      `${vehicles} vehículos al máximo, se esperaban ${expectedFleet('maxima')}`);
+    assert.ok(worst.seconds < 200, `${worst.kind} parado ${worst.seconds.toFixed(0)} s en ${worst.x?.toFixed(1)},${worst.z?.toFixed(1)}`);
+    assert.ok(shortest > 120, `El que menos anduvo recorrió ${shortest.toFixed(0)} m`);
+  });
+}
+
+test('el montaje diario crece lejos de la vista y se encoge de noche', () => {
+  const scene = new THREE.Scene(), route = new TrafficRoute(0, 200, 0, 120, 3.2);
+  const player = new THREE.Vector3(100, 0, 60), camera = { position: player };
+  const traffic = new TrafficSystem(scene, [route], { carsPerRoute: 1, policeCount: 0, random: () => .5 });
+  // Los que van entrando no pueden aparecer donde el jugador mira: se recuerda a qué distancia nacen.
+  const spawned = [];
+  traffic.onVehicleAdded = car => spawned.push(Math.hypot(car.position.x - player.x, car.position.z - player.z));
+  traffic.setDensity('normal');
+  for (let frame = 0; frame < 900; frame++) traffic.update(.1, { player, camera, hour: 7 });
+  const peak = traffic.vehicles.length;
+  assert.ok(peak > 10, `Sin hora pico: ${peak}`);
+  assert.ok(spawned.length && spawned.every(distance => distance >= 59.9), `Nace a ${spawned.map(d => d.toFixed(0)).join(', ')} m`);
+  for (let frame = 0; frame < 1500; frame++) traffic.update(.1, { player, camera, hour: 3 });
+  assert.ok(traffic.vehicles.length < peak && traffic.vehicles.length >= 1, `La madrugada deja ${traffic.vehicles.length}`);
+  traffic.dispose();
+});
 
 // Las persecuciones repetidas son donde la patrulla se trababa al volver al carril y dejaba la red atascada. En esta
 // semilla, sin los arreglos, a los cinco minutos hay quien lleva más de 200 s parado; con ellos, en 72 semillas de diez

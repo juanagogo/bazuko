@@ -45,6 +45,7 @@ import { TimeSystem } from '../systems/TimeSystem.js';
 import { SaveSystem } from '../systems/SaveSystem.js';
 import { CollisionSystem } from '../systems/CollisionSystem.js';
 import { TrafficSystem } from '../systems/TrafficSystem.js';
+import { DEFAULT_TRAFFIC_DENSITY, trafficDensityId, trafficDensityLabel } from '../systems/trafficDensity.js';
 import { distributeShelterLoot, spreadPickupPositions } from '../systems/ShelterLoot.js';
 import { InventorySystem } from '../systems/InventorySystem.js';
 import { AudioSystem } from '../systems/AudioSystem.js';
@@ -179,6 +180,8 @@ export class Game {
     let quality = 'baja';
     try { quality = localStorage.getItem('bazuko.graphics_quality') || quality; } catch { /* sin almacenamiento */ }
     this.setGraphicsQuality(quality, false);
+    this.trafficDensity = DEFAULT_TRAFFIC_DENSITY;
+    try { this.trafficDensity = trafficDensityId(localStorage.getItem('bazuko.traffic_density')); } catch { /* sin almacenamiento */ }
     this.hud.setMuted(this.audio.isMuted());
     this.creator = createCreator({ audio: null });
     this.inventoryUI = new InventoryUI(this.inventory, this);
@@ -599,6 +602,18 @@ export class Game {
     if (this.parkedMotos) this.sceneMgr.scene.add(this.parkedMotos);
     if (district.getTrafficRoutes) {
       this.traffic = new TrafficSystem(this.sceneMgr.scene, district.getTrafficRoutes(), { policeCount: 2 });
+      this.traffic.setDensity(this.trafficDensity);
+      // La flota diaria entra y sale con el reloj: el juego le da de alta el carro nuevo y de baja el que se va.
+      this.traffic.onVehicleAdded = (car) => {
+        this.interaction.register(car);
+        this._contactVehicles?.push(car);
+        car.setNight?.(this.clock.lightsOn, this.weather?.isRaining ?? false, this.weather?.weather === 'niebla');
+      };
+      this.traffic.onVehicleRemoved = (car) => {
+        this.interaction.unregister(car);
+        const index = this._contactVehicles?.indexOf(car) ?? -1;
+        if (index >= 0) this._contactVehicles.splice(index, 1);
+      };
       this.traffic.setParkedCars(this.cars);
       this.traffic.setEnvironment({
         collisions: this.collisions,
@@ -1081,7 +1096,7 @@ export class Game {
       this._syncVehicleColliders();
       this.player.update(dt, this.cameraRig.camera, this.collisions);
       this.world.update(dt, this.player.position, this.cameraRig.camera, this.traffic?.vehicles ?? []);
-      this.traffic?.update(dt, { pedestrians: this.world.active?.trafficPedestrians ?? this.world.active?.npcs ?? [] });
+      this.traffic?.update(dt, { pedestrians: this.world.active?.trafficPedestrians ?? this.world.active?.npcs ?? [], camera: this.cameraRig.camera, hour: this.clock.hour });
       this.cameraRig.follow(this.player.position, dt, this.collisions);
       this.audio.updateSteps(false, false);
       this.audio.updateWorld(dt, this.player.position, this.cameraRig.camera, this.traffic?.vehicles ?? [], this.world.active?.busServices ?? this.world.active?.busService);
@@ -1199,7 +1214,7 @@ export class Game {
     this.world.update(dt, this.player.position, this.cameraRig.camera, this.traffic?.vehicles ?? []);
     actualizarFrases(this.cameraRig.camera, this.player.position, now);
     this.profiler?.mark('mundoNPC');
-    this.traffic?.update(dt, { player: this.player.position, pedestrians: this.world.active?.trafficPedestrians ?? this.world.active?.npcs ?? [], onPlayerHit: this._onVehicleImpact });
+    this.traffic?.update(dt, { player: this.player.position, pedestrians: this.world.active?.trafficPedestrians ?? this.world.active?.npcs ?? [], onPlayerHit: this._onVehicleImpact, camera: this.cameraRig.camera, hour: this.clock.hour });
     this.roadRage?.update(dt);
     this.limpieza?.update(dt, {
       isNight: this.clock.isNight,
@@ -1350,6 +1365,17 @@ export class Game {
     }
     if (this._dogPOI) Object.assign(this._dogPOI, { x: this.dog.position.x, z: this.dog.position.z });
     return this._poiCache;
+  }
+
+  /** Densidad de tráfico elegida: escala toda la curva diaria y se aplica en vivo, sin recargar. */
+  setTrafficDensity(level = DEFAULT_TRAFFIC_DENSITY) {
+    const id = trafficDensityId(level);
+    this.trafficDensity = id;
+    try { localStorage.setItem('bazuko.traffic_density', id); } catch { /* sin almacenamiento */ }
+    this.traffic?.setDensity(id);
+    window.dispatchEvent(new CustomEvent('toast', {
+      detail: { text: 'Densidad de tráfico: ' + trafficDensityLabel(id), type: 'info' }
+    }));
   }
 
   setGraphicsQuality(level, notify = true) {

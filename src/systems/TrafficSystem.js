@@ -12,6 +12,7 @@ import {
 } from '../utils/constants.js';
 import { SpatialGrid } from '../core/SpatialGrid.js';
 import { canReachCombatTarget, hasClearCombatLine } from './CombatGeometry.js';
+import { trafficTargetVehicles } from './trafficDensity.js';
 
 /** Cada nivel de «te tienen fichado» alarga en esta fracción el alcance con que una patrulla ve un robo. */
 export const POLICE_SIGHT_PER_WANTED = .25;
@@ -32,6 +33,14 @@ const REJOIN_PERSON_RADIUS = 4;
 // A la vista del jugador el salto se nota: aguanta más, sin quedarse trancando la vía para siempre.
 const REJOIN_SEEN_RADIUS = 40;
 const REJOIN_SEEN_TIMEOUT = 30;
+// Más acá del alcance de la niebla nadie ve un carro: se apaga entero y solo avanza por su ruta.
+const HIDE_MIN_DISTANCE = 70, HIDE_FOG_MARGIN = 12;
+// A qué distancia de la vista aparece y desaparece un carro del montaje diario.
+const RESIZE_SAFE_DISTANCE = 60;
+// Cambios de flota por segundo: al cambiar de densidad la ciudad tarda unos segundos, nunca un salto.
+const RESIZE_MIN_RATE = 1, RESIZE_MAX_RATE = 8, RESIZE_RATE_PER_MISSING = .15;
+// Separación mínima al insertar un carro nuevo en su circuito, en metros.
+const RESIZE_GAP = 8;
 
 function emit(type, detail) {
   if (typeof window !== 'undefined' && typeof window.dispatchEvent === 'function') {
@@ -53,6 +62,15 @@ export class TrafficSystem {
   constructor(scene, routes, { carsPerRoute = 4, policeCount = 0, random = Math.random } = {}) {
     this.vehicles = [];
     this.wantedLevel = 0; // lo mantiene StealSystem: el nivel de «te tienen fichado»
+    this.scene = scene;
+    // Sin nivel la flota no cambia de tamaño: el reloj y la densidad los pone el juego, no las pruebas.
+    this.densityId = null;
+    this.onVehicleAdded = null;
+    this.onVehicleRemoved = null;
+    this._resizeCredit = 0;
+    this._viewPosition = new THREE.Vector3();
+    this._viewSq = -1;
+    this._routeLength = null;
     this._pursuitInfo = { distance: 0, dx: 0, dz: 0, closeness: 0, x: 0, z: 0 };
     this.random = random;
     this.routes = routes.alternatives ?? routes;
@@ -101,11 +119,118 @@ export class TrafficSystem {
     const car = new Car(scene, this._position, Math.atan2(-this._direction.z, this._direction.x),
       { traffic: true, kind, variant: count * 37 });
     const cruiseSpeed = (10 + random() * 4) * (buseta ? .8 : 1);
-    this.vehicles.push({ car, route, distance, speed: 0, cruiseSpeed, patrolSpeed: cruiseSpeed, nextDistance: distance, nextSpeed: 0,
+    const vehicle = { car, route, distance, speed: 0, cruiseSpeed, patrolSpeed: cruiseSpeed, nextDistance: distance, nextSpeed: 0,
       acceleration: 0, accelerationLimit: 1.8 + random() * .7, braking: 2.2 + random() * .6,
       reactionTime: .18 + random() * .35, resumeDelay: 0, stopped: false,
       routeTimer: 3 + random() * 5, recentRoutes: [route.key], routeChanges: 0,
-      lastHonkTime: 0, police, state: 'patrol', chaseTime: 0 });
+      lastHonkTime: 0, police, state: 'patrol', chaseTime: 0 };
+    this.vehicles.push(vehicle);
+    return vehicle;
+  }
+
+  /** Nivel de densidad elegido por el jugador. Sin nivel la flota se queda como la dejó el constructor. */
+  setDensity(id) {
+    this.densityId = id ?? null;
+    this._resizeCredit = 0;
+  }
+
+  /** Distancia a la que un carro desaparece entero: más allá de la niebla no lo ve nadie. */
+  _hideDistance() {
+    const far = this.scene?.fog?.far;
+    return Math.max(HIDE_MIN_DISTANCE, (Number.isFinite(far) ? far : 0) + HIDE_FOG_MARGIN);
+  }
+
+  /**
+   * Detalle y visibilidad de cada carro según su distancia a la vista. Un carro apagado no gasta matrices, sombras,
+   * audio ni animación; en la simulación sigue igual que el resto. Una persecución o un regreso se ven aunque estén lejos.
+   */
+  _updateLod() {
+    const view = this._viewPosition, hideSq = this._hideDistance() ** 2;
+    for (const vehicle of this.vehicles) {
+      const car = vehicle.car, dx = car.position.x - view.x, dz = car.position.z - view.z;
+      const distanceSq = dx * dx + dz * dz;
+      const onDuty = vehicle.state !== 'patrol' || vehicle.rejoinTarget || vehicle.hold;
+      const hidden = !onDuty && distanceSq > hideSq;
+      car.setDrawn(!hidden);
+      if (!hidden) car.updateLod(distanceSq);
+    }
+  }
+
+  /** Ajusta la flota a lo que pide la hora, a unos pocos carros por segundo y fuera de la vista. */
+  _resizeFleet(hour, dt) {
+    const target = trafficTargetVehicles(hour, this.densityId);
+    // Las patrullas no entran en la cuenta: la densidad habla del tráfico particular.
+    let civilians = 0;
+    for (const vehicle of this.vehicles) if (!vehicle.police) civilians++;
+    const missing = target - civilians;
+    if (!missing) { this._resizeCredit = 0; return; }
+    const rate = Math.min(RESIZE_MAX_RATE, Math.max(RESIZE_MIN_RATE, Math.abs(missing) * RESIZE_RATE_PER_MISSING));
+    this._resizeCredit += rate * dt;
+    while (this._resizeCredit >= 1) {
+      this._resizeCredit -= 1;
+      if (!(missing > 0 ? this._addVehicle(target) : this._removeVehicle())) { this._resizeCredit = 0; break; }
+    }
+  }
+
+  /** Cuántos carros quiere cada circuito: en proporción a su largo y sin pasar de lo que cabe en él. */
+  _routeQuota(target) {
+    this._routeLength ??= this.routes.reduce((sum, route) => sum + route.length, 0);
+    const quota = new Map();
+    for (const route of this.routes) {
+      quota.set(route, Math.min(Math.floor(route.length / 12), Math.round(target * route.length / this._routeLength)));
+    }
+    return quota;
+  }
+
+  _addVehicle(target) {
+    const assigned = new Map();
+    for (const vehicle of this.vehicles) if (!vehicle.police) assigned.set(vehicle.route, (assigned.get(vehicle.route) ?? 0) + 1);
+    let best = null, bestRoom = 0;
+    for (const [route, want] of this._routeQuota(target)) {
+      const room = want - (assigned.get(route) ?? 0);
+      if (room > bestRoom) { bestRoom = room; best = route; }
+    }
+    if (!best) return false;
+    const distance = this._freeDistance(best);
+    if (distance === null) return false;
+    const vehicle = this._spawn(this.scene, best, distance, false);
+    this.onVehicleAdded?.(vehicle.car);
+    return true;
+  }
+
+  /** Punto de la ruta lejos de la vista, libre de otros carros y fuera de los cruces. */
+  _freeDistance(route) {
+    const view = this._viewPosition, safeSq = RESIZE_SAFE_DISTANCE ** 2;
+    for (let tries = 0; tries < 12; tries++) {
+      const distance = this.random() * route.length;
+      route.sample(distance, this._position, this._direction);
+      if ((this._position.x - view.x) ** 2 + (this._position.z - view.z) ** 2 < safeSq) continue;
+      // Nacer dentro de un cruce es pedir la reserva a la fuerza; fuera de él entra como cualquier otro.
+      if (this._nearNode(this._position)) continue;
+      // Un carro puede compartir el carril con otro de una ruta distinta: se mira el mundo, no la distancia en la ruta.
+      const crowded = this.vehicles.some(other => Math.hypot(other.car.position.x - this._position.x,
+        other.car.position.z - this._position.z) < other.car.length / 2 + RESIZE_GAP);
+      if (crowded) continue;
+      return distance;
+    }
+    return null;
+  }
+
+  /** Saca de circulación al que va más lejos de la vista, sin tocar patrullas ni persecuciones. */
+  _removeVehicle() {
+    const view = this._viewPosition;
+    let best = null, bestSq = RESIZE_SAFE_DISTANCE ** 2;
+    for (const vehicle of this.vehicles) {
+      if (vehicle.police || vehicle.state !== 'patrol' || vehicle.rejoinTarget || vehicle.hold) continue;
+      const dx = vehicle.car.position.x - view.x, dz = vehicle.car.position.z - view.z;
+      const distanceSq = dx * dx + dz * dz;
+      if (distanceSq > bestSq) { bestSq = distanceSq; best = vehicle; }
+    }
+    if (!best) return false;
+    this.vehicles.splice(this.vehicles.indexOf(best), 1);
+    this.onVehicleRemoved?.(best.car);
+    best.car.dispose();
+    return true;
   }
 
   /** Metros a los que una patrulla alcanza a ver un robo: cada nivel de fichado los alarga. */
@@ -832,10 +957,16 @@ export class TrafficSystem {
     return false;
   }
 
-  update(dt, { player = null, pedestrians = [], onPlayerHit = null } = {}) {
+  update(dt, { player = null, pedestrians = [], onPlayerHit = null, camera = null, hour = null } = {}) {
     if (dt <= 0) return;
     let caught = false;
     this._playerPosition = player;
+    // La vista manda: detalle, niebla y a quién se deja entrar o salir sin que se vea.
+    const view = this._viewPosition;
+    if (camera?.position) view.copy(camera.position);
+    else if (player) view.copy(player);
+    if (this.densityId && Number.isFinite(hour)) this._resizeFleet(hour, dt);
+    this._updateLod();
     this._coordinateIntersections();
     for (const vehicle of this.vehicles) {
       if (vehicle.state === 'chase' || vehicle.rejoinTarget) continue;
