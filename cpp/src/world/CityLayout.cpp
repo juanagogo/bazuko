@@ -15,6 +15,20 @@
 namespace Bazuko {
 
 namespace {
+// Colores de fachada del centro de Bogota: ladrillo, ocre, mostaza, terracota, azul y verde palido, rosa, crema, lila y turquesa. Con ellos
+// los edificios ya no son todos blancos o grises; `FacadeColor` da una base solida y `FacadeTint` un tinte suave para los modelos con textura.
+constexpr std::array<glm::vec3, 14> kFacadePalette{{
+    {0.72f, 0.33f, 0.24f}, {0.86f, 0.66f, 0.34f}, {0.90f, 0.77f, 0.38f}, {0.80f, 0.45f, 0.32f}, {0.48f, 0.63f, 0.80f}, {0.55f, 0.72f, 0.58f},
+    {0.86f, 0.58f, 0.58f}, {0.90f, 0.84f, 0.70f}, {0.66f, 0.58f, 0.78f}, {0.40f, 0.64f, 0.66f}, {0.60f, 0.34f, 0.28f}, {0.82f, 0.82f, 0.78f},
+    {0.94f, 0.72f, 0.52f}, {0.52f, 0.52f, 0.58f}}};
+glm::vec4 FacadeColor(uint32_t seed) {
+    seed ^= seed >> 15; seed *= 2246822519u; seed ^= seed >> 13;
+    return glm::vec4(kFacadePalette[seed % kFacadePalette.size()] * (0.92f + 0.12f * static_cast<float>((seed >> 8) % 100) / 100.0f), 1.0f);
+}
+glm::vec4 FacadeTint(uint32_t seed) {   // las texturas ya son claras: el tinte las lleva hacia el color sin ensuciarlas
+    const glm::vec4 base = FacadeColor(seed);
+    return glm::vec4(glm::mix(glm::vec3(1.0f), glm::vec3(base) * 1.18f, 0.72f), 1.0f);
+}
 
 std::shared_ptr<Texture> MakeSurfaceTexture(int surface, uint32_t seed) {
     constexpr int size = 128;
@@ -297,10 +311,6 @@ void CityLayout::BuildMeshes(const CityLoadProgress& progressCallback) {
         return static_cast<uint32_t>((static_cast<uint32_t>(x + 17) * 73856093u)
             ^ (static_cast<uint32_t>(z + 31) * 19349663u));
     };
-    constexpr std::array<glm::vec4, 4> urbanColors{{
-        {0.78f, 0.40f, 0.27f, 1.0f}, {0.65f, 0.67f, 0.67f, 1.0f},
-        {0.81f, 0.77f, 0.68f, 1.0f}, {0.60f, 0.64f, 0.66f, 1.0f}
-    }};
     constexpr std::array<int, 8> blockFloorCounts{{5, 6, 7, 8, 10, 12, 16, 24}};
     std::vector<size_t> componentQueue;
     for (int startZ = 1; startZ < HEIGHT - 1; ++startZ) {
@@ -354,7 +364,7 @@ void CityLayout::BuildMeshes(const CityLoadProgress& progressCallback) {
             const float centerZ = static_cast<float>(minZ + maxZ + 1) * TILE_SIZE * 0.5f - ORIGIN_Z;
             m_Buildings.push_back({{centerX, height * 0.5f, centerZ},
                                    {width, height, depth},
-                                   urbanColors[seed % urbanColors.size()], -1, floors, variant});
+                                   FacadeColor(seed * 2654435761u + 7u), -1, floors, variant});
         }
     }
     // Fuente de piedra de la plaza de La Candelaria: se rodea sin trabarse (cruz de cajas que cubre el circulo) y lleva su propio modelo
@@ -456,17 +466,8 @@ void CityLayout::BuildMeshes(const CityLoadProgress& progressCallback) {
                                        glm::vec3(TILE_SIZE, ruinHeight, TILE_SIZE), glm::vec4(tone, tone * 0.92f, tone * 0.85f, 1.0f), -1});
             } else if (type == TileType::Building) {
                 float bHeight = heightDist(rng);
-                int colorVariant = colorTypeDist(rng);
-                glm::vec4 bColor;
-                if (colorVariant == 0) {
-                    bColor = glm::vec4(0.96f, 0.88f, 0.82f, 1.0f);
-                } else if (colorVariant == 1) {
-                    bColor = glm::vec4(0.82f, 0.86f, 0.88f, 1.0f);
-                } else if (colorVariant == 2) {
-                    bColor = glm::vec4(0.98f, 0.91f, 0.78f, 1.0f);
-                } else {
-                    bColor = glm::vec4(0.78f, 0.80f, 0.82f, 1.0f);
-                }
+                (void)colorTypeDist(rng);   // se conserva el sorteo para no mover el resto de la ciudad
+                const glm::vec4 bColor = FacadeColor(urbanHash(x, z) + 99u);
 
                 constexpr float buildingWidth = TILE_SIZE;
                 const float buildingDepth = buildingWidth;
@@ -1200,6 +1201,7 @@ void CityLayout::Render(Renderer& renderer, const glm::vec3& focusPosition) {
                                building.position.z - focusPosition.z);
         if (glm::dot(offset, offset) > 85.0f * 85.0f) continue;
         const glm::vec3 boundsCenter = building.position;
+        const glm::vec4 facadeTint = FacadeTint(static_cast<uint32_t>(std::floor(building.position.x * 0.5f)) * 73856093u ^ static_cast<uint32_t>(std::floor(building.position.z * 0.5f)) * 19349663u);
         const float groundY = boundsCenter.y - building.size.y * 0.5f;
         const glm::vec3 targetFootprint(
             std::max(0.5f, building.size.x - 1.0f),
@@ -1227,7 +1229,7 @@ void CityLayout::Render(Renderer& renderer, const glm::vec3& focusPosition) {
                 const glm::vec3 targetSize(targetFootprint.x, height, targetFootprint.z);
                 m_ModularBuildingModels[section]->Draw(
                     renderer, fittedTransform(*m_ModularBuildingModels[section],
-                                              {boundsCenter.x, sectionY, boundsCenter.z}, targetSize));
+                                              {boundsCenter.x, sectionY, boundsCenter.z}, targetSize), facadeTint);
                 sectionY += height;
             }
         } else {
@@ -1235,7 +1237,7 @@ void CityLayout::Render(Renderer& renderer, const glm::vec3& focusPosition) {
             if (!model) continue;
             model->Draw(renderer, fittedTransform(*model,
                                                    {boundsCenter.x, groundY, boundsCenter.z},
-                                                   targetFootprint));
+                                                   targetFootprint), facadeTint);
         }
     }
 }
