@@ -50,7 +50,7 @@ Se tomaron con los ganchos `BAZUKO_*` (ver «Cómo probar»), en Windows con una
 - Licencias: los audios de policía y los modelos de terceros que siguen en el repositorio tienen licencia por revisar. Los clips de Mixamo se pueden usar en juegos, pero Adobe no permite redistribuirlos sueltos.
 
 ## Cómo compilar
-Requisitos: compilador de C++20 (Visual Studio 2022 con «Desarrollo para el escritorio con C++» en Windows; GCC o Clang en Linux), CMake 3.22 o posterior, Git y Git LFS (`git lfs pull` descarga los efectos WAV pequeños). El proyecto debe quedar dentro del repositorio (`bazuko/cpp`): busca los modelos y el audio en `../public`. GLFW, GLM, Dear ImGui, libwebp y las bibliotecas de Opus se descargan solas con CMake.
+Requisitos: compilador de C++20 (Visual Studio 2022 con «Desarrollo para el escritorio con C++» en Windows; GCC o Clang en Linux), CMake 3.22 o posterior, Git y Git LFS (`git lfs pull` descarga los efectos WAV pequeños). Los modelos, el audio y las imágenes están en `cpp/public/`, así que `cpp/` funciona por sí sola (se pueden rehacer con `python cpp/tools/reunir_recursos.py`). GLFW, GLM, Dear ImGui, libwebp y las bibliotecas de Opus se descargan solas con CMake.
 
 Windows (PowerShell):
 ```powershell

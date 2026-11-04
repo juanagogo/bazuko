@@ -180,7 +180,7 @@ if(BAZUKO_BUILD_OPUS_TESTS)
     add_executable(bazuko_opus_audio_test tests/OpusAudioTest.cpp)
     target_link_libraries(bazuko_opus_audio_test PRIVATE opusfile)
     target_compile_definitions(bazuko_opus_audio_test PRIVATE
-        BAZUKO_TEST_AUDIO_DIR="${CMAKE_CURRENT_SOURCE_DIR}/../public/audio"
+        BAZUKO_TEST_AUDIO_DIR="${CMAKE_CURRENT_SOURCE_DIR}/public/audio"
     )
     add_test(NAME bazuko_opus_audio COMMAND bazuko_opus_audio_test)
 endif()
@@ -298,11 +298,12 @@ target_link_libraries(bazuko_spawn_city_test PRIVATE glfw glm::glm glad imgui Th
 add_custom_command(TARGET bazuko POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_directory "${CMAKE_CURRENT_SOURCE_DIR}/assets" "$<TARGET_FILE_DIR:bazuko>/assets"
 )
-# Los modelos y el audio se copian junto al ejecutable solo si se pide (el juego tambien los busca en ../public).
-option(BAZUKO_COPY_PUBLIC "Copiar public/ junto al ejecutable (portable, ~50 MB)" OFF)
-if(BAZUKO_COPY_PUBLIC AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/../public")
+# Los modelos, el audio y las imagenes viven en cpp/public (los reune tools/reunir_recursos.py); se copian junto al ejecutable solo si se pide,
+# porque el juego los encuentra solo subiendo desde el ejecutable hasta cpp/.
+option(BAZUKO_COPY_PUBLIC "Copiar public/ junto al ejecutable (portable, ~350 MB)" OFF)
+if(BAZUKO_COPY_PUBLIC AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/public")
     add_custom_command(TARGET bazuko POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E copy_directory "${CMAKE_CURRENT_SOURCE_DIR}/../public" "$<TARGET_FILE_DIR:bazuko>/public")
+        COMMAND ${CMAKE_COMMAND} -E copy_directory "${CMAKE_CURRENT_SOURCE_DIR}/public" "$<TARGET_FILE_DIR:bazuko>/public")
 endif()
 
 if(WIN32 AND DEFINED ENV{WEBP_ROOT})

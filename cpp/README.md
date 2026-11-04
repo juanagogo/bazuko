@@ -61,7 +61,7 @@ cpp/
 
 Un solo `CMakeLists.txt` para Windows y Linux. GLFW, GLM, Dear ImGui, libwebp, libogg, libopus y libopusfile se descargan y compilan solos
 (FetchContent) si no están instalados; no hace falta `WEBP_ROOT` ni instalar nada más que el compilador.
-El proyecto debe quedar dentro del repositorio (`bazuko/cpp`) para que encuentre `../public` (modelos y audio).
+El port es independiente del juego web: todos los modelos, texturas, sonidos e imágenes que usa están en `cpp/public/` (los reúne `tools/reunir_recursos.py`), así que `cpp/` puede copiarse o clonarse solo, sin el resto del repositorio.
 
 ### Linux / WSL2 (Ubuntu)
 
@@ -132,19 +132,19 @@ escucharla sube el ánimo. Las emisoras con otro `id` solo dan estática. No hay
 sudo apt install mingw-w64 cmake ninja-build
 cmake -S . -B build-win -G Ninja -DCMAKE_TOOLCHAIN_FILE=toolchain-mingw64.cmake -DCMAKE_BUILD_TYPE=Release
 cmake --build build-win
-# build-win/bazuko.exe + build-win/assets/ (copia ambos junto a la carpeta public/)
+# build-win/bazuko.exe + build-win/assets/ (copia ambos junto a la carpeta public/, que sale de cpp/public/)
 ```
 
 ### Dónde busca los recursos
 
-El juego localiza `assets/` (shaders, fuente de los rótulos) y `public/` (modelos y audio) junto al ejecutable,
+El juego localiza `assets/` (shaders, fuente de los rótulos) y `public/` (modelos, audio e imágenes, en `cpp/public/`) junto al ejecutable,
 en las carpetas superiores y en el directorio actual, así que arranca desde `build/`, `build/Release/` o con doble clic.
 Acabado gráfico (ver `docs/plan-hacia-aa.md`): la escena se dibuja en un buffer HDR (RGBA16F) con mapeo tonal ACES (`BAZUKO_NOHDR=1` lo desactiva); los materiales con mapa de normales muestran relieve (`BAZUKO_NONORMALMAP=1` lo desactiva); con lluvia, el suelo mojado forma charcos que reflejan el sol, el cielo y las luces y se mueven con las gotas; y las luces locales usan clustered shading (16×9×24 celdas, hasta 256 luces: farolas, faros de los vehículos y balizas, con presupuestos de 32, 96 y 250 según la calidad). En calidad media y alta se añaden SSAO a media resolución, bloom de los brillos que superan 1 y, en alta, rayos de luz del sol (`BAZUKO_NOPOST=1` los desactiva; `BAZUKO_POST_MODE=ao|bloom` deja solo uno). Además: reflejos en pantalla de los charcos, sombra lejana en calidad alta, niebla por altura con haces de luz de los faros, decals (aceite, grietas y mugre en el suelo, grafitis y afiches en paredes y postes), niebla volumétrica con haces de luz en calidad alta, pies que siguen la pendiente y mezcla de reposo y caminata. Estado y mediciones de cada paso: `docs/plan-hacia-aa.md`.
 
 Benchmark: `BAZUKO_BENCH=1` imprime al terminar la captura el resumen de rendimiento (FPS medios, mínimo, p95/p99, 1 % bajo y tirones); `BAZUKO_QUALITY=<0|1|2>` fija la calidad (baja, media, alta) y `BAZUKO_NOADAPT=1` desactiva la bajada automática de resolución, para comparar equipos con la misma carga. Ejemplo: `BAZUKO_BENCH=1 BAZUKO_QUALITY=1 BAZUKO_NOADAPT=1 BAZUKO_HOUR=12 BAZUKO_POS=54,26 BAZUKO_SHOT_DELAY=45 BAZUKO_SHOT=captura.png bazuko`. Los collages de `docs/images/novedades-*.png` se tomaron con los ganchos `BAZUKO_*` descritos en cada sección.
 
 Para indicar otra carpeta: `bazuko --public <ruta a public/>` o la variable `BAZUKO_PUBLIC`.
-Con `-DBAZUKO_COPY_PUBLIC=ON` se copia `public/` junto al ejecutable (~50 MB) para llevarlo a otro equipo.
+Con `-DBAZUKO_COPY_PUBLIC=ON` se copia `cpp/public/` junto al ejecutable (~430 MB) para llevarlo a otro equipo.
 
 ### Interfaz de cartón y marcador (del juego original)
 
@@ -360,7 +360,13 @@ Limites: el renderer solo usa la textura de color (no la normal ni la ORM del mo
 
 **Créditos y licencias de los modelos 3D:** ver [docs/creditos-modelos.md](../docs/creditos-modelos.md) (atribución del Hilux, modelos gratuitos de Sketchfab y los que aún esperan permiso).
 
-**Modelos excluidos por defecto.** El Pitbull de El Chato (sustituido por el Labrador), el Raptor, el Renault 6, el Model X y el Transmilenio articulado no tienen permiso de redistribución: el port no los carga ni dependen de ellos la compilación ni las pruebas. Si colocas copias con licencia en `public/models/`, `BAZUKO_MODELOS_RESTRINGIDOS=1` las activa; sin la variable se usan los modelos de respaldo.
+**Modelos excluidos por defecto.** El Pitbull de El Chato (sustituido por el Labrador), el Raptor, el Renault 6, el Model X y el Transmilenio articulado no tienen permiso de redistribución: el port no los carga ni dependen de ellos la compilación ni las pruebas. Si colocas copias con licencia en `cpp/public/models/`, `BAZUKO_MODELOS_RESTRINGIDOS=1` las activa; sin la variable se usan los modelos de respaldo.
 
 
 **Andar y correr nuevos.** `Run` usa ahora el clip `run_mixamo` (y `walk_mixamo` queda disponible) del banco, tomados del juego original (`andar-cansado.glb`, clips de Mixamo) y reorientados hueso por hueso al esqueleto del port con `cpp/tools/agregar_correr_mixamo.py` (Blender sin interfaz); la cadera solo sube y baja, el avance lo controla el juego. `BAZUKO_ANDAR_ANTERIOR=1` vuelve al correr anterior y `BAZUKO_ANDAR_CANSADO=1` usa el andar cansado de Mixamo (por defecto se conserva el andar anterior, porque el cansado encorva a todos los peatones). Los clips de Mixamo se pueden usar en juegos, pero Adobe no permite redistribuirlos sueltos.
+
+## Recursos propios (`cpp/public/`)
+
+Todo lo que el juego carga fuera de `assets/` vive en `cpp/public/`, con la misma estructura que `public/` del juego web: `models/` (personajes, vehículos, edificios, fauna, animaciones), `audio/` e `images/pantalla-carga/`. El juego los busca desde el ejecutable hacia arriba solo hasta la carpeta `cpp/` (la que tiene `CMakeLists.txt` y `assets/`), por lo que no depende de nada fuera de ella.
+
+`python cpp/tools/reunir_recursos.py` rehace esa carpeta desde `public/` del repositorio (`--simular` solo lista lo que copiaría): copia únicamente lo que el port carga —incluidas las texturas que sus cargadores resuelven— y solo archivos que Git rastrea, de modo que los modelos sin permiso de redistribución (Pitbull, Raptor, Renault 6, Model X y Transmilenio articulado) nunca entran. Las fuentes de Blender y las mallas alternativas no se copian.
