@@ -2229,12 +2229,16 @@ std::vector<Simulation::HeadlightBeam> Simulation::GetHeadlightBeams(const glm::
         if (vehicle.parked || vehicle.driver.state == DriverState::Abandoned) continue;
         const float distance = glm::distance(glm::vec2(vehicle.position.x, vehicle.position.z), glm::vec2(focus.x, focus.z));
         if (distance > maxDistance) continue;
-        HeadlightBeam beam;
-        beam.direction = glm::normalize(glm::vec3(vehicle.direction.x, 0.0f, vehicle.direction.z));
-        beam.position = vehicle.position + beam.direction * (vehicle.length * 0.5f - 0.2f) + glm::vec3(0.0f, 0.75f, 0.0f);
-        candidates.emplace_back(distance, beam);
+        const glm::vec3 forward = glm::normalize(glm::vec3(vehicle.direction.x, 0.0f, vehicle.direction.z));
+        const glm::vec3 side(-forward.z, 0.0f, forward.x);
+        for (float sign : {-1.0f, 1.0f}) {   // un haz por faro, abiertos unos grados hacia afuera
+            HeadlightBeam beam;
+            beam.direction = glm::normalize(forward + side * sign * 0.07f);
+            beam.position = vehicle.position + forward * (vehicle.length * 0.5f - 0.2f) + side * sign * vehicle.width * 0.36f + glm::vec3(0.0f, 0.72f, 0.0f);
+            candidates.emplace_back(distance, beam);
+        }
     }
-    const size_t count = std::min(maxCount, candidates.size());
+    const size_t count = std::min(maxCount * 2, candidates.size());
     std::partial_sort(candidates.begin(), candidates.begin() + static_cast<std::ptrdiff_t>(count), candidates.end(), [](const auto& a, const auto& b) { return a.first < b.first; });
     std::vector<HeadlightBeam> beams;
     for (size_t index = 0; index < count; ++index) beams.push_back(candidates[index].second);
@@ -2257,9 +2261,11 @@ std::vector<glm::vec4> Simulation::GetHeadlightLights(const glm::vec3& focus, si
         if (vehicle.parked || vehicle.driver.state == DriverState::Abandoned) continue;
         const float distance = glm::distance(glm::vec2(vehicle.position.x, vehicle.position.z), glm::vec2(focus.x, focus.z));
         if (distance > maxDistance) continue;
-        candidates.emplace_back(distance, vehicle.position + vehicle.direction * (vehicle.length * 0.5f + 1.5f) + glm::vec3(0.0f, 0.9f, 0.0f));
+        const glm::vec3 side(-vehicle.direction.z, 0.0f, vehicle.direction.x);
+        for (float sign : {-1.0f, 1.0f})   // una luz por faro, sobre el suelo delante de cada uno
+            candidates.emplace_back(distance, vehicle.position + vehicle.direction * (vehicle.length * 0.5f + 2.2f) + side * sign * vehicle.width * 0.36f + glm::vec3(0.0f, 0.8f, 0.0f));
     }
-    const size_t count = std::min(maxCount, candidates.size());
+    const size_t count = std::min(maxCount * 2, candidates.size());
     std::partial_sort(candidates.begin(), candidates.begin() + static_cast<std::ptrdiff_t>(count), candidates.end(), [](const auto& a, const auto& b) { return a.first < b.first; });
     std::vector<glm::vec4> lights;
     for (size_t index = 0; index < count; ++index) lights.emplace_back(candidates[index].second, 1.0f);

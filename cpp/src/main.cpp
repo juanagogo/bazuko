@@ -1910,10 +1910,10 @@ int main(int argc, char** argv) {
                 ++lighting.lampCount;
             }
             if (atmosphere.lampPower > 0.2f && graphicsQuality > 0) {   // faros de los vehiculos cercanos (8 en media, 24 en alta)
-                for (const glm::vec4& headlight : simulation.GetHeadlightLights(playerPos, graphicsQuality == 1 ? 8 : 24, 70.0f)) {
+                for (const glm::vec4& headlight : simulation.GetHeadlightLights(playerPos, graphicsQuality == 1 ? 5 : 12, 70.0f)) {
                     if (lighting.lampCount >= LightBlockData::kMaxLampLights - 4) break;
-                    lighting.lampPosition[lighting.lampCount] = glm::vec4(glm::vec3(headlight), 11.0f);
-                    lighting.lampColor[lighting.lampCount] = glm::vec4(1.0f, 0.93f, 0.78f, 1.5f * atmosphere.lampPower);
+                    lighting.lampPosition[lighting.lampCount] = glm::vec4(glm::vec3(headlight), 9.0f);
+                    lighting.lampColor[lighting.lampCount] = glm::vec4(1.0f, 0.93f, 0.78f, 1.0f * atmosphere.lampPower);
                     ++lighting.lampCount;
                 }
             }
@@ -2172,8 +2172,8 @@ int main(int argc, char** argv) {
             const float damp = std::clamp(0.9f * simulation.GetMist() + 0.9f * simulation.GetRainIntensity() + 0.12f, 0.0f, 1.0f);
             const float dark = AtmosphereSmoothstep(0.05f, 0.5f, frameLampPower);
             std::vector<LightBeams::Beam> beams;
-            for (const auto& headlight : simulation.GetHeadlightBeams(playerPos, graphicsQuality == 1 ? 8 : 20, 60.0f))
-                beams.push_back({headlight.position, headlight.direction, 14.0f, 3.4f});
+            for (const auto& headlight : simulation.GetHeadlightBeams(playerPos, graphicsQuality == 1 ? 6 : 14, 60.0f))
+                beams.push_back({headlight.position, headlight.direction, 18.0f, 2.6f});
             if (std::getenv("BAZUKO_LOG_BEAMS")) LogInfo("Haces: {} visibilidad {:.2f} (aire {:.2f}, oscuridad {:.2f})", beams.size(), damp * dark, damp, dark);
             lightBeams.Render(renderer, beams, damp * dark);
         }
