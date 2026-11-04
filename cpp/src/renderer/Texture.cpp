@@ -82,7 +82,12 @@ std::shared_ptr<Texture> Texture::LoadFromMemory(const uint8_t* data, size_t siz
             if (isWebp) WebPFree(rgba);
             else stbi_image_free(rgba);
         }
-        LogError("No se pudo decodificar una textura glTF embebida ({}).", mimeType);
+        if (mimeType.find("exr") != std::string::npos) {   // el formato EXR (HDR) no lo lee stb: el material queda con su color base y no vale un error por textura
+            static bool warned = false;
+            if (!warned) { warned = true; LogWarn("Texturas EXR embebidas (por ejemplo en mascota.fbx) no soportadas: esos materiales usan su color base."); }
+        } else {
+            LogError("No se pudo decodificar una textura glTF embebida ({}).", mimeType);
+        }
         return nullptr;
     }
 
