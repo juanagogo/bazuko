@@ -2,6 +2,7 @@
 import { Howl, Howler } from 'howler';
 import { VehicleAudio } from './VehicleAudio.js';
 import { STREET_VOICES, StreetVoices } from './StreetVoices.js';
+import { PoliceSirenAudio } from './PoliceSirenAudio.js';
 
 export const MIX_CATEGORIES = ['ambient', 'traffic', 'voices', 'effects'];
 // Mientras suena una frase, tráfico y ambiente bajan a esta fracción para que se entienda.
@@ -86,6 +87,7 @@ export class AudioSystem {
     this._theftVoices = new Map();
     this.vehicles = new VehicleAudio(this.vehicleSounds, Math.random, this.driverSounds);
     this.streetVoices = new StreetVoices({ bank: this.streetVoiceSounds });
+    this.policeSiren = new PoliceSirenAudio({ fx: () => this._fx() });
     // Una sola voz a la vez entre conductores, robo y calle.
     this.vehicles.externalVoiceActive = () => this._theftVoiceActive() || this.streetVoices.active;
     this.streetVoices.externalVoiceActive = () => this._theftVoiceActive() || this.vehicles.remarkPlaying();
@@ -395,6 +397,7 @@ export class AudioSystem {
     this._duck += (duckTarget - this._duck) * (1 - Math.exp(-dt * (duckTarget < this._duck ? DUCK_ATTACK : DUCK_RELEASE)));
     this._applyLevels();
     this.vehicles.update(dt, position, vehicles, bus);
+    this.policeSiren.update(dt, position, vehicles);
     this.streetVoices.update(position, pedestrians);
     for (const [car, voice] of this._theftVoices) {
       if (!voice.sound.playing(voice.id)) this._theftVoices.delete(car);
