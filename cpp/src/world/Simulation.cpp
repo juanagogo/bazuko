@@ -4884,9 +4884,10 @@ void Simulation::Render(Renderer& renderer, float time, const glm::vec3& focusPo
                     renderer.Submit(*m_SignalLens, m, glm::vec4(off, 1.0f));
                 }
             };
-            const glm::mat4 faceMinusX = glm::rotate(glm::mat4(1.0f), glm::half_pi<float>(), {0.0f, 0.0f, 1.0f});
-            const glm::mat4 faceMinusZ = glm::rotate(glm::mat4(1.0f), -glm::half_pi<float>(), {1.0f, 0.0f, 0.0f});
-            const glm::mat4 facePlusX = glm::rotate(glm::mat4(1.0f), -glm::half_pi<float>(), {0.0f, 0.0f, 1.0f});
+            // el cilindro del lente tiene su eje en Z: para mirar a -X o +X se gira sobre Y (girar sobre Z o X lo dejaba de canto, como una tira)
+            const glm::mat4 faceMinusX = glm::rotate(glm::mat4(1.0f), -glm::half_pi<float>(), {0.0f, 1.0f, 0.0f});
+            const glm::mat4 faceMinusZ(1.0f);
+            const glm::mat4 facePlusX = glm::rotate(glm::mat4(1.0f), glm::half_pi<float>(), {0.0f, 1.0f, 0.0f});
             const glm::vec3 redOn(1.0f, 0.10f, 0.05f), redOff(0.20f, 0.03f, 0.02f), amberOn(1.0f, 0.58f, 0.05f), amberOff(0.20f, 0.10f, 0.02f);
             const glm::vec3 greenOn(0.10f, 1.0f, 0.30f), greenOff(0.02f, 0.16f, 0.05f);
             const float lensX = -0.075f - SignalModel::kHeadDepth * 0.5f - 0.004f;
@@ -4948,7 +4949,7 @@ void Simulation::Render(Renderer& renderer, float time, const glm::vec3& focusPo
         const glm::vec4 greenColor = state == 0 ? glm::vec4(0.08f, 1.0f, 0.20f, 1.0f) : glm::vec4(0.025f, 0.25f, 0.055f, 1.0f);
         const auto drawLens = [&](float y, const glm::vec4& color) {
             glm::mat4 lens = glm::translate(poleRoot, {-0.22f, y, 0.0f});
-            lens = glm::rotate(lens, glm::half_pi<float>(), {0.0f, 0.0f, 1.0f});
+            lens = glm::rotate(lens, -glm::half_pi<float>(), {0.0f, 1.0f, 0.0f});
             renderer.Submit(*m_SignalLamp, lens, color);
         };
         if (m_TrafficSignalModel) {
