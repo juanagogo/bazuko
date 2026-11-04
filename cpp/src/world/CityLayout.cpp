@@ -218,6 +218,7 @@ void CityLayout::GenerateCityMap() {
 
 void CityLayout::BuildMeshes(const CityLoadProgress& progressCallback) {
     m_Buildings.clear();
+    Mesh::s_KeepPositions = true;   // se conservan las mallas de los edificios para posar afiches y grafitis sobre el muro real (RayBuildingDistance)
     if (progressCallback) progressCallback(2, 7, "Cargando arquitectura: Edificio 1 (Only_Building.fbx)...");
     m_BuildingModels[0] = Model::LoadFromFile(Paths::Find("public/models/Edificio 1/Only_Building.fbx"));
     if (progressCallback) progressCallback(3, 7, "Cargando arquitectura: Edificio 3 (highrise.fbx)...");
@@ -234,6 +235,7 @@ void CityLayout::BuildMeshes(const CityLoadProgress& progressCallback) {
         m_ModularBuildingModels[index] = Model::LoadFromFile(Paths::Find(
             std::string("public/models/Edificio 2/Models/FBX/") + modularBuildingFiles[index]));
     }
+    Mesh::s_KeepPositions = false;
     if (progressCallback) progressCallback(7, 7, "Construyendo mallas de calzadas, andenes y señalética...");
     const auto availableBuildingVariant = [&](int preferred) {
         for (int offset = 0; offset < 3; ++offset) {
@@ -1213,6 +1215,73 @@ void CityLayout::Render(Renderer& renderer, const glm::vec3& focusPosition) {
                                                    targetFootprint));
         }
     }
+}
+
+
+namespace {
+// Escala y apoya un modelo en una caja: el mismo ajuste con el que se dibujan los edificios.
+glm::mat4 FitBuildingModel(const Model& model, const glm::vec3& position, const glm::vec3& targetSize) {
+    const glm::vec3 extent = model.GetBoundsMaximum() - model.GetBoundsMinimum();
+    if (glm::any(glm::lessThanEqual(extent, glm::vec3(0.0001f)))) return glm::mat4(1.0f);
+    return glm::translate(glm::mat4(1.0f), position)
+        * glm::scale(glm::mat4(1.0f), targetSize / extent)
+        * glm::translate(glm::mat4(1.0f), {-((model.GetBoundsMinimum().x + model.GetBoundsMaximum().x) * 0.5f), -model.GetBoundsMinimum().y,
+                                           -((model.GetBoundsMinimum().z + model.GetBoundsMaximum().z) * 0.5f)});
+}
+
+// Moller-Trumbore contra todas las piezas del modelo; devuelve t del impacto mas cercano o -1
+float RayModel(const Model& model, const glm::mat4& fit, const glm::vec3& origin, const glm::vec3& direction) {
+    float best = -1.0f;
+    for (const ModelPart& part : model.GetParts()) {
+        if (!part.mesh) continue;
+        const std::vector<glm::vec3>& positions = part.mesh->GetPositions();
+        const std::vector<uint32_t>& indices = part.mesh->GetIndices();
+        if (positions.empty() || indices.size() < 3) continue;
+        const glm::mat4 toWorld = fit * part.transform;
+        for (size_t i = 0; i + 2 < indices.size(); i += 3) {
+            const glm::vec3 a = glm::vec3(toWorld * glm::vec4(positions[indices[i]], 1.0f));
+            const glm::vec3 b = glm::vec3(toWorld * glm::vec4(positions[indices[i + 1]], 1.0f));
+            const glm::vec3 c = glm::vec3(toWorld * glm::vec4(positions[indices[i + 2]], 1.0f));
+            const glm::vec3 e1 = b - a, e2 = c - a, p = glm::cross(direction, e2);
+            const float det = glm::dot(e1, p);
+            if (std::abs(det) < 1.0e-7f) continue;
+            const float inv = 1.0f / det;
+            const glm::vec3 s = origin - a;
+            const float u = glm::dot(s, p) * inv;
+            if (u < 0.0f || u > 1.0f) continue;
+            const glm::vec3 q = glm::cross(s, e1);
+            const float v = glm::dot(direction, q) * inv;
+            if (v < 0.0f || u + v > 1.0f) continue;
+            const float t = glm::dot(e2, q) * inv;
+            if (t > 0.001f && (best < 0.0f || t < best)) best = t;
+        }
+    }
+    return best;
+}
+} // namespace
+
+float CityLayout::RayBuildingDistance(size_t index, const glm::vec3& origin, const glm::vec3& direction) const {
+    if (index >= m_Buildings.size()) return -1.0f;
+    const BuildingInstance& building = m_Buildings[index];
+    if (building.modelVariant < 0) return -1.0f;
+    const float groundY = building.position.y - building.size.y * 0.5f;
+    const glm::vec3 footprint(std::max(0.5f, building.size.x - 1.0f), building.size.y, std::max(0.5f, building.size.z - 1.0f));
+    if (building.modelVariant == 1) {
+        if (!std::all_of(m_ModularBuildingModels.begin(), m_ModularBuildingModels.end(), [](const auto& model) { return static_cast<bool>(model); })) return -1.0f;
+        const float bottom = building.size.y * 0.25f, middle = building.size.y * 0.5f, top = building.size.y - bottom - middle;
+        const std::array<float, 3> heights{{bottom, middle, top}};
+        float sectionY = groundY, best = -1.0f;
+        for (size_t section = 0; section < m_ModularBuildingModels.size(); ++section) {
+            const glm::mat4 fit = FitBuildingModel(*m_ModularBuildingModels[section], {building.position.x, sectionY, building.position.z}, {footprint.x, heights[section], footprint.z});
+            const float t = RayModel(*m_ModularBuildingModels[section], fit, origin, direction);
+            if (t > 0.0f && (best < 0.0f || t < best)) best = t;
+            sectionY += heights[section];
+        }
+        return best;
+    }
+    const auto& model = m_BuildingModels[building.modelVariant == 0 ? 0 : 1];
+    if (!model) return -1.0f;
+    return RayModel(*model, FitBuildingModel(*model, {building.position.x, groundY, building.position.z}, footprint), origin, direction);
 }
 
 } // namespace Bazuko

@@ -6,6 +6,7 @@
 #include "../renderer/Texture.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
@@ -266,6 +267,24 @@ void Decals::Build(const CityLayout& city, const std::vector<glm::vec3>& lampPos
         return tile == TileType::Road || tile == TileType::Sidewalk;
     };
     const std::vector<BuildingInstance>& buildings = city.GetBuildings();
+    // Los edificios con modelo se dibujan mas chicos que su caja y con balcones que sobresalen: en lugar de fiarse de la caja, se lanza un rayo
+    // contra la malla dibujada a varias alturas y anchos y se pega el cartel al muro (la mediana de los impactos). Sin muro a la vista, no hay cartel.
+    // `wall` es el punto del plano de la caja sobre el que se pensaba poner (centro del cartel); devuelve false si no hay muro.
+    const auto snapToWall = [&](size_t index, const BuildingInstance& building, const glm::vec3& normal, const glm::vec3& tangent, float halfWidth, glm::vec3& wall) {
+        if (building.modelVariant < 0) return true;   // casas y torres con caja exacta: ya van pegadas a la caja
+        std::array<float, 9> hits{};
+        size_t count = 0;
+        for (int row = -1; row <= 1; ++row)
+            for (int column = -1; column <= 1; ++column) {
+                const glm::vec3 from = wall + normal * 2.0f + tangent * (static_cast<float>(column) * halfWidth * 0.8f) + glm::vec3(0.0f, static_cast<float>(row) * 0.45f, 0.0f);
+                const float t = city.RayBuildingDistance(index, from, -normal);
+                if (t > 0.0f && t < 6.0f) hits[count++] = t;
+            }
+        if (count < 4) return false;
+        std::sort(hits.begin(), hits.begin() + static_cast<std::ptrdiff_t>(count));
+        wall += normal * (2.0f - hits[count / 2]);   // del plano de la caja al muro real (negativo = hacia adentro)
+        return true;
+    };
     for (size_t index = 0; index < buildings.size(); ++index) {
         const BuildingInstance& building = buildings[index];
         if (building.size.y < 3.5f || building.size.x < 1.0f || building.size.z < 1.0f) continue;
@@ -285,7 +304,9 @@ void Decals::Build(const CityLayout& city, const std::vector<glm::vec3>& lampPos
                 const float width = std::min(length - 0.4f, 2.6f + 1.6f * Unit(h >> 5)), height = width * 0.5f;
                 const float offset = (Unit(h >> 9) - 0.5f) * std::max(0.0f, length - width - 0.2f);
                 const float centerY = base + 1.15f + height * 0.5f + 0.5f * Unit(h >> 13);
-                decal.position = faceCenter + tangent * offset + normal * 0.05f + glm::vec3(0.0f, centerY - building.position.y, 0.0f);
+                glm::vec3 wall = faceCenter + tangent * offset + glm::vec3(0.0f, centerY - building.position.y, 0.0f);
+                if (!snapToWall(index, building, normal, tangent, width * 0.5f, wall)) continue;
+                decal.position = wall + normal * 0.03f;
                 decal.model = WallModel(decal.position, normal, width, height);
                 decal.kind = GraffitiFirst + static_cast<int>((h >> 17) % 4);
                 decal.strength = 1.0f;
@@ -295,7 +316,9 @@ void Decals::Build(const CityLayout& city, const std::vector<glm::vec3>& lampPos
                 Decal decal;
                 const float width = 0.62f + 0.2f * Unit(h >> 5), height = width * 1.5f;
                 const float offset = (Unit(h >> 9) - 0.5f) * std::max(0.0f, length - width - 0.3f);
-                decal.position = faceCenter + tangent * offset + normal * 0.05f + glm::vec3(0.0f, base + 1.3f + 0.5f * Unit(h >> 13) + height * 0.5f - building.position.y, 0.0f);
+                glm::vec3 wall = faceCenter + tangent * offset + glm::vec3(0.0f, base + 1.3f + 0.5f * Unit(h >> 13) + height * 0.5f - building.position.y, 0.0f);
+                if (!snapToWall(index, building, normal, tangent, width * 0.5f, wall)) continue;
+                decal.position = wall + normal * 0.03f;
                 decal.model = WallModel(decal.position, normal, width, height);
                 decal.kind = PosterFirst + static_cast<int>((h >> 17) % 4);
                 decal.strength = 1.0f;

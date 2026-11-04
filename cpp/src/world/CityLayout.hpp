@@ -64,6 +64,9 @@ public:
     void Render(Renderer& renderer, const glm::vec3& focusPosition);
 
     TileType GetTileAt(int x, int z) const;
+    // Distancia (en metros) desde `origin`, a lo largo de `direction` (unitaria), hasta el muro dibujado del edificio `index`; negativa si no lo toca.
+    // Usa la malla del modelo que se dibuja, no la caja del edificio: asi los afiches quedan pegados al muro aunque el modelo sea mas chico.
+    float RayBuildingDistance(size_t index, const glm::vec3& origin, const glm::vec3& direction) const;
     const std::vector<BuildingInstance>& GetBuildings() const { return m_Buildings; }   // cajas de edificios y muros (decals de pared)
     // Letra original de la casilla (b, r, B, s, g, p, w, W, f, d, R, S, C, A, M); 'w' fuera del mapa
     char GetMapCode(int x, int z) const {

@@ -49,6 +49,7 @@ Mesh::Mesh(const std::vector<Vertex>& sourceVertices, const std::vector<uint32_t
     if (s_KeepPositions) {
         m_Positions.reserve(vertices.size());
         for (const Vertex& vertex : vertices) m_Positions.push_back(vertex.position);
+        m_KeptIndices = indices;
     }
     if (!vertices.empty()) {
         glm::vec3 low = vertices.front().position, high = low;
