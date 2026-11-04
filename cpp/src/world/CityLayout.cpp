@@ -303,6 +303,8 @@ void CityLayout::BuildMeshes(const CityLoadProgress& progressCallback) {
     std::vector<uint32_t> windowLightIndices;
     std::vector<Vertex> detailVertices;
     std::vector<uint32_t> detailIndices;
+    std::vector<Vertex> paneVertices;   // vidrio de las ventanas
+    std::vector<uint32_t> paneIndices;
     std::vector<Vertex> signVertices;
     std::vector<uint32_t> signIndices;
     std::vector<uint8_t> modelOccupied(static_cast<size_t>(WIDTH * HEIGHT), 0);
@@ -407,6 +409,54 @@ void CityLayout::BuildMeshes(const CityLoadProgress& progressCallback) {
         detailVertices.push_back({surface-halfU+halfV,normal,{0,1},color});
         detailIndices.insert(detailIndices.end(),{base,base+1,base+2,base+2,base+3,base});
     };
+    // Ventana con relieve: marco que sobresale 8,5 cm con su cara interior visible (el vidrio queda hundido), travesano y repisa, y el vidrio aparte
+    // (gradiente de arriba a abajo y, en una de cada cinco, una cortina), que se dibuja con acabado de vidrio. Antes eran rectangulos pintados.
+    const auto appendWindow = [&](const glm::vec3& center, const glm::vec3& normal, float frameW, float frameH, float glassW, float glassH,
+                                  const glm::vec4& frameColor, const glm::vec4& glassColor) {
+        const glm::vec3 axisU = normal.z != 0.0f ? glm::vec3(normal.z > 0 ? 1.0f : -1.0f, 0, 0) : glm::vec3(0, 0, normal.x > 0 ? -1.0f : 1.0f);
+        const glm::vec3 axisV(0, 1, 0);
+        const uint32_t hash = static_cast<uint32_t>(static_cast<int>(std::floor(center.x * 2.3f))) * 73856093u
+            ^ static_cast<uint32_t>(static_cast<int>(std::floor(center.y * 1.7f))) * 19349663u
+            ^ static_cast<uint32_t>(static_cast<int>(std::floor(center.z * 2.3f))) * 83492791u;
+        const auto quad = [&](std::vector<Vertex>& vertices, std::vector<uint32_t>& indices, const glm::vec3& origin, const glm::vec3& A, const glm::vec3& B,
+                              const glm::vec3& faceNormal, const glm::vec4& c0, const glm::vec4& c1) {   // c0 abajo, c1 arriba
+            const uint32_t base = static_cast<uint32_t>(vertices.size());
+            vertices.push_back({origin, faceNormal, {0, 0}, c0});
+            vertices.push_back({origin + A, faceNormal, {1, 0}, c0});
+            vertices.push_back({origin + A + B, faceNormal, {1, 1}, c1});
+            vertices.push_back({origin + B, faceNormal, {0, 1}, c1});
+            indices.insert(indices.end(), {base, base + 1, base + 2, base + 2, base + 3, base});
+        };
+        const auto P = [&](float u, float v, float off) { return center + axisU * u + axisV * v + normal * off; };
+        const float depth = 0.085f, gw = glassW, gh = glassH, fw = frameW, fh = frameH;
+        const glm::vec4 inner = frameColor * glm::vec4(0.62f, 0.62f, 0.62f, 1.0f);
+        const glm::vec4 top = frameColor * glm::vec4(1.08f, 1.08f, 1.08f, 1.0f);
+        // marco: cuatro tiras con cara frontal y cara interior
+        quad(detailVertices, detailIndices, P(-fw * 0.5f, -fh * 0.5f, depth), axisU * ((fw - gw) * 0.5f), axisV * fh, normal, frameColor, frameColor);
+        quad(detailVertices, detailIndices, P(gw * 0.5f, -fh * 0.5f, depth), axisU * ((fw - gw) * 0.5f), axisV * fh, normal, frameColor, frameColor);
+        quad(detailVertices, detailIndices, P(-gw * 0.5f, -fh * 0.5f, depth), axisU * gw, axisV * ((fh - gh) * 0.5f), normal, frameColor, frameColor);
+        quad(detailVertices, detailIndices, P(-gw * 0.5f, gh * 0.5f, depth), axisU * gw, axisV * ((fh - gh) * 0.5f), normal, frameColor, top);
+        quad(detailVertices, detailIndices, P(-gw * 0.5f, -gh * 0.5f, 0.0f), axisV * gh, normal * depth, axisU, inner, inner);
+        quad(detailVertices, detailIndices, P(gw * 0.5f, -gh * 0.5f, 0.0f), normal * depth, axisV * gh, -axisU, inner, inner);
+        quad(detailVertices, detailIndices, P(-gw * 0.5f, -gh * 0.5f, 0.0f), normal * depth, axisU * gw, axisV, top, top);
+        quad(detailVertices, detailIndices, P(-gw * 0.5f, gh * 0.5f, 0.0f), axisU * gw, normal * depth, -axisV, inner, inner);
+        // repisa de piedra bajo la ventana
+        const float sillW = fw + 0.30f;
+        quad(detailVertices, detailIndices, P(-sillW * 0.5f, -fh * 0.5f - 0.07f, 0.17f), axisU * sillW, axisV * 0.07f, normal, glm::vec4(0.66f, 0.64f, 0.60f, 1.0f), glm::vec4(0.66f, 0.64f, 0.60f, 1.0f));
+        quad(detailVertices, detailIndices, P(-sillW * 0.5f, -fh * 0.5f, 0.0f), normal * 0.17f, axisU * sillW, axisV, glm::vec4(0.80f, 0.78f, 0.74f, 1.0f), glm::vec4(0.80f, 0.78f, 0.74f, 1.0f));
+        // travesanos: uno vertical siempre y otro horizontal en la mitad de las ventanas
+        quad(detailVertices, detailIndices, P(-0.025f, -gh * 0.5f, depth * 0.75f), axisU * 0.05f, axisV * gh, normal, frameColor, frameColor);
+        if ((hash >> 3) % 2 == 0) quad(detailVertices, detailIndices, P(-gw * 0.5f, gh * 0.18f, depth * 0.75f), axisU * gw, axisV * 0.045f, normal, frameColor, frameColor);
+        // vidrio: mas claro arriba (cielo) que abajo (interior)
+        static const std::array<glm::vec3, 4> tones{{{0.10f, 0.17f, 0.22f}, {0.13f, 0.14f, 0.15f}, {0.16f, 0.22f, 0.25f}, {0.09f, 0.12f, 0.14f}}};
+        const glm::vec3 tone = glm::vec3(glassColor) * (0.75f + 0.5f * static_cast<float>((hash >> 7) % 100) / 100.0f);
+        const glm::vec3 glass = (hash >> 5) % 5 == 0 ? tones[(hash >> 9) % tones.size()] : tone;
+        quad(paneVertices, paneIndices, P(-gw * 0.5f, -gh * 0.5f, 0.016f), axisU * gw, axisV * gh, normal, glm::vec4(glass * 0.7f, 1.0f), glm::vec4(glass * 1.5f + glm::vec3(0.05f), 1.0f));
+        if ((hash >> 11) % 5 == 0) {   // cortina a medio cerrar
+            const glm::vec3 curtain = (hash >> 14) % 2 == 0 ? glm::vec3(0.72f, 0.66f, 0.54f) : glm::vec3(0.55f, 0.44f, 0.42f);
+            quad(detailVertices, detailIndices, P(-gw * 0.5f, -gh * 0.5f, 0.03f), axisU * gw, axisV * gh * (0.45f + 0.012f * static_cast<float>((hash >> 17) % 30)), normal, glm::vec4(curtain * 0.8f, 1.0f), glm::vec4(curtain, 1.0f));
+        }
+    };
     // Luz de un apartamento tras una ventana: la tercera parte de las ventanas, elegidas por un hash estable de su
     // posicion, con luz calida, blanca o azulada de television. Los edificios de dia no cambian.
     const auto appendWindowLight = [&](const glm::vec3& center, const glm::vec3& normal, float width, float height) {
@@ -506,10 +556,8 @@ void CityLayout::BuildMeshes(const CityLoadProgress& progressCallback) {
                     const float wallOffset = TILE_SIZE * 0.5f + 0.012f;
                     for (float y=4.5f; y<bHeight-0.8f; y+=2.7f) {
                         const glm::vec3 paneCenter = wallCenter + glm::vec3(0,y,0) + normal*wallOffset;
-                        appendFacadePanel(paneCenter,normal,0.94f,1.22f,{0.90f,0.82f,0.67f,1.0f},0.0f);
-                        appendFacadePanel(paneCenter+normal*0.014f,normal,0.76f,0.98f,{0.10f,0.17f,0.22f,1.0f},0.0f);
+                        appendWindow(paneCenter, normal, 0.94f, 1.22f, 0.76f, 0.98f, {0.90f,0.82f,0.67f,1.0f}, {0.10f,0.17f,0.22f,1.0f});
                         appendWindowLight(paneCenter+normal*0.014f,normal,0.70f,0.90f);
-                        appendFacadePanel(paneCenter+glm::vec3(0,0.03f,0)+normal*0.03f,normal,0.035f,0.92f,{0.72f,0.67f,0.56f,1.0f},0.0f);
                     }
                     if (sideIndex == storefrontSide) {
                         const float storefrontOffset = wallOffset + 0.012f;
@@ -756,10 +804,7 @@ void CityLayout::BuildMeshes(const CityLoadProgress& progressCallback) {
                             ? glm::vec4(0.09f, 0.18f, 0.23f, 1.0f)
                             : glm::vec4(0.10f, 0.17f, 0.22f, 1.0f);
                         const float paneWidth = std::min(spacing * (glassCorner ? 0.88f : 0.68f), 2.2f);
-                        appendFacadePanel(paneCenter, normal, paneWidth + 0.18f, 1.62f,
-                                          {0.82f, 0.76f, 0.66f, 1.0f}, 0.0f);
-                        appendFacadePanel(paneCenter + normal * 0.016f, normal, paneWidth, 1.43f,
-                                          glassColor, 0.0f);
+                        appendWindow(paneCenter, normal, paneWidth + 0.18f, 1.62f, paneWidth, 1.43f, {0.82f, 0.76f, 0.66f, 1.0f}, glassColor);
                         appendWindowLight(paneCenter + normal * 0.016f, normal, paneWidth * 0.92f, 1.32f);
                         if (brickBalcony) {
                             const float balconyY = baseY + 1.12f;
@@ -1141,6 +1186,7 @@ void CityLayout::BuildMeshes(const CityLoadProgress& progressCallback) {
     if (!buildingVertices.empty()) m_BuildingMesh = std::make_shared<Mesh>(buildingVertices, buildingIndices);
     if (!windowLightVertices.empty()) m_WindowLightMesh = std::make_shared<Mesh>(windowLightVertices, windowLightIndices);
     if (!detailVertices.empty()) m_FacadeDetailMesh = std::make_shared<Mesh>(detailVertices, detailIndices);
+    if (!paneVertices.empty()) m_WindowPaneMesh = std::make_shared<Mesh>(paneVertices, paneIndices);
     if (!signVertices.empty()) m_SignMesh = std::make_shared<Mesh>(signVertices, signIndices);
 }
 
@@ -1177,6 +1223,11 @@ void CityLayout::Render(Renderer& renderer, const glm::vec3& focusPosition) {
         renderer.Submit(*m_BuildingMesh, glm::mat4(1.0f), glm::vec4(1.0f), true);
     }
     if (m_FacadeDetailMesh) renderer.Submit(*m_FacadeDetailMesh, glm::mat4(1.0f));
+    if (m_WindowPaneMesh) {   // vidrio: refleja el cielo y deja un brillo del sol
+        renderer.SetFinish(0.85f, 0.10f);
+        renderer.Submit(*m_WindowPaneMesh, glm::mat4(1.0f));
+        renderer.SetFinish(0.0f, 0.5f);
+    }
     renderer.SetShadowStatic(false);
     if (m_WindowLightMesh && m_NightGlow > 0.05f) {
         // apartamentos con la luz encendida: aparecen al oscurecer, junto con las farolas

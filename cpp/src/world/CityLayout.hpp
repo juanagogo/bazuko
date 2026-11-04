@@ -133,6 +133,7 @@ private:
     std::shared_ptr<Mesh> m_MarkingMesh;
     std::shared_ptr<Mesh> m_BuildingMesh;
     std::shared_ptr<Mesh> m_FacadeDetailMesh;
+    std::shared_ptr<Mesh> m_WindowPaneMesh;       // vidrios de las ventanas: se dibujan con acabado de vidrio (reflejan el cielo y el sol)
     std::shared_ptr<Mesh> m_SignMesh;
     std::shared_ptr<Mesh> m_ChurchMesh, m_FountainMesh;
     std::shared_ptr<Mesh> m_WindowLightMesh;      // ventanas encendidas de los edificios (brillan de noche)
