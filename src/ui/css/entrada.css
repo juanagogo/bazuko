@@ -1,0 +1,163 @@
+/* Entrada: carga, creador y nota de inicio. Cómo se reparte: docs/identidad-visual.md, apartado Entrada. */
+body.is-loading #creator-modal { visibility: visible; }
+
+/* ---------- carga: el arte en una tinta sobre cartón, y BAZUKO que se escribe solo ---------- */
+#loading-screen {
+  position: fixed; inset: 0; z-index: 20000; overflow: hidden; isolation: isolate;
+  display: grid; grid-template-rows: auto minmax(0, 1fr) auto; justify-items: start; gap: 12px;
+  padding: max(20px, env(safe-area-inset-top)) max(28px, env(safe-area-inset-right)) max(24px, env(safe-area-inset-bottom)) max(28px, env(safe-area-inset-left));
+  background: var(--flauta), var(--carton); color: var(--marcador);
+}
+.carga__arte { position: absolute; inset: 0; z-index: -1; pointer-events: none; animation: carga-sale .3s ease-out both; }
+@keyframes carga-sale { from { opacity: 0; } }
+.carga__marca { width: 100%; }
+.carga__marca svg { display: block; width: 100%; height: auto; overflow: visible; }
+/* Más grueso que cualquier punta: lo que se ve es la tinta que recorta cada trazo. */
+.carga__lomo { fill: none; stroke: var(--marcador); stroke-width: 210; stroke-linecap: round; stroke-linejoin: round; transition: stroke-dasharray .45s ease-out; }
+.carga__texto { grid-row: 3; display: flex; flex-direction: column; align-items: flex-start; gap: 14px; max-width: min(620px, 100%); }
+#loading-status { font-weight: 800; font-size: var(--letra-retazo); line-height: 1; }
+.has-loading-error #loading-status { font-size: var(--letra-titulo); line-height: 1.1; }
+
+@media (max-width: 899px) and (orientation: landscape), (max-height: 520px) {
+  #loading-screen { padding: max(12px, env(safe-area-inset-top)) 20px max(12px, env(safe-area-inset-bottom)) max(20px, env(safe-area-inset-left)); grid-template-rows: auto auto minmax(0, 1fr); }
+  .carga__marca { width: 46%; }
+  .carga__texto { grid-row: 2; }
+  #loading-status { font-size: var(--letra-titulo); }
+}
+@media (max-width: 899px) and (orientation: portrait) {
+  #loading-screen { padding: max(16px, env(safe-area-inset-top)) 16px max(16px, env(safe-area-inset-bottom)); grid-template-rows: auto auto minmax(0, 1fr); gap: 8px; }
+  .carga__texto { grid-row: 2; }
+  #loading-status { font-size: var(--letra-titulo); }
+}
+
+/* ---------- creador: el personaje parado sobre el cartón, sin ventana y sin marco ---------- */
+.creator {
+  position: fixed; inset: 0; z-index: 350;
+  display: grid; grid-template-columns: minmax(0, 1fr) clamp(420px, 38vw, 580px); gap: 6px;
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+  background: var(--flauta), var(--cara); color: var(--marcador);
+  font-size: var(--letra-juego); line-height: 1.3;
+}
+.creator[hidden] { display: none; }
+
+.creator__stage { position: relative; min-width: 0; min-height: 0; display: grid; grid-template-rows: auto minmax(0, 1fr) auto; padding: 20px 8px 16px 28px; }
+.creator__marca { width: clamp(180px, 20vw, 300px); }
+.creator__marca svg { display: block; width: 100%; height: auto; }
+.creator__lema { margin-top: 4px; font-weight: 800; font-size: 20px; }
+#creator-canvas { width: 100%; height: 100%; min-height: 0; touch-action: none; cursor: grab; }
+#creator-canvas:active { cursor: grabbing; }
+.creator__espera { grid-row: 2; grid-column: 1; align-self: center; justify-self: center; font-weight: 800; font-size: var(--letra-titulo); pointer-events: none; }
+#creator-canvas { grid-row: 2; grid-column: 1; }
+.creator__rot { display: flex; align-items: center; justify-content: center; gap: 14px; }
+.creator__hint { font-size: var(--letra-juego); }
+
+.cr-icon-btn { flex: none; width: 44px; min-width: 44px; min-height: 44px; padding: 0; }
+
+/* La hoja de la derecha: otro pedazo de cartón puesto encima. */
+.creator__side { min-width: 0; min-height: 0; margin: 14px 20px 14px 4px; padding: 16px 20px; display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: auto auto auto minmax(0, 1fr) auto; gap: 8px; }
+.creator__head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.creator__titulo { font-weight: 800; font-size: 40px; line-height: 1; }
+
+.creator__tabs { display: flex; flex-wrap: nowrap; justify-content: space-between; gap: 2px; }
+.cr-tab { flex: 0 1 auto; min-width: 44px; min-height: 44px; padding: 0; background: none; border: 0; color: inherit; font-weight: 800; font-size: 20px; line-height: 1; cursor: pointer; }
+.cr-tab span { display: inline-block; padding: 7px 6px; }
+.cr-tab .elegido::after { border-image-outset: 2px 5px; }
+
+.creator__panel { min-height: 0; overflow: hidden auto; padding: 6px 8px 8px; margin-inline: -8px; scrollbar-width: thin; scrollbar-color: var(--marcador) transparent; overscroll-behavior: contain; }
+.cr-section + .cr-section { margin-top: 18px; }
+.cr-section__title { margin-bottom: 6px; font-weight: 800; font-size: 22px; line-height: 1.1; }
+.cr-help { margin-top: 8px; font-size: var(--letra-juego); line-height: 1.35; }
+.cr-efecto { margin-top: 4px; opacity: .78; }
+
+.cr-name { display: flex; align-items: flex-end; gap: 12px; }
+.cr-input {
+  flex: 1 1 0; min-width: 0; height: 56px; padding: 0 4px; border: 0; border-radius: 0;
+  background: var(--m-regla) left bottom / 100% 6px no-repeat;
+  color: var(--marcador); font-weight: 800; font-size: 40px; line-height: 1;
+}
+.cr-input::placeholder { color: color-mix(in srgb, var(--marcador) 70%, transparent); font-weight: 400; }
+.cr-input.is-error { background: linear-gradient(var(--rojo), var(--rojo)) left bottom / 100% 5px no-repeat; }
+
+.cr-chips { display: flex; flex-wrap: wrap; gap: 6px 10px; }
+/* Una palabra suelta, escrita en el cartón. Elegida, lleva su círculo. */
+.cr-chip { min-height: 44px; padding: 6px 12px; background: none; border: 0; color: inherit; font-weight: 800; font-size: 22px; line-height: 1; cursor: pointer; }
+.cr-chip.elegido::after { border-image-outset: 2px 6px; }
+.cr-swatches { display: flex; flex-wrap: wrap; gap: 14px; padding: 6px 4px; }
+.swatch { width: 44px; height: 44px; padding: 0; border: 0; border-radius: 0; background: var(--c); box-shadow: 0 0 0 2px var(--marcador); cursor: pointer; }
+.swatch.elegido::after { border-image-outset: 7px; }
+@media (hover: hover) {
+  .cr-chip:hover, .cr-tab:hover span { text-decoration: underline; text-decoration-thickness: 2px; text-underline-offset: 4px; }
+}
+
+.creator__foot { display: grid; grid-template-columns: auto 1fr; align-items: center; gap: 8px 12px; }
+.cr-error { grid-column: 1 / -1; font-weight: 800; font-size: 20px; }
+#creator-done { justify-self: end; min-width: 170px; }
+
+/* Celular de pie: arriba el personaje, abajo la hoja. El personaje nunca queda bajo un botón. */
+@media (max-width: 899px) and (orientation: portrait) {
+  .creator { grid-template-columns: minmax(0, 1fr); grid-template-rows: clamp(150px, 31dvh, 300px) minmax(0, 1fr); gap: 0; }
+  .creator__stage { display: block; padding: 0; }
+  .creator__intro { position: absolute; left: 12px; top: 10px; z-index: 1; pointer-events: none; }
+  .creator__marca { width: 96px; }
+  .creator__lema, .creator__hint { display: none; }
+  .creator__rot { position: absolute; left: 10px; right: 10px; bottom: 6px; justify-content: space-between; pointer-events: none; }
+  .creator__rot button { pointer-events: auto; }
+  .creator__espera { position: absolute; inset: 40% 0 auto; text-align: center; }
+  .creator__side { margin: 0 8px 8px; padding: 8px 12px; gap: 4px; }
+  .creator__titulo { font-size: var(--letra-titulo); }
+  .cr-tab { font-size: 16px; }
+  .cr-tab span { padding: 6px 3px; }
+  .cr-section__title { font-size: 20px; }
+  .cr-chip { font-size: 20px; padding: 6px 8px; }
+  .cr-section + .cr-section { margin-top: 12px; }
+  #creator-done { min-width: 0; }
+  .cr-error { font-size: var(--letra-juego); padding: 4px 10px; }
+}
+@media (max-width: 340px) {
+  .creator__side { margin-inline: 4px; padding-inline: 8px; }
+  .cr-tab { font-size: 15px; }
+  .cr-tab span { padding-inline: 1px; }
+  .cr-tab .elegido::after { border-image-outset: 1px 5px; }
+}
+/* Celular acostado: el personaje a la izquierda, a toda la altura. */
+@media (max-height: 520px), (max-width: 899px) and (orientation: landscape) {
+  .creator { grid-template-columns: minmax(200px, 32%) minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); gap: 0; }
+  .creator__stage { display: block; padding: 0; }
+  /* El personaje saluda con la mano hacia la izquierda: el nombre va al otro lado, junto al panel, donde no lo tapa. */
+  .creator__intro { position: absolute; left: auto; right: 10px; top: 6px; z-index: 1; pointer-events: none; }
+  .creator__marca { width: 84px; }
+  .creator__lema, .creator__hint { display: none; }
+  .creator__rot { position: absolute; left: 8px; right: 8px; bottom: 6px; justify-content: space-between; pointer-events: none; }
+  .creator__rot button { pointer-events: auto; }
+  .creator__espera { position: absolute; inset: 40% 0 auto; text-align: center; }
+  /* Aquí cada fila cuenta: pestañas y cierre en una sola, y el título queda para el lector de pantalla. */
+  .creator__side { margin: 6px 10px 6px 0; padding: 4px 14px 6px; gap: 2px; grid-template-rows: auto minmax(0, 1fr) auto; grid-template-columns: minmax(0, 1fr) auto; }
+  .creator__side > .regla { display: none; }
+  .creator__head { display: contents; }
+  .creator__titulo { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  .creator__tabs { grid-area: 1 / 1; padding-right: 8px; }
+  #creator-close { grid-area: 1 / 2; }
+  .creator__panel, .creator__foot { grid-column: 1 / -1; }
+  .cr-tab { font-size: 18px; }
+  .cr-tab span { padding: 5px 6px; }
+  .cr-section + .cr-section { margin-top: 10px; }
+  .cr-input { height: 46px; }
+  .creator__foot { gap: 2px 10px; }
+  .cr-error { font-size: 16px; padding: 2px 10px; }
+}
+/* Pantallas bajas de escritorio: se quita lo que no se usa antes de encoger lo que se usa. */
+@media (min-width: 900px) and (max-height: 700px) and (min-height: 521px) {
+  .creator__lema { display: none; }
+  .creator__titulo { font-size: 32px; }
+  .creator__stage { padding-top: 12px; padding-bottom: 10px; }
+}
+
+/* ---------- la nota de inicio, sobre el cartón que tenga el menú ---------- */
+.developer-note { color: inherit; font-size: var(--letra-juego); line-height: 1.4; }
+.developer-note a { color: inherit; font-weight: 800; text-decoration: underline; text-decoration-thickness: 2px; text-underline-offset: 3px; }
+.developer-note__credits { list-style: none; display: grid; gap: 8px; margin: 14px 0; }
+.developer-note__credits span { display: block; }
+.developer-note__request { margin-top: 12px; padding-top: 12px; background: var(--m-regla) left top / 100% 6px no-repeat; }
+.developer-note__request:first-child { margin-top: 0; padding-top: 0; background: none; }
+.developer-note__request h3 { margin-bottom: 6px; font-weight: 800; font-size: 20px; }
+.developer-note__request a { display: inline-block; margin-top: 8px; }

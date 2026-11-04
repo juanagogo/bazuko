@@ -17,6 +17,8 @@ export class Clock {
 
   get hourFloat() { return this.hour; }
   get isNight()   { return this.hour < 6 || this.hour >= 20; }
+  /** Carros, ventanas y faroles encienden al ponerse el sol, dos horas antes de que empiece la noche del juego. */
+  get lightsOn() { return this.hour < 6 || this.hour >= 18; }
 
   serialize()   { return { day: this.day, hour: this.hour }; }
   deserialize(d){ this.day = d.day; this.hour = d.hour; }

@@ -2,37 +2,14 @@
 import {
   DISEASE_BASE_CHANCE,
   DISEASE_SORT_MULT,
-  DISEASE_HEALTH_DRAIN,
-  DISEASE_MENTAL_DRAIN,
-  DISEASE_DURATION
+  DISEASE_DIRTY_SLEEP_CHANCE,
+  STAT_THRESHOLDS
 } from '../utils/constants.js';
+import { DISEASES } from '../data/diseases.js';
 
-const DISEASES = {
-  gripe: {
-    id: 'gripe',
-    name: 'Gripe',
-    emoji: '🤧',
-    healthDrain: DISEASE_HEALTH_DRAIN,
-    mentalDrain: DISEASE_MENTAL_DRAIN * 0.5,
-    duration: DISEASE_DURATION
-  },
-  infeccion: {
-    id: 'infeccion',
-    name: 'Infección',
-    emoji: '🦠',
-    healthDrain: DISEASE_HEALTH_DRAIN * 1.8,
-    mentalDrain: DISEASE_MENTAL_DRAIN,
-    duration: DISEASE_DURATION * 1.2
-  },
-  intoxication: {
-    id: 'intoxication',
-    name: 'Intoxicación',
-    emoji: '🤢',
-    healthDrain: DISEASE_HEALTH_DRAIN * 0.8,
-    mentalDrain: DISEASE_MENTAL_DRAIN * 1.5,
-    duration: DISEASE_DURATION * 0.8
-  }
-};
+const fromSource = (fuente) => Object.values(DISEASES).filter((d) => d.fuente === fuente).map((d) => d.id);
+const TRASH = fromSource('basura');
+const TRASH_AND_CUTS = [...TRASH, ...fromSource('corte')];
 
 export class DiseaseSystem {
   constructor() {
@@ -52,18 +29,31 @@ export class DiseaseSystem {
    * Intenta infectar al jugador al recoger basura.
    * @param {boolean} sorted - si se seleccionó la basura (más riesgo)
    * @param {number} resistanceMult - mult de resistencia (talentos)
+   * @param {{ cut?: boolean }} [options] - `cut`: la bolsa traía metal (latas, chatarra) y hay riesgo de tétanos
    * @returns {object|null} enfermedad contraída o null
    */
-  tryInfect(sorted = false, resistanceMult = 1) {
+  tryInfect(sorted = false, resistanceMult = 1, { cut = false } = {}) {
     let chance = DISEASE_BASE_CHANCE;
     if (sorted) chance *= DISEASE_SORT_MULT;
     chance *= resistanceMult;
 
     if (Math.random() > chance) return null;
 
-    const ids = Object.keys(DISEASES);
-    const id = ids[Math.floor(Math.random() * ids.length)];
+    const ids = cut ? TRASH_AND_CUTS : TRASH;
+    return this._contract(ids[Math.floor(Math.random() * ids.length)]);
+  }
 
+  /**
+   * Dormir sucio (higiene por debajo del umbral de enfermedad) puede pegar sarna.
+   * @returns {object|null} enfermedad contraída o null
+   */
+  tryInfectWhileSleeping(higiene, resistanceMult = 1) {
+    if (higiene >= STAT_THRESHOLDS.higieneEnfermedad) return null;
+    if (Math.random() > DISEASE_DIRTY_SLEEP_CHANCE * resistanceMult) return null;
+    return this._contract('sarna');
+  }
+
+  _contract(id) {
     // No apilar la misma enfermedad
     if (this.active[id]) {
       this.active[id].timeLeft = DISEASES[id].duration;
@@ -77,14 +67,16 @@ export class DiseaseSystem {
     return DISEASES[id];
   }
 
-  /** Cura todas las enfermedades (antibiótico) */
+  /** Cura todas las enfermedades (al despertar en el hospital) */
   cureAll() {
     this.active = {};
   }
 
-  /** Cura una enfermedad específica */
+  /** Cura una enfermedad específica. Devuelve si el jugador la tenía. */
   cure(id) {
+    if (!this.active[id]) return false;
     delete this.active[id];
+    return true;
   }
 
   update(dt) {
@@ -147,5 +139,12 @@ export class DiseaseSystem {
   }
 
   serialize() { return { active: this.active }; }
-  deserialize(d) { this.active = d?.active ?? {}; }
+
+  deserialize(d) {
+    const active = { ...(d?.active ?? {}) };
+    // Las partidas anteriores guardaban la intoxicación con su id en inglés.
+    if (active.intoxication) active.intoxicacion ??= active.intoxication;
+    delete active.intoxication;
+    this.active = active;
+  }
 }

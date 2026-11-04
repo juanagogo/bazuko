@@ -8,6 +8,7 @@ export class CollisionSystem {
     this._vehicles = new Map();
     this._staticGrid = new SpatialGrid();
     this._staticOrder = new Map();
+    this._fallGrid = new SpatialGrid();
     this._moveCandidates = [];
     this._cameraCandidates = [];
     this._occlusionCandidates = [];
@@ -28,7 +29,27 @@ export class CollisionSystem {
 
   clear() {
     this.colliders = []; this.dynamicColliders = []; this._vehicles.clear();
-    this.invalidateStaticIndex(); this._staticGrid.clear(); this._staticOrder.clear();
+    this.invalidateStaticIndex(); this._staticGrid.clear(); this._staticOrder.clear(); this._fallGrid.clear();
+  }
+
+  /** Lo que ocupa sitio sin detener a nadie (una banca, un bolardo, una zorra). No cuenta para caminar ni para la cámara. */
+  addFallObstacle(minX, minZ, maxX, maxZ, minY, maxY) {
+    const box = new THREE.Box3(new THREE.Vector3(minX, minY, minZ), new THREE.Vector3(maxX, maxY, maxZ));
+    this._fallGrid.insert({ box }, minX, minZ, maxX, maxZ);
+  }
+
+  queryFallObstacles(minX, minZ, maxX, maxZ, result = []) { return this._fallGrid.query(minX, minZ, maxX, maxZ, result); }
+
+  /** Dónde no cabe un cuerpo que cae: lo sólido, lo que solo ocupa sitio y los carros que estén ahí. Se pregunta al caer, no por cuadro. */
+  queryFallRoom(minX, minZ, maxX, maxZ, result = []) {
+    this.queryStatic(minX, minZ, maxX, maxZ, result);
+    const extra = this.queryFallObstacles(minX, minZ, maxX, maxZ, this._fallCandidates ??= []);
+    for (let i = 0; i < extra.length; i++) result.push(extra[i]);
+    for (const entry of this.dynamicColliders) {
+      const { min, max } = entry.box;
+      if (max.x > minX && min.x < maxX && max.z > minZ && min.z < maxZ) result.push(entry);
+    }
+    return result;
   }
 
   invalidateStaticIndex() { this._indexedColliders = null; }
@@ -156,6 +177,9 @@ export class CollisionSystem {
       } else if (start > min + epsilon && start < max - epsilon) {
         // Una posición ya solapada puede salir por el lado más cercano,
         // pero nunca se corrige saltando al otro extremo de una manzana.
+        // Entre cajas por capas muy juntas (bancas contra muro) dos cajas pueden prohibirse
+        // las salidas: cada una solo limita el eje por donde se sale de ella.
+        if (layered && Math.min(pos[other] - box.min[other] + radius, box.max[other] + radius - pos[other]) < Math.min(start - min, max - start)) continue;
         if ((delta > 0 && start < (min + max) / 2) ||
             (delta < 0 && start > (min + max) / 2)) end = start;
       }

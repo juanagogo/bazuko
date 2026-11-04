@@ -1,0 +1,234 @@
+/* Momentos: lo que pasa en grande. La plana y el recorte son la imprenta; todo lo demás, la mano.
+   El amarillo vive solo aquí, en la primera plana. */
+@font-face { font-family: 'Titular'; src: url('../imprenta/titular.woff') format('woff'); font-display: block; }
+@font-face { font-family: 'Titular Tira'; src: url('../imprenta/tira.woff') format('woff'); font-display: block; }
+
+/* ---------- un momento usa #menu, sin lo que traiga la ventana genérica ---------- */
+#menu[data-momento] {
+  inset: 0; padding: 0; overflow: hidden;
+  place-items: stretch;
+}
+#menu[data-momento] .sign--menu {
+  width: 100%; max-width: none; height: 100%; max-height: none; margin: 0; padding: 0;
+  background: none; border: 0; border-image: none; border-radius: 0; box-shadow: none; clip-path: none; transform: none;
+  color: var(--marcador); overflow: hidden;
+}
+#menu[data-momento] .menu__icon, #menu[data-momento] .menu__close, #menu[data-momento] .menu__sub { display: none; }
+#menu[data-momento] .menu__head, #menu[data-momento] .menu__foot { margin: 0; padding: 0; border: 0; background: none; position: static; }
+#menu[data-momento] .menu__body { margin: 0; padding: 0; overflow: visible; max-height: none; background: none; }
+#menu[data-momento] p { margin: 0; }
+/* Un momento no se comparte con avisos: lo que tenga que decir, lo dice él. */
+body:has(#menu[data-momento]:not([hidden])) > .loot-toast { display: none; }
+
+/* ---------- la primera plana ---------- */
+#menu[data-momento="plana"] { --plana-papel: #FFE100; --plana-tinta: #14110C; background: var(--plana-papel); }
+#menu[data-momento="plana"] .sign--menu {
+  display: grid;
+  grid-template: "cuerpo cuerpo cuerpo" minmax(0, 1fr) "titulo cuenta boton" auto / auto minmax(0, 1fr) auto;
+  column-gap: 22px;
+  animation: plana-sale .22s ease-out;
+}
+/* Toda la tira de abajo es un solo pedazo de cartón, escrito a mano. */
+#menu[data-momento="plana"] .sign--menu::before {
+  content: ''; grid-area: 2 / 1 / 3 / -1;
+  background: var(--flauta), var(--cara);
+  border-top: 3px solid var(--plana-tinta);
+}
+#menu[data-momento="plana"] .menu__head { grid-area: titulo; align-self: center; padding-left: calc(20px + var(--safe-l, 0px)); }
+#menu[data-momento="plana"] .menu__title { margin: 0; font-size: 18px; font-weight: 400; line-height: 1.15; letter-spacing: 0; color: var(--marcador); text-transform: none; }
+#menu[data-momento="plana"] .menu__body { display: contents; }
+#menu[data-momento="plana"] .menu__foot { display: contents; }
+#menu[data-momento="plana"] .menu__foot .cinta { grid-area: boton; align-self: center; margin: 12px calc(22px + var(--safe-r, 0px)) 12px 8px; font-size: 26px; min-height: 56px; padding: 8px 26px; }
+
+.plana { grid-area: cuerpo; min-width: 0; min-height: 0; overflow: hidden; display: flex; flex-direction: column; color: var(--plana-tinta); }
+.plana__titular { flex: none; padding: 8px calc(18px + var(--safe-r, 0px)) 2px calc(18px + var(--safe-l, 0px)); font: 400 100px/1 'Titular', var(--letra); white-space: nowrap; overflow: hidden; }
+.plana__linea { display: table; line-height: .92; }
+/* El aire es para la tilde: la caja recorta lo que se salga, y la Ó de COGIÓ se sale. */
+.plana__linea:first-child { padding-top: .16em; }
+.plana__foto { position: relative; flex: 1; min-height: 0; overflow: hidden; }
+.plana__tinta, .plana__trazo { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+.plana__redondel { fill: none; stroke: var(--rojo); stroke-linecap: round; stroke-linejoin: round; }
+.plana__guia { stroke: var(--plana-tinta); stroke-width: 3; }
+.plana__pie {
+  position: absolute; left: 12px; top: 12px; max-width: min(46%, 360px); padding: 5px 11px 6px;
+  background: var(--plana-tinta); color: var(--plana-papel);
+  font: 400 clamp(17px, 2.1vw, 28px)/1.05 'Titular Tira', var(--letra); overflow-wrap: anywhere;
+}
+.plana__cuenta { grid-area: cuenta; align-self: center; padding: 10px 0; min-width: 0; color: var(--marcador); }
+.plana__perdido { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 10px; font-weight: 800; font-size: 20px; line-height: 1.15; }
+.plana__perdido .tachado { white-space: nowrap; }
+.plana__suelta { margin-top: 3px !important; font-weight: 400; font-size: 17px; line-height: 1.15; }
+@keyframes plana-sale { from { opacity: 0; } }
+
+/* Celular acostado: titular a la izquierda, foto a la derecha. */
+@media (max-width: 899px) and (orientation: landscape) {
+  .plana { display: grid; grid-template: "titular foto" minmax(0, 1fr) / minmax(0, 1fr) minmax(0, 42%); }
+  .plana__titular { grid-area: titular; padding-block: 6px 0; }
+  .plana__foto { grid-area: foto; border-left: 2px solid var(--plana-tinta); }
+  #menu[data-momento="plana"] .sign--menu {
+    grid-template: "cuerpo cuerpo" minmax(0, 1fr) "cuenta boton" auto / minmax(0, 1fr) auto; column-gap: 10px;
+  }
+  #menu[data-momento="plana"] .menu__head { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+  .plana__cuenta { padding: 4px 0 4px calc(10px + var(--safe-l, 0px)); }
+  .plana__perdido { font-size: 16px; gap: 0 8px; }
+  .plana__suelta { font-size: 16px; }
+  #menu[data-momento="plana"] .menu__foot .cinta { margin: 5px calc(10px + var(--safe-r, 0px)) 7px 6px; font-size: 22px; min-height: 46px; padding: 4px 16px; }
+}
+/* Celular de pie: todo en una columna, con el pulgar abajo. */
+@media (max-width: 899px) and (orientation: portrait) {
+  #menu[data-momento="plana"] .sign--menu {
+    grid-template: "cuerpo" minmax(0, 1fr) "titulo" auto "cuenta" auto "boton" auto / minmax(0, 1fr); column-gap: 0;
+  }
+  #menu[data-momento="plana"] .sign--menu::before { grid-area: 2 / 1 / 5 / -1; }
+  #menu[data-momento="plana"] .menu__head { padding: 8px 12px 0; }
+  #menu[data-momento="plana"] .menu__title { font-size: 16px; }
+  .plana__titular { padding: 8px 8px 2px; }
+  .plana__cuenta { padding: 3px 12px 6px; }
+  .plana__perdido { font-size: 18px; }
+  .plana__suelta { font-size: 16px; }
+  #menu[data-momento="plana"] .menu__foot .cinta { margin: 0 calc(16px + var(--safe-r, 0px)) calc(10px + var(--safe-b, 0px)) calc(14px + var(--safe-l, 0px)); justify-self: stretch; }
+}
+
+/* ---------- la muerte callada: cartón quieto, sin grito y sin cinta ---------- */
+#menu[data-momento="muerte"] { background: rgba(20, 17, 12, .72); display: grid; place-items: center; padding: 16px; }
+#menu[data-momento="muerte"] .sign--menu {
+  --corte: var(--corte-b);
+  display: block; width: min(680px, 100%); height: auto; max-height: 100%; padding: 30px 34px 26px; overflow: auto;
+  background: var(--flauta), var(--cara);
+  border: 1px solid transparent; border-image: var(--corte) 12 / 12px / 3px 6px 6px 3px stretch; border-radius: 2px;
+}
+#menu[data-momento="muerte"] .menu__title { margin: 0 0 14px; font-weight: 800; font-size: clamp(32px, 5vw, 52px); line-height: 1.02; letter-spacing: 0; text-transform: none; color: var(--marcador); }
+.momento { display: grid; gap: 12px; font-size: 18px; line-height: 1.22; }
+.momento__perdido { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 10px; font-weight: 800; }
+.momento__perdido .tachado { white-space: nowrap; }
+.momento__consejo { font-weight: 800; }
+.momento__boton {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-height: 52px; padding: 8px 22px 10px;
+  background: var(--marcador); color: var(--cara);
+  border: 0; border-radius: 0; box-shadow: none;
+  font: 800 22px/1 var(--letra); cursor: pointer;
+}
+#menu[data-momento="muerte"] .menu__foot { display: flex; justify-content: flex-end; margin-top: 22px; }
+
+/* ---------- limpieza social: cartón vacío y un recorte derecho. Nada más. ---------- */
+#menu[data-momento="recorte"] { background: var(--flauta), var(--cara); }
+#menu[data-momento="recorte"] .sign--menu {
+  display: grid; grid-template: "cuerpo cuerpo" minmax(0, 1fr) "titulo titulo" auto "pie pie" auto / 1fr auto;
+}
+#menu[data-momento="recorte"] .menu__body { grid-area: cuerpo; display: grid; }
+#menu[data-momento="recorte"] .menu__head { grid-area: titulo; padding: 0 calc(24px + var(--safe-r, 0px)) 2px calc(24px + var(--safe-l, 0px)); }
+#menu[data-momento="recorte"] .menu__title { margin: 0; font-weight: 400; font-size: 18px; line-height: 1.2; letter-spacing: 0; text-transform: none; color: var(--marcador); }
+#menu[data-momento="recorte"] .menu__foot {
+  grid-area: pie; display: flex; align-items: center; justify-content: space-between; gap: 18px;
+  padding: 0 calc(24px + var(--safe-r, 0px)) calc(20px + var(--safe-b, 0px)) calc(24px + var(--safe-l, 0px));
+}
+.recorte-sitio { display: grid; place-items: center; padding: 20px; min-height: 0; }
+.recorte {
+  width: min(340px, 100%); padding: 13px 15px 14px;
+  background: #E4E1D6; color: #1A1916;
+  box-shadow: 1px 2px 0 var(--canto);
+  border-block: 2px solid #1A1916;
+  background-clip: padding-box;
+  font: 400 21px/1.2 'Titular Tira', var(--letra);
+  hyphens: manual;
+}
+#menu[data-momento="recorte"] .momento__consecuencias { font-size: 16px; line-height: 1.2; }
+@media (max-width: 899px) {
+  #menu[data-momento="recorte"] .menu__foot { padding-bottom: calc(12px + var(--safe-b, 0px)); }
+  .recorte-sitio { padding: 10px; }
+}
+@media (max-width: 899px) and (orientation: portrait) {
+  #menu[data-momento="recorte"] .menu__foot { flex-direction: column; align-items: stretch; gap: 10px; }
+  #menu[data-momento="muerte"] { padding: 10px; }
+  #menu[data-momento="muerte"] .sign--menu { padding: 20px 20px 18px; }
+  #menu[data-momento="muerte"] .menu__foot { display: block; }
+  #menu[data-momento="muerte"] .momento__boton { width: 100%; }
+}
+@media (max-width: 899px) and (orientation: landscape) {
+  #menu[data-momento="muerte"] { padding: 6px; }
+  #menu[data-momento="muerte"] .sign--menu { padding: 12px 20px; width: min(620px, 100%); }
+  #menu[data-momento="muerte"] .menu__title { margin-bottom: 6px; font-size: 30px; }
+  #menu[data-momento="muerte"] .momento { gap: 4px; font-size: 16px; }
+  #menu[data-momento="muerte"] .menu__foot { margin-top: 8px; }
+  #menu[data-momento="muerte"] .momento__boton { min-height: 44px; font-size: 19px; }
+}
+
+/* ---------- te cascaron: baja a media altura, sin botón y sin pausar ---------- */
+#cascado {
+  position: fixed; z-index: 120; left: 50%; top: 17vh; translate: -50% 0;
+  display: flex; flex-direction: column; align-items: center; gap: .1em;
+  width: max-content; max-width: 100vw;
+  padding: 14px clamp(18px, 3vw, 44px);
+  pointer-events: none;
+  animation: cascado-baja .26s cubic-bezier(.2, .9, .3, 1.04);
+}
+#cascado[hidden] { display: none; }
+#cascado strong { font-weight: 800; font-size: clamp(50px, 8.6vw, 124px); line-height: .95; white-space: nowrap; }
+#cascado.cascado--carro strong { white-space: normal; font-size: clamp(44px, 6.6vw, 96px); text-align: center; }
+#cascado span { font-weight: 400; font-size: clamp(22px, 2.8vw, 40px); line-height: 1.1; }
+@keyframes cascado-baja { from { transform: translateY(-40vh); } to { transform: none; } }
+/* Lo que sobra mientras dura: lo más urgente y la misión no le compiten. */
+body:has(#cascado:not([hidden])) :is(#retazo, #mision, #interaction-prompt) { visibility: hidden; }
+body:has(#menu:not([hidden])) #cascado { display: none; }
+@media (max-width: 899px) {
+  #cascado { top: calc(var(--bajo-el-hud, 17vh) + 6px); }
+}
+@media (max-width: 899px) and (orientation: landscape) {
+  #cascado { left: calc(6px + var(--safe-l, 0px)); translate: none; padding-block: 4px 6px; }
+  #cascado strong { font-size: 52px; }
+  #cascado span { font-size: 20px; }
+}
+
+/* ---------- cerrado: dormir ---------- */
+#cerrado { position: fixed; inset: 0; z-index: 130; display: grid; place-items: center; padding: 16px; background: rgba(20, 17, 12, .62); pointer-events: none; }
+#cerrado[hidden] { display: none; }
+#cerrado .carton { display: grid; justify-items: center; gap: 6px; padding: 18px clamp(24px, 4vw, 54px) 22px; rotate: -1.2deg; }
+#cerrado strong { font-weight: 800; font-size: clamp(54px, 9vw, 120px); line-height: .95; }
+#cerrado span { font-weight: 800; font-size: clamp(22px, 3vw, 40px); line-height: 1.05; white-space: nowrap; }
+
+/* ---------- malilla y psicosis: voces a marcador rojo sobre la escena y el HUD algo corrido ---------- */
+#psychosis-overlay {
+  position: fixed; inset: 0; z-index: 12;
+  pointer-events: none; overflow: hidden;
+  opacity: 0; transition: opacity .6s ease;
+}
+#psychosis-overlay.active { opacity: 1; }
+.psychosis-vignette {
+  position: absolute; inset: 0;
+  background: radial-gradient(circle at center, transparent 42%, rgba(20, 17, 12, .38) 76%, rgba(20, 17, 12, .78) 100%);
+}
+.hallucination-word {
+  position: absolute; width: max-content; max-width: 70vw;
+  font-weight: 800; font-size: clamp(30px, 3.6vw, 52px); line-height: 1;
+  color: var(--rojo);
+  -webkit-text-stroke: 5px var(--cinta); paint-order: stroke fill;
+  rotate: -1.5deg;
+  pointer-events: none;
+  animation: voz-sale 3.4s linear forwards;
+}
+@keyframes voz-sale {
+  0% { opacity: 0; }
+  10%, 80% { opacity: 1; }
+  100% { opacity: 0; }
+}
+body.voces #topbar { translate: -5px 4px; rotate: .5deg; }
+body.voces #hud-dock { translate: 4px -3px; rotate: -.35deg; }
+
+/* ---------- los lentes: frío y bordes ---------- */
+.cinematic-overlay {
+  position: fixed; inset: 0; z-index: 11;
+  pointer-events: none; overflow: hidden;
+}
+/* La opacidad la lleva CinematicOverlays. */
+.cold-lens {
+  position: absolute; inset: 0; display: none; opacity: 0;
+  background: radial-gradient(ellipse at center, transparent 55%, rgba(150, 190, 225, .16) 80%, rgba(195, 225, 250, .42) 100%);
+}
+/* Con display, no visibility: un «visible» aquí le ganaría a la capa oculta del modo foto. */
+.cold-lens.active { display: block; }
+.cinematic-vignette {
+  position: absolute; inset: 0;
+  background: radial-gradient(circle at 50% 50%, transparent 65%, rgba(6, 10, 16, .38) 100%);
+}
+body.night-mode .cinematic-vignette { background: radial-gradient(circle at 50% 50%, transparent 48%, rgba(4, 7, 12, .52) 100%); }

@@ -24,7 +24,7 @@ export function cloneFinishedShelter(shelter) {
 async function takePicture(game) {
   await game.cambuche.preloadModel();
   const scene = new THREE.Scene();
-  scene.background = new THREE.Color('#182832');
+  scene.background = new THREE.Color('#14110C');
   scene.environment = game.sceneMgr.scene.environment;
   scene.environmentIntensity = .7;
   const model = cloneFinishedShelter(game.cambuche);
@@ -73,11 +73,11 @@ export function shelterPreview(game) {
   const image = el('img', { alt: 'Vista previa del cambuche terminado, con su lona azul y todas las mejoras', width: 768, height: 432, hidden: true });
   const status = el('p', { class: 'shelter-preview__status', text: 'Preparando vista previa…', role: 'status' });
   const figure = el('figure', { class: 'shelter-preview' }, image, status,
-    el('figcaption', { text: 'Así quedará tu cambuche · Vista del refugio terminado' }));
+    el('figcaption', { text: 'Así va a quedar mi cambuche' }));
   if (!pictures.has(game)) {
     pictures.set(game, takePicture(game).catch(error => { pictures.delete(game); throw error; }));
   }
   pictures.get(game).then(src => { image.src = src; image.hidden = false; status.remove(); })
-    .catch(() => { status.textContent = 'No se pudo mostrar la vista previa. Puedes seguir construyendo.'; });
+    .catch(() => { status.textContent = 'No se pudo mostrar la vista previa. Se puede seguir armando.'; });
   return figure;
 }

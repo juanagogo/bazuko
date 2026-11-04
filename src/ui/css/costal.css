@@ -1,0 +1,192 @@
+/* El costal: una rejilla a marcador con una celda por objeto y el detalle al lado. Una pieza suelta sobre el mundo. */
+
+/* El objeto: lo comparten el costal, la mesa y el acceso rápido. */
+:where(.item-art) {
+  display: inline-block; flex: none; width: 32px; height: 32px;
+  background-color: currentColor;
+  -webkit-mask: var(--art) center / contain no-repeat;
+  mask: var(--art) center / contain no-repeat;
+}
+:where(.item-art--dibujo) { --picto: 28px; background: none; -webkit-mask: none; mask: none; text-align: center; }
+:where(.item-slot) {
+  position: relative; min-width: 0;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
+  background: none; border: 0; color: var(--marcador); cursor: pointer;
+}
+
+#inv-overlay {
+  display: none; position: fixed; inset: 0; z-index: 200;
+  padding: calc(16px + var(--safe-t)) calc(16px + var(--safe-r)) calc(16px + var(--safe-b)) calc(16px + var(--safe-l));
+  place-items: center;
+  background: rgba(20, 17, 12, .58);
+  color: var(--marcador);
+}
+#inv-overlay.open { display: grid; }
+.inv-window {
+  display: grid; grid-template-rows: auto minmax(0, 1fr) auto; gap: 6px;
+  width: min(1190px, 100%); height: min(760px, 100%); min-height: 0; padding: 14px 24px 12px;
+}
+.inv-head { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 22px; }
+.inv-head h2 { font-weight: 800; font-size: 50px; line-height: 1; white-space: nowrap; }
+.inv-load { display: flex; align-items: center; gap: 10px; font-weight: 800; font-size: var(--letra-cifra); white-space: nowrap; }
+.inv-load-bar { display: block; width: 120px; height: 20px; box-shadow: inset 0 0 0 1.5px var(--marcador); }
+.inv-load-bar i { display: block; height: 100%; }
+.inv-load-flag:empty { display: none; }
+/* Lleno no se dice solo con color: va la palabra, en placa. */
+.inv-load-flag { padding: 2px 7px; font-size: 16px; background: var(--marcador); color: var(--cinta); }
+.inv-load.full .inv-load-flag { background: var(--rojo); }
+
+.inv-body { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 8px 26px; min-height: 0; }
+.inv-side { display: flex; flex-direction: column; gap: 6px; min-width: 0; min-height: 0; }
+
+/* La rejilla la pone cada celda, con su regla abajo y a la derecha: sale igual con 20 objetos que con 40. */
+.inv-grid {
+  flex: 1 1 0; min-height: 0; overflow: hidden auto; align-content: start; padding: 4px;
+  display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); grid-auto-rows: minmax(112px, 25%);
+  scrollbar-width: thin; scrollbar-color: var(--marcador) transparent;
+}
+.inv-slot {
+  padding: 18px 5px 8px; text-align: center;
+  background:
+    var(--m-regla) center bottom / 100% 5px no-repeat,
+    var(--m-regla-v) right center / 5px 100% no-repeat;
+}
+.inv-slot .inv-slot-art { width: 56px; height: 56px; }
+.inv-slot .item-art--dibujo { width: auto; height: auto; font-size: 54px; line-height: 1; }
+.inv-slot-nom { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; max-width: 100%; font-size: 16px; line-height: 1.05; }
+.inv-slot-qty { position: absolute; right: 10px; top: 5px; font-weight: 800; font-size: 20px; line-height: 1; }
+.inv-slot-key { position: absolute; left: 7px; top: 6px; padding: 2px 5px 1px; background: var(--marcador); color: var(--cinta); font-weight: 800; font-size: 14px; line-height: 1; }
+.inv-slot-rare { position: absolute; right: 9px; top: 28px; font-size: 18px; line-height: 1; }
+.inv-slot.selected::after {
+  content: ''; position: absolute; inset: 11px 10px 10px 9px; pointer-events: none;
+  border: 1px solid transparent;
+  border-image: var(--m-circulo) 28 44 / 28px 44px / 0 stretch;
+}
+body.mojado .inv-slot.selected::after { border-image-source: var(--m-circulo-tinta); }
+@media (hover: hover) { .inv-slot:not(.is-empty):hover .inv-slot-nom { text-decoration: underline; text-underline-offset: 3px; } }
+.inv-grid-foot { flex: none; display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 42px; font-size: 16px; }
+.inv-ghost { min-height: 36px; padding: 4px 11px; font-size: 16px; }
+.inv-ghost kbd { font-size: 14px; }
+.inv-ghost[hidden], .inv-use[hidden] { display: none; }
+
+/* El detalle */
+.inv-bench { display: flex; flex-direction: column; align-items: flex-start; gap: 5px; min-width: 0; min-height: 0; overflow: auto; padding: 0 3px 3px 22px; background: var(--m-regla-v) left center / 5px 100% no-repeat; scrollbar-width: thin; scrollbar-color: var(--marcador) transparent; }
+.inv-pedestal { position: relative; display: flex; align-items: flex-end; gap: 10px; min-height: 92px; }
+.inv-ped-art { display: block; }
+.inv-ped-art .item-art { display: block; width: 88px; height: 88px; }
+.inv-ped-art .item-art--dibujo { width: auto; height: auto; font-size: 84px; }
+.inv-ped-qty { font-size: 28px; line-height: 1; }
+.inv-name { font-weight: 800; font-size: 34px; line-height: 1; }
+.inv-rarity:empty, .inv-effect:empty, .inv-note:empty, .inv-meta:empty, .inv-reason:empty { display: none; }
+.inv-rarity { font-size: 16px; }
+.inv-effect { font-weight: 800; font-size: 20px; line-height: 1.08; }
+.inv-note, .inv-meta, .inv-reason { font-size: 16px; line-height: 1.16; }
+.inv-use { margin-top: 6px; flex: none; }
+.inv-use-art { display: none; }
+.inv-use kbd { font-size: 14px; }
+.inv-secondary { display: flex; flex-wrap: wrap; gap: 8px 10px; margin: 4px 0 2px 2px; }
+.inv-hot { margin-top: auto; padding-top: 8px; width: 100%; }
+.inv-hot-label { font-weight: 800; font-size: 17px; }
+.inv-hot-keys { display: flex; gap: 2px; margin-top: 3px; }
+.inv-hot-key { position: relative; width: 48px; min-height: 44px; background: var(--m-regla-v) right center / 5px 80% no-repeat; border: 0; color: var(--marcador); font-weight: 800; font-size: var(--letra-cifra); }
+.inv-hot-key:last-child { background: none; }
+/* Lo que ya está asignado a esta tecla va en círculo; otra cosa en esa tecla, con raya abajo. */
+.inv-hot-key[aria-pressed="true"]::after { content: ''; position: absolute; inset: 3px 7px; border: 1px solid transparent; border-image: var(--m-circulo) 28 44 / 16px 22px / 0 stretch; }
+body.mojado .inv-hot-key[aria-pressed="true"]::after { border-image-source: var(--m-circulo-tinta); }
+.inv-hot-key.taken { text-decoration: underline; text-underline-offset: 3px; }
+.inv-hot-key:disabled { color: color-mix(in srgb, var(--marcador) 60%, transparent); cursor: not-allowed; }
+.inv-hint { font-size: 14px; line-height: 1.2; }
+.inv-tip { display: none; position: fixed; z-index: 210; max-width: 260px; pointer-events: none; padding: 7px 11px; font-size: 15px; line-height: 1.16; }
+.inv-tip b { font-weight: 800; font-size: 17px; }
+body.tactil .inv-tip, body.tactil .inv-hint { display: none !important; }
+
+/* Una respuesta breve al usar o tirar; sin color, y se queda quieta con movimiento reducido. */
+.inv-bench.just-used .inv-ped-art { animation: inv-usado 260ms ease-out; }
+.inv-bench.just-dropped .inv-ped-art { animation: inv-tirado 260ms ease-in; }
+@keyframes inv-usado { 40% { transform: scale(1.1); } }
+@keyframes inv-tirado { 60% { transform: translateY(9px); } }
+
+/* ---------- medianas ---------- */
+@media (max-width: 1080px) {
+  .inv-head h2 { font-size: 38px; }
+  .inv-body { grid-template-columns: minmax(0, 1fr) 280px; gap: 6px 16px; }
+  .inv-grid { grid-auto-rows: minmax(100px, 25%); }
+  .inv-slot .inv-slot-art { width: 44px; height: 44px; }
+  .inv-slot .item-art--dibujo { font-size: 42px; }
+  .inv-bench { padding-left: 14px; }
+}
+
+/* ---------- celular de pie: pantalla entera, rejilla arriba y detalle abajo ---------- */
+@media (max-width: 759px) and (orientation: portrait), (max-width: 759px) and (min-height: 521px) {
+  #inv-overlay { padding: 0; }
+  .inv-window {
+    overflow: hidden; width: 100%; height: 100%; padding: calc(8px + var(--safe-t)) calc(12px + var(--safe-r)) calc(8px + var(--safe-b)) calc(12px + var(--safe-l));
+    border-image: none; border-color: transparent; border-radius: 0;
+  }
+  .inv-head { gap: 2px 12px; }
+  .inv-head h2 { font-size: 30px; }
+  /* Con la palabra de «casi lleno» la fila no cabe a 320: cede la barra, no la ventana. */
+  .inv-load { order: 3; flex-basis: 100%; min-width: 0; font-size: 18px; }
+  .inv-load-bar { flex: 1; width: auto; min-width: 0; }
+  .inv-body { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(150px, 1fr) minmax(0, 1.05fr); }
+  .inv-grid { padding: 3px; grid-auto-rows: minmax(60px, 18vw); }
+  /* Con la celda a 60 px el nombre no cabe: está en el detalle, y el lector lo lee de la casilla. */
+  .inv-slot { padding: 4px 2px; }
+  .inv-slot-nom { display: none; }
+  .inv-slot .inv-slot-art { width: 36px; height: 36px; }
+  .inv-slot .item-art--dibujo { font-size: 34px; }
+  .inv-slot-qty { right: 6px; top: 2px; font-size: 16px; }
+  .inv-slot-key { left: 2px; top: 2px; }
+  .inv-slot-rare { right: 6px; top: auto; bottom: 6px; font-size: 15px; }
+  .inv-slot.selected::after { inset: 3px; border-image-width: 22px 30px; }
+  .inv-grid-foot { min-height: 44px; }
+  .inv-ghost { min-height: 44px; }
+  .inv-bench { padding: 0; background: none; display: grid; grid-template-columns: auto minmax(0, 1fr); column-gap: 10px; row-gap: 2px; align-content: start; align-items: start; }
+  .inv-bench > * { grid-column: 1 / -1; }
+  .inv-pedestal { grid-column: 1; grid-row: 1 / span 5; min-height: 0; }
+  .inv-ped-art .item-art { width: 56px; height: 56px; }
+  .inv-ped-art .item-art--dibujo { font-size: 52px; }
+  .inv-ped-qty { font-size: 20px; }
+  .inv-name { grid-column: 2; font-size: 24px; }
+  .inv-rarity, .inv-effect, .inv-note, .inv-meta { grid-column: 2; }
+  .inv-effect { font-size: 18px; }
+  .inv-hot-keys { justify-content: space-between; }
+  .inv-hot-key { flex: 1; }
+  .inv-hint { display: none; }
+}
+
+/* ---------- celular acostado: rejilla a la izquierda, detalle a la derecha, cada uno con su desplazamiento ---------- */
+@media (max-height: 520px) and (orientation: landscape) {
+  #inv-overlay { padding: 0; }
+  .inv-window {
+    width: 100%; height: 100%; gap: 2px; padding: calc(4px + var(--safe-t)) calc(10px + var(--safe-r)) calc(4px + var(--safe-b)) calc(10px + var(--safe-l));
+    border-image: none; border-color: transparent; border-radius: 0;
+  }
+  .inv-head { flex-wrap: nowrap; gap: 14px; }
+  .inv-head h2 { font-size: 26px; }
+  .inv-load { font-size: 17px; }
+  .inv-load-bar { flex: 0 1 80px; width: 80px; min-width: 0; height: 16px; }
+  .inv-body { grid-template-columns: minmax(0, 1fr) minmax(0, min(44%, 300px)); gap: 12px; }
+  .inv-grid { padding: 3px; grid-auto-rows: 72px; }
+  .inv-slot { padding: 3px; }
+  .inv-slot-nom { display: none; }
+  .inv-slot .inv-slot-art { width: 38px; height: 38px; }
+  .inv-slot .item-art--dibujo { font-size: 36px; }
+  .inv-slot-qty { right: 8px; top: 3px; font-size: 16px; }
+  .inv-slot.selected::after { inset: 3px 6px; border-image-width: 24px 34px; }
+  .inv-grid-foot { min-height: 40px; }
+  .inv-ghost { min-height: 40px; }
+  .inv-bench { padding-left: 12px; }
+  .inv-pedestal { min-height: 0; }
+  .inv-ped-art .item-art { width: 44px; height: 44px; }
+  .inv-ped-art .item-art--dibujo { font-size: 42px; }
+  .inv-name { font-size: 22px; }
+  .inv-effect { font-size: 17px; }
+  .inv-note, .inv-meta { font-size: 15px; }
+  .inv-use { min-height: 44px; font-size: 18px; }
+  .inv-hint { display: none; }
+}
+@media (max-height: 339px) and (orientation: landscape) {
+  .inv-pedestal { display: none; }
+  .inv-grid { grid-auto-rows: 60px; }
+}

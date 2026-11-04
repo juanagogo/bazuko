@@ -8,6 +8,7 @@ import { CameraRig } from '../src/core/Camera.js';
 import { CompanionNavigation } from '../src/systems/CompanionNavigation.js';
 import { CollisionSystem } from '../src/systems/CollisionSystem.js';
 import { Dog } from '../src/entities/Dog.js';
+import { Player } from '../src/entities/Player.js';
 import { InventorySystem } from '../src/systems/InventorySystem.js';
 import { InteractionSystem } from '../src/systems/InteractionSystem.js';
 import { StatsSystem } from '../src/systems/StatsSystem.js';
@@ -23,16 +24,18 @@ beforeEach(() => {
 
 test('los perfiles respetan su límite de resolución incluso después de la adaptación automática', () => {
   const renderer = Object.assign(Object.create(Renderer.prototype), {
-    resolution: new AdaptiveResolution(2),
-    instance: { shadowMap: {}, setPixelRatio(value) { this.ratio = value; }, getPixelRatio() { return this.ratio; } }
+    resolution: new AdaptiveResolution(2), culling: { apply() {}, restore() {} }, silhouette: { render() {} },
+    instance: { shadowMap: {}, info: { reset() {} }, render() {}, setPixelRatio(value) { this.ratio = value; } }
   });
+  // El lienzo solo cambia de resolución al dibujar el cuadro siguiente.
+  const drawnRatio = () => { renderer.render(new THREE.Scene(), new THREE.PerspectiveCamera()); return renderer.instance.ratio; };
   for (const [quality, cap] of [['baja', 1], ['media', 1.25], ['alta', 1.5]]) {
     renderer.setQuality(quality);
-    assert.equal(renderer.instance.ratio, cap);
+    assert.equal(drawnRatio(), cap);
     for (let i = 0; i < 300; i++) renderer.adaptResolution(40);
-    assert.ok(renderer.instance.ratio < cap);
+    assert.ok(drawnRatio() < cap);
     for (let i = 0; i < 4000; i++) renderer.adaptResolution(10);
-    assert.ok(renderer.instance.ratio <= cap);
+    assert.ok(drawnRatio() <= cap);
     assert.equal(renderer.instance.shadowMap.enabled, quality !== 'baja');
     assert.equal(localStorage.getItem('bazuko.graphics_quality'), quality);
   }
@@ -171,4 +174,123 @@ test('dormir con El Chato suma quince de ánimo y lo despierta al terminar la si
     assert.equal(accompanied.dog.sleeping, false); assert.equal(accompanied.isSleeping, false);
     alone.dog.destroy(); accompanied.dog.destroy();
   } finally { mock.timers.reset(); }
+});
+
+test('dormir acuesta el cuerpo con la simulación quieta, le quita lo que tenía en las manos y al despertar queda de pie', () => {
+  mock.timers.enable({ apis: ['setTimeout'] });
+  try {
+    const scene = new THREE.Scene();
+    const input = { axis: { x: 0, z: 0 }, isRunning: false, consumePress: () => false, isDown: () => false };
+    const stats = new StatsSystem();
+    const player = new Player(scene, input, stats, null);
+    const game = Object.assign(Object.create(Game.prototype), {
+      built: { base: true, paredes: true }, clock: { hour: 12, day: 1, isNight: false }, stats,
+      player, dog: null, _save() {}, inventory: new InventorySystem()
+    });
+    const tick = frames => { for (let i = 0; i < frames; i++) player.update(1 / 60, null, null, () => 0, []); };
+    const height = () => { scene.updateMatrixWorld(true); return new THREE.Box3().setFromObject(player.character.group, true).max.y; };
+    player.equipWeapon('cuchillo');
+    tick(30);
+    assert.equal(player.startSmoking('cigarrillo'), true);
+    tick(1);
+    const standing = height(), weapon = player.character.group.getObjectByName('weapon-cuchillo');
+    assert.equal(weapon.visible, true);
+
+    game.sleep();
+    assert.equal(player.smoking, null, 'no se duerme fumando');
+    const before = player.position.clone();
+    for (let i = 0; i < 60; i++) player.updateSleepPose(1 / 60);
+    assert.ok(height() < standing * .6, `acostado ${height()} de ${standing}`);
+    assert.equal(weapon.visible, false, 'el arma no queda en la mano de quien duerme');
+    assert.ok(player.position.equals(before), 'la pose no mueve al jugador');
+    assert.equal(player.action, 'dormir');
+
+    mock.timers.tick(1200);
+    assert.equal(game.isSleeping, false);
+    assert.equal(player.action, null, 'despierto no sigue acostado');
+    tick(90);
+    assert.ok(height() > standing * .95, `de pie ${height()} de ${standing}`);
+    assert.equal(weapon.visible, true);
+    player.updateSleepPose(1 / 60);
+    assert.equal(player.actionProgress, 0, 'despierto, la pose ya no hace nada');
+  } finally { mock.timers.reset(); }
+});
+
+test('quien se acuesta corriendo se endereza y al despertar no resbala', () => {
+  mock.timers.enable({ apis: ['setTimeout'] });
+  try {
+    const scene = new THREE.Scene();
+    const input = { axis: { x: 0, z: -1 }, isRunning: true, consumePress: () => false, isDown: () => false };
+    const stats = new StatsSystem();
+    const player = new Player(scene, input, stats, null);
+    const game = Object.assign(Object.create(Game.prototype), {
+      built: { base: true, paredes: true }, clock: { hour: 12, day: 1, isNight: false }, stats,
+      player, dog: null, _save() {}, inventory: new InventorySystem()
+    });
+    const tick = frames => { for (let i = 0; i < frames; i++) player.update(1 / 60, null, null, () => 0, []); };
+    tick(60);
+    assert.ok(player.velocity.length() > 5, `corría a ${player.velocity.length()} m/s`);
+    assert.ok(player.root.rotation.x > .05, 'corriendo se inclina');
+    player.landing = 1;
+    player.receiveHit(new THREE.Vector3(1, 0, 0), 2);
+
+    game.sleep();
+    Object.assign(input, { axis: { x: 0, z: 0 }, isRunning: false });
+    assert.equal(player.velocity.length(), 0);
+    assert.equal(player.landing, 0, 'no se despierta aterrizando');
+    assert.equal(player.isStunned, false, 'el golpe no sigue empujando al despertar');
+    for (let i = 0; i < 60; i++) player.updateSleepPose(1 / 60);
+    assert.ok(player.root.rotation.x < .001, `acostado derecho: ${player.root.rotation.x}`);
+    scene.updateMatrixWorld(true);
+    const visible = new THREE.Box3();
+    player.character.group.traverseVisible(node => { if (node.isMesh) visible.expandByObject(node, true); });
+    assert.ok(visible.min.y > -.02, `no cruza el piso: ${visible.min.y}`);
+
+    mock.timers.tick(1200);
+    const awake = player.position.clone();
+    tick(30);
+    assert.ok(player.position.equals(awake), 'sin teclas no se mueve');
+    assert.equal(player.speed, 0);
+  } finally { mock.timers.reset(); }
+});
+
+test('al levantarse voltea solo lo que ya se enderezó: acostado no barre el piso', () => {
+  const input = { axis: { x: 0, z: 0 }, isRunning: true, consumePress: () => false, isDown: () => false };
+  const player = new Player(new THREE.Scene(), input, new StatsSystem(), null);
+  const tick = frames => { for (let i = 0; i < frames; i++) player.update(1 / 60, null, null, () => 0, []); };
+  tick(10);
+  input.axis = { x: 1, z: 0 };
+  tick(1);
+  const standing = player.root.rotation.y;
+  assert.ok(standing > .3, `de pie voltea: ${standing}`);
+  assert.ok(player.root.rotation.z < -.02 && player.root.rotation.x > .01, 'y se inclina');
+
+  input.axis = { x: 0, z: 0 };
+  player.root.rotation.set(0, 0, 0);
+  player.playAction('dormir', 1.6);
+  for (let i = 0; i < 90; i++) player.updateSleepPose(1 / 60);
+  assert.ok(player.character.sleepWeight > .99, `acostado: ${player.character.sleepWeight}`);
+  player.action = null;
+  input.axis = { x: 1, z: 0 };
+  tick(1);
+  assert.ok(player.root.rotation.y < standing * .02, `acostado no voltea: ${player.root.rotation.y}`);
+  assert.ok(Math.abs(player.root.rotation.z) < .001 && Math.abs(player.root.rotation.x) < .001, 'ni se inclina');
+  tick(60);
+  assert.ok(player.character.sleepWeight < .001, `ya se levantó: ${player.character.sleepWeight}`);
+  assert.ok(Math.abs(player.root.rotation.y - Math.PI / 2) < .01, `y terminó de voltear: ${player.root.rotation.y}`);
+});
+
+test('el ladrón de la noche se lleva el material, no el arma que está en la mano', () => {
+  mock.timers.enable({ apis: ['setTimeout'] });
+  const random = mock.method(Math, 'random', () => 0);
+  try {
+    const inventory = new InventorySystem();
+    inventory.add(ITEMS.arma, 1); inventory.add(ITEMS.cuchillo, 1); inventory.add(ITEMS.lata, 1);
+    const game = Object.assign(Object.create(Game.prototype), {
+      built: { base: true }, clock: { hour: 22, day: 1, isNight: true }, stats: new StatsSystem(),
+      player: { position: new THREE.Vector3(), playAction() {}, equippedWeapon: 'arma' }, dog: null, _save() {}, inventory
+    });
+    game.sleep();
+    assert.deepEqual(['arma', 'cuchillo', 'lata'].map(id => inventory.count(id)), [1, 0, 0]);
+  } finally { random.mock.restore(); mock.timers.reset(); }
 });

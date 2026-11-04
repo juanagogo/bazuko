@@ -4,11 +4,11 @@ import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js
 export const STATIC_CHUNK_SIZE = 32;
 const center = new THREE.Vector3();
 
-export function geometryChunk(geometry, matrix = null) {
+export function geometryChunk(geometry, matrix = null, chunkSize = STATIC_CHUNK_SIZE) {
   geometry.computeBoundingBox();
   geometry.boundingBox.getCenter(center);
   if (matrix) center.applyMatrix4(matrix);
-  return `${Math.floor(center.x / STATIC_CHUNK_SIZE)},${Math.floor(center.z / STATIC_CHUNK_SIZE)}`;
+  return `${Math.floor(center.x / chunkSize)},${Math.floor(center.z / chunkSize)}`;
 }
 
 /** Mantiene geometría localizable por el frustum, sin una malla que cubra toda la ciudad. */
@@ -43,7 +43,7 @@ export function freezeStaticTransforms(root, dynamicRoot = null) {
 }
 
 /** Agrupa ramas completas sin alterar transformaciones locales ni referencias de edificios. */
-export function createRenderSectors(root, excluded = new Set()) {
+export function createRenderSectors(root, excluded = new Set(), chunkSize = STATIC_CHUNK_SIZE) {
   root.updateWorldMatrix(true, true);
   const sectors = new Map(), bounds = new THREE.Box3();
   const inverse = root.matrixWorld.clone().invert();
@@ -52,7 +52,7 @@ export function createRenderSectors(root, excluded = new Set()) {
     bounds.setFromObject(child);
     if (bounds.isEmpty()) continue;
     bounds.getCenter(center).applyMatrix4(inverse);
-    const key = `${Math.floor(center.x / STATIC_CHUNK_SIZE)},${Math.floor(center.z / STATIC_CHUNK_SIZE)}`;
+    const key = `${Math.floor(center.x / chunkSize)},${Math.floor(center.z / chunkSize)}`;
     if (!sectors.has(key)) {
       const sector = new THREE.Group();
       sector.name = `Sector ${key}`;

@@ -1,25 +1,30 @@
 // src/data/origins.js
-// ¿Cómo llegó el personaje a la calle? Cada origen da una ventaja pequeña.
+// ¿Cómo llegó el personaje a la calle? `relato` es la historia, sobria y sin justificar nada; `efecto` es lo que cambia
+// en el juego, en su propia línea. El uno no explica al otro: nadie gana una ventaja por lo que le pasó.
 
 export const ORIGINS = {
   reciclador: {
-    name: 'Reciclador',
-    desc: 'Llevas años en el reciclaje y sabes qué sirve: encuentras un objeto más en cada bolsa.',
+    name: 'Perdí el trabajo',
+    relato: 'Cerraron donde trabajaba y no alcancé a pagar la pieza.',
+    efecto: 'Saco un objeto más de cada bolsa.',
     effects: { extraLoot: 1 }
   },
   desplazado: {
-    name: 'Desplazado',
-    desc: 'Llegaste del campo huyendo de la violencia. Aguantas: te enfermas 30 % menos.',
+    name: 'Me desplazaron',
+    relato: 'Salí del campo huyendo de la violencia. Allá quedó todo.',
+    efecto: 'Me enfermo 30 % menos.',
     effects: { diseaseResist: 0.7 }
   },
   migrante: {
-    name: 'Migrante',
-    desc: 'Cruzaste la frontera buscando trabajo. Tienes labia: cuando pides te dan 30 % más.',
+    name: 'Salí de mi país',
+    relato: 'Crucé la frontera buscando trabajo y no lo encontré.',
+    efecto: 'Cuando pido me dan 30 % más.',
     effects: { begMult: 1.3 }
   },
   endeudado: {
-    name: 'Gota a gota',
-    desc: 'Lo perdiste todo por un préstamo gota a gota. Sabes negociar: vendes 15 % más caro.',
+    name: 'El gota a gota',
+    relato: 'Lo perdí todo por un préstamo gota a gota.',
+    efecto: 'Vendo 15 % más caro.',
     effects: { sellMult: 1.15 }
   }
 };

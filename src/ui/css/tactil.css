@@ -1,0 +1,137 @@
+/* Táctil: los pulgares. Palanca a la izquierda, botones sueltos a la derecha, y lo que queda libre es para mirar.
+   Todo lo visible cuelga de body.tactil; con ratón y teclado no hay nada. Solo estas dos reglas valen siempre, porque
+   el primer toque de un portátil llega antes de que exista la clase y con ratón no hacen nada. */
+#game-canvas { touch-action: none; }
+html { touch-action: pan-x pan-y; overscroll-behavior: none; }
+
+body.tactil { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; -webkit-tap-highlight-color: transparent; }
+body.tactil :is(input, textarea) { -webkit-user-select: text; user-select: text; }
+
+/* Sin teclas: nadie aquí tiene teclado, y lo que las explica sobra. */
+body.tactil kbd, body.tactil .qb-slot .qk, body.tactil #inv-overlay .inv-hint, body.tactil #talent-panel .talent-hint, body.tactil #dealer-panel .dealer-hint { display: none; }
+
+body.tactil #joystick, body.tactil #acciones { display: block; }
+/* Solo mientras se juega: los paneles y menús tienen sus propios botones. */
+body.tactil:not(.tactil--juego) :is(#joystick, #acciones) { visibility: hidden; }
+
+/* ---------- la palanca: un aro fino y una tapa. Agarra solo dentro del círculo ---------- */
+.joystick__aro {
+  position: absolute; inset: 0; display: grid; place-items: center;
+  border-radius: 50%; pointer-events: auto; touch-action: none;
+  /* El aro es de cinta, y sobre el andén pálido se perdería: lleva su filo oscuro debajo, un círculo sin pintar en vivo. */
+  background: var(--m-aro) center / 100% 100% no-repeat, radial-gradient(closest-side, transparent 84%, var(--marcador) 85% 97%, transparent 98%);
+}
+.joystick__palanca {
+  display: block; width: 44%; aspect-ratio: 1; pointer-events: none;
+  background: var(--m-tapa) center / 100% 100% no-repeat;
+  will-change: transform;
+}
+
+/* ---------- los botones: cinta suelta sobre la calle ---------- */
+.tactil-boton, .tactil-mas__boton, body.tactil .cx[data-tecla] { pointer-events: auto; touch-action: none; }
+.tactil-boton { min-height: 48px; padding: 0 8px; font-size: 18px; }
+.tactil-boton.oprimido, .tactil-mas__boton.oprimido { transform: translateY(2px); }
+/* El círculo de lo elegido no se sale de la pantalla. */
+.tactil-boton.elegido::after { border-image-outset: 5px 6px; }
+/* Correr cuando algo viene detrás: peligro es rojo con letra de cinta. Puesto, ya no hace falta gritar: lleva el círculo. */
+.tactil-boton--pilas:not(.elegido) { background: var(--rojo); color: var(--cinta); }
+
+/* ---------- «Más»: una hoja de cartón con lo que no cabe. No pausa ---------- */
+#tactil-mas { position: fixed; z-index: 46; display: grid; gap: 7px 6px; padding: 9px 10px 10px; pointer-events: auto; touch-action: none; }
+#tactil-mas[hidden] { display: none; }
+/* Abierta, nada pasa por encima de ella: la cinta se aparta y la hoja sube sobre todo lo que se oprime. */
+body.tactil--mas #acciones { z-index: 110; }
+body.tactil--mas #interaction-prompt { visibility: hidden; }
+.tactil-mas__boton { min-height: 44px; padding: 2px 6px; font-size: 16px; text-align: center; line-height: 1.02; }
+
+/* ---------- la tecla de contexto se oprime ---------- */
+body.tactil .cx[data-tecla] { min-height: 44px; cursor: default; }
+/* La segunda pieza no le gana al verbo, y su barra de avance no ocupa más de lo que dice. */
+body.tactil .cx.cinta:not(.cinta--verbo) { padding: 3px 9px; font-size: 18px; }
+body.tactil .cx__sostener { height: 6px; margin-top: 2px; }
+
+/* ---------- la barra del raponazo: se toca, o se oprime Detener. Mientras dura no hay otra cosa que hacer ---------- */
+body.tactil #steal-minigame { pointer-events: auto; touch-action: none; }
+body.tactil #steal-track { height: 44px; }
+body.tactil.tactil--robando #interaction-prompt { display: none; }
+
+/* ==================== celular acostado ==================== */
+@media (max-width: 899px) and (orientation: landscape), (max-height: 500px) and (orientation: landscape) {
+  body.tactil #joystick { left: calc(8px + var(--safe-l)); bottom: calc(8px + var(--safe-b)); width: 124px; height: 124px; }
+  body.tactil #acciones { display: flex; gap: 6px; right: calc(8px + var(--safe-r)); bottom: calc(6px + var(--safe-b)); }
+  .tactil-boton { min-width: 70px; }
+  /* 8 px entre lo que cuesta caro tocar por error: gastar una casilla, abrir un panel, soltar la palanca. */
+  body.tactil .tactil-boton--mas { position: fixed; left: calc(140px + var(--safe-l)); bottom: calc(6px + var(--safe-b)); min-width: 44px; padding: 0 5px; font-size: 16px; }
+  body.tactil.tactil #quickbar { left: calc(192px + var(--safe-l)); gap: 8px; }
+  body.tactil.tactil #panel-dock { left: calc(454px + var(--safe-l)); gap: 8px; }
+  #tactil-mas { left: calc(140px + var(--safe-l)); bottom: calc(60px + var(--safe-b)); width: min(496px, calc(100vw - 148px - var(--safe-l) - var(--safe-r))); grid-template-columns: repeat(auto-fit, minmax(84px, 1fr)); }
+  /* La cinta va a la derecha, sobre los botones: nunca delante del personaje, que está en el centro. */
+  body.tactil #interaction-prompt { left: auto; right: calc(8px + var(--safe-r)); transform: none; bottom: calc(58px + var(--safe-b)); max-width: calc(40vw - 8px); flex-direction: column; align-items: flex-end; }
+}
+/* El celular chico acostado: la fila no cabe, y los verbos suben a la derecha. El cartón y la plata se angostan también
+   sin dedo, porque a este ancho se pisaban con Pausa. */
+@media (max-width: 759px) and (orientation: landscape) {
+  #hud-dock { width: calc(100vw - 298px - var(--safe-l) - var(--safe-r)); grid-template-columns: 150px minmax(0, 1fr); }
+  #topbar { width: 232px; }
+  #game-settings { right: calc(242px + var(--safe-r)); }
+  body.tactil #joystick { width: 112px; height: 112px; }
+  body.tactil .tactil-boton--mas { left: calc(128px + var(--safe-l)); }
+  body.tactil.tactil #quickbar { left: calc(180px + var(--safe-l)); }
+  body.tactil.tactil #panel-dock { left: calc(442px + var(--safe-l)); }
+  body.tactil #acciones { bottom: calc(58px + var(--safe-b)); }
+  #tactil-mas { left: calc(128px + var(--safe-l)); width: min(496px, calc(100vw - 136px - var(--safe-l) - var(--safe-r))); }
+  body.tactil #interaction-prompt { bottom: calc(110px + var(--safe-b)); }
+}
+/* Con las barras del navegador abajo y arriba queda poco alto: palanca algo menor, y la cinta en lo suyo. */
+@media (max-height: 339px) and (orientation: landscape) {
+  body.tactil #joystick { width: 104px; height: 104px; }
+  body.tactil .cx.cinta { font-size: 18px; }
+  body.tactil .cx.cinta--verbo { font-size: 20px; }
+}
+
+/* ==================== celular de pie ==================== */
+@media (max-width: 899px) and (orientation: portrait) {
+  body.tactil #joystick { left: calc(8px + var(--safe-l)); bottom: calc(60px + var(--safe-b)); width: 132px; height: 132px; }
+  body.tactil #acciones { display: grid; grid-template-columns: repeat(2, 1fr); gap: 6px; right: calc(8px + var(--safe-r)); bottom: calc(60px + var(--safe-b)); width: 156px; }
+  body.tactil #hud-dock { top: calc(var(--topbar-bottom, 40px) + 6px); }
+  body.tactil.tactil #quickbar { gap: 8px; }
+  body.tactil.tactil #panel-dock { left: calc(266px + var(--safe-l)); gap: 8px; }
+  #tactil-mas { left: calc(8px + var(--safe-l)); right: calc(8px + var(--safe-r)); bottom: calc(198px + var(--safe-b)); grid-template-columns: repeat(3, 1fr); }
+  body.tactil #steal-minigame { bottom: calc(200px + var(--safe-b)); }
+  /* Del 60 % del ancho para allá: el personaje va en el centro. Una pieza encima de la otra, dos líneas cada una como mucho. */
+  body.tactil #interaction-prompt { left: auto; right: calc(8px + var(--safe-r)); transform: none; bottom: calc(168px + var(--safe-b)); max-width: calc(40vw - 8px - var(--safe-r)); flex-direction: column; align-items: flex-end; }
+  body.tactil .cx.cinta--verbo { font-size: 20px; }
+}
+@media (max-width: 374px) and (orientation: portrait) {
+  body.tactil.tactil #quickbar { gap: 6px; }
+  body.tactil.tactil #panel-dock { left: calc(258px + var(--safe-l)); }
+}
+@media (max-width: 359px) and (orientation: portrait) {
+  /* A 320 no caben cinco casillas separadas: lo caro es no tocar el costal por una casilla, y esa distancia se conserva. */
+  body.tactil.tactil #quickbar { left: calc(2px + var(--safe-l)); gap: 0; }
+  body.tactil.tactil #panel-dock { left: calc(230px + var(--safe-l)); gap: 2px; }
+  body.tactil #joystick { left: calc(4px + var(--safe-l)); width: 112px; height: 112px; }
+  body.tactil #acciones { right: calc(4px + var(--safe-r)); width: 144px; gap: 5px; }
+  .tactil-boton { padding: 0 4px; font-size: 17px; }
+  #tactil-mas { left: calc(4px + var(--safe-l)); right: calc(4px + var(--safe-r)); bottom: calc(178px + var(--safe-b)); gap: 6px 4px; padding: 8px 6px 9px; }
+  body.tactil #interaction-prompt { right: calc(4px + var(--safe-r)); bottom: calc(166px + var(--safe-b)); max-width: calc(40vw - 4px - var(--safe-r)); }
+  body.tactil .cx.cinta--verbo, body.tactil .cx.cinta { font-size: 18px; }
+}
+
+/* ==================== tableta o portátil con pantalla táctil ====================
+   El cartón del radar sube, para que el pulgar izquierdo tenga su rincón, y lo oprimible baja a una sola fila. */
+@media (min-width: 900px) and (min-height: 501px) {
+  body.tactil :is(#hud-dock, #hud, #hud-vitals, #topbar, #wanted, #retazo, #minimap-container, .radar__screen, .radar__papel) { pointer-events: none; }
+  body.tactil :is(#hud-dock, #game-settings, #panel-dock) button, body.tactil #quickbar .qb-slot { pointer-events: auto; }
+  body.tactil :is(#quickbar, #game-settings) { pointer-events: none; }
+  body.tactil #hud-dock { bottom: auto; top: calc(72px + var(--safe-t)); }
+  body.tactil #retazo { bottom: auto; top: calc(100% + 10px); }
+  body.tactil :is(#camera-controls, #controls-help, #controls-help-toggle, #poop-hud-ammo) { display: none; }
+  body.tactil #joystick { left: calc(20px + var(--safe-l)); bottom: calc(20px + var(--safe-b)); width: 160px; height: 160px; }
+  body.tactil.tactil #quickbar { left: calc(196px + var(--safe-l)); right: auto; bottom: calc(20px + var(--safe-b)); }
+  body.tactil.tactil #panel-dock { left: calc(196px + var(--safe-l)); right: auto; bottom: calc(92px + var(--safe-b)); }
+  body.tactil #acciones { display: grid; grid-template-columns: repeat(2, 92px); gap: 8px; right: calc(20px + var(--safe-r)); bottom: calc(20px + var(--safe-b)); }
+  .tactil-boton { min-height: 60px; font-size: 20px; }
+  #tactil-mas { right: calc(20px + var(--safe-r)); bottom: calc(160px + var(--safe-b)); grid-template-columns: repeat(4, 104px); }
+  body.tactil #interaction-prompt { bottom: calc(160px + var(--safe-b)); left: auto; right: calc(20px + var(--safe-r)); transform: none; justify-content: flex-end; }
+}

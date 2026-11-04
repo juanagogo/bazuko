@@ -9,6 +9,13 @@ export const PALETTES = {
   zapato: ['#1c1c1c', '#e9e9e9', '#7a4a2a', '#2f6fb0', '#c0392b'],
 };
 
+// Albedo lineal de cada tono de PALETTES.piel. El color de la paleta es el de la muestra del creador;
+// multiplicado por una textura que ya es rojiza da naranja, así que aquí se guarda lo que debe verse.
+// Los dos más oscuros se quedan lo bastante arriba para que la cara conserve su forma a la sombra.
+export const SKIN_ALBEDO = [
+  [.5, .295, .19], [.44, .24, .146], [.35, .18, .105], [.25, .126, .074], [.21, .108, .066], [.17, .088, .059]
+];
+
 export const COLOR_NAMES = {
   piel: ['Muy clara', 'Clara', 'Trigueña', 'Morena', 'Oscura', 'Muy oscura'],
   pelo: ['Negro', 'Castaño oscuro', 'Castaño', 'Cobrizo', 'Rubio', 'Canoso', 'Blanco', 'Vinotinto', 'Azul'],
@@ -17,7 +24,7 @@ export const COLOR_NAMES = {
   zapato: ['Negro', 'Blanco', 'Café', 'Azul', 'Rojo'],
 };
 
-// Qué tanto se nota la calle en la ropa y la piel (ver weathering.js)
+// Qué tanto se nota la calle en la ropa y la piel (ver streetMaterials.js)
 export const WEAR_LEVELS = [{ id: 0, label: 'Limpio' }, { id: 1, label: 'Gastado' }, { id: 2, label: 'Muy sucio' }];
 
 // Objetos que se cargan en el cuerpo (ver props.js); no son piezas exportadas de MakeHuman

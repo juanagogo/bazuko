@@ -1,12 +1,14 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
-import { geometryChunk } from './StaticGeometry.js';
+import { STATIC_CHUNK_SIZE, geometryChunk } from './StaticGeometry.js';
 
 const WALL_FACES = [0, 1, 4, 5];
 const LOW_WALL_HEIGHT = 0.65;
 const FADE_SECONDS = 0.22;
 const RESTORE_DELAY = 0.18;
 const SAMPLE_HEIGHTS = [0.45, 1.1, 1.85, 1.1, 1.1];
+// Los lotes cerrados son cajas con pocos triángulos y muchos materiales: lo que pesa son las llamadas.
+export const CLOSED_CHUNK_SIZE = STATIC_CHUNK_SIZE * 2;
 
 // Extrae una cara de la caja conservando la escala de sus texturas al separar los pisos.
 function faceGeometry(source, face, height, bottom, top) {
@@ -116,6 +118,8 @@ export class BuildingVisibility {
             const copy = material.clone();
             copy.side = side;
             copy.userData.staticBatchKey = key;
+            // Lo de fábrica: una mancha de humedad ya es transparente y debe volver a serlo tras atenuarse.
+            copy.userData.fadeBase = { transparent: material.transparent, depthWrite: material.depthWrite, opacity: material.opacity };
             if (!this.closedMaterials.has(key)) {
               const closed = material.clone();
               closed.side = side;
@@ -158,7 +162,7 @@ export class BuildingVisibility {
       part.object.updateWorldMatrix(true, true);
       part.object.traverse(mesh => {
         if (!mesh.isMesh || Array.isArray(mesh.material)) return;
-        const key = `${mesh.material.userData.staticBatchKey ?? mesh.material.uuid}|${mesh.castShadow}|${mesh.receiveShadow}|${geometryChunk(mesh.geometry, mesh.matrixWorld)}`;
+        const key = `${mesh.material.userData.staticBatchKey ?? mesh.material.uuid}|${mesh.castShadow}|${mesh.receiveShadow}|${geometryChunk(mesh.geometry, mesh.matrixWorld, CLOSED_CHUNK_SIZE)}`;
         if (!buckets.has(key)) buckets.set(key, { source: mesh, geometries: [] });
         const geometry = mesh.geometry.clone().applyMatrix4(mesh.matrixWorld);
         // Las caras y los adornos comparten estos atributos; no se necesitan tangentes.
@@ -190,10 +194,10 @@ export class BuildingVisibility {
     part.opacity = opacity;
     part.object.visible = opacity > 0;
     for (const material of part.materials) {
-      const transparent = opacity < 1;
+      const base = material.userData.fadeBase, transparent = opacity < 1 || base.transparent;
       if (material.transparent !== transparent) { material.transparent = transparent; material.needsUpdate = true; }
-      material.opacity = opacity;
-      material.depthWrite = !transparent;
+      material.opacity = base.opacity * opacity;
+      material.depthWrite = opacity < 1 ? false : base.depthWrite;
     }
   }
 
