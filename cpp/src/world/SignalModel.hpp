@@ -15,6 +15,8 @@ constexpr float kPoleRadius = 0.068f, kPoleTop = 6.6f, kBaseY = 0.13f;
 constexpr float kReach = 3.5f, kArmLength = 3.95f;
 constexpr float kHeadY = 5.45f, kLowHeadY = 3.2f, kPedY = 2.42f;
 constexpr float kModule = 0.36f, kHeadDepth = 0.2f, kLensRadius = 0.138f;
+constexpr float kCounterOffset = 0.41f;   // z del contador principal respecto a la cabeza (hacia el poste)
+constexpr float kPedCounterY = 0.405f;     // altura del contador peatonal sobre el centro de la cabeza peatonal
 
 // altura del brazo a distancia d del poste: sube un poco hacia la punta
 inline float ArmY(float d) { const float t = 1.0f - d / kArmLength; return 5.85f + 0.38f * (1.0f - t * t); }
@@ -155,17 +157,61 @@ inline std::shared_ptr<Mesh> BuildBody() {
     b.Box({0.045f, armAtHead, -kReach}, {0.05f, 0.05f, 0.24f}, plate);
     b.Tube({0.075f, armAtHead + 0.1f, -kReach}, {0.075f, kHeadY - 0.62f, -kReach}, 0.022f, 0.022f, 4, plate, true, true);
     VehicleHead(b, {-0.075f, kHeadY, -kReach}, true);
+    // contador de segundos: modulo aparte, pegado a la cabeza del lado del poste (arriba, a la altura del rojo), con fondo negro y visera
+    {
+        const glm::vec4 housing(0.22f, 0.23f, 0.24f, 1.0f), dark(0.03f, 0.03f, 0.035f, 1.0f);
+        const float z = -kReach + kCounterOffset, y = kHeadY + kModule;
+        b.Box({-0.075f, y, z}, {kHeadDepth, kModule - 0.01f, 0.40f}, housing);
+        b.Box({-0.075f - kHeadDepth * 0.5f - 0.11f, y + 0.18f - 0.006f, z}, {0.22f, 0.012f, 0.34f}, housing);
+        b.Box({-0.075f - kHeadDepth * 0.5f - 0.07f, y, z - 0.18f}, {0.14f, 0.34f, 0.012f}, housing);
+        b.Box({-0.075f - kHeadDepth * 0.5f - 0.07f, y, z + 0.18f}, {0.14f, 0.34f, 0.012f}, housing);
+        b.Box({-0.075f - kHeadDepth * 0.5f - 0.001f, y, z}, {0.004f, 0.32f, 0.36f}, dark);
+        b.Tube({0.075f, ArmY(kReach - kCounterOffset) + 0.1f, z}, {0.075f, y + 0.18f, z}, 0.022f, 0.022f, 4, plate, true, true);
+    }
     // cabeza baja en el poste
     for (float y : {kLowHeadY + 0.36f, kLowHeadY - 0.36f}) b.Tube({0, y - 0.022f, 0}, {0, y + 0.022f, 0}, R + 0.009f, R + 0.009f, 8, plate, true, true);
     VehicleHead(b, {-(R + 0.165f), kLowHeadY, 0.0f}, false);
     // cabezas peatonales: una hacia la calzada y otra paralela al poste
     PedHead(b, {0.0f, kPedY, -(R + 0.105f)}, true);
     PedHead(b, {R + 0.105f, kPedY, 0.0f}, false);
+    {   // sobre cada cabeza peatonal, su contador con fondo negro
+        const glm::vec4 housing(0.22f, 0.23f, 0.24f, 1.0f), dark(0.03f, 0.03f, 0.035f, 1.0f);
+        b.Box({0.0f, kPedY + kPedCounterY, -(R + 0.105f)}, {0.28f, 0.29f, 0.13f}, housing);
+        b.Box({0.0f, kPedY + kPedCounterY, -(R + 0.105f) - 0.066f}, {0.25f, 0.23f, 0.004f}, dark);
+        b.Box({R + 0.105f, kPedY + kPedCounterY, 0.0f}, {0.13f, 0.29f, 0.28f}, housing);
+        b.Box({R + 0.105f + 0.066f, kPedY + kPedCounterY, 0.0f}, {0.004f, 0.23f, 0.25f}, dark);
+    }
     // gabinete de control a un lado de la base
     b.Box({0.05f, 0.95f, R + 0.2f}, {0.30f, 0.62f, 0.20f}, {0.62f, 0.63f, 0.58f, 1.0f});
     // boton peatonal
     b.Box({-(R + 0.03f), 1.15f, 0.0f}, {0.05f, 0.17f, 0.09f}, yellow);
     return b.Build();
+}
+
+// Digito de matriz de puntos 5 x 7 (como los contadores de los semaforos de Bogota): un hexagono por punto encendido, centrado en el origen y
+// mirando a +Z. `cell` es la separacion entre puntos.
+inline std::shared_ptr<Mesh> BuildDigit(int digit, float cell) {
+    static const char* const font[10][7] = {
+        {"01110", "10001", "10011", "10101", "11001", "10001", "01110"}, {"00100", "01100", "00100", "00100", "00100", "00100", "01110"},
+        {"01110", "10001", "00001", "00010", "00100", "01000", "11111"}, {"11110", "00001", "00001", "01110", "00001", "00001", "11110"},
+        {"00010", "00110", "01010", "10010", "11111", "00010", "00010"}, {"11111", "10000", "11110", "00001", "00001", "10001", "01110"},
+        {"00110", "01000", "10000", "11110", "10001", "10001", "01110"}, {"11111", "00001", "00010", "00100", "01000", "01000", "01000"},
+        {"01110", "10001", "10001", "01110", "10001", "10001", "01110"}, {"01110", "10001", "10001", "01111", "00001", "00010", "01100"}};
+    std::vector<Vertex> vertices;
+    std::vector<uint32_t> indices;
+    for (int row = 0; row < 7; ++row)
+        for (int col = 0; col < 5; ++col) {
+            if (font[digit][row][col] != '1') continue;
+            const glm::vec3 center((static_cast<float>(col) - 2.0f) * cell, (3.0f - static_cast<float>(row)) * cell, 0.0f);
+            const uint32_t base = static_cast<uint32_t>(vertices.size());
+            vertices.push_back({center, {0, 0, 1}, {0.5f, 0.5f}, glm::vec4(1.0f)});
+            for (int k = 0; k < 6; ++k) {
+                const float angle = static_cast<float>(k) / 6.0f * 6.2831853f;
+                vertices.push_back({center + glm::vec3(std::cos(angle), std::sin(angle), 0.0f) * cell * 0.44f, {0, 0, 1}, {0.5f, 0.5f}, glm::vec4(1.0f)});
+            }
+            for (uint32_t k = 0; k < 6; ++k) { indices.push_back(base); indices.push_back(base + 1 + k); indices.push_back(base + 1 + (k + 1) % 6); }
+        }
+    return std::make_shared<Mesh>(vertices, indices);
 }
 
 } // namespace Bazuko::SignalModel

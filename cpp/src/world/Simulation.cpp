@@ -160,6 +160,19 @@ size_t GetSignalState(float time, size_t axis) {
     return 2;
 }
 
+// Segundos que faltan para que cambie la luz del eje (los mismos tiempos que GetSignalState). Vehiculos: verde 14 s, amarillo 3 s, rojo 19 s. Peatones:
+// caminar mientras el eje esta en verde (14 s) y parar el resto del ciclo (22 s). `color`: 0 verde, 1 amarillo, 2 rojo.
+int SignalCountdown(float time, size_t axis, bool pedestrian, int& color) {
+    constexpr float cycle = 36.0f;
+    const float phase = std::fmod(time - static_cast<float>(axis) * 18.0f + cycle, cycle);
+    float remaining;
+    if (phase < 14.0f) { color = 0; remaining = 14.0f - phase; }
+    else if (!pedestrian && phase < 17.0f) { color = 1; remaining = 17.0f - phase; }
+    else if (pedestrian) { color = 2; remaining = cycle - phase; }
+    else { color = 2; remaining = cycle - phase; }
+    return std::clamp(static_cast<int>(std::ceil(remaining)), 0, 99);
+}
+
 bool IsVehicleBeforeSignal(const TrafficVehicle& vehicle, const glm::vec3& stopPosition,
                            const glm::vec2& forward, const glm::vec3& approachDirection,
                            float* distanceOut = nullptr) {
@@ -1045,6 +1058,7 @@ Simulation::Simulation(const CityLayout& city, uint32_t seed,
     }
     m_SignalBody = SignalModel::BuildBody();
     m_SignalLens = Mesh::CreateCylinder(SignalModel::kLensRadius, 0.03f, 16);
+    for (int digit = 0; digit < 10; ++digit) m_SignalDigits[static_cast<size_t>(digit)] = SignalModel::BuildDigit(digit, 0.0235f);
     m_SignalReflection = Mesh::CreatePlane(4.4f, 0.38f, glm::vec4(1.0f));
     m_SignalSticker = Mesh::CreateCube({0.008f, 0.17f, 0.13f}, glm::vec4(1.0f));
     {   // halo de la baliza: disco de 8 anillos cuya opacidad cae suave (curva (1 - r)^2,2) del centro al borde, sin canto visible; el color llega por el tinte
@@ -4903,6 +4917,28 @@ void Simulation::Render(Renderer& renderer, float time, const glm::vec3& focusPo
             lens({0.0f, SignalModel::kPedY - 0.125f, -pedOffset}, faceMinusZ, 0.72f, crossState == 0, greenOn, greenOff);       // caminar, cruzada
             lens({pedOffset, SignalModel::kPedY + 0.125f, 0.0f}, facePlusX, 0.72f, state != 0, redOn, redOff);                  // parar, paralela
             lens({pedOffset, SignalModel::kPedY - 0.125f, 0.0f}, facePlusX, 0.72f, state == 0, greenOn, greenOff);              // caminar, paralela
+            {   // contadores de segundos: matriz de puntos del color de la fase, sincronizada con los mismos tiempos del ciclo
+                const auto number = [&](glm::vec3 at, const glm::mat4& turn, float scale, int value, glm::vec3 color) {
+                    const int digits = value >= 10 ? 2 : 1;
+                    renderer.SetUnlit(true);
+                    for (int slot = 0; slot < digits; ++slot) {
+                        const int digit = digits == 2 ? (slot == 0 ? value / 10 : value % 10) : value;
+                        const float shift = digits == 2 ? (slot == 0 ? -0.075f : 0.075f) : 0.0f;
+                        const glm::mat4 m = glm::scale(glm::translate(poleRoot, at) * turn * glm::translate(glm::mat4(1.0f), {shift * scale, 0.0f, 0.0f}), glm::vec3(scale));
+                        renderer.Submit(*m_SignalDigits[static_cast<size_t>(digit)], m, glm::vec4(color * 2.2f, 1.0f), false, true);
+                    }
+                    renderer.SetUnlit(false);
+                };
+                const auto colorOf = [&](int color) { return color == 0 ? greenOn : color == 1 ? amberOn : redOn; };
+                int color = 0;
+                const int own = SignalCountdown(m_Elapsed, signal.phaseGroup, false, color);
+                number({lensX - 0.002f, SignalModel::kHeadY + SignalModel::kModule, -SignalModel::kReach + SignalModel::kCounterOffset}, faceMinusX, 1.0f, own, colorOf(color));
+                const float pedY = SignalModel::kPedY + SignalModel::kPedCounterY;
+                const int cross = SignalCountdown(m_Elapsed, 1 - signal.phaseGroup, true, color);
+                number({0.0f, pedY, -pedOffset - 0.003f}, glm::rotate(glm::mat4(1.0f), glm::pi<float>(), {0.0f, 1.0f, 0.0f}), 0.82f, cross, color == 0 ? greenOn : redOn);
+                const int parallel = SignalCountdown(m_Elapsed, signal.phaseGroup, true, color);
+                number({pedOffset + 0.003f, pedY, 0.0f}, facePlusX, 0.82f, parallel, color == 0 ? greenOn : redOn);
+            }
             // Resplandor de noche: un halo suave alrededor de cada lente encendido y, con el piso mojado, su reflejo alargado sobre el asfalto
             const float glow = m_LampGlow, wet = GetWetness();
             if (glow > 0.05f) {
