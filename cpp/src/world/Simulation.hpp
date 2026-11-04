@@ -513,6 +513,8 @@ public:
     const glm::vec3& GetCambuchePosition() const { return m_CambuchePosition; }
     const glm::vec3& GetCambucheSpawnPosition() const { return m_CambucheSpawnPosition; }
     const CambucheState& GetCambucheState() const { return m_CambucheState; }
+    // Dibuja el refugio terminado girado `yaw` (vista previa del menu del cambuche); el origen queda en el suelo, centro del refugio
+    void DrawShelterPreview(Renderer& renderer, float yaw) const;
     void SetCambucheState(const CambucheState& state) { m_CambucheState = state; }
     bool BuildCambuchePiece(const std::string& pieceId);
 

@@ -2,6 +2,7 @@
 #include "UIManager.hpp"
 #include "Carton.hpp"
 #include "SignStyle.hpp"
+#include "../core/Input.hpp"
 #include <algorithm>
 #include <cstdio>
 #include <string>
@@ -410,6 +411,101 @@ void UIManager::RenderJibaro(const std::vector<DealerOption>& options, float mon
     C::Text(draw, false, 14, ImVec2(min.x + pad, y + 8.0f), C::kMarcador,
             "De noche paga 1,8× el valor de lo que se le traiga, pero en cada venta hay un 15 % de que caiga la policía y se lleve la mercancía.", width - pad * 2.0f);
     ImGui::End();
+}
+
+} // namespace Bazuko
+
+namespace Bazuko {
+
+// Mi cambuche (docs/identidad-visual.md del original): vista previa del refugio terminado, las seis piezas con lo que piden y dormir hasta las 06:00.
+// El recuadro negro de la vista previa se deja vacio: main.cpp dibuja ahi el modelo (segundo renderizador) despues de pintar la interfaz.
+void UIManager::RenderCambucheCarton(const std::vector<CambuchePieceOption>& pieces, bool hasBase, bool isNight) {
+    namespace C = Carton;
+    SignUI::DrawBackdrop(0.5f);
+    const ImVec2 display = ImGui::GetIO().DisplaySize;
+    const float width = std::min(display.x - 24.0f, 700.0f);
+    const float previewHeight = std::clamp(display.y * 0.24f, 120.0f, 215.0f);
+    const float rowHeight = 62.0f;
+    const float height = std::min(display.y - 20.0f, 128.0f + previewHeight + 30.0f + static_cast<float>(pieces.size()) * rowHeight + 86.0f);
+    ImGui::SetNextWindowSize(ImVec2(width, height), ImGuiCond_Always);
+    ImGui::SetNextWindowPos(ImVec2(display.x * 0.5f, display.y * 0.5f), ImGuiCond_Always, ImVec2(0.5f, 0.5f));
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
+    ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0, 0, 0, 0));
+    const bool open = ImGui::Begin("##cambucheCarton", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings |
+                                                                    ImGuiWindowFlags_NoScrollWithMouse | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoScrollbar);
+    ImGui::PopStyleColor();
+    ImGui::PopStyleVar(2);
+    if (!open) { ImGui::End(); m_CambuchePreviewRect = glm::vec4(0.0f); return; }
+    ImDrawList* draw = ImGui::GetWindowDrawList();
+    const ImVec2 min = ImGui::GetWindowPos(), max = min + ImVec2(width, height);
+    C::Panel(draw, min, max, 31u, 8.0f);
+    const float pad = 22.0f;
+    C::Text(draw, true, 34, min + ImVec2(pad, 8.0f), C::kMarcador, "Mi cambuche");
+    C::Text(draw, false, 16, min + ImVec2(pad, 52.0f), C::kMarcador, "Los materiales salen de la basura de toda la ciudad: hay para todas las mejoras.", width - 150.0f);
+    // cerrar
+    const ImVec2 closeMin(max.x - 96.0f, min.y + 12.0f), closeSize(78.0f, 40.0f);
+    ImGui::SetCursorScreenPos(closeMin);
+    bool closeRequested = ImGui::InvisibleButton("##cerrarCambuche", closeSize);
+    draw->AddRectFilled(closeMin, closeMin + closeSize, ImGui::IsItemHovered() ? IM_COL32(0xF2, 0xE6, 0xC4, 255) : C::kCinta);
+    draw->AddRect(closeMin, closeMin + closeSize, C::kMarcador, 0.0f, 0, 2.0f);
+    C::Text(draw, true, 30, closeMin + ImVec2(8.0f, 1.0f), C::kMarcador, "×");
+    draw->AddRectFilled(closeMin + ImVec2(34.0f, 9.0f), closeMin + ImVec2(70.0f, 31.0f), C::kMarcador);
+    C::Text(draw, true, 15, closeMin + ImVec2(40.0f, 11.0f), C::kCinta, "Esc");
+    C::HandLine(draw, ImVec2(min.x + pad, min.y + 96.0f), ImVec2(max.x - pad, min.y + 96.0f), 3101u, 2.5f);
+
+    // vista previa: recuadro negro; el modelo se dibuja encima despues
+    const ImVec2 previewMin(min.x + pad, min.y + 106.0f), previewMax(max.x - pad, min.y + 106.0f + previewHeight);
+    draw->AddRectFilled(previewMin, previewMax, IM_COL32(0x12, 0x10, 0x0C, 255));
+    m_CambuchePreviewRect = glm::vec4(previewMin.x, previewMin.y, previewMax.x - previewMin.x, previewMax.y - previewMin.y);
+    C::Text(draw, true, 16, ImVec2(previewMin.x, previewMax.y + 4.0f), C::kMarcador, "Así va a quedar mi cambuche");   // debajo: el modelo se dibuja encima del recuadro
+
+    const auto tapeButton = [&](const char* id, const char* label, ImVec2 at, ImVec2 size, bool enabled) {
+        ImGui::SetCursorScreenPos(at);
+        const bool pressed = ImGui::InvisibleButton(id, size) && enabled;
+        draw->AddRect(at, at + size, C::kMarcador, 0.0f, 0, 2.0f);
+        if (enabled && ImGui::IsItemHovered()) draw->AddRectFilled(at, at + size, IM_COL32(0xF2, 0xE6, 0xC4, 255));
+        const float textWidth = C::TextWidth(true, 17, label);
+        C::Text(draw, true, 17, at + ImVec2((size.x - textWidth) * 0.5f, (size.y - 20.0f) * 0.5f), C::kMarcador, label);
+        if (!enabled) draw->AddLine(at + ImVec2(8.0f, size.y * 0.5f + 1.0f), at + ImVec2(size.x - 8.0f, size.y * 0.5f - 3.0f), C::kMarcador, 2.0f);
+        return pressed;
+    };
+
+    float y = previewMax.y + 30.0f;
+    int row = 0;
+    for (const CambuchePieceOption& piece : pieces) {
+        // dibujo: el cambuche en la pieza armada con su marca; un candado si falta la base
+        const ImVec2 iconCenter(min.x + pad + 14.0f, y + 22.0f);
+        C::DrawGlyph(draw, C::Glyph(piece.isBuilt ? "chulo" : piece.isLocked ? "candado" : "cambuche"), iconCenter, 22.0f, C::kMarcador);
+        C::Text(draw, true, 19, ImVec2(min.x + pad + 40.0f, y), C::kMarcador, piece.name.c_str());
+        C::Text(draw, false, 14, ImVec2(min.x + pad + 40.0f, y + 22.0f), C::kMarcador, piece.isBuilt ? "Armado." : piece.desc.c_str(), width - 260.0f);
+        if (!piece.isBuilt && !piece.reqText.empty()) {
+            const float reqY = y + 38.0f;
+            C::Text(draw, false, 13, ImVec2(min.x + pad + 40.0f, reqY), C::kMarcador, piece.reqText.c_str());
+            if (!piece.canBuild) draw->AddLine(ImVec2(min.x + pad + 40.0f, reqY + 8.0f), ImVec2(min.x + pad + 40.0f + C::TextWidth(false, 13, piece.reqText.c_str()), reqY + 8.0f), C::kMarcador, 1.6f);   // tachado: todavia no lo tengo
+        }
+        ImGui::PushID(row);
+        if (!piece.isBuilt && tapeButton("##armar", "Armar", ImVec2(max.x - pad - 112.0f, y + 2.0f), ImVec2(112.0f, 40.0f), piece.canBuild && !piece.isLocked)) m_CambucheBuildRequest = piece.id;
+        ImGui::PopID();
+        y += rowHeight;
+        C::HandLine(draw, ImVec2(min.x + pad, y - 6.0f), ImVec2(max.x - pad, y - 6.0f), 3110u + static_cast<unsigned int>(row++), 1.8f);
+    }
+
+    // pie: dormir
+    const char* sleepNote = !hasBase ? "Sin base no se puede dormir." : !isNight ? "Dormir solo de noche." : "Dormir recupera energía y salud.";
+    C::Text(draw, false, 15, ImVec2(min.x + pad, max.y - 52.0f), C::kMarcador, sleepNote);
+    const ImVec2 sleepSize(250.0f, 44.0f);
+    if (tapeButton("##dormir", "Dormir hasta las 06:00", ImVec2(max.x - pad - sleepSize.x, max.y - sleepSize.y - 14.0f), sleepSize, hasBase && isNight)) {
+        m_SleepRequest = true;
+        m_CambucheMenuOpen = false;
+        Input::SetCursorLocked(true);
+    }
+    ImGui::End();
+    if (closeRequested) {
+        m_CambucheMenuOpen = false;
+        m_CambuchePreviewRect = glm::vec4(0.0f);
+        Input::SetCursorLocked(true);
+    }
 }
 
 } // namespace Bazuko

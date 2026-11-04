@@ -223,6 +223,8 @@ public:
     void OpenCambucheMenu() { m_CambucheMenuOpen = true; }
     void CloseCambucheMenu() { m_CambucheMenuOpen = false; }
     bool IsCambucheMenuOpen() const { return m_CambucheMenuOpen; }
+    // recuadro de la vista previa 3D del cambuche (x, y, ancho, alto en pixeles de pantalla, y hacia abajo); false si el menu no lo muestra
+    bool GetCambuchePreviewRect(glm::vec4& rect) const { rect = m_CambuchePreviewRect; return m_CambucheMenuOpen && m_CambuchePreviewRect.z > 8.0f; }
     std::string ConsumeCambucheBuildRequest() { return std::exchange(m_CambucheBuildRequest, {}); }
     bool ConsumeSleepRequest() { return std::exchange(m_SleepRequest, false); }
     // GPS a pie: main entrega la ruta cada cuadro y recoge las peticiones de destino hechas en el mapa
@@ -247,6 +249,8 @@ public:
     void SelectPauseTab(int section);   // cambia de pestana dentro de la pausa sin cerrarla
     bool IsMapOpen() const { return m_Paused && m_PauseSection == 8; }
     void RenderCambucheMenu(const std::vector<CambuchePieceOption>& pieces, bool hasBase, bool isNight);
+    void RenderCambucheCarton(const std::vector<CambuchePieceOption>& pieces, bool hasBase, bool isNight);   // menu de cartón con vista previa (Costal.cpp)
+    glm::vec4 m_CambuchePreviewRect{0.0f};
 
     void RenderHUD(float dt, const glm::vec3& playerPos, Camera& camera, Renderer& renderer, Window& window,
                    const CityLayout& city, const Simulation& simulation,

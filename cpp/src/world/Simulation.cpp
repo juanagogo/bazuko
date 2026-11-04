@@ -6082,6 +6082,12 @@ void Simulation::Render(Renderer& renderer, float time, const glm::vec3& focusPo
     (void)time;
 }
 
+void Simulation::DrawShelterPreview(Renderer& renderer, float yaw) const {
+    static bool warned = false;
+    if (!m_ShelterModel && !warned) { warned = true; LogWarn("DrawShelterPreview: sin modelo del refugio"); }
+    if (m_ShelterModel) m_ShelterModel->Draw(renderer, glm::rotate(glm::mat4(1.0f), yaw, glm::vec3(0.0f, 1.0f, 0.0f)) * m_ShelterModelFit);
+}
+
 bool Simulation::BuildCambuchePiece(const std::string& pieceId) {
     if (pieceId.empty()) return false;
     if (pieceId != "base" && !m_CambucheState.base) return false;

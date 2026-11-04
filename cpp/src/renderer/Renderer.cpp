@@ -128,6 +128,9 @@ void Renderer::BeginScene(const Camera& camera, float time) {
     m_CameraData.cameraPos = camera.GetPosition();
     m_CameraData.time = time;
 
+    m_CameraUBO->BindBase(0);   // con un segundo renderizador (vista previa del cambuche) los puntos de enlace los comparten los dos: cada uno vuelve a enlazar los suyos
+    m_LightUBO->BindBase(1);
+    m_SkinUBO->BindBase(2);
     m_CameraUBO->SetData(&m_CameraData, sizeof(CameraBlockData));
     m_LightUBO->SetData(&m_LightingData, sizeof(LightBlockData));
 

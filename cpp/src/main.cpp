@@ -97,6 +97,7 @@ int main(int argc, char** argv) {
     ui.RenderLoadingScreen(window, 0.06f, "Motor gráfico, audio e interfaz inicializados...",
                           "💡 Consejo: Rebusca en las bolsas de basura de la Séptima para conseguir reciclaje y comida.");
 
+    std::unique_ptr<Renderer> previewRenderer;   // vista previa del cambuche (se crea la primera vez que se abre el menu)
     CityLayout city([&](size_t completed, size_t total, const std::string& stage) {
         const float progress = 0.06f + 0.22f * static_cast<float>(completed) / static_cast<float>(total);
         ui.RenderLoadingScreen(window, progress, stage,
@@ -868,6 +869,7 @@ int main(int argc, char** argv) {
                     else if (name == "radio") ui.OpenRadioMenu(false);
                     else if (name == "crafteo") ui.ToggleCraftMenu();
                     else if (name == "dealer") ui.OpenDealerMenu();
+                    else if (name == "cambuche") ui.OpenCambucheMenu();
                     else if (name == "muerte") ui.ShowDeathScreen("atropello", true, characterManager.GetLook().nombre, "la Calle 7");
                     else if (name == "tienda") ui.OpenShopMenu("Tienda La Esquinita", "Doña Rosa fía, pero solo a los conocidos.");
                     else if (name == "reciclaje") ui.OpenRecyclerMenu();
@@ -2612,8 +2614,8 @@ int main(int argc, char** argv) {
                     const int have = countItem(need.first);
                     enough = enough && have >= need.second;
                     const ItemDef* material = gameData.FindItem(need.first);
-                    if (!requirements.empty()) requirements += " · ";
-                    requirements += (material ? material->name : need.first) + " (" + std::to_string(have) + "/" + std::to_string(need.second) + ")";
+                    if (!requirements.empty()) requirements += ", ";
+                    requirements += (material ? material->name : need.first) + " " + std::to_string(have) + " de " + std::to_string(need.second);
                 }
                 cambuchePieces.push_back({piece.id, piece.name, locked ? "Primero arma la base." : piece.desc,
                                           built || locked ? std::string{} : requirements, built, locked, !built && !locked && enough});
@@ -2622,6 +2624,38 @@ int main(int argc, char** argv) {
         }
 
         ui.EndFrame();
+        {   // vista previa 3D del cambuche en el recuadro del menu: un segundo renderizador pequeno, con su HDR y su tono, solo dentro de ese rectangulo
+            glm::vec4 rect;
+            if (!std::getenv("BAZUKO_SIN_PREVIA") && ui.GetCambuchePreviewRect(rect)) {
+                if (!previewRenderer) previewRenderer = std::make_unique<Renderer>();
+                int framebufferWidth = 0, framebufferHeight = 0;
+                glfwGetFramebufferSize(glfwGetCurrentContext(), &framebufferWidth, &framebufferHeight);
+                const ImVec2 display = ImGui::GetIO().DisplaySize;
+                const float sx = display.x > 0.0f ? static_cast<float>(framebufferWidth) / display.x : 1.0f, sy = display.y > 0.0f ? static_cast<float>(framebufferHeight) / display.y : 1.0f;
+                const int px = static_cast<int>(rect.x * sx), pw = std::max(1, static_cast<int>(rect.z * sx)), ph = std::max(1, static_cast<int>(rect.w * sy));
+                const int py = framebufferHeight - static_cast<int>((rect.y + rect.w) * sy);
+                previewRenderer->SetViewport(px, py, pw, ph);
+                if (std::getenv("BAZUKO_LOG_PREVIA")) LogInfo("PREVIA rect ({}, {}, {}, {}) pantalla {}x{} escala {:.2f}", px, py, pw, ph, framebufferWidth, framebufferHeight, sx);
+                previewRenderer->BeginScaledTarget();
+                LightBlockData& light = previewRenderer->GetLighting();
+                light = renderer.GetLighting();
+                light.lampCount = 0;
+                light.sunDir = glm::normalize(glm::vec3(-0.45f, -0.75f, -0.35f));   // luz de estudio calida desde arriba a la derecha
+                light.sunColor = glm::vec3(1.0f, 0.88f, 0.70f) * 1.6f;
+                light.ambientColor = glm::vec3(0.42f, 0.38f, 0.36f);
+                light.fogDensity = 0.0f;
+                light.fogColor = glm::vec3(0.07f, 0.06f, 0.05f);
+                Camera previewCamera(32.0f, static_cast<float>(pw) / static_cast<float>(ph), 0.1f, 60.0f);
+                const float turn = clock.GetElapsedTime() * 0.5f;
+                previewCamera.LookAt(glm::vec3(std::sin(turn) * 6.2f, 3.4f, std::cos(turn) * 6.2f), glm::vec3(0.0f, 0.95f, 0.0f), glm::vec3(0.0f, 1.0f, 0.0f));
+                previewRenderer->BeginScene(previewCamera, clock.GetElapsedTime());
+                simulation.DrawShelterPreview(*previewRenderer, 0.0f);
+                previewRenderer->EndScene();
+                previewRenderer->EndScaledTarget();
+                if (std::getenv("BAZUKO_LOG_PREVIA")) LogInfo("PREVIA glError {}", static_cast<int>(glGetError()));
+                renderer.SetViewport(0, 0, framebufferWidth, framebufferHeight);
+            }
+        }
 
 
         if (shotPath && glfwGetTime() - shotStart > shotDelay) {

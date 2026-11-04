@@ -1796,6 +1796,8 @@ void UIManager::RenderCambucheMenu(const std::vector<CambuchePieceOption>& piece
 
     // Liberar el ratón mientras el menú está abierto
     Input::SetCursorLocked(false);
+    if (Carton::FontsReady() && !std::getenv("BAZUKO_UI_OSCURA")) { RenderCambucheCarton(pieces, hasBase, isNight); return; }
+    m_CambuchePreviewRect = glm::vec4(0.0f);
 
     using SignUI::Icon;
     SignUI::Fonts fonts = SignUI::GetFonts();   // Overpass como el resto de los menus de lugares del juego web
