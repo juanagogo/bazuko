@@ -6,8 +6,8 @@ Modelos de terceros que usa el port C++ (carpeta `public/models/`). Las licencia
 
 | Modelo | Autor | Licencia | Enlace |
 |---|---|---|---|
-| Toyota Hilux Revo Prerunner 2021 | Asadawut.Kaewma | [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) | https://sketchfab.com/models/04ae6d8e07e84f55a9e1d7e3261be171 |
-| Renault Duster (patrulla de policía) | ANDREO12 | [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) | https://sketchfab.com/3d-models/renault-duster-a253d913f99d4611860e8dd955c476d7 |
+| Hilux Revo Prerunner 2021 | Asadawut.Kaewma | [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) | https://sketchfab.com/models/04ae6d8e07e84f55a9e1d7e3261be171 |
+| Duster (patrulla de policía) | ANDREO12 | [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) | https://sketchfab.com/models/a253d913f99d4611860e8dd955c476d7 |
 
 | Labrador Dog | kenchoo (basado en «Dog» de all of life, según la descripción de la ficha) | [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) | https://sketchfab.com/3d-models/labrador-dog-1f56cfbab07e4fe49b5d9e521c82073a |
 | Guppy Fish | BlueMesh | [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) | https://sketchfab.com/3d-models/guppy-fish-21e14e4b961e406385539f79eacdb1dc |
@@ -29,8 +29,8 @@ Permite usar el modelo gratis en un proyecto. Sketchfab no permite redistribuir 
 | Modelo | Autor | Enlace |
 |---|---|---|
 | Mercedes-Benz SLK 55 AMG (2012) | geyges | https://sketchfab.com/models/03096be29f4d4e5ca3b7291207c002c8 |
-| Volkswagen Crafter | geyges | https://sketchfab.com/models/647fb3d619c645a4b8e62d80db7cab98 |
-| Volkswagen Jetta GLI (2025) | geyges | https://sketchfab.com/models/4adbe6ffcf5246ddac95921cb39bd2bf |
+| Crafter | geyges | https://sketchfab.com/models/647fb3d619c645a4b8e62d80db7cab98 |
+| Jetta GLI (2025) | geyges | https://sketchfab.com/models/4adbe6ffcf5246ddac95921cb39bd2bf |
 
 Los tres se convirtieron a glTF y se separaron en carrocería, ruedas y, en el Mercedes, la puerta del conductor.
 
@@ -42,7 +42,7 @@ Estos modelos no son descargables de forma oficial (licencia «Standard» de pag
 |---|---|---|---|---|
 | Dog - Pitbull (El Chato) | RedDeer | Standard | https://sketchfab.com/models/001fab8be8174ebba05b4d5ae1f22b0c | `chato.glb` |
 | Ford F150 Raptor | codexito | Standard | https://sketchfab.com/models/7a96fa6484744fc9b0a99ad68f710a9a | `vehiculos/raptor*` |
-| Renault 6 | codexito | Standard | https://sketchfab.com/models/9ffb467d90ec44d1a70a97cf7c6093e2 | `vehiculos/renault6*` |
+| R6 clásico | codexito | Standard | https://sketchfab.com/models/9ffb467d90ec44d1a70a97cf7c6093e2 | `vehiculos/r6*` |
 | City Bus | Rescue3D Assets | Standard | https://sketchfab.com/models/51b9602a56a74c458a9bbdf4cd885c86 | (no se usa) |
 | Tesla MODEL X [Animation] | Virtual Studio | Editorial | https://sketchfab.com/models/36e9d3598c554bb69f3d9cd00e161818 | `vehiculos/modelx*` |
 | Transmilenio Bus - Colombian Bus | camilooh | Sin licencia indicada | https://sketchfab.com/models/7e465ccd0f2e4e088f8ebdeb5f575ed5 | `transmilenio/` |
