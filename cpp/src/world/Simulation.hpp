@@ -222,6 +222,7 @@ struct TrafficVehicle {
     bool taxi = false;
     mutable glm::vec3 drawPosition{0.0f};   // pose con la que se dibujo el carro en el ultimo cuadro (sigue la curva del circuito): los faros usan esta
     mutable float drawYaw = 0.0f;
+    float blockedWait = 0.0f;   // s detenido detras de un vehiculo parado (patrulla): al cabo de unos segundos lo rodea
     mutable bool drawValid = false;
     DriverInfo driver;       // quien conduce y que hace
     bool holdStop = false;   // el conductor pidio detenerse (se baja a pelear)
@@ -249,6 +250,7 @@ struct TrafficVehicle {
     float forcingRemaining = 0.0f;   // s restantes de paso forzado tras un atasco
     float stalledTime = 0.0f;   // s seguidos detenido sin semaforo ni peaton
     bool clearForSiren = false;   // una patrulla con sirena viene detras: despeja el cruce sin esperar el semaforo
+    float lateralVelocity = 0.0f;   // m/s del desvio lateral: el carro gira hacia donde se desvia (no se desliza de lado)
     float lateral = 0.0f;         // desvio lateral actual (m, positivo a la derecha) al rodear un vehiculo detenido
     float lateralTarget = 0.0f;   // desvio al que va
     int swerveAround = -1;        // indice del vehiculo detenido que esta rodeando
