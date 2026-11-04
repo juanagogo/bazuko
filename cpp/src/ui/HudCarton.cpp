@@ -126,6 +126,8 @@ void UIManager::RenderHudCarton(const HudContext& c) {
         if (m_RadarSize == 0) dockWidth = 232.0f;
         else if (m_RadarSize == 2) dockWidth = std::clamp(display.x * 0.24f, 300.0f, 420.0f);
         else dockWidth = std::clamp(display.x * 0.18f, 260.0f, 330.0f);
+        const bool compact = display.x < 900.0f || display.y < 520.0f || std::getenv("BAZUKO_HUD_COMPACTO") != nullptr;   // celular acostado (844) o mas chico: filas mas bajas y lo que sube se vuelve ficha
+        if (compact) dockWidth = std::min(dockWidth, display.x < 480.0f ? 168.0f : 206.0f);
         std::vector<std::pair<std::string, bool>> warnings;   // texto, peligro (rojo)
         if (needs[3] <= 10.0f) warnings.push_back({"Salud crítica: usa vendajes o evita los vehículos.", true});
         else if (needs[3] <= 25.0f) warnings.push_back({"Salud baja: usa vendajes y evita los vehículos.", false});
@@ -142,20 +144,24 @@ void UIManager::RenderHudCarton(const HudContext& c) {
                 if (first != std::string::npos) diseases.push_back(part.substr(first, last - first + 1));
             }
         }
-        static const std::array<const char*, 7> labels{{"HAMBRE", "SED", "ENERGÍA", "SALUD", "HIGIENE", "ÁNIMO", "VICIO"}};
-        static const std::array<const char*, 7> glyphs{{"comida", "agua", "rayo", "corazon", "cara", "cara", "fogata"}};
-        static const std::array<const char*, 7> orders{{"a comer", "a beber", "a dormir", "a curarse", "a bañarse", "a calmarse", "a buscar algo"}};
+        static const std::array<const char*, 8> labels{{"HAMBRE", "SED", "ENERGÍA", "SALUD", "HIGIENE", "ÁNIMO", "VICIO", "CALOR"}};
+        static const std::array<const char*, 8> glyphs{{"comida", "agua", "rayo", "corazon", "cara", "cara", "fogata", "termometro"}};
+        static const std::array<const char*, 8> orders{{"a comer", "a beber", "a dormir", "a curarme", "a lavarme", "a calmarme", "me pide", "a la candela"}};
+        const auto valueOf = [&](int need) { return need == 7 ? std::clamp(m_Warmth / 1.8f, 0.0f, 100.0f) : std::clamp(needs[static_cast<size_t>(need)], 0.0f, 100.0f); };
         // Siempre a la vista: salud (un poco mas alta), hambre, sed y energia. Higiene, animo y vicio van recogidos en un boton y suben a la columna
         // cuando bajan de 30 (como en el original: docs/identidad-visual.md, «El HUD»).
         std::vector<int> rows{3, 0, 1, 2};
         const bool extrasLow = needs[4] < 30.0f || needs[5] < 30.0f || needs[6] < 30.0f;
+        std::vector<int> chips;   // en pantallas chicas las recogidas que suben van como ficha: dibujo y cifra
         for (int extra : {4, 5, 6})
-            if (m_NeedsExpanded || needs[static_cast<size_t>(extra)] < 30.0f) rows.push_back(extra);
-        const auto heightOf = [](int need) { return need == 3 ? 36.0f : 29.0f; };
+            if (m_NeedsExpanded || needs[static_cast<size_t>(extra)] < 30.0f) (compact ? chips : rows).push_back(extra);
+        // calor: sube cuando se esta acabando el que ya tienes (o no hay y hace frio); mientras no, solo la linea «Calientito»
+        if (m_Freezing || (m_Warmth > 0.0f && m_Warmth < 20.0f)) rows.push_back(7);
+        const auto heightOf = [&](int need) { return compact ? (need == 3 ? 30.0f : 25.0f) : (need == 3 ? 36.0f : 29.0f); };
         float rowsHeight = 0.0f;
         for (int need : rows) rowsHeight += heightOf(need);
         const float warmthHeight = m_Warmth > 0.0f ? 24.0f : 0.0f;
-        const float needsHeight = 12.0f + rowsHeight + 36.0f + warmthHeight;   // 36: pie con el boton de las recogidas
+        const float needsHeight = 12.0f + rowsHeight + 36.0f + (m_Warmth >= 20.0f ? warmthHeight : 0.0f);   // 36: pie con el boton de las recogidas
         const float radarHeight = m_RadarVisible ? std::round(dockWidth * 3.0f / 4.0f) : 0.0f;
         const float infoHeight = m_RadarVisible ? 46.0f : 0.0f;
         float stackHeight = needsHeight + 10.0f + static_cast<float>(warnings.size() + diseases.size()) * 42.0f;
@@ -178,8 +184,8 @@ void UIManager::RenderHudCarton(const HudContext& c) {
             float rowY = needsMin.y + 10.0f;
             for (int need : rows) {
                 const size_t i = static_cast<size_t>(need);
-                const float value = std::clamp(needs[i], 0.0f, 100.0f);
-                const bool critical = value < 15.0f, low = value < 30.0f;
+                const float value = valueOf(need);
+                const bool critical = need == 7 ? (m_Warmth <= 0.0f) : value < 15.0f, low = need == 7 ? m_Warmth < 20.0f : value < 30.0f;
                 const float height = heightOf(need);
                 const ImVec2 rowMin(needsMin.x + 6.0f, rowY - 2.0f), rowMax(needsMax.x - 8.0f, rowY + height - 3.0f);
                 if (critical) draw->AddRectFilled(rowMin, rowMax, C::kRojo);   // bajo 15 la fila entera pasa a rojo con letra de cinta
@@ -187,7 +193,7 @@ void UIManager::RenderHudCarton(const HudContext& c) {
                 const float mid = rowY + height * 0.5f - 1.0f;
                 C::DrawGlyph(draw, C::Glyph(glyphs[i]), ImVec2(needsMin.x + 22.0f, mid), need == 3 ? 24.0f : 20.0f, ink);
                 C::Text(draw, true, need == 3 ? 17 : 15, ImVec2(needsMin.x + 40.0f, mid - (need == 3 ? 10.0f : 9.0f)), ink, labels[i]);
-                const float barLeft = needsMin.x + 40.0f + (dockWidth > 280.0f ? 82.0f : 66.0f);
+                const float barLeft = needsMin.x + 40.0f + (compact ? 54.0f : dockWidth > 280.0f ? 82.0f : 66.0f);
                 const float barRight = needsMax.x - 62.0f;
                 if (critical) {   // la masa se vuelve una raya y aparece que hacer
                     C::HandLine(draw, ImVec2(barLeft, mid + 7.0f), ImVec2(barRight, mid + 7.0f), 800u + static_cast<unsigned int>(i), 2.5f, C::kCinta);
@@ -212,6 +218,18 @@ void UIManager::RenderHudCarton(const HudContext& c) {
                 const float worstExtra = std::min({needs[4], needs[5], needs[6]});
                 const char* face = worstExtra < 15.0f ? "peligro" : worstExtra < 30.0f ? "enfermo" : worstExtra < 60.0f ? "nauseas" : "cara";
                 const ImVec2 buttonMin(needsMax.x - 14.0f - 54.0f, needsMax.y - 8.0f - 28.0f - warmthHeight * 0.0f), buttonMax(buttonMin.x + 54.0f, buttonMin.y + 28.0f);
+                float chipX = needsMin.x + 10.0f;
+                for (int need : chips) {   // ficha: dibujo y cifra
+                    const float value = valueOf(need);
+                    const bool critical = value < 15.0f;
+                    const ImVec2 chipMin(chipX, buttonMin.y), chipMax(chipX + 48.0f, buttonMin.y + 28.0f);
+                    draw->AddRectFilled(chipMin, chipMax, critical ? C::kRojo : C::kMarcador);
+                    C::DrawGlyph(draw, C::Glyph(glyphs[static_cast<size_t>(need)]), ImVec2(chipMin.x + 13.0f, chipMin.y + 14.0f), 17.0f, C::kCinta);
+                    char number[8];
+                    std::snprintf(number, sizeof(number), "%d", static_cast<int>(value + 0.5f));
+                    C::Text(draw, true, 15, ImVec2(chipMin.x + 25.0f, chipMin.y + 5.0f), C::kCinta, number);
+                    chipX += 52.0f;
+                }
                 ImGui::SetCursorScreenPos(buttonMin);
                 ImGui::PushID("extrasNecesidades");
                 const bool pressed = ImGui::InvisibleButton("##extras", ImVec2(54.0f, 28.0f));
@@ -241,13 +259,13 @@ void UIManager::RenderHudCarton(const HudContext& c) {
     // ---- lo mas urgente: un retazo con la frase en primera persona y lo que se va a hacer (solo uno; otro tiene que ganarle por 8 puntos) ----
     {
         struct Urgent { int id; float weight; const char* phrase; const char* action; };
-        const auto weightOf = [&](float value, float start) { return value < start ? (start - value) * (100.0f / start) : 0.0f; };
         const Urgent candidates[] = {
-            {0, weightOf(needs[1], 25.0f), "TENGO SED", "Busco agua"},
-            {1, weightOf(needs[0], 25.0f), "TENGO HAMBRE", "Busco comida"},
-            {2, weightOf(needs[2], 15.0f) * 0.9f, "NO DOY MÁS", "A dormir"},
-            {3, weightOf(needs[3], 25.0f) * 1.2f, "ESTOY MUY MAL", "Vendaje o a descansar"},
-            {4, weightOf(needs[6], 20.0f), "TENGO MALILLA", "Algo que me calme"},
+            {0, needs[3] <= 30.0f ? 100.0f - needs[3] * 2.0f : 0.0f, "ESTOY MUY MAL", "Busco dónde curarme"},
+            {1, needs[1] <= 20.0f ? 95.0f - needs[1] * 2.5f : 0.0f, "TENGO SED", "Busco agua"},
+            {2, needs[0] <= 20.0f ? 90.0f - needs[0] * 2.5f : 0.0f, "TENGO HAMBRE", "Busco comida"},
+            {3, needs[2] <= 20.0f ? 80.0f - needs[2] * 2.5f : 0.0f, "NO DOY MÁS", "Busco dónde dormir"},
+            {4, m_Freezing && m_Warmth <= 0.0f ? 70.0f : 0.0f, "TENGO FRÍO", "Busco candela o techo"},
+            {5, m_InWithdrawal ? 55.0f : 0.0f, "TENGO MALILLA", "Caminar me cuesta"},
         };
         static int shownId = -1;
         static float shownWeight = 0.0f;
@@ -259,14 +277,14 @@ void UIManager::RenderHudCarton(const HudContext& c) {
         shownId = current ? current->id : -1;
         shownWeight = current ? current->weight : 0.0f;
         (void)shownWeight;
-        if (current && current->weight >= 12.0f) {
+        if (current && current->weight > 0.0f) {
             const float missionBottom = c.objective.empty() ? 14.0f : 14.0f + 80.0f;
             const float width = std::max(C::TextWidth(true, 30, current->phrase), C::TextWidth(false, 18, current->action)) + 44.0f;
             if (BeginHud("##cartonUrgente", ImVec2(display.x * 0.5f, missionBottom + 70.0f), ImVec2(width, 76.0f), ImVec2(0.5f, 0.0f), false)) {
                 ImDrawList* draw = ImGui::GetWindowDrawList();
                 const ImVec2 at = ImGui::GetWindowPos();
                 C::Panel(draw, at, at + ImVec2(width, 76.0f), 55u, 5.0f);
-                const bool grave = current->weight >= 55.0f;
+                const bool grave = current->weight >= 70.0f;
                 if (grave) draw->AddRectFilled(at + ImVec2(4, 4), at + ImVec2(width - 4, 72), C::kRojo);
                 C::Text(draw, true, 30, at + ImVec2(22.0f, 5.0f), grave ? C::kCinta : C::kMarcador, current->phrase);
                 C::Text(draw, false, 18, at + ImVec2(22.0f, 43.0f), grave ? C::kCinta : C::kMarcador, current->action);

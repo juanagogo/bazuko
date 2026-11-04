@@ -348,9 +348,11 @@ private:
     };
 public:
     void SetWarmth(float seconds) { m_Warmth = seconds; }
+    void SetBodyState(bool freezing, bool inWithdrawal) { m_Freezing = freezing; m_InWithdrawal = inWithdrawal; }
 private:
     void RenderWebHud(const HudContext& context);
     void RenderHudCarton(const HudContext& context);
+    bool m_Freezing = false, m_InWithdrawal = false;   // frio de noche con lluvia y sin calor; malilla (para el retazo de lo mas urgente)
     bool m_NeedsExpanded = false;   // higiene, animo y vicio a la vista aunque esten bien (boton del pie de las necesidades)
     float m_Warmth = 0.0f;   // s de calor contra el frio (la comida caliente y el fogon)   // HUD de carton y marcador (HudCarton.cpp)
     std::shared_ptr<Texture> m_MinimapTexture;   // plano del radar, rasterizado una vez

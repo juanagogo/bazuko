@@ -262,6 +262,7 @@ int main(int argc, char** argv) {
     bool playerSwimming = false;     // agua profunda: nada en lugar de caminar
     float swimPhase = 0.0f;          // fase 0..1 de la brazada
     float swimPitch = 0.0f;          // 0 de pie en el agua .. 1 tendido nadando (se suaviza)
+    bool playerFreezing = false;   // frio nocturno con lluvia y sin calor (La Nevera)
     float warmTimer = 0.0f;        // s de calor contra el frio: lo dan la comida caliente y el fogon del cambuche; se guarda
     float playerWetness = 0.0f;    // 0 seco .. 1 empapado: la lluvia moja, el tiempo seca; no se guarda
     float coldCheckTimer = 0.0f;
@@ -919,6 +920,7 @@ int main(int argc, char** argv) {
         static bool wasInWithdrawal = false;
         if (withdrawal > 0.0f && !wasInWithdrawal) ui.Notify("Abstinencia: tu cuerpo pide consumir; vas más lento y el ánimo baja.", ToastType::Warn);
         wasInWithdrawal = withdrawal > 0.0f;
+        ui.SetBodyState(playerFreezing, withdrawal > 0.0f);
         const float psychosisSeverity = std::clamp((withdrawal - 50.0f) / 50.0f, 0.0f, 1.0f);
         float statusSpeedMultiplier = 1.0f;
         if (needs[5] < 30.0f) statusSpeedMultiplier *= 0.8f;
@@ -1034,6 +1036,9 @@ int main(int argc, char** argv) {
             if (nearFire) { warmTimer = std::max(warmTimer, 60.0f); playerWetness = std::max(0.0f, playerWetness - dtClamped / 12.0f); }
             else warmTimer = std::max(0.0f, warmTimer - dtClamped);
             ui.SetWarmth(warmTimer);
+            // «La Nevera» (StatsSystem.js): de noche y con lluvia, sin calor, el frio cala los huesos y gasta la energia
+            playerFreezing = simulation.IsNight() && simulation.IsRaining() && warmTimer <= 0.0f;
+            if (playerFreezing) needs[2] = std::max(0.0f, needs[2] - 0.35f * dtClamped);
         }
         begCooldownRemaining = std::max(0.0f, begCooldownRemaining - dtClamped);
         const float hungerAndThirstDecay = talentEffect("decayMult");
@@ -1084,6 +1089,8 @@ int main(int argc, char** argv) {
         if (needs[0] < 30.0f) moodDecay *= 1.5f;
         if (needs[1] < 30.0f) moodDecay *= 1.5f;
         if (needs[2] < 30.0f) moodDecay *= 1.3f;
+        if (playerFreezing) moodDecay *= 1.25f;
+        if (warmTimer > 0.0f) moodDecay *= 0.8f;
         if (withdrawal > 0.0f) {
             moodDecay *= 1.5f;
             if (criticalWithdrawal) moodDecay *= 2.2f;
