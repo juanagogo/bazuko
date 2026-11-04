@@ -2097,6 +2097,7 @@ void UIManager::RenderMapView(const glm::vec3& playerPos, const CityLayout& city
             draw->AddPolyline(arrow, 4, IM_COL32(11, 79, 163, 255), ImDrawFlags_Closed, 2.0f);
         }
         draw->PopClipRect();
+        if (Carton::FontsReady() && !std::getenv("BAZUKO_UI_OSCURA")) Carton::HandRect(draw, canvasMin + ImVec2(3.0f, 3.0f), canvasMax - ImVec2(3.0f, 3.0f), 140u, IM_COL32(255, 255, 255, 255), 3.0f);   // marco a mano (el blanco se invierte a marcador al dibujar)
         draw->AddRect(canvasMin, canvasMax, IM_COL32(14, 15, 18, 255), 8.0f, 0, 3.0f);
 
         // leyenda (arriba a la izquierda), herramientas (arriba a la derecha) y ayuda (abajo), como .map-view__legend / __tools / __hint
