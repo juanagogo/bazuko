@@ -21,6 +21,11 @@
 namespace Bazuko {
 
 namespace {
+// Posiciones de las canecas con fuego del rincon del dealer respecto a su mesa (x, z)
+constexpr glm::vec2 kDealerBarrels[2] = {{-4.2f, 1.4f}, {4.4f, 2.6f}};
+}
+
+namespace {
 
 constexpr size_t kRainDropCount = 350;   // gotas alrededor del jugador, como el original
 constexpr float kBusLength = 22.0f;       // largo del bus biarticulado (colisiones, frenado y modelo)
@@ -5341,6 +5346,54 @@ void Simulation::Render(Renderer& renderer, float time, const glm::vec3& focusPo
         renderer.Submit(*m_VendorGoods, glm::translate(dealer, {0.18f, 1.10f, 0.0f}),
                         {0.92f, 0.92f, 0.86f, 1.0f});
         renderer.Submit(*m_DealerLantern, glm::translate(dealer, {0.68f, 1.35f, 0.0f}));
+        {   // el rincon: toldos azules sobre camas de carton, canecas con fuego, montones de bolsas, gente tirada y un tendedero de banderines
+            static const std::shared_ptr<Mesh> pole = Mesh::CreateCube({0.06f, 2.1f, 0.06f}, {0.18f, 0.16f, 0.14f, 1.0f});
+            static const std::shared_ptr<Mesh> canopy = Mesh::CreateCube({2.8f, 0.05f, 2.1f}, {0.10f, 0.26f, 0.74f, 1.0f});
+            static const std::shared_ptr<Mesh> bed = Mesh::CreateCube({2.0f, 0.05f, 1.1f}, {0.62f, 0.45f, 0.26f, 1.0f});
+            static const std::shared_ptr<Mesh> mat = Mesh::CreateCube({0.9f, 0.07f, 0.7f}, {0.22f, 0.45f, 0.20f, 1.0f});
+            static const std::shared_ptr<Mesh> barrel = Mesh::CreateCylinder(0.36f, 0.95f, 14, {0.07f, 0.07f, 0.08f, 1.0f});
+            static const std::shared_ptr<Mesh> flame = Mesh::CreateRoundedBox({0.34f, 0.55f, 0.34f}, 0.14f, 2, {1.0f, 0.55f, 0.12f, 1.0f});
+            static const std::shared_ptr<Mesh> sack = Mesh::CreateRoundedBox({0.8f, 0.55f, 0.7f}, 0.26f, 3, {0.04f, 0.04f, 0.05f, 1.0f});
+            static const std::shared_ptr<Mesh> flagLine = Mesh::CreateCube({6.4f, 0.025f, 0.025f}, {0.2f, 0.2f, 0.2f, 1.0f});
+            static const std::shared_ptr<Mesh> flagCloth = Mesh::CreateCube({0.5f, 0.85f, 0.025f}, {1.0f, 1.0f, 1.0f, 1.0f});
+            for (const glm::vec2 tent : {glm::vec2(-3.4f, -2.8f), glm::vec2(3.6f, -3.0f)}) {   // toldo: cuatro palos, la lona un poco inclinada y la cama debajo
+                const glm::mat4 base = glm::translate(dealer, {tent.x, 0.0f, tent.y});
+                for (const float sx : {-1.3f, 1.3f}) for (const float sz : {-0.95f, 0.95f})
+                    renderer.Submit(*pole, glm::translate(base, {sx, 1.05f, sz}));
+                renderer.Submit(*canopy, glm::rotate(glm::translate(base, {0.0f, 2.1f, 0.0f}), 0.07f, glm::vec3(0.0f, 0.0f, 1.0f)), glm::vec4(1.0f), false, true);
+                renderer.Submit(*bed, glm::translate(base, {0.0f, 0.03f, 0.0f}));
+                renderer.Submit(*mat, glm::translate(base, {-0.3f, 0.07f, 0.0f}), glm::vec4(tent.x < 0.0f ? 1.0f : 0.9f, tent.x < 0.0f ? 1.0f : 0.5f, tent.x < 0.0f ? 1.0f : 0.5f, 1.0f));
+            }
+            for (int index = 0; index < 2; ++index) {   // caneca con fuego: el cuerpo oscuro y la llama que titila (sin iluminacion)
+                const glm::mat4 base = glm::translate(dealer, {kDealerBarrels[index].x, 0.0f, kDealerBarrels[index].y});
+                renderer.Submit(*barrel, glm::translate(glm::rotate(base, glm::half_pi<float>(), glm::vec3(1.0f, 0.0f, 0.0f)), glm::vec3(0.0f, 0.0f, -0.48f)));
+                const float flicker = 1.0f + 0.18f * std::sin(time * 9.0f + static_cast<float>(index) * 2.0f) + 0.1f * std::sin(time * 21.0f);
+                renderer.SetUnlit(true);
+                renderer.Submit(*flame, glm::scale(glm::translate(base, {0.0f, 1.05f, 0.0f}), glm::vec3(0.9f, flicker, 0.9f)), glm::vec4(2.0f, 1.0f, 0.3f, 1.0f));
+                renderer.SetUnlit(false);
+            }
+            for (const glm::vec3 pile : {glm::vec3(-3.2f, 0.0f, 0.6f), glm::vec3(-2.7f, 0.0f, 1.1f), glm::vec3(2.4f, 0.0f, 2.0f), glm::vec3(2.9f, 0.0f, 2.4f), glm::vec3(2.6f, 0.45f, 2.2f)})
+                renderer.Submit(*sack, glm::rotate(glm::translate(dealer, pile + glm::vec3(0.0f, 0.3f, 0.0f)), pile.x * 2.1f, glm::vec3(0.0f, 1.0f, 0.0f)));
+            // tendedero con banderines de colores sobre el patio
+            renderer.Submit(*flagLine, glm::translate(dealer, {0.0f, 3.3f, -1.6f}));
+            static const glm::vec3 flags[7] = {{0.75f, 0.08f, 0.10f}, {0.05f, 0.05f, 0.06f}, {0.45f, 0.18f, 0.55f}, {0.92f, 0.52f, 0.08f}, {0.10f, 0.40f, 0.14f}, {0.92f, 0.92f, 0.90f}, {0.12f, 0.30f, 0.72f}};
+            for (int index = 0; index < 7; ++index)
+                renderer.Submit(*flagCloth, glm::translate(dealer, {-2.85f + static_cast<float>(index) * 0.95f, 2.85f, -1.6f}), glm::vec4(flags[index], 1.0f), false, true);
+            // gente: dos tirada en el suelo y una sentada, con los cuerpos de los peatones civiles
+            const size_t civilians = std::min(m_PoliceAppearanceFirst, m_PedestrianAppearances.size());
+            if (civilians > 0) {
+                struct Resident { glm::vec3 offset; float yaw; bool lying; size_t body; };
+                static const Resident residents[3] = {{{-4.6f, 0.0f, -1.2f}, 1.2f, true, 0}, {{4.9f, 0.0f, 0.2f}, -1.7f, true, 1}, {{-1.8f, 0.0f, -4.2f}, 0.4f, false, 2}};
+                for (const Resident& resident : residents) {
+                    const auto& appearance = m_PedestrianAppearances[resident.body % civilians];
+                    const int clip = resident.lying ? appearance.lyingClip : appearance.relaxedClip >= 0 ? appearance.relaxedClip : appearance.idleClip;
+                    if (clip < 0) continue;
+                    glm::mat4 person = glm::rotate(glm::translate(dealer, resident.offset), resident.yaw, glm::vec3(0.0f, 1.0f, 0.0f));
+                    for (const auto& part : appearance.parts)
+                        if (part) part->Draw(renderer, person, glm::vec4(0.7f, 0.68f, 0.66f, 1.0f), resident.lying ? 0.0f : time, true, clip);
+                }
+            }
+        }
         if (!m_PedestrianAppearances.empty()) {
             // el ultimo civil: los uniformes de policia van al final de la lista y no son para el dealer
             const auto& appearance = m_PedestrianAppearances[std::min(m_PoliceAppearanceFirst, m_PedestrianAppearances.size()) > 0 ? std::min(m_PoliceAppearanceFirst, m_PedestrianAppearances.size()) - 1 : 0];
@@ -6080,6 +6133,15 @@ void Simulation::Render(Renderer& renderer, float time, const glm::vec3& focusPo
         }
     }
     (void)time;
+}
+
+int Simulation::GetDealerFireLights(float time, const glm::vec3& focus, std::array<glm::vec4, 2>& lights) const {
+    if (glm::distance(glm::vec2(focus.x, focus.z), glm::vec2(m_DealerPosition.x, m_DealerPosition.z)) > 55.0f) return 0;
+    for (int index = 0; index < 2; ++index) {
+        const float flicker = 0.85f + 0.14f * std::sin(time * 8.0f + static_cast<float>(index) * 2.3f) + 0.08f * std::sin(time * 17.1f + static_cast<float>(index));
+        lights[static_cast<size_t>(index)] = glm::vec4(m_DealerPosition.x + kDealerBarrels[index].x, 1.1f, m_DealerPosition.z + kDealerBarrels[index].y, flicker);
+    }
+    return 2;
 }
 
 void Simulation::DrawShelterPreview(Renderer& renderer, float yaw) const {

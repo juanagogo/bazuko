@@ -515,6 +515,8 @@ public:
     const CambucheState& GetCambucheState() const { return m_CambucheState; }
     // Dibuja el refugio terminado girado `yaw` (vista previa del menu del cambuche); el origen queda en el suelo, centro del refugio
     void DrawShelterPreview(Renderer& renderer, float yaw) const;
+    // Luces de las dos canecas con fuego del rincon del dealer (xyz posicion, w intensidad con el titileo); cuenta 0 si el jugador esta lejos
+    int GetDealerFireLights(float time, const glm::vec3& focus, std::array<glm::vec4, 2>& lights) const;
     void SetCambucheState(const CambucheState& state) { m_CambucheState = state; }
     bool BuildCambuchePiece(const std::string& pieceId);
 

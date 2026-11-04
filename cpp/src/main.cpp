@@ -1930,6 +1930,14 @@ int main(int argc, char** argv) {
                 lighting.lampColor[lighting.lampCount] = glm::vec4(1.0f, 0.52f, 0.18f, 2.2f * fire.w);
                 ++lighting.lampCount;
             }
+            if (std::array<glm::vec4, 2> dealerFires; graphicsQuality > 0) {   // canecas con fuego del rincon del dealer
+                const int count = simulation.GetDealerFireLights(clock.GetElapsedTime(), playerPos, dealerFires);
+                for (int index = 0; index < count && lighting.lampCount < LightBlockData::kMaxLampLights - 4; ++index) {
+                    lighting.lampPosition[lighting.lampCount] = glm::vec4(glm::vec3(dealerFires[static_cast<size_t>(index)]), 9.0f);
+                    lighting.lampColor[lighting.lampCount] = glm::vec4(1.0f, 0.52f, 0.18f, 2.4f * dealerFires[static_cast<size_t>(index)].w);
+                    ++lighting.lampCount;
+                }
+            }
             if (atmosphere.lampPower > 0.2f && graphicsQuality > 0) {   // faros de los vehiculos cercanos (8 en media, 24 en alta)
                 for (const glm::vec4& headlight : simulation.GetHeadlightLights(playerPos, graphicsQuality == 1 ? 5 : 12, 70.0f)) {
                     if (lighting.lampCount >= LightBlockData::kMaxLampLights - 4) break;
