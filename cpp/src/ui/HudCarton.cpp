@@ -146,7 +146,8 @@ void UIManager::RenderHudCarton(const HudContext& c) {
         static const std::array<const char*, 7> glyphs{{"comida", "agua", "rayo", "corazon", "cara", "cara", "fogata"}};
         const int order[7] = {3, 0, 1, 2, 4, 5, 6};   // salud primero, como en el original
         const float rowHeight = 28.0f;
-        const float needsHeight = 12.0f + 7.0f * rowHeight + 6.0f;
+        const float warmthHeight = m_Warmth > 0.0f ? 24.0f : 0.0f;
+        const float needsHeight = 12.0f + 7.0f * rowHeight + 6.0f + warmthHeight;
         const float radarHeight = m_RadarVisible ? std::round(dockWidth * 3.0f / 4.0f) : 0.0f;
         const float infoHeight = m_RadarVisible ? 46.0f : 0.0f;
         float stackHeight = needsHeight + 10.0f + static_cast<float>(warnings.size() + diseases.size()) * 42.0f;
@@ -178,6 +179,11 @@ void UIManager::RenderHudCarton(const HudContext& c) {
                 char number[8];
                 std::snprintf(number, sizeof(number), "%d", static_cast<int>(value + 0.5f));
                 C::Text(draw, true, 18, ImVec2(needsMax.x - 14.0f - C::TextWidth(true, 18, number), rowY), critical ? C::kRojo : C::kMarcador, number);
+            }
+            if (m_Warmth > 0.0f) {   // «Calientito 2:59»: cuanto dura el calor que ya tienes
+                char warm[32];
+                std::snprintf(warm, sizeof(warm), "Calientito %d:%02d", static_cast<int>(m_Warmth) / 60, static_cast<int>(m_Warmth) % 60);
+                C::Text(draw, true, 16, ImVec2(needsMin.x + 14.0f, needsMax.y - 28.0f), C::kMarcador, warm);
             }
             y += needsHeight + 10.0f;
             if (m_RadarVisible) RenderMinimap(c, ImVec2(dockPos.x, y), ImVec2(dockWidth, radarHeight), infoHeight);

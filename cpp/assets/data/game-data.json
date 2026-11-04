@@ -687,7 +687,8 @@
       },
       "effects": {
         "animo": 15
-      }
+      },
+      "calor": 120
     },
     {
       "id": "morcilla",
@@ -709,7 +710,8 @@
       "effects": {
         "energia": 20,
         "animo": 10
-      }
+      },
+      "calor": 180
     },
     {
       "id": "papaCriolla",
@@ -730,7 +732,8 @@
       },
       "effects": {
         "animo": 10
-      }
+      },
+      "calor": 90
     },
     {
       "id": "aguapanela",
@@ -752,7 +755,8 @@
       "effects": {
         "energia": 25,
         "animo": 15
-      }
+      },
+      "calor": 180
     },
     {
       "id": "basuco",

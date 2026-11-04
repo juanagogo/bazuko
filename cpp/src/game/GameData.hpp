@@ -23,6 +23,7 @@ struct ItemDef {
     std::string cure;            // enfermedad que cura
     std::string desc;
     std::string weapon;          // arma cuerpo a cuerpo que se saca al usarlo ("cuchillo", ...), vacio si no es arma
+    float warmth = 0.0f;         // segundos de calor contra el frio que da al consumirlo
     bool recyclable = false;
     bool usable = false;
     bool build = false;

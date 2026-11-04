@@ -346,8 +346,12 @@ private:
         float boostTimer = 0.0f;
         const std::vector<InventoryOption>* inventory = nullptr;
     };
+public:
+    void SetWarmth(float seconds) { m_Warmth = seconds; }
+private:
     void RenderWebHud(const HudContext& context);
-    void RenderHudCarton(const HudContext& context);   // HUD de carton y marcador (HudCarton.cpp)
+    void RenderHudCarton(const HudContext& context);
+    float m_Warmth = 0.0f;   // s de calor contra el frio (la comida caliente y el fogon)   // HUD de carton y marcador (HudCarton.cpp)
     std::shared_ptr<Texture> m_MinimapTexture;   // plano del radar, rasterizado una vez
     void RenderMinimap(const HudContext& context, ImVec2 origin, ImVec2 size, float infoHeight);
     void RenderInventoryWindow(const std::vector<InventoryOption>& items, float weight, float capacity);

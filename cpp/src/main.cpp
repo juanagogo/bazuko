@@ -262,6 +262,7 @@ int main(int argc, char** argv) {
     bool playerSwimming = false;     // agua profunda: nada en lugar de caminar
     float swimPhase = 0.0f;          // fase 0..1 de la brazada
     float swimPitch = 0.0f;          // 0 de pie en el agua .. 1 tendido nadando (se suaviza)
+    float warmTimer = 0.0f;        // s de calor contra el frio: lo dan la comida caliente y el fogon del cambuche; se guarda
     float playerWetness = 0.0f;    // 0 seco .. 1 empapado: la lluvia moja, el tiempo seca; no se guarda
     float coldCheckTimer = 0.0f;
     bool radioOn = false;          // radio transistor: encendida, volumen propio y bateria (100 % dura unos 40 min)
@@ -359,6 +360,7 @@ int main(int argc, char** argv) {
                         if (savedHotbar[slot].empty() || gameData.FindItem(savedHotbar[slot])) hotbar[slot] = savedHotbar[slot];
                 }
                 equippedWeapon = state.value("equippedWeapon", std::string{});
+                warmTimer = std::clamp(state.value("warmTimer", 0.0f), 0.0f, 900.0f);
                 if (!equippedWeapon.empty() && !FindWeapon(equippedWeapon)) equippedWeapon.clear();
                 companionName = state.value("companionName", companionName);
                 companionCoat = std::clamp(state.value("companionCoat", 0), 0, 3);
@@ -470,6 +472,7 @@ int main(int argc, char** argv) {
         state["bigSack"] = bigSack;
         state["hotbar"] = hotbar;
         state["equippedWeapon"] = equippedWeapon;
+        state["warmTimer"] = warmTimer;
         state["graphicsQuality"] = graphicsQuality;
         state["radio"] = {{"on", radioOn}, {"volume", radioVolume}, {"battery", radioBattery}, {"station", ui.SelectedRadioStationId()}};
         state["talents"] = std::vector<std::string>(unlockedTalents.begin(), unlockedTalents.end());
@@ -537,6 +540,7 @@ int main(int argc, char** argv) {
         bigSack = false;
         hotbar = {};
         equippedWeapon.clear();
+        warmTimer = 0.0f;
         radioOn = false;
         radioBattery = 100.0f;
         unlockedTalents.clear();
@@ -703,6 +707,7 @@ int main(int argc, char** argv) {
     const auto applyItemEffect = [&](const Item& item) {
         if (item.consumableNeed >= 0) {
             const size_t needIndex = static_cast<size_t>(item.consumableNeed);
+            if (item.warmth > 0.0f) warmTimer = std::min(900.0f, warmTimer + item.warmth);
             needs[needIndex] = std::clamp(needs[needIndex] + item.amount, 0.0f, 100.0f);
             for (size_t need = 0; need < needs.size(); ++need)
                 needs[need] = std::clamp(needs[need] + item.deltas[need], 0.0f, 100.0f);
@@ -1023,6 +1028,13 @@ int main(int argc, char** argv) {
         }
 
         const float dtClamped = std::max(0.0f, dt);
+        {   // calor: se gasta con el tiempo; junto al fogon encendido del cambuche se mantiene y la ropa mojada se seca mas rapido
+            glm::vec4 fire;
+            const bool nearFire = simulation.GetCambucheFireLight(0.0f, playerPos, fire) && glm::distance(glm::vec2(playerPos.x, playerPos.z), glm::vec2(fire.x, fire.z)) < 3.6f;
+            if (nearFire) { warmTimer = std::max(warmTimer, 60.0f); playerWetness = std::max(0.0f, playerWetness - dtClamped / 12.0f); }
+            else warmTimer = std::max(0.0f, warmTimer - dtClamped);
+            ui.SetWarmth(warmTimer);
+        }
         begCooldownRemaining = std::max(0.0f, begCooldownRemaining - dtClamped);
         const float hungerAndThirstDecay = talentEffect("decayMult");
         needs[0] = std::max(0.0f, needs[0] - (100.0f / 7200.0f) * dtClamped * hungerAndThirstDecay);
@@ -1047,7 +1059,7 @@ int main(int argc, char** argv) {
                 coldCheckTimer += dtClamped;
                 if (coldCheckTimer >= 20.0f) {
                     coldCheckTimer = 0.0f;
-                    const float chance = 0.04f * (simulation.IsNight() ? 1.6f : 1.0f) * talentEffect("diseaseResist")
+                    const float chance = 0.04f * (simulation.IsNight() ? 1.6f : 1.0f) * (warmTimer > 0.0f ? 0.2f : 1.0f) * talentEffect("diseaseResist")
                         * characterManager.GetDiseaseResistance();
                     const bool hasCold = std::any_of(diseases.begin(), diseases.end(), [](const DiseaseState& disease) { return disease.id == "gripe"; });
                     if (!hasCold && std::uniform_real_distribution<float>(0.0f, 1.0f)(lootRandom) < chance) {

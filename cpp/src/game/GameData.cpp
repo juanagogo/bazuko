@@ -92,6 +92,7 @@ std::optional<GameData> GameData::LoadFromFile(const std::string& path, std::str
             item.build = source.value("build", false);
             item.substance = source.value("substance", false);
             item.portOnly = source.value("portOnly", false);
+            item.warmth = source.value("calor", 0.0f);
             if (source.contains("consumable")) {
                 item.consumableNeed = NeedIndex(source["consumable"].at("stat").get<std::string>());
                 item.amount = source["consumable"].at("amount").get<float>();
@@ -176,6 +177,10 @@ std::string DescribeItemEffects(const ItemDef& item) {
         const float amount = item.deltas[static_cast<size_t>(need)];
         if (amount == 0.0f || need == item.consumableNeed) continue;
         std::snprintf(buffer, sizeof(buffer), "%+.0f %s", amount, kNeedLabels[need]);
+        add(buffer);
+    }
+    if (item.warmth > 0.0f) {
+        std::snprintf(buffer, sizeof(buffer), "calor +%.0f min", item.warmth / 60.0f);
         add(buffer);
     }
     return text;
