@@ -4955,8 +4955,18 @@ void Simulation::Render(Renderer& renderer, float time, const glm::vec3& focusPo
             if (distance > glowRange) continue;
             const glm::vec3 at = LampBulbPosition(lamp);
             // bombilla: lente pequena y muy brillante (por encima de 1 para que el realce la haga florecer)
-            renderer.Submit(*m_LampBulb, glm::scale(glm::translate(glm::mat4(1.0f), at), glm::vec3(0.8f)), glm::vec4(2.2f, 1.75f, 1.1f, 1.0f));
+            {   // luminaria alargada a lo largo del brazo (cabeza de cobra): lente plana y brillante que se ve desde abajo
+                glm::mat4 head = glm::translate(glm::mat4(1.0f), at + glm::vec3(0.0f, -0.05f, 0.0f));
+                head = glm::rotate(head, lamp.yaw, glm::vec3(0.0f, 1.0f, 0.0f));
+                renderer.Submit(*m_LampBulb, glm::scale(head, glm::vec3(2.1f, 0.34f, 1.15f)), glm::vec4(2.4f, 1.9f, 1.2f, 1.0f));
+            }
             if (!m_SoftDisc) continue;
+            if (distance < 75.0f) {   // charco de luz amarillo sobre el suelo bajo la luminaria, como en la foto de la farola con nieve
+                const glm::vec3 floor(at.x, lamp.position.y + 0.05f, at.z);
+                const glm::mat4 flat(glm::vec4(1.0f, 0.0f, 0.0f, 0.0f), glm::vec4(0.0f, 0.0f, -1.0f, 0.0f), glm::vec4(0.0f, 1.0f, 0.0f, 0.0f), glm::vec4(floor, 1.0f));
+                renderer.Submit(*m_SoftDisc, glm::scale(flat, glm::vec3(5.2f)), glm::vec4(1.0f, 0.74f, 0.30f, 0.34f * m_LampGlow * (1.0f - AtmosphereSmoothstep(45.0f, 75.0f, distance))), false, true, nullptr, 2, 0.0f);
+                renderer.Submit(*m_SoftDisc, glm::scale(flat, glm::vec3(2.4f)), glm::vec4(1.0f, 0.82f, 0.40f, 0.30f * m_LampGlow * (1.0f - AtmosphereSmoothstep(45.0f, 75.0f, distance))), false, true, nullptr, 2, 0.0f);
+            }
             // dos resplandores redondos que miran a la camara: un nucleo caliente y un halo ancho y suave que crece con la distancia (se ve desde lejos)
             const glm::vec3 z = glm::normalize(eye - at);
             glm::vec3 x = glm::cross(glm::vec3(0.0f, 1.0f, 0.0f), z);

@@ -781,7 +781,7 @@ int main(int argc, char** argv) {
         if (std::getenv("BAZUKO_DOG_FRIEND")) simulation.BefriendDog();   // pruebas: El Chato ya es amigo (se puede acariciar)
         if (const char* weather = std::getenv("BAZUKO_WEATHER")) simulation.ForceWeather(static_cast<Climate::Weather>(std::clamp(std::atoi(weather), 0, Climate::kWeatherCount - 1)));   // pruebas: 0 soleado .. 6 tormenta
         if (const char* hour = std::getenv("BAZUKO_HOUR")) simulation.SetDayProgress(static_cast<float>(std::atof(hour)) / 24.0f);   // pruebas: hora del dia
-        camera.SetOrbit(envFloat("BAZUKO_YAW", camera.GetYaw()), envFloat("BAZUKO_PITCH", 0.22f), envFloat("BAZUKO_DIST", 4.4f));
+        camera.SetOrbit(envFloat("BAZUKO_YAW", camera.GetYaw()), envFloat("BAZUKO_PITCH", 0.22f), envFloat("BAZUKO_DIST", 5.5f));
     } else {
         ui.OpenDeveloperNote();
         // pruebas: hora y clima tambien al jugar normal (sin captura)
@@ -1901,7 +1901,7 @@ int main(int argc, char** argv) {
                 const size_t lampBudget = graphicsQuality == 0 ? 28 : graphicsQuality == 1 ? 84 : static_cast<size_t>(LightBlockData::kMaxLampLights) - 24;   // el resto de casillas es para balizas y faros de los vehiculos
                 for (const glm::vec4& lamp : simulation.GetNearestLampLights(playerPos, lampBudget, 110.0f)) {
                     lighting.lampPosition[lighting.lampCount] = glm::vec4(glm::vec3(lamp), 18.0f);
-                    lighting.lampColor[lighting.lampCount] = glm::vec4(1.0f, 0.78f, 0.45f, 2.4f * atmosphere.lampPower * lamp.w);
+                    lighting.lampColor[lighting.lampCount] = glm::vec4(1.0f, 0.74f, 0.36f, 3.3f * atmosphere.lampPower * lamp.w);
                     ++lighting.lampCount;
                 }
             }
@@ -2189,7 +2189,7 @@ int main(int argc, char** argv) {
             lightBeams.Render(renderer, beams, damp * dark);
             {   // cono de luz de las farolas: columna calida y suave bajo cada una (como el aire con bruma de noche), mas marcada con humedad
                 std::vector<LightBeams::Beam> lampCones;
-                for (const glm::vec4& lamp : simulation.GetNearestLampLights(playerPos, graphicsQuality == 1 ? 10 : 24, 70.0f))
+                for (const glm::vec4& lamp : simulation.GetNearestLampLights(playerPos, graphicsQuality == 1 ? 18 : 44, 80.0f))
                     lampCones.push_back({glm::vec3(lamp), glm::vec3(0.0f, -0.999f, 0.0f), 7.0f, 3.6f});
                 lightBeams.Render(renderer, lampCones, dark * (0.20f + 0.60f * damp), glm::vec3(1.0f, 0.74f, 0.40f));
             }
