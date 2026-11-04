@@ -2187,6 +2187,12 @@ int main(int argc, char** argv) {
                 beams.push_back({headlight.position, headlight.direction, 18.0f, 2.6f});
             if (std::getenv("BAZUKO_LOG_BEAMS")) LogInfo("Haces: {} visibilidad {:.2f} (aire {:.2f}, oscuridad {:.2f})", beams.size(), damp * dark, damp, dark);
             lightBeams.Render(renderer, beams, damp * dark);
+            {   // cono de luz de las farolas: columna calida y suave bajo cada una (como el aire con bruma de noche), mas marcada con humedad
+                std::vector<LightBeams::Beam> lampCones;
+                for (const glm::vec4& lamp : simulation.GetNearestLampLights(playerPos, graphicsQuality == 1 ? 10 : 24, 70.0f))
+                    lampCones.push_back({glm::vec3(lamp), glm::vec3(0.0f, -0.999f, 0.0f), 7.0f, 3.6f});
+                lightBeams.Render(renderer, lampCones, dark * (0.20f + 0.60f * damp), glm::vec3(1.0f, 0.74f, 0.40f));
+            }
         }
         lake.DrawSurface(renderer, clock.GetElapsedTime());   // al final: el agua translucida deja ver al jugador y a los peces sumergidos
         renderer.EndScene();

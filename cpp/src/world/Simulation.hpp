@@ -723,6 +723,7 @@ private:
     std::shared_ptr<Mesh> m_LampBulb;
     std::shared_ptr<Mesh> m_LampHalo;
     std::array<std::shared_ptr<Mesh>, 10> m_SignalDigits;   // digitos de matriz de puntos de los contadores del semaforo
+    std::shared_ptr<Mesh> m_SoftDisc;   // resplandor redondo sin estelas (farolas)
     std::shared_ptr<Mesh> m_GlowDisc;   // brillo de los faros: disco radial difuso con estelas en cruz, siempre mirando a la camara
     std::vector<StreetLamp> m_StreetLamps;
     std::vector<PropCollider> m_PropColliders;

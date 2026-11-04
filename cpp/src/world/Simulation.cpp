@@ -1002,6 +1002,7 @@ Simulation::Simulation(const CityLayout& city, uint32_t seed,
             }
             previous = current;
         }
+        m_SoftDisc = std::make_shared<Mesh>(vertices, indices);   // hasta aqui: solo el resplandor
         for (int streak = 0; streak < 4; ++streak) {   // estelas: rombos finos (las diagonales mas cortas), brillan en el centro y se apagan en la punta
             const float angle = (streak == 0 ? 0.0f : streak == 1 ? 1.5707963f : streak == 2 ? 0.7853982f : 2.3561945f) + 0.12f;
             const float length = streak < 2 ? 2.6f : 1.5f, width = 0.05f, peak = streak < 2 ? 0.55f : 0.32f;
@@ -4948,14 +4949,27 @@ void Simulation::Render(Renderer& renderer, float time, const glm::vec3& focusPo
     if (m_LampGlow > 0.05f) {
         const float glowRange = 190.0f;
         renderer.SetUnlit(true);
+        const glm::vec3 eye = renderer.GetCameraPosition();
         for (const auto& lamp : m_StreetLamps) {
             const float distance = glm::distance(glm::vec2(lamp.position.x, lamp.position.z), glm::vec2(focusPosition.x, focusPosition.z));
             if (distance > glowRange) continue;
-            const glm::mat4 bulb = glm::translate(glm::mat4(1.0f), LampBulbPosition(lamp));
-            renderer.Submit(*m_LampBulb, bulb, glm::vec4(1.0f, 0.9f, 0.62f, 1.0f));
-            // el halo es pequeno de cerca (para que no se vea como un bloque) y crece con la distancia
-            const float haloScale = 0.3f + 0.9f * AtmosphereSmoothstep(6.0f, 70.0f, distance);
-            renderer.Submit(*m_LampHalo, glm::scale(bulb, glm::vec3(haloScale)), glm::vec4(1.0f, 0.78f, 0.45f, 0.16f * m_LampGlow), false, false, nullptr, 2);
+            const glm::vec3 at = LampBulbPosition(lamp);
+            // bombilla: lente pequena y muy brillante (por encima de 1 para que el realce la haga florecer)
+            renderer.Submit(*m_LampBulb, glm::scale(glm::translate(glm::mat4(1.0f), at), glm::vec3(0.8f)), glm::vec4(2.2f, 1.75f, 1.1f, 1.0f));
+            if (!m_SoftDisc) continue;
+            // dos resplandores redondos que miran a la camara: un nucleo caliente y un halo ancho y suave que crece con la distancia (se ve desde lejos)
+            const glm::vec3 z = glm::normalize(eye - at);
+            glm::vec3 x = glm::cross(glm::vec3(0.0f, 1.0f, 0.0f), z);
+            if (glm::dot(x, x) < 1.0e-6f) x = glm::vec3(1.0f, 0.0f, 0.0f);
+            x = glm::normalize(x);
+            const glm::vec3 y = glm::cross(z, x);
+            const float farAway = AtmosphereSmoothstep(6.0f, 90.0f, distance);
+            const auto disc = [&](float radius, const glm::vec4& color, float push) {
+                const glm::mat4 facing(glm::vec4(x, 0.0f), glm::vec4(y, 0.0f), glm::vec4(z, 0.0f), glm::vec4(at + z * push, 1.0f));
+                renderer.Submit(*m_SoftDisc, glm::scale(facing, glm::vec3(radius)), color, false, true, nullptr, 2, 0.0f);
+            };
+            disc(0.40f + 0.55f * farAway, glm::vec4(1.0f, 0.86f, 0.56f, 0.95f * m_LampGlow), 0.10f);
+            disc(1.6f + 3.4f * farAway, glm::vec4(1.0f, 0.68f, 0.34f, 0.38f * m_LampGlow), 0.05f);
         }
         renderer.SetUnlit(false);
     }

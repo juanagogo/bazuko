@@ -61,16 +61,16 @@ public:
     }
 
     // `visibility` 0..1: cuanto se ve el haz (aire humedo y poca luz)
-    void Render(Renderer& renderer, const std::vector<Beam>& beams, float visibility) const {
+    void Render(Renderer& renderer, const std::vector<Beam>& beams, float visibility, const glm::vec3& tint = glm::vec3(1.0f)) const {
         if (visibility < 0.04f || beams.empty()) return;
         renderer.SetUnlit(true);
         for (const Beam& beam : beams) {
             const float yaw = std::atan2(beam.direction.x, beam.direction.z);
             glm::mat4 model = glm::translate(glm::mat4(1.0f), beam.position);
             model = glm::rotate(model, yaw, glm::vec3(0.0f, 1.0f, 0.0f));
-            model = glm::rotate(model, 0.07f, glm::vec3(1.0f, 0.0f, 0.0f));   // cae un poco hacia la calle
+            model = glm::rotate(model, 0.07f + std::asin(std::clamp(-beam.direction.y, -1.0f, 1.0f)), glm::vec3(1.0f, 0.0f, 0.0f));   // cae un poco hacia la calle; las farolas apuntan hacia abajo
             model = glm::scale(model, glm::vec3(beam.radius, beam.radius * 0.5f, beam.length));   // el haz es mas ancho que alto: se abre hacia los lados
-            renderer.Submit(*m_Cone, model, glm::vec4(1.0f, 1.0f, 1.0f, 0.55f * visibility), false, true, nullptr, 2, 0.0f);
+            renderer.Submit(*m_Cone, model, glm::vec4(tint, 0.55f * visibility), false, true, nullptr, 2, 0.0f);
         }
         renderer.SetUnlit(false);
     }
