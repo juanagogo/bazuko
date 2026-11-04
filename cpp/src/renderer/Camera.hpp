@@ -59,7 +59,7 @@ private:
 
     float m_Yaw = -glm::half_pi<float>();
     float m_Pitch = 0.22f;
-    float m_Distance = 5.5f;
+    float m_Distance = 4.4f;
 
     float m_SmoothHeight = 0.0f;   // altura suavizada del objetivo
     bool m_SmoothHeightReady = false;
