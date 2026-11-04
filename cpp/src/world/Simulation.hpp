@@ -579,6 +579,7 @@ private:
     void UpdatePickups(float dt, const glm::vec3& playerPosition);
     void UpdatePigeons(float dt, const glm::vec3& playerPosition);
     void BuildBirdSpots();
+    void BuildStreetFurniture();   // bancas en parques y plazas y motos parqueadas en los andenes (deterministas)
     void UpdateRats(float dt, const glm::vec3& playerPosition);
     void UpdatePoop(float dt);
 
@@ -778,6 +779,8 @@ private:
     size_t m_PoopHitCount = 0;
     std::vector<TrafficSignal> m_TrafficSignals;
     std::vector<glm::vec3> m_TreePositions;
+    struct FurniturePiece { glm::vec3 position; float yaw; };
+    std::vector<FurniturePiece> m_Benches, m_ParkedMotos;
     float m_TreeRange = 60.0f;   // distancia maxima a la que se dibujan los arboles (segun la calidad grafica)
     std::vector<glm::vec3> m_GrassPositions;
     std::array<std::vector<glm::vec3>, 3> m_ParkGrassPositions;

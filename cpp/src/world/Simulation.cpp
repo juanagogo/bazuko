@@ -1716,6 +1716,7 @@ Simulation::Simulation(const CityLayout& city, uint32_t seed,
     m_DealerPosition = {cityData.dealer.x, 0.15f, cityData.dealer.y};
     BuildPropColliders();
     BuildBirdSpots();
+    BuildStreetFurniture();
 }
 
 void Simulation::BuildPropColliders() {
@@ -2629,6 +2630,43 @@ std::vector<Model::BoneTurn> Simulation::BuildDogPose() const {
     turn("cola_2", 0.15f * lie, std::sin(m_DogTime * rate - 0.6f) * mood * 0.7f * (1.0f - lie * 0.8f) + lie * 0.35f);
     turn("cola_3", 0.0f, std::sin(m_DogTime * rate - 1.2f) * mood * 0.8f * (1.0f - lie * 0.8f) + lie * 0.3f);
     return turns;
+}
+
+void Simulation::BuildStreetFurniture() {
+    const auto worldOf = [](int tile, float origin) { return (static_cast<float>(tile) + 0.5f) * CityLayout::TILE_SIZE - origin; };
+    const auto hashOf = [](int x, int z) { uint32_t h = static_cast<uint32_t>(x * 73856093) ^ static_cast<uint32_t>(z * 19349663); h ^= h >> 13; h *= 0x5bd1e995u; return h ^ (h >> 15); };
+    constexpr int kOffsets[4][2] = {{1, 0}, {-1, 0}, {0, 1}, {0, -1}};
+    for (int z = 1; z < CityLayout::HEIGHT - 1; ++z) {
+        for (int x = 1; x < CityLayout::WIDTH - 1; ++x) {
+            const TileType type = m_City.GetTileAt(x, z);
+            const uint32_t h = hashOf(x, z);
+            if ((type == TileType::Grass || type == TileType::Plaza) && h % 23 == 0 && m_Benches.size() < 70) {
+                // banca en el parque o la plaza, de cara al anden que la bordea
+                for (const auto& offset : kOffsets) {
+                    if (m_City.GetTileAt(x + offset[0], z + offset[1]) != TileType::Sidewalk) continue;
+                    const float bx = worldOf(x, CityLayout::ORIGIN_X), bz = worldOf(z, CityLayout::ORIGIN_Z);
+                    if (m_City.IsBlocked(bx, bz, 0.9f) || m_City.IsRoad(bx, bz)) break;
+                    m_Benches.push_back({{bx, m_City.GetGroundHeight(bx, bz), bz}, std::atan2(static_cast<float>(offset[0]), static_cast<float>(offset[1]))});
+                    break;
+                }
+            } else if (type == TileType::Sidewalk && h % 41 == 0 && m_ParkedMotos.size() < 40) {
+                // dos motos juntas en el anden, paralelas a la calzada que lo bordea
+                for (const auto& offset : kOffsets) {
+                    if (m_City.GetTileAt(x + offset[0], z + offset[1]) != TileType::Road) continue;
+                    const float mx = worldOf(x, CityLayout::ORIGIN_X) - static_cast<float>(offset[0]) * 0.35f, mz = worldOf(z, CityLayout::ORIGIN_Z) - static_cast<float>(offset[1]) * 0.35f;
+                    if (m_City.IsBlocked(mx, mz, 0.7f)) break;
+                    const float along = offset[0] != 0 ? 0.0f : glm::half_pi<float>();   // la moto se alinea con la calzada
+                    m_ParkedMotos.push_back({{mx, m_City.GetGroundHeight(mx, mz), mz}, along});
+                    break;
+                }
+            }
+        }
+    }
+    LogInfo("Mobiliario de calle: {} bancas y {} motos parqueadas", m_Benches.size(), m_ParkedMotos.size());
+    if (std::getenv("BAZUKO_LOG_MOBILIARIO")) {
+        for (size_t i = 0; i < std::min<size_t>(m_Benches.size(), 6); ++i) LogInfo("BANCA {:.1f} {:.1f}", m_Benches[i].position.x, m_Benches[i].position.z);
+        for (size_t i = 0; i < std::min<size_t>(m_ParkedMotos.size(), 6); ++i) LogInfo("MOTO {:.1f} {:.1f}", m_ParkedMotos[i].position.x, m_ParkedMotos[i].position.z);
+    }
 }
 
 void Simulation::BuildBirdSpots() {
@@ -5030,6 +5068,27 @@ void Simulation::Render(Renderer& renderer, float time, const glm::vec3& focusPo
             m_GrassModel->Draw(renderer, grass * m_GrassModelFit,
                                glm::vec4(0.35f, 0.58f, 0.25f, 1.0f));
             renderer.SetGrass(false);
+        }
+    }
+    {   // bancas y motos parqueadas cercanas
+        static const std::shared_ptr<Mesh> plank = Mesh::CreateCube({1.7f, 0.05f, 0.14f}, {0.55f, 0.32f, 0.14f, 1.0f});
+        static const std::shared_ptr<Mesh> leg = Mesh::CreateCube({0.05f, 0.45f, 0.5f}, {0.10f, 0.11f, 0.12f, 1.0f});
+        for (const FurniturePiece& bench : m_Benches) {
+            if (glm::distance(glm::vec2(bench.position.x, bench.position.z), glm::vec2(focusPosition.x, focusPosition.z)) > 70.0f) continue;
+            const glm::mat4 base = glm::rotate(glm::translate(glm::mat4(1.0f), bench.position), bench.yaw, glm::vec3(0.0f, 1.0f, 0.0f));
+            for (const float side : {-0.8f, 0.8f}) renderer.Submit(*leg, glm::translate(base, {side, 0.23f, 0.0f}));
+            for (int i = 0; i < 3; ++i) renderer.Submit(*plank, glm::translate(base, {0.0f, 0.46f, -0.2f + 0.2f * static_cast<float>(i)}));   // asiento
+            for (int i = 0; i < 2; ++i) renderer.Submit(*plank, glm::rotate(glm::translate(base, {0.0f, 0.72f + 0.17f * static_cast<float>(i), -0.34f}), -0.15f, glm::vec3(1.0f, 0.0f, 0.0f)));   // respaldo
+        }
+        if (m_EmergencyModels[2]) {   // el modelo de la moto de la policia, sin pintura de servicio, como moto civil parqueada
+            for (const FurniturePiece& moto : m_ParkedMotos) {
+                if (glm::distance(glm::vec2(moto.position.x, moto.position.z), glm::vec2(focusPosition.x, focusPosition.z)) > 60.0f) continue;
+                for (int pair = 0; pair < 2; ++pair) {
+                    glm::mat4 at = glm::translate(glm::mat4(1.0f), moto.position + glm::vec3(std::sin(moto.yaw) * 0.0f, 0.0f, 0.0f) + glm::vec3(pair == 0 ? 0.0f : 0.5f * std::cos(moto.yaw), 0.0f, pair == 0 ? 0.0f : -0.5f * std::sin(moto.yaw)));
+                    at = glm::rotate(at, moto.yaw + (pair == 0 ? 0.0f : 0.25f), glm::vec3(0.0f, 1.0f, 0.0f));
+                    m_EmergencyModels[2]->Draw(renderer, at * m_EmergencyFits[2], glm::vec4(0.55f, 0.58f, 0.62f, 1.0f));
+                }
+            }
         }
     }
     // el viento (Climate) mece los arboles: brisa suave siempre y mas amplitud con vientos fuertes
