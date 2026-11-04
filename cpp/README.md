@@ -355,3 +355,5 @@ Limites: el renderer solo usa la textura de color (no la normal ni la ORM del mo
 
 **Modelos excluidos por defecto.** El Pitbull de El Chato (sustituido por el Labrador), el Raptor, el Renault 6, el Model X y el Transmilenio articulado no tienen permiso de redistribución: el port no los carga ni dependen de ellos la compilación ni las pruebas. Si colocas copias con licencia en `public/models/`, `BAZUKO_MODELOS_RESTRINGIDOS=1` las activa; sin la variable se usan los modelos de respaldo.
 
+
+**Andar y correr nuevos.** `Walk` y `Run` usan ahora los clips `walk_mixamo` y `run_mixamo` del banco, tomados del juego original (`andar-cansado.glb`, clips de Mixamo) y reorientados hueso por hueso al esqueleto del port con `cpp/tools/agregar_correr_mixamo.py` (Blender sin interfaz); la cadera solo sube y baja, el avance lo controla el juego. `BAZUKO_ANDAR_ANTERIOR=1` vuelve a los clips anteriores. Los clips de Mixamo se pueden usar en juegos, pero Adobe no permite redistribuirlos sueltos.
