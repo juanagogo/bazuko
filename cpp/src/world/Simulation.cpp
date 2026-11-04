@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <array>
 #include "SignalModel.hpp"
+#include "BusetaModel.hpp"
 #include <cmath>
 #include <filesystem>
 #include "../character/CharacterAnimations.hpp"
@@ -977,6 +978,8 @@ Simulation::Simulation(const CityLayout& city, uint32_t seed,
     m_StreetLampPole = Mesh::CreateCube({0.10f, 3.2f, 0.10f}, {0.22f, 0.23f, 0.24f, 1.0f});
     m_StreetLampHead = Mesh::CreateCube({0.44f, 0.10f, 0.18f}, {0.88f, 0.76f, 0.48f, 1.0f});
     m_LampBulb = Mesh::CreateRoundedBox({0.32f, 0.32f, 0.32f}, 0.15f, 3, {1.0f, 1.0f, 1.0f, 1.0f});
+    m_BusetaMesh = BusetaModel::Build();
+    m_BusetaWheel = Mesh::CreateCylinder(BusetaModel::kWheelRadius, 0.25f, 18, {0.05f, 0.05f, 0.06f, 1.0f});
     m_LampHalo = Mesh::CreateRoundedBox({2.2f, 2.2f, 2.2f}, 1.05f, 4, {1.0f, 1.0f, 1.0f, 1.0f});
     {   // brillo de faro: nucleo + resplandor gaussiano (anillos) y cuatro estelas finas; mira a +Z, radio 1
         std::vector<Vertex> vertices;
@@ -1612,6 +1615,15 @@ Simulation::Simulation(const CityLayout& city, uint32_t seed,
                     vehicle.width = kind == 1 ? 2.4f : kind == 2 ? 2.1f : 0.9f;
                     vehicle.cruiseSpeed = 3.0f + m_Unit(m_Random) * 1.0f;
                 }
+            }
+            if (vehicle.emergency == 0 && m_Traffic.size() % 12 == 7) {   // una de cada doce unidades es una buseta de ruta, un poco mas lenta
+                vehicle.buseta = true;
+                vehicle.taxi = false;
+                vehicle.mirrorsAvailable = false;
+                vehicle.length = BusetaModel::kLength;
+                vehicle.width = BusetaModel::kWidth;
+                vehicle.wheelbase = BusetaModel::kFrontAxle - BusetaModel::kRearAxle;
+                vehicle.cruiseSpeed = 2.8f + m_Unit(m_Random) * 0.6f;
             }
             AssignVehicleModel(vehicle);
             if (vehicle.emergency == 2) LogInfo("Patrulla de policia en el circuito {} (vehiculo {})", routeIndex, m_Traffic.size());
@@ -2649,7 +2661,7 @@ void Simulation::BuildStreetFurniture() {
                     m_Benches.push_back({{bx, m_City.GetGroundHeight(bx, bz), bz}, std::atan2(static_cast<float>(offset[0]), static_cast<float>(offset[1]))});
                     break;
                 }
-            } else if (type == TileType::Sidewalk && h % 41 == 0 && m_ParkedMotos.size() < 40) {
+            } else if (type == TileType::Sidewalk && h % 131 == 0 && m_ParkedMotos.size() < 10) {
                 // dos motos juntas en el anden, paralelas a la calzada que lo bordea
                 for (const auto& offset : kOffsets) {
                     if (m_City.GetTileAt(x + offset[0], z + offset[1]) != TileType::Road) continue;
@@ -3112,7 +3124,7 @@ bool Simulation::ConsumePlayerHit(int& kind, glm::vec3& fromDirection) {
 // Los carros comunes (circulando o estacionados) solo usan modelos cuya puerta del conductor es una pieza que se abre y cierra;
 // los taxis, ademas, uno que se pueda pintar de amarillo. Las ambulancias, patrullas y motos de policia conservan su modelo.
 void Simulation::AssignVehicleModel(TrafficVehicle& vehicle) {
-    if (vehicle.emergency != 0) return;
+    if (vehicle.emergency != 0 || vehicle.buseta) return;
     std::vector<int> available;
     for (size_t variant = 0; variant < kCabinVariants; ++variant) {
         const VehicleParts& parts = m_VehicleParts[5 + variant];
@@ -4733,7 +4745,7 @@ void Simulation::UpdateTraffic(float dt) {
     }
     for (size_t index = 0; index < m_CarCooldowns.size(); ++index) {
         m_CarCooldowns[index] = std::max(0.0f, m_CarCooldowns[index] - dt);
-        if (m_CarCooldowns[index] <= 0.0f) m_Traffic[index].mirrorsAvailable = true;
+        if (m_CarCooldowns[index] <= 0.0f && !m_Traffic[index].buseta) m_Traffic[index].mirrorsAvailable = true;
     }
 }
 
@@ -5126,7 +5138,7 @@ void Simulation::Render(Renderer& renderer, float time, const glm::vec3& focusPo
         if (m_EmergencyModels[2]) {   // el modelo de la moto de la policia, sin pintura de servicio, como moto civil parqueada
             for (const FurniturePiece& moto : m_ParkedMotos) {
                 if (glm::distance(glm::vec2(moto.position.x, moto.position.z), glm::vec2(focusPosition.x, focusPosition.z)) > 60.0f) continue;
-                for (int pair = 0; pair < 2; ++pair) {
+                for (int pair = 0; pair < 1; ++pair) {
                     glm::mat4 at = glm::translate(glm::mat4(1.0f), moto.position + glm::vec3(std::sin(moto.yaw) * 0.0f, 0.0f, 0.0f) + glm::vec3(pair == 0 ? 0.0f : 0.5f * std::cos(moto.yaw), 0.0f, pair == 0 ? 0.0f : -0.5f * std::sin(moto.yaw)));
                     at = glm::rotate(at, moto.yaw + (pair == 0 ? 0.0f : 0.25f), glm::vec3(0.0f, 1.0f, 0.0f));
                     m_EmergencyModels[2]->Draw(renderer, at * m_EmergencyFits[2], glm::vec4(0.55f, 0.58f, 0.62f, 1.0f));
@@ -5701,7 +5713,17 @@ void Simulation::Render(Renderer& renderer, float time, const glm::vec3& focusPo
         const VehicleParts& parts = m_VehicleParts[partsSlot];
         const bool patrolCabin = vehicle.emergency == 2 && m_VehicleParts[3].valid() && m_VehicleParts[3].ownFit;   // la patrulla usa el modelo con cabina y puerta
         const VehicleParts& cabinParts = patrolCabin ? m_VehicleParts[3] : m_VehicleParts[vehicle.variant > 0 ? 4 + static_cast<size_t>(vehicle.variant) : 0];
-        if (((vehicle.variant > 0 && vehicle.emergency == 0) || patrolCabin) && cabinParts.valid() && cabinParts.ownFit) {
+        if (vehicle.buseta && m_BusetaMesh) {
+            renderer.Submit(*m_BusetaMesh, model);
+            for (const float axle : {BusetaModel::kFrontAxle, BusetaModel::kRearAxle}) {
+                for (const float side : {-1.0f, 1.0f}) {
+                    glm::mat4 wheel = glm::translate(model, {axle, BusetaModel::kWheelRadius, side * BusetaModel::kWheelTrack});
+                    if (axle > 0.0f) wheel = glm::rotate(wheel, steer, glm::vec3(0.0f, 1.0f, 0.0f));
+                    wheel = glm::rotate(wheel, vehicle.wheelRotation, glm::vec3(0.0f, 0.0f, 1.0f));
+                    renderer.Submit(*m_BusetaWheel, wheel);
+                }
+            }
+        } else if (((vehicle.variant > 0 && vehicle.emergency == 0) || patrolCabin) && cabinParts.valid() && cabinParts.ownFit) {
             // modelo con cabina: vidrio translucido y ocupantes sentados
             const glm::mat4 carFit = model * cabinParts.fit;
             // la pintura de cada carro es una de ocho (la misma que ya tenian los modelos anteriores); las texturas propias no se tiñen
