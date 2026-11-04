@@ -14,6 +14,7 @@ import { describeWeather } from '../world/Climate.js';
 import { icon } from './icons.js';
 import { pasarTexto } from './pictos.js';
 import { DOG_ACCESSORIES, DOG_COATS } from '../entities/Dog.js';
+import { alternarPantallaCompleta, enPantallaCompleta, puedePantallaCompleta } from '../core/PantallaCompleta.js';
 
 export const PAUSE_TABS = [
   { id: 'mapa', label: 'Mapa' },
@@ -281,7 +282,13 @@ function settingsPanel(game) {
         RADAR_SIZES.map(({ id, label }) => choice(label, minimap?.size === id, () => { minimap?.setSize(id); game.menu.refresh(); })))),
       row('Alcance base', zoomInput, zoomLabel),
       row('Luz del destino', choice(game.showGpsBeacon !== false ? 'Visible' : 'Oculto', game.showGpsBeacon !== false,
-        () => { game.setGpsBeaconVisible?.(game.showGpsBeacon === false); game.menu.refresh(); }))));
+        () => { game.setGpsBeaconVisible?.(game.showGpsBeacon === false); game.menu.refresh(); }))),
+    section('eye', 'Pantalla',
+      el('div', { class: 'pause-actions' },
+        button([icon('eye', { size: 18 }), enPantallaCompleta() ? 'Salir de pantalla completa' : 'Pantalla completa'], {
+          disabled: !puedePantallaCompleta(),
+          onClick: () => alternarPantallaCompleta()
+        }))));
 }
 
 function controlsPanel() {
