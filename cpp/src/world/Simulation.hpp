@@ -220,7 +220,6 @@ struct TrafficVehicle {
     glm::vec3 color{0.75f, 0.18f, 0.12f};
     bool bus = false;
     bool taxi = false;
-    bool buseta = false;   // buseta de ruta del original: 7,6 x 2,3 m, mas lenta (una de cada doce unidades del trafico)
     mutable glm::vec3 drawPosition{0.0f};   // pose con la que se dibujo el carro en el ultimo cuadro (sigue la curva del circuito): los faros usan esta
     mutable float drawYaw = 0.0f;
     float blockedWait = 0.0f;   // s detenido detras de un vehiculo parado (patrulla): al cabo de unos segundos lo rodea
@@ -782,7 +781,6 @@ private:
     std::vector<glm::vec3> m_TreePositions;
     struct FurniturePiece { glm::vec3 position; float yaw; int seed = 0; };
     std::vector<FurniturePiece> m_Benches, m_ParkedMotos;
-    std::shared_ptr<Mesh> m_BusetaMesh, m_BusetaWheel;
     std::array<std::shared_ptr<Mesh>, 7> m_MotoMeshes;   // moto urbana del original en sus siete pinturas
     std::shared_ptr<Mesh> m_EdgeClosures;   // cierres de las calles que llegan al borde del mapa: lamina, lona, barreras, conos y señales
     float m_TreeRange = 60.0f;   // distancia maxima a la que se dibujan los arboles (segun la calidad grafica)
