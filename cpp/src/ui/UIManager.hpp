@@ -376,7 +376,7 @@ private:
     bool m_NeedsExpanded = false;   // higiene, animo y vicio a la vista aunque esten bien (boton del pie de las necesidades)
     float m_Warmth = 0.0f;   // s de calor contra el frio (la comida caliente y el fogon)   // HUD de carton y marcador (HudCarton.cpp)
     std::shared_ptr<Texture> m_MinimapTexture;   // plano del radar, rasterizado una vez
-    void RenderMinimap(const HudContext& context, ImVec2 origin, ImVec2 size, float infoHeight);
+    void RenderMinimap(const HudContext& context, ImVec2 origin, ImVec2 size, float infoHeight, bool fused = false);   // fused: sin marco propio y con la tarjeta de destino arriba, dentro del panel unico del HUD
     void RenderInventoryWindow(const std::vector<InventoryOption>& items, float weight, float capacity);
     void RenderMesaCarton(const std::vector<CraftingOption>& craftingOptions, float weight, float capacity);
     void RenderCostal(const std::vector<InventoryOption>& items, float weight, float capacity);   // costal de carton y marcador (Costal.cpp)

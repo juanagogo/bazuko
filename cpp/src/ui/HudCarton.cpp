@@ -200,8 +200,10 @@ void UIManager::RenderHudCarton(const HudContext& c) {
         const float needsHeight = 12.0f + rowsHeight + 36.0f + (m_Warmth >= 20.0f ? warmthHeight : 0.0f);   // 36: pie con el boton de las recogidas
         const float radarHeight = m_RadarVisible ? std::round(dockWidth * 3.0f / 4.0f) : 0.0f;
         const float infoHeight = m_RadarVisible ? 46.0f : 0.0f;
-        float stackHeight = needsHeight + 10.0f + static_cast<float>(warnings.size() + diseases.size()) * 42.0f;
-        stackHeight += m_RadarVisible ? radarHeight + 6.0f + infoHeight : 0.0f;
+        const bool merged = m_RadarVisible && !std::getenv("BAZUKO_HUD_SEPARADO");   // tarjeta de destino, plano y necesidades en un solo panel de carton
+        float stackHeight = static_cast<float>(warnings.size() + diseases.size()) * 42.0f;
+        if (merged) stackHeight += infoHeight + 6.0f + radarHeight + 10.0f + needsHeight;
+        else stackHeight += needsHeight + 10.0f + (m_RadarVisible ? radarHeight + 6.0f + infoHeight : 0.0f);
         const ImVec2 dockPos(14.0f, display.y - 14.0f - stackHeight);
         if (BeginHud("##cartonDock", dockPos, ImVec2(dockWidth, stackHeight))) {
             ImDrawList* draw = ImGui::GetWindowDrawList();
@@ -215,8 +217,16 @@ void UIManager::RenderHudCarton(const HudContext& c) {
             };
             for (const std::string& disease : diseases) placa(disease, true, 21u);
             for (const auto& [text, danger] : warnings) placa(text, danger, 31u);
-            const ImVec2 needsMin(dockPos.x, y), needsMax(dockPos.x + dockWidth, y + needsHeight);
-            C::Panel(draw, needsMin, needsMax, 13u, 7.0f);
+            float panelTop = y;
+            if (merged) {   // el panel unico empieza arriba de todo: tarjeta, plano y, debajo, las necesidades
+                C::Panel(draw, ImVec2(dockPos.x, y), ImVec2(dockPos.x + dockWidth, dockPos.y + stackHeight), 13u, 7.0f);
+                const float mapTop = y + 6.0f + infoHeight;
+                RenderMinimap(c, ImVec2(dockPos.x + 8.0f, mapTop), ImVec2(dockWidth - 16.0f, radarHeight), infoHeight, true);
+                y = mapTop + radarHeight + 6.0f;
+            }
+            const ImVec2 needsMin(dockPos.x, y), needsMax(dockPos.x + dockWidth, merged ? dockPos.y + stackHeight : y + needsHeight);
+            if (!merged) C::Panel(draw, needsMin, needsMax, 13u, 7.0f);
+            (void)panelTop;
             float rowY = needsMin.y + 10.0f;
             for (int need : rows) {
                 const size_t i = static_cast<size_t>(need);
@@ -282,7 +292,7 @@ void UIManager::RenderHudCarton(const HudContext& c) {
                 C::Text(draw, true, 16, ImVec2(needsMin.x + 14.0f, needsMax.y - 36.0f - 22.0f), C::kMarcador, warm);
             }
             y += needsHeight + 10.0f;
-            if (m_RadarVisible) RenderMinimap(c, ImVec2(dockPos.x, y), ImVec2(dockWidth, radarHeight), infoHeight);
+            if (m_RadarVisible && !merged) RenderMinimap(c, ImVec2(dockPos.x, y), ImVec2(dockWidth, radarHeight), infoHeight);
         }
         ImGui::End();
         if (!m_RadarVisible && BeginHud("##cartonRadarBoton", ImVec2(14.0f, dockPos.y - 44.0f), ImVec2(130.0f, 38.0f))) {

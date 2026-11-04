@@ -1361,7 +1361,7 @@ void UIManager::RenderWebHud(const HudContext& c) {
 
 // Radar de la columna izquierda (Minimap.js): plano girado con la camara (arriba = frente de la vista), jugador algo abajo, ruta del GPS,
 // norte en el borde, puntos de interes y destino. Debajo, la tarjeta con el punto mas cercano o el destino.
-void UIManager::RenderMinimap(const HudContext& c, ImVec2 origin, ImVec2 size, float infoHeight) {
+void UIManager::RenderMinimap(const HudContext& c, ImVec2 origin, ImVec2 size, float infoHeight, bool fused) {
     using namespace SignUI;
     ImDrawList* draw = ImGui::GetWindowDrawList();
     const glm::vec3 cameraPosition = c.camera->GetPosition();
@@ -1391,7 +1391,7 @@ void UIManager::RenderMinimap(const HudContext& c, ImVec2 origin, ImVec2 size, f
     };
 
     // sombra y fondo
-    if (Carton::FontsReady() && !std::getenv("BAZUKO_UI_OSCURA")) Carton::Panel(draw, origin - ImVec2(5.0f, 5.0f), origin + size + ImVec2(5.0f, 5.0f + infoHeight), 91u, 6.0f);   // marco de carton del radar
+    if (!fused && Carton::FontsReady() && !std::getenv("BAZUKO_UI_OSCURA")) Carton::Panel(draw, origin - ImVec2(5.0f, 5.0f), origin + size + ImVec2(5.0f, 5.0f + infoHeight), 91u, 6.0f);   // marco de carton del radar
     for (int layer = 3; layer >= 1; --layer)
         draw->AddRectFilled(origin + ImVec2(-static_cast<float>(layer), 6.0f - static_cast<float>(layer)), max + ImVec2(static_cast<float>(layer), 6.0f + static_cast<float>(layer)), IM_COL32(0, 0, 0, 14), 12.0f + static_cast<float>(layer));
     const bool cardboardRadar = Carton::FontsReady() && !std::getenv("BAZUKO_UI_OSCURA");
@@ -1510,6 +1510,7 @@ void UIManager::RenderMinimap(const HudContext& c, ImVec2 origin, ImVec2 size, f
     if (m_GpsView.active) {
         bool clamped = false;
         const ImVec2 tip = clampToEdge(project(m_GpsView.waypoint.x, m_GpsView.waypoint.y), clamped);
+        if (cardboardRadar) Carton::HandCircle(draw, tip, 11.0f * u, 11.0f * u, 97u, Carton::kRojo, 3.2f);   // el destino: un circulo rojo trazado a mano
         const ImVec2 head(tip.x, tip.y - 9.0f * u);
         draw->AddTriangleFilled(tip, ImVec2(head.x - 5.0f * u, head.y + 3.0f * u), ImVec2(head.x + 5.0f * u, head.y + 3.0f * u), W::kYellow);
         draw->AddCircleFilled(head, 6.0f * u, W::kYellow, 18);
@@ -1529,7 +1530,8 @@ void UIManager::RenderMinimap(const HudContext& c, ImVec2 origin, ImVec2 size, f
         W::Text(draw, Ov(true, 10), ImVec2(origin.x + 8.0f * u, max.y - 7.0f * u - 11.0f), IM_COL32(214, 228, 255, 179), scaleText);
     }
     draw->PopClipRect();
-    draw->AddRect(origin, max, IM_COL32(255, 255, 255, 36), 12.0f, 0, 1.0f);
+    if (fused) Carton::HandRect(draw, origin, max, 95u, Carton::kMarcador, 3.2f);   // el plano va enmarcado a marcador, como en el original
+    else draw->AddRect(origin, max, IM_COL32(255, 255, 255, 36), 12.0f, 0, 1.0f);
 
     // herramientas: acercar, alejar y ocultar
     {
@@ -1543,10 +1545,15 @@ void UIManager::RenderMinimap(const HudContext& c, ImVec2 origin, ImVec2 size, f
             const bool pressed = ImGui::InvisibleButton("##herramientaRadar", ImVec2(24.0f, 24.0f));
             ImGui::PopID();
             const bool hovered = ImGui::IsItemHovered();
-            draw->AddRectFilled(min, min + ImVec2(24, 24), hovered ? W::kYellow : IM_COL32(12, 15, 20, static_cast<int>(217 * alpha)), 7.0f);
-            draw->AddRect(min, min + ImVec2(24, 24), IM_COL32(255, 255, 255, static_cast<int>(56 * alpha)), 7.0f);
+            if (cardboardRadar) {   // cajitas de cinta con borde de marcador
+                draw->AddRectFilled(min, min + ImVec2(24, 24), hovered ? IM_COL32(0xF2, 0xE6, 0xC4, 255) : Carton::kCinta);
+                draw->AddRect(min, min + ImVec2(24, 24), Carton::kMarcador, 0.0f, 0, 2.0f);
+            } else {
+                draw->AddRectFilled(min, min + ImVec2(24, 24), hovered ? W::kYellow : IM_COL32(12, 15, 20, static_cast<int>(217 * alpha)), 7.0f);
+                draw->AddRect(min, min + ImVec2(24, 24), IM_COL32(255, 255, 255, static_cast<int>(56 * alpha)), 7.0f);
+            }
             const ImVec2 mid = min + ImVec2(12, 12);
-            const ImU32 ink = hovered ? W::kInk : IM_COL32(238, 242, 248, static_cast<int>(255 * alpha));
+            const ImU32 ink = cardboardRadar ? Carton::kMarcador : hovered ? W::kInk : IM_COL32(238, 242, 248, static_cast<int>(255 * alpha));
             if (i == 0) { draw->AddLine(mid + ImVec2(-5, 0), mid + ImVec2(5, 0), ink, 2.0f); draw->AddLine(mid + ImVec2(0, -5), mid + ImVec2(0, 5), ink, 2.0f); }
             else if (i == 1) draw->AddLine(mid + ImVec2(-5, 0), mid + ImVec2(5, 0), ink, 2.0f);
             else { draw->AddLine(mid + ImVec2(-4, -4), mid + ImVec2(4, 4), ink, 2.0f); draw->AddLine(mid + ImVec2(4, -4), mid + ImVec2(-4, 4), ink, 2.0f); }
@@ -1596,11 +1603,11 @@ void UIManager::RenderMinimap(const HudContext& c, ImVec2 origin, ImVec2 size, f
         } else {
             title = "Sin puntos cercanos";
         }
-        const ImVec2 infoMin(origin.x, max.y + 6.0f), infoMax(max.x, max.y + 6.0f + infoHeight - 6.0f + 6.0f);
+        const ImVec2 infoMin = fused ? ImVec2(origin.x, origin.y - infoHeight) : ImVec2(origin.x, max.y + 6.0f), infoMax(max.x, fused ? origin.y - 4.0f : max.y + 6.0f + infoHeight - 6.0f + 6.0f);
         const bool cardboard = Carton::FontsReady() && !std::getenv("BAZUKO_UI_OSCURA");
         const ImU32 inkTitle = cardboard ? Carton::kMarcador : IM_COL32(255, 255, 255, 255), inkDetail = cardboard ? Carton::kMarcador : IM_COL32(201, 211, 227, 255);
         if (cardboard) {   // tarjeta de carton: el destino del GPS lleva una raya roja a la izquierda
-            Carton::Panel(draw, infoMin + ImVec2(2.0f, 2.0f), ImVec2(infoMax.x - 2.0f, infoMin.y + 38.0f), 93u, 4.0f);
+            if (!fused) Carton::Panel(draw, infoMin + ImVec2(2.0f, 2.0f), ImVec2(infoMax.x - 2.0f, infoMin.y + 38.0f), 93u, 4.0f);
             if (m_GpsView.active) draw->AddRectFilled(infoMin + ImVec2(2.0f, 6.0f), ImVec2(infoMin.x + 6.0f, infoMin.y + 34.0f), Carton::kRojo);
         } else {
             draw->AddRectFilled(infoMin, ImVec2(infoMax.x, infoMin.y + 40.0f), IM_COL32(12, 15, 20, 209), 10.0f);
