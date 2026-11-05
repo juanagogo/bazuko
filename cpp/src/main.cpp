@@ -18,6 +18,7 @@
 #include "game/Weapons.hpp"
 #include "ui/Carton.hpp"
 #include "game/PlayerState.hpp"
+#include "game/PlayerSession.hpp"
 #include "world/SafeSpawn.hpp"
 #include "world/Atmosphere.hpp"
 #include "world/Viaduct.hpp"
@@ -140,7 +141,9 @@ int main(int argc, char** argv) {
     characterPreview.Init(512, 640);
     ui.RenderLoadingScreen(window, 0.89f, "Configurando estudio 3D y vista previa...",
                            "💡 Consejo: Puedes personalizar tu aspecto, sexo, corte y ropa con la tecla [P].");
-    glm::vec3 playerPos = city.GetSpawnPoint();
+    PlayerSession session;   // todo el estado del jugador vive aqui (game/PlayerSession.hpp); abajo, referencias con los nombres de siempre
+    auto& playerPos = session.position;
+    playerPos = city.GetSpawnPoint();
     // GPS a pie sobre la grilla del mapa: anden 1, cruce de calzada 6 (busway 10); edificios, agua, solidos y obstaculos no se pisan
     GpsNavigation gps(CityLayout::WIDTH, CityLayout::HEIGHT, CityLayout::TILE_SIZE, CityLayout::ORIGIN_X, CityLayout::ORIGIN_Z,
         [&city](int tx, int tz) {
@@ -156,13 +159,13 @@ int main(int argc, char** argv) {
     std::optional<std::tuple<float, float, std::string>> pendingGps;   // destino guardado: se planifica en el primer cuadro
     const std::shared_ptr<Mesh> gpsBeacon = Mesh::CreateCube({0.5f, 40.0f, 0.5f}, {1.0f, 0.35f, 0.68f, 1.0f});
     playerPos.y = 0.0f;
-    bool knockedOnDeck = false;  // la caida empezo sobre el tablero: se levanta alli
+    auto& knockedOnDeck = session.knockedOnDeck;   // la caida empezo sobre el tablero: se levanta alli
     StarField starField;
-    float locomotionPhase = 0.0f;   // fase 0..1 del ciclo de caminar/correr: avanza segun la velocidad del personaje
+    auto& locomotionPhase = session.locomotionPhase;   // fase 0..1 del ciclo de caminar/correr: avanza segun la velocidad del personaje
     float starVisibility = 0.0f;   // 0..1: las estrellas aparecen al oscurecer y con el cielo despejado
     glm::vec3 celestialSun(0.0f, 1.0f, 0.0f), celestialMoon(0.0f, -1.0f, 0.0f);   // direcciones hacia el sol y la luna
     float celestialMoonLight = 1.0f;                                                // fraccion iluminada de la luna
-    bool playerOnDeck = false;   // sobre el tablero del viaducto (capa elevada); en la calle pasa por debajo
+    auto& playerOnDeck = session.playerOnDeck;   // sobre el tablero del viaducto (capa elevada); en la calle pasa por debajo
     // Regla estricta: el jugador nunca aparece ni se carga dentro de un edificio, un modelo o un recinto sin salida.
     // Toda posicion que se le asigna (inicio, partida guardada, partida nueva, recuperacion, fin de una caida)
     // pasa por aqui: si esta bloqueada o encerrada se mueve al lugar libre con salida mas cercano.
@@ -183,17 +186,17 @@ int main(int argc, char** argv) {
         return safe;
     };
     playerPos = placeSafely(playerPos);
-    float playerYaw = 0.0f;
-    bool playerKnockedDown = false;
-    float knockdownRemaining = 0.0f;
-    float vehicleImpactCooldown = 0.0f;
-    bool deathByVehicleImpact = false;
-    float poopCooldown = 0.0f;
-    float poopAnimationRemaining = 0.0f;
-    int poopMode = 0;                 // 0 nada, 1 agacharse a hacer popo, 2 recoger el mojon con la mano y lanzarlo
-    float poopElapsed = 0.0f;
-    bool poopStepDone = false;
-    glm::vec3 poopThrowDirection{0.0f, 0.0f, 1.0f};
+    auto& playerYaw = session.playerYaw;
+    auto& playerKnockedDown = session.playerKnockedDown;
+    auto& knockdownRemaining = session.knockdownRemaining;
+    auto& vehicleImpactCooldown = session.vehicleImpactCooldown;
+    auto& deathByVehicleImpact = session.deathByVehicleImpact;
+    auto& poopCooldown = session.poopCooldown;
+    auto& poopAnimationRemaining = session.poopAnimationRemaining;
+    auto& poopMode = session.poopMode;   // 0 nada, 1 agacharse a hacer popo, 2 recoger el mojon con la mano y lanzarlo
+    auto& poopElapsed = session.poopElapsed;
+    auto& poopStepDone = session.poopStepDone;
+    auto& poopThrowDirection = session.poopThrowDirection;
     // Recetas de la mesa de crafteo: las de src/data/recipes.js del original (todos los materiales salen de la basura, la tienda o el dealer)
     struct RecipeDef { std::string id; int quantity; std::vector<std::pair<std::string, int>> ingredients; };
     const std::vector<RecipeDef> recipes{
@@ -207,10 +210,9 @@ int main(int argc, char** argv) {
         {"hierba", 2, {{"carton", 1}, {"madera", 1}}},
     };
     // Acciones del personaje (animaciones de Blender): saltar (Espacio), agacharse (Ctrl), puños (J), patada (K) y navaja (H)
-    enum class PlayerAction { None, Jump, Jab, Cross, Kick, Slash, Stab, Pet, Hook, HighKick, Slip, Duck };
-    bool petWaiting = false, petRewardPending = false;   // caricia al Chato: se pide con E, el perro se sienta delante y luego la anima PetDog
-    float petWaitTime = 0.0f;
-    PlayerAction playerAction = PlayerAction::None;
+    auto& petWaiting = session.petWaiting; auto& petRewardPending = session.petRewardPending;   // caricia al Chato: se pide con E, el perro se sienta delante y luego la anima PetDog
+    auto& petWaitTime = session.petWaitTime;
+    auto& playerAction = session.playerAction;
     const auto combatMoveOf = [](PlayerAction action) -> int {   // tecnica por codigo (CombatMoves.hpp) de cada accion de combate; -1 si no la tiene
         switch (action) {
             case PlayerAction::Jab: return static_cast<int>(Combat::Move::Jab);
@@ -223,72 +225,73 @@ int main(int argc, char** argv) {
             default: return -1;
         }
     };
-    int playerActionClip = -1;
-    float actionTime = 0.0f, actionDuration = 0.0f;
-    bool nextKnifeIsStab = false, nextKickIsHigh = false, nextDodgeIsDuck = false;
-    int punchChain = 0;   // jab, cruzado y gancho en cadena (se reinicia si pasa mas de 1,4 s)
-    float fightStanceRemaining = 0.0f, knifeStanceRemaining = 0.0f, stillSeconds = 0.0f;
-    float jumpOffset = 0.0f;
-    float pickupTime = -1.0f;           // >= 0 mientras recoge una bolsa de un golpe (E): se agacha y el brazo baja al objeto
-    glm::vec3 pickupTarget{0.0f};
-    float grabTime = -1.0f;             // >= 0 mientras el brazo derecho roba un retrovisor (Combat::AppendGrab)
-    bool jumpMoving = false;            // salto con carrera (camino o corriendo) en vez de salto estatico
-    glm::vec3 jumpDirection{0.0f};      // hacia donde sale despedido el salto en movimiento
-    float jumpSpeed = 0.0f;             // m/s horizontales en el aire: decide cuanto avanza
+    auto& playerActionClip = session.playerActionClip;
+    auto& actionTime = session.actionTime; auto& actionDuration = session.actionDuration;
+    auto& nextKnifeIsStab = session.nextKnifeIsStab; auto& nextKickIsHigh = session.nextKickIsHigh; auto& nextDodgeIsDuck = session.nextDodgeIsDuck;
+    auto& punchChain = session.punchChain;   // jab, cruzado y gancho en cadena (se reinicia si pasa mas de 1,4 s)
+    auto& fightStanceRemaining = session.fightStanceRemaining; auto& knifeStanceRemaining = session.knifeStanceRemaining; auto& stillSeconds = session.stillSeconds;
+    auto& jumpOffset = session.jumpOffset;
+    auto& pickupTime = session.pickupTime;   // >= 0 mientras recoge una bolsa de un golpe (E): se agacha y el brazo baja al objeto
+    auto& pickupTarget = session.pickupTarget;
+    auto& grabTime = session.grabTime;   // >= 0 mientras el brazo derecho roba un retrovisor (Combat::AppendGrab)
+    auto& jumpMoving = session.jumpMoving;   // salto con carrera (camino o corriendo) en vez de salto estatico
+    auto& jumpDirection = session.jumpDirection;   // hacia donde sale despedido el salto en movimiento
+    auto& jumpSpeed = session.jumpSpeed;   // m/s horizontales en el aire: decide cuanto avanza
 
-    bool playerCrouching = false;
+    auto& playerCrouching = session.playerCrouching;
     // Clic izquierdo: golpes encadenados (jab, cruzado y patada). Los golpes recibidos y el atropello tienen sus propias animaciones.
-    int comboStep = 0;
-    float comboIdle = 0.0f, clickTime = 0.0f, clickMove = 0.0f;
-    bool clickTracking = false, clickWasLocked = false, actionHitDone = false;
-    int playerHitKind = 0;          // 0 ninguno, 1 cara, 2 pecho, 3 piernas
-    float playerHitTime = 0.0f;
-    glm::vec3 playerStaggerDirection{0.0f};   // hacia donde lo empuja el golpe: da pasos atras por la desestabilizacion
-    float knockdownLyingYaw = 0.0f;
+    auto& comboStep = session.comboStep;
+    auto& comboIdle = session.comboIdle; auto& clickTime = session.clickTime; auto& clickMove = session.clickMove;
+    auto& clickTracking = session.clickTracking; auto& clickWasLocked = session.clickWasLocked; auto& actionHitDone = session.actionHitDone;
+    auto& playerHitKind = session.playerHitKind;   // 0 ninguno, 1 cara, 2 pecho, 3 piernas
+    auto& playerHitTime = session.playerHitTime;
+    auto& playerStaggerDirection = session.playerStaggerDirection;   // hacia donde lo empuja el golpe: da pasos atras por la desestabilizacion
+    auto& knockdownLyingYaw = session.knockdownLyingYaw;
     constexpr float kKnockdownSeconds = 3.4f;   // vuelo (0,8 s), tendido (0,8 s), levantarse (1,5 s) y una pausa
     std::shared_ptr<Model> knifeModel = Model::LoadFromFile(Paths::Find("public/models/arma/cuchillo.glb"));
-    bool boostActive = false;
-    float boostTimer = 0.0f;
+    auto& boostActive = session.boostActive;
+    auto& boostTimer = session.boostTimer;
     // Objetos, tienda, botin y talentos vienen de assets/data/game-data.json (generado desde src/data del juego web).
     // El orden de los objetos es fijo: las partidas guardadas guardan su indice.
     const GameData& gameData = GameData::Get();
     using Item = ItemDef;
     const std::vector<Item>& lootTable = gameData.items;
-    std::vector<InventoryEntry> inventory;
-    float inventoryWeight = 0.0f;
-    float money = 0.0f;
-    int xp = 0;
-    int level = 1;
-    int talentPoints = 0;
-    bool bigSack = false;   // Costal grande comprado en la tienda
-    float playerWaterDepth = 0.0f;   // metros de agua del lago sobre el fondo donde pisa el jugador
-    bool playerSwimming = false;     // agua profunda: nada en lugar de caminar
-    float swimPhase = 0.0f;          // fase 0..1 de la brazada
-    float swimPitch = 0.0f;          // 0 de pie en el agua .. 1 tendido nadando (se suaviza)
-    bool tiredGait = false;   // el jugador camina cansado por falta de energia
-    bool playerFreezing = false;   // frio nocturno con lluvia y sin calor (La Nevera)
-    float warmTimer = 0.0f;        // s de calor contra el frio: lo dan la comida caliente y el fogon del cambuche; se guarda
-    float playerWetness = 0.0f;    // 0 seco .. 1 empapado: la lluvia moja, el tiempo seca; no se guarda
-    float coldCheckTimer = 0.0f;
-    bool radioOn = false;          // radio transistor: encendida, volumen propio y bateria (100 % dura unos 40 min)
-    float radioVolume = 0.7f;
-    float radioBattery = 100.0f;
+    auto& inventory = session.inventory;
+    auto& inventoryWeight = session.inventoryWeight;
+    auto& money = session.money;
+    auto& xp = session.xp;
+    auto& level = session.level;
+    auto& talentPoints = session.talentPoints;
+    auto& bigSack = session.bigSack;   // Costal grande comprado en la tienda
+    auto& playerWaterDepth = session.playerWaterDepth;   // metros de agua del lago sobre el fondo donde pisa el jugador
+    auto& playerSwimming = session.playerSwimming;   // agua profunda: nada en lugar de caminar
+    auto& swimPhase = session.swimPhase;   // fase 0..1 de la brazada
+    auto& swimPitch = session.swimPitch;   // 0 de pie en el agua .. 1 tendido nadando (se suaviza)
+    auto& tiredGait = session.tiredGait;   // el jugador camina cansado por falta de energia
+    auto& playerFreezing = session.playerFreezing;   // frio nocturno con lluvia y sin calor (La Nevera)
+    auto& warmTimer = session.warmTimer;   // s de calor contra el frio: lo dan la comida caliente y el fogon del cambuche; se guarda
+    auto& playerWetness = session.playerWetness;   // 0 seco .. 1 empapado: la lluvia moja, el tiempo seca; no se guarda
+    auto& coldCheckTimer = session.coldCheckTimer;
+    auto& radioOn = session.radioOn;   // radio transistor: encendida, volumen propio y bateria (100 % dura unos 40 min)
+    auto& radioVolume = session.radioVolume;
+    auto& radioBattery = session.radioBattery;
     int graphicsQuality = 1;   // 0 baja, 1 media, 2 alta: escala de resolucion interna 1 / 1 / 1,5
-    glm::vec3 playerVelocity{0.0f};   // inercia de movimiento (como Player.js: 22/s al moverse, 18/s al frenar)
-    std::string equippedWeapon;   // arma en la mano (id del objeto: cuchillo, botella_picada, arma), vacio = puños
-    std::array<std::string, 5> hotbar{};   // objetos de la barra de acceso rapido (teclas 1-5)
-    bool sorting = false;   // manteniendo Q sobre una bolsa
-    float sortProgress = 0.0f;
-    glm::vec3 sortPosition{0.0f};
-    std::unordered_set<std::string> unlockedTalents;
-    std::string companionName = "El Chato";
-    int companionCoat = 0;
-    bool companionIsFriend = false;
-    glm::vec3 companionPosition = simulation.GetDogPosition();
-    int itemsCollected = 0;
-    int itemsSold = 0;
-    size_t missionProgress = 0;
-    std::array<float, 7> needs{100.0f, 100.0f, 100.0f, 100.0f, 100.0f, 100.0f, 80.0f};
+    auto& playerVelocity = session.playerVelocity;   // inercia de movimiento (como Player.js: 22/s al moverse, 18/s al frenar)
+    auto& equippedWeapon = session.equippedWeapon;   // arma en la mano (id del objeto: cuchillo, botella_picada, arma), vacio = puños
+    auto& hotbar = session.hotbar;   // objetos de la barra de acceso rapido (teclas 1-5)
+    auto& sorting = session.sorting;   // manteniendo Q sobre una bolsa
+    auto& sortProgress = session.sortProgress;
+    auto& sortPosition = session.sortPosition;
+    auto& unlockedTalents = session.unlockedTalents;
+    auto& companionName = session.companionName;
+    auto& companionCoat = session.companionCoat;
+    auto& companionIsFriend = session.companionIsFriend;
+    auto& companionPosition = session.companionPosition;
+    companionPosition = simulation.GetDogPosition();
+    auto& itemsCollected = session.itemsCollected;
+    auto& itemsSold = session.itemsSold;
+    auto& missionProgress = session.missionProgress;
+    auto& needs = session.needs;
     const auto knockDownPlayer = [&](float impactSpeed, const glm::vec3& impactDirection) {
         const float damage = std::min(100.0f, std::max(4.0f,
             std::round(0.6f * impactSpeed * impactSpeed + 1.5f * impactSpeed)));
@@ -309,9 +312,8 @@ int main(int argc, char** argv) {
         playerRagdoll.Begin(playerPos, playerYaw, impactVelocity, characterManager.GetLook());
         ui.SetPickupNotification("¡Atropellamiento! Recupera salud y espera a que termine la caída.");
     };
-    std::string objective = "Recoge 5 objetos para empezar";
-    struct DiseaseState { std::string id; float remaining; float healthDrain; float mentalDrain; };
-    std::vector<DiseaseState> diseases;
+    auto& objective = session.objective;
+    auto& diseases = session.diseases;
     const auto showDeathScreenIfNeeded = [&]() {
         if (needs[3] > 0.0f || playerKnockedDown || ui.IsDeathScreenOpen()) return;
         std::vector<std::string> causes;
