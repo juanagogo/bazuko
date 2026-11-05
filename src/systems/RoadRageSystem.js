@@ -22,7 +22,7 @@ export class RoadRageSystem {
     this.driver = null;
     this.traffic = null;
     this.vehicle = null;     // vehículo de tráfico detenido
-    this.state = 'idle';     // idle | stopping | out
+    this.state = 'idle';     // idle | stopping | out | fled (le robaron el carro y huye)
     this.stopTimer = 0;
     this.onPlayerHurt = null;
     this._door = new THREE.Vector3();
@@ -63,6 +63,21 @@ export class RoadRageSystem {
     return true;
   }
 
+  /**
+   * Robo del carro con el conductor adentro (CarjackSystem): lo sacan por la puerta y huye.
+   * Si ya hay otro conductor bravo en la calle, este simplemente desaparece.
+   * @returns {boolean} si salió alguien corriendo
+   */
+  ejectDriver(car, door) {
+    if (!this.driver || this.active || !door) return false;
+    const at = new THREE.Vector3(door.x, this._ground?.(door.x, door.z, car.position.y) ?? door.y, door.z);
+    this.driver.thrownOut(car, at, this.player.position);
+    this._people?.push(this.driver);
+    this.vehicle = null;
+    this.state = 'fled';
+    return true;
+  }
+
   /** Recuperación tras morir o recargar: el conductor vuelve a su carro y el tráfico sigue. */
   reset() {
     if (this.driver?.active) this.driver.enterCar();
@@ -90,6 +105,11 @@ export class RoadRageSystem {
    */
   update(dt, { canChase = true } = {}) {
     if (!this.active || dt <= 0) return;
+    if (this.state === 'fled') {
+      if (this.driver.think(dt, { player: this.player.position }) === 'gone') this._release();
+      if (this.driver.active) this.driver.update(dt, { player: this.player.position });
+      return;
+    }
     const car = this.vehicle.car;
     if (this.state === 'stopping') {
       this.stopTimer += dt;

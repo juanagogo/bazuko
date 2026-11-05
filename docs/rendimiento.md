@@ -168,6 +168,38 @@ Las once animaciones de pelea (golpes, bloqueo, reacciones, caídas y levantarse
 
 `tests/actionforge.test.js` comprueba que los clips adaptados a partir de cada GLB son idénticos, valor por valor, a los obtenidos del FBX. Los FBX convertidos no se copian a `dist/`. Al cambiar o añadir una animación de combate, volver a ejecutar el conversor.
 
+## Mallas de personaje comprimidas al compilar
+
+Cuerpos, ropa, pelo y calzado de los seis cuerpos (completos y livianos) suman 274 glTF con 37 MB de `.bin`. Al terminar `npm run build`, `tools/personaje/comprimir-mallas.mjs` los comprime en `dist/` con `EXT_meshopt_compression`, sin cuantizar: los atributos siguen en Float32 y cada vista se comprueba al escribirla, así que el juego recibe exactamente los mismos vértices, índices y matrices de los huesos. El JSON se escribe sin sangría. El repositorio, el exportador de Blender, el servidor de desarrollo y las pruebas siguen usando los archivos sin comprimir. El cargador de personajes tiene el decodificador meshopt de Three.js y acepta ambos formatos.
+
+| Medida | Antes | Después |
+| --- | ---: | ---: |
+| `.bin` de personajes en `dist/` | 36,9 MB | 23,4 MB |
+| `.gltf` de personajes en `dist/` | 6,1 MB | 4,8 MB |
+| Descarga hasta «Continuar jugando», con las animaciones en GLB | 56,0 MB | 41,9 MB |
+
+`tests/character-mesh-compression.test.js` compara, después de comprimir, atributos, índices, huesos y materiales con el original. Al cargar, el decodificador WebAssembly de meshopt descomprime en el hilo principal. Su costo no se midió por separado: la carga completa en Chromium headless no cambió de forma medible.
+
+## Avisos de local en un atlas
+
+Cada aviso de local en el primer piso (131 en la ciudad) tenía su propio lienzo de 768 × 192 y su material: 134 texturas, unos 105 MB en la GPU con mipmaps, y ningún aviso podía agruparse con otro. Ahora el texto y el borde de los 16 nombres, con letra oscura o clara, están en un único atlas de `src/utils/signAtlas.js`. El fondo es un plano de color sin textura, con un material por color, y el texto va encima en el mismo plano mediante desplazamiento de profundidad. El atlas usa alfa premultiplicado para que los mipmaps no dejen halo. La tipografía, los tamaños, el borde y los colores son los mismos, y no cambia el consumo de `Math.random`: la ciudad sale igual.
+
+Medido en la partida inicial, con la misma semilla y la cámara del juego:
+
+| Medida | Antes | Después |
+| --- | ---: | ---: |
+| Texturas de los avisos en la GPU | 105,1 MB | 30,1 MB |
+| Texturas en la GPU (`renderer.info`) | 844 | 705 |
+| Llamadas de dibujo | 933 | 908 |
+
+Las capturas de cerca y de lejos de los mismos avisos coinciden antes y después.
+
+## Relieve, rugosidad y ventanas compartidos entre barrios
+
+Las fachadas se generan una vez por variante y barrio, y los andenes una vez por barrio. El barrio solo cambia los colores: relieve, rugosidad y ventanas encendidas reciben las mismas órdenes de dibujo. Ahora la segunda y las siguientes texturas de cada variante usan la imagen de la primera (`texture.source`), y cada textura conserva sus propios ajustes. `tests/shared-surface-maps.test.js` graba cada operación de dibujo de esos lienzos en todos los barrios y falla si alguna cambia; en ese caso hay que dejar de compartir ese mapa.
+
+En la partida inicial, las texturas en la GPU bajaron de 708 a 576 y la estimación de su memoria (RGBA8 con mipmaps), de 771 a 712 MB. Con los avisos de local, la estimación pasa de 846 a 712 MB.
+
 ## Cambios de calidad y resolución
 
 - **El antialias del contexto se decide al crearlo.** No se puede cambiar después: se omite solo si la preferencia guardada es baja, cuando la calidad automática ya no puede subir de nivel. Quien pasa de baja a media o alta en la misma sesión se queda sin él hasta recargar.

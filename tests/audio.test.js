@@ -96,18 +96,23 @@ test('fuera de combate conserva la voz del NPC y la muerte del jugador reproduce
   audio.dispose();
 });
 
-test('el robo en circulación selecciona inmediatamente cualquiera de las cinco frases exclusivas', () => {
+test('cinco robos en circulación dicen las cinco frases exclusivas sin repetir ninguna', () => {
   const { audio } = fixture(), vehicle = car(2); vehicle.car.traffic = true;
   audio.updateWorld(.1, origin, null, [vehicle]);
   assert.equal(audio.playMovingTheft({ traffic: false }), false);
+  const heard = [];
   for (let i = 0; i < 5; i++) {
-    audio.vehicles.random = () => (i + .1) / 5;
     assert.equal(audio.playMovingTheft(vehicle.car), true);
     const voice = audio._theftVoices.get(vehicle.car);
-    assert.equal(voice.sound.options.src[0], `/audio/roberto_robo_espejo_n${i + 1}.mp3`);
+    heard.push(voice.sound.options.src[0]);
     assert.equal(voice.sound.voices.get(voice.id).volume, .75);
   }
+  assert.deepEqual([...heard].sort(), Array.from({ length: 5 }, (_, i) => `/audio/roberto_robo_espejo_n${i + 1}.mp3`));
   assert.ok(audio.theftSounds.every(sound => sound.starts === 1));
+  // La sexta abre otra ronda sin repetir la última.
+  audio.playMovingTheft(vehicle.car);
+  assert.notEqual(audio._theftVoices.get(vehicle.car).sound.options.src[0], heard.at(-1));
+  assert.equal(audio.vehicles.driverVoice(vehicle.car), 'roberto', 'quien se queja del robo es Roberto');
   assert.equal(audio.sounds.carAlarm.starts, 0);
   audio.dispose(); assert.ok(audio.theftSounds.every(sound => sound.unloaded));
 });
@@ -143,23 +148,31 @@ test('la interacción distingue robo de tráfico y alarma de estacionado antes d
   }
 });
 
-test('cada pitada elige al azar entre las doce frases de Valentina y Roberto', () => {
-  const { audio } = fixture(), vehicle = car(2);
-  audio.updateWorld(.1, origin, null, [vehicle]);
-  const state = audio.vehicles.instances.get(vehicle.car);
-  vehicle.personBlocked = true; state.patience = 0;
-  const files = [1, 3, 4, 5, 6, 7].map(n => `valentina_n${n}.mp3`)
-    .concat(Array.from({ length: 6 }, (_, i) => `roberto_n${i + 1}.mp3`));
+test('cada carro habla siempre con su conductor y no repite frase hasta decir sus seis', () => {
+  const { audio } = fixture();
   assert.equal(audio.driverSounds.length, 12);
-  for (let i = 0; i < files.length; i++) {
-    audio.vehicles.random = () => (i + .1) / files.length;
-    if (state.remark) state.remark.sound.stop(state.remark.id);
-    state.remark = null;
-    state.cooldown = 0; state.remarkCooldown = 0; audio.vehicles._lastHornAt = -Infinity;
+  const files = {
+    valentina: [1, 3, 4, 5, 6, 7].map(n => `/audio/valentina_n${n}.mp3`),
+    roberto: Array.from({ length: 6 }, (_, i) => `/audio/roberto_n${i + 1}.mp3`)
+  };
+  for (const [pickVoice, name] of [[() => .1, 'valentina'], [() => .9, 'roberto']]) {
+    const vehicle = car(2);
+    audio.vehicles.random = pickVoice;
     audio.updateWorld(.1, origin, null, [vehicle]);
-    const file = files[i];
-    assert.equal(state.remark.sound.options.src[0], `/audio/${file}`);
-    assert.equal(state.remark.sound.voices.get(state.remark.id).volume, .7);
+    audio.vehicles.random = () => .5;
+    const state = audio.vehicles.instances.get(vehicle.car);
+    vehicle.personBlocked = true; state.patience = 0;
+    const heard = [];
+    for (let i = 0; i < 6; i++) {
+      if (state.remark) state.remark.sound.stop(state.remark.id);
+      state.remark = null;
+      state.cooldown = 0; state.remarkCooldown = 0; audio.vehicles._lastHornAt = -Infinity;
+      audio.updateWorld(.1, origin, null, [vehicle]);
+      heard.push(state.remark.sound.options.src[0]);
+      assert.equal(state.remark.sound.voices.get(state.remark.id).volume, .7);
+    }
+    assert.equal(audio.vehicles.driverVoice(vehicle.car), name);
+    assert.deepEqual([...heard].sort(), [...files[name]].sort(), `${name} dice sus seis frases, cada una una vez`);
   }
   assert.ok(audio.driverSounds.every(sound => sound.starts === 1));
   audio.dispose(); assert.ok(audio.driverSounds.every(sound => sound.unloaded));

@@ -208,12 +208,16 @@ test('al sacar al conductor, este sigue sentado hasta que lo jalan y el carro se
   let inside = true, settles = 0;
   car.setDriverInside = v => { inside = v; };
   car.settle = () => { settles++; };
+  const ejected = [];
+  game.roadRage = { ejectDriver: (c, at) => ejected.push({ c, at }) };
   const carjack = new CarjackSystem(game);
   input.pressed.add(CARJACK.key);
   carjack.update(1 / 30, input);
   assert.equal(inside, true, 'el conductor no desaparece al apretar la tecla');
   settle(carjack, input);
   assert.equal(inside, false);
+  assert.equal(ejected.length, 1, 'el conductor sale corriendo');
+  assert.ok(ejected[0].at.distanceTo(game.player.position) > .5, 'no aparece encima del jugador');
   assert.ok(settles >= 2, 'se abre la puerta y se sienta: dos hundidas');
   assert.equal(game.player.root.visible, false);
 });

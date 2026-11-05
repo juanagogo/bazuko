@@ -1,8 +1,12 @@
 // src/systems/StreetVoices.js
 // Frases de la calle: suenan de quien está cerca, una a la vez y con enfriamiento por persona y por grabación.
 import { distanceGain } from './VehicleAudio.js';
+import { sameSex, setPan, setRate, takeVariation, voicePan } from './voiceVariety.js';
 
-/** Las cinco frases de la calle. `text` es lo que muestra la burbuja. */
+/**
+ * Las cinco frases de la calle, grabadas de verdad. `text` es lo que muestra la burbuja.
+ * Sin `gender` son voz de hombre: solo las dicen los hombres (ver `sameSex`).
+ */
 export const STREET_VOICES = [
   { key: 'carechimba', file: 'calle_las_mejores_carechimba.mp3', text: 'Las mejores, carechimba.' },
   { key: 'pirobito', file: 'calle_pirobito.mp3', text: 'Pirobito.' },
@@ -30,6 +34,7 @@ export class StreetVoices {
     this._clipAt = new Map();
     this._nextAt = 0;
     this._voice = null;
+    this.camera = null;
   }
 
   /** Una frase de la calle sonando: tráfico y ambiente bajan mientras tanto. */
@@ -46,8 +51,11 @@ export class StreetVoices {
     const sound = chosen && this.bank[chosen.clip.key];
     if (!sound || sound.state() !== 'loaded') { this._nextAt = now + RETRY; return; }
     const id = sound.play();
+    const { rate, gain } = takeVariation(this.random);
+    setRate(sound, rate, id);
+    this._voice = { sound, id, npc: chosen.npc, gain };
     sound.volume(this._volume(chosen.distance), id);
-    this._voice = { sound, id, npc: chosen.npc };
+    setPan(sound, voicePan(position, this.camera, chosen.npc.position), id);
     this._npcAt.set(chosen.npc, now + NPC_COOLDOWN);
     this._clipAt.set(chosen.clip.key, now + CLIP_COOLDOWN);
     this._nextAt = now + GAP_MIN + this.random() * (GAP_MAX - GAP_MIN);
@@ -67,20 +75,25 @@ export class StreetVoices {
     }
     if (!candidatos.length) return null;
     candidatos.sort((a, b) => a.distance - b.distance);
-    const clips = STREET_VOICES.filter(clip => (this._clipAt.get(clip.key) ?? -Infinity) <= now);
-    if (!clips.length) return null;
-    const pool = Math.min(POOL, candidatos.length);
-    const persona = candidatos[Math.floor(this.random() * pool)];
+    const libres = STREET_VOICES.filter(clip => (this._clipAt.get(clip.key) ?? -Infinity) <= now);
+    if (!libres.length) return null;
+    // Solo cuenta quien tenga alguna frase libre de su sexo: una mujer no habla con voz de hombre.
+    const conFrase = candidatos.filter(({ npc }) => libres.some(clip => sameSex(clip, npc.look?.real?.sexo)));
+    if (!conFrase.length) return null;
+    const pool = Math.min(POOL, conFrase.length);
+    const persona = conFrase[Math.floor(this.random() * pool)];
+    const clips = libres.filter(clip => sameSex(clip, persona.npc.look?.real?.sexo));
     return { npc: persona.npc, distance: persona.distance, clip: clips[Math.floor(this.random() * clips.length)] };
   }
 
-  _volume(distance) { return this.levels.voices * distanceGain(distance, FULL, RANGE); }
+  _volume(distance) { return (this._voice?.gain ?? 1) * this.levels.voices * distanceGain(distance, FULL, RANGE); }
 
   _setVolume(position) {
     const p = this._voice.npc.position;
     const distance = Math.hypot(p.x - position.x, p.y - position.y, p.z - position.z);
     if (distance > RANGE) { this._drop(); return; }
     this._voice.sound.volume(this._volume(distance), this._voice.id);
+    setPan(this._voice.sound, voicePan(position, this.camera, p), this._voice.id);
   }
 
   _drop() {

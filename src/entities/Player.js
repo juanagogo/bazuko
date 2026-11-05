@@ -7,6 +7,7 @@ import {
   CHARACTER_SCALE
 } from '../utils/constants.js';
 import { createCharacter } from '../character/character.js';
+import { HitLean } from '../character/HitLean.js';
 import { createRealisticCharacter, REALISTIC_SCALE } from '../character/RealisticCharacter.js';
 import { PlayerRagdoll } from '../systems/PlayerRagdoll.js';
 import { MeleeCombat } from '../systems/MeleeCombat.js';
@@ -80,6 +81,8 @@ export class Player {
     this._before = new THREE.Vector3();
     this._impactVelocity = new THREE.Vector3();
     this._impactTime = 0;
+    this._impactHeavy = false; // atropello o golpe que tumba: el cuerpo se va de lado
+    this.hitLean = new HitLean();
     this._respiroTumbo = 0;
     this.tiradoPor = null;
 
@@ -485,12 +488,15 @@ export class Player {
   receiveAssaultHit(direction = null, damage = 0) {
     const received = Math.max(0, damage) * (this.isBlocking ? .4 : 1);
     if (this.stats && received) this.stats.salud = Math.max(0, this.stats.salud - received);
+    const sequence = (this.lastCombatHit?.sequence ?? 0) + 1;
     if (!this.isBlocking || this.action !== 'bloquear') {
-      this.playAction(this.isBlocking ? 'bloquear' : 'reaccion_pecho', this.isBlocking ? .6 : .45);
+      // Cada tercer golpe va a la cara: la reacción no se repite igual en una golpiza.
+      this.playAction(this.isBlocking ? 'bloquear' : sequence % 3 === 0 ? 'reaccion_cabeza' : 'reaccion_pecho', this.isBlocking ? .6 : .45);
     }
     this._assaultJolt = this.modelKind === 'realista' ? 0 : .42;
     if (direction?.clone) this._assaultDirection = direction.clone().setY(0).normalize();
-    this.lastCombatHit = { sequence: (this.lastCombatHit?.sequence ?? 0) + 1, direction: this._assaultDirection?.clone() };
+    if (this._assaultDirection) this.hitLean.kick(this._assaultDirection, this.root.rotation.y, this.isBlocking ? .35 : 1);
+    this.lastCombatHit = { sequence, direction: this._assaultDirection?.clone() };
     return received;
   }
 
@@ -518,6 +524,8 @@ export class Player {
     if (this.ragdoll.start(direction, speed, collisions)) return;
     this._impactVelocity.copy(direction).setY(0).normalize().multiplyScalar(Math.min(9, speed * .7));
     this._impactTime = 1;
+    this._impactHeavy = true;
+    this.hitLean.clear();
     this.root.rotation.z = .85;
   }
 
@@ -536,8 +544,15 @@ export class Player {
       this._respiroTumbo = GOLPE_TUMBA.respiroS;
       if (this.ragdoll?.start(this._impactVelocity.clone(), GOLPE_TUMBA.velocidad, this._lastCollisions)) return;
       this._impactTime = 1;
+      this._impactHeavy = true;
+      this.hitLean.clear();
       this.root.rotation.z = .85;
       return;
+    }
+    if (!this._impactHeavy) {
+      // Golpe que no tumba: trastabilla hacia donde lo empujan y alcanza a ver el gesto del golpe.
+      this.hitLean.kick(this._impactVelocity, this.root.rotation.y, strength / 1.6);
+      this.playAction(strength >= 2 ? 'reaccion_cabeza' : 'reaccion_pecho', .45);
     }
     this._impactTime = Math.max(this._impactTime, .3);
   }
@@ -551,6 +566,9 @@ export class Player {
     this.ragdoll.clear();
     this._impactVelocity.set(0, 0, 0);
     this._impactTime = 0;
+    this._impactHeavy = false;
+    this.hitLean.remove(this.root);
+    this.hitLean.clear();
     this.root.rotation.z = 0;
   }
 
@@ -567,6 +585,7 @@ export class Player {
 
   update(dt, camera, collisions, groundHeight = null, npcs = [], waterInfo = null) {
     this.time += dt;
+    this.hitLean.remove(this.root);
     this._lastCollisions = collisions;
     if (this._respiroTumbo > 0) this._respiroTumbo -= dt;
     const holdingBlock = !!this.input?.isDown?.('KeyO');
@@ -665,8 +684,10 @@ export class Player {
       delta.addScaledVector(this._impactVelocity, (1 - Math.exp(-4 * dt)) / 4);
       this._impactVelocity.multiplyScalar(Math.exp(-4 * dt));
       this._impactTime = Math.max(0, this._impactTime - dt);
+      if (this._impactTime === 0) this._impactHeavy = false;
     }
-    this.root.rotation.z = .85 * this._impactTime;
+    // Solo el golpe que tumba lo acuesta de lado; el leve lo inclina hitLean.
+    if (this._impactHeavy) this.root.rotation.z = .85 * this._impactTime;
 
     const before = this._before.copy(this.position);
     if (collisions) {
@@ -795,10 +816,11 @@ export class Player {
     if (this._assaultJolt > 0) {
       this._assaultJolt = Math.max(0, this._assaultJolt - dt);
       const strength = this._assaultJolt / .42;
-      this.root.rotation.x -= .18 * strength;
-      this.root.rotation.z += Math.sin(this.time * 32) * .12 * strength;
       if (this._assaultDirection) this.root.position.addScaledVector(this._assaultDirection, .025 * strength);
     }
+    this.hitLean.update(dt);
+    // El cuerpo realista ya trae su clip de reacción: la inclinación lo acompaña sin doblarlo de más.
+    if (!this._impactHeavy) this.hitLean.apply(this.root, this.modelKind === 'realista' ? .6 : 1);
 
     // Resolver primero agua, apoyo y orientación evita contactos desde la posición anterior.
     if (this.isSwimming || !this.isGrounded || this.isStunned) {
@@ -840,7 +862,7 @@ export class Player {
       style: this.bodyStyle,
       speed: (stunned || assaultReaction) ? 0 : this.speed / this.modelScale,
       running,
-      action: stunned ? null : this.isSwimming ? null : !this.isGrounded ? 'saltar' : (this.sorting ? 'buscar' : this.action),
+      action: stunned && (this._impactHeavy || !assaultReaction) ? null : this.isSwimming ? null : !this.isGrounded ? 'saltar' : (this.sorting ? 'buscar' : this.action),
       actionProgress: this.actionProgress,
       actionDuration: this.actionDuration,
       actionSequence: this.actionSequence,

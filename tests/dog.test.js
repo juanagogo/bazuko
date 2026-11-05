@@ -110,11 +110,15 @@ test('Dog emite alerta cuando olfatea basura cercana y ante sospechosos', () => 
 test('sin dueño merodea cerca de su lugar', () => {
   const dog = new Dog(new THREE.Scene(), new THREE.Vector3(5, 0, 5));
   dog._wanderPause = 0;
+  // Lo que importa es que salió de su sitio: el punto final depende del azar del merodeo, que puede
+  // devolverlo cerca de donde empezó al cruzar de un destino a otro.
+  let lejos = 0;
   for (let i = 0; i < 300; i++) {
     dog.update(1 / 30, new THREE.Vector3(50, 0, 50), []);
     assert.ok(dog.position.distanceTo(dog.home) < 5.5);
+    lejos = Math.max(lejos, dog.position.distanceTo(dog.home));
   }
-  assert.ok(dog.position.distanceTo(dog.home) > .3, 'se movió');
+  assert.ok(lejos > .3, 'se movió');
 });
 
 test('distrae a los peatones solo si acompaña al jugador de cerca', () => {

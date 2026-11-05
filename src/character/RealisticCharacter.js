@@ -4,6 +4,7 @@
 // Expone la misma interfaz que createCharacter(): { group, setLook, update }.
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
 import { clone as cloneSkinned } from 'three/examples/jsm/utils/SkeletonUtils.js';
 import { ACTIONFORGE_CLIPS, buildCharacterClips } from './actionforge.js';
 import { buildMixamoPreviewClips, buildMixamoGameComplements, isMixamoProfile, resolveAnimationProfile } from './animationProfiles.js';
@@ -69,7 +70,8 @@ export const REAL_DEFAULT = {
   sexo: 'hombre', edad: 'adulto', pelo: 'desordenado', barba: 'descuidada', ropa: 'chaqueta', calzado: 'tenis-rotos', cabeza: 'sin-sombrero'
 };
 
-const loader = new GLTFLoader();
+// Las mallas de los personajes vienen comprimidas sin pérdida (tools/personaje/comprimir-mallas.mjs).
+const loader = new GLTFLoader().setMeshoptDecoder(MeshoptDecoder);
 let skinDetailPromise;
 function loadStreetSkinDetail() {
   skinDetailPromise ??= new THREE.TextureLoader().loadAsync(`${MODEL_BASE}preview/skin/skin-micro-normal.png`).then(texture => {

@@ -1,3 +1,6 @@
+// Frases con audio de los peatones, por situación. `text` es la burbuja y `audio` la grabación.
+// `gender: 'mujer'` marca voz de mujer; sin marcar es voz de hombre y solo la dicen los hombres.
+// `voz` (opcional) nombra a quien la grabó: quien ya habló con una voz no cambia a otra.
 export const NPC_VOICE_BANK = {
   hit: [
     {
