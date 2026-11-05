@@ -562,7 +562,9 @@ export class HUD {
     }
 
     // La tecla de contexto
-    this._pintarPrompt(window.__game?.paused ? '' : textoDelPrompt(interaction, inventory), interaction);
+    const base = window.__game?.paused ? '' : textoDelPrompt(interaction, inventory);
+    const carjack = window.__game?.paused ? null : interaction?.carjackPrompt;
+    this._pintarPrompt(carjack ? (base ? `${base} · ${carjack}` : carjack) : base, interaction);
 
     if (this._misionS > 0 && (this._misionS -= dt) <= 0 && this.misionEl) this.misionEl.hidden = true;
 
