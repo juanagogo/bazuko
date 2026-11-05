@@ -108,3 +108,14 @@ test('el juego guarda los objetivos, escucha sus eventos y reparte la recompensa
   assert.match(source, /this\._updateObjectives\(dt\)/);
   assert.match(source, /routeToObjective/);
 });
+
+test('robar un carro se cumple con el evento del robo de carros', () => {
+  const sys = new ObjectiveSystem();
+  sys.index = OBJECTIVES.findIndex(d => d.id === 'robar-carro');
+  assert.ok(sys.index > OBJECTIVES.findIndex(d => d.id === 'retrovisor'), 'después del retrovisor');
+  assert.equal(sys.notify('carjack-exit', {}), false, 'bajarse no cuenta');
+  assert.equal(sys.notify('carjack', { car: {}, fromTraffic: true }), true);
+  assert.equal(sys.update(fakeGame()).id, 'robar-carro');
+  const source = readFileSync(new URL('../src/systems/CarjackSystem.js', import.meta.url), 'utf8');
+  assert.match(source, /_emit\('carjack'/);
+});
