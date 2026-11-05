@@ -42,6 +42,7 @@ El repositorio guarda dos ports en C++, independientes del juego web: [`cpp/`](c
 - Placas bogotanas, y patrullas de la Policía Nacional que persiguen a quien ven robando.
 - Comida callejera en chazas y fritangas: empanada, morcilla, papa criolla y aguapanela, que además dan calor; la aguapanela también cura la gripe. En las noches con lluvia, sin calor se pierde energía y ánimo; las fogatas de El Cartucho calientan cada 20 segundos.
 - Pedir limosna requiere alguien a menos de 7 metros.
+- Rebusque en el semáforo: con la luz en rojo, junto a los carros que esperan, `B` hace malabares (pelotas de $ 3.000), limpia el parabrisas (rodillo y jabón de $ 5.000) o vende dulces a $ 1.000 (cinco por $ 2.500), todo de La Esquinita. Dura de 3 a 5 segundos; si el jugador se aleja o cambia la luz y el carro arranca, no paga. A cada carro se le trabaja una vez por minuto, cansa un poco y la falta de baño espanta a la mitad. Fuera del semáforo: con dulces se le vende a los pasajeros del bus troncal cuando para, arrimándose a su costado, y con una franela roja ($ 2.000) se cuidan los carros parqueados en turnos de 40 segundos, en los que los dueños vuelven y dejan propina; `B` deja el puesto antes. Ver `src/data/rebusque.js`.
 - Calzadas de 12 metros y andenes de 4 metros en el centro. Las calles angostas del oriente tienen 8 metros de calzada, con andenes de 2 metros en La Candelaria y de 6 en Chapinero.
 - Ciudad de 400 × 322 metros: conserva la ampliación urbana, el gran parque al sur, los barrios al oriente y al sur, las calles y carreras adicionales y los parques nuevos, y crece 160 metros más hacia el oriente sin mover nada de lo anterior.
 - Creación de personaje, inventario, reciclaje, comercio, talentos y construcción del cambuche.
@@ -134,7 +135,7 @@ Con `npm run dev` activo, abre **/sala.html** (por ejemplo http://localhost:5173
 | `Q` junto a una persona | Robo directo: paga más, siempre se nota, la persona puede defenderse si está de pie y una patrulla que lo vea te persigue. Robar te deja fichado: ver «Fichado y patrullas». |
 | Mantener y soltar `Q` junto a basura | Seleccionar materiales y recogerlos al soltar. |
 | `Q` o `E` junto al jíbaro | Abrir o cerrar su tienda: comprar y, de noche, elegir qué venderle. |
-| `B` o `L` | Pedir limosna. |
+| `B` o `L` | Pedir limosna. Con pelotas, rodillo, dulces o franela en el costal: rebuscarse junto a carros en rojo, al bus detenido o a carros parqueados. |
 | Clic izquierdo o `G` en la calle | Atacar con los puños o con el arma equipada; pulsar de nuevo al final del golpe encadena el combo. |
 | Usar un cuchillo, una botella picada o el arma casera del costal | Equiparla en la mano; usarla otra vez la guarda y vuelves a los puños. El arma equipada se conserva al guardar, y ni la recicladora ni quien te robe mientras duermes se llevan la que tienes en la mano. |
 | `F` | Activar o desactivar el boost, que consume energía y salud. |

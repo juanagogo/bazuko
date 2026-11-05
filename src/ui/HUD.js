@@ -117,6 +117,12 @@ const VERBO_CORTO = [
   [/^Agarrar la carreta/, 'Agarrar carreta'],
   [/^Soltar la carreta/, 'Soltar carreta'],
   [/^Cosquilleo/, 'Cosquilleo'],
+  [/^Vender dulces a los pasajeros/, 'Vender en el bus'],
+  [/^Vender dulces/, 'Vender dulces'],
+  [/^Limpiar el parabrisas/, 'Limpiar vidrio'],
+  [/^Hacer malabares/, 'Malabares'],
+  [/^Cuidar los carros/, 'Cuidar carros'],
+  [/^Dejar el puesto/, 'Dejar el puesto'],
   [/^Mantener: seleccionar/, 'Seleccionar'],
 ];
 
@@ -585,8 +591,9 @@ export class HUD {
 
     // La tecla de contexto
     const base = window.__game?.paused ? '' : textoDelPrompt(interaction, inventory);
-    const carjack = window.__game?.paused ? null : interaction?.carjackPrompt;
-    this._pintarPrompt(carjack ? (base ? `${base} · ${carjack}` : carjack) : base, interaction);
+    const pausa = window.__game?.paused;
+    const extra = pausa ? [] : [interaction?.rebusquePrompt, interaction?.carjackPrompt].filter(Boolean);
+    this._pintarPrompt([base, ...extra].filter(Boolean).join(' · '), interaction);
 
     if (this._misionS > 0 && (this._misionS -= dt) <= 0 && this.misionEl) this.misionEl.hidden = true;
 

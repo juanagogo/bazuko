@@ -120,5 +120,26 @@ export const OBJECTIVES = [
     hint: 'Colchón, fogón y vela: cada pieza mejora el descanso.',
     target: 'bed', goal: CAMBUCHE.length, progress: builtCount,
     reward: { xp: 100, dinero: 10000 }
+  },
+  {
+    id: 'rebusque-semaforo',
+    title: 'Rebuscarse en el semáforo',
+    hint: 'Con pelotas, rodillo o dulces de la tienda, junto a los carros en rojo oprimo B.',
+    target: 'shop', event: 'rebusque', accept: (d) => (d?.pesos ?? 0) > 0, goal: 3,
+    reward: { xp: 40, dinero: 2000 }
+  },
+  {
+    id: 'cuidar-carros',
+    title: 'Cuidar carros parqueados',
+    hint: 'Con una franela de la tienda, junto a un carro parqueado oprimo B y espero las propinas.',
+    target: 'shop', event: 'rebusque', accept: (d) => d?.id === 'cuidar' && (d?.pesos ?? 0) > 0, goal: 1,
+    reward: { xp: 30 }
+  },
+  {
+    id: 'vender-en-bus',
+    title: 'Vender dulces en el bus',
+    hint: 'Cuando el bus para en el semáforo, me arrimo a su costado con dulces y oprimo B.',
+    event: 'rebusque', accept: (d) => d?.id === 'bus' && (d?.pesos ?? 0) > 0, goal: 1,
+    reward: { xp: 30, dinero: 1000 }
   }
 ];

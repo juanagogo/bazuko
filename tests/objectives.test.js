@@ -31,7 +31,7 @@ test('los objetivos tienen ids únicos, texto y destinos válidos', () => {
     if (def.target) assert.ok(['bed', 'sell', 'shop', 'craft', 'dog'].includes(def.target), def.id);
     assert.ok(def.event || def.done || def.progress, `${def.id} necesita una forma de cumplirse`);
   }
-  assert.equal(OBJECTIVES.at(-1).goal, CAMBUCHE.length);
+  assert.equal(OBJECTIVES.find(d => d.id === 'cambuche-completo').goal, CAMBUCHE.length);
 });
 
 test('el primer objetivo se cumple con un evento de recolección y avanza uno por vez', () => {

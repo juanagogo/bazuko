@@ -457,6 +457,7 @@ test('salto en el bucle real, fabricación con costal lleno y llegada a un edifi
 });
 
 test('robar un carro estacionado, manejarlo y bajarse', async ({ page }) => {
+  test.setTimeout(300_000); // la subida al carro tarda muchos cuadros lentos con renderizado por software
   const errors = [];
   page.on('pageerror', error => errors.push(error.message));
   await startNewGame(page);
@@ -470,6 +471,9 @@ test('robar un carro estacionado, manejarlo y bajarse', async ({ page }) => {
   await expect.poll(() => page.evaluate(() => window.__game.carjack.prompt)).toMatch(/robarme el carro/);
   await page.keyboard.press('y');
   await expect.poll(() => page.evaluate(() => window.__game.carjack.driving)).toBe(true);
+  // Desde #13 primero camina a la puerta y se sube (1 a 1,6 s de juego); el velocímetro sale al sentarse.
+  // Con renderizado por software esos segundos son muchos cuadros lentos: esperar a que termine la subida.
+  await expect.poll(() => page.evaluate(() => window.__game.carjack.transition), { timeout: 150_000 }).toBeNull();
   await expect(page.locator('#carjack-hud')).toBeVisible();
   const start = await page.evaluate(() => window.__game.carjack.car.position.clone());
   // Con renderizado por software los cuadros son lentos: esperar distancia, no tiempo.
