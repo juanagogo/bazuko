@@ -194,6 +194,12 @@ Medido en la partida inicial, con la misma semilla y la cámara del juego:
 
 Las capturas de cerca y de lejos de los mismos avisos coinciden antes y después.
 
+## Relieve, rugosidad y ventanas compartidos entre barrios
+
+Las fachadas se generan una vez por variante y barrio, y los andenes una vez por barrio. El barrio solo cambia los colores: relieve, rugosidad y ventanas encendidas reciben las mismas órdenes de dibujo. Ahora la segunda y las siguientes texturas de cada variante usan la imagen de la primera (`texture.source`), y cada textura conserva sus propios ajustes. `tests/shared-surface-maps.test.js` graba cada operación de dibujo de esos lienzos en todos los barrios y falla si alguna cambia; en ese caso hay que dejar de compartir ese mapa.
+
+En la partida inicial, las texturas en la GPU bajaron de 708 a 576 y la estimación de su memoria (RGBA8 con mipmaps), de 771 a 712 MB. Con los avisos de local, la estimación pasa de 846 a 712 MB.
+
 ## Cambios de calidad y resolución
 
 - **El antialias del contexto se decide al crearlo.** No se puede cambiar después: se omite solo si la preferencia guardada es baja, cuando la calidad automática ya no puede subir de nivel. Quien pasa de baja a media o alta en la misma sesión se queda sin él hasta recargar.

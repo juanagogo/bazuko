@@ -90,6 +90,9 @@ export const SHELTER_LOCATION = Object.freeze({ x: 112.98, z: 94.64 });
 export const SHELTER_RESPAWN = Object.freeze({ x: 112.98, z: 97.84 });
 
 const CARTUCHO = { x0: 8, x1: 21, z0: 14, z1: 29 };
+/** Mapas de fachada que no dependen del barrio. */
+const SHARED_FACADE_MAPS = ['emissiveMap', 'bumpMap', 'roughnessMap'];
+
 const SHOP_NAMES = [
   ['DROGUERÍA', 'SALUD Y VIDA'], ['PANADERÍA', 'EL TRIGAL'], ['CIGARRERÍA', 'LA 10'], ['ASADERO', 'POLLO DORADO'],
   ['MISCELÁNEA', 'TODO A MIL'], ['COMPRAVENTA', 'EL CENTAVO'], ['RESIDENCIAS', 'EL DORADO'], ['BILLARES', 'LA BOLA 8'],
@@ -155,6 +158,8 @@ export class Bogota {
     this.animated = [];       // grupos con userData.update
     this.facadeMats = [];
     this._facadeTextures = new Map();
+    // Primera fachada de cada variante: sus ventanas, relieve y rugosidad sirven a todos los barrios.
+    this._facadeShared = new Map();
     this._facadeSeeds = new Map();
     this._facadeMaterials = new Map();
     this.npcs = [];
@@ -432,6 +437,12 @@ export class Bogota {
     const grass = TX.grass(61);
     const concrete = TX.concrete(41);
     const tex = (t, scale) => { if (!t) return t; t.wrapS = t.wrapT = THREE.RepeatWrapping; t.userData = { scale }; return t; };
+    // Los andenes de cada barrio solo cambian el tinte: relieve y rugosidad son la misma imagen
+    // (tests/shared-surface-maps.test.js), así que la GPU guarda una copia.
+    const shareSidewalk = maps => {
+      for (const kind of ['bumpMap', 'roughnessMap']) if (maps[kind] && walk[kind]) maps[kind].source = walk[kind].source;
+      return maps;
+    };
     const mats = {
       // Relieve y rugosidad independientes del color: las reparaciones no son agujeros.
       road: new THREE.MeshStandardMaterial({
@@ -466,7 +477,7 @@ export class Bogota {
     };
     // Cuatro acabados compartidos para todo el mapa, sin una textura por baldosa.
     for (const id of ['cambuche', 'comercio', 'lago']) {
-      const paving = TX.sidewalk(11, { district: id });
+      const paving = shareSidewalk(TX.sidewalk(11, { district: id }));
       const material = new THREE.MeshStandardMaterial({ map: tex(paving.map, 6),
         bumpMap: tex(paving.bumpMap, 6), bumpScale: .035, roughnessMap: paving.roughnessMap,
         roughness: .85, color: '#e2dfd5' });
@@ -486,7 +497,7 @@ export class Bogota {
     mats.sidewalk_candelaria = zoneMaterial('Andén de la Candelaria', slabs, 6, { bumpScale: .035, roughness: .85, color: '#e9e4d8' });
     mats.sidewalk_candelaria.userData.surface = 'sidewalk';
     mats.plaza_candelaria = zoneMaterial('Plaza de la Candelaria', plazaSlabs, 6, { bumpScale: .03, roughness: .85, color: '#eee8dc' });
-    const chapineroPaving = TX.sidewalk(11, { district: 'chapinero' });
+    const chapineroPaving = shareSidewalk(TX.sidewalk(11, { district: 'chapinero' }));
     mats.sidewalk_chapinero = zoneMaterial('Andén de Chapinero', chapineroPaving, 6, { bumpScale: .035, roughness: .85, color: '#e2dfd5' });
     mats.sidewalk_chapinero.userData.surface = 'sidewalk';
     const scaleOf = { road: 14, busway: 14, sidewalk: 6, floor: 6, dirt: 8, grass: 8, plaza: 6, water: 16,
@@ -883,6 +894,11 @@ export class Bogota {
     let tex = this._facadeTextures.get(textureKey);
     if (!tex) {
       tex = TX.facade({ seed: this._facadeSeeds.get(baseTextureKey), width: widthM, floors, pxPerM: style === 'pintada' ? 36 : 48, shopFront: true, style, district: neighborhood.id });
+      // El barrio solo cambia los colores: ventanas encendidas, relieve y rugosidad salen iguales
+      // (tests/shared-surface-maps.test.js). Se comparte la imagen y la GPU guarda una copia.
+      const shared = this._facadeShared.get(baseTextureKey);
+      if (!shared) this._facadeShared.set(baseTextureKey, tex);
+      else for (const kind of SHARED_FACADE_MAPS) if (tex[kind] && shared[kind]) tex[kind].source = shared[kind].source;
       this._facadeTextures.set(textureKey, tex);
     }
     for (const t of [tex.map, tex.emissiveMap, tex.bumpMap, tex.roughnessMap]) {
@@ -1686,6 +1702,7 @@ export class Bogota {
     for (const bus of this.busServices ?? []) bus.dispose();
     this.buildingVisibility.dispose();
     this._facadeTextures.clear();
+    this._facadeShared.clear();
     this._facadeSeeds.clear();
     this._facadeMaterials.clear();
     scene.remove(this.group);
