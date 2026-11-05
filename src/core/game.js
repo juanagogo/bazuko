@@ -68,6 +68,8 @@ import { LimpiezaSocialSystem } from '../systems/LimpiezaSocialSystem.js';
 import { SubstanceEffects } from '../systems/SubstanceEffects.js';
 import { SUBSTANCE_EFFECTS } from '../data/substanceEffects.js';
 import { StealSystem } from '../features/steal.js';
+import { CarjackSystem } from '../systems/CarjackSystem.js';
+import { MirrorCinematic } from '../ui/MirrorCinematic.js';
 import { openRadioModal } from '../ui/RadioModal.js';
 
 
@@ -178,6 +180,8 @@ export class Game {
     this.zorra = new ZorraSystem();
     this.interaction.zorra = this.zorra;
     this.zorraCtl = new ZorraController(this);
+    this.carjack = new CarjackSystem(this);
+    this.mirrorCinematic = new MirrorCinematic(this);
 
     // HUD, menús y creador de personaje
     this.hud = new HUD();
@@ -488,6 +492,7 @@ export class Game {
     this.traffic = null;
     this.pickups.forEach((p) => p.dispose());
     this.pickups = [];
+    this.carjack?.reset();
     this.cars.forEach((c) => c.dispose());
     this.cars = [];
     this.interaction.targets = [];
@@ -944,6 +949,8 @@ export class Game {
   }
 
   _onVehicleImpact({ speed, direction }) {
+    // Dentro de un carro robado los choques los resuelve CarjackSystem.
+    if (this.carjack?.driving) return;
     if (this._deathPending || this.stats.salud <= 0 || (this._vehicleImpactCooldown ?? 0) > 0) return;
     const damage = Math.min(100, Math.max(4, Math.round(.6 * speed ** 2 + 1.5 * speed)));
     this.stats.salud = Math.max(0, this.stats.salud - damage);
@@ -1123,6 +1130,7 @@ export class Game {
     this.poopSystem?.activeProjectiles?.forEach?.(p => p.dispose?.());
     if (this.poopSystem) this.poopSystem.activeProjectiles = [];
 
+    this.carjack?.reset();
     const district = this.world.active;
     if (district?.reserved) {
       const spawn = district.reserved.respawn ?? { x: district.reserved.bed.x, z: district.reserved.bed.z + 2 };
@@ -1252,8 +1260,10 @@ export class Game {
     this.cameraRig.prepareMovement();
     const previousX = this.player.position.x, previousZ = this.player.position.z;
     this._syncVehicleColliders?.();
-    this._updatePlayerMovement(dt);
-    this.zorraCtl?.update(dt, this.input);
+    // Robo de carros: mientras se maneja, el carro reemplaza el movimiento a pie.
+    const driving = !this.player.isStunned && !this.player.isSwimming && (this.carjack?.update(dt, this.input) ?? false);
+    if (!driving) this._updatePlayerMovement(dt);
+    if (!driving) this.zorraCtl?.update(dt, this.input);
     this.waterEffects?.update(dt, this.player);
     if (this.player.waterFrame?.entered) this.audio.playWaterSplash?.(this.player.waterFrame.entryIntensity);
     this._swimSoundTimer = Math.max(0, (this._swimSoundTimer ?? 0) - dt);
@@ -1284,7 +1294,7 @@ export class Game {
     // Los objetos caducan antes de procesar E; los menús y la pestaña oculta pausan el plazo.
     this.droppedItems.update(dt);
     // 7. Interacción (basura, autos, recicladora, tienda, cambuche, dealer)
-    if (!this.player.isStunned) {
+    if (!this.player.isStunned && !driving) {
       // Los temporizadores y la selección de basura terminan normalmente al entrar;
       // nadar no permite comerciar ni iniciar acciones terrestres bajo el agua.
       const controls = this.player.isSwimming
@@ -1292,12 +1302,14 @@ export class Game {
       this.interaction.update(dt, controls, this.clock);
       if (this.player.isSwimming) this.interaction.currentTarget = this.interaction.currentTargetType = null;
     }
-    if (!this.player.isSwimming) this.steal?.update(dt);
+    if (!this.player.isSwimming && !driving) this.steal?.update(dt);
     else if (this.steal?.minigameActive) this.steal._endMinigame(false, 'cancel');
+    this.interaction.carjackPrompt = driving ? null : this.carjack?.prompt ?? null;
+    this.mirrorCinematic?.update(dt);
     if (this._handleDeath()) return;
 
     // 7b. Mecánica de popó y lanzamiento a peatones
-    if (!this.player.isStunned && !this.player.isSwimming && this.input.consumePress('KeyX')) {
+    if (!this.player.isStunned && !this.player.isSwimming && !driving && this.input.consumePress('KeyX')) {
       const hasPoop = this.inventory.count('popo') > 0;
       if (hasPoop) {
         this.poopSystem.throwPoop(this.player, this.cameraRig);
@@ -1305,7 +1317,7 @@ export class Game {
         this.poopSystem.poop(this.player);
       }
     }
-    if (!this.player.isStunned && !this.player.isSwimming && this.input.consumePress('KeyZ')) {
+    if (!this.player.isStunned && !this.player.isSwimming && !driving && this.input.consumePress('KeyZ')) {
       this.poopSystem.poop(this.player);
     }
     this.poopSystem.update(dt);
@@ -1350,13 +1362,14 @@ export class Game {
     this.cart?.update(dt, this.player, this.audio);
 
     // 10. Audio
-    const moving = !this.player.isStunned && (this.input.axis.x !== 0 || this.input.axis.z !== 0 || Math.hypot(this.player.position.x - previousX, this.player.position.z - previousZ) > .001);
+    const moving = !this.player.isStunned && !driving && (this.input.axis.x !== 0 || this.input.axis.z !== 0 || Math.hypot(this.player.position.x - previousX, this.player.position.z - previousZ) > .001);
     const groundType = this.world.active?.getGroundTypeAt?.(this.player.position.x, this.player.position.z) ?? 'sidewalk';
     const isRaining = !!this.weather?.isRaining;
-    this.audio.updateWorld?.(dt, this.player.position, this.cameraRig.camera, this.traffic?.vehicles ?? [], this.world.active?.busServices ?? this.world.active?.busService, this.world.active?.npcs ?? []);
+    const audible = this.carjack?.audioEntry ? [...(this.traffic?.vehicles ?? []), this.carjack.audioEntry] : (this.traffic?.vehicles ?? []);
+    this.audio.updateWorld?.(dt, this.player.position, this.cameraRig.camera, audible, this.world.active?.busServices ?? this.world.active?.busService, this.world.active?.npcs ?? []);
     this.audio.setRaining?.(isRaining);
     // Las pisadas siguen la distancia recorrida en el suelo; en el aire no suenan.
-    const travelled = this.player.isGrounded === false || this.player.inWater ? 0 : Math.hypot(this.player.position.x - previousX, this.player.position.z - previousZ);
+    const travelled = driving || this.player.isGrounded === false || this.player.inWater ? 0 : Math.hypot(this.player.position.x - previousX, this.player.position.z - previousZ);
     this.audio.updateSteps(moving && this.player.zorraMult > 0, this.input.isRunning && this.player.canRun, groundType, isRaining, travelled, dt);
     this.audio.updateBoost(this.interaction.boostActive);
     this.overlays?.update?.(dt, this.weather, this.stats, this.psychosis);
