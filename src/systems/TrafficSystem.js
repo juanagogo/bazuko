@@ -208,7 +208,7 @@ export class TrafficSystem {
   }
 
   /** La patrulla libre más cercana al último avistamiento se suma, si está al alcance del radio. */
-  _callBackup() {
+  _callBackup(reason = 'refuerzo') {
     const range = this.radioRange;
     let best = null, bestSq = range * range;
     for (const vehicle of this.vehicles) {
@@ -219,7 +219,28 @@ export class TrafficSystem {
     }
     if (!best) return false;
     this._startChase(best);
-    emit('police-radio', { x: best.car.position.x, z: best.car.position.z });
+    emit('police-radio', { x: best.car.position.x, z: best.car.position.z, reason });
+    return true;
+  }
+
+  /**
+   * Un testigo llamó: la patrulla libre más cercana va al sitio de la llamada sin haberlo visto. Si al llegar no lo
+   * ve, lo da por perdido como en cualquier persecución. Con una persecución en curso, la llamada solo dice dónde está.
+   */
+  dispatchTo(position) {
+    if (!position) return false;
+    if (this.inPursuit) {
+      if (!this._seen) this._lastSeen.copy(position);
+      return false;
+    }
+    this._lastSeen.copy(position);
+    if (!this._callBackup('llamada')) return false;
+    this._pursuitActive = true;
+    this._seen = false;
+    this._unseen = 0;
+    this._sightCheck = 0;
+    this._radioTimer = POLICE_RADIO_INTERVAL;
+    this._lostTrack = false;
     return true;
   }
 

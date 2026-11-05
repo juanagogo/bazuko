@@ -290,3 +290,11 @@ test('tras el calabozo la suelta dice cuántas horas pasó, y el escape dice có
   assert.equal(datoDePersecucion({ seen: true }, 20), 'Patrulla a 20 m');
   assert.equal(datoDePersecucion({ seen: false, lostIn: 3.2 }, 20), 'Me buscan: aguante 4 s sin que me vean');
 });
+
+test('el carro robado entra en la cuenta de lo perdido sin pasar del máximo', () => {
+  const items = [{ id: 'papel', qty: 1 }, { id: 'carton', qty: 1 }, { id: 'lata', qty: 1 }];
+  const r = perdidoEnArresto(1000, items, {}, 3, ['el carro robado']);
+  assert.equal(r.cosas.length, 3);
+  assert.equal(r.cosas[1], 'el carro robado');
+  assert.equal(r.resto, 2);
+});

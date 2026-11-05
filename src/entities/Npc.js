@@ -503,6 +503,37 @@ export class Npc {
     return this.takeHit({ damage: amount });
   }
 
+  /**
+   * Testigo de un robo o una pelea: se queda quieto mirando al jugador con el celular, grabando o llamando a la
+   * Policía, durante `seconds`. Un golpe, un susto o quedar noqueado lo interrumpen (ver WitnessSystem).
+   */
+  witness(mode, seconds) {
+    if (this.koState || this.isVendor || this.fijo) return false;
+    this._witness = { mode, time: seconds };
+    this._witnessFinished = false;
+    this.target = null;
+    this.route = [];
+    return true;
+  }
+
+  stopWitness() { this._witness = null; }
+
+  get witnessing() { return this._witness?.mode ?? null; }
+
+  /** Quieto, de frente al jugador y con el celular arriba mientras dura. */
+  _updateWitness(dt) {
+    const w = this._witness;
+    if (!w) return false;
+    if (this.koState || this.fleeTimer > 0) { this._witness = null; return false; }
+    if ((w.time -= dt) <= 0) { this._witness = null; this._witnessFinished = true; return false; }
+    this.moving = false;
+    if (this._player) {
+      const yaw = Math.atan2(this._player.x - this.position.x, this._player.z - this.position.z);
+      this.root.rotation.y += wrapAngle(yaw - this.root.rotation.y) * Math.min(1, dt * 6);
+    }
+    return true;
+  }
+
   alarmedByTheft(thiefPosition = null) {
     this._fleeFrom(thiefPosition);
     this._scream(THEFT_SCREAMS);
@@ -894,6 +925,7 @@ export class Npc {
   _stanceNow() {
     const person = this.person;
     if (!person || LOW_STANCES.has(this.stance)) return this.stance;
+    if (this._witness) return this._witness.mode === 'llamar' ? 'telefono' : 'celular';
     if (this._noseTimer > 0) return 'nariz';
     if (this._raining && !this.isVendor && !(this.fijo?.techo && !this.fijo.out)) {
       if (person.paraguas !== null) return 'paraguas';
@@ -1000,6 +1032,7 @@ export class Npc {
     } else {
       if (this.action === 'recibirGolpe') { this.action = null; this.actionProgress = 0; }
       if (fighting) this.action = this.grabbed ? 'ser_agarrado' : this.assaultAction;
+      else if (!this.koState && dt > reactionTime && this._updateWitness(dt - reactionTime)) { /* quieto, grabando */ }
       else if (!this.koState && dt > reactionTime) this._walk(dt - reactionTime);
       else this.moving = false;
       if (this._ownsLocomotionState) this.state = this.koState ?? (this.moving ? (this.fleeTimer > 0 ? 'flee' : 'walk') : 'idle');
@@ -1165,6 +1198,7 @@ export class Npc {
    * Los IDs se deduplican por atacante, sin bloquear pasos legítimos del combo.
    */
   takeHit({ damage = 10, dir = null, knockback = 0, attacker = null, weapon = 'punos', attackId = null, id = null } = {}) {
+    this._witness = null; // un golpe le hace soltar el celular
     if (this._disposed || this.koState || !Number.isFinite(damage) || damage <= 0) return false;
     if (!this._acceptAttackId(attacker, attackId ?? id)) return false;
     let dx = dir?.x ?? 0, dz = dir?.z ?? 0;

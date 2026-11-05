@@ -48,9 +48,9 @@ const conCantidad = (it, nombres) => {
   return it.qty > 1 ? `${nombre} ×${it.qty}` : nombre;
 };
 
-/** Lo que se lleva la tomba: la plata primero y lo decomisado del costal. `max`: cuántas cosas se escriben; lo demás se cuenta. */
-export function perdidoEnArresto(dinero, items, nombres, max = 3) {
-  const todo = [...(dinero > 0 ? [cop(dinero)] : []), ...(items ?? []).map((it) => conCantidad(it, nombres))];
+/** Lo que se lleva la tomba: la plata primero, luego `otros` (el carro robado) y lo decomisado del costal. `max`: cuántas cosas se escriben; lo demás se cuenta. */
+export function perdidoEnArresto(dinero, items, nombres, max = 3, otros = []) {
+  const todo = [...(dinero > 0 ? [cop(dinero)] : []), ...otros, ...(items ?? []).map((it) => conCantidad(it, nombres))];
   return { cosas: todo.slice(0, max), resto: Math.max(0, todo.length - max) };
 }
 

@@ -51,6 +51,7 @@ import { SaveSystem } from '../systems/SaveSystem.js';
 import { AutoSave } from '../systems/AutoSave.js';
 import { CollisionSystem } from '../systems/CollisionSystem.js';
 import { TrafficSystem } from '../systems/TrafficSystem.js';
+import { WitnessSystem } from '../systems/WitnessSystem.js';
 import { distributeShelterLoot, spreadPickupPositions } from '../systems/ShelterLoot.js';
 import { InventorySystem } from '../systems/InventorySystem.js';
 import { DroppedItemSystem } from '../systems/DroppedItemSystem.js';
@@ -192,6 +193,7 @@ export class Game {
     this.interaction.zorra = this.zorra;
     this.zorraCtl = new ZorraController(this);
     this.carjack = new CarjackSystem(this);
+    this.witnesses = new WitnessSystem(this);
     this.mirrorCinematic = new MirrorCinematic(this);
 
     // HUD, menús y creador de personaje
@@ -1037,12 +1039,12 @@ export class Game {
     }, 1200);
   }
 
-  /** ¿Está el jugador a menos de `radius` m del cambuche? */
   /** Dentro del cambuche con techo y paredes la patrulla no lo ve ni lo saca: es el único escondite. */
   _escondidoEnCambuche() {
     return !!(this.built?.techo && this.built?.paredes) && !this.carjack?.driving && this._nearCambuche(ESCONDITE_M);
   }
 
+  /** ¿Está el jugador a menos de `radius` m del cambuche? */
   _nearCambuche(radius) {
     const c = this.cambuche?.position;
     return !!c && Math.hypot(this.player.position.x - c.x, this.player.position.z - c.z) < radius;
@@ -1133,8 +1135,7 @@ export class Game {
     // Lo que pesa la captura depende del nivel con que lo cogieron; se fija aquí y se cobra al continuar.
     const castigo = this._arrestCastigo = castigoDeArresto(this.steal?.buscado ?? 0);
     const decomiso = this._decomiso();
-    const perdido = perdidoEnArresto(this.stats.dinero, decomiso, ITEMS);
-    if (this.carjack?.car) perdido.cosas.push('el carro robado');
+    const perdido = perdidoEnArresto(this.stats.dinero, decomiso, ITEMS, 3, this.carjack?.car ? ['el carro robado'] : []);
     let plana = null;
     this.menu.open({
       title: 'Te atrapó la Policía', ic: 'alert', dismissible: false, momento: 'plana',
@@ -1194,6 +1195,7 @@ export class Game {
     this.roadRage?.reset();
     this.limpieza?.reset();
     this.momentos?.reset();
+    this.witnesses?.reset();
     this.substanceEffects?.end();
     this.psychosis?.clearInduced?.();
     if (this.steal) {
@@ -1442,6 +1444,7 @@ export class Game {
     }
     if (!this.player.isSwimming && !driving) this.steal?.update(dt);
     else if (this.steal?.minigameActive) this.steal._endMinigame(false, 'cancel');
+    this.witnesses?.update(dt);
     this.interaction.carjackPrompt = driving ? null : this.carjack?.prompt ?? null;
     this.mirrorCinematic?.update(dt);
     this._updateObjectives(dt);
