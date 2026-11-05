@@ -28,6 +28,7 @@ import { pick, rand } from '../../utils/random.js';
 import { Farol } from '../props/Farol.js';
 import { TrafficSignals } from '../bogota/TrafficSignals.js';
 import { signTexture } from '../../utils/signs.js';
+import { signTextAtlas, atlasPlane } from '../../utils/signAtlas.js';
 import { Banca } from '../props/Banca.js';
 import { buildGroundWear, dressGrass, dressPaving } from '../bogota/GroundDressing.js';
 import * as TX from '../bogota/textures.js';
@@ -89,6 +90,9 @@ export const SHELTER_LOCATION = Object.freeze({ x: 112.98, z: 94.64 });
 export const SHELTER_RESPAWN = Object.freeze({ x: 112.98, z: 97.84 });
 
 const CARTUCHO = { x0: 8, x1: 21, z0: 14, z1: 29 };
+/** Mapas de fachada que no dependen del barrio. */
+const SHARED_FACADE_MAPS = ['emissiveMap', 'bumpMap', 'roughnessMap'];
+
 const SHOP_NAMES = [
   ['DROGUERÍA', 'SALUD Y VIDA'], ['PANADERÍA', 'EL TRIGAL'], ['CIGARRERÍA', 'LA 10'], ['ASADERO', 'POLLO DORADO'],
   ['MISCELÁNEA', 'TODO A MIL'], ['COMPRAVENTA', 'EL CENTAVO'], ['RESIDENCIAS', 'EL DORADO'], ['BILLARES', 'LA BOLA 8'],
@@ -154,6 +158,8 @@ export class Bogota {
     this.animated = [];       // grupos con userData.update
     this.facadeMats = [];
     this._facadeTextures = new Map();
+    // Primera fachada de cada variante: sus ventanas, relieve y rugosidad sirven a todos los barrios.
+    this._facadeShared = new Map();
     this._facadeSeeds = new Map();
     this._facadeMaterials = new Map();
     this.npcs = [];
@@ -431,6 +437,12 @@ export class Bogota {
     const grass = TX.grass(61);
     const concrete = TX.concrete(41);
     const tex = (t, scale) => { if (!t) return t; t.wrapS = t.wrapT = THREE.RepeatWrapping; t.userData = { scale }; return t; };
+    // Los andenes de cada barrio solo cambian el tinte: relieve y rugosidad son la misma imagen
+    // (tests/shared-surface-maps.test.js), así que la GPU guarda una copia.
+    const shareSidewalk = maps => {
+      for (const kind of ['bumpMap', 'roughnessMap']) if (maps[kind] && walk[kind]) maps[kind].source = walk[kind].source;
+      return maps;
+    };
     const mats = {
       // Relieve y rugosidad independientes del color: las reparaciones no son agujeros.
       road: new THREE.MeshStandardMaterial({
@@ -465,7 +477,7 @@ export class Bogota {
     };
     // Cuatro acabados compartidos para todo el mapa, sin una textura por baldosa.
     for (const id of ['cambuche', 'comercio', 'lago']) {
-      const paving = TX.sidewalk(11, { district: id });
+      const paving = shareSidewalk(TX.sidewalk(11, { district: id }));
       const material = new THREE.MeshStandardMaterial({ map: tex(paving.map, 6),
         bumpMap: tex(paving.bumpMap, 6), bumpScale: .035, roughnessMap: paving.roughnessMap,
         roughness: .85, color: '#e2dfd5' });
@@ -485,7 +497,7 @@ export class Bogota {
     mats.sidewalk_candelaria = zoneMaterial('Andén de la Candelaria', slabs, 6, { bumpScale: .035, roughness: .85, color: '#e9e4d8' });
     mats.sidewalk_candelaria.userData.surface = 'sidewalk';
     mats.plaza_candelaria = zoneMaterial('Plaza de la Candelaria', plazaSlabs, 6, { bumpScale: .03, roughness: .85, color: '#eee8dc' });
-    const chapineroPaving = TX.sidewalk(11, { district: 'chapinero' });
+    const chapineroPaving = shareSidewalk(TX.sidewalk(11, { district: 'chapinero' }));
     mats.sidewalk_chapinero = zoneMaterial('Andén de Chapinero', chapineroPaving, 6, { bumpScale: .035, roughness: .85, color: '#e2dfd5' });
     mats.sidewalk_chapinero.userData.surface = 'sidewalk';
     const scaleOf = { road: 14, busway: 14, sidewalk: 6, floor: 6, dirt: 8, grass: 8, plaza: 6, water: 16,
@@ -832,6 +844,19 @@ export class Bogota {
     this.backdrop = this.cerros;
   }
 
+  /** Texto de todos los avisos de local en un atlas: 16 nombres con letra oscura o clara. */
+  _shopSignAtlas() {
+    if (this._shopSigns !== undefined) return this._shopSigns;
+    if (typeof document === 'undefined' || typeof document.createElement !== 'function') return (this._shopSigns = null);
+    const entries = SHOP_NAMES.flatMap(([title, sub]) => ['#26302e', '#fff3da'].map(fg => ({ title, sub, fg })));
+    const { texture, cells } = signTextAtlas(entries, { w: 768, h: 192 });
+    const material = new THREE.MeshBasicMaterial({
+      map: texture, transparent: true, premultipliedAlpha: true, depthWrite: false,
+      polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -4
+    });
+    return (this._shopSigns = { cells, material, backs: new Map() });
+  }
+
   _house(tiles, dx, dz, face, alongX, isB, map, sideMat, roofMat, tileRoof, covered) {
     const ruin = tiles.some(([x, z]) => map[z][x] === 'ruin');
     // Profundidad: hasta 3 tiles hacia adentro, sin invadir casas ya construidas.
@@ -869,6 +894,11 @@ export class Bogota {
     let tex = this._facadeTextures.get(textureKey);
     if (!tex) {
       tex = TX.facade({ seed: this._facadeSeeds.get(baseTextureKey), width: widthM, floors, pxPerM: style === 'pintada' ? 36 : 48, shopFront: true, style, district: neighborhood.id });
+      // El barrio solo cambia los colores: ventanas encendidas, relieve y rugosidad salen iguales
+      // (tests/shared-surface-maps.test.js). Se comparte la imagen y la GPU guarda una copia.
+      const shared = this._facadeShared.get(baseTextureKey);
+      if (!shared) this._facadeShared.set(baseTextureKey, tex);
+      else for (const kind of SHARED_FACADE_MAPS) if (tex[kind] && shared[kind]) tex[kind].source = shared[kind].source;
       this._facadeTextures.set(textureKey, tex);
     }
     for (const t of [tex.map, tex.emissiveMap, tex.bumpMap, tex.roughnessMap]) {
@@ -912,17 +942,25 @@ export class Bogota {
 
     // aviso de local en el primer piso
     if (!ruin && random() < 0.55) {
-      const [title, sub] = choose(SHOP_NAMES);
+      const shopName = choose(SHOP_NAMES);
       const signColor = new THREE.Color(choose(['#0b4fa3', '#c0392b', '#1f6b3a', '#f2c600', '#ffffff', '#6a1b9a']));
       signColor.lerp(new THREE.Color(neighborhood.palette.signBackground), .18);
       const luminance = .2126 * signColor.r + .7152 * signColor.g + .0722 * signColor.b;
-      const map = signTexture({ title, sub, bg: `#${signColor.getHexString()}`, fg: luminance > .4 ? '#26302e' : '#fff3da', w: 768, h: 192 });
-      if (map) {
-        const sign = new THREE.Mesh(new THREE.PlaneGeometry(Math.min(widthM * 0.85, 3.6), Math.min(widthM * 0.85, 3.6) / 4),
-          new THREE.MeshBasicMaterial({ map }));
-        sign.position.set(fx + dx * 0.06 - cx, 3.05, fz + dz * 0.06 - cz);
-        sign.rotation.y = yaw;
-        shell.walls.get(face).add(sign);
+      const fg = luminance > .4 ? 0 : 1;
+      const atlas = this._shopSignAtlas();
+      if (atlas) {
+        // Fondo de color plano y texto del atlas compartido, en el mismo plano: el texto va
+        // encima por desplazamiento de profundidad, sin separarse de la fachada.
+        const signW = Math.min(widthM * 0.85, 3.6), signH = signW / 4;
+        const hex = signColor.getHexString();
+        if (!atlas.backs.has(hex)) atlas.backs.set(hex, new THREE.MeshBasicMaterial({ color: `#${hex}` }));
+        const back = new THREE.Mesh(new THREE.PlaneGeometry(signW, signH), atlas.backs.get(hex));
+        const text = new THREE.Mesh(atlasPlane(signW, signH, atlas.cells[SHOP_NAMES.indexOf(shopName) * 2 + fg]), atlas.material);
+        for (const sign of [back, text]) {
+          sign.position.set(fx + dx * 0.06 - cx, 3.05, fz + dz * 0.06 - cz);
+          sign.rotation.y = yaw;
+          shell.walls.get(face).add(sign);
+        }
       }
     }
     // balcón de madera en las casas viejas (Cartucho) o en algunas de ladrillo
@@ -1664,6 +1702,7 @@ export class Bogota {
     for (const bus of this.busServices ?? []) bus.dispose();
     this.buildingVisibility.dispose();
     this._facadeTextures.clear();
+    this._facadeShared.clear();
     this._facadeSeeds.clear();
     this._facadeMaterials.clear();
     scene.remove(this.group);
