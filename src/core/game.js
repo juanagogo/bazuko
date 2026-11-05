@@ -395,6 +395,7 @@ export class Game {
     this._lastRenderTime = undefined;
     this._loading = false;
     if (this.save?.fueApartada?.()) window.dispatchEvent(new CustomEvent('toast', { detail: { text: 'La partida estaba dañada: quedó aparte y se empieza de nuevo.', type: 'warn' } }));
+    if (this.save?.fueRecuperada?.()) window.dispatchEvent(new CustomEvent('toast', { detail: { text: 'La partida estaba dañada: se siguió desde la copia de respaldo.', type: 'warn' } }));
     this._running = true;
     loading.finish();
     this.audio.startAmbient();
