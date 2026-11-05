@@ -54,7 +54,8 @@ test('una sola frase a la vez: la siguiente espera a que termine y al intervalo'
   const a = person(3), b = person(-3);
   voices.update(listener, [a, b], 0);
   assert.equal(bank.carechimba.starts, 1);
-  assert.equal(bank.carechimba.lastVolume(), 1);
+  // Cerca suena pleno, con la variación de ±1 dB de cada toma.
+  assert.ok(Math.abs(bank.carechimba.lastVolume() - 1) <= .13);
   voices.update(listener, [a, b], 1000);
   assert.equal(totalStarts(bank), 1, 'mientras suena no empieza otra');
   finishAll(bank);
@@ -99,4 +100,16 @@ test('la pausa y otra voz en curso callan la calle, y el robo cede el canal', ()
   const antes = totalStarts(bank);
   voices.update(listener, [a], 100000);
   assert.equal(totalStarts(bank), antes, 'en pausa no empieza otra');
+});
+
+test('una mujer no dice frases grabadas por un hombre', () => {
+  const { voices, bank } = fixture();
+  const mujer = { ...person(2), look: { real: { sexo: 'mujer' } } };
+  const hombre = { ...person(4), look: { real: { sexo: 'hombre' } } };
+  voices.update(listener, [mujer], 0);
+  assert.equal(totalStarts(bank), 0, 'todas las frases de la calle son de hombre');
+  voices.update(listener, [mujer, hombre], 2000);
+  assert.equal(totalStarts(bank), 1);
+  assert.ok(hombre.dicho);
+  assert.equal(mujer.dicho, undefined);
 });

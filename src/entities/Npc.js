@@ -15,9 +15,9 @@ import { HAND_ON_FLOOR } from '../character/stances.js';
 import { WEAPONS } from '../data/weapons.js';
 import { NPC_VOICE_BANK } from '../data/npcVoices.js';
 import { NpcCombat } from '../systems/NpcCombat.js';
-import { pick } from '../utils/random.js';
 import { canReachCombatTarget, resolveCombatWalk } from '../systems/CombatGeometry.js';
 import { acabarFrase, empezarFrase } from '../ui/frases.js';
+import { ShuffleBag, sameSex } from '../systems/voiceVariety.js';
 
 const any = (arr) => arr[Math.floor(Math.random() * arr.length)];
 
@@ -41,19 +41,22 @@ const THEFT_SCREAMS = [
 // Distancias (m) al jugador
 export { NPC_VOICE_BANK } from '../data/npcVoices.js';
 
-const recentVoicePaths = [];
 const voiceLastPlayedAt = new Map();
+const voiceBags = new Map();
 const VOICE_REPEAT_DELAY = 8000;
 
-function getRandomVoice(category, gender) {
-  const pool = NPC_VOICE_BANK[category]?.filter(entry => !entry.gender || entry.gender === gender) ?? [];
+/**
+ * Una frase de la situación que le cuadre a esa persona: de su sexo (sin marcar = hombre), de su voz si ya
+ * habló con una (`voz`; las frases sin voz marcada sirven a cualquiera) y barajada: no se repite ninguna
+ * hasta que salgan todas las de esa situación.
+ */
+function getRandomVoice(category, gender, voz = null) {
+  const pool = NPC_VOICE_BANK[category]?.filter(entry => sameSex(entry, gender) && (!voz || !entry.voz || entry.voz === voz)) ?? [];
   const now = performance.now();
   const available = pool.filter(entry => now - (voiceLastPlayedAt.get(entry.audio) ?? -Infinity) >= VOICE_REPEAT_DELAY);
-  const withoutRecent = available.filter(entry => !recentVoicePaths.includes(entry.audio));
-  const entry = pick(withoutRecent.length ? withoutRecent : available);
+  if (!voiceBags.has(category)) voiceBags.set(category, new ShuffleBag());
+  const entry = voiceBags.get(category).draw(available, item => item.audio);
   if (!entry) return null;
-  recentVoicePaths.push(entry.audio);
-  if (recentVoicePaths.length > 4) recentVoicePaths.shift();
   voiceLastPlayedAt.set(entry.audio, now);
   return entry;
 }
@@ -434,8 +437,10 @@ export class Npc {
     if (this._disposed || (this.hp <= 0 && !knockoutVoice)) return false;
     const now = performance.now();
     if (!force && this._lastVoiceTime > 0 && now - this._lastVoiceTime < 2500) return false;
-    const entry = getRandomVoice(category, this.look?.real?.sexo);
+    const entry = getRandomVoice(category, this.look?.real?.sexo, this._voz);
     if (!entry) return false;
+    // La primera frase con voz marcada le deja esa voz para siempre.
+    this._voz ??= entry.voz ?? null;
     this._lastVoiceTime = now;
     this.say(entry.text, 3.5);
     this.audio ??= globalThis.window?.__game?.audio;
