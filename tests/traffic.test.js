@@ -964,13 +964,15 @@ async function runLikeTheGame(randomSeed, minutes, { chases = false, density = '
       parked.push(car);
     }
     const traffic = new TrafficSystem(scene, city.getTrafficRoutes(), { policeCount: 2, random: next });
+    traffic.onVehicleRemoved = () => { removals++; };
     traffic.setDensity(density);
     traffic.setParkedCars(parked);
     traffic.signals = city.signals;
     traffic.setBus(city.busServices);
     const pedestrians = [...city.npcs, { position: new THREE.Vector3(city.reserved.bed.x + 2, 0, city.reserved.bed.z + 3) }];
     const player = new THREE.Vector3(112.98, 0, 97.84);
-    const stoppedFor = new Map(), travel = new Map();
+    const stoppedFor = new Map(), travel = new Map(), farFor = new Map(), firstSeen = new Map();
+    let farWorst = { seconds: 0 }, removals = 0;
     let worst = { seconds: 0 };
     // El jugador aparece junto a una patrulla y corre por la calle; al acabar la persecución vuelve al inicio.
     let chasing = false, nextChase = 20, started = 0, heading = [1, 0], time = 0;
@@ -1002,14 +1004,22 @@ async function runLikeTheGame(randomSeed, minutes, { chases = false, density = '
       traffic.update(.1, { player, pedestrians, hour });
       for (const vehicle of traffic.vehicles) {
         travel.set(vehicle, (travel.get(vehicle) ?? 0) + vehicle.speed * .1);
+        if (!firstSeen.has(vehicle)) firstSeen.set(vehicle, frame);
         const seconds = vehicle.speed < .05 ? (stoppedFor.get(vehicle) ?? 0) + .1 : 0;
         stoppedFor.set(vehicle, seconds);
         if (seconds > worst.seconds) worst = { seconds, kind: vehicle.car.kind, x: vehicle.car.position.x, z: vehicle.car.position.z };
+        // Igual que el del juego: parado y fuera de la vista, el montaje lo retira; solo el que se ve se queda.
+        const away = vehicle.car.position.distanceTo(player) > 60;
+        const farStopped = away && vehicle.speed < .05 ? (farFor.get(vehicle) ?? 0) + .1 : 0;
+        farFor.set(vehicle, farStopped);
+        if (farStopped > farWorst.seconds) farWorst = { seconds: farStopped, kind: vehicle.car.kind, x: vehicle.car.position.x, z: vehicle.car.position.z };
       }
     }
-    const shortest = Math.min(...traffic.vehicles.map(vehicle => travel.get(vehicle)));
+    // El que menos anduvo entre los que ya rodaban a mitad de camino: los repuestos que entran al final no cuentan.
+    const settled = traffic.vehicles.filter(vehicle => firstSeen.get(vehicle) < minutes * 300);
+    const shortest = settled.length ? Math.min(...settled.map(vehicle => travel.get(vehicle))) : 0;
     city.dispose(scene);
-    return { parked: parked.length, npcs: city.npcs.length, vehicles: traffic.vehicles.length, worst, shortest, chases: started };
+    return { parked: parked.length, npcs: city.npcs.length, vehicles: traffic.vehicles.length, radio: traffic._resizeDistance(), worst, farWorst, removals, shortest, chases: started };
   } finally {
     Math.random = original;
     performance.now = realNow;
@@ -1047,6 +1057,19 @@ for (const seed of [1, 3, 11, 22, 29]) {
   });
 }
 
+
+// Los trancones que el jugador ve se quedan; el que no ve se despeja solo, y la flota repone el carro en un tramo libre.
+for (const seed of [1, 3, 11, 22, 29]) {
+  test(`fuera de la vista ningún carro se queda parado, semilla ${seed}`, async () => {
+    const { farWorst, vehicles, removals } = await runLikeTheGame(seed, 8, { density: 'maxima', hour: 8 });
+    const target = expectedFleet('maxima');
+    assert.ok(farWorst.seconds < 60,
+      `${farWorst.kind} parado ${farWorst.seconds.toFixed(0)} s lejos de la vista en ${farWorst.x?.toFixed(1)},${farWorst.z?.toFixed(1)}`);
+    assert.ok(Math.abs(vehicles - target) <= 3, `${vehicles} vehículos, objetivo ${target}`);
+    // Retira a los trabados; si la cifra se dispara, el trancón se está comiendo la flota lejana.
+    assert.ok(removals > 0 && removals <= 20, `${removals} retirados`);
+  });
+}
 
 test('el montaje diario crece lejos de la vista y se encoge de noche', () => {
   const scene = new THREE.Scene(), route = new TrafficRoute(0, 200, 0, 120, 3.2);

@@ -611,6 +611,7 @@ export class Game {
       };
       this.traffic.onVehicleRemoved = (car) => {
         this.interaction.unregister(car);
+        this.renderer.culling.unregister(car.group);
         const index = this._contactVehicles?.indexOf(car) ?? -1;
         if (index >= 0) this._contactVehicles.splice(index, 1);
       };

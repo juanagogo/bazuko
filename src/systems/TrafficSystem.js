@@ -41,6 +41,8 @@ const RESIZE_SAFE_DISTANCE = 60;
 const RESIZE_MIN_RATE = 1, RESIZE_MAX_RATE = 8, RESIZE_RATE_PER_MISSING = .15;
 // Separación mínima al insertar un carro nuevo en su circuito, en metros.
 const RESIZE_GAP = 8;
+// Un carro parado más que esto fuera de la vista se retira: el trancón que se ve se queda, el que no, se despeja.
+const STUCK_LIMIT = 45;
 
 function emit(type, detail) {
   if (typeof window !== 'undefined' && typeof window.dispatchEvent === 'function') {
@@ -239,23 +241,50 @@ export class TrafficSystem {
     return null;
   }
 
+  /** Saca de circulación un carro del montaje: se suelta de los cruces, se avisa y se libera. */
+  _retire(vehicle) {
+    const index = this.vehicles.indexOf(vehicle);
+    this.vehicles.splice(index, 1);
+    // Un carro que se va no puede quedar como dueño de un cruce: bloquearía a los demás para siempre.
+    this._releaseReservations(vehicle);
+    this.onVehicleRemoved?.(vehicle.car);
+    vehicle.car.dispose();
+  }
+
+  /** ¿Se puede retirar sin dejar a medias una persecución o una espera? */
+  _canRetire(vehicle) {
+    return !vehicle.police && vehicle.state === 'patrol' && !vehicle.rejoinTarget && !vehicle.hold;
+  }
+
   /** Saca de circulación al que va más lejos de la vista, sin tocar patrullas ni persecuciones. */
   _removeVehicle() {
     const view = this._viewPosition;
     let best = null, bestSq = this._resizeDistance() ** 2;
     for (const vehicle of this.vehicles) {
-      if (vehicle.police || vehicle.state !== 'patrol' || vehicle.rejoinTarget || vehicle.hold) continue;
+      if (!this._canRetire(vehicle)) continue;
       const dx = vehicle.car.position.x - view.x, dz = vehicle.car.position.z - view.z;
       const distanceSq = dx * dx + dz * dz;
       if (distanceSq > bestSq) { bestSq = distanceSq; best = vehicle; }
     }
     if (!best) return false;
-    this.vehicles.splice(this.vehicles.indexOf(best), 1);
-    // Un carro que se va no puede quedar como dueño de un cruce: bloquearía a los demás para siempre.
-    this._releaseReservations(best);
-    this.onVehicleRemoved?.(best.car);
-    best.car.dispose();
+    this._retire(best);
     return true;
+  }
+
+  /**
+   * Un carro parado mucho rato fuera de la vista se retira y la flota manda otro a un tramo libre. Los trancones que el
+   * jugador ve se quedan, como el tráfico de verdad, y se despejan cuando deja de mirar.
+   */
+  _clearStuck(dt) {
+    const view = this._viewPosition, safeSq = this._resizeDistance() ** 2;
+    for (const vehicle of this.vehicles) {
+      vehicle.stoppedFor = vehicle.speed < .05 ? (vehicle.stoppedFor ?? 0) + dt : 0;
+      if (vehicle.stoppedFor < STUCK_LIMIT || !this._canRetire(vehicle)) continue;
+      const dx = vehicle.car.position.x - view.x, dz = vehicle.car.position.z - view.z;
+      if (dx * dx + dz * dz < safeSq) continue;
+      this._retire(vehicle);
+      return; // uno por cuadro, para que la retirada se note como el resto del montaje
+    }
   }
 
   /** Saca al vehículo de las colas, los planes y los dueños de todos los cruces. */
@@ -1002,6 +1031,7 @@ export class TrafficSystem {
     else if (player) view.copy(player);
     if (this.densityId && Number.isFinite(hour)) this._resizeFleet(hour, dt);
     this._updateLod();
+    this._clearStuck(dt);
     this._coordinateIntersections();
     for (const vehicle of this.vehicles) {
       if (vehicle.state === 'chase' || vehicle.rejoinTarget) continue;
