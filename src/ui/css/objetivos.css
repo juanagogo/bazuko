@@ -1,0 +1,31 @@
+/* El objetivo de la primera hora: un cartón bajo la tira de arriba a la izquierda. Ver src/ui/ObjectiveTracker.js. */
+#objetivo {
+  position: fixed; z-index: 24;
+  top: calc(76px + var(--safe-t)); left: calc(20px + var(--safe-l));
+  width: 268px; max-width: calc(100vw - 40px);
+  display: grid; gap: 4px;
+  line-height: 1.1;
+  pointer-events: none;
+}
+#objetivo[hidden] { display: none; }
+.objetivo__cuenta { font-size: var(--letra-menu); font-weight: 800; }
+.objetivo__titulo { font-size: 22px; font-weight: 800; }
+.objetivo__pista { font-size: var(--letra-juego); }
+.objetivo__avance { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 10px; }
+.objetivo__barra { display: block; height: 12px; background: rgba(20, 17, 12, .13); }
+.objetivo__barra .masa { display: block; height: 100%; width: 0; }
+.objetivo__ruta { justify-self: start; margin-top: 2px; pointer-events: auto; }
+.objetivo__ruta kbd { font-size: 15px; }
+
+/* Cuando no toca: lo mismo que el resto del juego. */
+body:has(#menu:not([hidden]), #inv-overlay.open, #craft-panel.open, #talent-panel.open, #dealer-panel.open, #creator-modal:not([hidden]), #cerrado:not([hidden])) #objetivo,
+.is-photo-mode #objetivo {
+  visibility: hidden; pointer-events: none;
+}
+/* En una persecución, el objetivo estorba. */
+body:has(#wanted:not([hidden])) #objetivo { display: none; }
+
+@media (max-width: 899px), (pointer: coarse) {
+  #objetivo { width: 240px; }
+  .objetivo__pista { display: none; }
+}
