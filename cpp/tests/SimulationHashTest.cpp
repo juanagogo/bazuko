@@ -44,18 +44,27 @@ uint64_t HashState(const Simulation& simulation) {
         hasher.Vec(person.position); hasher.Milli(person.yaw); hasher.Int(person.moving ? 1 : 0); hasher.Int(person.reaction);
     }
     for (const BusState& bus : simulation.GetBuses()) { hasher.Vec(bus.position); hasher.Milli(bus.speed); hasher.Int(bus.servedStation ? 1 : 0); }
+    for (const Bird& bird : simulation.GetBirdFlock().Birds()) { hasher.Vec(bird.position); hasher.Milli(bird.yaw); hasher.Int(bird.IsFlying() ? 1 : 0); }
+    for (const glm::vec3& rat : simulation.GetRatPositions()) hasher.Vec(rat);
     hasher.Vec(simulation.GetDogPosition());
     return hasher.value;
 }
 
 // Corre `seconds` segundos y devuelve el hash cada `interval` segundos (para localizar la primera divergencia).
-std::vector<uint64_t> Run(CityLayout& city, uint32_t seed, float seconds, float interval, const glm::vec3& player, Simulation** keep) {
+std::vector<uint64_t> Run(CityLayout& city, uint32_t seed, float seconds, float interval, const glm::vec3& player, Simulation** keep, bool farSecondPlayer = false) {
     auto* simulation = new Simulation(city, seed);
     std::vector<uint64_t> checkpoints;
     constexpr float dt = 1.0f / 30.0f;
     float nextCheckpoint = interval;
     for (float t = 0.0f; t < seconds; t += dt) {
-        simulation->Update(dt, player);
+        if (farSecondPlayer) {   // via multijugador: el primero es el de siempre y el segundo esta al otro lado del mapa
+            Net::PlayerView first, second;
+            first.id = 1; first.position = {player.x, player.y, player.z};
+            second.id = 2; second.position = {399.0f, 0.0f, 320.0f};
+            simulation->Update(dt, std::vector<Net::PlayerView>{first, second});
+        } else {
+            simulation->Update(dt, player);
+        }
         if (t + dt >= nextCheckpoint) { checkpoints.push_back(HashState(*simulation)); nextCheckpoint += interval; }
     }
     checkpoints.push_back(HashState(*simulation));
@@ -114,6 +123,11 @@ int main(int argc, char** argv) {
     const std::vector<uint64_t> second = Run(city, seed, seconds, interval, player, nullptr);
 
     int status = 0;
+    // Un segundo jugador lejano (aves y ratas ya lo consideran) no debe cambiar nada cerca del primero
+    const std::vector<uint64_t> withSecond = Run(city, seed, std::min(seconds, 60.0f), interval, player, nullptr, true);
+    const std::vector<uint64_t> alone = Run(city, seed, std::min(seconds, 60.0f), interval, player, nullptr, false);
+    if (withSecond != alone) { status = 1; std::printf("Un segundo jugador lejano CAMBIA el mundo cerca del primero\n"); }
+    else std::printf("Un segundo jugador lejano no altera el mundo (%zu puntos de control iguales)\n", withSecond.size());
     if (first != second) {
         status = 1;
         for (size_t i = 0; i < first.size() && i < second.size(); ++i)

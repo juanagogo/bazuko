@@ -6,6 +6,7 @@
 
 #include "CityLayout.hpp"
 #include "BirdFlock.hpp"
+#include "../net/PlayerView.hpp"
 #include "../renderer/Model.hpp"
 #include <glm/glm.hpp>
 #include "VehicleKinematics.hpp"
@@ -361,6 +362,8 @@ public:
     explicit Simulation(const CityLayout& city, uint32_t seed = 42,
                         ModelLoadProgress modelLoadProgress = {});
     void Update(float dt, const glm::vec3& playerPosition);
+    // Varios jugadores (multijugador): aves y ratas ya reaccionan al mas cercano; el resto de sistemas sigue usando al primero hasta migrarse (hito 1).
+    void Update(float dt, const std::vector<Net::PlayerView>& players);
     void SetPlayerFacing(const glm::vec2& facing) { m_PlayerFacing = glm::length(facing) > 0.01f ? glm::normalize(facing) : glm::vec2(0.0f, 1.0f); }
     bool IsBlocked(const glm::vec3& position, float radius) const;
     // Objetos fijos de la calle (arboles, postes, semaforos, puestos, recicladora): un circulo o una caja orientada en planta
@@ -493,7 +496,9 @@ public:
     // Noche de 20:00 a 6:00, como el original
     bool IsNight() const { return m_DayProgress >= 20.0f / 24.0f || m_DayProgress < 6.0f / 24.0f; }
     size_t GetPedestrianCount() const { return m_Pedestrians.size(); }
-    const std::vector<Pedestrian>& GetPedestrians() const { return m_Pedestrians; }   // solo lectura: pruebas de estado y futura red
+    const std::vector<Pedestrian>& GetPedestrians() const { return m_Pedestrians; }
+    const BirdFlock& GetBirdFlock() const { return m_Birds; }   // solo lectura: pruebas de estado
+    std::vector<glm::vec3> GetRatPositions() const { std::vector<glm::vec3> out; for (const Rat& rat : m_Rats) out.push_back(rat.position); return out; }   // solo lectura: pruebas de estado y futura red
     size_t GetTrafficCount() const { return m_Traffic.size(); }
     size_t GetMissionProgress() const { return m_MissionProgress; }
     size_t GetMissionTarget() const { return m_MissionTarget; }
@@ -566,6 +571,7 @@ private:
     // Camino a pie por las baldosas libres (anden y calzada, sin edificios ni objetos) para los policias que van a su patrulla o tras el jugador
     bool FindWalkPath(const glm::vec3& start, const glm::vec3& target, std::vector<glm::vec3>& path) const;
     bool FindSidewalkPath(const glm::vec3& start, const glm::vec3& target, std::vector<glm::vec3>& path) const;
+    void UpdateWorld(float dt, const glm::vec3& primaryPlayer);   // el paso completo; `primaryPlayer` es el primero de m_PlayerViews
     void UpdatePedestrians(float dt, const glm::vec3& playerPosition);
     void UpdateDrivers(float dt, const glm::vec3& playerPosition);
     void AssignVehicleModel(TrafficVehicle& vehicle);
@@ -827,6 +833,8 @@ private:
     std::vector<std::vector<std::string>> m_RenewableLoot;
     float m_Elapsed = 0.0f;
     std::vector<glm::vec3> m_ValidTrashSpots;  // Andenes limpios sin bloqueo
+    std::vector<Net::PlayerView> m_PlayerViews;   // jugadores de este paso (siempre al menos uno en el juego de un jugador)
+    size_t m_TrashSpotCursor = 0;   // por donde sigue la busqueda de sitios de aparicion de bolsas (antes una variable estatica: sobrevivia entre mundos)
     glm::vec2 m_PlayerFacing{0.0f, 1.0f};      // Dirección de vista del jugador (XZ)
     size_t m_MissionProgress = 0;
     size_t m_MissionTarget = 5;

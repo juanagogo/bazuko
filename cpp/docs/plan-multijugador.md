@@ -87,6 +87,14 @@ Fuera de alcance de la primera versión: voz, matchmaking público, anticheat, c
 - **Presupuesto de red**: el mundo es pequeño (28 carros, 22 peatones, 2 buses). Una instantánea **completa** con posiciones cuantizadas pesa ~512 B, es decir ~10 KB/s por cliente a 20 Hz, y baja a 1,6–9 KB/s con radio de interés de 120 m. El ancho de banda **no es un problema**; el costo del multijugador está en la lógica, no en la red.
 - `Simulation` expone ahora `GetPedestrians()` (solo lectura) para pruebas y para la futura serialización.
 
+## Avance del hito 1 (primeros pasos hechos)
+
+- **Aves y ratas ya son multijugador.** `Simulation::Update(dt, const std::vector<Net::PlayerView>&)` acepta varios jugadores; `BirdFlock::Update` sigue la velocidad de cada uno por separado (parado, caminando o corriendo) y las aves huyen del más cercano; las ratas se asustan del jugador o peatón más cercano. El resto de sistemas (peatones, tráfico, policía, recogida de objetos, psicosis) sigue usando al primer jugador hasta migrarse. El juego de un jugador (`Update(dt, vec3)`) no cambia.
+- **Se corrigió un estado oculto del mundo**: `s_SpotCursor` (la búsqueda de sitios donde aparecen bolsas de basura) era una variable `static`, así que sobrevivía entre mundos en el mismo proceso. Con la semilla 7 hacía que dos simulaciones seguidas divergieran a los ~50 s. Ahora es un miembro (`m_TrashSpotCursor`); para la primera simulación el resultado es idéntico. Importa para el relevo de anfitrión: un mundo nuevo no hereda nada del anterior.
+- **Red de seguridad ampliada** (`bazuko_simulation_hash`): el hash incluye aves y ratas; comprueba que dos simulaciones son iguales y que **un segundo jugador lejano no altera el mundo cerca del primero**.
+- **Hashes de referencia** (120 s, jugador frente al cambuche, este equipo y compilador): semilla 42 → `f3bea226476185c2`; semilla 7 → `d751c7b74f6082b6`. Tras cada paso del hito 1 deben seguir iguales (`bazuko_simulation_hash_test.exe 120 42`).
+- **Siguiente**: peatones (susto y huida), luego tráfico y semáforos, policía, y por último sacar el estado del jugador de `Simulation`.
+
 ## Hitos
 
 Cada hito termina con algo ejecutable y una comprobación concreta. No se empieza el siguiente sin cerrar el anterior.

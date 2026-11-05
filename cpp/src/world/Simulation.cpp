@@ -2428,6 +2428,21 @@ std::vector<glm::vec4> Simulation::GetNearestLampLights(const glm::vec3& focus, 
 }
 
 void Simulation::Update(float dt, const glm::vec3& playerPosition) {
+    Net::PlayerView view;
+    view.id = 1;
+    view.position = {playerPosition.x, playerPosition.y, playerPosition.z};
+    m_PlayerViews.assign(1, view);
+    UpdateWorld(dt, playerPosition);
+}
+
+void Simulation::Update(float dt, const std::vector<Net::PlayerView>& players) {
+    m_PlayerViews = players;
+    glm::vec3 primary(1.0e6f, 0.0f, 1.0e6f);   // sin jugadores: lo que aun no es multijugador ve a alguien muy lejos
+    if (!players.empty()) primary = glm::vec3(players.front().position.x, players.front().position.y, players.front().position.z);
+    UpdateWorld(dt, primary);
+}
+
+void Simulation::UpdateWorld(float dt, const glm::vec3& playerPosition) {
     const float nextClock = m_Clock + dt / kDayLengthSeconds;
     if (nextClock >= 1.0f) ++m_Day;                       // pasa la medianoche: empieza otro dia (y a veces otra temporada)
     m_Clock = std::fmod(nextClock, 1.0f);
@@ -2718,7 +2733,11 @@ void Simulation::UpdatePigeons(float dt, const glm::vec3& playerPosition) {
     m_BirdDisturbances.clear();
     for (const Pedestrian& pedestrian : m_Pedestrians)
         m_BirdDisturbances.emplace_back(pedestrian.position.x, pedestrian.position.z);
-    m_Birds.Update(dt, playerPosition, m_BirdDisturbances);
+    std::vector<BirdPlayer> birdPlayers;
+    for (const Net::PlayerView& player : m_PlayerViews) {
+        if (player.alive) birdPlayers.push_back({player.id, glm::vec3(player.position.x, player.position.y, player.position.z)});
+    }
+    m_Birds.Update(dt, birdPlayers, m_BirdDisturbances);
 }
 
 void Simulation::UpdateRats(float dt, const glm::vec3& playerPosition) {
@@ -2728,9 +2747,13 @@ void Simulation::UpdateRats(float dt, const glm::vec3& playerPosition) {
         rat.animTime += dt;
 
         // 1. Detectar amenazas cercanas (jugador o peatones)
-        float threatDistance = glm::distance(glm::vec2(playerPosition.x, playerPosition.z),
-                                             glm::vec2(rat.position.x, rat.position.z));
-        glm::vec2 threatPos(playerPosition.x, playerPosition.z);
+        float threatDistance = 1.0e12f;   // la persona mas cercana: cualquiera de los jugadores o un peaton
+        glm::vec2 threatPos(rat.position.x + 1.0e6f, rat.position.z);
+        for (const Net::PlayerView& player : m_PlayerViews) {
+            if (!player.alive) continue;
+            const float distance = glm::distance(glm::vec2(player.position.x, player.position.z), glm::vec2(rat.position.x, rat.position.z));
+            if (distance < threatDistance) { threatDistance = distance; threatPos = glm::vec2(player.position.x, player.position.z); }
+        }
 
         for (const auto& pedestrian : m_Pedestrians) {
             const float pedDist = glm::distance(glm::vec2(pedestrian.position.x, pedestrian.position.z),
@@ -2953,14 +2976,13 @@ void Simulation::UpdatePickups(float dt, const glm::vec3& playerPosition) {
     if (dynamicBags >= 35 || m_PickupSpawnTimer > 0.0f || m_ValidTrashSpots.empty()) return;
 
     const glm::vec2 playerXZ(playerPosition.x, playerPosition.z);
-    static size_t s_SpotCursor = 0;
     const size_t spotCount = m_ValidTrashSpots.size();
     // Limitar iteraciones por frame para no bloquear el hilo principal
     const size_t maxTries = std::min(spotCount, size_t(400));
     size_t tried = 0;
     while (tried < maxTries) {
-        const glm::vec3& spot = m_ValidTrashSpots[s_SpotCursor % spotCount];
-        ++s_SpotCursor;
+        const glm::vec3& spot = m_ValidTrashSpots[m_TrashSpotCursor % spotCount];
+        ++m_TrashSpotCursor;
         ++tried;
         const glm::vec2 toSpot(spot.x - playerXZ.x, spot.z - playerXZ.y);
         const float dist = glm::length(toSpot);

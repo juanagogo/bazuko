@@ -32,7 +32,7 @@ void BirdFlock::SetSpots(std::vector<BirdSpot> spots, size_t modelCount, const B
     for (size_t index = 0; index < m_Spots.size(); ++index) {
         (m_Spots[index].kind == BirdPerch::Ground ? m_GroundSpots : m_ElevatedSpots).push_back(index);
     }
-    m_HasPreviousPlayer = false;
+    m_Tracks.clear();
     m_PlayerSpeed = 0.0f;
     if (m_Spots.empty() || modelCount == 0) return;
 
@@ -61,18 +61,33 @@ void BirdFlock::SetSpots(std::vector<BirdSpot> spots, size_t modelCount, const B
 }
 
 void BirdFlock::Update(float dt, const glm::vec3& playerPosition, const std::vector<glm::vec2>& disturbances) {
+    Update(dt, std::vector<BirdPlayer>{BirdPlayer{0, playerPosition}}, disturbances);
+}
+
+void BirdFlock::Update(float dt, const std::vector<BirdPlayer>& players, const std::vector<glm::vec2>& disturbances) {
     if (dt <= 0.0f || m_Birds.empty()) return;
 
-    // Velocidad del jugador suavizada: asi se distingue caminar de correr
-    const glm::vec2 playerXZ(playerPosition.x, playerPosition.z);
-    if (m_HasPreviousPlayer) {
-        const float instant = glm::distance(playerXZ, glm::vec2(m_PreviousPlayer.x, m_PreviousPlayer.z)) / dt;
-        m_PlayerSpeed += (std::min(instant, 12.0f) - m_PlayerSpeed) * std::min(1.0f, dt * 6.0f);
+    // Velocidad suavizada de cada jugador (asi se distingue caminar de correr); se olvidan los que ya no estan
+    std::vector<float> radii(players.size(), kStandScareRadius);
+    for (size_t i = 0; i < players.size(); ++i) {
+        auto track = std::find_if(m_Tracks.begin(), m_Tracks.end(), [&](const PlayerTrack& t) { return t.id == players[i].id; });
+        const glm::vec2 playerXZ(players[i].position.x, players[i].position.z);
+        if (track == m_Tracks.end()) {
+            m_Tracks.push_back({players[i].id, players[i].position, 0.0f});
+        } else {
+            const float instant = glm::distance(playerXZ, glm::vec2(track->previous.x, track->previous.z)) / dt;
+            track->speed += (std::min(instant, 12.0f) - track->speed) * std::min(1.0f, dt * 6.0f);
+            track->previous = players[i].position;
+        }
+        track = std::find_if(m_Tracks.begin(), m_Tracks.end(), [&](const PlayerTrack& t) { return t.id == players[i].id; });
+        radii[i] = track->speed > kRunSpeedThreshold ? kRunScareRadius : (track->speed > 0.4f ? kWalkScareRadius : kStandScareRadius);
+        if (i == 0) m_PlayerSpeed = track->speed;
     }
-    m_PreviousPlayer = playerPosition;
-    m_HasPreviousPlayer = true;
-    const bool running = m_PlayerSpeed > kRunSpeedThreshold;
-    const float playerRadius = running ? kRunScareRadius : (m_PlayerSpeed > 0.4f ? kWalkScareRadius : kStandScareRadius);
+    m_Tracks.erase(std::remove_if(m_Tracks.begin(), m_Tracks.end(), [&](const PlayerTrack& t) {
+        return std::none_of(players.begin(), players.end(), [&](const BirdPlayer& p) { return p.id == t.id; });
+    }), m_Tracks.end());
+    if (players.empty()) m_PlayerSpeed = 0.0f;
+    const glm::vec3 nobody(1.0e6f, 0.0f, 1.0e6f);   // sin jugadores nada asusta ni se evita
 
     m_Flush.assign(m_Birds.size(), 0);
     for (size_t index = 0; index < m_Birds.size(); ++index) {
@@ -83,8 +98,16 @@ void BirdFlock::Update(float dt, const glm::vec3& playerPosition, const std::vec
             continue;
         }
         const glm::vec2 birdXZ(bird.position.x, bird.position.z);
-        const float radius = playerRadius * (bird.position.y > 2.5f ? kHighPerchFear : 1.0f);
-        bool scared = glm::distance(playerXZ, birdXZ) < radius;
+        // el jugador mas cercano decide hacia donde huye; cualquiera que entre en su radio la asusta
+        glm::vec3 nearest = nobody;
+        float nearestDistance = 1.0e12f;
+        bool scared = false;
+        for (size_t i = 0; i < players.size(); ++i) {
+            const float distance = glm::distance(glm::vec2(players[i].position.x, players[i].position.z), birdXZ);
+            const float radius = radii[i] * (bird.position.y > 2.5f ? kHighPerchFear : 1.0f);
+            if (distance < radius) scared = true;
+            if (distance < nearestDistance) { nearestDistance = distance; nearest = players[i].position; }
+        }
         if (!scared && bird.perch == BirdPerch::Ground) {
             scared = std::any_of(disturbances.begin(), disturbances.end(), [&](const glm::vec2& other) {
                 return glm::distance(other, birdXZ) < kPedestrianScareRadius;
@@ -96,7 +119,7 @@ void BirdFlock::Update(float dt, const glm::vec3& playerPosition, const std::vec
         }
         UpdateGroundBehaviour(bird, dt);
         bird.restRemaining -= dt;
-        if (bird.restRemaining <= 0.0f) StartFlight(bird, playerPosition, false);
+        if (bird.restRemaining <= 0.0f) StartFlight(bird, nearest, false);
     }
 
     // Contagio: si una se asusta, las que estan al lado se levantan con ella
@@ -110,7 +133,14 @@ void BirdFlock::Update(float dt, const glm::vec3& playerPosition, const std::vec
         }
     }
     for (size_t index = 0; index < m_Birds.size(); ++index) {
-        if (m_Flush[index] != 0) StartFlight(m_Birds[index], playerPosition, true);
+        if (m_Flush[index] == 0) continue;
+        glm::vec3 nearest = nobody;
+        float nearestDistance = 1.0e12f;
+        for (const BirdPlayer& player : players) {
+            const float distance = glm::distance(glm::vec2(player.position.x, player.position.z), glm::vec2(m_Birds[index].position.x, m_Birds[index].position.z));
+            if (distance < nearestDistance) { nearestDistance = distance; nearest = player.position; }
+        }
+        StartFlight(m_Birds[index], nearest, true);
     }
 }
 

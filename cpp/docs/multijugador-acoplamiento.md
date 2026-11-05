@@ -10,7 +10,7 @@ Inventario para el hito 1 del [plan multijugador](plan-multijugador.md). Medido 
 | `UpdatePedestrians` (SH:569) | Peatones se asustan, huyen y se acercan al jugador | Reaccionan al más cercano (`NearestPlayer`) |
 | `UpdateDrivers` (SH:570) | Conductores bravos, vigilan al jugador | El conductor bravo es de quien robó el espejo |
 | `UpdatePickups` (SH:580) | Recoge objetos cerca del jugador | Cada jugador recoge los suyos; el servidor decide quién llega primero |
-| `UpdatePigeons`, `UpdateRats` (SH:581, 584) | Huyen de una persona | Huyen del más cercano |
+| `UpdatePigeons`, `UpdateRats` (SH:581, 584) | Huyen de una persona | **Hecho**: huyen del más cercano (`BirdPlayer`, `m_PlayerViews`) |
 | `UpdatePsychosis` (SH:525) | Voces y alucinaciones del jugador | Es por jugador: sale del servidor como evento al cliente |
 | `BeginPet(playerPosition, yaw)` (SH:413) | Acariciar al Chato | Un Chato por jugador, con su dueño |
 
@@ -48,7 +48,7 @@ Estos eventos disparan audio o efectos desde la lógica; irían por `net/EventBu
 
 ## Orden sugerido para el hito 1
 
-1. `PlayerView` y `NearestPlayer` en aves y ratas (el sistema más simple y sin efectos laterales).
+1. ~~`PlayerView` en aves y ratas~~ (hecho; ver el plan).
 2. Peatones (susto, huida); comprobar el hash con un solo jugador.
 3. Tráfico y semáforos (frenan ante cualquiera).
 4. Policía y persecución (la parte con más reglas).
