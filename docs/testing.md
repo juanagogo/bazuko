@@ -40,3 +40,7 @@ node node_modules/@playwright/test/cli.js test --list
 ```
 
 La ejecución con renderizado por software sirve para verificar flujos; sus FPS no representan el rendimiento de una GPU real.
+
+## Prueba de humo en CI
+
+`tests/e2e/smoke.spec.js` arranca el juego en Chromium sin ventana, crea un personaje, entra a la partida y comprueba que haya una partida guardada, sin errores de página ni respuestas 4xx/5xx. El trabajo `humo-navegador` de `.github/workflows/ci.yml` la ejecuta en cada pull request; tarda unos dos minutos con renderizado por software. Localmente: `npx playwright test smoke.spec.js`. Si ya tienes un Chromium instalado, `PW_CHROMIUM_PATH` indica su ruta para no descargar otro.
