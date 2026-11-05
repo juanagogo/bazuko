@@ -22,6 +22,7 @@
 #include "game/Survival.hpp"
 #include "game/Economy.hpp"
 #include "game/Movement.hpp"
+#include "game/Fight.hpp"
 #include "world/SafeSpawn.hpp"
 #include "world/Atmosphere.hpp"
 #include "world/Viaduct.hpp"
@@ -1364,12 +1365,8 @@ int main(int argc, char** argv) {
                 playerYaw = std::atan2(-std::sin(yaw), -std::cos(yaw));   // hacia donde mira la camara
             };
             const auto startAction = [&](PlayerAction action, const char* clipName, float seconds) {
-                playerAction = action;
-                actionTime = 0.0f;
-                actionHitDone = false;
-                playerActionClip = characterManager.FindClip(clipName);
-                const float clipLength = characterManager.ClipDuration(playerActionClip);
-                actionDuration = seconds > 0.0f ? seconds : clipLength;
+                const int clip = characterManager.FindClip(clipName);
+                Fight::StartAction(session, action, clip, characterManager.ClipDuration(clip), seconds);   // game/Fight.cpp
                 faceForward();
             };
             {   // caricia: espera a que el Chato este sentado delante y entonces se agacha y le acaricia la cabeza (PetDog)
@@ -1401,33 +1398,15 @@ int main(int argc, char** argv) {
             int hitKind = 0;
             glm::vec3 hitFrom{};
             while (simulation.ConsumePlayerHit(hitKind, hitFrom)) {
-                if (playerKnockedDown || playerHitKind > 0) continue;
-                if ((playerAction == PlayerAction::Slip || playerAction == PlayerAction::Duck) && actionTime >= 0.10f && actionTime <= actionDuration * 0.85f) {
-                    ui.SetPickupNotification("¡Esquivaste el golpe!");   // el esquive lateral o rotatorio evita el golpe
-                    continue;
+                switch (Fight::ReceiveHit(session, hitKind, hitFrom)) {   // game/Fight.cpp
+                    case Fight::HitResult::Ignored: break;
+                    case Fight::HitResult::Dodged: ui.SetPickupNotification("¡Esquivaste el golpe!"); break;   // el esquive lateral o rotatorio evita el golpe
+                    case Fight::HitResult::Hurt:
+                        ui.SetPickupNotification(hitKind == 1 ? "Te golpearon en la cara: -8 de salud." : hitKind == 2 ? "Te golpearon en el pecho: -6 de salud." : "Te patearon las piernas: -5 de salud.");
+                        break;
                 }
-                playerHitKind = hitKind;
-                playerHitTime = 0.0f;
-                playerAction = PlayerAction::None;
-                jumpOffset = 0.0f;
-                const float blowDamage = hitKind == 1 ? 8.0f : hitKind == 2 ? 6.0f : 5.0f;   // cara, pecho, piernas
-                needs[3] = std::max(0.0f, needs[3] - blowDamage);
-                needs[5] = std::max(0.0f, needs[5] - 2.0f);   // y el animo
-                playerYaw = std::atan2(hitFrom.x, hitFrom.z);   // queda de frente a quien lo golpeo
-                playerStaggerDirection = -glm::normalize(glm::vec3(hitFrom.x, 0.0f, hitFrom.z));
-                ui.SetPickupNotification(hitKind == 1 ? "Te golpearon en la cara: -8 de salud." : hitKind == 2 ? "Te golpearon en el pecho: -6 de salud." : "Te patearon las piernas: -5 de salud.");
             }
-            if (playerHitKind > 0) {
-                playerHitTime += dt;
-                {   // pasos cortos hacia atras (unos 0,8 m en total), mas fuertes al principio y sin atravesar nada
-                    const float hitLength = playerHitKind == 1 ? 0.667f : playerHitKind == 2 ? 0.75f : 0.833f;
-                    const float strength = 2.4f * std::max(0.0f, 1.0f - playerHitTime / hitLength);
-                    const glm::vec3 step = playerStaggerDirection * strength * dt;
-                    if (canStand(playerPos.x + step.x, playerPos.z + step.z)) { playerPos.x += step.x; playerPos.z += step.z; }
-                }
-                const float hitLength = playerHitKind == 1 ? 0.667f : playerHitKind == 2 ? 0.75f : 0.833f;
-                if (playerHitTime >= hitLength || playerKnockedDown) playerHitKind = 0;
-            }
+            Fight::StaggerStep(session, dt, canStand);
             const bool free = playerAction == PlayerAction::None && playerHitKind == 0;
             const bool recovered = playerAction != PlayerAction::None && playerAction != PlayerAction::Jump && actionTime > actionDuration * 0.62f;
             playerCrouching = canAct && free && Input::IsKeyDown(GLFW_KEY_LEFT_CONTROL);
@@ -1491,42 +1470,23 @@ int main(int argc, char** argv) {
                 }
                 startAction(PlayerAction::Jump, "Jump", Jump::TimingFor(jumpMoving).duration);
             }
-            if (playerAction != PlayerAction::None) {
-                actionTime += dt;
-                if (!actionHitDone && playerAction != PlayerAction::Jump) {
-                    // el golpe alcanza a un peaton cuando el puno o el pie llegan al punto de impacto de la animacion
-                    const int combatMove = combatMoveOf(playerAction);
-                    const bool dodging = playerAction == PlayerAction::Slip || playerAction == PlayerAction::Duck;
-                    const bool kicking = playerAction == PlayerAction::Kick || playerAction == PlayerAction::HighKick;
-                    const float impactAt = combatMove >= 0 ? Combat::Info(static_cast<Combat::Move>(combatMove)).impact
-                        : playerAction == PlayerAction::Stab ? 0.28f : 0.30f;
-                    if (dodging) actionHitDone = true;
-                    else if (actionTime >= impactAt) {
-                        actionHitDone = true;
-                        const int hitKind = playerAction == PlayerAction::Jab ? 1 : kicking ? 3 : 2;
-                        const WeaponStats* weapon = !kicking && playerAction != PlayerAction::Slash && playerAction != PlayerAction::Stab ? FindWeapon(equippedWeapon) : nullptr;
-                        const float weaponDamage = weapon ? weapon->damage * (playerAction == PlayerAction::Hook ? 1.5f : 1.0f) : -1.0f;   // el ultimo golpe del combo pega mas
-                        if (!simulation.HitPedestrian(playerPos, {std::sin(playerYaw), std::cos(playerYaw)}, weapon ? weapon->range : kicking ? 1.6f : 1.3f, hitKind, weaponDamage, weapon ? weapon->knockback : 1.0f))
-                            simulation.HitVehicle(playerPos, {std::sin(playerYaw), std::cos(playerYaw)}, 1.4f);
-                    }
+            {   // la accion en curso: impacto, salto, caricia y fin (game/Fight.cpp); aqui solo se aplica el golpe al mundo
+                const Fight::TickResult tick = Fight::TickAction(session, dt, [&](PlayerAction action) {
+                    const int combatMove = combatMoveOf(action);
+                    return combatMove >= 0 ? Combat::Info(static_cast<Combat::Move>(combatMove)).impact : action == PlayerAction::Stab ? 0.28f : 0.30f;
+                });
+                if (tick.strike) {
+                    const bool kicking = tick.strikeAction == PlayerAction::Kick || tick.strikeAction == PlayerAction::HighKick;
+                    const WeaponStats* weapon = !kicking && tick.strikeAction != PlayerAction::Slash && tick.strikeAction != PlayerAction::Stab ? FindWeapon(equippedWeapon) : nullptr;
+                    const float weaponDamage = weapon ? weapon->damage * (tick.strikeAction == PlayerAction::Hook ? 1.5f : 1.0f) : -1.0f;   // el ultimo golpe del combo pega mas
+                    if (!simulation.HitPedestrian(playerPos, {std::sin(playerYaw), std::cos(playerYaw)}, weapon ? weapon->range : kicking ? 1.6f : 1.3f, tick.strikeKind, weaponDamage, weapon ? weapon->knockback : 1.0f))
+                        simulation.HitVehicle(playerPos, {std::sin(playerYaw), std::cos(playerYaw)}, 1.4f);
                 }
-                if (playerAction == PlayerAction::Jump) {
-                    // se despega al final de la flexion (0,17 s) y se cae con la gravedad: unos 0,7 s en el aire y 0,66 m de altura
-                    const float air = actionTime - Jump::TimingFor(jumpMoving).takeoff;
-                    jumpOffset = air > 0.0f && air < 0.735f ? 3.6f * air - 4.9f * air * air : 0.0f;
+                if (tick.petRewardDue && simulation.PetDog()) {   // la mano ya esta sobre la cabeza
+                    needs[5] = std::min(100.0f, needs[5] + 5.0f);
+                    ui.SetPickupNotification("El Chato se pone feliz. +5 de ánimo.");
                 }
-                if (playerAction == PlayerAction::Pet && petRewardPending && actionTime >= 1.5f) {   // la mano ya esta sobre la cabeza
-                    petRewardPending = false;
-                    if (simulation.PetDog()) {
-                        needs[5] = std::min(100.0f, needs[5] + 5.0f);
-                        ui.SetPickupNotification("El Chato se pone feliz. +5 de ánimo.");
-                    }
-                }
-                if (actionTime >= actionDuration || playerKnockedDown) {
-                    if (playerAction == PlayerAction::Pet) { simulation.EndPet(); petRewardPending = false; }
-                    playerAction = PlayerAction::None;
-                    jumpOffset = 0.0f;
-                }
+                if (tick.petEnded) simulation.EndPet();
             }
             if (pickupTime >= 0.0f) { pickupTime += dt; if (pickupTime >= 0.85f) pickupTime = -1.0f; }
             if (sorting) {   // de cara a la bolsa mientras se revisa
