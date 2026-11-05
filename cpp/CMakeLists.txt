@@ -230,6 +230,14 @@ target_compile_definitions(bazuko_economy_test PRIVATE BAZUKO_GAME_DATA_PATH="${
 target_link_libraries(bazuko_economy_test PRIVATE glm::glm)
 add_test(NAME bazuko_economy COMMAND bazuko_economy_test)
 
+# Economia en el anfitrion: reglas de plausibilidad sobre la copia de cada invitado (no necesita red ni OpenGL)
+add_executable(bazuko_economyledger_test tests/EconomyLedgerTest.cpp src/net/EconomyLedger.cpp src/game/Economy.cpp src/game/Harvest.cpp src/game/GameData.cpp src/core/Paths.cpp)
+target_include_directories(bazuko_economyledger_test PRIVATE src third_party/include)
+target_compile_definitions(bazuko_economyledger_test PRIVATE BAZUKO_GAME_DATA_PATH="${CMAKE_CURRENT_SOURCE_DIR}/assets/data/game-data.json"
+                           BAZUKO_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
+target_link_libraries(bazuko_economyledger_test PRIVATE glm::glm)
+add_test(NAME bazuko_economyledger COMMAND bazuko_economyledger_test)
+
 # Movimiento del jugador (prueba diferencial contra el bloque original de main(), con un mundo de mentira determinista)
 add_executable(bazuko_movement_test tests/MovementTest.cpp src/game/Movement.cpp)
 target_include_directories(bazuko_movement_test PRIVATE src third_party/include)
@@ -338,7 +346,8 @@ option(BAZUKO_NET "Compilar el transporte de red (ENet), las pruebas de red y lo
 if(BAZUKO_NET)
     FetchContent_Declare(enet GIT_REPOSITORY https://github.com/lsalzman/enet.git GIT_TAG v1.3.18 GIT_SHALLOW TRUE)
     FetchContent_MakeAvailable(enet)
-    add_library(bazuko_net STATIC src/net/Transport.cpp src/net/ToyWorld.cpp src/net/NetSession.cpp src/net/PlayerSim.cpp src/game/Movement.cpp)
+    add_library(bazuko_net STATIC src/net/Transport.cpp src/net/ToyWorld.cpp src/net/NetSession.cpp src/net/PlayerSim.cpp src/net/EconomyLedger.cpp src/game/Movement.cpp
+                              src/game/Economy.cpp src/game/Harvest.cpp src/game/GameData.cpp src/core/Paths.cpp)
     target_include_directories(bazuko_net PUBLIC src third_party/include ${enet_SOURCE_DIR}/include)
     target_link_libraries(bazuko_net PUBLIC enet glm::glm)
     if(WIN32)
@@ -353,6 +362,7 @@ if(BAZUKO_NET)
     target_compile_definitions(bazuko PRIVATE BAZUKO_NET_ENABLED)
     add_executable(bazuko_netsession_test tests/NetSessionTest.cpp)
     target_link_libraries(bazuko_netsession_test PRIVATE bazuko_net)
+    target_compile_definitions(bazuko_netsession_test PRIVATE BAZUKO_GAME_DATA_PATH="${CMAKE_CURRENT_SOURCE_DIR}/assets/data/game-data.json" BAZUKO_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
     add_test(NAME bazuko_netsession COMMAND bazuko_netsession_test)
     set_tests_properties(bazuko_netsession PROPERTIES TIMEOUT 120)
     add_executable(bazuko_net_bots tools/NetBots.cpp)

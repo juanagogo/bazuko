@@ -731,7 +731,8 @@ int main(int argc, char** argv) {
         const std::string playerName = characterManager.GetLook().nombre.empty() ? std::string("Parcero") : characterManager.GetLook().nombre;
         if (!hostArg.empty()) {
             netSession = Net::NetSession::StartHost(static_cast<uint16_t>(std::atoi(hostArg.c_str())), playerName);
-            if (netSession) { netSession->SetWorldProvider([&simulation](const glm::vec3& viewer, uint32_t tick) { return simulation.ExportWorld(viewer, tick); });
+            if (netSession) { netSession->SetEconomyData(&gameData);
+                netSession->SetWorldProvider([&simulation](const glm::vec3& viewer, uint32_t tick) { return simulation.ExportWorld(viewer, tick); });
                 LogInfo("Multijugador: anfitrion en el puerto {}", netSession->Port()); ui.Notify("Eres el anfitrión: puerto " + std::to_string(netSession->Port()), ToastType::Info); }
             else LogWarn("Multijugador: no se pudo abrir el puerto {}", hostArg);
         } else if (!joinArg.empty()) {
@@ -1364,6 +1365,26 @@ int main(int argc, char** argv) {
                 static bool warnedMismatch = false;
                 if (auto world = netSession->ConsumeWorld()) {
                     if (!simulation.ApplyWorld(*world) && !warnedMismatch) { warnedMismatch = true; LogWarn("Multijugador: el mundo del anfitrion no coincide con el local (otra semilla o modelos distintos)"); }
+                }
+            }
+            if (netSession->GetRole() == Net::NetSession::Role::Client && netSession->Connected()) {
+                // economia: el anfitrion lleva una copia de mi plata y mi costal y revierte lo que no se explica (net/EconomyLedger.hpp); yo sigo jugando sin esperas
+                static Net::EconomyMirror economyMirror;
+                const auto economyNow = [&]() {
+                    Net::EconomySnapshot snapshot;
+                    snapshot.money = money; snapshot.bigSack = session.bigSack;
+                    for (const auto& entry : inventory) snapshot.items.push_back({static_cast<uint16_t>(entry.itemIndex), static_cast<uint16_t>(std::min(entry.quantity, 65535))});
+                    return Net::Canonical(std::move(snapshot), lootTable.size());
+                };
+                const double economyClock = static_cast<double>(clock.GetElapsedTime());
+                if (const auto report = economyMirror.Poll(economyNow(), economyClock)) netSession->SendEconomy(*report);
+                if (const auto sync = netSession->ConsumeEconomySync()) {
+                    if (const auto adopt = economyMirror.OnSync(*sync, economyNow())) {   // el anfitrion rechazo un cambio: se vuelve a su copia
+                        money = adopt->money; session.bigSack = adopt->bigSack;
+                        inventory.clear(); inventoryWeight = 0.0f;
+                        for (const auto& [index, quantity] : adopt->items) { inventory.push_back({index, static_cast<int>(quantity)}); inventoryWeight += lootTable[index].weight * static_cast<float>(quantity); }
+                        ui.Notify("El anfitrión revirtió un cambio de tu costal o tu plata.", ToastType::Warn);
+                    }
                 }
             }
             for (const std::string& notice : netSession->ConsumeNotices()) ui.Notify(notice, ToastType::Info);

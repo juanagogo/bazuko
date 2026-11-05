@@ -163,6 +163,47 @@ int main() {
         CHECK(host->ConsumeHits().empty(), "D: un jugador tendido no recibe golpes");
         std::printf("D) combate: alcance, direccion, frecuencia y jugadores caidos validados por el anfitrion\n");
     }
+    // E: economia: el anfitrion lleva una copia de la plata y el costal del invitado y revierte lo que no se explica
+    {
+        std::string error;
+        const auto loaded = GameData::LoadFromFile(BAZUKO_GAME_DATA_PATH, &error);
+        CHECK(loaded.has_value(), "E: datos del juego");
+        if (loaded) {
+            const GameData& data = *loaded;
+            uint16_t pan = 0;
+            for (size_t i = 0; i < data.items.size(); ++i) if (data.items[i].id == "pan") pan = static_cast<uint16_t>(i);
+            auto host = NetSession::StartHost(0, "Anfitrion");
+            host->SetEconomyData(&data);
+            auto c = NetSession::Join("127.0.0.1", host->Port(), "Cami");
+            Walker hw{{100.0f, 0.0f, 100.0f}}, cw{{101.0f, 0.0f, 100.0f}};
+            EconomyMirror mirror;
+            EconomySnapshot mine; mine.money = 20000.0f;
+            double clockSeconds = 0.0;
+            int adoptions = 0;
+            const auto run = [&](double seconds) {
+                Pump(seconds, [&](float dt) {
+                    clockSeconds += dt;
+                    host->Update(dt, hw.State()); c->Update(dt, cw.State());
+                    if (c->Connected()) {
+                        if (const auto report = mirror.Poll(Canonical(mine, data.items.size()), clockSeconds)) c->SendEconomy(*report);
+                        if (const auto sync = c->ConsumeEconomySync())
+                            if (const auto adopt = mirror.OnSync(*sync, Canonical(mine, data.items.size()))) { mine = *adopt; ++adoptions; }
+                    }
+                });
+            };
+            run(1.0);
+            CHECK(host->LedgerOf(c->LocalId()) && host->LedgerOf(c->LocalId())->Started(), "E: el anfitrion lleva la copia del invitado");
+            mine.money -= 1500.0f; mine.items.push_back({pan, 1});   // compra honesta
+            run(0.8);
+            CHECK(adoptions == 0 && host->EconomyRejections() == 0 && mine.money == 18500.0f, "E: una compra honesta no se toca");
+            CHECK(std::abs(host->LedgerOf(c->LocalId())->State().money - 18500.0f) < 0.01f, "E: y la copia del anfitrion la sigue");
+            mine.money += 5.0e6f;   // trampa: cinco millones de la nada
+            run(1.0);
+            CHECK(host->EconomyRejections() >= 1 && adoptions == 1, "E: la trampa se rechaza y el invitado adopta la copia del anfitrion");
+            CHECK(std::abs(mine.money - 18500.0f) < 0.01f, "E: la plata vuelve a lo que el anfitrion aceptó");
+            std::printf("E) economia: compra honesta intacta; trampa de 5 millones revertida (rechazos: %zu)\n", host->EconomyRejections());
+        }
+    }
     if (failures == 0) std::printf("Sesion de red: todo correcto\n");
     return failures == 0 ? 0 : 1;
 }

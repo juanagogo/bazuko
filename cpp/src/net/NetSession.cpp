@@ -161,6 +161,20 @@ void NetSession::HandleHostMessage(const NetEvent& event) {
         if (!command || now - peer.lastStrikeMs < kMinStrikeIntervalMs) return;   // mas rapido de lo posible: se ignora
         peer.lastStrikeMs = now;
         ResolveStrike(peer.id, glm::vec3(peer.state.x, peer.state.y, peer.state.z), *command);
+    } else if (*type == MessageType::Economy) {
+        if (peer.id == 0 || !m_EconomyData) return;
+        const auto report = ReadEconomyReport(reader);
+        if (!report) return;
+        if (!peer.ledger) peer.ledger = std::make_unique<Ledger>(*m_EconomyData);
+        const Ledger::Verdict verdict = peer.ledger->Submit(report->state, NowMs() / 1000.0);
+        if (!verdict.accepted) {   // se queda la copia del anfitrion y se le devuelve al invitado, que la adopta
+            ++m_EconomyRejections;
+            const double now = NowMs();
+            if (now - peer.lastRejectNoticeMs > 5000.0) { peer.lastRejectNoticeMs = now; m_Notices.push_back("Se revirtió un cambio de costal o plata de " + peer.name + " (" + verdict.reason + ")."); }
+            BitWriter answer;
+            Write(answer, EconomySync{report->seq, false, verdict.authoritative});
+            m_Host->Send(event.peer, kChannelReliable, answer.Data(), true);
+        }
     } else if (*type == MessageType::Bye) {
         m_Host->Disconnect(event.peer);
     }
@@ -204,6 +218,8 @@ void NetSession::HandleClientMessage(const NetEvent& event) {
         m_Rejected = true;
         const auto reject = ReadReject(reader);
         m_Notices.push_back(reject && reject->reason == RejectReason::ServerFull ? "La partida está llena." : "El anfitrión rechazó la conexión.");
+    } else if (*type == MessageType::EconomySync) {
+        if (const auto sync = ReadEconomySync(reader)) m_PendingEconomy = std::move(*sync);
     } else if (*type == MessageType::Hit) {
         if (const auto hit = ReadHit(reader)) m_Hits.push_back({hit->kind, glm::vec3(hit->fromX, 0.0f, hit->fromZ)});
     } else if (*type == MessageType::World) {
@@ -255,6 +271,18 @@ void NetSession::Strike(const StrikeCommand& command) {
         Write(writer, command);
         m_Host->Send(m_Server, kChannelReliable, writer.Data(), true);
     }
+}
+
+void NetSession::SendEconomy(const EconomyReport& report) {
+    if (m_Role != Role::Client || !m_Connected) return;
+    BitWriter writer;
+    Write(writer, report);
+    m_Host->Send(m_Server, kChannelReliable, writer.Data(), true);
+}
+
+const Ledger* NetSession::LedgerOf(uint8_t player) const {
+    for (const auto& [peer, info] : m_Peers) if (info.id == player) return info.ledger.get();
+    return nullptr;
 }
 
 void NetSession::SendHit(uint8_t player, int kind, const glm::vec3& from) {

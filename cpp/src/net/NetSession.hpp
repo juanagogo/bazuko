@@ -5,6 +5,7 @@
 // tocar la fisica del juego. El mundo (trafico, peatones) todavia NO es compartido: eso llega con el hito 3.
 #include "Protocol.hpp"
 #include "Transport.hpp"
+#include "EconomyLedger.hpp"
 #include "Interaction.hpp"
 #include "WorldSnapshot.hpp"
 
@@ -67,6 +68,13 @@ public:
     void SendHit(uint8_t player, int kind, const glm::vec3& from);   // anfitrion: entrega un golpe (por ejemplo de un peaton) a ese jugador
     std::vector<IncomingHit> ConsumeHits() { std::vector<IncomingHit> out; out.swap(m_Hits); return out; }
     std::vector<RemoteStrike> ConsumeRemoteStrikes() { std::vector<RemoteStrike> out; out.swap(m_RemoteStrikes); return out; }   // anfitrion: golpes de otros al mundo (peatones, vehiculos)
+    // Economia (hito 4): el anfitrion lleva una copia de la plata y el costal de cada invitado (net/EconomyLedger.hpp) y rechaza lo que no se explica con las reglas.
+    // Anfitrion: SetEconomyData() activa la validacion (sin datos del juego se acepta todo). Invitado: SendEconomy() cuenta su estado; ConsumeEconomySync() trae la correccion.
+    void SetEconomyData(const GameData* data) { m_EconomyData = data; }
+    void SendEconomy(const EconomyReport& report);
+    std::optional<EconomySync> ConsumeEconomySync() { std::optional<EconomySync> out; out.swap(m_PendingEconomy); return out; }
+    size_t EconomyRejections() const { return m_EconomyRejections; }
+    const Ledger* LedgerOf(uint8_t player) const;   // anfitrion: la copia de ese invitado (nullptr si no hay)
     // Avisos de entrada y salida para mostrar en pantalla (se vacian al leerlos)
     std::vector<std::string> ConsumeNotices();
     NetSession(const NetSession&) = delete;
@@ -82,6 +90,8 @@ private:
         double lastMs = 0.0;        // cuando llego
         bool hasState = false;
         double lastStrikeMs = -1.0e9;
+        std::unique_ptr<Ledger> ledger;
+        double lastRejectNoticeMs = -1.0e9;
     };
     struct Smooth { RemotePlayer shown; PlayerSnapshot target; bool fresh = true; double lastHeardMs = 0.0; };
 
@@ -108,6 +118,9 @@ private:
     double m_SendAccumulator = 0.0;
     double m_WorldAccumulator = 0.0;
     double m_LocalLastStrikeMs = -1.0e9;
+    const GameData* m_EconomyData = nullptr;
+    std::optional<EconomySync> m_PendingEconomy;
+    size_t m_EconomyRejections = 0;
     std::vector<IncomingHit> m_Hits;
     std::vector<RemoteStrike> m_RemoteStrikes;
     WorldProvider m_WorldProvider;
