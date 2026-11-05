@@ -25,6 +25,13 @@ function fakeInput() {
   return input;
 }
 
+/** Avanza hasta que termine de subir o bajar (BOARDING). Devuelve los cuadros que tardó. */
+function settle(carjack, input, dt = 1 / 30) {
+  let frames = 0;
+  while (carjack.transition && frames < 200) { carjack.update(dt, input); frames++; }
+  return frames;
+}
+
 function fakeGame(cars = [], vehicles = []) {
   const root = new THREE.Group();
   return {
@@ -51,6 +58,11 @@ test('H junto a un carro estacionado lo roba, oculta al jugador y sube buscado',
   input.pressed.add(CARJACK.key);
   assert.equal(carjack.update(.016, input), true);
   assert.equal(carjack.car, car);
+  // Primero camina a la puerta y la fuerza: sigue a la vista hasta meterse.
+  assert.equal(game.player.root.visible, true);
+  assert.equal(carjack.transition?.kind, 'enter');
+  const frames = settle(carjack, fakeInput());
+  assert.ok(frames > 5 && frames < 60, `subir tardó ${frames} cuadros`);
   assert.equal(game.player.root.visible, false);
   assert.equal(game.steal.buscado, 1);
   assert.equal(game.cameraRig.distance, CARJACK.cameraDistance);
@@ -60,6 +72,7 @@ test('el carro robado avanza con W, gira con A y el jugador se baja al lado', ()
   const car = fakeCar(), game = fakeGame([car]), input = fakeInput();
   const carjack = new CarjackSystem(game);
   carjack.enter({ car, vehicle: null });
+  settle(carjack, input);
   input.down.add('KeyW');
   for (let i = 0; i < 60; i++) carjack.update(1 / 30, input);
   assert.ok(car.position.x > 5, `avanzó ${car.position.x}`);
@@ -76,7 +89,12 @@ test('el carro robado avanza con W, gira con A y el jugador se baja al lado', ()
   assert.equal(carjack.car, null);
   assert.equal(game.player.root.visible, true);
   assert.equal(game.cameraRig.distance, 5.5);
+  // Aparece pegado a la puerta y da un paso hasta quedar libre.
+  assert.ok(distanceToCarBody(game.player.position, car) < .5);
+  assert.equal(carjack.update(1 / 30, input), true, 'mientras se baja no camina por su cuenta');
+  settle(carjack, input);
   assert.ok(Math.abs(distanceToCarBody(game.player.position, car) - .7) < .05);
+  assert.equal(carjack.update(1 / 30, input), false);
 });
 
 test('una pared detiene el carro en lugar de atravesarla', () => {
@@ -138,6 +156,7 @@ test('con el stick del mando también se maneja', () => {
   const car = fakeCar(), game = fakeGame([car]), input = fakeInput();
   const carjack = new CarjackSystem(game);
   carjack.enter({ car, vehicle: null });
+  settle(carjack, input);
   input.stick = { x: -.8, z: -1 };
   for (let i = 0; i < 45; i++) carjack.update(1 / 30, input);
   assert.ok(carjack.speed > 3, `velocidad ${carjack.speed}`);
@@ -182,4 +201,48 @@ test('una partida con datos rotos del carro robado no rompe la carga', () => {
 test('LB + B en el mando es la tecla de robar carros', async () => {
   const { CON_LB } = await import('../src/core/Gamepad.js');
   assert.equal(CON_LB[1], CARJACK.key);
+});
+
+test('al sacar al conductor, este sigue sentado hasta que lo jalan y el carro se hunde en los muelles', () => {
+  const car = fakeCar(), vehicle = { car, speed: 0 }, game = fakeGame([], [vehicle]), input = fakeInput();
+  let inside = true, settles = 0;
+  car.setDriverInside = v => { inside = v; };
+  car.settle = () => { settles++; };
+  const carjack = new CarjackSystem(game);
+  input.pressed.add(CARJACK.key);
+  carjack.update(1 / 30, input);
+  assert.equal(inside, true, 'el conductor no desaparece al apretar la tecla');
+  settle(carjack, input);
+  assert.equal(inside, false);
+  assert.ok(settles >= 2, 'se abre la puerta y se sienta: dos hundidas');
+  assert.equal(game.player.root.visible, false);
+});
+
+test('reiniciar a mitad de subir no deja al conductor sentado ni al jugador oculto', () => {
+  const car = fakeCar(), vehicle = { car, speed: 0 }, game = fakeGame([], [vehicle]), input = fakeInput();
+  let inside = true;
+  car.setDriverInside = v => { inside = v; };
+  const carjack = new CarjackSystem(game);
+  input.pressed.add(CARJACK.key);
+  carjack.update(1 / 30, input);
+  carjack.reset();
+  assert.equal(carjack.transition, null);
+  assert.equal(inside, false);
+  assert.equal(game.player.root.visible, true);
+  assert.equal(carjack.update(1 / 30, input), false);
+});
+
+test('la suspensión del carro baja unos centímetros y vuelve al reposo', async () => {
+  const { Car } = await import('../src/entities/Car.js').catch(() => ({}));
+  if (!Car) return;
+  const car = Object.create(Car.prototype);
+  const body = new THREE.Object3D();
+  Object.assign(car, { vehicle: { bodyVisual: body }, _bodyRestY: .1, _roadBob: 0, _settleY: 0, _settleV: 0 });
+  car.settle(1);
+  let lowest = 0;
+  for (let i = 0; i < 20; i++) { car._updateSettle(1 / 60); lowest = Math.min(lowest, body.position.y - .1); }
+  assert.ok(lowest < -.008 && lowest > -.06, `bajó ${lowest}`);
+  for (let i = 0; i < 180; i++) car._updateSettle(1 / 60);
+  assert.equal(car._settleY, 0);
+  assert.ok(Math.abs(body.position.y - .1) < 1e-9);
 });

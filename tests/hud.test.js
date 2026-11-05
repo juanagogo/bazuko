@@ -220,3 +220,11 @@ test('fabricar desde el banco descuenta materiales, suma XP y suena una vez', as
   assert.equal(hud._craftSelected, 'hierba');
   assert.match(hud.craftPanel.html, /data-id="hierba" aria-pressed="true"/);
 });
+
+test('el aviso de El Chato ofrece cuidar el cambuche o volver a seguirme', async () => {
+  const { textoDelPrompt } = await import('../src/ui/HUD.js');
+  const i = (dog) => ({ currentTarget: dog, currentTargetType: 'dog' });
+  assert.equal(textoDelPrompt(i({ isFriend: true, cambucheCerca: true }), { items: [] }), '[E] Pedirle a El Chato que cuide el cambuche');
+  assert.equal(textoDelPrompt(i({ isFriend: true, guarding: {} }), { items: [] }), '[E] Llamar a El Chato para que me siga');
+  assert.equal(textoDelPrompt(i({ isFriend: true }), { items: [] }), '[E] Acariciar a El Chato');
+});

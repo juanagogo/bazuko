@@ -8,7 +8,7 @@ import { Clock } from './Clock.js';
 import { Input } from './Input.js';
 
 import { World } from '../world/World.js';
-import { Dog, DOG_DEFAULT_LOOK, legacyPetLook } from '../entities/Dog.js';
+import { Dog, DOG_DEFAULT_LOOK, DOG_GUARD_RANGE, legacyPetLook } from '../entities/Dog.js';
 import { CompanionNavigation } from '../systems/CompanionNavigation.js';
 import { Minimap, nombreALaVista } from '../ui/Minimap.js';
 import { ZonaAviso } from '../ui/ZonaAviso.js';
@@ -39,6 +39,7 @@ import { PrimeraPlana } from '../ui/PrimeraPlana.js';
 import { tomarFoto } from '../ui/fotoDeArresto.js';
 import { actualizarFrases } from '../ui/frases.js';
 import { TILE_SIZE } from '../utils/constants.js';
+import { castigoDeArresto, CALABOZO_HAMBRE, CALABOZO_PISO, CALABOZO_SED, ESCONDITE_M } from '../data/arresto.js';
 import {
   calleCercana, consejoDeMuerte, perdidoAlMorir, perdidoEnArresto, pieDeFoto, recorteDeLimpieza,
   sueltaDeArresto, titularDeArresto, tituloDeMuerte, CONSECUENCIAS_RECORTE,
@@ -50,6 +51,7 @@ import { SaveSystem } from '../systems/SaveSystem.js';
 import { AutoSave } from '../systems/AutoSave.js';
 import { CollisionSystem } from '../systems/CollisionSystem.js';
 import { TrafficSystem } from '../systems/TrafficSystem.js';
+import { WitnessSystem } from '../systems/WitnessSystem.js';
 import { distributeShelterLoot, spreadPickupPositions } from '../systems/ShelterLoot.js';
 import { InventorySystem } from '../systems/InventorySystem.js';
 import { DroppedItemSystem } from '../systems/DroppedItemSystem.js';
@@ -191,6 +193,7 @@ export class Game {
     this.interaction.zorra = this.zorra;
     this.zorraCtl = new ZorraController(this);
     this.carjack = new CarjackSystem(this);
+    this.witnesses = new WitnessSystem(this);
     this.mirrorCinematic = new MirrorCinematic(this);
 
     // HUD, menús y creador de personaje
@@ -846,6 +849,7 @@ export class Game {
       }
       if (data.dog?.isFriend && this.dog) {
         this.dog.befriend();
+        if (data.dog.cuida && this.cambuche) this.dog.guard(this.cambuche.position);
       }
       // La apariencia de la antigua mascota personalizable se conserva si la partida aún no tiene una.
       this.dog?.setLook(data.dog?.look ?? legacyPetLook() ?? DOG_DEFAULT_LOOK);
@@ -885,7 +889,7 @@ export class Game {
       weapon: this.player.equippedWeapon,
       zorra: this.zorra?.serialize(),
       radio: this.radio ? { isOn: this.radio.isOn, freq: this.radio.frequency, battery: this.radio.battery } : null,
-      dog: { isFriend: !!this.dog?.isFriend, look: this.dog?.look ?? null },
+      dog: { isFriend: !!this.dog?.isFriend, look: this.dog?.look ?? null, cuida: !!this.dog?.guarding },
       cart: this.cart ? this.cart.saveState() : null,
       gps: this.gps?.serialize() ?? null,
       carroRobado: this.carjack?.serialize() ?? null,
@@ -1000,7 +1004,11 @@ export class Game {
 
     // Sin paredes te pueden robar si duermes de noche
     let robbed = null;
-    if (night && !b.paredes && Math.random() < SLEEP.roboProb) {
+    // El Chato durmiendo al lado, o cuidando el cambuche, espanta al ladrón.
+    const cuidado = !!this.dog?.isFriend && (this.dog.guarding || this.dog.position.distanceTo(this.player.position) < 6);
+    const intento = night && !b.paredes && Math.random() < SLEEP.roboProb;
+    const espantado = intento && cuidado;
+    if (intento && !cuidado) {
       const lost = Math.floor(st.dinero * SLEEP.roboDinero);
       st.dinero -= lost;
       for (const it of [...this.inventory.items]) {
@@ -1023,6 +1031,11 @@ export class Game {
       }
       this.dog?.wake();
       window.dispatchEvent(new CustomEvent('sleep-end', { detail: { hours: Math.round(hours) } }));
+      if (espantado) {
+        window.dispatchEvent(new CustomEvent('toast', {
+          detail: { text: 'El Chato espantó a un ladrón mientras dormía.', type: 'rare' }
+        }));
+      }
       if (robbed !== null) {
         window.dispatchEvent(new CustomEvent('toast', {
           detail: { text: `Me robaron mientras dormía (${cop(robbed)} y material). Unas paredes ayudarían.`, type: 'death' }
@@ -1034,6 +1047,11 @@ export class Game {
         }));
       }
     }, 1200);
+  }
+
+  /** Dentro del cambuche con techo y paredes la patrulla no lo ve ni lo saca: es el único escondite. */
+  _escondidoEnCambuche() {
+    return !!(this.built?.techo && this.built?.paredes) && !this.carjack?.driving && this._nearCambuche(ESCONDITE_M);
   }
 
   /** ¿Está el jugador a menos de `radius` m del cambuche? */
@@ -1124,14 +1142,17 @@ export class Game {
     this.audio.setPaused?.(true);
     if (this.interaction.boostActive) this.interaction._endBoost();
     const titular = titularDeArresto(this.look, this._calleCercana());
-    const perdido = perdidoEnArresto(this.stats.dinero, this.inventory?.items, ITEMS);
+    // Lo que pesa la captura depende del nivel con que lo cogieron; se fija aquí y se cobra al continuar.
+    const castigo = this._arrestCastigo = castigoDeArresto(this.steal?.buscado ?? 0);
+    const decomiso = this._decomiso();
+    const perdido = perdidoEnArresto(this.stats.dinero, decomiso, ITEMS, 3, this.carjack?.car ? ['el carro robado'] : []);
     let plana = null;
     this.menu.open({
       title: 'Te atrapó la Policía', ic: 'alert', dismissible: false, momento: 'plana',
       onClose: () => plana?.soltar(),
       render: () => {
         plana ??= new PrimeraPlana({
-          titular, perdido, pie: pieDeFoto(this.look), suelta: sueltaDeArresto(this.look),
+          titular, perdido, pie: pieDeFoto(this.look), suelta: sueltaDeArresto(this.look, castigo.horas),
         });
         return {
           body: plana.nodo,
@@ -1184,6 +1205,7 @@ export class Game {
     this.roadRage?.reset();
     this.limpieza?.reset();
     this.momentos?.reset();
+    this.witnesses?.reset();
     this.substanceEffects?.end();
     this.psychosis?.clearInduced?.();
     if (this.steal) {
@@ -1194,15 +1216,34 @@ export class Game {
     this._vehicleImpactCooldown = 1.5;
   }
 
+  /** Lo que la Policía decomisa del costal: con nivel bajo, solo el vicio; con nivel alto, todo. */
+  _decomiso() {
+    const items = this.inventory?.items ?? [];
+    if (this._arrestCastigo?.todoElCostal !== false) return items;
+    return items.filter((it) => ITEMS[it.id]?.substance);
+  }
+
   _finishArrest() {
     if (!this._arrestPending) return;
-    this.inventory.clear();
+    const castigo = this._arrestCastigo ?? castigoDeArresto(this.steal?.buscado ?? 0);
+    if (castigo.todoElCostal) this.inventory.clear();
+    else for (const it of this._decomiso()) this.inventory.remove?.(it.id, it.qty);
     this.stats.dinero = 0;
+    // El carro robado queda donde lo cogieron: ya no es suyo.
+    this.carjack?.reset?.();
+    if (castigo.horas && typeof this.clock?.hour === 'number') {
+      this.clock.hour += castigo.horas;
+      while (this.clock.hour >= 24) { this.clock.hour -= 24; this.clock.day = (this.clock.day ?? 0) + 1; }
+      // En el calabozo no hay comida: baja, pero sin dejarlo al borde de morirse al salir.
+      this.stats.hambre = Math.min(this.stats.hambre, Math.max(CALABOZO_PISO, this.stats.hambre - CALABOZO_HAMBRE));
+      this.stats.sed = Math.min(this.stats.sed, Math.max(CALABOZO_PISO, this.stats.sed - CALABOZO_SED));
+    }
+    this._arrestCastigo = null;
     const pos = this._randomWalkablePosition();
     this.player.position.copy(pos);
     this.player.root.position.copy(this.player.position);
     this._resetAfterRelocation();
-    if (this.dog?.isFriend) { this.dog.wake(); this.dog.resetNear(this.player.position); }
+    if (this.dog?.isFriend && !this.dog.guarding) { this.dog.wake(); this.dog.resetNear(this.player.position); }
     this.cameraRig._snap = true;
     this.cameraRig.follow(this.player.position, 0, this.collisions);
     this.interaction.currentTarget = null;
@@ -1249,7 +1290,7 @@ export class Game {
     }
     this.player.root.position.copy(this.player.position);
     this._resetAfterRelocation();
-    if (this.dog?.isFriend) { this.dog.wake(); this.dog.resetNear(this.player.position); }
+    if (this.dog?.isFriend && !this.dog.guarding) { this.dog.wake(); this.dog.resetNear(this.player.position); }
     this._vehicleImpactCooldown = 1.5;
     if (this._deathCause === 'limpieza') this.momentos?.guardarConsejoDeCamioneta();
     this._deathCause = null;
@@ -1413,6 +1454,7 @@ export class Game {
     }
     if (!this.player.isSwimming && !driving) this.steal?.update(dt);
     else if (this.steal?.minigameActive) this.steal._endMinigame(false, 'cancel');
+    this.witnesses?.update(dt);
     this.interaction.carjackPrompt = driving ? null : this.carjack?.prompt ?? null;
     this.mirrorCinematic?.update(dt);
     this._updateObjectives(dt);
@@ -1445,7 +1487,8 @@ export class Game {
     this.world.update(dt, this.player.position, this.cameraRig.camera, this.traffic?.vehicles ?? []);
     actualizarFrases(this.cameraRig.camera, this.player.position, now);
     this.profiler?.mark('mundoNPC');
-    this.traffic?.update(dt, { player: this.player.position, pedestrians: this.world.active?.trafficPedestrians ?? this.world.active?.npcs ?? [], onPlayerHit: this._onVehicleImpact });
+    this.traffic?.update(dt, { player: this.player.position, pedestrians: this.world.active?.trafficPedestrians ?? this.world.active?.npcs ?? [],
+      onPlayerHit: this._onVehicleImpact, playerHidden: this._escondidoEnCambuche() });
     this.roadRage?.update(dt);
     this.limpieza?.update(dt, {
       isNight: this.clock.isNight,
@@ -1468,7 +1511,12 @@ export class Game {
     for (const { car } of this.traffic?.vehicles ?? []) car.update(dt);
     this.cambuche?.update(dt);
     this.dealer?.update(dt);
-    this.dog?.update(dt, this.player.position, this.pickups, this.world.active?.npcs ?? []);
+    if (this.dog) {
+      this.dog.cambucheCerca = !!this.cambuche && this._nearCambuche(DOG_GUARD_RANGE);
+      this.dog.cambuchePos = this.cambuche?.position ?? null;
+    }
+    this.dog?.update(dt, this.player.position, this.pickups, this.world.active?.npcs ?? [],
+      { patrols: this.traffic?.vehicles ?? [], wanted: this.steal?.buscado ?? 0 });
     this.cart?.update(dt, this.player, this.audio);
 
     // 10. Audio

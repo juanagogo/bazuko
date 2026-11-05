@@ -38,16 +38,19 @@ export function titularDeArresto(look, calle) {
 }
 
 export const pieDeFoto = (look) => `${esMujer(look) ? 'Esta' : 'Este'} es ${nombreDe(look)}.`;
-export const sueltaDeArresto = (look) => `${esMujer(look) ? 'La' : 'Lo'} sueltan en otro lado. La próxima, despístelos.`;
+/** Con `horas`, pasó ese tiempo en el calabozo antes de que lo soltaran. */
+export const sueltaDeArresto = (look, horas = 0) => horas > 0
+  ? `${esMujer(look) ? 'La' : 'Lo'} sueltan tras ${horas} horas en el calabozo. La próxima, despístelos.`
+  : `${esMujer(look) ? 'La' : 'Lo'} sueltan en otro lado. La próxima, despístelos.`;
 
 const conCantidad = (it, nombres) => {
   const nombre = nombres?.[it.id]?.name ?? it.name ?? it.id;
   return it.qty > 1 ? `${nombre} ×${it.qty}` : nombre;
 };
 
-/** Lo que se lleva la tomba: la plata primero y todo el costal. `max`: cuántas cosas se escriben; lo demás se cuenta. */
-export function perdidoEnArresto(dinero, items, nombres, max = 3) {
-  const todo = [...(dinero > 0 ? [cop(dinero)] : []), ...(items ?? []).map((it) => conCantidad(it, nombres))];
+/** Lo que se lleva la tomba: la plata primero, luego `otros` (el carro robado) y lo decomisado del costal. `max`: cuántas cosas se escriben; lo demás se cuenta. */
+export function perdidoEnArresto(dinero, items, nombres, max = 3, otros = []) {
+  const todo = [...(dinero > 0 ? [cop(dinero)] : []), ...otros, ...(items ?? []).map((it) => conCantidad(it, nombres))];
   return { cosas: todo.slice(0, max), resto: Math.max(0, todo.length - max) };
 }
 

@@ -4,7 +4,6 @@
 // Expone la misma interfaz que createCharacter(): { group, setLook, update }.
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
-import { FBXLoader } from 'three/examples/jsm/loaders/FBXLoader.js';
 import { clone as cloneSkinned } from 'three/examples/jsm/utils/SkeletonUtils.js';
 import { ACTIONFORGE_CLIPS, buildCharacterClips } from './actionforge.js';
 import { buildMixamoPreviewClips, buildMixamoGameComplements, isMixamoProfile, resolveAnimationProfile } from './animationProfiles.js';
@@ -40,18 +39,19 @@ const ACTIONFORGE_URL = `${MODEL_BASE}animaciones-actionforge.glb`;
 const GAIT_BANK_URLS = [`${MODEL_BASE}andar-erguido.glb`, `${MODEL_BASE}andar-cansado.glb`];
 // Golpes, reacciones y caídas de las peleas de la calle.
 
+// En GLB (tools/animaciones/fbx-a-glb.mjs): mismos clips que los FBX de Mixamo, sin descomprimirlos al cargar.
 const ASSAULT_ANIM_URLS = {
-  bloquear: `${MODEL_BASE}center-block.fbx`,
-  fueraCombate: `${MODEL_BASE}fallingdown.fbx`, // <--- Asignado a fallingdown.fbx
-  golpe_jab: `${MODEL_BASE}combat-jab-cross.fbx`,
-  reaccion_cabeza: `${MODEL_BASE}combat-hit-head.fbx`,
-  reaccion_pecho: `${MODEL_BASE}combat-hit-body.fbx`,
-  provocar: `${MODEL_BASE}combat-taunt.fbx`,
-  golpear: `${MODEL_BASE}assault-hook.fbx`,
-  patear: `${MODEL_BASE}assault-kick.fbx`,
-  recibirGolpe: `${MODEL_BASE}assault-hit-react.fbx`,
-  derribo: `${MODEL_BASE}assault-knockdown.fbx`,
-  levantarse: `${MODEL_BASE}assault-get-up.fbx`
+  bloquear: `${MODEL_BASE}center-block.glb`,
+  fueraCombate: `${MODEL_BASE}fallingdown.glb`, // <--- Asignado a fallingdown
+  golpe_jab: `${MODEL_BASE}combat-jab-cross.glb`,
+  reaccion_cabeza: `${MODEL_BASE}combat-hit-head.glb`,
+  reaccion_pecho: `${MODEL_BASE}combat-hit-body.glb`,
+  provocar: `${MODEL_BASE}combat-taunt.glb`,
+  golpear: `${MODEL_BASE}assault-hook.glb`,
+  patear: `${MODEL_BASE}assault-kick.glb`,
+  recibirGolpe: `${MODEL_BASE}assault-hit-react.glb`,
+  derribo: `${MODEL_BASE}assault-knockdown.glb`,
+  levantarse: `${MODEL_BASE}assault-get-up.glb`
 };
 
 // Peso compartido de caminar y correr; su reparto lo decide la velocidad.
@@ -85,7 +85,6 @@ function loadStreetSkinDetail() {
   return skinDetailPromise;
 }
 loader.register(shareImages);
-const fbxLoader = new FBXLoader();
 const cache = new Map();
 const load = (url) => {
   if (!cache.has(url)) cache.set(url, loader.loadAsync(url));
@@ -187,10 +186,16 @@ function gestureClips(bodyId, bodyGltf, banks) {
   if (!clipCache.has(key)) {
     clipCache.set(key, (async () => {
 let assaultPromise;
+let fbxLoaderPromise;
+/** Si falta un GLB convertido se usa su FBX original; el cargador FBX solo se descarga entonces. */
+async function loadAssaultFbx(url) {
+  fbxLoaderPromise ??= import('three/examples/jsm/loaders/FBXLoader.js').then(({ FBXLoader }) => new FBXLoader());
+  return (await fbxLoaderPromise).loadAsync(url.replace(/\.glb$/, '.fbx'));
+}
 function loadAssaultAnimations() {
-  if (typeof document === 'undefined') return Promise.resolve({}); // FBXLoader necesita el navegador
+  if (typeof document === 'undefined') return Promise.resolve({}); // Las pruebas en Node adaptan los clips por su cuenta
   assaultPromise ??= Promise.all(Object.entries(ASSAULT_ANIM_URLS).map(async ([name, url]) => {
-    try { return [name, await fbxLoader.loadAsync(url)]; }
+    try { return [name, await loader.loadAsync(url).catch(() => loadAssaultFbx(url))]; }
     catch (error) { console.warn(`No se pudo cargar la animación ${name}.`, error); return [name, null]; }
   })).then(Object.fromEntries);
   return assaultPromise;
