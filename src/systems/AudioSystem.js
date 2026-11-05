@@ -3,6 +3,7 @@ import { Howl, Howler } from 'howler';
 import { VehicleAudio } from './VehicleAudio.js';
 import { STREET_VOICES, StreetVoices } from './StreetVoices.js';
 import { PoliceSirenAudio } from './PoliceSirenAudio.js';
+import { NPC_VOICE_BANK } from '../data/npcVoices.js';
 
 export const MIX_CATEGORIES = ['ambient', 'traffic', 'voices', 'effects'];
 // El audio vive en public/audio: la ruta se arma con la base para que la demo de Pages funcione bajo su subcamino.
@@ -26,15 +27,26 @@ export class AudioSystem {
     this.howler = howler;
     this.loadErrors = new Map();
     this._baseVolume = new Map();
-    const sound = (file, options = {}) => this._track(options.volume ?? 1, new HowlClass({
-      src: [`${AUDIO_BASE}${encodeURIComponent(file)}`], ...options,
-      onload: () => this.loadErrors.delete(file),
-      onloaderror: (_id, error) => {
-        if (!this.loadErrors.has(file)) console.error(`[Audio] No se pudo cargar ${AUDIO_BASE}${file}:`, error);
-        this.loadErrors.set(file, String(error));
-      },
-      onplayerror(id) { this.once('unlock', () => this.play(id)); }
-    }));
+    const sound = (file, options = {}) => {
+      const files = Array.isArray(file) ? file : [file];
+      const fileLabel = files.map(name => `${AUDIO_BASE}${name}`).join(' o ');
+      return this._track(options.volume ?? 1, new HowlClass({
+        src: files.map(name => `${AUDIO_BASE}${encodeURIComponent(name)}`), ...options,
+        onload: () => this.loadErrors.delete(files[0]),
+        onloaderror: (_id, error) => {
+          if (!this.loadErrors.has(files[0])) console.error(`[Audio] No se pudieron cargar ${fileLabel}:`, error);
+          this.loadErrors.set(files[0], String(error));
+        },
+        onplayerror(id) { this.once('unlock', () => this.play(id)); }
+      }));
+    };
+    this._npcSoundFactory = sound;
+    this._npcSounds = new Map();
+    for (const entry of Object.values(NPC_VOICE_BANK).flat()) {
+      const file = entry.audio.split('/').pop();
+      if (!this._npcSounds.has(file)) this._npcSounds.set(file, sound(file, { volume: 0 }));
+    }
+    this._npcVoice = null;
     // Volumen maestro (0.0 a 1.0)
     this.eventTarget = eventTarget;
     this._masterVolume = .7; this.muted = false;
@@ -68,15 +80,16 @@ export class AudioSystem {
     };
     // Reproducción normal: sin posiciones, panners ni atenuación 3D.
     const vehicleOptions = { volume: 0, loop: true, pool: 10 };
+    const vehicleSound = (file, options) => sound([file, file.replace(/\.opus$/, '.mp3')], options);
     this.vehicleSounds = {
-      carIdle: sound('car_idling_at_a_traf.opus', vehicleOptions),
-      carDrive: sound('small_vehicle_drivin.opus', vehicleOptions),
-      busIdle: sound('car_idling_at_a_traf_bus.opus', vehicleOptions),
-      busDrive: sound('bus_vehicle_drivin.opus', vehicleOptions),
+      carIdle: vehicleSound('car_idling_at_a_traf.opus', vehicleOptions),
+      carDrive: vehicleSound('small_vehicle_drivin.opus', vehicleOptions),
+      busIdle: vehicleSound('car_idling_at_a_traf_bus.opus', vehicleOptions),
+      busDrive: vehicleSound('bus_vehicle_drivin.opus', vehicleOptions),
       // Tomar una sola pitada de cada grabación evita reproducir secuencias de casi 8 s.
-      horn1: sound('car_horn_sound1.opus', { ...vehicleOptions, loop: false, sprite: { honk: [900, 550] } }),
-      horn2: sound('car_horn_sound.opus', { ...vehicleOptions, loop: false, sprite: { honk: [1000, 600] } }),
-      horn3: sound('car_horn_sound_v3.opus', { ...vehicleOptions, loop: false, sprite: { honk: [200, 650] } })
+      horn1: vehicleSound('car_horn_sound1.opus', { ...vehicleOptions, loop: false, sprite: { honk: [900, 550] } }),
+      horn2: vehicleSound('car_horn_sound.opus', { ...vehicleOptions, loop: false, sprite: { honk: [1000, 600] } }),
+      horn3: vehicleSound('car_horn_sound_v3.opus', { ...vehicleOptions, loop: false, sprite: { honk: [200, 650] } })
     };
     const driverFiles = [
       ...[1, 3, 4, 5, 6, 7].map(n => `valentina_n${n}.mp3`),
@@ -87,6 +100,7 @@ export class AudioSystem {
     // Frases de la calle: su volumen lo pone StreetVoices según la distancia.
     this.streetVoiceSounds = Object.fromEntries(STREET_VOICES.map(clip => [clip.key, sound(clip.file, { volume: 0, loop: false, pool: 1 })]));
     this._theftVoices = new Map();
+    this._crowdVoice = null;
     this.vehicles = new VehicleAudio(this.vehicleSounds, Math.random, this.driverSounds);
     this.streetVoices = new StreetVoices({ bank: this.streetVoiceSounds });
     this.policeSiren = new PoliceSirenAudio({ fx: () => this._fx() });
@@ -96,7 +110,7 @@ export class AudioSystem {
     this._carAlarms = new Map();
 
     // El audio es opcional: un archivo ausente o bloqueado no impide jugar.
-    this.ready = Promise.all([...Object.values(this.sounds), ...Object.values(this.vehicleSounds), ...this.driverSounds, ...this.theftSounds, ...Object.values(this.streetVoiceSounds)].map(sound => new Promise(resolve => {
+    this.ready = Promise.all([...Object.values(this.sounds), ...Object.values(this.vehicleSounds), ...this.driverSounds, ...this.theftSounds, ...Object.values(this.streetVoiceSounds), ...this._npcSounds.values()].map(sound => new Promise(resolve => {
       if (sound.state() === 'loaded') { resolve(); return; }
       const done = () => {
         clearTimeout(timer);
@@ -170,6 +184,7 @@ export class AudioSystem {
   }
 
   _theftVoiceActive() {
+    if (this._npcVoice?.sound.playing(this._npcVoice.id)) return true;
     for (const voice of this._theftVoices.values()) if (voice.sound.playing(voice.id)) return true;
     return false;
   }
@@ -186,8 +201,14 @@ export class AudioSystem {
     if (this._ambientId !== undefined) this.sounds.ambient.volume(this._baseVolume.get(this.sounds.ambient) * ambient, this._ambientId);
     if (this._rainId !== undefined) this.sounds.rain.volume(this._baseVolume.get(this.sounds.rain) * ambient, this._rainId);
   }
+  // Silencia el banco de la calle y conserva la preferencia de volumen general.
+  setVenueMuted(muted) {
+    this._venueMuted = !!muted;
+    this.howler.volume(this.muted || this._venueMuted ? 0 : this.volume);
+  }
+
   _applySettings() {
-    this.howler.volume(this.muted ? 0 : this.volume);
+    this.howler.volume(this.muted || this._venueMuted ? 0 : this.volume);
     try {
       globalThis.localStorage?.setItem('bazuko.audio_volume', String(this.volume));
       globalThis.localStorage?.setItem('bazuko.audio_muted', String(this.muted));
@@ -276,13 +297,17 @@ export class AudioSystem {
     this._theftVoices.clear();
     this.vehicles.stopRemarks();
     this.streetVoices.cancel();
+    this._npcVoice?.sound.stop(this._npcVoice.id); this._npcVoice = null;
+    this._crowdVoice?.sound.stop(this._crowdVoice.id); this._crowdVoice = null;
     const voice = { sound, id: sound.play() };
     sound.volume(this._theftVolume(car, this._listenerPosition), voice.id);
     this._theftVoices.set(car, voice);
     // El reclamo por el robo reemplaza la frase normal de obstrucción de ese conductor.
     const driver = this.vehicles.instances.get(car);
     if (driver) {
-      driver.cooldown = Math.max(driver.cooldown, sound.duration() + .5);
+      const cooldown = sound.duration() + .5;
+      driver.cooldown = Math.max(driver.cooldown, cooldown);
+      driver.remarkCooldown = Math.max(driver.remarkCooldown, cooldown);
     }
     return true;
   }
@@ -291,6 +316,43 @@ export class AudioSystem {
     if (!car.position || !listener) return .75 * this._level('voices');
     const distance = Math.hypot(car.position.x - listener.x, car.position.y - listener.y, car.position.z - listener.z);
     return .75 * this._level('voices') * Math.max(0, Math.min(1, (12 - distance) / 10));
+  }
+
+  /** Voces de combate precargadas; respetan la mezcla y no se superponen. */
+  playNpcVoice(path, owner, { allowKnockedOut = false, allowPaused = false } = {}) {
+    if ((this._paused && !allowPaused) || this.muted || !owner?.position || this._voiceActive()) return false;
+    const distance = this._listenerPosition ? owner.position.distanceTo(this._listenerPosition) : 0;
+    if (distance > 14) return false;
+    const file = path.split('/').pop();
+    let sound = this._npcSounds.get(file);
+    if (!sound) { sound = this._npcSoundFactory(file, { volume: 0 }); this._npcSounds.set(file, sound); }
+    if (sound.state() !== 'loaded') return false;
+    const id = sound.play();
+    sound.volume(.8 * this._level('voices') * Math.max(0, 1 - distance / 14), id);
+    this._npcVoice = { sound, id, owner, allowKnockedOut };
+    return true;
+  }
+
+  playPlayerDeath(owner) {
+    const voice = NPC_VOICE_BANK.knockout.find(entry => entry.audio === '/audio/ahh.mp3');
+    if (!voice) return false;
+    if (this._npcVoice) this._npcVoice.sound.stop(this._npcVoice.id);
+    this._npcVoice = null;
+    return this.playNpcVoice(voice.audio, owner, { allowKnockedOut: true, allowPaused: true });
+  }
+
+  playCrowdVoice(position, listener = this._listenerPosition) {
+    if (this._paused || !position || !this.driverSounds.length || this._voiceActive()) return false;
+    if (this._crowdVoice?.sound.playing(this._crowdVoice.id)) return false;
+    this._crowdVoice = null;
+    const distance = listener ? Math.hypot(position.x - listener.x, position.y - listener.y, position.z - listener.z) : 0;
+    if (distance >= 14) return false;
+    const sound = this.driverSounds[Math.floor(Math.random() * this.driverSounds.length)];
+    if (sound.state() !== 'loaded') return false;
+    const id = sound.play();
+    sound.volume(.75 * this._level('voices') * Math.max(0, Math.min(1, (14 - distance) / 10)), id);
+    this._crowdVoice = { sound, id };
+    return true;
   }
 
   /**
@@ -371,6 +433,7 @@ export class AudioSystem {
     if (this._paused === paused) return;
     this._paused = paused;
     if (this._effectsBus) this._effectsBus.gain.value = paused ? 0 : this._level('effects');
+    if (paused && this._npcVoice) { this._npcVoice.sound.stop(); this._npcVoice = null; }
     this._syncRain();
     this.vehicles.setPaused(paused);
     this.streetVoices.setPaused(paused);
@@ -394,6 +457,12 @@ export class AudioSystem {
 
   updateWorld(dt, position, _camera, vehicles, bus, pedestrians) {
     this._listenerPosition = position;
+    if (this._npcVoice) {
+      const v = this._npcVoice, distance = v.owner.position.distanceTo(position);
+      if (v.owner._disposed || (v.owner.hp <= 0 && !v.allowKnockedOut) || distance > 14 || !v.sound.playing(v.id)) {
+        v.sound.stop(); this._npcVoice = null;
+      } else v.sound.volume(.8 * this._level('voices') * Math.max(0, 1 - distance / 14), v.id);
+    }
     this.setPaused(false);
     const duckTarget = this._voiceActive() ? VOICE_DUCK : 1;
     this._duck += (duckTarget - this._duck) * (1 - Math.exp(-dt * (duckTarget < this._duck ? DUCK_ATTACK : DUCK_RELEASE)));
@@ -419,6 +488,8 @@ export class AudioSystem {
   }
 
   dispose() {
+    for (const sound of this._npcSounds.values()) sound.unload();
+    this._npcSounds.clear(); this._npcVoice = null;
     this._theftVoices.clear();
     this._carAlarms.clear();
     this.streetVoices.clear();

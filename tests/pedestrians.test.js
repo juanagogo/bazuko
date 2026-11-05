@@ -6,15 +6,32 @@ import { STREET_X, STREET_Z } from '../src/world/bogota/StreetLayout.js';
 const point = (x, z) => [STREET_X.world(x / 2), STREET_Z.world(z / 2)];
 import { rng } from '../src/world/bogota/textures.js';
 
+let realisticCreates = 0;
+let realisticDisposals = 0;
+let fullLookChanges = 0;
 // La navegación y los NPC son reales; solo se sustituye la carga de modelos GLB.
 mock.module('../src/character/RealisticCharacter.js', { namedExports: {
   REALISTIC_SCALE: 1.08,
-  createRealisticCharacter: async () => ({ group: new THREE.Group(), update() {} }),
+  createRealisticCharacter: async (_look, { lod } = {}) => {
+    realisticCreates++;
+    return {
+      group: new THREE.Group(), lod, update() {},
+      setLook: async () => { fullLookChanges++; },
+      dispose: () => { realisticDisposals++; }
+    };
+  },
   loadCatalog: async () => ({}), normalizeReal: (_, look) => look,
   optionsFor: () => [{ id: 'test' }]
 } });
 const { Npc } = await import('../src/entities/Npc.js');
+const { NPC_LOD, NPC_VOICE_BANK } = await import('../src/entities/Npc.js');
 const { Bogota } = await import('../src/world/districts/Bogota.js');
+
+const map3x5 = [
+  ['sidewalk', 'sidewalk', 'sidewalk', 'wall', 'sidewalk'],
+  ['sidewalk', 'building', 'sidewalk', 'wall', 'sidewalk'],
+  ['sidewalk', 'sidewalk', 'sidewalk', 'wall', 'sidewalk']
+];
 
 function district() {
   const city = new Bogota();
@@ -25,12 +42,7 @@ function district() {
 }
 
 test('las rutas rodean edificios sin diagonales y no atraviesan componentes aislados', () => {
-  const map = [
-    ['sidewalk', 'sidewalk', 'sidewalk', 'wall', 'sidewalk'],
-    ['sidewalk', 'building', 'sidewalk', 'wall', 'sidewalk'],
-    ['sidewalk', 'sidewalk', 'sidewalk', 'wall', 'sidewalk']
-  ];
-  const nav = new PedestrianNavigation(map, 2);
+  const nav = new PedestrianNavigation(map3x5, 2);
   for (let seed = 1; seed <= 30; seed++) {
     const route = nav.createRoute(new THREE.Vector3(), rng(seed));
     assert.ok(route.length > 1);
@@ -107,6 +119,15 @@ test('los tramos que atraviesan algo sólido se cortan, sin tocar los cruces ni 
   assert.notDeepEqual([route[0].x, route[0].z], [2, 0]);
   assert.notEqual(alone.routeTo(new THREE.Vector3(2, 0, 0), new THREE.Vector3(8, 0, 4)).length, 0);
   assert.equal(alone.isRestingAt(new THREE.Vector3(0, 0, 0)), true);
+});
+
+test('createRouteTo llega a la meta por andenes y no cruza componentes aislados', () => {
+  const nav = new PedestrianNavigation(map3x5, 2);
+  const route = nav.createRouteTo(new THREE.Vector3(0, 0, 0), new THREE.Vector3(4, 0, 4));
+  assert.deepEqual([route.at(-1).x, route.at(-1).z], [4, 4]);
+  for (const p of route) assert.ok(nav.isWalkableAt(p.x, p.z));
+  assert.deepEqual(nav.createRouteTo(new THREE.Vector3(0, 0, 0), new THREE.Vector3(8, 0, 0)), []);
+  assert.deepEqual(nav.createRouteTo(new THREE.Vector3(0, 0, 0), new THREE.Vector3(4, 0, 4), 1), []);
 });
 
 test('en Bogotá los recorridos usan andenes y cruces, evitan la tienda y pasan bajo la estación elevada', () => {
@@ -271,4 +292,80 @@ test('un peatón lejano sigue caminando sin animar y recupera la animación al a
   npc.update(1 / 60, { player: npc.position.clone().add(new THREE.Vector3(15, 0, 0)) });
   assert.equal(animated, 1);
   npc.dispose();
+});
+
+test('las voces ambientales salen al pasar cerca, filtran las voces femeninas y evitan repetir', async () => {
+  const scene = new THREE.Scene();
+  const player = new THREE.Vector3();
+  const heard = [];
+  const makeWalker = async sexo => {
+    const npc = new Npc(scene, new THREE.Vector3(2.5, 0, 0), { look: { real: { sexo } } });
+    await npc.ready;
+    npc.moving = true;
+    npc.audio = { playNpcVoice: path => { heard.push(path); return true; } };
+    npc.say = () => {};
+    return npc;
+  };
+  const woman = await makeWalker('mujer');
+  const ambientVoices = NPC_VOICE_BANK.ambient;
+  NPC_VOICE_BANK.ambient = ambientVoices.filter(entry => entry.gender === 'mujer');
+  try {
+    woman._playerDist = 2.5; woman._updateAmbientVoice();
+    woman._updateAmbientVoice();
+    assert.equal(heard.length, 1);
+    assert.ok(['/audio/asqueroso.mp3', '/audio/petrista.mp3'].includes(heard[0]));
+  } finally {
+    NPC_VOICE_BANK.ambient = ambientVoices;
+  }
+
+  const man = await makeWalker('hombre');
+  man._playerDist = 2.5; man._updateAmbientVoice();
+  assert.equal(heard.length, 2);
+  assert.ok(['/audio/locohp.mp3', '/audio/hedor.mp3'].includes(heard[1]));
+  assert.notEqual(heard[0], heard[1]);
+  woman.dispose();
+  man.dispose();
+});
+
+test('encuerenrata se reserva para los NPC que persiguen tras un robo', async () => {
+  const scene = new THREE.Scene(), player = { position: new THREE.Vector3(20, 0, 0) };
+  const robberyVictim = new Npc(scene, new THREE.Vector3(), { look: {} });
+  await robberyVictim.ready;
+  const robberyCategories = [];
+  robberyVictim.speakScenario = category => robberyCategories.push(category);
+  robberyVictim.beginAssault(player, 'golpe_jab', 0, true);
+  robberyVictim.combatAI.update(1 / 60);
+  assert.deepEqual(robberyCategories, ['theftChase']);
+
+  const ordinaryCombatant = new Npc(scene, new THREE.Vector3(), { look: {} });
+  await ordinaryCombatant.ready;
+  const ordinaryCategories = [];
+  ordinaryCombatant.speakScenario = category => ordinaryCategories.push(category);
+  ordinaryCombatant.beginAssault(player);
+  ordinaryCombatant.combatAI.update(1 / 60);
+  assert.deepEqual(ordinaryCategories, ['mob']);
+  robberyVictim.dispose();
+  ordinaryCombatant.dispose();
+});
+
+test('la voz Peste es femenina y solo está disponible durante persecuciones por robo', async () => {
+  const scene = new THREE.Scene();
+  const heard = [];
+  const femaleTheftVoice = NPC_VOICE_BANK.theftChase.find(entry => entry.audio === '/audio/peste.mp3');
+  assert.equal(femaleTheftVoice?.gender, 'mujer');
+  const theftVoices = NPC_VOICE_BANK.theftChase;
+  NPC_VOICE_BANK.theftChase = [femaleTheftVoice];
+  try {
+    for (const sexo of ['mujer', 'hombre']) {
+      const npc = new Npc(scene, new THREE.Vector3(), { look: { real: { sexo } } });
+      await npc.ready;
+      npc.say = () => {};
+      npc.audio = { playNpcVoice: path => { heard.push(path); return true; } };
+      npc.speakScenario('theftChase', true);
+      npc.dispose();
+    }
+    assert.deepEqual(heard, ['/audio/peste.mp3']);
+  } finally {
+    NPC_VOICE_BANK.theftChase = theftVoices;
+  }
 });

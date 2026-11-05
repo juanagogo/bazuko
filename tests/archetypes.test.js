@@ -77,7 +77,11 @@ const COMMON_WORDS = uncode([
   'Z2Vm', 'dmVsZXo='
 ]);
 // La estación de servicio viene de antes de la gente y se queda como está; en ningún otro lugar vale.
-const ALLOWED = new Map([['src/world/bogota/GasStation.js', uncode(['dGV4YWNv'])]]);
+// Los créditos de los modelos del port C++ citan el título de cada obra, como pide su licencia CC BY.
+const ALLOWED = new Map([
+  ['src/world/bogota/GasStation.js', uncode(['dGV4YWNv'])],
+  ['docs/creditos-modelos.md', uncode(['cmVuYXVsdA==', 'dG95b3Rh', 'dm9sa3N3YWdlbg=='])],
+]);
 const TEXT_FILE = /\.(?:js|mjs|css|html|json|md|txt|glsl)$/;
 const ROOT = new URL('../', import.meta.url);
 

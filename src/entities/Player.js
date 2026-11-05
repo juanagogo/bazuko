@@ -10,6 +10,7 @@ import { createCharacter } from '../character/character.js';
 import { createRealisticCharacter, REALISTIC_SCALE } from '../character/RealisticCharacter.js';
 import { PlayerRagdoll } from '../systems/PlayerRagdoll.js';
 import { MeleeCombat } from '../systems/MeleeCombat.js';
+import { GrappleSystem } from '../systems/GrappleSystem.js';
 import { WaterMovement } from '../systems/WaterMovement.js';
 import { WEAPONS, DEFAULT_WEAPON } from '../data/weapons.js';
 import { SMOKE_DURATION, PUFF_INTERVAL, FIRST_PUFF, PUFF, PUFF_LENGTH, isExhaling, smokable, SmokePuffs } from '../character/smoking.js';
@@ -63,11 +64,13 @@ export class Player {
     this.input = input;
     this.scene = scene;
     this.stats = stats;
-    this.position = new THREE.Vector3(16, 0, 16); // zona reservada spawn
+    this.position = new THREE.Vector3(16, 0, 16);
     this.radius = PLAYER_RADIUS;
     this.speedWalk = PLAYER_SPEED_WALK;
     this.speedRun = PLAYER_SPEED_RUN;
     this.speedMult = 1; // debuff por salud mental baja
+    this.zorraMult = 1; // multiplicador de la zorra (0 = no se mueve)
+    this.canRun = true; // false mientras se empuja la zorra
     this.velocity = new THREE.Vector3();
     this.hasInertia = true;
     this._direction = new THREE.Vector3();
@@ -80,7 +83,6 @@ export class Player {
     this._respiroTumbo = 0;
     this.tiradoPor = null;
 
-    // Contenedor raíz (posición + rumbo); el personaje va escalado adentro
     this.root = new THREE.Group();
     this.root.position.copy(this.position);
     scene.add(this.root);
@@ -106,6 +108,7 @@ export class Player {
     this.actionProgress = 0;
     this.sorting = false;
     this.hasCart = false;     // seleccionando basura (mantener Q)
+    this.grapple = new GrappleSystem(this);
 
     // Combate cuerpo a cuerpo: `attack` = { weapon, step, phase: windup|active|recovery, t, progress, timing }
     this.equippedWeapon = DEFAULT_WEAPON;
@@ -330,7 +333,6 @@ export class Player {
     return this._realistic?.setLook(look);
   }
 
-  /** Cambia entre el personaje realista (MakeHuman, por defecto) y el procedural (liviano) */
   async setModel(kind) {
     if (kind === this.modelKind) return;
     this.clearVehicleImpact();
@@ -348,7 +350,7 @@ export class Player {
         throw error;
       }
       if (this._realistic.look !== this.look && this.look) await this._realistic.setLook(this.look);
-      if (this.modelKind !== 'realista') return; // se cambió mientras cargaba
+      if (this.modelKind !== 'realista') return;
       this.root.remove(this.character.group);
       this.character = this._realistic;
       this.modelScale = REALISTIC_SCALE;
@@ -411,6 +413,8 @@ export class Player {
   /** Anima una acción breve (segundos) */
   playAction(action, duration = 1) {
     if (action !== 'golpear') this.melee?.cancel();
+    this.actionSequence = (this.actionSequence ?? 0) + 1;
+    this.actionDuration = duration;
     this.action = action;
     this.actionTimer = duration;
     this.actionDuration = duration;
@@ -451,6 +455,17 @@ export class Player {
     });
   }
 
+  receiveAssaultHit(direction = null, damage = 0) {
+    const received = Math.max(0, damage) * (this.isBlocking ? .4 : 1);
+    if (this.stats && received) this.stats.salud = Math.max(0, this.stats.salud - received);
+    if (!this.isBlocking || this.action !== 'bloquear') {
+      this.playAction(this.isBlocking ? 'bloquear' : 'reaccion_pecho', this.isBlocking ? .6 : .45);
+    }
+    this._assaultJolt = this.modelKind === 'realista' ? 0 : .42;
+    if (direction?.clone) this._assaultDirection = direction.clone().setY(0).normalize();
+    this.lastCombatHit = { sequence: (this.lastCombatHit?.sequence ?? 0) + 1, direction: this._assaultDirection?.clone() };
+    return received;
+  }
 
   /** El controlador es la única fuente de fases, contactos y cola del combo. */
   get attack() { return this.melee.attack; }
@@ -527,6 +542,12 @@ export class Player {
     this.time += dt;
     this._lastCollisions = collisions;
     if (this._respiroTumbo > 0) this._respiroTumbo -= dt;
+    const holdingBlock = !!this.input?.isDown?.('KeyO');
+    this.isBlocking = (holdingBlock || this.action === 'bloquear') && !this.isStunned && !this.grapple?.target && !this.melee.active;
+    if (this.grapple?.update(dt, npcs, collisions)) {
+      this.character.update(dt, { speed: 0, action: 'agarrar', t: this.time });
+      return;
+    }
     if (this.ragdoll?.active) {
       this.melee.cancel();
       this.stopSmoking(); // el cigarrillo se cae al salir volando
@@ -537,6 +558,7 @@ export class Player {
       this.speed = 0; this.state = 'ragdoll';
       return;
     }
+
     if (this.actionTimer > 0) {
       this.actionTimer -= dt;
       this.actionProgress = Math.min(1, 1 - Math.max(0, this.actionTimer) / (this.actionDuration || 1));
@@ -544,10 +566,16 @@ export class Player {
     }
     this.landing = Math.max(0, this.landing - dt / .22);
 
+    if (holdingBlock && !this.action && !this.isStunned) {
+      this.playAction('bloquear', 0.6);
+    }
+    if (holdingBlock && this.action === 'bloquear') this.actionTimer = Math.max(.1, this.actionTimer);
+    if (!holdingBlock && this.action === 'bloquear') { this.action = null; this.actionTimer = 0; this.isBlocking = false; }
+
     const wasGrounded = this.isGrounded ?? true;
     // Salto y combate cuerpo a cuerpo estilo GTA
     const wantsJump = typeof this.input?.consumePress === 'function' && (this.input.consumePress('Space') || this.input.consumePress('KeySpace'));
-    if (wantsJump && this.isGrounded && !this.isSwimming && !this.melee.active && !this.isStunned && !this.hasCart && !this.sorting) {
+    if (wantsJump && this.isGrounded && !this.isSwimming && !this.melee.active && !this.isStunned && !this.hasCart && this.canRun !== false && !this.sorting) {
       this.jumpVelocity = 5.2;
       this.isGrounded = false;
       this.playAction('saltar', 0.65);
@@ -556,7 +584,7 @@ export class Player {
 
     const attackBeforeInput = this.attack;
     const wantsPunch = typeof this.input?.consumePress === 'function' && (this.input.consumePress('KeyG') || this.input.consumePress('Mouse0'));
-    if (wantsPunch && !this.isSwimming && !this.isStunned && (!this.action || this.attack) && !this.hasCart && !this.sorting) {
+    if (wantsPunch && !this.isSwimming && !this.isStunned && (!this.action || this.attack) && !this.hasCart && this.canRun !== false && !this.sorting) {
       this.punch();
     }
     const beganAttackThisFrame = !attackBeforeInput && !!this.attack;
@@ -564,9 +592,9 @@ export class Player {
     // con la pipa en la boca se queda quieto
     const { x = 0, z = 0 } = this.basuco && !this.basuco.stowed ? {} : (this.input?.axis ?? {});
     const stunned = this._impactTime > 0;
-    const moving = !stunned && (x !== 0 || z !== 0);
-    const running = Boolean(this.input?.isRunning && moving);
-    let speed = running ? this.speedRun : this.speedWalk;
+    const moving = !stunned && (x !== 0 || z !== 0) && this.zorraMult > 0;
+    const running = Boolean(this.input?.isRunning && moving && this.canRun);
+    let speed = (running ? this.speedRun : this.speedWalk) * this.zorraMult;
     if (this.stats?.getSpeedMultiplier) {
       speed *= this.stats.getSpeedMultiplier();
     }
@@ -596,13 +624,16 @@ export class Player {
       const accelRate = this.waterMovement.swimming ? (moving ? 5 : 4) : (moving ? 22 : 18);
       this.velocity.x = THREE.MathUtils.lerp(this.velocity.x, targetVelX, 1 - Math.exp(-accelRate * dt));
       this.velocity.z = THREE.MathUtils.lerp(this.velocity.z, targetVelZ, 1 - Math.exp(-accelRate * dt));
-      if (!moving && this.velocity.lengthSq() < 0.0005) {
+      // La zorra en 0 frena en seco (forcejeo, anclado): sin deslizamiento por inercia.
+      if (this.zorraMult <= 0 || (!moving && this.velocity.lengthSq() < 0.0005)) {
         this.velocity.set(0, 0, 0);
       }
       delta = this._delta.copy(this.velocity).multiplyScalar(dt);
     } else {
       delta = this._delta.copy(dir).multiplyScalar(moving ? speed * dt : 0);
     }
+
+
     if (stunned) {
       delta.addScaledVector(this._impactVelocity, (1 - Math.exp(-4 * dt)) / 4);
       this._impactVelocity.multiplyScalar(Math.exp(-4 * dt));
@@ -618,6 +649,36 @@ export class Player {
     } else {
       this.position.add(delta);
     }
+
+    // === COLISIÓN FÍSICA CONTRA NPCs (Jugador vs NPCs) ===
+    if (npcs && npcs.length > 0) {
+      for (const npc of npcs) {
+        if (!npc || npc.hp <= 0 || npc.grabbed || Math.abs(npc.position.y - this.position.y) > 1.2) continue;
+
+        const npcRadius = npc.radius || 0.4;
+        const minDist = this.radius + npcRadius;
+        const dx = this.position.x - npc.position.x;
+        const dz = this.position.z - npc.position.z;
+        const distSq = dx * dx + dz * dz;
+
+        if (distSq < minDist * minDist && distSq > 0.00001) {
+          const dist = Math.sqrt(distSq);
+          const overlap = minDist - dist;
+          const nx = dx / dist;
+          const nz = dz / dist;
+
+          this._delta.set(nx * overlap * .6, 0, nz * overlap * .6);
+          if (collisions) collisions.resolveMove(this.position, this._delta, this.radius, this.position);
+          else this.position.add(this._delta);
+
+          if (npc.velocity) {
+            npc.velocity.x -= nx * overlap * 8;
+            npc.velocity.z -= nz * overlap * 8;
+          }
+        }
+      }
+    }
+
     this.speed = dt > 0 ? before.distanceTo(this.position) / dt : 0;
     this.isGrounded ??= true;
     this.jumpVelocity ??= 0;
@@ -701,6 +762,14 @@ export class Player {
       }
     }
 
+    if (this._assaultJolt > 0) {
+      this._assaultJolt = Math.max(0, this._assaultJolt - dt);
+      const strength = this._assaultJolt / .42;
+      this.root.rotation.x -= .18 * strength;
+      this.root.rotation.z += Math.sin(this.time * 32) * .12 * strength;
+      if (this._assaultDirection) this.root.position.addScaledVector(this._assaultDirection, .025 * strength);
+    }
+
     // Resolver primero agua, apoyo y orientación evita contactos desde la posición anterior.
     if (this.isSwimming || !this.isGrounded || this.isStunned) {
       this.melee.cancel();
@@ -734,14 +803,16 @@ export class Player {
     const stance = this._updateBodyLanguage(dt, moving || this.speed >= .25 || stunned || !this.isGrounded || this.isSwimming
       || !!this.action || this.sorting || !!this.attack || !!this.smoking || !!this.basuco);
 
-    // Animación del personaje (velocidad en metros del modelo, no del mundo)
+    const assaultReaction = ['recibirGolpe', 'reaccion_pecho', 'reaccion_cabeza'].includes(this.action);
     this.character.update(dt, {
       stance,
       style: this.bodyStyle,
-      speed: stunned ? 0 : this.speed / this.modelScale,
+      speed: (stunned || assaultReaction) ? 0 : this.speed / this.modelScale,
       running,
       action: stunned ? null : this.isSwimming ? null : !this.isGrounded ? 'saltar' : (this.sorting ? 'buscar' : this.action),
       actionProgress: this.actionProgress,
+      actionDuration: this.actionDuration,
+      actionSequence: this.actionSequence,
       movement: this.movement,
       attack: this.attack,
       smoke: this._holdingCigarette && !this.attack ? this.smoking : null,
@@ -754,6 +825,7 @@ export class Player {
   }
 
   dispose() {
+    this.grapple?.release();
     this.ragdoll.clear();
     this._smoke?.dispose();
     this._realistic?.dispose?.();

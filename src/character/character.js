@@ -570,6 +570,32 @@ export function createCharacter(initial = DEFAULT_LOOK) {
         target.lean = .07; target.headX = .09;
         break;
       }
+      case 'bloquear': {
+        target.lean = .08;
+        target.armLx = -1.15; target.armRx = -1.15;
+        target.elbL = -2; target.elbR = -2;
+        target.armLz = .2; target.armRz = -.2;
+        target.legL = .15; target.legR = -.15;
+        break;
+      }
+      case 'agarrar':
+      case 'ser_agarrado':
+      case 'golpe_jab':
+      case 'golpe_cross':
+      case 'golpear': {
+        const punchCycle = Math.sin(t * 18);
+        target.lean = 0.18;
+        target.armRx = -1.65 + punchCycle * 0.15;
+        target.elbR = -0.05;
+        target.armRz = -0.15;
+        target.armLx = -1.25;
+        target.elbL = -1.8;
+        target.armLz = 0.35;
+        target.legR = -0.35;
+        target.legL = 0.3;
+        break;
+      }
+      case 'fueraCombate':
       case 'dormir':
         target.lie = 1;
         target.lean = target.twist = target.sway = 0;

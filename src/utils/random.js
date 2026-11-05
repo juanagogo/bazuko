@@ -1,0 +1,20 @@
+export function pick(array, random = Math.random) {
+  return array.length ? array[Math.floor(random() * array.length)] : undefined;
+}
+
+export function pickWithRandom(random, array) {
+  return pick(array, random);
+}
+
+export function rand(min, max, random = Math.random) {
+  return min + random() * (max - min);
+}
+
+export function mulberry32(seed) {
+  return function () {
+    seed |= 0; seed = (seed + 0x6D2B79F5) | 0;
+    let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}

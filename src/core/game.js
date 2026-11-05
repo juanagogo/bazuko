@@ -26,6 +26,8 @@ import { TrashContainer } from '../entities/TrashContainer.js';
 import { SellPoint } from '../entities/SellPoint.js';
 import { Cambuche } from '../entities/Cambuche.js';
 import { Shop } from '../entities/Shop.js';
+import { BoliranaVenue } from '../entities/BoliranaVenue.js';
+import { openBolirana } from '../ui/BoliranaVenue.js';
 import { Car } from '../entities/Car.js';
 import { parkCar } from '../world/bogota/parkedCars.js';
 import { DrugDealer } from '../entities/DrugDealer.js';
@@ -50,11 +52,14 @@ import { CollisionSystem } from '../systems/CollisionSystem.js';
 import { TrafficSystem } from '../systems/TrafficSystem.js';
 import { distributeShelterLoot, spreadPickupPositions } from '../systems/ShelterLoot.js';
 import { InventorySystem } from '../systems/InventorySystem.js';
+import { DroppedItemSystem } from '../systems/DroppedItemSystem.js';
 import { AudioSystem } from '../systems/AudioSystem.js';
 import { InteractionSystem } from '../systems/InteractionSystem.js';
 import { DiseaseSystem } from '../systems/DiseaseSystem.js';
 import { TalentSystem } from '../systems/TalentSystem.js';
 import { CraftingSystem } from '../systems/CraftingSystem.js';
+import { ZorraSystem } from '../systems/ZorraSystem.js';
+import { ZorraController } from '../systems/ZorraController.js';
 import { RadioSystem } from '../systems/RadioSystem.js';
 import { PoopSystem } from '../systems/PoopSystem.js';
 import { PsychosisSystem } from '../systems/PsychosisSystem.js';
@@ -167,8 +172,12 @@ export class Game {
     );
     this.interaction.getTraffic = () => this.traffic;
 
+    this.droppedItems = new DroppedItemSystem(this);
     this.steal = new StealSystem(this);
     this.interaction.personCloserThan = (distance) => this.steal.personCloserThan(distance);
+    this.zorra = new ZorraSystem();
+    this.interaction.zorra = this.zorra;
+    this.zorraCtl = new ZorraController(this);
 
     // HUD, menús y creador de personaje
     this.hud = new HUD();
@@ -202,6 +211,7 @@ export class Game {
     document.addEventListener('fullscreenchange', () => { if (this.menu.isOpen) this.menu.refresh(); });
     window.addEventListener('camera-toggle', () => this._toggleCamera());
     window.addEventListener('open-recycler', () => openRecycler(this));
+    window.addEventListener('open-bolirana', (e) => openBolirana(this, e.detail?.target));
     window.addEventListener('open-shop', (e) => openShop(this, e.detail?.target));
     window.addEventListener('open-cambuche', () => openCambuche(this));
     window.addEventListener('open-mesa', () => { if (!this.hud?._craftOpen) this.hud?.toggleCraftPanel(); });
@@ -241,6 +251,7 @@ export class Game {
     this.momentos = new Momentos();
 
     // Estado
+    this.bolirana = { level: 1, pending: false };
     this.look = null;       // apariencia + nombre + origen (creador)
     this.built = {};        // piezas del cambuche
     this.costal = false;    // costal grande comprado
@@ -465,10 +476,12 @@ export class Game {
 
   /** El mundo se congela mientras hay un menú o el creador abierto */
   get paused() {
-    return this._loading || this._deathPending || this._arrestPending || !!this.photoMode?.active || this.menu.isOpen || this.creator.isOpen || !!this.inventoryUI?.isOpen || !!this.hud?._talentOpen || !!this.hud?._craftOpen || !!this.hud?._dealerOpen;
+    return this._boliranaOpen || this._loading || this._deathPending || this._arrestPending || !!this.photoMode?.active || this.menu.isOpen || this.creator.isOpen || !!this.inventoryUI?.isOpen || !!this.hud?._talentOpen || !!this.hud?._craftOpen || !!this.hud?._dealerOpen;
   }
 
   _spawnEntities() {
+    this.droppedItems?.clear();
+    this.boliranaVenue?.dispose();
     this.dog?.destroy();
     this.audio.vehicles?.clear();
     this.traffic?.dispose();
@@ -684,6 +697,8 @@ export class Game {
       )
     );
     this.interaction.register(this.shop);
+    this.boliranaVenue = new BoliranaVenue(this.sceneMgr.scene, district);
+    this.interaction.register(this.boliranaVenue);
 
     // ===== Vendedores ambulantes del distrito (chazas, fritanga) y fogatas de El Cartucho =====
     for (const v of district.vendors ?? []) this.interaction.register(v);
@@ -693,6 +708,8 @@ export class Game {
       new THREE.Vector3(2.4, 2, 1.5),
       new THREE.Vector3(0, 1, -0.7)
     );
+
+    this.zorraCtl?.spawn(district);
   }
 
   /** Una partida que no se deja leer no detiene la carga: se aparta sin borrarla y se juega sin ella. */
@@ -710,6 +727,11 @@ export class Game {
   _aplicarPartida(data) {
     if (data) {
       this.stats.deserialize(data.stats);
+      this.bolirana = {
+        level: data.bolirana?.pending ? 1 : Math.max(1, Math.min(100, Number.isInteger(data.bolirana?.level) ? data.bolirana.level : 1)),
+        pending: false,
+        lastResult: data.bolirana?.lastResult ?? null
+      };
       this.clock.deserialize(data.clock);
       this.inventory.deserialize(data.inventory ?? {});
       this.talents.deserialize(data.talents ?? {});
@@ -725,6 +747,7 @@ export class Game {
       this.costal = !!data.costal;
       if (data.weapon && this.inventory.count(data.weapon) > 0) this.player.equipWeapon(data.weapon);
       this.cambuche?.setBuilt(this.built);
+      this.zorra?.deserialize(data.zorra);
       if (data.look) this._applyLook(data.look);
       if (data.radio) {
         if (typeof data.radio.freq === 'number') this.radio.setFrequency(data.radio.freq);
@@ -751,6 +774,7 @@ export class Game {
   /** Lo que se guarda de la partida en curso. */
   _estado() {
     return {
+      bolirana: this.bolirana,
       stats: this.stats.serialize(),
       clock: this.clock.serialize(),
       inventory: this.inventory.serialize(),
@@ -762,6 +786,7 @@ export class Game {
       built: this.built,
       costal: this.costal,
       weapon: this.player.equippedWeapon,
+      zorra: this.zorra?.serialize(),
       radio: this.radio ? { isOn: this.radio.isOn, freq: this.radio.frequency, battery: this.radio.battery } : null,
       dog: { isFriend: !!this.dog?.isFriend, look: this.dog?.look ?? null },
       cart: this.cart ? this.cart.saveState() : null,
@@ -946,6 +971,7 @@ export class Game {
     this.input.endFrame();
     this.audio.updateSteps(false, false);
     this.audio.setPaused?.(true);
+    this.audio.playPlayerDeath?.(this.player);
     if (this.interaction.boostActive) this.interaction._endBoost();
     const causa = this._deathCause;
     const salir = () => this._respawn();
@@ -1071,6 +1097,16 @@ export class Game {
     this.menu.close();
   }
 
+  /** Capacidad de carga sin contar la zorra */
+  _capacidadSinZorra() {
+    return INVENTORY_MAX_WEIGHT + this.talents.getEffect('maxWeightBonus', 0) + (this.costal ? COSTAL_BONUS : 0) + (this.cart?.isAttached ? this.cart.capacityBonus : 0);
+  }
+
+  _actualizarCapacidad() {
+    this.inventory.maxWeight = this._capacidadSinZorra() + (this.zorra?.bonoPeso() ?? 0);
+    this.player.load = this.inventory.totalWeight / this.inventory.maxWeight;
+  }
+
   _respawn() {
     if (!this._deathPending) return;
     const half = Math.floor(this.inventory.items.length / 2);
@@ -1078,6 +1114,7 @@ export class Game {
       const it = this.inventory.items[0];
       if (it) this.inventory.remove(it.id, it.qty);
     }
+    this.zorraCtl?.alMorir();
 
     // Recuperar todas las necesidades evita seguir recibiendo daño al reaparecer.
     for (const need of NEEDS) this.stats[need] = Math.max(60, this.stats[need]);
@@ -1216,6 +1253,7 @@ export class Game {
     const previousX = this.player.position.x, previousZ = this.player.position.z;
     this._syncVehicleColliders?.();
     this._updatePlayerMovement(dt);
+    this.zorraCtl?.update(dt, this.input);
     this.waterEffects?.update(dt, this.player);
     if (this.player.waterFrame?.entered) this.audio.playWaterSplash?.(this.player.waterFrame.entryIntensity);
     this._swimSoundTimer = Math.max(0, (this._swimSoundTimer ?? 0) - dt);
@@ -1231,10 +1269,7 @@ export class Game {
     if (this._handleDeath()) return;
 
     // 4b. Aplicar bono de peso por talentos
-    const maxWeightBonus = this.talents.getEffect('maxWeightBonus', 0);
-    const cartBonus = (this.cart?.isAttached) ? this.cart.capacityBonus : 0;
-    this.inventory.maxWeight = INVENTORY_MAX_WEIGHT + maxWeightBonus + (this.costal ? COSTAL_BONUS : 0) + cartBonus;
-    this.player.load = this.inventory.totalWeight / this.inventory.maxWeight;
+    this._actualizarCapacidad();
 
     // 5. Debuff por salud mental baja (el desgaste se calcula en StatsSystem).
     if (this.stats.saludMental < MENTAL_LOW_THRESHOLD) {
@@ -1246,6 +1281,8 @@ export class Game {
     // 6. Enfermedades
     this.diseases.update(dt);
 
+    // Los objetos caducan antes de procesar E; los menús y la pestaña oculta pausan el plazo.
+    this.droppedItems.update(dt);
     // 7. Interacción (basura, autos, recicladora, tienda, cambuche, dealer)
     if (!this.player.isStunned) {
       // Los temporizadores y la selección de basura terminan normalmente al entrar;
@@ -1320,7 +1357,7 @@ export class Game {
     this.audio.setRaining?.(isRaining);
     // Las pisadas siguen la distancia recorrida en el suelo; en el aire no suenan.
     const travelled = this.player.isGrounded === false || this.player.inWater ? 0 : Math.hypot(this.player.position.x - previousX, this.player.position.z - previousZ);
-    this.audio.updateSteps(moving, this.input.isRunning, groundType, isRaining, travelled, dt);
+    this.audio.updateSteps(moving && this.player.zorraMult > 0, this.input.isRunning && this.player.canRun, groundType, isRaining, travelled, dt);
     this.audio.updateBoost(this.interaction.boostActive);
     this.overlays?.update?.(dt, this.weather, this.stats, this.psychosis);
     this.profiler?.mark?.('entidadesClimaAudio');
@@ -1417,6 +1454,7 @@ export class Game {
       this._poiCache = [...services, ...[[this.cambuche, reserved.bed, 'Cambuche', '⛺', '#ffd166'],
         [this.sellPoint, reserved.sell, 'Recicladora El Progreso', '♻️', '#2ab7ca', { prices: { vender: 0 } }],
         [this.shop, reserved.shop, 'Tienda La Esquinita', '🏪', '#2ecc71', { prices: SHOP_PRICES, offers: SHOP_OFFERS }],
+        [this.boliranaVenue, null, 'El Rumbiadero: Bolirana', '🐸', '#ef52a2'],
         [this.craftingStation, reserved.craft, 'Crafteo', '🔨', '#e67e22'],
         [this.dealer, reserved.dealer, 'Dealer', '💀', '#9b59b6', { dealer: true }]]
         .flatMap(([entity, fallback, name, icon, color, extra]) => {
@@ -1427,6 +1465,8 @@ export class Game {
       if (this.cart) this._poiCache.push({ name: 'Carreta', icon: '🛒', x: this.cart.position.x, z: this.cart.position.z, color: '#f39c12' });
       this._dogPOI = friend ? { name: 'El Chato', icon: '🐕', color: '#e6b566' } : null;
       if (this._dogPOI) this._poiCache.push(this._dogPOI);
+      const zorraPOI = this.zorraCtl?.poi?.();
+      if (zorraPOI) this._poiCache.push(zorraPOI);
       this._needs = needContext({
         stats: this.stats, inventory: this.inventory, load: this.player?.load, night: this.clock?.isNight,
         sellMult: originEffect(this.look?.origen, 'sellMult'), substanceMult: this.talents?.getEffect?.('substancePriceMult', 1),

@@ -32,6 +32,8 @@ const REJOIN_PERSON_RADIUS = 4;
 // A la vista del jugador el salto se nota: aguanta más, sin quedarse trancando la vía para siempre.
 const REJOIN_SEEN_RADIUS = 40;
 const REJOIN_SEEN_TIMEOUT = 30;
+const PLAYER_IMPACT_RADIUS = PLAYER_RADIUS + 0.25;
+const MIN_IMPACT_SPEED = 0.6;
 
 function emit(type, detail) {
   if (typeof window !== 'undefined' && typeof window.dispatchEvent === 'function') {
@@ -674,9 +676,9 @@ export class TrafficSystem {
         const side = -dx * this._probeDirection.z + dz * this._probeDirection.x;
         const outsideFront = Math.max(0, Math.abs(front) - vehicle.car.length / 2);
         const outsideSide = Math.max(0, Math.abs(side) - vehicle.car.width / 2);
-        if (outsideFront ** 2 + outsideSide ** 2 > PLAYER_RADIUS ** 2) continue;
+        if (outsideFront ** 2 + outsideSide ** 2 > PLAYER_IMPACT_RADIUS ** 2) continue;
         contact = true;
-        if (!vehicle.playerContact && travel > 0 && vehicle.speed >= 1.2) {
+        if (!vehicle.playerContact && travel > 0 && vehicle.speed >= MIN_IMPACT_SPEED) {
           vehicle.impactStop = true;
           onPlayerHit?.({ vehicle: vehicle.car, speed: vehicle.speed, direction: this._probeDirection.clone() });
         }

@@ -1,0 +1,1158 @@
+{
+  "version": 1,
+  "constants": {
+    "BOOST_DURATION": 8,
+    "BOOST_ENERGY_COST": 10,
+    "BOOST_HEALTH_DRAIN": 3,
+    "BOOST_MIN_HEALTH": 5,
+    "CAR_COOLDOWN": 40,
+    "CHARACTER_SCALE": 1.15,
+    "DAY_LENGTH_SECONDS": 3600,
+    "DISEASE_BASE_CHANCE": 0.12,
+    "DISEASE_DURATION": 45,
+    "DISEASE_HEALTH_DRAIN": 0.12,
+    "DISEASE_MENTAL_DRAIN": 0.02,
+    "DISEASE_SORT_MULT": 1.8,
+    "DISTRICT_SIZE": 32,
+    "INTERACT_RANGE": 1.8,
+    "INVENTORY_MAX_WEIGHT": 20,
+    "MENTAL_CRITICAL_THRESHOLD": 10,
+    "MENTAL_DECAY_NIGHT": 0.004629629629629629,
+    "MENTAL_LOW_THRESHOLD": 25,
+    "MENTAL_RESTORE_RARE": 8,
+    "MENTAL_RESTORE_SELL": 2,
+    "MENTAL_RESTORE_SLEEP": 40,
+    "PICKUP_COOLDOWN": 20,
+    "PLAYER_RADIUS": 0.4,
+    "PLAYER_SPEED_RUN": 6,
+    "PLAYER_SPEED_WALK": 3,
+    "SORT_BASE_TIME": 1.5,
+    "SORT_QUALITY_MULT": 1.5,
+    "STEAL_CAUGHT_CHANCE": 0.25,
+    "STEAL_CAUGHT_MONEY": 5000,
+    "STEAL_CAUGHT_PENALTY": 25,
+    "SUBSTANCE_PRICE_MULT": 1.8,
+    "SUBSTANCE_RISK_CHANCE": 0.15,
+    "TILE_SIZE": 2,
+    "XP_BEG": 4,
+    "XP_CRAFT": 10,
+    "XP_PER_LEVEL": 100,
+    "XP_PICKUP": 3,
+    "XP_SELL": 2,
+    "XP_STEAL": 8
+  },
+  "decay": {
+    "hambre": 0.013888888888888888,
+    "sed": 0.018518518518518517,
+    "energia": 0.018518518518518517,
+    "higiene": 0.004629629629629629,
+    "animo": 0.009259259259259259,
+    "vicio": 0.008333333333333333
+  },
+  "survivalDamage": {
+    "hambre": 0.05555555555555555,
+    "sed": 0.08333333333333333
+  },
+  "statThresholds": {
+    "higieneEnfermedad": 30,
+    "higieneRechazo": 20,
+    "animoVelocidad": 30,
+    "animoVision": 50,
+    "animoCritico": 10,
+    "vicioAbstinencia": 20
+  },
+  "withdrawal": {
+    "saludPorSeg": 0,
+    "velocidad": 0.85,
+    "animoMult": 1.5,
+    "vicioDormir": 10
+  },
+  "recovery": {
+    "higienePorJabon": 40,
+    "animoPorDormir": 20,
+    "animoPorCafe": 15,
+    "animoPorComida": 5
+  },
+  "colors": {
+    "BG": 1710621,
+    "FOG": 1710621,
+    "ACCENT_AMBER": 13214247,
+    "ACCENT_CYAN": 2799562,
+    "ACCENT_GOLD": 16765286,
+    "ACCENT_RED": 12597547,
+    "ACCENT_GREEN": 2600544,
+    "ACCENT_PURPLE": 9323693,
+    "TRASH": 3815978,
+    "BUILDING": 3816000,
+    "FLOOR": 2829104,
+    "CAR": 2899536,
+    "DEALER": 7091331
+  },
+  "items": [
+    {
+      "id": "lata",
+      "name": "Lata vacía",
+      "weight": 0.2,
+      "value": 250,
+      "icon": "recycle"
+    },
+    {
+      "id": "botella",
+      "name": "Botella PET",
+      "weight": 0.3,
+      "value": 150,
+      "icon": "recycle"
+    },
+    {
+      "id": "carton",
+      "name": "Cartón",
+      "weight": 0.5,
+      "value": 200,
+      "icon": "package"
+    },
+    {
+      "id": "chatarra",
+      "name": "Chatarra",
+      "weight": 1,
+      "value": 900,
+      "icon": "wrench"
+    },
+    {
+      "id": "cable",
+      "name": "Cable cobre",
+      "weight": 0.4,
+      "value": 2400,
+      "icon": "flame"
+    },
+    {
+      "id": "reloj",
+      "name": "Reloj oxidado",
+      "weight": 0.1,
+      "value": 8000,
+      "rare": true,
+      "icon": "watch"
+    },
+    {
+      "id": "moneda",
+      "name": "Moneda vieja",
+      "weight": 0.02,
+      "value": 12000,
+      "rare": true,
+      "icon": "coins"
+    },
+    {
+      "id": "anillo",
+      "name": "Anillo",
+      "weight": 0.05,
+      "value": 20000,
+      "rare": true,
+      "icon": "sparkles"
+    },
+    {
+      "id": "retrovisor",
+      "name": "Retrovisor",
+      "weight": 0.8,
+      "value": 15000,
+      "icon": "eye"
+    },
+    {
+      "id": "radio",
+      "name": "Radio auto",
+      "weight": 1.5,
+      "value": 35000,
+      "icon": "phone"
+    },
+    {
+      "id": "pan",
+      "name": "Pan duro",
+      "weight": 0.3,
+      "value": 1000,
+      "consumable": "hambre",
+      "amount": 25,
+      "animo": 5,
+      "icon": "bread"
+    },
+    {
+      "id": "lataComida",
+      "name": "Lata de atún",
+      "weight": 0.4,
+      "value": 4500,
+      "consumable": "hambre",
+      "amount": 45,
+      "animo": 8,
+      "icon": "food"
+    },
+    {
+      "id": "agua",
+      "name": "Botella agua",
+      "weight": 0.5,
+      "value": 1500,
+      "consumable": "sed",
+      "amount": 35,
+      "icon": "water"
+    },
+    {
+      "id": "refresco",
+      "name": "Refresco",
+      "weight": 0.4,
+      "value": 2500,
+      "consumable": "sed",
+      "amount": 50,
+      "energia": 10,
+      "animo": 10,
+      "icon": "water"
+    },
+    {
+      "id": "cafe",
+      "name": "Café caliente",
+      "weight": 0.3,
+      "value": 1500,
+      "consumable": "energia",
+      "amount": 40,
+      "animo": 15,
+      "icon": "coffee"
+    },
+    {
+      "id": "vendaje",
+      "name": "Vendaje",
+      "weight": 0.1,
+      "value": 3000,
+      "consumable": "salud",
+      "amount": 30,
+      "icon": "bandage"
+    },
+    {
+      "id": "jabon",
+      "name": "Jabón",
+      "weight": 0.2,
+      "value": 2500,
+      "consumable": "higiene",
+      "amount": 40,
+      "icon": "bath"
+    },
+    {
+      "id": "cepillo",
+      "name": "Cepillo",
+      "weight": 0.1,
+      "value": 2000,
+      "consumable": "higiene",
+      "amount": 20,
+      "icon": "bath"
+    },
+    {
+      "id": "vacuna",
+      "name": "Vacuna",
+      "weight": 0.1,
+      "value": 15000,
+      "cure": "tetanos",
+      "icon": "pill"
+    },
+    {
+      "id": "carbon",
+      "name": "Carbón activo",
+      "weight": 0.1,
+      "value": 6000,
+      "cure": "intoxicacion",
+      "icon": "pill"
+    },
+    {
+      "id": "jarabe",
+      "name": "Jarabe",
+      "weight": 0.2,
+      "value": 8000,
+      "cure": "gripe",
+      "icon": "pill"
+    },
+    {
+      "id": "pomada",
+      "name": "Pomada",
+      "weight": 0.15,
+      "value": 7000,
+      "cure": "sarna",
+      "icon": "pill"
+    },
+    {
+      "id": "antibiotico",
+      "name": "Antibiótico",
+      "weight": 0.1,
+      "value": 18000,
+      "cure": "infeccion",
+      "icon": "pill"
+    },
+    {
+      "id": "antiparasitario",
+      "name": "Antiparasitario",
+      "weight": 0.1,
+      "value": 9000,
+      "cure": "parasitos",
+      "icon": "pill"
+    },
+    {
+      "id": "tintico",
+      "name": "Tintico",
+      "weight": 0.1,
+      "value": 1000,
+      "consumable": "vicio",
+      "amount": 20,
+      "animo": 15,
+      "energia": 20,
+      "substance": true,
+      "icon": "box"
+    },
+    {
+      "id": "pegante",
+      "name": "Pegante",
+      "weight": 0.2,
+      "value": 3000,
+      "consumable": "vicio",
+      "amount": 40,
+      "animo": 25,
+      "salud": -3,
+      "substance": true,
+      "icon": "box"
+    },
+    {
+      "id": "pastilla",
+      "name": "Pastilla",
+      "weight": 0.05,
+      "value": 8000,
+      "consumable": "vicio",
+      "amount": 60,
+      "animo": 40,
+      "salud": -5,
+      "substance": true,
+      "icon": "box"
+    },
+    {
+      "id": "cigarrillo",
+      "name": "Cigarrillo suelto",
+      "weight": 0.01,
+      "value": 300,
+      "consumable": "vicio",
+      "amount": 35,
+      "salud": -1,
+      "icon": "flame"
+    },
+    {
+      "id": "lona",
+      "name": "Lona azul",
+      "weight": 2,
+      "value": 4000,
+      "build": true,
+      "icon": "tent"
+    },
+    {
+      "id": "madera",
+      "name": "Tablas",
+      "weight": 2,
+      "value": 1500,
+      "build": true,
+      "icon": "layers"
+    },
+    {
+      "id": "colchon",
+      "name": "Colchón viejo",
+      "weight": 6,
+      "value": 5000,
+      "build": true,
+      "icon": "bed"
+    },
+    {
+      "id": "vela",
+      "name": "Vela",
+      "weight": 0.05,
+      "value": 500,
+      "build": true,
+      "icon": "flame"
+    }
+  ],
+  "lootCommon": [
+    {
+      "item": "lata",
+      "weight": 33
+    },
+    {
+      "item": "botella",
+      "weight": 24
+    },
+    {
+      "item": "carton",
+      "weight": 17
+    },
+    {
+      "item": "chatarra",
+      "weight": 8
+    },
+    {
+      "item": "cable",
+      "weight": 4
+    },
+    {
+      "item": "pan",
+      "weight": 4
+    },
+    {
+      "item": "agua",
+      "weight": 3
+    },
+    {
+      "item": "lataComida",
+      "weight": 2
+    },
+    {
+      "item": "vendaje",
+      "weight": 1
+    },
+    {
+      "item": "cigarrillo",
+      "weight": 2
+    },
+    {
+      "item": "madera",
+      "weight": 3
+    },
+    {
+      "item": "lona",
+      "weight": 0.6
+    },
+    {
+      "item": "colchon",
+      "weight": 0.4
+    }
+  ],
+  "lootRare": [
+    {
+      "item": "reloj",
+      "weight": 55
+    },
+    {
+      "item": "moneda",
+      "weight": 30
+    },
+    {
+      "item": "anillo",
+      "weight": 15
+    }
+  ],
+  "lootSubstance": [
+    {
+      "item": "tintico",
+      "weight": 50
+    },
+    {
+      "item": "pegante",
+      "weight": 30
+    },
+    {
+      "item": "pastilla",
+      "weight": 20
+    }
+  ],
+  "shopItems": [
+    {
+      "item": "pan",
+      "price": 1500
+    },
+    {
+      "item": "lataComida",
+      "price": 6000
+    },
+    {
+      "item": "agua",
+      "price": 2000
+    },
+    {
+      "item": "refresco",
+      "price": 3500
+    },
+    {
+      "item": "cafe",
+      "price": 2000,
+      "desc": "Un tinto caliente: quita el sueño."
+    },
+    {
+      "item": "cigarrillo",
+      "price": 500,
+      "desc": "Calma el vicio. Le quita un poquito a la salud."
+    },
+    {
+      "item": "vendaje",
+      "price": 4500
+    },
+    {
+      "item": "jabon",
+      "price": 3500
+    },
+    {
+      "item": "cepillo",
+      "price": 3000
+    },
+    {
+      "item": "jarabe",
+      "price": 11000
+    },
+    {
+      "item": "pomada",
+      "price": 9500
+    },
+    {
+      "item": "carbon",
+      "price": 9000
+    },
+    {
+      "item": "antiparasitario",
+      "price": 13000
+    },
+    {
+      "item": "vacuna",
+      "price": 20000
+    },
+    {
+      "item": "antibiotico",
+      "price": 25000
+    },
+    {
+      "item": "vela",
+      "price": 1000,
+      "desc": "Ilumina el cambuche: duermes más tranquilo."
+    },
+    {
+      "item": "lona",
+      "price": 9000,
+      "desc": "Para el techo del cambuche."
+    },
+    {
+      "item": "madera",
+      "price": 6000,
+      "qty": 3,
+      "label": "Tablas ×3",
+      "desc": "Para las paredes del cambuche."
+    },
+    {
+      "upgrade": "costal",
+      "price": 12000,
+      "label": "Costal grande",
+      "icon": "backpack",
+      "desc": "Cargas 20 kg más."
+    }
+  ],
+  "costalBonus": 20,
+  "recipes": [
+    {
+      "id": "antibiotico",
+      "name": "Antibiótico",
+      "emoji": "💊",
+      "result": "antibiotico",
+      "qty": 1,
+      "ingredients": {
+        "pastilla": 1,
+        "botella": 1
+      }
+    },
+    {
+      "id": "vendaje",
+      "name": "Vendajes de lona",
+      "emoji": "🩹",
+      "result": "vendaje",
+      "qty": 3,
+      "ingredients": {
+        "lona": 1
+      }
+    },
+    {
+      "id": "carbon",
+      "name": "Carbón activo",
+      "emoji": "⚫",
+      "result": "carbon",
+      "qty": 1,
+      "ingredients": {
+        "madera": 2
+      }
+    }
+  ],
+  "talents": [
+    {
+      "id": "collector1",
+      "name": "Ojo de Águila",
+      "desc": "+25% de probabilidad de objeto raro en basura",
+      "branch": "recoleccion",
+      "cost": 1,
+      "requires": [],
+      "effects": {
+        "rareChanceMult": 1.25
+      }
+    },
+    {
+      "id": "collector2",
+      "name": "Bolsas Llenas",
+      "desc": "+10 de peso máximo en inventario",
+      "branch": "recoleccion",
+      "cost": 1,
+      "requires": [
+        "collector1"
+      ],
+      "effects": {
+        "maxWeightBonus": 10
+      }
+    },
+    {
+      "id": "collector3",
+      "name": "Selección Experta",
+      "desc": "Seleccionar basura da +50% de valor y -20% de enfermedad",
+      "branch": "recoleccion",
+      "cost": 2,
+      "requires": [
+        "collector2"
+      ],
+      "effects": {
+        "sortValueMult": 1.5,
+        "sortDiseaseMult": 0.8
+      }
+    },
+    {
+      "id": "surv1",
+      "name": "Estómago de Hierro",
+      "desc": "-30% de desgaste de hambre y sed",
+      "branch": "supervivencia",
+      "cost": 1,
+      "requires": [],
+      "effects": {
+        "decayMult": 0.7
+      }
+    },
+    {
+      "id": "surv2",
+      "name": "Piel Dura",
+      "desc": "-40% de riesgo de enfermedad en la basura",
+      "branch": "supervivencia",
+      "cost": 1,
+      "requires": [
+        "surv1"
+      ],
+      "effects": {
+        "diseaseResistMult": 0.6
+      }
+    },
+    {
+      "id": "surv3",
+      "name": "Mente de Acero",
+      "desc": "-50% de desgaste de salud mental",
+      "branch": "supervivencia",
+      "cost": 2,
+      "requires": [
+        "surv2"
+      ],
+      "effects": {
+        "mentalDecayMult": 0.5
+      }
+    },
+    {
+      "id": "crime1",
+      "name": "Manos Ligeras",
+      "desc": "-20% de probabilidad de ser atrapado robando",
+      "branch": "crimen",
+      "cost": 1,
+      "requires": [],
+      "effects": {
+        "stealCaughtMult": 0.8
+      }
+    },
+    {
+      "id": "crime2",
+      "name": "Contactos",
+      "desc": "+30% de precio en sustancias",
+      "branch": "crimen",
+      "cost": 1,
+      "requires": [
+        "crime1"
+      ],
+      "effects": {
+        "substancePriceMult": 1.3
+      }
+    },
+    {
+      "id": "crime3",
+      "name": "Rey de la Calle",
+      "desc": "+50% de XP por todas las actividades",
+      "branch": "crimen",
+      "cost": 2,
+      "requires": [
+        "crime2"
+      ],
+      "effects": {
+        "xpMult": 1.5
+      }
+    }
+  ],
+  "branches": [
+    {
+      "id": "recoleccion",
+      "name": "Recolección",
+      "emoji": "🗑️"
+    },
+    {
+      "id": "supervivencia",
+      "name": "Supervivencia",
+      "emoji": "🩹"
+    },
+    {
+      "id": "crimen",
+      "name": "Crimen",
+      "emoji": "🔪"
+    }
+  ],
+  "origins": [
+    {
+      "id": "reciclador",
+      "name": "Reciclador",
+      "desc": "Llevas años en el reciclaje y sabes qué sirve: encuentras un objeto más en cada bolsa.",
+      "effects": {
+        "extraLoot": 1
+      }
+    },
+    {
+      "id": "desplazado",
+      "name": "Desplazado",
+      "desc": "Llegaste del campo huyendo de la violencia. Aguantas: te enfermas 30 % menos.",
+      "effects": {
+        "diseaseResistMult": 0.7
+      }
+    },
+    {
+      "id": "migrante",
+      "name": "Migrante",
+      "desc": "Cruzaste la frontera buscando trabajo. Tienes labia: cuando pides te dan 30 % más.",
+      "effects": {
+        "begMult": 1.3
+      }
+    },
+    {
+      "id": "endeudado",
+      "name": "Gota a gota",
+      "desc": "Lo perdiste todo por un préstamo gota a gota. Sabes negociar: vendes 15 % más caro.",
+      "effects": {
+        "sellMult": 1.15
+      }
+    }
+  ],
+  "cambuche": [
+    {
+      "id": "base",
+      "name": "Base de cartón",
+      "icon": "package",
+      "req": {
+        "carton": 8
+      },
+      "desc": "Para dormir sin tocar el piso. Sin base no se puede dormir."
+    },
+    {
+      "id": "techo",
+      "name": "Techo de lona",
+      "icon": "tent",
+      "req": {
+        "lona": 1
+      },
+      "needs": "base",
+      "desc": "Duermes mejor: recuperas más salud."
+    },
+    {
+      "id": "paredes",
+      "name": "Paredes de tablas",
+      "icon": "layers",
+      "req": {
+        "madera": 6
+      },
+      "needs": "base",
+      "desc": "Nadie te roba mientras duermes."
+    },
+    {
+      "id": "cama",
+      "name": "Colchón",
+      "icon": "bed",
+      "req": {
+        "colchon": 1
+      },
+      "needs": "base",
+      "desc": "Recuperas mucha más energía al dormir."
+    },
+    {
+      "id": "fogon",
+      "name": "Fogón de latas",
+      "icon": "flame",
+      "req": {
+        "lata": 6,
+        "madera": 2
+      },
+      "needs": "base",
+      "desc": "Calienta: despiertas con más ánimo y sin tanta hambre."
+    },
+    {
+      "id": "vela",
+      "name": "Vela y foto",
+      "icon": "heart",
+      "req": {
+        "vela": 1
+      },
+      "needs": "base",
+      "desc": "Despiertas más tranquilo: calma el vicio."
+    }
+  ],
+  "sleep": {
+    "energia": 45,
+    "energiaCama": 35,
+    "salud": 10,
+    "saludTecho": 15,
+    "animoFogon": 15,
+    "hambreFogon": 15,
+    "vicioVela": 15,
+    "roboProb": 0.25,
+    "roboDinero": 0.4,
+    "roboMaterial": 0.5
+  },
+  "diseases": [
+    {
+      "id": "gripe",
+      "name": "Gripe",
+      "emoji": "🤧",
+      "healthDrain": 0.12,
+      "mentalDrain": 0.01,
+      "duration": 45
+    },
+    {
+      "id": "infeccion",
+      "name": "Infección",
+      "emoji": "🦠",
+      "healthDrain": 0.216,
+      "mentalDrain": 0.02,
+      "duration": 54
+    },
+    {
+      "id": "intoxicacion",
+      "name": "Intoxicación",
+      "emoji": "🤢",
+      "healthDrain": 0.096,
+      "mentalDrain": 0.03,
+      "duration": 36
+    },
+    {
+      "id": "tetanos",
+      "name": "Tétanos",
+      "emoji": "🩸",
+      "healthDrain": 0.18,
+      "mentalDrain": 0.02,
+      "duration": 54
+    },
+    {
+      "id": "sarna",
+      "name": "Sarna",
+      "emoji": "🐛",
+      "healthDrain": 0.06,
+      "mentalDrain": 0.03,
+      "duration": 45
+    },
+    {
+      "id": "parasitos",
+      "name": "Parásitos",
+      "emoji": "🪱",
+      "healthDrain": 0.08399999999999999,
+      "mentalDrain": 0.02,
+      "duration": 49.50000000000001
+    }
+  ],
+  "look": {
+    "palettes": {
+      "piel": [
+        "#f6d3b3",
+        "#e8b88f",
+        "#d39a6d",
+        "#b07a52",
+        "#8a5a3b",
+        "#5e3b27"
+      ],
+      "pelo": [
+        "#1b1410",
+        "#3b2416",
+        "#6b4423",
+        "#a8742f",
+        "#d9b26a",
+        "#8c8c8c",
+        "#e8e2d6",
+        "#8e2333",
+        "#2a4d8f"
+      ],
+      "ojos": [
+        "#3b2416",
+        "#1b1410",
+        "#5f7a3a",
+        "#3d6b9c",
+        "#a6762f",
+        "#6b6f73"
+      ],
+      "ropa": [
+        "#c0392b",
+        "#2f6fb0",
+        "#3f7a3a",
+        "#7d8288",
+        "#e0962b",
+        "#7a4fa0",
+        "#1f1f1f",
+        "#e8e3d6",
+        "#0f6b6b",
+        "#d6336c",
+        "#33445c",
+        "#f2c600",
+        "#6b4a2e"
+      ],
+      "zapato": [
+        "#1c1c1c",
+        "#e9e9e9",
+        "#7a4a2a",
+        "#2f6fb0",
+        "#c0392b"
+      ]
+    },
+    "colorNames": {
+      "piel": [
+        "Muy clara",
+        "Clara",
+        "Trigueña",
+        "Morena",
+        "Oscura",
+        "Muy oscura"
+      ],
+      "pelo": [
+        "Negro",
+        "Castaño oscuro",
+        "Castaño",
+        "Cobrizo",
+        "Rubio",
+        "Canoso",
+        "Blanco",
+        "Vinotinto",
+        "Azul"
+      ],
+      "ojos": [
+        "Café",
+        "Negros",
+        "Verdes",
+        "Azules",
+        "Miel",
+        "Grises"
+      ],
+      "ropa": [
+        "Rojo",
+        "Azul",
+        "Verde",
+        "Gris",
+        "Naranja",
+        "Morado",
+        "Negro",
+        "Crema",
+        "Verde petróleo",
+        "Fucsia",
+        "Azul jean",
+        "Amarillo",
+        "Café"
+      ],
+      "zapato": [
+        "Negro",
+        "Blanco",
+        "Café",
+        "Azul",
+        "Rojo"
+      ]
+    },
+    "styles": {
+      "cuerpo": [
+        {
+          "id": "a",
+          "label": "Tipo A"
+        },
+        {
+          "id": "b",
+          "label": "Tipo B"
+        }
+      ],
+      "contextura": [
+        {
+          "id": "delgado",
+          "label": "Delgado"
+        },
+        {
+          "id": "normal",
+          "label": "Normal"
+        },
+        {
+          "id": "robusto",
+          "label": "Robusto"
+        }
+      ],
+      "pelo": [
+        {
+          "id": "rapado",
+          "label": "Rapado"
+        },
+        {
+          "id": "corto",
+          "label": "Corto"
+        },
+        {
+          "id": "crespo",
+          "label": "Crespo"
+        },
+        {
+          "id": "largo",
+          "label": "Largo"
+        },
+        {
+          "id": "cola",
+          "label": "Cola"
+        },
+        {
+          "id": "mohicano",
+          "label": "Mohicano"
+        },
+        {
+          "id": "calvo",
+          "label": "Calvo"
+        }
+      ],
+      "cejas": [
+        {
+          "id": "delgadas",
+          "label": "Delgadas"
+        },
+        {
+          "id": "gruesas",
+          "label": "Gruesas"
+        }
+      ],
+      "barba": [
+        {
+          "id": "ninguna",
+          "label": "Ninguna"
+        },
+        {
+          "id": "bigote",
+          "label": "Bigote"
+        },
+        {
+          "id": "candado",
+          "label": "Candado"
+        },
+        {
+          "id": "completa",
+          "label": "Completa"
+        }
+      ],
+      "arriba": [
+        {
+          "id": "buzo",
+          "label": "Buzo con capota"
+        },
+        {
+          "id": "camiseta",
+          "label": "Camiseta"
+        },
+        {
+          "id": "rayas",
+          "label": "A rayas"
+        },
+        {
+          "id": "chaqueta",
+          "label": "Chaqueta"
+        }
+      ],
+      "abajo": [
+        {
+          "id": "jean",
+          "label": "Jean"
+        },
+        {
+          "id": "sudadera",
+          "label": "Sudadera"
+        },
+        {
+          "id": "pantaloneta",
+          "label": "Pantaloneta"
+        }
+      ],
+      "zapatos": [
+        {
+          "id": "tenis",
+          "label": "Tenis"
+        },
+        {
+          "id": "chanclas",
+          "label": "Chanclas"
+        },
+        {
+          "id": "botas",
+          "label": "Botas"
+        }
+      ],
+      "cabeza": [
+        {
+          "id": "nada",
+          "label": "Nada"
+        },
+        {
+          "id": "gorra",
+          "label": "Gorra"
+        },
+        {
+          "id": "gorra-atras",
+          "label": "Gorra al revés"
+        },
+        {
+          "id": "sombrero",
+          "label": "Sombrero"
+        },
+        {
+          "id": "panoleta",
+          "label": "Pañoleta"
+        }
+      ]
+    },
+    "defaultLook": {
+      "v": 2,
+      "nombre": "",
+      "origen": "reciclador",
+      "cuerpo": "a",
+      "contextura": "normal",
+      "estatura": 1,
+      "piel": 2,
+      "pelo": "corto",
+      "peloColor": 0,
+      "ojos": 0,
+      "cejas": "gruesas",
+      "barba": "candado",
+      "arriba": "buzo",
+      "arribaColor": 0,
+      "abajo": "jean",
+      "abajoColor": 10,
+      "zapatos": "tenis",
+      "zapatoColor": 1,
+      "cabeza": "gorra",
+      "cabezaColor": 0
+    },
+    "nameIdeas": [
+      "Jairo",
+      "Yeison",
+      "Luz Dary",
+      "Wilmer",
+      "Yuli",
+      "Brayan",
+      "Marleny",
+      "Don Chepe",
+      "Nelson",
+      "Leidy",
+      "El Mono",
+      "Doña Gloria",
+      "Kevin",
+      "La Flaca",
+      "Fredy",
+      "Sandra"
+    ]
+  }
+}
