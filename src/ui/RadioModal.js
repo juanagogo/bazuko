@@ -1,15 +1,18 @@
 // src/ui/RadioModal.js
-// La radio: un transistor de pilas, con su dial a escala y las emisoras de Bogotá.
+// La radio: un transistor de pilas, con su dial a escala, las emisoras de la ciudad y las señales
+// en vivo del país.
 import { porcentaje } from './formato.js';
 import { el, button } from './dom.js';
 import { pasarTexto } from './pictos.js';
 import { STATIONS } from '../systems/RadioSystem.js';
 
-// El dial: la AM ocupa de 0 a 78 % y la FM de 82 a 98 %, para que cada emisora quede donde está y la aguja no mienta.
+// El dial: la AM llega al 46 % y la FM ocupa el resto, que es donde está casi todo lo que se
+// sintoniza en vivo; con quince emisoras de FM repartidas en menos ancho la aguja no diría nada.
 const AM_MIN = 500, AM_MAX = 1100, FM_MIN = 88, FM_MAX = 108;
+const AM_LEFT = 4, AM_SPAN = 42, FM_LEFT = 50, FM_SPAN = 48;
 const dialPct = (freq) => (freq < 150
-  ? 82 + ((freq - FM_MIN) / (FM_MAX - FM_MIN)) * 16
-  : ((freq - AM_MIN) / (AM_MAX - AM_MIN)) * 78);
+  ? FM_LEFT + ((freq - FM_MIN) / (FM_MAX - FM_MIN)) * FM_SPAN
+  : AM_LEFT + ((freq - AM_MIN) / (AM_MAX - AM_MIN)) * AM_SPAN);
 
 const conComa = (freq) => String(freq).replace('.', ',');
 const lecturaDe = (freq) => `${conComa(freq)} ${freq < 150 ? 'MHz FM' : 'kHz AM'}`;
@@ -65,10 +68,11 @@ export function openRadioModal(game) {
     // ---------- el dial ----------
     const needle = el('div', { class: 'radio-dial-needle' });
     const freqDisplay = el('span', { class: 'radio-freq-display cifra' });
+    // En la FM la marca va sin número: quince cifras no caben y la frecuencia ya se lee en la ficha.
     const dialScale = el('div', { class: 'radio-dial-scale', 'aria-hidden': 'true' },
-      STATIONS.map((st) => el('span', { class: 'radio-dial-tick', style: `left:${dialPct(st.freq)}%`, text: conComa(st.freq) })),
-      el('span', { class: 'radio-dial-band', style: 'left:0', text: 'AM' }),
-      el('span', { class: 'radio-dial-band', style: 'left:82%', text: 'FM' }),
+      STATIONS.map((st) => el('span', { class: 'radio-dial-tick', style: `left:${dialPct(st.freq)}%`, text: st.freq < 150 ? '' : conComa(st.freq) })),
+      el('span', { class: 'radio-dial-band', style: `left:${AM_LEFT}%`, text: 'AM' }),
+      el('span', { class: 'radio-dial-band', style: `left:${FM_LEFT}%`, text: 'FM' }),
       needle);
     const tunerSlider = el('input', {
       type: 'range', min: String(AM_MIN), max: String(AM_MAX), step: '5',
@@ -79,34 +83,62 @@ export function openRadioModal(game) {
     // ---------- lo que está sonando ----------
     const stationBox = el('div', { class: 'radio-info-box', 'aria-live': 'polite' });
     const presets = el('ul', { class: 'radio-presets' });
-    const pintarSintonia = () => {
+
+    const pintarFicha = () => {
       const { station, signal } = radio.getStationInfo();
-      const senal = Math.round(signal * 100);
       needle.style.left = `${Math.max(0, Math.min(100, dialPct(radio.frequency)))}%`;
       freqDisplay.textContent = lecturaDe(radio.frequency);
+
+      if (station.kind === 'stream') {
+        // Emisora real: lo que importa es que está en vivo, de dónde es y a quién se le debe.
+        const anfitrion = new URL(station.homepage).host;
+        stationBox.replaceChildren(
+          el('strong', { class: 'radio-info-name', text: pasarTexto(station.name) }),
+          el('span', { class: 'radio-info-signal', text: radio.isStreamDown() ? 'Sin respuesta, queda la estática' : 'En vivo' }),
+          el('span', { class: 'radio-info-program', text: pasarTexto(`${station.region} (${station.codec})`) }),
+          el('a', { class: 'radio-info-credit', href: station.homepage, target: '_blank', rel: 'noopener noreferrer', text: pasarTexto(`Crédito: ${anfitrion}`) }));
+        return;
+      }
+
       stationBox.replaceChildren(
         el('strong', { class: 'radio-info-name', text: pasarTexto(station.name) }),
-        el('span', { class: 'radio-info-signal', text: senalDe(senal) }),
+        el('span', { class: 'radio-info-signal', text: senalDe(Math.round(signal * 100)) }),
         el('span', { class: 'radio-info-program', text: pasarTexto(`${station.program}, ${station.genre.toLowerCase()}`) }),
         ...(station.id === 'noticias' && radio.lastBulletin ? [
           el('span', { class: 'radio-info-program', text: `Último boletín (${radio.lastBulletin.fuente}, ${fechaDicha(radio.lastBulletin.fecha)}): ${radio.lastBulletin.titular}. ${radio.lastBulletin.objetivo}` })
         ] : []));
-      presets.replaceChildren(...STATIONS.map((st) => {
-        const isCur = Math.abs(radio.frequency - st.freq) < 1;
-        return el('li', {}, el('button', {
-          type: 'button', class: 'radio-preset', 'aria-pressed': String(isCur),
-          onclick: () => {
-            radio.setFrequency(st.freq);
-            if (!radio.isOn) { radio.turnOn(); game.menu.refresh(); return; }
-            tunerSlider.value = String(st.freq > 150 ? st.freq : 540);
-            const foco = presets.querySelector('[aria-pressed="true"]') === document.activeElement;
-            pintarSintonia();
-            if (foco || document.activeElement === document.body) presets.querySelector('[aria-pressed="true"]')?.focus({ preventScroll: true });
-          },
-        }, el('span', { class: `radio-preset__name${isCur ? ' elegido' : ''}`, text: pasarTexto(st.name) }),
-        el('span', { class: 'radio-preset__band', text: st.band })));
-      }));
     };
+
+    // Las emisoras se pintan una sola vez: rehacer la lista en cada clic devolvería el scroll arriba.
+    const filas = STATIONS.map((st) => {
+      const nombre = el('span', { class: 'radio-preset__name', text: pasarTexto(st.name) });
+      const btn = el('button', {
+        type: 'button', class: 'radio-preset', 'aria-pressed': 'false',
+        onclick: () => {
+          radio.setStation(st);
+          if (!radio.isOn) { radio.turnOn(); game.menu.refresh(); return; }
+          tunerSlider.value = String(st.freq > 150 ? st.freq : 540);
+          pintarSintonia();
+        },
+      }, nombre,
+      el('span', { class: 'radio-preset__meta' },
+        el('span', { class: 'radio-preset__region', text: pasarTexto(st.region) }),
+        el('span', { class: 'radio-preset__band', text: st.band })));
+      return { st, btn, nombre };
+    });
+    presets.replaceChildren(...filas.map(({ btn }) => el('li', {}, btn)));
+
+    // La región va en cada fila: hay frecuencias repetidas entre ciudades y el dial tiene que decirlo.
+    const marcarPresets = () => {
+      const { station } = radio.getStationInfo();
+      for (const { st, btn, nombre } of filas) {
+        const elegida = station.id === st.id && Math.abs(radio.frequency - st.freq) < 1;
+        btn.setAttribute('aria-pressed', String(elegida));
+        nombre.className = `radio-preset__name${elegida ? ' elegido' : ''}`;
+      }
+    };
+
+    const pintarSintonia = () => { pintarFicha(); marcarPresets(); };
     // Sin refrescar la ventana: reemplazar el deslizador lo soltaría a mitad del arrastre.
     tunerSlider.addEventListener('input', (e) => {
       radio.setFrequency(parseFloat(e.target.value));
@@ -130,9 +162,9 @@ export function openRadioModal(game) {
         el('div', { class: 'pause-row' }, el('label', { class: 'pause-row__label', text: 'Volumen' }), volumeSlider, volumeLabel),
         el('p', { class: 'radio-perk-text', text: 'Con buena señal, la radio sube el ánimo, hasta +0,8 por segundo, y a El Chato lo calma.' })),
       el('div', { class: 'radio-col' },
+        stationBox,
         el('h3', { class: 'pause-section-title', text: 'Emisoras' }),
-        presets,
-        stationBox));
+        presets));
 
     return { body, foot: [], tecla: 'R' };
   };
@@ -140,7 +172,7 @@ export function openRadioModal(game) {
   game._radioModalOpen = true;
   game.menu.open({
     title: 'La radio',
-    sub: 'A pilas, AM y FM',
+    sub: 'A pilas, AM y FM, con emisoras en vivo',
     ic: 'radio',
     render,
     onClose: () => { game._radioModalOpen = false; }
