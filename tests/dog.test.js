@@ -140,3 +140,52 @@ test('la apariencia se normaliza, se aplica y migra desde la antigua mascota', a
   assert.deepEqual(legacyPetLook(storage), { pelaje: '#3498db', accesorio: 'panuelo', tamano: 1.25 });
   assert.equal(legacyPetLook({ getItem: () => null }), null);
 });
+
+test('El Chato le ladra a una patrulla cercana solo si estoy fichado o me persiguen', async () => {
+  const { DOG_POLICE_ALERT } = await import('../src/entities/Dog.js');
+  const dog = await dogWithModel(new THREE.Vector3(0, 0, 0));
+  dog.befriend();
+  const alerts = [];
+  window.addEventListener('dog-alert', e => alerts.push(e.detail.kind));
+  const player = new THREE.Vector3(1, 0, 0);
+  const patrol = { police: true, state: 'patrol', car: { position: new THREE.Vector3(DOG_POLICE_ALERT - 5, 0, 0) } };
+  dog.update(.1, player, [], [], { patrols: [patrol], wanted: 0 });
+  assert.deepEqual(alerts, []);
+  dog.update(.1, player, [], [], { patrols: [patrol], wanted: 1 });
+  assert.deepEqual(alerts, ['policia']);
+  dog.update(.1, player, [], [], { patrols: [patrol], wanted: 1 });
+  assert.deepEqual(alerts, ['policia'], 'no ladra en cada cuadro');
+  dog.destroy();
+});
+
+test('El Chato va por quien llama a la Policía y le hace colgar', async () => {
+  const dog = await dogWithModel(new THREE.Vector3(0, 0, 0));
+  dog.befriend();
+  const npc = {
+    position: new THREE.Vector3(6, 0, 0), _w: 'llamar', dichos: [],
+    get witnessing() { return this._w; }, stopWitness() { this._w = null; },
+    _fleeFrom() { this.huye = true; }, say(t) { this.dichos.push(t); },
+  };
+  let colgo = 0;
+  window.addEventListener('dog-scared-caller', () => colgo++);
+  const player = new THREE.Vector3(0, 0, 1);
+  for (let i = 0; i < 60 && colgo === 0; i++) dog.update(.1, player, [], [npc]);
+  assert.equal(colgo, 1);
+  assert.equal(npc.witnessing, null);
+  assert.equal(npc.huye, true);
+  dog.destroy();
+});
+
+test('cuidando el cambuche no sigue al jugador y vuelve a su puesto', async () => {
+  const dog = await dogWithModel(new THREE.Vector3(0, 0, 0));
+  dog.befriend();
+  assert.equal(dog.guard(new THREE.Vector3(2, 0, 0)), true);
+  const far = new THREE.Vector3(30, 0, 0);
+  for (let i = 0; i < 40; i++) dog.update(.1, far, [], []);
+  assert.ok(dog.position.distanceTo(new THREE.Vector3(2, 0, 0)) < 1.3);
+  dog.restAt(far);
+  assert.equal(dog.sleeping, false, 'no se va a dormir al lado del jugador lejano');
+  dog.stopGuarding();
+  assert.equal(dog.guarding, null);
+  dog.destroy();
+});
