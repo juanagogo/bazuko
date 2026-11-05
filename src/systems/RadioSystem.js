@@ -9,6 +9,8 @@ export const CITY_BULLETIN_INTERVAL = 90;
 const NEWS_MIN_SIGNAL = 0.4;
 // Señal mínima para enganchar una emisora en vivo: solo con la aguja sobre su frecuencia exacta.
 const STREAM_MIN_SIGNAL = 0.9;
+// Segundos que se le dan a una emisora en vivo para sonar, o para volver después de un estancamiento.
+const STREAM_DEADLINE = 15;
 
 const emitToast = (text, type = 'info') => {
   if (typeof window !== 'undefined' && typeof CustomEvent !== 'undefined' && window.dispatchEvent) {
@@ -254,6 +256,9 @@ export class RadioSystem {
     this._liveId = null;
     this._failedId = null;
     this._onStreamError = null;
+    this._onStreamAlive = null;
+    this._onStreamStall = null;
+    this._streamTimer = null;
 
     // Cargar preferencias guardadas
     try {
@@ -476,9 +481,17 @@ export class RadioSystem {
     this._liveId = station.id;
     el.preload = 'none';
     this._onStreamError = () => this._failStream(station);
+    // `stalled` y `waiting` son de lo más normal en vivo (Icecast y HLS se quedan sin datos y vuelven):
+    // no tumban la emisora, solo abren el plazo que vigila que no se quede muda. Un aviso nuevo con el
+    // plazo ya andando no lo corre, o una emisora muerta que los repita nunca caería.
+    this._onStreamAlive = () => this._clearStreamWatchdog();
+    this._onStreamStall = () => { if (!this._streamTimer) this._armStreamWatchdog(station); };
     el.addEventListener('error', this._onStreamError);
-    el.addEventListener('stalled', this._onStreamError);
-    el.addEventListener('ended', this._onStreamError); // un archivo que se acaba también deja la estática
+    el.addEventListener('ended', this._onStreamError);
+    el.addEventListener('playing', this._onStreamAlive);
+    el.addEventListener('timeupdate', this._onStreamAlive);
+    el.addEventListener('waiting', this._onStreamStall);
+    el.addEventListener('stalled', this._onStreamStall);
     this._applyOutput();
 
     if (station.codec === 'HLS' && !el.canPlayType('application/vnd.apple.mpegurl')) {
@@ -491,7 +504,7 @@ export class RadioSystem {
         this._hls.on(Hls.Events.ERROR, (_event, data) => { if (data?.fatal) this._failStream(station); });
         this._hls.loadSource(station.url);
         this._playStream(el, station);
-      }).catch(() => this._failStream(station));
+      }).catch(() => { if (this._audioEl === el) this._failStream(station); });
       return;
     }
 
@@ -500,8 +513,22 @@ export class RadioSystem {
   }
 
   _playStream(el, station) {
+    // El plazo corre desde que se pide la reproducción, no desde que se crea el elemento: la
+    // descarga de hls.js no es asunto de la emisora.
+    this._armStreamWatchdog(station);
     // Una promesa vieja no puede tumbar la señal que ya ocupa el elemento.
     el.play()?.catch(() => { if (this._audioEl === el) this._failStream(station); });
+  }
+
+  _armStreamWatchdog(station) {
+    this._clearStreamWatchdog();
+    this._streamTimer = setTimeout(() => this._failStream(station), STREAM_DEADLINE * 1000);
+  }
+
+  _clearStreamWatchdog() {
+    if (!this._streamTimer) return;
+    clearTimeout(this._streamTimer);
+    this._streamTimer = null;
   }
 
   /** Sin señal: se suelta el elemento y queda la estática que ya sintetiza la radio. */
@@ -520,20 +547,24 @@ export class RadioSystem {
   /** Suelta la señal en vivo: nada sigue descargando por detrás. */
   stopStream() {
     this._liveId = null;
+    this._clearStreamWatchdog();
 
     const el = this._audioEl;
     if (el) {
       this._audioEl = null;
-      if (this._onStreamError) {
-        el.removeEventListener('error', this._onStreamError);
-        el.removeEventListener('stalled', this._onStreamError);
-        el.removeEventListener('ended', this._onStreamError);
-      }
+      el.removeEventListener('error', this._onStreamError);
+      el.removeEventListener('ended', this._onStreamError);
+      el.removeEventListener('playing', this._onStreamAlive);
+      el.removeEventListener('timeupdate', this._onStreamAlive);
+      el.removeEventListener('waiting', this._onStreamStall);
+      el.removeEventListener('stalled', this._onStreamStall);
       el.pause();
       el.removeAttribute('src');
       el.load(); // corta la descarga que quedaba
     }
     this._onStreamError = null;
+    this._onStreamAlive = null;
+    this._onStreamStall = null;
 
     if (this._hls) {
       const hls = this._hls;

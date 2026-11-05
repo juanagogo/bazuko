@@ -160,13 +160,75 @@ test('Un corte que no es error también deja la estática', (t) => {
   assert.equal(radio.isStreamDown(), true);
   assert.equal(radio._audioEl, null);
   assert.equal(el.src, null);
+});
 
-  // `stalled` es la otra señal de que la descarga se quedó quieta.
-  radio.setStation(emisora('unicauca'));
-  const otro = creados.at(-1);
-  otro.emitir('stalled');
+test('Un parón que se recupera no tumba la emisora, y sin sonar quince segundos sí', (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const { radio, creados } = montar(t);
+  radio.setStation(emisora('unradio-bogota'));
+  const el = creados.at(-1);
+
+  // `stalled` es de lo más normal en vivo: mientras la señal vuelva, la emisora sigue.
+  el.emitir('stalled');
+  t.mock.timers.tick(14_000);
+  assert.equal(radio.isStreamDown(), false, 'catorce segundos de parón se perdonan');
+  el.emitir('timeupdate');
+  t.mock.timers.tick(60_000);
+  assert.equal(radio.isStreamDown(), false);
+  assert.equal(radio._audioEl, el);
+
+  // Y `playing` también lo cancela, no solo `timeupdate`.
+  el.emitir('waiting');
+  t.mock.timers.tick(14_000);
+  el.emitir('playing');
+  t.mock.timers.tick(60_000);
+  assert.equal(radio.isStreamDown(), false);
+  assert.equal(radio._audioEl, el);
+});
+
+test('Un aviso de estancamiento no corre un plazo que ya va andando', (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const { radio, creados } = montar(t);
+  radio.setStation(emisora('univalle'));
+  const el = creados.at(-1);
+
+  el.emitir('waiting');
+  t.mock.timers.tick(10_000);
+  assert.equal(radio.isStreamDown(), false, 'diez segundos se perdonan');
+  el.emitir('stalled');
+  el.emitir('waiting');
+  t.mock.timers.tick(4_000);
+  assert.equal(radio.isStreamDown(), false, 'quince segundos desde el play, no desde el último aviso');
+  t.mock.timers.tick(1_000);
   assert.equal(radio.isStreamDown(), true);
-  assert.equal(otro.src, null);
+  assert.equal(radio._audioEl, null);
+  assert.equal(el.src, null);
+});
+
+test('Sin llegar a sonar en quince segundos, la emisora queda en la estática', (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const { radio, creados } = montar(t);
+  radio.setStation(emisora('unicauca'));
+  const el = creados.at(-1);
+
+  t.mock.timers.tick(15_000);
+  assert.equal(radio.isStreamDown(), true, 'quince segundos sin sonar');
+  assert.equal(radio._audioEl, null);
+  assert.equal(el.src, null);
+});
+
+test('Apagar la radio cancela el plazo de la señal', (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const { radio, sucesos } = montar(t);
+  radio.setStation(emisora('unicauca'));
+
+  const armado = radio._streamTimer;
+  const cancelados = t.mock.method(globalThis, 'clearTimeout');
+  radio.turnOff();
+  assert.equal(cancelados.mock.calls[0]?.arguments[0], armado, 'apagar cancela el plazo armado');
+
+  t.mock.timers.tick(60_000);
+  assert.equal(sucesos.some((e) => e.type === 'toast' && /estática/.test(e.detail.text)), false);
 });
 
 test('Volver a pulsar la emisora caída la reintenta; apagar y prender también', (t) => {
@@ -264,6 +326,34 @@ test('HLS nativo: el elemento va pelado y no se carga hls.js', (t) => {
 
   assert.equal(el.src, emisora('radionica').url);
   assert.equal(el.reproducir, 1);
+});
+
+test('Un hls.js que tarda no gasta el plazo de la emisora', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const { radio } = montar(t);
+  let resolver;
+  radio._hlsLoader = () => new Promise((listo) => { resolver = listo; });
+  radio.setStation(emisora('radionacional-bogota'));
+
+  t.mock.timers.tick(120_000);
+  assert.equal(radio.isStreamDown(), false, 'la descarga del módulo no es un parón de la emisora');
+
+  const creadosHls = [];
+  class HlsFalso {
+    static Events = { ERROR: 'hlsError' };
+    static isSupported() { return true; }
+    constructor() { creadosHls.push(this); }
+    attachMedia() {}
+    loadSource() {}
+    on() {}
+    destroy() {}
+  }
+  resolver({ default: HlsFalso });
+  await new Promise((listo) => setImmediate(listo));
+  assert.equal(creadosHls.length, 1);
+
+  t.mock.timers.tick(15_000);
+  assert.equal(radio.isStreamDown(), true, 'pero sin sonar quince segundos desde el play, cae');
 });
 
 test('Frecuencia repetida: manda la emisora elegida a mano; el dial suelto vuelve a la primera', (t) => {
