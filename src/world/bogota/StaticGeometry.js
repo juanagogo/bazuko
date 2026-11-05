@@ -89,6 +89,9 @@ export function instanceStaticModels(roots, parent) {
   for (const entries of buckets.values()) {
     const source = entries[0].mesh;
     const batch = new THREE.InstancedMesh(source.geometry, source.material, entries.length);
+    // Lo que trae modelo lejano guarda los dos: el distrito cambia de uno a otro por distancia.
+    const far = source.geometry.userData?.farVariant;
+    if (far) Object.assign(batch.userData, { nearGeometry: source.geometry, farGeometry: far });
     batch.castShadow = source.castShadow;
     batch.receiveShadow = source.receiveShadow;
     batch.layers.mask = source.layers.mask;
