@@ -17,15 +17,17 @@ beforeEach(() => {
 
 const pos = (x, y, z) => ({ x, y, z });
 
-function juego({ items = {}, vehicles = [], higiene = 80 } = {}) {
+function juego({ items = {}, vehicles = [], higiene = 80, cars = [], buses = [] } = {}) {
   const inv = { ...items };
   const stats = { dinero: 0, energia: 100, animo: 50, higiene, xp: 0, addXP(n) { this.xp += n; } };
   return {
+    cars,
     player: { position: pos(0, 0, 0), playBeg() { this.gestos = (this.gestos ?? 0) + 1; } },
     stats,
     inventory: { count: (id) => inv[id] ?? 0, remove: (id, n) => { inv[id] -= n; }, inv },
     traffic: {
       vehicles,
+      busVehicles: buses.map(car => ({ car })),
       stoppedAtRed: (p, r) => vehicles.filter(v => v.speed <= .3 && v.rojo)
         .map(v => ({ vehicle: v, car: v.car, distance: Math.hypot(v.car.position.x - p.x, v.car.position.z - p.z) }))
         .filter(v => v.distance <= r).sort((a, b) => a.distance - b.distance)
@@ -149,4 +151,97 @@ test('las herramientas se compran en la tienda y no se venden como reciclaje', (
   assert.ok(dulces.price / dulces.qty < REBUSQUE.dulces.paga[0], 'vender dulces deja ganancia');
   const obj = OBJECTIVES.find(o => o.id === 'rebusque-semaforo');
   assert.ok(obj.accept({ pesos: 500 }) && !obj.accept({ pesos: 0 }));
+});
+
+const parqueado = (x, z) => ({ position: pos(x, 0, z) });
+const bus = (x, z, speed = 0) => ({ position: pos(x, 0, z), speed, heading: { x: 0, z: -1 }, length: 18, width: 2.6 });
+
+test('cuidar carros: con franela y dos parqueados, los dueños dejan propina mientras dura el turno', () => {
+  const g = juego({ items: { franela: 1 }, cars: [parqueado(3, 0), parqueado(-4, 2)] });
+  const r = new RebusqueSystem(g, { random: () => 0 });
+  r.update(.1);
+  assert.match(r.prompt, /^\[B\] Cuidar los carros/);
+  r.intentar();
+  for (let i = 0; i < 500 && r.activo; i++) r.update(.1);
+  assert.ok(!r.activo);
+  const def = REBUSQUE.cuidar;
+  assert.equal(g.stats.dinero, Math.floor(def.segundos / def.propinas) * def.paga[0]);
+  const fin = eventos.filter(e => e.type === 'rebusque');
+  assert.equal(fin.length, 1);
+  assert.equal(fin[0].detail.id, 'cuidar');
+  // El mismo par de carros no se vuelve a cuidar enseguida.
+  r.update(.1);
+  assert.equal(r.prompt, null);
+});
+
+test('cuidar carros: sin carros cerca no hay puesto, y B deja el puesto con lo ganado', () => {
+  const solo = juego({ items: { franela: 1 }, cars: [parqueado(30, 0)] });
+  const r1 = new RebusqueSystem(solo);
+  r1.update(.1);
+  assert.equal(r1.intentar(), false);
+  const g = juego({ items: { franela: 1 }, cars: [parqueado(3, 0), parqueado(5, 0)] });
+  const r = new RebusqueSystem(g, { random: () => 0 });
+  r.update(.1);
+  r.intentar();
+  for (let i = 0; i < 90; i++) r.update(.1);
+  assert.ok(r.activo);
+  assert.ok(g.stats.dinero > 0, 'ya llegó una propina');
+  assert.ok(r.intentar(), 'B es del puesto');
+  assert.ok(!r.activo);
+  assert.equal(eventos.filter(e => e.type === 'rebusque').at(-1).detail.pesos, g.stats.dinero);
+});
+
+test('cuidar carros: el que se maneja no cuenta, y caminar lejos corta el turno', () => {
+  const manejado = parqueado(4, 0); manejado.driven = true;
+  const g = juego({ items: { franela: 1 }, cars: [manejado] });
+  const r = new RebusqueSystem(g);
+  r.update(.1);
+  assert.equal(r.prompt, null);
+  manejado.driven = false;
+  r.update(.1);
+  r.intentar();
+  g.player.position.x = 5;
+  r.update(.1);
+  assert.ok(r.activo, 'se puede caminar la cuadra');
+  g.player.position.x = 12;
+  r.update(.1);
+  assert.ok(!r.activo);
+  assert.ok(eventos.some(e => e.type === 'toast' && /dejé de cuidar/.test(e.detail.text)));
+});
+
+test('bus: con el bus detenido al lado se le venden dulces a los pasajeros', () => {
+  const g = juego({ items: { dulces: 5 }, buses: [bus(2.5, 4)] });
+  const r = new RebusqueSystem(g, { random: () => 0 });
+  r.update(.1);
+  assert.match(r.prompt, /pasajeros del bus/);
+  r.intentar();
+  for (let i = 0; i < 80 && r.activo; i++) r.update(.1);
+  assert.equal(g.stats.dinero, REBUSQUE.bus.carros * 1000);
+  assert.equal(g.inventory.count('dulces'), 5 - REBUSQUE.bus.carros);
+  assert.equal(eventos.find(e => e.type === 'rebusque').detail.id, 'bus');
+});
+
+test('bus: andando no se le vende, lejos de su costado tampoco, y si arranca no paga', () => {
+  const andando = juego({ items: { dulces: 5 }, buses: [bus(2.5, 0, 5)] });
+  const r1 = new RebusqueSystem(andando); r1.update(.1);
+  assert.equal(r1.prompt, null);
+  const lejos = juego({ items: { dulces: 5 }, buses: [bus(9, 0)] });
+  const r2 = new RebusqueSystem(lejos); r2.update(.1);
+  assert.equal(r2.prompt, null);
+  const b = bus(2.5, 0);
+  const g = juego({ items: { dulces: 5 }, buses: [b] });
+  const r = new RebusqueSystem(g, { random: () => 0 });
+  r.update(.1); r.intentar(); r.update(1);
+  b.speed = 3; r.update(.1);
+  assert.ok(!r.activo);
+  assert.equal(g.stats.dinero, 0);
+  assert.equal(g.inventory.count('dulces'), 5);
+});
+
+test('los objetivos nuevos cuentan solo su trabajo', () => {
+  const cuidar = OBJECTIVES.find(o => o.id === 'cuidar-carros');
+  const enBus = OBJECTIVES.find(o => o.id === 'vender-en-bus');
+  assert.ok(cuidar.accept({ id: 'cuidar', pesos: 500 }) && !cuidar.accept({ id: 'malabares', pesos: 500 }));
+  assert.ok(enBus.accept({ id: 'bus', pesos: 1000 }) && !enBus.accept({ id: 'dulces', pesos: 1000 }));
+  assert.ok(SHOP_ITEMS.some(s => s.item === 'franela') && !isRecyclable(ITEMS.franela));
 });

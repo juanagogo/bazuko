@@ -99,9 +99,12 @@ const VERBO_CORTO = [
   [/^Agarrar la carreta/, 'Agarrar carreta'],
   [/^Soltar la carreta/, 'Soltar carreta'],
   [/^Cosquilleo/, 'Cosquilleo'],
+  [/^Vender dulces a los pasajeros/, 'Vender en el bus'],
   [/^Vender dulces/, 'Vender dulces'],
   [/^Limpiar el parabrisas/, 'Limpiar vidrio'],
   [/^Hacer malabares/, 'Malabares'],
+  [/^Cuidar los carros/, 'Cuidar carros'],
+  [/^Dejar el puesto/, 'Dejar el puesto'],
   [/^Mantener: seleccionar/, 'Seleccionar'],
 ];
 

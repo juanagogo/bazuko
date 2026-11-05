@@ -36,6 +36,10 @@ export const ITEMS = {
     id: 'limpiavidrios', name: 'Rodillo y jabón', weight: 0.6, value: 2500, tool: true,
     desc: 'Rodillo con agua jabonosa para limpiar parabrisas en el semáforo.'
   },
+  franela: {
+    id: 'franela', name: 'Franela roja', weight: 0.1, value: 1000, tool: true,
+    desc: 'La franela del que cuida carros: con ella los dueños me dejan propina.'
+  },
   dulces: {
     id: 'dulces', name: 'Dulces', weight: 0.05, value: 300,
     consumable: 'hambre', amount: 4, animo: 2,
@@ -232,7 +236,7 @@ export const isForSale = (item, equippedWeapon = null) => isRecyclable(item) && 
 const ICONS = {
   radioTransistor: 'radio', papaCriolla: 'papa', aguapanela: 'pocillo', agua: 'botellaAgua', cafe: 'pocillo', tintico: 'pocillo',
   basuco: 'papeleta', botella_picada: 'botellaPicada', antibiotico: 'pastilla', antiparasitario: 'pastilla',
-  malabares: 'dado', limpiavidrios: 'jabon', dulces: 'chaza'
+  malabares: 'dado', limpiavidrios: 'jabon', dulces: 'chaza', franela: 'camisa'
 };
 export const itemIcon = (id) => ICONS[id] ?? id;
 
@@ -300,7 +304,8 @@ export const SHOP_ITEMS = [
   { item: 'madera',     price: 6000, qty: 3, label: 'Tablas ×3', desc: 'Para las paredes del cambuche.' },
   { item: 'malabares',     price: 3000, desc: 'Para rebuscarme en el semáforo en rojo con B.' },
   { item: 'limpiavidrios', price: 5000, desc: 'Para limpiar parabrisas en el semáforo en rojo con B.' },
-  { item: 'dulces',        price: 2500, qty: 5, label: 'Dulces ×5', desc: 'En el semáforo en rojo se venden a $ 1.000 cada uno con B.' },
+  { item: 'dulces',        price: 2500, qty: 5, label: 'Dulces ×5', desc: 'En el semáforo en rojo o en el bus detenido se venden a $ 1.000 cada uno con B.' },
+  { item: 'franela',       price: 2000, desc: 'Para cuidar carros parqueados con B y recibir propinas.' },
   { item: 'pilas',           price: 2000,  desc: 'Pilas AA: recargan la radio transistor.' },
   { item: 'radioTransistor', price: 18000, desc: 'Radio transistor: sintoniza emisoras y calma la mente.' },
   { upgrade: 'costal',  price: 12000, label: 'Costal grande', icon: 'backpack', desc: 'Cargo 20 kg más.' }
