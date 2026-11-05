@@ -139,7 +139,15 @@ test('quien conversa alterna sus posturas sin moverse', async () => {
   const stances = ['hablar', 'brazos-cruzados', 'bolsillos'];
   const npc = await person('estudiante', { fijo: { stance: 'hablar', alternas: stances } });
   const seen = new Set();
-  for (let t = 0; t < 240; t += .25) { npc.update(.25, { player: new THREE.Vector3(500, 0, 500) }); seen.add(npc.stance); }
+  // La postura nueva sale de Math.random: con una semilla fija la prueba no depende de la suerte (antes fallaba a veces).
+  const original = Math.random;
+  let seed = 7;
+  Math.random = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+  try {
+    for (let t = 0; t < 240; t += .25) { npc.update(.25, { player: new THREE.Vector3(500, 0, 500) }); seen.add(npc.stance); }
+  } finally {
+    Math.random = original;
+  }
   assert.deepEqual([...seen].sort(), [...stances].sort());
   assert.equal(npc.fijo.out, false);
   npc.dispose();
