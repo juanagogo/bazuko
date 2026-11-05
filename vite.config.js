@@ -10,7 +10,10 @@ export const MODELOS_SIN_USO = [
   'models/luminaria', 'models/mascota.fbx', 'models/pasto.fbx',
   // Originales sin optimizar que solo usa el port C++ (sus .opt.glb viven en cpp/public).
   'models/ambulancia.glb', 'models/vehiculo_policia.glb', 'models/moto_policia.glb',
-  'models/vehiculo1_new.glb', 'models/vehiculo2_new.glb'
+  'models/vehiculo1_new.glb', 'models/vehiculo2_new.glb',
+  // Animaciones de combate: el juego carga sus .glb; los FBX quedan como fuente de tools/animaciones.
+  ...['center-block', 'fallingdown', 'combat-jab-cross', 'combat-hit-head', 'combat-hit-body', 'combat-taunt',
+    'assault-hook', 'assault-kick', 'assault-hit-react', 'assault-knockdown', 'assault-get-up'].map(name => `models/${name}.fbx`)
 ];
 
 /** Vite copia public/ entero a dist/; después se retira lo que nadie carga. */
