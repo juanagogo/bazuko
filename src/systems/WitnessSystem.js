@@ -78,8 +78,9 @@ export class WitnessSystem {
     if (!witnesses.length) return 0;
     this._cooldown = WITNESS.cooldown;
     let caller = false, filmer = false, screamed = false;
+    const callChance = this.game?.reputation?.probabilidadDeLlamar?.(WITNESS.callChance) ?? WITNESS.callChance;
     for (const npc of witnesses) {
-      if (!caller && !this.calls.length && this.random() < WITNESS.callChance && npc.witness?.('llamar', WITNESS.callSeconds)) {
+      if (!caller && !this.calls.length && this.random() < callChance && npc.witness?.('llamar', WITNESS.callSeconds)) {
         caller = true;
         this.calls.push({ npc, position: playerPos.clone?.() ?? { ...playerPos } });
         npc.say?.(any(GRITOS.llamar));

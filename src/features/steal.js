@@ -105,7 +105,7 @@ export class StealSystem {
   _enfriarFichado(dt) {
     const traffic = this.game?.traffic;
     if (this.buscado > this._nivelVisto || this.buscado <= 0 || traffic?.inPursuit) this._calma = 0;
-    else if ((this._calma += dt) >= WANTED_DECAY_SECONDS) {
+    else if ((this._calma += dt) >= (this.game?.reputation?.segundosDeCalma?.(WANTED_DECAY_SECONDS) ?? WANTED_DECAY_SECONDS)) {
       this._calma = 0;
       this.buscado--;
     }
@@ -222,7 +222,7 @@ export class StealSystem {
       this._toast('Cosquilleo limpio: nadie se dio cuenta.', 'rare');
     } else {
       const bonus = this.game?.dog?.distractionBonus?.(this.game.player?.position) ?? 0;
-      const noticeChance = Math.max(0.2, (npc?.alerta ?? 0.5) - bonus);
+      const noticeChance = Math.max(0.2, (npc?.alerta ?? 0.5) - bonus + (this.game?.reputation?.alertaExtra ?? 0));
       if (Math.random() < noticeChance) {
         npc?.alarmedByTheft?.(this.game.player.position);
         this._toast('¡Me pillaron con las manos en la masa! El peatón gritó.', 'death');
@@ -230,6 +230,7 @@ export class StealSystem {
         this._alertPolice();
         this._triggerCrowdConsequence(npc, 'cosquilleo');
         this.game.witnesses?.report?.('robo', npc);
+        this._emitRobo(false);
       } else {
         this._toast('Fallé el cosquilleo, pero disimulé.', 'warn');
       }
@@ -256,6 +257,12 @@ export class StealSystem {
     this._alertPolice();
     this._triggerCrowdConsequence(npc, 'robo directo');
     this.game.witnesses?.report?.('robo', npc);
+    this._emitRobo(true);
+  }
+
+  /** Un robo a una persona que el barrio se entera (ver ReputationSystem). */
+  _emitRobo(directo) {
+    if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('robo-peaton', { detail: { directo } }));
   }
 
   // Una patrulla que lo ve lo persigue, igual que por un retrovisor robado.

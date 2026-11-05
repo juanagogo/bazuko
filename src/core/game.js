@@ -52,6 +52,7 @@ import { AutoSave } from '../systems/AutoSave.js';
 import { CollisionSystem } from '../systems/CollisionSystem.js';
 import { TrafficSystem } from '../systems/TrafficSystem.js';
 import { WitnessSystem } from '../systems/WitnessSystem.js';
+import { ReputationSystem } from '../systems/ReputationSystem.js';
 import { DEFAULT_TRAFFIC_DENSITY, trafficDensityId, trafficDensityLabel } from '../systems/trafficDensity.js';
 import { distributeShelterLoot, spreadPickupPositions } from '../systems/ShelterLoot.js';
 import { InventorySystem } from '../systems/InventorySystem.js';
@@ -206,6 +207,8 @@ export class Game {
     // Rebusque en el semáforo: malabares, vidrios y dulces con B mientras la luz está en rojo.
     this.rebusque = new RebusqueSystem(this);
     this.interaction.rebusque = this.rebusque;
+    this.reputation = new ReputationSystem();
+    this.interaction.reputation = this.reputation;
     this.mirrorCinematic = new MirrorCinematic(this);
 
     // HUD, menús y creador de personaje
@@ -584,6 +587,7 @@ export class Game {
       if (xp) this.stats.addXP(xp, this.talents);
       const parts = [dinero && `+${cop(dinero)}`, xp && `+${xp} de experiencia`].filter(Boolean);
       this._avisar(`Encargo cumplido: ${done.title} (${parts.join(', ')})`, 'rare');
+      window.dispatchEvent(new CustomEvent('encargo-cumplido', { detail: { id: done.id } }));
       this.encargos.next(this);
       // El cobro vale con el siguiente ya puesto: ganar esta plata no adelanta un «Ganar» nuevo.
       this._activateObjective();
@@ -926,6 +930,7 @@ export class Game {
       // Sin datos de objetivos es una partida anterior: se saltan los ya cumplidos sin premio.
       this._objectivesCatchUp = !!this.objectives && !this.objectives.deserialize(data.objectives);
       this.encargos?.deserialize(data.encargos);
+      this.reputation?.deserialize(data.fama);
 
     }
   }
@@ -957,7 +962,8 @@ export class Game {
       gps: this.gps?.serialize() ?? null,
       carroRobado: this.carjack?.serialize() ?? null,
       objectives: this.objectives?.serialize() ?? null,
-      encargos: this.encargos?.serialize() ?? null
+      encargos: this.encargos?.serialize() ?? null,
+      fama: this.reputation?.serialize() ?? null
     };
   }
 
@@ -1523,6 +1529,7 @@ export class Game {
     if (!this.player.isSwimming && !driving) this.steal?.update(dt);
     else if (this.steal?.minigameActive) this.steal._endMinigame(false, 'cancel');
     this.witnesses?.update(dt);
+    this.reputation?.update(dt);
     this.interaction.carjackPrompt = driving ? null : this.carjack?.prompt ?? null;
     this.rebusque?.update(dt);
     this.interaction.rebusquePrompt = driving ? null : this.rebusque?.prompt ?? null;
