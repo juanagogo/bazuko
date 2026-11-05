@@ -157,6 +157,17 @@ Costo de construcción de cada sistema, medido rehaciéndolo con la partida carg
 
 La calidad automática observa cuadros de hasta 18 ms con un trabajo de hasta 12 ms durante 20 segundos antes de subir, y compila las sombras antes de encenderlas. El tope de trabajo es el que aún cabe en 60 FPS después de subir: en la medición, prender las sombras multiplicó por 1,4 el trabajo de un cuadro. En dos corridas con la máquina ocupada, un equipo con 8,4 a 9,7 ms de trabajo típico tardó 115 segundos en subir con un tope de 9 ms y 20,7 segundos con el de 12 ms. El intervalo se mide con el sello de `requestAnimationFrame`: el reloj al entrar al cuadro oscila y, a 60 FPS, una de cada cuatro muestras parecía lenta sin serlo. Vuelve a baja si en una ventana de 3 segundos al menos el 20 % de los cuadros son lentos y la ventana no llega a 58 FPS, o si hay presión; no insiste en esa sesión. En Ajustes se avisa cuando el juego corre en otra calidad que la elegida. Un intervalo de más de 250 ms, como el que deja volver de otra pestaña, no cuenta como holgura ni como tirón: en baja la cuenta vuelve a empezar. Con sombras, uno suelto se ignora, pero tres en una misma ventana de 3 segundos la devuelven a baja. Esos intervalos no reinician la ventana: si lo hicieran, un equipo con intervalos que rozan ese valor nunca bajaría. No aplica a quien ya tiene una calidad guardada, y no escribe la preferencia.
 
+## Animaciones de combate en GLB
+
+Las once animaciones de pelea (golpes, bloqueo, reacciones, caídas y levantarse) venían en FBX de Mixamo. Cada carga descargaba 6,6 MB y el hilo principal descomprimía e interpretaba esos FBX mientras se preparaban los personajes. Ahora el juego carga un `.glb` por animación, generado con `node tools/animaciones/fbx-a-glb.mjs`: conserva el esqueleto y las claves tal como las entrega FBXLoader, sin reducir ni remuestrear. Si falta un GLB, el juego vuelve a su FBX y solo entonces descarga el cargador FBX.
+
+| Medida | FBX | GLB |
+| --- | ---: | ---: |
+| Descarga de las 11 animaciones | 6,64 MB | 2,00 MB |
+| Interpretación en Chromium (hilo principal, segunda pasada) | 449 ms | 20 ms |
+
+`tests/actionforge.test.js` comprueba que los clips adaptados a partir de cada GLB son idénticos, valor por valor, a los obtenidos del FBX. Los FBX convertidos no se copian a `dist/`. Al cambiar o añadir una animación de combate, volver a ejecutar el conversor.
+
 ## Cambios de calidad y resolución
 
 - **El antialias del contexto se decide al crearlo.** No se puede cambiar después: se omite solo si la preferencia guardada es baja, cuando la calidad automática ya no puede subir de nivel. Quien pasa de baja a media o alta en la misma sesión se queda sin él hasta recargar.
