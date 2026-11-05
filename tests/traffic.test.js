@@ -937,6 +937,11 @@ async function runLikeTheGame(randomSeed, minutes, { chases = false, density = '
   };
   const seed = () => { state = Math.imul(randomSeed + 1, 2654435761) >>> 0; Math.random = next; };
   seed();
+  // El habla de los peatones sortea con `performance.now()`: sin congelar el reloj, el azar que gastan depende de la
+  // máquina y cada corrida da una ciudad distinta. Con este reloj de mentira las semillas se repiten.
+  const realNow = performance.now;
+  let clock = 0;
+  performance.now = () => (clock += 100);
   try {
     const scene = new THREE.Scene(), collisions = new CollisionSystem(), city = new Bogota();
     city.build(scene, collisions);
@@ -1007,6 +1012,7 @@ async function runLikeTheGame(randomSeed, minutes, { chases = false, density = '
     return { parked: parked.length, npcs: city.npcs.length, vehicles: traffic.vehicles.length, worst, shortest, chases: started };
   } finally {
     Math.random = original;
+    performance.now = realNow;
   }
 }
 
@@ -1040,6 +1046,7 @@ for (const seed of [1, 3, 11, 22, 29]) {
     assert.ok(shortest > 150, `El que menos anduvo recorrió ${shortest.toFixed(0)} m`);
   });
 }
+
 
 test('el montaje diario crece lejos de la vista y se encoge de noche', () => {
   const scene = new THREE.Scene(), route = new TrafficRoute(0, 200, 0, 120, 3.2);
