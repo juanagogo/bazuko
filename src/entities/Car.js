@@ -58,7 +58,9 @@ export class Car {
     this.modelKind = resolvedKind === 'taxi' ? 'car2' : 'car1';
     // El haz solo lo muestra quien circula: un parqueado no gasta un material en algo que nunca enciende.
     // Solo el que circula anima ruedas y plumillas; el resto las lleva unidas a sus molduras y ahorra seis llamadas.
-    const v = makeVehicle(resolvedKind, Number.isFinite(variant) ? Math.trunc(variant) : Math.floor(Math.random() * 10000), { beams: traffic, model, parked: !traffic });
+    // Se recuerda la variante para rehacer el mismo carro al cargar una partida (carro robado).
+    this.variant = Number.isFinite(variant) ? Math.trunc(variant) : Math.floor(Math.random() * 10000);
+    const v = makeVehicle(resolvedKind, this.variant, { beams: traffic, model, parked: !traffic });
     this.vehicle = v;
     this.length = v.length;
     this.width = v.width;

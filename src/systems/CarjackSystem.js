@@ -45,6 +45,7 @@ export class CarjackSystem {
   constructor(game) {
     this.game = game;
     this.car = null;       // carro que maneja el jugador
+    this.stolen = null;    // último carro robado: se guarda en la partida
     this.speed = 0;        // m/s a lo largo del frente (+X local); negativo en reversa
     this.cooldown = 0;
     this.prompt = null;
@@ -82,7 +83,8 @@ export class CarjackSystem {
     for (const car of this.game.cars ?? []) list.push({ car, vehicle: null });
     for (const vehicle of this.game.traffic?.vehicles ?? []) {
       // Las patrullas no se dejan quitar el carro.
-      if (!vehicle.police && vehicle.speed <= CARJACK.maxTrafficSpeed) list.push({ car: vehicle.car, vehicle });
+      // Con el conductor afuera por una pelea (RoadRageSystem) el carro es de él: no se cruza con esa escena.
+      if (!vehicle.police && !vehicle.hold && vehicle.speed <= CARJACK.maxTrafficSpeed) list.push({ car: vehicle.car, vehicle });
     }
     return list;
   }
@@ -128,6 +130,7 @@ export class CarjackSystem {
       // El conductor sale corriendo y reclama; el carro deja de seguir su ruta.
       game.audio?.playMovingTheft?.(car);
       game.traffic?.release?.(vehicle);
+      car.setDriverInside?.(false);
       if (!game.cars.includes(car)) game.cars.push(car);
       this.speed = 0;
       this._toast('¡Saqué al conductor! El carro es mío.', 'warn');
@@ -143,6 +146,7 @@ export class CarjackSystem {
     this._raiseWanted();
     game.stats?.addXP?.(CARJACK.xp, game.talents);
     this.car = car;
+    this.stolen = car;
     car.driven = true;
     car.traffic = true; // luces encendidas mientras se maneja
     if (car.marker) car.marker.visible = false;
@@ -198,6 +202,41 @@ export class CarjackSystem {
     this._emit('carjack-exit', { car });
   }
 
+  /** Lo que se guarda: el último carro robado, para encontrarlo donde quedó. */
+  serialize() {
+    const car = this.stolen;
+    if (!car || car._disposed || !(this.game.cars ?? []).includes(car)) return null;
+    return { pos: car.position.toArray().map(n => Math.round(n * 100) / 100), rot: Math.round(car.group.rotation.y * 1000) / 1000,
+      kind: car.kind, variant: car.variant };
+  }
+
+  /** Rehace el carro robado de una partida guardada, estacionado donde quedó. */
+  restore(data, { CarClass, migrate } = {}) {
+    const game = this.game;
+    if (!data || !Array.isArray(data.pos) || data.pos.length !== 3 || !data.pos.every(Number.isFinite) || !Number.isFinite(data.rot)) return null;
+    if (data.kind === 'police') return null;
+    if (this.car) this.reset();
+    const position = migrate?.(data.pos) ?? data.pos;
+    let car = this.stolen && (game.cars ?? []).includes(this.stolen) ? this.stolen : null;
+    if (!car) {
+      if (!CarClass || !game.sceneMgr?.scene) return null;
+      car = new CarClass(game.sceneMgr.scene, new THREE.Vector3(...position), data.rot,
+        { kind: typeof data.kind === 'string' ? data.kind : null, variant: data.variant });
+      game.cars.push(car);
+      game.interaction?.register?.(car);
+      // Al cargar en medio del juego el carro necesita modelo y descarte propios.
+      car.preloadModel?.();
+      game.renderer?.culling?.register?.(car.group, { dynamic: true, margin: .5 });
+    }
+    car.position.set(...position);
+    car.group.rotation.y = data.rot;
+    car.traffic = false;
+    car.setDriverInside?.(false);
+    game.traffic?.setParkedCars?.(game.cars);
+    this.stolen = car;
+    return car;
+  }
+
   /** Sale del carro sin colocar al jugador (recuperación o cambio de distrito). */
   reset() {
     const car = this.car;
@@ -243,8 +282,12 @@ export class CarjackSystem {
 
   _drive(dt, input) {
     const car = this.car;
-    const throttle = (input.isDown('KeyW') || input.isDown('ArrowUp') ? 1 : 0) - (input.isDown('KeyS') || input.isDown('ArrowDown') ? 1 : 0);
-    const steer = (input.isDown('KeyA') || input.isDown('ArrowLeft') ? 1 : 0) - (input.isDown('KeyD') || input.isDown('ArrowRight') ? 1 : 0);
+    // WASD, flechas, stick del mando o palanca táctil: el eje ya reúne teclado y mando.
+    const axis = input.axis ?? { x: 0, z: 0 };
+    const arrows = { x: (input.isDown('ArrowRight') ? 1 : 0) - (input.isDown('ArrowLeft') ? 1 : 0),
+      z: (input.isDown('ArrowDown') ? 1 : 0) - (input.isDown('ArrowUp') ? 1 : 0) };
+    const throttle = THREE.MathUtils.clamp(-(axis.z || arrows.z), -1, 1);
+    const steer = THREE.MathUtils.clamp(-(axis.x || arrows.x), -1, 1);
     const handbrake = input.isDown('Space');
 
     // Aceleración, freno al invertir el sentido, roce y freno de mano.

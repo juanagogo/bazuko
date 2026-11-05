@@ -851,6 +851,10 @@ export class Game {
       if (data.cart && this.cart) {
         this.cart.loadState(data.cart, this.player, this.inventory);
       }
+      if (data.carroRobado) {
+        this.carjack?.restore(data.carroRobado, { CarClass: Car,
+          migrate: (pos) => this.world.active?.migrateSavedPosition?.(pos, data.worldLayoutVersion) });
+      }
       if (data.gps && this.gps) this.setGpsWaypoint({ ...data.gps, name: RENAMED_PLACES[data.gps.name] ?? data.gps.name }, { silent: true });
       // Sin datos de objetivos es una partida anterior: se saltan los ya cumplidos sin premio.
       this._objectivesCatchUp = !!this.objectives && !this.objectives.deserialize(data.objectives);
@@ -883,6 +887,7 @@ export class Game {
       dog: { isFriend: !!this.dog?.isFriend, look: this.dog?.look ?? null },
       cart: this.cart ? this.cart.saveState() : null,
       gps: this.gps?.serialize() ?? null,
+      carroRobado: this.carjack?.serialize() ?? null,
       objectives: this.objectives?.serialize() ?? null
     };
   }

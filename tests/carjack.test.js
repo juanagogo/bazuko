@@ -17,7 +17,12 @@ function fakeCar(x = 0, z = 0) {
 
 function fakeInput() {
   const down = new Set(), pressed = new Set();
-  return { down, pressed, isDown: c => down.has(c), consumePress: c => pressed.delete(c) };
+  const input = { down, pressed, stick: null, isDown: c => down.has(c), consumePress: c => pressed.delete(c) };
+  Object.defineProperty(input, 'axis', { get() {
+    const x = (down.has('KeyD') ? 1 : 0) - (down.has('KeyA') ? 1 : 0), z = (down.has('KeyS') ? 1 : 0) - (down.has('KeyW') ? 1 : 0);
+    return (x || z || !input.stick) ? { x, z } : input.stick;
+  } });
+  return input;
 }
 
 function fakeGame(cars = [], vehicles = []) {
@@ -127,4 +132,54 @@ test('robar un espejo dispara la cinemática y restaura la cámara al terminar',
   assert.equal(cinematic.active, false);
   assert.equal(game.cameraRig.distance, 5.5);
   assert.equal(cinematic.play(), false, 'enfriamiento entre cinemáticas');
+});
+
+test('con el stick del mando también se maneja', () => {
+  const car = fakeCar(), game = fakeGame([car]), input = fakeInput();
+  const carjack = new CarjackSystem(game);
+  carjack.enter({ car, vehicle: null });
+  input.stick = { x: -.8, z: -1 };
+  for (let i = 0; i < 45; i++) carjack.update(1 / 30, input);
+  assert.ok(carjack.speed > 3, `velocidad ${carjack.speed}`);
+  assert.ok(car.group.rotation.y > 0, 'el stick a la izquierda gira a la izquierda');
+});
+
+test('el carro robado se guarda y vuelve estacionado donde quedó', () => {
+  const car = fakeCar(), game = fakeGame([car]);
+  car.kind = 'taxi'; car.variant = 77;
+  const carjack = new CarjackSystem(game);
+  carjack.enter({ car, vehicle: null });
+  car.position.set(12.345, 0, -7.5); car.group.rotation.y = 1.2;
+  carjack.exit();
+  const saved = JSON.parse(JSON.stringify(carjack.serialize()));
+  assert.deepEqual(saved, { pos: [12.35, 0, -7.5], rot: 1.2, kind: 'taxi', variant: 77 });
+
+  // Partida nueva: se rehace el mismo carro con su modelo y variante.
+  const created = [];
+  class CarClass { constructor(scene, pos, rot, opts) { Object.assign(this, fakeCar(pos.x, pos.z)); this.group.rotation.y = rot; this.opts = opts; created.push(this); } }
+  const fresh = fakeGame([]);
+  fresh.sceneMgr = { scene: {} };
+  const registered = [];
+  fresh.interaction = { register: c => registered.push(c) };
+  const loaded = new CarjackSystem(fresh).restore(saved, { CarClass });
+  assert.equal(created.length, 1);
+  assert.deepEqual(created[0].opts, { kind: 'taxi', variant: 77 });
+  assert.ok(fresh.cars.includes(loaded) && registered.includes(loaded));
+  assert.equal(loaded.position.x, 12.35);
+  assert.equal(loaded.group.rotation.y, 1.2);
+});
+
+test('una partida con datos rotos del carro robado no rompe la carga', () => {
+  const game = fakeGame([]);
+  game.sceneMgr = { scene: {} };
+  const carjack = new CarjackSystem(game);
+  for (const bad of [null, {}, { pos: [1, 2] , rot: 0 }, { pos: [1, 'x', 3], rot: 0 }, { pos: [1, 0, 3], rot: 0, kind: 'police' }]) {
+    assert.equal(carjack.restore(bad, { CarClass: class {} }), null);
+  }
+  assert.equal(game.cars.length, 0);
+});
+
+test('LB + B en el mando es la tecla de robar carros', async () => {
+  const { CON_LB } = await import('../src/core/Gamepad.js');
+  assert.equal(CON_LB[1], CARJACK.key);
 });
