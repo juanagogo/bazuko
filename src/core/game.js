@@ -12,6 +12,7 @@ import { Dog, DOG_DEFAULT_LOOK, legacyPetLook } from '../entities/Dog.js';
 import { CompanionNavigation } from '../systems/CompanionNavigation.js';
 import { Minimap, nombreALaVista } from '../ui/Minimap.js';
 import { ZonaAviso } from '../ui/ZonaAviso.js';
+import { alternarPantallaCompleta } from './PantallaCompleta.js';
 import { mojarCarton } from '../ui/mojado.js';
 import { servicePlaces, needContext, SHOP_PRICES, SHOP_OFFERS } from '../ui/mapServices.js';
 import { originEffect } from '../data/origins.js';
@@ -197,6 +198,8 @@ export class Game {
     this.hud.setCameraMode(this.cameraRig.mode);
     window.addEventListener('open-pause-menu', (e) => openPauseMenu(this, e.detail?.tab));
     window.addEventListener('audio-toggle', () => this.audio.toggleMute());
+    window.addEventListener('fullscreen-toggle', () => alternarPantallaCompleta());
+    document.addEventListener('fullscreenchange', () => { if (this.menu.isOpen) this.menu.refresh(); });
     window.addEventListener('camera-toggle', () => this._toggleCamera());
     window.addEventListener('open-recycler', () => openRecycler(this));
     window.addEventListener('open-shop', (e) => openShop(this, e.detail?.target));

@@ -237,7 +237,7 @@ Pulgares abajo, solo Pausa arriba, y lo demás en «Más».
 
 **El verbo es el aviso.** Lo que el juego ofrece hacer («Recoger», «Hablar») no tiene botón aparte: el mismo aviso se toca. Donde el juego pide sostener, se sostiene: suelta la tecla cuando se levanta el dedo.
 
-**Más.** Una hoja de cartón con Pedir, Envión, Lanzar, Popó, Robar, Mantener, Detener, Mañas, Cámara, Foto, Radio, Sonido y Ayuda, de 44 px o más. Lo que hoy no se puede queda tachado y no hace nada (Lanzar sin popó, Robar sin nadie cerca, Detener sin minijuego). Ayuda abre la pestaña Controles. Se cierra con Más o tocando fuera. Abierta, nada pasa por encima ni por debajo: la cinta se aparta hasta que se cierre, para que ningún toque le caiga a lo de atrás. Al abrirse no quita la palanca: quien va corriendo sigue corriendo.
+**Más.** Una hoja de cartón con Pedir, Envión, Lanzar, Popó, Robar, Mantener, Detener, Mañas, Cámara, Foto, Radio, Sonido, Pantalla completa y Ayuda, de 44 px o más. Lo que hoy no se puede queda tachado y no hace nada (Lanzar sin popó, Robar sin nadie cerca, Detener sin minijuego). Ayuda abre la pestaña Controles. Se cierra con Más o tocando fuera. Abierta, nada pasa por encima ni por debajo: la cinta se aparta hasta que se cierre, para que ningún toque le caiga a lo de atrás. Al abrirse no quita la palanca: quien va corriendo sigue corriendo.
 
 **Robar a contrarreloj.** Mientras corre la barra, Brincar pasa a decir Detener y Pegar a decir Cancelar, y tocar la barra también detiene. Abrir un menú en ese momento no tiene sentido. El aviso se esconde para que la barra quepa.
 
