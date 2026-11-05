@@ -28,3 +28,21 @@ jobs:
       - run: npm ci
       - run: npm test
       - run: npm run build
+
+  humo-navegador:
+    # Arranque real en Chromium sin ventana: crea el personaje, entra a la partida y guarda.
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Audio en Git LFS
+        run: git lfs pull --include="public/audio/*"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: npx playwright test smoke.spec.js
+        env:
+          CI: true
