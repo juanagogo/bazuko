@@ -50,7 +50,7 @@ Estos eventos disparan audio o efectos desde la lógica; irían por `net/EventBu
 
 1. ~~`PlayerView` en aves y ratas~~ (hecho; ver el plan).
 2. ~~Peatones (susto, huida)~~ (hecho).
-3. Tráfico y semáforos (frenan ante cualquiera).
-4. Policía y persecución (la parte con más reglas).
+3. ~~Tráfico y semáforos~~ (el tráfico no depende del jugador; reaparición y conductores migrados).
+4. ~~Policía y persecución~~ (la patrulla despachada va tras su jugador; hecho).
 5. Sacar el estado de jugador de `Simulation` a `PlayerSession`.
 6. Emitir los eventos por el `EventBus` en paralelo y retirar las llamadas directas cuando coincidan.

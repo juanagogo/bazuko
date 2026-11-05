@@ -23,6 +23,8 @@ using namespace Bazuko;
 
 namespace {
 
+const glm::vec3 kSecondPlayer(300.0f, 0.0f, 100.0f);   // La Candelaria, a ~190 m del primero
+
 struct Hasher {
     uint64_t value = 1469598103934665603ull;   // FNV-1a de 64 bits
     void Bytes(const void* data, size_t size) {
@@ -132,6 +134,31 @@ int main(int argc, char** argv) {
         std::printf("Dos jugadores: %zu peatones en total, %d junto al primero y %d junto al segundo\n", two->GetPedestrianCount(), aroundFirst, aroundSecond);
         if (aroundFirst < 1 || aroundSecond < 1) { status = 1; std::printf("FALLO: los peatones no aparecen alrededor de los dos jugadores\n"); }
         delete two;
+    }
+
+    // Policia: la patrulla despachada por el delito del SEGUNDO jugador va tras el segundo, aunque el primero este mas cerca de ella
+    {
+        Simulation sim(city, seed);
+        Net::PlayerView one, two;
+        one.id = 1; one.position = {player.x, player.y, player.z};
+        two.id = 2; two.position = {kSecondPlayer.x, kSecondPlayer.y, kSecondPlayer.z};
+        constexpr float dt = 1.0f / 30.0f;
+        for (float time = 0.0f; time < 5.0f; time += dt) sim.Update(dt, std::vector<Net::PlayerView>{one, two});
+        const bool called = sim.CallPolice(kSecondPlayer, 1.0f, 2);
+        size_t chosen = static_cast<size_t>(-1);   // la patrulla que quedo despachada (si ninguna, se mira a todas)
+        for (size_t i = 0; i < sim.GetTrafficVehicles().size(); ++i) if (sim.GetTrafficVehicles()[i].driver.dispatched) chosen = i;
+        float minToFirst = 1.0e9f, minToSecond = 1.0e9f;
+        for (float time = 0.0f; time < 150.0f; time += dt) {
+            sim.Update(dt, std::vector<Net::PlayerView>{one, two});
+            for (size_t i = 0; i < sim.GetTrafficVehicles().size(); ++i) {
+                const TrafficVehicle& vehicle = sim.GetTrafficVehicles()[i];
+                if (vehicle.emergency != 2 || (chosen != static_cast<size_t>(-1) && i != chosen)) continue;
+                minToFirst = std::min(minToFirst, glm::distance(glm::vec2(vehicle.position.x, vehicle.position.z), glm::vec2(one.position.x, one.position.z)));
+                minToSecond = std::min(minToSecond, glm::distance(glm::vec2(vehicle.position.x, vehicle.position.z), glm::vec2(two.position.x, two.position.z)));
+            }
+        }
+        std::printf("Policia: CallPolice(segundo jugador) = %d; la patrulla llego a %.1f m del segundo y a %.1f m del primero\n", called, minToSecond, minToFirst);
+        if (!called || minToSecond > 30.0f) { status = 1; std::printf("FALLO: la patrulla no acudio al segundo jugador\n"); }
     }
 
     if (first != second) {

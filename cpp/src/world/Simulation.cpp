@@ -3113,6 +3113,24 @@ glm::vec3 Simulation::NearestPlayerPosition(const glm::vec3& at, const glm::vec3
     return nearest ? glm::vec3(nearest->position.x, nearest->position.y, nearest->position.z) : fallback;
 }
 
+glm::vec3 Simulation::PlayerPositionById(uint8_t id, const glm::vec3& fallback) const {
+    if (m_PlayerViews.empty()) return fallback;
+    const Net::PlayerView* found = &m_PlayerViews.front();   // 0 = el primero
+    if (id != 0) {
+        found = nullptr;
+        for (const Net::PlayerView& player : m_PlayerViews) if (player.id == id) { found = &player; break; }
+        if (!found) return NearestPlayerPosition(fallback, fallback);   // ya no esta: el mas cercano al sitio donde se le perdio
+    }
+    return glm::vec3(found->position.x, found->position.y, found->position.z);
+}
+
+float Simulation::NearestPlayerDistanceXZ(const glm::vec3& at) const {
+    float best = 1.0e9f;
+    for (const Net::PlayerView& player : m_PlayerViews)
+        if (player.alive) best = std::min(best, glm::distance(glm::vec2(at.x, at.z), glm::vec2(player.position.x, player.position.z)));
+    return best;
+}
+
 bool Simulation::NearAnyPlayer(const glm::vec3& at, float distance) const {
     for (const Net::PlayerView& player : m_PlayerViews)
         if (player.alive && glm::distance(at, glm::vec3(player.position.x, player.position.y, player.position.z)) <= distance) return true;
@@ -3199,7 +3217,7 @@ bool Simulation::ProvokeDriver(size_t index) {
     return true;
 }
 
-bool Simulation::CallPolice(const glm::vec3& at, float chance) {
+bool Simulation::CallPolice(const glm::vec3& at, float chance, uint8_t byPlayer) {
     size_t best = m_Traffic.size();
     float bestDistance = 1.0e9f;   // acude la patrulla mas cercana sea cual sea la distancia
     for (size_t index = 0; index < m_Traffic.size(); ++index) {
@@ -3229,6 +3247,7 @@ bool Simulation::CallPolice(const glm::vec3& at, float chance) {
             called.dispatched = true;
             called.siren = true;
             called.dispatchTime = 0.0f;
+            called.targetPlayer = byPlayer;
         }
         return true;
     }
@@ -3418,7 +3437,6 @@ constexpr float kUnseenDistance = 150.0f;   // los vehiculos se dibujan hasta 14
 
 void Simulation::RespawnAbandoned(TrafficVehicle& vehicle) {
     if (m_TrafficRoutes.empty()) return;
-    const glm::vec2 player(m_LastPlayerPosition.x, m_LastPlayerPosition.z);
     for (int attempt = 0; attempt < 40; ++attempt) {
         const size_t routeIndex = static_cast<size_t>(m_Unit(m_Random) * static_cast<float>(m_TrafficRoutes.size())) % m_TrafficRoutes.size();
         const std::vector<float>& cumulative = m_RouteCumulative[routeIndex];
@@ -3427,7 +3445,7 @@ void Simulation::RespawnAbandoned(TrafficVehicle& vehicle) {
         glm::vec3 position, direction;
         size_t waypoint = 0;
         SampleCircuit(m_TrafficRoutes[routeIndex], cumulative, length, distance, position, direction, waypoint);
-        if (glm::distance(glm::vec2(position.x, position.z), player) < kUnseenDistance) continue;   // reaparece solo fuera de la vista del jugador
+        if (NearestPlayerDistanceXZ(position) < kUnseenDistance) continue;   // reaparece solo fuera de la vista de todos los jugadores
         bool free = true;
         for (const TrafficVehicle& other : m_Traffic) {
             if (&other != &vehicle && glm::distance(other.position, position) < 9.0f) { free = false; break; }
@@ -3597,7 +3615,7 @@ void Simulation::UpdateDrivers(float dt, const glm::vec3& playerPosition) {
         const bool moto = vehicle.emergency == 3;
         const float enterLength = moto ? 2.0f : 4.5f;           // BikeMount 48 f / CarEnter 108 f
         const float exitLength = moto ? 2.5f : 5.75f;           // BikeDismount 60 f / CarExit 138 f
-        const float playerDistance = glm::distance(glm::vec2(vehicle.position.x, vehicle.position.z), glm::vec2(playerPosition.x, playerPosition.z));
+        const float playerDistance = NearestPlayerDistanceXZ(vehicle.position);   // al jugador mas cercano (con uno solo, a ese)
         glm::vec3 pose;
         float yaw = 0.0f;
         VehiclePose(vehicle, pose, yaw);
@@ -3648,11 +3666,13 @@ void Simulation::UpdateDrivers(float dt, const glm::vec3& playerPosition) {
                     driver.passengerShade = m_Unit(m_Random) * 2.0f;
                 }
                 if (driver.dispatched) {   // acude manejando por las calles, mas rapido que el trafico, hasta llegar al jugador
+                    const glm::vec3 chasePosition = PlayerPositionById(driver.targetPlayer, playerPosition);   // su jugador, no el mas cercano
+                    const float chaseDistance = glm::distance(glm::vec2(vehicle.position.x, vehicle.position.z), glm::vec2(chasePosition.x, chasePosition.z));
                     driver.dispatchTime += dt;
                     driver.pathAge += dt;
                     driver.boost = std::max(driver.boost, 0.5f);
                     const bool atEnd = driver.pathMode == 1 && vehicle.distance >= driver.pathLength - 1.0f;
-                    if (playerDistance < 16.0f || (atEnd && playerDistance < 120.0f)) {   // llego (o es lo mas cerca que llega la calle): frena y se baja
+                    if (chaseDistance < 16.0f || (atEnd && chaseDistance < 120.0f)) {   // llego (o es lo mas cerca que llega la calle): frena y se baja
                         driver.dispatched = false;
                         vehicle.holdStop = true;
                         driver.state = DriverState::Braking;
@@ -3661,11 +3681,11 @@ void Simulation::UpdateDrivers(float dt, const glm::vec3& playerPosition) {
                         driver.dispatched = false;
                         driver.siren = false;
                         driver.boost = 0.0f;
-                    } else if (driver.pathMode != 1 || (driver.pathAge > 4.0f && glm::distance(glm::vec2(driver.pathGoal.x, driver.pathGoal.z), glm::vec2(playerPosition.x, playerPosition.z)) > 12.0f)) {
+                    } else if (driver.pathMode != 1 || (driver.pathAge > 4.0f && glm::distance(glm::vec2(driver.pathGoal.x, driver.pathGoal.z), glm::vec2(chasePosition.x, chasePosition.z)) > 12.0f)) {
                         std::vector<glm::vec3> path;   // traza (o corrige) el camino hacia donde esta el jugador ahora
-                        if (PlanRoadPath(vehicle.position, vehicle.direction, playerPosition, true, path)) {
+                        if (PlanRoadPath(vehicle.position, vehicle.direction, chasePosition, true, path)) {
                             FollowPath(vehicle, std::move(path), 1);
-                            driver.pathGoal = playerPosition;
+                            driver.pathGoal = chasePosition;
                         } else if (driver.pathMode != 1) {   // sin camino por la calle: no puede acudir
                             driver.dispatched = false;
                             driver.siren = false;

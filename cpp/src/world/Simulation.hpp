@@ -115,6 +115,7 @@ struct DriverInfo {
     float shade = 0.0f;                      // tono del pelo y desfase de animacion (animationOffset del peaton)
     float idle = 0.0f;                       // s que lleva a pie sin pelear ni huir (si pasa de 1,5 s vuelve al vehiculo)
     // Acompanante del asiento delantero: si el conductor muere, pasa a manejar
+    uint8_t targetPlayer = 0;                // a quien acude la patrulla despachada (id de PlayerView; 0 = el primero)
     bool dispatched = false;                 // la patrulla acude desde lejos con la sirena encendida (conduce hasta acercarse al jugador)
     bool siren = false;                      // sirena encendida: desde que sale a atender el delito hasta que frena para bajarse
     float dispatchTime = 0.0f;               // s que lleva acudiendo (si pasa de 3 min se rinde)
@@ -432,7 +433,8 @@ public:
     bool ProvokeDriver(size_t index);
     // Delito del jugador en `at` (robo de retrovisor, cosquilleo, robo directo o golpear a un peaton): con probabilidad `chance` alguien llama a la policia y,
     // si hay una patrulla libre a menos de 55 m, frena, se baja con su companero y persigue al jugador hasta que este se aleja. Devuelve true si salio una patrulla.
-    bool CallPolice(const glm::vec3& at, float chance);
+    // `at` es donde esta quien delinque y `byPlayer` su id (0 = el primero): la patrulla despachada va tras ese jugador aunque haya otros mas cerca
+    bool CallPolice(const glm::vec3& at, float chance, uint8_t byPlayer = 0);
     // Sonidos de la policia para el audio: posiciones de las sirenas encendidas y eventos puntuales (parada de sirena, radio), que se entregan una sola vez
     std::vector<glm::vec3> GetSirenPositions() const;
     std::vector<PoliceSound> ConsumePoliceSounds();
@@ -577,6 +579,8 @@ private:
     const Net::PlayerView* NearestPlayerTo(const glm::vec3& at) const;   // el jugador vivo mas cercano (nullptr si no hay)
     glm::vec3 NearestPlayerPosition(const glm::vec3& at, const glm::vec3& fallback) const;
     bool NearAnyPlayer(const glm::vec3& at, float distance) const;
+    glm::vec3 PlayerPositionById(uint8_t id, const glm::vec3& fallback) const;   // id 0 = el primero; si no existe, `fallback`
+    float NearestPlayerDistanceXZ(const glm::vec3& at) const;   // distancia en el plano al jugador vivo mas cercano (1e9 si no hay)
     void UpdateDrivers(float dt, const glm::vec3& playerPosition);
     void AssignVehicleModel(TrafficVehicle& vehicle);
     void OnDriverDeath(size_t index);                   // el conductor murio: pasa el acompanante o queda abandonado
