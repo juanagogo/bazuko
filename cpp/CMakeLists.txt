@@ -278,6 +278,31 @@ target_include_directories(bazuko_traffic_test PRIVATE src third_party/include t
 target_compile_definitions(bazuko_traffic_test PRIVATE BAZUKO_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
 target_link_libraries(bazuko_traffic_test PRIVATE glfw glm::glm glad imgui Threads::Threads opusfile assimp ${BAZUKO_WEBP_TARGET} ${CMAKE_DL_LIBS})
 
+# Protocolo de red del multijugador (puro, sin red ni GPU): serializacion de bits, mensajes y simulador de latencia/perdida
+add_executable(bazuko_netprotocol_test tests/NetProtocolTest.cpp)
+target_include_directories(bazuko_netprotocol_test PRIVATE src)
+add_test(NAME bazuko_netprotocol COMMAND bazuko_netprotocol_test)
+
+# Multijugador (ver docs/plan-multijugador.md): transporte UDP con ENet, servidor de juguete y bots. Apagado por defecto: el juego no lo usa todavia.
+#   cmake -S cpp -B build -DBAZUKO_NET=ON   y luego  build\\Release\\bazuko_net_bots.exe --servidor
+option(BAZUKO_NET "Compilar el transporte de red (ENet), las pruebas de red y los bots" OFF)
+if(BAZUKO_NET)
+    FetchContent_Declare(enet GIT_REPOSITORY https://github.com/lsalzman/enet.git GIT_TAG v1.3.18 GIT_SHALLOW TRUE)
+    FetchContent_MakeAvailable(enet)
+    add_library(bazuko_net STATIC src/net/Transport.cpp src/net/ToyWorld.cpp)
+    target_include_directories(bazuko_net PUBLIC src ${enet_SOURCE_DIR}/include)
+    target_link_libraries(bazuko_net PUBLIC enet)
+    if(WIN32)
+        target_link_libraries(bazuko_net PUBLIC ws2_32 winmm)
+    endif()
+    add_executable(bazuko_netloopback_test tests/NetLoopbackTest.cpp)
+    target_link_libraries(bazuko_netloopback_test PRIVATE bazuko_net)
+    add_test(NAME bazuko_netloopback COMMAND bazuko_netloopback_test)
+    set_tests_properties(bazuko_netloopback PROPERTIES TIMEOUT 120)
+    add_executable(bazuko_net_bots tools/NetBots.cpp)
+    target_link_libraries(bazuko_net_bots PRIVATE bazuko_net)
+endif()
+
 # Linea base de la simulacion (ventana oculta para el contexto GL): determinismo con semilla fija, hash del estado y tamano de una instantanea de red.
 #   build\Release\bazuko_simulation_hash_test.exe [segundos] [semilla] [--esperado HEX] [--medir]
 add_executable(bazuko_simulation_hash_test
