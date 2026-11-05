@@ -147,9 +147,9 @@ add_executable(bazuko
     src/renderer/Buffer.cpp src/renderer/VertexArray.cpp src/renderer/Shader.cpp
     src/renderer/Mesh.cpp src/renderer/Camera.cpp src/renderer/Renderer.cpp
     src/renderer/Texture.cpp src/renderer/Model.cpp
-    src/ui/UIManager.cpp src/ui/SignStyle.cpp src/ui/CharacterCreatorUI.cpp
+    src/ui/UIManager.cpp src/ui/SignStyle.cpp src/ui/Carton.cpp src/ui/Costal.cpp src/ui/HudCarton.cpp src/ui/Halftone.cpp src/ui/WebPanels.cpp src/ui/CharacterCreatorUI.cpp
     src/character/CharacterManager.cpp src/character/CharacterPreview.cpp src/character/Ragdoll.cpp
-    src/world/CityLayout.cpp src/world/Simulation.cpp src/world/BirdFlock.cpp
+    src/world/CityLayout.cpp src/world/Simulation.cpp src/world/BirdFlock.cpp src/world/Lake.cpp src/world/Decals.cpp
     src/world/TextRaster.cpp src/world/SignAtlas.cpp
     src/game/GameData.cpp src/game/Harvest.cpp
     src/audio/RadioSynth.cpp src/world/SafeSpawn.cpp
@@ -165,6 +165,10 @@ if(WIN32)
 endif()
 target_include_directories(bazuko PRIVATE src third_party/include third_party/glad/include ${BAZUKO_WEBP_INCLUDE_DIR})
 target_compile_definitions(bazuko PRIVATE BAZUKO_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
+if(MSVC)
+    # cadenas en UTF-8 solo para el juego (las dependencias traen sus propias opciones): sin esto, los textos de Simulation.cpp, que lleva BOM, salian en CP1252 y se dibujaban con «?»
+    target_compile_options(bazuko PRIVATE /utf-8)
+endif()
 if(MINGW)
     target_link_options(bazuko PRIVATE -static -static-libgcc -static-libstdc++)
 endif()
@@ -176,7 +180,7 @@ if(BAZUKO_BUILD_OPUS_TESTS)
     add_executable(bazuko_opus_audio_test tests/OpusAudioTest.cpp)
     target_link_libraries(bazuko_opus_audio_test PRIVATE opusfile)
     target_compile_definitions(bazuko_opus_audio_test PRIVATE
-        BAZUKO_TEST_AUDIO_DIR="${CMAKE_CURRENT_SOURCE_DIR}/../public/audio"
+        BAZUKO_TEST_AUDIO_DIR="${CMAKE_CURRENT_SOURCE_DIR}/public/audio"
     )
     add_test(NAME bazuko_opus_audio COMMAND bazuko_opus_audio_test)
 endif()
@@ -232,6 +236,20 @@ add_executable(bazuko_viaduct_test tests/ViaductTest.cpp)
 target_include_directories(bazuko_viaduct_test PRIVATE src)
 target_link_libraries(bazuko_viaduct_test PRIVATE glm::glm)
 add_test(NAME bazuko_viaduct COMMAND bazuko_viaduct_test)
+add_executable(bazuko_bicycle_test tests/BicycleTest.cpp)
+target_include_directories(bazuko_bicycle_test PRIVATE src)
+target_link_libraries(bazuko_bicycle_test PRIVATE glm::glm)
+add_test(NAME bazuko_bicycle COMMAND bazuko_bicycle_test)
+
+add_executable(bazuko_climate_test tests/ClimateTest.cpp)
+target_include_directories(bazuko_climate_test PRIVATE src)
+target_link_libraries(bazuko_climate_test PRIVATE glm::glm)
+add_test(NAME bazuko_climate COMMAND bazuko_climate_test)
+
+add_executable(bazuko_gps_test tests/GpsTest.cpp)
+target_include_directories(bazuko_gps_test PRIVATE src)
+target_link_libraries(bazuko_gps_test PRIVATE glm::glm)
+add_test(NAME bazuko_gps COMMAND bazuko_gps_test)
 
 # Resolucion adaptativa (calidad efectiva bajo carga)
 add_executable(bazuko_adaptive_test tests/AdaptiveResolutionTest.cpp)
@@ -252,7 +270,7 @@ add_executable(bazuko_traffic_test
     src/renderer/Buffer.cpp src/renderer/VertexArray.cpp src/renderer/Shader.cpp
     src/renderer/Mesh.cpp src/renderer/Camera.cpp src/renderer/Renderer.cpp
     src/renderer/Texture.cpp src/renderer/Model.cpp
-    src/world/CityLayout.cpp src/world/Simulation.cpp src/world/BirdFlock.cpp
+    src/world/CityLayout.cpp src/world/Simulation.cpp src/world/BirdFlock.cpp src/world/Lake.cpp src/world/Decals.cpp
     src/world/TextRaster.cpp src/world/SignAtlas.cpp
     src/game/GameData.cpp src/game/Harvest.cpp
 )
@@ -269,7 +287,7 @@ add_executable(bazuko_spawn_city_test
     src/renderer/Buffer.cpp src/renderer/VertexArray.cpp src/renderer/Shader.cpp
     src/renderer/Mesh.cpp src/renderer/Camera.cpp src/renderer/Renderer.cpp
     src/renderer/Texture.cpp src/renderer/Model.cpp
-    src/world/CityLayout.cpp src/world/Simulation.cpp src/world/BirdFlock.cpp
+    src/world/CityLayout.cpp src/world/Simulation.cpp src/world/BirdFlock.cpp src/world/Lake.cpp src/world/Decals.cpp
     src/world/TextRaster.cpp src/world/SignAtlas.cpp
     src/game/GameData.cpp src/game/Harvest.cpp
 )
@@ -280,11 +298,12 @@ target_link_libraries(bazuko_spawn_city_test PRIVATE glfw glm::glm glad imgui Th
 add_custom_command(TARGET bazuko POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_directory "${CMAKE_CURRENT_SOURCE_DIR}/assets" "$<TARGET_FILE_DIR:bazuko>/assets"
 )
-# Los modelos y el audio se copian junto al ejecutable solo si se pide (el juego tambien los busca en ../public).
-option(BAZUKO_COPY_PUBLIC "Copiar public/ junto al ejecutable (portable, ~50 MB)" OFF)
-if(BAZUKO_COPY_PUBLIC AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/../public")
+# Los modelos, el audio y las imagenes viven en cpp/public (los reune tools/reunir_recursos.py); se copian junto al ejecutable solo si se pide,
+# porque el juego los encuentra solo subiendo desde el ejecutable hasta cpp/.
+option(BAZUKO_COPY_PUBLIC "Copiar public/ junto al ejecutable (portable, ~350 MB)" OFF)
+if(BAZUKO_COPY_PUBLIC AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/public")
     add_custom_command(TARGET bazuko POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E copy_directory "${CMAKE_CURRENT_SOURCE_DIR}/../public" "$<TARGET_FILE_DIR:bazuko>/public")
+        COMMAND ${CMAKE_COMMAND} -E copy_directory "${CMAKE_CURRENT_SOURCE_DIR}/public" "$<TARGET_FILE_DIR:bazuko>/public")
 endif()
 
 if(WIN32 AND DEFINED ENV{WEBP_ROOT})

@@ -14,16 +14,25 @@ struct Vertex {
     glm::vec4 color{1.0f, 1.0f, 1.0f, 1.0f};
     glm::vec4 joints{0.0f};
     glm::vec4 weights{0.0f};
+    glm::vec4 tangent{1.0f, 0.0f, 0.0f, 1.0f};   // xyz tangente (direccion de U) y w signo de la bitangente: base TBN de los mapas de normales
 };
 
 class Mesh {
 public:
-    Mesh(const std::vector<Vertex>& vertices, const std::vector<uint32_t>& indices);
+    // generateTangents: calcula las tangentes a partir de las UV (solo hace falta si el material trae mapa de normales)
+    Mesh(const std::vector<Vertex>& vertices, const std::vector<uint32_t>& indices, bool generateTangents = false);
     ~Mesh() = default;
 
     void Draw() const;
 
     uint32_t GetIndexCount() const { return m_IndexCount; }
+    // Esfera que envuelve la malla (centro y radio en su espacio local): sirve para descartar sombras fuera de alcance
+    // Con s_KeepPositions activo al construirla, la malla conserva sus posiciones (carrocerias de vehiculos: se miden sus retrovisores)
+    static inline bool s_KeepPositions = false;
+    const std::vector<glm::vec3>& GetPositions() const { return m_Positions; }
+    const std::vector<uint32_t>& GetIndices() const { return m_KeptIndices; }   // solo con s_KeepPositions: sirve para lanzar rayos contra la malla
+    const glm::vec3& GetBoundsCenter() const { return m_BoundsCenter; }
+    float GetBoundsRadius() const { return m_BoundsRadius; }
 
     // Procedural primitive factories
     static std::shared_ptr<Mesh> CreateCube(const glm::vec3& size = glm::vec3(1.0f), const glm::vec4& color = glm::vec4(1.0f));
@@ -36,6 +45,10 @@ private:
     std::unique_ptr<IndexBuffer> m_EBO;
     std::unique_ptr<VertexArray> m_VAO;
     uint32_t m_IndexCount = 0;
+    std::vector<glm::vec3> m_Positions;
+    std::vector<uint32_t> m_KeptIndices;
+    glm::vec3 m_BoundsCenter{0.0f};
+    float m_BoundsRadius = 0.0f;
 };
 
 } // namespace Bazuko

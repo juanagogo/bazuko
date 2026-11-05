@@ -21,7 +21,7 @@ public:
     static constexpr int kShopSigns = 16;
     static constexpr int kTags = 8;
     static constexpr int kNotes = 8;
-    static constexpr int kLandmarks = 10;   // gasolinera (4), D69, estacion Portal del Centro (2) y torre Colpatria (3)
+    static constexpr int kLandmarks = 17;   // gasolinera (4), D69, estacion Portal del Centro (2) y torre Colpatria (3)
 
     // Placas blancas de nomenclatura vial (Calle 10, Carrera 15, Av. Caracas...) y de parques; indices en `StreetNames()`.
     static const std::vector<std::string>& StreetNames();
