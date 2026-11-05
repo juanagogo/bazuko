@@ -22,6 +22,15 @@ const BARK_COOLDOWN = 7;
 const PET_COOLDOWN = 20;
 const LEG = .4; // largo de la pata del modelo, para que la zancada no deslice
 const HOME_RADIUS = 5;
+/** Metros a los que El Chato oye venir una patrulla, y cada cuánto vuelve a avisar. */
+export const DOG_POLICE_ALERT = 32;
+const POLICE_BARK_COOLDOWN = 15;
+/** Metros a los que se da cuenta de que alguien llama a la Policía, y a cuánto lo espanta. */
+export const DOG_CALLER_ALERT = 18;
+const CALLER_SCARE = 1.4;
+const CALLER_CHASE_SECONDS = 8;
+/** Metros alrededor del cambuche donde se le puede pedir que lo cuide. */
+export const DOG_GUARD_RANGE = 8;
 
 // Desfase de cada pata en el ciclo según la marcha (FL, FR, HL, HR).
 const GAITS = [
@@ -81,6 +90,11 @@ export class Dog {
     this._wanderPause = 2;
     this._phase = 0;
     this._posture = { sit: 0, lie: 0, sniff: 0, alert: 0 };
+    this.guarding = null;          // sitio del cambuche que cuida; null si sigue al jugador
+    this.cambucheCerca = false;    // lo pone el juego: el jugador está junto al cambuche
+    this._caller = null;           // testigo al que va a espantar
+    this._callerTime = 0;
+    this._lastPoliceBark = -Infinity;
     this._lookAt = null;
     this._delta = new THREE.Vector3();
 
@@ -174,6 +188,16 @@ export class Dog {
     return this.position.distanceTo(playerPosition) < 6 ? .1 : 0;
   }
 
+  /** Se queda cuidando el cambuche: no sigue al jugador y espanta a los ladrones mientras duerme. */
+  guard(position) {
+    if (!this.isFriend || !position) return false;
+    this.guarding = position.clone();
+    this._caller = null;
+    return true;
+  }
+
+  stopGuarding() { this.guarding = null; }
+
   bark(reason = '¡Guau!') {
     if (this.time - this._lastBarkTime < BARK_COOLDOWN) return false;
     this._lastBarkTime = this.time;
@@ -185,7 +209,7 @@ export class Dog {
     return true;
   }
 
-  update(dt, playerPosition, pickups = [], npcs = []) {
+  update(dt, playerPosition, pickups = [], npcs = [], { patrols = [], wanted = 0 } = {}) {
     this.time += dt;
     this._petCooldown = Math.max(0, this._petCooldown - dt);
     this._happy = Math.max(0, this._happy - dt * .25);
@@ -196,6 +220,32 @@ export class Dog {
 
     if (this.sleeping) {
       this.state = 'sleep';
+    } else if (this.isFriend && this.guarding) {
+      // Cuidando: vuelve a su puesto y mira a quien se arrima.
+      const dist = Math.hypot(this.guarding.x - this.position.x, this.guarding.z - this.position.z);
+      if (dist > 1.2) { goal = this.guarding; desiredSpeed = dist > 6 ? 3.6 : 1.5; this.state = 'guard'; }
+      else {
+        this.state = 'idle';
+        const near = npcs.find(npc => npc?.position && !npc.koState && npc.position.distanceTo(this.position) < 4);
+        if (near) { this._lookAt = near.position; this._posture.alert = 1; }
+      }
+    } else if (this.isFriend && playerPosition && this._caller) {
+      // Se le va encima a quien llama a la Policía; si lo alcanza, cuelga y sale corriendo.
+      const npc = this._caller;
+      this._callerTime += dt;
+      if (npc.witnessing !== 'llamar' || this._callerTime > CALLER_CHASE_SECONDS || npc.koState) this._caller = null;
+      else if (npc.position.distanceTo(this.position) <= CALLER_SCARE) {
+        npc.stopWitness?.();
+        npc._fleeFrom?.(this.position);
+        npc.say?.('¡Quíteme ese perro!');
+        this._caller = null;
+        this.bark('¡Espantó a quien llamaba a la Policía!');
+        window.dispatchEvent(new CustomEvent('dog-scared-caller'));
+      } else {
+        goal = npc.position;
+        desiredSpeed = 7;
+        this.state = 'chase';
+      }
     } else if (this.isFriend && playerPosition) {
       const dist = Math.hypot(playerPosition.x - this.position.x, playerPosition.z - this.position.z);
       // Si quedó muy atrás (bus, viaducto, ruta imposible), aparece cerca del jugador.
@@ -212,6 +262,7 @@ export class Dog {
         this._lookAt = playerPosition;
       }
       this._sniffAndAlert(dt, pickups, npcs);
+      this._watchForThreats(patrols, wanted, npcs);
     } else {
       // Sin dueño: merodea cerca de su lugar, olfatea y mira a quien se acerca.
       const near = playerPosition && playerPosition.distanceTo(this.position) < 4;
@@ -236,6 +287,35 @@ export class Dog {
     this._still = this.speed < .2 && this._hop <= 0 ? this._still + dt : 0;
     this._groundAndPlace();
     this._animate(dt);
+  }
+
+  /** Patrulla cerca con el jugador fichado o perseguido, y testigos con el teléfono en la oreja. */
+  _watchForThreats(patrols, wanted, npcs) {
+    if (this.time - this._lastPoliceBark >= POLICE_BARK_COOLDOWN) {
+      for (const vehicle of patrols) {
+        if (!vehicle?.police || !vehicle.car?.position) continue;
+        if (!(wanted > 0) && vehicle.state !== 'chase') continue;
+        const p = vehicle.car.position;
+        if (Math.hypot(p.x - this.position.x, p.z - this.position.z) > DOG_POLICE_ALERT) continue;
+        this._lookAt = p;
+        this._lastPoliceBark = this.time;
+        this._lastBarkTime = -Infinity; // este aviso pasa por encima de los demás ladridos
+        this.bark('¡Le ladra a una patrulla que viene!');
+        window.dispatchEvent(new CustomEvent('dog-alert', { detail: { kind: 'policia', x: p.x, z: p.z } }));
+        break;
+      }
+    }
+    if (this._caller) return;
+    for (const npc of npcs) {
+      if (npc?.witnessing !== 'llamar' || !npc.position) continue;
+      if (npc.position.distanceTo(this.position) > DOG_CALLER_ALERT) continue;
+      this._caller = npc;
+      this._callerTime = 0;
+      this._lastBarkTime = -Infinity;
+      this.bark('¡Va por alguien que está llamando a la Policía!');
+      window.dispatchEvent(new CustomEvent('dog-alert', { detail: { kind: 'testigo', x: npc.position.x, z: npc.position.z } }));
+      break;
+    }
   }
 
   _sniffAndAlert(dt, pickups, npcs) {
@@ -415,7 +495,8 @@ export class Dog {
   }
 
   restAt(position) {
-    if (!this.isFriend) return;
+    // Cuidando el cambuche se queda en su puesto, aunque el jugador duerma en otra parte.
+    if (!this.isFriend || this.guarding) return;
     this.resetNear(position.clone().add(new THREE.Vector3(1, 0, 0)));
     this.sleeping = true;
     this._posture.lie = 1;

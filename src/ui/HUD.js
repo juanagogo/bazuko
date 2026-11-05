@@ -89,7 +89,10 @@ export function textoDelPrompt(interaction, inventory) {
   if (type === 'shop') return `[E] Comprar en ${interaction.currentTarget.title ?? 'Tienda La Esquinita'}`;
   if (type === 'dog') {
     const hasFood = inventory?.items?.some(item => item.qty > 0 && ['pan', 'lataComida', 'carne', 'hueso'].includes(item.id));
-    if (interaction.currentTarget?.isFriend) return '[E] Acariciar a El Chato';
+    const dog = interaction.currentTarget;
+    if (dog?.isFriend && dog.guarding) return '[E] Llamar a El Chato para que me siga';
+    if (dog?.isFriend && dog.cambucheCerca) return '[E] Pedirle a El Chato que cuide el cambuche';
+    if (dog?.isFriend) return '[E] Acariciar a El Chato';
     return hasFood ? '[E] Darle pan o atún a El Chato para que me siga' : '[E] Acariciar a El Chato · Si le traigo pan o una lata de atún, me sigue';
   }
   if (type === 'cambuche') return '[E] Mi cambuche: armar o dormir';
