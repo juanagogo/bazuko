@@ -235,6 +235,16 @@ export class InteractionSystem {
       window.dispatchEvent(new CustomEvent('toast', {
         detail: { text: `Le di ${ITEMS[foodItem.id]?.name ?? 'comida'} a El Chato. Ahora me acompaña.`, type: 'rare' }
       }));
+    } else if (dog.isFriend && dog.guarding) {
+      dog.stopGuarding();
+      dog.pet();
+      window.dispatchEvent(new CustomEvent('toast', { detail: { text: 'Llamé a El Chato y ya me acompaña otra vez.', type: 'info' } }));
+    } else if (dog.isFriend && dog.cambucheCerca && dog.cambuchePos) {
+      dog.guard(dog.cambuchePos);
+      dog.pet();
+      window.dispatchEvent(new CustomEvent('toast', {
+        detail: { text: 'Le pedí a El Chato que cuidara el cambuche. De noche espanta a los ladrones.', type: 'info' }
+      }));
     } else {
       if (!dog.pet()) return;
       this.stats.saludMental = Math.min(100, this.stats.saludMental + 5);

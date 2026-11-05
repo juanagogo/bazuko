@@ -42,6 +42,21 @@ export function estadoBusqueda(distancia, nivel, previo = 'nada') {
   return distancia < (previo === 'encima' ? ENCIMA_SUELTA_M : ENCIMA_M) ? 'encima' : 'detras';
 }
 
+/** Cómo se libró de la patrulla, en primera persona. */
+export function textoDeEscape(razon) {
+  if (razon === 'escondido') return 'Me escondí en el cambuche y no me encontraron';
+  if (razon === 'vista') return 'Me perdieron de vista';
+  return 'Los despisté';
+}
+
+/** El dato bajo el aviso: la distancia si lo ven; si no, que lo buscan y cuánto falta para que desistan. */
+export function datoDePersecucion(info, metros) {
+  if (!info || info.seen !== false) return `Patrulla a ${metros} m`;
+  const s = Math.ceil(info.lostIn ?? 0);
+  if (info.hidden) return `Me escondí: aguante ${s} s`;
+  return `Me buscan: aguante ${s} s sin que me vean`;
+}
+
 /**
  * Un aviso de tecla, en sus piezas: `[E] Recoger basura · [Mantener Q] Seleccionar`.
  * Cada pieza trae su tecla (si tiene) y su verbo; el emoji pasa a dibujo y «Mantener» queda en el verbo.
@@ -74,7 +89,10 @@ export function textoDelPrompt(interaction, inventory) {
   if (type === 'shop') return `[E] Comprar en ${interaction.currentTarget.title ?? 'Tienda La Esquinita'}`;
   if (type === 'dog') {
     const hasFood = inventory?.items?.some(item => item.qty > 0 && ['pan', 'lataComida', 'carne', 'hueso'].includes(item.id));
-    if (interaction.currentTarget?.isFriend) return '[E] Acariciar a El Chato';
+    const dog = interaction.currentTarget;
+    if (dog?.isFriend && dog.guarding) return '[E] Llamar a El Chato para que me siga';
+    if (dog?.isFriend && dog.cambucheCerca) return '[E] Pedirle a El Chato que cuide el cambuche';
+    if (dog?.isFriend) return '[E] Acariciar a El Chato';
     return hasFood ? '[E] Darle pan o atún a El Chato para que me siga' : '[E] Acariciar a El Chato · Si le traigo pan o una lata de atún, me sigue';
   }
   if (type === 'cambuche') return '[E] Mi cambuche: armar o dormir';
@@ -431,8 +449,12 @@ export class HUD {
       } else if (e.detail.caught) this._toast('¡Me pillaron robando!', 'death');
       else if (e.detail.added?.length) this._toast(`Robé: ${e.detail.added.join(', ')}`, 'warn');
     });
-    window.addEventListener('police-escaped', () => {
-      this._toast('Los despisté', 'info');
+    window.addEventListener('police-escaped', (e) => {
+      this._toast(textoDeEscape(e?.detail?.reason), 'info');
+    });
+    window.addEventListener('police-radio', (e) => {
+      this._toast(e?.detail?.reason === 'llamada' ? 'Por la llamada viene una patrulla para acá'
+        : 'Pidieron refuerzos por radio: viene otra patrulla', 'warn');
     });
     window.addEventListener('withdrawal', (e) => {
       if (e.detail.active) this._toast('Me dio malilla: camino más lento y me bajo de ánimo', 'warn');
@@ -682,7 +704,7 @@ export class HUD {
     }
     if (info) {
       const d = info.distance < 30 ? Math.round(info.distance) : Math.round(info.distance / 5) * 5;
-      this._setText(this.wantedDato, `Patrulla a ${d} m`);
+      this._setText(this.wantedDato, datoDePersecucion(info, d));
       if (this.wantedBarra) this._setWidth(this.wantedBarra, Math.round(info.closeness * 100));
     }
   }

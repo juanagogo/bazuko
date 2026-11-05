@@ -35,6 +35,28 @@ test('los FBX de combate se adaptan como Group y producen pistas animadas', asyn
   }
 });
 
+test('los GLB de combate producen exactamente los mismos clips que sus FBX originales', async () => {
+  const files = { fueraCombate: 'fallingdown', golpe_jab: 'combat-jab-cross', reaccion_pecho: 'combat-hit-body', reaccion_cabeza: 'combat-hit-head', provocar: 'combat-taunt', bloquear: 'center-block', golpear: 'assault-hook', patear: 'assault-kick', recibirGolpe: 'assault-hit-react', derribo: 'assault-knockdown', levantarse: 'assault-get-up' };
+  for (const [action, file] of Object.entries(files)) {
+    const fbxBytes = fs.readFileSync(new URL(`../public/models/${file}.fbx`, import.meta.url));
+    const glbBytes = fs.readFileSync(new URL(`../public/models/${file}.glb`, import.meta.url));
+    const fbx = new FBXLoader().parse(fbxBytes.buffer.slice(fbxBytes.byteOffset, fbxBytes.byteOffset + fbxBytes.byteLength), '');
+    const glb = await new GLTFLoader().parseAsync(glbBytes.buffer.slice(glbBytes.byteOffset, glbBytes.byteOffset + glbBytes.byteLength), '');
+    assert.ok(glbBytes.length < fbxBytes.length / 2, `${file}.glb pesa menos de la mitad que el FBX`);
+    const expected = buildCharacterClips(await bank(), null, null, { assault: { [action]: fbx } });
+    const actual = buildCharacterClips(await bank(), null, null, { assault: { [action]: glb } });
+    assert.deepEqual(Object.keys(actual), Object.keys(expected));
+    for (const name of Object.keys(expected)) {
+      assert.equal(actual[name].duration, expected[name].duration);
+      assert.deepEqual(actual[name].tracks.map(t => t.name), expected[name].tracks.map(t => t.name));
+      actual[name].tracks.forEach((track, i) => {
+        assert.deepEqual([...track.times], [...expected[name].tracks[i].times]);
+        assert.deepEqual([...track.values], [...expected[name].tracks[i].values]);
+      });
+    }
+  }
+});
+
 test('banco ActionForge incluye solo ocho clips y esqueleto, sin ropa ni texturas duplicadas', async () => {
   const data = fs.readFileSync(path);
   const json = JSON.parse(data.subarray(20, 20 + data.readUInt32LE(12)));

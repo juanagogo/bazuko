@@ -127,6 +127,31 @@ test('nada se tapa: Envión con Energía, tecla con Envión, y la tecla no va so
   }
 });
 
+test('el cartel de la zona no pisa el objetivo, la misión ni la plata', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await readyGame(page);
+  // El nombre más largo, con el objetivo y la misión arriba a la vez.
+  await page.evaluate(() => {
+    const cartel = document.getElementById('zona-cartel');
+    cartel.textContent = 'Parque Tercer Milenio';
+    cartel.hidden = false;
+    window.__game.zonaAviso && (window.__game.zonaAviso._restante = 60);
+    const mision = document.getElementById('mision');
+    mision.textContent = 'TOCA JUNTAR 8 CARTONES';
+    mision.hidden = false;
+  });
+  for (const [width, height] of [[1024, 640], [1280, 720], [1440, 900], [1920, 1080]]) {
+    await page.setViewportSize({ width, height });
+    await cuadros(page);
+    const cartel = await caja(page, '#zona-cartel');
+    expect(cartel, `cartel a ${width}`).not.toBeNull();
+    for (const otro of ['#objetivo', '#mision', '#topbar']) {
+      expect(seTocan(cartel, await caja(page, otro)), `${otro} a ${width}`).toBe(false);
+    }
+    expect(cartel.right <= width && cartel.left >= 0, `dentro de la pantalla a ${width}`).toBe(true);
+  }
+});
+
 test('las filas críticas de Higiene y Vicio dicen qué hacer donde caben', async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 800 });
   await readyGame(page);

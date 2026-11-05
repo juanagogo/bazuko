@@ -23,6 +23,19 @@ export const CARJACK = {
   xp: 25
 };
 
+/** Tiempos (s) de subir y bajar: caminar hasta la puerta, abrirla o sacar al conductor, meterse; y al revés. */
+export const BOARDING = {
+  walkSpeed: 2.2,      // m/s hasta la puerta
+  maxWalk: .7,         // s como máximo; si queda lejos se acorta el paso
+  force: .45,          // forzar la puerta de un estacionado
+  pull: .6,            // sacar a la fuerza al conductor
+  slip: .3,            // agacharse y entrar al asiento
+  stepOut: .45,        // bajarse y alejarse un paso
+  duck: .22            // m que baja el cuerpo al meterse
+};
+
+const smooth = t => t * t * (3 - 2 * t);
+
 const box = new THREE.Box3();
 
 /** Distancia horizontal desde un punto hasta la carrocería orientada de un carro. */
@@ -53,6 +66,7 @@ export class CarjackSystem {
     this._savedCameraDistance = null;
     this._audioEntry = { car: null, speed: 0, personBlocked: false };
     this._dom = null;
+    this.transition = null; // subir o bajar en curso: { kind, phase, t, ... }
     this._buildUI();
   }
 
@@ -108,6 +122,11 @@ export class CarjackSystem {
   update(dt, input) {
     this.cooldown = Math.max(0, this.cooldown - dt);
     this.prompt = null;
+    if (this.transition) {
+      // Mientras sube o baja nada lo interrumpe: ni el movimiento a pie ni el volante.
+      this._animateTransition(dt);
+      return true;
+    }
     if (this.car) {
       // Cada pulsación se consume una sola vez: no hace falta enfriamiento para bajarse.
       if (input.consumePress(CARJACK.key)) {
@@ -130,7 +149,7 @@ export class CarjackSystem {
       // El conductor sale corriendo y reclama; el carro deja de seguir su ruta.
       game.audio?.playMovingTheft?.(car);
       game.traffic?.release?.(vehicle);
-      car.setDriverInside?.(false);
+      // El conductor sigue sentado hasta que el jugador lo saca por la puerta (ver _animateTransition).
       if (!game.cars.includes(car)) game.cars.push(car);
       this.speed = 0;
       this._toast('¡Saqué al conductor! El carro es mío.', 'warn');
@@ -144,6 +163,7 @@ export class CarjackSystem {
       }
     }
     this._raiseWanted();
+    game.witnesses?.report?.('carro');
     game.stats?.addXP?.(CARJACK.xp, game.talents);
     this.car = car;
     this.stolen = car;
@@ -152,17 +172,17 @@ export class CarjackSystem {
     if (car.marker) car.marker.visible = false;
     car.setNight?.(game.clock?.isNight ?? false, game.weather?.isRaining ?? false);
     game.traffic?.setParkedCars?.(game.cars);
-    if (game.player?.root) game.player.root.visible = false;
     game.player?.velocity?.set?.(0, 0, 0);
+    this._startBoarding(car, !!vehicle);
     const rig = game.cameraRig;
     if (rig) {
       this._savedCameraDistance ??= rig.distance;
       rig.distance = CARJACK.cameraDistance;
-      if (rig.mode === 'third-person') rig.yaw = car.group.rotation.y - Math.PI / 2;
+      // Sin subir animado (pruebas, sin cuerpo) la cámara salta detrás; si no, gira mientras se sube.
+      if (rig.mode === 'third-person' && !this.transition) rig.yaw = car.group.rotation.y - Math.PI / 2;
     }
     this.cooldown = CARJACK.cooldown;
-    this._syncPlayer();
-    if (this._dom) this._dom.hud.hidden = false;
+    if (!this.transition) this._finishBoarding();
     this._emit('carjack', { car, fromTraffic: !!vehicle });
   }
 
@@ -183,11 +203,22 @@ export class CarjackSystem {
     player.position.set(car.position.x + spot[0], car.position.y, car.position.z + spot[1]);
     const ground = this._ground(player.position.x, player.position.z, car.position.y);
     if (Number.isFinite(ground)) player.position.y = ground;
+    player.velocity?.set?.(0, 0, 0);
+    // Sale desde la puerta, agachado, y da un paso hasta el sitio libre.
+    const length = Math.hypot(spot[0], spot[1]) || 1, inward = Math.min(.45, length * .5);
+    const from = player.position.clone();
+    from.x -= spot[0] / length * inward; from.z -= spot[1] / length * inward;
+    const to = player.position.clone();
+    this.transition = { kind: 'exit', phase: 'stepOut', t: 0, from, to, car,
+      yaw: Math.atan2(spot[0], spot[1]) };
     if (player.root) {
-      player.root.position.copy(player.position);
+      player.root.position.copy(from);
+      player.root.position.y -= BOARDING.duck;
+      player.root.rotation.y = this.transition.yaw;
       player.root.visible = true;
     }
-    player.velocity?.set?.(0, 0, 0);
+    player.position.copy(from);
+    car.settle?.(.8);
     car.driven = false;
     car.traffic = false; // queda estacionado: se le pueden robar los espejos
     car.setNight?.(game.clock?.isNight ?? false, game.weather?.isRaining ?? false);
@@ -244,6 +275,8 @@ export class CarjackSystem {
       car.driven = false;
       car.traffic = false;
     }
+    if (this.transition?.driverPending) this.transition.car.setDriverInside?.(false);
+    this.transition = null;
     if (this.game.player?.root) this.game.player.root.visible = true;
     if (this.game.cameraRig && this._savedCameraDistance != null) this.game.cameraRig.distance = this._savedCameraDistance;
     this._savedCameraDistance = null;
@@ -252,6 +285,88 @@ export class CarjackSystem {
     this.prompt = null;
     this.target = null;
     if (this._dom) this._dom.hud.hidden = true;
+  }
+
+  /** Punto junto a la puerta del conductor; si el modelo no lo da, el costado izquierdo. */
+  _doorPoint(car) {
+    if (typeof car.driverDoor === 'function') return car.driverDoor(new THREE.Vector3());
+    const h = car.group.rotation.y, side = car.width / 2 + .55;
+    return new THREE.Vector3(car.position.x - Math.sin(h) * side, car.position.y, car.position.z - Math.cos(h) * side);
+  }
+
+  _startBoarding(car, fromTraffic) {
+    const player = this.game.player;
+    if (!player?.position || !player.root) return;
+    const door = this._doorPoint(car);
+    const ground = this._ground(door.x, door.z, car.position.y);
+    if (Number.isFinite(ground)) door.y = ground;
+    const distance = Math.hypot(door.x - player.position.x, door.z - player.position.z);
+    const walk = Math.min(BOARDING.maxWalk, distance / BOARDING.walkSpeed);
+    this.transition = { kind: 'enter', phase: 'walk', t: 0, car, from: player.position.clone(), door,
+      walk, speed: walk > 0 ? distance / walk : 0,
+      grab: fromTraffic ? BOARDING.pull : BOARDING.force, driverPending: fromTraffic };
+  }
+
+  /** Se acomoda en el asiento: el cuerpo se oculta y el carro se hunde un poco en los muelles. */
+  _finishBoarding() {
+    const player = this.game.player;
+    if (player?.root) {
+      player.root.visible = false;
+      player.root.position.y = this.car?.position.y ?? player.root.position.y;
+    }
+    this.car?.settle?.(1);
+    this.transition = null;
+    this._syncPlayer();
+    if (this._dom) this._dom.hud.hidden = false;
+  }
+
+  _animateTransition(dt) {
+    const tr = this.transition, player = this.game.player;
+    tr.t += dt;
+    const car = tr.car, faceCar = Math.atan2(car.position.x - player.position.x, car.position.z - player.position.z);
+    if (tr.kind === 'enter') {
+      const rig = this.game.cameraRig;
+      if (rig?.mode === 'third-person' && !rig._drag) {
+        const target = car.group.rotation.y - Math.PI / 2;
+        rig.yaw += Math.atan2(Math.sin(target - rig.yaw), Math.cos(target - rig.yaw)) * (1 - Math.exp(-4 * dt));
+      }
+      if (tr.phase === 'walk') {
+        const k = tr.walk > 0 ? Math.min(1, tr.t / tr.walk) : 1;
+        player.position.lerpVectors(tr.from, tr.door, k);
+        const dx = tr.door.x - tr.from.x, dz = tr.door.z - tr.from.z;
+        const yaw = Math.hypot(dx, dz) > .05 && k < .8 ? Math.atan2(dx, dz) : faceCar;
+        player.animateScripted?.(dt, { speed: k < 1 ? tr.speed : 0, yaw });
+        if (k >= 1) { tr.phase = 'grab'; tr.t = 0; }
+      } else if (tr.phase === 'grab') {
+        const k = Math.min(1, tr.t / tr.grab);
+        player.animateScripted?.(dt, { action: 'agarrar', actionProgress: k, yaw: faceCar });
+        // A media sacudida el conductor queda fuera del asiento.
+        if (tr.driverPending && k >= .55) { car.setDriverInside?.(false); tr.driverPending = false; }
+        if (k >= 1) { tr.phase = 'slip'; tr.t = 0; car.settle?.(.5); }
+      } else {
+        const k = Math.min(1, tr.t / BOARDING.slip), e = smooth(k);
+        // Se agacha y se mete hacia el asiento por la puerta.
+        player.position.set(
+          tr.door.x + (car.position.x - tr.door.x) * .3 * e,
+          tr.door.y,
+          tr.door.z + (car.position.z - tr.door.z) * .3 * e);
+        player.animateScripted?.(dt, { action: 'buscar', actionProgress: e * .5, yaw: faceCar + Math.PI / 2 * e });
+        if (player.root) player.root.position.copy(player.position).setY(tr.door.y - BOARDING.duck * e);
+        if (k >= 1) { this._finishBoarding(); return; }
+      }
+      if (player.root) player.root.position.copy(player.position);
+      return;
+    }
+    // Bajarse: se endereza y da un paso para separarse de la puerta.
+    const k = Math.min(1, tr.t / BOARDING.stepOut), e = smooth(k);
+    player.position.lerpVectors(tr.from, tr.to, e);
+    player.animateScripted?.(dt, { speed: k < 1 ? BOARDING.walkSpeed * .7 : 0, yaw: tr.yaw });
+    if (player.root) player.root.position.copy(player.position).setY(player.position.y - BOARDING.duck * (1 - e));
+    if (k >= 1) {
+      player.position.copy(tr.to);
+      if (player.root) player.root.position.copy(tr.to);
+      this.transition = null;
+    }
   }
 
   _ground(x, z, y) {

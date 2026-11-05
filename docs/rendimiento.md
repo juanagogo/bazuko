@@ -6,7 +6,7 @@ Las optimizaciones reducen trabajo de renderizado y consultas de simulación con
 
 - Las casas que reutilizan una variante de fachada comparten el material base. Las paredes que se atenúan conservan materiales independientes; los lotes cerrados usan sus propios materiales compartidos, para que una pared transparente no afecte a otras casas. Las luces nocturnas actualizan ambos conjuntos.
 - Cámara y movimiento consultan una cuadrícula espacial de 16 metros. Las cajas extensas se registran en todas las celdas que ocupan, se deduplican y conservan el orden de resolución anterior. Permanecen las pruebas precisas AABB/OBB, el barrido y los colliders `layered`.
-- El tráfico indexa personas y vehículos una vez por subpaso y separa vehículos por ruta. Las consultas cubren la distancia de frenado y el tamaño del otro vehículo; no se suspende tráfico por estar fuera de cámara.
+- El tráfico indexa personas y vehículos una vez por subpaso y separa vehículos por ruta. Las consultas cubren la distancia de frenado y el tamaño del otro vehículo; no se suspende tráfico por estar fuera de cámara. Del esmalte y el vidrio hay una variante por modelo y color, y el carro lejano se queda con su chapa, sus lámparas y su resplandor: sin sombra ni ruedas, y sin gastar matrices más allá de la niebla.
 - Los peatones a más de 40 metros dejan de actualizar su pose, aunque sigan caminando. Los cercanos y medios tienen una frecuencia visual según el perfil gráfico. En calidad baja, además, dejan de dibujarse cuando la niebla ya casi los tapa (ver «Costo en calidad baja»). Navegación, reacciones y movimiento continúan.
 - Las acciones de animación con un peso residual inferior a 0,001 se desactivan. Cambiar apariencia o retirar un NPC libera materiales, esqueletos y geometrías propios, también si una carga asíncrona llega después de retirar al personaje. Los recursos del banco siguen compartidos. La geometría de cuerpo que se recorta bajo ropa tiene buffers propios para poder liberarlos sin dañar otra instancia.
 - `src/utils/random.js` centraliza selección, rangos y `mulberry32` para evitar implementaciones duplicadas y conservar la generación determinista.
@@ -156,6 +156,17 @@ Cómo se contiene el costo:
 Costo de construcción de cada sistema, medido rehaciéndolo con la partida cargada: campo de sol, 4 ms; pintura, 9 ms; toda la calle, con cables, mobiliario, faroles y charcos, 21 ms; atlas de pintura, 4 ms; atlas de mobiliario, 1 ms más la subida a la GPU al primer uso. La carga completa no cambia de forma medible: alrededor de seis segundos antes y después, con cinco o seis programas de shader más.
 
 La calidad automática observa cuadros de hasta 18 ms con un trabajo de hasta 12 ms durante 20 segundos antes de subir, y compila las sombras antes de encenderlas. El tope de trabajo es el que aún cabe en 60 FPS después de subir: en la medición, prender las sombras multiplicó por 1,4 el trabajo de un cuadro. En dos corridas con la máquina ocupada, un equipo con 8,4 a 9,7 ms de trabajo típico tardó 115 segundos en subir con un tope de 9 ms y 20,7 segundos con el de 12 ms. El intervalo se mide con el sello de `requestAnimationFrame`: el reloj al entrar al cuadro oscila y, a 60 FPS, una de cada cuatro muestras parecía lenta sin serlo. Vuelve a baja si en una ventana de 3 segundos al menos el 20 % de los cuadros son lentos y la ventana no llega a 58 FPS, o si hay presión; no insiste en esa sesión. En Ajustes se avisa cuando el juego corre en otra calidad que la elegida. Un intervalo de más de 250 ms, como el que deja volver de otra pestaña, no cuenta como holgura ni como tirón: en baja la cuenta vuelve a empezar. Con sombras, uno suelto se ignora, pero tres en una misma ventana de 3 segundos la devuelven a baja. Esos intervalos no reinician la ventana: si lo hicieran, un equipo con intervalos que rozan ese valor nunca bajaría. No aplica a quien ya tiene una calidad guardada, y no escribe la preferencia.
+
+## Animaciones de combate en GLB
+
+Las once animaciones de pelea (golpes, bloqueo, reacciones, caídas y levantarse) venían en FBX de Mixamo. Cada carga descargaba 6,6 MB y el hilo principal descomprimía e interpretaba esos FBX mientras se preparaban los personajes. Ahora el juego carga un `.glb` por animación, generado con `node tools/animaciones/fbx-a-glb.mjs`: conserva el esqueleto y las claves tal como las entrega FBXLoader, sin reducir ni remuestrear. Si falta un GLB, el juego vuelve a su FBX y solo entonces descarga el cargador FBX.
+
+| Medida | FBX | GLB |
+| --- | ---: | ---: |
+| Descarga de las 11 animaciones | 6,64 MB | 2,00 MB |
+| Interpretación en Chromium (hilo principal, segunda pasada) | 449 ms | 20 ms |
+
+`tests/actionforge.test.js` comprueba que los clips adaptados a partir de cada GLB son idénticos, valor por valor, a los obtenidos del FBX. Los FBX convertidos no se copian a `dist/`. Al cambiar o añadir una animación de combate, volver a ejecutar el conversor.
 
 ## Cambios de calidad y resolución
 
