@@ -721,6 +721,9 @@ export class Player {
       // incluso antes del ápice; la superficie ya respeta la capa de despegue.
       if (this.position.y <= groundY) {
         this.position.y = groundY;
+        // Un salto normal llega a ~5 m/s; desde más alto, la cámara acusa el golpe.
+        const impactSpeed = -this.jumpVelocity;
+        if (impactSpeed > 7) emit('camera-shake', { amount: Math.min(.45, (impactSpeed - 7) / 12) });
         this.jumpVelocity = 0;
         this.isGrounded = true;
         this.groundSurface = surface;
@@ -787,6 +790,7 @@ export class Player {
       if (hit.reward > 0 && typeof this.stats?.dinero === 'number') this.stats.dinero += hit.reward;
       if (typeof this.game?.steal?.buscado === 'number') this.game.steal.buscado = Math.min(3, this.game.steal.buscado + 1);
       emit('street-fight', { attacker: this });
+      emit('camera-shake', { amount: .16 });
     }
     if (this.melee.active) {
       this.action = 'golpear';

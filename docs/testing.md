@@ -169,3 +169,7 @@ La ejecución con renderizado por software sirve para verificar flujos; sus FPS 
 ## Prueba de humo en CI
 
 `tests/e2e/smoke.spec.js` arranca el juego en Chromium sin ventana, crea un personaje, entra a la partida y comprueba que haya una partida guardada, sin errores de página ni respuestas 4xx/5xx. El trabajo `humo-navegador` de `.github/workflows/ci.yml` la ejecuta en cada pull request; tarda unos dos minutos con renderizado por software. Localmente: `npx playwright test smoke.spec.js`. Si ya hay un Chromium instalado, `PW_CHROMIUM_PATH` indica su ruta para no descargar otro.
+
+## Audios de Git LFS
+
+Las pruebas que decodifican los WAV de `public/audio` necesitan los archivos reales. Sin `git lfs pull --include="public/audio/*"` se saltan y dicen qué falta; en CI (`CI` definida) fallan, porque el flujo siempre los descarga.

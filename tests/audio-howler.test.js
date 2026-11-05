@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
 import * as THREE from 'three';
 import { AudioSystem } from '../src/systems/AudioSystem.js';
-import { audioMetadata } from './helpers/audio-file.js';
+import { audioMetadata, saltarSinAudioLfs } from './helpers/audio-file.js';
 
 // Ejecuta Howler real, incluida su extensión espacial. Solo se sustituye
 // la interfaz del dispositivo: así detectamos opciones ignoradas por la librería.
@@ -65,7 +65,8 @@ function realHowler({ supportsOpus = true } = {}) {
   return sandbox;
 }
 
-test('Howler real reproduce motores y claxones normales conectados a la salida sin panner', async () => {
+test('Howler real reproduce motores y claxones normales conectados a la salida sin panner', async (t) => {
+  if (saltarSinAudioLfs(t)) return;
   const { Howl, Howler } = realHowler();
   const audio = new AudioSystem({ HowlClass: Howl, howler: Howler, eventTarget: null });
   try {
