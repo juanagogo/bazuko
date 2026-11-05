@@ -28,6 +28,7 @@ import { pick, rand } from '../../utils/random.js';
 import { Farol } from '../props/Farol.js';
 import { TrafficSignals } from '../bogota/TrafficSignals.js';
 import { signTexture } from '../../utils/signs.js';
+import { signTextAtlas, atlasPlane } from '../../utils/signAtlas.js';
 import { Banca } from '../props/Banca.js';
 import { buildGroundWear, dressGrass, dressPaving } from '../bogota/GroundDressing.js';
 import * as TX from '../bogota/textures.js';
@@ -832,6 +833,19 @@ export class Bogota {
     this.backdrop = this.cerros;
   }
 
+  /** Texto de todos los avisos de local en un atlas: 16 nombres con letra oscura o clara. */
+  _shopSignAtlas() {
+    if (this._shopSigns !== undefined) return this._shopSigns;
+    if (typeof document === 'undefined' || typeof document.createElement !== 'function') return (this._shopSigns = null);
+    const entries = SHOP_NAMES.flatMap(([title, sub]) => ['#26302e', '#fff3da'].map(fg => ({ title, sub, fg })));
+    const { texture, cells } = signTextAtlas(entries, { w: 768, h: 192 });
+    const material = new THREE.MeshBasicMaterial({
+      map: texture, transparent: true, premultipliedAlpha: true, depthWrite: false,
+      polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -4
+    });
+    return (this._shopSigns = { cells, material, backs: new Map() });
+  }
+
   _house(tiles, dx, dz, face, alongX, isB, map, sideMat, roofMat, tileRoof, covered) {
     const ruin = tiles.some(([x, z]) => map[z][x] === 'ruin');
     // Profundidad: hasta 3 tiles hacia adentro, sin invadir casas ya construidas.
@@ -912,17 +926,25 @@ export class Bogota {
 
     // aviso de local en el primer piso
     if (!ruin && random() < 0.55) {
-      const [title, sub] = choose(SHOP_NAMES);
+      const shopName = choose(SHOP_NAMES);
       const signColor = new THREE.Color(choose(['#0b4fa3', '#c0392b', '#1f6b3a', '#f2c600', '#ffffff', '#6a1b9a']));
       signColor.lerp(new THREE.Color(neighborhood.palette.signBackground), .18);
       const luminance = .2126 * signColor.r + .7152 * signColor.g + .0722 * signColor.b;
-      const map = signTexture({ title, sub, bg: `#${signColor.getHexString()}`, fg: luminance > .4 ? '#26302e' : '#fff3da', w: 768, h: 192 });
-      if (map) {
-        const sign = new THREE.Mesh(new THREE.PlaneGeometry(Math.min(widthM * 0.85, 3.6), Math.min(widthM * 0.85, 3.6) / 4),
-          new THREE.MeshBasicMaterial({ map }));
-        sign.position.set(fx + dx * 0.06 - cx, 3.05, fz + dz * 0.06 - cz);
-        sign.rotation.y = yaw;
-        shell.walls.get(face).add(sign);
+      const fg = luminance > .4 ? 0 : 1;
+      const atlas = this._shopSignAtlas();
+      if (atlas) {
+        // Fondo de color plano y texto del atlas compartido, en el mismo plano: el texto va
+        // encima por desplazamiento de profundidad, sin separarse de la fachada.
+        const signW = Math.min(widthM * 0.85, 3.6), signH = signW / 4;
+        const hex = signColor.getHexString();
+        if (!atlas.backs.has(hex)) atlas.backs.set(hex, new THREE.MeshBasicMaterial({ color: `#${hex}` }));
+        const back = new THREE.Mesh(new THREE.PlaneGeometry(signW, signH), atlas.backs.get(hex));
+        const text = new THREE.Mesh(atlasPlane(signW, signH, atlas.cells[SHOP_NAMES.indexOf(shopName) * 2 + fg]), atlas.material);
+        for (const sign of [back, text]) {
+          sign.position.set(fx + dx * 0.06 - cx, 3.05, fz + dz * 0.06 - cz);
+          sign.rotation.y = yaw;
+          shell.walls.get(face).add(sign);
+        }
       }
     }
     // balcón de madera en las casas viejas (Cartucho) o en algunas de ladrillo

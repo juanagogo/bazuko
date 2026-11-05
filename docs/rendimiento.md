@@ -180,6 +180,20 @@ Cuerpos, ropa, pelo y calzado de los seis cuerpos (completos y livianos) suman 2
 
 `tests/character-mesh-compression.test.js` compara, después de comprimir, atributos, índices, huesos y materiales con el original. Al cargar, el decodificador WebAssembly de meshopt descomprime en el hilo principal. Su costo no se midió por separado: la carga completa en Chromium headless no cambió de forma medible.
 
+## Avisos de local en un atlas
+
+Cada aviso de local en el primer piso (131 en la ciudad) tenía su propio lienzo de 768 × 192 y su material: 134 texturas, unos 105 MB en la GPU con mipmaps, y ningún aviso podía agruparse con otro. Ahora el texto y el borde de los 16 nombres, con letra oscura o clara, están en un único atlas de `src/utils/signAtlas.js`. El fondo es un plano de color sin textura, con un material por color, y el texto va encima en el mismo plano mediante desplazamiento de profundidad. El atlas usa alfa premultiplicado para que los mipmaps no dejen halo. La tipografía, los tamaños, el borde y los colores son los mismos, y no cambia el consumo de `Math.random`: la ciudad sale igual.
+
+Medido en la partida inicial, con la misma semilla y la cámara del juego:
+
+| Medida | Antes | Después |
+| --- | ---: | ---: |
+| Texturas de los avisos en la GPU | 105,1 MB | 30,1 MB |
+| Texturas en la GPU (`renderer.info`) | 844 | 705 |
+| Llamadas de dibujo | 933 | 908 |
+
+Las capturas de cerca y de lejos de los mismos avisos coinciden antes y después.
+
 ## Cambios de calidad y resolución
 
 - **El antialias del contexto se decide al crearlo.** No se puede cambiar después: se omite solo si la preferencia guardada es baja, cuando la calidad automática ya no puede subir de nivel. Quien pasa de baja a media o alta en la misma sesión se queda sin él hasta recargar.
