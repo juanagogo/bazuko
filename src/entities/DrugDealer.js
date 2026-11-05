@@ -2,6 +2,7 @@
  // src/entities/DrugDealer.js
 
 import * as THREE from 'three';
+import { handDrawnRing, markSeed } from '../world/groundMarks.js';
 import { COLORS } from '../utils/constants.js';
 import { DEFAULT_LOOK } from '../character/look.js';
 import { ITEMS, LOOT_SUBSTANCE, dealerPrice, dealerOffer } from '../data/items.js';
@@ -113,7 +114,7 @@ export class DrugDealer {
     this.group.add(lantern);
 
     // Marcador
-    const markerGeo = new THREE.RingGeometry(1.0, 1.3, 24);
+    const markerGeo = handDrawnRing(1.0, 1.3, markSeed(position.x, position.z));
     const markerMat = new THREE.MeshBasicMaterial({
       color: COLORS.ACCENT_PURPLE,
       side: THREE.DoubleSide,
@@ -288,9 +289,6 @@ export class DrugDealer {
   }
 
   update(dt) {
-    if (this.marker) {
-      this.marker.rotation.z += dt * 0.6;
-    }
     // La pose es lenta: a 20 Hz basta y no compite con los peatones.
     if (this.character) {
       this._animAcc += dt;
