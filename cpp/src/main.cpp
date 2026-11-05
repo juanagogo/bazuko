@@ -23,6 +23,7 @@
 #include "game/Economy.hpp"
 #include "game/Movement.hpp"
 #include "game/Fight.hpp"
+#include "core/PlayerInputSampler.hpp"
 #include "world/SafeSpawn.hpp"
 #include "world/Atmosphere.hpp"
 #include "world/Viaduct.hpp"
@@ -753,6 +754,7 @@ int main(int argc, char** argv) {
 
         // 3. Post-poll para asegurar deltas de mouse
         Input::PostPoll();
+        const PlayerInput playerInput = SamplePlayerInput();   // intenciones del jugador en este cuadro (core/PlayerInputSampler.hpp)
 
         float dt = clock.Tick();
         if (dt > 0.1f) dt = 0.1f;
@@ -861,7 +863,7 @@ int main(int argc, char** argv) {
         }
 
         // 6. Movimiento del personaje (WASD)
-        bool isRunning = !ui.IsPaused() && (Input::IsKeyDown(GLFW_KEY_LEFT_SHIFT) || Input::IsKeyDown(GLFW_KEY_RIGHT_SHIFT));
+        bool isRunning = !ui.IsPaused() && playerInput.run;
         const float withdrawal = needs[6] < 20.0f ? (20.0f - needs[6]) * 5.0f : 0.0f;
         const bool highWithdrawal = withdrawal >= 50.0f;
         const bool criticalWithdrawal = withdrawal >= 80.0f;
@@ -879,21 +881,7 @@ int main(int argc, char** argv) {
             float ax = 0.0f, az = 0.0f;
             if (std::sscanf(autoWalk, "%f,%f", &ax, &az) == 2) moveDir += glm::vec3(ax, 0.0f, az);
         }
-        if (!ui.IsPaused() && camera.GetMode() == CameraMode::ThirdPerson) {
-            float camYaw = camera.GetYaw();
-            glm::vec3 forward = glm::normalize(glm::vec3(std::sin(camYaw), 0.0f, std::cos(camYaw)));
-            glm::vec3 right = glm::normalize(glm::vec3(std::cos(camYaw), 0.0f, -std::sin(camYaw)));
-
-            if (Input::IsKeyDown(GLFW_KEY_W)) moveDir -= forward;
-            if (Input::IsKeyDown(GLFW_KEY_S)) moveDir += forward;
-            if (Input::IsKeyDown(GLFW_KEY_A)) moveDir -= right;
-            if (Input::IsKeyDown(GLFW_KEY_D)) moveDir += right;
-        } else if (!ui.IsPaused()) {
-            if (Input::IsKeyDown(GLFW_KEY_W)) moveDir += glm::vec3(-1.0f, 0.0f, -1.0f);
-            if (Input::IsKeyDown(GLFW_KEY_S)) moveDir += glm::vec3( 1.0f, 0.0f,  1.0f);
-            if (Input::IsKeyDown(GLFW_KEY_A)) moveDir += glm::vec3(-1.0f, 0.0f,  1.0f);
-            if (Input::IsKeyDown(GLFW_KEY_D)) moveDir += glm::vec3( 1.0f, 0.0f, -1.0f);
-        }
+        if (!ui.IsPaused()) moveDir += MoveDirection(playerInput, camera.GetMode() == CameraMode::ThirdPerson, camera.GetYaw());   // game/PlayerInput.hpp
 
         // paso de fisica (inercia, colisiones, atropello, capas del viaducto y caida): game/Movement.cpp; aqui solo se le presta el mundo
         Movement::World movementWorld;
@@ -979,7 +967,7 @@ int main(int argc, char** argv) {
 
         showDeathScreenIfNeeded();
         if (ui.IsDeathScreenOpen()) dt = 0.0f;
-        if (!ui.IsPaused() && !characterCreatorUI.IsOpen() && Input::IsKeyPressed(GLFW_KEY_Q)) {
+        if (!ui.IsPaused() && !characterCreatorUI.IsOpen() && playerInput.sortPressed) {
             if (simulation.IsNearDealer(playerPos, 2.2f)) {
                 ui.OpenDealerMenu();
             } else {
@@ -1021,7 +1009,7 @@ int main(int argc, char** argv) {
             if (!canSort || glm::distance(playerPos, sortPosition) > 2.2f) {
                 sorting = false;
                 sortProgress = 0.0f;
-            } else if (Input::IsKeyDown(GLFW_KEY_Q) || std::getenv("BAZUKO_SORT_HOLD")) {
+            } else if (playerInput.sortHeld || std::getenv("BAZUKO_SORT_HOLD")) {
                 sortProgress = std::min(kSortSeconds, sortProgress + std::max(0.0f, dt));
             } else {
                 const bool complete = sortProgress >= kSortSeconds;
@@ -1030,7 +1018,7 @@ int main(int argc, char** argv) {
                 harvestNearbyPickup(2.2f, complete);
             }
         }
-        if (!ui.IsPaused() && Input::IsKeyPressed(GLFW_KEY_F)) {
+        if (!ui.IsPaused() && playerInput.collectPressed) {
             const bool atRecycler = simulation.IsNearRecycler(playerPos, 3.0f);
             if (!atRecycler) {
                 if (boostActive) {
@@ -1087,7 +1075,7 @@ int main(int argc, char** argv) {
                 }
             }
         }
-        if (!ui.IsPaused() && !characterCreatorUI.IsOpen() && (Input::IsKeyPressed(GLFW_KEY_B) || Input::IsKeyPressed(GLFW_KEY_L))) {
+        if (!ui.IsPaused() && !characterCreatorUI.IsOpen() && playerInput.shopPressed) {
             const bool nearCambuche = simulation.IsNearCambuche(playerPos, 4.5f);
             if (nearCambuche && !simulation.IsNearShop(playerPos, 2.0f)) {
                 ui.OpenCambucheMenu();
@@ -1135,7 +1123,7 @@ int main(int argc, char** argv) {
                 }
             }
         }
-        if (!ui.IsPaused() && Input::IsKeyPressed(GLFW_KEY_E)) {
+        if (!ui.IsPaused() && playerInput.interactPressed) {
             size_t carIndex = simulation.GetNearbyCar(playerPos, 2.0f);
             size_t parkedCarIndex = simulation.GetNearbyParkedCar(playerPos, 2.0f);
             const size_t vendorIndex = simulation.GetNearbyVendor(playerPos, 2.0f);
@@ -1409,26 +1397,26 @@ int main(int argc, char** argv) {
             Fight::StaggerStep(session, dt, canStand);
             const bool free = playerAction == PlayerAction::None && playerHitKind == 0;
             const bool recovered = playerAction != PlayerAction::None && playerAction != PlayerAction::Jump && actionTime > actionDuration * 0.62f;
-            playerCrouching = canAct && free && Input::IsKeyDown(GLFW_KEY_LEFT_CONTROL);
+            playerCrouching = canAct && free && playerInput.crouch;
             if (canAct && !playerCrouching && (free || recovered)) {
-                if (Input::IsKeyPressed(GLFW_KEY_J)) {
+                if (playerInput.punchPressed) {
                     if (comboIdle > 1.4f) punchChain = 0;
                     comboIdle = 0.0f;
                     const PlayerAction punch = punchChain % 3 == 0 ? PlayerAction::Jab : punchChain % 3 == 1 ? PlayerAction::Cross : PlayerAction::Hook;
                     ++punchChain;
                     startAction(punch, "PunchJab", Combat::Info(static_cast<Combat::Move>(combatMoveOf(punch))).duration);
                     fightStanceRemaining = 3.0f;
-                } else if (Input::IsKeyPressed(GLFW_KEY_K)) {
+                } else if (playerInput.kickPressed) {
                     const PlayerAction kick = nextKickIsHigh ? PlayerAction::HighKick : PlayerAction::Kick;
                     nextKickIsHigh = !nextKickIsHigh;
                     startAction(kick, "Kick", Combat::Info(static_cast<Combat::Move>(combatMoveOf(kick))).duration);
                     fightStanceRemaining = 3.0f;
-                } else if (Input::IsKeyPressed(GLFW_KEY_G)) {
+                } else if (playerInput.dodgePressed) {
                     const PlayerAction dodge = nextDodgeIsDuck ? PlayerAction::Duck : PlayerAction::Slip;
                     nextDodgeIsDuck = !nextDodgeIsDuck;
                     startAction(dodge, "FightIdle", Combat::Info(static_cast<Combat::Move>(combatMoveOf(dodge))).duration);
                     fightStanceRemaining = 3.0f;
-                } else if (Input::IsKeyPressed(GLFW_KEY_H)) {
+                } else if (playerInput.knifePressed) {
                     startAction(nextKnifeIsStab ? PlayerAction::Stab : PlayerAction::Slash, nextKnifeIsStab ? "KnifeStab" : "KnifeSlash", 0.0f);
                     nextKnifeIsStab = !nextKnifeIsStab;
                     knifeStanceRemaining = 4.0f;
@@ -1436,7 +1424,7 @@ int main(int argc, char** argv) {
             }
             // clic izquierdo corto (sin arrastrar la camara): jab, cruzado y patada
             comboIdle += dt;
-            if (!ui.IsPaused() && !ui.IsCraftMenuOpen() && !io.WantCaptureMouse && Input::IsMouseButtonPressed(GLFW_MOUSE_BUTTON_LEFT)) {
+            if (!ui.IsPaused() && !ui.IsCraftMenuOpen() && !io.WantCaptureMouse && playerInput.clickPressed) {
                 clickTracking = true;
                 clickTime = 0.0f;
                 clickMove = 0.0f;
@@ -1445,7 +1433,7 @@ int main(int argc, char** argv) {
             if (clickTracking) {
                 clickTime += dt;
                 clickMove += glm::length(Input::GetMouseDelta());
-                if (Input::IsMouseButtonReleased(GLFW_MOUSE_BUTTON_LEFT)) {
+                if (playerInput.clickReleased) {
                     clickTracking = false;
                     if (clickWasLocked && clickTime < 0.3f && clickMove < 12.0f && canAct && !playerCrouching && (free || recovered)) {
                         if (comboIdle > 1.4f) comboStep = 0;
@@ -1456,11 +1444,11 @@ int main(int argc, char** argv) {
                         startAction(blow, "PunchJab", Combat::Info(static_cast<Combat::Move>(combatMoveOf(blow))).duration);
                         fightStanceRemaining = 3.0f;
                     }
-                } else if (!Input::IsMouseButtonDown(GLFW_MOUSE_BUTTON_LEFT)) {
+                } else if (!playerInput.clickDown) {
                     clickTracking = false;
                 }
             }
-            if (canAct && free && Input::IsKeyPressed(GLFW_KEY_SPACE)) {
+            if (canAct && free && playerInput.jumpPressed) {
                 // desde quieto: salto vertical estatico; caminando o corriendo: salto con carrera, cuyo alcance sale de la velocidad
                 const float planarSpeed = glm::length(glm::vec2(playerVelocity.x, playerVelocity.z));
                 jumpMoving = planarSpeed > 1.2f;
@@ -1498,9 +1486,9 @@ int main(int argc, char** argv) {
             knifeStanceRemaining = std::max(0.0f, knifeStanceRemaining - dt);
         }
         if (!ui.IsPaused() && !characterCreatorUI.IsOpen() && !playerKnockedDown
-            && (Input::IsKeyPressed(GLFW_KEY_Z) || Input::IsKeyPressed(GLFW_KEY_X))) {
+            && (playerInput.poopPressed || playerInput.throwPressed)) {
             if (!equippedWeapon.empty() && inventoryCount(equippedWeapon) == 0) equippedWeapon.clear();   // se vendio, se tiro o se la robaron
-            const bool throwPressed = Input::IsKeyPressed(GLFW_KEY_X) && inventoryCount("popo") > 0;
+            const bool throwPressed = playerInput.throwPressed && inventoryCount("popo") > 0;
             if (poopMode != 0) {
                 // ya esta en plena accion
             } else if (throwPressed) {
@@ -2247,7 +2235,7 @@ int main(int argc, char** argv) {
         if (useIndex < lootTable.size()) useInventoryItem(useIndex);
         // Barra rapida: teclas 1-5 (o clic) usan el objeto; desde el inventario se asignan
         for (size_t slot = 0; slot < hotbar.size(); ++slot) {
-            if (!ui.IsPaused() && !characterCreatorUI.IsOpen() && Input::IsKeyPressed(GLFW_KEY_1 + static_cast<int>(slot)) && !hotbar[slot].empty()) {
+            if (!ui.IsPaused() && !characterCreatorUI.IsOpen() && playerInput.hotbarPressed[slot] && !hotbar[slot].empty()) {
                 const int index = gameData.ItemIndex(hotbar[slot]);
                 if (index >= 0) useInventoryItem(static_cast<size_t>(index));
             }

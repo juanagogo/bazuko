@@ -242,6 +242,12 @@ target_include_directories(bazuko_fight_test PRIVATE src third_party/include)
 target_link_libraries(bazuko_fight_test PRIVATE glm::glm)
 add_test(NAME bazuko_fight COMMAND bazuko_fight_test)
 
+# Entrada del jugador (direccion de movimiento contra el codigo original de main())
+add_executable(bazuko_playerinput_test tests/PlayerInputTest.cpp)
+target_include_directories(bazuko_playerinput_test PRIVATE src)
+target_link_libraries(bazuko_playerinput_test PRIVATE glm::glm)
+add_test(NAME bazuko_playerinput COMMAND bazuko_playerinput_test)
+
 # Medidor de FPS del panel de rendimiento
 add_executable(bazuko_framemetrics_test tests/FrameMetricsTest.cpp)
 target_include_directories(bazuko_framemetrics_test PRIVATE src)
