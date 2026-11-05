@@ -67,32 +67,31 @@ const glassWithShadow = material => {
 // Esmalte y vidrio se comparten por modelo y color: la flota entera usa unas pocas variantes y la GPU no rearma su
 // estado en cada carro. No se liberan: viven lo que dura la sesión, como el atlas y las geometrías.
 const PAINTS = new Map();
+function createPaint(modelId, color, spec, body) {
+  const paint = new THREE.MeshPhysicalMaterial({ color, map: getDetailMap(spec, body), vertexColors: true });
+  Object.assign(paint, finishOf(paint.color));
+  paint.name = 'Esmalte';
+  // La lluvia cambia la rugosidad: se guarda la de seco para poder volver.
+  paint.userData.dryRoughness = paint.roughness;
+  return neutralReflection(paint);
+}
 function sharedPaint(modelId, color, spec, body) {
   // Los tonos llegan como texto o como Color; la clave usa su hexadecimal.
   const key = `${modelId}:${color?.isColor ? color.getHexString() : color}`;
   let paint = PAINTS.get(key);
-  if (!paint) {
-    paint = new THREE.MeshPhysicalMaterial({ color, map: getDetailMap(spec, body), vertexColors: true });
-    Object.assign(paint, finishOf(paint.color));
-    paint.name = 'Esmalte';
-    // La lluvia cambia la rugosidad del material compartido: se guarda la de seco para poder volver.
-    paint.userData.dryRoughness = paint.roughness;
-    neutralReflection(paint);
-    PAINTS.set(key, paint);
-  }
+  if (!paint) PAINTS.set(key, paint = createPaint(modelId, color, spec, body));
   return paint;
 }
 
 let GLASS = null;
-function sharedGlass() {
-  if (GLASS) return GLASS;
-  GLASS = new THREE.MeshPhysicalMaterial({ color: '#1d282c', metalness: .05, roughness: .1, envMapIntensity: .75,
+function createGlass() {
+  const glass = new THREE.MeshPhysicalMaterial({ color: '#1d282c', metalness: .05, roughness: .1, envMapIntensity: .75,
     transparent: true, opacity: .66, depthWrite: false });
-  GLASS.name = 'Vidrio ahumado';
-  GLASS.userData.dryRoughness = GLASS.roughness;
-  glassWithShadow(GLASS);
-  return GLASS;
+  glass.name = 'Vidrio ahumado';
+  glass.userData.dryRoughness = glass.roughness;
+  return glassWithShadow(glass);
 }
+function sharedGlass() { return GLASS ??= createGlass(); }
 
 const SHARED = {};
 function shared() {
@@ -208,15 +207,16 @@ function pickModel(kind, seed, h) {
  * Frente +X. Cada modelo tiene su propia huella: tráfico y colisiones leen length y width.
  * Con `parked` el carro no animará nunca sus ruedas ni sus plumillas: van unidas a las molduras y no hay piezas que girar.
  */
-export function makeVehicle(kind = 'carro', seedColor = 0, { beams = true, model = null, parked = false } = {}) {
+export function makeVehicle(kind = 'carro', seedColor = 0, { beams = true, model = null, parked = false, ownMaterials = false } = {}) {
   const seed = Number.isFinite(seedColor) ? Math.abs(Math.trunc(seedColor)) : 0, h = mix(seed), s = shared();
   const modelId = model && CAR_MODELS[model] ? model : pickModel(kind, seed, h);
   const geo = getCarGeometry(modelId, kind), spec = geo.spec, body = getCarBody(modelId);
   const { L, W } = spec, isPolice = kind === 'police', isTaxi = kind === 'taxi';
   const paints = MODEL_PAINTS[modelId], color = isTaxi ? TAXI_COLOR : isPolice ? POLICE_COLOR : paints[(h >>> 7) % paints.length];
 
-  const paint = sharedPaint(modelId, color, spec, body);
-  const glass = sharedGlass();
+  // Quien pinta su carrocería a su manera (la camioneta de limpieza) lleva materiales propios: si no, cambiaría los de toda la flota.
+  const paint = ownMaterials ? createPaint(modelId, color, spec, body) : sharedPaint(modelId, color, spec, body);
+  const glass = ownMaterials ? createGlass() : sharedGlass();
 
   // Direccionales, stops y patrulla: valores de este carro; nunca se enciende el vecino.
   const signalMaterials = { left: new LampChannel('Direccional left', '#ff8a24', .12), right: new LampChannel('Direccional right', '#ff8a24', .12) };
@@ -271,6 +271,8 @@ export function makeVehicle(kind = 'carro', seedColor = 0, { beams = true, model
   const dispose = () => {
     if (disposed) return; disposed = true;
     lamp.dispose(); beam?.material.dispose();
+    // El esmalte y el vidrio compartidos no se liberan; los propios, sí.
+    if (ownMaterials) { paint.dispose(); glass.dispose(); }
   };
 
   // Piezas que se apagan de lejos: el carro lejano se queda con su chapa, sus lámparas y su resplandor.

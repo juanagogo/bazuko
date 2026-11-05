@@ -171,3 +171,24 @@ test('un solo atlas acotado para los distintivos y con español legible en placa
   assert.ok(lamps.geometry.attributes.uv.array.every(n=>n>=0&&n<=1));
   taxi.dispose(); other.dispose();
 });
+
+test('la camioneta de limpieza lleva sus propios materiales y no repinta la flota', async () => {
+  const { makeSuv } = await import('../src/world/bogota/suv.js');
+  const shared = makeVehicle('carro', 0, { beams: false, model: 'camionetaNegra' });
+  const paint = shared.wetMaterials[0], glass = shared.wetMaterials[1];
+  const before = { color: paint.color.getHexString(), metalness: paint.metalness, roughness: paint.roughness, clearcoat: paint.clearcoat };
+  const glassBefore = { color: glass.color.getHexString(), opacity: glass.opacity };
+  const suv = makeSuv();
+  assert.equal(suv.group.name, 'camioneta-negra');
+  assert.equal(paint.color.getHexString(), before.color, 'La chapa compartida no cambia de color');
+  assert.equal(paint.metalness, before.metalness);
+  assert.equal(paint.roughness, before.roughness);
+  assert.equal(paint.clearcoat, before.clearcoat);
+  assert.equal(glass.color.getHexString(), glassBefore.color, 'El vidrio compartido no se polariza');
+  assert.equal(glass.opacity, glassBefore.opacity);
+  // Y un carro hecho después tampoco hereda nada de la camioneta.
+  const after = makeVehicle('carro', 0, { beams: false, model: 'camionetaNegra' });
+  assert.equal(after.wetMaterials[0], paint);
+  assert.equal(after.wetMaterials[1], glass);
+  suv.dispose(); after.dispose();
+});
