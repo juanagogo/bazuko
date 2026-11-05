@@ -72,4 +72,10 @@ export class FrustumCulling {
   }
 
   clear() { this.restore(); this.entries.length = 0; }
+
+  /** Quita del descarte la rama que se retiró de la escena. */
+  unregister(object) {
+    const index = this.entries.findIndex(entry => entry.object === object);
+    if (index >= 0) this.entries.splice(index, 1);
+  }
 }

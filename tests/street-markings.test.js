@@ -11,7 +11,7 @@ function district() {
   city.groundMaterials = {};
   return city;
 }
-const SECTOR = STATIC_CHUNK_SIZE * 2;
+const SECTOR = STATIC_CHUNK_SIZE * 4;
 const positions = meshes => meshes.flatMap(mesh => Array.from(mesh.geometry.attributes.position.array));
 
 test('la pintura se reparte por sectores, con un solo material, sin mallas por franja', () => {

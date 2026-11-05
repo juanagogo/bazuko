@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { beforeEach, test } from 'node:test';
-import { AutoQuality, effectiveQuality } from '../src/core/GraphicsQuality.js';
+import { AutoQuality, antialiasFor, effectiveQuality } from '../src/core/GraphicsQuality.js';
 import { AdaptiveResolution } from '../src/core/AdaptiveResolution.js';
 import { Renderer } from '../src/core/Renderer.js';
 
@@ -255,4 +255,11 @@ test('mientras compila la subida los tirones no bajan la resolución', () => {
   samples.length = 0;
   renderer.adaptResolution(16, 5);
   assert.deepEqual(samples, ['calidad', 'resolución']);
+});
+
+test('sin MSAA cuando el jugador ya eligió la calidad baja', () => {
+  assert.equal(antialiasFor('baja'), false, 'baja no paga antialias');
+  for (const saved of ['media', 'alta', null, 'sin almacenamiento']) {
+    assert.equal(antialiasFor(saved), true, `${saved} conserva el antialias`);
+  }
 });

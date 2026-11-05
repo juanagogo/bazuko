@@ -10,7 +10,8 @@ const WHEEL_R = 0.42;
 
 /** @returns {{ group: THREE.Group, length: number, width: number, wheels: THREE.Object3D[], setBraking(on:boolean):void, setLights(on:boolean):void, dispose():void }} */
 export function makeSuv() {
-  const v = makeVehicle('carro', 0, { beams: false, model: 'camionetaNegra' });
+  // Materiales propios: esta camioneta repinta su chapa y polariza sus vidrios, y no puede arrastrar consigo a la flota.
+  const v = makeVehicle('carro', 0, { beams: false, model: 'camionetaNegra', ownMaterials: true });
   const [paint, glass] = v.wetMaterials;
   paint.color.set('#07080a');
   paint.metalness = .6; paint.roughness = .22; paint.clearcoat = 1; paint.clearcoatRoughness = .03;

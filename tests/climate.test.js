@@ -120,7 +120,11 @@ test('el cielo usa el clima: nubes, lluvia y luna llegan al shader sin crear col
 
   mgr.setQuality('baja');
   assert.equal(mgr.skyDome.visible, true);
-  assert.equal(uniforms.octaves.value, 2);
+  assert.equal(uniforms.octaves.value, 2, 'en baja el cielo consulta la densidad una sola vez');
+  assert.match(mgr.skyDome.material.fragmentShader, /if \(octaves > 2\.5\) towardSun = cloudDensity/,
+    'la consulta hacia el sol se salta en baja');
+  mgr.setQuality('media');
+  assert.equal(uniforms.octaves.value, 3, 'media conserva la consulta hacia el sol');
 });
 
 test('de noche el cielo despejado muestra la luna en el HUD', async () => {

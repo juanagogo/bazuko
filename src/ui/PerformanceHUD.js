@@ -58,7 +58,7 @@ export class PerformanceHUD {
       `Resolución ${conComa(renderer.instance.getPixelRatio(), 2)}×`,
       ...(renderer.effectiveQuality ? [`Calidad efectiva ${renderer.effectiveQuality}`] : []),
       ...(renderer.culling ? [`Grupos en cámara ${renderer.culling.stats.visible}/${renderer.culling.stats.total}, descartados ${renderer.culling.stats.culled}`] : []),
-      ...(lighting ? [`Luces dinámicas ${lighting.pool.length}, halos ${lighting.halos.mesh.count}`] : [])
+      ...(lighting ? [`Luces dinámicas ${lighting.enabled ? lighting.pool.length : 0}, halos ${lighting.halos.mesh.count}`] : [])
     ].join('\n');
     return sampled;
   }

@@ -4,7 +4,7 @@ import * as THREE from 'three';
 import * as textures from '../src/world/bogota/textures.js';
 import { CollisionSystem } from '../src/systems/CollisionSystem.js';
 import { SIGNAL_POLE } from '../src/world/bogota/SignalModel.js';
-import { STREET_LAMP, createStreetLampGeometry } from '../src/world/bogota/StreetLampModel.js';
+import { FAR_LAMP_DISTANCE, STREET_LAMP, createFarStreetLampGeometry, createStreetLampGeometry, updateFarStreetLamps } from '../src/world/bogota/StreetLampModel.js';
 import { VIADUCT, viaductSurface } from '../src/world/bogota/ColpatriaViaduct.js';
 import { Banca } from '../src/world/props/Banca.js';
 import { Farol } from '../src/world/props/Farol.js';
@@ -132,4 +132,50 @@ test('las placas de esquina comparten material, no tapan su texto y funcionan si
   const uvRange = mesh => [...mesh.geometry.attributes.uv.array].sort().join();
   assert.equal(uvRange(plates(a)[0]), uvRange(plates(b)[0]));
   assert.notEqual(uvRange(plates(a)[1]), uvRange(plates(b)[1]));
+});
+
+const triangles = geometry => (geometry.index ? geometry.index.count : geometry.attributes.position.count) / 3;
+
+/** Centro de la lente: el único punto que de noche se ve desde lejos. */
+const lensCenter = geometry => {
+  const { position, signalLens } = geometry.attributes, sum = new THREE.Vector3();
+  let count = 0;
+  for (let i = 0; i < position.count; i++) if (signalLens.getX(i) === 1) { sum.add(new THREE.Vector3().fromBufferAttribute(position, i)); count++; }
+  return count ? sum.divideScalar(count) : null;
+};
+
+test('el poste liviano conserva lente, silueta y límites del completo', () => {
+  const geometry = createStreetLampGeometry(), far = createFarStreetLampGeometry();
+  assert.ok(triangles(far) <= triangles(geometry) / 4, `${triangles(far)} de lejos contra ${triangles(geometry)} de cerca`);
+  for (const key of ['color', 'uv', 'normal', 'signalSurface', 'signalLens', 'signalLensUv']) assert.ok(far.attributes[key], `el liviano usa el mismo material: ${key}`);
+  // La lente sobresale por debajo de la carcasa: desde el suelo es lo primero que se ve.
+  const center = lensCenter(far);
+  assert.ok(center, 'el liviano conserva la lente');
+  const [hit] = new THREE.Raycaster(center.clone().setY(center.y - 1), new THREE.Vector3(0, 1, 0)).intersectObject(new THREE.Mesh(far), false);
+  assert.ok(hit && far.attributes.signalLens.getX(hit.face.a) === 1, 'la lente no queda encerrada en la luminaria');
+  geometry.computeBoundingBox(); far.computeBoundingBox();
+  for (const corner of ['min', 'max']) for (const axis of ['x', 'y', 'z']) {
+    const gap = Math.abs(geometry.boundingBox[corner][axis] - far.boundingBox[corner][axis]);
+    assert.ok(gap < .3, `${corner}.${axis} se mueve ${gap.toFixed(3)} m`);
+  }
+});
+test('cada lote de postes cambia de modelo por distancia y solo en baja', async () => {
+  const scene = new THREE.Scene(), city = new Bogota();
+  city.build(scene, new CollisionSystem());
+  await city.preloadDetails();
+  const [batch] = city._lampBatches;
+  assert.ok(batch, 'los postes se instancian con su modelo lejano');
+  const { nearGeometry, farGeometry } = batch.userData;
+  assert.equal(batch.geometry, nearGeometry, 'nace completo');
+  assert.equal(farGeometry.boundingSphere, nearGeometry.boundingSphere, 'el descarte no cambia');
+
+  const player = new THREE.Vector3(), camera = new THREE.PerspectiveCamera();
+  camera.position.copy(batch.boundingBox.getCenter(new THREE.Vector3()).setX(batch.boundingBox.max.x + FAR_LAMP_DISTANCE + 30));
+  city.farDetailFog = .7;
+  city.update(1 / 60, player, camera);
+  assert.equal(batch.geometry, farGeometry, 'de lejos cambia de modelo');
+  city.farDetailFog = 0;
+  city.update(1 / 60, player, camera);
+  assert.equal(batch.geometry, nearGeometry, 'media y alta conservan el completo');
+  city.dispose(scene);
 });

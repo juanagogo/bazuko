@@ -51,10 +51,10 @@ export function buildStreetMarkings(district, painted = paintedByNeighborhood) {
   material.name = 'Pintura y remiendos';
   // Con este nombre setWetness la moja igual que al andén: la pintura también brilla bajo la lluvia.
   if (district.groundMaterials) district.groundMaterials.sidewalk_pintura = material;
-  // Sector doble: la pintura casi no pesa en vértices y sí sumaba muchas llamadas.
+  // La pintura casi no pesa en vértices y sí sumaba muchas llamadas.
   // Lo que va sobre el piso se dibuja antes que todo lo transparente, para que sombras de contacto,
   // vidrios y personas queden encima: pintura, luego charcos (StreetPuddles) y luz de faroles (StreetDetails).
-  const batch = new StreetBatch({ material, name: 'Suelo pintado', alpha: true, renderOrder: -3, chunkSize: STATIC_CHUNK_SIZE * 2 });
+  const batch = new StreetBatch({ material, name: 'Suelo pintado', alpha: true, renderOrder: -3, chunkSize: STATIC_CHUNK_SIZE * 4 });
 
   const baseY = (x, z) => district.getGroundHeight(x, z) + LIFT;
   const bent = (x, z, y) => onLakeBridge(x, z) ? bridgeHeight(z) + LIFT : y;

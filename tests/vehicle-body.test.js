@@ -143,8 +143,10 @@ test('frenos, direccionales, lluvia y patrulla se animan por instancia; dispose 
   assert.notEqual(first.tailMat,second.tailMat);
   assert.notEqual(first.signalMaterials.left,second.signalMaterials.left);
   assert.notEqual(first.policeLights.blue,second.policeLights.blue);
-  assert.notEqual(first.wetMaterials[0],second.wetMaterials[0]);
-  assert.notEqual(first.wetMaterials[1],second.wetMaterials[1]);
+  // Esmalte y vidrio se comparten por modelo y color: toda la flota gasta una variante.
+  assert.equal(first.wetMaterials[0],second.wetMaterials[0]);
+  assert.equal(first.wetMaterials[1],second.wetMaterials[1]);
+  assert.notEqual(first.headlightMaterial,second.headlightMaterial);
   const intensity=second.signalMaterials.left.emissiveIntensity;
   first.signalMaterials.left.emissiveIntensity=3; assert.equal(second.signalMaterials.left.emissiveIntensity,intensity);
   assert.equal(first.wheels[0].geometry,second.wheels[0].geometry);
@@ -154,7 +156,7 @@ test('frenos, direccionales, lluvia y patrulla se animan por instancia; dispose 
   first.wheels[0].geometry.addEventListener('dispose',()=>events.sharedWheel++);
   getCarAtlas().addEventListener('dispose',()=>events.atlas++);
   first.dispose(); first.dispose();
-  assert.deepEqual(events,{body:0,paint:1,sharedWheel:0,atlas:0});
+  assert.deepEqual(events,{body:0,paint:0,sharedWheel:0,atlas:0});
   second.dispose();
 });
 
@@ -168,4 +170,25 @@ test('un solo atlas acotado para los distintivos y con español legible en placa
   assert.equal(lamps.material.map,meshes(other).find(mesh=>mesh.name==='Lámparas y placas').material.map);
   assert.ok(lamps.geometry.attributes.uv.array.every(n=>n>=0&&n<=1));
   taxi.dispose(); other.dispose();
+});
+
+test('la camioneta de limpieza lleva sus propios materiales y no repinta la flota', async () => {
+  const { makeSuv } = await import('../src/world/bogota/suv.js');
+  const shared = makeVehicle('carro', 0, { beams: false, model: 'camionetaNegra' });
+  const paint = shared.wetMaterials[0], glass = shared.wetMaterials[1];
+  const before = { color: paint.color.getHexString(), metalness: paint.metalness, roughness: paint.roughness, clearcoat: paint.clearcoat };
+  const glassBefore = { color: glass.color.getHexString(), opacity: glass.opacity };
+  const suv = makeSuv();
+  assert.equal(suv.group.name, 'camioneta-negra');
+  assert.equal(paint.color.getHexString(), before.color, 'La chapa compartida no cambia de color');
+  assert.equal(paint.metalness, before.metalness);
+  assert.equal(paint.roughness, before.roughness);
+  assert.equal(paint.clearcoat, before.clearcoat);
+  assert.equal(glass.color.getHexString(), glassBefore.color, 'El vidrio compartido no se polariza');
+  assert.equal(glass.opacity, glassBefore.opacity);
+  // Y un carro hecho después tampoco hereda nada de la camioneta.
+  const after = makeVehicle('carro', 0, { beams: false, model: 'camionetaNegra' });
+  assert.equal(after.wetMaterials[0], paint);
+  assert.equal(after.wetMaterials[1], glass);
+  suv.dispose(); after.dispose();
 });
