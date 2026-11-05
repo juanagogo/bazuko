@@ -69,7 +69,7 @@ import { SubstanceEffects } from '../systems/SubstanceEffects.js';
 import { SUBSTANCE_EFFECTS } from '../data/substanceEffects.js';
 import { StealSystem } from '../features/steal.js';
 import { ObjectiveSystem } from '../systems/ObjectiveSystem.js';
-import { ObjectiveTracker, TECLA_RUTA } from '../ui/ObjectiveTracker.js';
+import { ObjectiveTracker } from '../ui/ObjectiveTracker.js';
 import { openRadioModal } from '../ui/RadioModal.js';
 
 
@@ -237,7 +237,6 @@ export class Game {
       // La pausa ya abierta atiende M con su propio listener; la marca evita cerrarla en la misma pulsación.
       if (e.code === 'KeyM' && !this.paused && !this.isSleeping) { e._pauseOpened = true; openPauseMenu(this, 'mapa'); }
       if (e.code === 'KeyK' && !this.paused) this._toggleModel();
-      if (e.code === TECLA_RUTA && !this.paused) this.routeToObjective();
       if (e.code === 'F3') { e.preventDefault(); this.performanceHUD.toggle(); }
       if ((e.code === 'Equal' || e.code === 'NumpadAdd' || e.key === '+') && !this.paused) this.minimap.zoomStep(1);
       if ((e.code === 'Minus' || e.code === 'NumpadSubtract' || e.key === '-') && !this.paused) this.minimap.zoomStep(-1);
@@ -483,7 +482,7 @@ export class Game {
     return !!(wp && own && Math.abs(wp.x - own.x) < .01 && Math.abs(wp.z - own.z) < .01);
   }
 
-  /** Tecla Y o la cinta del cartón: marca la ruta al lugar del objetivo actual. */
+  /** La cinta del cartón: marca la ruta al lugar del objetivo actual. */
   routeToObjective({ silent = false } = {}) {
     const current = this.objectives?.current;
     const target = this._objectiveTarget(current);

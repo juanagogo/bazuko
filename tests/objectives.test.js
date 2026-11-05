@@ -106,5 +106,5 @@ test('el juego guarda los objetivos, escucha sus eventos y reparte la recompensa
   assert.match(source, /this\.objectives\.deserialize\(data\.objectives\)/);
   assert.match(source, /this\.objectives\.notify\(name, e\.detail\)/);
   assert.match(source, /this\._updateObjectives\(dt\)/);
-  assert.match(source, /TECLA_RUTA/);
+  assert.match(source, /routeToObjective/);
 });

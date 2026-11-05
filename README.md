@@ -142,7 +142,7 @@ Con `npm run dev` activo, abre **/sala.html** (por ejemplo http://localhost:5173
 | `P` | Editar el personaje. |
 | `M` | Abrir el mapa para marcar un destino; en el mapa, cerrarlo. |
 | `K` | Alternar entre el personaje realista y el modelo liviano. |
-| `Y` o cinta «Marcar ruta» | Marcar en el GPS la ruta al lugar del objetivo actual. |
+| Cinta «Marcar ruta» del objetivo | Marcar en el GPS la ruta al lugar del objetivo actual. |
 | `Esc` o botón Pausa | Abrir la pausa en la pestaña Estado; cerrar primero el panel activo y liberar el cursor. |
 | `N` | Mostrar u ocultar el radar. |
 | `H` / Estado | Mostrar u ocultar las necesidades detalladas. |

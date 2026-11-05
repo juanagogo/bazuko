@@ -15,7 +15,6 @@
 .objetivo__barra { display: block; height: 12px; background: rgba(20, 17, 12, .13); }
 .objetivo__barra .masa { display: block; height: 100%; width: 0; }
 .objetivo__ruta { justify-self: start; margin-top: 2px; pointer-events: auto; }
-.objetivo__ruta kbd { font-size: 15px; }
 
 /* Cuando no toca: lo mismo que el resto del juego. */
 body:has(#menu:not([hidden]), #inv-overlay.open, #craft-panel.open, #talent-panel.open, #dealer-panel.open, #creator-modal:not([hidden]), #cerrado:not([hidden])) #objetivo,

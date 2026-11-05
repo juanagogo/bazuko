@@ -1,9 +1,8 @@
 // src/ui/ObjectiveTracker.js
 // El objetivo actual, en un cartón debajo de la tira de arriba a la izquierda. Solo reescribe la página cuando
-// cambia el texto o el avance. Si el objetivo tiene lugar, una cinta (o la tecla Y) marca la ruta en el GPS.
+// cambia el texto o el avance. Si el objetivo tiene lugar, la cinta «Marcar ruta» la marca en el GPS.
+// No lleva tecla: todas las letras ya tienen uso.
 import { cop } from '../utils/money.js';
-
-export const TECLA_RUTA = 'KeyY';
 
 export class ObjectiveTracker {
   constructor({ onRoute } = {}) {
@@ -52,7 +51,7 @@ export class ObjectiveTracker {
         ? `<span class="objetivo__avance"><span class="objetivo__barra"><i class="masa" style="width:${pct}%"></i></span>`
           + `<span class="cifra">${fmt(progress.value)} de ${fmt(progress.goal)}</span></span>`
         : '')
-      + (def.target ? '<button type="button" class="cinta objetivo__ruta"><kbd>Y</kbd> Marcar ruta</button>' : '');
+      + (def.target ? '<button type="button" class="cinta objetivo__ruta">Marcar ruta</button>' : '');
   }
 }
 
