@@ -14,7 +14,7 @@
 
 namespace Bazuko::Net {
 
-inline constexpr uint16_t kProtocolVersion = 1;
+inline constexpr uint16_t kProtocolVersion = 2;
 inline constexpr int kChannelReliable = 0;
 inline constexpr int kChannelUnreliable = 1;
 inline constexpr size_t kMaxPlayers = 100;      // por mundo (cifra de pruebas); los ids van en 7 bits (1..127)
@@ -40,6 +40,7 @@ struct Hello {
     uint16_t protocol = kProtocolVersion;
     std::string name;
     std::vector<uint8_t> look;   // apariencia serializada por el juego (opaca para la red)
+    std::string key;             // clave del perfil (32 hexadecimales) o vacia: con ella el anfitrion recupera y guarda la plata y el costal
 };
 struct Welcome {
     uint8_t playerId = 0;
@@ -48,7 +49,7 @@ struct Welcome {
     uint32_t serverTick = 0;
     uint32_t worldSeed = 0;
 };
-enum class RejectReason : uint8_t { WrongProtocol = 1, ServerFull, BadName };
+enum class RejectReason : uint8_t { WrongProtocol = 1, ServerFull, BadName, KeyInUse };
 struct Reject { RejectReason reason = RejectReason::WrongProtocol; };
 
 struct PlayerInput {
@@ -88,6 +89,7 @@ inline void Write(BitWriter& w, const Hello& m) {
     const size_t length = std::min(m.look.size(), kMaxLookBytes);
     w.U8(static_cast<uint32_t>(length));
     for (size_t i = 0; i < length; ++i) w.U8(m.look[i]);
+    w.String(m.key, 32);
 }
 inline void Write(BitWriter& w, const Welcome& m) {
     w.U8(static_cast<uint32_t>(MessageType::Welcome)); w.U8(m.playerId); w.U8(m.tickRate); w.U8(m.snapshotRate); w.U32(m.serverTick); w.U32(m.worldSeed);
@@ -139,6 +141,7 @@ inline std::optional<Hello> ReadHello(BitReader& r) {
     const size_t length = r.U8();
     if (length > kMaxLookBytes) return std::nullopt;
     for (size_t i = 0; i < length; ++i) m.look.push_back(static_cast<uint8_t>(r.U8()));
+    m.key = r.String(32);
     if (r.Failed()) return std::nullopt;
     return m;
 }

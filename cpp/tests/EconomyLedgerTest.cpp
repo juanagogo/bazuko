@@ -84,7 +84,7 @@ int main() {
     }
     // D: recetas (no gastan el cupo de botin) y mejora del costal
     {
-        Ledger ledger(data);
+        Ledger ledger(data, LedgerLimits::Unlimited());
         EconomySnapshot s; s.money = 30000.0f; Set(s, chatarra, 40); Set(s, cable, 80); Set(s, pilas, 40);
         ledger.Submit(s, 0.0);
         EconomySnapshot cur = s; bool allAccepted = true;
@@ -101,6 +101,28 @@ int main() {
         sack.money -= static_cast<float>(upgradePrice);
         CHECK(ledger.Submit(sack, 6.0).accepted && ledger.State().bigSack, "D: la mejora pagada se acepta");
     }
+    // D2: perfil nuevo limitado, perfil guardado manda, ida y vuelta con el guardado
+    {
+        Ledger fresh(data);
+        EconomySnapshot rich; rich.money = 9.0e6f; Set(rich, lata, 500);
+        auto verdict = fresh.Submit(rich, 0.0);
+        CHECK(!verdict.accepted && verdict.authoritative.money == 50000.0f && Qty(verdict.authoritative, lata) == 60, "D2: un perfil nuevo arranca recortado a 50 000 y 60 objetos");
+        CHECK(fresh.Started() && fresh.State().money == 50000.0f, "D2: y la copia queda con lo recortado");
+        Ledger modest(data);
+        EconomySnapshot ok; ok.money = 40000.0f; Set(ok, lata, 30);
+        CHECK(modest.Submit(ok, 0.0).accepted, "D2: un perfil nuevo dentro del limite se acepta tal cual");
+        Ledger saved(data);
+        EconomySnapshot stored; stored.money = 777.0f; stored.bigSack = true; Set(stored, pan, 2);
+        nlohmann::json save = nlohmann::json::object();
+        ApplyEconomyToSave(save, stored);
+        const EconomySnapshot back = EconomyFromSave(save, count);
+        CHECK(back == Canonical(stored, count), "D2: el perfil guardado se lee igual que se escribio");
+        saved.Adopt(back, 0.0);
+        CHECK(saved.FromProfile() && saved.State() == back, "D2: adoptar un perfil fija la copia");
+        nlohmann::json broken = {{"money", -5}, {"inventory", {{{"item", 9999}, {"quantity", 3}}, {{"item", 0}, {"quantity", -1}}, "basura"}}};
+        const EconomySnapshot cleaned = EconomyFromSave(broken, count);
+        CHECK(cleaned.money == 0.0f && cleaned.items.empty(), "D2: un guardado roto se lee como vacio");
+    }
     // E: espejo del invitado
     {
         EconomyMirror mirror;
@@ -111,13 +133,13 @@ int main() {
         EconomySnapshot changed = s; changed.money = 100.0f;
         auto second = mirror.Poll(changed, 1.2);
         CHECK(second && second->seq == 2, "E: un cambio se envia");
-        EconomySync rejected{2, false, s};
+        EconomySync rejected{2, false, s, false};
         CHECK(mirror.OnSync(rejected, changed).has_value(), "E: correccion del anfitrion sin cambios nuevos: se adopta");
         EconomySnapshot movedOn = changed; movedOn.money = 50.0f;
         CHECK(!mirror.OnSync(rejected, movedOn).has_value(), "E: si el invitado ya cambio algo mas, no se pisa");
-        EconomySync stale{1, false, s};
+        EconomySync stale{1, false, s, false};
         CHECK(!mirror.OnSync(stale, changed).has_value(), "E: una correccion de un informe viejo no se adopta");
-        EconomySync fine{2, true, changed};
+        EconomySync fine{2, true, changed, false};
         CHECK(!mirror.OnSync(fine, changed).has_value(), "E: lo aceptado no cambia nada");
     }
     // F: mensajes
@@ -129,10 +151,10 @@ int main() {
         CHECK(ReadType(r) == MessageType::Economy, "F: tipo");
         const auto back = ReadEconomyReport(r);
         CHECK(back && back->seq == 9 && back->state == s, "F: informe ida y vuelta");
-        BitWriter w2; Write(w2, EconomySync{9, false, s});
+        BitWriter w2; Write(w2, EconomySync{9, false, s, true});
         BitReader r2(w2.Data()); ReadType(r2);
         const auto sync = ReadEconomySync(r2);
-        CHECK(sync && !sync->accepted && sync->state == s, "F: correccion ida y vuelta");
+        CHECK(sync && !sync->accepted && sync->profile && sync->state == s, "F: correccion ida y vuelta");
         for (size_t cut = 1; cut + 1 < w.Data().size(); ++cut) {
             std::vector<uint8_t> part(w.Data().begin(), w.Data().begin() + static_cast<long>(cut));
             BitReader tr(part); ReadType(tr);

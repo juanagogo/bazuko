@@ -732,6 +732,12 @@ int main(int argc, char** argv) {
         if (!hostArg.empty()) {
             netSession = Net::NetSession::StartHost(static_cast<uint16_t>(std::atoi(hostArg.c_str())), playerName);
             if (netSession) { netSession->SetEconomyData(&gameData);
+                {   // perfiles de los invitados: carpeta de este anfitrion (--perfiles=carpeta o BAZUKO_PERFILES; por defecto bazuko_perfiles)
+                    std::string folder = "bazuko_perfiles";
+                    for (int i = 1; i < argc; ++i) if (std::string(argv[i]).rfind("--perfiles=", 0) == 0) folder = std::string(argv[i]).substr(11);
+                    if (const char* env = std::getenv("BAZUKO_PERFILES")) folder = env;
+                    netSession->SetProfileFolder(folder);
+                }
                 netSession->SetWorldProvider([&simulation](const glm::vec3& viewer, uint32_t tick) { return simulation.ExportWorld(viewer, tick); });
                 LogInfo("Multijugador: anfitrion en el puerto {}", netSession->Port()); ui.Notify("Eres el anfitrión: puerto " + std::to_string(netSession->Port()), ToastType::Info); }
             else LogWarn("Multijugador: no se pudo abrir el puerto {}", hostArg);
@@ -739,7 +745,18 @@ int main(int argc, char** argv) {
             const size_t colon = joinArg.rfind(':');
             const std::string address = colon == std::string::npos ? joinArg : joinArg.substr(0, colon);
             const uint16_t port = colon == std::string::npos ? uint16_t{7777} : static_cast<uint16_t>(std::atoi(joinArg.c_str() + colon + 1));
-            netSession = Net::NetSession::Join(address, port, playerName);
+            // clave del perfil: se crea una vez y se guarda junto al guardado; con ella el anfitrion te devuelve tu plata y tu costal
+            std::string profileKey;
+            {
+                std::ifstream keyIn("bazuko_clave_perfil.txt");
+                std::getline(keyIn, profileKey);
+                if (!Net::IsValidPlayerKey(profileKey)) {
+                    profileKey = Net::NewPlayerKey();
+                    std::ofstream keyOut("bazuko_clave_perfil.txt", std::ios::trunc);
+                    keyOut << profileKey << std::endl;
+                }
+            }
+            netSession = Net::NetSession::Join(address, port, playerName, profileKey);
             if (netSession) { LogInfo("Multijugador: conectando a {}:{}", address, port); ui.Notify("Conectando a " + address + ":" + std::to_string(port) + "...", ToastType::Info); }
             else LogWarn("Multijugador: no se pudo conectar a {}:{}", address, port);
         }
@@ -1379,11 +1396,12 @@ int main(int argc, char** argv) {
                 const double economyClock = static_cast<double>(clock.GetElapsedTime());
                 if (const auto report = economyMirror.Poll(economyNow(), economyClock)) netSession->SendEconomy(*report);
                 if (const auto sync = netSession->ConsumeEconomySync()) {
-                    if (const auto adopt = economyMirror.OnSync(*sync, economyNow())) {   // el anfitrion rechazo un cambio: se vuelve a su copia
+                    const bool fromProfile = sync->profile;
+                    if (const auto adopt = economyMirror.OnSync(*sync, economyNow())) {   // el anfitrion rechazo un cambio (o trae tu perfil guardado): se vuelve a su copia
                         money = adopt->money; session.bigSack = adopt->bigSack;
                         inventory.clear(); inventoryWeight = 0.0f;
                         for (const auto& [index, quantity] : adopt->items) { inventory.push_back({index, static_cast<int>(quantity)}); inventoryWeight += lootTable[index].weight * static_cast<float>(quantity); }
-                        ui.Notify("El anfitrión revirtió un cambio de tu costal o tu plata.", ToastType::Warn);
+                        ui.Notify(fromProfile ? "Tu perfil en este anfitrión: recuperaste tu plata y tu costal guardados." : "El anfitrión revirtió un cambio de tu costal o tu plata.", fromProfile ? ToastType::Info : ToastType::Warn);
                     }
                 }
             }

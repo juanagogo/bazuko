@@ -29,14 +29,14 @@ bool ReadState(BitReader& r, EconomySnapshot& s) {
 }
 
 void Write(BitWriter& w, const EconomyReport& m) { w.U8(static_cast<uint32_t>(MessageType::Economy)); w.U16(m.seq); WriteState(w, m.state); }
-void Write(BitWriter& w, const EconomySync& m) { w.U8(static_cast<uint32_t>(MessageType::EconomySync)); w.U16(m.ack); w.Bool(m.accepted); WriteState(w, m.state); }
+void Write(BitWriter& w, const EconomySync& m) { w.U8(static_cast<uint32_t>(MessageType::EconomySync)); w.U16(m.ack); w.Bool(m.accepted); w.Bool(m.profile); WriteState(w, m.state); }
 std::optional<EconomyReport> ReadEconomyReport(BitReader& r) {
     EconomyReport m; m.seq = static_cast<uint16_t>(r.U16());
     if (!ReadState(r, m.state)) return std::nullopt;
     return m;
 }
 std::optional<EconomySync> ReadEconomySync(BitReader& r) {
-    EconomySync m; m.ack = static_cast<uint16_t>(r.U16()); m.accepted = r.Bool();
+    EconomySync m; m.ack = static_cast<uint16_t>(r.U16()); m.accepted = r.Bool(); m.profile = r.Bool();
     if (!ReadState(r, m.state)) return std::nullopt;
     return m;
 }
@@ -56,9 +56,19 @@ Ledger::Verdict Ledger::Submit(const EconomySnapshot& rawClaim, double nowSecond
         claimed.money = std::isfinite(claimed.money) ? std::clamp(claimed.money, 0.0f, kMaxMoney) : 0.0f;
         if (m_Started) { verdict.reason = "plata fuera de rango"; verdict.authoritative = m_State; return verdict; }
     }
-    if (!m_Started) {   // el primer informe fija la copia
+    if (!m_Started) {   // el primer informe de un perfil nuevo fija la copia, recortada a lo que se permite al empezar
+        bool limited = false;
+        if (claimed.money > m_Limits.startMoney) { claimed.money = m_Limits.startMoney; limited = true; }
+        long units = 0;
+        for (auto& [index, quantity] : claimed.items) {
+            const long room = std::max<long>(0, m_Limits.startItems - units);
+            if (quantity > room) { quantity = static_cast<uint16_t>(room); limited = true; }
+            units += quantity;
+        }
+        claimed = Canonical(claimed, m_Data->items.size());
         m_Started = true; m_State = claimed; m_LastSeconds = nowSeconds;
-        verdict.accepted = true; verdict.authoritative = m_State;
+        verdict.accepted = !limited; verdict.authoritative = m_State;
+        if (limited) verdict.reason = "perfil nuevo limitado";
         return verdict;
     }
     const double elapsed = std::clamp(nowSeconds - m_LastSeconds, 0.0, 60.0);
@@ -131,6 +141,30 @@ Ledger::Verdict Ledger::Submit(const EconomySnapshot& rawClaim, double nowSecond
     m_State = claimed;
     verdict.accepted = true; verdict.authoritative = m_State;
     return verdict;
+}
+
+EconomySnapshot EconomyFromSave(const nlohmann::json& save, size_t itemCount) {
+    EconomySnapshot state;
+    if (!save.is_object()) return state;
+    const auto money = save.find("money");
+    if (money != save.end() && money->is_number()) state.money = std::clamp(money->get<float>(), 0.0f, kMaxMoney);
+    state.bigSack = save.value("bigSack", false);
+    const auto inventory = save.find("inventory");
+    if (inventory != save.end() && inventory->is_array())
+        for (const auto& entry : *inventory) {
+            if (!entry.is_object() || !entry.value("item", nlohmann::json()).is_number_integer() || !entry.value("quantity", nlohmann::json()).is_number_integer()) continue;
+            const long long item = entry["item"].get<long long>(), quantity = entry["quantity"].get<long long>();
+            if (item >= 0 && static_cast<size_t>(item) < itemCount && quantity > 0) state.items.push_back({static_cast<uint16_t>(item), static_cast<uint16_t>(std::min<long long>(quantity, 65535))});
+        }
+    return Canonical(std::move(state), itemCount);
+}
+
+void ApplyEconomyToSave(nlohmann::json& save, const EconomySnapshot& state) {
+    if (!save.is_object()) save = nlohmann::json::object();
+    save["money"] = state.money;
+    save["bigSack"] = state.bigSack;
+    save["inventory"] = nlohmann::json::array();
+    for (const auto& [index, quantity] : state.items) save["inventory"].push_back({{"item", index}, {"quantity", quantity}});
 }
 
 std::optional<EconomyReport> EconomyMirror::Poll(const EconomySnapshot& current, double nowSeconds) {

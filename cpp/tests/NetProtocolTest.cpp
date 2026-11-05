@@ -37,12 +37,12 @@ int main() {
     // Hello / Welcome / Reject
     {
         BitWriter w;
-        Hello hello; hello.name = "Jairo"; hello.look = {1, 2, 3, 250};
+        Hello hello; hello.name = "Jairo"; hello.look = {1, 2, 3, 250}; hello.key = "0123456789abcdef0123456789abcdef";
         Write(w, hello);
         BitReader r(w.Data());
         Check(ReadType(r) == MessageType::Hello, "tipo Hello");
         const auto back = ReadHello(r);
-        Check(back && back->name == "Jairo" && back->look == hello.look && back->protocol == kProtocolVersion, "Hello ida y vuelta");
+        Check(back && back->name == "Jairo" && back->look == hello.look && back->key == hello.key && back->protocol == kProtocolVersion, "Hello ida y vuelta");
     }
     {
         BitWriter w;

@@ -39,10 +39,11 @@ std::unique_ptr<NetSession> NetSession::StartHost(uint16_t port, const std::stri
     return session;
 }
 
-std::unique_ptr<NetSession> NetSession::Join(const std::string& address, uint16_t port, const std::string& name) {
+std::unique_ptr<NetSession> NetSession::Join(const std::string& address, uint16_t port, const std::string& name, const std::string& key) {
     std::unique_ptr<NetSession> session(new NetSession());
     session->m_Role = Role::Client;
     session->m_Name = name;
+    session->m_Key = key;
     session->m_Host = Host::CreateClient();
     if (!session->m_Host || !session->m_Host->Connect(address, port)) return nullptr;
     return session;
@@ -70,6 +71,7 @@ void NetSession::UpdateHost(float dt, const LocalState& local) {
         else if (event.type == NetEvent::Type::Disconnected) {
             const auto it = m_Peers.find(event.peer);
             if (it != m_Peers.end()) {
+                SavePeer(it->second);
                 if (it->second.id != 0) { m_Notices.push_back((it->second.name.empty() ? std::string("Un jugador") : it->second.name) + " salió de la partida."); m_Smooth.erase(it->second.id); }
                 m_Peers.erase(it);
             }
@@ -86,6 +88,8 @@ void NetSession::UpdateHost(float dt, const LocalState& local) {
             m_Host->Send(peer, kChannelUnreliable, writer.Data(), false);
         }
     }
+    m_SaveAccumulator += dt;
+    if (m_SaveAccumulator >= 30.0) { m_SaveAccumulator = 0.0; SaveProfiles(); }
     m_WorldAccumulator += dt;
     if (m_WorldProvider && m_WorldAccumulator >= kWorldInterval) {
         m_WorldAccumulator = std::fmod(m_WorldAccumulator, kWorldInterval);
@@ -129,12 +133,14 @@ void NetSession::HandleHostMessage(const NetEvent& event) {
         if (!hello || peer.id != 0) return;
         BitWriter answer;
         if (hello->protocol != kProtocolVersion) Write(answer, Reject{RejectReason::WrongProtocol});
-        else if (hello->name.empty()) Write(answer, Reject{RejectReason::BadName});
+        else if (hello->name.empty() || (!hello->key.empty() && !IsValidPlayerKey(hello->key))) Write(answer, Reject{RejectReason::BadName});
+        else if (!hello->key.empty() && std::any_of(m_Peers.begin(), m_Peers.end(), [&](const auto& entry) { return entry.second.id != 0 && entry.second.key == hello->key; })) Write(answer, Reject{RejectReason::KeyInUse});
         else if (std::count_if(m_Peers.begin(), m_Peers.end(), [](const auto& entry) { return entry.second.id != 0; }) >= static_cast<long>(m_MaxPlayers) - 1 || FreeId() == 0)
             Write(answer, Reject{RejectReason::ServerFull});   // se cuentan los que YA estan dentro (el anfitrion es uno), no los que aun no saludaron
         else {
             peer.id = FreeId();
             peer.name = hello->name;
+            peer.key = hello->key;
             Welcome welcome; welcome.playerId = peer.id; welcome.serverTick = m_Tick; welcome.worldSeed = 0;
             Write(answer, welcome);
             m_Host->Send(event.peer, kChannelReliable, answer.Data(), true);
@@ -165,7 +171,15 @@ void NetSession::HandleHostMessage(const NetEvent& event) {
         if (peer.id == 0 || !m_EconomyData) return;
         const auto report = ReadEconomyReport(reader);
         if (!report) return;
-        if (!peer.ledger) peer.ledger = std::make_unique<Ledger>(*m_EconomyData);
+        if (!peer.ledger) StartLedger(peer);
+        if (peer.ledger->FromProfile() && !peer.profileSynced) {   // el perfil guardado en este anfitrion manda sobre lo que el invitado traiga
+            peer.profileSynced = true;
+            BitWriter answer;
+            Write(answer, EconomySync{report->seq, false, peer.ledger->State(), true});
+            m_Host->Send(event.peer, kChannelReliable, answer.Data(), true);
+            return;
+        }
+        peer.profileSynced = true;
         const Ledger::Verdict verdict = peer.ledger->Submit(report->state, NowMs() / 1000.0);
         if (!verdict.accepted) {   // se queda la copia del anfitrion y se le devuelve al invitado, que la adopta
             ++m_EconomyRejections;
@@ -186,7 +200,7 @@ void NetSession::UpdateClient(float dt, const LocalState& local) {
         if (event.type == NetEvent::Type::Connected) {
             m_Server = event.peer;
             BitWriter writer;
-            Hello hello; hello.name = m_Name;
+            Hello hello; hello.name = m_Name; hello.key = m_Key;
             Write(writer, hello);
             m_Host->Send(m_Server, kChannelReliable, writer.Data(), true);
         } else if (event.type == NetEvent::Type::Disconnected) {
@@ -217,7 +231,7 @@ void NetSession::HandleClientMessage(const NetEvent& event) {
     } else if (*type == MessageType::Reject) {
         m_Rejected = true;
         const auto reject = ReadReject(reader);
-        m_Notices.push_back(reject && reject->reason == RejectReason::ServerFull ? "La partida está llena." : "El anfitrión rechazó la conexión.");
+        m_Notices.push_back(reject && reject->reason == RejectReason::ServerFull ? "La partida está llena." : reject && reject->reason == RejectReason::KeyInUse ? "Ese perfil ya está conectado en esta partida." : "El anfitrión rechazó la conexión.");
     } else if (*type == MessageType::EconomySync) {
         if (const auto sync = ReadEconomySync(reader)) m_PendingEconomy = std::move(*sync);
     } else if (*type == MessageType::Hit) {
@@ -279,6 +293,28 @@ void NetSession::SendEconomy(const EconomyReport& report) {
     Write(writer, report);
     m_Host->Send(m_Server, kChannelReliable, writer.Data(), true);
 }
+
+NetSession::~NetSession() { if (m_Role == Role::Host) SaveProfiles(); }
+
+// La copia de economia de este invitado: del perfil guardado (saneado) si existe; si no, nueva (con el limite de perfil nuevo)
+void NetSession::StartLedger(Peer& peer) {
+    peer.ledger = std::make_unique<Ledger>(*m_EconomyData);
+    if (!m_Profiles || peer.key.empty()) return;
+    if (auto save = m_Profiles->Load(peer.key)) {
+        Sanitize(*save, *m_EconomyData);
+        peer.ledger->Adopt(EconomyFromSave(*save, m_EconomyData->items.size()), NowMs() / 1000.0);
+    }
+}
+
+void NetSession::SavePeer(const Peer& peer) {
+    if (!m_Profiles || peer.key.empty() || !peer.ledger || !peer.ledger->Started()) return;
+    nlohmann::json save = m_Profiles->Load(peer.key).value_or(nlohmann::json::object());
+    ApplyEconomyToSave(save, peer.ledger->State());
+    save["name"] = peer.name;
+    m_Profiles->Save(peer.key, save);
+}
+
+void NetSession::SaveProfiles() { for (const auto& [connection, peer] : m_Peers) SavePeer(peer); }
 
 const Ledger* NetSession::LedgerOf(uint8_t player) const {
     for (const auto& [peer, info] : m_Peers) if (info.id == player) return info.ledger.get();

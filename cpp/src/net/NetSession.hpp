@@ -7,8 +7,10 @@
 #include "Transport.hpp"
 #include "EconomyLedger.hpp"
 #include "Interaction.hpp"
+#include "ProfileStore.hpp"
 #include "WorldSnapshot.hpp"
 
+#include <filesystem>
 #include <functional>
 #include <optional>
 
@@ -43,7 +45,7 @@ public:
     enum class Role { Host, Client };
 
     static std::unique_ptr<NetSession> StartHost(uint16_t port, const std::string& name, size_t maxPlayers = kMaxPlayers);
-    static std::unique_ptr<NetSession> Join(const std::string& address, uint16_t port, const std::string& name);
+    static std::unique_ptr<NetSession> Join(const std::string& address, uint16_t port, const std::string& name, const std::string& key = {});
 
     // Atiende la red y avanza el suavizado; cada cuadro con el estado actual del jugador local. `dt` en segundos.
     void Update(float dt, const LocalState& local);
@@ -74,6 +76,11 @@ public:
     void SendEconomy(const EconomyReport& report);
     std::optional<EconomySync> ConsumeEconomySync() { std::optional<EconomySync> out; out.swap(m_PendingEconomy); return out; }
     size_t EconomyRejections() const { return m_EconomyRejections; }
+    // Perfiles (anfitrion): con una carpeta, cada invitado con clave recupera su plata y su costal guardados aqui, y se guardan al salir y cada 30 s.
+    // Sin carpeta no se guarda nada y la copia arranca de lo que el invitado cuente (con el limite de perfil nuevo).
+    void SetProfileFolder(const std::filesystem::path& folder) { m_Profiles = std::make_unique<ProfileStore>(folder); }
+    void SaveProfiles();   // se llama sola; el juego la llama tambien al cerrar
+    ~NetSession();
     const Ledger* LedgerOf(uint8_t player) const;   // anfitrion: la copia de ese invitado (nullptr si no hay)
     // Avisos de entrada y salida para mostrar en pantalla (se vacian al leerlos)
     std::vector<std::string> ConsumeNotices();
@@ -92,6 +99,8 @@ private:
         double lastStrikeMs = -1.0e9;
         std::unique_ptr<Ledger> ledger;
         double lastRejectNoticeMs = -1.0e9;
+        std::string key;
+        bool profileSynced = false;
     };
     struct Smooth { RemotePlayer shown; PlayerSnapshot target; bool fresh = true; double lastHeardMs = 0.0; };
 
@@ -119,6 +128,11 @@ private:
     double m_WorldAccumulator = 0.0;
     double m_LocalLastStrikeMs = -1.0e9;
     const GameData* m_EconomyData = nullptr;
+    std::unique_ptr<ProfileStore> m_Profiles;
+    double m_SaveAccumulator = 0.0;
+    std::string m_Key;                      // invitado: su clave
+    void SavePeer(const Peer& peer);
+    void StartLedger(Peer& peer);
     std::optional<EconomySync> m_PendingEconomy;
     size_t m_EconomyRejections = 0;
     std::vector<IncomingHit> m_Hits;

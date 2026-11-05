@@ -13,6 +13,8 @@
 #include "Protocol.hpp"
 #include "game/GameData.hpp"
 
+#include <nlohmann/json.hpp>
+
 #include <cstdint>
 #include <optional>
 #include <utility>
@@ -31,7 +33,7 @@ struct EconomySnapshot {
 };
 // Lo que el invitado cuenta (seq crece) y lo que el anfitrion contesta (ack = ultimo seq que proceso; `accepted` false = se revierte)
 struct EconomyReport { uint16_t seq = 0; EconomySnapshot state; };
-struct EconomySync { uint16_t ack = 0; bool accepted = true; EconomySnapshot state; };
+struct EconomySync { uint16_t ack = 0; bool accepted = true; EconomySnapshot state; bool profile = false; };   // profile: es el perfil guardado en este anfitrion, no una correccion
 
 inline constexpr float kMaxMoney = 1.0e7f;
 
@@ -43,9 +45,20 @@ std::optional<EconomySync> ReadEconomySync(BitReader& r);
 // Ordena, quita ceros y recorta: la forma canonica de comparar dos costales
 EconomySnapshot Canonical(EconomySnapshot state, size_t itemCount);
 
+// Un perfil NUEVO (clave que este anfitrion no conoce) arranca con lo que el jugador trae, pero recortado a esto: un perfil de verdad se gana jugando aqui.
+// Es una decision de diseno ajustable; `Unlimited()` lo desactiva (pruebas, o un anfitrion de confianza).
+struct LedgerLimits {
+    float startMoney = 50000.0f;
+    int startItems = 60;   // unidades en total
+    static LedgerLimits Unlimited() { return {kMaxMoney, 1000000}; }
+};
+
 class Ledger {
 public:
-    explicit Ledger(const GameData& data) : m_Data(&data) {}
+    explicit Ledger(const GameData& data, LedgerLimits limits = {}) : m_Data(&data), m_Limits(limits) {}
+    // Fija la copia desde un perfil guardado en este anfitrion (ya saneado): manda sobre lo que traiga el invitado
+    void Adopt(const EconomySnapshot& state, double nowSeconds) { m_State = Canonical(state, m_Data->items.size()); m_Started = true; m_FromProfile = true; m_LastSeconds = nowSeconds; }
+    bool FromProfile() const { return m_FromProfile; }
     // El primer informe de un invitado fija su copia (el perfil se confia: aun no hay perfiles guardados en el anfitrion)
     // `nowSeconds` es cualquier reloj creciente (segundos).
     struct Verdict { bool accepted = false; EconomySnapshot authoritative; std::string reason; };
@@ -56,11 +69,17 @@ public:
 private:
     const GameData* m_Data;
     EconomySnapshot m_State;
+    LedgerLimits m_Limits;
+    bool m_FromProfile = false;
     bool m_Started = false;
     double m_LastSeconds = 0.0;
     double m_LootTokens = 12.0;     // rafaga de 12 objetos, 1 por segundo
     double m_EarnTokens = 8000.0;   // premios del mundo: rafaga de 8000 y 100 por segundo (6000 por minuto)
 };
+
+// Perfil guardado <-> copia de economia (el guardado usa los mismos nombres del savegame.json del juego: money, bigSack, inventory [{item, quantity}])
+EconomySnapshot EconomyFromSave(const nlohmann::json& save, size_t itemCount);
+void ApplyEconomyToSave(nlohmann::json& save, const EconomySnapshot& state);
 
 // Lado del invitado: decide cuando contar su estado y cuando adoptar el del anfitrion (sin parpadeos mientras hay cambios sin confirmar)
 class EconomyMirror {

@@ -346,7 +346,7 @@ option(BAZUKO_NET "Compilar el transporte de red (ENet), las pruebas de red y lo
 if(BAZUKO_NET)
     FetchContent_Declare(enet GIT_REPOSITORY https://github.com/lsalzman/enet.git GIT_TAG v1.3.18 GIT_SHALLOW TRUE)
     FetchContent_MakeAvailable(enet)
-    add_library(bazuko_net STATIC src/net/Transport.cpp src/net/ToyWorld.cpp src/net/NetSession.cpp src/net/PlayerSim.cpp src/net/EconomyLedger.cpp src/game/Movement.cpp
+    add_library(bazuko_net STATIC src/net/Transport.cpp src/net/ToyWorld.cpp src/net/NetSession.cpp src/net/PlayerSim.cpp src/net/EconomyLedger.cpp src/net/ProfileStore.cpp src/game/Movement.cpp
                               src/game/Economy.cpp src/game/Harvest.cpp src/game/GameData.cpp src/core/Paths.cpp)
     target_include_directories(bazuko_net PUBLIC src third_party/include ${enet_SOURCE_DIR}/include)
     target_link_libraries(bazuko_net PUBLIC enet glm::glm)

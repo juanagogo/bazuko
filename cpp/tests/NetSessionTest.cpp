@@ -3,6 +3,7 @@
 #include "net/NetSession.hpp"
 
 #include <chrono>
+#include <filesystem>
 #include <cmath>
 #include <cstdio>
 #include <thread>
@@ -202,6 +203,67 @@ int main() {
             CHECK(host->EconomyRejections() >= 1 && adoptions == 1, "E: la trampa se rechaza y el invitado adopta la copia del anfitrion");
             CHECK(std::abs(mine.money - 18500.0f) < 0.01f, "E: la plata vuelve a lo que el anfitrion aceptó");
             std::printf("E) economia: compra honesta intacta; trampa de 5 millones revertida (rechazos: %zu)\n", host->EconomyRejections());
+        }
+    }
+    // F: perfiles en el anfitrion: se guardan al salir, mandan al volver (aunque el invitado traiga otra cosa), una clave no se conecta dos veces y un perfil nuevo se recorta
+    {
+        std::string error;
+        const auto loaded = GameData::LoadFromFile(BAZUKO_GAME_DATA_PATH, &error);
+        CHECK(loaded.has_value(), "F: datos del juego");
+        if (loaded) {
+            namespace fs = std::filesystem;
+            const GameData& data = *loaded;
+            uint16_t pan = 0;
+            for (size_t i = 0; i < data.items.size(); ++i) if (data.items[i].id == "pan") pan = static_cast<uint16_t>(i);
+            const fs::path folder = fs::temp_directory_path() / ("bazuko_perfiles_prueba_" + NewPlayerKey());
+            auto host = NetSession::StartHost(0, "Anfitrion");
+            host->SetEconomyData(&data);
+            host->SetProfileFolder(folder);
+            Walker hw{{100.0f, 0.0f, 100.0f}}, cw{{101.0f, 0.0f, 100.0f}}, dw{{102.0f, 0.0f, 100.0f}};
+            struct Guest { std::unique_ptr<NetSession> session; EconomyMirror mirror; EconomySnapshot mine; int adoptions = 0; bool profileNotice = false; };
+            double clockSeconds = 0.0;
+            const auto step = [&](float dt, Guest& g, const Walker& w) {
+                if (!g.session) return;
+                g.session->Update(dt, w.State());
+                if (!g.session->Connected()) return;
+                if (const auto report = g.mirror.Poll(Canonical(g.mine, data.items.size()), clockSeconds)) g.session->SendEconomy(*report);
+                if (const auto sync = g.session->ConsumeEconomySync()) {
+                    const bool profile = sync->profile;
+                    if (const auto adopt = g.mirror.OnSync(*sync, Canonical(g.mine, data.items.size()))) { g.mine = *adopt; ++g.adoptions; g.profileNotice = g.profileNotice || profile; }
+                }
+            };
+            Guest a, b, c;
+            const std::string key = NewPlayerKey();
+            a.session = NetSession::Join("127.0.0.1", host->Port(), "Cami", key);
+            a.mine.money = 20000.0f; a.mine.items.push_back({pan, 2});
+            const auto run = [&](double seconds) { Pump(seconds, [&](float dt) { clockSeconds += dt; host->Update(dt, hw.State()); step(dt, a, cw); step(dt, b, dw); step(dt, c, dw); }); };
+            run(1.2);
+            CHECK(a.adoptions == 0 && host->EconomyRejections() == 0, "F: un perfil nuevo dentro del limite empieza sin correcciones");
+            a.mine.money -= 1500.0f; a.mine.items.back().second = 3;   // compra honesta
+            run(0.8);
+            CHECK(a.adoptions == 0 && host->EconomyRejections() == 0, "F: la compra no se toca");
+            // se repite la clave mientras el primero sigue conectado: se rechaza
+            b.session = NetSession::Join("127.0.0.1", host->Port(), "Otro", key);
+            run(1.0);
+            CHECK(b.session->Rejected() && !b.session->Connected(), "F: una clave no puede estar conectada dos veces");
+            b.session.reset();
+            a.session.reset();   // sale: el anfitrion guarda su perfil
+            run(1.0);
+            CHECK(ProfileStore(folder).Exists(key), "F: el perfil queda guardado en el anfitrion al salir");
+            // vuelve con la misma clave pero con trampa local: la plata y el costal guardados mandan
+            c.session = NetSession::Join("127.0.0.1", host->Port(), "Cami", key);
+            c.mine.money = 9.0e6f; c.mine.items.push_back({pan, 500});
+            run(1.5);
+            CHECK(c.adoptions == 1 && c.profileNotice, "F: al volver recibe su perfil guardado");
+            CHECK(std::abs(c.mine.money - 18500.0f) < 0.01f && !c.mine.items.empty() && c.mine.items[0].second == 3, "F: con la plata y el costal de antes, no con la trampa local");
+            // perfil nuevo con trampa: se recorta
+            b.session = NetSession::Join("127.0.0.1", host->Port(), "Nuevo", NewPlayerKey());
+            b.mine.money = 9.0e6f; b.mine.items.push_back({pan, 500});
+            run(1.5);
+            CHECK(b.adoptions == 1 && b.mine.money == 50000.0f && b.mine.items[0].second == 60, "F: un perfil nuevo con trampa arranca recortado");
+            std::printf("F) perfiles: guardado al salir, perfil manda al volver, clave unica y perfil nuevo recortado\n");
+            b.session.reset(); c.session.reset(); host.reset();
+            std::error_code ec; fs::remove_all(folder, ec);
         }
     }
     if (failures == 0) std::printf("Sesion de red: todo correcto\n");
