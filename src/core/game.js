@@ -1039,12 +1039,12 @@ export class Game {
     }, 1200);
   }
 
-  /** ¿Está el jugador a menos de `radius` m del cambuche? */
   /** Dentro del cambuche con techo y paredes la patrulla no lo ve ni lo saca: es el único escondite. */
   _escondidoEnCambuche() {
     return !!(this.built?.techo && this.built?.paredes) && !this.carjack?.driving && this._nearCambuche(ESCONDITE_M);
   }
 
+  /** ¿Está el jugador a menos de `radius` m del cambuche? */
   _nearCambuche(radius) {
     const c = this.cambuche?.position;
     return !!c && Math.hypot(this.player.position.x - c.x, this.player.position.z - c.z) < radius;
@@ -1135,8 +1135,7 @@ export class Game {
     // Lo que pesa la captura depende del nivel con que lo cogieron; se fija aquí y se cobra al continuar.
     const castigo = this._arrestCastigo = castigoDeArresto(this.steal?.buscado ?? 0);
     const decomiso = this._decomiso();
-    const perdido = perdidoEnArresto(this.stats.dinero, decomiso, ITEMS);
-    if (this.carjack?.car) perdido.cosas.push('el carro robado');
+    const perdido = perdidoEnArresto(this.stats.dinero, decomiso, ITEMS, 3, this.carjack?.car ? ['el carro robado'] : []);
     let plana = null;
     this.menu.open({
       title: 'Te atrapó la Policía', ic: 'alert', dismissible: false, momento: 'plana',
