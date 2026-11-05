@@ -229,6 +229,7 @@ export class StealSystem {
         // De último: los avisos caen uno encima del otro y este es el que hay que alcanzar a leer.
         this._alertPolice();
         this._triggerCrowdConsequence(npc, 'cosquilleo');
+        this.game.witnesses?.report?.('robo', npc);
       } else {
         this._toast('Fallé el cosquilleo, pero disimulé.', 'warn');
       }
@@ -254,6 +255,7 @@ export class StealSystem {
     }
     this._alertPolice();
     this._triggerCrowdConsequence(npc, 'robo directo');
+    this.game.witnesses?.report?.('robo', npc);
   }
 
   // Una patrulla que lo ve lo persigue, igual que por un retrovisor robado.

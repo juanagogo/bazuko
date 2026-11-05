@@ -144,6 +144,7 @@ export class CarjackSystem {
       }
     }
     this._raiseWanted();
+    game.witnesses?.report?.('carro');
     game.stats?.addXP?.(CARJACK.xp, game.talents);
     this.car = car;
     this.stolen = car;

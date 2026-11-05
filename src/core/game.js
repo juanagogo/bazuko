@@ -51,6 +51,7 @@ import { SaveSystem } from '../systems/SaveSystem.js';
 import { AutoSave } from '../systems/AutoSave.js';
 import { CollisionSystem } from '../systems/CollisionSystem.js';
 import { TrafficSystem } from '../systems/TrafficSystem.js';
+import { WitnessSystem } from '../systems/WitnessSystem.js';
 import { distributeShelterLoot, spreadPickupPositions } from '../systems/ShelterLoot.js';
 import { InventorySystem } from '../systems/InventorySystem.js';
 import { DroppedItemSystem } from '../systems/DroppedItemSystem.js';
@@ -192,6 +193,7 @@ export class Game {
     this.interaction.zorra = this.zorra;
     this.zorraCtl = new ZorraController(this);
     this.carjack = new CarjackSystem(this);
+    this.witnesses = new WitnessSystem(this);
     this.mirrorCinematic = new MirrorCinematic(this);
 
     // HUD, menús y creador de personaje
@@ -1194,6 +1196,7 @@ export class Game {
     this.roadRage?.reset();
     this.limpieza?.reset();
     this.momentos?.reset();
+    this.witnesses?.reset();
     this.substanceEffects?.end();
     this.psychosis?.clearInduced?.();
     if (this.steal) {
@@ -1442,6 +1445,7 @@ export class Game {
     }
     if (!this.player.isSwimming && !driving) this.steal?.update(dt);
     else if (this.steal?.minigameActive) this.steal._endMinigame(false, 'cancel');
+    this.witnesses?.update(dt);
     this.interaction.carjackPrompt = driving ? null : this.carjack?.prompt ?? null;
     this.mirrorCinematic?.update(dt);
     this._updateObjectives(dt);

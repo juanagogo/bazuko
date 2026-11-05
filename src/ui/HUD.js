@@ -443,8 +443,9 @@ export class HUD {
     window.addEventListener('police-escaped', (e) => {
       this._toast(textoDeEscape(e?.detail?.reason), 'info');
     });
-    window.addEventListener('police-radio', () => {
-      this._toast('Pidieron refuerzos por radio: viene otra patrulla', 'warn');
+    window.addEventListener('police-radio', (e) => {
+      this._toast(e?.detail?.reason === 'llamada' ? 'Por la llamada viene una patrulla para acá'
+        : 'Pidieron refuerzos por radio: viene otra patrulla', 'warn');
     });
     window.addEventListener('withdrawal', (e) => {
       if (e.detail.active) this._toast('Me dio malilla: camino más lento y me bajo de ánimo', 'warn');

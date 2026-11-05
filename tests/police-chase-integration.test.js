@@ -292,3 +292,19 @@ test('con nivel 2 la patrulla que lo ve pide refuerzos por radio a la libre más
   assert.equal(radios, 1);
   traffic.dispose();
 });
+
+test('la llamada de un testigo manda la patrulla al sitio y, si no lo ve allá, desiste', () => {
+  const state = setup();
+  const { traffic, vehicle, collisions } = state;
+  let reason = null;
+  window.addEventListener('police-escaped', e => { reason = e.detail?.reason; });
+  wall(collisions, [-30, 0, 9.6], [30, 4, 10]);
+  assert.equal(traffic.dispatchTo(new THREE.Vector3(15, 0, 0)), true);
+  assert.equal(vehicle.state, 'chase');
+  const player = new THREE.Vector3(15, 0, 14); // ya se fue detrás del muro
+  for (let i = 0; i < 200 && traffic.inPursuit; i++) traffic.update(.1, { player });
+  assert.equal(state.arrests, 0);
+  assert.equal(reason, 'vista');
+  assert.ok(vehicle.car.position.x > 5, 'alcanzó a ir hacia la llamada');
+  traffic.dispose();
+});
