@@ -2445,6 +2445,129 @@ void Simulation::Update(float dt, const std::vector<Net::PlayerView>& players) {
     UpdateWorld(dt, primary);
 }
 
+// --- Mundo compartido ---
+Net::WorldSnapshot Simulation::ExportWorld(const glm::vec3& viewer, uint32_t tick) {
+    Net::WorldSnapshot s;
+    s.tick = tick; s.day = static_cast<uint32_t>(m_Day); s.clock = m_Clock; s.elapsed = m_Elapsed;
+    s.weather = static_cast<uint8_t>(m_WeatherType); s.weatherRemaining = std::clamp(m_WeatherRemaining, 0.0f, 600.0f);
+    s.vehicleCount = static_cast<uint16_t>(std::min<size_t>(m_Traffic.size(), 65535));
+    const auto flat = [&](const glm::vec3& p) { const float dx = p.x - viewer.x, dz = p.z - viewer.z; return dx * dx + dz * dz; };
+    for (const BusState& bus : m_Buses) {
+        if (s.buses.size() >= Net::kMaxWorldBuses) break;
+        Net::WorldBus b; b.x = bus.position.x; b.y = bus.position.y; b.z = bus.position.z; b.headingX = bus.heading.x; b.headingZ = bus.heading.y;
+        b.speed = bus.speed; b.wheelRotation = bus.wheelRotation; b.servedStation = bus.servedStation;
+        s.buses.push_back(b);
+    }
+    constexpr float kRadius2 = 160.0f * 160.0f;
+    std::vector<std::pair<float, size_t>> near;
+    for (size_t i = 0; i < m_Traffic.size() && i < 65535; ++i) {
+        const float d = flat(m_Traffic[i].position);
+        if (d <= kRadius2) near.push_back({d, i});
+    }
+    std::sort(near.begin(), near.end());
+    if (near.size() > Net::kMaxWorldVehicles) near.resize(Net::kMaxWorldVehicles);
+    for (const auto& entry : near) {
+        const TrafficVehicle& v = m_Traffic[entry.second];
+        Net::WorldVehicle w; w.index = static_cast<uint16_t>(entry.second);
+        glm::vec3 position; float yaw;
+        VehiclePose(v, position, yaw);
+        w.x = position.x; w.y = position.y; w.z = position.z;
+        w.heading = v.bike.ready ? v.bike.heading : -yaw; w.steer = v.bike.ready ? v.bike.steer : 0.0f;
+        w.speed = v.speed; w.variant = static_cast<uint8_t>(std::clamp(v.variant, 0, 31)); w.emergency = static_cast<uint8_t>(std::clamp(v.emergency, 0, 3)); w.parked = v.parked;
+        s.vehicles.push_back(w);
+    }
+    near.clear();
+    for (size_t i = 0; i < m_Pedestrians.size(); ++i) {
+        const Pedestrian& p = m_Pedestrians[i];
+        if (p.departed) continue;
+        const float d = flat(p.position);
+        if (d <= kRadius2) near.push_back({d, i});
+    }
+    std::sort(near.begin(), near.end());
+    if (near.size() > Net::kMaxWorldPedestrians) near.resize(Net::kMaxWorldPedestrians);
+    for (const auto& entry : near) {
+        Pedestrian& p = m_Pedestrians[entry.second];
+        if (p.netId == 0) { p.netId = m_NextPedestrianId++; if ((p.netId & 0xFFFFu) == 0) p.netId = m_NextPedestrianId++; }
+        Net::WorldPedestrian w; w.id = p.netId & 0xFFFFu;
+        w.x = p.position.x; w.y = p.position.y; w.z = p.position.z; w.yaw = p.yaw; w.speed = p.moving ? p.speed : 0.0f;
+        w.appearance = static_cast<uint8_t>(std::min<size_t>(p.appearance, 255)); w.reaction = static_cast<uint8_t>(std::clamp(p.reaction, 0, 7));
+        w.moving = p.moving; w.dead = p.dead; w.police = p.police;
+        s.pedestrians.push_back(w);
+    }
+    return s;
+}
+
+bool Simulation::ApplyWorld(const Net::WorldSnapshot& s) {
+    if (s.vehicleCount != m_Traffic.size()) return false;   // otra semilla o modelos distintos: no se mezclan mundos
+    m_Day = static_cast<int>(std::max<uint32_t>(1u, s.day));
+    m_Clock = std::clamp(s.clock, 0.0f, 1.0f); m_DayProgress = m_Clock;
+    m_Elapsed = s.elapsed;
+    if (s.weather < Climate::kWeatherCount) {
+        const auto weather = static_cast<Climate::Weather>(s.weather);
+        if (weather != m_WeatherType) { m_WeatherType = weather; m_WeatherToast = Climate::Info(weather).toast; }
+        m_WeatherRemaining = s.weatherRemaining + 10.0f;   // el invitado no elige tiempo: espera el del anfitrion
+    }
+    for (size_t i = 0; i < s.buses.size() && i < m_Buses.size(); ++i) {
+        const Net::WorldBus& b = s.buses[i]; BusState& bus = m_Buses[i];
+        bus.previousPosition = bus.position;
+        bus.position = {b.x, b.y, b.z}; bus.heading = {b.headingX, b.headingZ}; bus.speed = b.speed; bus.wheelRotation = b.wheelRotation; bus.servedStation = b.servedStation;
+    }
+    for (const Net::WorldVehicle& w : s.vehicles) {
+        if (w.index >= m_Traffic.size()) continue;
+        TrafficVehicle& v = m_Traffic[w.index];
+        BicycleParams params; params.wheelbase = std::max(1.2f, v.wheelbase);
+        v.previousPosition = v.position;
+        v.parked = w.parked; v.variant = w.variant; v.emergency = w.emergency; v.speed = w.speed;
+        v.bike.heading = w.heading; v.bike.steer = w.steer; v.bike.ready = true;
+        v.bike.rear = glm::vec2(w.x, w.z) - v.bike.Forward() * (params.wheelbase * 0.5f);
+        v.position = {w.x, w.y, w.z}; v.yaw = v.bike.Yaw();
+        v.direction = {v.bike.Forward().x, 0.0f, v.bike.Forward().y};
+    }
+    // peatones: los que ya conoce conservan su animacion; los que no llegan se van
+    std::unordered_map<uint32_t, size_t> known;
+    for (size_t i = 0; i < m_Pedestrians.size(); ++i) if (m_Pedestrians[i].netId != 0) known[m_Pedestrians[i].netId] = i;
+    std::vector<Pedestrian> next;
+    next.reserve(s.pedestrians.size());
+    const size_t looks = std::max<size_t>(1, m_PedestrianAppearances.size());
+    for (const Net::WorldPedestrian& w : s.pedestrians) {
+        const auto it = known.find(w.id);
+        Pedestrian p = it != known.end() ? m_Pedestrians[it->second] : Pedestrian{};
+        if (it == known.end()) {
+            p.netId = w.id;
+            p.animationOffset = static_cast<float>((w.id * 37u) % 100u) * 0.1f;
+            p.color = {0.22f + static_cast<float>((w.id * 53u) % 100u) / 100.0f * 0.55f, 0.18f + static_cast<float>((w.id * 29u) % 100u) / 100.0f * 0.48f, 0.15f + static_cast<float>((w.id * 17u) % 100u) / 100.0f * 0.42f};
+        }
+        p.position = {w.x, w.y, w.z}; p.yaw = w.yaw; p.speed = std::max(0.1f, w.speed); p.moving = w.moving && w.speed > 0.05f;
+        p.appearance = w.appearance % looks; p.reaction = w.reaction; p.dead = w.dead; p.police = w.police;
+        next.push_back(std::move(p));
+    }
+    m_Pedestrians = std::move(next);
+    m_GuestSyncAge = 0.0f;
+    return true;
+}
+
+void Simulation::GuestExtrapolate(float dt) {
+    m_GuestSyncAge += dt;
+    if (m_GuestSyncAge > 1.0f) return;   // sin noticias del anfitrion: se queda quieto en vez de seguir de largo
+    for (TrafficVehicle& v : m_Traffic) {
+        if (v.parked || !v.bike.ready || v.speed < 0.05f) continue;
+        v.bike.rear += v.bike.Forward() * (v.speed * dt);
+        BicycleParams params; params.wheelbase = std::max(1.2f, v.wheelbase);
+        const glm::vec2 center = v.bike.Center(params);
+        v.position.x = center.x; v.position.z = center.y;
+        v.wheelRotation -= v.speed * dt / 0.33f;
+    }
+    for (BusState& bus : m_Buses) {
+        if (bus.speed < 0.05f) continue;
+        bus.position.x += bus.heading.x * bus.speed * dt; bus.position.z += bus.heading.y * bus.speed * dt;
+        bus.wheelRotation += bus.speed * dt / 0.5f;
+    }
+    for (Pedestrian& p : m_Pedestrians) {
+        p.animationTime += dt;
+        if (p.moving && !p.dead) { p.position.x += std::sin(p.yaw) * p.speed * dt; p.position.z += std::cos(p.yaw) * p.speed * dt; }
+    }
+}
+
 void Simulation::UpdateWorld(float dt, const glm::vec3& playerPosition) {
     const float nextClock = m_Clock + dt / kDayLengthSeconds;
     if (nextClock >= 1.0f) ++m_Day;                       // pasa la medianoche: empieza otro dia (y a veces otra temporada)
@@ -2577,13 +2700,20 @@ void Simulation::UpdateWorld(float dt, const glm::vec3& playerPosition) {
         const float swing = m_DogSpeed < 2.4f ? 0.32f : m_DogSpeed < 5.2f ? 0.45f : 0.62f;
         m_DogPhase = std::fmod(m_DogPhase + (m_DogSpeed / (0.4f * swing)) * dt / 6.2831853f, 1.0f);
     }
-    UpdatePedestrians(dt, playerPosition);
-    UpdatePigeons(dt, playerPosition);
-    UpdateRats(dt, playerPosition);
-    UpdatePoop(dt);
-    UpdateTraffic(dt);
-    UpdateDrivers(dt, playerPosition);
-    UpdateBus(dt);
+    if (m_Guest) {
+        GuestExtrapolate(dt);   // el mundo lo simula el anfitrion: aqui solo se mueve lo que llego, hasta la siguiente instantanea
+        UpdatePigeons(dt, playerPosition);
+        UpdateRats(dt, playerPosition);
+        UpdatePoop(dt);
+    } else {
+        UpdatePedestrians(dt, playerPosition);
+        UpdatePigeons(dt, playerPosition);
+        UpdateRats(dt, playerPosition);
+        UpdatePoop(dt);
+        UpdateTraffic(dt);
+        UpdateDrivers(dt, playerPosition);
+        UpdateBus(dt);
+    }
     for (size_t index = 0; index < m_ParkedCarCooldowns.size(); ++index) {
         m_ParkedCarCooldowns[index] = std::max(0.0f, m_ParkedCarCooldowns[index] - dt);
         if (m_ParkedCarCooldowns[index] <= 0.0f) m_ParkedCars[index].mirrorsAvailable = true;

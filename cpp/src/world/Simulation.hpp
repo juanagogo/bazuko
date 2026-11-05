@@ -7,6 +7,8 @@
 #include "CityLayout.hpp"
 #include "BirdFlock.hpp"
 #include "../net/PlayerView.hpp"
+#include "../net/WorldSnapshot.hpp"
+#include <unordered_map>
 #include "../renderer/Model.hpp"
 #include <glm/glm.hpp>
 #include "VehicleKinematics.hpp"
@@ -23,6 +25,7 @@
 namespace Bazuko {
 
 struct Pedestrian {
+    uint32_t netId = 0;   // identificador estable para la red (se asigna al exportar el mundo; los indices cambian al compactar)
     float slope = 0.0f;   // pendiente del suelo que recorre (suavizada): inclina los pies
     float slopeX = 0.0f, slopeY = 0.0f, slopeZ = 0.0f;
     bool slopeReady = false;
@@ -394,6 +397,11 @@ public:
     struct PedestrianBubble { glm::vec3 position; std::string text; float alpha; };
     std::vector<PedestrianBubble> GetPedestrianBubbles(const glm::vec3& focus) const;
     // Otros jugadores (multijugador): se dibujan como personas con el mismo cuerpo de los peatones civiles (id fijo = mismo cuerpo). Solo se dibujan; no afectan la simulacion.
+    // Mundo compartido (hito 3): el anfitrion exporta tras cada paso; el invitado NO simula trafico, peatones ni buses, solo los aplica y los extrapola.
+    void SetGuestMode(bool guest) { m_Guest = guest; }
+    bool IsGuest() const { return m_Guest; }
+    Net::WorldSnapshot ExportWorld(const glm::vec3& viewer, uint32_t tick);
+    bool ApplyWorld(const Net::WorldSnapshot& snapshot);   // false si no coincide (otra semilla o modelos distintos)
     struct RemotePlayerView { uint8_t id = 0; glm::vec3 position{0.0f}; float yaw = 0.0f; float speed = 0.0f; bool knockedDown = false; };
     void SetRemotePlayers(std::vector<RemotePlayerView> remotes) { m_RemotePlayers = std::move(remotes); }
     void SetPlayerHygiene(float hygiene) { m_PlayerHygiene = hygiene; }
@@ -855,6 +863,10 @@ private:
     float m_Clock = 0.30f;
     float m_DayProgress = 0.30f;
     float m_PedestrianSpawnTimer = 0.0f;
+    bool m_Guest = false;
+    uint32_t m_NextPedestrianId = 1;
+    float m_GuestSyncAge = 0.0f;
+    void GuestExtrapolate(float dt);
     size_t m_SpawnPlayerCursor = 0;   // reparte las apariciones de peatones entre los jugadores por turnos
     std::vector<ShadowPerson> m_ShadowPeople;
     std::shared_ptr<Mesh> m_ShadowHeadMesh;

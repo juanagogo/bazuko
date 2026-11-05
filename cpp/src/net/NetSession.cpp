@@ -9,6 +9,7 @@ namespace {
 constexpr double kSendInterval = 1.0 / 20.0;     // estado propio e instantaneas a 20 Hz
 constexpr double kForgetMs = 3000.0;             // un remoto que no da noticias en 3 s ya no esta
 constexpr float kInterestRadius = 160.0f;
+constexpr double kWorldInterval = 1.0 / 10.0;    // el mundo (trafico, peatones) a 10 Hz; el invitado extrapola entre una y otra
 
 bool InMap(const PlayerSnapshot& p) {
     return std::isfinite(p.x) && std::isfinite(p.y) && std::isfinite(p.z) && p.x >= 0.0f && p.x <= 400.0f && p.z >= -74.0f && p.z <= 322.0f && p.y > -10.0f && p.y < 60.0f;
@@ -82,6 +83,17 @@ void NetSession::UpdateHost(float dt, const LocalState& local) {
             if (info.id == 0) continue;
             BitWriter writer;
             Write(writer, BuildSnapshotFor(info.id, glm::vec3(info.state.x, info.state.y, info.state.z)));
+            m_Host->Send(peer, kChannelUnreliable, writer.Data(), false);
+        }
+    }
+    m_WorldAccumulator += dt;
+    if (m_WorldProvider && m_WorldAccumulator >= kWorldInterval) {
+        m_WorldAccumulator = std::fmod(m_WorldAccumulator, kWorldInterval);
+        for (const auto& [peer, info] : m_Peers) {
+            if (info.id == 0) continue;
+            BitWriter writer;
+            Write(writer, m_WorldProvider(info.hasState ? glm::vec3(info.state.x, info.state.y, info.state.z) : local.position, m_Tick));
+            m_LastWorldBytes = writer.Data().size();
             m_Host->Send(peer, kChannelUnreliable, writer.Data(), false);
         }
     }
@@ -185,6 +197,8 @@ void NetSession::HandleClientMessage(const NetEvent& event) {
         m_Rejected = true;
         const auto reject = ReadReject(reader);
         m_Notices.push_back(reject && reject->reason == RejectReason::ServerFull ? "La partida está llena." : "El anfitrión rechazó la conexión.");
+    } else if (*type == MessageType::World) {
+        if (auto world = ReadWorld(reader)) { m_LastWorldBytes = event.data.size(); m_PendingWorld = std::move(*world); }
     } else if (*type == MessageType::Snapshot) {
         const auto snapshot = ReadSnapshot(reader);
         if (!snapshot) return;

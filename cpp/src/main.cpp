@@ -731,7 +731,8 @@ int main(int argc, char** argv) {
         const std::string playerName = characterManager.GetLook().nombre.empty() ? std::string("Parcero") : characterManager.GetLook().nombre;
         if (!hostArg.empty()) {
             netSession = Net::NetSession::StartHost(static_cast<uint16_t>(std::atoi(hostArg.c_str())), playerName);
-            if (netSession) { LogInfo("Multijugador: anfitrion en el puerto {}", netSession->Port()); ui.Notify("Eres el anfitrión: puerto " + std::to_string(netSession->Port()), ToastType::Info); }
+            if (netSession) { netSession->SetWorldProvider([&simulation](const glm::vec3& viewer, uint32_t tick) { return simulation.ExportWorld(viewer, tick); });
+                LogInfo("Multijugador: anfitrion en el puerto {}", netSession->Port()); ui.Notify("Eres el anfitrión: puerto " + std::to_string(netSession->Port()), ToastType::Info); }
             else LogWarn("Multijugador: no se pudo abrir el puerto {}", hostArg);
         } else if (!joinArg.empty()) {
             const size_t colon = joinArg.rfind(':');
@@ -1357,6 +1358,14 @@ int main(int argc, char** argv) {
 #ifdef BAZUKO_NET_ENABLED
         if (netSession) {   // multijugador: cuenta mi estado, recibe el de los demas y los dibuja (net/NetSession.hpp)
             netSession->Update(dt, Net::LocalState{playerPos, playerYaw, playerVelocity, playerKnockedDown});
+            // mundo compartido: el invitado deja de simular trafico y peatones y aplica lo que manda el anfitrion (misma semilla = mismos carros)
+            simulation.SetGuestMode(netSession->GetRole() == Net::NetSession::Role::Client && netSession->Connected());
+            if (simulation.IsGuest()) {
+                static bool warnedMismatch = false;
+                if (auto world = netSession->ConsumeWorld()) {
+                    if (!simulation.ApplyWorld(*world) && !warnedMismatch) { warnedMismatch = true; LogWarn("Multijugador: el mundo del anfitrion no coincide con el local (otra semilla o modelos distintos)"); }
+                }
+            }
             for (const std::string& notice : netSession->ConsumeNotices()) ui.Notify(notice, ToastType::Info);
             std::vector<Simulation::RemotePlayerView> remoteViews;
             for (const Net::RemotePlayer& remote : netSession->Remotes()) remoteViews.push_back({remote.id, remote.position, remote.yaw, remote.speed, remote.knockedDown});

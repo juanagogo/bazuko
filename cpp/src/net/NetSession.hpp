@@ -5,6 +5,10 @@
 // tocar la fisica del juego. El mundo (trafico, peatones) todavia NO es compartido: eso llega con el hito 3.
 #include "Protocol.hpp"
 #include "Transport.hpp"
+#include "WorldSnapshot.hpp"
+
+#include <functional>
+#include <optional>
 
 #include <glm/glm.hpp>
 #include <map>
@@ -49,6 +53,11 @@ public:
     uint16_t Port() const { return m_Host ? m_Host->Port() : 0; }
     const std::vector<RemotePlayer>& Remotes() const { return m_Remotes; }
     size_t PlayerCount() const { return m_Remotes.size() + 1; }
+    // Mundo compartido: el anfitrion da una funcion que arma la instantanea para un observador; el invitado recibe la ultima (si hay una nueva)
+    using WorldProvider = std::function<WorldSnapshot(const glm::vec3& viewer, uint32_t tick)>;
+    void SetWorldProvider(WorldProvider provider) { m_WorldProvider = std::move(provider); }
+    std::optional<WorldSnapshot> ConsumeWorld() { std::optional<WorldSnapshot> out; out.swap(m_PendingWorld); return out; }
+    size_t LastWorldBytes() const { return m_LastWorldBytes; }
     // Avisos de entrada y salida para mostrar en pantalla (se vacian al leerlos)
     std::vector<std::string> ConsumeNotices();
     NetSession(const NetSession&) = delete;
@@ -86,6 +95,10 @@ private:
     std::vector<std::string> m_Notices;
     LocalState m_LastLocal;
     double m_SendAccumulator = 0.0;
+    double m_WorldAccumulator = 0.0;
+    WorldProvider m_WorldProvider;
+    std::optional<WorldSnapshot> m_PendingWorld;
+    size_t m_LastWorldBytes = 0;
     uint32_t m_Tick = 0;
     size_t m_MaxPlayers = kMaxPlayers;
 };
