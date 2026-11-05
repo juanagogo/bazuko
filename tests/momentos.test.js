@@ -298,3 +298,15 @@ test('el carro robado entra en la cuenta de lo perdido sin pasar del máximo', (
   assert.equal(r.cosas[1], 'el carro robado');
   assert.equal(r.resto, 2);
 });
+
+test('el retrato de Estado: límites de la figura y sin borde fucsia', async () => {
+  const { limitesDeFigura, quitarBorde } = await import('../src/ui/fotoDeArresto.js');
+  const ancho = 4, alto = 3, px = new Uint8ClampedArray(ancho * alto * 4);
+  const pon = (x, y, rgba) => px.set(rgba, (y * ancho + x) * 4);
+  pon(1, 1, [80, 60, 50, 255]);
+  pon(2, 2, [200, 40, 190, 255]); // borde mezclado con la clave
+  assert.deepEqual(limitesDeFigura(px, ancho, alto), { x: 1, y: 1, ancho: 2, alto: 2 });
+  quitarBorde(px);
+  assert.deepEqual(limitesDeFigura(px, ancho, alto), { x: 1, y: 1, ancho: 1, alto: 1 });
+  assert.equal(limitesDeFigura(new Uint8ClampedArray(16), 2, 2), null);
+});

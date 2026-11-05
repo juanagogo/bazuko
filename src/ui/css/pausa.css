@@ -132,6 +132,15 @@ body.mojado :is(#menu, #inv-overlay, #craft-panel, #talent-panel, #dealer-panel)
 .pause-need.is-critical .pause-meter { box-shadow: inset 0 0 0 1.5px var(--cinta); }
 .pause-need.is-critical .pause-meter__fill { background-image: var(--m-rayado-cinta); }
 .pause-section--chato { margin-top: 18px; }
+/* El retrato: la misma figura de la plana, sin calle, en un marco de marcador. Quieto y algo ladeado.
+   Ocupa lo que sobra de la columna, nunca más: la pestaña no se desplaza por él. */
+@media (min-width: 900px) and (min-height: 681px) {
+  .pause-menu-body--estado, .pause-menu-body--estado .pause-panel, .pause-menu-body--estado .pause-state { height: 100%; }
+  .pause-state__yo { display: flex; flex-direction: column; min-height: 0; height: 100%; }
+}
+.pause-retrato { flex: 1 1 0; min-height: 0; display: flex; align-items: flex-start; margin: 18px 0 6px 4px; }
+.pause-retrato__foto { display: block; height: 100%; max-height: 380px; width: auto; max-width: 100%; object-fit: contain; padding: 10px 16px 4px; box-shadow: 0 0 0 1.5px var(--marcador), 3px 4px 0 1.5px var(--canto); rotate: -1.2deg; }
+@media (max-width: 899px), (max-height: 680px) { .pause-retrato { display: none; } }
 
 /* ---------- Ajustes ---------- */
 .pause-settings { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0 34px; align-items: start; }
