@@ -948,14 +948,15 @@ export class Game {
     return !!c && Math.hypot(this.player.position.x - c.x, this.player.position.z - c.z) < radius;
   }
 
-  /** Temblor proporcional al daño recibido en un cuadro; el desgaste lento (hambre, frío) no alcanza el umbral. */
+  /** Temblor leve, proporcional al daño recibido en un cuadro; el desgaste lento (hambre, frío) no alcanza el umbral. */
   _shakeOnDamage() {
     const salud = this.stats?.salud;
     if (!Number.isFinite(salud)) return 0;
     const lost = (this._saludVista ?? salud) - salud;
     this._saludVista = salud;
     if (lost < 2) return 0;
-    const amount = Math.min(.85, .2 + lost / 30);
+    // Mínimo a propósito: un golpe se nota, no sacude.
+    const amount = Math.min(.45, .15 + lost / 60);
     this.cameraRig?.addTrauma?.(amount);
     return amount;
   }

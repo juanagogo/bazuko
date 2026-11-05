@@ -54,7 +54,7 @@ test('el temblor por daño crece con el golpe y el desgaste lento no lo dispara'
   game.stats.salud = 99.5; assert.equal(game._shakeOnDamage(), 0);
   game.stats.salud = 90; const leve = game._shakeOnDamage();
   game.stats.salud = 50; const fuerte = game._shakeOnDamage();
-  assert.ok(leve > 0 && fuerte > leve && fuerte <= .85);
+  assert.ok(leve > 0 && fuerte > leve && fuerte <= .45);
   game.stats.salud = 100; assert.equal(game._shakeOnDamage(), 0);
   assert.equal(trauma.length, 2);
 });
