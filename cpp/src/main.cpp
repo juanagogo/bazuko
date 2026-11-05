@@ -109,7 +109,9 @@ int main(int argc, char** argv) {
     CharacterCreatorUI characterCreatorUI;
     CharacterPreview characterPreview;
 
-    Simulation simulation(city, 42, [&](size_t completed, size_t total, const std::string& name) {
+    // semilla del mundo: 42 como siempre; BAZUKO_SEED permite reproducir otra (y es la que compartira el servidor con sus clientes)
+    const uint32_t worldSeed = std::getenv("BAZUKO_SEED") ? static_cast<uint32_t>(std::strtoul(std::getenv("BAZUKO_SEED"), nullptr, 10)) : 42u;
+    Simulation simulation(city, worldSeed, [&](size_t completed, size_t total, const std::string& name) {
         const float progress = 0.28f + 0.47f * static_cast<float>(completed) / static_cast<float>(total);
         const std::string stage = "Cargando mundo urbano (" + std::to_string(completed)
             + "/" + std::to_string(total) + "): " + (name.empty() ? "elementos 3D" : name) + "...";

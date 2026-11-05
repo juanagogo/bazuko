@@ -283,6 +283,16 @@ add_executable(bazuko_netprotocol_test tests/NetProtocolTest.cpp)
 target_include_directories(bazuko_netprotocol_test PRIVATE src)
 add_test(NAME bazuko_netprotocol COMMAND bazuko_netprotocol_test)
 
+# Perfiles de jugador y bus de eventos del multijugador (puros, sin red ni GPU)
+add_executable(bazuko_netprofile_test tests/NetProfileTest.cpp src/net/ProfileStore.cpp src/game/GameData.cpp src/core/Paths.cpp)
+target_include_directories(bazuko_netprofile_test PRIVATE src third_party/include)
+target_compile_definitions(bazuko_netprofile_test PRIVATE BAZUKO_GAME_DATA_PATH="${CMAKE_CURRENT_SOURCE_DIR}/assets/data/game-data.json"
+                           BAZUKO_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
+add_test(NAME bazuko_netprofile COMMAND bazuko_netprofile_test)
+add_executable(bazuko_netevents_test tests/NetEventsTest.cpp)
+target_include_directories(bazuko_netevents_test PRIVATE src)
+add_test(NAME bazuko_netevents COMMAND bazuko_netevents_test)
+
 # Multijugador (ver docs/plan-multijugador.md): transporte UDP con ENet, servidor de juguete y bots. Apagado por defecto: el juego no lo usa todavia.
 #   cmake -S cpp -B build -DBAZUKO_NET=ON   y luego  build\\Release\\bazuko_net_bots.exe --servidor
 option(BAZUKO_NET "Compilar el transporte de red (ENet), las pruebas de red y los bots" OFF)
