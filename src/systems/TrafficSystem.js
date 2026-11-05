@@ -15,6 +15,16 @@ import { canReachCombatTarget, hasClearCombatLine } from './CombatGeometry.js';
 
 /** Cada nivel de «te tienen fichado» alarga en esta fracción el alcance con que una patrulla ve un robo. */
 export const POLICE_SIGHT_PER_WANTED = .25;
+/** Y en esta fracción la distancia a la que desiste y el tiempo que aguanta persiguiendo. */
+export const POLICE_PERSISTENCE_PER_WANTED = .25;
+/** Segundos sin ver al jugador que aguanta la persecución antes de darlo por perdido, más los de cada nivel. */
+export const POLICE_LOST_SIGHT_SECONDS = 6;
+export const POLICE_LOST_SIGHT_PER_WANTED = 2;
+/** Cada cuánto la patrulla que lo tiene a la vista pide refuerzos por radio. */
+export const POLICE_RADIO_INTERVAL = 6;
+// Comprobar la línea de vista cuatro veces por segundo basta: dos cuadros de más no cambian una huida.
+const SIGHT_CHECK_INTERVAL = .25;
+const CHASE_SIGHT_HEIGHT = 2.5;
 
 const GAP = 1.8;
 const ACCELERATION = 1.8;
@@ -59,6 +69,16 @@ export class TrafficSystem {
     this.random = random;
     this.routes = routes.alternatives ?? routes;
     this._arrestDispatched = false;
+    // Lo que sabe la Policía durante una persecución: dónde lo vio por última vez y hace cuánto.
+    this._lastSeen = new THREE.Vector3();
+    this._pursuitActive = false;
+    this._seen = false;
+    this._unseen = 0;
+    this._sightCheck = 0;
+    this._radioTimer = 0;
+    this._lostTrack = false;
+    this._playerHidden = false;
+    this._escapeReason = 'lejos';
     this._position = new THREE.Vector3();
     this._direction = new THREE.Vector3();
     this._probePosition = new THREE.Vector3();
@@ -115,6 +135,94 @@ export class TrafficSystem {
     return POLICE_SIGHT_RANGE * (1 + POLICE_SIGHT_PER_WANTED * this.wantedLevel);
   }
 
+  /** Metros a los que la patrulla deja de perseguir: con cada nivel aguanta más. */
+  get giveUpRange() {
+    return POLICE_GIVE_UP_RANGE * (1 + POLICE_PERSISTENCE_PER_WANTED * this.wantedLevel);
+  }
+
+  /** Segundos que dura como mucho una persecución. */
+  get chaseTimeout() {
+    return POLICE_CHASE_TIMEOUT * (1 + POLICE_PERSISTENCE_PER_WANTED * this.wantedLevel);
+  }
+
+  /** Segundos sin verlo para darlo por perdido. */
+  get lostSightSeconds() {
+    return POLICE_LOST_SIGHT_SECONDS + POLICE_LOST_SIGHT_PER_WANTED * this.wantedLevel;
+  }
+
+  /** Cuántas patrullas pueden perseguir a la vez: una, y por radio se suma otra en los niveles 2 y 3. */
+  get maxChasers() {
+    return this.wantedLevel >= 3 ? 3 : this.wantedLevel >= 2 ? 2 : 1;
+  }
+
+  /** Hasta dónde llega el llamado por radio: más cerca que la distancia a la que desistiría el refuerzo. */
+  get radioRange() {
+    return this.giveUpRange * .8;
+  }
+
+  /** Durante la persecución ya no hace falta mirar de frente: basta la línea de vista en la misma planta. */
+  _seesInChase(vehicle, playerPosition) {
+    // Al nadador desde la orilla sí lo ven; al que va por el tablero del viaducto, no.
+    if (Math.abs((playerPosition.y ?? 0) - vehicle.car.position.y) > CHASE_SIGHT_HEIGHT) return false;
+    const dx = playerPosition.x - vehicle.car.position.x;
+    const dz = playerPosition.z - vehicle.car.position.z;
+    const range = this.giveUpRange;
+    if (dx * dx + dz * dz > range * range) return false;
+    return hasClearCombatLine({ from: vehicle.car.position, to: playerPosition,
+      collisions: this.environment?.collisions, ignoreVehicle: vehicle.car });
+  }
+
+  /**
+   * Vista y radio de toda la persecución. Si alguna patrulla lo ve, todas saben dónde está; si ninguna lo ve, van
+   * al último sitio donde lo vieron y, pasado `lostSightSeconds`, lo dan por perdido. Escondido no lo ve nadie.
+   */
+  _updatePursuitKnowledge(dt, player, hidden) {
+    const chasing = this.vehicles.filter(vehicle => vehicle.police && vehicle.state === 'chase');
+    if (!chasing.length) { this._pursuitActive = false; return; }
+    if (!this._pursuitActive) {
+      this._pursuitActive = true;
+      this._lastSeen.copy(player);
+      this._seen = true;
+      this._unseen = 0;
+      this._sightCheck = SIGHT_CHECK_INTERVAL;
+      this._radioTimer = 2;
+      this._lostTrack = false;
+    }
+    this._playerHidden = hidden;
+    this._sightCheck -= dt;
+    if (this._sightCheck <= 0) {
+      this._sightCheck = SIGHT_CHECK_INTERVAL;
+      this._seen = !hidden && chasing.some(vehicle => this._seesInChase(vehicle, player));
+    }
+    if (this._seen) {
+      this._lastSeen.copy(player);
+      this._unseen = 0;
+    } else if ((this._unseen += dt) >= this.lostSightSeconds && !this._lostTrack) {
+      this._lostTrack = true;
+      this._escapeReason = hidden ? 'escondido' : 'vista';
+    }
+    if ((this._radioTimer -= dt) <= 0) {
+      this._radioTimer = POLICE_RADIO_INTERVAL;
+      if (this._seen && chasing.length < this.maxChasers) this._callBackup();
+    }
+  }
+
+  /** La patrulla libre más cercana al último avistamiento se suma, si está al alcance del radio. */
+  _callBackup() {
+    const range = this.radioRange;
+    let best = null, bestSq = range * range;
+    for (const vehicle of this.vehicles) {
+      if (!vehicle.police || vehicle.state !== 'patrol' || vehicle.rejoinTarget || vehicle.hold) continue;
+      const dx = vehicle.car.position.x - this._lastSeen.x, dz = vehicle.car.position.z - this._lastSeen.z;
+      const distSq = dx * dx + dz * dz;
+      if (distSq < bestSq) { bestSq = distSq; best = vehicle; }
+    }
+    if (!best) return false;
+    this._startChase(best);
+    emit('police-radio', { x: best.car.position.x, z: best.car.position.z });
+    return true;
+  }
+
   _canWitness(vehicle, playerPosition) {
     if (Math.abs((playerPosition.y ?? 0) - vehicle.car.position.y) > CHASE_HEIGHT_TOLERANCE) return false;
     if (!hasClearCombatLine({ from: vehicle.car.position, to: playerPosition,
@@ -157,6 +265,7 @@ export class TrafficSystem {
     vehicle.car.pursuit = true;
     vehicle._chaseSteerTime = 0;
     vehicle.rejoinTarget = null;
+    vehicle._playerDist = undefined;
   }
 
   /** Consultas del distrito activo: la cota conserva la planta de calle o del viaducto. */
@@ -167,6 +276,8 @@ export class TrafficSystem {
   /** Tras una captura o al escapar, todas las patrullas vuelven a rondar. */
   endPursuit() {
     this._arrestDispatched = false;
+    this._pursuitActive = false;
+    this._lostTrack = false;
     for (const vehicle of this.vehicles) {
       if (vehicle.police && vehicle.state !== 'patrol') this._returnToPatrol(vehicle);
     }
@@ -185,14 +296,18 @@ export class TrafficSystem {
     let nearest = null, distance = Infinity;
     for (const vehicle of this.vehicles) {
       if (!vehicle.police || vehicle.state !== 'chase') continue;
-      const d = vehicle._chaseDist ?? POLICE_GIVE_UP_RANGE;
+      const d = vehicle._playerDist ?? vehicle._chaseDist ?? POLICE_GIVE_UP_RANGE;
       if (d < distance) { distance = d; nearest = vehicle; }
     }
     if (!nearest) return null;
     const info = this._pursuitInfo;
     info.distance = distance;
-    info.dx = nearest._chaseDx ?? 0;
-    info.dz = nearest._chaseDz ?? 0;
+    info.dx = nearest._playerDx ?? nearest._chaseDx ?? 0;
+    info.dz = nearest._playerDz ?? nearest._chaseDz ?? 0;
+    // Si lo ven, y si no, cuánto le falta para que lo den por perdido.
+    info.seen = this._seen;
+    info.hidden = this._playerHidden;
+    info.lostIn = this._seen ? 0 : Math.max(0, this.lostSightSeconds - this._unseen);
     info.closeness = Math.max(0, Math.min(1, (POLICE_GIVE_UP_RANGE - distance) / (POLICE_GIVE_UP_RANGE - POLICE_CATCH_RANGE)));
     info.x = nearest.car.position.x;
     info.z = nearest.car.position.z;
@@ -705,8 +820,13 @@ export class TrafficSystem {
     vehicle.playerContact = contact;
   }
 
-  _planChase(vehicle, stepTime, player, returning = false) {
+  _planChase(vehicle, stepTime, player, returning = false, actual = null) {
     vehicle._chaseCaught = vehicle._chaseGiveUp = false;
+    if (!returning && actual) {
+      vehicle._playerDx = actual.x - vehicle.car.position.x;
+      vehicle._playerDz = actual.z - vehicle.car.position.z;
+      vehicle._playerDist = Math.hypot(vehicle._playerDx, vehicle._playerDz);
+    }
     if (!player) {
       vehicle.nextSpeed = Math.max(0, vehicle.speed - BRAKING * stepTime);
       vehicle._chaseDist = 0;
@@ -725,17 +845,21 @@ export class TrafficSystem {
       vehicle.nextSpeed = 0;
       return;
     }
-    const targetWater = this.environment?.getWaterInfo?.(player.x, player.z);
-    if (!returning && canReachCombatTarget({ from: vehicle.car.position, to: player,
+    // Solo captura al jugador de verdad, y nunca al que está escondido; el último avistamiento es solo a dónde ir.
+    const prey = returning || this._playerHidden ? null : actual ?? player;
+    const targetWater = prey && this.environment?.getWaterInfo?.(prey.x, prey.z);
+    if (prey && canReachCombatTarget({ from: vehicle.car.position, to: prey,
       maxDistance: POLICE_CATCH_RANGE, maxHeightDifference: CHASE_HEIGHT_TOLERANCE,
       collisions: this.environment?.collisions, getWaterInfo: this.environment?.getWaterInfo,
-      toInWater: !!targetWater && player.y <= targetWater.surfaceY + .12,
+      toInWater: !!targetWater && prey.y <= targetWater.surfaceY + .12,
       ignoreVehicle: vehicle.car })) {
       vehicle._chaseCaught = true;
       vehicle.nextSpeed = 0;
       return;
     }
-    if (!returning && (dist > POLICE_GIVE_UP_RANGE || vehicle.chaseTime + stepTime >= POLICE_CHASE_TIMEOUT)) {
+    const playerDist = actual ? vehicle._playerDist : dist;
+    if (!returning && (this._lostTrack || playerDist > this.giveUpRange || vehicle.chaseTime + stepTime >= this.chaseTimeout)) {
+      if (!this._lostTrack) this._escapeReason = 'lejos';
       vehicle._chaseGiveUp = true;
       vehicle.nextSpeed = 0;
       return;
@@ -817,7 +941,10 @@ export class TrafficSystem {
   _applyChase(vehicle, stepTime) {
     if (vehicle._chaseGiveUp) {
       this._returnToPatrol(vehicle);
-      if (!this.inPursuit && !this._arrestDispatched) emit('police-escaped', {});
+      if (!this.inPursuit && !this._arrestDispatched) {
+        this._pursuitActive = false;
+        emit('police-escaped', { reason: this._escapeReason });
+      }
       return false;
     }
     vehicle.speed = vehicle.nextSpeed;
@@ -851,10 +978,14 @@ export class TrafficSystem {
     return false;
   }
 
-  update(dt, { player = null, pedestrians = [], onPlayerHit = null } = {}) {
+  update(dt, { player = null, pedestrians = [], onPlayerHit = null, playerHidden = false } = {}) {
     if (dt <= 0) return;
     let caught = false;
     this._playerPosition = player;
+    if (player) this._updatePursuitKnowledge(Math.min(dt, .5), player, playerHidden);
+    else this._playerHidden = false;
+    // Sin verlo, la patrulla va adonde lo vio por última vez; con él a la vista, derecho hacia él.
+    const chaseTarget = player && !this._seen ? this._lastSeen : player;
     this._coordinateIntersections();
     for (const vehicle of this.vehicles) {
       if (vehicle.state === 'chase' || vehicle.rejoinTarget) continue;
@@ -875,7 +1006,7 @@ export class TrafficSystem {
         for (const vehicle of this.vehicles) {
           if (vehicle.state === 'chase' || vehicle.rejoinTarget) {
             vehicle._offRouteStep = true;
-            this._planChase(vehicle, stepTime, vehicle.rejoinTarget ?? player, !!vehicle.rejoinTarget);
+            this._planChase(vehicle, stepTime, vehicle.rejoinTarget ?? chaseTarget, !!vehicle.rejoinTarget, player);
             continue;
           }
           const clearance = this._clearance(vehicle, player, pedestrians);
