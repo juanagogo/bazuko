@@ -11,7 +11,7 @@ test('RadioSystem: configuración inicial y catálogo de emisoras bogotanas', ()
   assert.equal(radio.isOn, false);
   assert.equal(radio.battery, 100);
   assert.ok(radio.frequency > 0);
-  assert.equal(STATIONS.length, 4);
+  assert.equal(STATIONS.filter((s) => s.kind !== 'stream').length, 4, 'cuatro emisoras inventadas de la ciudad');
 
   const ids = STATIONS.map((s) => s.id);
   assert.ok(ids.includes('recuerdos'));
@@ -35,8 +35,8 @@ test('RadioSystem: sintonización de frecuencias y resolución de señal', () =>
   assert.equal(info.station.id, 'recuerdos');
   assert.ok(info.signal < 1 && info.signal > 0.4);
 
-  // 3. Sintonía en FM (98.5 MHz)
-  radio.setFrequency(98.5);
+  // 3. Sintonía en FM (97,4 MHz, La Gotera)
+  radio.setFrequency(97.4);
   info = radio.getStationInfo();
   assert.equal(info.station.id, 'rock');
   assert.equal(info.signal, 1);

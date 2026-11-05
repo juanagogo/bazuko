@@ -85,7 +85,7 @@ Se tutea en seis frases, que la calle le dice al personaje en los momentos duros
 
 **Signos.** Un solo signo de menos (−), coma decimal (98,5; 1,2 km) y un espacio antes de % y de la unidad. Sin puntos medios en lo que dice el juego: se separa con coma o con punto. Quedan en lo impreso de la ciudad (paraderos, tiendas, destinos de los buses) y como separador interno de los avisos con tecla, que nunca se ve. El botón que no se puede usar dice la acción, porque se tacha; el motivo va al lado, sin tachar: «Poner pilas» y «No tengo pilas», nunca «Pilas llenas».
 
-**Nombres.** Las emisoras, el mercado del barrio (Doña Inés), los grafitis y los equipos de los boletines son inventados: ninguno imita uno de verdad. El origen del personaje se cuenta en dos líneas que no se explican entre sí: la historia, sobria, y lo que cambia en el juego. Nadie gana una ventaja por lo que le pasó. Las mañas son cosas aprendidas en la calle: sin rangos, sin títulos y sin experiencia a la vista.
+**Nombres.** Las emisoras de la ciudad, el mercado del barrio (Doña Inés), los grafitis y los equipos de los boletines son inventados: ninguno imita uno de verdad. La única excepción son las emisoras en vivo del dial de la radio, que son reales y llevan su nombre, su frecuencia y su crédito. El origen del personaje se cuenta en dos líneas que no se explican entre sí: la historia, sobria, y lo que cambia en el juego. Nadie gana una ventaja por lo que le pasó. Las mañas son cosas aprendidas en la calle: sin rangos, sin títulos y sin experiencia a la vista.
 
 ## Foco, dedo y movimiento
 
@@ -187,7 +187,7 @@ La foto la toma una cámara aparte, parada a unos 3 m enfrente de la persona, o 
 
 **Mañas.** Lo que se puede aprender es cinta, porque se oprime. Lo aprendido lleva chulo. Lo que aún no, tachado y con lo que pide primero.
 
-**La radio** tiene el dial a escala: la AM va de 500 a 1100 en el 78 % del ancho, la FM en el resto, y la aguja señala donde está de verdad la emisora. Mover el deslizador no vuelve a dibujar la ventana, para no soltarlo a mitad del arrastre. Pocas pilas se dicen invirtiendo la cifra.
+**La radio** tiene el dial a escala: la AM va de 500 a 1100 en su tramo, la FM en el suyo, y la aguja señala donde está de verdad la emisora. El tramo de la FM es el más ancho, porque casi todo lo que se sintoniza en vivo vive ahí, y sus marcas van sin cifra, que no caben: la frecuencia se lee en la ficha. Mover el deslizador no vuelve a dibujar la ventana, para no soltarlo a mitad del arrastre. Pocas pilas se dicen invirtiendo la cifra.
 
 **Las filas de los lugares,** el jíbaro, la tienda, la recicladora y el cambuche son la misma pieza: reglas a marcador, nombre en Grueso, detalle en Fino y precio como cifra. La plata se llama Plata, y los kilos llevan coma: `5,9 de 20 kg`.
 
