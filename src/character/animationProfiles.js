@@ -13,7 +13,7 @@ const boneKey = name => name.replace(/[^a-z0-9]/gi, '').toLowerCase().replace(/^
 export const isMixamoProfile = id => id === 'mixamo-preview' || id === 'mixamo-game-preview';
 
 /** La sala elige un perfil explícito. Nunca se aceptan URLs o rutas del navegador. */
-export function resolveAnimationProfile(animaciones = 'default', modelBase = '/models/') {
+export function resolveAnimationProfile(animaciones = 'default', modelBase = `${import.meta.env?.BASE_URL ?? '/'}models/`) {
   if (animaciones === 'default') return { id: 'default', url: null };
   if (isMixamoProfile(animaciones)) return { id: animaciones, url: modelBase + PREVIEW_FILE };
   throw new Error(`Perfil de animaciones desconocido: ${animaciones}`);
