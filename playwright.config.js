@@ -12,10 +12,14 @@ export default defineConfig({
   reporter: process.env.CI ? 'github' : [['list'], ['html', { open: 'never' }]],
   use: {
     baseURL: 'http://127.0.0.1:5188',
-    trace: 'on-first-retry', screenshot: 'only-on-failure', video: 'retain-on-failure',
+    trace: 'on-first-retry', screenshot: 'only-on-failure', video: process.env.CI ? 'off' : 'retain-on-failure',
     viewport: { width: 1280, height: 800 },
     // Usar la GPU local cuando el renderizado por software no completa la carga.
-    launchOptions: { args: process.env.PLAYWRIGHT_GPU === '1' ? [] : ['--use-angle=swiftshader', '--enable-unsafe-swiftshader'] }
+    launchOptions: {
+      args: process.env.PLAYWRIGHT_GPU === '1' ? [] : ['--use-angle=swiftshader', '--enable-unsafe-swiftshader'],
+      // Permite usar un Chromium ya instalado (PW_CHROMIUM_PATH) en lugar de descargar otro.
+      ...(process.env.PW_CHROMIUM_PATH ? { executablePath: process.env.PW_CHROMIUM_PATH } : {})
+    }
   },
   projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'] } }],
   webServer: {
