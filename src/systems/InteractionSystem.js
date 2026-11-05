@@ -376,7 +376,7 @@ export class InteractionSystem {
     }
 
     window.dispatchEvent(new CustomEvent('steal', {
-      detail: { added, caught: result.caught, police: false, chase: false }
+      detail: { added, caught: result.caught, police: false, chase: false, car: target, mirror: result.items.includes('retrovisor') }
     }));
   }
 

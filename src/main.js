@@ -2,6 +2,7 @@ import { LoadingScreen } from './ui/LoadingScreen.js';
 import { letraLista } from './ui/letra.js';
 import { startControlsHelp } from './ui/ControlsHelp.js';
 import { openDeveloperNote } from './ui/DeveloperNote.js';
+import { installErrorScreen } from './ui/ErrorScreen.js';
 
 const loading = new LoadingScreen();
 try {
@@ -13,7 +14,9 @@ try {
     ? 'mixamo-game-preview' : 'default';
   // Los materiales de calle ya son los de todos: ?aspecto=realista queda para no caer en el modelo liviano guardado.
   const modeloRealista = new URLSearchParams(location.search).get('aspecto') === 'realista';
-  const game = new Game(document.getElementById('game-canvas'), { animaciones, modeloRealista });
+  const canvas = document.getElementById('game-canvas');
+  const game = new Game(canvas, { animaciones, modeloRealista });
+  installErrorScreen({ canvas, game });
   await game.start(loading);
   startControlsHelp();
   openDeveloperNote(game);

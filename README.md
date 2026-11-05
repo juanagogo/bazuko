@@ -138,6 +138,7 @@ Con `npm run dev` activo, abre **/sala.html** (por ejemplo http://localhost:5173
 | Clic izquierdo o `G` en la calle | Atacar con los puños o con el arma equipada; pulsar de nuevo al final del golpe encadena el combo. |
 | Usar un cuchillo, una botella picada o el arma casera del costal | Equiparla en la mano; usarla otra vez la guarda y vuelves a los puños. El arma equipada se conserva al guardar, y ni la recicladora ni quien te robe mientras duermes se llevan la que tienes en la mano. |
 | `F` | Activar o desactivar el boost, que consume energía y salud. |
+| `Y` junto a un carro | Robarlo: forzar la puerta de uno estacionado (puede saltar la alarma) o sacar al conductor de uno detenido. Se maneja con `W`/`S`, `A`/`D` y `Espacio` como freno de mano; `Y` otra vez para bajarse con el carro casi quieto. |
 | `T` | Abrir las mañas. |
 | `P` | Editar el personaje. |
 | `M` | Abrir el mapa para marcar un destino; en el mapa, cerrarlo. |

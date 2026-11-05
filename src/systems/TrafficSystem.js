@@ -364,6 +364,23 @@ export class TrafficSystem {
     return vehicle;
   }
 
+  /** Retira un vehículo de la circulación (p. ej. lo roba el jugador) y libera sus cruces. */
+  release(vehicle) {
+    const index = this.vehicles.indexOf(vehicle);
+    if (index === -1) return false;
+    this.vehicles.splice(index, 1);
+    for (const state of this.signals?.reservations?.values?.() ?? []) {
+      state.owners?.delete(vehicle);
+      state.plans?.delete(vehicle);
+      if (state.queue) state.queue = state.queue.filter(other => other !== vehicle);
+    }
+    for (const list of this._routeVehicles.values()) {
+      const at = list.indexOf(vehicle);
+      if (at !== -1) list.splice(at, 1);
+    }
+    return true;
+  }
+
   _chooseRoute(vehicle) {
     if (vehicle.crossingNode) return false;
     if (this.routes.length < 2) return false;
