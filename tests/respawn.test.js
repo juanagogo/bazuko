@@ -148,6 +148,7 @@ test('Escape y el fondo no pueden omitir la pantalla de muerte; otros menús sig
 
 test('la captura policial confisca todo y reaparece en otro punto', () => {
   const game = fixture();
+  game.steal = { buscado: 2, _endMinigame() {} };
   game.stats.dinero = 12000;
   const start = game.player.position.clone();
   game.world.active.isWalkableAt = () => true;
@@ -230,4 +231,42 @@ test('al reaparecer, la zorra se desocupa después de la pérdida habitual', () 
   game.zorraCtl = { alMorir: () => { objetosAlLlamar = game.inventory.items.length; } };
   game._respawn();
   assert.equal(objetosAlLlamar, 1);
+});
+
+test('con nivel bajo la captura es una requisa: la plata y el vicio, no el resto del costal', () => {
+  const game = fixture();
+  game.steal = { buscado: 1, _endMinigame() {} };
+  game.inventory.items = [{ id: 'papel', qty: 2 }, { id: 'basuco', qty: 1 }];
+  game.stats.dinero = 5000;
+  game.world.active.getSpawnGrid = () => [{ x: 80, z: 60 }];
+  game._policeArrest();
+  game._finishArrest();
+  assert.deepEqual(game.inventory.items.map((it) => it.id), ['papel']);
+  assert.equal(game.stats.dinero, 0);
+});
+
+test('con nivel 3 pasa horas en el calabozo, sin quedar al borde de morirse', () => {
+  const game = fixture();
+  game.steal = { buscado: 3, _endMinigame() {} };
+  game.clock = { isNight: false, hour: 21, day: 4 };
+  game.stats.hambre = 20; game.stats.sed = 80;
+  game.world.active.getSpawnGrid = () => [{ x: 80, z: 60 }];
+  game._policeArrest();
+  game._finishArrest();
+  assert.equal(game.clock.hour, 3);
+  assert.equal(game.clock.day, 5);
+  assert.equal(game.stats.hambre, 15);
+  assert.equal(game.stats.sed, 50);
+  assert.equal(game.inventory.items.length, 0);
+});
+
+test('el carro robado se queda donde lo cogieron', () => {
+  const game = fixture();
+  game.steal = { buscado: 2, _endMinigame() {} };
+  let soltado = 0;
+  game.carjack = { car: {}, driving: true, reset() { soltado++; this.car = null; this.driving = false; } };
+  game.world.active.getSpawnGrid = () => [{ x: 80, z: 60 }];
+  game._policeArrest();
+  game._finishArrest();
+  assert.equal(soltado, 1);
 });

@@ -39,6 +39,7 @@ import { PrimeraPlana } from '../ui/PrimeraPlana.js';
 import { tomarFoto } from '../ui/fotoDeArresto.js';
 import { actualizarFrases } from '../ui/frases.js';
 import { TILE_SIZE } from '../utils/constants.js';
+import { castigoDeArresto, CALABOZO_HAMBRE, CALABOZO_PISO, CALABOZO_SED, ESCONDITE_M } from '../data/arresto.js';
 import {
   calleCercana, consejoDeMuerte, perdidoAlMorir, perdidoEnArresto, pieDeFoto, recorteDeLimpieza,
   sueltaDeArresto, titularDeArresto, tituloDeMuerte, CONSECUENCIAS_RECORTE,
@@ -1037,6 +1038,11 @@ export class Game {
   }
 
   /** ¿Está el jugador a menos de `radius` m del cambuche? */
+  /** Dentro del cambuche con techo y paredes la patrulla no lo ve ni lo saca: es el único escondite. */
+  _escondidoEnCambuche() {
+    return !!(this.built?.techo && this.built?.paredes) && !this.carjack?.driving && this._nearCambuche(ESCONDITE_M);
+  }
+
   _nearCambuche(radius) {
     const c = this.cambuche?.position;
     return !!c && Math.hypot(this.player.position.x - c.x, this.player.position.z - c.z) < radius;
@@ -1124,14 +1130,18 @@ export class Game {
     this.audio.setPaused?.(true);
     if (this.interaction.boostActive) this.interaction._endBoost();
     const titular = titularDeArresto(this.look, this._calleCercana());
-    const perdido = perdidoEnArresto(this.stats.dinero, this.inventory?.items, ITEMS);
+    // Lo que pesa la captura depende del nivel con que lo cogieron; se fija aquí y se cobra al continuar.
+    const castigo = this._arrestCastigo = castigoDeArresto(this.steal?.buscado ?? 0);
+    const decomiso = this._decomiso();
+    const perdido = perdidoEnArresto(this.stats.dinero, decomiso, ITEMS);
+    if (this.carjack?.car) perdido.cosas.push('el carro robado');
     let plana = null;
     this.menu.open({
       title: 'Te atrapó la Policía', ic: 'alert', dismissible: false, momento: 'plana',
       onClose: () => plana?.soltar(),
       render: () => {
         plana ??= new PrimeraPlana({
-          titular, perdido, pie: pieDeFoto(this.look), suelta: sueltaDeArresto(this.look),
+          titular, perdido, pie: pieDeFoto(this.look), suelta: sueltaDeArresto(this.look, castigo.horas),
         });
         return {
           body: plana.nodo,
@@ -1194,10 +1204,29 @@ export class Game {
     this._vehicleImpactCooldown = 1.5;
   }
 
+  /** Lo que la Policía decomisa del costal: con nivel bajo, solo el vicio; con nivel alto, todo. */
+  _decomiso() {
+    const items = this.inventory?.items ?? [];
+    if (this._arrestCastigo?.todoElCostal !== false) return items;
+    return items.filter((it) => ITEMS[it.id]?.substance);
+  }
+
   _finishArrest() {
     if (!this._arrestPending) return;
-    this.inventory.clear();
+    const castigo = this._arrestCastigo ?? castigoDeArresto(this.steal?.buscado ?? 0);
+    if (castigo.todoElCostal) this.inventory.clear();
+    else for (const it of this._decomiso()) this.inventory.remove?.(it.id, it.qty);
     this.stats.dinero = 0;
+    // El carro robado queda donde lo cogieron: ya no es suyo.
+    this.carjack?.reset?.();
+    if (castigo.horas && typeof this.clock?.hour === 'number') {
+      this.clock.hour += castigo.horas;
+      while (this.clock.hour >= 24) { this.clock.hour -= 24; this.clock.day = (this.clock.day ?? 0) + 1; }
+      // En el calabozo no hay comida: baja, pero sin dejarlo al borde de morirse al salir.
+      this.stats.hambre = Math.min(this.stats.hambre, Math.max(CALABOZO_PISO, this.stats.hambre - CALABOZO_HAMBRE));
+      this.stats.sed = Math.min(this.stats.sed, Math.max(CALABOZO_PISO, this.stats.sed - CALABOZO_SED));
+    }
+    this._arrestCastigo = null;
     const pos = this._randomWalkablePosition();
     this.player.position.copy(pos);
     this.player.root.position.copy(this.player.position);
@@ -1445,7 +1474,8 @@ export class Game {
     this.world.update(dt, this.player.position, this.cameraRig.camera, this.traffic?.vehicles ?? []);
     actualizarFrases(this.cameraRig.camera, this.player.position, now);
     this.profiler?.mark('mundoNPC');
-    this.traffic?.update(dt, { player: this.player.position, pedestrians: this.world.active?.trafficPedestrians ?? this.world.active?.npcs ?? [], onPlayerHit: this._onVehicleImpact });
+    this.traffic?.update(dt, { player: this.player.position, pedestrians: this.world.active?.trafficPedestrians ?? this.world.active?.npcs ?? [],
+      onPlayerHit: this._onVehicleImpact, playerHidden: this._escondidoEnCambuche() });
     this.roadRage?.update(dt);
     this.limpieza?.update(dt, {
       isNight: this.clock.isNight,
