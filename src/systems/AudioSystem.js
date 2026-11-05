@@ -3,6 +3,8 @@ import { Howl, Howler } from 'howler';
 import { VehicleAudio } from './VehicleAudio.js';
 
 export const MIX_CATEGORIES = ['ambient', 'traffic', 'voices', 'effects'];
+// El audio vive en public/audio: la ruta se arma con la base para que la demo de Pages funcione bajo su subcamino.
+const AUDIO_BASE = `${import.meta.env?.BASE_URL ?? '/'}audio/`;
 // Mientras suena una frase, tráfico y ambiente bajan a esta fracción para que se entienda.
 const VOICE_DUCK = .45, DUCK_ATTACK = 10, DUCK_RELEASE = 2.5;
 // Pisadas aisladas de Sounds_of_a_steps.opus (inicio y duración en ms).
@@ -23,10 +25,10 @@ export class AudioSystem {
     this.loadErrors = new Map();
     this._baseVolume = new Map();
     const sound = (file, options = {}) => this._track(options.volume ?? 1, new HowlClass({
-      src: [`/audio/${encodeURIComponent(file)}`], ...options,
+      src: [`${AUDIO_BASE}${encodeURIComponent(file)}`], ...options,
       onload: () => this.loadErrors.delete(file),
       onloaderror: (_id, error) => {
-        if (!this.loadErrors.has(file)) console.error(`[Audio] No se pudo cargar /audio/${file}:`, error);
+        if (!this.loadErrors.has(file)) console.error(`[Audio] No se pudo cargar ${AUDIO_BASE}${file}:`, error);
         this.loadErrors.set(file, String(error));
       },
       onplayerror(id) { this.once('unlock', () => this.play(id)); }
