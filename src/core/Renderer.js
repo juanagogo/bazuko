@@ -200,10 +200,14 @@ export class Renderer {
     this.pointLights?.setEnabled(on);
   }
 
+  /** Tope de resolución de una calidad: lo que pide el equipo, con el límite de su perfil. */
+  _resolutionCap(quality) {
+    return Math.min(globalThis.window?.devicePixelRatio || 1, GRAPHICS_PROFILES[quality].pixelRatio);
+  }
+
   setQuality(level = 'alta') {
     this.quality = ['baja', 'media', 'alta'].includes(level) ? level : 'alta';
-    const limit = GRAPHICS_PROFILES[this.quality].pixelRatio;
-    this.resolution.setLimit(Math.min(globalThis.window?.devicePixelRatio || 1, limit));
+    this.resolution.setLimit(this._resolutionCap(this.quality));
     this._setShadows(this.effectiveQuality !== 'baja');
     this.instance.shadowMap.type = THREE.PCFShadowMap;
     this.instance.shadowMap.needsUpdate = true;
@@ -245,6 +249,8 @@ export class Renderer {
     auto.tier = 1;
     auto.reset();
     this._setShadows(true);
+    // La efectiva ya es media: el lienzo recupera su tope y no queda recortado como el de baja.
+    this.resolution.setLimit(this._resolutionCap(this.effectiveQuality));
     gl.shadowMap.needsUpdate = true;
     this._settleFrames = SETTLE_FRAMES;
     return true;
@@ -274,7 +280,7 @@ export class Renderer {
 
   _dropAutoQuality() {
     // Vuelve exactamente a como estaba baja: sin presión acumulada ni resolución recortada.
-    this.resolution.setLimit(this.resolution.max);
+    this.resolution.setLimit(this._resolutionCap(this.effectiveQuality));
     this._setShadows(this.effectiveQuality !== 'baja');
     this.instance.shadowMap.needsUpdate = true;
   }

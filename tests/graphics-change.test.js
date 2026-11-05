@@ -368,3 +368,13 @@ test('elegir baja apaga las luces de punto y media las enciende', () => {
   renderer.setQuality('media');
   assert.equal(lit(), true, 'media las recupera');
 });
+
+test('la subida automática devuelve el tope de resolución de media', async () => {
+  const { renderer } = fakeRenderer({ saved: null, shadows: false });
+  renderer.quality = 'baja';
+  window.devicePixelRatio = 2;
+  renderer.resolution.setLimit(0.85);
+
+  await renderer._raiseAutoQuality();
+  assert.equal(renderer.resolution.max, 1.25, 'la sesión subida no queda recortada como baja');
+});

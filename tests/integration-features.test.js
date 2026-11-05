@@ -29,7 +29,7 @@ test('los perfiles respetan su límite de resolución incluso después de la ada
   });
   // El lienzo solo cambia de resolución al dibujar el cuadro siguiente.
   const drawnRatio = () => { renderer.render(new THREE.Scene(), new THREE.PerspectiveCamera()); return renderer.instance.ratio; };
-  for (const [quality, cap] of [['baja', 1], ['media', 1.25], ['alta', 1.5]]) {
+  for (const [quality, cap] of [['baja', 0.85], ['media', 1.25], ['alta', 1.5]]) {
     renderer.setQuality(quality);
     assert.equal(drawnRatio(), cap);
     for (let i = 0; i < 300; i++) renderer.adaptResolution(40);
