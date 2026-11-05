@@ -88,13 +88,15 @@ test('el carro robado avanza con W, gira con A y el jugador se baja al lado', ()
   carjack.update(1 / 30, input);
   assert.equal(carjack.car, null);
   assert.equal(game.player.root.visible, true);
-  assert.equal(game.cameraRig.distance, 5.5);
+  assert.ok(game.cameraRig.distance > 5.5, 'la cámara no salta hacia el jugador');
   // Aparece pegado a la puerta y da un paso hasta quedar libre.
   assert.ok(distanceToCarBody(game.player.position, car) < .5);
   assert.equal(carjack.update(1 / 30, input), true, 'mientras se baja no camina por su cuenta');
   settle(carjack, input);
   assert.ok(Math.abs(distanceToCarBody(game.player.position, car) - .7) < .05);
   assert.equal(carjack.update(1 / 30, input), false);
+  for (let i = 0; i < 30; i++) carjack.update(1 / 30, input);
+  assert.equal(game.cameraRig.distance, 5.5, 'y vuelve a su distancia a pie');
 });
 
 test('una pared detiene el carro en lugar de atravesarla', () => {
@@ -249,4 +251,17 @@ test('la suspensión del carro baja unos centímetros y vuelve al reposo', async
   for (let i = 0; i < 180; i++) car._updateSettle(1 / 60);
   assert.equal(car._settleY, 0);
   assert.ok(Math.abs(body.position.y - .1) < 1e-9);
+});
+
+test('subirse otra vez mientras la cámara regresa conserva la distancia a pie', () => {
+  const car = fakeCar(), game = fakeGame([car]), input = fakeInput();
+  const carjack = new CarjackSystem(game);
+  carjack.enter({ car, vehicle: null }); settle(carjack, input);
+  carjack.exit();
+  carjack.update(1 / 30, input);
+  settle(carjack, input);
+  carjack.enter({ car, vehicle: null }); settle(carjack, input);
+  assert.equal(game.cameraRig.distance, CARJACK.cameraDistance);
+  carjack.reset();
+  assert.equal(game.cameraRig.distance, 5.5);
 });
