@@ -2,7 +2,7 @@
 // Conductor al que le robaron el retrovisor: se baja con una varilla, persigue al jugador
 // y lo golpea tras un aviso visible (levanta la varilla). Reutiliza el personaje y LOD de Npc.
 import * as THREE from 'three';
-import { Npc } from './Npc.js';
+import { Npc, NPC_HIT_REACTION_DURATION } from './Npc.js';
 import { canReachCombatTarget, resolveCombatWalk } from '../systems/CombatGeometry.js';
 import { koHandDown, smooth } from '../character/BodyLanguage.js';
 
@@ -18,8 +18,14 @@ export const ROAD_RAGE = {
   giveUpTime: 18,
   giveUpDistance: 28,
   returnTimeout: 30,    // respaldo si una caja le corta el regreso: 28 m a pie son unos 18 s
-  stopTimeout: 10       // respaldo si el carro no logra detenerse (frenar desde crucero tarda ~6 s)
+  stopTimeout: 10,      // respaldo si el carro no logra detenerse (frenar desde crucero tarda ~6 s)
+  fleeSpeed: 4.6,       // le quitaron el carro: sale corriendo sin varilla
+  fleeTime: 5,          // corre unos segundos y después se aleja caminando
+  fleeGone: 22,         // a esta distancia del jugador ya se perdió de vista
+  fleeTimeout: 14
 };
+
+const FLEE_PHRASES = ['¡Ladrón! ¡Mi carro!', '¡Auxilio, me robaron el carro!', '¡Policía! ¡Se llevan mi carro!'];
 
 // La varilla colgando a un lado, y en el piso a lo largo del cuerpo, donde apoya la mano al pararse.
 const _barHanging = { x: -.26, y: .95, z: .08, tilt: -.35 };
@@ -38,7 +44,7 @@ export class AngryDriver extends Npc {
     super(scene, new THREE.Vector3(0, -50, 0), { ...opts, speed: ROAD_RAGE.chaseSpeed });
     this.collisions = opts.collisions ?? null;
     this.getWaterInfo = opts.getWaterInfo ?? null;
-    this.state = 'idle';     // idle | chase | windup | strike | return
+    this.state = 'idle';     // idle | chase | windup | strike | return | flee
     this.car = null;
     this.timer = 0;
     this.attackTimer = 0;
@@ -78,9 +84,26 @@ export class AngryDriver extends Npc {
     this.action = null;
   }
 
+  /**
+   * Lo sacan a la fuerza de su carro: trastabilla por el jalón y sale corriendo, sin varilla.
+   * `away` es el punto del que huye (el jugador).
+   */
+  thrownOut(car, door, away) {
+    this.exitCar(car, door);
+    this.state = 'flee';
+    this.bar.pivot.visible = false;
+    this.attackTimer = 0;
+    this._hitReactionRemaining = NPC_HIT_REACTION_DURATION;
+    this._punchFacing = Math.atan2(away.x - door.x, away.z - door.z);
+    this.root.rotation.y = this._punchFacing;
+    this.say?.(FLEE_PHRASES[Math.floor(Math.random() * FLEE_PHRASES.length)], 3);
+  }
+
   /** Vuelve a subir: desaparece de la calle. */
   enterCar() {
     this.state = 'idle';
+    this.bar.pivot.visible = true;
+    this.fleeTimer = 0;
     this.action = null;
     this.moving = false;
     this.root.visible = false;
@@ -139,7 +162,8 @@ export class AngryDriver extends Npc {
 
   /** La IA se resuelve en think(); aquí solo se anima la varilla. */
   _walk(dt) {
-    this.fleeTimer = 0; // lo que corre es think(): el golpe que recibe no lo pone a huir
+    // Lo que corre es think(): el golpe que recibe no lo pone a huir. Al huir, el reloj solo elige la carrera.
+    this.fleeTimer = this.state === 'flee' && this.timer < ROAD_RAGE.fleeTime ? 1 : 0;
     const target = { windup: 1, strike: -1 }[this.state] ?? 0;
     const bar = this.bar;
     bar.pose += (target - bar.pose) * Math.min(1, dt * (this.state === 'strike' ? 28 : 9));
@@ -164,6 +188,7 @@ export class AngryDriver extends Npc {
     }
     this.timer += dt;
     this.attackTimer = Math.max(0, this.attackTimer - dt);
+    if (this.state === 'flee') return this._flee(dt, player);
     const toPlayer = Math.hypot(player.x - this.position.x, player.z - this.position.z);
     if (this.state !== 'return' && (!canChase || this.timer > ROAD_RAGE.giveUpTime || toPlayer > ROAD_RAGE.giveUpDistance)) {
       this.state = 'return';
@@ -202,6 +227,25 @@ export class AngryDriver extends Npc {
       return 'swing';
     }
     this._moveTowards(player, ROAD_RAGE.chaseSpeed, dt, ROAD_RAGE.attackRange * .8);
+    return null;
+  }
+
+  /** Corre alejándose del jugador; luego camina, y se pierde de vista lejos o al cabo de un rato. */
+  _flee(dt, player) {
+    if (this._hitReactionRemaining > 0) return null; // primero el tirón del jalón
+    const running = this.timer < ROAD_RAGE.fleeTime;
+    const speed = running ? ROAD_RAGE.fleeSpeed : ROAD_RAGE.walkSpeed;
+    // Npc anima la carrera a 2,4 × walkSpeed: así los pies van con el desplazamiento.
+    this.walkSpeed = running ? speed / 2.4 : speed;
+    _dir.set(this.position.x - player.x, 0, this.position.z - player.z);
+    if (_dir.lengthSq() < 1e-6) _dir.set(Math.sin(this.root.rotation.y), 0, Math.cos(this.root.rotation.y));
+    _dir.normalize();
+    const goal = this._fleeGoal ??= new THREE.Vector3();
+    goal.copy(this.position).addScaledVector(_dir, 3);
+    this._moveTowards(goal, speed, dt, 0);
+    this._face(goal.x, goal.z, dt, 8);
+    const far = Math.hypot(player.x - this.position.x, player.z - this.position.z) > ROAD_RAGE.fleeGone;
+    if (far || this.timer > ROAD_RAGE.fleeTimeout) { this.enterCar(); return 'gone'; }
     return null;
   }
 

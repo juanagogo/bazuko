@@ -289,3 +289,36 @@ test('al recuperarse tras morir, el conductor ya está en su carro', () => {
   assert.equal(vehicle.car.driver.visible, true);
   assert.equal(people.length, 0);
 });
+
+test('al robarle el carro, el conductor trastabilla, huye sin varilla y se pierde de vista', () => {
+  const { system, vehicle, player, people } = setup();
+  const car = vehicle.car;
+  player.position.set(car.position.x, 0, car.position.z + 1.5);
+  const door = new THREE.Vector3(car.position.x + .8, 0, car.position.z + 1.4);
+  assert.equal(system.ejectDriver(car, door), true);
+  const driver = system.driver;
+  assert.equal(system.state, 'fled');
+  assert.equal(driver.bar.pivot.visible, false, 'huye sin la varilla');
+  assert.ok(people.includes(driver), 'los carros lo esquivan');
+  const start = driver.position.clone();
+  system.update(.2);
+  assert.ok(driver.position.distanceTo(start) < 1e-6, 'primero el tirón: no arranca en el mismo instante');
+  let farthest = 0, hits = 0;
+  for (let t = 0; t < 20 && system.active; t += 1 / 30) {
+    system.update(1 / 30);
+    farthest = Math.max(farthest, Math.hypot(driver.position.x - player.position.x, driver.position.z - player.position.z));
+    hits = player.hits;
+  }
+  assert.equal(hits, 0, 'el que huye no ataca');
+  assert.ok(farthest > 10, `se alejó ${farthest.toFixed(1)} m`);
+  assert.equal(system.active, false);
+  assert.equal(driver.root.visible, false);
+  assert.equal(driver.bar.pivot.visible, true, 'la varilla vuelve para la próxima pelea');
+  assert.ok(!people.includes(driver));
+});
+
+test('si ya hay un conductor bravo en la calle, el del carro robado no sale', () => {
+  const { system, traffic, vehicle, player } = setup();
+  system.trigger(vehicle.car);
+  assert.equal(system.ejectDriver(vehicle.car, new THREE.Vector3(1, 0, 1)), false);
+});
