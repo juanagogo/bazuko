@@ -23,6 +23,8 @@ public:
     void Zoom(float delta);
     void Follow(const glm::vec3& targetPos, float dt, float speed = 0.0f, bool isRunning = false);
 
+    float GetNearPlane() const { return m_NearPlane; }
+    float GetFarPlane() const { return m_FarPlane; }
     const glm::mat4& GetViewMatrix() const { return m_ViewMatrix; }
     const glm::mat4& GetProjectionMatrix() const { return m_ProjectionMatrix; }
     const glm::mat4& GetViewProjectionMatrix() const { return m_ViewProjectionMatrix; }
@@ -59,6 +61,8 @@ private:
     float m_Pitch = 0.22f;
     float m_Distance = 5.5f;
 
+    float m_SmoothHeight = 0.0f;   // altura suavizada del objetivo
+    bool m_SmoothHeightReady = false;
     float m_BobTime = 0.0f;
     float m_BobAmount = 0.0f;
     float m_PsychosisFovOffset = 0.0f;

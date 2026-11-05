@@ -6,7 +6,10 @@
 #include <cstddef>
 #include <vector>
 #include <glm/glm.hpp>
+#include <unordered_map>
+#include <imgui.h>
 #include "../renderer/Camera.hpp"
+#include "../renderer/Texture.hpp"
 #include "../renderer/Renderer.hpp"
 #include "../core/Window.hpp"
 #include "../world/CityLayout.hpp"
@@ -29,11 +32,24 @@ struct RadioStation {
     std::string streamUrl;
 };
 
+struct CraftingMaterial {
+    std::string id;
+    std::string name;
+    int have = 0;
+    int need = 1;
+};
+
+// Receta de la mesa de crafteo (src/data/recipes.js del original): el banco de trabajo muestra el resultado, su efecto y los materiales
 struct CraftingOption {
     std::string id;
     std::string name;
-    std::string ingredients;
-    bool craftable = false;
+    std::string ingredients;     // resumen de una linea
+    bool craftable = false;      // hay materiales
+    bool fits = true;            // el resultado cabe en el costal
+    int quantity = 1;
+    float weight = 0.0f;
+    std::string effect;          // lo que hace el objeto
+    std::vector<CraftingMaterial> materials;
 };
 
 struct InventoryOption {
@@ -47,6 +63,7 @@ struct InventoryOption {
     std::string effects;      // "+40 energía · +15 ánimo"
     std::string rarityLabel;
     int hotbarSlot = -1;      // 0..4 si esta en la barra rapida
+    int value = 0;            // precio de reciclaje por unidad (COP)
 };
 
 // Estado de la radio transistor que muestra el sintonizador
@@ -89,6 +106,14 @@ struct DealerOption {
     int price = 0;
     bool affordable = false;
     bool canCarry = false;
+    std::string detail;   // «+20 vicio, +15 animo, pesa 0,1 kg»
+};
+
+struct DealerSale {   // lo que lleva el jugador y el jibaro le compra de noche
+    std::string id;
+    std::string name;
+    int quantity = 0;
+    int unitPrice = 0;
 };
 
 struct TalentOption {
@@ -99,6 +124,7 @@ struct TalentOption {
     int cost = 0;
     bool unlocked = false;
     bool available = false;
+    std::string branch;
 };
 
 struct CambuchePieceOption {
@@ -150,8 +176,11 @@ public:
     bool ConsumeRecyclerSellRequest();
     void ToggleCraftMenu();
     bool IsPaused() const { return m_Paused; }
+    bool IsGpsBeaconVisible() const { return m_GpsBeaconVisible; }
+    void TogglePerformance() { m_PerfVisible = !m_PerfVisible; }
+    bool IsCraftMenuOpen() const { return m_CraftMenuOpen; }
     bool IsDeathScreenOpen() const { return m_DeathScreenOpen; }
-    void ShowDeathScreen(const std::string& causes, bool vehicleImpact);
+    void ShowDeathScreen(const std::string& causes, bool vehicleImpact, const std::string& name = {}, const std::string& place = {});
     bool ConsumeRespawnRequest();
     void CompleteDeathRecovery();
     std::string ConsumeCraftRequest();
@@ -181,6 +210,8 @@ public:
     bool ConsumeInventorySortRequest();
     std::string ConsumeTalentUnlockRequest();
     std::string ConsumeDealerPurchaseRequest();
+    std::string ConsumeDealerSellRequest() { std::string request = std::move(m_DealerSellRequest); m_DealerSellRequest.clear(); return request; }
+    void SetDealerSales(std::vector<DealerSale> sales, bool night) { m_DealerSales = std::move(sales); m_DealerNight = night; }
     bool ConsumePetRequest();
     void SetCompanionCustomization(const std::string& name, int coat, float size = 1.0f, int accessory = 0);
     std::string GetCompanionName() const;
@@ -192,9 +223,34 @@ public:
     void OpenCambucheMenu() { m_CambucheMenuOpen = true; }
     void CloseCambucheMenu() { m_CambucheMenuOpen = false; }
     bool IsCambucheMenuOpen() const { return m_CambucheMenuOpen; }
+    // recuadro de la vista previa 3D del cambuche (x, y, ancho, alto en pixeles de pantalla, y hacia abajo); false si el menu no lo muestra
+    bool GetCambuchePreviewRect(glm::vec4& rect) const { rect = m_CambuchePreviewRect; return m_CambucheMenuOpen && m_CambuchePreviewRect.z > 8.0f; }
     std::string ConsumeCambucheBuildRequest() { return std::exchange(m_CambucheBuildRequest, {}); }
     bool ConsumeSleepRequest() { return std::exchange(m_SleepRequest, false); }
+    // GPS a pie: main entrega la ruta cada cuadro y recoge las peticiones de destino hechas en el mapa
+    struct GpsView {
+        bool active = false;
+        glm::vec2 waypoint{0.0f};
+        std::string name;
+        float distance = 0.0f;
+        std::vector<glm::vec2> route;   // empieza en el jugador
+    };
+    void SetGpsView(GpsView view) { m_GpsView = std::move(view); }
+    bool ConsumeGpsSetRequest(glm::vec2& position, std::string& name) {
+        if (!m_GpsSetPending) return false;
+        m_GpsSetPending = false;
+        position = m_GpsSetPosition;
+        name = m_GpsSetName;
+        return true;
+    }
+    bool ConsumeGpsClearRequest() { return std::exchange(m_GpsClearRequest, false); }
+    // Mapa grande (tecla M): norte arriba, arrastrar para mover, rueda para zoom, clic para marcar destino
+    void OpenMapSection();
+    void SelectPauseTab(int section);   // cambia de pestana dentro de la pausa sin cerrarla
+    bool IsMapOpen() const { return m_Paused && m_PauseSection == 8; }
     void RenderCambucheMenu(const std::vector<CambuchePieceOption>& pieces, bool hasBase, bool isNight);
+    void RenderCambucheCarton(const std::vector<CambuchePieceOption>& pieces, bool hasBase, bool isNight);   // menu de cartón con vista previa (Costal.cpp)
+    glm::vec4 m_CambuchePreviewRect{0.0f};
 
     void RenderHUD(float dt, const glm::vec3& playerPos, Camera& camera, Renderer& renderer, Window& window,
                    const CityLayout& city, const Simulation& simulation,
@@ -218,10 +274,17 @@ public:
     void SetSaveNotification(const std::string& message);
     // Aviso apilado en pantalla (2,5 s). Los textos de SetPickupNotification toman el tipo de su contenido.
     void Notify(const std::string& message, ToastType type = ToastType::Plain);
+    // Dia de juego, estado del tiempo y temporada para el HUD y el panel de pausa
+    void SetWorldInfo(int day, std::string weather, std::string season) { m_Day = day; m_WeatherLabel = std::move(weather); m_SeasonLabel = std::move(season); }
     void SetPickupNotification(const std::string& message, bool rare = false);
+    // Burbujas de conversacion de los peatones: posicion en pantalla normalizada (-1..1), texto y opacidad
+    struct WorldBubble { float x, y; std::string text; float alpha; };
+    void SetWorldBubbles(std::vector<WorldBubble> bubbles) { m_WorldBubbles = std::move(bubbles); }
     void RenderQuitScreen(Window& window);
 
 private:
+    int m_Day = 1;
+    std::string m_WeatherLabel, m_SeasonLabel;
     void SetupDarkUrbanBogotaTheme();
     void LoadLoadingArtwork(int index);
     void DrawLoadingArtwork();
@@ -234,11 +297,95 @@ private:
     bool m_RadioMenuOpen = false;
     bool m_RadioReturnsToPause = false;
     bool m_CraftMenuOpen = false;
+    // Iconos de objetos: siluetas blancas de assets/icons/<id>.png (game-icons.net, CC BY 3.0, las del original), teñidas al dibujar
+    std::unordered_map<std::string, std::shared_ptr<Texture>> m_ItemIcons;
+    void DrawItemIcon(ImDrawList* draw, ImVec2 center, float size, const std::string& id, const std::string& name, unsigned int color);
+    std::vector<WorldBubble> m_WorldBubbles;
+    std::string m_CraftSelected;   // receta elegida en el banco de trabajo
+    float m_CraftFlash = 0.0f;     // destello al fabricar
     bool m_CambucheMenuOpen = false;
     std::string m_CambucheBuildRequest;
     bool m_SleepRequest = false;
     int m_PauseSection = 0;
     bool m_RadarVisible = true;
+    float m_RadarRange = 70.0f;   // metros desde el centro hasta el borde del radar (+/- cambian el zoom)
+    GpsView m_GpsView;
+    bool m_GpsSetPending = false;
+    glm::vec2 m_GpsSetPosition{0.0f};
+    std::string m_GpsSetName;
+    bool m_GpsClearRequest = false;
+    glm::vec2 m_MapCenter{0.0f};
+    glm::vec3 m_CameraPosition{0.0f};   // para orientar la flecha del jugador en el mapa
+    float m_MapZoom = 0.0f;       // pixeles por metro; 0 = ajustar a la ciudad al abrir
+    bool m_MapNeedsCenter = true;
+    void RenderMapView(const glm::vec3& playerPos, const CityLayout& city, const Simulation& simulation, ImVec2 origin, ImVec2 size);
+    // Datos que necesitan las pestanas de la pausa (WebPanels.cpp)
+    struct PauseContext {
+        glm::vec3 playerPos{0.0f};
+        Camera* camera = nullptr;
+        const CityLayout* city = nullptr;
+        const Simulation* simulation = nullptr;
+        AudioManager* audio = nullptr;
+        std::string playerName;
+        const std::array<float, 7>* needs = nullptr;
+        float money = 0.0f;
+        int level = 1, xp = 0;
+        float dayProgress = 0.0f;
+        bool companionIsFriend = false;
+    };
+    void RenderPauseTabs(const PauseContext& context);
+    void RenderStateTab(const PauseContext& context, float width);
+    void RenderSettingsTab(const PauseContext& context, float width);
+    void RenderControlsTab(float width);
+    void RenderRadioMenu();
+    void RenderTalentWindow(const std::vector<TalentOption>& talents, int points);
+    void RenderDealerWindow(const std::vector<DealerOption>& options, float money);
+    void RenderJibaro(const std::vector<DealerOption>& options, float money);   // menu del jibaro de carton (Costal.cpp)
+    std::vector<DealerSale> m_DealerSales;
+    bool m_DealerNight = false;
+    std::string m_DealerSellRequest;
+    // HUD del juego web (WebPanels.cpp)
+    struct HudContext {
+        float dt = 0.0f;
+        glm::vec3 playerPos{0.0f};
+        Camera* camera = nullptr;
+        const CityLayout* city = nullptr;
+        const Simulation* simulation = nullptr;
+        AudioManager* audio = nullptr;
+        std::string playerName;
+        const std::array<float, 7>* needs = nullptr;
+        float money = 0.0f;
+        float dayProgress = 0.0f;
+        std::string diseaseSummary;
+        int level = 1, xp = 0, talentPoints = 0;
+        std::string objective;
+        size_t missionProgress = 0, missionTarget = 0;
+        bool boostActive = false;
+        float boostTimer = 0.0f;
+        const std::vector<InventoryOption>* inventory = nullptr;
+    };
+public:
+    void SetWarmth(float seconds) { m_Warmth = seconds; }
+    void SetBodyState(bool freezing, bool inWithdrawal) { m_Freezing = freezing; m_InWithdrawal = inWithdrawal; }
+private:
+    void RenderWebHud(const HudContext& context);
+    void RenderHudCarton(const HudContext& context);
+    void RenderDeathCarton();   // pantalla de muerte de carton con el recorte de periodico (HudCarton.cpp)
+    std::string m_DeathName, m_DeathPlace;
+    bool m_Freezing = false, m_InWithdrawal = false;   // frio de noche con lluvia y sin calor; malilla (para el retazo de lo mas urgente)
+    bool m_NeedsExpanded = false;   // higiene, animo y vicio a la vista aunque esten bien (boton del pie de las necesidades)
+    float m_Warmth = 0.0f;   // s de calor contra el frio (la comida caliente y el fogon)   // HUD de carton y marcador (HudCarton.cpp)
+    std::shared_ptr<Texture> m_MinimapTexture;   // plano del radar, rasterizado una vez
+    void RenderMinimap(const HudContext& context, ImVec2 origin, ImVec2 size, float infoHeight, bool fused = false);   // fused: sin marco propio y con la tarjeta de destino arriba, dentro del panel unico del HUD
+    void RenderInventoryWindow(const std::vector<InventoryOption>& items, float weight, float capacity);
+    void RenderMesaCarton(const std::vector<CraftingOption>& craftingOptions, float weight, float capacity);
+    void RenderCostal(const std::vector<InventoryOption>& items, float weight, float capacity);   // costal de carton y marcador (Costal.cpp)
+    void RenderCraftWindow(const std::vector<CraftingOption>& options, float weight, float capacity);
+    float m_RadioFrequency = 540.0f;   // frecuencia del dial (kHz AM o MHz FM)
+    float m_RadioDialStation = -1.0f;  // frecuencia de la emisora con que se sincronizo el dial
+    bool m_PerfVisible = false;       // panel de rendimiento (F3), oculto al empezar como en el juego web
+    int m_RadarSize = 1;              // 0 pequeno, 1 mediano, 2 grande
+    bool m_GpsBeaconVisible = true;   // haz de luz sobre el destino del GPS
     bool m_SaveRequest = false;
     bool m_NewGameRequest = false;
     bool m_NewGameConfirmOpen = false;   // confirmacion de partida nueva: reemplaza al menu de pausa mientras esta abierta
@@ -280,6 +427,16 @@ private:
     bool m_InventoryDropAll = false;
     size_t m_InventorySelected = 0;
     FrameMetrics m_Metrics;
+public:
+    // Resumen de rendimiento del HUD en una linea (para BAZUKO_BENCH): FPS medio, minimo, maximo, p95/p99 (ms), 1 % bajo y tirones
+    std::string PerformanceSummary() const {
+        const auto recent = m_Metrics.RecentStats();
+        char text[256];
+        std::snprintf(text, sizeof(text), "avg=%.1f min=%.1f max=%.1f p95=%.2f p99=%.2f low1=%.1f over100=%d frames=%zu",
+                      m_Metrics.average, m_Metrics.min, m_Metrics.max, recent.p95, recent.p99, recent.low1Percent, recent.over100ms, recent.frames);
+        return text;
+    }
+private:
     std::string m_ShopTitle;
     std::string m_ShopSubtitle;
     std::vector<std::string> m_ShopFilter;

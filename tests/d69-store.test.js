@@ -15,11 +15,11 @@ test('D69 reserva la fachada señalada y conserva el andén y la avenida', () =>
   assert.ok(!collisions.colliders.some(({ box }) => box.containsPoint(new THREE.Vector3(54, 1, 162))));
 });
 
-test('los avisos D69 miran a ambos andenes y el edificio no invade la calle', () => {
+test('los avisos del mercado miran a ambos andenes y el edificio no invade la calle', () => {
   const signs = [];
   const model = buildD69Store({ createSign: options => { signs.push(options); return new THREE.Texture(); } });
   assert.equal(signs.length, 2);
-  assert.ok(signs.every(o => o.title === 'D69'));
+  assert.ok(signs.every(o => o.title === 'DOÑA INÉS'));
   const bounds = new THREE.Box3().setFromObject(model);
   assert.ok(bounds.max.x < 53.4);
   assert.ok(bounds.min.z > 158.5);

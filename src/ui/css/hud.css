@@ -1,0 +1,516 @@
+/* HUD: lo que se ve el 95 % del tiempo. Se lee sin apartar la vista de la calle.
+   Capas: psicosis 12 < cartón 25 < plata 26 < estado de movimiento 30 < accesos 40 < botones y barra rápida 50
+   < minijuego 90 < tecla de contexto 100 < paneles 200 < menús 300 < foto 450 < avisos 500 < carga 20000. */
+:root {
+  --safe-t: env(safe-area-inset-top, 0px);
+  --safe-r: env(safe-area-inset-right, 0px);
+  --safe-b: env(safe-area-inset-bottom, 0px);
+  --safe-l: env(safe-area-inset-left, 0px);
+  --fila: 28px;
+  --fila-salud: 36px;
+  --fila-letra: 19px;
+  --fila-cifra: 22px;
+  --fila-cifra-ancho: 44px;
+  --fila-nombre: 98px;
+  --salud-cifra: 26px;
+  --salud-letra: 21px;
+}
+
+/* ---------- abajo a la izquierda: destino, radar y filas, en una sola pieza ---------- */
+#hud-dock {
+  position: fixed; z-index: 25;
+  left: calc(20px + var(--safe-l)); bottom: calc(20px + var(--safe-b));
+  width: 340px; padding: 0;
+  display: flex; flex-direction: column;
+}
+#hud { order: 2; padding: 5px 12px 9px; }
+#disease-panel { order: 3; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 2px 10px; padding: 0 12px 8px; }
+#disease-panel:empty { display: none; }
+.disease-item { display: flex; align-items: center; gap: 5px; min-width: 0; font-weight: 800; font-size: 16px; line-height: 1.1; }
+.disease-item__dibujo { font-weight: 400; font-size: 20px; line-height: 1; }
+.disease-item__nombre { min-width: 0; flex: 1; white-space: nowrap; overflow: hidden; }
+.disease-item__seg { flex: none; font-size: 20px; }
+
+/* Una fila es [dibujo] [nombre] [barra] [cifra]. Ninguna letra pisa el relleno: cada cosa tiene su celda. */
+#hud-vitals, #needs-subidas, #needs-details { display: grid; }
+#needs-details[hidden] { display: none; }
+#needs-subidas:empty { display: none; }
+#needs-subidas, #needs-details { margin-top: 2px; }
+.stat-bar {
+  display: grid; grid-template-columns: 24px var(--fila-nombre) minmax(0, 1fr) var(--fila-cifra-ancho);
+  align-items: stretch; column-gap: 4px;
+  height: var(--fila); line-height: 1;
+}
+.stat-bar[data-stat="salud"] { height: var(--fila-salud); --fila-cifra: var(--salud-cifra); --fila-letra: var(--salud-letra); }
+/* Hambre es la otra que hay que leer sin mirar: en la orilla del ojo, a 19 px se volvía una mancha. */
+.stat-bar[data-stat="hambre"] { --fila-letra: var(--salud-letra); }
+.stat-bar__icon { display: grid; place-items: center; }
+.stat-bar__name { display: flex; align-items: center; font-weight: 800; font-size: var(--fila-letra); white-space: nowrap; letter-spacing: .03em; text-transform: uppercase; }
+.stat-bar .bar { grid-column: 3; grid-row: 1; display: block; margin: 2px 0; background: rgba(20, 17, 12, .13); min-width: 0; }
+.stat-bar .fill { display: block; height: 100%; width: 100%; }
+.stat-bar__orden { display: none; }
+.stat-bar__value {
+  grid-column: 4; display: flex; align-items: center; justify-content: flex-end;
+  padding-right: 3px; font-size: var(--fila-cifra); line-height: 1; white-space: nowrap;
+}
+/* Baja: la cifra se invierte. */
+.stat-bar[data-level="low"] .stat-bar__value { background: var(--marcador); color: var(--cinta); margin: 2px 0; }
+/* Crítica: la fila entera es placa roja, y al lado del relleno queda escrita la orden. El relleno no pasa de 20 %. */
+.stat-bar[data-level="critical"] { background: var(--rojo); color: var(--cinta); margin: 0 -5px; padding: 0 5px; box-shadow: 0 0 0 1.5px var(--marcador); }
+.stat-bar[data-level="critical"] .bar { background: none; }
+.stat-bar[data-level="critical"] .fill { background-image: var(--m-rayado-cinta); }
+.stat-bar[data-level="critical"] .stat-bar__orden {
+  grid-column: 3; grid-row: 1; display: flex; align-items: center;
+  padding-left: calc(20% + 6px); min-width: 0; overflow: hidden;
+  font-weight: 800; font-size: 16px; white-space: nowrap; pointer-events: none;
+}
+
+@media (max-width: 899px), (max-height: 500px) and (orientation: landscape) {
+  /* Una fila crítica tiene dos cifras como mucho: le cede el sobrante a la orden, y el número sigue en su sitio. */
+  .stat-bar[data-level="critical"] { --fila-cifra-ancho: 28px; }
+  .stat-bar__name { letter-spacing: 0; }
+}
+
+/* El estado de lo demás: dibujo solo, y su nivel se ve en el botón. Los nombres quedan para quien no ve. */
+#needs-toggle {
+  position: absolute; top: 7px; right: 10px; width: 38px; min-height: 38px; padding: 0; font-size: 16px;
+}
+#needs-toggle #needs-summary, #needs-toggle .needs-toggle__key { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+#needs-toggle[data-level="low"] { background: var(--marcador); color: var(--cinta); }
+#needs-toggle[data-level="critical"] { background: var(--rojo); color: var(--cinta); }
+
+/* ---------- lo más urgente, encima del cartón: una sola pieza ---------- */
+#retazo { position: absolute; left: 0; bottom: calc(100% + 14px); width: max-content; max-width: 420px; }
+#retazo[hidden] { display: none; }
+.retazo__grito { display: block; font-weight: 800; font-size: var(--letra-retazo); line-height: 1; }
+.retazo__orden { display: block; font-weight: 800; font-size: 19px; line-height: 1.15; margin-top: 2px; }
+
+/* ---------- arriba a la derecha: la plata, la hora y quién soy ---------- */
+#topbar {
+  position: fixed; z-index: 26;
+  top: calc(18px + var(--safe-t)); right: calc(20px + var(--safe-r));
+  width: 292px; display: flex; flex-direction: column; align-items: flex-end; gap: 8px;
+  pointer-events: none;
+}
+.topbar__hoja { width: 100%; display: grid; justify-items: end; gap: 2px; padding: 6px 14px 8px; }
+#money { display: block; font-weight: 800; font-size: var(--letra-plata); line-height: 1.02; white-space: nowrap; }
+#money.plata--larga { font-size: 40px; }
+#money.plata--larguisima { font-size: 36px; }
+.topbar__mundo { display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: baseline; gap: 0 10px; font-weight: 800; font-size: 19px; line-height: 1.15; }
+#clock { font-size: 24px; }
+#weather-display { white-space: nowrap; }
+#weather-display[hidden] { display: none; }
+.topbar__yo { display: flex; align-items: center; justify-content: flex-end; gap: 8px; width: 100%; font-weight: 800; font-size: 16px; line-height: 1.2; }
+#player-name { min-width: 0; white-space: nowrap; overflow: hidden; }
+#player-name:not(:empty)::after { content: ','; }
+#level-display { flex: none; font-weight: 400; }
+#xp-bar { flex: none; display: inline-block; width: 46px; height: 12px; background: rgba(20, 17, 12, .15); }
+#xp-fill { display: block; height: 100%; width: 0; }
+#talent-points { flex: none; white-space: nowrap; }
+#talent-points[hidden] { display: none; }
+/* Con la patrulla detrás, sobra quién soy. */
+#topbar[data-estado="detras"] .topbar__yo, #topbar[data-estado="encima"] .topbar__yo { display: none; }
+
+/* ---------- la búsqueda: no existe si nadie me busca ---------- */
+#wanted[hidden] { display: none; }
+.wanted__grito { font-weight: 800; line-height: 1; white-space: nowrap; }
+.wanted__rayas { display: none; }
+.wanted__dato { display: none; font-weight: 800; white-space: nowrap; line-height: 1; }
+.wanted__barra { display: none; background: rgba(233, 219, 180, .22); }
+.wanted__barra .masa { display: block; height: 100%; width: 0; }
+/* Fichado: cartón pequeño, una raya por nivel. */
+#wanted[data-estado="fichado"] { display: flex; align-items: center; gap: 8px; padding: 4px 12px 5px; }
+#wanted[data-estado="fichado"] .wanted__grito { font-size: 18px; }
+#wanted[data-estado="fichado"] .wanted__rayas { display: block; height: 22px; width: 36px; background: var(--m-tres) left center / 36px 22px no-repeat; }
+.wanted__rayas[data-nivel="1"] { width: 14px !important; }
+.wanted__rayas[data-nivel="2"] { width: 26px !important; }
+/* Patrulla detrás: placa roja, más ancha que la plata. */
+#wanted[data-estado="detras"] {
+  display: grid; grid-template-columns: auto minmax(0, 1fr); column-gap: 14px; row-gap: 3px; align-items: center;
+  width: 372px; min-height: 98px; padding: 7px 16px 10px;
+}
+#wanted[data-estado="detras"] .wanted__grito { grid-column: 1 / -1; font-size: 52px; }
+#wanted[data-estado="detras"] .wanted__dato,
+#wanted[data-estado="encima"] .wanted__dato { display: block; font-size: 22px; }
+#wanted[data-estado="detras"] .wanted__barra,
+#wanted[data-estado="encima"] .wanted__barra { display: block; height: 20px; }
+/* Patrulla encima: otra forma. Se extiende desde la derecha por encima del horizonte, y no se mueve. */
+#wanted[data-estado="encima"] {
+  display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); column-gap: 20px; row-gap: 4px; align-items: center;
+  width: min(56vw, 800px); padding: 8px 22px 12px;
+}
+#wanted[data-estado="encima"] .wanted__grito { grid-column: 1 / -1; font-size: 96px; line-height: .98; }
+
+/* ---------- arriba a la izquierda: una tira de cinta, solo dibujos ---------- */
+#game-settings {
+  position: fixed; z-index: 50;
+  top: calc(18px + var(--safe-t)); left: calc(20px + var(--safe-l));
+  gap: 0; padding: 0 4px; min-height: 46px;
+}
+#game-settings button {
+  display: grid; place-items: center; width: 44px; height: 46px; padding: 0;
+  background: none; border: 0; color: inherit; cursor: pointer;
+}
+#game-settings button + button { background: var(--m-regla-v) left center / 5px 58% no-repeat; }
+/* La foto sigue en F2. */
+#photo-mode-open { display: none !important; }
+
+/* ---------- la tecla de contexto ---------- */
+#interaction-prompt {
+  position: fixed; z-index: 100;
+  left: 50%; bottom: calc(22px + var(--safe-b)); transform: translateX(-50%);
+  width: max-content; max-width: min(540px, 38vw);
+  display: none; flex-wrap: wrap; align-items: center; justify-content: center; gap: 6px;
+  pointer-events: none;
+}
+#interaction-prompt.visible { display: flex; }
+.cx.cinta { text-align: left; font-size: var(--letra-verbo); }
+.cx.cinta--verbo { font-size: 25px; }
+.cx kbd { flex: none; font-size: .95em; }
+.cx__verbo { display: block; min-width: 0; line-height: 1.04; }
+.cx--nota { padding: 3px 9px 4px; background: var(--cara); color: var(--marcador); box-shadow: 0 0 0 1.5px var(--marcador); font-size: 16px; line-height: 1.1; }
+.cx__sostener { display: block; height: 10px; width: 100%; margin-top: 3px; background: rgba(20, 17, 12, .16); }
+.cx__sostener .masa { display: block; height: 100%; width: 0; }
+
+/* ---------- lo que toca: una línea, unos segundos ---------- */
+#mision {
+  position: fixed; z-index: 24;
+  left: 50%; top: calc(18px + var(--safe-t)); transform: translateX(-50%);
+  max-width: 44vw; padding: 6px 18px 8px;
+  font-weight: 800; font-size: var(--letra-titulo); line-height: 1.05; text-align: center; white-space: nowrap;
+  pointer-events: none;
+}
+#mision[hidden] { display: none; }
+body:has(#movement-status:not([hidden])) #mision { display: none; }
+
+/* ---------- abajo a la derecha: costal, mesa y barra rápida ---------- */
+#quickbar {
+  --corte: var(--corte-b);
+  position: fixed; z-index: 50;
+  right: calc(20px + var(--safe-r)); bottom: calc(20px + var(--safe-b));
+  display: none; padding: 0 2px;
+  background: var(--flauta), var(--cara); color: var(--marcador);
+  border: 1px solid transparent;
+  border-image: var(--corte) 12 / 12px / 3px 6px 6px 3px stretch;
+}
+#quickbar.visible { display: flex; }
+#quickbar .qb-slot {
+  position: relative; width: 62px; height: 62px; padding: 0; gap: 0;
+  display: grid; place-items: center;
+  background: none; border: 0; border-radius: 0; color: var(--marcador); box-shadow: none; cursor: pointer;
+}
+#quickbar .qb-slot + .qb-slot { background: var(--m-regla-v) left center / 5px 80% no-repeat; }
+#quickbar .qb-slot:hover { border: 0; }
+#quickbar .qb-slot.is-empty .qb-art { opacity: .4; }
+.qb-art { display: contents; }
+.qb-art-icon { width: 36px; height: 36px; color: var(--marcador); }
+.qb-slot .item-art--dibujo { width: auto; height: auto; font-size: 32px; }
+.qb-slot .qk { position: absolute; left: 6px; top: 3px; font-weight: 800; font-size: 14px; line-height: 1; color: var(--marcador); }
+.qb-slot .sq { position: absolute; right: 5px; bottom: 3px; font-weight: 800; font-size: 20px; line-height: 1; color: var(--marcador); }
+/* Elegida: el círculo rojo. Sobre cartón mojado el rojo no alcanza, y el círculo sale en marcador. */
+#quickbar .qb-slot.elegido::after { inset: 4px; }
+body.mojado #quickbar .qb-slot.elegido::after { border-image-source: var(--m-circulo-tinta); }
+.qb-slot.just-used .qb-art-icon { outline: 2px solid var(--marcador); outline-offset: 1px; }
+
+#panel-dock {
+  position: fixed; z-index: 40;
+  right: calc(20px + var(--safe-r)); bottom: calc(104px + var(--safe-b));
+  display: flex; gap: 8px;
+}
+.dock-btn.cinta { min-height: 42px; padding: 4px 11px; font-size: 19px; }
+.dock-art { display: grid; place-items: center; }
+.dock-key { font-size: 15px; }
+#camera-controls {
+  position: fixed; z-index: 40;
+  right: calc(322px + var(--safe-r)); bottom: calc(104px + var(--safe-b));
+}
+#camera-toggle.cinta { min-height: 42px; padding: 4px 9px; font-size: 19px; }
+#camera-toggle kbd { font-size: 15px; }
+#camera-hint { position: absolute; right: 0; bottom: calc(100% + 10px); display: none; width: 280px; font-size: 16px; line-height: 1.2; }
+#camera-controls:focus-within #camera-hint { display: block; }
+#controls-help { position: fixed; z-index: 40; right: calc(412px + var(--safe-r)); bottom: calc(104px + var(--safe-b)); }
+#controls-help-toggle { min-width: 42px; min-height: 42px; padding: 4px 9px; font-size: 19px; white-space: nowrap; }
+#controls-help-content {
+  position: absolute; right: 0; bottom: calc(100% + 10px);
+  width: min(560px, calc(100vw - 788px)); max-height: 58vh; overflow: auto; /* sin pisar el radar, que tiene sus botones */
+  display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 5px 16px;
+  font-size: 16px; line-height: 1.15;
+}
+#controls-help.is-collapsed #controls-help-content { display: none; }
+#controls-help-content span { display: flex; align-items: center; gap: 6px; }
+#controls-help-content kbd { flex: none; }
+
+/* ---------- lo que está pasando ---------- */
+#movement-status {
+  position: fixed; z-index: 30;
+  left: 50%; top: calc(18px + var(--safe-t)); transform: translateX(-50%);
+  max-width: 44vw; display: flex; flex-direction: column; align-items: center; gap: 1px; text-align: center;
+  font-size: 16px; line-height: 1.15; pointer-events: none;
+}
+#movement-status[hidden] { display: none; }
+#movement-label { font-weight: 800; font-size: 22px; line-height: 1.05; }
+/* Fuera del camino de la tecla de contexto, que crece hacia los lados desde el centro. */
+#boost-indicator {
+  position: fixed; z-index: 40;
+  right: calc(240px + var(--safe-r)); bottom: calc(156px + var(--safe-b));
+  display: none; padding: 5px 12px 6px; font-size: 20px; line-height: 1; white-space: nowrap; pointer-events: none;
+}
+#boost-indicator.active { display: flex; align-items: baseline; gap: 7px; }
+#poop-hud-ammo {
+  position: fixed; z-index: 40;
+  right: calc(20px + var(--safe-r)); bottom: calc(156px + var(--safe-b));
+  padding: 3px 9px 4px; background: var(--cara); color: var(--marcador); box-shadow: 0 0 0 1.5px var(--marcador);
+  font-weight: 800; font-size: 17px; line-height: 1.1; pointer-events: none;
+}
+#poop-hud-ammo.empty { display: none; }
+#cart-indicator {
+  position: fixed; z-index: 40;
+  right: calc(20px + var(--safe-r)); bottom: calc(196px + var(--safe-b));
+  display: flex; align-items: center; gap: 6px; padding: 3px 10px 4px; font-weight: 800; font-size: 17px; line-height: 1.1; pointer-events: none;
+}
+#cart-indicator[hidden] { display: none; }
+
+/* ---------- el cosquilleo: la barra y, debajo, en su propia celda, lo que hay que oprimir ---------- */
+#steal-minigame {
+  position: fixed; z-index: 90;
+  left: 50%; bottom: calc(100px + var(--safe-b)); transform: translateX(-50%);
+  width: min(320px, calc(100vw - 16px)); padding: 8px 12px 8px;
+  display: grid; gap: 5px;
+}
+#steal-minigame[hidden] { display: none; }
+#steal-track { position: relative; height: 26px; overflow: hidden; background: rgba(20, 17, 12, .13); box-shadow: inset 0 0 0 1.5px var(--marcador); }
+#steal-zone { position: absolute; top: 0; bottom: 0; background: var(--marcador); }
+#steal-marker { position: absolute; top: -2px; bottom: -2px; width: 8px; transform: translateX(-50%); background: var(--rojo); box-shadow: 0 0 0 2px var(--cinta); }
+#steal-ayuda { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 2px 7px; margin: 0; font-weight: 800; font-size: 17px; line-height: 1.1; text-align: center; }
+#steal-ayuda kbd { font-size: 14px; }
+.is-photo-mode #steal-minigame { visibility: hidden !important; }
+
+/* ---------- cuando no toca ---------- */
+body:has(#menu:not([hidden]), #inv-overlay.open, #craft-panel.open, #talent-panel.open, #dealer-panel.open, #creator-modal:not([hidden]), #cerrado:not([hidden])) :is(#topbar, #hud-dock, #panel-dock, #quickbar, #game-settings, #camera-controls, #controls-help, #controls-help-toggle, #interaction-prompt, #movement-status, #poop-hud-ammo, #mision, #boost-indicator, #cart-indicator) {
+  visibility: hidden; pointer-events: none;
+}
+body.is-loading :is(#performance-panel, #quickbar, #hud-dock, #panel-dock) { visibility: hidden; }
+
+/* Los pulgares: se ven solo con el modo táctil, y su sitio está en tactil.css. */
+#joystick, #acciones { display: none; position: fixed; z-index: 45; pointer-events: none; }
+
+/* ==================== 1280 y ventanas medianas ==================== */
+@media (max-width: 1100px) {
+  #camera-controls { right: calc(20px + var(--safe-r)); bottom: calc(154px + var(--safe-b)); }
+  #controls-help { right: calc(110px + var(--safe-r)); bottom: calc(154px + var(--safe-b)); }
+  #controls-help-content { width: min(560px, calc(100vw - 486px)); }
+  #interaction-prompt { max-width: 30vw; }
+  #boost-indicator { right: calc(240px + var(--safe-r)); bottom: calc(204px + var(--safe-b)); }
+}
+
+/* ==================== celular y ventanas angostas: lo común ==================== */
+@media (max-width: 899px), (max-height: 500px) and (orientation: landscape) {
+  /* Nada que no sea botón agarra el dedo: lo que queda libre es para mirar. */
+  #hud-dock, #hud, #hud-vitals, #topbar, #wanted, #retazo, #minimap-container, .radar__screen, .radar__papel { pointer-events: none; }
+  #hud-dock button, #game-settings button, #panel-dock button, #quickbar .qb-slot { pointer-events: auto; }
+  #quickbar { pointer-events: none; }
+  #game-settings { pointer-events: none; }
+  /* Solo Pausa arriba. Lo demás irá en «Más». */
+  #radio-toggle, #audio-toggle { display: none !important; }
+  #game-settings #pause-toggle { background: none; }
+  #game-settings.cinta { padding: 0; min-height: 44px; }
+  #camera-controls, #controls-help, #poop-hud-ammo { display: none; }
+  .topbar__yo { display: none !important; }
+  .dock-label, .dock-key { display: none; }
+  #panel-dock { gap: 4px; }
+  .dock-btn.cinta { width: 44px; min-height: 44px; padding: 0; }
+  #quickbar .qb-slot { width: 44px; height: 44px; }
+  .qb-slot .qk { display: none; }
+  .qb-art-icon { width: 28px; height: 28px; }
+  .qb-slot .item-art--dibujo { font-size: 26px; }
+  .qb-slot .sq { right: 3px; bottom: 2px; font-size: 16px; }
+  #mision { font-size: 20px; padding: 4px 12px 6px; }
+  #movement-status { max-width: 60vw; }
+}
+
+/* ==================== celular acostado: 844 × 390 ==================== */
+@media (max-width: 899px) and (orientation: landscape), (max-height: 500px) and (orientation: landscape) {
+  :root { --fila: 22px; --fila-salud: 25px; --fila-letra: 16px; --fila-cifra: 20px; --fila-cifra-ancho: 38px; --fila-nombre: 66px; --salud-cifra: 21px; --salud-letra: 16px; }
+  #hud-dock {
+    top: calc(6px + var(--safe-t)); bottom: auto; left: calc(6px + var(--safe-l));
+    width: 428px; display: grid; grid-template-columns: 178px minmax(0, 1fr); padding-top: 48px;
+  }
+  #hud { order: 2; grid-column: 2; min-width: 0; padding: 0 9px 5px 6px; }
+  .stat-bar { grid-template-columns: 20px var(--fila-nombre) minmax(0, 1fr) var(--fila-cifra-ancho); column-gap: 3px; }
+  #needs-toggle { top: 0; right: 6px; width: 44px; min-height: 44px; }
+  #needs-details { position: absolute; left: 180px; top: calc(100% + 6px); width: 248px; padding: 3px 8px 4px; margin: 0; background: var(--flauta), var(--cara); box-shadow: 0 0 0 1.5px var(--marcador); }
+  /* Las que suben van como fichas bajo el cartón: una fila más taparía al personaje. */
+  #needs-subidas { position: absolute; left: 0; top: calc(100% + 5px); margin: 0; display: flex; gap: 4px; }
+  #needs-subidas:empty { display: none; }
+  #needs-subidas .stat-bar { display: flex; height: 26px; column-gap: 2px; padding: 0 2px 0 4px; background: var(--cara); box-shadow: 0 0 0 1.5px var(--marcador); }
+  #needs-subidas .stat-bar[data-level="critical"] { margin: 0; background: var(--rojo); }
+  #needs-subidas .stat-bar__name, #needs-subidas .bar, #needs-subidas .stat-bar[data-level="critical"] .stat-bar__orden { display: none; }
+  #needs-subidas .stat-bar__value { min-width: 26px; margin: 2px 0; }
+  #disease-panel { position: absolute; right: 0; top: calc(100% + 5px); width: max-content; max-width: 250px; display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 4px; padding: 0; }
+  .disease-item { background: var(--cara); padding: 1px 5px; box-shadow: 0 0 0 1.5px var(--marcador); }
+  .disease-item__nombre { display: none; }
+  #retazo { bottom: auto; top: calc(100% + 8px); max-width: 300px; padding: 3px 10px 5px; }
+  body:has(.disease-item, #needs-subidas .stat-bar) #retazo { top: calc(100% + 38px); }
+  body:has(.disease-item:nth-child(4)) #retazo { top: calc(100% + 66px); }
+  .retazo__grito { font-size: 24px; }
+  .retazo__orden { font-size: 16px; }
+
+  #topbar { top: calc(6px + var(--safe-t)); right: calc(6px + var(--safe-r)); width: 246px; gap: 5px; }
+  .topbar__hoja { padding: 2px 10px 4px; gap: 0; grid-template-columns: auto; }
+  #money { font-size: 30px; }
+  #money.plata--larga { font-size: 28px; }
+  #money.plata--larguisima { font-size: 26px; }
+  .topbar__mundo { font-size: 16px; gap: 0 8px; }
+  #clock { font-size: 20px; }
+  #day-display { display: none; }
+  #wanted[data-estado="fichado"] { padding: 2px 10px 3px; }
+  #wanted[data-estado="fichado"] .wanted__grito { font-size: 16px; }
+  #wanted[data-estado="detras"] { width: 262px; min-height: 54px; padding: 3px 10px 5px; grid-template-columns: auto minmax(0, 1fr); column-gap: 8px; row-gap: 2px; }
+  #wanted[data-estado="detras"] .wanted__grito { grid-column: 1; font-size: 28px; }
+  #wanted[data-estado="detras"] .wanted__dato { grid-column: 2; font-size: 16px; white-space: nowrap; text-align: right; }
+  #wanted[data-estado="detras"] .wanted__barra { grid-column: 1 / -1; height: 14px; }
+  #wanted[data-estado="encima"] { width: min(46vw, 400px); padding: 3px 12px 6px; column-gap: 8px; row-gap: 1px; }
+  #wanted[data-estado="encima"] .wanted__grito { font-size: 46px; }
+  #wanted[data-estado="encima"] .wanted__dato { font-size: 16px; }
+  #wanted[data-estado="encima"] .wanted__barra { height: 14px; }
+  #game-settings { top: calc(6px + var(--safe-t)); left: auto; right: calc(258px + var(--safe-r)); }
+  #game-settings button { width: 44px; height: 44px; }
+
+  #quickbar { left: calc(140px + var(--safe-l)); right: auto; bottom: calc(6px + var(--safe-b)); padding: 0; }
+  #panel-dock { left: calc(372px + var(--safe-l)); right: auto; bottom: calc(6px + var(--safe-b)); }
+  #interaction-prompt { bottom: calc(60px + var(--safe-b)); max-width: 62vw; }
+  .cx.cinta { font-size: 20px; }
+  .cx.cinta--verbo { font-size: 22px; min-height: 44px; }
+  #mision { left: calc(6px + var(--safe-l)); top: calc(var(--dock-bottom, 150px) + 7px); transform: none; width: max-content; }
+  body:has(#retazo:not([hidden])) #mision { display: none; }
+  /* A la derecha, abajo, va la tecla de contexto: estos dos bajan de la plata. */
+  #boost-indicator { right: calc(8px + var(--safe-r)); bottom: auto; top: calc(var(--topbar-bottom, 110px) + 6px); font-size: 18px; }
+  #cart-indicator { right: calc(8px + var(--safe-r)); bottom: auto; top: calc(var(--topbar-bottom, 110px) + 44px); }
+}
+
+/* ==================== celular de pie: 375 × 812 ==================== */
+@media (max-width: 899px) and (orientation: portrait) {
+  :root { --fila: 25px; --fila-salud: 29px; --fila-letra: 16px; --fila-cifra: 21px; --fila-cifra-ancho: 38px; --fila-nombre: 66px; --salud-cifra: 23px; --salud-letra: 16px; }
+  #topbar { top: var(--safe-t); left: var(--safe-l); right: calc(50px + var(--safe-r)); width: auto; gap: 0; align-items: stretch; }
+  .topbar__hoja { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 46px; padding: 2px 10px 3px 10px; }
+  #money { font-size: 28px; }
+  #money.plata--larga { font-size: 25px; }
+  #money.plata--larguisima { font-size: 22px; }
+  .topbar__mundo { flex-wrap: nowrap; font-size: 16px; gap: 0 6px; white-space: nowrap; }
+  #clock { font-size: 20px; }
+  /* La franja va de orilla a orilla, debajo de Pausa. */
+  #wanted { width: 100vw; }
+  #wanted[data-estado="fichado"] { width: max-content; align-self: flex-end; padding: 2px 10px 3px; }
+  #wanted[data-estado="fichado"] .wanted__grito { font-size: 16px; }
+  #wanted[data-estado="detras"] { width: 100vw; min-height: 36px; padding: 2px 10px 4px; grid-template-columns: auto auto minmax(0, 1fr); column-gap: 8px; }
+  #wanted[data-estado="detras"] .wanted__grito { grid-column: 1; font-size: 26px; }
+  #wanted[data-estado="detras"] .wanted__dato { grid-column: 2; font-size: 16px; }
+  #wanted[data-estado="detras"] .wanted__barra { grid-column: 3; height: 18px; }
+  #wanted[data-estado="encima"] { width: 100vw; padding: 2px 12px 6px; column-gap: 8px; row-gap: 1px; }
+  #wanted[data-estado="encima"] .wanted__grito { font-size: 52px; }
+  #wanted[data-estado="encima"] .wanted__dato { font-size: 16px; }
+  #wanted[data-estado="encima"] .wanted__barra { height: 16px; }
+  #game-settings { top: calc(1px + var(--safe-t)); left: auto; right: calc(4px + var(--safe-r)); }
+  #game-settings button { width: 44px; height: 44px; }
+
+  #hud-dock {
+    top: var(--topbar-bottom, 40px); bottom: auto; left: var(--safe-l); right: var(--safe-r); width: auto;
+    display: grid; grid-template-columns: 138px minmax(0, 1fr); padding-top: 48px;
+  }
+  #hud { order: 2; grid-column: 2; padding: 3px 8px 5px 5px; }
+  .stat-bar { grid-template-columns: 20px var(--fila-nombre) minmax(0, 1fr) var(--fila-cifra-ancho); column-gap: 3px; }
+  #needs-toggle { top: 0; right: 6px; width: 44px; min-height: 44px; }
+  #needs-details { margin-top: 2px; }
+  #disease-panel { grid-column: 1 / -1; padding: 0 8px 4px; display: flex; flex-wrap: wrap; gap: 2px 10px; }
+  .disease-item__nombre { display: none; }
+
+  #retazo { bottom: auto; top: calc(100% + 7px); left: 6px; max-width: calc(100vw - 12px); padding: 3px 12px 5px; }
+  .retazo__grito { font-size: 26px; }
+  /* En plena persecución no se acumula: lo que importa ya está arriba. */
+  body:has(#wanted[data-estado="detras"], #wanted[data-estado="encima"]) #retazo { display: none; }
+
+  #quickbar { left: calc(4px + var(--safe-l)); right: auto; bottom: calc(6px + var(--safe-b)); padding: 0; }
+  #panel-dock { left: calc(234px + var(--safe-l)); right: auto; bottom: calc(6px + var(--safe-b)); }
+  #interaction-prompt { bottom: calc(60px + var(--safe-b)); max-width: calc(100vw - 16px); }
+  .cx.cinta { font-size: 20px; }
+  .cx.cinta--verbo { font-size: 22px; min-height: 44px; }
+  #mision { left: calc(6px + var(--safe-l)); top: calc(var(--dock-bottom, 200px) + 7px); transform: none; width: max-content; max-width: calc(100vw - 12px); }
+  body:has(#retazo:not([hidden])) #mision { display: none; }
+  #boost-indicator { right: calc(6px + var(--safe-r)); bottom: auto; top: calc(var(--dock-bottom, 200px) + 7px); font-size: 18px; }
+  #cart-indicator { right: calc(6px + var(--safe-r)); bottom: auto; top: calc(var(--dock-bottom, 200px) + 46px); font-size: 16px; }
+}
+
+/* ==================== el celular chico: 320 × 568. Plan propio ==================== */
+@media (max-width: 359px) and (orientation: portrait) {
+  :root { --fila: 22px; --fila-salud: 25px; --fila-cifra: 20px; --fila-cifra-ancho: 36px; --salud-cifra: 21px; }
+  #money { font-size: 24px; }
+  #money.plata--larga { font-size: 22px; }
+  #money.plata--larguisima { font-size: 20px; }
+  .topbar__hoja { padding: 2px 6px 3px 8px; gap: 4px; }
+  #day-display { display: none; }
+  #wanted[data-estado="detras"] .wanted__grito { font-size: 24px; }
+  /* El calor solo no le quita una fila a la calle: va en la esquina del radar, sobre su propio cartón. */
+  #disease-panel:has(> .disease-item--calor:only-child) { position: absolute; left: 8px; bottom: 7px; padding: 0; }
+  #disease-panel > .disease-item--calor:only-child { padding: 0 4px; background: var(--cara); box-shadow: 0 0 0 1.5px var(--marcador); }
+  #disease-panel > .disease-item--calor:only-child .disease-item__seg { font-size: 18px; }
+  /* No hay sitio para retazo y aviso a la vez: mientras se ve un aviso, él ocupa ese sitio. */
+  body:has(> .loot-toast) #retazo { display: none; }
+  #needs-subidas { display: flex; gap: 4px; margin-top: 2px; }
+  #needs-subidas:empty { display: none; }
+  #needs-subidas .stat-bar { display: flex; flex: none; height: 24px; column-gap: 2px; padding: 0; }
+  #needs-subidas .stat-bar[data-level="critical"] { margin: 0; padding: 0 2px; }
+  #needs-subidas .bar, #needs-subidas .stat-bar[data-level="critical"] .stat-bar__orden { display: none; }
+  #needs-subidas .stat-bar__value { margin: 1px 0; min-width: 26px; }
+  #wanted[data-estado="encima"] .wanted__grito { font-size: 44px; }
+  /* Las filas son dibujo, barra corta y cifra; el nombre queda para quien no ve. */
+  #hud-dock { grid-template-columns: 112px minmax(0, 1fr); padding-top: 44px; }
+  .stat-bar { grid-template-columns: 22px minmax(0, 1fr) var(--fila-cifra-ancho); }
+  .stat-bar__name { display: none; }
+  .stat-bar .bar { grid-column: 2; }
+  .stat-bar__value { grid-column: 3; }
+  .stat-bar[data-level="critical"] .stat-bar__orden { grid-column: 2; }
+  .retazo__grito { font-size: 20px; }
+  .retazo__orden { display: none; }
+  #quickbar .qb-slot { width: 44px; }
+  #panel-dock { left: calc(228px + var(--safe-l)); gap: 2px; }
+  /* Con la patrulla encima hay que ver la calle: el cartón se pliega a destino y cifras, sin radar ni barras. */
+  body:has(#wanted[data-estado="encima"]) #hud-dock { display: block; padding-top: 44px; }
+  body:has(#wanted[data-estado="encima"]) #minimap-container { padding: 0; }
+  body:has(#wanted[data-estado="encima"]) .radar__screen,
+  body:has(#wanted[data-estado="encima"]) #needs-subidas,
+  body:has(#wanted[data-estado="encima"]) #needs-details,
+  body:has(#wanted[data-estado="encima"]) #disease-panel { display: none; }
+  body:has(#wanted[data-estado="encima"]) #hud { padding: 0 6px 3px; }
+  body:has(#wanted[data-estado="encima"]) #hud-vitals { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); column-gap: 4px; }
+  body:has(#wanted[data-estado="encima"]) .stat-bar { display: flex; height: 24px; margin: 0; padding: 0; column-gap: 1px; box-shadow: none; }
+  body:has(#wanted[data-estado="encima"]) .stat-bar .bar,
+  body:has(#wanted[data-estado="encima"]) .stat-bar__orden { display: none; }
+  body:has(#wanted[data-estado="encima"]) .stat-bar__value { flex: 1; margin: 0; }
+}
+
+/* ==================== acostado y sin alto: las barras del navegador se comen la pantalla ====================
+   Filas y radar más bajos, para que el cartón termine antes de la palanca. Lo urgente pierde su segunda línea. */
+@media (max-height: 339px) and (orientation: landscape) {
+  :root { --fila: 19px; --fila-salud: 21px; --fila-cifra: 18px; --salud-cifra: 19px; }
+  #hud-dock { padding-top: 45px; }
+  #hud-dock #minimap-container { --radar-alto: 68px !important; padding-bottom: 5px; }
+  .retazo__orden { display: none; }
+  #retazo { top: calc(100% + 6px); padding: 2px 8px 3px; }
+  .retazo__grito { font-size: 20px; }
+  body:has(.disease-item, #needs-subidas .stat-bar) #retazo { left: 118px; top: calc(100% + 6px); }
+  #mision { top: calc(var(--dock-bottom, 130px) + 6px); font-size: 18px; padding: 2px 8px 3px; }
+}
+/* Con mando no se nombra una tecla que no está: lo que tiene botón escribe el suyo (`data-k`, la cinta, el cosquilleo). */
+body.mando kbd:not([data-k], .cx kbd, #steal-ayuda kbd) { display: none; }
+
+/* El celular chico acostado: junto al radar no cabe el nombre de la fila. Queda dibujo, barra y cifra, como a 320. */
+@media (max-width: 619px) and (orientation: landscape) {
+  .stat-bar[data-level="critical"] .bar { display: block; }
+  #hud-vitals .stat-bar[data-level="critical"] .stat-bar__orden { display: none; }
+  #hud-dock { grid-template-columns: 124px minmax(0, 1fr); }
+  .stat-bar { grid-template-columns: 20px minmax(0, 1fr) var(--fila-cifra-ancho); }
+  .stat-bar__name { display: none; }
+  .stat-bar .bar { grid-column: 2; }
+  .stat-bar__value { grid-column: 3; }
+  .stat-bar[data-level="critical"] .stat-bar__orden { grid-column: 2; }
+}

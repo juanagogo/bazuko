@@ -179,7 +179,7 @@ export class Dog {
     this._lastBarkTime = this.time;
     this._posture.alert = 1;
     window.dispatchEvent(new CustomEvent('toast', {
-      detail: { text: `🐕 El Chato: ${reason}`, type: 'info' }
+      detail: { text: `El Chato: ${reason}`, type: 'info' }
     }));
     window.dispatchEvent(new CustomEvent('dog-bark'));
     return true;
@@ -250,7 +250,7 @@ export class Dog {
     for (const npc of npcs) {
       if (npc?.position && npc.alerta > .6 && npc.position.distanceTo(this.position) < 4) {
         this._lookAt = npc.position;
-        this.bark('¡Le ladra a un sospechoso que te está mirando!');
+        this.bark('¡Le ladra a un sospechoso que me está mirando!');
         break;
       }
     }

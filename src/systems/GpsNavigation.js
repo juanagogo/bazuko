@@ -13,9 +13,13 @@ export class GpsNavigation {
   /**
    * @param {{width: number, zMin: number, zMax: number, tileSize?: number, cost: (tx: number, tz: number) => number}} grid
    * `cost` devuelve el coste de pisar el tile (Infinity si no es transitable).
+   * `barrier(ax, az, bx, bz)` (metros) prohíbe tramos que una grilla de 2 m no puede representar, como un muro delgado.
+   * `aisleX(x, z)` (metros) corre el centro de un tile al único pasillo libre del lugar.
    */
-  constructor({ width, zMin, zMax, tileSize = 2, cost }) {
+  constructor({ width, zMin, zMax, tileSize = 2, cost, barrier = null, aisleX = null }) {
     this.tileSize = tileSize;
+    this.barrier = barrier;
+    this.aisleX = aisleX;
     this.width = width;
     this.zMin = zMin;
     this.height = zMax - zMin + 1;
@@ -73,7 +77,16 @@ export class GpsNavigation {
   }
 
   _point(i) {
-    return { x: (i % this.width) * this.tileSize, z: (Math.floor(i / this.width) + this.zMin) * this.tileSize };
+    return this._cellPoint(i % this.width, Math.floor(i / this.width));
+  }
+
+  _cellPoint(col, row) {
+    const x = col * this.tileSize, z = (row + this.zMin) * this.tileSize;
+    return { x: this.aisleX ? this.aisleX(x, z) : x, z };
+  }
+
+  _blocked(a, b) {
+    return this.barrier !== null && this.barrier(a.x, a.z, b.x, b.z);
   }
 
   _push(size, node, f) {
@@ -137,6 +150,7 @@ export class GpsNavigation {
         if (!Number.isFinite(step) || closed[next] === search) continue;
         // Sin cortar esquinas de edificios en diagonal.
         if (dx && dz && (!Number.isFinite(cost[cz * width + nx]) || !Number.isFinite(cost[nz * width + cx]))) continue;
+        if (this.barrier && this._blocked(this._cellPoint(cx, cz), this._cellPoint(nx, nz))) continue;
         const tentative = g[current] + step * (dx && dz ? SQRT2 : 1);
         if (stamp[next] === search && tentative >= g[next]) continue;
         stamp[next] = search; g[next] = tentative; parent[next] = current;
@@ -156,6 +170,7 @@ export class GpsNavigation {
    */
   _clear(a, b, maxCost) {
     const pa = this._point(a), pb = this._point(b);
+    if (this._blocked(pa, pb)) return false;
     const steps = Math.ceil(Math.hypot(pb.x - pa.x, pb.z - pa.z) / (this.tileSize * .35));
     for (let s = 1; s < steps; s++) {
       const t = s / steps;
@@ -193,6 +208,12 @@ export class GpsNavigation {
   setWaypoint(waypoint, from, now = performance.now()) {
     if (!waypoint || !Number.isFinite(waypoint.x) || !Number.isFinite(waypoint.z)) return false;
     this.waypoint = { name: 'Punto marcado', icon: '📍', ...waypoint };
+    // El marcador, la llegada y el guardado comparten el mismo punto accesible.
+    // Un clic sobre un edificio dirige a la acera que utiliza el buscador de rutas.
+    if (!this.isRoutable(waypoint.x, waypoint.z)) {
+      const accessible = this._nearestOpen(waypoint.x, waypoint.z);
+      if (accessible >= 0) Object.assign(this.waypoint, this._point(accessible));
+    }
     return this._plan(from, now);
   }
 
@@ -213,7 +234,7 @@ export class GpsNavigation {
       this._suffix = [];
       return false;
     }
-    // El último punto es el destino real aunque esté dentro de un solar.
+    // Conserva la coordenada exacta cuando el destino está dentro de un tile transitable.
     const end = path[path.length - 1];
     if (Math.hypot(end.x - this.waypoint.x, end.z - this.waypoint.z) > .5 && this.isRoutable(this.waypoint.x, this.waypoint.z)) {
       path.push({ x: this.waypoint.x, z: this.waypoint.z });
@@ -274,6 +295,25 @@ export class GpsNavigation {
     const next = this.route[this._progress + 1];
     if (!next) return Math.hypot(this.waypoint.x - pos.x, this.waypoint.z - pos.z);
     return Math.hypot(next.x - pos.x, next.z - pos.z) + this._suffix[this._progress + 1];
+  }
+
+  /** Metros a pie hasta `to`, medidos como remainingDistance tras setWaypoint; null si no hay camino. No toca el destino activo. */
+  routeLengthTo(from, to) {
+    const path = this.findPath(from, to);
+    if (!path) return null;
+    if (path.length < 2) {
+      // Si el lugar no es transitable, el destino sería este mismo tile y no el interior del edificio.
+      const end = this.isRoutable(to.x, to.z) ? to : path[0] ?? to;
+      return Math.hypot(end.x - from.x, end.z - from.z);
+    }
+    let total = 0, prev = from;
+    for (let i = 1; i < path.length; i++) {
+      total += Math.hypot(path[i].x - prev.x, path[i].z - prev.z);
+      prev = path[i];
+    }
+    const tail = Math.hypot(prev.x - to.x, prev.z - to.z);
+    if (tail > .5 && this.isRoutable(to.x, to.z)) total += tail;
+    return total;
   }
 
   /** Punto de la ruta a `ahead` metros del jugador, para indicar el giro siguiente. */

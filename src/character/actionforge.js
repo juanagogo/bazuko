@@ -9,12 +9,13 @@ export const ACTIONFORGE_CLIPS = {
 };
 
 // Cada cuerpo recibe sus propios clips. Ropa y texturas siguen siendo las del juego.
-export function buildCharacterClips(body, legacy, actionforge = null) {
+export function buildCharacterClips(body, legacy, actionforge = null, { omit = [] } = {}) {
   const out = {};
   if (actionforge) {
     const retarget = createRetargeter(actionforge.scene, clone(body.scene), { preserveHipHeight: true });
     const converted = new Map();
     for (const [action, name] of Object.entries(ACTIONFORGE_CLIPS)) {
+      if (omit.includes(action)) continue;
       const source = actionforge.animations.find(c => c.name === name);
       if (!source) continue;
       if (!converted.has(name)) converted.set(name, retarget(source));

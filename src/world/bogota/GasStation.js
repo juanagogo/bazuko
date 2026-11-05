@@ -4,6 +4,7 @@ import { signTexture } from '../../utils/signs.js';
 export const GAS_STATION = Object.freeze({ x0: 145, x1: 163, z0: 89, z1: 117,
   x: 154, z: 102, name: 'Estación de gasolina' });
 export const inGasStation = (x, z) => x >= 145 && x <= 163 && z >= 89 && z <= 117;
+export const underGasCanopy = (x, z) => x >= 145.25 && x <= 162.75 && z >= 92.5 && z <= 107.5;
 export const GAS_OBSTACLES = [
   { x: 154, z: 114, w: 13, d: 4, h: 3.4 },
   ...[149, 159].flatMap(x => [97, 103].map(z => ({ x, z, w: .85, d: 1.1, h: 2 }))),

@@ -12,7 +12,8 @@ import {
   XP_CRAFT,
   XP_BEG,
   STEAL_CAUGHT_PENALTY,
-  STEAL_CAUGHT_MONEY
+  STEAL_CAUGHT_MONEY,
+  SUBSTANCE_RISK_CHANCE
 } from '../utils/constants.js';
 import { cop } from '../utils/money.js';
 import { originEffect } from '../data/origins.js';
@@ -39,9 +40,16 @@ export class InteractionSystem {
     this.sortingPickup = null;
     this.isHoldingQ = false;
 
-    // Pedir limosna
-    this._lastBegTime = -9999;
+    // Pedir limosna y calentarse
+    this._lastBegTime = -Infinity;
     this.begCooldown = 4; // segundos entre pedir limosna
+    this._lastWarmTime = -Infinity;
+    this.warmCooldown = 20; // segundos de espera entre calentarse en fogata
+    this.pedestrians = [];
+  }
+
+  setPedestrians(pedestrians) {
+    this.pedestrians = pedestrians ?? [];
   }
 
   _origin(key, base = 1) { return originEffect(this.originId, key, base); }
@@ -83,7 +91,10 @@ export class InteractionSystem {
     let nearestDist = INTERACT_RANGE;
 
     for (const t of this.targets) {
-      const d = t.position.distanceTo(this.player.position);
+      // Un carro sin nada que robar no da aviso ni le quita el turno a lo que tenga al lado.
+      if (t.stealable === false) continue;
+      // Un carro se alcanza también desde sus espejos; lo demás, desde su centro.
+      const d = t.interactDistance?.(this.player.position) ?? t.position.distanceTo(this.player.position);
       if (d < nearestDist) {
         nearestDist = d;
         nearest = t;
@@ -93,13 +104,17 @@ export class InteractionSystem {
         else if (t.kind === 'cambuche') nearestType = 'cambuche';
         else if (t.kind === 'dog') nearestType = 'dog';
         else if (t.kind === 'cart') nearestType = 'cart';
+        else if (t.kind === 'fireBarrel') nearestType = 'fireBarrel';
         else if (t.kind === 'recycler') nearestType = 'sell';
+        else if (t.kind === 'mesa') nearestType = 'mesa';
         else if (typeof t.harvest === 'function') nearestType = 'pickup';
         else if (typeof t.steal === 'function') nearestType = 'car';
         else if (typeof t.sellSubstances === 'function') nearestType = 'dealer';
         else if (t instanceof Object && typeof t.sell === 'function') nearestType = 'sell';
       }
     }
+    // Con una persona más cerca que el carro, el aviso y la E son del cosquilleo. Basura, tiendas y demás conservan su turno.
+    if ((nearestType === 'car' || nearestType === 'dog') && this.personCloserThan?.(nearestDist)) nearest = nearestType = null;
     this.currentTarget = nearest;
     this.currentTargetType = nearestType;
 
@@ -136,7 +151,8 @@ export class InteractionSystem {
     }
 
     // === Interacción principal (E) ===
-    if (input.consumePress('KeyE') && nearest) {
+    // Sin objetivo la tecla sigue libre: el cosquilleo la lee después, en `StealSystem`.
+    if (nearest && input.consumePress('KeyE')) {
       switch (nearestType) {
         case 'pickup':
           this._harvestTrash(nearest, false);
@@ -153,6 +169,12 @@ export class InteractionSystem {
         case 'cambuche':
           window.dispatchEvent(new CustomEvent('open-cambuche'));
           break;
+        case 'mesa':
+          window.dispatchEvent(new CustomEvent('open-mesa'));
+          break;
+        case 'fireBarrel':
+          this._warmAtFire(nearest);
+          break;
         case 'dog':
           this._interactDog(nearest);
           break;
@@ -162,16 +184,10 @@ export class InteractionSystem {
         case 'car':
           this._stealCar(nearest);
           break;
-        case 'dealer': {
-          const hasSubstances = this.inventory.items.some((i) => ITEMS[i.id]?.substance);
-          if (hasSubstances && clock.isNight) {
-            this._sellSubstances(nearest, clock);
-          } else {
-            // Abre la tienda del dealer para comprar
-            window.dispatchEvent(new CustomEvent('dealer-toggle', { detail: { dealer: nearest } }));
-          }
+        case 'dealer':
+          // Abre su tienda: ahí se compra y, de noche, se elige qué venderle. Nunca vende sin preguntar.
+          window.dispatchEvent(new CustomEvent('dealer-toggle', { detail: { dealer: nearest } }));
           break;
-        }
       }
     }
 
@@ -201,15 +217,44 @@ export class InteractionSystem {
       dog.befriend();
       this.stats.saludMental = Math.min(100, this.stats.saludMental + 15);
       window.dispatchEvent(new CustomEvent('toast', {
-        detail: { text: `🐕 ¡Le diste ${ITEMS[foodItem.id]?.name ?? 'comida'} a El Chato! Ahora te acompaña.`, type: 'rare' }
+        detail: { text: `Le di ${ITEMS[foodItem.id]?.name ?? 'comida'} a El Chato. Ahora me acompaña.`, type: 'rare' }
       }));
     } else {
       if (!dog.pet()) return;
       this.stats.saludMental = Math.min(100, this.stats.saludMental + 5);
       window.dispatchEvent(new CustomEvent('toast', {
-        detail: { text: '🐕 Acariciaste a El Chato (+5 salud mental).', type: 'info' }
+        detail: { text: 'Acaricié a El Chato (+5 de ánimo).', type: 'info' }
       }));
     }
+  }
+
+  _warmAtFire(target) {
+    if (!target) return;
+    const now = performance.now();
+    const elapsed = (now - this._lastWarmTime) / 1000;
+    if (elapsed < this.warmCooldown) {
+      const waitSec = Math.ceil(this.warmCooldown - elapsed);
+      window.dispatchEvent(new CustomEvent('toast', {
+        detail: {
+          text: `Ya me calenté las manos hace poco. El calor dura (${waitSec} s).`,
+          type: 'info'
+        }
+      }));
+      return;
+    }
+    this._lastWarmTime = now;
+    this.player?.faceTowards?.(target.position);
+    this.player?.playAction?.('calentarse', 2.8);
+    this.stats.calor = Math.min(300, (this.stats.calor || 0) + 180);
+    this.stats.energia = Math.min(100, (this.stats.energia || 0) + 8);
+    this.stats.animo = Math.min(100, (this.stats.animo || 0) + 12);
+    this.audio?.play?.('full');
+    window.dispatchEvent(new CustomEvent('toast', {
+      detail: {
+        text: 'Me calenté las manos en la fogata: +calor, +ánimo, +energía.',
+        type: 'info'
+      }
+    }));
   }
 
   _harvestTrash(target, sorted) {
@@ -247,10 +292,10 @@ export class InteractionSystem {
       this.audio?.play('treasure');
       this.stats.saludMental = Math.min(100, this.stats.saludMental + MENTAL_RESTORE_RARE);
     }
-    // Riesgo de enfermedad
-    const diseaseResist = this.talents.getEffect('diseaseResist', 1) * this._origin('diseaseResist');
+    // Riesgo de enfermedad; si la bolsa traía latas o chatarra, también de tétanos
     const sortDiseaseMult = this.talents.getEffect('sortDiseaseMult', 1);
-    this.disease.tryInfect(result.sorted, diseaseResist * (result.sorted ? sortDiseaseMult : 1));
+    const cut = result.items.some((itemId) => ITEMS[itemId]?.sharp);
+    this.disease.tryInfect(result.sorted, this.diseaseResistance() * (result.sorted ? sortDiseaseMult : 1), { cut });
 
     this.stats.addXP(XP_PICKUP, this.talents);
 
@@ -267,12 +312,26 @@ export class InteractionSystem {
     if (result.items.includes('retrovisor')) {
       if (target.traffic) this.audio?.playMovingTheft?.(target);
       else this.audio?.playCarAlarm?.(target);
+      // El juego decide si el conductor del carro en circulación se baja a perseguirte.
+      window.dispatchEvent(new CustomEvent('mirror-stolen', { detail: { car: target } }));
     }
 
     const added = [];
     for (const itemId of result.items) {
       const item = ITEMS[itemId];
       if (item && this.inventory.add(item)) added.push(item.name);
+    }
+
+    // Si una patrulla te ve, te persigue; solo te capturan si te alcanzan.
+    const chased = this.getTraffic?.()?.alertForTheft?.(this.player.position);
+    if (chased) {
+      this.audio?.play('pickup');
+      this.stats.addXP(XP_STEAL, this.talents);
+      window.dispatchEvent(new CustomEvent('police-chase', {}));
+      window.dispatchEvent(new CustomEvent('steal', {
+        detail: { added, caught: false, police: true, chase: true }
+      }));
+      return;
     }
 
     if (result.caught) {
@@ -285,20 +344,51 @@ export class InteractionSystem {
     }
 
     window.dispatchEvent(new CustomEvent('steal', {
-      detail: { added, caught: result.caught }
+      detail: { added, caught: result.caught, police: false, chase: false }
     }));
   }
 
-  _sellSubstances(target, clock) {
-    const priceMult = this.talents.getEffect('substancePriceMult', 1);
-    const result = target.sellSubstances(this.inventory, clock.isNight, priceMult);
-    if (result.reason === 'day') {
+  /** Resistencia a enfermedades por talentos y origen (menos de 1 = menos riesgo). */
+  diseaseResistance() {
+    return this.talents.getEffect('diseaseResist', 1) * this._origin('diseaseResist');
+  }
+
+  /** Lo que el talento «Contactos» le saca de más al dealer. */
+  substancePriceMult() {
+    return this.talents.getEffect('substancePriceMult', 1);
+  }
+
+  /** Vende al dealer una sustancia (`itemId`) o todas; lo usa su tienda. */
+  sellSubstancesToDealer(itemId = null, clock = null) {
+    const dealer = this.targets.find((t) => typeof t.sellSubstances === 'function');
+    return dealer ? this._sellSubstances(dealer, clock, itemId) : null;
+  }
+
+  _sellSubstances(target, clock, itemId = null) {
+    if (!clock?.isNight) {
       window.dispatchEvent(new CustomEvent('substance-fail', {
         detail: { reason: 'day' }
       }));
       this.audio?.play('empty');
-      return;
+      return null;
     }
+    const lots = this.inventory.items
+      .filter((entry) => ITEMS[entry.id]?.substance && (!itemId || entry.id === itemId))
+      .map(({ id, qty }) => ({ id, qty }));
+    if (!lots.length) {
+      this.audio?.play('empty');
+      return null;
+    }
+    // Requisa: a veces cae la policía en plena venta y se lleva la mercancía sin pagar nada.
+    if (Math.random() < SUBSTANCE_RISK_CHANCE) {
+      for (const { id, qty } of lots) this.inventory.remove(id, qty);
+      window.dispatchEvent(new CustomEvent('substance-raid', {
+        detail: { lost: lots.map(({ id, qty }) => `${ITEMS[id].name} ×${qty}`) }
+      }));
+      this.audio?.play('empty');
+      return { earned: 0, raided: true };
+    }
+    const result = target.sellSubstances(this.inventory, true, this.substancePriceMult(), itemId);
     if (result.earned > 0) {
       this.stats.dinero += result.earned;
       this.stats.addXP(XP_SELL * 2, this.talents);
@@ -309,6 +399,7 @@ export class InteractionSystem {
     } else {
       this.audio?.play('empty');
     }
+    return result;
   }
 
   _buySubstance(target, itemId = null) {
@@ -351,6 +442,24 @@ export class InteractionSystem {
       return;
     }
 
+    // Verificar si hay peatones a menos de 7 metros
+    const nearbyPedestrians = (this.pedestrians ?? []).filter(npc => {
+      const pos = npc.position ?? npc.group?.position;
+      return pos && pos.distanceTo(this.player.position) <= 7.0;
+    });
+
+    if (nearbyPedestrians.length === 0) {
+      this.audio?.play?.('empty');
+      window.dispatchEvent(new CustomEvent('beg-result', {
+        detail: {
+          success: false,
+          reason: 'no_pedestrians',
+          message: 'No hay nadie cerca a quien pedirle limosna.'
+        }
+      }));
+      return;
+    }
+
     this._lastBegTime = now;
     this.stats.energia = Math.max(0, this.stats.energia - 3);
 
@@ -369,7 +478,7 @@ export class InteractionSystem {
         detail: {
           success: false,
           reason: 'higiene',
-          message: '🚫 La gente se aleja con disgusto por tu olor (Higiene muy baja)'
+          message: 'La gente se aleja por el olor: tengo que bañarme.'
         }
       }));
       return;
@@ -383,7 +492,7 @@ export class InteractionSystem {
         detail: {
           success: false,
           reason: 'ignored',
-          message: '🚶 Los transeúntes te ignoran y siguen de largo...'
+          message: 'La gente me ignora y sigue de largo.'
         }
       }));
       return;
@@ -401,8 +510,8 @@ export class InteractionSystem {
           success: true,
           item: foodItem.name,
           message: added
-            ? `🍞 ¡Un alma caritativa te regaló ${foodItem.name}!`
-            : `🍞 Te ofrecieron ${foodItem.name}, pero tu inventario está lleno`
+            ? `Me regalaron ${foodItem.name}.`
+            : `Me ofrecieron ${foodItem.name}, pero el costal está lleno.`
         }
       }));
       return;
@@ -425,8 +534,8 @@ export class InteractionSystem {
         money: amount,
         rare: isRare,
         message: isRare
-          ? `💎 ¡Un transeúnte generoso te dio un billete de ${cop(amount)}!`
-          : `🪙 Recibiste ${cop(amount)} de limosna`
+          ? `¡Me dieron un billete de ${cop(amount)}!`
+          : `Me dieron ${cop(amount)} de limosna`
       }
     }));
   }

@@ -1,14 +1,18 @@
 
 // src/data/items.js
 // Valores en pesos colombianos (COP): `value` es lo que pagan por el objeto.
+import { conSigno } from '../utils/numeros.js';
+import { DEALER_MARKUP, SUBSTANCE_PRICE_MULT } from '../utils/constants.js';
+import { diseaseName } from './diseases.js';
 
 export const ITEMS = {
   // ===== BASURA =====
-  lata:     { id: 'lata',     name: 'Lata vacía',    weight: 0.2,  value: 250, rarity: 'common' },
-  botella:  { id: 'botella',  name: 'Botella PET',   weight: 0.3,  value: 150 },
+  // `sharp`: corta al escarbar, así que la bolsa que lo trae puede dar tétanos.
+  lata:     { id: 'lata',     name: 'Lata vacía',    weight: 0.2,  value: 250, rarity: 'common', sharp: true },
+  botella:  { id: 'botella',  name: 'Botella',   weight: 0.3,  value: 150 },
   carton:   { id: 'carton',   name: 'Cartón',        weight: 0.5,  value: 200, rarity: 'common' },
-  chatarra: { id: 'chatarra', name: 'Chatarra',      weight: 1.0,  value: 900 },
-  cable:    { id: 'cable',    name: 'Cable cobre',   weight: 0.4,  value: 2400 },
+  chatarra: { id: 'chatarra', name: 'Chatarra',      weight: 1.0,  value: 900, sharp: true },
+  cable:    { id: 'cable',    name: 'Cable de cobre',   weight: 0.4,  value: 2400 },
 
   // ===== TESOROS =====
   reloj:  { id: 'reloj',  name: 'Reloj oxidado', weight: 0.1,  value: 8000, rare: true },
@@ -21,23 +25,39 @@ export const ITEMS = {
 
   // ===== OBJETOS ROBADOS (AUTOS) =====
   retrovisor: { id: 'retrovisor', name: 'Retrovisor',   weight: 0.8, value: 15000 },
-  radio:      { id: 'radio',      name: 'Radio auto',   weight: 1.5, value: 35000 },
+  radio:      { id: 'radio',      name: 'Radio de carro',   weight: 1.5, value: 35000 },
 
   // ===== CONSUMIBLES =====
   pan: {
     id: 'pan', name: 'Pan duro', weight: 0.3, value: 1000,
     consumable: 'hambre', amount: 25, animo: 5
   },
+  empanada: {
+    id: 'empanada', name: 'Empanada con ají', weight: 0.2, value: 1200,
+    consumable: 'hambre', amount: 35, animo: 15, calor: 120, desc: 'Empanada de carne y papa con ají casero.'
+  },
+  morcilla: {
+    id: 'morcilla', name: 'Morcilla criolla', weight: 0.35, value: 2500,
+    consumable: 'hambre', amount: 60, energia: 20, animo: 10, calor: 180, desc: 'Rellena de la Mona: contundente y calórica.'
+  },
+  papaCriolla: {
+    id: 'papaCriolla', name: 'Papa criolla', weight: 0.25, value: 1000,
+    consumable: 'hambre', amount: 25, animo: 10, calor: 90, desc: 'Porción de papa criolla doradita con sal.'
+  },
   lataComida: {
     id: 'lataComida', name: 'Lata de atún', weight: 0.4, value: 4500,
     consumable: 'hambre', amount: 45, animo: 8
   },
   agua: {
-    id: 'agua', name: 'Botella agua', weight: 0.5, value: 1500,
+    id: 'agua', name: 'Botella de agua', weight: 0.5, value: 1500,
     consumable: 'sed', amount: 35
   },
+  aguapanela: {
+    id: 'aguapanela', name: 'Aguapanela caliente', weight: 0.35, value: 1200,
+    consumable: 'sed', amount: 40, energia: 25, animo: 15, calor: 180, cure: 'gripe', desc: 'Aguapanela con limón: revive y cura la gripe.'
+  },
   refresco: {
-    id: 'refresco', name: 'Refresco', weight: 0.4, value: 2500,
+    id: 'refresco', name: 'Gaseosa', weight: 0.4, value: 2500,
     consumable: 'sed', amount: 50, energia: 10, animo: 10
   },
   cafe: {
@@ -98,6 +118,11 @@ export const ITEMS = {
     id: 'pastilla', name: 'Pastilla', weight: 0.05, value: 8000,
     consumable: 'vicio', amount: 60, animo: 40, salud: -5, substance: true
   },
+  basuco: {
+    id: 'basuco', name: 'Basuco', weight: 0.02, value: 4000,
+    consumable: 'vicio', amount: 70, animo: 30, energia: 15, salud: -6, hambre: -10, substance: true,
+    desc: 'Se fuma en pipa, agachado. Sube el ánimo de golpe pero trae paranoia y alucinaciones.'
+  },
   cigarrillo: {
     id: 'cigarrillo', name: 'Cigarrillo suelto', weight: 0.01, value: 300,
     consumable: 'vicio', amount: 35, salud: -1
@@ -114,7 +139,18 @@ export const ITEMS = {
     consumable: 'vicio', amount: 25, salud: -1, substance: true
   },
   rifa:  { id: 'rifa', name: 'Cartón de rifa', weight: 0.02, value: 1500 },
-  arma:  { id: 'arma', name: 'Arma casera',    weight: 1.2,  value: 6000 },
+  arma: {
+    id: 'arma', name: 'Arma casera', weight: 1.2, value: 6000, usable: true, weapon: 'arma',
+    desc: 'Tabla con chatarra amarrada con cable: lenta, pero pega duro y alcanza más. Usar: sacar o guardar.'
+  },
+  cuchillo: {
+    id: 'cuchillo', name: 'Cuchillo', weight: 0.4, value: 2800, usable: true, weapon: 'cuchillo',
+    desc: 'Corta y rápida. Usar: sacar o guardar.'
+  },
+  botella_picada: {
+    id: 'botella_picada', name: 'Botella picada', weight: 0.3, value: 100, usable: true, weapon: 'botella_picada',
+    desc: 'Vidrio roto con buen alcance. Usar: sacar o guardar.'
+  },
 
   // ===== MATERIALES DEL CAMBUCHE =====
   lona:    { id: 'lona',    name: 'Lona azul',     weight: 2,    value: 4000, build: true, rarity: 'rare' },
@@ -125,11 +161,11 @@ export const ITEMS = {
   // ===== ARMAS / HERRAMIENTAS =====
   popo: {
     id: 'popo',
-    name: 'Mojón de popó',
+    name: 'Popó',
     weight: 0.3,
     value: 50,
     usable: true,
-    desc: 'Proyectil biológico artesanal. Presiona [X] para lanzárselo a los peatones.'
+    desc: 'Sirve para tirárselo a la gente. Oprima [X] para lanzárselo a los peatones.'
   }
 };
 
@@ -143,8 +179,9 @@ const ITEM_EMOJIS = {
   lona: '⛺', madera: '🪵', colchon: '🛏️', vela: '🕯️', pan: '🍞',
   agua: '💧', refresco: '🥤', cafe: '☕', lataComida: '🐟', vendaje: '🩹',
   reloj: '⌚', moneda: '🪙', anillo: '💍', jabon: '🧼', cepillo: '🪥',
-  retrovisor: '🪞', radio: '📻', radioTransistor: '📻', pilas: '🔋', popo: '💩', cigarrillo: '🚬',
-  curita: '🩹', hierba: '🌿', rifa: '🎟️', arma: '🗡️'
+  empanada: '🥟', morcilla: '🌭', papaCriolla: '🥔', aguapanela: '🍵',
+  retrovisor: '🪞', radio: '📻', radioTransistor: '📻', pilas: '🔋', popo: '💩', cigarrillo: '🚬', basuco: '💨',
+  curita: '🩹', hierba: '🌿', rifa: '🎟️', arma: '🗡️', cuchillo: '🔪', botella_picada: '🍾'
 };
 for (const item of Object.values(ITEMS)) {
   item.emoji = ITEM_EMOJIS[item.id] ?? (item.cure ? '💊' : item.substance ? '🧪' : '📦');
@@ -154,13 +191,15 @@ export const isUsable = item => !!(item?.consumable || item?.cure || item?.usabl
 export function describeEffects(item) {
   const lines = [];
   if (item.id === 'radioTransistor') lines.push('Usar: abrir el sintonizador. También con R.');
-  if (item.id === 'pilas') lines.push('Usar: recargar 50% de batería de la radio.');
+  if (item.id === 'pilas') lines.push('Usar: 50 % más de pilas en el radio.');
   if (item.id === 'popo') lines.push('Usar o X en la calle: lanzar a un peatón.');
+  if (item.weapon) lines.push('Usar: sacar o guardar. Se pega con clic o G, y golpes seguidos pegan más.');
   if (item.consumable) lines.push(`${item.consumable}: +${item.amount}`);
+  if (item.calor) lines.push(`Calor: +${Math.round(item.calor / 60)} min contra el frío`);
   for (const key of ['hambre', 'sed', 'energia', 'salud', 'higiene', 'animo', 'vicio']) {
-    if (item[key]) lines.push(`${key}: ${item[key] > 0 ? '+' : ''}${item[key]}`);
+    if (item[key]) lines.push(`${key}: ${conSigno(item[key])}`);
   }
-  if (item.cure) lines.push(`Cura: ${item.cure}`);
+  if (item.cure) lines.push(`Cura: ${diseaseName(item.cure)}`);
   const rarity = itemRarityLabel(item.id);
   if (rarity) lines.push(`Rareza: ${rarity}`);
   return lines;
@@ -170,16 +209,15 @@ export function describeEffects(item) {
 export const isRecyclable = (item) =>
   !!item && !item.consumable && !item.cure && !item.substance && !item.build && item.id !== 'popo' && item.id !== 'radioTransistor' && item.id !== 'pilas';
 
-// Icono (lucide) para mostrar cada objeto en los menús
+/** Lo que la recicladora o un ladrón se llevan del costal: todo lo reciclable menos el arma que el jugador tiene en la mano. */
+export const isForSale = (item, equippedWeapon = null) => isRecyclable(item) && !(item.weapon && item.weapon === equippedWeapon);
+
+// El dibujo de cada objeto cuyo nombre no coincide con el de su dibujo (ver src/ui/icons.js)
 const ICONS = {
-  lata: 'recycle', botella: 'recycle', carton: 'package', chatarra: 'wrench', cable: 'flame',
-  reloj: 'watch', moneda: 'coins', anillo: 'sparkles', retrovisor: 'eye', radio: 'phone', radioTransistor: 'radio', pilas: 'flame',
-  pan: 'bread', lataComida: 'food', agua: 'water', refresco: 'water', cafe: 'coffee',
-  vendaje: 'bandage', jabon: 'bath', cepillo: 'bath', cigarrillo: 'flame',
-  lona: 'tent', madera: 'layers', colchon: 'bed', vela: 'flame', popo: 'alert-triangle',
-  curita: 'bandage', hierba: 'flame', rifa: 'dice', arma: 'wrench'
+  radioTransistor: 'radio', papaCriolla: 'papa', aguapanela: 'pocillo', agua: 'botellaAgua', cafe: 'pocillo', tintico: 'pocillo',
+  basuco: 'papeleta', botella_picada: 'botellaPicada', antibiotico: 'pastilla', antiparasitario: 'pastilla'
 };
-export const itemIcon = (id) => ICONS[id] ?? (ITEMS[id]?.cure ? 'pill' : 'box');
+export const itemIcon = (id) => ICONS[id] ?? id;
 
 // ===== LOOT TABLES =====
 
@@ -198,7 +236,11 @@ export const LOOT_COMMON = [
   { item: 'madera',     weight: 3 },
   { item: 'lona',       weight: 0.6 },
   { item: 'colchon',    weight: 0.4 },
-  { item: 'vela',       weight: 0.8 }
+  { item: 'vela',       weight: 0.8 },
+  // Sustancias: poco frecuentes porque el dealer las compra caras (la pastilla, muy rara)
+  { item: 'pegante',    weight: 1.0 },
+  { item: 'hierba',     weight: 1.5 },
+  { item: 'pastilla',   weight: 0.3 }
 ];
 
 export const LOOT_RARE = [
@@ -210,15 +252,20 @@ export const LOOT_RARE = [
 export const LOOT_SUBSTANCE = [
   { item: 'tintico',  weight: 50 },
   { item: 'pegante',  weight: 30 },
-  { item: 'pastilla', weight: 20 }
+  { item: 'pastilla', weight: 20 },
+  { item: 'basuco',   weight: 20 }
 ];
 
 // ===== TIENDA LA ESQUINITA (precios en COP) =====
 
 export const SHOP_ITEMS = [
   { item: 'pan',        price: 1500 },
+  { item: 'empanada',   price: 1200, desc: 'Empanada con carne y papa: quita el hambre y el frío.' },
+  { item: 'morcilla',   price: 2500, desc: 'Rellena criolla: potente dosis de energía y llenura.' },
+  { item: 'papaCriolla', price: 1000, desc: 'Papas criollas calientes.' },
   { item: 'lataComida', price: 6000 },
   { item: 'agua',       price: 2000 },
+  { item: 'aguapanela', price: 1200, desc: 'Aguapanela caliente con limón: cura la gripe.' },
   { item: 'refresco',   price: 3500 },
   { item: 'cafe',       price: 2000, desc: 'Un tinto caliente: quita el sueño.' },
   { item: 'cigarrillo', price: 500,  desc: 'Calma el vicio. Le quita un poquito a la salud.' },
@@ -231,12 +278,21 @@ export const SHOP_ITEMS = [
   { item: 'antiparasitario', price: 13000 },
   { item: 'vacuna',     price: 20000 },
   { item: 'antibiotico', price: 25000 },
-  { item: 'vela',       price: 1000, desc: 'Ilumina el cambuche: duermes más tranquilo.' },
+  { item: 'vela',       price: 1000, desc: 'Ilumina el cambuche: duermo más tranquilo.' },
   { item: 'lona',       price: 9000, desc: 'Para el techo del cambuche.' },
   { item: 'madera',     price: 6000, qty: 3, label: 'Tablas ×3', desc: 'Para las paredes del cambuche.' },
   { item: 'pilas',           price: 2000,  desc: 'Pilas AA: recargan la radio transistor.' },
   { item: 'radioTransistor', price: 18000, desc: 'Radio transistor: sintoniza emisoras y calma la mente.' },
-  { upgrade: 'costal',  price: 12000, label: 'Costal grande', icon: 'backpack', desc: 'Cargas 20 kg más.' }
+  { upgrade: 'costal',  price: 12000, label: 'Costal grande', icon: 'backpack', desc: 'Cargo 20 kg más.' }
 ];
 
 export const COSTAL_BONUS = 20;
+
+// ===== DEALER (precios en COP) =====
+// Cobra más de lo que paga de noche, también con «Contactos»: comprarle para revenderle nunca deja ganancia.
+
+/** Lo que cobra el dealer por una unidad. */
+export const dealerPrice = (item) => Math.round(item.value * DEALER_MARKUP);
+
+/** Lo que paga el dealer, de noche, por una unidad que le traes. */
+export const dealerOffer = (item, priceMult = 1) => Math.round(item.value * SUBSTANCE_PRICE_MULT * priceMult);

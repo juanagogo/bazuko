@@ -1,0 +1,59 @@
+{
+  "clips": [
+    {
+      "file": "idle.fbx",
+      "name": "idle",
+      "loop": true,
+      "source_label": "Old Man Idle"
+    },
+    {
+      "file": "walk.fbx",
+      "name": "walk",
+      "loop": true,
+      "source_label": "Sad Walk / In Place"
+    },
+    {
+      "file": "run.fbx",
+      "name": "run",
+      "loop": true,
+      "source_label": "Running / Running With Intention"
+    },
+    {
+      "file": "beber.fbx",
+      "name": "beber",
+      "loop": false,
+      "source_label": "Drinking / Male Drinking"
+    },
+    {
+      "file": "saludo.fbx",
+      "name": "saludo",
+      "loop": false,
+      "source_label": "Waving"
+    },
+    {
+      "file": "buscar.fbx",
+      "name": "buscar",
+      "loop": false,
+      "source_label": "Picking Up Object / Picking Up An Object With One Hand"
+    },
+    {
+      "file": "pedir.fbx",
+      "name": "pedir",
+      "source_label": "Talking / Asking A Question With One Hand",
+      "loop": true,
+      "seam_frames": 0
+    },
+    {
+      "file": "dormir.fbx",
+      "name": "dormir",
+      "source_label": "Sleeping Idle / Sleeping Deeply",
+      "loop": true
+    },
+    {
+      "file": "lanzar.fbx",
+      "name": "lanzar",
+      "source_label": "Throw / Throwing An Object From A Standard Pose",
+      "loop": false
+    }
+  ]
+}

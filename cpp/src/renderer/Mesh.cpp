@@ -7,9 +7,59 @@
 
 namespace Bazuko {
 
-Mesh::Mesh(const std::vector<Vertex>& vertices, const std::vector<uint32_t>& indices)
+namespace {
+
+// Tangentes por vertice: se acumula la direccion de U de cada triangulo (segun sus UV), se ortogonaliza contra la normal y el signo
+// de w dice hacia donde apunta la bitangente (los modelos con UV espejadas lo necesitan para que el relieve no se invierta)
+void ComputeTangents(std::vector<Vertex>& vertices, const std::vector<uint32_t>& indices) {
+    std::vector<glm::vec3> tangent(vertices.size(), glm::vec3(0.0f)), bitangent(vertices.size(), glm::vec3(0.0f));
+    for (size_t i = 0; i + 2 < indices.size(); i += 3) {
+        const uint32_t a = indices[i], b = indices[i + 1], c = indices[i + 2];
+        if (a >= vertices.size() || b >= vertices.size() || c >= vertices.size()) continue;
+        const glm::vec3 e1 = vertices[b].position - vertices[a].position, e2 = vertices[c].position - vertices[a].position;
+        const glm::vec2 d1 = vertices[b].uv - vertices[a].uv, d2 = vertices[c].uv - vertices[a].uv;
+        const float determinant = d1.x * d2.y - d2.x * d1.y;
+        if (std::abs(determinant) < 1.0e-12f) continue;
+        const float inverse = 1.0f / determinant;
+        const glm::vec3 t = (e1 * d2.y - e2 * d1.y) * inverse;
+        const glm::vec3 bt = (e2 * d1.x - e1 * d2.x) * inverse;
+        for (const uint32_t v : {a, b, c}) { tangent[v] += t; bitangent[v] += bt; }
+    }
+    for (size_t v = 0; v < vertices.size(); ++v) {
+        const glm::vec3 n = glm::normalize(vertices[v].normal);
+        glm::vec3 t = tangent[v] - n * glm::dot(n, tangent[v]);
+        if (glm::dot(t, t) < 1.0e-12f) {   // sin UV utiles: cualquier tangente perpendicular a la normal
+            t = std::abs(n.y) < 0.99f ? glm::cross(n, glm::vec3(0.0f, 1.0f, 0.0f)) : glm::cross(n, glm::vec3(1.0f, 0.0f, 0.0f));
+        }
+        t = glm::normalize(t);
+        // glTF: la bitangente apunta hacia V decreciente (origen de la textura arriba a la izquierda), el signo contrario al de la derivada cruda
+        const float handedness = glm::dot(glm::cross(n, t), bitangent[v]) < 0.0f ? 1.0f : -1.0f;
+        vertices[v].tangent = glm::vec4(t, handedness);
+    }
+}
+
+} // namespace
+
+Mesh::Mesh(const std::vector<Vertex>& sourceVertices, const std::vector<uint32_t>& indices, bool generateTangents)
     : m_IndexCount(static_cast<uint32_t>(indices.size())) {
-    
+    std::vector<Vertex> tangentCopy;
+    if (generateTangents) { tangentCopy = sourceVertices; ComputeTangents(tangentCopy, indices); }
+    const std::vector<Vertex>& vertices = generateTangents ? tangentCopy : sourceVertices;
+
+    if (s_KeepPositions) {
+        m_Positions.reserve(vertices.size());
+        for (const Vertex& vertex : vertices) m_Positions.push_back(vertex.position);
+        m_KeptIndices = indices;
+    }
+    if (!vertices.empty()) {
+        glm::vec3 low = vertices.front().position, high = low;
+        for (const Vertex& vertex : vertices) {
+            low = glm::min(low, vertex.position);
+            high = glm::max(high, vertex.position);
+        }
+        m_BoundsCenter = (low + high) * 0.5f;
+        m_BoundsRadius = glm::length(high - low) * 0.5f;
+    }
     m_VBO = std::make_unique<VertexBuffer>(vertices.data(), vertices.size() * sizeof(Vertex));
     m_EBO = std::make_unique<IndexBuffer>(indices.data(), m_IndexCount);
     m_VAO = std::make_unique<VertexArray>();
@@ -28,6 +78,7 @@ Mesh::Mesh(const std::vector<Vertex>& vertices, const std::vector<uint32_t>& ind
     m_VAO->AddAttribute(0, {3, 4, GL_FLOAT, GL_FALSE, static_cast<GLuint>(offsetof(Vertex, color))});
     m_VAO->AddAttribute(0, {4, 4, GL_FLOAT, GL_FALSE, static_cast<GLuint>(offsetof(Vertex, joints))});
     m_VAO->AddAttribute(0, {5, 4, GL_FLOAT, GL_FALSE, static_cast<GLuint>(offsetof(Vertex, weights))});
+    m_VAO->AddAttribute(0, {6, 4, GL_FLOAT, GL_FALSE, static_cast<GLuint>(offsetof(Vertex, tangent))});
 }
 
 void Mesh::Draw() const {

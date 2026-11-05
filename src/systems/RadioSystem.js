@@ -1,5 +1,11 @@
 // src/systems/RadioSystem.js
 // Sistema de Radio Transistor AM/FM portátil con síntesis de sonido Lo-Fi bogotano
+import { bulletinsFor } from '../data/radioBulletins.js';
+
+// Segundos de escucha continua en 890 AM entre boletines generales de la ciudad.
+export const CITY_BULLETIN_INTERVAL = 90;
+// Señal mínima para entender al locutor.
+const NEWS_MIN_SIGNAL = 0.4;
 
 const emitToast = (text, type = 'info') => {
   if (typeof window !== 'undefined' && typeof CustomEvent !== 'undefined' && window.dispatchEvent) {
@@ -32,18 +38,18 @@ export const STATIONS = [
     id: 'deportes',
     freq: 1040,
     band: 'AM',
-    name: 'El Campín 1040 AM',
+    name: 'La Gradería 1040 AM',
     genre: 'Fútbol y Deportes',
-    program: 'Transmisión En Vivo: Santa Fe vs Millonarios',
+    program: 'En vivo: el partido de la tarde',
     color: '#2ecc71'
   },
   {
     id: 'rock',
     freq: 98.5,
     band: 'FM',
-    name: 'Radioactiva 98.5 FM',
+    name: 'La Gotera 98,5 FM',
     genre: 'Rock y Baladas en Español',
-    program: 'Clásicos del Rock en tu Idioma',
+    program: 'Rock viejo en español',
     color: '#9b59b6'
   }
 ];
@@ -67,6 +73,13 @@ export class RadioSystem {
     this._synthTimer = null;
     this._step = 0;
     this._lastMentalTick = 0;
+
+    // Boletines de 890 AM: como máximo uno por cada cambio de clima.
+    this.lastBulletin = null;
+    this.bulletinLog = [];
+    this._pendingWeather = null;
+    this._bulletinIndex = { lluvia: 0, despeje: 0, ciudad: 0 };
+    this._cityTimer = 0;
 
     // Cargar preferencias guardadas
     try {
@@ -142,7 +155,7 @@ export class RadioSystem {
     this._startSynthesis();
     this._updateTuning();
 
-    emitToast('📻 Radio encendida: ' + this.getStationInfo().station.name, 'info');
+    emitToast('Radio prendido: ' + this.getStationInfo().station.name, 'info');
   }
 
   turnOff() {
@@ -154,7 +167,7 @@ export class RadioSystem {
       this._staticGain.gain.value = 0;
     }
 
-    emitToast('📻 Radio apagada', 'info');
+    emitToast('Radio apagado', 'info');
   }
 
   toggle() {
@@ -296,7 +309,7 @@ export class RadioSystem {
         this._note(talkFreq, 0.08, vol * 0.85, 'triangle', t);
       }
     } else if (station.id === 'deportes') {
-      // 1040 AM: Transmisión El Campín
+      // 1040 AM: el partido
       // Toque de corneta / trompeta de estadio cada 16 pasos
       if (step % 16 === 0) {
         this._note(440, 0.15, vol * 1.3, 'sawtooth', t);
@@ -349,9 +362,11 @@ export class RadioSystem {
     this.battery = Math.max(0, this.battery - (dt / 24));
     if (this.battery <= 0) {
       this.turnOff();
-      emitToast('📻 La radio se quedó sin pilas.', 'warn');
+      emitToast('El radio se quedó sin pilas.', 'warn');
       return;
     }
+
+    this._updateBulletins(dt);
 
     const { signal } = this.getStationInfo();
 
@@ -366,6 +381,56 @@ export class RadioSystem {
     if (dog && signal > 0.4) {
       dog.time += dt * 0.5;
     }
+  }
+
+  /**
+   * Recibe el evento 'weather-change' de WeatherSystem. El boletín queda pendiente
+   * hasta que el jugador escuche 890 AM; un nuevo cambio reemplaza al anterior.
+   */
+  onWeatherChange({ isRaining } = {}) {
+    this._pendingWeather = isRaining ? 'lluvia' : 'despeje';
+    this._tryAirWeatherBulletin();
+  }
+
+  isListeningNews() {
+    if (!this.isOn || this.battery <= 0) return false;
+    const { station, signal } = this.getStationInfo();
+    return station.id === 'noticias' && signal >= NEWS_MIN_SIGNAL;
+  }
+
+  _updateBulletins(dt) {
+    if (!this.isListeningNews()) {
+      this._cityTimer = 0;
+      return;
+    }
+    this._tryAirWeatherBulletin();
+    this._cityTimer += dt;
+    if (this._cityTimer >= CITY_BULLETIN_INTERVAL) {
+      this._cityTimer = 0;
+      this._airNext('ciudad');
+    }
+  }
+
+  _tryAirWeatherBulletin() {
+    if (!this._pendingWeather || !this.isListeningNews()) return;
+    const trigger = this._pendingWeather;
+    this._pendingWeather = null;
+    this._airNext(trigger);
+  }
+
+  _airNext(trigger) {
+    const list = bulletinsFor(trigger);
+    if (!list.length) return null;
+    const bulletin = list[this._bulletinIndex[trigger]++ % list.length];
+    this.lastBulletin = bulletin;
+    this.bulletinLog = [bulletin, ...this.bulletinLog].slice(0, 5);
+    emitToast(`890 AM: ${bulletin.titular}. ${bulletin.objetivo}`, trigger === 'lluvia' ? 'warn' : 'info');
+    if (typeof window !== 'undefined' && typeof CustomEvent !== 'undefined' && window.dispatchEvent) {
+      try {
+        window.dispatchEvent(new CustomEvent('radio-bulletin', { detail: bulletin }));
+      } catch { /* ignorar en entornos sin DOM completo */ }
+    }
+    return bulletin;
   }
 
   destroy() {

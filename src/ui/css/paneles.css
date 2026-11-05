@@ -1,0 +1,184 @@
+/* Mañas, El jíbaro, la radio y los lugares: el mismo cartón, las mismas reglas a marcador. */
+
+/* ---------- lo que tienen en común todos los menús: una cabecera y un cierre ----------
+   Título, lo que la ventana quiere decir de sí misma y la equis a la derecha, con su regla debajo. */
+.cabecera { padding-bottom: 7px; background: var(--m-regla) center bottom / 100% 5px no-repeat; }
+.cierre { display: inline-flex; align-items: center; justify-content: center; gap: 6px; flex: none; width: auto; min-width: 44px; min-height: 44px; margin-left: auto; padding: 0 10px; }
+.cierre kbd { font-size: 14px; }
+body.tactil .cierre { padding: 0; }
+#menu:not([data-momento]) .sign--menu:not(.sign--wide) .menu__icon { display: none; }
+#menu:not([data-momento]) .sign--menu:not(.sign--wide) .menu__head { grid-template-columns: minmax(0, 1fr) auto; }
+#menu:not([data-momento]) .sign--menu:not(.sign--wide) .menu__head > div { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 18px; }
+#menu:not([data-momento]) .sign--menu:not(.sign--wide) .menu__title { font-size: 38px; }
+#menu:not([data-momento]) .sign--menu:not(.sign--wide) .menu__sub { flex-basis: 100%; margin: 0; }
+.menu__dato { display: flex; flex-wrap: wrap; gap: 0 14px; font-weight: 800; }
+.menu__dato:empty, #menu[data-momento] .menu__dato, .sign--wide .menu__dato { display: none; }
+.menu__dato .menu__money { margin: 0; font-size: var(--letra-cifra); white-space: nowrap; }
+@media (max-width: 759px), (max-height: 520px) and (orientation: landscape) {
+  #menu:not([data-momento]) .sign--menu:not(.sign--wide) .menu__title { font-size: 30px; }
+  .menu__dato .menu__money { font-size: 17px; }
+  .cabecera { padding-bottom: 6px; }
+}
+@media (max-height: 520px) and (orientation: landscape) {
+  #menu:not([data-momento]) .sign--menu:not(.sign--wide) .menu__title { font-size: 26px; }
+}
+
+/* ---------- paneles sobre el mundo ---------- */
+#talent-panel, #dealer-panel {
+  position: fixed; left: 50%; top: 50%; z-index: 200; transform: translate(-50%, -50%);
+  display: none; grid-template-rows: auto minmax(0, 1fr) auto; gap: 6px;
+  max-width: calc(100vw - 32px - var(--safe-l) - var(--safe-r));
+  max-height: calc(100vh - 32px - var(--safe-t) - var(--safe-b));
+  padding: 14px 24px 12px;
+  box-shadow: 0 0 0 100vmax rgba(20, 17, 12, .58);
+  color: var(--marcador);
+}
+#talent-panel { width: 1120px; }
+#dealer-panel { width: 680px; grid-template-rows: none; display: none; overflow: hidden auto; scrollbar-width: thin; scrollbar-color: var(--marcador) transparent; }
+#talent-panel.open { display: grid; }
+#dealer-panel.open { display: block; }
+
+/* ---------- Mañas ---------- */
+.talent-header, .dealer-header { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 20px; }
+.talent-header h2, .dealer-header h2 { font-weight: 800; font-size: 50px; line-height: 1; }
+.talent-points-display, .dealer-money { font-weight: 800; font-size: var(--letra-cifra); white-space: nowrap; }
+.talent-branches { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0 26px; min-height: 0; overflow: auto; padding: 4px 4px 6px 2px; scrollbar-width: thin; scrollbar-color: var(--marcador) transparent; }
+.talent-branch { display: flex; flex-direction: column; gap: 9px; min-width: 0; }
+.talent-branch h3 { font-weight: 800; font-size: 25px; line-height: 1; }
+.talent-node {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 2px;
+  width: 100%; min-height: 72px; padding: 7px 10px 9px;
+  background: none; border: 0; color: var(--marcador); text-align: left; cursor: default;
+  box-shadow: none;
+}
+.talent-node.available { background: var(--cinta); box-shadow: 0 0 0 1.5px var(--marcador), 1px 3px 0 1.5px var(--marcador); cursor: pointer; }
+.talent-node.unlocked { padding-inline: 2px; background: var(--m-regla) center bottom / 100% 5px no-repeat; }
+.talent-node.locked { padding-inline: 2px; background: var(--m-regla) center bottom / 100% 5px no-repeat; }
+.talent-name { font-weight: 800; font-size: 20px; line-height: 1.05; }
+.talent-node.locked .talent-name { background: var(--m-tachon) center / 100% .8em no-repeat; }
+.talent-desc { font-size: 16px; line-height: 1.14; }
+.reqs { font-size: 15px; line-height: 1.1; }
+.talent-cost { font-weight: 800; font-size: 15px; }
+.talent-hint { font-size: 15px; }
+@media (hover: hover) { .talent-node.available:hover .talent-name { text-decoration: underline; text-underline-offset: 3px; } }
+
+/* ---------- El jíbaro ---------- */
+.dealer-section { margin-top: 12px; font-weight: 800; font-size: 25px; line-height: 1; }
+.dealer-product { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 4px 14px; min-height: 58px; padding: 6px 0 9px; background: var(--m-regla) center bottom / 100% 5px no-repeat; }
+.dealer-prod-name { font-weight: 800; font-size: 19px; line-height: 1.05; }
+.dealer-prod-desc { font-size: 15px; line-height: 1.14; }
+.dealer-prod-action { display: flex; align-items: center; gap: 12px; }
+.dealer-prod-price { font-weight: 800; font-size: var(--letra-cifra); white-space: nowrap; }
+.dealer-buy-btn, .dealer-sell-btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-width: 96px; min-height: 46px; padding: 5px 12px;
+  background: var(--cinta); color: var(--marcador); border: 0;
+  box-shadow: 0 0 0 1.5px var(--marcador), 1px 3px 0 1.5px var(--marcador);
+  font-weight: 800; font-size: 18px; line-height: 1; cursor: pointer;
+}
+.dealer-buy-btn:disabled {
+  background: var(--m-tachon) center / 100% .8em no-repeat, var(--flauta), var(--cara);
+  box-shadow: 0 0 0 1.5px var(--marcador); cursor: not-allowed;
+}
+.dealer-empty { padding: 8px 0; font-size: 17px; line-height: 1.2; }
+.dealer-hint { margin-top: 10px; font-size: 15px; line-height: 1.22; }
+
+/* ---------- las filas de los lugares ---------- */
+:where(#menu) .rows { list-style: none; }
+:where(#menu) .row {
+  display: grid; grid-template-columns: 30px minmax(0, 1fr) auto auto; align-items: center; gap: 4px 12px;
+  min-height: 56px; padding: 6px 0 9px;
+  background: var(--m-regla) center bottom / 100% 5px no-repeat;
+}
+:where(#menu) .row__name { font-weight: 800; font-size: 19px; line-height: 1.05; }
+:where(#menu) .row__desc { display: block; font-weight: 400; font-size: 15.5px; line-height: 1.14; }
+:where(#menu) .row__qty { font-weight: 800; font-size: 18px; white-space: nowrap; }
+:where(#menu) .row__price { font-weight: 800; font-size: var(--letra-cifra); white-space: nowrap; text-align: right; }
+:where(#menu) .row.is-locked .row__name { color: color-mix(in srgb, var(--marcador) 86%, transparent); }
+:where(#menu) .req { display: flex; flex-wrap: wrap; gap: 1px 12px; margin-top: 2px; font-weight: 400; font-size: 15px; }
+:where(#menu) .req__ok::before { content: '\2713\00A0'; font-weight: 800; }
+.shelter-menu { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; }
+.shelter-preview { background: var(--marcador); color: var(--cinta); }
+.shelter-preview img { display: block; width: 100%; height: 190px; object-fit: cover; }
+.shelter-preview img[hidden] { display: none; }
+.shelter-preview figcaption { padding: 3px 8px 5px; font-size: 15px; line-height: 1.15; }
+.shelter-preview__status { padding: 24px 12px; text-align: center; font-size: 15px; }
+
+/* ---------- la radio ---------- */
+:where(#menu) .sign--menu:has(.radio-modal-body) { width: min(920px, 100%); }
+.radio-modal-body { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 0 28px; }
+.radio-col { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.radio-status-row { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: start; gap: 8px 18px; }
+.radio-power-col { display: flex; flex-direction: column; align-items: center; gap: 4px; }
+.radio-estado { font-weight: 800; font-size: 17px; }
+.radio-battery-col { display: flex; flex-direction: column; align-items: stretch; gap: 5px; min-width: 0; }
+.radio-battery-col .btn { align-self: flex-start; margin: 3px 3px 3px; font-size: 16px; }
+.radio-sin-pilas { font-size: 16px; }
+.radio-battery-label { display: flex; align-items: baseline; justify-content: space-between; font-size: 17px; }
+.radio-battery-col.is-low .radio-battery-value { padding: 0 5px; background: var(--marcador); color: var(--cinta); }
+.radio-dial { display: flex; flex-direction: column; gap: 2px; padding-top: 6px; }
+.radio-dial-scale { position: relative; height: 62px; background: var(--m-regla) center 36px / 100% 5px no-repeat; }
+.radio-dial-tick { position: absolute; top: 12px; transform: translateX(-50%); font-weight: 800; font-size: 15px; line-height: 1; }
+.radio-dial-tick::after { content: ''; position: absolute; left: 50%; top: 18px; width: 2px; height: 10px; background: var(--marcador); }
+.radio-dial-band { position: absolute; top: 44px; font-size: 14px; line-height: 1; }
+.radio-dial-needle { position: absolute; top: 28px; bottom: 19px; width: 4px; margin-left: -2px; background: var(--rojo); box-shadow: 0 0 0 1px var(--cinta); pointer-events: none; }
+/* El deslizador cubre la AM del dial, y su botón queda debajo de la aguja. */
+.radio-tuner-slider { flex: none; width: 78%; }
+.radio-freq-display { font-size: 22px; line-height: 1.1; }
+.radio-perk-text { font-size: 15px; line-height: 1.2; }
+.radio-presets { list-style: none; }
+.radio-preset { position: relative; display: flex; align-items: center; justify-content: space-between; gap: 12px; width: 100%; min-height: 48px; padding: 5px 2px 9px; background: var(--m-regla) center bottom / 100% 5px no-repeat; border: 0; color: var(--marcador); font-weight: 800; font-size: 18px; line-height: 1.05; text-align: left; }
+.radio-preset__name { margin-left: 6px; }
+.radio-preset__band { font-weight: 400; font-size: 15px; }
+@media (hover: hover) { .radio-preset:hover .radio-preset__name { text-decoration: underline; text-underline-offset: 3px; } }
+.radio-info-box { display: flex; flex-direction: column; gap: 2px; }
+.radio-info-name { font-weight: 800; font-size: 22px; line-height: 1.05; }
+.radio-info-signal { font-weight: 800; font-size: 16px; }
+.radio-info-program { font-size: 15.5px; line-height: 1.16; }
+
+/* ---------- medianas ---------- */
+@media (max-width: 1180px) {
+  #talent-panel { width: 100%; }
+  .talent-header h2, .dealer-header h2 { font-size: 38px; }
+  .talent-branches { gap: 0 16px; }
+}
+
+/* ---------- celular de pie ---------- */
+@media (max-width: 759px) {
+  #talent-panel, #dealer-panel {
+    left: 0; top: 0; transform: none; width: 100vw; max-width: none; height: 100dvh; max-height: none;
+    padding: calc(8px + var(--safe-t)) calc(12px + var(--safe-r)) calc(8px + var(--safe-b)) calc(12px + var(--safe-l));
+    border-image: none; border-color: transparent; border-radius: 0; box-shadow: none;
+  }
+  .talent-header h2, .dealer-header h2 { font-size: 30px; }
+  .talent-branches { grid-template-columns: minmax(0, 1fr); gap: 16px 0; }
+  .dealer-money { order: 3; flex-basis: 100%; }
+  .dealer-product { grid-template-columns: minmax(0, 1fr); }
+  .dealer-prod-action { justify-content: space-between; }
+  .talent-node.available, .dealer-buy-btn, .dealer-sell-btn { min-height: 46px; }
+  .talent-hint { display: none; }
+  .radio-modal-body { grid-template-columns: minmax(0, 1fr); gap: 14px 0; }
+  .radio-tuner-slider { width: 78%; }
+  :where(#menu) .row:not(:has(.row__qty)) { grid-template-columns: 28px minmax(0, 1fr) auto; }
+  :where(#menu) .row > .btn { grid-column: 2 / -1; justify-self: end; }
+  :where(#menu) .menu__foot .btn--primary { flex: 1 1 auto; }
+  .shelter-preview img { height: 132px; }
+}
+/* ---------- celular acostado ---------- */
+@media (max-height: 520px) and (min-width: 600px) {
+  #talent-panel, #dealer-panel {
+    left: 0; top: 0; transform: none; width: 100vw; max-width: none; height: 100dvh; max-height: none; gap: 2px;
+    padding: calc(4px + var(--safe-t)) calc(10px + var(--safe-r)) calc(4px + var(--safe-b)) calc(10px + var(--safe-l));
+    border-image: none; border-color: transparent; border-radius: 0; box-shadow: none;
+  }
+  .talent-header h2, .dealer-header h2 { font-size: 26px; }
+  .talent-hint { display: none; }
+  .radio-modal-body { gap: 0 18px; }
+  .shelter-preview img { height: 110px; }
+}
+
+/* El cambuche acostado: la imagen al lado de las piezas, para que la lista se vea sin desplazar. */
+@media (max-height: 520px) and (orientation: landscape) {
+  .shelter-menu { grid-template-columns: minmax(0, 38%) minmax(0, 1fr); align-items: start; }
+  .shelter-preview img { height: 120px; }
+}

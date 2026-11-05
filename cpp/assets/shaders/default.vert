@@ -6,6 +6,7 @@ layout(location = 2) in vec2 aUV;
 layout(location = 3) in vec4 aColor;
 layout(location = 4) in vec4 aJoints;
 layout(location = 5) in vec4 aWeights;
+layout(location = 6) in vec4 aTangent;
 
 layout(std140, binding = 0) uniform CameraBlock {
     mat4 uView;
@@ -17,7 +18,12 @@ layout(std140, binding = 0) uniform CameraBlock {
 
 uniform mat4 uModel;
 uniform int uSkinned;
+uniform vec2 uUvOffset = vec2(0.0);   // desplazamiento de UV (letrero LED del bus)
+uniform int uGrass = 0;          // matas de pasto: se mecen con el viento desde la raiz (la amplitud viene de uTime y la posicion de la mata)
+uniform float uSway = 0.0;      // arboles: amplitud (m) con que la copa se mece con el viento; crece con la altura sobre el pie
+uniform float uPushOut = 0.0;   // ropa y calzado: se separan unos milimetros de la piel a lo largo de la normal (ya deformada)
 uniform int uBoneCount;
+uniform int uWater = 0;   // superficie del lago: oleaje suave y normal analitica
 layout(std140, binding = 2) uniform SkinBlock {
     mat4 uBones[128];
 };
@@ -26,10 +32,13 @@ out vec3 vFragPos;
 out vec3 vNormal;
 out vec2 vUV;
 out vec4 vColor;
+out vec2 vGrass;   // x altura sobre la raiz de la mata, y valor aleatorio por mata
+out vec4 vTangent;   // xyz tangente en el mundo, w signo de la bitangente
 
 void main() {
     vec4 localPos = vec4(aPos, 1.0);
     vec3 localNormal = aNormal;
+    vec3 localTangent = aTangent.xyz;
     if (uSkinned == 1) {
         ivec4 joints = clamp(ivec4(aJoints), ivec4(0), ivec4(max(uBoneCount - 1, 0)));
         float weightSum = dot(aWeights, vec4(1.0));
@@ -38,12 +47,37 @@ void main() {
             mat4 skin = uBones[joints.x] * weights.x + uBones[joints.y] * weights.y + uBones[joints.z] * weights.z + uBones[joints.w] * weights.w;
             localPos = skin * localPos;
             localNormal = mat3(skin) * localNormal;
+            localTangent = mat3(skin) * localTangent;
         }
     }
+    if (uPushOut != 0.0) localPos.xyz += normalize(localNormal) * uPushOut;
     vec4 worldPos = uModel * localPos;
+    if (uSway > 0.0) {   // el viento mece el arbol en el shader, asi los arboles siguen compartiendo lote sin tocar la CPU
+        float h = clamp((worldPos.y - uModel[3].y) / 5.4, 0.0, 1.0);
+        float phase = uTime * 1.7 + uModel[3].x * 0.31 + uModel[3].z * 0.23 + worldPos.y * 0.6;
+        worldPos.xz += vec2(0.8, 0.6) * (sin(phase) + 0.35 * sin(phase * 2.3 + 1.1)) * uSway * h * h;
+    }
+    vGrass = vec2(0.0);
+    if (uGrass == 1) {
+        const float h = max(worldPos.y - uModel[3].y, 0.0);
+        const float phase = uTime * 1.9 + uModel[3].x * 0.7 + uModel[3].z * 0.5 + worldPos.x * 1.3;
+        worldPos.xz += vec2(0.9, 0.5) * (sin(phase) + 0.4 * sin(phase * 2.1)) * 0.035 * h * h;
+        vGrass = vec2(h, fract(sin(dot(uModel[3].xz, vec2(12.9898, 78.233))) * 43758.5453));
+    }
+    vec3 waterNormal = vec3(0.0, 1.0, 0.0);
+    if (uWater == 1) {
+        const vec3 p = worldPos.xyz;
+        const float t = uTime;
+        float a1 = p.x * 0.9 + t * 1.3, a2 = p.z * 1.1 - t * 1.1, a3 = (p.x + p.z) * 1.7 + t * 2.1;
+        worldPos.y += 0.035 * sin(a1) + 0.03 * sin(a2) + 0.015 * sin(a3);
+        float dx = 0.035 * 0.9 * cos(a1) + 0.015 * 1.7 * cos(a3);
+        float dz = 0.03 * 1.1 * cos(a2) + 0.015 * 1.7 * cos(a3);
+        waterNormal = normalize(vec3(-dx * 2.0, 1.0, -dz * 2.0));
+    }
     vFragPos = worldPos.xyz;
-    vNormal = mat3(transpose(inverse(uModel))) * localNormal;
-    vUV = aUV;
+    vNormal = uWater == 1 ? waterNormal : mat3(transpose(inverse(uModel))) * localNormal;
+    vTangent = vec4(mat3(uModel) * localTangent, aTangent.w);
+    vUV = aUV + uUvOffset;
     vColor = aColor;
 
     gl_Position = uViewProjection * worldPos;

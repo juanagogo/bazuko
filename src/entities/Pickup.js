@@ -4,6 +4,11 @@ import { ITEMS, LOOT_COMMON, LOOT_RARE } from '../data/items.js';
 import { PICKUP_COOLDOWN, COLORS, SORT_BASE_TIME } from '../utils/constants.js';
 import { createImportedModel, disposeImportedInstance } from '../utils/ImportedModels.js';
 
+// Por debajo de esto el aura ya no se distingue y no se dibuja.
+const AURA_MIN_OPACITY = .005;
+// Margen para que una bolsa justo en el límite no prenda y apague con cada paso.
+const FAR_DETAIL_MARGIN = 4;
+
 export class Pickup {
   constructor(scene, position, { modelKind = 'bolsa', cooldown = PICKUP_COOLDOWN } = {}) {
     this.scene = scene;
@@ -29,11 +34,12 @@ export class Pickup {
     this.mesh.castShadow = true;
     this.group.add(this.mesh);
 
-    // Marcador flotante (anillo)
+    // Marcador flotante (anillo). Una sola pasada: con dos, Three pide programa en cada dibujo.
     const markerGeo = new THREE.RingGeometry(0.5, 0.6, 12);
     const markerMat = new THREE.MeshBasicMaterial({
       color: COLORS.ACCENT_AMBER,
       side: THREE.DoubleSide,
+      forceSinglePass: true,
       transparent: true,
       opacity: 0.7
     });
@@ -42,14 +48,16 @@ export class Pickup {
     this.marker.position.y = 0.02;
     this.group.add(this.marker);
 
-    // Aura de boost
+    // Aura de boost: casi siempre está apagada, y entonces su material no dibuja.
     const auraGeo = new THREE.RingGeometry(0.6, 0.85, 16);
     const auraMat = new THREE.MeshBasicMaterial({
       color: COLORS.ACCENT_GOLD,
       side: THREE.DoubleSide,
+      forceSinglePass: true,
       transparent: true,
       opacity: 0.0,
-      depthWrite: false
+      depthWrite: false,
+      visible: false
     });
     this.aura = new THREE.Mesh(auraGeo, auraMat);
     this.aura.rotation.x = -Math.PI / 2;
@@ -216,12 +224,20 @@ export class Pickup {
 
       this.aura.material.opacity +=
         (targetOpacity - this.aura.material.opacity) * Math.min(1, dt * 8);
+      // En el material y no en aura.visible, que es de la cosecha y la reaparición.
+      this.aura.material.visible = this.aura.material.opacity > AURA_MIN_OPACITY;
       const currentScale = this.aura.scale.x;
       this.aura.scale.setScalar(
         currentScale + (targetScale - currentScale) * Math.min(1, dt * 8)
       );
       this.aura.rotation.z -= dt * 1.5;
     }
+  }
+
+  /** Solo el dibujo: la bolsa sigue ahí para el perro, las reservas y el jugador. */
+  limitDrawDistance(viewer, limit) {
+    const { x, z } = this.group.position;
+    this.group.visible = Math.hypot(x - viewer.x, z - viewer.z) <= limit + (this.group.visible ? FAR_DETAIL_MARGIN : 0);
   }
 
   relocate(newPosition) {

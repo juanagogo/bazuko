@@ -11,14 +11,33 @@ Este proyecto es un fork de [juanagogo/bazuko](https://github.com/juanagogo/bazu
 - **El Rumbiadero · Bolirana:** local junto al cambuche con marcador en el mapa, práctica gratuita, apuestas contra NPC y resultados integrados al saldo. [Reglas, capturas y pruebas](docs/bolirana.md). [Créditos y condiciones de la música](docs/bolirana-audio.md).
 
 - Integración experimental en `pruebas-integracion`: carriles rojos con SOLO BUS, estación, semáforos que regulan el tráfico, inventario por casillas y modelos de bolsas, canecas, lámparas, carros, taxi, TransMilenio y cambuche del fork de [mreyeswilson](https://github.com/mreyeswilson/bazuko). [Detalles de integración y procedencia](docs/modelos-importados.md).
+- Identidad de cartón y marcador: letra propia, dibujos de la misma mano, HUD por zonas, inventario y fabricación coherentes, carga impresa en una tinta y creador adaptable. [Sistema visual](docs/identidad-visual.md).
+
+- Diez tipos de vehículo de los que más se ven en Colombia, sin marcas ni logos: citadino, sedán familiar, hatchback, sedán bajo, camioneta, pick-up, caja de los 70, sedán de los 90, furgoneta y buseta, más motos parqueadas contra el andén. Ruedas con dirección, stops y direccionales, limpiaparabrisas con lluvia. [Vehículos y comprobación](docs/vehiculos-bogota.md).
+
+- Articulado rojo y estación Portal del Centro hechos por código, con pórticos, vidrio, torniquetes, puertas que se abren en la parada y limpiaparabrisas con lluvia. [TransMilenio](docs/transmilenio.md).
+
+- Semáforos con ménsula sobre la calzada y cabeza peatonal, postes de alumbrado de concreto y placas de esquina azules. Calles con pintura gastada, flechas, tapas de alcantarilla, postes con cables, sardineles y charcos. [Dirección visual](docs/direccion-visual.md).
+
+- La Candelaria y Chapinero-Teusaquillo al oriente, y ciudad y cerros de fondo en todo el horizonte. [Zonas y borde de la ciudad](docs/zonas-bogota.md).
+
+- Edificios con marcos, rejas y azoteas; arbolado de tres siluetas con ramas y hojas al viento, pastos y jardines agrupados en los parques de Bogotá.
+
+- Recorrido cambuche → comercio → lago con materiales de Bogotá renovados, acabados por barrio, humedad y sombras de contacto también en calidad baja. [Dirección y comprobación visual](docs/recorrido-bogota.md).
+
+- Integración experimental en `pruebas-integracion`: carriles rojos con SOLO BUS, estación, semáforos que regulan el tráfico, inventario por casillas y modelos de bolsas, canecas y cambuche del fork de [mreyeswilson](https://github.com/mreyeswilson/bazuko); sus modelos de lámparas, semáforo, carros, taxi y TransMilenio quedan en el repositorio como recursos originales, porque hoy esas piezas se hacen por código. [Detalles de integración y procedencia](docs/modelos-importados.md).
 - Radar relativo a la cámara, pausa con volumen y calidad gráfica, llovizna y compañero canino El Chato, adaptados de [Cristianlv11/bazuko](https://github.com/Cristianlv11/bazuko/tree/feature/mejoras-navegacion-audio-pausa-clima). [Detalles de compatibilidad](docs/integracion-cristian.md).
 - Cámaras en tercera persona e isométrica, intercambiables durante la partida.
 - Techos y paredes que se ocultan cuando tapan al personaje en vista isométrica, con muros bajos y silueta del jugador.
-- Peatones que caminan por los andenes y cruzan las calles.
-- Diez palomas en cada uno de los tres parques: caminan, levantan vuelo cuando el jugador o un NPC se acerca a menos de 3,5 metros y aterrizan en otro lugar. Cada bandada usa cinco lotes de geometría instanciada, sin luces ni física; se suspende a más de 90 metros del jugador.
-- Carros y taxis con recorridos aleatorios entre 90 alternativas transitables y un bus articulado que circula por la troncal y para en la estación.
-- Calzadas de 12 metros y andenes de 4 metros.
-- Ciudad de 240 × 322 metros: conserva la ampliación urbana y añade un gran parque al sur, con barrios nuevos al oriente y al sur, dos calles y dos carreras adicionales y dos parques nuevos.
+- Peatones que caminan por los andenes y cruzan las calles, y que son alguien: oficinistas, estudiantes, señoras con su bolsa de mercado, abuelos con bastón, obreros, vendedores, recicladores con su costal y habitantes de calle, cada uno con su ropa, su talla, su paso y sus paradas, y repartidos según la zona. Otros se quedan en su sitio: dormidos y sentados en El Cartucho, parejas conversando, sentados en las bancas, quien pide y quien espera en el andén; si los atacan, se levantan de afán, se apartan por el andén y más tarde vuelven. Miran al jugador cuando pasa cerca, se tapan la nariz si no se ha bañado y, bajo la lluvia, sacan el paraguas o se cubren y apuran el paso.
+- Combate cuerpo a cuerpo: golpes con preparación, impacto y recuperación, y combos de hasta tres golpes si se pulsa durante la recuperación. Los puños (jab, cruzado y gancho) pegan poco y a un solo peatón; el cuchillo, fabricado con chatarra y tablas, es rápido y alcanza a varios; la botella picada, hecha con una botella y una lata, llega un poco más lejos; el arma casera, una tabla con chatarra amarrada con cable, es la más lenta, pero la que más pega, más alcanza y más empuja. Los peatones no mueren: al quedarse sin fuerzas caen, permanecen tendidos unos segundos y se levantan huyendo. Ver [animaciones del personaje](docs/animaciones-actionforge.md#combate-cuerpo-a-cuerpo).
+- Diez palomas en cada uno de los tres parques y en la plaza de La Candelaria: caminan, levantan vuelo cuando el jugador o un NPC que anda se acerca a menos de 3,5 metros y aterrizan en otro lugar. Cada bandada usa cinco lotes de geometría instanciada, sin luces ni física; se suspende a más de 90 metros del jugador.
+- Carros y taxis con recorridos aleatorios entre 79 alternativas transitables, en dos redes que no se cruzan (centro y oriente), y un bus articulado que circula por la troncal y para en la estación.
+- Placas bogotanas, y patrullas de la Policía Nacional que persiguen a quien ven robando.
+- Comida callejera en chazas y fritangas: empanada, morcilla, papa criolla y aguapanela, que además dan calor; la aguapanela también cura la gripe. En las noches con lluvia, sin calor se pierde energía y ánimo; las fogatas de El Cartucho calientan cada 20 segundos.
+- Pedir limosna requiere alguien a menos de 7 metros.
+- Calzadas de 12 metros y andenes de 4 metros en el centro. Las calles angostas del oriente tienen 8 metros de calzada, con andenes de 2 metros en La Candelaria y de 6 en Chapinero.
+- Ciudad de 400 × 322 metros: conserva la ampliación urbana, el gran parque al sur, los barrios al oriente y al sur, las calles y carreras adicionales y los parques nuevos, y crece 160 metros más hacia el oriente sin mover nada de lo anterior.
 - Creación de personaje, inventario, reciclaje, comercio, talentos y construcción del cambuche.
 - Ciclo de día y noche con sol, luna con fases, estrellas y nubes; cuatro temporadas bogotanas y siete estados del tiempo, de soleado a tormenta eléctrica. Necesidades de supervivencia con un ritmo relajado. Un día del juego dura una hora real. [Detalles del clima](docs/clima.md).
 - Panel de FPS actuales, mínimos, máximos, promedio, percentiles recientes, 1 % de FPS bajos y coordenadas X, Y, Z.
@@ -27,7 +46,9 @@ Este proyecto es un fork de [juanagogo/bazuko](https://github.com/juanagogo/bazu
 
 ## Capturas
 
-Las capturas actuales muestran la ciudad de noche en tercera persona, con edificios de distintas alturas, tráfico y los nuevos espacios urbanos. Son imágenes reales del juego compartidas durante el desarrollo.
+La [galería de cambios integrados](docs/cambios-integrados.md) reúne **12 capturas actuales, dos por cada uno de los seis temas principales**, de la interfaz, personajes, barrios, vehículos, combate y natación.
+
+Las imágenes siguientes conservan las vistas nocturnas compartidas durante el desarrollo; la galería anterior muestra la interfaz y los modelos actuales.
 
 ### Parque, palomas y El Chato
 
@@ -66,37 +87,71 @@ En la primera partida se abre el creador de personaje. El juego se sirve con Vit
 
 En PowerShell, si una política de ejecución impide usar `npm`, ejecuta los mismos comandos con `npm.cmd`.
 
+### Sala de pruebas
+
+Con `npm run dev` activo, abre **/sala.html** (por ejemplo http://localhost:5173/sala.html?prueba=fumar). Es un piso plano sin ciudad, tráfico ni guardado donde aparece tu personaje con la misma cámara y los mismos controles, y carga en segundos. Cada prueba monta solo lo que necesita y tiene sus botones: personaje, fumar, pelea, efectos de sustancias, carros y limpieza social. El panel también cambia de modelo (realista o liviano), acelera el tiempo (x5, x30) y pasa de día a noche. Desde la consola se maneja con `__sala`. Para agregar una prueba, suma una entrada en `src/sala/pruebas.js`. La sala no forma parte de la compilación.
+
 ## Controles
 
 | Tecla o acción | Función |
 | --- | --- |
 | `W`, `A`, `S`, `D` | Moverse. En tercera persona, el movimiento sigue el rumbo de la cámara. |
-| `Shift` | Correr. |
+| `Shift` | Correr; nadar más rápido si queda energía. |
+| `Espacio` | Saltar; también permite lanzarse al lago desde tierra. |
 | `V` o botón de cámara | Alternar entre tercera persona e isométrica. |
 | Clic izquierdo en la calle | Fijar el ratón para girar la cámara en tercera persona. |
 | Arrastrar con botón izquierdo/derecho o flechas | Girar la cámara sin fijar el ratón. |
 | Rueda del ratón | Ajustar la distancia de la cámara en tercera persona. |
-| `I` / `Tab` o botón Inventario | Abrir el inventario por casillas; el mundo queda en pausa. |
-| `1`–`5` | Asignar el objeto seleccionado a acceso rápido mientras el inventario está abierto; usarlo cuando está cerrado. |
-| `Enter`, `X`, `R` en el inventario | Usar, tirar una unidad (Mayús: todo), ordenar. |
+| `I` / `Tab` o botón Costal | Abrir el costal por casillas; el mundo queda en pausa. Es del mismo cartón que la mesa, con el nombre de cada objeto y su detalle al lado. |
+| `C` o botón Fabricar | Abrir La mesa, desde cualquier parte; junto a la mesa de verdad también abre con `E`. Los botones Costal y Fabricar están abajo a la derecha, con su tecla al lado. |
+| `1`–`5` | Asignar el objeto seleccionado a acceso rápido mientras el costal está abierto; usarlo cuando está cerrado. |
+| `Enter`, `X`, `R` en el costal | Usar, tirar una unidad (Mayús: todo), ordenar. Las flechas o WASD mueven la selección. |
 | `E` | Interactuar con el objetivo cercano. |
+| `E` junto a una persona | Cosquilleo: sale una barra que se detiene con `Espacio` y se cancela con `Esc` (en el mando, `LT` y `B`). Si aciertas, robas poco sin que se den cuenta; si fallas, pueden pillarte, y una patrulla que lo vea te persigue. Robar te deja fichado: ver «Fichado y patrullas». |
+| `Q` junto a una persona | Robo directo: paga más, siempre se nota, la persona puede defenderse si está de pie y una patrulla que lo vea te persigue. Robar te deja fichado: ver «Fichado y patrullas». |
 | Mantener y soltar `Q` junto a basura | Seleccionar materiales y recogerlos al soltar. |
-| `Q` junto al dealer | Abrir su tienda. |
+| `Q` o `E` junto al jíbaro | Abrir o cerrar su tienda: comprar y, de noche, elegir qué venderle. |
 | `B` o `L` | Pedir limosna. |
+| Clic izquierdo o `G` en la calle | Atacar con los puños o con el arma equipada; pulsar de nuevo al final del golpe encadena el combo. |
+| Usar un cuchillo, una botella picada o el arma casera del costal | Equiparla en la mano; usarla otra vez la guarda y vuelves a los puños. El arma equipada se conserva al guardar, y ni la recicladora ni quien te robe mientras duermes se llevan la que tienes en la mano. |
 | `F` | Activar o desactivar el boost, que consume energía y salud. |
-| `T` | Abrir talentos. |
-| `C` | Abrir fabricación. |
+| `T` | Abrir las mañas. |
 | `P` | Editar el personaje. |
 | `M` | Abrir el mapa para marcar un destino; en el mapa, cerrarlo. |
 | `K` | Alternar entre el personaje realista y el modelo liviano. |
 | `Esc` o botón Pausa | Abrir la pausa en la pestaña Estado; cerrar primero el panel activo y liberar el cursor. |
 | `N` | Mostrar u ocultar el radar. |
+| `H` / Estado | Mostrar u ocultar las necesidades detalladas. |
+| `F2` | Modo foto: encuadrar, esconder los controles con `H`, guardar PNG y volver con Esc. |
 | `+` / `−` | Acercar o alejar el radar. |
 | `F3` | Mostrar u ocultar el panel de rendimiento. |
-| `R` en la calle | Abrir o cerrar la radio AM/FM; permite sintonizar emisoras y cambiar pilas. |
+| `R` en la calle | Abrir o cerrar la radio AM/FM; permite sintonizar emisoras y cambiar pilas. En 890 AM se escuchan boletines de lluvia y de la ciudad. |
 | `X` en la calle | Lanzar si llevas munición; de lo contrario, hacer popó. |
 | `Z` en la calle | Hacer popó. |
-| Clic en comida o bebida del inventario | Consumir el objeto. |
+| Clic en una casilla del costal | Ver el objeto en el banco; doble clic o el botón principal lo usan (comer, beber, aplicar, lanzar…). |
+
+### Mando
+
+Funciona con mandos de Xbox, PlayStation o genéricos conectados por USB o Bluetooth. El navegador los detecta al pulsar cualquier botón. Los botones equivalen a las teclas de la tabla anterior; los menús siguen usando el ratón.
+
+| Mando (Xbox) | Función |
+| --- | --- |
+| Stick izquierdo | Moverse. |
+| Stick derecho | Girar la cámara en tercera persona. |
+| `RT` o pulsar el stick izquierdo | Correr. |
+| `A` | Interactuar (`E`). |
+| `B` | Cerrar el panel activo (`Esc`). |
+| `X` | Mantener junto a basura o abrir la tienda del jíbaro (`Q`). |
+| `Y` | El costal (`I`). |
+| `LB` tocado solo | Cambiar de cámara (`V`), al soltarlo. |
+| `LB` sostenido + `Y` / `X` | Fabricar (`C`) / Mañas (`T`). |
+| `LB` sostenido + cruceta ↑ → ↓ ← / `A` | Casillas 1 a 4 / casilla 5. |
+| `RB` | Golpear (`G`). |
+| `LT` | Saltar (`Espacio`). |
+| `View` | Mapa (`M`). |
+| `Menu` | Pausa (`Esc`). |
+| Pulsar el stick derecho | Radar (`N`). |
+| Cruceta ↑ ↓ ← → | Radio (`R`), lanzar o popó (`X`), limosna (`B`), boost (`F`). |
 
 ## Cómo empezar
 
@@ -104,48 +159,93 @@ Los materiales del cambuche aparecen en bolsas de basura repartidas por nueve zo
 
 1. Recorre los andenes y acércate a los objetos para ver las acciones disponibles.
 2. Recoge materiales y véndelos en la recicladora para conseguir dinero.
-3. Compra comida y agua y consúmelas desde el inventario.
+3. Compra comida y agua y consúmelas desde el costal.
 4. Construye y mejora el cambuche para poder descansar. Su menú muestra una vista previa del modelo terminado, incluso antes de reunir los materiales.
 
 La partida guarda datos localmente en el navegador al crear o editar el personaje, al dormir y con **Guardar partida ahora** en el menú de pausa. También conserva la amistad de El Chato, las preferencias de cámara, radar, calidad y volumen. Los datos dependen del navegador y de la dirección desde la que juegas; no hay sincronización entre dispositivos.
 
 Al cruzar delante de un carro, este intenta frenar progresivamente. Si te atraviesas demasiado cerca, puede atropellarte: el daño depende de la velocidad y puede ser mortal. El golpe activa un ragdoll articulado y lanza al personaje hacia arriba y hacia delante según la velocidad. Si sobrevive, se levanta después de caer; si muere, la pantalla de recuperación espera a que termine la caída. El conductor sigue frenando hasta detenerse y espera brevemente antes de continuar. Los vehículos en movimiento y estacionados tienen colisiones mediante cajas invisibles simples, sin calcular los triángulos de sus modelos.
 
+Al robar el retrovisor de un carro en circulación, el conductor se baja con una varilla en un 35 % de los casos:
+
+- El carro frena de forma gradual hasta detenerse en su carril, y entonces el conductor sale por su puerta, o por el otro lado si algo la tapa. Si frenó tan lejos que ya no te alcanzaría, no se baja y el carro sigue.
+- Te persigue a 4,4 m/s: alcanza a quien camina, pero no a quien corre con **Shift**.
+- Antes de cada golpe levanta la varilla, así que apartarse a tiempo evita el daño. Cada golpe quita entre 10 y 16 de salud.
+- Si te alejas más de 28 metros o pasan 18 segundos, se rinde, vuelve a su carro y el tráfico sigue.
+- Solo hay un conductor fuera a la vez. Si te mata, la pantalla de recuperación lo indica, y al volver al cambuche ya está otra vez en su carro.
+
+De noche, de vez en cuando, llega la **limpieza social**: una camioneta 4x4 negra de lujo (vidrios polarizados, parrilla y rines cromados) que viene por la calle más cercana y frena en seco junto al jugador. Se bajan tres hombres todo de negro, con buzo, botas, pasamontañas y pistola corta:
+
+- El jefe, con gorra, se queda junto a la camioneta, de pie con el brazo estirado señalando al jugador, y da la orden a gritos («¡Denle a ese chirrete hijueputa!»).
+- Los otros dos lo persiguen insultándolo a 5,2 m/s: alcanzan a quien camina, no a quien corre con **Shift** sin parar.
+- Antes de cada cachazo levantan la pistola. Cada golpe quita entre 20 y 30 de salud y, a diferencia del conductor de la varilla, siguen pegando aunque el jugador esté tambaleando: si lo alcanzan, casi siempre lo matan.
+- A los 22 segundos, o si se aleja más de 32 metros, se rinden y vuelven; cuando los dos están arriba, el jefe se sube y la camioneta se va.
+- Hay como mucho una visita cada cinco minutos de juego, solo de noche, y nunca a menos de 15 metros del cambuche ni mientras duerme. Golpearlos no sirve de nada.
+
 Si la salud llega a cero, el juego se pausa y muestra una pantalla de recuperación. El regreso al cambuche ocurre al pulsar **Volver al cambuche**.
+
+## Fichado y patrullas
+
+Cada robo que se nota sube un nivel de fichado, hasta 3. Baja uno cada 120 s sin robar y sin persecución. Ninguna patrulla te persigue solo por estar fichado: te persigue si te ve robando. Pero mientras dura, cada nivel le alarga un 25 % la distancia a la que te ve. El HUD no muestra nada en cero, una raya por nivel si estás fichado, ¡PILAS! si una patrulla te sigue y ¡CÓRRALE! si la tienes a menos de 18 m.
 
 ## Radar, mapa, GPS y pausa
 
-La columna inferior izquierda reúne los avisos, las necesidades y el radar con el mismo ancho. Cada necesidad muestra su icono, nombre, barra y valor; bajo 30 el valor se resalta y bajo 15 la barra parpadea. Los colores son los mismos en la pestaña Estado. El radar tiene tres tamaños (Pequeño, Mediano y Grande, en **Ajustes**) que también ajustan el ancho de la columna y crecen con la pantalla. Muestra el plano de la ciudad (calles, andenes, manzanas, parques, lago y el viaducto en franja translúcida) y gira con la cámara en las dos vistas: arriba representa el frente de la pantalla. La **N** del borde indica el norte. Al correr se aleja para ver más lejos; **+** y **−**, con el teclado o con los botones de su esquina, cambian el alcance base, que se guarda, y la esquina inferior indica el alcance actual. Debajo aparece el destino marcado o, sin destino, el lugar más cercano, con su distancia y dirección en una segunda línea. Ocultarlo con **N** o con **✕** deja un botón **Radar** para recuperarlo.
+La columna inferior izquierda reúne el destino, el radar y las filas de Salud, Hambre, Sed y Energía. **H** despliega higiene, ánimo y vicio; cuando bajan de 30 suben solas a la columna. Dinero y hora quedan arriba a la derecha. Cada necesidad conserva nombre, valor y barra accesible, también en la pestaña Estado. El radar tiene tres tamaños (Pequeño, Mediano y Grande, en **Ajustes**) y gira con la cámara: arriba representa el frente de la pantalla, mientras **N** indica el norte. Al correr se aleja; **+** y **−** cambian el alcance base guardado. Muestra el destino o, si no hay destino, lo que más necesitas: si te congelas, tienes mucha sed o hambre, o el costal va casi lleno, indica el lugar más cercano que puedes pagar y que te cabe en el costal, con precio, distancia y dirección, y lo señala con un aro rojo aunque quede lejos. Si no hay ninguno, te manda a vender solo si con eso te alcanza y te cabe: a la recicladora o, de noche y sin plata, al jíbaro. Sin necesidades, muestra el lugar más cercano. Chazas, fritangas y fogatas aparecen cuando están dentro de su alcance. Ocultarlo con **N** o **✕** deja un botón para recuperarlo.
 
-**M** abre el mapa grande con el norte arriba. Se puede arrastrar, acercar con la rueda o con los botones **+** y **−**, volver al jugador con **◎**, ver toda la ciudad con **⤢** y marcar un destino con un clic, sobre un lugar o en cualquier punto de la calle. Una leyenda identifica andenes, calles, parques, agua, edificios y la ruta. La lista **Ir a…** ordena los lugares de la ciudad del más cercano al más lejano. El clic derecho o **Quitar destino** lo borra. El GPS calcula la mejor ruta a pie: prefiere andenes, parques y cruces peatonales, evita caminar por la calzada y rodea edificios y el lago. Va por la calle inferior, no por el viaducto. La ruta amarilla aparece en el radar y en el mapa y se recalcula si el jugador se desvía más de 6 metros. Un haz amarillo marca el destino en la calle y desaparece al llegar. El destino se guarda con la partida.
+**M** abre el mapa grande con el norte arriba. Se puede arrastrar, acercar con la rueda o con los botones **+** y **−**, volver al jugador con **◎** (cerca de un borde de la ciudad, el jugador no queda en el centro: la vista no se sale de ella), ver toda la ciudad con **⤢** y marcar un destino con un clic, sobre un lugar o en cualquier punto de la calle. Una leyenda identifica andenes, calles, parques, agua, edificios y la ruta. La lista **Ir a…** ordena los lugares por la distancia a pie e indica qué ofrece cada uno y desde qué precio. Los filtros **Comida**, **Agua**, **Calor** y **Vender** dejan solo lo que sirve, ponen primero lo que puedes usar, atenúan el resto en el mapa y ofrecen un botón para marcar el lugar más cercano que puedes usar. Si necesitas algo con urgencia y no tienes destino, el botón es para eso, aunque haya otro filtro elegido, y aparece al abrir el mapa: **M** y luego **Enter** (o **View** y **A** con mando) trazan la ruta. La gasolinera y el mercado Doña Inés son solo referencia, las fogatas son gratis, la mesa de crafteo se abre con **C** desde cualquier sitio y el jíbaro vende a toda hora, pero solo te compra sustancias de noche. El clic derecho o **Quitar destino** lo borra. El GPS calcula la mejor ruta a pie: prefiere andenes, parques y cruces peatonales, evita caminar por la calzada y rodea edificios y el lago. Va por la calle inferior, no por el viaducto. La ruta amarilla aparece en el radar y en el mapa y se recalcula si el jugador se desvía más de 6 metros. Un haz amarillo marca el destino en la calle y desaparece al llegar. El destino se guarda con la partida.
 
-La pausa tiene cuatro pestañas de alto fijo, que se recorren con **Q** y **E**: Mapa, Estado (necesidades, dinero, nivel, El Chato y guardado manual), Ajustes (volumen, silencio, calidad gráfica, panel de rendimiento, radar con su tamaño y alcance, haz del destino, modelo y radio) y Controles. Cerrar una tienda o el inventario con Esc no abre a la vez la pausa. Abrir cualquier panel libera el cursor. El volumen afecta también a los motores y claxones actuales, que mantienen su reproducción normal y sus voces independientes.
+La pausa tiene cuatro pestañas de alto fijo, que se recorren con **Q** y **E**: Mapa, Estado (necesidades, dinero, nivel, El Chato y guardado manual), Ajustes (volumen, silencio, calidad gráfica, panel de rendimiento, radar con su tamaño y alcance, haz del destino, modelo y radio) y Controles. Cerrar una tienda o el costal con Esc no abre a la vez la pausa. Abrir cualquier panel libera el cursor. El volumen afecta también a los motores y claxones actuales, que mantienen su reproducción normal y sus voces independientes.
 
 El Chato es el único perro del juego y aparece junto al cambuche, donde merodea y olfatea mientras no tiene dueño. Acércate y pulsa **E**: si llevas pan o una lata de atún, lo alimentas y se vuelve compañero; también puedes acariciarlo para recuperar 5 de ánimo, con 20 segundos entre caricias, y lo celebra con un brinco y la cola. Te sigue al paso, al trote o al galope según lo lejos que estés, rodea paredes y respeta las cajas de los vehículos; si lo dejas muy atrás, por ejemplo al tomar el bus, aparece cerca de ti. Cuando te detienes se sienta y, si sigues quieto, se echa. Avisa de basura cercana que aún no se haya vaciado y ladra a los peatones que sospechan de ti; mientras te acompaña de cerca, distrae y reduce la probabilidad de que te pillen robando. Dormir con él aporta 15 de ánimo adicional y lo muestra dormido a tu lado. En la pestaña Estado de la pausa puedes elegir su pelaje, accesorio y tamaño. La amistad y la apariencia se guardan sin invalidar partidas anteriores.
 
 El cielo sigue la posición del sol y la luna sobre Bogotá, con nubes que derivan con el viento. El tiempo pasa de forma gradual entre soleado, parcialmente nublado, nublado, neblina, llovizna, aguacero y tormenta según la temporada; ver [docs/clima.md](docs/clima.md). El clima y El Chato se detienen durante la pausa; el material de lluvia se prepara en la pantalla de carga.
 
+## Enfermedades y remedios
+
+Escarbar basura puede enfermar, y más si se selecciona con calma; el talento Piel Dura y el origen Desplazado bajan el riesgo. La gripe, la infección y la intoxicación se pasan solas en menos de un minuto y quitan salud mientras duran. Las otras tres duran seis minutos y molestan hasta tratarlas:
+
+- **Parásitos:** salen de la basura. El hambre baja tres veces más rápido. Se quitan con antiparasitario.
+- **Tétanos:** solo cuando la bolsa traía latas o chatarra. El personaje camina un 20 % más lento. Se trata con la vacuna.
+- **Sarna:** dormir en el cambuche con la higiene por debajo de 30 tiene un 35 % de probabilidad de pegarla. Baja el ánimo y cansa más. Se quita con pomada.
+
+La gripe se cura con jarabe o aguapanela, la intoxicación con carbón activo y la infección con antibiótico; todos los remedios se venden en La Esquinita. Un remedio solo se gasta si el personaje tiene la enfermedad que trata; la aguapanela, que también es bebida, se toma de todos modos.
+
+## El jíbaro
+
+Su tienda se abre con `E` o `Q` a su lado. Vende tintico, pegante, basuco y pastilla a 2,5 veces su valor ($ 2.500, $ 7.500, $ 10.000 y $ 20.000). De noche también compra lo que le lleves a 1,8 veces el valor: cada sustancia del costal aparece con lo que paga y solo se vende la que eliges. El talento Contactos sube un 30 % lo que paga, que aun así queda por debajo de lo que él cobra. En cada venta hay un 15 % de probabilidad de requisa: la policía se lleva lo que ibas a vender y no recibes nada. El radar y el mapa cuentan con esa plata al mandarte a venderle, pero no pueden evitar la requisa.
+
+## Efectos de consumo
+
+El pegante, la hierba y la pastilla pueden aparecer en las bolsas de basura (el basuco solo lo vende el jíbaro), con poca frecuencia; la pastilla es la más rara porque el jíbaro la compra cara. Al consumirlas desde el inventario o el acceso rápido, además de sus efectos sobre las necesidades, cada una cambia la imagen y el sonido durante un rato:
+
+- **Pegante (35 s):** mareo. La imagen se vuelve borrosa y verdosa, los bordes se oscurecen, la visión se duplica y la cámara se mece. Suena una inhalación dentro de la bolsa, un zumbido grave con un pitido de oídos tapados, y el resto de la ciudad se oye apagada, como bajo el agua.
+- **Pastilla (45 s):** euforia de colores. El tono oscila despacio, los colores se saturan, una capa de arcoíris gira y la imagen deja estela. Suena un trago, un brillo que sube y un acorde que ondula.
+- **Hierba (60 s):** se fuma en porro, como el cigarrillo, con humo verdoso, y pega en cada calada (cada 30 s, durante 10 minutos), así que el efecto dura mientras se fuma. Cálido y lento: tonos dorados, un brillo suave en el centro y una estela leve. Suena un encendedor, una inhalación larga y un fondo grave y cálido.
+- **Basuco (40 s):** se fuma en pipa. El personaje se queda quieto, se agacha con la pipa en la boca y el encendedor debajo de la cazoleta, aspira unos tres segundos y bota una bocanada espesa al pararse; el efecto llega al soltar la pipa. Imagen fría y dura con visión de túnel y un pulso rojizo lento en los bordes. Suena el chispazo, el crujido de la pipa, un pitido de oídos y un pulso grave. Además trae 50 s de paranoia: el personaje voltea la cabeza de golpe a un lado y al otro, aparecen de reojo figuras demoníacas (cuernos, ojos rojos, garras, flotando) que se desvanecen si se las mira de frente o al acercarse, y hay susurros en pantalla, latidos, temblores y frases paranoicas. El jíbaro lo vende; si el personaje está ocupado no se gasta.
+
+Cada efecto entra en 3 segundos y se desvanece en los últimos 6. Repetir la misma sustancia renueva su duración; otra distinta reemplaza a la anterior después de desvanecerla en un segundo. Los menús, el inventario y la pestaña oculta congelan el efecto, aunque el sonido de consumir suena con el inventario abierto. Dormir, morir o recuperarse en el cambuche lo cortan con un desvanecido, nunca de golpe. Ninguna oscilación de color o brillo supera medio ciclo por segundo. En calidad baja no hay estela ni desenfoque; el sonido respeta el volumen general, el de efectos y el silencio, y con la preferencia de movimiento reducido del sistema la cámara y la estela se mueven al 20 %. El tintico y el cigarrillo no tienen efecto visual.
+
 ## Rendimiento
 
-**Pausa → Calidad** permite elegir Baja (sin sombras ni silueta, hasta 1× de resolución), Media (sombras de 1024 px, hasta 1.25×) y Alta (sombras de 2048 px, hasta 1.5×). Las primeras partidas usan Media; se conserva una preferencia ya guardada. La adaptación respeta el límite seleccionado y puede reducir temporalmente efectos y frecuencia de animación cuando bajar resolución no basta. La niebla y la distancia de cámara acompañan el perfil efectivo. La mejora de FPS depende del equipo y de la zona; no se garantiza una cantidad fija.
+**Pausa → Calidad** permite elegir Baja (sin sombras ni silueta, hasta 1× de resolución), Media (sombras de 1024 px, hasta 1.25×) y Alta (sombras de 2048 px, hasta 1.5×). Lo elegido queda marcado y guardado al instante; si cambia las sombras, se aplica cuando terminan de prepararse, unos segundos la primera vez. La primera partida arranca en Baja y sube sola a Media si el equipo sostiene unos veinte segundos de cuadros holgados, sin guardarlo como preferencia; si después no aguanta, vuelve a Baja. Una preferencia ya guardada se respeta. La adaptación respeta el límite seleccionado y puede reducir temporalmente efectos y frecuencia de animación cuando bajar resolución no basta. La niebla y la distancia de cámara acompañan el perfil efectivo. La mejora de FPS depende del equipo y de la zona; no se garantiza una cantidad fija.
 
 Al abrir el juego aparece una pantalla de carga por etapas. Espera el mapa, los modelos de jugador y NPC (incluidas sus versiones de detalle), sube las texturas a la GPU y precompila los materiales. Prepara también las sombras y la silueta de la vista inicial antes de mostrar la partida. El creador de personaje sigue disponible en la primera partida. Durante la carga no avanzan el reloj ni las necesidades; la medición de FPS comienza desde cero al entrar a jugar. Si falla un recurso imprescindible, aparece **Reintentar**; los sonidos ausentes no bloquean el inicio. Esta preparación aumenta la espera inicial y el uso de memoria al adelantar la carga de los NPC completos.
 
 El panel de rendimiento está oculto por defecto; **F3** o **Ajustes → Rendimiento** lo muestran y la preferencia se guarda. Las mediciones y la resolución adaptativa funcionan igual aunque esté oculto. El panel inferior derecho muestra FPS actuales, mínimo y máximo por fotograma, promedio de la sesión, milisegundos por cuadro y coordenadas del jugador en metros. Incluye p95, p99, 1 % de FPS bajos y tirones superiores a 100 ms de los últimos 600 cuadros activos. El mínimo de sesión puede corresponder a un único tirón antiguo. **Reiniciar medición** inicia una nueva muestra. El promedio se calcula como cuadros / tiempo real; los menús y la pestaña en segundo plano quedan excluidos. El panel se refresca cuatro veces por segundo para evitar escrituras DOM innecesarias.
 
-La ciudad conserva sus dimensiones y población. La iluminación combina dos luces puntuales cercanas con halos decorativos suaves sobre el suelo para faroles y fogones. Hasta 48 halos cercanos comparten una sola llamada de dibujo y no calculan iluminación ni sombras sobre los materiales. Las llamas y lámparas siguen visibles; las luces decorativas lejanas ya no iluminan paredes y personajes en tiempo real.
+La iluminación combina dos luces puntuales cercanas con halos decorativos suaves sobre el suelo para faroles y fogones. Hasta 48 halos cercanos comparten una sola llamada de dibujo y no calculan iluminación ni sombras sobre los materiales. Las llamas y lámparas siguen visibles; las luces decorativas lejanas ya no iluminan paredes y personajes en tiempo real.
 
-Los suelos, marcas y edificios se agrupan por sectores de 32 metros. En tercera persona, las paredes, techos y adornos que comparten material se dibujan juntos; al cambiar a isométrica se recuperan las piezas independientes para ocultar las que tapan al jugador. Las transformaciones de inmuebles se calculan una vez. Las pasadas de silueta solo recorren al jugador y las luces, y el tráfico descarta peatones lejanos antes de comprobar el frenado.
+Los suelos y las marcas se agrupan por sectores de 32 metros; los edificios y el mobiliario, por sectores de 64. En tercera persona, las paredes, techos y adornos que comparten material se dibujan juntos; al cambiar a isométrica se recuperan las piezas independientes para ocultar las que tapan al jugador. Las transformaciones de inmuebles se calculan una vez. Las pasadas de silueta solo recorren al jugador y las luces, y el tráfico descarta peatones lejanos antes de comprobar el frenado.
 
 El *frustum culling* descarta sectores completos y vehículos fuera del encuadre antes de recorrer sus mallas. Comprueba el volumen completo para conservar objetos parcialmente visibles y funciona en ambas cámaras. Los objetos necesarios para el mapa de sombras siguen disponibles en esa pasada; Three.js descarta sus mallas fuera de la cámara en la pasada de color. El bus y los NPC siguen su recorrido fuera de pantalla. Los halos también se filtran antes de crear las instancias. El panel muestra **Grupos en cámara** y **Descartados**; los grupos conservados únicamente para sombras explican la diferencia entre ambos contadores y el total.
 
-Si los FPS permanecen por debajo de 45 durante tres segundos, la resolución interna baja gradualmente hasta 0.75×. Con menos de 30 FPS sostenidos, reacciona desde un segundo y ocho cuadros lentos, con un paso mayor. Si ya llegó al mínimo, reduce el perfil efectivo; recupera los efectos antes de subir resolución, tras ventanas estables por encima de 57 FPS. Esto puede suavizar la imagen en equipos lentos; el texto de la interfaz conserva su resolución. El panel también muestra la calidad efectiva, resolución, llamadas de dibujo y triángulos, incluyendo sombras y silueta. Los FPS reales dependen del equipo y deben compararse recorriendo la misma zona y con la misma cámara. Véase [rendimiento y medición](docs/rendimiento.md).
+Si los FPS permanecen por debajo de 58 durante tres segundos, con al menos un 20 % de cuadros lentos, la resolución interna baja gradualmente hasta 0.75×. Con menos de 30 FPS sostenidos, reacciona desde un segundo y ocho cuadros lentos, con un paso mayor. Si ya llegó al mínimo, reduce el perfil efectivo; recupera los efectos antes de subir resolución, tras cuatro ventanas seguidas por encima de 59 FPS. Esto puede suavizar la imagen en equipos lentos; el texto de la interfaz conserva su resolución. El panel también muestra la calidad efectiva, resolución, llamadas de dibujo y triángulos, incluyendo sombras y silueta. Los FPS reales dependen del equipo y deben compararse recorriendo la misma zona y con la misma cámara. Véase [rendimiento y medición](docs/rendimiento.md).
 
 Referencias técnicas: [renderizado y métricas de Three.js](https://threejs.org/docs/pages/WebGLRenderer), [resolución de renderizado](https://threejs.org/manual/pages/responsive.html), [volumen visible de la cámara](https://threejs.org/docs/pages/Frustum.html).
 
 ## Sonido
 
-El ambiente usa `city_atmosphere_soun.opus`. Los pasos son pisadas sueltas recortadas de `Sounds_of_a_steps.opus`: suena una cada 1,15 metros caminando y cada 1,9 corriendo, al ritmo de la animación. No se repite la misma pisada dos veces seguidas, y no suenan en el aire. En pasto y tierra suenan más suaves y algo más graves. En Ajustes hay volúmenes de Ambiente (incluida la lluvia), Tráfico (motores, claxones y alarmas), Voces (conductores y robo) y Efectos (pisadas, objetos, ladrido y efectos sintetizados), que se guardan en el navegador; la radio conserva el suyo. Mientras suena una frase, el tráfico y el ambiente bajan al 45 % para que se entienda, y nunca hablan dos personas a la vez: un conductor que pita mientras otro habla se queda callado, y el reclamo por robo interrumpe cualquier frase en curso. Cada carro y cada bus mantienen voces independientes para ralentí, marcha y claxon. Robar un retrovisor de un carro estacionado activa `Sonido De Alarma De Auto.opus`, con una voz por carro, sin bucle y respetando volumen, silencio y pausa. Motores y claxon usan reproducción normal, sin paneo, y se atenúan solo por volumen según la distancia: los motores suenan plenos hasta 6 metros y callan a 40 (55 el bus), y el claxon calla a 30. El volumen depende también de la marcha o el ralentí y permanece igual al girar la cámara. Solo suenan los seis vehículos más cercanos; si varios se agolpan junto al jugador, su mezcla se compensa para no saturar. Las grabaciones se cargan una sola vez y se comparten entre instancias. Robar con E un retrovisor de un carro en circulación reproduce inmediatamente una de las cinco frases `roberto_robo_espejo_n1.mp3`–`roberto_robo_espejo_n5.mp3`, siguiendo su posición y quedando en silencio a 12 metros. En esos carros se roban solo espejos y se mantiene el enfriamiento entre robos; la alarma corresponde a los estacionados. Cuando un carro pita por una persona atravesada, reproduce también una frase elegida al azar entre doce grabaciones: `valentina_n1.mp3`, `valentina_n3.mp3`–`valentina_n7.mp3` y `roberto_n1.mp3`–`roberto_n6.mp3`. Las frases solo empiezan a menos de 8 metros, se atenúan al alejarse y quedan en silencio desde esa distancia; respetan volumen, silencio y pausa. El claxon utiliza una pitada corta de car_horn_sound1.opus, car_horn_sound.opus o car_horn_sound_v3.opus, espera ante peatones atravesados y tiene un intervalo propio de 6–11 segundos. En toda la ciudad suenan como mucho dos pitadas a la vez, separadas al menos 1,5 segundos. Las pitadas ocasionales entre carros que circulan pegados usan las mismas grabaciones, más suaves, solo a menos de 25 metros y con al menos 9 segundos entre una y otra. Los semáforos y las colas de vehículos no lo activan por sí solos; si alguien se queda junto al parachoques, el conductor pita incluso estando detenido por rojo o tráfico. Menús, sueño y pestaña oculta pausan el audio; un clic o una tecla desbloquea el sonido si el navegador lo exige.
+El ambiente usa `city_atmosphere_soun.opus`. Los pasos son pisadas sueltas recortadas de `Sounds_of_a_steps.opus`: suena una cada 1,25 metros caminando y cada 1,45 corriendo, al ritmo de la animación. No se repite la misma pisada dos veces seguidas, y no suenan en el aire. En pasto y tierra suenan más suaves y algo más graves. En Ajustes hay volúmenes de Ambiente (incluida la lluvia), Tráfico (motores, claxones y alarmas), Voces (conductores y robo) y Efectos (pisadas, objetos, ladrido y efectos sintetizados), que se guardan en el navegador; la radio conserva el suyo. Mientras suena una frase, el tráfico y el ambiente bajan al 45 % para que se entienda, y nunca hablan dos personas a la vez: un conductor que pita mientras otro habla se queda callado, y el reclamo por robo interrumpe cualquier frase en curso. Cada carro y cada bus mantienen voces independientes para ralentí, marcha y claxon. Robar un retrovisor de un carro estacionado activa `Sonido De Alarma De Auto.opus`, con una voz por carro, sin bucle y respetando volumen, silencio y pausa. Motores y claxon usan reproducción normal, sin paneo, y se atenúan solo por volumen según la distancia: los motores suenan plenos hasta 6 metros y callan a 40 (55 el bus), y el claxon calla a 30. El volumen depende también de la marcha o el ralentí y permanece igual al girar la cámara. Solo suenan los seis vehículos más cercanos; si varios se agolpan junto al jugador, su mezcla se compensa para no saturar. Las grabaciones se cargan una sola vez y se comparten entre instancias. Robar con E un retrovisor de un carro en circulación reproduce inmediatamente una de las cinco frases `roberto_robo_espejo_n1.mp3`–`roberto_robo_espejo_n5.mp3`, siguiendo su posición y quedando en silencio a 12 metros. En esos carros se roban solo espejos y se mantiene el enfriamiento entre robos; la alarma corresponde a los estacionados. Cuando un carro pita por una persona atravesada, reproduce también una frase elegida al azar entre doce grabaciones: `valentina_n1.mp3`, `valentina_n3.mp3`–`valentina_n7.mp3` y `roberto_n1.mp3`–`roberto_n6.mp3`. Las frases solo empiezan a menos de 8 metros, se atenúan al alejarse y quedan en silencio desde esa distancia; respetan volumen, silencio y pausa. El claxon utiliza una pitada corta de car_horn_sound1.opus, car_horn_sound.opus o car_horn_sound_v3.opus, espera ante peatones atravesados y tiene un intervalo propio de 6–11 segundos. En toda la ciudad suenan como mucho dos pitadas a la vez, separadas al menos 1,5 segundos. Las pitadas ocasionales entre carros que circulan pegados usan las mismas grabaciones, más suaves, solo a menos de 25 metros y con al menos 9 segundos entre una y otra. Los semáforos y las colas de vehículos no lo activan por sí solos; si alguien se queda junto al parachoques, el conductor pita incluso estando detenido por rojo o tráfico. Menús, sueño y pestaña oculta pausan el audio; un clic o una tecla desbloquea el sonido si el navegador lo exige.
 
 ## Compilación y pruebas
 
@@ -168,11 +268,11 @@ Para ejecutar las pruebas con el runner de Node.js:
 npm test
 ```
 
-Las pruebas automatizadas cubren colisiones, cámaras, visibilidad de edificios, suelos, navegación de peatones, tráfico, bus, supervivencia, migración de partidas guardadas, ampliación de la ciudad, rendimiento y carga inicial. Los carros circulan a 10–14 m/s en rectas libres (el doble que antes); el bus conserva sus 5 m/s y los semáforos completan su ciclo en 36 segundos, con 14 segundos de verde por eje, 3 de amarillo y 1 de despeje. El tráfico permite cruces simultáneos compatibles, mantiene la prioridad entre giros que se cortan y usa aceleración, frenado y reacción progresivos. Se comprueba su circulación durante diez minutos simulados, además del paso compartido con el bus y la carrocería dentro de la calzada al girar. Las pruebas de arranque verifican que la partida espere modelos, shaders y GPU, que un fallo impida comenzar una partida incompleta y que la espera no contamine las estadísticas de FPS. Las pruebas de modelos importados comprueban las dimensiones de los nueve GLB reales, el uso compartido de recursos, el desvanecimiento del bus y los estados de construcción del cambuche. La reserva de materiales se comprueba contra todas las recetas, también tras reponerse las bolsas, con protección de objetos cuando el costal está lleno.
+Las pruebas automatizadas cubren colisiones, cámaras, visibilidad de edificios, suelos, navegación de peatones, tráfico, bus, supervivencia, migración de partidas guardadas, ampliación de la ciudad, rendimiento y carga inicial. Los carros circulan a 10–14 m/s en rectas libres (el doble que antes); el bus conserva sus 5 m/s y los semáforos completan su ciclo en 36 segundos, con 14 segundos de verde por eje, 3 de amarillo y 1 de despeje. El tráfico permite cruces simultáneos compatibles, mantiene la prioridad entre giros que se cortan y usa aceleración, frenado y reacción progresivos. Se comprueba su circulación durante diez minutos simulados y, con la flota montada como en una partida, en cinco semillas de cinco minutos, además del paso compartido con el bus y la carrocería dentro de la calzada al girar. Las pruebas de arranque verifican que la partida espere modelos, shaders y GPU, que un fallo impida comenzar una partida incompleta y que la espera no contamine las estadísticas de FPS. Las pruebas de modelos importados comprueban las dimensiones de los nueve GLB reales, el uso compartido de recursos, el desvanecimiento del bus y los estados de construcción del cambuche. La reserva de materiales se comprueba contra todas las recetas, también tras reponerse las bolsas, con protección de objetos cuando el costal está lleno.
 
 ## Estructura
 
-El archivo [AGENTS.md](AGENTS.md) reúne el contexto técnico, los comandos de trabajo, los puntos de entrada y las decisiones que deben conservarse al continuar el desarrollo. La procedencia de las integraciones está documentada en [modelos importados](docs/modelos-importados.md) e [integración de funcionalidades](docs/integracion-cristian.md). Los iconos de la mesa de fabricación y sus autores se detallan en [iconos de objetos](docs/iconos.md).
+El archivo [AGENTS.md](AGENTS.md) reúne el contexto técnico, los comandos de trabajo, los puntos de entrada y las decisiones que deben conservarse al continuar el desarrollo. La procedencia de las integraciones está documentada en [modelos importados](docs/modelos-importados.md) e [integración de funcionalidades](docs/integracion-cristian.md). Los iconos de objetos de la mesa de fabricación, el inventario y la barra rápida, con sus autores, se detallan en [iconos de objetos](docs/iconos.md).
 
 ```text
 src/
@@ -202,17 +302,21 @@ Integra los cambios de `juanagogo/bazuko` hasta `77f66bd`: radio AM/FM sintetiza
 
 ### Animaciones del personaje
 
-El personaje realista usa nuevos movimientos de Quaternius exportados con ActionForge para caminar, correr, buscar, pedir, consumir, agacharse y lanzar. Se conserva la personalización de ropa, pelo y cuerpo, además del ragdoll. El banco optimizado contiene ocho clips sin duplicar las texturas. Consulta [procedencia, adaptación y controles](docs/animaciones-actionforge.md).
+El personaje realista usa movimientos de Quaternius exportados con ActionForge para buscar, pedir, consumir, agacharse y lanzar. Andar, correr y estar de pie se hornean una vez por cuerpo mezclando un andar erguido con Sad Walk y Running de Mixamo, en varias familias de paso. Encima va una capa de postura y forma de llevar el cuerpo, en el modelo completo y en el liviano: manos en los bolsillos, sentarse, hablar por teléfono, una caída con brazos y piernas. Quien no la usa no paga nada. La mezcla caminar/correr mantiene una fase compartida y ajusta la cadencia a la zancada real, con movimiento secundario de torso y peso. Salto, aterrizaje, puñetazo, reacción y natación se articulan sobre cada esqueleto sin modificar los clips compartidos. El salto sigue el vuelo físico, incluso mientras se corre. Cada arma y paso del combo define su preparación, impacto y recuperación; el contacto respeta distancia, orientación, altura y obstáculos. El NPC reacciona, huye o cae temporalmente al quedarse sin salud. Se conserva la personalización, el modelo liviano y el ragdoll. El banco optimizado contiene ocho clips sin duplicar texturas; consulta [procedencia y adaptación](docs/animaciones-actionforge.md).
+
+La sala tiene un banco de revisión independiente con nueve clips de **Mixamo preparados en Blender**, incluidos Old Man Idle y Sad Walk para una postura cansada y contenida. Se abre con `sala.html?prueba=personaje&animaciones=mixamo-preview` o con el selector **Mixamo + Blender**. Conserva las duraciones originales de los gestos y permite comparar con el banco actual. Para probarlos en la ciudad, abrir `/?animaciones=mixamo-preview`; comer y agacharse se complementan con ActionForge. La entrada habitual del juego usa solo tres de esos clips, recortados. Consulta la [selección de clips, dónde se usa Mixamo y el proceso de Blender](tools/personaje/MIXAMO.md).
+
+Jugador y peatones usan los mismos materiales de calle, con su modelo completo y con el liviano: piel curtida por el sol, mugre y barba de días según el desgaste, y ropa de un color propio por persona (`look.real.tonos`), lisa, a rayas o de franela. Con lluvia todos se oscurecen y brillan algo. Es una aproximación global, sin distinguir quién está bajo techo. En la sala, **Ver rostro** y **Cuerpo completo** acercan la cámara para revisar piel, barba y ropa, y **Mojar con lluvia** alterna seco y mojado. `&aspecto=realista` solo fuerza el modelo realista en esos enlaces. Consulta [materiales, recurso editable y coste](tools/personaje/MATERIALES_CALLE.md).
 
 ### Parque del Lago y viaducto
 
-La ampliación al sur, desde Z 222, añade un lago de unos 100 × 52 metros, senderos, bancas y arbolado. El agua no es transitable y el parque aparece en el radar. Un único puente de asfalto cruza el lago y rodea la Torre Colpatria por el oriente, desde Z 15,43 hasta Z 318. Alcanza 7,82 metros de altura en Z 39 y conserva esa cota hasta Z 280, donde comienza la rampa sur.
+La ampliación al sur, desde Z 222, añade un lago de unos 100 × 52 metros, senderos, bancas y arbolado. Su orilla baja gradualmente hasta un fondo de 6 m. El jugador puede entrar andando, saltar al agua, nadar con **WASD** y regresar a tierra por cualquier orilla gradual; **Shift** acelera el nado y consume energía. Sin energía sigue siendo posible nadar normalmente. Las ondas, salpicaduras, brazadas y flotación se detienen en pausa y modo foto. Los peatones y el GPS conservan sus rutas terrestres. El fondo coincide con las consultas físicas y los pilares llegan hasta él. Un único puente de asfalto cruza el lago y rodea la Torre Colpatria por el oriente, desde Z 15,43 hasta Z 318. Alcanza 7,82 metros de altura en Z 39 y conserva esa cota hasta Z 280, donde comienza la rampa sur.
 
 El puente mantiene 14 metros de ancho real en todo el recorrido, medidos perpendicularmente a su eje. Sus curvas tienen un radio más amplio y bordes paralelos, sin ensanchamientos locales. La llegada norte está centrada en X 75. El concreto queda bajo el asfalto, sin superficies superpuestas. Los buses ajustan altura e inclinación al tablero y sus colisiones siguen la carrocería. El jugador puede caminar sobre el puente o por las calles inferiores.
 
 ### Avenida, comercios y Torre Colpatria
 
-La Caracas alterna edificios de dos a seis pisos y tiene una pasarela en Z 8, con 6,4 metros libres sobre la calzada. La gasolinera junto a X 142, Z 95 incluye marquesina roja, cuatro surtidores, tienda y tótem. La tienda D69, junto a X 53, Z 162, tiene fachada blanca, franjas rojas y vitrinas. Ambos comercios son decorativos, sin compras ni acceso interior.
+La Caracas alterna edificios de dos a seis pisos y tiene una pasarela en Z 8, con 6,4 metros libres sobre la calzada. La gasolinera junto a X 142, Z 95 incluye marquesina roja, cuatro surtidores, tienda y tótem. El mercado Doña Inés, junto a X 53, Z 162, tiene fachada blanca, franjas verdes y vitrinas. Ambos comercios son decorativos, sin compras ni acceso interior.
 
 La Torre Colpatria estilizada mide 112 metros de alto y tiene una planta de 24 × 26 metros en X 81, Z 168. La acompaña un anexo gris de 22 metros de alto, con columnas y locales. Sus franjas amarillas, azules y rojas se iluminan de noche sin añadir luces dinámicas. El viaducto rodea el conjunto y deja libres los edificios.
 
@@ -228,9 +332,9 @@ El rodeo de Colpatria usa un eje con transiciones de curvatura suaves entre Z 80
 
 ### Ilustraciones de la pantalla de carga
 
-La pantalla muestra tres etapas (ciudad, recursos y preparación gráfica), porcentaje y recuento de tareas terminadas. El porcentaje representa trabajo completado, no bytes descargados ni tiempo restante. Personajes, vehículos y mobiliario avanzan en una cola compartida de hasta seis tareas; las instancias siguen reutilizando los modelos descargados. El cuerpo y las prendas del personaje se solicitan en paralelo. Las actualizaciones de progreso y la subida de texturas a la GPU ceden fotogramas por presupuesto de tiempo, evitando pausas fijas por cada instancia o lote de texturas. La partida y los FPS empiezan después de preparar texturas, shaders y GPU.
+La pantalla no da cifras: BAZUKO se va escribiendo con cada etapa terminada, y el lector de pantalla recibe la etapa y el avance. El avance representa trabajo completado, no bytes descargados ni tiempo restante. Personajes, vehículos y mobiliario avanzan en una cola compartida de hasta seis tareas; las instancias siguen reutilizando los modelos descargados. El cuerpo y las prendas del personaje se solicitan en paralelo. Las actualizaciones de progreso y la subida de texturas a la GPU ceden fotogramas por presupuesto de tiempo, evitando pausas fijas por cada instancia o lote de texturas. La partida y los FPS empiezan después de preparar texturas, shaders y GPU.
 
-La carga muestra fondos y personajes por parejas numeradas en orden aleatorio, con fundido y movimiento parallax independiente. Cambia de pareja cada 7,5 segundos mientras continúa la carga, sin imponer tiempo adicional de espera. El movimiento respeta la preferencia de reducir animaciones. Si una imagen falla, se conserva la pareja anterior o la pantalla de respaldo. Las ilustraciones se solicitan con prioridad baja para favorecer los recursos del juego; al cerrar la carga o abrir el creador se cancela la espera pendiente de la galería.
+La carga imprime una pareja de fondo y personaje, elegida al azar sin repetir la anterior, en semitono de una sola tinta sobre cartón. Se imprime una vez, sin cambio de pareja ni movimiento, y solo se reimprime si cambia el tamaño de la pantalla. Si una imagen falla, queda el cartón con la palabra. Las ilustraciones se solicitan con prioridad baja para favorecer los recursos del juego y nunca retrasan la partida; al cerrar la carga o abrir el creador se cancela la espera pendiente.
 
 Las imágenes WebP están en `public/images/pantalla-carga/`: `fondo_pantalla_carga_N.webp` y `personaje_pantalla_carga_N.webp`, con transparencia en el personaje. Los números disponibles se declaran en `src/ui/loading-artwork.json`; al añadir otra pareja, añadir allí su número.
 

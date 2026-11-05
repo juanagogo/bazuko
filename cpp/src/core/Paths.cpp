@@ -56,10 +56,12 @@ std::string Find(const std::string& relative) {
     if (!g_PublicOverride.empty() && relative.compare(0, prefix.size(), prefix) == 0) {
         candidates.push_back(g_PublicOverride / relative.substr(prefix.size()));
     }
-    // junto al ejecutable y en las carpetas superiores (cpp/build -> cpp -> raiz del repo)
+    // junto al ejecutable y en las carpetas superiores hasta la raiz del proyecto C++ (la que tiene CMakeLists.txt y assets/):
+    // el juego es independiente del juego web y no busca recursos fuera de cpp/
     fs::path up = g_ExeDir;
     for (int i = 0; i < 6 && !up.empty(); ++i) {
         candidates.push_back(up / relative);
+        if (fs::exists(up / "CMakeLists.txt", ec) && fs::exists(up / "assets", ec)) break;
         const fs::path parent = up.parent_path();
         if (parent == up) break;
         up = parent;
@@ -67,7 +69,6 @@ std::string Find(const std::string& relative) {
     candidates.push_back(fs::current_path() / relative);
 #ifdef BAZUKO_SOURCE_DIR
     candidates.push_back(fs::path(BAZUKO_SOURCE_DIR) / relative);
-    candidates.push_back(fs::path(BAZUKO_SOURCE_DIR) / ".." / relative);
 #endif
     for (const auto& c : candidates) {
         if (fs::exists(c, ec)) return c.lexically_normal().string();

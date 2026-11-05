@@ -1,11 +1,15 @@
 // src/world/WeatherSystem.js
 import * as THREE from 'three';
-import { WEATHER_TYPES, RAIN_THRESHOLD, seasonForDay, pickNextWeather } from './Climate.js';
+import { WEATHER_TYPES, RAIN_THRESHOLD, seasonForDay, pickNextWeather, sunDirection } from './Climate.js';
+import { setPuddles } from './bogota/StreetPuddles.js';
 
 // Gotas visibles por perfil gráfico: el resto del búfer no se dibuja.
 const RAIN_BUDGET = { baja: .4, media: .7, alta: 1 };
 const RAIN_DROPS = 1400;
 const RIPPLE_COUNT = 36;
+const RAIN_COLOR_DAY = new THREE.Color(0xc0d2df);
+const RAIN_COLOR_NIGHT = new THREE.Color(0x738ba6);
+const RAIN_COLOR_FLASH = new THREE.Color(0xf0f4ff);
 
 /**
  * Las gotas caen en el vertex shader: la CPU no reescribe el búfer cada cuadro.
@@ -43,8 +47,11 @@ function createRainMaterial(area) {
         vec3 velocity = vec3(uWind.x, -fall, uWind.y);
         vec3 local = vec3(xz.x, y, xz.y) - velocity * (aTail * uLength / fall);
         vec2 edge = abs(xz) / (uArea.xz * 0.5);
+        vec4 viewPosition = modelViewMatrix * vec4(local, 1.0);
+        float distanceFade = smoothstep(0.8, 2.4, -viewPosition.z) * (1.0 - smoothstep(12.0, 25.0, -viewPosition.z));
         vAlpha = (1.0 - smoothstep(0.55, 1.0, max(edge.x, edge.y))) * mix(1.0, 0.15, aTail);
-        gl_Position = projectionMatrix * modelViewMatrix * vec4(local, 1.0);
+        vAlpha *= distanceFade;
+        gl_Position = projectionMatrix * viewPosition;
       }
     `,
     fragmentShader: `
@@ -53,6 +60,8 @@ function createRainMaterial(area) {
       varying float vAlpha;
       void main() {
         gl_FragColor = vec4(uColor, uOpacity * vAlpha);
+        #include <tonemapping_fragment>
+        #include <colorspace_fragment>
       }
     `,
     transparent: true,
@@ -86,6 +95,8 @@ export class WeatherSystem {
     this._flashTime = -1;
     this._nextLightning = 6;
     this._windClock = 0;
+    this._sunDirection = new THREE.Vector3();
+    this._rainDaylight = 1;
 
     this.rainArea = { x: 30, y: 18, z: 30 };
     this.rainGeometry = null;
@@ -110,7 +121,7 @@ export class WeatherSystem {
     this._dummyQuat = new THREE.Quaternion();
     this._dummyQuat.setFromAxisAngle(new THREE.Vector3(1, 0, 0), -Math.PI / 2);
 
-    this.rippleGeometry = new THREE.RingGeometry(0.08, 0.18, 16);
+    this.rippleGeometry = new THREE.RingGeometry(0.11, 0.15, 16);
     this.rippleMaterial = new THREE.MeshBasicMaterial({
       color: 0xbeddf5,
       transparent: true,
@@ -266,12 +277,20 @@ export class WeatherSystem {
       this._sentWetness = this.wetness;
       district.setWetness(this.wetness);
     }
+    // Cada cuadro: una ciudad recién construida también debe enterarse de que el suelo sigue mojado.
+    setPuddles(this.wetness);
 
     this._updateRipples(dt, playerPosition, district);
 
     if (!this.isRaining || !this.rainParticles || !playerPosition) return;
     this.rainParticles.position.copy(playerPosition);
     const uniforms = this.rainParticles.material.uniforms;
+    if (clock) {
+      sunDirection(clock.hour, clock.day, this._sunDirection);
+      this._rainDaylight = THREE.MathUtils.smoothstep(this._sunDirection.y, -.08, .22);
+    }
+    uniforms.uColor.value.copy(RAIN_COLOR_NIGHT).lerp(RAIN_COLOR_DAY, this._rainDaylight)
+      .lerp(RAIN_COLOR_FLASH, Math.min(1, this.flash));
     uniforms.uTime.value = (uniforms.uTime.value + dt) % 600;
     uniforms.uOrigin.value.copy(playerPosition);
     uniforms.uWind.value.copy(this.wind);
@@ -284,7 +303,7 @@ export class WeatherSystem {
     this.rippleMesh.visible = count > 0;
     this.rippleMesh.count = count;
     if (!count) return;
-    this.rippleMaterial.opacity = 0.35 * Math.min(1.0, this.wetness * 1.5);
+    this.rippleMaterial.opacity = 0.2 * Math.min(1.0, this.wetness * 1.5);
     for (let i = 0; i < count; i++) {
       const r = this.rippleData[i];
       r.age += dt;
@@ -294,7 +313,7 @@ export class WeatherSystem {
         r.x = playerPosition.x + (Math.random() - 0.5) * 26;
         r.z = playerPosition.z + (Math.random() - 0.5) * 26;
         r.y = (district?.getGroundHeight?.(r.x, r.z) ?? playerPosition.y) + 0.025;
-        r.maxScale = 1.0 + Math.random() * 0.8;
+        r.maxScale = .55 + Math.random() * .6; // gotas de lluvia, no anillos de un metro
       }
       const currentScale = 0.2 + Math.min(1.0, r.age / r.life) * r.maxScale;
       this._dummyPos.set(r.x, r.y, r.z);

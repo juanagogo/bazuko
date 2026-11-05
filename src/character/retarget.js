@@ -51,16 +51,21 @@ function matchRestPose(src, tgtRoot, C) {
 /**
  * Prepara el retarget de srcRoot (esqueleto de las animaciones) a tgtRoot (personaje).
  * Deja el destino en la pose de reposo del origen. Devuelve retarget(clip) → clip horneado
- * solo con rotaciones (animación en el sitio):
+ * con rotaciones y, si se pide, la altura de la cadera (animación en el sitio):
  *   mundoDestino(t) = C · mundoOrigen(t) · reposoOrigen⁻¹ · C⁻¹ · reposoDestino
  *   localDestino(t) = mundoPadreDestino(t)⁻¹ · mundoDestino(t)
+ *
+ * Con `flatFeet`, pie y dedos parten del reposo propio del personaje: los dos reposos apoyan la
+ * planta, así que plano sigue siendo plano. Alinear el hueso con el del origen la inclinaba lo
+ * que difiera la altura del tobillo, y un cuerpo de pie quedaba de puntillas.
  */
-export function createRetargeter(srcRoot, tgtRoot, { preserveHipHeight = false } = {}) {
+export function createRetargeter(srcRoot, tgtRoot, { preserveHipHeight = false, hipSpace = 'local', flatFeet = false } = {}) {
   const src = bonesOf(srcRoot);
   const tgt = bonesOf(tgtRoot);
   const srcLocalRest = new Map([...src].map(([n, b]) => [n, [b.position.clone(), b.quaternion.clone(), b.scale.clone()]]));
   srcRoot.updateMatrixWorld(true);
   tgtRoot.updateMatrixWorld(true);
+  const ownFeet = flatFeet ? [...tgt].filter(([n]) => /(?:Foot|ToeBase)$/.test(n)).map(([n, b]) => [n, b.getWorldQuaternion(new THREE.Quaternion())]) : [];
 
   const C = facingRotation(src, tgt);
   const Cinv = C.clone().invert();
@@ -68,13 +73,25 @@ export function createRetargeter(srcRoot, tgtRoot, { preserveHipHeight = false }
 
   const restSrc = new Map([...src].map(([n, b]) => [n, b.getWorldQuaternion(new THREE.Quaternion())]));
   const restTgt = new Map([...tgt].map(([n, b]) => [n, b.getWorldQuaternion(new THREE.Quaternion())]));
+  for (const [n, q] of ownFeet) restTgt.set(n, q);
   const restLocal = new Map([...tgt].map(([n, b]) => [n, b.quaternion.clone()]));
-  const hipName = [...src.keys()].find(n => /(^|:)Hips$/.test(n) && tgt.has(n));
+  // El cargador de glTF quita los «:» del nombre: mixamorig:Hips llega como mixamorigHips.
+  const hipName = [...src.keys()].find(n => n.replace(/[^a-z0-9]/gi, '').replace(/^mixamorig/i, '').toLowerCase() === 'hips' && tgt.has(n));
   const sourceHip = hipName && src.get(hipName);
   const targetHip = hipName && tgt.get(hipName);
   const sourceHipRest = sourceHip?.position.clone();
   const targetHipRest = targetHip?.position.clone();
   const heightRatio = sourceHipRest?.y ? targetHipRest.y / sourceHipRest.y : 1;
+  const sourceHipWorldRest = sourceHip && worldPos(sourceHip);
+  const targetHipWorldRest = targetHip && worldPos(targetHip);
+  const legLength = bones => {
+    const find = suffix => [...bones.values()].find(bone => bone.name.endsWith(suffix));
+    const thigh = find('LeftUpLeg'), knee = find('LeftLeg'), foot = find('LeftFoot');
+    return thigh && knee && foot ? worldPos(thigh).distanceTo(worldPos(knee)) + worldPos(knee).distanceTo(worldPos(foot)) : 0;
+  };
+  const sourceLegLength = hipSpace === 'world' ? legLength(src) : 0;
+  const worldHeightRatio = sourceLegLength > 1e-6 ? legLength(tgt) / sourceLegLength : 1;
+  const hipPosition = new THREE.Vector3();
   const rootParentWorld = new Map();
   for (const [n, b] of tgt) {
     if (!b.parent?.isBone) rootParentWorld.set(n, b.parent.getWorldQuaternion(new THREE.Quaternion()));
@@ -106,12 +123,21 @@ export function createRetargeter(srcRoot, tgtRoot, { preserveHipHeight = false }
       const t = Math.min(srcClip.duration, f / fps);
       times[f] = t;
       mixer.setTime(t);
-      if (hipPositions) {
-        hipPositions.set([targetHipRest.x,
-          targetHipRest.y + (sourceHip.position.y - sourceHipRest.y) * heightRatio,
-          targetHipRest.z], f * 3);
-      }
       srcRoot.updateMatrixWorld(true);
+      if (hipPositions) {
+        if (hipSpace === 'world') {
+          // Un FBX puede usar Z local arriba y centímetros. La altura se mide
+          // en mundo y se escala por la pierna; nunca se copia su desplazamiento X/Z.
+          const height = sourceHip.getWorldPosition(hipPosition).y - sourceHipWorldRest.y;
+          hipPosition.copy(targetHipWorldRest);
+          hipPosition.y += height * worldHeightRatio;
+          targetHip.parent.worldToLocal(hipPosition).toArray(hipPositions, f * 3);
+        } else {
+          hipPositions.set([targetHipRest.x,
+            targetHipRest.y + (sourceHip.position.y - sourceHipRest.y) * heightRatio,
+            targetHipRest.z], f * 3);
+        }
+      }
       for (const b of order) {
         const parentW = b.parent?.isBone ? world.get(b.parent.name) : rootParentWorld.get(b.name);
         const s = src.get(b.name);
