@@ -30,23 +30,25 @@ export function installErrorScreen({ canvas = null, game = null, doc = globalThi
     banner.id = 'error-screen';
     banner.setAttribute('role', 'alertdialog');
     banner.setAttribute('aria-live', 'assertive');
-    banner.className = canContinue ? 'error-screen error-screen--soft' : 'error-screen';
+    banner.className = canContinue ? 'error-screen error-screen--suave' : 'error-screen';
     const box = doc.createElement('div');
-    box.className = 'error-screen__box';
+    box.className = 'carton error-screen__caja';
     const h = doc.createElement('h2');
     h.textContent = title;
     const p = doc.createElement('p');
     p.textContent = text;
     const actions = doc.createElement('div');
-    actions.className = 'error-screen__actions';
+    actions.className = 'error-screen__acciones';
     const reload = doc.createElement('button');
     reload.type = 'button';
+    reload.className = 'cinta cinta--verbo';
     reload.textContent = 'Recargar el juego';
     reload.addEventListener('click', () => { try { game?._save?.(); } catch { /* sin guardado */ } win.location.reload(); });
     actions.append(reload);
     if (canContinue) {
       const keep = doc.createElement('button');
       keep.type = 'button';
+      keep.className = 'cinta';
       keep.textContent = 'Seguir jugando';
       keep.addEventListener('click', () => { banner?.remove(); banner = null; });
       actions.append(keep);
@@ -62,7 +64,7 @@ export function installErrorScreen({ canvas = null, game = null, doc = globalThi
     if (fatal || banner) return;
     show({
       title: 'Algo falló',
-      text: `Ocurrió un error inesperado (${entry.message}). Puedes seguir jugando o recargar; tu partida se guarda antes de recargar.`,
+      text: `Ocurrió un error inesperado (${entry.message}). Puede seguir jugando o recargar; la partida se guarda antes de recargar.`,
       canContinue: true
     });
   };
@@ -81,7 +83,7 @@ export function installErrorScreen({ canvas = null, game = null, doc = globalThi
     try { game?._save?.(); } catch { /* sin guardado */ }
     show({
       title: 'Se perdió la imagen',
-      text: 'El navegador reinició la tarjeta gráfica. Guardamos tu partida; recarga para seguir jugando.',
+      text: 'El navegador reinició la tarjeta gráfica. La partida quedó guardada; recargue para seguir jugando.',
       canContinue: false
     });
   });

@@ -3,8 +3,9 @@ import { beforeEach, test } from 'node:test';
 import { StatsSystem } from '../src/systems/StatsSystem.js';
 import { Clock } from '../src/core/Clock.js';
 import { DiseaseSystem } from '../src/systems/DiseaseSystem.js';
+import { resetTestWindow } from './helpers/fixtures.js';
 
-beforeEach(() => { globalThis.window = new EventTarget(); });
+beforeEach(resetTestWindow);
 
 function explore(stats, seconds, clock = { isNight: false }, talents = null) {
   for (let frame = 0; frame < seconds * 60; frame++) {

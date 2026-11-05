@@ -19,12 +19,9 @@ export class CraftingSystem {
   craft(recipe, inventory) {
     if (!this.canCraft(recipe, inventory)) return null;
 
-    // Verificar peso del resultado
+    // Comprobar el peso final antes de consumir ningún material.
     const resultItem = ITEMS[recipe.result];
-    if (!resultItem) return null;
-    if (inventory.totalWeight + resultItem.weight * recipe.qty > inventory.maxWeight) {
-      return null;
-    }
+    if (!this.fits(recipe, inventory)) return null;
 
     // Quitar ingredientes
     for (const [id, qty] of Object.entries(recipe.ingredients)) {
@@ -44,7 +41,12 @@ export class CraftingSystem {
   /** ¿Cabe el resultado en el costal? (misma regla que craft) */
   fits(recipe, inventory) {
     const resultItem = ITEMS[recipe.result];
-    return !!resultItem && inventory.totalWeight + resultItem.weight * recipe.qty <= inventory.maxWeight;
+    if (!resultItem) return false;
+    const remainingWeight = inventory.items.reduce((weight, item) => {
+      const consumed = Math.min(item.qty, recipe.ingredients[item.id] ?? 0);
+      return weight + item.weight * (item.qty - consumed);
+    }, 0);
+    return remainingWeight + resultItem.weight * recipe.qty <= inventory.maxWeight;
   }
 
   /** Devuelve todas las recetas marcando si son crafteables y si su resultado cabe */

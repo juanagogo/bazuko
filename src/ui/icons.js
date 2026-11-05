@@ -1,33 +1,40 @@
-import {
-  createElement, Recycle, Store, Droplets, Moon, Sun, CloudRain, CloudDrizzle, Cloud, CloudLightning,
-  Backpack, Pause, X, ArrowUp, HandCoins, Search, Bed, Tent, Package, Coins, Sandwich, Coffee, Pill,
-  Thermometer, TriangleAlert, ShoppingBag, Hammer, Flame, Footprints, Trash2, Volume2, VolumeX, Save,
-  Smartphone, Watch, GlassWater, Utensils, Heart, Smile, Bath, Layers, Box, Play, Check, Lock, Bandage,
-  Banknote, Croissant, Wrench, Map, MapPin, Scissors, Shirt, User, Dices, RotateCcw, RotateCw, Sparkles,
-  Crown, Eye, IdCard, PersonStanding, Palette, Radio,
-} from 'lucide';
+// Los iconos de la interfaz son dibujos de la letra: se tiñen con el color del texto y pesan lo que pesa una letra.
+import { DIBUJOS } from './fuentes/dibujos.js';
+import { dibujo } from './pictos.js';
 
-const ICONS = {
-  recycle: Recycle, store: Store, droplets: Droplets, moon: Moon, sun: Sun, rain: CloudRain,
-  drizzle: CloudDrizzle, cloud: Cloud, storm: CloudLightning, backpack: Backpack, pause: Pause, x: X,
-  arrow: ArrowUp, hand: HandCoins, search: Search, bed: Bed, tent: Tent, package: Package, coins: Coins,
-  sandwich: Sandwich, coffee: Coffee, pill: Pill, thermometer: Thermometer, alert: TriangleAlert,
-  bag: ShoppingBag, hammer: Hammer, flame: Flame, run: Footprints, trash: Trash2, sound: Volume2,
-  mute: VolumeX, save: Save, phone: Smartphone, watch: Watch, water: GlassWater, food: Utensils,
-  heart: Heart, smile: Smile, bath: Bath, layers: Layers, box: Box, play: Play, check: Check,
-  lock: Lock, bandage: Bandage, banknote: Banknote, bread: Croissant, wrench: Wrench, map: Map, pin: MapPin,
-  scissors: Scissors, shirt: Shirt, user: User, dice: Dices, rotl: RotateCcw, rotr: RotateCw, sparkles: Sparkles,
-  crown: Crown, eye: Eye, idcard: IdCard, body: PersonStanding, palette: Palette, radio: Radio,
+// Los nombres con que el código pide un icono, y el dibujo que le toca a cada uno.
+const ICONOS = {
+  recycle: 'reciclar', store: 'tienda', droplets: 'agua', moon: 'luna', sun: 'sol', rain: 'aguacero',
+  drizzle: 'llovizna', cloud: 'nube', storm: 'tormenta', backpack: 'costal', pause: 'pausa', x: 'cerrar',
+  arrow: 'flecha', hand: 'mano', search: 'lupa', bed: 'colchon', tent: 'cambuche', package: 'carton', coins: 'moneda',
+  sandwich: 'pan', coffee: 'pocillo', pill: 'pastilla', thermometer: 'termometro', alert: 'peligro',
+  bag: 'costal', hammer: 'martillo', flame: 'fogata', run: 'correr', trash: 'basura', sound: 'sonido',
+  mute: 'silencio', save: 'chulo', phone: 'radio', watch: 'reloj', water: 'botellaAgua', food: 'comida',
+  heart: 'corazon', smile: 'cara', bath: 'jabon', layers: 'carton', box: 'carton', play: 'flecha', check: 'chulo',
+  lock: 'candado', bandage: 'vendaje', banknote: 'moneda', bread: 'pan', wrench: 'martillo', map: 'mapa', pin: 'bandera',
+  scissors: 'tijeras', shirt: 'camisa', user: 'persona', dice: 'dado', rotl: 'girar-izq', rotr: 'girar-der', sparkles: 'brillo',
+  crown: 'brillo', eye: 'vista', idcard: 'cedula', body: 'persona', palette: 'camisa', radio: 'radio',
+  'cloud-sun': 'medioNublado', 'cloud-moon': 'nube', fog: 'neblina', wind: 'viento', zap: 'rayo', droplet: 'agua',
+  cigarette: 'cigarrillo', clock: 'reloj', settings: 'ajustes', keyboard: 'teclado', chart: 'barras', dog: 'perro',
+  info: 'ayuda',
 };
 
-/** Devuelve un SVG de lucide con trazo uniforme. */
-export function icon(name, { size = 24, stroke = 2.25 } = {}) {
-  const node = ICONS[name] ?? ICONS.box;
-  const el = createElement(node);
-  el.setAttribute('width', size);
-  el.setAttribute('height', size);
-  el.setAttribute('stroke-width', stroke);
+/** Vale el nombre de un icono o el de un dibujo directamente. */
+export const hasIcon = (name) => Object.hasOwn(ICONOS, name) || Object.hasOwn(DIBUJOS, name);
+
+/** El carácter que le toca a un icono. Sin nombre conocido, el cartón. */
+export const iconChar = (name) => dibujo(ICONOS[name] ?? name);
+
+/**
+ * Un dibujo listo para poner en la página. El carácter va en un atributo y lo pinta la hoja (.picto):
+ * así no entra en el texto del botón que lo lleva, ni para quien lee ni para el lector de pantalla.
+ */
+export function icon(name, { size = 24 } = {}) {
+  const el = document.createElement('span');
+  el.setAttribute('class', 'picto');
   el.setAttribute('aria-hidden', 'true');
+  el.setAttribute('style', `--picto:${size}px`);
+  el.setAttribute('data-dibujo', iconChar(name));
   return el;
 }
 

@@ -1,5 +1,6 @@
 #include "CityLayout.hpp"
 #include "Viaduct.hpp"
+#include "ChurchModel.hpp"
 #include "../core/Paths.hpp"
 #include "../core/Log.hpp"
 #include <fstream>
@@ -14,6 +15,20 @@
 namespace Bazuko {
 
 namespace {
+// Colores de fachada del centro de Bogota: ladrillo, ocre, mostaza, terracota, azul y verde palido, rosa, crema, lila y turquesa. Con ellos
+// los edificios ya no son todos blancos o grises; `FacadeColor` da una base solida y `FacadeTint` un tinte suave para los modelos con textura.
+constexpr std::array<glm::vec3, 14> kFacadePalette{{
+    {0.72f, 0.33f, 0.24f}, {0.86f, 0.66f, 0.34f}, {0.90f, 0.77f, 0.38f}, {0.80f, 0.45f, 0.32f}, {0.48f, 0.63f, 0.80f}, {0.55f, 0.72f, 0.58f},
+    {0.86f, 0.58f, 0.58f}, {0.90f, 0.84f, 0.70f}, {0.66f, 0.58f, 0.78f}, {0.40f, 0.64f, 0.66f}, {0.60f, 0.34f, 0.28f}, {0.82f, 0.82f, 0.78f},
+    {0.94f, 0.72f, 0.52f}, {0.52f, 0.52f, 0.58f}}};
+glm::vec4 FacadeColor(uint32_t seed) {
+    seed ^= seed >> 15; seed *= 2246822519u; seed ^= seed >> 13;
+    return glm::vec4(kFacadePalette[seed % kFacadePalette.size()] * (0.92f + 0.12f * static_cast<float>((seed >> 8) % 100) / 100.0f), 1.0f);
+}
+glm::vec4 FacadeTint(uint32_t seed) {   // las texturas ya son claras: el tinte las lleva hacia el color sin ensuciarlas
+    const glm::vec4 base = FacadeColor(seed);
+    return glm::vec4(glm::mix(glm::vec3(1.0f), glm::vec3(base) * 1.18f, 0.72f), 1.0f);
+}
 
 std::shared_ptr<Texture> MakeSurfaceTexture(int surface, uint32_t seed) {
     constexpr int size = 128;
@@ -69,12 +84,48 @@ TileType CityLayout::GetTileAt(int x, int z) const {
     return m_Grid[z * WIDTH + x];
 }
 
-bool CityLayout::IsWalkable(float worldX, float worldZ) const {
+float CityLayout::LakeDepth(float worldX, float worldZ) {
+    const float nx = (worldX - kLakeX) / kLakeRadiusX, nz = (worldZ - kLakeZ) / kLakeRadiusZ;
+    const float r2 = nx * nx + nz * nz;
+    return r2 >= 1.0f ? 0.0f : kLakeMaxDepth * (1.0f - r2);
+}
+
+bool CityLayout::IsWalkable(float worldX, float worldZ, bool allowLake) const {
     int tileX = static_cast<int>(std::floor((worldX + ORIGIN_X) / TILE_SIZE));
     int tileZ = static_cast<int>(std::floor((worldZ + ORIGIN_Z) / TILE_SIZE));
 
     TileType tile = GetTileAt(tileX, tileZ);
+    // La orilla es la elipse del lago, no la cuadricula: dentro de ella solo entra quien puede nadar; fuera, una casilla de agua es suelo
+    if (tile == TileType::Water) return LakeDepth(worldX, worldZ) <= 0.0f || allowLake;
+    if (LakeDepth(worldX, worldZ) > 0.0f && tile != TileType::Building && tile != TileType::Wall && tile != TileType::Solid && tile != TileType::Ruin)
+        return allowLake;
     return tile != TileType::Building && tile != TileType::Wall && tile != TileType::Water && tile != TileType::Solid && tile != TileType::Ruin;
+}
+
+float CityLayout::GetGroundHeight(float worldX, float worldZ) const {
+    if (const float lake = LakeDepth(worldX, worldZ); lake > 0.0f) return -lake;   // fondo del lago
+    // altura de la malla de cada casilla (ver BuildMeshes): andenes, plazas y pisos 0,15; el resto, a nivel de calle
+    const auto tileHeight = [&](int x, int z) {
+        const TileType tile = GetTileAt(x, z);
+        return tile == TileType::Sidewalk || tile == TileType::Plaza || tile == TileType::Floor ? 0.15f : 0.0f;
+    };
+    const float fx = (worldX + ORIGIN_X) / TILE_SIZE, fz = (worldZ + ORIGIN_Z) / TILE_SIZE;
+    const int tx = static_cast<int>(std::floor(fx)), tz = static_cast<int>(std::floor(fz));
+    float height = tileHeight(tx, tz);
+    constexpr float kEdge = 0.3f;   // metros de rampa a cada lado del bordillo
+    const float inX = (fx - static_cast<float>(tx)) * TILE_SIZE, inZ = (fz - static_cast<float>(tz)) * TILE_SIZE;
+    const auto soften = [&](float distance, int nx, int nz) {
+        if (distance >= kEdge * 0.5f) return;
+        const float neighbor = tileHeight(nx, nz);
+        height = std::min(height, std::max(neighbor, height - (neighbor == height ? 0.0f : (height - neighbor) * (0.5f - distance / kEdge))));
+    };
+    if (height != 0.0f || true) {
+        soften(inX, tx - 1, tz);
+        soften(TILE_SIZE - inX, tx + 1, tz);
+        soften(inZ, tx, tz - 1);
+        soften(TILE_SIZE - inZ, tx, tz + 1);
+    }
+    return std::max(height, Station::Height(worldX, worldZ));
 }
 
 bool CityLayout::IsRoad(float worldX, float worldZ) const {
@@ -91,15 +142,25 @@ bool CityLayout::IsSidewalk(float worldX, float worldZ) const {
     return tile == TileType::Sidewalk || tile == TileType::Plaza || tile == TileType::Grass || tile == TileType::Floor || tile == TileType::Dirt;
 }
 
-bool CityLayout::IsBlocked(float worldX, float worldZ, float radius) const {
-    if (!IsWalkable(worldX - radius, worldZ - radius) || !IsWalkable(worldX + radius, worldZ - radius)
-        || !IsWalkable(worldX - radius, worldZ + radius) || !IsWalkable(worldX + radius, worldZ + radius)) return true;
+bool CityLayout::IsBlocked(float worldX, float worldZ, float radius, bool allowLake) const {
+    if (!IsWalkable(worldX - radius, worldZ - radius, allowLake) || !IsWalkable(worldX + radius, worldZ - radius, allowLake)
+        || !IsWalkable(worldX - radius, worldZ + radius, allowLake) || !IsWalkable(worldX + radius, worldZ + radius, allowLake)) return true;
     for (const StaticBox& box : m_Obstacles) {
         // circulo contra caja en planta
         const float nearestX = std::clamp(worldX, box.center.x - box.half.x, box.center.x + box.half.x);
         const float nearestZ = std::clamp(worldZ, box.center.z - box.half.z, box.center.z + box.half.z);
         const float dx = worldX - nearestX, dz = worldZ - nearestZ;
         if (dx * dx + dz * dz < radius * radius + 0.0001f) return true;
+    }
+    return false;
+}
+
+bool CityLayout::HitsObstacle(float worldX, float worldZ, float radius) const {
+    for (const StaticBox& box : m_Obstacles) {
+        const float nearestX = std::clamp(worldX, box.center.x - box.half.x, box.center.x + box.half.x);
+        const float nearestZ = std::clamp(worldZ, box.center.z - box.half.z, box.center.z + box.half.z);
+        const float dx = worldX - nearestX, dz = worldZ - nearestZ;
+        if (dx * dx + dz * dz < radius * radius) return true;
     }
     return false;
 }
@@ -128,12 +189,14 @@ void CityLayout::GenerateCityMap() {
         {'p', TileType::Plaza}, {'w', TileType::Wall}, {'W', TileType::Water}, {'f', TileType::Floor}, {'d', TileType::Dirt},
         {'R', TileType::Ruin}, {'S', TileType::Solid}, {'C', TileType::Solid}, {'A', TileType::Solid}, {'M', TileType::Solid}}};
     const auto& rows = json.at("rows");
+    m_MapCodes.assign(static_cast<size_t>(WIDTH * HEIGHT), 'w');
     for (int z = 0; z < HEIGHT && z < static_cast<int>(rows.size()); ++z) {
         const std::string row = rows[static_cast<size_t>(z)].get<std::string>();
         for (int x = 0; x < WIDTH && x < static_cast<int>(row.size()); ++x) {
             TileType tile = TileType::Wall;
             for (const auto& [code, type] : kCodes) if (code == row[static_cast<size_t>(x)]) { tile = type; break; }
             m_Grid[static_cast<size_t>(z * WIDTH + x)] = tile;
+            m_MapCodes[static_cast<size_t>(z * WIDTH + x)] = row[static_cast<size_t>(x)];
         }
     }
     const auto bands = [&](const char* key) {
@@ -170,10 +233,11 @@ void CityLayout::GenerateCityMap() {
 
 void CityLayout::BuildMeshes(const CityLoadProgress& progressCallback) {
     m_Buildings.clear();
+    Mesh::s_KeepPositions = true;   // se conservan las mallas de los edificios para posar afiches y grafitis sobre el muro real (RayBuildingDistance)
     if (progressCallback) progressCallback(2, 7, "Cargando arquitectura: Edificio 1 (Only_Building.fbx)...");
-    m_BuildingModels[0] = Model::LoadFromFile(Paths::Find("modelos/Edificio 1/Only_Building.fbx"));
+    m_BuildingModels[0] = Model::LoadFromFile(Paths::Find("public/models/Edificio 1/Only_Building.fbx"));
     if (progressCallback) progressCallback(3, 7, "Cargando arquitectura: Edificio 3 (highrise.fbx)...");
-    m_BuildingModels[1] = Model::LoadFromFile(Paths::Find("modelos/Edificio 3/highrise.fbx"));
+    m_BuildingModels[1] = Model::LoadFromFile(Paths::Find("public/models/Edificio 3/highrise.fbx"));
     constexpr std::array<const char*, 3> modularBuildingFiles{{
         "Building_LevelModularShell_Bottom.fbx",
         "Building_LevelModularShell_Mid.fbx",
@@ -184,8 +248,9 @@ void CityLayout::BuildMeshes(const CityLoadProgress& progressCallback) {
             progressCallback(4 + index, 7, "Cargando módulos urbanos (" + std::to_string(index + 1) + "/3: " + modularBuildingFiles[index] + ")...");
         }
         m_ModularBuildingModels[index] = Model::LoadFromFile(Paths::Find(
-            std::string("modelos/Edificio 2/Models/FBX/") + modularBuildingFiles[index]));
+            std::string("public/models/Edificio 2/Models/FBX/") + modularBuildingFiles[index]));
     }
+    Mesh::s_KeepPositions = false;
     if (progressCallback) progressCallback(7, 7, "Construyendo mallas de calzadas, andenes y señalética...");
     const auto availableBuildingVariant = [&](int preferred) {
         for (int offset = 0; offset < 3; ++offset) {
@@ -209,6 +274,7 @@ void CityLayout::BuildMeshes(const CityLoadProgress& progressCallback) {
 
     float halfWidth = ORIGIN_X;
     float halfHeight = ORIGIN_Z;
+    std::vector<std::pair<float, float>> lakeTiles;   // esquina (x0, z0) de cada casilla que reemplaza el cuenco del lago
 
     auto getColorForTile = [](TileType type) -> glm::vec4 {
         switch (type) {
@@ -237,6 +303,8 @@ void CityLayout::BuildMeshes(const CityLoadProgress& progressCallback) {
     std::vector<uint32_t> windowLightIndices;
     std::vector<Vertex> detailVertices;
     std::vector<uint32_t> detailIndices;
+    std::vector<Vertex> paneVertices;   // vidrio de las ventanas
+    std::vector<uint32_t> paneIndices;
     std::vector<Vertex> signVertices;
     std::vector<uint32_t> signIndices;
     std::vector<uint8_t> modelOccupied(static_cast<size_t>(WIDTH * HEIGHT), 0);
@@ -245,10 +313,6 @@ void CityLayout::BuildMeshes(const CityLoadProgress& progressCallback) {
         return static_cast<uint32_t>((static_cast<uint32_t>(x + 17) * 73856093u)
             ^ (static_cast<uint32_t>(z + 31) * 19349663u));
     };
-    constexpr std::array<glm::vec4, 4> urbanColors{{
-        {0.78f, 0.40f, 0.27f, 1.0f}, {0.65f, 0.67f, 0.67f, 1.0f},
-        {0.81f, 0.77f, 0.68f, 1.0f}, {0.60f, 0.64f, 0.66f, 1.0f}
-    }};
     constexpr std::array<int, 8> blockFloorCounts{{5, 6, 7, 8, 10, 12, 16, 24}};
     std::vector<size_t> componentQueue;
     for (int startZ = 1; startZ < HEIGHT - 1; ++startZ) {
@@ -282,6 +346,15 @@ void CityLayout::BuildMeshes(const CityLoadProgress& progressCallback) {
             const float coverage = static_cast<float>(componentQueue.size()) / static_cast<float>(boundingArea);
             const uint32_t seed = urbanHash(minX, minZ);
             const int variant = availableBuildingVariant(static_cast<int>(seed % 3u));
+            // La iglesia de La Candelaria (baldosas 160-171 x 23-32 del original, con las filas de la estacion al norte) no es una manzana
+            // cualquiera: sus baldosas siguen siendo solidas, pero se dibuja con su propio modelo (variante 99, ver Render)
+            if (minX >= 160 && maxX <= 171 && minZ >= 23 + NORTH_ROWS && maxZ <= 32 + NORTH_ROWS) {
+                for (const size_t tile : componentQueue) modelOccupied[tile] = 1;
+                m_Buildings.push_back({{static_cast<float>(minX + maxX + 1) * TILE_SIZE * 0.5f - ORIGIN_X, 12.0f,
+                                        static_cast<float>(minZ + maxZ + 1) * TILE_SIZE * 0.5f - ORIGIN_Z},
+                                       {24.0f, 24.0f, 20.0f}, {0.93f, 0.91f, 0.85f, 1.0f}, -1, 6, kChurchVariant});
+                continue;
+            }
             if (variant < 0 || tilesX < 4 || tilesZ < 4 || coverage < 1.0f) continue;
             for (const size_t tile : componentQueue) modelOccupied[tile] = 1;
             const int floors = seed % 17u == 0u ? 24
@@ -293,9 +366,15 @@ void CityLayout::BuildMeshes(const CityLoadProgress& progressCallback) {
             const float centerZ = static_cast<float>(minZ + maxZ + 1) * TILE_SIZE * 0.5f - ORIGIN_Z;
             m_Buildings.push_back({{centerX, height * 0.5f, centerZ},
                                    {width, height, depth},
-                                   urbanColors[seed % urbanColors.size()], -1, floors, variant});
+                                   FacadeColor(seed * 2654435761u + 7u), -1, floors, variant});
         }
     }
+    // Fuente de piedra de la plaza de La Candelaria: se rodea sin trabarse (cruz de cajas que cubre el circulo) y lleva su propio modelo
+    m_ChurchMesh = ChurchModel::BuildChurch();
+    m_FountainMesh = ChurchModel::BuildFountain(kFountainRadius);
+    m_Obstacles.push_back({{kFountainX, 0.0f, kFountainZ}, {kFountainRadius, 1.0f, 1.5f}});
+    m_Obstacles.push_back({{kFountainX, 0.0f, kFountainZ}, {1.5f, 1.0f, kFountainRadius}});
+    m_Obstacles.push_back({{kFountainX, 0.0f, kFountainZ}, {2.55f, 1.0f, 2.55f}});
     // Rotulos con texto: si no hay fuente se vuelve a los letreros de color liso.
     const bool hasSigns = m_SignAtlas.Build(Paths::Find("assets/fonts/Roboto-Medium.ttf"));
     const auto appendSignQuad = [&](const glm::vec3& center, const glm::vec3& normal, float width, float height,
@@ -329,6 +408,54 @@ void CityLayout::BuildMeshes(const CityLoadProgress& progressCallback) {
         detailVertices.push_back({surface+halfU+halfV,normal,{1,1},color});
         detailVertices.push_back({surface-halfU+halfV,normal,{0,1},color});
         detailIndices.insert(detailIndices.end(),{base,base+1,base+2,base+2,base+3,base});
+    };
+    // Ventana con relieve: marco que sobresale 8,5 cm con su cara interior visible (el vidrio queda hundido), travesano y repisa, y el vidrio aparte
+    // (gradiente de arriba a abajo y, en una de cada cinco, una cortina), que se dibuja con acabado de vidrio. Antes eran rectangulos pintados.
+    const auto appendWindow = [&](const glm::vec3& center, const glm::vec3& normal, float frameW, float frameH, float glassW, float glassH,
+                                  const glm::vec4& frameColor, const glm::vec4& glassColor) {
+        const glm::vec3 axisU = normal.z != 0.0f ? glm::vec3(normal.z > 0 ? 1.0f : -1.0f, 0, 0) : glm::vec3(0, 0, normal.x > 0 ? -1.0f : 1.0f);
+        const glm::vec3 axisV(0, 1, 0);
+        const uint32_t hash = static_cast<uint32_t>(static_cast<int>(std::floor(center.x * 2.3f))) * 73856093u
+            ^ static_cast<uint32_t>(static_cast<int>(std::floor(center.y * 1.7f))) * 19349663u
+            ^ static_cast<uint32_t>(static_cast<int>(std::floor(center.z * 2.3f))) * 83492791u;
+        const auto quad = [&](std::vector<Vertex>& vertices, std::vector<uint32_t>& indices, const glm::vec3& origin, const glm::vec3& A, const glm::vec3& B,
+                              const glm::vec3& faceNormal, const glm::vec4& c0, const glm::vec4& c1) {   // c0 abajo, c1 arriba
+            const uint32_t base = static_cast<uint32_t>(vertices.size());
+            vertices.push_back({origin, faceNormal, {0, 0}, c0});
+            vertices.push_back({origin + A, faceNormal, {1, 0}, c0});
+            vertices.push_back({origin + A + B, faceNormal, {1, 1}, c1});
+            vertices.push_back({origin + B, faceNormal, {0, 1}, c1});
+            indices.insert(indices.end(), {base, base + 1, base + 2, base + 2, base + 3, base});
+        };
+        const auto P = [&](float u, float v, float off) { return center + axisU * u + axisV * v + normal * off; };
+        const float depth = 0.085f, gw = glassW, gh = glassH, fw = frameW, fh = frameH;
+        const glm::vec4 inner = frameColor * glm::vec4(0.62f, 0.62f, 0.62f, 1.0f);
+        const glm::vec4 top = frameColor * glm::vec4(1.08f, 1.08f, 1.08f, 1.0f);
+        // marco: cuatro tiras con cara frontal y cara interior
+        quad(detailVertices, detailIndices, P(-fw * 0.5f, -fh * 0.5f, depth), axisU * ((fw - gw) * 0.5f), axisV * fh, normal, frameColor, frameColor);
+        quad(detailVertices, detailIndices, P(gw * 0.5f, -fh * 0.5f, depth), axisU * ((fw - gw) * 0.5f), axisV * fh, normal, frameColor, frameColor);
+        quad(detailVertices, detailIndices, P(-gw * 0.5f, -fh * 0.5f, depth), axisU * gw, axisV * ((fh - gh) * 0.5f), normal, frameColor, frameColor);
+        quad(detailVertices, detailIndices, P(-gw * 0.5f, gh * 0.5f, depth), axisU * gw, axisV * ((fh - gh) * 0.5f), normal, frameColor, top);
+        quad(detailVertices, detailIndices, P(-gw * 0.5f, -gh * 0.5f, 0.0f), axisV * gh, normal * depth, axisU, inner, inner);
+        quad(detailVertices, detailIndices, P(gw * 0.5f, -gh * 0.5f, 0.0f), normal * depth, axisV * gh, -axisU, inner, inner);
+        quad(detailVertices, detailIndices, P(-gw * 0.5f, -gh * 0.5f, 0.0f), normal * depth, axisU * gw, axisV, top, top);
+        quad(detailVertices, detailIndices, P(-gw * 0.5f, gh * 0.5f, 0.0f), axisU * gw, normal * depth, -axisV, inner, inner);
+        // repisa de piedra bajo la ventana
+        const float sillW = fw + 0.30f;
+        quad(detailVertices, detailIndices, P(-sillW * 0.5f, -fh * 0.5f - 0.07f, 0.17f), axisU * sillW, axisV * 0.07f, normal, glm::vec4(0.66f, 0.64f, 0.60f, 1.0f), glm::vec4(0.66f, 0.64f, 0.60f, 1.0f));
+        quad(detailVertices, detailIndices, P(-sillW * 0.5f, -fh * 0.5f, 0.0f), normal * 0.17f, axisU * sillW, axisV, glm::vec4(0.80f, 0.78f, 0.74f, 1.0f), glm::vec4(0.80f, 0.78f, 0.74f, 1.0f));
+        // travesanos: uno vertical siempre y otro horizontal en la mitad de las ventanas
+        quad(detailVertices, detailIndices, P(-0.025f, -gh * 0.5f, depth * 0.75f), axisU * 0.05f, axisV * gh, normal, frameColor, frameColor);
+        if ((hash >> 3) % 2 == 0) quad(detailVertices, detailIndices, P(-gw * 0.5f, gh * 0.18f, depth * 0.75f), axisU * gw, axisV * 0.045f, normal, frameColor, frameColor);
+        // vidrio: mas claro arriba (cielo) que abajo (interior)
+        static const std::array<glm::vec3, 4> tones{{{0.10f, 0.17f, 0.22f}, {0.13f, 0.14f, 0.15f}, {0.16f, 0.22f, 0.25f}, {0.09f, 0.12f, 0.14f}}};
+        const glm::vec3 tone = glm::vec3(glassColor) * (0.75f + 0.5f * static_cast<float>((hash >> 7) % 100) / 100.0f);
+        const glm::vec3 glass = (hash >> 5) % 5 == 0 ? tones[(hash >> 9) % tones.size()] : tone;
+        quad(paneVertices, paneIndices, P(-gw * 0.5f, -gh * 0.5f, 0.016f), axisU * gw, axisV * gh, normal, glm::vec4(glass * 0.7f, 1.0f), glm::vec4(glass * 1.5f + glm::vec3(0.05f), 1.0f));
+        if ((hash >> 11) % 5 == 0) {   // cortina a medio cerrar
+            const glm::vec3 curtain = (hash >> 14) % 2 == 0 ? glm::vec3(0.72f, 0.66f, 0.54f) : glm::vec3(0.55f, 0.44f, 0.42f);
+            quad(detailVertices, detailIndices, P(-gw * 0.5f, -gh * 0.5f, 0.03f), axisU * gw, axisV * gh * (0.45f + 0.012f * static_cast<float>((hash >> 17) % 30)), normal, glm::vec4(curtain * 0.8f, 1.0f), glm::vec4(curtain, 1.0f));
+        }
     };
     // Luz de un apartamento tras una ventana: la tercera parte de las ventanas, elegidas por un hash estable de su
     // posicion, con luz calida, blanca o azulada de television. Los edificios de dia no cambian.
@@ -389,17 +516,8 @@ void CityLayout::BuildMeshes(const CityLoadProgress& progressCallback) {
                                        glm::vec3(TILE_SIZE, ruinHeight, TILE_SIZE), glm::vec4(tone, tone * 0.92f, tone * 0.85f, 1.0f), -1});
             } else if (type == TileType::Building) {
                 float bHeight = heightDist(rng);
-                int colorVariant = colorTypeDist(rng);
-                glm::vec4 bColor;
-                if (colorVariant == 0) {
-                    bColor = glm::vec4(0.96f, 0.88f, 0.82f, 1.0f);
-                } else if (colorVariant == 1) {
-                    bColor = glm::vec4(0.82f, 0.86f, 0.88f, 1.0f);
-                } else if (colorVariant == 2) {
-                    bColor = glm::vec4(0.98f, 0.91f, 0.78f, 1.0f);
-                } else {
-                    bColor = glm::vec4(0.78f, 0.80f, 0.82f, 1.0f);
-                }
+                (void)colorTypeDist(rng);   // se conserva el sorteo para no mover el resto de la ciudad
+                const glm::vec4 bColor = FacadeColor(urbanHash(x, z) + 99u);
 
                 constexpr float buildingWidth = TILE_SIZE;
                 const float buildingDepth = buildingWidth;
@@ -438,10 +556,8 @@ void CityLayout::BuildMeshes(const CityLoadProgress& progressCallback) {
                     const float wallOffset = TILE_SIZE * 0.5f + 0.012f;
                     for (float y=4.5f; y<bHeight-0.8f; y+=2.7f) {
                         const glm::vec3 paneCenter = wallCenter + glm::vec3(0,y,0) + normal*wallOffset;
-                        appendFacadePanel(paneCenter,normal,0.94f,1.22f,{0.90f,0.82f,0.67f,1.0f},0.0f);
-                        appendFacadePanel(paneCenter+normal*0.014f,normal,0.76f,0.98f,{0.10f,0.17f,0.22f,1.0f},0.0f);
+                        appendWindow(paneCenter, normal, 0.94f, 1.22f, 0.76f, 0.98f, {0.90f,0.82f,0.67f,1.0f}, {0.10f,0.17f,0.22f,1.0f});
                         appendWindowLight(paneCenter+normal*0.014f,normal,0.70f,0.90f);
-                        appendFacadePanel(paneCenter+glm::vec3(0,0.03f,0)+normal*0.03f,normal,0.035f,0.92f,{0.72f,0.67f,0.56f,1.0f},0.0f);
                     }
                     if (sideIndex == storefrontSide) {
                         const float storefrontOffset = wallOffset + 0.012f;
@@ -479,6 +595,23 @@ void CityLayout::BuildMeshes(const CityLoadProgress& progressCallback) {
                     }
                 }
             } else if (type != TileType::Wall && type != TileType::Solid) {
+                {   // casillas del lago: las reemplaza el cuenco suave (se dibuja tras el recorrido)
+                    const float cx = (x0 + x1) * 0.5f, cz = (z0 + z1) * 0.5f;
+                    const float nx = (cx - kLakeX) / kLakeRadiusX, nz = (cz - kLakeZ) / kLakeRadiusZ;
+                    const bool nearLake = nx * nx + nz * nz < 1.12f * 1.12f;
+                    const bool anyDepth = LakeDepth(x0, z0) > 0.0f || LakeDepth(x1, z0) > 0.0f || LakeDepth(x0, z1) > 0.0f || LakeDepth(x1, z1) > 0.0f;
+                    if ((nearLake && (type == TileType::Grass || type == TileType::Water)) || (type == TileType::Busway && anyDepth)) {
+                        lakeTiles.emplace_back(x0, z0);
+                        continue;
+                    }
+                    // paseo que rodea el lago: lo reemplaza una banda elipsoidal continua (las casillas lo dejaban en escalera);
+                    // las casillas de los paseos rectos que lo cruzan se conservan
+                    if (type == TileType::Plaza && std::abs(std::sqrt(nx * nx + nz * nz) - 1.14f) < 0.046f) {
+                        const int jsZ = z - NORTH_ROWS;
+                        const bool straight = jsZ == 113 || jsZ == 155 || x == 10 || x == 112 || (x == 86 && (cz < 234.0f || cz > 290.0f));
+                        if (!straight) continue;
+                    }
+                }
                 glm::vec4 col = getColorForTile(type);
                 const bool raised = type == TileType::Sidewalk || type == TileType::Plaza || type == TileType::Floor;
                 float y = raised ? 0.15f : type == TileType::Water ? -0.18f : 0.0f;
@@ -495,6 +628,50 @@ void CityLayout::BuildMeshes(const CityLoadProgress& progressCallback) {
         }
     }
 
+    {   // banda del paseo del lago: anillo elipsoidal a la cota de los andenes, con la misma textura
+        constexpr int kSegments = 192;
+        constexpr float kInner = 1.04f, kOuter = 1.245f, kHeight = 0.15f;
+        const uint32_t base = static_cast<uint32_t>(sidewalkVertices.size());
+        for (int i = 0; i < kSegments; ++i) {
+            const float a = glm::two_pi<float>() * static_cast<float>(i) / static_cast<float>(kSegments);
+            for (const float scale : {kInner, kOuter}) {
+                const float px = kLakeX + kLakeRadiusX * scale * std::cos(a), pz = kLakeZ + kLakeRadiusZ * scale * std::sin(a);
+                sidewalkVertices.push_back({{px, kHeight, pz}, {0.0f, 1.0f, 0.0f}, {px * 0.5f, pz * 0.5f}, getColorForTile(TileType::Plaza)});
+            }
+        }
+        for (int i = 0; i < kSegments; ++i) {
+            const uint32_t a = base + static_cast<uint32_t>(i * 2), b = a + 1;
+            const uint32_t d = base + static_cast<uint32_t>(((i + 1) % kSegments) * 2), cc = d + 1;
+            sidewalkIndices.insert(sidewalkIndices.end(), {a, cc, b, a, d, cc});
+        }
+    }
+    if (!lakeTiles.empty()) {   // cuenco: cada casilla en 4 x 4 cuadros de 0,5 m con la cota exacta de LakeDepth: orilla redonda, sin dientes de sierra
+        std::vector<Vertex> vertices;
+        std::vector<uint32_t> indices;
+        constexpr int kSub = 4;
+        const float step = TILE_SIZE / static_cast<float>(kSub);
+        const glm::vec3 grass(0.25f, 0.38f, 0.22f), mud(0.36f, 0.31f, 0.21f), bed(0.12f, 0.17f, 0.15f);
+        const auto vertexAt = [&](float x, float z) {
+            const float depth = LakeDepth(x, z);
+            const float nx = (x - kLakeX) / kLakeRadiusX, nz = (z - kLakeZ) / kLakeRadiusZ;
+            const glm::vec3 normal = glm::normalize(glm::vec3(-kLakeMaxDepth * 2.0f * nx / kLakeRadiusX * (depth > 0.0f ? 1.0f : 0.0f), 1.0f,
+                                                              -kLakeMaxDepth * 2.0f * nz / kLakeRadiusZ * (depth > 0.0f ? 1.0f : 0.0f)));
+            glm::vec3 color = glm::mix(grass, mud, glm::smoothstep(0.0f, 0.06f, depth));
+            color = glm::mix(color, bed, glm::smoothstep(0.2f, 1.6f, depth));
+            return Vertex{{x, -depth, z}, normal, {x * 0.5f, z * 0.5f}, {color, 1.0f}};
+        };
+        for (const auto& [tx, tz] : lakeTiles) {
+            const uint32_t base = static_cast<uint32_t>(vertices.size());
+            for (int j = 0; j <= kSub; ++j)
+                for (int i = 0; i <= kSub; ++i) vertices.push_back(vertexAt(tx + static_cast<float>(i) * step, tz + static_cast<float>(j) * step));
+            for (int j = 0; j < kSub; ++j)
+                for (int i = 0; i < kSub; ++i) {
+                    const uint32_t a = base + static_cast<uint32_t>(j * (kSub + 1) + i), b = a + 1, c = a + static_cast<uint32_t>(kSub + 1), d = c + 1;
+                    indices.insert(indices.end(), {c, d, b, b, a, c});
+                }
+        }
+        m_LakeBedMesh = std::make_shared<Mesh>(vertices, indices);
+    }
     if (!groundVertices.empty()) {
         m_GroundMesh = std::make_shared<Mesh>(groundVertices, groundIndices);
     }
@@ -627,10 +804,7 @@ void CityLayout::BuildMeshes(const CityLoadProgress& progressCallback) {
                             ? glm::vec4(0.09f, 0.18f, 0.23f, 1.0f)
                             : glm::vec4(0.10f, 0.17f, 0.22f, 1.0f);
                         const float paneWidth = std::min(spacing * (glassCorner ? 0.88f : 0.68f), 2.2f);
-                        appendFacadePanel(paneCenter, normal, paneWidth + 0.18f, 1.62f,
-                                          {0.82f, 0.76f, 0.66f, 1.0f}, 0.0f);
-                        appendFacadePanel(paneCenter + normal * 0.016f, normal, paneWidth, 1.43f,
-                                          glassColor, 0.0f);
+                        appendWindow(paneCenter, normal, paneWidth + 0.18f, 1.62f, paneWidth, 1.43f, {0.82f, 0.76f, 0.66f, 1.0f}, glassColor);
                         appendWindowLight(paneCenter + normal * 0.016f, normal, paneWidth * 0.92f, 1.32f);
                         if (brickBalcony) {
                             const float balconyY = baseY + 1.12f;
@@ -815,30 +989,246 @@ void CityLayout::BuildMeshes(const CityLoadProgress& progressCallback) {
             };
             ramp(kNorthEnd, kNorthEnd + kRampLength);
             ramp(kSouthEnd, kSouthEnd - kRampLength);
-            // estructura esbelta: columnas, cubierta y franjas rojas
-            for (float z : {-49.0f, -43.0f, -35.0f, -27.0f, -19.0f, -11.0f})
-                for (float x : {73.12f, 76.88f}) { box({x, 2.67f, z}, {0.14f, 3.5f, 0.14f}, steel); obstacle({x, 0.0f, z}, 0.14f, 0.14f, 0.05f); }
-            box({kCenterX, 4.5f, kCenterZ}, {4.8f, 0.16f, 41.0f}, steel);
-            for (float x : {73.0f, 77.0f}) box({x, 4.3f, kCenterZ}, {0.12f, 0.28f, 41.0f}, red);
-            // galerias de vidrio con dos puertas por lado
-            for (const auto& [a, b] : std::array<std::pair<float, float>, 3>{{{-50.0f, -43.0f}, {-39.0f, -25.0f}, {-21.0f, -10.0f}}}) {
-                for (float x : {73.02f, 76.98f}) {
-                    boxTo(glassVertices, glassIndices, 0.30f, {x, 2.15f, (a + b) * 0.5f}, {0.06f, 2.1f, b - a}, glassTint, 0.0f);
-                    box({x, 1.1f, (a + b) * 0.5f}, {0.08f, 0.3f, b - a}, steel);
+            // ---- estructura del original: columnas, cerchas, cubierta curva, cielo raso, muros de vidrio con puertas, accesos y mobiliario ----
+            constexpr float kFloor = 0.92f, kWallW = 73.12f, kWallE = 76.88f, kDoorHead = 3.02f, kFrieze = 3.4f, kCeil = 3.42f;
+            constexpr float kRoofHalf = 2.92f, kEave = 3.95f, kRise = 0.74f, zN = -50.0f, zS = -10.0f;
+            constexpr uint32_t steelLight = 0x7b8186, steelDark = 0x2a2e31, redStation = 0xa8141c, yellowStation = 0xe9b714, stainless = 0x9aa1a6;
+            const auto rgbv = [](uint32_t c, float s = 1.0f, float a = 1.0f) {
+                return glm::vec4(std::min(1.0f, ((c >> 16) & 0xFF) / 255.0f * s), std::min(1.0f, ((c >> 8) & 0xFF) / 255.0f * s), std::min(1.0f, (c & 0xFF) / 255.0f * s), a);
+            };
+            const auto roofY = [&](float x) { const float t = (x - kCenterX) / kRoofHalf; return kEave + kRise * (1.0f - t * t); };
+            const auto sq = [&](glm::vec3 a, glm::vec3 b, glm::vec3 c, glm::vec3 d, const glm::vec3& outward, const glm::vec4& color) {
+                glm::vec3 n = glm::cross(b - a, c - a);
+                if (glm::dot(n, outward) < 0.0f) { std::swap(b, d); n = glm::cross(b - a, c - a); }
+                n = glm::normalize(n);
+                const uint32_t base = static_cast<uint32_t>(landmarkVertices.size());
+                landmarkVertices.push_back({a, n, {0, 0}, color});
+                landmarkVertices.push_back({b, n, {1, 0}, color});
+                landmarkVertices.push_back({c, n, {1, 1}, color});
+                landmarkVertices.push_back({d, n, {0, 1}, color});
+                landmarkIndices.insert(landmarkIndices.end(), {base, base + 1, base + 2, base + 2, base + 3, base});
+            };
+            const auto bar = [&](const glm::vec3& p0, const glm::vec3& p1, float r, const glm::vec4& color) {   // varilla de seccion cuadrada entre dos puntos (tubos, cerchas, barandas)
+                const glm::vec3 delta = p1 - p0;
+                const float length = glm::length(delta);
+                if (length < 1e-4f) return;
+                const glm::vec3 d = delta / length, helper = std::fabs(d.y) > 0.9f ? glm::vec3(1, 0, 0) : glm::vec3(0, 1, 0);
+                const glm::vec3 u = glm::normalize(glm::cross(d, helper)) * r, v = glm::normalize(glm::cross(d, u)) * r;
+                const glm::vec3 c[4] = {-u - v, u - v, u + v, -u + v};
+                for (int i = 0; i < 4; ++i) { const int j = (i + 1) % 4; sq(p0 + c[i], p1 + c[i], p1 + c[j], p0 + c[j], c[i] + c[j], color); }
+            };
+            const glm::vec4 cSteel = rgbv(0x4b5155), cDark = rgbv(steelDark), cLight = rgbv(steelLight), cRed = rgbv(redStation);
+
+            // columnas (cada una con su obstaculo) y cerchas cada 4 m: cordon inferior recto, superior siguiendo la curva y diagonales en zigzag
+            for (float z : {-50.0f, -46.0f, -42.0f, -38.0f, -30.0f, -22.0f, -18.0f, -14.0f, -10.0f})
+                for (float x : {kWallW, kWallE}) {
+                    box({x, (kFloor + kCeil) * 0.5f, z}, {0.16f, kCeil - kFloor, 0.16f}, 0x8a9096);
+                    box({x, kFloor + 0.08f, z}, {0.24f, 0.16f, 0.28f}, steelDark);
+                    obstacle({x, 0.0f, z}, 0.16f, 0.16f, 0.05f);
+                }
+            for (float z = -50.0f; z <= -9.99f; z += 4.0f) {
+                const float chordY = kCeil + 0.06f;
+                bar({kWallW, chordY, z}, {kWallE, chordY, z}, 0.04f, cSteel);
+                glm::vec3 previous(kCenterX - kRoofHalf + 0.02f, roofY(kCenterX - kRoofHalf + 0.02f) - 0.055f, z);
+                for (int i = 1; i <= 12; ++i) {
+                    const float x = glm::mix(kCenterX - kRoofHalf + 0.02f, kCenterX + kRoofHalf - 0.02f, static_cast<float>(i) / 12.0f);
+                    const glm::vec3 next(x, roofY(x) - 0.055f, z);
+                    bar(previous, next, 0.045f, cSteel);
+                    previous = next;
+                }
+                for (int i = 0; i < 8; ++i) {
+                    const float xa = glm::mix(kWallW, kWallE, static_cast<float>(i) / 8.0f), xb = glm::mix(kWallW, kWallE, static_cast<float>(i + 1) / 8.0f);
+                    const glm::vec3 pa = i % 2 ? glm::vec3(xa, roofY(xa) - 0.07f, z) : glm::vec3(xa, chordY, z);
+                    const glm::vec3 pb = i % 2 ? glm::vec3(xb, chordY, z) : glm::vec3(xb, roofY(xb) - 0.07f, z);
+                    bar(pa, pb, 0.017f, cSteel * glm::vec4(0.85f, 0.85f, 0.85f, 1.0f));
+                }
+                for (float wall : {kWallW, kWallE}) {   // voladizo con su tornapunta
+                    const float tip = wall < kCenterX ? kCenterX - kRoofHalf + 0.1f : kCenterX + kRoofHalf - 0.1f;
+                    bar({wall, chordY, z}, {tip, roofY(tip) - 0.08f, z}, 0.03f, cSteel);
                 }
             }
-            for (float z : {-46.0f, -30.0f, -14.0f}) {
-                box({74.0f, 1.12f, z}, {0.5f, 0.4f, 2.0f}, steel);
-                box({73.8f, 1.55f, z}, {0.08f, 0.55f, 2.0f}, steel);
+            for (float x : {kWallW, kWallE}) box({x, kCeil + 0.02f, kCenterZ}, {0.14f, 0.16f, 40.0f}, 0x4b5155);   // vigas largas
+
+            // lamina curva con su cara inferior mas oscura, canales y fascia roja
+            {
+                const float x0 = kCenterX - kRoofHalf, x1 = kCenterX + kRoofHalf, zStart = zN - 0.7f, zEnd = zS + 0.7f;
+                for (int i = 0; i < 12; ++i) {
+                    const float a = glm::mix(x0, x1, static_cast<float>(i) / 12.0f), b = glm::mix(x0, x1, static_cast<float>(i + 1) / 12.0f);
+                    const glm::vec4 top = rgbv(0xb3b7b7, i % 2 ? 0.93f : 1.04f);
+                    sq({a, roofY(a), zStart}, {b, roofY(b), zStart}, {b, roofY(b), zEnd}, {a, roofY(a), zEnd}, {0, 1, 0}, top);
+                    sq({a, roofY(a) - 0.025f, zStart}, {b, roofY(b) - 0.025f, zStart}, {b, roofY(b) - 0.025f, zEnd}, {a, roofY(a) - 0.025f, zEnd}, {0, -1, 0}, rgbv(0x6d7274));
+                    for (float z : {zStart, zEnd})
+                        for (float s : {-1.0f, 1.0f})
+                            sq({a, roofY(a) - 0.16f, z}, {b, roofY(b) - 0.16f, z}, {b, roofY(b) + 0.02f, z}, {a, roofY(a) + 0.02f, z}, {0, 0, s}, cRed);
+                }
+                for (float s : {-1.0f, 1.0f}) {
+                    const float x = s < 0 ? x0 : x1;
+                    box({x + s * 0.07f, roofY(x) - 0.1f, kCenterZ}, {0.16f, 0.2f, zEnd - zStart + 0.1f}, redStation);
+                }
+                // cielo raso en paneles, cada uno con su tono, y dos filas de luminarias
+                for (float z = zN; z < zS - 0.01f; z += 1.2f) {
+                    const float zb = std::min(zS, z + 1.2f);
+                    const float tone = 0.88f + 0.14f * static_cast<float>((static_cast<int>(std::fabs(z) * 10.0f) * 7) % 10) / 10.0f;
+                    sq({kWallW + 0.08f, kCeil, z + 0.012f}, {kWallE - 0.08f, kCeil, z + 0.012f}, {kWallE - 0.08f, kCeil, zb - 0.012f}, {kWallW + 0.08f, kCeil, zb - 0.012f}, {0, -1, 0}, rgbv(0xd6d6cf, tone));
+                }
+                sq({kWallW, kCeil + 0.03f, zN}, {kWallE, kCeil + 0.03f, zN}, {kWallE, kCeil + 0.03f, zS}, {kWallW, kCeil + 0.03f, zS}, {0, 1, 0}, rgbv(steelDark, 0.7f));
+                for (float x : {74.1f, 75.9f})
+                    for (float z = zN + 0.6f; z < zS - 0.4f; z += 2.4f) box({x, kCeil - 0.02f, z + 0.6f}, {0.2f, 0.04f, 1.2f}, 0xfff4dc);
             }
-            for (float x : {73.2f, 76.8f}) box({x, 0.935f, kCenterZ}, {0.09f, 0.015f, 40.0f}, yellow);
-            for (float z : {-41.0f, -23.0f}) for (float x : {72.9f, 77.1f}) box({x, 3.75f, z}, {0.04f, 0.6f, 3.0f}, red);
-            if (m_SignAtlas.GetTexture()) {
-                for (const glm::vec3& normal : {glm::vec3(0, 0, 1), glm::vec3(0, 0, -1)}) {
-                    appendSignQuad({75.0f, 3.9f, -9.8f}, normal, 3.6f, 0.8f, m_SignAtlas.Landmark(5), 0.0f, 0.0f);
-                    appendSignQuad({75.0f, 3.9f, -30.0f}, normal, 3.6f, 0.8f, m_SignAtlas.Landmark(6), 0.0f, 0.0f);
+            // franja roja, canto amarillo y baldosa tactil (con puntos) a lo largo de las puertas
+            for (float x : {73.03f, 76.97f}) box({x, kFloor + 0.002f, kCenterZ}, {0.06f, 0.012f, 40.0f}, yellowStation);
+            for (float x : {74.02f, 75.98f}) {
+                box({x, kFloor + 0.006f, kCenterZ}, {0.36f, 0.012f, 40.0f}, 0xd9ad14);
+                for (float z = zN + 0.4f; z < zS; z += 0.8f) box({x, kFloor + 0.014f, z}, {0.28f, 0.006f, 0.05f}, 0xf0c52a);
+            }
+            // muros de vidrio con parales, zocalo y friso rojo; se abren donde para el bus (cuatro puertas por lado, en las posiciones de las del bus)
+            {
+                const std::array<float, 4> doorsWest{-35.1f, -32.55f, -26.3f, -23.7f}, doorsEast{-36.3f, -33.7f, -27.45f, -24.9f};
+                for (int sideIndex = 0; sideIndex < 2; ++sideIndex) {
+                    const float x = sideIndex == 0 ? kWallW : kWallE, side = sideIndex == 0 ? -1.0f : 1.0f;
+                    const std::array<float, 4>& doors = sideIndex == 0 ? doorsWest : doorsEast;
+                    std::vector<float> cuts{zN, zS};
+                    for (float c : doors) { cuts.push_back(c - 0.65f); cuts.push_back(c + 0.65f); }
+                    std::sort(cuts.begin(), cuts.end());
+                    const auto inOpening = [&](float z) { for (float c : doors) if (z > c - 0.65f + 1e-3f && z < c + 0.65f - 1e-3f) return true; return false; };
+                    for (size_t i = 0; i + 1 < cuts.size(); ++i) {
+                        const float a = cuts[i], b = cuts[i + 1];
+                        if (b - a < 0.05f || inOpening((a + b) * 0.5f)) continue;
+                        const int count = std::max(1, static_cast<int>(std::lround((b - a) / 1.3f)));
+                        for (int k = 0; k < count; ++k) {
+                            const float za = glm::mix(a, b, static_cast<float>(k) / count), zb = glm::mix(a, b, static_cast<float>(k + 1) / count);
+                            boxTo(glassVertices, glassIndices, 0.26f, {x, (kFloor + 0.16f + kDoorHead) * 0.5f, (za + zb) * 0.5f}, {0.04f, kDoorHead - kFloor - 0.16f, zb - za - 0.06f}, 0x1d2c30, 0.0f);
+                            boxTo(glassVertices, glassIndices, 0.5f, {x, 2.43f, (za + zb) * 0.5f}, {0.045f, 0.14f, zb - za - 0.06f}, 0xdde0e0, 0.0f);   // banda esmerilada a la altura de los ojos
+                            box({x, (kFloor + kDoorHead) * 0.5f, zb}, {0.05f, kDoorHead - kFloor, 0.07f}, 0x7a8085);
+                            box({x, kFloor + 0.08f, (za + zb) * 0.5f}, {0.07f, 0.16f, zb - za}, 0x4b5155);
+                            box({x, 2.02f, (za + zb) * 0.5f}, {0.03f, 0.03f, zb - za}, 0x4b5155);
+                        }
+                    }
+                    box({x, (kFloor + kDoorHead) * 0.5f, zN}, {0.05f, kDoorHead - kFloor, 0.07f}, 0x7a8085);
+                    box({x + side * 0.03f, (kDoorHead + kFrieze) * 0.5f, kCenterZ}, {0.06f, kFrieze - kDoorHead, 40.0f}, redStation);   // friso rojo continuo
+                    box({x, kDoorHead + 0.012f, kCenterZ}, {0.1f, 0.035f, 40.0f}, 0x7b8186);
+                    box({x, kFrieze - 0.008f, kCenterZ}, {0.1f, 0.025f, 40.0f}, steelDark);
+                    for (size_t index = 0; index < doors.size(); ++index) {   // puertas: marco rojo, dos hojas de vidrio, linea amarilla al piso y letrero de vagon
+                        const float center = doors[index], a = center - 0.65f, b = center + 0.65f;
+                        for (float z : {a - 0.045f, b + 0.045f}) box({x, (kFloor + kDoorHead) * 0.5f, z}, {0.12f, kDoorHead - kFloor, 0.09f}, redStation);
+                        box({x, kDoorHead - 0.04f, center}, {0.14f, 0.09f, 1.38f}, redStation);
+                        box({x - side * 0.12f, kDoorHead - 0.13f, center}, {0.14f, 0.15f, 2.6f}, 0x84898c);   // caja del mecanismo
+                        for (float leaf : {-0.325f, 0.325f}) {
+                            boxTo(glassVertices, glassIndices, 0.22f, {x - side * 0.08f, (kFloor + 0.13f + kDoorHead - 0.085f) * 0.5f, center + leaf}, {0.03f, kDoorHead - kFloor - 0.22f, 0.62f}, 0x1d2c30, 0.0f);
+                            box({x - side * 0.08f, (kFloor + 0.03f + kDoorHead - 0.085f) * 0.5f, center + leaf + (leaf > 0 ? 0.3f : -0.3f)}, {0.03f, kDoorHead - kFloor - 0.115f, 0.055f}, redStation);
+                            box({x - side * 0.08f, kFloor + 0.08f, center + leaf}, {0.03f, 0.1f, 0.64f}, steelDark);
+                        }
+                        box({x - side * 0.08f, kDoorHead - 0.11f, center}, {0.03f, 0.055f, 1.3f}, redStation);
+                        box({x - side * 0.35f, kFloor + 0.006f, center - 0.7f}, {0.5f, 0.008f, 0.06f}, yellowStation);   // linea amarilla alrededor de la puerta
+                        box({x - side * 0.35f, kFloor + 0.006f, center + 0.7f}, {0.5f, 0.008f, 0.06f}, yellowStation);
+                        box({x - side * 0.6f, kFloor + 0.006f, center}, {0.06f, 0.008f, 1.46f}, yellowStation);
+                        if (m_SignAtlas.GetTexture()) {   // letrero de vagon colgado perpendicular al muro, legible por los dos lados
+                            const size_t wagon = sideIndex == 1 ? index : doors.size() - 1 - index;
+                            for (float s : {-1.0f, 1.0f}) appendSignQuad({x - side * 0.62f, 2.96f, center + s * 0.004f}, {0, 0, s}, 0.96f, 0.32f, m_SignAtlas.Landmark(10 + wagon), 0.0f, 0.0f);
+                            for (float dx : {-0.3f, 0.3f}) bar({x - side * 0.62f + dx, 3.12f, center}, {x - side * 0.62f + dx, kCeil, center}, 0.008f, cDark);
+                        }
+                    }
+                }
+                obstacle({kWallW, 0.0f, kCenterZ}, 0.12f, 40.0f, 0.04f);   // los muros cierran el costado: se entra por las rampas y se sube al bus por sus puertas
+                obstacle({kWallE, 0.0f, kCenterZ}, 0.12f, 40.0f, 0.04f);
+            }
+            // accesos: letrero del portal sobre cada entrada, cuatro molinetes y taquilla
+            for (const auto& entry : std::array<std::array<float, 5>, 2>{{{zS, 1.0f, -14.9f, -12.6f, 1.0f}, {zN, -1.0f, -45.1f, -47.4f, 0.0f}}}) {
+                const float zFace = entry[0], s = entry[1], line = entry[2], boothZ = entry[3];
+                const bool west = entry[4] > 0.5f;
+                const float zSign = zFace + s * 0.12f;
+                box({kCenterX, 3.0f, zSign}, {3.7f, 0.1f, 0.12f}, steelDark);
+                box({kCenterX, 3.94f, zSign}, {3.7f, 0.08f, 0.12f}, steelDark);
+                if (m_SignAtlas.GetTexture()) {
+                    appendSignQuad({kCenterX, 3.475f, zSign + s * 0.065f}, {0, 0, s}, 3.6f, 0.85f, m_SignAtlas.Landmark(5), 0.0f, 0.0f);
+                    appendSignQuad({kCenterX, 3.23f, zSign - s * 0.065f}, {0, 0, -s}, 3.6f, 0.36f, m_SignAtlas.Landmark(6), 0.0f, 0.0f);
+                }
+                for (float x : {73.34f, 74.26f, 75.74f, 76.66f}) {   // molinetes: cuerpo de acero, tope negro, lector inclinado y raya de paso
+                    box({x, kFloor + 0.06f, line}, {0.18f, 0.12f, 0.76f}, steelDark);
+                    box({x, kFloor + 0.51f, line}, {0.2f, 0.78f, 0.75f}, stainless);
+                    box({x, kFloor + 0.91f, line}, {0.212f, 0.02f, 0.75f}, 0x121315);
+                    box({x, kFloor + 0.945f, line + 0.2f * s * 0.0f + 0.2f}, {0.13f, 0.05f, 0.2f}, 0x1d2022);
+                    box({x, kFloor + 0.972f, line + 0.175f}, {0.08f, 0.01f, 0.09f}, 0x7fc4ff);
+                    box({x, kFloor + 0.922f, line + 0.38f}, {0.024f, 0.006f, 0.12f}, 0x32e070);
+                    box({x, kFloor + 0.922f, line - 0.38f}, {0.024f, 0.006f, 0.12f}, 0xff4426);
+                    obstacle({x, 0.0f, line}, 0.22f, 0.96f, 0.0f);
+                }
+                for (float x : {74.38f, 75.62f}) boxTo(glassVertices, glassIndices, 0.4f, {x, kFloor + 0.7f, line - 0.22f}, {0.02f, 0.64f, 0.46f}, 0x3c5c64, 0.0f);   // paletas de vidrio del paso central
+                // taquilla: caseta de acero y vidrio contra un costado, con el taquillero detras
+                const float bx0 = west ? 73.18f : 75.68f, bx1 = west ? 74.32f : 76.82f, bz0 = boothZ - 1.4f, bz1 = boothZ + 1.4f, bcx = (bx0 + bx1) * 0.5f;
+                const float innerX = west ? bx1 : bx0, face = west ? 1.0f : -1.0f, topY = 3.0f;
+                box({bcx, kFloor + 0.5f, boothZ}, {bx1 - bx0, 1.0f, bz1 - bz0}, 0x565d62);
+                box({bcx, topY + 0.08f, boothZ}, {bx1 - bx0 + 0.1f, 0.16f, bz1 - bz0 + 0.1f}, redStation);
+                boxTo(glassVertices, glassIndices, 0.46f, {innerX, (kFloor + 1.0f + topY) * 0.5f, boothZ}, {0.04f, topY - kFloor - 1.0f, bz1 - bz0}, 0x1d2c30, 0.0f);
+                for (float zEdge : {bz0, bz1}) {
+                    boxTo(glassVertices, glassIndices, 0.46f, {bcx, (kFloor + 1.0f + topY) * 0.5f, zEdge}, {bx1 - bx0, topY - kFloor - 1.0f, 0.04f}, 0x1d2c30, 0.0f);
+                    for (float x : {bx0 + 0.03f, bx1 - 0.03f}) box({x, (kFloor + topY + 1.0f) * 0.5f, zEdge}, {0.06f, topY - kFloor - 1.0f, 0.06f}, steelDark);
+                }
+                box({innerX + face * 0.1f, kFloor + 1.02f, boothZ}, {0.28f, 0.04f, 1.1f}, 0x9aa1a6);   // mostrador
+                box({bcx, kFloor + 1.0f, boothZ}, {0.5f, 0.04f, 1.6f}, 0x5b4530);
+                box({bcx - face * 0.2f, kFloor + 1.3f, boothZ}, {0.34f, 0.68f, 0.3f}, 0x26364e);   // taquillero
+                box({bcx - face * 0.2f, kFloor + 1.72f, boothZ}, {0.19f, 0.24f, 0.2f}, 0xa57a59);
+                if (m_SignAtlas.GetTexture()) appendSignQuad({innerX + face * 0.03f, topY - 0.2f, boothZ}, {face, 0, 0}, 2.5f, 0.28f, m_SignAtlas.Landmark(14), 0.0f, 0.0f);
+                obstacle({bcx, 0.0f, boothZ}, bx1 - bx0, bz1 - bz0, 0.0f);
+            }
+            // mobiliario: bancas de listones, canecas verdes, aviso de seguridad y tableros de proximos buses sobre el pasillo
+            {
+                const auto bench = [&](float x, float z, float facing) {
+                    box({x, kFloor + 0.46f, z}, {0.42f, 0.05f, 2.1f}, 0xa8aeb3);
+                    for (int k = -8; k <= 8; ++k) box({x, kFloor + 0.49f, z + 0.125f * static_cast<float>(k)}, {0.4f, 0.006f, 0.05f}, steelDark);
+                    box({x - facing * 0.19f, kFloor + 0.72f, z}, {0.05f, 0.44f, 2.1f}, 0x8d9398);
+                    for (float dz : {-0.85f, 0.0f, 0.85f}) { box({x, kFloor + 0.22f, z + dz}, {0.05f, 0.44f, 0.06f}, steelDark); box({x, kFloor + 0.025f, z + dz}, {0.4f, 0.05f, 0.08f}, steelDark); }
+                    obstacle({x, 0.0f, z}, 0.48f, 2.1f, 0.0f);
+                };
+                const auto bin = [&](float x, float z) {
+                    box({x, kFloor + 0.43f, z}, {0.44f, 0.86f, 0.44f}, 0x2f5e3a);
+                    box({x, kFloor + 0.92f, z}, {0.5f, 0.12f, 0.5f}, 0x6f757a);
+                    box({x, kFloor + 0.92f, z}, {0.5f, 0.05f, 0.12f}, 0x121315);
+                    obstacle({x, 0.0f, z}, 0.52f, 0.52f, 0.0f);
+                };
+                const float east = kWallE - 0.36f, west = kWallW + 0.36f;
+                for (float z : {-41.2f, -30.2f, -19.4f}) bench(east, z, -1.0f);
+                for (float z : {-41.2f, -29.6f, -19.4f}) bench(west, z, 1.0f);
+                for (float z : {-43.0f, -15.9f}) bin(east, z);
+                for (float z : {-37.1f, -16.6f}) bin(west, z);
+                for (float z : {-40.0f, -30.4f, -21.0f}) {   // tablero electronico, legible por las dos caras
+                    box({kCenterX, 3.03f, z}, {2.22f, 0.6f, 0.1f}, 0x121315);
+                    if (m_SignAtlas.GetTexture())
+                        for (float s : {-1.0f, 1.0f}) appendSignQuad({kCenterX, 3.03f, z + s * 0.056f}, {0, 0, s}, 2.1f, 0.5f, m_SignAtlas.Landmark(15), 0.0f, 0.0f);
+                    for (float dx : {-0.8f, 0.8f}) bar({kCenterX + dx, 3.28f, z}, {kCenterX + dx, kCeil, z}, 0.008f, cDark);
+                }
+                if (m_SignAtlas.GetTexture()) {
+                    appendSignQuad({kWallW + 0.1f, 2.59f, kCenterZ}, {1, 0, 0}, 1.8f, 0.18f, m_SignAtlas.Landmark(16), 0.0f, 0.0f);
+                    appendSignQuad({kWallE - 0.1f, 2.59f, kCenterZ}, {-1, 0, 0}, 1.8f, 0.18f, m_SignAtlas.Landmark(16), 0.0f, 0.0f);
                 }
             }
+            // barandas de dos tubos con parales en las rampas, bolardos en las puntas y bandas amarillas de arranque
+            for (const auto& ends : std::array<std::array<float, 2>, 2>{{{zS, -2.0f}, {zN, -58.0f}}}) {
+                for (float x : {73.06f, 76.94f}) {
+                    const auto at = [&](float t, float h) { return glm::vec3(x, glm::mix(kFloor, 0.02f, t) + h, glm::mix(ends[0], ends[1], t)); };
+                    bar(at(-0.02f, 1.02f), at(1.02f, 1.02f), 0.024f, cLight);
+                    bar(at(-0.02f, 0.58f), at(1.02f, 0.58f), 0.018f, cLight);
+                    for (int k = 0; k <= 6; ++k) bar(at(static_cast<float>(k) / 6.0f, -0.02f), at(static_cast<float>(k) / 6.0f, 1.03f), 0.022f, cLight);
+                }
+                for (const auto& band : std::array<std::array<float, 2>, 2>{{{0.0f, 0.03f}, {0.96f, 1.0f}}}) {
+                    const float za = glm::mix(ends[0], ends[1], band[0]), zb = glm::mix(ends[0], ends[1], band[1]);
+                    const float ya = glm::mix(kFloor, 0.02f, band[0]) + 0.006f, yb = glm::mix(kFloor, 0.02f, band[1]) + 0.006f;
+                    sq({kCenterX - 1.9f, ya, za}, {kCenterX + 1.9f, ya, za}, {kCenterX + 1.9f, yb, zb}, {kCenterX - 1.9f, yb, zb}, {0, 1, 0}, rgbv(yellowStation));
+                }
+            }
+            for (float z : {-1.4f, -58.6f})
+                for (float x : {73.45f, 74.2f, 75.8f, 76.55f}) {
+                    box({x, 0.48f, z}, {0.12f, 0.92f, 0.12f}, 0x3a4044);
+                    box({x, 0.75f, z}, {0.126f, 0.1f, 0.126f}, yellowStation);
+                    obstacle({x, 0.0f, z}, 0.16f, 0.16f, 0.0f);
+                }
+            // fin de via: barrera roja y blanca al fondo de la calle ampliada
+            for (float x = 54.4f; x < 95.6f; x += 2.2f) {
+                const bool white = static_cast<int>(std::lround((x - 54.4f) / 2.2f)) % 2 == 0;
+                box({x + 1.0f, 0.45f, -73.6f}, {2.1f, 0.86f, 0.5f}, white ? 0xe8e8e2 : redStation);
+                box({x + 1.0f, 0.96f, -73.6f}, {1.9f, 0.05f, 0.05f}, 0x8b9196);
+            }
+            obstacle({75.0f, 0.0f, -73.6f}, 41.2f, 0.8f, 0.0f);
             m_Landmarks.push_back({"Estación Portal del Centro", {kCenterX, 0.0f, kCenterZ}});
         }
 
@@ -919,14 +1309,33 @@ void CityLayout::BuildMeshes(const CityLoadProgress& progressCallback) {
                 quad(corner(p0, -1, -1), corner(p0, -1, 1), corner(p1, -1, 1), corner(p1, -1, -1), {-1, 0, 0}, color);
             };
             using namespace Viaduct;
+            // Normal suave de la superficie (sigue la pendiente y la curva del eje): sin facetas entre segmentos
+            const auto deckNormal = [&](float zz) {
+                const glm::vec2 lateral2 = BridgeNormal(zz);
+                const float dc = (BridgeCenter(zz + 0.05f) - BridgeCenter(zz - 0.05f)) / 0.1f;
+                const float slope = (Height(zz + 0.05f) - Height(zz - 0.05f)) / 0.1f;
+                glm::vec3 up = glm::normalize(glm::cross(glm::vec3(dc, slope, 1.0f), glm::vec3(lateral2.x, 0.0f, lateral2.y)));
+                return up.y < 0.0f ? -up : up;
+            };
+            const auto smoothTop = [&](glm::vec3 a, glm::vec3 b, glm::vec3 c, glm::vec3 d, const glm::vec3& n0, const glm::vec3& n1, const glm::vec4& color) {
+                // a, b en el segmento de atras (borde izquierdo y derecho) y c, d en el de adelante
+                std::array<glm::vec3, 4> position{a, b, d, c};
+                std::array<glm::vec3, 4> normal{n0, n0, n1, n1};
+                if (glm::dot(glm::cross(position[1] - position[0], position[2] - position[0]), n0) < 0.0f) { std::swap(position[1], position[3]); std::swap(normal[1], normal[3]); }
+                const uint32_t first = static_cast<uint32_t>(landmarkVertices.size());
+                const std::array<glm::vec2, 4> uv{{{0, 0}, {1, 0}, {1, 1}, {0, 1}}};
+                for (size_t i = 0; i < 4; ++i) landmarkVertices.push_back({position[i], normal[i], uv[i], color});
+                landmarkIndices.insert(landmarkIndices.end(), {first, first + 1, first + 2, first + 2, first + 3, first});
+            };
             int step = 0;
-            for (float z = kStartZ; z < kEndZ; z = std::min(std::floor(z) + 1.0f, kEndZ), ++step) {
-                const float next = std::min(std::floor(z) + 1.0f, kEndZ);
+            // segmentos de 0,5 m: el perfil en coseno de las rampas se ve continuo, sin cortes poligonales
+            for (float z = kStartZ; z < kEndZ; z = std::min(std::floor(z * 2.0f) / 2.0f + 0.5f, kEndZ), ++step) {
+                const float next = std::min(std::floor(z * 2.0f) / 2.0f + 0.5f, kEndZ);
                 const float h0 = Height(z), h1 = Height(next);
                 const glm::vec2 a2 = Edge(z, -1.0f), b2 = Edge(z, 1.0f), c2 = Edge(next, -1.0f), d2 = Edge(next, 1.0f);
                 const glm::vec3 a(a2.x, h0, a2.y), b(b2.x, h0, b2.y), c(c2.x, h1, c2.y), d(d2.x, h1, d2.y);
                 const glm::vec3 drop(0.0f, -kThickness, 0.0f);
-                quad(a, b, d, c, {0, 1, 0}, asphalt);
+                smoothTop(a, b, c, d, deckNormal(z), deckNormal(next), asphalt);
                 quad(a + drop, b + drop, d + drop, c + drop, {0, -1, 0}, underside);
                 quad(a + drop, c + drop, c, a, {-1, 0, 0}, concreteSide);
                 quad(b + drop, d + drop, d, b, {1, 0, 0}, concreteSide);
@@ -936,10 +1345,10 @@ void CityLayout::BuildMeshes(const CityLoadProgress& progressCallback) {
                     const glm::vec2 e0 = Edge(z, side) - normal0 * side * 0.25f, e1 = Edge(next, side) - normal1 * side * 0.25f;
                     beam({e0.x, h0 + 1.05f, e0.y}, {e1.x, h1 + 1.05f, e1.y}, 0.06f, 0.05f, railColor);
                     beam({e0.x, h0 + 0.55f, e0.y}, {e1.x, h1 + 0.55f, e1.y}, 0.04f, 0.035f, railColor);
-                    if (step % 3 == 0 && z > kStartZ + 1.5f) box({e0.x, h0 + 0.55f, e0.y}, {0.12f, 1.1f, 0.12f}, 0xc9c9c2);
+                    if (step % 6 == 0 && z > kStartZ + 1.5f) box({e0.x, h0 + 0.55f, e0.y}, {0.12f, 1.1f, 0.12f}, 0xc9c9c2);
                 }
                 // linea central discontinua
-                if (step % 4 < 2) {
+                if (step % 8 < 4) {
                     const glm::vec2 m0 = (a2 + b2) * 0.5f, m1 = (c2 + d2) * 0.5f;
                     quad({m0.x - 0.07f, h0 + 0.012f, m0.y}, {m0.x + 0.07f, h0 + 0.012f, m0.y}, {m1.x + 0.07f, h1 + 0.012f, m1.y},
                          {m1.x - 0.07f, h1 + 0.012f, m1.y}, {0, 1, 0}, marking);
@@ -966,10 +1375,14 @@ void CityLayout::BuildMeshes(const CityLoadProgress& progressCallback) {
                 for (size_t line = 0; line < lines.size(); ++line) {
                     if (lines[line].empty()) continue;
                     const SignUV uv = m_SignAtlas.StreetName(lines[line]);
-                    const float y = 2.65f - static_cast<float>(line) * 0.32f;
+                    const float y = 2.65f - static_cast<float>(line) * 0.42f;
                     const glm::vec3 front = line % 2 == 0 ? glm::vec3(0, 0, 1) : glm::vec3(1, 0, 0);
-                    appendSignQuad({px, y, pz}, front, 1.1f, 0.28f, uv, 0.0f, 0.0f);
-                    appendSignQuad({px, y, pz}, -front, 1.1f, 0.28f, uv, 0.0f, 0.0f);
+                    for (const float side : {1.0f, -1.0f}) {   // una placa por cara, separadas del poste y entre si: dos caras en el mismo plano se transparentaban segun el angulo
+                        const glm::vec3 n = front * side, center = glm::vec3(px, y, pz) + n * 0.065f;
+                        const glm::vec3 size = line % 2 == 0 ? glm::vec3(1.28f, 0.36f, 0.035f) : glm::vec3(0.035f, 0.36f, 1.28f);
+                        box(center, size, 0xcfcbbd);   // respaldo de lamina
+                        appendSignQuad(center + n * 0.0185f, n, 1.24f, 0.31f, uv, 0.0f, 0.0f);
+                    }
                 }
             };
             std::vector<std::pair<Band, std::string>> avenues;
@@ -993,10 +1406,12 @@ void CityLayout::BuildMeshes(const CityLoadProgress& progressCallback) {
     if (!buildingVertices.empty()) m_BuildingMesh = std::make_shared<Mesh>(buildingVertices, buildingIndices);
     if (!windowLightVertices.empty()) m_WindowLightMesh = std::make_shared<Mesh>(windowLightVertices, windowLightIndices);
     if (!detailVertices.empty()) m_FacadeDetailMesh = std::make_shared<Mesh>(detailVertices, detailIndices);
+    if (!paneVertices.empty()) m_WindowPaneMesh = std::make_shared<Mesh>(paneVertices, paneIndices);
     if (!signVertices.empty()) m_SignMesh = std::make_shared<Mesh>(signVertices, signIndices);
 }
 
 void CityLayout::Render(Renderer& renderer, const glm::vec3& focusPosition) {
+    renderer.SetShadowCaster(false);   // el suelo recibe sombras pero no las proyecta
     if (m_GroundMesh) {
         m_AsphaltTexture->BindUnit(0);
         renderer.Submit(*m_GroundMesh, glm::mat4(1.0f), glm::vec4(1.0f), true);
@@ -1008,8 +1423,11 @@ void CityLayout::Render(Renderer& renderer, const glm::vec3& focusPosition) {
     if (m_NatureMesh) {
         renderer.Submit(*m_NatureMesh, glm::mat4(1.0f), glm::vec4(1.0f));
     }
+    if (m_LakeBedMesh) renderer.Submit(*m_LakeBedMesh, glm::mat4(1.0f), glm::vec4(1.0f));
 
     if (m_MarkingMesh) renderer.Submit(*m_MarkingMesh, glm::mat4(1.0f));
+    renderer.SetShadowCaster(true);
+    renderer.SetShadowStatic(true);   // edificios, torre, puente y fachadas: no se mueven, su sombra se guarda aparte
     if (m_LandmarkMesh) renderer.Submit(*m_LandmarkMesh, glm::mat4(1.0f));
     if (m_ColpatriaLightMesh) {
         // de dia las franjas de la torre son colores apagados; de noche brillan sin iluminacion
@@ -1025,6 +1443,12 @@ void CityLayout::Render(Renderer& renderer, const glm::vec3& focusPosition) {
         renderer.Submit(*m_BuildingMesh, glm::mat4(1.0f), glm::vec4(1.0f), true);
     }
     if (m_FacadeDetailMesh) renderer.Submit(*m_FacadeDetailMesh, glm::mat4(1.0f));
+    if (m_WindowPaneMesh) {   // vidrio: refleja el cielo y deja un brillo del sol
+        renderer.SetFinish(0.85f, 0.10f);
+        renderer.Submit(*m_WindowPaneMesh, glm::mat4(1.0f));
+        renderer.SetFinish(0.0f, 0.5f);
+    }
+    renderer.SetShadowStatic(false);
     if (m_WindowLightMesh && m_NightGlow > 0.05f) {
         // apartamentos con la luz encendida: aparecen al oscurecer, junto con las farolas
         renderer.SetUnlit(true);
@@ -1035,12 +1459,20 @@ void CityLayout::Render(Renderer& renderer, const glm::vec3& focusPosition) {
         m_SignAtlas.GetTexture()->BindUnit(0);
         renderer.Submit(*m_SignMesh, glm::mat4(1.0f), glm::vec4(1.0f), true, false, nullptr, 2); // mezcla alfa: grafitis con fondo transparente
     }
+    if (m_FountainMesh && glm::distance(glm::vec2(kFountainX, kFountainZ), glm::vec2(focusPosition.x, focusPosition.z)) < 140.0f)
+        renderer.Submit(*m_FountainMesh, glm::translate(glm::mat4(1.0f), {kFountainX, GetGroundHeight(kFountainX, kFountainZ), kFountainZ}), glm::vec4(1.0f), false, true);
     for (const auto& building : m_Buildings) {
+        if (building.modelVariant == kChurchVariant) {   // la iglesia se ve de lejos: es la torre mas alta del barrio
+            if (m_ChurchMesh && glm::distance(glm::vec2(building.position.x, building.position.z), glm::vec2(focusPosition.x, focusPosition.z)) < 420.0f)
+                renderer.Submit(*m_ChurchMesh, glm::translate(glm::mat4(1.0f), {building.position.x, 0.0f, building.position.z}), glm::vec4(1.0f), false, true);
+            continue;
+        }
         if (building.modelVariant < 0) continue;
         const glm::vec2 offset(building.position.x - focusPosition.x,
                                building.position.z - focusPosition.z);
         if (glm::dot(offset, offset) > 85.0f * 85.0f) continue;
         const glm::vec3 boundsCenter = building.position;
+        const glm::vec4 facadeTint = FacadeTint(static_cast<uint32_t>(std::floor(building.position.x * 0.5f)) * 73856093u ^ static_cast<uint32_t>(std::floor(building.position.z * 0.5f)) * 19349663u);
         const float groundY = boundsCenter.y - building.size.y * 0.5f;
         const glm::vec3 targetFootprint(
             std::max(0.5f, building.size.x - 1.0f),
@@ -1068,7 +1500,7 @@ void CityLayout::Render(Renderer& renderer, const glm::vec3& focusPosition) {
                 const glm::vec3 targetSize(targetFootprint.x, height, targetFootprint.z);
                 m_ModularBuildingModels[section]->Draw(
                     renderer, fittedTransform(*m_ModularBuildingModels[section],
-                                              {boundsCenter.x, sectionY, boundsCenter.z}, targetSize));
+                                              {boundsCenter.x, sectionY, boundsCenter.z}, targetSize), facadeTint);
                 sectionY += height;
             }
         } else {
@@ -1076,9 +1508,76 @@ void CityLayout::Render(Renderer& renderer, const glm::vec3& focusPosition) {
             if (!model) continue;
             model->Draw(renderer, fittedTransform(*model,
                                                    {boundsCenter.x, groundY, boundsCenter.z},
-                                                   targetFootprint));
+                                                   targetFootprint), facadeTint);
         }
     }
+}
+
+
+namespace {
+// Escala y apoya un modelo en una caja: el mismo ajuste con el que se dibujan los edificios.
+glm::mat4 FitBuildingModel(const Model& model, const glm::vec3& position, const glm::vec3& targetSize) {
+    const glm::vec3 extent = model.GetBoundsMaximum() - model.GetBoundsMinimum();
+    if (glm::any(glm::lessThanEqual(extent, glm::vec3(0.0001f)))) return glm::mat4(1.0f);
+    return glm::translate(glm::mat4(1.0f), position)
+        * glm::scale(glm::mat4(1.0f), targetSize / extent)
+        * glm::translate(glm::mat4(1.0f), {-((model.GetBoundsMinimum().x + model.GetBoundsMaximum().x) * 0.5f), -model.GetBoundsMinimum().y,
+                                           -((model.GetBoundsMinimum().z + model.GetBoundsMaximum().z) * 0.5f)});
+}
+
+// Moller-Trumbore contra todas las piezas del modelo; devuelve t del impacto mas cercano o -1
+float RayModel(const Model& model, const glm::mat4& fit, const glm::vec3& origin, const glm::vec3& direction) {
+    float best = -1.0f;
+    for (const ModelPart& part : model.GetParts()) {
+        if (!part.mesh) continue;
+        const std::vector<glm::vec3>& positions = part.mesh->GetPositions();
+        const std::vector<uint32_t>& indices = part.mesh->GetIndices();
+        if (positions.empty() || indices.size() < 3) continue;
+        const glm::mat4 toWorld = fit * part.transform;
+        for (size_t i = 0; i + 2 < indices.size(); i += 3) {
+            const glm::vec3 a = glm::vec3(toWorld * glm::vec4(positions[indices[i]], 1.0f));
+            const glm::vec3 b = glm::vec3(toWorld * glm::vec4(positions[indices[i + 1]], 1.0f));
+            const glm::vec3 c = glm::vec3(toWorld * glm::vec4(positions[indices[i + 2]], 1.0f));
+            const glm::vec3 e1 = b - a, e2 = c - a, p = glm::cross(direction, e2);
+            const float det = glm::dot(e1, p);
+            if (std::abs(det) < 1.0e-7f) continue;
+            const float inv = 1.0f / det;
+            const glm::vec3 s = origin - a;
+            const float u = glm::dot(s, p) * inv;
+            if (u < 0.0f || u > 1.0f) continue;
+            const glm::vec3 q = glm::cross(s, e1);
+            const float v = glm::dot(direction, q) * inv;
+            if (v < 0.0f || u + v > 1.0f) continue;
+            const float t = glm::dot(e2, q) * inv;
+            if (t > 0.001f && (best < 0.0f || t < best)) best = t;
+        }
+    }
+    return best;
+}
+} // namespace
+
+float CityLayout::RayBuildingDistance(size_t index, const glm::vec3& origin, const glm::vec3& direction) const {
+    if (index >= m_Buildings.size()) return -1.0f;
+    const BuildingInstance& building = m_Buildings[index];
+    if (building.modelVariant < 0 || building.modelVariant == kChurchVariant) return -1.0f;
+    const float groundY = building.position.y - building.size.y * 0.5f;
+    const glm::vec3 footprint(std::max(0.5f, building.size.x - 1.0f), building.size.y, std::max(0.5f, building.size.z - 1.0f));
+    if (building.modelVariant == 1) {
+        if (!std::all_of(m_ModularBuildingModels.begin(), m_ModularBuildingModels.end(), [](const auto& model) { return static_cast<bool>(model); })) return -1.0f;
+        const float bottom = building.size.y * 0.25f, middle = building.size.y * 0.5f, top = building.size.y - bottom - middle;
+        const std::array<float, 3> heights{{bottom, middle, top}};
+        float sectionY = groundY, best = -1.0f;
+        for (size_t section = 0; section < m_ModularBuildingModels.size(); ++section) {
+            const glm::mat4 fit = FitBuildingModel(*m_ModularBuildingModels[section], {building.position.x, sectionY, building.position.z}, {footprint.x, heights[section], footprint.z});
+            const float t = RayModel(*m_ModularBuildingModels[section], fit, origin, direction);
+            if (t > 0.0f && (best < 0.0f || t < best)) best = t;
+            sectionY += heights[section];
+        }
+        return best;
+    }
+    const auto& model = m_BuildingModels[building.modelVariant == 0 ? 0 : 1];
+    if (!model) return -1.0f;
+    return RayModel(*model, FitBuildingModel(*model, {building.position.x, groundY, building.position.z}, footprint), origin, direction);
 }
 
 } // namespace Bazuko

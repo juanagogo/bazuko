@@ -46,13 +46,15 @@ struct BuildingInstance {
 
 class CityLayout {
 public:
-    static constexpr int WIDTH = 120;
+    static constexpr int WIDTH = 200;
     static constexpr float TILE_SIZE = 2.0f;
     // El mapa es el del juego original (src/world/bogota/CityLayout.js), generado por tools/export-city-map.py:
     // 120 baldosas de ancho y 198 de alto (las 161 del original mas 37 al norte con la estacion Portal del Centro).
     // El marco de coordenadas es el del original: la baldosa (x, z) del original esta centrada en (2x, 2z) metros, asi que
     // todas las posiciones del original (cambuche, hitos, bus...) se usan tal cual.
     static constexpr int NORTH_ROWS = 37;
+    static constexpr int kChurchVariant = 99;   // BuildingInstance::modelVariant de la iglesia de La Candelaria (modelo propio, ChurchModel.hpp)
+    static constexpr float kFountainX = 294.0f, kFountainZ = 55.0f, kFountainRadius = 3.6f;   // fuente de la plaza (EastZones.FOUNTAIN)
     static constexpr int HEIGHT = 161 + NORTH_ROWS;
     static constexpr float ORIGIN_X = 1.0f;
     static constexpr float ORIGIN_Z = 1.0f + NORTH_ROWS * TILE_SIZE;
@@ -64,10 +66,28 @@ public:
     void Render(Renderer& renderer, const glm::vec3& focusPosition);
 
     TileType GetTileAt(int x, int z) const;
-    bool IsWalkable(float worldX, float worldZ) const;
+    // Distancia (en metros) desde `origin`, a lo largo de `direction` (unitaria), hasta el muro dibujado del edificio `index`; negativa si no lo toca.
+    // Usa la malla del modelo que se dibuja, no la caja del edificio: asi los afiches quedan pegados al muro aunque el modelo sea mas chico.
+    float RayBuildingDistance(size_t index, const glm::vec3& origin, const glm::vec3& direction) const;
+    const std::vector<BuildingInstance>& GetBuildings() const { return m_Buildings; }   // cajas de edificios y muros (decals de pared)
+    // Letra original de la casilla (b, r, B, s, g, p, w, W, f, d, R, S, C, A, M); 'w' fuera del mapa
+    char GetMapCode(int x, int z) const {
+        if (x < 0 || x >= WIDTH || z < 0 || z >= HEIGHT) return 'w';
+        return m_MapCodes.empty() ? 'b' : m_MapCodes[static_cast<size_t>(z * WIDTH + x)];
+    }
+    // Lago (Parque del Lago): elipse suave de 50 x 26 m con fondo en cuenco. `allowLake` deja pisar el agua (solo el jugador nada);
+    // peatones, perro y carros siguen fuera de ella
+    static constexpr float kLakeX = 75.0f, kLakeZ = 262.0f, kLakeRadiusX = 50.0f, kLakeRadiusZ = 26.0f;
+    static constexpr float kLakeMaxDepth = 2.6f;    // profundidad del fondo en el centro (m bajo la calle)
+    static constexpr float kLakeSurface = -0.12f;   // cota de la superficie del agua
+    static float LakeDepth(float worldX, float worldZ);   // 0 fuera de la orilla; metros bajo el nivel de la calle dentro
+    static float WaterDepth(float worldX, float worldZ) { return std::max(0.0f, LakeDepth(worldX, worldZ) + kLakeSurface); }   // agua sobre el fondo
+    bool IsWalkable(float worldX, float worldZ, bool allowLake = false) const;
     bool IsRoad(float worldX, float worldZ) const;
     bool IsSidewalk(float worldX, float worldZ) const;
-    bool IsBlocked(float worldX, float worldZ, float radius = 0.0f) const;
+    bool IsBlocked(float worldX, float worldZ, float radius = 0.0f, bool allowLake = false) const;
+    // Solo las cajas estaticas (bombas, pilares, columnas...): el jugador ya respeta el mapa por casillas
+    bool HitsObstacle(float worldX, float worldZ, float radius) const;
 
     glm::vec3 GetSpawnPoint() const;
 
@@ -94,7 +114,8 @@ public:
     const std::vector<Landmark>& GetLandmarks() const { return m_Landmarks; }
     const std::vector<StaticBox>& GetObstacles() const { return m_Obstacles; }
     // Cota del suelo a nivel de calle: sube sobre la isla de la estacion y es 0 en el resto
-    float GetGroundHeight(float worldX, float worldZ) const { return Station::Height(worldX, worldZ); }
+    // Cota del suelo bajo un punto: andenes, plazas y pisos estan 0,15 m sobre la calle (con un bordillo suave de 0,3 m) y la isla de la estacion sube mas
+    float GetGroundHeight(float worldX, float worldZ) const;
     // 0..1: las luces de Colpatria se encienden de noche
     void SetNightGlow(float glow) { m_NightGlow = glow; }
 
@@ -104,13 +125,17 @@ private:
 
     CityData m_Data;
     std::vector<TileType> m_Grid;
+    std::vector<char> m_MapCodes;   // letra original de cada casilla en city-map.json (distingue Colpatria, su anexo, la tienda D69...)
     std::shared_ptr<Mesh> m_GroundMesh;
     std::shared_ptr<Mesh> m_SidewalkMesh;
     std::shared_ptr<Mesh> m_NatureMesh;
+    std::shared_ptr<Mesh> m_LakeBedMesh;   // orilla y fondo del lago en cuenco (reemplaza las casillas de pasto y agua)
     std::shared_ptr<Mesh> m_MarkingMesh;
     std::shared_ptr<Mesh> m_BuildingMesh;
     std::shared_ptr<Mesh> m_FacadeDetailMesh;
+    std::shared_ptr<Mesh> m_WindowPaneMesh;       // vidrios de las ventanas: se dibujan con acabado de vidrio (reflejan el cielo y el sol)
     std::shared_ptr<Mesh> m_SignMesh;
+    std::shared_ptr<Mesh> m_ChurchMesh, m_FountainMesh;
     std::shared_ptr<Mesh> m_WindowLightMesh;      // ventanas encendidas de los edificios (brillan de noche)
     std::shared_ptr<Mesh> m_ColpatriaLightMesh;   // franjas de colores de la torre (brillan de noche)
     std::shared_ptr<Mesh> m_GlassMesh;            // vidrios de la estacion (mezcla alfa)

@@ -154,10 +154,11 @@ export class VehicleAudio {
       if (!state) {
         state = { phase: this.random(), pitch: .96 + this.random() * .08,
           hornIndex: Math.floor(this.random() * 3), patience: .7 + this.random() * .8,
-          blockedFor: 0, cooldown: 0, idleVolume: 0, driveVolume: 0 };
+          blockedFor: 0, cooldown: 0, remarkCooldown: 0, idleVolume: 0, driveVolume: 0 };
         this.instances.set(entry.car, state);
       }
       state.cooldown = Math.max(0, state.cooldown - dt);
+      state.remarkCooldown = Math.max(0, state.remarkCooldown - dt);
       state.blockedFor = entry.source.personBlocked ? state.blockedFor + dt : 0;
       if (!nearby.has(entry.car)) { this._stop(state); continue; }
       const idle = this._loop(state, 'idle', this.sounds[entry.bus ? 'busIdle' : 'carIdle']);
@@ -179,17 +180,19 @@ export class VehicleAudio {
         const horn = this._startHorn(state.hornIndex, HORN_VOLUME * this.levels.traffic * distanceGain(entry.voiceDistance, HORN_NEAR, HORN_FAR), state.pitch);
         if (horn) {
           state.horn = horn;
-          // Una sola voz a la vez: si otro conductor o el reclamo por robo ya hablan, solo pita.
-          if (!entry.bus && entry.voiceDistance < 8 && this.driverSounds.length
-            && !this.remarkPlaying(state) && !this.externalVoiceActive()) {
-            const index = Math.min(this.driverSounds.length - 1, Math.floor(this.random() * this.driverSounds.length));
-            const remark = this.driverSounds[index];
-            if (remark.state() === 'loaded') {
-              if (state.remark) state.remark.sound.stop(state.remark.id);
-              state.remark = { sound: remark, id: remark.play() };
-            }
-          }
           state.cooldown = 6 + this.random() * 5;
+        }
+      }
+      // La frase no depende del claxon: este puede no estar cargado o el presupuesto estar ocupado.
+      if (!entry.bus && entry.source.personBlocked && state.blockedFor >= state.patience && state.remarkCooldown === 0
+        && entry.voiceDistance < 8 && this.driverSounds.length
+        && !state.remark && !this.remarkPlaying(state) && !this.externalVoiceActive()) {
+        const index = Math.min(this.driverSounds.length - 1, Math.floor(this.random() * this.driverSounds.length));
+        const remark = this.driverSounds[index];
+        if (remark.state() === 'loaded') {
+          if (state.remark) state.remark.sound.stop(state.remark.id);
+          state.remark = { sound: remark, id: remark.play() };
+          state.remarkCooldown = 6 + this.random() * 5;
         }
       }
       if (state.remark) {

@@ -4,27 +4,27 @@
 export const CAMBUCHE = [
   {
     id: 'base', name: 'Base de cartón', icon: 'package', req: { carton: 8 },
-    desc: 'Para dormir sin tocar el piso. Sin base no se puede dormir.'
+    desc: 'Para dormir sin tocar el piso.'
   },
   {
     id: 'techo', name: 'Techo de lona', icon: 'tent', req: { lona: 1 }, needs: 'base',
-    desc: 'Duermes mejor: recuperas más salud.'
+    desc: 'Duermo mejor: recupero más salud.'
   },
   {
     id: 'paredes', name: 'Paredes de tablas', icon: 'layers', req: { madera: 6 }, needs: 'base',
-    desc: 'Nadie te roba mientras duermes.'
+    desc: 'Nadie me roba mientras duermo.'
   },
   {
     id: 'cama', name: 'Colchón', icon: 'bed', req: { colchon: 1 }, needs: 'base',
-    desc: 'Recuperas mucha más energía al dormir.'
+    desc: 'Recupero mucha más energía al dormir.'
   },
   {
     id: 'fogon', name: 'Fogón de latas', icon: 'flame', req: { lata: 6, madera: 2 }, needs: 'base',
-    desc: 'Calienta: despiertas con más ánimo y sin tanta hambre.'
+    desc: 'Calienta: despierto con más ánimo y sin tanta hambre.'
   },
   {
     id: 'vela', name: 'Vela y foto', icon: 'heart', req: { vela: 1 }, needs: 'base',
-    desc: 'Despiertas más tranquilo: calma el vicio.'
+    desc: 'Despierto más tranquilo: calma el vicio.'
   }
 ];
 

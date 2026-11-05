@@ -4,11 +4,16 @@ export function startControlsHelp() {
   const content = document.getElementById('controls-help-content');
   const toggle = document.getElementById('controls-help-toggle');
   if (!root || !content || !toggle) return;
+  if (!document.getElementById('combat-block-help')) {
+    const hint = document.createElement('p');
+    hint.id = 'combat-block-help'; hint.textContent = 'Mantener O: bloquear (reduce el daño un 60 %). G: golpear. H: agarrar/soltar. J: derribar.';
+    content.appendChild(hint);
+  }
   const collapse = () => {
     root.classList.add('is-collapsed');
     content.setAttribute('aria-hidden', 'true');
     toggle.setAttribute('aria-expanded', 'false');
-    toggle.textContent = '!';
+    toggle.textContent = 'Ayuda';
     toggle.title = 'Mostrar controles';
     toggle.setAttribute('aria-label', 'Mostrar controles');
   };

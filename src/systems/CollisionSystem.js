@@ -1,6 +1,8 @@
 import * as THREE from 'three';
 import { SpatialGrid } from '../core/SpatialGrid.js';
 
+const AXES = ['x', 'y', 'z'];
+
 export class CollisionSystem {
   constructor() {
     this.colliders = []; // { box: THREE.Box3, mesh }
@@ -8,10 +10,18 @@ export class CollisionSystem {
     this._vehicles = new Map();
     this._staticGrid = new SpatialGrid();
     this._staticOrder = new Map();
+    this._fallGrid = new SpatialGrid();
     this._moveCandidates = [];
     this._cameraCandidates = [];
     this._occlusionCandidates = [];
     this._extent = new THREE.Vector3();
+    this._orientedLocal = new THREE.Vector3();
+    this._orientedHalf = new THREE.Vector3();
+    this._orientedDelta = new THREE.Vector3();
+    this._orientedPlayerResult = { local: this._orientedLocal, half: this._orientedHalf };
+    this._strikeRay = new THREE.Ray();
+    this._strikePoint = new THREE.Vector3();
+    this._strikeCandidates = [];
   }
 
   /** Registra un mesh como sólido. size opcional para hitbox custom. */
@@ -28,7 +38,27 @@ export class CollisionSystem {
 
   clear() {
     this.colliders = []; this.dynamicColliders = []; this._vehicles.clear();
-    this.invalidateStaticIndex(); this._staticGrid.clear(); this._staticOrder.clear();
+    this.invalidateStaticIndex(); this._staticGrid.clear(); this._staticOrder.clear(); this._fallGrid.clear();
+  }
+
+  /** Lo que ocupa sitio sin detener a nadie (una banca, un bolardo, una zorra). No cuenta para caminar ni para la cámara. */
+  addFallObstacle(minX, minZ, maxX, maxZ, minY, maxY) {
+    const box = new THREE.Box3(new THREE.Vector3(minX, minY, minZ), new THREE.Vector3(maxX, maxY, maxZ));
+    this._fallGrid.insert({ box }, minX, minZ, maxX, maxZ);
+  }
+
+  queryFallObstacles(minX, minZ, maxX, maxZ, result = []) { return this._fallGrid.query(minX, minZ, maxX, maxZ, result); }
+
+  /** Dónde no cabe un cuerpo que cae: lo sólido, lo que solo ocupa sitio y los carros que estén ahí. Se pregunta al caer, no por cuadro. */
+  queryFallRoom(minX, minZ, maxX, maxZ, result = []) {
+    this.queryStatic(minX, minZ, maxX, maxZ, result);
+    const extra = this.queryFallObstacles(minX, minZ, maxX, maxZ, this._fallCandidates ??= []);
+    for (let i = 0; i < extra.length; i++) result.push(extra[i]);
+    for (const entry of this.dynamicColliders) {
+      const { min, max } = entry.box;
+      if (max.x > minX && min.x < maxX && max.z > minZ && min.z < maxZ) result.push(entry);
+    }
+    return result;
   }
 
   invalidateStaticIndex() { this._indexedColliders = null; }
@@ -49,6 +79,21 @@ export class CollisionSystem {
     // Mantener el orden de resolución anterior, incluso si una caja ocupa varias celdas.
     result.sort((a, b) => this._staticOrder.get(a) - this._staticOrder.get(b));
     return result;
+  }
+
+  /** Segmento a la altura del torso: un puñetazo no atraviesa un sólido. */
+  hasClearStrike(from, to) {
+    const ray = this._strikeRay;
+    ray.origin.copy(from); ray.origin.y += 1.1;
+    ray.direction.copy(to).sub(from);
+    const distance = ray.direction.length();
+    if (distance < .001) return true;
+    ray.direction.divideScalar(distance);
+    const candidates = this.queryStatic(Math.min(from.x, to.x), Math.min(from.z, to.z),
+      Math.max(from.x, to.x), Math.max(from.z, to.z), this._strikeCandidates);
+    const blocked = ({ box }) => ray.intersectBox(box, this._strikePoint) &&
+      ray.origin.distanceToSquared(this._strikePoint) < distance * distance;
+    return !candidates.some(blocked) && !this.dynamicColliders.some(blocked);
   }
 
   /** Consulta conservadora del volumen cámara/jugador; admite falsos positivos. */
@@ -139,7 +184,8 @@ export class CollisionSystem {
     for (const { box, vehicle, layered, obb } of this._movementColliders(pos, radius, axis, delta)) {
       if ((vehicle || layered) && (pos.y > box.max.y || pos.y + 1.6 < box.min.y)) continue;
       if (obb) {
-        const movement = new THREE.Vector3(); movement[axis] = end - start;
+        const movement = this._orientedDelta.set(0, 0, 0);
+        movement[axis] = end - start;
         const t = this._orientedSweep(pos, movement, radius, obb);
         if (t !== null) end = start + (end - start) * Math.max(0, t - epsilon);
         continue;
@@ -156,6 +202,9 @@ export class CollisionSystem {
       } else if (start > min + epsilon && start < max - epsilon) {
         // Una posición ya solapada puede salir por el lado más cercano,
         // pero nunca se corrige saltando al otro extremo de una manzana.
+        // Entre cajas por capas muy juntas (bancas contra muro) dos cajas pueden prohibirse
+        // las salidas: cada una solo limita el eje por donde se sale de ella.
+        if (layered && Math.min(pos[other] - box.min[other] + radius, box.max[other] + radius - pos[other]) < Math.min(start - min, max - start)) continue;
         if ((delta > 0 && start < (min + max) / 2) ||
             (delta < 0 && start > (min + max) / 2)) end = start;
       }
@@ -164,39 +213,48 @@ export class CollisionSystem {
   }
 
   _orientedPlayer(pos, radius, obb) {
-    const local = new THREE.Vector3(pos.x, pos.y + .8, pos.z).sub(obb.center).applyQuaternion(obb.inverse);
-    const half = obb.halfSize.clone();
+    const local = this._orientedLocal.set(pos.x, pos.y + .8, pos.z).sub(obb.center).applyQuaternion(obb.inverse);
+    const half = this._orientedHalf.copy(obb.halfSize);
     for (let i = 0; i < 3; i++) {
       const a = obb.axes[i];
       half.setComponent(i, half.getComponent(i) + radius * Math.hypot(a.x, a.z) + .8 * Math.abs(a.y));
     }
-    return { local, half };
+    return this._orientedPlayerResult;
   }
 
   _pushFromOriented(pos, radius, obb) {
     const { local, half } = this._orientedPlayer(pos, radius, obb);
-    if (['x','y','z'].some(a => Math.abs(local[a]) >= half[a] - 1e-7)) return;
-    let best = Infinity, push = null;
+    if (Math.abs(local.x) >= half.x - 1e-7 ||
+        Math.abs(local.y) >= half.y - 1e-7 ||
+        Math.abs(local.z) >= half.z - 1e-7) return;
+    let best = Infinity, pushAxis = -1, pushAmount = 0;
     for (let i = 0; i < 3; i++) {
       const a = obb.axes[i], horizontal = a.x * a.x + a.z * a.z;
       if (horizontal < 1e-6) continue;
       const depth = half.getComponent(i) - Math.abs(local.getComponent(i)) + 1e-6;
       const distance = depth / Math.sqrt(horizontal);
-      if (distance < best) { best = distance; push = { a, amount: (local.getComponent(i) < 0 ? -1 : 1) * depth / horizontal }; }
+      if (distance < best) {
+        best = distance;
+        pushAxis = i;
+        pushAmount = (local.getComponent(i) < 0 ? -1 : 1) * depth / horizontal;
+      }
     }
-    if (push) { pos.x += push.a.x * push.amount; pos.z += push.a.z * push.amount; }
+    if (pushAxis >= 0) {
+      pos.x += obb.axes[pushAxis].x * pushAmount;
+      pos.z += obb.axes[pushAxis].z * pushAmount;
+    }
   }
 
   _orientedSweep(pos, movement, radius, obb) {
     const { local, half } = this._orientedPlayer(pos, radius, obb);
-    const delta = movement.clone().applyQuaternion(obb.inverse);
+    const delta = this._orientedDelta.copy(movement).applyQuaternion(obb.inverse);
     let near = 0, far = 1;
-    for (const axis of ['x','y','z']) {
+    for (const axis of AXES) {
       if (Math.abs(delta[axis]) < 1e-10) {
         if (Math.abs(local[axis]) >= half[axis] - 1e-7) return null;
       } else {
         let a = (-half[axis] - local[axis]) / delta[axis], b = (half[axis] - local[axis]) / delta[axis];
-        if (a > b) [a,b] = [b,a];
+        if (a > b) { const swap = a; a = b; b = swap; }
         near = Math.max(near, a); far = Math.min(far, b);
         if (near > far || far < 0) return null;
       }

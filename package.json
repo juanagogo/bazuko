@@ -1,11 +1,13 @@
 {
-  "name": "vagabundo",
+  "name": "habitante-de-calle",
   "version": "0.1.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
+    "fuente": "node tools/fuente/dibujar.mjs && node tools/fuente/marcas.mjs && node tools/fuente/marca.mjs",
+    "imprenta": "node tools/fuente/imprenta.mjs",
     "benchmark:performance": "node tools/benchmark-performance.mjs",
     "test": "node --experimental-test-module-mocks --test tests/*.test.js",
     "test:e2e": "playwright test",
@@ -14,10 +16,9 @@
     "test:report": "playwright show-report"
   },
   "dependencies": {
-    "@fontsource/overpass": "5.3.0",
     "cannon-es": "^0.20.0",
+    "hls.js": "^1.7.3",
     "howler": "^2.2.4",
-    "lucide": "1.50.0",
     "three": "0.186.1"
   },
   "devDependencies": {

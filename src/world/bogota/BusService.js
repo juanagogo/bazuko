@@ -1,9 +1,22 @@
 import * as THREE from 'three';
 import { articulatedBus, ARTICULATED_BUS_SIZE } from './props.js';
-import { createImportedModel, disposeImportedInstance } from '../../utils/ImportedModels.js';
+import { createArticulatedBus } from './ArticulatedBusRig.js';
+import { TERMINAL, setPlatformDoors } from './TransitTerminal.js';
 
 const ACCELERATION = 1.1, BRAKING = 4, CRUISE_SPEED = 5;
-const STOP_SECONDS = 4, END_FADE_METERS = 6;
+const STOP_SECONDS = 4, END_FADE_METERS = 6, BRAKE_LIGHT_HOLD = 1;
+const smooth = THREE.MathUtils.smoothstep;
+
+/** Apertura de las puertas según lo que falta de parada: abren al detenerse y cierran antes de arrancar. */
+export function doorOpening(dwellRemaining) {
+  if (dwellRemaining <= 0) return 0;
+  return smooth(STOP_SECONDS - dwellRemaining, .3, 1.05) * smooth(dwellRemaining, .2, .95);
+}
+
+const rememberMaterial = (materials, material) => {
+  // Cada material vuelve a lo suyo al terminar el relevo: el vidrio sigue transparente y el resto opaco.
+  materials.set(material, { opacity: material.opacity, transparent: material.transparent, depthWrite: material.depthWrite });
+};
 
 /** Servicio hacia el norte por el carril exclusivo, con relevo en los extremos. */
 export class BusService {
@@ -22,16 +35,18 @@ export class BusService {
     this.height = height;
     this.groundHeight = groundHeight;
     this.laneX = x;
+    this.brakeHold = 0;
     this.pathX = pathX;
     this.position.set(x, groundHeight?.(x, startZ) ?? height, startZ);
     this.speed = 0;
     this.servedStation = stationZ === null;
     this.dwellRemaining = 0;
+    this.doorOpen = 0;
+    this.night = false;
     this.materials = new Map();
     this.group.traverse(mesh => {
       if (!mesh.isMesh) return;
-      const material = mesh.material;
-      this.materials.set(material, material.opacity);
+      rememberMaterial(this.materials, mesh.material);
     });
     this._alignToGround();
     this._updateVisibility();
@@ -62,27 +77,35 @@ export class BusService {
   }
 
   preloadModel() {
-    return this._modelPromise ??= createImportedModel('transmilenio', { ownMaterials: true }).then(model => {
-      if (this._disposed) { disposeImportedInstance(model); return; }
+    return this._modelPromise ??= createArticulatedBus().then(rig => {
+      if (this._disposed) { rig.dispose(); return; }
       const geometries = new Set();
       this.group.traverse(object => { if (object.geometry) geometries.add(object.geometry); });
       for (const child of [...this.group.children]) this.group.remove(child);
       for (const geometry of geometries) geometry.dispose();
       for (const material of this.materials.keys()) material.dispose();
       this.materials.clear();
-      this.group.userData.wheels = [];
-      this.model = model;
-      this.group.add(model);
-      model.traverse(object => {
-        for (const material of [object.material].flat().filter(Boolean)) this.materials.set(material, material.opacity);
+      this.rig = rig;
+      rig.setDestination(this.direction);
+      rig.setNight(this.night);
+      this.group.userData.wheels = rig.wheels;
+      this.group.add(rig.root);
+      rig.root.traverse(object => {
+        for (const material of [object.material].flat().filter(Boolean)) rememberMaterial(this.materials, material);
       });
+      this._articulate();
       this._updateVisibility();
     });
   }
 
   dispose() {
     this._disposed = true;
-    if (this.model) disposeImportedInstance(this.model);
+    this.rig?.dispose();
+  }
+
+  /** Las secciones del modelo siguen el eje del carril por separado (curvas y rampas del viaducto). */
+  _articulate(dt = 0) {
+    this.rig?.articulate(this, dt);
   }
 
   _alignToGround() {
@@ -110,16 +133,31 @@ export class BusService {
       this.direction * (this.position.z - this.startZ) / END_FADE_METERS,
       this.direction * (this.endZ - this.position.z) / END_FADE_METERS), 0, 1);
     this.group.visible = opacity > 0;
-    for (const [material, baseOpacity] of this.materials) {
-      const transparent = opacity < 1;
+    const fading = opacity < 1;
+    for (const [material, base] of this.materials) {
+      const transparent = base.transparent || fading;
       if (material.transparent !== transparent) { material.transparent = transparent; material.needsUpdate = true; }
-      material.opacity = baseOpacity * opacity;
-      material.depthWrite = !transparent;
+      material.opacity = base.opacity * opacity;
+      material.depthWrite = fading ? false : base.depthWrite;
     }
+  }
+
+  /** Luces interiores, faros y reflejo del vidrio; solo emisivos, sin luces nuevas. */
+  setNight(isNight) {
+    this.night = isNight;
+    this.rig?.setNight(isNight);
+  }
+
+  /** Puertas del bus y, si para en el Portal, las de la estación enfrentadas a su carril. */
+  _updateDoors() {
+    this.doorOpen = doorOpening(this.dwellRemaining);
+    this.rig?.setDoors(this.doorOpen);
+    if (this.stationZ === TERMINAL.z) setPlatformDoors(this.direction, this.doorOpen);
   }
 
   update(dt, { player = null, pedestrians = [], vehicles = [] } = {}) {
     this.personBlocked = false;
+    const speedBefore = this.speed;
     let remaining = Math.min(Math.max(dt, 0), 0.5);
     while (remaining > 1e-8) {
       const step = Math.min(remaining, 0.05);
@@ -157,7 +195,8 @@ export class BusService {
       this.position.z += travel * heading.z;
       this._alignRoute();
       this.speed = travel / step;
-      for (const wheel of this.group.userData.wheels) wheel.rotateY(travel / 0.5);
+      if (this.rig) this.rig.roll(travel);
+      else for (const wheel of this.group.userData.wheels) wheel.rotateY(travel / 0.5);
       if (!this.servedStation && this.direction * (this.position.z - this.stationZ) >= -1e-8) {
         this.position.z = this.stationZ;
         this.servedStation = true;
@@ -171,6 +210,14 @@ export class BusService {
       }
     }
     this._alignToGround();
+    this._articulate(dt);
     this._updateVisibility();
+    this._updateDoors();
+    // Stops: encendidos mientras frena y mientras está detenido; la retención evita que parpadeen al seguir a otro carro.
+    if (dt > 0) {
+      const braking = this.speed < speedBefore - 1e-3 || this.speed < .05;
+      this.brakeHold = braking ? BRAKE_LIGHT_HOLD : Math.max(0, this.brakeHold - dt);
+      this.rig?.setBraking(this.brakeHold > 0);
+    }
   }
 }

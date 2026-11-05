@@ -46,6 +46,26 @@ test('comprueba el volumen completo y mantiene los objetos parcialmente visibles
   assert.equal(culling.stats.visible, 1);
 });
 
+test('lo que se ve pasado el plano lejano no se descarta por él, pero sí por los lados', () => {
+  const scene = new THREE.Scene(), culling = new FrustumCulling(), view = camera();
+  const hazy = new THREE.MeshBasicMaterial();
+  hazy.userData.pastFar = true;
+  const place = (material, x, z) => {
+    const mesh = new THREE.Mesh(new THREE.BoxGeometry(2, 4, 2), material);
+    mesh.position.set(x, 2, z);
+    scene.add(mesh);
+    culling.register(mesh);
+    return mesh;
+  };
+  const far = place(hazy, 0, -300), beside = place(hazy, 300, -300), behind = place(hazy, 0, 300);
+  const plain = place(new THREE.MeshBasicMaterial(), 0, -300);
+  culling.apply(view);
+  assert.equal(far.visible, true);
+  assert.equal(beside.visible, false);
+  assert.equal(behind.visible, false);
+  assert.equal(plain.visible, false);
+});
+
 test('vehículos fuera de cámara siguen desplazándose y reaparecen sin reiniciar su estado', () => {
   const culling = new FrustumCulling(), view = camera(), car = box(0, 10);
   culling.register(car, { dynamic: true, margin: .5 });

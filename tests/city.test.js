@@ -7,9 +7,9 @@ import { CITY_WIDTH, CITY_HEIGHT, ORIGINAL_CITY_WIDTH, ORIGINAL_CITY_HEIGHT,
 import { migrateStreetPosition } from '../src/world/bogota/StreetLayout.js';
 import { CollisionSystem } from '../src/systems/CollisionSystem.js';
 import { FrustumCulling } from '../src/core/FrustumCulling.js';
+import { textureSet } from './helpers/fixtures.js';
 
 // La construcción completa usa geometría real; solo Canvas y GLB se sustituyen.
-const textureSet=()=>({map:new THREE.Texture(),bumpMap:new THREE.Texture(),emissiveMap:new THREE.Texture()});
 const replacements={...textures};
 for(const name of ['asphalt','sidewalk','brick','facade','roofTiles','slab','cardboard','trashBag','dirt','concrete']) replacements[name]=textureSet;
 for(const name of ['radialSprite','lightbox','neon']) replacements[name]=()=>new THREE.Texture();
@@ -20,6 +20,7 @@ mock.module('../src/character/RealisticCharacter.js',{namedExports:{
   loadCatalog:async()=>({}),normalizeReal:(_,look)=>look,optionsFor:()=>[{id:'test'}]
 }});
 const { Bogota }=await import('../src/world/districts/Bogota.js');
+const { servicePlaces }=await import('../src/ui/mapServices.js');
 
 test('la ciudad añade el parque del lago a la ampliación de tres veces la superficie y conserva el interior original sin desplazarlo',()=>{
   const center=Array.from({length:ORIGINAL_CITY_HEIGHT},(_,z)=>Array.from({length:ORIGINAL_CITY_WIDTH},(_,x)=>
@@ -74,9 +75,20 @@ test('el distrito completo construye y actualiza barrios, vendedores, peatones y
   assert.equal(city.busServices.length, 2);
   try {
     await Promise.all(city.npcs.map(npc=>npc.ready));
-    assert.equal(city.npcs.length,72); // 66 peatones y 6 vendedores.
-    assert.equal(city.vendors.length,6);
-    assert.equal(city.pigeonFlocks.length, 3);
+    assert.equal(city.npcs.length,88); // 66 peatones del centro, 14 del oriente y 8 vendedores.
+    assert.equal(city.vendors.length,8);
+    const places=servicePlaces(city),gps=city.createGpsNavigation();
+    assert.deepEqual(['chaza','fritanga','fogata'].map(kind=>places.filter(place=>place.service===kind).length),[5,3,4]);
+    for(const place of places) {
+      assert.ok(Number.isFinite(place.x)&&Number.isFinite(place.z),place.name);
+      assert.ok(place.icon&&place.color,place.name);
+      assert.ok(Object.keys(place.prices).length>0,place.name);
+      assert.ok(gps.findPath(city.reserved.spawn,place),`el GPS llega a ${place.name}`);
+    }
+    for(const fire of city.fireBarrels) for(const [name,place] of Object.entries(city.reserved)) {
+      assert.ok(Math.hypot(fire.position.x-place.x,fire.position.z-place.z)>=3,`ninguna fogata arde encima de ${name}`);
+    }
+    assert.equal(city.pigeonFlocks.length, 4);
     for (const flock of city.pigeonFlocks) {
       assert.equal(flock.birds.length, 10);
       for (const bird of flock.birds) {
@@ -84,7 +96,7 @@ test('el distrito completo construye y actualiza barrios, vendedores, peatones y
         assert.ok(['grass', 'plaza'].includes(type));
       }
     }
-    assert.equal(city.getTrafficRoutes().length,6);
+    assert.equal(city.getTrafficRoutes().length,8);
     let separateMeshes = 0;
     for (const building of city.buildingVisibility.buildings) for (const part of building.parts) {
       part.object.traverse(o => { if (o.isMesh) separateMeshes++; });
@@ -111,6 +123,10 @@ test('el distrito completo construye y actualiza barrios, vendedores, peatones y
     city.t = 25;
     city.update(.1,new THREE.Vector3(170,0,100),camera);
     assert.ok(city.busService.position.z<before);
+    const towers = [];
+    city.group.traverse(mesh => { if (mesh.material?.userData?.pastFar) towers.push(mesh); });
+    assert.ok(towers.length > 0, 'Las torres llevan el material con bruma');
+    assert.ok(towers.every(mesh => mesh.frustumCulled === false), 'Three no las corta en el plano lejano');
     const culling = new FrustumCulling();
     for (const sector of city.renderSectors) culling.register(sector);
     for (const mode of ['third-person', 'isometric']) {

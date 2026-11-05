@@ -4,12 +4,12 @@ import * as THREE from 'three';
 import * as textures from '../src/world/bogota/textures.js';
 import { STREET_X, STREET_Z } from '../src/world/bogota/StreetLayout.js';
 import { TILE_SIZE } from '../src/utils/constants.js';
+import { groundTextureSet } from './helpers/fixtures.js';
 
 // Se comprueba la geometría real sin necesitar Canvas para las texturas.
-const textureSet = () => ({ map: new THREE.Texture(), bumpMap: new THREE.Texture() });
 mock.module('../src/world/bogota/textures.js', {
-  namedExports: { ...textures, asphalt: textureSet, sidewalk: textureSet,
-    dirt: textureSet, concrete: textureSet, cardboard: textureSet, trashBag: textureSet }
+  namedExports: { ...textures, asphalt: groundTextureSet, sidewalk: groundTextureSet,
+    dirt: groundTextureSet, concrete: groundTextureSet, cardboard: groundTextureSet, trashBag: groundTextureSet }
 });
 const { Bogota } = await import('../src/world/districts/Bogota.js');
 const { shack } = await import('../src/world/bogota/props.js');

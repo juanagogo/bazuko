@@ -1,6 +1,8 @@
 import * as THREE from 'three';
 
-export const D69_STORE = Object.freeze({ x0: 43, x1: 53, z0: 159, z1: 173, height: 5, name: 'D69' });
+// Un mercado de barrio inventado: su nombre y sus colores no se parecen a los de ninguna cadena.
+const VERDE = '#1f5e3a';
+export const D69_STORE = Object.freeze({ x0: 43, x1: 53, z0: 159, z1: 173, height: 5, name: 'Doña Inés' });
 
 export function paintD69Store(map) {
   for (let z = 80; z <= 86; z++) for (let x = 22; x <= 26; x++) map[z][x] = 'storeD69';
@@ -10,7 +12,7 @@ export function paintD69Store(map) {
 export function buildD69Store({ createSign }) {
   const group = new THREE.Group(); group.name = 'Tienda D69';
   const white = new THREE.MeshStandardMaterial({ color: '#eeeadf', roughness: .85 });
-  const red = new THREE.MeshStandardMaterial({ color: '#b50c32', roughness: .6 });
+  const red = new THREE.MeshStandardMaterial({ color: VERDE, roughness: .6 });
   const frame = new THREE.MeshStandardMaterial({ color: '#b6bab8', roughness: .45, metalness: .45 });
   const glass = new THREE.MeshStandardMaterial({ color: '#29474c', roughness: .25, metalness: .25 });
   const roof = new THREE.MeshStandardMaterial({ color: '#777a77', roughness: .9 });
@@ -35,7 +37,7 @@ export function buildD69Store({ createSign }) {
   box(5.45, 2.65, .04, 48, 1.57, 158.89, glass);
   const sign = (x, z, yaw) => {
     const mesh = new THREE.Mesh(new THREE.PlaneGeometry(3.4, .95),
-      new THREE.MeshBasicMaterial({ map: createSign({ title: 'D69', sub: 'TIENDA · AHORRO DIARIO', bg: '#b50c32', fg: '#ffffff', border: false, w: 512, h: 160 }) }));
+      new THREE.MeshBasicMaterial({ map: createSign({ title: 'DOÑA INÉS', sub: 'MERCADO DEL BARRIO', bg: VERDE, fg: '#fff3da', border: false, w: 512, h: 160 }) }));
     mesh.position.set(x, 4.4, z); mesh.rotation.y = yaw; group.add(mesh);
   };
   sign(53.13, 162, Math.PI / 2);

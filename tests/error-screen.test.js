@@ -32,7 +32,7 @@ test('un error inesperado muestra un aviso que deja seguir jugando', () => {
   fire(win, 'unhandledrejection', { reason: new Error('otra') });
   console.error = original;
   assert.equal(body.children.length, 1);
-  assert.match(body.children[0].className, /soft/);
+  assert.match(body.children[0].className, /suave/);
   assert.equal(screen.reports.length, 2);
 });
 
@@ -43,7 +43,7 @@ test('perder WebGL guarda la partida y pide recargar', () => {
   fire(canvas, 'webglcontextlost', { preventDefault() { prevented = true; } });
   assert.equal(saved, 1);
   assert.equal(prevented, true);
-  assert.doesNotMatch(body.children[0].className, /soft/);
+  assert.doesNotMatch(body.children[0].className, /suave/);
 });
 
 test('los recursos que no cargan no muestran el aviso', () => {

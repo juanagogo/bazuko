@@ -1,15 +1,20 @@
 #pragma once
 
+#include <cstdlib>
 #include <string>
 #include <unordered_map>
 
 namespace Bazuko {
 
+// Andar y correr del juego original (andar-cansado.glb, de Mixamo: Sad Walk y Running), reorientados a este esqueleto con
+// tools/agregar_correr_mixamo.py. Los de ActionForge siguen en el banco (BAZUKO_ANDAR_ANTERIOR=1 los vuelve a usar). El andar cansado (WalkTired) solo lo usan el jugador sin energia y 1 de cada 10 peatones..
 inline const std::unordered_map<std::string, std::string>& CharacterAnimationAliases() {
+    static const bool previous = std::getenv("BAZUKO_ANDAR_ANTERIOR") != nullptr;
     static const std::unordered_map<std::string, std::string> aliases{
         {"idle_loop_fit", "Idle"},
         {"walk_loop_fit", "Walk"},
-        {"sprint_loop_fit", "Run"},
+        {"walk_mixamo", "WalkTired"},   // andar cansado: unos pocos peatones y el jugador sin energia
+        {previous ? "sprint_loop_fit" : "run_mixamo", "Run"},
         {"fixing_kneeling_fit", "Search"},
         {"idle_talking_loop_fit", "Talk"},
         {"consume_fit", "Consume"},

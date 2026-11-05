@@ -1,5 +1,6 @@
 // Catálogo de apariencia. Las paletas están curadas para que cualquier
 // combinación (incluido "Al azar") se vea bien.
+import { pick } from '../utils/random.js';
 
 export const PALETTES = {
   piel: ['#f6d3b3', '#e8b88f', '#d39a6d', '#b07a52', '#8a5a3b', '#5e3b27'],
@@ -9,6 +10,13 @@ export const PALETTES = {
   zapato: ['#1c1c1c', '#e9e9e9', '#7a4a2a', '#2f6fb0', '#c0392b'],
 };
 
+// Albedo lineal de cada tono de PALETTES.piel. El color de la paleta es el de la muestra del creador;
+// multiplicado por una textura que ya es rojiza da naranja, así que aquí se guarda lo que debe verse.
+// Los dos más oscuros se quedan lo bastante arriba para que la cara conserve su forma a la sombra.
+export const SKIN_ALBEDO = [
+  [.5, .295, .19], [.44, .24, .146], [.35, .18, .105], [.25, .126, .074], [.21, .108, .066], [.17, .088, .059]
+];
+
 export const COLOR_NAMES = {
   piel: ['Muy clara', 'Clara', 'Trigueña', 'Morena', 'Oscura', 'Muy oscura'],
   pelo: ['Negro', 'Castaño oscuro', 'Castaño', 'Cobrizo', 'Rubio', 'Canoso', 'Blanco', 'Vinotinto', 'Azul'],
@@ -17,7 +25,7 @@ export const COLOR_NAMES = {
   zapato: ['Negro', 'Blanco', 'Café', 'Azul', 'Rojo'],
 };
 
-// Qué tanto se nota la calle en la ropa y la piel (ver weathering.js)
+// Qué tanto se nota la calle en la ropa y la piel (ver streetMaterials.js)
 export const WEAR_LEVELS = [{ id: 0, label: 'Limpio' }, { id: 1, label: 'Gastado' }, { id: 2, label: 'Muy sucio' }];
 
 // Objetos que se cargan en el cuerpo (ver props.js); no son piezas exportadas de MakeHuman
@@ -114,10 +122,9 @@ export function normalizeLook(raw = {}) {
 /** Combinación al azar, curada: pelo casi siempre natural, ropa que contrasta. */
 export function randomLook(base = DEFAULT_LOOK) {
   const r = Math.random;
-  const any = (arr) => arr[Math.floor(r() * arr.length)];
-  const style = (k) => any(STYLES[k]).id;
+  const style = (k) => pick(STYLES[k], r).id;
   const top = Math.floor(r() * PALETTES.ropa.length);
-  let bottom = any([10, 6, 3, 12, 2]);
+  let bottom = pick([10, 6, 3, 12, 2], r);
   if (bottom === top) bottom = 10;
   return normalizeLook({
     ...base,

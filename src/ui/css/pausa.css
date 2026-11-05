@@ -1,0 +1,250 @@
+/* Pausa y ventanas de lugar. La pausa es la caja aplanada: pantalla completa, fondo de marcador y cuatro solapas de
+   cartón arriba. Las ventanas de lugar son una pieza suelta sobre el mundo.
+   Todo va con :where(#menu): no pisa a las hojas que cargan antes. */
+
+/* ---------- la ventana ---------- */
+.menu {
+  position: fixed; inset: 0; z-index: 300;
+  display: grid; place-items: center;
+  padding: calc(16px + var(--safe-t)) calc(16px + var(--safe-r)) calc(16px + var(--safe-b)) calc(16px + var(--safe-l));
+  background: rgba(20, 17, 12, .58);
+}
+:where(#menu) .sign--menu {
+  display: grid; grid-template-rows: auto minmax(0, 1fr) auto;
+  width: min(640px, 100%); max-height: 100%; padding: 14px 20px 14px;
+  min-height: 0;
+}
+:where(#menu) .menu__tabs:empty { display: none; }
+:where(#menu) .menu__head { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 12px; padding-bottom: 8px; background: var(--m-regla) center bottom / 100% 5px no-repeat; }
+:where(#menu) .menu__title { margin: 0; font-weight: 800; font-size: 32px; line-height: 1; }
+:where(#menu) .menu__sub { margin: 3px 0 0; font-size: 16px; line-height: 1.15; }
+:where(#menu) .menu__sub:empty { display: none; }
+:where(#menu) .menu__close { display: grid; place-items: center; width: 44px; height: 44px; padding: 0; background: var(--cinta); color: var(--marcador); border: 0; box-shadow: 0 0 0 1.5px var(--marcador), 1px 3px 0 1.5px var(--marcador); }
+:where(#menu) .menu__body { min-height: 0; overflow: auto; padding: 8px 2px; scrollbar-width: thin; scrollbar-color: var(--marcador) transparent; }
+:where(#menu) .menu__foot { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 10px 16px; padding-top: 10px; background: var(--m-regla) center top / 100% 5px no-repeat; }
+:where(#menu) .menu__foot:empty { display: none; }
+:where(#menu) .menu__money { margin-right: auto; font-size: 17px; font-weight: 800; }
+:where(#menu) .menu__money span { font-weight: 800; }
+:where(#menu) .empty { margin: 14px 2px; font-size: 16px; line-height: 1.25; color: var(--marcador); }
+
+/* Rojo sobre cartón mojado no se lee: ahí el círculo sale con la misma mano, a marcador. */
+body.mojado :is(#menu, #inv-overlay, #craft-panel, #talent-panel, #dealer-panel) .elegido::after { border-image-source: var(--m-circulo-tinta); }
+
+/* ---------- hacer es cinta, también en los botones de los menús ---------- */
+:where(#menu) .btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: .42em;
+  min-height: 38px; padding: 5px 14px;
+  background: var(--cinta); color: var(--marcador);
+  border: 0; border-radius: 0;
+  box-shadow: 0 0 0 1.5px var(--marcador), 1px 3px 0 1.5px var(--marcador);
+  font-weight: 800; font-size: 18px; line-height: 1; letter-spacing: 0; text-transform: none;
+  transition: none;
+}
+:where(#menu) .btn:active { transform: translateY(1px); }
+:where(#menu) .btn--primary {
+  min-height: 48px; padding: 8px 18px; margin: 0 9px 4px 8px;
+  border: 1px solid transparent;
+  border-image: var(--m-zigzag) 2 9 4 8 / 2px 9px 4px 8px / 2px 9px 4px 8px stretch;
+  box-shadow: none; font-size: var(--letra-verbo);
+}
+:where(#menu) .btn--primary kbd { font-size: .8em; }
+:where(#menu) .btn[disabled] {
+  background: var(--m-tachon) center / 100% .8em no-repeat, var(--flauta), var(--cara);
+  box-shadow: 0 0 0 1.5px var(--marcador); border-image: none; opacity: 1;
+  color: color-mix(in srgb, var(--marcador) 86%, transparent); cursor: not-allowed;
+}
+/* Elegir no es hacer: las opciones no llevan cinta. Lo elegido va en círculo. */
+:where(#menu) .btn.pause-choice { min-height: 38px; padding: 4px 12px; background: none; box-shadow: none; font-size: 18px; }
+:where(#menu) .btn.pause-choice[aria-pressed="false"] { font-weight: 400; }
+@media (hover: hover) {
+  :where(#menu) .btn:not([disabled]):hover { background: var(--cinta); box-shadow: 0 0 0 2.5px var(--marcador), 1px 3px 0 2.5px var(--marcador); }
+  :where(#menu) .btn--primary:not([disabled]):hover { box-shadow: none; text-decoration: underline; text-underline-offset: 3px; }
+  :where(#menu) .btn.pause-choice:not([disabled]):hover { background: none; box-shadow: none; text-decoration: underline; text-underline-offset: 3px; }
+}
+
+/* ---------- la caja aplanada ---------- */
+#menu:has(.sign--wide) { padding: 0; background: var(--marcador); }
+:where(#menu) .sign--menu.sign--wide {
+  position: relative; isolation: isolate;
+  width: 100%; height: 100%; max-height: none;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-rows: auto auto minmax(0, 1fr);
+  grid-template-areas: "tabs tabs" "head foot" "body body";
+  padding: calc(8px + var(--safe-t)) calc(14px + var(--safe-r)) 0 calc(14px + var(--safe-l));
+  background: var(--marcador); border: 0; border-image: none; border-radius: 0;
+}
+/* La cara de la caja: va detrás de cabeza, cuerpo y verbo, y deja el marcador solo alrededor de las solapas. */
+:where(#menu) .sign--wide::before {
+  content: ''; grid-area: 2 / 1 / 4 / -1; z-index: -1;
+  background: var(--flauta), var(--cara);
+}
+:where(#menu) .sign--wide .menu__tabs { grid-area: tabs; }
+:where(#menu) .sign--wide .menu__head { grid-area: head; display: block; min-width: 0; padding: 12px 8px 6px 24px; background: none; }
+:where(#menu) .sign--wide .menu__head > div { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 2px 22px; }
+:where(#menu) .sign--wide .menu__icon, :where(#menu) .sign--wide .menu__close { display: none; }
+:where(#menu) .sign--wide .menu__title { font-size: 58px; white-space: nowrap; }
+:where(#menu) .sign--wide .menu__sub { margin: 0; font-size: 21px; font-weight: 800; }
+:where(#menu) .sign--wide .menu__foot { grid-area: foot; align-self: center; padding: 8px 22px 0 0; background: none; }
+:where(#menu) .sign--wide .menu__body { grid-area: body; padding: 0; overflow: auto; }
+
+/* Las solapas: el cartón de cada una es un seudoelemento recortado, y la elegida empata con la cara de la caja. */
+.pause-tabs { display: flex; align-items: flex-end; gap: 7px; padding: 0 8px; }
+.pause-tabs__key { align-self: center; flex: none; font-size: 19px; background: var(--cinta); color: var(--marcador); }
+.pause-tab {
+  position: relative; isolation: isolate; flex: 0 1 auto; min-width: 0;
+  display: flex; align-items: center; justify-content: center;
+  min-height: 52px; padding: 7px 30px 9px;
+  background: none; border: 0; color: var(--marcador);
+  font-weight: 800; font-size: 25px; line-height: 1;
+}
+.pause-tab::after { content: ''; position: absolute; inset: 0 0 -1px; z-index: -1; background: var(--flauta), var(--cara); clip-path: polygon(3% 8%, 98% 0, 100% 100%, 0 100%); }
+.pause-tab:not(.is-active)::before { content: ''; position: absolute; left: 0; right: 0; bottom: -2px; height: 5px; background: var(--m-regla) center / 100% 100% no-repeat; }
+.pause-tab__palabra { display: block; }
+@media (hover: hover) { .pause-tab:not(.is-active):hover .pause-tab__palabra { text-decoration: underline; text-underline-offset: 4px; } }
+
+.pause-menu-body { min-width: 0; }
+.pause-menu-body--mapa, .pause-menu-body--mapa .pause-panel { height: 100%; }
+.pause-menu-body:not(.pause-menu-body--mapa) { padding: 6px 24px 22px; }
+
+/* ---------- Estado ---------- */
+.pause-state { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 0 34px; align-items: start; }
+.pause-nombre { font-weight: 800; font-size: 34px; line-height: 1; }
+.pause-section-title { display: flex; align-items: center; gap: 8px; margin: 0 0 6px; font-weight: 800; font-size: 26px; line-height: 1; }
+.pause-level { display: grid; grid-template-columns: auto minmax(60px, 1fr) auto; align-items: center; gap: 10px; margin-top: 8px; font-size: 18px; }
+.pause-level__badge { font-weight: 800; font-size: var(--letra-cifra); }
+.pause-level__xp { font-size: 16px; }
+.pause-meter { height: 20px; box-shadow: inset 0 0 0 1.5px var(--marcador); }
+.pause-meter__fill { height: 100%; max-width: 100%; }
+.pause-cards { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); margin-top: 8px; }
+.pause-card { display: flex; flex-direction: column; gap: 1px; min-width: 0; padding: 8px 8px 11px 0; background: var(--m-regla) center bottom / 100% 5px no-repeat; }
+.pause-card__label { font-size: 15px; }
+.pause-card__value { display: flex; align-items: center; gap: 6px; font-weight: 800; font-size: var(--letra-cifra); line-height: 1.05; overflow-wrap: anywhere; }
+.pause-actions { display: flex; flex-wrap: wrap; gap: 10px 12px; margin: 14px 3px 2px; }
+.pause-gps-summary { display: flex; align-items: center; gap: 7px; margin-top: 12px; font-size: 16px; line-height: 1.15; }
+.pause-gps-summary .picto { flex: none; }
+.pause-needs { list-style: none; }
+.pause-need { display: grid; grid-template-columns: minmax(96px, 8em) minmax(50px, 1fr) 2.6em; align-items: center; gap: 10px; min-height: 40px; padding: 3px 0 7px; background: var(--m-regla) center bottom / 100% 5px no-repeat; }
+.pause-need__label { display: flex; align-items: center; gap: 7px; font-weight: 800; font-size: 18px; line-height: 1; }
+.pause-need__value { text-align: right; }
+/* Bajo, la cifra se invierte; crítico, la fila entera es placa. Nada parpadea. */
+.pause-need.is-low .pause-need__value { justify-self: end; padding: 0 5px; background: var(--marcador); color: var(--cinta); }
+.pause-need.is-critical { padding-inline: 6px; background: var(--rojo); color: var(--cinta); }
+.pause-need.is-critical .pause-meter { box-shadow: inset 0 0 0 1.5px var(--cinta); }
+.pause-need.is-critical .pause-meter__fill { background-image: var(--m-rayado-cinta); }
+.pause-section--chato { margin-top: 18px; }
+
+/* ---------- Ajustes ---------- */
+.pause-settings { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0 34px; align-items: start; }
+.pause-section { min-width: 0; margin-bottom: 18px; }
+.pause-settings__col { min-width: 0; }
+.pause-row { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 10px; min-height: 46px; padding: 3px 0 7px; background: var(--m-regla) center bottom / 100% 5px no-repeat; }
+.pause-row__label { flex: 0 0 7em; font-size: 17px; line-height: 1.05; }
+.pause-value { flex: none; min-width: 3em; text-align: right; font-weight: 800; font-size: 18px; }
+.pause-hint { margin: 6px 0 8px; font-size: 15px; line-height: 1.2; }
+.pause-segmented { display: flex; flex-wrap: wrap; gap: 2px 4px; min-width: 0; }
+.pause-dog-swatch { width: 15px; height: 15px; background: var(--c); box-shadow: 0 0 0 1.5px var(--marcador); }
+.pause-slider { flex: 1 1 90px; min-width: 70px; height: 34px; -webkit-appearance: none; appearance: none; background: none; cursor: pointer; }
+.pause-slider::-webkit-slider-runnable-track { height: 6px; background: var(--m-regla) center / 100% 100% no-repeat; }
+.pause-slider::-moz-range-track { height: 6px; background: var(--m-regla) center / 100% 100% no-repeat; }
+.pause-slider::-webkit-slider-thumb { -webkit-appearance: none; width: 18px; height: 28px; margin-top: -11px; background: var(--cinta); box-shadow: 0 0 0 1.5px var(--marcador), 1px 2px 0 1.5px var(--marcador); }
+.pause-slider::-moz-range-thumb { width: 18px; height: 28px; border: 0; border-radius: 0; background: var(--cinta); box-shadow: 0 0 0 1.5px var(--marcador), 1px 2px 0 1.5px var(--marcador); }
+
+/* ---------- Controles ---------- */
+.pause-controls { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0 28px; align-items: start; }
+.pause-controls-list { list-style: none; display: grid; grid-template-columns: auto minmax(0, 1fr); }
+.pause-controls-list li { grid-column: 1 / -1; display: grid; grid-template-columns: subgrid; align-items: center; gap: 10px; min-height: 40px; padding: 4px 0 8px; font-size: 16px; line-height: 1.12; background: var(--m-regla) center bottom / 100% 5px no-repeat; }
+.pause-controls-list kbd { justify-self: start; width: max-content; font-size: 15px; }
+
+/* ---------- pantalla grande: la misma lista, a tamaño de leer desde el sofá ---------- */
+@media (min-width: 1181px) and (min-height: 760px) {
+  .pause-menu-body:not(.pause-menu-body--mapa) { padding-top: 14px; }
+  .pause-nombre { font-size: 44px; }
+  .pause-section-title { font-size: 32px; margin-bottom: 10px; }
+  .pause-level { font-size: 22px; margin-top: 12px; }
+  .pause-level__badge { font-size: 28px; }
+  .pause-level__xp { font-size: 19px; }
+  .pause-card { padding-block: 13px 16px; }
+  .pause-card__label { font-size: 18px; }
+  .pause-card__value { font-size: 27px; }
+  .pause-gps-summary { font-size: 19px; }
+  .pause-need { min-height: 66px; }
+  .pause-need__label { font-size: 24px; }
+  .pause-need .pause-meter { height: 26px; }
+  .pause-need__value { font-size: 28px; }
+  .pause-row { min-height: 62px; }
+  .pause-row__label { font-size: 21px; }
+  .pause-value, :where(#menu) .btn.pause-choice { font-size: 21px; }
+  .pause-hint { font-size: 18px; }
+  :where(#menu) .pause-actions .btn { min-height: 46px; font-size: 20px; }
+  .pause-controls-list li { min-height: 52px; font-size: 19px; }
+  .pause-controls-list kbd { font-size: 17px; }
+}
+
+/* ---------- medianas ---------- */
+@media (max-width: 1180px) {
+  :where(#menu) .sign--wide .menu__title { font-size: 44px; }
+  .pause-tab { padding-inline: 22px; font-size: 22px; }
+  .pause-settings { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .pause-controls { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+/* ---------- celular de pie: la tira de verbos abajo, al alcance del pulgar ---------- */
+@media (max-width: 759px) {
+  .menu { place-items: end center; padding: calc(10px + var(--safe-t)) 0 0; }
+  :where(#menu) .sign--menu:not(.sign--wide) {
+    width: 100%; padding: 12px calc(14px + var(--safe-r)) calc(10px + var(--safe-b)) calc(14px + var(--safe-l));
+    border-image: none; border-color: transparent; border-radius: 0;
+    box-shadow: 0 -3px 0 var(--canto);
+  }
+  :where(#menu) .sign--menu.sign--wide {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto auto minmax(0, 1fr) auto;
+    grid-template-areas: "tabs" "head" "body" "foot";
+    padding: calc(6px + var(--safe-t)) 0 0;
+  }
+  :where(#menu) .sign--wide::before { grid-area: 2 / 1 / 5 / -1; }
+  .pause-tabs { gap: 3px; padding: 0 6px; }
+  .pause-tabs__key { display: none; }
+  .pause-tab { flex: 1 1 0; padding: 6px 4px 8px; font-size: 16px; }
+  :where(#menu) .sign--wide .menu__head { padding: 10px calc(14px + var(--safe-r)) 4px calc(14px + var(--safe-l)); }
+  :where(#menu) .sign--wide .menu__title { font-size: 30px; }
+  :where(#menu) .sign--wide .menu__sub { font-size: 15px; }
+  :where(#menu) .sign--wide .menu__foot { justify-content: stretch; padding: 8px calc(12px + var(--safe-r)) calc(8px + var(--safe-b)) calc(12px + var(--safe-l)); background: var(--m-regla) center top / 100% 5px no-repeat; }
+  :where(#menu) .sign--wide .menu__foot .btn--primary { flex: 1; font-size: 20px; }
+  .pause-menu-body:not(.pause-menu-body--mapa) { padding: 4px calc(14px + var(--safe-r)) 16px calc(14px + var(--safe-l)); }
+  .pause-state, .pause-settings, .pause-controls { grid-template-columns: minmax(0, 1fr); }
+  .pause-state__cuerpo { margin-top: 18px; }
+  .pause-nombre { font-size: 28px; }
+  .pause-section-title { font-size: 22px; }
+  .pause-need { grid-template-columns: minmax(90px, 7em) minmax(40px, 1fr) 2.4em; }
+  .pause-row__label { flex-basis: 5.8em; }
+}
+@media (max-width: 340px) {
+  .pause-tab { font-size: 15px; }
+  :where(#menu) .sign--wide .menu__title { font-size: 26px; }
+}
+
+/* ---------- celular acostado: lo poco que hay de alto es para el contenido ---------- */
+@media (max-height: 520px) and (min-width: 600px) {
+  .menu { padding: calc(4px + var(--safe-t)) calc(10px + var(--safe-r)) calc(4px + var(--safe-b)) calc(10px + var(--safe-l)); place-items: center; }
+  :where(#menu) .sign--menu:not(.sign--wide) { width: min(720px, 100%); padding: 8px 14px; border-image: var(--corte) 12 / 12px / 3px 6px 6px 3px stretch; box-shadow: none; }
+  :where(#menu) .sign--menu.sign--wide {
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-rows: auto minmax(0, 1fr);
+    grid-template-areas: "tabs foot" "body body";
+    padding: calc(2px + var(--safe-t)) 0 0 calc(4px + var(--safe-l));
+  }
+  :where(#menu) .sign--wide::before { grid-area: 2 / 1 / 3 / -1; }
+  /* La cabeza se queda para el lector de pantalla: arriba solo caben las solapas y el verbo. */
+  :where(#menu) .sign--wide .menu__head { position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden; clip-path: inset(50%); }
+  .pause-tabs { padding: 0 2px 0 calc(6px + var(--safe-l)); }
+  .pause-tabs__key { display: none; }
+  .pause-tab { flex: 0 1 auto; min-height: 44px; padding: 4px 16px 6px; font-size: 18px; }
+  :where(#menu) .sign--wide .menu__foot { padding: 0 calc(6px + var(--safe-r)) 2px 6px; background: none; justify-content: flex-end; }
+  :where(#menu) .sign--wide .menu__foot .btn--primary { flex: none; min-height: 40px; padding: 2px 10px; font-size: 18px; }
+  .pause-menu-body:not(.pause-menu-body--mapa) { padding: 8px calc(16px + var(--safe-r)) 12px calc(16px + var(--safe-l)); }
+  .pause-state { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 22px; }
+  .pause-state__cuerpo { margin-top: 0; }
+  .pause-settings, .pause-controls { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 22px; }
+  .pause-need { min-height: 34px; }
+}

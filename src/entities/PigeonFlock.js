@@ -24,6 +24,9 @@ function bodyGeometry() {
   return geometry;
 }
 
+// Una paloma es tan simple que pegada a la cámara se ve como una mole: tan cerca, no se dibuja.
+const CAMERA_CLEARANCE = 1.2;
+
 /** Diez aves por parque, cinco llamadas de dibujo y ninguna simulación física. */
 export class PigeonFlock {
   constructor(scene, bounds, { count = 10, random = Math.random, isGround = () => true, groundHeight = () => 0 } = {}) {
@@ -86,8 +89,9 @@ export class PigeonFlock {
     bird.height = 2 + this.random() * 2;
   }
 
-  update(dt, player, npcs = []) {
+  update(dt, player, npcs = [], camera = null) {
     if (this._disposed || !player) return;
+    this._camera = camera;
     this.group.visible = Math.hypot(player.x - this.group.position.x, player.z - this.group.position.z) < 90;
     if (!this.group.visible) return;
     dt = Math.min(Math.max(0, dt), .1);
@@ -98,6 +102,8 @@ export class PigeonFlock {
       const b = this.bounds;
       for (const npc of npcs) {
         const p = npc.position;
+        // Quien está sentado o dormido en su sitio ya no las asusta.
+        if (npc.fijo && !npc.fijo.out) continue;
         if (p && p.x >= b.x0 - 3.5 && p.x <= b.x1 + 3.5 && p.z >= b.z0 - 3.5 && p.z <= b.z1 + 3.5) this._people.push(p);
       }
     }
@@ -151,7 +157,8 @@ export class PigeonFlock {
       this._dummy.position.copy(bird.position).sub(this.group.position);
       if (walking) this._dummy.position.y += Math.abs(Math.sin(bird.phase)) * .012;
       this._dummy.rotation.set(flying ? -.12 : bird.state === 'idle' ? Math.sin(bird.phase * .4) * .08 : 0, bird.yaw, 0);
-      this._dummy.scale.setScalar(bird.scale); this._dummy.updateMatrix();
+      const close = this._camera && this._camera.position.distanceToSquared(bird.position) < CAMERA_CLEARANCE ** 2;
+      this._dummy.scale.setScalar(close ? 0 : bird.scale); this._dummy.updateMatrix();
       this.meshes[0].setMatrixAt(i, this._dummy.matrix);
       for (let side = 0; side < 2; side++) {
         const sign = side ? 1 : -1;
