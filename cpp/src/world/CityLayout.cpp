@@ -171,9 +171,9 @@ void CityLayout::GenerateCityMap() {
 void CityLayout::BuildMeshes(const CityLoadProgress& progressCallback) {
     m_Buildings.clear();
     if (progressCallback) progressCallback(2, 7, "Cargando arquitectura: Edificio 1 (Only_Building.fbx)...");
-    m_BuildingModels[0] = Model::LoadFromFile(Paths::Find("public/models/Edificio 1/Only_Building.fbx"));
+    m_BuildingModels[0] = Model::LoadFromFile(Paths::Find("modelos/Edificio 1/Only_Building.fbx"));
     if (progressCallback) progressCallback(3, 7, "Cargando arquitectura: Edificio 3 (highrise.fbx)...");
-    m_BuildingModels[1] = Model::LoadFromFile(Paths::Find("public/models/Edificio 3/highrise.fbx"));
+    m_BuildingModels[1] = Model::LoadFromFile(Paths::Find("modelos/Edificio 3/highrise.fbx"));
     constexpr std::array<const char*, 3> modularBuildingFiles{{
         "Building_LevelModularShell_Bottom.fbx",
         "Building_LevelModularShell_Mid.fbx",
@@ -184,7 +184,7 @@ void CityLayout::BuildMeshes(const CityLoadProgress& progressCallback) {
             progressCallback(4 + index, 7, "Cargando módulos urbanos (" + std::to_string(index + 1) + "/3: " + modularBuildingFiles[index] + ")...");
         }
         m_ModularBuildingModels[index] = Model::LoadFromFile(Paths::Find(
-            std::string("public/models/Edificio 2/Models/FBX/") + modularBuildingFiles[index]));
+            std::string("modelos/Edificio 2/Models/FBX/") + modularBuildingFiles[index]));
     }
     if (progressCallback) progressCallback(7, 7, "Construyendo mallas de calzadas, andenes y señalética...");
     const auto availableBuildingVariant = [&](int preferred) {

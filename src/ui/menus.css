@@ -582,3 +582,24 @@
   .pause-tab__icon { display: none; }
   .pause-need { grid-template-columns: 96px 1fr 40px; }
 }
+
+/* Aviso de error inesperado o pérdida del contexto gráfico (ErrorScreen.js). */
+.error-screen {
+  position: fixed; inset: 0; z-index: 10000;
+  display: grid; place-items: center; padding: 16px;
+  background: rgba(6, 8, 13, 0.82); font-family: var(--font); color: var(--blanco);
+}
+.error-screen--soft { inset: auto 16px 16px auto; background: none; padding: 0; place-items: end; }
+.error-screen__box {
+  max-width: 420px; padding: calc(var(--u) * 2.5);
+  background: var(--carcasa); border: var(--border-sign) solid var(--amarillo);
+  border-radius: var(--radius-sign); box-shadow: var(--shadow-sign);
+}
+.error-screen__box h2 { margin: 0 0 var(--u); font-size: 20px; font-weight: 800; color: var(--amarillo); }
+.error-screen__box p { margin: 0 0 calc(var(--u) * 2); line-height: 1.4; color: var(--azul-texto); }
+.error-screen__actions { display: flex; flex-wrap: wrap; gap: var(--u); }
+.error-screen__actions button {
+  font: inherit; font-weight: 800; cursor: pointer; padding: var(--u) calc(var(--u) * 2);
+  border-radius: 6px; border: 2px solid var(--amarillo); background: var(--amarillo); color: var(--negro);
+}
+.error-screen__actions button + button { background: transparent; color: var(--amarillo); }

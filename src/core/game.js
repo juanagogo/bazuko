@@ -28,7 +28,7 @@ import { CinematicOverlays } from '../ui/CinematicOverlays.js';
 
 import { StatsSystem, NEEDS } from '../systems/StatsSystem.js';
 import { TimeSystem } from '../systems/TimeSystem.js';
-import { SaveSystem } from '../systems/SaveSystem.js';
+import { SaveSystem, AUTOSAVE_INTERVAL } from '../systems/SaveSystem.js';
 import { CollisionSystem } from '../systems/CollisionSystem.js';
 import { TrafficSystem } from '../systems/TrafficSystem.js';
 import { distributeShelterLoot, spreadPickupPositions } from '../systems/ShelterLoot.js';
@@ -286,6 +286,8 @@ export class Game {
     this._lastRenderTime = undefined;
     this._loading = false;
     this._running = true;
+    this._autosaveTimer = 0;
+    this._watchPageExit();
     loading.finish();
     this.audio.startAmbient();
     requestAnimationFrame(this._loop);
@@ -562,42 +564,73 @@ export class Game {
 
   _loadIfSave() {
     const data = this.save.load();
-    if (data) {
-      this.stats.deserialize(data.stats);
-      this.clock.deserialize(data.clock);
-      this.inventory.deserialize(data.inventory ?? {});
-      this.talents.deserialize(data.talents ?? {});
-      this.diseases.deserialize(data.diseases ?? {});
-      if (data.player) {
-        // partidas de otro mapa: si la posición guardada no es transitable, vuelve al inicio
-        const district = this.world.active;
-        const position = district?.migrateSavedPosition?.(data.player.pos, data.worldLayoutVersion) ?? data.player.pos;
-        const [px, , pz] = position;
-        if (!district?.isWalkableAt || district.isWalkableAt(px, pz)) this.player.position.set(...position);
-      }
-      this.built = data.built ?? {};
-      this.costal = !!data.costal;
-      this.cambuche?.setBuilt(this.built);
-      if (data.look) this._applyLook(data.look);
-      if (data.radio) {
-        if (typeof data.radio.freq === 'number') this.radio.setFrequency(data.radio.freq);
-        if (typeof data.radio.battery === 'number') this.radio.battery = data.radio.battery;
-      }
-      if (data.dog?.isFriend && this.dog) {
-        this.dog.befriend();
-      }
-      // La apariencia de la antigua mascota personalizable se conserva si la partida aún no tiene una.
-      this.dog?.setLook(data.dog?.look ?? legacyPetLook() ?? DOG_DEFAULT_LOOK);
-      if (data.cart && this.cart) {
-        this.cart.loadState(data.cart, this.player, this.inventory);
-      }
-      if (data.gps && this.gps) this.setGpsWaypoint(data.gps, { silent: true });
-
+    if (!data) return;
+    try {
+      this._applySave(data);
+      if (this.save.restoredFromBackup) this._toast('La partida principal estaba dañada: se recuperó la copia de respaldo.', 'warn');
+    } catch (error) {
+      console.error('No se pudo aplicar la partida guardada', error);
+      this._toast('No se pudo cargar toda la partida guardada; algunas cosas empiezan de cero.', 'warn');
     }
   }
 
+  _applySave(data) {
+    this.stats.deserialize(data.stats);
+    this.clock.deserialize(data.clock);
+    this.inventory.deserialize(data.inventory ?? {});
+    this.talents.deserialize(data.talents ?? {});
+    this.diseases.deserialize(data.diseases ?? {});
+    if (data.player) {
+      // partidas de otro mapa: si la posición guardada no es transitable, vuelve al inicio
+      const district = this.world.active;
+      const position = district?.migrateSavedPosition?.(data.player.pos, data.worldLayoutVersion) ?? data.player.pos;
+      const [px, , pz] = position;
+      if (!district?.isWalkableAt || district.isWalkableAt(px, pz)) this.player.position.set(...position);
+    }
+    this.built = data.built ?? {};
+    this.costal = !!data.costal;
+    this.cambuche?.setBuilt(this.built);
+    if (data.look) this._applyLook(data.look);
+    if (data.radio) {
+      if (typeof data.radio.freq === 'number') this.radio.setFrequency(data.radio.freq);
+      if (typeof data.radio.battery === 'number') this.radio.battery = data.radio.battery;
+    }
+    if (data.dog?.isFriend && this.dog) {
+      this.dog.befriend();
+    }
+    // La apariencia de la antigua mascota personalizable se conserva si la partida aún no tiene una.
+    this.dog?.setLook(data.dog?.look ?? legacyPetLook() ?? DOG_DEFAULT_LOOK);
+    if (data.cart && this.cart) {
+      this.cart.loadState(data.cart, this.player, this.inventory);
+    }
+    if (data.gps && this.gps) this.setGpsWaypoint(data.gps, { silent: true });
+  }
+
+  _toast(text, type = 'info') {
+    globalThis.window?.dispatchEvent?.(new CustomEvent('toast', { detail: { text, type } }));
+  }
+
+  /** Guarda al cerrar o esconder la pestaña, para no perder el progreso desde el último guardado. */
+  _watchPageExit() {
+    if (this._pageExitWatched || typeof window === 'undefined') return;
+    this._pageExitWatched = true;
+    const saveOnExit = () => {
+      if (this._running && !this._deathPending && !this._loading) this._save();
+    };
+    window.addEventListener('pagehide', saveOnExit);
+    document.addEventListener('visibilitychange', () => { if (document.hidden) saveOnExit(); });
+  }
+
+  /** Autoguardado periódico durante el juego activo (no en pausa ni durante la muerte). */
+  _autosave(dt) {
+    this._autosaveTimer = (this._autosaveTimer ?? 0) + dt;
+    if (this._autosaveTimer < AUTOSAVE_INTERVAL || this._deathPending || this.stats.salud <= 0) return false;
+    this._autosaveTimer = 0;
+    return this._save();
+  }
+
   _save() {
-    this.save.save({
+    return this.save.save({
       stats: this.stats.serialize(),
       clock: this.clock.serialize(),
       inventory: this.inventory.serialize(),
@@ -945,6 +978,9 @@ export class Game {
       this.stats, this.clock, this.interaction, this.inventory,
       this.diseases, this.talents, this.crafting, dt
     );
+
+    // 14. Autoguardado
+    this._autosave(dt);
 
     // 15. Fin de frame
     this.input.endFrame();

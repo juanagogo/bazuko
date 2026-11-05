@@ -247,6 +247,8 @@ Simulation::Simulation(const CityLayout& city, uint32_t seed,
         if (!std::filesystem::exists(animationFile)) animationFile = Paths::Find("public/models/animaciones-prueba.glb");
         if (std::filesystem::exists(animationFile)) modelsRoot = std::filesystem::path(animationFile).parent_path().generic_string() + "/";
     }
+    // Modelos fuente que solo usa el port nativo: viven en cpp/modelos para no publicarse con el juego web.
+    const std::string sourceModelsRoot = Paths::Find("modelos") + "/";
     if (!modelsRoot.empty()) {
         const std::array<std::array<std::string, 4>, 12> outfits{{
             {{"hombre-joven", "chaqueta", "tenis-rotos", "corto"}},
@@ -344,16 +346,16 @@ Simulation::Simulation(const CityLayout& city, uint32_t seed,
             }
             reportModelLoad(importedFiles[index]);
         }
-        m_TreeModel = Model::LoadFromFile(modelsRoot + "Arbol 1/FBX format/conifer_macedonian_pine.fbx");
+        m_TreeModel = Model::LoadFromFile(sourceModelsRoot + "Arbol 1/FBX format/conifer_macedonian_pine.fbx");
         if (m_TreeModel)
             m_TreeModelFit = FitModelTransform(*m_TreeModel, {2.8f, 5.4f, 2.8f}, 0.0f, true);
         reportModelLoad("Vegetación: Pino macedonio FBX");
         m_VendorChairModel = Model::LoadFromFile(
-            modelsRoot + "Silla plastica/plastic+chair.obj", "Chair_lv_1");
+            sourceModelsRoot + "Silla plastica/plastic+chair.obj", "Chair_lv_1");
         if (m_VendorChairModel)
             m_VendorChairModelFit = FitModelTransform(*m_VendorChairModel, {0.54f, 0.74f, 0.52f}, 0.0f, true);
         reportModelLoad("Mobiliario: Silla plástica");
-        m_GrassModel = Model::LoadFromFile(modelsRoot + "pasto.fbx");
+        m_GrassModel = Model::LoadFromFile(sourceModelsRoot + "pasto.fbx");
         if (m_GrassModel)
             m_GrassModelFit = FitModelTransform(*m_GrassModel, {1.9f, 0.52f, 1.9f}, 0.0f, true);
         reportModelLoad("Vegetación: Pasto FBX");
@@ -362,37 +364,37 @@ Simulation::Simulation(const CityLayout& city, uint32_t seed,
             static const char* suffixes[kBirdPartCount] = {"_body", "_L_in", "_L_out", "_R_in", "_R_out"};
             bool complete = true;
             for (size_t part = 0; part < kBirdPartCount; ++part) {
-                m_BirdParts[bird][part] = Model::LoadFromFile(modelsRoot + stem + suffixes[part] + ".gltf");
+                m_BirdParts[bird][part] = Model::LoadFromFile(sourceModelsRoot + stem + suffixes[part] + ".gltf");
                 complete = complete && m_BirdParts[bird][part];
             }
             if (!complete) for (auto& part : m_BirdParts[bird]) part.reset();
         };
-        m_BirdModels[0] = Model::LoadFromFile(modelsRoot + "Ave 1/Woodpecker.gltf");
+        m_BirdModels[0] = Model::LoadFromFile(sourceModelsRoot + "Ave 1/Woodpecker.gltf");
         if (m_BirdModels[0])
             m_BirdModelFits[0] = FitModelTransform(*m_BirdModels[0], {0.42f, 0.18f, 0.30f}, 0.0f, true);
         loadBirdParts(0, "Ave 1/Woodpecker");
         reportModelLoad("Fauna: Ave carpintero GLTF");
-        m_BirdModels[1] = Model::LoadFromFile(modelsRoot + "Ave 2/Seagull.gltf");
+        m_BirdModels[1] = Model::LoadFromFile(sourceModelsRoot + "Ave 2/Seagull.gltf");
         if (m_BirdModels[1])
             m_BirdModelFits[1] = FitModelTransform(*m_BirdModels[1], {0.72f, 0.22f, 0.38f}, 0.0f, true);
         loadBirdParts(1, "Ave 2/Seagull");
         reportModelLoad("Fauna: Ave gaviota GLTF");
-        m_RatModel = Model::LoadFromFile(modelsRoot + "Rata/Rat.gltf");
+        m_RatModel = Model::LoadFromFile(sourceModelsRoot + "Rata/Rat.gltf");
         if (m_RatModel)
             m_RatModelFit = FitModelTransform(*m_RatModel, {0.20f, 0.14f, 0.54f}, 0.0f, true);
         reportModelLoad("Fauna: Rata urbana GLTF");
-        m_PetModel = Model::LoadFromFile(modelsRoot + "mascota.fbx");
+        m_PetModel = Model::LoadFromFile(sourceModelsRoot + "mascota.fbx");
         if (m_PetModel)
             m_PetModelFit = glm::translate(glm::mat4(1.0f), {0.0f, 0.08f, 0.0f})
                 * FitModelTransform(*m_PetModel, {0.6175f, 0.507f, 0.8125f}, glm::pi<float>(), true);
         reportModelLoad("Compañero: Mascota canina (El Chato) FBX");
-        m_VendorCartModel = Model::LoadFromFile(modelsRoot + "comida rapida/food+cart.fbx");
+        m_VendorCartModel = Model::LoadFromFile(sourceModelsRoot + "comida rapida/food+cart.fbx");
         if (m_VendorCartModel)
             m_VendorCartModelFit = FitModelTransform(
                 *m_VendorCartModel, {2.0f, 2.1f, 1.6f}, 0.0f, true);
         reportModelLoad("Puesto de comida rápida FBX");
         auto importedStreetLamp = Model::LoadFromFile(
-            modelsRoot + "luminaria/street+light.fbx", {}, "Plane.002", 620.0f);
+            sourceModelsRoot + "luminaria/street+light.fbx", {}, "Plane.002", 620.0f);
         if (importedStreetLamp) {
             m_StreetLampModel = std::move(importedStreetLamp);
             m_StreetLampModelFit = FitModelTransform(

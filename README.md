@@ -51,8 +51,8 @@ Necesitas Node.js 22.12 o posterior, npm, Git y Git LFS. Los motores, claxones, 
 
 ```sh
 git lfs install
-git clone https://github.com/GrandaCoder/Vagabundo.git
-cd Vagabundo
+git clone https://github.com/jersonmejia452-hue/bazuko.git
+cd bazuko
 git lfs pull
 npm ci
 npm run dev
@@ -157,6 +157,14 @@ npm run preview
 ```
 
 La compilación se genera en `dist/`. Abre la dirección que muestre el comando de previsualización.
+
+### Publicación
+
+Cada push a `main` compila el juego y lo publica en GitHub Pages con `.github/workflows/deploy.yml` (por ejemplo `https://<usuario>.github.io/bazuko/`). Para activarlo, en el repositorio abre **Settings → Pages** y elige **GitHub Actions** como origen. La compilación usa `BASE_PATH` para servirse desde la subcarpeta del repositorio y falla si `dist/` supera 150 MB. Los modelos fuente que solo usa el port nativo (edificios, aves, rata, pinos, mascota y pasto) están en `cpp/modelos`, fuera de `public/`, para que no se publiquen con el juego web.
+
+### Guardado y errores
+
+La partida se guarda también automáticamente cada dos minutos de juego activo y al cerrar o esconder la pestaña. Antes de escribir se conserva la partida anterior como respaldo; si la principal está dañada, se recupera ese respaldo. Un error inesperado muestra un aviso que deja seguir jugando o recargar, y si el navegador pierde el contexto gráfico se guarda la partida y se pide recargar.
 
 Las pruebas de navegador con Playwright y su instalación se explican en [docs/testing.md](docs/testing.md). Incluyen creación del personaje, fabricación, ayuda, inventario y pausa. Antes de ejecutarlas, instala Chromium como indica esa guía.
 

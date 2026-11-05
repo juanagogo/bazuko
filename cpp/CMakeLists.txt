@@ -273,6 +273,12 @@ target_link_libraries(bazuko_spawn_city_test PRIVATE glfw glm::glm glad imgui Th
 add_custom_command(TARGET bazuko POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_directory "${CMAKE_CURRENT_SOURCE_DIR}/assets" "$<TARGET_FILE_DIR:bazuko>/assets"
 )
+# Modelos fuente exclusivos del port nativo (edificios, aves, rata, pinos...). El juego web no los publica.
+option(BAZUKO_COPY_MODELS "Copiar cpp/modelos junto al ejecutable (portable, ~1,2 GB)" OFF)
+if(BAZUKO_COPY_MODELS AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/modelos")
+    add_custom_command(TARGET bazuko POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_directory "${CMAKE_CURRENT_SOURCE_DIR}/modelos" "$<TARGET_FILE_DIR:bazuko>/modelos")
+endif()
 # Los modelos y el audio se copian junto al ejecutable solo si se pide (el juego tambien los busca en ../public).
 option(BAZUKO_COPY_PUBLIC "Copiar public/ junto al ejecutable (portable, ~50 MB)" OFF)
 if(BAZUKO_COPY_PUBLIC AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/../public")

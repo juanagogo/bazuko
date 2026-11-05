@@ -356,7 +356,8 @@ std::shared_ptr<Model> Model::LoadWithAssimp(const std::string& filepath,
         }
         if (bestScore >= 0)
             return ambiguousBestMatch ? std::filesystem::path{} : bestMatch;
-        if (normalizedName(modelDirectory.filename().string()) != "models" && colorTextureCount == 1) {
+        const std::string directoryName = normalizedName(modelDirectory.filename().string());
+        if (directoryName != "models" && directoryName != "modelos" && colorTextureCount == 1) {
             for (std::filesystem::directory_iterator entry(
                      modelDirectory, std::filesystem::directory_options::skip_permission_denied,
                      iterationError), end;

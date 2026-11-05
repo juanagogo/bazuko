@@ -35,6 +35,8 @@ Para las pruebas de navegador, instalar Chromium con `npx playwright install chr
 ## Puntos de entrada
 
 - `src/main.js`: carga inicial y nota del desarrollador.
+- `src/systems/SaveSystem.js` y `src/ui/ErrorScreen.js`: guardado con respaldo y autoguardado; aviso de errores y pérdida de WebGL.
+- `cpp/modelos/`: modelos fuente que solo usa el port nativo. No moverlos a `public/`: todo lo que está allí se publica con el juego web.
 - `src/core/game.js`: simulación, integración de sistemas, entidades, guardado y recuperación.
 - `src/world/districts/Bogota.js`: ciudad, parques, peatones, semáforos y bus.
 - `src/world/bogota/CityLayout.js` y `StreetLayout.js`: ampliación, calzadas y migración de posiciones.

@@ -17,13 +17,16 @@ const STEP_SURFACES = {
   sidewalk: { volume: .5, rate: 1 }, floor: { volume: .5, rate: 1 }, plaza: { volume: .5, rate: 1 }
 };
 
+// Respeta la base de Vite para publicar en una subcarpeta (por ejemplo GitHub Pages).
+const AUDIO_BASE = `${import.meta.env?.BASE_URL ?? '/'}audio/`;
+
 export class AudioSystem {
   constructor({ HowlClass = Howl, howler = Howler, eventTarget = globalThis.window } = {}) {
     this.howler = howler;
     this.loadErrors = new Map();
     this._baseVolume = new Map();
     const sound = (file, options = {}) => this._track(options.volume ?? 1, new HowlClass({
-      src: [`/audio/${encodeURIComponent(file)}`], ...options,
+      src: [`${AUDIO_BASE}${encodeURIComponent(file)}`], ...options,
       onload: () => this.loadErrors.delete(file),
       onloaderror: (_id, error) => {
         if (!this.loadErrors.has(file)) console.error(`[Audio] No se pudo cargar /audio/${file}:`, error);
