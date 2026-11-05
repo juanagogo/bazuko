@@ -7,7 +7,10 @@ export const MODELOS_SIN_USO = [
   'models/Edificio 1', 'models/Edificio 2', 'models/Edificio 3',
   'models/Arbol 1', 'models/Ave 1', 'models/Ave 2',
   'models/Rata', 'models/comida rapida', 'models/Silla plastica',
-  'models/luminaria', 'models/mascota.fbx', 'models/pasto.fbx'
+  'models/luminaria', 'models/mascota.fbx', 'models/pasto.fbx',
+  // Originales sin optimizar que solo usa el port C++ (sus .opt.glb viven en cpp/public).
+  'models/ambulancia.glb', 'models/vehiculo_policia.glb', 'models/moto_policia.glb',
+  'models/vehiculo1_new.glb', 'models/vehiculo2_new.glb'
 ];
 
 /** Vite copia public/ entero a dist/; después se retira lo que nadie carga. */
