@@ -340,7 +340,15 @@ export class CarjackSystem {
         const k = Math.min(1, tr.t / tr.grab);
         player.animateScripted?.(dt, { action: 'agarrar', actionProgress: k, yaw: faceCar });
         // A media sacudida el conductor queda fuera del asiento.
-        if (tr.driverPending && k >= .55) { car.setDriverInside?.(false); tr.driverPending = false; }
+        if (tr.driverPending && k >= .55) {
+          car.setDriverInside?.(false);
+          tr.driverPending = false;
+          // Sale por delante de la puerta, para no aparecer encima del jugador, y huye.
+          const h = car.group.rotation.y;
+          const out = tr.door.clone();
+          out.x += Math.cos(h) * .8; out.z -= Math.sin(h) * .8;
+          this.game.roadRage?.ejectDriver?.(car, out);
+        }
         if (k >= 1) { tr.phase = 'slip'; tr.t = 0; car.settle?.(.5); }
       } else {
         const k = Math.min(1, tr.t / BOARDING.slip), e = smooth(k);
