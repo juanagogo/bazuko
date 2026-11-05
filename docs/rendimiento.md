@@ -168,6 +168,18 @@ Las once animaciones de pelea (golpes, bloqueo, reacciones, caídas y levantarse
 
 `tests/actionforge.test.js` comprueba que los clips adaptados a partir de cada GLB son idénticos, valor por valor, a los obtenidos del FBX. Los FBX convertidos no se copian a `dist/`. Al cambiar o añadir una animación de combate, volver a ejecutar el conversor.
 
+## Mallas de personaje comprimidas al compilar
+
+Cuerpos, ropa, pelo y calzado de los seis cuerpos (completos y livianos) suman 274 glTF con 37 MB de `.bin`. Al terminar `npm run build`, `tools/personaje/comprimir-mallas.mjs` los comprime en `dist/` con `EXT_meshopt_compression`, sin cuantizar: los atributos siguen en Float32 y cada vista se comprueba al escribirla, así que el juego recibe exactamente los mismos vértices, índices y matrices de los huesos. El JSON se escribe sin sangría. El repositorio, el exportador de Blender, el servidor de desarrollo y las pruebas siguen usando los archivos sin comprimir. El cargador de personajes tiene el decodificador meshopt de Three.js y acepta ambos formatos.
+
+| Medida | Antes | Después |
+| --- | ---: | ---: |
+| `.bin` de personajes en `dist/` | 36,9 MB | 23,4 MB |
+| `.gltf` de personajes en `dist/` | 6,1 MB | 4,8 MB |
+| Descarga hasta «Continuar jugando», con las animaciones en GLB | 56,0 MB | 41,9 MB |
+
+`tests/character-mesh-compression.test.js` compara, después de comprimir, atributos, índices, huesos y materiales con el original. Al cargar, el decodificador WebAssembly de meshopt descomprime en el hilo principal. Su costo no se midió por separado: la carga completa en Chromium headless no cambió de forma medible.
+
 ## Cambios de calidad y resolución
 
 - **El antialias del contexto se decide al crearlo.** No se puede cambiar después: se omite solo si la preferencia guardada es baja, cuando la calidad automática ya no puede subir de nivel. Quien pasa de baja a media o alta en la misma sesión se queda sin él hasta recargar.

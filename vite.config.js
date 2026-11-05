@@ -1,6 +1,7 @@
 import { defineConfig } from 'vite';
 import { rmSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { compressPaths } from './tools/personaje/comprimir-mallas.mjs';
 
 /** Recursos de public/ que el juego web no carga; el port C++ usa sus propias copias en cpp/public. */
 export const MODELOS_SIN_USO = [
@@ -20,8 +21,11 @@ export const MODELOS_SIN_USO = [
 const distLigero = {
   name: 'dist-ligero',
   apply: 'build',
-  closeBundle() {
+  async closeBundle() {
     for (const modelo of MODELOS_SIN_USO) rmSync(resolve('dist', modelo), { recursive: true, force: true });
+    // Mallas de los personajes comprimidas sin pérdida: 37 MB de .bin pasan a unos 23 MB.
+    const { files, before, after } = await compressPaths([resolve('dist/models/personaje')]);
+    this.info?.(`personajes: ${files} glTF, ${(before / 1e6).toFixed(1)} → ${(after / 1e6).toFixed(1)} MB`);
   }
 };
 
