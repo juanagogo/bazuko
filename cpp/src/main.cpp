@@ -21,6 +21,7 @@
 #include "game/PlayerSession.hpp"
 #include "game/Survival.hpp"
 #include "game/Economy.hpp"
+#include "game/Movement.hpp"
 #include "world/SafeSpawn.hpp"
 #include "world/Atmosphere.hpp"
 #include "world/Viaduct.hpp"
@@ -868,27 +869,9 @@ int main(int argc, char** argv) {
         wasInWithdrawal = withdrawal > 0.0f;
         ui.SetBodyState(playerFreezing, withdrawal > 0.0f);
         const float psychosisSeverity = std::clamp((withdrawal - 50.0f) / 50.0f, 0.0f, 1.0f);
-        float statusSpeedMultiplier = 1.0f;
-        if (needs[5] < 30.0f) statusSpeedMultiplier *= 0.8f;
-        if (needs[5] <= 0.0f) statusSpeedMultiplier *= 0.7f;
-        if (needs[2] <= 0.0f) statusSpeedMultiplier *= 0.5f;
-        if (withdrawal > 0.0f) {
-            statusSpeedMultiplier *= 0.85f;
-            if (criticalWithdrawal) statusSpeedMultiplier *= 0.75f;
-            else if (highWithdrawal) statusSpeedMultiplier *= 0.88f;
-        }
-        if (boostActive) statusSpeedMultiplier *= 1.35f;
-        const bool attacking = playerAction != PlayerAction::None && playerAction != PlayerAction::Jump;
-        if (playerCrouching || attacking || playerSwimming) isRunning = false;
-        float moveSpeed = (isRunning ? 6.0f : 3.0f) * statusSpeedMultiplier;
-        if (playerCrouching) moveSpeed *= 0.5f;
-        if (sorting) moveSpeed = 0.0f;   // revisando la basura: quieto y agachado
-        if (playerSwimming) moveSpeed *= 0.55f;   // nadando
-        else if (playerWaterDepth > 0.3f) moveSpeed *= 1.0f - 0.25f * std::min(1.0f, playerWaterDepth);   // el agua frena al vadear
-        if (attacking) moveSpeed *= 0.3f;
-        if (playerAction == PlayerAction::Pet || petWaiting) moveSpeed = 0.0f;   // acariciando al Chato (o esperando que se siente)
-        if (playerHitKind > 0) moveSpeed *= 0.1f;
-        if (poopMode != 0) moveSpeed = 0.0f;   // agachado o recogiendo el mojon
+        const Movement::SpeedResult speedResult = Movement::ComputeSpeed(session, {isRunning, withdrawal, highWithdrawal, criticalWithdrawal});   // game/Movement.cpp
+        isRunning = speedResult.running;
+        float moveSpeed = speedResult.speed;
 
         glm::vec3 moveDir(0.0f);
         if (static const char* autoWalk = std::getenv("BAZUKO_AUTOWALK"); autoWalk && !ui.IsPaused()) {   // pruebas: BAZUKO_AUTOWALK=x,z camina en esa direccion
@@ -911,59 +894,17 @@ int main(int argc, char** argv) {
             if (Input::IsKeyDown(GLFW_KEY_D)) moveDir += glm::vec3( 1.0f, 0.0f, -1.0f);
         }
 
-        if (playerAction == PlayerAction::Jump && jumpMoving) {   // en el aire el salto conserva el rumbo y la velocidad con que se despego
-            const float airTime = actionTime - Jump::TimingFor(true).takeoff;
-            if (airTime >= 0.0f && airTime < Jump::TimingFor(true).air) { moveDir = jumpDirection; moveSpeed = jumpSpeed; }
-        }
-        float currentSpeed = 0.0f;
-        if (playerKnockedDown) {
-            knockdownRemaining = std::max(0.0f, knockdownRemaining - dt);
-            playerRagdoll.Update(dt);
-            playerPos = playerRagdoll.GetPlayerPosition();
-            playerVelocity = glm::vec3(0.0f);
-            if (knockdownRemaining <= 0.0f) {
-                playerKnockedDown = false;
-                playerYaw = knockdownLyingYaw;
-                float deckY = 0.0f;
-                if (knockedOnDeck && Viaduct::StepLayer(true, playerPos.x, playerPos.z, deckY)) {
-                    playerOnDeck = true;   // se levanta sobre el tablero
-                    playerPos.y = deckY;
-                } else {
-                    playerOnDeck = false;
-                    playerPos = placeSafely(playerPos);   // la caida no puede dejarlo dentro de un modelo
-                }
-                playerRagdoll.SetSurface(0.0f);
-            }
-        } else if (const bool moving = glm::length(moveDir) > 0.001f; moving || glm::dot(playerVelocity, playerVelocity) > 0.0005f) {
-            if (moving) moveDir = glm::normalize(moveDir);
-            const glm::vec3 targetVelocity = moving ? moveDir * moveSpeed : glm::vec3(0.0f);
-            const float accelerationRate = moving ? 22.0f : 18.0f;
-            playerVelocity = glm::mix(playerVelocity, targetVelocity, 1.0f - std::exp(-accelerationRate * std::max(0.0f, dt)));
-            if (!moving && glm::dot(playerVelocity, playerVelocity) < 0.0005f) playerVelocity = glm::vec3(0.0f);
-            currentSpeed = glm::length(playerVelocity);
-
-            glm::vec3 nextPos = playerPos + playerVelocity * dt;
-            float impactSpeed = 0.0f;
-            glm::vec3 impactDirection(0.0f);
-            if (vehicleImpactCooldown <= 0.0f && needs[3] > 0.0f
-                && simulation.GetVehicleImpact(nextPos, impactSpeed, impactDirection)) {
-                knockDownPlayer(impactSpeed, impactDirection);
-            } else if (canStand(nextPos.x, nextPos.z)) {
-                playerPos.x = nextPos.x;
-                playerPos.z = nextPos.z;
-            } else if (canStand(nextPos.x, playerPos.z)) {
-                playerPos.x = nextPos.x;
-            } else if (canStand(playerPos.x, nextPos.z)) {
-                playerPos.z = nextPos.z;
-            }
-            // capa: se sube al tablero solo por la rampa y se baja al salir por un extremo; la altura sigue al tablero
-            playerOnDeck = Viaduct::StepLayer(playerOnDeck, playerPos.x, playerPos.z, playerPos.y);
-            if (!playerOnDeck) {   // la isla de la estacion se sube por sus rampas; en el lago pisa el fondo hasta que el agua le llega al pecho y entonces flota
-                playerPos.y = std::max(city.GetGroundHeight(playerPos.x, playerPos.z), CityLayout::kLakeSurface - 1.25f);
-            }
-
-            if (moving) playerYaw = std::atan2(moveDir.x, moveDir.z);
-        }
+        // paso de fisica (inercia, colisiones, atropello, capas del viaducto y caida): game/Movement.cpp; aqui solo se le presta el mundo
+        Movement::World movementWorld;
+        movementWorld.canStand = canStand;
+        movementWorld.vehicleImpact = [&](const glm::vec3& next, float& impactSpeed, glm::vec3& impactDirection) { return simulation.GetVehicleImpact(next, impactSpeed, impactDirection); };
+        movementWorld.knockDown = knockDownPlayer;
+        movementWorld.ragdollStep = [&](float stepDt) { playerRagdoll.Update(stepDt); return playerRagdoll.GetPlayerPosition(); };
+        movementWorld.placeSafely = placeSafely;
+        movementWorld.ragdollReleased = [&]() { playerRagdoll.SetSurface(0.0f); };
+        movementWorld.groundHeight = [&](float x, float z) { return city.GetGroundHeight(x, z); };
+        movementWorld.lakeFloorMinY = CityLayout::kLakeSurface - 1.25f;
+        const float currentSpeed = Movement::Step(session, movementWorld, dt, moveDir, moveSpeed);
         playerWaterDepth = playerOnDeck || playerKnockedDown ? 0.0f : CityLayout::WaterDepth(playerPos.x, playerPos.z);
         playerSwimming = playerWaterDepth > (playerSwimming ? 1.0f : 1.15f);
         lake.Update(dt, clock.GetElapsedTime(), playerPos, currentSpeed, playerWaterDepth, playerSwimming);

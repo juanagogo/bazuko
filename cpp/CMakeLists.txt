@@ -151,7 +151,7 @@ add_executable(bazuko
     src/character/CharacterManager.cpp src/character/CharacterPreview.cpp src/character/Ragdoll.cpp
     src/world/CityLayout.cpp src/world/Simulation.cpp src/world/BirdFlock.cpp src/world/Lake.cpp src/world/Decals.cpp
     src/world/TextRaster.cpp src/world/SignAtlas.cpp
-    src/game/GameData.cpp src/game/Harvest.cpp src/game/Survival.cpp src/game/Economy.cpp
+    src/game/GameData.cpp src/game/Harvest.cpp src/game/Survival.cpp src/game/Economy.cpp src/game/Movement.cpp
     src/audio/RadioSynth.cpp src/world/SafeSpawn.cpp
 )
 if(WIN32)
@@ -229,6 +229,12 @@ target_compile_definitions(bazuko_economy_test PRIVATE BAZUKO_GAME_DATA_PATH="${
                            BAZUKO_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
 target_link_libraries(bazuko_economy_test PRIVATE glm::glm)
 add_test(NAME bazuko_economy COMMAND bazuko_economy_test)
+
+# Movimiento del jugador (prueba diferencial contra el bloque original de main(), con un mundo de mentira determinista)
+add_executable(bazuko_movement_test tests/MovementTest.cpp src/game/Movement.cpp)
+target_include_directories(bazuko_movement_test PRIVATE src third_party/include)
+target_link_libraries(bazuko_movement_test PRIVATE glm::glm)
+add_test(NAME bazuko_movement COMMAND bazuko_movement_test)
 
 # Medidor de FPS del panel de rendimiento
 add_executable(bazuko_framemetrics_test tests/FrameMetricsTest.cpp)
