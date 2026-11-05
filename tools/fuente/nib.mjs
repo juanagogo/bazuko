@@ -2,6 +2,7 @@
 // redondeado y girado. El contorno es la suma de Minkowski del esqueleto con la punta, así que el grueso
 // cambia solo con la dirección y las puntas quedan cortadas en bisel, como pasa con un marcador de verdad.
 // De aquí sale todo lo dibujado en la interfaz: letras, dibujos, rayitas, círculos, tachones.
+import { seno, coseno } from './trig.mjs';
 
 export const rnd = (seed) => {
   let s = (seed * 2654435761) >>> 0 || 1;
@@ -47,7 +48,7 @@ function catmull(pts, step) {
   const out = [];
   for (let i = 1; i < P.length - 2; i++) {
     const [p0, p1, p2, p3] = [P[i - 1], P[i], P[i + 1], P[i + 2]];
-    const t0 = 0, t1 = t0 + Math.max(1e-3, dist(p0, p1) ** .5), t2 = t1 + Math.max(1e-3, dist(p1, p2) ** .5), t3 = t2 + Math.max(1e-3, dist(p2, p3) ** .5);
+    const t0 = 0, t1 = t0 + Math.max(1e-3, Math.sqrt(dist(p0, p1))), t2 = t1 + Math.max(1e-3, Math.sqrt(dist(p1, p2))), t3 = t2 + Math.max(1e-3, Math.sqrt(dist(p2, p3)));
     const n = Math.max(2, Math.ceil(dist(p1, p2) / step));
     for (let k = 0; k < n; k++) {
       const t = t1 + (t2 - t1) * (k / n);
@@ -92,14 +93,14 @@ export function sampleStroke(stroke, { seed = 1, step = 12, amp = 4, wave = 190 
 
 /** Vértices de la punta en sentido antihorario. angle en grados; w largo; t grueso; r redondeo de esquina. */
 export function makeNib({ angle = 32, w = 158, t = 34, r = 9 } = {}) {
-  const rad = angle * Math.PI / 180, ca = Math.cos(rad), sa = Math.sin(rad);
+  const rad = angle * Math.PI / 180, ca = coseno(rad), sa = seno(rad);
   const hw = w / 2, ht = t / 2, rr = Math.min(r, ht * .98, hw * .98);
   const corners = [[hw - rr, ht - rr, 0], [-hw + rr, ht - rr, 90], [-hw + rr, -ht + rr, 180], [hw - rr, -ht + rr, 270]];
   const pts = [];
   for (const [cx, cy, a0] of corners) {
     for (let k = 0; k <= 4; k++) {
       const a = (a0 + k * 90 / 4) * Math.PI / 180;
-      const x = cx + Math.cos(a) * rr, y = cy + Math.sin(a) * rr;
+      const x = cx + coseno(a) * rr, y = cy + seno(a) * rr;
       pts.push([x * ca - y * sa, x * sa + y * ca]);
     }
   }

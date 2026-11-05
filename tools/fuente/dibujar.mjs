@@ -7,6 +7,7 @@ import zlib from 'node:zlib';
 import { fileURLToPath } from 'node:url';
 import { buildFont } from './ttf.mjs';
 import { inkStrokes, bbox, rnd } from './nib.mjs';
+import { seno, coseno } from './trig.mjs';
 import { CAPS, DIGITS, SIGNS, sideUnits } from './mayusculas.mjs';
 import { LOWER, ACENTOS_FINO } from './minusculas.mjs';
 import { DIBUJOS, NOMBRES } from './dibujos.mjs';
@@ -57,7 +58,7 @@ function variation(index, seed, strength = 1) {
 }
 
 function xform({ dy, sx, sy = 1, rot }, cx = 200) {
-  const a = rot * Math.PI / 180, ca = Math.cos(a), sa = Math.sin(a);
+  const a = rot * Math.PI / 180, ca = coseno(a), sa = seno(a);
   return ([x, y]) => {
     const X = (x - cx) * sx, Y = (y - 340) * sy;
     return [cx + X * ca - Y * sa, 340 * sy + X * sa + Y * ca + dy];
