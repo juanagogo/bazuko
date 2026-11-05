@@ -74,6 +74,8 @@ import { StealSystem } from '../features/steal.js';
 import { CarjackSystem } from '../systems/CarjackSystem.js';
 import { MirrorCinematic } from '../ui/MirrorCinematic.js';
 import { ObjectiveSystem } from '../systems/ObjectiveSystem.js';
+import { EncargoSystem } from '../systems/EncargoSystem.js';
+import { EVENTOS_DE_ENCARGO } from '../data/encargos.js';
 import { ObjectiveTracker } from '../ui/ObjectiveTracker.js';
 import { openRadioModal } from '../ui/RadioModal.js';
 
@@ -186,6 +188,11 @@ export class Game {
     this.objectives = new ObjectiveSystem();
     for (const name of new Set(this.objectives.defs.map(d => d.event).filter(Boolean))) {
       window.addEventListener(name, (e) => this.objectives.notify(name, e.detail));
+    }
+    // Encargos: lo que sigue al terminar la cadena, uno tras otro.
+    this.encargos = new EncargoSystem();
+    for (const name of EVENTOS_DE_ENCARGO) {
+      window.addEventListener(name, (e) => { if (this.objectives?.finished) this.encargos.notify(name, e.detail); });
     }
     this._objectiveTimer = 0;
     this._objectiveRoute = null;
@@ -494,8 +501,13 @@ export class Game {
   }
 
   /** La cinta del cartón: marca la ruta al lugar del objetivo actual. */
+  /** Lo que muestra el cartón: el objetivo de la cadena o, al terminarla, el encargo del momento. */
+  _metaActual() {
+    return this.objectives?.finished ? this.encargos?.current ?? null : this.objectives?.current ?? null;
+  }
+
   routeToObjective({ silent = false } = {}) {
-    const current = this.objectives?.current;
+    const current = this._metaActual();
     const target = this._objectiveTarget(current);
     if (!target || !this.gps) {
       if (!silent && current) this._avisar(current.hint, 'info');
@@ -518,11 +530,16 @@ export class Game {
   _activateObjective() {
     if (this.gps?.waypoint && !this._isObjectiveRoute()) return;
     if (this._isObjectiveRoute()) this.clearGpsWaypoint();
-    if (this.objectives.current?.target) this.routeToObjective({ silent: true });
+    if (this._metaActual()?.target) this.routeToObjective({ silent: true });
   }
 
   _renderObjective() {
     const o = this.objectives;
+    if (o.finished && this.encargos) {
+      this.objectiveTracker?.render(this.encargos.current, this.encargos.progress(this), 0, 0,
+        `Encargo ${this.encargos.racha + 1}`);
+      return;
+    }
     this.objectiveTracker?.render(o.current, o.progress(this), o.index, o.total);
   }
 
@@ -533,6 +550,7 @@ export class Game {
     this._objectiveTimer = .25;
     // Una partida importada sin objetivos se pone al día igual que al cargar.
     if (this._objectivesCatchUp) { this._startObjectives(); return; }
+    if (this.objectives.finished && this.encargos) { this._updateEncargos(); return; }
     const done = this.objectives.update(this);
     if (done) {
       const { dinero = 0, xp = 0 } = done.reward ?? {};
@@ -541,6 +559,29 @@ export class Game {
       const parts = [dinero && `+${cop(dinero)}`, xp && `+${xp} de experiencia`].filter(Boolean);
       this._avisar(`Objetivo cumplido: ${done.title}${parts.length ? ` (${parts.join(', ')})` : ''}`, 'rare');
       if (this.objectives.finished) this._avisar('Ya sabe sobrevivir en la calle. El resto de Bogotá es suyo.', 'rare');
+      this._activateObjective();
+      this._save();
+    }
+    this._renderObjective();
+  }
+
+  /** Con la cadena terminada: cobra el encargo cumplido y pide el siguiente. */
+  _updateEncargos() {
+    if (!this.encargos.current) {
+      this.encargos.next(this);
+      this._activateObjective();
+      this._renderObjective();
+      return;
+    }
+    const done = this.encargos.update(this);
+    if (done) {
+      const { dinero = 0, xp = 0 } = done.reward ?? {};
+      if (dinero) this.stats.dinero += dinero;
+      if (xp) this.stats.addXP(xp, this.talents);
+      const parts = [dinero && `+${cop(dinero)}`, xp && `+${xp} de experiencia`].filter(Boolean);
+      this._avisar(`Encargo cumplido: ${done.title} (${parts.join(', ')})`, 'rare');
+      this.encargos.next(this);
+      // El cobro vale con el siguiente ya puesto: ganar esta plata no adelanta un «Ganar» nuevo.
       this._activateObjective();
       this._save();
     }
@@ -879,6 +920,7 @@ export class Game {
       if (data.gps && this.gps) this.setGpsWaypoint({ ...data.gps, name: RENAMED_PLACES[data.gps.name] ?? data.gps.name }, { silent: true });
       // Sin datos de objetivos es una partida anterior: se saltan los ya cumplidos sin premio.
       this._objectivesCatchUp = !!this.objectives && !this.objectives.deserialize(data.objectives);
+      this.encargos?.deserialize(data.encargos);
 
     }
   }
@@ -909,7 +951,8 @@ export class Game {
       cart: this.cart ? this.cart.saveState() : null,
       gps: this.gps?.serialize() ?? null,
       carroRobado: this.carjack?.serialize() ?? null,
-      objectives: this.objectives?.serialize() ?? null
+      objectives: this.objectives?.serialize() ?? null,
+      encargos: this.encargos?.serialize() ?? null
     };
   }
 
