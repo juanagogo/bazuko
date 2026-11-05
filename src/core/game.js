@@ -52,6 +52,7 @@ import { AutoSave } from '../systems/AutoSave.js';
 import { CollisionSystem } from '../systems/CollisionSystem.js';
 import { TrafficSystem } from '../systems/TrafficSystem.js';
 import { WitnessSystem } from '../systems/WitnessSystem.js';
+import { DEFAULT_TRAFFIC_DENSITY, trafficDensityId, trafficDensityLabel } from '../systems/trafficDensity.js';
 import { distributeShelterLoot, spreadPickupPositions } from '../systems/ShelterLoot.js';
 import { InventorySystem } from '../systems/InventorySystem.js';
 import { DroppedItemSystem } from '../systems/DroppedItemSystem.js';
@@ -70,6 +71,7 @@ import { LimpiezaSocialSystem } from '../systems/LimpiezaSocialSystem.js';
 import { SubstanceEffects } from '../systems/SubstanceEffects.js';
 import { SUBSTANCE_EFFECTS } from '../data/substanceEffects.js';
 import { StealSystem } from '../features/steal.js';
+import { RebusqueSystem } from '../systems/RebusqueSystem.js';
 import { CarjackSystem } from '../systems/CarjackSystem.js';
 import { MirrorCinematic } from '../ui/MirrorCinematic.js';
 import { ObjectiveSystem } from '../systems/ObjectiveSystem.js';
@@ -194,6 +196,9 @@ export class Game {
     this.zorraCtl = new ZorraController(this);
     this.carjack = new CarjackSystem(this);
     this.witnesses = new WitnessSystem(this);
+    // Rebusque en el semáforo: malabares, vidrios y dulces con B mientras la luz está en rojo.
+    this.rebusque = new RebusqueSystem(this);
+    this.interaction.rebusque = this.rebusque;
     this.mirrorCinematic = new MirrorCinematic(this);
 
     // HUD, menús y creador de personaje
@@ -214,6 +219,8 @@ export class Game {
     let quality = 'baja';
     try { quality = localStorage.getItem('bazuko.graphics_quality') || quality; } catch { /* sin almacenamiento */ }
     this.setGraphicsQuality(quality, false);
+    this.trafficDensity = DEFAULT_TRAFFIC_DENSITY;
+    try { this.trafficDensity = trafficDensityId(localStorage.getItem('bazuko.traffic_density')); } catch { /* sin almacenamiento */ }
     this.hud.setMuted(this.audio.isMuted());
     this.creator = createCreator({ audio: null });
     this.inventoryUI = new InventoryUI(this.inventory, this);
@@ -601,6 +608,7 @@ export class Game {
     this.pickups.forEach((p) => p.dispose());
     this.pickups = [];
     this.carjack?.reset();
+    this.rebusque?.cancelar();
     this.cars.forEach((c) => c.dispose());
     this.cars = [];
     this.interaction.targets = [];
@@ -736,6 +744,19 @@ export class Game {
     if (this.parkedMotos) this.sceneMgr.scene.add(this.parkedMotos);
     if (district.getTrafficRoutes) {
       this.traffic = new TrafficSystem(this.sceneMgr.scene, district.getTrafficRoutes(), { policeCount: 2 });
+      this.traffic.setDensity(this.trafficDensity);
+      // La flota diaria entra y sale con el reloj: el juego le da de alta el carro nuevo y de baja el que se va.
+      this.traffic.onVehicleAdded = (car) => {
+        this.interaction.register(car);
+        this._contactVehicles?.push(car);
+        car.setNight?.(this.clock.lightsOn, this.weather?.isRaining ?? false, this.weather?.weather === 'niebla');
+      };
+      this.traffic.onVehicleRemoved = (car) => {
+        this.interaction.unregister(car);
+        this.renderer.culling.unregister(car.group);
+        const index = this._contactVehicles?.indexOf(car) ?? -1;
+        if (index >= 0) this._contactVehicles.splice(index, 1);
+      };
       this.traffic.setParkedCars(this.cars);
       this.traffic.setEnvironment({
         collisions: this.collisions,
@@ -993,6 +1014,7 @@ export class Game {
 
     this.isSleeping = true;
     if (this.steal?.minigameActive) this.steal._endMinigame(false, 'cancel');
+    this.rebusque?.cancelar();
     this.substanceEffects?.end();
     this.psychosis?.clearInduced?.();
     const night = this.clock.isNight;
@@ -1117,6 +1139,7 @@ export class Game {
 
     this._deathPending = true;
     if (this.steal?.minigameActive) this.steal._endMinigame(false, 'cancel');
+    this.rebusque?.cancelar();
     this.substanceEffects?.end();
     this.psychosis?.clearInduced?.();
     this.deathCount++;
@@ -1155,6 +1178,7 @@ export class Game {
     if (this._arrestPending || this._deathPending || this.stats.salud <= 0) return;
     this._arrestPending = true;
     if (this.steal?.minigameActive) this.steal._endMinigame(false, 'cancel');
+    this.rebusque?.cancelar();
     this.input.keys = {};
     this.input.endFrame();
     this.audio.updateSteps(false, false);
@@ -1300,6 +1324,7 @@ export class Game {
     if (this.poopSystem) this.poopSystem.activeProjectiles = [];
 
     this.carjack?.reset();
+    this.rebusque?.cancelar();
     const district = this.world.active;
     if (district?.reserved) {
       const spawn = district.reserved.respawn ?? { x: district.reserved.bed.x, z: district.reserved.bed.z + 2 };
@@ -1382,7 +1407,7 @@ export class Game {
       this._syncVehicleColliders();
       this.player.update(dt, this.cameraRig.camera, this.collisions);
       this.world.update(dt, this.player.position, this.cameraRig.camera, this.traffic?.vehicles ?? []);
-      this.traffic?.update(dt, { pedestrians: this.world.active?.trafficPedestrians ?? this.world.active?.npcs ?? [] });
+      this.traffic?.update(dt, { pedestrians: this.world.active?.trafficPedestrians ?? this.world.active?.npcs ?? [], camera: this.cameraRig.camera, hour: this.clock.hour });
       this.cameraRig.follow(this.player.position, dt, this.collisions);
       this.audio.updateSteps(false, false);
       this.audio.updateWorld(dt, this.player.position, this.cameraRig.camera, this.traffic?.vehicles ?? [], this.world.active?.busServices ?? this.world.active?.busService, this.world.active?.npcs ?? []);
@@ -1475,6 +1500,8 @@ export class Game {
     else if (this.steal?.minigameActive) this.steal._endMinigame(false, 'cancel');
     this.witnesses?.update(dt);
     this.interaction.carjackPrompt = driving ? null : this.carjack?.prompt ?? null;
+    this.rebusque?.update(dt);
+    this.interaction.rebusquePrompt = driving ? null : this.rebusque?.prompt ?? null;
     this.mirrorCinematic?.update(dt);
     this._updateObjectives(dt);
     if (this._handleDeath()) return;
@@ -1507,7 +1534,7 @@ export class Game {
     actualizarFrases(this.cameraRig.camera, this.player.position, now);
     this.profiler?.mark('mundoNPC');
     this.traffic?.update(dt, { player: this.player.position, pedestrians: this.world.active?.trafficPedestrians ?? this.world.active?.npcs ?? [],
-      onPlayerHit: this._onVehicleImpact, playerHidden: this._escondidoEnCambuche() });
+      onPlayerHit: this._onVehicleImpact, playerHidden: this._escondidoEnCambuche(), camera: this.cameraRig.camera, hour: this.clock.hour });
     this.roadRage?.update(dt);
     this.limpieza?.update(dt, {
       isNight: this.clock.isNight,
@@ -1671,6 +1698,17 @@ export class Game {
     }
     if (this._dogPOI) Object.assign(this._dogPOI, { x: this.dog.position.x, z: this.dog.position.z });
     return this._poiCache;
+  }
+
+  /** Densidad de tráfico elegida: escala toda la curva diaria y se aplica en vivo, sin recargar. */
+  setTrafficDensity(level = DEFAULT_TRAFFIC_DENSITY) {
+    const id = trafficDensityId(level);
+    this.trafficDensity = id;
+    try { localStorage.setItem('bazuko.traffic_density', id); } catch { /* sin almacenamiento */ }
+    this.traffic?.setDensity(id);
+    window.dispatchEvent(new CustomEvent('toast', {
+      detail: { text: 'Densidad de tráfico: ' + trafficDensityLabel(id), type: 'info' }
+    }));
   }
 
   setGraphicsQuality(level, notify = true) {

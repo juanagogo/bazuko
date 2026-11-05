@@ -15,6 +15,7 @@ import { icon } from './icons.js';
 import { pasarTexto } from './pictos.js';
 import { DOG_ACCESSORIES, DOG_COATS } from '../entities/Dog.js';
 import { alternarPantallaCompleta, enPantallaCompleta, puedePantallaCompleta } from '../core/PantallaCompleta.js';
+import { DEFAULT_TRAFFIC_DENSITY, TRAFFIC_DENSITY_LEVELS } from '../systems/trafficDensity.js';
 
 export const PAUSE_TABS = [
   { id: 'mapa', label: 'Mapa' },
@@ -25,7 +26,7 @@ export const PAUSE_TABS = [
 
 const CONTROL_GROUPS = [
   ['Movimiento', [['WASD', 'Caminar'], ['Shift', 'Correr'], ['Espacio', 'Brincar'], ['Mouse', 'Clic fija la cámara, la rueda acerca'], ['V', 'Vista tercera persona / isométrica']]],
-  ['Acciones', [['E', 'Hacer lo que dice: basura, tiendas, cambuche, carros'], ['Q', 'Mantener para seleccionar basura. También abre al jíbaro'], ['E / Q', 'Junto a una persona: cosquilleo o robo directo'], ['B / L', 'Pedir limosna'], ['F', 'Envión'], ['G / Clic', 'Pegar'], ['Y', 'Robar un carro / bajarse'], ['X', 'Lanzar / recoger'], ['Z', 'Popó']]],
+  ['Acciones', [['E', 'Hacer lo que dice: basura, tiendas, cambuche, carros'], ['Q', 'Mantener para seleccionar basura. También abre al jíbaro'], ['E / Q', 'Junto a una persona: cosquilleo o robo directo'], ['B / L', 'Pedir limosna, o rebuscarse: carros en rojo, bus detenido o carros parqueados'], ['F', 'Envión'], ['G / Clic', 'Pegar'], ['Y', 'Robar un carro / bajarse'], ['X', 'Lanzar / recoger'], ['Z', 'Popó']]],
   ['Paneles', [['I / Tab', 'El costal. 1 a 5: acceso rápido'], ['H', 'Estado y necesidades'], ['T', 'Mañas'], ['C', 'Fabricar'], ['P', 'Editar personaje'], ['R', 'Radio'], ['K', 'Personaje realista / liviano'], ['F2', 'Foto'], ['F3', 'Panel de rendimiento'], ['Esc', 'Pausa o cerrar panel']]],
   ['Mapa y GPS', [['M', 'Abrir / cerrar el mapa'], ['M, Enter', 'Ruta a lo que más necesito'], ['N', 'Mostrar / ocultar radar'], ['+ / −', 'Acercar o alejar el radar'], ['Clic', 'Marcar destino en el mapa'], ['Clic der. / Supr', 'Quitar destino'], ['Q / E', 'Cambiar de pestaña en la pausa']]],
 ];
@@ -274,7 +275,10 @@ function settingsPanel(game) {
         el('div', { class: 'pause-segmented', role: 'group', 'aria-label': 'Calidad gráfica' }, quality('baja', 'Baja'), quality('media', 'Media'), quality('alta', 'Alta')),
         el('p', { class: 'pause-hint', text: `Baja va más fluido. Si el equipo no da, baja sola sin cambiar lo elegido.${qualityNow}` }),
         row('Rendimiento', choice(game.performanceHUD?.visible ? 'Visible (F3)' : 'Oculto (F3)', !!game.performanceHUD?.visible,
-          () => { game.performanceHUD?.toggle(); game.menu.refresh(); }))),
+          () => { game.performanceHUD?.toggle(); game.menu.refresh(); })),
+        row('Densidad de tráfico', el('div', { class: 'pause-segmented', role: 'group', 'aria-label': 'Densidad de tráfico' },
+          TRAFFIC_DENSITY_LEVELS.map(({ id, label }) => choice(label, (game.trafficDensity ?? DEFAULT_TRAFFIC_DENSITY) === id,
+            () => { game.setTrafficDensity?.(id); game.menu.refresh(); }))))),
       section('user', 'Personaje y radio',
         el('div', { class: 'pause-actions' },
           button([icon('body', { size: 18 }), game.player?.modelKind === 'realista' ? 'Usar personaje liviano (K)' : 'Usar personaje realista (K)'], {

@@ -27,6 +27,25 @@ export const ITEMS = {
   retrovisor: { id: 'retrovisor', name: 'Retrovisor',   weight: 0.8, value: 15000 },
   radio:      { id: 'radio',      name: 'Radio de carro',   weight: 1.5, value: 35000 },
 
+  // ===== REBUSQUE EN EL SEMÁFORO (ver data/rebusque.js) =====
+  malabares: {
+    id: 'malabares', name: 'Pelotas de malabares', weight: 0.3, value: 1500, tool: true,
+    desc: 'Tres pelotas de trapo para hacer malabares frente a los carros en rojo.'
+  },
+  limpiavidrios: {
+    id: 'limpiavidrios', name: 'Rodillo y jabón', weight: 0.6, value: 2500, tool: true,
+    desc: 'Rodillo con agua jabonosa para limpiar parabrisas en el semáforo.'
+  },
+  franela: {
+    id: 'franela', name: 'Franela roja', weight: 0.1, value: 1000, tool: true,
+    desc: 'La franela del que cuida carros: con ella los dueños me dejan propina.'
+  },
+  dulces: {
+    id: 'dulces', name: 'Dulces', weight: 0.05, value: 300,
+    consumable: 'hambre', amount: 4, animo: 2,
+    desc: 'Bombones sueltos: en el semáforo se venden a mil.'
+  },
+
   // ===== CONSUMIBLES =====
   pan: {
     id: 'pan', name: 'Pan duro', weight: 0.3, value: 1000,
@@ -183,6 +202,7 @@ const ITEM_EMOJIS = {
   retrovisor: '🪞', radio: '📻', radioTransistor: '📻', pilas: '🔋', popo: '💩', cigarrillo: '🚬', basuco: '💨',
   curita: '🩹', hierba: '🌿', rifa: '🎟️', arma: '🗡️', cuchillo: '🔪', botella_picada: '🍾'
 };
+
 for (const item of Object.values(ITEMS)) {
   item.emoji = ITEM_EMOJIS[item.id] ?? (item.cure ? '💊' : item.substance ? '🧪' : '📦');
   item.desc ??= item.build ? 'Material para mejorar el cambuche.' : item.consumable ? 'Consumible.' : item.cure ? 'Tratamiento.' : 'Se puede vender.';
@@ -207,7 +227,7 @@ export function describeEffects(item) {
 
 /** La recicladora compra todo lo que no se come, no cura, no es sustancia ni sirve para construir */
 export const isRecyclable = (item) =>
-  !!item && !item.consumable && !item.cure && !item.substance && !item.build && item.id !== 'popo' && item.id !== 'radioTransistor' && item.id !== 'pilas';
+  !!item && !item.consumable && !item.cure && !item.substance && !item.build && !item.tool && item.id !== 'popo' && item.id !== 'radioTransistor' && item.id !== 'pilas';
 
 /** Lo que la recicladora o un ladrón se llevan del costal: todo lo reciclable menos el arma que el jugador tiene en la mano. */
 export const isForSale = (item, equippedWeapon = null) => isRecyclable(item) && !(item.weapon && item.weapon === equippedWeapon);
@@ -215,7 +235,8 @@ export const isForSale = (item, equippedWeapon = null) => isRecyclable(item) && 
 // El dibujo de cada objeto cuyo nombre no coincide con el de su dibujo (ver src/ui/icons.js)
 const ICONS = {
   radioTransistor: 'radio', papaCriolla: 'papa', aguapanela: 'pocillo', agua: 'botellaAgua', cafe: 'pocillo', tintico: 'pocillo',
-  basuco: 'papeleta', botella_picada: 'botellaPicada', antibiotico: 'pastilla', antiparasitario: 'pastilla'
+  basuco: 'papeleta', botella_picada: 'botellaPicada', antibiotico: 'pastilla', antiparasitario: 'pastilla',
+  malabares: 'dado', limpiavidrios: 'jabon', dulces: 'chaza', franela: 'camisa'
 };
 export const itemIcon = (id) => ICONS[id] ?? id;
 
@@ -281,6 +302,10 @@ export const SHOP_ITEMS = [
   { item: 'vela',       price: 1000, desc: 'Ilumina el cambuche: duermo más tranquilo.' },
   { item: 'lona',       price: 9000, desc: 'Para el techo del cambuche.' },
   { item: 'madera',     price: 6000, qty: 3, label: 'Tablas ×3', desc: 'Para las paredes del cambuche.' },
+  { item: 'malabares',     price: 3000, desc: 'Para rebuscarme en el semáforo en rojo con B.' },
+  { item: 'limpiavidrios', price: 5000, desc: 'Para limpiar parabrisas en el semáforo en rojo con B.' },
+  { item: 'dulces',        price: 2500, qty: 5, label: 'Dulces ×5', desc: 'En el semáforo en rojo o en el bus detenido se venden a $ 1.000 cada uno con B.' },
+  { item: 'franela',       price: 2000, desc: 'Para cuidar carros parqueados con B y recibir propinas.' },
   { item: 'pilas',           price: 2000,  desc: 'Pilas AA: recargan la radio transistor.' },
   { item: 'radioTransistor', price: 18000, desc: 'Radio transistor: sintoniza emisoras y calma la mente.' },
   { upgrade: 'costal',  price: 12000, label: 'Costal grande', icon: 'backpack', desc: 'Cargo 20 kg más.' }
