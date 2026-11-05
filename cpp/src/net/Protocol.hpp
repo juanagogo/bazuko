@@ -30,9 +30,11 @@ inline constexpr float kWorldMinX = -64.0f, kWorldMaxX = 448.0f;
 inline constexpr float kWorldMinZ = -128.0f, kWorldMaxZ = 384.0f;
 inline constexpr float kWorldMinY = -8.0f, kWorldMaxY = 120.0f;
 inline constexpr float kMaxSpeed = 40.0f;   // m/s cuantizados en 8 bits
+inline constexpr float kMaxVelocity = 12.0f;   // m/s por eje, cuantizados en 10 bits
 
 // Botones del input (bits de PlayerInput::buttons)
-enum Button : uint16_t { kJump = 1 << 0, kRun = 1 << 1, kCrouch = 1 << 2, kInteract = 1 << 3, kAttack = 1 << 4, kKick = 1 << 5, kUse = 1 << 6 };
+enum Button : uint16_t { kJump = 1 << 0, kRun = 1 << 1, kCrouch = 1 << 2, kInteract = 1 << 3, kAttack = 1 << 4, kKick = 1 << 5, kUse = 1 << 6,
+                         kDodge = 1 << 7, kKnife = 1 << 8, kCollect = 1 << 9, kSort = 1 << 10, kShop = 1 << 11, kPoop = 1 << 12, kThrow = 1 << 13 };
 
 struct Hello {
     uint16_t protocol = kProtocolVersion;
@@ -64,6 +66,7 @@ struct PlayerSnapshot {
     float speed = 0.0f;           // m/s
     uint8_t animation = 0;        // clip o postura (lo define el juego)
     uint8_t flags = 0;            // bit 0 en vehiculo, bit 1 aturdido, bit 2 muerto...
+    float vx = 0.0f, vz = 0.0f;   // velocidad en el plano (m/s, +-12): hace falta para reconciliar la prediccion del propio jugador
 };
 struct Snapshot {
     uint32_t serverTick = 0;
@@ -72,6 +75,10 @@ struct Snapshot {
 };
 struct Ping { uint32_t token = 0; };
 struct Chat { uint8_t from = 0; std::string text; };
+
+// Ejes de movimiento: enteros de -127 a 127 (el CERO es exacto: con 255 niveles sobre [-1, 1] "quieto" quedaba en +-0,004 y el movimiento lo normaliza a velocidad completa)
+inline uint32_t PackAxis(float value) { return static_cast<uint32_t>(std::lround(std::clamp(value, -1.0f, 1.0f) * 127.0f) + 127); }
+inline float UnpackAxis(uint32_t bits) { return static_cast<float>(static_cast<int>(bits) - 127) / 127.0f; }
 
 // ---- escritura ----
 inline void Write(BitWriter& w, const Hello& m) {
@@ -87,7 +94,7 @@ inline void Write(BitWriter& w, const Reject& m) { w.U8(static_cast<uint32_t>(Me
 inline void WriteBye(BitWriter& w) { w.U8(static_cast<uint32_t>(MessageType::Bye)); }
 inline void Write(BitWriter& w, const PlayerInput& m) {
     w.U8(static_cast<uint32_t>(MessageType::Input)); w.U32(m.sequence);
-    w.Quantized(m.moveX, -1.0f, 1.0f, 8); w.Quantized(m.moveZ, -1.0f, 1.0f, 8);
+    w.Bits(PackAxis(m.moveX), 8); w.Bits(PackAxis(m.moveZ), 8);
     const float tau = 6.2831853f;
     w.Quantized(m.yaw - tau * std::floor(m.yaw / tau), 0.0f, tau, 12);
     w.U16(m.buttons);
@@ -103,6 +110,7 @@ inline void Write(BitWriter& w, const Snapshot& m) {
         const float tau = 6.2831853f;
         w.Quantized(p.yaw - tau * std::floor(p.yaw / tau), 0.0f, tau, 10);
         w.Quantized(p.speed, 0.0f, kMaxSpeed, 8); w.U8(p.animation); w.U8(p.flags);
+        w.Quantized(p.vx, -kMaxVelocity, kMaxVelocity, 10); w.Quantized(p.vz, -kMaxVelocity, kMaxVelocity, 10);
     }
 }
 inline void Write(BitWriter& w, const Ping& m, bool pong) { w.U8(static_cast<uint32_t>(pong ? MessageType::Pong : MessageType::Ping)); w.U32(m.token); }
@@ -135,7 +143,7 @@ inline std::optional<Reject> ReadReject(BitReader& r) {
     return m;
 }
 inline std::optional<PlayerInput> ReadInput(BitReader& r) {
-    PlayerInput m; m.sequence = r.U32(); m.moveX = r.Quantized(-1.0f, 1.0f, 8); m.moveZ = r.Quantized(-1.0f, 1.0f, 8);
+    PlayerInput m; m.sequence = r.U32(); m.moveX = UnpackAxis(r.Bits(8)); m.moveZ = UnpackAxis(r.Bits(8));
     m.yaw = r.Quantized(0.0f, 6.2831853f, 12); m.buttons = static_cast<uint16_t>(r.U16());
     if (r.Failed()) return std::nullopt;
     return m;
@@ -148,6 +156,7 @@ inline std::optional<Snapshot> ReadSnapshot(BitReader& r) {
         PlayerSnapshot p; p.id = static_cast<uint8_t>(r.Bits(7));
         p.x = r.Quantized(kWorldMinX, kWorldMaxX, 16); p.y = r.Quantized(kWorldMinY, kWorldMaxY, 16); p.z = r.Quantized(kWorldMinZ, kWorldMaxZ, 16);
         p.yaw = r.Quantized(0.0f, 6.2831853f, 10); p.speed = r.Quantized(0.0f, kMaxSpeed, 8); p.animation = static_cast<uint8_t>(r.U8()); p.flags = static_cast<uint8_t>(r.U8());
+        p.vx = r.Quantized(-kMaxVelocity, kMaxVelocity, 10); p.vz = r.Quantized(-kMaxVelocity, kMaxVelocity, 10);
         m.players.push_back(p);
     }
     if (r.Failed()) return std::nullopt;

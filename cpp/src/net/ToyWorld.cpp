@@ -13,7 +13,8 @@ bool Finite(float v) { return std::isfinite(v); }
 void ToyServer::Update(double dtSeconds) {
     NetEvent event;
     while (m_Host.Poll(event)) Handle(event);
-    Step(dtSeconds);
+    m_StepAccumulator += dtSeconds;   // pasos fijos de 1/30 s: igual que el cliente cuando predice
+    while (m_StepAccumulator >= kStepSeconds) { m_StepAccumulator -= kStepSeconds; Step(); }
     m_SnapshotAccumulator += dtSeconds;
     const double interval = 1.0 / kSnapshotRate;
     if (m_SnapshotAccumulator >= interval) {
@@ -47,7 +48,7 @@ void ToyServer::Handle(const NetEvent& event) {
             state.id = NextFreeId();
             if (state.id == 0) { Write(answer, Reject{RejectReason::ServerFull}); m_Host.Send(event.peer, kChannelReliable, answer.Data(), true); m_Host.Disconnect(event.peer); return; }
             state.name = hello->name;
-            state.x += static_cast<float>(state.id) * 1.5f;   // no aparecen unos sobre otros
+            state.session.position = glm::vec3(112.98f + static_cast<float>(state.id) * 1.5f, 0.0f, 97.84f);   // no aparecen unos sobre otros
             m_Players[event.peer] = state;
             Welcome welcome; welcome.playerId = state.id; welcome.serverTick = m_Tick; welcome.worldSeed = m_Seed;
             welcome.tickRate = kTickRate; welcome.snapshotRate = kSnapshotRate;
@@ -76,19 +77,9 @@ void ToyServer::Handle(const NetEvent& event) {
     }
 }
 
-void ToyServer::Step(double dt) {
+void ToyServer::Step() {
     ++m_Tick;
-    for (auto& [peer, player] : m_Players) {
-        // el servidor decide: la direccion se normaliza y la velocidad sale de los botones, no de lo que diga el cliente
-        float directionX = player.input.moveX, directionZ = player.input.moveZ;
-        const float length = std::sqrt(directionX * directionX + directionZ * directionZ);
-        if (length > 1.0f) { directionX /= length; directionZ /= length; }
-        const float speed = (player.input.buttons & kRun) ? kRunSpeed : kWalkSpeed;
-        player.speed = length > 0.05f ? speed * std::min(1.0f, length) : 0.0f;
-        player.x = std::clamp(player.x + directionX * player.speed * static_cast<float>(dt), kMapMinX, kMapMaxX);
-        player.z = std::clamp(player.z + directionZ * player.speed * static_cast<float>(dt), kMapMinZ, kMapMaxZ);
-        player.yaw = player.input.yaw;
-    }
+    for (auto& [peer, player] : m_Players) ApplyInput(player.session, player.input, FlatWorld(), kStepSeconds);   // el servidor decide: velocidad y mapa salen de las reglas, no del cliente
 }
 
 uint8_t ToyServer::NextFreeId() const {
@@ -108,7 +99,7 @@ Snapshot ToyServer::BuildSnapshot(const ToyPlayerState& viewer) const {
     std::vector<Candidate> candidates;
     for (const auto& [peer, other] : m_Players) {
         if (other.id == viewer.id) continue;
-        const float distance = std::hypot(other.x - viewer.x, other.z - viewer.z);
+        const float distance = std::hypot(other.session.position.x - viewer.session.position.x, other.session.position.z - viewer.session.position.z);
         if (distance > kFarRadius) continue;
         // frecuencia por distancia: cerca siempre, media distancia cada 2 instantaneas, lejos cada 4
         const bool due = distance <= kNearRadius || (distance <= kMidRadius ? (m_SnapshotIndex % 2 == 0) : (m_SnapshotIndex % 4 == 0));
@@ -117,8 +108,7 @@ Snapshot ToyServer::BuildSnapshot(const ToyPlayerState& viewer) const {
     std::sort(candidates.begin(), candidates.end(), [](const Candidate& a, const Candidate& b) { return a.distance < b.distance; });
     if (candidates.size() > kMaxSnapshotEntries - 1) candidates.resize(kMaxSnapshotEntries - 1);   // los mas cercanos primero
     const auto entryOf = [](const ToyPlayerState& p) {
-        PlayerSnapshot entry; entry.id = p.id; entry.x = p.x; entry.y = 0.0f; entry.z = p.z; entry.yaw = p.yaw; entry.speed = p.speed;
-        return entry;
+        return MakeSnapshot(p.id, p.session);
     };
     snapshot.players.push_back(entryOf(viewer));   // el propio jugador siempre va (confirma su posicion)
     for (const Candidate& c : candidates) snapshot.players.push_back(entryOf(*c.player));

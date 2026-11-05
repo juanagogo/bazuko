@@ -97,7 +97,7 @@ int main() {
             // lo que el cliente ve del otro jugador no se aleja mas de lo que se mueve en ~0,3 s
             for (const auto& seen : c->LastSnapshot().players)
                 for (const auto& [peer, real] : truth)
-                    if (real.id == seen.id) Check(std::hypot(seen.x - real.x, seen.z - real.z) < 2.5, "la posicion vista esta cerca de la autoritativa");
+                    if (real.id == seen.id) Check(std::hypot(seen.x - real.session.position.x, seen.z - real.session.position.z) < 2.5, "la posicion vista esta cerca de la autoritativa");
             Check(c->AckedInput() > 20, "los input llegan pese a la perdida");
         }
         std::printf("B) lag 60+-20 ms, 10 %% perdida: %.0f %% de instantaneas recibidas\n", 100.0 * world.clients[0]->SnapshotsReceived() / (4.0 * 20.0));
@@ -108,9 +108,9 @@ int main() {
         World world;
         auto& cheater = world.Add("Tramposo");
         world.Run(0.5, [](size_t, int) { return PlayerInput{}; });
-        const float x0 = world.server->Players().begin()->second.x;
+        const float x0 = world.server->Players().begin()->second.session.position.x;
         world.Run(2.0, [](size_t, int) { PlayerInput input; input.moveX = 1.0f; input.moveZ = 0.0f; input.buttons = kRun; return input; });
-        const float travelled = world.server->Players().begin()->second.x - x0;
+        const float travelled = world.server->Players().begin()->second.session.position.x - x0;
         Check(travelled > 3.0f && travelled < 2.3f * ToyServer::kRunSpeed, "la velocidad la limita el servidor aunque el cliente pida mas");
         std::printf("C) distancia en ~2 s corriendo: %.1f m (limite %.1f m/s)\n", travelled, ToyServer::kRunSpeed);
         (void)cheater;

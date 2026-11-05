@@ -68,6 +68,12 @@ int main() {
         const auto back = ReadInput(r);
         Check(back && back->sequence == 4242 && back->buttons == (kRun | kJump | kAttack), "input: secuencia y botones");
         Check(back && Near(back->moveX, -0.5f, 0.01f) && Near(back->moveZ, 1.0f, 0.01f) && Near(back->yaw, 3.5f, 0.002f), "input: direccion y rumbo cuantizados");
+        // el cero es exacto (si no, "quieto" llegaria como un movimiento diminuto)
+        BitWriter wz; PlayerInput zero; Write(wz, zero);
+        BitReader rz(wz.Data()); ReadType(rz);
+        const auto zeroBack = ReadInput(rz);
+        Check(zeroBack && zeroBack->moveX == 0.0f && zeroBack->moveZ == 0.0f, "el movimiento cero se conserva exacto");
+        Check(back && std::fabs(back->moveX + 0.5f) < 0.005f, "ejes con error menor de 0,005");
         // rumbo fuera de [0, 2pi) y negativo: se envuelve
         BitWriter w2; PlayerInput wrap; wrap.yaw = -1.0f; Write(w2, wrap);
         BitReader r2(w2.Data()); ReadType(r2);
@@ -96,7 +102,7 @@ int main() {
         Check(exact, "Snapshot ida y vuelta");
         Check(worst < 0.009f, "posicion con error menor de 9 mm");
         std::printf("Snapshot de 8 jugadores: %zu bytes (error maximo de posicion %.4f m)\n", w.Size(), worst);
-        Check(w.Size() <= 8 * 12 + 16, "Snapshot de 8 jugadores cabe en ~110 bytes");
+        Check(w.Size() <= 8 * 14 + 16, "Snapshot de 8 jugadores cabe en ~130 bytes");
     }
 
     // Identificadores hasta 127 y tope de 48 jugadores por instantanea
@@ -113,7 +119,7 @@ int main() {
         BitReader r2(w2.Data()); ReadType(r2);
         Check(ReadSnapshot(r2)->players[0].id == 127, "el identificador 127 cabe");
         std::printf("Snapshot de %zu jugadores: %zu bytes\n", kMaxSnapshotEntries, w.Size());
-        Check(w.Size() <= 600, "una instantanea llena cabe en un paquete de 600 bytes");
+        Check(w.Size() <= 720, "una instantanea llena cabe en un paquete de 720 bytes");
     }
 
     // Robustez: truncar o corromper nunca debe romper la lectura
