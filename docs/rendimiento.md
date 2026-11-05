@@ -200,6 +200,10 @@ Las fachadas se generan una vez por variante y barrio, y los andenes una vez por
 
 En la partida inicial, las texturas en la GPU bajaron de 708 a 576 y la estimación de su memoria (RGBA8 con mipmaps), de 771 a 712 MB. Con los avisos de local, la estimación pasa de 846 a 712 MB.
 
+## Semáforos: primero el cruce cercano
+
+`TrafficSignals.blocks` se consulta para cada carro en cada medio metro de su distancia de frenado y revisaba los 24 cruces en cada consulta: reservas, posición actual y acceso antes de mirar si el punto estaba cerca. Ahora descarta primero los cruces lejos del punto. Las otras condiciones solo filtran, así que la respuesta es la misma: `tests/traffic-signal-blocks.test.js` la compara con la versión anterior en 20.000 casos al azar, y una simulación de 3.000 cuadros del tráfico de la ciudad deja exactamente las mismas posiciones. En esa simulación, en Node, el tráfico pasó de unos 0,82 a unos 0,62 ms por cuadro.
+
 ## Cambios de calidad y resolución
 
 - **El antialias del contexto se decide al crearlo.** No se puede cambiar después: se omite solo si la preferencia guardada es baja, cuando la calidad automática ya no puede subir de nivel. Quien pasa de baja a media o alta en la misma sesión se queda sin él hasta recargar.
