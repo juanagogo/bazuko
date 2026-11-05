@@ -20,6 +20,7 @@
 #include "game/PlayerState.hpp"
 #include "game/PlayerSession.hpp"
 #include "game/Survival.hpp"
+#include "game/Economy.hpp"
 #include "world/SafeSpawn.hpp"
 #include "world/Atmosphere.hpp"
 #include "world/Viaduct.hpp"
@@ -198,18 +199,7 @@ int main(int argc, char** argv) {
     auto& poopElapsed = session.poopElapsed;
     auto& poopStepDone = session.poopStepDone;
     auto& poopThrowDirection = session.poopThrowDirection;
-    // Recetas de la mesa de crafteo: las de src/data/recipes.js del original (todos los materiales salen de la basura, la tienda o el dealer)
-    struct RecipeDef { std::string id; int quantity; std::vector<std::pair<std::string, int>> ingredients; };
-    const std::vector<RecipeDef> recipes{
-        {"radioTransistor", 1, {{"chatarra", 1}, {"cable", 2}, {"pilas", 1}}},
-        {"arma", 1, {{"chatarra", 2}, {"cable", 1}, {"madera", 1}}},
-        {"cuchillo", 1, {{"chatarra", 1}, {"madera", 1}}},
-        {"botella_picada", 1, {{"botella", 1}, {"lata", 1}}},
-        {"curita", 2, {{"botella", 1}, {"carton", 1}}},
-        {"antibiotico", 1, {{"pastilla", 1}, {"botella", 1}}},
-        {"rifa", 1, {{"carton", 2}, {"lata", 1}}},
-        {"hierba", 2, {{"carton", 1}, {"madera", 1}}},
-    };
+    const auto& recipes = Economy::Recipes();   // recetas de la mesa de crafteo (game/Economy.cpp)
     // Acciones del personaje (animaciones de Blender): saltar (Espacio), agacharse (Ctrl), puños (J), patada (K) y navaja (H)
     auto& petWaiting = session.petWaiting; auto& petRewardPending = session.petRewardPending;   // caricia al Chato: se pide con E, el perro se sienta delante y luego la anima PetDog
     auto& petWaitTime = session.petWaitTime;
@@ -478,17 +468,11 @@ int main(int argc, char** argv) {
              : id == "cama" ? state.cama : id == "fogon" ? state.fogon : id == "vela" ? state.vela : false;
     };
     const auto inventoryCapacity = [&]() {
-        return InventoryCapacity(gameData, unlockedTalents, bigSack);
+        return Economy::Capacity(session, gameData);
     };
     const auto awardXp = [&](int amount, float activityMultiplier = 1.0f) {
-        const float talentMultiplier = talentEffect("xpMult");
-        xp += static_cast<int>(std::round(static_cast<float>(amount) * activityMultiplier * talentMultiplier));
-        while (xp >= 100 * level) {
-            xp -= 100 * level;
-            ++level;
-            ++talentPoints;
-            ui.Notify("¡Nivel " + std::to_string(level) + "! +1 punto de talento", ToastType::Rare);
-        }
+        const int gained = Economy::AwardXp(session, amount, activityMultiplier, talentEffect("xpMult"));
+        for (int i = 1; i <= gained; ++i) ui.Notify("¡Nivel " + std::to_string(level - gained + i) + "! +1 punto de talento", ToastType::Rare);
     };
 
     auto saveGame = [&](const std::string& feedbackMsg = "Partida guardada con éxito") {
@@ -604,35 +588,9 @@ int main(int argc, char** argv) {
     const auto tryInfectFromPickup = [&](bool sortedBag = false) -> std::string {
         const float resistance = talentEffect("diseaseResist") * characterManager.GetDiseaseResistance()
             * (sortedBag ? talentEffect("sortDiseaseMult") : 1.0f);
-        float chance = InfectionChance(sortedBag, resistance) * (needs[4] < 30.0f ? 1.5f : 1.0f);
-        if (std::uniform_real_distribution<float>(0.0f, 1.0f)(lootRandom) >= chance) return {};
-
-        const std::array<DiseaseState, 3> types{{
-            {"gripe", 45.0f, 0.12f, 0.01f},
-            {"infeccion", 54.0f, 0.216f, 0.02f},
-            {"intoxicacion", 36.0f, 0.096f, 0.03f}
-        }};
-        const DiseaseState& type = types[static_cast<size_t>(std::uniform_int_distribution<int>(0, 2)(lootRandom))];
-        if (std::none_of(diseases.begin(), diseases.end(),
-                         [&](const DiseaseState& disease) { return disease.id == type.id; })) {
-            diseases.push_back(type);
-            return type.id;
-        }
-        return {};
+        return Economy::TryInfectFromPickup(session, lootRandom, sortedBag, resistance);
     };
-    const auto addLootById = [&](const std::string& id) {
-        const auto item = std::find_if(lootTable.begin(), lootTable.end(),
-            [&](const Item& entry) { return entry.id == id; });
-        if (item == lootTable.end()) return false;
-        const size_t itemIndex = static_cast<size_t>(item - lootTable.begin());
-        if (inventoryWeight + item->weight > inventoryCapacity()) return false;
-        auto entry = std::find_if(inventory.begin(), inventory.end(),
-            [&](const InventoryEntry& value) { return value.itemIndex == itemIndex; });
-        if (entry == inventory.end()) inventory.push_back({itemIndex, 1});
-        else ++entry->quantity;
-        inventoryWeight += item->weight;
-        return true;
-    };
+    const auto addLootById = [&](const std::string& id) { return Economy::AddItem(session, gameData, id); };
     // Recolecta la bolsa o caneca mas cercana. `sorted`: se mantuvo Q el tiempo completo (mas botin y mas riesgo).
     // Lo que no cabe en el costal se queda en la bolsa para la proxima vez.
     auto harvestNearbyPickup = [&](float radius, bool sorted) {
@@ -720,41 +678,15 @@ int main(int argc, char** argv) {
         }
         return sorting;
     };
-    const auto inventoryCount = [&](const std::string& id) {
-        int count = 0;
-        for (const auto& entry : inventory) if (lootTable[entry.itemIndex].id == id) count += entry.quantity;
-        return count;
-    };
-    const auto availableLootCount = [&](const std::string& id) {
-        const auto item = std::find_if(lootTable.begin(), lootTable.end(),
-            [&](const Item& entry) { return entry.id == id; });
-        if (item == lootTable.end() || item->weight <= 0.0f) return 0;
-        return std::max(0, static_cast<int>(std::floor(
-            (inventoryCapacity() - inventoryWeight + 0.0001f) / item->weight)));
-    };
+    const auto inventoryCount = [&](const std::string& id) { return Economy::CountItem(session, gameData, id); };
+    const auto availableLootCount = [&](const std::string& id) { return Economy::AvailableCount(session, gameData, id); };
     const auto isRecyclable = [](const Item& item) { return item.recyclable; };
     const auto applyItemEffect = [&](const Item& item) {
-        if (item.consumableNeed >= 0) {
-            const size_t needIndex = static_cast<size_t>(item.consumableNeed);
-            if (item.warmth > 0.0f) warmTimer = std::min(900.0f, warmTimer + item.warmth);
-            needs[needIndex] = std::clamp(needs[needIndex] + item.amount, 0.0f, 100.0f);
-            for (size_t need = 0; need < needs.size(); ++need)
-                needs[need] = std::clamp(needs[need] + item.deltas[need], 0.0f, 100.0f);
-            return true;
-        }
-        if (item.id == "vendaje" || item.id == "curita") {
-            needs[3] = std::min(100.0f, needs[3] + (item.id == "curita" ? 15.0f : 30.0f));
-            return true;
-        }
-        if (!item.cure.empty()) {
-            const size_t before = diseases.size();
-            std::erase_if(diseases, [&](const DiseaseState& disease) { return disease.id == item.cure; });
-            if (diseases.size() == before) {
-                ui.SetPickupNotification("Usaste " + item.name + "; no tenías " + item.cure + ".");
-            } else {
-                ui.SetPickupNotification(item.name + " curó " + item.cure + ".");
-            }
-            return true;
+        switch (Economy::ApplyItemEffect(session, item)) {
+            case Economy::EffectOutcome::Applied: return true;
+            case Economy::EffectOutcome::NoSuchDisease: ui.SetPickupNotification("Usaste " + item.name + "; no tenías " + item.cure + "."); return true;
+            case Economy::EffectOutcome::CuredDisease: ui.SetPickupNotification(item.name + " curó " + item.cure + "."); return true;
+            case Economy::EffectOutcome::NotApplicable: break;
         }
         return false;
     };
@@ -763,32 +695,16 @@ int main(int argc, char** argv) {
         return (boostActive ? 1.2f : 1.0f) * characterManager.GetSellMultiplier();
     };
     const auto sellRecyclables = [&]() {
-        int soldCount = 0;
-        float earned = 0.0f;
-        const float saleMultiplier = recyclerMultiplier();
-        for (auto entry = inventory.begin(); entry != inventory.end();) {
-            const Item& item = lootTable[entry->itemIndex];
-            if (!isRecyclable(item)) {
-                ++entry;
-                continue;
-            }
-            earned += static_cast<float>(item.value * entry->quantity) * saleMultiplier;
-            soldCount += entry->quantity;
-            inventoryWeight -= item.weight * entry->quantity;
-            entry = inventory.erase(entry);
-        }
-        if (soldCount == 0) {
+        const Economy::SellResult sale = Economy::SellRecyclables(session, gameData, recyclerMultiplier());
+        if (sale.soldCount == 0) {
             audio.Play(AudioCue::Empty);
             ui.SetPickupNotification("No tienes materiales reciclables para vender.");
             return false;
         }
-        money += earned;
-        itemsSold += soldCount;
-        needs[5] = std::min(100.0f, needs[5] + 2.0f);
-        awardXp(2 * soldCount);
+        awardXp(2 * sale.soldCount);
         audio.Play(AudioCue::Sell);
-        ui.SetPickupNotification("Vendiste " + std::to_string(soldCount) + " reciclables por $"
-                                 + std::to_string(static_cast<int>(earned)) + " COP.");
+        ui.SetPickupNotification("Vendiste " + std::to_string(sale.soldCount) + " reciclables por $"
+                                 + std::to_string(static_cast<int>(sale.earned)) + " COP.");
         return true;
     };
 
@@ -1411,46 +1327,12 @@ int main(int argc, char** argv) {
         }
         const std::string craftRequest = ui.ConsumeCraftRequest();
         if (!craftRequest.empty()) {
-            auto countItem = [&](const std::string& id) {
-                int quantity = 0;
-                for (const auto& entry : inventory) if (lootTable[entry.itemIndex].id == id) quantity += entry.quantity;
-                return quantity;
-            };
-            std::string resultId;
-            std::vector<std::pair<std::string, int>> ingredients;
-            int resultQuantity = 1;
-            for (const RecipeDef& recipe : recipes) {
-                if (recipe.id != craftRequest) continue;
-                const auto resultItem = std::find_if(lootTable.begin(), lootTable.end(), [&](const Item& item) { return item.id == recipe.id; });
-                if (resultItem == lootTable.end()) break;
-                bool hasMaterials = true;
-                for (const auto& [id, quantity] : recipe.ingredients) hasMaterials = hasMaterials && countItem(id) >= quantity;
-                if (hasMaterials && inventoryWeight + resultItem->weight * static_cast<float>(recipe.quantity) <= inventoryCapacity()) {
-                    resultId = recipe.id;
-                    ingredients = recipe.ingredients;
-                    resultQuantity = recipe.quantity;
-                } else {
-                    audio.Play(AudioCue::Full);
-                }
-                break;
-            }
-            if (!resultId.empty()) {
-                for (const auto& [id, quantity] : ingredients) {
-                    for (int removed = 0; removed < quantity; ++removed) {
-                        auto entry = std::find_if(inventory.begin(), inventory.end(), [&](const InventoryEntry& item) { return lootTable[item.itemIndex].id == id; });
-                        if (entry != inventory.end()) {
-                            inventoryWeight -= lootTable[entry->itemIndex].weight;
-                            if (--entry->quantity == 0) inventory.erase(entry);
-                        }
-                    }
-                }
-                size_t resultIndex = static_cast<size_t>(std::find_if(lootTable.begin(), lootTable.end(), [&](const Item& item) { return item.id == resultId; }) - lootTable.begin());
-                auto result = std::find_if(inventory.begin(), inventory.end(), [&](const InventoryEntry& entry) { return entry.itemIndex == resultIndex; });
-                if (result == inventory.end()) inventory.push_back({resultIndex, resultQuantity}); else result->quantity += resultQuantity;
-                inventoryWeight += lootTable[resultIndex].weight * static_cast<float>(resultQuantity);
+            const Economy::CraftResult crafted = Economy::Craft(session, gameData, recipes, craftRequest);
+            if (crafted.outcome == Economy::CraftOutcome::MissingMaterials || crafted.outcome == Economy::CraftOutcome::NoRoom) audio.Play(AudioCue::Full);
+            if (crafted.outcome == Economy::CraftOutcome::Crafted) {
                 awardXp(10);
                 audio.Play(AudioCue::Treasure);
-                ui.Notify("Crafteado: " + lootTable[resultIndex].name + " ×" + std::to_string(resultQuantity), ToastType::Info);
+                ui.Notify("Crafteado: " + crafted.resultName + " ×" + std::to_string(crafted.quantity), ToastType::Info);
             }
         }
 
@@ -2197,7 +2079,7 @@ int main(int argc, char** argv) {
         }
         const std::array<const char*, kNeedCount> needLabels{"hambre", "sed", "energía", "salud", "higiene", "ánimo", "vicio"};
         std::vector<CraftingOption> craftingOptions;
-        for (const RecipeDef& recipe : recipes) {
+        for (const Economy::RecipeDef& recipe : recipes) {
             const auto resultItem = std::find_if(lootTable.begin(), lootTable.end(), [&](const Item& item) { return item.id == recipe.id; });
             if (resultItem == lootTable.end()) continue;
             CraftingOption option;
@@ -2328,30 +2210,24 @@ int main(int argc, char** argv) {
 
         const std::string shopPurchase = ui.ConsumeShopPurchaseRequest();
         if (!shopPurchase.empty()) {
-            const auto entry = std::find_if(gameData.shop.begin(), gameData.shop.end(), [&](const ShopEntry& candidate) {
-                return candidate.item == shopPurchase || (!candidate.upgrade.empty() && candidate.upgrade == shopPurchase);
-            });
-            if (entry == gameData.shop.end()) {
-                LogWarn("El menu de la tienda solicito un producto desconocido: {}", shopPurchase);
-            } else if (money < static_cast<float>(entry->price)) {
-                ui.SetPickupNotification("No te alcanza para comprar eso.");
-            } else if (!entry->upgrade.empty()) {
-                if (!bigSack) {
-                    bigSack = true;
-                    money -= static_cast<float>(entry->price);
+            const Economy::PurchaseResult purchase = Economy::Purchase(session, gameData, shopPurchase);
+            switch (purchase.outcome) {
+                case Economy::PurchaseOutcome::UnknownProduct: LogWarn("El menu de la tienda solicito un producto desconocido: {}", shopPurchase); break;
+                case Economy::PurchaseOutcome::NotEnoughMoney: ui.SetPickupNotification("No te alcanza para comprar eso."); break;
+                case Economy::PurchaseOutcome::UpgradeAlreadyOwned: break;
+                case Economy::PurchaseOutcome::BoughtUpgrade:
                     audio.Play(AudioCue::Pickup);
-                    ui.SetPickupNotification("Compraste el " + entry->label + ": ahora cargas " + std::to_string(static_cast<int>(gameData.costalBonus)) + " kg más.");
-                }
-            } else if (const ItemDef* product = gameData.FindItem(entry->item); product == nullptr) {
-                LogWarn("Producto sin objeto: {}", entry->item);
-            } else if (inventoryWeight + product->weight * static_cast<float>(entry->qty) > inventoryCapacity()) {
-                audio.Play(AudioCue::Full);
-                ui.SetPickupNotification("No te cabe en el costal: " + product->name + ".");
-            } else {
-                for (int unit = 0; unit < entry->qty; ++unit) addLootById(product->id);
-                money -= static_cast<float>(entry->price);
-                audio.Play(AudioCue::Pickup);
-                ui.SetPickupNotification("Compraste " + (entry->label.empty() ? product->name : entry->label) + ".");
+                    ui.SetPickupNotification("Compraste el " + purchase.label + ": ahora cargas " + std::to_string(static_cast<int>(gameData.costalBonus)) + " kg más.");
+                    break;
+                case Economy::PurchaseOutcome::ProductMissing: LogWarn("Producto sin objeto: {}", shopPurchase); break;
+                case Economy::PurchaseOutcome::NoRoom:
+                    audio.Play(AudioCue::Full);
+                    ui.SetPickupNotification("No te cabe en el costal: " + purchase.label + ".");
+                    break;
+                case Economy::PurchaseOutcome::Bought:
+                    audio.Play(AudioCue::Pickup);
+                    ui.SetPickupNotification("Compraste " + purchase.label + ".");
+                    break;
             }
         }
         if (ui.ConsumeRecyclerSellRequest()) sellRecyclables();
@@ -2500,17 +2376,12 @@ int main(int argc, char** argv) {
         }
         const size_t dropIndex = ui.ConsumeInventoryDropRequest();
         if (dropIndex < lootTable.size()) {
-            auto entry = std::find_if(inventory.begin(), inventory.end(),
-                [&](const InventoryEntry& value) { return value.itemIndex == dropIndex; });
-            if (entry != inventory.end()) {
-                const int dropped = ui.InventoryDropWasAll() ? entry->quantity : 1;
+            const int dropped = Economy::DropItem(session, gameData, dropIndex, ui.InventoryDropWasAll());
+            if (dropped > 0) {
                 PickupItem bag;
                 bag.position = playerPos;
                 bag.pendingLoot.assign(static_cast<size_t>(dropped), lootTable[dropIndex].id);
                 simulation.RestorePickup(bag);
-                inventoryWeight = std::max(0.0f, inventoryWeight - lootTable[dropIndex].weight * static_cast<float>(dropped));
-                entry->quantity -= dropped;
-                if (entry->quantity <= 0) inventory.erase(entry);
             }
         }
         if (ui.ConsumeInventorySortRequest()) {

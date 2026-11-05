@@ -151,7 +151,7 @@ add_executable(bazuko
     src/character/CharacterManager.cpp src/character/CharacterPreview.cpp src/character/Ragdoll.cpp
     src/world/CityLayout.cpp src/world/Simulation.cpp src/world/BirdFlock.cpp src/world/Lake.cpp src/world/Decals.cpp
     src/world/TextRaster.cpp src/world/SignAtlas.cpp
-    src/game/GameData.cpp src/game/Harvest.cpp src/game/Survival.cpp
+    src/game/GameData.cpp src/game/Harvest.cpp src/game/Survival.cpp src/game/Economy.cpp
     src/audio/RadioSynth.cpp src/world/SafeSpawn.cpp
 )
 if(WIN32)
@@ -221,6 +221,14 @@ target_include_directories(bazuko_survival_test PRIVATE src third_party/include)
 target_compile_definitions(bazuko_survival_test PRIVATE BAZUKO_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
 target_link_libraries(bazuko_survival_test PRIVATE glm::glm)
 add_test(NAME bazuko_survival COMMAND bazuko_survival_test)
+
+# Economia del jugador (prueba diferencial contra las lambdas originales de main(), con los datos reales del juego)
+add_executable(bazuko_economy_test tests/EconomyTest.cpp src/game/Economy.cpp src/game/Harvest.cpp src/game/GameData.cpp src/core/Paths.cpp)
+target_include_directories(bazuko_economy_test PRIVATE src third_party/include)
+target_compile_definitions(bazuko_economy_test PRIVATE BAZUKO_GAME_DATA_PATH="${CMAKE_CURRENT_SOURCE_DIR}/assets/data/game-data.json"
+                           BAZUKO_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
+target_link_libraries(bazuko_economy_test PRIVATE glm::glm)
+add_test(NAME bazuko_economy COMMAND bazuko_economy_test)
 
 # Medidor de FPS del panel de rendimiento
 add_executable(bazuko_framemetrics_test tests/FrameMetricsTest.cpp)
