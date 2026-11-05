@@ -120,5 +120,12 @@ export const OBJECTIVES = [
     hint: 'Colchón, fogón y vela: cada pieza mejora el descanso.',
     target: 'bed', goal: CAMBUCHE.length, progress: builtCount,
     reward: { xp: 100, dinero: 10000 }
+  },
+  {
+    id: 'rebusque-semaforo',
+    title: 'Rebuscarse en el semáforo',
+    hint: 'Con pelotas, rodillo o dulces de la tienda, junto a los carros en rojo oprimo B.',
+    target: 'shop', event: 'rebusque', accept: (d) => (d?.pesos ?? 0) > 0, goal: 3,
+    reward: { xp: 40, dinero: 2000 }
   }
 ];

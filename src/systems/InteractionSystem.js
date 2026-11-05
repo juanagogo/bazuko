@@ -212,8 +212,9 @@ export class InteractionSystem {
     }
 
     // === Pedir limosna (B o L) ===
+    // Con carros en rojo al lado y algo con qué trabajar, la tecla es del rebusque (RebusqueSystem).
     if (input.consumePress('KeyB') || input.consumePress('KeyL')) {
-      this._beg();
+      if (!this.rebusque?.intentar()) this._beg();
     }
 
     // === Boost (F) ===

@@ -68,6 +68,7 @@ import { LimpiezaSocialSystem } from '../systems/LimpiezaSocialSystem.js';
 import { SubstanceEffects } from '../systems/SubstanceEffects.js';
 import { SUBSTANCE_EFFECTS } from '../data/substanceEffects.js';
 import { StealSystem } from '../features/steal.js';
+import { RebusqueSystem } from '../systems/RebusqueSystem.js';
 import { CarjackSystem } from '../systems/CarjackSystem.js';
 import { MirrorCinematic } from '../ui/MirrorCinematic.js';
 import { ObjectiveSystem } from '../systems/ObjectiveSystem.js';
@@ -191,6 +192,9 @@ export class Game {
     this.interaction.zorra = this.zorra;
     this.zorraCtl = new ZorraController(this);
     this.carjack = new CarjackSystem(this);
+    // Rebusque en el semáforo: malabares, vidrios y dulces con B mientras la luz está en rojo.
+    this.rebusque = new RebusqueSystem(this);
+    this.interaction.rebusque = this.rebusque;
     this.mirrorCinematic = new MirrorCinematic(this);
 
     // HUD, menús y creador de personaje
@@ -579,6 +583,7 @@ export class Game {
     this.pickups.forEach((p) => p.dispose());
     this.pickups = [];
     this.carjack?.reset();
+    this.rebusque?.cancelar();
     this.cars.forEach((c) => c.dispose());
     this.cars = [];
     this.interaction.targets = [];
@@ -970,6 +975,7 @@ export class Game {
 
     this.isSleeping = true;
     if (this.steal?.minigameActive) this.steal._endMinigame(false, 'cancel');
+    this.rebusque?.cancelar();
     this.substanceEffects?.end();
     this.psychosis?.clearInduced?.();
     const night = this.clock.isNight;
@@ -1080,6 +1086,7 @@ export class Game {
 
     this._deathPending = true;
     if (this.steal?.minigameActive) this.steal._endMinigame(false, 'cancel');
+    this.rebusque?.cancelar();
     this.substanceEffects?.end();
     this.psychosis?.clearInduced?.();
     this.deathCount++;
@@ -1118,6 +1125,7 @@ export class Game {
     if (this._arrestPending || this._deathPending || this.stats.salud <= 0) return;
     this._arrestPending = true;
     if (this.steal?.minigameActive) this.steal._endMinigame(false, 'cancel');
+    this.rebusque?.cancelar();
     this.input.keys = {};
     this.input.endFrame();
     this.audio.updateSteps(false, false);
@@ -1240,6 +1248,7 @@ export class Game {
     if (this.poopSystem) this.poopSystem.activeProjectiles = [];
 
     this.carjack?.reset();
+    this.rebusque?.cancelar();
     const district = this.world.active;
     if (district?.reserved) {
       const spawn = district.reserved.respawn ?? { x: district.reserved.bed.x, z: district.reserved.bed.z + 2 };
@@ -1414,6 +1423,8 @@ export class Game {
     if (!this.player.isSwimming && !driving) this.steal?.update(dt);
     else if (this.steal?.minigameActive) this.steal._endMinigame(false, 'cancel');
     this.interaction.carjackPrompt = driving ? null : this.carjack?.prompt ?? null;
+    this.rebusque?.update(dt);
+    this.interaction.rebusquePrompt = driving ? null : this.rebusque?.prompt ?? null;
     this.mirrorCinematic?.update(dt);
     this._updateObjectives(dt);
     if (this._handleDeath()) return;
