@@ -22,6 +22,9 @@
 #include "game/Survival.hpp"
 #include "game/Economy.hpp"
 #include "game/Movement.hpp"
+#ifdef BAZUKO_NET_ENABLED
+#include "net/NetSession.hpp"
+#endif
 #include "game/Fight.hpp"
 #include "core/PlayerInputSampler.hpp"
 #include "world/SafeSpawn.hpp"
@@ -713,6 +716,33 @@ int main(int argc, char** argv) {
 
     ui.RenderLoadingScreen(window, 0.99f, "Sincronizando semáforos, rutas de tráfico y entorno...", "");
     ui.RenderLoadingScreen(window, 1.0f, "¡Todo listo! Entrando a Bogotá...", "");
+#ifdef BAZUKO_NET_ENABLED
+    std::unique_ptr<Net::NetSession> netSession;
+    {   // multijugador (compilado con -DBAZUKO_NET=ON): --anfitrion[=puerto] o --conectar=ip[:puerto]  (tambien BAZUKO_HOST / BAZUKO_JOIN)
+        std::string hostArg, joinArg;
+        for (int i = 1; i < argc; ++i) {
+            const std::string arg = argv[i];
+            if (arg == "--anfitrion") hostArg = "7777";
+            else if (arg.rfind("--anfitrion=", 0) == 0) hostArg = arg.substr(12);
+            else if (arg.rfind("--conectar=", 0) == 0) joinArg = arg.substr(11);
+        }
+        if (const char* env = std::getenv("BAZUKO_HOST")) hostArg = env;
+        if (const char* env = std::getenv("BAZUKO_JOIN")) joinArg = env;
+        const std::string playerName = characterManager.GetLook().nombre.empty() ? std::string("Parcero") : characterManager.GetLook().nombre;
+        if (!hostArg.empty()) {
+            netSession = Net::NetSession::StartHost(static_cast<uint16_t>(std::atoi(hostArg.c_str())), playerName);
+            if (netSession) { LogInfo("Multijugador: anfitrion en el puerto {}", netSession->Port()); ui.Notify("Eres el anfitrión: puerto " + std::to_string(netSession->Port()), ToastType::Info); }
+            else LogWarn("Multijugador: no se pudo abrir el puerto {}", hostArg);
+        } else if (!joinArg.empty()) {
+            const size_t colon = joinArg.rfind(':');
+            const std::string address = colon == std::string::npos ? joinArg : joinArg.substr(0, colon);
+            const uint16_t port = colon == std::string::npos ? uint16_t{7777} : static_cast<uint16_t>(std::atoi(joinArg.c_str() + colon + 1));
+            netSession = Net::NetSession::Join(address, port, playerName);
+            if (netSession) { LogInfo("Multijugador: conectando a {}:{}", address, port); ui.Notify("Conectando a " + address + ":" + std::to_string(port) + "...", ToastType::Info); }
+            else LogWarn("Multijugador: no se pudo conectar a {}:{}", address, port);
+        }
+    }
+#endif
     // Verificacion visual: BAZUKO_SHOT=ruta.png guarda una captura tras BAZUKO_SHOT_DELAY s (por defecto 6) y cierra
     const char* shotPath = std::getenv("BAZUKO_SHOT");
     float shotDelay = 6.0f;
@@ -1324,6 +1354,15 @@ int main(int argc, char** argv) {
             simulation.SetPlayerFacing({std::sin(facingYaw), std::cos(facingYaw)});
         }
         simulation.Update(dt, playerPos);
+#ifdef BAZUKO_NET_ENABLED
+        if (netSession) {   // multijugador: cuenta mi estado, recibe el de los demas y los dibuja (net/NetSession.hpp)
+            netSession->Update(dt, Net::LocalState{playerPos, playerYaw, playerVelocity, playerKnockedDown});
+            for (const std::string& notice : netSession->ConsumeNotices()) ui.Notify(notice, ToastType::Info);
+            std::vector<Simulation::RemotePlayerView> remoteViews;
+            for (const Net::RemotePlayer& remote : netSession->Remotes()) remoteViews.push_back({remote.id, remote.position, remote.yaw, remote.speed, remote.knockedDown});
+            simulation.SetRemotePlayers(std::move(remoteViews));
+        }
+#endif
         poopCooldown = std::max(0.0f, poopCooldown - dt);
         poopAnimationRemaining = std::max(0.0f, poopAnimationRemaining - dt);
         if (poopMode != 0) {

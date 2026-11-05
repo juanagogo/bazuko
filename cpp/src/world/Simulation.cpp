@@ -6268,6 +6268,25 @@ void Simulation::Render(Renderer& renderer, float time, const glm::vec3& focusPo
         }
     }
 
+    // Otros jugadores (multijugador): el mismo cuerpo de un civil segun su id, caminando o corriendo segun su velocidad
+    for (const RemotePlayerView& remote : m_RemotePlayers) {
+        const glm::vec2 offset(remote.position.x - focusPosition.x, remote.position.z - focusPosition.z);
+        if (glm::dot(offset, offset) > 140.0f * 140.0f) continue;
+        const size_t civilians = std::min(m_PoliceAppearanceFirst, m_PedestrianAppearances.size());
+        if (civilians == 0) continue;
+        const auto& appearance = m_PedestrianAppearances[(static_cast<size_t>(remote.id) * 7u + 3u) % civilians];
+        int clip = remote.speed > 4.5f && appearance.runClip >= 0 ? appearance.runClip : remote.speed > 0.3f ? appearance.walkClip : appearance.idleClip;
+        float clipTime = time + static_cast<float>(remote.id) * 0.37f;
+        if (remote.knockedDown && appearance.lyingClip >= 0) { clip = appearance.lyingClip; clipTime = 0.0f; }
+        glm::mat4 character = glm::translate(glm::mat4(1.0f), remote.position);
+        character = glm::rotate(character, remote.yaw, {0.0f, 1.0f, 0.0f});
+        for (size_t partIndex = 0; partIndex < appearance.parts.size(); ++partIndex) {
+            const auto& model = appearance.parts[partIndex];
+            if (!model) continue;
+            model->Draw(renderer, character, PedestrianPartTint(appearance, partIndex, glm::vec3(0.65f, 0.55f, 0.42f), static_cast<float>(remote.id) * 0.37f), clipTime, clip >= 0, clip, -1, false);
+        }
+    }
+
     // Sombras espectrales (Gente Sombra de la psicosis)
     for (const auto& sp : m_ShadowPeople) {
         if (sp.opacity <= 0.02f) continue;

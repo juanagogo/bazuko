@@ -393,6 +393,9 @@ public:
     // Burbujas de los peatones cercanos: posicion sobre la cabeza, texto y opacidad
     struct PedestrianBubble { glm::vec3 position; std::string text; float alpha; };
     std::vector<PedestrianBubble> GetPedestrianBubbles(const glm::vec3& focus) const;
+    // Otros jugadores (multijugador): se dibujan como personas con el mismo cuerpo de los peatones civiles (id fijo = mismo cuerpo). Solo se dibujan; no afectan la simulacion.
+    struct RemotePlayerView { uint8_t id = 0; glm::vec3 position{0.0f}; float yaw = 0.0f; float speed = 0.0f; bool knockedDown = false; };
+    void SetRemotePlayers(std::vector<RemotePlayerView> remotes) { m_RemotePlayers = std::move(remotes); }
     void SetPlayerHygiene(float hygiene) { m_PlayerHygiene = hygiene; }
     // Posiciones de los elementos fijos de la calle (para pruebas de colocacion)
     std::vector<glm::vec3> StreetLampPositions() const { std::vector<glm::vec3> r; for (const auto& l : m_StreetLamps) r.push_back(l.position); return r; }
@@ -841,6 +844,7 @@ private:
     std::vector<std::vector<std::string>> m_RenewableLoot;
     float m_Elapsed = 0.0f;
     std::vector<glm::vec3> m_ValidTrashSpots;  // Andenes limpios sin bloqueo
+    std::vector<RemotePlayerView> m_RemotePlayers;
     std::vector<Net::PlayerView> m_PlayerViews;   // jugadores de este paso (siempre al menos uno en el juego de un jugador)
     size_t m_TrashSpotCursor = 0;   // por donde sigue la busqueda de sitios de aparicion de bolsas (antes una variable estatica: sobrevivia entre mundos)
     glm::vec2 m_PlayerFacing{0.0f, 1.0f};      // Dirección de vista del jugador (XZ)

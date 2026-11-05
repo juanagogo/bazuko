@@ -23,7 +23,7 @@ inline constexpr size_t kMaxNameLength = 24;
 inline constexpr size_t kMaxLookBytes = 200;   // apariencia del creador de personaje, opaca para la red
 inline constexpr size_t kMaxChatLength = 120;
 
-enum class MessageType : uint8_t { Hello = 1, Welcome, Reject, Bye, Input, Snapshot, Ping, Pong, Chat };
+enum class MessageType : uint8_t { Hello = 1, Welcome, Reject, Bye, Input, Snapshot, Ping, Pong, Chat, State };
 
 // Rangos del mapa (metros) para cuantizar posiciones: 16 bits por eje dan ~8 mm en X/Z y ~2 mm en altura
 inline constexpr float kWorldMinX = -64.0f, kWorldMaxX = 448.0f;
@@ -73,6 +73,8 @@ struct Snapshot {
     uint32_t ackInput = 0;        // ultimo `sequence` de input del destinatario que el servidor aplico
     std::vector<PlayerSnapshot> players;
 };
+// Lo que un jugador cuenta de su propio personaje al anfitrion (el id lo pone el anfitrion segun la conexion)
+struct StateReport { PlayerSnapshot player; };
 struct Ping { uint32_t token = 0; };
 struct Chat { uint8_t from = 0; std::string text; };
 
@@ -113,6 +115,15 @@ inline void Write(BitWriter& w, const Snapshot& m) {
         w.Quantized(p.vx, -kMaxVelocity, kMaxVelocity, 10); w.Quantized(p.vz, -kMaxVelocity, kMaxVelocity, 10);
     }
 }
+inline void Write(BitWriter& w, const StateReport& m) {
+    const PlayerSnapshot& p = m.player;
+    w.U8(static_cast<uint32_t>(MessageType::State));
+    w.Quantized(p.x, kWorldMinX, kWorldMaxX, 16); w.Quantized(p.y, kWorldMinY, kWorldMaxY, 16); w.Quantized(p.z, kWorldMinZ, kWorldMaxZ, 16);
+    const float tau = 6.2831853f;
+    w.Quantized(p.yaw - tau * std::floor(p.yaw / tau), 0.0f, tau, 10);
+    w.Quantized(p.speed, 0.0f, kMaxSpeed, 8); w.U8(p.animation); w.U8(p.flags);
+    w.Quantized(p.vx, -kMaxVelocity, kMaxVelocity, 10); w.Quantized(p.vz, -kMaxVelocity, kMaxVelocity, 10);
+}
 inline void Write(BitWriter& w, const Ping& m, bool pong) { w.U8(static_cast<uint32_t>(pong ? MessageType::Pong : MessageType::Ping)); w.U32(m.token); }
 inline void Write(BitWriter& w, const Chat& m) { w.U8(static_cast<uint32_t>(MessageType::Chat)); w.U8(m.from); w.String(m.text, kMaxChatLength); }
 
@@ -120,7 +131,7 @@ inline void Write(BitWriter& w, const Chat& m) { w.U8(static_cast<uint32_t>(Mess
 // Todas suponen que el tipo (primer byte) ya se leyo con ReadType.
 inline std::optional<MessageType> ReadType(BitReader& r) {
     const uint32_t type = r.U8();
-    if (r.Failed() || type < static_cast<uint32_t>(MessageType::Hello) || type > static_cast<uint32_t>(MessageType::Chat)) return std::nullopt;
+    if (r.Failed() || type < static_cast<uint32_t>(MessageType::Hello) || type > static_cast<uint32_t>(MessageType::State)) return std::nullopt;
     return static_cast<MessageType>(type);
 }
 inline std::optional<Hello> ReadHello(BitReader& r) {
@@ -159,6 +170,15 @@ inline std::optional<Snapshot> ReadSnapshot(BitReader& r) {
         p.vx = r.Quantized(-kMaxVelocity, kMaxVelocity, 10); p.vz = r.Quantized(-kMaxVelocity, kMaxVelocity, 10);
         m.players.push_back(p);
     }
+    if (r.Failed()) return std::nullopt;
+    return m;
+}
+inline std::optional<StateReport> ReadState(BitReader& r) {
+    StateReport m;
+    PlayerSnapshot& p = m.player;
+    p.x = r.Quantized(kWorldMinX, kWorldMaxX, 16); p.y = r.Quantized(kWorldMinY, kWorldMaxY, 16); p.z = r.Quantized(kWorldMinZ, kWorldMaxZ, 16);
+    p.yaw = r.Quantized(0.0f, 6.2831853f, 10); p.speed = r.Quantized(0.0f, kMaxSpeed, 8); p.animation = static_cast<uint8_t>(r.U8()); p.flags = static_cast<uint8_t>(r.U8());
+    p.vx = r.Quantized(-kMaxVelocity, kMaxVelocity, 10); p.vz = r.Quantized(-kMaxVelocity, kMaxVelocity, 10);
     if (r.Failed()) return std::nullopt;
     return m;
 }
