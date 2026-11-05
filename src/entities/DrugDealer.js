@@ -2,8 +2,31 @@
  // src/entities/DrugDealer.js
 
 import * as THREE from 'three';
+import { handDrawnRing, markSeed } from '../world/groundMarks.js';
 import { COLORS } from '../utils/constants.js';
+import { DEFAULT_LOOK } from '../character/look.js';
 import { ITEMS, LOOT_SUBSTANCE, dealerPrice, dealerOffer } from '../data/items.js';
+
+const DEALER_STANCE = 'celular';
+
+function disposeTree(root) {
+  root.traverse((object) => {
+    object.geometry?.dispose?.();
+    if (Array.isArray(object.material)) object.material.forEach((material) => material.dispose());
+    else object.material?.dispose?.();
+  });
+}
+
+/** Apariencia fija del jíbaro: joven, gorra, buzo y tenis limpios. Ninguna marca. */
+export function dealerLook() {
+  return {
+    ...DEFAULT_LOOK,
+    piel: 3,
+    desgaste: 0,
+    accesorios: ['gorra'],
+    real: { sexo: 'hombre', edad: 'joven', pelo: 'rapado', barba: 'candado', ropa: 'buzo', calzado: 'tenis', cabeza: 'sin-sombrero' }
+  };
+}
 
 export class DrugDealer {
   constructor(scene, position) {
@@ -12,7 +35,10 @@ export class DrugDealer {
     this.group.position.copy(position);
     this.scene.add(this.group);
 
-    // Cuerpo
+    // Cuerpo provisional: unas cajas hasta que llega la persona de verdad (preloadModel). Las pruebas sin
+    // navegador nunca la cargan y se quedan con esto.
+    this.placeholder = new THREE.Group();
+    this.group.add(this.placeholder);
     const bodyMat = new THREE.MeshLambertMaterial({
       color: COLORS.DEALER,
       flatShading: true
@@ -24,7 +50,7 @@ export class DrugDealer {
     );
     body.position.y = 0.9;
     body.castShadow = true;
-    this.group.add(body);
+    this.placeholder.add(body);
 
     // Cabeza
     const head = new THREE.Mesh(
@@ -33,7 +59,7 @@ export class DrugDealer {
     );
     head.position.y = 1.55;
     head.castShadow = true;
-    this.group.add(head);
+    this.placeholder.add(head);
 
     // Sombrero
     const hat = new THREE.Mesh(
@@ -44,7 +70,7 @@ export class DrugDealer {
       })
     );
     hat.position.y = 1.85;
-    this.group.add(hat);
+    this.placeholder.add(hat);
 
     // Mesa
     const table = new THREE.Mesh(
@@ -76,18 +102,19 @@ export class DrugDealer {
 
     // Luz de ambiente del puesto del dealer
     const light = new THREE.PointLight(0x9b59b6, 2.5, 8);
-    light.position.set(0.8, 1.2, 0);
+    light.position.set(1.2, 0.95, -0.22);
     this.group.add(light);
 
+    // Una lamparita de pilas sobre la mesa, no una bola flotando: de ahí sale la luz morada del puesto.
     const lantern = new THREE.Mesh(
-      new THREE.SphereGeometry(0.12, 8, 8),
+      new THREE.CylinderGeometry(0.045, 0.055, 0.14, 10),
       new THREE.MeshBasicMaterial({ color: 0x9b59b6 })
     );
-    lantern.position.set(0.8, 1.2, 0);
+    lantern.position.set(1.2, 0.72, -0.22);
     this.group.add(lantern);
 
     // Marcador
-    const markerGeo = new THREE.RingGeometry(1.0, 1.3, 24);
+    const markerGeo = handDrawnRing(1.0, 1.3, markSeed(position.x, position.z));
     const markerMat = new THREE.MeshBasicMaterial({
       color: COLORS.ACCENT_PURPLE,
       side: THREE.DoubleSide,
@@ -101,6 +128,31 @@ export class DrugDealer {
     this.group.add(this.marker);
 
     this.isNight = false;
+    this.character = null;
+    this._animAcc = 0;
+  }
+
+  /**
+   * El jíbaro es una persona como las de la calle: gorra, buzo y tenis, de pie junto a su mesa mirando
+   * el celular. Se carga con los demás modelos; si falla, se queda el cuerpo provisional.
+   */
+  async preloadModel() {
+    if (this.character) return;
+    try {
+      const { createRealisticCharacter } = await import('../character/RealisticCharacter.js');
+      const character = await createRealisticCharacter(dealerLook(), { lod: false });
+      if (this._disposed) { character.dispose?.(); return; }
+      this.character = character;
+      // Detrás de la mesa, de frente a quien llega a comprarle.
+      character.group.position.set(0, 0, -0.15);
+      character.group.traverse(o => { if (o.isMesh) o.castShadow = true; });
+      this.group.add(character.group);
+      this.group.remove(this.placeholder);
+      disposeTree(this.placeholder);
+      character.update(0.5, { speed: 0, stance: DEALER_STANCE });
+    } catch (error) {
+      console.warn('[Dealer] Sin modelo de persona; queda el cuerpo provisional.', error);
+    }
   }
 
   get position() {
@@ -237,8 +289,13 @@ export class DrugDealer {
   }
 
   update(dt) {
-    if (this.marker) {
-      this.marker.rotation.z += dt * 0.6;
+    // La pose es lenta: a 20 Hz basta y no compite con los peatones.
+    if (this.character) {
+      this._animAcc += dt;
+      if (this._animAcc >= 1 / 20) {
+        this.character.update(this._animAcc, { speed: 0, stance: DEALER_STANCE });
+        this._animAcc = 0;
+      }
     }
   }
 
@@ -251,16 +308,14 @@ export class DrugDealer {
   }
 
   dispose() {
+    this._disposed = true;
     this.scene.remove(this.group);
-
-    this.group.traverse((object) => {
-      object.geometry?.dispose?.();
-
-      if (Array.isArray(object.material)) {
-        object.material.forEach((material) => material.dispose());
-      } else {
-        object.material?.dispose?.();
-      }
-    });
+    // La persona comparte imágenes y programas con la gente de la calle: se suelta con su propio dispose.
+    if (this.character) {
+      this.group.remove(this.character.group);
+      this.character.dispose?.();
+      this.character = null;
+    }
+    disposeTree(this.group);
   }
 }

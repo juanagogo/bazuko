@@ -341,7 +341,7 @@ export class Game {
     const importedEntities = [
       ...(this.cars ?? []),
       ...(this.traffic?.vehicles ?? []).map(vehicle => vehicle.car),
-      ...(district?.busServices ?? [district?.busService]), this.cambuche, this.dog, ...(this.pickups ?? [])
+      ...(district?.busServices ?? [district?.busService]), this.cambuche, this.dog, this.dealer, ...(this.pickups ?? [])
     ].filter(Boolean);
     let lastPaint = performance.now();
     await withLoadTimeout(loadTaskGroups([

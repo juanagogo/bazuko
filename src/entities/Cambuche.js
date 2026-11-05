@@ -2,6 +2,7 @@
 // Refugio que se arma por piezas (base, techo, paredes, colchón, fogón, vela).
 // Geometría portada de rebusque; medidas en metros, escaladas al mundo.
 import * as THREE from 'three';
+import { handDrawnRing, markSeed } from '../world/groundMarks.js';
 import { CHARACTER_SCALE } from '../utils/constants.js';
 import { createImportedModel, disposeImportedInstance } from '../utils/ImportedModels.js';
 import { createFlame, fireGlow, stepFlames } from '../world/bogota/flame.js';
@@ -136,7 +137,7 @@ export class Cambuche {
 
     // Anillo que marca el sitio
     this.marker = new THREE.Mesh(
-      new THREE.RingGeometry(1.9, 2.1, 32),
+      handDrawnRing(1.9, 2.1, markSeed(position.x, position.z)),
       new THREE.MeshBasicMaterial({ color: 0xf6c400, transparent: true, opacity: 0.5, side: THREE.DoubleSide })
     );
     this.marker.rotation.x = -Math.PI / 2;

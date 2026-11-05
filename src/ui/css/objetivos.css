@@ -24,6 +24,11 @@ body:has(#menu:not([hidden]), #inv-overlay.open, #craft-panel.open, #talent-pane
 /* En una persecución, el objetivo estorba. */
 body:has(#wanted:not([hidden])) #objetivo { display: none; }
 
+/* Ventanas bajas: lo más urgente sube encima del radar hasta el objetivo. Mientras está, la pista se recoge. */
+@media (min-width: 900px) and (max-height: 760px) {
+  body:has(#retazo:not([hidden])) .objetivo__pista { display: none; }
+}
+
 @media (max-width: 899px), (pointer: coarse) {
   #objetivo { width: 240px; }
   .objetivo__pista { display: none; }

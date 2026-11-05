@@ -186,3 +186,16 @@ test('la tienda muestra lo que cobra y, de noche, una fila con lo que paga por c
   assert.ok(panel.html.includes('paga 2,34×'));
   assert.ok(panel.html.includes(cop(dealerOffer(ITEMS.basuco, 1.3) * 2)));
 });
+
+test('el jíbaro es una persona vestida, con cuerpo provisional hasta que carga', async () => {
+  const { dealerLook } = await import('../src/entities/DrugDealer.js');
+  const { garmentAllowed } = await import('../src/character/archetypes.js');
+  const look = dealerLook();
+  assert.ok(garmentAllowed(look.real.ropa, look.real.edad), 'nada que deje al aire el torso o las piernas');
+  assert.deepEqual(look.accesorios, ['gorra']);
+  const dealer = new DrugDealer(new THREE.Scene(), new THREE.Vector3());
+  assert.equal(dealer.placeholder.parent, dealer.group);
+  assert.equal(dealer.character, null);
+  dealer.update(1 / 60); // sin persona cargada, actualizar no rompe
+  dealer.dispose();
+});

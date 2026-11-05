@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { handDrawnRing, markSeed } from '../world/groundMarks.js';
 import { createDroppedItemModel } from './droppedItemModel.js';
 
 export const DROP_LIFETIME = 10;
@@ -18,7 +19,7 @@ export class DroppedItem {
     this.model = createDroppedItemModel(item.id);
     this.group.add(this.model);
     const material = new THREE.MeshBasicMaterial({ color: 0xffd166, side: THREE.DoubleSide, transparent: true, opacity: .8, depthWrite: false });
-    this.marker = new THREE.Mesh(new THREE.RingGeometry(.36, .4, 24), material);
+    this.marker = new THREE.Mesh(handDrawnRing(.36, .4, markSeed(position.x, position.z)), material);
     this.marker.rotation.x = -Math.PI / 2;
     this.marker.position.y = .015;
     this.group.add(this.marker);

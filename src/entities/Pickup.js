@@ -1,5 +1,6 @@
 // src/entities/Pickup.js
 import * as THREE from 'three';
+import { handDrawnRing, markSeed } from '../world/groundMarks.js';
 import { ITEMS, LOOT_COMMON, LOOT_RARE } from '../data/items.js';
 import { PICKUP_COOLDOWN, COLORS, SORT_BASE_TIME } from '../utils/constants.js';
 import { createImportedModel, disposeImportedInstance } from '../utils/ImportedModels.js';
@@ -35,7 +36,7 @@ export class Pickup {
     this.group.add(this.mesh);
 
     // Marcador flotante (anillo). Una sola pasada: con dos, Three pide programa en cada dibujo.
-    const markerGeo = new THREE.RingGeometry(0.5, 0.6, 12);
+    const markerGeo = handDrawnRing(0.5, 0.6, markSeed(position.x, position.z));
     const markerMat = new THREE.MeshBasicMaterial({
       color: COLORS.ACCENT_AMBER,
       side: THREE.DoubleSide,
@@ -210,10 +211,6 @@ export class Pickup {
         this.marker.visible = true;
         this.aura.visible = true;
       }
-    }
-
-    if (this.marker.visible) {
-      this.marker.rotation.z += dt * 0.8;
     }
 
     if (this.aura.visible) {
