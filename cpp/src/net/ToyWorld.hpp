@@ -22,7 +22,7 @@ struct ToyPlayerState {
 
 class ToyServer {
 public:
-    ToyServer(Host& host, uint32_t worldSeed, uint8_t maxPlayers = 8) : m_Host(host), m_Seed(worldSeed), m_MaxPlayers(maxPlayers) {}
+    ToyServer(Host& host, uint32_t worldSeed, uint8_t maxPlayers = 100) : m_Host(host), m_Seed(worldSeed), m_MaxPlayers(maxPlayers) {}
     // Atiende la red y avanza el mundo `dt` segundos; envia instantaneas segun `kSnapshotRate`
     void Update(double dtSeconds);
     const std::map<uint32_t, ToyPlayerState>& Players() const { return m_Players; }   // por identificador de conexion
@@ -32,11 +32,13 @@ public:
     static constexpr int kTickRate = 30;
     static constexpr int kSnapshotRate = 20;
     static constexpr float kWalkSpeed = 1.8f, kRunSpeed = 4.8f;
+    // Interes por distancia: cerca se envia en cada instantanea (20 Hz), a media distancia cada 2 (10 Hz) y lejos cada 4 (5 Hz); mas alla del radio, nada
+    static constexpr float kNearRadius = 35.0f, kMidRadius = 90.0f, kFarRadius = 160.0f;
 
 private:
     void Handle(const NetEvent& event);
     void Step(double dt);
-    Snapshot BuildSnapshot(const ToyPlayerState& viewer, float radius) const;
+    Snapshot BuildSnapshot(const ToyPlayerState& viewer) const;
 
     Host& m_Host;
     uint32_t m_Seed;
@@ -46,7 +48,8 @@ private:
     uint32_t m_Tick = 0;
     double m_SnapshotAccumulator = 0.0;
     uint64_t m_Rejected = 0;
-    uint8_t m_NextId = 1;
+    uint32_t m_SnapshotIndex = 0;   // numero de instantanea enviada: reparte la frecuencia por distancia
+    uint8_t NextFreeId() const;
 };
 
 class ToyClient {
@@ -61,6 +64,8 @@ public:
     bool Rejected() const { return m_RejectedReason != 0; }
     uint8_t Id() const { return m_Welcome.playerId; }
     const Snapshot& LastSnapshot() const { return m_Last; }
+    // Todos los jugadores que el cliente conoce (los lejanos se refrescan menos): se olvidan tras 2 s sin noticias
+    const std::map<uint8_t, PlayerSnapshot>& KnownPlayers() const { return m_Known; }
     uint64_t SnapshotsReceived() const { return m_SnapshotCount; }
     uint32_t AckedInput() const { return m_Last.ackInput; }
     uint32_t NextSequence() { return ++m_Sequence; }
@@ -74,6 +79,8 @@ private:
     bool m_Welcomed = false, m_Dropped = false;
     uint8_t m_RejectedReason = 0;
     Snapshot m_Last;
+    std::map<uint8_t, PlayerSnapshot> m_Known;
+    std::map<uint8_t, uint32_t> m_KnownTick;
     uint64_t m_SnapshotCount = 0;
     uint32_t m_Sequence = 0;
     uint32_t m_Server = 0;

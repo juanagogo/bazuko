@@ -17,7 +17,8 @@ namespace Bazuko::Net {
 inline constexpr uint16_t kProtocolVersion = 1;
 inline constexpr int kChannelReliable = 0;
 inline constexpr int kChannelUnreliable = 1;
-inline constexpr size_t kMaxPlayers = 16;
+inline constexpr size_t kMaxPlayers = 100;      // por mundo (cifra de pruebas); los ids van en 7 bits (1..127)
+inline constexpr size_t kMaxSnapshotEntries = 48;  // jugadores por instantanea: los 48 mas cercanos (cabe en un paquete de ~600 B)
 inline constexpr size_t kMaxNameLength = 24;
 inline constexpr size_t kMaxLookBytes = 200;   // apariencia del creador de personaje, opaca para la red
 inline constexpr size_t kMaxChatLength = 120;
@@ -93,11 +94,11 @@ inline void Write(BitWriter& w, const PlayerInput& m) {
 }
 inline void Write(BitWriter& w, const Snapshot& m) {
     w.U8(static_cast<uint32_t>(MessageType::Snapshot)); w.U32(m.serverTick); w.U32(m.ackInput);
-    const size_t count = std::min(m.players.size(), kMaxPlayers);
-    w.Bits(static_cast<uint32_t>(count), 5);
+    const size_t count = std::min(m.players.size(), kMaxSnapshotEntries);
+    w.Bits(static_cast<uint32_t>(count), 7);
     for (size_t i = 0; i < count; ++i) {
         const PlayerSnapshot& p = m.players[i];
-        w.Bits(p.id & 0x1Fu, 5);
+        w.Bits(p.id & 0x7Fu, 7);
         w.Quantized(p.x, kWorldMinX, kWorldMaxX, 16); w.Quantized(p.y, kWorldMinY, kWorldMaxY, 16); w.Quantized(p.z, kWorldMinZ, kWorldMaxZ, 16);
         const float tau = 6.2831853f;
         w.Quantized(p.yaw - tau * std::floor(p.yaw / tau), 0.0f, tau, 10);
@@ -141,10 +142,10 @@ inline std::optional<PlayerInput> ReadInput(BitReader& r) {
 }
 inline std::optional<Snapshot> ReadSnapshot(BitReader& r) {
     Snapshot m; m.serverTick = r.U32(); m.ackInput = r.U32();
-    const uint32_t count = r.Bits(5);
-    if (count > kMaxPlayers) return std::nullopt;
+    const uint32_t count = r.Bits(7);
+    if (count > kMaxSnapshotEntries) return std::nullopt;
     for (uint32_t i = 0; i < count; ++i) {
-        PlayerSnapshot p; p.id = static_cast<uint8_t>(r.Bits(5));
+        PlayerSnapshot p; p.id = static_cast<uint8_t>(r.Bits(7));
         p.x = r.Quantized(kWorldMinX, kWorldMaxX, 16); p.y = r.Quantized(kWorldMinY, kWorldMaxY, 16); p.z = r.Quantized(kWorldMinZ, kWorldMaxZ, 16);
         p.yaw = r.Quantized(0.0f, 6.2831853f, 10); p.speed = r.Quantized(0.0f, kMaxSpeed, 8); p.animation = static_cast<uint8_t>(r.U8()); p.flags = static_cast<uint8_t>(r.U8());
         m.players.push_back(p);

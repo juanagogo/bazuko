@@ -99,6 +99,23 @@ int main() {
         Check(w.Size() <= 8 * 12 + 16, "Snapshot de 8 jugadores cabe en ~110 bytes");
     }
 
+    // Identificadores hasta 127 y tope de 48 jugadores por instantanea
+    {
+        BitWriter w;
+        Snapshot big;
+        for (uint32_t i = 0; i < 100; ++i) { PlayerSnapshot p; p.id = static_cast<uint8_t>(i + 1); p.x = 5.0f * i; big.players.push_back(p); }
+        Write(w, big);
+        BitReader r(w.Data()); ReadType(r);
+        const auto back = ReadSnapshot(r);
+        Check(back && back->players.size() == kMaxSnapshotEntries, "una instantanea lleva como mucho 48 jugadores");
+        Check(back && back->players.back().id == kMaxSnapshotEntries, "los identificadores de 7 bits se conservan");
+        BitWriter w2; PlayerSnapshot high; high.id = 127; Snapshot one; one.players.push_back(high); Write(w2, one);
+        BitReader r2(w2.Data()); ReadType(r2);
+        Check(ReadSnapshot(r2)->players[0].id == 127, "el identificador 127 cabe");
+        std::printf("Snapshot de %zu jugadores: %zu bytes\n", kMaxSnapshotEntries, w.Size());
+        Check(w.Size() <= 600, "una instantanea llena cabe en un paquete de 600 bytes");
+    }
+
     // Robustez: truncar o corromper nunca debe romper la lectura
     {
         BitWriter w;

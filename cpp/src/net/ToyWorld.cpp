@@ -18,9 +18,10 @@ void ToyServer::Update(double dtSeconds) {
     const double interval = 1.0 / kSnapshotRate;
     if (m_SnapshotAccumulator >= interval) {
         m_SnapshotAccumulator = std::fmod(m_SnapshotAccumulator, interval);
+        ++m_SnapshotIndex;
         for (const auto& [peer, player] : m_Players) {
             BitWriter writer;
-            Write(writer, BuildSnapshot(player, 140.0f));
+            Write(writer, BuildSnapshot(player));
             m_Host.Send(peer, kChannelUnreliable, writer.Data(), false);
         }
     }
@@ -43,7 +44,8 @@ void ToyServer::Handle(const NetEvent& event) {
         else if (m_Players.size() >= m_MaxPlayers) { Write(answer, Reject{RejectReason::ServerFull}); }
         else {
             ToyPlayerState state;
-            state.id = m_NextId++;
+            state.id = NextFreeId();
+            if (state.id == 0) { Write(answer, Reject{RejectReason::ServerFull}); m_Host.Send(event.peer, kChannelReliable, answer.Data(), true); m_Host.Disconnect(event.peer); return; }
             state.name = hello->name;
             state.x += static_cast<float>(state.id) * 1.5f;   // no aparecen unos sobre otros
             m_Players[event.peer] = state;
@@ -89,15 +91,37 @@ void ToyServer::Step(double dt) {
     }
 }
 
-Snapshot ToyServer::BuildSnapshot(const ToyPlayerState& viewer, float radius) const {
+uint8_t ToyServer::NextFreeId() const {
+    for (uint32_t id = 1; id <= 127; ++id) {
+        bool used = false;
+        for (const auto& [peer, player] : m_Players) used = used || player.id == id;
+        if (!used) return static_cast<uint8_t>(id);
+    }
+    return 0;
+}
+
+Snapshot ToyServer::BuildSnapshot(const ToyPlayerState& viewer) const {
     Snapshot snapshot;
     snapshot.serverTick = m_Tick;
     snapshot.ackInput = viewer.lastInput;
+    struct Candidate { float distance; const ToyPlayerState* player; };
+    std::vector<Candidate> candidates;
     for (const auto& [peer, other] : m_Players) {
-        if (other.id != viewer.id && std::hypot(other.x - viewer.x, other.z - viewer.z) > radius) continue;   // radio de interes
-        PlayerSnapshot entry; entry.id = other.id; entry.x = other.x; entry.y = 0.0f; entry.z = other.z; entry.yaw = other.yaw; entry.speed = other.speed;
-        snapshot.players.push_back(entry);
+        if (other.id == viewer.id) continue;
+        const float distance = std::hypot(other.x - viewer.x, other.z - viewer.z);
+        if (distance > kFarRadius) continue;
+        // frecuencia por distancia: cerca siempre, media distancia cada 2 instantaneas, lejos cada 4
+        const bool due = distance <= kNearRadius || (distance <= kMidRadius ? (m_SnapshotIndex % 2 == 0) : (m_SnapshotIndex % 4 == 0));
+        if (due) candidates.push_back({distance, &other});
     }
+    std::sort(candidates.begin(), candidates.end(), [](const Candidate& a, const Candidate& b) { return a.distance < b.distance; });
+    if (candidates.size() > kMaxSnapshotEntries - 1) candidates.resize(kMaxSnapshotEntries - 1);   // los mas cercanos primero
+    const auto entryOf = [](const ToyPlayerState& p) {
+        PlayerSnapshot entry; entry.id = p.id; entry.x = p.x; entry.y = 0.0f; entry.z = p.z; entry.yaw = p.yaw; entry.speed = p.speed;
+        return entry;
+    };
+    snapshot.players.push_back(entryOf(viewer));   // el propio jugador siempre va (confirma su posicion)
+    for (const Candidate& c : candidates) snapshot.players.push_back(entryOf(*c.player));
     return snapshot;
 }
 
@@ -130,7 +154,13 @@ void ToyClient::Update() {
             else if (*type == MessageType::Reject) { if (const auto reject = ReadReject(reader)) m_RejectedReason = static_cast<uint8_t>(reject->reason); }
             else if (*type == MessageType::Snapshot) {
                 if (const auto snapshot = ReadSnapshot(reader)) {
-                    if (snapshot->serverTick >= m_Last.serverTick) m_Last = *snapshot;   // un snapshot viejo que llega tarde se ignora
+                    if (snapshot->serverTick >= m_Last.serverTick) {   // un snapshot viejo que llega tarde se ignora
+                        m_Last = *snapshot;
+                        for (const PlayerSnapshot& entry : snapshot->players) { m_Known[entry.id] = entry; m_KnownTick[entry.id] = snapshot->serverTick; }
+                        for (auto it = m_KnownTick.begin(); it != m_KnownTick.end();) {   // 2 s a 30 Hz sin noticias: ya no esta cerca
+                            if (snapshot->serverTick > it->second + 60) { m_Known.erase(it->first); it = m_KnownTick.erase(it); } else ++it;
+                        }
+                    }
                     ++m_SnapshotCount;
                 }
             }

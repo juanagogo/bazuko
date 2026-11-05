@@ -75,7 +75,7 @@ int main() {
         Check(world.clients[0]->Id() != world.clients[1]->Id() && world.clients[1]->Id() != world.clients[2]->Id(), "identificadores distintos");
         for (auto& c : world.clients) {
             Check(c->SnapshotsReceived() >= 40, "cada cliente recibe unas 20 instantaneas por segundo");
-            Check(c->LastSnapshot().players.size() == 3, "cada instantanea trae a los tres jugadores");
+            Check(c->KnownPlayers().size() == 3, "cada cliente conoce a los tres jugadores");
             Check(c->AckedInput() > 30, "el servidor confirma los input aplicados");
         }
         std::printf("A) limpia: %llu instantaneas por cliente en 3 s, ack del ultimo input %u, RTT %u ms\n",

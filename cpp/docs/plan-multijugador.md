@@ -8,18 +8,74 @@ Estado de partida (revisado en el código, no supuesto):
 - Los menús (costal, tienda, mapa, pausa, dormir) **detienen la simulación**. En red eso no puede ser así.
 - El guardado es un `savegame.json` local.
 
+## Decisiones tomadas (5 de noviembre de 2026)
+
+| Tema | Decisión | Consecuencia principal |
+|---|---|---|
+| Servidor | **Anfitrión rotativo**: un jugador aloja el mundo y, si se va, otro lo releva | El estado del mundo debe poder **transferirse**; hace falta encontrar al anfitrión (salas) y llegar a él a través de NAT |
+| PvP | **Activo** | El servidor valida cada golpe con compensación de latencia; reglas contra el acoso |
+| Dormir | **No disponible en multijugador** | El reloj del mundo es continuo; la energía se recupera descansando (sin saltar el tiempo) |
+| Jugadores por mundo | **100 (cifra de pruebas)** | Radio de interés, frecuencia por distancia y tope por paquete; el ancho de banda del anfitrión es el límite |
+| Plataformas | **Windows, Linux (nativo y con Proton/Wine) y macOS** | macOS está **bloqueado por OpenGL 4.5** (ver más abajo) |
+
+### Anfitrión rotativo: qué exige
+
+Interpretación: el anfitrión puede **cambiar sin cortar la partida** (cuando se desconecta, y opcionalmente por cesión voluntaria o por bajo rendimiento). Para eso:
+
+1. **Estado transferible.** El anfitrión envía a un *sucesor* un *checkpoint* completo cada pocos segundos: reloj, clima, jugadores conectados, posiciones del mundo (medido: ~512 B para tráfico y peatones) y objetos persistentes. La IA interna (rutas, carriles) no se serializa: el nuevo anfitrión la **reconstruye proyectando cada vehículo y peatón a su ruta más cercana**. Hay un instante de relevo (~1–3 s) que se disimula con la misma pantalla de «reconectando».
+2. **Elección del sucesor** por puntaje: latencia media con el resto, ancho de subida medido, FPS/CPU y tipo de NAT; se recalcula a lo largo de la sesión y se anuncia a todos.
+3. **El perfil vive en cada jugador**, no en el anfitrión: inventario, dinero y cambuche se guardan en su equipo (`ProfileStore`) y el anfitrión solo los valida (`Sanitize`). Así un relevo no pierde nada.
+4. **Conectividad.** ENet no atraviesa NAT. Hay que añadir ICE/STUN y un relay de respaldo detrás de la interfaz `Host` (ya aísla el transporte). Candidatos: **libdatachannel** (WebRTC: ICE, cifrado DTLS, mensajes fiables y no fiables, portable a las tres plataformas) o GameNetworkingSockets. ENet se conserva para LAN y pruebas.
+5. **Un servicio mínimo de salas** (código de sala, señalización y relay). «Sin servidor propio» no es del todo posible: alguien tiene que ayudar a que los jugadores se encuentren y, si el NAT no deja, a retransmitir. Es un servicio pequeño (un VPS barato).
+6. **Confianza.** El anfitrión es la autoridad y **puede hacer trampa**. Es aceptable para amigos y pruebas; no hay garantías competitivas. El relay oculta las IP entre jugadores.
+
+### PvP: reglas propuestas (a validar)
+
+- Golpes validados por el servidor con **rebobinado de posiciones hasta 200 ms** (compensación de latencia) y las mismas comprobaciones de distancia, orientación y obstáculos de `MeleeCombat`.
+- **Protección al reaparecer** (3 s de invulnerabilidad) y sin pelea dentro de la estación ni a menos de 15 m del cambuche propio (propuesta de zona segura).
+- Sin marcadores de bajas, sin logros: coherente con el tono del juego. El anfitrión puede **silenciar y expulsar**.
+- Qué pierde quien muere ya existe (`perdidoAlMorir`); robar a otros jugadores sería una opción del anfitrión, apagada por defecto.
+
+### Dormir apagado: cambios
+
+- Se desactivan `sleep-start`, la cama y la rama de pausa de `Game._loop` en modo en línea; `Player.updateSleepPose` no se usa.
+- La **energía** se recupera *descansando* (sentado o echado junto al cambuche o en un banco), más lenta que dormir y sin saltar el reloj. Hay que diseñar el ritmo para que no sea un castigo.
+- En el modo historia (un jugador) dormir sigue existiendo.
+
+### 100 jugadores: lo medido
+
+`bazuko_net_bots --servidor` con 100 bots **todos juntos** (el peor caso):
+
+| Medida | Resultado |
+|---|---|
+| CPU del servidor de juguete | **~6 % de un núcleo** (Update medio 2 ms, peor 4,6 ms) |
+| Salida del anfitrión | **~930 KB/s ≈ 7,4 Mbit/s** (~9,3 KB/s por jugador) |
+| Instantánea llena (48 jugadores) | 544 bytes (cabe en un paquete) |
+
+La CPU de la red no es el problema; **la subida del anfitrión sí**: 7,4 Mbit/s es demasiado para muchas conexiones domésticas. Plan de reducción a < 3 Mbit/s (hito D): posiciones relativas al receptor (~7 B por jugador en lugar de 11), 15 Hz para lo cercano, omitir a los quietos (delta), y límite de jugadores recomendado según la subida medida del anfitrión. El coste real del anfitrión será la simulación y el dibujo de su propio cliente: opción de **anfitrión sin ventana** para sesiones grandes.
+
+### Plataformas
+
+- **Windows**: nativo (es lo que se compila y prueba hoy).
+- **Linux**: compilación nativa con GCC/Clang (el `CMakeLists.txt` ya lo contempla) y ejecución del `.exe` con **Proton/Wine**. Ambas exponen el OpenGL 4.5 del controlador, así que el renderer debería funcionar; la red (`ws2_32` en Wine) también. **No se ha probado todavía**: es el hito E.
+- **macOS: bloqueo técnico.** El renderer usa **OpenGL 4.5 core**: ~96 llamadas de acceso directo al estado, *shader storage buffers* para las luces por clúster y shaders `#version 450`. macOS solo ofrece **OpenGL 4.1** (obsoleto) y no soporta compute ni SSBO en OpenGL. Wine y Game Porting Toolkit traducen DirectX, no OpenGL 4.5, así que tampoco ayudan. Para tener cliente de Mac hay que elegir:
+  - **A.** Bajar el renderer a OpenGL 4.1 (sin acceso directo al estado ni SSBO; luces por clúster en texturas/UBO): ~4–8 semanas y probable pérdida de rendimiento.
+  - **B.** Backend Vulkan con MoltenVK: más trabajo, pero es el camino a largo plazo.
+  - **C.** En Mac, solo servidor/anfitrión **sin ventana** (la simulación sin GL es portable una vez hecho el hito 1) y cliente por otra vía.
+  Mi recomendación: decidirlo después del hito 3; hasta entonces, mantener todo el código de red y simulación **libre de OpenGL** (ya lo está).
+
 ## Decisiones de arquitectura
 
 | Tema | Decisión | Por qué |
 |---|---|---|
-| Modelo | **Servidor autoritativo** (mismo ejecutable con `--servidor`, sin ventana ni GPU) | Evita trampas, un solo mundo, funciona en un VPS |
+| Modelo | **Anfitrión autoritativo rotativo** (un jugador; el mismo ejecutable también puede correr sin ventana) | Un solo mundo, sin servidor dedicado; relevo del anfitrión |
 | Qué es compartido | Tráfico, peatones, fauna, policía, semáforos, reloj, clima, el Chato de cada jugador | Es lo que hace que «sea el mismo mundo» |
 | Qué es por jugador | Inventario, dinero, necesidades, cambuche, `steal.buscado`, apariencia | Progresión propia, sin dependencias entre cuentas |
 | Transporte | **UDP fiable** con ENet o GameNetworkingSockets (decidir en el hito 1) | No escribir sockets a mano |
 | Tasa | Simulación del servidor a 30 Hz; instantáneas a 15–20 Hz; input del cliente a 30 Hz | Equilibrio de ancho de banda y respuesta |
 | Cliente | Predicción y reconciliación del jugador local; **interpolación ~100 ms** del resto | Es lo que se siente fluido |
 | Datos | Instantáneas con **delta y radio de interés** (~120 m) | ~80 peatones + tráfico no caben enteros a 20 Hz |
-| Persistencia | Servidor guarda por identificador de jugador (JSON o SQLite) | Sustituye al `savegame.json` local |
+| Persistencia | **Cada jugador guarda su perfil** (`ProfileStore`); el anfitrión lo valida con `Sanitize` | Un relevo de anfitrión no pierde nada |
 
 Fuera de alcance de la primera versión: voz, matchmaking público, anticheat, cuentas con contraseña, más de 8 jugadores por servidor.
 
@@ -84,7 +140,7 @@ Cada hito termina con algo ejecutable y una comprobación concreta. No se empiez
 
 ### Hito 6 — Menús sin pausa, dormir y muerte (1–2 semanas)
 1. Quitar la pausa de simulación al abrir costal, tienda, mapa o pausa en modo en línea; el jugador queda **vulnerable** y la UI lo indica.
-2. Dormir: se pasa el tiempo solo si todos los jugadores cercanos duermen, o se limita a una siesta que no avance el reloj global (decisión de diseño pendiente).
+2. Dormir: **no existe en línea** (decisión). Se desactivan la cama y la rama de pausa; la energía se recupera descansando.
 3. Muerte y recuperación: el servidor conserva la causa, el sitio y la pantalla de cartón; la recuperación sigue siendo explícita.
 4. Cierre limpio de sesión: soltar vehículos, avisar y guardar.
 - **Listo cuando:** abrir el costal no congela el mundo para nadie y morir/recuperarse funciona sin dejar al jugador teletransportado.
@@ -103,6 +159,26 @@ Cada hito termina con algo ejecutable y una comprobación concreta. No se empiez
 - Documentación: cómo alojar, cómo conectarse, requisitos de red y puertos.
 - **Listo cuando:** 8 jugadores durante 30 minutos sin caídas ni derivas visibles, CPU del servidor < 50 % de un núcleo.
 
+### Hito A — Anfitrión rotativo (4–6 semanas)
+1. Checkpoint completo del mundo hacia un sucesor, con reconstrucción de la IA por proyección a las rutas.
+2. Puntaje de sucesor (latencia, subida, FPS, NAT) y anuncio a todos.
+3. Relevo: el sucesor asume, los clientes se reconectan solos y conservan su perfil.
+- **Listo cuando:** con 6 bots, cerrar el anfitrión a mitad de partida deja a todos de vuelta en < 5 s, con el mismo reloj y sin perder inventario.
+
+### Hito B — Conectividad: NAT y salas (3–4 semanas)
+1. Transporte nuevo detrás de `Host`: ICE/STUN con relay de respaldo y cifrado (libdatachannel o GameNetworkingSockets); ENet queda para LAN.
+2. Servicio de salas (código de sala, señalización, relay) y pantalla de conexión.
+- **Listo cuando:** dos equipos en redes domésticas distintas juegan sin abrir puertos.
+
+### Hito C — PvP autoritativo (2–3 semanas)
+Validación con rebobinado de 200 ms, protección al reaparecer, zonas seguras, silenciar y expulsar. Pruebas con 200 ms de latencia y bots.
+
+### Hito D — Red para 100 jugadores (1–2 semanas)
+Posiciones relativas al receptor, delta, frecuencia adaptativa a la subida del anfitrión. Meta: < 3 Mbit/s con 100 jugadores juntos.
+
+### Hito E — Portabilidad (Linux 1 semana; macOS según la decisión)
+Compilar y probar el juego y la red en Linux (nativo y Proton/Wine). macOS: ver «Plataformas».
+
 ## Estimación global
 
 | Hito | Esfuerzo | Acumulado |
@@ -117,7 +193,7 @@ Cada hito termina con algo ejecutable y una comprobación concreta. No se empiez
 | 7 Persistencia | 1–2 sem | ~18 sem |
 | 8 Robustez | ~2 sem | ~20 sem |
 
-Primer punto jugable en grupo: **hito 3** (~9 semanas). Lo más arriesgado es el hito 1.
+Con las decisiones del 5 de noviembre se suman los hitos A–E (**~11–16 semanas** más, sin contar macOS): el total sube a **unos 8 meses** con una persona. Primer punto jugable en grupo: **hito 3** (~9 semanas). Lo más arriesgado siguen siendo el hito 1 y la conectividad (B).
 
 ## Riesgos principales
 
@@ -128,14 +204,14 @@ Primer punto jugable en grupo: **hito 3** (~9 semanas). Lo más arriesgado es el
 5. **Determinismo**: no se exige entre máquinas (el servidor manda), así que no hace falta aritmética determinista; sí una semilla explícita para reproducir errores.
 6. **Licencias**: un servidor público distribuye modelos; mantener los restringidos fuera (ya excluidos).
 
-## Decisiones que necesito de ti antes de empezar
+## Decisiones pendientes
 
-1. ¿Servidor dedicado (alguien lo aloja) o «anfitrión» (un jugador es el servidor)? El plan sirve para ambos; la diferencia es cómo se empaqueta.
-2. ¿PvP activo por defecto, opcional por servidor o desactivado?
-3. ¿Dormir avanza el reloj del mundo para todos?
-4. ¿Cuántos jugadores como objetivo (4, 8, 16)?
-5. ¿Plataformas del servidor (Windows, Linux, ambas)?
+1. **macOS**: ¿opción A (renderer a OpenGL 4.1), B (Vulkan/MoltenVK) o C (solo anfitrión sin ventana)? Puede esperar al hito 3.
+2. **Servicio de salas**: ¿lo alojas tú (un VPS pequeño) o se busca un servicio de relay gratuito?
+3. **PvP**: ¿te sirven las reglas propuestas (protección de 3 s, zona segura en la estación y junto al cambuche, sin robo entre jugadores por defecto)?
+4. **Relevo**: ¿solo cuando el anfitrión se va, o también cesión voluntaria / por bajo rendimiento?
+5. **Energía sin dormir**: ¿descansar sentado o echado (más lento) te parece bien como sustituto?
 
 ## Primer paso propuesto
 
-Empezar por el **hito 0 y el inicio del hito 1** (prueba de hash + `PlayerView` en aves y ratas), que es reversible, no cambia el juego y revela rápido cuánto cuesta el resto.
+Empezar el **hito 1** por aves y ratas (con `PlayerView`/`NearestPlayer`, comprobando el hash tras cada paso). Es lo que desbloquea todo lo demás, incluido el relevo de anfitrión (hito A), que necesita el estado del mundo separado del dibujo.
