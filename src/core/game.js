@@ -766,6 +766,10 @@ export class Game {
       if (data.cart && this.cart) {
         this.cart.loadState(data.cart, this.player, this.inventory);
       }
+      if (data.carroRobado) {
+        this.carjack?.restore(data.carroRobado, { CarClass: Car,
+          migrate: (pos) => this.world.active?.migrateSavedPosition?.(pos, data.worldLayoutVersion) });
+      }
       if (data.gps && this.gps) this.setGpsWaypoint({ ...data.gps, name: RENAMED_PLACES[data.gps.name] ?? data.gps.name }, { silent: true });
 
     }
@@ -795,7 +799,8 @@ export class Game {
       radio: this.radio ? { isOn: this.radio.isOn, freq: this.radio.frequency, battery: this.radio.battery } : null,
       dog: { isFriend: !!this.dog?.isFriend, look: this.dog?.look ?? null },
       cart: this.cart ? this.cart.saveState() : null,
-      gps: this.gps?.serialize() ?? null
+      gps: this.gps?.serialize() ?? null,
+      carroRobado: this.carjack?.serialize() ?? null
     };
   }
 

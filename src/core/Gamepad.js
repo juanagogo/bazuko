@@ -27,13 +27,13 @@ export const BUTTON_KEYS = {
 };
 const RUN_BUTTONS = [7, 10]; // RT o L3: correr
 const ACORDE = 4; // LB: tocado solo cambia la cámara, al soltarlo; sostenido da lo que no cabe en el mando
-/** Con LB sostenido: las casillas en la cruceta y en A, Fabricar en Y y Mañas en X. */
-export const CON_LB = { 12: 'Digit1', 15: 'Digit2', 13: 'Digit3', 14: 'Digit4', 0: 'Digit5', 3: 'KeyC', 2: 'KeyT' };
+/** Con LB sostenido: las casillas en la cruceta y en A, Fabricar en Y, Mañas en X y robar un carro en B. */
+export const CON_LB = { 12: 'Digit1', 15: 'Digit2', 13: 'Digit3', 14: 'Digit4', 0: 'Digit5', 3: 'KeyC', 2: 'KeyT', 1: 'KeyY' };
 
 /** La pestaña Controles de la pausa, para quien juega con mando. */
 export const CONTROLES_CON_MANDO = [
   ['Moverse', [['Stick izquierdo', 'Caminar'], ['RT', 'Correr'], ['LT', 'Brincar'], ['Stick derecho', 'Mirar'], ['LB', 'Cambiar la cámara, al soltarlo']]],
-  ['Hacer', [['A', 'Lo que dice la cinta'], ['X', 'Robo directo. Sostenido: seleccionar basura'], ['RB', 'Pegar'], ['Arriba', 'Radio'], ['Abajo', 'Lanzar'], ['Izquierda', 'Pedir'], ['Derecha', 'Envión']]],
+  ['Hacer', [['A', 'Lo que dice la cinta'], ['X', 'Robo directo. Sostenido: seleccionar basura'], ['RB', 'Pegar'], ['Arriba', 'Radio'], ['Abajo', 'Lanzar'], ['Izquierda', 'Pedir'], ['Derecha', 'Envión'], ['LB+B', 'Robar un carro o bajarme']]],
   ['Paneles', [['Y', 'El costal'], ['LB+Y', 'Fabricar'], ['LB+X', 'Mañas'], ['LB+cruceta', 'Casillas 1 a 4: arriba, derecha, abajo, izquierda'], ['LB+A', 'Casilla 5'], ['View', 'El mapa'], ['R3', 'El radar'], ['Menú', 'Pausa'], ['B', 'Cerrar o volver']]],
 ];
 const DIRECTIONS = { 12: 'up', 13: 'down', 14: 'left', 15: 'right' };
