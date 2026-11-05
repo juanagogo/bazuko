@@ -2431,6 +2431,9 @@ void Simulation::Update(float dt, const glm::vec3& playerPosition) {
     Net::PlayerView view;
     view.id = 1;
     view.position = {playerPosition.x, playerPosition.y, playerPosition.z};
+    view.hygiene = m_PlayerHygiene;   // el juego de un jugador la informa con SetPlayerHygiene / SetPlayerFacing
+    view.facingX = m_PlayerFacing.x;
+    view.facingZ = m_PlayerFacing.y;
     m_PlayerViews.assign(1, view);
     UpdateWorld(dt, playerPosition);
 }
@@ -2963,6 +2966,7 @@ void Simulation::UpdatePoop(float dt) {
 }
 
 void Simulation::UpdatePickups(float dt, const glm::vec3& playerPosition) {
+    (void)playerPosition;   // las bolsas miran a todos los jugadores (m_PlayerViews)
     // Reactivar contenedores vacíos después del enfriamiento
     for (auto& pickup : m_Pickups) {
         if (!pickup.container || pickup.available) continue;
@@ -2973,9 +2977,10 @@ void Simulation::UpdatePickups(float dt, const glm::vec3& playerPosition) {
     // Contar solo bolsas dinámicas (los contenedores fijos no cuentan)
     const size_t dynamicBags = std::count_if(m_Pickups.begin(), m_Pickups.end(),
         [](const PickupItem& p) { return !p.container; });
-    if (dynamicBags >= 35 || m_PickupSpawnTimer > 0.0f || m_ValidTrashSpots.empty()) return;
+    // 35 bolsas con un jugador; cada jugador extra suma 8 (hasta 300)
+    const size_t bagLimit = std::min<size_t>(35 + (m_PlayerViews.size() > 1 ? m_PlayerViews.size() - 1 : 0) * 8, 300);
+    if (dynamicBags >= bagLimit || m_PickupSpawnTimer > 0.0f || m_ValidTrashSpots.empty()) return;
 
-    const glm::vec2 playerXZ(playerPosition.x, playerPosition.z);
     const size_t spotCount = m_ValidTrashSpots.size();
     // Limitar iteraciones por frame para no bloquear el hilo principal
     const size_t maxTries = std::min(spotCount, size_t(400));
@@ -2984,17 +2989,21 @@ void Simulation::UpdatePickups(float dt, const glm::vec3& playerPosition) {
         const glm::vec3& spot = m_ValidTrashSpots[m_TrashSpotCursor % spotCount];
         ++m_TrashSpotCursor;
         ++tried;
-        const glm::vec2 toSpot(spot.x - playerXZ.x, spot.z - playerXZ.y);
-        const float dist = glm::length(toSpot);
-        // No aparece a menos de 12 m del jugador
-        if (dist < 12.0f) continue;
-        // No aparece justo delante del jugador si está muy cerca (8–25 m)
-        if (dist < 25.0f) {
-            const float dot = (dist > 0.01f)
-                ? glm::dot(glm::normalize(toSpot), m_PlayerFacing)
-                : 0.0f;
-            if (dot > 0.65f) continue; // dentro del FOV frontal estrecho
+        // Ninguna bolsa aparece a la vista de NINGUN jugador: a menos de 12 m, ni justo delante de alguien (8–25 m, FOV frontal estrecho)
+        bool seen = false;
+        for (size_t i = 0; i < m_PlayerViews.size() && !seen; ++i) {
+            const Net::PlayerView& player = m_PlayerViews[i];
+            if (!player.alive) continue;
+            const glm::vec2 toSpot(spot.x - player.position.x, spot.z - player.position.z);
+            const float dist = glm::length(toSpot);
+            if (dist < 12.0f) { seen = true; break; }
+            if (dist < 25.0f) {
+                const glm::vec2 facing(player.facingX, player.facingZ);
+                const float dot = (dist > 0.01f) ? glm::dot(glm::normalize(toSpot), facing) : 0.0f;
+                if (dot > 0.65f) seen = true;
+            }
         }
+        if (seen) continue;
         // No solapar con otra bolsa existente
         const bool overlapping = std::any_of(m_Pickups.begin(), m_Pickups.end(),
             [&](const PickupItem& p) { return !p.container && glm::distance(p.position, spot) < 2.5f; });
@@ -3998,8 +4007,7 @@ void Simulation::UpdatePedestrians(float dt, const glm::vec3& playerPosition) {
             // al pasar cerca del jugador saluda (una de cada dos veces); si esta sucio, se queja del olor
             pedestrian.bubbleCooldown = 14.0f;
             if (m_Unit(m_Random) < 0.5f) {
-                const bool isFirstPlayer = closestPlayer->id == m_PlayerViews.front().id;   // la higiene solo se conoce del primer jugador (por ahora)
-                pedestrian.bubbleText = isFirstPlayer && m_PlayerHygiene < 30.0f ? kDirtyPhrases[static_cast<size_t>(m_Unit(m_Random) * 3.99f)]
+                pedestrian.bubbleText = closestPlayer->hygiene < 30.0f ? kDirtyPhrases[static_cast<size_t>(m_Unit(m_Random) * 3.99f)]
                                                                 : kGreetings[static_cast<size_t>(m_Unit(m_Random) * 7.99f)];
                 pedestrian.bubbleRemaining = 3.5f;
             }

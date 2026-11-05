@@ -9,9 +9,9 @@ Inventario para el hito 1 del [plan multijugador](plan-multijugador.md). Medido 
 | `Update(dt, playerPosition)` (SH:363) | Reparte la posición a todos los subsistemas | Recibe `std::span<const PlayerView>` (ver `net/PlayerView.hpp`) |
 | `UpdatePedestrians` (SH:569) | Peatones se asustan, huyen y se acercan al jugador | **Hecho**: aparecen alrededor de cada jugador, reaccionan al más cercano y se retiran solo si están lejos de todos |
 | `UpdateDrivers` (SH:570) | Conductores bravos, vigilan al jugador | El conductor bravo es de quien robó el espejo |
-| `UpdatePickups` (SH:580) | Recoge objetos cerca del jugador | Cada jugador recoge los suyos; el servidor decide quién llega primero |
+| `UpdatePickups` (SH:580) | Hace aparecer bolsas lejos del jugador | **Hecho**: fuera de la vista de todos; quién recoge cada bolsa lo decide el servidor (hito 4) |
 | `UpdatePigeons`, `UpdateRats` (SH:581, 584) | Huyen de una persona | **Hecho**: huyen del más cercano (`BirdPlayer`, `m_PlayerViews`) |
-| `UpdatePsychosis` (SH:525) | Voces y alucinaciones del jugador | Es por jugador: sale del servidor como evento al cliente |
+| `UpdatePsychosis` (SH:525) | Voces y alucinaciones del jugador | **Decidido**: efecto local del cliente, no se sincroniza |
 | `BeginPet(playerPosition, yaw)` (SH:413) | Acariciar al Chato | Un Chato por jugador, con su dueño |
 
 ## 2. El dibujo usa «el foco»

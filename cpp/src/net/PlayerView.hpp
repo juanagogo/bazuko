@@ -22,6 +22,8 @@ struct PlayerView {
     bool alive = true;
     uint8_t wanted = 0;        // steal.buscado, 0 a 3: lo que mira la policia
     bool onViaduct = false;    // capa de movimiento
+    float hygiene = 100.0f;    // 0 a 100: los peatones se quejan del olor por debajo de 30
+    float facingX = 0.0f, facingZ = 1.0f;   // hacia donde mira (plano): las bolsas no aparecen justo delante
 };
 
 // Elige el jugador mas cercano a un punto (aves, ratas, peatones asustados, trafico que frena); devuelve nullptr si no hay.

@@ -48,6 +48,7 @@ uint64_t HashState(const Simulation& simulation) {
     for (const BusState& bus : simulation.GetBuses()) { hasher.Vec(bus.position); hasher.Milli(bus.speed); hasher.Int(bus.servedStation ? 1 : 0); }
     for (const Bird& bird : simulation.GetBirdFlock().Birds()) { hasher.Vec(bird.position); hasher.Milli(bird.yaw); hasher.Int(bird.IsFlying() ? 1 : 0); }
     for (const glm::vec3& rat : simulation.GetRatPositions()) hasher.Vec(rat);
+    for (const PickupItem& pickup : simulation.GetPickups()) { hasher.Vec(pickup.position); hasher.Int(pickup.available ? 1 : 0); }
     hasher.Vec(simulation.GetDogPosition());
     return hasher.value;
 }
@@ -133,6 +134,15 @@ int main(int argc, char** argv) {
         const int aroundFirst = near(player), aroundSecond = near(glm::vec3(300.0f, 0.0f, 100.0f));
         std::printf("Dos jugadores: %zu peatones en total, %d junto al primero y %d junto al segundo\n", two->GetPedestrianCount(), aroundFirst, aroundSecond);
         if (aroundFirst < 1 || aroundSecond < 1) { status = 1; std::printf("FALLO: los peatones no aparecen alrededor de los dos jugadores\n"); }
+        int bags = 0, tooClose = 0;   // ninguna bolsa nueva aparece a menos de 12 m de NINGUN jugador
+        for (const PickupItem& pickup : two->GetPickups()) {
+            if (pickup.container) continue;
+            ++bags;
+            for (const glm::vec3& at : {player, kSecondPlayer})
+                if (glm::distance(glm::vec2(pickup.position.x, pickup.position.z), glm::vec2(at.x, at.z)) < 12.0f) ++tooClose;
+        }
+        std::printf("Bolsas con dos jugadores: %d, a menos de 12 m de algun jugador: %d\n", bags, tooClose);
+        if (tooClose > 0) { status = 1; std::printf("FALLO: aparecieron bolsas encima de un jugador\n"); }
         delete two;
     }
 
