@@ -278,6 +278,24 @@ target_include_directories(bazuko_traffic_test PRIVATE src third_party/include t
 target_compile_definitions(bazuko_traffic_test PRIVATE BAZUKO_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
 target_link_libraries(bazuko_traffic_test PRIVATE glfw glm::glm glad imgui Threads::Threads opusfile assimp ${BAZUKO_WEBP_TARGET} ${CMAKE_DL_LIBS})
 
+# Linea base de la simulacion (ventana oculta para el contexto GL): determinismo con semilla fija, hash del estado y tamano de una instantanea de red.
+#   build\Release\bazuko_simulation_hash_test.exe [segundos] [semilla] [--esperado HEX] [--medir]
+add_executable(bazuko_simulation_hash_test
+    tests/SimulationHashTest.cpp
+    src/core/Paths.cpp
+    src/renderer/Buffer.cpp src/renderer/VertexArray.cpp src/renderer/Shader.cpp
+    src/renderer/Mesh.cpp src/renderer/Camera.cpp src/renderer/Renderer.cpp
+    src/renderer/Texture.cpp src/renderer/Model.cpp
+    src/world/CityLayout.cpp src/world/Simulation.cpp src/world/BirdFlock.cpp src/world/Lake.cpp src/world/Decals.cpp
+    src/world/TextRaster.cpp src/world/SignAtlas.cpp
+    src/game/GameData.cpp src/game/Harvest.cpp
+)
+target_include_directories(bazuko_simulation_hash_test PRIVATE src third_party/include third_party/glad/include ${BAZUKO_WEBP_INCLUDE_DIR})
+target_compile_definitions(bazuko_simulation_hash_test PRIVATE BAZUKO_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
+target_link_libraries(bazuko_simulation_hash_test PRIVATE glfw glm::glm glad imgui Threads::Threads opusfile assimp ${BAZUKO_WEBP_TARGET} ${CMAKE_DL_LIBS})
+add_test(NAME bazuko_simulation_hash COMMAND bazuko_simulation_hash_test 20 42)
+set_tests_properties(bazuko_simulation_hash PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 300)
+
 # Regla de aparicion segura sobre la ciudad real (ventana oculta para el contexto GL):
 #   build\Release\bazuko_spawn_city_test.exe
 add_executable(bazuko_spawn_city_test

@@ -493,6 +493,7 @@ public:
     // Noche de 20:00 a 6:00, como el original
     bool IsNight() const { return m_DayProgress >= 20.0f / 24.0f || m_DayProgress < 6.0f / 24.0f; }
     size_t GetPedestrianCount() const { return m_Pedestrians.size(); }
+    const std::vector<Pedestrian>& GetPedestrians() const { return m_Pedestrians; }   // solo lectura: pruebas de estado y futura red
     size_t GetTrafficCount() const { return m_Traffic.size(); }
     size_t GetMissionProgress() const { return m_MissionProgress; }
     size_t GetMissionTarget() const { return m_MissionTarget; }
