@@ -548,9 +548,42 @@ export class HUD {
 
     // Envión
     if (this.boostEl) {
-      const activo = interaction?.boostActive ?? false;
-      this.boostEl.classList.toggle('active', activo);
-      if (activo) this._setText(this.boostTimeEl, `${Math.ceil(interaction.boostTimer ?? 0)} s`);
+      this.boostEl.classList.toggle('active', interaction?.boostActive ?? false);
+    }
+
+    // Prompt dinámico de interacción
+    if (this.promptEl) {
+      if (window.__game?.paused) {
+        this.promptEl.classList.remove('visible');
+      } else if (interaction?.currentTarget || interaction?.stealPrompt) {
+        const type = interaction.currentTargetType;
+        let text = interaction?.stealPrompt ?? '';
+        if (type === 'pickup') text = '[E] Recoger basura · [Mantener Q] Seleccionar';
+        else if (type === 'car') text = interaction.currentTarget?.traffic ? '[E] Robar retrovisor del carro en circulación' : '[E] Robar retrovisor de auto';
+        else if (type === 'sell') text = '[E] Recicladora El Progreso · Vender material';
+        else if (type === 'bolirana') text = '[E] Entrar a El Rumbiadero · Bolirana';
+        else if (type === 'shop') text = `[E] ${interaction.currentTarget.title ?? 'Tienda La Esquinita'} · Comprar`;
+        else if (type === 'dog') {
+          const hasFood = inventory?.items.some(item => item.qty > 0 && ['pan', 'lataComida', 'carne', 'hueso'].includes(item.id));
+          text = interaction.currentTarget?.isFriend
+            ? '🐕 El Chato ya te sigue · [E] Acariciar (+5 ánimo)'
+            : hasFood
+              ? '🐕 [E] Darle 1 pan o 1 lata de atún para que te siga (consume una unidad)'
+              : '🐕 Para que El Chato te siga, trae pan o una lata de atún y pulsa E · Ahora: [E] acariciar';
+        }
+        else if (type === 'cambuche') text = '[E] Tu cambuche · Armar / Dormir';
+        else if (type === 'dealer') text = '[Q / E] Tienda del Dealer · Comprar / Vender';
+else if (type === 'cart') text = interaction.currentTarget?.isAttached ? '[E] Soltar carreta de balineras 🛒' : '[E] Agarrar carreta de balineras 🛒 (+120kg)';
+
+        if (text) {
+          this._setText(this.promptEl, text);
+          this.promptEl.classList.add('visible');
+        } else {
+          this.promptEl.classList.remove('visible');
+        }
+      } else {
+        this.promptEl.classList.remove('visible');
+      }
     }
 
     // La tecla de contexto

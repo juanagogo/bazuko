@@ -205,7 +205,8 @@ test('la carpeta de audio contiene únicamente archivos utilizados y todos tiene
   const { audio } = fixture();
   try {
     const sounds = [...Object.values(audio.sounds), ...Object.values(audio.vehicleSounds), ...audio.driverSounds, ...audio.theftSounds];
-    const used = sounds.map(sound => decodeURIComponent(sound.options.src[0].split('/').at(-1))).sort();
+    // La música del local usa HTMLAudio para mantenerse independiente del silencio de la calle.
+    const used = [...sounds.map(sound => decodeURIComponent(sound.options.src[0].split('/').at(-1))), 'bolirana-caslo-salsa-trap.mp3'].sort();
     const files = readdirSync(new URL('../public/audio/', import.meta.url)).sort();
     assert.deepEqual(files, used);
     assert.equal(files.filter(file => file.endsWith('.opus')).length, 10);
@@ -601,4 +602,45 @@ test('una lluvia que todavía carga no acumula reproducciones pendientes', () =>
   assert.equal(rain.starts,1);
   audio.setRaining(false);assert.equal(rain.playing(),false);
   audio.dispose();
+});
+
+test('Bolirana silencia la calle y conserva las preferencias del usuario', async () => {
+  const volumes = [];
+  const audio = new AudioSystem({
+    HowlClass: FakeHowl,
+    howler: { volume: value => volumes.push(value) },
+    eventTarget: new EventTarget()
+  });
+  await audio.ready;
+  try {
+    audio.setMuted(false);
+    audio.setVolume(.7);
+    audio.setVenueMuted(true);
+    assert.equal(volumes.at(-1), 0);
+    assert.equal(audio.volume, .7);
+    assert.equal(audio.muted, false);
+    audio.setVolume(.4);
+    assert.equal(volumes.at(-1), 0);
+    audio.setMuted(true);
+    audio.setMuted(false);
+    assert.equal(volumes.at(-1), 0);
+    audio.setVenueMuted(false);
+    assert.equal(volumes.at(-1), .4);
+  } finally { audio.dispose(); }
+});
+test('Salir de Bolirana conserva el silencio general preexistente', async () => {
+  const volumes = [];
+  const audio = new AudioSystem({
+    HowlClass: FakeHowl,
+    howler: { volume: value => volumes.push(value) },
+    eventTarget: new EventTarget()
+  });
+  await audio.ready;
+  try {
+    audio.setMuted(true);
+    audio.setVenueMuted(true);
+    audio.setVenueMuted(false);
+    assert.equal(volumes.at(-1), 0);
+    assert.equal(audio.muted, true);
+  } finally { audio.dispose(); }
 });
