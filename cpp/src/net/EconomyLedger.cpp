@@ -42,27 +42,27 @@ bool ReadState(BitReader& r, EconomySnapshot& s) {
 void Write(BitWriter& w, const EconomyReport& m) { w.U8(static_cast<uint32_t>(MessageType::Economy)); w.U16(m.seq); WriteState(w, m.state); }
 void Write(BitWriter& w, const EconomySync& m) { w.U8(static_cast<uint32_t>(MessageType::EconomySync)); w.U16(m.ack); w.Bool(m.accepted); w.Bool(m.profile); WriteState(w, m.state); }
 void Write(BitWriter& w, const Roster& m) {
-    w.U8(static_cast<uint32_t>(MessageType::Roster)); w.U16(m.port);
+    w.U8(static_cast<uint32_t>(MessageType::Roster)); w.U16(m.port); w.String(m.relayAddress, 64); w.U16(m.relayPort); w.String(m.room, 8);
     const size_t count = std::min<size_t>(m.entries.size(), kMaxPlayers);
     w.U8(static_cast<uint32_t>(count));
     for (size_t i = 0; i < count; ++i) { w.U8(m.entries[i].id); w.String(m.entries[i].ip, 45); }
 }
 void Write(BitWriter& w, const Checkpoint& m) {
-    w.U8(static_cast<uint32_t>(MessageType::Checkpoint));
+    w.U8(static_cast<uint32_t>(MessageType::Checkpoint)); w.String(m.roomSecret, 32);
     const size_t count = std::min<size_t>(m.entries.size(), kMaxPlayers);
     w.U8(static_cast<uint32_t>(count));
     for (size_t i = 0; i < count; ++i) { w.String(m.entries[i].key, 32); WriteState(w, m.entries[i].state); }
 }
 std::optional<Roster> ReadRoster(BitReader& r) {
-    Roster m; m.port = static_cast<uint16_t>(r.U16());
+    Roster m; m.port = static_cast<uint16_t>(r.U16()); m.relayAddress = r.String(64); m.relayPort = static_cast<uint16_t>(r.U16()); m.room = r.String(8);
     const size_t count = r.U8();
     if (count > kMaxPlayers) return std::nullopt;
     for (size_t i = 0; i < count && !r.Failed(); ++i) { RosterEntry e; e.id = static_cast<uint8_t>(r.U8()); e.ip = r.String(45); m.entries.push_back(std::move(e)); }
-    if (r.Failed() || m.port == 0) return std::nullopt;
+    if (r.Failed() || (m.port == 0 && m.room.empty())) return std::nullopt;
     return m;
 }
 std::optional<Checkpoint> ReadCheckpoint(BitReader& r) {
-    Checkpoint m;
+    Checkpoint m; m.roomSecret = r.String(32);
     const size_t count = r.U8();
     if (count > kMaxPlayers) return std::nullopt;
     for (size_t i = 0; i < count && !r.Failed(); ++i) {

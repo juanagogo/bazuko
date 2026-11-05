@@ -39,6 +39,28 @@ std::unique_ptr<NetSession> NetSession::StartHost(uint16_t port, const std::stri
     return session;
 }
 
+std::unique_ptr<NetSession> NetSession::StartHostViaRelay(const std::string& relayAddress, uint16_t relayPort, const std::string& name, size_t maxPlayers) {
+    std::unique_ptr<NetSession> session(new NetSession());
+    session->m_Role = Role::Host;
+    session->m_Name = name;
+    session->m_MaxPlayers = std::clamp<size_t>(maxPlayers, 2, kMaxPlayers);
+    session->m_RelayAddress = relayAddress; session->m_RelayPort = relayPort;
+    session->m_Host = Host::CreateRelayHost(relayAddress, relayPort);
+    if (!session->m_Host) return nullptr;
+    session->m_LocalId = 1;
+    return session;
+}
+
+std::unique_ptr<NetSession> NetSession::JoinViaRelay(const std::string& relayAddress, uint16_t relayPort, const std::string& roomCode, const std::string& name, const std::string& key) {
+    std::unique_ptr<NetSession> session(new NetSession());
+    session->m_Role = Role::Client;
+    session->m_Name = name; session->m_Key = key;
+    session->m_RelayAddress = relayAddress; session->m_RelayPort = relayPort; session->m_RosterRoom = roomCode;
+    session->m_Host = Host::CreateRelayGuest(relayAddress, relayPort, roomCode);
+    if (!session->m_Host) return nullptr;
+    return session;
+}
+
 std::unique_ptr<NetSession> NetSession::Join(const std::string& address, uint16_t port, const std::string& name, const std::string& key) {
     std::unique_ptr<NetSession> session(new NetSession());
     session->m_Role = Role::Client;
@@ -90,6 +112,12 @@ void NetSession::UpdateHost(float dt, const LocalState& local) {
             m_Host->Send(peer, kChannelUnreliable, writer.Data(), false);
         }
     }
+    if (m_HandingOver) {
+        bool anyJoined = false;
+        for (const auto& [peer, info] : m_Peers) anyJoined = anyJoined || info.id != 0;
+        if (!anyJoined || NowMs() > m_HandoverDeadlineMs) FinishHandover();
+        return;
+    }
     m_RosterAccumulator += dt; m_CheckpointAccumulator += dt;
     if (m_RosterDirty || m_RosterAccumulator >= 5.0) { m_RosterDirty = false; m_RosterAccumulator = 0.0; SendRoster(); }
     if ((m_CheckpointDirty && m_CheckpointAccumulator >= 1.0) || m_CheckpointAccumulator >= 5.0) { m_CheckpointDirty = false; m_CheckpointAccumulator = 0.0; SendCheckpoint(); }
@@ -127,6 +155,7 @@ Snapshot NetSession::BuildSnapshotFor(uint8_t viewerId, const glm::vec3& viewerP
 }
 
 void NetSession::HandleHostMessage(const NetEvent& event) {
+    if (m_HandingOver) return;
     const auto peerIt = m_Peers.find(event.peer);
     if (peerIt == m_Peers.end()) return;
     Peer& peer = peerIt->second;
@@ -211,6 +240,7 @@ void NetSession::UpdateClient(float dt, const LocalState& local) {
             Write(writer, hello);
             m_Host->Send(m_Server, kChannelReliable, writer.Data(), true);
         } else if (event.type == NetEvent::Type::Disconnected) {
+            if (m_Migrating && m_MigAttempt) m_MigFailed = true;
             const bool wasConnected = m_Connected;
             m_Connected = false; m_Smooth.clear();
             if (wasConnected && !m_Rejected && !m_Roster.empty() && !m_Migrating) BeginMigration();
@@ -245,9 +275,9 @@ void NetSession::HandleClientMessage(const NetEvent& event) {
         const auto reject = ReadReject(reader);
         m_Notices.push_back(reject && reject->reason == RejectReason::ServerFull ? "La partida está llena." : reject && reject->reason == RejectReason::KeyInUse ? "Ese perfil ya está conectado en esta partida." : "El anfitrión rechazó la conexión.");
     } else if (*type == MessageType::Roster) {
-        if (auto roster = ReadRoster(reader)) { m_Roster = std::move(roster->entries); m_RosterPort = roster->port; }
+        if (auto roster = ReadRoster(reader)) { m_Roster = std::move(roster->entries); m_RosterPort = roster->port; if (!roster->room.empty()) { m_RosterRoom = roster->room; m_RelayAddress = roster->relayAddress; m_RelayPort = roster->relayPort; } }
     } else if (*type == MessageType::Checkpoint) {
-        if (auto checkpoint = ReadCheckpoint(reader)) m_Checkpoint = std::move(checkpoint->entries);
+        if (auto checkpoint = ReadCheckpoint(reader)) { m_Checkpoint = std::move(checkpoint->entries); m_RoomSecret = checkpoint->roomSecret; }
     } else if (*type == MessageType::EconomySync) {
         if (const auto sync = ReadEconomySync(reader)) m_PendingEconomy = std::move(*sync);
     } else if (*type == MessageType::Hit) {
@@ -312,6 +342,10 @@ void NetSession::SendEconomy(const EconomyReport& report) {
 
 void NetSession::SendRoster() {
     Roster roster; roster.port = m_Host->Port();
+    if (m_Host->IsRelay()) {
+        if (m_Host->RoomCode().empty()) { m_RosterDirty = true; return; }   // la sala aun no existe
+        roster.relayAddress = m_RelayAddress; roster.relayPort = m_RelayPort; roster.room = m_Host->RoomCode();
+    }
     for (const auto& [peer, info] : m_Peers) if (info.id != 0) roster.entries.push_back({info.id, m_Host->PeerAddress(peer)});
     std::sort(roster.entries.begin(), roster.entries.end(), [](const RosterEntry& a, const RosterEntry& b) { return a.id < b.id; });
     BitWriter writer; Write(writer, roster);
@@ -322,6 +356,8 @@ void NetSession::SendRoster() {
 void NetSession::SendCheckpoint() {
     uint32_t successor = 0; uint8_t lowest = 255;
     Checkpoint checkpoint;
+    if (m_Host->IsRelay()) checkpoint.roomSecret = m_Host->RoomSecret();
+    if (m_HasHostEconomy && !m_Key.empty()) checkpoint.entries.push_back({m_Key, m_HostEconomy});   // el anfitrion tambien tiene perfil: no se pierde si se va o cae
     for (const auto& [peer, info] : m_Peers) {
         if (info.id == 0) continue;
         if (info.id < lowest) { lowest = info.id; successor = peer; }
@@ -332,28 +368,74 @@ void NetSession::SendCheckpoint() {
     m_Host->Send(successor, kChannelReliable, writer.Data(), true);
 }
 
+bool NetSession::HandOver(bool rejoin) {
+    if (m_Role != Role::Host || m_HandingOver) return false;
+    bool anyJoined = false;
+    for (const auto& [peer, info] : m_Peers) anyJoined = anyJoined || info.id != 0;
+    if (!anyJoined) { m_HandoverDone = true; return false; }
+    SendRoster();
+    SendCheckpoint();
+    // se recuerda a quien reentrar: la lista actual (por id) y como llegar al nuevo anfitrion
+    m_Roster.clear();
+    for (const auto& [peer, info] : m_Peers) if (info.id != 0) m_Roster.push_back({info.id, m_Host->PeerAddress(peer)});
+    std::sort(m_Roster.begin(), m_Roster.end(), [](const RosterEntry& a, const RosterEntry& b) { return a.id < b.id; });
+    m_RosterPort = m_Host->Port();
+    if (m_Host->IsRelay()) m_RosterRoom = m_Host->RoomCode(); else m_RosterRoom.clear();
+    for (const auto& [peer, info] : m_Peers) m_Host->Disconnect(peer);   // cierra despues de que salgan los mensajes fiables pendientes (la lista y el punto de control)
+    m_HandingOver = true; m_HandoverRejoin = rejoin;
+    m_HandoverDeadlineMs = NowMs() + 1500.0;
+    return true;
+}
+
+void NetSession::FinishHandover() {
+    m_HandingOver = false;
+    m_Peers.clear(); m_Smooth.clear(); m_Remotes.clear();
+    if (!m_HandoverRejoin) { m_HandoverDone = true; return; }
+    const bool relay = !m_RosterRoom.empty();
+    m_Role = Role::Client; m_Connected = false; m_Rejected = false; m_LocalId = 0;
+    m_Host = relay ? Host::CreateRelayGuest(m_RelayAddress, m_RelayPort, m_RosterRoom) : Host::CreateClient();
+    if (!m_Host || m_Roster.empty() || (!relay && !m_Host->Connect(m_Roster.front().ip, m_RosterPort))) { m_HandoverDone = true; m_Notices.push_back("No se pudo volver a entrar a la partida."); return; }
+    m_Migrating = true; m_MigAttempt = true; m_MigFailed = false; m_MigIndex = 0; m_MigDeadlineMs = NowMs() + 12000.0; m_MigRetryAtMs = 0.0; m_OldId = 0;
+    m_Notices.push_back("Pasaste la partida a otro jugador y vuelves a entrar como invitado.");
+    m_HandoverDone = true;
+}
+
 void NetSession::BeginMigration() {
-    m_Migrating = true; m_MigAttempt = false; m_MigIndex = 0; m_OldId = m_LocalId;
+    m_Migrating = true; m_MigAttempt = false; m_MigFailed = false; m_MigIndex = 0; m_MigDeadlineMs = 0.0; m_MigRetryAtMs = 0.0; m_OldId = m_LocalId;
     m_Notices.push_back("El anfitrión se fue: buscando al nuevo anfitrión...");
 }
 
 void NetSession::MigrationTick() {
     const double now = NowMs();
+    if (m_MigIndex >= m_Roster.size()) { m_Migrating = false; m_Notices.push_back("No se pudo reconectar: nadie abrió la partida."); return; }
+    const RosterEntry& candidate = m_Roster[m_MigIndex];
+    if (candidate.id == m_OldId) {   // me toca a mi: los de antes en la lista no respondieron
+        if (now < m_MigRetryAtMs) return;
+        if (!PromoteToHost()) {   // el puerto puede seguir ocupado por el anfitrion que se va (traspaso voluntario): se reintenta unos segundos
+            if (++m_PromoteTries > 40) { m_Migrating = false; m_Notices.push_back("No se pudo abrir la partida como nuevo anfitrión."); }
+            else m_MigRetryAtMs = now + 250.0;
+        }
+        return;
+    }
+    if (m_MigDeadlineMs == 0.0) m_MigDeadlineMs = now + 8000.0;
     if (!m_MigAttempt) {
-        if (m_MigIndex >= m_Roster.size()) { m_Migrating = false; m_Notices.push_back("No se pudo reconectar: nadie abrió la partida."); return; }
-        const RosterEntry& candidate = m_Roster[m_MigIndex];
-        if (candidate.id == m_OldId) { PromoteToHost(); return; }   // me toca a mi: los de antes en la lista no respondieron
-        m_Host = Host::CreateClient();
-        if (!m_Host || !m_Host->Connect(candidate.ip, m_RosterPort)) { ++m_MigIndex; return; }
-        m_MigAttempt = true; m_MigDeadlineMs = now + 8000.0;
-    } else if (!m_Connected && now > m_MigDeadlineMs) { ++m_MigIndex; m_MigAttempt = false; }
+        if (now < m_MigRetryAtMs) return;
+        const bool relay = !m_RosterRoom.empty();   // por relevo: se reentra a la misma sala; la sala la retoma quien le toque
+        m_Host = relay ? Host::CreateRelayGuest(m_RelayAddress, m_RelayPort, m_RosterRoom) : Host::CreateClient();
+        if (!m_Host || (!relay && !m_Host->Connect(candidate.ip, m_RosterPort))) { m_MigRetryAtMs = now + 800.0; return; }
+        m_MigAttempt = true; m_MigFailed = false;
+    } else if (!m_Connected && m_MigFailed) {   // todavia no abrieron la sala: se reintenta enseguida mientras dure el plazo
+        m_MigAttempt = false; m_MigFailed = false; m_MigRetryAtMs = now + 800.0;
+    }
+    if (!m_Connected && now > m_MigDeadlineMs) { ++m_MigIndex; m_MigAttempt = false; m_MigFailed = false; m_MigDeadlineMs = 0.0; m_MigRetryAtMs = 0.0; }
 }
 
-void NetSession::PromoteToHost() {
-    m_Host.reset();
-    m_Host = Host::CreateServer(m_RosterPort, m_MaxPlayers + 8);
-    m_Migrating = false;
-    if (!m_Host) { m_Notices.push_back("No se pudo abrir la partida como nuevo anfitrión."); return; }
+bool NetSession::PromoteToHost() {
+    const bool relay = !m_RosterRoom.empty();
+    std::unique_ptr<Host> fresh = relay ? Host::CreateRelayHost(m_RelayAddress, m_RelayPort, m_RosterRoom, m_RoomSecret) : Host::CreateServer(m_RosterPort, m_MaxPlayers + 8);
+    if (!fresh) return false;   // la conexion anterior sigue siendo valida: nada se rompe
+    m_Host = std::move(fresh);
+    m_Migrating = false; m_PromoteTries = 0;
     m_Role = Role::Host; m_LocalId = 1; m_Connected = false; m_Rejected = false;
     m_Peers.clear(); m_Smooth.clear(); m_Remotes.clear();
     m_Seed.clear();
@@ -361,6 +443,7 @@ void NetSession::PromoteToHost() {
     m_RosterDirty = true; m_CheckpointDirty = true;
     m_Promoted = true; ++m_Epoch;
     m_Notices.push_back("Ahora eres el anfitrión de la partida.");
+    return true;
 }
 
 void NetSession::SetProfileFolder(const std::filesystem::path& folder) {

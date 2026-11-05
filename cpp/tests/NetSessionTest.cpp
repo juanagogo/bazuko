@@ -1,6 +1,7 @@
 // Sesion de red del juego (anfitrion y clientes por 127.0.0.1): los jugadores se ven moverse entre si, con y sin latencia/perdida; avisos de
 // entrada y salida; rechazo con la partida llena; el anfitrion ignora estados fuera del mapa o no finitos. Solo se compila con -DBAZUKO_NET=ON.
 #include "net/NetSession.hpp"
+#include "net/RelayServer.hpp"
 
 #include <chrono>
 #include <filesystem>
@@ -43,6 +44,7 @@ const RemotePlayer* Find(const NetSession& session, uint8_t id) {
 }
 
 int main() {
+    std::setvbuf(stdout, nullptr, _IONBF, 0);
     // A: anfitrion y dos clientes, red limpia
     {
         auto host = NetSession::StartHost(0, "Anfitrion");
@@ -333,6 +335,135 @@ int main() {
             b.session.reset(); a.session.reset();
             std::error_code ec; fs::remove_all(folderHost, ec); fs::remove_all(folderNew, ec);
         }
+    }
+    // H: internet por relevo: nadie abre puertos; se juega por una sala del servidor de relevo, incluida la migracion de anfitrion (la sala se retoma con su secreto)
+    {
+        std::string error;
+        const auto loaded = GameData::LoadFromFile(BAZUKO_GAME_DATA_PATH, &error);
+        CHECK(loaded.has_value(), "H: datos del juego");
+        auto relay = RelayServer::Create(0);
+        CHECK(relay != nullptr, "H: el relevo abre un puerto");
+        if (loaded && relay) {
+            namespace fs = std::filesystem;
+            const GameData& data = *loaded;
+            uint16_t pan = 0;
+            for (size_t i = 0; i < data.items.size(); ++i) if (data.items[i].id == "pan") pan = static_cast<uint16_t>(i);
+            const fs::path folderA = fs::temp_directory_path() / ("bazuko_relevo_a_" + NewPlayerKey());
+            const fs::path folderB = fs::temp_directory_path() / ("bazuko_relevo_b_" + NewPlayerKey());
+            auto host = NetSession::StartHostViaRelay("127.0.0.1", relay->Port(), "Anfitrion");
+            CHECK(host != nullptr, "H: el anfitrion se conecta al relevo");
+            host->SetEconomyData(&data);
+            host->SetProfileFolder(folderA);
+            struct Guest { std::unique_ptr<NetSession> session; EconomyMirror mirror; EconomySnapshot mine; uint32_t epoch = 0; std::string key; };
+            Walker hw{{100.0f, 0.0f, 100.0f}}, aw{{101.0f, 0.0f, 100.0f}}, bw{{102.0f, 0.0f, 100.0f}};
+            double clockSeconds = 0.0;
+            bool promotedSeen = false;
+            const auto step = [&](float dt, Guest& g, const Walker& w) {
+                if (!g.session) return;
+                g.session->Update(dt, w.State());
+                if (g.session->ConsumePromotion()) { promotedSeen = true; g.session->SetEconomyData(&data); g.session->SetProfileFolder(folderB); }
+                if (g.session->GetRole() != NetSession::Role::Client || !g.session->Connected()) return;
+                if (g.epoch != g.session->Epoch()) { g.epoch = g.session->Epoch(); g.mirror.Restart(); }
+                if (const auto report = g.mirror.Poll(Canonical(g.mine, data.items.size()), clockSeconds)) g.session->SendEconomy(*report);
+                if (const auto sync = g.session->ConsumeEconomySync())
+                    if (const auto adopt = g.mirror.OnSync(*sync, Canonical(g.mine, data.items.size()))) g.mine = *adopt;
+            };
+            Guest a, b, bad;
+            const auto run = [&](double seconds) { Pump(seconds, [&](float dt) { clockSeconds += dt; relay->Update(); if (host) host->Update(dt, hw.State()); step(dt, a, aw); step(dt, b, bw); step(dt, bad, bw); }); };
+            run(1.0);
+            const std::string code = host->RoomCode();
+            CHECK(code.size() == 6 && !host->RoomFailed(), "H: el relevo da un codigo de sala de 6 caracteres");
+            a.key = NewPlayerKey(); b.key = NewPlayerKey();
+            a.session = NetSession::JoinViaRelay("127.0.0.1", relay->Port(), code, "Ana", a.key);
+            b.session = NetSession::JoinViaRelay("127.0.0.1", relay->Port(), code, "Beto", b.key);
+            a.mine.money = 20000.0f; a.mine.level = 5; a.mine.talentPoints = 4;
+            b.mine.money = 10000.0f;
+            bad.session = NetSession::JoinViaRelay("127.0.0.1", relay->Port(), "ZZZZZZ", "Intruso");
+            run(2.5);
+            CHECK(a.session->Connected() && b.session->Connected(), "H: los invitados entran por el codigo");
+            CHECK(!bad.session->Connected(), "H: un codigo que no existe no entra");
+            CHECK(relay->RoomCount() == 1 && relay->GuestCount() == 2, "H: el relevo lleva una sala con dos invitados");
+            bool anaSeesHost = false, hostSeesAna = false;
+            for (const RemotePlayer& r : a.session->Remotes()) anaSeesHost = anaSeesHost || r.id == 1;
+            for (const RemotePlayer& r : host->Remotes()) hostSeesAna = hostSeesAna || r.id == a.session->LocalId();
+            CHECK(anaSeesHost && hostSeesAna, "H: se ven entre ellos a traves del relevo");
+            b.mine.money += 4.0e6f;   // trampa: se revierte por el relevo igual que en directo
+            run(1.2);
+            CHECK(host->EconomyRejections() >= 1 && std::abs(b.mine.money - 10000.0f) < 0.01f, "H: la validacion de economia funciona por el relevo");
+            b.mine.money -= 1500.0f; b.mine.items.push_back({pan, 1});
+            run(2.5);
+            const float betoMoney = b.mine.money;
+            host.reset();   // el anfitrion cae: la sala queda sin anfitrion en el relevo
+            run(8.0);
+            CHECK(promotedSeen && a.session->GetRole() == NetSession::Role::Host, "H: Ana asume como anfitriona retomando la misma sala");
+            CHECK(a.session->RoomCode() == code, "H: con el mismo codigo de sala");
+            CHECK(b.session->Connected() && b.session->GetRole() == NetSession::Role::Client, "H: Beto vuelve a entrar a la sala por el relevo");
+            const Ledger* betoLedger = a.session->LedgerOf(b.session->LocalId());
+            CHECK(betoLedger && std::abs(betoLedger->State().money - betoMoney) < 0.01f, "H: la plata de Beto sobrevivio a la migracion por relevo");
+            std::printf("H) relevo: sala %s, dos invitados por internet simulado, trampa revertida, migracion retomando la sala (bytes reenviados: %llu)\n", code.c_str(), static_cast<unsigned long long>(relay->BytesRelayed()));
+            b.session.reset(); a.session.reset(); bad.session.reset();
+            std::error_code ec; fs::remove_all(folderA, ec); fs::remove_all(folderB, ec);
+        }
+    }
+    // I: relevo voluntario: el anfitrion le pasa la partida al siguiente y vuelve a entrar como invitado, sin perder su perfil ni el de nadie
+    for (const bool viaRelay : {false, true}) {
+        std::string error;
+        const auto loaded = GameData::LoadFromFile(BAZUKO_GAME_DATA_PATH, &error);
+        auto relay = viaRelay ? RelayServer::Create(0) : nullptr;
+        if (!loaded || (viaRelay && !relay)) { CHECK(false, "I: datos o relevo"); continue; }
+        namespace fs = std::filesystem;
+        const GameData& data = *loaded;
+        const fs::path folder = fs::temp_directory_path() / ("bazuko_traspaso_" + NewPlayerKey());
+        const std::string hostKey = NewPlayerKey();
+        auto host = viaRelay ? NetSession::StartHostViaRelay("127.0.0.1", relay->Port(), "Hugo") : NetSession::StartHost(0, "Hugo");
+        host->SetEconomyData(&data); host->SetLocalKey(hostKey);
+        EconomySnapshot hostMoney; hostMoney.money = 33333.0f; hostMoney.level = 4; hostMoney.talentPoints = 3;
+        host->SetHostEconomy(hostMoney);
+        struct Guest { std::unique_ptr<NetSession> session; EconomyMirror mirror; EconomySnapshot mine; uint32_t epoch = 0; std::string key; };
+        Walker hw{{100.0f, 0.0f, 100.0f}}, aw{{101.0f, 0.0f, 100.0f}}, bw{{102.0f, 0.0f, 100.0f}};
+        double clockSeconds = 0.0;
+        bool promoted = false;
+        const auto step = [&](float dt, Guest& g, const Walker& w) {
+            if (!g.session) return;
+            g.session->Update(dt, w.State());
+            if (g.session->ConsumePromotion()) { promoted = true; g.session->SetEconomyData(&data); g.session->SetProfileFolder(folder); }
+            if (g.session->GetRole() != NetSession::Role::Client || !g.session->Connected()) return;
+            if (g.epoch != g.session->Epoch()) { g.epoch = g.session->Epoch(); g.mirror.Restart(); }
+            if (const auto report = g.mirror.Poll(Canonical(g.mine, data.items.size()), clockSeconds)) g.session->SendEconomy(*report);
+            if (const auto sync = g.session->ConsumeEconomySync())
+                if (const auto adopt = g.mirror.OnSync(*sync, Canonical(g.mine, data.items.size()))) g.mine = *adopt;
+        };
+        Guest a, b;
+        const auto run = [&](double seconds) { Pump(seconds, [&](float dt) { clockSeconds += dt; if (relay) relay->Update(); step(dt, a, aw); step(dt, b, bw); }); };
+        // el anfitrion (hw) se maneja aparte para poder entregarlo al traspaso
+        const auto runWithHost = [&](double seconds) { Pump(seconds, [&](float dt) { clockSeconds += dt; if (relay) relay->Update(); host->Update(dt, hw.State()); step(dt, a, aw); step(dt, b, bw); }); };
+        if (viaRelay) runWithHost(1.0);
+        a.key = NewPlayerKey(); b.key = NewPlayerKey();
+        a.session = viaRelay ? NetSession::JoinViaRelay("127.0.0.1", relay->Port(), host->RoomCode(), "Ana", a.key) : NetSession::Join("127.0.0.1", host->Port(), "Ana", a.key);
+        b.session = viaRelay ? NetSession::JoinViaRelay("127.0.0.1", relay->Port(), host->RoomCode(), "Beto", b.key) : NetSession::Join("127.0.0.1", host->Port(), "Beto", b.key);
+        a.mine.money = 20000.0f; b.mine.money = 10000.0f;
+        runWithHost(2.5);
+        CHECK(a.session->Connected() && b.session->Connected(), "I: los invitados estan dentro");
+        CHECK(host->HandOver(true), "I: el anfitrion puede traspasar (hay a quien)");
+        bool hostBecameGuest = false;
+        EconomyMirror oldHostMirror; uint32_t oldHostEpoch = 0;
+        Pump(9.0, [&](float dt) {
+            clockSeconds += dt; if (relay) relay->Update();
+            host->Update(dt, hw.State()); step(dt, a, aw); step(dt, b, bw);
+            hostBecameGuest = hostBecameGuest || (host->GetRole() == NetSession::Role::Client && host->Connected());
+            if (host->GetRole() == NetSession::Role::Client && host->Connected()) {   // como invitado cuenta su economia igual que los demas
+                if (oldHostEpoch != host->Epoch()) { oldHostEpoch = host->Epoch(); oldHostMirror.Restart(); }
+                if (const auto report = oldHostMirror.Poll(Canonical(hostMoney, data.items.size()), clockSeconds)) host->SendEconomy(*report);
+            }
+        });
+        CHECK(promoted && a.session->GetRole() == NetSession::Role::Host, viaRelay ? "I(relevo): Ana recibe la partida" : "I: Ana recibe la partida");
+        CHECK(hostBecameGuest && host->GetRole() == NetSession::Role::Client, "I: el antiguo anfitrion vuelve a entrar como invitado");
+        CHECK(b.session->Connected() && b.session->GetRole() == NetSession::Role::Client, "I: Beto sigue dentro");
+        const Ledger* hostLedger = a.session->LedgerOf(host->LocalId());
+        CHECK(hostLedger && hostLedger->Started() && std::abs(hostLedger->State().money - 33333.0f) < 0.01f && hostLedger->State().level == 4, "I: el perfil del antiguo anfitrion (plata y nivel) viajo con el traspaso");
+        std::printf("I) traspaso voluntario%s: Hugo pasa la partida a Ana y vuelve como invitado con su perfil\n", viaRelay ? " por relevo" : "");
+        b.session.reset(); a.session.reset(); host.reset();
+        std::error_code ec; fs::remove_all(folder, ec);
     }
     if (failures == 0) std::printf("Sesion de red: todo correcto\n");
     return failures == 0 ? 0 : 1;

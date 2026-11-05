@@ -45,6 +45,12 @@ public:
     enum class Role { Host, Client };
 
     static std::unique_ptr<NetSession> StartHost(uint16_t port, const std::string& name, size_t maxPlayers = kMaxPlayers);
+    // Por internet sin abrir puertos: el anfitrion abre una sala en un servidor de relevo (bazuko_relay) y los invitados entran con su codigo (RoomCode()).
+    static std::unique_ptr<NetSession> StartHostViaRelay(const std::string& relayAddress, uint16_t relayPort, const std::string& name, size_t maxPlayers = kMaxPlayers);
+    static std::unique_ptr<NetSession> JoinViaRelay(const std::string& relayAddress, uint16_t relayPort, const std::string& roomCode, const std::string& name, const std::string& key = {});
+    std::string RoomCode() const { return m_Host && m_Host->IsRelay() ? m_Host->RoomCode() : std::string(); }
+    bool RoomFailed() const { return m_Host && m_Host->IsRelay() && m_Host->RoomFailed(); }
+    bool ViaRelay() const { return m_Host && m_Host->IsRelay(); }
     static std::unique_ptr<NetSession> Join(const std::string& address, uint16_t port, const std::string& name, const std::string& key = {});
 
     // Atiende la red y avanza el suavizado; cada cuadro con el estado actual del jugador local. `dt` en segundos.
@@ -88,6 +94,14 @@ public:
     bool Migrating() const { return m_Migrating; }
     bool ConsumePromotion() { const bool p = m_Promoted; m_Promoted = false; return p; }
     uint32_t Epoch() const { return m_Epoch; }   // sube cada vez que este jugador entra a una partida nueva (reconexion o ascenso)
+    // Relevo voluntario: el anfitrion pasa la partida al siguiente jugador antes de irse. Primero le entrega la lista y el punto de control (con la economia de todos,
+    // tambien la suya: SetLocalKey + SetHostEconomy cada cuadro) y cierra; los demas siguen el mismo camino de la migracion. Con `rejoin` el antiguo anfitrion vuelve a
+    // entrar como un jugador mas a la partida del nuevo; sin el (por ejemplo al cerrar el juego) solo se despide. HandoverDone() avisa cuando ya se puede cerrar.
+    void SetLocalKey(const std::string& key) { m_Key = key; }
+    void SetHostEconomy(const EconomySnapshot& state) { m_HostEconomy = state; m_HasHostEconomy = true; }
+    bool HandOver(bool rejoin);   // false si no hay a quien pasarsela (nadie mas en la partida)
+    bool HandingOver() const { return m_HandingOver; }
+    bool HandoverDone() const { return m_HandoverDone; }
     // Avisos de entrada y salida para mostrar en pantalla (se vacian al leerlos)
     std::vector<std::string> ConsumeNotices();
     NetSession(const NetSession&) = delete;
@@ -141,6 +155,14 @@ private:
     uint16_t m_JoinPort = 0;
     std::vector<RosterEntry> m_Roster;      // invitado: los demas jugadores segun el anfitrion, por id
     uint16_t m_RosterPort = 0;
+    std::string m_RelayAddress, m_RosterRoom, m_RoomSecret;
+    uint16_t m_RelayPort = 0;
+    bool m_MigFailed = false;
+    int m_PromoteTries = 0;
+    bool m_HandingOver = false, m_HandoverRejoin = false, m_HandoverDone = false, m_HasHostEconomy = false;
+    double m_HandoverDeadlineMs = 0.0;
+    EconomySnapshot m_HostEconomy;
+    double m_MigRetryAtMs = 0.0;
     std::vector<CheckpointEntry> m_Checkpoint;   // invitado siguiente: la economia de todos
     std::map<std::string, EconomySnapshot> m_Seed;   // nuevo anfitrion: de donde arrancan las copias
     bool m_Migrating = false, m_Promoted = false, m_MigAttempt = false;
@@ -152,10 +174,11 @@ private:
     double m_RosterAccumulator = 0.0, m_CheckpointAccumulator = 0.0;
     void SavePeer(const Peer& peer);
     void SendRoster();
+    void FinishHandover();
     void SendCheckpoint();
     void BeginMigration();
     void MigrationTick();
-    void PromoteToHost();
+    bool PromoteToHost();
     void StartLedger(Peer& peer);
     std::optional<EconomySync> m_PendingEconomy;
     size_t m_EconomyRejections = 0;

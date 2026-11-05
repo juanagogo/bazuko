@@ -26,6 +26,14 @@ public:
 
     static std::unique_ptr<Host> CreateServer(uint16_t port, size_t maxClients);   // port 0 = el sistema elige uno libre (ver Port())
     static std::unique_ptr<Host> CreateClient();
+    // Por internet sin abrir puertos (ver RelayProtocol.hpp): el anfitrion crea una sala en el servidor de relevo (o retoma una con su codigo y secreto);
+    // los invitados entran por su codigo. Para el resto del codigo se comportan igual que un servidor y un cliente directos (mismos eventos).
+    static std::unique_ptr<Host> CreateRelayHost(const std::string& relayAddress, uint16_t relayPort, const std::string& roomCode = {}, const std::string& roomSecret = {});
+    static std::unique_ptr<Host> CreateRelayGuest(const std::string& relayAddress, uint16_t relayPort, const std::string& roomCode);
+    bool IsRelay() const;
+    const std::string& RoomCode() const;     // anfitrion: vacio hasta que el relevo asigna la sala
+    const std::string& RoomSecret() const;   // anfitrion: para que otro jugador pueda retomar la sala
+    bool RoomFailed() const;                 // anfitrion: el relevo no pudo crear o retomar la sala (o se cayo)
     uint16_t Port() const;
 
     // Cliente: abre la conexion (el evento Connected llega por Poll). Devuelve false si no se pudo preparar.
