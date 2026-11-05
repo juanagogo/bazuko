@@ -38,7 +38,7 @@ PLAYWRIGHT_GPU=1 npx playwright test tests/e2e/mixamo-room.spec.js tests/e2e/ani
 
 ## Integración continua
 
-`.github/workflows/ci.yml` ejecuta `npm ci`, `npm test` y `npm run build` en cada pull request y en cada push a `main`. Solo descarga de Git LFS los WAV de `public/audio`; los respaldos del port C++ en `cpp/assets/audio` no se descargan. Las pruebas de navegador no forman parte de la CI.
+`.github/workflows/ci.yml` ejecuta `npm ci`, `npm test` y `npm run build` en cada pull request y en cada push a `main`. Solo descarga de Git LFS los WAV de `public/audio`; los respaldos del port C++ en `cpp/assets/audio` no se descargan. Las pruebas de navegador no forman parte de la CI. El build retira de `dist/` las copias de modelos de `public/` que el juego web no carga (el port C++ usa las de `cpp/public`), y `dist-ligero.test.js` falla si alguno de ellos recibe referencias del juego.
 
 ## Preparar Chromium
 

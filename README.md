@@ -70,6 +70,8 @@ Las cinco capturas están en [docs/images](docs/images), en formato WebP optimiz
 
 ## Ejecutar en el navegador
 
+Si no quieres instalar nada, puedes jugar la [demo publicada en GitHub Pages](https://juanagogo.github.io/bazuko/).
+
 Necesitas Node.js 22.12 o posterior, npm, Git y Git LFS. Los motores, claxones, pasos y ambiente usan Opus; los cinco efectos WAV pequeños se distribuyen con Git LFS.
 
 ```sh
