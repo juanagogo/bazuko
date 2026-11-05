@@ -11,6 +11,7 @@ import { World } from '../world/World.js';
 import { Dog, DOG_DEFAULT_LOOK, legacyPetLook } from '../entities/Dog.js';
 import { CompanionNavigation } from '../systems/CompanionNavigation.js';
 import { Minimap, nombreALaVista } from '../ui/Minimap.js';
+import { ZonaAviso } from '../ui/ZonaAviso.js';
 import { mojarCarton } from '../ui/mojado.js';
 import { servicePlaces, needContext, SHOP_PRICES, SHOP_OFFERS } from '../ui/mapServices.js';
 import { originEffect } from '../data/origins.js';
@@ -173,6 +174,7 @@ export class Game {
     this.renderer.overlayLights = [this.sceneMgr.ambient, this.sceneMgr.sun, ...this.localLights.pool];
     this.menu = new Menu();
     this.minimap = new Minimap();
+    this.zonaAviso = new ZonaAviso();
     this.weather = new WeatherSystem(this.sceneMgr.scene);
     this.hud.weather = this.weather;
     window.addEventListener('weather-lightning', ({ detail }) => this.audio.playThunder?.(detail?.distance));
@@ -1075,6 +1077,7 @@ export class Game {
       return;
     }
     this.momentos?.update(dt, this.player, this.stats, this.clock);
+    this.zonaAviso?.update(dt, this.world.active, this.player.position.x, this.player.position.z);
     // Deja ver el lanzamiento y la caída antes de abrir la recuperación fatal.
     if (this.stats.salud <= 0 && this.player.isRagdollActive) {
       if (this.steal?.minigameActive) this.steal._endMinigame(false, 'cancel');
