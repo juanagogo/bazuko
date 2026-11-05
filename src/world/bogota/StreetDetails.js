@@ -641,7 +641,7 @@ export function addStreetDetails(district, collisions = null) {
   const glowMaterial = fadeGlowInFog(new THREE.MeshBasicMaterial({ map: glowTexture(), vertexColors: true, transparent: true, opacity: 0, visible: false,
     depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide, forceSinglePass: true, polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -3 }));
   glowMaterial.name = 'Calle: luz de faroles';
-  const glow = new StreetBatch({ material: glowMaterial, name: 'Luz de faroles', receiveShadow: false, renderOrder: -1, chunkSize: STATIC_CHUNK_SIZE * 2 });
+  const glow = new StreetBatch({ material: glowMaterial, name: 'Luz de faroles', receiveShadow: false, renderOrder: -1, chunkSize: STATIC_CHUNK_SIZE * 4 });
   addLampGlow(glow, district);
   addLanternPools(glow, district);
   registerNightGlow(glowMaterial);
