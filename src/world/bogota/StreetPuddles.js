@@ -91,7 +91,7 @@ export function addStreetPuddles(group, district, runs, glowMaterial = null) {
   material.name = 'Calle: charcos';
   puddleMaterial = material;
   lampGlow = glowMaterial;
-  const batch = new StreetBatch({ material, name: 'Charcos', receiveShadow: true, renderOrder: -2, chunkSize: STATIC_CHUNK_SIZE * 2 });
+  const batch = new StreetBatch({ material, name: 'Charcos', receiveShadow: true, renderOrder: -2, chunkSize: STATIC_CHUNK_SIZE * 4 });
   const color = tint('#262d33');
   const variants = [[0, 0, 1, 1], [1, 0, 0, 1], [0, 1, 1, 0], [1, 1, 0, 0]];
   const plan = planPuddles(district.map, runs, (x, z) => district.getGroundHeight(x, z));

@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { el } from './dom.js';
 import { icon } from './icons.js';
+import { updateFarStreetLamps } from '../world/bogota/StreetLampModel.js';
 
 const CAMERA_KEYS = ['mode', 'yaw', 'pitch', 'distance', 'baseFov', 'targetFov'];
 const ORBIT_KEYS = new Set(['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown']);
@@ -153,6 +154,7 @@ export class PhotoMode {
     this._frustum.setFromProjectionMatrix(this._projection.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse));
     // Una foto se mira con calma: en ella, todos los postes completos.
     district.signals?.updateDetail(camera.position, false);
+    if (district._lampBatches) updateFarStreetLamps(district._lampBatches, camera.position, false);
     const actors = [...(district.npcs ?? []),
       ...(this.game.roadRage?.preloadables ?? []).filter(npc => npc.active),
       ...(this.game.limpieza?.preloadables ?? []).filter(npc => npc.active)];

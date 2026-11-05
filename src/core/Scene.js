@@ -290,7 +290,9 @@ function createSkyDome() {
           float density = cloudDensity(uv, threshold);
           density = max(density, smoothstep(0.86, 1.0, cloudCover) * 0.92);
           density *= smoothstep(0.0, 0.1, dir.y);
-          float towardSun = cloudDensity(uv + sunDirection.xz * 0.55, threshold);
+          // En baja, una sola lectura de nubes por píxel.
+          float towardSun = density;
+          if (octaves > 2.5) towardSun = cloudDensity(uv + sunDirection.xz * 0.55, threshold);
           float thickness = clamp(towardSun * 0.75 + cloudCover * 0.32, 0.0, 1.0);
           vec3 cloud = mix(cloudLight, cloudShadow, thickness);
           // La nube se funde con la bruma lejos, no recorta el horizonte.

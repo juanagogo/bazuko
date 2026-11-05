@@ -175,6 +175,8 @@ export class Game {
     this.performanceHUD = new PerformanceHUD();
     this.profiler = new FrameProfiler();
     this.localLights = new LocalLights(this.sceneMgr.scene);
+    // Antes del primer setGraphicsQuality: _setShadows mueve sombras y luces de punto a la vez.
+    this.renderer.pointLights = this.localLights;
     this.renderer.overlayLights = [this.sceneMgr.ambient, this.sceneMgr.sun, ...this.localLights.pool];
     this.menu = new Menu();
     this.minimap = new Minimap();
