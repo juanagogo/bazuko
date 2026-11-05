@@ -286,7 +286,7 @@ body.mojado #quickbar .qb-slot.elegido::after { border-image-source: var(--m-cir
 .is-photo-mode #steal-minigame { visibility: hidden !important; }
 
 /* ---------- cuando no toca ---------- */
-body:has(#menu:not([hidden]), #inv-overlay.open, #craft-panel.open, #talent-panel.open, #dealer-panel.open, #creator-modal:not([hidden]), #cerrado:not([hidden])) :is(#topbar, #hud-dock, #panel-dock, #quickbar, #game-settings, #camera-controls, #controls-help, #controls-help-toggle, #interaction-prompt, #movement-status, #poop-hud-ammo, #mision, #boost-indicator, #cart-indicator) {
+body:has(#menu:not([hidden]), #inv-overlay.open, #craft-panel.open, #talent-panel.open, #dealer-panel.open, #creator-modal:not([hidden]), #cerrado:not([hidden])) :is(#topbar, #hud-dock, #panel-dock, #quickbar, #game-settings, #camera-controls, #controls-help, #controls-help-toggle, #interaction-prompt, #movement-status, #poop-hud-ammo, #mision, #boost-indicator, #cart-indicator, #zona-cartel) {
   visibility: hidden; pointer-events: none;
 }
 body.is-loading :is(#performance-panel, #quickbar, #hud-dock, #panel-dock) { visibility: hidden; }
@@ -477,6 +477,7 @@ body.is-loading :is(#performance-panel, #quickbar, #hud-dock, #panel-dock) { vis
   body:has(#wanted[data-estado="encima"]) #hud-dock { display: block; padding-top: 44px; }
   body:has(#wanted[data-estado="encima"]) #minimap-container { padding: 0; }
   body:has(#wanted[data-estado="encima"]) .radar__screen,
+  body:has(#wanted[data-estado="encima"]) .radar__calle,
   body:has(#wanted[data-estado="encima"]) #needs-subidas,
   body:has(#wanted[data-estado="encima"]) #needs-details,
   body:has(#wanted[data-estado="encima"]) #disease-panel { display: none; }

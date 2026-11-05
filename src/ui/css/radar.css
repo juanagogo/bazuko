@@ -15,6 +15,9 @@
 .radar__hacer kbd { font-size: 14px; }
 .minimap-info { white-space: pre-line; }
 
+/* La vía donde va el jugador, bajo el plano. Si el radar está oculto, tampoco se lee. */
+.radar__calle { padding: 1px 8px 6px; font-size: 17px; font-weight: 800; line-height: 1.05; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
 .radar__screen { position: relative; display: grid; grid-template-columns: minmax(0, 1fr) 36px; gap: 8px; }
 .radar__papel { position: relative; display: block; min-width: 0; }
 #minimap-canvas { display: block; width: 100%; height: var(--radar-alto); }
@@ -23,7 +26,7 @@
 .radar__tools { display: flex; flex-direction: column; gap: 5px; }
 .radar__tools .cinta { flex: 1; width: 100%; min-height: 0; padding: 0; font-size: 20px; }
 .radar__show { display: none; margin-bottom: 4px; align-self: flex-start; }
-#minimap-container.hidden .radar__screen { display: none; }
+#minimap-container.hidden :is(.radar__screen, .radar__calle) { display: none; }
 #minimap-container.hidden .radar__show { display: inline-flex; }
 
 /* En el celular las herramientas salen al tocar el radar. */

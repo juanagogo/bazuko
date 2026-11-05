@@ -163,6 +163,8 @@ La foto la toma una cámara aparte, parada a unos 3 m enfrente de la persona, o 
 
 **Tirado en el piso.** En el suelo, sin que alcance para morir, baja un cartón que dice qué pasó, y «Ya me levanto», y deja ver al personaje: «Me llevó un carro» si fue un atropello, «TE CASCARON» si fue una golpiza. No lleva botón ni pausa, y se va solo. Un golpe suelto es un tambaleo; un golpe con la salud en 35 o menos deja tirado de verdad, con 8 s de respiro antes de que otro golpe pueda volver a tumbarlo. Mientras está en el piso la limpieza social no le pega: el siguiente golpe es cuando se pare. En celular va justo debajo del HUD, donde estaría la misión: no tapa las cifras.
 
+**Dónde estoy.** Al entrar a una zona nueva baja un cartón corto con su nombre («La Candelaria», «Parque Tercer Milenio», «Parque del Lago»), sin botón ni pausa, y se va solo a los 3,4 s. Bajo el radar queda la vía donde va el jugador, con el mismo nombre que usa la plana del arresto. Las zonas son las de `Bogota._zoneAt`, más el lago, que allí cae en los barrios.
+
 **El cosquilleo.** Una barra sobre un cartón chico, con la zona buena a marcador y la marca que corre en rojo. Debajo, en su propia línea y a marcador, qué oprimir: Espacio para detener y Esc para cancelar; con el dedo, «Toque la barra en lo negro».
 
 **La partida dañada.** Si lo guardado no se puede leer, no se queda en la carga: se aparta sin borrarlo, y se empieza sin ello, con un aviso que lo dice.
