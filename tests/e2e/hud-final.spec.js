@@ -127,6 +127,24 @@ test('nada se tapa: Envión con Energía, tecla con Envión, y la tecla no va so
   }
 });
 
+test('en ventanas medianas la tecla no pisa el radar y lo urgente no pisa el objetivo', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await readyGame(page);
+  await conPrompt(page, 'dog');
+  // Frío de noche: el retazo sale encima del cartón del radar.
+  await page.evaluate(() => { Object.assign(window.__game.stats, { calor: 0 }); window.__game.clock.hour = 23; });
+  await expect(page.locator('#retazo')).toBeVisible();
+  await expect(page.locator('#objetivo')).toBeVisible();
+  for (const [width, height] of [[1024, 640], [1024, 700], [1100, 700], [1280, 720], [1440, 900]]) {
+    await page.setViewportSize({ width, height });
+    await cuadros(page);
+    const prompt = await caja(page, '#interaction-prompt');
+    expect(prompt, `tecla a ${width}`).not.toBeNull();
+    expect(seTocan(prompt, await caja(page, '#hud-dock')), `tecla sobre el radar a ${width}×${height}`).toBe(false);
+    expect(seTocan(await caja(page, '#retazo'), await caja(page, '#objetivo')), `retazo sobre el objetivo a ${width}×${height}`).toBe(false);
+  }
+});
+
 test('el cartel de la zona no pisa el objetivo, la misión ni la plata', async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 720 });
   await readyGame(page);

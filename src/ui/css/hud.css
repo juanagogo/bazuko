@@ -334,6 +334,11 @@ body.is-loading :is(#performance-panel, #quickbar, #hud-dock, #panel-dock) { vis
   #boost-indicator { right: calc(240px + var(--safe-r)); bottom: calc(204px + var(--safe-b)); }
 }
 
+@media (min-width: 900px) and (max-width: 1100px) {
+  /* Centrada en la calle, pero nunca encima del cartón del radar (340 px a la izquierda). Más angosto, el radar sube. */
+  #interaction-prompt { left: max(50%, calc(386px + var(--safe-l) + 15vw)); }
+}
+
 /* ==================== celular y ventanas angostas: lo común ==================== */
 @media (max-width: 899px), (max-height: 500px) and (orientation: landscape) {
   /* Nada que no sea botón agarra el dedo: lo que queda libre es para mirar. */
