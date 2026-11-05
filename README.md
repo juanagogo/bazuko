@@ -270,7 +270,7 @@ Referencias técnicas: [renderizado y métricas de Three.js](https://threejs.org
 
 ## Temblor de cámara
 
-La cámara acusa los golpes: cada pérdida de salud de 2 puntos o más en un instante (atropellos, puños, varillas) la sacude según el daño, también caer desde más alto que un salto normal y acertar un golpe propio, más suave. El temblor solo gira la cámara, nunca la mueve, para que no atraviese paredes, y decae en menos de un segundo. El hambre, la sed y el frío bajan la salud despacio y no lo disparan. Con la preferencia de movimiento reducido del sistema no hay temblor.
+La cámara acusa los golpes con un temblor mínimo, apenas perceptible: cada pérdida de salud de 2 puntos o más en un instante (atropellos, puños, varillas) la mueve según el daño, sin pasar de un grado, y también caer desde más alto que un salto normal y acertar un golpe propio, todavía más suave. El temblor solo gira la cámara, nunca la mueve, para que no atraviese paredes, y decae en menos de un segundo. El hambre, la sed y el frío bajan la salud despacio y no lo disparan. Con la preferencia de movimiento reducido del sistema no hay temblor.
 
 ## Sonido
 

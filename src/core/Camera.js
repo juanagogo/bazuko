@@ -3,7 +3,8 @@ import { GRAPHICS_PROFILES } from './GraphicsQuality.js';
 
 // Temblor por trauma: los golpes suman trauma (0–1) y el temblor crece con su cuadrado, así uno leve casi no se nota.
 const TRAUMA_DECAY = 1.5;                 // trauma que se pierde por segundo
-const SHAKE_MAX = { yaw: .035, pitch: .03, roll: .045 }; // radianes con trauma 1
+// Pedido de diseño: apenas perceptible. Con trauma 1 la vista se mueve menos de un grado.
+const SHAKE_MAX = { yaw: .016, pitch: .012, roll: .016 }; // radianes con trauma 1
 // Ruido suave y determinista: suma de senos con frecuencias que no se repiten pronto.
 const shakeNoise = (t, seed) => (Math.sin(t * 1.0 + seed) + Math.sin(t * 2.31 + seed * 1.7) * .5 + Math.sin(t * 4.17 + seed * 2.9) * .25) / 1.75;
 
