@@ -87,6 +87,13 @@ export const OBJECTIVES = [
     reward: { xp: 30 }
   },
   {
+    id: 'robar-carro',
+    title: 'Robar un carro',
+    hint: 'Junto a un carro parqueado o detenido en el semáforo, oprimo Y.',
+    event: 'carjack', goal: 1,
+    reward: { xp: 50 }
+  },
+  {
     id: 'ahorrar',
     title: 'Ahorrar $ 20.000',
     hint: 'Reciclo, pido limosna con B o vendo lo que encuentro.',
