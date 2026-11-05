@@ -30,8 +30,9 @@ export class ObjectiveTracker {
    * @param {{value:number, goal:number}} progress
    * @param {number} index posición (0…total)
    * @param {number} total
+   * @param {string} [cuenta] lo que va arriba en lugar de «Objetivo N de M» (los encargos)
    */
-  render(def, progress, index, total) {
+  render(def, progress, index, total, cuenta = null) {
     if (!this.root) return;
     const fmt = (v) => def?.money ? cop(v) : String(Math.floor(v));
     const key = def ? `${def.id}|${fmt(progress.value)}|${progress.goal}` : 'fin';
@@ -44,7 +45,7 @@ export class ObjectiveTracker {
     this.root.hidden = false;
     const pct = Math.round(100 * progress.value / progress.goal);
     this.root.innerHTML =
-      `<span class="objetivo__cuenta">Objetivo ${index + 1} de ${total}</span>`
+      `<span class="objetivo__cuenta">${escapeHTML(cuenta ?? `Objetivo ${index + 1} de ${total}`)}</span>`
       + `<strong class="objetivo__titulo">${escapeHTML(def.title)}</strong>`
       + `<span class="objetivo__pista fino">${escapeHTML(def.hint)}</span>`
       + (progress.goal > 1
