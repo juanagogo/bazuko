@@ -53,7 +53,8 @@ export class WitnessSystem {
   _witnesses(playerPos, victim) {
     const npcs = this.game?.world?.active?.npcs ?? [];
     const collisions = this.game?.collisions;
-    const r2 = WITNESS.radius * WITNESS.radius;
+    const radius = WITNESS.radius * (this.game?.jornada?.franja?.testigosRadio ?? 1);
+    const r2 = radius * radius;
     const list = [];
     for (const npc of npcs) {
       if (!npc?.position || npc === victim || npc._disposed || npc.hp <= 0 || npc.koState) continue;
@@ -78,7 +79,8 @@ export class WitnessSystem {
     if (!witnesses.length) return 0;
     this._cooldown = WITNESS.cooldown;
     let caller = false, filmer = false, screamed = false;
-    const callChance = this.game?.reputation?.probabilidadDeLlamar?.(WITNESS.callChance) ?? WITNESS.callChance;
+    const base = WITNESS.callChance * (this.game?.jornada?.franja?.llamar ?? 1);
+    const callChance = this.game?.reputation?.probabilidadDeLlamar?.(base) ?? base;
     for (const npc of witnesses) {
       if (!caller && !this.calls.length && this.random() < callChance && npc.witness?.('llamar', WITNESS.callSeconds)) {
         caller = true;

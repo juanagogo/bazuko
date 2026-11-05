@@ -321,7 +321,7 @@ export class TrafficSystem {
 
   /** Metros a los que una patrulla alcanza a ver un robo: cada nivel de fichado los alarga. */
   get sightRange() {
-    return POLICE_SIGHT_RANGE * (1 + POLICE_SIGHT_PER_WANTED * this.wantedLevel);
+    return POLICE_SIGHT_RANGE * (1 + POLICE_SIGHT_PER_WANTED * this.wantedLevel) * (this.franja?.policiaVista ?? 1);
   }
 
   /** Metros a los que la patrulla deja de perseguir: con cada nivel aguanta más. */
@@ -336,7 +336,8 @@ export class TrafficSystem {
 
   /** Segundos sin verlo para darlo por perdido. */
   get lostSightSeconds() {
-    return POLICE_LOST_SIGHT_SECONDS + POLICE_LOST_SIGHT_PER_WANTED * this.wantedLevel;
+    // De noche lo pierden antes de vista: la franja la pone el juego con JornadaSystem.
+    return (POLICE_LOST_SIGHT_SECONDS + POLICE_LOST_SIGHT_PER_WANTED * this.wantedLevel) * (this.franja?.policiaPierde ?? 1);
   }
 
   /** Cuántas patrullas pueden perseguir a la vez: una, y por radio se suma otra en los niveles 2 y 3. */
