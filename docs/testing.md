@@ -165,3 +165,7 @@ La ejecución con renderizado por software sirve para verificar flujos; sus FPS 
 `tests/tactil.test.js` comprueba los controles táctiles sin navegador: palanca, activación, teclas inyectadas, «Más», textos sin teclas y la hoja. `tests/e2e/tactil.spec.js` los recorre con toques emulados en Chromium: dos dedos a la vez, sostener, tocar con otro dedo, volver de la pausa, y que con ratón y teclado no aparezca nada. Es emulación: no reemplaza probar en un teléfono.
 
 `PLAYWRIGHT_GPU=1 npm run test:e2e:headed -- tests/e2e/identity.spec.js tests/e2e/game.spec.js tests/e2e/upgrade.spec.js` verifica la interfaz BAZUKO con la GPU local: distribución de controles y dinero, inventario con objetos, accesos rápidos, creador, pestañas, mapa/GPS y modo foto. La prueba de identidad incluye escritorio, móvil estrecho y orientación horizontal; los controles deben caber y poder pulsarse sin solaparse. Ver `docs/identidad-visual.md` para paleta y responsabilidades de cada hoja de estilos.
+
+## Prueba de humo en CI
+
+`tests/e2e/smoke.spec.js` arranca el juego en Chromium sin ventana, crea un personaje, entra a la partida y comprueba que haya una partida guardada, sin errores de página ni respuestas 4xx/5xx. El trabajo `humo-navegador` de `.github/workflows/ci.yml` la ejecuta en cada pull request; tarda unos dos minutos con renderizado por software. Localmente: `npx playwright test smoke.spec.js`. Si ya hay un Chromium instalado, `PW_CHROMIUM_PATH` indica su ruta para no descargar otro.

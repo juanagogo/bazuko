@@ -65,3 +65,15 @@
 
 /* El golpe que llega de un lado: `_flashImpact` le pone el degradado según de dónde vino. */
 .assault-impact { position: fixed; inset: 0; z-index: 120; opacity: 0; pointer-events: none; transition: opacity .12s ease-out; }
+
+/* Error inesperado o pérdida del contexto gráfico (ErrorScreen.js). El suave deja seguir jugando desde una esquina. */
+.error-screen {
+  position: fixed; inset: 0; z-index: 20001;
+  display: grid; place-items: center; padding: 16px;
+  background: rgba(20, 17, 12, .82);
+}
+.error-screen--suave { inset: auto calc(16px + var(--safe-r)) calc(16px + var(--safe-b)) auto; padding: 0; background: none; }
+.error-screen__caja { max-width: min(420px, calc(100vw - 32px)); padding: 14px 18px 16px; font-size: var(--letra-juego); }
+.error-screen__caja h2 { margin: 0 0 6px; font-weight: 800; font-size: var(--letra-titulo); line-height: 1; }
+.error-screen__caja p { margin: 0 0 12px; line-height: 1.25; }
+.error-screen__acciones { display: flex; flex-wrap: wrap; gap: 8px; }
