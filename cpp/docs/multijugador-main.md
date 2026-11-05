@@ -41,9 +41,9 @@ Reparto de las variables, que es lo que formará la `PlayerSession`:
 
 ## 3. Plan por pasos (cada uno verificable y reversible)
 
-1. **Reunir el estado en `PlayerSession`** (`game/PlayerSession.hpp`) y que `main()` use **referencias con el mismo nombre** (`auto& money = session.money;`). No cambia ni una línea de lógica: las 98 referencias a `inventory`, 67 a `needs[`, etc. siguen compilando igual. *Hecho en este paso.*
+1. ~~**Reunir el estado en `PlayerSession`**~~ (`game/PlayerSession.hpp`) y que `main()` use **referencias con el mismo nombre** (`auto& money = session.money;`). No cambia ni una línea de lógica: las 98 referencias a `inventory`, 67 a `needs[`, etc. siguen compilando igual. *Hecho en este paso.*
 2. **Probar el guardado y la carga** con la sesión (el `savegame.json` resultante debe ser idéntico antes y después).
-3. **Sacar la lógica de supervivencia** (lluvia, frío, necesidades, adrenalina, enfermedades) a `SurvivalSystem::Update(session, world, dt)`. Es la parte con menos dependencias de entrada o dibujo.
+3. ~~**Sacar la lógica de supervivencia**~~ **Hecho**: `game/Survival.cpp` (`StepSurvival`) contiene frío, hambre, sed, energía, higiene, ánimo, salud, lluvia, gripe y adrenalina; `main()` solo rellena sus datos y avisa a la interfaz. Prueba diferencial `bazuko_survival_test`: una copia literal del código viejo contra la nueva en **600 000 pasos aleatorios**, idénticos bit a bit (incluidos empapados, resfriados, adrenalinas y frío) y con la misma secuencia de azar.
 4. **Sacar la economía** (botín, clasificar, vender, tienda, fabricar, talentos) a `EconomySystem`, ya con comandos (`CollectCommand`, `SellCommand`...) en lugar de teclas.
 5. **Movimiento**: `PlayerController::Step(session, input, world, dt)` con la misma regla para cliente (predicción) y servidor (validación). Hoy está mezclado con el ragdoll y las animaciones.
 6. **Combate**: `MeleeCombat` ya existe y es la base de la validación del servidor.

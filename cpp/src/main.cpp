@@ -19,6 +19,7 @@
 #include "ui/Carton.hpp"
 #include "game/PlayerState.hpp"
 #include "game/PlayerSession.hpp"
+#include "game/Survival.hpp"
 #include "world/SafeSpawn.hpp"
 #include "world/Atmosphere.hpp"
 #include "world/Viaduct.hpp"
@@ -1059,88 +1060,30 @@ int main(int argc, char** argv) {
         }
 
         const float dtClamped = std::max(0.0f, dt);
-        {   // calor: se gasta con el tiempo; junto al fogon encendido del cambuche se mantiene y la ropa mojada se seca mas rapido
-            glm::vec4 fire;
-            const bool nearFire = simulation.GetCambucheFireLight(0.0f, playerPos, fire) && glm::distance(glm::vec2(playerPos.x, playerPos.z), glm::vec2(fire.x, fire.z)) < 3.6f;
-            if (nearFire) { warmTimer = std::max(warmTimer, 60.0f); playerWetness = std::max(0.0f, playerWetness - dtClamped / 12.0f); }
-            else warmTimer = std::max(0.0f, warmTimer - dtClamped);
-            ui.SetWarmth(warmTimer);
-            // «La Nevera» (StatsSystem.js): de noche y con lluvia, sin calor, el frio cala los huesos y gasta la energia
-            playerFreezing = simulation.IsNight() && simulation.IsRaining() && warmTimer <= 0.0f;
-            if (playerFreezing) needs[2] = std::max(0.0f, needs[2] - 0.35f * dtClamped);
-        }
         begCooldownRemaining = std::max(0.0f, begCooldownRemaining - dtClamped);
-        const float hungerAndThirstDecay = talentEffect("decayMult");
-        needs[0] = std::max(0.0f, needs[0] - (100.0f / 7200.0f) * dtClamped * hungerAndThirstDecay);
-        needs[1] = std::max(0.0f, needs[1] - (100.0f / 5400.0f) * dtClamped * hungerAndThirstDecay);
-        needs[2] = std::max(0.0f, needs[2] - (100.0f / 5400.0f) * dtClamped - (isRunning && currentSpeed > 0.0f ? 0.01f * dtClamped : 0.0f));
-        needs[4] = std::max(0.0f, needs[4] - (100.0f / 21600.0f) * dtClamped);
-        needs[6] = std::max(0.0f, needs[6] - (60.0f / 7200.0f) * dtClamped);
-        // Lluvia: moja al jugador (empapado en ~45 s con lluvia fuerte), lo lava un poco y, si sigue mojado,
-        // puede resfriarse; con el tiempo se seca
-        {
-            const float rain = simulation.GetRainIntensity();
-            const bool wasSoaked = playerWetness >= 0.7f;
-            if (playerWaterDepth > 0.35f) playerWetness = std::min(1.0f, playerWetness + dtClamped * 0.8f);   // metido en el lago
-            if (rain > 0.1f) {
-                playerWetness = std::min(1.0f, playerWetness + dtClamped * rain / 45.0f);
-                needs[4] = std::min(100.0f, needs[4] + 0.03f * rain * dtClamped);
-            } else {
-                playerWetness = std::max(0.0f, playerWetness - dtClamped / 120.0f);
-            }
-            if (!wasSoaked && playerWetness >= 0.7f) ui.Notify("Estás empapado por la llovizna. Busca resguardo o te resfriarás.", ToastType::Warn);
-            if (playerWetness >= 0.6f) {
-                coldCheckTimer += dtClamped;
-                if (coldCheckTimer >= 20.0f) {
-                    coldCheckTimer = 0.0f;
-                    const float chance = 0.04f * (simulation.IsNight() ? 1.6f : 1.0f) * (warmTimer > 0.0f ? 0.2f : 1.0f) * talentEffect("diseaseResist")
-                        * characterManager.GetDiseaseResistance();
-                    const bool hasCold = std::any_of(diseases.begin(), diseases.end(), [](const DiseaseState& disease) { return disease.id == "gripe"; });
-                    if (!hasCold && std::uniform_real_distribution<float>(0.0f, 1.0f)(lootRandom) < chance) {
-                        diseases.push_back({"gripe", 45.0f, 0.12f, 0.01f});
-                        ui.Notify("Te resfriaste por la lluvia: tienes gripe.", ToastType::Warn);
-                    }
-                }
-            } else {
-                coldCheckTimer = 0.0f;
-            }
-        }
-        float healthDrain = 0.0f;
-        float mentalDrain = 0.0f;
-        for (auto disease = diseases.begin(); disease != diseases.end();) {
-            healthDrain += disease->healthDrain;
-            mentalDrain += disease->mentalDrain;
-            disease->remaining -= dtClamped;
-            if (disease->remaining <= 0.0f) disease = diseases.erase(disease); else ++disease;
-        }
-        float moodDecay = 100.0f / 10800.0f
-            + (simulation.IsNight() ? 100.0f / 21600.0f : 0.0f) + mentalDrain;
-        if (needs[0] < 30.0f) moodDecay *= 1.5f;
-        if (needs[1] < 30.0f) moodDecay *= 1.5f;
-        if (needs[2] < 30.0f) moodDecay *= 1.3f;
-        if (playerFreezing) moodDecay *= 1.25f;
-        if (warmTimer > 0.0f) moodDecay *= 0.8f;
-        if (withdrawal > 0.0f) {
-            moodDecay *= 1.5f;
-            if (criticalWithdrawal) moodDecay *= 2.2f;
-            else if (highWithdrawal) moodDecay *= 1.6f;
-        }
-        needs[5] = std::max(0.0f, needs[5] - moodDecay * dtClamped * talentEffect("mentalDecayMult"));
-
-        if (needs[0] <= 0.0f) healthDrain += 100.0f / 1800.0f;
-        if (needs[1] <= 0.0f) healthDrain += 100.0f / 1200.0f;
-        needs[3] = std::max(0.0f, needs[3] - healthDrain * dtClamped);
-        ApplyHealthRegeneration(needs, withdrawal, healthDrain, dtClamped);
-
-        // Actualización de Boost (Adrenalina)
-        if (boostActive && dtClamped > 0.0f) {
-            boostTimer = std::max(0.0f, boostTimer - dtClamped);
-            needs[3] = std::max(0.0f, needs[3] - 3.0f * dtClamped);
-            if (boostTimer <= 0.0f || needs[3] <= 5.0f) {
-                boostActive = false;
-                boostTimer = 0.0f;
-                ui.SetPickupNotification("La adrenalina se ha agotado.");
-            }
+        {   // supervivencia (frio, hambre, sed, lluvia, enfermedades, animo, salud y adrenalina): game/Survival.cpp; aqui solo se avisa a la interfaz
+            glm::vec4 fire;
+            SurvivalInput survival;
+            survival.dt = dtClamped;
+            survival.nearFire = simulation.GetCambucheFireLight(0.0f, playerPos, fire) && glm::distance(glm::vec2(playerPos.x, playerPos.z), glm::vec2(fire.x, fire.z)) < 3.6f;
+            survival.night = simulation.IsNight();
+            survival.raining = simulation.IsRaining();
+            survival.rainIntensity = simulation.GetRainIntensity();
+            survival.waterDepth = playerWaterDepth;
+            survival.running = isRunning;
+            survival.speed = currentSpeed;
+            survival.hungerThirstDecayMult = talentEffect("decayMult");
+            survival.diseaseResistTalent = talentEffect("diseaseResist");
+            survival.diseaseResistCharacter = characterManager.GetDiseaseResistance();
+            survival.mentalDecayMult = talentEffect("mentalDecayMult");
+            survival.withdrawal = withdrawal;
+            survival.highWithdrawal = highWithdrawal;
+            survival.criticalWithdrawal = criticalWithdrawal;
+            const SurvivalEvents survivalEvents = StepSurvival(session, survival, [&]() { return std::uniform_real_distribution<float>(0.0f, 1.0f)(lootRandom); });
+            ui.SetWarmth(warmTimer);
+            if (survivalEvents.becameSoaked) ui.Notify("Estás empapado por la llovizna. Busca resguardo o te resfriarás.", ToastType::Warn);
+            if (survivalEvents.caughtCold) ui.Notify("Te resfriaste por la lluvia: tienes gripe.", ToastType::Warn);
+            if (survivalEvents.adrenalineEnded) ui.SetPickupNotification("La adrenalina se ha agotado.");
         }
 
         // Psicosis y alucinaciones por abstinencia
