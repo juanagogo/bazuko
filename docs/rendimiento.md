@@ -186,6 +186,7 @@ Las primeras partidas van en baja y un equipo lento se queda ahí. Un cuadro de 
 
 Los peatones caminan, así que su parte varía algo entre una medición y otra. Los cuadros por segundo no están en esta tabla.
 
+- **El cielo de baja lee las nubes una sola vez.** La segunda consulta, la desplazada hacia el sol, se salta en baja.
 - **La resolución de baja arranca en 0.85.** Un cuadro de esa calidad dibuja 28 % menos fragmentos que a resolución nativa y la subida automática a media devuelve el tope de esa calidad.
 - **Transparentes de dos caras en una sola pasada.** Three dibuja dos veces un material transparente `DoubleSide` y le pide programa en cada dibujo. Con `forceSinglePass` esa llamada y ese trabajo desaparecen. Lo usan el aro y el aura de las bolsas, la humedad de las fachadas, la luz de los faroles y, solo en el modelo lejano de los peatones, barbas, cejas y pestañas; el modelo completo conserva las dos pasadas.
 - **El aura apagada no se dibuja.** Casi siempre tiene opacidad cero. `material.visible` la apaga y la devuelve con el boost; los flags `.visible` siguen siendo de la cosecha y la reaparición.
