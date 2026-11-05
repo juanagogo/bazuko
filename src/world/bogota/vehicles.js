@@ -242,15 +242,14 @@ export function makeVehicle(kind = 'carro', seedColor = 0, { beams = true, model
   bodyVisual.add(trimMesh, lampMesh, glassMesh);
 
   const wipers = parked ? [] : makeWipers(spec, body, geo.wiper, s.trim);
-  const wiperParents = wipers.map(wiper => wiper.parent);
-  for (const parent of wiperParents) bodyVisual.add(parent);
+  for (const wiper of wipers) bodyVisual.add(wiper.parent);
 
-  const wheels = [], frontWheelPivots = [], wheelPivots = [], r = spec.r;
+  const wheels = [], frontWheelPivots = [], r = spec.r;
   if (!parked) for (const [x, z, sideZ] of wheelSeats(spec, body)) {
     const pivot = new THREE.Group(); pivot.position.set(x, r, z); pivot.name = x > 0 && x === spec.axleF ? 'Eje delantero dirigible' : 'Eje trasero';
     const wheel = new THREE.Mesh(sideZ > 0 ? geo.wheelRight : geo.wheelLeft, s.trim); wheel.name = 'Rueda'; wheel.castShadow = wheel.receiveShadow = true;
     wheel.userData.radius = r; wheel.userData.front = x === spec.axleF;
-    pivot.add(wheel); group.add(pivot); wheels.push(wheel); wheelPivots.push(pivot);
+    pivot.add(wheel); group.add(pivot); wheels.push(wheel);
     if (x === spec.axleF) frontWheelPivots.push(pivot);
   }
 
@@ -275,7 +274,7 @@ export function makeVehicle(kind = 'carro', seedColor = 0, { beams = true, model
   };
 
   // Piezas que se apagan de lejos: el carro lejano se queda con su chapa, sus lámparas y su resplandor.
-  const details = [trimMesh, glassMesh, ...wheelPivots, ...wiperParents, beam].filter(Boolean);
+  const details = [trimMesh, glassMesh, ...wheels];
 
   return {
     group, length: L, width: W, model: modelId, wheels, tailMat, beam, flares: [flareMesh], policeLights, dispose,

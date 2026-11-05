@@ -33,9 +33,9 @@ test('la flota escala con el nivel y con la hora, con un piso y un techo', () =>
   assert.ok(trafficTargetVehicles(18.5, 'normal') > base * 1.5);
   assert.ok(trafficTargetVehicles(3, 'normal') < base * .5);
   assert.ok(trafficTargetVehicles(7, 'maxima') > trafficTargetVehicles(7, 'alta'));
-  // Pico de la mañana: casi el doble que la flota de partida, sin pasar del techo de los cruces.
+  // Pico de la mañana: más que la flota de partida, sin llegar al techo de la red.
   assert.ok(trafficTargetVehicles(7, 'normal') >= 45);
-  assert.ok(trafficTargetVehicles(7, 'maxima') <= 90);
-  // Piso de noche.
-  assert.ok(trafficTargetVehicles(3, 'baja') >= 4);
+  assert.ok(trafficTargetVehicles(18.5, 'maxima') <= 62);
+  // La madrugada deja la calle casi sola.
+  assert.ok(trafficTargetVehicles(3, 'baja') <= 6);
 });

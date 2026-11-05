@@ -136,32 +136,28 @@ export class VehicleAudio {
     return state[key];
   }
 
+  /** Mete un vehículo en las voces del cuadro si se alcanza a oír. Devuelve el nuevo tope de la lista. */
+  _offer(count, source, car, position, isBus) {
+    const dx = car.position.x - position.x, dz = car.position.z - position.z;
+    const voiceDistance = Math.hypot(dx, car.position.y - position.y, dz);
+    if (voiceDistance > (isBus ? BUS_ENGINE_FAR : CAR_ENGINE_FAR)) return count;
+    const entry = this._pool[count] ??= { source: null, car: null, bus: false, distance: 0, voiceDistance: 0, gain: 0 };
+    entry.source = source; entry.car = car; entry.bus = isBus;
+    entry.distance = Math.hypot(dx, dz);
+    entry.voiceDistance = voiceDistance;
+    this._seen.add(car);
+    return count + 1;
+  }
+
   update(dt, position, vehicles = [], bus = null) {
-    const buses = [bus].flat().filter(Boolean);
     const pool = this._pool, seen = this._seen;
     seen.clear();
     let count = 0;
     // Más allá del alcance del motor no hay voz ni claxon que mantener: la flota lejana no cuesta nada.
-    for (const vehicle of vehicles) {
-      const car = vehicle.car;
-      const dx = car.position.x - position.x, dz = car.position.z - position.z;
-      const distance = Math.hypot(dx, dz);
-      if (distance > CAR_ENGINE_FAR) continue;
-      const entry = pool[count] ??= { source: null, car: null, bus: false, distance: 0, voiceDistance: 0, gain: 0 };
-      entry.source = vehicle; entry.car = car; entry.bus = false; entry.distance = distance;
-      entry.voiceDistance = Math.hypot(dx, car.position.y - position.y, dz);
-      count++;
-      seen.add(car);
-    }
-    for (const vehicle of buses) {
-      const dx = vehicle.position.x - position.x, dz = vehicle.position.z - position.z;
-      const distance = Math.hypot(dx, dz);
-      if (distance > BUS_ENGINE_FAR) continue;
-      const entry = pool[count] ??= { source: null, car: null, bus: false, distance: 0, voiceDistance: 0, gain: 0 };
-      entry.source = vehicle; entry.car = vehicle; entry.bus = true; entry.distance = distance;
-      entry.voiceDistance = Math.hypot(dx, vehicle.position.y - position.y, dz);
-      count++;
-      seen.add(vehicle);
+    for (const vehicle of vehicles) count = this._offer(count, vehicle, vehicle.car, position, false);
+    if (bus) {
+      if (Array.isArray(bus)) for (const vehicle of bus) count = this._offer(count, vehicle, vehicle, position, true);
+      else count = this._offer(count, bus, bus, position, true);
     }
     // Sin entrada se calla y se olvida: el banco de voces sigue al tráfico que se oye, no a la flota entera.
     for (const [car, state] of this.instances) if (!seen.has(car)) {

@@ -69,10 +69,12 @@ export class TrafficSystem {
     this.onVehicleRemoved = null;
     this._resizeCredit = 0;
     this._viewPosition = new THREE.Vector3();
-    this._viewSq = -1;
     this._routeLength = null;
+    this._byRoom = (a, b) => b.room - a.room;
     this._pursuitInfo = { distance: 0, dx: 0, dz: 0, closeness: 0, x: 0, z: 0 };
     this.random = random;
+    // Los circuitos de partida: sobre ellos se reparte la flota diaria; las alternativas solo reciben a quien cambia de ruta.
+    this.startRoutes = routes;
     this.routes = routes.alternatives ?? routes;
     this._arrestDispatched = false;
     this._position = new THREE.Vector3();
@@ -134,10 +136,20 @@ export class TrafficSystem {
     this._resizeCredit = 0;
   }
 
+  /** Distancia a la niebla de la escena; 0 cuando la escena no tiene. */
+  _fogDistance() {
+    const far = this.scene?.fog?.far;
+    return Number.isFinite(far) ? far : 0;
+  }
+
   /** Distancia a la que un carro desaparece entero: más allá de la niebla no lo ve nadie. */
   _hideDistance() {
-    const far = this.scene?.fog?.far;
-    return Math.max(HIDE_MIN_DISTANCE, (Number.isFinite(far) ? far : 0) + HIDE_FOG_MARGIN);
+    return Math.max(HIDE_MIN_DISTANCE, this._fogDistance() + HIDE_FOG_MARGIN);
+  }
+
+  /** Distancia a la que un carro entra o sale de la flota: dentro de la niebla se vería el salto. */
+  _resizeDistance() {
+    return Math.max(RESIZE_SAFE_DISTANCE, this._fogDistance());
   }
 
   /**
@@ -172,35 +184,46 @@ export class TrafficSystem {
     }
   }
 
-  /** Cuántos carros quiere cada circuito: en proporción a su largo y sin pasar de lo que cabe en él. */
+  /** Cuántos carros quiere cada circuito de partida: en proporción a su largo y sin pasar de lo que cabe en él. */
   _routeQuota(target) {
-    this._routeLength ??= this.routes.reduce((sum, route) => sum + route.length, 0);
-    const quota = new Map();
-    for (const route of this.routes) {
+    this._routeLength ??= this.startRoutes.reduce((sum, route) => sum + route.length, 0);
+    const quota = this._quotaScratch ??= new Map();
+    quota.clear();
+    for (const route of this.startRoutes) {
       quota.set(route, Math.min(Math.floor(route.length / 12), Math.round(target * route.length / this._routeLength)));
     }
     return quota;
   }
 
   _addVehicle(target) {
-    const assigned = new Map();
+    const assigned = this._assignedScratch ??= new Map();
+    assigned.clear();
     for (const vehicle of this.vehicles) if (!vehicle.police) assigned.set(vehicle.route, (assigned.get(vehicle.route) ?? 0) + 1);
-    let best = null, bestRoom = 0;
+    // Puede que el circuito con más espacio no tenga un punto libre: se prueban todos antes de rendirse.
+    const candidates = this._candidateScratch ??= [];
+    let count = 0;
     for (const [route, want] of this._routeQuota(target)) {
       const room = want - (assigned.get(route) ?? 0);
-      if (room > bestRoom) { bestRoom = room; best = route; }
+      if (room <= 0) continue;
+      const slot = candidates[count] ??= { route: null, room: 0 };
+      slot.route = route; slot.room = room;
+      count++;
     }
-    if (!best) return false;
-    const distance = this._freeDistance(best);
-    if (distance === null) return false;
-    const vehicle = this._spawn(this.scene, best, distance, false);
-    this.onVehicleAdded?.(vehicle.car);
-    return true;
+    candidates.length = count;
+    candidates.sort(this._byRoom);
+    for (const { route } of candidates) {
+      const distance = this._freeDistance(route);
+      if (distance === null) continue;
+      const vehicle = this._spawn(this.scene, route, distance, false);
+      this.onVehicleAdded?.(vehicle.car);
+      return true;
+    }
+    return false;
   }
 
   /** Punto de la ruta lejos de la vista, libre de otros carros y fuera de los cruces. */
   _freeDistance(route) {
-    const view = this._viewPosition, safeSq = RESIZE_SAFE_DISTANCE ** 2;
+    const view = this._viewPosition, safeSq = this._resizeDistance() ** 2;
     for (let tries = 0; tries < 12; tries++) {
       const distance = this.random() * route.length;
       route.sample(distance, this._position, this._direction);
@@ -219,7 +242,7 @@ export class TrafficSystem {
   /** Saca de circulación al que va más lejos de la vista, sin tocar patrullas ni persecuciones. */
   _removeVehicle() {
     const view = this._viewPosition;
-    let best = null, bestSq = RESIZE_SAFE_DISTANCE ** 2;
+    let best = null, bestSq = this._resizeDistance() ** 2;
     for (const vehicle of this.vehicles) {
       if (vehicle.police || vehicle.state !== 'patrol' || vehicle.rejoinTarget || vehicle.hold) continue;
       const dx = vehicle.car.position.x - view.x, dz = vehicle.car.position.z - view.z;
@@ -228,9 +251,21 @@ export class TrafficSystem {
     }
     if (!best) return false;
     this.vehicles.splice(this.vehicles.indexOf(best), 1);
+    // Un carro que se va no puede quedar como dueño de un cruce: bloquearía a los demás para siempre.
+    this._releaseReservations(best);
     this.onVehicleRemoved?.(best.car);
     best.car.dispose();
     return true;
+  }
+
+  /** Saca al vehículo de las colas, los planes y los dueños de todos los cruces. */
+  _releaseReservations(vehicle) {
+    for (const state of this.signals?.reservations?.values() ?? []) {
+      state.owners.delete(vehicle);
+      state.plans.delete(vehicle);
+      const index = state.queue.indexOf(vehicle);
+      if (index >= 0) state.queue.splice(index, 1);
+    }
   }
 
   /** Metros a los que una patrulla alcanza a ver un robo: cada nivel de fichado los alarga. */

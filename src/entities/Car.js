@@ -73,7 +73,6 @@ export class Car {
     this._wetMaterials = (v.wetMaterials ?? []);
     this._details = v.details ?? [];
     this._simple = false;
-    this._drawn = true;
 
     // Retrovisores (lo que se roba): dos soportes y una sola malla con ambos, que siempre se roban y vuelven juntos.
     this.mirrors = [];
@@ -138,6 +137,8 @@ export class Car {
   _applyDetail() {
     const near = this._detailNear && !this._simple;
     this._mirrorMesh.visible = near;
+    // El haz solo vuelve a encenderse si es de noche o llueve: el nivel de detalle no lo enciende de día.
+    if (this.vehicle.beam) this.vehicle.beam.visible = this._lightsOn === true && !this._simple;
     if (this.driver) {
       // La figura sentada sigue dentro aunque no se dibuje de lejos: `visible` dice quién va al volante.
       this.driver.visible = this.driverInside && !this.driverHidden;
@@ -148,8 +149,7 @@ export class Car {
 
   /** Muestra u oculta el carro entero; el tráfico lo apaga más allá de la niebla. */
   setDrawn(drawn) {
-    if (this._disposed || this._drawn === drawn) return;
-    this._drawn = drawn;
+    if (this._disposed || this.group.visible === drawn) return;
     this.group.visible = drawn;
     // Apagado, el render no gasta el recorrido de matrices de su rama; al encenderlo la recalcula.
     this.group.matrixWorldAutoUpdate = drawn;
@@ -345,7 +345,7 @@ export class Car {
     if (this.vehicle.headlightMaterial) this.vehicle.headlightMaterial.emissiveIntensity = !on ? .02 : isNight ? 1.35 : .8;
     this._applyTail();
     if (this.vehicle?.beam) {
-      this.vehicle.beam.visible = on;
+      this.vehicle.beam.visible = on && !this._simple;
       this.vehicle.beam.material.opacity = isNight ? 0.38 : .28;
     }
     if (this.vehicle?.flares) {
@@ -358,7 +358,7 @@ export class Car {
     this._isRaining = !!isRaining;
     // El esmalte y el vidrio se comparten: la rugosidad de seco quedó guardada en el material, no por carro.
     for (const material of this._wetMaterials) {
-      material.roughness = (material.userData.dryRoughness ?? material.roughness) * (this._isRaining ? .75 : 1);
+      material.roughness = material.userData.dryRoughness * (this._isRaining ? .75 : 1);
     }
   }
 
