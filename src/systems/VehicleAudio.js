@@ -1,3 +1,5 @@
+import { ShuffleBag, setPan, setRate, takeVariation, voicePan } from './voiceVariety.js';
+
 const MAX_NEARBY_VEHICLES = 6;
 // Atenuación por volumen, sin panners: pleno hasta NEAR y silencio en FAR.
 const ENGINE_NEAR = 6, CAR_ENGINE_FAR = 40, BUS_ENGINE_FAR = 55;
@@ -17,10 +19,16 @@ export function distanceGain(distance, near, far) {
 
 /** Buffers compartidos; identificadores, mezcla y claxon independientes por vehículo. */
 export class VehicleAudio {
-  constructor(sounds, random = Math.random, driverSounds = []) {
+  /** `driverVoices[i]` dice quién habla en `driverSounds[i]`; sin decirlo, todas son del mismo conductor. */
+  constructor(sounds, random = Math.random, driverSounds = [], driverVoices = []) {
     this.sounds = sounds;
     this.random = random;
     this.driverSounds = driverSounds;
+    this.driverVoices = driverSounds.map((_, index) => driverVoices[index] ?? 'conductor');
+    // Cada carro conserva su conductor aunque salga y vuelva a entrar al grupo de los cercanos.
+    this._driverOf = new WeakMap();
+    this._remarkBags = new Map();
+    this.camera = null;
     this.instances = new Map();
     this.paused = false;
     // Multiplicadores de la mezcla (volumen por categoría y atenuación mientras alguien habla).
@@ -38,6 +46,26 @@ export class VehicleAudio {
     this._order = [];
     this._byDistance = (a, b) => this._pool[a].distance - this._pool[b].distance;
     this._audible = 0;
+  }
+
+  /** El conductor de ese carro; el primero que lo pide (frase o robo) lo deja fijo. */
+  driverVoice(car, preferred = null) {
+    if (!this._driverOf.has(car)) {
+      const voices = [...new Set(this.driverVoices)];
+      const voice = preferred && voices.includes(preferred) ? preferred
+        : voices[Math.min(voices.length - 1, Math.floor(this.random() * voices.length))];
+      this._driverOf.set(car, voice ?? null);
+    }
+    return this._driverOf.get(car);
+  }
+
+  /** Siguiente frase de ese conductor: no repite ninguna hasta haber dicho todas las suyas. */
+  _nextRemark(car) {
+    const voice = this.driverVoice(car);
+    let bag = this._remarkBags.get(voice);
+    if (!bag) { bag = new ShuffleBag(() => this.random()); this._remarkBags.set(voice, bag); }
+    const own = this.driverSounds.filter((_, index) => this.driverVoices[index] === voice);
+    return bag.draw(own);
   }
 
   _activeHorns() {
@@ -188,6 +216,7 @@ export class VehicleAudio {
           hornIndex: Math.floor(this.random() * 3), patience: .7 + this.random() * .8,
           blockedFor: 0, cooldown: 0, remarkCooldown: 0, idleVolume: 0, driveVolume: 0 };
         this.instances.set(entry.car, state);
+        if (!entry.bus && this.driverSounds.length) this.driverVoice(entry.car);
       }
       state.cooldown = Math.max(0, state.cooldown - dt);
       state.remarkCooldown = Math.max(0, state.remarkCooldown - dt);
@@ -219,18 +248,22 @@ export class VehicleAudio {
       if (!entry.bus && entry.source.personBlocked && state.blockedFor >= state.patience && state.remarkCooldown === 0
         && entry.voiceDistance < 8 && this.driverSounds.length
         && !state.remark && !this.remarkPlaying(state) && !this.externalVoiceActive()) {
-        const index = Math.min(this.driverSounds.length - 1, Math.floor(this.random() * this.driverSounds.length));
-        const remark = this.driverSounds[index];
-        if (remark.state() === 'loaded') {
+        const remark = this._nextRemark(entry.car);
+        if (remark?.state() === 'loaded') {
           if (state.remark) state.remark.sound.stop(state.remark.id);
-          state.remark = { sound: remark, id: remark.play() };
+          const { rate, gain } = takeVariation(this.random);
+          state.remark = { sound: remark, id: remark.play(), gain };
+          setRate(remark, rate, state.remark.id);
           state.remarkCooldown = 6 + this.random() * 5;
         }
       }
       if (state.remark) {
-        const { sound, id } = state.remark;
+        const { sound, id, gain = 1 } = state.remark;
         if (!sound.playing(id)) state.remark = null;
-        else sound.volume(.7 * this.levels.voices * Math.max(0, Math.min(1, (8 - entry.voiceDistance) / 6)), id);
+        else {
+          sound.volume(.7 * gain * this.levels.voices * Math.max(0, Math.min(1, (8 - entry.voiceDistance) / 6)), id);
+          setPan(sound, voicePan(position, this.camera, entry.car.position), id);
+        }
       }
     }
   }
