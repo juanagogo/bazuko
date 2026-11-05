@@ -123,18 +123,20 @@ body.tactil .cierre { padding: 0; }
 .radio-dial-band { position: absolute; top: 44px; font-size: 14px; line-height: 1; }
 .radio-dial-needle { position: absolute; top: 28px; bottom: 19px; width: 4px; margin-left: -2px; background: var(--rojo); box-shadow: 0 0 0 1px var(--cinta); pointer-events: none; }
 /* El deslizador cubre la AM del dial, y su botón queda debajo de la aguja. */
-.radio-tuner-slider { flex: none; width: 78%; }
+.radio-tuner-slider { flex: none; width: 42%; margin-left: 4%; }
 .radio-freq-display { font-size: 22px; line-height: 1.1; }
 .radio-perk-text { font-size: 15px; line-height: 1.2; }
-.radio-presets { list-style: none; }
+.radio-presets { list-style: none; max-height: 44vh; overflow-y: auto; scrollbar-width: thin; scrollbar-color: var(--marcador) transparent; }
 .radio-preset { position: relative; display: flex; align-items: center; justify-content: space-between; gap: 12px; width: 100%; min-height: 48px; padding: 5px 2px 9px; background: var(--m-regla) center bottom / 100% 5px no-repeat; border: 0; color: var(--marcador); font-weight: 800; font-size: 18px; line-height: 1.05; text-align: left; }
 .radio-preset__name { margin-left: 6px; }
-.radio-preset__band { font-weight: 400; font-size: 15px; }
+.radio-preset__meta { display: flex; align-items: baseline; gap: 10px; }
+.radio-preset__region, .radio-preset__band { font-weight: 400; font-size: 15px; }
 @media (hover: hover) { .radio-preset:hover .radio-preset__name { text-decoration: underline; text-underline-offset: 3px; } }
 .radio-info-box { display: flex; flex-direction: column; gap: 2px; }
 .radio-info-name { font-weight: 800; font-size: 22px; line-height: 1.05; }
 .radio-info-signal { font-weight: 800; font-size: 16px; }
 .radio-info-program { font-size: 15.5px; line-height: 1.16; }
+.radio-info-credit { align-self: flex-start; font-size: 15px; text-decoration: underline; text-underline-offset: 3px; }
 
 /* ---------- medianas ---------- */
 @media (max-width: 1180px) {
@@ -158,7 +160,8 @@ body.tactil .cierre { padding: 0; }
   .talent-node.available, .dealer-buy-btn, .dealer-sell-btn { min-height: 46px; }
   .talent-hint { display: none; }
   .radio-modal-body { grid-template-columns: minmax(0, 1fr); gap: 14px 0; }
-  .radio-tuner-slider { width: 78%; }
+  /* De pie, la lista entera cabe en el desplazamiento de la ventana: sobra el scroll propio. */
+  .radio-presets { max-height: none; overflow: visible; }
   :where(#menu) .row:not(:has(.row__qty)) { grid-template-columns: 28px minmax(0, 1fr) auto; }
   :where(#menu) .row > .btn { grid-column: 2 / -1; justify-self: end; }
   :where(#menu) .menu__foot .btn--primary { flex: 1 1 auto; }
