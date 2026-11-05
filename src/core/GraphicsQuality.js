@@ -5,6 +5,9 @@ export const GRAPHICS_PROFILES = Object.freeze({
   alta: { pixelRatio: 1.5, shadowSize: 2048, silhouette: true, animationBudget: 1, far: 300 }
 });
 
+// El contexto no se puede cambiar después: quien ya eligió baja se queda sin MSAA.
+export const antialiasFor = saved => saved !== 'baja';
+
 export function effectiveQuality(selected = 'alta', pressure = 0, autoTier = 0) {
   const levels = ['baja', 'media', 'alta'];
   const base = Math.min(levels.length - 1, Math.max(0, levels.indexOf(selected)) + autoTier);

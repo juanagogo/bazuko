@@ -3,7 +3,7 @@ import { PlayerSilhouette } from './PlayerSilhouette.js';
 import { AdaptiveResolution } from './AdaptiveResolution.js';
 import { FrustumCulling } from './FrustumCulling.js';
 import { paintLoadingFrame } from '../ui/LoadingScreen.js';
-import { AutoQuality, GRAPHICS_PROFILES, effectiveQuality } from './GraphicsQuality.js';
+import { AutoQuality, GRAPHICS_PROFILES, antialiasFor, effectiveQuality } from './GraphicsQuality.js';
 import { sunFieldUniforms } from '../world/bogota/SunField.js';
 
 // Bandas verticales del cielo que se refleja: el esmalte necesita un horizonte claro entre un cenit
@@ -168,14 +168,10 @@ export class EnvironmentMix {
 
 export class Renderer {
   constructor(canvas) {
-    this.instance = new THREE.WebGLRenderer({
-      canvas,
-      antialias: true,
-      powerPreference: 'high-performance'
-    });
-    this.resolution = new AdaptiveResolution(window.devicePixelRatio);
     let saved = null;
     try { saved = localStorage.getItem('bazuko.graphics_quality'); } catch { saved = 'sin almacenamiento'; }
+    this.instance = new THREE.WebGLRenderer({ canvas, antialias: antialiasFor(saved), powerPreference: 'high-performance' });
+    this.resolution = new AdaptiveResolution(window.devicePixelRatio);
     this.autoQuality = new AutoQuality(saved === null);
     this.instance.setPixelRatio(this.resolution.ratio);
     this._pixelRatio = this.resolution.ratio;
