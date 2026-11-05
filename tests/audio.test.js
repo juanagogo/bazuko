@@ -4,7 +4,7 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { mock, test } from 'node:test';
 import * as THREE from 'three';
 import { AudioSystem } from '../src/systems/AudioSystem.js';
-import { audioMetadata } from './helpers/audio-file.js';
+import { audioMetadata, saltarSinAudioLfs } from './helpers/audio-file.js';
 import { InteractionSystem } from '../src/systems/InteractionSystem.js';
 import { VehicleAudio } from '../src/systems/VehicleAudio.js';
 import * as textures from '../src/world/bogota/textures.js';
@@ -241,7 +241,8 @@ test('robar un retrovisor activa la alarma aunque te atrapen, pero un carro ya s
   }
 });
 
-test('la carpeta de audio contiene únicamente archivos utilizados y todos tienen duración válida', () => {
+test('la carpeta de audio contiene únicamente archivos utilizados y todos tienen duración válida', (t) => {
+  if (saltarSinAudioLfs(t)) return;
   const { audio } = fixture();
   try {
     const sounds = [...Object.values(audio.sounds), ...Object.values(audio.vehicleSounds), ...audio.driverSounds, ...audio.theftSounds, ...Object.values(audio.streetVoiceSounds)];

@@ -143,6 +143,7 @@ Con `npm run dev` activo, abre **/sala.html** (por ejemplo http://localhost:5173
 | `P` | Editar el personaje. |
 | `M` | Abrir el mapa para marcar un destino; en el mapa, cerrarlo. |
 | `K` | Alternar entre el personaje realista y el modelo liviano. |
+| Cinta «Marcar ruta» del objetivo | Marcar en el GPS la ruta al lugar del objetivo actual. |
 | `Esc` o botón Pausa | Abrir la pausa en la pestaña Estado; cerrar primero el panel activo y liberar el cursor. |
 | `N` | Mostrar u ocultar el radar. |
 | `H` / Estado | Mostrar u ocultar las necesidades detalladas. |
@@ -266,6 +267,10 @@ El *frustum culling* descarta sectores completos y vehículos fuera del encuadre
 Si los FPS permanecen por debajo de 58 durante tres segundos, con al menos un 20 % de cuadros lentos, la resolución interna baja gradualmente hasta 0.75×. Con menos de 30 FPS sostenidos, reacciona desde un segundo y ocho cuadros lentos, con un paso mayor. Si ya llegó al mínimo, reduce el perfil efectivo; recupera los efectos antes de subir resolución, tras cuatro ventanas seguidas por encima de 59 FPS. Esto puede suavizar la imagen en equipos lentos; el texto de la interfaz conserva su resolución. El panel también muestra la calidad efectiva, resolución, llamadas de dibujo y triángulos, incluyendo sombras y silueta. Los FPS reales dependen del equipo y deben compararse recorriendo la misma zona y con la misma cámara. Véase [rendimiento y medición](docs/rendimiento.md).
 
 Referencias técnicas: [renderizado y métricas de Three.js](https://threejs.org/docs/pages/WebGLRenderer), [resolución de renderizado](https://threejs.org/manual/pages/responsive.html), [volumen visible de la cámara](https://threejs.org/docs/pages/Frustum.html).
+
+## Temblor de cámara
+
+La cámara acusa los golpes: cada pérdida de salud de 2 puntos o más en un instante (atropellos, puños, varillas) la sacude según el daño, también caer desde más alto que un salto normal y acertar un golpe propio, más suave. El temblor solo gira la cámara, nunca la mueve, para que no atraviese paredes, y decae en menos de un segundo. El hambre, la sed y el frío bajan la salud despacio y no lo disparan. Con la preferencia de movimiento reducido del sistema no hay temblor.
 
 ## Sonido
 
