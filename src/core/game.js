@@ -36,7 +36,7 @@ import { Cart } from '../entities/Cart.js';
 import { CinematicOverlays } from '../ui/CinematicOverlays.js';
 import { Momentos, botonDeMuerte, cuerpoDeMuerte, cuerpoDeRecorte } from '../ui/Momentos.js';
 import { PrimeraPlana } from '../ui/PrimeraPlana.js';
-import { tomarFoto } from '../ui/fotoDeArresto.js';
+import { tomarFoto, tomarRetrato } from '../ui/fotoDeArresto.js';
 import { actualizarFrases } from '../ui/frases.js';
 import { TILE_SIZE } from '../utils/constants.js';
 import { castigoDeArresto, CALABOZO_HAMBRE, CALABOZO_PISO, CALABOZO_SED, ESCONDITE_M } from '../data/arresto.js';
@@ -427,7 +427,26 @@ export class Game {
     this.look = normalizeLook({ ...look, v: 2 });
     const ready = this.player.setLook(this.look);
     this.interaction.originId = this.look.origen;
+    // El retrato de la pestaña Estado se toma de nuevo cuando cambia la ropa, no al abrir la pausa.
+    Promise.resolve(ready).then(() => { this._retratoPendiente = true; }, () => {});
     return ready;
+  }
+
+  /**
+   * Una vez por apariencia, en un cuadro de juego ya dibujado: la figura sola, para la pestaña Estado. Con la pausa
+   * arriba no se dibuja nada, así que la foto no puede esperar a abrirla.
+   */
+  _tomarRetrato(now) {
+    if (now < (this._retratoEspera ?? 0)) return;
+    let foto = null;
+    try {
+      foto = tomarRetrato({ renderer: this.renderer, scene: this.sceneMgr.scene, jugador: this.player, collisions: this.collisions });
+    } catch (error) {
+      console.warn('[Retrato] No se pudo tomar.', error);
+    }
+    // Contra una pared no hay sitio para el fotógrafo: se vuelve a intentar en unos segundos, sin insistir cada cuadro.
+    if (foto) { this._retrato = foto; this._retratoPendiente = false; }
+    else this._retratoEspera = now + 3000;
   }
 
   /** GPS a pie, plano del radar y haz del destino; solo para distritos con grilla de navegación. */
@@ -1612,6 +1631,7 @@ export class Game {
     this.renderer.render(this.sceneMgr.scene, this.cameraRig.camera, this.player.root, [this.sceneMgr.sun], showSilhouette && !insideBody);
     if (insideBody) this.player.root.visible = true;
     if (this._trasRender) { const copiar = this._trasRender; this._trasRender = null; copiar(); }
+    else if (active && this._retratoPendiente && !insideBody && !this.carjack?.driving && !this.player.isSwimming) this._tomarRetrato(now);
     this.substanceEffects?.afterRender(this.cameraRig.camera);
     if (this.performanceHUD.update(this._frameStamp ?? now, this.player.position, this.renderer, active, this.localLights)) {
       this.renderer.adaptResolution(this.performanceHUD.metrics.frameMs, performance.now() - now);

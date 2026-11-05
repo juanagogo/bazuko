@@ -353,6 +353,23 @@ test('con la pausa arriba el juego no se dibuja, y el mapa de la pausa sigue dib
   expect(await dibujos()).toBe(0);
 });
 
+test('Estado trae el retrato del personaje, dentro de la pantalla', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await readyGame(page);
+  // La foto se toma jugando, en un cuadro ya dibujado: al abrir la pausa ya no se dibuja nada.
+  await expect.poll(() => page.evaluate(() => !!window.__game._retrato), { timeout: 30_000 }).toBe(true);
+  await page.keyboard.press('Escape');
+  const retrato = page.locator('#menu .pause-retrato');
+  await expect(retrato).toBeVisible();
+  await expect.poll(() => retrato.locator('img').evaluate((img) => img.complete && img.naturalHeight)).toBeGreaterThan(24);
+  const caja = await retrato.boundingBox();
+  expect(caja.y + caja.height).toBeLessThanOrEqual(800);
+  // Otra pestaña y de vuelta: el retrato sigue, sin tomar otra foto.
+  await page.keyboard.press('KeyE');
+  await page.keyboard.press('KeyQ');
+  await expect(retrato).toBeVisible();
+});
+
 test('una partida dañada no deja en la carga: se aparta sin borrarla y se empieza sin ella', async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 800 });
   await page.addInitScript(() => {

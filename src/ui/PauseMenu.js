@@ -198,7 +198,8 @@ function statePanel(game) {
         })),
       el('p', { class: 'pause-gps-summary' }, icon('pin', { size: 18 }), el('span', { text: wp
         ? `Destino: ${pasarTexto(wp.name)}${pos && game.gps.route.length ? `, ${formatDistance(game.gps.remainingDistance(pos))}` : ''}`
-        : 'Sin destino marcado. El mapa se abre con M.' }))),
+        : 'Sin destino marcado. El mapa se abre con M.' })),
+      retratoDe(game)),
     el('div', { class: 'pause-state__cuerpo' },
       el('h3', { class: 'pause-section-title', text: 'Cómo estoy' }),
       el('ul', { class: 'pause-needs' }, NEED_META.map(({ id, glyph, label }) => {
@@ -209,6 +210,13 @@ function statePanel(game) {
           el('span', { class: 'pause-need__value cifra', text: `${value}` }));
       })),
       dogSection(game)));
+}
+
+/** El retrato, si hubo foto (`Game._tomarRetrato`). Sin foto la columna queda como antes. */
+function retratoDe(game) {
+  if (!game._retrato?.toDataURL) return null;
+  return el('figure', { class: 'pause-retrato', 'aria-hidden': 'true' },
+    el('img', { class: 'pause-retrato__foto', alt: '', src: game._retrato.toDataURL('image/png') }));
 }
 
 function settingsPanel(game) {
