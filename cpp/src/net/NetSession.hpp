@@ -78,10 +78,16 @@ public:
     size_t EconomyRejections() const { return m_EconomyRejections; }
     // Perfiles (anfitrion): con una carpeta, cada invitado con clave recupera su plata y su costal guardados aqui, y se guardan al salir y cada 30 s.
     // Sin carpeta no se guarda nada y la copia arranca de lo que el invitado cuente (con el limite de perfil nuevo).
-    void SetProfileFolder(const std::filesystem::path& folder) { m_Profiles = std::make_unique<ProfileStore>(folder); }
+    void SetProfileFolder(const std::filesystem::path& folder);   // y guarda ya los perfiles que traia el punto de control de un anfitrion anterior
     void SaveProfiles();   // se llama sola; el juego la llama tambien al cerrar
     ~NetSession();
     const Ledger* LedgerOf(uint8_t player) const;   // anfitrion: la copia de ese invitado (nullptr si no hay)
+    // Migracion de anfitrion: si el anfitrion se va, el primero de la lista (menor id) abre la partida en el mismo puerto y los demas se reconectan a el;
+    // si ese tampoco responde en unos segundos, el siguiente. `ConsumePromotion()` avisa UNA vez al jugador que pasa a ser anfitrion para que el juego
+    // active su simulacion de mundo (el nuevo anfitrion tiene que volver a darle SetEconomyData/SetWorldProvider/SetProfileFolder).
+    bool Migrating() const { return m_Migrating; }
+    bool ConsumePromotion() { const bool p = m_Promoted; m_Promoted = false; return p; }
+    uint32_t Epoch() const { return m_Epoch; }   // sube cada vez que este jugador entra a una partida nueva (reconexion o ascenso)
     // Avisos de entrada y salida para mostrar en pantalla (se vacian al leerlos)
     std::vector<std::string> ConsumeNotices();
     NetSession(const NetSession&) = delete;
@@ -131,7 +137,25 @@ private:
     std::unique_ptr<ProfileStore> m_Profiles;
     double m_SaveAccumulator = 0.0;
     std::string m_Key;                      // invitado: su clave
+    std::string m_JoinAddress;
+    uint16_t m_JoinPort = 0;
+    std::vector<RosterEntry> m_Roster;      // invitado: los demas jugadores segun el anfitrion, por id
+    uint16_t m_RosterPort = 0;
+    std::vector<CheckpointEntry> m_Checkpoint;   // invitado siguiente: la economia de todos
+    std::map<std::string, EconomySnapshot> m_Seed;   // nuevo anfitrion: de donde arrancan las copias
+    bool m_Migrating = false, m_Promoted = false, m_MigAttempt = false;
+    size_t m_MigIndex = 0;
+    double m_MigDeadlineMs = 0.0;
+    uint8_t m_OldId = 0;
+    uint32_t m_Epoch = 0;
+    bool m_RosterDirty = true, m_CheckpointDirty = true;
+    double m_RosterAccumulator = 0.0, m_CheckpointAccumulator = 0.0;
     void SavePeer(const Peer& peer);
+    void SendRoster();
+    void SendCheckpoint();
+    void BeginMigration();
+    void MigrationTick();
+    void PromoteToHost();
     void StartLedger(Peer& peer);
     std::optional<EconomySync> m_PendingEconomy;
     size_t m_EconomyRejections = 0;

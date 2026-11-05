@@ -123,6 +123,45 @@ int main() {
         const EconomySnapshot cleaned = EconomyFromSave(broken, count);
         CHECK(cleaned.money == 0.0f && cleaned.items.empty(), "D2: un guardado roto se lee como vacio");
     }
+    // D3: progreso (experiencia, nivel, talentos) y necesidades
+    {
+        const TalentDef* firstTalent = data.talents.empty() ? nullptr : &data.talents.front();
+        CHECK(firstTalent != nullptr, "D3: el juego trae talentos");
+        if (firstTalent) {
+            Ledger ledger(data);
+            EconomySnapshot s; s.level = 5; s.xp = 40; s.talentPoints = 4;
+            CHECK(ledger.Submit(s, 0.0).accepted, "D3: un perfil nuevo con nivel 5 y 4 puntos se acepta");
+            EconomySnapshot gain = s; gain.xp = 90;   // 50 de experiencia
+            CHECK(ledger.Submit(gain, 1.0).accepted, "D3: ganar experiencia a un ritmo normal se acepta");
+            EconomySnapshot levelUp = gain; levelUp.level = 6; levelUp.xp = 20; levelUp.talentPoints = 5;   // sube de nivel: 500 - 90 + 20 = 430 mas
+            CHECK(ledger.Submit(levelUp, 2.0).accepted, "D3: subir de nivel con su experiencia y su punto se acepta");
+            EconomySnapshot cheatXp = levelUp; cheatXp.level = 40; cheatXp.xp = 0; cheatXp.talentPoints = 39;
+            CHECK(!ledger.Submit(cheatXp, 3.0).accepted, "D3: pasar del nivel 6 al 40 de golpe se rechaza (experiencia imposible)");
+            EconomySnapshot spend = levelUp; spend.talentPoints -= firstTalent->cost; spend.talents.push_back(firstTalent->id);
+            CHECK(ledger.Submit(spend, 4.0).accepted, "D3: gastar un punto de talento en un talento que existe se acepta");
+            EconomySnapshot freeTalent = spend; freeTalent.talents.push_back("talento_que_no_existe");
+            CHECK(!ledger.Submit(freeTalent, 5.0).accepted, "D3: un talento inventado se rechaza");
+            EconomySnapshot extraPoints = spend; extraPoints.talentPoints += 10;
+            CHECK(!ledger.Submit(extraPoints, 6.0).accepted, "D3: puntos de talento de mas se rechazan");
+            Ledger veteran(data);
+            EconomySnapshot big; big.level = 80; big.xp = 100; big.talentPoints = 79; big.talents = {firstTalent->id};
+            const auto verdict = veteran.Submit(big, 0.0);
+            CHECK(!verdict.accepted && verdict.authoritative.level == 20 && verdict.authoritative.talentPoints == 19 && verdict.authoritative.talents.empty(), "D3: un perfil nuevo no entra por encima del nivel 20 y reparte los talentos de nuevo");
+            EconomySnapshot withNeeds; withNeeds.level = 3; withNeeds.talentPoints = 2; withNeeds.needs = {10, 20, 30, 40, 50, 60, 70};
+            nlohmann::json save = nlohmann::json::object();
+            ApplyEconomyToSave(save, withNeeds);
+            const EconomySnapshot back = EconomyFromSave(save, count);
+            CHECK(back == Canonical(withNeeds, count) && back.needs[3] == 40, "D3: el progreso y las necesidades ida y vuelta por el guardado");
+            EconomyMirror mirror;
+            EconomySnapshot base; base.money = 5.0f;
+            mirror.Poll(base, 0.0);
+            EconomySnapshot hungry = base; hungry.needs[1] = 97;
+            CHECK(!mirror.Poll(hungry, 1.0).has_value(), "D3: una variacion pequena de necesidades no se envia");
+            hungry.needs[1] = 80;
+            CHECK(mirror.Poll(hungry, 2.0).has_value(), "D3: una variacion grande de necesidades si");
+            CHECK(mirror.Poll(hungry, 13.0).has_value(), "D3: y cada 10 s se envia aunque nada cambie");
+        }
+    }
     // E: espejo del invitado
     {
         EconomyMirror mirror;
@@ -144,7 +183,7 @@ int main() {
     }
     // F: mensajes
     {
-        EconomySnapshot s; s.money = 1234.5f; s.bigSack = true; Set(s, pan, 3); Set(s, lata, 7);
+        EconomySnapshot s; s.money = 1234.5f; s.bigSack = true; Set(s, pan, 3); Set(s, lata, 7); s.level = 7; s.xp = 300; s.talentPoints = 2; s.talents = {"a", "b"}; s.needs = {1, 2, 3, 4, 5, 6, 7};
         s = Canonical(s, count);
         BitWriter w; Write(w, EconomyReport{9, s});
         BitReader r(w.Data());
@@ -159,6 +198,21 @@ int main() {
             std::vector<uint8_t> part(w.Data().begin(), w.Data().begin() + static_cast<long>(cut));
             BitReader tr(part); ReadType(tr);
             CHECK(!ReadEconomyReport(tr).has_value(), "F: informe truncado se rechaza");
+        }
+        Roster roster; roster.port = 7777; roster.entries = {{2, "10.0.0.2"}, {3, "10.0.0.3"}};
+        BitWriter wr; Write(wr, roster);
+        BitReader rr(wr.Data()); CHECK(ReadType(rr) == MessageType::Roster, "F: tipo Roster");
+        const auto rosterBack = ReadRoster(rr);
+        CHECK(rosterBack && rosterBack->port == 7777 && rosterBack->entries.size() == 2 && rosterBack->entries[1].ip == "10.0.0.3", "F: lista de jugadores ida y vuelta");
+        Checkpoint checkpoint; checkpoint.entries = {{"0123456789abcdef0123456789abcdef", s}};
+        BitWriter wc; Write(wc, checkpoint);
+        BitReader rc(wc.Data()); CHECK(ReadType(rc) == MessageType::Checkpoint, "F: tipo Checkpoint");
+        const auto checkBack = ReadCheckpoint(rc);
+        CHECK(checkBack && checkBack->entries.size() == 1 && checkBack->entries[0].state == s, "F: punto de control ida y vuelta (con el progreso)");
+        for (size_t cut = 1; cut + 1 < wc.Data().size(); cut += 5) {
+            std::vector<uint8_t> part(wc.Data().begin(), wc.Data().begin() + static_cast<long>(cut));
+            BitReader tr(part); ReadType(tr);
+            CHECK(!ReadCheckpoint(tr).has_value(), "F: punto de control truncado se rechaza");
         }
         EconomySnapshot junk; junk.money = 5.0f; junk.items = {{60000, 5}, {pan, 0}, {pan, 2}, {pan, 3}};
         const auto canonical = Canonical(junk, count);

@@ -15,7 +15,9 @@
 
 #include <nlohmann/json.hpp>
 
+#include <array>
 #include <cstdint>
+#include <string>
 #include <optional>
 #include <utility>
 #include <vector>
@@ -28,14 +30,36 @@ struct EconomySnapshot {
     float money = 0.0f;
     bool bigSack = false;
     std::vector<std::pair<uint16_t, uint16_t>> items;   // (indice del objeto en GameData::items, cantidad), ordenado por indice, sin ceros
-    bool operator==(const EconomySnapshot& other) const { return money == other.money && bigSack == other.bigSack && items == other.items; }
+    // Progreso del personaje (se guarda en el perfil junto con la plata y el costal)
+    int xp = 0;            // dentro del nivel actual: 0 .. 100 * nivel - 1
+    int level = 1;
+    int talentPoints = 0;
+    std::vector<std::string> talents;   // desbloqueados, ordenados
+    std::array<uint8_t, 7> needs{100, 100, 100, 100, 100, 100, 80};   // 0..100 (salud, hambre, sed...): solo se recuperan al volver con el perfil, no se validan
+    bool operator==(const EconomySnapshot& other) const { return money == other.money && bigSack == other.bigSack && items == other.items && SameProgress(other) && needs == other.needs; }
     bool operator!=(const EconomySnapshot& other) const { return !(*this == other); }
+    bool SameProgress(const EconomySnapshot& other) const { return xp == other.xp && level == other.level && talentPoints == other.talentPoints && talents == other.talents; }
 };
+// Igual para decidir si hay algo nuevo que contar: ignora las necesidades (cambian a cada rato)
+inline bool SameForSync(const EconomySnapshot& a, const EconomySnapshot& b) { return a.money == b.money && a.bigSack == b.bigSack && a.items == b.items && a.SameProgress(b); }
+// Experiencia total acumulada: cada nivel cuesta 100 x nivel (game/Economy.cpp AwardXp)
+inline long long TotalXp(int level, int xp) { return 50LL * level * (level - 1) + xp; }
 // Lo que el invitado cuenta (seq crece) y lo que el anfitrion contesta (ack = ultimo seq que proceso; `accepted` false = se revierte)
 struct EconomyReport { uint16_t seq = 0; EconomySnapshot state; };
 struct EconomySync { uint16_t ack = 0; bool accepted = true; EconomySnapshot state; bool profile = false; };   // profile: es el perfil guardado en este anfitrion, no una correccion
 
 inline constexpr float kMaxMoney = 1.0e7f;
+
+// Migracion de anfitrion: el anfitrion reparte la lista de jugadores (para saber a quien le toca ser el siguiente y donde esta) y le manda al siguiente
+// un punto de control con la economia de todos, para que el nuevo anfitrion no los trate como perfiles nuevos.
+struct RosterEntry { uint8_t id = 0; std::string ip; };
+struct Roster { uint16_t port = 0; std::vector<RosterEntry> entries; };   // ordenada por id: el primero es el siguiente anfitrion
+struct CheckpointEntry { std::string key; EconomySnapshot state; };
+struct Checkpoint { std::vector<CheckpointEntry> entries; };
+void Write(BitWriter& w, const Roster& m);
+void Write(BitWriter& w, const Checkpoint& m);
+std::optional<Roster> ReadRoster(BitReader& r);
+std::optional<Checkpoint> ReadCheckpoint(BitReader& r);
 
 void Write(BitWriter& w, const EconomyReport& m);
 void Write(BitWriter& w, const EconomySync& m);
@@ -50,12 +74,16 @@ EconomySnapshot Canonical(EconomySnapshot state, size_t itemCount);
 struct LedgerLimits {
     float startMoney = 50000.0f;
     int startItems = 60;   // unidades en total
-    static LedgerLimits Unlimited() { return {kMaxMoney, 1000000}; }
+    int startLevel = 20;   // un perfil nuevo no entra por encima de este nivel (sin talentos desbloqueados: se reparten de nuevo)
+    static LedgerLimits Unlimited() { return {kMaxMoney, 1000000, 100}; }
 };
 
 class Ledger {
 public:
     explicit Ledger(const GameData& data, LedgerLimits limits = {}) : m_Data(&data), m_Limits(limits) {}
+    const GameData& Data() const { return *m_Data; }
+    // Siembra la copia desde un punto de control (migracion): arranca de ahi, pero el primer informe del jugador se valida como cualquier otro cambio
+    void Seed(const EconomySnapshot& state, double nowSeconds) { m_State = Canonical(state, m_Data->items.size()); m_Started = true; m_LastSeconds = nowSeconds; }
     // Fija la copia desde un perfil guardado en este anfitrion (ya saneado): manda sobre lo que traiga el invitado
     void Adopt(const EconomySnapshot& state, double nowSeconds) { m_State = Canonical(state, m_Data->items.size()); m_Started = true; m_FromProfile = true; m_LastSeconds = nowSeconds; }
     bool FromProfile() const { return m_FromProfile; }
@@ -67,6 +95,7 @@ public:
     bool Started() const { return m_Started; }
 
 private:
+    bool ProgressPlausible(const EconomySnapshot& s) const;
     const GameData* m_Data;
     EconomySnapshot m_State;
     LedgerLimits m_Limits;
@@ -74,7 +103,8 @@ private:
     bool m_Started = false;
     double m_LastSeconds = 0.0;
     double m_LootTokens = 12.0;     // rafaga de 12 objetos, 1 por segundo
-    double m_EarnTokens = 8000.0;   // premios del mundo: rafaga de 8000 y 100 por segundo (6000 por minuto)
+    double m_EarnTokens = 8000.0;
+    double m_XpTokens = 1500.0;     // experiencia: rafaga de 1500 y 40 por segundo (2400 por minuto)   // premios del mundo: rafaga de 8000 y 100 por segundo (6000 por minuto)
 };
 
 // Perfil guardado <-> copia de economia (el guardado usa los mismos nombres del savegame.json del juego: money, bigSack, inventory [{item, quantity}])
@@ -88,6 +118,7 @@ public:
     std::optional<EconomyReport> Poll(const EconomySnapshot& current, double nowSeconds);
     // Devuelve el estado a adoptar si el anfitrion lo corrige y el invitado no ha cambiado nada desde lo que envio
     std::optional<EconomySnapshot> OnSync(const EconomySync& sync, const EconomySnapshot& current);
+    void Restart() { m_Sent = false; }   // tras reconectar con otro anfitrion: vuelve a contar el estado completo
 
 private:
     EconomySnapshot m_LastSent;

@@ -135,6 +135,14 @@ uint32_t Host::RoundTripMs(uint32_t peer) const {
     return it == m_Impl->peers.end() ? 0u : it->second->roundTripTime;
 }
 
+std::string Host::PeerAddress(uint32_t peer) const {
+    const auto it = m_Impl->peers.find(peer);
+    if (it == m_Impl->peers.end()) return {};
+    char buffer[64] = {};
+    if (enet_address_get_host_ip(&it->second->address, buffer, sizeof buffer) != 0) return {};
+    return buffer;
+}
+
 size_t Host::PeerCount() const { return m_Impl->peers.size(); }
 
 void Host::SetSimulation(const NetSimConfig& config, uint32_t seed) {

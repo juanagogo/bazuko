@@ -2558,6 +2558,39 @@ bool Simulation::ApplyWorld(const Net::WorldSnapshot& s) {
     return true;
 }
 
+void Simulation::PromoteToHost() {
+    m_Guest = false;
+    m_GuestSyncAge = 0.0f;
+    m_Pedestrians.clear();
+    for (TrafficVehicle& v : m_Traffic) {
+        v.driver.state = DriverState::Seated; v.driver.timer = 0.0f; v.driver.boost = 0.0f; v.driver.cooldown = 0.0f;
+        v.driver.dispatched = false; v.driver.siren = false; v.driver.pathMode = 0; v.driver.pathLength = 0.0f; v.driver.reengage = false;
+        v.driver.partnerBoarding = false; v.driver.partnerOut = false;
+        v.holdStop = false; v.forcingRemaining = 0.0f; v.stalledTime = 0.0f; v.blockedWait = 0.0f;
+        v.lateral = 0.0f; v.lateralVelocity = 0.0f; v.lateralTarget = 0.0f; v.swerveAround = -1; v.connectorRoute = -1;
+        v.blockedForPerson = false; v.yieldingForTraffic = false; v.waitingAtSignal = false; v.clearForSiren = false;
+        if (v.parked || v.route.size() < 2 || v.routeLength < 1.0f || v.routeCumulative.size() != v.route.size()) continue;
+        // el invitado solo recibio la pose: se recupera su avance sobre el circuito buscando el punto de la ruta mas cercano
+        const glm::vec2 at(v.position.x, v.position.z);
+        float bestGap = std::numeric_limits<float>::max(), bestDistance = v.distance;
+        for (size_t i = 0; i < v.route.size(); ++i) {
+            const glm::vec3& a = v.route[i];
+            const glm::vec3& b = v.route[(i + 1) % v.route.size()];
+            const glm::vec2 from(a.x, a.z), to(b.x, b.z), edge = to - from;
+            const float length2 = glm::dot(edge, edge);
+            const float t = length2 > 1.0e-6f ? std::clamp(glm::dot(at - from, edge) / length2, 0.0f, 1.0f) : 0.0f;
+            const float gap = glm::distance(at, from + edge * t);
+            if (gap < bestGap) { bestGap = gap; bestDistance = v.routeCumulative[i] + t * std::sqrt(length2); }
+        }
+        v.distance = std::fmod(bestDistance, v.routeLength);
+        glm::vec3 point, direction;
+        SampleCircuit(v.route, v.routeCumulative, v.routeLength, v.distance, point, direction, v.nextWaypoint);
+        v.position.x = point.x; v.position.z = point.z;
+        v.direction = direction;
+        v.bike.ready = false;   // el modelo de bicicleta se vuelve a colocar sobre la ruta en el siguiente paso
+    }
+}
+
 void Simulation::GuestExtrapolate(float dt) {
     m_GuestSyncAge += dt;
     if (m_GuestSyncAge > 1.0f) return;   // sin noticias del anfitrion: se queda quieto en vez de seguir de largo

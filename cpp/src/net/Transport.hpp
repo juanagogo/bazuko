@@ -35,6 +35,7 @@ public:
     void Send(uint32_t peer, int channel, const std::vector<uint8_t>& data, bool reliable);
     void Disconnect(uint32_t peer);
     uint32_t RoundTripMs(uint32_t peer) const;
+    std::string PeerAddress(uint32_t peer) const;   // la IP con la que se ve a esa conexion (cadena vacia si no existe)
     size_t PeerCount() const;
 
     void SetSimulation(const NetSimConfig& config, uint32_t seed);

@@ -266,6 +266,74 @@ int main() {
             std::error_code ec; fs::remove_all(folder, ec);
         }
     }
+    // G: migracion de anfitrion: el anfitrion se va, el jugador de menor id abre la partida en el mismo puerto, los demas se reconectan y nadie pierde su perfil
+    {
+        std::string error;
+        const auto loaded = GameData::LoadFromFile(BAZUKO_GAME_DATA_PATH, &error);
+        CHECK(loaded.has_value(), "G: datos del juego");
+        if (loaded) {
+            namespace fs = std::filesystem;
+            const GameData& data = *loaded;
+            uint16_t pan = 0;
+            for (size_t i = 0; i < data.items.size(); ++i) if (data.items[i].id == "pan") pan = static_cast<uint16_t>(i);
+            const fs::path folderHost = fs::temp_directory_path() / ("bazuko_migracion_a_" + NewPlayerKey());
+            const fs::path folderNew = fs::temp_directory_path() / ("bazuko_migracion_b_" + NewPlayerKey());
+            auto host = NetSession::StartHost(0, "Anfitrion");
+            host->SetEconomyData(&data);
+            host->SetProfileFolder(folderHost);
+            const uint16_t port = host->Port();
+            struct Guest { std::unique_ptr<NetSession> session; EconomyMirror mirror; EconomySnapshot mine; uint32_t epoch = 0; std::string key; };
+            Walker hw{{100.0f, 0.0f, 100.0f}}, aw{{101.0f, 0.0f, 100.0f}}, bw{{102.0f, 0.0f, 100.0f}};
+            double clockSeconds = 0.0;
+            bool promotedSeen = false;
+            const auto step = [&](float dt, Guest& g, const Walker& w) {
+                if (!g.session) return;
+                g.session->Update(dt, w.State());
+                if (g.session->ConsumePromotion()) { promotedSeen = true; g.session->SetEconomyData(&data); g.session->SetProfileFolder(folderNew); }
+                if (g.session->GetRole() != NetSession::Role::Client || !g.session->Connected()) return;
+                if (g.epoch != g.session->Epoch()) { g.epoch = g.session->Epoch(); g.mirror.Restart(); }
+                if (const auto report = g.mirror.Poll(Canonical(g.mine, data.items.size()), clockSeconds)) g.session->SendEconomy(*report);
+                if (const auto sync = g.session->ConsumeEconomySync())
+                    if (const auto adopt = g.mirror.OnSync(*sync, Canonical(g.mine, data.items.size()))) g.mine = *adopt;
+            };
+            Guest a, b;
+            a.key = NewPlayerKey(); b.key = NewPlayerKey();
+            a.session = NetSession::Join("127.0.0.1", port, "Ana", a.key);
+            b.session = NetSession::Join("127.0.0.1", port, "Beto", b.key);
+            a.mine.money = 20000.0f; a.mine.level = 5; a.mine.xp = 40; a.mine.talentPoints = 4;
+            b.mine.money = 10000.0f; b.mine.level = 3; b.mine.talentPoints = 2;
+            const auto run = [&](double seconds) { Pump(seconds, [&](float dt) { clockSeconds += dt; if (host) host->Update(dt, hw.State()); step(dt, a, aw); step(dt, b, bw); }); };
+            run(2.0);
+            CHECK(a.session->Connected() && b.session->Connected(), "G: los dos se conectan");
+            b.mine.money -= 1500.0f; b.mine.items.push_back({pan, 1}); b.mine.xp = 90;   // Beto compra y gana experiencia justo antes de la caida
+            run(2.5);
+            const float betoMoney = b.mine.money;
+            host.reset();   // el anfitrion se va sin avisar de nada mas
+            run(7.0);
+            CHECK(promotedSeen && a.session->GetRole() == NetSession::Role::Host, "G: Ana (la de menor id) pasa a ser la anfitriona");
+            CHECK(b.session->GetRole() == NetSession::Role::Client && b.session->Connected() && !b.session->Migrating(), "G: Beto se reconecta a ella");
+            CHECK(a.session->Port() == port, "G: abre la partida en el mismo puerto");
+            const NetSession::Role roleA = a.session->GetRole();
+            (void)roleA;
+            const RemotePlayer* betoSeenByAna = nullptr;
+            for (const RemotePlayer& r : a.session->Remotes()) betoSeenByAna = &r;
+            CHECK(betoSeenByAna != nullptr, "G: Ana ve a Beto en la partida nueva");
+            const RemotePlayer* anaSeenByBeto = nullptr;
+            for (const RemotePlayer& r : b.session->Remotes()) if (r.id == 1) anaSeenByBeto = &r;
+            CHECK(anaSeenByBeto != nullptr, "G: Beto ve a Ana como anfitriona (id 1)");
+            const Ledger* betoLedger = a.session->LedgerOf(b.session->LocalId());
+            CHECK(betoLedger && betoLedger->Started() && std::abs(betoLedger->State().money - betoMoney) < 0.01f, "G: la nueva anfitriona conserva la plata de Beto");
+            CHECK(betoLedger && betoLedger->State().xp == 90 && betoLedger->State().level == 3, "G: y su experiencia y su nivel");
+            CHECK(ProfileStore(folderNew).Exists(b.key) && ProfileStore(folderNew).Exists(a.key), "G: los perfiles de todos quedaron guardados en la carpeta de la nueva anfitriona");
+            if (const auto savedAna = ProfileStore(folderNew).Load(a.key)) CHECK(savedAna->value("level", 0) == 5 && savedAna->value("talentPoints", 0) == 4, "G: el perfil de Ana conserva nivel y puntos de talento");
+            b.mine.money += 3.0e6f;   // una trampa despues de la migracion
+            run(1.0);
+            CHECK(a.session->EconomyRejections() >= 1 && std::abs(b.mine.money - betoMoney) < 0.01f, "G: la nueva anfitriona sigue validando: la trampa se revierte");
+            std::printf("G) migracion: Ana asume como anfitriona, Beto se reconecta, perfiles (plata, nivel, experiencia, talentos) conservados\n");
+            b.session.reset(); a.session.reset();
+            std::error_code ec; fs::remove_all(folderHost, ec); fs::remove_all(folderNew, ec);
+        }
+    }
     if (failures == 0) std::printf("Sesion de red: todo correcto\n");
     return failures == 0 ? 0 : 1;
 }

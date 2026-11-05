@@ -100,6 +100,34 @@ int main(int argc, char** argv) {
     check(busMean < 2.0, "los buses coinciden");
     check(std::abs(host.GetDayProgress() - guest.GetDayProgress()) < 0.01f && host.GetDay() == guest.GetDay(), "el reloj coincide");
     check(bytesMax < 1400, "cada instantanea cabe en un paquete de ~1,4 KB");
+    // Migracion de anfitrion: el invitado pasa a anfitrion y simula desde lo que recibio; los carros siguen su circuito sin saltos
+    {
+        std::vector<glm::vec3> before;
+        for (const TrafficVehicle& v : guest.GetTrafficVehicles()) before.push_back(v.position);
+        guest.PromoteToHost();
+        float worstJump = 0.0f; size_t checked = 0;
+        for (float time = 0.0f; time < 0.5f; time += dt) guest.Update(dt, viewer);
+        for (size_t i = 0; i < before.size(); ++i) {
+            const TrafficVehicle& v = guest.GetTrafficVehicles()[i];
+            if (v.parked || glm::distance(glm::vec2(before[i].x, before[i].z), glm::vec2(viewer.x, viewer.z)) > 90.0f) continue;
+            worstJump = std::max(worstJump, glm::distance(glm::vec2(before[i].x, before[i].z), glm::vec2(v.position.x, v.position.z)));
+            ++checked;
+        }
+        for (float time = 0.0f; time < 30.0f; time += dt) guest.Update(dt, viewer);
+        size_t moved = 0, finite = 0;
+        for (size_t i = 0; i < before.size(); ++i) {
+            const TrafficVehicle& v = guest.GetTrafficVehicles()[i];
+            if (std::isfinite(v.position.x) && std::isfinite(v.position.z)) ++finite;
+            if (!v.parked && glm::distance(glm::vec2(before[i].x, before[i].z), glm::vec2(v.position.x, v.position.z)) > 20.0f) ++moved;
+        }
+        std::printf("Migracion: %zu carros comparados, salto maximo en el primer medio segundo %.2f m; tras 30 s se movieron %zu carros y hay %zu peatones nuevos\n",
+                    checked, worstJump, moved, guest.GetPedestrianCount());
+        check(!guest.IsGuest(), "tras el ascenso ya no es invitado");
+        check(checked > 10 && worstJump < 8.0f, "ningun carro salta mas de 8 m al pasar a anfitrion");
+        check(finite == before.size(), "ningun carro queda con posicion invalida");
+        check(moved > 10, "los carros siguen circulando tras el ascenso");
+        check(guest.GetPedestrianCount() > 3, "la gente de la calle vuelve a aparecer");
+    }
     glfwDestroyWindow(window);
     glfwTerminate();
     if (failures == 0) std::printf("Mundo compartido: todo correcto\n");

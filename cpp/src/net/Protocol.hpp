@@ -23,7 +23,7 @@ inline constexpr size_t kMaxNameLength = 24;
 inline constexpr size_t kMaxLookBytes = 200;   // apariencia del creador de personaje, opaca para la red
 inline constexpr size_t kMaxChatLength = 120;
 
-enum class MessageType : uint8_t { Hello = 1, Welcome, Reject, Bye, Input, Snapshot, Ping, Pong, Chat, State, World, Strike, Hit, Economy, EconomySync };
+enum class MessageType : uint8_t { Hello = 1, Welcome, Reject, Bye, Input, Snapshot, Ping, Pong, Chat, State, World, Strike, Hit, Economy, EconomySync, Roster, Checkpoint };
 
 // Rangos del mapa (metros) para cuantizar posiciones: 16 bits por eje dan ~8 mm en X/Z y ~2 mm en altura
 inline constexpr float kWorldMinX = -64.0f, kWorldMaxX = 448.0f;
@@ -133,7 +133,7 @@ inline void Write(BitWriter& w, const Chat& m) { w.U8(static_cast<uint32_t>(Mess
 // Todas suponen que el tipo (primer byte) ya se leyo con ReadType.
 inline std::optional<MessageType> ReadType(BitReader& r) {
     const uint32_t type = r.U8();
-    if (r.Failed() || type < static_cast<uint32_t>(MessageType::Hello) || type > static_cast<uint32_t>(MessageType::EconomySync)) return std::nullopt;
+    if (r.Failed() || type < static_cast<uint32_t>(MessageType::Hello) || type > static_cast<uint32_t>(MessageType::Checkpoint)) return std::nullopt;
     return static_cast<MessageType>(type);
 }
 inline std::optional<Hello> ReadHello(BitReader& r) {

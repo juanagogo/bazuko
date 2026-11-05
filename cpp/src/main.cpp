@@ -718,6 +718,15 @@ int main(int argc, char** argv) {
     ui.RenderLoadingScreen(window, 1.0f, "¡Todo listo! Entrando a Bogotá...", "");
 #ifdef BAZUKO_NET_ENABLED
     std::unique_ptr<Net::NetSession> netSession;
+    // lo que necesita un anfitrion (datos de economia, carpeta de perfiles, mundo que reparte); tambien lo usa un invitado que pasa a anfitrion al irse el anterior
+    const auto configureNetHost = [&](Net::NetSession& hosting) {
+        hosting.SetEconomyData(&gameData);
+        std::string folder = "bazuko_perfiles";   // --perfiles=carpeta o BAZUKO_PERFILES
+        for (int i = 1; i < argc; ++i) if (std::string(argv[i]).rfind("--perfiles=", 0) == 0) folder = std::string(argv[i]).substr(11);
+        if (const char* env = std::getenv("BAZUKO_PERFILES")) folder = env;
+        hosting.SetProfileFolder(folder);
+        hosting.SetWorldProvider([&simulation](const glm::vec3& viewer, uint32_t tick) { return simulation.ExportWorld(viewer, tick); });
+    };
     {   // multijugador (compilado con -DBAZUKO_NET=ON): --anfitrion[=puerto] o --conectar=ip[:puerto]  (tambien BAZUKO_HOST / BAZUKO_JOIN)
         std::string hostArg, joinArg;
         for (int i = 1; i < argc; ++i) {
@@ -731,14 +740,7 @@ int main(int argc, char** argv) {
         const std::string playerName = characterManager.GetLook().nombre.empty() ? std::string("Parcero") : characterManager.GetLook().nombre;
         if (!hostArg.empty()) {
             netSession = Net::NetSession::StartHost(static_cast<uint16_t>(std::atoi(hostArg.c_str())), playerName);
-            if (netSession) { netSession->SetEconomyData(&gameData);
-                {   // perfiles de los invitados: carpeta de este anfitrion (--perfiles=carpeta o BAZUKO_PERFILES; por defecto bazuko_perfiles)
-                    std::string folder = "bazuko_perfiles";
-                    for (int i = 1; i < argc; ++i) if (std::string(argv[i]).rfind("--perfiles=", 0) == 0) folder = std::string(argv[i]).substr(11);
-                    if (const char* env = std::getenv("BAZUKO_PERFILES")) folder = env;
-                    netSession->SetProfileFolder(folder);
-                }
-                netSession->SetWorldProvider([&simulation](const glm::vec3& viewer, uint32_t tick) { return simulation.ExportWorld(viewer, tick); });
+            if (netSession) { configureNetHost(*netSession);
                 LogInfo("Multijugador: anfitrion en el puerto {}", netSession->Port()); ui.Notify("Eres el anfitrión: puerto " + std::to_string(netSession->Port()), ToastType::Info); }
             else LogWarn("Multijugador: no se pudo abrir el puerto {}", hostArg);
         } else if (!joinArg.empty()) {
@@ -1377,7 +1379,11 @@ int main(int argc, char** argv) {
         if (netSession) {   // multijugador: cuenta mi estado, recibe el de los demas y los dibuja (net/NetSession.hpp)
             netSession->Update(dt, Net::LocalState{playerPos, playerYaw, playerVelocity, playerKnockedDown});
             // mundo compartido: el invitado deja de simular trafico y peatones y aplica lo que manda el anfitrion (misma semilla = mismos carros)
-            simulation.SetGuestMode(netSession->GetRole() == Net::NetSession::Role::Client && netSession->Connected());
+            if (netSession->ConsumePromotion()) {   // el anfitrion se fue y me toca: ahora el mundo lo simulo yo
+                simulation.PromoteToHost();
+                configureNetHost(*netSession);
+            }
+            simulation.SetGuestMode(netSession->GetRole() == Net::NetSession::Role::Client && (netSession->Connected() || netSession->Migrating()));
             if (simulation.IsGuest()) {
                 static bool warnedMismatch = false;
                 if (auto world = netSession->ConsumeWorld()) {
@@ -1387,9 +1393,14 @@ int main(int argc, char** argv) {
             if (netSession->GetRole() == Net::NetSession::Role::Client && netSession->Connected()) {
                 // economia: el anfitrion lleva una copia de mi plata y mi costal y revierte lo que no se explica (net/EconomyLedger.hpp); yo sigo jugando sin esperas
                 static Net::EconomyMirror economyMirror;
+                static uint32_t economyEpoch = 0;
+                if (economyEpoch != netSession->Epoch()) { economyEpoch = netSession->Epoch(); economyMirror.Restart(); }   // otra partida (reconexion): vuelve a contar el estado completo
                 const auto economyNow = [&]() {
                     Net::EconomySnapshot snapshot;
                     snapshot.money = money; snapshot.bigSack = session.bigSack;
+                    snapshot.xp = xp; snapshot.level = level; snapshot.talentPoints = talentPoints;
+                    snapshot.talents.assign(unlockedTalents.begin(), unlockedTalents.end());
+                    for (size_t i = 0; i < snapshot.needs.size(); ++i) snapshot.needs[i] = static_cast<uint8_t>(std::clamp(static_cast<int>(std::lround(needs[i])), 0, 100));
                     for (const auto& entry : inventory) snapshot.items.push_back({static_cast<uint16_t>(entry.itemIndex), static_cast<uint16_t>(std::min(entry.quantity, 65535))});
                     return Net::Canonical(std::move(snapshot), lootTable.size());
                 };
@@ -1399,6 +1410,10 @@ int main(int argc, char** argv) {
                     const bool fromProfile = sync->profile;
                     if (const auto adopt = economyMirror.OnSync(*sync, economyNow())) {   // el anfitrion rechazo un cambio (o trae tu perfil guardado): se vuelve a su copia
                         money = adopt->money; session.bigSack = adopt->bigSack;
+                        xp = adopt->xp; level = adopt->level; talentPoints = adopt->talentPoints;
+                        unlockedTalents.clear();
+                        for (const std::string& id : adopt->talents) if (gameData.FindTalent(id)) unlockedTalents.insert(id);
+                        if (fromProfile) for (size_t i = 0; i < adopt->needs.size(); ++i) needs[i] = static_cast<float>(adopt->needs[i]);   // las necesidades solo se recuperan con el perfil guardado
                         inventory.clear(); inventoryWeight = 0.0f;
                         for (const auto& [index, quantity] : adopt->items) { inventory.push_back({index, static_cast<int>(quantity)}); inventoryWeight += lootTable[index].weight * static_cast<float>(quantity); }
                         ui.Notify(fromProfile ? "Tu perfil en este anfitrión: recuperaste tu plata y tu costal guardados." : "El anfitrión revirtió un cambio de tu costal o tu plata.", fromProfile ? ToastType::Info : ToastType::Warn);

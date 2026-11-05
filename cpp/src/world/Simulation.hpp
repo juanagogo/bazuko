@@ -402,6 +402,9 @@ public:
     // Mundo compartido (hito 3): el anfitrion exporta tras cada paso; el invitado NO simula trafico, peatones ni buses, solo los aplica y los extrapola.
     void SetGuestMode(bool guest) { m_Guest = guest; }
     bool IsGuest() const { return m_Guest; }
+    // Migracion de anfitrion: este jugador pasa de invitado a anfitrion. Cada carro sigue su circuito desde donde estaba, la gente de la calle se reinicia
+    // (vuelve a aparecer alrededor de los jugadores) y los conductores y patrullas vuelven a su estado normal.
+    void PromoteToHost();
     Net::WorldSnapshot ExportWorld(const glm::vec3& viewer, uint32_t tick);
     bool ApplyWorld(const Net::WorldSnapshot& snapshot);   // false si no coincide (otra semilla o modelos distintos)
     struct RemotePlayerView { uint8_t id = 0; glm::vec3 position{0.0f}; float yaw = 0.0f; float speed = 0.0f; bool knockedDown = false; };

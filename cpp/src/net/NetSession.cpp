@@ -44,6 +44,8 @@ std::unique_ptr<NetSession> NetSession::Join(const std::string& address, uint16_
     session->m_Role = Role::Client;
     session->m_Name = name;
     session->m_Key = key;
+    session->m_JoinAddress = address;
+    session->m_JoinPort = port;
     session->m_Host = Host::CreateClient();
     if (!session->m_Host || !session->m_Host->Connect(address, port)) return nullptr;
     return session;
@@ -72,7 +74,7 @@ void NetSession::UpdateHost(float dt, const LocalState& local) {
             const auto it = m_Peers.find(event.peer);
             if (it != m_Peers.end()) {
                 SavePeer(it->second);
-                if (it->second.id != 0) { m_Notices.push_back((it->second.name.empty() ? std::string("Un jugador") : it->second.name) + " salió de la partida."); m_Smooth.erase(it->second.id); }
+                if (it->second.id != 0) { m_RosterDirty = true; m_CheckpointDirty = true; m_Notices.push_back((it->second.name.empty() ? std::string("Un jugador") : it->second.name) + " salió de la partida."); m_Smooth.erase(it->second.id); }
                 m_Peers.erase(it);
             }
         } else HandleHostMessage(event);
@@ -88,6 +90,9 @@ void NetSession::UpdateHost(float dt, const LocalState& local) {
             m_Host->Send(peer, kChannelUnreliable, writer.Data(), false);
         }
     }
+    m_RosterAccumulator += dt; m_CheckpointAccumulator += dt;
+    if (m_RosterDirty || m_RosterAccumulator >= 5.0) { m_RosterDirty = false; m_RosterAccumulator = 0.0; SendRoster(); }
+    if ((m_CheckpointDirty && m_CheckpointAccumulator >= 1.0) || m_CheckpointAccumulator >= 5.0) { m_CheckpointDirty = false; m_CheckpointAccumulator = 0.0; SendCheckpoint(); }
     m_SaveAccumulator += dt;
     if (m_SaveAccumulator >= 30.0) { m_SaveAccumulator = 0.0; SaveProfiles(); }
     m_WorldAccumulator += dt;
@@ -145,6 +150,7 @@ void NetSession::HandleHostMessage(const NetEvent& event) {
             Write(answer, welcome);
             m_Host->Send(event.peer, kChannelReliable, answer.Data(), true);
             m_Notices.push_back(peer.name + " se unió a la partida.");
+            m_RosterDirty = true; m_CheckpointDirty = true;
             return;
         }
         m_Host->Send(event.peer, kChannelReliable, answer.Data(), true);
@@ -181,6 +187,7 @@ void NetSession::HandleHostMessage(const NetEvent& event) {
         }
         peer.profileSynced = true;
         const Ledger::Verdict verdict = peer.ledger->Submit(report->state, NowMs() / 1000.0);
+        m_CheckpointDirty = true;
         if (!verdict.accepted) {   // se queda la copia del anfitrion y se le devuelve al invitado, que la adopta
             ++m_EconomyRejections;
             const double now = NowMs();
@@ -204,10 +211,13 @@ void NetSession::UpdateClient(float dt, const LocalState& local) {
             Write(writer, hello);
             m_Host->Send(m_Server, kChannelReliable, writer.Data(), true);
         } else if (event.type == NetEvent::Type::Disconnected) {
-            if (m_Connected) m_Notices.push_back("Se perdió la conexión con el anfitrión.");
+            const bool wasConnected = m_Connected;
             m_Connected = false; m_Smooth.clear();
+            if (wasConnected && !m_Rejected && !m_Roster.empty() && !m_Migrating) BeginMigration();
+            else if (wasConnected && !m_Migrating) m_Notices.push_back("Se perdió la conexión con el anfitrión.");
         } else HandleClientMessage(event);
     }
+    if (m_Migrating) { MigrationTick(); return; }
     if (!m_Connected) return;
     m_SendAccumulator += dt;
     if (m_SendAccumulator >= kSendInterval) {
@@ -226,12 +236,18 @@ void NetSession::HandleClientMessage(const NetEvent& event) {
     if (*type == MessageType::Welcome) {
         if (const auto welcome = ReadWelcome(reader)) {
             m_LocalId = welcome.value().playerId; m_Connected = true;
-            m_Notices.push_back("Conectado a la partida como jugador " + std::to_string(m_LocalId) + ".");
+            ++m_Epoch;
+            if (m_Migrating) { m_Migrating = false; m_Notices.push_back("Reconectado con el nuevo anfitrión."); }
+            else m_Notices.push_back("Conectado a la partida como jugador " + std::to_string(m_LocalId) + ".");
         }
     } else if (*type == MessageType::Reject) {
         m_Rejected = true;
         const auto reject = ReadReject(reader);
         m_Notices.push_back(reject && reject->reason == RejectReason::ServerFull ? "La partida está llena." : reject && reject->reason == RejectReason::KeyInUse ? "Ese perfil ya está conectado en esta partida." : "El anfitrión rechazó la conexión.");
+    } else if (*type == MessageType::Roster) {
+        if (auto roster = ReadRoster(reader)) { m_Roster = std::move(roster->entries); m_RosterPort = roster->port; }
+    } else if (*type == MessageType::Checkpoint) {
+        if (auto checkpoint = ReadCheckpoint(reader)) m_Checkpoint = std::move(checkpoint->entries);
     } else if (*type == MessageType::EconomySync) {
         if (const auto sync = ReadEconomySync(reader)) m_PendingEconomy = std::move(*sync);
     } else if (*type == MessageType::Hit) {
@@ -294,11 +310,78 @@ void NetSession::SendEconomy(const EconomyReport& report) {
     m_Host->Send(m_Server, kChannelReliable, writer.Data(), true);
 }
 
+void NetSession::SendRoster() {
+    Roster roster; roster.port = m_Host->Port();
+    for (const auto& [peer, info] : m_Peers) if (info.id != 0) roster.entries.push_back({info.id, m_Host->PeerAddress(peer)});
+    std::sort(roster.entries.begin(), roster.entries.end(), [](const RosterEntry& a, const RosterEntry& b) { return a.id < b.id; });
+    BitWriter writer; Write(writer, roster);
+    for (const auto& [peer, info] : m_Peers) if (info.id != 0) m_Host->Send(peer, kChannelReliable, writer.Data(), true);
+}
+
+// La economia de todos, solo para el siguiente anfitrion (el jugador de menor id): si el anfitrion se va, no empieza de cero
+void NetSession::SendCheckpoint() {
+    uint32_t successor = 0; uint8_t lowest = 255;
+    Checkpoint checkpoint;
+    for (const auto& [peer, info] : m_Peers) {
+        if (info.id == 0) continue;
+        if (info.id < lowest) { lowest = info.id; successor = peer; }
+        if (info.ledger && info.ledger->Started() && !info.key.empty()) checkpoint.entries.push_back({info.key, info.ledger->State()});
+    }
+    if (successor == 0) return;
+    BitWriter writer; Write(writer, checkpoint);
+    m_Host->Send(successor, kChannelReliable, writer.Data(), true);
+}
+
+void NetSession::BeginMigration() {
+    m_Migrating = true; m_MigAttempt = false; m_MigIndex = 0; m_OldId = m_LocalId;
+    m_Notices.push_back("El anfitrión se fue: buscando al nuevo anfitrión...");
+}
+
+void NetSession::MigrationTick() {
+    const double now = NowMs();
+    if (!m_MigAttempt) {
+        if (m_MigIndex >= m_Roster.size()) { m_Migrating = false; m_Notices.push_back("No se pudo reconectar: nadie abrió la partida."); return; }
+        const RosterEntry& candidate = m_Roster[m_MigIndex];
+        if (candidate.id == m_OldId) { PromoteToHost(); return; }   // me toca a mi: los de antes en la lista no respondieron
+        m_Host = Host::CreateClient();
+        if (!m_Host || !m_Host->Connect(candidate.ip, m_RosterPort)) { ++m_MigIndex; return; }
+        m_MigAttempt = true; m_MigDeadlineMs = now + 8000.0;
+    } else if (!m_Connected && now > m_MigDeadlineMs) { ++m_MigIndex; m_MigAttempt = false; }
+}
+
+void NetSession::PromoteToHost() {
+    m_Host.reset();
+    m_Host = Host::CreateServer(m_RosterPort, m_MaxPlayers + 8);
+    m_Migrating = false;
+    if (!m_Host) { m_Notices.push_back("No se pudo abrir la partida como nuevo anfitrión."); return; }
+    m_Role = Role::Host; m_LocalId = 1; m_Connected = false; m_Rejected = false;
+    m_Peers.clear(); m_Smooth.clear(); m_Remotes.clear();
+    m_Seed.clear();
+    for (const CheckpointEntry& entry : m_Checkpoint) m_Seed[entry.key] = entry.state;
+    m_RosterDirty = true; m_CheckpointDirty = true;
+    m_Promoted = true; ++m_Epoch;
+    m_Notices.push_back("Ahora eres el anfitrión de la partida.");
+}
+
+void NetSession::SetProfileFolder(const std::filesystem::path& folder) {
+    m_Profiles = std::make_unique<ProfileStore>(folder);
+    for (const auto& [key, state] : m_Seed) {   // los perfiles del anfitrion anterior se vuelven tambien de este: la cadena de anfitriones no los pierde
+        if (!IsValidPlayerKey(key)) continue;
+        nlohmann::json save = m_Profiles->Load(key).value_or(nlohmann::json::object());
+        ApplyEconomyToSave(save, state);
+        m_Profiles->Save(key, save);
+    }
+}
+
 NetSession::~NetSession() { if (m_Role == Role::Host) SaveProfiles(); }
 
 // La copia de economia de este invitado: del perfil guardado (saneado) si existe; si no, nueva (con el limite de perfil nuevo)
 void NetSession::StartLedger(Peer& peer) {
     peer.ledger = std::make_unique<Ledger>(*m_EconomyData);
+    if (!peer.key.empty()) {
+        const auto seed = m_Seed.find(peer.key);
+        if (seed != m_Seed.end()) { peer.ledger->Seed(seed->second, NowMs() / 1000.0); return; }   // viene del anfitrion anterior
+    }
     if (!m_Profiles || peer.key.empty()) return;
     if (auto save = m_Profiles->Load(peer.key)) {
         Sanitize(*save, *m_EconomyData);
