@@ -154,6 +154,13 @@ void NetSession::HandleHostMessage(const NetEvent& event) {
         Smooth& smooth = m_Smooth[peer.id];
         smooth.shown.id = peer.id; smooth.shown.name = peer.name;
         smooth.target = peer.state; smooth.lastHeardMs = peer.lastMs;
+    } else if (*type == MessageType::Strike) {
+        if (peer.id == 0 || !peer.hasState) return;
+        const auto command = ReadStrike(reader);
+        const double now = NowMs();
+        if (!command || now - peer.lastStrikeMs < kMinStrikeIntervalMs) return;   // mas rapido de lo posible: se ignora
+        peer.lastStrikeMs = now;
+        ResolveStrike(peer.id, glm::vec3(peer.state.x, peer.state.y, peer.state.z), *command);
     } else if (*type == MessageType::Bye) {
         m_Host->Disconnect(event.peer);
     }
@@ -197,6 +204,8 @@ void NetSession::HandleClientMessage(const NetEvent& event) {
         m_Rejected = true;
         const auto reject = ReadReject(reader);
         m_Notices.push_back(reject && reject->reason == RejectReason::ServerFull ? "La partida está llena." : "El anfitrión rechazó la conexión.");
+    } else if (*type == MessageType::Hit) {
+        if (const auto hit = ReadHit(reader)) m_Hits.push_back({hit->kind, glm::vec3(hit->fromX, 0.0f, hit->fromZ)});
     } else if (*type == MessageType::World) {
         if (auto world = ReadWorld(reader)) { m_LastWorldBytes = event.data.size(); m_PendingWorld = std::move(*world); }
     } else if (*type == MessageType::Snapshot) {
@@ -233,6 +242,62 @@ void NetSession::SmoothRemote(float dt) {
         smooth.shown.knockedDown = (smooth.target.flags & 2) != 0;
         m_Remotes.push_back(smooth.shown);
     }
+}
+
+void NetSession::Strike(const StrikeCommand& command) {
+    if (m_Role == Role::Host) {
+        const double now = NowMs();
+        if (now - m_LocalLastStrikeMs < kMinStrikeIntervalMs) return;
+        m_LocalLastStrikeMs = now;
+        ResolveStrike(m_LocalId, m_LastLocal.position, command);
+    } else if (m_Connected) {
+        BitWriter writer;
+        Write(writer, command);
+        m_Host->Send(m_Server, kChannelReliable, writer.Data(), true);
+    }
+}
+
+void NetSession::SendHit(uint8_t player, int kind, const glm::vec3& from) {
+    if (player == m_LocalId) { m_Hits.push_back({kind, from}); return; }
+    for (const auto& [peer, info] : m_Peers) {
+        if (info.id != player) continue;
+        BitWriter writer;
+        const float length = std::hypot(from.x, from.z);
+        HitEvent hit; hit.kind = static_cast<uint8_t>(std::clamp(kind, 1, 3));
+        if (length > 0.01f) { hit.fromX = from.x / length; hit.fromZ = from.z / length; }
+        Write(writer, hit);
+        m_Host->Send(peer, kChannelReliable, writer.Data(), true);
+        return;
+    }
+}
+
+// Anfitrion: el golpe de `attacker` desde `position` hacia `command.yaw`. Alcanza al jugador mas cercano delante (cono de ~57 grados) dentro del alcance; el alcance y
+// el dano que pide el cliente se limitan. Ademas se avisa al juego (RemoteStrike) para que el golpe tambien llegue a peatones y vehiculos.
+void NetSession::ResolveStrike(uint8_t attacker, const glm::vec3& position, const StrikeCommand& requested) {
+    StrikeCommand command = requested;
+    command.reach = std::clamp(command.reach, 0.5f, kMaxStrikeReach);
+    command.knockback = std::clamp(command.knockback, 0.0f, kMaxStrikeKnockback);
+    if (command.damage > kMaxStrikeDamage) command.damage = kMaxStrikeDamage;
+    if (attacker != m_LocalId) m_RemoteStrikes.push_back({attacker, position, command});
+    const glm::vec2 forward(std::sin(command.yaw), std::cos(command.yaw));
+    struct Victim { uint8_t id; glm::vec3 position; float distance; };
+    std::optional<Victim> best;
+    const auto consider = [&](uint8_t id, const glm::vec3& at, bool down) {
+        if (id == attacker || down) return;
+        const glm::vec2 offset(at.x - position.x, at.z - position.z);
+        const float distance = glm::length(offset);
+        if (distance > command.reach + 0.4f || std::abs(at.y - position.y) > 2.0f) return;   // el margen cubre la demora de la red
+        if (distance > 0.05f && glm::dot(offset / distance, forward) < 0.55f) return;
+        if (!best || distance < best->distance) best = Victim{id, at, distance};
+    };
+    consider(m_LocalId, m_LastLocal.position, m_LastLocal.knockedDown);
+    for (const auto& [peer, info] : m_Peers)
+        if (info.id != 0 && info.hasState) consider(info.id, glm::vec3(info.state.x, info.state.y, info.state.z), (info.state.flags & 2) != 0);
+    if (!best) return;
+    glm::vec3 from(position.x - best->position.x, 0.0f, position.z - best->position.z);
+    const float length = std::hypot(from.x, from.z);
+    from = length > 0.01f ? from / length : glm::vec3(-forward.x, 0.0f, -forward.y);
+    SendHit(best->id, command.kind, from);
 }
 
 std::vector<std::string> NetSession::ConsumeNotices() {

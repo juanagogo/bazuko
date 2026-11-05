@@ -115,6 +115,54 @@ int main() {
         const RemotePlayer* seen = Find(*host, one->LocalId());
         CHECK(seen == nullptr || seen->position.x < 500.0f, "el anfitrion ignora un estado fuera del mapa");
     }
+    // D: combate entre jugadores (el anfitrion decide): alcance, direccion, frecuencia, dano pedido y jugadores caidos
+    {
+        auto host = NetSession::StartHost(0, "Anfitrion");
+        auto a = NetSession::Join("127.0.0.1", host->Port(), "Ana");
+        auto b = NetSession::Join("127.0.0.1", host->Port(), "Beto");
+        Walker hw{{100.0f, 0.0f, 100.0f}}, aw{{101.0f, 0.0f, 100.0f}}, bw{{140.0f, 0.0f, 100.0f}};
+        const auto run = [&](double seconds) { Pump(seconds, [&](float dt) { host->Update(dt, hw.State()); a->Update(dt, aw.State()); b->Update(dt, bw.State()); }); };
+        run(1.2);
+        CHECK(a->Connected() && b->Connected(), "D: los clientes se conectan");
+        StrikeCommand jab; jab.kind = 1; jab.reach = 1.3f;
+        // Ana (a 1 m del anfitrion) lo golpea mirando hacia el: -X
+        jab.yaw = -1.5707963f;
+        a->Strike(jab);
+        run(0.4);
+        auto hits = host->ConsumeHits();
+        CHECK(hits.size() == 1 && hits[0].kind == 1, "D: el anfitrion recibe el golpe de Ana");
+        if (!hits.empty()) CHECK(hits[0].from.x > 0.9f, "D: y sabe de que lado vino (Ana esta al este)");
+        CHECK(b->ConsumeHits().empty() && a->ConsumeHits().empty(), "D: nadie mas recibe nada");
+        CHECK(host->ConsumeRemoteStrikes().size() == 1, "D: el golpe de Ana tambien le llega al anfitrion para el mundo (peatones)");
+        // mirando al lado contrario no le pega a nadie
+        jab.yaw = 1.5707963f;
+        a->Strike(jab); run(0.4);
+        CHECK(host->ConsumeHits().empty(), "D: golpear hacia otro lado no alcanza");
+        // dos golpes seguidos casi a la vez: el segundo se ignora (limite de frecuencia)
+        jab.yaw = -1.5707963f;
+        a->Strike(jab); a->Strike(jab); run(0.4);
+        CHECK(host->ConsumeHits().size() == 1, "D: golpes mas rapidos de lo posible cuentan una vez");
+        // el anfitrion golpea a Ana (mirando a +X): le llega por la red
+        StrikeCommand cross; cross.kind = 2; cross.yaw = 1.5707963f;
+        host->Strike(cross); run(0.4);
+        const auto toAna = a->ConsumeHits();
+        CHECK(toAna.size() == 1 && toAna[0].kind == 2, "D: Ana recibe el golpe del anfitrion por la red");
+        // alcance: Ana mas lejos que el pedido; un alcance falso enorme se recorta a 3 m
+        aw.position = {104.0f, 0.0f, 100.0f}; run(0.6);
+        StrikeCommand far; far.kind = 3; far.yaw = -1.5707963f; far.reach = 50.0f;
+        a->Strike(far); run(0.4);
+        CHECK(host->ConsumeHits().empty(), "D: a 4 m no llega aunque el cliente pida un alcance de 50 m");
+        aw.position = {102.5f, 0.0f, 100.0f}; run(0.6);
+        run(0.3); a->Strike(far); run(0.4);
+        CHECK(host->ConsumeHits().size() == 1, "D: a 2,5 m con alcance recortado a 3 m si llega");
+        // un jugador caido no recibe golpes
+        hw.velocity = {0.0f, 0.0f, 0.0f};
+        const auto downedState = [&]() { LocalState s = hw.State(); s.knockedDown = true; return s; };
+        Pump(0.5, [&](float dt) { host->Update(dt, downedState()); a->Update(dt, aw.State()); b->Update(dt, bw.State()); });
+        a->Strike(far); Pump(0.4, [&](float dt) { host->Update(dt, downedState()); a->Update(dt, aw.State()); b->Update(dt, bw.State()); });
+        CHECK(host->ConsumeHits().empty(), "D: un jugador tendido no recibe golpes");
+        std::printf("D) combate: alcance, direccion, frecuencia y jugadores caidos validados por el anfitrion\n");
+    }
     if (failures == 0) std::printf("Sesion de red: todo correcto\n");
     return failures == 0 ? 0 : 1;
 }

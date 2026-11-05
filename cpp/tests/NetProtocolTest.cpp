@@ -1,7 +1,9 @@
 // Pruebas del protocolo de red sin red: ida y vuelta de cada mensaje, error de cuantizacion, rechazo de paquetes truncados o corruptos
 // (nunca debe fallar ni leer fuera del buffer) y comportamiento estadistico del simulador de red.
+#include "net/Interaction.hpp"
 #include "net/NetSim.hpp"
 #include "net/Protocol.hpp"
+#include "net/WorldSnapshot.hpp"
 
 #include <cmath>
 #include <cstdio>
@@ -187,6 +189,43 @@ int main() {
         NetSim duplicate({0.0, 0.0, 0.0, 50.0}, 3);
         for (int i = 0; i < 1000; ++i) duplicate.Send({1}, 0.0);
         Check(duplicate.Duplicated() > 400 && duplicate.Duplicated() < 600, "duplicados simulados");
+    }
+
+    // Golpe, golpe recibido y mundo compartido: ida y vuelta, y rechazo de paquetes truncados
+    {
+        StrikeCommand strike; strike.yaw = 2.0f; strike.kind = 3; strike.damage = 22.0f; strike.reach = 1.6f; strike.knockback = 1.5f;
+        BitWriter w; Write(w, strike);
+        BitReader r(w.Data());
+        Check(ReadType(r) == MessageType::Strike, "tipo Strike");
+        const auto back = ReadStrike(r);
+        Check(back && back->kind == 3 && Near(back->yaw, 2.0f, 0.01f) && Near(back->damage, 22.0f, 0.2f) && Near(back->reach, 1.6f, 0.05f), "golpe ida y vuelta");
+        StrikeCommand wild; wild.damage = 9999.0f; wild.reach = 500.0f; wild.knockback = 99.0f;
+        BitWriter w2; Write(w2, wild);
+        BitReader r2(w2.Data()); ReadType(r2);
+        const auto clamped = ReadStrike(r2);
+        Check(clamped && clamped->damage <= kMaxStrikeDamage + 0.01f && clamped->reach <= kMaxStrikeReach + 0.01f && clamped->knockback <= kMaxStrikeKnockback + 0.01f, "un golpe con valores absurdos se recorta al escribir");
+        BitReader truncated(std::vector<uint8_t>{static_cast<uint8_t>(MessageType::Strike), 1});
+        ReadType(truncated);
+        Check(!ReadStrike(truncated).has_value(), "golpe truncado se rechaza");
+        HitEvent hit; hit.kind = 2; hit.fromX = 0.6f; hit.fromZ = -0.8f;
+        BitWriter w3; Write(w3, hit);
+        BitReader r3(w3.Data()); ReadType(r3);
+        const auto hitBack = ReadHit(r3);
+        Check(hitBack && hitBack->kind == 2 && Near(hitBack->fromX, 0.6f, 0.02f) && Near(hitBack->fromZ, -0.8f, 0.02f), "golpe recibido ida y vuelta");
+        WorldSnapshot world; world.tick = 77; world.day = 3; world.clock = 0.42f; world.elapsed = 123.456f; world.weather = 4; world.weatherRemaining = 90.0f; world.vehicleCount = 61;
+        world.vehicles.push_back({12, 100.5f, 0.0f, 80.25f, 1.0f, 0.2f, 7.5f, 3, 2, false});
+        world.pedestrians.push_back({5, 90.0f, 0.1f, 70.0f, 2.5f, 1.4f, 4, 1, true, false, true});
+        world.buses.push_back({75.0f, 0.0f, -30.0f, 0.0f, -1.0f, 8.0f, 1.0f, true});
+        BitWriter w4; Write(w4, world);
+        BitReader r4(w4.Data()); ReadType(r4);
+        const auto worldBack = ReadWorld(r4);
+        Check(worldBack && worldBack->vehicles.size() == 1 && worldBack->pedestrians.size() == 1 && worldBack->buses.size() == 1 && worldBack->vehicleCount == 61 && worldBack->day == 3, "mundo ida y vuelta");
+        if (worldBack) Check(Near(worldBack->vehicles[0].x, 100.5f, 0.02f) && worldBack->vehicles[0].variant == 3 && worldBack->pedestrians[0].police && Near(worldBack->elapsed, 123.456f, 0.01f), "valores del mundo");
+        for (size_t cut = 1; cut < w4.Data().size(); cut += 7) {   // cualquier truncamiento se rechaza sin salirse del buffer
+            std::vector<uint8_t> part(w4.Data().begin(), w4.Data().begin() + static_cast<long>(cut));
+            BitReader tr(part); ReadType(tr);
+            Check(!ReadWorld(tr).has_value(), "mundo truncado se rechaza");
+        }
     }
 
     if (g_Failures == 0) std::printf("Protocolo de red: todo correcto\n");

@@ -5,6 +5,7 @@
 // tocar la fisica del juego. El mundo (trafico, peatones) todavia NO es compartido: eso llega con el hito 3.
 #include "Protocol.hpp"
 #include "Transport.hpp"
+#include "Interaction.hpp"
 #include "WorldSnapshot.hpp"
 
 #include <functional>
@@ -58,6 +59,14 @@ public:
     void SetWorldProvider(WorldProvider provider) { m_WorldProvider = std::move(provider); }
     std::optional<WorldSnapshot> ConsumeWorld() { std::optional<WorldSnapshot> out; out.swap(m_PendingWorld); return out; }
     size_t LastWorldBytes() const { return m_LastWorldBytes; }
+    // Combate (hito 4). El jugador local avisa de cada golpe con Strike(): si es anfitrion lo resuelve contra los demas jugadores; si es cliente se lo pide
+    // al anfitrion, que valida alcance, frecuencia y dano. Lo que le llega a este jugador sale por ConsumeHits() (golpes de otros jugadores o de peatones del anfitrion).
+    struct IncomingHit { int kind = 1; glm::vec3 from{0.0f, 0.0f, 1.0f}; };
+    struct RemoteStrike { uint8_t attacker = 0; glm::vec3 position{0.0f}; StrikeCommand command; };
+    void Strike(const StrikeCommand& command);
+    void SendHit(uint8_t player, int kind, const glm::vec3& from);   // anfitrion: entrega un golpe (por ejemplo de un peaton) a ese jugador
+    std::vector<IncomingHit> ConsumeHits() { std::vector<IncomingHit> out; out.swap(m_Hits); return out; }
+    std::vector<RemoteStrike> ConsumeRemoteStrikes() { std::vector<RemoteStrike> out; out.swap(m_RemoteStrikes); return out; }   // anfitrion: golpes de otros al mundo (peatones, vehiculos)
     // Avisos de entrada y salida para mostrar en pantalla (se vacian al leerlos)
     std::vector<std::string> ConsumeNotices();
     NetSession(const NetSession&) = delete;
@@ -72,6 +81,7 @@ private:
         PlayerSnapshot state;       // lo ultimo que conto
         double lastMs = 0.0;        // cuando llego
         bool hasState = false;
+        double lastStrikeMs = -1.0e9;
     };
     struct Smooth { RemotePlayer shown; PlayerSnapshot target; bool fresh = true; double lastHeardMs = 0.0; };
 
@@ -81,6 +91,7 @@ private:
     void HandleClientMessage(const NetEvent& event);
     void SmoothRemote(float dt);
     uint8_t FreeId() const;
+    void ResolveStrike(uint8_t attacker, const glm::vec3& position, const StrikeCommand& command);
     Snapshot BuildSnapshotFor(uint8_t viewerId, const glm::vec3& viewerPosition) const;
 
     Role m_Role = Role::Host;
@@ -96,6 +107,9 @@ private:
     LocalState m_LastLocal;
     double m_SendAccumulator = 0.0;
     double m_WorldAccumulator = 0.0;
+    double m_LocalLastStrikeMs = -1.0e9;
+    std::vector<IncomingHit> m_Hits;
+    std::vector<RemoteStrike> m_RemoteStrikes;
     WorldProvider m_WorldProvider;
     std::optional<WorldSnapshot> m_PendingWorld;
     size_t m_LastWorldBytes = 0;

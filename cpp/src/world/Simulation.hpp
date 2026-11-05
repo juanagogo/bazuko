@@ -368,6 +368,8 @@ public:
     void Update(float dt, const glm::vec3& playerPosition);
     // Varios jugadores (multijugador): aves y ratas ya reaccionan al mas cercano; el resto de sistemas sigue usando al primero hasta migrarse (hito 1).
     void Update(float dt, const std::vector<Net::PlayerView>& players);
+    // El jugador local de siempre (con su higiene y su rumbo) mas otros jugadores (multijugador: el anfitrion); sin extras es identico a Update(dt, posicion)
+    void Update(float dt, const glm::vec3& playerPosition, const std::vector<Net::PlayerView>& others);
     void SetPlayerFacing(const glm::vec2& facing) { m_PlayerFacing = glm::length(facing) > 0.01f ? glm::normalize(facing) : glm::vec2(0.0f, 1.0f); }
     bool IsBlocked(const glm::vec3& position, float radius) const;
     // Objetos fijos de la calle (arboles, postes, semaforos, puestos, recicladora): un circulo o una caja orientada en planta

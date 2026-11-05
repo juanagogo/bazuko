@@ -1354,7 +1354,7 @@ int main(int argc, char** argv) {
             const float facingYaw = camera.GetMode() == CameraMode::ThirdPerson ? camera.GetYaw() : playerYaw;
             simulation.SetPlayerFacing({std::sin(facingYaw), std::cos(facingYaw)});
         }
-        simulation.Update(dt, playerPos);
+        std::vector<Net::PlayerView> remoteViewers;   // anfitrion: los otros jugadores existen para peatones, policia y trafico
 #ifdef BAZUKO_NET_ENABLED
         if (netSession) {   // multijugador: cuenta mi estado, recibe el de los demas y los dibuja (net/NetSession.hpp)
             netSession->Update(dt, Net::LocalState{playerPos, playerYaw, playerVelocity, playerKnockedDown});
@@ -1369,7 +1369,28 @@ int main(int argc, char** argv) {
             for (const std::string& notice : netSession->ConsumeNotices()) ui.Notify(notice, ToastType::Info);
             std::vector<Simulation::RemotePlayerView> remoteViews;
             for (const Net::RemotePlayer& remote : netSession->Remotes()) remoteViews.push_back({remote.id, remote.position, remote.yaw, remote.speed, remote.knockedDown});
+            if (netSession->GetRole() == Net::NetSession::Role::Host)
+                for (const Simulation::RemotePlayerView& remote : remoteViews) {
+                    Net::PlayerView view;
+                    view.id = remote.id; view.position = {remote.position.x, remote.position.y, remote.position.z}; view.yaw = remote.yaw; view.alive = !remote.knockedDown;
+                    remoteViewers.push_back(view);
+                }
             simulation.SetRemotePlayers(std::move(remoteViews));
+        }
+#endif
+        simulation.Update(dt, playerPos, remoteViewers);
+#ifdef BAZUKO_NET_ENABLED
+        if (netSession && netSession->GetRole() == Net::NetSession::Role::Host) {
+            // lo que el mundo les hace a los demas jugadores (golpes de peatones) se les entrega, y lo que ellos hacen al mundo se aplica aqui
+            for (const Net::PlayerView& viewer : remoteViewers) {
+                int kind = 0; glm::vec3 from{};
+                while (simulation.ConsumePlayerHitFor(viewer.id, kind, from)) netSession->SendHit(viewer.id, kind, from);
+            }
+            for (const Net::NetSession::RemoteStrike& strike : netSession->ConsumeRemoteStrikes()) {
+                const glm::vec2 forward(std::sin(strike.command.yaw), std::cos(strike.command.yaw));
+                if (!simulation.HitPedestrian(strike.position, forward, strike.command.reach, strike.command.kind, strike.command.damage, strike.command.knockback))
+                    simulation.HitVehicle(strike.position, forward, 1.4f);
+            }
         }
 #endif
         poopCooldown = std::max(0.0f, poopCooldown - dt);
@@ -1433,7 +1454,12 @@ int main(int argc, char** argv) {
             // golpes recibidos de peatones agresivos
             int hitKind = 0;
             glm::vec3 hitFrom{};
-            while (simulation.ConsumePlayerHit(hitKind, hitFrom)) {
+            std::vector<std::pair<int, glm::vec3>> netHits;   // golpes de otros jugadores (o de peatones del anfitrion) que llegan por la red
+#ifdef BAZUKO_NET_ENABLED
+            if (netSession) for (const Net::NetSession::IncomingHit& incoming : netSession->ConsumeHits()) netHits.push_back({incoming.kind, incoming.from});
+#endif
+            while (!netHits.empty() || simulation.ConsumePlayerHit(hitKind, hitFrom)) {
+                if (!netHits.empty()) { hitKind = netHits.back().first; hitFrom = netHits.back().second; netHits.pop_back(); }
                 switch (Fight::ReceiveHit(session, hitKind, hitFrom)) {   // game/Fight.cpp
                     case Fight::HitResult::Ignored: break;
                     case Fight::HitResult::Dodged: ui.SetPickupNotification("¡Esquivaste el golpe!"); break;   // el esquive lateral o rotatorio evita el golpe
@@ -1517,6 +1543,14 @@ int main(int argc, char** argv) {
                     const float weaponDamage = weapon ? weapon->damage * (tick.strikeAction == PlayerAction::Hook ? 1.5f : 1.0f) : -1.0f;   // el ultimo golpe del combo pega mas
                     if (!simulation.HitPedestrian(playerPos, {std::sin(playerYaw), std::cos(playerYaw)}, weapon ? weapon->range : kicking ? 1.6f : 1.3f, tick.strikeKind, weaponDamage, weapon ? weapon->knockback : 1.0f))
                         simulation.HitVehicle(playerPos, {std::sin(playerYaw), std::cos(playerYaw)}, 1.4f);
+#ifdef BAZUKO_NET_ENABLED
+                    if (netSession) {   // multijugador: el golpe tambien se resuelve contra los demas jugadores (el anfitrion decide)
+                        Net::StrikeCommand strike;
+                        strike.yaw = playerYaw; strike.kind = static_cast<uint8_t>(std::clamp(tick.strikeKind, 1, 3)); strike.damage = weaponDamage;
+                        strike.reach = weapon ? weapon->range : kicking ? 1.6f : 1.3f; strike.knockback = weapon ? weapon->knockback : 1.0f;
+                        netSession->Strike(strike);
+                    }
+#endif
                 }
                 if (tick.petRewardDue && simulation.PetDog()) {   // la mano ya esta sobre la cabeza
                     needs[5] = std::min(100.0f, needs[5] + 5.0f);

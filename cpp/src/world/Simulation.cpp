@@ -2438,6 +2438,18 @@ void Simulation::Update(float dt, const glm::vec3& playerPosition) {
     UpdateWorld(dt, playerPosition);
 }
 
+void Simulation::Update(float dt, const glm::vec3& playerPosition, const std::vector<Net::PlayerView>& others) {
+    Net::PlayerView view;
+    view.id = 1;
+    view.position = {playerPosition.x, playerPosition.y, playerPosition.z};
+    view.hygiene = m_PlayerHygiene;
+    view.facingX = m_PlayerFacing.x;
+    view.facingZ = m_PlayerFacing.y;
+    m_PlayerViews.assign(1, view);
+    m_PlayerViews.insert(m_PlayerViews.end(), others.begin(), others.end());
+    UpdateWorld(dt, playerPosition);
+}
+
 void Simulation::Update(float dt, const std::vector<Net::PlayerView>& players) {
     m_PlayerViews = players;
     glm::vec3 primary(1.0e6f, 0.0f, 1.0e6f);   // sin jugadores: lo que aun no es multijugador ve a alguien muy lejos
