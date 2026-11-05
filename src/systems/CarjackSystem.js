@@ -30,6 +30,7 @@ export const BOARDING = {
   force: .45,          // forzar la puerta de un estacionado
   pull: .6,            // sacar a la fuerza al conductor
   slip: .3,            // agacharse y entrar al asiento
+  cameraReturn: .9,    // s en que la cámara vuelve a su distancia a pie al bajarse
   stepOut: .45,        // bajarse y alejarse un paso
   duck: .22            // m que baja el cuerpo al meterse
 };
@@ -64,6 +65,7 @@ export class CarjackSystem {
     this.prompt = null;
     this.target = null;
     this._savedCameraDistance = null;
+    this._cameraReturn = null; // { from, to, t }: la cámara se acerca de a poco al bajarse
     this._audioEntry = { car: null, speed: 0, personBlocked: false };
     this._dom = null;
     this.transition = null; // subir o bajar en curso: { kind, phase, t, ... }
@@ -122,6 +124,7 @@ export class CarjackSystem {
   update(dt, input) {
     this.cooldown = Math.max(0, this.cooldown - dt);
     this.prompt = null;
+    this._easeCamera(dt);
     if (this.transition) {
       // Mientras sube o baja nada lo interrumpe: ni el movimiento a pie ni el volante.
       this._animateTransition(dt);
@@ -176,7 +179,9 @@ export class CarjackSystem {
     this._startBoarding(car, !!vehicle);
     const rig = game.cameraRig;
     if (rig) {
-      this._savedCameraDistance ??= rig.distance;
+      // Si se vuelve a subir mientras la cámara aún regresaba, la distancia a pie es la de destino.
+      this._savedCameraDistance ??= this._cameraReturn?.to ?? rig.distance;
+      this._cameraReturn = null;
       rig.distance = CARJACK.cameraDistance;
       // Sin subir animado (pruebas, sin cuerpo) la cámara salta detrás; si no, gira mientras se sube.
       if (rig.mode === 'third-person' && !this.transition) rig.yaw = car.group.rotation.y - Math.PI / 2;
@@ -224,7 +229,10 @@ export class CarjackSystem {
     car.setNight?.(game.clock?.isNight ?? false, game.weather?.isRaining ?? false);
     if (car.marker) car.marker.visible = !car.used;
     game.traffic?.setParkedCars?.(game.cars);
-    if (game.cameraRig && this._savedCameraDistance != null) game.cameraRig.distance = this._savedCameraDistance;
+    // La cámara no salta hacia el jugador: vuelve a su distancia mientras se baja.
+    if (game.cameraRig && this._savedCameraDistance != null) {
+      this._cameraReturn = { from: game.cameraRig.distance, to: this._savedCameraDistance, t: 0 };
+    }
     this._savedCameraDistance = null;
     this.car = null;
     this.speed = 0;
@@ -278,8 +286,10 @@ export class CarjackSystem {
     if (this.transition?.driverPending) this.transition.car.setDriverInside?.(false);
     this.transition = null;
     if (this.game.player?.root) this.game.player.root.visible = true;
-    if (this.game.cameraRig && this._savedCameraDistance != null) this.game.cameraRig.distance = this._savedCameraDistance;
+    const restore = this._savedCameraDistance ?? this._cameraReturn?.to;
+    if (this.game.cameraRig && restore != null) this.game.cameraRig.distance = restore;
     this._savedCameraDistance = null;
+    this._cameraReturn = null;
     this.car = null;
     this.speed = 0;
     this.prompt = null;
@@ -375,6 +385,15 @@ export class CarjackSystem {
       if (player.root) player.root.position.copy(tr.to);
       this.transition = null;
     }
+  }
+
+  _easeCamera(dt) {
+    const back = this._cameraReturn, rig = this.game.cameraRig;
+    if (!back || !rig) return;
+    back.t = Math.min(1, back.t + dt / BOARDING.cameraReturn);
+    const e = back.t * back.t * (3 - 2 * back.t);
+    rig.distance = back.from + (back.to - back.from) * e;
+    if (back.t >= 1) this._cameraReturn = null;
   }
 
   _ground(x, z, y) {

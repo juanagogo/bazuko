@@ -667,7 +667,14 @@ export class Player {
       const targetSpeed = moving ? speed : 0;
       const targetVelX = moving ? dir.x * targetSpeed : 0;
       const targetVelZ = moving ? dir.z * targetSpeed : 0;
-      const accelRate = this.waterMovement.swimming ? (moving ? 5 : 4) : (moving ? 22 : 18);
+      // Arrancar desde quieto y frenar tardan un poco más que cambiar de rumbo: a la carrera,
+      // el frenazo dura ~⅓ s y se nota en el cuerpo (ver la inclinación hacia atrás más abajo).
+      const currentSpeed = Math.hypot(this.velocity.x, this.velocity.z);
+      const accelRate = this.waterMovement.swimming ? (moving ? 5 : 4)
+        : moving ? (currentSpeed < this.speedWalk * .3 ? 15 : 22)
+        : currentSpeed > this.speedWalk * 1.25 ? 9 : 14;
+      // El frenazo se nota un tercio de segundo aunque la velocidad ya bajó del umbral.
+      if (!moving && !this.waterMovement.swimming && currentSpeed > this.speedWalk * 1.25) this._brakeTime = Math.max(this._brakeTime ?? 0, .32);
       this.velocity.x = THREE.MathUtils.lerp(this.velocity.x, targetVelX, 1 - Math.exp(-accelRate * dt));
       this.velocity.z = THREE.MathUtils.lerp(this.velocity.z, targetVelZ, 1 - Math.exp(-accelRate * dt));
       // La zorra en 0 frena en seco (forcejeo, anclado): sin deslizamiento por inercia.
@@ -793,6 +800,7 @@ export class Player {
     // Rotación suave
     if (moving) {
       this._faceYaw = null;
+      this._brakeTime = 0;
       const diff = shortestTurn(Math.atan2(dir.x, dir.z) - this.root.rotation.y);
       // Al levantarse voltea solo lo que ya se enderezó: acostado barrería el piso como una aspa.
       const upright = 1 - (this.character.sleepWeight ?? 0);
@@ -805,7 +813,10 @@ export class Player {
       this.root.rotation.x = THREE.MathUtils.lerp(this.root.rotation.x, (this.isSwimming ? 0 : running ? 0.08 : 0.02) * upright, 1 - Math.exp(-10 * dt));
     } else {
       this.root.rotation.z = THREE.MathUtils.lerp(this.root.rotation.z, 0, 1 - Math.exp(-12 * dt));
-      this.root.rotation.x = THREE.MathUtils.lerp(this.root.rotation.x, 0, 1 - Math.exp(-10 * dt));
+      // Al frenar a la carrera echa el cuerpo un poco atrás; quieto vuelve a erguirse.
+      this._brakeTime = Math.max(0, (this._brakeTime ?? 0) - dt);
+      const braking = this._brakeTime > 0 && this.isGrounded;
+      this.root.rotation.x = THREE.MathUtils.lerp(this.root.rotation.x, braking ? -.08 : 0, 1 - Math.exp(-(braking ? 16 : 10) * dt));
       if (this._faceYaw != null) {
         const diff = shortestTurn(this._faceYaw - this.root.rotation.y);
         this.root.rotation.y += diff * Math.min(1, 9 * dt);
