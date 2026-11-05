@@ -70,6 +70,8 @@ export class Car {
     });
     this.group.add(v.group);
     this._bodyRestY = v.bodyVisual?.position.y ?? 0;
+    this._roadBob = 0;
+    this._settleY = 0; this._settleV = 0; // muelles: alguien sube o baja y la carrocería se hunde y rebota
     this._wetMaterials = (v.wetMaterials ?? []).map(material => ({ material, roughness: material.roughness }));
 
     // Retrovisores (lo que se roba): dos soportes y una sola malla con ambos, que siempre se roban y vuelven juntos.
@@ -197,9 +199,30 @@ export class Car {
     return { items, caught };
   }
 
+  /**
+   * Alguien sube o baja: la carrocería baja unos centímetros sobre los muelles y rebota amortiguada.
+   * Solo se mueve el carro, nunca la cámara.
+   */
+  settle(strength = 1) {
+    if (!Number.isFinite(strength)) return;
+    this._settleV -= .32 * Math.max(0, Math.min(1.5, strength));
+  }
+
+  /** Muelle amortiguado (≈ 2 Hz, casi sin oscilar más de dos veces) que se suma a la carrocería. */
+  _updateSettle(dt) {
+    if (this._settleY === 0 && this._settleV === 0) return;
+    const step = Math.min(dt, 1 / 20), k = 160, c = 15;
+    this._settleV += (-k * this._settleY - c * this._settleV) * step;
+    this._settleY = Math.max(-.06, Math.min(.03, this._settleY + this._settleV * step));
+    if (Math.abs(this._settleY) < 1e-4 && Math.abs(this._settleV) < 1e-3) this._settleY = this._settleV = 0;
+    const body = this.vehicle.bodyVisual;
+    if (body) body.position.y = this._bodyRestY + this._roadBob + this._settleY;
+  }
+
   /** @param {THREE.Vector3} [playerPosition] sin ella el contorno de un parqueado se apaga */
   update(dt, playerPosition = null) {
     if (!(dt > 0) || this._disposed) return;
+    this._updateSettle(dt);
     if (this.cooldown > 0) {
       this.cooldown -= dt;
       if (this.cooldown <= 0) {
@@ -262,7 +285,8 @@ export class Car {
       const roll = THREE.MathUtils.clamp(lateral * .008, -.035, .035);
       body.rotation.z += (pitch - body.rotation.z) * damp;
       body.rotation.x += (roll - body.rotation.x) * damp;
-      body.position.y = this._bodyRestY + Math.sin(this._roadPhase) * .006 * this._motionWeight;
+      this._roadBob = Math.sin(this._roadPhase) * .006 * this._motionWeight;
+      body.position.y = this._bodyRestY + this._roadBob + this._settleY;
     }
     if (turnSignal !== this._turnSignal) {
       this._turnSignal = turnSignal;
