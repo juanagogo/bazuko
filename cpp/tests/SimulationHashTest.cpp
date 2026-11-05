@@ -60,7 +60,7 @@ std::vector<uint64_t> Run(CityLayout& city, uint32_t seed, float seconds, float 
         if (farSecondPlayer) {   // via multijugador: el primero es el de siempre y el segundo esta al otro lado del mapa
             Net::PlayerView first, second;
             first.id = 1; first.position = {player.x, player.y, player.z};
-            second.id = 2; second.position = {399.0f, 0.0f, 320.0f};
+            second.id = 2; second.position = {300.0f, 0.0f, 100.0f};   // La Candelaria, a ~190 m del primero
             simulation->Update(dt, std::vector<Net::PlayerView>{first, second});
         } else {
             simulation->Update(dt, player);
@@ -123,11 +123,17 @@ int main(int argc, char** argv) {
     const std::vector<uint64_t> second = Run(city, seed, seconds, interval, player, nullptr);
 
     int status = 0;
-    // Un segundo jugador lejano (aves y ratas ya lo consideran) no debe cambiar nada cerca del primero
-    const std::vector<uint64_t> withSecond = Run(city, seed, std::min(seconds, 60.0f), interval, player, nullptr, true);
-    const std::vector<uint64_t> alone = Run(city, seed, std::min(seconds, 60.0f), interval, player, nullptr, false);
-    if (withSecond != alone) { status = 1; std::printf("Un segundo jugador lejano CAMBIA el mundo cerca del primero\n"); }
-    else std::printf("Un segundo jugador lejano no altera el mundo (%zu puntos de control iguales)\n", withSecond.size());
+    // Dos jugadores lejanos entre si: los peatones deben aparecer alrededor de CADA uno, no solo del primero
+    {
+        Simulation* two = nullptr;
+        Run(city, seed, std::min(seconds, 90.0f), interval, player, &two, true);
+        const auto near = [&](const glm::vec3& center) { int n = 0; for (const Pedestrian& p : two->GetPedestrians()) n += glm::distance(glm::vec2(p.position.x, p.position.z), glm::vec2(center.x, center.z)) < 90.0f ? 1 : 0; return n; };
+        const int aroundFirst = near(player), aroundSecond = near(glm::vec3(300.0f, 0.0f, 100.0f));
+        std::printf("Dos jugadores: %zu peatones en total, %d junto al primero y %d junto al segundo\n", two->GetPedestrianCount(), aroundFirst, aroundSecond);
+        if (aroundFirst < 1 || aroundSecond < 1) { status = 1; std::printf("FALLO: los peatones no aparecen alrededor de los dos jugadores\n"); }
+        delete two;
+    }
+
     if (first != second) {
         status = 1;
         for (size_t i = 0; i < first.size() && i < second.size(); ++i)

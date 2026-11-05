@@ -7,7 +7,7 @@ Inventario para el hito 1 del [plan multijugador](plan-multijugador.md). Medido 
 | Función | Qué hace con «el jugador» | Qué haría con varios |
 |---|---|---|
 | `Update(dt, playerPosition)` (SH:363) | Reparte la posición a todos los subsistemas | Recibe `std::span<const PlayerView>` (ver `net/PlayerView.hpp`) |
-| `UpdatePedestrians` (SH:569) | Peatones se asustan, huyen y se acercan al jugador | Reaccionan al más cercano (`NearestPlayer`) |
+| `UpdatePedestrians` (SH:569) | Peatones se asustan, huyen y se acercan al jugador | **Hecho**: aparecen alrededor de cada jugador, reaccionan al más cercano y se retiran solo si están lejos de todos |
 | `UpdateDrivers` (SH:570) | Conductores bravos, vigilan al jugador | El conductor bravo es de quien robó el espejo |
 | `UpdatePickups` (SH:580) | Recoge objetos cerca del jugador | Cada jugador recoge los suyos; el servidor decide quién llega primero |
 | `UpdatePigeons`, `UpdateRats` (SH:581, 584) | Huyen de una persona | **Hecho**: huyen del más cercano (`BirdPlayer`, `m_PlayerViews`) |
@@ -49,7 +49,7 @@ Estos eventos disparan audio o efectos desde la lógica; irían por `net/EventBu
 ## Orden sugerido para el hito 1
 
 1. ~~`PlayerView` en aves y ratas~~ (hecho; ver el plan).
-2. Peatones (susto, huida); comprobar el hash con un solo jugador.
+2. ~~Peatones (susto, huida)~~ (hecho).
 3. Tráfico y semáforos (frenan ante cualquiera).
 4. Policía y persecución (la parte con más reglas).
 5. Sacar el estado de jugador de `Simulation` a `PlayerSession`.

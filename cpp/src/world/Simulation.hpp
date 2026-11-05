@@ -387,7 +387,8 @@ public:
     // ConsumePlayerHit: un peaton agresivo que acierta devuelve el tipo de golpe y de donde viene.
     // damage > 0 sustituye el dano del golpe (arma en la mano); knockback escala el empuje
     bool HitPedestrian(const glm::vec3& from, const glm::vec2& forward, float reach, int kind, float damage = -1.0f, float knockback = 1.0f);
-    bool ConsumePlayerHit(int& kind, glm::vec3& fromDirection);
+    bool ConsumePlayerHit(int& kind, glm::vec3& fromDirection);                       // golpes al primer jugador (el local)
+    bool ConsumePlayerHitFor(uint8_t player, int& kind, glm::vec3& fromDirection);  // golpes a un jugador concreto (por su id de PlayerView)
     // Burbujas de los peatones cercanos: posicion sobre la cabeza, texto y opacidad
     struct PedestrianBubble { glm::vec3 position; std::string text; float alpha; };
     std::vector<PedestrianBubble> GetPedestrianBubbles(const glm::vec3& focus) const;
@@ -573,6 +574,9 @@ private:
     bool FindSidewalkPath(const glm::vec3& start, const glm::vec3& target, std::vector<glm::vec3>& path) const;
     void UpdateWorld(float dt, const glm::vec3& primaryPlayer);   // el paso completo; `primaryPlayer` es el primero de m_PlayerViews
     void UpdatePedestrians(float dt, const glm::vec3& playerPosition);
+    const Net::PlayerView* NearestPlayerTo(const glm::vec3& at) const;   // el jugador vivo mas cercano (nullptr si no hay)
+    glm::vec3 NearestPlayerPosition(const glm::vec3& at, const glm::vec3& fallback) const;
+    bool NearAnyPlayer(const glm::vec3& at, float distance) const;
     void UpdateDrivers(float dt, const glm::vec3& playerPosition);
     void AssignVehicleModel(TrafficVehicle& vehicle);
     void OnDriverDeath(size_t index);                   // el conductor murio: pasa el acompanante o queda abandonado
@@ -594,7 +598,7 @@ private:
     std::mt19937 m_Random;
     std::uniform_real_distribution<float> m_Unit{0.0f, 1.0f};
     std::vector<Pedestrian> m_Pedestrians;
-    struct PlayerHit { int kind; glm::vec3 from; };
+    struct PlayerHit { int kind; glm::vec3 from; uint8_t player = 0; };   // player 0 = el primero
     std::vector<PlayerHit> m_PlayerHits;
     std::shared_ptr<Mesh> m_BloodMesh;
     float m_PlayerHygiene = 100.0f;
@@ -843,6 +847,7 @@ private:
     float m_Clock = 0.30f;
     float m_DayProgress = 0.30f;
     float m_PedestrianSpawnTimer = 0.0f;
+    size_t m_SpawnPlayerCursor = 0;   // reparte las apariciones de peatones entre los jugadores por turnos
     std::vector<ShadowPerson> m_ShadowPeople;
     std::shared_ptr<Mesh> m_ShadowHeadMesh;
     std::shared_ptr<Mesh> m_ShadowEyeMesh;
