@@ -194,11 +194,17 @@ export class Renderer {
     document.addEventListener('visibilitychange', () => this.resolution.resetWindow());
   }
 
+  /** Sombras y luces de punto van juntas: solo baja las apaga, y las dos deciden el programa del material. */
+  _setShadows(on) {
+    this.instance.shadowMap.enabled = on;
+    this.pointLights?.setEnabled(on);
+  }
+
   setQuality(level = 'alta') {
     this.quality = ['baja', 'media', 'alta'].includes(level) ? level : 'alta';
     const limit = GRAPHICS_PROFILES[this.quality].pixelRatio;
     this.resolution.setLimit(Math.min(globalThis.window?.devicePixelRatio || 1, limit));
-    this.instance.shadowMap.enabled = this.effectiveQuality !== 'baja';
+    this._setShadows(this.effectiveQuality !== 'baja');
     this.instance.shadowMap.type = THREE.PCFShadowMap;
     this.instance.shadowMap.needsUpdate = true;
     this._settleFrames = SETTLE_FRAMES;
@@ -206,7 +212,7 @@ export class Renderer {
     const auto = this.autoQuality;
     if (auto?.eligible && !auto.started) { auto.started = true; return; }
     this.rememberQuality(this.quality);
-    this.instance.shadowMap.enabled = this.effectiveQuality !== 'baja';
+    this._setShadows(this.effectiveQuality !== 'baja');
   }
 
   /** El jugador eligió: la calidad ya no cambia sola y su elección queda guardada, aunque aún no se aplique. */
@@ -227,10 +233,10 @@ export class Renderer {
     const enabled = gl.shadowMap.enabled, cast = sun.castShadow;
     let ready;
     try {
-      gl.shadowMap.enabled = true; sun.castShadow = true;
+      this._setShadows(true); sun.castShadow = true;
       ready = gl.compileAsync(frame.scene, frame.camera);
     } catch { auto.cancel(); return false; } finally {
-      gl.shadowMap.enabled = enabled; sun.castShadow = cast;
+      this._setShadows(enabled); sun.castShadow = cast;
     }
     try { await ready; } catch { auto.cancel(); return false; }
     // Mientras compilaba el jugador pudo elegir calidad: su decisión manda.
@@ -238,7 +244,7 @@ export class Renderer {
     auto.preparing = false;
     auto.tier = 1;
     auto.reset();
-    gl.shadowMap.enabled = true;
+    this._setShadows(true);
     gl.shadowMap.needsUpdate = true;
     this._settleFrames = SETTLE_FRAMES;
     return true;
@@ -254,10 +260,10 @@ export class Renderer {
     const enabled = gl.shadowMap.enabled, cast = sun.castShadow;
     let ready;
     try {
-      gl.shadowMap.enabled = shadows; sun.castShadow = shadows;
+      this._setShadows(shadows); sun.castShadow = shadows;
       ready = gl.compileAsync(frame.scene, frame.camera);
     } catch { return Promise.resolve(); } finally {
-      gl.shadowMap.enabled = enabled; sun.castShadow = cast;
+      this._setShadows(enabled); sun.castShadow = cast;
     }
     return new Promise(resolve => {
       const limit = setTimeout(resolve, VARIANT_WAIT_MS);
@@ -269,7 +275,7 @@ export class Renderer {
   _dropAutoQuality() {
     // Vuelve exactamente a como estaba baja: sin presión acumulada ni resolución recortada.
     this.resolution.setLimit(this.resolution.max);
-    this.instance.shadowMap.enabled = this.effectiveQuality !== 'baja';
+    this._setShadows(this.effectiveQuality !== 'baja');
     this.instance.shadowMap.needsUpdate = true;
   }
 
@@ -419,7 +425,7 @@ export class Renderer {
       }
       const shadows = this.effectiveQuality !== 'baja';
       if (this.instance.shadowMap.enabled !== shadows) {
-        this.instance.shadowMap.enabled = shadows;
+        this._setShadows(shadows);
         this.instance.shadowMap.needsUpdate = true;
         this._settleFrames = SETTLE_FRAMES;
       }
