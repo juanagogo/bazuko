@@ -99,6 +99,27 @@ export class TrafficSignals {
     return false;
   }
 
+  /**
+   * ¿Hay un semáforo en rojo (o amarillo) delante de quien está en `position` mirando hacia `direction`,
+   * a menos de `reach` metros del cruce? Sirve para la cola entera, no solo para el primero.
+   */
+  redAhead(position, direction, reach = 30) {
+    const axis = Math.abs(direction.x) >= Math.abs(direction.z) ? 0 : 1;
+    if (signalState(this.time, axis) === 0) return false;
+    for (const node of this.nodes) {
+      if (axis === 0) {
+        if (position.z < node.z0 - 1 || position.z > node.z1 + 1) continue;
+        const gap = direction.x > 0 ? node.x0 - position.x : position.x - node.x1;
+        if (gap >= 0 && gap <= reach) return true;
+      } else {
+        if (position.x < node.x0 - 1 || position.x > node.x1 + 1) continue;
+        const gap = direction.z > 0 ? node.z0 - position.z : position.z - node.z1;
+        if (gap >= 0 && gap <= reach) return true;
+      }
+    }
+    return false;
+  }
+
   busClearance(position, length, direction = -1) {
     if (position.y > 3) return Infinity;
     const red = signalState(this.time, 1) !== 0;
