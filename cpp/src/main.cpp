@@ -1895,6 +1895,13 @@ int main(int argc, char** argv) {
                 const std::vector<StreetVoiceCandidate> closePeople = simulation.StreetVoiceCandidates(playerPos, 40.0f);
                 if (!bubbleDone && !closePeople.empty()) { bubbleDone = true; simulation.PedestrianSay(closePeople.front().id, previewBubble, 600.0f); }
             }
+            if (std::getenv("BAZUKO_LOG_AUDIO")) {   // cuanto dura de verdad cada frase (si algo la corta antes de tiempo)
+                static bool wasPlaying = false; static double startedAt = 0.0;
+                const bool nowPlaying = audio.StreetVoicePlaying();
+                if (nowPlaying && !wasPlaying) startedAt = streetNow;
+                if (!nowPlaying && wasPlaying) LogInfo("Voz de la calle: termino tras {:.2f} s", streetNow - startedAt);
+                wasPlaying = nowPlaying;
+            }
             const StreetVoiceDirector::Action action = streetVoices.Update(streetNow, streetPaused, audio.StreetVoicePlaying(), audio.OtherVoicePlaying(), neighbours);
             if (action.kind == StreetVoiceDirector::Action::Kind::Start) {
                 const float seconds = audio.PlayStreetVoice(action.clip, action.volume);

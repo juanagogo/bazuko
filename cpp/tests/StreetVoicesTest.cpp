@@ -22,6 +22,14 @@ int main() {
         CHECK(director.Update(0.0, false, false, false, One(1, 15.0f)).kind == Kind::None, "a 15 m no empieza");
         CHECK(director.Update(0.1, false, false, false, One(1, 8.0f)).kind == Kind::Start, "a 8 m si");
     }
+    {   // quien habla ya tiene su burbuja (no disponible para otra frase) y la frase NO se corta por eso
+        StreetVoiceDirector director(5);
+        CHECK(director.Update(0.0, false, false, false, One(1, 6.0f)).kind == Kind::Start, "empieza");
+        director.Started(0.0);
+        const std::vector<StreetVoiceCandidate> withBubble{{1, 6.0f, false}};
+        CHECK(director.Update(0.05, false, true, false, withBubble).kind == Kind::SetVolume, "con burbuja sigue sonando");
+        CHECK(director.Update(20.0, false, false, false, withBubble).kind == Kind::None, "con burbuja nadie mas lo elige");
+    }
     {   // empezar, seguir y cortar
         StreetVoiceDirector director(1);
         CHECK(director.Update(0.0, false, false, false, {}).kind == Kind::None, "sin nadie cerca no pasa nada");

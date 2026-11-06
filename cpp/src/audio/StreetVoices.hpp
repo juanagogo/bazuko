@@ -34,6 +34,7 @@ inline const std::array<StreetVoiceClip, 5>& StreetVoiceClips() {
 struct StreetVoiceCandidate {
     uint32_t id = 0;
     float distance = 0.0f;
+    bool available = true;   // false: ya tiene una burbuja (la suya misma mientras habla); sigue en la lista para poder seguir su voz
 };
 
 class StreetVoiceDirector {
@@ -78,7 +79,7 @@ public:
         if (now < m_NextAt || otherVoice) return action;
         std::vector<StreetVoiceCandidate> pool;
         for (const StreetVoiceCandidate& c : candidates) {
-            if (c.distance > kStartRange) continue;
+            if (!c.available || c.distance > kStartRange) continue;
             const auto cooling = m_PersonUntil.find(c.id);
             if (cooling != m_PersonUntil.end() && cooling->second > now) continue;
             pool.push_back(c);
