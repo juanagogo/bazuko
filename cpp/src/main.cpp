@@ -43,6 +43,8 @@
 #include "world/CityLayout.hpp"
 #include "world/Simulation.hpp"
 #include "audio/StreetVoices.hpp"
+#include "character/Pipe.hpp"
+#include "character/PipePose.hpp"
 #include "character/SmokePuffs.hpp"
 #include "effects/SubstanceEffects.hpp"
 #include "character/Smoking.hpp"
@@ -259,6 +261,17 @@ int main(int argc, char** argv) {
     float inducedParanoiaLeft = 0.0f, inducedParanoiaSeverity = 0.0f;   // paranoia por consumo (basuco), sin abstinencia: se apaga en sus ultimos 8 s
     float psychosisMutterTimer = 18.0f;
     SmokePuffs smokePuffs;
+    Pipe::State basuco;   // fumar basuco en pipa (character/Pipe.hpp)
+    struct PipeMeshes {
+        std::shared_ptr<Mesh> tube = Mesh::CreateCylinder(0.005f, 0.14f, 8, glm::vec4(0.604f, 0.627f, 0.651f, 1.0f));   // tubo metalico
+        std::shared_ptr<Mesh> bowl = Mesh::CreateSphere(0.014f, 10, 8, glm::vec4(0.231f, 0.200f, 0.188f, 1.0f));      // cazoleta quemada
+        std::shared_ptr<Mesh> coal = Mesh::CreateSphere(0.008f, 8, 6, glm::vec4(1.0f));                                // la brasa (el color lo pone el brillo)
+        std::shared_ptr<Mesh> lighterBody = Mesh::CreateCube(glm::vec3(0.022f, 0.075f, 0.012f), glm::vec4(0.784f, 0.196f, 0.169f, 1.0f));
+        std::shared_ptr<Mesh> lighterHead = Mesh::CreateCube(glm::vec3(0.022f, 0.01f, 0.012f), glm::vec4(0.722f, 0.737f, 0.753f, 1.0f));
+        std::shared_ptr<Mesh> flame = Mesh::CreateCone(0.0055f, 0.024f, 8, glm::vec4(1.0f, 0.702f, 0.278f, 1.0f));
+    };
+    std::unique_ptr<PipeMeshes> pipeMeshes;
+    static const char* previewBasuco = std::getenv("BAZUKO_PREVIEW_BASUCO");   // pruebas: prende la pipa; BAZUKO_PREVIEW_TIME fija el segundo
     struct CigaretteMeshes { std::shared_ptr<Mesh> paper, filter, ember; };
     std::map<std::string, CigaretteMeshes> cigaretteMeshes;
     const auto meshesFor = [&](const Smoking::Smokable& look) -> CigaretteMeshes& {
@@ -998,7 +1011,7 @@ int main(int argc, char** argv) {
             float ax = 0.0f, az = 0.0f;
             if (std::sscanf(autoWalk, "%f,%f", &ax, &az) == 2) moveDir += glm::vec3(ax, 0.0f, az);
         }
-        if (!ui.IsPaused()) moveDir += MoveDirection(playerInput, camera.GetMode() == CameraMode::ThirdPerson, camera.GetYaw());   // game/PlayerInput.hpp
+        if (!ui.IsPaused() && !Pipe::Holding(basuco)) moveDir += MoveDirection(playerInput, camera.GetMode() == CameraMode::ThirdPerson, camera.GetYaw());   // con la pipa en la mano se queda quieto   // game/PlayerInput.hpp
 
         // paso de fisica (inercia, colisiones, atropello, capas del viaducto y caida): game/Movement.cpp; aqui solo se le presta el mundo
         Movement::World movementWorld;
@@ -1563,6 +1576,17 @@ int main(int argc, char** argv) {
             if (smokeEvents.finished) ui.Notify(std::string("Se acabó el ") + Smoking::Find(smokedKind)->name + ".", ToastType::Info);   // como el original; si se le cae, se apaga sin aviso
             if (smokeEvents.hit) onSubstanceConsumed(smokeEvents.effect);   // el porro pega en cada calada
             if (!ui.IsPaused()) smokePuffs.Update(dt);
+            if (previewBasuco) {
+                if (!basuco.active) Pipe::Start(basuco, {});
+                static const char* previewTime = std::getenv("BAZUKO_PREVIEW_TIME");
+                if (previewTime) { basuco.t = static_cast<float>(std::atof(previewTime)); basuco.stowed = basuco.t >= Pipe::kLength; basuco.inhaled = true; }
+            }
+            {   // basuco en pipa: se queda quieto con la pipa, y el efecto llega al terminar de aspirar
+                Pipe::Conditions pipeConditions;
+                pipeConditions.blocked = playerSwimming || playerKnockedDown || playerHitKind > 0 || playerAction == PlayerAction::Jump || ui.IsDeathScreenOpen();
+                const Pipe::Events pipeEvents = ui.IsPaused() ? Pipe::Events{} : Pipe::Step(basuco, dt, pipeConditions);
+                if (pipeEvents.inhaled) onSubstanceConsumed("basuco");
+            }
         }
 #ifdef BAZUKO_NET_ENABLED
         if (netSession && netSession->GetRole() == Net::NetSession::Role::Host) {
@@ -1600,7 +1624,7 @@ int main(int argc, char** argv) {
             if (poopAnimationRemaining <= 0.0f || playerKnockedDown) poopMode = 0;
         }
         {   // acciones del personaje
-            const bool canAct = !ui.IsPaused() && !characterCreatorUI.IsOpen() && !playerKnockedDown && poopAnimationRemaining <= 0.0f;
+            const bool canAct = !ui.IsPaused() && !characterCreatorUI.IsOpen() && !playerKnockedDown && poopAnimationRemaining <= 0.0f && !Pipe::Holding(basuco);
             const auto faceForward = [&]() {
                 if (camera.GetMode() != CameraMode::ThirdPerson) return;
                 const float yaw = camera.GetYaw();
@@ -2231,9 +2255,60 @@ int main(int argc, char** argv) {
                         swimTurns.push_back({"mixamorig:Hips", {0.0f, 0.0f, 0.0f}, {0.0f, -std::min(0.10f, 0.18f * std::max(-slope, 0.0f) + 0.10f * std::max(slope, 0.0f)), 0.0f}, true});   // la cadera baja al bajar y un poco al subir
                     }
                 }
-                const bool smokeInHand = smoking.active && playerAction == PlayerAction::None && !playerSwimming;   // peleando o nadando no se ve en la mano
-                if (smokeInHand || smoking.hold > 0.001f) Smoking::AppendPose(swimTurns, smoking.hold, smoking.reach);
+                const bool pipeInHands = Pipe::Holding(basuco);   // con la pipa el cigarrillo se guarda (necesita las dos manos)
+                const bool smokeInHand = smoking.active && playerAction == PlayerAction::None && !playerSwimming && !pipeInHands;   // peleando o nadando no se ve en la mano
+                if (!pipeInHands && (smokeInHand || smoking.hold > 0.001f)) Smoking::AppendPose(swimTurns, smoking.hold, smoking.reach);
+                if (basuco.reach > 0.001f) {
+                    Pipe::AppendPose(swimTurns, basuco.reach);
+                    playerModel = glm::translate(playerModel, glm::vec3(0.0f, -Pipe::Drop(basuco.reach), 0.0f));   // el cuerpo baja al doblar las rodillas: los pies siguen en el piso
+                }
                 characterManager.Draw(renderer, playerModel, poseTime, movingNow, isRunning, poseClip, blendClip, blendWeight, swimTurns.empty() ? nullptr : &swimTurns);
+                if (basuco.active && !ui.IsPaused() || pipeInHands) {   // la pipa en la mano izquierda y el encendedor en la derecha; el humo sale de la cazoleta y de la boca
+                    if (!pipeMeshes) pipeMeshes = std::make_unique<PipeMeshes>();
+                    const std::vector<Model::BoneTurn>* turns = swimTurns.empty() ? nullptr : &swimTurns;
+                    const glm::mat4 alongY = glm::rotate(glm::mat4(1.0f), -glm::half_pi<float>(), glm::vec3(1.0f, 0.0f, 0.0f));
+                    const float pipeTime = basuco.t;
+                    const bool lit = Pipe::IsLit(pipeTime);
+                    if (pipeInHands) {
+                        const glm::mat4 leftHand = characterManager.PosedNode("LeftHand", playerModel, poseTime, movingNow, isRunning, poseClip, blendClip, blendWeight, turns);
+                        glm::mat4 pipeAt = leftHand * glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, 0.07f, 0.02f));   // sale entre el pulgar y el indice
+                        pipeAt = glm::rotate(pipeAt, -glm::half_pi<float>(), glm::vec3(0.0f, 0.0f, 1.0f));
+                        const float glow = lit ? 0.6f + 0.4f * std::pow(std::sin(pipeTime * 9.0f), 2.0f) : std::max(0.0f, 1.0f - (pipeTime - Pipe::kBend - Pipe::kLight));
+                        renderer.Submit(*pipeMeshes->tube, pipeAt * glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, 0.03f, 0.0f)) * alongY);
+                        renderer.Submit(*pipeMeshes->bowl, pipeAt * glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, 0.1f, 0.0f)));
+                        const glm::vec3 ember = glm::mix(glm::vec3(0.165f, 0.133f, 0.125f), glm::vec3(1.0f, 0.416f, 0.165f), std::min(1.0f, glow)) * (1.0f + glow * 1.6f);
+                        renderer.Submit(*pipeMeshes->coal, pipeAt * glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, 0.11f, 0.0f)), glm::vec4(ember, 1.0f));
+                        // el encendedor queda de pie (con el rumbo del personaje) aunque gire la muñeca: sobre el puño derecho, hacia los dedos y un poco arriba
+                        const glm::mat4 rightHand = characterManager.PosedNode("RightHand", playerModel, poseTime, movingNow, isRunning, poseClip, blendClip, blendWeight, turns);
+                        glm::vec3 lighterAt = glm::vec3(rightHand * glm::vec4(0.0f, 0.0f, 0.0f, 1.0f)) + glm::vec3(rightHand * glm::vec4(0.0f, 0.075f, 0.02f, 0.0f)) / 1.08f;
+                        lighterAt.y += 0.035f;
+                        const glm::mat4 lighterAtModel = glm::rotate(glm::translate(glm::mat4(1.0f), lighterAt), playerYaw, glm::vec3(0.0f, 1.0f, 0.0f));
+                        renderer.Submit(*pipeMeshes->lighterBody, lighterAtModel * glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, -0.0125f, 0.0f)));
+                        renderer.Submit(*pipeMeshes->lighterHead, lighterAtModel * glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, 0.03f, 0.0f)));
+                        if (lit) {
+                            const float flicker = 0.85f + 0.25f * std::abs(std::sin(pipeTime * 23.0f) * std::cos(pipeTime * 7.0f));
+                            renderer.Submit(*pipeMeshes->flame, lighterAtModel * glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, 0.047f, 0.0f)) * glm::scale(glm::mat4(1.0f), glm::vec3(1.0f, flicker, 1.0f)), glm::vec4(1.0f, 0.78f, 0.35f, 1.0f));
+                        }
+                        static float bowlWisp = 0.0f;
+                        if (pipeTime > Pipe::kBend && pipeTime < Pipe::kBend + Pipe::kLight && (bowlWisp -= dt) <= 0.0f) {   // humo de la cazoleta mientras arde
+                            bowlWisp = 0.08f;
+                            SmokePuffs::Emit e; e.position = glm::vec3(pipeAt * glm::vec4(0.0f, 0.112f, 0.0f, 1.0f)); e.size = 0.03f; e.grow = 0.2f; e.life = 1.8f; e.alpha = 0.3f; e.color = glm::vec3(0.894f, 0.886f, 0.863f);
+                            smokePuffs.Emitir(e);
+                        }
+                    }
+                    static float basucoPuff = 0.0f;
+                    if (Pipe::IsExhaling(pipeTime) && (basucoPuff -= dt) <= 0.0f) {   // una bocanada espesa al bajar las manos
+                        basucoPuff = 0.04f;
+                        const glm::mat4 head = characterManager.PosedNode("Head", playerModel, poseTime, movingNow, isRunning, poseClip, blendClip, blendWeight, turns);
+                        const glm::vec3 forward(std::sin(playerYaw), 0.0f, std::cos(playerYaw));
+                        const float fade = 1.0f - (pipeTime - Pipe::kBend - Pipe::kLight) / Pipe::kExhale;
+                        SmokePuffs::Emit e;
+                        e.position = glm::vec3(head * glm::vec4(0.0f, 0.0f, 0.0f, 1.0f)) + forward * 0.11f + glm::vec3(0.0f, 0.02f, 0.0f);
+                        e.velocity = glm::vec3(forward.x, -0.05f, forward.z) * (0.7f * std::max(0.2f, fade));
+                        e.size = 0.07f; e.grow = 0.7f; e.life = 3.2f; e.alpha = 0.5f * std::max(0.3f, fade); e.color = glm::vec3(0.914f, 0.906f, 0.886f);
+                        smokePuffs.Emitir(e);
+                    }
+                }
                 if (smokeInHand) {   // el cigarrillo en la mano izquierda: entre los dedos, con la brasa hacia afuera; de ahi sale el hilo de humo, y de la boca la bocanada
                     const Smoking::Smokable* look = Smoking::Find(smoking.kind);
                     const glm::mat4 hand = characterManager.PosedNode("LeftHand", playerModel, poseTime, movingNow, isRunning, poseClip, blendClip, blendWeight, swimTurns.empty() ? nullptr : &swimTurns);
@@ -2572,6 +2647,11 @@ int main(int argc, char** argv) {
                 if (smoking.active) { ui.Notify("Ya tengo uno prendido.", ToastType::Info); return; }
                 if (playerSwimming || playerKnockedDown || playerHitKind > 0 || playerAction == PlayerAction::Jump) { ui.Notify("Ahora no lo puedo prender.", ToastType::Info); return; }
             }
+            const bool pipeUse = item.id == "basuco";   // el basuco se fuma en pipa: si esta ocupado (pelea, otra accion) no se gasta
+            if (pipeUse && !Pipe::Start(basuco, {playerAction != PlayerAction::None, playerSwimming || playerKnockedDown || playerHitKind > 0 || playerAction == PlayerAction::Jump})) {
+                ui.Notify("Ahora no: tengo las manos ocupadas.", ToastType::Info);
+                return;
+            }
             if (item.id == "pilas") {
                 if (radioBattery >= 100.0f) {
                     ui.Notify("La radio ya tiene la batería llena.", ToastType::Warn);
@@ -2580,8 +2660,10 @@ int main(int argc, char** argv) {
                 radioBattery = std::min(100.0f, radioBattery + 50.0f);
                 ui.Notify("¡Pilas nuevas colocadas en la radio! (+50%)", ToastType::Info);
             } else if (!applyItemEffect(item)) {
+                if (pipeUse) Pipe::Stop(basuco);
                 return;
             }
+            if (pipeUse) ui.Notify("Prendí la pipa", ToastType::Info);
             inventoryWeight = std::max(0.0f, inventoryWeight - item.weight);
             if (--entry->quantity == 0) inventory.erase(entry);
             audio.Play(AudioCue::Pickup);

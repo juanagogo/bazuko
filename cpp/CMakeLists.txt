@@ -243,6 +243,11 @@ add_executable(bazuko_substanceeffects_test tests/SubstanceEffectsTest.cpp src/e
 target_include_directories(bazuko_substanceeffects_test PRIVATE src)
 add_test(NAME bazuko_substanceeffects COMMAND bazuko_substanceeffects_test)
 
+# Basuco en pipa: tiempos y reglas del original; solo logica
+add_executable(bazuko_pipe_test tests/PipeTest.cpp)
+target_include_directories(bazuko_pipe_test PRIVATE src)
+add_test(NAME bazuko_pipe COMMAND bazuko_pipe_test)
+
 # Fumar un cigarrillo o un porro: tiempos y reglas del original; solo logica
 add_executable(bazuko_smoking_test tests/SmokingTest.cpp)
 target_include_directories(bazuko_smoking_test PRIVATE src)
