@@ -53,6 +53,7 @@ import { CollisionSystem } from '../systems/CollisionSystem.js';
 import { TrafficSystem } from '../systems/TrafficSystem.js';
 import { WitnessSystem } from '../systems/WitnessSystem.js';
 import { ReputationSystem } from '../systems/ReputationSystem.js';
+import { JornadaSystem } from '../systems/JornadaSystem.js';
 import { DEFAULT_TRAFFIC_DENSITY, trafficDensityId, trafficDensityLabel } from '../systems/trafficDensity.js';
 import { distributeShelterLoot, spreadPickupPositions } from '../systems/ShelterLoot.js';
 import { InventorySystem } from '../systems/InventorySystem.js';
@@ -208,6 +209,8 @@ export class Game {
     this.rebusque = new RebusqueSystem(this);
     this.interaction.rebusque = this.rebusque;
     this.reputation = new ReputationSystem();
+    this.jornada = new JornadaSystem(this.clock);
+    this.interaction.jornada = this.jornada;
     this.interaction.reputation = this.reputation;
     this.mirrorCinematic = new MirrorCinematic(this);
 
@@ -320,6 +323,7 @@ export class Game {
     this._startObjectives();
     // Cada entrada comienza de noche y con lluvia, también al retomar un guardado.
     this.clock.hour = 22;
+    this.jornada?.sincronizar();
     if (this.weather) {
       this.weather.setWeather('llovizna', false);
       this.weather.timer = 0;
@@ -950,6 +954,7 @@ export class Game {
       this._objectivesCatchUp = !!this.objectives && !this.objectives.deserialize(data.objectives);
       this.encargos?.deserialize(data.encargos);
       this.reputation?.deserialize(data.fama);
+      this.jornada?.sincronizar();
 
     }
   }
@@ -1549,6 +1554,8 @@ export class Game {
     else if (this.steal?.minigameActive) this.steal._endMinigame(false, 'cancel');
     this.witnesses?.update(dt);
     this.reputation?.update(dt);
+    this.jornada?.update();
+    if (this.traffic) this.traffic.franja = this.jornada?.franja ?? null;
     this.interaction.carjackPrompt = driving ? null : this.carjack?.prompt ?? null;
     this.rebusque?.update(dt);
     this.interaction.rebusquePrompt = driving ? null : this.rebusque?.prompt ?? null;

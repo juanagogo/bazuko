@@ -222,7 +222,7 @@ export class StealSystem {
       this._toast('Cosquilleo limpio: nadie se dio cuenta.', 'rare');
     } else {
       const bonus = this.game?.dog?.distractionBonus?.(this.game.player?.position) ?? 0;
-      const noticeChance = Math.max(0.2, (npc?.alerta ?? 0.5) - bonus + (this.game?.reputation?.alertaExtra ?? 0));
+      const noticeChance = Math.max(0.2, (npc?.alerta ?? 0.5) - bonus + (this.game?.reputation?.alertaExtra ?? 0) + (this.game?.jornada?.franja?.alerta ?? 0));
       if (Math.random() < noticeChance) {
         npc?.alarmedByTheft?.(this.game.player.position);
         this._toast('¡Me pillaron con las manos en la masa! El peatón gritó.', 'death');
@@ -248,7 +248,8 @@ export class StealSystem {
     npc.alarmedByTheft?.(this.game.player.position);
     const isStrong = !down && (npc.look?.real?.edad === 'adulto' || Math.random() < 0.45);
     if (isStrong && this.game.stats) {
-      const dmg = Math.floor(CONFIG.directDamageMin + Math.random() * (CONFIG.directDamageMax - CONFIG.directDamageMin));
+      const dmg = Math.floor((CONFIG.directDamageMin + Math.random() * (CONFIG.directDamageMax - CONFIG.directDamageMin))
+        * (this.game?.jornada?.franja?.golpe ?? 1));
       this.game.stats.salud = Math.max(0, this.game.stats.salud - dmg);
       this._toast(`¡El peatón se defendió! −${dmg} de salud.`, 'death');
     } else {
@@ -326,7 +327,9 @@ export class StealSystem {
   }
 
   _giveLoot(moneyRange, includeItemChance) {
-    const money = Math.round((moneyRange[0] + Math.random() * (moneyRange[1] - moneyRange[0])) / 100) * 100;
+    // De noche y de madrugada la gente que queda en la calle carga más plata (y se defiende peor o con más rabia).
+    const botin = this.game?.jornada?.franja?.botin ?? 1;
+    const money = Math.round((moneyRange[0] + Math.random() * (moneyRange[1] - moneyRange[0])) * botin / 100) * 100;
     if (this.game.stats) this.game.stats.dinero += money;
     this._toast(`+${cop(money)}`, 'sell');
     if (includeItemChance && Math.random() < 0.4 && this.game.inventory) {
