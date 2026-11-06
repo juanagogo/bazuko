@@ -189,9 +189,9 @@ export class GroundPoops {
     if (pee) {
       const local = (peeAt ?? position).clone().sub(position);
       ringMesh = new THREE.Mesh(this.shared.pee, materials.ring);
-      ringMesh.position.set(local.x, .002, local.z);
+      ringMesh.position.set(local.x, local.y + .002, local.z);
       peeMesh = new THREE.Mesh(this.shared.pee, materials.pee);
-      peeMesh.position.set(local.x, .003, local.z);
+      peeMesh.position.set(local.x, local.y + .003, local.z);
       group.add(ringMesh, peeMesh);
     }
     this.scene.add(group);

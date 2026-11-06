@@ -126,3 +126,14 @@ test('al bajarse el realista se inclina sobre la pose de pie y baja las manos', 
   assert.ok(bent.forward > standing.forward + .2, `la cabeza avanza ${(bent.forward - standing.forward).toFixed(2)} m`);
   assert.ok(bent.hand < standing.hand - .08, `las manos bajan ${(standing.hand - bent.hand).toFixed(2)} m`);
 });
+
+test('con overol no vuelve la piel que tapa la camiseta, y con chaqueta vuelve toda la de la cadera', async () => {
+  const overol = await createRealisticCharacter({ real: { ropa: 'overol' } }, { undress: true });
+  const { restoreTop, upperHem, lowerTop } = overol.undress;
+  assert.ok(restoreTop <= upperHem + .03, `vuelve hasta ${restoreTop.toFixed(3)} y la camiseta empieza en ${upperHem.toFixed(3)}`);
+  assert.ok(restoreTop < lowerTop - .1, 'el peto ya no decide hasta dónde vuelve la piel');
+  overol.dispose();
+  const chaqueta = await createRealisticCharacter({}, { undress: true });
+  assert.ok(chaqueta.undress.restoreTop >= chaqueta.undress.lowerTop, 'bajo la chaqueta larga la cadera sí vuelve');
+  chaqueta.dispose();
+});

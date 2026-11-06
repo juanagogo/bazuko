@@ -949,6 +949,8 @@ export class Game {
   _handleDeath() {
     if (this._deathPending || this._arrestPending) return true;
     if (this.stats.salud > 0) return false;
+    // Quien muere haciendo popó queda vestido desde el primer cuadro de la caída.
+    this.poopSystem?.cancel?.();
     if (this.player.isRagdollActive) return false;
 
     this._deathPending = true;
@@ -989,6 +991,7 @@ export class Game {
   _policeArrest() {
     if (this._arrestPending || this._deathPending || this.stats.salud <= 0) return;
     this._arrestPending = true;
+    this.poopSystem?.cancel?.();
     if (this.steal?.minigameActive) this.steal._endMinigame(false, 'cancel');
     this.input.keys = {};
     this.input.endFrame();

@@ -72,9 +72,16 @@ export class PoopSystem {
 
     const yaw = player.root?.rotation?.y ?? 0;
     const forward = new THREE.Vector3(Math.sin(yaw), 0, Math.cos(yaw));
-    // A la altura de los pies del jugador: sirve también sobre el viaducto.
-    const pile = this.ground.spawn(player.position.clone().addScaledVector(forward, -BEHIND), {
-      pieces: 0, pee: true, peeAt: player.position.clone().addScaledVector(forward, -PEE_AHEAD)
+    // El piso que hay debajo de cada cosa, en la capa de los pies: sobre el viaducto queda en el tablero
+    // y junto a un sardinel no flota. Si la consulta salta más de 60 cm, se queda a la altura de los pies.
+    const feetY = player.position.y;
+    const onGround = point => {
+      const y = this.world?.active?.getMovementGroundHeight?.(point.x, point.z, feetY);
+      point.y = Number.isFinite(y) && Math.abs(y - feetY) <= .6 ? y : feetY;
+      return point;
+    };
+    const pile = this.ground.spawn(onGround(player.position.clone().addScaledVector(forward, -BEHIND)), {
+      pieces: 0, pee: true, peeAt: onGround(player.position.clone().addScaledVector(forward, -PEE_AHEAD))
     });
     this._current = { player, pile, forward };
     return true;
@@ -193,6 +200,13 @@ export class PoopSystem {
       }));
       window.dispatchEvent(new CustomEvent('poop-produced'));
     }
+  }
+
+  /** Corta la escena en el acto (muerte, arresto): queda vestido y no se entrega nada. */
+  cancel() {
+    if (!this._current) return;
+    this.sequence.interrupt();
+    this._end();
   }
 
   /** Fin de la escena, terminada o cortada: vestido, sin chorrito y con lo que alcanzó a caer. */

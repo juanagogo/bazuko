@@ -15,8 +15,8 @@ export const POOP_SEQUENCE_LENGTH = POOP_STEPS.reduce((sum, step) => sum + step.
 export const PIECE_TIMES = [.35, .85, 1.3, 1.75, 2.15];
 export const PIECE_FALL = .28;
 export const PEE_START = .25, PEE_GROW = 1.8, STREAM_FROM = .2, STREAM_TO = 1.9;
-/** Con el pantalón así de abajo ya se ve piel de la cadera: desde ahí va censurada. */
-export const EXPOSED_DROP = .08;
+/** Desde que el pantalón empieza a bajar puede asomar piel: el mosaico va desde el primer centímetro. */
+export const EXPOSED_DROP = 0;
 
 const STARTS = POOP_STEPS.reduce((list, step, i) => [...list, i ? list[i - 1] + POOP_STEPS[i - 1].duration : 0], []);
 const POPO = POOP_STEPS.findIndex(step => step.id === 'popo');

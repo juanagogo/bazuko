@@ -62,7 +62,8 @@ test('el pantalón baja antes de agacharse y vuelve a la cintura al final', () =
   const player = makePlayer();
   seq.start(player);
   for (const f of run(seq, player, POOP_SEQUENCE_LENGTH)) {
-    assert.equal(f.censor, f.drop > EXPOSED_DROP, `censurado a destiempo en t=${f.t}`);
+    // Desde el primer centímetro que baja ya puede asomar piel: el mosaico va desde ahí.
+    assert.equal(f.censor, f.drop > 0, `censurado a destiempo en t=${f.t} (drop ${f.drop})`);
   }
 });
 

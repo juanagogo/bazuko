@@ -200,3 +200,34 @@ test('el proyectil de popó impacta contra el suelo si no toca ningún peatón',
   assert.ok(hitResult);
   assert.equal(hitResult.type, 'ground');
 });
+
+test('cancelar la escena la corta en el acto, deja vestido y no entrega nada', () => {
+  const inventory = new InventorySystem();
+  const player = makePlayer();
+  const poopSys = new PoopSystem(new THREE.Scene(), null, inventory, null, { active: { getGroundHeight: () => 0 } });
+  assert.doesNotThrow(() => poopSys.cancel(), 'sin escena no pasa nada');
+  poopSys.poop(player);
+  run(poopSys, 2.5);
+  assert.equal(player.pose.drop, 1);
+  poopSys.cancel();
+  assert.equal(player.pose, null);
+  assert.equal(poopSys.sequence.active, false);
+  assert.equal(player.action, null);
+  run(poopSys, 3);
+  assert.equal(inventory.count('popo'), 0);
+});
+
+test('la popó queda en el piso que tiene debajo, también junto a un sardinel', () => {
+  // Detrás del jugador la calle está 15 cm más abajo que el andén donde se agacha.
+  const ground = (x, z) => (z < 9.8 ? -.15 : 0);
+  const world = { active: { getGroundHeight: ground, getMovementGroundHeight: (x, z) => ground(x, z) } };
+  const player = makePlayer({ position: new THREE.Vector3(10, 0, 10) });
+  const poopSys = new PoopSystem(new THREE.Scene(), null, new InventorySystem(), null, world);
+  poopSys.poop(player);
+  run(poopSys, .2);
+  const pile = poopSys.groundPoops[0];
+  assert.ok(Math.abs(pile.position.y + .15) < 1e-6, `montón a ${pile.position.y}`);
+  pile.group.updateMatrixWorld(true);
+  const puddle = pile.peeMesh.getWorldPosition(new THREE.Vector3());
+  assert.ok(Math.abs(puddle.y - .003) < 1e-3, `charquito a ${puddle.y}: sobre el andén, no enterrado`);
+});

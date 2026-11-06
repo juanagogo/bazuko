@@ -80,8 +80,9 @@ export function createRealisticPantsDown({ bones, bodyMesh, baseIndex, hidden, f
   const kneeY = (frame.leftKnee.y + frame.rightKnee.y) / 2 + KNEE_MARGIN;
 
   // Hasta dónde llega lo de abajo: la pretina, o el peto del overol.
+  // Y dónde termina lo de arriba (el borde de la camisa o la camiseta): la piel que eso tapa no vuelve.
   const point = new THREE.Vector3();
-  let lowerTop = -Infinity;
+  let lowerTop = -Infinity, upperHem = Infinity;
   const lower = [];
   for (const { mesh, under } of garmentMeshes) {
     const zone = mesh.geometry.attributes.streetZone, pos = mesh.geometry.attributes.position;
@@ -90,8 +91,9 @@ export function createRealisticPantsDown({ bones, bodyMesh, baseIndex, hidden, f
     const rest = frame.worldToNormalized.clone().multiply(mesh.matrixWorld);
     let any = false;
     for (let i = 0; i < pos.count; i++) {
-      if (!under && zone.getX(i) < .5) continue;
-      lowerTop = Math.max(lowerTop, point.fromBufferAttribute(pos, i).applyMatrix4(rest).y);
+      const y = point.fromBufferAttribute(pos, i).applyMatrix4(rest).y;
+      if (!under && zone.getX(i) < .5) { upperHem = Math.min(upperHem, y); continue; }
+      lowerTop = Math.max(lowerTop, y);
       any = true;
     }
     if (any) lower.push({ mesh, under, rest });
@@ -135,7 +137,10 @@ export function createRealisticPantsDown({ bones, bodyMesh, baseIndex, hidden, f
     }
   }
   const coveredIndex = bodyMesh.geometry.index;
-  const low = kneeY - RESTORE_BELOW, high = lowerTop + RESTORE_ABOVE;
+  // Con el overol el peto llega al pecho, pero bajo él va la camiseta: la piel vuelve solo hasta su borde.
+  // Una chaqueta larga termina más abajo de la cadera: ahí manda la pretina, como con cualquier pantalón.
+  const restoreTop = Math.min(lowerTop, Math.max(upperHem, hipY + .05)) + RESTORE_ABOVE;
+  const low = kneeY - RESTORE_BELOW, high = restoreTop;
   const inside = v => restY[v] >= low && restY[v] <= high;
   const open = Array.from(coveredIndex.array);
   const base = baseIndex.array;
@@ -162,7 +167,7 @@ export function createRealisticPantsDown({ bones, bodyMesh, baseIndex, hidden, f
   let drop = 0;
   const api = {
     uniforms: { ...shared, ...censor },
-    lowerTop, kneeY, hipY, legX, coveredIndex, openIndex,
+    lowerTop, upperHem, restoreTop, kneeY, hipY, legX, coveredIndex, openIndex,
     garmentMeshes: lower.map(({ mesh, under }) => ({ mesh, under })),
     get drop() { return drop; },
     setDrop(value) {
