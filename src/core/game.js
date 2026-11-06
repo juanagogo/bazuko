@@ -264,7 +264,7 @@ export class Game {
   }
 
   async _initialize(loading) {
-    await loading.stage('Construyendo la ciudad…', 1);
+    await loading.stage('Construyendo la ciudad…');
     this.world.loadDistrict('Bogota', this.collisions);
     this._spawnEntities();
     this._setupGps();
@@ -295,7 +295,7 @@ export class Game {
     if (!this.look) {
       await this._createCharacter(loading);
     }
-    await loading.stage('Cargando personajes, vehículos y ciudad…', 2);
+    await loading.stage('Cargando personajes, vehículos y ciudad…');
     let modelo = null;
     try { modelo = localStorage.getItem('bazuko.modelo'); } catch { /* sin almacenamiento */ }
     // La vista explícita de animaciones requiere el rig realista. La preferencia
@@ -315,13 +315,12 @@ export class Game {
       [() => district?.preloadDetails?.()]
     ], (done, total) => {
       const text = `Cargando recursos… ${done} de ${total}`;
-      const progress = 2 + 1.8 * done / total;
       // Repintar por presupuesto temporal, no dos fotogramas por cada instancia.
       if (performance.now() - lastPaint >= 50) {
         lastPaint = performance.now();
-        return loading.stage(text, progress);
+        return loading.stage(text);
       }
-      loading.update?.(text, progress);
+      loading.update?.(text);
     }), 'La carga de los recursos de la ciudad tardó demasiado.');
     if (this.traffic) this.traffic.signals = district?.signals;
     this.traffic?.setBus?.(district?.busServices ?? district?.busService);
@@ -344,21 +343,21 @@ export class Game {
     this.dealer?.setNight(this._wasNight);
     this.world.update(0, this.player.position, this.cameraRig.camera);
     this.localLights.update(0, this.player.position, (x, z) => district?.getGroundHeight?.(x, z) ?? 0, this.cameraRig.camera);
-    await loading.stage('Preparando texturas, luces y shaders…', 4);
+    await loading.stage('Preparando texturas, luces y shaders…');
     const extraModels = [...(district?.npcs ?? []), ...(this.roadRage?.preloadables ?? []), ...(this.limpieza?.preloadables ?? [])].flatMap(npc => [npc.lodChar?.group, npc.fullChar?.group]).filter(Boolean);
     const rain = this.weather?.rainParticles;
     if (rain) rain.visible = true;
     try {
       await withLoadTimeout(this.renderer.prepare(this.sceneMgr.scene, this.cameraRig.camera, extraModels), 'La preparación gráfica tardó demasiado.');
     } finally { if (rain) rain.visible = this.weather.isRaining; }
-    await loading.stage('Preparando el primer fotograma…', 4.8);
+    await loading.stage('Preparando el primer fotograma…');
     // Estas pasadas preparan sombras, geometría y silueta sin simular ni medir FPS.
     for (let frame = 0; frame < 3; frame++) {
       this.renderer.render(this.sceneMgr.scene, this.cameraRig.camera, this.player.root, [this.sceneMgr.sun]);
       await paintLoadingFrame();
     }
     await this.renderer.waitForGPU();
-    await loading.stage('Todo listo', 5);
+    await loading.stage('Todo listo');
     this.performanceHUD.metrics.reset();
     this.performanceHUD.nextPaint = 0;
     this.renderer.resolution.resetWindow();
@@ -369,7 +368,7 @@ export class Game {
     this._loading = false;
     if (this.save?.fueApartada?.()) window.dispatchEvent(new CustomEvent('toast', { detail: { text: 'La partida estaba dañada: quedó aparte y se empieza de nuevo.', type: 'warn' } }));
     this._running = true;
-    loading.finish();
+    await loading.finish();
     this.audio.startAmbient();
     requestAnimationFrame(this._loop);
   }
