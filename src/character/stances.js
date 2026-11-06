@@ -567,6 +567,28 @@ const mirar = yaw => rig => {
 // `arms`: peso sobre brazos y manos, para que el clip de debajo se siga notando. `anchored`: las manos
 // van con la cadera, no con el pecho, y al andar los brazos compensan lo que se inclina el tronco.
 // `steady`: la mano va delante de la cara o sostiene algo, y al andar el pecho gira menos para que no baile.
+/** Los pulgares en la pretina, a los lados de la cadera, listos para bajar o subir el pantalón. */
+function pretina(rig, m) {
+  for (const side of SIDES) {
+    const sign = SIGN[side];
+    rig.reachArm(side, V(sign * (m.hip.x + m.pocket + .015), m.pelvis.y + .035, m.hip.z + .02), V(sign * .9, -.05, -.45));
+    rig.hand(side, V(-sign * .1, -.98, -.1), V(-sign * .9, .05, .4));
+    rig.curl(side, .8, .6);
+  }
+}
+
+/** Inclinado, con las manos en las rodillas: el pantalón ya llegó abajo. */
+function pantalonRodillas(rig, m) {
+  rig.orient('spine', .2).orient('spine1', .38).orient('spine2', .5).orient('neck', .2).orient('head', -.1);
+  for (const side of SIDES) {
+    const sign = SIGN[side];
+    const knee = rig.where(`${side}Leg`, V(0, 0, 0));
+    rig.reachArm(side, V(knee.x + sign * .06, knee.y + .04, knee.z + .07), V(sign * .8, -.3, -.5));
+    rig.hand(side, V(-sign * .1, -.98, -.1), V(-sign * .9, .05, .4));
+    rig.curl(side, .8, .6);
+  }
+}
+
 const CATALOG = {
   // Lo que pide el diseño
   bolsillos: { pose: bolsillos, walk: true, anchored: true },
@@ -596,7 +618,10 @@ const CATALOG = {
   encogido: { pose: encogido, walk: true, transition: .6 },
   'cambiar-peso': { pose: cambiarPeso, walk: false, hip: true, transition: .9 },
   'mirar-izquierda': { pose: mirar(1), walk: false, transition: .6 },
-  'mirar-derecha': { pose: mirar(-1), walk: false, transition: .6 }
+  'mirar-derecha': { pose: mirar(-1), walk: false, transition: .6 },
+  // Bajarse y subirse el pantalón para hacer popó (solo el jugador)
+  pretina: { pose: pretina, walk: false, transition: .3 },
+  'pantalon-rodillas': { pose: pantalonRodillas, walk: false, transition: .6 }
 };
 
 /** Dónde toca el piso la mano derecha al levantarse: lo que se le cayó queda a su alcance. */

@@ -13,24 +13,32 @@ export const CENSOR_RESEED = 2;
 /** Metros de cadera con los que se mide el tamaño en pantalla. */
 export const CENSOR_SPAN = .3;
 
-const UNIFORMS = 'uniform float uCensor;\nuniform float uCensorBlock;\nuniform float uCensorSeed;\nuniform vec3 uCensorSkin;\n';
+const UNIFORMS = 'uniform float uCensor;\nuniform float uCensorBlock;\nuniform float uCensorSeed;\nuniform vec2 uCensorUv;\n';
 const MOSAIC = mask => `
   if (uCensor > .5 && ${mask}) {
     vec2 cell = floor(gl_FragCoord.xy / uCensorBlock);
     float h = fract(sin(dot(cell + uCensorSeed, vec2(12.9898, 78.233))) * 43758.5453);
     float dark = fract(sin(dot(cell + uCensorSeed * 1.7, vec2(39.3468, 11.135))) * 24634.6345);
+    // Un solo tono de piel por cuadro: el del material, con su textura leída en un punto de la cadera.
+    vec3 censorBase = diffuse;
+#ifdef USE_MAP
+    censorBase *= texture2D( map, uCensorUv ).rgb;
+#endif
     // La luz del sitio sin la textura de la piel: de noche el mosaico no brilla como un parche.
     float light = clamp(dot(outgoingLight, vec3(.2126, .7152, .0722)) / max(dot(diffuseColor.rgb, vec3(.2126, .7152, .0722)), 1e-3), 0., 4.);
-    gl_FragColor.rgb = uCensorSkin * light * (.5 + .55 * h) * (dark < .2 ? .6 : 1.);
+    gl_FragColor.rgb = censorBase * light * (.5 + .55 * h) * (dark < .2 ? .6 : 1.);
   }`;
 
-/** Uniformes compartidos por todos los materiales censurados de una persona. */
-export function createCensorUniforms(skinColor) {
+/**
+ * Uniformes compartidos por todos los materiales censurados de una persona. `uv` es un punto de piel de
+ * la cadera en la textura del cuerpo; sin textura el tono es el color del material.
+ */
+export function createCensorUniforms({ uv = null } = {}) {
   return {
     uCensor: { value: 0 },
     uCensorBlock: { value: 8 },
     uCensorSeed: { value: 0 },
-    uCensorSkin: { value: (skinColor ?? new THREE.Color(0xb9805a)).clone() }
+    uCensorUv: { value: new THREE.Vector2(...(uv ?? [.5, .5])) }
   };
 }
 

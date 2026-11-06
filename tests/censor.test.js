@@ -17,7 +17,7 @@ test('el mosaico va después de opaque_fragment y conserva el sombreador anterio
   const material = new THREE.MeshStandardMaterial();
   material.onBeforeCompile = shader => { shader.prev = true; };
   material.customProgramCacheKey = () => 'calle';
-  const uniforms = createCensorUniforms(new THREE.Color(0xb9805a));
+  const uniforms = createCensorUniforms();
   censorByRestBox(material, uniforms, new THREE.Vector3(.12, .4, .6));
   const shader = compile(material);
   assert.equal(shader.prev, true);
@@ -37,9 +37,21 @@ test('el mosaico va después de opaque_fragment y conserva el sombreador anterio
   assert.equal(uniforms.uCensor.value, 0);
 });
 
+test('el mosaico toma el tono de la piel del propio material, con su textura si la tiene', () => {
+  const material = new THREE.MeshStandardMaterial();
+  const uniforms = createCensorUniforms({ uv: [.31, .62] });
+  censorByRestBox(material, uniforms, new THREE.Vector3(.12, .4, .6));
+  const shader = compile(material);
+  assert.match(shader.fragmentShader, /vec3 censorBase = diffuse;/);
+  assert.match(shader.fragmentShader, /\n#ifdef USE_MAP\n\s*censorBase \*= texture2D\( map, uCensorUv \)\.rgb;/);
+  assert.doesNotMatch(shader.fragmentShader, /uCensorSkin/);
+  assert.deepEqual(shader.uniforms.uCensorUv.value.toArray(), [.31, .62]);
+  assert.deepEqual(createCensorUniforms().uCensorUv.value.toArray(), [.5, .5]);
+});
+
 test('por altura local el vértice pasa su altura al fragmento', () => {
   const material = new THREE.MeshLambertMaterial();
-  const uniforms = createCensorUniforms(new THREE.Color(0xb9805a));
+  const uniforms = createCensorUniforms();
   censorByLocalY(material, uniforms, .05);
   const shader = {
     uniforms: {}, vertexShader: THREE.ShaderLib.lambert.vertexShader, fragmentShader: THREE.ShaderLib.lambert.fragmentShader

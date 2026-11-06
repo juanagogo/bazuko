@@ -18,7 +18,7 @@ function thighGeometry(radius) {
 }
 
 export function createLightPantsDown({ hips, legs, skinColor, bottomMaterial }) {
-  const uniforms = createCensorUniforms(skinColor);
+  const uniforms = createCensorUniforms();
   const pelvisMaterial = new THREE.MeshLambertMaterial({ color: skinColor.clone() });
   const thighMaterial = new THREE.MeshLambertMaterial({ color: skinColor.clone() });
   censorByLocalY(pelvisMaterial, uniforms, -1e3);
@@ -65,7 +65,6 @@ export function createLightPantsDown({ hips, legs, skinColor, bottomMaterial }) 
       legSlots = slots;
       pelvisMaterial.color.copy(skinColor);
       thighMaterial.color.copy(skinColor);
-      uniforms.uCensorSkin.value.copy(skinColor);
       const params = band?.geometry?.parameters;
       if (params) {
         const r = Math.max(params.radiusTop, params.radiusBottom) * SKIN;
