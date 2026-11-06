@@ -2,6 +2,7 @@
 import * as THREE from 'three';
 import { hasClearCombatLine } from './CombatGeometry.js';
 import { VOCES, sitioParaVoz } from '../ui/momentosTextos.js';
+import { SOMBRAS, cantidadOla, crearFiguraSombra, liberarFigura } from './ShadowPeople.js';
 
 // Lo que una voz nunca tapa: las cifras y lo que se oprime.
 const NO_TAPAR = '#hud-dock, #topbar, #wanted, #quickbar, #panel-dock, #interaction-prompt, #retazo, #acciones, #joystick';
@@ -13,7 +14,6 @@ const DERIVA_RAD_MS = 0.0016;
 // Nivel alto de la paranoia: tras varias dosis seguidas los hombres sombra dejan de mirar y atacan.
 export const ATAQUE = Object.freeze({
   dosis: 3,              // consumos seguidos, sin que se apague la paranoia, para llegar al nivel alto
-  maxSimultaneos: 2,
   velocidad: 3.6,        // m/s: más que andar (3), menos que correr (6)
   alcance: 1.5,          // m
   preparacion: 0.55,     // s de anticipación antes de cada golpe
@@ -32,7 +32,7 @@ export const MOTO_SOMBRA = Object.freeze({
   maxSimultaneas: 2,
   espera: [4, 9],        // s entre una y otra
   salida: [55, 75],      // m del jugador a los que nacen, fuera de la vista
-  velocidad: [20, 30],   // m/s
+  velocidad: [9, 13],    // m/s
   vida: 9,               // s como máximo
   fundido: 0.5           // s de aparecer y de disolverse
 });
@@ -75,6 +75,14 @@ export class PsychosisSystem {
     this.world = world;
 
     this.shadowPeople = [];
+    this.reserva = [];     // figuras ya cargadas, listas para aparecer sin tirones
+    this.fabrica = crearFiguraSombra;
+    this.random = Math.random;
+    this._cargando = false;
+    this._descartado = false;
+    this._olaAmbiente = 0; // sombras que le faltan por soltar a la ola en curso
+    this._esperaOla = 0;
+    this._olaAtaque = 0;
     this.motosSombra = [];
     this._esperaMoto = 3;
     this.whisperTimer = 5;
@@ -100,84 +108,45 @@ export class PsychosisSystem {
     this.voicesEl = document.querySelector('.psychosis-voices');
   }
 
-  /**
-   * Crea una figura espectral de 'Gente Sombra'
-   */
+  /** Carga de a una las figuras de la reserva, para que aparecer una sombra no cueste nada. */
+  _precargar() {
+    if (this._cargando || this._descartado || this.reserva.length + this.shadowPeople.length >= SOMBRAS.max) return;
+    this._cargando = true;
+    this.fabrica().then((figura) => {
+      this._cargando = false;
+      if (this._descartado) liberarFigura(figura);
+      else { this.reserva.push(figura); this._precargar(); }
+    }).catch((error) => {
+      this._cargando = false;
+      console.error('No se pudo crear un hombre sombra', error);
+    });
+  }
+
+  /** Una persona de la calle, negra y a medio transparentar, sacada de la reserva; null si todavía no hay ninguna lista. */
   _createShadowPerson(position) {
     if (!this.scene) return null;
-    const group = new THREE.Group();
-
-    // Material espectral negro translúcido
-    const mat = new THREE.MeshBasicMaterial({
-      color: 0x050508,
-      transparent: true,
-      opacity: 0.78
-    });
-
-    // Cabeza
-    const head = new THREE.Mesh(new THREE.SphereGeometry(0.2, 7, 7), mat);
-    head.position.y = 1.6;
-    group.add(head);
-
-    // Ojos rojizos brillantes
-    const eyeMat = new THREE.MeshBasicMaterial({ color: 0xff1a1a, transparent: true, opacity: 1 });
-    const eyeL = new THREE.Mesh(new THREE.SphereGeometry(0.035, 5, 5), eyeMat);
-    eyeL.position.set(-0.07, 1.62, 0.18);
-    const eyeR = new THREE.Mesh(new THREE.SphereGeometry(0.035, 5, 5), eyeMat);
-    eyeR.position.set(0.07, 1.62, 0.18);
-    group.add(eyeL);
-    group.add(eyeR);
-
-    // Torso encorvado
-    const torso = new THREE.Mesh(new THREE.CylinderGeometry(0.17, 0.24, 0.75, 7), mat);
-    torso.position.y = 1.1;
-    torso.rotation.x = 0.18;
-    group.add(torso);
-
-    // Cuernos curvos hacia atrás
-    for (const side of [-1, 1]) {
-      const horn = new THREE.Mesh(new THREE.ConeGeometry(0.045, 0.26, 6), mat);
-      horn.position.set(side * 0.12, 1.8, -0.02);
-      horn.rotation.set(-0.5, 0, side * -0.45);
-      group.add(horn);
-    }
-
-    // Boca rasgada que brilla como los ojos
-    const mouth = new THREE.Mesh(new THREE.BoxGeometry(0.11, 0.018, 0.02), eyeMat);
-    mouth.position.set(0, 1.5, 0.185);
-    group.add(mouth);
-
-    // Brazos largos colgando, con garras
-    for (const side of [-1, 1]) {
-      const arm = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.03, 0.95, 5), mat);
-      arm.position.set(side * 0.27, 0.95, 0.05);
-      arm.rotation.z = side * 0.12;
-      group.add(arm);
-      for (let f = -1; f <= 1; f++) {
-        const claw = new THREE.Mesh(new THREE.ConeGeometry(0.012, 0.12, 4), mat);
-        claw.position.set(side * 0.33 + f * 0.025, 0.42, 0.06);
-        claw.rotation.x = Math.PI;
-        group.add(claw);
-      }
-    }
-
-    // Sin piernas: flota sobre una cola rasgada que se deshace hacia el piso
-    const tail = new THREE.Mesh(new THREE.ConeGeometry(0.26, 0.85, 7, 1, true), mat);
-    tail.position.y = 0.38;
-    tail.rotation.x = Math.PI;
-    group.add(tail);
-
+    const figura = this.reserva.pop();
+    if (!figura) return null;
+    const group = figura.group;
+    figura.material.opacity = SOMBRAS.opacidad;
     group.position.copy(position);
     this.scene.add(group);
-
     return {
       group,
+      figura,
       position: group.position,
       baseY: position.y,
-      phase: Math.random() * Math.PI * 2,
-      lifetime: 18 + Math.random() * 12,
+      alpha: 1,
+      lifetime: 18 + this.random() * 12,
       dissolving: false
     };
+  }
+
+  /** Devuelve la figura a la reserva (o la libera si ya sobra) y la saca de la escena. */
+  _devolver(sp) {
+    this.scene?.remove(sp.group);
+    if (this.reserva.length < SOMBRAS.max && !this._descartado) this.reserva.push(sp.figura);
+    else liberarFigura(sp.figura);
   }
 
   /** Una voz escrita sobre la escena. Si no hay un sitio libre, se calla: nunca tapa cifras ni, en persecución, el centro. */
@@ -313,7 +282,7 @@ export class PsychosisSystem {
     this.motosSombra = [];
   }
 
-  /** Motos sombra: solo en el nivel de ataque, de a una o dos, rápidas y erráticas; ni chocan ni hacen daño. */
+  /** Motos sombra: solo en el nivel de ataque, de a una o dos, erráticas y no tan rápidas; ni chocan ni hacen daño. */
   _updateMotosSombra(dt, playerPos) {
     if (this.ataque) {
       this._esperaMoto -= dt;
@@ -348,14 +317,10 @@ export class PsychosisSystem {
 
   _clearShadowPeople() {
     this._clearMotosSombra();
-    for (const sp of this.shadowPeople) {
-      this.scene?.remove(sp.group);
-      sp.group.traverse((o) => {
-        o.geometry?.dispose?.();
-        o.material?.dispose?.();
-      });
-    }
+    for (const sp of this.shadowPeople) this._devolver(sp);
     this.shadowPeople = [];
+    this._olaAmbiente = 0;
+    this._olaAtaque = 0;
     if (this.player) this.player.extraMeleeTargets = null;
   }
 
@@ -472,7 +437,10 @@ export class PsychosisSystem {
       // lados o detrás de la cámara: de reojo.
       const camera = cameraRig?.camera;
       if (camera) camera.getWorldDirection(_forward);
-      if (this.ataque && this._esperaAtaque <= 0 && this.shadowPeople.filter((sp) => sp.ataca && !sp.dissolving).length < ATAQUE.maxSimultaneos) {
+      this._precargar();
+      const atacantes = this.shadowPeople.filter((sp) => sp.ataca && !sp.dissolving).length;
+      if (this.ataque && this._olaAtaque <= 0 && atacantes === 0 && this._esperaAtaque <= 0) this._olaAtaque = cantidadOla(this.random);
+      if (this.ataque && this._olaAtaque > 0 && this._esperaAtaque <= 0 && this.shadowPeople.length < SOMBRAS.max) {
         const angle = Math.random() * Math.PI * 2;
         const [min, max] = ATAQUE.distancia;
         const dist = min + Math.random() * (max - min);
@@ -480,9 +448,17 @@ export class PsychosisSystem {
         const spawnZ = playerPos.z + Math.sin(angle) * dist;
         const spawnY = this.world?.active?.getGroundHeight?.(spawnX, spawnZ) ?? 0;
         const hombre = this._createShadowMan(new THREE.Vector3(spawnX, spawnY, spawnZ));
-        if (hombre) { this.shadowPeople.push(hombre); this._esperaAtaque = 1.5; }
+        if (hombre) { this.shadowPeople.push(hombre); this._olaAtaque--; this._esperaAtaque = 1.5; }
       }
-      if (this.shadowPeople.filter((sp) => !sp.ataca).length < 3 && Math.random() < 0.025) {
+      const ambientales = this.shadowPeople.filter((sp) => !sp.ataca).length;
+      if (this._olaAmbiente <= 0 && ambientales === 0) {
+        this._esperaOla -= dt;
+        if (this._esperaOla <= 0) {
+          this._olaAmbiente = cantidadOla(this.random);
+          this._esperaOla = SOMBRAS.espera[0] + this.random() * (SOMBRAS.espera[1] - SOMBRAS.espera[0]);
+        }
+      }
+      if (this._olaAmbiente > 0 && this.shadowPeople.length < SOMBRAS.max && this.random() < dt / SOMBRAS.aparicion) {
         const sideways = fromDrug != null && camera;
         const angle = sideways
           ? Math.atan2(_forward.z, _forward.x) + (Math.random() < 0.5 ? 1 : -1) * (Math.PI / 2 + Math.random() * Math.PI / 2)
@@ -492,7 +468,7 @@ export class PsychosisSystem {
         const spawnZ = playerPos.z + Math.sin(angle) * dist;
         const spawnY = this.world?.active?.getGroundHeight?.(spawnX, spawnZ) ?? 0;
         const sp = this._createShadowPerson(new THREE.Vector3(spawnX, spawnY, spawnZ));
-        if (sp) this.shadowPeople.push(sp);
+        if (sp) { this.shadowPeople.push(sp); this._olaAmbiente--; }
       }
 
       // Actualizar sombras existentes
@@ -502,10 +478,10 @@ export class PsychosisSystem {
         if (sp.ataca && !this.ataque) sp.dissolving = true;
         else if (sp.ataca && !sp.dissolving) this._updateShadowMan(sp, dt, playerPos);
 
-        // Flota meciéndose y mira al jugador
-        if (!sp.dissolving) sp.group.position.y = sp.baseY + 0.15 + Math.sin(performance.now() * 0.0013 + sp.phase) * 0.08;
-        sp.group.lookAt(playerPos.x, sp.position.y + 1.6, playerPos.z);
-        if (sp.fase === 'preparando') sp.group.rotateX(0.5 * Math.sin(Math.min(1, 1 - sp.espera / ATAQUE.preparacion) * Math.PI));
+        // De pie en el piso, mirando al jugador; camina mientras se acerca
+        if (!sp.dissolving) sp.group.position.y = sp.baseY;
+        sp.group.rotation.y = Math.atan2(playerPos.x - sp.position.x, playerPos.z - sp.position.z);
+        sp.figura.character.update(dt, { speed: sp.fase === 'acercando' ? ATAQUE.velocidad : 0 });
 
         const distToPlayer = sp.position.distanceTo(playerPos);
         // Si el jugador se acerca demasiado, la sombra expira o la mira de frente un momento, se desvanece
@@ -518,20 +494,10 @@ export class PsychosisSystem {
         }
 
         if (sp.dissolving) {
-          sp.group.position.y += dt * 0.4;
-          let allFaded = true;
-          sp.group.traverse((o) => {
-            if (o.material?.opacity !== undefined) {
-              o.material.opacity = Math.max(0, o.material.opacity - dt * 2.5);
-              if (o.material.opacity > 0.02) allFaded = false;
-            }
-          });
-          if (allFaded) {
-            this.scene.remove(sp.group);
-            sp.group.traverse((o) => {
-              o.geometry?.dispose?.();
-              o.material?.dispose?.();
-            });
+          sp.alpha = Math.max(0, sp.alpha - dt * 2.5);
+          sp.figura.material.opacity = SOMBRAS.opacidad * sp.alpha;
+          if (sp.alpha <= 0.02) {
+            this._devolver(sp);
             this.shadowPeople.splice(i, 1);
           }
         }
@@ -576,7 +542,10 @@ export class PsychosisSystem {
   }
 
   dispose() {
+    this._descartado = true;
     this._clearShadowPeople();
+    for (const figura of this.reserva) liberarFigura(figura);
+    this.reserva = [];
     if (typeof document !== 'undefined') {
       this.overlayEl?.classList.remove('active');
       document.body?.classList.remove('voces');

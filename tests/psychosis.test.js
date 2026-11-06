@@ -4,11 +4,26 @@ import { beforeEach, test } from 'node:test';
 import * as THREE from 'three';
 import { StatsSystem } from '../src/systems/StatsSystem.js';
 import { PsychosisSystem, ATAQUE, MOTO_SOMBRA } from '../src/systems/PsychosisSystem.js';
+import { SOMBRAS, cantidadOla } from '../src/systems/ShadowPeople.js';
+import { seededRandom } from '../src/character/people.js';
 import { Player } from '../src/entities/Player.js';
 
 beforeEach(() => {
   globalThis.window = new EventTarget();
 });
+
+function figuraFalsa() {
+  const group = new THREE.Group();
+  const material = new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: SOMBRAS.opacidad, depthWrite: false });
+  group.add(new THREE.Mesh(new THREE.BoxGeometry(0.5, 1.7, 0.3), material));
+  return { group, material, character: { update() {}, dispose() {} } };
+}
+
+function conReserva(psychosis) {
+  psychosis.fabrica = async () => figuraFalsa();
+  for (let i = 0; i < SOMBRAS.max; i++) psychosis.reserva.push(figuraFalsa());
+  return psychosis;
+}
 
 test('cálculo progresivo de abstinencia y umbrales de severidad', () => {
   const stats = new StatsSystem();
@@ -71,7 +86,7 @@ test('PsychosisSystem se activa con abstinencia alta y se limpia al recuperar el
   const player = { position: new THREE.Vector3(10, 0, 10), playAction() {} };
   const cameraRig = { camera: new THREE.PerspectiveCamera(55, 1, 0.1, 100), baseFov: 55 };
 
-  const psychosis = new PsychosisSystem(scene, player, stats, null, { active: { getGroundHeight: () => 0 } });
+  const psychosis = conReserva(new PsychosisSystem(scene, player, stats, null, { active: { getGroundHeight: () => 0 } }));
 
   // Con vicio normal, no está activo
   psychosis.update(0.1, cameraRig);
@@ -109,7 +124,7 @@ function hallucinating({ doses = 3, salud = 100 } = {}) {
     receiveHit(dir, strength, info) { hits.push({ dir, strength, info }); }
   };
   const cameraRig = { camera: new THREE.PerspectiveCamera(55, 1, 0.1, 100), baseFov: 55 };
-  const psychosis = new PsychosisSystem(scene, player, stats, null, { active: { getGroundHeight: () => 0 } });
+  const psychosis = conReserva(new PsychosisSystem(scene, player, stats, null, { active: { getGroundHeight: () => 0 } }));
   for (let i = 0; i < doses; i++) psychosis.induce(50, 0.8);
   const tick = (seconds, dt = 0.05) => { for (let t = 0; t < seconds - 1e-9; t += dt) psychosis.update(dt, cameraRig); };
   const attackers = () => psychosis.shadowPeople.filter((sp) => sp.ataca);
@@ -144,13 +159,13 @@ test('el nivel de ataque exige varias dosis seguidas, y sobrio no hay hombres so
 test('los hombres sombra se acercan, golpean con daño moderado y respetan el respiro', () => {
   const { psychosis, stats, tick, attackers, hits } = hallucinating();
   tick(30);
-  assert.ok(attackers().length >= 1 && attackers().length <= ATAQUE.maxSimultaneos);
+  assert.ok(attackers().length >= 1 && attackers().length <= SOMBRAS.max);
   assert.ok(stats.salud < 100, 'al menos un golpe llegó');
   assert.ok(100 - stats.salud >= ATAQUE.danoMin, 'daño real');
   const first = hits.length;
   assert.ok(hits.length * ATAQUE.danoMax >= 100 - stats.salud);
   assert.ok(100 - stats.salud <= hits.length * ATAQUE.danoMax, 'cada golpe es modesto');
-  assert.ok(psychosis.shadowPeople.filter((sp) => sp.ataca).length <= ATAQUE.maxSimultaneos);
+  assert.ok(psychosis.shadowPeople.filter((sp) => sp.ataca).length <= SOMBRAS.max);
   assert.ok(first <= 30 / ATAQUE.respiro + 1, 'no encadenan golpes sin respiro');
 });
 
@@ -187,7 +202,7 @@ test('un golpe del jugador disuelve a la sombra sin tocar dinero ni búsqueda, y
   runner.tick(8);
   const chaser = runner.attackers()[0];
   runner.player.position.set(10 + ATAQUE.rendicion + 5, 0, 10);
-  runner.tick(0.2);
+  runner.tick(0.5);
   assert.equal(runner.psychosis.shadowPeople.includes(chaser), false, 'si se escapa, se rinden');
 });
 
@@ -198,7 +213,7 @@ test('el jugador real golpea al hombre sombra y no suma dinero ni búsqueda', ()
   const player = new Player(scene, input, stats, {});
   player.game = { steal: { buscado: 0 } };
   player.position.set(0, 0, 0);
-  const sombra = new PsychosisSystem(scene, player, new StatsSystem(), null, { active: { getGroundHeight: () => 0 } });
+  const sombra = conReserva(new PsychosisSystem(scene, player, new StatsSystem(), null, { active: { getGroundHeight: () => 0 } }));
   const sp = sombra._createShadowMan(new THREE.Vector3(0, 0, 1));
   sombra.shadowPeople.push(sp);
   player.extraMeleeTargets = [sp];
@@ -266,4 +281,49 @@ test('las motos sombra solo cruzan en el nivel de ataque, no hacen daño y se li
   for (let t = 0; t < 2; t += 0.05) psychosis._updateMotosSombra(0.05, player.position);
   assert.equal(psychosis.motosSombra.length, 0, 'al caer el ataque se disuelven');
   if (moto) assert.equal(scene.children.includes(moto.group), false);
+});
+
+test('el número de hombres sombra por ola es aleatorio e independiente: casi siempre 1 a 3, a veces 4 o 5, rara vez hasta 7', () => {
+  const random = seededRandom('olas-sombra');
+  const cuenta = Array(SOMBRAS.max + 1).fill(0);
+  const N = 20000;
+  for (let i = 0; i < N; i++) cuenta[cantidadOla(random)]++;
+  assert.equal(cuenta[0], 0, 'nunca cero');
+  const parte = (desde, hasta) => cuenta.slice(desde, hasta + 1).reduce((a, b) => a + b, 0) / N;
+  assert.ok(parte(1, 3) > 0.7 && parte(1, 3) < 0.85, 'mayoría de 1 a 3');
+  assert.ok(parte(4, 5) > 0.1 && parte(4, 5) < 0.25, 'a veces 4 o 5');
+  assert.ok(parte(6, 7) > 0.01 && parte(6, 7) < 0.09, 'rara vez 6 o 7');
+  assert.ok(cuenta[SOMBRAS.max] > 0, 'a veces llega al tope');
+  for (let n = 1; n <= SOMBRAS.max; n++) assert.ok(cuenta[n] > 0, `sale ${n}`);
+  const vistos = new Set();
+  for (let i = 0; i < 200; i++) vistos.add(cantidadOla(random));
+  assert.ok(vistos.size >= 5, 'varía de una ola a otra, no es siempre dos');
+});
+
+test('los hombres sombra son negros, a medio transparentar, sin escribir en profundidad, y nunca pasan del tope', () => {
+  const { psychosis, scene, tick } = hallucinating();
+  psychosis.induced.left = 1e6;
+  let maximo = 0;
+  for (let i = 0; i < 4000; i++) {
+    psychosis.update(0.05, { camera: new THREE.PerspectiveCamera(55, 1, 0.1, 100), baseFov: 55 });
+    maximo = Math.max(maximo, psychosis.shadowPeople.length);
+    assert.ok(psychosis.shadowPeople.length + psychosis.reserva.length <= SOMBRAS.max, 'las figuras se reusan, no se crean de más');
+  }
+  assert.ok(maximo >= 2, 'aparecen varias');
+  assert.ok(maximo <= SOMBRAS.max, 'nunca más del tope');
+  for (const sp of psychosis.shadowPeople) {
+    assert.equal(sp.figura.material.color.getHex(), 0x000000);
+    assert.equal(sp.figura.material.transparent, true);
+    assert.equal(sp.figura.material.depthWrite, false);
+    assert.ok(sp.figura.material.opacity > 0 && sp.figura.material.opacity <= 0.6);
+  }
+  assert.ok(SOMBRAS.opacidad >= 0.5 && SOMBRAS.opacidad <= 0.6);
+  const antes = scene.children.length;
+  psychosis._clearShadowPeople();
+  assert.equal(psychosis.reserva.length, SOMBRAS.max, 'al limpiar, las figuras vuelven a la reserva');
+  assert.ok(scene.children.length <= antes);
+});
+
+test('las motos sombra van a menos de la mitad de la velocidad anterior', () => {
+  assert.ok(MOTO_SOMBRA.velocidad[1] <= 14 && MOTO_SOMBRA.velocidad[0] >= 8, 'de 9 a 13 m/s, antes de 20 a 30');
 });
