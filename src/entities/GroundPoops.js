@@ -3,6 +3,8 @@
 // Todo comparte geometría y materiales; cada montón solo tiene su propio rango de dibujo para ir
 // apareciendo trozo a trozo. Las moscas y el olor (PoopFlies, PoopStink) se apoyan en esta lista.
 import * as THREE from 'three';
+import { PoopFlies } from './PoopFlies.js';
+import { PoopStink } from './PoopStink.js';
 
 export const MAX_GROUND_POOPS = 8;
 export const POOP_LIFETIME = 45;
@@ -139,8 +141,8 @@ export class GroundPoops {
     this.pieceEnds = this.shared.pieceEnds;
     this._piles = [];
     this._views = []; // geometrías de montón libres: comparten atributos, cada una con su rango
-    this.flies = null;
-    this.stink = null;
+    this.flies = new PoopFlies(scene, { maxPiles: MAX_GROUND_POOPS + 1 });
+    this.stink = new PoopStink(scene, { maxPiles: MAX_GROUND_POOPS + 1 });
     const { materials } = this.shared;
     this.falling = new THREE.Mesh(this.shared.pieceGeometries[0], materials.poop);
     this.falling.visible = false;
