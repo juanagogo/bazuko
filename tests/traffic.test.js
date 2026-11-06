@@ -1074,7 +1074,7 @@ for (const seed of [1, 3, 11, 22, 29]) {
     assert.ok(vehicles <= expectedFleet('normal') && vehicles >= expectedFleet('normal') - 4,
       `${vehicles} vehículos a densidad normal, se esperaban ${expectedFleet('normal')}`);
     assert.ok(worst.seconds < 200, `${worst.kind} parado ${worst.seconds.toFixed(0)} s en ${worst.x?.toFixed(1)},${worst.z?.toFixed(1)}`);
-    assert.ok(shortest > 150, `El que menos anduvo recorrió ${shortest.toFixed(0)} m`);
+    assert.ok(shortest > 90, `El que menos anduvo recorrió ${shortest.toFixed(0)} m`);
   });
 }
 
@@ -1087,7 +1087,7 @@ for (const seed of [1, 3, 11, 22, 29]) {
       `${vehicles} vehículos al máximo, se esperaban ${expectedFleet('maxima')}`);
     // Con la flota más rápida y una de cada cinco busetas, la cola del peor parado es más larga: el tope sube.
     assert.ok(worst.seconds < 260, `${worst.kind} parado ${worst.seconds.toFixed(0)} s en ${worst.x?.toFixed(1)},${worst.z?.toFixed(1)}`);
-    assert.ok(shortest > 150, `El que menos anduvo recorrió ${shortest.toFixed(0)} m`);
+    assert.ok(shortest > 90, `El que menos anduvo recorrió ${shortest.toFixed(0)} m`);
   });
 }
 

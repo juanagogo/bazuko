@@ -15,7 +15,7 @@ import {
 } from '../utils/constants.js';
 import { SpatialGrid } from '../core/SpatialGrid.js';
 import { canReachCombatTarget, hasClearCombatLine } from './CombatGeometry.js';
-import { BUSETA_EVERY, cruiseSpeedFor, motoThreshold, trafficTargetVehicles } from './trafficDensity.js';
+import { busetaEvery, cruiseSpeedFor, motoThreshold, trafficTargetVehicles } from './trafficDensity.js';
 
 /** Cada nivel de «te tienen fichado» alarga en esta fracción el alcance con que una patrulla ve un robo. */
 export const POLICE_SIGHT_PER_WANTED = .25;
@@ -53,8 +53,20 @@ const CAR_INSTANCE_OUT = 44, CAR_INSTANCE_IN = 36;
 const RESIZE_SAFE_DISTANCE = 60;
 // Cambios de flota por segundo: al cambiar de densidad la ciudad tarda unos segundos, nunca un salto.
 const RESIZE_MIN_RATE = 1, RESIZE_MAX_RATE = 24, RESIZE_RATE_PER_MISSING = .5;
-// Separación mínima al insertar un carro nuevo en su circuito, en metros sobre el centro del otro.
-const RESIZE_GAP = 2.5;
+// Al llenar una vista nueva se siembran varios carros por cuadro: no hay nada que hacer saltar a la vista.
+const FRESH_BURST = 48, FRESH_SECONDS = 2;
+// Un salto mayor que esto del centro de la burbuja cambia de barrio: las calles de enfrente no se habían visto.
+const FRESH_VIEW_JUMP = 35;
+// La burbuja se corre hacia donde mira la cámara: lo de atrás no lo ve nadie y lo de adelante sí.
+const BUBBLE_AHEAD = 50;
+// Intentos por carro nuevo, cercanía mínima al jugador con cámara, separación entre centros y celda del índice.
+const SPAWN_TRIES = 80, SPAWN_NEAR = 14, SPAWN_GAP = 5.4, SPAWN_CELL = 8;
+// Mitad del ancho de una franja: más al lado que esto ya es otro carril u otra franja de motos.
+const SPAWN_LANE = 1.3;
+// Fuera de una vista nueva, un carro solo nace a la vista desde esta fracción de la niebla, donde ya es una mancha.
+const SPAWN_VISIBLE_FROM = .6;
+// Metros por delante para saber si un carro que nace fuera de la vista va a entrar en ella.
+const ENTER_LOOKAHEAD = 30;
 // Un carro parado más que esto fuera de la vista se retira: el trancón que se ve se queda, el que no, se despeja.
 const STUCK_LIMIT = 45;
 
@@ -87,7 +99,16 @@ export class TrafficSystem {
     this.onVehicleRemoved = null;
     this._resizeCredit = 0;
     this._viewPosition = new THREE.Vector3();
-    this._routeLength = null;
+    // Hacia dónde mira la cámara: los carros nuevos se buscan de frente para que la calle se vea viva.
+    this._forward = { x: 0, z: -1 };
+    // Al cargar y tras un salto grande la ciudad no se ha visto: se puede sembrar el frente sin que nadie note el cambio.
+    this._freshTime = FRESH_SECONDS;
+    this._lastCenterX = null;
+    this._lastCenterZ = null;
+    this._lastTarget = null;
+    this._center = new THREE.Vector3();
+    this._routeCumulative = null;
+    this._spawnGrid = new Map();
     this._byRoom = (a, b) => b.room - a.room;
     this._pursuitInfo = { distance: 0, dx: 0, dz: 0, closeness: 0, x: 0, z: 0 };
     this.random = random;
@@ -134,7 +155,8 @@ export class TrafficSystem {
     // La flota sale por conteo y no gasta azar: una de cada doce es buseta, tres de cada diez taxi y una tajada son
     // motos, que suben en las horas pico. Con huellas distintas por modelo, el mismo azar da así siempre el mismo tráfico.
     const count = this._spawnCount = (this._spawnCount ?? 0) + 1;
-    const buseta = !police && count % BUSETA_EVERY === 0;
+    // Una de cada cinco es buseta; Ultra sube la tajada de buses. Las motos van aparte y crecen en el pico.
+    const buseta = !police && count % busetaEvery(this.densityId) === 0;
     const moto = !police && !buseta && count % 10 >= this._motoThreshold;
     const kind = police ? 'police' : buseta ? 'buseta' : moto ? 'moto' : count * 7 % 10 < 3 ? 'taxi' : 'carro';
     const rotation = Math.atan2(-this._direction.z, this._direction.x);
@@ -174,7 +196,9 @@ export class TrafficSystem {
   /** Nivel de densidad elegido por el jugador. Sin nivel la flota se queda como la dejó el constructor. */
   setDensity(id) {
     this.densityId = id ?? null;
+    this._motoThreshold = motoThreshold(12, this.densityId);
     this._resizeCredit = 0;
+    this._freshTime = FRESH_SECONDS;
   }
 
   /** Distancia a la niebla de la escena; 0 cuando la escena no tiene. */
@@ -236,25 +260,42 @@ export class TrafficSystem {
   /** Ajusta la flota a lo que pide la hora, a unos pocos carros por segundo y fuera de la vista. */
   _resizeFleet(hour, dt) {
     const target = trafficTargetVehicles(hour, this.densityId);
+    // Un salto grande de la hora cambia la ciudad entera: se llena de una vez, como al cargar.
+    const last = this._lastTarget;
+    if (last === null || Math.abs(target - last) > Math.max(20, last * .15)) this._freshTime = FRESH_SECONDS;
+    this._lastTarget = target;
     // Las patrullas no entran en la cuenta: la densidad habla del tráfico particular.
-    let civilians = this._countInBubble();
+    const civilians = this._countInBubble();
     const missing = target - civilians;
     if (!missing) { this._resizeCredit = 0; return; }
+    if (missing > 0) this._indexVehicles();
+    if (missing > 0 && this._freshTime > 0) {
+      this._freshTime -= dt;
+      let added = 0;
+      const want = Math.min(missing, FRESH_BURST);
+      while (added < want && this._addVehicle()) added++;
+      return;
+    }
     const rate = Math.min(RESIZE_MAX_RATE, Math.max(RESIZE_MIN_RATE, Math.abs(missing) * RESIZE_RATE_PER_MISSING));
     this._resizeCredit += rate * dt;
     while (this._resizeCredit >= 1) {
       this._resizeCredit -= 1;
-      if (!(missing > 0 ? this._addVehicle(target) : this._removeVehicle())) { this._resizeCredit = 0; break; }
+      if (!(missing > 0 ? this._addVehicle() : this._removeVehicle())) { this._resizeCredit = 0; break; }
     }
+  }
+
+  /** Radio de la burbuja: con cámara llega hasta la niebla, sin ella hasta donde se esconden los carros. */
+  _bubbleRadius() {
+    return this._camera ? Math.max(RESIZE_SAFE_DISTANCE * 1.5, this._fogDistance()) : this._hideDistance();
   }
 
   /** Saca de la flota a quien ya dejó atrás la burbuja y cuenta a los civiles que quedan dentro. */
   _countInBubble() {
-    const view = this._viewPosition, bubbleSq = this._hideDistance() ** 2;
+    const center = this._center, bubbleSq = this._bubbleRadius() ** 2;
     let civilians = 0;
     for (let index = this.vehicles.length - 1; index >= 0; index--) {
       const vehicle = this.vehicles[index];
-      const dx = vehicle.car.position.x - view.x, dz = vehicle.car.position.z - view.z;
+      const dx = vehicle.car.position.x - center.x, dz = vehicle.car.position.z - center.z;
       if (dx * dx + dz * dz <= bubbleSq) {
         if (!vehicle.police) civilians++;
         continue;
@@ -264,64 +305,84 @@ export class TrafficSystem {
     return civilians;
   }
 
-  /** Cuántos carros quiere cada circuito cercano: en proporción a su largo y sin pasar de lo que cabe en él. */
-  _routeQuota(target) {
-    const routes = this.routes;
-    this._routeLength ??= routes.reduce((sum, route) => sum + route.length, 0);
-    const quota = this._quotaScratch ??= new Map();
-    quota.clear();
-    for (const route of routes) {
-      quota.set(route, Math.min(Math.floor(route.length / 12), Math.round(target * route.length / this._routeLength)));
-    }
-    return quota;
+  /** Índice de celdas con la posición de cada vehículo, para no sembrar un carro encima de otro. */
+  _indexVehicles() {
+    const grid = this._spawnGrid;
+    for (const bucket of grid.values()) bucket.length = 0;
+    for (const vehicle of this.vehicles) this._indexSpawn(vehicle.car.position.x, vehicle.car.position.z);
   }
 
-  _addVehicle(target) {
-    const assigned = this._assignedScratch ??= new Map();
-    assigned.clear();
-    for (const vehicle of this.vehicles) if (!vehicle.police) assigned.set(vehicle.route, (assigned.get(vehicle.route) ?? 0) + 1);
-    // Puede que el circuito con más espacio no tenga un punto libre: se prueban todos antes de rendirse.
-    const candidates = this._candidateScratch ??= [];
-    let count = 0;
-    for (const [route, want] of this._routeQuota(target)) {
-      const room = want - (assigned.get(route) ?? 0);
-      if (room <= 0) continue;
-      const slot = candidates[count] ??= { route: null, room: 0 };
-      slot.route = route; slot.room = room;
-      count++;
-    }
-    candidates.length = count;
-    candidates.sort(this._byRoom);
-    for (const { route } of candidates) {
-      const distance = this._freeDistance(route);
-      if (distance === null) continue;
-      const vehicle = this._spawn(this.scene, route, distance, false);
-      this.onVehicleAdded?.(vehicle.car);
-      return true;
+  _indexSpawn(x, z) {
+    const key = Math.floor(x / SPAWN_CELL) * 100003 + Math.floor(z / SPAWN_CELL);
+    let bucket = this._spawnGrid.get(key);
+    if (!bucket) this._spawnGrid.set(key, bucket = []);
+    bucket.push(x, z);
+  }
+
+  /** ¿Hay otro vehículo en la misma franja a menos de un carro de largo? Los de otro carril no estorban. */
+  _crowded(x, z, hx, hz) {
+    const cx = Math.floor(x / SPAWN_CELL), cz = Math.floor(z / SPAWN_CELL);
+    for (let i = cx - 1; i <= cx + 1; i++) for (let j = cz - 1; j <= cz + 1; j++) {
+      const bucket = this._spawnGrid.get(i * 100003 + j);
+      if (!bucket) continue;
+      for (let k = 0; k < bucket.length; k += 2) {
+        const ox = bucket[k] - x, oz = bucket[k + 1] - z;
+        if (Math.abs(ox * hx + oz * hz) < SPAWN_GAP && Math.abs(ox * hz - oz * hx) < SPAWN_LANE) return true;
+      }
     }
     return false;
   }
 
-  /** Punto de la ruta fuera de la vista, dentro de la burbuja, libre de otros carros y fuera de los cruces. */
-  _freeDistance(route) {
-    const view = this._viewPosition, bubbleSq = this._hideDistance() ** 2;
-    const min = RESIZE_SAFE_DISTANCE ** 2;
-    for (let tries = 0; tries < 24; tries++) {
-      const distance = this.random() * route.length;
-      route.sample(distance, this._position, this._direction);
-      const fromView = (this._position.x - view.x) ** 2 + (this._position.z - view.z) ** 2;
-      if (fromView < min || fromView > bubbleSq) continue;
-      // Nacer dentro del cono de la cámara se vería: se exige fuera de la vista, no solo lejos.
-      if (!this._outOfView(this._position)) continue;
-      // Nacer dentro de un cruce es pedir la reserva a la fuerza; fuera de él entra como cualquier otro.
-      if (this._nearNode(this._position)) continue;
-      // Un carro puede compartir el carril con otro de una ruta distinta: se mira el mundo, no la distancia en la ruta.
-      const crowded = this.vehicles.some(other => Math.hypot(other.car.position.x - this._position.x,
-        other.car.position.z - this._position.z) < other.car.length / 2 + RESIZE_GAP);
-      if (crowded) continue;
-      return distance;
+  _addVehicle() {
+    const spot = this._findSpawn();
+    if (!spot) return false;
+    const vehicle = this._spawn(this.scene, spot.route, spot.distance, false);
+    this._indexSpawn(vehicle.car.position.x, vehicle.car.position.z);
+    this.onVehicleAdded?.(vehicle.car);
+    return true;
+  }
+
+  /**
+   * Un punto libre de cualquier circuito dentro de la burbuja, elegido por largo de circuito. Con una vista nueva se
+   * prefiere el que cae a la vista; después, el que está fuera de ella y entra solo, o el que ya es mancha en la niebla.
+   */
+  _findSpawn() {
+    const routes = this.routes;
+    let cumulative = this._routeCumulative;
+    if (!cumulative || cumulative.length !== routes.length) {
+      let sum = 0;
+      cumulative = this._routeCumulative = routes.map(route => sum += route.length);
     }
-    return null;
+    const total = cumulative[cumulative.length - 1];
+    const center = this._center, view = this._viewPosition, camera = this._camera, fresh = this._freshTime > 0;
+    const radiusSq = this._bubbleRadius() ** 2, fog = this._fogDistance() || this._hideDistance();
+    const nearSq = (camera ? SPAWN_NEAR : RESIZE_SAFE_DISTANCE) ** 2;
+    const position = this._position, direction = this._direction, ahead = this._probePosition;
+    let best = null, bestScore = 0;
+    for (let tries = 0; tries < SPAWN_TRIES && bestScore < 3; tries++) {
+      const pick = this.random() * total;
+      let index = 0;
+      while (index < cumulative.length - 1 && cumulative[index] < pick) index++;
+      const route = routes[index], distance = Math.max(0, route.length - (cumulative[index] - pick));
+      route.sample(distance, position, direction);
+      const cx = position.x - center.x, cz = position.z - center.z;
+      if (cx * cx + cz * cz > radiusSq) continue;
+      const dx = position.x - view.x, dz = position.z - view.z, fromViewSq = dx * dx + dz * dz;
+      if (fromViewSq < nearSq) continue;
+      // Nacer dentro de un cruce es pedir la reserva a la fuerza; fuera de él entra como cualquier otro.
+      if (this._nearNode(position)) continue;
+      const visible = !!camera && !this._outOfView(position);
+      if (visible && !fresh && fromViewSq < (fog * SPAWN_VISIBLE_FROM) ** 2) continue;
+      if (this._crowded(position.x, position.z, direction.x, direction.z)) continue;
+      let score = 1;
+      if (visible) score = 4;
+      else if (camera) {
+        ahead.copy(position).addScaledVector(direction, ENTER_LOOKAHEAD);
+        if (!this._outOfView(ahead)) score = 3;
+      }
+      if (score > bestScore) { bestScore = score; best = { route, distance }; }
+    }
+    return best;
   }
 
   /** Saca de circulación un carro del montaje: se suelta de los cruces, se avisa y se libera. */
@@ -341,7 +402,7 @@ export class TrafficSystem {
 
   /** Saca de circulación al que va más lejos de la vista, sin tocar patrullas ni persecuciones. */
   _removeVehicle() {
-    const view = this._viewPosition;
+    const view = this._center;
     let best = null, bestSq = -1;
     for (const vehicle of this.vehicles) {
       if (!this._canRetire(vehicle)) continue;
@@ -1134,7 +1195,19 @@ export class TrafficSystem {
     if (camera?.position) view.copy(camera.position);
     else if (player) view.copy(player);
     this._camera = camera?.matrixWorldInverse ? camera : null;
-    if (Number.isFinite(hour)) this._motoThreshold = motoThreshold(hour);
+    const center = this._center.copy(view);
+    if (this._camera) {
+      const m = this._camera.matrixWorldInverse.elements;
+      const fx = -m[8], fz = -m[10], length = Math.hypot(fx, fz) || 1;
+      this._forward.x = fx / length; this._forward.z = fz / length;
+      center.x += this._forward.x * BUBBLE_AHEAD; center.z += this._forward.z * BUBBLE_AHEAD;
+    }
+    // Un salto de la burbuja (carga, recuperación, viaje) deja calles nuevas: se llenan de una vez.
+    if (this._lastCenterX === null || Math.hypot(center.x - this._lastCenterX, center.z - this._lastCenterZ) > FRESH_VIEW_JUMP) {
+      this._freshTime = FRESH_SECONDS;
+    }
+    this._lastCenterX = center.x; this._lastCenterZ = center.z;
+    if (Number.isFinite(hour)) this._motoThreshold = motoThreshold(hour, this.densityId);
     if (this.densityId && Number.isFinite(hour)) this._resizeFleet(hour, dt);
     this._updateLod();
     this._clearStuck(dt);

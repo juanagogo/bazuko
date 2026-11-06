@@ -7,12 +7,18 @@ export const TRAFFIC_DENSITY_LEVELS = [
   { id: 'normal', label: 'Normal', midday: 30 },
   { id: 'alta', label: 'Alta', midday: 34 },
   { id: 'maxima', label: 'Máxima', midday: 38 },
-  { id: 'ultra', label: 'Ultra', midday: 180 },
+  { id: 'ultra', label: 'Ultra', midday: 420 },
 ];
 export const DEFAULT_TRAFFIC_DENSITY = 'normal';
 
-// Una de cada cinco busetas: la flota se ve con más de transporte público.
+// Una de cada cinco busetas: la flota se ve con más de transporte público. Ultra va más cargado de buses.
 export const BUSETA_EVERY = 5;
+export const ULTRA_BUSETA_EVERY = 4;
+
+/** Cada cuántos vehículos del conteo sale una buseta. */
+export function busetaEvery(densityId) {
+  return densityId === 'ultra' ? ULTRA_BUSETA_EVERY : BUSETA_EVERY;
+}
 
 // Velocidades de crucero en metros por segundo (35 a 45 km/h en vía normal, 50 a 60 en avenida).
 export const CRUISE_STREET = [9.7, 12.5];
@@ -68,8 +74,10 @@ export function motoShare(hour) {
 }
 
 /** De cada diez vehículos del conteo, desde cuál sale una moto. Sin azar: el tráfico reparte sus modelos con él. */
-export function motoThreshold(hour) {
-  return Math.round(10 * (1 - motoShare(hour)));
+export function motoThreshold(hour, densityId = null) {
+  // Ultra mezcla más motos todavía: es la tajada que más se ve en un semáforo bogotano.
+  const share = Math.min(.62, motoShare(hour) + (densityId === 'ultra' ? .1 : 0));
+  return Math.round(10 * (1 - share));
 }
 
 /** Un circuito con un tramo recto de avenida: recto largo sin radio de giro. Sin Three ni mapa. */
