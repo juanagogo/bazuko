@@ -76,7 +76,7 @@ export function motoShare(hour) {
 /** De cada diez vehículos del conteo, desde cuál sale una moto. Sin azar: el tráfico reparte sus modelos con él. */
 export function motoThreshold(hour, densityId = null) {
   // Ultra mezcla más motos todavía: es la tajada que más se ve en un semáforo bogotano.
-  const share = Math.min(.62, motoShare(hour) + (densityId === 'ultra' ? .1 : 0));
+  const share = Math.min(.8, motoShare(hour) + (densityId === 'ultra' ? .3 : 0));
   return Math.round(10 * (1 - share));
 }
 

@@ -26,6 +26,8 @@ const MOTO_GAP = 1.1;
 // Separación lateral a partir de la cual dos vehículos no se estorban en la distancia del circuito: por debajo de
 // esto la caja de la moto (0,72) sí toca la de un carro (1,6), que es lo que mide el margen de `_carInPath`.
 const LANE_SEPARATION = 1.31;
+// Dos motos solo se estorban si van a menos que esto una de otra: así caben varias de lado en la caja del semáforo.
+const MOTO_SEPARATION = .85;
 const ACCELERATION = 1.8;
 const BRAKING = 2;
 // La salida se toma con calma; el freno entra rápido, que a velocidad de avenida no alcanza el tiempo.
@@ -67,6 +69,13 @@ const SPAWN_LANE = 1.3;
 const SPAWN_VISIBLE_FROM = .6;
 // No se entra a un cruce sin sitio al otro lado: desde esta cercanía al cruce se mira un carro de largo más allá de su salida.
 const BOX_REACH = 16, BOX_SCAN = 44, BOX_SLACK = 1.5, BOX_SLOW = 2.5, BOX_PATIENCE = 6;
+// La caja de las motos en el rojo, solo en Ultra: el primer carro frena BOX_SETBACK más atrás de lo normal y las motos se abren en
+// filas de tres delante de él. Los carriles de la caja son desplazamientos laterales respecto al carril: el primero es la
+// franja de siempre y los otros dos quedan entre el eje del carril y el borde de los carros parqueados, sin pasar la raya central.
+const BOX_LATERALS = Object.freeze([MOTO_LATERAL, .45, -.5]);
+const BOX_SETBACK = 9.7, BOX_ROWS = 4, BOX_GAP = .4, BOX_REACH_LINE = 32, BOX_CROSS = 16;
+// Desde esta distancia a la línea la moto ya pasó la trompa del primer carro: elige su puesto y se abre hacia él.
+const BOX_CHOOSE_FROM = BOX_SETBACK - 2, BOX_STEER = 2.5;
 // Metros por delante para saber si un carro que nace fuera de la vista va a entrar en ella.
 const ENTER_LOOKAHEAD = 30;
 // Un carro parado más que esto fuera de la vista se retira: el trancón que se ve se queda, el que no, se despeja.
@@ -338,6 +347,12 @@ export class TrafficSystem {
     return false;
   }
 
+  /** El conteo decide el tipo del próximo vehículo (ver `_spawn`), así que se sabe antes de nacer. */
+  _nextSpawnIsMoto() {
+    const count = (this._spawnCount ?? 0) + 1;
+    return count % busetaEvery(this.densityId) !== 0 && count % 10 >= this._motoThreshold;
+  }
+
   _addVehicle() {
     const spot = this._findSpawn();
     if (!spot) return false;
@@ -378,7 +393,9 @@ export class TrafficSystem {
       if (this._nearNode(position)) continue;
       const visible = !!camera && !this._outOfView(position);
       if (visible && !fresh && fromViewSq < (fog * SPAWN_VISIBLE_FROM) ** 2) continue;
-      if (this._crowded(position.x, position.z, direction.x, direction.z)) continue;
+      // La moto nace en su franja, no en el eje del carril: ahí es donde puede encimarse con otra.
+      const strip = this._nextSpawnIsMoto() ? MOTO_LATERAL : 0;
+      if (this._crowded(position.x + direction.z * strip, position.z - direction.x * strip, direction.x, direction.z)) continue;
       let score = 1;
       if (visible) score = 4;
       else if (camera) {
@@ -948,6 +965,7 @@ export class TrafficSystem {
       // Cada franja es su propia línea: dos que van a carriles distintos no se estorban en la distancia del circuito,
       // y quien se acerca a la franja ajena ya lo frena el hueco físico de `_carInPath`. Sin esto, el carro que ve
       // pasar una moto frena hasta parar, porque el hueco se mide solo sobre el carril.
+      if (car.isMoto && other.car.isMoto) continue;
       if (Math.abs(lateral - (other.lateral ?? 0)) > LANE_SEPARATION) continue;
       const ahead = (other.distance - distance + route.length) % route.length;
       clearance = Math.min(clearance, Math.max(0, ahead - (car.length + other.car.length) / 2 - followGap));
@@ -966,7 +984,20 @@ export class TrafficSystem {
     this._carGrid.query(minX, minZ, maxX, maxZ, this._carCandidates);
     const yaw = car.group?.rotation.y ?? 0, yawCos = Math.cos(yaw), yawSin = Math.sin(yaw);
     for (const other of this._carCandidates) {
-      if (other === vehicle || (other.route === route && other.state !== 'chase' && !other.rejoinTarget)) continue;
+      if (other === vehicle) continue;
+      // Entre motos del mismo rumbo manda la geometría: dos vehículos pueden ir por rutas distintas y estar en la misma franja.
+      if (car.isMoto && other.car.isMoto) {
+        const otherYaw = other.car.group.rotation.y;
+        if (Math.cos(otherYaw) * yawCos + Math.sin(otherYaw) * yawSin > .9) {
+          const dx = other.car.position.x - car.position.x, dz = other.car.position.z - car.position.z;
+          const along = dx * yawCos - dz * yawSin, side = -dx * yawSin - dz * yawCos;
+          if (Math.abs(side) < MOTO_SEPARATION && (along > .05 || (along > -.05 && other.order < vehicle.order))) {
+            clearance = Math.min(clearance, Math.max(0, along - (car.length + other.car.length) / 2 - followGap));
+          }
+          continue;
+        }
+      }
+      if ((other.route === route && other.state !== 'chase' && !other.rejoinTarget)) continue;
       if (other.car.position.distanceToSquared(car.position) > (radius + other.car.length) ** 2) continue;
       // Los dos descartes de `_carInPath` sobre el rumbo del carro: quien está atrás o a otra altura no estorba en ninguna muestra.
       if (Math.abs(other.car.position.y - car.position.y) > 3) continue;
@@ -996,11 +1027,12 @@ export class TrafficSystem {
     // Sin cruce, carro, persona ni jugador al alcance, la muestra del camino no tiene qué encontrar.
     const legacy = !!this.signals && !this.signals.nodes;
     if (!legacy && !nodes.length && !nearbyCars.length && !nearby.length && !playerNear) return finish(clearance);
-    const held = nodes.length && !vehicle.lateral ? this._boxHold(vehicle, nodes) : null;
+    const held = nodes.length && !car.isMoto ? this._boxHold(vehicle, nodes) : null;
+    const setback = car.isMoto || this.densityId !== 'ultra' ? 0 : BOX_SETBACK;
     if (this.signals) route.sample(distance, this._probePosition, signalDirection);
     for (let ahead = 0; ahead <= Math.min(lookAhead, clearance); ahead += PROBE_STEP) {
       route.sample(distance + ahead, this._probePosition, this._probeDirection);
-      if ((nodes.length || legacy) && this.signals.blocks(this._probePosition, signalDirection, car.position, car.length, vehicle, nodes, held)) return finish(Math.max(0, ahead - PROBE_STEP));
+      if ((nodes.length || legacy) && this.signals.blocks(this._probePosition, signalDirection, car.position, car.length, vehicle, nodes, held, setback)) return finish(Math.max(0, ahead - PROBE_STEP));
       // El semáforo se mira sobre el carril: la franja de la moto no puede dejar el cruce fuera de su alcance.
       if (lateral) this._lateral(this._probePosition, this._probeDirection, lateral);
       if (player && vehicle.playerClearance === Infinity && this._personInCar(player, car)) {
@@ -1045,13 +1077,87 @@ export class TrafficSystem {
       route.sample(distance + exit + half, probe, direction);
       const found = this._carGrid.query(probe.x - 12, probe.z - 12, probe.x + 12, probe.z + 12, this._holdCandidates ??= []);
       for (const other of found) {
-        if (other === vehicle || other.lateral || (other.speed ?? 0) > BOX_SLOW) continue;
+        if (other === vehicle || other.car.isMoto || (other.speed ?? 0) > BOX_SLOW) continue;
         const ox = other.car.position.x - probe.x, oz = other.car.position.z - probe.z;
         const along = ox * direction.x + oz * direction.z, side = ox * direction.z - oz * direction.x;
         if (Math.abs(side) < SPAWN_LANE && Math.abs(along) < half + other.car.length / 2 - .3) return node;
       }
     }
     return null;
+  }
+
+  /** Metros hasta donde frena esta moto por el semáforo, o null si no hay ninguno al alcance: se mira sobre el carril. */
+  _lineAhead(vehicle) {
+    const { route, car, distance } = vehicle, p = car.position;
+    const nodes = this._lineNodes ??= [];
+    nodes.length = 0;
+    for (const node of this.signals?.nodes ?? []) {
+      if (p.x >= node.x0 - BOX_REACH_LINE && p.x <= node.x1 + BOX_REACH_LINE && p.z >= node.z0 - BOX_REACH_LINE && p.z <= node.z1 + BOX_REACH_LINE) nodes.push(node);
+    }
+    if (!nodes.length) return null;
+    const probe = this._lineProbe ??= new THREE.Vector3(), direction = this._lineDirection ??= new THREE.Vector3(), heading = this._lineHeading ??= new THREE.Vector3();
+    route.sample(distance, probe, heading);
+    for (let ahead = 0; ahead <= BOX_REACH_LINE; ahead++) {
+      route.sample(distance + ahead, probe, direction);
+      if (this.signals.blocks(probe, heading, p, car.length, vehicle, nodes)) return ahead;
+    }
+    return null;
+  }
+
+  /**
+   * Puesto de la caja: el de menos motos delante de las que ya lo tomaron. Se llenan primero los del fondo, que no estorban la
+   * franja por donde llegan las siguientes; la franja misma no tiene tope.
+   */
+  _boxColumn(vehicle, line) {
+    const p = vehicle.car.position, yaw = vehicle.car.group.rotation.y, hx = Math.cos(yaw), hz = -Math.sin(yaw), counts = [0, 0, 0];
+    // Las variantes de un circuito comparten calle sin compartir ruta: se cuenta por lugar, no por ruta.
+    const found = this._carGrid.query(p.x - line - 4, p.z - line - 4, p.x + line + 4, p.z + line + 4, this._boxCandidates ??= []);
+    for (const other of found) {
+      if (other === vehicle || other.boxColumn === undefined) continue;
+      const dx = other.car.position.x - p.x, dz = other.car.position.z - p.z;
+      const along = dx * hx + dz * hz, side = dx * hz - dz * hx;
+      const heading = Math.cos(other.car.group.rotation.y) * hx - Math.sin(other.car.group.rotation.y) * hz;
+      if (heading > .9 && along > -2.6 && along < line + 2 && Math.abs(side) < 4) counts[other.boxColumn]++;
+    }
+    let best = 0;
+    for (const column of [1, 2]) if (counts[column] < BOX_ROWS && counts[column] <= counts[best]) best = column;
+    return best;
+  }
+
+  /**
+   * La moto que se acerca al rojo se abre a su puesto delante de donde queda el primer carro y, con el verde, sale primero
+   * y vuelve a su franja pasado el cruce. El lugar a lo largo lo da el hueco normal, que con BOX_GAP las apila en filas.
+   */
+  _boxStep(vehicle, dt) {
+    const { route, distance } = vehicle, length = route.length;
+    // La caja es de Ultra, donde las motos se juntan de verdad: con menos flota el primer carro no deja el hueco.
+    const ultra = this.densityId === 'ultra';
+    const line = ultra ? this._lineAhead(vehicle) : null;
+    if (vehicle.boxColumn !== undefined &&
+      (!ultra || vehicle.route !== vehicle.boxRoute || (distance - vehicle.boxExit + length) % length < length / 2)) vehicle.boxColumn = undefined;
+    // El puesto se elige al llegar a la cabeza de la franja, no antes: así las que vienen detrás ven los puestos ya tomados.
+    if (vehicle.boxColumn === undefined && line !== null && line <= BOX_CHOOSE_FROM) {
+      vehicle.boxColumn = this._boxColumn(vehicle, line);
+      vehicle.boxRoute = route;
+      vehicle.boxExit = (distance + line + BOX_CROSS) % length;
+    }
+    const target = vehicle.boxColumn === undefined ? MOTO_LATERAL : BOX_LATERALS[vehicle.boxColumn];
+    const step = BOX_STEER * dt;
+    const next = vehicle.lateral + THREE.MathUtils.clamp(target - vehicle.lateral, -step, step);
+    if (next === vehicle.lateral || this._stripFree(vehicle, next)) vehicle.lateral = next;
+    vehicle.gap = vehicle.boxColumn === undefined && line === null ? MOTO_GAP : BOX_GAP;
+  }
+
+  /** Ninguna otra moto ocupa ese desplazamiento a la altura de esta: moverse de lado no puede montarse sobre la de al lado. */
+  _stripFree(vehicle, lateral) {
+    const p = vehicle.car.position, yaw = vehicle.car.group.rotation.y, hx = Math.cos(yaw), hz = -Math.sin(yaw);
+    const found = this._carGrid.query(p.x - 4, p.z - 4, p.x + 4, p.z + 4, this._boxCandidates ??= []);
+    for (const other of found) {
+      if (other === vehicle || !other.car.isMoto) continue;
+      const dx = other.car.position.x - p.x, dz = other.car.position.z - p.z;
+      if (Math.abs(dx * hx + dz * hz) < vehicle.car.length && Math.abs(vehicle.lateral + dx * hz - dz * hx - lateral) < MOTO_SEPARATION) return false;
+    }
+    return true;
   }
 
   /** Corre un punto a la franja de la moto. Sin esto el hueco se mide sobre el carril y la moto no pasa la cola. */
@@ -1301,6 +1407,7 @@ export class TrafficSystem {
             this._planChase(vehicle, stepTime, vehicle.rejoinTarget ?? player, !!vehicle.rejoinTarget);
             continue;
           }
+          if (vehicle.car.isMoto) this._boxStep(vehicle, stepTime);
           const clearance = this._clearance(vehicle, player, pedestrians);
           const braking = vehicle.braking ?? BRAKING;
           // Anticipa la respuesta gradual del conductor; el peatón no es una pared

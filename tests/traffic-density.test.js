@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
   DEFAULT_TRAFFIC_DENSITY, TRAFFIC_DENSITY_LEVELS,
-  trafficDensityMidday, trafficDensityId, trafficHourFactor, trafficTargetVehicles,
+  motoThreshold, trafficDensityMidday, trafficDensityId, trafficHourFactor, trafficTargetVehicles,
 } from '../src/systems/trafficDensity.js';
 
 test('la densidad desconocida cae en la de siempre', () => {
@@ -40,4 +40,9 @@ test('la flota escala con el nivel y con la hora, con un piso y un techo', () =>
   assert.ok(trafficTargetVehicles(18.5, 'maxima') <= 62);
   // La madrugada deja la calle casi sola.
   assert.ok(trafficTargetVehicles(3, 'baja') <= 6);
+});
+
+test('Ultra pone mucha más moto que el resto: tres de cada cuatro vehículos en el pico', () => {
+  assert.ok(motoThreshold(7.5, 'ultra') <= motoThreshold(7.5, 'maxima') - 2);
+  assert.ok(motoThreshold(7.5, 'ultra') <= 3);
 });

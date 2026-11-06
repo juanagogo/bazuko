@@ -331,7 +331,7 @@ test('cada carro cambia de recorrido sin teletransportarse, invertir rumbo ni au
       const previous = positions.get(vehicle);
       if (!previous) continue; // entró al montaje a mitad de la corrida
       // La moto va por su franja, a un lado del carril: en el giro su cuerpo recorre un arco algo mayor que la línea.
-      const limit = vehicle.cruiseSpeed * .1 * (1 + (vehicle.lateral ?? 0) / 3.2) + 1e-6;
+      const limit = vehicle.cruiseSpeed * .1 * (1 + Math.max(0, vehicle.lateral ?? 0) / 3.2) + 1e-6;
       assert.ok(vehicle.car.position.distanceTo(previous) <= limit);
       assert.ok(Number.isFinite(vehicle.distance));
     }
@@ -1265,5 +1265,52 @@ test('el nivel Ultra llena la ciudad alrededor del jugador sin salirse de la bur
     `Ultra dejó ${traffic.vehicles.length} vehículos`);
   assert.ok(traffic.vehicles.every(vehicle => vehicle.car.position.distanceTo(player) <= bubble + 1),
     'Alguien quedó fuera de la burbuja');
+  traffic.dispose();
+});
+
+
+test('las motos se apilan en filas delante del primer carro en el rojo y salen primero con el verde', () => {
+  const scene = new THREE.Scene();
+  const route = new TrafficRoute(0, 600, 0, 90);
+  const traffic = new TrafficSystem(scene, [route], { carsPerRoute: 0, random: () => .5 });
+  traffic.setDensity('ultra');
+  const signals = traffic.signals = new TrafficSignals();
+  const node = signals.nodes[0] = { x0: 200, x1: 212, z0: -6, z1: 6 };
+  signals.nodes.length = 1;
+  traffic._motoThreshold = 11;
+  const car = traffic._spawn(scene, route, 150, false);
+  assert.ok(!car.car.isMoto);
+  traffic._motoThreshold = 0;
+  const motos = [];
+  for (let i = 0; i < 9; i++) {
+    traffic._spawnCount = i * 5 + 2;
+    motos.push(traffic._spawn(scene, route, 100 + i * 4, false));
+  }
+  assert.ok(motos.every(moto => moto.car.isMoto));
+  // La luz del eje X está en rojo desde el segundo 14 hasta el 36.
+  let time = 14;
+  const step = () => { time += .05; signals.update(time); traffic.update(.05); };
+  for (let frame = 0; frame < 20 * 20; frame++) step();
+  const edge = node.x0;
+  assert.ok(car.speed < .1 && motos.every(moto => moto.speed < .1), 'Todos esperan en el rojo');
+  const nose = car.car.position.x + car.car.length / 2;
+  assert.ok(nose < edge - 5, `El carro quedó a ${(edge - nose).toFixed(1)} m de la línea, sin dejar sitio a la caja`);
+  const ahead = motos.filter(moto => moto.car.position.x > nose + 1);
+  assert.ok(ahead.length >= 6, `Solo ${ahead.length} motos delante del primer carro`);
+  const columns = new Set(ahead.map(moto => moto.lateral.toFixed(1))), rows = new Set(ahead.map(moto => Math.round(moto.car.position.x / 2)));
+  assert.ok(columns.size >= 3 && rows.size >= 2, `Caja de ${columns.size} columnas y ${rows.size} filas`);
+  // Todas dentro de su media calzada: la raya central queda a 3 m del eje del carril, y a 2 m en las calles angostas.
+  for (const moto of motos) assert.ok(Math.abs(moto.lateral) + .36 < 2, `Franja a ${moto.lateral} m del eje`);
+  for (const moto of ahead) assert.ok(moto.car.position.x < edge, 'Ninguna pasó la línea con el rojo');
+  // Con el verde la caja sale primero: todas pasan la línea antes de que el carro le llegue con la trompa.
+  const crossed = new Map();
+  let carCrossed = null;
+  while (time < 36 + 12) {
+    step();
+    for (const moto of ahead) if (!crossed.has(moto) && moto.car.position.x > edge) crossed.set(moto, time);
+    if (carCrossed === null && car.car.position.x + car.car.length / 2 > edge) carCrossed = time;
+  }
+  assert.ok(carCrossed !== null && crossed.size === ahead.length, 'Todos terminan saliendo');
+  for (const [moto, at] of crossed) assert.ok(at <= carCrossed, `Una moto de la caja cruzó ${(at - carCrossed).toFixed(1)} s después del carro`);
   traffic.dispose();
 });
