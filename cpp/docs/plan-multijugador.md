@@ -237,6 +237,39 @@ Con las decisiones del 5 de noviembre se suman los hitos A–E (**~11–16 seman
 5. **Determinismo**: no se exige entre máquinas (el servidor manda), así que no hace falta aritmética determinista; sí una semilla explícita para reproducir errores.
 6. **Licencias**: un servidor público distribuye modelos; mantener los restringidos fuera (ya excluidos).
 
+## Estado y pendiente (5 de noviembre de 2026)
+
+Hecho hasta aquí (todo con `-DBAZUKO_NET=ON`; por defecto el juego es el de un jugador y sus hashes de referencia no cambian): simulación multijugador, jugadores remotos con su
+propia apariencia, mundo compartido (carros, peatones, buses, reloj, clima, semáforos), combate validado por el anfitrión, economía y perfiles en el anfitrión,
+migración y traspaso de anfitrión, y juego por internet con un servidor de relevo. Probado con las pruebas automáticas y con tres instancias reales en una sola máquina.
+
+**Pendiente, por prioridad:**
+
+1. **Probar de verdad por internet.** Nada se ha probado con jugadores en redes distintas ni con NAT real. Hace falta poner `bazuko_relay` en una máquina pública,
+   medir la latencia añadida del salto extra y ver qué pasa con pérdida real. Después: cifrar y autenticar el relevo (hoy cualquiera que conozca su IP crea salas),
+   límites por IP y métricas; opcional, abrir un camino directo (UPnP o perforado de NAT) para no pasar siempre por el relevo.
+2. **Cuentas.** Aún no hay contraseñas ni firmas: la clave de perfil es el único secreto y se guarda sin cifrar. Sin cuentas, los perfiles son **por anfitrión** (un anfitrión
+   desconocido recorta el perfil: 50 000 de plata, 60 objetos, nivel 20) y no viajan entre servidores sin relación. Es la base para perfiles portables.
+3. **Menú de multijugador en el juego.** Hoy se entra solo por línea de comandos o variables de entorno (`--anfitrion`, `--conectar`, `--anfitrion-relay`, `--sala`).
+   Falta una pantalla de cartón y marcador para anfitrionar, escribir el código de sala, ver jugadores, traspasar la partida (hoy F9), expulsar y un chat.
+4. **Autoridad completa.** La economía se valida por plausibilidad (un tramposo aún puede ganar hasta el tope de ritmo). Siguen siendo del cliente: robo de espejos y a
+   peatones, cosquilleo, armas equipadas (el daño de PvP es fijo, no usa el arma), experiencia más allá del tope de ritmo, necesidades. Falta castigo y robo entre jugadores y
+   que el atropello del invitado lo decida el anfitrión (hoy lo detecta la copia local de los carros).
+5. **Mundo compartido, lo que falta.** Interpolar entre instantáneas (hoy solo se extrapola) y bajar la frecuencia de lo lejano; viajar ocupantes, puertas, puñetazos y burbujas de
+   conversación; que la semilla del mundo viaje en el `Welcome` (hoy `BAZUKO_SEED` igual en todos); el reloj de los semáforos da un salto cada ~70 min; bolsas de basura, aves
+   y ratas son locales; **El Chato y el cambuche son locales** (uno por jugador: hito 5).
+6. **Migración, lo que no se conserva.** Policías a pie y persecuciones a pie; las patrullas que acudían pasan a acudir al nuevo anfitrión aunque persiguieran a otro; los
+   carros lejanos quedan donde estaban al entrar el nuevo anfitrión; si dos jugadores caen a la vez, el siguiente tarda 8 s en asumir.
+7. **Jugadores remotos, lo que falta.** Animaciones completas (agacharse, pelea, armas, herramientas, objetos en mano), nombre sobre el jugador, cambio de apariencia en plena
+   partida (hoy se ve al volver a entrar), y bajar el costo de armar un personaje remoto (cada uno carga su propia biblioteca de animaciones).
+8. **Sistemas pensados para un jugador** (hito 5): limpieza social, conductor bravo, psicosis, efectos de sustancias, radio, pausa de menús, dormir (decidido: no disponible
+   en línea; falta la energía sin dormir), eventos al audio y efectos (`EventBus`).
+9. **Hitos 6 a 8 y A a E** de este plan (peatones y servidor sin ventana, pruebas de carga con 100 jugadores, modo historia, **macOS**: GL 4.1 contra Vulkan, y Linux con Proton/Wine).
+10. **Procesos.** Pruebas en CI con red (hoy corren en local), prueba de carga del relevo, y mantener `docs/multijugador-internet.md` al día cuando cambie la forma de entrar.
+
+**Decisiones de diseño que conviene revisar:** el recorte de perfil nuevo (`LedgerLimits`), las reglas de PvP (castigo, robo), si la economía debe pasar a autoridad total del
+anfitrión o seguir por plausibilidad, y quién aloja el relevo público.
+
 ## Decisiones pendientes
 
 1. **macOS**: ¿opción A (renderer a OpenGL 4.1), B (Vulkan/MoltenVK) o C (solo anfitrión sin ventana)? Puede esperar al hito 3.
