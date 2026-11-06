@@ -12,6 +12,7 @@ import { BRANCHES, TALENTS } from '../src/data/talents.js';
 import { HUD } from '../src/ui/HUD.js';
 import { openRadioModal } from '../src/ui/RadioModal.js';
 import { openPauseMenu, PAUSE_TABS } from '../src/ui/PauseMenu.js';
+import { STATIONS } from '../src/systems/RadioSystem.js';
 
 const RAIZ = fileURLToPath(new URL('..', import.meta.url));
 const leer = (ruta) => fs.readFileSync(RAIZ + ruta, 'utf8');
@@ -83,8 +84,10 @@ test('la radio: el botón de pilas dice la acción aunque no se pueda, porque se
     const menu = { isOpen: false, open(c) { this.config = c; }, refresh() {}, close() {} };
     const radio = {
       isOn: true, battery, frequency: 98.5, volume: .5, lastBulletin: null,
+      filters: { region: '', kind: '' },
       getStationInfo: () => ({ signal: .9, station: { id: 'x', name: 'Emisora', program: 'Programa', genre: 'Género' } }),
-      toggle() {}, turnOn() {}, setFrequency() {}, setVolume() {},
+      toggle() {}, turnOn() {}, setFrequency() {}, setVolume() {}, setFilters() {}, stepStation() { return null; },
+      filteredStations: () => STATIONS,
     };
     openRadioModal({ menu, radio, inventory: { items, count: (id) => items.filter(i => i.id === id).length }, player: {}, creator: {} });
     const dibujo = menu.config.render();
@@ -105,8 +108,10 @@ test('en la pausa y en la radio no se escribe con emojis', () => {
   const menu = { isOpen: false, open(c) { this.config = c; }, refresh() {}, close() {} };
   const radio = {
     isOn: true, battery: 12, frequency: 890, volume: .5, lastBulletin: null,
+    filters: { region: '', kind: '' },
     getStationInfo: () => ({ signal: .9, station: { id: 'x', name: '📻 Emisora', program: '🎵 Programa', genre: '📻 Género' } }),
-    toggle() {}, turnOn() {}, setFrequency() {}, setVolume() {},
+    toggle() {}, turnOn() {}, setFrequency() {}, setVolume() {}, setFilters() {}, stepStation() { return null; },
+    filteredStations: () => STATIONS,
   };
   const game = { menu, radio, inventory: { items: [] }, player: {}, creator: {} };
   openRadioModal(game);

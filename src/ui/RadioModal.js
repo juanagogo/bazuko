@@ -4,7 +4,7 @@
 import { porcentaje } from './formato.js';
 import { el, button } from './dom.js';
 import { pasarTexto } from './pictos.js';
-import { STATIONS } from '../systems/RadioSystem.js';
+import { STATIONS, stationRegions } from '../systems/RadioSystem.js';
 
 // El dial: la AM llega al 46 % y la FM ocupa el resto, que es donde está casi todo lo que se
 // sintoniza en vivo; con quince emisoras de FM repartidas en menos ancho la aguja no diría nada.
@@ -110,23 +110,19 @@ export function openRadioModal(game) {
     };
 
     // Las emisoras se pintan una sola vez: rehacer la lista en cada clic devolvería el scroll arriba.
+    // El filtro las esconde o las muestra, sin volver a construirlas.
     const filas = STATIONS.map((st) => {
       const nombre = el('span', { class: 'radio-preset__name', text: pasarTexto(st.name) });
       const btn = el('button', {
         type: 'button', class: 'radio-preset', 'aria-pressed': 'false',
-        onclick: () => {
-          radio.setStation(st);
-          if (!radio.isOn) { radio.turnOn(); game.menu.refresh(); return; }
-          tunerSlider.value = String(st.freq > 150 ? st.freq : 540);
-          pintarSintonia();
-        },
+        onclick: () => sintonizar(st),
       }, nombre,
       el('span', { class: 'radio-preset__meta' },
         el('span', { class: 'radio-preset__region', text: pasarTexto(st.region) }),
         el('span', { class: 'radio-preset__band', text: st.band })));
-      return { st, btn, nombre };
+      return { st, btn, nombre, li: el('li', {}, btn) };
     });
-    presets.replaceChildren(...filas.map(({ btn }) => el('li', {}, btn)));
+    presets.replaceChildren(...filas.map(({ li }) => li));
 
     // La región va en cada fila: hay frecuencias repetidas entre ciudades y el dial tiene que decirlo.
     const marcarPresets = () => {
@@ -138,7 +134,58 @@ export function openRadioModal(game) {
       }
     };
 
+    // ---------- los filtros del dial ----------
+    const filtros = {
+      region: el('div', { class: 'pause-segmented', role: 'group', 'aria-label': 'Filtrar emisoras por ciudad' }),
+      kind: el('div', { class: 'pause-segmented', role: 'group', 'aria-label': 'Filtrar emisoras por tipo' }),
+    };
+    // Elegir no es hacer: lo elegido va en círculo, como en la pausa. Los botones no se rehacen al
+    // filtrar, para no perder el foco con teclado ni con mando.
+    const opcion = (label, valor, key) => {
+      const marca = el('span', { text: label });
+      const b = button(marca, { class: 'pause-choice', onClick: () => { radio.setFilters({ [key]: valor }); pintarFiltro(); } });
+      return { b, marca, valor, key };
+    };
+    const regionFilas = ['', ...stationRegions()].map((r) => opcion(r || 'Todas', r, 'region'));
+    const tipoFilas = [['', 'Todas'], ['stream', 'En vivo'], ['synth', 'Del juego']].map(([k, label]) => opcion(label, k, 'kind'));
+    filtros.region.replaceChildren(...regionFilas.map(({ b }) => b));
+    filtros.kind.replaceChildren(...tipoFilas.map(({ b }) => b));
+
+    const vacio = el('p', { class: 'radio-vacio', hidden: true },
+      'Ninguna emisora con este filtro. ',
+      button('Todas', { onClick: () => { radio.setFilters({ region: '', kind: '' }); pintarFiltro(); } }));
+    const anteriorBtn = button('Anterior', { onClick: () => saltar(-1) });
+    const siguienteBtn = button('Siguiente', { onClick: () => saltar(1) });
+
+    /** Sintoniza una emisora: mueve el dial, la enciende si estaba apagada y repinta. */
+    function sintonizar(st) {
+      radio.setStation(st);
+      if (!radio.isOn) { radio.turnOn(); game.menu.refresh(); return; }
+      tunerSlider.value = String(st.freq > 150 ? st.freq : 540);
+      pintarSintonia();
+    }
+
+    function saltar(dir) {
+      const st = radio.stepStation(dir);
+      if (st) sintonizar(st);
+    }
+
+    /** Marca lo elegido, esconde las filas que no pasan y avisa si no queda ninguna. */
+    const pintarFiltro = () => {
+      for (const f of [...regionFilas, ...tipoFilas]) {
+        const on = radio.filters[f.key] === f.valor;
+        f.marca.className = on ? 'elegido' : '';
+        f.b.setAttribute('aria-pressed', String(on));
+      }
+      const visibles = new Set(radio.filteredStations().map((st) => st.id));
+      for (const { st, li } of filas) li.hidden = !visibles.has(st.id);
+      vacio.hidden = visibles.size > 0;
+      anteriorBtn.disabled = siguienteBtn.disabled = visibles.size === 0;
+      presets.hidden = visibles.size === 0;
+    };
+
     const pintarSintonia = () => { pintarFicha(); marcarPresets(); };
+    pintarFiltro();
     // Sin refrescar la ventana: reemplazar el deslizador lo soltaría a mitad del arrastre.
     tunerSlider.addEventListener('input', (e) => {
       radio.setFrequency(parseFloat(e.target.value));
@@ -163,7 +210,15 @@ export function openRadioModal(game) {
         el('p', { class: 'radio-perk-text', text: 'Con buena señal, la radio sube el ánimo, hasta +0,8 por segundo, y a El Chato lo calma.' })),
       el('div', { class: 'radio-col' },
         stationBox,
-        el('h3', { class: 'pause-section-title', text: 'Emisoras' }),
+        el('div', { class: 'radio-filtros' },
+          el('div', { class: 'radio-filtro' },
+            el('span', { class: 'radio-filtro__label', text: 'Ciudad' }), filtros.region),
+          el('div', { class: 'radio-filtro' },
+            el('span', { class: 'radio-filtro__label', text: 'Tipo' }), filtros.kind)),
+        el('div', { class: 'radio-presets-head' },
+          el('h3', { class: 'pause-section-title', text: 'Emisoras' }),
+          el('div', { class: 'radio-skip' }, anteriorBtn, siguienteBtn)),
+        vacio,
         presets));
 
     return { body, foot: [], tecla: 'R' };

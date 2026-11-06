@@ -220,6 +220,16 @@ export const STATIONS = [
   }
 ];
 
+// El filtro del dial: las emisoras reales en vivo frente a las inventadas del juego.
+export const stationKind = (st) => (st.kind === 'stream' ? 'stream' : 'synth');
+
+// Las regiones del catálogo, sin repetir y en el orden en que aparecen.
+export const stationRegions = () => [...new Set(STATIONS.map((st) => st.region))];
+
+/** Las emisoras que pasan el filtro; región o tipo vacíos significan «todas». */
+export const filterStations = ({ region = '', kind = '' } = {}) =>
+  STATIONS.filter((st) => (!region || st.region === region) && (!kind || stationKind(st) === kind));
+
 export class RadioSystem {
   constructor(audioContext = null) {
     this._outputVolume = 1;
@@ -260,6 +270,9 @@ export class RadioSystem {
     this._onStreamStall = null;
     this._streamTimer = null;
 
+    // Filtros del dial que eligen la región y el tipo de emisora. Vacío es «todas».
+    this.filters = { region: '', kind: '' };
+
     // Cargar preferencias guardadas
     try {
       if (typeof localStorage !== 'undefined') {
@@ -267,8 +280,40 @@ export class RadioSystem {
         if (savedFreq) this.frequency = parseFloat(savedFreq);
         const savedVol = localStorage.getItem('bazuko.radio_vol');
         if (savedVol) this.volume = parseFloat(savedVol);
+        const savedFiltro = JSON.parse(localStorage.getItem('bazuko.radio_filtro') ?? 'null');
+        if (savedFiltro && typeof savedFiltro === 'object') {
+          // Lo guardado puede venir de otra versión del catálogo: solo se acepta lo que aún existe.
+          if (stationRegions().includes(savedFiltro.region)) this.filters.region = savedFiltro.region;
+          if (['stream', 'synth'].includes(savedFiltro.kind)) this.filters.kind = savedFiltro.kind;
+        }
       }
     } catch { /* sin almacenamiento */ }
+  }
+
+  /** Cambia los filtros del dial, los que vengan, y los guarda. */
+  setFilters(patch = {}) {
+    for (const key of ['region', 'kind']) {
+      if (key in patch) this.filters[key] = patch[key] || '';
+    }
+    try {
+      localStorage?.setItem('bazuko.radio_filtro', JSON.stringify(this.filters));
+    } catch { /* sin almacenamiento */ }
+  }
+
+  /** Las emisoras que pasan el filtro actual. */
+  filteredStations() {
+    return filterStations(this.filters);
+  }
+
+  /** Salta a la emisora anterior o siguiente del dial filtrado, dando la vuelta. Null si no hay ninguna. */
+  stepStation(dir) {
+    const list = this.filteredStations();
+    if (!list.length) return null;
+    const { station } = this.getStationInfo();
+    const i = list.findIndex((st) => st.id === station.id);
+    const j = i < 0 ? (dir > 0 ? 0 : list.length - 1) : (i + dir + list.length) % list.length;
+    this.setStation(list[j]);
+    return list[j];
   }
 
   _initAudio() {
