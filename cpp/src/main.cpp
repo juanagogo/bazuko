@@ -44,6 +44,7 @@
 #include "world/Simulation.hpp"
 #include "audio/StreetVoices.hpp"
 #include "character/SmokePuffs.hpp"
+#include "effects/SubstanceEffects.hpp"
 #include "character/Smoking.hpp"
 #include "character/SmokingPose.hpp"
 #include "world/Zones.hpp"
@@ -254,6 +255,9 @@ int main(int argc, char** argv) {
     std::shared_ptr<Model> knifeModel = Model::LoadFromFile(Paths::Find("public/models/arma/cuchillo.glb"));
     // Fumar un cigarrillo o un porro (character/Smoking.hpp): estado, humo y las piezas del cigarrillo (papel, filtro y brasa) para cada tipo
     Smoking::State smoking;
+    SubstanceEffects substanceEffects(std::getenv("BAZUKO_REDUCED_MOTION") ? 0.2f : 1.0f);   // efectos de consumo (effects/SubstanceEffects.hpp); con movimiento reducido, camara y estela al 20 %
+    float inducedParanoiaLeft = 0.0f, inducedParanoiaSeverity = 0.0f;   // paranoia por consumo (basuco), sin abstinencia: se apaga en sus ultimos 8 s
+    float psychosisMutterTimer = 18.0f;
     SmokePuffs smokePuffs;
     struct CigaretteMeshes { std::shared_ptr<Mesh> paper, filter, ember; };
     std::map<std::string, CigaretteMeshes> cigaretteMeshes;
@@ -844,6 +848,15 @@ int main(int argc, char** argv) {
     }
 
     Clock clock;
+    // lo que se consume: el efecto de camara y vision y, si la sustancia da paranoia (basuco), las alucinaciones (el original: PsychosisSystem.induce)
+    const auto onSubstanceConsumed = [&](const std::string& id) {
+        const SubstanceEffects::Consumed consumed = substanceEffects.Consume(id, static_cast<double>(clock.GetElapsedTime()));
+        if (consumed.paranoiaSeconds > 0.0f) {
+            inducedParanoiaLeft = std::max(inducedParanoiaLeft, consumed.paranoiaSeconds);
+            inducedParanoiaSeverity = std::max(inducedParanoiaSeverity, consumed.paranoiaSeverity);
+            psychosisMutterTimer = std::min(psychosisMutterTimer, 5.0f);   // las primeras frases llegan enseguida
+        }
+    };
     LogInfo("Motor iniciado con exito. Entrando al bucle principal.");
 
     while (!window.ShouldClose()) {
@@ -972,7 +985,10 @@ int main(int argc, char** argv) {
         if (withdrawal > 0.0f && !wasInWithdrawal) ui.Notify("Abstinencia: tu cuerpo pide consumir; vas más lento y el ánimo baja.", ToastType::Warn);
         wasInWithdrawal = withdrawal > 0.0f;
         ui.SetBodyState(playerFreezing, withdrawal > 0.0f);
-        const float psychosisSeverity = std::clamp((withdrawal - 50.0f) / 50.0f, 0.0f, 1.0f);
+        if (inducedParanoiaLeft > 0.0f && !ui.IsPaused()) { inducedParanoiaLeft -= std::max(0.0f, dt); if (inducedParanoiaLeft <= 0.0f) { inducedParanoiaLeft = 0.0f; inducedParanoiaSeverity = 0.0f; } }
+        const float fromWithdrawal = std::clamp((withdrawal - 50.0f) / 50.0f, 0.0f, 1.0f);
+        const float fromDrug = inducedParanoiaLeft > 0.0f ? inducedParanoiaSeverity * std::min(1.0f, inducedParanoiaLeft / 8.0f) : 0.0f;   // se apaga en sus ultimos 8 s
+        const float psychosisSeverity = std::max(fromWithdrawal, fromDrug);
         const Movement::SpeedResult speedResult = Movement::ComputeSpeed(session, {isRunning, withdrawal, highWithdrawal, criticalWithdrawal});   // game/Movement.cpp
         isRunning = speedResult.running;
         float moveSpeed = speedResult.speed;
@@ -1033,37 +1049,49 @@ int main(int argc, char** argv) {
             if (survivalEvents.adrenalineEnded) ui.SetPickupNotification("La adrenalina se ha agotado.");
         }
 
-        // Psicosis y alucinaciones por abstinencia
+        // Psicosis y alucinaciones por abstinencia o por consumo, y efectos de las sustancias sobre la camara y la imagen
+        float cameraFov = 0.0f, cameraRoll = 0.0f;
         if (psychosisSeverity > 0.0f && !ui.IsPaused()) {
-            const float fovPulse = std::sin(clock.GetElapsedTime() * 4.5f) * 3.2f * psychosisSeverity;
-            camera.SetPsychosisFovOffset(fovPulse);
-            // Filtro del original: contraste +40 %, saturacion +45 % y tono oscilante de hasta 14 grados
-            renderer.SetColorGrade(1.0f + 0.4f * psychosisSeverity, 1.0f + 0.45f * psychosisSeverity,
-                                   std::sin(clock.GetElapsedTime() * 3.0f) * 14.0f * psychosisSeverity);
-            camera.SetPsychosisRoll(psychosisSeverity > 0.6f
-                ? (std::uniform_real_distribution<float>(-0.5f, 0.5f)(lootRandom)) * 0.014f * psychosisSeverity : 0.0f);
+            // El original ya no filtra el color: la camara respira lento y nada oscila a mas de 0,5 Hz (3 rad/s son 0,48 Hz y 1,6 rad/s, 0,25 Hz)
+            cameraFov += std::sin(clock.GetElapsedTime() * 3.0f) * 3.2f * psychosisSeverity;
+            if (psychosisSeverity > 0.6f) cameraRoll += std::sin(clock.GetElapsedTime() * 1.6f) * 0.012f * psychosisSeverity;
             // Latidos taquicardicos y delirios verbales
             static float heartbeatTimer = 0.0f;
-            static float mutteringTimer = 18.0f;
             heartbeatTimer -= dtClamped;
             if (heartbeatTimer <= 0.0f) {
                 audio.PlayHeartbeat(psychosisSeverity);
                 heartbeatTimer = 0.95f - 0.42f * psychosisSeverity;
             }
-            mutteringTimer -= dtClamped;
-            if (mutteringTimer <= 0.0f) {
+            psychosisMutterTimer -= dtClamped;
+            if (psychosisMutterTimer <= 0.0f) {
                 static const std::array<const char*, 5> mutterings{{
-                    "\"¡¡Dejen de vigilarme, sé quiénes son!!\"", "\"¡¡Están en las sombras... nos tienen acorralados!!\"",
-                    "\"¡¡No me toquen, aléjense de mí!!\"", "\"¿Quién anda susurrando mi nombre?\"",
-                    "\"¡¡Esos peatones son policías encubiertos!!\""}};
+                    "Dejen de vigilarme, sé quiénes son", "Están en las sombras, me tienen acorralado",
+                    "No me toquen, aléjense de mí", "¿Quién anda diciendo mi nombre?",
+                    "Esos peatones son tombos encubiertos"}};
                 ui.Notify(mutterings[static_cast<size_t>(std::uniform_int_distribution<int>(0, 4)(lootRandom))], ToastType::Warn);
-                mutteringTimer = 16.0f + std::uniform_real_distribution<float>(0.0f, 12.0f)(lootRandom);
+                psychosisMutterTimer = 16.0f + std::uniform_real_distribution<float>(0.0f, 12.0f)(lootRandom);
             }
-        } else {
-            camera.SetPsychosisFovOffset(0.0f);
-            camera.SetPsychosisRoll(0.0f);
-            renderer.SetColorGrade(1.0f, 1.0f, 0.0f);
         }
+        {   // efectos de consumo: la duracion avanza con la simulacion y el filtro, la capa y la estela se dibujan en cada cuadro (tambien en pausa)
+            if (!ui.IsPaused()) substanceEffects.Update(dtClamped);
+            if (ui.IsDeathScreenOpen()) substanceEffects.End(static_cast<double>(clock.GetElapsedTime()));
+            static const char* previewSubstance = std::getenv("BAZUKO_PREVIEW_SUBSTANCE");   // pruebas: BAZUKO_PREVIEW_SUBSTANCE=pegante|pastilla|hierba|basuco prende el efecto
+            static bool previewDone = false;
+            if (previewSubstance && !previewDone) { previewDone = true; onSubstanceConsumed(previewSubstance); }
+            if (previewSubstance && std::getenv("BAZUKO_PREVIEW_TIME")) {   // fija el segundo del efecto: sube enseguida y se sostiene
+                static const float previewSeconds = static_cast<float>(std::atof(std::getenv("BAZUKO_PREVIEW_TIME")));
+                static bool jumped = false;
+                if (!jumped) { jumped = true; for (float s = 0.0f; s < previewSeconds; s += 1.0f / 30.0f) substanceEffects.Update(1.0f / 30.0f); }
+            }
+            const SubstanceEffects::Frame substanceFrame = substanceEffects.BeforeRender(static_cast<double>(clock.GetElapsedTime()), graphicsQuality == 0);
+            renderer.SetSubstanceLook(substanceFrame.look);
+            cameraFov += substanceFrame.cameraFovDegrees;
+            cameraRoll += substanceFrame.cameraRollRadians;
+            for (const SubstanceEffects::SoundEvent& event : substanceEffects.ConsumeSoundEvents()) { (void)event; }   // el sonido de consumo y la capa sostenida (siguiente paso)
+        }
+        camera.SetPsychosisFovOffset(cameraFov);
+        camera.SetPsychosisRoll(cameraRoll);
+        renderer.SetColorGrade(1.0f, 1.0f, 0.0f);
         simulation.UpdatePsychosis(dtClamped, playerPos, psychosisSeverity);
 
         showDeathScreenIfNeeded();
@@ -1533,7 +1561,7 @@ int main(int argc, char** argv) {
             const std::string smokedKind = smoking.kind;
             const Smoking::Events smokeEvents = ui.IsPaused() ? Smoking::Events{} : Smoking::Step(smoking, dt, smokeConditions);
             if (smokeEvents.finished) ui.Notify(std::string("Se acabó el ") + Smoking::Find(smokedKind)->name + ".", ToastType::Info);   // como el original; si se le cae, se apaga sin aviso
-            if (smokeEvents.hit && std::getenv("BAZUKO_LOG_AUDIO")) LogInfo("Pegó: {}", smokeEvents.effect);   // aqui entran los efectos de las sustancias (el siguiente paso del port)
+            if (smokeEvents.hit) onSubstanceConsumed(smokeEvents.effect);   // el porro pega en cada calada
             if (!ui.IsPaused()) smokePuffs.Update(dt);
         }
 #ifdef BAZUKO_NET_ENABLED
@@ -2558,6 +2586,7 @@ int main(int argc, char** argv) {
             if (--entry->quantity == 0) inventory.erase(entry);
             audio.Play(AudioCue::Pickup);
             if (lit && Smoking::Start(smoking, item.id, {})) ui.Notify(std::string("Prendí un ") + lit->name, ToastType::Info);
+            if (item.substance && !lit && item.id != "basuco") onSubstanceConsumed(item.id);   // lo que se fuma pega al aspirar: el porro en cada calada y el basuco al soltar la pipa
         };
         const size_t useIndex = ui.ConsumeInventoryUseRequest();
         if (useIndex < lootTable.size()) useInventoryItem(useIndex);
