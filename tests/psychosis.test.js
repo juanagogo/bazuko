@@ -315,9 +315,9 @@ test('los hombres sombra son negros, a medio transparentar, sin escribir en prof
     assert.equal(sp.figura.material.color.getHex(), 0x000000);
     assert.equal(sp.figura.material.transparent, true);
     assert.equal(sp.figura.material.depthWrite, false);
-    assert.ok(sp.figura.material.opacity > 0 && sp.figura.material.opacity <= 0.6);
+    assert.ok(sp.figura.material.opacity > 0 && sp.figura.material.opacity <= 0.75);
   }
-  assert.ok(SOMBRAS.opacidad >= 0.5 && SOMBRAS.opacidad <= 0.6);
+  assert.ok(SOMBRAS.opacidad >= 0.65 && SOMBRAS.opacidad <= 0.75);
   const antes = scene.children.length;
   psychosis._clearShadowPeople();
   assert.equal(psychosis.reserva.length, SOMBRAS.max, 'al limpiar, las figuras vuelven a la reserva');

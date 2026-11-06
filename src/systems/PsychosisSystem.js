@@ -2,7 +2,7 @@
 import * as THREE from 'three';
 import { hasClearCombatLine } from './CombatGeometry.js';
 import { VOCES, sitioParaVoz } from '../ui/momentosTextos.js';
-import { SOMBRAS, cantidadOla, crearFiguraSombra, liberarFigura } from './ShadowPeople.js';
+import { SOMBRAS, cantidadOla, crearFiguraSombra, liberarFigura, pintarFigura } from './ShadowPeople.js';
 
 // Lo que una voz nunca tapa: las cifras y lo que se oprime.
 const NO_TAPAR = '#hud-dock, #topbar, #wanted, #quickbar, #panel-dock, #interaction-prompt, #retazo, #acciones, #joystick';
@@ -129,6 +129,7 @@ export class PsychosisSystem {
     if (!figura) return null;
     const group = figura.group;
     figura.material.opacity = SOMBRAS.opacidad;
+    pintarFigura(figura);
     group.position.copy(position);
     this.scene.add(group);
     return {
@@ -481,6 +482,7 @@ export class PsychosisSystem {
         // De pie en el piso, mirando al jugador; camina mientras se acerca
         if (!sp.dissolving) sp.group.position.y = sp.baseY;
         sp.group.rotation.y = Math.atan2(playerPos.x - sp.position.x, playerPos.z - sp.position.z);
+        pintarFigura(sp.figura);
         sp.figura.character.update(dt, { speed: sp.fase === 'acercando' ? ATAQUE.velocidad : 0 });
 
         const distToPlayer = sp.position.distanceTo(playerPos);

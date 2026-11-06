@@ -5,7 +5,7 @@ import { randomStreetLook } from '../entities/Npc.js';
 
 export const SOMBRAS = Object.freeze({
   max: 7,               // tope de hombres sombra vivos a la vez, y de figuras en reserva
-  opacidad: 0.55,
+  opacidad: 0.72,
   color: 0x000000,
   // Peso de cada tamaño de ola: casi siempre 1 a 3, a veces 4 o 5, rara vez 6 o 7.
   pesos: [30, 28, 20, 10, 7, 3, 2],
@@ -30,13 +30,19 @@ export async function crearFiguraSombra() {
   const material = new THREE.MeshBasicMaterial({
     color: SOMBRAS.color, transparent: true, opacity: SOMBRAS.opacidad, depthWrite: false
   });
-  character.group.traverse((o) => {
+  const figura = { character, group: character.group, material };
+  pintarFigura(figura);
+  return figura;
+}
+
+/** Todas las mallas de la figura con el material negro compartido; el personaje reconstruye y cambia mallas, así que se repite. */
+export function pintarFigura(figura) {
+  figura.group.traverse((o) => {
     if (!o.isMesh) return;
-    o.material = material;
+    if (o.material !== figura.material) o.material = figura.material;
     o.castShadow = false;
     o.receiveShadow = false;
   });
-  return { character, group: character.group, material };
 }
 
 export function liberarFigura(figura) {
