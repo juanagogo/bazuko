@@ -9,7 +9,7 @@ test('la densidad desconocida cae en la de siempre', () => {
   assert.equal(trafficDensityId('maxima'), 'maxima');
   assert.equal(trafficDensityId('lo-que-sea'), DEFAULT_TRAFFIC_DENSITY);
   assert.equal(trafficDensityId(null), DEFAULT_TRAFFIC_DENSITY);
-  assert.deepEqual(TRAFFIC_DENSITY_LEVELS.map(level => level.id), ['baja', 'normal', 'alta', 'maxima']);
+  assert.deepEqual(TRAFFIC_DENSITY_LEVELS.map(level => level.id), ['baja', 'normal', 'alta', 'maxima', 'ultra']);
 });
 
 test('cada nivel pide una flota mayor que el anterior', () => {
@@ -33,6 +33,8 @@ test('la flota escala con el nivel y con la hora, con un piso y un techo', () =>
   assert.ok(trafficTargetVehicles(18.5, 'normal') > base * 1.5);
   assert.ok(trafficTargetVehicles(3, 'normal') < base * .5);
   assert.ok(trafficTargetVehicles(7, 'maxima') > trafficTargetVehicles(7, 'alta'));
+  // Ultra llena la calle: varias veces Máxima en el pico.
+  assert.ok(trafficTargetVehicles(7, 'ultra') >= trafficTargetVehicles(7, 'maxima') * 4);
   // Pico de la mañana: más que la flota de partida, sin llegar al techo de la red.
   assert.ok(trafficTargetVehicles(7, 'normal') >= 45);
   assert.ok(trafficTargetVehicles(18.5, 'maxima') <= 62);

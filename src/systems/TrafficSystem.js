@@ -14,7 +14,7 @@ import {
 } from '../utils/constants.js';
 import { SpatialGrid } from '../core/SpatialGrid.js';
 import { canReachCombatTarget, hasClearCombatLine } from './CombatGeometry.js';
-import { motoThreshold, trafficTargetVehicles } from './trafficDensity.js';
+import { BUSETA_EVERY, cruiseSpeedFor, motoThreshold, trafficTargetVehicles } from './trafficDensity.js';
 
 /** Cada nivel de «te tienen fichado» alarga en esta fracción el alcance con que una patrulla ve un robo. */
 export const POLICE_SIGHT_PER_WANTED = .25;
@@ -27,6 +27,8 @@ const MOTO_GAP = 1.1;
 const LANE_SEPARATION = 1.31;
 const ACCELERATION = 1.8;
 const BRAKING = 2;
+// La salida se toma con calma; el freno entra rápido, que a velocidad de avenida no alcanza el tiempo.
+const ACCEL_ONSET = 3, BRAKE_ONSET = 12;
 const CHASE_ACCELERATION = 3.2;
 const PROBE_STEP = 0.5;
 const ROUTE_SAMPLE_STEP = 2;
@@ -40,14 +42,15 @@ const REJOIN_PERSON_RADIUS = 4;
 // A la vista del jugador el salto se nota: aguanta más, sin quedarse trancando la vía para siempre.
 const REJOIN_SEEN_RADIUS = 40;
 const REJOIN_SEEN_TIMEOUT = 30;
-// Más acá del alcance de la niebla nadie ve un carro: se apaga entero y solo avanza por su ruta.
-const HIDE_MIN_DISTANCE = 70, HIDE_FOG_MARGIN = 12;
-// A qué distancia de la vista aparece y desaparece un carro del montaje diario.
+// Más acá del alcance de la niebla nadie ve un carro: se apaga entero y solo avanza por su ruta. La burbuja es ese
+// radio más un margen: fuera de ella el vehículo sale de la flota y la ciudad reparte otro cerca del jugador.
+const HIDE_MIN_DISTANCE = 120, HIDE_FOG_MARGIN = 30;
+// A qué distancia de la vista aparece un carro del montaje diario: fuera de la niebla no se ve el salto.
 const RESIZE_SAFE_DISTANCE = 60;
 // Cambios de flota por segundo: al cambiar de densidad la ciudad tarda unos segundos, nunca un salto.
-const RESIZE_MIN_RATE = 1, RESIZE_MAX_RATE = 8, RESIZE_RATE_PER_MISSING = .15;
-// Separación mínima al insertar un carro nuevo en su circuito, en metros.
-const RESIZE_GAP = 8;
+const RESIZE_MIN_RATE = 1, RESIZE_MAX_RATE = 24, RESIZE_RATE_PER_MISSING = .5;
+// Separación mínima al insertar un carro nuevo en su circuito, en metros sobre el centro del otro.
+const RESIZE_GAP = 2.5;
 // Un carro parado más que esto fuera de la vista se retira: el trancón que se ve se queda, el que no, se despeja.
 const STUCK_LIMIT = 45;
 
@@ -127,7 +130,7 @@ export class TrafficSystem {
     // La flota sale por conteo y no gasta azar: una de cada doce es buseta, tres de cada diez taxi y una tajada son
     // motos, que suben en las horas pico. Con huellas distintas por modelo, el mismo azar da así siempre el mismo tráfico.
     const count = this._spawnCount = (this._spawnCount ?? 0) + 1;
-    const buseta = !police && count % 12 === 0;
+    const buseta = !police && count % BUSETA_EVERY === 0;
     const moto = !police && !buseta && count % 10 >= this._motoThreshold;
     const kind = police ? 'police' : buseta ? 'buseta' : moto ? 'moto' : count * 7 % 10 < 3 ? 'taxi' : 'carro';
     const rotation = Math.atan2(-this._direction.z, this._direction.x);
@@ -135,9 +138,10 @@ export class TrafficSystem {
     if (moto) this._lateral(this._position, this._direction, MOTO_LATERAL);
     const car = moto ? this._newMoto(count, rotation)
       : new Car(scene, this._position, rotation, { traffic: true, kind, variant: count * 37 });
-    const cruiseSpeed = (10 + random() * 4) * (buseta ? .8 : 1);
+    // La vía manda la velocidad: avenida o calle; la moto pica más y la buseta va cargada.
+    const cruiseSpeed = cruiseSpeedFor(route, random, { moto, buseta });
     const vehicle = { car, route, distance, speed: 0, cruiseSpeed, patrolSpeed: cruiseSpeed, nextDistance: distance, nextSpeed: 0,
-      acceleration: 0, accelerationLimit: moto ? 3 + random() * .8 : 1.8 + random() * .7, braking: moto ? 2.8 + random() * .6 : 2.2 + random() * .6,
+      acceleration: 0, accelerationLimit: moto ? 4 + random() * .8 : 2.6 + random() * .6, braking: moto ? 4.4 + random() * .6 : 4.2 + random() * .6,
       reactionTime: moto ? .1 + random() * .2 : .18 + random() * .35, resumeDelay: 0, stopped: false,
       routeTimer: 3 + random() * 5, recentRoutes: [route.key], routeChanges: 0,
       lastHonkTime: 0, police, state: 'patrol', chaseTime: 0 };
@@ -185,6 +189,24 @@ export class TrafficSystem {
     return Math.max(RESIZE_SAFE_DISTANCE, this._fogDistance());
   }
 
+  /** ¿El punto cae fuera del cono de la cámara? Sin cámara de matriz se exige estar más allá de la niebla. */
+  _outOfView(point) {
+    const view = this._viewPosition;
+    const dx = point.x - view.x, dz = point.z - view.z;
+    const distanceSq = dx * dx + dz * dz;
+    if (distanceSq > this._hideDistance() ** 2) return true;
+    const matrix = this._camera?.matrixWorldInverse?.elements;
+    if (!matrix) return distanceSq >= this._resizeDistance() ** 2;
+    const cx = matrix[0] * point.x + matrix[4] * point.y + matrix[8] * point.z + matrix[12];
+    const cy = matrix[1] * point.x + matrix[5] * point.y + matrix[9] * point.z + matrix[13];
+    const cz = matrix[2] * point.x + matrix[6] * point.y + matrix[10] * point.z + matrix[14];
+    const depth = -cz;
+    if (depth <= 0 || depth > (this._fogDistance() || Infinity)) return true;
+    const halfH = Math.tan((this._camera.fov ?? 60) * Math.PI / 360) * depth;
+    const halfW = halfH * (this._camera.aspect || 1);
+    return Math.abs(cx) > halfW || Math.abs(cy) > halfH;
+  }
+
   /**
    * Detalle y visibilidad de cada carro según su distancia a la vista. Un carro apagado no gasta matrices, sombras,
    * audio ni animación; en la simulación sigue igual que el resto. Una persecución o un regreso se ven aunque estén lejos.
@@ -205,8 +227,7 @@ export class TrafficSystem {
   _resizeFleet(hour, dt) {
     const target = trafficTargetVehicles(hour, this.densityId);
     // Las patrullas no entran en la cuenta: la densidad habla del tráfico particular.
-    let civilians = 0;
-    for (const vehicle of this.vehicles) if (!vehicle.police) civilians++;
+    let civilians = this._countInBubble();
     const missing = target - civilians;
     if (!missing) { this._resizeCredit = 0; return; }
     const rate = Math.min(RESIZE_MAX_RATE, Math.max(RESIZE_MIN_RATE, Math.abs(missing) * RESIZE_RATE_PER_MISSING));
@@ -217,12 +238,29 @@ export class TrafficSystem {
     }
   }
 
-  /** Cuántos carros quiere cada circuito de partida: en proporción a su largo y sin pasar de lo que cabe en él. */
+  /** Saca de la flota a quien ya dejó atrás la burbuja y cuenta a los civiles que quedan dentro. */
+  _countInBubble() {
+    const view = this._viewPosition, bubbleSq = this._hideDistance() ** 2;
+    let civilians = 0;
+    for (let index = this.vehicles.length - 1; index >= 0; index--) {
+      const vehicle = this.vehicles[index];
+      const dx = vehicle.car.position.x - view.x, dz = vehicle.car.position.z - view.z;
+      if (dx * dx + dz * dz <= bubbleSq) {
+        if (!vehicle.police) civilians++;
+        continue;
+      }
+      if (this._canRetire(vehicle)) this._retire(vehicle);
+    }
+    return civilians;
+  }
+
+  /** Cuántos carros quiere cada circuito cercano: en proporción a su largo y sin pasar de lo que cabe en él. */
   _routeQuota(target) {
-    this._routeLength ??= this.startRoutes.reduce((sum, route) => sum + route.length, 0);
+    const routes = this.routes;
+    this._routeLength ??= routes.reduce((sum, route) => sum + route.length, 0);
     const quota = this._quotaScratch ??= new Map();
     quota.clear();
-    for (const route of this.startRoutes) {
+    for (const route of routes) {
       quota.set(route, Math.min(Math.floor(route.length / 12), Math.round(target * route.length / this._routeLength)));
     }
     return quota;
@@ -254,13 +292,17 @@ export class TrafficSystem {
     return false;
   }
 
-  /** Punto de la ruta lejos de la vista, libre de otros carros y fuera de los cruces. */
+  /** Punto de la ruta fuera de la vista, dentro de la burbuja, libre de otros carros y fuera de los cruces. */
   _freeDistance(route) {
-    const view = this._viewPosition, safeSq = this._resizeDistance() ** 2;
-    for (let tries = 0; tries < 12; tries++) {
+    const view = this._viewPosition, bubbleSq = this._hideDistance() ** 2;
+    const min = RESIZE_SAFE_DISTANCE ** 2;
+    for (let tries = 0; tries < 24; tries++) {
       const distance = this.random() * route.length;
       route.sample(distance, this._position, this._direction);
-      if ((this._position.x - view.x) ** 2 + (this._position.z - view.z) ** 2 < safeSq) continue;
+      const fromView = (this._position.x - view.x) ** 2 + (this._position.z - view.z) ** 2;
+      if (fromView < min || fromView > bubbleSq) continue;
+      // Nacer dentro del cono de la cámara se vería: se exige fuera de la vista, no solo lejos.
+      if (!this._outOfView(this._position)) continue;
       // Nacer dentro de un cruce es pedir la reserva a la fuerza; fuera de él entra como cualquier otro.
       if (this._nearNode(this._position)) continue;
       // Un carro puede compartir el carril con otro de una ruta distinta: se mira el mundo, no la distancia en la ruta.
@@ -290,7 +332,7 @@ export class TrafficSystem {
   /** Saca de circulación al que va más lejos de la vista, sin tocar patrullas ni persecuciones. */
   _removeVehicle() {
     const view = this._viewPosition;
-    let best = null, bestSq = this._resizeDistance() ** 2;
+    let best = null, bestSq = -1;
     for (const vehicle of this.vehicles) {
       if (!this._canRetire(vehicle)) continue;
       const dx = vehicle.car.position.x - view.x, dz = vehicle.car.position.z - view.z;
@@ -310,11 +352,18 @@ export class TrafficSystem {
     const view = this._viewPosition, safeSq = this._resizeDistance() ** 2;
     for (const vehicle of this.vehicles) {
       vehicle.stoppedFor = vehicle.speed < .05 ? (vehicle.stoppedFor ?? 0) + dt : 0;
-      if (vehicle.stoppedFor < STUCK_LIMIT || !this._canRetire(vehicle)) continue;
+      if (vehicle.stoppedFor < STUCK_LIMIT) continue;
       const dx = vehicle.car.position.x - view.x, dz = vehicle.car.position.z - view.z;
       if (dx * dx + dz * dz < safeSq) continue;
-      this._retire(vehicle);
-      return; // uno por cuadro, para que la retirada se note como el resto del montaje
+      if (this._canRetire(vehicle)) {
+        this._retire(vehicle);
+        return; // uno por cuadro, para que la retirada se note como el resto del montaje
+      }
+      // Una patrulla de ronda no se retira: se la devuelve a un punto libre de su circuito, como al volver de una persecución.
+      if (vehicle.police && vehicle.state === 'patrol' && !this._playerWithin(vehicle.car.position, REJOIN_SEEN_RADIUS)) {
+        vehicle._rejoinStuck = REJOIN_SEEN_TIMEOUT + 1;
+        if (this._forceRejoin(vehicle)) vehicle._rejoinStuck = 0;
+      }
     }
   }
 
@@ -1074,6 +1123,7 @@ export class TrafficSystem {
     const view = this._viewPosition;
     if (camera?.position) view.copy(camera.position);
     else if (player) view.copy(player);
+    this._camera = camera?.matrixWorldInverse ? camera : null;
     if (Number.isFinite(hour)) this._motoThreshold = motoThreshold(hour);
     if (this.densityId && Number.isFinite(hour)) this._resizeFleet(hour, dt);
     this._updateLod();
@@ -1133,7 +1183,7 @@ export class TrafficSystem {
           }
           if (vehicle.resumeDelay > 0) { vehicle.resumeDelay -= stepTime; desiredSpeed = 0; }
           const targetAcceleration = THREE.MathUtils.clamp((desiredSpeed - vehicle.speed) / .65, -braking, vehicle.accelerationLimit ?? ACCELERATION);
-          vehicle.acceleration = THREE.MathUtils.clamp(targetAcceleration, vehicle.acceleration - 3 * stepTime, vehicle.acceleration + 3 * stepTime);
+          vehicle.acceleration = THREE.MathUtils.clamp(targetAcceleration, vehicle.acceleration - BRAKE_ONSET * stepTime, vehicle.acceleration + ACCEL_ONSET * stepTime);
           const candidateSpeed = THREE.MathUtils.clamp(vehicle.speed + vehicle.acceleration * stepTime, 0, vehicle.cruiseSpeed);
           const speed = desiredSpeed === 0 && candidateSpeed < .01 ? 0 : candidateSpeed;
           const travel = Math.min(Math.max(0, speed * stepTime), vehicle.hardClearance);
