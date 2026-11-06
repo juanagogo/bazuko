@@ -820,7 +820,7 @@ void AudioManager::UpdatePolice(const glm::vec3& listenerPosition, const std::ve
                                 const std::vector<PoliceSound>& events, bool paused) {
     if (!m_Impl || !m_Impl->ready) return;
     // Volumen segun la distancia: cae con el cuadrado hasta cero en el alcance de cada sonido (la sirena se oye lejos; la radio de un policia, solo cerca)
-    constexpr float kSirenRange = 110.0f, kStopRange = 90.0f, kRadioRange = 28.0f;
+    constexpr float kStopRange = 55.0f, kRadioRange = 28.0f;   // la sirena sigue la curva del original (SirenGain); su parada, el mismo alcance
     const auto reach = [](float distance, float range) {
         const float t = std::clamp(1.0f - distance / range, 0.0f, 1.0f);
         return t * t;
@@ -832,7 +832,7 @@ void AudioManager::UpdatePolice(const glm::vec3& listenerPosition, const std::ve
     for (size_t i = 0; i < m_Impl->sirens.size(); ++i) {
         auto& siren = m_Impl->sirens[i];
         if (!siren.initialized) continue;
-        const float volume = (!paused && !m_Impl->muted && i < distances.size()) ? 0.8f * reach(distances[i], kSirenRange) * m_Impl->Level(MixCategory::Traffic) : 0.0f;
+        const float volume = (!paused && !m_Impl->muted && i < distances.size()) ? 0.8f * SirenGain(distances[i]) * m_Impl->Level(MixCategory::Traffic) : 0.0f;
         if (volume <= 0.0005f) {
             if (ma_sound_is_playing(&siren.value)) ma_sound_stop(&siren.value);
             continue;
@@ -853,7 +853,7 @@ void AudioManager::UpdatePolice(const glm::vec3& listenerPosition, const std::ve
         const float distance = glm::distance(listenerPosition, event.position);
         const bool stop = event.kind == PoliceSound::Kind::Stop;
         auto& sound = stop ? m_Impl->sirenStop : m_Impl->policeRadio;
-        const float volume = stop ? 0.8f * reach(distance, kStopRange) * m_Impl->Level(MixCategory::Traffic)
+        const float volume = stop ? 0.8f * SirenGain(distance) * m_Impl->Level(MixCategory::Traffic)
                                   : 0.6f * reach(distance, kRadioRange) * m_Impl->Level(MixCategory::Effects);
         if (logAudio) std::cerr << "Audio: " << (stop ? "parada de sirena" : "radio policia") << " a " << distance << " m, volumen " << volume << '\n';
         if (!sound.initialized || volume <= 0.0005f) continue;

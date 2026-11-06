@@ -282,7 +282,8 @@ add_test(NAME bazuko_trafficdensity COMMAND bazuko_trafficdensity_test)
 
 # Frases de la calle (reglas del original: alcance, una a la vez, enfriamientos); solo logica
 add_executable(bazuko_streetvoices_test tests/StreetVoicesTest.cpp)
-target_include_directories(bazuko_streetvoices_test PRIVATE src)
+target_include_directories(bazuko_streetvoices_test PRIVATE src third_party/include)
+target_link_libraries(bazuko_streetvoices_test PRIVATE glm::glm)
 add_test(NAME bazuko_streetvoices COMMAND bazuko_streetvoices_test)
 
 # Movimiento del jugador (prueba diferencial contra el bloque original de main(), con un mundo de mentira determinista)
