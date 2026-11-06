@@ -29,6 +29,7 @@
 #include "game/Fight.hpp"
 #include "core/PlayerInputSampler.hpp"
 #include "world/SafeSpawn.hpp"
+#include "world/TrafficDensity.hpp"
 #include "world/Atmosphere.hpp"
 #include "world/Viaduct.hpp"
 #include "world/StarField.hpp"
@@ -312,6 +313,7 @@ int main(int argc, char** argv) {
     auto& radioOn = session.radioOn;   // radio transistor: encendida, volumen propio y bateria (100 % dura unos 40 min)
     auto& radioVolume = session.radioVolume;
     auto& radioBattery = session.radioBattery;
+    int trafficDensity = kDefaultTrafficDensity;   // nivel de kTrafficDensityLevels: escala la flota de cada hora
     int graphicsQuality = 1;   // 0 baja, 1 media, 2 alta: escala de resolucion interna 1 / 1 / 1,5
     auto& playerVelocity = session.playerVelocity;   // inercia de movimiento (como Player.js: 22/s al moverse, 18/s al frenar)
     auto& equippedWeapon = session.equippedWeapon;   // arma en la mano (id del objeto: cuchillo, botella_picada, arma), vacio = puños
@@ -417,6 +419,7 @@ int main(int argc, char** argv) {
                 }
                 bigSack = state.value("bigSack", false);
                 graphicsQuality = std::clamp(state.value("graphicsQuality", 1), 0, 2);
+                trafficDensity = TrafficDensityIndex(state.value("trafficDensity", std::string(kTrafficDensityLevels[static_cast<size_t>(kDefaultTrafficDensity)].id)));
                 if (state.contains("radio") && state["radio"].is_object()) {
                     const auto& savedRadio = state["radio"];
                     radioOn = savedRadio.value("on", false);
@@ -537,6 +540,7 @@ int main(int argc, char** argv) {
         state["equippedWeapon"] = equippedWeapon;
         state["warmTimer"] = warmTimer;
         state["graphicsQuality"] = graphicsQuality;
+        state["trafficDensity"] = kTrafficDensityLevels[static_cast<size_t>(trafficDensity)].id;
         state["radio"] = {{"on", radioOn}, {"volume", radioVolume}, {"battery", radioBattery}, {"station", ui.SelectedRadioStationId()}};
         state["talents"] = std::vector<std::string>(unlockedTalents.begin(), unlockedTalents.end());
         state["itemsCollected"] = itemsCollected;
@@ -1884,6 +1888,12 @@ int main(int argc, char** argv) {
                 if (street != lastStreet) { lastStreet = street; ui.SetRadarStreet(street); }
             }
         }
+        if (const char* later = std::getenv("BAZUKO_HOUR_LATER")) {   // pruebas: BAZUKO_HOUR_LATER=<hora>@<segundos> cambia la hora del dia pasados esos segundos de juego
+            static bool jumped = false;
+            float hourLater = 0.0f, afterSeconds = 0.0f;
+            if (!jumped && std::sscanf(later, "%f@%f", &hourLater, &afterSeconds) == 2 && clock.GetElapsedTime() > afterSeconds) { jumped = true; simulation.SetDayProgress(hourLater / 24.0f); }
+        }
+        if (std::getenv("BAZUKO_LOG_TRAFFIC")) { static float trafficLogWait = 0.0f; trafficLogWait -= dt; if (trafficLogWait <= 0.0f) { trafficLogWait = 4.0f; LogInfo("Trafico: {} de {} vehiculos en circulacion a las {:.1f} h (nivel {})", simulation.GetActiveTrafficCount(), simulation.GetTrafficCount(), simulation.GetHour(), trafficDensity); } }
         {   // frases de la calle: de vez en cuando alguien cercano dice una frase suelta (audio/StreetVoices.hpp)
             static StreetVoiceDirector streetVoices;
             const double streetNow = static_cast<double>(clock.GetElapsedTime());
@@ -1926,6 +1936,12 @@ int main(int argc, char** argv) {
                 ui.Notify(std::string("Calidad gráfica: ") + qualityNames[static_cast<size_t>(requested)], ToastType::Info);
             }
             ui.SetGraphicsQuality(graphicsQuality);
+            if (const int requested = ui.ConsumeTrafficDensityRequest(); requested >= 0 && requested < static_cast<int>(kTrafficDensityLevels.size()) && requested != trafficDensity) {
+                trafficDensity = requested;
+                ui.Notify(std::string("Densidad de tráfico: ") + kTrafficDensityLevels[static_cast<size_t>(requested)].label, ToastType::Info);
+            }
+            ui.SetTrafficDensity(trafficDensity);
+            simulation.SetTrafficDensity(trafficDensity);
             // Resolucion adaptativa: la calidad elegida es el techo; si los FPS reales se mantienen bajos la escala baja
             // y se recupera sola, sin cambiar la preferencia guardada
             if (static const char* forcedQuality = std::getenv("BAZUKO_QUALITY"); forcedQuality) graphicsQuality = std::clamp(std::atoi(forcedQuality), 0, 2);   // pruebas y benchmark: calidad fija

@@ -1409,6 +1409,9 @@ void UIManager::RenderHUD(float dt, const glm::vec3& playerPos, Camera& camera, 
                     for (int quality = 0; quality < 3; ++quality)
                         if (SignUI::Button(qualityLabels[quality], quality == 1 ? Icon::Gear : Icon::Bolt, m_GraphicsQuality == quality))
                             m_GraphicsQualityRequest = quality;
+                    SignUI::FlexReset();
+                    for (int level = 0; level < static_cast<int>(kTrafficDensityLevels.size()); ++level)
+                        if (SignUI::Button((std::string("Tráfico ") + kTrafficDensityLevels[static_cast<size_t>(level)].label).c_str(), Icon::Gear, m_TrafficDensity == level)) m_TrafficDensityRequest = level;
                     ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.78f, 0.84f, 0.95f, 0.65f));
                     ImGui::TextWrapped("Resolución interna: baja 0,75×, media 1×, alta 1,25×. El panel de rendimiento muestra el efecto en los FPS.");
                     ImGui::PopStyleColor();

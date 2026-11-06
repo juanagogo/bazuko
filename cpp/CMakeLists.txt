@@ -276,6 +276,9 @@ add_executable(bazuko_zones_test tests/ZonesTest.cpp src/world/Zones.cpp)
 target_include_directories(bazuko_zones_test PRIVATE src third_party/include)
 target_compile_definitions(bazuko_zones_test PRIVATE BAZUKO_CITY_MAP_PATH="${CMAKE_CURRENT_SOURCE_DIR}/assets/data/city-map.json")
 add_test(NAME bazuko_zones COMMAND bazuko_zones_test)
+add_executable(bazuko_trafficdensity_test tests/TrafficDensityTest.cpp)
+target_include_directories(bazuko_trafficdensity_test PRIVATE src third_party/include)
+add_test(NAME bazuko_trafficdensity COMMAND bazuko_trafficdensity_test)
 
 # Frases de la calle (reglas del original: alcance, una a la vez, enfriamientos); solo logica
 add_executable(bazuko_streetvoices_test tests/StreetVoicesTest.cpp)

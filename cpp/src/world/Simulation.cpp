@@ -1,5 +1,6 @@
 ﻿#include "Simulation.hpp"
 #include "Viaduct.hpp"
+#include "TrafficDensity.hpp"
 #include "Station.hpp"
 #include <glm/gtc/matrix_transform.hpp>
 #include <algorithm>
@@ -3647,8 +3648,8 @@ void Simulation::OnDriverDeath(size_t index) {
 
 constexpr float kUnseenDistance = 150.0f;   // los vehiculos se dibujan hasta 140 m: mas lejos que eso nada se ve aparecer ni desaparecer
 
-void Simulation::RespawnAbandoned(TrafficVehicle& vehicle) {
-    if (m_TrafficRoutes.empty()) return;
+bool Simulation::RespawnAbandoned(TrafficVehicle& vehicle, float minViewDistance) {
+    if (m_TrafficRoutes.empty()) return false;
     for (int attempt = 0; attempt < 40; ++attempt) {
         const size_t routeIndex = static_cast<size_t>(m_Unit(m_Random) * static_cast<float>(m_TrafficRoutes.size())) % m_TrafficRoutes.size();
         const std::vector<float>& cumulative = m_RouteCumulative[routeIndex];
@@ -3657,7 +3658,7 @@ void Simulation::RespawnAbandoned(TrafficVehicle& vehicle) {
         glm::vec3 position, direction;
         size_t waypoint = 0;
         SampleCircuit(m_TrafficRoutes[routeIndex], cumulative, length, distance, position, direction, waypoint);
-        if (NearestPlayerDistanceXZ(position) < kUnseenDistance) continue;   // reaparece solo fuera de la vista de todos los jugadores
+        if (NearestPlayerDistanceXZ(position) < (minViewDistance >= 0.0f ? minViewDistance : kUnseenDistance)) continue;   // reaparece solo fuera de la vista de todos los jugadores
         bool free = true;
         for (const TrafficVehicle& other : m_Traffic) {
             if (&other != &vehicle && glm::distance(other.position, position) < 9.0f) { free = false; break; }
@@ -3691,8 +3692,9 @@ void Simulation::RespawnAbandoned(TrafficVehicle& vehicle) {
             driver.passengerColor = {0.22f + m_Unit(m_Random) * 0.55f, 0.18f + m_Unit(m_Random) * 0.48f, 0.15f + m_Unit(m_Random) * 0.42f};
             driver.passengerShade = m_Unit(m_Random) * 2.0f;
         }
-        return;
+        return true;
     }
+    return false;
 }
 
 void Simulation::UpdateDrivers(float dt, const glm::vec3& playerPosition) {
@@ -3816,6 +3818,7 @@ void Simulation::UpdateDrivers(float dt, const glm::vec3& playerPosition) {
     constexpr float kBoardSpeed = 1.6f; // subir y bajar del vehiculo se reproduce a 1,6x: el clip original se sentia lento
     for (size_t index = 0; index < m_Traffic.size(); ++index) {
         TrafficVehicle& vehicle = m_Traffic[index];
+        if (vehicle.dormant) continue;
         DriverInfo& driver = vehicle.driver;
         driver.cooldown = std::max(0.0f, driver.cooldown - dt);
         if (vehicle.emergency != 2 && vehicle.emergency != 3 && m_PoliceAppearanceFirst > 0 && m_PoliceAppearanceFirst < m_PedestrianAppearances.size()) {   // los uniformes de policia son solo de la patrulla
@@ -4472,8 +4475,43 @@ void Simulation::UpdatePedestrians(float dt, const glm::vec3& playerPosition) {
     }
 }
 
+void Simulation::ResizeTrafficFleet(float dt) {
+    // Como el original (TrafficSystem._resizeFleet): la ciudad pide una flota segun la hora y el nivel, y los carros entran o salen a unos pocos por segundo, siempre fuera de la vista.
+    // Las patrullas, la ambulancia, la moto y los buses no entran en la cuenta; el que se retira queda guardado, no se destruye (los indices de la flota no cambian).
+    if (m_TrafficDensity < 0) return;
+    constexpr float kMinRate = 1.0f, kMaxRate = 8.0f, kRatePerMissing = 0.15f, kSafeDistance = 60.0f;   // 60 m: mas cerca se veria aparecer o desaparecer (el original usa la niebla, con ese minimo)
+    const auto civilian = [](const TrafficVehicle& v) { return !v.bus && !v.parked && v.emergency == 0; };
+    int active = 0, total = 0;
+    for (const TrafficVehicle& v : m_Traffic) if (civilian(v)) { ++total; if (!v.dormant) ++active; }
+    const int target = std::min(TrafficTargetVehicles(GetHour(), m_TrafficDensity), total);
+    const int missing = target - active;
+    if (missing == 0) { m_ResizeCredit = 0.0f; return; }
+    m_ResizeCredit += std::clamp(std::abs(static_cast<float>(missing)) * kRatePerMissing, kMinRate, kMaxRate) * dt;
+    while (m_ResizeCredit >= 1.0f) {
+        m_ResizeCredit -= 1.0f;
+        bool changed = false;
+        if (missing > 0) {   // vuelve uno: reaparece fuera de la vista, en un punto libre de un circuito
+            for (TrafficVehicle& v : m_Traffic) {
+                if (!civilian(v) || !v.dormant) continue;
+                if (RespawnAbandoned(v, kSafeDistance)) { v.dormant = false; changed = true; }
+                break;
+            }
+        } else {   // sale el que va mas lejos de la vista, sin tocar al que esta en una pelea, una espera o una persecucion
+            TrafficVehicle* farthest = nullptr; float best = kSafeDistance;
+            for (TrafficVehicle& v : m_Traffic) {
+                if (!civilian(v) || v.dormant || v.holdStop || (v.driver.state != DriverState::Seated && v.driver.state != DriverState::Braking) || v.driver.siren || v.swerveAround >= 0) continue;
+                const float distance = NearestPlayerDistanceXZ(v.position);
+                if (distance > best) { best = distance; farthest = &v; }
+            }
+            if (farthest) { farthest->dormant = true; farthest->speed = farthest->nextSpeed = 0.0f; farthest->position = farthest->previousPosition = glm::vec3(-5000.0f, -50.0f, -5000.0f); farthest->bike.ready = false; changed = true; }
+        }
+        if (!changed) { m_ResizeCredit = 0.0f; if (std::getenv("BAZUKO_LOG_TRAFFIC")) LogInfo("Flota: no hubo a quien retirar/reponer (faltan {})", missing); break; }
+    }
+}
+
 void Simulation::UpdateTraffic(float dt) {
     if (dt <= 0.0f) return;
+    ResizeTrafficFleet(dt);
     for (auto& vehicle : m_Traffic) vehicle.previousPosition = vehicle.position;
     constexpr float braking = 5.0f;
     constexpr float acceleration = 1.8f;
@@ -4529,6 +4567,7 @@ void Simulation::UpdateTraffic(float dt) {
             }
         }
         for (auto& vehicle : m_Traffic) {
+            if (vehicle.dormant) continue;
             float clearance = std::numeric_limits<float>::infinity();
             bool stoppedForPerson = false;
             {   // Un vehiculo detenido delante en mi carril (patrulla que se bajo a pelear, abandonado): lo rodeo por el carril libre y vuelvo al mio al pasarlo
@@ -4880,6 +4919,7 @@ void Simulation::UpdateTraffic(float dt) {
             }
         }
         for (auto& vehicle : m_Traffic) {
+            if (vehicle.dormant) continue;
             const float previousDistance = vehicle.distance;
             vehicle.distance = vehicle.nextDistance;
             vehicle.speed = vehicle.nextSpeed;
@@ -6251,7 +6291,7 @@ void Simulation::Render(Renderer& renderer, float time, const glm::vec3& focusPo
                 drawOccupant(vehicle.driver.passengerAppearance, vehicle.driver.passengerColor, vehicle.driver.passengerShade, true);
         }
     };
-    for (const auto& vehicle : m_Traffic) drawCar(vehicle);
+    for (const auto& vehicle : m_Traffic) if (!vehicle.dormant) drawCar(vehicle);
     for (const auto& vehicle : m_ParkedCars) {
         if (const char* forced = std::getenv("BAZUKO_PARK_EMERGENCY"); forced && &vehicle == &m_ParkedCars.front()) {   // pruebas: el primer carro parqueado es de emergencia (1 ambulancia, 2 patrulla)
             TrafficVehicle copy = vehicle;

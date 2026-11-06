@@ -237,6 +237,7 @@ struct TrafficVehicle {
     int variant = 0;       // 0 modelos comunes (vehiculo1/2); 1..N modelos con cabina e interior (Raptor, Renault 6, Jetta...)
     int emergency = 0;     // 0 carro comun, 1 ambulancia, 2 patrulla de policia, 3 moto de policia (rondan por las mismas rutas)
     bool parked = false;
+    bool dormant = false;   // fuera de circulacion por la hora (TrafficDensity.hpp): ni se simula ni se dibuja hasta que la ciudad lo vuelve a pedir
     bool mirrorsAvailable = true;
     bool horizontalLane = true;
     float wheelRotation = 0.0f;
@@ -490,6 +491,10 @@ public:
     float GetMist() const { return m_Mist; }
     // Hora del dia 0..24
     float GetHour() const { return m_DayProgress * 24.0f; }
+    // Densidad del trafico (indice de kTrafficDensityLevels; -1 = flota completa, como en las pruebas). Se aplica en vivo.
+    void SetTrafficDensity(int level) { if (level != m_TrafficDensity) { m_TrafficDensity = level; m_ResizeCredit = 0.0f; } }
+    int GetTrafficDensity() const { return m_TrafficDensity; }
+    size_t GetActiveTrafficCount() const { size_t n = 0; for (const TrafficVehicle& v : m_Traffic) if (!v.dormant) ++n; return n; }
     // Humedad 0..1: sube con la llovizna (hasta 0,25/s) y se seca despacio (0,04/s); el suelo se ve mojado
     float GetWetness() const { return m_ReducedWeather ? 0.0f : m_Wetness; }
     // Aviso del ultimo cambio de clima (nullptr si no hay ninguno pendiente); se consume al leerlo
@@ -605,12 +610,13 @@ private:
     void UpdateDrivers(float dt, const glm::vec3& playerPosition);
     void AssignVehicleModel(TrafficVehicle& vehicle);
     void OnDriverDeath(size_t index);                   // el conductor murio: pasa el acompanante o queda abandonado
-    void RespawnAbandoned(TrafficVehicle& vehicle);     // fuera de la vista: el vehiculo se retira y aparece otro con conductor   // elige un modelo con puerta que se abre para carros del trafico y estacionados
+    bool RespawnAbandoned(TrafficVehicle& vehicle, float minViewDistance = -1.0f);   // minViewDistance < 0: la de siempre (kUnseenDistance)     // fuera de la vista: el vehiculo se retira y aparece otro con conductor   // elige un modelo con puerta que se abre para carros del trafico y estacionados
     void VehiclePose(const TrafficVehicle& vehicle, glm::vec3& position, float& yaw) const;
     DriverProfile ProfileFor(const TrafficVehicle& vehicle) const;
     glm::vec3 VehicleLocalToWorld(const glm::vec3& position, float yaw, const glm::vec2& carFrame) const;
     glm::vec3 m_LastPlayerPosition{0.0f};
     void UpdateTraffic(float dt);
+    void ResizeTrafficFleet(float dt);   // ajusta cuantos carros circulan a lo que pide la hora y el nivel, de a pocos y fuera de la vista
     void UpdateBus(float dt);
     void UpdatePickups(float dt, const glm::vec3& playerPosition);
     void UpdatePigeons(float dt, const glm::vec3& playerPosition);
@@ -628,6 +634,8 @@ private:
     std::shared_ptr<Mesh> m_BloodMesh;
     float m_PlayerHygiene = 100.0f;
     std::vector<TrafficVehicle> m_Traffic;
+    int m_TrafficDensity = -1;
+    float m_ResizeCredit = 0.0f;
     std::vector<TrafficVehicle> m_ParkedCars;
     std::vector<PickupItem> m_Pickups;
     std::vector<float> m_CarCooldowns;

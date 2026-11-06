@@ -1,5 +1,6 @@
 #pragma once
 #include <array>
+#include "world/TrafficDensity.hpp"
 #include <chrono>
 #include <memory>
 #include <string>
@@ -169,6 +170,8 @@ public:
     void SetSortProgress(float fraction) { m_SortProgress = fraction; }
     // Calidad grafica: 0 baja, 1 media, 2 alta (escala de resolucion interna)
     void SetGraphicsQuality(int quality) { m_GraphicsQuality = quality; }
+    void SetTrafficDensity(int level) { m_TrafficDensity = level; }   // indice de kTrafficDensityLevels
+    int ConsumeTrafficDensityRequest() { const int r = m_TrafficDensityRequest; m_TrafficDensityRequest = -1; return r; }
     // Escala de resolucion que se esta usando de verdad (la adaptativa puede bajarla) y la presion de rendimiento
     void SetEffectiveRenderScale(float scale, int pressure) { m_EffectiveScale = scale; m_RenderPressure = pressure; }
     int ConsumeGraphicsQualityRequest();
@@ -417,6 +420,8 @@ private:
     std::string m_DealerPurchaseRequest;
     float m_SortProgress = -1.0f;
     int m_GraphicsQuality = 1;
+    int m_TrafficDensity = 1;
+    int m_TrafficDensityRequest = -1;
     float m_EffectiveScale = 1.0f;
     int m_RenderPressure = 0;
     int m_GraphicsQualityRequest = -1;
