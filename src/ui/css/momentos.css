@@ -216,6 +216,9 @@ body:has(#menu:not([hidden])) #cascado { display: none; }
   position: absolute; inset: 0;
   background: radial-gradient(circle at center, transparent 42%, rgba(20, 17, 12, .38) 76%, rgba(20, 17, 12, .78) 100%);
 }
+#psychosis-overlay.sombras .psychosis-vignette {
+  background: radial-gradient(circle at center, transparent 28%, rgba(10, 6, 8, .55) 62%, rgba(4, 2, 4, .92) 100%);
+}
 .hallucination-word {
   position: absolute; width: max-content; max-width: 70vw;
   font-weight: 800; font-size: clamp(30px, 3.6vw, 52px); line-height: 1;
