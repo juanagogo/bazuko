@@ -3,6 +3,7 @@ import { Howl, Howler } from 'howler';
 import { VehicleAudio } from './VehicleAudio.js';
 import { STREET_VOICES, StreetVoices } from './StreetVoices.js';
 import { PoliceSirenAudio } from './PoliceSirenAudio.js';
+import { FlyBuzzAudio } from './FlyBuzzAudio.js';
 
 export const MIX_CATEGORIES = ['ambient', 'traffic', 'voices', 'effects'];
 // El audio vive en public/audio: la ruta se arma con la base para que la demo de Pages funcione bajo su subcamino.
@@ -90,6 +91,7 @@ export class AudioSystem {
     this.vehicles = new VehicleAudio(this.vehicleSounds, Math.random, this.driverSounds);
     this.streetVoices = new StreetVoices({ bank: this.streetVoiceSounds });
     this.policeSiren = new PoliceSirenAudio({ fx: () => this._fx() });
+    this.flyBuzz = new FlyBuzzAudio({ fx: () => this._fx() });
     // Una sola voz a la vez entre conductores, robo y calle.
     this.vehicles.externalVoiceActive = () => this._theftVoiceActive() || this.streetVoices.active;
     this.streetVoices.externalVoiceActive = () => this._theftVoiceActive() || this.vehicles.remarkPlaying();
