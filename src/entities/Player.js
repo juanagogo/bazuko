@@ -713,8 +713,10 @@ export class Player {
     this._smoke?.update(dt);
     this._updateGlance(dt);
     // Una pulsación nueva muestra al menos un frame de anticipación, también a 10 FPS.
-    const hit = this.melee.update(beganAttackThisFrame ? 0 : dt, this, npcs);
-    if (hit) {
+    const targets = this.extraMeleeTargets?.length ? (npcs ?? []).concat(this.extraMeleeTargets) : npcs;
+    const hit = this.melee.update(beganAttackThisFrame ? 0 : dt, this, targets);
+    // Pegarle a una sombra no es una pelea de calle: no suma dinero ni busca.
+    if (hit && !hit.hits.every((h) => h.target.isShadow)) {
       if (hit.reward > 0 && typeof this.stats?.dinero === 'number') this.stats.dinero += hit.reward;
       if (typeof this.game?.steal?.buscado === 'number') this.game.steal.buscado = Math.min(3, this.game.steal.buscado + 1);
       emit('street-fight', { attacker: this });

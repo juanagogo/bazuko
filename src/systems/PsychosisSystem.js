@@ -1,5 +1,6 @@
 // src/systems/PsychosisSystem.js
 import * as THREE from 'three';
+import { hasClearCombatLine } from './CombatGeometry.js';
 import { VOCES, sitioParaVoz } from '../ui/momentosTextos.js';
 
 // Lo que una voz nunca tapa: las cifras y lo que se oprime.
@@ -8,6 +9,23 @@ const VOCES_A_LA_VEZ = 2;
 // Lo que se mueve la cámara con la malilla o la paranoia. Nada pasa de 0,5 Hz: 0,003 rad/ms son 0,48 Hz y 0,0016, 0,25 Hz.
 const RESPIRA_RAD_MS = 0.003;
 const DERIVA_RAD_MS = 0.0016;
+
+// Nivel alto de la paranoia: tras varias dosis seguidas los hombres sombra dejan de mirar y atacan.
+export const ATAQUE = Object.freeze({
+  dosis: 3,              // consumos seguidos, sin que se apague la paranoia, para llegar al nivel alto
+  maxSimultaneos: 2,
+  velocidad: 3.6,        // m/s: más que andar (3), menos que correr (6)
+  alcance: 1.5,          // m
+  preparacion: 0.55,     // s de anticipación antes de cada golpe
+  enfriamiento: 1.8,     // s entre golpes de una misma sombra
+  respiro: 1.2,          // s sin golpes de nadie después de herir al jugador
+  danoMin: 4, danoMax: 7,
+  saludMinima: 10,       // nunca lo dejan por debajo: lastiman, no matan
+  espera: 6,             // s antes de que llegue otra tras disolverse una
+  distancia: [9, 13],    // m de aparición
+  rendicion: 35,         // m: si se les escapa corriendo, se disuelven
+  vida: 25               // s
+});
 
 const _forward = new THREE.Vector3();
 const _toGhost = new THREE.Vector3();
@@ -41,7 +59,11 @@ export class PsychosisSystem {
     this.spasmTimer = 10;
     this.paranoiaUtteranceTimer = 15;
     this.active = false;
-    this.induced = null; // { left, severity }: paranoia por consumo (basuco), sin abstinencia
+    this.induced = null; // { left, severity, dosis }: paranoia por consumo (basuco), sin abstinencia
+    this.ataque = false;  // nivel alto: los hombres sombra atacan
+    this._esperaAtaque = 0;
+    this._respiro = 0;
+    this._ataquePuesto = false;
 
     // Elementos DOM
     this.overlayEl = null;
@@ -162,6 +184,67 @@ export class PsychosisSystem {
     setTimeout(() => wordEl.remove(), 3400);
   }
 
+  /** Un hombre sombra que ataca: la misma figura, pero se acerca, golpea y se disuelve al recibir un golpe. */
+  _createShadowMan(position) {
+    const sp = this._createShadowPerson(position);
+    if (!sp) return null;
+    sp.isShadow = true;
+    sp.ataca = true;
+    sp.lifetime = ATAQUE.vida;
+    sp.fase = 'acercando';
+    sp.espera = ATAQUE.preparacion;
+    sp.takeHit = () => {
+      if (sp.dissolving) return false;
+      sp.dissolving = true;
+      this._esperaAtaque = ATAQUE.espera;
+      return 0;
+    };
+    return sp;
+  }
+
+  _hurtPlayer(sp) {
+    const player = this.player, stats = this.stats;
+    if (!stats || !player || stats.invulnerable || player.isStunned || player.isSwimming || player.action === 'dormir') return;
+    if (stats.salud <= ATAQUE.saludMinima) return;
+    if (sp.position.distanceTo(player.position) > ATAQUE.alcance + 0.4) return;
+    if (!hasClearCombatLine({ from: sp.position, to: player.position, collisions: player._lastCollisions })) return;
+    const damage = Math.round(ATAQUE.danoMin + Math.random() * (ATAQUE.danoMax - ATAQUE.danoMin));
+    stats.salud = Math.max(ATAQUE.saludMinima, stats.salud - damage);
+    this._respiro = ATAQUE.respiro;
+    this.audio?.playThud?.();
+    player.receiveHit?.(player.position.clone().sub(sp.position), 1.6, { salud: stats.salud });
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('toast', { detail: { text: `Un hombre sombra me golpeó: −${damage} de salud.`, type: 'death' } }));
+    }
+  }
+
+  /** Persigue y golpea. Devuelve sin hacer nada si el jugador no es un blanco válido. */
+  _updateShadowMan(sp, dt, playerPos) {
+    const dx = playerPos.x - sp.position.x, dz = playerPos.z - sp.position.z;
+    const dist = Math.hypot(dx, dz);
+    if (dist > ATAQUE.rendicion) { sp.dissolving = true; return; }
+    const y = this.world?.active?.getGroundHeight?.(sp.position.x, sp.position.z) ?? sp.baseY;
+    sp.baseY = y;
+    if (sp.fase === 'acercando') {
+      if (dist > ATAQUE.alcance * 0.8) {
+        const step = Math.min(dist, ATAQUE.velocidad * dt) / dist;
+        sp.position.x += dx * step;
+        sp.position.z += dz * step;
+      }
+      if (dist <= ATAQUE.alcance) { sp.fase = 'preparando'; sp.espera = ATAQUE.preparacion; }
+    } else if (sp.fase === 'preparando') {
+      sp.espera -= dt;
+      if (dist > ATAQUE.alcance + 0.8) sp.fase = 'acercando';
+      else if (sp.espera <= 0 && this._respiro <= 0) {
+        this._hurtPlayer(sp);
+        sp.fase = 'enfriando'; sp.espera = ATAQUE.enfriamiento;
+      }
+    } else {
+      sp.espera -= dt;
+      if (sp.espera <= 0) sp.fase = 'acercando';
+    }
+  }
+
   _clearShadowPeople() {
     for (const sp of this.shadowPeople) {
       this.scene?.remove(sp.group);
@@ -171,6 +254,7 @@ export class PsychosisSystem {
       });
     }
     this.shadowPeople = [];
+    if (this.player) this.player.extraMeleeTargets = null;
   }
 
   /**
@@ -178,9 +262,11 @@ export class PsychosisSystem {
    * intensidad (0 a 1). Un segundo consumo alarga la que ya está.
    */
   induce(seconds, severity = 0.7) {
+    const dosis = (this.induced?.dosis ?? 0) + 1;
     this.induced = {
       left: Math.max(this.induced?.left ?? 0, seconds),
-      severity: Math.max(this.induced?.severity ?? 0, severity)
+      severity: Math.min(1, Math.max(this.induced?.severity ?? 0, severity) + (dosis > 1 ? 0.08 : 0)),
+      dosis
     };
     // los primeros susurros y frases llegan enseguida
     this.whisperTimer = Math.min(this.whisperTimer, 1.5);
@@ -188,7 +274,7 @@ export class PsychosisSystem {
   }
 
   /** Corta la paranoia inducida (dormir, morir, recuperarse) */
-  clearInduced() { this.induced = null; }
+  clearInduced() { this.induced = null; this.ataque = false; }
 
   /**
    * Actualiza el sistema de psicosis y alucinaciones por abstinencia o por consumo.
@@ -208,8 +294,10 @@ export class PsychosisSystem {
       if (this.active) {
         this.active = false;
         this._clearShadowPeople();
+        this.ataque = false;
+        this._ataquePuesto = false;
         if (typeof document !== 'undefined') {
-          this.overlayEl?.classList.remove('active');
+          this.overlayEl?.classList.remove('active', 'sombras');
           document.body?.classList.remove('voces');
         }
         this._capasPuestas = false;
@@ -223,6 +311,23 @@ export class PsychosisSystem {
 
     this.active = true;
     const severity = Math.max(fromWithdrawal ?? 0, fromDrug ?? 0); // 0 a 1
+
+    // Nivel alto: varias dosis seguidas. No arranca en los últimos 8 s, cuando la paranoia ya se apaga.
+    const ataque = this.induced != null && this.induced.dosis >= ATAQUE.dosis && this.induced.left > 8;
+    if (ataque && !this.ataque) {
+      this._esperaAtaque = 2;
+      this._respiro = 0;
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('toast', { detail: { text: 'Los hombres sombra vienen por mí.', type: 'warn' } }));
+      }
+    }
+    this.ataque = ataque;
+    this._esperaAtaque -= dt;
+    this._respiro -= dt;
+    if (typeof document !== 'undefined' && this._ataquePuesto !== ataque) {
+      this.overlayEl?.classList.toggle('sombras', ataque);
+      this._ataquePuesto = ataque;
+    }
 
     // 1. La escena se oscurece por los bordes y el HUD se corre un poco. Sin filtros: la urgencia la dan las voces.
     // Se pone una vez: escribirlo en cada cuadro le pega al navegador aunque no cambie nada.
@@ -265,7 +370,17 @@ export class PsychosisSystem {
       // lados o detrás de la cámara: de reojo.
       const camera = cameraRig?.camera;
       if (camera) camera.getWorldDirection(_forward);
-      if (this.shadowPeople.length < 3 && Math.random() < 0.025) {
+      if (this.ataque && this._esperaAtaque <= 0 && this.shadowPeople.filter((sp) => sp.ataca && !sp.dissolving).length < ATAQUE.maxSimultaneos) {
+        const angle = Math.random() * Math.PI * 2;
+        const [min, max] = ATAQUE.distancia;
+        const dist = min + Math.random() * (max - min);
+        const spawnX = playerPos.x + Math.cos(angle) * dist;
+        const spawnZ = playerPos.z + Math.sin(angle) * dist;
+        const spawnY = this.world?.active?.getGroundHeight?.(spawnX, spawnZ) ?? 0;
+        const hombre = this._createShadowMan(new THREE.Vector3(spawnX, spawnY, spawnZ));
+        if (hombre) { this.shadowPeople.push(hombre); this._esperaAtaque = 1.5; }
+      }
+      if (this.shadowPeople.filter((sp) => !sp.ataca).length < 3 && Math.random() < 0.025) {
         const sideways = fromDrug != null && camera;
         const angle = sideways
           ? Math.atan2(_forward.z, _forward.x) + (Math.random() < 0.5 ? 1 : -1) * (Math.PI / 2 + Math.random() * Math.PI / 2)
@@ -282,10 +397,13 @@ export class PsychosisSystem {
       for (let i = this.shadowPeople.length - 1; i >= 0; i--) {
         const sp = this.shadowPeople[i];
         sp.lifetime -= dt;
+        if (sp.ataca && !this.ataque) sp.dissolving = true;
+        else if (sp.ataca && !sp.dissolving) this._updateShadowMan(sp, dt, playerPos);
 
         // Flota meciéndose y mira al jugador
         if (!sp.dissolving) sp.group.position.y = sp.baseY + 0.15 + Math.sin(performance.now() * 0.0013 + sp.phase) * 0.08;
         sp.group.lookAt(playerPos.x, sp.position.y + 1.6, playerPos.z);
+        if (sp.fase === 'preparando') sp.group.rotateX(0.5 * Math.sin(Math.min(1, 1 - sp.espera / ATAQUE.preparacion) * Math.PI));
 
         const distToPlayer = sp.position.distanceTo(playerPos);
         // Si el jugador se acerca demasiado, la sombra expira o la mira de frente un momento, se desvanece
@@ -293,7 +411,7 @@ export class PsychosisSystem {
           _toGhost.copy(sp.position).setY(sp.position.y + 1.4).sub(camera.position).normalize();
           sp.stared = _toGhost.dot(_forward) > 0.985 ? (sp.stared ?? 0) + dt : 0;
         }
-        if (distToPlayer < 5.5 || sp.lifetime <= 0 || sp.stared > 1) {
+        if (sp.lifetime <= 0 || (!sp.ataca && (distToPlayer < 5.5 || sp.stared > 1))) {
           sp.dissolving = true;
         }
 
@@ -316,6 +434,11 @@ export class PsychosisSystem {
           }
         }
       }
+    }
+
+    if (this.player) {
+      const blancos = this.shadowPeople.filter((sp) => sp.ataca && !sp.dissolving);
+      this.player.extraMeleeTargets = blancos.length ? blancos : null;
     }
 
     // 4b. El personaje mira nervioso a los lados y voltea hacia la sombra más cercana
