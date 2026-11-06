@@ -142,7 +142,7 @@ endif()
 
 add_executable(bazuko
     src/main.cpp
-    src/audio/AudioManager.cpp
+    src/audio/AudioManager.cpp src/audio/SubstanceSynth.cpp
     src/core/Window.cpp src/core/Input.cpp src/core/Paths.cpp
     src/renderer/Buffer.cpp src/renderer/VertexArray.cpp src/renderer/Shader.cpp
     src/renderer/Mesh.cpp src/renderer/Camera.cpp src/renderer/Renderer.cpp
@@ -247,6 +247,11 @@ add_test(NAME bazuko_substanceeffects COMMAND bazuko_substanceeffects_test)
 add_executable(bazuko_pipe_test tests/PipeTest.cpp)
 target_include_directories(bazuko_pipe_test PRIVATE src)
 add_test(NAME bazuko_pipe COMMAND bazuko_pipe_test)
+
+# Sonidos de las sustancias (sintesis del original); solo DSP
+add_executable(bazuko_substancesynth_test tests/SubstanceSynthTest.cpp src/audio/SubstanceSynth.cpp)
+target_include_directories(bazuko_substancesynth_test PRIVATE src)
+add_test(NAME bazuko_substancesynth COMMAND bazuko_substancesynth_test)
 
 # Fumar un cigarrillo o un porro: tiempos y reglas del original; solo logica
 add_executable(bazuko_smoking_test tests/SmokingTest.cpp)

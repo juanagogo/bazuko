@@ -5,7 +5,7 @@ Hay dos grupos: lo **anterior a la base del port** que nunca se pasó a C++ (fum
 
 El port ya tiene: abstinencia y psicosis por vicio (`Simulation::UpdatePsychosis`), dealer, GPS a pie, radar, mapa grande y radio sintetizada.
 
-## 1. Fumar y drogarse (28 de octubre en adelante) — **cigarrillo y porro hechos; faltan la pipa de basuco y los efectos de las sustancias**
+## 1. Fumar y drogarse (28 de octubre en adelante) — **hecho en el port**
 
 | Qué | En el original | En el port |
 |---|---|---|
@@ -24,6 +24,14 @@ al nadar, saltar o recibir un golpe; probado en `bazuko_smoking_test`), `charact
 al usar el objeto del costal o la barra rápida («Prendí un cigarrillo», «Ya tengo uno prendido.», «Se acabó el porro.»). `BAZUKO_PREVIEW_SMOKE=cigarrillo|hierba` con `BAZUKO_PREVIEW_TIME=<s>` fija la calada
 para capturas. El evento `substance-consumed` del porro ya se emite en cada calada (registrado con `BAZUKO_LOG_AUDIO=1`); **falta conectarlo a los efectos de visión**, que es el siguiente paso.
 Aún no se ve fumar a los otros jugadores en el multijugador.
+
+**Estado en el port (pipa, efectos y sonido):** `character/Pipe.hpp` y `PipePose.hpp` (el basuco en pipa: agacharse, prender con el encendedor, aspirar y botar el humo; se queda quieto 5 s y el efecto llega a los 4,1 s; la pose
+`BASUCO_POSE` con los ángulos del original; probado en `bazuko_pipe_test`), `effects/SubstanceEffects.*` (las cuatro recetas con sus tiempos: subida de 3 s, bajada de 6 s, desvanecido de 1 s en cortes y reemplazos; probado en
+`bazuko_substanceeffects_test`), el filtro de color, la capa y la estela en `present.frag` (desenfoque, sepia, tono, saturación, brillo y contraste en el orden de CSS; capas `overlay`, `multiply` y `soft-light`; estela de media resolución),
+el movimiento de cámara de cada sustancia sumado al de la psicosis, la paranoia inducida del basuco (`induce`: 50 s a severidad 0,8, se apaga en los últimos 8 s) y `audio/SubstanceSynth.*` (los sonidos de consumir y las capas
+sostenidas, sintetizados con las mismas ondas, ruidos, filtros y envolventes del original; el pegante cierra los agudos de todo el juego menos de estos sonidos con un filtro entre un grupo maestro y los parlantes; probado en
+`bazuko_substancesynth_test`). Con `BAZUKO_PREVIEW_SUBSTANCE=<id>`, `BAZUKO_PREVIEW_BASUCO=1` y `BAZUKO_PREVIEW_TIME=<s>` se fijan los efectos para capturas. **Sin verificar al oído**; en calidad baja no hay desenfoque ni estela.
+También se adaptó la psicosis a lo nuevo del original: la cámara respira a 0,48 Hz y se quitó el filtro de color.
 
 ## 2. Voces de la calle (4 de noviembre) — **hecho en el port**
 
@@ -59,7 +67,7 @@ el cartel de zona bajo la tarjeta de la misión (3,4 s) y la vía bajo el plano 
 
 1. ~~**Voces de la calle**~~ (hecho).
 2. ~~**Zona al entrar y vía bajo el radar**~~ (hecho).
-3. ~~**Fumar** (cigarrillo y porro: props, calada, humo)~~ (hecho; falta la pipa de basuco).
+3. ~~**Fumar** (cigarrillo y porro: props, calada, humo)~~ (hecho, con la pipa de basuco).
 4. **Efectos de las sustancias** (posproceso, recetas, sonido), incluidos pastilla, pegante, hierba y basuco con pipa.
 5. **Tráfico por hora y densidad** en la pausa, y la regla de sirenas.
 6. Lo demás (radio en vivo, guardar archivo) si se quiere.

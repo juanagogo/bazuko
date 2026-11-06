@@ -1100,7 +1100,12 @@ int main(int argc, char** argv) {
             renderer.SetSubstanceLook(substanceFrame.look);
             cameraFov += substanceFrame.cameraFovDegrees;
             cameraRoll += substanceFrame.cameraRollRadians;
-            for (const SubstanceEffects::SoundEvent& event : substanceEffects.ConsumeSoundEvents()) { (void)event; }   // el sonido de consumo y la capa sostenida (siguiente paso)
+            for (const SubstanceEffects::SoundEvent& event : substanceEffects.ConsumeSoundEvents()) {   // el sonido de consumir y la capa que acompana el efecto (audio/SubstanceSynth.hpp)
+                if (event.kind == SubstanceEffects::SoundEvent::Kind::Onset) audio.PlaySubstanceOnset(event.id);
+                else if (event.kind == SubstanceEffects::SoundEvent::Kind::StartSustain) audio.StartSubstanceSustain(event.id);
+                else audio.StopSubstanceSustain();
+            }
+            audio.UpdateSubstance(substanceFrame.intensity, ui.IsPaused());
         }
         camera.SetPsychosisFovOffset(cameraFov);
         camera.SetPsychosisRoll(cameraRoll);

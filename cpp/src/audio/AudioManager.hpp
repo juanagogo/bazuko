@@ -40,6 +40,12 @@ public:
     void PlayCarAlarm(float distance);
     // Frases de la calle (ver StreetVoices.hpp): una a la vez y nunca encima de un robo o un conductor. PlayStreetVoice devuelve cuantos segundos dura
     // (0 si no pudo sonar); `distanceVolume` ya trae la caida por distancia (0..1) y aqui se multiplica por la mezcla de «Voces».
+    // Sonidos de los efectos de consumo (SubstanceSynth.hpp): lo que suena al consumir (aunque el juego este en pausa) y la capa que acompana el efecto, cuyo
+    // volumen sigue la intensidad. Con el pegante se cierran los agudos de todo el juego menos de estos sonidos, para que el pitido de oidos no quede ahogado.
+    void PlaySubstanceOnset(const std::string& id);
+    void StartSubstanceSustain(const std::string& id);
+    void StopSubstanceSustain();
+    void UpdateSubstance(float intensity, bool paused);
     float PlayStreetVoice(size_t clip, float distanceVolume);
     void SetStreetVoiceVolume(float distanceVolume);
     void StopStreetVoice();
