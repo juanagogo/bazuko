@@ -194,6 +194,8 @@ body.mojado :is(#menu, #inv-overlay, #craft-panel, #talent-panel, #dealer-panel)
   :where(#menu) .sign--wide .menu__title { font-size: 44px; }
   .pause-tab { padding-inline: 22px; font-size: 22px; }
   .pause-settings { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  /* A dos columnas, la del medio ocupa las dos filas: Radar sube bajo Sonido en vez de esperar a que acabe. */
+  .pause-settings > :nth-child(2) { grid-row: span 2; }
   .pause-controls { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 

@@ -291,6 +291,8 @@ function settingsPanel(game) {
       section('save', 'La partida',
         row('Copiarla a un archivo', button('Exportar', { onClick: () => game.exportarPartida?.() })),
         row('Volver a una copia', button('Importar', { onClick: () => game.importarPartida?.() })))),
+    // Radar y Pantalla van en una misma columna: suelta, Pantalla caía a otra fila y dejaba un hueco bajo Sonido.
+    el('div', { class: 'pause-settings__col' },
     section('arrow', 'Radar y GPS',
       row('Radar', choice(minimap?.visible ? 'Visible (N)' : 'Oculto (N)', !!minimap?.visible,
         () => { minimap?.toggle(); game.menu.refresh(); })),
@@ -304,7 +306,7 @@ function settingsPanel(game) {
         button([icon('eye', { size: 18 }), enPantallaCompleta() ? 'Salir de pantalla completa' : 'Pantalla completa'], {
           disabled: !puedePantallaCompleta(),
           onClick: () => alternarPantallaCompleta()
-        }))));
+        })))));
 }
 
 function controlsPanel() {
