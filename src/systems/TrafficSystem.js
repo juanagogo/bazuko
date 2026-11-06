@@ -1,5 +1,7 @@
 import * as THREE from 'three';
 import { Car } from '../entities/Car.js';
+import { Moto } from '../entities/Moto.js';
+import { MOTO_COLORS, MOTO_LATERAL, MOTO_LAYOUTS, MOTO_VARIANTS, MotoFleet } from '../world/bogota/motos.js';
 import { signalState } from '../world/bogota/TrafficSignals.js';
 import {
   PLAYER_RADIUS,
@@ -12,7 +14,7 @@ import {
 } from '../utils/constants.js';
 import { SpatialGrid } from '../core/SpatialGrid.js';
 import { canReachCombatTarget, hasClearCombatLine } from './CombatGeometry.js';
-import { trafficTargetVehicles } from './trafficDensity.js';
+import { motoThreshold, trafficTargetVehicles } from './trafficDensity.js';
 
 /** Cada nivel de «te tienen fichado» alarga en esta fracción el alcance con que una patrulla ve un robo. */
 export const POLICE_SIGHT_PER_WANTED = .25;
@@ -28,6 +30,11 @@ const SIGHT_CHECK_INTERVAL = .25;
 const CHASE_SIGHT_HEIGHT = 2.5;
 
 const GAP = 1.8;
+/** Las motos se aprietan más en la cola: son cortas y frenan mejor. */
+const MOTO_GAP = 1.1;
+// Separación lateral a partir de la cual dos vehículos no se estorban en la distancia del circuito: por debajo de
+// esto la caja de la moto (0,72) sí toca la de un carro (1,6), que es lo que mide el margen de `_carInPath`.
+const LANE_SEPARATION = 1.31;
 const ACCELERATION = 1.8;
 const BRAKING = 2;
 const CHASE_ACCELERATION = 3.2;
@@ -79,6 +86,8 @@ export class TrafficSystem {
     this.scene = scene;
     // Sin nivel la flota no cambia de tamaño: el reloj y la densidad los pone el juego, no las pruebas.
     this.densityId = null;
+    // Cada cuántos vehículos sale una moto del conteo; la hora lo ajusta en `update`.
+    this._motoThreshold = motoThreshold(12);
     this.onVehicleAdded = null;
     this.onVehicleRemoved = null;
     this._resizeCredit = 0;
@@ -137,21 +146,43 @@ export class TrafficSystem {
   _spawn(scene, route, distance, police) {
     const random = this.random;
     route.sample(distance, this._position, this._direction);
-    // La flota sale por conteo y no gasta azar: una de cada doce es buseta, tres de cada diez taxi. Con huellas
-    // distintas por modelo, el mismo azar da así siempre el mismo tráfico.
+    // La flota sale por conteo y no gasta azar: una de cada doce es buseta, tres de cada diez taxi y una tajada son
+    // motos, que suben en las horas pico. Con huellas distintas por modelo, el mismo azar da así siempre el mismo tráfico.
     const count = this._spawnCount = (this._spawnCount ?? 0) + 1;
     const buseta = !police && count % 12 === 0;
-    const kind = police ? 'police' : buseta ? 'buseta' : count * 7 % 10 < 3 ? 'taxi' : 'carro';
-    const car = new Car(scene, this._position, Math.atan2(-this._direction.z, this._direction.x),
-      { traffic: true, kind, variant: count * 37 });
+    const moto = !police && !buseta && count % 10 >= this._motoThreshold;
+    const kind = police ? 'police' : buseta ? 'buseta' : moto ? 'moto' : count * 7 % 10 < 3 ? 'taxi' : 'carro';
+    const rotation = Math.atan2(-this._direction.z, this._direction.x);
+    // La moto nace ya en su franja, para no saltar al primer cuadro.
+    if (moto) this._lateral(this._position, this._direction, MOTO_LATERAL);
+    const car = moto ? this._newMoto(count, rotation)
+      : new Car(scene, this._position, rotation, { traffic: true, kind, variant: count * 37 });
     const cruiseSpeed = (10 + random() * 4) * (buseta ? .8 : 1);
     const vehicle = { car, route, distance, speed: 0, cruiseSpeed, patrolSpeed: cruiseSpeed, nextDistance: distance, nextSpeed: 0,
-      acceleration: 0, accelerationLimit: 1.8 + random() * .7, braking: 2.2 + random() * .6,
-      reactionTime: .18 + random() * .35, resumeDelay: 0, stopped: false,
+      acceleration: 0, accelerationLimit: moto ? 3 + random() * .8 : 1.8 + random() * .7, braking: moto ? 2.8 + random() * .6 : 2.2 + random() * .6,
+      reactionTime: moto ? .1 + random() * .2 : .18 + random() * .35, resumeDelay: 0, stopped: false,
       routeTimer: 3 + random() * 5, recentRoutes: [route.key], routeChanges: 0,
       lastHonkTime: 0, police, state: 'patrol', chaseTime: 0 };
+    // Las motos van por su franja y tienen el hueco de frenado corto, para apretarse en la cola.
+    if (moto) { vehicle.lateral = MOTO_LATERAL; vehicle.gap = MOTO_GAP; }
     this.vehicles.push(vehicle);
     return vehicle;
+  }
+
+  /** Una moto del lote: variante, puestos ocupados y casco de cada persona salen del conteo, sin gastar azar. */
+  _newMoto(count, rotation) {
+    const variant = count % MOTO_VARIANTS.length;
+    const layouts = MOTO_LAYOUTS[MOTO_VARIANTS[variant]];
+    const layout = layouts[count % layouts.length];
+    const occupancy = [false, false, false], helmets = [false, false, false];
+    for (const seat of layout) occupancy[seat] = true;
+    // El casco se sortea por persona, sin regla que obligue a ninguno.
+    helmets[0] = count % 2 === 0;
+    helmets[1] = (count * 5 >> 1) % 2 === 0;
+    helmets[2] = (count * 5 >> 2) % 2 === 0;
+    const moto = new Moto(this._position, rotation, { variant, occupancy, helmets, color: MOTO_COLORS[count % MOTO_COLORS.length] });
+    this._motoFleet ??= new MotoFleet(this.scene);
+    return moto;
   }
 
   /** Nivel de densidad elegido por el jugador. Sin nivel la flota se queda como la dejó el constructor. */
@@ -644,7 +675,7 @@ export class TrafficSystem {
     route.sample(vehicle.distance + .65, this._visualPosition, this._visualDirection);
     const heading = Math.atan2(-this._visualDirection.z, this._visualDirection.x);
     const curve = Math.atan2(Math.sin(heading - yaw), Math.cos(heading - yaw)) / .65;
-    context.steering = Math.atan(curve * (car.vehicle.wheelbase ?? car.length * .58));
+    context.steering = Math.atan(curve * (car.vehicle?.wheelbase ?? car.length * .58));
     route.sample(vehicle.distance + Math.max(6, speed * 1.3), this._visualPosition, this._visualDirection);
     const ahead = Math.atan2(-this._visualDirection.z, this._visualDirection.x);
     const turn = Math.atan2(Math.sin(ahead - yaw), Math.cos(ahead - yaw));
@@ -948,6 +979,7 @@ export class TrafficSystem {
   _clearance(vehicle, player, pedestrians) {
     if (!this._updating) this._buildSpatialIndex(pedestrians);
     const { route, car, distance, speed } = vehicle;
+    const lateral = vehicle.lateral ?? 0, followGap = vehicle.gap ?? GAP;
     vehicle.personBlocked = false;
     vehicle.playerClearance = Infinity;
     const finish = hardClearance => {
@@ -957,8 +989,12 @@ export class TrafficSystem {
     let clearance = Infinity;
     for (const other of this._routeVehicles.get(route) ?? []) {
       if (other === vehicle || other.route !== route) continue;
-      const gap = (other.distance - distance + route.length) % route.length;
-      clearance = Math.min(clearance, Math.max(0, gap - (car.length + other.car.length) / 2 - GAP));
+      // Cada franja es su propia línea: dos que van a carriles distintos no se estorban en la distancia del circuito,
+      // y quien se acerca a la franja ajena ya lo frena el hueco físico de `_carInPath`. Sin esto, el carro que ve
+      // pasar una moto frena hasta parar, porque el hueco se mide solo sobre el carril.
+      if (Math.abs(lateral - (other.lateral ?? 0)) > LANE_SEPARATION) continue;
+      const ahead = (other.distance - distance + route.length) % route.length;
+      clearance = Math.min(clearance, Math.max(0, ahead - (car.length + other.car.length) / 2 - followGap));
     }
     // Mira también alrededor de los giros; no solo en línea recta frente al carro.
     const lookAhead = Math.max(7, speed * speed / (2 * (vehicle.braking ?? BRAKING)) + speed * .8 + 2);
@@ -991,6 +1027,8 @@ export class TrafficSystem {
     for (let ahead = 0; ahead <= Math.min(lookAhead, clearance); ahead += PROBE_STEP) {
       route.sample(distance + ahead, this._probePosition, this._probeDirection);
       if (this.signals?.blocks(this._probePosition, signalDirection, car.position, car.length, vehicle)) return finish(Math.max(0, ahead - PROBE_STEP));
+      // El semáforo se mira sobre el carril: la franja de la moto no puede dejar el cruce fuera de su alcance.
+      if (lateral) this._lateral(this._probePosition, this._probeDirection, lateral);
       if (player && vehicle.playerClearance === Infinity && this._personInCar(player, car)) {
         vehicle.personBlocked ||= ahead <= 10;
         vehicle.playerClearance = Math.max(0, ahead - PROBE_STEP);
@@ -1004,6 +1042,12 @@ export class TrafficSystem {
       }
     }
     return finish(clearance);
+  }
+
+  /** Corre un punto a la franja de la moto. Sin esto el hueco se mide sobre el carril y la moto no pasa la cola. */
+  _lateral(position, direction, lateral) {
+    position.x += direction.z * lateral;
+    position.z -= direction.x * lateral;
   }
 
   _buildSpatialIndex(pedestrians) {
@@ -1034,6 +1078,7 @@ export class TrafficSystem {
       const samples = Math.max(1, Math.ceil(travel / .2));
       for (let index = 0; index <= samples; index++) {
         vehicle.route.sample(startDistance + travel * index / samples, this._probePosition, this._probeDirection);
+        if (vehicle.lateral) this._lateral(this._probePosition, this._probeDirection, vehicle.lateral);
         if (Math.abs(player.y - this._probePosition.y) > 1.8) continue;
         const dx = player.x - this._probePosition.x, dz = player.z - this._probePosition.z;
         const front = dx * this._probeDirection.x + dz * this._probeDirection.z;
@@ -1218,6 +1263,7 @@ export class TrafficSystem {
     const view = this._viewPosition;
     if (camera?.position) view.copy(camera.position);
     else if (player) view.copy(player);
+    if (Number.isFinite(hour)) this._motoThreshold = motoThreshold(hour);
     if (this.densityId && Number.isFinite(hour)) this._resizeFleet(hour, dt);
     this._updateLod();
     this._clearStuck(dt);
@@ -1313,12 +1359,15 @@ export class TrafficSystem {
         vehicle.speed = vehicle.nextSpeed;
         this._checkPlayerImpact(vehicle, player, startDistance, travel, onPlayerHit);
         vehicle.route.sample(vehicle.distance, this._position, this._direction);
+        // La moto vive en su franja: la colisión, la sombra y el aviso la siguen ahí, no en el carril.
+        if (vehicle.lateral) this._lateral(this._position, this._direction, vehicle.lateral);
         vehicle.car.position.copy(this._position);
         vehicle.car.group.rotation.y = Math.atan2(-this._direction.z, this._direction.x);
         this._animateRoute(vehicle, travel, stepTime, previousSpeed);
       }
       remaining -= stepTime;
     }
+    this._motoFleet?.sync(this.vehicles);
     if (caught && !this._arrestDispatched) {
       this._arrestDispatched = true;
       emit('police-arrest', { reason: 'chase' });
@@ -1329,5 +1378,7 @@ export class TrafficSystem {
     this.signals?.reservations?.clear();
     for (const { car } of this.vehicles) car.dispose();
     this.vehicles.length = 0;
+    this._motoFleet?.dispose();
+    this._motoFleet = null;
   }
 }

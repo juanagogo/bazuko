@@ -43,3 +43,18 @@ export function trafficHourFactor(hour) {
 export function trafficTargetVehicles(hour, densityId) {
   return Math.round(trafficDensityMidday(densityId) * trafficHourFactor(hour));
 }
+
+// Las motos son una tajada grande de la flota y todavía mayor en las horas pico, cuando el carro se deja quieto.
+const MOTO_SHARE_BASE = .3, MOTO_SHARE_PEAK = .4;
+
+/** Fracción de la flota que va en moto a esa hora. */
+export function motoShare(hour) {
+  // La curva diaria va de .3 en la madrugada a 1.6 en el pico: se lleva a 0..1 y las motos suben con ella.
+  const factor = Math.min(1, Math.max(0, (trafficHourFactor(hour) - .3) / 1.3));
+  return MOTO_SHARE_BASE + (MOTO_SHARE_PEAK - MOTO_SHARE_BASE) * factor;
+}
+
+/** De cada diez vehículos del conteo, desde cuál sale una moto. Sin azar: el tráfico reparte sus modelos con él. */
+export function motoThreshold(hour) {
+  return Math.round(10 * (1 - motoShare(hour)));
+}

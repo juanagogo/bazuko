@@ -4,7 +4,8 @@ import { beforeEach, mock, test } from 'node:test';
 import * as THREE from 'three';
 import * as textures from '../src/world/bogota/textures.js';
 import { TrafficRoute } from '../src/world/bogota/TrafficRoute.js';
-import { trafficTargetVehicles } from '../src/systems/trafficDensity.js';
+import { trafficTargetVehicles, motoShare } from '../src/systems/trafficDensity.js';
+import { MOTO_LATERAL } from '../src/world/bogota/motos.js';
 
 beforeEach(() => { globalThis.window = new EventTarget(); });
 
@@ -133,6 +134,29 @@ test('el tráfico recorre vueltas completas, gira las ruedas y mantiene la dista
     car.update(1000);
     assert.equal(car.marker.visible, false, 'Un carro de tráfico no muestra el marcador de estacionado');
   }
+  traffic.dispose();
+});
+
+test('una moto se cuela por su franja y pasa el carro parado del carril', () => {
+  const scene = new THREE.Scene();
+  const route = new TrafficRoute(0, 600, 0, 90);
+  const traffic = new TrafficSystem(scene, [route], { carsPerRoute: 0, random: () => .5 });
+  // El conteo decide el tipo sin gastar azar: 7 es moto y 10 es carro.
+  traffic._spawnCount = 6;
+  const moto = traffic._spawn(scene, route, 20, false);
+  assert.equal(moto.car.isMoto, true);
+  traffic._spawnCount = 9;
+  const car = traffic._spawn(scene, route, 30, false);
+  assert.ok(!car.car.isMoto, 'El décimo del conteo sigue siendo carro');
+  car.cruiseSpeed = 0;
+  for (let frame = 0; frame < 400; frame++) traffic.update(.1);
+  assert.ok(car.speed < .1, `El carro parado se movió a ${car.speed}`);
+  const behind = (car.distance - moto.distance + route.length) % route.length;
+  assert.ok(behind > route.length / 2, `La moto quedó ${behind} m por detrás del carro`);
+  // Y la franja es la suya: a un lado del carril, no encima del carro.
+  route.sample(moto.distance, traffic._position, traffic._direction);
+  const gap = Math.hypot(moto.car.position.x - traffic._position.x, moto.car.position.z - traffic._position.z);
+  assert.ok(Math.abs(gap - MOTO_LATERAL) < .01, `Franja a ${gap.toFixed(2)} m`);
   traffic.dispose();
 });
 
@@ -304,7 +328,9 @@ test('cada carro cambia de recorrido sin teletransportarse, invertir rumbo ni au
     const positions = traffic.vehicles.map(vehicle => vehicle.car.position.clone());
     traffic.update(.1);
     traffic.vehicles.forEach((vehicle, index) => {
-      assert.ok(vehicle.car.position.distanceTo(positions[index]) <= vehicle.cruiseSpeed * .1 + 1e-6);
+      // La moto va por su franja, a un lado del carril: en el giro su cuerpo recorre un arco algo mayor que la línea.
+      const limit = vehicle.cruiseSpeed * .1 * (1 + (vehicle.lateral ?? 0) / 3.2) + 1e-6;
+      assert.ok(vehicle.car.position.distanceTo(positions[index]) <= limit);
       assert.ok(Number.isFinite(vehicle.distance));
     });
   }
