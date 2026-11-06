@@ -406,7 +406,7 @@ export class Npc {
 
   // Dirección de huida: alejarse del origen del susto
   _fleeFrom(origin) {
-    if (!this.koState) this.fleeTimer = 8;
+    if (!this.koState) { this.fleeTimer = 8; this._yelp(); }
     this.target = null;
     this.route = [];
     this._blocks = 0;
@@ -422,6 +422,23 @@ export class Npc {
       this.fleeDir.set(Math.cos(angle), 0, Math.sin(angle));
     }
     this._setFleeAway(this.fleeDir.x, this.fleeDir.z);
+  }
+
+  /** Un quejido corto al asustarse; cada persona espera 8 s para el siguiente y el audio limita cuántos suenan juntos. */
+  _yelp() {
+    const now = performance.now();
+    if (now - (this._lastYelp ?? -1e9) < 8000 || typeof window === 'undefined') return;
+    this._lastYelp = now;
+    window.dispatchEvent(new CustomEvent('npc-yelp', { detail: { distance: this._playerDist } }));
+  }
+
+  /** Calla de inmediato: borra el globo y su frase. */
+  shutUp() {
+    this._bubbleTimer = 0;
+    if (!this._bubbleEl) return;
+    this._bubbleEl.remove();
+    this._bubbleEl = null;
+    acabarFrase(this);
   }
 
   /** Hacia dónde queda alejarse del susto: se conserva aunque el rumbo cambie al toparse. */
@@ -1067,6 +1084,7 @@ export class Npc {
     this._punchFacing = Math.atan2(-this._lastHit.x, -this._lastHit.z);
     this._combatCollisions = attacker?._lastCollisions ?? this._combatCollisions;
     this.health = Math.max(0, this.health - damage);
+    this.shutUp();
     this.target = null; this.route = []; this.routeIndex = 0; this.wait = 0;
     this._cowering = false;
     this._fleeRouted = false;

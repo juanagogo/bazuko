@@ -8,6 +8,8 @@ export const MIX_CATEGORIES = ['ambient', 'traffic', 'voices', 'effects'];
 // El audio vive en public/audio: la ruta se arma con la base para que la demo de Pages funcione bajo su subcamino.
 const AUDIO_BASE = `${import.meta.env?.BASE_URL ?? '/'}audio/`;
 // Mientras suena una frase, tráfico y ambiente bajan a esta fracción para que se entienda.
+// Más lejos de esto un grito de susto ya no se oye.
+const YELP_RANGE = 35;
 const VOICE_DUCK = .45, DUCK_ATTACK = 10, DUCK_RELEASE = 2.5;
 // Pisadas aisladas de Sounds_of_a_steps.opus (inicio y duración en ms).
 const STEP_SPRITES = { step1: [215, 300], step2: [605, 300], step3: [995, 300], step4: [1385, 300],
@@ -139,6 +141,9 @@ export class AudioSystem {
     };
     globalThis.document?.addEventListener?.('visibilitychange', this._visibilityChanged);
     this._dogBark = () => this.barkDog();
+    this._npcYelp = (event) => this.playYelp(event.detail?.distance);
+    this._yelps = 0;
+    eventTarget?.addEventListener('npc-yelp', this._npcYelp);
     eventTarget?.addEventListener('dog-bark', this._dogBark);
   }
 
@@ -423,6 +428,7 @@ export class AudioSystem {
     this._carAlarms.clear();
     this.streetVoices.clear();
     this.eventTarget?.removeEventListener('dog-bark', this._dogBark);
+    this.eventTarget?.removeEventListener('npc-yelp', this._npcYelp);
     this.eventTarget?.removeEventListener('car-honk', this._carHonk);
     this.vehicles.clear();
     this._removeUnlock();
@@ -445,6 +451,35 @@ export class AudioSystem {
     return { ctx, out: this._effectsBus };
   }
 
+
+  /** Un «ay» o un «uy» corto de quien se asusta: sintetizado, espacial por distancia y máximo tres a la vez. */
+  playYelp(distance = 0) {
+    const fx = this._fx();
+    if (!fx || this._yelps >= 3 || !(distance < YELP_RANGE)) return;
+    try {
+      const { ctx, out } = fx;
+      const t = ctx.currentTime, length = .22 + Math.random() * .16;
+      const base = 300 + Math.random() * 260, uy = Math.random() < .5;
+      const voice = ctx.createOscillator(), vibrato = ctx.createOscillator(), vibratoGain = ctx.createGain();
+      const formant = ctx.createBiquadFilter(), gain = ctx.createGain();
+      voice.type = 'sawtooth';
+      voice.frequency.setValueAtTime(base * 1.15, t);
+      voice.frequency.exponentialRampToValueAtTime(base * (uy ? 1.5 : .8), t + length);
+      vibrato.frequency.value = 22; vibratoGain.gain.value = 9;
+      vibrato.connect(vibratoGain); vibratoGain.connect(voice.frequency);
+      formant.type = 'bandpass'; formant.Q.value = 4;
+      formant.frequency.setValueAtTime(uy ? 400 : 850, t);
+      formant.frequency.linearRampToValueAtTime(uy ? 1900 : 1500, t + length);
+      const volume = .22 * Math.max(0, 1 - distance / YELP_RANGE);
+      gain.gain.setValueAtTime(.001, t);
+      gain.gain.linearRampToValueAtTime(volume, t + .03);
+      gain.gain.exponentialRampToValueAtTime(.001, t + length);
+      voice.connect(formant); formant.connect(gain); gain.connect(out);
+      voice.start(t); vibrato.start(t); voice.stop(t + length + .02); vibrato.stop(t + length + .02);
+      this._yelps++;
+      voice.onended = () => { this._yelps = Math.max(0, this._yelps - 1); };
+    } catch {}
+  }
 
   playFart() {
     const fx = this._fx();
