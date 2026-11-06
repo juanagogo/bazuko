@@ -2599,6 +2599,26 @@ void Simulation::PromoteToHost() {
     }
 }
 
+std::vector<StreetVoiceCandidate> Simulation::StreetVoiceCandidates(const glm::vec3& at, float range) {
+    std::vector<StreetVoiceCandidate> out;
+    for (Pedestrian& p : m_Pedestrians) {
+        if (p.dead || p.departed || p.police || p.aggressive || p.reaction > 0 || p.fleeRemaining > 0.0f || p.bubbleRemaining > 0.0f || p.vehicleIndex >= 0) continue;
+        const float distance = glm::distance(p.position, at);
+        if (distance > range) continue;
+        if (p.netId == 0) { p.netId = m_NextPedestrianId++; if ((p.netId & 0xFFFFu) == 0) p.netId = m_NextPedestrianId++; }   // el mismo identificador estable de la red
+        out.push_back({p.netId, distance});
+    }
+    return out;
+}
+
+void Simulation::PedestrianSay(uint32_t id, const std::string& text, float seconds) {
+    for (Pedestrian& p : m_Pedestrians) {
+        if (p.netId != id) continue;
+        p.bubbleText = text; p.bubbleRemaining = seconds;
+        return;
+    }
+}
+
 void Simulation::GuestExtrapolate(float dt) {
     m_GuestSyncAge += dt;
     if (m_GuestSyncAge > 1.0f) return;   // sin noticias del anfitrion: se queda quieto en vez de seguir de largo

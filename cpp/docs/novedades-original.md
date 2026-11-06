@@ -18,17 +18,24 @@ El port ya tiene: abstinencia y psicosis por vicio (`Simulation::UpdatePsychosis
 
 Esfuerzo estimado: **grande** (1 a 2 semanas): animación del brazo y la pipa, props, humo, posproceso con estela, recetas y sonido, más pruebas.
 
-## 2. Voces de la calle (4 de noviembre)
+## 2. Voces de la calle (4 de noviembre) — **hecho en el port**
 
 * `src/systems/StreetVoices.js` y cinco grabaciones nuevas en `public/audio/`: `calle_las_mejores_carechimba.mp3`, `calle_pirobito.mp3`, `calle_enano_gonorrea.mp3`, `calle_medallo.mp3`, `calle_un3snacional.mp3` (ya están en `origin/main`; hay que traerlas a `cpp/public`).
 * Reglas: suena de quien está a menos de 18 m (volumen pleno hasta 5 m), **una a la vez**, enfriamiento de 25 s por persona y de 50 s por grabación, 6 a 13 s entre frases, elige entre los 4 más cercanos, no habla si hay otra voz (robo o conductor), la burbuja de conversación muestra el texto, tráfico y ambiente bajan mientras suena, y respeta el volumen de «Voces» y el silencio general.
 * En el port ya existen burbujas (`Pedestrian::bubbleText`), voces de robo y de conductores y la mezcla por categoría: es la tarea **más pequeña** (un día).
 
-## 3. Mapa y radar (4 de noviembre)
+**Estado en el port:** `audio/StreetVoices.hpp` (reglas: 18 m, una a la vez, enfriamientos por persona y por grabación, los 4 más cercanos; probadas en `bazuko_streetvoices_test`), cinco `mp3` en `public/audio/`,
+`AudioManager::PlayStreetVoice` (cede ante un robo o un conductor, baja el tráfico y el ambiente, respeta «Voces» y el silencio) y la burbuja de quien habla (`Simulation::PedestrianSay`).
+Con `BAZUKO_LOG_AUDIO=1` el juego escribe cuándo habla alguien. Con el mundo compartido cada jugador oye las voces de la calle de su propia copia.
+
+## 3. Mapa y radar (4 de noviembre) — **hecho en el port**
 
 * `src/ui/ZonaAviso.js`: cartel de cartón con el **nombre de la zona** al entrar a una nueva (3,4 s) y la **vía actual bajo el radar** (se revisa cada 0,4 s, con el mismo predicado que nombra la calle donde se muere o lo arrestan). Zonas: El Cartucho, Parque Tercer Milenio, La Candelaria, Chapinero, El centro, Los barrios y el lago con su propio nombre.
 * En el port: el radar y el mapa grande existen, pero no hay zonas con nombre ni la calle bajo el radar; hay que exponer una función «zona de este punto» (el original usa `Bogota._zoneAt`) y los nombres de calle (`streetLabels`, `calleCercana`).
 * Esfuerzo: **pequeño a mediano** (1 a 2 días), según cómo se defina la zona en la ciudad ampliada del port.
+
+**Estado en el port:** `world/Zones.hpp` (los rectángulos de `_zoneAt` en metros, las vías con `StreetLabels` y `NearestStreetPhrase`; probado con las vías reales en `bazuko_zones_test`),
+el cartel de zona bajo la tarjeta de la misión (3,4 s) y la vía bajo el plano del radar, revisada cada 0,4 s. Con captura del juego real en el centro y en El Cartucho.
 
 ## 4. Otras novedades
 
@@ -43,8 +50,8 @@ Esfuerzo estimado: **grande** (1 a 2 semanas): animación del brazo y la pipa, p
 
 ## Orden propuesto
 
-1. **Voces de la calle** (pequeño, visible enseguida).
-2. **Zona al entrar y vía bajo el radar** (pequeño).
+1. ~~**Voces de la calle**~~ (hecho).
+2. ~~**Zona al entrar y vía bajo el radar**~~ (hecho).
 3. **Fumar** (cigarrillo y porro: props, calada, humo).
 4. **Efectos de las sustancias** (posproceso, recetas, sonido), incluidos pastilla, pegante, hierba y basuco con pipa.
 5. **Tráfico por hora y densidad** en la pausa, y la regla de sirenas.

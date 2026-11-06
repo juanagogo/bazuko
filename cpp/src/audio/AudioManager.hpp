@@ -38,6 +38,13 @@ public:
     void SetRaining(bool raining, float intensity = 1.0f);
     void Play(AudioCue cue);
     void PlayCarAlarm(float distance);
+    // Frases de la calle (ver StreetVoices.hpp): una a la vez y nunca encima de un robo o un conductor. PlayStreetVoice devuelve cuantos segundos dura
+    // (0 si no pudo sonar); `distanceVolume` ya trae la caida por distancia (0..1) y aqui se multiplica por la mezcla de «Voces».
+    float PlayStreetVoice(size_t clip, float distanceVolume);
+    void SetStreetVoiceVolume(float distanceVolume);
+    void StopStreetVoice();
+    bool StreetVoicePlaying() const;
+    bool OtherVoicePlaying() const;   // una voz de robo o de conductor
     void PlayTheftRemark(float distance);
     // Latido doble (dos golpes graves que caen de 65 a 28 Hz); `intensity` 0..1 sube el volumen
     void PlayHeartbeat(float intensity);

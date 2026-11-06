@@ -8,6 +8,7 @@
 #include "BirdFlock.hpp"
 #include "../net/PlayerView.hpp"
 #include "../net/WorldSnapshot.hpp"
+#include "../audio/StreetVoices.hpp"
 #include <unordered_map>
 #include "../renderer/Model.hpp"
 #include <glm/glm.hpp>
@@ -402,6 +403,10 @@ public:
     // Mundo compartido (hito 3): el anfitrion exporta tras cada paso; el invitado NO simula trafico, peatones ni buses, solo los aplica y los extrapola.
     void SetGuestMode(bool guest) { m_Guest = guest; }
     bool IsGuest() const { return m_Guest; }
+    // Frases de la calle (audio/StreetVoices.hpp): quienes andan a la vista y pueden hablar (ni muertos, ni noqueados, ni peleando o huyendo, ni con una burbuja ya) con su
+    // identificador estable, y la burbuja con lo que dicen
+    std::vector<StreetVoiceCandidate> StreetVoiceCandidates(const glm::vec3& at, float range);
+    void PedestrianSay(uint32_t id, const std::string& text, float seconds);
     // Migracion de anfitrion: este jugador pasa de invitado a anfitrion. Cada carro sigue su circuito desde donde estaba, la gente de la calle se reinicia
     // (vuelve a aparecer alrededor de los jugadores) y los conductores y patrullas vuelven a su estado normal.
     void PromoteToHost();

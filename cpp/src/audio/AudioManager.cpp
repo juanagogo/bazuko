@@ -3,6 +3,8 @@
 #include <opusfile.h>
 
 #include "AudioManager.hpp"
+
+#include "StreetVoices.hpp"
 #include "../world/Simulation.hpp"
 
 #include <array>
@@ -134,11 +136,17 @@ struct AudioManager::Impl {
         const float base = mix[static_cast<size_t>(category)];
         return (category == MixCategory::Traffic || category == MixCategory::Ambient) ? base * duck : base;
     }
-    bool AnyVoicePlaying() const {
+    bool AnyNonStreetVoicePlaying() const {
         for (const Sound& voice : driverVoices) if (voice.initialized && ma_sound_is_playing(&voice.value)) return true;
         for (const Sound& voice : theftVoices) if (voice.initialized && ma_sound_is_playing(&voice.value)) return true;
         return false;
     }
+    bool StreetPlaying() const { return streetIndex >= 0 && streetVoices[static_cast<size_t>(streetIndex)].initialized && ma_sound_is_playing(&streetVoices[static_cast<size_t>(streetIndex)].value); }
+    void StopStreet() {
+        if (streetIndex >= 0 && streetVoices[static_cast<size_t>(streetIndex)].initialized) ma_sound_stop(&streetVoices[static_cast<size_t>(streetIndex)].value);
+        streetIndex = -1;
+    }
+    bool AnyVoicePlaying() const { return AnyNonStreetVoicePlaying() || StreetPlaying(); }   // tambien las frases de la calle bajan el trafico y el ambiente
     int HornsPlaying() const {
         int count = 0;
         for (const Sound& horn : horns) if (horn.initialized && ma_sound_is_playing(&horn.value)) ++count;
@@ -146,7 +154,9 @@ struct AudioManager::Impl {
     }
     // Una sola voz a la vez: si ya suena otra frase, esta no entra
     bool PlayVoice(Sound& voice, float volume) {
-        if (!voice.initialized || AnyVoicePlaying()) return false;
+        if (!voice.initialized) return false;
+        StopStreet();   // un robo o un conductor hablan mas fuerte que la frase de la calle: la reclaman
+        if (AnyVoicePlaying()) return false;
         ma_sound_set_volume(&voice.value, volume * Level(MixCategory::Voices));
         ma_sound_seek_to_pcm_frame(&voice.value, 0);
         ma_sound_start(&voice.value);
@@ -168,6 +178,8 @@ struct AudioManager::Impl {
     bool radioReady = false;
     std::array<Sound, 12> driverVoices{};
     std::array<Sound, 5> theftVoices{};
+    std::array<Sound, 5> streetVoices{};   // frases de la calle (StreetVoices.hpp)
+    int streetIndex = -1;                  // cual suena ahora
     std::mt19937 random{std::random_device{}()};
 
     Impl() {
@@ -293,6 +305,7 @@ struct AudioManager::Impl {
             const std::string filename = "roberto_robo_espejo_n" + std::to_string(i + 1) + ".mp3";
             LoadOptionalSound(theftVoices[i], filename.c_str());
         }
+        for (size_t i = 0; i < streetVoices.size(); ++i) LoadOptionalSound(streetVoices[i], StreetVoiceClips()[i].file);
         for (size_t i = 0; i < vehicleChannels.size(); ++i) {
             const bool bus = i >= MaxTrafficAudio;
             const char* idleFile = bus ? "car_idling_at_a_traf_bus.opus" : "car_idling_at_a_traf.opus";
@@ -534,6 +547,7 @@ struct AudioManager::Impl {
             if (carAlarm.bufferInitialized) ma_audio_buffer_uninit(&carAlarm.buffer);
             for (Sound& sound : driverVoices) if (sound.initialized) ma_sound_uninit(&sound.value);
             for (Sound& sound : theftVoices) if (sound.initialized) ma_sound_uninit(&sound.value);
+            for (Sound& sound : streetVoices) if (sound.initialized) ma_sound_uninit(&sound.value);
             ma_engine_uninit(&engine);
         }
     }
@@ -630,6 +644,28 @@ void AudioManager::PlayTheftRemark(float distance) {
     }
 }
 
+float AudioManager::PlayStreetVoice(size_t clip, float distanceVolume) {
+    if (!m_Impl || !m_Impl->ready || m_Impl->muted || clip >= m_Impl->streetVoices.size()) return 0.0f;
+    Impl::Sound& voice = m_Impl->streetVoices[clip];
+    if (!voice.initialized || m_Impl->AnyVoicePlaying()) return 0.0f;
+    ma_sound_set_volume(&voice.value, distanceVolume * m_Impl->Level(MixCategory::Voices));
+    ma_sound_seek_to_pcm_frame(&voice.value, 0);
+    ma_sound_start(&voice.value);
+    m_Impl->streetIndex = static_cast<int>(clip);
+    float seconds = 0.0f;
+    ma_sound_get_length_in_seconds(&voice.value, &seconds);
+    return std::max(seconds, 0.1f);
+}
+
+void AudioManager::SetStreetVoiceVolume(float distanceVolume) {
+    if (!m_Impl || m_Impl->streetIndex < 0) return;
+    ma_sound_set_volume(&m_Impl->streetVoices[static_cast<size_t>(m_Impl->streetIndex)].value, distanceVolume * m_Impl->Level(MixCategory::Voices));
+}
+
+void AudioManager::StopStreetVoice() { if (m_Impl) m_Impl->StopStreet(); }
+bool AudioManager::StreetVoicePlaying() const { return m_Impl && m_Impl->StreetPlaying(); }
+bool AudioManager::OtherVoicePlaying() const { return m_Impl && m_Impl->AnyNonStreetVoicePlaying(); }
+
 void AudioManager::PlayCarAlarm(float distance) {
     if (!m_Impl || !m_Impl->ready || m_Impl->muted || !m_Impl->carAlarm.initialized) return;
     ma_sound_stop(&m_Impl->carAlarm.value);
@@ -703,6 +739,7 @@ void AudioManager::UpdateVehicleAudio(float dt, const glm::vec3& listenerPositio
         if (m_Impl->carAlarm.initialized) ma_sound_stop(&m_Impl->carAlarm.value);
         for (auto& voice : m_Impl->driverVoices) if (voice.initialized) ma_sound_stop(&voice.value);
         for (auto& voice : m_Impl->theftVoices) if (voice.initialized) ma_sound_stop(&voice.value);
+        m_Impl->StopStreet();
         return;
     }
 

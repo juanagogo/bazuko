@@ -177,6 +177,9 @@ public:
     void ToggleCraftMenu();
     bool IsPaused() const { return m_Paused; }
     bool IsGpsBeaconVisible() const { return m_GpsBeaconVisible; }
+    // Donde estoy (ver world/Zones.hpp): el cartel con el nombre de la zona al entrar a una nueva (unos segundos) y la via actual bajo el radar
+    void ShowZoneNotice(const std::string& name) { m_ZoneNotice = name; m_ZoneNoticeRemaining = 3.4f; }
+    void SetRadarStreet(const std::string& street) { m_RadarStreet = street; }
     void TogglePerformance() { m_PerfVisible = !m_PerfVisible; }
     bool IsCraftMenuOpen() const { return m_CraftMenuOpen; }
     bool IsDeathScreenOpen() const { return m_DeathScreenOpen; }
@@ -308,6 +311,8 @@ private:
     bool m_SleepRequest = false;
     int m_PauseSection = 0;
     bool m_RadarVisible = true;
+    std::string m_ZoneNotice, m_RadarStreet;
+    float m_ZoneNoticeRemaining = 0.0f;
     float m_RadarRange = 70.0f;   // metros desde el centro hasta el borde del radar (+/- cambian el zoom)
     GpsView m_GpsView;
     bool m_GpsSetPending = false;

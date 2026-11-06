@@ -42,6 +42,8 @@
 #include "world/LightBeams.hpp"
 #include "world/CityLayout.hpp"
 #include "world/Simulation.hpp"
+#include "audio/StreetVoices.hpp"
+#include "world/Zones.hpp"
 #include "world/Lake.hpp"
 #include "character/CombatMoves.hpp"
 #include "character/JumpMoves.hpp"
@@ -1766,6 +1768,42 @@ int main(int argc, char** argv) {
         }
         audio.UpdateVehicleAudio(dt, playerPos, simulation, ui.IsPaused());
         audio.UpdatePolice(playerPos, simulation.GetSirenPositions(), simulation.ConsumePoliceSounds(), ui.IsPaused());
+        {   // donde estoy (world/Zones.hpp): el cartel de la zona al entrar a una nueva y la via actual bajo el radar, revisada cada 0,4 s
+            static const std::vector<StreetLabel> streetLabels = [&city]() {
+                const CityLayout::CityData& data = city.GetData();
+                const auto bands = [](const std::vector<CityLayout::Band>& list) { std::vector<StreetBand> out; for (const auto& b : list) out.push_back({b.first, b.last}); return out; };
+                return StreetLabels(bands(data.carreras), data.carrerasNames, bands(data.calles), data.callesNames,
+                                    {data.caracasLanes[0].first, data.caracasLanes[0].last}, {data.caracasLanes[1].first, data.caracasLanes[1].last}, CityLayout::TILE_SIZE);
+            }();
+            static float whereWait = 0.0f;
+            static int lastZone = -1;
+            static std::string lastStreet;
+            whereWait -= dt;
+            if (whereWait <= 0.0f) {
+                whereWait = 0.4f;
+                const Zone zone = ZoneAt(playerPos.x, playerPos.z);
+                if (static_cast<int>(zone) != lastZone) { lastZone = static_cast<int>(zone); ui.ShowZoneNotice(ZoneName(zone)); }
+                const std::string street = NearestStreetPhrase(playerPos.x, playerPos.z, streetLabels, [&city](float x, float z) { return city.IsRoad(x, z); });
+                if (street != lastStreet) { lastStreet = street; ui.SetRadarStreet(street); }
+            }
+        }
+        {   // frases de la calle: de vez en cuando alguien cercano dice una frase suelta (audio/StreetVoices.hpp)
+            static StreetVoiceDirector streetVoices;
+            const double streetNow = static_cast<double>(clock.GetElapsedTime());
+            const bool streetPaused = ui.IsPaused();
+            const std::vector<StreetVoiceCandidate> neighbours = streetPaused ? std::vector<StreetVoiceCandidate>{} : simulation.StreetVoiceCandidates(playerPos, StreetVoiceDirector::kRange);
+            if (std::getenv("BAZUKO_LOG_AUDIO")) { static float logWait = 0.0f; logWait -= dt; if (logWait <= 0.0f) { logWait = 5.0f; LogInfo("Voces de la calle: {} personas a menos de 18 m, pausa {}, otra voz {}", neighbours.size(), streetPaused, audio.OtherVoicePlaying()); } }
+            const StreetVoiceDirector::Action action = streetVoices.Update(streetNow, streetPaused, audio.StreetVoicePlaying(), audio.OtherVoicePlaying(), neighbours);
+            if (action.kind == StreetVoiceDirector::Action::Kind::Start) {
+                const float seconds = audio.PlayStreetVoice(action.clip, action.volume);
+                if (seconds > 0.0f) {
+                    streetVoices.Started(streetNow);
+                    if (std::getenv("BAZUKO_LOG_AUDIO")) LogInfo("Voz de la calle: {} (persona {}, {:.1f} s)", StreetVoiceClips()[action.clip].text, action.person, seconds);
+                    simulation.PedestrianSay(action.person, StreetVoiceClips()[action.clip].text, std::max(1.5f, seconds + 0.5f));
+                } else { streetVoices.Failed(streetNow); if (std::getenv("BAZUKO_LOG_AUDIO")) LogInfo("Voz de la calle: no pudo sonar (sin cargar, silenciado u otra voz)"); }
+            } else if (action.kind == StreetVoiceDirector::Action::Kind::SetVolume) audio.SetStreetVoiceVolume(action.volume);
+            else if (action.kind == StreetVoiceDirector::Action::Kind::Stop) audio.StopStreetVoice();
+        }
 
         // 7. Actualizar cámara
         camera.Follow(playerPos, dt, currentSpeed, isRunning);
