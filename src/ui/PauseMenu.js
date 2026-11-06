@@ -15,6 +15,7 @@ import { icon } from './icons.js';
 import { pasarTexto } from './pictos.js';
 import { DOG_ACCESSORIES, DOG_COATS } from '../entities/Dog.js';
 import { DEFAULT_TRAFFIC_DENSITY, TRAFFIC_DENSITY_LEVELS } from '../systems/trafficDensity.js';
+import { trucosPanel } from './TrucosPanel.js';
 
 export const PAUSE_TABS = [
   { id: 'mapa', label: 'Mapa' },
@@ -22,6 +23,9 @@ export const PAUSE_TABS = [
   { id: 'ajustes', label: 'Ajustes' },
   { id: 'controles', label: 'Controles' },
 ];
+
+// La pestaña de trucos existe solo cuando el juego se abrió con ?trucos.
+const TRUCOS_TAB = { id: 'trucos', label: 'Trucos' };
 
 const CONTROL_GROUPS = [
   ['Movimiento', [['WASD', 'Caminar'], ['Shift', 'Correr'], ['Espacio', 'Brincar'], ['Mouse', 'Clic fija la cámara, la rueda acerca'], ['V', 'Vista tercera persona / isométrica']]],
@@ -54,7 +58,8 @@ export function openPauseMenu(game, tab = 'estado') {
     try { document.exitPointerLock(); } catch { /* sin pointer lock */ }
   }
 
-  game._pauseTab = PAUSE_TABS.some(t => t.id === tab) ? tab : 'estado';
+  const tabs = game.cheats ? [...PAUSE_TABS, TRUCOS_TAB] : PAUSE_TABS;
+  game._pauseTab = tabs.some(t => t.id === tab) ? tab : 'estado';
   const select = (id) => {
     if (id === game._pauseTab) return;
     game._pauseTab = id;
@@ -63,8 +68,8 @@ export function openPauseMenu(game, tab = 'estado') {
     if (game.menu.bodyEl) game.menu.bodyEl.scrollTop = 0;
   };
   const cycle = (dir) => {
-    const i = PAUSE_TABS.findIndex(t => t.id === game._pauseTab);
-    select(PAUSE_TABS[(i + dir + PAUSE_TABS.length) % PAUSE_TABS.length].id);
+    const i = tabs.findIndex(t => t.id === game._pauseTab);
+    select(tabs[(i + dir + tabs.length) % tabs.length].id);
   };
 
   const onKey = (e) => {
@@ -81,18 +86,18 @@ export function openPauseMenu(game, tab = 'estado') {
 
   const render = () => {
     const current = game._pauseTab;
-    const tabs = el('nav', { class: 'pause-tabs', role: 'tablist', 'aria-label': 'Secciones de la pausa' },
+    const navTabs = el('nav', { class: 'pause-tabs', role: 'tablist', 'aria-label': 'Secciones de la pausa' },
       el('kbd', { class: 'pause-tabs__key', text: 'Q', 'aria-hidden': 'true' }),
-      PAUSE_TABS.map(t => el('button', {
+      tabs.map(t => el('button', {
         type: 'button', role: 'tab', class: `pause-tab${t.id === current ? ' is-active' : ''}`,
         'aria-selected': t.id === current ? 'true' : 'false',
         onclick: () => select(t.id),
       }, el('span', { class: `pause-tab__palabra${t.id === current ? ' elegido' : ''}`, text: t.label }))),
       el('kbd', { class: 'pause-tabs__key', text: 'E', 'aria-hidden': 'true' }));
 
-    const panels = { mapa: mapPanel, estado: statePanel, ajustes: settingsPanel, controles: controlsPanel };
+    const panels = { mapa: mapPanel, estado: statePanel, ajustes: settingsPanel, controles: controlsPanel, trucos: trucosPanel };
     const body = el('div', { class: `pause-menu-body pause-menu-body--${current}` },
-      el('section', { class: 'pause-panel', role: 'tabpanel', 'aria-label': PAUSE_TABS.find(t => t.id === current).label }, panels[current](game)));
+      el('section', { class: 'pause-panel', role: 'tabpanel', 'aria-label': tabs.find(t => t.id === current).label }, panels[current](game)));
 
     const foot = [
       button(['Continuar jugando', el('kbd', { text: 'Esc', 'aria-hidden': 'true' })], {
@@ -101,7 +106,7 @@ export function openPauseMenu(game, tab = 'estado') {
       })
     ];
 
-    return { body, foot, tabs };
+    return { body, foot, tabs: navTabs };
   };
 
   game.menu.open({
@@ -190,9 +195,9 @@ function statePanel(game) {
         }),
         button('Guardar partida', {
           onClick: () => {
-            game._save?.();
+            const ok = game._save?.();
             window.dispatchEvent(new CustomEvent('toast', {
-              detail: { text: 'Partida guardada', type: 'info' }
+              detail: { text: ok ? 'Partida guardada' : 'Con trucos prendidos no se guarda', type: ok ? 'info' : 'warn' }
             }));
           }
         })),

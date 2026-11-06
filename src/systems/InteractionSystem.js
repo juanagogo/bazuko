@@ -319,7 +319,8 @@ export class InteractionSystem {
     }
 
     // Si una patrulla te ve, te persigue; solo te capturan si te alcanzan.
-    const chased = this.getTraffic?.()?.alertForTheft?.(this.player.position);
+    // `policeBlind` lo prende el modo trucos para que nadie te vea.
+    const chased = this.policeBlind ? false : this.getTraffic?.()?.alertForTheft?.(this.player.position);
     if (chased) {
       this.audio?.play('pickup');
       this.stats.addXP(XP_STEAL, this.talents);
