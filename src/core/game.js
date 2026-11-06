@@ -54,6 +54,7 @@ import { TrafficSystem } from '../systems/TrafficSystem.js';
 import { WitnessSystem } from '../systems/WitnessSystem.js';
 import { ReputationSystem } from '../systems/ReputationSystem.js';
 import { JornadaSystem } from '../systems/JornadaSystem.js';
+import { Caleta } from '../systems/Caleta.js';
 import { DEFAULT_TRAFFIC_DENSITY, trafficDensityId, trafficDensityLabel } from '../systems/trafficDensity.js';
 import { distributeShelterLoot, spreadPickupPositions } from '../systems/ShelterLoot.js';
 import { InventorySystem } from '../systems/InventorySystem.js';
@@ -292,6 +293,7 @@ export class Game {
     this.bolirana = { level: 1, pending: false };
     this.look = null;       // apariencia + nombre + origen (creador)
     this.built = {};        // piezas del cambuche
+    this.caleta = new Caleta(); // plata guardada bajo la base del cambuche
     this.costal = false;    // costal grande comprado
     this.isSleeping = false;
     this.deathCount = 0;
@@ -927,6 +929,7 @@ export class Game {
         if (!district?.isWalkableAt || district.isWalkableAt(px, pz)) this.player.position.set(...position);
       }
       this.built = data.built ?? {};
+      this.caleta?.deserialize(data.caleta);
       this.costal = !!data.costal;
       if (data.weapon && this.inventory.count(data.weapon) > 0) this.player.equipWeapon(data.weapon);
       this.cambuche?.setBuilt(this.built);
@@ -977,6 +980,7 @@ export class Game {
       worldLayoutVersion: this.world.active?.layoutVersion ?? 0,
       look: this.look,
       built: this.built,
+      caleta: this.caleta?.serialize() ?? null,
       costal: this.costal,
       weapon: this.player.equippedWeapon,
       zorra: this.zorra?.serialize(),
@@ -1098,7 +1102,7 @@ export class Game {
     if (!b.fogon) st.hambre = Math.max(0, st.hambre - SLEEP.hambreFogon * factor);
 
     // Sin paredes te pueden robar si duermes de noche
-    let robbed = null;
+    let robbed = null, robbedCaleta = 0;
     // El Chato durmiendo al lado, o cuidando el cambuche, espanta al ladrón.
     const cuidado = !!this.dog?.isFriend && (this.dog.guarding || this.dog.position.distanceTo(this.player.position) < 6);
     const intento = night && !b.paredes && Math.random() < SLEEP.roboProb;
@@ -1110,6 +1114,8 @@ export class Game {
         if (isForSale(ITEMS[it.id] ?? it, this.player.equippedWeapon)) this.inventory.remove(it.id, Math.ceil(it.qty * SLEEP.roboMaterial));
       }
       robbed = lost;
+      // Sin paredes, el ladrón también escarba bajo la base y da con la caleta.
+      robbedCaleta = this.caleta?.robar() ?? 0;
     }
 
     // Dormir sucio en un colchón de la calle puede pegar sarna.
@@ -1133,7 +1139,9 @@ export class Game {
       }
       if (robbed !== null) {
         window.dispatchEvent(new CustomEvent('toast', {
-          detail: { text: `Me robaron mientras dormía (${cop(robbed)} y material). Unas paredes ayudarían.`, type: 'death' }
+          detail: { text: robbedCaleta
+            ? `Me robaron mientras dormía (${cop(robbed)}, material y ${cop(robbedCaleta)} de la caleta). Unas paredes ayudarían.`
+            : `Me robaron mientras dormía (${cop(robbed)} y material). Unas paredes ayudarían.`, type: 'death' }
         }));
       }
       if (sarna) {

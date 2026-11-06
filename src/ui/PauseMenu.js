@@ -185,7 +185,8 @@ function statePanel(game) {
         ...(sky ? [card('Clima', sky.label, sky.glyph),
           card('Temporada', `${game.weather.season.label} (${game.weather.season.months})`, game.weather.season.glyph)] : []),
         card('El Chato', game.dog?.isFriend ? 'Me acompaña' : 'Sin adoptar', game.dog?.isFriend ? 'dog' : null),
-        ...(game.reputation ? [card('El barrio', game.reputation.peldano.label)] : [])),
+        ...(game.reputation ? [card('El barrio', game.reputation.peldano.label)] : []),
+        ...(game.built?.base && game.caleta ? [card('La caleta', cop(game.caleta.plata))] : [])),
       el('div', { class: 'pause-actions' },
         button([`Mañas${puntos ? ` (${puntos})` : ''}`, el('kbd', { text: 'T', 'aria-hidden': 'true' })], {
           onClick: () => { game.menu.close(); game.hud?.toggleTalentPanel?.(); }

@@ -97,7 +97,7 @@ export const OBJECTIVES = [
     id: 'ahorrar',
     title: 'Ahorrar $ 20.000',
     hint: 'Reciclo, pido limosna con B o vendo lo que encuentro.',
-    goal: 20000, progress: (g) => g.stats?.dinero ?? 0, money: true,
+    goal: 20000, progress: (g) => (g.stats?.dinero ?? 0) + (g.caleta?.plata ?? 0), money: true,
     reward: { xp: 40 }
   },
   {

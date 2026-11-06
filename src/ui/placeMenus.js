@@ -152,6 +152,7 @@ export function openCambuche(game) {
         })
       );
     }));
+    if (game.built.base && game.caleta) rows.append(caletaRow(game));
     const body = el('div', { class: 'shelter-menu' }, shelterPreview(game), rows);
     const night = game.clock.isNight;
     const foot = [
@@ -165,6 +166,27 @@ export function openCambuche(game) {
     return { body, foot };
   };
   game.menu.open({ title: 'Mi cambuche', sub: 'Los materiales salen de la basura de toda la ciudad: hay para todas las mejoras.', ic: 'tent', render });
+}
+
+/** La caleta bajo la base: guardar o sacar toda la plata de una vez. */
+function caletaRow(game) {
+  const { caleta, stats } = game;
+  const seguro = game.built.paredes ? 'Ni la Policía ni los ladrones dan con ella.' : 'La Policía no la encuentra, pero sin paredes un ladrón de noche sí.';
+  return el('li', { class: 'row row--build' },
+    icon('coins', { size: 24 }),
+    el('span', { class: 'row__name' }, 'La caleta',
+      el('span', { class: 'row__desc', text: `Tengo guardado ${cop(caleta.plata)}. ${seguro}` })),
+    el('span', { class: 'row__qty' },
+      button('Guardar', {
+        disabled: !(stats.dinero > 0),
+        onClick: () => { const n = caleta.guardar(stats); toast(`Guardé ${cop(n)} en la caleta`); game.audio.play('pickup'); game.menu.refresh(); }
+      }),
+      ' ',
+      button('Sacar', {
+        disabled: !(caleta.plata > 0),
+        onClick: () => { const n = caleta.sacar(stats); toast(`Saqué ${cop(n)} de la caleta`); game.audio.play('pickup'); game.menu.refresh(); }
+      })),
+  );
 }
 
 function reqLine(inventory, req) {
