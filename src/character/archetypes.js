@@ -220,19 +220,48 @@ export const ARCHETYPES = {
   }
 };
 
+// Más gente con las mismas piezas: el colegial de uniforme y el domiciliario a pie salen de las de estudiante y obrero.
+ARCHETYPES.colegial = {
+  ...ARCHETYPES.estudiante,
+  edad: { joven: 1 },
+  ropa: { hombre: ['camisa', 'camisa', 'saco'], mujer: ['blusa', 'blusa', 'saco'] },
+  pelo: { hombre: ['corto', 'rapado', 'desordenado'], mujer: ['cola', 'cola', 'melena', 'largo'] },
+  barba: { ninguna: 1 }, cabeza: { 'sin-sombrero': 1 },
+  tonos: {
+    arriba: ['#e8e8e4', '#dcdad2', '#c9d3df'],
+    abajo: ['#26324a', '#2b3a5a', '#3a2f3f'],
+    patron: { liso: 1 }, patronColor: ['#26324a']
+  },
+  accesorios: [{ p: .95, opciones: [{ id: 'morral', colores: ['#26324a', '#8a2b2b', '#2f5f8a', '#3f6e52'] }] }],
+  paraguas: .25, pausa: .35,
+  frases: ['¡Profe, voy tarde!', 'Es que hoy hay educación física.', 'Mami, ya salí del colegio.']
+};
+ARCHETYPES.domiciliario = {
+  ...ARCHETYPES.obrero,
+  mujer: .2, edad: { joven: .6, adulto: .4 },
+  tonos: {
+    arriba: ['#e0702b', '#d9552b', '#e0a52b', '#2b8a6a'],
+    abajo: ['#26272b', '#2a3448', '#3a3f47'],
+    patron: { liso: 1 }, patronColor: ['#26272b']
+  },
+  accesorios: [{ p: 1, opciones: [{ id: 'morral', colores: ['#e0702b', '#d9552b', '#2b8a6a'] }] }],
+  velocidad: [1.4, 1.6], andar: 'firme', correr: 1.4, pausa: .12,
+  frases: ['Su pedido va en camino.', 'Disculpe, ¿esta es la dirección?', 'Voy con el tiempo encima.']
+};
+
 /** Cuántos de cada uno en cada zona de la ciudad. */
 export const ZONE_WEIGHTS = {
   // El Cartucho, la olla: sobre todo quienes viven y rebuscan en la calle.
   cartucho: { habitante: .55, reciclador: .25, vendedor: .08, obrero: .05, abuelo: .04, senora: .03 },
   // Andenes del centro: la mezcla bogotana.
-  andenes: { oficinista: .18, estudiante: .14, senora: .16, abuelo: .08, obrero: .14, vendedor: .1, reciclador: .08, habitante: .12 },
+  andenes: { colegial: .06, domiciliario: .06, oficinista: .15, estudiante: .11, senora: .13, abuelo: .08, obrero: .14, vendedor: .1, reciclador: .08, habitante: .09 },
   // Barrios: más vecinos que oficinas.
-  barrio: { senora: .2, estudiante: .15, oficinista: .12, abuelo: .12, obrero: .14, vendedor: .07, reciclador: .09, habitante: .11 },
+  barrio: { colegial: .08, domiciliario: .05, senora: .16, estudiante: .12, oficinista: .09, abuelo: .12, obrero: .14, vendedor: .07, reciclador: .09, habitante: .08 },
   // La Candelaria: universidades y turistas locales.
-  candelaria: { estudiante: .3, oficinista: .15, senora: .15, abuelo: .12, vendedor: .1, obrero: .06, habitante: .07, reciclador: .05 },
+  candelaria: { colegial: .08, domiciliario: .04, estudiante: .22, oficinista: .11, senora: .15, abuelo: .12, vendedor: .1, obrero: .06, habitante: .07, reciclador: .05 },
   // Chapinero: oficinas y estudiantes.
-  chapinero: { oficinista: .3, estudiante: .22, senora: .18, abuelo: .08, obrero: .08, vendedor: .05, reciclador: .04, habitante: .05 },
-  parque: { abuelo: .2, estudiante: .2, senora: .2, habitante: .15, vendedor: .1, oficinista: .1, reciclador: .05 },
+  chapinero: { domiciliario: .08, colegial: .04, oficinista: .25, estudiante: .17, senora: .16, abuelo: .08, obrero: .08, vendedor: .05, reciclador: .04, habitante: .05 },
+  parque: { colegial: .06, abuelo: .17, estudiante: .17, senora: .2, habitante: .15, vendedor: .1, oficinista: .1, reciclador: .05 },
   // Quien aparece de la nada (un conductor bravo, una prueba): cualquiera que no viva en la calle.
   comun: { oficinista: .3, estudiante: .15, senora: .15, obrero: .25, vendedor: .15 }
 };

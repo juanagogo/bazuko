@@ -20,7 +20,7 @@ const has = (cat, sexo, id) => optionsFor(catalog, cat, sexo).some(piece => piec
 const HEX = /^#[0-9a-f]{6}$/;
 
 test('están las ocho personas de Bogotá y todas sus piezas existen en el catálogo real para su sexo', () => {
-  assert.deepEqual(ids.sort(), ['abuelo', 'estudiante', 'habitante', 'obrero', 'oficinista', 'reciclador', 'senora', 'vendedor']);
+  assert.deepEqual(ids.sort(), ['abuelo', 'colegial', 'domiciliario', 'estudiante', 'habitante', 'obrero', 'oficinista', 'reciclador', 'senora', 'vendedor']);
   for (const [id, spec] of Object.entries(ARCHETYPES)) {
     for (const sexo of ['hombre', 'mujer']) {
       if (sexo === 'mujer' ? spec.mujer <= 0 : spec.mujer >= 1) continue;
@@ -149,7 +149,7 @@ test('el reparto depende de la zona: en El Cartucho casi todos viven de la calle
   assert.ok(cartucho.habitante + cartucho.reciclador > .7, 'El Cartucho es de quien vive en la calle');
   assert.equal(cartucho.oficinista ?? 0, 0);
   const andenes = share('andenes');
-  assert.equal(Object.keys(andenes).length, 8, 'en el andén se ve de todo');
+  assert.equal(Object.keys(andenes).length, 10, 'en el andén se ve de todo');
   assert.ok(Math.max(...Object.values(andenes)) < .25, 'nadie domina el andén');
   assert.ok(andenes.habitante + andenes.reciclador < .3);
   assert.ok(share('chapinero').oficinista > share('barrio').oficinista);

@@ -79,6 +79,9 @@ const CHANGED_UNSEEN = .3; // s sin animarse: lo que hizo mientras tanto nadie l
 
 // Golpes: sin muerte ni desaparición. A 0 de salud el peatón cae, queda tendido y se levanta huyendo.
 export const NPC_HEALTH = 100;
+// Cruzar por la mitad de la cuadra: probabilidad al escoger rumbo, alcance en metros y fracción de los que cruzan sin mirar.
+const JAY_CHANCE = .05, JAY_REACH = 16, JAY_DOOM = .08;
+const JAY_DIRECTIONS = [[1, 0], [-1, 0], [0, 1], [0, -1]];
 export const NPC_COMBAT = {
   stagger: 0.28,   // s de sacudón tras cada golpe (no camina; el golpe lo empuja)
   flee: 5,         // s de huida veloz tras recibir un golpe
@@ -311,7 +314,7 @@ export class Npc {
   relocate(x, y, z) {
     this.home.set(x, y, z); this.position.set(x, y, z); this.root.position.copy(this.position);
     this.root.rotation.y = Math.random() * Math.PI * 2;
-    this.route = []; this.routeIndex = 0; this.target = null;
+    this.route = []; this.routeIndex = 0; this.target = null; this._jay = null; this.runoverDoom = false;
     this.wait = Math.random() * 3; this.moving = false;
   }
 
@@ -469,6 +472,8 @@ export class Npc {
     if (this.fleeTimer > 0) {
       this.fleeTimer = Math.max(0, this.fleeTimer - dt);
       if (this.isVendor) return; // no deja su puesto
+      // Quien huye a mitad de la calle sigue de largo hasta el otro andén: de la calzada no se sale por la red.
+      if (this._jay) { this._walkJay(dt, 2); return; }
       if (this._cowering) {
         if (this.fleeTimer <= 0) this._stopCowering();
         return;
@@ -485,10 +490,12 @@ export class Npc {
 
     if (this.fijo && this._stayAtSpot(dt)) return;
     if (!this.navigation && this.wander <= 0 && !this.fijo) return;
+    if (this._jay) { this._walkJay(dt, this._jay.hurry ? 1.5 : 1); return; }
     if (!this.target) {
       if ((this.wait -= dt) > 0) return;
       if (this.person && this._standUp()) return;
       if (this.navigation) {
+        if (this.person && !this.fijo && Math.random() < JAY_CHANCE && this._startJaywalk()) return;
         this.route = this._chooseRoute();
         this.routeIndex = 0;
         this.target = this.route[0] ?? null;
@@ -522,6 +529,58 @@ export class Npc {
       this.root.rotation.y += wrapAngle(Math.atan2(d.x, d.z) - this.root.rotation.y) * Math.min(1, dt * 5);
       if (step >= dist) this._advanceTarget();
     }
+  }
+
+  /** Cruza por la mitad de la cuadra: busca el andén de enfrente en línea recta, sin sólidos de por medio. */
+  _startJaywalk() {
+    const { x, z } = this.position;
+    if (!this.isWalkable(x, z) || !this.collisions?.queryStatic) return false;
+    const first = Math.floor(Math.random() * 4);
+    for (let i = 0; i < 4; i++) {
+      const [dx, dz] = JAY_DIRECTIONS[(first + i) % 4];
+      if (this.isWalkable(x + dx * 1.8, z + dz * 1.8)) continue;
+      let clear = true;
+      for (let k = 1; k <= JAY_REACH && clear; k++) {
+        const px = x + dx * k, pz = z + dz * k;
+        if (this._solidAt({ x: px, y: this.position.y, z: pz }) || this.getWaterInfo?.(px, pz)) { clear = false; break; }
+        if (k > 3 && this.isWalkable(px, pz)) {
+          this._jay = { x: px, z: pz, hurry: Math.random() < .5, patience: 12 };
+          this.runoverDoom = Math.random() < JAY_DOOM;
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+
+  /** ¿Viene un carro en marcha hacia donde cruzo? Quien cruza con calma espera el hueco; quien corre no mira. */
+  _carComing() {
+    for (const vehicle of this._vehicles ?? []) {
+      if (vehicle.speed < 1.5) continue;
+      const { position, group } = vehicle.car;
+      const ox = this.position.x - position.x, oz = this.position.z - position.z, distance = Math.hypot(ox, oz);
+      if (distance > 22) continue;
+      const hx = Math.cos(group.rotation.y), hz = -Math.sin(group.rotation.y);
+      if (ox * hx + oz * hz > 0 && Math.abs(ox * hz - oz * hx) < 4) return true;
+    }
+    return false;
+  }
+
+  _walkJay(dt, hurry = 1) {
+    const jay = this._jay, d = this._direction.set(jay.x - this.position.x, 0, jay.z - this.position.z), dist = d.length();
+    const onRoad = !this.isWalkable(this.position.x, this.position.z);
+    if (dist < .3) { this._jay = null; this.runoverDoom = false; this.wait = 1 + Math.random() * 2; return; }
+    if (!onRoad && !this.runoverDoom && hurry < 2 && this._carComing()) {
+      if ((jay.patience -= dt) <= 0) { this._jay = null; this.wait = 1; }
+      return;
+    }
+    const step = Math.min(dist, this._paceNow() * hurry * dt);
+    const next = this._nextPosition.copy(this.position).addScaledVector(d.normalize(), step);
+    if (this._entersSolid(next)) { this._jay = null; this.runoverDoom = false; this.wait = 1; return; }
+    next.y = this.groundHeight(next.x, next.z);
+    this.position.copy(next);
+    this.moving = step > 0;
+    this.root.rotation.y += wrapAngle(Math.atan2(d.x, d.z) - this.root.rotation.y) * Math.min(1, dt * 6);
   }
 
   /** Huye derecho; si se topa, gira a un lado que esté libre. */
@@ -818,6 +877,7 @@ export class Npc {
   /** Dónde está el jugador: una sola medida por cuadro para todo lo que la pregunta. */
   _measurePlayer(ctx) {
     this._player = ctx.player ?? null;
+    this._vehicles = ctx.vehicles ?? null;
     this._playerDist = ctx.player ? Math.hypot(this.position.x - ctx.player.x, this.position.z - ctx.player.z) : Infinity;
   }
 

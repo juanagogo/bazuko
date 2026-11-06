@@ -1619,7 +1619,7 @@ export class Bogota {
     chasers.length = 0;
     for (const vehicle of trafficVehicles) if (vehicle.state === 'chase' || vehicle.rejoinTarget) chasers.push(vehicle);
     const ctx = { player: playerPos, frustum, camera, isRaining: (this.wetness ?? 0) > 0.05, animationBudget: this.animationBudget ?? 1,
-      drawDistance: this.farDetailDistance, skipHiddenMatrices: true, hygiene: this.playerHygiene ?? 100, chasers };
+      drawDistance: this.farDetailDistance, skipHiddenMatrices: true, vehicles: trafficVehicles, hygiene: this.playerHygiene ?? 100, chasers };
     if (this.crowd && playerPos && Number.isFinite(hour)) {
       const forward = camera?.getWorldDirection?.(_crowdForward);
       const aim = forward ? { x: forward.x, z: forward.z } : null, length = aim ? Math.hypot(aim.x, aim.z) || 1 : 1;
