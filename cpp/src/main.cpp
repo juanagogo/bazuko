@@ -43,6 +43,9 @@
 #include "world/CityLayout.hpp"
 #include "world/Simulation.hpp"
 #include "audio/StreetVoices.hpp"
+#include "character/SmokePuffs.hpp"
+#include "character/Smoking.hpp"
+#include "character/SmokingPose.hpp"
 #include "world/Zones.hpp"
 #include "world/Lake.hpp"
 #include "character/CombatMoves.hpp"
@@ -249,6 +252,23 @@ int main(int argc, char** argv) {
     auto& knockdownLyingYaw = session.knockdownLyingYaw;
     constexpr float kKnockdownSeconds = 3.4f;   // vuelo (0,8 s), tendido (0,8 s), levantarse (1,5 s) y una pausa
     std::shared_ptr<Model> knifeModel = Model::LoadFromFile(Paths::Find("public/models/arma/cuchillo.glb"));
+    // Fumar un cigarrillo o un porro (character/Smoking.hpp): estado, humo y las piezas del cigarrillo (papel, filtro y brasa) para cada tipo
+    Smoking::State smoking;
+    SmokePuffs smokePuffs;
+    struct CigaretteMeshes { std::shared_ptr<Mesh> paper, filter, ember; };
+    std::map<std::string, CigaretteMeshes> cigaretteMeshes;
+    const auto meshesFor = [&](const Smoking::Smokable& look) -> CigaretteMeshes& {
+        CigaretteMeshes& meshes = cigaretteMeshes[look.id];
+        if (!meshes.paper) {
+            const float r = look.radius * (std::string(look.id) == "hierba" ? 1.12f : 1.0f);
+            meshes.paper = Mesh::CreateCylinder(r, 0.06f, 10, glm::vec4(look.paper[0], look.paper[1], look.paper[2], 1.0f));
+            meshes.filter = Mesh::CreateCylinder(look.radius * 1.04f, 0.02f, 10, glm::vec4(look.filter[0], look.filter[1], look.filter[2], 1.0f));
+            meshes.ember = Mesh::CreateCylinder(r * 1.02f, 0.006f, 10, glm::vec4(1.0f, 0.35f, 0.12f, 1.0f));
+        }
+        return meshes;
+    };
+    // pruebas: BAZUKO_PREVIEW_SMOKE=cigarrillo|hierba prende uno y BAZUKO_PREVIEW_TIME fija el segundo de la calada
+    static const char* previewSmoke = std::getenv("BAZUKO_PREVIEW_SMOKE");
     auto& boostActive = session.boostActive;
     auto& boostTimer = session.boostTimer;
     // Objetos, tienda, botin y talentos vienen de assets/data/game-data.json (generado desde src/data del juego web).
@@ -1500,6 +1520,22 @@ int main(int argc, char** argv) {
         }
 #endif
         simulation.Update(dt, playerPos, remoteViewers);
+        {   // fumar: caladas, el porro que pega, se acaba o se cae (character/Smoking.hpp)
+            if (previewSmoke) {
+                if (!smoking.active) Smoking::Start(smoking, previewSmoke, {});
+                static const char* previewTime = std::getenv("BAZUKO_PREVIEW_TIME");
+                smoking.puff = previewTime ? static_cast<float>(std::atof(previewTime)) : std::fmod(clock.GetElapsedTime(), Smoking::kPuffTotal + 1.0f);
+                smoking.nextPuff = 1.0e9f; smoking.left = Smoking::kDuration;
+            }
+            Smoking::Conditions smokeConditions;
+            smokeConditions.blocked = playerSwimming || playerKnockedDown || playerHitKind > 0 || playerAction == PlayerAction::Jump || ui.IsDeathScreenOpen();
+            smokeConditions.busy = playerAction != PlayerAction::None;
+            const std::string smokedKind = smoking.kind;
+            const Smoking::Events smokeEvents = ui.IsPaused() ? Smoking::Events{} : Smoking::Step(smoking, dt, smokeConditions);
+            if (smokeEvents.finished) ui.Notify(std::string("Se acabó el ") + Smoking::Find(smokedKind)->name + ".", ToastType::Info);   // como el original; si se le cae, se apaga sin aviso
+            if (smokeEvents.hit && std::getenv("BAZUKO_LOG_AUDIO")) LogInfo("Pegó: {}", smokeEvents.effect);   // aqui entran los efectos de las sustancias (el siguiente paso del port)
+            if (!ui.IsPaused()) smokePuffs.Update(dt);
+        }
 #ifdef BAZUKO_NET_ENABLED
         if (netSession && netSession->GetRole() == Net::NetSession::Role::Host) {
             // lo que el mundo les hace a los demas jugadores (golpes de peatones) se les entrega, y lo que ellos hacen al mundo se aplica aqui
@@ -2167,7 +2203,39 @@ int main(int argc, char** argv) {
                         swimTurns.push_back({"mixamorig:Hips", {0.0f, 0.0f, 0.0f}, {0.0f, -std::min(0.10f, 0.18f * std::max(-slope, 0.0f) + 0.10f * std::max(slope, 0.0f)), 0.0f}, true});   // la cadera baja al bajar y un poco al subir
                     }
                 }
+                const bool smokeInHand = smoking.active && playerAction == PlayerAction::None && !playerSwimming;   // peleando o nadando no se ve en la mano
+                if (smokeInHand || smoking.hold > 0.001f) Smoking::AppendPose(swimTurns, smoking.hold, smoking.reach);
                 characterManager.Draw(renderer, playerModel, poseTime, movingNow, isRunning, poseClip, blendClip, blendWeight, swimTurns.empty() ? nullptr : &swimTurns);
+                if (smokeInHand) {   // el cigarrillo en la mano izquierda: entre los dedos, con la brasa hacia afuera; de ahi sale el hilo de humo, y de la boca la bocanada
+                    const Smoking::Smokable* look = Smoking::Find(smoking.kind);
+                    const glm::mat4 hand = characterManager.PosedNode("LeftHand", playerModel, poseTime, movingNow, isRunning, poseClip, blendClip, blendWeight, swimTurns.empty() ? nullptr : &swimTurns);
+                    glm::mat4 attach = glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, 0.085f, 0.015f));   // entre el indice y el corazon
+                    attach = glm::rotate(attach, -glm::half_pi<float>(), glm::vec3(0.0f, 0.0f, 1.0f));       // atravesado respecto a los dedos
+                    const glm::mat4 cigarette = hand * attach;
+                    const glm::mat4 alongY = glm::rotate(glm::mat4(1.0f), -glm::half_pi<float>(), glm::vec3(1.0f, 0.0f, 0.0f));   // los cilindros del motor van sobre Z
+                    CigaretteMeshes& meshes = meshesFor(*look);
+                    const float glow = Smoking::EmberGlow(smoking.puff);
+                    renderer.Submit(*meshes.paper, cigarette * glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, 0.03f, 0.0f)) * alongY);
+                    renderer.Submit(*meshes.filter, cigarette * glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, -0.01f, 0.0f)) * alongY);
+                    renderer.Submit(*meshes.ember, cigarette * glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, 0.063f, 0.0f)) * alongY, glm::vec4(0.9f + 0.4f * glow, 0.32f + 0.35f * glow, 0.1f + 0.2f * glow, 1.0f));
+                    if (!ui.IsPaused()) {
+                        static float wispTimer = 0.0f, puffTimer = 0.0f;
+                        const glm::vec3 smokeColor(look->smoke[0], look->smoke[1], look->smoke[2]);
+                        const glm::vec3 tip = glm::vec3(cigarette * glm::vec4(0.0f, 0.066f, 0.0f, 1.0f));
+                        if ((wispTimer -= dt) <= 0.0f) { wispTimer = 0.12f; SmokePuffs::Emit e; e.position = tip; e.size = 0.025f; e.grow = 0.18f; e.life = 2.2f; e.alpha = 0.22f; e.color = smokeColor; smokePuffs.Emitir(e); }
+                        if (Smoking::IsExhaling(smoking.puff) && (puffTimer -= dt) <= 0.0f) {
+                            puffTimer = 0.05f;
+                            const glm::mat4 head = characterManager.PosedNode("Head", playerModel, poseTime, movingNow, isRunning, poseClip, blendClip, blendWeight, swimTurns.empty() ? nullptr : &swimTurns);
+                            const glm::vec3 forward(std::sin(playerYaw), 0.0f, std::cos(playerYaw));
+                            SmokePuffs::Emit e;
+                            e.position = glm::vec3(head * glm::vec4(0.0f, 0.0f, 0.0f, 1.0f)) + forward * 0.11f + glm::vec3(0.0f, 0.02f, 0.0f);   // la boca (el mismo desplazamiento del original)
+                            const float fade = 1.0f - (smoking.puff - Smoking::kPuffLength + Smoking::kLower) / Smoking::kExhale;
+                            e.velocity = glm::vec3(forward.x, -0.1f, forward.z) * (0.55f * std::max(0.2f, fade));
+                            e.size = 0.05f; e.grow = 0.45f; e.life = 2.6f; e.alpha = 0.38f * std::max(0.3f, fade); e.color = smokeColor;
+                            smokePuffs.Emitir(e);
+                        }
+                    }
+                }
                 if (knifeModel && (playerAction == PlayerAction::Slash || playerAction == PlayerAction::Stab || knifeStanceRemaining > 0.0f || equippedWeapon == "cuchillo")) {
                     // la navaja va en la mano derecha, con la hoja saliendo del puno
                     const glm::mat4 hand = characterManager.HandMatrix(playerModel, poseTime, poseClip >= 0 ? poseClip : characterManager.FindClip("Idle"), true);
@@ -2178,6 +2246,7 @@ int main(int argc, char** argv) {
             }
         }
 
+        if (smokePuffs.Any()) smokePuffs.Draw(renderer, camera.GetPosition());
         if (graphicsQuality > 0 && !std::getenv("BAZUKO_NOBEAMS")) {   // los haces de los faros se ven en el aire humedo y con poca luz
             const float damp = std::clamp(0.9f * simulation.GetMist() + 0.9f * simulation.GetRainIntensity() + 0.12f, 0.0f, 1.0f);
             const float dark = AtmosphereSmoothstep(0.05f, 0.5f, frameLampPower);
@@ -2470,6 +2539,11 @@ int main(int argc, char** argv) {
                 audio.Play(AudioCue::Pickup);
                 return;
             }
+            const Smoking::Smokable* lit = Smoking::Find(item.id);   // el cigarrillo y el porro no se comen: se quedan en la mano y se fuman caminando
+            if (lit) {
+                if (smoking.active) { ui.Notify("Ya tengo uno prendido.", ToastType::Info); return; }
+                if (playerSwimming || playerKnockedDown || playerHitKind > 0 || playerAction == PlayerAction::Jump) { ui.Notify("Ahora no lo puedo prender.", ToastType::Info); return; }
+            }
             if (item.id == "pilas") {
                 if (radioBattery >= 100.0f) {
                     ui.Notify("La radio ya tiene la batería llena.", ToastType::Warn);
@@ -2483,6 +2557,7 @@ int main(int argc, char** argv) {
             inventoryWeight = std::max(0.0f, inventoryWeight - item.weight);
             if (--entry->quantity == 0) inventory.erase(entry);
             audio.Play(AudioCue::Pickup);
+            if (lit && Smoking::Start(smoking, item.id, {})) ui.Notify(std::string("Prendí un ") + lit->name, ToastType::Info);
         };
         const size_t useIndex = ui.ConsumeInventoryUseRequest();
         if (useIndex < lootTable.size()) useInventoryItem(useIndex);

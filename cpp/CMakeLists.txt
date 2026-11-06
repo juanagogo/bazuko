@@ -149,7 +149,7 @@ add_executable(bazuko
     src/renderer/Texture.cpp src/renderer/Model.cpp
     src/ui/UIManager.cpp src/ui/SignStyle.cpp src/ui/Carton.cpp src/ui/Costal.cpp src/ui/HudCarton.cpp src/ui/Halftone.cpp src/ui/WebPanels.cpp src/ui/CharacterCreatorUI.cpp
     src/character/CharacterManager.cpp src/character/CharacterPreview.cpp src/character/Ragdoll.cpp
-    src/world/CityLayout.cpp src/world/Simulation.cpp src/world/BirdFlock.cpp src/world/Lake.cpp src/world/Decals.cpp src/world/Zones.cpp
+    src/world/CityLayout.cpp src/world/Simulation.cpp src/world/BirdFlock.cpp src/world/Lake.cpp src/world/Decals.cpp src/world/Zones.cpp src/character/SmokePuffs.cpp
     src/world/TextRaster.cpp src/world/SignAtlas.cpp
     src/game/GameData.cpp src/game/Harvest.cpp src/game/Survival.cpp src/game/Economy.cpp src/game/Movement.cpp src/game/Fight.cpp
     src/audio/RadioSynth.cpp src/world/SafeSpawn.cpp
@@ -237,6 +237,11 @@ target_compile_definitions(bazuko_economyledger_test PRIVATE BAZUKO_GAME_DATA_PA
                            BAZUKO_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
 target_link_libraries(bazuko_economyledger_test PRIVATE glm::glm)
 add_test(NAME bazuko_economyledger COMMAND bazuko_economyledger_test)
+
+# Fumar un cigarrillo o un porro: tiempos y reglas del original; solo logica
+add_executable(bazuko_smoking_test tests/SmokingTest.cpp)
+target_include_directories(bazuko_smoking_test PRIVATE src)
+add_test(NAME bazuko_smoking COMMAND bazuko_smoking_test)
 
 # Zonas con nombre y via mas cercana (cartel de zona y linea bajo el radar)
 add_executable(bazuko_zones_test tests/ZonesTest.cpp src/world/Zones.cpp)

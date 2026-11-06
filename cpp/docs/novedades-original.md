@@ -5,7 +5,7 @@ Hay dos grupos: lo **anterior a la base del port** que nunca se pasó a C++ (fum
 
 El port ya tiene: abstinencia y psicosis por vicio (`Simulation::UpdatePsychosis`), dealer, GPS a pie, radar, mapa grande y radio sintetizada.
 
-## 1. Fumar y drogarse (28 de octubre en adelante)
+## 1. Fumar y drogarse (28 de octubre en adelante) — **cigarrillo y porro hechos; faltan la pipa de basuco y los efectos de las sustancias**
 
 | Qué | En el original | En el port |
 |---|---|---|
@@ -17,6 +17,13 @@ El port ya tiene: abstinencia y psicosis por vicio (`Simulation::UpdatePsychosis
 | **Interacción con el costal** | `substance-consumed` lo emite `HUD._useItem`; lo fumado lo emite `Player` en cada calada | Falta el evento y los estados de jugador |
 
 Esfuerzo estimado: **grande** (1 a 2 semanas): animación del brazo y la pipa, props, humo, posproceso con estela, recetas y sonido, más pruebas.
+
+**Estado en el port (cigarrillo y porro):** `character/Smoking.hpp` (tiempos y reglas del original: primera calada a los 2 s, una cada 30 s, dura 10 min, el porro pega al botar el humo, se cae
+al nadar, saltar o recibir un golpe; probado en `bazuko_smoking_test`), `character/SmokingPose.hpp` (la pose `SMOKE_POSE` con los mismos ángulos, compuesta como el `rotateInFrame` del original),
+`character/SmokePuffs.*` (el hilo de la brasa y la bocanada de la boca, con el mismo reparto de tamaños, tiempos y velocidades) y el cigarrillo en la mano izquierda con la misma colocación. Se prende
+al usar el objeto del costal o la barra rápida («Prendí un cigarrillo», «Ya tengo uno prendido.», «Se acabó el porro.»). `BAZUKO_PREVIEW_SMOKE=cigarrillo|hierba` con `BAZUKO_PREVIEW_TIME=<s>` fija la calada
+para capturas. El evento `substance-consumed` del porro ya se emite en cada calada (registrado con `BAZUKO_LOG_AUDIO=1`); **falta conectarlo a los efectos de visión**, que es el siguiente paso.
+Aún no se ve fumar a los otros jugadores en el multijugador.
 
 ## 2. Voces de la calle (4 de noviembre) — **hecho en el port**
 
@@ -52,7 +59,7 @@ el cartel de zona bajo la tarjeta de la misión (3,4 s) y la vía bajo el plano 
 
 1. ~~**Voces de la calle**~~ (hecho).
 2. ~~**Zona al entrar y vía bajo el radar**~~ (hecho).
-3. **Fumar** (cigarrillo y porro: props, calada, humo).
+3. ~~**Fumar** (cigarrillo y porro: props, calada, humo)~~ (hecho; falta la pipa de basuco).
 4. **Efectos de las sustancias** (posproceso, recetas, sonido), incluidos pastilla, pegante, hierba y basuco con pipa.
 5. **Tráfico por hora y densidad** en la pausa, y la regla de sirenas.
 6. Lo demás (radio en vivo, guardar archivo) si se quiere.
