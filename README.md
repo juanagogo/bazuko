@@ -129,7 +129,7 @@ Con `npm run dev` activo, abre **/sala.html** (por ejemplo http://localhost:5173
 | `F3` | Mostrar u ocultar el panel de rendimiento. |
 | `R` en la calle | Abrir o cerrar la radio AM/FM; permite sintonizar emisoras y cambiar pilas. En 890 AM se escuchan boletines de lluvia y de la ciudad. Además de las emisoras inventadas, el dial sintoniza emisoras colombianas reales en vivo, que suenan con internet y caen a la estática cuando no responden. |
 | `X` en la calle | Lanzar si llevas munición; de lo contrario, hacer popó. |
-| `Z` en la calle | Hacer popó. |
+| `Z` en la calle | Hacer popó: el personaje se baja el pantalón, se agacha con la cadera censurada en mosaico y deja un montón con moscas, olor y un charquito de chichi; después se vuelve a vestir. No se puede caminar mientras dura, y un golpe o un atropello lo cortan sin dar el mojón. |
 | Clic en una casilla del costal | Ver el objeto en el banco; doble clic o el botón principal lo usan (comer, beber, aplicar, lanzar…). |
 
 ### Mando
