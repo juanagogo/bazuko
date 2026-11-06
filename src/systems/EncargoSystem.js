@@ -20,7 +20,7 @@ export class EncargoSystem {
   _base(tipo, game) {
     if (tipo === 'latas') return game.inventory?.count?.('lata') ?? 0;
     if (tipo === 'botellas') return game.inventory?.count?.('botella') ?? 0;
-    if (tipo === 'ahorrar') return game.stats?.dinero ?? 0;
+    if (tipo === 'ahorrar') return (game.stats?.dinero ?? 0) + (game.caleta?.plata ?? 0);
     return 0;
   }
 

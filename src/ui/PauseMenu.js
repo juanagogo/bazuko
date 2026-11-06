@@ -184,7 +184,9 @@ function statePanel(game) {
         card('Tiempo', `Día ${clock.day ?? 1}, ${horaDe(clock.hour ?? 0)}`),
         ...(sky ? [card('Clima', sky.label, sky.glyph),
           card('Temporada', `${game.weather.season.label} (${game.weather.season.months})`, game.weather.season.glyph)] : []),
-        card('El Chato', game.dog?.isFriend ? 'Me acompaña' : 'Sin adoptar', game.dog?.isFriend ? 'dog' : null)),
+        card('El Chato', game.dog?.isFriend ? 'Me acompaña' : 'Sin adoptar', game.dog?.isFriend ? 'dog' : null),
+        ...(game.reputation ? [card('El barrio', game.reputation.peldano.label)] : []),
+        ...(game.built?.base && game.caleta ? [card('La caleta', cop(game.caleta.plata))] : [])),
       el('div', { class: 'pause-actions' },
         button([`Mañas${puntos ? ` (${puntos})` : ''}`, el('kbd', { text: 'T', 'aria-hidden': 'true' })], {
           onClick: () => { game.menu.close(); game.hud?.toggleTalentPanel?.(); }
@@ -199,7 +201,8 @@ function statePanel(game) {
         })),
       el('p', { class: 'pause-gps-summary' }, icon('pin', { size: 18 }), el('span', { text: wp
         ? `Destino: ${pasarTexto(wp.name)}${pos && game.gps.route.length ? `, ${formatDistance(game.gps.remainingDistance(pos))}` : ''}`
-        : 'Sin destino marcado. El mapa se abre con M.' }))),
+        : 'Sin destino marcado. El mapa se abre con M.' })),
+      retratoDe(game)),
     el('div', { class: 'pause-state__cuerpo' },
       el('h3', { class: 'pause-section-title', text: 'Cómo estoy' }),
       el('ul', { class: 'pause-needs' }, NEED_META.map(({ id, glyph, label }) => {
@@ -210,6 +213,13 @@ function statePanel(game) {
           el('span', { class: 'pause-need__value cifra', text: `${value}` }));
       })),
       dogSection(game)));
+}
+
+/** El retrato, si hubo foto (`Game._tomarRetrato`). Sin foto la columna queda como antes. */
+function retratoDe(game) {
+  if (!game._retrato?.toDataURL) return null;
+  return el('figure', { class: 'pause-retrato', 'aria-hidden': 'true' },
+    el('img', { class: 'pause-retrato__foto', alt: '', src: game._retrato.toDataURL('image/png') }));
 }
 
 function settingsPanel(game) {
@@ -282,6 +292,8 @@ function settingsPanel(game) {
       section('save', 'La partida',
         row('Copiarla a un archivo', button('Exportar', { onClick: () => game.exportarPartida?.() })),
         row('Volver a una copia', button('Importar', { onClick: () => game.importarPartida?.() })))),
+    // Radar y Pantalla van en una misma columna: suelta, Pantalla caía a otra fila y dejaba un hueco bajo Sonido.
+    el('div', { class: 'pause-settings__col' },
     section('arrow', 'Radar y GPS',
       row('Radar', choice(minimap?.visible ? 'Visible (N)' : 'Oculto (N)', !!minimap?.visible,
         () => { minimap?.toggle(); game.menu.refresh(); })),
@@ -295,7 +307,7 @@ function settingsPanel(game) {
         button([icon('eye', { size: 18 }), enPantallaCompleta() ? 'Salir de pantalla completa' : 'Pantalla completa'], {
           disabled: !puedePantallaCompleta(),
           onClick: () => alternarPantallaCompleta()
-        }))));
+        })))));
 }
 
 function controlsPanel() {

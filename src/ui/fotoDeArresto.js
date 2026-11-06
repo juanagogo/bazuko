@@ -85,3 +85,50 @@ export function tomarFoto({ renderer, scene, jugador, collisions, maximo = 1280 
     gl.shadowMap.autoUpdate = sombras;
   }
 }
+
+/** El borde mezclado con el color clave queda rosado: fuera. Sobre cartón se notaría como un contorno fucsia. */
+export function quitarBorde(px) {
+  for (let i = 0; i < px.length; i += 4) {
+    if (px[i + 3] && px[i] - px[i + 1] > 45 && px[i + 2] - px[i + 1] > 45) px[i + 3] = 0;
+  }
+  return px;
+}
+
+/** Los límites de lo que no es transparente en unos píxeles RGBA, o null si no hay nada. */
+export function limitesDeFigura(px, ancho, alto) {
+  let x0 = ancho, y0 = alto, x1 = -1, y1 = -1;
+  for (let y = 0; y < alto; y++) {
+    for (let x = 0; x < ancho; x++) {
+      if (px[(y * ancho + x) * 4 + 3] === 0) continue;
+      if (x < x0) x0 = x;
+      if (x > x1) x1 = x;
+      if (y < y0) y0 = y;
+      if (y > y1) y1 = y;
+    }
+  }
+  return x1 < 0 ? null : { x: x0, y: y0, ancho: x1 - x0 + 1, alto: y1 - y0 + 1 };
+}
+
+/**
+ * El retrato de la pestaña Estado: la misma toma de la plana, solo la figura, recortada a su tamaño con un margen.
+ * Una vez por pausa, en el cuadro que ya se dibuja al abrirla. null si no hay sitio para la foto o no quedó nadie.
+ */
+export function tomarRetrato({ renderer, scene, jugador, collisions }) {
+  const foto = tomarFoto({ renderer, scene, jugador, collisions, maximo: 900 });
+  const figura = foto?.figura;
+  if (!figura) return null;
+  const ctx = figura.getContext('2d');
+  const img = ctx.getImageData(0, 0, figura.width, figura.height);
+  quitarBorde(img.data);
+  ctx.putImageData(img, 0, 0);
+  const px = img.data;
+  const caja = limitesDeFigura(px, figura.width, figura.height);
+  if (!caja || caja.alto < 24) return null;
+  const margen = Math.round(caja.alto * .06);
+  const x = Math.max(0, caja.x - margen), y = Math.max(0, caja.y - margen);
+  const ancho = Math.min(figura.width - x, caja.ancho + margen * 2), alto = Math.min(figura.height - y, caja.alto + margen * 2);
+  const c = document.createElement('canvas');
+  c.width = ancho; c.height = alto;
+  c.getContext('2d').drawImage(figura, x, y, ancho, alto, 0, 0, ancho, alto);
+  return c;
+}

@@ -45,7 +45,7 @@ export const ENCARGOS = {
     hacer: (n, base) => ({
       title: `Ganar ${cop(n)}`,
       hint: 'Reciclo, pido limosna con B o vendo lo que encuentro.',
-      goal: n, progress: (g) => (g.stats?.dinero ?? 0) - base, money: true,
+      goal: n, progress: (g) => (g.stats?.dinero ?? 0) + (g.caleta?.plata ?? 0) - base, money: true,
     }),
   },
   fabricar: {

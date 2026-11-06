@@ -80,36 +80,59 @@ export function openRecycler(game) {
 export function openShop(game, target = null) {
   const { inventory, stats } = game;
   const list = target?.items ? SHOP_ITEMS.filter((s) => target.items.includes(s.item)) : SHOP_ITEMS;
+  // Solo Doña Rosa fía, y solo a los conocidos (ver src/systems/Fiado.js).
+  const fiado = target?.items ? null : game.fiado;
+  const dia = () => game.clock?.day ?? 0;
   const render = () => {
     const body = el('ul', { class: 'rows' }, list.map((s) => {
       const it = s.upgrade ? null : ITEMS[s.item];
       const qty = s.qty ?? 1;
       const owned = s.upgrade && game.costal;
       const heavy = it && inventory.totalWeight + it.weight * qty > inventory.maxWeight;
-      const cant = stats.dinero < s.price || owned || heavy;
+      const fiable = !!fiado && stats.dinero < s.price && !owned && !heavy && fiado.puedeFiar(s.price, dia());
+      const cant = (stats.dinero < s.price && !fiable) || owned || heavy;
       const desc = owned ? 'Ya lo tengo.' : heavy ? 'No me cabe en el costal.' : s.desc ?? describe(it);
       return el('li', { class: 'row' },
         icon(s.icon ?? itemIcon(s.item), { size: 24 }),
         el('span', { class: 'row__name' }, s.label ?? it.name, el('span', { class: 'row__desc', text: desc })),
         el('span', { class: 'row__price', text: cop(s.price) }),
-        button('Comprar', {
+        button(fiable ? 'Fiar' : 'Comprar', {
           disabled: cant,
           onClick: () => {
-            stats.dinero -= s.price;
+            if (fiable) fiado.fiar(s.price, dia());
+            else stats.dinero -= s.price;
             if (s.upgrade) game.costal = true;
             else inventory.add(it, qty);
             game.audio.play('pickup');
-            toast(`Compré ${s.label ?? it.name}`);
+            toast(fiable ? `Doña Rosa me fió ${s.label ?? it.name}` : `Compré ${s.label ?? it.name}`);
             game.menu.refresh();
           }
         })
       );
     }));
-    return { body, dato: [moneyFoot(game), el('span', { class: 'menu__money', text: `Carga ${kilos(inventory.totalWeight.toFixed(1))} de ${kilos(inventory.maxWeight)} kg` })] };
+    const dato = [moneyFoot(game), el('span', { class: 'menu__money', text: `Carga ${kilos(inventory.totalWeight.toFixed(1))} de ${kilos(inventory.maxWeight)} kg` })];
+    if (fiado && (fiado.deuda || fiado.cupo)) dato.push(el('span', { class: 'menu__money', text: textoFiado(fiado, dia()) }));
+    const foot = fiado?.deuda ? [button(`Pagar lo fiado: ${cop(fiado.deuda)}`, {
+      primary: true,
+      disabled: !(stats.dinero > 0),
+      onClick: () => {
+        const n = fiado.pagar(stats, dia());
+        toast(fiado.deuda ? `Le aboné ${cop(n)} a Doña Rosa` : 'Quedé a paz y salvo con Doña Rosa', 'sell');
+        game.menu.refresh();
+      }
+    })] : undefined;
+    return { body, dato, ...(foot ? { foot } : {}) };
   };
   game.menu.open(target?.items
     ? { title: target.title, sub: 'Venta ambulante: lo justo para el día.', ic: 'bag', render }
     : { title: 'Tienda La Esquinita', sub: 'Doña Rosa fía, pero solo a los conocidos.', ic: 'store', render });
+}
+
+/** Lo que dice la tienda del fiado: cuánto debo o cuánto me fían. */
+function textoFiado(fiado, dia) {
+  if (fiado.moroso(dia)) return `Le debo ${cop(fiado.deuda)} y ya me pasé del plazo: no me fía más`;
+  if (fiado.deuda) return `Le debo ${cop(fiado.deuda)}; me fía hasta ${cop(fiado.disponible(dia))} más`;
+  return `Doña Rosa me fía hasta ${cop(fiado.cupo)}`;
 }
 
 /** Texto corto con los efectos de un objeto consumible */
@@ -152,6 +175,8 @@ export function openCambuche(game) {
         })
       );
     }));
+    // La caleta va bajo la base, que es donde está enterrada: así se ve sin bajar hasta el fondo de la lista.
+    if (game.built.base && game.caleta) rows.firstElementChild.after(caletaRow(game));
     const body = el('div', { class: 'shelter-menu' }, shelterPreview(game), rows);
     const night = game.clock.isNight;
     const foot = [
@@ -165,6 +190,26 @@ export function openCambuche(game) {
     return { body, foot };
   };
   game.menu.open({ title: 'Mi cambuche', sub: 'Los materiales salen de la basura de toda la ciudad: hay para todas las mejoras.', ic: 'tent', render });
+}
+
+/** La caleta bajo la base: guardar o sacar toda la plata de una vez. */
+function caletaRow(game) {
+  const { caleta, stats } = game;
+  const seguro = game.built.paredes ? 'Ni la Policía ni los ladrones dan con ella.' : 'La Policía no la encuentra, pero sin paredes un ladrón de noche sí.';
+  return el('li', { class: 'row row--build' },
+    icon('coins', { size: 24 }),
+    el('span', { class: 'row__name' }, 'La caleta',
+      el('span', { class: 'row__desc', text: `Tengo guardado ${cop(caleta.plata)}. ${seguro}` })),
+    el('span', { class: 'row__qty caleta__botones' },
+      button('Guardar', {
+        disabled: !(stats.dinero > 0),
+        onClick: () => { const n = caleta.guardar(stats); toast(`Guardé ${cop(n)} en la caleta`); game.audio.play('pickup'); game.menu.refresh(); }
+      }),
+      button('Sacar', {
+        disabled: !(caleta.plata > 0),
+        onClick: () => { const n = caleta.sacar(stats); toast(`Saqué ${cop(n)} de la caleta`); game.audio.play('pickup'); game.menu.refresh(); }
+      })),
+  );
 }
 
 function reqLine(inventory, req) {

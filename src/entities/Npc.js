@@ -31,6 +31,12 @@ const POOP_SCREAMS = [
   '¡¡QUÉ PESTILENCIA, AUXILIO ME EMBARRARON!!',
   '¡¡MALDITO ENFERMO, ME LAS VA A PAGAR!!'
 ];
+const CAR_SCREAMS = [
+  '¡¡AY, ME ATROPELLÓ ESE LOCO!!',
+  '¡¡MIRE POR DÓNDE MANEJA, GONORREA!!',
+  '¡¡CASI ME MATA, HIJUEPUTA!!',
+  '¡¡AUXILIO, UN CARRO ME LLEVÓ!!'
+];
 const THEFT_SCREAMS = [
   '¡¡LADRÓN, ME ESTÁ ROBANDO!!',
   '¡¡GONORREA, SUÉLTEME EL BOLSILLO!!',
@@ -114,6 +120,9 @@ const CHANGED_UNSEEN = .3; // s sin animarse: lo que hizo mientras tanto nadie l
 
 // Golpes: sin muerte ni desaparición. A 0 de salud el peatón cae, queda tendido y se levanta huyendo.
 export const NPC_HEALTH = 100;
+/** m/s desde los que un carro tira al peatón al piso; más despacio solo lo empuja (≈ 22 km/h). */
+export const CAR_KNOCKDOWN_SPEED = 6;
+
 export const NPC_COMBAT = {
   stagger: 0.28,   // s de sacudón tras cada golpe (no camina; el golpe lo empuja)
   flee: 5,         // s de huida veloz tras recibir un golpe
@@ -432,6 +441,52 @@ export class Npc {
 
     this._scream(POOP_SCREAMS);
     if (voz) this.speakScenario('poop', true);
+  }
+
+  /**
+   * Lo golpea un carro (el que maneja el jugador). Rápido lo tira al piso hacia donde va el carro y
+   * se levanta para huir; despacio lo empuja, trastabilla y sale corriendo. Sin mancha ni botín.
+   * @param {{x:number, z:number}} carPosition centro del carro
+   * @param {number} speed m/s del carro
+   * @param {{x:number, z:number}} [heading] hacia dónde avanza el carro: el cuerpo sale despedido hacia ese lado
+   */
+  hitByCar(carPosition, speed = 5, heading = null) {
+    if (this._disposed || this.koState) return false;
+    this._witness = null;
+    let dx = this.position.x - (carPosition?.x ?? this.position.x), dz = this.position.z - (carPosition?.z ?? this.position.z);
+    // Lo que manda es el empuje del carro; el lado solo lo abre un poco.
+    if (heading && Number.isFinite(heading.x) && Number.isFinite(heading.z)) {
+      const side = Math.hypot(dx, dz) || 1;
+      dx = heading.x * 1.6 + dx / side * .6; dz = heading.z * 1.6 + dz / side * .6;
+    }
+    const len = Math.hypot(dx, dz);
+    if (len > 1e-4) this._lastHit.set(dx / len, 0, dz / len);
+    this.panicDir = { x: this._lastHit.x, z: this._lastHit.z };
+    this._punchFacing = Math.atan2(-this._lastHit.x, -this._lastHit.z);
+    this.target = null; this.route = []; this.routeIndex = 0; this.wait = 0;
+    this._cowering = false; this._fleeRouted = false;
+    this.combatAI?.dispose?.();
+    const low = LOW_STANCES.has(this.stance);
+    const bench = this.fijo?.stance === 'banca' && !this.fijo.out && low;
+    this._leaveSpot();
+    const push = Math.min(3.2, Math.max(0, speed) * .35);
+    // El empujón recorre `push` metros mientras dura el sacudón (ver _updateReaction).
+    this._knockVel.copy(this._lastHit).multiplyScalar(low ? 0 : push * 2 / NPC_COMBAT.stagger);
+    this.staggerTimer = NPC_COMBAT.stagger;
+    if (speed >= CAR_KNOCKDOWN_SPEED || low) {
+      this.health = 0;
+      this._startKnockout(bench);
+    } else {
+      this._hitReactionRemaining = NPC_HIT_REACTION_DURATION;
+      this.action = 'recibirGolpe'; this.actionProgress = 0; this.moving = false;
+      if (this._ownsLocomotionState) this.state = 'recibirGolpe';
+      this._setFleeAway(this._lastHit.x, this._lastHit.z);
+      this.fleeDir.copy(this._lastHit);
+      this.fleeTimer = Math.max(this.fleeTimer, NPC_COMBAT.flee);
+      this.panicTimer = NPC_COMBAT.flee;
+    }
+    this._scream(CAR_SCREAMS);
+    return true;
   }
 
   /** Lo pillaron metiéndole la mano o le arrancaron algo: huye gritando, sin mancha. */

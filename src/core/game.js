@@ -36,7 +36,7 @@ import { Cart } from '../entities/Cart.js';
 import { CinematicOverlays } from '../ui/CinematicOverlays.js';
 import { Momentos, botonDeMuerte, cuerpoDeMuerte, cuerpoDeRecorte } from '../ui/Momentos.js';
 import { PrimeraPlana } from '../ui/PrimeraPlana.js';
-import { tomarFoto } from '../ui/fotoDeArresto.js';
+import { tomarFoto, tomarRetrato } from '../ui/fotoDeArresto.js';
 import { actualizarFrases } from '../ui/frases.js';
 import { TILE_SIZE } from '../utils/constants.js';
 import { castigoDeArresto, CALABOZO_HAMBRE, CALABOZO_PISO, CALABOZO_SED, ESCONDITE_M } from '../data/arresto.js';
@@ -52,6 +52,10 @@ import { AutoSave } from '../systems/AutoSave.js';
 import { CollisionSystem } from '../systems/CollisionSystem.js';
 import { TrafficSystem } from '../systems/TrafficSystem.js';
 import { WitnessSystem } from '../systems/WitnessSystem.js';
+import { ReputationSystem } from '../systems/ReputationSystem.js';
+import { JornadaSystem } from '../systems/JornadaSystem.js';
+import { Caleta } from '../systems/Caleta.js';
+import { Fiado } from '../systems/Fiado.js';
 import { DEFAULT_TRAFFIC_DENSITY, trafficDensityId, trafficDensityLabel } from '../systems/trafficDensity.js';
 import { distributeShelterLoot, spreadPickupPositions } from '../systems/ShelterLoot.js';
 import { InventorySystem } from '../systems/InventorySystem.js';
@@ -206,6 +210,11 @@ export class Game {
     // Rebusque en el semáforo: malabares, vidrios y dulces con B mientras la luz está en rojo.
     this.rebusque = new RebusqueSystem(this);
     this.interaction.rebusque = this.rebusque;
+    this.reputation = new ReputationSystem();
+    this.jornada = new JornadaSystem(this.clock);
+    this.fiado = new Fiado({ reputation: this.reputation });
+    this.interaction.jornada = this.jornada;
+    this.interaction.reputation = this.reputation;
     this.mirrorCinematic = new MirrorCinematic(this);
 
     // HUD, menús y creador de personaje
@@ -286,6 +295,7 @@ export class Game {
     this.bolirana = { level: 1, pending: false };
     this.look = null;       // apariencia + nombre + origen (creador)
     this.built = {};        // piezas del cambuche
+    this.caleta = new Caleta(); // plata guardada bajo la base del cambuche
     this.costal = false;    // costal grande comprado
     this.isSleeping = false;
     this.deathCount = 0;
@@ -317,6 +327,7 @@ export class Game {
     this._startObjectives();
     // Cada entrada comienza de noche y con lluvia, también al retomar un guardado.
     this.clock.hour = 22;
+    this.jornada?.sincronizar();
     if (this.weather) {
       this.weather.setWeather('llovizna', false);
       this.weather.timer = 0;
@@ -441,7 +452,26 @@ export class Game {
     this.look = normalizeLook({ ...look, v: 2 });
     const ready = this.player.setLook(this.look);
     this.interaction.originId = this.look.origen;
+    // El retrato de la pestaña Estado se toma de nuevo cuando cambia la ropa, no al abrir la pausa.
+    Promise.resolve(ready).then(() => { this._retratoPendiente = true; }, () => {});
     return ready;
+  }
+
+  /**
+   * Una vez por apariencia, en un cuadro de juego ya dibujado: la figura sola, para la pestaña Estado. Con la pausa
+   * arriba no se dibuja nada, así que la foto no puede esperar a abrirla.
+   */
+  _tomarRetrato(now) {
+    if (now < (this._retratoEspera ?? 0)) return;
+    let foto = null;
+    try {
+      foto = tomarRetrato({ renderer: this.renderer, scene: this.sceneMgr.scene, jugador: this.player, collisions: this.collisions });
+    } catch (error) {
+      console.warn('[Retrato] No se pudo tomar.', error);
+    }
+    // Contra una pared no hay sitio para el fotógrafo: se vuelve a intentar en unos segundos, sin insistir cada cuadro.
+    if (foto) { this._retrato = foto; this._retratoPendiente = false; }
+    else this._retratoEspera = now + 3000;
   }
 
   /** GPS a pie, plano del radar y haz del destino; solo para distritos con grilla de navegación. */
@@ -584,6 +614,7 @@ export class Game {
       if (xp) this.stats.addXP(xp, this.talents);
       const parts = [dinero && `+${cop(dinero)}`, xp && `+${xp} de experiencia`].filter(Boolean);
       this._avisar(`Encargo cumplido: ${done.title} (${parts.join(', ')})`, 'rare');
+      window.dispatchEvent(new CustomEvent('encargo-cumplido', { detail: { id: done.id } }));
       this.encargos.next(this);
       // El cobro vale con el siguiente ya puesto: ganar esta plata no adelanta un «Ganar» nuevo.
       this._activateObjective();
@@ -769,12 +800,13 @@ export class Game {
       this.traffic.setDensity(this.trafficDensity);
       // La flota diaria entra y sale con el reloj: el juego le da de alta el carro nuevo y de baja el que se va.
       this.traffic.onVehicleAdded = (car) => {
-        this.interaction.register(car);
+        // A la moto no se le roban los espejos: no entra al selector de la E ni cuesta en su barrido.
+        if (!car.isMoto) this.interaction.register(car);
         this._contactVehicles?.push(car);
         car.setNight?.(this.clock.lightsOn, this.weather?.isRaining ?? false, this.weather?.weather === 'niebla');
       };
       this.traffic.onVehicleRemoved = (car) => {
-        this.interaction.unregister(car);
+        if (!car.isMoto) this.interaction.unregister(car);
         this.renderer.culling.unregister(car.group);
         const index = this._contactVehicles?.indexOf(car) ?? -1;
         if (index >= 0) this._contactVehicles.splice(index, 1);
@@ -785,7 +817,7 @@ export class Game {
         getGroundHeight: (x, z, y) => district.getMovementGroundHeight?.(x, z, y) ?? district.getGroundHeight?.(x, z) ?? 0,
         getWaterInfo: (x, z) => district.getWaterInfo?.(x, z)
       });
-      for (const { car } of this.traffic.vehicles) this.interaction.register(car);
+      for (const { car } of this.traffic.vehicles) if (!car.isMoto) this.interaction.register(car);
     }
 
     // ===== Puesto de venta =====
@@ -902,6 +934,7 @@ export class Game {
         if (!district?.isWalkableAt || district.isWalkableAt(px, pz)) this.player.position.set(...position);
       }
       this.built = data.built ?? {};
+      this.caleta?.deserialize(data.caleta);
       this.costal = !!data.costal;
       if (data.weapon && this.inventory.count(data.weapon) > 0) this.player.equipWeapon(data.weapon);
       this.cambuche?.setBuilt(this.built);
@@ -928,6 +961,9 @@ export class Game {
       // Sin datos de objetivos es una partida anterior: se saltan los ya cumplidos sin premio.
       this._objectivesCatchUp = !!this.objectives && !this.objectives.deserialize(data.objectives);
       this.encargos?.deserialize(data.encargos);
+      this.reputation?.deserialize(data.fama);
+      this.jornada?.sincronizar();
+      this.fiado?.deserialize(data.fiado);
 
     }
   }
@@ -950,6 +986,7 @@ export class Game {
       worldLayoutVersion: this.world.active?.layoutVersion ?? 0,
       look: this.look,
       built: this.built,
+      caleta: this.caleta?.serialize() ?? null,
       costal: this.costal,
       weapon: this.player.equippedWeapon,
       zorra: this.zorra?.serialize(),
@@ -959,7 +996,9 @@ export class Game {
       gps: this.gps?.serialize() ?? null,
       carroRobado: this.carjack?.serialize() ?? null,
       objectives: this.objectives?.serialize() ?? null,
-      encargos: this.encargos?.serialize() ?? null
+      encargos: this.encargos?.serialize() ?? null,
+      fama: this.reputation?.serialize() ?? null,
+      fiado: this.fiado?.serialize() ?? null
     };
   }
 
@@ -1070,7 +1109,7 @@ export class Game {
     if (!b.fogon) st.hambre = Math.max(0, st.hambre - SLEEP.hambreFogon * factor);
 
     // Sin paredes te pueden robar si duermes de noche
-    let robbed = null;
+    let robbed = null, robbedCaleta = 0;
     // El Chato durmiendo al lado, o cuidando el cambuche, espanta al ladrón.
     const cuidado = !!this.dog?.isFriend && (this.dog.guarding || this.dog.position.distanceTo(this.player.position) < 6);
     const intento = night && !b.paredes && Math.random() < SLEEP.roboProb;
@@ -1082,6 +1121,8 @@ export class Game {
         if (isForSale(ITEMS[it.id] ?? it, this.player.equippedWeapon)) this.inventory.remove(it.id, Math.ceil(it.qty * SLEEP.roboMaterial));
       }
       robbed = lost;
+      // Sin paredes, el ladrón también escarba bajo la base y da con la caleta.
+      robbedCaleta = this.caleta?.robar() ?? 0;
     }
 
     // Dormir sucio en un colchón de la calle puede pegar sarna.
@@ -1105,7 +1146,9 @@ export class Game {
       }
       if (robbed !== null) {
         window.dispatchEvent(new CustomEvent('toast', {
-          detail: { text: `Me robaron mientras dormía (${cop(robbed)} y material). Unas paredes ayudarían.`, type: 'death' }
+          detail: { text: robbedCaleta
+            ? `Me robaron mientras dormía (${cop(robbed)}, material y ${cop(robbedCaleta)} de la caleta). Unas paredes ayudarían.`
+            : `Me robaron mientras dormía (${cop(robbed)} y material). Unas paredes ayudarían.`, type: 'death' }
         }));
       }
       if (sarna) {
@@ -1525,6 +1568,10 @@ export class Game {
     if (!this.player.isSwimming && !driving) this.steal?.update(dt);
     else if (this.steal?.minigameActive) this.steal._endMinigame(false, 'cancel');
     this.witnesses?.update(dt);
+    this.reputation?.update(dt);
+    this.jornada?.update();
+    this.fiado?.update(this.clock.day ?? 0);
+    if (this.traffic) this.traffic.franja = this.jornada?.franja ?? null;
     this.interaction.carjackPrompt = driving ? null : this.carjack?.prompt ?? null;
     this.rebusque?.update(dt);
     this.interaction.rebusquePrompt = driving ? null : this.rebusque?.prompt ?? null;
@@ -1684,6 +1731,7 @@ export class Game {
     this.renderer.render(this.sceneMgr.scene, this.cameraRig.camera, this.player.root, [this.sceneMgr.sun], showSilhouette && !insideBody);
     if (insideBody) this.player.root.visible = true;
     if (this._trasRender) { const copiar = this._trasRender; this._trasRender = null; copiar(); }
+    else if (active && this._retratoPendiente && !insideBody && !this.carjack?.driving && !this.player.isSwimming) this._tomarRetrato(now);
     this.substanceEffects?.afterRender(this.cameraRig.camera);
     if (this.performanceHUD.update(this._frameStamp ?? now, this.player.position, this.renderer, active, this.localLights)) {
       this.renderer.adaptResolution(this.performanceHUD.metrics.frameMs, performance.now() - now);
