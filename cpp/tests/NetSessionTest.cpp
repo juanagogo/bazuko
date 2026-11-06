@@ -485,6 +485,26 @@ int main() {
         CHECK(lookOf(*b, 1) == "host|look", "J: Beto ve la del anfitrion");
         std::printf("J) apariencias: cada jugador ve a los demas con su personaje (anfitrion, quien estaba y quien entro despues)\n");
     }
+    // K: manos: lo que cada jugador hace con ellas (fumar un cigarrillo o un porro, la pipa) lo ven los demas, y se apaga al soltarlo
+    {
+        auto host = NetSession::StartHost(0, "Anfitrion");
+        auto a = NetSession::Join("127.0.0.1", host->Port(), "Ana");
+        auto b = NetSession::Join("127.0.0.1", host->Port(), "Beto");
+        Walker hw{{100.0f, 0.0f, 100.0f}}, aw{{101.0f, 0.0f, 100.0f}}, bw{{102.0f, 0.0f, 100.0f}};
+        uint8_t anaHands = 0, hostHands = 0;
+        const auto run = [&](double seconds) { Pump(seconds, [&](float dt) {
+            LocalState hs = hw.State(); hs.animation = hostHands; LocalState as = aw.State(); as.animation = anaHands;
+            host->Update(dt, hs); a->Update(dt, as); b->Update(dt, bw.State()); }); };
+        const auto handsOf = [](const NetSession& s, uint8_t id) { for (const RemotePlayer& r : s.Remotes()) if (r.id == id) return static_cast<int>(r.animation); return -1; };
+        run(1.5);
+        CHECK(handsOf(*b, a->LocalId()) == 0, "K: al principio nadie hace nada con las manos");
+        anaHands = 2; hostHands = 3; run(1.0);
+        CHECK(handsOf(*b, a->LocalId()) == 2 && handsOf(*host, a->LocalId()) == 2, "K: Beto y el anfitrion ven a Ana con un porro");
+        CHECK(handsOf(*b, 1) == 3 && handsOf(*a, 1) == 3, "K: y ven al anfitrion con la pipa");
+        anaHands = 0; run(1.0);
+        CHECK(handsOf(*b, a->LocalId()) == 0, "K: al soltar el porro se apaga para todos");
+        std::printf("K) manos: fumar y la pipa se ven en los demas jugadores\n");
+    }
     if (failures == 0) std::printf("Sesion de red: todo correcto\n");
     return failures == 0 ? 0 : 1;
 }

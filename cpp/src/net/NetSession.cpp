@@ -24,6 +24,7 @@ PlayerSnapshot Describe(uint8_t id, const LocalState& local) {
     p.vz = std::clamp(local.velocity.z, -kMaxVelocity, kMaxVelocity);
     p.speed = std::sqrt(local.velocity.x * local.velocity.x + local.velocity.z * local.velocity.z);
     p.flags = local.knockedDown ? 2 : 0;
+    p.animation = local.animation;
     return p;
 }
 }
@@ -323,6 +324,7 @@ void NetSession::SmoothRemote(float dt) {
         }
         smooth.shown.speed = smooth.target.speed;
         smooth.shown.knockedDown = (smooth.target.flags & 2) != 0;
+        smooth.shown.animation = smooth.target.animation;
         const auto look = m_Looks.find(id);
         smooth.shown.look = look == m_Looks.end() ? std::string() : look->second;
         m_Remotes.push_back(smooth.shown);

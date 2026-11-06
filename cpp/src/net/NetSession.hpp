@@ -31,6 +31,7 @@ struct RemotePlayer {
     float yaw = 0.0f;
     float speed = 0.0f;
     bool knockedDown = false;
+    uint8_t animation = 0;   // lo que hace con las manos: 0 nada, 1 fuma un cigarrillo, 2 un porro, 3 la pipa
 };
 
 // Lo que este jugador cuenta de si mismo cada cuadro
@@ -39,6 +40,7 @@ struct LocalState {
     float yaw = 0.0f;
     glm::vec3 velocity{0.0f};
     bool knockedDown = false;
+    uint8_t animation = 0;   // ver RemotePlayer::animation
 };
 
 class NetSession {

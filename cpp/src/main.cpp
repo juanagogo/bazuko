@@ -1486,7 +1486,9 @@ int main(int argc, char** argv) {
         if (netSession) {   // multijugador: cuenta mi estado, recibe el de los demas y los dibuja (net/NetSession.hpp)
             static bool ownLookSent = false;
             if (!ownLookSent) { ownLookSent = true; netSession->SetLook(EncodeLook(characterManager.GetLook())); }   // va en el saludo
-            netSession->Update(dt, Net::LocalState{playerPos, playerYaw, playerVelocity, playerKnockedDown});
+            // lo que hace con las manos, para que los demas lo vean: fuma un cigarrillo (1), un porro (2) o la pipa (3); peleando o nadando no se ve
+            const uint8_t handsCode = Pipe::Holding(basuco) ? 3 : (smoking.active && playerAction == PlayerAction::None && !playerSwimming) ? (smoking.kind == "hierba" ? 2 : 1) : 0;
+            netSession->Update(dt, Net::LocalState{playerPos, playerYaw, playerVelocity, playerKnockedDown, handsCode});
             // mundo compartido: el invitado deja de simular trafico y peatones y aplica lo que manda el anfitrion (misma semilla = mismos carros)
             if (netSession->ConsumePromotion()) {   // el anfitrion se fue y me toca: ahora el mundo lo simulo yo
                 simulation.PromoteToHost();
@@ -2070,8 +2072,41 @@ int main(int argc, char** argv) {
                 glm::mat4 model = glm::rotate(glm::translate(glm::mat4(1.0f), remote.position), remote.yaw, glm::vec3(0.0f, 1.0f, 0.0f));
                 CharacterManager& body = *avatar->second.body;
                 const float animTime = clock.GetElapsedTime() + static_cast<float>(remote.id) * 0.37f;
-                if (remote.knockedDown && body.FindClip("LyingLoop") >= 0) body.Draw(renderer, model, 0.0f, false, false, body.FindClip("LyingLoop"));
-                else body.Draw(renderer, model, animTime, remote.speed > 0.3f, remote.speed > 4.5f);
+                if (remote.knockedDown && body.FindClip("LyingLoop") >= 0) { body.Draw(renderer, model, 0.0f, false, false, body.FindClip("LyingLoop")); continue; }
+                const bool remoteMoving = remote.speed > 0.3f, remoteRunning = remote.speed > 4.5f;
+                if (remote.animation == 0) { body.Draw(renderer, model, animTime, remoteMoving, remoteRunning); continue; }
+                // lo ve fumar: la misma pose y la misma brasa que se ven en uno mismo; la calada (cada 8 s) y el humo salen del reloj local, no de la red
+                std::vector<Model::BoneTurn> turns;
+                const float cycle = std::fmod(animTime, 8.0f);
+                const float reach = cycle < 2.4f ? std::sin(glm::pi<float>() * cycle / 2.4f) : 0.0f;
+                if (remote.animation == 3) { Pipe::AppendPose(turns, 1.0f); model = glm::translate(model, glm::vec3(0.0f, -Pipe::Drop(1.0f), 0.0f)); }
+                else Smoking::AppendPose(turns, 1.0f, reach);
+                body.Draw(renderer, model, animTime, remoteMoving, remoteRunning, -1, -1, 0.0f, &turns);
+                const glm::mat4 alongY = glm::rotate(glm::mat4(1.0f), -glm::half_pi<float>(), glm::vec3(1.0f, 0.0f, 0.0f));
+                const glm::mat4 hand = body.PosedNode("LeftHand", model, animTime, remoteMoving, remoteRunning, -1, -1, 0.0f, &turns);
+                static std::map<uint8_t, float> remoteWisp;
+                float& wisp = remoteWisp[remote.id];
+                wisp -= dt;
+                if (remote.animation == 3) {
+                    if (!pipeMeshes) pipeMeshes = std::make_unique<PipeMeshes>();
+                    glm::mat4 pipeAt = hand * glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, 0.07f, 0.02f));
+                    pipeAt = glm::rotate(pipeAt, -glm::half_pi<float>(), glm::vec3(0.0f, 0.0f, 1.0f));
+                    const float glow = 0.6f + 0.4f * std::pow(std::sin(animTime * 9.0f), 2.0f);
+                    renderer.Submit(*pipeMeshes->tube, pipeAt * glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, 0.03f, 0.0f)) * alongY);
+                    renderer.Submit(*pipeMeshes->bowl, pipeAt * glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, 0.1f, 0.0f)));
+                    renderer.Submit(*pipeMeshes->coal, pipeAt * glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, 0.11f, 0.0f)), glm::vec4(glm::vec3(1.0f, 0.416f, 0.165f) * (1.0f + glow), 1.0f));
+                    if (wisp <= 0.0f) { wisp = 0.1f; SmokePuffs::Emit e; e.position = glm::vec3(pipeAt * glm::vec4(0.0f, 0.112f, 0.0f, 1.0f)); e.size = 0.03f; e.grow = 0.2f; e.life = 1.8f; e.alpha = 0.3f; e.color = glm::vec3(0.894f, 0.886f, 0.863f); smokePuffs.Emitir(e); }
+                } else if (const Smoking::Smokable* look = Smoking::Find(remote.animation == 2 ? "hierba" : "cigarrillo")) {
+                    glm::mat4 attach = glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, 0.085f, 0.015f));
+                    attach = glm::rotate(attach, -glm::half_pi<float>(), glm::vec3(0.0f, 0.0f, 1.0f));
+                    const glm::mat4 cigarette = hand * attach;
+                    CigaretteMeshes& meshes = meshesFor(*look);
+                    const float glow = reach;
+                    renderer.Submit(*meshes.paper, cigarette * glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, 0.03f, 0.0f)) * alongY);
+                    renderer.Submit(*meshes.filter, cigarette * glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, -0.01f, 0.0f)) * alongY);
+                    renderer.Submit(*meshes.ember, cigarette * glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, 0.063f, 0.0f)) * alongY, glm::vec4(0.9f + 0.4f * glow, 0.32f + 0.35f * glow, 0.1f + 0.2f * glow, 1.0f));
+                    if (wisp <= 0.0f) { wisp = 0.12f; SmokePuffs::Emit e; e.position = glm::vec3(cigarette * glm::vec4(0.0f, 0.066f, 0.0f, 1.0f)); e.size = 0.025f; e.grow = 0.18f; e.life = 2.2f; e.alpha = 0.22f; e.color = glm::vec3(look->smoke[0], look->smoke[1], look->smoke[2]); smokePuffs.Emitir(e); }
+                }
             }
         }
 #endif
