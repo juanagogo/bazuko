@@ -417,7 +417,7 @@ async function buildInstance(catalog, look, lod = false, profile = resolveAnimat
   if (!lod && real.rostro && headBone && bodyMesh && eyeMesh) {
     const frame = measureFace(body.id, root, bodyMesh, eyeMesh);
     root.traverse(o => { if (o.isSkinnedMesh && /eyebrow/i.test(o.name)) o.geometry = browGeometry(body.id, root, o, frame, real.rostro.cejas); });
-    attachFace(root, headBone, frame, real.rostro, faceColors(look.piel ?? DEFAULT_LOOK.piel, look.peloColor ?? 0, frame, bodyMesh.material.color));
+    attachFace(root, headBone, frame, real.rostro, faceColors(look.piel ?? DEFAULT_LOOK.piel, look.peloColor ?? 0, frame, bodyMesh.material.color), real.barba);
   }
   const worn = (look.accesorios ?? []).filter((id) => !useLod || FAR_ACCESSORIES.has(id));
   const accessories = worn.length ? attachAccessories(root, bones, worn, wear) : null;

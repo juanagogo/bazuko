@@ -159,7 +159,7 @@ export class BodyLanguage {
   /**
    * @param {string|null} stance  nombre de la postura
    * @param {number} stanceWeight 0..1, sobre el peso de la transición
-   * @param {object|null} style   { stoop, swing, sway, headDown, carry, limp }
+   * @param {object|null} style   { stoop, swing, sway, headDown, carry, limp, caderas }
    * @param {number} ko           0..1, ya suavizado; manda sobre lo demás
    * @param {boolean} koRising    va de vuelta: `ko` baja y el cuerpo se levanta por el camino de subida
    * @param {string} koPlan       cómo cae y cómo se para: una entrada de `KO_PLANS`

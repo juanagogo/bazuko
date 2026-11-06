@@ -64,6 +64,8 @@ export const SEARCH_ACTION = 'buscar';
  * - `pausa`: probabilidad de quedarse un rato al terminar un recorrido. `paradas`: pesos de lo que hace entonces.
  * - `marcha`: probabilidad de andar con cada postura; el resto va con las manos libres.
  * - `frases`: lo que dice además de lo de siempre.
+ * - `sol`: pasa el día a la intemperie, y su piel se inclina a tonos curtidos. `nino`: cuerpo joven achicado con cabeza grande, y no recibe golpes. `noche`: solo está de noche. `arraigo`: m a la redonda de su esquina por los que anda.
+ * - La piel, la textura del pelo y la cara no están aquí sino en people.js: salen de la ascendencia de cada persona (ver `rollAscendencia`), y la contextura y la estatura de `rollTallaCuerpo`.
  */
 export const ARCHETYPES = {
   oficinista: {

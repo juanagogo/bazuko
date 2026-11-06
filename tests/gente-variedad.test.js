@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { test } from 'node:test';
+import { mock, test } from 'node:test';
 import * as THREE from 'three';
 import { ARCHETYPES, ZONE_WEIGHTS, pickArchetype, rollPerson } from '../src/character/archetypes.js';
 import { PALETTES, SKIN_ALBEDO } from '../src/character/look.js';
@@ -163,4 +163,51 @@ test('las esquineras: de noche, mujeres adultas, con el contoneo, en pocas zonas
   assert.ok(group.some(person => person.real.ropa === 'short') && group.some(person => person.real.ropa === 'blusa'));
   assert.ok(new Set(group.map(person => person.piel)).size >= 5, 'cada una es distinta');
   for (const frase of spec.frases) assert.ok(!/—|–/.test(frase));
+});
+
+mock.module('../src/character/RealisticCharacter.js', { namedExports: {
+  REALISTIC_SCALE: 1.08, createRealisticCharacter: async () => ({ group: new THREE.Group(), update() {}, dispose() {} }),
+  loadCatalog: async () => ({}), normalizeReal: (_, look) => look, optionsFor: () => [{ id: 'test' }]
+} });
+const { Npc } = await import('../src/entities/Npc.js');
+
+test('quien trabaja de noche se aparta de día, sin dibujarse ni contar, y vuelve a su sitio al anochecer', async () => {
+  const scene = new THREE.Scene();
+  const home = new THREE.Vector3(12, 0, 7);
+  const npc = new Npc(scene, home, { arquetipo: 'esquinera', seed: 'esquina' });
+  await npc.ready;
+  npc.update(.05, { night: true });
+  assert.ok(!npc._absent && npc.position.distanceTo(home) < 1e-6);
+  npc.update(.05, { night: false });
+  assert.ok(npc._absent && !npc.root.visible && npc.position.length() > 1e4 && npc.root.matrixWorldAutoUpdate === false);
+  for (let i = 0; i < 20; i++) npc.update(.05, { night: false });
+  assert.ok(npc.position.length() > 1e4, 'sigue ausente todo el día');
+  npc.update(.05, { night: true });
+  assert.ok(!npc._absent && npc.position.distanceTo(home) < 1e-6 && npc.root.matrixWorldAutoUpdate === true);
+  // Los demás no se enteran de la hora.
+  const other = new Npc(scene, home, { arquetipo: 'senora', seed: 's' });
+  await other.ready;
+  other.update(.05, { night: false });
+  assert.ok(!other._absent && other.position.distanceTo(home) < 1e-6);
+  npc.dispose(); other.dispose();
+});
+
+test('la persona de un Npc depende solo de su semilla, y los niños no reciben golpes ni popó', async () => {
+  const scene = new THREE.Scene();
+  const [a, b, c] = ['gente', 'gente', 'otra'].map(seed => new Npc(scene, new THREE.Vector3(), { arquetipo: 'oficinista', seed }));
+  assert.deepEqual(a.person, b.person);
+  assert.notDeepEqual(a.person, c.person);
+  const kid = new Npc(scene, new THREE.Vector3(), { arquetipo: 'nino', seed: 'nino' });
+  await kid.ready;
+  assert.equal(kid.person.nino, true);
+  assert.equal(kid.takeHit({ damage: 30 }), false);
+  assert.equal(kid.takePunch({ position: new THREE.Vector3(1, 0, 0) }), false);
+  assert.equal(kid.health, kid.maxHealth);
+  kid.hitByPoop();
+  assert.equal(kid.isSplatted, false);
+  const adult = new Npc(scene, new THREE.Vector3(), { arquetipo: 'oficinista', seed: 'adulto' });
+  await adult.ready;
+  assert.ok(adult.takeHit({ damage: 30, dir: { x: 1, z: 0 } }));
+  assert.ok(adult.health < adult.maxHealth);
+  for (const npc of [a, b, c, kid, adult]) npc.dispose();
 });

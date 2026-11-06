@@ -49,6 +49,17 @@ function bodyInsideStatic(x, y, z, radius) {
   });
 }
 
+test('seis esquineras salen a la ciudad: de noche, en el Cartucho, los andenes y el parque, y reemplazan a caminantes', () => {
+  const esquineras = everyone.filter(npc => npc.person?.arquetipo === 'esquinera');
+  assert.equal(esquineras.length, 6);
+  assert.deepEqual(esquineras.map(npc => city._zoneAt(npc.position.x, npc.position.z)).sort(), ['andenes', 'andenes', 'cartucho', 'cartucho', 'cartucho', 'parque']);
+  for (const npc of esquineras) {
+    assert.ok(npc.person.noche && npc.navigation && !npc.fijo, 'caminan su esquina, no se quedan clavadas');
+    assert.equal(npc.person.sexo, 'mujer');
+  }
+  assert.equal(new Set(esquineras.map(npc => npc.seed)).size, 6, 'cada persona tiene su semilla');
+});
+
 test('siguen siendo 88 personas: 8 vendedores y, de los otros 80, entre 15 y 20 se quedan en su sitio', () => {
   assert.equal(everyone.length, 88);
   assert.equal(vendors.length, 8);

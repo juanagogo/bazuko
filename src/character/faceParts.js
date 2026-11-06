@@ -211,7 +211,7 @@ const PATILLAS = { cortas: patilla(.2), largas: patilla(.38) };
 const RASGOS = { nariz: NARIZ, ojos: OJOS, boca: BOCA, menton: MENTON, orejas: OREJAS, patillas: PATILLAS };
 
 /** Una sola malla con todos los rasgos de esa cara, o null si lleva solo los del cuerpo. Las coordenadas son relativas al punto entre los ojos. */
-export function buildFaceGeometry(frame, rostro, colors) {
+export function buildFaceGeometry(frame, rostro, colors, barba = 'ninguna') {
   const parts = [];
   const f = {
     ...frame,
@@ -219,7 +219,11 @@ export function buildFaceGeometry(frame, rostro, colors) {
     mirror: draw => { draw(1); draw(-1); }
   };
   const add = (color, center, radius, rotation) => blob(parts, color, center, radius, rotation);
-  for (const [rasgo, table] of Object.entries(RASGOS)) table[rostro[rasgo]]?.(add, f);
+  for (const [rasgo, table] of Object.entries(RASGOS)) {
+    // Quien lleva barba tiene tapados el mentón y las patillas: el pelo va por encima de lo que se le añada.
+    if (barba !== 'ninguna' && (rasgo === 'menton' || rasgo === 'patillas')) continue;
+    table[rostro[rasgo]]?.(add, f);
+  }
   if (!parts.length) return null;
   const geometry = mergeGeometries(parts);
   for (const part of parts) part.dispose();
@@ -230,8 +234,8 @@ export function buildFaceGeometry(frame, rostro, colors) {
  * Pone los rasgos en la cabeza: una malla hija del hueso, con la matriz que lleva del espacio de la cara (el del modelo, con el origen entre los ojos) al del hueso.
  * @returns {THREE.Mesh|null}
  */
-export function attachFace(root, headBone, frame, rostro, colors) {
-  const geometry = buildFaceGeometry(frame, rostro, colors);
+export function attachFace(root, headBone, frame, rostro, colors, barba) {
+  const geometry = buildFaceGeometry(frame, rostro, colors, barba);
   if (!geometry) return null;
   root.updateMatrixWorld(true);
   const mesh = new THREE.Mesh(geometry, faceMaterial);
