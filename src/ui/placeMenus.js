@@ -152,7 +152,8 @@ export function openCambuche(game) {
         })
       );
     }));
-    if (game.built.base && game.caleta) rows.append(caletaRow(game));
+    // La caleta va bajo la base, que es donde está enterrada: así se ve sin bajar hasta el fondo de la lista.
+    if (game.built.base && game.caleta) rows.firstElementChild.after(caletaRow(game));
     const body = el('div', { class: 'shelter-menu' }, shelterPreview(game), rows);
     const night = game.clock.isNight;
     const foot = [
@@ -176,12 +177,11 @@ function caletaRow(game) {
     icon('coins', { size: 24 }),
     el('span', { class: 'row__name' }, 'La caleta',
       el('span', { class: 'row__desc', text: `Tengo guardado ${cop(caleta.plata)}. ${seguro}` })),
-    el('span', { class: 'row__qty' },
+    el('span', { class: 'row__qty caleta__botones' },
       button('Guardar', {
         disabled: !(stats.dinero > 0),
         onClick: () => { const n = caleta.guardar(stats); toast(`Guardé ${cop(n)} en la caleta`); game.audio.play('pickup'); game.menu.refresh(); }
       }),
-      ' ',
       button('Sacar', {
         disabled: !(caleta.plata > 0),
         onClick: () => { const n = caleta.sacar(stats); toast(`Saqué ${cop(n)} de la caleta`); game.audio.play('pickup'); game.menu.refresh(); }

@@ -93,6 +93,7 @@ body.tactil .cierre { padding: 0; }
 :where(#menu) .row__name { font-weight: 800; font-size: 19px; line-height: 1.05; }
 :where(#menu) .row__desc { display: block; font-weight: 400; font-size: 15.5px; line-height: 1.14; }
 :where(#menu) .row__qty { font-weight: 800; font-size: 18px; white-space: nowrap; }
+:where(#menu) .caleta__botones { display: flex; gap: 8px; }
 :where(#menu) .row__price { font-weight: 800; font-size: var(--letra-cifra); white-space: nowrap; text-align: right; }
 :where(#menu) .row.is-locked .row__name { color: color-mix(in srgb, var(--marcador) 86%, transparent); }
 :where(#menu) .req { display: flex; flex-wrap: wrap; gap: 1px 12px; margin-top: 2px; font-weight: 400; font-size: 15px; }
