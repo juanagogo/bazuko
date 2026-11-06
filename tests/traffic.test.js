@@ -1037,7 +1037,7 @@ for (const seed of [1, 3, 11, 22, 29]) {
   test(`una sola flota con parqueados y NPC circula sin bloqueos, semilla ${seed}`, async () => {
     const { parked, npcs, vehicles, worst, shortest } = await runLikeTheGame(seed, 5);
     assert.equal(parked, 23);
-    assert.ok(npcs >= 80, `${npcs} NPC`);
+    assert.ok(npcs >= 34, `${npcs} NPC`);
     assert.ok(vehicles <= expectedFleet('normal') && vehicles >= expectedFleet('normal') - 4,
       `${vehicles} vehículos a densidad normal, se esperaban ${expectedFleet('normal')}`);
     assert.ok(worst.seconds < 200, `${worst.kind} parado ${worst.seconds.toFixed(0)} s en ${worst.x?.toFixed(1)},${worst.z?.toFixed(1)}`);

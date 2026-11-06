@@ -307,6 +307,14 @@ export class Npc {
     })().catch((e) => { this.loadError = e; console.warn('[Npc] no se pudo crear', e); });
   }
 
+  /** Lo lleva a otro punto como si acabara de llegar: sin ruta, sin espera larga y de pie. Solo para quien camina por ahí. */
+  relocate(x, y, z) {
+    this.home.set(x, y, z); this.position.set(x, y, z); this.root.position.copy(this.position);
+    this.root.rotation.y = Math.random() * Math.PI * 2;
+    this.route = []; this.routeIndex = 0; this.target = null;
+    this.wait = Math.random() * 3; this.moving = false;
+  }
+
   /** Su arquetipo vestido con lo que de verdad hay en el catálogo; sin arquetipo, la apariencia de calle. */
   async _personLook(opts) {
     if (!this.person) return randomStreetLook({ gastada: opts.gastada });

@@ -31,6 +31,7 @@ import { buildGroundWear, dressGrass, dressPaving } from '../bogota/GroundDressi
 import * as TX from '../bogota/textures.js';
 import * as P from '../bogota/props.js';
 import { Npc } from '../../entities/Npc.js';
+import { PedestrianCrowd } from '../../systems/PedestrianCrowd.js';
 import { BuildingVisibility, CLOSED_CHUNK_SIZE, createBuildingShell } from '../bogota/BuildingVisibility.js';
 import { PedestrianNavigation } from '../bogota/PedestrianNavigation.js';
 import { GpsNavigation } from '../../systems/GpsNavigation.js';
@@ -96,9 +97,9 @@ const SHOP_NAMES = [
 
 // Del tablero del puente al piso, para que quepa una persona debajo: la losa mide .71 m.
 const DECK_HEADROOM = 2.8;
-const EAST_PEDESTRIANS = 14;
-// Peatones de la ciudad, sin contar a los vendedores.
-const TOTAL_PEDESTRIANS = 80;
+// Hasta dónde se reparte la gente alrededor del jugador, en metros: la niebla más una cuadra.
+const CROWD_RADIUS = 95;
+const _crowdForward = new THREE.Vector3(), _crowdCenter = { x: 0, z: 0 };
 // Posturas de quien atiende un puesto.
 const VENDOR_POSES = ['atender', 'atender', 'atender', 'brazos-cruzados', 'celular'];
 // Posturas de quien conversa con alguien.
@@ -1449,7 +1450,6 @@ export class Bogota {
   /** Peatones que recorren la ciudad y los que se quedan en su sitio; los vendedores conservan su puesto. */
   _spawnPeople() {
     const navigation = this.pedestrianNavigation = this._createPedestrianNavigation();
-    const vendors = this.npcs.length;
     const walk = (x, z) => navigation.isWalkableAt(x, z);
     const water = (x, z) => this.getWaterInfo(x, z);
     // Sin pisar el borde: el bus para si alguien queda a menos de medio metro de su costado.
@@ -1488,18 +1488,27 @@ export class Bogota {
         other.fijo.pareja = npc;
       }
     }
-    // Mantiene la densidad del centro y distribuye peatones por los barrios nuevos.
-    const candidates = navigation.nodes.filter(node => !node.crossing && node.x < EAST_SEAM &&
-      (node.x >= ORIGINAL_CITY_WIDTH-1 || node.z >= ORIGINAL_CITY_HEIGHT-1));
-    // Los barrios del oriente suman un grupo moderado, repartido por sus propios andenes.
-    const east = navigation.nodes.filter(node => !node.crossing && node.x >= EAST_SEAM);
-    const eastFixed = fixed.filter(person => person.at[0] >= W(EAST_SEAM)).length;
-    const eastCount = Math.min(east.length, Math.max(0, EAST_PEDESTRIANS - eastFixed));
-    // Siempre los mismos 80: quien se queda en su sitio no se suma, reemplaza a un caminante.
-    const count = Math.min(candidates.length, Math.max(0, TOTAL_PEDESTRIANS - (this.npcs.length - vendors) - eastCount));
-    const place = node => walker(new THREE.Vector3(W(node.x), this.getGroundHeight(W(node.x),W(node.z)), W(node.z)));
-    for (let i=0;i<count;i++) place(candidates[Math.floor((i+0.5)*candidates.length/count)]);
-    for (let i=0;i<eastCount;i++) place(east[Math.floor((i+0.5)*east.length/eastCount)]);
+    // La gente de la calle sale con el reloj y rodea al jugador: los andenes por su largo y los parques por su hora.
+    const streets = [], parks = [];
+    for (const node of navigation.nodes) {
+      if (node.crossing || !node.main) continue;
+      const type = this.map[node.z]?.[node.x];
+      (type === 'grass' || type === 'plaza' || type === 'dirt' ? parks : streets).push({ x: W(node.x), z: W(node.z) });
+    }
+    this.crowd = new PedestrianCrowd({
+      streets, parks,
+      create: (x, z) => {
+        const npc = new Npc(this.scene, new THREE.Vector3(x, navigation.groundHeight(x, z), z), {
+          navigation, groundHeight: navigation.groundHeight, isWalkable: walk, collisions: this._collisions, getWaterInfo: water, zona: this._zoneAt(x, z)
+        });
+        npc.root.visible = false;
+        return npc;
+      },
+      place: (npc, x, z) => npc.relocate(x, navigation.groundHeight(x, z), z),
+      show: (npc) => { npc.root.visible = true; if (!this.npcs.includes(npc)) this.npcs.push(npc); },
+      hide: (npc) => { npc.root.visible = false; const index = this.npcs.indexOf(npc); if (index >= 0) this.npcs.splice(index, 1); },
+      canMove: (npc) => !npc.koState && !npc.isSplatted && !(npc.panicTimer > 0) && !(npc.fleeTimer > 0) && !npc._cowering
+    });
   }
 
   /**
@@ -1586,7 +1595,7 @@ export class Bogota {
   /** ¿Hay techo encima? La cubierta del Portal y la marquesina de la gasolinera. */
   isRoofedAt(x, z) { return underTerminalRoof(x, z) || underGasCanopy(x, z); }
 
-  update(dt, playerPos, camera, trafficVehicles = []) {
+  update(dt, playerPos, camera, trafficVehicles = [], hour = null) {
     this.t += dt;
     P.foliageWind.value = this.t;
     this.signals?.update(this.t);
@@ -1611,6 +1620,14 @@ export class Bogota {
     for (const vehicle of trafficVehicles) if (vehicle.state === 'chase' || vehicle.rejoinTarget) chasers.push(vehicle);
     const ctx = { player: playerPos, frustum, camera, isRaining: (this.wetness ?? 0) > 0.05, animationBudget: this.animationBudget ?? 1,
       drawDistance: this.farDetailDistance, skipHiddenMatrices: true, hygiene: this.playerHygiene ?? 100, chasers };
+    if (this.crowd && playerPos && Number.isFinite(hour)) {
+      const forward = camera?.getWorldDirection?.(_crowdForward);
+      const aim = forward ? { x: forward.x, z: forward.z } : null, length = aim ? Math.hypot(aim.x, aim.z) || 1 : 1;
+      if (aim) { aim.x /= length; aim.z /= length; }
+      const view = camera?.position ?? playerPos;
+      _crowdCenter.x = playerPos.x + (aim ? aim.x * 30 : 0); _crowdCenter.z = playerPos.z + (aim ? aim.z * 30 : 0);
+      this.crowd.update(dt, hour, _crowdCenter, CROWD_RADIUS, aim, view);
+    }
     for (const n of this.npcs) n.update(dt, ctx);
     for (const flock of this.pigeonFlocks ?? []) flock.update(dt, playerPos, this.npcs, camera);
   }

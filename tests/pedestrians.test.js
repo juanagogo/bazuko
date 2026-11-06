@@ -234,7 +234,7 @@ test('la población incluye peatones junto al inicio y mantiene quietos a los ve
   const city = district();
   city._spawnPeople();
   await Promise.all(city.npcs.map(npc => npc.ready));
-  assert.equal(city.npcs.length, 80); // 66 del centro y 14 de los barrios del oriente.
+  assert.equal(city.npcs.length, 34); // la gente fija y los de sitio; los caminantes salen con el reloj, no al construir.
   assert.ok(city.npcs.some(npc => npc.position.distanceTo(new THREE.Vector3(STREET_X.world(20), 0, STREET_Z.world(11))) < 5));
   const starts = city.npcs.map(npc => npc.position.clone()), moved = city.npcs.map(() => 0);
   // Una parada dura a lo sumo 20 s: en 25 s todos los que caminan han salido, y quien se queda en su sitio ahí sigue.
