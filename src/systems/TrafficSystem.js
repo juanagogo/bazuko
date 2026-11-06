@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { Car } from '../entities/Car.js';
 import { Moto } from '../entities/Moto.js';
+import { CarFleet } from '../world/bogota/vehicles.js';
 import { MOTO_COLORS, MOTO_LATERAL, MOTO_LAYOUTS, MOTO_VARIANTS, MotoFleet } from '../world/bogota/motos.js';
 import { signalState } from '../world/bogota/TrafficSignals.js';
 import {
@@ -45,6 +46,9 @@ const REJOIN_SEEN_TIMEOUT = 30;
 // Más acá del alcance de la niebla nadie ve un carro: se apaga entero y solo avanza por su ruta. La burbuja es ese
 // radio más un margen: fuera de ella el vehículo sale de la flota y la ciudad reparte otro cerca del jugador.
 const HIDE_MIN_DISTANCE = 120, HIDE_FOG_MARGIN = 30;
+// Detalle completo solo cerca: más lejos el carro se dibuja instanciado. Entre las dos distancias no cambia, para
+// que parado en el límite no salte de malla.
+const CAR_INSTANCE_OUT = 44, CAR_INSTANCE_IN = 36;
 // A qué distancia de la vista aparece un carro del montaje diario: fuera de la niebla no se ve el salto.
 const RESIZE_SAFE_DISTANCE = 60;
 // Cambios de flota por segundo: al cambiar de densidad la ciudad tarda unos segundos, nunca un salto.
@@ -208,8 +212,9 @@ export class TrafficSystem {
   }
 
   /**
-   * Detalle y visibilidad de cada carro según su distancia a la vista. Un carro apagado no gasta matrices, sombras,
-   * audio ni animación; en la simulación sigue igual que el resto. Una persecución o un regreso se ven aunque estén lejos.
+   * Detalle y visibilidad de cada carro según su distancia a la vista. De ronda y lejos se dibuja en el lote lejano,
+   * que apaga la malla completa; cerca recupera su detalle. Un carro apagado no gasta matrices, sombras, audio ni
+   * animación; en la simulación sigue igual que el resto. Una persecución o un regreso se ven aunque estén lejos.
    */
   _updateLod() {
     const view = this._viewPosition, hideSq = this._hideDistance() ** 2;
@@ -217,9 +222,14 @@ export class TrafficSystem {
       const car = vehicle.car, dx = car.position.x - view.x, dz = car.position.z - view.z;
       const distanceSq = dx * dx + dz * dz;
       const onDuty = vehicle.state !== 'patrol' || vehicle.rejoinTarget || vehicle.hold;
-      const hidden = !onDuty && distanceSq > hideSq;
-      car.setDrawn(!hidden);
-      if (!hidden) car.updateLod(distanceSq);
+      if (!onDuty && distanceSq > hideSq) { car.instanced = false; car.setDrawn(false); continue; }
+      // Las motos ya viven en su propio lote a cualquier distancia. Sin cámara no hay a quién esconderle nada.
+      const distant = !onDuty && !!this._camera && !car.isMoto &&
+        distanceSq > (car.instanced ? CAR_INSTANCE_IN : CAR_INSTANCE_OUT) ** 2;
+      if (distant) { car.instanced = true; car.setDrawn(false); continue; }
+      car.instanced = false;
+      car.setDrawn(true);
+      car.updateLod(distanceSq);
     }
   }
 
@@ -1220,11 +1230,14 @@ export class TrafficSystem {
         if (vehicle.lateral) this._lateral(this._position, this._direction, vehicle.lateral);
         vehicle.car.position.copy(this._position);
         vehicle.car.group.rotation.y = Math.atan2(-this._direction.z, this._direction.x);
-        this._animateRoute(vehicle, travel, stepTime, previousSpeed);
+        // El carro instanciado no gasta la animación de ruedas y carrocería: no se ve.
+        if (!vehicle.car.instanced) this._animateRoute(vehicle, travel, stepTime, previousSpeed);
       }
       remaining -= stepTime;
     }
     this._motoFleet?.sync(this.vehicles);
+    this._carFleet ??= new CarFleet(this.scene);
+    this._carFleet.sync(this.vehicles);
     if (caught && !this._arrestDispatched) {
       this._arrestDispatched = true;
       emit('police-arrest', { reason: 'chase' });
@@ -1237,5 +1250,7 @@ export class TrafficSystem {
     this.vehicles.length = 0;
     this._motoFleet?.dispose();
     this._motoFleet = null;
+    this._carFleet?.dispose();
+    this._carFleet = null;
   }
 }
