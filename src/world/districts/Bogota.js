@@ -370,8 +370,23 @@ export class Bogota {
       // Los circuitos de ese costado giran en Calle 8; los demás siguen por los barrios.
       if ([left, right].some(x => x >= 83 && x <= 93) && bottom > 155) bottom = lane(CALLES[2], -1);
       if (bottom - top <= 6.4) return null;
-      return new TrafficRoute(left, right, top, bottom, 3.2);
+      const route = new TrafficRoute(left, right, top, bottom, 3.2);
+      route.wide = true;
+      return route;
     };
+    // Las vías anchas (seis baldosas) llevan dos carriles por sentido: el interior, junto al eje, y el del bordillo.
+    // Cada uno es el mismo circuito corrido 1,5 m; `laneSide` dice hacia qué lado queda la franja de las motos (el entre-carriles).
+    const twoLanes = (list) => list.flatMap(route => {
+      if (!route.wide) return [route];
+      const [left, right, top, bottom, radius] = route.key.split(':').map(Number);
+      const make = (shift, lane, laneSide) => {
+        if (right - left + 2 * shift <= 2 * (radius + shift) + 1 || bottom - top + 2 * shift <= 2 * (radius + shift) + 1) return null;
+        const variant = new TrafficRoute(left - shift, right + shift, top - shift, bottom + shift, radius + Math.max(0, shift));
+        variant.lane = lane; variant.laneSide = laneSide;
+        return variant;
+      };
+      return [make(1.5, 'inner', -1), make(-1.5, 'curb', 1)].filter(Boolean);
+    });
     const routes = [
       circuit(lane(CARRERAS[0], 1), lane(CARACAS.lanes[0], -1), top, bottom),
       circuit(lane(CARACAS.lanes[1], 1), lane(CARRERAS[1], -1), top, bottom),
@@ -406,6 +421,10 @@ export class Bogota {
       new TrafficRoute(carrera5, carrera3, narrow(NARROW_CALLES[0], 1), lane(CALLES[3], -1), 3.2)
     ]) if (!alternatives.has(route.key)) alternatives.set(route.key, route);
     routes.alternatives = [...alternatives.values()];
+    // Solo Ultra usa los dos carriles: los demás niveles conservan el carril único de siempre.
+    const doubled = twoLanes(routes);
+    doubled.alternatives = twoLanes(routes.alternatives);
+    routes.twoLanes = doubled;
     return routes;
   }
 
