@@ -13,7 +13,7 @@ export const DEFAULT_TRAFFIC_DENSITY = 'normal';
 
 // Una de cada cinco busetas: la flota se ve con más de transporte público. Ultra va más cargado de buses.
 export const BUSETA_EVERY = 5;
-export const ULTRA_BUSETA_EVERY = 4;
+export const ULTRA_BUSETA_EVERY = 12;
 
 /** Cada cuántos vehículos del conteo sale una buseta. */
 export function busetaEvery(densityId) {

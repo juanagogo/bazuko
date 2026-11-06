@@ -60,11 +60,13 @@ const FRESH_VIEW_JUMP = 35;
 // La burbuja se corre hacia donde mira la cámara: lo de atrás no lo ve nadie y lo de adelante sí.
 const BUBBLE_AHEAD = 50;
 // Intentos por carro nuevo, cercanía mínima al jugador con cámara, separación entre centros y celda del índice.
-const SPAWN_TRIES = 80, SPAWN_NEAR = 14, SPAWN_GAP = 5.4, SPAWN_CELL = 8;
+const SPAWN_TRIES = 80, SPAWN_NEAR = 14, SPAWN_GAP = 6.5, SPAWN_CELL = 8;
 // Mitad del ancho de una franja: más al lado que esto ya es otro carril u otra franja de motos.
 const SPAWN_LANE = 1.3;
 // Fuera de una vista nueva, un carro solo nace a la vista desde esta fracción de la niebla, donde ya es una mancha.
 const SPAWN_VISIBLE_FROM = .6;
+// No se entra a un cruce sin sitio al otro lado: desde esta cercanía al cruce se mira un carro de largo más allá de su salida.
+const BOX_REACH = 16, BOX_SCAN = 44, BOX_SLACK = 1.5, BOX_SLOW = 2.5, BOX_PATIENCE = 8;
 // Metros por delante para saber si un carro que nace fuera de la vista va a entrar en ella.
 const ENTER_LOOKAHEAD = 30;
 // Un carro parado más que esto fuera de la vista se retira: el trancón que se ve se queda, el que no, se despeja.
@@ -109,7 +111,10 @@ export class TrafficSystem {
     this._center = new THREE.Vector3();
     this._routeCumulative = null;
     this._spawnGrid = new Map();
-    this._byRoom = (a, b) => b.room - a.room;
+    this._byOrder = (a, b) => a.order - b.order;
+    this._holdPosition = new THREE.Vector3();
+    this._holdDirection = new THREE.Vector3();
+    this._holdCandidates = [];
     this._pursuitInfo = { distance: 0, dx: 0, dz: 0, closeness: 0, x: 0, z: 0 };
     this.random = random;
     // Los circuitos de partida: sobre ellos se reparte la flota diaria; las alternativas solo reciben a quien cambia de ruta.
@@ -166,7 +171,7 @@ export class TrafficSystem {
       : new Car(scene, this._position, rotation, { traffic: true, kind, variant: count * 37 });
     // La vía manda la velocidad: avenida o calle; la moto pica más y la buseta va cargada.
     const cruiseSpeed = cruiseSpeedFor(route, random, { moto, buseta });
-    const vehicle = { car, route, distance, speed: 0, cruiseSpeed, patrolSpeed: cruiseSpeed, nextDistance: distance, nextSpeed: 0,
+    const vehicle = { car, route, order: count, distance, speed: 0, cruiseSpeed, patrolSpeed: cruiseSpeed, nextDistance: distance, nextSpeed: 0,
       acceleration: 0, accelerationLimit: moto ? 4 + random() * .8 : 2.6 + random() * .6, braking: moto ? 4.4 + random() * .6 : 4.2 + random() * .6,
       reactionTime: moto ? .1 + random() * .2 : .18 + random() * .35, resumeDelay: 0, stopped: false,
       routeTimer: 3 + random() * 5, recentRoutes: [route.key], routeChanges: 0,
@@ -769,7 +774,14 @@ export class TrafficSystem {
 
   _coordinateIntersections() {
     if (!this.signals?.reservations) return;
-    for (const vehicle of this.vehicles) vehicle.crossingNode = null;
+    const grid = this._nodeGrid ??= new SpatialGrid();
+    grid.clear();
+    for (const vehicle of this.vehicles) {
+      vehicle.crossingNode = null;
+      if (vehicle.state === 'chase' || vehicle.rejoinTarget) continue;
+      grid.insert(vehicle, vehicle.car.position.x, vehicle.car.position.z);
+    }
+    const near = this._nodeNear ??= [];
     for (const node of this.signals.nodes) {
       let state = this.signals.reservations.get(node);
       if (!state) {
@@ -777,8 +789,9 @@ export class TrafficSystem {
         this.signals.reservations.set(node, state);
       }
       const candidates = [];
-      for (const vehicle of this.vehicles) {
-        if (vehicle.state === 'chase' || vehicle.rejoinTarget) continue;
+      // Solo los que están a menos de un carro largo y 18 m del cruce: el índice evita mirar a toda la flota por cada cruce.
+      grid.query(node.x0 - 28, node.z0 - 28, node.x1 + 28, node.z1 + 28, near).sort(this._byOrder);
+      for (const vehicle of near) {
         if (this._overlapsNode(vehicle.car, node)) { candidates.push(vehicle); continue; }
         // Fuera de este radio no puede solicitar el cruce en los próximos metros.
         const dx = Math.max(node.x0 - vehicle.car.position.x, 0, vehicle.car.position.x - node.x1);
@@ -951,9 +964,14 @@ export class TrafficSystem {
     const minX = car.position.x - radius, maxX = car.position.x + radius;
     const minZ = car.position.z - radius, maxZ = car.position.z + radius;
     this._carGrid.query(minX, minZ, maxX, maxZ, this._carCandidates);
+    const yaw = car.group.rotation.y, yawCos = Math.cos(yaw), yawSin = Math.sin(yaw);
     for (const other of this._carCandidates) {
       if (other === vehicle || (other.route === route && other.state !== 'chase' && !other.rejoinTarget)) continue;
-      if (other.car.position.distanceToSquared(car.position) <= (radius + other.car.length) ** 2) nearbyCars.push(other);
+      if (other.car.position.distanceToSquared(car.position) > (radius + other.car.length) ** 2) continue;
+      // Los dos descartes de `_carInPath` sobre el rumbo del carro: quien está atrás o a otra altura no estorba en ninguna muestra.
+      if (Math.abs(other.car.position.y - car.position.y) > 3) continue;
+      if ((other.car.position.x - car.position.x) * yawCos - (other.car.position.z - car.position.z) * yawSin <= 0) continue;
+      nearbyCars.push(other);
     }
     this._personGrid.query(minX, minZ, maxX, maxZ, this._personCandidates);
     for (const pedestrian of this._personCandidates) {
@@ -966,10 +984,22 @@ export class TrafficSystem {
       nearby.some(pedestrian => this._personAtNose(pedestrian.position, car));
     // La señal corresponde al acceso actual, no al rumbo futuro tras doblar.
     const signalDirection = this._signalDirection ??= new THREE.Vector3();
+    // Solo cuentan los cruces al alcance del frenado: casi todos los vehículos no tienen ninguno cerca.
+    const nodes = this._nearNodes ??= [];
+    nodes.length = 0;
+    const reach = lookAhead + car.length + 2;
+    for (const node of this.signals?.nodes ?? []) {
+      if (car.position.x >= node.x0 - reach && car.position.x <= node.x1 + reach &&
+        car.position.z >= node.z0 - reach && car.position.z <= node.z1 + reach) nodes.push(node);
+    }
+    const playerNear = !!player && (player.x - car.position.x) ** 2 + (player.z - car.position.z) ** 2 <= (radius + 2) ** 2;
+    // Sin cruce, carro, persona ni jugador al alcance, la muestra del camino no tiene qué encontrar.
+    if (!nodes.length && !nearbyCars.length && !nearby.length && !playerNear) return finish(clearance);
+    const held = nodes.length && !vehicle.lateral ? this._boxHold(vehicle, nodes) : null;
     if (this.signals) route.sample(distance, this._probePosition, signalDirection);
     for (let ahead = 0; ahead <= Math.min(lookAhead, clearance); ahead += PROBE_STEP) {
       route.sample(distance + ahead, this._probePosition, this._probeDirection);
-      if (this.signals?.blocks(this._probePosition, signalDirection, car.position, car.length, vehicle)) return finish(Math.max(0, ahead - PROBE_STEP));
+      if (nodes.length && this.signals.blocks(this._probePosition, signalDirection, car.position, car.length, vehicle, nodes, held)) return finish(Math.max(0, ahead - PROBE_STEP));
       // El semáforo se mira sobre el carril: la franja de la moto no puede dejar el cruce fuera de su alcance.
       if (lateral) this._lateral(this._probePosition, this._probeDirection, lateral);
       if (player && vehicle.playerClearance === Infinity && this._personInCar(player, car)) {
@@ -985,6 +1015,41 @@ export class TrafficSystem {
       }
     }
     return finish(clearance);
+  }
+
+  /**
+   * El cruce que este vehículo no debe pisar todavía: al otro lado de su salida no cabe un carro. Sin esto la cola de
+   * la calle de enfrente se mete en el cruce y se traba toda la ciudad. Las motos pasan por el costado y no cuentan.
+   */
+  _boxHold(vehicle, nodes) {
+    // Esperar eternamente por un hueco es un abrazo mortal entre colas: pasado un rato se entra de todos modos.
+    if ((vehicle.stoppedFor ?? 0) > BOX_PATIENCE) return null;
+    const { route, car, distance } = vehicle, p = car.position;
+    const probe = this._holdPosition, direction = this._holdDirection;
+    for (const node of nodes) {
+      if (p.x >= node.x0 && p.x <= node.x1 && p.z >= node.z0 && p.z <= node.z1) continue;
+      const dx = Math.max(node.x0 - p.x, 0, p.x - node.x1), dz = Math.max(node.z0 - p.z, 0, p.z - node.z1);
+      if (dx * dx + dz * dz > BOX_REACH * BOX_REACH) continue;
+      if (this.signals.reservations.get(node)?.owners.get(vehicle)?.entered) continue;
+      let entered = false, exit = -1;
+      for (let along = 0; along <= BOX_SCAN; along++) {
+        route.sample(distance + along, probe, direction);
+        const inside = probe.x >= node.x0 && probe.x <= node.x1 && probe.z >= node.z0 && probe.z <= node.z1;
+        if (inside) entered = true;
+        else if (entered) { exit = along; break; }
+      }
+      if (exit < 0) continue;
+      const half = (car.length + BOX_SLACK) / 2;
+      route.sample(distance + exit + half, probe, direction);
+      this._carGrid.query(probe.x - 12, probe.z - 12, probe.x + 12, probe.z + 12, this._holdCandidates);
+      for (const other of this._holdCandidates) {
+        if (other === vehicle || other.lateral || (other.speed ?? 0) > BOX_SLOW) continue;
+        const ox = other.car.position.x - probe.x, oz = other.car.position.z - probe.z;
+        const along = ox * direction.x + oz * direction.z, side = ox * direction.z - oz * direction.x;
+        if (Math.abs(side) < SPAWN_LANE && Math.abs(along) < half + other.car.length / 2 - .3) return node;
+      }
+    }
+    return null;
   }
 
   /** Corre un punto a la franja de la moto. Sin esto el hueco se mide sobre el carril y la moto no pasa la cola. */
