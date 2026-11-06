@@ -95,12 +95,15 @@ export class CollisionSystem {
       let entry = this._vehicles.get(vehicle);
       if (!entry) { entry = { vehicle, box: new THREE.Box3() }; this._vehicles.set(vehicle, entry); }
       const isBus = buses.has(vehicle);
-      if (isBus) {
+      // Un vehículo de lado a 45 grados no puede ocupar la caja que lo rodea: ahí se camina. Solo los alineados usan caja simple.
+      const yaw = vehicle.group.rotation.y, aligned = Math.abs(Math.sin(2 * yaw)) < .02;
+      if (isBus || !aligned) {
         entry.obb ??= { center: new THREE.Vector3(), halfSize: new THREE.Vector3(), quaternion: new THREE.Quaternion(),
           inverse: new THREE.Quaternion(), axes: [new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3()] };
         const o = entry.obb;
         o.quaternion.copy(vehicle.group.quaternion); o.inverse.copy(o.quaternion).invert();
-        o.halfSize.set(vehicle.width / 2, 3.5 / 2, vehicle.length / 2);
+        const height = isBus ? 3.5 : vehicle.kind === 'buseta' ? 3 : 1.65;
+        o.halfSize.set(vehicle.width / 2, height / 2, vehicle.length / 2);
         o.center.set(0, o.halfSize.y, 0).applyQuaternion(o.quaternion).add(vehicle.position);
         o.axes[0].set(1,0,0).applyQuaternion(o.quaternion);
         o.axes[1].set(0,1,0).applyQuaternion(o.quaternion);
