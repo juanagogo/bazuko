@@ -5,6 +5,7 @@ import { ActionPose } from './ActionPose.js';
 import { createWeapon } from './props.js';
 import { createCigarette, puffReach, emberGlow } from './smoking.js';
 import { createPipe, createLighter, basucoReach, isLit, BASUCO } from './pipe.js';
+import { createLightPantsDown } from './pantsDownLight.js';
 
 export { DEFAULT_LOOK };
 
@@ -67,7 +68,7 @@ function stripes() {
  * Personaje cabezón original de Rebusque, con piezas intercambiables
  * (pelo, barba, ropa, calzado, cabeza) sobre un esqueleto fijo. Mira hacia +Z.
  */
-export function createCharacter(initial = DEFAULT_LOOK) {
+export function createCharacter(initial = DEFAULT_LOOK, { undress = false } = {}) {
   const M = {
     skin: lam('#d39a6d'),
     hair: lam('#1b1410'),
@@ -174,6 +175,9 @@ export function createCharacter(initial = DEFAULT_LOOK) {
 
   let look = normalizeLook(initial);
   let bulk = 1;
+  // Solo el jugador se baja el pantalón para hacer popó (`undress`); los NPC no cargan nada de esto.
+  const pantsDown = undress ? createLightPantsDown({ hips, legs, skinColor: M.skin.color, bottomMaterial: M.bottom }) : null;
+  let undressDrop = 0;
 
   function build() {
     const L = look;
@@ -356,6 +360,7 @@ export function createCharacter(initial = DEFAULT_LOOK) {
       H.add(band);
       H.add(mesh(new THREE.SphereGeometry(0.05, 8, 6), M.hat, 0, 0.06, -0.28));
     }
+    pantsDown?.rebuild({ hipBand, legSlots: slots.legs });
   }
   build();
 
@@ -530,6 +535,16 @@ export function createCharacter(initial = DEFAULT_LOOK) {
         // La flexión real de las piernas determina la altura, sin hundir las suelas.
         target.crouch = .2;
         break;
+      case 'bajarse':
+      case 'subirse': {
+        // Las manos en la pretina bajan con el pantalón hasta las rodillas, con el tronco inclinado.
+        const d = undressDrop;
+        target.lean = .25 + .47 * d;
+        target.armLx = target.armRx = -.12 - .38 * d - target.lean * .35;
+        target.armLz = .38 - .16 * d; target.armRz = -target.armLz;
+        target.elbL = target.elbR = -1.25 + d;
+        break;
+      }
       case 'lanzar': {
         const p = progress(.8);
         const windup = ease(0, .32, p);
@@ -655,6 +670,15 @@ export function createCharacter(initial = DEFAULT_LOOK) {
     setSmoking,
     setBasuco,
     setWeapon,
+    /** Pantalón y censurado de la escena de popó (solo con `undress`); null los deja como estaban. */
+    undress: pantsDown,
+    setUndress(state) {
+      if (!pantsDown) return;
+      undressDrop = state ? Math.max(0, Math.min(1, state.drop ?? 0)) : 0;
+      if (!state) { pantsDown.reset(); return; }
+      pantsDown.setDrop(undressDrop);
+      pantsDown.setCensor({ on: !!state.censor, block: state.block, seed: state.seed });
+    },
     dispose() {
       if (disposed) return;
       disposed = true;
