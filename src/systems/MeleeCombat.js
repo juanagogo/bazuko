@@ -101,7 +101,7 @@ export class MeleeCombat {
     const targets = [], seen = new Set();
     for (const npc of npcs ?? []) {
       if (!npc || seen.has(npc) || npc._disposed || npc.isKnockedOut || npc.isSwimming || !validPosition(npc.position)
-        || (typeof npc.takeHit !== 'function' && typeof npc.takePunch !== 'function')) continue;
+        || npc.person?.nino || (typeof npc.takeHit !== 'function' && typeof npc.takePunch !== 'function')) continue;
       seen.add(npc);
       if (Math.abs(npc.position.y - attacker.position.y) > MELEE_ATTACK.maxHeightDifference) continue;
       const dx = npc.position.x - attacker.position.x, dz = npc.position.z - attacker.position.z;

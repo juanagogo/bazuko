@@ -74,6 +74,7 @@ const BOGOTA_DIRTY_PHRASES = [
 
 const _sphere = new THREE.Sphere(new THREE.Vector3(), 1.4);
 const _solids = [];
+const ABSENT_AT = 1e5; // m: dónde está quien no trabaja a esta hora
 const FLEE_BODY = .2; // m de radio del cuerpo al huir
 const CHANGED_UNSEEN = .3; // s sin animarse: lo que hizo mientras tanto nadie lo vio
 
@@ -195,7 +196,8 @@ export class Npc {
     const arquetipo = opts.look || this.constructor !== Npc ? null
       : opts.arquetipo ?? (opts.gastada ? 'habitante' : pickArchetype(opts.zona));
     const low = LOW_STANCES.has(opts.fijo?.stance);
-    this.person = arquetipo ? rollPerson(arquetipo, { sinCarga: !!opts.fijo, tallaFija: opts.fijo?.stance === 'banca' }) : null;
+    this.seed = opts.seed ?? null;
+    this.person = arquetipo ? rollPerson(arquetipo, { seed: this.seed, sinCarga: !!opts.fijo, tallaFija: opts.fijo?.stance === 'banca' }) : null;
     this.walkSpeed = opts.speed ?? this.person?.speed ?? (0.85 + Math.random() * 0.45);
     this.route = [];
     this.routeIndex = 0;
@@ -370,6 +372,7 @@ export class Npc {
   }
 
   hitByPoop(projectileOrigin = null) {
+    if (this.person?.nino) return;
     this.isSplatted = true;
     this.splatTimer = 12;
     this._fleeFrom(projectileOrigin);
@@ -643,9 +646,15 @@ export class Npc {
     const route = this.navigation.createRoute(this.position);
     if (!this.person || !route.length) return route;
     const away = (list) => (list.at(-1).x - this.home.x) ** 2 + (list.at(-1).z - this.home.z) ** 2;
-    if (away(route) < CONDUCT.rooted ** 2) return route;
-    const other = this.navigation.createRoute(this.position);
-    return other.length && away(other) < away(route) ? other : route;
+    const rooted = this.person.arraigo ?? CONDUCT.rooted;
+    if (away(route) < rooted ** 2) return route;
+    // Quien tiene su esquina prueba varios recorridos y se queda con el que menos lo aleja de ella.
+    let best = route;
+    for (let tries = this.person.arraigo ? 8 : 1; tries > 0; tries--) {
+      const other = this.navigation.createRoute(this.position);
+      if (other.length && away(other) < away(best)) best = other;
+    }
+    return best;
   }
 
   /**
@@ -866,6 +875,7 @@ export class Npc {
    * @param {{ player?: THREE.Vector3, frustum?: THREE.Frustum }} ctx
    */
   update(dt, ctx = {}) {
+    if (this.person?.noche && this._sleepsInDaylight(ctx)) return;
     if (this._riseLeft > 0) this._riseLeft = Math.max(0, this._riseLeft - dt);
     if (this.person) this._updateConduct(dt, ctx);
     else this._measurePlayer(ctx);
@@ -963,6 +973,29 @@ export class Npc {
 
 
 
+  /**
+   * Quien trabaja de noche no está de día: se aparta de la ciudad, sin dibujarse ni contar para nadie, y de noche vuelve a su esquina.
+   * @returns {boolean} true mientras está ausente
+   */
+  _sleepsInDaylight(ctx) {
+    const away = ctx.night === false;
+    if (away === !!this._absent) return away;
+    this._absent = away;
+    if (away) {
+      this.root.visible = false;
+      this.root.matrixWorldAutoUpdate = false;
+      this.position.set(ABSENT_AT, -50, ABSENT_AT);
+      this.root.position.copy(this.position);
+      this.target = null; this.route = []; this.routeIndex = 0;
+    } else {
+      this.root.matrixWorldAutoUpdate = true;
+      this.position.copy(this.home);
+      this.root.position.copy(this.position);
+      this.wait = Math.random() * 3;
+    }
+    return away;
+  }
+
   /** Compatibilidad: cada llamada representa un contacto distinto, sin inmunidad global. */
   takePunch(attacker) {
     if (!attacker?.position) return false;
@@ -1049,6 +1082,7 @@ export class Npc {
    * Los IDs se deduplican por atacante, sin bloquear pasos legítimos del combo.
    */
   takeHit({ damage = 10, dir = null, knockback = 0, attacker = null, weapon = 'punos', attackId = null, id = null } = {}) {
+    if (this.person?.nino) return false;
     if (this._disposed || this.koState || !Number.isFinite(damage) || damage <= 0) return false;
     if (!this._acceptAttackId(attacker, attackId ?? id)) return false;
     let dx = dir?.x ?? 0, dz = dir?.z ?? 0;

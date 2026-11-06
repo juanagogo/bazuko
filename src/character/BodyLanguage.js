@@ -72,7 +72,7 @@ export class BodyLanguage {
     this.stoopNow = 0; this.headNow = 0;
     this.snapNext = false;
     this.koSlots = null;
-    this.stoopSlots = null; this.headSlots = null; this.swaySlots = null;
+    this.stoopSlots = null; this.headSlots = null; this.swaySlots = null; this.hipYawSlots = null; this.hipRollSlots = null;
     this.backSlots = null; this.armSlots = null; this.kneeSlot = null;
   }
 
@@ -312,9 +312,14 @@ export class BodyLanguage {
     if (Math.abs(this.headNow) > .002) this._bend(this.headSlots ??= this._axes(list.head), this.headNow * .6);
     const gait = smooth(this.gaitWeight) * weight;
     if (gait <= 0) return;
-    const sway = style?.sway ?? 0, limp = style?.limp ?? 0;
-    if (!sway && !limp) return;
+    const sway = style?.sway ?? 0, limp = style?.limp ?? 0, caderas = style?.caderas ?? 0;
+    if (!sway && !limp && !caderas) return;
     const wave = Math.sin(phase * Math.PI * 2);
+    // Contoneo: la cadera gira y cae a cada paso, y el torso le lleva la contraria para seguir mirando al frente.
+    if (caderas) {
+      this._bend(this.hipYawSlots ??= this._axes(list.hipYaw), wave * .5 * caderas * gait);
+      this._bend(this.hipRollSlots ??= this._axes(list.hipRoll), -wave * .2 * caderas * gait);
+    }
     // Pisar con la pierna mala tira del torso hacia ese lado; pisar con la buena no.
     const roll = -sway * .085 * wave + limp * .13 * Math.max(0, -wave);
     if (Math.abs(roll) > .001) this._bend(this.swaySlots ??= this._axes(list.sway), roll * gait);

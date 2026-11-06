@@ -46,6 +46,7 @@ import { LAKE_BRIDGE, LAKE_PARK, onLakeBridge, bridgeHeight, buildLakeWater, bui
   inLakeTerrain, lakeTerrainHeight, lakeWaterInfo } from '../bogota/LakePark.js';
 import { createLakeWaterMaterial } from '../bogota/LakeWaterMaterial.js';
 import { PigeonFlock } from '../../entities/PigeonFlock.js';
+import { hashSeed } from '../../character/people.js';
 import { geometryChunk, mergeByChunk, freezeStaticTransforms, createRenderSectors, instanceStaticModels } from '../bogota/StaticGeometry.js';
 import { updateFarStreetLamps } from '../bogota/StreetLampModel.js';
 import { CITY_WIDTH, CITY_HEIGHT, CITY_AREA_MULTIPLIER, CITY_CARRERAS as CARRERAS,
@@ -99,6 +100,8 @@ const DECK_HEADROOM = 2.8;
 const EAST_PEDESTRIANS = 14;
 // Peatones de la ciudad, sin contar a los vendedores.
 const TOTAL_PEDESTRIANS = 80;
+// Esquinas de las esquineras, en celdas del mapa: Cartucho (3), andenes (2) y parque (1).
+const ESQUINAS = [[13.5, 21], [17, 23], [19, 20.5], [21, 13], [28, 20], [31, 38]];
 // Posturas de quien atiende un puesto.
 const VENDOR_POSES = ['atender', 'atender', 'atender', 'brazos-cruzados', 'celular'];
 // Posturas de quien conversa con alguien.
@@ -1454,8 +1457,11 @@ export class Bogota {
     const water = (x, z) => this.getWaterInfo(x, z);
     // Sin pisar el borde: el bus para si alguien queda a menos de medio metro de su costado.
     const onPlatform = (x, z) => x >= 73.5 && x <= 76.5 && z >= -57 && z <= -3;
-    const walker = (position) => this.npcs.push(new Npc(this.scene, position, {
-      navigation, groundHeight: navigation.groundHeight, isWalkable: walk, collisions: this._collisions, getWaterInfo: water, zona: this._zoneAt(position.x, position.z)
+    // Cada persona sale de una semilla que depende de su puesto en la lista: la ciudad se repite igual en cada partida.
+    const seedFor = () => hashSeed(`bogota:${this.npcs.length}`);
+    const walker = (position, extra = null) => this.npcs.push(new Npc(this.scene, position, {
+      navigation, groundHeight: navigation.groundHeight, isWalkable: walk, collisions: this._collisions, getWaterInfo: water, zona: this._zoneAt(position.x, position.z),
+      seed: seedFor(), ...extra
     }));
     const spots = [
       // El Cartucho y parque.
@@ -1478,7 +1484,7 @@ export class Bogota {
       const npc = new Npc(this.scene, home, {
         // La red no sube al andén: quien se asusta allá arriba se queda en él y vuelve en línea recta.
         navigation: person.anden ? null : navigation, groundHeight: (px, pz) => person.anden ? this.getGroundHeight(px, pz) : navigation.groundHeight(px, pz), isWalkable: person.anden ? onPlatform : walk, collisions: this._collisions, getWaterInfo: water, facing: person.facing,
-        arquetipo: person.arquetipo, fijo: { stance: person.stance, alternas: person.alternas, techo: person.anden, reach: person.anden ? 0 : FIXED_REACH }
+        seed: seedFor(), arquetipo: person.arquetipo, fijo: { stance: person.stance, alternas: person.alternas, techo: person.anden, reach: person.anden ? 0 : FIXED_REACH }
       });
       this.npcs.push(npc);
       // Cada pareja son dos entradas seguidas: el que se asusta se lleva al otro.
@@ -1498,8 +1504,12 @@ export class Bogota {
     // Siempre los mismos 80: quien se queda en su sitio no se suma, reemplaza a un caminante.
     const count = Math.min(candidates.length, Math.max(0, TOTAL_PEDESTRIANS - (this.npcs.length - vendors) - eastCount));
     const place = node => walker(new THREE.Vector3(W(node.x), this.getGroundHeight(W(node.x),W(node.z)), W(node.z)));
-    for (let i=0;i<count;i++) place(candidates[Math.floor((i+0.5)*candidates.length/count)]);
+    // Las esquineras reemplazan a las últimas caminantes: siguen siendo 80 y el resto de la gente queda donde estaba.
+    const esquineras = ESQUINAS.map(([x, z]) => navigation.nearestPoint(WX(x), WZ(z))).filter(Boolean);
+    for (let i=0;i<count - esquineras.length;i++) place(candidates[Math.floor((i+0.5)*candidates.length/count)]);
     for (let i=0;i<eastCount;i++) place(east[Math.floor((i+0.5)*east.length/eastCount)]);
+    // De noche están en unas pocas esquinas del Cartucho, los andenes y el parque; de día no hay nadie.
+    for (const position of esquineras) walker(position, { arquetipo: 'esquinera' });
   }
 
   /**
@@ -1610,7 +1620,7 @@ export class Bogota {
     chasers.length = 0;
     for (const vehicle of trafficVehicles) if (vehicle.state === 'chase' || vehicle.rejoinTarget) chasers.push(vehicle);
     const ctx = { player: playerPos, frustum, camera, isRaining: (this.wetness ?? 0) > 0.05, animationBudget: this.animationBudget ?? 1,
-      drawDistance: this.farDetailDistance, skipHiddenMatrices: true, hygiene: this.playerHygiene ?? 100, chasers };
+      drawDistance: this.farDetailDistance, skipHiddenMatrices: true, hygiene: this.playerHygiene ?? 100, chasers, night: this.night };
     for (const n of this.npcs) n.update(dt, ctx);
     for (const flock of this.pigeonFlocks ?? []) flock.update(dt, playerPos, this.npcs, camera);
   }

@@ -5,10 +5,9 @@
 // en tests/archetypes.test.js y `normalizeReal` corrige lo que le faltara a un catálogo viejo.
 // Nada lleva marcas: los tonos son lisos, a rayas o de franela, y los accesorios no tienen logotipos.
 import { DEFAULT_LOOK, SKIN_ALBEDO, randomLook } from './look.js';
+import { hashSeed, normalizeTalla, rollAscendencia, rollTallaCuerpo, seededRandom } from './people.js';
 
-// Índices de PALETTES.piel (de muy clara a muy oscura).
-const PIEL_CIUDAD = [.1, .25, .28, .21, .11, .05];
-const PIEL_CALLE = [.03, .13, .25, .3, .2, .09];
+export { normalizeTalla };
 
 // Índices de PALETTES.pelo: negro, castaño oscuro, castaño, cobrizo, rubio, canoso, blanco, vinotinto, azul.
 const PELO_EDAD = {
@@ -20,6 +19,10 @@ const PELO_EDAD = {
 // El vinotinto de la paleta es del creador: en una señora se ve de carnaval.
 const PELO_TINTE = [2, 3, 4];
 const PELO_NEGRO = 0, PELO_CASTANO = 2, COBRIZO = 3, RUBIO = 4;
+
+// Pieles (índices de PALETTES.piel) sobre las que el rubio y el cobrizo se ven naturales; en las demás se ven amarillos.
+const PIEL_RUBIO = new Set([0, 1, 2, 6]);
+const PIEL_COBRIZO = new Set([0, 1, 2, 3, 4, 6, 7, 8, 9]);
 
 /**
  * Manos que usa cada postura. Quien lleva algo en una mano no pide posturas que la necesiten: el objeto
@@ -187,7 +190,7 @@ export const ARCHETYPES = {
     ropa: { hombre: ['rota', 'overol', 'buzo', 'saco', 'camiseta'], mujer: ['rota', 'saco'] },
     pelo: { hombre: ['desordenado', 'corto', 'rapado', 'calvo', 'crespo'], mujer: ['cola', 'desordenado', 'largo'] },
     barba: { ninguna: .25, descuidada: .5, bigote: .15, larga: .1 },
-    calzado: { 'tenis-rotos': .6, botas: .4 }, cabeza: { 'sin-sombrero': .55, 'gorro-lana': .3, boina: .15 }, desgaste: [1, 2], piel: PIEL_CALLE,
+    calzado: { 'tenis-rotos': .6, botas: .4 }, cabeza: { 'sin-sombrero': .55, 'gorro-lana': .3, boina: .15 }, desgaste: [1, 2], sol: true,
     tonos: {
       arriba: ['#6b6552', '#5a5a52', '#7a6248', '#4b5a5a', '#65594d'],
       abajo: ['#423f38', '#4d4a3e', '#39373a'],
@@ -205,7 +208,7 @@ export const ARCHETYPES = {
     ropa: { hombre: ['rota', 'rota', 'saco', 'chaqueta', 'buzo', 'overol'], mujer: ['rota', 'saco'] },
     pelo: { hombre: ['desordenado', 'desordenado', 'largo', 'crespo', 'rapado'], mujer: ['desordenado', 'largo', 'cola'] },
     barba: { descuidada: .55, larga: .3, ninguna: .15 },
-    calzado: { 'tenis-rotos': .68, botas: .18, descalzo: .14 }, cabeza: { 'sin-sombrero': .72, 'gorro-lana': .28 }, desgaste: [2], piel: PIEL_CALLE,
+    calzado: { 'tenis-rotos': .68, botas: .18, descalzo: .14 }, cabeza: { 'sin-sombrero': .72, 'gorro-lana': .28 }, desgaste: [2], sol: true,
     tonos: {
       arriba: ['#4f4a42', '#5c5446', '#3e3e3c', '#6a5c4a', '#47504a'],
       abajo: ['#38352f', '#453f36', '#2e2d2c'],
@@ -217,22 +220,59 @@ export const ARCHETYPES = {
     paradas: { 'fumar-quieto': 3, encogido: 2, frotarse: 2, rascarse: 2, barriga: 2, pedir: 2, sentado: 3, acurrucado: 2, [SEARCH_ACTION]: 2 },
     marcha: { encogido: .25, bolsillos: .1 },
     frases: ['¿Tiene una monedita que le sobre?', 'Regáleme pa\'l pan, mi rey.', 'Dios se lo pague, vecino.']
+  },
+  esquinera: {
+    mujer: 1, edad: { adulto: .92, mayor: .08 }, noche: true, arraigo: 7,
+    ropa: { hombre: ['camiseta'], mujer: ['short', 'short', 'blusa', 'blusa', 'sudadera'] },
+    pelo: { hombre: ['corto'], mujer: ['melena', 'largo', 'largo', 'cola', 'crespo'] },
+    barba: { ninguna: 1 },
+    calzado: { botas: .6, zapatos: .4 }, cabeza: { 'sin-sombrero': 1 }, desgaste: [0, 0, 1], tinte: .65,
+    tonos: {
+      arriba: ['#d6336c', '#7a4fa0', '#c0392b', '#f2c600', '#0f6b6b', '#1f1f1f', '#e0962b', '#2f6fb0'],
+      abajo: ['#1f1f1f', '#d6336c', '#2f6fb0', '#33445c', '#7a4fa0', '#c0392b'],
+      patron: { liso: .8, rayas: .2 }, patronColor: ['#1f1f1f', '#e8e3d6']
+    },
+    accesorios: [{ p: .6, opciones: [{ id: 'bolso', colores: ['#d6336c', '#1f1f1f', '#7a4fa0', '#f2c600'] }] }],
+    velocidad: [.95, 1.1], andar: 'normal', estilo: { swing: [.9, 1], sway: [.1, .2], caderas: [1, 1.6] }, alto: [.98, 1.04], ancho: [.98, 1.02],
+    paraguas: .5, lluvia: 'cubrirse', correr: 1.2, pausa: .85,
+    paradas: { 'cambiar-peso': 3, 'brazos-cruzados': 2, 'mirar-izquierda': 2, 'mirar-derecha': 2, 'manos-atras': 1, 'fumar-quieto': 2, celular: 1 },
+    marcha: {},
+    frases: ['Qué noche tan larga, mijo.', 'Uy, qué frío tan berraco.', '¿Me regala un cigarrillo, mi rey?', 'Buenas noches, cariño, cuidado con esos huecos.']
+  },
+  nino: {
+    mujer: .5, edad: { joven: 1 }, nino: true,
+    ropa: { hombre: ['camiseta', 'buzo', 'rayas'], mujer: ['blusa', 'saco'] },
+    pelo: { hombre: ['corto', 'rapado', 'desordenado', 'crespo'], mujer: ['cola', 'largo', 'melena', 'crespo', 'corto'] },
+    barba: { ninguna: 1 },
+    calzado: { tenis: 1 }, cabeza: { 'sin-sombrero': .85, 'gorro-lana': .15 }, desgaste: [0],
+    tonos: {
+      arriba: ['#2f6fb0', '#c0392b', '#3f7a3a', '#e0962b', '#7a4fa0', '#0f6b6b', '#d6336c', '#f2c600'],
+      abajo: ['#34435e', '#2a3448', '#3f4a5c', '#57554f', '#27272b'],
+      patron: { liso: .8, rayas: .2 }, patronColor: ['#27272b', '#d5d3cc']
+    },
+    accesorios: [{ p: .7, opciones: [{ id: 'morral', colores: ['#2f3a4c', '#5a2f35', '#3f4d3a', '#c0392b'] }] }],
+    velocidad: [.9, 1.25], andar: 'normal', estilo: { swing: [1, 1.2], sway: [0, .15] }, alto: [1, 1], ancho: [1, 1],
+    paraguas: .3, lluvia: 'cubrirse', correr: 1.4, pausa: .35,
+    paradas: { 'cambiar-peso': 3, 'mirar-izquierda': 2, 'mirar-derecha': 2, 'manos-atras': 1, bolsillos: 1 },
+    marcha: {},
+    frases: ['¡Mire, mire!', 'Ya vamos, ¿cierto?', '¿Me compra un helado?']
   }
 };
 
-/** Cuántos de cada uno en cada zona de la ciudad. */
+/** Cuántos de cada uno en cada zona de la ciudad. Las esquineras no salen de aquí: Bogotá las pone en sus esquinas. */
 export const ZONE_WEIGHTS = {
   // El Cartucho, la olla: sobre todo quienes viven y rebuscan en la calle.
-  cartucho: { habitante: .55, reciclador: .25, vendedor: .08, obrero: .05, abuelo: .04, senora: .03 },
+  cartucho: { nino: .01, habitante: .54, reciclador: .25, vendedor: .08, obrero: .05, abuelo: .04, senora: .03 },
   // Andenes del centro: la mezcla bogotana.
-  andenes: { oficinista: .18, estudiante: .14, senora: .16, abuelo: .08, obrero: .14, vendedor: .1, reciclador: .08, habitante: .12 },
+  andenes: { nino: .05, oficinista: .13, estudiante: .14, senora: .16, abuelo: .08, obrero: .14, vendedor: .1, reciclador: .08, habitante: .12 },
   // Barrios: más vecinos que oficinas.
-  barrio: { senora: .2, estudiante: .15, oficinista: .12, abuelo: .12, obrero: .14, vendedor: .07, reciclador: .09, habitante: .11 },
+  barrio: { nino: .07, senora: .13, estudiante: .15, oficinista: .12, abuelo: .12, obrero: .14, vendedor: .07, reciclador: .09, habitante: .11 },
   // La Candelaria: universidades y turistas locales.
-  candelaria: { estudiante: .3, oficinista: .15, senora: .15, abuelo: .12, vendedor: .1, obrero: .06, habitante: .07, reciclador: .05 },
+  candelaria: { nino: .03, estudiante: .27, oficinista: .15, senora: .15, abuelo: .12, vendedor: .1, obrero: .06, habitante: .07, reciclador: .05 },
   // Chapinero: oficinas y estudiantes.
-  chapinero: { oficinista: .3, estudiante: .22, senora: .18, abuelo: .08, obrero: .08, vendedor: .05, reciclador: .04, habitante: .05 },
-  parque: { abuelo: .2, estudiante: .2, senora: .2, habitante: .15, vendedor: .1, oficinista: .1, reciclador: .05 },
+  chapinero: { nino: .03, oficinista: .27, estudiante: .22, senora: .18, abuelo: .08, obrero: .08, vendedor: .05, reciclador: .04, habitante: .05 },
+  parque: { nino: .1, abuelo: .1, estudiante: .2, senora: .2, habitante: .15, vendedor: .1, oficinista: .1, reciclador: .05 },
+  // Los niños van con su gente: pocos, y más donde hay parque y barrio.
   // Quien aparece de la nada (un conductor bravo, una prueba): cualquiera que no viva en la calle.
   comun: { oficinista: .3, estudiante: .15, senora: .15, obrero: .25, vendedor: .15 }
 };
@@ -310,7 +350,14 @@ function rollStyle(spec, carry, random) {
 }
 
 // El pelo y las cejas rubias sobre piel oscura se ven amarillos, y lo mismo el cobrizo sobre la más oscura.
-const hairSuitsSkin = (peloColor, piel) => (peloColor !== RUBIO || piel < 3) && (peloColor !== COBRIZO || piel < 5);
+export const hairSuitsSkin = (peloColor, piel) => (peloColor !== RUBIO || PIEL_RUBIO.has(piel)) && (peloColor !== COBRIZO || PIEL_COBRIZO.has(piel));
+
+function rollPelo(lista, sexo, textura, random) {
+  const pelo = fromList(lista, random);
+  if (textura === 'crespo' && pelo !== 'rapado' && pelo !== 'calvo' && random() < .75) return 'crespo';
+  if (textura === 'liso' && pelo === 'crespo' && random() < .8) return sexo === 'mujer' ? 'melena' : 'corto';
+  return pelo;
+}
 
 function rollHair(spec, sexo, edad, piel, random) {
   const tinte = spec.tinte && sexo === 'mujer' && random() < spec.tinte;
@@ -326,9 +373,10 @@ function rollHair(spec, sexo, edad, piel, random) {
  *   andar: string, style: object|null, paraguas: number|null, lluvia: string|null, nariz: boolean, correr: number,
  *   pausa: number, paradas: object, marcha: object, frases: string[] }}
  */
-export function rollPerson(id, { random = Math.random, sinCarga = false, tallaFija = false } = {}) {
+export function rollPerson(id, { random: given = null, seed = null, sinCarga = false, tallaFija = false } = {}) {
   const spec = ARCHETYPES[id];
   if (!spec) throw new Error(`Arquetipo desconocido: ${id}`);
+  const random = given ?? (seed === null ? Math.random : seededRandom(hashSeed(seed)));
   const sexo = random() < spec.mujer ? 'mujer' : 'hombre';
   const edad = weighted(spec.edad, random);
   const accesorios = [];
@@ -342,21 +390,22 @@ export function rollPerson(id, { random = Math.random, sinCarga = false, tallaFi
     mano ??= item.mano ?? null;
   }
   const lleva = id => accesorios.some(item => item.id === id);
-  const piel = weighted(spec.piel ?? PIEL_CIUDAD, random);
+  const ascendencia = rollAscendencia(random, { sexo, edad, sol: !!spec.sol });
+  const piel = ascendencia.piel;
+  const cuerpo = rollTallaCuerpo(random, { sexo, edad, nino: !!spec.nino, sesgo: spec.ancho ? (spec.ancho[0] + spec.ancho[1]) / 2 - 1 : 0 });
   const calzado = weighted(spec.calzado, random);
   const real = {
     sexo, edad,
-    pelo: fromList(spec.pelo[sexo], random),
+    pelo: rollPelo(spec.pelo[sexo], sexo, ascendencia.textura, random),
     barba: sexo === 'mujer' ? 'ninguna' : weighted(spec.barba, random),
     ropa: fromList(spec.ropa[sexo].filter(ropa => garmentAllowed(ropa, edad)), random),
     calzado,
     cabeza: weighted(spec.cabeza, random),
     desgaste: fromList(spec.desgaste, random),
     tonos: rollTonos(spec.tonos, piel, calzado, random),
-    talla: tallaFija ? { alto: 1, ancho: 1 } : {
-      alto: +range(spec.alto ?? [.94, 1.06], random).toFixed(3),
-      ancho: +range(spec.ancho ?? [.94, 1.1], random).toFixed(3)
-    },
+    talla: tallaFija ? { alto: 1, ancho: 1 } : cuerpo.talla,
+    contextura: cuerpo.contextura,
+    rostro: ascendencia.rostro,
     accesorios
   };
   // El casco no cabe sobre una melena ni sobre un sombrero.
@@ -366,7 +415,11 @@ export function rollPerson(id, { random = Math.random, sinCarga = false, tallaFi
   const usable = table => Object.fromEntries(Object.entries(table).filter(([stance]) => manoLibre(stance, mano)));
   const femenino = sexo === 'mujer' ? .88 : 1;
   return {
-    arquetipo: id, sexo,
+    arquetipo: id, sexo, edad,
+    linaje: ascendencia.linaje,
+    nino: !!spec.nino,
+    noche: !!spec.noche,
+    arraigo: spec.arraigo ?? null,
     real,
     piel,
     peloColor,
@@ -409,12 +462,4 @@ export function personLook(person) {
   look.accesorios = [];
   look.real = person.real;
   return look;
-}
-
-/** Talla de una apariencia ya normalizada, siempre dentro de lo que el cuerpo aguanta. */
-export function normalizeTalla(raw) {
-  if (!raw || typeof raw !== 'object') return null;
-  const alto = Number.isFinite(raw.alto) ? clamp(raw.alto, .94, 1.06) : 1;
-  const ancho = Number.isFinite(raw.ancho) ? clamp(raw.ancho, .94, 1.1) : 1;
-  return { alto, ancho };
 }
