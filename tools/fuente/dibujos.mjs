@@ -1,12 +1,13 @@
 // Dibujos a marcador, dentro de la misma fuente: sirven igual en el HTML y en fillText del radar.
 // Cajita de unos 760 de alto, Y hacia arriba. Reemplazan los emojis y los iconos: todo sale de la misma mano.
 import { l, p, c } from './nib.mjs';
+import { seno, coseno } from './trig.mjs';
 
 const circle = (cx, cy, rx, ry = rx, extra = {}) => {
   const pts = [];
   for (let i = 0; i <= 9; i++) {
     const a = Math.PI * .5 + i * Math.PI * 2 / 9 * 1.02;
-    pts.push([cx + Math.cos(a) * rx, cy + Math.sin(a) * ry]);
+    pts.push([cx + coseno(a) * rx, cy + seno(a) * ry]);
   }
   return { kind: 'curve', pts, ...extra };
 };
@@ -108,7 +109,7 @@ add('yunque', [p([110, 520], [650, 520], [560, 340], [470, 340], [470, 180], [62
 // ---------- clima ----------
 const rayos = (cx, cy, r0, r1, n, extra = fino) => Array.from({ length: n }, (_, i) => {
   const a = Math.PI * .5 + i * Math.PI * 2 / n;
-  return l(cx + Math.cos(a) * r0, cy + Math.sin(a) * r0, cx + Math.cos(a) * r1, cy + Math.sin(a) * r1, extra);
+  return l(cx + coseno(a) * r0, cy + seno(a) * r0, cx + coseno(a) * r1, cy + seno(a) * r1, extra);
 });
 // Nube cerrada. (ox, oy) es su esquina de abajo a la izquierda y s, su escala.
 const nube = (ox, oy, s, extra = {}) => {

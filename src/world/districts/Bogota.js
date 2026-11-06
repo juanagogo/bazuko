@@ -48,6 +48,7 @@ import { LAKE_BRIDGE, LAKE_PARK, onLakeBridge, bridgeHeight, buildLakeWater, bui
 import { createLakeWaterMaterial } from '../bogota/LakeWaterMaterial.js';
 import { PigeonFlock } from '../../entities/PigeonFlock.js';
 import { geometryChunk, mergeByChunk, freezeStaticTransforms, createRenderSectors, instanceStaticModels } from '../bogota/StaticGeometry.js';
+import { updateFarStreetLamps } from '../bogota/StreetLampModel.js';
 import { CITY_WIDTH, CITY_HEIGHT, CITY_AREA_MULTIPLIER, CITY_CARRERAS as CARRERAS,
   CITY_CALLES as CALLES, ORIGINAL_CITY_WIDTH, ORIGINAL_CITY_HEIGHT, EXTENSION_PARKS,
   expandCity } from '../bogota/CityLayout.js';
@@ -1524,7 +1525,7 @@ export class Bogota {
           return `${name}:${a.itemSize}:${a.array.constructor.name}:${a.normalized}`;
         }).join(',');
         // Como los lotes cerrados, por trozos anchos: mobiliario y ladrillos pesan en llamadas, no en triángulos.
-        const key = `${o.material.userData.staticMergeKey ?? o.material.uuid}|${o.castShadow}|${o.receiveShadow}|${!!g.index}|${attributes}|${o.customDepthMaterial?.uuid ?? ''}|${geometryChunk(o.geometry, o.matrixWorld, CLOSED_CHUNK_SIZE)}`;
+        const key = `${o.material.userData.staticMergeKey ?? o.material.uuid}|${o.castShadow}|${o.receiveShadow}|${!!g.index}|${attributes}|${o.customDepthMaterial?.uuid ?? ''}|${geometryChunk(o.geometry, o.matrixWorld, CLOSED_CHUNK_SIZE * 2)}`;
         g.applyMatrix4(o.matrixWorld);
         const bucket = buckets.get(key) ?? { mat: o.material, cast: o.castShadow, recv: o.receiveShadow, list: [], sources: [] };
         buckets.set(key, bucket);
@@ -1575,6 +1576,7 @@ export class Bogota {
     ]);
     if (!this._lampInstances) {
       this._lampInstances = instanceStaticModels(this.props.map(prop => prop.instance.model).filter(Boolean), this.group);
+      this._lampBatches = this._lampInstances.children.filter(batch => batch.userData.farGeometry);
       this.group.add(this._lampInstances);
       this.renderSectors.push(...createRenderSectors(this._lampInstances));
       freezeStaticTransforms(this._lampInstances);
@@ -1591,6 +1593,7 @@ export class Bogota {
     P.foliageWind.value = this.t;
     this.signals?.update(this.t);
     if (camera) this.signals?.updateDetail(camera.position, !!this.farDetailFog);
+    if (camera && this._lampBatches) updateFarStreetLamps(this._lampBatches, camera.position, !!this.farDetailFog);
     for (const bus of this.busServices ?? []) bus.update(dt, { player: playerPos, pedestrians: this.trafficPedestrians ?? this.npcs, vehicles: trafficVehicles });
     for (const o of this.animated) o.userData.update(dt, this.t);
     // vista de la cámara una vez por cuadro: los NPC fuera de ella no se dibujan ni se animan

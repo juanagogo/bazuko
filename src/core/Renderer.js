@@ -3,7 +3,7 @@ import { PlayerSilhouette } from './PlayerSilhouette.js';
 import { AdaptiveResolution } from './AdaptiveResolution.js';
 import { FrustumCulling } from './FrustumCulling.js';
 import { paintLoadingFrame } from '../ui/LoadingScreen.js';
-import { AutoQuality, GRAPHICS_PROFILES, effectiveQuality } from './GraphicsQuality.js';
+import { AutoQuality, GRAPHICS_PROFILES, antialiasFor, effectiveQuality } from './GraphicsQuality.js';
 import { sunFieldUniforms } from '../world/bogota/SunField.js';
 
 // Bandas verticales del cielo que se refleja: el esmalte necesita un horizonte claro entre un cenit
@@ -168,14 +168,10 @@ export class EnvironmentMix {
 
 export class Renderer {
   constructor(canvas) {
-    this.instance = new THREE.WebGLRenderer({
-      canvas,
-      antialias: true,
-      powerPreference: 'high-performance'
-    });
-    this.resolution = new AdaptiveResolution(window.devicePixelRatio);
     let saved = null;
     try { saved = localStorage.getItem('bazuko.graphics_quality'); } catch { saved = 'sin almacenamiento'; }
+    this.instance = new THREE.WebGLRenderer({ canvas, antialias: antialiasFor(saved), powerPreference: 'high-performance' });
+    this.resolution = new AdaptiveResolution(window.devicePixelRatio);
     this.autoQuality = new AutoQuality(saved === null);
     this.instance.setPixelRatio(this.resolution.ratio);
     this._pixelRatio = this.resolution.ratio;
@@ -198,11 +194,21 @@ export class Renderer {
     document.addEventListener('visibilitychange', () => this.resolution.resetWindow());
   }
 
+  /** Sombras y luces de punto van juntas: solo baja las apaga, y las dos deciden el programa del material. */
+  _setShadows(on) {
+    this.instance.shadowMap.enabled = on;
+    this.pointLights?.setEnabled(on);
+  }
+
+  /** Tope de resolución de una calidad: lo que pide el equipo, con el límite de su perfil. */
+  _resolutionCap(quality) {
+    return Math.min(globalThis.window?.devicePixelRatio || 1, GRAPHICS_PROFILES[quality].pixelRatio);
+  }
+
   setQuality(level = 'alta') {
     this.quality = ['baja', 'media', 'alta'].includes(level) ? level : 'alta';
-    const limit = GRAPHICS_PROFILES[this.quality].pixelRatio;
-    this.resolution.setLimit(Math.min(globalThis.window?.devicePixelRatio || 1, limit));
-    this.instance.shadowMap.enabled = this.effectiveQuality !== 'baja';
+    this.resolution.setLimit(this._resolutionCap(this.quality));
+    this._setShadows(this.effectiveQuality !== 'baja');
     this.instance.shadowMap.type = THREE.PCFShadowMap;
     this.instance.shadowMap.needsUpdate = true;
     this._settleFrames = SETTLE_FRAMES;
@@ -210,7 +216,7 @@ export class Renderer {
     const auto = this.autoQuality;
     if (auto?.eligible && !auto.started) { auto.started = true; return; }
     this.rememberQuality(this.quality);
-    this.instance.shadowMap.enabled = this.effectiveQuality !== 'baja';
+    this._setShadows(this.effectiveQuality !== 'baja');
   }
 
   /** El jugador eligió: la calidad ya no cambia sola y su elección queda guardada, aunque aún no se aplique. */
@@ -231,10 +237,10 @@ export class Renderer {
     const enabled = gl.shadowMap.enabled, cast = sun.castShadow;
     let ready;
     try {
-      gl.shadowMap.enabled = true; sun.castShadow = true;
+      this._setShadows(true); sun.castShadow = true;
       ready = gl.compileAsync(frame.scene, frame.camera);
     } catch { auto.cancel(); return false; } finally {
-      gl.shadowMap.enabled = enabled; sun.castShadow = cast;
+      this._setShadows(enabled); sun.castShadow = cast;
     }
     try { await ready; } catch { auto.cancel(); return false; }
     // Mientras compilaba el jugador pudo elegir calidad: su decisión manda.
@@ -242,7 +248,9 @@ export class Renderer {
     auto.preparing = false;
     auto.tier = 1;
     auto.reset();
-    gl.shadowMap.enabled = true;
+    this._setShadows(true);
+    // La efectiva ya es media: el lienzo recupera su tope y no queda recortado como el de baja.
+    this.resolution.setLimit(this._resolutionCap(this.effectiveQuality));
     gl.shadowMap.needsUpdate = true;
     this._settleFrames = SETTLE_FRAMES;
     return true;
@@ -258,10 +266,10 @@ export class Renderer {
     const enabled = gl.shadowMap.enabled, cast = sun.castShadow;
     let ready;
     try {
-      gl.shadowMap.enabled = shadows; sun.castShadow = shadows;
+      this._setShadows(shadows); sun.castShadow = shadows;
       ready = gl.compileAsync(frame.scene, frame.camera);
     } catch { return Promise.resolve(); } finally {
-      gl.shadowMap.enabled = enabled; sun.castShadow = cast;
+      this._setShadows(enabled); sun.castShadow = cast;
     }
     return new Promise(resolve => {
       const limit = setTimeout(resolve, VARIANT_WAIT_MS);
@@ -272,8 +280,8 @@ export class Renderer {
 
   _dropAutoQuality() {
     // Vuelve exactamente a como estaba baja: sin presión acumulada ni resolución recortada.
-    this.resolution.setLimit(this.resolution.max);
-    this.instance.shadowMap.enabled = this.effectiveQuality !== 'baja';
+    this.resolution.setLimit(this._resolutionCap(this.effectiveQuality));
+    this._setShadows(this.effectiveQuality !== 'baja');
     this.instance.shadowMap.needsUpdate = true;
   }
 
@@ -423,7 +431,7 @@ export class Renderer {
       }
       const shadows = this.effectiveQuality !== 'baja';
       if (this.instance.shadowMap.enabled !== shadows) {
-        this.instance.shadowMap.enabled = shadows;
+        this._setShadows(shadows);
         this.instance.shadowMap.needsUpdate = true;
         this._settleFrames = SETTLE_FRAMES;
       }

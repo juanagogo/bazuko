@@ -5,6 +5,8 @@ const HORN_NEAR = 5, HORN_FAR = 30, HORN_VOLUME = .4;
 const AMBIENT_HORN_FAR = 25, AMBIENT_HORN_VOLUME = .22, AMBIENT_HORN_GAP = 9;
 // Presupuesto global: evita coros de pitos cuando varios carros esperan a la vez.
 const MAX_ACTIVE_HORNS = 2, HORN_GAP = 1.5;
+// Con más carros a la vista los pitos entre carros se siguen más de cerca, pero la ganancia total no sube.
+const AMBIENT_HORN_GAP_MIN = 3.5, AMBIENT_HORN_CROWD_STEP = .6;
 // Por encima de esta suma de ganancias los motores se compensan para no saturar.
 const ENGINE_CROWD = 2;
 
@@ -29,6 +31,13 @@ export class VehicleAudio {
     this._lastHornAt = -Infinity;
     this._lastAmbientHornAt = -Infinity;
     this._ambientHorns = [];
+    // Vistas reutilizadas: con la flota llena no se reserva memoria por vehículo en cada cuadro.
+    this._pool = [];
+    this._seen = new Set();
+    this._nearby = new Set();
+    this._order = [];
+    this._byDistance = (a, b) => this._pool[a].distance - this._pool[b].distance;
+    this._audible = 0;
   }
 
   _activeHorns() {
@@ -48,7 +57,8 @@ export class VehicleAudio {
     const sound = this.sounds[`horn${index + 1}`];
     if (!sound || sound.state() !== 'loaded') return null;
     const id = sound.play('honk');
-    sound.volume(volume, id);
+    // Cada pito que ya suena baja el suyo: el total no crece con la flota.
+    sound.volume(volume / Math.sqrt(1 + this._activeHorns()), id);
     sound.rate(rate, id);
     this._lastHornAt = this._hornClock;
     return { sound, id };
@@ -72,7 +82,9 @@ export class VehicleAudio {
   ambientHonk(x, z, listener) {
     if (this.paused || !listener) return false;
     const distance = Math.hypot(x - listener.x, z - listener.z);
-    if (distance >= AMBIENT_HORN_FAR || this._hornClock - this._lastAmbientHornAt < AMBIENT_HORN_GAP || !this._hornAllowed()) return false;
+    // Donde hay más motores a la vista los pitos se siguen más de cerca, sin subir el techo de voces ni de ganancia.
+    const gap = Math.max(AMBIENT_HORN_GAP_MIN, AMBIENT_HORN_GAP - this._audible * AMBIENT_HORN_CROWD_STEP);
+    if (distance >= AMBIENT_HORN_FAR || this._hornClock - this._lastAmbientHornAt < gap || !this._hornAllowed()) return false;
     const voice = this._startHorn(Math.floor(this.random() * 3),
       AMBIENT_HORN_VOLUME * this.levels.traffic * distanceGain(distance, HORN_NEAR, AMBIENT_HORN_FAR), .94 + this.random() * .12);
     if (!voice) return false;
@@ -124,32 +136,52 @@ export class VehicleAudio {
     return state[key];
   }
 
+  /** Mete un vehículo en las voces del cuadro si se alcanza a oír. Devuelve el nuevo tope de la lista. */
+  _offer(count, source, car, position, isBus) {
+    const dx = car.position.x - position.x, dz = car.position.z - position.z;
+    const voiceDistance = Math.hypot(dx, car.position.y - position.y, dz);
+    if (voiceDistance > (isBus ? BUS_ENGINE_FAR : CAR_ENGINE_FAR)) return count;
+    const entry = this._pool[count] ??= { source: null, car: null, bus: false, distance: 0, voiceDistance: 0, gain: 0 };
+    entry.source = source; entry.car = car; entry.bus = isBus;
+    entry.distance = Math.hypot(dx, dz);
+    entry.voiceDistance = voiceDistance;
+    this._seen.add(car);
+    return count + 1;
+  }
+
   update(dt, position, vehicles = [], bus = null) {
-    const present = new Set(vehicles.map(vehicle => vehicle.car));
-    const buses = [bus].flat().filter(Boolean);
-    for (const vehicle of buses) present.add(vehicle);
-    for (const [car, state] of this.instances) if (!present.has(car)) {
+    const pool = this._pool, seen = this._seen;
+    seen.clear();
+    let count = 0;
+    // Más allá del alcance del motor no hay voz ni claxon que mantener: la flota lejana no cuesta nada.
+    for (const vehicle of vehicles) count = this._offer(count, vehicle, vehicle.car, position, false);
+    if (bus) {
+      if (Array.isArray(bus)) for (const vehicle of bus) count = this._offer(count, vehicle, vehicle, position, true);
+      else count = this._offer(count, bus, bus, position, true);
+    }
+    // Sin entrada se calla y se olvida: el banco de voces sigue al tráfico que se oye, no a la flota entera.
+    for (const [car, state] of this.instances) if (!seen.has(car)) {
       this._stop(state); this.instances.delete(car);
     }
+    this._audible = count;
     if (this.paused) return;
     this._hornClock += dt;
-    const entries = vehicles.map(vehicle => ({ source: vehicle, car: vehicle.car, bus: false }));
-    for (const vehicle of buses) entries.push({ source: vehicle, car: vehicle, bus: true });
-    for (const entry of entries) {
-      const dx = entry.car.position.x - position.x, dz = entry.car.position.z - position.z;
-      entry.distance = Math.hypot(dx, dz);
-      entry.voiceDistance = Math.hypot(dx, entry.car.position.y - position.y, dz);
-    }
     // La visibilidad del render no determina si un vehículo se puede oír.
-    const nearby = new Set(entries.filter(entry => entry.voiceDistance < (entry.bus ? BUS_ENGINE_FAR : CAR_ENGINE_FAR))
-      .sort((a, b) => a.distance - b.distance).slice(0, MAX_NEARBY_VEHICLES).map(entry => entry.car));
+    const nearby = this._nearby, order = this._order;
+    nearby.clear();
+    order.length = 0;
+    for (let index = 0; index < count; index++) order.push(index);
+    order.sort(this._byDistance);
+    for (let index = 0; index < order.length && index < MAX_NEARBY_VEHICLES; index++) nearby.add(pool[order[index]].car);
     let crowd = 0;
-    for (const entry of entries) {
+    for (let index = 0; index < count; index++) {
+      const entry = pool[index];
       entry.gain = distanceGain(entry.voiceDistance, ENGINE_NEAR, entry.bus ? BUS_ENGINE_FAR : CAR_ENGINE_FAR);
       if (nearby.has(entry.car)) crowd += entry.gain;
     }
     const crowdScale = crowd > ENGINE_CROWD ? Math.sqrt(ENGINE_CROWD / crowd) : 1;
-    for (const entry of entries) {
+    for (let index = 0; index < count; index++) {
+      const entry = pool[index];
       let state = this.instances.get(entry.car);
       if (!state) {
         state = { phase: this.random(), pitch: .96 + this.random() * .08,
@@ -182,8 +214,8 @@ export class VehicleAudio {
           // Una sola voz a la vez: si otro conductor o el reclamo por robo ya hablan, solo pita.
           if (!entry.bus && entry.voiceDistance < 8 && this.driverSounds.length
             && !this.remarkPlaying(state) && !this.externalVoiceActive()) {
-            const index = Math.min(this.driverSounds.length - 1, Math.floor(this.random() * this.driverSounds.length));
-            const remark = this.driverSounds[index];
+            const pick = Math.min(this.driverSounds.length - 1, Math.floor(this.random() * this.driverSounds.length));
+            const remark = this.driverSounds[pick];
             if (remark.state() === 'loaded') {
               if (state.remark) state.remark.sound.stop(state.remark.id);
               state.remark = { sound: remark, id: remark.play() };

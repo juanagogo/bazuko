@@ -7,6 +7,7 @@ export class LocalLights {
     this.scene = scene;
     this.sources = new Map();
     this.candidates = [];
+    this.enabled = true;
     this.halos = new LightHalos(scene);
     this.pool = Array.from({ length: count }, () => {
       const light = new THREE.PointLight(0xffffff, 0, 1);
@@ -19,6 +20,14 @@ export class LocalLights {
     scene.addEventListener('childadded', this._onAdded);
     scene.addEventListener('childremoved', this._onRemoved);
     this.refreshSources();
+  }
+
+  /** En baja las dos luces quedan fuera del shader; los halos del suelo siguen. */
+  setEnabled(on) {
+    on = !!on;
+    if (this.enabled === on) return;
+    this.enabled = on;
+    for (const light of this.pool) light.visible = on;
   }
 
   register(root, { static: fixed = false } = {}) {

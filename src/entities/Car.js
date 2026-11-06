@@ -10,6 +10,8 @@ const SHIRTS = ['#8a2b2b', '#2b4a8a', '#3a3a3a', '#c9b27a', '#2f6b45', '#e0e0e0'
 const SKINS = ['#e0b08a', '#c68a5e', '#9a6440', '#6e4529'];
 // A esta distancia ya no se distinguen conductor, espejos ni plumillas: ahorran llamadas de dibujo.
 const DETAIL_NEAR = 34, DETAIL_FAR = 40;
+// Más lejos el carro se queda con la chapa, sus lámparas y su resplandor; molduras, vidrios, ruedas y plumillas se apagan.
+const SIMPLE_NEAR = 52, SIMPLE_FAR = 60;
 const TAIL_DAY = .14, TAIL_NIGHT = 1, TAIL_BRAKE = 2.4;
 
 /** Conductor sentado: una sola malla compartida por combinación de ropa y piel; visible por las ventanas. */
@@ -68,7 +70,9 @@ export class Car {
     });
     this.group.add(v.group);
     this._bodyRestY = v.bodyVisual?.position.y ?? 0;
-    this._wetMaterials = (v.wetMaterials ?? []).map(material => ({ material, roughness: material.roughness }));
+    this._wetMaterials = (v.wetMaterials ?? []);
+    this._details = v.details ?? [];
+    this._simple = false;
 
     // Retrovisores (lo que se roba): dos soportes y una sola malla con ambos, que siempre se roban y vuelven juntos.
     this.mirrors = [];
@@ -100,25 +104,62 @@ export class Car {
       (v.bodyVisual ?? this.group).add(this.driver);
     }
     this._detailNear = true;
-    if (v.bodyVisual) v.bodyVisual.onBeforeRender = (renderer, scene, camera) => this._updateDetail(camera);
+    // Un parqueado no lo mueve el tráfico; su detalle se ajusta al renderizar. Al de circulación lo lleva el tráfico.
+    if (v.bodyVisual && !traffic) v.bodyVisual.onBeforeRender = (renderer, scene, camera) => this.updateLod(this._distance2FromCamera(camera));
   }
 
-  /** De lejos se apagan las piezas pequeñas; solo cambia con histéresis para no parpadear en el umbral. */
-  _updateDetail(camera) {
+  /** Distancia horizontal al cuadrado desde la cámara; el detalle no mira la altura. */
+  _distance2FromCamera(camera) {
     const e = camera.matrixWorld.elements, p = this.group.position;
-    const dx = e[12] - p.x, dz = e[14] - p.z, d2 = dx * dx + dz * dz;
-    const near = this._detailNear ? d2 < DETAIL_FAR * DETAIL_FAR : d2 < DETAIL_NEAR * DETAIL_NEAR;
+    const dx = e[12] - p.x, dz = e[14] - p.z;
+    return dx * dx + dz * dz;
+  }
+
+  /** Ajusta el detalle a la distancia: cerca todo, lejos solo la silueta. Lo llama el tráfico cada cuadro. */
+  updateLod(distanceSq) {
+    if (this._disposed) return;
+    const simple = this._simple ? distanceSq > SIMPLE_NEAR * SIMPLE_NEAR : distanceSq > SIMPLE_FAR * SIMPLE_FAR;
+    if (simple !== this._simple) this._setSimple(simple);
+    const near = this._detailNear ? distanceSq < DETAIL_FAR * DETAIL_FAR : distanceSq < DETAIL_NEAR * DETAIL_NEAR;
     if (near === this._detailNear) return;
     this._detailNear = near;
+    this._applyDetail();
+  }
+
+  _setSimple(simple) {
+    this._simple = simple;
+    for (const detail of this._details) detail.visible = !simple;
+    // Lejos la sombra del carro es un borrón que apenas se ve y cuesta un pase extra.
+    if (this.vehicle.bodyVisual) this.vehicle.bodyVisual.castShadow = !simple;
+    this._applyDetail();
+  }
+
+  _applyDetail() {
+    const near = this._detailNear && !this._simple;
     this._mirrorMesh.visible = near;
-    if (this.driver) this.driver.children[0].visible = near;
+    // El haz solo vuelve a encenderse si es de noche o llueve: el nivel de detalle no lo enciende de día.
+    if (this.vehicle.beam) this.vehicle.beam.visible = this._lightsOn === true && !this._simple;
+    if (this.driver) {
+      // La figura sentada sigue dentro aunque no se dibuje de lejos: `visible` dice quién va al volante.
+      this.driver.visible = this.driverInside && !this.driverHidden;
+      this.driver.children[0].visible = near;
+    }
     for (const wiper of this.vehicle.wipers ?? []) wiper.visible = near;
+  }
+
+  /** Muestra u oculta el carro entero; el tráfico lo apaga más allá de la niebla. */
+  setDrawn(drawn) {
+    if (this._disposed || this.group.visible === drawn) return;
+    this.group.visible = drawn;
+    // Apagado, el render no gasta el recorrido de matrices de su rama; al encenderlo la recalcula.
+    this.group.matrixWorldAutoUpdate = drawn;
+    if (drawn) this.group.matrixWorldNeedsUpdate = true;
   }
 
   /** Muestra u oculta al conductor sentado (se baja del carro o vuelve a subir). */
   setDriverInside(inside) {
     this.driverInside = inside;
-    if (this.driver) this.driver.visible = inside && !this.driverHidden;
+    this._applyDetail();
   }
 
   /** Punto junto a la puerta del conductor, en metros del mundo. Cada modelo la tiene a la altura de su asiento; `side` la pasa al otro lado. */
@@ -304,7 +345,7 @@ export class Car {
     if (this.vehicle.headlightMaterial) this.vehicle.headlightMaterial.emissiveIntensity = !on ? .02 : isNight ? 1.35 : .8;
     this._applyTail();
     if (this.vehicle?.beam) {
-      this.vehicle.beam.visible = on;
+      this.vehicle.beam.visible = on && !this._simple;
       this.vehicle.beam.material.opacity = isNight ? 0.38 : .28;
     }
     if (this.vehicle?.flares) {
@@ -315,7 +356,10 @@ export class Car {
   setWeather({ isRaining = false } = {}) {
     if (this._isRaining === !!isRaining) return;
     this._isRaining = !!isRaining;
-    for (const { material, roughness } of this._wetMaterials) material.roughness = roughness * (this._isRaining ? .75 : 1);
+    // El esmalte y el vidrio se comparten: la rugosidad de seco quedó guardada en el material, no por carro.
+    for (const material of this._wetMaterials) {
+      material.roughness = material.userData.dryRoughness * (this._isRaining ? .75 : 1);
+    }
   }
 
   dispose() {

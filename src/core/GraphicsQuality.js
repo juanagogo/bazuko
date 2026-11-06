@@ -1,9 +1,12 @@
 export const GRAPHICS_PROFILES = Object.freeze({
   // farDetailFog: en qué punto de la niebla (0 empieza, 1 tapa todo) dejan de dibujarse peatones y bolsas lejanos.
-  baja: { pixelRatio: 1, shadowSize: 0, silhouette: false, animationBudget: 3, far: 180, farDetailFog: .7 },
+  baja: { pixelRatio: .85, shadowSize: 0, silhouette: false, animationBudget: 3, far: 180, farDetailFog: .7 },
   media: { pixelRatio: 1.25, shadowSize: 1024, silhouette: true, animationBudget: 2, far: 220 },
   alta: { pixelRatio: 1.5, shadowSize: 2048, silhouette: true, animationBudget: 1, far: 300 }
 });
+
+// El contexto no se puede cambiar después: quien ya eligió baja se queda sin MSAA.
+export const antialiasFor = saved => saved !== 'baja';
 
 export function effectiveQuality(selected = 'alta', pressure = 0, autoTier = 0) {
   const levels = ['baja', 'media', 'alta'];

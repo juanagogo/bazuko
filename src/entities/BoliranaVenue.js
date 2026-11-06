@@ -32,7 +32,7 @@ export class BoliranaVenue {
     const sign = signMesh(
       {
         title: 'EL RUMBIADERO',
-        sub: 'BOLIRANA · ENTRADA',
+        sub: 'BOLIRANA - ENTRADA',
         bg: '#281b35',
         fg: '#ffe4a0'
       },
