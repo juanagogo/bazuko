@@ -54,7 +54,8 @@ const RIDER_HIDE = `#include <begin_vertex>
   float motoShow = 1.;
   if (motoPart > 3.5 && motoPart < 4.5) motoShow = motoSlot < -.5 ? 0. : motoBit(aBits.w, motoSlot);
   else if (motoPart > 4.5) motoShow = motoSlot < -.5 ? 0. : motoBit(aPack, motoSlot);
-  if (motoSlot > -.5) {
+  float motoVisible = clamp(motoOn * motoHead * motoShow, 0., 1.);
+  if (motoSlot > -.5 && motoVisible > .5) {
     float motoSize = mix(1., .72, motoBit(aBits.z, motoSlot));
     float motoAccel = aMotion.x, motoSpeed = aMotion.y, motoSteer = aMotion.z, motoPhase = aMotion.w;
     vec3 motoP = (transformed - aSeatAt) * motoSize;
@@ -66,12 +67,12 @@ const RIDER_HIDE = `#include <begin_vertex>
     } else if (motoPart > 1.5 && motoPart < 2.5) {
       vec3 motoHip = vec3(0., .12 * motoSize, 0.);
       float motoSwing = sin(uMotoTime * 2.6 + motoPhase + motoSlot) * .16;
-      if (motoSlot < .5 && motoSpeed < .6) motoSwing += .9;   // parado, el conductor baja el pie
+      if (motoSlot < .5 && motoSpeed < .6) motoSwing -= .38;   // parado, el conductor baja el pie hasta el piso
       motoP -= motoHip; motoP = motoRotZ(motoP, motoSwing); motoP += motoHip;
     }
     transformed = aSeatAt + motoP;
   }
-  transformed *= clamp(motoOn * motoHead * motoShow, 0., 1.);`;
+  transformed *= motoVisible;`;
 // El reloj del balanceo: lo escribe el lote en cada sincronización y lo comparten los dos materiales.
 const motoTime = { value: 0 };
 
@@ -100,7 +101,7 @@ function motoMaterial() {
 }
 
 let depthMaterial = null;
-/** La sombra esconde a quien no va: el pase de profundidad no usa el material de la moto y si no, dibujaría los tres. */
+/** La sombra esconde a quien no va: el pase de profundidad no usa el material de la moto y si no, dibujaría a los que no van. */
 function motoDepthMaterial() {
   if (depthMaterial) return depthMaterial;
   depthMaterial = new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking });
@@ -370,12 +371,12 @@ const LOADS = [
   { variant: 'urbana', people: [[0, 0, 1, 0, 0, 1]] },
   { variant: 'urbana', people: [[0, 0, 0, 0, 0, 2]] },
   { variant: 'canasta', people: [[0, 0, 0, 0, 0, 5]] },
-  { variant: 'scooter', people: [[0, 0, 1, 0, 0, 1], [3, 0, 0, 0, 0, 3]] },
-  { variant: 'urbana', people: [[0, 0, 1, 0, 0, 0], [3, 0, 0, 0, 0, 2]] },
+  { variant: 'scooter', people: [[0, 0, 1, 0, 0, 1], [3, 0, 1, 0, 0, 3]] },
+  { variant: 'urbana', people: [[0, 0, 1, 0, 0, 0], [3, 0, 1, 0, 0, 2]] },
   { variant: 'scooter', people: [[0, 0, 1, 0, 0, 1], [1, 1, 0, 0, 0, 4]] },
-  { variant: 'urbana', people: [[0, 0, 1, 0, 0, 0], [2, 1, 0, 0, 0, 3]] },
+  { variant: 'canasta', people: [[0, 0, 1, 0, 0, 0], [2, 1, 0, 0, 0, 3]] },
   { variant: 'urbana', people: [[0, 0, 1, 0, 0, 1], [1, 1, 0, 0, 0, 2], [3, 1, 0, 0, 0, 3]] },
-  { variant: 'canasta', people: [[0, 0, 0, 0, 0, 5], [2, 1, 0, 1, 0, 2], [3, 0, 0, 1, 0, 6]] },
+  { variant: 'urbana', people: [[0, 0, 0, 0, 0, 5], [2, 1, 0, 1, 0, 2], [3, 0, 0, 1, 0, 6]] },
   { variant: 'domicilio', people: [[0, 0, 1, 0, 0, 7]] },
   { variant: 'domicilio', people: [[0, 0, 0, 0, 0, 7]] },
   { variant: 'urbana', people: [[0, 0, 1, 0, 0, 0], [1, 1, 0, 1, 0, 2], [2, 1, 0, 1, 0, 3], [3, 1, 0, 1, 0, 6], [4, 0, 0, 1, 0, 4]] },
@@ -426,12 +427,12 @@ const SEATS = {
     { x: -.70, y: .90, hands: [-.34, .96, .20], feet: [-.30, .40, .24] },
     null
   ],
-  canasta: [URBANA_SEATS[0], URBANA_SEATS[1], URBANA_SEATS[2], URBANA_SEATS[3], null],
+  canasta: [URBANA_SEATS[0], URBANA_SEATS[1], URBANA_SEATS[2], null, null],
   domicilio: [URBANA_SEATS[0], null, null, null, null]
 };
 
 let variantGeometries = null;
-/** Una geometría por variante, con sus tres puestos ya horneados; el lote esconde los que van vacíos. */
+/** Una geometría por variante, con sus puestos ya horneados; el lote esconde los que van vacíos. */
 function motoVariantGeometries() {
   if (variantGeometries) return variantGeometries;
   variantGeometries = MOTO_VARIANTS.map((name, index) => {

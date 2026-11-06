@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import * as THREE from 'three';
-import { MOTO_LATERAL, MOTO_LOAD_COUNT, MOTO_LAYOUTS, MOTO_VARIANTS, MotoFleet, motoLoad } from '../src/world/bogota/motos.js';
+import { MOTO_CAPACITY, MOTO_LATERAL, MOTO_LOAD_COUNT, MOTO_LAYOUTS, MOTO_VARIANTS, MotoFleet, motoLoad } from '../src/world/bogota/motos.js';
 import { Moto } from '../src/entities/Moto.js';
 import { trafficTargetVehicles, motoShare } from '../src/systems/trafficDensity.js';
 
@@ -31,6 +31,8 @@ test('cada variante trae su geometría con los puestos, el casco y los accesorio
     assert.ok(garmentVerts > 0, `${MOTO_VARIANTS[index]} sin ropa teñible`);
     assert.equal(geometry.attributes.aRider.itemSize, 4);
     assert.equal(geometry.attributes.aSeatAt.itemSize, 3);
+    // El presupuesto se mantiene por variante: siguen siendo pocos triángulos por moto.
+    assert.ok(geometry.index.count / 3 < 15000, `${MOTO_VARIANTS[index]} con demasiados triángulos`);
     // Piernas, brazos, bolsa y morral: las partes que la animación y los accesorios necesitan.
     for (const part of [2, 3, 4, 5]) assert.ok(parts.get(part) > 0, `${MOTO_VARIANTS[index]} sin parte ${part}`);
   });
@@ -48,9 +50,19 @@ test('la carga reparte de una a cinco personas, con niños delante y atrás', ()
   assert.deepEqual(new Set(loads.map(size)), new Set([1, 2, 3, 4, 5]));
   assert.ok(loads.filter(load => size(load) <= 2).length > loads.length / 2, 'la mayoría lleva uno o dos');
   assert.ok(loads.some(load => load.occupancy[1]), 'nadie en el tanque');
+  assert.ok(loads.some(load => load.occupancy[3] && load.helmets[3]), 'ningún parrillero con casco');
   assert.ok(loads.some(load => load.bags.some(Boolean)), 'sin bolsas de mercado');
   assert.ok(loads.some(load => load.packs.filter(Boolean).length >= 2), 'sin colegio con morrales');
   assert.ok(loads.some(load => load.variant === MOTO_VARIANTS.indexOf('domicilio')), 'sin domiciliarios');
+  // El puesto del fondo también se reparte: la familia de cinco ocupa los cinco.
+  const family = motoLoad(11);
+  assert.deepEqual([...family.occupancy], [true, true, true, true, true]);
+  assert.deepEqual([...family.kids], [false, true, true, true, false]);
+  // El lote sostiene cientos de motos repartidas entre las cuatro variantes.
+  const budget = new MotoFleet(new THREE.Group());
+  assert.ok(budget.batches.every(batch => batch.capacity === MOTO_CAPACITY));
+  assert.ok(MOTO_CAPACITY >= 128, 'el tráfico denso pone cientos de motos');
+  budget.dispose();
   // Determinista: la misma moto reparte siempre la misma carga.
   const a = motoLoad(7), b = motoLoad(7);
   assert.deepEqual(a, b);
