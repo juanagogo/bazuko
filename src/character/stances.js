@@ -579,7 +579,8 @@ function pretina(rig, m) {
 
 /** Inclinado, con las manos en las rodillas: el pantalón ya llegó abajo. */
 function pantalonRodillas(rig, m) {
-  rig.orient('spine', .2).orient('spine1', .38).orient('spine2', .5).orient('neck', .2).orient('head', -.1);
+  // Se dobla desde la pose de pie (no desde la de atadura, que ya viene inclinada) y mira al frente.
+  lean(rig, 1.2).turn('neck', -.3, 0, 0).turn('head', -.2, 0, 0);
   for (const side of SIDES) {
     const sign = SIGN[side];
     const knee = rig.where(`${side}Leg`, V(0, 0, 0));

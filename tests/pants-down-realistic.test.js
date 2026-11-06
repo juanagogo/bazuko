@@ -111,3 +111,18 @@ test('pretina y pantalon-rodillas se hornean con las manos más abajo en la segu
   assert.ok(knees < waist - .1, `manos en la pretina a ${waist.toFixed(2)} y en las rodillas a ${knees.toFixed(2)}`);
   assert.ok(stances.get('pantalon-rodillas').entries.some(e => /Spine/.test(e.boneName)), 'se inclina el tronco');
 });
+
+test('al bajarse el realista se inclina sobre la pose de pie y baja las manos', async () => {
+  const measure = async stance => {
+    const character = await createRealisticCharacter({}, { undress: true });
+    for (let i = 0; i < 90; i++) character.update(1 / 60, { action: 'bajarse', stance, actionProgress: .5 });
+    character.group.updateMatrixWorld(true);
+    const at = suffix => { let bone; character.group.traverse(o => { if (o.isBone && o.name.endsWith(suffix)) bone = o; }); return bone.getWorldPosition(new THREE.Vector3()); };
+    const result = { forward: at('Head').z - at('Hips').z, hand: at('LeftHand').y };
+    character.dispose();
+    return result;
+  };
+  const standing = await measure(null), bent = await measure('pantalon-rodillas');
+  assert.ok(bent.forward > standing.forward + .2, `la cabeza avanza ${(bent.forward - standing.forward).toFixed(2)} m`);
+  assert.ok(bent.hand < standing.hand - .08, `las manos bajan ${(standing.hand - bent.hand).toFixed(2)} m`);
+});
