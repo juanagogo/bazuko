@@ -4,7 +4,7 @@
 import { porcentaje } from './formato.js';
 import { el, button } from './dom.js';
 import { pasarTexto } from './pictos.js';
-import { STATIONS, stationRegions } from '../systems/RadioSystem.js';
+import { STATIONS, STATION_REGIONS, filterStations } from '../systems/RadioSystem.js';
 
 // El dial: la AM llega al 46 % y la FM ocupa el resto, que es donde está casi todo lo que se
 // sintoniza en vivo; con quince emisoras de FM repartidas en menos ancho la aguja no diría nada.
@@ -146,14 +146,14 @@ export function openRadioModal(game) {
       const b = button(marca, { class: 'pause-choice', onClick: () => { radio.setFilters({ [key]: valor }); pintarFiltro(); } });
       return { b, marca, valor, key };
     };
-    const regionFilas = ['', ...stationRegions()].map((r) => opcion(r || 'Todas', r, 'region'));
+    const regionFilas = ['', ...STATION_REGIONS].map((r) => opcion(r || 'Todas', r, 'region'));
     const tipoFilas = [['', 'Todas'], ['stream', 'En vivo'], ['synth', 'Del juego']].map(([k, label]) => opcion(label, k, 'kind'));
     filtros.region.replaceChildren(...regionFilas.map(({ b }) => b));
     filtros.kind.replaceChildren(...tipoFilas.map(({ b }) => b));
 
     const vacio = el('p', { class: 'radio-vacio', hidden: true },
       'Ninguna emisora con este filtro. ',
-      button('Todas', { onClick: () => { radio.setFilters({ region: '', kind: '' }); pintarFiltro(); } }));
+      button('Quitar filtros', { onClick: () => { radio.setFilters({ region: '', kind: '' }); pintarFiltro(); } }));
     const anteriorBtn = button('Anterior', { onClick: () => saltar(-1) });
     const siguienteBtn = button('Siguiente', { onClick: () => saltar(1) });
 
@@ -177,11 +177,10 @@ export function openRadioModal(game) {
         f.marca.className = on ? 'elegido' : '';
         f.b.setAttribute('aria-pressed', String(on));
       }
-      const visibles = new Set(radio.filteredStations().map((st) => st.id));
+      const visibles = new Set(filterStations(radio.filters).map((st) => st.id));
       for (const { st, li } of filas) li.hidden = !visibles.has(st.id);
       vacio.hidden = visibles.size > 0;
       anteriorBtn.disabled = siguienteBtn.disabled = visibles.size === 0;
-      presets.hidden = visibles.size === 0;
     };
 
     const pintarSintonia = () => { pintarFicha(); marcarPresets(); };

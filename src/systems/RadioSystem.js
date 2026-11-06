@@ -224,7 +224,7 @@ export const STATIONS = [
 export const stationKind = (st) => (st.kind === 'stream' ? 'stream' : 'synth');
 
 // Las regiones del catálogo, sin repetir y en el orden en que aparecen.
-export const stationRegions = () => [...new Set(STATIONS.map((st) => st.region))];
+export const STATION_REGIONS = [...new Set(STATIONS.map((st) => st.region))];
 
 /** Las emisoras que pasan el filtro; región o tipo vacíos significan «todas». */
 export const filterStations = ({ region = '', kind = '' } = {}) =>
@@ -283,7 +283,7 @@ export class RadioSystem {
         const savedFiltro = JSON.parse(localStorage.getItem('bazuko.radio_filtro') ?? 'null');
         if (savedFiltro && typeof savedFiltro === 'object') {
           // Lo guardado puede venir de otra versión del catálogo: solo se acepta lo que aún existe.
-          if (stationRegions().includes(savedFiltro.region)) this.filters.region = savedFiltro.region;
+          if (STATION_REGIONS.includes(savedFiltro.region)) this.filters.region = savedFiltro.region;
           if (['stream', 'synth'].includes(savedFiltro.kind)) this.filters.kind = savedFiltro.kind;
         }
       }
@@ -300,14 +300,9 @@ export class RadioSystem {
     } catch { /* sin almacenamiento */ }
   }
 
-  /** Las emisoras que pasan el filtro actual. */
-  filteredStations() {
-    return filterStations(this.filters);
-  }
-
   /** Salta a la emisora anterior o siguiente del dial filtrado, dando la vuelta. Null si no hay ninguna. */
   stepStation(dir) {
-    const list = this.filteredStations();
+    const list = filterStations(this.filters);
     if (!list.length) return null;
     const { station } = this.getStationInfo();
     const i = list.findIndex((st) => st.id === station.id);

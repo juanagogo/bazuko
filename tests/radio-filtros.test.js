@@ -4,7 +4,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { RadioSystem, STATIONS, filterStations, stationKind, stationRegions } from '../src/systems/RadioSystem.js';
+import { RadioSystem, STATIONS, STATION_REGIONS, filterStations, stationKind } from '../src/systems/RadioSystem.js';
 
 const guardado = Object.getOwnPropertyDescriptor(globalThis, 'localStorage');
 
@@ -46,7 +46,7 @@ test('Filtros: la región y el tipo se combinan sobre el catálogo', () => {
 });
 
 test('Filtros: las regiones salen del catálogo, sin repetir', () => {
-  const regiones = stationRegions();
+  const regiones = STATION_REGIONS;
   assert.deepEqual([...new Set(regiones)], regiones);
   assert.ok(regiones.includes('Bogotá') && regiones.includes('Cali'));
   assert.ok(regiones.length < STATIONS.length);
@@ -104,7 +104,7 @@ test('Filtros: sin emisoras, siguiente y anterior no mueven la sintonía', (t) =
   t.after(limpiar);
   const radio = new RadioSystem();
   radio.setFilters({ region: 'Cali', kind: 'synth' });
-  assert.deepEqual(radio.filteredStations(), []);
+  assert.deepEqual(filterStations(radio.filters), []);
   radio.setStation(emisora('rock'));
 
   assert.equal(radio.stepStation(1), null);

@@ -12,7 +12,6 @@ import { BRANCHES, TALENTS } from '../src/data/talents.js';
 import { HUD } from '../src/ui/HUD.js';
 import { openRadioModal } from '../src/ui/RadioModal.js';
 import { openPauseMenu, PAUSE_TABS } from '../src/ui/PauseMenu.js';
-import { STATIONS } from '../src/systems/RadioSystem.js';
 
 const RAIZ = fileURLToPath(new URL('..', import.meta.url));
 const leer = (ruta) => fs.readFileSync(RAIZ + ruta, 'utf8');
@@ -87,7 +86,6 @@ test('la radio: el botón de pilas dice la acción aunque no se pueda, porque se
       filters: { region: '', kind: '' },
       getStationInfo: () => ({ signal: .9, station: { id: 'x', name: 'Emisora', program: 'Programa', genre: 'Género' } }),
       toggle() {}, turnOn() {}, setFrequency() {}, setVolume() {}, setFilters() {}, stepStation() { return null; },
-      filteredStations: () => STATIONS,
     };
     openRadioModal({ menu, radio, inventory: { items, count: (id) => items.filter(i => i.id === id).length }, player: {}, creator: {} });
     const dibujo = menu.config.render();
@@ -111,7 +109,6 @@ test('en la pausa y en la radio no se escribe con emojis', () => {
     filters: { region: '', kind: '' },
     getStationInfo: () => ({ signal: .9, station: { id: 'x', name: '📻 Emisora', program: '🎵 Programa', genre: '📻 Género' } }),
     toggle() {}, turnOn() {}, setFrequency() {}, setVolume() {}, setFilters() {}, stepStation() { return null; },
-    filteredStations: () => STATIONS,
   };
   const game = { menu, radio, inventory: { items: [] }, player: {}, creator: {} };
   openRadioModal(game);
