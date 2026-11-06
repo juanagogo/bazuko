@@ -82,6 +82,8 @@ const CHANGED_UNSEEN = .3; // s sin animarse: lo que hizo mientras tanto nadie l
 export const NPC_HEALTH = 100;
 // Cruzar por la mitad de la cuadra: probabilidad al escoger rumbo, alcance en metros y fracción de los que cruzan sin mirar.
 const JAY_CHANCE = .05, JAY_REACH = 16, JAY_DOOM = .08;
+// Quien cruza por la calzada deja un margen alrededor de los vehículos y de lo que alcanzan a recorrer en JAY_LOOKAHEAD s.
+const JAY_MARGIN = .7, JAY_LOOKAHEAD = 1.2, JAY_DOOM_SPEED = 5;
 const JAY_DIRECTIONS = [[1, 0], [-1, 0], [0, 1], [0, -1]];
 export const NPC_COMBAT = {
   stagger: 0.28,   // s de sacudón tras cada golpe (no camina; el golpe lo empuja)
@@ -547,7 +549,7 @@ export class Npc {
         const px = x + dx * k, pz = z + dz * k;
         if (this._solidAt({ x: px, y: this.position.y, z: pz }) || this.getWaterInfo?.(px, pz)) { clear = false; break; }
         if (k > 3 && this.isWalkable(px, pz)) {
-          this._jay = { x: px, z: pz, hurry: Math.random() < .5, patience: 12 };
+          this._jay = { x: px, z: pz, from: { x, z }, hurry: Math.random() < .5, patience: 12 };
           this.runoverDoom = Math.random() < JAY_DOOM;
           return true;
         }
@@ -569,16 +571,61 @@ export class Npc {
     return false;
   }
 
+  /**
+   * ¿Está (x, z) donde un vehículo ya está o va a estar en un instante? La zona es su carrocería con un margen y, si
+   * va en marcha, el tramo que recorre antes de que quien cruza alcance a salir. Con `hit` devuelve el rumbo del vehículo y
+   * de qué lado del eje queda el punto. Quien cruza a propósito para que lo atropellen no esquiva a un carro que ya va rápido.
+   */
+  _vehicleAt(x, z, hit = null) {
+    for (const vehicle of this._vehicles ?? []) {
+      const car = vehicle.car;
+      if (!car?.group || (this.runoverDoom && vehicle.speed > JAY_DOOM_SPEED)) continue;
+      const ox = x - car.position.x, oz = z - car.position.z;
+      if (Math.abs(ox) > 30 || Math.abs(oz) > 30) continue;
+      const hx = Math.cos(car.group.rotation.y), hz = -Math.sin(car.group.rotation.y);
+      const forward = ox * hx + oz * hz, sideways = -ox * hz + oz * hx;
+      const ahead = vehicle.speed > .5 ? vehicle.speed * JAY_LOOKAHEAD : 0;
+      if (forward > -car.length / 2 - JAY_MARGIN && forward < car.length / 2 + JAY_MARGIN + ahead &&
+        Math.abs(sideways) < car.width / 2 + JAY_MARGIN) {
+        if (hit) { hit.hx = hx; hit.hz = hz; hit.side = sideways >= 0 ? 1 : -1; hit.out = car.width / 2 + JAY_MARGIN - Math.abs(sideways); }
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /** Un paso al costado, fuera de la zona del vehículo que le llegó encima. */
+  _dodge(dt, hit) {
+    const speed = this._paceNow() * 2 * dt;
+    for (const side of [hit.side, -hit.side]) {
+      const next = this._nextPosition.set(this.position.x - hit.hz * side * speed, this.position.y, this.position.z + hit.hx * side * speed);
+      if (this._entersSolid(next)) continue;
+      next.y = this.groundHeight(next.x, next.z);
+      this.position.copy(next);
+      this.moving = true;
+      this.root.rotation.y += wrapAngle(Math.atan2(-hit.hz * side, hit.hx * side) - this.root.rotation.y) * Math.min(1, dt * 10);
+      return true;
+    }
+    return false;
+  }
+
   _walkJay(dt, hurry = 1) {
     const jay = this._jay, d = this._direction.set(jay.x - this.position.x, 0, jay.z - this.position.z), dist = d.length();
     const onRoad = !this.isWalkable(this.position.x, this.position.z);
     if (dist < .3) { this._jay = null; this.runoverDoom = false; this.wait = 1 + Math.random() * 2; return; }
-    if (!onRoad && !this.runoverDoom && hurry < 2 && this._carComing()) {
-      if ((jay.patience -= dt) <= 0) { this._jay = null; this.wait = 1; }
-      return;
-    }
+    // Un vehículo encima o por llegarle: se hace a un lado, y si no hay cómo, se queda quieto.
+    const hit = this._jayHit ??= {};
+    if (onRoad && this._vehicleAt(this.position.x, this.position.z, hit)) { this._dodge(dt, hit); return; }
     const step = Math.min(dist, this._paceNow() * hurry * dt);
     const next = this._nextPosition.copy(this.position).addScaledVector(d.normalize(), step);
+    // Si el paso lo metería en la zona de un vehículo, espera en el borde de la calle o a mitad de calzada; con paciencia agotada, se devuelve.
+    if (this._vehicleAt(next.x, next.z) || (!onRoad && !this.runoverDoom && hurry < 2 && this._carComing())) {
+      if ((jay.patience -= dt) <= 0) {
+        if (!onRoad) { this._jay = null; this.wait = 1; }
+        else if (jay.from) { this._jay = { x: jay.from.x, z: jay.from.z, hurry: true, patience: 12 }; this.runoverDoom = false; }
+      }
+      return;
+    }
     if (this._entersSolid(next)) { this._jay = null; this.runoverDoom = false; this.wait = 1; return; }
     next.y = this.groundHeight(next.x, next.z);
     this.position.copy(next);
