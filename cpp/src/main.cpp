@@ -853,12 +853,14 @@ int main(int argc, char** argv) {
         if (std::getenv("BAZUKO_DOG_FRIEND")) simulation.BefriendDog();   // pruebas: El Chato ya es amigo (se puede acariciar)
         if (const char* weather = std::getenv("BAZUKO_WEATHER")) simulation.ForceWeather(static_cast<Climate::Weather>(std::clamp(std::atoi(weather), 0, Climate::kWeatherCount - 1)));   // pruebas: 0 soleado .. 6 tormenta
         if (const char* hour = std::getenv("BAZUKO_HOUR")) simulation.SetDayProgress(static_cast<float>(std::atof(hour)) / 24.0f);   // pruebas: hora del dia
+        if (const char* station = std::getenv("BAZUKO_RADIO_STATION")) { ui.SelectRadioStation(station); radioOn = true; radioBattery = 100.0f; }   // pruebas: enciende la radio en esa emisora (id de radio_stations.json)
         camera.SetOrbit(envFloat("BAZUKO_YAW", camera.GetYaw()), envFloat("BAZUKO_PITCH", 0.22f), envFloat("BAZUKO_DIST", 5.5f));
     } else {
         ui.OpenDeveloperNote();
         // pruebas: hora y clima tambien al jugar normal (sin captura)
         if (const char* weather = std::getenv("BAZUKO_WEATHER")) simulation.ForceWeather(static_cast<Climate::Weather>(std::clamp(std::atoi(weather), 0, Climate::kWeatherCount - 1)));
         if (const char* hour = std::getenv("BAZUKO_HOUR")) simulation.SetDayProgress(static_cast<float>(std::atof(hour)) / 24.0f);
+        if (const char* station = std::getenv("BAZUKO_RADIO_STATION")) { ui.SelectRadioStation(station); radioOn = true; radioBattery = 100.0f; }
     }
     const double shotStart = glfwGetTime();
     std::this_thread::sleep_for(std::chrono::milliseconds(350));
@@ -2646,7 +2648,17 @@ int main(int argc, char** argv) {
             }
             if (float requestedVolume = 0.0f; ui.ConsumeRadioVolume(requestedVolume)) radioVolume = std::clamp(requestedVolume, 0.0f, 1.0f);
             const RadioProgram radioProgram = RadioProgramFromId(ui.SelectedRadioStationId());
-            const float radioSignal = radioProgram == RadioProgram::None ? 0.0f : 1.0f;
+            std::string streamError;
+            if (std::getenv("BAZUKO_LOG_STREAM")) { static float w = 0.0f; w -= dtClamped; if (w <= 0.0f) { w = 3.0f; LogInfo("Radio: encendida {}, emisora {}, en el buffer {} muestras", radioOn, ui.SelectedRadioStationId(), audio.RadioStreamBuffered()); } }
+            static AudioManager::RadioStreamStatus lastStreamStatus = AudioManager::RadioStreamStatus::None;
+            const AudioManager::RadioStreamStatus streamStatus = audio.UpdateRadioStream(ui.SelectedRadioStationUrl(), radioOn && !ui.IsDeathScreenOpen(), &streamError);
+            if (streamStatus == AudioManager::RadioStreamStatus::Failed && lastStreamStatus != AudioManager::RadioStreamStatus::Failed) {
+                LogWarn("Emisora en vivo sin senal ({}): {}", ui.SelectedRadioStationName(), streamError);
+                ui.Notify("Sin señal: " + ui.SelectedRadioStationName(), ToastType::Warn);
+            }
+            if (streamStatus != lastStreamStatus) LogInfo("Radio en vivo: {} (estado {})", ui.SelectedRadioStationName(), static_cast<int>(streamStatus));
+            lastStreamStatus = streamStatus;
+            const float radioSignal = streamStatus == AudioManager::RadioStreamStatus::Live ? 1.0f : radioProgram == RadioProgram::None ? 0.0f : 1.0f;
             if (radioOn) {
                 radioBattery = std::max(0.0f, radioBattery - dtClamped / 24.0f);
                 if (radioBattery <= 0.0f) {

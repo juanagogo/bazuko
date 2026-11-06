@@ -66,6 +66,8 @@ namespace {
 struct RadioSource {
     ma_data_source_base base;
     RadioSynth* synth = nullptr;
+    LiveStream* stream = nullptr;     // emisora en vivo (mono ya decodificada)
+    std::atomic<bool> live{false};    // true cuando suena la senal en vivo en vez de la sintesis
     ma_uint32 sampleRate = 48000;
     std::vector<float> mono;
 };
@@ -74,7 +76,14 @@ ma_result RadioRead(ma_data_source* source, void* out, ma_uint64 frameCount, ma_
     auto* radio = reinterpret_cast<RadioSource*>(source);
     auto* samples = static_cast<float*>(out);
     radio->mono.resize(static_cast<size_t>(frameCount));
-    radio->synth->Render(radio->mono.data(), static_cast<size_t>(frameCount));
+    if (radio->live.load() && radio->stream) {
+        // senal en vivo: lo que llego del flujo (si el buffer se queda corto, ese tramo va en silencio); apagada, calla
+        const size_t got = radio->stream->Read(radio->mono.data(), static_cast<size_t>(frameCount));
+        const float gain = radio->synth->IsOn() ? 0.9f * radio->synth->Volume() : 0.0f;
+        for (size_t frame = 0; frame < static_cast<size_t>(frameCount); ++frame) radio->mono[frame] = frame < got ? radio->mono[frame] * gain : 0.0f;
+    } else {
+        radio->synth->Render(radio->mono.data(), static_cast<size_t>(frameCount));
+    }
     for (ma_uint64 frame = 0; frame < frameCount; ++frame) {
         samples[frame * 2] = radio->mono[static_cast<size_t>(frame)];
         samples[frame * 2 + 1] = radio->mono[static_cast<size_t>(frame)];
@@ -203,6 +212,8 @@ struct AudioManager::Impl {
     Sound policeRadio;
     Sound heartbeat;
     std::unique_ptr<RadioSynth> radioSynth;
+    std::unique_ptr<LiveStream> liveStream;
+    std::string streamUrl, streamFailedUrl;
     RadioSource radioSource{};
     ma_sound radioSound{};
     bool radioReady = false;
@@ -268,6 +279,8 @@ struct AudioManager::Impl {
             ma_data_source_config sourceConfig = ma_data_source_config_init();
             sourceConfig.vtable = &g_radioVtable;
             radioSource.synth = radioSynth.get();
+            liveStream = std::make_unique<LiveStream>(engineRate);
+            radioSource.stream = liveStream.get();
             radioSource.sampleRate = engineRate;
             if (ma_data_source_init(&sourceConfig, &radioSource.base) == MA_SUCCESS
                 && ma_sound_init_from_data_source(&engine, &radioSource.base, 0, GroupPtr(), &radioSound) == MA_SUCCESS) {
@@ -712,6 +725,39 @@ void AudioManager::UpdateRadio(bool on, RadioProgram program, float signal, floa
     m_Impl->radioSynth->SetStation(program);
     m_Impl->radioSynth->SetSignal(signal);
     m_Impl->radioSynth->SetVolume(volume);
+}
+
+size_t AudioManager::RadioStreamBuffered() const { return m_Impl && m_Impl->liveStream ? m_Impl->liveStream->BufferedFrames() : 0; }
+
+AudioManager::RadioStreamStatus AudioManager::UpdateRadioStream(const std::string& url, bool wanted, std::string* error) {
+    if (!m_Impl || !m_Impl->ready || !m_Impl->radioReady || !m_Impl->liveStream) return RadioStreamStatus::None;
+    Impl& impl = *m_Impl;
+    if (!wanted || url.empty()) {   // apagada la radio o una emisora sintetizada: la senal se suelta y la proxima vez se reintenta
+        if (!impl.streamUrl.empty()) { impl.radioSource.live = false; impl.liveStream->Stop(); impl.streamUrl.clear(); }
+        impl.streamFailedUrl.clear();
+        return RadioStreamStatus::None;
+    }
+    if (url != impl.streamUrl) {
+        impl.radioSource.live = false;
+        impl.liveStream->Stop();
+        impl.streamUrl = url;
+        if (url == impl.streamFailedUrl) return RadioStreamStatus::Failed;
+        impl.streamFailedUrl.clear();
+        impl.liveStream->Start(url);
+        return RadioStreamStatus::Connecting;
+    }
+    if (url == impl.streamFailedUrl) return RadioStreamStatus::Failed;
+    constexpr double kDeadlineSeconds = 15.0;   // el original da 15 s a una emisora en vivo para sonar
+    const LiveStream::State state = impl.liveStream->GetState();
+    if (state == LiveStream::State::Failed || (state == LiveStream::State::Connecting && impl.liveStream->SecondsSinceStart() > kDeadlineSeconds)) {
+        if (error) *error = state == LiveStream::State::Failed ? impl.liveStream->Error() : "sin senal a tiempo";
+        impl.radioSource.live = false;
+        impl.liveStream->Stop();
+        impl.streamFailedUrl = url;
+        return RadioStreamStatus::Failed;
+    }
+    if (state == LiveStream::State::Playing) { impl.radioSource.live = true; return RadioStreamStatus::Live; }
+    return RadioStreamStatus::Connecting;
 }
 
 void AudioManager::PlayHeartbeat(float intensity) {

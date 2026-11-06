@@ -206,6 +206,8 @@ public:
         return true;
     }
     // Emisora sintonizada: id del archivo de emisoras ("" si no hay ninguna) y aviso de que se acaba de elegir otra
+    std::string SelectedRadioStationUrl() const { return m_RadioStations.empty() ? std::string{} : m_RadioStations[m_SelectedRadioStation].streamUrl; }
+    std::string SelectedRadioStationName() const { return m_RadioStations.empty() ? std::string{} : m_RadioStations[m_SelectedRadioStation].name; }
     std::string SelectedRadioStationId() const { return m_RadioStations.empty() ? std::string{} : m_RadioStations[m_SelectedRadioStation].id; }
     bool ConsumeRadioTuned() { return std::exchange(m_RadioTuned, false); }
     void SelectRadioStation(const std::string& id) {

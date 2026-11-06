@@ -152,7 +152,7 @@ add_executable(bazuko
     src/world/CityLayout.cpp src/world/Simulation.cpp src/world/BirdFlock.cpp src/world/Lake.cpp src/world/Decals.cpp src/world/Zones.cpp src/character/SmokePuffs.cpp src/effects/SubstanceEffects.cpp
     src/world/TextRaster.cpp src/world/SignAtlas.cpp
     src/game/GameData.cpp src/game/Harvest.cpp src/game/Survival.cpp src/game/Economy.cpp src/game/Movement.cpp src/game/Fight.cpp
-    src/audio/RadioSynth.cpp src/world/SafeSpawn.cpp
+    src/audio/RadioSynth.cpp src/audio/LiveStream.cpp src/world/SafeSpawn.cpp
 )
 if(WIN32)
     target_sources(bazuko PRIVATE resources/bazuko.rc)
@@ -173,6 +173,9 @@ if(MINGW)
     target_link_options(bazuko PRIVATE -static -static-libgcc -static-libstdc++)
 endif()
 target_link_libraries(bazuko PRIVATE glfw glm::glm glad imgui Threads::Threads opusfile assimp ${BAZUKO_WEBP_TARGET} ${CMAKE_DL_LIBS})
+if(WIN32)
+    target_link_libraries(bazuko PRIVATE winhttp)   # emisoras en vivo (audio/LiveStream.cpp)
+endif()
 
 option(BAZUKO_BUILD_OPUS_TESTS "Build the Opus audio decoding smoke test" OFF)
 if(BAZUKO_BUILD_OPUS_TESTS)
@@ -260,6 +263,14 @@ target_include_directories(bazuko_audiofiles_test PRIVATE third_party/include)
 target_compile_definitions(bazuko_audiofiles_test PRIVATE BAZUKO_AUDIO_DIR="${CMAKE_CURRENT_SOURCE_DIR}/public/audio")
 target_link_libraries(bazuko_audiofiles_test PRIVATE Threads::Threads ${CMAKE_DL_LIBS})
 add_test(NAME bazuko_audiofiles COMMAND bazuko_audiofiles_test)
+add_executable(bazuko_livestream_test tests/LiveStreamTest.cpp src/audio/LiveStream.cpp)
+target_include_directories(bazuko_livestream_test PRIVATE src third_party/include)
+target_compile_definitions(bazuko_livestream_test PRIVATE BAZUKO_AUDIO_DIR="${CMAKE_CURRENT_SOURCE_DIR}/public/audio")
+target_link_libraries(bazuko_livestream_test PRIVATE Threads::Threads ${CMAKE_DL_LIBS})
+if(WIN32)
+    target_link_libraries(bazuko_livestream_test PRIVATE winhttp)
+endif()
+add_test(NAME bazuko_livestream COMMAND bazuko_livestream_test)
 
 # Sonidos de las sustancias (sintesis del original); solo DSP
 add_executable(bazuko_substancesynth_test tests/SubstanceSynthTest.cpp src/audio/SubstanceSynth.cpp)

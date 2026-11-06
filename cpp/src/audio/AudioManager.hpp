@@ -5,6 +5,7 @@
 #include <vector>
 #include "../world/PoliceSound.hpp"
 #include "RadioSynth.hpp"
+#include "LiveStream.hpp"
 
 namespace Bazuko {
 
@@ -56,6 +57,10 @@ public:
     void PlayHeartbeat(float intensity);
     // Radio transistor: sintesis en vivo (ver RadioSynth). `signal` 0..1; `volume` es el de la propia radio.
     void UpdateRadio(bool on, RadioProgram program, float signal, float volume);
+    // Emisora en vivo (ver LiveStream): `url` vacia o `wanted` falso la apaga. Devuelve como va; Failed una sola vez por emisora hasta que se cambie o se apague la radio.
+    enum class RadioStreamStatus { None, Connecting, Live, Failed };
+    size_t RadioStreamBuffered() const;
+    RadioStreamStatus UpdateRadioStream(const std::string& url, bool wanted, std::string* error = nullptr);
     // Volumen 0..1 de cada categoria (ambiente, trafico, voces, efectos); se multiplica por el maestro
     float GetMix(MixCategory category) const;
     void SetMix(MixCategory category, float level);
