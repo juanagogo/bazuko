@@ -325,7 +325,7 @@ void UIManager::RenderSettingsTab(const PauseContext& c, float width) {
     const float sliderWidth = inner - labelWidth - 56.0f;
 
     // fila 1: sonido y calidad grafica
-    const float topHeight = 262.0f;
+    const float topHeight = 300.0f;
     if (W::BeginPanel("##sonido", columnWidth, topHeight)) {
         ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(0.0f, 4.0f));
         W::SectionTitle("Sonido", Icon::Sound);
@@ -380,11 +380,25 @@ void UIManager::RenderSettingsTab(const PauseContext& c, float width) {
         ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.84f, 0.89f, 1.0f, 0.85f));
         ImGui::TextWrapped("Baja da más FPS. Bajo carga la calidad puede bajar sola sin cambiar tu elección.");
         ImGui::PopStyleColor();
-        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.38f, 0.88f, 0.52f, 0.95f));
-        ImGui::TextUnformatted("AMD FidelityFX FSR 1.0 + CAS: ACTIVO");
-        ImGui::PopStyleColor();
         ImGui::PopFont();
         ImGui::PopTextWrapPos();
+        {
+            const ImVec2 top = ImGui::GetCursorScreenPos();
+            rowLabel("Escalado");
+            static int fsrMode = 2; // 0 = Bilineal, 1 = AMD CAS, 2 = AMD FSR 1.0
+            static const char* fsrLabels[3] = {"Bilineal", "AMD CAS", "FSR 1.0 + CAS"};
+            if (W::Button("fsr_toggle", fsrLabels[fsrMode], Icon::Eye, fsrMode > 0, false, 38.0f, 13)) {
+                fsrMode = (fsrMode + 1) % 3;
+                char buf[8];
+                std::snprintf(buf, sizeof(buf), "%d", fsrMode);
+#if defined(_WIN32)
+                _putenv_s("BAZUKO_FSR_MODE", buf);
+#else
+                setenv("BAZUKO_FSR_MODE", buf, 1);
+#endif
+            }
+            rowEnd(top, 40.0f);
+        }
         {
             const ImVec2 top = ImGui::GetCursorScreenPos();
             rowLabel("Rendimiento");
