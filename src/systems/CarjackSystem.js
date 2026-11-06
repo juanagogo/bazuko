@@ -459,7 +459,7 @@ export class CarjackSystem {
       if (!npc?.position || (npc._carjackHit ?? 0) > performance.now()) continue;
       if (distanceToCarBody(npc.position, this.car) > .35) continue;
       npc._carjackHit = performance.now() + 3000;
-      npc.hitByPoop?.(this.car.position);
+      npc.hitByPoop?.(this.car.position, { voz: false });
       this._raiseWanted();
       this.speed *= .6;
       this._toast('¡Casi atropello a alguien!', 'death');

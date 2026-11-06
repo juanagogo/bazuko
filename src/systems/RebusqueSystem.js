@@ -147,7 +147,10 @@ export class RebusqueSystem {
       this.cancelar(cuidando ? 'Me alejé y dejé de cuidar los carros.' : 'Me fui antes de terminar y no me dieron nada.');
       return;
     }
+    const antes = t.cars.slice();
     if (!this._siguen(t)) {
+      // Cambió la luz: el conductor arranca echándolo de la vía.
+      if (t.def.donde === 'semaforo') this._hablaConductor(t.def, antes, 'semaforo_verde');
       this.cancelar(t.def.donde === 'bus' ? 'El bus arrancó antes de que alcanzara a vender.' : 'Cambió la luz y arrancaron sin pagarme.');
       return;
     }
@@ -242,7 +245,15 @@ export class RebusqueSystem {
       game.audio?.play?.('empty');
     }
     avisar(this._texto(def, pesos, dieron, enojado, sucio), pesos > 0 ? 'sell' : 'warn');
+    this._hablaConductor(def, cars, pesos > 0 ? 'semaforo_si' : enojado ? 'semaforo_bravo' : 'semaforo_no');
     emitir('rebusque', { id: def.id, pesos, carros: dieron });
+  }
+
+  /** El conductor del primer carro (o el busetero) responde con su voz: da, no da, se pone bravo o arranca. */
+  _hablaConductor(def, cars, situacion) {
+    if (def.donde !== 'semaforo' && def.donde !== 'bus') return;
+    const quien = cars[0]?.car ?? cars[0]?.bus;
+    if (quien) this.game.audio?.playDriverLine?.(quien, situacion, { bus: def.donde === 'bus' });
   }
 
   _texto(def, pesos, dieron, enojado, sucio) {

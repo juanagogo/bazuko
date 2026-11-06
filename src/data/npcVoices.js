@@ -1,6 +1,8 @@
+import { FRASES } from './vocesCalle.js';
+
 // Frases con audio de los peatones, por situación. `text` es la burbuja y `audio` la grabación.
 // `gender: 'mujer'` marca voz de mujer; sin marcar es voz de hombre y solo la dicen los hombres.
-// `voz` (opcional) nombra a quien la grabó: quien ya habló con una voz no cambia a otra.
+// `voz` (opcional) nombra a quien la grabó: quien tiene voz dice las suyas y solo sin ellas las que no tienen voz.
 export const NPC_VOICE_BANK = {
   hit: [
     {
@@ -88,3 +90,17 @@ export const NPC_VOICE_BANK = {
     }
   ]
 };
+
+/** Situación de vocesCalle.js → categoría del banco. Las de carros, policía, jíbaro y bus van por otro lado. */
+export const CATEGORIA_DE_SITUACION = Object.freeze({
+  ambiente: 'ambient', pelea: 'mob', reto: 'taunt', persecucion: 'theftChase',
+  robado: 'robbed', popo: 'poop', olor: 'smell',
+  testigo_llama: 'witnessCall', testigo_graba: 'witnessFilm', testigo_cuelga: 'witnessHangUp',
+  testigo_robo: 'witnessTheft', testigo_pelea: 'witnessFight',
+});
+
+for (const frase of FRASES) {
+  const category = CATEGORIA_DE_SITUACION[frase.situacion];
+  if (!category) continue;
+  (NPC_VOICE_BANK[category] ??= []).push({ audio: frase.audio, text: frase.text, gender: frase.gender, voz: frase.voz });
+}

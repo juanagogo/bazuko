@@ -307,24 +307,27 @@ test('las voces ambientales salen al pasar cerca, filtran las voces femeninas y 
     return npc;
   };
   const woman = await makeWalker('mujer');
+  // Las de siempre, sin voz del reparto: quien no tiene arquetipo puede decir cualquiera de su sexo.
   const ambientVoices = NPC_VOICE_BANK.ambient;
-  NPC_VOICE_BANK.ambient = ambientVoices.filter(entry => entry.gender === 'mujer');
+  NPC_VOICE_BANK.ambient = ambientVoices.filter(entry => !entry.voz);
   try {
+    NPC_VOICE_BANK.ambient = NPC_VOICE_BANK.ambient.filter(entry => entry.gender === 'mujer');
     woman._playerDist = 2.5; woman._updateAmbientVoice();
     woman._updateAmbientVoice();
     assert.equal(heard.length, 1);
     assert.ok(['/audio/asqueroso.mp3', '/audio/petrista.mp3'].includes(heard[0]));
+    NPC_VOICE_BANK.ambient = ambientVoices.filter(entry => !entry.voz);
+
+    const man = await makeWalker('hombre');
+    man._playerDist = 2.5; man._updateAmbientVoice();
+    assert.equal(heard.length, 2);
+    assert.ok(['/audio/locohp.mp3', '/audio/hedor.mp3'].includes(heard[1]));
+    assert.notEqual(heard[0], heard[1]);
+    man.dispose();
   } finally {
     NPC_VOICE_BANK.ambient = ambientVoices;
   }
-
-  const man = await makeWalker('hombre');
-  man._playerDist = 2.5; man._updateAmbientVoice();
-  assert.equal(heard.length, 2);
-  assert.ok(['/audio/locohp.mp3', '/audio/hedor.mp3'].includes(heard[1]));
-  assert.notEqual(heard[0], heard[1]);
   woman.dispose();
-  man.dispose();
 });
 
 test('encuerenrata se reserva para los NPC que persiguen tras un robo', async () => {

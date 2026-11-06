@@ -42,6 +42,7 @@ export class AngryDriver extends Npc {
    */
   constructor(scene, opts = {}) {
     super(scene, new THREE.Vector3(0, -50, 0), { ...opts, speed: ROAD_RAGE.chaseSpeed });
+    this.vozArquetipo = 'conductor'; // habla con la voz de conductor (o conductora) que le toca por su sexo
     this.collisions = opts.collisions ?? null;
     this.getWaterInfo = opts.getWaterInfo ?? null;
     this.state = 'idle';     // idle | chase | windup | strike | return | flee

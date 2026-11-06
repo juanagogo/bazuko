@@ -11,6 +11,9 @@ const MAX_ACTIVE_HORNS = 2, HORN_GAP = 1.5;
 const AMBIENT_HORN_GAP_MIN = 3.5, AMBIENT_HORN_CROWD_STEP = .6;
 // Por encima de esta suma de ganancias los motores se compensan para no saturar.
 const ENGINE_CROWD = 2;
+// La frase del conductor se oye hasta aquí (m); la del busetero, que grita desde la cabina de un bus largo, más lejos.
+const REMARK_FAR = 8, BUS_REMARK_FAR = 12, REMARK_FADE = 6;
+export const BUS_VOICE = 'busetero';
 
 export function distanceGain(distance, near, far) {
   const t = Math.max(0, Math.min(1, (far - distance) / (far - near)));
@@ -48,10 +51,12 @@ export class VehicleAudio {
     this._audible = 0;
   }
 
-  /** El conductor de ese carro; el primero que lo pide (frase o robo) lo deja fijo. */
-  driverVoice(car, preferred = null) {
+  /** El conductor de ese carro (el bus lleva al busetero); el primero que lo pide (frase o robo) lo deja fijo. */
+  driverVoice(car, preferred = null, bus = false) {
     if (!this._driverOf.has(car)) {
-      const voices = [...new Set(this.driverVoices)];
+      const all = [...new Set(this.driverVoices)];
+      const fit = all.filter(voice => (voice === BUS_VOICE) === bus);
+      const voices = fit.length ? fit : all;
       const voice = preferred && voices.includes(preferred) ? preferred
         : voices[Math.min(voices.length - 1, Math.floor(this.random() * voices.length))];
       this._driverOf.set(car, voice ?? null);
@@ -216,7 +221,7 @@ export class VehicleAudio {
           hornIndex: Math.floor(this.random() * 3), patience: .7 + this.random() * .8,
           blockedFor: 0, cooldown: 0, remarkCooldown: 0, idleVolume: 0, driveVolume: 0 };
         this.instances.set(entry.car, state);
-        if (!entry.bus && this.driverSounds.length) this.driverVoice(entry.car);
+        if (this.driverSounds.length) this.driverVoice(entry.car, null, entry.bus);
       }
       state.cooldown = Math.max(0, state.cooldown - dt);
       state.remarkCooldown = Math.max(0, state.remarkCooldown - dt);
@@ -245,8 +250,9 @@ export class VehicleAudio {
         }
       }
       // La frase no depende del claxon: este puede no estar cargado o el presupuesto estar ocupado.
-      if (!entry.bus && entry.source.personBlocked && state.blockedFor >= state.patience && state.remarkCooldown === 0
-        && entry.voiceDistance < 8 && this.driverSounds.length
+      const remarkFar = entry.bus ? BUS_REMARK_FAR : REMARK_FAR;
+      if (entry.source.personBlocked && state.blockedFor >= state.patience && state.remarkCooldown === 0
+        && entry.voiceDistance < remarkFar && this.driverSounds.length
         && !state.remark && !this.remarkPlaying(state) && !this.externalVoiceActive()) {
         const remark = this._nextRemark(entry.car);
         if (remark?.state() === 'loaded') {
@@ -261,7 +267,7 @@ export class VehicleAudio {
         const { sound, id, gain = 1 } = state.remark;
         if (!sound.playing(id)) state.remark = null;
         else {
-          sound.volume(.7 * gain * this.levels.voices * Math.max(0, Math.min(1, (8 - entry.voiceDistance) / 6)), id);
+          sound.volume(.7 * gain * this.levels.voices * Math.max(0, Math.min(1, (remarkFar - entry.voiceDistance) / REMARK_FADE)), id);
           setPan(sound, voicePan(position, this.camera, entry.car.position), id);
         }
       }

@@ -31,6 +31,13 @@ export const GRITOS = {
 
 const any = (list) => list[Math.floor(Math.random() * list.length)];
 
+// La frase con voz (ver npcVoices.js) si esa persona tiene una para la situación; si no, solo la burbuja.
+const VOZ = { llamar: 'witnessCall', grabar: 'witnessFilm', colgar: 'witnessHangUp', robo: 'witnessTheft', carro: 'witnessTheft', pelea: 'witnessFight' };
+function decir(npc, situacion) {
+  if (npc.speakScenario?.(VOZ[situacion], true)) return;
+  npc.say?.(any(GRITOS[situacion] ?? GRITOS.robo));
+}
+
 function emit(type, detail) {
   if (typeof window === 'undefined' || typeof window.dispatchEvent !== 'function') return;
   try { window.dispatchEvent(new CustomEvent(type, { detail })); } catch {}
@@ -82,17 +89,17 @@ export class WitnessSystem {
       if (!caller && !this.calls.length && this.random() < WITNESS.callChance && npc.witness?.('llamar', WITNESS.callSeconds)) {
         caller = true;
         this.calls.push({ npc, position: playerPos.clone?.() ?? { ...playerPos } });
-        npc.say?.(any(GRITOS.llamar));
+        decir(npc, 'llamar');
         continue;
       }
       if (!filmer && this.random() < WITNESS.filmChance && npc.witness?.('grabar', WITNESS.filmSeconds)) {
         filmer = true;
         this.films.push({ npc });
-        npc.say?.(any(GRITOS.grabar));
+        decir(npc, 'grabar');
         continue;
       }
       npc._fleeFrom?.(playerPos);
-      if (!screamed) { screamed = true; npc.say?.(any(GRITOS[kind] ?? GRITOS.robo)); }
+      if (!screamed) { screamed = true; decir(npc, GRITOS[kind] ? kind : 'robo'); }
     }
     if (caller) this._toast('Alguien está llamando a la Policía: tengo que llegarle antes de que cuelgue', 'warn');
     else if (filmer) this._toast('Me están grabando con el celular', 'warn');
@@ -109,7 +116,7 @@ export class WitnessSystem {
         && Math.hypot(npc.position.x - player.x, npc.position.z - player.z) <= WITNESS.interruptRange) {
         npc.stopWitness?.();
         npc._fleeFrom?.(player);
-        npc.say?.(any(GRITOS.colgar));
+        decir(npc, 'colgar');
         this.calls.splice(i, 1);
         this._toast('Le hice colgar', 'info');
         continue;
