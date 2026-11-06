@@ -850,9 +850,7 @@ export class Game {
       return;
     }
     // El cuerpo, la cámara y el vecindario, como al recuperarse de un atropello.
-    this.player.root.position.copy(this.player.position);
-    this._resetAfterRelocation();
-    this.cameraRig._snap = true;
+    this._acomodarTrasViaje();
     this.menu?.refresh?.();
     if (this._save()) this._avisar('Partida importada', 'info');
     else if (this.cheats) this._avisar('Con trucos prendidos no se guarda', 'warn');

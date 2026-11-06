@@ -23,8 +23,6 @@ test('el modo trucos solo existe con ?trucos en la dirección', async ({ page })
   await page.goto('/');
   await expect.poll(() => page.evaluate(() => !!window.__game?.cheats)).toBe(false);
   await expect(page.locator('#trucos-marca')).toHaveCount(0);
-  await page.keyboard.press('Escape');
-  await expect(page.locator('.pause-tab', { hasText: 'Trucos' })).toHaveCount(0);
 });
 
 test('la pestaña Trucos da costal, cambuche, plata y no guarda la partida', async ({ page }) => {

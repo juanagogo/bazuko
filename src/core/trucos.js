@@ -39,7 +39,7 @@ export function destinosDeZona(district) {
 
 /**
  * Estado y acciones de los trucos. El juego lo crea solo cuando `?trucos` está en la
- * dirección y le da un `update(dt)` por cuadro activo para lo que hay que sostener.
+ * dirección y le da un `update()` por cuadro activo para lo que hay que sostener.
  */
 export class CheatMode {
   constructor(game) {
