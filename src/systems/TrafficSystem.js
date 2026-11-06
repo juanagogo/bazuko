@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { Car } from '../entities/Car.js';
 import { Moto } from '../entities/Moto.js';
 import { CarFleet } from '../world/bogota/vehicles.js';
+import { BusPassengers } from './BusPassengers.js';
 import { MOTO_LATERAL, MotoFleet, motoLoad } from '../world/bogota/motos.js';
 import { signalState } from '../world/bogota/TrafficSignals.js';
 import {
@@ -1537,6 +1538,8 @@ export class TrafficSystem {
     this._motoFleet?.sync(this.vehicles, camera?.position);
     this._carFleet ??= new CarFleet(this.scene);
     this._carFleet.sync(this.vehicles);
+    this._busPassengers ??= new BusPassengers(this.scene);
+    this._busPassengers.sync(this.vehicles, camera?.position, hour, performance.now() / 1000);
     if (caught && !this._arrestDispatched) {
       this._arrestDispatched = true;
       emit('police-arrest', { reason: 'chase' });
@@ -1551,5 +1554,7 @@ export class TrafficSystem {
     this._motoFleet = null;
     this._carFleet?.dispose();
     this._carFleet = null;
+    this._busPassengers?.dispose();
+    this._busPassengers = null;
   }
 }
