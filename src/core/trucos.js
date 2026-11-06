@@ -110,6 +110,10 @@ export class CheatMode {
   setVelocidad(mult) { this.velocidad = mult === VELOCIDAD_RAPIDA ? VELOCIDAD_RAPIDA : VELOCIDAD_NORMAL; }
   ponerClima(id) { if (WEATHER_TYPES[id]) this.game.weather?.setWeather(id, true); }
 
+  // ===== Robo express =====
+  /** Manda ya la moto del robo express; con una robo en curso no hace nada. Devuelve si salió. */
+  robarExpress() { return !!this.game.robo?.trigger({ force: true }); }
+
   // ===== Viaje =====
   destinos() { return (this._destinos ??= destinosDeZona(this.game.world?.active)); }
   teletransportar(destino) { this.game.teleportTo(destino.x, destino.z); }
