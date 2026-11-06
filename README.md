@@ -168,13 +168,15 @@ La partida guarda datos localmente en el navegador al crear o editar el personaj
 
 Al cruzar delante de un carro, este intenta frenar progresivamente. Si te atraviesas demasiado cerca, puede atropellarte: el daño depende de la velocidad y puede ser mortal. El golpe activa un ragdoll articulado y lanza al personaje hacia arriba y hacia delante según la velocidad. Si sobrevive, se levanta después de caer; si muere, la pantalla de recuperación espera a que termine la caída. El conductor sigue frenando hasta detenerse y espera brevemente antes de continuar. Los vehículos en movimiento y estacionados tienen colisiones mediante cajas invisibles simples, sin calcular los triángulos de sus modelos.
 
-Al robar el retrovisor de un carro en circulación, el conductor se baja con una varilla en un 35 % de los casos:
+A un carro en circulación, y a una moto, le puedes sacar la rabia: el conductor se baja con una varilla. Nunca es constante, y salen hasta tres a la vez, ya precargados:
 
-- El carro frena de forma gradual hasta detenerse en su carril, y entonces el conductor sale por su puerta, o por el otro lado si algo la tapa. Si frenó tan lejos que ya no te alcanzaría, no se baja y el carro sigue.
+- El carro frena de forma gradual hasta detenerse en su carril, y entonces el conductor sale por su puerta, o por el otro lado si algo la tapa. Si frenó tan lejos que ya no te alcanzaría, no se baja y el carro sigue. En la moto el motociclista sale por su costado.
+- Lo detonan el robo de un retrovisor (35 %), que te le plantes adelante y tenga que frenar por ti (30 %, tras un segundo parado), que lo bloquees varios segundos (50 %), que le pegues (55 %) o que le tires popó (60 %). Cada detonante guarda su enfriamiento por carro.
 - Te persigue a 4,4 m/s: alcanza a quien camina, pero no a quien corre con **Shift**.
 - Antes de cada golpe levanta la varilla, así que apartarse a tiempo evita el daño. Cada golpe quita entre 10 y 16 de salud.
 - Si te alejas más de 28 metros o pasan 18 segundos, se rinde, vuelve a su carro y el tráfico sigue.
-- Solo hay un conductor fuera a la vez. Si te mata, la pantalla de recuperación lo indica, y al volver al cambuche ya está otra vez en su carro.
+- Pegarle a algo sólido suena un golpe corto y con volumen por distancia, metálico en un carro y hueco en una caneca o una pared; un parqueado enciende su alarma y se mece unos centímetros.
+- Si te mata, la pantalla de recuperación lo indica, y al volver al cambuche ya están otra vez en sus carros.
 
 De noche, de vez en cuando, llega la **limpieza social**: una camioneta 4x4 negra de lujo (vidrios polarizados, parrilla y rines cromados) que viene por la calle más cercana y frena en seco junto al jugador. Se bajan tres hombres todo de negro, con buzo, botas, pasamontañas y pistola corta:
 

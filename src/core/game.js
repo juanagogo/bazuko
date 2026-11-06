@@ -60,6 +60,7 @@ import { RadioSystem } from '../systems/RadioSystem.js';
 import { PoopSystem } from '../systems/PoopSystem.js';
 import { PsychosisSystem } from '../systems/PsychosisSystem.js';
 import { RoadRageSystem } from '../systems/RoadRageSystem.js';
+import { KnockFeedback } from '../systems/KnockFeedback.js';
 import { LimpiezaSocialSystem } from '../systems/LimpiezaSocialSystem.js';
 import { SubstanceEffects } from '../systems/SubstanceEffects.js';
 import { SUBSTANCE_EFFECTS } from '../data/substanceEffects.js';
@@ -155,6 +156,11 @@ export class Game {
     this.roadRage = new RoadRageSystem(this.sceneMgr.scene, { player: this.player, stats: this.stats, audio: this.audio });
     this.roadRage.onPlayerHurt = () => { if (this.stats.salud <= 0) this._deathCause = 'golpiza'; };
     window.addEventListener('mirror-stolen', (e) => this.roadRage?.trigger(e.detail?.car));
+    window.addEventListener('poop-thrown', (e) => this.roadRage?.noteThrown(e.detail?.projectile));
+    // Pegarle a un carro o a una moto también puede sacarle la rabia al conductor.
+    window.addEventListener('solid-hit', (e) => { if (e.detail?.car) this.roadRage?.trigger(e.detail.car, 'hit'); });
+    // El golpe corto a lo sólido: sonido, alarma del parqueado y un vaivén mínimo.
+    this.knockFeedback = new KnockFeedback({ player: this.player, audio: this.audio, collisions: this.collisions });
     // De noche, a veces, llega la camioneta negra de la «limpieza social»
     this.limpieza = new LimpiezaSocialSystem(this.sceneMgr.scene, { player: this.player, stats: this.stats, audio: this.audio });
     this.limpieza.onPlayerHurt = () => { if (this.stats.salud <= 0) this._deathCause = 'limpieza'; };
@@ -1334,6 +1340,7 @@ export class Game {
     this.profiler?.mark('mundoNPC');
     this.traffic?.update(dt, { player: this.player.position, pedestrians: this.world.active?.trafficPedestrians ?? this.world.active?.npcs ?? [], onPlayerHit: this._onVehicleImpact, camera: this.cameraRig.camera, hour: this.clock.hour });
     this.roadRage?.update(dt);
+    this.knockFeedback?.update(dt);
     this.limpieza?.update(dt, {
       isNight: this.clock.isNight,
       canChase: !this.isSleeping,
@@ -1573,6 +1580,7 @@ export class Game {
     this.substanceEffects?.dispose?.();
     this.poopSystem?.dispose?.();
     this.roadRage?.dispose?.();
+    this.knockFeedback = null;
     this.limpieza?.dispose?.();
     this.radio?.destroy?.();
   }
