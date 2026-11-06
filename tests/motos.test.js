@@ -55,7 +55,7 @@ test('la carga reparte de una a cinco personas, con niños delante y atrás', ()
   assert.ok(loads.some(load => load.packs.filter(Boolean).length >= 2), 'sin colegio con morrales');
   assert.ok(loads.some(load => load.variant === MOTO_VARIANTS.indexOf('domicilio')), 'sin domiciliarios');
   // El puesto del fondo también se reparte: la familia de cinco ocupa los cinco.
-  const family = motoLoad(11);
+  const family = motoLoad(8);
   assert.deepEqual([...family.occupancy], [true, true, true, true, true]);
   assert.deepEqual([...family.kids], [false, true, true, true, false]);
   // El lote sostiene cientos de motos repartidas entre las cuatro variantes.

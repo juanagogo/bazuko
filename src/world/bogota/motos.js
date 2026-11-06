@@ -365,47 +365,58 @@ export const MOTO_VARIANTS = Object.freeze(['urbana', 'scooter', 'canasta', 'dom
 export const MOTO_SIZES = Object.freeze([
   { length: 2, width: .72 }, { length: 1.78, width: .7 }, { length: 2.1, width: .74 }, { length: 2.28, width: .78 }
 ]);
-// Cada carga es una forma de ir en moto, como se ve en la calle: sus personas van por puesto como
-// [puesto, niño, casco, bolsa, morral, color]. La mayoría lleva uno o dos; hay familia, colegio y domicilio.
-const LOADS = [
-  { variant: 'urbana', people: [[0, 0, 1, 0, 0, 1]] },
-  { variant: 'urbana', people: [[0, 0, 0, 0, 0, 2]] },
-  { variant: 'canasta', people: [[0, 0, 0, 0, 0, 5]] },
-  { variant: 'scooter', people: [[0, 0, 1, 0, 0, 1], [3, 0, 1, 0, 0, 3]] },
-  { variant: 'urbana', people: [[0, 0, 1, 0, 0, 0], [3, 0, 1, 0, 0, 2]] },
-  { variant: 'scooter', people: [[0, 0, 1, 0, 0, 1], [1, 1, 0, 0, 0, 4]] },
-  { variant: 'canasta', people: [[0, 0, 1, 0, 0, 0], [2, 1, 0, 0, 0, 3]] },
-  { variant: 'urbana', people: [[0, 0, 1, 0, 0, 1], [1, 1, 0, 0, 0, 2], [3, 1, 0, 0, 0, 3]] },
-  { variant: 'urbana', people: [[0, 0, 0, 0, 0, 5], [2, 1, 0, 1, 0, 2], [3, 0, 0, 1, 0, 6]] },
-  { variant: 'domicilio', people: [[0, 0, 1, 0, 0, 7]] },
-  { variant: 'domicilio', people: [[0, 0, 0, 0, 0, 7]] },
-  { variant: 'urbana', people: [[0, 0, 1, 0, 0, 0], [1, 1, 0, 1, 0, 2], [2, 1, 0, 1, 0, 3], [3, 1, 0, 1, 0, 6], [4, 0, 0, 1, 0, 4]] },
-  { variant: 'urbana', people: [[0, 0, 1, 0, 0, 5], [1, 1, 0, 0, 1, 4], [2, 1, 0, 0, 1, 4], [3, 1, 0, 0, 1, 4]] },
-  { variant: 'scooter', people: [[0, 0, 1, 0, 0, 1], [1, 1, 0, 0, 0, 4], [3, 1, 0, 0, 0, 2]] },
-  { variant: 'scooter', people: [[0, 0, 0, 0, 0, 3], [3, 1, 0, 0, 0, 4]] },
-  { variant: 'urbana', people: [[0, 0, 1, 0, 0, 1], [4, 1, 0, 0, 0, 2]] }
-];
+// Cada variante reparte sus cargas entre las motos que le tocan; la moto sigue eligiendo su variante con
+// `count % MOTO_VARIANTS.length`, como antes. Cada persona va por puesto como [puesto, niño, casco, bolsa,
+// morral, color]. La mayoría lleva uno o dos; también hay familia, colegio y domicilio.
+const LOADS = {
+  urbana: [
+    [[0, 0, 1, 0, 0, 1]],
+    [[0, 0, 1, 0, 0, 0], [3, 0, 1, 0, 0, 2]],
+    [[0, 0, 1, 0, 0, 0], [1, 1, 0, 1, 0, 2], [2, 1, 0, 1, 0, 3], [3, 1, 0, 1, 0, 6], [4, 0, 0, 1, 0, 4]],
+    [[0, 0, 1, 0, 0, 5], [1, 1, 0, 0, 1, 4], [2, 1, 0, 0, 1, 4], [3, 1, 0, 0, 1, 4]],
+    [[0, 0, 1, 0, 0, 0], [2, 1, 0, 0, 0, 3]],
+    [[0, 0, 0, 0, 0, 5], [2, 1, 0, 1, 0, 2], [3, 0, 0, 1, 0, 6]],
+    [[0, 0, 1, 0, 0, 0], [4, 1, 0, 0, 0, 2]],
+    [[0, 0, 1, 0, 0, 1], [1, 1, 0, 0, 0, 2], [3, 1, 0, 0, 0, 3]]
+  ],
+  scooter: [
+    [[0, 0, 1, 0, 0, 1]],
+    [[0, 0, 1, 0, 0, 1], [3, 0, 1, 0, 0, 3]],
+    [[0, 0, 1, 0, 0, 1], [1, 1, 0, 0, 0, 4]],
+    [[0, 0, 1, 0, 0, 1], [1, 1, 0, 0, 0, 4], [3, 1, 0, 0, 0, 2]]
+  ],
+  canasta: [
+    [[0, 0, 0, 0, 0, 5]],
+    [[0, 0, 1, 0, 0, 0], [2, 1, 0, 0, 0, 3]]
+  ],
+  domicilio: [
+    [[0, 0, 1, 0, 0, 7]],
+    [[0, 0, 0, 0, 0, 7]]
+  ]
+};
 
 /** Quién cabe en cada variante, tal como lo reparte el catálogo de cargas. */
 export const MOTO_LAYOUTS = Object.freeze(MOTO_VARIANTS.reduce((map, name) => {
-  map[name] = LOADS.filter(load => load.variant === name).map(load => load.people.map(person => person[0]).sort((a, b) => a - b));
+  map[name] = LOADS[name].map(people => people.map(person => person[0]).sort((a, b) => a - b));
   return map;
 }, {}));
 
-/** Cuántas cargas distintas reparte el tráfico; el reparto es cíclico y sin azar. */
-export const MOTO_LOAD_COUNT = LOADS.length;
+/** Cuántas cargas distintas reparte el catálogo entre las cuatro variantes. */
+export const MOTO_LOAD_COUNT = Object.values(LOADS).reduce((sum, list) => sum + list.length, 0);
 
 /** La carga de la moto número `count`: variante, puestos, cascos, tamaños, accesorios y color, sin gastar azar. */
 export function motoLoad(count) {
-  const load = LOADS[count % LOADS.length];
+  const variant = count % MOTO_VARIANTS.length;
+  const options = LOADS[MOTO_VARIANTS[variant]];
+  const people = options[Math.floor(count / MOTO_VARIANTS.length) % options.length];
   const occupancy = [false, false, false, false, false], helmets = [...occupancy], kids = [...occupancy];
   const bags = [...occupancy], packs = [...occupancy], cloth = [0, 0, 0, 0, 0];
-  for (const [seat, kid, helmet, bag, pack, clothIndex] of load.people) {
+  for (const [seat, kid, helmet, bag, pack, clothIndex] of people) {
     occupancy[seat] = true; kids[seat] = !!kid; helmets[seat] = !!helmet;
     bags[seat] = !!bag; packs[seat] = !!pack; cloth[seat] = clothIndex;
   }
   return {
-    variant: MOTO_VARIANTS.indexOf(load.variant), occupancy, helmets, kids, bags, packs, cloth,
+    variant, occupancy, helmets, kids, bags, packs, cloth,
     color: MOTO_COLORS[count % MOTO_COLORS.length], phase: (count * 2.399) % 6.2832
   };
 }
