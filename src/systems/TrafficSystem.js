@@ -66,7 +66,7 @@ const SPAWN_LANE = 1.3;
 // Fuera de una vista nueva, un carro solo nace a la vista desde esta fracción de la niebla, donde ya es una mancha.
 const SPAWN_VISIBLE_FROM = .6;
 // No se entra a un cruce sin sitio al otro lado: desde esta cercanía al cruce se mira un carro de largo más allá de su salida.
-const BOX_REACH = 16, BOX_SCAN = 44, BOX_SLACK = 1.5, BOX_SLOW = 2.5, BOX_PATIENCE = 8;
+const BOX_REACH = 16, BOX_SCAN = 44, BOX_SLACK = 1.5, BOX_SLOW = 2.5, BOX_PATIENCE = 6;
 // Metros por delante para saber si un carro que nace fuera de la vista va a entrar en ella.
 const ENTER_LOOKAHEAD = 30;
 // Un carro parado más que esto fuera de la vista se retira: el trancón que se ve se queda, el que no, se despeja.
@@ -1023,7 +1023,8 @@ export class TrafficSystem {
    */
   _boxHold(vehicle, nodes) {
     // Esperar eternamente por un hueco es un abrazo mortal entre colas: pasado un rato se entra de todos modos.
-    if ((vehicle.stoppedFor ?? 0) > BOX_PATIENCE) return null;
+    // Cada conductor aguanta distinto: los trancones se aflojan de a uno, no todos a la vez.
+    if ((vehicle.stoppedFor ?? 0) > BOX_PATIENCE + vehicle.order * 37 % 30) return null;
     const { route, car, distance } = vehicle, p = car.position;
     const probe = this._holdPosition, direction = this._holdDirection;
     for (const node of nodes) {
