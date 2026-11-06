@@ -5,12 +5,18 @@ import * as THREE from 'three';
 import { MOTO_SIZES } from '../world/bogota/motos.js';
 
 export class Moto {
-  constructor(position, rotation, { variant, occupancy, helmets, color }) {
+  constructor(position, rotation, { variant, occupancy, helmets, kids, bags, packs, cloth, color, phase = 0 }) {
     this.isMoto = true;
     this.kind = 'moto';
     this.variant = variant;
-    this.occupancy = occupancy;
-    this.helmets = helmets;
+    // Cinco puestos: 0 el conductor, 1 el niño del tanque y 2 a 4 los de atrás.
+    this.occupancy = occupancy ?? [true, false, false, false, false];
+    this.helmets = helmets ?? [false, false, false, false, false];
+    this.kids = kids ?? [false, false, false, false, false];
+    this.bags = bags ?? [false, false, false, false, false];
+    this.packs = packs ?? [false, false, false, false, false];
+    this.cloth = cloth ?? [0, 0, 0, 0, 0];
+    this.phase = phase;
     this.color = new THREE.Color(color);
     this.length = MOTO_SIZES[variant].length;
     this.width = MOTO_SIZES[variant].width;

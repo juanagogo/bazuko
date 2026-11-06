@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { Car } from '../entities/Car.js';
 import { Moto } from '../entities/Moto.js';
-import { MOTO_COLORS, MOTO_LATERAL, MOTO_LAYOUTS, MOTO_VARIANTS, MotoFleet } from '../world/bogota/motos.js';
+import { MOTO_LATERAL, MotoFleet, motoLoad } from '../world/bogota/motos.js';
 import { signalState } from '../world/bogota/TrafficSignals.js';
 import {
   PLAYER_RADIUS,
@@ -149,20 +149,10 @@ export class TrafficSystem {
     return vehicle;
   }
 
-  /** Una moto del lote: variante, puestos ocupados y casco de cada persona salen del conteo, sin gastar azar. */
+  /** Una moto del lote: la carga (gente, cascos, accesorios y color) sale de `motoLoad`, sin gastar azar. */
   _newMoto(count, rotation) {
-    const variant = count % MOTO_VARIANTS.length;
-    const layouts = MOTO_LAYOUTS[MOTO_VARIANTS[variant]];
-    const layout = layouts[count % layouts.length];
-    const occupancy = [false, false, false], helmets = [false, false, false];
-    for (const seat of layout) occupancy[seat] = true;
-    // El casco se sortea por persona, sin regla que obligue a ninguno.
-    helmets[0] = count % 2 === 0;
-    helmets[1] = (count * 5 >> 1) % 2 === 0;
-    helmets[2] = (count * 5 >> 2) % 2 === 0;
-    const moto = new Moto(this._position, rotation, { variant, occupancy, helmets, color: MOTO_COLORS[count % MOTO_COLORS.length] });
     this._motoFleet ??= new MotoFleet(this.scene);
-    return moto;
+    return new Moto(this._position, rotation, motoLoad(count));
   }
 
   /** Nivel de densidad elegido por el jugador. Sin nivel la flota se queda como la dejó el constructor. */
@@ -1197,7 +1187,7 @@ export class TrafficSystem {
       }
       remaining -= stepTime;
     }
-    this._motoFleet?.sync(this.vehicles);
+    this._motoFleet?.sync(this.vehicles, camera?.position);
     if (caught && !this._arrestDispatched) {
       this._arrestDispatched = true;
       emit('police-arrest', { reason: 'chase' });
