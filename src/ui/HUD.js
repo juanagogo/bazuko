@@ -567,6 +567,7 @@ export class HUD {
 
     // Reloj
     this._setText(this.clockEl, hora(clock.hour));
+    this._pintarFranja(window.__game?.jornada?.franja);
     this._setText(this.dayEl, `Día ${clock.day}`);
     this._pintarClima(clock);
     this._pintarPlata(stats.dinero);
@@ -735,6 +736,14 @@ export class HUD {
     if (!inventory?.hotbar) return;
     this._casillas ??= document.querySelectorAll?.('#quickbar .qb-slot') ?? [];
     this._casillas.forEach?.((casilla, i) => casilla.classList.toggle('elegido', !!arma && inventory.hotbar[i] === arma));
+  }
+
+  /** La franja del día marca el reloj: de noche y de madrugada va subrayado en rojo, y el título dice qué cambia. */
+  _pintarFranja(franja) {
+    if (!this.clockEl || !franja || this._franjaVista === franja.id) return;
+    this._franjaVista = franja.id;
+    this.clockEl.dataset.franja = franja.id;
+    this.clockEl.title = `${franja.label}: ${franja.aviso.split(': ').slice(1).join(': ') || franja.aviso}`;
   }
 
   /** La hora dice el clima con palabra; la temporada queda en el título. */

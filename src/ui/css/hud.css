@@ -98,6 +98,8 @@
 #money.plata--larguisima { font-size: 36px; }
 .topbar__mundo { display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: baseline; gap: 0 10px; font-weight: 800; font-size: 19px; line-height: 1.15; }
 #clock { font-size: 24px; }
+/* De noche la calle se pone brava: el reloj va subrayado con marcador rojo, quieto. */
+#clock[data-franja="noche"], #clock[data-franja="madrugada"] { text-decoration: underline 3px var(--rojo); text-underline-offset: 4px; text-decoration-skip-ink: none; }
 #weather-display { white-space: nowrap; }
 #weather-display[hidden] { display: none; }
 .topbar__yo { display: flex; align-items: center; justify-content: flex-end; gap: 8px; width: 100%; font-weight: 800; font-size: 16px; line-height: 1.2; }

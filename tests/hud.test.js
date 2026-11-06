@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
+import { readFileSync } from 'node:fs';
 import { HUD } from '../src/ui/HUD.js';
 
 function element() {
@@ -227,4 +228,20 @@ test('el aviso de El Chato ofrece cuidar el cambuche o volver a seguirme', async
   assert.equal(textoDelPrompt(i({ isFriend: true, cambucheCerca: true }), { items: [] }), '[E] Pedirle a El Chato que cuide el cambuche');
   assert.equal(textoDelPrompt(i({ isFriend: true, guarding: {} }), { items: [] }), '[E] Llamar a El Chato para que me siga');
   assert.equal(textoDelPrompt(i({ isFriend: true }), { items: [] }), '[E] Acariciar a El Chato');
+});
+
+test('el reloj marca la franja: de noche subrayado y con título que dice qué cambia', async () => {
+  const { FRANJAS } = await import('../src/systems/JornadaSystem.js');
+  const clockEl = { dataset: {}, title: '' };
+  const hud = Object.assign(Object.create(HUD.prototype), { clockEl });
+  hud._pintarFranja(FRANJAS.noche);
+  assert.equal(clockEl.dataset.franja, 'noche');
+  assert.equal(clockEl.title, 'La noche: la Policía ve menos, pero la calle se pone brava');
+  hud._pintarFranja(FRANJAS.madrugada);
+  assert.equal(clockEl.dataset.franja, 'madrugada');
+  assert.match(clockEl.title, /^La madrugada: casi no hay nadie/);
+  hud._pintarFranja(null);
+  assert.equal(clockEl.dataset.franja, 'madrugada');
+  const css = readFileSync(new URL('../src/ui/css/hud.css', import.meta.url), 'utf8');
+  assert.match(css, /#clock\[data-franja="noche"\]/);
 });
