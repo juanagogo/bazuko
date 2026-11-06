@@ -1126,6 +1126,28 @@ test('fuera de la vista la flota retira trabados en al menos varias semillas', (
   assert.ok(retiradosPorSemilla.filter(n => n > 0).length >= 3, `retirados por semilla: ${retiradosPorSemilla.join(', ')}`);
 });
 
+test('una patrulla trabada lejos de la vista reaparece en un tramo libre en vez de quedarse parada', () => {
+  const scene = new THREE.Scene(), route = new TrafficRoute(0, 200, 0, 120, 3.2);
+  let n = 0;
+  const traffic = new TrafficSystem(scene, [route], { carsPerRoute: 0, policeCount: 1, random: () => (n++ * .37) % 1 });
+  const patrol = traffic.vehicles.find(vehicle => vehicle.police);
+  traffic._viewPosition.set(-400, 0, -400);
+  const before = patrol.car.position.clone();
+  patrol.speed = 0;
+  for (let t = 0; t < 44; t += .5) traffic._clearStuck(.5);
+  assert.ok(patrol.car.position.distanceTo(before) < 1e-9, 'antes del límite sigue donde estaba');
+  for (let t = 0; t < 2; t += .5) traffic._clearStuck(.5);
+  assert.ok(traffic.vehicles.includes(patrol), 'la patrulla no se retira');
+  assert.ok(patrol.car.position.distanceTo(before) > 8, 'reaparece en otro tramo');
+  assert.ok(patrol.stoppedFor < 2, `parada desde hace ${patrol.stoppedFor} s`); // el reloj de parado empezó de nuevo
+  // Cerca del jugador no se mueve: el trancón que se ve se queda.
+  const seen = patrol.car.position.clone();
+  traffic._viewPosition.copy(seen);
+  for (let t = 0; t < 60; t += .5) traffic._clearStuck(.5);
+  assert.ok(patrol.car.position.distanceTo(seen) < 1e-9);
+  traffic.dispose();
+});
+
 test('el montaje diario crece lejos de la vista y se encoge de noche', () => {
   const scene = new THREE.Scene(), route = new TrafficRoute(0, 200, 0, 120, 3.2);
   const player = new THREE.Vector3(100, 0, 60), camera = { position: player };
