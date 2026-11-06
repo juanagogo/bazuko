@@ -25,6 +25,8 @@ import { TrashContainer } from '../entities/TrashContainer.js';
 import { SellPoint } from '../entities/SellPoint.js';
 import { Cambuche } from '../entities/Cambuche.js';
 import { Shop } from '../entities/Shop.js';
+import { BoliranaVenue } from '../entities/BoliranaVenue.js';
+import { openBolirana } from '../ui/BoliranaVenue.js';
 import { Car } from '../entities/Car.js';
 import { parkCar } from '../world/bogota/parkedCars.js';
 import { DrugDealer } from '../entities/DrugDealer.js';
@@ -202,6 +204,7 @@ export class Game {
     window.addEventListener('audio-toggle', () => this.audio.toggleMute());
     window.addEventListener('camera-toggle', () => this._toggleCamera());
     window.addEventListener('open-recycler', () => openRecycler(this));
+    window.addEventListener('open-bolirana', (e) => openBolirana(this, e.detail?.target));
     window.addEventListener('open-shop', (e) => openShop(this, e.detail?.target));
     window.addEventListener('open-cambuche', () => openCambuche(this));
     window.addEventListener('open-mesa', () => { if (!this.hud?._craftOpen) this.hud?.toggleCraftPanel(); });
@@ -241,6 +244,7 @@ export class Game {
     this.momentos = new Momentos();
 
     // Estado
+    this.bolirana = { level: 1, pending: false };
     this.look = null;       // apariencia + nombre + origen (creador)
     this.built = {};        // piezas del cambuche
     this.costal = false;    // costal grande comprado
@@ -465,10 +469,11 @@ export class Game {
 
   /** El mundo se congela mientras hay un menú o el creador abierto */
   get paused() {
-    return this._loading || this._deathPending || this._arrestPending || !!this.photoMode?.active || this.menu.isOpen || this.creator.isOpen || !!this.inventoryUI?.isOpen || !!this.hud?._talentOpen || !!this.hud?._craftOpen || !!this.hud?._dealerOpen;
+    return this._boliranaOpen || this._loading || this._deathPending || this._arrestPending || !!this.photoMode?.active || this.menu.isOpen || this.creator.isOpen || !!this.inventoryUI?.isOpen || !!this.hud?._talentOpen || !!this.hud?._craftOpen || !!this.hud?._dealerOpen;
   }
 
   _spawnEntities() {
+    this.boliranaVenue?.dispose();
     this.dog?.destroy();
     this.audio.vehicles?.clear();
     this.traffic?.dispose();
@@ -697,6 +702,8 @@ export class Game {
       )
     );
     this.interaction.register(this.shop);
+    this.boliranaVenue = new BoliranaVenue(this.sceneMgr.scene, district);
+    this.interaction.register(this.boliranaVenue);
 
     // ===== Vendedores ambulantes del distrito (chazas, fritanga) y fogatas de El Cartucho =====
     for (const v of district.vendors ?? []) this.interaction.register(v);
@@ -723,6 +730,11 @@ export class Game {
   _aplicarPartida(data) {
     if (data) {
       this.stats.deserialize(data.stats);
+      this.bolirana = {
+        level: data.bolirana?.pending ? 1 : Math.max(1, Math.min(100, Number.isInteger(data.bolirana?.level) ? data.bolirana.level : 1)),
+        pending: false,
+        lastResult: data.bolirana?.lastResult ?? null
+      };
       this.clock.deserialize(data.clock);
       this.inventory.deserialize(data.inventory ?? {});
       this.talents.deserialize(data.talents ?? {});
@@ -764,6 +776,7 @@ export class Game {
   /** Lo que se guarda de la partida en curso. */
   _estado() {
     return {
+      bolirana: this.bolirana,
       stats: this.stats.serialize(),
       clock: this.clock.serialize(),
       inventory: this.inventory.serialize(),
@@ -1430,6 +1443,7 @@ export class Game {
       this._poiCache = [...services, ...[[this.cambuche, reserved.bed, 'Cambuche', '⛺', '#ffd166'],
         [this.sellPoint, reserved.sell, 'Recicladora El Progreso', '♻️', '#2ab7ca', { prices: { vender: 0 } }],
         [this.shop, reserved.shop, 'Tienda La Esquinita', '🏪', '#2ecc71', { prices: SHOP_PRICES, offers: SHOP_OFFERS }],
+        [this.boliranaVenue, null, 'El Rumbiadero', '🎯', '#ef52a2'],
         [this.craftingStation, reserved.craft, 'Crafteo', '🔨', '#e67e22'],
         [this.dealer, reserved.dealer, 'Dealer', '💀', '#9b59b6', { dealer: true }]]
         .flatMap(([entity, fallback, name, icon, color, extra]) => {
