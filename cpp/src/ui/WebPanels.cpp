@@ -380,6 +380,9 @@ void UIManager::RenderSettingsTab(const PauseContext& c, float width) {
         ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.84f, 0.89f, 1.0f, 0.85f));
         ImGui::TextWrapped("Baja da más FPS. Bajo carga la calidad puede bajar sola sin cambiar tu elección.");
         ImGui::PopStyleColor();
+        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.38f, 0.88f, 0.52f, 0.95f));
+        ImGui::TextUnformatted("AMD FidelityFX FSR 1.0 + CAS: ACTIVO");
+        ImGui::PopStyleColor();
         ImGui::PopFont();
         ImGui::PopTextWrapPos();
         {

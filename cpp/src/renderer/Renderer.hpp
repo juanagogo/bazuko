@@ -64,6 +64,11 @@ public:
     void SetExposure(float exposure) { m_Exposure = exposure; }
     void SetRenderScale(float scale) { m_RenderScale = std::clamp(scale, 0.5f, 2.0f); }
     float GetRenderScale() const { return m_RenderScale; }
+    // Reescalado inteligente: 0 = Bilineal, 1 = AMD FidelityFX CAS, 2 = AMD FidelityFX FSR 1.0 (EASU + RCAS)
+    void SetUpscaleMode(int mode) { m_UpscaleMode = std::clamp(mode, 0, 2); }
+    int GetUpscaleMode() const { return m_UpscaleMode; }
+    void SetFSRSharpness(float sharpness) { m_FsrSharpness = std::clamp(sharpness, 0.0f, 1.0f); }
+    float GetFSRSharpness() const { return m_FsrSharpness; }
     void BeginScaledTarget();
     void EndScaledTarget();
 
@@ -224,6 +229,8 @@ private:
     float m_Contrast = 1.0f;
     float m_Saturation = 1.0f;
     float m_HueDegrees = 0.0f;
+    int m_UpscaleMode = 2;       // 0 = Bilineal, 1 = AMD FidelityFX CAS, 2 = AMD FidelityFX FSR 1.0 (EASU + RCAS)
+    float m_FsrSharpness = 0.5f; // Nitidez FSR 1.0 / CAS (0.0 a 1.0)
 };
 
 } // namespace Bazuko
