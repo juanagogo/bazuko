@@ -658,3 +658,51 @@ export function createWeapon(id) {
     }
   };
 }
+
+// ---------- la radio de mano ----------
+// Una radio de pilas para llevar en una mano mientras está prendida. Un solo cuerpo, con el material
+// compartido, para que cueste una malla y una llamada de dibujo. El origen es la muñeca igual que las armas.
+
+let radioShared = null;
+function radioGeometry() {
+  if (radioShared) return radioShared;
+  const asa = new THREE.TorusGeometry(0.045, 0.009, 5, 10, Math.PI);
+  asa.translate(0, 0.16, 0);
+  const antena = new THREE.CylinderGeometry(0.004, 0.004, 0.14, 5);
+  antena.rotateZ(-0.35);
+  antena.translate(0.055, 0.2, 0);
+  radioShared = fused([
+    block(0.13, 0.09, 0.05, 0, 0.07, 0),
+    block(0.09, 0.055, 0.012, 0, 0.07, 0.03),
+    block(0.09, 0.055, 0.012, 0, 0.07, -0.03),
+    asa,
+    antena
+  ]);
+  return radioShared;
+}
+
+/** Radio de pilas para la mano; la geometría y el material son de todos. */
+export function createHeldRadio() {
+  const object = new THREE.Mesh(radioGeometry(), sharedPropMaterial('#b7402f', .75));
+  object.name = 'prop-radio';
+  object.castShadow = true;
+  object.frustumCulled = false;
+  return object;
+}
+
+/** Ata la radio a la mano izquierda, con los ejes de la mano. Devuelve el objeto o null si falta el hueso. */
+export function attachHeldRadio(root, bones) {
+  const hand = findBone(bones, 'LeftHand');
+  if (!hand) return null;
+  const object = createHeldRadio();
+  root.updateMatrixWorld(true);
+  root.worldToLocal(hand.getWorldPosition(_wp));
+  root.getWorldQuaternion(_wr).invert();
+  object.position.copy(_wp);
+  object.quaternion.copy(_wr.multiply(hand.getWorldQuaternion(_wq)));
+  // La mano izquierda es espejo de la derecha: la radio gira media vuelta para quedar de frente.
+  object.rotateY(Math.PI);
+  root.add(object);
+  hand.attach(object);
+  return object;
+}

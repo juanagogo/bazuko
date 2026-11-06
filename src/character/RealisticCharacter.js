@@ -13,7 +13,7 @@ import { bakeGaitFamily, buildGaitSources, resolveGait } from './gaitFamilies.js
 import { DEFAULT_LOOK, PALETTES } from './look.js';
 import { addHairTone } from './weathering.js';
 import { applyStreetMaterial, createStreetFrame, curlsWithoutCards, GARMENTS, normalizeTonos, shoesWithoutSocks, streetFaceTint, streetMaterialSeed, streetSkinColor } from './streetMaterials.js';
-import { attachAccessories, attachStreetProps, attachWeapon, FAR_ACCESSORIES, isStreetProp, placeInHold, swayStreetProps } from './props.js';
+import { attachAccessories, attachHeldRadio, attachStreetProps, attachWeapon, FAR_ACCESSORIES, isStreetProp, placeInHold, swayStreetProps } from './props.js';
 import { garmentAllowed, normalizeTalla } from './archetypes.js';
 import { attachCigaretteToHand, emberGlow } from './smoking.js';
 import { attachBasucoProps } from './pipe.js';
@@ -521,6 +521,8 @@ export async function createRealisticCharacter(look = {}, { lod = false, animaci
   let weaponId = null; // arma en mano (cuchillo, botella_picada) o null
   let smoking = null;   // qué se fuma en la mano izquierda ('cigarrillo', 'hierba') o null
   let basuco = false;   // pipa en la izquierda y encendedor en la derecha
+  let radioWanted = false; // radio de mano mientras esté prendida
+  let radioProp = null;
 
   function syncWeapon() {
     if (!inst || inst.weaponId === weaponId) return;
@@ -542,6 +544,12 @@ export async function createRealisticCharacter(look = {}, { lod = false, animaci
     inst.basucoProps = basuco ? attachBasucoProps(inst.root, inst.bones) : null;
   }
 
+  function syncRadio() {
+    if (!inst) return;
+    if (radioWanted && !radioProp) radioProp = attachHeldRadio(inst.root, inst.bones);
+    if (radioProp) radioProp.visible = radioWanted;
+  }
+
   async function setLook(l) {
     if (disposed) return;
     const my = ++token;
@@ -550,12 +558,14 @@ export async function createRealisticCharacter(look = {}, { lod = false, animaci
     disposeRealisticInstance(inst);
     inst = next;
     group.add(inst.root);
+    radioProp = null;
     // Talla por persona; sin `look.real.talla` (el jugador) queda la escala de siempre.
     const talla = inst.real.talla;
     group.scale.set(REALISTIC_SCALE * (talla?.ancho ?? 1), REALISTIC_SCALE * (talla?.alto ?? 1), REALISTIC_SCALE * (talla?.ancho ?? 1));
     syncWeapon();
     syncCigarette();
     syncBasuco();
+    syncRadio();
     for (const k of Object.keys(weights)) delete weights[k];
     for (const k of [...Object.keys(inst.actions), LOCOMOTION]) if (k !== 'walk' && k !== 'run' && k !== 'trote') weights[k] = k === 'idle' ? 1 : 0;
   }
@@ -584,6 +594,8 @@ export async function createRealisticCharacter(look = {}, { lod = false, animaci
     cigaretteTip(target) { return inst?.cigarette ? inst.cigarette.tip.getWorldPosition(target) : null; },
     /** Pipa de basuco y encendedor en las manos */
     setBasuco(on) { basuco = !!on; syncBasuco(); },
+    /** Radio de pilas en la mano izquierda mientras esté prendida */
+    setHeldRadio(on) { radioWanted = !!on; syncRadio(); },
     /** Ata un objeto rígido a la mano con el marco horneado de `pose` (ver `holds` en stances.js). */
     hold(object, pose) {
       const hold = inst?.holds?.[pose], bone = hold && inst.bones.get(hold.boneName);
@@ -647,6 +659,9 @@ export async function createRealisticCharacter(look = {}, { lod = false, animaci
         inst.basucoProps.pipe.object.visible = pipeAllowed;
         inst.basucoProps.lighter.object.visible = pipeAllowed;
       }
+      // La radio cede la mano izquierda al cigarrillo o a la pipa, y se guarda acostado o nadando.
+      if (radioProp) radioProp.visible = radioWanted && !detached && action !== 'dormir' && !pipeAllowed
+        && !(inst.cigarette && inst.cigarette.object.visible);
       // destino: acción especial si existe el clip (o su sustituto); si no, reposo o locomoción
       let target = gaitSpeed < 0.15 ? 'idle' : a.walk ? LOCOMOTION : 'idle';
       let scale = 1;
