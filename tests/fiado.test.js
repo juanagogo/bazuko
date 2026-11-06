@@ -67,3 +67,13 @@ test('el juego y la tienda usan el fiado', () => {
   assert.match(menus, /fiado\.fiar\(s\.price/);
   assert.match(menus, /Pagar lo fiado/);
 });
+
+test('la tienda dice claro cuándo ya no fía y cuánto se abona', async () => {
+  const { textoFiado } = await import('../src/ui/placeMenus.js');
+  const lleno = { deuda: 23500, cupo: 20000, moroso: () => false, disponible: () => 0 };
+  assert.equal(textoFiado(lleno, 1), 'Le debo $ 23.500: hasta que no le abone no me fía más');
+  const conCupo = { deuda: 5000, cupo: 20000, moroso: () => false, disponible: () => 15000 };
+  assert.match(textoFiado(conCupo, 1), /me fía hasta \$ 15\.000 más/);
+  const menus = readFileSync(new URL('../src/ui/placeMenus.js', import.meta.url), 'utf8');
+  assert.match(menus, /Abonarle \$\{cop\(abono\)\}/);
+});
