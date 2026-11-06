@@ -38,12 +38,34 @@ export const NEIGHBORHOODS = Object.freeze({
     trim: '#e6e0d2', metal: '#34383a', signBackground: '#2f4a44',
     signText: '#efe6cf', pavingTint: '#b0a897'
   }, { style: 'fascia', font: 'serif', border: 'double', weathering: .2 },
+  { cobbles: false, paintedLines: true }),
+  zonaT: profile('zonaT', {
+    facadeBase: '#f4ede2', facadeAccent: '#2b2c34', plinth: '#3b3d45',
+    trim: '#c5a059', metal: '#212529', signBackground: '#1a1d20',
+    signText: '#e8c872', pavingTint: '#c2b6a6'
+  }, { style: 'fascia', font: 'bold sans-serif', border: 'double', weathering: .08 },
+  { cobbles: true, paintedLines: false }),
+  zonaG: profile('zonaG', {
+    facadeBase: '#b2533e', facadeAccent: '#6a382c', plinth: '#47433d',
+    trim: '#f5ebe0', metal: '#2f3e46', signBackground: '#354f52',
+    signText: '#cad2c5', pavingTint: '#9d8189'
+  }, { style: 'painted', font: 'serif', border: 'single', weathering: .15 },
+  { cobbles: false, paintedLines: true }),
+  parque93: profile('parque93', {
+    facadeBase: '#d8e2dc', facadeAccent: '#52796f', plinth: '#354f52',
+    trim: '#84a98c', metal: '#2f3e46', signBackground: '#1b4332',
+    signText: '#d8f3dc', pavingTint: '#b7b7a4'
+  }, { style: 'fascia', font: 'sans-serif', border: 'double', weathering: .05 },
   { cobbles: false, paintedLines: true })
 });
 
-/** Los límites siguen el recorrido del cambuche al comercio y al parque sur. */
+/** Los límites siguen el recorrido del cambuche al comercio y al norte (Zona G, Zona T, Parque 93). */
 export function neighborhoodAt(x, z) {
   if (!Number.isFinite(x) || !Number.isFinite(z)) return NEIGHBORHOODS.centro;
+  // Sectores exclusivos del Norte de Bogotá integrados
+  if (x < 70 && z < 45) return NEIGHBORHOODS.zonaT;
+  if (x < 70 && z >= 45 && z < 90) return NEIGHBORHOODS.parque93;
+  if (x >= 270 && z < 75) return NEIGHBORHOODS.zonaG;
   // Al oriente de la Carrera 5; la avenida misma conserva el asfalto y sus líneas.
   if (x >= 267) return z < 121 ? NEIGHBORHOODS.candelaria : NEIGHBORHOODS.chapinero;
   if (z >= 222) return NEIGHBORHOODS.lago;

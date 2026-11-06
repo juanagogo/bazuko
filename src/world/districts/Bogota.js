@@ -38,6 +38,8 @@ import { TrafficRoute } from '../bogota/TrafficRoute.js';
 import { BusService } from '../bogota/BusService.js';
 import { skylineFloors, buildAvenueOverpass, AVENUE_OVERPASS } from '../bogota/AvenueLandmarks.js';
 import { GAS_STATION, GAS_OBSTACLES, inGasStation, underGasCanopy, buildGasStation } from '../bogota/GasStation.js';
+import { buildMetroBogota } from '../bogota/MetroBogota.js';
+import { buildNorthZones } from '../bogota/NorthZones.js';
 import { buildD69Store } from '../bogota/D69Store.js';
 import { buildColpatria, COLPATRIA, COLPATRIA_ANNEX, BUS_DETOUR, busPathX, southBusPathX } from '../bogota/Colpatria.js';
 import { VIADUCT, buildColpatriaViaduct, viaductHeight, viaductSurface } from '../bogota/ColpatriaViaduct.js';
@@ -244,6 +246,20 @@ export class Bogota {
     const tower = buildColpatria({ createSign: signTexture });
     this.towerLights = tower.userData.lightMaterials;
     this.group.add(tower);
+
+    // Metro de Bogotá (Línea 1 PLMB - Viaducto elevado sobre la Caracas y tren oficial)
+    const metro = buildMetroBogota({ pavement: this.groundMaterials.road });
+    this.group.add(metro);
+    if (metro.userData.colliders) {
+      for (const entry of metro.userData.colliders) collisions?.colliders.push(entry);
+    }
+
+    // Sectores del Norte: Zona T, Zona G y Parque de la 93
+    const northZones = buildNorthZones();
+    this.group.add(northZones);
+    if (northZones.userData.colliders) {
+      for (const entry of northZones.userData.colliders) collisions?.colliders.push(entry);
+    }
     const parks = [
       { x0: WX(29.5), x1: WX(37.5), z0: WZ(33.5), z1: WZ(44.5) },
       ...EXTENSION_PARKS.map(park => ({ x0: W(park.x0 + .5), x1: W(park.x1 - .5), z0: W(park.z0 + .5), z1: W(park.z1 - .5) })),
