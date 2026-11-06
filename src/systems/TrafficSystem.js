@@ -332,12 +332,36 @@ export class TrafficSystem {
     const view = this._viewPosition, safeSq = this._resizeDistance() ** 2;
     for (const vehicle of this.vehicles) {
       vehicle.stoppedFor = vehicle.speed < .05 ? (vehicle.stoppedFor ?? 0) + dt : 0;
-      if (vehicle.stoppedFor < STUCK_LIMIT || !this._canRetire(vehicle)) continue;
+      if (vehicle.stoppedFor < STUCK_LIMIT) continue;
+      const patrol = vehicle.police && vehicle.state === 'patrol' && !vehicle.rejoinTarget && !vehicle.hold;
+      if (!patrol && !this._canRetire(vehicle)) continue;
       const dx = vehicle.car.position.x - view.x, dz = vehicle.car.position.z - view.z;
       if (dx * dx + dz * dz < safeSq) continue;
-      this._retire(vehicle);
+      // La patrulla no se retira (la flota no la repone), pero tampoco se queda trabada donde nadie la ve:
+      // reaparece en un tramo libre, también fuera de la vista.
+      if (patrol) { if (!this._relocatePatrol(vehicle)) continue; } else this._retire(vehicle);
       return; // uno por cuadro, para que la retirada se note como el resto del montaje
     }
+  }
+
+  /** Pasa una patrulla trabada a un tramo libre y lejos de la vista, de su ruta o de otra de partida. */
+  _relocatePatrol(vehicle) {
+    for (const route of [vehicle.route, ...this.startRoutes]) {
+      const distance = this._freeDistance(route);
+      if (distance === null) continue;
+      this._releaseReservations(vehicle);
+      vehicle.route = route;
+      vehicle.distance = vehicle.nextDistance = distance;
+      vehicle.speed = vehicle.nextSpeed = vehicle.acceleration = vehicle.nextTravel = 0;
+      vehicle.stopped = false;
+      vehicle.stoppedFor = 0;
+      vehicle.recentRoutes = [route.key];
+      route.sample(distance, this._position, this._direction);
+      vehicle.car.position.copy(this._position);
+      vehicle.car.group.rotation.y = Math.atan2(-this._direction.z, this._direction.x);
+      return true;
+    }
+    return false;
   }
 
   /** Saca al vehículo de las colas, los planes y los dueños de todos los cruces. */
