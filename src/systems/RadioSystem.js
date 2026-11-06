@@ -11,6 +11,9 @@ const NEWS_MIN_SIGNAL = 0.4;
 const STREAM_MIN_SIGNAL = 0.9;
 // Segundos que se le dan a una emisora en vivo para sonar, o para volver después de un estancamiento.
 const STREAM_DEADLINE = 15;
+// Estática y silbido de la búsqueda mientras una emisora en vivo no suena todavía.
+const TUNING_STATIC = 0.09;
+const TUNING_WHISTLE = 0.045;
 
 const emitToast = (text, type = 'info') => {
   if (typeof window !== 'undefined' && typeof CustomEvent !== 'undefined' && window.dispatchEvent) {
@@ -255,6 +258,7 @@ export class RadioSystem {
     this._hlsLoader = () => import('hls.js');
     this._liveId = null;
     this._failedId = null;
+    this._tuning = false; // búsqueda de una emisora en vivo que aún no suena
     this._onStreamError = null;
     this._onStreamAlive = null;
     this._onStreamStall = null;
@@ -317,6 +321,27 @@ export class RadioSystem {
       this._staticSource.connect(this._staticGain);
       this._staticGain.connect(this._bandpassFilter);
       this._staticSource.start(0);
+    } catch { /* audio buffer no disponible */ }
+
+    // Silbido de búsqueda: un oscilador agudo que sube y baja movido por otro lento. Suena solo
+    // mientras una emisora en vivo carga o se atasca; la ganancia lo mantiene callado el resto.
+    try {
+      this._tuneGain = ctx.createGain();
+      this._tuneGain.gain.value = 0;
+      this._tuneOsc = ctx.createOscillator();
+      this._tuneOsc.type = 'sine';
+      this._tuneOsc.frequency.value = 900;
+      this._tuneDepth = ctx.createGain();
+      this._tuneDepth.gain.value = 420;
+      this._tuneLfo = ctx.createOscillator();
+      this._tuneLfo.type = 'sine';
+      this._tuneLfo.frequency.value = 0.7;
+      this._tuneLfo.connect(this._tuneDepth);
+      this._tuneDepth.connect(this._tuneOsc.frequency);
+      this._tuneOsc.connect(this._tuneGain);
+      this._tuneGain.connect(this._bandpassFilter);
+      this._tuneOsc.start(0);
+      this._tuneLfo.start(0);
     } catch { /* audio buffer no disponible */ }
 
     return true;
@@ -447,9 +472,34 @@ export class RadioSystem {
 
     // Mayor ruido estático cuando no hay sintonía clara
     if (this._staticGain) {
-      const staticLevel = this._failedId ? 0.12 * this.volume : (1 - signal * 0.85) * 0.12 * this.volume;
-      this._staticGain.gain.setTargetAtTime(staticLevel, this._ctx.currentTime, 0.05);
+      this._staticGain.gain.setTargetAtTime(this._staticLevel(signal), this._ctx.currentTime, 0.05);
     }
+  }
+
+  /** Estática de la sintonía: alta cuando falla la emisora o cuando una en vivo busca señal. */
+  _staticLevel(signal) {
+    if (this._failedId) return 0.12 * this.volume;
+    if (this._tuning) return TUNING_STATIC * this.volume;
+    return (1 - signal * 0.85) * 0.12 * this.volume;
+  }
+
+  /** La búsqueda: estática y silbido mientras una emisora en vivo no suena todavía. */
+  _startTuning() {
+    if (this._tuning) return;
+    this._tuning = true;
+    if (!this._ctx) return;
+    const t = this._ctx.currentTime;
+    this._tuneGain?.gain.setTargetAtTime(TUNING_WHISTLE * this.volume, t, 0.1);
+    this._staticGain?.gain.setTargetAtTime(this._staticLevel(1), t, 0.1);
+  }
+
+  _stopTuning() {
+    if (!this._tuning) return;
+    this._tuning = false;
+    if (!this._ctx) return;
+    const t = this._ctx.currentTime;
+    this._tuneGain?.gain.setTargetAtTime(0, t, 0.05);
+    this._staticGain?.gain.setTargetAtTime(this._staticLevel(this.getStationInfo().signal), t, 0.05);
   }
 
   /** Una sola emisora en vivo a la vez: cambiar de sintonía suelta la anterior. */
@@ -479,13 +529,14 @@ export class RadioSystem {
 
     this._audioEl = el;
     this._liveId = station.id;
+    this._startTuning();
     el.preload = 'none';
     this._onStreamError = () => this._failStream(station);
     // `stalled` y `waiting` son de lo más normal en vivo (Icecast y HLS se quedan sin datos y vuelven):
     // no tumban la emisora, solo abren el plazo que vigila que no se quede muda. Un aviso nuevo con el
     // plazo ya andando no lo corre, o una emisora muerta que los repita nunca caería.
-    this._onStreamAlive = () => this._clearStreamWatchdog();
-    this._onStreamStall = () => { if (!this._streamTimer) this._armStreamWatchdog(station); };
+    this._onStreamAlive = () => { this._clearStreamWatchdog(); this._stopTuning(); };
+    this._onStreamStall = () => { this._startTuning(); if (!this._streamTimer) this._armStreamWatchdog(station); };
     el.addEventListener('error', this._onStreamError);
     el.addEventListener('ended', this._onStreamError);
     el.addEventListener('playing', this._onStreamAlive);
@@ -546,6 +597,7 @@ export class RadioSystem {
 
   /** Suelta la señal en vivo: nada sigue descargando por detrás. */
   stopStream() {
+    this._stopTuning();
     this._liveId = null;
     this._clearStreamWatchdog();
 
