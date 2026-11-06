@@ -5,7 +5,7 @@ import { openDeveloperNote } from './ui/DeveloperNote.js';
 
 const loading = new LoadingScreen();
 try {
-  await loading.stage('Preparando el juego…', 0);
+  await loading.stage('Preparando el juego…');
   // Nada que dependa de la letra se crea antes de tenerla: ni el radar ni sus dibujos.
   await letraLista();
   const { Game } = await import('./core/game.js');
