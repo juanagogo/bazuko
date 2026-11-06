@@ -11,7 +11,8 @@ export const STREET_VOICES = [
   { key: 'nacional', file: 'calle_un3snacional.mp3', text: 'Un 3 nacional.', sexo: 'hombre' },
   { key: 'mamacita', file: 'calle_mamacita.mp3', text: 'Mamacita, todas somos perras porque a todas nos gusta que nos den por el mismo hueco. No se azare por eso, mi amor.', sexo: 'mujer' },
   { key: 'envidia', file: 'calle_mucha_envidia.mp3', text: '¿Mucha envidia o qué, perra?', sexo: 'mujer' },
-  { key: 'besitos', file: 'calle_besitos.mp3', text: 'Besitos hasta donde no llega el sol, y cuando quiera, carechimba.', sexo: 'mujer' }
+  { key: 'besitos', file: 'calle_besitos.mp3', text: 'Besitos hasta donde no llega el sol, y cuando quiera, carechimba.', sexo: 'mujer' },
+  { key: 'papasito', file: 'calle_papasito.mp3', text: 'Papasito.', sexo: 'mujer' }
 ];
 
 /** La voz grabada tiene que ser de quien habla: una frase de mujer no sale de un hombre. */

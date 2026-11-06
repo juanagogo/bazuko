@@ -25,7 +25,7 @@ function fixture() {
 }
 
 test('cada frase de la calle trae su texto para la burbuja', () => {
-  assert.equal(STREET_VOICES.length, 8);
+  assert.equal(STREET_VOICES.length, 9);
   for (const clip of STREET_VOICES) {
     assert.ok(clip.text.trim().length > 0, clip.key);
     assert.ok(['mujer', 'hombre'].includes(clip.sexo), clip.key);
