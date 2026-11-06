@@ -681,6 +681,8 @@ export function createCharacter(initial = DEFAULT_LOOK) {
       actionPose.restore();
       weapon?.dispose(); cigarette?.dispose();
       basucoProps?.pipe.dispose(); basucoProps?.lighter.dispose();
+      // La radio comparte geometría y material con las demás: se quita, no se libera.
+      radioProp?.removeFromParent();
       const geometries = new Set(), materials = new Set();
       root.traverse(object => {
         if (object.geometry) geometries.add(object.geometry);
