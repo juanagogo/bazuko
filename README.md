@@ -202,6 +202,21 @@ El Chato es el único perro del juego y aparece junto al cambuche, donde merodea
 
 El cielo sigue la posición del sol y la luna sobre Bogotá, con nubes que derivan con el viento. El tiempo pasa de forma gradual entre soleado, parcialmente nublado, nublado, neblina, llovizna, aguacero y tormenta según la temporada; ver [docs/clima.md](docs/clima.md). El clima y El Chato se detienen durante la pausa; el material de lluvia se prepara en la pantalla de carga.
 
+## Modo trucos
+
+Es una ayuda para probar el juego sin gastar energía, plata ni materiales antes de llegar a lo que se quiere ver. Se prende agregando **`?trucos`** a la dirección, tanto en el servidor de desarrollo como en la versión publicada. Sin ese parámetro el juego es el de siempre y no hay rastro del modo. El modo vive en la pestaña del navegador: dura hasta que se recargue la página sin el parámetro. Mientras está prendido, una tira roja con la palabra **Trucos** queda visible arriba para no confundir la partida con una normal, y la pausa suma una pestaña **Trucos** con los botones, que funcionan con teclado, mando y tacto.
+
+- **Necesidades**: la opción **Fijas** clava al máximo salud, hambre, sed, energía, higiene, ánimo y vicio mientras está prendida; **Llenar todo** lo hace una sola vez.
+- **Plata**: un botón suma **$ 1.000.000** de una vez.
+- **Costal**: un botón mete al costal todo el catálogo y los materiales de construcción en cantidad útil. No construye ni mejora el cambuche.
+- **Cambuche**: un botón propio construye y mejora todas las piezas de una vez.
+- **Policía**: **Ponerlas en cero** borra las fichas y termina la persecución; **Invisible** impide que una patrulla te vea y te persiga; **Sin daño** (invulnerable) evita que la salud baje, la muerte y el arresto.
+- **Reloj**: salta a las 07:30, 12:00, 18:00, 22:00 o 03:00 para probar el tráfico de cada hora, y cambia el tiempo entre **Normal** y **Rápido (10x)**.
+- **Clima**: elige cualquiera de los estados del tiempo.
+- **Viaje**: teletransporta a cada zona o barrio que el juego conoce (El Cartucho, Parque Tercer Milenio, La Candelaria, Chapinero, El centro, Los barrios y Parque del Lago) y de vuelta al cambuche, sin caminar la ciudad entera.
+
+**Con trucos prendidos no se guarda nada**: ni el autoguardado, ni el guardado manual del menú de pausa. La partida que hay en el navegador queda exactamente como estaba, así que al recargar sin `?trucos` se vuelve al juego normal de siempre. Lo único que el modo no cubre es la copia a un archivo, que sigue siendo una acción explícita.
+
 ## Enfermedades y remedios
 
 Escarbar basura puede enfermar, y más si se selecciona con calma; el talento Piel Dura y el origen Desplazado bajan el riesgo. La gripe, la infección y la intoxicación se pasan solas en menos de un minuto y quitan salud mientras duran. Las otras tres duran seis minutos y molestan hasta tratarlas:

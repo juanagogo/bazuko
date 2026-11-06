@@ -72,6 +72,8 @@ import { InventoryUI } from '../ui/InventoryUI.js';
 import { createPanelDock } from '../ui/PanelDock.js';
 import { PerformanceHUD } from '../ui/PerformanceHUD.js';
 import { PhotoMode } from '../ui/PhotoMode.js';
+import { montarMarcaTrucos } from '../ui/TrucosPanel.js';
+import { CheatMode } from './trucos.js';
 import { WaterEffects } from '../systems/WaterEffects.js';
 import { BusExhaust } from '../systems/BusExhaust.js';
 import { LocalLights } from './LocalLights.js';
@@ -100,7 +102,7 @@ import {
 const RENAMED_PLACES = { Recicladora: 'Recicladora El Progreso', Tienda: 'Tienda La Esquinita' };
 
 export class Game {
-  constructor(canvas, { animaciones = 'default', modeloRealista = false } = {}) {
+  constructor(canvas, { animaciones = 'default', modeloRealista = false, trucos = false } = {}) {
     this.modeloRealista = modeloRealista;
     this.canvas = canvas;
     this.renderer = new Renderer(canvas);
@@ -260,6 +262,10 @@ export class Game {
     this._loading = true;
 
     this.photoMode = new PhotoMode(this);
+
+    // Modo trucos: solo cuando la dirección trae ?trucos. No toca la partida guardada.
+    this.cheats = trucos ? new CheatMode(this) : null;
+    if (this.cheats) montarMarcaTrucos();
 
     window.__game = this;
   }
@@ -770,7 +776,7 @@ export class Game {
 
   /** ¿Es un momento firme para guardar solo? Ni cargando, ni en el creador, ni muerto, ni preso, ni dormido. */
   _puedeAutoguardar() {
-    return !this._loading && !this._deathPending && !this._arrestPending && this.stats.salud > 0 && !this.isSleeping && !this.creator?.isOpen;
+    return !this._loading && !this._deathPending && !this._arrestPending && this.stats.salud > 0 && !this.isSleeping && !this.creator?.isOpen && !this.cheats;
   }
 
   /** Lo que se guarda de la partida en curso. */
@@ -795,6 +801,8 @@ export class Game {
   }
 
   _save() {
+    // Con trucos prendidos no se escribe nada: la partida del navegador queda como estaba.
+    if (this.cheats) return false;
     const ok = this.save.save(this._estado());
     if (ok) this._saveFallo = false;
     else if (!this._saveFallo) {
@@ -854,11 +862,10 @@ export class Game {
       return;
     }
     // El cuerpo, la cámara y el vecindario, como al recuperarse de un atropello.
-    this.player.root.position.copy(this.player.position);
-    this._resetAfterRelocation();
-    this.cameraRig._snap = true;
+    this._acomodarTrasViaje();
     this.menu?.refresh?.();
     if (this._save()) this._avisar('Partida importada', 'info');
+    else if (this.cheats) this._avisar('Con trucos prendidos no se guarda', 'warn');
   }
 
   /** Dormir en el cambuche (requiere la base). De noche hasta las 6:00; de día, siesta de 3 h. */
@@ -999,6 +1006,7 @@ export class Game {
 
   _policeArrest() {
     if (this._arrestPending || this._deathPending || this.stats.salud <= 0) return;
+    if (this.cheats?.invisible || this.cheats?.invulnerable) return;
     this._arrestPending = true;
     if (this.steal?.minigameActive) this.steal._endMinigame(false, 'cancel');
     this.input.keys = {};
@@ -1052,6 +1060,25 @@ export class Game {
     return new THREE.Vector3(spot.x, y, spot.z);
   }
 
+  /** Teletransporte de los trucos: deja al jugador en el suelo de un punto y limpia lo que quedó atrás. */
+  teleportTo(x, z) {
+    const district = this.world.active;
+    const y = district?.getMovementGroundHeight?.(x, z, 0) ?? district?.getGroundHeight?.(x, z) ?? 0;
+    this.player.position.set(x, y, z);
+    this._acomodarTrasViaje();
+  }
+
+  /** El cuerpo, la cámara y el vecindario quedan como tras un viaje; las banderas las pone quien llama. */
+  _acomodarTrasViaje() {
+    this.player.root.position.copy(this.player.position);
+    this._resetAfterRelocation();
+    if (this.dog?.isFriend) { this.dog.wake(); this.dog.resetNear(this.player.position); }
+    this.cameraRig._snap = true;
+    this.cameraRig.follow(this.player.position, 0, this.collisions);
+    this.interaction.currentTarget = null;
+    this.interaction.currentTargetType = null;
+  }
+
   /** Muerte y arresto comparten la limpieza de acciones, agua y persecuciones. */
   _resetAfterRelocation() {
     if (this.hud?._dealerOpen) this.hud.toggleDealerPanel();
@@ -1083,13 +1110,7 @@ export class Game {
     this.stats.dinero = 0;
     const pos = this._randomWalkablePosition();
     this.player.position.copy(pos);
-    this.player.root.position.copy(this.player.position);
-    this._resetAfterRelocation();
-    if (this.dog?.isFriend) { this.dog.wake(); this.dog.resetNear(this.player.position); }
-    this.cameraRig._snap = true;
-    this.cameraRig.follow(this.player.position, 0, this.collisions);
-    this.interaction.currentTarget = null;
-    this.interaction.currentTargetType = null;
+    this._acomodarTrasViaje();
     this.input.keys = {};
     this.input.endFrame();
     this._arrestPending = false;
@@ -1118,16 +1139,9 @@ export class Game {
         ?? district.getGroundHeight?.(spawn.x, spawn.z) ?? 0;
       this.player.position.set(spawn.x, y, spawn.z);
     }
-    this.player.root.position.copy(this.player.position);
-    this._resetAfterRelocation();
-    if (this.dog?.isFriend) { this.dog.wake(); this.dog.resetNear(this.player.position); }
-    this._vehicleImpactCooldown = 1.5;
+    this._acomodarTrasViaje();
     if (this._deathCause === 'limpieza') this.momentos?.guardarConsejoDeCamioneta();
     this._deathCause = null;
-    this.cameraRig._snap = true;
-    this.cameraRig.follow(this.player.position, 0, this.collisions);
-    this.interaction.currentTarget = null;
-    this.interaction.currentTargetType = null;
     this.input.keys = {};
     this.input.endFrame();
     this._deathPending = false;
@@ -1210,7 +1224,7 @@ export class Game {
     this.profiler?.beginFrame();
     // 1. Tiempo
     this._vehicleImpactCooldown = Math.max(0, (this._vehicleImpactCooldown ?? 0) - dt);
-    this.clock.update(dt);
+    this.clock.update(dt * (this.cheats?.velocidad ?? 1));
     this.time.update(dt, this.clock);
 
     // 2. Día/noche: sol, luna, nubes y clima de Bogotá; la luz sigue al jugador (sombras nítidas)
@@ -1263,6 +1277,7 @@ export class Game {
     const cartBonus = (this.cart?.isAttached) ? this.cart.capacityBonus : 0;
     this.inventory.maxWeight = INVENTORY_MAX_WEIGHT + maxWeightBonus + (this.costal ? COSTAL_BONUS : 0) + cartBonus;
     this.player.load = this.inventory.totalWeight / this.inventory.maxWeight;
+    this.cheats?.update();
 
     // 5. Debuff por salud mental baja (el desgaste se calcula en StatsSystem).
     if (this.stats.saludMental < MENTAL_LOW_THRESHOLD) {

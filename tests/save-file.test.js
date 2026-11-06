@@ -111,7 +111,8 @@ test('importar un archivo ajeno avisa y no aplica ni guarda nada', () => {
     stats: serial, clock: serial, inventory: serial, talents: serial, diseases: serial,
     world: { active: null }, look: {}, built: {}, costal: false, radio: null, dog: null, cart: null, gps: null,
     player: { position: { toArray: () => [0, 0, 0], copy: () => {} }, root: { position: { copy: () => {} } } },
-    cameraRig: {},
+    cameraRig: { follow() {} },
+    interaction: { currentTarget: null, currentTargetType: null },
   };
   const juego = (texto, lectura) => Object.assign(Object.create(Game.prototype), base, {
     save: { leerArchivo: () => lectura },
