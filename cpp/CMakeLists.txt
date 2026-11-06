@@ -142,17 +142,17 @@ endif()
 
 add_executable(bazuko
     src/main.cpp
-    src/audio/AudioManager.cpp
+    src/audio/AudioManager.cpp src/audio/SubstanceSynth.cpp
     src/core/Window.cpp src/core/Input.cpp src/core/Paths.cpp
     src/renderer/Buffer.cpp src/renderer/VertexArray.cpp src/renderer/Shader.cpp
     src/renderer/Mesh.cpp src/renderer/Camera.cpp src/renderer/Renderer.cpp
     src/renderer/Texture.cpp src/renderer/Model.cpp
     src/ui/UIManager.cpp src/ui/SignStyle.cpp src/ui/Carton.cpp src/ui/Costal.cpp src/ui/HudCarton.cpp src/ui/Halftone.cpp src/ui/WebPanels.cpp src/ui/CharacterCreatorUI.cpp
     src/character/CharacterManager.cpp src/character/CharacterPreview.cpp src/character/Ragdoll.cpp
-    src/world/CityLayout.cpp src/world/Simulation.cpp src/world/BirdFlock.cpp src/world/Lake.cpp src/world/Decals.cpp
+    src/world/CityLayout.cpp src/world/Simulation.cpp src/world/BirdFlock.cpp src/world/Lake.cpp src/world/Decals.cpp src/world/Zones.cpp src/character/SmokePuffs.cpp src/effects/SubstanceEffects.cpp
     src/world/TextRaster.cpp src/world/SignAtlas.cpp
-    src/game/GameData.cpp src/game/Harvest.cpp
-    src/audio/RadioSynth.cpp src/world/SafeSpawn.cpp
+    src/game/GameData.cpp src/game/Harvest.cpp src/game/Survival.cpp src/game/Economy.cpp src/game/Movement.cpp src/game/Fight.cpp
+    src/audio/RadioSynth.cpp src/audio/LiveStream.cpp src/world/SafeSpawn.cpp
 )
 if(WIN32)
     target_sources(bazuko PRIVATE resources/bazuko.rc)
@@ -173,6 +173,9 @@ if(MINGW)
     target_link_options(bazuko PRIVATE -static -static-libgcc -static-libstdc++)
 endif()
 target_link_libraries(bazuko PRIVATE glfw glm::glm glad imgui Threads::Threads opusfile assimp ${BAZUKO_WEBP_TARGET} ${CMAKE_DL_LIBS})
+if(WIN32)
+    target_link_libraries(bazuko PRIVATE winhttp)   # emisoras en vivo (audio/LiveStream.cpp)
+endif()
 
 option(BAZUKO_BUILD_OPUS_TESTS "Build the Opus audio decoding smoke test" OFF)
 if(BAZUKO_BUILD_OPUS_TESTS)
@@ -214,6 +217,103 @@ target_compile_definitions(bazuko_harvest_test PRIVATE BAZUKO_GAME_DATA_PATH="${
                            BAZUKO_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
 target_link_libraries(bazuko_harvest_test PRIVATE glm::glm)
 add_test(NAME bazuko_harvest COMMAND bazuko_harvest_test)
+
+# Supervivencia del jugador (prueba diferencial contra el codigo original que vivia en main())
+add_executable(bazuko_survival_test tests/SurvivalTest.cpp src/game/Survival.cpp src/game/GameData.cpp src/core/Paths.cpp)
+target_include_directories(bazuko_survival_test PRIVATE src third_party/include)
+target_compile_definitions(bazuko_survival_test PRIVATE BAZUKO_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
+target_link_libraries(bazuko_survival_test PRIVATE glm::glm)
+add_test(NAME bazuko_survival COMMAND bazuko_survival_test)
+
+# Economia del jugador (prueba diferencial contra las lambdas originales de main(), con los datos reales del juego)
+add_executable(bazuko_economy_test tests/EconomyTest.cpp src/game/Economy.cpp src/game/Harvest.cpp src/game/GameData.cpp src/core/Paths.cpp)
+target_include_directories(bazuko_economy_test PRIVATE src third_party/include)
+target_compile_definitions(bazuko_economy_test PRIVATE BAZUKO_GAME_DATA_PATH="${CMAKE_CURRENT_SOURCE_DIR}/assets/data/game-data.json"
+                           BAZUKO_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
+target_link_libraries(bazuko_economy_test PRIVATE glm::glm)
+add_test(NAME bazuko_economy COMMAND bazuko_economy_test)
+
+# Economia en el anfitrion: reglas de plausibilidad sobre la copia de cada invitado (no necesita red ni OpenGL)
+add_executable(bazuko_economyledger_test tests/EconomyLedgerTest.cpp src/net/EconomyLedger.cpp src/game/Economy.cpp src/game/Harvest.cpp src/game/GameData.cpp src/core/Paths.cpp)
+target_include_directories(bazuko_economyledger_test PRIVATE src third_party/include)
+target_compile_definitions(bazuko_economyledger_test PRIVATE BAZUKO_GAME_DATA_PATH="${CMAKE_CURRENT_SOURCE_DIR}/assets/data/game-data.json"
+                           BAZUKO_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
+target_link_libraries(bazuko_economyledger_test PRIVATE glm::glm)
+add_test(NAME bazuko_economyledger COMMAND bazuko_economyledger_test)
+
+# Efectos de consumo (pegante, pastilla, hierba, basuco): tiempos y recetas del original; solo logica
+add_executable(bazuko_substanceeffects_test tests/SubstanceEffectsTest.cpp src/effects/SubstanceEffects.cpp)
+target_include_directories(bazuko_substanceeffects_test PRIVATE src)
+add_test(NAME bazuko_substanceeffects COMMAND bazuko_substanceeffects_test)
+
+# Basuco en pipa: tiempos y reglas del original; solo logica
+add_executable(bazuko_pipe_test tests/PipeTest.cpp)
+target_include_directories(bazuko_pipe_test PRIVATE src)
+add_test(NAME bazuko_pipe COMMAND bazuko_pipe_test)
+
+# El grafo de audio del juego (grupo maestro y filtro de agudos) con un motor sin dispositivo
+add_executable(bazuko_audiograph_test tests/AudioGraphTest.cpp)
+target_include_directories(bazuko_audiograph_test PRIVATE third_party/include)
+target_link_libraries(bazuko_audiograph_test PRIVATE Threads::Threads ${CMAKE_DL_LIBS})
+add_test(NAME bazuko_audiograph COMMAND bazuko_audiograph_test)
+
+# Los archivos de voz del juego suenan con el mismo motor y banderas que usa AudioManager (sin dispositivo)
+add_executable(bazuko_audiofiles_test tests/AudioFilesTest.cpp)
+target_include_directories(bazuko_audiofiles_test PRIVATE third_party/include)
+target_compile_definitions(bazuko_audiofiles_test PRIVATE BAZUKO_AUDIO_DIR="${CMAKE_CURRENT_SOURCE_DIR}/public/audio")
+target_link_libraries(bazuko_audiofiles_test PRIVATE Threads::Threads ${CMAKE_DL_LIBS})
+add_test(NAME bazuko_audiofiles COMMAND bazuko_audiofiles_test)
+add_executable(bazuko_livestream_test tests/LiveStreamTest.cpp src/audio/LiveStream.cpp)
+target_include_directories(bazuko_livestream_test PRIVATE src third_party/include)
+target_compile_definitions(bazuko_livestream_test PRIVATE BAZUKO_AUDIO_DIR="${CMAKE_CURRENT_SOURCE_DIR}/public/audio")
+target_link_libraries(bazuko_livestream_test PRIVATE Threads::Threads ${CMAKE_DL_LIBS})
+if(WIN32)
+    target_link_libraries(bazuko_livestream_test PRIVATE winhttp)
+endif()
+add_test(NAME bazuko_livestream COMMAND bazuko_livestream_test)
+
+# Sonidos de las sustancias (sintesis del original); solo DSP
+add_executable(bazuko_substancesynth_test tests/SubstanceSynthTest.cpp src/audio/SubstanceSynth.cpp)
+target_include_directories(bazuko_substancesynth_test PRIVATE src)
+add_test(NAME bazuko_substancesynth COMMAND bazuko_substancesynth_test)
+
+# Fumar un cigarrillo o un porro: tiempos y reglas del original; solo logica
+add_executable(bazuko_smoking_test tests/SmokingTest.cpp)
+target_include_directories(bazuko_smoking_test PRIVATE src)
+add_test(NAME bazuko_smoking COMMAND bazuko_smoking_test)
+
+# Zonas con nombre y via mas cercana (cartel de zona y linea bajo el radar)
+add_executable(bazuko_zones_test tests/ZonesTest.cpp src/world/Zones.cpp)
+target_include_directories(bazuko_zones_test PRIVATE src third_party/include)
+target_compile_definitions(bazuko_zones_test PRIVATE BAZUKO_CITY_MAP_PATH="${CMAKE_CURRENT_SOURCE_DIR}/assets/data/city-map.json")
+add_test(NAME bazuko_zones COMMAND bazuko_zones_test)
+add_executable(bazuko_trafficdensity_test tests/TrafficDensityTest.cpp)
+target_include_directories(bazuko_trafficdensity_test PRIVATE src third_party/include)
+add_test(NAME bazuko_trafficdensity COMMAND bazuko_trafficdensity_test)
+
+# Frases de la calle (reglas del original: alcance, una a la vez, enfriamientos); solo logica
+add_executable(bazuko_streetvoices_test tests/StreetVoicesTest.cpp)
+target_include_directories(bazuko_streetvoices_test PRIVATE src third_party/include)
+target_link_libraries(bazuko_streetvoices_test PRIVATE glm::glm)
+add_test(NAME bazuko_streetvoices COMMAND bazuko_streetvoices_test)
+
+# Movimiento del jugador (prueba diferencial contra el bloque original de main(), con un mundo de mentira determinista)
+add_executable(bazuko_movement_test tests/MovementTest.cpp src/game/Movement.cpp)
+target_include_directories(bazuko_movement_test PRIVATE src third_party/include)
+target_link_libraries(bazuko_movement_test PRIVATE glm::glm)
+add_test(NAME bazuko_movement COMMAND bazuko_movement_test)
+
+# Pelea del jugador (prueba diferencial contra el codigo original de main())
+add_executable(bazuko_fight_test tests/FightTest.cpp src/game/Fight.cpp)
+target_include_directories(bazuko_fight_test PRIVATE src third_party/include)
+target_link_libraries(bazuko_fight_test PRIVATE glm::glm)
+add_test(NAME bazuko_fight COMMAND bazuko_fight_test)
+
+# Entrada del jugador (direccion de movimiento contra el codigo original de main())
+add_executable(bazuko_playerinput_test tests/PlayerInputTest.cpp)
+target_include_directories(bazuko_playerinput_test PRIVATE src)
+target_link_libraries(bazuko_playerinput_test PRIVATE glm::glm)
+add_test(NAME bazuko_playerinput COMMAND bazuko_playerinput_test)
 
 # Medidor de FPS del panel de rendimiento
 add_executable(bazuko_framemetrics_test tests/FrameMetricsTest.cpp)
@@ -277,6 +377,96 @@ add_executable(bazuko_traffic_test
 target_include_directories(bazuko_traffic_test PRIVATE src third_party/include third_party/glad/include ${BAZUKO_WEBP_INCLUDE_DIR})
 target_compile_definitions(bazuko_traffic_test PRIVATE BAZUKO_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
 target_link_libraries(bazuko_traffic_test PRIVATE glfw glm::glm glad imgui Threads::Threads opusfile assimp ${BAZUKO_WEBP_TARGET} ${CMAKE_DL_LIBS})
+
+# Protocolo de red del multijugador (puro, sin red ni GPU): serializacion de bits, mensajes y simulador de latencia/perdida
+add_executable(bazuko_netprotocol_test tests/NetProtocolTest.cpp)
+target_include_directories(bazuko_netprotocol_test PRIVATE src third_party/include)
+target_link_libraries(bazuko_netprotocol_test PRIVATE glm::glm)
+add_test(NAME bazuko_netprotocol COMMAND bazuko_netprotocol_test)
+
+# Prediccion y reconciliacion del jugador local (cliente y servidor comparten las reglas de game/Movement; sin red real ni GPU)
+add_executable(bazuko_prediction_test tests/PredictionTest.cpp src/net/PlayerSim.cpp src/game/Movement.cpp)
+target_include_directories(bazuko_prediction_test PRIVATE src third_party/include)
+target_link_libraries(bazuko_prediction_test PRIVATE glm::glm)
+add_test(NAME bazuko_prediction COMMAND bazuko_prediction_test)
+
+# Perfiles de jugador y bus de eventos del multijugador (puros, sin red ni GPU)
+add_executable(bazuko_netprofile_test tests/NetProfileTest.cpp src/net/ProfileStore.cpp src/game/GameData.cpp src/core/Paths.cpp)
+target_include_directories(bazuko_netprofile_test PRIVATE src third_party/include)
+target_compile_definitions(bazuko_netprofile_test PRIVATE BAZUKO_GAME_DATA_PATH="${CMAKE_CURRENT_SOURCE_DIR}/assets/data/game-data.json"
+                           BAZUKO_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
+add_test(NAME bazuko_netprofile COMMAND bazuko_netprofile_test)
+add_executable(bazuko_netevents_test tests/NetEventsTest.cpp)
+target_include_directories(bazuko_netevents_test PRIVATE src)
+add_test(NAME bazuko_netevents COMMAND bazuko_netevents_test)
+
+# Multijugador (ver docs/plan-multijugador.md): transporte UDP con ENet, servidor de juguete y bots. Apagado por defecto: el juego no lo usa todavia.
+#   cmake -S cpp -B build -DBAZUKO_NET=ON   y luego  build\\Release\\bazuko_net_bots.exe --servidor
+option(BAZUKO_NET "Compilar el transporte de red (ENet), las pruebas de red y los bots" OFF)
+if(BAZUKO_NET)
+    FetchContent_Declare(enet GIT_REPOSITORY https://github.com/lsalzman/enet.git GIT_TAG v1.3.18 GIT_SHALLOW TRUE)
+    FetchContent_MakeAvailable(enet)
+    add_library(bazuko_net STATIC src/net/Transport.cpp src/net/RelayServer.cpp src/net/ToyWorld.cpp src/net/NetSession.cpp src/net/PlayerSim.cpp src/net/EconomyLedger.cpp src/net/ProfileStore.cpp src/game/Movement.cpp
+                              src/game/Economy.cpp src/game/Harvest.cpp src/game/GameData.cpp src/core/Paths.cpp)
+    target_include_directories(bazuko_net PUBLIC src third_party/include ${enet_SOURCE_DIR}/include)
+    target_link_libraries(bazuko_net PUBLIC enet glm::glm)
+    if(WIN32)
+        target_link_libraries(bazuko_net PUBLIC ws2_32 winmm)
+    endif()
+    add_executable(bazuko_netloopback_test tests/NetLoopbackTest.cpp)
+    target_link_libraries(bazuko_netloopback_test PRIVATE bazuko_net)
+    add_test(NAME bazuko_netloopback COMMAND bazuko_netloopback_test)
+    set_tests_properties(bazuko_netloopback PROPERTIES TIMEOUT 120)
+    # el juego mismo puede ser anfitrion o unirse (--anfitrion / --conectar=ip:puerto)
+    target_link_libraries(bazuko PRIVATE bazuko_net)
+    target_compile_definitions(bazuko PRIVATE BAZUKO_NET_ENABLED)
+    # servidor de relevo para jugar por internet sin abrir puertos (ver docs/multijugador-internet.md)
+    add_executable(bazuko_relay tools/Relay.cpp)
+    target_link_libraries(bazuko_relay PRIVATE bazuko_net)
+    add_executable(bazuko_netsession_test tests/NetSessionTest.cpp)
+    target_link_libraries(bazuko_netsession_test PRIVATE bazuko_net)
+    target_compile_definitions(bazuko_netsession_test PRIVATE BAZUKO_GAME_DATA_PATH="${CMAKE_CURRENT_SOURCE_DIR}/assets/data/game-data.json" BAZUKO_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
+    add_test(NAME bazuko_netsession COMMAND bazuko_netsession_test)
+    set_tests_properties(bazuko_netsession PROPERTIES TIMEOUT 120)
+    add_executable(bazuko_net_bots tools/NetBots.cpp)
+    target_link_libraries(bazuko_net_bots PRIVATE bazuko_net)
+endif()
+
+# Linea base de la simulacion (ventana oculta para el contexto GL): determinismo con semilla fija, hash del estado y tamano de una instantanea de red.
+#   build\Release\bazuko_simulation_hash_test.exe [segundos] [semilla] [--esperado HEX] [--medir]
+add_executable(bazuko_simulation_hash_test
+    tests/SimulationHashTest.cpp
+    src/core/Paths.cpp
+    src/renderer/Buffer.cpp src/renderer/VertexArray.cpp src/renderer/Shader.cpp
+    src/renderer/Mesh.cpp src/renderer/Camera.cpp src/renderer/Renderer.cpp
+    src/renderer/Texture.cpp src/renderer/Model.cpp
+    src/world/CityLayout.cpp src/world/Simulation.cpp src/world/BirdFlock.cpp src/world/Lake.cpp src/world/Decals.cpp
+    src/world/TextRaster.cpp src/world/SignAtlas.cpp
+    src/game/GameData.cpp src/game/Harvest.cpp
+)
+target_include_directories(bazuko_simulation_hash_test PRIVATE src third_party/include third_party/glad/include ${BAZUKO_WEBP_INCLUDE_DIR})
+target_compile_definitions(bazuko_simulation_hash_test PRIVATE BAZUKO_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
+target_link_libraries(bazuko_simulation_hash_test PRIVATE glfw glm::glm glad imgui Threads::Threads opusfile assimp ${BAZUKO_WEBP_TARGET} ${CMAKE_DL_LIBS})
+add_test(NAME bazuko_simulation_hash COMMAND bazuko_simulation_hash_test 20 42)
+set_tests_properties(bazuko_simulation_hash PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 300)
+
+# Mundo compartido (hito 3): un anfitrion simula y un invitado aplica sus instantaneas serializadas (ventana oculta para el contexto GL):
+#   build\Releaseazuko_world_share_test.exe [segundos]
+add_executable(bazuko_world_share_test
+    tests/WorldShareTest.cpp
+    src/core/Paths.cpp
+    src/renderer/Buffer.cpp src/renderer/VertexArray.cpp src/renderer/Shader.cpp
+    src/renderer/Mesh.cpp src/renderer/Camera.cpp src/renderer/Renderer.cpp
+    src/renderer/Texture.cpp src/renderer/Model.cpp
+    src/world/CityLayout.cpp src/world/Simulation.cpp src/world/BirdFlock.cpp src/world/Lake.cpp src/world/Decals.cpp
+    src/world/TextRaster.cpp src/world/SignAtlas.cpp
+    src/game/GameData.cpp src/game/Harvest.cpp
+)
+target_include_directories(bazuko_world_share_test PRIVATE src third_party/include third_party/glad/include ${BAZUKO_WEBP_INCLUDE_DIR})
+target_compile_definitions(bazuko_world_share_test PRIVATE BAZUKO_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
+target_link_libraries(bazuko_world_share_test PRIVATE glfw glm::glm glad imgui Threads::Threads opusfile assimp ${BAZUKO_WEBP_TARGET} ${CMAKE_DL_LIBS})
+add_test(NAME bazuko_world_share COMMAND bazuko_world_share_test 40)
+set_tests_properties(bazuko_world_share PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 300)
 
 # Regla de aparicion segura sobre la ciudad real (ventana oculta para el contexto GL):
 #   build\Release\bazuko_spawn_city_test.exe
