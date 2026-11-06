@@ -26,8 +26,12 @@ attribute vec4 aBits;
 attribute float aPack;
 attribute float aCloth;
 attribute vec4 aMotion;
+uniform float uMotoTime;
 float motoBit(float mask, float slot) { return mod(floor(mask / pow(2., slot)), 2.); }
 float motoClothIndex(float slot) { return mod(floor(aCloth / pow(8., slot)), 8.); }
+vec3 motoRotX(vec3 p, float a) { float c = cos(a), s = sin(a); return vec3(p.x, c * p.y - s * p.z, s * p.y + c * p.z); }
+vec3 motoRotY(vec3 p, float a) { float c = cos(a), s = sin(a); return vec3(c * p.x + s * p.z, p.y, -s * p.x + c * p.z); }
+vec3 motoRotZ(vec3 p, float a) { float c = cos(a), s = sin(a); return vec3(c * p.x - s * p.y, s * p.x + c * p.y, p.z); }
 vec3 motoClothColor(float i) {
   if (i < .5) return vec3(.10, .12, .20);
   if (i < 1.5) return vec3(.07, .07, .08);
@@ -39,6 +43,9 @@ vec3 motoClothColor(float i) {
   return vec3(.72, .30, .06);
 }
 `;
+// Quien va en la moto se mueve con ella desde el sombreador: se ladea en la curva, se mece con los cambios de
+// velocidad, gira la cabeza, mece las piernas y, parado, el conductor baja un pie. Sale de la fase y del movimiento
+// por instancia, sin mallas animadas por persona.
 const RIDER_HIDE = `#include <begin_vertex>
   float motoSlot = aRider.x - 1.;
   float motoOn = motoSlot < -.5 ? 1. : motoBit(aBits.x, motoSlot);
@@ -47,13 +54,33 @@ const RIDER_HIDE = `#include <begin_vertex>
   float motoShow = 1.;
   if (motoPart > 3.5 && motoPart < 4.5) motoShow = motoSlot < -.5 ? 0. : motoBit(aBits.w, motoSlot);
   else if (motoPart > 4.5) motoShow = motoSlot < -.5 ? 0. : motoBit(aPack, motoSlot);
+  if (motoSlot > -.5) {
+    float motoSize = mix(1., .72, motoBit(aBits.z, motoSlot));
+    float motoAccel = aMotion.x, motoSpeed = aMotion.y, motoSteer = aMotion.z, motoPhase = aMotion.w;
+    vec3 motoP = (transformed - aSeatAt) * motoSize;
+    motoP = motoRotX(motoP, clamp(motoSteer, -.6, .6) * .45 + sin(uMotoTime * .7 + motoPhase) * .02);
+    motoP = motoRotZ(motoP, clamp(-motoAccel * .04, -.16, .16) + sin(uMotoTime * 2.1 + motoPhase) * .02 * min(abs(motoSpeed), 6.) / 6.);
+    if (motoPart > .5 && motoPart < 1.5) {
+      vec3 motoNeck = vec3(0., .56 * motoSize, 0.);
+      motoP -= motoNeck; motoP = motoRotY(motoP, sin(uMotoTime * 1.3 + motoPhase * 2.) * .3); motoP += motoNeck;
+    } else if (motoPart > 1.5 && motoPart < 2.5) {
+      vec3 motoHip = vec3(0., .12 * motoSize, 0.);
+      float motoSwing = sin(uMotoTime * 2.6 + motoPhase + motoSlot) * .16;
+      if (motoSlot < .5 && motoSpeed < .6) motoSwing += .9;   // parado, el conductor baja el pie
+      motoP -= motoHip; motoP = motoRotZ(motoP, motoSwing); motoP += motoHip;
+    }
+    transformed = aSeatAt + motoP;
+  }
   transformed *= clamp(motoOn * motoHead * motoShow, 0., 1.);`;
+// El reloj del balanceo: lo escribe el lote en cada sincronización y lo comparten los dos materiales.
+const motoTime = { value: 0 };
 
 function motoMaterial() {
   if (material) return material;
   material = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: .46, metalness: .05 });
   material.name = 'Motos';
   material.onBeforeCompile = shader => {
+    shader.uniforms.uMotoTime = motoTime;
     shader.vertexShader = (RIDER_ATTRIBUTES + shader.vertexShader)
       .replace('#include <begin_vertex>', RIDER_HIDE)
       .replace('#include <color_vertex>', `vColor = color;
@@ -79,6 +106,7 @@ function motoDepthMaterial() {
   depthMaterial = new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking });
   depthMaterial.name = 'Sombra de motos';
   depthMaterial.onBeforeCompile = shader => {
+    shader.uniforms.uMotoTime = motoTime;
     shader.vertexShader = (RIDER_ATTRIBUTES + shader.vertexShader).replace('#include <begin_vertex>', RIDER_HIDE);
   };
   depthMaterial.customProgramCacheKey = () => 'motos-sombra';
@@ -457,6 +485,7 @@ export class MotoFleet {
 
   /** Coloca cada moto viva en su lote; la que va apagada no ocupa instancia. Devuelve cuántas se dibujan. */
   sync(vehicles) {
+    motoTime.value = performance.now() * .001;
     for (const batch of this.batches) batch.count = 0;
     for (const vehicle of vehicles) {
       const moto = vehicle.car;
