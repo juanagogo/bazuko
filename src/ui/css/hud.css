@@ -338,7 +338,12 @@ body.is-loading :is(#performance-panel, #quickbar, #hud-dock, #panel-dock) { vis
 
 @media (min-width: 900px) and (max-width: 1100px) {
   /* Centrada en la calle, pero nunca encima del cartón del radar (340 px a la izquierda). Más angosto, el radar sube. */
-  #interaction-prompt { left: max(50%, calc(386px + var(--safe-l) + 15vw)); }
+  /* Centrada en lo libre entre el radar y el borde, y ancha para que el verbo quepa en una línea: así no sube
+     hasta el costal y la mesa. */
+  #interaction-prompt { left: calc((386px + var(--safe-l) + 100vw) / 2); bottom: calc(14px + var(--safe-b)); max-width: calc(100vw - 386px - var(--safe-l) - 40px); }
+  #panel-dock { bottom: calc(108px + var(--safe-b)); }
+  /* La misión cabe entre el objetivo y la plata, sin meterse bajo la tarjeta de arriba a la derecha. */
+  #mision { font-size: clamp(20px, 2.4vw, 26px); max-width: calc(100vw - 2 * (330px + var(--safe-r))); }
 }
 
 /* ==================== celular y ventanas angostas: lo común ==================== */
