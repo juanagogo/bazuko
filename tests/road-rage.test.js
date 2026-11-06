@@ -125,7 +125,7 @@ test('con la puerta libre se baja por donde corresponde a su modelo', () => {
   stopNearPlayer(world);
   system.update(1 / 30);
   assert.equal(system.state, 'out');
-  assert.equal(system._doorSide, vehicle.car.vehicle.driverDoor.side);
+  assert.equal(system.incidents[0].doorSide, vehicle.car.vehicle.driverDoor.side);
   assert.ok(system.driver.position.distanceTo(vehicle.car.driverDoor()) < .3);
 });
 

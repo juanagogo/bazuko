@@ -11,7 +11,6 @@ export const KNOCK = {
 };
 
 const _candidates = [];
-const _fall = [];
 const _target = { entry: null, x: 0, y: 0, z: 0 };
 
 export class KnockFeedback {
@@ -58,11 +57,8 @@ export class KnockFeedback {
     if (!collisions) return false;
     const p = this.player.position, yaw = this.player.root.rotation.y;
     const fx = Math.sin(yaw), fz = Math.cos(yaw);
-    collisions.queryStatic?.(p.x - range, p.z - range, p.x + range, p.z + range, _candidates);
-    for (const entry of collisions.dynamicColliders ?? []) _candidates.push(entry);
-    // La consulta de lo que solo ocupa sitio vacía su resultado: va en su propia lista para no borrar las anteriores.
-    collisions.queryFallObstacles?.(p.x - range, p.z - range, p.x + range, p.z + range, _fall);
-    for (const entry of _fall) _candidates.push(entry);
+    // Lo sólido, lo que solo ocupa sitio y los carros que estén ahí; se llama una vez por impacto, no por cuadro.
+    collisions.queryFallRoom?.(p.x - range, p.z - range, p.x + range, p.z + range, _candidates);
     let bestSq = range * range;
     _target.entry = null;
     for (const entry of _candidates) {
@@ -92,9 +88,7 @@ export class KnockFeedback {
       this.audio?.playCarAlarm?.(car);
       this._rock(car);
     }
-    if (typeof globalThis.window !== 'undefined') {
-      globalThis.window.dispatchEvent?.(new CustomEvent('solid-hit', { detail: { car } }));
-    }
+    globalThis.window?.dispatchEvent?.(new CustomEvent('solid-hit', { detail: { car } }));
   }
 
   /** El parqueado se mece unos centímetros y vuelve a su puesto. */

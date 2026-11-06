@@ -65,8 +65,6 @@ export class RoadRageSystem {
     return this.incidents[0]?.state ?? 'idle';
   }
   get driver() { return this.incidents[0]?.driver ?? this.drivers[0] ?? null; }
-  get vehicle() { return this.incidents[0]?.vehicle ?? null; }
-  get _doorSide() { return this.incidents[0]?.doorSide ?? -1; }
 
   /** Personajes para precargar junto con los demás NPC. */
   get preloadables() { return this.drivers; }
@@ -191,11 +189,9 @@ export class RoadRageSystem {
       driver.exitCar(car, this._door);
       this._people?.push(driver);
       incident.state = 'out';
+      // El reclamo por el robo lo pone InteractionSystem con la voz de siempre; aquí solo va la burbuja del grito.
       if (incident.cause === 'mirror') toast('¡El conductor se bajó con una varilla! Córrale.', 'death');
-      else {
-        toast('¡El conductor se bajó a reclamar! Córrale.', 'death');
-        this.audio?.playMovingTheft?.(car);
-      }
+      else toast('¡El conductor se bajó a reclamar! Córrale.', 'death');
       driver.say?.(ROAD_RAGE.yells[Math.floor(this.random() * ROAD_RAGE.yells.length)], 2.5);
     }
     this._doorPoint(car, incident.doorSide, this._door);
