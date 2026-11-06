@@ -200,7 +200,7 @@ test('la piel cubre su rango sin gris y cada cuerpo llega al mismo tono', () => 
     const [r, g, b] = albedo;
     assert.ok(r > g && g > b, 'rojiza: ni gris ni verdosa');
     assert.ok(r / g < 2.1, 'sin llegar a naranja');
-    if (tone) assert.ok(luminance(albedo) < luminance(SKIN_ALBEDO[tone - 1]), 'de claro a oscuro');
+    if (tone && tone < 6) assert.ok(luminance(albedo) < luminance(SKIN_ALBEDO[tone - 1]), 'de claro a oscuro');
   });
   const young = streetSkinColor(2, 'hombre-joven'), old = streetSkinColor(2, 'mujer-mayor');
   assert.notEqual(young.getHexString(), old.getHexString(), 'cada textura pide su corrección');

@@ -25,6 +25,8 @@ const MOTO_GAP = 1.1;
 // Separación lateral a partir de la cual dos vehículos no se estorban en la distancia del circuito: por debajo de
 // esto la caja de la moto (0,72) sí toca la de un carro (1,6), que es lo que mide el margen de `_carInPath`.
 const LANE_SEPARATION = 1.31;
+// Velocidad a la que un carro ya no alcanza a frenar por quien se le cruza corriendo, en m/s.
+const RUNOVER_SPEED = 5;
 const ACCELERATION = 1.8;
 const BRAKING = 2;
 const CHASE_ACCELERATION = 3.2;
@@ -838,6 +840,8 @@ export class TrafficSystem {
     this._personGrid.query(minX, minZ, maxX, maxZ, this._personCandidates);
     for (const pedestrian of this._personCandidates) {
       const dx = pedestrian.position.x - car.position.x, dz = pedestrian.position.z - car.position.z;
+      // Quien cruza corriendo y sin mirar (un evento raro) no lo ve venir un carro que ya va rápido: no frena por él.
+      if (pedestrian.runoverDoom && speed > RUNOVER_SPEED) continue;
       if (dx * dx + dz * dz <= radius * radius) nearby.push(pedestrian);
     }
     // Estar junto al frente también obstruye a un conductor detenido por rojo
@@ -892,6 +896,24 @@ export class TrafficSystem {
     for (const vehicle of this.parkedCars ?? []) insert(vehicle);
     for (const vehicle of this.busVehicles ?? []) if (vehicle.car.group.visible) insert(vehicle);
     for (const person of pedestrians) this._personGrid.insert(person, person.position.x, person.position.z);
+  }
+
+  /** Un peatón que cruza sin mirar y un carro que ya no alcanza a frenar: el golpe lo tumba y el conductor se detiene. */
+  _checkRunovers(vehicle) {
+    if (vehicle.speed < RUNOVER_SPEED || vehicle.impactStop || !this._personGrid) return;
+    const { car } = vehicle, p = car.position, reach = car.length / 2 + 1.5;
+    const found = this._personGrid.query(p.x - reach, p.z - reach, p.x + reach, p.z + reach, this._runoverCandidates ??= []);
+    const hx = Math.cos(car.group.rotation.y), hz = -Math.sin(car.group.rotation.y);
+    for (const person of found) {
+      if (!person.runoverDoom || person.koState || !person.takeHit) continue;
+      const ox = person.position.x - p.x, oz = person.position.z - p.z;
+      const along = ox * hx + oz * hz, side = Math.abs(ox * hz - oz * hx);
+      if (along > car.length / 2 + .4 || along < -car.length / 2 || side > car.width / 2 + .35) continue;
+      person.runoverDoom = false;
+      person.takeHit({ damage: 60, dir: { x: hx, z: hz }, knockback: 2, weapon: 'carro' });
+      vehicle.impactStop = true;
+      return;
+    }
   }
 
   _checkPlayerImpact(vehicle, player, startDistance, travel, onPlayerHit) {
@@ -1165,6 +1187,7 @@ export class TrafficSystem {
         vehicle.distance = vehicle.nextDistance;
         vehicle.speed = vehicle.nextSpeed;
         this._checkPlayerImpact(vehicle, player, startDistance, travel, onPlayerHit);
+        this._checkRunovers(vehicle);
         vehicle.route.sample(vehicle.distance, this._position, this._direction);
         // La moto vive en su franja: la colisión, la sombra y el aviso la siguen ahí, no en el carril.
         if (vehicle.lateral) this._lateral(this._position, this._direction, vehicle.lateral);

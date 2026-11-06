@@ -1209,7 +1209,7 @@ export class Game {
       if (this.steal?.minigameActive) this.steal._endMinigame(false, 'cancel');
       this._syncVehicleColliders();
       this.player.update(dt, this.cameraRig.camera, this.collisions);
-      this.world.update(dt, this.player.position, this.cameraRig.camera, this.traffic?.vehicles ?? []);
+      this.world.update(dt, this.player.position, this.cameraRig.camera, this.traffic?.vehicles ?? [], this.clock.hour);
       this.traffic?.update(dt, { pedestrians: this.world.active?.trafficPedestrians ?? this.world.active?.npcs ?? [], camera: this.cameraRig.camera, hour: this.clock.hour });
       this.cameraRig.follow(this.player.position, dt, this.collisions);
       this.audio.updateSteps(false, false);
@@ -1325,8 +1325,11 @@ export class Game {
     this.substanceEffects?.update(dt);
     this.profiler?.mark('sistemas');
     // Los peatones se tapan la nariz si el jugador huele mal.
-    if (this.world.active) this.world.active.playerHygiene = this.stats.higiene;
-    this.world.update(dt, this.player.position, this.cameraRig.camera, this.traffic?.vehicles ?? []);
+    if (this.world.active) {
+      this.world.active.playerHygiene = this.stats.higiene;
+      this.world.active.night = this.clock.isNight;
+    }
+    this.world.update(dt, this.player.position, this.cameraRig.camera, this.traffic?.vehicles ?? [], this.clock.hour);
     actualizarFrases(this.cameraRig.camera, this.player.position, now);
     this.profiler?.mark('mundoNPC');
     this.traffic?.update(dt, { player: this.player.position, pedestrians: this.world.active?.trafficPedestrians ?? this.world.active?.npcs ?? [], onPlayerHit: this._onVehicleImpact, camera: this.cameraRig.camera, hour: this.clock.hour });

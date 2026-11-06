@@ -3,6 +3,7 @@ import * as THREE from 'three';
 import { PALETTES, COLOR_NAMES, NAME_IDEAS, WEAR_LEVELS, ACCESSORIES, normalizeLook, randomLook, cleanName } from '../character/look.js';
 import { STREET_PRESETS, applyStreetPreset } from '../character/presets.js';
 import { garmentAllowed } from '../character/archetypes.js';
+import { ETIQUETAS, RASGOS_CREADOR, normalizeRostro } from '../character/people.js';
 import { createRealisticCharacter, loadCatalog, optionsFor, normalizeReal, randomReal } from '../character/RealisticCharacter.js';
 import { ORIGINS } from '../data/origins.js';
 import { el } from './dom.js';
@@ -17,7 +18,7 @@ const TABS = [
   { id: 'estilo', label: 'Estilo', focus: 'body' },
   { id: 'cuerpo', label: 'Cuerpo', focus: 'body' },
   { id: 'pelo', label: 'Pelo', focus: 'face' },
-  { id: 'cara', label: 'Barba', focus: 'face' },
+  { id: 'cara', label: 'Cara', focus: 'face' },
   { id: 'ropa', label: 'Ropa', focus: 'body' },
 ];
 
@@ -190,6 +191,19 @@ export function createCreator({ audio }) {
   /** Cambia una pieza realista (sexo, edad, pelo, barba, ropa, calzado) */
   const applyReal = (patch) => apply({ real: normalizeReal(catalog, { ...look.real, ...patch }) });
 
+  const ROSTRO_BASE = normalizeRostro({});
+  const faceChips = (rasgo) => el('div', { class: 'cr-chips', role: 'group', 'aria-label': rasgo },
+    Object.entries(ETIQUETAS[rasgo]).map(([id, label]) => {
+      const actual = (look.real.rostro ?? ROSTRO_BASE)[rasgo];
+      return chip(`rostro:${rasgo}:${id}`, label, actual === id, () => applyReal({ rostro: { ...(look.real.rostro ?? ROSTRO_BASE), [rasgo]: id } }));
+    }));
+
+  const tallaChips = (campo, opciones) => el('div', { class: 'cr-chips', role: 'group', 'aria-label': campo },
+    opciones.map(([id, label, valor]) => {
+      const actual = look.real.talla?.[campo] ?? 1;
+      return chip(`talla:${campo}:${id}`, label, Math.abs(actual - valor) < (campo === 'ancho' ? .06 : .05), () => applyReal({ talla: { alto: 1, ancho: 1, ...look.real.talla, [campo]: valor } }));
+    }));
+
   /** Elegir es círculo rojo a mano; `clave` deja volver a este botón después de redibujar el panel. */
   const chip = (clave, label, on, onclick, title = null) => el('button', {
     type: 'button',
@@ -327,6 +341,8 @@ export function createCreator({ audio }) {
         body = [
           section('Sexo', realChips('sexo', SEXOS)),
           section('Edad', realChips('edad', EDADES)),
+          section('Contextura', tallaChips('ancho', [['delgado', 'Delgada', .86], ['normal', 'Normal', 1], ['robusto', 'Robusta', 1.24]])),
+          section('Estatura', tallaChips('alto', [['baja', 'Baja', .88], ['media', 'Media', 1], ['alta', 'Alta', 1.09]])),
           section('Piel', swatches('piel', PALETTES.piel, 'Tono de piel', COLOR_NAMES.piel)),
         ];
         break;
@@ -338,9 +354,13 @@ export function createCreator({ audio }) {
         ];
         break;
       case 'cara':
-        body = L.real.sexo === 'hombre'
-          ? [section('Barba', realChips('barba', optionsFor(catalog, 'barba', 'hombre')))]
-          : [section('Barba', el('p', { class: 'cr-help', text: 'No aplica para este personaje.' }))];
+        body = [
+          L.real.sexo === 'hombre'
+            ? section('Barba', realChips('barba', optionsFor(catalog, 'barba', 'hombre')))
+            : section('Barba', el('p', { class: 'cr-help', text: 'No aplica para este personaje.' })),
+          ...RASGOS_CREADOR.filter((rasgo) => rasgo !== 'patillas' || L.real.sexo === 'hombre')
+            .map((rasgo) => section(rasgo === 'menton' ? 'Mentón' : rasgo[0].toUpperCase() + rasgo.slice(1), faceChips(rasgo))),
+        ];
         break;
       case 'ropa': {
         const hats = optionsFor(catalog, 'cabeza', L.real.sexo);
