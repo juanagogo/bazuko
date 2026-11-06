@@ -72,6 +72,7 @@ import { createPanelDock } from '../ui/PanelDock.js';
 import { PerformanceHUD } from '../ui/PerformanceHUD.js';
 import { PhotoMode } from '../ui/PhotoMode.js';
 import { WaterEffects } from '../systems/WaterEffects.js';
+import { BusExhaust } from '../systems/BusExhaust.js';
 import { LocalLights } from './LocalLights.js';
 import { ContactShadows } from './ContactShadows.js';
 import { GRAPHICS_PROFILES } from './GraphicsQuality.js';
@@ -130,6 +131,7 @@ export class Game {
     this.world = new World(this.sceneMgr.scene);
     this.player = new Player(this.sceneMgr.scene, this.input, this.stats, this.audio, { animaciones });
     this.waterEffects = new WaterEffects(this.sceneMgr.scene);
+    this.busExhaust = new BusExhaust(this.sceneMgr.scene);
     this.contactShadows = new ContactShadows(this.sceneMgr.scene);
     this._contactShadowFrame = {
       player: this.player,
@@ -1315,6 +1317,8 @@ export class Game {
     streetWetness.value = this.weather?.wetness ?? 0;
     mojarCarton(streetWetness.value);
     this.audio.setRainLevel?.(this.weather?.isRaining ? this.weather.rainIntensity : 0);
+    // El humo de las busetas sale del escape y lo inclina el viento que acaba de actualizarse.
+    this.busExhaust?.update(dt, { vehicles: this.traffic?.vehicles, camera: this.cameraRig.camera, wind: this.weather?.wind });
 
     // 9. Entidades
     this._updatePickups(dt);
@@ -1531,6 +1535,7 @@ export class Game {
     this._running = false;
     this._soltarAutoguardado?.();
     this.waterEffects?.dispose();
+    this.busExhaust?.dispose();
     this.contactShadows?.dispose();
     this.gpsBeacon?.dispose();
     this.psychosis?.dispose?.();
