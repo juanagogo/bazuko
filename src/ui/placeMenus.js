@@ -112,7 +112,9 @@ export function openShop(game, target = null) {
     }));
     const dato = [moneyFoot(game), el('span', { class: 'menu__money', text: `Carga ${kilos(inventory.totalWeight.toFixed(1))} de ${kilos(inventory.maxWeight)} kg` })];
     if (fiado && (fiado.deuda || fiado.cupo)) dato.push(el('span', { class: 'menu__money', text: textoFiado(fiado, dia()) }));
-    const foot = fiado?.deuda ? [button(`Pagar lo fiado: ${cop(fiado.deuda)}`, {
+    // Con menos plata que la deuda el botón dice el abono de verdad, no la deuda entera.
+    const abono = Math.min(fiado?.deuda ?? 0, Math.max(0, Math.floor(stats.dinero)));
+    const foot = fiado?.deuda ? [button(abono && abono < fiado.deuda ? `Abonarle ${cop(abono)}` : `Pagar lo fiado: ${cop(fiado.deuda)}`, {
       primary: true,
       disabled: !(stats.dinero > 0),
       onClick: () => {
@@ -129,8 +131,9 @@ export function openShop(game, target = null) {
 }
 
 /** Lo que dice la tienda del fiado: cuánto debo o cuánto me fían. */
-function textoFiado(fiado, dia) {
+export function textoFiado(fiado, dia) {
   if (fiado.moroso(dia)) return `Le debo ${cop(fiado.deuda)} y ya me pasé del plazo: no me fía más`;
+  if (fiado.deuda && !fiado.disponible(dia)) return `Le debo ${cop(fiado.deuda)}: hasta que no le abone no me fía más`;
   if (fiado.deuda) return `Le debo ${cop(fiado.deuda)}; me fía hasta ${cop(fiado.disponible(dia))} más`;
   return `Doña Rosa me fía hasta ${cop(fiado.cupo)}`;
 }

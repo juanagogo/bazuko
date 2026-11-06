@@ -225,6 +225,7 @@ export class CarjackSystem {
     player.position.copy(from);
     car.settle?.(.8);
     car.driven = false;
+    car.setPlayerDriver?.(false);
     car.traffic = false; // queda estacionado: se le pueden robar los espejos
     car.setNight?.(game.clock?.isNight ?? false, game.weather?.isRaining ?? false);
     if (car.marker) car.marker.visible = !car.used;
@@ -282,6 +283,7 @@ export class CarjackSystem {
     if (car) {
       car.driven = false;
       car.traffic = false;
+      car.setPlayerDriver?.(false);
     }
     if (this.transition?.driverPending) this.transition.car.setDriverInside?.(false);
     this.transition = null;
@@ -325,6 +327,7 @@ export class CarjackSystem {
       player.root.position.y = this.car?.position.y ?? player.root.position.y;
     }
     this.car?.settle?.(1);
+    this.car?.setPlayerDriver?.(true);
     this.transition = null;
     this._syncPlayer();
     if (this._dom) this._dom.hud.hidden = false;

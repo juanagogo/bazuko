@@ -15,10 +15,9 @@ const SIMPLE_NEAR = 52, SIMPLE_FAR = 60;
 const TAIL_DAY = .14, TAIL_NIGHT = 1, TAIL_BRAKE = 2.4;
 
 /** Conductor sentado: una sola malla compartida por combinación de ropa y piel; visible por las ventanas. */
-function createSeatedDriver(height, material) {
+function createSeatedDriver(height, material, shirt = SHIRTS[Math.floor(Math.random() * SHIRTS.length)], skin = SKINS[Math.floor(Math.random() * SKINS.length)]) {
   const group = new THREE.Group();
   group.name = 'Conductor';
-  const shirt = SHIRTS[Math.floor(Math.random() * SHIRTS.length)], skin = SKINS[Math.floor(Math.random() * SKINS.length)];
   const body = new THREE.Mesh(getDriverGeometry(shirt, skin), material);
   body.name = 'Cuerpo del conductor';
   body.position.y = height;
@@ -27,6 +26,9 @@ function createSeatedDriver(height, material) {
   group.position.set(.05, 0, -.36);
   return group;
 }
+
+// El jugador al volante del carro robado: chaqueta oscura gastada, como su ropa de calle.
+const PLAYER_SHIRT = '#2c2a27', PLAYER_SKIN = '#c68a5e';
 
 // INTERACT_RANGE (1,8 m) menos este recargo: desde un espejo el aviso se alcanza a un metro.
 const MIRROR_REACH_PENALTY = .8;
@@ -164,6 +166,22 @@ export class Car {
   setDriverInside(inside) {
     this.driverInside = inside;
     this._applyDetail();
+  }
+
+  /**
+   * El jugador maneja este carro: su cuerpo va oculto y por las ventanas se ve una figura sentada al volante,
+   * en vez de un carro que avanza solo. Se crea la primera vez y se reutiliza.
+   */
+  setPlayerDriver(on) {
+    const v = this.vehicle;
+    if (on && !this._playerDriver && !this._disposed) {
+      const seat = createSeatedDriver(v.driverHeight ?? (this.modelKind === 'car2' ? 1.45 : 1.62), v.trimMaterial, PLAYER_SHIRT, PLAYER_SKIN);
+      seat.name = 'Jugador al volante';
+      if (v.driverAnchor) seat.position.copy(v.driverAnchor);
+      (v.bodyVisual ?? this.group).add(seat);
+      this._playerDriver = seat;
+    }
+    if (this._playerDriver) this._playerDriver.visible = !!on && !this.driverHidden;
   }
 
   /** Punto junto a la puerta del conductor, en metros del mundo. Cada modelo la tiene a la altura de su asiento; `side` la pasa al otro lado. */
