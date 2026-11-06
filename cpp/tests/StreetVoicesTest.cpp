@@ -17,10 +17,10 @@ int main() {
     CHECK(std::abs(StreetVoiceDirector::Gain(3.0f) - 1.0f) < 1e-6f && std::abs(StreetVoiceDirector::Gain(18.0f)) < 1e-6f && std::abs(StreetVoiceDirector::Gain(30.0f)) < 1e-6f, "pleno de cerca, mudo desde 18 m");
     CHECK(std::abs(StreetVoiceDirector::Gain(11.5f) - 0.25f) < 1e-5f, "a la mitad del recorrido suena a un cuarto");
 
-    {   // como el original: basta con estar a menos de 18 m (a 11,5 m suena a un cuarto; a 19 m nadie habla)
+    {   // una frase no empieza si quien la dice esta tan lejos que no se oiria
         StreetVoiceDirector director(21);
-        CHECK(director.Update(0.0, false, false, false, One(1, 19.0f)).kind == Kind::None, "a 19 m nadie habla");
-        CHECK(director.Update(0.1, false, false, false, One(1, 11.5f)).kind == Kind::Start, "a 11,5 m si habla");
+        CHECK(director.Update(0.0, false, false, false, One(1, 15.0f)).kind == Kind::None, "a 15 m no empieza");
+        CHECK(director.Update(0.1, false, false, false, One(1, 8.0f)).kind == Kind::Start, "a 8 m si");
     }
     {   // empezar, seguir y cortar
         StreetVoiceDirector director(1);

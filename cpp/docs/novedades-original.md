@@ -77,7 +77,7 @@ y el tráfico por hora sí cambia la simulación, así que ese punto actualizar�
 
 ## Ajustes posteriores (voces de la calle, burbuja y tienda del Dealer)
 
-- Voces de la calle: las reglas son las del original (`StreetVoices.js`): cualquier peaton a menos de 18 m, entre los 4 mas cercanos, sin otro filtro que tener ya una burbuja, estar inconsciente o ir en un carro (el que huye o reacciona tambien habla). Se quito el limite de arranque a 9 m que se habia puesto antes.
+- Voces de la calle: las reglas son las del original (`StreetVoices.js`): cualquier peaton a menos de 18 m, entre los 4 mas cercanos, sin otro filtro que tener ya una burbuja, estar inconsciente o ir en un carro (el que huye o reacciona tambien habla). Unico ajuste del port: una frase solo empieza si quien la dice esta a menos de 9 m (a 17 m sonaba a volumen casi cero y se perdia sin oirse).
 - La burbuja de conversacion usa el aspecto de carton y marcador del original.
 - El jibaro cobra 2,5 veces el valor y paga 1,8 por unidad (el +30 % solo con el talento Contactos).
 - Pruebas nuevas: `bazuko_audiograph_test` (grupo + filtro hacia la salida) y `bazuko_audiofiles_test` (las voces reales llegan al motor).

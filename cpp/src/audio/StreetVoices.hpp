@@ -39,6 +39,9 @@ struct StreetVoiceCandidate {
 class StreetVoiceDirector {
 public:
     static constexpr float kRange = 18.0f, kFull = 5.0f;   // m: pleno hasta kFull, mudo desde kRange
+    // Adaptacion del port: una frase solo EMPIEZA si quien la dice esta a menos de esto. Con la caida cuadratica, a 17 m suena al 0,0005 %: se perderia la frase
+    // (y su enfriamiento) sin oirse. Sigue sonando hasta kRange si se aleja. Aqui los peatones aparecen mas lejos que en el original.
+    static constexpr float kStartRange = 9.0f;
     static constexpr double kPersonCooldown = 25.0, kClipCooldown = 50.0;
     static constexpr double kGapMin = 6.0, kGapMax = 13.0, kRetry = 1.0;
     static constexpr size_t kPool = 4;
@@ -75,7 +78,7 @@ public:
         if (now < m_NextAt || otherVoice) return action;
         std::vector<StreetVoiceCandidate> pool;
         for (const StreetVoiceCandidate& c : candidates) {
-            if (c.distance > kRange) continue;
+            if (c.distance > kStartRange) continue;
             const auto cooling = m_PersonUntil.find(c.id);
             if (cooling != m_PersonUntil.end() && cooling->second > now) continue;
             pool.push_back(c);
