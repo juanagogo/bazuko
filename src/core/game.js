@@ -468,6 +468,12 @@ export class Game {
     return this._loading || this._deathPending || this._arrestPending || !!this.photoMode?.active || this.menu.isOpen || this.creator.isOpen || !!this.inventoryUI?.isOpen || !!this.hud?._talentOpen || !!this.hud?._craftOpen || !!this.hud?._dealerOpen;
   }
 
+  /** La radio solo calla con la partida de verdad detenida: los paneles que pausan el mundo no la apagan. */
+  get radioSuspended() {
+    return !!(this.isSleeping || globalThis.document?.hidden || this._loading
+      || this._deathPending || this._arrestPending || this.photoMode?.active);
+  }
+
   _spawnEntities() {
     this.dog?.destroy();
     this.audio.vehicles?.clear();
@@ -1141,7 +1147,10 @@ export class Game {
     const dt = Math.min((now - this._lastTime) / 1000, 0.1);
     this._lastTime = now;
 
-    this.radio?.setPaused(!!(this.isSleeping || globalThis.document?.hidden || (this.paused && !this._radioModalOpen)));
+    // La radio solo calla con la partida de verdad detenida: dormir, la pestaña oculta, la carga, la
+    // muerte y el modo foto. Con el costal, la mesa o la pausa abiertos el mundo se congela pero la
+    // radio sigue sonando, con su volumen y sus pilas.
+    this.radio?.setPaused(this.radioSuspended);
     if (this.photoMode?.active && !globalThis.document?.hidden) {
       this.audio.setPaused(true);
       this.audio.updateSteps(false, false);
