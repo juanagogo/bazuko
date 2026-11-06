@@ -96,7 +96,7 @@ void NetSession::UpdateHost(float dt, const LocalState& local) {
             const auto it = m_Peers.find(event.peer);
             if (it != m_Peers.end()) {
                 SavePeer(it->second);
-                if (it->second.id != 0) { m_RosterDirty = true; m_CheckpointDirty = true; m_Notices.push_back((it->second.name.empty() ? std::string("Un jugador") : it->second.name) + " salió de la partida."); m_Smooth.erase(it->second.id); }
+                if (it->second.id != 0) { m_Looks.erase(it->second.id); m_RosterDirty = true; m_CheckpointDirty = true; m_Notices.push_back((it->second.name.empty() ? std::string("Un jugador") : it->second.name) + " salió de la partida."); m_Smooth.erase(it->second.id); }
                 m_Peers.erase(it);
             }
         } else HandleHostMessage(event);
@@ -175,11 +175,16 @@ void NetSession::HandleHostMessage(const NetEvent& event) {
             peer.id = FreeId();
             peer.name = hello->name;
             peer.key = hello->key;
+            peer.look.assign(hello->look.begin(), hello->look.end());
             Welcome welcome; welcome.playerId = peer.id; welcome.serverTick = m_Tick; welcome.worldSeed = 0;
             Write(answer, welcome);
             m_Host->Send(event.peer, kChannelReliable, answer.Data(), true);
             m_Notices.push_back(peer.name + " se unió a la partida.");
             m_RosterDirty = true; m_CheckpointDirty = true;
+            m_Looks[1] = m_OwnLook;
+            if (!peer.look.empty()) m_Looks[peer.id] = peer.look;
+            SendLooksTo(event.peer);      // el recien llegado conoce a todos...
+            if (!peer.look.empty()) BroadcastLook(peer.id);   // ...y todos conocen al recien llegado
             return;
         }
         m_Host->Send(event.peer, kChannelReliable, answer.Data(), true);
@@ -236,13 +241,13 @@ void NetSession::UpdateClient(float dt, const LocalState& local) {
         if (event.type == NetEvent::Type::Connected) {
             m_Server = event.peer;
             BitWriter writer;
-            Hello hello; hello.name = m_Name; hello.key = m_Key;
+            Hello hello; hello.name = m_Name; hello.key = m_Key; hello.look.assign(m_OwnLook.begin(), m_OwnLook.end());
             Write(writer, hello);
             m_Host->Send(m_Server, kChannelReliable, writer.Data(), true);
         } else if (event.type == NetEvent::Type::Disconnected) {
             if (m_Migrating && m_MigAttempt) m_MigFailed = true;
             const bool wasConnected = m_Connected;
-            m_Connected = false; m_Smooth.clear();
+            m_Connected = false; m_Smooth.clear(); m_Looks.clear();
             if (wasConnected && !m_Rejected && !m_Roster.empty() && !m_Migrating) BeginMigration();
             else if (wasConnected && !m_Migrating) m_Notices.push_back("Se perdió la conexión con el anfitrión.");
         } else HandleClientMessage(event);
@@ -274,6 +279,8 @@ void NetSession::HandleClientMessage(const NetEvent& event) {
         m_Rejected = true;
         const auto reject = ReadReject(reader);
         m_Notices.push_back(reject && reject->reason == RejectReason::ServerFull ? "La partida está llena." : reject && reject->reason == RejectReason::KeyInUse ? "Ese perfil ya está conectado en esta partida." : "El anfitrión rechazó la conexión.");
+    } else if (*type == MessageType::Appearance) {
+        if (const auto appearance = ReadAppearance(reader)) m_Looks[appearance->player] = appearance->look;
     } else if (*type == MessageType::Roster) {
         if (auto roster = ReadRoster(reader)) { m_Roster = std::move(roster->entries); m_RosterPort = roster->port; if (!roster->room.empty()) { m_RosterRoom = roster->room; m_RelayAddress = roster->relayAddress; m_RelayPort = roster->relayPort; } }
     } else if (*type == MessageType::Checkpoint) {
@@ -316,6 +323,8 @@ void NetSession::SmoothRemote(float dt) {
         }
         smooth.shown.speed = smooth.target.speed;
         smooth.shown.knockedDown = (smooth.target.flags & 2) != 0;
+        const auto look = m_Looks.find(id);
+        smooth.shown.look = look == m_Looks.end() ? std::string() : look->second;
         m_Remotes.push_back(smooth.shown);
     }
 }
@@ -338,6 +347,23 @@ void NetSession::SendEconomy(const EconomyReport& report) {
     BitWriter writer;
     Write(writer, report);
     m_Host->Send(m_Server, kChannelReliable, writer.Data(), true);
+}
+
+void NetSession::BroadcastLook(uint8_t id) {
+    const auto look = m_Looks.find(id);
+    if (look == m_Looks.end() || look->second.empty()) return;
+    BitWriter writer; Write(writer, AppearanceMessage{id, look->second});
+    for (const auto& [peer, info] : m_Peers) if (info.id != 0 && info.id != id) m_Host->Send(peer, kChannelReliable, writer.Data(), true);
+}
+
+void NetSession::SendLooksTo(uint32_t peer) {
+    for (const auto& [id, look] : m_Looks) {
+        if (look.empty()) continue;
+        const auto target = m_Peers.find(peer);
+        if (target != m_Peers.end() && target->second.id == id) continue;
+        BitWriter writer; Write(writer, AppearanceMessage{id, look});
+        m_Host->Send(peer, kChannelReliable, writer.Data(), true);
+    }
 }
 
 void NetSession::SendRoster() {
@@ -437,7 +463,7 @@ bool NetSession::PromoteToHost() {
     m_Host = std::move(fresh);
     m_Migrating = false; m_PromoteTries = 0;
     m_Role = Role::Host; m_LocalId = 1; m_Connected = false; m_Rejected = false;
-    m_Peers.clear(); m_Smooth.clear(); m_Remotes.clear();
+    m_Peers.clear(); m_Smooth.clear(); m_Remotes.clear(); m_Looks.clear(); m_Looks[1] = m_OwnLook;
     m_Seed.clear();
     for (const CheckpointEntry& entry : m_Checkpoint) m_Seed[entry.key] = entry.state;
     m_RosterDirty = true; m_CheckpointDirty = true;

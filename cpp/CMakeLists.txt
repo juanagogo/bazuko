@@ -321,7 +321,8 @@ target_link_libraries(bazuko_traffic_test PRIVATE glfw glm::glm glad imgui Threa
 
 # Protocolo de red del multijugador (puro, sin red ni GPU): serializacion de bits, mensajes y simulador de latencia/perdida
 add_executable(bazuko_netprotocol_test tests/NetProtocolTest.cpp)
-target_include_directories(bazuko_netprotocol_test PRIVATE src)
+target_include_directories(bazuko_netprotocol_test PRIVATE src third_party/include)
+target_link_libraries(bazuko_netprotocol_test PRIVATE glm::glm)
 add_test(NAME bazuko_netprotocol COMMAND bazuko_netprotocol_test)
 
 # Prediccion y reconciliacion del jugador local (cliente y servidor comparten las reglas de game/Movement; sin red real ni GPU)

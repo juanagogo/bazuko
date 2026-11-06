@@ -465,6 +465,26 @@ int main() {
         b.session.reset(); a.session.reset(); host.reset();
         std::error_code ec; fs::remove_all(folder, ec);
     }
+    // J: apariencias: cada jugador ve a los demas con su propia apariencia (la del saludo), tambien a los que entran despues y tras migrar
+    {
+        auto host = NetSession::StartHost(0, "Anfitrion");
+        host->SetLook("host|look");
+        auto a = NetSession::Join("127.0.0.1", host->Port(), "Ana");
+        a->SetLook("ana|look");
+        Walker hw{{100.0f, 0.0f, 100.0f}}, aw{{101.0f, 0.0f, 100.0f}}, bw{{102.0f, 0.0f, 100.0f}};
+        std::unique_ptr<NetSession> b;
+        const auto run = [&](double seconds) { Pump(seconds, [&](float dt) { if (host) host->Update(dt, hw.State()); if (a) a->Update(dt, aw.State()); if (b) b->Update(dt, bw.State()); }); };
+        run(1.5);
+        b = NetSession::Join("127.0.0.1", host->Port(), "Beto");   // entra despues
+        b->SetLook("beto|look");
+        run(1.5);
+        const auto lookOf = [](const NetSession& s, uint8_t id) { for (const RemotePlayer& r : s.Remotes()) if (r.id == id) return r.look; return std::string("(no esta)"); };
+        CHECK(lookOf(*a, 1) == "host|look", "J: Ana ve al anfitrion con su apariencia");
+        CHECK(lookOf(*host, a->LocalId()) == "ana|look" && lookOf(*host, b->LocalId()) == "beto|look", "J: el anfitrion ve a los dos con la suya");
+        CHECK(lookOf(*b, a->LocalId()) == "ana|look" && lookOf(*a, b->LocalId()) == "beto|look", "J: y se ven entre ellos, aunque Beto haya entrado despues");
+        CHECK(lookOf(*b, 1) == "host|look", "J: Beto ve la del anfitrion");
+        std::printf("J) apariencias: cada jugador ve a los demas con su personaje (anfitrion, quien estaba y quien entro despues)\n");
+    }
     if (failures == 0) std::printf("Sesion de red: todo correcto\n");
     return failures == 0 ? 0 : 1;
 }

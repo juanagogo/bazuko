@@ -102,9 +102,31 @@ int main(int argc, char** argv) {
     check(bytesMax < 1400, "cada instantanea cabe en un paquete de ~1,4 KB");
     // Migracion de anfitrion: el invitado pasa a anfitrion y simula desde lo que recibio; los carros siguen su circuito sin saltos
     {
+        // una patrulla acudiendo con la sirena viaja al invitado y sobrevive al ascenso
+        const bool called = host.CallPolice(glm::vec3(viewer.x + 70.0f, 0.0f, viewer.z), 1.0f, 1);
+        for (float time = 0.0f; time < 4.0f; time += dt, ++tick) {
+            host.Update(dt, viewer); guest.Update(dt, viewer);
+            if (tick % 3 == 0) {
+                Net::BitWriter writer; Write(writer, host.ExportWorld(viewer, tick));
+                Net::BitReader reader(writer.Data()); Net::ReadType(reader);
+                if (const auto world = Net::ReadWorld(reader)) guest.ApplyWorld(*world);
+            }
+        }
+        size_t hostDispatched = 0, guestDispatched = 0, guestSiren = 0;
+        for (const TrafficVehicle& v : host.GetTrafficVehicles()) hostDispatched += v.driver.dispatched ? 1 : 0;
+        for (const TrafficVehicle& v : guest.GetTrafficVehicles()) { guestDispatched += v.driver.dispatched ? 1 : 0; guestSiren += v.driver.siren ? 1 : 0; }
+        std::printf("Policia: llamada %s; patrullas acudiendo: %zu en el anfitrion, %zu (con sirena %zu) en el invitado\n", called ? "aceptada" : "sin patrulla cerca", hostDispatched, guestDispatched, guestSiren);
+        if (called) check(guestDispatched == hostDispatched && hostDispatched >= 1, "la patrulla que acude llega al invitado");
+        size_t pedestriansBefore = 0;
+        for (const Pedestrian& p : guest.GetPedestrians()) pedestriansBefore += p.police ? 0 : 1;
         std::vector<glm::vec3> before;
         for (const TrafficVehicle& v : guest.GetTrafficVehicles()) before.push_back(v.position);
         guest.PromoteToHost();
+        size_t pedestriansAfter = guest.GetPedestrianCount(), chasingAfter = 0;
+        for (const TrafficVehicle& v : guest.GetTrafficVehicles()) chasingAfter += v.driver.dispatched ? 1 : 0;
+        check(pedestriansAfter == pedestriansBefore, "los peatones de la calle se conservan al pasar a anfitrion (menos los policias a pie)");
+        if (called) check(chasingAfter == guestDispatched, "la patrulla que acudia sigue acudiendo tras el ascenso");
+        std::printf("Ascenso: %zu peatones antes y %zu despues; patrullas acudiendo: %zu\n", pedestriansBefore, pedestriansAfter, chasingAfter);
         float worstJump = 0.0f; size_t checked = 0;
         for (float time = 0.0f; time < 0.5f; time += dt) guest.Update(dt, viewer);
         for (size_t i = 0; i < before.size(); ++i) {
@@ -126,7 +148,7 @@ int main(int argc, char** argv) {
         check(checked > 10 && worstJump < 8.0f, "ningun carro salta mas de 8 m al pasar a anfitrion");
         check(finite == before.size(), "ningun carro queda con posicion invalida");
         check(moved > 10, "los carros siguen circulando tras el ascenso");
-        check(guest.GetPedestrianCount() > 3, "la gente de la calle vuelve a aparecer");
+        check(guest.GetPedestrianCount() > 3, "hay gente en la calle tras el ascenso");
     }
     glfwDestroyWindow(window);
     glfwTerminate();

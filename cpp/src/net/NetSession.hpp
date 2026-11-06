@@ -26,6 +26,7 @@ namespace Bazuko::Net {
 struct RemotePlayer {
     uint8_t id = 0;
     std::string name;
+    std::string look;   // su apariencia (opaca para la red: EncodeLook/DecodeLook); vacia si aun no llego
     glm::vec3 position{0.0f};
     float yaw = 0.0f;
     float speed = 0.0f;
@@ -98,6 +99,8 @@ public:
     // tambien la suya: SetLocalKey + SetHostEconomy cada cuadro) y cierra; los demas siguen el mismo camino de la migracion. Con `rejoin` el antiguo anfitrion vuelve a
     // entrar como un jugador mas a la partida del nuevo; sin el (por ejemplo al cerrar el juego) solo se despide. HandoverDone() avisa cuando ya se puede cerrar.
     void SetLocalKey(const std::string& key) { m_Key = key; }
+    // Mi apariencia: va en el saludo y el anfitrion se la reparte a los demas (los demas me ven con mi personaje, no con uno cualquiera)
+    void SetLook(const std::string& look) { m_OwnLook = look.substr(0, kMaxLookBytes); if (m_Role == Role::Host) { m_Looks[1] = m_OwnLook; BroadcastLook(1); } }
     void SetHostEconomy(const EconomySnapshot& state) { m_HostEconomy = state; m_HasHostEconomy = true; }
     bool HandOver(bool rejoin);   // false si no hay a quien pasarsela (nadie mas en la partida)
     bool HandingOver() const { return m_HandingOver; }
@@ -120,6 +123,7 @@ private:
         std::unique_ptr<Ledger> ledger;
         double lastRejectNoticeMs = -1.0e9;
         std::string key;
+        std::string look;
         bool profileSynced = false;
     };
     struct Smooth { RemotePlayer shown; PlayerSnapshot target; bool fresh = true; double lastHeardMs = 0.0; };
@@ -151,6 +155,8 @@ private:
     std::unique_ptr<ProfileStore> m_Profiles;
     double m_SaveAccumulator = 0.0;
     std::string m_Key;                      // invitado: su clave
+    std::string m_OwnLook;
+    std::map<uint8_t, std::string> m_Looks;   // apariencia de cada jugador por id (el anfitrion la recibe en el saludo y la reparte)
     std::string m_JoinAddress;
     uint16_t m_JoinPort = 0;
     std::vector<RosterEntry> m_Roster;      // invitado: los demas jugadores segun el anfitrion, por id
@@ -174,6 +180,8 @@ private:
     double m_RosterAccumulator = 0.0, m_CheckpointAccumulator = 0.0;
     void SavePeer(const Peer& peer);
     void SendRoster();
+    void BroadcastLook(uint8_t id);
+    void SendLooksTo(uint32_t peer);
     void FinishHandover();
     void SendCheckpoint();
     void BeginMigration();

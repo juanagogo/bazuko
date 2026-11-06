@@ -2485,7 +2485,7 @@ Net::WorldSnapshot Simulation::ExportWorld(const glm::vec3& viewer, uint32_t tic
         VehiclePose(v, position, yaw);
         w.x = position.x; w.y = position.y; w.z = position.z;
         w.heading = v.bike.ready ? v.bike.heading : -yaw; w.steer = v.bike.ready ? v.bike.steer : 0.0f;
-        w.speed = v.speed; w.variant = static_cast<uint8_t>(std::clamp(v.variant, 0, 31)); w.emergency = static_cast<uint8_t>(std::clamp(v.emergency, 0, 3)); w.parked = v.parked;
+        w.speed = v.speed; w.variant = static_cast<uint8_t>(std::clamp(v.variant, 0, 31)); w.emergency = static_cast<uint8_t>(std::clamp(v.emergency, 0, 3)); w.parked = v.parked; w.dispatched = v.driver.dispatched; w.siren = v.driver.siren;
         s.vehicles.push_back(w);
     }
     near.clear();
@@ -2530,6 +2530,7 @@ bool Simulation::ApplyWorld(const Net::WorldSnapshot& s) {
         BicycleParams params; params.wheelbase = std::max(1.2f, v.wheelbase);
         v.previousPosition = v.position;
         v.parked = w.parked; v.variant = w.variant; v.emergency = w.emergency; v.speed = w.speed;
+        v.driver.dispatched = w.dispatched; v.driver.siren = w.siren;
         v.bike.heading = w.heading; v.bike.steer = w.steer; v.bike.ready = true;
         v.bike.rear = glm::vec2(w.x, w.z) - v.bike.Forward() * (params.wheelbase * 0.5f);
         v.position = {w.x, w.y, w.z}; v.yaw = v.bike.Yaw();
@@ -2561,10 +2562,17 @@ bool Simulation::ApplyWorld(const Net::WorldSnapshot& s) {
 void Simulation::PromoteToHost() {
     m_Guest = false;
     m_GuestSyncAge = 0.0f;
-    m_Pedestrians.clear();
+    // la gente de la calle sigue donde estaba (sin ruta: cada uno elige adonde ir en cuanto se actualiza); los policias a pie y quienes iban ligados a un vehiculo se retiran
+    m_Pedestrians.erase(std::remove_if(m_Pedestrians.begin(), m_Pedestrians.end(), [](const Pedestrian& p) { return p.police; }), m_Pedestrians.end());
+    for (Pedestrian& p : m_Pedestrians) {
+        p.route.clear(); p.nextWaypoint = 0; p.target = p.position; p.fleeRemaining = 0.0f; p.aggressive = false; p.aggressionRemaining = 0.0f;
+        p.reactionTime = 0.0f; p.punchTime = -1.0f; p.dodgeTime = -1.0f; p.vehicleIndex = -1; p.returning = false; p.departed = false; p.fleeAfterPunch = false; p.bubbleRemaining = 0.0f;
+    }
     for (TrafficVehicle& v : m_Traffic) {
+        // una patrulla que acudia sigue acudiendo (rehace su camino); acude al primer jugador de la partida nueva
+        const bool chasing = v.emergency > 0 && v.driver.dispatched;
         v.driver.state = DriverState::Seated; v.driver.timer = 0.0f; v.driver.boost = 0.0f; v.driver.cooldown = 0.0f;
-        v.driver.dispatched = false; v.driver.siren = false; v.driver.pathMode = 0; v.driver.pathLength = 0.0f; v.driver.reengage = false;
+        v.driver.dispatched = chasing; v.driver.siren = chasing && v.driver.siren; v.driver.targetPlayer = 0; v.driver.dispatchTime = 0.0f; v.driver.pathAge = 0.0f; v.driver.pathMode = 0; v.driver.pathLength = 0.0f; v.driver.reengage = false;
         v.driver.partnerBoarding = false; v.driver.partnerOut = false;
         v.holdStop = false; v.forcingRemaining = 0.0f; v.stalledTime = 0.0f; v.blockedWait = 0.0f;
         v.lateral = 0.0f; v.lateralVelocity = 0.0f; v.lateralTarget = 0.0f; v.swerveAround = -1; v.connectorRoute = -1;

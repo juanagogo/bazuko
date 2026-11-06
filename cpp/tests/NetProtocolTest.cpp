@@ -1,5 +1,6 @@
 // Pruebas del protocolo de red sin red: ida y vuelta de cada mensaje, error de cuantizacion, rechazo de paquetes truncados o corruptos
 // (nunca debe fallar ni leer fuera del buffer) y comportamiento estadistico del simulador de red.
+#include "character/CharacterTypes.hpp"
 #include "net/Interaction.hpp"
 #include "net/NetSim.hpp"
 #include "net/Protocol.hpp"
@@ -226,6 +227,28 @@ int main() {
             BitReader tr(part); ReadType(tr);
             Check(!ReadWorld(tr).has_value(), "mundo truncado se rechaza");
         }
+    }
+
+    // Apariencia: codec compacto, validacion de lo que llega y mensaje
+    {
+        Bazuko::CharacterLook look; look.nombre = "Camila"; look.sexo = "mujer"; look.edad = "adulto"; look.pelo = "melena"; look.ropa = "blusa"; look.pielIdx = 4; look.peloColorIdx = 3; look.ropaColorIdx = 7; look.calzadoColorIdx = 2;
+        Bazuko::NormalizeLook(look);
+        const std::string encoded = Bazuko::EncodeLook(look);
+        Check(encoded.size() < kMaxLookBytes, "la apariencia cabe en el limite de la red");
+        Bazuko::CharacterLook back;
+        Check(Bazuko::DecodeLook(encoded, back) && back.nombre == look.nombre && back.sexo == "mujer" && back.pelo == look.pelo && back.ropa == look.ropa && back.pielIdx == 4 && back.peloColorIdx == 3 && back.ropaColorIdx == 7 && back.calzadoColorIdx == 2, "apariencia ida y vuelta");
+        Bazuko::CharacterLook hostile;
+        Check(Bazuko::DecodeLook("x|y|z|w|../../etc/passwd|candado|../../ropa|zapato|99|-5|1000|abc", hostile), "una apariencia hostil se lee");
+        Check(hostile.pelo != "../../etc/passwd" && hostile.ropa.find("..") == std::string::npos && hostile.pielIdx <= 5 && hostile.peloColorIdx >= 0, "y se normaliza: ninguna ruta ni indice fuera de rango");
+        Check(!Bazuko::DecodeLook("solo|tres|campos", hostile) && !Bazuko::DecodeLook("", hostile), "una apariencia con otra forma se rechaza");
+        BitWriter w; Write(w, AppearanceMessage{5, encoded});
+        BitReader r(w.Data());
+        Check(ReadType(r) == MessageType::Appearance, "tipo Appearance");
+        const auto message = ReadAppearance(r);
+        Check(message && message->player == 5 && message->look == encoded, "mensaje de apariencia ida y vuelta");
+        BitWriter w0; Write(w0, AppearanceMessage{0, encoded});
+        BitReader r0(w0.Data()); ReadType(r0);
+        Check(!ReadAppearance(r0).has_value(), "una apariencia del jugador 0 se rechaza");
     }
 
     if (g_Failures == 0) std::printf("Protocolo de red: todo correcto\n");

@@ -22,6 +22,7 @@ struct WorldVehicle {
     float speed = 0.0f;
     uint8_t variant = 0, emergency = 0;
     bool parked = false;
+    bool dispatched = false, siren = false;   // patrulla acudiendo con la sirena: viaja para que un nuevo anfitrion no la pierda
 };
 struct WorldPedestrian {
     uint32_t id = 0;             // identificador estable (los indices cambian al compactar la lista)
@@ -75,7 +76,7 @@ inline void Write(BitWriter& w, const WorldSnapshot& s) {
         w.Quantized(detail::WrapAngle(v.heading), 0.0f, 6.2831853f, 11);
         w.Quantized(v.steer, -0.8f, 0.8f, 7);
         w.Quantized(std::max(0.0f, v.speed), 0.0f, kMaxSpeed, 8);
-        w.Bits(v.variant & 0x1Fu, 5); w.Bits(v.emergency & 0x3u, 2); w.Bool(v.parked);
+        w.Bits(v.variant & 0x1Fu, 5); w.Bits(v.emergency & 0x3u, 2); w.Bool(v.parked); w.Bool(v.dispatched); w.Bool(v.siren);
     }
     w.U8(static_cast<uint32_t>(s.pedestrians.size()));
     for (const WorldPedestrian& p : s.pedestrians) {
@@ -110,7 +111,7 @@ inline std::optional<WorldSnapshot> ReadWorld(BitReader& r) {
         v.index = static_cast<uint16_t>(r.U16());
         v.x = r.Quantized(kWorldMinX, kWorldMaxX, 16); v.y = r.Quantized(kWorldMinY, kWorldMaxY, 16); v.z = r.Quantized(kWorldMinZ, kWorldMaxZ, 16);
         v.heading = r.Quantized(0.0f, 6.2831853f, 11); v.steer = r.Quantized(-0.8f, 0.8f, 7); v.speed = r.Quantized(0.0f, kMaxSpeed, 8);
-        v.variant = static_cast<uint8_t>(r.Bits(5)); v.emergency = static_cast<uint8_t>(r.Bits(2)); v.parked = r.Bool();
+        v.variant = static_cast<uint8_t>(r.Bits(5)); v.emergency = static_cast<uint8_t>(r.Bits(2)); v.parked = r.Bool(); v.dispatched = r.Bool(); v.siren = r.Bool();
         s.vehicles.push_back(v);
     }
     const size_t pedestrians = r.U8();

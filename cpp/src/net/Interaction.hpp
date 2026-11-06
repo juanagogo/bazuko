@@ -28,6 +28,15 @@ struct HitEvent {
     float fromX = 0.0f, fromZ = 1.0f;
 };
 
+// La apariencia (opaca para la red) de un jugador: el anfitrion se la manda a todos los demas
+struct AppearanceMessage { uint8_t player = 0; std::string look; };
+inline void Write(BitWriter& w, const AppearanceMessage& m) { w.U8(static_cast<uint32_t>(MessageType::Appearance)); w.U8(m.player); w.String(m.look, kMaxLookBytes); }
+inline std::optional<AppearanceMessage> ReadAppearance(BitReader& r) {
+    AppearanceMessage m; m.player = static_cast<uint8_t>(r.U8()); m.look = r.String(kMaxLookBytes);
+    if (r.Failed() || m.player == 0 || m.player > 127) return std::nullopt;
+    return m;
+}
+
 inline void Write(BitWriter& w, const StrikeCommand& m) {
     w.U8(static_cast<uint32_t>(MessageType::Strike));
     const float tau = 6.2831853f;

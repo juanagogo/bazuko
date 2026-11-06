@@ -24,6 +24,7 @@
 #include "game/Movement.hpp"
 #ifdef BAZUKO_NET_ENABLED
 #include "net/NetSession.hpp"
+#include "net/RelayProtocol.hpp"
 #endif
 #include "game/Fight.hpp"
 #include "core/PlayerInputSampler.hpp"
@@ -718,9 +719,12 @@ int main(int argc, char** argv) {
     ui.RenderLoadingScreen(window, 1.0f, "¡Todo listo! Entrando a Bogotá...", "");
 #ifdef BAZUKO_NET_ENABLED
     std::unique_ptr<Net::NetSession> netSession;
+    struct RemoteAvatar { std::string look; std::unique_ptr<CharacterManager> body; };   // el personaje de otro jugador, con su apariencia (los demas lo ven como el se eligio)
+    std::map<uint8_t, RemoteAvatar> remoteAvatars;
     // lo que necesita un anfitrion (datos de economia, carpeta de perfiles, mundo que reparte); tambien lo usa un invitado que pasa a anfitrion al irse el anterior
     const auto configureNetHost = [&](Net::NetSession& hosting) {
         hosting.SetEconomyData(&gameData);
+        hosting.SetLook(EncodeLook(characterManager.GetLook()));
         std::string folder = "bazuko_perfiles";   // --perfiles=carpeta o BAZUKO_PERFILES
         for (int i = 1; i < argc; ++i) if (std::string(argv[i]).rfind("--perfiles=", 0) == 0) folder = std::string(argv[i]).substr(11);
         if (const char* env = std::getenv("BAZUKO_PERFILES")) folder = env;
@@ -728,36 +732,60 @@ int main(int argc, char** argv) {
         hosting.SetWorldProvider([&simulation](const glm::vec3& viewer, uint32_t tick) { return simulation.ExportWorld(viewer, tick); });
     };
     {   // multijugador (compilado con -DBAZUKO_NET=ON): --anfitrion[=puerto] o --conectar=ip[:puerto]  (tambien BAZUKO_HOST / BAZUKO_JOIN)
-        std::string hostArg, joinArg;
+        std::string hostArg, joinArg, relayHostArg, roomArg;   // relevo: --anfitrion-relay=IP[:puerto] y --sala=CODIGO@IP[:puerto] (jugar por internet sin abrir puertos)
         for (int i = 1; i < argc; ++i) {
             const std::string arg = argv[i];
-            if (arg == "--anfitrion") hostArg = "7777";
+            if (arg.rfind("--anfitrion-relay=", 0) == 0) relayHostArg = arg.substr(18);
+            else if (arg.rfind("--sala=", 0) == 0) roomArg = arg.substr(7);
+            else if (arg == "--anfitrion") hostArg = "7777";
             else if (arg.rfind("--anfitrion=", 0) == 0) hostArg = arg.substr(12);
             else if (arg.rfind("--conectar=", 0) == 0) joinArg = arg.substr(11);
         }
         if (const char* env = std::getenv("BAZUKO_HOST")) hostArg = env;
         if (const char* env = std::getenv("BAZUKO_JOIN")) joinArg = env;
+        if (const char* env = std::getenv("BAZUKO_RELAY")) relayHostArg = env;
+        if (const char* env = std::getenv("BAZUKO_ROOM")) roomArg = env;
+        // clave del perfil: se crea una vez y se guarda junto al guardado; con ella el anfitrion te devuelve tu plata, tu costal y tu progreso
+        std::string profileKey;
+        const std::string keyFile = std::getenv("BAZUKO_CLAVE_ARCHIVO") ? std::getenv("BAZUKO_CLAVE_ARCHIVO") : "bazuko_clave_perfil.txt";   // pruebas con varias instancias en una maquina
+        {
+            std::ifstream keyIn(keyFile);
+            std::getline(keyIn, profileKey);
+            if (!Net::IsValidPlayerKey(profileKey)) {
+                profileKey = Net::NewPlayerKey();
+                std::ofstream keyOut(keyFile, std::ios::trunc);
+                keyOut << profileKey << std::endl;
+            }
+        }
+        const auto splitHostPort = [](const std::string& text, uint16_t defaultPort, std::string& host, uint16_t& port) {
+            const size_t colon = text.rfind(':');
+            host = colon == std::string::npos ? text : text.substr(0, colon);
+            port = colon == std::string::npos ? defaultPort : static_cast<uint16_t>(std::atoi(text.c_str() + colon + 1));
+        };
         const std::string playerName = characterManager.GetLook().nombre.empty() ? std::string("Parcero") : characterManager.GetLook().nombre;
-        if (!hostArg.empty()) {
+        if (!relayHostArg.empty()) {   // anfitrion por relevo: crea una sala y muestra su codigo
+            std::string relayAddress; uint16_t relayPort = 0;
+            splitHostPort(relayHostArg, Net::Relay::kDefaultPort, relayAddress, relayPort);
+            netSession = Net::NetSession::StartHostViaRelay(relayAddress, relayPort, playerName);
+            if (netSession) { configureNetHost(*netSession); netSession->SetLocalKey(profileKey); LogInfo("Multijugador: conectando al relevo {}:{} para abrir una sala", relayAddress, relayPort); ui.Notify("Abriendo sala en el relevo...", ToastType::Info); }
+            else LogWarn("Multijugador: no se pudo conectar al relevo {}", relayHostArg);
+        } else if (!roomArg.empty()) {   // invitado por relevo: CODIGO@IP[:puerto]
+            const size_t at = roomArg.find('@');
+            std::string relayAddress; uint16_t relayPort = 0;
+            const std::string code = at == std::string::npos ? roomArg : roomArg.substr(0, at);
+            splitHostPort(at == std::string::npos ? std::string("127.0.0.1") : roomArg.substr(at + 1), Net::Relay::kDefaultPort, relayAddress, relayPort);
+            netSession = Net::NetSession::JoinViaRelay(relayAddress, relayPort, code, playerName, profileKey);
+            if (netSession) { LogInfo("Multijugador: entrando a la sala {} por el relevo {}:{}", code, relayAddress, relayPort); ui.Notify("Entrando a la sala " + code + "...", ToastType::Info); }
+            else LogWarn("Multijugador: no se pudo entrar a la sala {}", roomArg);
+        } else if (!hostArg.empty()) {
             netSession = Net::NetSession::StartHost(static_cast<uint16_t>(std::atoi(hostArg.c_str())), playerName);
-            if (netSession) { configureNetHost(*netSession);
+            if (netSession) { configureNetHost(*netSession); netSession->SetLocalKey(profileKey);
                 LogInfo("Multijugador: anfitrion en el puerto {}", netSession->Port()); ui.Notify("Eres el anfitrión: puerto " + std::to_string(netSession->Port()), ToastType::Info); }
             else LogWarn("Multijugador: no se pudo abrir el puerto {}", hostArg);
         } else if (!joinArg.empty()) {
             const size_t colon = joinArg.rfind(':');
             const std::string address = colon == std::string::npos ? joinArg : joinArg.substr(0, colon);
             const uint16_t port = colon == std::string::npos ? uint16_t{7777} : static_cast<uint16_t>(std::atoi(joinArg.c_str() + colon + 1));
-            // clave del perfil: se crea una vez y se guarda junto al guardado; con ella el anfitrion te devuelve tu plata y tu costal
-            std::string profileKey;
-            {
-                std::ifstream keyIn("bazuko_clave_perfil.txt");
-                std::getline(keyIn, profileKey);
-                if (!Net::IsValidPlayerKey(profileKey)) {
-                    profileKey = Net::NewPlayerKey();
-                    std::ofstream keyOut("bazuko_clave_perfil.txt", std::ios::trunc);
-                    keyOut << profileKey << std::endl;
-                }
-            }
             netSession = Net::NetSession::Join(address, port, playerName, profileKey);
             if (netSession) { LogInfo("Multijugador: conectando a {}:{}", address, port); ui.Notify("Conectando a " + address + ":" + std::to_string(port) + "...", ToastType::Info); }
             else LogWarn("Multijugador: no se pudo conectar a {}:{}", address, port);
@@ -1377,6 +1405,8 @@ int main(int argc, char** argv) {
         std::vector<Net::PlayerView> remoteViewers;   // anfitrion: los otros jugadores existen para peatones, policia y trafico
 #ifdef BAZUKO_NET_ENABLED
         if (netSession) {   // multijugador: cuenta mi estado, recibe el de los demas y los dibuja (net/NetSession.hpp)
+            static bool ownLookSent = false;
+            if (!ownLookSent) { ownLookSent = true; netSession->SetLook(EncodeLook(characterManager.GetLook())); }   // va en el saludo
             netSession->Update(dt, Net::LocalState{playerPos, playerYaw, playerVelocity, playerKnockedDown});
             // mundo compartido: el invitado deja de simular trafico y peatones y aplica lo que manda el anfitrion (misma semilla = mismos carros)
             if (netSession->ConsumePromotion()) {   // el anfitrion se fue y me toca: ahora el mundo lo simulo yo
@@ -1390,20 +1420,34 @@ int main(int argc, char** argv) {
                     if (!simulation.ApplyWorld(*world) && !warnedMismatch) { warnedMismatch = true; LogWarn("Multijugador: el mundo del anfitrion no coincide con el local (otra semilla o modelos distintos)"); }
                 }
             }
+            const auto economyNow = [&]() {
+                Net::EconomySnapshot snapshot;
+                snapshot.money = money; snapshot.bigSack = session.bigSack;
+                snapshot.xp = xp; snapshot.level = level; snapshot.talentPoints = talentPoints;
+                snapshot.talents.assign(unlockedTalents.begin(), unlockedTalents.end());
+                for (size_t i = 0; i < snapshot.needs.size(); ++i) snapshot.needs[i] = static_cast<uint8_t>(std::clamp(static_cast<int>(std::lround(needs[i])), 0, 100));
+                for (const auto& entry : inventory) snapshot.items.push_back({static_cast<uint16_t>(entry.itemIndex), static_cast<uint16_t>(std::min(entry.quantity, 65535))});
+                return Net::Canonical(std::move(snapshot), lootTable.size());
+            };
+            if (netSession->GetRole() == Net::NetSession::Role::Host) {
+                netSession->SetHostEconomy(economyNow());   // el anfitrion tambien tiene perfil: viaja en el punto de control
+                static bool roomAnnounced = false, roomFailedAnnounced = false;
+                if (netSession->ViaRelay() && !roomAnnounced && !netSession->RoomCode().empty()) {
+                    roomAnnounced = true;
+                    LogInfo("Multijugador: sala abierta en el relevo, codigo {}", netSession->RoomCode());
+                    ui.Notify("Sala " + netSession->RoomCode() + ": díselo a quien quiera entrar", ToastType::Info);
+                }
+                if (netSession->RoomFailed() && !roomFailedAnnounced) { roomFailedAnnounced = true; LogWarn("Multijugador: el relevo no pudo abrir la sala"); ui.Notify("El relevo no pudo abrir la sala.", ToastType::Warn); }
+                if (Input::IsKeyPressed(GLFW_KEY_F9) && !netSession->HandingOver()) {   // traspasar la partida al siguiente jugador y volver como invitado
+                    if (netSession->HandOver(true)) ui.Notify("Traspasando la partida...", ToastType::Info);
+                    else ui.Notify("No hay a quien pasarle la partida.", ToastType::Warn);
+                }
+            }
             if (netSession->GetRole() == Net::NetSession::Role::Client && netSession->Connected()) {
                 // economia: el anfitrion lleva una copia de mi plata y mi costal y revierte lo que no se explica (net/EconomyLedger.hpp); yo sigo jugando sin esperas
                 static Net::EconomyMirror economyMirror;
                 static uint32_t economyEpoch = 0;
                 if (economyEpoch != netSession->Epoch()) { economyEpoch = netSession->Epoch(); economyMirror.Restart(); }   // otra partida (reconexion): vuelve a contar el estado completo
-                const auto economyNow = [&]() {
-                    Net::EconomySnapshot snapshot;
-                    snapshot.money = money; snapshot.bigSack = session.bigSack;
-                    snapshot.xp = xp; snapshot.level = level; snapshot.talentPoints = talentPoints;
-                    snapshot.talents.assign(unlockedTalents.begin(), unlockedTalents.end());
-                    for (size_t i = 0; i < snapshot.needs.size(); ++i) snapshot.needs[i] = static_cast<uint8_t>(std::clamp(static_cast<int>(std::lround(needs[i])), 0, 100));
-                    for (const auto& entry : inventory) snapshot.items.push_back({static_cast<uint16_t>(entry.itemIndex), static_cast<uint16_t>(std::min(entry.quantity, 65535))});
-                    return Net::Canonical(std::move(snapshot), lootTable.size());
-                };
                 const double economyClock = static_cast<double>(clock.GetElapsedTime());
                 if (const auto report = economyMirror.Poll(economyNow(), economyClock)) netSession->SendEconomy(*report);
                 if (const auto sync = netSession->ConsumeEconomySync()) {
@@ -1420,9 +1464,30 @@ int main(int argc, char** argv) {
                     }
                 }
             }
-            for (const std::string& notice : netSession->ConsumeNotices()) ui.Notify(notice, ToastType::Info);
+            for (const std::string& notice : netSession->ConsumeNotices()) { LogInfo("Multijugador: {}", notice); ui.Notify(notice, ToastType::Info); }
             std::vector<Simulation::RemotePlayerView> remoteViews;
-            for (const Net::RemotePlayer& remote : netSession->Remotes()) remoteViews.push_back({remote.id, remote.position, remote.yaw, remote.speed, remote.knockedDown});
+            {   // un personaje por jugador remoto, con su apariencia; se arma de a uno por cuadro para no trabar el juego. Mientras no esta listo se dibuja un civil.
+                bool builtOne = false;
+                for (auto it = remoteAvatars.begin(); it != remoteAvatars.end();) {
+                    bool present = false;
+                    for (const Net::RemotePlayer& remote : netSession->Remotes()) present = present || remote.id == it->first;
+                    it = present ? std::next(it) : remoteAvatars.erase(it);
+                }
+                for (const Net::RemotePlayer& remote : netSession->Remotes()) {
+                    RemoteAvatar& avatar = remoteAvatars[remote.id];
+                    if (builtOne || remote.look.empty() || (avatar.body && avatar.look == remote.look)) continue;
+                    CharacterLook decoded;
+                    if (!DecodeLook(remote.look, decoded)) continue;
+                    auto body = std::make_unique<CharacterManager>();
+                    body->Init();
+                    body->ApplyLook(decoded, true);
+                    avatar.body = std::move(body); avatar.look = remote.look; builtOne = true;
+                }
+            }
+            for (const Net::RemotePlayer& remote : netSession->Remotes()) {
+                const auto avatar = remoteAvatars.find(remote.id);
+                if (avatar == remoteAvatars.end() || !avatar->second.body) remoteViews.push_back({remote.id, remote.position, remote.yaw, remote.speed, remote.knockedDown});
+            }
             if (netSession->GetRole() == Net::NetSession::Role::Host)
                 for (const Simulation::RemotePlayerView& remote : remoteViews) {
                     Net::PlayerView view;
@@ -1830,6 +1895,20 @@ int main(int argc, char** argv) {
         if (!std::getenv("BAZUKO_NODECALS")) decals.Render(renderer, playerPos, graphicsQuality == 0 ? 35.0f : 70.0f);
         lake.DrawFish(renderer, clock.GetElapsedTime());
         simulation.Render(renderer, clock.GetElapsedTime(), playerPos);
+#ifdef BAZUKO_NET_ENABLED
+        if (netSession) {
+            for (const Net::RemotePlayer& remote : netSession->Remotes()) {
+                const auto avatar = remoteAvatars.find(remote.id);
+                if (avatar == remoteAvatars.end() || !avatar->second.body) continue;
+                if (glm::distance(glm::vec2(remote.position.x, remote.position.z), glm::vec2(playerPos.x, playerPos.z)) > 120.0f) continue;
+                glm::mat4 model = glm::rotate(glm::translate(glm::mat4(1.0f), remote.position), remote.yaw, glm::vec3(0.0f, 1.0f, 0.0f));
+                CharacterManager& body = *avatar->second.body;
+                const float animTime = clock.GetElapsedTime() + static_cast<float>(remote.id) * 0.37f;
+                if (remote.knockedDown && body.FindClip("LyingLoop") >= 0) body.Draw(renderer, model, 0.0f, false, false, body.FindClip("LyingLoop"));
+                else body.Draw(renderer, model, animTime, remote.speed > 0.3f, remote.speed > 4.5f);
+            }
+        }
+#endif
         if (gps.Waypoint() && ui.IsGpsBeaconVisible()) {   // haz del destino: columna translucida que se ve desde lejos
             const float pulse = 0.30f + 0.12f * std::sin(clock.GetElapsedTime() * 2.5f);
             const glm::vec3 beaconBase(gps.Waypoint()->x, city.GetGroundHeight(gps.Waypoint()->x, gps.Waypoint()->z) + 20.0f, gps.Waypoint()->z);
@@ -2600,6 +2679,16 @@ int main(int argc, char** argv) {
         }
     }
 
+#ifdef BAZUKO_NET_ENABLED
+    if (netSession && netSession->GetRole() == Net::NetSession::Role::Host && netSession->HandOver(false)) {   // cerrar el juego no tumba la partida de los demas
+        const double handoverStart = glfwGetTime();
+        while (!netSession->HandoverDone() && glfwGetTime() - handoverStart < 2.5) {
+            netSession->Update(0.016f, Net::LocalState{playerPos, playerYaw, playerVelocity, playerKnockedDown});
+            std::this_thread::sleep_for(std::chrono::milliseconds(16));
+        }
+    }
+    netSession.reset();
+#endif
     Input::Shutdown();
     LogInfo("Cerrando aplicacion con normalidad.");
     return 0;
