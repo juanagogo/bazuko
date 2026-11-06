@@ -55,6 +55,7 @@ import { WitnessSystem } from '../systems/WitnessSystem.js';
 import { ReputationSystem } from '../systems/ReputationSystem.js';
 import { JornadaSystem } from '../systems/JornadaSystem.js';
 import { Caleta } from '../systems/Caleta.js';
+import { Fiado } from '../systems/Fiado.js';
 import { DEFAULT_TRAFFIC_DENSITY, trafficDensityId, trafficDensityLabel } from '../systems/trafficDensity.js';
 import { distributeShelterLoot, spreadPickupPositions } from '../systems/ShelterLoot.js';
 import { InventorySystem } from '../systems/InventorySystem.js';
@@ -211,6 +212,7 @@ export class Game {
     this.interaction.rebusque = this.rebusque;
     this.reputation = new ReputationSystem();
     this.jornada = new JornadaSystem(this.clock);
+    this.fiado = new Fiado({ reputation: this.reputation });
     this.interaction.jornada = this.jornada;
     this.interaction.reputation = this.reputation;
     this.mirrorCinematic = new MirrorCinematic(this);
@@ -958,6 +960,7 @@ export class Game {
       this.encargos?.deserialize(data.encargos);
       this.reputation?.deserialize(data.fama);
       this.jornada?.sincronizar();
+      this.fiado?.deserialize(data.fiado);
 
     }
   }
@@ -991,7 +994,8 @@ export class Game {
       carroRobado: this.carjack?.serialize() ?? null,
       objectives: this.objectives?.serialize() ?? null,
       encargos: this.encargos?.serialize() ?? null,
-      fama: this.reputation?.serialize() ?? null
+      fama: this.reputation?.serialize() ?? null,
+      fiado: this.fiado?.serialize() ?? null
     };
   }
 
@@ -1563,6 +1567,7 @@ export class Game {
     this.witnesses?.update(dt);
     this.reputation?.update(dt);
     this.jornada?.update();
+    this.fiado?.update(this.clock.day ?? 0);
     if (this.traffic) this.traffic.franja = this.jornada?.franja ?? null;
     this.interaction.carjackPrompt = driving ? null : this.carjack?.prompt ?? null;
     this.rebusque?.update(dt);
