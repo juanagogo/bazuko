@@ -22,11 +22,11 @@ function other(kind, x = 0) {
   return { car: { kind, group }, speed: 5, acceleration: 1.6 };
 }
 
-/** Cámara parada en (x, z) mirando hacia +X, que es lo que el humo tiene en cuenta. */
-function camera(x, z = 0) {
+/** Cámara parada en (x, z) mirando en la dirección (dx, dz). */
+function camera(x, z = 0, dx = 1, dz = 0) {
   const cam = new THREE.PerspectiveCamera();
   cam.position.set(x, 2, z);
-  cam.lookAt(x + 10, 2, z);
+  cam.lookAt(x + dx * 10, 2, z + dz * 10);
   cam.updateMatrixWorld(true);
   return cam;
 }
@@ -135,6 +135,22 @@ test('no gasta partículas en lo que no se ve', () => {
   assert.equal(run(smoke, [bus], camera(-30), 20), 0, 'una buseta que no se dibuja no humea');
   bus.car.group.visible = true;
   assert.ok(run(smoke, [bus], camera(-30), 20) > 0, 'delante y cerca sí humea');
+  smoke.dispose();
+});
+
+test('el humo sale por el escape, que va detrás, gire como gire la buseta', () => {
+  const smoke = new BusExhaust(sceneWithFog());
+  const bus = buseta(0);
+  // Frente local +X girado para avanzar hacia +Z: la cola y el escape quedan en Z negativo.
+  bus.car.group.rotation.y = Math.atan2(-1, 0);
+  bus.speed = 6; bus.acceleration = 1.6;
+  run(smoke, [bus], camera(0, -30, 0, 1), 20);
+  const centers = smoke.centers.array;
+  assert.ok(smoke.geometry.instanceCount > 0);
+  for (let i = 0; i < smoke.geometry.instanceCount; i++) {
+    assert.ok(centers[i * 3 + 2] < 0, `partícula ${i} delante de la buseta`);
+    assert.ok(Math.abs(centers[i * 3] - .82) < 2, `partícula ${i} fuera del escape`);
+  }
   smoke.dispose();
 });
 

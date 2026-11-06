@@ -1,13 +1,13 @@
 // src/systems/BusExhaust.js
-// Humo negro de las busetas viejas. Una sola malla instanciada y un presupuesto fijo de partículas que se reciclan:
-// el tráfico solo presta sus carros (kind, group, speed y acceleration) y el humo no le añade un dibujo por bus.
+// Humo negro de las busetas viejas, en una sola malla instanciada y con un presupuesto fijo de partículas.
+// El tráfico solo presta sus carros (kind, group, speed y acceleration) y el humo no le añade un dibujo por bus.
 import * as THREE from 'three';
 
 export const MAX_PARTICLES = 512;  // tope fijo: la nube nunca pide memoria ni otro dibujo
-export const OLD_EVERY = 3;        // una de cada tres busetas es vieja
+const OLD_EVERY = 3;               // una de cada tres busetas es vieja
 export const PUFF_COUNT = 16;      // bocanada al arrancar
-export const PUFF_ACCELERATION = 1.1;  // m/s² de subida que dispara la bocanada
-export const PUFF_SPEED = 3.5;     // pasada esta velocidad ya no es arrancar
+const PUFF_ACCELERATION = 1.1;     // m/s² de subida que dispara la bocanada
+const PUFF_SPEED = 3.5;            // pasada esta velocidad ya no es arrancar
 const PUFF_COOLDOWN = 1.2;
 const SLOW_SPEED = .6;             // por debajo de esto la buseta está arrancando, no subiendo
 const LIFE = 3.4;                  // segundos que dura una partícula
@@ -15,7 +15,7 @@ const RATE = 5.5;                  // partículas por segundo del hilo sucio
 const CRUISE_SHARE = .16;          // lo que suelta yendo parejo
 const FULL_ACCELERATION = 1.6;     // aceleración que ya cuenta como subida a tope
 const DENSE = 2.2;                 // el hilo de subida, sobre lo que suelta parejo
-const MAX_SPEED_STOP = .25;        // por debajo de esto no humea: parada no tiene sentido
+const MAX_SPEED_STOP = .25;        // parada o casi no humea: el humo es de la combustión al trabajar
 
 // El escape de la buseta, en ejes del carro (frente +X): el tubo que dibuja carModels.js.
 const EXHAUST = new THREE.Vector3(-3.72, .58, -.82);
@@ -30,25 +30,21 @@ export function exhaustRate(speed, acceleration) {
   return RATE * (CRUISE_SHARE + DENSE * climb);
 }
 
-// Cuadro que mira a la cámara en el sombreador: se mueve y gira la instancia, nunca la malla.
+// Cuadro que mira a la cámara en el sombreador: se mueve la instancia, nunca la malla.
 const VERTEX = `
   attribute vec3 aCenter;
   attribute vec2 aParam;
-  attribute float aSeed;
   varying vec2 vUv;
   varying float vAlpha;
   void main() {
-    float c = cos(aSeed), s = sin(aSeed);
-    vec2 corner = mat2(c, -s, s, c) * position.xy;
     vec4 mv = modelViewMatrix * vec4(aCenter, 1.0);
-    mv.xy += corner * aParam.x;
+    mv.xy += position.xy * aParam.x;
     gl_Position = projectionMatrix * mv;
-    vUv = uv;
+    vUv = position.xy + .5;
     vAlpha = aParam.y;
   }
 `;
-// Negro de hollín cuando está fresco y gris cuando se diluye, con el borde suave. Sin luz: el humo es negro
-// también de noche, y solo tapa lo que tiene detrás.
+// Hollín cuando está fresco y gris al diluirse, con el borde suave. Sin luz: el humo es negro también de noche.
 const FRAGMENT = `
   varying vec2 vUv;
   varying float vAlpha;
@@ -73,14 +69,11 @@ export class BusExhaust {
 
     const geometry = new THREE.InstancedBufferGeometry();
     geometry.setAttribute('position', new THREE.Float32BufferAttribute([-.5, -.5, 0, .5, -.5, 0, .5, .5, 0, -.5, .5, 0], 3));
-    geometry.setAttribute('uv', new THREE.Float32BufferAttribute([0, 0, 1, 0, 1, 1, 0, 1], 2));
     geometry.setIndex([0, 1, 2, 0, 2, 3]);
     this.centers = new THREE.InstancedBufferAttribute(new Float32Array(MAX_PARTICLES * 3), 3).setUsage(THREE.DynamicDrawUsage);
     this.params = new THREE.InstancedBufferAttribute(new Float32Array(MAX_PARTICLES * 2), 2).setUsage(THREE.DynamicDrawUsage);
-    this.seeds = new THREE.InstancedBufferAttribute(new Float32Array(MAX_PARTICLES), 1).setUsage(THREE.DynamicDrawUsage);
     geometry.setAttribute('aCenter', this.centers);
     geometry.setAttribute('aParam', this.params);
-    geometry.setAttribute('aSeed', this.seeds);
     geometry.instanceCount = 0;
     this.geometry = geometry;
 
@@ -96,7 +89,7 @@ export class BusExhaust {
     this.group.add(this.mesh);
 
     this.particles = Array.from({ length: MAX_PARTICLES }, () => ({
-      active: false, age: 0, life: 0, x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0, radius: 0, grow: 0, alpha: 0, seed: 0
+      active: false, age: 0, life: 0, x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0, radius: 0, grow: 0, alpha: 0
     }));
     this._next = 0;
     this._states = new WeakMap();
@@ -134,7 +127,6 @@ export class BusExhaust {
     p.radius = (puff ? .8 : .5) * (.55 + Math.random());
     p.grow = (puff ? 3.6 : 3) * (.7 + Math.random() * .6);
     p.alpha = puff ? .62 : .42;
-    p.seed = Math.random() * Math.PI * 2;
   }
 
   /**
@@ -163,8 +155,8 @@ export class BusExhaust {
       const state = this._stateOf(car);
       if (!state.old) continue;
       const group = car.group;
-      const acceleration = Number.isFinite(vehicle.acceleration) ? vehicle.acceleration : 0;
-      const speed = Number.isFinite(vehicle.speed) ? vehicle.speed : 0;
+      const acceleration = vehicle.acceleration;
+      const speed = vehicle.speed;
       let visible = !!group && group.visible !== false;
       if (visible && camera) {
         const dx = group.position.x - viewX, dz = group.position.z - viewZ;
@@ -212,12 +204,11 @@ export class BusExhaust {
       this.centers.setXYZ(count, p.x, p.y, p.z);
       this.params.setXY(count, p.radius + p.grow * Math.sqrt(progress),
         p.alpha * (1 - progress) ** 1.5 * Math.min(1, p.age * 6));
-      this.seeds.setX(count, p.seed);
       count++;
     }
     this.geometry.instanceCount = count;
     this.mesh.visible = count > 0;
-    this.centers.needsUpdate = this.params.needsUpdate = this.seeds.needsUpdate = true;
+    if (count > 0) this.centers.needsUpdate = this.params.needsUpdate = true;
   }
 
   dispose() {
