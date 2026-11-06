@@ -265,3 +265,23 @@ test('subirse otra vez mientras la cámara regresa conserva la distancia a pie',
   carjack.reset();
   assert.equal(game.cameraRig.distance, 5.5);
 });
+
+test('mientras maneja, por las ventanas se ve al jugador sentado al volante', async () => {
+  const { Car } = await import('../src/entities/Car.js');
+  const scene = new THREE.Scene();
+  const car = new Car(scene, new THREE.Vector3(), 0, { kind: 'carro', model: 'citadino', variant: 3 });
+  const game = fakeGame([car]), input = fakeInput();
+  game.player.position.set(0, 0, car.width / 2 + .8);
+  const carjack = new CarjackSystem(game);
+  carjack.enter({ car, vehicle: null });
+  assert.ok(!car._playerDriver?.visible, 'todavía camina hacia la puerta');
+  settle(carjack, input);
+  assert.equal(car._playerDriver.visible, true);
+  assert.equal(car._playerDriver.parent, car.vehicle.bodyVisual ?? car.group, 'se mueve con la carrocería');
+  carjack.exit();
+  assert.equal(car._playerDriver.visible, false, 'al bajarse queda vacío');
+  carjack.enter({ car, vehicle: null }); settle(carjack, input);
+  carjack.reset();
+  assert.equal(car._playerDriver.visible, false);
+  car.dispose();
+});
