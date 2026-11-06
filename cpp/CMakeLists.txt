@@ -248,6 +248,19 @@ add_executable(bazuko_pipe_test tests/PipeTest.cpp)
 target_include_directories(bazuko_pipe_test PRIVATE src)
 add_test(NAME bazuko_pipe COMMAND bazuko_pipe_test)
 
+# El grafo de audio del juego (grupo maestro y filtro de agudos) con un motor sin dispositivo
+add_executable(bazuko_audiograph_test tests/AudioGraphTest.cpp)
+target_include_directories(bazuko_audiograph_test PRIVATE third_party/include)
+target_link_libraries(bazuko_audiograph_test PRIVATE Threads::Threads ${CMAKE_DL_LIBS})
+add_test(NAME bazuko_audiograph COMMAND bazuko_audiograph_test)
+
+# Los archivos de voz del juego suenan con el mismo motor y banderas que usa AudioManager (sin dispositivo)
+add_executable(bazuko_audiofiles_test tests/AudioFilesTest.cpp)
+target_include_directories(bazuko_audiofiles_test PRIVATE third_party/include)
+target_compile_definitions(bazuko_audiofiles_test PRIVATE BAZUKO_AUDIO_DIR="${CMAKE_CURRENT_SOURCE_DIR}/public/audio")
+target_link_libraries(bazuko_audiofiles_test PRIVATE Threads::Threads ${CMAKE_DL_LIBS})
+add_test(NAME bazuko_audiofiles COMMAND bazuko_audiofiles_test)
+
 # Sonidos de las sustancias (sintesis del original); solo DSP
 add_executable(bazuko_substancesynth_test tests/SubstanceSynthTest.cpp src/audio/SubstanceSynth.cpp)
 target_include_directories(bazuko_substancesynth_test PRIVATE src)

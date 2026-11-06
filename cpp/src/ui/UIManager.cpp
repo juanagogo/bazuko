@@ -811,6 +811,18 @@ void UIManager::RenderHUD(float dt, const glm::vec3& playerPos, Camera& camera, 
         const ImVec2 screen = ImGui::GetIO().DisplaySize;
         for (const WorldBubble& bubble : m_WorldBubbles) {
             const float sx = (bubble.x * 0.5f + 0.5f) * screen.x, sy = (-bubble.y * 0.5f + 0.5f) * screen.y;
+            if (Carton::FontsReady() && !std::getenv("BAZUKO_UI_OSCURA")) {   // .npc-bubble del original: la gente de la calle habla en un cartoncito (cara de carton, filo oscuro y cola)
+                if (bubble.alpha < 0.05f) continue;
+                constexpr float wrap = 222.0f;   // max-width 240 px menos el relleno
+                const char* text = bubble.text.c_str();
+                const float textWidth = std::min(Carton::TextWidth(false, 16, text), wrap), textHeight = Carton::TextHeight(false, 16, text, wrap);
+                const float width = textWidth + 18.0f, height = textHeight + 8.0f;   // relleno de 3 9 4
+                const ImVec2 max(sx + width * 0.5f, sy - 14.0f), min(sx - width * 0.5f, sy - 14.0f - height);
+                Carton::Panel(bubbleDraw, min, max, 800u + static_cast<unsigned int>(bubble.text.size()), 3.0f);
+                Carton::Text(bubbleDraw, false, 16, min + ImVec2(9.0f, 3.0f), Carton::kMarcador, text, wrap);
+                bubbleDraw->AddTriangleFilled(ImVec2(sx - 5.0f, max.y - 0.5f), ImVec2(sx + 5.0f, max.y - 0.5f), ImVec2(sx, max.y + 7.0f), Carton::kMarcador);   // la cola
+                continue;
+            }
             const ImVec2 size = bubbleFonts.monoBold14->CalcTextSizeA(13.0f, screen.x * 0.4f, 0.0f, bubble.text.c_str());
             const ImVec2 min(sx - size.x * 0.5f - 10.0f, sy - size.y - 24.0f), max(sx + size.x * 0.5f + 10.0f, sy - 8.0f);
             const int fade = static_cast<int>(240.0f * bubble.alpha);

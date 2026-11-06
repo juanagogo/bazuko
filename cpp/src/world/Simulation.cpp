@@ -2602,7 +2602,7 @@ void Simulation::PromoteToHost() {
 std::vector<StreetVoiceCandidate> Simulation::StreetVoiceCandidates(const glm::vec3& at, float range) {
     std::vector<StreetVoiceCandidate> out;
     for (Pedestrian& p : m_Pedestrians) {
-        if (p.dead || p.departed || p.police || p.aggressive || p.reaction > 0 || p.fleeRemaining > 0.0f || p.bubbleRemaining > 0.0f || p.vehicleIndex >= 0) continue;
+        if (p.dead || p.departed || p.police || p.bubbleRemaining > 0.0f || p.vehicleIndex >= 0) continue;   // como el original: fuera quien ya tiene burbuja, el inconsciente y quien va en un carro; el que huye o reacciona tambien puede hablar
         const float distance = glm::distance(p.position, at);
         if (distance > range) continue;
         if (p.netId == 0) { p.netId = m_NextPedestrianId++; if ((p.netId & 0xFFFFu) == 0) p.netId = m_NextPedestrianId++; }   // el mismo identificador estable de la red

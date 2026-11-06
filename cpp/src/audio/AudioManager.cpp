@@ -377,6 +377,20 @@ struct AudioManager::Impl {
             LoadOptionalSound(theftVoices[i], filename.c_str());
         }
         for (size_t i = 0; i < streetVoices.size(); ++i) LoadOptionalSound(streetVoices[i], StreetVoiceClips()[i].file);
+        if (std::getenv("BAZUKO_LOG_AUDIO")) {   // diagnostico: formato y nivel de cada frase de la calle (si el archivo estuviera mudo o mal decodificado)
+            for (size_t i = 0; i < streetVoices.size(); ++i) {
+                if (!streetVoices[i].initialized) { std::cerr << "Audio: frase de la calle " << i << " NO cargada\n"; continue; }
+                ma_format format; ma_uint32 channels = 0, rate = 0;
+                ma_sound_get_data_format(&streetVoices[i].value, &format, &channels, &rate, nullptr, 0);
+                ma_uint64 length = 0; ma_sound_get_length_in_pcm_frames(&streetVoices[i].value, &length);
+                std::vector<float> samples(static_cast<size_t>(std::min<ma_uint64>(length, 480000)) * std::max<ma_uint32>(channels, 1));
+                ma_uint64 read = 0;
+                if (format == ma_format_f32) ma_data_source_read_pcm_frames(ma_sound_get_data_source(&streetVoices[i].value), samples.data(), samples.size() / std::max<ma_uint32>(channels, 1), &read);
+                float peak = 0.0f; for (float s : samples) peak = std::max(peak, std::abs(s));
+                ma_sound_seek_to_pcm_frame(&streetVoices[i].value, 0);
+                std::cerr << "Audio: frase " << i << " formato " << format << " canales " << channels << " " << rate << " Hz, " << length << " cuadros, leidos " << read << ", pico " << peak << '\n';
+            }
+        }
         for (size_t i = 0; i < vehicleChannels.size(); ++i) {
             const bool bus = i >= MaxTrafficAudio;
             const char* idleFile = bus ? "car_idling_at_a_traf_bus.opus" : "car_idling_at_a_traf.opus";
@@ -778,6 +792,7 @@ float AudioManager::PlayStreetVoice(size_t clip, float distanceVolume) {
     ma_sound_seek_to_pcm_frame(&voice.value, 0);
     ma_sound_start(&voice.value);
     m_Impl->streetIndex = static_cast<int>(clip);
+    if (std::getenv("BAZUKO_LOG_AUDIO")) std::cerr << "Audio: frase " << clip << " sonando=" << ma_sound_is_playing(&voice.value) << " volumen " << ma_sound_get_volume(&voice.value) << " (distancia " << distanceVolume << ", mezcla " << m_Impl->Level(MixCategory::Voices) << ", general " << ma_engine_get_volume(&m_Impl->engine) << ")\n";
     float seconds = 0.0f;
     ma_sound_get_length_in_seconds(&voice.value, &seconds);
     return std::max(seconds, 0.1f);

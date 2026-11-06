@@ -1890,6 +1890,11 @@ int main(int argc, char** argv) {
             const bool streetPaused = ui.IsPaused();
             const std::vector<StreetVoiceCandidate> neighbours = streetPaused ? std::vector<StreetVoiceCandidate>{} : simulation.StreetVoiceCandidates(playerPos, StreetVoiceDirector::kRange);
             if (std::getenv("BAZUKO_LOG_AUDIO")) { static float logWait = 0.0f; logWait -= dt; if (logWait <= 0.0f) { logWait = 5.0f; LogInfo("Voces de la calle: {} personas a menos de 18 m, pausa {}, otra voz {}", neighbours.size(), streetPaused, audio.OtherVoicePlaying()); } }
+            if (static const char* previewBubble = std::getenv("BAZUKO_PREVIEW_BUBBLE"); previewBubble) {   // pruebas: una burbuja fija sobre el peaton mas cercano
+                static bool bubbleDone = false;
+                const std::vector<StreetVoiceCandidate> closePeople = simulation.StreetVoiceCandidates(playerPos, 40.0f);
+                if (!bubbleDone && !closePeople.empty()) { bubbleDone = true; simulation.PedestrianSay(closePeople.front().id, previewBubble, 600.0f); }
+            }
             const StreetVoiceDirector::Action action = streetVoices.Update(streetNow, streetPaused, audio.StreetVoicePlaying(), audio.OtherVoicePlaying(), neighbours);
             if (action.kind == StreetVoiceDirector::Action::Kind::Start) {
                 const float seconds = audio.PlayStreetVoice(action.clip, action.volume);
