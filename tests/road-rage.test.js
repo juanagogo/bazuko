@@ -317,10 +317,9 @@ test('un carro no puede tener dos conductores ni se suman más del tope', () => 
   const player = { position: new THREE.Vector3(), isStunned: false, receiveHit() {} };
   const system = new RoadRageSystem(scene, { player, stats: new StatsSystem(), random: () => 0 });
   system.setup({ isWalkableAt: () => true, getGroundHeight: () => 0 }, traffic, []);
-  const cars = traffic.vehicles.map(vehicle => vehicle.car);
+  // La flota sale por conteo y el primero ya es buseta: los conductores solo salen de carros, taxis y motos.
+  const cars = traffic.vehicles.map(vehicle => vehicle.car).filter(car => car.kind !== 'buseta' && car.kind !== 'police');
   assert.ok(cars.length >= ROAD_RAGE.maxDrivers + 1);
-  const cramped = cars.filter(car => car.kind === 'buseta' || car.kind === 'police');
-  assert.equal(cramped.length, 0, 'con seis carros todavía no sale una buseta');
   for (const car of cars) {
     if (system.incidents.length >= ROAD_RAGE.maxDrivers) {
       assert.equal(system.trigger(car, 'mirror'), false, 'el del tope no arranca');

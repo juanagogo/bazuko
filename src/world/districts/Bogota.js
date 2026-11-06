@@ -1244,7 +1244,7 @@ export class Bogota {
     const back = new THREE.Vector3(Math.sin(rotY), 0, Math.cos(rotY)).multiplyScalar(-0.9);
     const seller = new Npc(this.scene, new THREE.Vector3(x + back.x, this.getGroundHeight(x, z), z + back.z), {
       facing: rotY, isWalkable: () => false,
-      arquetipo: 'vendedor', fijo: { stance: 'atender', alternas: VENDOR_POSES }
+      seed: hashSeed(`bogota:vendedor:${Math.round(x)}:${Math.round(z)}`), arquetipo: 'vendedor', fijo: { stance: 'atender', alternas: VENDOR_POSES }
     });
     seller.isVendor = true;
     this.npcs.push(seller);

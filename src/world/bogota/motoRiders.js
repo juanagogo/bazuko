@@ -212,15 +212,17 @@ function merge(pieces) {
   return geometry;
 }
 
-function rider(seed, kid, catalog, random) {
-  const type = kid ? 'estudiante' : ADULT_TYPES[seed % ADULT_TYPES.length];
-  const person = rollPerson(type, { random, sinCarga: true });
+function rider(index, kid, catalog) {
+  const type = kid ? 'nino' : ADULT_TYPES[index % ADULT_TYPES.length];
+  const person = rollPerson(type, { seed: `moto:${kid ? 'nino' : 'adulto'}:${index}`, sinCarga: true });
   person.real.accesorios = [];
   person.real.cabeza = 'sin-sombrero';
   if (kid) person.real.edad = 'joven';
+  const alto = person.real.talla?.alto ?? 1;
   delete person.real.talla;
   const look = personLook(person);
   look.real = normalizeReal(catalog, person.real);
+  look.alto = kid ? 1 : Math.min(1.06, Math.max(.94, alto));
   return look;
 }
 
@@ -229,7 +231,7 @@ async function bakeLook(look, kid) {
   const size = kid ? KID_SCALE : 1;
   const character = await createRealisticCharacter(look, { lod: true });
   const { group } = character;
-  group.scale.setScalar(size);
+  group.scale.setScalar(size * (look.alto ?? 1));
   group.rotation.y = Math.PI / 2;
   group.updateMatrixWorld(true);
   const bones = [], skinned = [];
@@ -275,11 +277,9 @@ let built = null;
 export function bakeRiders() {
   built ??= (async () => {
     const catalog = await loadCatalog();
-    let state = 20260611;
-    const random = () => (state = (Math.imul(state, 1664525) + 1013904223) >>> 0) / 4294967296;
     const result = { adult: [], kid: [] };
     for (const kind of ['adult', 'kid']) {
-      for (let i = 0; i < RIDER_LOOKS[kind]; i++) result[kind].push(await bakeLook(rider(i, kind === 'kid', catalog, random), kind === 'kid'));
+      for (let i = 0; i < RIDER_LOOKS[kind]; i++) result[kind].push(await bakeLook(rider(i, kind === 'kid', catalog), kind === 'kid'));
     }
     return result;
   })().catch(error => { built = null; throw error; });
