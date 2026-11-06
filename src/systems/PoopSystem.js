@@ -3,6 +3,8 @@ import * as THREE from 'three';
 import { PoopProjectile } from '../entities/PoopProjectile.js';
 import { ITEMS } from '../data/items.js';
 
+const SQUAT_SECONDS = 1.6;
+
 export class PoopSystem {
   /**
    * @param {THREE.Scene} scene
@@ -42,7 +44,8 @@ export class PoopSystem {
     }
 
     this.poopCooldown = 2.2;
-    player?.playAction?.('cagar', 1.0);
+    // En cuclillas solo si el cuerpo está libre: no corta un golpe, un salto ni otra acción.
+    if (!player?.action && !player?.attack && player?.isGrounded !== false) player?.playAction?.('cagar', SQUAT_SECONDS);
     this.audio?.playFart?.();
 
     if (this.stats) {
