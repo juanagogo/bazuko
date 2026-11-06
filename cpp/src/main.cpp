@@ -508,6 +508,10 @@ int main(int argc, char** argv) {
     const auto talentEffect = [&](const std::string& key, float base = 1.0f) {
         return gameData.TalentEffect(unlockedTalents, key, base);
     };
+    // El jibaro (DEALER_MARKUP y SUBSTANCE_PRICE_MULT del original): cobra 2,5 veces el valor de una unidad y de noche paga 1,8 veces, por unidad redondeada, mas lo que
+    // sume el talento «Contactos» (substancePriceMult, +30 %). Comprarle para revenderle nunca deja ganancia.
+    const auto dealerPriceEach = [](const Item& item) { return static_cast<int>(std::round(static_cast<float>(item.value) * 2.5f)); };
+    const auto dealerOfferEach = [&](const Item& item) { return static_cast<int>(std::round(static_cast<float>(item.value) * 1.8f * talentEffect("substancePriceMult"))); };
     const auto cambucheBuilt = [&](const std::string& id) {
         const auto& state = simulation.GetCambucheState();
         return id == "base" ? state.base : id == "techo" ? state.techo : id == "paredes" ? state.paredes
@@ -1306,7 +1310,7 @@ int main(int argc, char** argv) {
                             continue;
                         }
                         soldQuantity += entry->quantity;
-                        earned += std::round(static_cast<float>(item.value * entry->quantity) * 1.8f * 1.3f * talentEffect("substancePriceMult"));
+                        earned += static_cast<float>(dealerOfferEach(item) * entry->quantity);
                         inventoryWeight = std::max(0.0f, inventoryWeight - item.weight * entry->quantity);
                         entry = inventory.erase(entry);
                     }
@@ -2447,7 +2451,7 @@ int main(int argc, char** argv) {
             for (const auto& entry : inventory) {
                 const Item& item = lootTable[entry.itemIndex];
                 if (!item.substance) continue;
-                sales.push_back({item.id, item.name, entry.quantity, static_cast<int>(std::round(static_cast<float>(item.value) * 1.8f * 1.3f * talentEffect("substancePriceMult")))});
+                sales.push_back({item.id, item.name, entry.quantity, dealerOfferEach(item)});
             }
             ui.SetDealerSales(std::move(sales), simulation.IsNight());
         }
@@ -2462,7 +2466,7 @@ int main(int argc, char** argv) {
             std::snprintf(weightText, sizeof(weightText), "%.2g", item->weight);
             for (char* c = weightText; *c; ++c) if (*c == '.') *c = ',';
             detail += std::string(", pesa ") + weightText + " kg";
-            dealerOptions.push_back({item->id, item->name, item->value, money >= item->value,
+            dealerOptions.push_back({item->id, item->name, dealerPriceEach(*item), money >= static_cast<float>(dealerPriceEach(*item)),
                                      inventoryWeight + item->weight <= inventoryCapacity(), detail});
         }
         std::vector<TalentOption> talentOptions;
@@ -2561,7 +2565,7 @@ int main(int argc, char** argv) {
                     ui.SetPickupNotification("Cayó la policía y se llevó la mercancía.");
                     simulation.CallPolice(playerPos, 0.5f);
                 } else {
-                    const float earned = std::round(static_cast<float>(item.value * quantity) * 1.8f * 1.3f * talentEffect("substancePriceMult"));
+                    const float earned = static_cast<float>(dealerOfferEach(item) * quantity);
                     money += earned;
                     audio.Play(AudioCue::Sell);
                     ui.SetPickupNotification("Vendiste " + std::to_string(quantity) + " " + item.name + " al jíbaro por $" + std::to_string(static_cast<int>(earned)) + ".");
@@ -2575,12 +2579,12 @@ int main(int argc, char** argv) {
                 [&](const Item& entry) { return entry.id == dealerPurchase && entry.substance; });
             if (item == lootTable.end()) {
                 LogWarn("El menu del dealer solicito un articulo desconocido: {}", dealerPurchase);
-            } else if (money < item->value) {
+            } else if (money < static_cast<float>(dealerPriceEach(*item))) {
                 ui.SetPickupNotification("No tienes dinero suficiente para comprar " + item->name + ".");
             } else if (!addLootById(item->id)) {
                 ui.SetPickupNotification("No cabe " + item->name + " en el costal.");
             } else {
-                money -= static_cast<float>(item->value);
+                money -= static_cast<float>(dealerPriceEach(*item));
                 audio.Play(AudioCue::Pickup);
                 ui.SetPickupNotification("Compraste " + item->name + " al dealer.");
             }
