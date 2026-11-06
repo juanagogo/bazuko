@@ -1314,3 +1314,60 @@ test('las motos se apilan en filas delante del primer carro en el rojo y salen p
   for (const [moto, at] of crossed) assert.ok(at <= carCrossed, `Una moto de la caja cruzó ${(at - carCrossed).toFixed(1)} s después del carro`);
   traffic.dispose();
 });
+
+// Dos filas por carril en las vías de un solo carril: cada tramo dice hasta dónde llega la calzada y las filas caben en ella.
+test('las vías de un carril en Ultra reparten dos filas dentro de la calzada sin tocar el eje ni el parqueo', () => {
+  const routes = new Bogota().getTrafficRoutes();
+  const single = [...new Set([...routes, ...routes.alternatives])].filter(route => !route.wide);
+  assert.ok(single.length >= 2, 'Faltan vías de un carril');
+  let withFiles = 0;
+  for (const route of single) for (const segment of route.segments) {
+    const layout = segment.layout;
+    assert.ok(layout, `Tramo sin reparto en ${route.key}`);
+    for (const lateral of [layout.inner, layout.outer, layout.moto, layout.wide]) {
+      assert.ok(lateral > -layout.reachOut - .05 && lateral < layout.reachIn + .05, `Lateral ${lateral} fuera de la calzada en ${route.key}`);
+    }
+    if (!layout.files) continue;
+    withFiles++;
+    assert.ok(layout.inner - layout.outer >= 1.75, `Filas a ${layout.inner - layout.outer} m en ${route.key}`);
+    assert.ok(layout.inner + .8 <= layout.reachIn + .13 && layout.outer - .8 >= -layout.reachOut - .13, `Fila fuera de la calzada en ${route.key}`);
+  }
+  assert.ok(withFiles >= 4, `Solo ${withFiles} tramos con dos filas`);
+});
+
+test('en Ultra los carros hacen cola en dos filas dentro del carril y todos salen con el verde', () => {
+  const scene = new THREE.Scene();
+  const route = new TrafficRoute(0, 600, 0, 90);
+  for (const segment of route.segments) segment.layout = { center: 0, reachIn: 2, reachOut: 2, files: true, inner: 1, outer: -1, moto: 0, wide: 0 };
+  const traffic = new TrafficSystem(scene, [route], { carsPerRoute: 0, random: () => .5 });
+  traffic.setDensity('ultra');
+  const signals = traffic.signals = new TrafficSignals();
+  const node = signals.nodes[0] = { x0: 200, x1: 212, z0: -6, z1: 6 };
+  signals.nodes.length = 1;
+  traffic._motoThreshold = 11;
+  const cars = [];
+  for (let i = 0; i < 9; i++) cars.push(traffic._spawn(scene, route, 60 + i * 9, false));
+  assert.ok(cars.every(vehicle => !vehicle.car.isMoto && !vehicle.wide));
+  let time = 14;
+  const step = () => { time += .05; signals.update(time); traffic.update(.05); };
+  for (let frame = 0; frame < 20 * 20; frame++) step();
+  assert.ok(cars.every(vehicle => vehicle.speed < .1), 'Todos esperan en el rojo');
+  assert.equal(new Set(cars.map(vehicle => vehicle.lateral.toFixed(1))).size, 2, 'Dos filas');
+  for (const vehicle of cars) assert.ok(Math.abs(vehicle.lateral) + vehicle.car.width / 2 <= 2 + .05, `Fila a ${vehicle.lateral} m del eje`);
+  let sideBySide = 0;
+  for (let i = 0; i < cars.length; i++) for (let j = i + 1; j < cars.length; j++) {
+    const a = cars[i].car, b = cars[j].car;
+    const along = Math.abs(a.position.x - b.position.x), across = Math.abs(a.position.z - b.position.z);
+    if (along < 2 && across > 1.7) sideBySide++;
+    assert.ok(along >= (a.length + b.length) / 2 - .01 || across >= (a.width + b.width) / 2, 'Dos carros se montaron');
+  }
+  assert.ok(sideBySide >= 3, `Solo ${sideBySide} parejas lado a lado`);
+  let passed = 0;
+  while (time < 36 + 25) {
+    step();
+    passed = cars.filter(vehicle => vehicle.car.position.x > node.x1).length;
+    if (passed === cars.length) break;
+  }
+  assert.equal(passed, cars.length, 'Todos terminan saliendo con el verde');
+  traffic.dispose();
+});

@@ -77,6 +77,8 @@ const BOX_REACH = 16, BOX_SCAN = 44, BOX_SLACK = 1.5, BOX_SLOW = 2.5, BOX_PATIEN
 const BOX_LATERALS = Object.freeze([MOTO_LATERAL, .45, -.5]);
 const BOX_SETBACK = 9.7, BOX_ROWS = 4, BOX_GAP = .4, BOX_REACH_LINE = 32, BOX_CROSS = 16;
 // Desde esta distancia a la línea la moto ya pasó la trompa del primer carro: elige su puesto y se abre hacia él.
+// Las filas de carros en una vía de un carril: el carro se acomoda a su fila a esta velocidad lateral, en metros por segundo.
+const FILE_STEER = 1;
 const BOX_CHOOSE_FROM = BOX_SETBACK - 2, BOX_STEER = 2.5;
 // Metros por delante para saber si un carro que nace fuera de la vista va a entrar en ella.
 const ENTER_LOOKAHEAD = 30;
@@ -177,7 +179,8 @@ export class TrafficSystem {
     const kind = police ? 'police' : buseta ? 'buseta' : moto ? 'moto' : count * 7 % 10 < 3 ? 'taxi' : 'carro';
     const rotation = Math.atan2(-this._direction.z, this._direction.x);
     // La moto nace ya en su franja, para no saltar al primer cuadro.
-    if (moto) this._lateral(this._position, this._direction, MOTO_LATERAL * (route.laneSide ?? 1));
+    const file = count % 2 ? 1 : -1, lateral = this._fileLateral(route, distance, { moto, wide: buseta, file });
+    if (lateral) this._lateral(this._position, this._direction, lateral);
     const car = moto ? this._newMoto(count, rotation)
       : new Car(scene, this._position, rotation, { traffic: true, kind, variant: count * 37 });
     // La vía manda la velocidad: avenida o calle; la moto pica más y la buseta va cargada.
@@ -188,9 +191,30 @@ export class TrafficSystem {
       routeTimer: 3 + random() * 5, recentRoutes: [route.key], routeChanges: 0,
       lastHonkTime: 0, police, state: 'patrol', chaseTime: 0 };
     // Las motos van por su franja y tienen el hueco de frenado corto, para apretarse en la cola.
-    if (moto) { vehicle.lateral = MOTO_LATERAL * (route.laneSide ?? 1); vehicle.gap = MOTO_GAP; }
+    vehicle.file = file; vehicle.wide = buseta;
+    if (lateral) vehicle.lateral = lateral;
+    if (moto) vehicle.gap = MOTO_GAP;
     this.vehicles.push(vehicle);
     return vehicle;
+  }
+
+  /**
+   * Desplazamiento lateral con que va un vehículo en ese punto del circuito. En Ultra, las vías de un carril llevan dos filas
+   * de carros dentro del carril (la moto va entre ellas si cabe); las anchas, la franja de la moto de siempre.
+   */
+  _fileLateral(route, distance, { moto, wide, file }) {
+    if (this.densityId !== 'ultra') return moto ? MOTO_LATERAL * (route.laneSide ?? 1) : 0;
+    const layout = route.layoutAt?.(distance);
+    if (!layout) return moto ? MOTO_LATERAL * (route.laneSide ?? 1) : 0;
+    return moto ? layout.moto : wide ? layout.wide : file > 0 ? layout.inner : layout.outer;
+  }
+
+  /** El carro se acomoda poco a poco a su fila cuando el tramo cambia el reparto. */
+  _fileStep(vehicle, dt) {
+    const target = this._fileLateral(vehicle.route, vehicle.distance, { moto: false, wide: vehicle.wide, file: vehicle.file });
+    const lateral = vehicle.lateral ?? 0;
+    if (target === lateral) return;
+    vehicle.lateral = lateral + THREE.MathUtils.clamp(target - lateral, -FILE_STEER * dt, FILE_STEER * dt);
   }
 
   /** Una moto del lote: variante, puestos ocupados y casco de cada persona salen del conteo, sin gastar azar. */
@@ -405,7 +429,8 @@ export class TrafficSystem {
       const visible = !!camera && !this._outOfView(position);
       if (visible && !fresh && fromViewSq < (fog * SPAWN_VISIBLE_FROM) ** 2) continue;
       // La moto nace en su franja, no en el eje del carril: ahí es donde puede encimarse con otra.
-      const strip = this._nextSpawnIsMoto() ? MOTO_LATERAL * (route.laneSide ?? 1) : 0;
+      const next = (this._spawnCount ?? 0) + 1;
+      const strip = this._fileLateral(route, distance, { moto: this._nextSpawnIsMoto(), wide: next % busetaEvery(this.densityId) === 0, file: next % 2 ? 1 : -1 });
       if (this._crowded(position.x + direction.z * strip, position.z - direction.x * strip, direction.x, direction.z)) continue;
       let score = 1;
       if (visible) score = 4;
@@ -1154,7 +1179,11 @@ export class TrafficSystem {
       vehicle.boxRoute = route;
       vehicle.boxExit = (distance + line + BOX_CROSS) % length;
     }
-    const target = (vehicle.boxColumn === undefined ? MOTO_LATERAL : BOX_LATERALS[vehicle.boxColumn]) * (route.laneSide ?? 1);
+    const layout = ultra ? route.layoutAt?.(distance) : null;
+    // En una vía de un carril las columnas se reparten alrededor del centro libre, sin salirse de la calzada.
+    const target = layout
+      ? THREE.MathUtils.clamp(vehicle.boxColumn === undefined ? layout.moto : layout.center + BOX_LATERALS[vehicle.boxColumn] - BOX_LATERALS[1], .4 - layout.reachOut, layout.reachIn - .4)
+      : (vehicle.boxColumn === undefined ? MOTO_LATERAL : BOX_LATERALS[vehicle.boxColumn]) * (route.laneSide ?? 1);
     const step = BOX_STEER * dt;
     const next = vehicle.lateral + THREE.MathUtils.clamp(target - vehicle.lateral, -step, step);
     if (next === vehicle.lateral || this._stripFree(vehicle, next)) vehicle.lateral = next;
@@ -1439,6 +1468,7 @@ export class TrafficSystem {
             continue;
           }
           if (vehicle.car.isMoto) this._boxStep(vehicle, stepTime);
+          else if (this.densityId === 'ultra' && !vehicle.police) this._fileStep(vehicle, stepTime);
           const clearance = this._clearance(vehicle, player, pedestrians);
           const braking = vehicle.braking ?? BRAKING;
           // Anticipa la respuesta gradual del conductor; el peatón no es una pared

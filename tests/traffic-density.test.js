@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
-  DEFAULT_TRAFFIC_DENSITY, TRAFFIC_DENSITY_LEVELS,
+  DEFAULT_TRAFFIC_DENSITY, TRAFFIC_DENSITY_LEVELS, trafficDensityChoosable,
   motoThreshold, trafficDensityMidday, trafficDensityId, trafficHourFactor, trafficTargetVehicles,
 } from '../src/systems/trafficDensity.js';
 
@@ -45,4 +45,13 @@ test('la flota escala con el nivel y con la hora, con un piso y un techo', () =>
 test('Ultra pone mucha más moto que el resto: tres de cada cuatro vehículos en el pico', () => {
   assert.ok(motoThreshold(7.5, 'ultra') <= motoThreshold(7.5, 'maxima') - 2);
   assert.ok(motoThreshold(7.5, 'ultra') <= 3);
+});
+
+test('Ultra es la densidad de todos y solo los trucos permiten elegir otra', () => {
+  assert.equal(DEFAULT_TRAFFIC_DENSITY, 'ultra');
+  assert.equal(trafficDensityId(undefined), 'ultra');
+  assert.equal(trafficDensityChoosable(''), false);
+  assert.equal(trafficDensityChoosable('?animaciones=mixamo-preview'), false);
+  assert.equal(trafficDensityChoosable('?trucos'), true);
+  assert.equal(trafficDensityChoosable('?a=1&trucos'), true);
 });

@@ -425,7 +425,57 @@ export class Bogota {
     const doubled = twoLanes(routes);
     doubled.alternatives = twoLanes(routes.alternatives);
     routes.twoLanes = doubled;
+    this._fileLayouts([...routes, ...routes.alternatives]);
     return routes;
+  }
+
+  /**
+   * Dos filas de carros por carril en las vías de un solo carril por sentido. Cada tramo recto guarda hasta dónde llega la
+   * calzada hacia el andén (con puestos de parqueo, solo lo que deja libre el carro parqueado) y hasta el eje, y de ahí salen
+   * los desplazamientos laterales de cada fila, de la moto y del vehículo ancho. Positivo es hacia el eje de la calle.
+   */
+  _fileLayouts(routes) {
+    const FILE_HALF = .8, FILE_MIN = 3.4, FILE_ROOMY = 4.5, FILE_GAP = 2, FILE_GAP_ROOMY = 2.9, AXIS_MARGIN = .25, PARKED_REACH = 1.25;
+    this.map ??= this._layout();
+    const spots = this.getParkingSpots();
+    const road = (x, z) => this.map[Math.round(z / T)]?.[Math.round(x / T)] === 'road';
+    const seen = new Set();
+    for (const route of routes) {
+      if (route.wide || seen.has(route)) continue;
+      seen.add(route);
+      for (const segment of route.segments) {
+        if (segment.radius) continue;
+        const nx = -segment.dz, nz = segment.dx;
+        let curb = Infinity;
+        for (let along = 1; along < segment.length; along += 2) {
+          const x = segment.x + segment.dx * along, z = segment.z + segment.dz * along;
+          let side = 0;
+          while (side < 8 && road(x + nx * side, z + nz * side)) side += .25;
+          if (side < 8) curb = Math.min(curb, side - .125);
+        }
+        if (!Number.isFinite(curb)) continue;
+        const parked = spots.some(spot => {
+          const dx = spot.x - segment.x, dz = spot.z - segment.z;
+          const along = dx * segment.dx + dz * segment.dz, side = dx * nx + dz * nz;
+          return along > -2 && along < segment.length + 2 && side > 1.5 && side < curb + .5;
+        });
+        const reachIn = curb - AXIS_MARGIN, reachOut = parked ? PARKED_REACH : curb - .1, center = (reachIn - reachOut) / 2;
+        const free = reachIn + reachOut;
+        const spread = free >= FILE_ROOMY ? FILE_GAP_ROOMY : Math.min(FILE_GAP, free - 2 * FILE_HALF);
+        const files = free >= FILE_MIN;
+        segment.layout = {
+          center, reachIn, reachOut, files,
+          inner: files ? center + spread / 2 : center, outer: files ? center - spread / 2 : center,
+          // Con sitio la moto va entre las dos filas y el vehículo ancho junto a la de dentro; sin él, todos van al centro.
+          moto: free >= FILE_ROOMY ? center : Math.min(center + 1.4, reachIn - .4), wide: free >= FILE_ROOMY ? center + 1.1 : center,
+        };
+      }
+      route.segments.forEach((segment, index, all) => {
+        if (!segment.radius) return;
+        const before = all.at(index - 1).layout, after = all[(index + 1) % all.length].layout;
+        segment.layout = !before ? after : !after ? before : before.reachIn + before.reachOut <= after.reachIn + after.reachOut ? before : after;
+      });
+    }
   }
 
   getBusRoute() {

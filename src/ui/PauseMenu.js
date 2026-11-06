@@ -267,9 +267,9 @@ function settingsPanel(game) {
         el('p', { class: 'pause-hint', text: `Baja va más fluido. Si el equipo no da, baja sola sin cambiar lo elegido.${qualityNow}` }),
         row('Rendimiento', choice(game.performanceHUD?.visible ? 'Visible (F3)' : 'Oculto (F3)', !!game.performanceHUD?.visible,
           () => { game.performanceHUD?.toggle(); game.menu.refresh(); })),
-        row('Densidad de tráfico', el('div', { class: 'pause-segmented', role: 'group', 'aria-label': 'Densidad de tráfico' },
+        ...(game.trafficDensityChoosable ? [row('Densidad de tráfico', el('div', { class: 'pause-segmented', role: 'group', 'aria-label': 'Densidad de tráfico' },
           TRAFFIC_DENSITY_LEVELS.map(({ id, label }) => choice(label, (game.trafficDensity ?? DEFAULT_TRAFFIC_DENSITY) === id,
-            () => { game.setTrafficDensity?.(id); game.menu.refresh(); }))))),
+            () => { game.setTrafficDensity?.(id); game.menu.refresh(); }))))] : [])),
       section('user', 'Personaje y radio',
         el('div', { class: 'pause-actions' },
           button([icon('body', { size: 18 }), game.player?.modelKind === 'realista' ? 'Usar personaje liviano (K)' : 'Usar personaje realista (K)'], {

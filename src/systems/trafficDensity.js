@@ -9,7 +9,10 @@ export const TRAFFIC_DENSITY_LEVELS = [
   { id: 'maxima', label: 'Máxima', midday: 38 },
   { id: 'ultra', label: 'Ultra', midday: 420 },
 ];
-export const DEFAULT_TRAFFIC_DENSITY = 'normal';
+export const DEFAULT_TRAFFIC_DENSITY = 'ultra';
+
+/** Elegir densidad es cosa de desarrolladores: solo con `?trucos` en la dirección. Sin trucos, siempre Ultra. */
+export function trafficDensityChoosable(search = '') { return new URLSearchParams(search).has('trucos'); }
 
 // Una de cada cinco busetas: la flota se ve con más de transporte público. Ultra va más cargado de buses.
 export const BUSETA_EVERY = 5;
