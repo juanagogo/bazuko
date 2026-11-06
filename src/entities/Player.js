@@ -109,6 +109,7 @@ export class Player {
 
     // Combate cuerpo a cuerpo: `attack` = { weapon, step, phase: windup|active|recovery, t, progress, timing }
     this.equippedWeapon = DEFAULT_WEAPON;
+    this._radioHeld = false; // la radio va en la mano izquierda mientras esté prendida
 
     // Cigarrillo o porro: `smoking` = { kind, left, nextPuff, puff } (segundos; `puff` corre durante la calada)
     this.smoking = null;
@@ -321,6 +322,15 @@ export class Player {
     }
   }
 
+  /** La radio va en la mano izquierda mientras esté prendida; se guarda al apagarla. */
+  _syncHeldRadio() {
+    const on = !!this.game?.radio?.isOn;
+    if (on === this._radioHeld) return;
+    this._radioHeld = on;
+    this.procedural?.setHeldRadio?.(on);
+    this._realistic?.setHeldRadio?.(on);
+  }
+
   setLook(look) {
     this.look = look;
     this.procedural.setLook(look);
@@ -355,6 +365,7 @@ export class Player {
       this._realistic.setWeapon?.(this.equippedWeapon === DEFAULT_WEAPON ? null : this.equippedWeapon);
       this._realistic.setSmoking?.(this._holdingCigarette, this.smoking?.kind);
       this._realistic.setBasuco?.(!!this.basuco && !this.basuco.stowed);
+      this._realistic.setHeldRadio?.(this._radioHeld);
       this._realistic.clearSleepPose?.();
     } else {
       this.root.remove(this.character.group);
@@ -363,6 +374,7 @@ export class Player {
       this.procedural.setWeapon?.(this.equippedWeapon === DEFAULT_WEAPON ? null : this.equippedWeapon);
       this.procedural.setSmoking?.(this._holdingCigarette, this.smoking?.kind);
       this.procedural.setBasuco?.(!!this.basuco && !this.basuco.stowed);
+      this.procedural.setHeldRadio?.(this._radioHeld);
     }
     this.root.add(this.character.group);
   }
@@ -735,6 +747,7 @@ export class Player {
       || !!this.action || this.sorting || !!this.attack || !!this.smoking || !!this.basuco);
 
     // Animación del personaje (velocidad en metros del modelo, no del mundo)
+    this._syncHeldRadio();
     this.character.update(dt, {
       stance,
       style: this.bodyStyle,
