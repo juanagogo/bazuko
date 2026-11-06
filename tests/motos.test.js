@@ -3,6 +3,7 @@ import { test } from 'node:test';
 import * as THREE from 'three';
 import { MOTO_CAPACITY, MOTO_LATERAL, MOTO_LOAD_COUNT, MOTO_LAYOUTS, MOTO_VARIANTS, MotoFleet, motoLoad } from '../src/world/bogota/motos.js';
 import { Moto } from '../src/entities/Moto.js';
+import { MotoRiders, RIDER_ROLES } from '../src/world/bogota/motoRiders.js';
 import { trafficTargetVehicles, motoShare } from '../src/systems/trafficDensity.js';
 
 /** Cuenta vértices por puesto, por casco y por parte en la geometría de una variante. */
@@ -19,22 +20,30 @@ function tags(geometry) {
   return { seats, parts, helmetVerts, garmentVerts, total: rider.length / 4 };
 }
 
-test('cada variante trae su geometría con los puestos, el casco y los accesorios marcados', () => {
-  const fleet = new MotoFleet(new THREE.Group(), 4);
+// Gente de mentira para las pruebas: la de verdad se hornea en el navegador con los modelos de la calle.
+const fakeBake = async () => {
+  const person = () => {
+    const geometry = new THREE.BoxGeometry(.3, .8, .3);
+    geometry.setAttribute('aPart', new THREE.Float32BufferAttribute(new Float32Array(geometry.attributes.position.count), 1));
+    return geometry;
+  };
+  return { adult: [{ driver: person(), pillion: person() }, { driver: person(), pillion: person() }], kid: [{ tank: person(), pillion: person() }] };
+};
+
+test('cada variante trae su geometría con los puestos y los accesorios marcados', () => {
+  const fleet = new MotoFleet(new THREE.Group(), 4, { bake: fakeBake });
   const geoms = fleet.batches.map(batch => batch.mesh.geometry);
   assert.equal(geoms.length, MOTO_VARIANTS.length);
   geoms.forEach((geometry, index) => {
-    const { seats, parts, helmetVerts, garmentVerts, total } = tags(geometry);
+    const { seats, parts, total } = tags(geometry);
     assert.equal(total, geometry.attributes.position.count, `Variante ${MOTO_VARIANTS[index]}`);
     assert.ok(seats[0] > 0, `${MOTO_VARIANTS[index]} sin conductor`);
-    assert.ok(helmetVerts > 0, `${MOTO_VARIANTS[index]} sin casco que esconder`);
-    assert.ok(garmentVerts > 0, `${MOTO_VARIANTS[index]} sin ropa teñible`);
     assert.equal(geometry.attributes.aRider.itemSize, 4);
     assert.equal(geometry.attributes.aSeatAt.itemSize, 3);
     // El presupuesto se mantiene por variante: siguen siendo pocos triángulos por moto.
     assert.ok(geometry.index.count / 3 < 15000, `${MOTO_VARIANTS[index]} con demasiados triángulos`);
-    // Piernas, brazos, bolsa y morral: las partes que la animación y los accesorios necesitan.
-    for (const part of [2, 3, 4, 5]) assert.ok(parts.get(part) > 0, `${MOTO_VARIANTS[index]} sin parte ${part}`);
+    // La gente la dibuja motoRiders; la moto solo trae lo que cargan: bolsa y morral.
+    for (const part of [4, 5]) assert.ok(parts.get(part) > 0, `${MOTO_VARIANTS[index]} sin parte ${part}`);
   });
   // El domicilio lleva la caja en la parrilla: nadie va sentado detrás del conductor.
   const delivery = tags(geoms[MOTO_VARIANTS.indexOf('domicilio')]);
@@ -59,7 +68,7 @@ test('la carga reparte de una a cinco personas, con niños delante y atrás', ()
   assert.deepEqual([...family.occupancy], [true, true, true, true, true]);
   assert.deepEqual([...family.kids], [false, true, true, true, false]);
   // El lote sostiene cientos de motos repartidas entre las cuatro variantes.
-  const budget = new MotoFleet(new THREE.Group());
+  const budget = new MotoFleet(new THREE.Group(), MOTO_CAPACITY, { bake: fakeBake });
   assert.ok(budget.batches.every(batch => batch.capacity === MOTO_CAPACITY));
   assert.ok(MOTO_CAPACITY >= 128, 'el tráfico denso pone cientos de motos');
   budget.dispose();
@@ -75,7 +84,7 @@ test('la carga reparte de una a cinco personas, con niños delante y atrás', ()
 });
 
 test('la flota dibuja una instancia por moto viva y la esconde cuando se apaga', () => {
-  const fleet = new MotoFleet(new THREE.Group(), 8);
+  const fleet = new MotoFleet(new THREE.Group(), 8, { bake: fakeBake });
   const moto = new Moto(new THREE.Vector3(10, 0, 5), .5, {
     variant: 0, occupancy: [true, true, true, false, false], helmets: [true, false, true, false, false],
     kids: [false, true, false, false, false], bags: [false, false, true, false, false],
@@ -105,4 +114,35 @@ test('las motos son una tajada mayor de la flota en las horas pico', () => {
   assert.ok(motoShare(7) > motoShare(3) + .05, `${motoShare(7)} contra ${motoShare(3)}`);
   assert.ok(motoShare(7) <= .5 && motoShare(3) >= .25);
   assert.ok(trafficTargetVehicles(7, 'normal') > trafficTargetVehicles(3, 'normal'));
+});
+
+test('quien va montado sale de los modelos de la calle: una instancia por persona, con su pose y su casco', async () => {
+  const root = new THREE.Group();
+  const fleet = new MotoFleet(root, 8, { bake: fakeBake });
+  await fleet.ready;
+  assert.deepEqual(RIDER_ROLES, ['driver', 'tank', 'pillion']);
+  assert.equal(fleet.riders.lots.size, 6);
+  const moto = new Moto(new THREE.Vector3(3, 0, 2), 0, {
+    variant: 0, occupancy: [true, true, true, false, false], helmets: [true, false, false, false, false],
+    kids: [false, true, false, false, false], bags: [], packs: [], cloth: [1, 4, 2, 0, 0], color: '#1d3f7a', phase: 1.2
+  });
+  const vehicle = { car: moto, speed: 2, acceleration: 0, _driveContext: { steering: 0 } };
+  fleet.sync([vehicle], new THREE.Vector3(0, 0, 0));
+  assert.equal(fleet.ridersDrawn, 3);
+  const lots = [...fleet.riders.lots.entries()].filter(([, lot]) => lot.count);
+  const names = lots.map(([key]) => key.split(':')[0] + ':' + key.split(':')[2]).sort();
+  assert.deepEqual(names, ['adult:driver', 'adult:pillion', 'kid:tank']);
+  const driver = lots.find(([key]) => key.endsWith(':driver'))[1];
+  assert.equal(driver.helmet.array[3], 1, 'el conductor lleva casco');
+  const pillion = lots.find(([key]) => key.startsWith('adult') && key.endsWith(':pillion'))[1];
+  assert.equal(pillion.helmet.array[3], 0, 'el de atrás va sin casco');
+  assert.ok(driver.mesh.visible && driver.mesh.count === 1);
+  // Lejos de quien mira solo viajan con la moto: siguen dibujándose, sin cabeceo propio.
+  fleet.sync([vehicle], new THREE.Vector3(500, 0, 500));
+  assert.equal(fleet.ridersDrawn, 3);
+  moto.setDrawn(false);
+  fleet.sync([vehicle]);
+  assert.equal(fleet.ridersDrawn, 0);
+  assert.ok([...fleet.riders.lots.values()].every(lot => !lot.mesh.visible));
+  fleet.dispose();
 });

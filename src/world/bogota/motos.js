@@ -4,6 +4,7 @@
 import * as THREE from 'three';
 import { Batch, COLOR, addGeo, addGrid, bar, box, tube } from './carParts.js';
 import { chainSunField } from './SunFieldShader.js';
+import { MotoRiders, RIDER_SWAY_RANGE } from './motoRiders.js';
 
 export const MOTO_SIZE = Object.freeze({ length: 2, width: .72, height: 1.08 });
 export const MOTO_COLORS = ['#c21d1a', '#1a1c20', '#e6e6e4', '#1d3f7a', '#6d7377', '#b98a1b', '#20262c'];
@@ -284,33 +285,12 @@ class MotoBatch extends Batch {
   mark({ head = 0, garment = 0, part = 0 } = {}) { this.head = head; this.garment = garment; this.part = part; }
 }
 
-const SKIN = [.72, .53, .4];
-const HELMET_VISOR = [.05, .06, .07];
 const BAG = [.85, .72, .10];
-// El morral y la ropa salen blancos y el sombreador los tiñe con el color de la persona; el casco lo pinta el de la moto.
+// El morral sale blanco y el sombreador lo tiñe con el color de la persona.
 
-/** Persona sentada: piernas al estribo o colgando, torso y brazos hasta donde agarra, y casco que puede no ponerse. */
-function addRider(b, seat, { x, y, hands, feet }) {
+/** Lo que lleva cada puesto: el morral a la espalda y la bolsa del mercado; la persona la dibuja motoRiders. */
+function addRider(b, seat, { x, y }) {
   b.seat(seat, [x, y, 0]);
-  b.mark({ part: 2 });
-  bar(b, [x, y + .02, .13], [feet[0], feet[1], feet[2]], .13, .14, { color: COLOR.dark, mirror: true });
-  b.mark();
-  box(b, [.30, .12, .34], [x, y + .06, 0], { color: COLOR.dark });
-  b.mark({ garment: 1 });
-  bar(b, [x, y + .10, 0], [x + .04, y + .44, 0], .26, .36, { color: WHITE });
-  b.mark({ garment: 1, part: 3 });
-  bar(b, [x + .03, y + .40, .14], [hands[0], hands[1], hands[2]], .09, .09, { color: WHITE, mirror: true });
-  b.mark({ part: 1 });
-  const neck = new THREE.SphereGeometry(.05, 6, 5);
-  addGeo(b, neck, { position: [x + .05, y + .50, 0], color: SKIN, scale: [1, 1.3, 1] });
-  const head = new THREE.SphereGeometry(.085, 7, 6);
-  addGeo(b, head, { position: [x + .06, y + .56, 0], color: SKIN });
-  // El casco va marcado aparte: el lote lo esconde cuando esa persona no lo lleva.
-  b.mark({ head: 1, part: 1 });
-  const helmet = new THREE.SphereGeometry(.105, 8, 6);
-  addGeo(b, helmet, { position: [x + .05, y + .57, 0], color: WHITE, metal: PAINTED, scale: [1, 1, 1.06] });
-  box(b, [.06, .04, .19], [x + .15, y + .55, 0], { color: HELMET_VISOR });
-  b.mark();
   b.mark({ garment: 1, part: 5 });
   box(b, [.26, .30, .16], [x - .20, y + .34, 0], { color: WHITE });
   b.mark({ part: 4 });
@@ -442,6 +422,7 @@ const SEATS = {
   domicilio: [URBANA_SEATS[0], null, null, null, null]
 };
 
+const NO_SWAY = { roll: 0, pitch: 0 };
 let variantGeometries = null;
 /** Una geometría por variante, con sus puestos ya horneados; el lote esconde los que van vacíos. */
 function motoVariantGeometries() {
@@ -468,7 +449,7 @@ export const MOTO_CAPACITY = 256;
  * desde los vehículos del tráfico y la esfera envolvente cubre lo vivo, para que el lote se descarte entero.
  */
 export class MotoFleet {
-  constructor(scene, capacity = MOTO_CAPACITY) {
+  constructor(scene, capacity = MOTO_CAPACITY, riderOptions = {}) {
     this.root = new THREE.Group();
     this.root.name = 'Motos en circulación';
     scene.add(this.root);
@@ -493,11 +474,15 @@ export class MotoFleet {
       return { mesh, bits: riders, packs, cloth, motion, capacity, count: 0, minX: 0, maxX: 0, minZ: 0, maxZ: 0 };
     });
     this._dummy = new THREE.Object3D();
+    // La gente que va montada son los modelos de la calle, horneados sentados y dibujados aparte.
+    this.riders = new MotoRiders(this.root, riderOptions);
+    this.ready = this.riders.ready;
   }
 
   /** Coloca cada moto viva en su lote; la que va apagada no ocupa instancia. Devuelve cuántas se dibujan. */
-  sync(vehicles) {
+  sync(vehicles, focus = null) {
     motoTime.value = performance.now() * .001;
+    this.riders.begin();
     for (const batch of this.batches) batch.count = 0;
     for (const vehicle of vehicles) {
       const moto = vehicle.car;
@@ -522,6 +507,19 @@ export class MotoFleet {
         if (packs[seat]) backpack |= 1 << seat;
         tint += ((cloth[seat] ?? 0) & 7) * 8 ** seat;
       }
+      const near = !focus || (x - focus.x) ** 2 + (z - focus.z) ** 2 < RIDER_SWAY_RANGE ** 2;
+      const speed = vehicle.speed ?? 0, accel = vehicle.acceleration ?? 0, steer = vehicle._driveContext?.steering ?? 0, phase = moto.phase ?? 0;
+      const sway = near ? {
+        roll: Math.max(-.6, Math.min(.6, steer)) * .45 + Math.sin(motoTime.value * .7 + phase) * .02,
+        pitch: Math.max(-.16, Math.min(.16, -accel * .04)) + Math.sin(motoTime.value * 2.1 + phase) * .02 * Math.min(Math.abs(speed), 6) / 6
+      } : NO_SWAY;
+      const seats = SEATS[MOTO_VARIANTS[moto.variant]];
+      for (let seat = 0; seat < 5; seat++) {
+        if (!occupancy[seat] || !seats[seat]) continue;
+        const kid = !!kids[seat], role = seat === 0 ? 'driver' : kid && seat === 1 ? 'tank' : 'pillion';
+        const look = Math.floor(phase * 97) + seat * 5 + (cloth[seat] ?? 0);
+        this.riders.add(kid ? 'kid' : 'adult', look, role === 'tank' && !kid ? 'pillion' : role, this._dummy.matrix, [seats[seat].x, seats[seat].y], sway, cloth[seat] ?? 0, helmets[seat] ? moto.color : null);
+      }
       const bits = batch.bits.array;
       bits[index * 4] = on; bits[index * 4 + 1] = head; bits[index * 4 + 2] = small; bits[index * 4 + 3] = bag;
       batch.packs.array[index] = backpack;
@@ -538,6 +536,7 @@ export class MotoFleet {
       }
       batch.count = index + 1;
     }
+    this.riders.end();
     for (const batch of this.batches) {
       const { mesh, count } = batch;
       mesh.count = count;
@@ -560,7 +559,11 @@ export class MotoFleet {
 
   get drawn() { return this.batches.reduce((sum, batch) => sum + batch.count, 0); }
 
+  /** Cuántas personas se dibujan montadas. */
+  get ridersDrawn() { return this.riders.drawn; }
+
   dispose() {
+    this.riders.dispose();
     for (const batch of this.batches) { this.root.remove(batch.mesh); batch.mesh.dispose(); }
     this.root.removeFromParent();
   }

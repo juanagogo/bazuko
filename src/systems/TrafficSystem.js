@@ -1164,7 +1164,7 @@ export class TrafficSystem {
       }
       remaining -= stepTime;
     }
-    this._motoFleet?.sync(this.vehicles);
+    this._motoFleet?.sync(this.vehicles, camera?.position);
     if (caught && !this._arrestDispatched) {
       this._arrestDispatched = true;
       emit('police-arrest', { reason: 'chase' });
