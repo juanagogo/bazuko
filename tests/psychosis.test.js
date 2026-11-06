@@ -4,7 +4,7 @@ import { beforeEach, test } from 'node:test';
 import * as THREE from 'three';
 import { StatsSystem } from '../src/systems/StatsSystem.js';
 import { PsychosisSystem, ATAQUE, MOTO_SOMBRA } from '../src/systems/PsychosisSystem.js';
-import { SOMBRAS, cantidadOla } from '../src/systems/ShadowPeople.js';
+import { SOMBRAS, cantidadOla, miradaSombra } from '../src/systems/ShadowPeople.js';
 import { seededRandom } from '../src/character/people.js';
 import { Player } from '../src/entities/Player.js';
 
@@ -326,4 +326,23 @@ test('los hombres sombra son negros, a medio transparentar, sin escribir en prof
 
 test('las motos sombra van a menos de la mitad de la velocidad anterior', () => {
   assert.ok(MOTO_SOMBRA.velocidad[1] <= 14 && MOTO_SOMBRA.velocidad[0] >= 8, 'de 9 a 13 m/s, antes de 20 a 30');
+});
+
+test('todos los hombres sombra salen del mismo cuerpo liso: sin prendas, pelo, barba ni accesorios, y solo varían estatura y contextura', () => {
+  const random = seededRandom('cuerpo-sombra');
+  const altos = [], anchos = [];
+  for (let i = 0; i < 200; i++) {
+    const mirada = miradaSombra(random);
+    assert.equal(mirada.soloCuerpo, true);
+    assert.deepEqual(Object.keys(mirada.real).sort(), ['edad', 'sexo', 'talla']);
+    for (const campo of ['pelo', 'barba', 'ropa', 'calzado', 'cabeza', 'accesorios', 'rostro', 'tonos', 'uniforme']) {
+      assert.equal(mirada.real[campo] ?? mirada[campo], undefined, campo);
+    }
+    assert.equal(mirada.real.sexo, 'hombre');
+    assert.equal(mirada.real.edad, 'adulto');
+    altos.push(mirada.real.talla.alto); anchos.push(mirada.real.talla.ancho);
+  }
+  assert.ok(Math.min(...altos) >= SOMBRAS.alto[0] && Math.max(...altos) <= SOMBRAS.alto[1]);
+  assert.ok(Math.min(...anchos) >= SOMBRAS.ancho[0] && Math.max(...anchos) <= SOMBRAS.ancho[1]);
+  assert.ok(Math.max(...altos) - Math.min(...altos) > .05, 'la estatura sí varía un poco');
 });

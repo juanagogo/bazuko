@@ -320,7 +320,8 @@ async function buildInstance(catalog, look, lod = false, profile = resolveAnimat
   const folder = `${BASE}${body.id}/`;
   // LOD: cuerpo proxy y piezas simplificadas (si el catálogo las trae)
   const useLod = lod && body.piezas[real.ropa]?.lod;
-  const parts = PART_CATS
+  // `soloCuerpo`: el cuerpo base liso, sin prendas, pelo, barba, calzado ni sombrero (los hombres sombra).
+  const parts = (look.soloCuerpo ? [] : PART_CATS)
     .map((cat) => ({ cat, info: body.piezas[real[cat]] }))
     .filter((p) => p.info?.file);
   // Las prendas no dependen de descargar el cuerpo: iniciar todo en paralelo.
