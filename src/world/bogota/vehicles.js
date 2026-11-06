@@ -7,6 +7,7 @@ import { getCarBody, getCarGeometry, getParkedTrim, makeWipers, wheelSeats } fro
 import { CAR_MODELS, CAR_MODEL_IDS, PRIVATE_MIX, MODEL_PAINTS, TAXI_COLOR, POLICE_COLOR } from './carModels.js';
 import { getCarAtlas, plateCell, ATLAS_SIZE, ATLAS_HEIGHT } from './carAtlas.js';
 import { getDetailMap } from './carDetail.js';
+import { pickLivery, liveryKey } from './busLiveries.js';
 import { chainSunField, fadeGlowInFog } from './SunFieldShader.js';
 
 export { PUBLIC_PLATES, PRIVATE_PLATES } from './carAtlas.js';
@@ -50,36 +51,52 @@ const neutralReflection = material => {
   material.customProgramCacheKey = () => 'reflejo-neutro';
   return chainSunField(material);
 };
+// Las seis ventanas de cada lado de la buseta van parejas (carModels.js): cada una tiene un bit en la máscara de la
+// buseta, y abierta se descarta su mitad delantera, la hoja corrida hacia atrás. Solo cuenta el vidrio de los costados.
+const WINDOW_VERTEX = `
+  float winIdx = clamp(floor((position.x + 3.46) / 1.18), 0., 5.);
+  float winBit = mod(floor(uOpen / exp2(winIdx + 6. * step(0., position.z))), 2.);
+  float winSide = step(.55, abs(position.z)) * step(1.5, position.y) * step(position.x, 3.36) * step(-3.5, position.x);
+  vWin = vec2(position.x, winBit * winSide);`;
+const WINDOW_FRAGMENT = `
+  if (vWin.y > .5) {
+    float winIdx = clamp(floor((vWin.x + 3.46) / 1.18), 0., 5.);
+    if ((vWin.x + 3.42 - winIdx * 1.18) / 1.10 < .5) discard;
+  }`;
+
 /** El vidrio lleva también la sombra de contacto: negra, con su opacidad en el vértice y atenta a la niebla. */
-const glassWithShadow = material => {
+const glassWithShadow = (material, openable = false) => {
   material.onBeforeCompile = shader => {
-    shader.vertexShader = `attribute float lamp;\nvarying float vShade;\n${shader.vertexShader}`
-      .replace('#include <begin_vertex>', '#include <begin_vertex>\n  vShade = lamp;');
-    shader.fragmentShader = `varying float vShade;\n${shader.fragmentShader}`
+    shader.vertexShader = `attribute float lamp;\nvarying float vShade;\n${openable ? 'uniform float uOpen;\nvarying vec2 vWin;\n' : ''}${shader.vertexShader}`
+      .replace('#include <begin_vertex>', `#include <begin_vertex>\n  vShade = lamp;${openable ? WINDOW_VERTEX : ''}`);
+    if (openable) shader.uniforms.uOpen = { value: material.userData.openMask };
+    shader.fragmentShader = `varying float vShade;\n${openable ? 'varying vec2 vWin;\n' : ''}${shader.fragmentShader}`
       .replace('#include <lights_fragment_end>', NEUTRAL_REFLECTION)
+      .replace('#include <clipping_planes_fragment>', `#include <clipping_planes_fragment>${openable ? WINDOW_FRAGMENT : ''}`)
       .replace('#include <fog_fragment>', `if (vShade > .5) gl_FragColor = vec4(0., 0., 0., (vShade - 1.) * min(opacity / .66, 1.));
         #include <fog_fragment>`);
   };
-  material.customProgramCacheKey = () => 'vidrio-con-sombra';
+  material.customProgramCacheKey = () => openable ? 'vidrio-con-sombra-ventanas' : 'vidrio-con-sombra';
   return chainSunField(material);
 };
 
 // Esmalte y vidrio se comparten por modelo y color: la flota entera usa unas pocas variantes y la GPU no rearma su
 // estado en cada carro. No se liberan: viven lo que dura la sesión, como el atlas y las geometrías.
 const PAINTS = new Map();
-function createPaint(modelId, color, spec, body) {
-  const paint = new THREE.MeshPhysicalMaterial({ color, map: getDetailMap(spec, body), vertexColors: true });
-  Object.assign(paint, finishOf(paint.color));
+function createPaint(modelId, color, spec, body, livery = null) {
+  // Con librea el esmalte es blanco y los colores van en la textura de detalle: así el techo puede ser de otro tono.
+  const paint = new THREE.MeshPhysicalMaterial({ color: livery ? '#ffffff' : color, map: getDetailMap(spec, body, livery), vertexColors: true });
+  Object.assign(paint, finishOf(livery ? new THREE.Color(livery.body) : paint.color));
   paint.name = 'Esmalte';
   // La lluvia cambia la rugosidad: se guarda la de seco para poder volver.
   paint.userData.dryRoughness = paint.roughness;
   return neutralReflection(paint);
 }
-function sharedPaint(modelId, color, spec, body) {
+function sharedPaint(modelId, color, spec, body, livery = null) {
   // Los tonos llegan como texto o como Color; la clave usa su hexadecimal.
-  const key = `${modelId}:${color?.isColor ? color.getHexString() : color}`;
+  const key = livery ? `${modelId}:${livery.key}` : `${modelId}:${color?.isColor ? color.getHexString() : color}`;
   let paint = PAINTS.get(key);
-  if (!paint) PAINTS.set(key, paint = createPaint(modelId, color, spec, body));
+  if (!paint) PAINTS.set(key, paint = createPaint(modelId, color, spec, body, livery));
   return paint;
 }
 
@@ -92,6 +109,15 @@ function createGlass() {
   return glassWithShadow(glass);
 }
 function sharedGlass() { return GLASS ??= createGlass(); }
+/** Vidrio de buseta: más claro para que se lea la gente y con su propia máscara de ventanas abiertas. */
+function busGlass(mask) {
+  const glass = new THREE.MeshPhysicalMaterial({ color: '#3a4b50', metalness: .05, roughness: .1, envMapIntensity: .75,
+    transparent: true, opacity: .42, depthWrite: false });
+  glass.name = 'Vidrio de buseta';
+  glass.userData.dryRoughness = glass.roughness;
+  glass.userData.openMask = mask;
+  return glassWithShadow(glass, true);
+}
 
 const SHARED = {};
 function shared() {
@@ -194,6 +220,26 @@ function finishOf(color) {
 /** Revuelve la semilla para que modelo, color y placa no queden atados entre sí. */
 const mix = seed => { let h = Math.imul(seed + 0x9e37, 0x9e3779b1); h ^= h >>> 15; h = Math.imul(h, 0x85ebca77); h ^= h >>> 13; return h >>> 0; };
 
+const LIVERY_CACHE = new Map();
+/** Librea de la buseta con esa semilla revuelta; un objeto por variante, compartido. */
+export function liveryOf(h) {
+  const { livery, stripe } = pickLivery(h), key = liveryKey(livery, stripe);
+  let entry = LIVERY_CACHE.get(key);
+  if (!entry) LIVERY_CACHE.set(key, entry = { ...livery, stripe, key });
+  return entry;
+}
+
+/** Un bit por ventana (seis por lado, la sexta del lado de la acera empieza en el bit 6): cuáles van abiertas. */
+export function windowMaskOf(h, livery) {
+  let mask = 0, bits = h ^ (h >>> 15);
+  const open = livery.old ? .55 : .35;
+  for (let i = 0; i < 12; i++) {
+    bits = Math.imul(bits, 0x2c1b3c6d) + 0x297a2d39 >>> 0;
+    if ((bits >>> 8) % 1000 < open * 1000) mask |= 1 << i;
+  }
+  return mask;
+}
+
 function pickModel(kind, seed, h) {
   if (kind === 'buseta') return 'buseta';
   if (kind === 'police') return seed % 2 ? 'suv' : 'sedanPopular';
@@ -215,8 +261,11 @@ export function makeVehicle(kind = 'carro', seedColor = 0, { beams = true, model
   const paints = MODEL_PAINTS[modelId], color = isTaxi ? TAXI_COLOR : isPolice ? POLICE_COLOR : paints[(h >>> 7) % paints.length];
 
   // Quien pinta su carrocería a su manera (la camioneta de limpieza) lleva materiales propios: si no, cambiaría los de toda la flota.
-  const paint = ownMaterials ? createPaint(modelId, color, spec, body) : sharedPaint(modelId, color, spec, body);
-  const glass = ownMaterials ? createGlass() : sharedGlass();
+  // La buseta lleva librea y ventanas abiertas o cerradas: se reparten con la semilla revuelta, igual para el lote lejano.
+  const livery = modelId === 'buseta' ? liveryOf(h) : null;
+  const windowMask = livery ? windowMaskOf(h, livery) : 0;
+  const paint = ownMaterials ? createPaint(modelId, color, spec, body) : sharedPaint(modelId, color, spec, body, livery);
+  const glass = ownMaterials ? createGlass() : livery ? busGlass(windowMask) : sharedGlass();
 
   // Direccionales, stops y patrulla: valores de este carro; nunca se enciende el vecino.
   const signalMaterials = { left: new LampChannel('Direccional left', '#ff8a24', .12), right: new LampChannel('Direccional right', '#ff8a24', .12) };
@@ -272,7 +321,8 @@ export function makeVehicle(kind = 'carro', seedColor = 0, { beams = true, model
     if (disposed) return; disposed = true;
     lamp.dispose(); beam?.material.dispose();
     // El esmalte y el vidrio compartidos no se liberan; los propios, sí.
-    if (ownMaterials) { paint.dispose(); glass.dispose(); }
+    if (ownMaterials) paint.dispose();
+    if (ownMaterials || livery) glass.dispose();
   };
 
   // Piezas que se apagan de lejos: el carro lejano se queda con su chapa, sus lámparas y su resplandor.
@@ -285,7 +335,7 @@ export function makeVehicle(kind = 'carro', seedColor = 0, { beams = true, model
     driverAnchor: new THREE.Vector3(spec.driver.x, 0, spec.driver.z), driverHeight: spec.driver.h,
     driverDoor: spec.driver.door ?? { x: spec.driver.x, side: -1 }, routeIndex, details,
     // El tono de la chapa, para el lote de carros lejanos.
-    paintColor: paint.color,
+    paintColor: paint.color, livery, windowMask, seed: h,
     wetMaterials: [paint, glass], headlightMaterial,
   };
 }
@@ -309,17 +359,18 @@ export class CarFleet {
     this._white = new THREE.Color(1, 1, 1);
   }
 
-  _batch(model) {
-    let batch = this.batches.get(model);
+  _batch(model, livery = null) {
+    const key = livery ? `${model}:${livery.key}` : model;
+    let batch = this.batches.get(key);
     if (batch) return batch;
     const entry = getCarGeometry(model);
-    const material = new THREE.MeshStandardMaterial({ map: getDetailMap(entry.spec, entry.body), vertexColors: true, roughness: .42, metalness: .2 });
-    material.name = `Carrocería lejana ${model}`;
+    const material = new THREE.MeshStandardMaterial({ map: getDetailMap(entry.spec, entry.body, livery), vertexColors: true, roughness: .42, metalness: .2 });
+    material.name = `Carrocería lejana ${key}`;
     chainSunField(material);
     const paint = new THREE.InstancedMesh(entry.paint, material, this.capacity);
     const trim = new THREE.InstancedMesh(getParkedTrim(entry), shared().trim, this.capacity);
     for (const mesh of [paint, trim]) {
-      mesh.name = `Lote lejano ${model}`;
+      mesh.name = `Lote lejano ${key}`;
       mesh.castShadow = false; mesh.receiveShadow = false;
       mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
       // La esfera la lleva el lote: cubre solo lo vivo y el resto del tiempo se descarta.
@@ -328,7 +379,7 @@ export class CarFleet {
     }
     paint.setColorAt(0, this._white); // reserva el arreglo de colores por instancia
     batch = { model, paint, trim, material, count: 0, minX: 0, maxX: 0, minZ: 0, maxZ: 0 };
-    this.batches.set(model, batch);
+    this.batches.set(key, batch);
     return batch;
   }
 
@@ -340,7 +391,7 @@ export class CarFleet {
       if (car.isMoto || !car.instanced) continue;
       const model = car.vehicle?.model;
       if (!model) continue;
-      const batch = this._batch(model), index = batch.count;
+      const batch = this._batch(model, car.vehicle.livery), index = batch.count;
       if (index >= this.capacity) continue;
       const { x, z } = car.position;
       this._dummy.position.copy(car.position);

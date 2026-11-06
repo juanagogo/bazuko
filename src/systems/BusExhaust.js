@@ -103,7 +103,9 @@ export class BusExhaust {
   _stateOf(car) {
     let state = this._states.get(car);
     if (!state) {
-      state = { old: isOldBus(this._busesSeen++), emission: 0, armed: true, cooldown: 0 };
+      // La buseta rayada es la vieja que humea; sin librea (pruebas) manda el conteo de siempre.
+      const livery = car.vehicle?.livery, index = this._busesSeen++;
+      state = { old: livery ? livery.old : isOldBus(index), emission: 0, armed: true, cooldown: 0 };
       this._states.set(car, state);
     }
     return state;
