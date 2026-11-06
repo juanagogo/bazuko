@@ -73,6 +73,22 @@ test('una pared o una caneca suenan hueco y no encienden alarma', () => {
   assert.equal(alarms, 0, 'y no hay alarma que encender');
 });
 
+test('el parqueado se mece unos centímetros y vuelve a su puesto', () => {
+  const collisions = new CollisionSystem();
+  const group = new THREE.Object3D();
+  const car = { traffic: false, kind: 'carro', position: new THREE.Vector3(0, 0, 1.4), length: 4, width: 1.7,
+    group, vehicle: { group } };
+  collisions.setVehicles([car]);
+  const player = fighter();
+  player.melee.elapsed = .13;
+  const system = new KnockFeedback({ player, audio: { playKnock() {}, playCarAlarm() {} }, collisions });
+  system.update(.02); // golpe y aviso de balanceo
+  system.update(.02); // el primer vaivén
+  assert.notEqual(group.rotation.z, 0);
+  for (let t = 0; t < KNOCK.rockTime + .1; t += .05) system.update(.05);
+  assert.equal(group.rotation.z, 0, 'queda recto');
+});
+
 test('lo que queda detrás del jugador no cuenta', () => {
   const collisions = new CollisionSystem();
   const car = { traffic: true, kind: 'carro', position: new THREE.Vector3(0, 0, -1.4), length: 4, width: 1.7,

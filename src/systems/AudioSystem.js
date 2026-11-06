@@ -274,11 +274,10 @@ export class AudioSystem {
   }
 
   _knockVolume(position) {
-    const level = this._level('effects');
     const listener = this._listenerPosition;
-    if (!position || !listener) return .3 * level;
+    if (!position || !listener) return .3;
     const distance = Math.hypot(position.x - listener.x, position.y - listener.y, position.z - listener.z);
-    return .35 * level * Math.max(0, Math.min(1, (8 - distance) / 7));
+    return .35 * Math.max(0, Math.min(1, (8 - distance) / 7));
   }
 
   stop(name) {

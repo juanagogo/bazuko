@@ -27,6 +27,8 @@ export class RoadRageSystem {
     this._time = 0;
     this.onPlayerHurt = null;
     this._door = new THREE.Vector3();
+    // Reutilizado cada cuadro al comprobar que la puerta tiene salida.
+    this._line = { from: this._door, to: new THREE.Vector3(), collisions: null, chestHeight: .8 };
     this._people = null;
   }
 
@@ -42,6 +44,7 @@ export class RoadRageSystem {
     this.traffic = traffic;
     this._people = people;
     this.collisions = collisions;
+    this._line.collisions = collisions;
     this.getWaterInfo = (x, z) => district?.getWaterInfo?.(x, z) ?? null;
     this._ground = (x, z, currentY = 0) => district?.getMovementGroundHeight?.(x, z, currentY)
       ?? district?.getGroundHeight?.(x, z) ?? currentY;
@@ -56,7 +59,11 @@ export class RoadRageSystem {
   }
 
   get active() { return this.incidents.length > 0; }
-  get state() { return this.incidents[0]?.state ?? 'idle'; }
+  /** 'out' apenas haya uno fuera: es lo que mira el HUD, aunque otro siga frenando. */
+  get state() {
+    for (let index = 0; index < this.incidents.length; index++) if (this.incidents[index].state === 'out') return 'out';
+    return this.incidents[0]?.state ?? 'idle';
+  }
   get driver() { return this.incidents[0]?.driver ?? this.drivers[0] ?? null; }
   get vehicle() { return this.incidents[0]?.vehicle ?? null; }
   get _doorSide() { return this.incidents[0]?.doorSide ?? -1; }
@@ -169,7 +176,8 @@ export class RoadRageSystem {
       // La puerta del conductor da al andén: si ahí hay un parqueado o una pared, se baja por el otro lado.
       incident.doorSide = car.vehicle?.driverDoor?.side ?? -1;
       this._doorPoint(car, incident.doorSide, this._door);
-      if (!hasClearCombatLine({ from: this._door, to: { x: this._door.x + .04, y: this._door.y, z: this._door.z + .04 }, collisions: this.collisions, chestHeight: .8 })) {
+      this._line.to.set(this._door.x + .04, this._door.y, this._door.z + .04);
+      if (!hasClearCombatLine(this._line)) {
         incident.doorSide = -incident.doorSide;
         this._doorPoint(car, incident.doorSide, this._door);
       }
@@ -201,9 +209,13 @@ export class RoadRageSystem {
 
   /** Los carros salen por la puerta; la moto por su costado, junto al asiento. */
   _doorPoint(car, side, target) {
-    if (typeof car.driverDoor === 'function') return car.driverDoor(target, side);
-    car.group.updateMatrixWorld();
-    return target.set(0, 0, side * ((car.width ?? .7) / 2 + .45)).applyMatrix4(car.group.matrixWorld).setY(car.position.y);
+    if (typeof car.driverDoor === 'function') car.driverDoor(target, side);
+    else {
+      car.group.updateMatrixWorld();
+      target.set(0, 0, side * ((car.width ?? .7) / 2 + .45)).applyMatrix4(car.group.matrixWorld);
+    }
+    // Al piso: con la puerta sobre un andén o el puente, el conductor no sale en el aire.
+    return target.setY(this._ground(target.x, target.z, car.position.y));
   }
 
   /** Mientras el motociclista está fuera, el primer puesto del lote queda vacío. */
@@ -221,11 +233,12 @@ export class RoadRageSystem {
     const reach = ROAD_RAGE.frontRange + 8;
     for (const vehicle of this.traffic.vehicles) {
       const car = vehicle.car;
-      if (!this._canSnap(car) || this._hasCar(car)) continue;
+      if (!this._canSnap(car)) continue;
       const dx = car.position.x - player.x, dz = car.position.z - player.z;
+      if (dx * dx + dz * dz > reach * reach || this._hasCar(car)) continue;
       const state = this._carState.get(car);
       if (!vehicle.personBlocked || !(vehicle.playerClearance <= ROAD_RAGE.frontRange)
-        || vehicle.speed > .6 || dx * dx + dz * dz > reach * reach) {
+        || vehicle.speed > .6) {
         if (state) { state.frontTimer = 0; state.blockTimer = 0; }
         continue;
       }

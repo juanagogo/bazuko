@@ -179,7 +179,7 @@ test('el carro frena gradualmente al retenerlo y sigue su ruta al liberarlo', ()
   assert.ok(vehicle.speed > 1);
 });
 
-test('solo a veces, solo en carros en circulación y un conductor a la vez', () => {
+test('solo a veces, solo en carros en circulación y un conductor por carro', () => {
   const lucky = setup({ random: () => .99 });
   assert.equal(lucky.system.trigger(lucky.vehicle.car), false);
   const { system, vehicle } = setup();
@@ -358,12 +358,38 @@ test('la moto también saca a su motociclista y lo devuelve al puesto', () => {
   assert.equal(moto.occupancy[0], true, 'y lo recupera al volver');
 });
 
-test('respaldo del enfriamiento: el registro por carro no crece sin fin', () => {
+test('el enfriamiento se anota por carro y no se pierde al liberar', () => {
   const { system, vehicle } = setup({ random: () => .99 });
   system.trigger(vehicle.car, 'hit');
   assert.ok(system._carStateOf(vehicle.car).cooldowns.hit > 0);
   system.reset();
   assert.equal(system.incidents.length, 0);
+});
+
+test('hasta tres conductores pueden estar fuera a la vez, y el tope se recupera', () => {
+  const scene = new THREE.Scene();
+  const traffic = new TrafficSystem(scene, [new TrafficRoute(0, 200, 0, 200, 3.2)], { carsPerRoute: 4, random: () => .5 });
+  const player = { position: new THREE.Vector3(), isStunned: false, receiveHit() {} };
+  const people = [];
+  const system = new RoadRageSystem(scene, { player, stats: new StatsSystem(), random: () => 0 });
+  system.setup({ isWalkableAt: () => true, getGroundHeight: () => 0 }, traffic, people);
+  const cars = traffic.vehicles.map(vehicle => vehicle.car).slice(0, 3);
+  assert.equal(cars.length, 3);
+  // Los tres quedan detenidos junto al jugador; sin `traffic.update` no vuelven a su carril.
+  for (const car of cars) {
+    car.position.set(player.position.x + 2, 0, player.position.z + 2);
+    assert.equal(system.trigger(car, 'mirror'), true);
+  }
+  for (const incident of system.incidents) incident.vehicle.speed = 0;
+  system.update(1 / 30);
+  assert.equal(system.incidents.length, 3);
+  assert.ok(system.incidents.every(incident => incident.state === 'out'));
+  assert.equal(people.length, 3, 'los tres frenan a los carros como peatones');
+  assert.ok(cars.every(car => car.driver.visible === false), 'y ninguno se ve sentado');
+  system.reset();
+  assert.equal(system.incidents.length, 0);
+  assert.equal(people.length, 0);
+  assert.ok(cars.every(car => car.driver.visible === true));
 });
 
 /** Un carro ya detenido frente a un jugador que no se mueve: la simulación no lo deja arrancar. */
