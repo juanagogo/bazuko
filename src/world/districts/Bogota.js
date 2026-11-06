@@ -1223,6 +1223,7 @@ export class Bogota {
     const round = (x, z, r, height = 3) => {
       const y = this.getGroundHeight(x, z);
       collisions.addFallObstacle(x - r, z - r, x + r, z + r, y, y + height);
+      collisions.addPost?.(x, z, r, y, height);
     };
     for (const spot of this.benchSpots) {
       const { minX, minZ, maxX, maxZ } = benchFootprint(spot);
