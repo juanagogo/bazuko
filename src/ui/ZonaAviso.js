@@ -16,9 +16,13 @@ export const ZONA_NOMBRES = {
   parque: 'Parque Tercer Milenio',
   candelaria: 'La Candelaria',
   chapinero: 'Chapinero',
-  andenes: 'El centro',
-  barrio: 'Los barrios',
-  lago: LAKE_PARK.name
+  andenes: 'El Centro',
+  barrio: 'Los Barrios',
+  lago: LAKE_PARK.name,
+  zonaT: 'Zona T (Calle 82 / Zona Rosa)',
+  zonaG: 'Zona G (Rosales / Gourmet)',
+  parque93: 'Parque de la 93 (Chicó)',
+  metro: 'Metro de Bogotá (Línea 1 PLMB)'
 };
 
 /** La zona donde está el jugador: todo el parque del sur es lago, aunque `_zoneAt` lo meta en los barrios. */
