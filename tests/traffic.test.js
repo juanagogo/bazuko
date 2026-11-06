@@ -969,15 +969,18 @@ test('las redes del centro y del oriente no comparten carril', () => {
 /** Monta el tráfico como Game al poblar Bogotá, con el azar sembrado, y lo corre con city.update como Game._loop. */
 async function runLikeTheGame(randomSeed, minutes, { chases = false, density = 'normal', hour = 7 } = {}) {
   const original = Math.random;
-  let state = 0;
-  const next = () => {
-    state = (state + 0x6D2B79F5) >>> 0;
-    let t = state;
-    t = Math.imul(t ^ (t >>> 15), t | 1);
-    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  // Cada generador lleva su propio estado y arranca igual con la misma semilla.
+  const generator = () => {
+    let state = Math.imul(randomSeed + 1, 2654435761) >>> 0;
+    return () => {
+      state = (state + 0x6D2B79F5) >>> 0;
+      let t = state;
+      t = Math.imul(t ^ (t >>> 15), t | 1);
+      t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
   };
-  const seed = () => { state = Math.imul(randomSeed + 1, 2654435761) >>> 0; Math.random = next; };
+  const seed = () => { Math.random = generator(); };
   seed();
   // El habla de los peatones sortea con `performance.now()`: sin congelar el reloj, el azar que gastan depende de la
   // máquina y cada corrida da una ciudad distinta. Con este reloj de mentira las semillas se repiten.
@@ -988,7 +991,8 @@ async function runLikeTheGame(randomSeed, minutes, { chases = false, density = '
     const scene = new THREE.Scene(), collisions = new CollisionSystem(), city = new Bogota();
     city.build(scene, collisions);
     await Promise.all(city.npcs.map(npc => npc.ready));
-    // El tráfico se siembra de nuevo y lleva su propio generador: así no depende de cuánto azar gastó la ciudad al levantarse.
+    // La ciudad se siembra de nuevo y el tráfico lleva un generador aparte: así no depende de cuánto azar gastó la ciudad
+    // al levantarse ni del que gastan los peatones cuadro a cuadro (lo que dicen, a quién le hablan).
     seed();
     const parking = city.getParkingSpots();
     for (let i = parking.length - 1; i > 0; i--) {
@@ -1005,7 +1009,7 @@ async function runLikeTheGame(randomSeed, minutes, { chases = false, density = '
       car.position.x += offset.x; car.position.z += offset.z;
       parked.push(car);
     }
-    const traffic = new TrafficSystem(scene, city.getTrafficRoutes(), { policeCount: 2, random: next });
+    const traffic = new TrafficSystem(scene, city.getTrafficRoutes(), { policeCount: 2, random: generator() });
     traffic.onVehicleRemoved = () => { removals++; };
     traffic.setDensity(density);
     traffic.setParkedCars(parked);
