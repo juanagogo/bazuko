@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { beforeEach, test } from 'node:test';
 import * as THREE from 'three';
 import { StatsSystem } from '../src/systems/StatsSystem.js';
-import { PsychosisSystem, ATAQUE } from '../src/systems/PsychosisSystem.js';
+import { PsychosisSystem, ATAQUE, MOTO_SOMBRA } from '../src/systems/PsychosisSystem.js';
 import { Player } from '../src/entities/Player.js';
 
 beforeEach(() => {
@@ -234,4 +234,36 @@ test('al bajar de nivel las sombras que atacaban se disuelven aunque siga la abs
   tick(2);
   assert.equal(psychosis.ataque, false);
   assert.equal(attackers().length, 0);
+});
+
+test('las motos sombra solo cruzan en el nivel de ataque, no hacen daño y se limpian al apagarse', () => {
+  const sober = hallucinating({ doses: 0 });
+  sober.tick(30);
+  assert.equal(sober.psychosis.motosSombra.length, 0);
+  const light = hallucinating({ doses: 2 });
+  light.tick(30);
+  assert.equal(light.psychosis.motosSombra.length, 0, 'con pocas dosis no hay motos');
+
+  const { psychosis, scene, player, stats, tick, hits } = hallucinating();
+  const health = stats.salud;
+  let seen = 0, most = 0;
+  // Solo las motos: sin los hombres sombra, que sí golpean, nada debe tocar al jugador.
+  psychosis.ataque = true;
+  for (let t = 0; t < 40; t += 0.05) {
+    psychosis._updateMotosSombra(0.05, player.position);
+    seen += psychosis.motosSombra.length ? 1 : 0;
+    most = Math.max(most, psychosis.motosSombra.length);
+  }
+  assert.ok(seen > 0, 'cruzan motos');
+  assert.ok(most <= MOTO_SOMBRA.maxSimultaneas, 'una o dos a la vez');
+  assert.equal(hits.length, 0, 'nunca golpean');
+  assert.equal(stats.salud, health);
+  assert.equal(psychosis.motosSombra.every(m => !m.ataca && !m.takeHit), true, 'no son blancos ni atacan');
+
+  tick(1);
+  psychosis.ataque = false;
+  const moto = psychosis.motosSombra[0];
+  for (let t = 0; t < 2; t += 0.05) psychosis._updateMotosSombra(0.05, player.position);
+  assert.equal(psychosis.motosSombra.length, 0, 'al caer el ataque se disuelven');
+  if (moto) assert.equal(scene.children.includes(moto.group), false);
 });

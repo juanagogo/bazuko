@@ -27,6 +27,27 @@ export const ATAQUE = Object.freeze({
   vida: 25               // s
 });
 
+// Motos sombra: en el nivel de ataque cruzan la escena sin tocar a nadie ni hacer daño.
+export const MOTO_SOMBRA = Object.freeze({
+  maxSimultaneas: 2,
+  espera: [4, 9],        // s entre una y otra
+  salida: [55, 75],      // m del jugador a los que nacen, fuera de la vista
+  velocidad: [20, 30],   // m/s
+  vida: 9,               // s como máximo
+  fundido: 0.5           // s de aparecer y de disolverse
+});
+let _motoSombraGeometrias = null;
+function motoSombraGeometrias() {
+  return _motoSombraGeometrias ??= {
+    rueda: new THREE.CylinderGeometry(0.32, 0.32, 0.12, 10).rotateX(Math.PI / 2),
+    cuerpo: new THREE.BoxGeometry(1.1, 0.35, 0.3),
+    tanque: new THREE.BoxGeometry(0.5, 0.3, 0.3),
+    horquilla: new THREE.BoxGeometry(0.08, 0.7, 0.08),
+    torso: new THREE.CylinderGeometry(0.17, 0.2, 0.6, 7),
+    cabeza: new THREE.SphereGeometry(0.17, 7, 7),
+    ojo: new THREE.SphereGeometry(0.03, 5, 5)
+  };
+}
 const _forward = new THREE.Vector3();
 const _toGhost = new THREE.Vector3();
 
@@ -54,6 +75,8 @@ export class PsychosisSystem {
     this.world = world;
 
     this.shadowPeople = [];
+    this.motosSombra = [];
+    this._esperaMoto = 3;
     this.whisperTimer = 5;
     this.heartbeatTimer = 0.8;
     this.spasmTimer = 10;
@@ -245,7 +268,86 @@ export class PsychosisSystem {
     }
   }
 
+  /** La silueta de una moto con su jinete, del mismo material oscuro y translúcido que los hombres sombra. Frente hacia +X. */
+  _createMotoSombra(playerPos) {
+    if (!this.scene) return null;
+    const g = motoSombraGeometrias();
+    const mat = new THREE.MeshBasicMaterial({ color: 0x050508, transparent: true, opacity: 0 });
+    const eyeMat = new THREE.MeshBasicMaterial({ color: 0xff1a1a, transparent: true, opacity: 0 });
+    const group = new THREE.Group();
+    const add = (geometry, material, x, y, z) => {
+      const mesh = new THREE.Mesh(geometry, material);
+      mesh.position.set(x, y, z);
+      group.add(mesh);
+      return mesh;
+    };
+    add(g.rueda, mat, 0.75, 0.32, 0); add(g.rueda, mat, -0.75, 0.32, 0);
+    add(g.cuerpo, mat, 0, 0.62, 0); add(g.tanque, mat, 0.3, 0.88, 0);
+    add(g.horquilla, mat, 0.72, 0.62, 0).rotation.z = -0.3;
+    const torso = add(g.torso, mat, -0.1, 1.2, 0); torso.rotation.z = -0.35;
+    add(g.cabeza, mat, 0.12, 1.62, 0);
+    add(g.ojo, eyeMat, 0.28, 1.64, 0.07); add(g.ojo, eyeMat, 0.28, 1.64, -0.07);
+    const angle = Math.random() * Math.PI * 2, [r0, r1] = MOTO_SOMBRA.salida;
+    const radius = r0 + Math.random() * (r1 - r0), [v0, v1] = MOTO_SOMBRA.velocidad;
+    const start = new THREE.Vector3(playerPos.x + Math.cos(angle) * radius, playerPos.y, playerPos.z + Math.sin(angle) * radius);
+    // Cruza cerca de donde está el jugador, con un desvío al azar.
+    const aim = (Math.random() - .5) * 24, dir = new THREE.Vector2(-Math.cos(angle), -Math.sin(angle));
+    const side = new THREE.Vector2(-dir.y, dir.x).multiplyScalar(aim);
+    const heading = new THREE.Vector2(playerPos.x + side.x - start.x, playerPos.z + side.y - start.z).normalize();
+    group.position.copy(start);
+    group.rotation.y = Math.atan2(-heading.y, heading.x);
+    this.scene.add(group);
+    return {
+      group, mats: [mat, eyeMat], heading, speed: v0 + Math.random() * (v1 - v0), baseY: playerPos.y,
+      age: 0, alpha: 0, fase: Math.random() * 6.28, bamboleo: 2 + Math.random() * 3, dissolving: false, origen: start.clone()
+    };
+  }
+
+  _disposeMotoSombra(m) {
+    this.scene?.remove(m.group);
+    for (const mat of m.mats) mat.dispose();
+  }
+
+  _clearMotosSombra() {
+    for (const m of this.motosSombra) this._disposeMotoSombra(m);
+    this.motosSombra = [];
+  }
+
+  /** Motos sombra: solo en el nivel de ataque, de a una o dos, rápidas y erráticas; ni chocan ni hacen daño. */
+  _updateMotosSombra(dt, playerPos) {
+    if (this.ataque) {
+      this._esperaMoto -= dt;
+      if (this._esperaMoto <= 0 && this.motosSombra.length < MOTO_SOMBRA.maxSimultaneas) {
+        const moto = this._createMotoSombra(playerPos);
+        if (moto) this.motosSombra.push(moto);
+        this._esperaMoto = MOTO_SOMBRA.espera[0] + Math.random() * (MOTO_SOMBRA.espera[1] - MOTO_SOMBRA.espera[0]);
+      }
+    }
+    for (let i = this.motosSombra.length - 1; i >= 0; i--) {
+      const m = this.motosSombra[i];
+      m.age += dt;
+      if (!this.ataque || m.age > MOTO_SOMBRA.vida || m.group.position.distanceTo(playerPos) > 120 && m.age > 1) m.dissolving = true;
+      // Culebrea de lado a lado, sin mirar nada de lo que hay en el camino.
+      const wobble = Math.sin(m.age * m.bamboleo + m.fase);
+      const x = m.heading.x - m.heading.y * wobble * 0.6, z = m.heading.y + m.heading.x * wobble * 0.6;
+      m.group.position.x += x * m.speed * dt;
+      m.group.position.z += z * m.speed * dt;
+      m.group.position.y = m.baseY;
+      m.group.rotation.y = Math.atan2(-z, x);
+      m.group.rotation.x = wobble * 0.25;
+      const alpha = m.dissolving ? m.alpha - dt / MOTO_SOMBRA.fundido : Math.min(1, m.age / MOTO_SOMBRA.fundido);
+      m.alpha = Math.max(0, alpha);
+      m.mats[0].opacity = 0.7 * m.alpha;
+      m.mats[1].opacity = m.alpha;
+      if (m.dissolving && m.alpha <= 0) {
+        this._disposeMotoSombra(m);
+        this.motosSombra.splice(i, 1);
+      }
+    }
+  }
+
   _clearShadowPeople() {
+    this._clearMotosSombra();
     for (const sp of this.shadowPeople) {
       this.scene?.remove(sp.group);
       sp.group.traverse((o) => {
@@ -435,6 +537,8 @@ export class PsychosisSystem {
         }
       }
     }
+
+    if (playerPos && this.scene) this._updateMotosSombra(dt, playerPos);
 
     if (this.player) {
       const blancos = this.shadowPeople.filter((sp) => sp.ataca && !sp.dissolving);
