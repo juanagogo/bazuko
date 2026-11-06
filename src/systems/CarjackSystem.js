@@ -478,7 +478,9 @@ export class CarjackSystem {
       if (!npc?.position || (npc._carjackHit ?? 0) > performance.now()) continue;
       if (distanceToCarBody(npc.position, this.car) > .35) continue;
       npc._carjackHit = performance.now() + 3000;
-      npc.hitByPoop?.(this.car.position);
+      const h = this.car.group.rotation.y, sign = Math.sign(this.speed) || 1;
+      if (npc.hitByCar) npc.hitByCar(this.car.position, Math.abs(this.speed), { x: Math.cos(h) * sign, z: -Math.sin(h) * sign });
+      else npc.hitByPoop?.(this.car.position);
       this._raiseWanted();
       this.speed *= .6;
       this._toast('¡Casi atropello a alguien!', 'death');
