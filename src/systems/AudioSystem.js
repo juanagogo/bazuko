@@ -245,6 +245,42 @@ export class AudioSystem {
     source.start();
   }
 
+  /** Golpe corto a lo sólido: metálico en un carro, hueco en una caneca o una pared. Se apaga con la distancia. */
+  playKnock(position = null, { metal = false } = {}) {
+    const fx = this._fx();
+    if (!fx) return;
+    const volume = this._knockVolume(position);
+    if (volume <= 0) return;
+    try {
+      const { ctx, out } = fx;
+      const t = ctx.currentTime;
+      const osc = ctx.createOscillator();
+      const filter = ctx.createBiquadFilter();
+      const gain = ctx.createGain();
+      const base = (metal ? 430 : 210) * (.9 + Math.random() * .25);
+      osc.type = metal ? 'square' : 'triangle';
+      osc.frequency.setValueAtTime(base, t);
+      osc.frequency.exponentialRampToValueAtTime(base * .55, t + .12);
+      filter.type = metal ? 'bandpass' : 'lowpass';
+      filter.frequency.value = metal ? base * 3 : base * 2.2;
+      filter.Q.value = metal ? 4 : .8;
+      gain.gain.setValueAtTime(.0001, t);
+      gain.gain.linearRampToValueAtTime(volume, t + .004);
+      gain.gain.exponentialRampToValueAtTime(.0001, t + .13);
+      osc.connect(filter); filter.connect(gain); gain.connect(out);
+      osc.onended = () => { osc.disconnect(); filter.disconnect(); gain.disconnect(); };
+      osc.start(t); osc.stop(t + .14);
+    } catch {}
+  }
+
+  _knockVolume(position) {
+    const level = this._level('effects');
+    const listener = this._listenerPosition;
+    if (!position || !listener) return .3 * level;
+    const distance = Math.hypot(position.x - listener.x, position.y - listener.y, position.z - listener.z);
+    return .35 * level * Math.max(0, Math.min(1, (8 - distance) / 7));
+  }
+
   stop(name) {
     this.sounds[name]?.stop();
   }

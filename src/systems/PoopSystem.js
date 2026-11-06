@@ -117,7 +117,7 @@ export class PoopSystem {
       window.dispatchEvent(new CustomEvent('toast', {
         detail: { text: `¡Popó al aire! (Quedan: ${remaining})`, type: 'info' }
       }));
-      window.dispatchEvent(new CustomEvent('poop-thrown', { detail: { remaining } }));
+      window.dispatchEvent(new CustomEvent('poop-thrown', { detail: { remaining, projectile } }));
     }
 
     return true;
