@@ -284,6 +284,103 @@ export function makeVehicle(kind = 'carro', seedColor = 0, { beams = true, model
     mirrorAnchors: geo.mirrorAnchors.map(anchor => anchor.clone()), mirrorGeometry: geo.mirror, trimMaterial: s.trim,
     driverAnchor: new THREE.Vector3(spec.driver.x, 0, spec.driver.z), driverHeight: spec.driver.h,
     driverDoor: spec.driver.door ?? { x: spec.driver.x, side: -1 }, routeIndex, details,
+    // El tono de la chapa, para el lote de carros lejanos.
+    paintColor: paint.color,
     wetMaterials: [paint, glass], headlightMaterial,
   };
+}
+
+/** Carros por modelo que caben en el lote lejano. La flota más llena reparte unas decenas por modelo. */
+export const CAR_FLEET_CAPACITY = 96;
+
+/**
+ * Los carros que circulan lejos del jugador: un lote instanciado por modelo, con el tono de la chapa por instancia y
+ * las molduras y ruedas ya fundidas en una sola pieza. El carro cercano conserva su malla completa. El lote nace por
+ * modelo la primera vez que hace falta, así no se arma geometría que nunca se ve.
+ */
+export class CarFleet {
+  constructor(scene, capacity = CAR_FLEET_CAPACITY) {
+    this.root = new THREE.Group();
+    this.root.name = 'Carros lejanos';
+    scene.add(this.root);
+    this.capacity = capacity;
+    this.batches = new Map();
+    this._dummy = new THREE.Object3D();
+    this._white = new THREE.Color(1, 1, 1);
+  }
+
+  _batch(model) {
+    let batch = this.batches.get(model);
+    if (batch) return batch;
+    const entry = getCarGeometry(model);
+    const material = new THREE.MeshStandardMaterial({ map: getDetailMap(entry.spec, entry.body), vertexColors: true, roughness: .42, metalness: .2 });
+    material.name = `Carrocería lejana ${model}`;
+    chainSunField(material);
+    const paint = new THREE.InstancedMesh(entry.paint, material, this.capacity);
+    const trim = new THREE.InstancedMesh(getParkedTrim(entry), shared().trim, this.capacity);
+    for (const mesh of [paint, trim]) {
+      mesh.name = `Lote lejano ${model}`;
+      mesh.castShadow = false; mesh.receiveShadow = false;
+      mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+      // La esfera la lleva el lote: cubre solo lo vivo y el resto del tiempo se descarta.
+      mesh.boundingSphere = new THREE.Sphere();
+      this.root.add(mesh);
+    }
+    paint.setColorAt(0, this._white); // reserva el arreglo de colores por instancia
+    batch = { model, paint, trim, material, count: 0, minX: 0, maxX: 0, minZ: 0, maxZ: 0 };
+    this.batches.set(model, batch);
+    return batch;
+  }
+
+  /** Coloca cada carro lejano vivo en su lote; el cercano no ocupa instancia. Devuelve cuántos se dibujan. */
+  sync(vehicles) {
+    for (const batch of this.batches.values()) batch.count = 0;
+    for (const vehicle of vehicles) {
+      const car = vehicle.car;
+      if (car.isMoto || !car.instanced) continue;
+      const model = car.vehicle?.model;
+      if (!model) continue;
+      const batch = this._batch(model), index = batch.count;
+      if (index >= this.capacity) continue;
+      const { x, z } = car.position;
+      this._dummy.position.copy(car.position);
+      this._dummy.rotation.set(0, car.group.rotation.y, 0);
+      this._dummy.updateMatrix();
+      batch.paint.setMatrixAt(index, this._dummy.matrix);
+      batch.trim.setMatrixAt(index, this._dummy.matrix);
+      if (car.vehicle.paintColor) batch.paint.setColorAt(index, car.vehicle.paintColor);
+      if (!index) { batch.minX = batch.maxX = x; batch.minZ = batch.maxZ = z; }
+      else {
+        batch.minX = Math.min(batch.minX, x); batch.maxX = Math.max(batch.maxX, x);
+        batch.minZ = Math.min(batch.minZ, z); batch.maxZ = Math.max(batch.maxZ, z);
+      }
+      batch.count = index + 1;
+    }
+    for (const batch of this.batches.values()) {
+      const { paint, trim, count } = batch;
+      paint.count = count; trim.count = count;
+      if (!count) {
+        paint.boundingSphere.center.set(0, -1000, 0); paint.boundingSphere.radius = 0;
+        trim.boundingSphere.copy(paint.boundingSphere);
+        continue;
+      }
+      paint.instanceMatrix.needsUpdate = true; trim.instanceMatrix.needsUpdate = true;
+      if (paint.instanceColor) paint.instanceColor.needsUpdate = true;
+      const sphere = paint.boundingSphere;
+      sphere.center.set((batch.minX + batch.maxX) / 2, 1, (batch.minZ + batch.maxZ) / 2);
+      sphere.radius = Math.hypot(batch.maxX - batch.minX, batch.maxZ - batch.minZ) / 2 + 3;
+      trim.boundingSphere.copy(sphere);
+    }
+  }
+
+  get drawn() { let total = 0; for (const batch of this.batches.values()) total += batch.count; return total; }
+
+  dispose() {
+    for (const batch of this.batches.values()) {
+      this.root.remove(batch.paint); this.root.remove(batch.trim);
+      batch.paint.dispose(); batch.trim.dispose(); batch.material.dispose();
+    }
+    this.batches.clear();
+    this.root.removeFromParent();
+  }
 }

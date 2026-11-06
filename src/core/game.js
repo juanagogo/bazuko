@@ -48,7 +48,7 @@ import { SaveSystem } from '../systems/SaveSystem.js';
 import { AutoSave } from '../systems/AutoSave.js';
 import { CollisionSystem } from '../systems/CollisionSystem.js';
 import { TrafficSystem } from '../systems/TrafficSystem.js';
-import { DEFAULT_TRAFFIC_DENSITY, trafficDensityId, trafficDensityLabel } from '../systems/trafficDensity.js';
+import { DEFAULT_TRAFFIC_DENSITY, trafficDensityChoosable, trafficDensityId, trafficDensityLabel } from '../systems/trafficDensity.js';
 import { distributeShelterLoot, spreadPickupPositions } from '../systems/ShelterLoot.js';
 import { InventorySystem } from '../systems/InventorySystem.js';
 import { AudioSystem } from '../systems/AudioSystem.js';
@@ -199,8 +199,11 @@ export class Game {
     let quality = 'baja';
     try { quality = localStorage.getItem('bazuko.graphics_quality') || quality; } catch { /* sin almacenamiento */ }
     this.setGraphicsQuality(quality, false);
+    this.trafficDensityChoosable = trafficDensityChoosable(location.search);
     this.trafficDensity = DEFAULT_TRAFFIC_DENSITY;
-    try { this.trafficDensity = trafficDensityId(localStorage.getItem('bazuko.traffic_density')); } catch { /* sin almacenamiento */ }
+    if (this.trafficDensityChoosable) {
+      try { this.trafficDensity = trafficDensityId(localStorage.getItem('bazuko.traffic_density')); } catch { /* sin almacenamiento */ }
+    }
     this.hud.setMuted(this.audio.isMuted());
     this.creator = createCreator({ audio: null });
     this.inventoryUI = new InventoryUI(this.inventory, this);
@@ -1495,6 +1498,7 @@ export class Game {
 
   /** Densidad de tráfico elegida: escala toda la curva diaria y se aplica en vivo, sin recargar. */
   setTrafficDensity(level = DEFAULT_TRAFFIC_DENSITY) {
+    if (!this.trafficDensityChoosable) return;
     const id = trafficDensityId(level);
     this.trafficDensity = id;
     try { localStorage.setItem('bazuko.traffic_density', id); } catch { /* sin almacenamiento */ }
