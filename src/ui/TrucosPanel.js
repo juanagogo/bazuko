@@ -1,37 +1,25 @@
 // src/ui/TrucosPanel.js
 // La pestaña Trucos de la pausa y la marca que avisa que están prendidos.
 import { el, button } from './dom.js';
-import { icon } from './icons.js';
+import { choice, section, row } from './pauseParts.js';
 import { HORAS_TRUCO, VELOCIDAD_NORMAL, VELOCIDAD_RAPIDA, DINERO_TRUCO } from '../core/trucos.js';
 import { WEATHER_TYPES } from '../world/Climate.js';
 import { cop } from '../utils/money.js';
 
-const sectionTitle = (glyph, title) => el('h3', { class: 'pause-section-title' }, icon(glyph, { size: 22 }), title);
-
-/** Elegir es círculo: la opción elegida no se pinta, se encierra (igual que en Ajustes). */
-function choice(label, on, onClick) {
-  const b = button(el('span', { class: on ? 'elegido' : null, text: label }), { class: 'pause-choice', onClick });
-  b.setAttribute('aria-pressed', on ? 'true' : 'false');
-  return b;
-}
-
 /** Aviso permanente de que la partida no es la normal. */
 export function montarMarcaTrucos(doc = globalThis.document) {
-  if (!doc || doc.getElementById('trucos-marca')) return;
+  if (doc.getElementById('trucos-marca')) return;
   const marca = el('div', { id: 'trucos-marca', class: 'trucos-marca', text: 'Trucos' });
   (doc.getElementById('app') ?? doc.body).append(marca);
 }
 
 export function trucosPanel(game) {
   const cheats = game.cheats;
-  if (!cheats) return el('p');
   const refrescar = () => game.menu?.refresh?.();
-  const row = (label, ...controls) => el('div', { class: 'pause-row' }, el('label', { class: 'pause-row__label', text: label }), ...controls);
-  const section = (glyph, title, ...rows) => el('div', { class: 'pause-section' }, sectionTitle(glyph, title), ...rows);
   const accion = (label, onClick) => el('div', { class: 'pause-actions' }, button(label, { onClick }));
   const alternar = (label, on, set) => choice(label, on, () => { set(!on); refrescar(); });
 
-  return el('div', { class: 'pause-trucos' },
+  return el('div', {},
     el('p', { class: 'pause-hint', text: 'Modo de prueba: mientras esté prendido la partida no se guarda.' }),
 
     section('heart', 'Necesidades',
@@ -40,7 +28,7 @@ export function trucosPanel(game) {
       accion('Llenar todo', () => { cheats.llenarTodo(); refrescar(); })),
 
     section('coins', 'Plata',
-      row('Más rápido', accion(`Dar ${cop(DINERO_TRUCO)}`, () => { cheats.darDinero(); refrescar(); }))),
+      accion(`Dar ${cop(DINERO_TRUCO)}`, () => { cheats.darDinero(); refrescar(); })),
 
     section('backpack', 'Costal',
       accion('Todo el catálogo y los materiales', () => { cheats.darObjetos(); refrescar(); }),

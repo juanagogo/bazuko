@@ -855,6 +855,7 @@ export class Game {
     this.cameraRig._snap = true;
     this.menu?.refresh?.();
     if (this._save()) this._avisar('Partida importada', 'info');
+    else if (this.cheats) this._avisar('Con trucos prendidos no se guarda', 'warn');
   }
 
   /** Dormir en el cambuche (requiere la base). De noche hasta las 6:00; de día, siesta de 3 h. */
@@ -995,7 +996,7 @@ export class Game {
 
   _policeArrest() {
     if (this._arrestPending || this._deathPending || this.stats.salud <= 0) return;
-    if (this.cheats?.bloqueaArresto) return;
+    if (this.cheats?.invisible || this.cheats?.invulnerable) return;
     this._arrestPending = true;
     if (this.steal?.minigameActive) this.steal._endMinigame(false, 'cancel');
     this.input.keys = {};
@@ -1054,6 +1055,11 @@ export class Game {
     const district = this.world.active;
     const y = district?.getMovementGroundHeight?.(x, z, 0) ?? district?.getGroundHeight?.(x, z) ?? 0;
     this.player.position.set(x, y, z);
+    this._acomodarTrasViaje();
+  }
+
+  /** El cuerpo, la cámara y el vecindario quedan como tras un viaje; las banderas las pone quien llama. */
+  _acomodarTrasViaje() {
     this.player.root.position.copy(this.player.position);
     this._resetAfterRelocation();
     if (this.dog?.isFriend) { this.dog.wake(); this.dog.resetNear(this.player.position); }
@@ -1094,13 +1100,7 @@ export class Game {
     this.stats.dinero = 0;
     const pos = this._randomWalkablePosition();
     this.player.position.copy(pos);
-    this.player.root.position.copy(this.player.position);
-    this._resetAfterRelocation();
-    if (this.dog?.isFriend) { this.dog.wake(); this.dog.resetNear(this.player.position); }
-    this.cameraRig._snap = true;
-    this.cameraRig.follow(this.player.position, 0, this.collisions);
-    this.interaction.currentTarget = null;
-    this.interaction.currentTargetType = null;
+    this._acomodarTrasViaje();
     this.input.keys = {};
     this.input.endFrame();
     this._arrestPending = false;
@@ -1129,16 +1129,9 @@ export class Game {
         ?? district.getGroundHeight?.(spawn.x, spawn.z) ?? 0;
       this.player.position.set(spawn.x, y, spawn.z);
     }
-    this.player.root.position.copy(this.player.position);
-    this._resetAfterRelocation();
-    if (this.dog?.isFriend) { this.dog.wake(); this.dog.resetNear(this.player.position); }
-    this._vehicleImpactCooldown = 1.5;
+    this._acomodarTrasViaje();
     if (this._deathCause === 'limpieza') this.momentos?.guardarConsejoDeCamioneta();
     this._deathCause = null;
-    this.cameraRig._snap = true;
-    this.cameraRig.follow(this.player.position, 0, this.collisions);
-    this.interaction.currentTarget = null;
-    this.interaction.currentTargetType = null;
     this.input.keys = {};
     this.input.endFrame();
     this._deathPending = false;
@@ -1218,7 +1211,7 @@ export class Game {
     this.profiler?.beginFrame();
     // 1. Tiempo
     this._vehicleImpactCooldown = Math.max(0, (this._vehicleImpactCooldown ?? 0) - dt);
-    this.clock.update(dt * (this.cheats?.timeScale ?? 1));
+    this.clock.update(dt * (this.cheats?.velocidad ?? 1));
     this.time.update(dt, this.clock);
 
     // 2. Día/noche: sol, luna, nubes y clima de Bogotá; la luz sigue al jugador (sombras nítidas)
@@ -1271,7 +1264,7 @@ export class Game {
     const cartBonus = (this.cart?.isAttached) ? this.cart.capacityBonus : 0;
     this.inventory.maxWeight = INVENTORY_MAX_WEIGHT + maxWeightBonus + (this.costal ? COSTAL_BONUS : 0) + cartBonus;
     this.player.load = this.inventory.totalWeight / this.inventory.maxWeight;
-    this.cheats?.update(dt);
+    this.cheats?.update();
 
     // 5. Debuff por salud mental baja (el desgaste se calcula en StatsSystem).
     if (this.stats.saludMental < MENTAL_LOW_THRESHOLD) {

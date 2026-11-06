@@ -7,6 +7,8 @@ import { ITEMS } from '../src/data/items.js';
 import { CAMBUCHE } from '../src/data/cambuche.js';
 import { CheatMode, trucosActivos, destinosDeZona, DINERO_TRUCO, QTY_TRUCO } from '../src/core/trucos.js';
 import { ZONA_NOMBRES } from '../src/ui/ZonaAviso.js';
+import { StealSystem } from '../src/features/steal.js';
+import { InteractionSystem } from '../src/systems/InteractionSystem.js';
 
 test('el modo trucos solo se prende con ?trucos en la dirección', () => {
   assert.equal(trucosActivos('?trucos'), true);
@@ -79,7 +81,7 @@ test('la invulnerabilidad no deja bajar la salud', () => {
   stats.salud = 40;
   assert.equal(stats.salud, 100, 'no baja');
   stats.salud = 120;
-  assert.equal(stats.salud, 120, 'sí sube');
+  assert.equal(stats.salud, 100, 'no pasa de 100');
   cheats.setInvulnerable(false);
   stats.salud = 40;
   assert.equal(stats.salud, 40, 'apagado vuelve a bajar');
@@ -100,7 +102,7 @@ test('los destinos salen de las zonas del mapa y del cambuche', () => {
   const district = {
     getSpawnGrid: () => [{ x: 10, z: 10 }, { x: 300, z: 55 }, { x: 300, z: 200 }],
     _zoneAt: (x, z) => (x >= 267 ? (z < 121 ? 'candelaria' : 'chapinero') : 'andenes'),
-    reserved: { spawn: { x: 112.98, z: 97.84 } },
+    reserved: { spawn: { x: 112.98, z: 97.84 }, dealer: { x: 14, z: 22 } },
   };
   const destinos = destinosDeZona(district);
   const nombres = Object.values(ZONA_NOMBRES);
@@ -108,6 +110,48 @@ test('los destinos salen de las zonas del mapa y del cambuche', () => {
   assert.equal(destinos.at(-1).name, 'Cambuche');
   assert.deepEqual(destinos.at(-1), { name: 'Cambuche', x: 112.98, z: 97.84 });
   assert.ok(destinos.some((d) => d.name === 'La Candelaria' && d.x === 300));
+  // El Cartucho no tiene punto libre en la rejilla: cae donde el jíbaro.
+  assert.deepEqual(destinos.find((d) => d.name === 'El Cartucho'), { name: 'El Cartucho', x: 14, z: 22 });
+});
+
+test('la invisibilidad corta el aviso a la patrulla y el arresto', () => {
+  const game = {
+    cheats: { invisible: true },
+    traffic: { wantedLevel: 0, llamadas: 0, alertForTheft() { this.llamadas++; return true; } },
+    player: { position: { x: 0, z: 0 } }, stats: {}, inventory: {},
+  };
+  const steal = new StealSystem(game);
+  steal.buscado = 2;
+  steal._alertPolice();
+  assert.equal(game.traffic.llamadas, 0, 'nadie llama a la patrulla');
+  assert.equal(game.traffic.wantedLevel, 0);
+  game.cheats.invisible = false;
+  steal._alertPolice();
+  assert.equal(game.traffic.llamadas, 1);
+  assert.equal(game.traffic.wantedLevel, 2);
+
+  const arresto = Object.assign(Object.create(Game.prototype), {
+    _arrestPending: false, _deathPending: false, stats: { salud: 80 }, cheats: { invisible: true },
+  });
+  arresto._policeArrest();
+  assert.equal(arresto._arrestPending, false, 'invisible no va preso');
+});
+
+test('el robo en un carro no avisa a la patrulla si está ciego', () => {
+  const eventos = [];
+  globalThis.window = new EventTarget();
+  globalThis.window.addEventListener('police-chase', () => eventos.push('chase'));
+  const sys = Object.assign(Object.create(InteractionSystem.prototype), {
+    policeBlind: true,
+    talents: { getEffect: () => 1 },
+    audio: { play() {}, playMovingTheft() {}, playCarAlarm() {} },
+    inventory: { add: () => true },
+    stats: { salud: 100, dinero: 0, addXP() {} },
+    getTraffic: () => ({ alertForTheft: () => { throw new Error('no debería llamar'); } }),
+    player: { position: { x: 0, z: 0 } },
+  });
+  sys._stealCar({ steal: () => ({ items: ['retrovisor'], caught: false }), traffic: true });
+  assert.deepEqual(eventos, []);
 });
 
 test('con trucos prendidos la partida no se guarda', () => {

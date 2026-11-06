@@ -1,13 +1,12 @@
 // src/core/trucos.js
-// Modo trucos: se prende con ?trucos en la dirección y no toca la partida guardada.
-// Vive solo en esta pestaña: al recargar sin el parámetro vuelve a ser un juego normal.
+// Modo trucos: se prende con ?trucos en la dirección y no toca la partida guardada; vive en la pestaña.
 import { WEATHER_TYPES } from '../world/Climate.js';
 import { NEEDS } from '../systems/StatsSystem.js';
 import { ITEMS } from '../data/items.js';
 import { CAMBUCHE } from '../data/cambuche.js';
 import { ZONA_NOMBRES, zonaDe } from '../ui/ZonaAviso.js';
 
-export const TRUCOS_QUERY = 'trucos';
+const TRUCOS_QUERY = 'trucos';
 export const DINERO_TRUCO = 1_000_000;
 export const QTY_TRUCO = 10;
 export const VELOCIDAD_NORMAL = 1;
@@ -28,7 +27,9 @@ export function destinosDeZona(district) {
   const grid = district?.getSpawnGrid?.() ?? [];
   const out = [];
   for (const [zona, name] of Object.entries(ZONA_NOMBRES)) {
-    const spot = grid.find((point) => zonaDe(district, point.x, point.z) === zona);
+    // El Cartucho no tiene punto libre en la rejilla (el jíbaro y la mesa lo ocupan): cae donde el jíbaro.
+    const spot = grid.find((point) => zonaDe(district, point.x, point.z) === zona)
+      ?? (zona === 'cartucho' ? district?.reserved?.dealer : null);
     if (spot) out.push({ name, x: spot.x, z: spot.z });
   }
   const spawn = district?.reserved?.spawn;
@@ -50,18 +51,17 @@ export class CheatMode {
     this._destinos = null;
   }
 
-  get timeScale() { return this.velocidad; }
-  /** Con esto el juego no abre la pantalla de arresto. */
-  get bloqueaArresto() { return this.invisible || this.invulnerable; }
-
   /** Lo que hay que sostener mientras los trucos están prendidos. */
   update() {
     const { stats, inventory } = this.game;
     if (this.necesidades) for (const need of NEEDS) stats[need] = 100;
-    stats.invulnerable = this.invulnerable;
     // Solo con trucos el costal no tiene tope: se afloja sin tocar las reglas normales.
     if (inventory) inventory.maxWeight = Infinity;
-    if (this.invisible) this.calmarPolicia();
+    // La invisibilidad no deja nacer persecuciones; aquí solo se borra la copia que hace el fichado.
+    if (this.invisible) {
+      if (this.game.traffic) this.game.traffic.wantedLevel = 0;
+      if (this.game.steal) this.game.steal.buscado = 0;
+    }
   }
 
   // ===== Necesidades =====

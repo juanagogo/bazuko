@@ -31,13 +31,14 @@ export class StatsSystem {
     this.animo = v;
   }
 
-  /** Salud con el modo trucos prendido: no baja, sí sube. */
+  /** Salud con el modo trucos prendido: no baja, y no pasa de 100 al subir. */
   get salud() {
     return this._salud;
   }
 
   set salud(value) {
-    if (!this.invulnerable || value > this._salud) this._salud = value;
+    if (!this.invulnerable) this._salud = value;
+    else if (value > this._salud) this._salud = Math.min(value, 100);
   }
 
   /** Abstinencia: el vicio está por debajo del umbral */

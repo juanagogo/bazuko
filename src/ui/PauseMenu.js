@@ -16,6 +16,7 @@ import { pasarTexto } from './pictos.js';
 import { DOG_ACCESSORIES, DOG_COATS } from '../entities/Dog.js';
 import { DEFAULT_TRAFFIC_DENSITY, TRAFFIC_DENSITY_LEVELS } from '../systems/trafficDensity.js';
 import { trucosPanel } from './TrucosPanel.js';
+import { choice, sectionTitle, row, section } from './pauseParts.js';
 
 export const PAUSE_TABS = [
   { id: 'mapa', label: 'Mapa' },
@@ -127,21 +128,11 @@ function mapPanel(game) {
   return game.mapView.root;
 }
 
-/** Elegir es círculo: la opción elegida no se pinta, se encierra. */
-function choice(label, on, onClick) {
-  const b = button(el('span', { class: on ? 'elegido' : null, text: label }), { class: 'pause-choice', onClick });
-  b.setAttribute('aria-pressed', on ? 'true' : 'false');
-  return b;
-}
-
-const sectionTitle = (glyph, title) => el('h3', { class: 'pause-section-title' }, icon(glyph, { size: 22 }), title);
-
 /** Apariencia de El Chato; solo cuando ya es compañero. Cada cambio se guarda con la partida. */
 function dogSection(game) {
   const dog = game.dog;
   if (!dog?.isFriend) return null;
   const change = (look) => { dog.setLook(look); game._save?.(); game.menu.refresh(); };
-  const row = (label, ...controls) => el('div', { class: 'pause-row' }, el('label', { class: 'pause-row__label', text: label }), ...controls);
   const size = Math.round(dog.look.tamano * 100);
   const sizeLabel = el('span', { class: 'pause-value', text: porcentaje(size) });
   const sizeInput = el('input', {
@@ -218,8 +209,6 @@ function statePanel(game) {
 
 function settingsPanel(game) {
   const audio = game.audio;
-  const row = (label, ...controls) => el('div', { class: 'pause-row' }, el('label', { class: 'pause-row__label', text: label }), ...controls);
-  const section = (glyph, title, ...rows) => el('div', { class: 'pause-section' }, sectionTitle(glyph, title), ...rows);
   const volPct = Math.round((audio?.volume ?? 0.7) * 100);
   const volumeLabel = el('span', { class: 'pause-value', text: porcentaje(volPct) });
   const volumeInput = el('input', {
