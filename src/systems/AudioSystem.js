@@ -1,8 +1,12 @@
 // src/systems/AudioSystem.js
 import { Howl, Howler } from 'howler';
 import { VehicleAudio } from './VehicleAudio.js';
+import { STREET_VOICES, StreetVoices } from './StreetVoices.js';
+import { PoliceSirenAudio } from './PoliceSirenAudio.js';
 
 export const MIX_CATEGORIES = ['ambient', 'traffic', 'voices', 'effects'];
+// El audio vive en public/audio: la ruta se arma con la base para que la demo de Pages funcione bajo su subcamino.
+const AUDIO_BASE = `${import.meta.env?.BASE_URL ?? '/'}audio/`;
 // Mientras suena una frase, tráfico y ambiente bajan a esta fracción para que se entienda.
 const VOICE_DUCK = .45, DUCK_ATTACK = 10, DUCK_RELEASE = 2.5;
 // Pisadas aisladas de Sounds_of_a_steps.opus (inicio y duración en ms).
@@ -23,10 +27,10 @@ export class AudioSystem {
     this.loadErrors = new Map();
     this._baseVolume = new Map();
     const sound = (file, options = {}) => this._track(options.volume ?? 1, new HowlClass({
-      src: [`/audio/${encodeURIComponent(file)}`], ...options,
+      src: [`${AUDIO_BASE}${encodeURIComponent(file)}`], ...options,
       onload: () => this.loadErrors.delete(file),
       onloaderror: (_id, error) => {
-        if (!this.loadErrors.has(file)) console.error(`[Audio] No se pudo cargar /audio/${file}:`, error);
+        if (!this.loadErrors.has(file)) console.error(`[Audio] No se pudo cargar ${AUDIO_BASE}${file}:`, error);
         this.loadErrors.set(file, String(error));
       },
       onplayerror(id) { this.once('unlock', () => this.play(id)); }
@@ -80,13 +84,19 @@ export class AudioSystem {
     ];
     this.driverSounds = driverFiles.map(file => sound(file, { volume: 0, loop: false, pool: 8 }));
     this.theftSounds = Array.from({ length: 5 }, (_, i) => sound(`roberto_robo_espejo_n${i + 1}.mp3`, { volume: 0, loop: false, pool: 6 }));
+    // Frases de la calle: su volumen lo pone StreetVoices según la distancia.
+    this.streetVoiceSounds = Object.fromEntries(STREET_VOICES.map(clip => [clip.key, sound(clip.file, { volume: 0, loop: false, pool: 1 })]));
     this._theftVoices = new Map();
     this.vehicles = new VehicleAudio(this.vehicleSounds, Math.random, this.driverSounds);
-    this.vehicles.externalVoiceActive = () => this._theftVoiceActive();
+    this.streetVoices = new StreetVoices({ bank: this.streetVoiceSounds });
+    this.policeSiren = new PoliceSirenAudio({ fx: () => this._fx() });
+    // Una sola voz a la vez entre conductores, robo y calle.
+    this.vehicles.externalVoiceActive = () => this._theftVoiceActive() || this.streetVoices.active;
+    this.streetVoices.externalVoiceActive = () => this._theftVoiceActive() || this.vehicles.remarkPlaying();
     this._carAlarms = new Map();
 
     // El audio es opcional: un archivo ausente o bloqueado no impide jugar.
-    this.ready = Promise.all([...Object.values(this.sounds), ...Object.values(this.vehicleSounds), ...this.driverSounds, ...this.theftSounds].map(sound => new Promise(resolve => {
+    this.ready = Promise.all([...Object.values(this.sounds), ...Object.values(this.vehicleSounds), ...this.driverSounds, ...this.theftSounds, ...Object.values(this.streetVoiceSounds)].map(sound => new Promise(resolve => {
       if (sound.state() === 'loaded') { resolve(); return; }
       const done = () => {
         clearTimeout(timer);
@@ -164,11 +174,12 @@ export class AudioSystem {
     return false;
   }
 
-  _voiceActive() { return this._theftVoiceActive() || this.vehicles.remarkPlaying(); }
+  _voiceActive() { return this.vehicles.externalVoiceActive() || this.vehicles.remarkPlaying(); }
 
   /** Ajusta los bucles que no se recalculan cada cuadro (ambiente y lluvia). */
   _applyLevels(force = false) {
     this.vehicles.levels = { traffic: this._level('traffic'), voices: this._level('voices') };
+    this.streetVoices.levels.voices = this._level('voices');
     const ambient = this._level('ambient');
     if (!force && Math.abs(ambient - (this._appliedAmbient ?? -1)) < .002) return;
     this._appliedAmbient = ambient;
@@ -264,6 +275,7 @@ export class AudioSystem {
     for (const previous of this._theftVoices.values()) previous.sound.stop(previous.id);
     this._theftVoices.clear();
     this.vehicles.stopRemarks();
+    this.streetVoices.cancel();
     const voice = { sound, id: sound.play() };
     sound.volume(this._theftVolume(car, this._listenerPosition), voice.id);
     this._theftVoices.set(car, voice);
@@ -361,6 +373,7 @@ export class AudioSystem {
     if (this._effectsBus) this._effectsBus.gain.value = paused ? 0 : this._level('effects');
     this._syncRain();
     this.vehicles.setPaused(paused);
+    this.streetVoices.setPaused(paused);
     if (paused) {
       for (const voice of this._theftVoices.values()) voice.sound.stop(voice.id);
       this._theftVoices.clear();
@@ -379,13 +392,15 @@ export class AudioSystem {
     } else if (this._ambientStarted) this.sounds.ambient.play(this._ambientId);
   }
 
-  updateWorld(dt, position, _camera, vehicles, bus) {
+  updateWorld(dt, position, _camera, vehicles, bus, pedestrians) {
     this._listenerPosition = position;
     this.setPaused(false);
     const duckTarget = this._voiceActive() ? VOICE_DUCK : 1;
     this._duck += (duckTarget - this._duck) * (1 - Math.exp(-dt * (duckTarget < this._duck ? DUCK_ATTACK : DUCK_RELEASE)));
     this._applyLevels();
     this.vehicles.update(dt, position, vehicles, bus);
+    this.policeSiren.update(dt, position, vehicles);
+    this.streetVoices.update(position, pedestrians);
     for (const [car, voice] of this._theftVoices) {
       if (!voice.sound.playing(voice.id)) this._theftVoices.delete(car);
       else voice.sound.volume(this._theftVolume(car, position), voice.id);
@@ -406,12 +421,13 @@ export class AudioSystem {
   dispose() {
     this._theftVoices.clear();
     this._carAlarms.clear();
+    this.streetVoices.clear();
     this.eventTarget?.removeEventListener('dog-bark', this._dogBark);
     this.eventTarget?.removeEventListener('car-honk', this._carHonk);
     this.vehicles.clear();
     this._removeUnlock();
     globalThis.document?.removeEventListener?.('visibilitychange', this._visibilityChanged);
-    for (const sound of [...Object.values(this.sounds), ...Object.values(this.vehicleSounds), ...this.driverSounds, ...this.theftSounds]) sound.unload();
+    for (const sound of [...Object.values(this.sounds), ...Object.values(this.vehicleSounds), ...this.driverSounds, ...this.theftSounds, ...Object.values(this.streetVoiceSounds)]) sound.unload();
   }
 
   /** ===== Efectos Procedurales (Web Audio) ===== */

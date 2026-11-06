@@ -6,6 +6,7 @@ import { Renderer } from '../src/core/Renderer.js';
 import { AdaptiveResolution } from '../src/core/AdaptiveResolution.js';
 import { AutoQuality } from '../src/core/GraphicsQuality.js';
 import { Game } from '../src/core/game.js';
+import { LocalLights } from '../src/core/LocalLights.js';
 import { openPauseMenu } from '../src/ui/PauseMenu.js';
 
 beforeEach(() => {
@@ -344,4 +345,36 @@ test('Ajustes avisa cuando la calidad subió o bajó sola, no mientras se aplica
   assert.match(hint({ quality: 'baja', effectiveQuality: 'media' }), /Ahora corre en media: subió sola/);
   assert.doesNotMatch(hint({ quality: 'baja', effectiveQuality: 'baja' }), /Ahora corre/);
   assert.doesNotMatch(hint({ quality: 'media', effectiveQuality: 'media' }), /Ahora corre/, 'Lo elegido aún no se aplica');
+});
+
+test('la variante sin sombras se compila con las luces de punto apagadas', async () => {
+  const order = [];
+  const { renderer } = fakeRenderer({ saved: 'media', shadows: true,
+    compile: () => { order.push('compila'); return Promise.resolve(); } });
+  renderer.pointLights = { setEnabled: on => order.push(`luces ${on}`) };
+
+  await renderer.prepareVariant(false);
+  assert.deepEqual(order, ['luces false', 'compila', 'luces true'],
+    'el programa se compila ya sin luces y el juego sigue como estaba');
+});
+
+test('elegir baja apaga las luces de punto y media las enciende', () => {
+  const { renderer } = fakeRenderer({ saved: 'media', shadows: true });
+  renderer.pointLights = new LocalLights(new THREE.Scene());
+  const lit = () => renderer.pointLights.pool.every(light => light.visible);
+
+  renderer.setQuality('baja');
+  assert.equal(lit(), false, 'baja deja el shader sin luces de punto');
+  renderer.setQuality('media');
+  assert.equal(lit(), true, 'media las recupera');
+});
+
+test('la subida automática devuelve el tope de resolución de media', async () => {
+  const { renderer } = fakeRenderer({ saved: null, shadows: false });
+  renderer.quality = 'baja';
+  window.devicePixelRatio = 2;
+  renderer.resolution.setLimit(0.85);
+
+  await renderer._raiseAutoQuality();
+  assert.equal(renderer.resolution.max, 1.25, 'la sesión subida no queda recortada como baja');
 });

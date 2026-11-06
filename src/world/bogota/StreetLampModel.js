@@ -12,6 +12,10 @@ export const STREET_LAMP = Object.freeze({
 /** Códigos del atributo por vértice: 1 es la lente; desde 9, juegos que varían por poste. */
 export const LAMP_PART = Object.freeze({ NONE: 0, LENS: 1, SET: 9 });
 
+/** Desde aquí un poste no se distingue del liviano: a 50 m mide unos pocos píxeles. */
+export const FAR_LAMP_DISTANCE = 50;
+const FAR_LAMP_MARGIN = 4; // un lote en el borde del alcance no cambia de modelo con cada paso
+
 // ---------- atlas ----------
 
 const WIDTH = 128, HEIGHT = 256;
@@ -261,6 +265,29 @@ export function createStreetLampGeometry() {
   return m.build();
 }
 
+/**
+ * El mismo poste para quien lo ve de lejos: fuste, brazo y luminaria, sin parche de obra, zunchos,
+ * bajante, rótulos ni cajas de fibra. Conserva la silueta, la lente y la punta del brazo.
+ */
+export function createFarStreetLampGeometry() {
+  const m = new SignalMesher(), { top } = STREET_LAMP, brace = 5.83;
+  m.paint = PAINT.pole;
+  m.sweep([.1, 1.6, 3.2, 4.8, top].map(y => V(0, y, 0)), [.1, 1.6, 3.2, 4.8, top].map(poleRadius), 8, { capEnd: true, vStart: .1 / top });
+  const neck = V(1.34, 6.25, 0);
+  m.paint = PAINT.galv;
+  m.sweep([V(poleRadius(brace) + .018, 5.82, 0), V(.34, 5.93, 0), V(1.1, 6.19, 0), neck], [.036, .034, .03, .028], 5);
+  const frame = new THREE.Matrix4().makeRotationZ(.07).setPosition(neck.x - .03, neck.y, 0);
+  m.within(frame, () => {
+    m.paint = PAINT.body;
+    m.box(.355, 0, 0, .71, .13, .25); // del cuello a la punta del completo: la silueta no se despega del brazo
+    // La lente sobresale por debajo de la carcasa, como en el completo: es el punto claro de noche.
+    m.paint = PAINT.lens;
+    m.flat([[.2, -.07, -.105, .5, .5, -1, -1], [.6, -.07, -.105, .5, .5, 1, -1],
+      [.6, -.07, .105, .5, .5, 1, 1], [.2, -.07, .105, .5, .5, -1, 1]], [0, -1, 0]);
+  });
+  return m.build();
+}
+
 /** Un cuadro para el resplandor y otro para el reflejo en el piso mojado. */
 export function createLampHaloGeometry() {
   const { lens } = STREET_LAMP, position = [], corner = [], kind = [], index = [];
@@ -437,19 +464,34 @@ export function acquireStreetLampAssets() {
     shared = {
       users: 0, atlas,
       geometry: createStreetLampGeometry(),
+      farGeometry: createFarStreetLampGeometry(),
       material: createStreetLampMaterial(night, atlas),
       haloGeometry: createLampHaloGeometry(),
       haloMaterial: createLampHaloMaterial(wet)
     };
+    // Mismos límites del poste completo: cambiar de modelo no cambia lo que se descarta.
+    shared.farGeometry.boundingBox = shared.geometry.boundingBox;
+    shared.farGeometry.boundingSphere = shared.geometry.boundingSphere;
+    shared.geometry.userData.farVariant = shared.farGeometry;
     shared.haloMaterial.visible = night.value > .5;
   }
   shared.users++;
   return shared;
 }
 
+/** Cambia los lotes de postes al modelo lejano por distancia; el resto del mobiliario se queda igual. */
+export function updateFarStreetLamps(batches, cameraPosition, allowFar) {
+  for (const mesh of batches) {
+    const { nearGeometry, farGeometry } = mesh.userData;
+    const limit = FAR_LAMP_DISTANCE + (mesh.geometry === nearGeometry ? FAR_LAMP_MARGIN : 0);
+    mesh.geometry = allowFar && mesh.boundingBox.distanceToPoint(cameraPosition) > limit ? farGeometry : nearGeometry;
+  }
+}
+
 export function releaseStreetLampAssets() {
   if (!shared || --shared.users > 0) return;
   shared.geometry.dispose();
+  shared.farGeometry.dispose();
   shared.material.dispose();
   shared.haloGeometry.dispose();
   shared.haloMaterial.dispose();

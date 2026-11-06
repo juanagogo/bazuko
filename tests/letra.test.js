@@ -104,3 +104,17 @@ test('el generador no depende de rutas de nadie ni de un navegador', () => {
     assert.doesNotMatch(src, /\/Users\/|\/private\/|\/tmp\/|playwright/i, f);
   }
 });
+
+test('la letra no llama a las funciones del motor que cambian con el procesador', () => {
+  // En aarch64 el compilador contrae en FMA el polinomio de C++ de V8 y en x86_64 no, así que el
+  // último bit cambia de una máquina a otra y la letra se mueve. De esa familia solo quedan
+  // Math.log2 y `2 **`, que solo cruzan un entero con potencias de dos exactas, y Math.hypot, que
+  // V8 resuelve en Torque con sumas y una raíz exactas. La letra de imprenta todavía usa los del
+  // motor: momentos.test.js solo le compara el tamaño.
+  const familia = /Math\.(sin|cos|tan|asin|acos|atan|atan2|exp|expm1|log|log1p|log10|pow|cbrt|sinh|cosh|tanh|fround)\b|\*\*\s*[-+]?[\d]*\./;
+  for (const f of fs.readdirSync(path.join(RAIZ, 'tools/fuente'))) {
+    if (f === 'imprenta.mjs') continue;
+    const src = fs.readFileSync(path.join(RAIZ, 'tools/fuente', f), 'utf8');
+    assert.doesNotMatch(src, familia, f);
+  }
+});

@@ -4,6 +4,7 @@
 import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { inkStrokes, contoursToPath, l, c, rnd } from './nib.mjs';
+import { seno, coseno } from './trig.mjs';
 
 const SALIDA = process.argv[2] ?? fileURLToPath(new URL('../../src/ui/css/marcas.css', import.meta.url));
 const TINTA = '#14110C', ROJO = '#AB1D17', CINTA = '#E9DBB4', CANTO = '#3B2913'; // los mismos valores de base.css
@@ -51,7 +52,7 @@ function circulo(seed, color = ROJO, grosor = { angle: 30, w: 5.6, t: 3, r: 1 })
   for (let i = 0; i <= N; i++) {
     const t = i / N, a = a0 + t * Math.PI * 2 * vueltas;
     const k = 1 + (t - .5) * .05 + (r() - .5) * .012;
-    pts.push([cx + Math.cos(a) * 53 * k, cy + Math.sin(a) * 26 * k]);
+    pts.push([cx + coseno(a) * 53 * k, cy + seno(a) * 26 * k]);
   }
   return uri(W, H, tinta([{ kind: 'curve', pts }], { color, nib: grosor, seed, amp: .25 }), ` width='${W}' height='${H}'`);
 }
@@ -68,7 +69,7 @@ function tapa() {
   const pts = [], N = 21;
   for (let i = 0; i <= N; i++) {
     const a = i / N * Math.PI * 2, R = i % 2 ? 44 : 39;
-    pts.push([50 + Math.cos(a) * R, 50 + Math.sin(a) * R]);
+    pts.push([50 + coseno(a) * R, 50 + seno(a) * R]);
   }
   const fondo = `<path fill='${CINTA}' d='M${pts.map((q) => q.join(' ')).join('L')}Z'/>`;
   const borde = tinta([{ kind: 'poly', pts }], { nib: { angle: 30, w: 3.4, t: 2, r: .6 }, seed: 8, amp: .2 });
@@ -81,7 +82,7 @@ function aroJoystick() {
   const pts = [];
   for (let i = 0; i <= 20; i++) {
     const a = -1.2 + i / 20 * Math.PI * 2 * 1.06;
-    pts.push([100 + Math.cos(a) * 91, 100 + Math.sin(a) * 91]);
+    pts.push([100 + coseno(a) * 91, 100 + seno(a) * 91]);
   }
   return uri(200, 200, tinta([{ kind: 'curve', pts }], { color: CINTA, nib: { angle: 30, w: 8, t: 4.2, r: 1.4 }, seed: 12, amp: .5 }));
 }

@@ -11,6 +11,7 @@ import { World } from '../world/World.js';
 import { Dog, DOG_DEFAULT_LOOK, legacyPetLook } from '../entities/Dog.js';
 import { CompanionNavigation } from '../systems/CompanionNavigation.js';
 import { Minimap, nombreALaVista } from '../ui/Minimap.js';
+import { ZonaAviso } from '../ui/ZonaAviso.js';
 import { mojarCarton } from '../ui/mojado.js';
 import { servicePlaces, needContext, SHOP_PRICES, SHOP_OFFERS } from '../ui/mapServices.js';
 import { originEffect } from '../data/origins.js';
@@ -43,8 +44,10 @@ import {
 import { StatsSystem, NEEDS } from '../systems/StatsSystem.js';
 import { TimeSystem } from '../systems/TimeSystem.js';
 import { SaveSystem } from '../systems/SaveSystem.js';
+import { AutoSave } from '../systems/AutoSave.js';
 import { CollisionSystem } from '../systems/CollisionSystem.js';
 import { TrafficSystem } from '../systems/TrafficSystem.js';
+import { DEFAULT_TRAFFIC_DENSITY, trafficDensityId, trafficDensityLabel } from '../systems/trafficDensity.js';
 import { distributeShelterLoot, spreadPickupPositions } from '../systems/ShelterLoot.js';
 import { InventorySystem } from '../systems/InventorySystem.js';
 import { AudioSystem } from '../systems/AudioSystem.js';
@@ -112,6 +115,9 @@ export class Game {
     this.stats = new StatsSystem();
     this.time = new TimeSystem();
     this.save = new SaveSystem();
+    // El autoguardado se engancha a la pestaña: esconderse o cerrarla es el último momento para guardar.
+    this.autoSave = new AutoSave({ guardar: () => this._save(), puede: () => this._puedeAutoguardar() });
+    this._soltarAutoguardado = this.autoSave.enganchar();
     this.diseases = new DiseaseSystem();
     this.talents = new TalentSystem();
     this.crafting = new CraftingSystem();
@@ -170,15 +176,20 @@ export class Game {
     this.performanceHUD = new PerformanceHUD();
     this.profiler = new FrameProfiler();
     this.localLights = new LocalLights(this.sceneMgr.scene);
+    // Antes del primer setGraphicsQuality: _setShadows mueve sombras y luces de punto a la vez.
+    this.renderer.pointLights = this.localLights;
     this.renderer.overlayLights = [this.sceneMgr.ambient, this.sceneMgr.sun, ...this.localLights.pool];
     this.menu = new Menu();
     this.minimap = new Minimap();
+    this.zonaAviso = new ZonaAviso();
     this.weather = new WeatherSystem(this.sceneMgr.scene);
     this.hud.weather = this.weather;
     window.addEventListener('weather-lightning', ({ detail }) => this.audio.playThunder?.(detail?.distance));
     let quality = 'baja';
     try { quality = localStorage.getItem('bazuko.graphics_quality') || quality; } catch { /* sin almacenamiento */ }
     this.setGraphicsQuality(quality, false);
+    this.trafficDensity = DEFAULT_TRAFFIC_DENSITY;
+    try { this.trafficDensity = trafficDensityId(localStorage.getItem('bazuko.traffic_density')); } catch { /* sin almacenamiento */ }
     this.hud.setMuted(this.audio.isMuted());
     this.creator = createCreator({ audio: null });
     this.inventoryUI = new InventoryUI(this.inventory, this);
@@ -599,6 +610,19 @@ export class Game {
     if (this.parkedMotos) this.sceneMgr.scene.add(this.parkedMotos);
     if (district.getTrafficRoutes) {
       this.traffic = new TrafficSystem(this.sceneMgr.scene, district.getTrafficRoutes(), { policeCount: 2 });
+      this.traffic.setDensity(this.trafficDensity);
+      // La flota diaria entra y sale con el reloj: el juego le da de alta el carro nuevo y de baja el que se va.
+      this.traffic.onVehicleAdded = (car) => {
+        this.interaction.register(car);
+        this._contactVehicles?.push(car);
+        car.setNight?.(this.clock.lightsOn, this.weather?.isRaining ?? false, this.weather?.weather === 'niebla');
+      };
+      this.traffic.onVehicleRemoved = (car) => {
+        this.interaction.unregister(car);
+        this.renderer.culling.unregister(car.group);
+        const index = this._contactVehicles?.indexOf(car) ?? -1;
+        if (index >= 0) this._contactVehicles.splice(index, 1);
+      };
       this.traffic.setParkedCars(this.cars);
       this.traffic.setEnvironment({
         collisions: this.collisions,
@@ -732,8 +756,14 @@ export class Game {
     }
   }
 
-  _save() {
-    this.save.save({
+  /** ¿Es un momento firme para guardar solo? Ni cargando, ni en el creador, ni muerto, ni preso, ni dormido. */
+  _puedeAutoguardar() {
+    return !this._loading && !this._deathPending && !this._arrestPending && this.stats.salud > 0 && !this.isSleeping && !this.creator?.isOpen;
+  }
+
+  /** Lo que se guarda de la partida en curso. */
+  _estado() {
+    return {
       stats: this.stats.serialize(),
       clock: this.clock.serialize(),
       inventory: this.inventory.serialize(),
@@ -749,7 +779,74 @@ export class Game {
       dog: { isFriend: !!this.dog?.isFriend, look: this.dog?.look ?? null },
       cart: this.cart ? this.cart.saveState() : null,
       gps: this.gps?.serialize() ?? null
+    };
+  }
+
+  _save() {
+    const ok = this.save.save(this._estado());
+    if (ok) this._saveFallo = false;
+    else if (!this._saveFallo) {
+      // El aviso sale una sola vez: repetirlo cada minuto es ruido.
+      this._saveFallo = true;
+      this._avisar('No se pudo guardar: el navegador no deja escribir la partida.');
+    }
+    return ok;
+  }
+
+  /** Un aviso corto, por donde pasan los de la partida guardada. */
+  _avisar(texto, tipo = 'warn') {
+    globalThis.window?.dispatchEvent?.(new CustomEvent('toast', { detail: { text: texto, type: tipo } }));
+  }
+
+  /** Copia la partida a un archivo, para no perderla con el almacenamiento del navegador. */
+  exportarPartida() {
+    const url = URL.createObjectURL(new Blob([this.save.comoTexto(this._estado())], { type: 'application/json' }));
+    const link = el('a', { href: url, download: `Bazuko-partida-${new Date().toISOString().slice(0, 10)}.json` });
+    document.body.append(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 5000);
+    this._avisar('Partida copiada a un archivo', 'info');
+  }
+
+  /** Pide un archivo y cambia la partida en curso por la que traiga, si es de este juego. */
+  importarPartida() {
+    this._inputPartida?.remove();
+    const input = el('input', { type: 'file', accept: '.json,application/json', style: 'display:none' });
+    this._inputPartida = input;
+    input.addEventListener('change', async () => {
+      const file = input.files?.[0];
+      input.remove();
+      if (file) this._importarTexto(await file.text());
     });
+    input.addEventListener('cancel', () => input.remove());
+    document.body.append(input);
+    input.click();
+  }
+
+  /** Aplica la partida que trae un texto. Si no es de este juego no se escribe nada. */
+  _importarTexto(texto) {
+    const data = this.save.leerArchivo(texto);
+    if (!data) {
+      this._avisar('Ese archivo no es una partida de Bazuko.');
+      return;
+    }
+    const respaldo = this._estado();
+    try {
+      this._aplicarPartida(data);
+    } catch (error) {
+      // La partida del navegador sigue intacta: lo que falló fue el archivo, y se vuelve a la que había.
+      console.warn('[Partida] El archivo no se pudo aplicar.', error);
+      try { this._aplicarPartida(respaldo); } catch { /* se queda como estaba */ }
+      this._avisar('Ese archivo no se pudo aplicar.');
+      return;
+    }
+    // El cuerpo, la cámara y el vecindario, como al recuperarse de un atropello.
+    this.player.root.position.copy(this.player.position);
+    this._resetAfterRelocation();
+    this.cameraRig._snap = true;
+    this.menu?.refresh?.();
+    if (this._save()) this._avisar('Partida importada', 'info');
   }
 
   /** Dormir en el cambuche (requiere la base). De noche hasta las 6:00; de día, siesta de 3 h. */
@@ -1037,6 +1134,8 @@ export class Game {
     requestAnimationFrame(this._loop);
 
     const now = performance.now();
+    // El reloj de la pestaña decide el autoguardado, aunque el juego esté en pausa.
+    this.autoSave?.update(now);
     // El intervalo entre cuadros se mide con el sello de rAF: el reloj al entrar aquí oscila y cuenta como lentitud lo que no lo es.
     this._frameStamp = stamp ?? now;
     const dt = Math.min((now - this._lastTime) / 1000, 0.1);
@@ -1075,16 +1174,17 @@ export class Game {
       return;
     }
     this.momentos?.update(dt, this.player, this.stats, this.clock);
+    this.zonaAviso?.update(dt, this.world.active, this.player.position.x, this.player.position.z);
     // Deja ver el lanzamiento y la caída antes de abrir la recuperación fatal.
     if (this.stats.salud <= 0 && this.player.isRagdollActive) {
       if (this.steal?.minigameActive) this.steal._endMinigame(false, 'cancel');
       this._syncVehicleColliders();
       this.player.update(dt, this.cameraRig.camera, this.collisions);
       this.world.update(dt, this.player.position, this.cameraRig.camera, this.traffic?.vehicles ?? []);
-      this.traffic?.update(dt, { pedestrians: this.world.active?.trafficPedestrians ?? this.world.active?.npcs ?? [] });
+      this.traffic?.update(dt, { pedestrians: this.world.active?.trafficPedestrians ?? this.world.active?.npcs ?? [], camera: this.cameraRig.camera, hour: this.clock.hour });
       this.cameraRig.follow(this.player.position, dt, this.collisions);
       this.audio.updateSteps(false, false);
-      this.audio.updateWorld(dt, this.player.position, this.cameraRig.camera, this.traffic?.vehicles ?? [], this.world.active?.busServices ?? this.world.active?.busService);
+      this.audio.updateWorld(dt, this.player.position, this.cameraRig.camera, this.traffic?.vehicles ?? [], this.world.active?.busServices ?? this.world.active?.busService, this.world.active?.npcs ?? []);
       this.audio.setRaining(!!this.weather?.isRaining);
       this._handleDeath();
       this._renderFrame(now, false); this.input.endFrame();
@@ -1199,7 +1299,7 @@ export class Game {
     this.world.update(dt, this.player.position, this.cameraRig.camera, this.traffic?.vehicles ?? []);
     actualizarFrases(this.cameraRig.camera, this.player.position, now);
     this.profiler?.mark('mundoNPC');
-    this.traffic?.update(dt, { player: this.player.position, pedestrians: this.world.active?.trafficPedestrians ?? this.world.active?.npcs ?? [], onPlayerHit: this._onVehicleImpact });
+    this.traffic?.update(dt, { player: this.player.position, pedestrians: this.world.active?.trafficPedestrians ?? this.world.active?.npcs ?? [], onPlayerHit: this._onVehicleImpact, camera: this.cameraRig.camera, hour: this.clock.hour });
     this.roadRage?.update(dt);
     this.limpieza?.update(dt, {
       isNight: this.clock.isNight,
@@ -1229,7 +1329,7 @@ export class Game {
     const moving = !this.player.isStunned && (this.input.axis.x !== 0 || this.input.axis.z !== 0 || Math.hypot(this.player.position.x - previousX, this.player.position.z - previousZ) > .001);
     const groundType = this.world.active?.getGroundTypeAt?.(this.player.position.x, this.player.position.z) ?? 'sidewalk';
     const isRaining = !!this.weather?.isRaining;
-    this.audio.updateWorld?.(dt, this.player.position, this.cameraRig.camera, this.traffic?.vehicles ?? [], this.world.active?.busServices ?? this.world.active?.busService);
+    this.audio.updateWorld?.(dt, this.player.position, this.cameraRig.camera, this.traffic?.vehicles ?? [], this.world.active?.busServices ?? this.world.active?.busService, this.world.active?.npcs ?? []);
     this.audio.setRaining?.(isRaining);
     // Las pisadas siguen la distancia recorrida en el suelo; en el aire no suenan.
     const travelled = this.player.isGrounded === false || this.player.inWater ? 0 : Math.hypot(this.player.position.x - previousX, this.player.position.z - previousZ);
@@ -1352,6 +1452,17 @@ export class Game {
     return this._poiCache;
   }
 
+  /** Densidad de tráfico elegida: escala toda la curva diaria y se aplica en vivo, sin recargar. */
+  setTrafficDensity(level = DEFAULT_TRAFFIC_DENSITY) {
+    const id = trafficDensityId(level);
+    this.trafficDensity = id;
+    try { localStorage.setItem('bazuko.traffic_density', id); } catch { /* sin almacenamiento */ }
+    this.traffic?.setDensity(id);
+    window.dispatchEvent(new CustomEvent('toast', {
+      detail: { text: 'Densidad de tráfico: ' + trafficDensityLabel(id), type: 'info' }
+    }));
+  }
+
   setGraphicsQuality(level, notify = true) {
     const quality = ['baja', 'media', 'alta'].includes(level) ? level : 'alta';
     const shadows = quality !== 'baja', renderer = this.renderer;
@@ -1418,6 +1529,7 @@ export class Game {
 
   stop() {
     this._running = false;
+    this._soltarAutoguardado?.();
     this.waterEffects?.dispose();
     this.contactShadows?.dispose();
     this.gpsBeacon?.dispose();
