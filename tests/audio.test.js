@@ -98,6 +98,7 @@ test('fuera de combate conserva la voz del NPC y la muerte del jugador reproduce
 
 test('cinco robos en circulación dicen las cinco frases exclusivas sin repetir ninguna', () => {
   const { audio } = fixture(), vehicle = car(2); vehicle.car.traffic = true;
+  audio.vehicles.driverVoice(vehicle.car, 'roberto');
   audio.updateWorld(.1, origin, null, [vehicle]);
   assert.equal(audio.playMovingTheft({ traffic: false }), false);
   const heard = [];
@@ -108,7 +109,7 @@ test('cinco robos en circulación dicen las cinco frases exclusivas sin repetir 
     assert.equal(voice.sound.voices.get(voice.id).volume, .75);
   }
   assert.deepEqual([...heard].sort(), Array.from({ length: 5 }, (_, i) => `/audio/roberto_robo_espejo_n${i + 1}.mp3`));
-  assert.ok(audio.theftSounds.every(sound => sound.starts === 1));
+  assert.ok(audio.theftSounds.every((sound, i) => sound.starts === (audio.theftVoices[i] === 'roberto' ? 1 : 0)));
   // La sexta abre otra ronda sin repetir la última.
   audio.playMovingTheft(vehicle.car);
   assert.notEqual(audio._theftVoices.get(vehicle.car).sound.options.src[0], heard.at(-1));
@@ -148,14 +149,16 @@ test('la interacción distingue robo de tráfico y alarma de estacionado antes d
   }
 });
 
-test('cada carro habla siempre con su conductor y no repite frase hasta decir sus seis', () => {
+test('cada carro habla siempre con su conductor y no repite frase hasta decir todas las suyas', () => {
   const { audio } = fixture();
-  assert.equal(audio.driverSounds.length, 12);
+  assert.equal(audio.driverSounds.length, 24);
   const files = {
     valentina: [1, 3, 4, 5, 6, 7].map(n => `/audio/valentina_n${n}.mp3`),
-    roberto: Array.from({ length: 6 }, (_, i) => `/audio/roberto_n${i + 1}.mp3`)
+    roberto: Array.from({ length: 6 }, (_, i) => `/audio/roberto_n${i + 1}.mp3`),
+    conductor: Array.from({ length: 4 }, (_, i) => `/audio/voces/conductor_pito_${i + 1}.mp3`),
+    conductora: Array.from({ length: 4 }, (_, i) => `/audio/voces/conductora_pito_${i + 1}.mp3`)
   };
-  for (const [pickVoice, name] of [[() => .1, 'valentina'], [() => .9, 'roberto']]) {
+  for (const [pickVoice, name] of [[() => .1, 'valentina'], [() => .3, 'roberto'], [() => .6, 'conductor'], [() => .9, 'conductora']]) {
     const vehicle = car(2);
     audio.vehicles.random = pickVoice;
     audio.updateWorld(.1, origin, null, [vehicle]);
@@ -163,7 +166,7 @@ test('cada carro habla siempre con su conductor y no repite frase hasta decir su
     const state = audio.vehicles.instances.get(vehicle.car);
     vehicle.personBlocked = true; state.patience = 0;
     const heard = [];
-    for (let i = 0; i < 6; i++) {
+    for (let i = 0; i < files[name].length; i++) {
       if (state.remark) state.remark.sound.stop(state.remark.id);
       state.remark = null;
       state.cooldown = 0; state.remarkCooldown = 0; audio.vehicles._lastHornAt = -Infinity;
@@ -172,9 +175,10 @@ test('cada carro habla siempre con su conductor y no repite frase hasta decir su
       assert.equal(state.remark.sound.voices.get(state.remark.id).volume, .7);
     }
     assert.equal(audio.vehicles.driverVoice(vehicle.car), name);
-    assert.deepEqual([...heard].sort(), [...files[name]].sort(), `${name} dice sus seis frases, cada una una vez`);
+    assert.deepEqual([...heard].sort(), [...files[name]].sort(), `${name} dice sus frases, cada una una vez`);
   }
-  assert.ok(audio.driverSounds.every(sound => sound.starts === 1));
+  // Las del busetero son del bus: ningún carro las dice.
+  assert.ok(audio.driverSounds.every((sound, i) => sound.starts === (audio.driverVoices[i] === 'busetero' ? 0 : 1)));
   audio.dispose(); assert.ok(audio.driverSounds.every(sound => sound.unloaded));
 });
 
@@ -260,9 +264,11 @@ test('la carpeta de audio contiene únicamente archivos utilizados y todos tiene
   try {
     const sounds = [...Object.values(audio.sounds), ...Object.values(audio.vehicleSounds), ...audio.driverSounds, ...audio.theftSounds, ...Object.values(audio.streetVoiceSounds)];
     // La música del local usa HTMLAudio para mantenerse independiente del silencio de la calle.
-    const used = ['bolirana-caslo-salsa-trap.mp3', ...sounds.flatMap(sound => sound.options.src.map(source => decodeURIComponent(source.split('/').at(-1)))), ...Object.values(NPC_VOICE_BANK).flat().map(entry => entry.audio.split('/').at(-1))].sort();
-    const files = readdirSync(new URL('../public/audio/', import.meta.url)).sort();
-    assert.deepEqual(files, used);
+    const inAudio = path => decodeURIComponent(path.replace(/^.*?\/audio\//, ''));
+    const used = ['bolirana-caslo-salsa-trap.mp3', ...sounds.flatMap(sound => sound.options.src.map(inAudio)), ...Object.values(NPC_VOICE_BANK).flat().map(entry => inAudio(entry.audio))].sort();
+    const files = readdirSync(new URL('../public/audio/', import.meta.url), { withFileTypes: true })
+      .filter(entry => entry.isFile()).map(entry => entry.name).sort();
+    assert.deepEqual(files, used.filter(file => !file.includes('/')).filter((file, i, all) => all.indexOf(file) === i));
     assert.equal(files.filter(file => file.endsWith('.opus')).length, 10);
     for (const file of files) {
       const bytes = readFileSync(new URL(`../public/audio/${encodeURIComponent(file)}`, import.meta.url));

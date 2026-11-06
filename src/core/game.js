@@ -839,6 +839,8 @@ export class Game {
       )
     );
     this.interaction.register(this.dealer);
+    // De noche le ofrece en susurro a quien pasa cerca (WorldVoices).
+    if (this.audio?.worldVoices) this.audio.worldVoices.dealer = this.dealer;
 
     // ===== La mesa =====
     this.craftingStation = new CraftingStation(

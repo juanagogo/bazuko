@@ -14,6 +14,7 @@ import { UMBRELLA_REST, createCane, createClosedStick, createPhone, createUmbrel
 import { HAND_ON_FLOOR } from '../character/stances.js';
 import { WEAPONS } from '../data/weapons.js';
 import { NPC_VOICE_BANK } from '../data/npcVoices.js';
+import { vozPara } from '../data/vocesCalle.js';
 import { NpcCombat } from '../systems/NpcCombat.js';
 import { canReachCombatTarget, resolveCombatWalk } from '../systems/CombatGeometry.js';
 import { acabarFrase, empezarFrase } from '../ui/frases.js';
@@ -52,12 +53,14 @@ const voiceBags = new Map();
 const VOICE_REPEAT_DELAY = 8000;
 
 /**
- * Una frase de la situación que le cuadre a esa persona: de su sexo (sin marcar = hombre), de su voz si ya
- * habló con una (`voz`; las frases sin voz marcada sirven a cualquiera) y barajada: no se repite ninguna
- * hasta que salgan todas las de esa situación.
+ * Una frase de la situación que le cuadre a esa persona: de su sexo (sin marcar = hombre) y de su voz
+ * (`voz`). Quien tiene voz dice las suyas; si en esa situación no tiene ninguna, alguna sin voz marcada, nunca
+ * la de otro. Sin voz todavía, cualquiera de su sexo. Barajada: no se repite ninguna hasta que salgan todas.
  */
-function getRandomVoice(category, gender, voz = null) {
-  const pool = NPC_VOICE_BANK[category]?.filter(entry => sameSex(entry, gender) && (!voz || !entry.voz || entry.voz === voz)) ?? [];
+export function getRandomVoice(category, gender, voz = null) {
+  const bank = NPC_VOICE_BANK[category]?.filter(entry => sameSex(entry, gender)) ?? [];
+  let pool = voz ? bank.filter(entry => entry.voz === voz) : bank;
+  if (!pool.length && voz) pool = bank.filter(entry => !entry.voz);
   const now = performance.now();
   const available = pool.filter(entry => now - (voiceLastPlayedAt.get(entry.audio) ?? -Infinity) >= VOICE_REPEAT_DELAY);
   if (!voiceBags.has(category)) voiceBags.set(category, new ShuffleBag());
@@ -70,6 +73,9 @@ function getRandomVoice(category, gender, voz = null) {
 const ASSAULT_SPEED = 3.8; // m/s, lo que corre quien se suma a una golpiza (NpcCombat)
 const AMBIENT_VOICE_DISTANCE = 2.8;
 const AMBIENT_VOICE_COOLDOWN = 14000;
+// El vendedor en su puesto y quien pide en el piso le hablan a quien pasa cerca, sin que tenga que rozarlos.
+const CALL_OUT_DISTANCE = 6.5, CALL_OUT_MIN = 16, CALL_OUT_EXTRA = 14; // m, s, s
+const SMELL_VOICE_CHANCE = .55; // de cada vez que alguien se tapa la nariz, cuántas lo dice en voz alta
 
 export const NPC_LOD = {
   fullIn: 7,       // cerca: pasa al modelo completo
@@ -417,7 +423,8 @@ export class Npc {
     return null;
   }
 
-  hitByPoop(projectileOrigin = null) {
+  /** `voz: false` cuando no fue popó (el carro robado que casi lo atropella usa el mismo susto). */
+  hitByPoop(projectileOrigin = null, { voz = true } = {}) {
     this.isSplatted = true;
     this.splatTimer = 12;
     this._fleeFrom(projectileOrigin);
@@ -436,6 +443,7 @@ export class Npc {
     }
 
     this._scream(POOP_SCREAMS);
+    if (voz) this.speakScenario('poop', true);
   }
 
   /**
@@ -489,12 +497,23 @@ export class Npc {
   get hp() { return this.koState ? 0 : this.health; }
   set hp(value) { this.health = value; }
 
+  /**
+   * La voz que le toca por quién es (ver vozPara); una vez dada no cambia. Los subtipos sin persona dicen la suya
+   * con `vozArquetipo`; sin arquetipo ni voz, la primera frase con voz marcada se la deja.
+   */
+  _castVoice() {
+    const real = this.look?.real ?? this.person?.real;
+    const arquetipo = this.vozArquetipo ?? this.person?.arquetipo;
+    return arquetipo ? vozPara({ arquetipo, sexo: real?.sexo ?? this.person?.sexo, edad: real?.edad }) : null;
+  }
+
   /** Una frase del banco de voces: burbuja y audio, sin repetir ni encimarse. */
   speakScenario(category, force = false) {
     const knockoutVoice = category === 'knockout';
     if (this._disposed || (this.hp <= 0 && !knockoutVoice)) return false;
     const now = performance.now();
     if (!force && this._lastVoiceTime > 0 && now - this._lastVoiceTime < 2500) return false;
+    this._voz ??= this._castVoice();
     const entry = getRandomVoice(category, this.look?.real?.sexo, this._voz);
     if (!entry) return false;
     // La primera frase con voz marcada le deja esa voz para siempre.
@@ -561,6 +580,16 @@ export class Npc {
     this.speakScenario('ambient');
   }
 
+  /** El vendedor ofrece y quien pide en el piso pide: a quien pasa cerca, cada tanto y sin repetirse. */
+  _updateCallOut(dt) {
+    if (!this.isVendor && this.stance !== 'pedir') return;
+    if ((this._callOutIn ??= Math.random() * CALL_OUT_MIN) > 0) { this._callOutIn -= dt; return; }
+    if (!(this._playerDist < CALL_OUT_DISTANCE) || this.koState || this.fleeTimer > 0 || this._bubbleTimer > 0) return;
+    this._callOutIn = CALL_OUT_MIN + Math.random() * CALL_OUT_EXTRA;
+    this._lastSpokenTime = performance.now();
+    this.speakScenario('ambient');
+  }
+
   /** Daño sin atacante: el derribo del agarre. */
   applyDamage(amount) {
     return this.takeHit({ damage: amount });
@@ -600,6 +629,7 @@ export class Npc {
   alarmedByTheft(thiefPosition = null) {
     this._fleeFrom(thiefPosition);
     this._scream(THEFT_SCREAMS);
+    this.speakScenario('robbed', true);
   }
 
   // Dirección de huida: alejarse del origen del susto
@@ -1045,6 +1075,7 @@ export class Npc {
       && !this.koState && this.fleeTimer <= 0 && !LOW_STANCES.has(this.stance) && !(this._raining && this.person.paraguas !== null && !this.fijo?.techo)) {
       this._noseTimer = 2 + Math.random() * 2;
       this._noseCooldown = this._noseTimer + 8 + Math.random() * 12;
+      if (Math.random() < SMELL_VOICE_CHANCE) this.speakScenario('smell');
     }
   }
 
@@ -1086,7 +1117,7 @@ export class Npc {
     if (fighting) this._measurePlayer(ctx);
     else if (this.person) this._updateConduct(dt, ctx);
     else this._measurePlayer(ctx);
-    if (!fighting) this._updateAmbientVoice();
+    if (!fighting) { this._updateAmbientVoice(); this._updateCallOut(dt); }
     const reactionTime = Math.min(dt, this._hitReactionRemaining);
     this._updateReaction(dt);
     const countering = this._updateCounterAttack(Math.max(0, dt - reactionTime));

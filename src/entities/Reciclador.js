@@ -33,6 +33,7 @@ export class Reciclador extends Npc {
     random = Math.random
   } = {}) {
     super(scene, position, { navigation, groundHeight, isWalkable, gastada: true });
+    this.vozArquetipo = 'reciclador';
     this.kind = 'reciclador';
     this.random = random;
     this.estado = new RecicladorEstado(random);

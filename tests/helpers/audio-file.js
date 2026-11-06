@@ -6,7 +6,8 @@ const LFS_POINTER = 'version https://git-lfs.github.com/spec/';
 /** Archivos de public/audio que siguen siendo punteros de Git LFS (no se descargó el audio). */
 export function audioLfsPendiente() {
   const dir = new URL('../../public/audio/', import.meta.url);
-  return readdirSync(dir).filter((file) => {
+  // Solo los archivos sueltos: las voces de public/audio/voces son mp3 normales, fuera de LFS.
+  return readdirSync(dir, { withFileTypes: true }).filter(entry => entry.isFile()).map(entry => entry.name).filter((file) => {
     const head = readFileSync(new URL(encodeURIComponent(file), dir)).subarray(0, LFS_POINTER.length).toString('ascii');
     return head === LFS_POINTER;
   });
