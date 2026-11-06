@@ -964,7 +964,7 @@ export class TrafficSystem {
     const minX = car.position.x - radius, maxX = car.position.x + radius;
     const minZ = car.position.z - radius, maxZ = car.position.z + radius;
     this._carGrid.query(minX, minZ, maxX, maxZ, this._carCandidates);
-    const yaw = car.group.rotation.y, yawCos = Math.cos(yaw), yawSin = Math.sin(yaw);
+    const yaw = car.group?.rotation.y ?? 0, yawCos = Math.cos(yaw), yawSin = Math.sin(yaw);
     for (const other of this._carCandidates) {
       if (other === vehicle || (other.route === route && other.state !== 'chase' && !other.rejoinTarget)) continue;
       if (other.car.position.distanceToSquared(car.position) > (radius + other.car.length) ** 2) continue;
@@ -994,12 +994,13 @@ export class TrafficSystem {
     }
     const playerNear = !!player && (player.x - car.position.x) ** 2 + (player.z - car.position.z) ** 2 <= (radius + 2) ** 2;
     // Sin cruce, carro, persona ni jugador al alcance, la muestra del camino no tiene qué encontrar.
-    if (!nodes.length && !nearbyCars.length && !nearby.length && !playerNear) return finish(clearance);
+    const legacy = !!this.signals && !this.signals.nodes;
+    if (!legacy && !nodes.length && !nearbyCars.length && !nearby.length && !playerNear) return finish(clearance);
     const held = nodes.length && !vehicle.lateral ? this._boxHold(vehicle, nodes) : null;
     if (this.signals) route.sample(distance, this._probePosition, signalDirection);
     for (let ahead = 0; ahead <= Math.min(lookAhead, clearance); ahead += PROBE_STEP) {
       route.sample(distance + ahead, this._probePosition, this._probeDirection);
-      if (nodes.length && this.signals.blocks(this._probePosition, signalDirection, car.position, car.length, vehicle, nodes, held)) return finish(Math.max(0, ahead - PROBE_STEP));
+      if ((nodes.length || legacy) && this.signals.blocks(this._probePosition, signalDirection, car.position, car.length, vehicle, nodes, held)) return finish(Math.max(0, ahead - PROBE_STEP));
       // El semáforo se mira sobre el carril: la franja de la moto no puede dejar el cruce fuera de su alcance.
       if (lateral) this._lateral(this._probePosition, this._probeDirection, lateral);
       if (player && vehicle.playerClearance === Infinity && this._personInCar(player, car)) {
@@ -1024,9 +1025,9 @@ export class TrafficSystem {
   _boxHold(vehicle, nodes) {
     // Esperar eternamente por un hueco es un abrazo mortal entre colas: pasado un rato se entra de todos modos.
     // Cada conductor aguanta distinto: los trancones se aflojan de a uno, no todos a la vez.
-    if ((vehicle.stoppedFor ?? 0) > BOX_PATIENCE + vehicle.order * 37 % 30) return null;
+    if ((vehicle.stoppedFor ?? 0) > BOX_PATIENCE + vehicle.order * 37 % 20) return null;
     const { route, car, distance } = vehicle, p = car.position;
-    const probe = this._holdPosition, direction = this._holdDirection;
+    const probe = this._holdPosition ??= new THREE.Vector3(), direction = this._holdDirection ??= new THREE.Vector3();
     for (const node of nodes) {
       if (p.x >= node.x0 && p.x <= node.x1 && p.z >= node.z0 && p.z <= node.z1) continue;
       const dx = Math.max(node.x0 - p.x, 0, p.x - node.x1), dz = Math.max(node.z0 - p.z, 0, p.z - node.z1);
@@ -1042,8 +1043,8 @@ export class TrafficSystem {
       if (exit < 0) continue;
       const half = (car.length + BOX_SLACK) / 2;
       route.sample(distance + exit + half, probe, direction);
-      this._carGrid.query(probe.x - 12, probe.z - 12, probe.x + 12, probe.z + 12, this._holdCandidates);
-      for (const other of this._holdCandidates) {
+      const found = this._carGrid.query(probe.x - 12, probe.z - 12, probe.x + 12, probe.z + 12, this._holdCandidates ??= []);
+      for (const other of found) {
         if (other === vehicle || other.lateral || (other.speed ?? 0) > BOX_SLOW) continue;
         const ox = other.car.position.x - probe.x, oz = other.car.position.z - probe.z;
         const along = ox * direction.x + oz * direction.z, side = ox * direction.z - oz * direction.x;

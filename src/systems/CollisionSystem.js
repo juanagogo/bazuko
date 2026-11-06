@@ -9,6 +9,8 @@ export class CollisionSystem {
     this._staticGrid = new SpatialGrid();
     this._staticOrder = new Map();
     this._fallGrid = new SpatialGrid();
+    this._postGrid = new SpatialGrid();
+    this._postCandidates = [];
     this._moveCandidates = [];
     this._cameraCandidates = [];
     this._occlusionCandidates = [];
@@ -30,13 +32,13 @@ export class CollisionSystem {
   /** Un poste, farola o tronco: sólido para quien camina (resbala a su alrededor) y sin efecto sobre la cámara. */
   addPost(x, z, radius, y, height = 3) {
     const box = new THREE.Box3(new THREE.Vector3(x - radius, y, z - radius), new THREE.Vector3(x + radius, y + height, z + radius));
-    this.colliders.push({ box, mesh: new THREE.Object3D(), post: true });
-    this.invalidateStaticIndex();
+    // Índice aparte: solo el que camina los consulta; la cámara, los NPC y la red de andenes siguen sin verlos.
+    this._postGrid.insert({ box, mesh: new THREE.Object3D(), post: true }, x - radius, z - radius, x + radius, z + radius);
   }
 
   clear() {
     this.colliders = []; this.dynamicColliders = []; this._vehicles.clear();
-    this.invalidateStaticIndex(); this._staticGrid.clear(); this._staticOrder.clear(); this._fallGrid.clear();
+    this.invalidateStaticIndex(); this._staticGrid.clear(); this._staticOrder.clear(); this._fallGrid.clear(); this._postGrid.clear();
   }
 
   /** Lo que ocupa sitio sin detener a nadie (una banca, un bolardo, una zorra). No cuenta para caminar ni para la cámara. */
@@ -87,7 +89,7 @@ export class CollisionSystem {
     const minY = Math.min(camera.y, player.y), maxY = Math.max(camera.y, player.y + 2.2);
     const minX = Math.min(camera.x, player.x - margin), maxX = Math.max(camera.x, player.x + margin);
     const minZ = Math.min(camera.z, player.z - margin), maxZ = Math.max(camera.z, player.z + margin);
-    const intersects = ({ box, post }) => !post && box.max.x >= minX && box.min.x <= maxX && box.max.z >= minZ && box.min.z <= maxZ && box.max.y >= minY && box.min.y <= maxY;
+    const intersects = ({ box }) => box.max.x >= minX && box.min.x <= maxX && box.max.z >= minZ && box.min.z <= maxZ && box.max.y >= minY && box.min.y <= maxY;
     return candidates.some(intersects) || this.dynamicColliders.some(intersects);
   }
 
@@ -244,6 +246,8 @@ export class CollisionSystem {
     const endX = pos.x + (axis === 'x' ? delta : 0), endZ = pos.z + (axis === 'z' ? delta : 0);
     yield* this.queryStatic(Math.min(pos.x, endX) - radius, Math.min(pos.z, endZ) - radius,
       Math.max(pos.x, endX) + radius, Math.max(pos.z, endZ) + radius, this._moveCandidates);
+    yield* this._postGrid.query(Math.min(pos.x, endX) - radius, Math.min(pos.z, endZ) - radius,
+      Math.max(pos.x, endX) + radius, Math.max(pos.z, endZ) + radius, this._postCandidates);
     yield* this.dynamicColliders;
   }
 }
