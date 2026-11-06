@@ -1295,7 +1295,10 @@ export class Game {
     this.substanceEffects?.update(dt);
     this.profiler?.mark('sistemas');
     // Los peatones se tapan la nariz si el jugador huele mal.
-    if (this.world.active) this.world.active.playerHygiene = this.stats.higiene;
+    if (this.world.active) {
+      this.world.active.playerHygiene = this.stats.higiene;
+      this.world.active.night = this.clock.isNight;
+    }
     this.world.update(dt, this.player.position, this.cameraRig.camera, this.traffic?.vehicles ?? [], this.clock.hour);
     actualizarFrases(this.cameraRig.camera, this.player.position, now);
     this.profiler?.mark('mundoNPC');

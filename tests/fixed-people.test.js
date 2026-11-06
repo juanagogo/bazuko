@@ -49,11 +49,22 @@ function bodyInsideStatic(x, y, z, radius) {
   });
 }
 
-test('al construir hay 47 personas: 8 vendedores y, de los otros 39, entre 15 y 20 se quedan en su sitio', () => {
-  assert.equal(everyone.length, 47);
+test('seis esquineras salen a la ciudad: de noche, en el Cartucho, los andenes y el parque, aparte de la burbuja', () => {
+  const esquineras = everyone.filter(npc => npc.person?.arquetipo === 'esquinera');
+  assert.equal(esquineras.length, 6);
+  assert.deepEqual(esquineras.map(npc => city._zoneAt(npc.position.x, npc.position.z)).sort(), ['andenes', 'andenes', 'cartucho', 'cartucho', 'cartucho', 'parque']);
+  for (const npc of esquineras) {
+    assert.ok(npc.person.noche && npc.navigation && !npc.fijo, 'caminan su esquina, no se quedan clavadas');
+    assert.equal(npc.person.sexo, 'mujer');
+  }
+  assert.equal(new Set(esquineras.map(npc => npc.seed)).size, 6, 'cada persona tiene su semilla');
+});
+
+test('al construir hay 53 personas: 8 vendedores, 6 esquineras y, de los otros 39, entre 15 y 20 se quedan en su sitio', () => {
+  assert.equal(everyone.length, 53);
   assert.equal(vendors.length, 8);
   assert.ok(fixed.length >= 15 && fixed.length <= 20, `${fixed.length} fijos`);
-  assert.equal(walkers.length + fixed.length, 39);
+  assert.equal(walkers.length + fixed.length, 39 + 6, 'la burbuja crea a los caminantes, no se cuentan aquí; las esquineras van aparte');
   assert.ok(new Set(fixed.map(npc => npc.fijo.stance)).size >= 5, 'hay sentados, dormidos, quien pide, quien conversa…');
   assert.ok(fixed.filter(onBench).length >= 3);
   assert.ok(fixed.some(npc => npc.fijo.stance === 'dormido'));

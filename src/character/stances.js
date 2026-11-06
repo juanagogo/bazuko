@@ -764,6 +764,7 @@ function bakeStyle(rig) {
   };
   const forward = (key, share) => ({ ...axisOf(key, 1, 0, 0), share });
   const side = (key, share) => ({ ...axisOf(key, 0, 0, 1), share });
+  const twist = (key, share) => ({ ...axisOf(key, 0, 1, 0), share });
   const down = key => ({ boneName: rig.joints[key].name, quaternion: rig.joints[key].quaternion.clone() });
   const inShoulder = (arm, shoulder) => ({
     boneName: rig.joints[arm].name,
@@ -773,6 +774,8 @@ function bakeStyle(rig) {
     stoop: [forward('spine', .24), forward('spine1', .36), forward('spine2', .4), forward('neck', -.2), forward('head', -.12)],
     head: [forward('neck', .45), forward('head', .55)],
     sway: [side('spine', .5), side('spine1', .5), side('neck', -.35), side('head', -.25)],
+    hipYaw: [twist('hips', 1), twist('spine', -.5), twist('spine1', -.3), twist('spine2', -.2)],
+    hipRoll: [side('hips', 1), side('spine', -.5), side('spine1', -.3), side('spine2', -.2)],
     arms: ['leftArm', 'leftForeArm', 'rightArm', 'rightForeArm'].map(down),
     knee: down('rightLeg'),
     leanBack: [inShoulder('leftArm', 'leftShoulder'), inShoulder('rightArm', 'rightShoulder')]

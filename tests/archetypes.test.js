@@ -3,6 +3,8 @@ import { createHash } from 'node:crypto';
 import { readFileSync, readdirSync } from 'node:fs';
 import { test } from 'node:test';
 import { ARCHETYPES, LOW_STANCES, SEARCH_ACTION, ZONE_WEIGHTS, normalizeTalla, personLook, pickArchetype, pickStop, pickWalk, rollPerson } from '../src/character/archetypes.js';
+import { PALETTES } from '../src/character/look.js';
+import { TALLA } from '../src/character/people.js';
 import { STANCE_NAMES } from '../src/character/stances.js';
 import { GAIT_FAMILIES } from '../src/character/gaitFamilies.js';
 import { isStreetProp } from '../src/character/props.js';
@@ -19,8 +21,8 @@ function seeded(seed = 1) {
 const has = (cat, sexo, id) => optionsFor(catalog, cat, sexo).some(piece => piece.id === id);
 const HEX = /^#[0-9a-f]{6}$/;
 
-test('están las ocho personas de Bogotá y todas sus piezas existen en el catálogo real para su sexo', () => {
-  assert.deepEqual(ids.sort(), ['abuelo', 'colegial', 'domiciliario', 'estudiante', 'habitante', 'obrero', 'oficinista', 'reciclador', 'senora', 'vendedor']);
+test('están las doce personas de Bogotá y todas sus piezas existen en el catálogo real para su sexo', () => {
+  assert.deepEqual(ids.sort(), ['abuelo', 'colegial', 'domiciliario', 'esquinera', 'estudiante', 'habitante', 'nino', 'obrero', 'oficinista', 'reciclador', 'senora', 'vendedor']);
   for (const [id, spec] of Object.entries(ARCHETYPES)) {
     for (const sexo of ['hombre', 'mujer']) {
       if (sexo === 'mujer' ? spec.mujer <= 0 : spec.mujer >= 1) continue;
@@ -41,7 +43,7 @@ test('la apariencia sale entera del catálogo: normalizeReal no tiene nada que c
     const real = normalizeReal(catalog, person.real);
     for (const key of ['sexo', 'edad', 'pelo', 'barba', 'ropa', 'calzado', 'cabeza']) assert.equal(real[key], before[key], `${id}: ${key}`);
     assert.deepEqual(real.accesorios, before.accesorios);
-    assert.ok(person.piel >= 0 && person.piel <= 5);
+    assert.ok(person.piel >= 0 && person.piel < PALETTES.piel.length);
     assert.ok(Number.isInteger(person.peloColor));
     if (person.sexo === 'mujer') assert.equal(real.barba, 'ninguna');
   }
@@ -149,7 +151,7 @@ test('el reparto depende de la zona: en El Cartucho casi todos viven de la calle
   assert.ok(cartucho.habitante + cartucho.reciclador > .7, 'El Cartucho es de quien vive en la calle');
   assert.equal(cartucho.oficinista ?? 0, 0);
   const andenes = share('andenes');
-  assert.equal(Object.keys(andenes).length, 10, 'en el andén se ve de todo');
+  assert.equal(Object.keys(andenes).length, 11, 'en el andén se ve de todo');
   assert.ok(Math.max(...Object.values(andenes)) < .25, 'nadie domina el andén');
   assert.ok(andenes.habitante + andenes.reciclador < .3);
   assert.ok(share('chapinero').oficinista > share('barrio').oficinista);
@@ -251,17 +253,17 @@ test('las tallas van por persona y dentro de lo que el cuerpo aguanta', () => {
   const altos = new Set();
   for (const id of ids) for (let i = 0; i < 80; i++) {
     const { alto, ancho } = rollPerson(id, { random }).real.talla;
-    assert.ok(alto >= .94 && alto <= 1.06, `${id}: alto ${alto}`);
-    assert.ok(ancho >= .94 && ancho <= 1.1, `${id}: ancho ${ancho}`);
+    assert.ok(alto >= TALLA.alto[0] && alto <= TALLA.alto[1], `${id}: alto ${alto}`);
+    assert.ok(ancho >= TALLA.ancho[0] && ancho <= TALLA.ancho[1], `${id}: ancho ${ancho}`);
     altos.add(alto);
   }
   assert.ok(altos.size > 100, 'no son todos iguales');
-  assert.deepEqual(normalizeTalla({ alto: 3, ancho: .2 }), { alto: 1.06, ancho: .94 });
+  assert.deepEqual(normalizeTalla({ alto: 3, ancho: .2 }), { alto: TALLA.alto[1], ancho: TALLA.ancho[0] });
   assert.deepEqual(normalizeTalla({ alto: Number.NaN }), { alto: 1, ancho: 1 });
   assert.equal(normalizeTalla(null), null);
   // El jugador pasa sin talla y se queda sin ella; una talla absurda no sale del rango.
   assert.equal(normalizeReal(catalog, { sexo: 'mujer' }).talla, undefined);
-  assert.deepEqual(normalizeReal(catalog, { sexo: 'mujer', talla: { alto: 9, ancho: 9 } }).talla, { alto: 1.06, ancho: 1.1 });
+  assert.deepEqual(normalizeReal(catalog, { sexo: 'mujer', talla: { alto: 9, ancho: 9 } }).talla, { alto: TALLA.alto[1], ancho: TALLA.ancho[1] });
 });
 
 test('elegir parada y marcha respeta las tablas de cada persona', () => {

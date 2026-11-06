@@ -14,7 +14,9 @@ import { DEFAULT_LOOK, PALETTES } from './look.js';
 import { addHairTone } from './weathering.js';
 import { applyStreetMaterial, createStreetFrame, curlsWithoutCards, GARMENTS, normalizeTonos, shoesWithoutSocks, streetFaceTint, streetMaterialSeed, streetSkinColor } from './streetMaterials.js';
 import { attachAccessories, attachStreetProps, attachWeapon, FAR_ACCESSORIES, isStreetProp, placeInHold, swayStreetProps } from './props.js';
-import { garmentAllowed, normalizeTalla } from './archetypes.js';
+import { garmentAllowed } from './archetypes.js';
+import { normalizeRostro, normalizeTalla, rollLinaje, rollRostro, rollTallaCuerpo } from './people.js';
+import { attachFace, browGeometry, faceColors, measureFace } from './faceParts.js';
 import { attachCigaretteToHand, emberGlow } from './smoking.js';
 import { attachBasucoProps } from './pipe.js';
 import { addHatClip, hatEdgeProfile } from './hatFit.js';
@@ -102,6 +104,9 @@ export function normalizeReal(catalog, raw = {}) {
   else delete r.talla;
   if (Array.isArray(r.accesorios)) r.accesorios = r.accesorios.filter((item) => isStreetProp(item?.id));
   else delete r.accesorios;
+  const rostro = normalizeRostro(r.rostro);
+  if (rostro) r.rostro = rostro;
+  else delete r.rostro;
   const tonos = normalizeTonos(r.tonos);
   if (tonos) r.tonos = tonos;
   else delete r.tonos;
@@ -113,8 +118,11 @@ export function randomReal(catalog, base = {}) {
   const any = (arr) => arr[Math.floor(Math.random() * arr.length)];
   const sexo = base.sexo ?? any(['hombre', 'mujer']);
   const pick = (cat) => any(optionsFor(catalog, cat, sexo)).id;
+  const edad = any(['joven', 'adulto', 'mayor']);
   return normalizeReal(catalog, {
-    sexo, edad: any(['joven', 'adulto', 'mayor']),
+    sexo, edad,
+    rostro: rollRostro(Math.random, rollLinaje(Math.random), sexo, edad),
+    talla: rollTallaCuerpo(Math.random, { sexo, edad }).talla,
     pelo: pick('pelo'), barba: Math.random() < 0.3 ? 'ninguna' : pick('barba'), ropa: pick('ropa'), calzado: pick('calzado'),
     cabeza: Math.random() < 0.6 ? REAL_DEFAULT.cabeza : optionsFor(catalog, 'cabeza', sexo).length ? pick('cabeza') : REAL_DEFAULT.cabeza
   });
@@ -396,6 +404,21 @@ async function buildInstance(catalog, look, lod = false, profile = resolveAnimat
       applyStreetMaterial(mesh.material, mesh, { ...streetOptions, kind: 'eyes' });
     }
   });
+  const headBone = [...bones.values()].find(bone => /Head$/.test(bone.name));
+  let eyeMesh = null;
+  root.traverse(o => { if (o.isSkinnedMesh && /(?:low-poly|eyes?)(?:_|\.|$)/i.test(o.name) && !/eyebrow|eyelash/i.test(o.name)) eyeMesh ??= o; });
+  if (headBone) {
+    const talla = real.talla ?? { alto: 1, ancho: 1 };
+    const rostro = real.rostro ?? { ancho: 1, largo: 1 };
+    const compensa = ((talla.ancho ?? 1) / (talla.alto ?? 1)) ** -.7;
+    const cabeza = talla.cabeza ?? 1;
+    headBone.scale.set(cabeza * compensa * rostro.ancho, cabeza * rostro.largo, cabeza * compensa);
+  }
+  if (!lod && real.rostro && headBone && bodyMesh && eyeMesh) {
+    const frame = measureFace(body.id, root, bodyMesh, eyeMesh);
+    root.traverse(o => { if (o.isSkinnedMesh && /eyebrow/i.test(o.name)) o.geometry = browGeometry(body.id, root, o, frame, real.rostro.cejas); });
+    attachFace(root, headBone, frame, real.rostro, faceColors(look.piel ?? DEFAULT_LOOK.piel, look.peloColor ?? 0, frame, bodyMesh.material.color), real.barba);
+  }
   const worn = (look.accesorios ?? []).filter((id) => !useLod || FAR_ACCESSORIES.has(id));
   const accessories = worn.length ? attachAccessories(root, bones, worn, wear) : null;
   const stanceLibrary = stancesForBody(body.id, bodyGltf);
