@@ -14,6 +14,7 @@ import { WaterMovement } from '../systems/WaterMovement.js';
 import { WEAPONS, DEFAULT_WEAPON } from '../data/weapons.js';
 import { SMOKE_DURATION, PUFF_INTERVAL, FIRST_PUFF, PUFF, PUFF_LENGTH, isExhaling, smokable, SmokePuffs } from '../character/smoking.js';
 import { BASUCO, BASUCO_LENGTH, BASUCO_TOTAL, isBasucoExhaling } from '../character/pipe.js';
+import { censorBlockPixels, censorSeed } from '../character/censor.js';
 
 const shortestTurn = angle => Math.atan2(Math.sin(angle), Math.cos(angle));
 // El protagonista vive en la calle: anda cansado aunque tenga energía.
@@ -85,7 +86,8 @@ export class Player {
     this.root.position.copy(this.position);
     scene.add(this.root);
 
-    this.character = createCharacter();
+    // `undress`: el jugador se baja el pantalón para hacer popó (los NPC no).
+    this.character = createCharacter(undefined, { undress: true });
     this.character.group.scale.setScalar(CHARACTER_SCALE);
     this.character.group.traverse((o) => {
       if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; }
@@ -101,6 +103,9 @@ export class Player {
     this.state = 'idle';
     this.load = 0;            // 0..1: llenado del costal (tamaño del saco)
     this.action = null;       // 'pedir' | 'buscar' | 'comer' | 'dormir' | 'saludo' | 'calentarse'
+    // Escena de popó: { drop, censor, stance } mientras dura (ver PoopSystem); quieto y con las manos ocupadas.
+    this.poopPose = null;
+    this._hipPoint = new THREE.Vector3();
     this.actionTimer = 0;
     this.actionDuration = 0;
     this.actionProgress = 0;
@@ -243,7 +248,31 @@ export class Player {
   }
 
   /** Lo que tiene en la mano izquierda: el cigarrillo se guarda mientras usa la pipa */
-  get _holdingCigarette() { return !!this.smoking && !(this.basuco && !this.basuco.stowed); }
+  get _holdingCigarette() { return !!this.smoking && !(this.basuco && !this.basuco.stowed) && !this.busyPoop; }
+
+  get busyPoop() { return !!this.poopPose; }
+
+  /**
+   * Postura de la escena de popó (`{ drop, censor, stance }`), o null al terminar o cortarse: entonces
+   * los dos personajes quedan vestidos. Lo que lleva en la mano se guarda mientras dura.
+   */
+  setPoopPose(pose) {
+    const was = this.busyPoop;
+    this.poopPose = pose ? { ...pose } : null;
+    if (!pose) {
+      this.procedural?.setUndress?.(null);
+      this._realistic?.setUndress?.(null);
+    }
+    if (was !== this.busyPoop) this._syncHeldItems();
+  }
+
+  /** Arma, cigarrillo y pipa en la mano del personaje actual según el estado del jugador. */
+  _syncHeldItems() {
+    const character = this.character;
+    character.setWeapon?.(this.busyPoop || this.equippedWeapon === DEFAULT_WEAPON ? null : this.equippedWeapon);
+    character.setSmoking?.(this._holdingCigarette, this.smoking?.kind);
+    character.setBasuco?.(!!this.basuco && !this.basuco.stowed);
+  }
 
   _updateSmoking(dt) {
     const smoke = this.smoking;
@@ -333,12 +362,13 @@ export class Player {
   /** Cambia entre el personaje realista (MakeHuman, por defecto) y el procedural (liviano) */
   async setModel(kind) {
     if (kind === this.modelKind) return;
+    this.setPoopPose(null);
     this.clearVehicleImpact();
     const previousKind = this.modelKind;
     this.modelKind = kind;
     if (kind === 'realista') {
       this._realisticPromise ??= createRealisticCharacter(this.look ?? {}, {
-        animaciones: this.realisticAnimationProfile, andar: PLAYER_GAIT
+        animaciones: this.realisticAnimationProfile, andar: PLAYER_GAIT, undress: true
       });
       try {
         this._realistic = await this._realisticPromise;
@@ -352,17 +382,13 @@ export class Player {
       this.root.remove(this.character.group);
       this.character = this._realistic;
       this.modelScale = REALISTIC_SCALE;
-      this._realistic.setWeapon?.(this.equippedWeapon === DEFAULT_WEAPON ? null : this.equippedWeapon);
-      this._realistic.setSmoking?.(this._holdingCigarette, this.smoking?.kind);
-      this._realistic.setBasuco?.(!!this.basuco && !this.basuco.stowed);
+      this._syncHeldItems();
       this._realistic.clearSleepPose?.();
     } else {
       this.root.remove(this.character.group);
       this.character = this.procedural;
       this.modelScale = CHARACTER_SCALE;
-      this.procedural.setWeapon?.(this.equippedWeapon === DEFAULT_WEAPON ? null : this.equippedWeapon);
-      this.procedural.setSmoking?.(this._holdingCigarette, this.smoking?.kind);
-      this.procedural.setBasuco?.(!!this.basuco && !this.basuco.stowed);
+      this._syncHeldItems();
     }
     this.root.add(this.character.group);
   }
@@ -459,7 +485,7 @@ export class Player {
   get _attackQueued() { return this.melee.queued; }
 
   punch() {
-    if (this.isSwimming || this.isStunned || !this.isGrounded || this.hasCart || this.sorting
+    if (this.isSwimming || this.isStunned || !this.isGrounded || this.hasCart || this.sorting || this.busyPoop
       || (this.basuco && !this.basuco.stowed) || (this.action && this.action !== 'golpear')) return false;
     const started = this.melee.active ? this.melee.queue(this) : this.melee.start(this);
     if (started) this.playAction('golpear', this.melee.duration);
@@ -547,7 +573,7 @@ export class Player {
     const wasGrounded = this.isGrounded ?? true;
     // Salto y combate cuerpo a cuerpo estilo GTA
     const wantsJump = typeof this.input?.consumePress === 'function' && (this.input.consumePress('Space') || this.input.consumePress('KeySpace'));
-    if (wantsJump && this.isGrounded && !this.isSwimming && !this.melee.active && !this.isStunned && !this.hasCart && !this.sorting) {
+    if (wantsJump && this.isGrounded && !this.isSwimming && !this.melee.active && !this.isStunned && !this.hasCart && !this.sorting && !this.busyPoop) {
       this.jumpVelocity = 5.2;
       this.isGrounded = false;
       this.playAction('saltar', 0.65);
@@ -556,13 +582,13 @@ export class Player {
 
     const attackBeforeInput = this.attack;
     const wantsPunch = typeof this.input?.consumePress === 'function' && (this.input.consumePress('KeyG') || this.input.consumePress('Mouse0'));
-    if (wantsPunch && !this.isSwimming && !this.isStunned && (!this.action || this.attack) && !this.hasCart && !this.sorting) {
+    if (wantsPunch && !this.isSwimming && !this.isStunned && (!this.action || this.attack) && !this.hasCart && !this.sorting && !this.busyPoop) {
       this.punch();
     }
     const beganAttackThisFrame = !attackBeforeInput && !!this.attack;
 
-    // con la pipa en la boca se queda quieto
-    const { x = 0, z = 0 } = this.basuco && !this.basuco.stowed ? {} : (this.input?.axis ?? {});
+    // con la pipa en la boca, o haciendo popó, se queda quieto
+    const { x = 0, z = 0 } = (this.basuco && !this.basuco.stowed) || this.busyPoop ? {} : (this.input?.axis ?? {});
     const stunned = this._impactTime > 0;
     const moving = !stunned && (x !== 0 || z !== 0);
     const running = Boolean(this.input?.isRunning && moving);
@@ -734,9 +760,16 @@ export class Player {
     const stance = this._updateBodyLanguage(dt, moving || this.speed >= .25 || stunned || !this.isGrounded || this.isSwimming
       || !!this.action || this.sorting || !!this.attack || !!this.smoking || !!this.basuco);
 
+    if (this.poopPose) {
+      // Los cuadros del mosaico miden una fracción de la cadera en pantalla.
+      const viewport = this.game?.renderer?.instance?.domElement?.height ?? 720;
+      const block = camera ? censorBlockPixels(this._hipPoint.copy(this.position).setY(this.position.y + .55), camera, viewport) : 8;
+      this.character.setUndress?.({ drop: this.poopPose.drop, censor: this.poopPose.censor, block, seed: censorSeed(this.time) });
+    }
+
     // Animación del personaje (velocidad en metros del modelo, no del mundo)
     this.character.update(dt, {
-      stance,
+      stance: this.poopPose ? this.poopPose.stance ?? stance : stance,
       style: this.bodyStyle,
       speed: stunned ? 0 : this.speed / this.modelScale,
       running,

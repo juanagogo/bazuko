@@ -141,7 +141,8 @@ export class Game {
 
     // Sistemas de nuevas mecánicas: Popó y Psicosis por abstinencia
     this.poopSystem = new PoopSystem(
-      this.sceneMgr.scene, this.audio, this.inventory, this.stats, this.world
+      this.sceneMgr.scene, this.audio, this.inventory, this.stats, this.world,
+      { quality: () => this.renderer?.effectiveQuality ?? 'alta' }
     );
     this.psychosis = new PsychosisSystem(
       this.sceneMgr.scene, this.player, this.stats, this.audio, this.world
@@ -948,6 +949,8 @@ export class Game {
   _handleDeath() {
     if (this._deathPending || this._arrestPending) return true;
     if (this.stats.salud > 0) return false;
+    // Quien muere haciendo popó queda vestido desde el primer cuadro de la caída.
+    this.poopSystem?.cancel?.();
     if (this.player.isRagdollActive) return false;
 
     this._deathPending = true;
@@ -988,6 +991,7 @@ export class Game {
   _policeArrest() {
     if (this._arrestPending || this._deathPending || this.stats.salud <= 0) return;
     this._arrestPending = true;
+    this.poopSystem?.cancel?.();
     if (this.steal?.minigameActive) this.steal._endMinigame(false, 'cancel');
     this.input.keys = {};
     this.input.endFrame();
@@ -1263,7 +1267,8 @@ export class Game {
     if (!this.player.isStunned) {
       // Los temporizadores y la selección de basura terminan normalmente al entrar;
       // nadar no permite comerciar ni iniciar acciones terrestres bajo el agua.
-      const controls = this.player.isSwimming
+      // Haciendo popó tampoco: la escena se queda con las manos.
+      const controls = this.player.isSwimming || this.player.busyPoop
         ? (this._waterInput ??= { consumePress: () => false, isDown: () => false }) : this.input;
       this.interaction.update(dt, controls, this.clock);
       if (this.player.isSwimming) this.interaction.currentTarget = this.interaction.currentTargetType = null;
@@ -1284,7 +1289,7 @@ export class Game {
     if (!this.player.isStunned && !this.player.isSwimming && this.input.consumePress('KeyZ')) {
       this.poopSystem.poop(this.player);
     }
-    this.poopSystem.update(dt);
+    this.poopSystem.update(dt, { listener: this.player.position, camera: this.cameraRig.camera });
 
     // 7c. Sistema de abstinencia, alucinaciones y psicosis inducida
 

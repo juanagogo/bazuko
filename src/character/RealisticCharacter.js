@@ -16,6 +16,7 @@ import { applyStreetMaterial, createStreetFrame, curlsWithoutCards, GARMENTS, no
 import { attachAccessories, attachStreetProps, attachWeapon, FAR_ACCESSORIES, isStreetProp, placeInHold, swayStreetProps } from './props.js';
 import { garmentAllowed, normalizeTalla } from './archetypes.js';
 import { attachCigaretteToHand, emberGlow } from './smoking.js';
+import { createRealisticPantsDown } from './pantsDownRealistic.js';
 import { attachBasucoProps } from './pipe.js';
 import { addHatClip, hatEdgeProfile } from './hatFit.js';
 import { animationDamping, SecondaryMotion } from './SecondaryMotion.js';
@@ -304,7 +305,7 @@ function hideCovered(bodyMesh, baseIndex, hidden, light = false) {
 
 // ---------- instancia ----------
 
-async function buildInstance(catalog, look, lod = false, profile = resolveAnimationProfile(), gait = resolveGait()) {
+async function buildInstance(catalog, look, lod = false, profile = resolveAnimationProfile(), gait = resolveGait(), { undress = false } = {}) {
   // Los poros son del modelo completo: de lejos no se ven y el liviano se ahorra una variante del programa.
   const detailPromise = lod ? Promise.resolve(null) : loadStreetSkinDetail();
   const real = normalizeReal(catalog, look.real);
@@ -351,6 +352,7 @@ async function buildInstance(catalog, look, lod = false, profile = resolveAnimat
   }
 
   const hidden = new Set();
+  const garmentMeshes = []; // la ropa, por si el jugador se baja el pantalón
   const hair = [], hatPositions = [];
   const uniform = look.uniforme ? new THREE.Color(look.uniforme) : null;
   parts.forEach((p, i) => {
@@ -358,6 +360,7 @@ async function buildInstance(catalog, look, lod = false, profile = resolveAnimat
     partGltfs[i].scene.traverse((o) => {
       if (!o.isSkinnedMesh) return;
       const mesh = attachPart(o, bones, bodyMesh?.parent ?? root, p.cat);
+      if (p.cat === 'ropa') garmentMeshes.push({ mesh, under: /pants/i.test(mesh.name) });
       if (p.cat === 'pelo' || p.cat === 'barba') {
         mesh.material.color.copy(hairTone);
         addHairTone(mesh.material, p.cat === 'pelo' && real.pelo === 'rapado' ? .4 : 1);
@@ -402,7 +405,11 @@ async function buildInstance(catalog, look, lod = false, profile = resolveAnimat
   // Lo que carga la gente de la calle: de lejos solo lo que se nota.
   const streetProps = attachStreetProps(root, bones, (real.accesorios ?? []).filter((item) => !useLod || FAR_ACCESSORIES.has(item.id)), stanceLibrary?.holds, real.sexo);
   const cane = caneGrip(streetProps, stanceLibrary?.holds);
-  if (bodyMesh) hideCovered(bodyMesh, bodyGltf.scene.getObjectByName(bodyMesh.name)?.geometry.index ?? bodyMesh.geometry.index, hidden, !!useLod);
+  const baseIndex = bodyMesh ? bodyGltf.scene.getObjectByName(bodyMesh.name)?.geometry.index ?? bodyMesh.geometry.index : null;
+  if (bodyMesh) hideCovered(bodyMesh, baseIndex, hidden, !!useLod);
+  const pantsDown = undress && bodyMesh && !useLod
+    ? createRealisticPantsDown({ bones, bodyMesh, baseIndex, hidden, frame: streetOptions.frame, garmentMeshes })
+    : null;
 
   let clips = sourceClips;
   if (isMixamoProfile(profile.id)) {
@@ -439,7 +446,7 @@ async function buildInstance(catalog, look, lod = false, profile = resolveAnimat
   const hipBlend = groundContact || !hipBone ? null : new HipBlend(actions, hipBone);
   const bodyLanguage = stanceLibrary ? new BodyLanguage(bones, stanceLibrary, { lod, seed, lean: clips.walk?.userData.lean ?? 0 }) : null;
   // Cada uno empieza en otro punto del paso: dos que salen juntos no marchan al compás. El banco de revisión empieza siempre en su primer cuadro.
-  return { root, bones, mixer, actions, real, holds: stanceLibrary?.holds ?? null, streetProps, cane, accessories, secondaryMotion, actionPose, groundContact, hipBlend, bodyLanguage, swaying: streetProps.filter((mesh) => mesh.userData.sway), playback: {}, phase: isMixamoProfile(profile.id) ? 0 : seed % 1, runShare: 0, ownedGeometries: bodyMesh ? [bodyMesh.geometry] : [] };
+  return { root, bones, mixer, actions, real, holds: stanceLibrary?.holds ?? null, streetProps, cane, accessories, secondaryMotion, actionPose, groundContact, hipBlend, bodyLanguage, pantsDown, swaying: streetProps.filter((mesh) => mesh.userData.sway), playback: {}, phase: isMixamoProfile(profile.id) ? 0 : seed % 1, runShare: 0, ownedGeometries: bodyMesh ? [bodyMesh.geometry] : [] };
 }
 
 /** Bastón en la mano: al andar apoya en el piso y al correr se agarra por la mitad; el peso cambia sin saltos. */
@@ -489,6 +496,7 @@ export function disposeRealisticInstance(instance) {
   instance.weapon?.dispose();
   instance.cigarette?.dispose();
   instance.basucoProps?.dispose();
+  instance.pantsDown?.dispose();
   instance.mixer.stopAllAction();
   instance.mixer.uncacheRoot(instance.root);
   const materials = new Set(), skeletons = new Set();
@@ -508,7 +516,7 @@ export function disposeRealisticInstance(instance) {
  * Crea el personaje. `look` es la apariencia compartida con el procedural (nombre, piel, peloColor…)
  * más `look.real` con las piezas realistas.
  */
-export async function createRealisticCharacter(look = {}, { lod = false, animaciones = 'default', andar = null } = {}) {
+export async function createRealisticCharacter(look = {}, { lod = false, animaciones = 'default', andar = null, undress = false } = {}) {
   const profile = resolveAnimationProfile(animaciones, MODEL_BASE);
   const gait = resolveGait(andar);
   const catalog = await loadCatalog();
@@ -521,6 +529,7 @@ export async function createRealisticCharacter(look = {}, { lod = false, animaci
   let weaponId = null; // arma en mano (cuchillo, botella_picada) o null
   let smoking = null;   // qué se fuma en la mano izquierda ('cigarrillo', 'hierba') o null
   let basuco = false;   // pipa en la izquierda y encendedor en la derecha
+  let undressState = null; // pantalón y censurado de la escena de popó (solo con `undress`)
 
   function syncWeapon() {
     if (!inst || inst.weaponId === weaponId) return;
@@ -542,10 +551,18 @@ export async function createRealisticCharacter(look = {}, { lod = false, animaci
     inst.basucoProps = basuco ? attachBasucoProps(inst.root, inst.bones) : null;
   }
 
+  function syncUndress() {
+    const pants = inst?.pantsDown;
+    if (!pants) return;
+    if (!undressState) { pants.reset(); return; }
+    pants.setDrop(undressState.drop ?? 0);
+    pants.setCensor({ on: !!undressState.censor, block: undressState.block, seed: undressState.seed });
+  }
+
   async function setLook(l) {
     if (disposed) return;
     const my = ++token;
-    const next = await buildInstance(catalog, l, lod, profile, gait);
+    const next = await buildInstance(catalog, l, lod, profile, gait, { undress });
     if (my !== token || disposed) { disposeRealisticInstance(next); return; }
     disposeRealisticInstance(inst);
     inst = next;
@@ -556,6 +573,7 @@ export async function createRealisticCharacter(look = {}, { lod = false, animaci
     syncWeapon();
     syncCigarette();
     syncBasuco();
+    syncUndress();
     for (const k of Object.keys(weights)) delete weights[k];
     for (const k of [...Object.keys(inst.actions), LOCOMOTION]) if (k !== 'walk' && k !== 'run' && k !== 'trote') weights[k] = k === 'idle' ? 1 : 0;
   }
@@ -584,6 +602,10 @@ export async function createRealisticCharacter(look = {}, { lod = false, animaci
     cigaretteTip(target) { return inst?.cigarette ? inst.cigarette.tip.getWorldPosition(target) : null; },
     /** Pipa de basuco y encendedor en las manos */
     setBasuco(on) { basuco = !!on; syncBasuco(); },
+    /** Lo que baja el pantalón y censura la cadera, o null (NPC, o cuerpo sin datos de piel tapada). */
+    get undress() { return inst?.pantsDown ?? null; },
+    /** `{ drop, censor, block, seed }` mientras hace popó; null lo deja vestido. */
+    setUndress(state) { undressState = state ? { ...state } : null; syncUndress(); },
     /** Ata un objeto rígido a la mano con el marco horneado de `pose` (ver `holds` en stances.js). */
     hold(object, pose) {
       const hold = inst?.holds?.[pose], bone = hold && inst.bones.get(hold.boneName);
