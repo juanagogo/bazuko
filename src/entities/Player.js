@@ -573,8 +573,8 @@ export class Player {
     }
     const beganAttackThisFrame = !attackBeforeInput && !!this.attack;
 
-    // con la pipa en la boca se queda quieto
-    const { x = 0, z = 0 } = this.basuco && !this.basuco.stowed ? {} : (this.input?.axis ?? {});
+    // con la pipa en la boca, o en cuclillas, se queda quieto
+    const { x = 0, z = 0 } = (this.basuco && !this.basuco.stowed) || this.action === 'cagar' ? {} : (this.input?.axis ?? {});
     const stunned = this._impactTime > 0;
     const moving = !stunned && (x !== 0 || z !== 0);
     const running = Boolean(this.input?.isRunning && moving);
