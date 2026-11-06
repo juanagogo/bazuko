@@ -1619,7 +1619,8 @@ void UIManager::RenderHUD(float dt, const glm::vec3& playerPos, Camera& camera, 
     else if (nearContainer) interactionPrompt = "[E] Revisar caneca · mantén [Q] para clasificar (más botín)";
     else if (nearPickup) interactionPrompt = "[E] Recoger bolsa · mantén [Q] para clasificar (más botín)";
     else if (inventorySummary.find("Pan duro") != std::string::npos || inventorySummary.find("Botella agua") != std::string::npos || inventorySummary.find("Vendaje") != std::string::npos || inventorySummary.find("Curita") != std::string::npos || inventorySummary.find("Tinto") != std::string::npos || inventorySummary.find("Comida enlatada") != std::string::npos || inventorySummary.find("Refresco") != std::string::npos || inventorySummary.find("Tintico") != std::string::npos || inventorySummary.find("Pegante") != std::string::npos || inventorySummary.find("Pastilla") != std::string::npos || inventorySummary.find("Cigarrillo") != std::string::npos || inventorySummary.find("Jabón") != std::string::npos || inventorySummary.find("Cepillo") != std::string::npos || inventorySummary.find("Vacuna") != std::string::npos || inventorySummary.find("Carbón activo") != std::string::npos || inventorySummary.find("Jarabe") != std::string::npos || inventorySummary.find("Pomada") != std::string::npos || inventorySummary.find("Antiparasitario") != std::string::npos || inventorySummary.find("Antibiótico") != std::string::npos) interactionPrompt = "[E] Usar el primer consumible o medicamento del costal";
-    if (!m_Paused && !m_DeathScreenOpen && std::any_of(m_Hotbar.begin(), m_Hotbar.end(), [](const HotbarSlot& slot) { return !slot.id.empty(); })) {
+    if (!m_Paused && !m_DeathScreenOpen) {   // siempre visible (en el original solo con algo asignado): vacia, una linea explica como llenarla
+        const bool hotbarEmpty = std::none_of(m_Hotbar.begin(), m_Hotbar.end(), [](const HotbarSlot& slot) { return !slot.id.empty(); });
         // Barra de acceso rapido (teclas 1-5), abajo a la derecha: solo aparece cuando hay objetos asignados desde el inventario (#quickbar)
         const SignUI::Fonts& quickFonts = SignUI::GetFonts();
         const ImVec2 display = ImGui::GetIO().DisplaySize;
@@ -1669,6 +1670,20 @@ void UIManager::RenderHUD(float dt, const glm::vec3& playerPos, Camera& camera, 
                 std::snprintf(amount, sizeof(amount), "%d", entry.quantity);
                 const float amountWidth = quickFonts.mono11->CalcTextSizeA(11.0f, FLT_MAX, 0.0f, amount).x;
                 draw->AddText(quickFonts.mono11, 11.0f, ImVec2(max.x - amountWidth - 3.0f, max.y - 14.0f), IM_COL32(201, 162, 39, 255), amount);
+            }
+            if (hotbarEmpty) {   // sin nada asignado: como llenar la barra
+                const char* hint = "Costal (I): elige un objeto y pulsa 1-5";
+                ImDrawList* fg = ImGui::GetForegroundDrawList();
+                if (cardboard) {
+                    const float w = Carton::TextWidth(true, 13, hint) + 16.0f;
+                    const ImVec2 hmin(base.x + barWidth - w, base.y - 30.0f), hmax(base.x + barWidth, base.y - 6.0f);
+                    Carton::Panel(fg, hmin, hmax, 650u, 3.0f);
+                    Carton::Text(fg, true, 13, ImVec2(hmin.x + 8.0f, hmin.y + 4.0f), Carton::kMarcador, hint);
+                } else {
+                    const float w = quickFonts.mono11->CalcTextSizeA(11.0f, FLT_MAX, 0.0f, hint).x;
+                    fg->AddRectFilled(ImVec2(base.x + barWidth - w - 10.0f, base.y - 26.0f), ImVec2(base.x + barWidth, base.y - 6.0f), IM_COL32(0, 0, 0, 170));
+                    fg->AddText(quickFonts.mono11, 11.0f, ImVec2(base.x + barWidth - w - 5.0f, base.y - 22.0f), IM_COL32(236, 240, 248, 255), hint);
+                }
             }
             ImGui::SetCursorScreenPos(base);
             ImGui::Dummy(ImVec2(barWidth, slotSize));
