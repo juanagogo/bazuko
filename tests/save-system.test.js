@@ -188,3 +188,49 @@ test('el saneado conserva las secciones que no conoce, como objetivos y carro ro
   assert.deepEqual(leida.objectives, objectives);
   assert.deepEqual(leida.carroRobado, carroRobado);
 });
+
+test('una segunda partida apartada no pisa la primera, y el respaldo de la apartada sobrevive a la partida nueva', async () => {
+  const { KEYS_APARTADAS, KEY_RESPALDO_APARTADO, KEYS_RESPALDO_APARTADO } = await import('../src/systems/SaveSystem.js');
+  const almacen = memoria();
+  const save = new SaveSystem(almacen);
+  const dinero = (texto) => texto && JSON.parse(texto).stats.dinero;
+  save.save(partida(1)); // viejo-A
+  save.save(partida(2)); // viejo-B: no se deja aplicar y game.js la aparta
+  save.apartar();
+  assert.equal(new SaveSystem(almacen).load(), null, 'sin principal se empieza de cero');
+  save.save(partida(3)); // el creador
+  save.save(partida(4)); // el guardado solo: el respaldo pasa a ser la partida nueva
+  assert.equal(dinero(almacen.getItem(KEY_DANADA)), 2);
+  assert.equal(dinero(almacen.getItem(KEY_RESPALDO_APARTADO)), 1, 'viejo-A sigue a mano');
+  save.apartar(); // otra falla, ya con la partida nueva
+  assert.equal(dinero(almacen.getItem(KEYS_APARTADAS[0])), 4);
+  assert.equal(dinero(almacen.getItem(KEYS_APARTADAS[1])), 2, 'viejo-B no se perdió');
+  assert.equal(dinero(almacen.getItem(KEYS_RESPALDO_APARTADO[0])), 3, 'con la nueva va su respaldo');
+  assert.equal(dinero(almacen.getItem(KEYS_RESPALDO_APARTADO[1])), 1, 'viejo-A corrió con viejo-B, no se pisó');
+  save.apartar(); // sin principal no hace nada
+  save.save(partida(4));
+  save.apartar(); // la misma otra vez: no corre la fila
+  assert.equal(dinero(almacen.getItem(KEYS_APARTADAS[1])), 2);
+  assert.equal(dinero(almacen.getItem(KEYS_RESPALDO_APARTADO[1])), 1);
+  assert.equal(almacen.getItem(KEYS_APARTADAS[2]), null);
+});
+
+test('la fila de apartadas lleva cada respaldo con su partida y no deja uno ajeno en un puesto', async () => {
+  const { KEYS_APARTADAS, KEYS_RESPALDO_APARTADO } = await import('../src/systems/SaveSystem.js');
+  const almacen = memoria();
+  const save = new SaveSystem(almacen);
+  const dinero = (texto) => texto && JSON.parse(texto).stats.dinero;
+  save.save(partida(1)); save.save(partida(2));
+  save.apartar(); // 2 con respaldo 1
+  save.save(partida(3)); // la primera de la partida nueva: el respaldo sigue siendo 1, el de la apartada
+  almacen.removeItem(KEY_RESPALDO); // y si no hay respaldo, la apartada va sin él
+  save.apartar(); // 3 sin respaldo
+  save.save(partida(5)); save.save(partida(6));
+  save.apartar(); // 6 con respaldo 5
+  assert.deepEqual(KEYS_APARTADAS.map((k) => dinero(almacen.getItem(k))), [6, 3, 2]);
+  assert.deepEqual(KEYS_RESPALDO_APARTADO.map((k) => dinero(almacen.getItem(k))), [5, null, 1]);
+  save.save(partida(7)); save.save(partida(8));
+  save.apartar(); // la más vieja sale de la fila con su respaldo
+  assert.deepEqual(KEYS_APARTADAS.map((k) => dinero(almacen.getItem(k))), [8, 6, 3]);
+  assert.deepEqual(KEYS_RESPALDO_APARTADO.map((k) => dinero(almacen.getItem(k))), [7, 5, null]);
+});

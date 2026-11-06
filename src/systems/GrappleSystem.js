@@ -13,7 +13,7 @@ export class GrappleSystem {
         const n = npcs.find(n => n.hp > 0 && !n.grabbed && n.position.distanceTo(p.position) < 1.4);
         if (n) {
           this.target = n; n.grabbed = true; n.combatAI?.dispose(); this.timer = 3;
-          n.say?.('¡Suélteme, parce!');
+          if (!n.speakScenario?.('grabbed', true)) n.say?.('¡Suélteme, parce!');
         }
       }
     }

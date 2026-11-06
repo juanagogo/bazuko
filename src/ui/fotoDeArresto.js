@@ -40,10 +40,12 @@ function copiar(fuente, ancho, alto) {
 }
 
 /**
- * @returns {{calle: HTMLCanvasElement, figura: HTMLCanvasElement, camara: THREE.Camera}|null} null si no hay sitio
+ * Dibuja en el lienzo del juego: quien la llame en pleno juego tiene que dibujar el cuadro del juego después, o lo que
+ * se ve es la figura sobre fucsia. `conCalle: false` se salta la toma de la calle (el retrato no la usa).
+ * @returns {{calle: HTMLCanvasElement|null, figura: HTMLCanvasElement, camara: THREE.Camera}|null} null si no hay sitio
  * para pararse: entonces la foto se queda con el último cuadro del juego.
  */
-export function tomarFoto({ renderer, scene, jugador, collisions, maximo = 1280 }) {
+export function tomarFoto({ renderer, scene, jugador, collisions, maximo = 1280, conCalle = true }) {
   const gl = renderer?.instance, lienzo = gl?.domElement;
   if (!lienzo?.width || !jugador?.root?.visible) return null;
   const sitio = sitioDeFoto(jugador.position, jugador.root.rotation.y, collisions, _sitio);
@@ -60,13 +62,19 @@ export function tomarFoto({ renderer, scene, jugador, collisions, maximo = 1280 
   const autoLimpia = gl.autoClear;
   try {
     gl.shadowMap.autoUpdate = false;
-    renderer.render(scene, camara, null, [], false);
-    const calle = copiar(lienzo, ancho, alto);
+    let calle = null;
+    if (conCalle) {
+      renderer.render(scene, camara, null, [], false);
+      calle = copiar(lienzo, ancho, alto);
+    }
     // Solo el personaje y sus luces, igual que la silueta: la ciudad no aporta ni un punto aquí.
     const luces = (renderer.overlayLights ?? hijos).filter((o) => o.isLight && o.visible);
     scene.children = [jugador.root, ...luces];
     scene.background = null;
     scene.matrixWorldAutoUpdate = false;
+    // Los huesos con la pose de este cuadro: el retrato se toma antes del cuadro del juego, y en el primero de la
+    // partida nadie los ha puesto aún en el mundo (saldría con los brazos abiertos, en la pose de fábrica).
+    jugador.root.updateMatrixWorld(true);
     gl.setClearColor(CLAVE, 1);
     gl.autoClear = true;
     gl.render(scene, camara);
@@ -111,10 +119,11 @@ export function limitesDeFigura(px, ancho, alto) {
 
 /**
  * El retrato de la pestaña Estado: la misma toma de la plana, solo la figura, recortada a su tamaño con un margen.
- * Una vez por pausa, en el cuadro que ya se dibuja al abrirla. null si no hay sitio para la foto o no quedó nadie.
+ * Se toma antes de dibujar el cuadro del juego, que la tapa entera (`Game._renderFrame`). null si no hay sitio para la
+ * foto o no quedó nadie.
  */
 export function tomarRetrato({ renderer, scene, jugador, collisions }) {
-  const foto = tomarFoto({ renderer, scene, jugador, collisions, maximo: 900 });
+  const foto = tomarFoto({ renderer, scene, jugador, collisions, maximo: 900, conCalle: false });
   const figura = foto?.figura;
   if (!figura) return null;
   const ctx = figura.getContext('2d');

@@ -69,7 +69,8 @@ export const ENCARGOS = {
     hacer: () => ({
       title: 'Despistar a una patrulla',
       hint: 'Si me persiguen, me pierdo detrás de un muro o me meto al cambuche.',
-      event: 'police-escaped', goal: 1,
+      // Una patrulla que se quedó trancada en el tráfico no la despistó él.
+      event: 'police-escaped', accept: (d) => d?.reason !== 'trancada', goal: 1,
     }),
   },
 };

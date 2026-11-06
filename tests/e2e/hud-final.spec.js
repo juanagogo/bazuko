@@ -504,26 +504,46 @@ test('la plata se mueve de verdad: vender sube, comprar baja, armar gasta', asyn
 test('quieto, en la página casi no se escribe nada: se compara antes de escribir', async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 800 });
   await readyGame(page);
+  // Medido con Metal, 8 veces quieto y 8 con malilla: el HUD y la malilla escriben de 4 a 6 veces por segundo. Lo
+  // que pasaba del límite era la frase de un peatón que hablaba caminando cerca (hasta 85 por segundo): la burbuja
+  // sigue su cabeza y se mueve de verdad, no se reescribe igual. Esas posiciones no cuentan para el límite, pero
+  // ninguna escritura puede dejar lo que ya había (`iguales`). Una propiedad de style puesta igual Chrome ni la anota:
+  // que la burbuja no se reescriba quieta lo cuida tests/hud-final.test.js.
   const escrituras = () => page.evaluate(async () => {
     let n = 0;
-    const quien = {};
+    const quien = {}, iguales = {};
+    // Los hijos se comparan enteros: cambiar `<b>x</b>` por `<i>x</i>` deja el mismo texto pero no es lo mismo.
+    const forma = (x) => x.outerHTML ?? x.textContent;
     const o = new MutationObserver((m) => {
+      // Lo que se tocó dos veces en el mismo lote no se juzga: de A a B y de vuelta a A no es reescribir lo mismo.
+      const veces = new Map();
+      for (const r of m) veces.set(r.target, (veces.get(r.target) ?? 0) + 1);
       for (const r of m) {
         const clave = r.target?.id || r.target?.className || r.target?.parentElement?.id || r.type;
+        const igual = r.type === 'attributes' ? r.oldValue === r.target.getAttribute(r.attributeName)
+          : r.type === 'characterData' ? r.oldValue === r.target.data
+          : r.addedNodes.length > 0 && [...r.removedNodes].map(forma).join() === [...r.addedNodes].map(forma).join();
+        if (igual && veces.get(r.target) === 1) {
+          const sitio = `${clave} ${r.attributeName ?? r.type}`;
+          iguales[sitio] = (iguales[sitio] ?? 0) + 1;
+        }
+        if (r.type === 'attributes' && r.attributeName === 'style' && r.target.classList?.contains('npc-bubble')) continue;
         quien[clave] = (quien[clave] ?? 0) + 1;
+        n++;
       }
-      n += m.length;
     });
-    o.observe(document.body, { attributes: true, childList: true, subtree: true, characterData: true });
+    o.observe(document.body, { attributes: true, childList: true, subtree: true, characterData: true, attributeOldValue: true, characterDataOldValue: true });
     await new Promise((f) => setTimeout(f, 4000));
     o.disconnect();
-    return { porSegundo: n / 4, quien };
+    return { porSegundo: n / 4, quien, iguales };
   });
   await page.waitForTimeout(1500);
   const quieto = await escrituras();
   expect(quieto.porSegundo, JSON.stringify(quieto.quien)).toBeLessThan(6);
+  expect(quieto.iguales).toEqual({});
   await page.evaluate(() => { const g = window.__game; g.stats.vicio = 0; });
   await page.waitForTimeout(1500);
   const conMalilla = await escrituras();
   expect(conMalilla.porSegundo, JSON.stringify(conMalilla.quien)).toBeLessThan(12);
+  expect(conMalilla.iguales).toEqual({});
 });

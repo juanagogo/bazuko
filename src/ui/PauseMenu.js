@@ -215,11 +215,17 @@ function statePanel(game) {
       dogSection(game)));
 }
 
+/** Cada foto se codifica una sola vez: la pestaña se rehace en cada cambio (pelaje de El Chato, cambio de pestaña). */
+const urlDeRetrato = new WeakMap();
+
 /** El retrato, si hubo foto (`Game._tomarRetrato`). Sin foto la columna queda como antes. */
 function retratoDe(game) {
-  if (!game._retrato?.toDataURL) return null;
+  const foto = game._retrato;
+  if (!foto?.toDataURL) return null;
+  let src = urlDeRetrato.get(foto);
+  if (!src) { src = foto.toDataURL('image/png'); urlDeRetrato.set(foto, src); }
   return el('figure', { class: 'pause-retrato', 'aria-hidden': 'true' },
-    el('img', { class: 'pause-retrato__foto', alt: '', src: game._retrato.toDataURL('image/png') }));
+    el('img', { class: 'pause-retrato__foto', alt: '', src }));
 }
 
 function settingsPanel(game) {

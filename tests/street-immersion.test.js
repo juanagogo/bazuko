@@ -202,3 +202,36 @@ test('Pedir limosna requiere transeúntes cercanos (<7m) y no consume energía s
   interaction._beg();
   assert.ok(stats.energia < 50, 'Con peatón cercano debe intentar pedir limosna y descontar energía');
 });
+
+test('robando (barra, tirón, atraco o la mano en el bolsillo) la B no pide limosna, aunque no haya rebusque', () => {
+  const casos = [
+    s => { s.minigameActive = true; }, s => { s.raponazo = { npc: {} }; },
+    s => { s.assaultScene = { time: 0 }; }, (s, p) => { p.stealPose = { fase: 'meter' }; }, () => {}
+  ];
+  for (const [i, robar] of casos.entries()) {
+    const robando = i < casos.length - 1;
+    const stats = new StatsSystem();
+    stats.energia = 50;
+    let pidio = 0;
+    const player = { position: new THREE.Vector3(0, 0, 0), playBeg: () => { pidio++; }, stealPose: null };
+    const interaction = new InteractionSystem(player, { items: [], add: () => true }, stats, { play: () => {} }, null, null, null);
+    interaction.steal = { minigameActive: false, raponazo: null, assaultScene: null };
+    robar(interaction.steal, player);
+    // La víctima está al lado: el filtro de «nadie a 7 m» pasa.
+    interaction.setPedestrians([{ position: new THREE.Vector3(.8, 0, 0) }]);
+    const resultados = [];
+    const oir = (e) => resultados.push(e.detail);
+    globalThis.window.addEventListener('beg-result', oir);
+    const input = { consumePress: (code) => code === 'KeyB', isDown: () => false };
+    interaction.update(.016, input, { isNight: false });
+    globalThis.window.removeEventListener('beg-result', oir);
+    if (robando) {
+      assert.equal(stats.energia, 50, `caso ${i}: robando no se gasta energía en pedir`);
+      assert.equal(pidio, 0, `caso ${i}: ni la pose de pedir encima del hurto`);
+      assert.equal(resultados.length, 0, `caso ${i}: ni limosna`);
+    } else {
+      assert.ok(stats.energia < 50, 'sin robo, la misma B sí pide limosna');
+      assert.equal(pidio, 1);
+    }
+  }
+});

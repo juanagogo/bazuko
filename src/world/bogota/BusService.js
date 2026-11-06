@@ -169,7 +169,7 @@ export class BusService {
       const heading = this.heading;
       const zPerMeter = Math.abs(heading.z);
       let clearance = this.direction * (this.endZ - this.position.z) / zPerMeter;
-      clearance = Math.min(clearance, this.signals?.busClearance(this.position, this.length, this.direction) ?? Infinity);
+      clearance = Math.min(clearance, this.signals?.busClearance(this.position, this.length, this.direction, this) ?? Infinity);
       if (!this.servedStation) clearance = Math.min(clearance, this.direction * (this.stationZ - this.position.z) / zPerMeter);
       let personClearance = player ? this._clearance(player) : Infinity;
       for (const npc of pedestrians) personClearance = Math.min(personClearance, this._clearance(npc.position));

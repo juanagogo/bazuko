@@ -8,7 +8,7 @@ import { SaveSystem, KEY_DANADA } from '../src/systems/SaveSystem.js';
 import { CinematicOverlays } from '../src/ui/CinematicOverlays.js';
 import { Avisos } from '../src/ui/avisos.js';
 import { sitioDeFoto, quitarClave } from '../src/ui/fotoDeArresto.js';
-import { frasesALaVista, repartirFrases } from '../src/ui/frases.js';
+import { acabarFrase, actualizarFrases, empezarFrase, frasesALaVista, repartirFrases } from '../src/ui/frases.js';
 import { piezasDelPrompt, piezasParaElDedo, textoDelPrompt, calorALaVista } from '../src/ui/HUD.js';
 import { imprimir } from '../src/ui/impresion.js';
 import { masCercanoQueVende, ordenDeSugerencia } from '../src/ui/mapServices.js';
@@ -171,6 +171,36 @@ test('el frío y la lluvia solo se escriben si cambia lo que se ve', () => {
   for (let i = 0; i < 60; i++) o.update(1 / 60, { isRaining: false }, { isFreezing: true });
   assert.ok(frio <= 5, `se escribió ${frio} veces en 60 cuadros`);
   delete globalThis.document;
+});
+
+// La prueba e2e de «quieto, casi no se escribe» ya no cuenta la posición de las burbujas, y Chrome no avisa cuando
+// una propiedad de style se pone igual: el que no se reescriba lo mismo se cuida aquí.
+test('la burbuja solo se mueve si quien habla se movió un píxel en pantalla', () => {
+  const escritas = [];
+  const style = {};
+  for (const prop of ['left', 'top', 'display']) Object.defineProperty(style, prop, { set(v) { escritas.push(`${prop}=${v}`); }, get() { return ''; } });
+  globalThis.innerWidth = 1280;
+  globalThis.innerHeight = 800;
+  globalThis.document = { querySelectorAll: () => [] };
+  const camara = new THREE.PerspectiveCamera(60, 1280 / 800, .1, 100);
+  camara.position.set(0, 2, 6);
+  camara.lookAt(0, 2, 0);
+  camara.updateMatrixWorld();
+  const npc = { position: new THREE.Vector3(0, 0, 0), _projPos: new THREE.Vector3(), _bubbleEl: { style }, _fraseW: 120, _fraseH: 30 };
+  empezarFrase(npc);
+  try {
+    for (let i = 0; i < 30; i++) actualizarFrases(camara, camara.position, i * 16);
+    assert.deepEqual(escritas.map((e) => e.split('=')[0]), ['display', 'left', 'top'], 'quieto se escribe una vez');
+    npc.position.x += .0005; // menos de un píxel
+    for (let i = 0; i < 30; i++) actualizarFrases(camara, camara.position, 1000 + i * 16);
+    assert.equal(escritas.length, 3, 'un movimiento que no se ve no se escribe');
+    npc.position.x += .5;
+    actualizarFrases(camara, camara.position, 2000);
+    assert.equal(escritas.length, 6, 'lo que sí se mueve se escribe');
+  } finally {
+    acabarFrase(npc);
+    delete globalThis.document;
+  }
 });
 
 // ---------- la partida dañada ----------

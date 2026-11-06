@@ -54,12 +54,13 @@ test('lo perdido es lo que de verdad se pierde', () => {
   assert.equal(preso.cosas[0], '$ 12.400');
   assert.equal(preso.resto, 3);
   assert.deepEqual(perdidoEnArresto(0, [], ITEMS), { cosas: [], resto: 0 });
-  // Morir se lleva la primera mitad de las filas: `Game._respawn`.
+  // Morir se lleva la primera mitad de las filas: `Game._respawn`, que cobra con `cobrarMuerte`.
   const muerto = perdidoAlMorir(items, ITEMS);
   assert.equal(muerto.cosas.length, 2);
   assert.match(muerto.cosas[0], /×8$/);
   assert.equal(muerto.resto, 0);
-  assert.match(leer('src/core/game.js'), /const half = Math\.floor\(this\.inventory\.items\.length \/ 2\);/);
+  assert.match(leer('src/core/game.js'), /cobrarMuerte\(this\)/);
+  assert.match(leer('src/systems/castigoPendiente.js'), /const half = Math\.floor\(game\.inventory\.items\.length \/ 2\);/);
 });
 
 // ---------- las muertes ----------

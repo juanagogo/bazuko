@@ -7,6 +7,8 @@ import { NPC_VOICE_BANK } from '../data/npcVoices.js';
 import { frasesDe } from '../data/vocesCalle.js';
 import { ShuffleBag, setPan, setRate, takeVariation, voicePan } from './voiceVariety.js';
 import { WorldVoices } from './WorldVoices.js';
+import { PRIORIDAD_CANAL } from './voces/prioridad.js';
+import { ROBO_ESPEJO_ROBERTO } from '../data/vocesReuso.js';
 
 export const MIX_CATEGORIES = ['ambient', 'traffic', 'voices', 'effects'];
 // El audio vive en public/audio: la ruta se arma con la base para que la demo de Pages funcione bajo su subcamino.
@@ -22,6 +24,10 @@ const STRIDE_WALK = 1.25, STRIDE_RUN = 1.45;
 // Las voces de public/audio/voces se cargan cuando alguien las va a decir y solo las recientes se quedan en memoria:
 // decodificadas pesan unas veinte veces lo que pesa el mp3. Si aún no carga, la frase espera un momento y sale.
 const LAZY_VOICE_CACHE = 40, PENDING_VOICE_S = 1.2;
+// Con el juego en pausa (el arresto) el reloj no corre: la frase que puede sonar en pausa espera en tiempo real.
+// Una voz que no cargó se vuelve a pedir pasado un rato, no en cada intento.
+const PAUSED_PENDING_MS = 2000, VOICE_RETRY_S = 20;
+const nowMs = () => globalThis.performance?.now?.() ?? Date.now();
 const NPC_VOICE_RANGE = 14, NPC_VOICE_LEVEL = .8;
 // Quién del reparto dice el robo y el rebusque de cada conductor: Roberto tiene sus frases; Valentina las de la conductora.
 const CAR_LINE_VOICE = { roberto: 'conductor', valentina: 'conductora', conductor: 'conductor', conductora: 'conductora', busetero: 'busetero' };
@@ -57,7 +63,7 @@ export class AudioSystem {
     // Las de combate de siempre quedan precargadas; las de public/audio/voces, al pedirlas.
     for (const entry of Object.values(NPC_VOICE_BANK).flat()) {
       const file = audioFile(entry.audio);
-      if (!isLazyVoice(file) && !this._npcSounds.has(file)) this._npcSounds.set(file, sound(file, { volume: 0 }));
+      if (!isLazyVoice(file) && !ROBO_ESPEJO_ROBERTO.includes(file) && !this._npcSounds.has(file)) this._npcSounds.set(file, sound(file, { volume: 0 }));
     }
     this._eagerVoices = new Set(this._npcSounds.keys());
     this._npcVoice = null;
@@ -115,12 +121,16 @@ export class AudioSystem {
     ];
     this.driverSounds = driverLines.map(({ file }) => sound(file, { volume: 0, loop: false, pool: 8 }));
     this.driverVoices = driverLines.map(({ voice }) => voice);
+    this.driverTexts = driverLines.map(({ file }) => frasesDe('pito').find(frase => audioFile(frase.audio) === file)?.text ?? '');
     const theftLines = [
       ...Array.from({ length: 5 }, (_, i) => ({ file: `roberto_robo_espejo_n${i + 1}.mp3`, voice: 'roberto' })),
       ...frasesDe('robo_espejo').map(frase => ({ file: audioFile(frase.audio), voice: frase.voz }))
     ];
     this.theftSounds = theftLines.map(({ file }) => sound(file, { volume: 0, loop: false, pool: 6 }));
     this.theftVoices = theftLines.map(({ voice }) => voice);
+    this.theftTexts = theftLines.map(({ file }) => frasesDe('robo_espejo').find(frase => audioFile(frase.audio) === file)?.text ?? '');
+    // El conductor bravo dice los reclamos de Roberto (vocesReuso.js) con el mismo Howl del carro: se cargan una vez.
+    theftLines.forEach(({ file }, i) => { if (ROBO_ESPEJO_ROBERTO.includes(file)) { this._npcSounds.set(file, this.theftSounds[i]); this._eagerVoices.add(file); } });
     this._carLineBags = new Map();
     // Frases de la calle: su volumen lo pone StreetVoices según la distancia.
     this.streetVoiceSounds = Object.fromEntries(STREET_VOICES.map(clip => [clip.key, sound(clip.file, { volume: 0, loop: false, pool: 1 })]));
@@ -133,9 +143,15 @@ export class AudioSystem {
     this._camera = null;
     this.streetVoices = new StreetVoices({ bank: this.streetVoiceSounds });
     this.policeSiren = new PoliceSirenAudio({ fx: () => this._fx() });
-    // Una sola voz a la vez entre conductores, robo y calle.
-    this.vehicles.externalVoiceActive = () => this._theftVoiceActive() || this.streetVoices.active;
-    this.streetVoices.externalVoiceActive = () => this._theftVoiceActive() || this.vehicles.remarkPlaying();
+    // Una sola voz a la vez entre conductores, robo y calle; la que espera a cargar también cuenta.
+    this.vehicles.externalVoiceActive = () => this._theftVoiceActive() || this.streetVoices.active || this._voicePending();
+    this.streetVoices.externalVoiceActive = () => this._theftVoiceActive() || this.vehicles.remarkPlaying() || this._voicePending();
+    // Subtítulo de lo que dice un conductor (lo pone VoiceDirector): carro, texto y segundos.
+    this.onVoiceLine = null;
+    this.vehicles.onRemark = (car, index, remark) => {
+      if (this.driverTexts[index]) this.onVoiceLine?.(car, this.driverTexts[index], remark.duration());
+    };
+    this._voiceRetryAt = new Map();
     this._carAlarms = new Map();
 
     // El audio es opcional: un archivo ausente o bloqueado no impide jugar.
@@ -219,6 +235,20 @@ export class AudioSystem {
   }
 
   _voiceActive() { return this.vehicles.externalVoiceActive() || this.vehicles.remarkPlaying(); }
+
+  _voicePending() { return !!this._pendingVoice && this._clock <= this._pendingVoice.until; }
+
+  /** Lo que pesa la voz que suena o espera (ver voces/prioridad.js): una nueva solo la corta si pesa más. */
+  _voicePriority() {
+    let priority = 0;
+    const voice = this._npcVoice;
+    if (voice?.sound.playing(voice.id)) priority = voice.priority ?? PRIORIDAD_CANAL.sinPeso;
+    for (const car of this._theftVoices.values()) if (car.sound.playing(car.id)) priority = Math.max(priority, PRIORIDAD_CANAL.carro);
+    if (this.vehicles.remarkPlaying()) priority = Math.max(priority, PRIORIDAD_CANAL.reclamo);
+    if (this.streetVoices.active) priority = Math.max(priority, PRIORIDAD_CANAL.calle);
+    if (this._voicePending()) priority = Math.max(priority, this._pendingVoice.priority ?? 0);
+    return priority;
+  }
 
   /** Ajusta los bucles que no se recalculan cada cuadro (ambiente y lluvia). */
   _applyLevels(force = false) {
@@ -320,13 +350,31 @@ export class AudioSystem {
   playMovingTheft(car) {
     if (!car?.traffic || this._paused) return false;
     // Reclama el conductor de ese carro: Roberto con las suyas, los demás con las de conductor o conductora.
+    // Si después se baja a pelear alguien de otro sexo, recastMovingTheft lo corrige en el mismo instante.
+    const antes = this.vehicles.heard(car);
     const driver = this.vehicles.driverVoice(car);
     const voice = this.theftVoices.includes(driver) ? driver : CAR_LINE_VOICE[driver] ?? 'roberto';
     const own = this.theftSounds.filter((_, index) => this.theftVoices[index] === voice);
     const sound = this._theftBag.draw(own.length ? own : this.theftSounds);
     if (sound.state() !== 'loaded') return false;
     this._startCarVoice(car, sound);
+    this._theftVoices.get(car).robo = { antes };
+    const text = this.theftTexts[this.theftSounds.indexOf(sound)];
+    if (text) this.onVoiceLine?.(car, text, sound.duration());
     return true;
+  }
+
+  /**
+   * Del carro del espejo se bajó a pelear alguien de `sexo` (RoadRageSystem, en el mismo evento del robo). Si a ese
+   * conductor no se le había oído antes del reclamo y la voz es del otro sexo, el reclamo vuelve a empezar con una de
+   * su sexo: pasa en el mismo instante, así que solo se oye la buena. Si ya se le había oído, conserva su voz.
+   */
+  recastMovingTheft(car, sexo) {
+    const voice = this._theftVoices.get(car);
+    if (!sexo || !voice?.robo || voice.robo.antes || !voice.sound.playing(voice.id)) return false;
+    const before = this.vehicles.driverVoice(car);
+    if (this.vehicles.recastDriver(car, sexo, { aunqueOido: true }) === before) return false;
+    return this.playMovingTheft(car);
   }
 
   /**
@@ -335,14 +383,21 @@ export class AudioSystem {
    */
   playDriverLine(car, situacion, { bus = false } = {}) {
     if (!car?.position || this._paused || this.muted) return false;
-    const voice = CAR_LINE_VOICE[this.vehicles.driverVoice(car, null, bus)];
+    let driver = this.vehicles.driverVoice(car, null, bus);
+    // Roberto no grabó el rebusque: si todavía nadie lo oyó, ese carro lo maneja el conductor; si ya habló,
+    // contesta sin palabras con su tono antes que con la voz de otro.
+    if (driver === 'roberto' && !this.vehicles.heard(car)) driver = this.vehicles.setDriverVoice(car, 'conductor');
+    if (driver === 'roberto') return this.onSilentDriver?.(car, situacion, driver) ?? false;
+    const voice = CAR_LINE_VOICE[driver];
     const lines = frasesDe(situacion, voice);
     if (!lines.length) return false;
     const key = `${voice}_${situacion}`;
     if (!this._carLineBags.has(key)) this._carLineBags.set(key, new ShuffleBag(() => this.vehicles.random()));
-    const sound = this._voiceSound(audioFile(this._carLineBags.get(key).draw(lines, line => line.id).audio));
-    if (sound.state() !== 'loaded') { this._wait(sound, () => this._startCarVoice(car, sound)); return false; }
-    this._startCarVoice(car, sound);
+    const line = this._carLineBags.get(key).draw(lines, item => item.id);
+    const sound = this._voiceSound(audioFile(line.audio));
+    const start = () => { this._startCarVoice(car, sound); this.onVoiceLine?.(car, line.text, sound.duration()); };
+    if (sound.state() !== 'loaded') { this._wait(sound, start, PRIORIDAD_CANAL.carro); return false; }
+    start();
     return true;
   }
 
@@ -353,6 +408,7 @@ export class AudioSystem {
     this.vehicles.stopRemarks();
     this.streetVoices.cancel();
     this._npcVoice?.sound.stop(this._npcVoice.id); this._npcVoice = null;
+    this.vehicles.markHeard(car);
     const { rate, gain } = takeVariation(() => this.vehicles.random());
     const voice = { sound, id: sound.play(), gain };
     setRate(sound, rate, voice.id);
@@ -378,6 +434,13 @@ export class AudioSystem {
   /** El Howl de una voz: las precargadas siempre; las de voces/ se crean al pedirlas y las viejas se descargan. */
   _voiceSound(file) {
     let sound = this._npcSounds.get(file);
+    // La que no cargó (un corte de red) se vuelve a pedir pasado un rato, con un Howl nuevo.
+    if (sound && isLazyVoice(file) && this.loadErrors.has(file) && !this._voiceRetryAt.has(file)) this._voiceRetryAt.set(file, this._clock);
+    if (sound && isLazyVoice(file) && this.loadErrors.has(file) && this._clock - this._voiceRetryAt.get(file) >= VOICE_RETRY_S) {
+      sound.unload(); this._npcSounds.delete(file); this._baseVolume.delete(sound); this.loadErrors.delete(file);
+      this._voiceRetryAt.set(file, this._clock);
+      sound = null;
+    }
     if (sound) {
       if (!this._eagerVoices.has(file)) { this._npcSounds.delete(file); this._npcSounds.set(file, sound); } // la más reciente
       return sound;
@@ -388,7 +451,7 @@ export class AudioSystem {
     for (const [old, voice] of this._npcSounds) {
       if (excess <= 0) break;
       if (this._eagerVoices.has(old) || old === file || voice.playing() || voice === this._pendingVoice?.sound) continue;
-      voice.unload(); this._npcSounds.delete(old); excess--;
+      voice.unload(); this._npcSounds.delete(old); this._baseVolume.delete(voice); excess--;
     }
     return sound;
   }
@@ -396,32 +459,52 @@ export class AudioSystem {
   /** Empieza a cargar una voz que va a sonar enseguida (la segunda de una conversación por radio). */
   prefetchVoice(path) { if (path && isLazyVoice(audioFile(path))) this._voiceSound(audioFile(path)); }
 
-  /** La frase sale cuando termine de cargar, si no pasa mucho; una nueva espera reemplaza a la anterior. */
-  _wait(sound, start) { this._pendingVoice = { sound, start, until: this._clock + PENDING_VOICE_S }; }
+  /**
+   * La frase sale cuando termine de cargar, si no pasa mucho; una nueva espera reemplaza a la anterior si no pesa
+   * menos. La que puede sonar en pausa (el arresto) sale al cargar aunque el juego no avance.
+   */
+  _wait(sound, start, priority = 0, allowPaused = false) {
+    const previous = this._pendingVoice;
+    if (previous && previous.sound !== sound && (previous.priority ?? 0) > priority && this._voicePending()) return;
+    const pending = this._pendingVoice = { sound, start, priority, allowPaused, until: this._clock + PENDING_VOICE_S, untilMs: nowMs() + PAUSED_PENDING_MS };
+    if (allowPaused) sound.once?.('load', () => {
+      // También sin pausa todavía: el menú pausa el juego en el cuadro siguiente y ya no llega a updateWorld.
+      if (this._pendingVoice !== pending || nowMs() > pending.untilMs) return;
+      this._pendingVoice = null;
+      pending.start();
+    });
+  }
 
   /**
    * Voz de alguien en la calle (peatón, patrulla, jíbaro, bus): sale de su posición, más bajo con la distancia,
-   * y no se superpone con otra. `range` es dónde ya no se oye; `force` calla la que esté sonando.
+   * y no se superpone con otra. `range` es dónde ya no se oye; `force` calla la que esté sonando. `priority` (ver
+   * voces/prioridad.js) deja cortar una que pese menos; sin ella no corta nada. `onStart(segundos)` avisa cuando de
+   * verdad empieza, también si tuvo que esperar a cargar. Sin sonar, `lastRefusal` dice por qué: mudo, ocupado,
+   * lejos, error o espera.
    */
-  playNpcVoice(path, owner, { allowKnockedOut = false, allowPaused = false, range = NPC_VOICE_RANGE, level = NPC_VOICE_LEVEL, force = false } = {}) {
-    if ((this._paused && !allowPaused) || this.muted || !owner?.position) return false;
-    if (this._voiceActive()) {
-      if (!force) return false;
-      this._silenceVoices();
-    }
+  playNpcVoice(path, owner, { allowKnockedOut = false, allowPaused = false, range = NPC_VOICE_RANGE, level = NPC_VOICE_LEVEL, force = false, priority, onStart = null } = {}) {
+    this.lastRefusal = null;
+    const refuse = reason => { this.lastRefusal = reason; return false; };
+    if ((this._paused && !allowPaused) || this.muted || !owner?.position) return refuse('mudo');
+    if (!force && this._voiceActive() && (priority ?? 0) <= this._voicePriority()) return refuse('ocupado');
     const distance = this._listenerPosition ? owner.position.distanceTo(this._listenerPosition) : 0;
-    if (distance > range) return false;
-    const sound = this._voiceSound(audioFile(path));
+    if (distance > range) return refuse('lejos');
+    const file = audioFile(path);
+    const sound = this._voiceSound(file);
+    if (this.loadErrors.has(file)) return refuse('error');
     if (sound.state() !== 'loaded') {
-      this._wait(sound, () => this.playNpcVoice(path, owner, { allowKnockedOut, allowPaused, range, level }));
-      return false;
+      const retry = { allowKnockedOut, allowPaused, range, level, force, priority, onStart };
+      this._wait(sound, () => this.playNpcVoice(path, owner, retry), force ? Infinity : priority ?? 0, allowPaused);
+      return refuse('espera');
     }
+    if (this._voiceActive()) this._silenceVoices();
     const id = sound.play();
     const { rate, gain } = takeVariation(() => this.vehicles.random());
     setRate(sound, rate, id);
     sound.volume(gain * level * this._level('voices') * Math.max(0, 1 - distance / range), id);
     setPan(sound, voicePan(this._listenerPosition, this._camera, owner.position), id);
-    this._npcVoice = { sound, id, owner, allowKnockedOut, gain, range, level };
+    this._npcVoice = { sound, id, owner, allowKnockedOut, allowPaused, gain, range, level, priority };
+    onStart?.((sound.duration() || 0) / rate);
     return true;
   }
 
@@ -520,8 +603,10 @@ export class AudioSystem {
     if (this._paused === paused) return;
     this._paused = paused;
     if (this._effectsBus) this._effectsBus.gain.value = paused ? 0 : this._level('effects');
-    if (paused && this._npcVoice) { this._npcVoice.sound.stop(); this._npcVoice = null; }
-    if (paused) this._pendingVoice = null;
+    // Lo que puede sonar en pausa (la muerte, el arresto) sigue; lo demás se calla.
+    if (paused && this._npcVoice && !this._npcVoice.allowPaused) { this._npcVoice.sound.stop(); this._npcVoice = null; }
+    if (paused && !this._pendingVoice?.allowPaused) this._pendingVoice = null;
+    if (paused) this.vocalizador?.callar?.();
     this._syncRain();
     this.vehicles.setPaused(paused);
     this.streetVoices.setPaused(paused);
@@ -567,7 +652,7 @@ export class AudioSystem {
     this._duck += (duckTarget - this._duck) * (1 - Math.exp(-dt * (duckTarget < this._duck ? DUCK_ATTACK : DUCK_RELEASE)));
     this._applyLevels();
     this.vehicles.update(dt, position, vehicles, bus);
-    this.policeSiren.update(dt, position, vehicles);
+    this.policeSiren.update(dt, position, vehicles, this.policeRange?.());
     this.streetVoices.update(position, pedestrians);
     this.worldVoices.update(dt, position, vehicles, bus);
     for (const [car, voice] of this._theftVoices) {
@@ -594,6 +679,7 @@ export class AudioSystem {
     for (const sound of this._npcSounds.values()) sound.unload();
     this._npcSounds.clear(); this._npcVoice = null; this._pendingVoice = null;
     this.worldVoices.dispose();
+    this.vocalizador?.dispose?.();
     this._theftVoices.clear();
     this._carAlarms.clear();
     this.streetVoices.clear();

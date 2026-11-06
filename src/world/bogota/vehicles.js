@@ -284,6 +284,6 @@ export function makeVehicle(kind = 'carro', seedColor = 0, { beams = true, model
     mirrorAnchors: geo.mirrorAnchors.map(anchor => anchor.clone()), mirrorGeometry: geo.mirror, trimMaterial: s.trim,
     driverAnchor: new THREE.Vector3(spec.driver.x, 0, spec.driver.z), driverHeight: spec.driver.h,
     driverDoor: spec.driver.door ?? { x: spec.driver.x, side: -1 }, routeIndex, details,
-    wetMaterials: [paint, glass], headlightMaterial,
+    wetMaterials: [paint, glass], headlightMaterial, glassMesh,
   };
 }

@@ -253,3 +253,57 @@ test('Escape durante el forcejeo ya no lo cancela', () => {
   assert.ok(ctl.forcejeo);
   assert.equal(game.stats.salud, 50);
 });
+
+// ---------- después del forcejeo ----------
+
+test('ganado a punta de E, las E que siguen llegando no se cuelan; pasado el rato, la E vuelve', () => {
+  const { ctl, game } = forcejeoEnCurso();
+  ctl.forcejeo.resultado = 'victoria';
+  ctl.update(0.016, entradaSinTeclas());
+  assert.equal(ctl.forcejeo, null);
+  assert.equal(game.zorra.estado, 'pushing');
+  const pendientes = new Set();
+  const entrada = { axis: { x: 0, z: 0 }, consumePress: (c) => pendientes.delete(c) };
+  for (let t = 0; t < 0.5; t += 0.1) {
+    pendientes.add('KeyE');
+    ctl.update(0.1, entrada);
+    assert.equal(pendientes.has('KeyE'), false, `a los ${t.toFixed(1)} s la E se traga`);
+  }
+  ctl.update(0.2, entradaSinTeclas());
+  pendientes.add('KeyE');
+  ctl.update(0.016, entrada);
+  assert.equal(pendientes.has('KeyE'), true, 'luego la E queda para la basura o el cosquilleo');
+  // U sigue soltándola en todo momento.
+  ctl._posSuelo = new THREE.Vector3();
+  pendientes.add('KeyU');
+  ctl.update(0.016, entrada);
+  assert.equal(game.zorra.estado, 'dropped');
+});
+
+test('perdido, tampoco: las E de más no le meten la mano al reciclador que me sacó', () => {
+  const { ctl } = forcejeoEnCurso();
+  ctl.forcejeo.resultado = 'derrota';
+  ctl.update(0.016, entradaSinTeclas());
+  let gastadas = 0;
+  ctl.update(0.1, { axis: { x: 0, z: 0 }, consumePress: (c) => c === 'KeyE' && ++gastadas > 0 });
+  assert.equal(gastadas, 1);
+});
+
+test('el aviso de soltar con U está mientras se empuja, no en el suelo ni durante el forcejeo', () => {
+  const { ctl, game } = controlador();
+  assert.equal(ctl.prompt, null);
+  game.zorra.obtener();
+  assert.equal(ctl.prompt, '[U] Soltar la zorra');
+  game.zorra.soltar([0, 0, 0], 0);
+  assert.equal(ctl.prompt, null);
+  const f = forcejeoEnCurso();
+  assert.equal(f.ctl.prompt, null);
+});
+
+test('el juego pasa el aviso de la zorra a la tecla de contexto, y al volante no', async () => {
+  const { readFileSync } = await import('node:fs');
+  const loop = readFileSync(new URL('../src/core/game.js', import.meta.url), 'utf8');
+  assert.match(loop, /this\.interaction\.zorraPrompt = driving \? null : this\.zorraCtl\?\.prompt \?\? null;/);
+  const hud = readFileSync(new URL('../src/ui/HUD.js', import.meta.url), 'utf8');
+  assert.match(hud, /\[interaction\?\.rebusquePrompt, interaction\?\.carjackPrompt, interaction\?\.zorraPrompt\]/);
+});

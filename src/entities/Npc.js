@@ -10,11 +10,14 @@ import * as THREE from 'three';
 import { createRealisticCharacter, loadCatalog, normalizeReal, REALISTIC_SCALE } from '../character/RealisticCharacter.js';
 import { koHandDown, RISE_TIME, smooth } from '../character/BodyLanguage.js';
 import { LOW_STANCES, SEARCH_ACTION, personLook, pickArchetype, pickStop, pickWalk, rollPerson } from '../character/archetypes.js';
-import { UMBRELLA_REST, createCane, createClosedStick, createPhone, createUmbrella } from '../character/props.js';
+import { UMBRELLA_REST, createCane, createClosedStick, createPhone, createUmbrella, streetPropHand } from '../character/props.js';
 import { HAND_ON_FLOOR } from '../character/stances.js';
 import { WEAPONS } from '../data/weapons.js';
 import { NPC_VOICE_BANK } from '../data/npcVoices.js';
 import { vozPara } from '../data/vocesCalle.js';
+import { vocalizarFaltante } from '../systems/voces/Vocalizador.js';
+import { decirFrase, vozOcupada } from '../systems/voces/hablar.js';
+import { gestoHablar } from '../character/gestoHablar.js';
 import { NpcCombat } from '../systems/NpcCombat.js';
 import { canReachCombatTarget, resolveCombatWalk } from '../systems/CombatGeometry.js';
 import { acabarFrase, empezarFrase } from '../ui/frases.js';
@@ -44,6 +47,29 @@ const THEFT_SCREAMS = [
   '¡¡POLICÍA, COJAN A ESE RATERO!!',
   '¡¡QUITE LA MANO DE AHÍ, HIJUEPUTA!!'
 ];
+// El grito va con el robo que fue: la mano en el bolsillo (pillado) grita lo de siempre; el tirón ya se llevó
+// lo suyo, el que falló no la tocó, y quien se palpa después ya no tiene a nadie encima. Ninguno de esos dice
+// «quite la mano».
+export const GRITOS_DE_ROBO = {
+  raponazo: [
+    '¡¡LADRÓN, ME ROBARON!!',
+    '¡¡AUXILIO, ME ROBARON!!',
+    '¡¡POLICÍA, COJAN A ESE RATERO!!',
+    '¡¡GONORREA, DEVUÉLVAME ESO!!'
+  ],
+  // Agarró puro aire: no se llevó nada ni le puso la mano encima.
+  'raponazo-fallido': [
+    '¡¡AUXILIO, ME QUIEREN ROBAR!!',
+    '¡¡POLICÍA, COJAN A ESE RATERO!!',
+    '¡¡LADRÓN, LADRÓN!!'
+  ],
+  descubre: [
+    '¡¡ME ROBARON!!',
+    '¡¡ESE MAN ME SACÓ LA PLATA!!',
+    '¡¡POLICÍA, COJAN A ESE RATERO!!'
+  ]
+};
+GRITOS_DE_ROBO['raponazo-sin-bolso'] = GRITOS_DE_ROBO.raponazo;
 
 // Distancias (m) al jugador
 export { NPC_VOICE_BANK } from '../data/npcVoices.js';
@@ -381,6 +407,7 @@ export class Npc {
         if (this._disposed) { c.dispose?.(); return; }
         this.fullChar = c;
         if (this._fallenCane?.parent) c.setPropVisible?.('baston-calle', false); // llegó con el bastón ya en el piso
+        for (const id of this._sinCarga ?? []) c.setPropVisible?.(id, false); // y sin lo que le arrancaron
       });
   }
 
@@ -443,7 +470,7 @@ export class Npc {
     }
 
     this._scream(POOP_SCREAMS);
-    if (voz) this.speakScenario('poop', true);
+    if (voz) this.speakScenario('poop', true); else vocalizarFaltante(this, 'nearMiss');
   }
 
   /**
@@ -488,6 +515,7 @@ export class Npc {
       this.fleeTimer = Math.max(this.fleeTimer, NPC_COMBAT.flee);
       this.panicTimer = NPC_COMBAT.flee;
     }
+    this.speakScenario(this.health > 0 ? 'runOver' : 'knockout', true); globalThis.window?.dispatchEvent?.(new CustomEvent('peaton-atropellado', { detail: { npc: this, speed } }));
     this._scream(CAR_SCREAMS);
     return true;
   }
@@ -513,16 +541,14 @@ export class Npc {
     if (this._disposed || (this.hp <= 0 && !knockoutVoice)) return false;
     const now = performance.now();
     if (!force && this._lastVoiceTime > 0 && now - this._lastVoiceTime < 2500) return false;
+    if (vozOcupada(this, category)) return false; // no se oiría: ni gasta la frase ni cuenta como dicha
     this._voz ??= this._castVoice();
     const entry = getRandomVoice(category, this.look?.real?.sexo, this._voz);
-    if (!entry) return false;
+    if (!entry) { vocalizarFaltante(this, category); return false; }
     // La primera frase con voz marcada le deja esa voz para siempre.
     this._voz ??= entry.voz ?? null;
     this._lastVoiceTime = now;
-    this.say(entry.text, 3.5);
-    this.audio ??= globalThis.window?.__game?.audio;
-    this.audio?.playNpcVoice?.(entry.audio, this, { allowKnockedOut: knockoutVoice });
-    return true;
+    return decirFrase(this, entry, category, { allowKnockedOut: knockoutVoice });
   }
 
   /** Se suma a la golpiza: deja lo que hacía y va hacia `target` por la red peatonal. */
@@ -605,6 +631,8 @@ export class Npc {
     this._witnessFinished = false;
     this.target = null;
     this.route = [];
+    // Se queda quieto grabando: al seguir arranca tomando el paso, no a toda marcha (ver STRIDE).
+    this._stride = 0;
     return true;
   }
 
@@ -626,9 +654,10 @@ export class Npc {
     return true;
   }
 
-  alarmedByTheft(thiefPosition = null) {
+  /** `tipo` es el robo que fue ('pillado', 'raponazo', 'descubre'); sin él, el grito de siempre. */
+  alarmedByTheft(thiefPosition = null, tipo = null) {
     this._fleeFrom(thiefPosition);
-    this._scream(THEFT_SCREAMS);
+    this._scream(GRITOS_DE_ROBO[tipo] ?? THEFT_SCREAMS);
     this.speakScenario('robbed', true);
   }
 
@@ -1134,6 +1163,7 @@ export class Npc {
     } else {
       if (this.action === 'recibirGolpe') { this.action = null; this.actionProgress = 0; }
       if (fighting) this.action = this.grabbed ? 'ser_agarrado' : this.assaultAction;
+      else if (!this.koState && dt > reactionTime && this.scriptedHold?.(dt - reactionTime)) { /* quieto: lo dirige el robo (features/stealReactions.js) */ }
       else if (!this.koState && dt > reactionTime && this._updateWitness(dt - reactionTime)) { /* quieto, grabando */ }
       else if (!this.koState && dt > reactionTime) this._walk(dt - reactionTime);
       else this.moving = false;
@@ -1197,7 +1227,7 @@ export class Npc {
       ...this.poseParams,
       state: this.state, action: this.action, actionProgress: this.actionProgress,
       attack: this._counterPose ?? this.poseParams?.attack,
-      look: this.poseParams?.look ?? this._glanceAt(ctx, stance),
+      look: (this.poseParams?.look ?? this._glanceAt(ctx, stance)) + gestoHablar(this),
       // Caer sigue a la misma mezcla que acuesta el cuerpo.
       stance,
       style: this.poseParams?.style ?? this.style,
@@ -1530,6 +1560,23 @@ export class Npc {
     this._fallenCane ??= createCane(cane.color);
     this._fallenCane.castShadow = this.character === this.fullChar;
     this._dropOnFloor(this._fallenCane, DROP_CANE);
+  }
+
+  /**
+   * Le arrancaron algo de lo que carga (el raponazo se llevó el bolso): deja de verse en sus dos modelos, también en el
+   * completo que llegue después, y si iba en la mano esa mano queda libre. `manosOcupadas` lee `_sinCarga`.
+   */
+  quitarCarga(id) {
+    if (!id) return;
+    (this._sinCarga ??= new Set()).add(id);
+    this.lodChar?.setPropVisible?.(id, false);
+    this.fullChar?.setPropVisible?.(id, false);
+    const mano = streetPropHand(id);
+    const otra = this.person?.real?.accesorios?.some(item => item.id !== id && !this._sinCarga.has(item.id) && streetPropHand(item.id) === mano);
+    if (!mano || otra) return;
+    // El brazo deja de ir cargando: el estilo de esta persona, sin tocar el de nadie más.
+    if (this.style?.carry === mano) this.style = { ...this.style, carry: null };
+    if (this.person?.style?.carry === mano) this.person.style = { ...this.person.style, carry: null };
   }
 
   _setCaneInHand(inHand) {

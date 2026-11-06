@@ -25,6 +25,7 @@ import { BodyLanguage } from './BodyLanguage.js';
 import { bakeStances } from './stances.js';
 import { preparePlayback, blendAnimationWeights, HipBlend } from './AnimationPlayback.js';
 import { shareImages } from './sharedImages.js';
+import { shareSkeletons } from './sharedSkeleton.js';
 import { pick } from '../utils/random.js';
 
 const MODEL_BASE = `${import.meta.env?.BASE_URL ?? '/'}models/`;
@@ -451,6 +452,7 @@ async function buildInstance(catalog, look, lod = false, profile = resolveAnimat
     clips = groundedClipCache.get(key);
   }
 
+  shareSkeletons(root);
   const mixer = new THREE.AnimationMixer(root);
   const actions = {};
   for (const [name, clip] of Object.entries(clips)) {
@@ -666,7 +668,7 @@ export async function createRealisticCharacter(look = {}, { lod = false, animaci
     },
     /** Al cambiar de modelo, la postura que se esté pidiendo entra sin transición. */
     snapPose() { inst?.bodyLanguage?.snap(); },
-    update(dt, { speed = 0, running = false, action = null, load = 0, movement = {}, actionProgress, attack = null, smoke = null, basuco: pipeT = null, look: glance = 0, point = 0, stance = null, style = null, stanceWeight = 1, ko = 0, koRising = false, koPlan = 'espalda', koFrom = null, rising = false } = {}) {
+    update(dt, { speed = 0, running = false, action = null, load = 0, movement = {}, actionProgress, attack = null, smoke = null, basuco: pipeT = null, look: glance = 0, point = 0, stance = null, style = null, stanceWeight = 1, ko = 0, koRising = false, koPlan = 'espalda', koFrom = null, rising = false, hurto = null } = {}) {
       if (!inst) return;
       const a = inst.actions;
       const sourceCadence = isMixamoProfile(profile.id) && movement.previewCadence === 'source';
@@ -742,16 +744,16 @@ export async function createRealisticCharacter(look = {}, { lod = false, animaci
       inst.bodyLanguage?.apply(dt, {
         stance, style, stanceWeight, ko, koRising, koPlan, koFrom, rising, speed: gaitSpeed, phase: inst.phase,
         blocked: handsBlocked || target === action || poseAction,
-        handsBusy: !!attack || action === 'golpear' || pipeAllowed || !!point || (smokeAllowed && !!smoke)
+        handsBusy: !!attack || action === 'golpear' || pipeAllowed || !!point || (smokeAllowed && !!smoke) || (!!hurto && !hurto.unaMano)
       });
       inst.secondaryMotion?.apply(dt, {
         speed: gaitSpeed, load, phase: inst.phase, turnRate: movement.turnRate,
-        action: handsBlocked || attack || smoke || pipeAllowed || point ? 'gesture' : action
+        action: handsBlocked || attack || smoke || pipeAllowed || point || hurto ? 'gesture' : action
       });
       // Un saludo o descanso horneado es dueño de la pose; no sumar encima el
       // gesto procedural. Las acciones sin clip conservan su capa identificable.
       const overlayAction = previewClip && target === action ? 'clip' : action;
-      inst.actionPose.apply(dt, { speed, running, action: overlayAction, actionProgress, movement, attack, smoke: smokeAllowed ? smoke : null, basuco: pipeAllowed ? pipeT : null, look: glance, point, hipLow: inst.bodyLanguage?.hipWeight ?? 0 });
+      inst.actionPose.apply(dt, { speed, running, action: overlayAction, actionProgress, movement, attack, smoke: smokeAllowed ? smoke : null, basuco: pipeAllowed ? pipeT : null, look: glance, point, hipLow: inst.bodyLanguage?.hipWeight ?? 0, hurto });
       inst.groundContact?.apply(!detached);
       inst.cigarette?.setGlow(emberGlow(smokeAllowed ? smoke?.puff : null));
       if (pipeAllowed) inst.basucoProps?.update(pipeT);

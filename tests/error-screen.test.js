@@ -52,3 +52,51 @@ test('los recursos que no cargan no muestran el aviso', () => {
   fire(win, 'error', {});
   assert.equal(body.children.length, 0);
 });
+
+// Un juego de mentiras con el mismo guardado solo que el de verdad: la guarda decide si se escribe.
+import { AutoSave } from '../src/systems/AutoSave.js';
+import { Game } from '../src/core/game.js';
+const juegoConGuarda = (extra = {}) => {
+  const game = Object.assign(Object.create(Game.prototype), {
+    _loading: false, _deathPending: false, _arrestPending: false, isSleeping: false,
+    creator: { isOpen: false }, stats: { salud: 80 }, guardados: 0, ...extra
+  });
+  game._save = () => { game.guardados++; return true; };
+  game.autoSave = new AutoSave({ guardar: () => game._save(), puede: () => game._puedeAutoguardar() });
+  return game;
+};
+
+test('perder WebGL cargando, preso o muerto no escribe la partida, y el aviso no promete que quedó guardada', () => {
+  for (const estado of [{ _loading: true }, { _arrestPending: true }, { _deathPending: true, stats: { salud: 0 } }]) {
+    const { doc, win, canvas, body, fire } = fakeDom();
+    const game = juegoConGuarda(estado);
+    installErrorScreen({ doc, win, canvas, game });
+    fire(canvas, 'webglcontextlost', { preventDefault() {} });
+    assert.equal(game.guardados, 0, JSON.stringify(estado));
+    const texto = body.children[0].children[0].children[1].textContent;
+    assert.doesNotMatch(texto, /quedó guardada/);
+    assert.match(texto, /último guardado/);
+  }
+  const { doc, win, canvas, body, fire } = fakeDom();
+  const game = juegoConGuarda();
+  installErrorScreen({ doc, win, canvas, game });
+  fire(canvas, 'webglcontextlost', { preventDefault() {} });
+  assert.equal(game.guardados, 1, 'en un momento firme sí guarda');
+  assert.match(body.children[0].children[0].children[1].textContent, /quedó guardada/);
+});
+
+test('«Recargar el juego» durante el arresto recarga sin guardar lo de antes del castigo', () => {
+  const { doc, win, canvas, body, fire } = fakeDom();
+  const original = console.error; console.error = () => {};
+  const game = juegoConGuarda({ _arrestPending: true });
+  installErrorScreen({ doc, win, canvas, game });
+  fire(win, 'error', { error: new Error('boom') });
+  console.error = original;
+  const recargar = body.children[0].children[0].children[2].children[0];
+  recargar.handlers.click();
+  assert.equal(game.guardados, 0);
+  assert.equal(win.reloaded, true);
+  game._arrestPending = false;
+  recargar.handlers.click();
+  assert.equal(game.guardados, 1);
+});

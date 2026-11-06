@@ -27,6 +27,13 @@ export const POLICE_LOST_SIGHT_PER_WANTED = 2;
 export const POLICE_RADIO_INTERVAL = 6;
 // Comprobar la línea de vista cuatro veces por segundo basta: dos cuadros de más no cambian una huida.
 const SIGHT_CHECK_INTERVAL = .25;
+// La patrulla que va a una llamada empieza a contar el tiempo sin verlo al llegar (a estos metros del sitio), o
+// cuando se le acaba lo que tarda en ir, con este recargo por las vueltas de las calles.
+const DISPATCH_ARRIVAL_RADIUS = 6;
+const DISPATCH_DETOUR = 1.3;
+// Una patrulla encajonada (carros, motos, un poste) que en este rato no avanza ni lo alcanza, desiste: no se queda
+// parada persiguiendo hasta el tiempo máximo, trancando a los de alrededor. La huida sale con razón 'trancada'.
+const CHASE_STUCK_SECONDS = 15;
 const CHASE_SIGHT_HEIGHT = 2.5;
 
 const GAP = 1.8;
@@ -38,6 +45,8 @@ const LANE_SEPARATION = 1.31;
 const ACCELERATION = 1.8;
 const BRAKING = 2;
 const CHASE_ACCELERATION = 3.2;
+// Lo más que cambia la aceleración de un carro de ronda por segundo (m/s³), al arrancar y al frenar.
+const JERK = 3;
 const PROBE_STEP = 0.5;
 const ROUTE_SAMPLE_STEP = 2;
 const CHASE_HEIGHT_TOLERANCE = .85;
@@ -52,6 +61,11 @@ const REJOIN_SEEN_RADIUS = 40;
 const REJOIN_SEEN_TIMEOUT = 30;
 const PLAYER_IMPACT_RADIUS = PLAYER_RADIUS + 0.25;
 const MIN_IMPACT_SPEED = 0.6;
+// Franja al costado de la trayectoria, entre el margen de frenado (0,55 m) y el radio de impacto (0,65 m) más un poco:
+// ahí el conductor no para del todo, pasa despacio, por debajo de la velocidad que atropella. Así nadie queda en un
+// punto ciego donde lo cogen a toda marcha, y quien espera al lado de la vía no tranca el carril.
+const SIDE_YIELD_MARGIN = PLAYER_IMPACT_RADIUS + .1;
+const SIDE_CREEP_SPEED = MIN_IMPACT_SPEED * .75;
 // Más acá del alcance de la niebla nadie ve un carro: se apaga entero y solo avanza por su ruta.
 const HIDE_MIN_DISTANCE = 70, HIDE_FOG_MARGIN = 12;
 // A qué distancia de la vista aparece y desaparece un carro del montaje diario.
@@ -62,6 +76,13 @@ const RESIZE_MIN_RATE = 1, RESIZE_MAX_RATE = 8, RESIZE_RATE_PER_MISSING = .15;
 const RESIZE_GAP = 8;
 // Un carro parado más que esto fuera de la vista se retira: el trancón que se ve se queda, el que no, se despeja.
 const STUCK_LIMIT = 45;
+// Dos que se tapan el uno al otro (la moto que dobla junto al carro que sigue derecho, sin cruce que los arbitre)
+// y llevan estos segundos quietos: pasa primero el que va más adelante y el otro espera, durante unos segundos.
+const DEADLOCK_SECONDS = 4;
+const DEADLOCK_PASS_SECONDS = 6;
+// Lo más que el que pasa se arrima a la carrocería del otro (m): un roce de espejo. Sin nada de holgura, una moto que
+// quedó doblando pegada a la trompa de una patrulla no salía nunca; sin tope, se le metía medio metro.
+const DEADLOCK_TOUCH = .2;
 
 function emit(type, detail) {
   if (typeof window !== 'undefined' && typeof window.dispatchEvent === 'function') {
@@ -100,6 +121,9 @@ export class TrafficSystem {
     this.startRoutes = routes;
     this.routes = routes.alternatives ?? routes;
     this._arrestDispatched = false;
+    // El carro que maneja el jugador (lo pone CarjackSystem): la Policía mira y captura a través de él, no se tapa con él.
+    this.playerVehicle = null;
+    this._policeIgnore = [null, null];
     // Lo que sabe la Policía durante una persecución: dónde lo vio por última vez y hace cuánto.
     this._lastSeen = new THREE.Vector3();
     this._pursuitActive = false;
@@ -344,6 +368,34 @@ export class TrafficSystem {
     }
   }
 
+  /**
+   * Dos vehículos de ronda que se esperan mutuamente (cada uno es el que le tapa el camino al otro, ver `_clearance`)
+   * no se destraban solos. Pasados DEADLOCK_SECONDS quietos, el que va más adelante en el rumbo del otro deja de
+   * contarlo como obstáculo un rato: avanzar lo aleja de él, y el otro sale detrás.
+   */
+  _breakDeadlocks() {
+    for (const vehicle of this.vehicles) {
+      const other = vehicle.blockedBy;
+      if (!other || other.blockedBy !== vehicle || vehicle.deadlockPass || other.deadlockPass) continue;
+      if ((vehicle.stoppedFor ?? 0) < DEADLOCK_SECONDS || (other.stoppedFor ?? 0) < DEADLOCK_SECONDS) continue;
+      if (!this._onRound(vehicle) || !this._onRound(other) || !this.vehicles.includes(other)) continue;
+      const winner = this._aheadOf(vehicle, other) >= this._aheadOf(other, vehicle) ? vehicle : other;
+      winner.deadlockPass = winner === vehicle ? other : vehicle;
+      winner.deadlockUntil = this._time + DEADLOCK_PASS_SECONDS;
+    }
+  }
+
+  /** En su ruta, sin persecución, regreso ni conductor afuera. */
+  _onRound(vehicle) {
+    return vehicle.state === 'patrol' && !vehicle.rejoinTarget && !vehicle.hold;
+  }
+
+  /** Metros que `a` va por delante de `b`, medidos en el rumbo de `b`. */
+  _aheadOf(a, b) {
+    const yaw = b.car.group.rotation.y;
+    return (a.car.position.x - b.car.position.x) * Math.cos(yaw) - (a.car.position.z - b.car.position.z) * Math.sin(yaw);
+  }
+
   /** Pasa una patrulla trabada a un tramo libre y lejos de la vista, de su ruta o de otra de partida. */
   _relocatePatrol(vehicle) {
     for (const route of [vehicle.route, ...this.startRoutes]) {
@@ -414,7 +466,30 @@ export class TrafficSystem {
     const range = this.giveUpRange;
     if (dx * dx + dz * dz > range * range) return false;
     return hasClearCombatLine({ from: vehicle.car.position, to: playerPosition,
-      collisions: this.environment?.collisions, ignoreVehicle: vehicle.car });
+      collisions: this.environment?.collisions, ignoreVehicle: this._ignoredBy(vehicle) });
+  }
+
+  /** Lo que no le tapa la vista a una patrulla: su propia carrocería y el carro donde va el jugador. */
+  _ignoredBy(vehicle) {
+    if (!this.playerVehicle) return vehicle.car;
+    const list = this._policeIgnore;
+    list[0] = vehicle.car; list[1] = this.playerVehicle;
+    return list;
+  }
+
+  /**
+   * Metros que se suman al alcance de captura cuando el jugador va dentro de un carro: se mide hasta la carrocería,
+   * no hasta su centro, o una patrulla pegada a la cola de un carro de 4 m nunca llegaría a los 3 m del arresto.
+   */
+  _drivenReach(vehicle, prey) {
+    const car = this.playerVehicle;
+    if (!car?.position || Math.hypot(prey.x - car.position.x, prey.z - car.position.z) > .5) return 0;
+    const dx = car.position.x - vehicle.car.position.x, dz = car.position.z - vehicle.car.position.z;
+    const distance = Math.hypot(dx, dz);
+    if (distance < 1e-6) return 0;
+    const h = car.group?.rotation.y ?? 0, fx = Math.cos(h), fz = -Math.sin(h);
+    const along = Math.abs(dx * fx + dz * fz) / distance, across = Math.abs(dx * fz - dz * fx) / distance;
+    return along * (car.length ?? 0) / 2 + across * (car.width ?? 0) / 2;
   }
 
   /**
@@ -439,6 +514,9 @@ export class TrafficSystem {
       this._sightCheck = SIGHT_CHECK_INTERVAL;
       this._seen = !hidden && chasing.some(vehicle => this._seesInChase(vehicle, player));
     }
+    // Va de camino a la llamada (`_unseen` negativo, ver dispatchTo): al llegar al sitio empieza a contar.
+    if (this._unseen < 0 && !this._seen && chasing.some(vehicle => (vehicle.car.position.x - this._lastSeen.x) ** 2 +
+      (vehicle.car.position.z - this._lastSeen.z) ** 2 < DISPATCH_ARRIVAL_RADIUS ** 2)) this._unseen = 0;
     if (this._seen) {
       this._lastSeen.copy(player);
       this._unseen = 0;
@@ -463,6 +541,7 @@ export class TrafficSystem {
       if (distSq < bestSq) { bestSq = distSq; best = vehicle; }
     }
     if (!best) return false;
+    this._backup = best;
     this._startChase(best);
     emit('police-radio', { x: best.car.position.x, z: best.car.position.z, reason });
     return true;
@@ -470,7 +549,8 @@ export class TrafficSystem {
 
   /**
    * Un testigo llamó: la patrulla libre más cercana va al sitio de la llamada sin haberlo visto. Si al llegar no lo
-   * ve, lo da por perdido como en cualquier persecución. Con una persecución en curso, la llamada solo dice dónde está.
+   * ve, lo da por perdido como en cualquier persecución: el tiempo sin verlo cuenta desde que llega, o desde que se le
+   * acaba lo que tardaría en ir. Con una persecución en curso, la llamada solo dice dónde está.
    */
   dispatchTo(position) {
     if (!position) return false;
@@ -482,7 +562,8 @@ export class TrafficSystem {
     if (!this._callBackup('llamada')) return false;
     this._pursuitActive = true;
     this._seen = false;
-    this._unseen = 0;
+    const way = this._backup.car.position, distance = Math.hypot(way.x - position.x, way.z - position.z);
+    this._unseen = -(distance / POLICE_CHASE_SPEED + POLICE_CHASE_SPEED / (2 * CHASE_ACCELERATION)) * DISPATCH_DETOUR;
     this._sightCheck = 0;
     this._radioTimer = POLICE_RADIO_INTERVAL;
     this._lostTrack = false;
@@ -492,7 +573,7 @@ export class TrafficSystem {
   _canWitness(vehicle, playerPosition) {
     if (Math.abs((playerPosition.y ?? 0) - vehicle.car.position.y) > CHASE_HEIGHT_TOLERANCE) return false;
     if (!hasClearCombatLine({ from: vehicle.car.position, to: playerPosition,
-      collisions: this.environment?.collisions, ignoreVehicle: vehicle.car })) return false;
+      collisions: this.environment?.collisions, ignoreVehicle: this._ignoredBy(vehicle) })) return false;
     const dx = playerPosition.x - vehicle.car.position.x;
     const dz = playerPosition.z - vehicle.car.position.z;
     const distSq = dx * dx + dz * dz;
@@ -532,6 +613,7 @@ export class TrafficSystem {
     vehicle._chaseSteerTime = 0;
     vehicle.rejoinTarget = null;
     vehicle._playerDist = undefined;
+    vehicle._chaseStuck = 0;
   }
 
   /** Consultas del distrito activo: la cota conserva la planta de calle o del viaducto. */
@@ -573,7 +655,7 @@ export class TrafficSystem {
     // Si lo ven, y si no, cuánto le falta para que lo den por perdido.
     info.seen = this._seen;
     info.hidden = this._playerHidden;
-    info.lostIn = this._seen ? 0 : Math.max(0, this.lostSightSeconds - this._unseen);
+    info.lostIn = this._seen ? 0 : Math.max(0, this.lostSightSeconds - Math.max(0, this._unseen));
     info.closeness = Math.max(0, Math.min(1, (POLICE_GIVE_UP_RANGE - distance) / (POLICE_GIVE_UP_RANGE - POLICE_CATCH_RANGE)));
     info.x = nearest.car.position.x;
     info.z = nearest.car.position.z;
@@ -719,6 +801,26 @@ export class TrafficSystem {
     return Math.abs(forward) < car.length / 2 + 0.8 && Math.abs(sideways) < car.width / 2 + 0.55;
   }
 
+  /**
+   * Metros de más que recorre un carro que todavía acelera antes de empezar a frenar: el pedal se suelta a 3 m/s³ (el
+   * mismo tope del arranque), así que sigue ganando velocidad un rato después de ver a alguien. Sin descontarlos, uno
+   * que arranca con el jugador quieto adelante o al costado le llegaba encima a 2–4 m/s.
+   */
+  _pushSlack(vehicle) {
+    const push = Math.max(0, vehicle.acceleration ?? 0);
+    if (!push) return 0;
+    const gain = push * push / (2 * JERK), speed = vehicle.speed ?? 0;
+    return (speed + gain / 2) * push / JERK + (speed + gain) * gain / (vehicle.braking ?? BRAKING);
+  }
+
+  /** ¿La persona queda junto al costado de la carrocería en la muestra actual, dentro de la franja de paso lento? */
+  _personBeside(position, car) {
+    const dx = position.x - this._probePosition.x, dz = position.z - this._probePosition.z;
+    const forward = dx * this._probeDirection.x + dz * this._probeDirection.z;
+    const sideways = dx * -this._probeDirection.z + dz * this._probeDirection.x;
+    return Math.abs(forward) < car.length / 2 + 0.8 && Math.abs(sideways) < car.width / 2 + SIDE_YIELD_MARGIN;
+  }
+
   _personAtNose(position, car) {
     const dx = position.x - car.position.x, dz = position.z - car.position.z;
     const hx = Math.cos(car.group.rotation.y), hz = -Math.sin(car.group.rotation.y);
@@ -747,14 +849,16 @@ export class TrafficSystem {
 
   /**
    * Carros quietos frente a un semáforo en rojo a menos de `radius` metros de `position`, del más cercano al más
-   * lejano. Sin patrullas ni conductores afuera: el rebusque solo se le hace a quien espera la luz.
+   * lejano. Sin patrullas ni conductores afuera: el rebusque solo se le hace a quien espera la luz. Las motos no
+   * tienen parabrisas ni ventana: solo entran con `{ motos: true }`, para el trabajo que sí sirve con ellas.
    */
-  stoppedAtRed(position, radius = 6) {
+  stoppedAtRed(position, radius = 6, { motos = false } = {}) {
     const found = [];
     if (!this.signals?.redAhead) return found;
     for (const vehicle of this.vehicles) {
       // `stopped`: ya frenó del todo; uno que apenas se arrima a la línea o que arranca no cuenta.
       if (vehicle.police || vehicle.hold || !vehicle.stopped || vehicle.speed > .1) continue;
+      if (!motos && vehicle.car.isMoto) continue;
       const car = vehicle.car;
       const dx = car.position.x - position.x, dz = car.position.z - position.z;
       const distance = Math.hypot(dx, dz);
@@ -814,7 +918,11 @@ export class TrafficSystem {
     return true;
   }
 
-  _carInPath(other, car) {
+  /**
+   * Con `touching`, sin márgenes: solo si las carrocerías se meterían una en la otra más de DEADLOCK_TOUCH (el pase de
+   * un desbloqueo pasa rozando, pero no se mete en el otro).
+   */
+  _carInPath(other, car, touching = false) {
     if (Math.abs(other.car.position.y - car.position.y) > 3) return false;
     // Quien viene detrás no estorba, tampoco en una curva, donde ya no van paralelos: avanzar solo aleja de él.
     // Sin esto, el que dobla y el que lo sigue se esperan mutuamente sin límite.
@@ -830,14 +938,14 @@ export class TrafficSystem {
     const headingDot = headingX * this._probeDirection.x + headingZ * this._probeDirection.z;
     // Un seguidor en el mismo carril no debe bloquear al carro que lleva delante.
     if (headingDot > .9 && front <= 0) return false;
-    const margin = along > .9 ? GAP : .35;
+    const margin = touching ? -DEADLOCK_TOUCH : along > .9 ? GAP : .35, sideMargin = touching ? -DEADLOCK_TOUCH : .15;
     if (Math.abs(front) >= car.length / 2 + along * other.car.length / 2 + across * other.car.width / 2 + margin ||
-      Math.abs(side) >= car.width / 2 + across * other.car.length / 2 + along * other.car.width / 2 + .15) return false;
+      Math.abs(side) >= car.width / 2 + across * other.car.length / 2 + along * other.car.width / 2 + sideMargin) return false;
     // Cruzados en ángulo, proyectar solo sobre los ejes propios agranda al otro: una buseta en el carril
     // contrario frenaría a quien termina de doblar. También se separan por los ejes del otro.
     const otherFront = dx * headingX + dz * headingZ, otherSide = -dx * headingZ + dz * headingX;
     return Math.abs(otherFront) < other.car.length / 2 + along * car.length / 2 + across * car.width / 2 + margin &&
-      Math.abs(otherSide) < other.car.width / 2 + across * car.length / 2 + along * car.width / 2 + .15;
+      Math.abs(otherSide) < other.car.width / 2 + across * car.length / 2 + along * car.width / 2 + sideMargin;
   }
 
   _overlapsNode(car, node, heading = null) {
@@ -889,18 +997,15 @@ export class TrafficSystem {
       }
       for (const vehicle of state.plans.keys()) if (!candidates.includes(vehicle) && !state.owners.has(vehicle)) state.plans.delete(vehicle);
       for (const vehicle of candidates) if (!state.plans.has(vehicle)) state.plans.set(vehicle, this._crossingPlan(vehicle, node));
-      const busInside = this.busVehicle?.car.group.visible && this.busVehicle.car.position.y < 3 && this._overlapsNode(this.busVehicle.car, node, this.busVehicle.heading);
-      const bus = this.busVehicle?.car;
-      const busCrossingX = bus?.pathX?.(node.z1, bus.laneX) ?? bus?.position.x;
-      const busApproaching = bus?.group.visible && bus.position.y < 3 && bus.position.z > node.z1 &&
-        bus.position.z < node.z1 + bus.length / 2 + 15 && busCrossingX >= node.x0 && busCrossingX <= node.x1;
-      const busClaims = busInside || (busApproaching && signalState(this.signals.time, 1) === 0);
-      if (bus && !state.busPlan) {
-        state.busPlan = { width: bus.width, points: [], axis: 1 };
-        for (let z = node.z1 + bus.length / 2; z >= node.z0 - bus.length / 2; z -= .75) state.busPlan.points.push({ x: bus.pathX?.(z, bus.laneX) ?? bus.position.x, z });
+      // Cada bus tiene su línea y su reserva: el que baja al sur por su carril no espera a quien le cede el paso al otro.
+      const claiming = this._busClaiming ??= [];
+      claiming.length = 0;
+      for (const busVehicle of this.busVehicles ?? []) {
+        const plan = this._busPlan(state, node, busVehicle.car);
+        if (this._busClaims(node, busVehicle)) claiming.push(plan);
       }
-      if (busClaims) for (const [vehicle, claim] of state.owners) {
-        if (!claim.entered && this._pathsConflict(claim.plan, state.busPlan)) state.owners.delete(vehicle);
+      for (const busPlan of claiming) for (const [vehicle, claim] of state.owners) {
+        if (!claim.entered && this._pathsConflict(claim.plan, busPlan)) state.owners.delete(vehicle);
       }
       // Los que ya cruzan despejan primero. La cola solo da prioridad entre
       // trayectorias que se cortan: sentidos opuestos y convoyes pueden avanzar juntos.
@@ -910,15 +1015,50 @@ export class TrafficSystem {
         if (state.owners.has(vehicle)) continue;
         const plan = state.plans.get(vehicle), entered = this._overlapsNode(vehicle.car, node);
         if (!entered && signalState(this.signals.time, plan.axis) !== 0) continue;
-        const blocked = (busClaims && this._pathsConflict(plan, state.busPlan)) ||
+        const blocked = claiming.some(busPlan => this._pathsConflict(plan, busPlan)) ||
           [...state.owners.values()].some(claim => this._claimConflict(plan, claim)) ||
           waiting.some(earlier => this._pathsConflict(plan, earlier));
         if (blocked && !entered) waiting.push(plan);
         else state.owners.set(vehicle, { entered, plan });
       }
-      state.busBlocked = !!state.busPlan && [...state.owners.values()].some(claim => this._pathsConflict(claim.plan, state.busPlan));
+      // Cada bus frena solo por quien corta su propia línea (ver TrafficSignals.busClearance), y como en los carros,
+      // de quien ya está dentro cuenta solo lo que le falta: el que ya pasó la línea del bus no lo detiene.
+      const blockedFor = state.busBlockedFor ??= new Set();
+      blockedFor.clear();
+      for (const [bus, busPlan] of state.busPlans ?? []) {
+        for (const claim of state.owners.values()) if (this._claimConflict(busPlan, claim)) { blockedFor.add(bus); break; }
+      }
+      state.busBlocked = blockedFor.size > 0;
       for (const vehicle of state.queue) vehicle.crossingNode ??= node;
     }
+  }
+
+  /** Trayectoria del bus por el cruce, sobre su carril y en su sentido; se calcula una vez por bus y cruce. */
+  _busPlan(state, node, bus) {
+    const plans = state.busPlans ??= new Map();
+    let plan = plans.get(bus);
+    if (!plan) {
+      // Con su propia memoria de conflictos: así se consulta igual de barato desde el bus que desde el carro.
+      plan = { width: bus.width, points: [], axis: 1, compatible: new WeakMap() };
+      for (let z = node.z1 + bus.length / 2; z >= node.z0 - bus.length / 2; z -= .75) plan.points.push({ x: bus.pathX?.(z, bus.laneX) ?? bus.position.x, z });
+      plans.set(bus, plan);
+      // El del primer bus conserva su nombre de siempre.
+      state.busPlan ??= plan;
+    }
+    return plan;
+  }
+
+  /** ¿El bus ya está dentro del cruce, o llega a él con verde en su eje? */
+  _busClaims(node, busVehicle) {
+    const bus = busVehicle.car;
+    if (!bus.group.visible || bus.position.y >= 3) return false;
+    if (this._overlapsNode(bus, node, busVehicle.heading)) return true;
+    if (signalState(this.signals.time, 1) !== 0) return false;
+    // Rumbo −Z (al norte) entra por z1; rumbo +Z (al sur) entra por z0.
+    const south = (bus.direction ?? -1) > 0, edge = south ? node.z0 : node.z1;
+    const crossingX = bus.pathX?.(edge, bus.laneX) ?? bus.position.x;
+    const before = south ? edge - bus.position.z : bus.position.z - edge;
+    return before > 0 && before < bus.length / 2 + 15 && crossingX >= node.x0 && crossingX <= node.x1;
   }
 
   /** ¿`b` va delante de `a` en su carril? Dos rutas distintas pueden compartir el mismo tramo. */
@@ -1006,6 +1146,9 @@ export class TrafficSystem {
     const lateral = vehicle.lateral ?? 0, followGap = vehicle.gap ?? GAP;
     vehicle.personBlocked = false;
     vehicle.playerClearance = Infinity;
+    vehicle.playerCreep = Infinity;
+    vehicle.blockedBy = null;
+    if (vehicle.deadlockPass && !(this._time < vehicle.deadlockUntil)) vehicle.deadlockPass = null;
     const finish = hardClearance => {
       vehicle.hardClearance = hardClearance;
       return Math.min(hardClearance, vehicle.playerClearance);
@@ -1021,7 +1164,7 @@ export class TrafficSystem {
       clearance = Math.min(clearance, Math.max(0, ahead - (car.length + other.car.length) / 2 - followGap));
     }
     // Mira también alrededor de los giros; no solo en línea recta frente al carro.
-    const lookAhead = Math.max(7, speed * speed / (2 * (vehicle.braking ?? BRAKING)) + speed * .8 + 2);
+    const lookAhead = Math.max(7, speed * speed / (2 * (vehicle.braking ?? BRAKING)) + speed * .8 + 2) + this._pushSlack(vehicle);
     // Descarte amplio y conservador una vez por carro, no por cada muestra de su ruta.
     // Incluye toda la diagonal de la carrocería y el trayecto hasta el punto de frenado.
     const radius = lookAhead + Math.hypot(car.length / 2 + 0.8, car.width / 2 + 0.55);
@@ -1057,7 +1200,13 @@ export class TrafficSystem {
         vehicle.personBlocked ||= ahead <= 10;
         vehicle.playerClearance = Math.max(0, ahead - PROBE_STEP);
       }
-      for (const other of nearbyCars) if (this._carInPath(other, car)) return finish(Math.max(0, ahead - PROBE_STEP));
+      if (player && vehicle.playerCreep === Infinity && this._personBeside(player, car)) vehicle.playerCreep = Math.max(0, ahead - PROBE_STEP);
+      for (const other of nearbyCars) {
+        // Al que le cede el paso en un desbloqueo lo cuenta sin márgenes: pasa junto a él, pero no se le mete encima.
+        if (!this._carInPath(other, car, other === vehicle.deadlockPass)) continue;
+        vehicle.blockedBy = other;
+        return finish(Math.max(0, ahead - PROBE_STEP));
+      }
       for (const pedestrian of nearby) {
         if (this._personInCar(pedestrian.position, car)) {
           vehicle.personBlocked ||= ahead <= 10;
@@ -1150,17 +1299,19 @@ export class TrafficSystem {
     const prey = returning || this._playerHidden ? null : actual ?? player;
     const targetWater = prey && this.environment?.getWaterInfo?.(prey.x, prey.z);
     if (prey && canReachCombatTarget({ from: vehicle.car.position, to: prey,
-      maxDistance: POLICE_CATCH_RANGE, maxHeightDifference: CHASE_HEIGHT_TOLERANCE,
+      maxDistance: POLICE_CATCH_RANGE + this._drivenReach(vehicle, prey), maxHeightDifference: CHASE_HEIGHT_TOLERANCE,
       collisions: this.environment?.collisions, getWaterInfo: this.environment?.getWaterInfo,
       toInWater: !!targetWater && prey.y <= targetWater.surfaceY + .12,
-      ignoreVehicle: vehicle.car })) {
+      ignoreVehicle: this._ignoredBy(vehicle) })) {
       vehicle._chaseCaught = true;
       vehicle.nextSpeed = 0;
       return;
     }
     const playerDist = actual ? vehicle._playerDist : dist;
-    if (!returning && (this._lostTrack || playerDist > this.giveUpRange || vehicle.chaseTime + stepTime >= this.chaseTimeout)) {
-      if (!this._lostTrack) this._escapeReason = 'lejos';
+    if (!returning && (this._lostTrack || playerDist > this.giveUpRange || vehicle.chaseTime + stepTime >= this.chaseTimeout ||
+      (vehicle._chaseStuck ?? 0) >= CHASE_STUCK_SECONDS)) {
+      // Encajonada con él a la vista no es que lo despistara: 'trancada' tiene su aviso y no cuenta como despiste.
+      if (!this._lostTrack) this._escapeReason = playerDist > this.giveUpRange || vehicle.chaseTime + stepTime >= this.chaseTimeout ? 'lejos' : 'trancada';
       vehicle._chaseGiveUp = true;
       vehicle.nextSpeed = 0;
       return;
@@ -1266,6 +1417,7 @@ export class TrafficSystem {
         travel = safeTravel;
         if (vehicle._chaseCanMove) vehicle.car.position.y = this._chaseSweepY;
       }
+      if (vehicle.state === 'chase') vehicle._chaseStuck = travel > 1e-3 ? 0 : (vehicle._chaseStuck ?? 0) + stepTime;
       if (vehicle.rejoinTarget) {
         vehicle._rejoinStuck = travel > 1e-3 ? 0 : (vehicle._rejoinStuck ?? 0) + stepTime;
         if (vehicle._rejoinStuck > REJOIN_TIMEOUT && this._forceRejoin(vehicle)) return false;
@@ -1291,6 +1443,7 @@ export class TrafficSystem {
     if (this.densityId && Number.isFinite(hour)) this._resizeFleet(hour, dt);
     this._updateLod();
     this._clearStuck(dt);
+    this._breakDeadlocks();
     if (player) this._updatePursuitKnowledge(Math.min(dt, .5), player, playerHidden);
     else this._playerHidden = false;
     // Sin verlo, la patrulla va adonde lo vio por última vez; con él a la vista, derecho hacia él.
@@ -1322,8 +1475,12 @@ export class TrafficSystem {
           const braking = vehicle.braking ?? BRAKING;
           // Anticipa la respuesta gradual del conductor; el peatón no es una pared
           // capaz de eliminar la velocidad restante en un solo subpaso.
-          const brakingClearance = Math.min(clearance, Math.max(0, vehicle.playerClearance - vehicle.speed));
+          // Con el jugador, además, lo que aún avanza mientras suelta el acelerador (ver _pushSlack).
+          const slack = vehicle.speed + this._pushSlack(vehicle);
+          const brakingClearance = Math.min(clearance, Math.max(0, vehicle.playerClearance - slack));
           let desiredSpeed = Math.min(vehicle.cruiseSpeed, Math.sqrt(2 * braking * brakingClearance));
+          // Con el jugador pegado al costado de su trayectoria, llega a paso lento y pasa así (ver SIDE_YIELD_MARGIN).
+          if (vehicle.playerCreep < Infinity) desiredSpeed = Math.min(desiredSpeed, Math.sqrt(SIDE_CREEP_SPEED ** 2 + 2 * braking * Math.max(0, vehicle.playerCreep - slack)));
           if (vehicle.impactStop) {
             desiredSpeed = 0;
             if (vehicle.speed < .1) {

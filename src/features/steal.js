@@ -3,6 +3,10 @@ import { ITEMS } from '../data/items.js';
 import { cop } from '../utils/money.js';
 import { LOW_STANCES } from '../character/archetypes.js';
 import { modoEntrada, teclaVisible } from '../core/modoEntrada.js';
+import { XP_STEAL } from '../utils/constants.js';
+import { ventajaDeRobo, probabilidadDeAviso, avisoDeRobo, botinDe, esDeLosSuyos, zonaDeCosquilleo } from './stealOdds.js';
+import { CoreografiaDeHurto, alarmarVictima, armarContragolpe, tipoDeTiron } from './stealReactions.js';
+import { TEXTOS_ZORRA } from '../data/zorra.js';
 
 export const CONFIG = {
   stealDistance: 1.8,
@@ -28,6 +32,15 @@ export const WANTED_DECAY_SECONDS = 120;
 /** Objetivos con los que la Q ya hace otra cosa. */
 const QUIET_Q_TARGETS = new Set(['pickup', 'dealer']);
 
+/** Lo que paga un raponazo en experiencia: menos que un cosquilleo limpio, que es oficio. */
+const XP_RAPONAZO = 4;
+
+/** Segundos mínimos entre dos avisos de «primero suelto»: el machaque de E no llena la pantalla. */
+const AVISO_MANOS_CADA = 1.5;
+
+const HISTORIAL_VACIO = () => ({ limpios: 0, pillados: 0, raponazos: 0, fallidos: 0 });
+const entero = v => Number.isInteger(v) && v >= 0;
+
 export class StealSystem {
   constructor(game) {
     this.game = game;
@@ -42,9 +55,18 @@ export class StealSystem {
     this.zoneStart = 0.35;
     this.zoneSize = CONFIG.baseZoneSize;
     this._spaceOwned = false;
+    this._avisoManos = 0; // s para poder repetir «primero suelto la zorra»
     if (typeof window !== 'undefined') window.addEventListener('keyup', (e) => { if (e.code === 'Space') this._spaceOwned = false; }, true);
     this._strongLanguageWarningShown = false;
     this.assaultScene = null;
+    // El cuerpo del robo y la reacción de la víctima (stealReactions.js); sus ajustes son los de stealOdds.js.
+    this.coreo = new CoreografiaDeHurto(game);
+    this.ajustes = this.coreo.ajustes;
+    this.raponazo = null;  // el tirón va en camino: se resuelve al contacto
+    this._ventaja = null;  // cómo se le llegó a quien tiene la barra abierta
+    this._ventajaAviso = {}; // la del aviso, que se recalcula cada cuadro sin crear objetos
+    this._opcionesVentaja = { playerSpeed: 0, playerYaw: null, odds: null, out: null };
+    this.historial = HISTORIAL_VACIO(); // se guarda en la partida como `robo`
     this._dom = null;
     this._buildUI();
     // En captura, como los paneles: el jugador gasta Espacio antes de que la barra se actualice y Esc abriría la pausa.
@@ -86,19 +108,49 @@ export class StealSystem {
     this._flashTime = Math.max(0, (this._flashTime ?? 0) - dt);
     if (this._dom?.impact) this._dom.impact.style.opacity = String(Math.min(1, this._flashTime / .16));
     if (this.cooldown > 0) this.cooldown = Math.max(0, this.cooldown - dt);
+    if (this._avisoManos > 0) this._avisoManos = Math.max(0, this._avisoManos - dt);
     this._enfriarFichado(dt);
     const npcs = this.game?.world?.active?.npcs ?? [];
     for (const n of npcs) {
       if (n._robadoTimer > 0) n._robadoTimer = Math.max(0, n._robadoTimer - dt);
     }
+    // Un tirón en vuelo no llega si las manos se fueron al manubrio o al forcejeo: se suelta sin robo ni alarma.
+    if (this.raponazo && (this._manosOcupadas() || this._forcejeando())) {
+      this.raponazo = null;
+      this.coreo.cancelar();
+    }
+    this.coreo.update(dt);
+    // Un tirón que ya no está en el cuerpo (arresto, muerte, golpe) no queda esperando.
+    if (this.raponazo && this.coreo.fase !== 'raponazo') this.raponazo = null;
     if (this.assaultScene) { this._updateAssaultScene(dt); return; }
+    if (this.raponazo) return;
     if (this.minigameActive) {
-      // Tirado por un carro no se le mete la mano a nadie.
-      if (this.game.player?.isStunned) this._endMinigame(false, 'cancel');
+      // Tirado por un carro, forcejeando o con las manos en la zorra o la carreta, no se le mete la mano a nadie.
+      if (this.game.player?.isStunned || this._manosOcupadas() || this._forcejeando()) this._endMinigame(false, 'cancel');
       else this._updateMinigame(dt);
       return;
     }
     this._checkProximity(npcs);
+  }
+
+  /**
+   * Lo que corre con el tiempo aunque no camine: manejando o nadando no se roba a nadie, pero «fichado» se enfría,
+   * el enfriamiento entre robos baja y cada peatón robado vuelve a ser robable. El juego lo llama cuando `update` no
+   * (también mientras el despeje del rebusque lo lleva al andén).
+   */
+  tick(dt) {
+    if (this.cooldown > 0) this.cooldown = Math.max(0, this.cooldown - dt);
+    this._enfriarFichado(dt);
+    for (const n of this.game?.world?.active?.npcs ?? []) {
+      if (n._robadoTimer > 0) n._robadoTimer = Math.max(0, n._robadoTimer - dt);
+    }
+    // Lo que quedó a medias no espera a que vuelva a pie: un tirón en vuelo se suelta sin robo ni alarma y la
+    // mano sale. El palpado tarde y el radio de la víctima siguen su reloj: ya lejos, el robo queda limpio.
+    if (this.raponazo || this.coreo.fase) {
+      this.raponazo = null;
+      this.coreo.cancelar();
+    }
+    this.coreo.update(dt);
   }
 
   // «Te tienen fichado» baja solo con el tiempo, y mientras dura alarga lo que ve una patrulla (ver TrafficSystem).
@@ -116,7 +168,11 @@ export class StealSystem {
   // Encuentra el NPC más cercano y procesa las teclas de interacción E y Q.
   _checkProximity(npcs) {
     const playerPos = this.game?.player?.position;
-    if (!playerPos || this.game.paused || this.game.player?.isStunned) {
+    // Haciendo un rebusque, o mientras el despeje lo lleva al andén, las manos están en otra cosa: ni aviso ni E/Q.
+    // Forcejeando por una zorra, tampoco: la E es de la barra y una Q de más no le tira la mano al reciclador.
+    const rebusque = this.game?.rebusque;
+    if (!playerPos || this.game.paused || this.game.player?.isStunned || rebusque?.activo || rebusque?.controlaJugador ||
+      this._forcejeando()) {
       this.targetNpc = null;
       return;
     }
@@ -131,14 +187,48 @@ export class StealSystem {
         nearest = n;
       }
     }
+    // Empujando la zorra o la carreta las dos manos van en el manubrio: ni aviso ni cosquilleo ni tirón. La E o la Q
+    // junto a alguien dicen con qué se suelta, para no quedarse sin saber cómo.
+    const ocupadas = nearest && this._manosOcupadas();
+    if (ocupadas) {
+      this.targetNpc = null;
+      const input = this.game.input;
+      const tecla = input.consumePress('KeyE') ||
+        (!QUIET_Q_TARGETS.has(this.game.interaction?.currentTargetType) && input.consumePress('KeyQ'));
+      if (tecla && this._avisoManos <= 0) {
+        this._toast(ocupadas, 'warn');
+        this._avisoManos = AVISO_MANOS_CADA;
+      }
+      return;
+    }
     this.targetNpc = nearest;
     if (!nearest || this.cooldown > 0) return;
     if (this.game.interaction) {
-      this.game.interaction.stealPrompt = '[E] Cosquilleo (sigiloso) · [Q] Robo directo';
+      // El aviso dice cómo está la cosa: de espaldas, de frente o distraída.
+      this.game.interaction.stealPrompt = avisoDeRobo(this._ventajaCon(nearest, this._ventajaAviso));
     }
     if (this.game.input.consumePress('KeyE')) this.startCosquilleo(nearest);
     // Junto a basura o al dealer, Q ya tiene otro uso: no se le roba al que justo va pasando.
-    else if (!QUIET_Q_TARGETS.has(this.game.interaction?.currentTargetType) && this.game.input.consumePress('KeyQ')) this.executeRoboDirecto(nearest);
+    else if (!QUIET_Q_TARGETS.has(this.game.interaction?.currentTargetType) && this.game.input.consumePress('KeyQ')) this.startRaponazo(nearest);
+  }
+
+  /** Lo que dice el aviso si las manos van en la zorra o en la carreta de balineras; `null` si están libres. */
+  _manosOcupadas() {
+    if (this.game?.zorra?.empujando) return TEXTOS_ZORRA.sueltaPrimero;
+    if (this.game?.cart?.isAttached) return TEXTOS_ZORRA.sueltaCarreta;
+    return null;
+  }
+
+  _forcejeando() { return !!this.game?.zorraCtl?.forcejeo; }
+
+  /** `out` reutiliza un objeto: el aviso se calcula cada cuadro que hay alguien cerca (las opciones también se reusan). */
+  _ventajaCon(npc, out = undefined) {
+    const player = this.game.player, o = this._opcionesVentaja;
+    o.playerSpeed = player?.speed ?? 0;
+    o.playerYaw = player?.root?.rotation?.y;
+    o.odds = this.ajustes;
+    o.out = out ?? {};
+    return ventajaDeRobo(player?.position, npc, o);
   }
 
   // Dice si hay a quién hacerle cosquilleo a menos de esa distancia: un carro más lejano le cede el aviso y la tecla.
@@ -151,8 +241,12 @@ export class StealSystem {
     this.minigameActive = true;
     this.targetNpc = npc;
     npc.alerta ??= 0.35 + Math.random() * 0.4;
-    this.zoneSize = Math.max(0.18, CONFIG.baseZoneSize * (1.1 - npc.alerta * 0.4));
-    this.zoneStart = 0.15 + Math.random() * (0.85 - this.zoneSize - 0.15);
+    // De espaldas o a uno distraído la zona crece; de frente o llegando a la carrera, se achica. La práctica la agranda.
+    const ventaja = this._ventaja = this._ventajaCon(npc);
+    this.zoneSize = zonaDeCosquilleo(Math.max(0.18, CONFIG.baseZoneSize * (1.1 - npc.alerta * 0.4)), ventaja, this.historial.limpios, this.ajustes);
+    this.zoneStart = 0.15 + Math.random() * Math.max(0, 0.85 - this.zoneSize - 0.15);
+    // La mano va al bolsillo: en el mundo se ve lo mismo que en la barra.
+    this.coreo.jugador('meter', ventaja.lado, { victima: npc });
     this.markerPos = 0;
     this.markerDir = 1;
     if (this._dom) {
@@ -195,7 +289,12 @@ export class StealSystem {
       this._endMinigame(false, 'cancel');
       return;
     }
-    const speed = CONFIG.markerSpeed * (1 + (this.targetNpc?.alerta ?? 0.3) * 0.5);
+    // Iba andando y no la seguí: la mano se queda en el aire, así que se acabó.
+    if (this.coreo.seFue) {
+      this._endMinigame(false, 'seFue');
+      return;
+    }
+    const speed = CONFIG.markerSpeed * (1 + (this.targetNpc?.alerta ?? 0.3) * 0.5) * (this._ventaja?.marcadorMult ?? 1);
     this.markerPos += this.markerDir * speed * dt;
     if (this.markerPos >= 1) {
       this.markerPos = 1;
@@ -204,6 +303,8 @@ export class StealSystem {
       this.markerPos = 0;
       this.markerDir = 1;
     }
+    // Dentro de la zona los dedos se hunden en el bolsillo; fuera, esperan en la boca.
+    this.coreo.hondura = this.markerPos >= this.zoneStart && this.markerPos <= this.zoneStart + this.zoneSize ? 1 : 0;
     if (this._dom) {
       this._dom.marker.style.left = `${this.markerPos * 100}%`;
     }
@@ -212,58 +313,216 @@ export class StealSystem {
   _endMinigame(success, reason) {
     this.minigameActive = false;
     if (this._dom) this._dom.box.hidden = true;
-    if (reason === 'cancel') return;
+    if (reason === 'cancel' || reason === 'seFue') {
+      if (this.coreo.fase === 'meter') this.coreo.jugador('soltar');
+      if (reason === 'seFue') this._toast('Se me fue: siguió derecho y me dejó con la mano estirada.', 'warn');
+      return;
+    }
     const npc = this.targetNpc;
     this.cooldown = CONFIG.globalCooldown;
     this._calma = 0;
     if (npc) npc._robadoTimer = CONFIG.npcCooldown;
     if (success) {
-      this._giveLoot(CONFIG.lootMoneyCosquilleo, true);
-      this._toast('Cosquilleo limpio: nadie se dio cuenta.', 'rare');
+      const botin = botinDe(npc, CONFIG.lootItems);
+      this._giveLoot(this._rango(CONFIG.lootMoneyCosquilleo, botin.plata), true, botin.objetos ?? CONFIG.lootItems);
+      this.coreo.jugador('sacar');
+      this.game.audio?.play?.('pickup');
+      this.game.stats?.addXP?.(XP_STEAL, this.game.talents);
+      const miron = this._miron(npc);
+      if (miron) {
+        this._pillado(npc, '¡Un mirón me vio meter la mano!', { conLaMano: false });
+        return;
+      }
+      // La práctica es de los limpios de verdad: el que vio un mirón no cuenta.
+      this.historial.limpios++;
+      this._toast(this._ventaja?.posicion === 'espalda' ? 'Por la espalda, limpio: ni lo sintió.' : 'Cosquilleo limpio: nadie se dio cuenta.', 'rare');
+      this._emitir('cosquilleo-limpio', { arquetipo: npc?.person?.arquetipo ?? null });
+      // Si me quedo cerca, a los segundos se puede palpar el bolsillo y verme. Irse rápido lo deja limpio.
+      const d = this.ajustes.descubre;
+      if (npc && Math.random() < d.chance) {
+        this.coreo.programarDescubrimiento(npc, d.min + Math.random() * (d.max - d.min), {
+          cerca: () => this._descubierto(npc),
+          lejos: () => this._toast('A lo lejos alguien se palpa el bolsillo: ya no me alcanza.', 'info')
+        });
+      }
     } else {
       const bonus = this.game?.dog?.distractionBonus?.(this.game.player?.position) ?? 0;
-      const noticeChance = Math.max(0.2, (npc?.alerta ?? 0.5) - bonus + (this.game?.reputation?.alertaExtra ?? 0) + (this.game?.jornada?.franja?.alerta ?? 0));
+      const noticeChance = probabilidadDeAviso({
+        alerta: npc?.alerta ?? 0.5, perro: bonus, fama: this.game?.reputation?.alertaExtra ?? 0,
+        franja: this.game?.jornada?.franja?.alerta ?? 0, ventaja: this._ventaja,
+        talento: this.game?.talents?.getEffect?.('stealCaughtMult', 1) ?? 1, odds: this.ajustes
+      });
       if (Math.random() < noticeChance) {
-        npc?.alarmedByTheft?.(this.game.player.position);
-        this._toast('¡Me pillaron con las manos en la masa! El peatón gritó.', 'death');
-        // De último: los avisos caen uno encima del otro y este es el que hay que alcanzar a leer.
-        this._alertPolice();
-        this._triggerCrowdConsequence(npc, 'cosquilleo');
-        this.game.witnesses?.report?.('robo', npc);
-        this._emitRobo(false);
+        this._pillado(npc, '¡Me pillaron con las manos en la masa! El peatón gritó.');
       } else {
+        this.historial.fallidos++;
+        // Saco la mano y me rasco la nuca; la persona para y mira, más pilas que antes.
+        this.coreo.jugador('disimular');
+        this.coreo.reaccionar(npc, 'mirar', { segundos: .8 });
+        if (npc) npc.alerta = Math.min(1, (npc.alerta ?? .5) + .2);
         this._toast('Fallé el cosquilleo, pero disimulé.', 'warn');
       }
     }
   }
 
-  executeRoboDirecto(npc) {
+  /**
+   * Me vieron: la víctima se voltea (o se queda helada) y grita, la Policía que esté mirando viene y los
+   * valientes de alrededor se meten. Sin nadie que se meta, una persona brava me persigue ella misma.
+   */
+  _pillado(npc, texto, { conLaMano = true } = {}) {
+    this.historial.pillados++;
+    const player = this.game.player;
+    if (conLaMano) this.coreo.jugador('pillado');
+    const helada = (npc?.valentia ?? .5) < .35;
+    this.coreo.reaccionar(npc, helada ? 'helado' : 'sobresalto', { segundos: helada ? 1.2 : .5 });
+    alarmarVictima(npc, player.position, 'pillado');
+    this._toast(texto, 'death');
+    // De último: los avisos caen uno encima del otro y este es el que hay que alcanzar a leer.
+    this._alertPolice();
+    const turba = this._triggerCrowdConsequence(npc, 'cosquilleo');
+    if (!turba && npc && !helada && (npc.valentia ?? 0) > .8 && npc.look?.real?.edad === 'adulto' &&
+        !LOW_STANCES.has(npc.stance) && typeof npc.beginAssault === 'function') {
+      this.coreo.soltarVictima(npc);
+      npc.beginAssault(player, 'golpe_jab', .5, true);
+    }
+    this.game.witnesses?.report?.('robo', npc);
+    this._emitRobo(false, npc);
+  }
+
+  /** La víctima se palpó el bolsillo y todavía me tiene a la vista. */
+  _descubierto(npc) {
+    // Ya no fue limpio: la práctica que se contó al sacar la mano se devuelve.
+    this.historial.limpios = Math.max(0, this.historial.limpios - 1);
+    npc.alerta = Math.min(1, (npc.alerta ?? .5) + .3);
+    alarmarVictima(npc, this.game.player.position, 'descubre');
+    this._toast('¡Se palpó el bolsillo y me vio! A perderme.', 'death');
+    this._alertPolice();
+    this.game.witnesses?.report?.('robo', npc);
+    this._emitRobo(false, npc);
+  }
+
+  /** Alguien de frente y cerca que alcanzó a ver la mano: a lo sumo uno grita. */
+  _miron(victim) {
+    const playerPos = this.game.player?.position;
+    const lista = this.game.witnesses?._witnesses?.(playerPos, victim);
+    if (!playerPos || !lista?.length) return null;
+    const { chance, radio, mira } = this.ajustes.miron;
+    for (const npc of lista) {
+      const dx = playerPos.x - npc.position.x, dz = playerPos.z - npc.position.z;
+      const d = Math.hypot(dx, dz);
+      if (d > radio || d < 1e-3) continue;
+      const yaw = npc.root?.rotation?.y;
+      if (Number.isFinite(yaw) && (Math.sin(yaw) * dx + Math.cos(yaw) * dz) / d < mira) continue;
+      if (Math.random() >= chance) continue;
+      if (!npc.speakScenario?.('witnessTheft', true)) npc.say?.('¡Ladrón!', 3);
+      return npc;
+    }
+    return null;
+  }
+
+  /** El tirón: el cuerpo arranca ya y el robo se resuelve cuando la mano llega (CONTACTO_RAPONAZO). */
+  startRaponazo(npc) {
+    this.cooldown = CONFIG.globalCooldown;
+    npc._robadoTimer = CONFIG.npcCooldown;
+    this._calma = 0;
+    const player = this.game.player;
+    player.faceTowards?.(npc.position);
+    this.raponazo = { npc };
+    // Para en seco un instante: la mano encuentra el bolso donde estaba.
+    this.coreo.reaccionar(npc, 'mirar', { segundos: .3 });
+    this.coreo.jugador('raponazo', this._ventajaCon(npc).lado, { victima: npc, alContacto: () => this._contactoRaponazo(npc) });
+  }
+
+  _contactoRaponazo(npc) {
+    this.raponazo = null;
+    const player = this.game.player;
+    if (player.isStunned || npc._disposed || npc.koState || player.position.distanceTo(npc.position) > this.ajustes.raponazoAlcance) {
+      // Se me fue: nada en la mano y todo el mundo se dio cuenta.
+      this.historial.fallidos++;
+      this.coreo.jugador('soltar');
+      this.coreo.soltarVictima(npc);
+      this.game.audio?.play?.('empty');
+      alarmarVictima(npc, player.position, 'raponazo-fallido');
+      this._toast('Se me escapó: agarré puro aire.', 'warn');
+      this._alertPolice();
+      this._emitRobo(true, npc);
+      return;
+    }
+    this.game.audio?.playWhoosh?.();
+    // Si la mano fue al bolso, se lo lleva: deja de verse en ella y queda en mi mano hasta guardarlo.
+    const bolsa = this.coreo.arrancarBolsa(npc);
+    // La víctima grita por lo que se le llevaron: «mi bolso» solo si era un bolso.
+    this.executeRoboDirecto(npc, tipoDeTiron(bolsa));
+  }
+
+  executeRoboDirecto(npc, tipo = 'raponazo') {
     this.cooldown = CONFIG.globalCooldown;
     npc._robadoTimer = CONFIG.npcCooldown;
     this._calma = 0;
     this.buscado = Math.min(3, this.buscado + 1);
-    this._giveLoot(CONFIG.lootMoneyDirect, false);
+    this.historial.raponazos++;
+    this._giveLoot(this._rango(CONFIG.lootMoneyDirect, botinDe(npc).plata), false);
+    this.game.audio?.play?.('pickup');
+    this.game.stats?.addXP?.(XP_RAPONAZO, this.game.talents);
     // Quien está en el piso o en la banca no alcanza a defenderse: bastante hace con pararse.
     const down = LOW_STANCES.has(npc.stance);
-    npc.alarmedByTheft?.(this.game.player.position);
+    const player = this.game.player;
+    alarmarVictima(npc, player.position, tipo);
     const isStrong = !down && (npc.look?.real?.edad === 'adulto' || Math.random() < 0.45);
     if (isStrong && this.game.stats) {
       const dmg = Math.floor((CONFIG.directDamageMin + Math.random() * (CONFIG.directDamageMax - CONFIG.directDamageMin))
         * (this.game?.jornada?.franja?.golpe ?? 1));
-      this.game.stats.salud = Math.max(0, this.game.stats.salud - dmg);
-      this._toast(`¡El peatón se defendió! −${dmg} de salud.`, 'death');
+      // El puño se anuncia y llega a los 0,35 s: correr ya lo esquiva (Npc._counterAttack).
+      if (armarContragolpe(npc, player, dmg)) {
+        this.coreo.soltarVictima(npc);
+        this._toast('¡Se me vino encima! A correr.', 'warn');
+      } else {
+        this.game.stats.salud = Math.max(0, this.game.stats.salud - dmg);
+        this._toast(`¡El peatón se defendió! −${dmg} de salud.`, 'death');
+      }
     } else {
+      if (!down) this.coreo.reaccionar(npc, 'sobresalto', { segundos: .45 });
       this._toast('¡Raponazo! El peatón se asustó.', 'warn');
     }
     this._alertPolice();
     this._triggerCrowdConsequence(npc, 'robo directo');
     this.game.witnesses?.report?.('robo', npc);
-    this._emitRobo(true);
+    this._emitRobo(true, npc);
+  }
+
+  /** El rango de plata según lo que carga cada quien, en cientos. */
+  _rango([min, max], factor = 1) {
+    const f = Number.isFinite(factor) ? factor : 1;
+    return [Math.max(100, Math.round(min * f / 100) * 100), Math.max(100, Math.round(max * f / 100) * 100)];
+  }
+
+  /** Para guardar: lo que lleva robado, que es también la mano que tiene. «Te tienen fichado» no se guarda. */
+  serialize() { return { historial: { ...this.historial } }; }
+
+  /** Una partida sin `robo` (anterior a esto) o con basura empieza de cero. */
+  deserialize(data) {
+    this.historial = HISTORIAL_VACIO();
+    const h = data?.historial;
+    if (!h || typeof h !== 'object') return;
+    for (const k of Object.keys(this.historial)) if (entero(h[k])) this.historial[k] = h[k];
+  }
+
+  /** Cancela lo que esté a medias: barra, mano y tirón (arresto, muerte, recuperarse). */
+  reiniciar() {
+    if (this.minigameActive) this._endMinigame(false, 'cancel');
+    this.raponazo = null;
+    this.coreo.cancelar();
+    this.coreo.olvidar();
   }
 
   /** Un robo a una persona que el barrio se entera (ver ReputationSystem). */
-  _emitRobo(directo) {
-    if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('robo-peaton', { detail: { directo } }));
+  _emitRobo(directo, victim = null) {
+    // Robarle a un habitante de calle o a un reciclador lo cobra más el barrio (ver ReputationSystem).
+    this._emitir('robo-peaton', { directo, deLosSuyos: esDeLosSuyos(victim) });
+  }
+
+  _emitir(name, detail) {
+    if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent(name, { detail }));
   }
 
   // Una patrulla que lo ve lo persigue, igual que por un retrovisor robado.
@@ -326,14 +585,15 @@ export class StealSystem {
     this._flashTime = .26;
   }
 
-  _giveLoot(moneyRange, includeItemChance) {
+  _giveLoot(moneyRange, includeItemChance, itemPool = CONFIG.lootItems) {
     // De noche y de madrugada la gente que queda en la calle carga más plata (y se defiende peor o con más rabia).
     const botin = this.game?.jornada?.franja?.botin ?? 1;
     const money = Math.round((moneyRange[0] + Math.random() * (moneyRange[1] - moneyRange[0])) * botin / 100) * 100;
     if (this.game.stats) this.game.stats.dinero += money;
     this._toast(`+${cop(money)}`, 'sell');
     if (includeItemChance && Math.random() < 0.4 && this.game.inventory) {
-      const itemId = CONFIG.lootItems[Math.floor(Math.random() * CONFIG.lootItems.length)];
+      const pool = itemPool?.length ? itemPool : CONFIG.lootItems;
+      const itemId = pool[Math.floor(Math.random() * pool.length)];
       if (ITEMS[itemId]) {
         if (this.game.inventory.add(ITEMS[itemId], 1)) this._toast(`Robé: ${ITEMS[itemId].name}`, 'info');
         else this._toast(`No me cabe más en el costal: dejé ${ITEMS[itemId].name}.`, 'warn');

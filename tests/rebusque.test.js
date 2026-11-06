@@ -150,7 +150,7 @@ test('las herramientas se compran en la tienda y no se venden como reciclaje', (
   const dulces = SHOP_ITEMS.find(s => s.item === 'dulces');
   assert.ok(dulces.price / dulces.qty < REBUSQUE.dulces.paga[0], 'vender dulces deja ganancia');
   const obj = OBJECTIVES.find(o => o.id === 'rebusque-semaforo');
-  assert.ok(obj.accept({ pesos: 500 }) && !obj.accept({ pesos: 0 }));
+  assert.ok(obj.accept({ id: 'malabares', pesos: 500 }) && !obj.accept({ id: 'malabares', pesos: 0 }));
 });
 
 const parqueado = (x, z) => ({ position: pos(x, 0, z) });
@@ -164,6 +164,7 @@ test('cuidar carros: con franela y dos parqueados, los dueños dejan propina mie
   r.intentar();
   for (let i = 0; i < 500 && r.activo; i++) r.update(.1);
   assert.ok(!r.activo);
+  assert.equal(r.escena, null, 'el turno que se acaba solo tampoco deja escena');
   const def = REBUSQUE.cuidar;
   assert.equal(g.stats.dinero, Math.floor(def.segundos / def.propinas) * def.paga[0]);
   const fin = eventos.filter(e => e.type === 'rebusque');
@@ -188,6 +189,7 @@ test('cuidar carros: sin carros cerca no hay puesto, y B deja el puesto con lo g
   assert.ok(g.stats.dinero > 0, 'ya llegó una propina');
   assert.ok(r.intentar(), 'B es del puesto');
   assert.ok(!r.activo);
+  assert.equal(r.escena, null, 'dejar el puesto borra la escena: RebusqueVisual no sigue buscando manos');
   assert.equal(eventos.filter(e => e.type === 'rebusque').at(-1).detail.pesos, g.stats.dinero);
 });
 
@@ -243,5 +245,9 @@ test('los objetivos nuevos cuentan solo su trabajo', () => {
   const enBus = OBJECTIVES.find(o => o.id === 'vender-en-bus');
   assert.ok(cuidar.accept({ id: 'cuidar', pesos: 500 }) && !cuidar.accept({ id: 'malabares', pesos: 500 }));
   assert.ok(enBus.accept({ id: 'bus', pesos: 1000 }) && !enBus.accept({ id: 'dulces', pesos: 1000 }));
+  // El del semáforo cuenta solo el semáforo: cuidar carros o venderle al bus no lo adelantan.
+  const sem = OBJECTIVES.find(o => o.id === 'rebusque-semaforo');
+  for (const id of ['dulces', 'vidrios', 'malabares']) assert.ok(sem.accept({ id, pesos: 500 }), id);
+  assert.ok(!sem.accept({ id: 'cuidar', pesos: 500 }) && !sem.accept({ id: 'bus', pesos: 1000 }) && !sem.accept({ id: 'dulces', pesos: 0 }));
   assert.ok(SHOP_ITEMS.some(s => s.item === 'franela') && !isRecyclable(ITEMS.franela));
 });

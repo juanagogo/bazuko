@@ -7,8 +7,14 @@ const LOW_WALL_HEIGHT = 0.65;
 const FADE_SECONDS = 0.22;
 const RESTORE_DELAY = 0.18;
 const SAMPLE_HEIGHTS = [0.45, 1.1, 1.85, 1.1, 1.1];
+const AXES = ['x', 'y', 'z'];
 // Los lotes cerrados son cajas con pocos triángulos y muchos materiales: lo que pesa son las llamadas.
 export const CLOSED_CHUNK_SIZE = STATIC_CHUNK_SIZE * 2;
+// En isométrica solo va con paredes sueltas el edificio cerca de la línea cámara-jugador. Entra a menos de
+// LOOSE_MARGIN_IN metros de esa línea y vuelve al lote a más de LOOSE_MARGIN_OUT y con todo opaco: así no
+// alterna en el borde ni corta un fundido.
+export const LOOSE_MARGIN_IN = 1.5;
+export const LOOSE_MARGIN_OUT = 3;
 
 // Extrae una cara de la caja conservando la escala de sus texturas al separar los pisos.
 function faceGeometry(source, face, height, bottom, top) {
@@ -92,11 +98,19 @@ export class BuildingVisibility {
     this.enabled = false;
     this.closedView = null;
     this.closedMaterials = new Map();
-    this._closedMode = null;
+    // false: la isométrica de antes, todas las paredes sueltas y sin lotes (comparación y descarte de fallas).
+    this.isoBatches = true;
+    this.isoStats = { sueltos: 0, lotesPartidos: 0, lotesOcultos: 0 };
+    this._batches = [];
+    this._dirty = new Set();
+    this._mode = null;
     this._camera = new THREE.Vector3();
     this._right = new THREE.Vector3();
     this._target = new THREE.Vector3();
     this._hit = new THREE.Vector3();
+    this._box = new THREE.Box3();
+    // Caja de las cinco líneas cámara-jugador con el margen de salida: descarta de un golpe lo que no está cerca.
+    this._sight = new THREE.Box3();
     this._rays = Array.from({ length: 5 }, () => ({ ray: new THREE.Ray(), distance: 0 }));
   }
 
@@ -131,7 +145,11 @@ export class BuildingVisibility {
         };
         mesh.material = Array.isArray(mesh.material) ? mesh.material.map(clone) : clone(mesh.material);
       });
-      const part = { object, roof, materials: [...clones.values()],
+      const meshes = [];
+      object.traverse(mesh => { if (mesh.isMesh) meshes.push(mesh); });
+      // `kept`: las mallas transparentes o con varios materiales, que en isométrica siguen sueltas aunque el
+      // edificio vaya en lotes.
+      const part = { object, roof, materials: [...clones.values()], meshes, kept: [],
         bounds: new THREE.Box3().setFromObject(object).expandByScalar(0.08),
         opacity: 1, clearTime: RESTORE_DELAY };
       object.traverse(o => { o.matrixAutoUpdate = false; });
@@ -139,7 +157,8 @@ export class BuildingVisibility {
     };
     const walls = [...shell.walls.values()].map(object => makePart(object, false));
     const roof = makePart(shell.roof, true);
-    const building = { ...shell, baseBounds, bounds, parts: [...walls, roof], wallParts: walls, roofPart: roof };
+    // Sin lotes cerrados todo se ve suelto; buildClosedView los pasa a sus lotes.
+    const building = { ...shell, baseBounds, bounds, parts: [...walls, roof], wallParts: walls, roofPart: roof, loose: true, batches: [] };
     this.buildings.push(building);
     return building;
   }
@@ -152,37 +171,130 @@ export class BuildingVisibility {
     return false;
   }
 
-  /** Versión agrupada de las partes altas para tercera persona; conserva el recorte isométrico. */
+  /**
+   * Versión agrupada de las partes altas. Tercera persona la usa entera; la isométrica también, salvo los
+   * tramos de los edificios cercanos a la línea de vista, que se dibujan con sus paredes sueltas.
+   */
   buildClosedView() {
     const group = new THREE.Group(), buckets = new Map();
-    group.name = 'Edificios agrupados en tercera persona';
+    group.name = 'Edificios agrupados';
     group.userData.noMerge = true;
-    group.visible = false;
     for (const building of this.buildings) for (const part of building.parts) {
       part.object.updateWorldMatrix(true, true);
       part.object.traverse(mesh => {
-        if (!mesh.isMesh || Array.isArray(mesh.material)) return;
+        if (!mesh.isMesh) return;
+        // Varios materiales no entran en un lote: en isométrica sigue suelta, como antes, para no desaparecer.
+        if (Array.isArray(mesh.material)) { part.kept.push(mesh); return; }
         const key = `${mesh.material.userData.staticBatchKey ?? mesh.material.uuid}|${mesh.castShadow}|${mesh.receiveShadow}|${geometryChunk(mesh.geometry, mesh.matrixWorld, CLOSED_CHUNK_SIZE)}`;
-        if (!buckets.has(key)) buckets.set(key, { source: mesh, geometries: [] });
+        if (!buckets.has(key)) buckets.set(key, { source: mesh, geometries: [], owners: [] });
         const geometry = mesh.geometry.clone().applyMatrix4(mesh.matrixWorld);
         // Las caras y los adornos comparten estos atributos; no se necesitan tangentes.
         for (const name of Object.keys(geometry.attributes)) if (!['position', 'normal', 'uv'].includes(name)) geometry.deleteAttribute(name);
         buckets.get(key).geometries.push(geometry);
+        buckets.get(key).owners.push(building);
+        // Lo transparente se ordena por objeto: fundido en un lote se pintaría delante de una pared atenuada.
+        if (mesh.material.transparent) part.kept.push(mesh);
       });
     }
-    for (const { source, geometries } of buckets.values()) {
+    for (const { source, geometries, owners } of buckets.values()) {
+      // Se recorren edificio por edificio: lo de cada uno queda en un tramo seguido del índice.
+      const ranges = [];
+      let start = 0;
+      geometries.forEach((geometry, i) => {
+        const count = geometry.index ? geometry.index.count : geometry.attributes.position.count;
+        const last = ranges.at(-1);
+        if (last?.building === owners[i]) last.count += count;
+        else ranges.push({ building: owners[i], start, count });
+        start += count;
+      });
       const geometry = mergeGeometries(geometries);
       for (const temporary of geometries) temporary.dispose();
       if (!geometry) throw new Error('Geometría incompatible en edificios agrupados');
       // Los lotes nunca comparten un material que pueda atenuarse en isométrica.
-      const mesh = new THREE.Mesh(geometry, this.closedMaterials.get(source.material.userData.staticBatchKey) ?? source.material);
+      const material = this.closedMaterials.get(source.material.userData.staticBatchKey) ?? source.material;
+      const mesh = new THREE.Mesh(geometry, material);
       mesh.castShadow = source.castShadow;
       mesh.receiveShadow = source.receiveShadow;
       geometry.computeBoundingSphere();
       group.add(mesh);
+      const batch = { mesh, material, split: [material], ranges, total: start, transparent: material.transparent };
+      this._batches.push(batch);
+      for (const range of ranges) if (!range.building.batches.includes(batch)) range.building.batches.push(batch);
     }
     this.closedView = group;
+    this._mode = null;
+    // Hasta el primer update, como en tercera persona: todo en sus lotes.
+    for (const building of this.buildings) this._setLoose(building, false);
+    this._refreshBatches();
     return group;
+  }
+
+  /**
+   * Edificio suelto (paredes propias, que se pueden atenuar) o dentro de sus lotes. En isométrica, sus
+   * mallas transparentes o con varios materiales quedan sueltas igual, como se dibujaban antes.
+   */
+  _setLoose(building, loose) {
+    if (building.loose === loose) return;
+    building.loose = loose;
+    const kept = this._mode === 'mixto';
+    for (const part of building.parts) {
+      if (part.kept.length) for (const mesh of part.meshes) mesh.visible = loose || (kept && part.kept.includes(mesh));
+      part.object.visible = (loose || (kept && part.kept.length > 0)) && part.opacity > 0;
+    }
+    for (const batch of building.batches) this._dirty.add(batch);
+  }
+
+  /**
+   * Cada lote dibuja los tramos de sus edificios que no están sueltos: entero con su material, o por grupos
+   * del mismo índice. La geometría no se toca, así que lo que queda en el lote se ve igual que antes.
+   */
+  _refreshBatches() {
+    const kept = this._mode === 'mixto';
+    for (const batch of this._dirty) {
+      const { mesh, ranges } = batch, geometry = mesh.geometry;
+      geometry.clearGroups();
+      let shown = 0;
+      for (const { building, start, count } of ranges) {
+        if (building.loose || (kept && batch.transparent)) continue;
+        const last = geometry.groups.at(-1);
+        if (last && last.start + last.count === start) last.count += count;
+        else geometry.addGroup(start, count, 0);
+        shown += count;
+      }
+      mesh.visible = shown > 0;
+      if (shown === batch.total) geometry.clearGroups();
+      mesh.material = geometry.groups.length ? batch.split : batch.material;
+    }
+    this._dirty.clear();
+    const stats = this.isoStats;
+    stats.sueltos = 0; stats.lotesPartidos = 0; stats.lotesOcultos = 0;
+    for (const building of this.buildings) if (building.loose) stats.sueltos++;
+    for (const { mesh } of this._batches) {
+      if (!mesh.visible) stats.lotesOcultos++;
+      else if (mesh.geometry.groups.length) stats.lotesPartidos++;
+    }
+  }
+
+  /** ¿Pasa alguna de las líneas cámara-jugador a menos de `margin` metros de la caja? */
+  _nearSight(bounds, margin) {
+    const box = this._box.copy(bounds).expandByScalar(margin);
+    for (const { ray, distance } of this._rays) {
+      let near = 0, far = distance;
+      for (const axis of AXES) {
+        const origin = ray.origin[axis], direction = ray.direction[axis];
+        if (Math.abs(direction) < 1e-9) {
+          if (origin < box.min[axis] || origin > box.max[axis]) { far = -1; break; }
+          continue;
+        }
+        let t0 = (box.min[axis] - origin) / direction, t1 = (box.max[axis] - origin) / direction;
+        if (t0 > t1) [t0, t1] = [t1, t0];
+        if (t0 > near) near = t0;
+        if (t1 < far) far = t1;
+        if (near > far) break;
+      }
+      if (near <= far) return true;
+    }
+    return false;
   }
 
   _fade(part, hidden, dt, reset = false) {
@@ -204,14 +316,20 @@ export class BuildingVisibility {
   update(dt, player, camera) {
     const wasEnabled = this.enabled;
     this.enabled = camera.userData.cameraMode === 'isometric';
-    if (this.closedView && this._closedMode !== !this.enabled) {
-      this._closedMode = !this.enabled;
-      this.closedView.visible = this._closedMode;
+    const batched = !!this.closedView && this.isoBatches;
+    // Tercera persona: todo en lotes. Isométrica sin lotes: todo suelto. Isométrica con lotes: lo cercano.
+    const mode = !this.enabled ? 'cerrado' : batched ? 'mixto' : 'suelto';
+    if (this.closedView && this._mode !== mode) {
+      this._mode = mode;
+      this.closedView.visible = mode !== 'suelto';
       // Restaurar antes de ocultar las piezas también restaura los materiales usados por lotes.
-      for (const building of this.buildings) for (const part of building.parts) {
-        this._fade(part, false, dt, true);
-        part.object.visible = this.enabled;
+      // En mixto todo empieza en sus lotes y este mismo cuadro suelta lo cercano, antes de atenuar nada.
+      for (const building of this.buildings) {
+        for (const part of building.parts) this._fade(part, false, dt, true);
+        building.loose = null;
+        this._setLoose(building, mode === 'suelto');
       }
+      this._refreshBatches();
     }
     if (!this.enabled) {
       if (wasEnabled && !this.closedView) for (const building of this.buildings) for (const part of building.parts) this._fade(part, false, dt, true);
@@ -219,15 +337,26 @@ export class BuildingVisibility {
     }
     this._camera.setFromMatrixPosition(camera.matrixWorld);
     this._right.setFromMatrixColumn(camera.matrixWorld, 0).setY(0).normalize();
+    this._sight.makeEmpty().expandByPoint(this._camera);
     for (let i = 0; i < this._rays.length; i++) {
       this._target.copy(player);
       this._target.y += SAMPLE_HEIGHTS[i];
       if (i >= 3) this._target.addScaledVector(this._right, i === 3 ? -0.45 : 0.45);
+      this._sight.expandByPoint(this._target);
       const sample = this._rays[i];
       sample.distance = this._camera.distanceTo(this._target);
       sample.ray.set(this._camera, this._target.sub(this._camera).normalize());
     }
+    this._sight.expandByScalar(LOOSE_MARGIN_OUT);
     for (const building of this.buildings) {
+      if (mode === 'mixto') {
+        // Suelto a tiempo: una pared solo se atenúa si alguna línea toca la caja, y esa ya está a menos del margen.
+        // Lo que no toca la caja de las líneas queda a más de LOOSE_MARGIN_OUT de todas: no hace falta medirlo.
+        const near = this._sight.intersectsBox(building.bounds) &&
+          this._nearSight(building.bounds, building.loose ? LOOSE_MARGIN_OUT : LOOSE_MARGIN_IN);
+        this._setLoose(building, near || (building.loose && building.parts.some(part => part.opacity < 1)));
+        if (!building.loose) continue;
+      }
       const candidate = this._intersects(building.bounds);
       let blocked = candidate && this._intersects(building.roofPart.bounds);
       for (const wall of building.wallParts) {
@@ -237,13 +366,16 @@ export class BuildingVisibility {
       }
       this._fade(building.roofPart, blocked, dt);
     }
+    if (this._dirty.size) this._refreshBatches();
   }
 
   dispose() {
     for (const material of this.closedMaterials.values()) material.dispose();
     this.closedMaterials.clear();
     this.closedView = null;
-    this._closedMode = null;
+    this._mode = null;
+    this._batches.length = 0;
+    this._dirty.clear();
     this.buildings.length = 0;
   }
 }

@@ -55,7 +55,9 @@ export class MirrorCinematic {
     this.time = 0;
     this.cooldown = MIRROR_CINEMATIC.cooldown;
     if (rig) {
-      this._saved = { yaw: rig.yaw, pitch: rig.pitch, distance: rig.distance };
+      // Recién bajado del carro la cámara aún regresa: se restaura la distancia a pie, no una a medio camino.
+      const walking = this.game.carjack?.takeCameraReturn?.();
+      this._saved = { yaw: rig.yaw, pitch: rig.pitch, distance: walking ?? rig.distance };
       // Arranca mirando de costado hacia el carro, como quien graba desde el andén.
       if (car?.position && this.game.player?.position) {
         const dx = this.game.player.position.x - car.position.x, dz = this.game.player.position.z - car.position.z;

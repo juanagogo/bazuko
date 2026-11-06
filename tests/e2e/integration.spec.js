@@ -92,7 +92,12 @@ test('cuchillo encadena tres golpes, botella noquea y recuperar al NPC no renuev
     // recibiendo daño, animando el sacudón, cayendo y recuperándose normalmente.
     npc.isWalkable = () => false; npc.walkSpeed = 0;
     npc.health = npc.maxHealth; npc.looted = false;
-    window.__integrationCombat = { npc, money: game.stats.dinero, steps: [], hits: [], queued: [], complete: false };
+    // La pelea es a mediodía y en plena calle: si un testigo llama (70 % por pelea), la patrulla llega, el arresto
+    // pausa el juego y el desmayado se queda en el piso hasta que alguien cierre el aviso. El dado de los testigos
+    // queda arriba: nadie llama ni graba, y los que lo ven igual huyen gritando. Las llamadas tienen sus pruebas.
+    game.witnesses.random = () => 1;
+    window.__integrationCombat = { npc, money: game.stats.dinero, steps: [], hits: [], queued: [], complete: false, arrests: 0 };
+    window.addEventListener('police-arrest', () => { window.__integrationCombat.arrests++; });
     window.addEventListener('street-fight', event => {
       if (event.detail?.attacker !== player) return;
       window.__integrationCombat.hits.push({ health: npc.health, money: game.stats.dinero });
@@ -148,7 +153,9 @@ test('cuchillo encadena tres golpes, botella noquea y recuperar al NPC no renuev
     await mkdir(process.env.UPGRADE_SHOTS, { recursive: true });
     await page.screenshot({ path: path.join(process.env.UPGRADE_SHOTS, 'combate-integrado.png') });
   }
+  // Tendido de 6 a 8 s, más la caída y la levantada: el margen es para cuadros lentos, no para un arresto.
   await expect.poll(() => page.evaluate(() => window.__integrationCombat.npc.isKnockedOut), { timeout: 25_000 }).toBe(false);
+  expect(await page.evaluate(() => window.__integrationCombat.arrests)).toBe(0);
   expect(await page.evaluate(() => window.__integrationCombat.npc.health)).toBe(100);
   expect(await page.evaluate(() => window.__integrationCombat.npc.looted)).toBe(true);
   await page.keyboard.press('g');

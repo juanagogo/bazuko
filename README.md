@@ -60,7 +60,7 @@ Esta rama agrega sistemas de enfrentamiento entre el jugador y los peatones. Con
 
 Para los agarres, `H` sujeta a un NPC vivo a menos de 1,4 metros o lo suelta, y `J` lo derriba. El agarre termina como máximo a los tres segundos. Las animaciones actuales reutilizan recursos existentes; todavía no están implementados todos los clips específicos de forcejeo. Tampoco están terminados los agarres iniciados por NPC, la barra de liberación con A/D, la cancelación desde menús ni todas las pruebas de interacción. **Estas mecánicas están en desarrollo y no se ha confirmado su funcionamiento visual completo en navegador.**
 
-Los nuevos sistemas están en `src/systems/CombatSystem.js`, `GrappleSystem.js` y `NpcCombat.js`; las pruebas específicas incluyen `tests/npc-combat.test.js`. Consulta [documentación de combate](docs/combate.md) y [recursos pendientes](docs/combate-recursos-pendientes.md). Los efectos de estas mecánicas reutilizan audio sintetizado; las cinco voces ambientales y de persecución añadidas están incluidas en `public/audio`.
+Los nuevos sistemas están en `src/systems/MeleeCombat.js`, `GrappleSystem.js` y `NpcCombat.js`; las pruebas específicas incluyen `tests/npc-combat.test.js`. Consulta [documentación de combate](docs/combate.md) y [recursos pendientes](docs/combate-recursos-pendientes.md). Los efectos de estas mecánicas reutilizan audio sintetizado; las cinco voces ambientales y de persecución añadidas están incluidas en `public/audio`.
 
 ## Capturas
 
@@ -121,7 +121,7 @@ Con `npm run dev` activo, abre **/sala.html** (por ejemplo http://localhost:5173
 | `H` junto a un peatón | Sujetarlo o soltarlo (experimental). |
 | `J` durante un agarre | Derribarlo (experimental). |
 | `O` | Mantener la guardia: los golpes quitan menos. |
-| `U` | Soltar, agarrar o llevarse una zorra de reciclador; rendirse en el forcejeo. |
+| `U` | Soltar, agarrar o llevarse una zorra de reciclador; rendirse en el forcejeo. Empujándola, la tecla de contexto lo recuerda y no se roba a nadie ni se arranca un espejo: las manos van en el manubrio, como con la carreta de balineras. Forcejeando tampoco. |
 | `V` o botón de cámara | Alternar entre tercera persona e isométrica. |
 | Clic izquierdo en la calle | Fijar el ratón para girar la cámara en tercera persona. |
 | Arrastrar con botón izquierdo/derecho o flechas | Girar la cámara sin fijar el ratón. |
@@ -261,7 +261,7 @@ El panel de rendimiento está oculto por defecto; **F3** o **Ajustes → Rendimi
 
 En media y alta, la iluminación combina dos luces puntuales cercanas con halos decorativos suaves sobre el suelo para faroles y fogones; en baja quedan solo los halos y la calle pintada. Hasta 48 halos cercanos comparten una sola llamada de dibujo y no calculan iluminación ni sombras sobre los materiales. Las llamas y lámparas siguen visibles; las luces decorativas lejanas ya no iluminan paredes y personajes en tiempo real.
 
-Los suelos y las marcas se agrupan por sectores de 32 metros; los edificios y el mobiliario, por sectores de 64; la pintura, los charcos y la luz de los faroles, por 128. En tercera persona, las paredes, techos y adornos que comparten material se dibujan juntos; al cambiar a isométrica se recuperan las piezas independientes para ocultar las que tapan al jugador. Las transformaciones de inmuebles se calculan una vez. Las pasadas de silueta solo recorren al jugador y las luces, y el tráfico descarta peatones lejanos antes de comprobar el frenado.
+Los suelos y las marcas se agrupan por sectores de 32 metros; los edificios y el mobiliario, por sectores de 64; la pintura, los charcos y la luz de los faroles, por 128. En tercera persona, las paredes, techos y adornos que comparten material se dibujan juntos; en isométrica solo recuperan sus piezas independientes los edificios cercanos a la línea entre la cámara y el jugador, para ocultar las que lo tapan; los demás siguen agrupados. Las transformaciones de inmuebles se calculan una vez. Las pasadas de silueta solo recorren al jugador y las luces, y el tráfico descarta peatones lejanos antes de comprobar el frenado.
 
 El *frustum culling* descarta sectores completos y vehículos fuera del encuadre antes de recorrer sus mallas. Comprueba el volumen completo para conservar objetos parcialmente visibles y funciona en ambas cámaras. Los objetos necesarios para el mapa de sombras siguen disponibles en esa pasada; Three.js descarta sus mallas fuera de la cámara en la pasada de color. El bus y los NPC siguen su recorrido fuera de pantalla. Los halos también se filtran antes de crear las instancias. El panel muestra **Grupos en cámara** y **Descartados**; los grupos conservados únicamente para sombras explican la diferencia entre ambos contadores y el total.
 
@@ -281,7 +281,7 @@ Todas las voces (conductores, robo, frases de la calle y peleas) están igualada
 
 ## Compilación y pruebas
 
-Para medir el rendimiento en cinco vistas del juego con Playwright y un navegador aislado, deja Vite activo y ejecuta `npm run benchmark:performance`. Genera un informe JSON y capturas en `work/performance/`. Consulta el método, los requisitos y los resultados en [rendimiento y medición](docs/rendimiento.md).
+Para medir el rendimiento en cinco vistas del juego con Playwright y un navegador aislado, deja Vite activo y ejecuta `npm run benchmark:performance`. Genera un informe JSON y capturas en `work/performance/`. Con `npm run benchmark:performance -- --headless --angle metal` mide con la GPU sin abrir ventana en macOS, y `-- --memoria` agrega un recorrido con muestras de memoria. Consulta el método, los requisitos y los resultados en [rendimiento y medición](docs/rendimiento.md).
 
 Para generar la versión de producción y verla localmente:
 

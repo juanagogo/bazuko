@@ -124,8 +124,8 @@ export const OBJECTIVES = [
   {
     id: 'rebusque-semaforo',
     title: 'Rebuscarse en el semáforo',
-    hint: 'Con pelotas, rodillo o dulces de la tienda, junto a los carros en rojo oprimo B.',
-    target: 'shop', event: 'rebusque', accept: (d) => (d?.pesos ?? 0) > 0, goal: 3,
+    hint: 'Con pelotas frente a la trompa, con el rodillo frente al capó o con dulces en la ventana del conductor, oprimo B en rojo.',
+    target: 'shop', event: 'rebusque', accept: (d) => ['dulces', 'vidrios', 'malabares'].includes(d?.id) && (d?.pesos ?? 0) > 0, goal: 3,
     reward: { xp: 40, dinero: 2000 }
   },
   {

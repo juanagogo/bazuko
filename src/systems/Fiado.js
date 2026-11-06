@@ -2,6 +2,8 @@
  * Doña Rosa fía, pero solo a los conocidos. Con fama de «Ya me conocen» o mejor, en la Tienda La Esquinita se puede
  * llevar lo que no alcanza a pagar, hasta un cupo. Lo fiado se paga en la misma tienda; quien paga a tiempo gana
  * fama, y quien se demora más de `plazoDias` pierde fama cada día y se queda sin fiado hasta ponerse al día.
+ * Solo premia una deuda de verdad, que pasó al menos una noche: fiar y pagar el mismo día no es ganarse a nadie (si
+ * no, cada compra se volvía fama gratis).
  */
 export const FIADO = {
   cupoConocido: 5000,   // COP con fama de «Ya me conocen»
@@ -52,12 +54,13 @@ export class Fiado {
     const n = Math.min(this.deuda, Math.max(0, Math.floor(stats?.dinero ?? 0)));
     if (!n) return 0;
     const aTiempo = !this.moroso(dia);
+    const cargada = this.desde !== null && dia > this.desde;
     stats.dinero -= n;
     this.deuda -= n;
     if (!this.deuda) {
       this.desde = null;
       this._cobrado = null;
-      if (aTiempo) this.reputation?.sumar?.(FIADO.famaPagar);
+      if (aTiempo && cargada) this.reputation?.sumar?.(FIADO.famaPagar);
     }
     this._emit('fiado', { deuda: this.deuda });
     return n;

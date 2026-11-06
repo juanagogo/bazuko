@@ -1,6 +1,6 @@
 // Aviso amable ante errores inesperados y pérdida del contexto gráfico.
 // Un error de lógica deja seguir jugando (el bucle ya programó el siguiente cuadro);
-// la pérdida de WebGL sí requiere recargar, después de guardar la partida.
+// la pérdida de WebGL sí requiere recargar, después de guardar la partida si el momento lo permite.
 
 const MAX_REPORTS = 20;
 
@@ -9,6 +9,18 @@ export function describeError(error) {
   if (!error) return 'Error desconocido';
   const message = typeof error === 'string' ? error : error.message ?? String(error);
   return message.split('\n')[0].slice(0, 160) || 'Error desconocido';
+}
+
+/**
+ * Guarda solo si es un momento firme, con la misma guarda del guardado solo (`Game._puedeAutoguardar`): cargando,
+ * preso o muerto no se escribe nada, o una partida a medio cargar pisaría la buena. Devuelve si guardó.
+ */
+function guardarSiSePuede(game) {
+  try {
+    if (game?.autoSave?.guardarAhora) return game.autoSave.guardarAhora() === true;
+    if (game?._puedeAutoguardar && !game._puedeAutoguardar()) return false;
+    return game?._save ? game._save() !== false : false;
+  } catch { return false; }
 }
 
 export function installErrorScreen({ canvas = null, game = null, doc = globalThis.document, win = globalThis.window } = {}) {
@@ -43,7 +55,7 @@ export function installErrorScreen({ canvas = null, game = null, doc = globalThi
     reload.type = 'button';
     reload.className = 'cinta cinta--verbo';
     reload.textContent = 'Recargar el juego';
-    reload.addEventListener('click', () => { try { game?._save?.(); } catch { /* sin guardado */ } win.location.reload(); });
+    reload.addEventListener('click', () => { guardarSiSePuede(game); win.location.reload(); });
     actions.append(reload);
     if (canContinue) {
       const keep = doc.createElement('button');
@@ -64,7 +76,7 @@ export function installErrorScreen({ canvas = null, game = null, doc = globalThi
     if (fatal || banner) return;
     show({
       title: 'Algo falló',
-      text: `Ocurrió un error inesperado (${entry.message}). Puede seguir jugando o recargar; la partida se guarda antes de recargar.`,
+      text: `Ocurrió un error inesperado (${entry.message}). Puede seguir jugando o recargar; al recargar se guarda si se puede, y si no se sigue desde el último guardado.`,
       canContinue: true
     });
   };
@@ -80,10 +92,12 @@ export function installErrorScreen({ canvas = null, game = null, doc = globalThi
     event.preventDefault?.();
     fatal = true;
     remember('webgl', 'Se perdió el contexto WebGL');
-    try { game?._save?.(); } catch { /* sin guardado */ }
+    const guardada = guardarSiSePuede(game);
     show({
       title: 'Se perdió la imagen',
-      text: 'El navegador reinició la tarjeta gráfica. La partida quedó guardada; recargue para seguir jugando.',
+      text: guardada
+        ? 'El navegador reinició la tarjeta gráfica. La partida quedó guardada; recargue para seguir jugando.'
+        : 'El navegador reinició la tarjeta gráfica. Recargue para seguir desde el último guardado.',
       canContinue: false
     });
   });

@@ -121,12 +121,15 @@ export class TrafficSignals {
     return false;
   }
 
-  busClearance(position, length, direction = -1) {
+  /** `bus`: quién pregunta. Cada bus espera solo a quien le corta su propia línea; sin él vale cualquier bloqueo. */
+  busClearance(position, length, direction = -1, bus = null) {
     if (position.y > 3) return Infinity;
     const red = signalState(this.time, 1) !== 0;
     let clearance = Infinity;
     for (const node of this.nodes) {
-      if (!red && !this.reservations.get(node)?.busBlocked) continue;
+      const reservation = this.reservations.get(node);
+      const blocked = bus && reservation?.busBlockedFor ? reservation.busBlockedFor.has(bus) : reservation?.busBlocked;
+      if (!red && !blocked) continue;
       if (position.x < node.x0 || position.x > node.x1) continue;
       const toEdge = direction < 0 ? position.z - node.z1 : node.z0 - position.z;
       if (toEdge <= 0) continue;

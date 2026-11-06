@@ -2,10 +2,9 @@ import { test, expect } from '@playwright/test';
 import { mkdir } from 'node:fs/promises';
 import { ITEMS } from '../../src/data/items.js';
 
-test.use({ video: 'off', viewport: { width: 1440, height: 980 }, launchOptions: {
-  executablePath: process.env.PLAYWRIGHT_EXECUTABLE_PATH,
-  args: [], chromiumSandbox: true
-} });
+// El navegador lo pone la configuración: unos `launchOptions` propios borraban sus argumentos de GPU, y a 3 cuadros
+// por segundo el plazo de 10 s del juego (que avanza con el dt de la simulación, tope 0,1 s) no alcanzaba en 20 s.
+test.use({ video: 'off', viewport: { width: 1440, height: 980 } });
 
 test('Inventario: tirar, recuperar, pausar el plazo y desaparecer sin duplicar', async ({ page }) => {
   test.setTimeout(180_000);

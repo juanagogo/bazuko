@@ -46,6 +46,7 @@ export function estadoBusqueda(distancia, nivel, previo = 'nada') {
 export function textoDeEscape(razon) {
   if (razon === 'escondido') return 'Me escondí en el cambuche y no me encontraron';
   if (razon === 'vista') return 'Me perdieron de vista';
+  if (razon === 'trancada') return 'La patrulla se quedó trancada';
   return 'Los despisté';
 }
 
@@ -593,7 +594,7 @@ export class HUD {
     // La tecla de contexto
     const base = window.__game?.paused ? '' : textoDelPrompt(interaction, inventory);
     const pausa = window.__game?.paused;
-    const extra = pausa ? [] : [interaction?.rebusquePrompt, interaction?.carjackPrompt].filter(Boolean);
+    const extra = pausa ? [] : [interaction?.rebusquePrompt, interaction?.carjackPrompt, interaction?.zorraPrompt].filter(Boolean);
     this._pintarPrompt([base, ...extra].filter(Boolean).join(' · '), interaction);
 
     if (this._misionS > 0 && (this._misionS -= dt) <= 0 && this.misionEl) this.misionEl.hidden = true;

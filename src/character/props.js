@@ -404,6 +404,43 @@ export function attachStreetProps(root, bones, items = [], holds = null, sexo = 
   return added;
 }
 
+/** ¿En qué mano lo lleva? 'izquierda', 'derecha' o null si va al hombro, a la espalda o en la cabeza. */
+export function streetPropHand(id) {
+  const hold = isStreetProp(id) ? STREET_PROPS[id].hold : null;
+  return hold === 'cargar-izquierda' ? 'izquierda' : hold === 'cargar-derecha' ? 'derecha' : null;
+}
+
+/**
+ * Bolso arrancado, en la mano: la correa recogida en el puño y el bolso colgando debajo. Origen en la muñeca y ejes
+ * del personaje, como el maletín; el mismo cuerpo del bolso de hombro, sin el tramo de correa que iba al cuello.
+ */
+function bolsoEnLaManoGeometry() {
+  const pouch = soft(new THREE.SphereGeometry(1, 8, 5), (v) => {
+    v.set(v.x * .05, -.2 + Math.sign(v.y) * Math.abs(v.y) ** .7 * .1, .01 + Math.sign(v.z) * Math.abs(v.z) ** .6 * .13);
+  });
+  return fused([pouch,
+    cord([[0, -.11, .1], [0, -.06, .06], [0, -.085, 0]], .008, 5),
+    cord([[0, -.11, -.08], [0, -.06, -.05], [0, -.085, 0]], .008, 5)
+  ]);
+}
+
+let bolsoEnLaMano = null;
+
+/**
+ * Lo que se lleva un raponazo, para la mano del jugador: la misma forma con el material que tenía la víctima (compartido).
+ * El maletín y la bolsa ya se arman en la mano; el bolso de hombro tiene la suya. Null si no es algo que se cargue.
+ */
+export function streetPropInHand(id, material) {
+  if (!isStreetProp(id) || !material) return null;
+  const geometry = id === 'bolso' ? (bolsoEnLaMano ??= bolsoEnLaManoGeometry()) : STREET_PROPS[id].hold ? streetGeometry(id) : null;
+  if (!geometry) return null;
+  const mesh = new THREE.Mesh(geometry, material);
+  mesh.name = `prop-${id}-arrancado`;
+  mesh.castShadow = true;
+  mesh.receiveShadow = true;
+  return mesh;
+}
+
 /** Bastón suelto, para cuando se le cae a alguien: el mismo que tiene en la mano, sin gastar otro material. */
 export function createCane(color) {
   const mesh = new THREE.Mesh(streetGeometry('baston-calle'), sharedPropMaterial(color ?? '#3a3a3a', STREET_PROPS['baston-calle'].roughness));

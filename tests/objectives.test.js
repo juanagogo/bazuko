@@ -119,3 +119,21 @@ test('robar un carro se cumple con el evento del robo de carros', () => {
   const source = readFileSync(new URL('../src/systems/CarjackSystem.js', import.meta.url), 'utf8');
   assert.match(source, /_emit\('carjack'/);
 });
+
+test('un archivo sin objetivos importado sobre una cadena avanzada vuelve al primero y se pone al día desde ahí', () => {
+  const sys = new ObjectiveSystem();
+  sys.index = sys.total;
+  sys.completed = OBJECTIVES.map(d => d.id);
+  sys.counter = 2;
+  assert.equal(sys.deserialize(undefined), false);
+  assert.equal(sys.index, 0);
+  assert.equal(sys.counter, 0);
+  assert.deepEqual(sys.completed, []);
+  assert.equal(sys.current?.id, OBJECTIVES[0].id);
+  // Con un estado vacío no se salta nada: la cadena empieza de nuevo, como en una carga desde cero.
+  const game = fakeGame();
+  const fresh = new ObjectiveSystem();
+  fresh.deserialize(undefined);
+  assert.equal(sys.catchUp(game), fresh.catchUp(fakeGame()));
+  assert.equal(sys.index, fresh.index);
+});

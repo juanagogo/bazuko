@@ -3,7 +3,7 @@ import { ITEMS } from '../../src/data/items.js';
 
 test.use({ video: 'off' });
 
-test('Rebusque: malabares a un carro detenido en rojo pagan con B', async ({ page }) => {
+test('Rebusque: malabares frente al primero de la cola, pelotas en el aire, y al verde el carro espera y me quito', async ({ page }) => {
   test.setTimeout(400_000);
   const errors = [];
   page.on('pageerror', error => errors.push(error.message));
@@ -20,30 +20,74 @@ test('Rebusque: malabares a un carro detenido en rojo pagan con B', async ({ pag
     g.stats.energia = 100;
     g.rebusque.random = () => 0;
     window.__avisos = [];
+    window.__golpes = 0;
     window.addEventListener('toast', e => window.__avisos.push(e.detail.text));
+    // Cuenta los atropellos sin cambiar lo que hace el juego con ellos.
+    const golpe = g._onVehicleImpact;
+    g._onVehicleImpact = info => { window.__golpes++; return golpe(info); };
   }, ITEMS);
-  // Espera un carro quieto frente a un rojo y se para a su lado hasta que la tecla ofrezca el rebusque.
+  // Espera al primero de una cola, quieto en rojo con rojo de sobra, y se para frente a su trompa (L/2 + 1,1 m).
   await expect.poll(() => page.evaluate(() => {
-    const g = window.__game;
-    if (g.interaction.rebusquePrompt) return g.interaction.rebusquePrompt;
-    const v = g.traffic.vehicles.find(v => !v.police && !v.hold && v.stopped && g.traffic.stoppedAtRed(v.car.position, .1).length);
+    const g = window.__game, s = g.traffic.signals;
+    if (window.__carro && /malabares/.test(g.interaction.rebusquePrompt ?? '')) return g.interaction.rebusquePrompt;
+    const rojo = car => { const yaw = car.group.rotation.y, eje = Math.abs(Math.cos(yaw)) >= Math.abs(Math.sin(yaw)) ? 0 : 1; const f = ((s.time - eje * 18) % 36 + 36) % 36; return f < 14 ? 0 : 36 - f; };
+    const primero = v => !g.traffic.vehicles.some(o => {
+      if (o === v) return false;
+      const yaw = v.car.group.rotation.y, hx = Math.cos(yaw), hz = -Math.sin(yaw);
+      const dx = o.car.position.x - v.car.position.x, dz = o.car.position.z - v.car.position.z;
+      return dx * hx + dz * hz > 0 && dx * hx + dz * hz < 9 && Math.abs(dx * -hz + dz * hx) < 1.6;
+    });
+    const v = g.traffic.vehicles.find(v => !v.police && !v.hold && v.stopped && v.car.kind !== 'moto' && !v.car.isMoto
+      && g.traffic.stoppedAtRed(v.car.position, .1).length && rojo(v.car) > 13 && primero(v));
+    window.__carro = null;
     if (!v) return '';
-    const yaw = v.car.group.rotation.y;
-    const x = v.car.position.x + Math.sin(yaw) * 2.4, z = v.car.position.z + Math.cos(yaw) * 2.4;
+    const yaw = v.car.group.rotation.y, a = v.car.length / 2 + 1.1;
+    const x = v.car.position.x + Math.cos(yaw) * a, z = v.car.position.z - Math.sin(yaw) * a;
     g.player.position.set(x, v.car.position.y, z);
     g.player.velocity?.set?.(0, 0, 0);
+    window.__carro = v;
     return '';
-  }), { timeout: 120_000, intervals: [400] }).toMatch(/malabares/);
+  }), { timeout: 240_000, intervals: [400] }).toMatch(/malabares/);
   await expect(page.locator('#interaction-prompt')).toContainText('malabares');
   const antes = await page.evaluate(() => window.__game.stats.dinero);
   await page.keyboard.press('b');
-  // El aviso de empezar sale al procesar la tecla; luego, uno de cobro o de corte.
   await expect.poll(() => page.evaluate(() => window.__avisos.some(t => /lanzo las pelotas/.test(t)))).toBe(true);
-  await expect.poll(() => page.evaluate(() => window.__game.rebusque.activo), { timeout: 150_000 }).toBe(false);
+  // El aviso lleva la cuenta del rojo y el ritmo; las tres pelotas están en el aire, por encima de las manos.
+  await expect(page.locator('#interaction-prompt')).toContainText('rojo');
+  await expect.poll(() => page.evaluate(() => {
+    const v = window.__game.rebusqueVisual, p = window.__game.player.position;
+    return v.mallas >= 3 && v._bolas.every(b => b.mesh.visible && b.mesh.position.distanceTo(p) < 2.5)
+      && v._bolas.some(b => b.mesh.position.y > p.y + 1.5);
+  }), { timeout: 5_000, intervals: [50] }).toBe(true);
+  await expect.poll(() => page.evaluate(() => window.__game.rebusque.activo), { timeout: 60_000 }).toBe(false);
   const despues = await page.evaluate(() => window.__game.stats.dinero);
-  // Paga, o el carro arrancó con el verde y no cobra: las dos salidas terminan el trabajo sin errores.
-  const avisos = await page.evaluate(() => window.__avisos);
-  expect(despues > antes || avisos.some(t => /arrancaron|Me fui/.test(t))).toBe(true);
+  expect(despues).toBeGreaterThan(antes); // random 0: paga el mínimo, un poco más frente al primero
+  // Se queda ahí: al verde el carro espera, y a los 20 s el artista se quita al andén. Nadie lo atropella.
+  await expect.poll(() => page.evaluate(() => window.__game.rebusque.despeje.sostenidos.has(window.__carro)), { timeout: 60_000, intervals: [200] }).toBe(true);
+  // Mientras se quita, camina de verdad: Player.speed es la velocidad que lleva (las piernas andan), no 0 deslizándose.
+  await page.evaluate(() => {
+    window.__paso = { max: 0, muestras: 0 };
+    const mirar = () => {
+      const g = window.__game, p = g.rebusque.despeje.paso;
+      if (p && p.t > .7) { window.__paso.max = Math.max(window.__paso.max, g.player.speed); window.__paso.muestras++; }
+      requestAnimationFrame(mirar);
+    };
+    requestAnimationFrame(mirar);
+  });
+  await expect.poll(() => page.evaluate(() => window.__game.rebusque.despeje.apartados), { timeout: 60_000, intervals: [500] }).toBeGreaterThanOrEqual(1);
+  // El aviso sale al terminar el paso y cuenta lo que pasó: hasta el andén, un trecho, o nada (sigue en la vía).
+  await expect.poll(() => page.evaluate(() => window.__avisos.some(t => /Me hice para atrás hasta el andén|Me quité de adelante|me toca quitarme de la vía/.test(t))), { timeout: 15_000 }).toBe(true);
+  await expect.poll(() => page.evaluate(() => !window.__game.rebusque.despeje.sostiene && !window.__game.rebusque.despeje.paso), { timeout: 30_000 }).toBe(true);
+  const paso = await page.evaluate(() => ({ ...window.__paso, anden: window.__avisos.some(t => /hasta el andén/.test(t)),
+    suelo: window.__game.world.active.getGroundTypeAt(window.__game.player.position.x, window.__game.player.position.z) }));
+  if (paso.anden) {
+    expect(paso.muestras).toBeGreaterThan(5);
+    expect(paso.max).toBeGreaterThan(.8);
+    expect(paso.max).toBeLessThan(3.2);
+    expect(paso.suelo).toBe('sidewalk');
+  }
+  expect(await page.evaluate(() => window.__carro.hold)).not.toBe(true);
+  expect(await page.evaluate(() => window.__golpes)).toBe(0);
   expect(errors).toEqual([]);
 });
 

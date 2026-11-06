@@ -28,6 +28,12 @@ export class ZorraController {
     this.rival = null;        // Reciclador contra el que se forcejea
     this.barra = null;        // ForcejeoBar, creada en el primer forcejeo
     this._posSuelo = new THREE.Vector3(); // reutilizado cada frame para la zorra soltada
+    this._tragarE = 0;        // s en que las E del machaque que siguen llegando no hacen nada
+  }
+
+  /** El aviso de cómo se suelta: empujando siempre está a la vista (en el forcejeo manda la barra). */
+  get prompt() {
+    return this.game.zorra?.empujando && !this.forcejeo ? TEXTOS_ZORRA.soltar : null;
   }
 
   spawn(district) {
@@ -139,6 +145,8 @@ export class ZorraController {
     this.forcejeo = null;
     this.rival = null;
     this.barra?.ocultar();
+    // Se venía machacando E: las que llegan justo después no recogen basura ni le meten la mano al reciclador.
+    this._tragarE = FORCEJEO.tragarE;
   }
 
   _ganarForcejeo() {
@@ -182,11 +190,17 @@ export class ZorraController {
     const pulsoG = input.consumePress(ZORRA.teclas.soltar);
     if (this.forcejeo) {
       this._actualizarForcejeo(dt, input, pulsoG);
-    } else if (pulsoG) {
-      if (zorra.empujando) {
-        if (zorra.soltar(game.player.position.toArray(), game.player.root.rotation.y)) toast(TEXTOS_ZORRA.soltada);
-      } else {
-        this._zorraAlcanzable()?.interactuar();
+    } else {
+      if (this._tragarE > 0) {
+        this._tragarE = Math.max(0, this._tragarE - dt);
+        input.consumePress(ZORRA.teclas.forcejear);
+      }
+      if (pulsoG) {
+        if (zorra.empujando) {
+          if (zorra.soltar(game.player.position.toArray(), game.player.root.rotation.y)) toast(TEXTOS_ZORRA.soltada);
+        } else {
+          this._zorraAlcanzable()?.interactuar();
+        }
       }
     }
 

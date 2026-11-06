@@ -10,7 +10,8 @@
 //  - item: lo que hace falta en el costal. `consume`: se gasta uno por venta.
 //  - segundos: lo que dura el trabajo; si el carro o el bus arrancan antes, no paga.
 //  - alcance: metros hasta lo que se atiende. `carros`: cuántos carros o pasajeros como mucho.
-//  - paga: [mínimo, máximo] en pesos por cada uno que da. `prob`: probabilidad de que dé.
+//  - paga: [mínimo, máximo] en pesos por cada uno que da. `prob`: probabilidad de que dé (bus y parqueados; en el
+//    semáforo cada conductor reacciona según data/rebusqueReacciones.js).
 //  - propinas: (parqueados) cada cuántos segundos puede volver un dueño; paga al momento. Con un solo carro, menos seguido.
 //  - energia: lo que cansa cada vez. `espera`: segundos antes de volverle a trabajar a lo mismo.
 //  - verbo / ocupado / empezar: textos en primera persona (aviso de tecla y tarjeta).
@@ -19,14 +20,14 @@ export const REBUSQUE = {
     id: 'dulces', donde: 'semaforo', item: 'dulces', consume: true,
     verbo: 'Vender dulces a los carros en rojo', ocupado: 'Vendiendo dulces',
     empezar: 'Bombones a mil, a mil el bombón.',
-    segundos: 3, alcance: 8, carros: 3, prob: .5, paga: [1000, 1000], energia: 3, xp: 4
+    segundos: 3, alcance: 8, carros: 2, prob: .5, paga: [1000, 1000], energia: 3, xp: 4
   },
   vidrios: {
     id: 'vidrios', donde: 'semaforo', item: 'limpiavidrios',
     verbo: 'Limpiar el parabrisas', ocupado: 'Limpiando el parabrisas',
     empezar: 'Le limpio el vidrio, patrón, con lo que quiera.',
-    segundos: 4, alcance: 4.5, carros: 1, prob: .6, paga: [500, 3000], energia: 4, xp: 5,
-    // Uno de cada tantos se enoja porque no pidió el servicio.
+    segundos: 6, alcance: 4.5, carros: 1, prob: .6, paga: [500, 2000], energia: 4, xp: 5,
+    // Uno de cada tantos se enoja porque no pidió el servicio (ver data/rebusqueReacciones.js).
     enojo: .15
   },
   malabares: {

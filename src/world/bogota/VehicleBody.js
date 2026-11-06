@@ -138,6 +138,52 @@ export function getParkedTrim(entry) {
   return entry.parkedTrim = b.toGeometry(`Molduras de parqueado ${spec.id}`);
 }
 
+/**
+ * La ventana del puesto del conductor, aparte: los vidrios del modelo sin ella y ella sola, con cuánto baja. Comparten los
+ * atributos del vidrio entero (los mismos búferes en la GPU) y solo cambia el índice. Se arman la primera vez que un
+ * conductor de ese modelo saca la mano por la ventana y no se liberan, como el resto de la geometría del modelo.
+ * Es la celda lateral entre la cintura y el borde del techo: el parabrisas, que cae sobre la misma X, va por encima del borde.
+ */
+export function getDriverWindowGlass(modelId) {
+  const entry = getCarGeometry(modelId);
+  if (entry.driverWindow !== undefined) return entry.driverWindow;
+  const { spec, body, glass } = entry, { x: dx, z: dz } = spec.driver ?? {};
+  const side = Math.sign(dz) || -1;
+  const window = (spec.windows ?? []).find(([x0, x1]) => dx >= x0 && dx <= x1);
+  if (!window) return entry.driverWindow = null;
+  const P = glass.attributes.position.array, lamp = glass.attributes.lamp.array, index = glass.index.array;
+  const [x0, x1] = window;
+  // La sombra de contacto va en el mismo lote (lamp ≥ 1): nunca es ventana.
+  const inside = v => {
+    const x = P[v * 3], y = P[v * 3 + 1], z = P[v * 3 + 2];
+    return lamp[v] === 0 && z * side > 0 && x >= x0 - .005 && x <= x1 + .005 && y < body.edge(x) - .003;
+  };
+  const rest = [], pane = [];
+  let top = -Infinity, bottom = Infinity;
+  for (let i = 0; i < index.length; i += 3) {
+    const a = index[i], b = index[i + 1], c = index[i + 2];
+    if (!(inside(a) && inside(b) && inside(c))) { rest.push(a, b, c); continue; }
+    pane.push(a, b, c);
+    for (const v of [a, b, c]) { top = Math.max(top, P[v * 3 + 1]); bottom = Math.min(bottom, P[v * 3 + 1]); }
+  }
+  if (!pane.length) return entry.driverWindow = null;
+  const share = (triangles, name) => {
+    const g = new THREE.BufferGeometry();
+    for (const [key, attribute] of Object.entries(glass.attributes)) g.setAttribute(key, attribute);
+    g.setIndex(new THREE.BufferAttribute(new (index.constructor)(triangles), 1));
+    // Las cajas del vidrio entero sirven: la ventana solo baja dentro de la puerta.
+    g.boundingBox = glass.boundingBox.clone(); g.boundingSphere = glass.boundingSphere.clone();
+    g.name = name;
+    return g;
+  };
+  return entry.driverWindow = {
+    rest: share(rest, `Vidrios ${modelId} sin la ventana del conductor`),
+    pane: share(pane, `Ventana del conductor ${modelId}`),
+    // Baja derecho todo su alto: al final el borde de arriba queda en la cintura y el vidrio entero dentro de la puerta.
+    drop: top - bottom,
+  };
+}
+
 // ===== Espejos =====
 
 function mirrorAnchors(spec, body) {

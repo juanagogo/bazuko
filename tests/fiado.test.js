@@ -77,3 +77,18 @@ test('la tienda dice claro cuándo ya no fía y cuánto se abona', async () => {
   const menus = readFileSync(new URL('../src/ui/placeMenus.js', import.meta.url), 'utf8');
   assert.match(menus, /Abonarle \$\{cop\(abono\)\}/);
 });
+
+test('fiar y pagar el mismo día no da fama: solo premia la deuda que pasó la noche', () => {
+  const f = nuevo(30);
+  for (let i = 0; i < 10; i++) {
+    assert.ok(f.fiar(500, 1));
+    assert.equal(f.pagar({ dinero: 500 }, 1), 500);
+  }
+  assert.equal(f.reputation.valor, 30, 'diez compras fiadas y pagadas al momento no suben la fama');
+  f.fiar(500, 1);
+  f.pagar({ dinero: 500 }, 2);
+  assert.equal(f.reputation.valor, 30 + FIADO.famaPagar, 'pagada al día siguiente, a tiempo, sí');
+  f.fiar(500, 2);
+  f.pagar({ dinero: 500 }, 2);
+  assert.equal(f.reputation.valor, 30 + FIADO.famaPagar, 'y otra el mismo día ya no');
+});

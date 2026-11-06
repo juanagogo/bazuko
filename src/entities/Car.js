@@ -2,7 +2,7 @@
 import * as THREE from 'three';
 import { CAR_COOLDOWN, INTERACT_RANGE } from '../utils/constants.js';
 import { makeVehicle } from '../world/bogota/vehicles.js';
-import { getDriverGeometry } from '../world/bogota/VehicleBody.js';
+import { getDriverGeometry, getDriverWindowGlass } from '../world/bogota/VehicleBody.js';
 import { markerGeometry, markerMaterial } from '../world/bogota/carMarker.js';
 import { createImportedModel, disposeImportedInstance } from '../utils/ImportedModels.js';
 
@@ -182,6 +182,38 @@ export class Car {
       this._playerDriver = seat;
     }
     if (this._playerDriver) this._playerDriver.visible = !!on && !this.driverHidden;
+  }
+
+  /**
+   * Baja la ventana del puesto del conductor (0 cerrada, 1 abajo del todo), para que la mano que saca no atraviese el vidrio.
+   * Solo cambia la geometría de los vidrios de este carro por la del modelo sin esa ventana y cuelga de ellos la ventana sola,
+   * corrida hacia abajo, con el mismo material: nada nuevo por carro salvo esa malla, que se reutiliza. Abajo del todo no se
+   * dibuja. Con 0 todo vuelve a como estaba. Devuelve si el carro tiene esa ventana.
+   */
+  setDriverWindow(open) {
+    const v = this.vehicle, glass = v?.glassMesh;
+    if (this._disposed || !glass || !v.model) return false;
+    const f = Math.max(0, Math.min(1, Number.isFinite(open) ? open : 0));
+    if (f === 0) {
+      if (this._driverWindow) { glass.geometry = this._driverWindow.full; this._driverWindow.mesh.visible = false; }
+      this._driverWindowOpen = 0;
+      return !!this._driverWindow;
+    }
+    if (!this._driverWindow) {
+      const split = getDriverWindowGlass(v.model);
+      if (!split) return false;
+      const mesh = new THREE.Mesh(split.pane, glass.material);
+      mesh.name = 'Ventana del conductor';
+      mesh.castShadow = mesh.receiveShadow = false;
+      glass.add(mesh);
+      this._driverWindow = { full: glass.geometry, split, mesh };
+    }
+    const { split, mesh } = this._driverWindow;
+    glass.geometry = split.rest;
+    mesh.position.y = -split.drop * f;
+    mesh.visible = f < 1;
+    this._driverWindowOpen = f;
+    return true;
   }
 
   /** Punto junto a la puerta del conductor, en metros del mundo. Cada modelo la tiene a la altura de su asiento; `side` la pasa al otro lado. */

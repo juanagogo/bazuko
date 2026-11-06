@@ -2,25 +2,22 @@ import { test, expect } from '@playwright/test';
 import assert from 'node:assert/strict';
 import { mkdir } from 'node:fs/promises';
 
-// El contexto de Playwright es temporal: estas pruebas nunca usan partidas personales.
+// El contexto de Playwright es temporal: estas pruebas nunca usan partidas personales. El navegador (GPU o software)
+// y el puerto los pone la configuración: fijarlos aquí dejaba la prueba sin GPU y apuntando a otro servidor.
 test.use({
   video: 'off',
-  viewport: { width: 1440, height: 980 },
-  launchOptions: {
-    executablePath: process.env.PLAYWRIGHT_EXECUTABLE_PATH,
-    args: [],
-    chromiumSandbox: true
-  }
+  viewport: { width: 1440, height: 980 }
 });
 test('Bolirana: mapa, práctica, abandono, victoria y saldo persistente', async ({
-  page
+  page, baseURL
 }) => {
   test.setTimeout(240_000);
+  const inicio = new URL('/', baseURL).href;
   const errors = [],
     external = [];
   page.on('pageerror', (e) => errors.push(e.message));
   await page.route('**/*', (r) => {
-    if (r.request().url().startsWith('http://127.0.0.1:5188/'))
+    if (r.request().url().startsWith(inicio))
       return r.continue();
     external.push(r.request().url());
     return r.abort();
@@ -30,7 +27,7 @@ test('Bolirana: mapa, práctica, abandono, victoria y saldo persistente', async 
     await mkdir(process.env.BOLIRANA_SHOTS, { recursive: true });
     await page.screenshot({ path: `${process.env.BOLIRANA_SHOTS}/${name}` });
   }
-  await page.goto('http://127.0.0.1:5188/');
+  await page.goto(inicio);
   await page
     .locator('#creator-modal')
     .waitFor({ state: 'visible', timeout: 120000 });
@@ -99,7 +96,7 @@ test('Bolirana: mapa, práctica, abandono, victoria y saldo persistente', async 
     pos
   );
   assert.equal(await page.evaluate(() => window.__game.stats.dinero), 10000);
-  assert.equal(page.url(), 'http://127.0.0.1:5188/');
+  assert.equal(page.url(), inicio);
   await page.keyboard.press('e');
   await page.locator('#bolirana-venue').waitFor({ state: 'visible' });
   frame = page.frameLocator('#bolirana-venue iframe');

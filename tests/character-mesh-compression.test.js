@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
 import { compressPaths } from '../tools/personaje/comprimir-mallas.mjs';
@@ -43,7 +44,7 @@ test('la compresión de las mallas de personaje devuelve los mismos vértices, �
     assert.ok(after < before * .8, `los .bin bajan al menos un 20 % (${before} → ${after})`);
     assert.equal((await compressPaths([dir])).files, 0, 'un archivo ya comprimido no se vuelve a tocar');
     for (const name of ['cuerpo.gltf', 'camisa.gltf', 'cola.gltf']) {
-      const original = meshes(await parse(SOURCE.pathname, name));
+      const original = meshes(await parse(fileURLToPath(SOURCE), name));
       const packed = meshes(await parse(dir, name));
       assert.deepEqual(packed.map(m => m.name), original.map(m => m.name));
       packed.forEach((mesh, i) => {

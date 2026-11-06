@@ -76,9 +76,17 @@ export class ObjectiveSystem {
     return { index: this.index, counter: this.counter, completed: [...this.completed] };
   }
 
-  /** Acepta el estado guardado; los ids pesan más que el índice si la lista cambia. */
+  /**
+   * Acepta el estado guardado; los ids pesan más que el índice si la lista cambia. Sin datos vuelve al primero, para
+   * que `catchUp` ponga al día una partida o un archivo de antes de los objetivos desde el principio.
+   */
   deserialize(data) {
-    if (!data || typeof data !== 'object') return false;
+    if (!data || typeof data !== 'object') {
+      this.index = 0;
+      this.counter = 0;
+      this.completed = [];
+      return false;
+    }
     const known = new Set(this.defs.map(d => d.id));
     const completed = Array.isArray(data.completed) ? data.completed.filter(id => known.has(id)) : null;
     if (completed) {

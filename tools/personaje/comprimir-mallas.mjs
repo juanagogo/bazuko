@@ -10,6 +10,7 @@
 import { readFileSync, writeFileSync, readdirSync, statSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { MeshoptEncoder, MeshoptDecoder } from 'meshoptimizer';
+import { esPrincipal } from '../esPrincipal.mjs';
 
 const EXT = 'EXT_meshopt_compression';
 const COMPONENT_BYTES = { 5120: 1, 5121: 1, 5122: 2, 5123: 2, 5125: 4, 5126: 4 };
@@ -91,7 +92,7 @@ const walk = dir => readdirSync(dir).flatMap(name => {
   return statSync(path).isDirectory() ? walk(path) : path.endsWith('.gltf') ? [path] : [];
 });
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (esPrincipal(import.meta.url)) {
   if (process.argv.length < 3) throw new Error('Indicar carpetas o archivos .gltf; normalmente lo hace npm run build sobre dist/.');
   const { files, before, after } = await compressPaths(process.argv.slice(2));
   console.log(`${files} archivos: ${(before / 1e6).toFixed(2)} MB → ${(after / 1e6).toFixed(2)} MB.`);

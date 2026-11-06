@@ -1,4 +1,5 @@
-import { FRASES } from './vocesCalle.js';
+import { FRASES, REPARTO } from './vocesCalle.js';
+import { HEREDADAS, PRESTADAS, REUSO } from './vocesReuso.js';
 
 // Frases con audio de los peatones, por situación. `text` es la burbuja y `audio` la grabación.
 // `gender: 'mujer'` marca voz de mujer; sin marcar es voz de hombre y solo la dicen los hombres.
@@ -103,4 +104,23 @@ for (const frase of FRASES) {
   const category = CATEGORIA_DE_SITUACION[frase.situacion];
   if (!category) continue;
   (NPC_VOICE_BANK[category] ??= []).push({ audio: frase.audio, text: frase.text, gender: frase.gender, voz: frase.voz });
+}
+
+// Las situaciones nuevas con grabaciones que ya existen (ver vocesReuso.js): cada frase con la voz de quien la dijo,
+// las prestadas con el papel que comparte actor, y las de antes sin voz del reparto.
+const POR_ID = new Map(FRASES.map(frase => [frase.id, frase]));
+const agregar = (category, entry) => {
+  const bank = NPC_VOICE_BANK[category] ??= [];
+  if (!bank.some(item => item.audio === entry.audio && item.voz === entry.voz)) bank.push(entry);
+};
+for (const [category, ids] of Object.entries(REUSO)) for (const id of ids) {
+  const frase = POR_ID.get(id);
+  if (frase) agregar(category, { audio: frase.audio, text: frase.text, gender: frase.gender, voz: frase.voz });
+}
+for (const [id, voz, category] of PRESTADAS) {
+  const frase = POR_ID.get(id);
+  if (frase) agregar(category, { audio: frase.audio, text: frase.text, gender: REPARTO[voz].sexo, voz });
+}
+for (const [file, text, category, voz] of HEREDADAS) {
+  agregar(category, voz ? { audio: `/audio/${file}`, text, voz } : { audio: `/audio/${file}`, text });
 }

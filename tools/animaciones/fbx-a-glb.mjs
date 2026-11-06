@@ -6,6 +6,7 @@
 // Así el navegador no descomprime ni interpreta FBX al cargar y la descarga baja a una fracción.
 import { readFileSync, writeFileSync } from 'node:fs';
 import { basename } from 'node:path';
+import { esPrincipal } from '../esPrincipal.mjs';
 import * as THREE from 'three';
 import { FBXLoader } from 'three/examples/jsm/loaders/FBXLoader.js';
 import { GLTFExporter } from 'three/examples/jsm/exporters/GLTFExporter.js';
@@ -44,7 +45,7 @@ export async function fbxToGlb(bytes) {
   return Buffer.from(glb);
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (esPrincipal(import.meta.url)) {
   const files = process.argv.length > 2 ? process.argv.slice(2) : COMBAT_FBX.map(name => `public/models/${name}.fbx`);
   for (const file of files) {
     const bytes = readFileSync(file);

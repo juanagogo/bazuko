@@ -5,7 +5,11 @@ import { sameSex, setPan, setRate, takeVariation, voicePan } from './voiceVariet
 
 /**
  * Las cinco frases de la calle, grabadas de verdad. `text` es lo que muestra la burbuja.
- * Sin `gender` son voz de hombre: solo las dicen los hombres (ver `sameSex`).
+ * Sin `gender` son voz de hombre: solo las dicen los hombres (ver `sameSex`). No son de ninguna voz del reparto:
+ * las dice quien todavía no se ha oído con la suya (`_vozOida`). Decirlas no le cambia la voz del reparto: el banco
+ * casi no tiene frases sin voz para hombre (robo, testigo, limosna... ninguna), así que quedarse con una "voz de la
+ * calle" lo dejaría mudo justo cuando lo roban. Lo que queda: quien dijo una de la calle puede después hablar con
+ * la suya (un cambio, una vez), pero quien ya se oyó con la suya no vuelve a la de la calle.
  */
 export const STREET_VOICES = [
   { key: 'carechimba', file: 'calle_las_mejores_carechimba.mp3', text: 'Las mejores, carechimba.' },
@@ -21,6 +25,7 @@ const CLIP_COOLDOWN = 50000;              // ms antes de repetir la misma grabac
 const GAP_MIN = 6000, GAP_MAX = 13000;    // ms entre frase y frase
 const RETRY = 1000;                       // con nadie disponible, no vuelve a mirar cada cuadro
 const POOL = 4;                           // entre los más cercanos, cualquiera puede hablar
+const BURBUJA_CORTADA = .4;               // s que le quedan a la burbuja de una frase cortada
 
 export class StreetVoices {
   constructor({ bank, random = Math.random } = {}) {
@@ -60,6 +65,7 @@ export class StreetVoices {
     this._clipAt.set(chosen.clip.key, now + CLIP_COOLDOWN);
     this._nextAt = now + GAP_MIN + this.random() * (GAP_MAX - GAP_MIN);
     chosen.npc.say(chosen.clip.text, Math.max(1.5, (sound.duration() || 2) + .5));
+    this._voice.bubble = chosen.npc._bubbleEl ?? null;
   }
 
   /** Entre los más cercanos a la vista elige la persona y, entre las grabaciones libres, la frase. */
@@ -68,6 +74,7 @@ export class StreetVoices {
     for (const npc of pedestrians ?? []) {
       if ((this._npcAt.get(npc) ?? -Infinity) > now) continue;
       if (npc._bubbleEl || npc.koState || npc.stance === 'dormido') continue;
+      if (npc._vozOida) continue; // ya habló con su voz del reparto: no pasa a la de la calle
       const p = npc.position;
       const distance = Math.hypot(p.x - position.x, p.y - position.y, p.z - position.z);
       if (distance > RANGE) continue;
@@ -97,7 +104,12 @@ export class StreetVoices {
   }
 
   _drop() {
-    if (this.active) this._voice.sound.stop(this._voice.id);
+    if (this.active) {
+      this._voice.sound.stop(this._voice.id);
+      // Cortada por una voz que pesa más: su burbuja no se queda el largo entero de la grabación.
+      const { npc, bubble } = this._voice;
+      if (bubble && npc._bubbleEl === bubble && npc._bubbleTimer > BURBUJA_CORTADA) npc._bubbleTimer = BURBUJA_CORTADA;
+    }
     this._voice = null;
   }
 

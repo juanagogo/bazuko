@@ -31,6 +31,9 @@ export const BASUCO_POSE_LIVIANO = {
   lighter: [0.0, -0.25, 0.05], lighterRotation: [0, 0, 0]
 };
 
+// La muñeca en el antebrazo: el puño es una esfera de 7 cm centrada 20 cm abajo del codo.
+const MUNECA = -.13;
+
 function capsule(r, len, m) {
   const g = new THREE.CapsuleGeometry(r, len, 4, 12);
   g.translate(0, -len / 2 - r * 0.6, 0);
@@ -418,7 +421,7 @@ export function createCharacter(initial = DEFAULT_LOOK) {
     basucoProps = { pipe, lighter };
   }
 
-  function update(dt, { speed = 0, running = false, action = null, t = 0, load = 0, dirt = 0, wet = 0, look: lookAt = 0, movement = {}, actionProgress, attack = null, smoke = null, basuco: pipeT = null, point = 0 } = {}) {
+  function update(dt, { speed = 0, running = false, action = null, t = 0, load = 0, dirt = 0, wet = 0, look: lookAt = 0, movement = {}, actionProgress, attack = null, smoke = null, basuco: pipeT = null, point = 0, hurto = null } = {}) {
     if (disposed) return;
     actionPose.restore();
     dt = Number.isFinite(dt) ? Math.max(0, dt) : 0;
@@ -432,7 +435,7 @@ export function createCharacter(initial = DEFAULT_LOOK) {
     const detached = movement.swimming || movement.grounded === false;
     const handsBlocked = detached || movement.landing > 0 || action === 'recibirGolpe' || action === 'dormir';
     const pipeAllowed = !handsBlocked && !attack && action !== 'golpear' && speed < .15 && pipeT != null;
-    if (handsBlocked || attack || action === 'golpear' || pipeAllowed || point) smoke = null;
+    if (handsBlocked || attack || action === 'golpear' || pipeAllowed || point || hurto) smoke = null;
     if (!pipeAllowed) pipeT = null;
     if (handsBlocked || attack || smoke || pipeAllowed) lookAt = 0;
     if (cigarette) cigarette.object.visible = !handsBlocked && !attack && action !== 'golpear' && !pipeAllowed;
@@ -654,7 +657,7 @@ export function createCharacter(initial = DEFAULT_LOOK) {
     body.rotation.x = -pose.lie * Math.PI / 2;
     body.position.y = pose.lie * 0.3;
     body.position.z = -pose.lie * 0.55;
-    actionPose.apply(dt, { speed, running, action, actionProgress, movement, attack, point });
+    actionPose.apply(dt, { speed, running, action, actionProgress, movement, attack, point, hurto });
 
     // parpadeo
     blink -= dt;
@@ -681,6 +684,19 @@ export function createCharacter(initial = DEFAULT_LOOK) {
     setSmoking,
     setBasuco,
     setWeapon,
+    /**
+     * Ata un objeto rígido a una mano, como `hold` del realista: 'cargar-izquierda' o 'cargar-derecha', con el origen
+     * en la muñeca (arriba del puño) y los ejes del antebrazo. False con cualquier otra postura.
+     */
+    hold(object, pose) {
+      const arm = pose === 'cargar-izquierda' ? arms[0] : pose === 'cargar-derecha' ? arms[1] : null;
+      if (!arm) return false;
+      arm.elbow.add(object);
+      object.position.set(0, MUNECA, 0);
+      object.quaternion.identity();
+      object.scale.setScalar(1);
+      return true;
+    },
     dispose() {
       if (disposed) return;
       disposed = true;
@@ -693,7 +709,8 @@ export function createCharacter(initial = DEFAULT_LOOK) {
         for (const material of [object.material].flat()) if (material) materials.add(material);
       });
       for (const geometry of geometries) geometry.dispose();
-      for (const material of materials) material.dispose();
+      // Lo que tenga en la mano con material de la calle (un bolso arrancado) es de todos: no se libera.
+      for (const material of materials) if (!material.userData?.shared) material.dispose();
       root.removeFromParent();
     },
     pipeBowl(target) { return basucoProps ? basucoProps.pipe.top.getWorldPosition(target) : null; },

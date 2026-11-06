@@ -15,7 +15,7 @@ Las optimizaciones reducen trabajo de renderizado y consultas de simulación con
 - La silueta conserva sus dos pasadas correctivas, pero se omite en calidad baja y cuando los volúmenes de colisión no indican obstrucción del jugador. La lista de luces de esas pasadas es explícita y no necesita recorrer la ciudad.
 - La primera partida empieza en calidad baja. La adaptación baja resolución con mayor rapidez ante carga severa y, al alcanzar el mínimo, puede reducir sombras, silueta, distancia de cámara y frecuencia visual de animación. No sobrepasa el perfil elegido por el jugador ni cambia la simulación.
 
-El recorte isométrico conserva sus paredes individuales. Esta entrega no reexporta esqueletos reducidos ni introduce un sistema nuevo de LOD geométrico para edificios. Son pasos posteriores que necesitan medición y revisión visual de los recursos.
+El recorte isométrico suelta las paredes solo de los edificios cercanos a la línea cámara-jugador; los demás siguen en sus lotes (ver `docs/rendimiento-desglose.md`, «La isométrica con lotes»). Esta entrega no reexporta esqueletos reducidos ni introduce un sistema nuevo de LOD geométrico para edificios. Son pasos posteriores que necesitan medición y revisión visual de los recursos.
 
 En una comparación estructural con la misma ciudad de 511 edificios y 1.372 colliders, los materiales de los lotes cerrados pasaron de 903 a 345 y sus mallas de 908 a 890. Una consulta de cámara en la zona inicial pasó de revisar 1.372 cajas a obtener siete candidatas. Para esta comparación se usó geometría real y se sustituyeron Canvas y carga de personajes; el azar de generación se mantuvo separado del de UUID para conservar la escena. Son recuentos de trabajo, no una medición de FPS ni de GPU.
 
@@ -251,3 +251,15 @@ Este último cambio también alcanza a media, porque los lotes se arman una sola
 | Cambuche | 2.402 | 1.610 (−33 %) | 1.374.000 | 1.511.000 (+10 %) |
 | Centro | 2.195 | 1.471 (−33 %) | 1.270.000 | 1.367.000 (+8 %) |
 | Avenida | 2.404 | 1.668 (−31 %) | 1.339.000 | 1.378.000 (+3 %) |
+
+## Descarte por edificio, un esqueleto por persona y bloques a demanda
+
+`FrustumCulling` descarta en dos niveles: los sectores de 64 m y, dentro de ellos, cada hijo con seis nodos o más (`registerSectorChildren`, `src/core/SectorCulling.js`). La caja de cada hijo contiene la esfera de cada malla, la misma que prueba Three, así que nunca oculta algo que Three habría dibujado: las llamadas quedan iguales y se recorren menos nodos (en las vistas medidas, hasta un 17 % menos por pasada en tercera persona). Lo que se mueve, tiene piel, es un sprite o se dibuja sin descarte propio no se registra.
+
+Cada persona usa un solo `THREE.Skeleton` (`shareSkeletons`, `src/character/sharedSkeleton.js`) cuando sus piezas tienen los mismos huesos y matrices inversas idénticas bit a bit: la textura de huesos se sube una vez por persona y por cuadro, no siete u ocho (de 143 a 25 subidas por cuadro en el inicio, en media).
+
+hls.js y el cargador FBX ya no entran en los bloques `vendor` y `three` del arranque (`SOLO_A_DEMANDA` en `vite.config.js`): el JavaScript del arranque baja de 896 a 702 kB comprimidos.
+
+`game.getPerformanceReport().breakdown` (`renderBreakdown`, `src/core/RenderBreakdown.js`) da, bajo demanda, la memoria en la GPU, los nodos, pruebas y llamadas de cada pasada por categoría, los esqueletos dibujados y cuántos peatones se ven con el modelo completo. El benchmark guarda ese desglose y cuenta las llamadas WebGL por cuadro en una ventana aparte, después de la de FPS (`--gl-segundos`); `--memoria` recorre las cuatro vistas con muestras de memoria y `--angle metal` usa la GPU sin ventana en macOS.
+
+Las mediciones, las garantías y lo que no se hizo están en [el desglose del render](rendimiento-desglose.md).

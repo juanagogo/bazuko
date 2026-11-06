@@ -391,15 +391,36 @@ export class RadioSystem {
     this._applyOutput();
   }
 
+  /**
+   * Mientras alguien habla cerca, el radio baja como el tráfico (AudioSystem._duck, de 0,45 a 1). Solo escribe el
+   * volumen cuando cambia de verdad: el juego la llama en cada cuadro.
+   */
+  setDuck(duck) {
+    const value = Math.max(0, Math.min(1, Number.isFinite(duck) ? duck : 1));
+    if (Math.abs(value - (this._duck ?? 1)) <= .02 && !(value === 1 && this._duck !== 1)) return;
+    this._duck = value;
+    this._applyOutput();
+  }
+
+  /** La señal que de verdad se oye: una emisora en vivo caída, o que todavía no arranca, es pura estática. */
+  audibleSignal() {
+    const info = this.getStationInfo();
+    if (info.station.kind !== 'stream') return info.signal;
+    const el = this._audioEl;
+    const live = this._liveId === info.station.id && !this._failedId && el && !el.paused && !el.ended && (el.readyState ?? 0) >= 3;
+    return live ? info.signal : 0;
+  }
+
   _applyOutput() {
-    const level = this._paused || this._outputMuted ? 0 : this.volume * this._outputVolume;
+    const duck = this._duck ?? 1;
+    const level = this._paused || this._outputMuted ? 0 : this.volume * this._outputVolume * duck;
     if (this._masterGain) this._masterGain.gain.value = level;
 
     // La señal en vivo sale por el propio elemento, no por la Web Audio API: un nodo de fuente
     // exigiría CORS y varias emisoras no lo dan.
     const el = this._audioEl;
     if (el) {
-      el.volume = Math.max(0, Math.min(1, this.volume * this._outputVolume));
+      el.volume = Math.max(0, Math.min(1, this.volume * this._outputVolume * duck));
       el.muted = this._paused || this._outputMuted;
     }
   }
@@ -696,7 +717,7 @@ export class RadioSystem {
 
     this._updateBulletins(dt);
 
-    const { signal } = this.getStationInfo();
+    const signal = this.audibleSignal();
 
     // Efecto de bienestar: escuchar radio sube la salud mental (+0.8 por segundo)
     if (stats) {

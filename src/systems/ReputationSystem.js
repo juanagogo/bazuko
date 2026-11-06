@@ -12,7 +12,7 @@ export const FAMA_MAX = 100;
 /** Cuánto mueve cada cosa. Los golpes de una pelea cuentan una vez cada `peleaCada` segundos. */
 export const FAMA = {
   vender: 1, fabricar: 1, encargo: 4, limosna: 0,
-  retrovisor: -2, retrovisorPillado: -3, roboDirecto: -5, cosquilleoPillado: -4,
+  retrovisor: -2, retrovisorPillado: -3, roboDirecto: -5, cosquilleoPillado: -4, robarALosSuyos: -2,
   pelea: -2, peleaCada: 6, carro: -4, llamada: -3, arresto: -6,
 };
 
@@ -48,7 +48,7 @@ export class ReputationSystem {
       on('witness-call', () => this.sumar(FAMA.llamada));
       on('police-arrest', () => this.sumar(FAMA.arresto));
       on('street-fight', () => { if (this._peleaS <= 0) { this._peleaS = FAMA.peleaCada; this.sumar(FAMA.pelea); } });
-      on('robo-peaton', (e) => this.sumar(e?.detail?.directo ? FAMA.roboDirecto : FAMA.cosquilleoPillado));
+      on('robo-peaton', (e) => this.sumar((e?.detail?.directo ? FAMA.roboDirecto : FAMA.cosquilleoPillado) + (e?.detail?.deLosSuyos ? FAMA.robarALosSuyos : 0)));
       on('encargo-cumplido', () => this.sumar(FAMA.encargo));
     }
   }

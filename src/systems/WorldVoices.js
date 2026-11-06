@@ -4,6 +4,7 @@
 // por el mismo canal que la gente de la calle (AudioSystem.playNpcVoice): una sola voz a la vez y más bajo de lejos.
 import { FRASES, frasesDe } from '../data/vocesCalle.js';
 import { ShuffleBag } from './voiceVariety.js';
+import { PRIORIDAD_VOZ } from './voces/prioridad.js';
 
 const POLICE_VOICES = ['policia_a', 'policia_b'];
 // Gritos de la patrulla que persigue: cada tanto, y de lejos más megáfono que grito.
@@ -30,6 +31,8 @@ export class WorldVoices {
     this._busCalled = new WeakSet();  // bus que ya voceó en esta parada
     this._vehicles = [];
     this._listener = null;
+    // Subtítulo de lo que se oye (lo pone VoiceDirector): (frase, posición, { radio, segundos, fuente }).
+    this.onLine = null;
     this._handlers = {
       'police-chase': () => this._radio([['operadora_radio_1']]),
       'police-radio': event => this._radio(event?.detail?.reason === 'llamada'
@@ -53,9 +56,11 @@ export class WorldVoices {
     return this._bags.get(key).draw(frasesDe(situacion, voz), frase => frase.id);
   }
 
-  _say(frase, position, { range, level, force = false }) {
+  /** Dice la frase desde `position`; su subtítulo sale cuando de verdad empieza a sonar. */
+  _say(frase, position, { range, level, force = false, priority = 0, allowPaused = false, radio = false, source = null }) {
     if (!frase || !position) return false;
-    return this.audio.playNpcVoice(frase.audio, { position }, { range, level, force });
+    const onStart = seconds => this.onLine?.(frase, position, { radio, seconds, source });
+    return this.audio.playNpcVoice(frase.audio, { position }, { range, level, force, priority, allowPaused, onStart });
   }
 
   /** La patrulla más cercana al jugador dentro de `range`; con `chasing`, solo las que persiguen. */
@@ -89,13 +94,16 @@ export class WorldVoices {
     return this._queue.length > 0;
   }
 
-  /** Lo cogieron: la patrulla que llega lo dice, aunque otra voz estuviera sonando. */
+  /**
+   * Lo cogieron: la patrulla que llega lo dice, aunque otra voz estuviera sonando. El juego se pausa en el mismo
+   * evento (Game._policeArrest), así que la frase puede sonar en pausa y, si aún no cargó, sale al cargar.
+   */
   _arrest() {
     const patrol = this._nearestPatrol(POLICE_RADIO.range, true) ?? this._nearestPatrol(POLICE_RADIO.range);
     if (!patrol) return false;
     this._queue = [];
     return this._say(this._line('arresto', this.patrolVoice(patrol.car)), patrol.car.position,
-      { range: POLICE_RADIO.range, level: POLICE_SHOUT.level, force: true });
+      { range: POLICE_RADIO.range, level: POLICE_SHOUT.level, force: true, allowPaused: true, priority: PRIORIDAD_VOZ.arrest, source: patrol.car });
   }
 
   update(dt, listener, vehicles = [], buses = null) {
@@ -116,7 +124,7 @@ export class WorldVoices {
     if ((step.ttl -= dt) <= 0) { this._queue.shift(); return; }
     if (this._busy() || (step.wait -= dt) > 0) return;
     this._queue.shift();
-    this._say(step.frase, step.car.position, { range: POLICE_RADIO.range, level: POLICE_RADIO.level });
+    this._say(step.frase, step.car.position, { range: POLICE_RADIO.range, level: POLICE_RADIO.level, priority: PRIORIDAD_VOZ.radio, radio: true, source: step.car });
   }
 
   _updateShouts(dt) {
@@ -126,7 +134,7 @@ export class WorldVoices {
     this._shoutIn = POLICE_SHOUT.min + this.random() * POLICE_SHOUT.extra;
     const megaphone = patrol.distance > POLICE_SHOUT.megaphoneFrom && this.random() < POLICE_SHOUT.megaphoneChance;
     this._say(this._line(megaphone ? 'megafono' : 'grito', this.patrolVoice(patrol.car)), patrol.car.position,
-      { range: POLICE_SHOUT.range, level: POLICE_SHOUT.level });
+      { range: POLICE_SHOUT.range, level: POLICE_SHOUT.level, priority: PRIORIDAD_VOZ.policeShout, source: patrol.car });
   }
 
   /** De noche, el jíbaro le ofrece en susurro a quien pasa cerca. */
@@ -136,7 +144,7 @@ export class WorldVoices {
     if ((this._dealerIn -= dt) > 0) return;
     if (position.distanceTo(this._listener) > DEALER_WHISPER.range || this._busy()) return;
     this._dealerIn = DEALER_WHISPER.min + this.random() * DEALER_WHISPER.extra;
-    this._say(this._line('ofrece', 'jibaro'), position, { range: DEALER_WHISPER.range, level: DEALER_WHISPER.level });
+    this._say(this._line('ofrece', 'jibaro'), position, { range: DEALER_WHISPER.range, level: DEALER_WHISPER.level, priority: PRIORIDAD_VOZ.dealerWhisper, source: dealer });
   }
 
   /** El bus que para vocea una vez por parada si el jugador está cerca. */
@@ -146,7 +154,7 @@ export class WorldVoices {
       if (this._busCalled.has(bus) || !bus.position || bus.group?.visible === false) continue;
       if (bus.position.distanceTo(this._listener) > BUS_CALLER.range || this._busy()) continue;
       this._busCalled.add(bus);
-      this._say(this._line('voceador', 'busetero'), bus.position, { range: BUS_CALLER.range, level: BUS_CALLER.level });
+      this._say(this._line('voceador', 'busetero'), bus.position, { range: BUS_CALLER.range, level: BUS_CALLER.level, priority: PRIORIDAD_VOZ.busCaller, source: bus });
     }
   }
 

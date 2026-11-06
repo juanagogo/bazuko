@@ -50,6 +50,7 @@ export const FORCEJEO = {
   multAbstinencia: 0.5,    // ×: fuerza en abstinencia
   castigoSalud: 15,        // puntos de salud perdidos al perder
   castigoAnimo: 10,        // puntos de ánimo perdidos al perder
+  tragarE: 0.6,            // s: tras el forcejeo, las E del machaque que siguen llegando no hacen nada
   espera: 120,             // s: sin aceptar otro forcejeo tras ganarle al jugador
   botin: {
     min: 2,                // materiales mínimos al ganar
@@ -59,11 +60,13 @@ export const FORCEJEO = {
 };
 
 export const TEXTOS_ZORRA = {
-  sueltaPrimero: 'Primero suelto la zorra',
+  sueltaPrimero: 'Primero suelto la zorra con U',
+  sueltaCarreta: 'Primero suelto la carreta con E', // la carreta de balineras (Cart.js): se engancha y se suelta con E
   sobrepeso: 'Con tanto peso no doy ni un paso',
   muerte: 'Me desmayé y me desocuparon la zorra',
   yaTienes: 'Ya tengo zorra',
   agarrar: '[U] Agarrar zorra',
+  soltar: '[U] Soltar la zorra',
   robar: '[U] Llevarse la zorra',
   forcejear: '[E] Forcejear por la zorra',
   enojado: 'Este reciclador no quiere más forcejeos',

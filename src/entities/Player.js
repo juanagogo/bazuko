@@ -649,6 +649,7 @@ export class Player {
     }
     speed = this.waterMovement.getSpeed({ walkSpeed: speed, runSpeed: speed, moving, running, energy: this.stats?.energia ?? 100 });
     if (this.melee.active) speed *= .55;
+    speed *= this.stealPose?.velocidad ?? 1; // con la mano en un bolsillo ajeno se anda despacio
     // Movimiento
     const dir = this._direction.set(x, 0, z);
     if (camera?.userData?.cameraMode === 'third-person' || this.input?.palancaManda) {
@@ -881,6 +882,7 @@ export class Player {
       attack: this.attack,
       smoke: this._holdingCigarette && !this.attack ? this.smoking : null,
       basuco: this.basuco && !this.basuco.stowed ? this.basuco.t : null,
+      hurto: this.stealPose ?? null, // la mano del robo (features/stealReactions.js)
       look: this._glance,
       t: this.time,
       load: this.load,

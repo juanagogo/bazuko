@@ -71,8 +71,22 @@ test('empujando no se roban carros; con la zorra en el suelo sí', () => {
   sys.zorra = { empujando: true };
   sys.update(0.016, entradaE(), { isNight: false });
   assert.equal(robos, 0);
-  assert.equal(toast, 'Primero suelto la zorra');
+  assert.equal(toast, 'Primero suelto la zorra con U');
   sys.zorra = { empujando: false };
+  sys.update(0.016, entradaE(), { isNight: false });
+  assert.equal(robos, 1);
+});
+
+test('con la carreta de balineras enganchada tampoco se roban carros', () => {
+  let robos = 0, toast = null;
+  window.addEventListener('toast', (e) => { toast = e.detail.text; });
+  const carro = { steal: () => { robos++; return null; }, position: new THREE.Vector3(0.5, 0, 0) };
+  const sys = interaccion([carro]);
+  sys.player.hasCart = true;
+  sys.update(0.016, entradaE(), { isNight: false });
+  assert.equal(robos, 0);
+  assert.equal(toast, 'Primero suelto la carreta con E');
+  sys.player.hasCart = false;
   sys.update(0.016, entradaE(), { isNight: false });
   assert.equal(robos, 1);
 });

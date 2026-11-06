@@ -34,6 +34,7 @@ export class InteractionSystem {
     this.currentTarget = null;
     this.currentTargetType = null;
     this.zorra = null;      // ZorraSystem; lo asigna el juego
+    this.steal = null;      // StealSystem; lo asigna el juego (robando no se pide limosna)
 
     this.boostActive = false;
     this.boostTimer = 0;
@@ -91,6 +92,10 @@ export class InteractionSystem {
     let nearest = null;
     let nearestType = null;
     let nearestDist = INTERACT_RANGE;
+    // Trabajando un carro, o mientras el despeje lo lleva al andén, el espejo no se roba: ni aviso ni E (robo y rebusque
+    // no van juntos, como el cosquilleo en StealSystem). Los carros ni cuentan: la basura o la tienda de al lado sí.
+    const rebusque = this.rebusque;
+    const sinCarros = !!(rebusque?.activo || rebusque?.controlaJugador);
 
     for (const t of this.targets) {
       if (t.interactable === false) continue;
@@ -99,23 +104,26 @@ export class InteractionSystem {
       // Un carro se alcanza también desde sus espejos; lo demás, desde su centro.
       const d = t.interactDistance?.(this.player.position) ?? t.position.distanceTo(this.player.position);
       if (d < nearestDist) {
+        let tipo = nearestType;
+        // Determinar tipo por `kind` o por métodos disponibles
+        if (t.kind === 'dropped-item') tipo = 'dropped-item';
+        if (t.kind === 'bolirana') tipo = 'bolirana';
+        if (t.kind === 'zorra' || t.kind === 'reciclador') tipo = t.kind;
+        else if (t.kind === 'shop') tipo = 'shop';
+        else if (t.kind === 'cambuche') tipo = 'cambuche';
+        else if (t.kind === 'dog') tipo = 'dog';
+        else if (t.kind === 'cart') tipo = 'cart';
+        else if (t.kind === 'fireBarrel') tipo = 'fireBarrel';
+        else if (t.kind === 'recycler') tipo = 'sell';
+        else if (t.kind === 'mesa') tipo = 'mesa';
+        else if (typeof t.harvest === 'function') tipo = 'pickup';
+        else if (typeof t.steal === 'function') tipo = 'car';
+        else if (typeof t.sellSubstances === 'function') tipo = 'dealer';
+        else if (t instanceof Object && typeof t.sell === 'function') tipo = 'sell';
+        if (tipo === 'car' && sinCarros) continue;
         nearestDist = d;
         nearest = t;
-        // Determinar tipo por `kind` o por métodos disponibles
-        if (t.kind === 'dropped-item') nearestType = 'dropped-item';
-        if (t.kind === 'bolirana') nearestType = 'bolirana';
-        if (t.kind === 'zorra' || t.kind === 'reciclador') nearestType = t.kind;
-        else if (t.kind === 'shop') nearestType = 'shop';
-        else if (t.kind === 'cambuche') nearestType = 'cambuche';
-        else if (t.kind === 'dog') nearestType = 'dog';
-        else if (t.kind === 'cart') nearestType = 'cart';
-        else if (t.kind === 'fireBarrel') nearestType = 'fireBarrel';
-        else if (t.kind === 'recycler') nearestType = 'sell';
-        else if (t.kind === 'mesa') nearestType = 'mesa';
-        else if (typeof t.harvest === 'function') nearestType = 'pickup';
-        else if (typeof t.steal === 'function') nearestType = 'car';
-        else if (typeof t.sellSubstances === 'function') nearestType = 'dealer';
-        else if (t instanceof Object && typeof t.sell === 'function') nearestType = 'sell';
+        nearestType = tipo;
       }
     }
     // Con una persona más cerca que el carro, el aviso y la E son del cosquilleo. Basura, tiendas y demás conservan su turno.
@@ -193,8 +201,10 @@ export class InteractionSystem {
           nearest.toggleGrab(this.player, this.inventory);
           break;
         case 'car':
-          if (this.zorra?.empujando) {
-            window.dispatchEvent(new CustomEvent('toast', { detail: { text: TEXTOS_ZORRA.sueltaPrimero, type: 'warn' } }));
+          // Con las manos en la zorra o en la carreta de balineras no se arranca un espejo.
+          if (this.zorra?.empujando || this.player?.hasCart) {
+            const text = this.zorra?.empujando ? TEXTOS_ZORRA.sueltaPrimero : TEXTOS_ZORRA.sueltaCarreta;
+            window.dispatchEvent(new CustomEvent('toast', { detail: { text, type: 'warn' } }));
             break;
           }
           this._stealCar(nearest);
@@ -470,7 +480,15 @@ export class InteractionSystem {
     return null;
   }
 
+  /** Con la mano en un bolsillo, el tirón en camino o el atraco encima: lo mismo que mira RebusqueSystem._robando. */
+  _robando() {
+    const steal = this.steal;
+    return !!(steal?.minigameActive || steal?.raponazo || steal?.assaultScene || this.player?.stealPose?.fase);
+  }
+
   _beg() {
+    // Robando no se pide limosna: la B se pierde, aunque no haya rebusque que se la coma.
+    if (this._robando()) return;
     const now = performance.now();
     const elapsed = (now - this._lastBegTime) / 1000;
     if (elapsed < this.begCooldown) {

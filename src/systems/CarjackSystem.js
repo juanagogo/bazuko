@@ -20,7 +20,8 @@ export const CARJACK = {
   pedestrianHitSpeed: 3,
   cameraDistance: 8.5,
   cooldown: 1.2,
-  xp: 25
+  xp: 25,
+  maxWade: .3            // m de agua bajo el frente del carro: más hondo no se mete (lago)
 };
 
 /** Tiempos (s) de subir y bajar: caminar hasta la puerta, abrirla o sacar al conductor, meterse; y al revés. */
@@ -69,6 +70,9 @@ export class CarjackSystem {
     this._audioEntry = { car: null, speed: 0, personBlocked: false };
     this._dom = null;
     this.transition = null; // subir o bajar en curso: { kind, phase, t, ... }
+    // Carros que ya robó: volver a subirse a uno no es otro robo (sin alarma, fichado, testigos ni experiencia).
+    this._owned = new WeakSet();
+    this._waterToast = 0;
     this._buildUI();
   }
 
@@ -96,13 +100,19 @@ export class CarjackSystem {
   /** Carros que se pueden robar: estacionados o en circulación casi detenidos. */
   _candidates() {
     const list = [];
-    for (const car of this.game.cars ?? []) list.push({ car, vehicle: null });
+    // Las motos no tienen puerta ni carrocería propia (las dibuja el lote del tráfico): no se roban con Y.
+    for (const car of this.game.cars ?? []) if (!car.isMoto) list.push({ car, vehicle: null });
     for (const vehicle of this.game.traffic?.vehicles ?? []) {
       // Las patrullas no se dejan quitar el carro.
       // Con el conductor afuera por una pelea (RoadRageSystem) el carro es de él: no se cruza con esa escena.
-      if (!vehicle.police && !vehicle.hold && vehicle.speed <= CARJACK.maxTrafficSpeed) list.push({ car: vehicle.car, vehicle });
+      if (!vehicle.police && !vehicle.hold && !vehicle.car?.isMoto && vehicle.speed <= CARJACK.maxTrafficSpeed) list.push({ car: vehicle.car, vehicle });
     }
     return list;
+  }
+
+  /** ¿Es un carro que ya robó (el de la partida o uno de esta sesión) y está estacionado? */
+  _isOwn(car, vehicle = null) {
+    return !vehicle && !!car && (car === this.stolen || this._owned.has(car));
   }
 
   _findTarget() {
@@ -141,14 +151,21 @@ export class CarjackSystem {
     }
     this.target = this.cooldown > 0 ? null : this._findTarget();
     if (!this.target) return false;
-    this.prompt = this.target.vehicle ? '[Y] Sacar al conductor y robarme el carro' : '[Y] Forzar la puerta y robarme el carro';
+    this.prompt = this.target.vehicle ? '[Y] Sacar al conductor y robarme el carro'
+      : this._isOwn(this.target.car) ? '[Y] Subirme a mi carro' : '[Y] Forzar la puerta y robarme el carro';
     if (input.consumePress(CARJACK.key)) this.enter(this.target);
     return !!this.car;
   }
 
   enter({ car, vehicle }) {
     const game = this.game;
-    if (vehicle) {
+    const own = this._isOwn(car, vehicle);
+    // La cinemática del espejo devuelve antes su cámara: si no, la distancia a pie que se guarda es la del primer plano.
+    if (game.mirrorCinematic?.active) game.mirrorCinematic.stop();
+    if (own) {
+      // Ya es suyo: abre y se sube, sin forzar nada.
+      this.speed = 0;
+    } else if (vehicle) {
       // El conductor sale corriendo y reclama; el carro deja de seguir su ruta.
       game.audio?.playMovingTheft?.(car);
       game.traffic?.release?.(vehicle);
@@ -165,11 +182,16 @@ export class CarjackSystem {
         this._toast('Forcé la puerta sin hacer ruido.', 'rare');
       }
     }
-    this._raiseWanted();
-    game.witnesses?.report?.('carro');
-    game.stats?.addXP?.(CARJACK.xp, game.talents);
+    if (!own) {
+      this._raiseWanted();
+      game.witnesses?.report?.('carro');
+      game.stats?.addXP?.(CARJACK.xp, game.talents);
+    }
     this.car = car;
     this.stolen = car;
+    this._owned.add(car);
+    // La Policía lo ve y lo captura a través del carro que maneja (ver TrafficSystem._ignoredBy).
+    if (game.traffic) game.traffic.playerVehicle = car;
     car.driven = true;
     car.traffic = true; // luces encendidas mientras se maneja
     if (car.marker) car.marker.visible = false;
@@ -188,7 +210,9 @@ export class CarjackSystem {
     }
     this.cooldown = CARJACK.cooldown;
     if (!this.transition) this._finishBoarding();
-    this._emit('carjack', { car, fromTraffic: !!vehicle });
+    // Volver a su carro no cuenta como robo: ni fama, ni objetivo, ni encargo.
+    if (own) this._emit('carjack-reenter', { car });
+    else this._emit('carjack', { car, fromTraffic: !!vehicle });
   }
 
   exit() {
@@ -236,6 +260,7 @@ export class CarjackSystem {
     }
     this._savedCameraDistance = null;
     this.car = null;
+    if (game.traffic?.playerVehicle === car) game.traffic.playerVehicle = null;
     this.speed = 0;
     this.cooldown = CARJACK.cooldown;
     if (this._dom) this._dom.hud.hidden = true;
@@ -245,7 +270,7 @@ export class CarjackSystem {
   /** Lo que se guarda: el último carro robado, para encontrarlo donde quedó. */
   serialize() {
     const car = this.stolen;
-    if (!car || car._disposed || !(this.game.cars ?? []).includes(car)) return null;
+    if (!car || car._disposed || car.isMoto || !(this.game.cars ?? []).includes(car)) return null;
     return { pos: car.position.toArray().map(n => Math.round(n * 100) / 100), rot: Math.round(car.group.rotation.y * 1000) / 1000,
       kind: car.kind, variant: car.variant };
   }
@@ -254,10 +279,13 @@ export class CarjackSystem {
   restore(data, { CarClass, migrate } = {}) {
     const game = this.game;
     if (!data || !Array.isArray(data.pos) || data.pos.length !== 3 || !data.pos.every(Number.isFinite) || !Number.isFinite(data.rot)) return null;
-    if (data.kind === 'police') return null;
+    // Una moto robada (partidas de antes del arreglo) no se rehace: saldría como un sedán.
+    if (data.kind === 'police' || data.kind === 'moto') return null;
     if (this.car) this.reset();
     const position = migrate?.(data.pos) ?? data.pos;
-    let car = this.stolen && (game.cars ?? []).includes(this.stolen) ? this.stolen : null;
+    // El de esta sesión se reusa solo si es el mismo carro: otro tipo o color se rehace (el viejo queda como uno más).
+    const mismo = (c) => c.kind === (typeof data.kind === 'string' ? data.kind : c.kind) && (data.variant == null || c.variant === data.variant);
+    let car = this.stolen && (game.cars ?? []).includes(this.stolen) && mismo(this.stolen) ? this.stolen : null;
     if (!car) {
       if (!CarClass || !game.sceneMgr?.scene) return null;
       car = new CarClass(game.sceneMgr.scene, new THREE.Vector3(...position), data.rot,
@@ -274,12 +302,36 @@ export class CarjackSystem {
     car.setDriverInside?.(false);
     game.traffic?.setParkedCars?.(game.cars);
     this.stolen = car;
+    this._owned.add(car);
     return car;
   }
 
-  /** Sale del carro sin colocar al jugador (recuperación o cambio de distrito). */
-  reset() {
+  /**
+   * El último carro robado deja de ser suyo aunque no lo esté manejando: al cargar la partida guardada en la plana del
+   * arresto al volante, `restore` ya lo dejó estacionado y `reset({ perdido })` no lo alcanza (no hay `this.car`).
+   */
+  perderRobado() {
+    const car = this.stolen;
+    if (!car) return;
+    this._owned.delete(car);
+    this.stolen = null;
+  }
+
+  /** Al cambiar de partida ningún carro de la anterior sigue siendo suyo; `restore` vuelve a marcar el de la nueva. */
+  olvidarRobados() {
+    this._owned = new WeakSet();
+  }
+
+  /**
+   * Sale del carro sin colocar al jugador (recuperación o cambio de distrito). Con `perdido` (lo cogió la Policía
+   * manejándolo) el carro deja de ser suyo: volver a subirse es otro robo y la partida ya no lo guarda.
+   */
+  reset({ perdido = false } = {}) {
     const car = this.car;
+    if (car && perdido) {
+      this._owned.delete(car);
+      if (this.stolen === car) this.stolen = null;
+    }
     if (car) {
       car.driven = false;
       car.traffic = false;
@@ -292,6 +344,7 @@ export class CarjackSystem {
     if (this.game.cameraRig && restore != null) this.game.cameraRig.distance = restore;
     this._savedCameraDistance = null;
     this._cameraReturn = null;
+    if (car && this.game.traffic?.playerVehicle === car) this.game.traffic.playerVehicle = null;
     this.car = null;
     this.speed = 0;
     this.prompt = null;
@@ -393,10 +446,23 @@ export class CarjackSystem {
   _easeCamera(dt) {
     const back = this._cameraReturn, rig = this.game.cameraRig;
     if (!back || !rig) return;
+    // Si otro movió la distancia (la rueda del ratón, la cinemática del espejo), la cámara ya es suya.
+    if (back.last !== undefined && Math.abs(rig.distance - back.last) > 1e-6) { this._cameraReturn = null; return; }
     back.t = Math.min(1, back.t + dt / BOARDING.cameraReturn);
     const e = back.t * back.t * (3 - 2 * back.t);
     rig.distance = back.from + (back.to - back.from) * e;
+    back.last = rig.distance;
     if (back.t >= 1) this._cameraReturn = null;
+  }
+
+  /**
+   * Corta el regreso de la cámara al bajarse y da la distancia a pie a la que iba (o null si no regresaba). La usa
+   * quien toma la cámara en ese momento, para restaurar después la distancia a pie y no una a medio camino.
+   */
+  takeCameraReturn() {
+    const to = this._cameraReturn?.to ?? null;
+    this._cameraReturn = null;
+    return to;
   }
 
   _ground(x, z, y) {
@@ -406,9 +472,35 @@ export class CarjackSystem {
 
   _pointBlocked(x, z, y) {
     const collisions = this.game.collisions;
+    const hits = b => !!b && x + .4 > b.min.x && x - .4 < b.max.x && z + .4 > b.min.z && z - .4 < b.max.z &&
+      b.max.y > y + .2 && b.min.y < y + 1.6;
     const candidates = collisions?.queryStatic?.(x - .4, z - .4, x + .4, z + .4, []) ?? [];
-    return candidates.some(({ box: b }) => x + .4 > b.min.x && x - .4 < b.max.x && z + .4 > b.min.z && z - .4 < b.max.z &&
-      b.max.y > y + .2 && b.min.y < y + 1.6);
+    if (candidates.some(({ box }) => hits(box))) return true;
+    // Los carros parqueados, el tráfico y el bus son cajas dinámicas: no se baja dentro de otro vehículo.
+    for (const entry of collisions?.dynamicColliders ?? []) {
+      if (entry.vehicle === this.car || entry.vehicle?.car === this.car) continue;
+      if (hits(entry.box)) return true;
+    }
+    // Ni al agua honda del lago, si hay otra puerta en seco.
+    return this._waterDepth(x, z, y) > CARJACK.maxWade;
+  }
+
+  /** Metros de agua sobre el suelo en (x, z); 0 en seco o sobre el tablero de un puente. */
+  _waterDepth(x, z, y, ground = this._ground(x, z, y)) {
+    const water = this.game.world?.active?.getWaterInfo?.(x, z);
+    if (!water || !Number.isFinite(water.surfaceY)) return 0;
+    const floor = Number.isFinite(ground) ? ground : y;
+    return Math.max(0, water.surfaceY - floor);
+  }
+
+  /** ¿El paso lleva el frente del carro a más agua de la que aguanta, y más honda que donde ya está? */
+  _intoWater(nx, nz, ny, h) {
+    const car = this.car, reach = car.length / 2 * (Math.sign(this.speed) || 1);
+    const fx = Math.cos(h) * reach, fz = -Math.sin(h) * reach;
+    const ahead = this._waterDepth(nx + fx, nz + fz, ny);
+    if (ahead <= CARJACK.maxWade) return false;
+    const now = this._waterDepth(car.position.x + fx, car.position.z + fz, car.position.y);
+    return ahead >= now;
   }
 
   /** ¿La carrocería en (x, z) con rumbo h choca con algo sólido? */
@@ -452,7 +544,12 @@ export class CarjackSystem {
     const ground = this._ground(nx, nz, car.position.y);
     const ny = Number.isFinite(ground) ? ground : car.position.y;
 
-    if (Math.abs(ny - car.position.y) > 1.2 || this._bodyBlocked(nx, nz, ny, h)) {
+    this._waterToast = Math.max(0, this._waterToast - dt);
+    if (Math.abs(this.speed) > .01 && this._intoWater(nx, nz, ny, h)) {
+      // La orilla del lago: el carro no se mete al agua, se queda en el borde.
+      if (this._waterToast <= 0) { this._toast('No me puedo meter al lago con el carro.', 'warn'); this._waterToast = 4; }
+      this.speed = 0;
+    } else if (Math.abs(ny - car.position.y) > 1.2 || this._bodyBlocked(nx, nz, ny, h)) {
       // Choque: rebota un poco y pierde casi toda la velocidad.
       if (Math.abs(this.speed) > 6) this._toast('¡Me estrellé!', 'warn');
       if (Math.abs(this.speed) > 6) this.game.stats && (this.game.stats.salud = Math.max(1, this.game.stats.salud - Math.round(Math.abs(this.speed) * .4)));
@@ -478,12 +575,15 @@ export class CarjackSystem {
   _hitPedestrians() {
     if (Math.abs(this.speed) < CARJACK.pedestrianHitSpeed) return;
     for (const npc of this.game.world?.active?.npcs ?? []) {
-      if (!npc?.position || (npc._carjackHit ?? 0) > performance.now()) continue;
+      // Al que ya está en el suelo (o levantándose) el carro le pasa por encima sin otro golpe: no cuenta otra vez.
+      if (!npc?.position || npc.koState || (npc._carjackHit ?? 0) > performance.now()) continue;
       if (distanceToCarBody(npc.position, this.car) > .35) continue;
       npc._carjackHit = performance.now() + 3000;
       const h = this.car.group.rotation.y, sign = Math.sign(this.speed) || 1;
-      if (npc.hitByCar) npc.hitByCar(this.car.position, Math.abs(this.speed), { x: Math.cos(h) * sign, z: -Math.sin(h) * sign });
-      else npc.hitByPoop?.(this.car.position, { voz: false });
+      const hit = npc.hitByCar ? npc.hitByCar(this.car.position, Math.abs(this.speed), { x: Math.cos(h) * sign, z: -Math.sin(h) * sign })
+        : npc.hitByPoop?.(this.car.position, { voz: false });
+      // Solo un `false` explícito dice que no hubo golpe; `undefined` (otros peatones) cuenta como antes.
+      if (hit === false) continue;
       this._raiseWanted();
       this.speed *= .6;
       this._toast('¡Casi atropello a alguien!', 'death');

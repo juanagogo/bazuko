@@ -18,6 +18,14 @@ const V1_TO_COP = 250;
 export const KEY_DANADA = `${KEY}-danada`;
 /** La última partida buena antes del guardado actual. */
 export const KEY_RESPALDO = `${KEY}-respaldo`;
+/**
+ * Las apartadas no se pisan: la más nueva en KEY_DANADA y las anteriores en `-2` y `-3`. Con la apartada va el
+ * respaldo que tenía en ese momento, porque los dos primeros guardados de la partida nueva lo reemplazan.
+ */
+export const KEYS_APARTADAS = [KEY_DANADA, `${KEY_DANADA}-2`, `${KEY_DANADA}-3`];
+/** El respaldo de cada apartada, en el mismo puesto: corren juntos. */
+export const KEYS_RESPALDO_APARTADO = KEYS_APARTADAS.map((clave) => `${clave}-respaldo`);
+export const KEY_RESPALDO_APARTADO = KEYS_RESPALDO_APARTADO[0];
 export const SAVE_VERSION = VERSION;
 
 const SUMA = (clave) => `${clave}-suma`;
@@ -94,7 +102,7 @@ export function sanearPartida(data) {
   for (const k of ['talents', 'diseases', 'built']) if (out[k] !== undefined && !objeto(out[k])) delete out[k];
   const pos = out.player?.pos;
   if (!(Array.isArray(pos) && pos.length === 3 && pos.every(numero))) delete out.player;
-  for (const k of ['look', 'cart', 'gps', 'radio', 'dog', 'zorra', 'bolirana']) {
+  for (const k of ['look', 'cart', 'gps', 'radio', 'dog', 'zorra', 'bolirana', 'robo']) {
     if (out[k] != null && !objeto(out[k])) delete out[k];
   }
   return out;
@@ -168,7 +176,7 @@ export class SaveSystem {
     const pos = data.player.pos;
     if (!Array.isArray(pos) || pos.length !== 3 || !pos.every((n) => Number.isFinite(n))) return null;
     for (const k of ['look', 'built', 'talents', 'diseases']) if (data[k] !== undefined && !objeto(data[k])) return null;
-    for (const k of ['cart', 'gps', 'radio', 'dog']) if (data[k] != null && !objeto(data[k])) return null;
+    for (const k of ['cart', 'gps', 'radio', 'dog', 'robo']) if (data[k] != null && !objeto(data[k])) return null;
     // La migración de las partidas v1 cambia el dinero: se revisa después, no antes.
     const migrada = this._migrar(data);
     return Object.values(migrada.stats).every(Number.isFinite) ? migrada : null;
@@ -179,6 +187,21 @@ export class SaveSystem {
     const raw = this._leer(KEY);
     if (raw === null) return;
     try {
+      // Una apartada anterior distinta corre un puesto en lugar de perderse, y su respaldo corre con ella.
+      const otra = this._leer(KEY_DANADA) !== raw;
+      if (otra) {
+        for (let i = KEYS_APARTADAS.length - 1; i > 0; i--) {
+          const anterior = this._leer(KEYS_APARTADAS[i - 1]);
+          if (anterior === null) continue;
+          this.storage.setItem(KEYS_APARTADAS[i], anterior);
+          const suRespaldo = this._leer(KEYS_RESPALDO_APARTADO[i - 1]);
+          if (suRespaldo !== null) this.storage.setItem(KEYS_RESPALDO_APARTADO[i], suRespaldo);
+          else this.storage.removeItem(KEYS_RESPALDO_APARTADO[i]);
+        }
+      }
+      const respaldo = this._leer(KEY_RESPALDO);
+      if (respaldo !== null && respaldo !== raw) this.storage.setItem(KEY_RESPALDO_APARTADO, respaldo);
+      else if (otra) this.storage.removeItem(KEY_RESPALDO_APARTADO);
       this.storage.setItem(KEY_DANADA, raw);
       this.storage.removeItem(KEY);
       this.storage.removeItem(SUMA(KEY));

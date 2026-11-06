@@ -135,7 +135,11 @@ test('el distrito completo construye y actualiza barrios, vendedores, peatones y
       culling.apply(camera);
       assert.ok(culling.stats.culled > 0);
       assert.ok(culling.stats.visible > 0);
-      assert.equal(city.buildingVisibility.closedView.visible, mode === 'third-person');
+      // Los lotes se ven en las dos cámaras; en isométrica solo se sueltan los edificios de la línea de vista.
+      assert.equal(city.buildingVisibility.closedView.visible, true);
+      const loose = city.buildingVisibility.buildings.filter(building => building.loose).length;
+      if (mode === 'third-person') assert.equal(loose, 0);
+      else assert.ok(loose < city.buildingVisibility.buildings.length * .05, `${loose} edificios sueltos`);
       culling.restore();
       assert.ok(city.renderSectors.every(sector => sector.visible));
     }

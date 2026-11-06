@@ -142,3 +142,53 @@ test('con una persona más cerca que el perro, la E es del cosquilleo y no de la
   assert.equal(interaction.currentTargetType, null);
   assert.equal(steal.minigameActive, true);
 });
+
+test('trabajando un carro o mientras el despeje lo lleva al andén, el espejo no se roba: ni aviso ni E', () => {
+  for (const estado of [{ activo: true, controlaJugador: false }, { activo: false, controlaJugador: true }]) {
+    const car = parkedCar(), player = beside();
+    const { interaction, frame } = scene({ targets: [car], player });
+    interaction.rebusque = { ...estado, intentar: () => true };
+    frame();
+    same(interaction.currentTarget, null, 'sin aviso del espejo');
+    assert.equal(interaction.currentTargetType, null);
+    frame('KeyE');
+    assert.equal(car.used, false, 'la E no le roba el espejo al carro que se atiende');
+    // Terminado el trabajo, el mismo carro vuelve a tener su turno.
+    interaction.rebusque = { activo: false, controlaJugador: false, intentar: () => false };
+    frame();
+    same(interaction.currentTarget, car);
+    frame('KeyE');
+    assert.equal(car.used, true);
+    car.dispose();
+  }
+});
+
+test('el rebusque no le quita el turno a lo que no es un carro', () => {
+  const player = new THREE.Vector3(), shop = { kind: 'shop', position: new THREE.Vector3(1, 0, 0) };
+  const { interaction, frame } = scene({ targets: [shop], player });
+  interaction.rebusque = { activo: true, controlaJugador: false, intentar: () => true };
+  frame();
+  same(interaction.currentTarget, shop);
+});
+
+test('trabajando, la tienda que está detrás del carro sí tiene su turno: el carro no la tapa', () => {
+  const car = parkedCar(), player = beside();
+  const shop = { kind: 'shop', position: player.clone().add(new THREE.Vector3(1.7, 0, 0)) };
+  assert.ok(car.interactDistance(player) < player.distanceTo(shop.position), 'de partida el carro está más cerca');
+  assert.ok(player.distanceTo(shop.position) < INTERACT_RANGE, 'y la tienda también se alcanza');
+  const { interaction, frame } = scene({ targets: [car, shop], player });
+  interaction.rebusque = { activo: true, controlaJugador: false, intentar: () => true };
+  let abrio = null;
+  const abrir = (e) => { abrio = e.detail.target; };
+  globalThis.window.addEventListener('open-shop', abrir);
+  try {
+    frame();
+    same(interaction.currentTarget, shop, 'el aviso es el de la tienda');
+    frame('KeyE');
+    same(abrio, shop, 'E abre la tienda');
+    assert.equal(car.used, false, 'y no roba el espejo');
+  } finally {
+    globalThis.window.removeEventListener('open-shop', abrir);
+    car.dispose();
+  }
+});
