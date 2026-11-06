@@ -528,7 +528,8 @@ int main(int argc, char** argv) {
         for (int i = 1; i <= gained; ++i) ui.Notify("¡Nivel " + std::to_string(level - gained + i) + "! +1 punto de talento", ToastType::Rare);
     };
 
-    auto saveGame = [&](const std::string& feedbackMsg = "Partida guardada con éxito") {
+    constexpr float kAutoSaveSeconds = 60.0f;   // como AutoSave.js del original: cada minuto y en el ultimo momento (al perder el foco), sin avisos
+    auto saveGame = [&](const std::string& feedbackMsg = "Partida guardada con éxito", bool silent = false) {
         nlohmann::json state;
         state["needs"] = needs;
         state["money"] = money;
@@ -586,7 +587,7 @@ int main(int argc, char** argv) {
         std::ofstream save(savePath);
         if (save) {
             save << state.dump(2);
-            ui.SetSaveNotification(feedbackMsg);
+            if (!silent) ui.SetSaveNotification(feedbackMsg);
             LogInfo("Partida guardada correctamente en {}", savePath.string());
         }
         survivalSaveTimer = 0.0f;
@@ -2794,7 +2795,7 @@ int main(int argc, char** argv) {
         bool appearanceUpdated = false;
         if (characterCreatorUI.Render(characterPreview, changedLook, appearanceUpdated)) {
             characterManager.ApplyLook(changedLook, true);
-            survivalSaveTimer = 5.0f; // Guardar partida al confirmar personaje
+            survivalSaveTimer = kAutoSaveSeconds; // Guardar partida al confirmar personaje
         } else if (appearanceUpdated) {
             characterManager.ApplyLook(changedLook, false);
         }
@@ -2944,10 +2945,15 @@ int main(int argc, char** argv) {
             break; // Salir del bucle principal
         }
 
-        if (!ui.IsDeathScreenOpen()) {
-            survivalSaveTimer += dt;
-            if (survivalSaveTimer >= 5.0f) {
-                saveGame("Partida guardada");
+        {   // autoguardado: cada minuto y al perder el foco la ventana, y solo en momentos firmes (no con el creador abierto, muerto ni tambaleando)
+            const bool canAutoSave = !ui.IsDeathScreenOpen() && !characterCreatorUI.IsOpen() && needs[3] > 0.0f && !playerKnockedDown;
+            static bool wasFocused = true;
+            const bool focused = glfwGetWindowAttrib(glfwGetCurrentContext(), GLFW_FOCUSED) == GLFW_TRUE && glfwGetWindowAttrib(glfwGetCurrentContext(), GLFW_ICONIFIED) == GLFW_FALSE;
+            const bool lostFocus = wasFocused && !focused;
+            wasFocused = focused;
+            if (canAutoSave) {
+                survivalSaveTimer += dt;
+                if (survivalSaveTimer >= kAutoSaveSeconds || lostFocus) saveGame("Partida guardada", true);
             }
         }
     }
