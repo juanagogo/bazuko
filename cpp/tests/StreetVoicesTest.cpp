@@ -18,8 +18,8 @@ int main() {
     CHECK(std::abs(StreetVoiceDirector::Gain(3.0f) - 1.0f) < 1e-6f && std::abs(StreetVoiceDirector::Gain(18.0f)) < 1e-6f && std::abs(StreetVoiceDirector::Gain(30.0f)) < 1e-6f, "pleno de cerca, mudo desde 18 m");
     CHECK(std::abs(StreetVoiceDirector::Gain(11.5f) - 0.25f) < 1e-5f, "a la mitad del recorrido suena a un cuarto");
 
-    CHECK(std::abs(SirenGain(8.0f) - 1.0f) < 1e-6f && std::abs(SirenGain(55.0f)) < 1e-6f && std::abs(SirenGain(90.0f)) < 1e-6f, "sirena: plena de cerca, muda desde 55 m");
-    CHECK(std::abs(SirenGain(33.5f) - 0.25f) < 1e-5f, "sirena: a la mitad del recorrido, un cuarto");
+    CHECK(std::abs(SirenGain(8.0f) - 1.0f) < 1e-6f && std::abs(SirenGain(110.0f)) < 1e-6f && std::abs(SirenGain(150.0f)) < 1e-6f, "sirena: plena de cerca, muda desde 110 m");
+    CHECK(std::abs(SirenGain(61.0f) - 0.25f) < 1e-5f && SirenGain(90.0f) > 0.0f && SirenGain(90.0f) < SirenGain(60.0f) && SirenGain(60.0f) < SirenGain(30.0f), "sirena: a la mitad del recorrido, un cuarto; y sube de a poco al acercarse");
     {   // una frase no empieza si quien la dice esta tan lejos que no se oiria
         StreetVoiceDirector director(21);
         CHECK(director.Update(0.0, false, false, false, One(1, 15.0f)).kind == Kind::None, "a 15 m no empieza");
