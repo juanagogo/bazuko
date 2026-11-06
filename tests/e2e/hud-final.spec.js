@@ -174,6 +174,29 @@ test('el cartel de la zona no pisa el objetivo, la misión ni la plata', async (
   }
 });
 
+test('en el celular el nombre de la zona no tapa lo urgente', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await readyGame(page);
+  await conModo(page, 'tactil');
+  // Frío de noche y, a la vez, el nombre de la zona: los dos quieren salir debajo del cartón del radar.
+  await page.evaluate(() => { Object.assign(window.__game.stats, { calor: 0 }); window.__game.clock.hour = 23; });
+  await expect(page.locator('#retazo')).toBeVisible();
+  await page.evaluate(() => {
+    const cartel = document.getElementById('zona-cartel');
+    cartel.textContent = 'Parque Tercer Milenio';
+    cartel.hidden = false;
+    window.__game.zonaAviso && (window.__game.zonaAviso._restante = 60);
+  });
+  await page.evaluate(() => Promise.all(document.getElementById('zona-cartel').getAnimations().map((a) => a.finished)));
+  for (const [width, height] of [[390, 844], [360, 640], [844, 390]]) {
+    await page.setViewportSize({ width, height });
+    await cuadros(page, 12);
+    const retazo = await caja(page, '#retazo');
+    if (!retazo) continue; // con poco alto lo urgente puede ceder su sitio
+    expect(seTocan(await caja(page, '#zona-cartel'), retazo), `cartel sobre lo urgente a ${width}×${height}`).toBe(false);
+  }
+});
+
 test('las filas críticas de Higiene y Vicio dicen qué hacer donde caben', async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 800 });
   await readyGame(page);

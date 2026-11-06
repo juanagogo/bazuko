@@ -170,6 +170,8 @@ body:has(#menu[data-momento]:not([hidden])) > .loot-toast { display: none; }
 @media (max-width: 899px) {
   /* Debajo del cartón del radar, que en el celular ocupa la parte de arriba. */
   #zona-cartel { top: calc(var(--dock-bottom, 130px) + 6px); max-width: 90vw; }
+  /* Lo urgente (frío, hambre) sale en ese mismo sitio: el nombre de la zona baja debajo y no lo tapa. */
+  body:has(#retazo:not([hidden])) #zona-cartel { top: calc(var(--dock-bottom, 130px) + 78px); }
 }
 @media (max-width: 899px) and (orientation: landscape) {
   #zona-cartel { left: calc(6px + var(--safe-l, 0px)); translate: none; font-size: 30px; }
