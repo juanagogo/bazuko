@@ -64,6 +64,7 @@ import { SubstanceEffects } from '../systems/SubstanceEffects.js';
 import { SUBSTANCE_EFFECTS } from '../data/substanceEffects.js';
 import { StealSystem } from '../features/steal.js';
 import { openRadioModal } from '../ui/RadioModal.js';
+import { LosReyesStory } from '../story/LosReyesStory.js';
 
 
 import { HUD } from '../ui/HUD.js';
@@ -239,6 +240,7 @@ export class Game {
     this.cart = null;
     this.overlays = new CinematicOverlays();
     this.momentos = new Momentos();
+    this.story = new LosReyesStory(this);
 
     // Estado
     this.look = null;       // apariencia + nombre + origen (creador)
@@ -752,7 +754,7 @@ export class Game {
         this.cart.loadState(data.cart, this.player, this.inventory);
       }
       if (data.gps && this.gps) this.setGpsWaypoint({ ...data.gps, name: RENAMED_PLACES[data.gps.name] ?? data.gps.name }, { silent: true });
-
+      if (data.story && this.story) this.story.deserialize(data.story);
     }
   }
 
@@ -778,7 +780,8 @@ export class Game {
       radio: this.radio ? { isOn: this.radio.isOn, freq: this.radio.frequency, battery: this.radio.battery } : null,
       dog: { isFriend: !!this.dog?.isFriend, look: this.dog?.look ?? null },
       cart: this.cart ? this.cart.saveState() : null,
-      gps: this.gps?.serialize() ?? null
+      gps: this.gps?.serialize() ?? null,
+      story: this.story ? this.story.serialize() : null
     };
   }
 
@@ -1347,6 +1350,7 @@ export class Game {
       const { name } = this.gps.lastArrival;
       window.dispatchEvent(new CustomEvent('toast', { detail: { text: `Llegué a ${nombreALaVista(name)}`, type: 'info' } }));
     }
+    this.story?.update(dt, this.player.position);
     this.gpsBeacon?.update(dt, this.player.position);
     this.minimap?.update(this.player.position, this._cameraYaw(), this._getPOIs(now), now,
       { gps: this.gps, needs: this._needs, running: this.input.isRunning && (this.input.axis.x !== 0 || this.input.axis.z !== 0) });

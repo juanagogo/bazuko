@@ -670,7 +670,7 @@ export class HUD {
     }
   }
 
-  /** Lo que toca hacer con el cambuche, unos segundos cada vez que cambia. Nunca durante una persecución. */
+  /** Lo que toca hacer con el cambuche o la historia, unos segundos cada vez que cambia. Nunca durante una persecución. */
   _pintarMision(inventory) {
     if (!this.misionEl) return;
     const game = window.__game;
@@ -679,7 +679,8 @@ export class HUD {
       this._misionS = 0;
       return;
     }
-    const texto = textoDeMision(game?.built, inventory);
+    const storyText = game?.story?.currentMissionText?.();
+    const texto = storyText || textoDeMision(game?.built, inventory);
     // Cada cartón baja la cuenta, pero no es una misión nueva: no vuelve a salir por eso.
     const clave = texto?.replace(/\d+ CART\S+/, 'CARTONES') ?? null;
     if (clave === this._misionTexto) return;
@@ -687,7 +688,7 @@ export class HUD {
     if (!texto) { this.misionEl.hidden = true; this._misionS = 0; return; }
     this._setText(this.misionEl, texto);
     this.misionEl.hidden = false;
-    this._misionS = MISION_S;
+    this._misionS = storyText ? 15 : MISION_S;
   }
 
   /** En la barra rápida, el círculo va en el arma que tengo en la mano. */
