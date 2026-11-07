@@ -2,7 +2,7 @@
 import * as THREE from 'three';
 import { CAR_COOLDOWN, INTERACT_RANGE } from '../utils/constants.js';
 import { makeVehicle } from '../world/bogota/vehicles.js';
-import { getDriverGeometry } from '../world/bogota/VehicleBody.js';
+import { getDriverGeometry, getDriverWindowGlass } from '../world/bogota/VehicleBody.js';
 import { markerGeometry, markerMaterial } from '../world/bogota/carMarker.js';
 import { createImportedModel, disposeImportedInstance } from '../utils/ImportedModels.js';
 
@@ -15,10 +15,9 @@ const SIMPLE_NEAR = 52, SIMPLE_FAR = 60;
 const TAIL_DAY = .14, TAIL_NIGHT = 1, TAIL_BRAKE = 2.4;
 
 /** Conductor sentado: una sola malla compartida por combinación de ropa y piel; visible por las ventanas. */
-function createSeatedDriver(height, material) {
+function createSeatedDriver(height, material, shirt = SHIRTS[Math.floor(Math.random() * SHIRTS.length)], skin = SKINS[Math.floor(Math.random() * SKINS.length)]) {
   const group = new THREE.Group();
   group.name = 'Conductor';
-  const shirt = SHIRTS[Math.floor(Math.random() * SHIRTS.length)], skin = SKINS[Math.floor(Math.random() * SKINS.length)];
   const body = new THREE.Mesh(getDriverGeometry(shirt, skin), material);
   body.name = 'Cuerpo del conductor';
   body.position.y = height;
@@ -27,6 +26,9 @@ function createSeatedDriver(height, material) {
   group.position.set(.05, 0, -.36);
   return group;
 }
+
+// El jugador al volante del carro robado: chaqueta oscura gastada, como su ropa de calle.
+const PLAYER_SHIRT = '#2c2a27', PLAYER_SKIN = '#c68a5e';
 
 // INTERACT_RANGE (1,8 m) menos este recargo: desde un espejo el aviso se alcanza a un metro.
 const MIRROR_REACH_PENALTY = .8;
@@ -48,6 +50,8 @@ export class Car {
     this._steering = 0;
     this._motionWeight = 0;
     this._previousSpeed = null;
+    // Lejos, el tráfico lo dibuja el lote instanciado y este grupo queda apagado.
+    this.instanced = false;
 
     this.group = new THREE.Group();
     this.group.position.copy(position);
@@ -60,7 +64,9 @@ export class Car {
     this.modelKind = resolvedKind === 'taxi' ? 'car2' : 'car1';
     // El haz solo lo muestra quien circula: un parqueado no gasta un material en algo que nunca enciende.
     // Solo el que circula anima ruedas y plumillas; el resto las lleva unidas a sus molduras y ahorra seis llamadas.
-    const v = makeVehicle(resolvedKind, Number.isFinite(variant) ? Math.trunc(variant) : Math.floor(Math.random() * 10000), { beams: traffic, model, parked: !traffic });
+    // Se recuerda la variante para rehacer el mismo carro al cargar una partida (carro robado).
+    this.variant = Number.isFinite(variant) ? Math.trunc(variant) : Math.floor(Math.random() * 10000);
+    const v = makeVehicle(resolvedKind, this.variant, { beams: traffic, model, parked: !traffic });
     this.vehicle = v;
     this.length = v.length;
     this.width = v.width;
@@ -70,6 +76,8 @@ export class Car {
     });
     this.group.add(v.group);
     this._bodyRestY = v.bodyVisual?.position.y ?? 0;
+    this._roadBob = 0;
+    this._settleY = 0; this._settleV = 0; // muelles: alguien sube o baja y la carrocería se hunde y rebota
     this._wetMaterials = (v.wetMaterials ?? []);
     this._details = v.details ?? [];
     this._simple = false;
@@ -162,6 +170,54 @@ export class Car {
     this._applyDetail();
   }
 
+  /**
+   * El jugador maneja este carro: su cuerpo va oculto y por las ventanas se ve una figura sentada al volante,
+   * en vez de un carro que avanza solo. Se crea la primera vez y se reutiliza.
+   */
+  setPlayerDriver(on) {
+    const v = this.vehicle;
+    if (on && !this._playerDriver && !this._disposed) {
+      const seat = createSeatedDriver(v.driverHeight ?? (this.modelKind === 'car2' ? 1.45 : 1.62), v.trimMaterial, PLAYER_SHIRT, PLAYER_SKIN);
+      seat.name = 'Jugador al volante';
+      if (v.driverAnchor) seat.position.copy(v.driverAnchor);
+      (v.bodyVisual ?? this.group).add(seat);
+      this._playerDriver = seat;
+    }
+    if (this._playerDriver) this._playerDriver.visible = !!on && !this.driverHidden;
+  }
+
+  /**
+   * Baja la ventana del puesto del conductor (0 cerrada, 1 abajo del todo), para que la mano que saca no atraviese el vidrio.
+   * Solo cambia la geometría de los vidrios de este carro por la del modelo sin esa ventana y cuelga de ellos la ventana sola,
+   * corrida hacia abajo, con el mismo material: nada nuevo por carro salvo esa malla, que se reutiliza. Abajo del todo no se
+   * dibuja. Con 0 todo vuelve a como estaba. Devuelve si el carro tiene esa ventana.
+   */
+  setDriverWindow(open) {
+    const v = this.vehicle, glass = v?.glassMesh;
+    if (this._disposed || !glass || !v.model) return false;
+    const f = Math.max(0, Math.min(1, Number.isFinite(open) ? open : 0));
+    if (f === 0) {
+      if (this._driverWindow) { glass.geometry = this._driverWindow.full; this._driverWindow.mesh.visible = false; }
+      this._driverWindowOpen = 0;
+      return !!this._driverWindow;
+    }
+    if (!this._driverWindow) {
+      const split = getDriverWindowGlass(v.model);
+      if (!split) return false;
+      const mesh = new THREE.Mesh(split.pane, glass.material);
+      mesh.name = 'Ventana del conductor';
+      mesh.castShadow = mesh.receiveShadow = false;
+      glass.add(mesh);
+      this._driverWindow = { full: glass.geometry, split, mesh };
+    }
+    const { split, mesh } = this._driverWindow;
+    glass.geometry = split.rest;
+    mesh.position.y = -split.drop * f;
+    mesh.visible = f < 1;
+    this._driverWindowOpen = f;
+    return true;
+  }
+
   /** Punto junto a la puerta del conductor, en metros del mundo. Cada modelo la tiene a la altura de su asiento; `side` la pasa al otro lado. */
   driverDoor(target = new THREE.Vector3(), side = this.vehicle.driverDoor?.side ?? -1) {
     this.group.updateMatrixWorld();
@@ -236,9 +292,30 @@ export class Car {
     return { items, caught };
   }
 
+  /**
+   * Alguien sube o baja: la carrocería baja unos centímetros sobre los muelles y rebota amortiguada.
+   * Solo se mueve el carro, nunca la cámara.
+   */
+  settle(strength = 1) {
+    if (!Number.isFinite(strength)) return;
+    this._settleV -= .32 * Math.max(0, Math.min(1.5, strength));
+  }
+
+  /** Muelle amortiguado (≈ 2 Hz, casi sin oscilar más de dos veces) que se suma a la carrocería. */
+  _updateSettle(dt) {
+    if (this._settleY === 0 && this._settleV === 0) return;
+    const step = Math.min(dt, 1 / 20), k = 160, c = 15;
+    this._settleV += (-k * this._settleY - c * this._settleV) * step;
+    this._settleY = Math.max(-.06, Math.min(.03, this._settleY + this._settleV * step));
+    if (Math.abs(this._settleY) < 1e-4 && Math.abs(this._settleV) < 1e-3) this._settleY = this._settleV = 0;
+    const body = this.vehicle.bodyVisual;
+    if (body) body.position.y = this._bodyRestY + this._roadBob + this._settleY;
+  }
+
   /** @param {THREE.Vector3} [playerPosition] sin ella el contorno de un parqueado se apaga */
   update(dt, playerPosition = null) {
     if (!(dt > 0) || this._disposed) return;
+    this._updateSettle(dt);
     if (this.cooldown > 0) {
       this.cooldown -= dt;
       if (this.cooldown <= 0) {
@@ -301,7 +378,8 @@ export class Car {
       const roll = THREE.MathUtils.clamp(lateral * .008, -.035, .035);
       body.rotation.z += (pitch - body.rotation.z) * damp;
       body.rotation.x += (roll - body.rotation.x) * damp;
-      body.position.y = this._bodyRestY + Math.sin(this._roadPhase) * .006 * this._motionWeight;
+      this._roadBob = Math.sin(this._roadPhase) * .006 * this._motionWeight;
+      body.position.y = this._bodyRestY + this._roadBob + this._settleY;
     }
     if (turnSignal !== this._turnSignal) {
       this._turnSignal = turnSignal;

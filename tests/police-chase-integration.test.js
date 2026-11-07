@@ -151,7 +151,9 @@ test('la persecución respeta el volumen de los vehículos y del bus sin cambiar
   for (let i = 0; i < 30; i++) {
     traffic.update(.1, { player: new THREE.Vector3(20, 0, 0) });
     collisions.setVehicles([vehicle.car], bus);
-    assert.equal(collisions.dynamicColliders[0].box.intersectsBox(collisions.dynamicColliders[1].box), false);
+    // Con el coche girando su caja es orientada: sus envolventes pueden tocarse sin que los cuerpos se toquen.
+    assert.equal(collisions.dynamicColliders[1].box.containsPoint(vehicle.car.position), false);
+    assert.equal(collisions.dynamicColliders[0].box.containsPoint(bus.position), false);
   }
   assert.equal(state.arrests, 0);
   assert.equal(bus.position.x, 6);
@@ -216,4 +218,95 @@ test('las consultas de persecución no cambian velocidades ni rutas del patrulla
   assert.equal(a.vehicle.speed, b.vehicle.speed);
   assert.ok(a.vehicle.car.position.equals(b.vehicle.car.position));
   a.traffic.dispose(); b.traffic.dispose();
+});
+
+test('detrás de un muro la patrulla va adonde lo vio por última vez y, sin verlo, lo da por perdido', () => {
+  const state = setup();
+  const { traffic, vehicle, collisions } = state;
+  let reason = null;
+  window.addEventListener('police-escaped', e => { reason = e.detail?.reason; });
+  traffic.alertForTheft(new THREE.Vector3(8, 0, 0));
+  traffic.update(.1, { player: new THREE.Vector3(8, 0, 0) });
+  // Se mete detrás de un muro largo: la patrulla deja de verlo.
+  wall(collisions, [10, 0, -30], [10.4, 4, 30]);
+  const player = new THREE.Vector3(14, 0, 0);
+  let sinVer = 0;
+  for (let i = 0; i < 200 && traffic.inPursuit; i++) {
+    traffic.update(.1, { player });
+    if (traffic.pursuitInfo?.seen === false) sinVer++;
+  }
+  assert.ok(sinVer > 0, 'el aviso sabe que no lo ven');
+  assert.equal(traffic.inPursuit, false);
+  assert.equal(state.arrests, 0);
+  assert.equal(reason, 'vista');
+  assert.ok(vehicle.car.position.x < 10, 'no atraviesa el muro');
+  traffic.dispose();
+});
+
+test('cuanto más fichado, más aguanta sin verlo y más lejos persigue', () => {
+  const { traffic } = setup();
+  const base = { lost: traffic.lostSightSeconds, range: traffic.giveUpRange, time: traffic.chaseTimeout };
+  traffic.wantedLevel = 3;
+  assert.ok(traffic.lostSightSeconds > base.lost);
+  assert.ok(traffic.giveUpRange > base.range);
+  assert.ok(traffic.chaseTimeout > base.time);
+  assert.equal(traffic.maxChasers, 3);
+  traffic.wantedLevel = 1;
+  assert.equal(traffic.maxChasers, 1);
+  traffic.dispose();
+});
+
+test('escondido en el cambuche no lo capturan aunque la patrulla llegue encima', () => {
+  const state = setup();
+  const { traffic } = state;
+  let reason = null;
+  window.addEventListener('police-escaped', e => { reason = e.detail?.reason; });
+  const player = new THREE.Vector3(6, 0, 0);
+  traffic.alertForTheft(player);
+  for (let i = 0; i < 200 && traffic.inPursuit; i++) traffic.update(.1, { player, playerHidden: true });
+  assert.equal(state.arrests, 0);
+  assert.equal(traffic.inPursuit, false);
+  assert.equal(reason, 'escondido');
+  traffic.dispose();
+});
+
+test('con nivel 2 la patrulla que lo ve pide refuerzos por radio a la libre más cercana', () => {
+  const collisions = new CollisionSystem();
+  const traffic = new TrafficSystem(new THREE.Scene(), [new TrafficRoute(0, 80, 0, 80)],
+    { carsPerRoute: 0, policeCount: 2, random: () => .2 });
+  traffic.setEnvironment({ collisions, getGroundHeight: (_x, _z, y) => y });
+  const [first, second] = traffic.vehicles;
+  first.car.position.set(0, 0, 0); first.car.group.rotation.y = 0;
+  second.car.position.set(40, 0, 30);
+  let radios = 0;
+  window.addEventListener('police-radio', () => radios++);
+  traffic.wantedLevel = 2;
+  const player = new THREE.Vector3(30, 0, 0);
+  traffic._startChase(first);
+  for (let i = 0; i < 30; i++) traffic.update(.1, { player });
+  assert.equal(radios, 1);
+  assert.equal(second.state, 'chase');
+  // Con nivel 1 no hay refuerzo.
+  traffic.endPursuit();
+  traffic.wantedLevel = 1;
+  traffic._startChase(first);
+  for (let i = 0; i < 30; i++) traffic.update(.1, { player });
+  assert.equal(radios, 1);
+  traffic.dispose();
+});
+
+test('la llamada de un testigo manda la patrulla al sitio y, si no lo ve allá, desiste', () => {
+  const state = setup();
+  const { traffic, vehicle, collisions } = state;
+  let reason = null;
+  window.addEventListener('police-escaped', e => { reason = e.detail?.reason; });
+  wall(collisions, [-30, 0, 9.6], [30, 4, 10]);
+  assert.equal(traffic.dispatchTo(new THREE.Vector3(15, 0, 0)), true);
+  assert.equal(vehicle.state, 'chase');
+  const player = new THREE.Vector3(15, 0, 14); // ya se fue detrás del muro
+  for (let i = 0; i < 200 && traffic.inPursuit; i++) traffic.update(.1, { player });
+  assert.equal(state.arrests, 0);
+  assert.equal(reason, 'vista');
+  assert.ok(vehicle.car.position.x > 5, 'alcanzó a ir hacia la llamada');
+  traffic.dispose();
 });

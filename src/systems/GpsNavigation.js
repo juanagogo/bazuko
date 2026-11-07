@@ -333,7 +333,8 @@ export class GpsNavigation {
 
   serialize() {
     if (!this.waypoint) return null;
-    const { x, z, name, icon } = this.waypoint;
-    return { x, z, name, icon };
+    const { x, z, name, icon, objetivo } = this.waypoint;
+    // `objetivo`: la ruta la puso un objetivo, no el jugador; así se puede reemplazar después de cargar.
+    return objetivo ? { x, z, name, icon, objetivo: true } : { x, z, name, icon };
   }
 }

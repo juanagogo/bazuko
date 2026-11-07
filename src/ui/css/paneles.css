@@ -93,6 +93,7 @@ body.tactil .cierre { padding: 0; }
 :where(#menu) .row__name { font-weight: 800; font-size: 19px; line-height: 1.05; }
 :where(#menu) .row__desc { display: block; font-weight: 400; font-size: 15.5px; line-height: 1.14; }
 :where(#menu) .row__qty { font-weight: 800; font-size: 18px; white-space: nowrap; }
+:where(#menu) .caleta__botones { display: flex; gap: 8px; }
 :where(#menu) .row__price { font-weight: 800; font-size: var(--letra-cifra); white-space: nowrap; text-align: right; }
 :where(#menu) .row.is-locked .row__name { color: color-mix(in srgb, var(--marcador) 86%, transparent); }
 :where(#menu) .req { display: flex; flex-wrap: wrap; gap: 1px 12px; margin-top: 2px; font-weight: 400; font-size: 15px; }
@@ -137,6 +138,13 @@ body.tactil .cierre { padding: 0; }
 .radio-info-signal { font-weight: 800; font-size: 16px; }
 .radio-info-program { font-size: 15.5px; line-height: 1.16; }
 .radio-info-credit { align-self: flex-start; font-size: 15px; text-decoration: underline; text-underline-offset: 3px; }
+/* Los filtros del dial: ciudad y tipo, y el salto entre emisoras que pasan el filtro. */
+.radio-filtros { display: flex; flex-direction: column; gap: 3px; padding: 2px 0 6px; background: var(--m-regla) center bottom / 100% 5px no-repeat; }
+.radio-filtro { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+.radio-filtro__label { flex: none; width: 56px; font-weight: 800; font-size: 15px; }
+.radio-presets-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+.radio-skip { display: flex; gap: 4px; }
+.radio-vacio { margin: 8px 2px; font-size: 16px; line-height: 1.25; }
 
 /* ---------- medianas ---------- */
 @media (max-width: 1180px) {

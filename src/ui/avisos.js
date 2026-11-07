@@ -48,7 +48,10 @@ export function zonaDeAvisos(doc, ancho, alto) {
     return { arriba: (topbar?.bottom ?? 90) + AIRE, abajo: alto - 60 };
   }
   const encima = Math.max(retazo?.bottom ?? 0, dock?.bottom ?? 120, caja(doc, 'mision')?.bottom ?? 0);
-  return { arriba: encima + AIRE, abajo: alto * PERSONAJE_Y };
+  // Si debajo del cartón no cabe (el celular chico, o con la tira de misión a la vista), la pila sube arriba del todo,
+  // sobre la plata, como con un menú abierto: tapar la hora unos segundos es mejor que tapar al personaje.
+  const techo = (caja(doc, 'topbar')?.top ?? 0) + 6;
+  return { arriba: encima + AIRE, abajo: alto * PERSONAJE_Y, arribaSinSitio: techo };
 }
 
 export class Avisos {
@@ -138,11 +141,19 @@ export class Avisos {
     if (!this.visibles.length) return true;
     const doc = globalThis.document;
     const zona = zonaDeAvisos(doc, globalThis.innerWidth ?? 1440, globalThis.innerHeight ?? 900);
-    let y = zona.arriba;
+    let y = zona.arriba, arriba = false;
+    if (zona.arribaSinSitio !== undefined) {
+      let alto = -SEPARACION;
+      for (const { el } of this.visibles) alto += (el.offsetHeight ?? 0) + SEPARACION;
+      if (y + alto > zona.abajo) { y = zona.arribaSinSitio; arriba = true; }
+    }
+    const inicio = y;
     for (const { el } of this.visibles) {
+      // Arriba deja libre el botón de Pausa (avisos.css); se mide antes de colocarlo, porque cambia su alto.
+      if (el.classList && el.classList.contains('loot-toast--arriba') !== arriba) el.classList.toggle('loot-toast--arriba', arriba);
       const top = `${Math.round(y)}px`;
       if (el.style.top !== top) el.style.top = top;
-      el.style.setProperty?.('--pila', `${Math.round(y - zona.arriba)}px`); // con un menú abierto manda la hoja de estilos
+      el.style.setProperty?.('--pila', `${Math.round(y - inicio)}px`); // con un menú abierto manda la hoja de estilos
       y += (el.offsetHeight ?? 0) + SEPARACION;
     }
     return y - SEPARACION <= zona.abajo;

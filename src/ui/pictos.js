@@ -27,7 +27,7 @@ export const PICTOS = {
   '🧭': 'flecha', '🔇': 'silencio', '🔊': 'sonido', '🔍': 'lupa', '🔥': 'fogata', '🔨': 'martillo', '🗑': 'basura',
   '⚠': 'peligro', '⚡': 'rayo', '✨': 'brillo', '⭐': 'brillo', '🌟': 'brillo', '♻': 'reciclar',
   // Los sitios
-  '🏪': 'tienda', '🏬': 'tienda', '🧺': 'tienda', '🏙': 'edificio', '🏢': 'edificio', '🌊': 'lago', '⛲': 'parque',
+  '🏪': 'tienda', '🐸': 'tienda', '🏬': 'tienda', '🧺': 'tienda', '🏙': 'edificio', '🏢': 'edificio', '🌊': 'lago', '⛲': 'parque',
   '🌳': 'parque', '⛽': 'gasolina', '🚏': 'bus', '🍬': 'chaza', '🍲': 'comida', '🍴': 'comida', '🛒': 'carreta',
   '🎒': 'costal', '❌': 'cerrar', '🚫': 'cerrar',
   // Símbolos que no son emoji y la letra no trae

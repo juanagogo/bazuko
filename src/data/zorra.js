@@ -1,0 +1,91 @@
+// src/data/zorra.js
+// Parámetros de balance y textos de la zorra de reciclador. No importa nada.
+
+export const ZORRA = {
+  precio: 40000,           // COP: costo de comprar la zorra
+  bonoPeso: 40,            // kg: capacidad extra de carga mientras se empuja
+  multVelocidad: 0.7,      // ×: velocidad del jugador al empujar la zorra
+  distanciaDelante: 1.9,   // m: del ancla (pies del que empuja) al centro del modelo
+  avisoSobrepesoCada: 4,   // s: tiempo mínimo entre toasts de sobrepeso
+  origen: {
+    descuento: 0.75,       // ×: precio para el origen reciclador
+    fuerza: 1.2            // ×: fuerza en el forcejeo para el origen reciclador
+  },
+  teclas: {
+    soltar: 'KeyU',        // tecla para soltar la zorra
+    agarrar: 'KeyU',       // tecla para agarrar la zorra propia soltada
+    robar: 'KeyU',         // tecla para llevarse la zorra descuidada de un reciclador
+    forcejear: 'KeyE',     // tecla para iniciar y machacar el forcejeo
+    cancelar: 'KeyU'       // tecla para rendirse en el forcejeo
+  },
+  mapa: {
+    nombre: 'Mi zorra',    // etiqueta en el radar cuando la zorra está en el suelo
+    icono: '🛒',           // icono en el radar
+    color: '#c98a3a'       // color del punto en el radar
+  }
+};
+
+export const RECICLADORES = {
+  cantidad: 4,                 // recicladores con zorra en la ciudad
+  intervaloCaneca: [20, 40],   // s: espera aleatoria entre búsquedas de caneca
+  radioCaneca: 30,             // m: distancia máxima a una bolsa candidata
+  duracionParada: 5,           // s: rebusque normal junto a la caneca
+  probDescuido: 0.10,          // 0..1: probabilidad de dejar la zorra sola en una parada
+  duracionDescuido: 8,         // s: tiempo que la zorra queda sin vigilar
+  distanciaDescuido: 4,        // m: a qué distancia de la caneca deja la zorra
+  tiempoRecuperar: 300,        // s: de juego sin pausa para que consiga otra zorra
+  movidaMax: 1                 // m: si la bolsa elegida se mueve más que esto, elige otra
+};
+
+// Calibración: con fuerza 1 la barra sube `empuje × pulsaciones/s − tironNpc` por segundo.
+// A 3 pulsaciones/s se queda quieta y se pierde por tiempo; a 4/s se gana en 5 s;
+// a 5/s, en 2,5 s.
+export const FORCEJEO = {
+  barraInicial: 0.5,       // 0..1: progreso con el que arranca la barra
+  empuje: 0.1,             // fracción de barra por pulsación con fuerza 1
+  tironNpc: 0.3,           // fracción de barra por segundo que recupera el reciclador
+  duracion: 6,             // s: tiempo máximo antes de perder
+  energiaBaja: 30,         // umbral de energía por debajo del cual se pierde fuerza
+  multEnergiaBaja: 0.6,    // ×: fuerza con energía baja
+  multAbstinencia: 0.5,    // ×: fuerza en abstinencia
+  castigoSalud: 15,        // puntos de salud perdidos al perder
+  castigoAnimo: 10,        // puntos de ánimo perdidos al perder
+  tragarE: 0.6,            // s: tras el forcejeo, las E del machaque que siguen llegando no hacen nada
+  espera: 120,             // s: sin aceptar otro forcejeo tras ganarle al jugador
+  botin: {
+    min: 2,                // materiales mínimos al ganar
+    max: 4,                // materiales máximos al ganar
+    materiales: ['lata', 'botella', 'carton', 'chatarra'] // ids posibles del botín
+  }
+};
+
+export const TEXTOS_ZORRA = {
+  sueltaPrimero: 'Primero suelto la zorra con U',
+  sueltaCarreta: 'Primero suelto la carreta con E', // la carreta de balineras (Cart.js): se engancha y se suelta con E
+  sobrepeso: 'Con tanto peso no doy ni un paso',
+  muerte: 'Me desmayé y me desocuparon la zorra',
+  yaTienes: 'Ya tengo zorra',
+  agarrar: '[U] Agarrar zorra',
+  soltar: '[U] Soltar la zorra',
+  robar: '[U] Llevarse la zorra',
+  forcejear: '[E] Forcejear por la zorra',
+  enojado: 'Este reciclador no quiere más forcejeos',
+  nombreCompra: 'Zorra de reciclador',
+  descCompra: `Carga ${ZORRA.bonoPeso} kg más, pero voy más lento y no puedo correr.`,
+  comprada: 'Compré una zorra',
+  soltada: 'Solté la zorra',
+  agarrada: 'Agarré la zorra',
+  robada: 'Me llevé la zorra',
+  ganaste: 'Le gané la zorra al reciclador',
+  perdiste: 'El reciclador me sacó a empujones',
+  ayudaForcejeo: '[E] Machacar · [U] Rendirme'
+};
+
+export const INSULTOS_RECICLADOR = [
+  '¡Ey, mi zorra, ladrón!',
+  '¡Devuélvame eso, gamín!',
+  '¡Qué mala clase, parce!',
+  '¡Ni se le ocurra volver por acá!',
+  '¡Eso es trabajo de todo el día, home!',
+  '¡Ojalá se le pinche una llanta, hampón!'
+];

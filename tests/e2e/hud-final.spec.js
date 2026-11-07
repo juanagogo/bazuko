@@ -127,6 +127,76 @@ test('nada se tapa: Envión con Energía, tecla con Envión, y la tecla no va so
   }
 });
 
+test('en ventanas medianas la tecla no pisa el radar y lo urgente no pisa el objetivo', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await readyGame(page);
+  await conPrompt(page, 'dog');
+  // Frío de noche: el retazo sale encima del cartón del radar.
+  await page.evaluate(() => { Object.assign(window.__game.stats, { calor: 0 }); window.__game.clock.hour = 23; });
+  await expect(page.locator('#retazo')).toBeVisible();
+  await expect(page.locator('#objetivo')).toBeVisible();
+  for (const [width, height] of [[900, 720], [1024, 640], [1024, 700], [1100, 700], [1280, 720], [1440, 900]]) {
+    await page.setViewportSize({ width, height });
+    await cuadros(page);
+    const prompt = await caja(page, '#interaction-prompt');
+    expect(prompt, `tecla a ${width}`).not.toBeNull();
+    expect(seTocan(prompt, await caja(page, '#hud-dock')), `tecla sobre el radar a ${width}×${height}`).toBe(false);
+    expect(seTocan(prompt, await caja(page, '#panel-dock')), `tecla sobre el costal a ${width}×${height}`).toBe(false);
+    expect(seTocan(await caja(page, '#retazo'), await caja(page, '#objetivo')), `retazo sobre el objetivo a ${width}×${height}`).toBe(false);
+  }
+});
+
+test('el cartel de la zona no pisa el objetivo, la misión ni la plata', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await readyGame(page);
+  // El nombre más largo, con el objetivo y la misión arriba a la vez.
+  await page.evaluate(() => {
+    const cartel = document.getElementById('zona-cartel');
+    cartel.textContent = 'Parque Tercer Milenio';
+    cartel.hidden = false;
+    window.__game.zonaAviso && (window.__game.zonaAviso._restante = 60);
+    const mision = document.getElementById('mision');
+    mision.textContent = 'TOCA JUNTAR 8 CARTONES';
+    mision.hidden = false;
+  });
+  // El cartel baja con una animación corta: se mide ya quieto.
+  await page.evaluate(() => Promise.all(document.getElementById('zona-cartel').getAnimations().map((a) => a.finished)));
+  for (const [width, height] of [[900, 720], [1024, 640], [1280, 720], [1440, 900], [1920, 1080]]) {
+    await page.setViewportSize({ width, height });
+    await cuadros(page);
+    expect(seTocan(await caja(page, '#mision'), await caja(page, '#topbar')), `misión bajo la plata a ${width}`).toBe(false);
+    const cartel = await caja(page, '#zona-cartel');
+    expect(cartel, `cartel a ${width}`).not.toBeNull();
+    for (const otro of ['#objetivo', '#mision', '#topbar']) {
+      expect(seTocan(cartel, await caja(page, otro)), `${otro} a ${width}`).toBe(false);
+    }
+    expect(cartel.right <= width && cartel.left >= 0, `dentro de la pantalla a ${width}`).toBe(true);
+  }
+});
+
+test('en el celular el nombre de la zona no tapa lo urgente', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await readyGame(page);
+  await conModo(page, 'tactil');
+  // Frío de noche y, a la vez, el nombre de la zona: los dos quieren salir debajo del cartón del radar.
+  await page.evaluate(() => { Object.assign(window.__game.stats, { calor: 0 }); window.__game.clock.hour = 23; });
+  await expect(page.locator('#retazo')).toBeVisible();
+  await page.evaluate(() => {
+    const cartel = document.getElementById('zona-cartel');
+    cartel.textContent = 'Parque Tercer Milenio';
+    cartel.hidden = false;
+    window.__game.zonaAviso && (window.__game.zonaAviso._restante = 60);
+  });
+  await page.evaluate(() => Promise.all(document.getElementById('zona-cartel').getAnimations().map((a) => a.finished)));
+  for (const [width, height] of [[390, 844], [360, 640], [844, 390]]) {
+    await page.setViewportSize({ width, height });
+    await cuadros(page, 12);
+    const retazo = await caja(page, '#retazo');
+    if (!retazo) continue; // con poco alto lo urgente puede ceder su sitio
+    expect(seTocan(await caja(page, '#zona-cartel'), retazo), `cartel sobre lo urgente a ${width}×${height}`).toBe(false);
+  }
+});
+
 test('las filas críticas de Higiene y Vicio dicen qué hacer donde caben', async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 800 });
   await readyGame(page);
@@ -310,6 +380,23 @@ test('con la pausa arriba el juego no se dibuja, y el mapa de la pausa sigue dib
   expect(await dibujos()).toBe(0);
 });
 
+test('Estado trae el retrato del personaje, dentro de la pantalla', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await readyGame(page);
+  // La foto se toma jugando, en un cuadro ya dibujado: al abrir la pausa ya no se dibuja nada.
+  await expect.poll(() => page.evaluate(() => !!window.__game._retrato), { timeout: 30_000 }).toBe(true);
+  await page.keyboard.press('Escape');
+  const retrato = page.locator('#menu .pause-retrato');
+  await expect(retrato).toBeVisible();
+  await expect.poll(() => retrato.locator('img').evaluate((img) => img.complete && img.naturalHeight)).toBeGreaterThan(24);
+  const caja = await retrato.boundingBox();
+  expect(caja.y + caja.height).toBeLessThanOrEqual(800);
+  // Otra pestaña y de vuelta: el retrato sigue, sin tomar otra foto.
+  await page.keyboard.press('KeyE');
+  await page.keyboard.press('KeyQ');
+  await expect(retrato).toBeVisible();
+});
+
 test('una partida dañada no deja en la carga: se aparta sin borrarla y se empieza sin ella', async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 800 });
   await page.addInitScript(() => {
@@ -417,26 +504,46 @@ test('la plata se mueve de verdad: vender sube, comprar baja, armar gasta', asyn
 test('quieto, en la página casi no se escribe nada: se compara antes de escribir', async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 800 });
   await readyGame(page);
+  // Medido con Metal, 8 veces quieto y 8 con malilla: el HUD y la malilla escriben de 4 a 6 veces por segundo. Lo
+  // que pasaba del límite era la frase de un peatón que hablaba caminando cerca (hasta 85 por segundo): la burbuja
+  // sigue su cabeza y se mueve de verdad, no se reescribe igual. Esas posiciones no cuentan para el límite, pero
+  // ninguna escritura puede dejar lo que ya había (`iguales`). Una propiedad de style puesta igual Chrome ni la anota:
+  // que la burbuja no se reescriba quieta lo cuida tests/hud-final.test.js.
   const escrituras = () => page.evaluate(async () => {
     let n = 0;
-    const quien = {};
+    const quien = {}, iguales = {};
+    // Los hijos se comparan enteros: cambiar `<b>x</b>` por `<i>x</i>` deja el mismo texto pero no es lo mismo.
+    const forma = (x) => x.outerHTML ?? x.textContent;
     const o = new MutationObserver((m) => {
+      // Lo que se tocó dos veces en el mismo lote no se juzga: de A a B y de vuelta a A no es reescribir lo mismo.
+      const veces = new Map();
+      for (const r of m) veces.set(r.target, (veces.get(r.target) ?? 0) + 1);
       for (const r of m) {
         const clave = r.target?.id || r.target?.className || r.target?.parentElement?.id || r.type;
+        const igual = r.type === 'attributes' ? r.oldValue === r.target.getAttribute(r.attributeName)
+          : r.type === 'characterData' ? r.oldValue === r.target.data
+          : r.addedNodes.length > 0 && [...r.removedNodes].map(forma).join() === [...r.addedNodes].map(forma).join();
+        if (igual && veces.get(r.target) === 1) {
+          const sitio = `${clave} ${r.attributeName ?? r.type}`;
+          iguales[sitio] = (iguales[sitio] ?? 0) + 1;
+        }
+        if (r.type === 'attributes' && r.attributeName === 'style' && r.target.classList?.contains('npc-bubble')) continue;
         quien[clave] = (quien[clave] ?? 0) + 1;
+        n++;
       }
-      n += m.length;
     });
-    o.observe(document.body, { attributes: true, childList: true, subtree: true, characterData: true });
+    o.observe(document.body, { attributes: true, childList: true, subtree: true, characterData: true, attributeOldValue: true, characterDataOldValue: true });
     await new Promise((f) => setTimeout(f, 4000));
     o.disconnect();
-    return { porSegundo: n / 4, quien };
+    return { porSegundo: n / 4, quien, iguales };
   });
   await page.waitForTimeout(1500);
   const quieto = await escrituras();
   expect(quieto.porSegundo, JSON.stringify(quieto.quien)).toBeLessThan(6);
+  expect(quieto.iguales).toEqual({});
   await page.evaluate(() => { const g = window.__game; g.stats.vicio = 0; });
   await page.waitForTimeout(1500);
   const conMalilla = await escrituras();
   expect(conMalilla.porSegundo, JSON.stringify(conMalilla.quien)).toBeLessThan(12);
+  expect(conMalilla.iguales).toEqual({});
 });

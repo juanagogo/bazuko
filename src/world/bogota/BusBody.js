@@ -7,6 +7,9 @@ import { MeshKit, rgb, shade, canvasTexture, drawLedText, ledTextColumns } from 
  * un puñado de mallas por material; el color por vértice lleva pintura, franjas y sombra horneada.
  */
 
+/** Dónde puede ir gente en cada sección del bus (coordenadas del bus): los asientos, el tramo del pasillo y las puertas. */
+export const PASSENGER_SLOTS = [];
+export const BUS_FLOOR = .90;
 const HALF = 1.36, BOTTOM = .42, FLOOR = .90, SILL = .88, BELT = 1.5, WINDOW_TOP = 2.96, EAVE = 3.2, TOP = 3.5;
 // Donde empieza cada extremo: bien atrás, para que la esquina dé la vuelta en un radio amplio y no en una arista.
 const FRONT_EDGE = 10.05, REAR_EDGE = -10.2;
@@ -444,33 +447,6 @@ function buildInterior(kits, layout, index) {
     interior.box(x, FLOOR + .78, z - .2, .43, .62, .06, color, { bottom: .75, top: 1.15, rotation: [-.1, 0, 0], skip: 'ny' });
     interior.box(x, FLOOR + .22, z, .05, .42, .05, C.frameSeat, { skip: 'nypy' });
   };
-  const person = (x, z, seed, standing = false) => {
-    const shirts = ['#2a333c', '#3b2c26', '#31423a', '#4b4b52', '#59302f', '#232d44', '#6b6f75', '#2f4a63', '#7a3b2e'], skins = ['#a57a59', '#855e44', '#bd9677', '#6d4c36'];
-    const hairs = ['#17120f', '#2a1c12', '#0e0c0b', '#4a4744'], legsList = ['#1b1e25', '#23304a', '#2a2622', '#3a3a3e'];
-    const body = rgb(shirts[seed % shirts.length]), skin = rgb(skins[seed % skins.length]), hair = rgb(hairs[(seed >> 1) % hairs.length]), legs = rgb(legsList[(seed >> 2) % legsList.length]);
-    // Nadie va igual: altura, ancho y hacia dónde se inclina la cabeza salen de la misma semilla, siempre iguales entre partidas.
-    const tall = 1 + ((seed * 7) % 5 - 2) * .025, wide = 1 + ((seed * 11) % 3 - 1) * .08, tilt = ((seed * 13) % 3 - 1) * .018;
-    const hip = (standing ? FLOOR + .86 : FLOOR + .52) * tall + (standing ? 0 : FLOOR * (1 - tall));
-    if (standing) {
-      // Piernas rectas con zapato: un huevo alargado terminaba en punta y parecía flotar.
-      for (const dx of [-.085, .085]) {
-        interior.tube([[x + dx, hip + .02, z], [x + dx, FLOOR + .05, z]], .072, 6, legs, { caps: false });
-        interior.box(x + dx, FLOOR + .035, z + .03, .1, .07, .24, rgb('#121214'));
-      }
-      // De pie se agarra del tubo: un brazo levantado es lo que se reconoce desde afuera.
-      const side = seed % 2 ? 1 : -1;
-      interior.tube([[x + side * .19, hip + .52, z], [x + side * .25, hip + .78, z + .02], [x + side * .16, hip + 1.02, z]], .036, 4, body, { caps: false });
-    } else {
-      // Sentado: las piernas salen hacia adelante, sobre el asiento.
-      interior.box(x, FLOOR + .54, z + .2, .34, .1, .34, legs, { bottom: .6, skip: 'ny' });
-    }
-    interior.ellipsoid([x, hip + .27, z], [.19 * wide, .33, .125], v => shade(body, lerp(.55, 1.15, v)), { rows: 4, cols: 7 });
-    // Hombros y cuello: sin ellos el cuerpo es un huevo con una bola encima.
-    interior.ellipsoid([x, hip + .52, z], [.21 * wide, .075, .115], shade(body, 1.12), { rows: 2, cols: 6 });
-    interior.tube([[x, hip + .56, z], [x + tilt, hip + .64, z + .01]], .046, 4, skin, { caps: false });
-    interior.ellipsoid([x + tilt, hip + .73, z + .012], [.092, .118, .102], v => v > .6 ? hair : shade(skin, lerp(.7, 1.05, v)), { rows: 5, cols: 7 });
-  };
-
   const left = layout.left, seats = [];
   const blocked = (s, z) => {
     if (layout.arches.some(c => Math.abs(z - c) < ARCH_RADIUS + .24)) return true;
@@ -485,14 +461,13 @@ function buildInterior(kits, layout, index) {
       seats.push([x, z]);
     }
   }
-  seats.forEach(([x, z], i) => { if ((i * 7 + index * 3) % 5 < 2) person(x, z, i + index * 2); });
+  // La gente no va en la malla: son personas reales de la calle que se le prestan al bus cuando la cámara está cerca (ArticulatedPassengers).
+  PASSENGER_SLOTS[index] = { seats, first, last, doors: left.doors.slice() };
 
   // Tubos del pasillo y barra del techo.
   for (let z = first - .1; z <= last + .4; z += 1.64) for (const x of [-.34, .34]) interior.tube([[x, FLOOR, z], [x, 2.78, z]], .018, 5, C.pole, { caps: false });
   for (const x of [-.34, .34]) interior.tube([[x, 2.78, first - .3], [x, 2.78, last + .5]], .016, 5, C.pole, { caps: false });
   for (const c of left.doors) for (const dz of [-.72, .72]) interior.tube([[1.18, FLOOR, c + dz], [1.18, 2.8, c + dz]], .018, 5, C.pole, { caps: false });
-  // Gente de pie cerca de las puertas.
-  [[-.05, left.doors[0] + .4], [.15, left.doors[1] - .6], [.1, (left.doors[0] + left.doors[1]) / 2]].forEach(([x, z], i) => person(x, z, i + 3 + index, true));
 }
 
 function buildRoof(kits, layout, index) {

@@ -1,5 +1,6 @@
 // src/entities/CraftingStation.js
 import * as THREE from 'three';
+import { handDrawnRing, markSeed } from '../world/groundMarks.js';
 import { COLORS } from '../utils/constants.js';
 
 /**
@@ -55,7 +56,7 @@ export class CraftingStation {
     this.group.add(hammer);
 
     // Marcador
-    const markerGeo = new THREE.RingGeometry(1.2, 1.5, 24);
+    const markerGeo = handDrawnRing(1.2, 1.5, markSeed(position.x, position.z));
     const markerMat = new THREE.MeshBasicMaterial({
       color: COLORS.ACCENT_GREEN,
       side: THREE.DoubleSide,
@@ -70,9 +71,8 @@ export class CraftingStation {
 
   get position() { return this.group.position; }
 
-  update(dt) {
-    if (this.marker) this.marker.rotation.z += dt * 0.6;
-  }
+  /** La marca del piso es un trazo quieto: no hay nada que mover. */
+  update() {}
 
   dispose() {
     this.scene.remove(this.group);

@@ -1,4 +1,30 @@
 import assert from 'node:assert/strict';
+import { readdirSync, readFileSync } from 'node:fs';
+
+const LFS_POINTER = 'version https://git-lfs.github.com/spec/';
+
+/** Archivos de public/audio que siguen siendo punteros de Git LFS (no se descargó el audio). */
+export function audioLfsPendiente() {
+  const dir = new URL('../../public/audio/', import.meta.url);
+  // Solo los archivos sueltos: las voces de public/audio/voces son mp3 normales, fuera de LFS.
+  return readdirSync(dir, { withFileTypes: true }).filter(entry => entry.isFile()).map(entry => entry.name).filter((file) => {
+    const head = readFileSync(new URL(encodeURIComponent(file), dir)).subarray(0, LFS_POINTER.length).toString('ascii');
+    return head === LFS_POINTER;
+  });
+}
+
+/**
+ * Sin los WAV de Git LFS estas pruebas leerían punteros de texto en lugar de audio. Fuera de CI se saltan con
+ * la instrucción para descargarlos; en CI fallan, porque allí el flujo siempre debe descargarlos.
+ */
+export function saltarSinAudioLfs(t) {
+  const pendientes = audioLfsPendiente();
+  if (!pendientes.length) return false;
+  const aviso = `Faltan ${pendientes.length} audios de Git LFS (${pendientes.join(', ')}): ejecute git lfs pull --include="public/audio/*"`;
+  if (process.env.CI) assert.fail(aviso);
+  t.skip(aviso);
+  return true;
+}
 
 /** Lee metadatos del contenedor real; no sustituye probar la decodificación en el navegador. */
 export function audioMetadata(buffer) {

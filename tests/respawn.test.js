@@ -6,10 +6,12 @@ import { StatsSystem, NEEDS } from '../src/systems/StatsSystem.js';
 import { InventorySystem } from '../src/systems/InventorySystem.js';
 import { Menu } from '../src/ui/Menu.js';
 import { Player } from '../src/entities/Player.js';
+import { resetTestWindow } from './helpers/fixtures.js';
 
-beforeEach(() => { globalThis.window = new EventTarget(); });
+beforeEach(resetTestWindow);
 
 function fixture() {
+  const deathAudioCalls = [];
   const game = Object.assign(Object.create(Game.prototype), {
     stats: new StatsSystem(), deathCount: 0, _deathPending: false, _arrestPending: false,
     talents: { getEffect: (key, fallback) => fallback }, clock: { isNight: false },
@@ -18,7 +20,12 @@ function fixture() {
       clearVehicleImpact() { this.lastImpact = null; } },
     world: { active: { reserved: { bed: { x: 89, z: 80 }, spawn: { x: 32, z: 32 } } } },
     input: { keys: { KeyW: true }, endFrame() {} },
-    audio: { updateSteps() {} },
+    audio: {
+      updateSteps() {},
+      setPaused(paused) { deathAudioCalls.push(['pause', paused]); },
+      playPlayerDeath(player) { deathAudioCalls.push(['death', player]); }
+    },
+    deathAudioCalls,
     interaction: { currentTarget: {}, currentTargetType: 'shop', boostActive: false },
     menu: { isOpen: false, open(options) { this.options = options; this.isOpen = true; }, close() { this.isOpen = false; } },
     creator: { isOpen: false },
@@ -51,9 +58,11 @@ test('un atropello grave pausa la muerte y limpia el golpe solo al recuperar en 
   assert.equal(game.stats.salud, 0);
   assert.equal(game._handleDeath(), true);
   assert.equal(game.menu.options.title, 'Me atropellaron');
+  assert.deepEqual(game.deathAudioCalls, [['pause', true], ['death', game.player]]);
   assert.ok(game.player.position.equals(position));
   assert.equal(game.deathCount, 1);
   game._handleDeath(); assert.equal(game.deathCount, 1);
+  assert.equal(game.deathAudioCalls.filter(([type]) => type === 'death').length, 1);
   game._respawn();
   assert.equal(game.player.lastImpact, null);
   assert.equal(game._deathCause, null);
@@ -139,6 +148,7 @@ test('Escape y el fondo no pueden omitir la pantalla de muerte; otros menús sig
 
 test('la captura policial confisca todo y reaparece en otro punto', () => {
   const game = fixture();
+  game.steal = { buscado: 2, _endMinigame() {} };
   game.stats.dinero = 12000;
   const start = game.player.position.clone();
   game.world.active.isWalkableAt = () => true;
@@ -212,4 +222,51 @@ test('una muerte pendiente tiene prioridad sobre un aviso policial', () => {
   assert.equal(game._arrestPending, false);
   assert.equal(game._handleDeath(), true);
   assert.equal(game._deathPending, true);
+});
+
+test('al reaparecer, la zorra se desocupa después de la pérdida habitual', () => {
+  const game = fixture();
+  game._deathPending = true;
+  let objetosAlLlamar = null;
+  game.zorraCtl = { alMorir: () => { objetosAlLlamar = game.inventory.items.length; } };
+  game._respawn();
+  assert.equal(objetosAlLlamar, 1);
+});
+
+test('con nivel bajo la captura es una requisa: la plata y el vicio, no el resto del costal', () => {
+  const game = fixture();
+  game.steal = { buscado: 1, _endMinigame() {} };
+  game.inventory.items = [{ id: 'papel', qty: 2 }, { id: 'basuco', qty: 1 }];
+  game.stats.dinero = 5000;
+  game.world.active.getSpawnGrid = () => [{ x: 80, z: 60 }];
+  game._policeArrest();
+  game._finishArrest();
+  assert.deepEqual(game.inventory.items.map((it) => it.id), ['papel']);
+  assert.equal(game.stats.dinero, 0);
+});
+
+test('con nivel 3 pasa horas en el calabozo, sin quedar al borde de morirse', () => {
+  const game = fixture();
+  game.steal = { buscado: 3, _endMinigame() {} };
+  game.clock = { isNight: false, hour: 21, day: 4 };
+  game.stats.hambre = 20; game.stats.sed = 80;
+  game.world.active.getSpawnGrid = () => [{ x: 80, z: 60 }];
+  game._policeArrest();
+  game._finishArrest();
+  assert.equal(game.clock.hour, 3);
+  assert.equal(game.clock.day, 5);
+  assert.equal(game.stats.hambre, 15);
+  assert.equal(game.stats.sed, 50);
+  assert.equal(game.inventory.items.length, 0);
+});
+
+test('el carro robado se queda donde lo cogieron', () => {
+  const game = fixture();
+  game.steal = { buscado: 2, _endMinigame() {} };
+  let soltado = 0;
+  game.carjack = { car: {}, driving: true, reset() { soltado++; this.car = null; this.driving = false; } };
+  game.world.active.getSpawnGrid = () => [{ x: 80, z: 60 }];
+  game._policeArrest();
+  game._finishArrest();
+  assert.equal(soltado, 1);
 });

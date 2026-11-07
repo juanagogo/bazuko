@@ -15,23 +15,27 @@ export class PoliceSirenAudio {
     this._time = new WeakMap();          // patrulla -> tiempo acumulado del vaivén
   }
 
-  /** `vehicles` son los del tráfico; suenan las dos patrullas en persecución más cercanas. */
-  update(dt, playerPosition, vehicles) {
+  /**
+   * `vehicles` son los del tráfico; suenan las dos patrullas en persecución más cercanas. `far` es donde desisten,
+   * que crece con el fichado (TrafficSystem.giveUpRange): hasta ahí se sigue oyendo la sirena.
+   */
+  update(dt, playerPosition, vehicles, far = SIREN_FAR) {
+    far = Math.max(SIREN_NEAR + 1, Number.isFinite(far) ? far : SIREN_FAR);
     let first = null, firstDist = Infinity, second = null, secondDist = Infinity;
     for (const vehicle of vehicles ?? []) {
       const car = vehicle.car;
       if (!vehicle.police || !car?.pursuit) continue;
       const distance = Math.hypot(car.position.x - playerPosition.x, car.position.y - playerPosition.y, car.position.z - playerPosition.z);
-      if (distance >= SIREN_FAR) continue;
+      if (distance >= far) continue;
       if (distance < firstDist) { second = first; secondDist = firstDist; first = vehicle; firstDist = distance; }
       else if (distance < secondDist) { second = vehicle; secondDist = distance; }
     }
-    this._advance(dt, first, firstDist);
-    this._advance(dt, second, secondDist);
+    this._advance(dt, first, firstDist, far);
+    this._advance(dt, second, secondDist, far);
   }
 
   /** Cada STEP segundos, un lamento. El primer avistamiento arranca el reloj, sin sonar de golpe. */
-  _advance(dt, vehicle, distance) {
+  _advance(dt, vehicle, distance, far = SIREN_FAR) {
     if (!vehicle) return;
     const previous = this._time.get(vehicle);
     if (previous === undefined) {
@@ -42,7 +46,7 @@ export class PoliceSirenAudio {
     const elapsed = previous + dt;
     this._time.set(vehicle, elapsed);
     if (Math.floor(elapsed / STEP) === Math.floor(previous / STEP)) return;
-    this._wail(distanceGain(distance, SIREN_NEAR, SIREN_FAR));
+    this._wail(distanceGain(distance, SIREN_NEAR, far));
   }
 
   _wail(volume) {

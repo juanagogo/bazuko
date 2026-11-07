@@ -309,11 +309,11 @@ export class InventoryUI {
     const s = this.inv.slots[this.selected];
     if (!s) return;
     const def = ITEMS[s.id];
-    const n = this.inv.removeAt(this.selected, all ? s.qty : 1);
-    if (!n) return;
+    const result = this.game.droppedItems.drop(s.id, all ? s.qty : 1);
+    if (!result.quantity) { this._toast(result.error, 'warn'); return; }
     this.game.audio?.play?.('empty');
     this._feedback('just-dropped');
-    this._toast(`Boté ${def.name}${n > 1 ? ' ×' + n : ''}`, 'warn');
+    this._toast(`Boté ${def.name}${result.quantity > 1 ? ' ×' + result.quantity : ''}. Lo puedo recoger durante 10 s`, 'warn');
   }
 
   useSelected() {

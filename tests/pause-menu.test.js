@@ -148,3 +148,30 @@ test('pasar de la pausa a otra ventana no deja el teclado de la pausa escuchando
   }
   Object.assign(window, { addEventListener: original.add, removeEventListener: original.remove });
 });
+
+test('el retrato de Estado se codifica una vez por foto, no en cada render de la pestaña', () => {
+  let cfg = null, encodes = 0;
+  const foto = () => ({ toDataURL: () => `data:image/png;base64,${++encodes}` });
+  const game = {
+    creator: { isOpen: false },
+    audio: { volume: 0.5, isMuted: () => false, setVolume() {}, toggleMute() {} },
+    stats: { dinero: 0, level: 1, xp: 0, salud: 80 }, clock: { day: 2, hour: 10 },
+    look: { nombre: 'Tester' },
+    _retrato: foto(),
+    menu: { isOpen: false, open(c) { cfg = c; this.isOpen = true; }, refresh() {}, close() {} }
+  };
+  openPauseMenu(game, 'estado');
+  const src = (node) => {
+    if (node?.tag === 'img' && node.attributes?.src !== undefined) return node.attributes.src;
+    if (node?.tag === 'img' && node.src) return node.src;
+    for (const c of node?.children ?? []) { const s = src(c); if (s) return s; }
+    return null;
+  };
+  const primera = src(cfg.render().body);
+  for (let i = 0; i < 3; i++) cfg.render();
+  assert.equal(encodes, 1, 'tres refrescos (p. ej. tres clics de pelaje) no vuelven a codificar');
+  assert.ok(primera?.startsWith('data:image/png'));
+  game._retrato = foto();
+  cfg.render();
+  assert.equal(encodes, 2, 'una foto nueva sí se codifica');
+});

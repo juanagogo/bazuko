@@ -4,6 +4,7 @@
 // Expone la misma interfaz que createCharacter(): { group, setLook, update }.
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
 import { clone as cloneSkinned } from 'three/examples/jsm/utils/SkeletonUtils.js';
 import { ACTIONFORGE_CLIPS, buildCharacterClips } from './actionforge.js';
 import { buildMixamoPreviewClips, buildMixamoGameComplements, isMixamoProfile, resolveAnimationProfile } from './animationProfiles.js';
@@ -13,8 +14,10 @@ import { bakeGaitFamily, buildGaitSources, resolveGait } from './gaitFamilies.js
 import { DEFAULT_LOOK, PALETTES } from './look.js';
 import { addHairTone } from './weathering.js';
 import { applyStreetMaterial, createStreetFrame, curlsWithoutCards, GARMENTS, normalizeTonos, shoesWithoutSocks, streetFaceTint, streetMaterialSeed, streetSkinColor } from './streetMaterials.js';
-import { attachAccessories, attachStreetProps, attachWeapon, FAR_ACCESSORIES, isStreetProp, placeInHold, swayStreetProps } from './props.js';
-import { garmentAllowed, normalizeTalla } from './archetypes.js';
+import { attachAccessories, attachHeldRadio, attachStreetProps, attachWeapon, FAR_ACCESSORIES, isStreetProp, placeInHold, swayStreetProps } from './props.js';
+import { garmentAllowed } from './archetypes.js';
+import { normalizeRostro, normalizeTalla, rollLinaje, rollRostro, rollTallaCuerpo } from './people.js';
+import { attachFace, browGeometry, faceColors, measureFace } from './faceParts.js';
 import { attachCigaretteToHand, emberGlow } from './smoking.js';
 import { attachBasucoProps } from './pipe.js';
 import { addHatClip, hatEdgeProfile } from './hatFit.js';
@@ -24,6 +27,8 @@ import { BodyLanguage } from './BodyLanguage.js';
 import { bakeStances } from './stances.js';
 import { preparePlayback, blendAnimationWeights, HipBlend } from './AnimationPlayback.js';
 import { shareImages } from './sharedImages.js';
+import { shareSkeletons } from './sharedSkeleton.js';
+import { pick } from '../utils/random.js';
 
 const MODEL_BASE = `${import.meta.env?.BASE_URL ?? '/'}models/`;
 const BASE = `${MODEL_BASE}personaje/`;
@@ -36,20 +41,40 @@ export const REALISTIC_SCALE = 1.08;
 const ACTIONFORGE_URL = `${MODEL_BASE}animaciones-actionforge.glb`;
 // Bancos del andar y el reposo: un paso erguido y Sad Walk, Running y Talking de Mixamo.
 const GAIT_BANK_URLS = [`${MODEL_BASE}andar-erguido.glb`, `${MODEL_BASE}andar-cansado.glb`];
+// Golpes, reacciones y caídas de las peleas de la calle.
+
+// En GLB (tools/animaciones/fbx-a-glb.mjs): mismos clips que los FBX de Mixamo, sin descomprimirlos al cargar.
+const ASSAULT_ANIM_URLS = {
+  bloquear: `${MODEL_BASE}center-block.glb`,
+  fueraCombate: `${MODEL_BASE}fallingdown.glb`, // <--- Asignado a fallingdown
+  golpe_jab: `${MODEL_BASE}combat-jab-cross.glb`,
+  reaccion_cabeza: `${MODEL_BASE}combat-hit-head.glb`,
+  reaccion_pecho: `${MODEL_BASE}combat-hit-body.glb`,
+  provocar: `${MODEL_BASE}combat-taunt.glb`,
+  golpear: `${MODEL_BASE}assault-hook.glb`,
+  patear: `${MODEL_BASE}assault-kick.glb`,
+  recibirGolpe: `${MODEL_BASE}assault-hit-react.glb`,
+  derribo: `${MODEL_BASE}assault-knockdown.glb`,
+  levantarse: `${MODEL_BASE}assault-get-up.glb`
+};
 
 // Peso compartido de caminar y correr; su reparto lo decide la velocidad.
 const LOCOMOTION = 'locomocion';
 const CANE_GRIP_TIME = .2; // s en cambiar de agarre el bastón al echar a correr o al frenar
 // Acciones sin clip propio: clip sustituto y velocidad de reproducción.
 const ACTION_FALLBACKS = {
-  cagar: ['buscar'], lanzar: ['pedir'], saludo: ['pedir']
+  cagar: ['buscar'], lanzar: ['pedir'], saludo: ['pedir'],
+  agarrar: ['pedir'], ser_agarrado: ['pedir'], forcejear: ['pedir'],
+  golpe_jab: ['golpear'], golpe_cross: ['golpear'], patada: ['patear'],
+  reaccion_pecho: ['recibirGolpe'], reaccion_cabeza: ['recibirGolpe'], caida: ['derribo']
 };
 
 export const REAL_DEFAULT = {
   sexo: 'hombre', edad: 'adulto', pelo: 'desordenado', barba: 'descuidada', ropa: 'chaqueta', calzado: 'tenis-rotos', cabeza: 'sin-sombrero'
 };
 
-const loader = new GLTFLoader();
+// Las mallas de los personajes vienen comprimidas sin pérdida (tools/personaje/comprimir-mallas.mjs).
+const loader = new GLTFLoader().setMeshoptDecoder(MeshoptDecoder);
 let skinDetailPromise;
 function loadStreetSkinDetail() {
   skinDetailPromise ??= new THREE.TextureLoader().loadAsync(`${MODEL_BASE}preview/skin/skin-micro-normal.png`).then(texture => {
@@ -102,6 +127,9 @@ export function normalizeReal(catalog, raw = {}) {
   else delete r.talla;
   if (Array.isArray(r.accesorios)) r.accesorios = r.accesorios.filter((item) => isStreetProp(item?.id));
   else delete r.accesorios;
+  const rostro = normalizeRostro(r.rostro);
+  if (rostro) r.rostro = rostro;
+  else delete r.rostro;
   const tonos = normalizeTonos(r.tonos);
   if (tonos) r.tonos = tonos;
   else delete r.tonos;
@@ -110,13 +138,15 @@ export function normalizeReal(catalog, raw = {}) {
 
 /** Combinación al azar de piezas realistas */
 export function randomReal(catalog, base = {}) {
-  const any = (arr) => arr[Math.floor(Math.random() * arr.length)];
-  const sexo = base.sexo ?? any(['hombre', 'mujer']);
-  const pick = (cat) => any(optionsFor(catalog, cat, sexo)).id;
+  const pickOption = (cat) => pick(optionsFor(catalog, cat, sexo)).id;
+  const sexo = base.sexo ?? pick(['hombre', 'mujer']);
+  const edad = pick(['joven', 'adulto', 'mayor']);
   return normalizeReal(catalog, {
-    sexo, edad: any(['joven', 'adulto', 'mayor']),
-    pelo: pick('pelo'), barba: Math.random() < 0.3 ? 'ninguna' : pick('barba'), ropa: pick('ropa'), calzado: pick('calzado'),
-    cabeza: Math.random() < 0.6 ? REAL_DEFAULT.cabeza : optionsFor(catalog, 'cabeza', sexo).length ? pick('cabeza') : REAL_DEFAULT.cabeza
+    sexo, edad,
+    rostro: rollRostro(Math.random, rollLinaje(Math.random), sexo, edad),
+    talla: rollTallaCuerpo(Math.random, { sexo, edad }).talla,
+    pelo: pickOption('pelo'), barba: Math.random() < 0.3 ? 'ninguna' : pickOption('barba'), ropa: pickOption('ropa'), calzado: pickOption('calzado'),
+    cabeza: Math.random() < 0.6 ? REAL_DEFAULT.cabeza : optionsFor(catalog, 'cabeza', sexo).length ? pickOption('cabeza') : REAL_DEFAULT.cabeza
   });
 }
 
@@ -166,16 +196,31 @@ function gestureClips(bodyId, bodyGltf, banks) {
   const key = `gestos:${bodyId}`;
   if (!clipCache.has(key)) {
     clipCache.set(key, (async () => {
+let assaultPromise;
+let fbxLoaderPromise;
+/** Si falta un GLB convertido se usa su FBX original; el cargador FBX solo se descarga entonces. */
+async function loadAssaultFbx(url) {
+  fbxLoaderPromise ??= import('three/examples/jsm/loaders/FBXLoader.js').then(({ FBXLoader }) => new FBXLoader());
+  return (await fbxLoaderPromise).loadAsync(url.replace(/\.glb$/, '.fbx'));
+}
+function loadAssaultAnimations() {
+  if (typeof document === 'undefined') return Promise.resolve({}); // Las pruebas en Node adaptan los clips por su cuenta
+  assaultPromise ??= Promise.all(Object.entries(ASSAULT_ANIM_URLS).map(async ([name, url]) => {
+    try { return [name, await loader.loadAsync(url).catch(() => loadAssaultFbx(url))]; }
+    catch (error) { console.warn(`No se pudo cargar la animación ${name}.`, error); return [name, null]; }
+  })).then(Object.fromEntries);
+  return assaultPromise;
+}
       actionforgePromise ??= load(ACTIONFORGE_URL).catch(error => {
         console.warn('No se pudo cargar ActionForge; se usarán las animaciones anteriores.', error);
         return null;
       });
       const actionforge = await actionforgePromise;
-      if (banks) return buildCharacterClips(bodyGltf, actionforge ? null : await loadAnimations(), actionforge, { omit: ['idle', 'walk', 'run'] });
+      if (banks) return buildCharacterClips(bodyGltf, actionforge ? null : await loadAnimations(), actionforge, { omit: ['idle', 'walk', 'run'], assault: await loadAssaultAnimations() });
       // El banco anterior (2 MB con mallas y texturas) solo se descarga si falta locomoción.
       const complete = actionforge && ['idle', 'walk', 'run']
         .every(name => actionforge.animations.some(clip => clip.name === ACTIONFORGE_CLIPS[name]));
-      const clips = groundLocomotion(bodyGltf.scene, buildCharacterClips(bodyGltf, complete ? null : await loadAnimations(), actionforge));
+      const clips = groundLocomotion(bodyGltf.scene, buildCharacterClips(bodyGltf, complete ? null : await loadAnimations(), actionforge, { assault: await loadAssaultAnimations() }));
       if (clips.walk) clips.walk.userData.locomotion = measureLocomotion(bodyGltf.scene, clips.walk, clips.run);
       return clips;
     })().catch(error => {
@@ -312,7 +357,8 @@ async function buildInstance(catalog, look, lod = false, profile = resolveAnimat
   const folder = `${BASE}${body.id}/`;
   // LOD: cuerpo proxy y piezas simplificadas (si el catálogo las trae)
   const useLod = lod && body.piezas[real.ropa]?.lod;
-  const parts = PART_CATS
+  // `soloCuerpo`: el cuerpo base liso, sin prendas, pelo, barba, calzado ni sombrero (los hombres sombra).
+  const parts = (look.soloCuerpo ? [] : PART_CATS)
     .map((cat) => ({ cat, info: body.piezas[real[cat]] }))
     .filter((p) => p.info?.file);
   // Las prendas no dependen de descargar el cuerpo: iniciar todo en paralelo.
@@ -396,6 +442,21 @@ async function buildInstance(catalog, look, lod = false, profile = resolveAnimat
       applyStreetMaterial(mesh.material, mesh, { ...streetOptions, kind: 'eyes' });
     }
   });
+  const headBone = [...bones.values()].find(bone => /Head$/.test(bone.name));
+  let eyeMesh = null;
+  root.traverse(o => { if (o.isSkinnedMesh && /(?:low-poly|eyes?)(?:_|\.|$)/i.test(o.name) && !/eyebrow|eyelash/i.test(o.name)) eyeMesh ??= o; });
+  if (headBone) {
+    const talla = real.talla ?? { alto: 1, ancho: 1 };
+    const rostro = real.rostro ?? { ancho: 1, largo: 1 };
+    const compensa = ((talla.ancho ?? 1) / (talla.alto ?? 1)) ** -.7;
+    const cabeza = talla.cabeza ?? 1;
+    headBone.scale.set(cabeza * compensa * rostro.ancho, cabeza * rostro.largo, cabeza * compensa);
+  }
+  if (!lod && real.rostro && headBone && bodyMesh && eyeMesh) {
+    const frame = measureFace(body.id, root, bodyMesh, eyeMesh);
+    root.traverse(o => { if (o.isSkinnedMesh && /eyebrow/i.test(o.name)) o.geometry = browGeometry(body.id, root, o, frame, real.rostro.cejas); });
+    attachFace(root, headBone, frame, real.rostro, faceColors(look.piel ?? DEFAULT_LOOK.piel, look.peloColor ?? 0, frame, bodyMesh.material.color), real.barba);
+  }
   const worn = (look.accesorios ?? []).filter((id) => !useLod || FAR_ACCESSORIES.has(id));
   const accessories = worn.length ? attachAccessories(root, bones, worn, wear) : null;
   const stanceLibrary = stancesForBody(body.id, bodyGltf);
@@ -415,11 +476,12 @@ async function buildInstance(catalog, look, lod = false, profile = resolveAnimat
     clips = groundedClipCache.get(key);
   }
 
+  shareSkeletons(root);
   const mixer = new THREE.AnimationMixer(root);
   const actions = {};
   for (const [name, clip] of Object.entries(clips)) {
     actions[name] = mixer.clipAction(clip);
-    if (['comer', 'beber', 'lanzar', 'saludo'].includes(name)) {
+    if (['comer', 'beber', 'lanzar', 'saludo', 'golpear', 'patear', 'recibirGolpe', 'derribo', 'levantarse', 'golpe_jab', 'golpe_cross', 'patada', 'reaccion_pecho', 'reaccion_cabeza', 'caida', 'fueraCombate', 'bloquear'].includes(name)) {
       actions[name].setLoop(THREE.LoopOnce, 1);
       actions[name].clampWhenFinished = true;
     }
@@ -519,14 +581,19 @@ export async function createRealisticCharacter(look = {}, { lod = false, animaci
   let disposed = false;
   const weights = {};
   let weaponId = null; // arma en mano (cuchillo, botella_picada) o null
+  let weaponScale = 1; // tamaño del arma en la mano: la pistola y el cuchillo de un atraco se tienen que leer de lejos
   let smoking = null;   // qué se fuma en la mano izquierda ('cigarrillo', 'hierba') o null
   let basuco = false;   // pipa en la izquierda y encendedor en la derecha
+  let radioWanted = false; // radio de mano mientras esté prendida
+  let radioProp = null;
 
   function syncWeapon() {
-    if (!inst || inst.weaponId === weaponId) return;
+    if (!inst || (inst.weaponId === weaponId && inst.weaponScale === weaponScale)) return;
     inst.weapon?.dispose();
     inst.weapon = weaponId ? attachWeapon(inst.root, inst.bones, weaponId) : null;
+    if (inst.weapon && weaponScale !== 1) inst.weapon.object.scale.multiplyScalar(weaponScale);
     inst.weaponId = weaponId;
+    inst.weaponScale = weaponScale;
   }
 
   function syncCigarette() {
@@ -542,6 +609,12 @@ export async function createRealisticCharacter(look = {}, { lod = false, animaci
     inst.basucoProps = basuco ? attachBasucoProps(inst.root, inst.bones) : null;
   }
 
+  function syncRadio() {
+    if (!inst) return;
+    if (radioWanted && !radioProp) radioProp = attachHeldRadio(inst.root, inst.bones);
+    if (radioProp) radioProp.visible = radioWanted;
+  }
+
   async function setLook(l) {
     if (disposed) return;
     const my = ++token;
@@ -550,12 +623,14 @@ export async function createRealisticCharacter(look = {}, { lod = false, animaci
     disposeRealisticInstance(inst);
     inst = next;
     group.add(inst.root);
+    radioProp = null;
     // Talla por persona; sin `look.real.talla` (el jugador) queda la escala de siempre.
     const talla = inst.real.talla;
     group.scale.set(REALISTIC_SCALE * (talla?.ancho ?? 1), REALISTIC_SCALE * (talla?.alto ?? 1), REALISTIC_SCALE * (talla?.ancho ?? 1));
     syncWeapon();
     syncCigarette();
     syncBasuco();
+    syncRadio();
     for (const k of Object.keys(weights)) delete weights[k];
     for (const k of [...Object.keys(inst.actions), LOCOMOTION]) if (k !== 'walk' && k !== 'run' && k !== 'trote') weights[k] = k === 'idle' ? 1 : 0;
   }
@@ -577,13 +652,15 @@ export async function createRealisticCharacter(look = {}, { lod = false, animaci
     get look() { return look; },
     setLook(l) { look = l; return setLook(l); },
     /** Arma visible en la mano derecha; null para ir con las manos vacías */
-    setWeapon(id) { weaponId = id || null; syncWeapon(); },
+    setWeapon(id, scale = 1) { weaponId = id || null; weaponScale = scale; syncWeapon(); },
     /** Cigarrillo (o porro, con kind = 'hierba') en la mano izquierda */
     setSmoking(on, kind = 'cigarrillo') { smoking = on ? kind : null; syncCigarette(); },
     /** Brasa del cigarrillo en el mundo, o null si no está fumando */
     cigaretteTip(target) { return inst?.cigarette ? inst.cigarette.tip.getWorldPosition(target) : null; },
     /** Pipa de basuco y encendedor en las manos */
     setBasuco(on) { basuco = !!on; syncBasuco(); },
+    /** Radio de pilas en la mano izquierda mientras esté prendida */
+    setHeldRadio(on) { radioWanted = !!on; syncRadio(); },
     /** Ata un objeto rígido a la mano con el marco horneado de `pose` (ver `holds` en stances.js). */
     hold(object, pose) {
       const hold = inst?.holds?.[pose], bone = hold && inst.bones.get(hold.boneName);
@@ -630,7 +707,7 @@ export async function createRealisticCharacter(look = {}, { lod = false, animaci
     },
     /** Al cambiar de modelo, la postura que se esté pidiendo entra sin transición. */
     snapPose() { inst?.bodyLanguage?.snap(); },
-    update(dt, { speed = 0, running = false, action = null, load = 0, movement = {}, actionProgress, attack = null, smoke = null, basuco: pipeT = null, look: glance = 0, point = 0, stance = null, style = null, stanceWeight = 1, ko = 0, koRising = false, koPlan = 'espalda', koFrom = null, rising = false } = {}) {
+    update(dt, { speed = 0, running = false, action = null, load = 0, movement = {}, actionProgress, attack = null, smoke = null, basuco: pipeT = null, look: glance = 0, point = 0, stance = null, style = null, stanceWeight = 1, ko = 0, koRising = false, koPlan = 'espalda', koFrom = null, rising = false, hurto = null } = {}) {
       if (!inst) return;
       const a = inst.actions;
       const sourceCadence = isMixamoProfile(profile.id) && movement.previewCadence === 'source';
@@ -647,6 +724,9 @@ export async function createRealisticCharacter(look = {}, { lod = false, animaci
         inst.basucoProps.pipe.object.visible = pipeAllowed;
         inst.basucoProps.lighter.object.visible = pipeAllowed;
       }
+      // La radio cede la mano izquierda al cigarrillo o a la pipa, y se guarda acostado o nadando.
+      if (radioProp) radioProp.visible = radioWanted && !detached && action !== 'dormir' && !pipeAllowed
+        && !(inst.cigarette && inst.cigarette.object.visible);
       // destino: acción especial si existe el clip (o su sustituto); si no, reposo o locomoción
       let target = gaitSpeed < 0.15 ? 'idle' : a.walk ? LOCOMOTION : 'idle';
       let scale = 1;
@@ -706,16 +786,16 @@ export async function createRealisticCharacter(look = {}, { lod = false, animaci
       inst.bodyLanguage?.apply(dt, {
         stance, style, stanceWeight, ko, koRising, koPlan, koFrom, rising, speed: gaitSpeed, phase: inst.phase,
         blocked: handsBlocked || target === action || poseAction,
-        handsBusy: !!attack || action === 'golpear' || pipeAllowed || !!point || (smokeAllowed && !!smoke)
+        handsBusy: !!attack || action === 'golpear' || pipeAllowed || !!point || (smokeAllowed && !!smoke) || (!!hurto && !hurto.unaMano)
       });
       inst.secondaryMotion?.apply(dt, {
         speed: gaitSpeed, load, phase: inst.phase, turnRate: movement.turnRate,
-        action: handsBlocked || attack || smoke || pipeAllowed || point ? 'gesture' : action
+        action: handsBlocked || attack || smoke || pipeAllowed || point || hurto ? 'gesture' : action
       });
       // Un saludo o descanso horneado es dueño de la pose; no sumar encima el
       // gesto procedural. Las acciones sin clip conservan su capa identificable.
       const overlayAction = previewClip && target === action ? 'clip' : action;
-      inst.actionPose.apply(dt, { speed, running, action: overlayAction, actionProgress, movement, attack, smoke: smokeAllowed ? smoke : null, basuco: pipeAllowed ? pipeT : null, look: glance, point, hipLow: inst.bodyLanguage?.hipWeight ?? 0 });
+      inst.actionPose.apply(dt, { speed, running, action: overlayAction, actionProgress, movement, attack, smoke: smokeAllowed ? smoke : null, basuco: pipeAllowed ? pipeT : null, look: glance, point, hipLow: inst.bodyLanguage?.hipWeight ?? 0, hurto });
       inst.groundContact?.apply(!detached);
       inst.cigarette?.setGlow(emberGlow(smokeAllowed ? smoke?.puff : null));
       if (pipeAllowed) inst.basucoProps?.update(pipeT);

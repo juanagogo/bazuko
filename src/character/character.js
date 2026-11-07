@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { PALETTES, DEFAULT_LOOK, normalizeLook } from './look.js';
 import { animationDamping } from './SecondaryMotion.js';
 import { ActionPose } from './ActionPose.js';
-import { createWeapon } from './props.js';
+import { createWeapon, createHeldRadio } from './props.js';
 import { createCigarette, puffReach, emberGlow } from './smoking.js';
 import { createPipe, createLighter, basucoReach, isLit, BASUCO } from './pipe.js';
 
@@ -30,6 +30,9 @@ export const BASUCO_POSE_LIVIANO = {
   pipe: [-0.01, -0.25, 0.05], pipeRotation: [1.21, 0.14, -1.02],
   lighter: [0.0, -0.25, 0.05], lighterRotation: [0, 0, 0]
 };
+
+// La muñeca en el antebrazo: el puño es una esfera de 7 cm centrada 20 cm abajo del codo.
+const MUNECA = -.13;
 
 function capsule(r, len, m) {
   const g = new THREE.CapsuleGeometry(r, len, 4, 12);
@@ -418,7 +421,23 @@ export function createCharacter(initial = DEFAULT_LOOK) {
     basucoProps = { pipe, lighter };
   }
 
-  function update(dt, { speed = 0, running = false, action = null, t = 0, load = 0, dirt = 0, wet = 0, look: lookAt = 0, movement = {}, actionProgress, attack = null, smoke = null, basuco: pipeT = null, point = 0 } = {}) {
+  // Radio en la mano izquierda mientras esté prendida; se guarda al apagarla.
+  let radioProp = null, radioOn = false;
+  function setHeldRadio(on) {
+    on = !!on;
+    radioOn = on;
+    if (!on && !radioProp) return;
+    if (!radioProp) {
+      radioProp = createHeldRadio();
+      radioProp.position.set(0, -.2, 0);
+      radioProp.rotation.set(0, 0, Math.PI);
+      radioProp.scale.setScalar(1.25);
+      arms[0].elbow.add(radioProp);
+    }
+    radioProp.visible = on;
+  }
+
+  function update(dt, { speed = 0, running = false, action = null, t = 0, load = 0, dirt = 0, wet = 0, look: lookAt = 0, movement = {}, actionProgress, attack = null, smoke = null, basuco: pipeT = null, point = 0, hurto = null } = {}) {
     if (disposed) return;
     actionPose.restore();
     dt = Number.isFinite(dt) ? Math.max(0, dt) : 0;
@@ -432,7 +451,7 @@ export function createCharacter(initial = DEFAULT_LOOK) {
     const detached = movement.swimming || movement.grounded === false;
     const handsBlocked = detached || movement.landing > 0 || action === 'recibirGolpe' || action === 'dormir';
     const pipeAllowed = !handsBlocked && !attack && action !== 'golpear' && speed < .15 && pipeT != null;
-    if (handsBlocked || attack || action === 'golpear' || pipeAllowed || point) smoke = null;
+    if (handsBlocked || attack || action === 'golpear' || pipeAllowed || point || hurto) smoke = null;
     if (!pipeAllowed) pipeT = null;
     if (handsBlocked || attack || smoke || pipeAllowed) lookAt = 0;
     if (cigarette) cigarette.object.visible = !handsBlocked && !attack && action !== 'golpear' && !pipeAllowed;
@@ -441,6 +460,9 @@ export function createCharacter(initial = DEFAULT_LOOK) {
       basucoProps.pipe.object.visible = pipeAllowed;
       basucoProps.lighter.object.visible = pipeAllowed;
     }
+    // La radio cede la mano izquierda al cigarrillo o a la pipa, y se guarda acostado o nadando.
+    if (radioProp) radioProp.visible = radioOn && !detached && action !== 'dormir' && !pipeAllowed
+      && !(cigarette && cigarette.object.visible);
     const gaitSpeed = detached ? 0 : speed;
     const target = { lean: 0, twist: 0, sway: 0, armLx: 0, armRx: 0, armLz: 0.12, armRz: -0.12, elbL: -0.2, elbR: -0.2, legL: 0, legR: 0, kneeL: 0, kneeR: 0, bob: 0, crouch: 0, lie: 0, headX: 0, headY: lookAt };
     const amp = Math.min(1, gaitSpeed / 3) * (running ? 1 : .78);
@@ -570,6 +592,32 @@ export function createCharacter(initial = DEFAULT_LOOK) {
         target.lean = .07; target.headX = .09;
         break;
       }
+      case 'bloquear': {
+        target.lean = .08;
+        target.armLx = -1.15; target.armRx = -1.15;
+        target.elbL = -2; target.elbR = -2;
+        target.armLz = .2; target.armRz = -.2;
+        target.legL = .15; target.legR = -.15;
+        break;
+      }
+      case 'agarrar':
+      case 'ser_agarrado':
+      case 'golpe_jab':
+      case 'golpe_cross':
+      case 'golpear': {
+        const punchCycle = Math.sin(t * 18);
+        target.lean = 0.18;
+        target.armRx = -1.65 + punchCycle * 0.15;
+        target.elbR = -0.05;
+        target.armRz = -0.15;
+        target.armLx = -1.25;
+        target.elbL = -1.8;
+        target.armLz = 0.35;
+        target.legR = -0.35;
+        target.legL = 0.3;
+        break;
+      }
+      case 'fueraCombate':
       case 'dormir':
         target.lie = 1;
         target.lean = target.twist = target.sway = 0;
@@ -628,7 +676,7 @@ export function createCharacter(initial = DEFAULT_LOOK) {
     body.rotation.x = -pose.lie * Math.PI / 2;
     body.position.y = pose.lie * 0.3;
     body.position.z = -pose.lie * 0.55;
-    actionPose.apply(dt, { speed, running, action, actionProgress, movement, attack, point });
+    actionPose.apply(dt, { speed, running, action, actionProgress, movement, attack, point, hurto });
 
     // parpadeo
     blink -= dt;
@@ -655,19 +703,36 @@ export function createCharacter(initial = DEFAULT_LOOK) {
     setSmoking,
     setBasuco,
     setWeapon,
+    /**
+     * Ata un objeto rígido a una mano, como `hold` del realista: 'cargar-izquierda' o 'cargar-derecha', con el origen
+     * en la muñeca (arriba del puño) y los ejes del antebrazo. False con cualquier otra postura.
+     */
+    hold(object, pose) {
+      const arm = pose === 'cargar-izquierda' ? arms[0] : pose === 'cargar-derecha' ? arms[1] : null;
+      if (!arm) return false;
+      arm.elbow.add(object);
+      object.position.set(0, MUNECA, 0);
+      object.quaternion.identity();
+      object.scale.setScalar(1);
+      return true;
+    },
+    setHeldRadio,
     dispose() {
       if (disposed) return;
       disposed = true;
       actionPose.restore();
       weapon?.dispose(); cigarette?.dispose();
       basucoProps?.pipe.dispose(); basucoProps?.lighter.dispose();
+      // La radio comparte geometría y material con las demás: se quita, no se libera.
+      radioProp?.removeFromParent();
       const geometries = new Set(), materials = new Set();
       root.traverse(object => {
         if (object.geometry) geometries.add(object.geometry);
         for (const material of [object.material].flat()) if (material) materials.add(material);
       });
       for (const geometry of geometries) geometry.dispose();
-      for (const material of materials) material.dispose();
+      // Lo que tenga en la mano con material de la calle (un bolso arrancado) es de todos: no se libera.
+      for (const material of materials) if (!material.userData?.shared) material.dispose();
       root.removeFromParent();
     },
     pipeBowl(target) { return basucoProps ? basucoProps.pipe.top.getWorldPosition(target) : null; },

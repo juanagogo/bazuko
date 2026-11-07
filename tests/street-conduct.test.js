@@ -16,7 +16,7 @@ mock.module('../src/character/RealisticCharacter.js', { namedExports: {
   createRealisticCharacter: async () => character(), loadCatalog: async () => ({}),
   normalizeReal: (_catalog, look) => look, optionsFor: () => [], REALISTIC_SCALE: 1.08
 } });
-const { Npc, NPC_COMBAT, randomStreetLook } = await import('../src/entities/Npc.js');
+const { Npc, NPC_COMBAT, STRIDE, randomStreetLook } = await import('../src/entities/Npc.js');
 const { LOW_STANCES } = await import('../src/character/archetypes.js');
 const { PigeonFlock } = await import('../src/entities/PigeonFlock.js');
 
@@ -139,7 +139,15 @@ test('quien conversa alterna sus posturas sin moverse', async () => {
   const stances = ['hablar', 'brazos-cruzados', 'bolsillos'];
   const npc = await person('estudiante', { fijo: { stance: 'hablar', alternas: stances } });
   const seen = new Set();
-  for (let t = 0; t < 240; t += .25) { npc.update(.25, { player: new THREE.Vector3(500, 0, 500) }); seen.add(npc.stance); }
+  // La postura nueva sale de Math.random: con una semilla fija la prueba no depende de la suerte (antes fallaba a veces).
+  const original = Math.random;
+  let seed = 7;
+  Math.random = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+  try {
+    for (let t = 0; t < 240; t += .25) { npc.update(.25, { player: new THREE.Vector3(500, 0, 500) }); seen.add(npc.stance); }
+  } finally {
+    Math.random = original;
+  }
   assert.deepEqual([...seen].sort(), [...stances].sort());
   assert.equal(npc.fijo.out, false);
   npc.dispose();
@@ -417,9 +425,59 @@ test('anda a la velocidad de su arquetipo: los del paso cansado no corren, y con
   office.wait = 0;
   office.stance = null;
   office.action = null;
+  // Ya con el paso tomado y de cara al destino: anda a su velocidad y el modelo lo sabe en metros de su talla.
+  office.root.rotation.y = Math.atan2(30 - office.position.x, 2 - office.position.z);
+  office._stride = 1;
   office.update(.05, { player: office.position.clone().add(new THREE.Vector3(3, 0, 0)) });
   assert.ok(Math.abs(office.character.last.speed - office.walkSpeed / (1.08 * 1.05)) < 1e-6, `${office.character.last.speed}`);
   office.dispose(); old.dispose();
+});
+
+/** Lo pone a caminar hacia `to` desde quieto, mirando hacia `facing`, sin paradas ni posturas de por medio. */
+function walkTo(npc, to, facing) {
+  npc.moving = false;
+  npc._stride = 0;
+  npc.root.rotation.y = facing;
+  npc.target = new THREE.Vector3(...to);
+  npc.route = [];
+  npc.wait = 0;
+  npc.stance = null;
+  npc.action = null;
+}
+
+test('arranca tomando el paso: no sale a toda marcha desde quieto, y el modelo anda lo mismo que avanza', async () => {
+  const npc = await person('oficinista');
+  walkTo(npc, [30, 0, 2], Math.PI / 2); // de cara al destino
+  const speeds = [];
+  for (let i = 0; i < 16; i++) {
+    const before = npc.position.clone();
+    npc.update(.05, { player: npc.position.clone().add(new THREE.Vector3(0, 0, 3)) }); // cerca: se anima cada cuadro
+    const real = npc.position.distanceTo(before) / .05;
+    speeds.push(real);
+    // El paso del modelo es el mismo que el del cuerpo: los pies no patinan mientras acelera.
+    const model = npc.character.last.speed * 1.08 * (npc.look.real?.talla?.alto ?? 1);
+    assert.ok(Math.abs(model - real) < 1e-6, `modelo ${model} contra ${real}`);
+  }
+  assert.ok(speeds[0] < npc.walkSpeed * .2, `primer cuadro a ${speeds[0]}`);
+  assert.ok(speeds.every((v, i) => i === 0 || v >= speeds[i - 1] - 1e-9), 'acelera sin tirones');
+  assert.ok(Math.abs(speeds.at(-1) - npc.walkSpeed) < 1e-6, `a los .8 s va a ${speeds.at(-1)}`);
+  npc.dispose();
+});
+
+test('con el destino a la espalda primero da la vuelta con pasos cortos y luego camina', async () => {
+  const npc = await person('oficinista');
+  walkTo(npc, [2, 0, 2], Math.PI / 2); // mira hacia +x y el destino queda detrás
+  const start = npc.position.clone();
+  run(npc, .2);
+  // Mientras gira no se va de espaldas a toda marcha: anda menos de la mitad de lo que andaría de frente.
+  assert.ok(npc.position.distanceTo(start) < npc.walkSpeed * .2 * .5, `se corrió ${npc.position.distanceTo(start)} m`);
+  assert.ok(STRIDE.turnPace < .5);
+  run(npc, .6);
+  const facing = Math.abs(Math.atan2(Math.sin(npc.root.rotation.y + Math.PI / 2), Math.cos(npc.root.rotation.y + Math.PI / 2)));
+  assert.ok(facing < .15, `quedó a ${facing} rad del destino`);
+  run(npc, .5);
+  assert.ok(npc.position.x < start.x - .3, 'ya camina hacia el destino');
+  npc.dispose();
 });
 
 test('sin arquetipo no hay conductas: un `look` dado y los subtipos siguen como antes', async () => {

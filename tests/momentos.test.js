@@ -54,12 +54,13 @@ test('lo perdido es lo que de verdad se pierde', () => {
   assert.equal(preso.cosas[0], '$ 12.400');
   assert.equal(preso.resto, 3);
   assert.deepEqual(perdidoEnArresto(0, [], ITEMS), { cosas: [], resto: 0 });
-  // Morir se lleva la primera mitad de las filas: `Game._respawn`.
+  // Morir se lleva la primera mitad de las filas: `Game._respawn`, que cobra con `cobrarMuerte`.
   const muerto = perdidoAlMorir(items, ITEMS);
   assert.equal(muerto.cosas.length, 2);
   assert.match(muerto.cosas[0], /×8$/);
   assert.equal(muerto.resto, 0);
-  assert.match(leer('src/core/game.js'), /const half = Math\.floor\(this\.inventory\.items\.length \/ 2\);/);
+  assert.match(leer('src/core/game.js'), /cobrarMuerte\(this\)/);
+  assert.match(leer('src/systems/castigoPendiente.js'), /const half = Math\.floor\(game\.inventory\.items\.length \/ 2\);/);
 });
 
 // ---------- las muertes ----------
@@ -279,4 +280,34 @@ test('un aviso largo alcanza a leerse, y si hay cola también', () => {
   const fuente = leer('src/ui/avisos.js');
   assert.match(fuente, /Math\.max\(VIDA_MS, texto\.length \* MS_POR_LETRA\)/);
   assert.equal(typeof Avisos, 'function');
+});
+
+test('tras el calabozo la suelta dice cuántas horas pasó, y el escape dice cómo se libró', async () => {
+  const { textoDeEscape, datoDePersecucion } = await import('../src/ui/HUD.js');
+  assert.match(sueltaDeArresto(MUJER, 6), /^La sueltan tras 6 horas en el calabozo\./);
+  assert.equal(textoDeEscape('escondido'), 'Me escondí en el cambuche y no me encontraron');
+  assert.equal(textoDeEscape('vista'), 'Me perdieron de vista');
+  assert.equal(textoDeEscape(), 'Los despisté');
+  assert.equal(datoDePersecucion({ seen: true }, 20), 'Patrulla a 20 m');
+  assert.equal(datoDePersecucion({ seen: false, lostIn: 3.2 }, 20), 'Me buscan: aguante 4 s sin que me vean');
+});
+
+test('el carro robado entra en la cuenta de lo perdido sin pasar del máximo', () => {
+  const items = [{ id: 'papel', qty: 1 }, { id: 'carton', qty: 1 }, { id: 'lata', qty: 1 }];
+  const r = perdidoEnArresto(1000, items, {}, 3, ['el carro robado']);
+  assert.equal(r.cosas.length, 3);
+  assert.equal(r.cosas[1], 'el carro robado');
+  assert.equal(r.resto, 2);
+});
+
+test('el retrato de Estado: límites de la figura y sin borde fucsia', async () => {
+  const { limitesDeFigura, quitarBorde } = await import('../src/ui/fotoDeArresto.js');
+  const ancho = 4, alto = 3, px = new Uint8ClampedArray(ancho * alto * 4);
+  const pon = (x, y, rgba) => px.set(rgba, (y * ancho + x) * 4);
+  pon(1, 1, [80, 60, 50, 255]);
+  pon(2, 2, [200, 40, 190, 255]); // borde mezclado con la clave
+  assert.deepEqual(limitesDeFigura(px, ancho, alto), { x: 1, y: 1, ancho: 2, alto: 2 });
+  quitarBorde(px);
+  assert.deepEqual(limitesDeFigura(px, ancho, alto), { x: 1, y: 1, ancho: 1, alto: 1 });
+  assert.equal(limitesDeFigura(new Uint8ClampedArray(16), 2, 2), null);
 });

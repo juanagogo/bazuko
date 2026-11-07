@@ -14,7 +14,7 @@ class FakeSound {
   lastVolume() { return [...this.volumes.values()].at(-1); }
 }
 
-const person = (x, z = 0) => ({ position: { x, y: 0, z }, say(text, duration) { this.dicho = { text, duration }; } });
+const person = (x, z = 0, sexo = 'mujer') => ({ position: { x, y: 0, z }, look: { real: { sexo } }, say(text, duration) { this.dicho = { text, duration }; } });
 const listener = { x: 0, y: 0, z: 0 };
 const finishAll = (bank) => { for (const sound of Object.values(bank)) sound.finish(); };
 const totalStarts = (bank) => Object.values(bank).reduce((sum, sound) => sum + sound.starts, 0);
@@ -25,8 +25,31 @@ function fixture() {
 }
 
 test('cada frase de la calle trae su texto para la burbuja', () => {
-  assert.equal(STREET_VOICES.length, 5);
-  for (const clip of STREET_VOICES) assert.ok(clip.text.trim().length > 0, clip.key);
+  assert.equal(STREET_VOICES.length, 9);
+  for (const clip of STREET_VOICES) {
+    assert.ok(clip.text.trim().length > 0, clip.key);
+    assert.ok(['mujer', 'hombre'].includes(clip.sexo), clip.key);
+  }
+});
+
+test('cada frase sale de alguien de su mismo sexo', () => {
+  for (const sexo of ['mujer', 'hombre']) {
+    const dichas = new Set();
+    for (let i = 0; i < 40; i++) {
+      const bank = Object.fromEntries(STREET_VOICES.map(clip => [clip.key, new FakeSound()]));
+      const voices = new StreetVoices({ bank, random: () => (i % 8) / 8 });
+      const quien = person(2, 0, sexo);
+      voices.update(listener, [quien], 0);
+      if (quien.dicho) dichas.add(quien.dicho.text);
+    }
+    assert.ok(dichas.size > 1, `${sexo} dice varias frases`);
+    for (const text of dichas) assert.equal(STREET_VOICES.find(clip => clip.text === text).sexo, sexo, text);
+  }
+  const bank = Object.fromEntries(STREET_VOICES.map(clip => [clip.key, new FakeSound()]));
+  const voices = new StreetVoices({ bank, random: () => 0 });
+  const nadie = { position: { x: 2, y: 0, z: 0 }, say() { this.dicho = true; } };
+  voices.update(listener, [nadie], 0);
+  assert.equal(nadie.dicho, undefined, 'sin sexo conocido no le pone una voz ajena');
 });
 
 test('solo habla quien está cerca y la frase sale de esa persona', () => {
@@ -54,13 +77,14 @@ test('una sola frase a la vez: la siguiente espera a que termine y al intervalo'
   const a = person(3), b = person(-3);
   voices.update(listener, [a, b], 0);
   assert.equal(bank.carechimba.starts, 1);
-  assert.equal(bank.carechimba.lastVolume(), 1);
+  // Cerca suena pleno, con la variación de ±1 dB de cada toma.
+  assert.ok(Math.abs(bank.carechimba.lastVolume() - 1) <= .13);
   voices.update(listener, [a, b], 1000);
   assert.equal(totalStarts(bank), 1, 'mientras suena no empieza otra');
   finishAll(bank);
   voices.update(listener, [a, b], 7000);
   assert.equal(totalStarts(bank), 2);
-  assert.equal(b.dicho?.text, STREET_VOICES[1].text, 'la burbuja la pone la otra persona');
+  assert.equal(b.dicho?.text, STREET_VOICES.filter(clip => clip.sexo === 'mujer')[1].text, 'la burbuja la pone la otra persona');
 });
 
 test('la misma persona y la misma grabación esperan su enfriamiento', () => {
@@ -71,7 +95,7 @@ test('la misma persona y la misma grabación esperan su enfriamiento', () => {
   assert.ok(a.dicho);
   finishAll(bank);
   voices.update(listener, [a, b], 6000);
-  assert.equal(bank.pirobito.starts, 1);
+  assert.equal(bank.enano.starts, 1);
   assert.ok(b.dicho, 'la que ya habló no repite tan pronto');
   finishAll(bank);
   voices.update(listener, [a, b], 12000);
@@ -80,7 +104,7 @@ test('la misma persona y la misma grabación esperan su enfriamiento', () => {
   a.dicho = null;
   voices.update(listener, [a, b], 25000);
   assert.equal(bank.enano.starts, 1, 'la grabación anterior no se repite antes de su enfriamiento');
-  assert.equal(a.dicho?.text, STREET_VOICES[2].text);
+  assert.equal(a.dicho?.text, STREET_VOICES.filter(clip => clip.sexo === 'mujer')[2].text);
 });
 
 test('la pausa y otra voz en curso callan la calle, y el robo cede el canal', () => {

@@ -27,8 +27,18 @@ function crossesBox(from, to, min, max) {
   return far > EPSILON && near < 1 - EPSILON;
 }
 
+const isVehicle = (entry, vehicle) => !!vehicle && (entry.vehicle === vehicle || entry.vehicle?.car === vehicle || entry.mesh === vehicle);
+
+// `ignoreVehicle` es un vehículo o una lista: la patrulla no se tapa a sí misma ni con el carro que maneja el jugador.
+function ignored(entry, ignoreVehicle) {
+  if (!ignoreVehicle) return false;
+  if (!Array.isArray(ignoreVehicle)) return isVehicle(entry, ignoreVehicle);
+  for (const vehicle of ignoreVehicle) if (isVehicle(entry, vehicle)) return true;
+  return false;
+}
+
 function blocksLine(entry, from, to, ignoreVehicle) {
-  if (ignoreVehicle && (entry.vehicle === ignoreVehicle || entry.vehicle?.car === ignoreVehicle || entry.mesh === ignoreVehicle)) return false;
+  if (ignored(entry, ignoreVehicle)) return false;
   const { obb } = entry;
   if (obb) {
     const inverse = obb.inverse ?? _inverse.copy(obb.quaternion).invert();

@@ -6,6 +6,7 @@ import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { CAPS, sideUnits } from './mayusculas.mjs';
 import { inkStrokes, sampleStroke, simplify, bbox } from './nib.mjs';
+import { esPrincipal } from '../esPrincipal.mjs';
 
 const PUNTA = { angle: 28, w: 146, t: 48, r: 16 }; // la del Grueso
 const ANCHO = .9;
@@ -55,7 +56,7 @@ export const MARCA = ${JSON.stringify(m)};
 `;
 }
 
-if (process.argv[1] === fileURLToPath(import.meta.url)) {
+if (esPrincipal(import.meta.url)) {
   const destino = process.argv[2] ?? fileURLToPath(new URL('../../src/ui/marcaBazuko.js', import.meta.url));
   fs.writeFileSync(destino, moduloDeMarca());
 }

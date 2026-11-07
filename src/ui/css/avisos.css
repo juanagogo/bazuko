@@ -27,6 +27,10 @@
   }
   body:has(#menu:not([hidden]) .pause-tabs) .loot-toast { top: calc(54px + var(--safe-t) + var(--pila, 0px)) !important; }
 }
+/* De pie, sin sitio bajo el cartón la pila sube sobre la plata (avisos.js): el botón de Pausa sigue a la vista. */
+@media (max-width: 899px) and (orientation: portrait) {
+  .loot-toast--arriba { max-width: calc(100vw - 62px - var(--safe-l) - var(--safe-r)); }
+}
 /* De pie, el aviso no pasa por encima de la X del menú. */
 @media (max-width: 899px) and (orientation: portrait) {
   body:has(#menu:not([hidden]), #inv-overlay.open, #craft-panel.open, #talent-panel.open, #dealer-panel.open) .loot-toast { max-width: calc(100vw - 72px - var(--safe-l) - var(--safe-r)); }
@@ -49,3 +53,31 @@
   content: ''; position: absolute; bottom: -7px; left: 50%; transform: translateX(-50%);
   border-width: 7px 5px 0; border-style: solid; border-color: var(--marcador) transparent transparent;
 }
+
+/* Forcejeo por la zorra: la barra que se llena machacando. */
+#forcejeo-bar {
+  position: fixed; bottom: 120px; left: 50%; z-index: 100;
+  transform: translateX(-50%);
+  display: none; width: 280px; padding: 6px 14px 8px;
+  background: var(--flauta), var(--cara); color: var(--marcador);
+  font-family: var(--letra); font-size: var(--letra-juego); text-align: center;
+  pointer-events: none;
+}
+#forcejeo-bar.active { display: block; }
+#forcejeo-bar .forcejeo-pista { margin-top: 6px; height: 10px; border: 2px solid var(--marcador); }
+#forcejeo-bar .forcejeo-relleno { height: 100%; width: 50%; background: var(--rojo); transition: width .08s linear; }
+
+/* El golpe que llega de un lado: `_flashImpact` le pone el degradado según de dónde vino. */
+.assault-impact { position: fixed; inset: 0; z-index: 120; opacity: 0; pointer-events: none; transition: opacity .12s ease-out; }
+
+/* Error inesperado o pérdida del contexto gráfico (ErrorScreen.js). El suave deja seguir jugando desde una esquina. */
+.error-screen {
+  position: fixed; inset: 0; z-index: 20001;
+  display: grid; place-items: center; padding: 16px;
+  background: rgba(20, 17, 12, .82);
+}
+.error-screen--suave { inset: auto calc(16px + var(--safe-r)) calc(16px + var(--safe-b)) auto; padding: 0; background: none; }
+.error-screen__caja { max-width: min(420px, calc(100vw - 32px)); padding: 14px 18px 16px; font-size: var(--letra-juego); }
+.error-screen__caja h2 { margin: 0 0 6px; font-weight: 800; font-size: var(--letra-titulo); line-height: 1; }
+.error-screen__caja p { margin: 0 0 12px; line-height: 1.25; }
+.error-screen__acciones { display: flex; flex-wrap: wrap; gap: 8px; }

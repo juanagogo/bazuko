@@ -155,21 +155,26 @@ body:has(#menu[data-momento]:not([hidden])) > .loot-toast { display: none; }
 }
 
 /* ---------- dónde estoy: el cartel de la zona, sin pausar ---------- */
+/* Cabe entre el objetivo (izquierda) y la plata (derecha), y baja debajo de la misión: no pisa ninguna pieza.
+   Si el nombre no cabe en una línea, se parte en dos antes que tapar la plata. */
 #zona-cartel {
-  position: fixed; z-index: 115; left: 50%; top: 12vh; translate: -50% 0;
-  width: max-content; max-width: 90vw;
-  padding: 8px clamp(16px, 2.4vw, 34px) 12px;
-  font-weight: 800; font-size: clamp(34px, 5.2vw, 74px); line-height: 1;
+  position: fixed; z-index: 115; left: 50%; top: max(12vh, calc(80px + var(--safe-t))); translate: -50% 0;
+  width: max-content; max-width: max(260px, calc(100vw - 2 * (330px + var(--safe-l, 0px))));
+  padding: 6px clamp(12px, 1.4vw, 20px) 8px;
+  font-weight: 800; font-size: clamp(22px, 2.8vw, 40px); line-height: 1;
+  text-wrap: balance;
   text-align: center; pointer-events: none;
   animation: zona-baja .3s cubic-bezier(.2, .9, .3, 1.04);
 }
 @keyframes zona-baja { from { transform: translateY(-20vh); opacity: 0; } to { transform: none; opacity: 1; } }
 @media (max-width: 899px) {
   /* Debajo del cartón del radar, que en el celular ocupa la parte de arriba. */
-  #zona-cartel { top: calc(var(--dock-bottom, 130px) + 6px); }
+  #zona-cartel { top: calc(var(--dock-bottom, 130px) + 6px); max-width: 90vw; }
+  /* Lo urgente (frío, hambre) sale en ese mismo sitio: el nombre de la zona baja debajo y no lo tapa. */
+  body:has(#retazo:not([hidden])) #zona-cartel { top: calc(var(--dock-bottom, 130px) + 78px); }
 }
 @media (max-width: 899px) and (orientation: landscape) {
-  #zona-cartel { left: calc(6px + var(--safe-l, 0px)); translate: none; font-size: 30px; }
+  #zona-cartel { left: calc(6px + var(--safe-l, 0px)); translate: none; font-size: 20px; }
 }
 
 /* ---------- te cascaron: baja a media altura, sin botón y sin pausar ---------- */
@@ -215,6 +220,9 @@ body:has(#menu:not([hidden])) #cascado { display: none; }
 .psychosis-vignette {
   position: absolute; inset: 0;
   background: radial-gradient(circle at center, transparent 42%, rgba(20, 17, 12, .38) 76%, rgba(20, 17, 12, .78) 100%);
+}
+#psychosis-overlay.sombras .psychosis-vignette {
+  background: radial-gradient(circle at center, transparent 28%, rgba(10, 6, 8, .55) 62%, rgba(4, 2, 4, .92) 100%);
 }
 .hallucination-word {
   position: absolute; width: max-content; max-width: 70vw;

@@ -9,11 +9,13 @@ Las optimizaciones reducen trabajo de renderizado y consultas de simulación con
 - El tráfico indexa personas y vehículos una vez por subpaso y separa vehículos por ruta. Las consultas cubren la distancia de frenado y el tamaño del otro vehículo; no se suspende tráfico por estar fuera de cámara. Del esmalte y el vidrio hay una variante por modelo y color, y el carro lejano se queda con su chapa, sus lámparas y su resplandor: sin sombra ni ruedas, y sin gastar matrices más allá de la niebla.
 - Los peatones a más de 40 metros dejan de actualizar su pose, aunque sigan caminando. Los cercanos y medios tienen una frecuencia visual según el perfil gráfico. En calidad baja, además, dejan de dibujarse cuando la niebla ya casi los tapa (ver «Costo en calidad baja»). Navegación, reacciones y movimiento continúan.
 - Las acciones de animación con un peso residual inferior a 0,001 se desactivan. Cambiar apariencia o retirar un NPC libera materiales, esqueletos y geometrías propios, también si una carga asíncrona llega después de retirar al personaje. Los recursos del banco siguen compartidos. La geometría de cuerpo que se recorta bajo ropa tiene buffers propios para poder liberarlos sin dañar otra instancia.
+- `src/utils/random.js` centraliza selección, rangos y `mulberry32` para evitar implementaciones duplicadas y conservar la generación determinista.
+- Los percentiles de las métricas y el perfilador comparten la misma función nearest-rank. Tienda y punto de venta comparten la fábrica Lambert y la liberación de recursos de sus grupos.
 - Las luces se descubren al registrar una rama, sin recorrer toda la ciudad cada segundo. Sus posiciones estáticas se fijan después de cargar modelos; intensidad y visibilidad siguen actualizándose. El fogón ya está registrado antes de construirlo y se activa mediante visibilidad. Se mantienen dos proxies de luz y los halos instanciados.
 - La silueta conserva sus dos pasadas correctivas, pero se omite en calidad baja y cuando los volúmenes de colisión no indican obstrucción del jugador. La lista de luces de esas pasadas es explícita y no necesita recorrer la ciudad.
 - La primera partida empieza en calidad baja. La adaptación baja resolución con mayor rapidez ante carga severa y, al alcanzar el mínimo, puede reducir sombras, silueta, distancia de cámara y frecuencia visual de animación. No sobrepasa el perfil elegido por el jugador ni cambia la simulación.
 
-El recorte isométrico conserva sus paredes individuales. Esta entrega no reexporta esqueletos reducidos ni introduce un sistema nuevo de LOD geométrico para edificios. Son pasos posteriores que necesitan medición y revisión visual de los recursos.
+El recorte isométrico suelta las paredes solo de los edificios cercanos a la línea cámara-jugador; los demás siguen en sus lotes (ver `docs/rendimiento-desglose.md`, «La isométrica con lotes»). Esta entrega no reexporta esqueletos reducidos ni introduce un sistema nuevo de LOD geométrico para edificios. Son pasos posteriores que necesitan medición y revisión visual de los recursos.
 
 En una comparación estructural con la misma ciudad de 511 edificios y 1.372 colliders, los materiales de los lotes cerrados pasaron de 903 a 345 y sus mallas de 908 a 890. Una consulta de cámara en la zona inicial pasó de revisar 1.372 cajas a obtener siete candidatas. Para esta comparación se usó geometría real y se sustituyeron Canvas y carga de personajes; el azar de generación se mantuvo separado del de UUID para conservar la escena. Son recuentos de trabajo, no una medición de FPS ni de GPU.
 
@@ -155,6 +157,53 @@ Costo de construcción de cada sistema, medido rehaciéndolo con la partida carg
 
 La calidad automática observa cuadros de hasta 18 ms con un trabajo de hasta 12 ms durante 20 segundos antes de subir, y compila las sombras antes de encenderlas. El tope de trabajo es el que aún cabe en 60 FPS después de subir: en la medición, prender las sombras multiplicó por 1,4 el trabajo de un cuadro. En dos corridas con la máquina ocupada, un equipo con 8,4 a 9,7 ms de trabajo típico tardó 115 segundos en subir con un tope de 9 ms y 20,7 segundos con el de 12 ms. El intervalo se mide con el sello de `requestAnimationFrame`: el reloj al entrar al cuadro oscila y, a 60 FPS, una de cada cuatro muestras parecía lenta sin serlo. Vuelve a baja si en una ventana de 3 segundos al menos el 20 % de los cuadros son lentos y la ventana no llega a 58 FPS, o si hay presión; no insiste en esa sesión. En Ajustes se avisa cuando el juego corre en otra calidad que la elegida. Un intervalo de más de 250 ms, como el que deja volver de otra pestaña, no cuenta como holgura ni como tirón: en baja la cuenta vuelve a empezar. Con sombras, uno suelto se ignora, pero tres en una misma ventana de 3 segundos la devuelven a baja. Esos intervalos no reinician la ventana: si lo hicieran, un equipo con intervalos que rozan ese valor nunca bajaría. No aplica a quien ya tiene una calidad guardada, y no escribe la preferencia.
 
+## Animaciones de combate en GLB
+
+Las once animaciones de pelea (golpes, bloqueo, reacciones, caídas y levantarse) venían en FBX de Mixamo. Cada carga descargaba 6,6 MB y el hilo principal descomprimía e interpretaba esos FBX mientras se preparaban los personajes. Ahora el juego carga un `.glb` por animación, generado con `node tools/animaciones/fbx-a-glb.mjs`: conserva el esqueleto y las claves tal como las entrega FBXLoader, sin reducir ni remuestrear. Si falta un GLB, el juego vuelve a su FBX y solo entonces descarga el cargador FBX.
+
+| Medida | FBX | GLB |
+| --- | ---: | ---: |
+| Descarga de las 11 animaciones | 6,64 MB | 2,00 MB |
+| Interpretación en Chromium (hilo principal, segunda pasada) | 449 ms | 20 ms |
+
+`tests/actionforge.test.js` comprueba que los clips adaptados a partir de cada GLB son idénticos, valor por valor, a los obtenidos del FBX. Los FBX convertidos no se copian a `dist/`. Al cambiar o añadir una animación de combate, volver a ejecutar el conversor.
+
+## Mallas de personaje comprimidas al compilar
+
+Cuerpos, ropa, pelo y calzado de los seis cuerpos (completos y livianos) suman 274 glTF con 37 MB de `.bin`. Al terminar `npm run build`, `tools/personaje/comprimir-mallas.mjs` los comprime en `dist/` con `EXT_meshopt_compression`, sin cuantizar: los atributos siguen en Float32 y cada vista se comprueba al escribirla, así que el juego recibe exactamente los mismos vértices, índices y matrices de los huesos. El JSON se escribe sin sangría. El repositorio, el exportador de Blender, el servidor de desarrollo y las pruebas siguen usando los archivos sin comprimir. El cargador de personajes tiene el decodificador meshopt de Three.js y acepta ambos formatos.
+
+| Medida | Antes | Después |
+| --- | ---: | ---: |
+| `.bin` de personajes en `dist/` | 36,9 MB | 23,4 MB |
+| `.gltf` de personajes en `dist/` | 6,1 MB | 4,8 MB |
+| Descarga hasta «Continuar jugando», con las animaciones en GLB | 56,0 MB | 41,9 MB |
+
+`tests/character-mesh-compression.test.js` compara, después de comprimir, atributos, índices, huesos y materiales con el original. Al cargar, el decodificador WebAssembly de meshopt descomprime en el hilo principal. Su costo no se midió por separado: la carga completa en Chromium headless no cambió de forma medible.
+
+## Avisos de local en un atlas
+
+Cada aviso de local en el primer piso (131 en la ciudad) tenía su propio lienzo de 768 × 192 y su material: 134 texturas, unos 105 MB en la GPU con mipmaps, y ningún aviso podía agruparse con otro. Ahora el texto y el borde de los 16 nombres, con letra oscura o clara, están en un único atlas de `src/utils/signAtlas.js`. El fondo es un plano de color sin textura, con un material por color, y el texto va encima en el mismo plano mediante desplazamiento de profundidad. El atlas usa alfa premultiplicado para que los mipmaps no dejen halo. La tipografía, los tamaños, el borde y los colores son los mismos, y no cambia el consumo de `Math.random`: la ciudad sale igual.
+
+Medido en la partida inicial, con la misma semilla y la cámara del juego:
+
+| Medida | Antes | Después |
+| --- | ---: | ---: |
+| Texturas de los avisos en la GPU | 105,1 MB | 30,1 MB |
+| Texturas en la GPU (`renderer.info`) | 844 | 705 |
+| Llamadas de dibujo | 933 | 908 |
+
+Las capturas de cerca y de lejos de los mismos avisos coinciden antes y después.
+
+## Relieve, rugosidad y ventanas compartidos entre barrios
+
+Las fachadas se generan una vez por variante y barrio, y los andenes una vez por barrio. El barrio solo cambia los colores: relieve, rugosidad y ventanas encendidas reciben las mismas órdenes de dibujo. Ahora la segunda y las siguientes texturas de cada variante usan la imagen de la primera (`texture.source`), y cada textura conserva sus propios ajustes. `tests/shared-surface-maps.test.js` graba cada operación de dibujo de esos lienzos en todos los barrios y falla si alguna cambia; en ese caso hay que dejar de compartir ese mapa.
+
+En la partida inicial, las texturas en la GPU bajaron de 708 a 576 y la estimación de su memoria (RGBA8 con mipmaps), de 771 a 712 MB. Con los avisos de local, la estimación pasa de 846 a 712 MB.
+
+## Semáforos: primero el cruce cercano
+
+`TrafficSignals.blocks` se consulta para cada carro en cada medio metro de su distancia de frenado y revisaba los 24 cruces en cada consulta: reservas, posición actual y acceso antes de mirar si el punto estaba cerca. Ahora descarta primero los cruces lejos del punto. Las otras condiciones solo filtran, así que la respuesta es la misma: `tests/traffic-signal-blocks.test.js` la compara con la versión anterior en 20.000 casos al azar, y una simulación de 3.000 cuadros del tráfico de la ciudad deja exactamente las mismas posiciones. En esa simulación, en Node, el tráfico pasó de unos 0,82 a unos 0,62 ms por cuadro.
+
 ## Cambios de calidad y resolución
 
 - **El antialias del contexto se decide al crearlo.** No se puede cambiar después: se omite solo si la preferencia guardada es baja, cuando la calidad automática ya no puede subir de nivel. Quien pasa de baja a media o alta en la misma sesión se queda sin él hasta recargar.
@@ -202,3 +251,15 @@ Este último cambio también alcanza a media, porque los lotes se arman una sola
 | Cambuche | 2.402 | 1.610 (−33 %) | 1.374.000 | 1.511.000 (+10 %) |
 | Centro | 2.195 | 1.471 (−33 %) | 1.270.000 | 1.367.000 (+8 %) |
 | Avenida | 2.404 | 1.668 (−31 %) | 1.339.000 | 1.378.000 (+3 %) |
+
+## Descarte por edificio, un esqueleto por persona y bloques a demanda
+
+`FrustumCulling` descarta en dos niveles: los sectores de 64 m y, dentro de ellos, cada hijo con seis nodos o más (`registerSectorChildren`, `src/core/SectorCulling.js`). La caja de cada hijo contiene la esfera de cada malla, la misma que prueba Three, así que nunca oculta algo que Three habría dibujado: las llamadas quedan iguales y se recorren menos nodos (en las vistas medidas, hasta un 17 % menos por pasada en tercera persona). Lo que se mueve, tiene piel, es un sprite o se dibuja sin descarte propio no se registra.
+
+Cada persona usa un solo `THREE.Skeleton` (`shareSkeletons`, `src/character/sharedSkeleton.js`) cuando sus piezas tienen los mismos huesos y matrices inversas idénticas bit a bit: la textura de huesos se sube una vez por persona y por cuadro, no siete u ocho (de 143 a 25 subidas por cuadro en el inicio, en media).
+
+hls.js y el cargador FBX ya no entran en los bloques `vendor` y `three` del arranque (`SOLO_A_DEMANDA` en `vite.config.js`): el JavaScript del arranque baja de 896 a 702 kB comprimidos.
+
+`game.getPerformanceReport().breakdown` (`renderBreakdown`, `src/core/RenderBreakdown.js`) da, bajo demanda, la memoria en la GPU, los nodos, pruebas y llamadas de cada pasada por categoría, los esqueletos dibujados y cuántos peatones se ven con el modelo completo. El benchmark guarda ese desglose y cuenta las llamadas WebGL por cuadro en una ventana aparte, después de la de FPS (`--gl-segundos`); `--memoria` recorre las cuatro vistas con muestras de memoria y `--angle metal` usa la GPU sin ventana en macOS.
+
+Las mediciones, las garantías y lo que no se hizo están en [el desglose del render](rendimiento-desglose.md).

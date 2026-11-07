@@ -98,6 +98,8 @@
 #money.plata--larguisima { font-size: 36px; }
 .topbar__mundo { display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: baseline; gap: 0 10px; font-weight: 800; font-size: 19px; line-height: 1.15; }
 #clock { font-size: 24px; }
+/* De noche la calle se pone brava: el reloj va subrayado con marcador rojo, quieto. */
+#clock[data-franja="noche"], #clock[data-franja="madrugada"] { text-decoration: underline 3px var(--rojo); text-underline-offset: 4px; text-decoration-skip-ink: none; }
 #weather-display { white-space: nowrap; }
 #weather-display[hidden] { display: none; }
 .topbar__yo { display: flex; align-items: center; justify-content: flex-end; gap: 8px; width: 100%; font-weight: 800; font-size: 16px; line-height: 1.2; }
@@ -285,6 +287,37 @@ body.mojado #quickbar .qb-slot.elegido::after { border-image-source: var(--m-cir
 #steal-ayuda kbd { font-size: 14px; }
 .is-photo-mode #steal-minigame { visibility: hidden !important; }
 
+/* ---------- el carro robado: velocímetro y teclas ---------- */
+#carjack-hud {
+  position: fixed; z-index: 40;
+  right: calc(20px + var(--safe-r)); bottom: calc(240px + var(--safe-b));
+  display: grid; gap: 2px; padding: 6px 12px 7px; text-align: right; pointer-events: none;
+}
+#carjack-hud[hidden] { display: none; }
+#carjack-speed { font-weight: 800; font-size: 30px; line-height: 1; }
+#carjack-hud p { margin: 0; font-weight: 800; font-size: 15px; line-height: 1.2; }
+#carjack-hud kbd { font-size: 13px; }
+.is-photo-mode #carjack-hud { visibility: hidden !important; }
+
+/* ---------- la toma del retrovisor: video de vecino ---------- */
+#mirror-cinematic { position: fixed; inset: 0; z-index: 85; pointer-events: none; box-shadow: inset 0 0 140px rgba(0, 0, 0, .7); }
+#mirror-cinematic[hidden] { display: none; }
+#mirror-cinematic .mc-barra { position: absolute; left: 0; right: 0; height: 11vh; background: #000; transition: transform .35s ease-out; }
+#mirror-cinematic .mc-arriba { top: 0; transform: translateY(-100%); }
+#mirror-cinematic .mc-abajo { bottom: 0; transform: translateY(100%); }
+#mirror-cinematic.is-rodando .mc-barra { transform: none; }
+#mirror-cinematic .mc-rec, #mirror-cinematic .mc-hora { position: absolute; top: calc(11vh + 14px); font-weight: 800; font-size: 18px; color: var(--cinta); text-shadow: 0 0 4px #000; }
+#mirror-cinematic .mc-rec { left: 18px; display: flex; align-items: center; gap: 6px; }
+#mirror-cinematic .mc-rec::before { content: ''; width: 12px; height: 12px; border-radius: 50%; background: var(--rojo); animation: mc-parpadeo 2s steps(2) infinite; }
+#mirror-cinematic .mc-hora { right: 18px; }
+#mirror-cinematic .mc-rotulo {
+  position: absolute; bottom: calc(11vh + 18px); left: 50%; transform: translateX(-50%); max-width: 86vw; margin: 0;
+  text-align: center; font-weight: 800; font-size: clamp(20px, 3.4vw, 36px); line-height: 1.15; color: var(--cinta);
+  -webkit-text-stroke: 1.5px #000; text-shadow: 0 3px 0 #000;
+}
+@keyframes mc-parpadeo { to { opacity: .15; } }
+.is-photo-mode #mirror-cinematic { visibility: hidden !important; }
+
 /* ---------- cuando no toca ---------- */
 body:has(#menu:not([hidden]), #inv-overlay.open, #craft-panel.open, #talent-panel.open, #dealer-panel.open, #creator-modal:not([hidden]), #cerrado:not([hidden])) :is(#topbar, #hud-dock, #panel-dock, #quickbar, #game-settings, #camera-controls, #controls-help, #controls-help-toggle, #interaction-prompt, #movement-status, #poop-hud-ammo, #mision, #boost-indicator, #cart-indicator, #zona-cartel) {
   visibility: hidden; pointer-events: none;
@@ -301,6 +334,16 @@ body.is-loading :is(#performance-panel, #quickbar, #hud-dock, #panel-dock) { vis
   #controls-help-content { width: min(560px, calc(100vw - 486px)); }
   #interaction-prompt { max-width: 30vw; }
   #boost-indicator { right: calc(240px + var(--safe-r)); bottom: calc(204px + var(--safe-b)); }
+}
+
+@media (min-width: 900px) and (max-width: 1100px) {
+  /* Centrada en la calle, pero nunca encima del cartón del radar (340 px a la izquierda). Más angosto, el radar sube. */
+  /* Centrada en lo libre entre el radar y el borde, y ancha para que el verbo quepa en una línea: así no sube
+     hasta el costal y la mesa. */
+  #interaction-prompt { left: calc((386px + var(--safe-l) + 100vw) / 2); bottom: calc(14px + var(--safe-b)); max-width: calc(100vw - 386px - var(--safe-l) - 40px); }
+  #panel-dock { bottom: calc(108px + var(--safe-b)); }
+  /* La misión cabe entre el objetivo y la plata, sin meterse bajo la tarjeta de arriba a la derecha. */
+  #mision { font-size: clamp(20px, 2.4vw, 26px); max-width: calc(100vw - 2 * (330px + var(--safe-r))); }
 }
 
 /* ==================== celular y ventanas angostas: lo común ==================== */
@@ -514,4 +557,32 @@ body.mando kbd:not([data-k], .cx kbd, #steal-ayuda kbd) { display: none; }
   .stat-bar .bar { grid-column: 2; }
   .stat-bar__value { grid-column: 3; }
   .stat-bar[data-level="critical"] .stat-bar__orden { grid-column: 2; }
+}
+
+/* ==================== pantalla grande: menos cartón encima de la calle ==================== */
+@media (min-width: 900px) and (min-height: 501px) {
+  /* Lo que toca, más chico y arriba del todo: el cartel de la zona queda donde está y el aviso no lo pisa. */
+  #mision { top: calc(8px + var(--safe-t)); max-width: 36vw; padding: 2px 12px 4px; font-size: 20px; }
+  /* Plata en la misma fila que la hora y el día; debajo, quién soy. */
+  #topbar { width: 272px; gap: 4px; }
+  .topbar__hoja { display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: baseline; gap: 0 12px; padding: 3px 12px 5px; }
+  #money { order: 1; font-size: 30px; }
+  #money.plata--larga, #money.plata--larguisima { font-size: 26px; }
+  .topbar__mundo { order: 2; font-size: 16px; gap: 0 8px; }
+  #clock { font-size: 20px; }
+  .topbar__yo { order: 3; font-size: 14px; }
+  /* La pieza del radar, más baja y angosta; el plano y las filas se turnan con el botón del radar (N). */
+  #hud-dock { width: 272px; left: calc(12px + var(--safe-l)); bottom: calc(10px + var(--safe-b)); }
+  #minimap-container { --radar-alto: clamp(96px, 15vh, 132px); }
+  #hud-dock[data-radar-size="s"] #minimap-container { --radar-alto: 84px; }
+  #hud-dock[data-radar-size="l"] #minimap-container { --radar-alto: clamp(120px, 19vh, 168px); }
+  #hud-dock:has(#minimap-container:not(.hidden)) :is(#hud, #disease-panel) { display: none; }
+  .radar__nombre, .radar__metros { font-size: 17px; }
+  .radar__orden { font-size: 14px; }
+  #retazo { max-width: 300px; padding: 4px 12px 6px; }
+  .retazo__grito { font-size: 30px; }
+  .retazo__orden { font-size: 14px; }
+  /* Los botones de abajo, pegados al borde. */
+  #panel-dock, #camera-controls, #controls-help { bottom: calc(6px + var(--safe-b)); }
+  #quickbar { bottom: calc(56px + var(--safe-b)); }
 }

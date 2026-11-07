@@ -134,6 +134,7 @@ test('Combate callejero GTA: puñetazo, impacto con transeúnte, reacción y bot
   // Transeúnte ubicado 1 metro al frente
   const npc = new Npc(scene, new THREE.Vector3(10, 0, 11), { look: {} });
   assert.equal(npc.panicTimer, 0);
+  npc.valentia = 0; // Este escenario verifica la huida y el botín.
 
   // Lanzar puñetazo: preparación y después impacto
   player.update(0.1, null, null, null, [npc]);

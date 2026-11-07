@@ -54,7 +54,7 @@ test('cada excepción de tuteo sigue viva: si una frase se va, se quita de la li
 });
 
 test('los puntos medios quedan solo en lo impreso de la ciudad y como separador interno de los avisos', () => {
-  const impreso = (donde) => /^src\/(world|entities\/(SellPoint|Shop)\.js)/.test(donde);
+  const impreso = (donde) => /^src\/(world|entities\/(SellPoint|Shop|BoliranaVenue)\.js)/.test(donde);
   // `[E] Recoger · [Q] Algo`: HUD los parte en piezas y el punto no llega a verse.
   const separador = (texto, donde) => /^\s*\[/.test(texto) || texto.trim() === '·';
   const malos = CADENAS
@@ -75,7 +75,7 @@ test('un solo signo de menos y coma decimal en lo que se lee', () => {
 
 test('los orígenes: la historia no explica el efecto, y ids y efectos no cambian', () => {
   assert.deepEqual(Object.fromEntries(Object.entries(ORIGINS).map(([id, o]) => [id, o.effects])), {
-    reciclador: { extraLoot: 1 },
+    reciclador: { extraLoot: 1, zorraDiscount: .75, forcejeoBonus: 1.2 },
     desplazado: { diseaseResist: 0.7 },
     migrante: { begMult: 1.3 },
     endeudado: { sellMult: 1.15 },

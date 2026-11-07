@@ -3,6 +3,7 @@
 import * as THREE from 'three';
 import { COLORS } from '../utils/constants.js';
 import { signMesh } from '../utils/signs.js';
+import { disposeSceneGroup, lam } from '../utils/entityHelpers.js';
 
 export class SellPoint {
   constructor(scene, position) {
@@ -15,10 +16,7 @@ export class SellPoint {
 
     // Base
     const baseGeo = new THREE.BoxGeometry(1.5, 1.2, 1);
-    const baseMat = new THREE.MeshLambertMaterial({
-      color: 0x4a3a2a,
-      flatShading: true
-    });
+    const baseMat = lam(0x4a3a2a);
     const base = new THREE.Mesh(baseGeo, baseMat);
     base.position.y = 0.6;
     base.castShadow = true;
@@ -45,7 +43,6 @@ export class SellPoint {
     this.group.add(sign);
 
     // Báscula y costales de material
-    const lam = (color) => new THREE.MeshLambertMaterial({ color, flatShading: true });
     const scaleBase = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.08, 0.6), lam(0x7d8288));
     scaleBase.position.set(1.4, 0.04, 0.6);
     const scalePole = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 0.9, 6), lam(0x333333));
@@ -71,11 +68,6 @@ export class SellPoint {
   }
 
   dispose() {
-    this.scene.remove(this.group);
-    this.group.traverse((o) => {
-      o.geometry?.dispose?.();
-      o.material?.map?.dispose?.();
-      o.material?.dispose?.();
-    });
+    disposeSceneGroup(this.scene, this.group);
   }
 }

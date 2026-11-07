@@ -1,6 +1,17 @@
 import * as THREE from 'three';
 import { GRAPHICS_PROFILES } from './GraphicsQuality.js';
 
+// Temblor por trauma: los golpes suman trauma (0–1) y el temblor crece con su cuadrado, así uno leve casi no se nota.
+const TRAUMA_DECAY = 1.5;                 // trauma que se pierde por segundo
+// Pedido de diseño: apenas perceptible. Con trauma 1 la vista se mueve menos de un grado.
+const SHAKE_MAX = { yaw: .016, pitch: .012, roll: .016 }; // radianes con trauma 1
+// Ruido suave y determinista: suma de senos con frecuencias que no se repiten pronto.
+const shakeNoise = (t, seed) => (Math.sin(t * 1.0 + seed) + Math.sin(t * 2.31 + seed * 1.7) * .5 + Math.sin(t * 4.17 + seed * 2.9) * .25) / 1.75;
+
+const prefersReducedMotion = () => {
+  try { return !!globalThis.matchMedia?.('(prefers-reduced-motion: reduce)').matches; } catch { return false; }
+};
+
 // Brazo de cámara con el que el cuerpo tapa la vista; al salir pide más, para que no parpadee en el límite.
 const INSIDE_BODY_IN = .75, INSIDE_BODY_OUT = 1;
 
@@ -33,6 +44,10 @@ export class CameraRig {
     this._targetRoll = 0;
     this._bobTime = 0;
     this._bobAmount = 0;
+    this.trauma = 0;
+    this._shakeTime = 0;
+    // Quien pide movimiento reducido no recibe temblores.
+    this.shakeEnabled = !prefersReducedMotion();
 
 
     try {
@@ -45,10 +60,29 @@ export class CameraRig {
 
     this._bindControls(canvas);
 
+    window.addEventListener('camera-shake', (event) => this.addTrauma(event?.detail?.amount));
+
     window.addEventListener('resize', () => {
       this.camera.aspect = window.innerWidth / window.innerHeight;
       this.camera.updateProjectionMatrix();
     });
+  }
+
+  /** Suma trauma (0–1). El temblor decae solo y no mueve la posición: no atraviesa paredes. */
+  addTrauma(amount = 0) {
+    if (!this.shakeEnabled || !Number.isFinite(amount) || amount <= 0) return this.trauma;
+    this.trauma = Math.min(1, this.trauma + amount);
+    return this.trauma;
+  }
+
+  _applyShake(dt) {
+    if (this.trauma <= 0) return;
+    this._shakeTime += dt * 28;
+    const shake = this.trauma * this.trauma;
+    this.camera.rotateY(SHAKE_MAX.yaw * shake * shakeNoise(this._shakeTime, 1.3));
+    this.camera.rotateX(SHAKE_MAX.pitch * shake * shakeNoise(this._shakeTime, 7.1));
+    this.camera.rotateZ(SHAKE_MAX.roll * shake * shakeNoise(this._shakeTime, 4.6));
+    this.trauma = Math.max(0, this.trauma - TRAUMA_DECAY * dt);
   }
 
   toggle(facing = 0) {
@@ -251,6 +285,7 @@ export class CameraRig {
       this.roll = THREE.MathUtils.lerp(this.roll, this._targetRoll, 1 - Math.exp(-12 * dt));
       this.camera.rotation.z = this.roll;
     }
+    if (dt > 0) this._applyShake(dt);
     this.camera.updateMatrixWorld();
     this._snap = false;
   }

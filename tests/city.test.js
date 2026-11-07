@@ -7,9 +7,9 @@ import { CITY_WIDTH, CITY_HEIGHT, ORIGINAL_CITY_WIDTH, ORIGINAL_CITY_HEIGHT,
 import { migrateStreetPosition } from '../src/world/bogota/StreetLayout.js';
 import { CollisionSystem } from '../src/systems/CollisionSystem.js';
 import { FrustumCulling } from '../src/core/FrustumCulling.js';
+import { textureSet } from './helpers/fixtures.js';
 
 // La construcción completa usa geometría real; solo Canvas y GLB se sustituyen.
-const textureSet=()=>({map:new THREE.Texture(),bumpMap:new THREE.Texture(),emissiveMap:new THREE.Texture()});
 const replacements={...textures};
 for(const name of ['asphalt','sidewalk','brick','facade','roofTiles','slab','cardboard','trashBag','dirt','concrete']) replacements[name]=textureSet;
 for(const name of ['radialSprite','lightbox','neon']) replacements[name]=()=>new THREE.Texture();
@@ -75,7 +75,7 @@ test('el distrito completo construye y actualiza barrios, vendedores, peatones y
   assert.equal(city.busServices.length, 2);
   try {
     await Promise.all(city.npcs.map(npc=>npc.ready));
-    assert.equal(city.npcs.length,88); // 66 peatones del centro, 14 del oriente y 8 vendedores.
+    assert.equal(city.npcs.length,53); // 8 vendedores, 6 esquineras, la gente fija y los de sitio; los caminantes los reparte la hora (PedestrianCrowd).
     assert.equal(city.vendors.length,8);
     const places=servicePlaces(city),gps=city.createGpsNavigation();
     assert.deepEqual(['chaza','fritanga','fogata'].map(kind=>places.filter(place=>place.service===kind).length),[5,3,4]);
@@ -135,7 +135,11 @@ test('el distrito completo construye y actualiza barrios, vendedores, peatones y
       culling.apply(camera);
       assert.ok(culling.stats.culled > 0);
       assert.ok(culling.stats.visible > 0);
-      assert.equal(city.buildingVisibility.closedView.visible, mode === 'third-person');
+      // Los lotes se ven en las dos cámaras; en isométrica solo se sueltan los edificios de la línea de vista.
+      assert.equal(city.buildingVisibility.closedView.visible, true);
+      const loose = city.buildingVisibility.buildings.filter(building => building.loose).length;
+      if (mode === 'third-person') assert.equal(loose, 0);
+      else assert.ok(loose < city.buildingVisibility.buildings.length * .05, `${loose} edificios sueltos`);
       culling.restore();
       assert.ok(city.renderSectors.every(sector => sector.visible));
     }

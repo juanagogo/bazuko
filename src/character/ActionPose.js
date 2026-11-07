@@ -4,6 +4,8 @@ import { createSmokeOverlay } from './smoking.js';
 import { createBasucoOverlay } from './pipe.js';
 import { createPointOverlay } from './pointing.js';
 import { SleepPose } from './SleepPose.js';
+import { muestraDeHurto, aplicarHurto } from './hurto.js';
+import { POSES_REBUSQUE, aplicarPoseRebusque } from './rebusquePose.js';
 
 const clamp = value => Math.min(1, Math.max(0, value));
 const smooth = (from, to, value) => {
@@ -61,6 +63,11 @@ export class ActionPose {
     this.greetTime = 0;
     this.warmWeight = 0;
     this.warmTime = 0;
+    this.hurtoWeight = 0; // robar (hurto.js): mano al bolsillo ajeno, raponazo, la víctima que se palpa
+    this._hurto = null;
+    this.rebusqueWeight = 0;
+    this.rebusqueTime = 0;
+    this.rebusqueKind = null;
     this._frameQ = new Quaternion();
     this._worldQ = new Quaternion();
     this._parentQ = new Quaternion();
@@ -114,7 +121,7 @@ export class ActionPose {
     return this.smoke.mouth(target);
   }
 
-  apply(dt, { speed = 0, action = null, actionProgress = 0, movement = {}, attack = null, smoke = null, basuco = null, point = 0, look = 0, hipLow = 0 } = {}) {
+  apply(dt, { speed = 0, action = null, actionProgress = 0, movement = {}, attack = null, smoke = null, basuco = null, point = 0, look = 0, hipLow = 0, hurto = null } = {}) {
     this.restore();
     const elapsed = Math.max(0, finite(dt));
     const swim = movement.swimming === true;
@@ -132,7 +139,19 @@ export class ActionPose {
     if (airborne || swim || landing || (action && action !== 'calentarse') || (!warm && (attack || smoke || basuco != null || point))) this.warmWeight = 0;
     if (!warm && this.warmWeight < .001) this.warmWeight = this.warmTime = 0;
     if (this.warmWeight) this.warmTime += elapsed;
+    // Rebusque (malabares, limpiar, ofrecer, apartarse): como calentarse, andar baja las manos de a poco.
+    const rebusque = !this.procedural && POSES_REBUSQUE.has(action) && !airborne && !swim && !landing && speed < .15;
+    if (rebusque) this.rebusqueKind = action;
+    this.rebusqueWeight += ((rebusque ? 1 : 0) - this.rebusqueWeight) * -Math.expm1(-8 * elapsed);
+    if (airborne || swim || landing || (action && !POSES_REBUSQUE.has(action))) this.rebusqueWeight = 0;
+    if (!rebusque && this.rebusqueWeight < .001) this.rebusqueWeight = this.rebusqueTime = 0; else this.rebusqueTime += elapsed;
     const handsBlocked = swim || airborne || landing > 0 || hit || (action && !['golpear', 'basuco'].includes(action));
+    // Robar es dueño de las manos salvo frente a un golpe; el agua, el vuelo o un impacto la sueltan de una.
+    const robando = !!hurto && !handsBlocked && !attack && !punch;
+    if (hurto) this._hurto = hurto;
+    this.hurtoWeight += ((robando ? 1 : 0) - this.hurtoWeight) * -Math.expm1(-(robando ? 14 : 8) * elapsed);
+    if (handsBlocked || attack || punch) this.hurtoWeight = 0;
+    if (!robando && this.hurtoWeight < .001) { this.hurtoWeight = 0; this._hurto = null; }
     // Un dueño de manos por vez. El agua, el vuelo y los impactos cancelan incluso
     // los restos de una transición; no se suman un puñetazo y una calada al mismo brazo.
     if (handsBlocked) {
@@ -140,6 +159,9 @@ export class ActionPose {
       this.melee?.reset(); this.smoke?.reset(); this.pipe?.reset(); this.point?.reset();
     } else if (attack || punch) {
       smoke = basuco = null; point = look = 0;
+      this.smoke?.reset(); this.pipe?.reset(); this.point?.reset();
+    } else if (robando) {
+      smoke = basuco = null; point = 0;
       this.smoke?.reset(); this.pipe?.reset(); this.point?.reset();
     } else if (basuco != null && speed < .15) {
       smoke = null; point = look = 0;
@@ -155,7 +177,7 @@ export class ActionPose {
     const sleeping = action === 'dormir' && !airborne && !swim && !landing && speed < .15;
     if (this.sleep) {
       // Echar a andar no corta la pose: se levanta andando. Saltar, nadar, golpear o fumar sí necesitan el cuerpo de una vez.
-      if (!sleeping && (action || airborne || swim || landing || attack || smoke || basuco != null || point)) this.sleep.reset();
+      if (!sleeping && (action || airborne || swim || landing || attack || smoke || basuco != null || point || hurto)) this.sleep.reset();
       if (sleeping || this.sleep.weight > 0) {
         this.sleep.apply(elapsed, sleeping);
         return;
@@ -163,9 +185,9 @@ export class ActionPose {
     }
     this.glance += (finite(look) - this.glance) * -Math.expm1(-16 * elapsed);
     if (handsBlocked) this.glance = 0;
-    const gestures = attack || smoke || basuco != null || point > 0 || this.melee?.active || this.smoke?.active || this.pipe?.active || this.point?.active || Math.abs(this.glance) > .002;
+    const gestures = attack || smoke || basuco != null || point > 0 || this.melee?.active || this.smoke?.active || this.pipe?.active || this.point?.active || Math.abs(this.glance) > .002 || this.hurtoWeight > 0;
     // El LOD mantiene animación barata salvo una reacción de combate visible.
-    if (this.lod && !punch && !hit && !gestures && !this.greetWeight && !this.warmWeight) return;
+    if (this.lod && !punch && !hit && !gestures && !this.greetWeight && !this.warmWeight && !this.rebusqueWeight) return;
     const swimTarget = swim ? Math.min(3, Math.max(0, finite(speed))) : 0;
     const speedBlend = -Math.expm1(-12 * elapsed);
     // Integrar la velocidad suavizada analíticamente conserva la fase a distintos FPS.
@@ -173,8 +195,8 @@ export class ActionPose {
     this.swimSpeed += (swimTarget - this.swimSpeed) * speedBlend;
     this.swimWeight += ((swim ? 1 : 0) - this.swimWeight) * -Math.expm1(-14 * elapsed);
     if (!swim && this.swimWeight < .001) this.swimWeight = this.swimLift = 0;
-    if (!swim && !this.swimWeight && !airborne && !landing && !punch && !hit && !gestures && !this.greetWeight && !this.warmWeight) return;
-    if (action && !punch && !hit && !swim && !gestures && action !== 'saltar' && action !== 'aterrizar' && !this.greetWeight && !this.warmWeight) return;
+    if (!swim && !this.swimWeight && !airborne && !landing && !punch && !hit && !gestures && !this.greetWeight && !this.warmWeight && !this.rebusqueWeight) return;
+    if (action && !punch && !hit && !swim && !gestures && action !== 'saltar' && action !== 'aterrizar' && !this.greetWeight && !this.warmWeight && !this.rebusqueWeight) return;
     this.time += swim || this.swimWeight ? .8 * elapsed + .25 * speedIntegral : elapsed;
     this.frame?.getWorldQuaternion(this._frameQ) ?? this._frameQ.identity();
     for (const slot of this.slots.values()) {
@@ -198,10 +220,12 @@ export class ActionPose {
         if (this.joints.neck) rotateInFrame(this.frame, this.joints.neck, 0, this.glance * .4, 0);
         if (this.joints.head) rotateInFrame(this.frame, this.joints.head, 0, this.glance * (this.joints.neck ? .6 : 1), 0);
       }
+      if (this.hurtoWeight && this._hurto) aplicarHurto(this, muestraDeHurto(this._hurto), this.hurtoWeight);
     }
     if (hit) this._hit(clamp(finite(actionProgress)), clamp(finite(hipLow)));
     if (this.greetWeight) this._greet(this.greetWeight);
     if (this.warmWeight) this._warm(this.warmWeight);
+    if (this.rebusqueWeight) aplicarPoseRebusque(this, this.rebusqueKind, this.rebusqueWeight, this.rebusqueTime);
   }
 
   _jump(movement, airborne, landing, speed = 0) {

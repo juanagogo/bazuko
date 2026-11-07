@@ -42,6 +42,22 @@ export function estadoBusqueda(distancia, nivel, previo = 'nada') {
   return distancia < (previo === 'encima' ? ENCIMA_SUELTA_M : ENCIMA_M) ? 'encima' : 'detras';
 }
 
+/** Cómo se libró de la patrulla, en primera persona. */
+export function textoDeEscape(razon) {
+  if (razon === 'escondido') return 'Me escondí en el cambuche y no me encontraron';
+  if (razon === 'vista') return 'Me perdieron de vista';
+  if (razon === 'trancada') return 'La patrulla se quedó trancada';
+  return 'Los despisté';
+}
+
+/** El dato bajo el aviso: la distancia si lo ven; si no, que lo buscan y cuánto falta para que desistan. */
+export function datoDePersecucion(info, metros) {
+  if (!info || info.seen !== false) return `Patrulla a ${metros} m`;
+  const s = Math.ceil(info.lostIn ?? 0);
+  if (info.hidden) return `Me escondí: aguante ${s} s`;
+  return `Me buscan: aguante ${s} s sin que me vean`;
+}
+
 /**
  * Un aviso de tecla, en sus piezas: `[E] Recoger basura · [Mantener Q] Seleccionar`.
  * Cada pieza trae su tecla (si tiene) y su verbo; el emoji pasa a dibujo y «Mantener» queda en el verbo.
@@ -61,14 +77,23 @@ export function piezasDelPrompt(texto) {
 export function textoDelPrompt(interaction, inventory) {
   if (!interaction?.currentTarget && !interaction?.stealPrompt) return '';
   const type = interaction.currentTargetType;
+  if (type === 'dropped-item') {
+    const dropped = interaction.currentTarget;
+    return `[E] Recoger ${dropped.item.name}${dropped.quantity > 1 ? ` ×${dropped.quantity}` : ''} · ${Math.ceil(dropped.remaining)} s`;
+  }
+  if (type === 'zorra' || type === 'reciclador') return interaction.currentTarget.prompt ?? '';
   if (type === 'pickup') return '[E] Recoger basura · [Mantener Q] Seleccionar';
   if (type === 'car') return interaction.currentTarget?.traffic ? '[E] Robar retrovisor del carro en circulación' : '[E] Robar retrovisor del carro';
   if (type === 'fireBarrel') return '[E] Calentarme en la fogata';
   if (type === 'sell') return '[E] Vender material en la recicladora';
+  if (type === 'bolirana') return '[E] Entrar a El Rumbiadero: Bolirana';
   if (type === 'shop') return `[E] Comprar en ${interaction.currentTarget.title ?? 'Tienda La Esquinita'}`;
   if (type === 'dog') {
     const hasFood = inventory?.items?.some(item => item.qty > 0 && ['pan', 'lataComida', 'carne', 'hueso'].includes(item.id));
-    if (interaction.currentTarget?.isFriend) return '[E] Acariciar a El Chato';
+    const dog = interaction.currentTarget;
+    if (dog?.isFriend && dog.guarding) return '[E] Llamar a El Chato para que me siga';
+    if (dog?.isFriend && dog.cambucheCerca) return '[E] Pedirle a El Chato que cuide el cambuche';
+    if (dog?.isFriend) return '[E] Acariciar a El Chato';
     return hasFood ? '[E] Darle pan o atún a El Chato para que me siga' : '[E] Acariciar a El Chato · Si le traigo pan o una lata de atún, me sigue';
   }
   if (type === 'cambuche') return '[E] Mi cambuche: armar o dormir';
@@ -80,17 +105,25 @@ export function textoDelPrompt(interaction, inventory) {
 
 // Con el dedo la cinta va a un lado del personaje, y ahí no cabe la frase entera: lo mismo, en corto.
 const VERBO_CORTO = [
+  [/^Recoger (?!basura)/, 'Recoger'],
   [/^Robar retrovisor/, 'Robar retrovisor'],
   [/^Darle pan o atún/, 'Darle comida'],
   [/^Acariciar a El Chato/, 'Acariciar'],
   [/^Calentarme/, 'Calentarme'],
   [/^Vender material/, 'Vender material'],
   [/^Comprar en /, 'Comprar'],
+  [/^Entrar a El Rumbiadero/, 'Entrar'],
   [/^Mi cambuche/, 'Mi cambuche'],
   [/^El jíbaro/, 'El jíbaro'],
   [/^Agarrar la carreta/, 'Agarrar carreta'],
   [/^Soltar la carreta/, 'Soltar carreta'],
   [/^Cosquilleo/, 'Cosquilleo'],
+  [/^Vender dulces a los pasajeros/, 'Vender en el bus'],
+  [/^Vender dulces/, 'Vender dulces'],
+  [/^Limpiar el parabrisas/, 'Limpiar vidrio'],
+  [/^Hacer malabares/, 'Malabares'],
+  [/^Cuidar los carros/, 'Cuidar carros'],
+  [/^Dejar el puesto/, 'Dejar el puesto'],
   [/^Mantener: seleccionar/, 'Seleccionar'],
 ];
 
@@ -417,8 +450,12 @@ export class HUD {
       } else if (e.detail.caught) this._toast('¡Me pillaron robando!', 'death');
       else if (e.detail.added?.length) this._toast(`Robé: ${e.detail.added.join(', ')}`, 'warn');
     });
-    window.addEventListener('police-escaped', () => {
-      this._toast('Los despisté', 'info');
+    window.addEventListener('police-escaped', (e) => {
+      this._toast(textoDeEscape(e?.detail?.reason), 'info');
+    });
+    window.addEventListener('police-radio', (e) => {
+      this._toast(e?.detail?.reason === 'llamada' ? 'Por la llamada viene una patrulla para acá'
+        : 'Pidieron refuerzos por radio: viene otra patrulla', 'warn');
     });
     window.addEventListener('withdrawal', (e) => {
       if (e.detail.active) this._toast('Me dio malilla: camino más lento y me bajo de ánimo', 'warn');
@@ -531,6 +568,7 @@ export class HUD {
 
     // Reloj
     this._setText(this.clockEl, hora(clock.hour));
+    this._pintarFranja(window.__game?.jornada?.franja);
     this._setText(this.dayEl, `Día ${clock.day}`);
     this._pintarClima(clock);
     this._pintarPlata(stats.dinero);
@@ -554,7 +592,10 @@ export class HUD {
     }
 
     // La tecla de contexto
-    this._pintarPrompt(window.__game?.paused ? '' : textoDelPrompt(interaction, inventory), interaction);
+    const base = window.__game?.paused ? '' : textoDelPrompt(interaction, inventory);
+    const pausa = window.__game?.paused;
+    const extra = pausa ? [] : [interaction?.rebusquePrompt, interaction?.carjackPrompt, interaction?.zorraPrompt].filter(Boolean);
+    this._pintarPrompt([base, ...extra].filter(Boolean).join(' · '), interaction);
 
     if (this._misionS > 0 && (this._misionS -= dt) <= 0 && this.misionEl) this.misionEl.hidden = true;
 
@@ -665,7 +706,7 @@ export class HUD {
     }
     if (info) {
       const d = info.distance < 30 ? Math.round(info.distance) : Math.round(info.distance / 5) * 5;
-      this._setText(this.wantedDato, `Patrulla a ${d} m`);
+      this._setText(this.wantedDato, datoDePersecucion(info, d));
       if (this.wantedBarra) this._setWidth(this.wantedBarra, Math.round(info.closeness * 100));
     }
   }
@@ -696,6 +737,14 @@ export class HUD {
     if (!inventory?.hotbar) return;
     this._casillas ??= document.querySelectorAll?.('#quickbar .qb-slot') ?? [];
     this._casillas.forEach?.((casilla, i) => casilla.classList.toggle('elegido', !!arma && inventory.hotbar[i] === arma));
+  }
+
+  /** La franja del día marca el reloj: de noche y de madrugada va subrayado en rojo, y el título dice qué cambia. */
+  _pintarFranja(franja) {
+    if (!this.clockEl || !franja || this._franjaVista === franja.id) return;
+    this._franjaVista = franja.id;
+    this.clockEl.dataset.franja = franja.id;
+    this.clockEl.title = `${franja.label}: ${franja.aviso.split(': ').slice(1).join(': ') || franja.aviso}`;
   }
 
   /** La hora dice el clima con palabra; la temporada queda en el título. */
