@@ -231,7 +231,17 @@ export function createCreator({ audio }) {
 
   function chips(field, opts) {
     return el('div', { class: 'cr-chips', role: 'group', 'aria-label': NOMBRES_DE_GRUPO[field] ?? field },
-      opts.map((o) => chip(`${field}:${o.id}`, o.label, look[field] === o.id, () => apply({ [field]: o.id }))));
+      opts.map((o) => chip(`${field}:${o.id}`, o.label, look[field] === o.id, () => {
+        if (field === 'origen') {
+          const preset = STREET_PRESETS.find((p) => p.id === o.id);
+          if (preset) {
+            apply(applyStreetPreset(look, preset));
+            wave = 1.2;
+            return;
+          }
+        }
+        apply({ [field]: o.id });
+      })));
   }
 
   function swatches(field, palette, label, names = []) {
