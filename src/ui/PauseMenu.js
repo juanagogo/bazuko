@@ -264,7 +264,7 @@ function settingsPanel(game) {
     el('div', { class: 'pause-settings__col' },
       section('zap', 'Calidad gráfica',
         el('div', { class: 'pause-segmented', role: 'group', 'aria-label': 'Calidad gráfica' }, quality('baja', 'Baja'), quality('media', 'Media'), quality('alta', 'Alta')),
-        el('p', { class: 'pause-hint', text: `Baja va más fluido. Si el equipo no da, baja sola sin cambiar lo elegido.${qualityNow}` }),
+        el('p', { class: 'pause-hint', text: `Baja va más fluido. Si el equipo no da, baja sola sin cambiar lo elegido.${qualityNow} (AMD FidelityFX FSR 1.0 / CAS activo).` }),
         row('Rendimiento', choice(game.performanceHUD?.visible ? 'Visible (F3)' : 'Oculto (F3)', !!game.performanceHUD?.visible,
           () => { game.performanceHUD?.toggle(); game.menu.refresh(); })),
         row('Densidad de tráfico', el('div', { class: 'pause-segmented', role: 'group', 'aria-label': 'Densidad de tráfico' },
