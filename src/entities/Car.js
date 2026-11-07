@@ -50,6 +50,8 @@ export class Car {
     this._steering = 0;
     this._motionWeight = 0;
     this._previousSpeed = null;
+    // Lejos, el tráfico lo dibuja el lote instanciado y este grupo queda apagado.
+    this.instanced = false;
 
     this.group = new THREE.Group();
     this.group.position.copy(position);

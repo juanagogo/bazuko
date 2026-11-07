@@ -81,7 +81,8 @@ class FakeSound {
   volume() {}
   duration() { return 2; }
 }
-const persona = (x, extra = {}) => ({ position: { x, y: 0, z: 0 }, say(text) { this.dicho = text; }, ...extra });
+// Las frases de la calle van con el sexo de quien las grabó: sin decir otra cosa, la persona es hombre.
+const persona = (x, extra = {}) => ({ position: { x, y: 0, z: 0 }, look: { real: { sexo: 'hombre' } }, say(text) { this.dicho = text; }, ...extra });
 
 test('hallazgo 11: la calle no le presta su frase a quien ya habló con su voz del reparto', () => {
   const bank = Object.fromEntries(STREET_VOICES.map(clip => [clip.key, new FakeSound()]));

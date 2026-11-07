@@ -7,7 +7,19 @@ import { canReachCombatTarget, resolveCombatWalk } from '../systems/CombatGeomet
 import { koHandDown, smooth } from '../character/BodyLanguage.js';
 
 export const ROAD_RAGE = {
-  chance: .35,          // probabilidad de bajarse al robarle un retrovisor en circulación
+  // Detonantes: probabilidad de bajarse y enfriamiento antes de volver a intentarlo en ese carro.
+  // El espejo no lleva enfriamiento: al carro ya robado le tarda el suyo en volver.
+  triggers: {
+    mirror: { chance: .35, cooldown: 0 },   // le roban un retrovisor
+    front: { chance: .3, cooldown: 8 },     // el jugador se le planta adelante y lo obliga a frenar
+    block: { chance: .5, cooldown: 10 },    // lo bloquea varios segundos
+    hit: { chance: .55, cooldown: 6 },      // le pega o le tira el carro
+    thrown: { chance: .6, cooldown: 6 }     // le tira algo (popó)
+  },
+  maxDrivers: 3,        // conductores a la vez, ya precargados
+  frontDelay: 1.2,      // segundos parado adelante antes de que se le cruce la mecha
+  frontRange: 6,        // metros de hueco por delante dentro de los que cuenta
+  blockDelay: 4,        // segundos bloqueándolo para el segundo intento, más probable
   chaseSpeed: 4.4,      // más rápido que caminar (3 m/s), más lento que correr (6 m/s)
   walkSpeed: 1.6,       // al volver a su carro
   attackRange: 1.5,
@@ -22,7 +34,8 @@ export const ROAD_RAGE = {
   fleeSpeed: 4.6,       // le quitaron el carro: sale corriendo sin varilla
   fleeTime: 5,          // corre unos segundos y después se aleja caminando
   fleeGone: 22,         // a esta distancia del jugador ya se perdió de vista
-  fleeTimeout: 14
+  fleeTimeout: 14,
+  yells: ['¡Sea serio!', '¿Qué le pasa, hermano?', '¡Cuidese, que yo sí pego!']
 };
 
 const FLEE_PHRASES = ['¡Ladrón! ¡Mi carro!', '¡Auxilio, me robaron el carro!', '¡Policía! ¡Se llevan mi carro!'];

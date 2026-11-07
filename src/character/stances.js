@@ -79,6 +79,14 @@ function brazosCruzados(rig, m) {
   rig.curl('left', .62, .35);
 }
 
+/** De pie en un bus lleno: una mano arriba en el tubo, con los dedos cerrados, y el cuerpo ladeado por la marcha. */
+function agarrado(rig, m) {
+  rig.turn('head', 0, -.05, 0);
+  rig.reachArm('right', V(-.2, m.chest.y + .5, m.chest.z + .05), V(-.9, -.4, -.6));
+  rig.hand('right', V(.3, .4, .88), V(.1, .92, -.4));
+  rig.curl('right', .8, .75);
+}
+
 function telefono(rig, m) {
   rig.turn('neck', 0, 0, .05).turn('head', 0, 0, .06);
   const head = rig.where('head', V(0, 0, 0));
@@ -572,6 +580,7 @@ const CATALOG = {
   bolsillos: { pose: bolsillos, walk: true, anchored: true },
   'brazos-cruzados': { pose: brazosCruzados, walk: false },
   telefono: { pose: telefono, walk: true, steady: true },
+  agarrado: { pose: agarrado, walk: false, steady: true },
   celular: { pose: celular, walk: true, steady: true, alt: true, motion: { rate: .13 } },
   'manos-atras': { pose: manosAtras, walk: true, anchored: true },
   hablar: { pose: hablar, walk: false, alt: true, motion: { rate: .31 } },
@@ -764,6 +773,7 @@ function bakeStyle(rig) {
   };
   const forward = (key, share) => ({ ...axisOf(key, 1, 0, 0), share });
   const side = (key, share) => ({ ...axisOf(key, 0, 0, 1), share });
+  const twist = (key, share) => ({ ...axisOf(key, 0, 1, 0), share });
   const down = key => ({ boneName: rig.joints[key].name, quaternion: rig.joints[key].quaternion.clone() });
   const inShoulder = (arm, shoulder) => ({
     boneName: rig.joints[arm].name,
@@ -773,6 +783,8 @@ function bakeStyle(rig) {
     stoop: [forward('spine', .24), forward('spine1', .36), forward('spine2', .4), forward('neck', -.2), forward('head', -.12)],
     head: [forward('neck', .45), forward('head', .55)],
     sway: [side('spine', .5), side('spine1', .5), side('neck', -.35), side('head', -.25)],
+    hipYaw: [twist('hips', 1), twist('spine', -.5), twist('spine1', -.3), twist('spine2', -.2)],
+    hipRoll: [side('hips', 1), side('spine', -.5), side('spine1', -.3), side('spine2', -.2)],
     arms: ['leftArm', 'leftForeArm', 'rightArm', 'rightForeArm'].map(down),
     knee: down('rightLeg'),
     leanBack: [inShoulder('leftArm', 'leftShoulder'), inShoulder('rightArm', 'rightShoulder')]

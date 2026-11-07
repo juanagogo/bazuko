@@ -50,6 +50,8 @@ const LADO_OPUESTO_M = 4;    // el andén al otro lado del carro sostenido cuent
 
 const emitir = (name, detail) => globalThis.window?.dispatchEvent?.(new CustomEvent(name, { detail }));
 const avisar = (text, type = 'info') => emitir('toast', { text, type });
+// El carro que un conductor bravo tiene sostenido es suyo. `vehicle` queda para los dobles de las pruebas.
+const sostieneRoadRage = (rage, v) => !!v && (rage?.holds ? rage.holds(v) : v === rage?.vehicle);
 
 export class Despeje {
   constructor(game) {
@@ -89,7 +91,7 @@ export class Despeje {
   _soltar(v) {
     if (!this.sostenidos.delete(v)) return;
     // El del conductor bravo lo sigue sosteniendo RoadRage; los demás, de vuelta a su vida.
-    if (v !== this.game.roadRage?.vehicle) {
+    if (!sostieneRoadRage(this.game.roadRage, v)) {
       if (this.game.traffic?.hold) this.game.traffic.hold(v.car, false);
       else v.hold = false;
     }
@@ -129,7 +131,7 @@ export class Despeje {
       for (const v of vivos) {
         if (this.sostenidos.has(v) || v.hold || v.police || v.state !== 'patrol' || v.rejoinTarget || (v.speed ?? 0) >= .5) continue;
         const car = v.car;
-        if (!car?.position || car === game.roadRage?.vehicle?.car || v === game.roadRage?.vehicle) continue;
+        if (!car?.position || sostieneRoadRage(game.roadRage, v)) continue;
         const dx = car.position.x - pos.x, dz = car.position.z - pos.z, r = (car.length ?? 4.2) / 2 + 6;
         if (dx * dx + dz * dz > r * r || Math.abs((car.position.y ?? 0) - (pos.y ?? 0)) > 1.5) continue;
         const suyo = desdeVerde(reloj, car);
@@ -145,7 +147,7 @@ export class Despeje {
       // Salió de la circulación (lo robaron, lo retiraron): no hay nada que soltar.
       if (!vivos.includes(v)) { this.sostenidos.delete(v); this.tolerados.delete(v); v.rebusqueTolera = false; continue; }
       // Lo tomó el conductor bravo: es suyo, no se suelta.
-      if (v === game.roadRage?.vehicle) { this.sostenidos.delete(v); this.tolerados.delete(v); v.rebusqueTolera = false; continue; }
+      if (sostieneRoadRage(game.roadRage, v)) { this.sostenidos.delete(v); this.tolerados.delete(v); v.rebusqueTolera = false; continue; }
       s.fuera = zonaDeCarro(v.car, pos) === 'fuera' ? s.fuera + dt : 0;
       if (s.fuera >= DESPEJE.HISTERESIS_S || this._t - s.desde >= DESPEJE.TOPE_S) this._soltar(v);
     }
