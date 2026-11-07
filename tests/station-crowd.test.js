@@ -66,7 +66,7 @@ test('lejos de la estación o donde no hay estación no se presta ni se arma nad
   assert.equal(pool.inUse, 0);
   assert.equal(crowd.update(near(), 7.5, false, 1 / 30), 0);
   run(crowd, near(), 7.5);
-  assert.ok(pool.inUse > 30);
+  assert.ok(pool.inUse > 15);
   run(crowd, far(), 7.5, 3);
   assert.equal(pool.inUse, 0);
   assert.equal(pool.figures.every(f => !f.group.visible), true);

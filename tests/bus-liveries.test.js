@@ -115,7 +115,7 @@ test('al alejarse el bus devuelve a su gente al grupo para el siguiente', async 
   const pool = await fakePool(100), pax = new BusPassengers(null, pool), bus = fakeBus(2, 2, 9);
   bus.car.vehicle._luck = .95;
   settle(pax, [bus]);
-  assert.ok(pool.inUse > 30);
+  assert.ok(pool.inUse > 15);
   bus.car.group.position.set(NEAR + 20, 0, 0);
   settle(pax, [bus], 7.5, camera(), 5);
   assert.equal(pool.inUse, 0);
@@ -147,7 +147,7 @@ test('un bus cercano lleva más gente en la hora pico que de noche, y la lista d
   bus.car.vehicle._luck = .9;
   settle(pax, [bus], 7.5); const rush = pax.stats.people;
   settle(pax, [bus], 2); const night = pax.stats.people;
-  assert.ok(rush > 40 && night < 8, `${rush} vs ${night}`);
+  assert.ok(rush > 15 && night < 8, `${rush} vs ${night}`);
   const first = rosterOf(bus.car.vehicle).map(p => stanceOf(p));
   assert.deepEqual(rosterOf(fakeBus(0, 0, 77).car.vehicle).map(p => stanceOf(p)), first);
   assert.equal(first.length, CAPACITY);

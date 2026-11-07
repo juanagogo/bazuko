@@ -4,7 +4,7 @@
 // llevan gente (las dos primeras llenas, la tercera a medias); al alejarse, cada persona vuelve al grupo para otro bus.
 
 export const MAX_BUSES = 3;      // busetas con pasajeros a la vez
-export const FILL = [45, 45, 22]; // tope de gente real por puesto de cercanía
+export const FILL = [20, 14, 6]; // tope de gente real por puesto de cercanía
 export const NEAR = 30;          // metros a la cámara
 export const OPS_PER_FRAME = 6;  // personas que se prestan o devuelven por cuadro: sin tirones al llegar un bus
 export const SEATS = 24;         // seis filas de dos por lado

@@ -5,7 +5,7 @@
 import { createRealisticCharacter } from '../character/RealisticCharacter.js';
 import { randomStreetLook } from '../entities/Npc.js';
 
-export const POOL_SIZE = 120;
+export const POOL_SIZE = 70;
 const SETTLE_STEPS = 2, SETTLE_DT = .6;
 
 async function streetFigure() {
@@ -31,7 +31,6 @@ export class PeoplePool {
       figure.live = false;
       figure.group.visible = false;
       figure.group.traverse(o => { if (o.isMesh) { o.castShadow = false; o.receiveShadow = false; } });
-      this.scene.add(figure.group);
       this.figures.push(figure);
       this.free.push(figure);
     });
@@ -44,6 +43,8 @@ export class PeoplePool {
   acquire() {
     const figure = this.free.pop();
     if (!figure) return null;
+    // Los libres no están en la escena: no cuestan ni su recorrido de matrices cada cuadro.
+    if (!figure.group.parent) this.scene.add(figure.group);
     figure.group.visible = true;
     return figure;
   }
@@ -51,8 +52,7 @@ export class PeoplePool {
   release(figure) {
     if (!figure || this.free.includes(figure)) return;
     figure.group.visible = false;
-    // Quien iba colgado de un bus vuelve a la escena: el siguiente que lo use lo pone en coordenadas del mundo.
-    if (figure.group.parent !== this.scene) this.scene.add(figure.group);
+    figure.group.removeFromParent();
     figure.pose = null;
     figure.live = false;
     this.free.push(figure);

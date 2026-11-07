@@ -32,7 +32,7 @@ test('el bus cercano lleva gente real colgada de su grupo y se mueve con él', a
   riders.update([bus], camera(), 7.5);
   assert.ok(pool.inUse > 0 && pool.inUse <= OPS_PER_FRAME, 'pocas por cuadro');
   run(riders, [bus], camera());
-  assert.ok(pool.inUse > 20 && pool.inUse <= FILL[0]);
+  assert.ok(pool.inUse > 10 && pool.inUse <= FILL[0]);
   assert.equal(bus.group.children.length, pool.inUse);
   assert.ok(bus.group.children.every(c => c.visible));
   const first = bus.group.children[0];
@@ -48,12 +48,12 @@ test('lejos de la cámara no se presta nadie, y al alejarse todos vuelven al gru
   assert.equal(pool.figures.reduce((n, f) => n + f.character.updates, 0), 0);
   bus.group.position.set(5, 0, 5);
   run(riders, [bus], camera());
-  assert.ok(pool.inUse > 20);
+  assert.ok(pool.inUse > 10);
   bus.group.position.set(NEAR + 20, 0, 0);
   run(riders, [bus], camera(), 7.5, 20);
   assert.equal(pool.inUse, 0);
   assert.equal(bus.group.children.length, 0);
-  assert.ok(pool.figures.every(f => f.group.parent === pool.scene), 'de vuelta en la escena');
+  assert.ok(pool.figures.every(f => !f.group.parent), 'fuera de la escena mientras están libres');
 });
 
 test('el bus más cercano va más lleno, y de noche casi vacío', async () => {

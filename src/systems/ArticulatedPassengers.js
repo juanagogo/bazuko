@@ -6,7 +6,7 @@ import { PASSENGER_SLOTS, BUS_FLOOR } from '../world/bogota/BusBody.js';
 import { loadBase } from './BusPassengers.js';
 
 export const NEAR = 40;
-export const FILL = [36, 18];     // gente real por puesto de cercanía
+export const FILL = [16, 6];     // gente real por puesto de cercanía
 export const OPS_PER_FRAME = 6;
 const WAITING = ['bolsillos', 'celular', 'brazos-cruzados', 'manos-atras', 'hablar'];
 

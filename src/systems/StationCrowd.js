@@ -5,7 +5,7 @@
 import { TERMINAL } from '../world/bogota/TransitTerminal.js';
 
 export const NEAR = 120;
-export const CAP = 60;           // personas reales a la vez en el andén
+export const CAP = 24;           // personas reales a la vez en el andén
 export const OPS_PER_FRAME = 6;
 export const Z0 = -50, Z1 = -10;
 const FILES = [73.5, 74.0, 74.5, 75.0, 75.5, 76.0, 76.5], STEP = .56;
