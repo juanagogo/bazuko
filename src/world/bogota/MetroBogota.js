@@ -163,40 +163,47 @@ export function buildMetroBogota({ pavement } = {}) {
     group.add(carGroup);
   }
 
-  // 3. ESTACIÓN ELEVADA INTERMODAL DEL METRO (AV. CARACAS / CALLE 10)
-  const stationZ = 95;
-  const stationWidth = 14;
-  const stationLength = 34;
-  const stationGroup = new THREE.Group();
+  // 3. ESTACIONES ELEVADAS INTERMODALES DEL METRO DE BOGOTÁ (LÍNEA 1)
+  // - Estación Calle 72 (Terminal norte de la Línea 1, Caracas con Calle 72)
+  // - Estación Central / Calle 26 (Intercambio multimodal con TransMilenio y Centro Internacional)
+  const buildStation = (stationZ, stationName) => {
+    const stationWidth = 14;
+    const stationLength = 32;
+    const stationGroup = new THREE.Group();
+    stationGroup.name = stationName;
 
-  // Plataforma de abordaje elevada
-  const platGeo = new THREE.BoxGeometry(stationWidth, 0.4, stationLength);
-  const plat = new THREE.Mesh(platGeo, concreteMat);
-  plat.position.set(0, METRO.trackHeight + 0.3, 0);
-  stationGroup.add(plat);
+    // Plataforma de abordaje elevada
+    const platGeo = new THREE.BoxGeometry(stationWidth, 0.4, stationLength);
+    const plat = new THREE.Mesh(platGeo, concreteMat);
+    plat.position.set(0, METRO.trackHeight + 0.3, 0);
+    stationGroup.add(plat);
 
-  // Cubierta abovedada translúcida verde y acero
-  const roofCurveGeo = new THREE.CylinderGeometry(stationWidth * 0.6, stationWidth * 0.6, stationLength, 16, 1, false, 0, Math.PI);
-  const stationRoof = new THREE.Mesh(roofCurveGeo, new THREE.MeshStandardMaterial({
-    color: 0x2e7d32, roughness: 0.2, metalness: 0.5, transparent: true, opacity: 0.85, side: THREE.DoubleSide
-  }));
-  stationRoof.rotation.z = Math.PI / 2;
-  stationRoof.rotation.y = Math.PI / 2;
-  stationRoof.position.set(0, METRO.trackHeight + 4.8, 0);
-  stationGroup.add(stationRoof);
+    // Cubierta abovedada translúcida verde y acero
+    const roofCurveGeo = new THREE.CylinderGeometry(stationWidth * 0.6, stationWidth * 0.6, stationLength, 16, 1, false, 0, Math.PI);
+    const stationRoof = new THREE.Mesh(roofCurveGeo, new THREE.MeshStandardMaterial({
+      color: 0x2e7d32, roughness: 0.2, metalness: 0.5, transparent: true, opacity: 0.85, side: THREE.DoubleSide
+    }));
+    stationRoof.rotation.z = Math.PI / 2;
+    stationRoof.rotation.y = Math.PI / 2;
+    stationRoof.position.set(0, METRO.trackHeight + 4.8, 0);
+    stationGroup.add(stationRoof);
 
-  // Pasarelas y escaleras de acceso peatonal desde la calle
-  const stairsGeo = new THREE.BoxGeometry(3.5, METRO.trackHeight, 4.5);
-  const stairsWest = new THREE.Mesh(stairsGeo, concreteMat);
-  stairsWest.position.set(-stationWidth / 2 - 1.8, METRO.trackHeight / 2, 0);
-  stationGroup.add(stairsWest);
+    // Pasarelas y escaleras de acceso peatonal desde la calle
+    const stairsGeo = new THREE.BoxGeometry(3.5, METRO.trackHeight, 4.5);
+    const stairsWest = new THREE.Mesh(stairsGeo, concreteMat);
+    stairsWest.position.set(-stationWidth / 2 - 1.8, METRO.trackHeight / 2, 0);
+    stationGroup.add(stairsWest);
 
-  const stairsEast = new THREE.Mesh(stairsGeo, concreteMat);
-  stairsEast.position.set(stationWidth / 2 + 1.8, METRO.trackHeight / 2, 0);
-  stationGroup.add(stairsEast);
+    const stairsEast = new THREE.Mesh(stairsGeo, concreteMat);
+    stairsEast.position.set(stationWidth / 2 + 1.8, METRO.trackHeight / 2, 0);
+    stationGroup.add(stairsEast);
 
-  stationGroup.position.set(METRO.x, 0, stationZ);
-  group.add(stationGroup);
+    stationGroup.position.set(METRO.x, 0, stationZ);
+    return stationGroup;
+  };
+
+  group.add(buildStation(115, 'EstacionMetroCalle72'));
+  group.add(buildStation(193, 'EstacionMetroCalle26'));
 
   // 4. CERRAMIENTOS DE OBRA REAL DE BOGOTÁ EN SUPERFICIE
   // Polisombra verde y maletines naranjas de desvío a lo largo de la Av. Caracas

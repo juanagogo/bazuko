@@ -16,7 +16,7 @@ export const ZONA_NOMBRES = {
   parque: 'Parque Tercer Milenio',
   candelaria: 'La Candelaria',
   chapinero: 'Chapinero',
-  andenes: 'El Centro',
+  andenes: 'El centro',
   barrio: 'Los Barrios',
   lago: LAKE_PARK.name,
   zonaT: 'Zona T (Calle 82 / Zona Rosa)',

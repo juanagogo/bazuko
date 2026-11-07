@@ -28,7 +28,7 @@ export function buildNorthZones() {
   // 1. ZONA T (Calle 82 / Zona Rosa) - Integrada en el sector norte-occidente
   // -------------------------------------------------------------------------
   const zonaTGroup = new THREE.Group();
-  zonaTGroup.position.set(38, 0, 25);
+  zonaTGroup.position.set(38, 0, 75);
 
   // Eje peatonal en "T": Calle horizontal (Calle 82) y Carrera vertical peatonal
   const tWalkHoriz = new THREE.Mesh(new THREE.BoxGeometry(60, 0.08, 14), pavingTMat);
@@ -73,10 +73,10 @@ export function buildNorthZones() {
   group.add(zonaTGroup);
 
   // -------------------------------------------------------------------------
-  // 2. ZONA G (Distrito Gourmet, Rosales) - Integrada en el sector oriental / Cerros
+  // 2. ZONA G (Distrito Gourmet, Rosales) - Integrada en el sector oriental / Cerros (Calle 72 con Cra 4/5)
   // -------------------------------------------------------------------------
   const zonaGGroup = new THREE.Group();
-  zonaGGroup.position.set(295, 0, 38);
+  zonaGGroup.position.set(295, 0, 115);
 
   // Casas de conservación estilo inglés de ladrillo a la vista con chimeneas
   for (let b = -25; b <= 25; b += 22) {
@@ -105,10 +105,10 @@ export function buildNorthZones() {
   group.add(zonaGGroup);
 
   // -------------------------------------------------------------------------
-  // 3. PARQUE DE LA 93 (Chicó) - Integrado en la zona noroccidental (X: 38, Z: 65)
+  // 3. PARQUE DE LA 93 (Chicó) - Integrado en la zona norte (Calle 93, X: 38, Z: 25)
   // -------------------------------------------------------------------------
   const p93Group = new THREE.Group();
-  p93Group.position.set(38, 0, 65);
+  p93Group.position.set(38, 0, 25);
 
   // Gran parque rectangular verde
   const parkW = 42, parkL = 34;

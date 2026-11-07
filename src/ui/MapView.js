@@ -467,10 +467,13 @@ export class MapView {
     const plan = this.game.mapPlan;
     for (const label of this._labels) {
       if (label.vertical) {
-        for (let z = plan.originZ + CALLE_CADA / 2; z < plan.originZ + plan.worldHeight; z += CALLE_CADA) poner(label.name, label.x, z, true);
+        const desdeZ = Math.max(plan.originZ, label.minZ ?? -Infinity);
+        const hastaZ = Math.min(plan.originZ + plan.worldHeight, label.maxZ ?? Infinity);
+        for (let z = desdeZ + CALLE_CADA / 2; z < hastaZ; z += CALLE_CADA) poner(label.name, label.x, z, true);
       } else {
         const desde = Math.max(plan.originX, label.minX ?? -Infinity);
-        for (let x = desde + CALLE_CADA / 2; x < plan.originX + plan.worldWidth; x += CALLE_CADA) poner(label.name, x, label.z, false);
+        const hasta = Math.min(plan.originX + plan.worldWidth, label.maxX ?? Infinity);
+        for (let x = desde + CALLE_CADA / 2; x < hasta; x += CALLE_CADA) poner(label.name, x, label.z, false);
       }
     }
   }

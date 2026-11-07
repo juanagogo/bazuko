@@ -62,10 +62,9 @@ export const NEIGHBORHOODS = Object.freeze({
 /** Los límites siguen el recorrido del cambuche al comercio y al norte (Zona G, Zona T, Parque 93). */
 export function neighborhoodAt(x, z) {
   if (!Number.isFinite(x) || !Number.isFinite(z)) return NEIGHBORHOODS.centro;
-  // Sectores exclusivos del Norte de Bogotá integrados
-  if (x < 70 && z < 45) return NEIGHBORHOODS.zonaT;
-  if (x < 70 && z >= 45 && z < 90) return NEIGHBORHOODS.parque93;
-  if (x >= 270 && z < 75) return NEIGHBORHOODS.zonaG;
+  // Sectores exclusivos del Norte de Bogotá integrados (corredor Carrera 15)
+  if (x <= 36 && z < 50) return NEIGHBORHOODS.parque93;
+  if (x <= 36 && z >= 50 && z < 100) return NEIGHBORHOODS.zonaT;
   // Al oriente de la Carrera 5; la avenida misma conserva el asfalto y sus líneas.
   if (x >= 267) return z < 121 ? NEIGHBORHOODS.candelaria : NEIGHBORHOODS.chapinero;
   if (z >= 222) return NEIGHBORHOODS.lago;
