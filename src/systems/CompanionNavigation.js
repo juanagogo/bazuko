@@ -20,7 +20,13 @@ export class CompanionNavigation {
 
   isOpen(x, z) {
     if (!this.district.isWalkableAt(x, z)) return false;
-    return !(this.collisions?.colliders ?? []).some(({ box }) =>
+    // El índice espacial devuelve las cajas cercanas, y la misma prueba decide: antes se revisaban
+    // las más de mil cajas de la ciudad por cada celda del mapa.
+    const collisions = this.collisions;
+    const boxes = collisions?.queryStatic
+      ? collisions.queryStatic(x - .24, z - .24, x + .24, z + .24, this._candidates ??= [])
+      : (collisions?.colliders ?? []);
+    return !boxes.some(({ box }) =>
       x > box.min.x - .24 && x < box.max.x + .24 && z > box.min.z - .24 && z < box.max.z + .24);
   }
 

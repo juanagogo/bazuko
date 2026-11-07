@@ -15,10 +15,29 @@ export function bridgeNormal(z) {
   const scale=Math.hypot(1,dx);
   return {x:1/scale,z:-dx/scale};
 }
+// El eje nunca sale de X 75 a X 75 + offset: con el desplazamiento del carril, un punto más lejos
+// que esto de la franja no está sobre el bus. Los llamadores lo usan para no buscar el carril.
+export const BUS_AXIS_MIN_X = 75, BUS_AXIS_MAX_X = 75 + BUS_DETOUR.offset;
+
+// La ciudad pregunta miles de veces por las mismas Z al construir suelo, viaducto y lago.
+// Mismo resultado exacto: solo se guarda lo ya calculado, por carril.
+const pathCache = new Map();
+const PATH_CACHE_LIMIT = 8192;
+
 // Los carriles son desplazamientos perpendiculares del mismo eje. Se invierte
 // su Z para mantener el contrato de rutas expresadas en coordenadas del mundo.
 export function busPathX(z,laneX=78.5) {
   if(z<=BUS_DETOUR.z0-5 || z>=BUS_DETOUR.z1+5) return laneX;
+  let lane=pathCache.get(laneX);
+  if(!lane) pathCache.set(laneX,lane=new Map());
+  const cached=lane.get(z);
+  if(cached!==undefined) return cached;
+  if(lane.size>=PATH_CACHE_LIMIT) lane.clear();
+  const x=searchPathX(z,laneX);
+  lane.set(z,x);
+  return x;
+}
+function searchPathX(z,laneX) {
   const offset=laneX-75;
   let lo=z-10,hi=z+10;
   for(let i=0;i<28;i++) {
