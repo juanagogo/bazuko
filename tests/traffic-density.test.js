@@ -1,15 +1,15 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
-  DEFAULT_TRAFFIC_DENSITY, TRAFFIC_DENSITY_LEVELS,
-  trafficDensityMidday, trafficDensityId, trafficHourFactor, trafficTargetVehicles,
+  DEFAULT_TRAFFIC_DENSITY, TRAFFIC_DENSITY_LEVELS, trafficDensityChoosable,
+  motoThreshold, trafficDensityMidday, trafficDensityId, trafficHourFactor, trafficTargetVehicles,
 } from '../src/systems/trafficDensity.js';
 
 test('la densidad desconocida cae en la de siempre', () => {
   assert.equal(trafficDensityId('maxima'), 'maxima');
   assert.equal(trafficDensityId('lo-que-sea'), DEFAULT_TRAFFIC_DENSITY);
   assert.equal(trafficDensityId(null), DEFAULT_TRAFFIC_DENSITY);
-  assert.deepEqual(TRAFFIC_DENSITY_LEVELS.map(level => level.id), ['baja', 'normal', 'alta', 'maxima']);
+  assert.deepEqual(TRAFFIC_DENSITY_LEVELS.map(level => level.id), ['baja', 'normal', 'alta', 'maxima', 'ultra']);
 });
 
 test('cada nivel pide una flota mayor que el anterior', () => {
@@ -33,9 +33,25 @@ test('la flota escala con el nivel y con la hora, con un piso y un techo', () =>
   assert.ok(trafficTargetVehicles(18.5, 'normal') > base * 1.5);
   assert.ok(trafficTargetVehicles(3, 'normal') < base * .5);
   assert.ok(trafficTargetVehicles(7, 'maxima') > trafficTargetVehicles(7, 'alta'));
+  // Ultra llena la calle: varias veces Máxima en el pico.
+  assert.ok(trafficTargetVehicles(7, 'ultra') >= trafficTargetVehicles(7, 'maxima') * 4);
   // Pico de la mañana: más que la flota de partida, sin llegar al techo de la red.
   assert.ok(trafficTargetVehicles(7, 'normal') >= 45);
   assert.ok(trafficTargetVehicles(18.5, 'maxima') <= 62);
   // La madrugada deja la calle casi sola.
   assert.ok(trafficTargetVehicles(3, 'baja') <= 6);
+});
+
+test('Ultra pone mucha más moto que el resto: tres de cada cuatro vehículos en el pico', () => {
+  assert.ok(motoThreshold(7.5, 'ultra') <= motoThreshold(7.5, 'maxima') - 2);
+  assert.ok(motoThreshold(7.5, 'ultra') <= 3);
+});
+
+test('Ultra es la densidad de todos y solo los trucos permiten elegir otra', () => {
+  assert.equal(DEFAULT_TRAFFIC_DENSITY, 'ultra');
+  assert.equal(trafficDensityId(undefined), 'ultra');
+  assert.equal(trafficDensityChoosable(''), false);
+  assert.equal(trafficDensityChoosable('?animaciones=mixamo-preview'), false);
+  assert.equal(trafficDensityChoosable('?trucos'), true);
+  assert.equal(trafficDensityChoosable('?a=1&trucos'), true);
 });

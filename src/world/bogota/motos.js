@@ -4,6 +4,7 @@
 import * as THREE from 'three';
 import { Batch, COLOR, addGeo, addGrid, bar, box, tube } from './carParts.js';
 import { chainSunField } from './SunFieldShader.js';
+import { MotoRiders, RIDER_SWAY_RANGE } from './motoRiders.js';
 
 export const MOTO_SIZE = Object.freeze({ length: 2, width: .72, height: 1.08 });
 export const MOTO_COLORS = ['#c21d1a', '#1a1c20', '#e6e6e4', '#1d3f7a', '#6d7377', '#b98a1b', '#20262c'];
@@ -17,26 +18,78 @@ const PAINTED = 1, METAL = .3;
 const WHITE = [1, 1, 1], SEAT = [.03, .03, .033], STEEL = [.62, .64, .66], ENGINE = [.028, .028, .03], ALU = [.14, .145, .15];
 
 let material = null;
-// El puesto de cada persona va en `aRider` (asiento + 1, y si es la cabeza con casco); el lote trae quién va sentado
-// y con qué casco. Lo que no se ve se encoge a cero: sin vértices no hay relleno ni sombra.
-const RIDER_ATTRIBUTES = 'attribute vec2 aRider;\nattribute vec3 aRiderOn;\nattribute vec3 aHelmetOn;\n';
+// El vértice guarda a qué persona pertenece (`aRider.x`, 0 el vehículo y 1 a 5 los puestos), si es cabeza con casco,
+// si lleva ropa teñible y qué parte es; `aSeatAt` es el punto del asiento, de donde cuelga todo. El lote trae, por
+// instancia, quién va sentado, de qué tamaño y con qué accesorios. Lo que no se ve se encoge a cero.
+const RIDER_ATTRIBUTES = `attribute vec4 aRider;
+attribute vec3 aSeatAt;
+attribute vec4 aBits;
+attribute float aPack;
+attribute float aCloth;
+attribute vec4 aMotion;
+uniform float uMotoTime;
+float motoBit(float mask, float slot) { return mod(floor(mask / pow(2., slot)), 2.); }
+float motoClothIndex(float slot) { return mod(floor(aCloth / pow(8., slot)), 8.); }
+vec3 motoRotX(vec3 p, float a) { float c = cos(a), s = sin(a); return vec3(p.x, c * p.y - s * p.z, s * p.y + c * p.z); }
+vec3 motoRotY(vec3 p, float a) { float c = cos(a), s = sin(a); return vec3(c * p.x + s * p.z, p.y, -s * p.x + c * p.z); }
+vec3 motoRotZ(vec3 p, float a) { float c = cos(a), s = sin(a); return vec3(c * p.x - s * p.y, s * p.x + c * p.y, p.z); }
+vec3 motoClothColor(float i) {
+  if (i < .5) return vec3(.10, .12, .20);
+  if (i < 1.5) return vec3(.07, .07, .08);
+  if (i < 2.5) return vec3(.45, .09, .08);
+  if (i < 3.5) return vec3(.20, .34, .52);
+  if (i < 4.5) return vec3(.80, .80, .78);
+  if (i < 5.5) return vec3(.28, .30, .20);
+  if (i < 6.5) return vec3(.10, .30, .18);
+  return vec3(.72, .30, .06);
+}
+`;
+// Quien va en la moto se mueve con ella desde el sombreador: se ladea en la curva, se mece con los cambios de
+// velocidad, gira la cabeza, mece las piernas y, parado, el conductor baja un pie. Sale de la fase y del movimiento
+// por instancia, sin mallas animadas por persona.
 const RIDER_HIDE = `#include <begin_vertex>
   float motoSlot = aRider.x - 1.;
-  float motoOn = motoSlot < -.5 ? 1. : motoSlot < .5 ? aRiderOn.x : motoSlot < 1.5 ? aRiderOn.y : aRiderOn.z;
-  float motoHead = aRider.y > .5 ? (motoSlot < .5 ? aHelmetOn.x : motoSlot < 1.5 ? aHelmetOn.y : aHelmetOn.z) : 1.;
-  transformed *= clamp(motoOn * motoHead, 0., 1.);`;
+  float motoOn = motoSlot < -.5 ? 1. : motoBit(aBits.x, motoSlot);
+  float motoHead = aRider.y > .5 ? (motoSlot < -.5 ? 1. : motoBit(aBits.y, motoSlot)) : 1.;
+  float motoPart = aRider.w;
+  float motoShow = 1.;
+  if (motoPart > 3.5 && motoPart < 4.5) motoShow = motoSlot < -.5 ? 0. : motoBit(aBits.w, motoSlot);
+  else if (motoPart > 4.5) motoShow = motoSlot < -.5 ? 0. : motoBit(aPack, motoSlot);
+  float motoVisible = clamp(motoOn * motoHead * motoShow, 0., 1.);
+  if (motoSlot > -.5 && motoVisible > .5) {
+    float motoSize = mix(1., .72, motoBit(aBits.z, motoSlot));
+    float motoAccel = aMotion.x, motoSpeed = aMotion.y, motoSteer = aMotion.z, motoPhase = aMotion.w;
+    vec3 motoP = (transformed - aSeatAt) * motoSize;
+    motoP = motoRotX(motoP, clamp(motoSteer, -.6, .6) * .45 + sin(uMotoTime * .7 + motoPhase) * .02);
+    motoP = motoRotZ(motoP, clamp(-motoAccel * .04, -.16, .16) + sin(uMotoTime * 2.1 + motoPhase) * .02 * min(abs(motoSpeed), 6.) / 6.);
+    if (motoPart > .5 && motoPart < 1.5) {
+      vec3 motoNeck = vec3(0., .56 * motoSize, 0.);
+      motoP -= motoNeck; motoP = motoRotY(motoP, sin(uMotoTime * 1.3 + motoPhase * 2.) * .3); motoP += motoNeck;
+    } else if (motoPart > 1.5 && motoPart < 2.5) {
+      vec3 motoHip = vec3(0., .12 * motoSize, 0.);
+      float motoSwing = sin(uMotoTime * 2.6 + motoPhase + motoSlot) * .16;
+      if (motoSlot < .5 && motoSpeed < .6) motoSwing -= .38;   // parado, el conductor baja el pie hasta el piso
+      motoP -= motoHip; motoP = motoRotZ(motoP, motoSwing); motoP += motoHip;
+    }
+    transformed = aSeatAt + motoP;
+  }
+  transformed *= motoVisible;`;
+// El reloj del balanceo: lo escribe el lote en cada sincronización y lo comparten los dos materiales.
+const motoTime = { value: 0 };
 
 function motoMaterial() {
   if (material) return material;
   material = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: .46, metalness: .05 });
   material.name = 'Motos';
   material.onBeforeCompile = shader => {
+    shader.uniforms.uMotoTime = motoTime;
     shader.vertexShader = (RIDER_ATTRIBUTES + shader.vertexShader)
       .replace('#include <begin_vertex>', RIDER_HIDE)
       .replace('#include <color_vertex>', `vColor = color;
       #ifdef USE_INSTANCING_COLOR
         vColor.rgb *= mix(vec3(1.), instanceColor.rgb, step(.5, color.a));
-      #endif`);
+      #endif
+      if (aRider.z > .5) vColor.rgb = motoClothColor(motoClothIndex(max(aRider.x - 1., 0.)));`);
     shader.fragmentShader = shader.fragmentShader
       .replace('#include <metalnessmap_fragment>', `#include <metalnessmap_fragment>
         float motoMetal = step(.15, vColor.a) * (1. - step(.5, vColor.a));
@@ -49,12 +102,13 @@ function motoMaterial() {
 }
 
 let depthMaterial = null;
-/** La sombra esconde a quien no va: el pase de profundidad no usa el material de la moto y si no, dibujaría los tres. */
+/** La sombra esconde a quien no va: el pase de profundidad no usa el material de la moto y si no, dibujaría a los que no van. */
 function motoDepthMaterial() {
   if (depthMaterial) return depthMaterial;
   depthMaterial = new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking });
   depthMaterial.name = 'Sombra de motos';
   depthMaterial.onBeforeCompile = shader => {
+    shader.uniforms.uMotoTime = motoTime;
     shader.vertexShader = (RIDER_ATTRIBUTES + shader.vertexShader).replace('#include <begin_vertex>', RIDER_HIDE);
   };
   depthMaterial.customProgramCacheKey = () => 'motos-sombra';
@@ -208,46 +262,41 @@ export function makeParkedMotos(placements) {
 }
 
 /**
- * Lote de moto: además del vértice guarda a qué persona pertenece (0 el vehículo, 1 a 3 los puestos) y si es su
- * cabeza con casco. El lote decide por instancia quién va sentado y con qué, sin duplicar geometría.
+ * Lote de moto: además del vértice guarda a qué persona pertenece (0 el vehículo, 1 a 5 los puestos), si es su
+ * cabeza con casco, si lleva ropa teñible y qué parte es, y el punto de su asiento. El lote decide por instancia
+ * quién va sentado, de qué tamaño y con qué accesorios, sin duplicar geometría.
  */
 class MotoBatch extends Batch {
   constructor() {
     super();
     this.R = [];
-    this.slot = 0;
-    this.head = 0;
+    this.A = [];
+    this.slot = 0; this.head = 0; this.garment = 0; this.part = 0;
+    this.anchor = [0, 0, 0];
   }
   v(x, y, z, nx, ny, nz, u, v, r, g, b, a, lamp) {
-    this.R.push(this.slot, this.head);
+    this.R.push(this.slot, this.head, this.garment, this.part);
+    this.A.push(this.anchor[0], this.anchor[1], this.anchor[2]);
     return super.v(x, y, z, nx, ny, nz, u, v, r, g, b, a, lamp);
   }
-  rider(slot, head) { this.slot = slot; this.head = head; }
+  /** Empieza una persona en su puesto; `anchor` es el punto del asiento, de donde cuelga. */
+  seat(slot, anchor) { this.slot = slot + 1; this.anchor = anchor; this.head = 0; this.garment = 0; this.part = 0; }
+  /** Marca las piezas que siguen: cabeza, ropa teñible o parte del cuerpo (piernas 2, brazos 3, bolsa 4, morral 5). */
+  mark({ head = 0, garment = 0, part = 0 } = {}) { this.head = head; this.garment = garment; this.part = part; }
 }
 
-const SKIN = [.72, .53, .4];
-const HELMET_VISOR = [.05, .06, .07];
-// Chaquetas fijas: el color de la moto pinta el casco, no a quien la maneja, que así no sale de un solo tono.
-const JACKETS = [[.09, .10, .13], [.34, .13, .10], [.13, .22, .28]];
+const BAG = [.85, .72, .10];
+// El morral sale blanco y el sombreador lo tiñe con el color de la persona.
 
-/** Persona sentada: piernas al estribo, torso y brazos hasta donde agarra, y cabeza con casco que puede no ponerse. */
-function addRider(b, seat, { x, y, hands, feet, kid = false }) {
-  const s = kid ? .74 : 1, jacket = JACKETS[seat % JACKETS.length];
-  b.rider(seat + 1, 0);
-  bar(b, [x, y + .02, .13 * s], [feet[0], feet[1], feet[2] * s], .13 * s, .14 * s, { color: COLOR.dark, mirror: true });
-  box(b, [.30 * s, .12, .34 * s], [x, y + .06, 0], { color: COLOR.dark });
-  bar(b, [x, y + .10, 0], [x + .04 * s, y + .44 * s, 0], .26 * s, .36 * s, { color: jacket });
-  bar(b, [x + .03 * s, y + .40 * s, .14 * s], [hands[0], hands[1], hands[2]], .09 * s, .09 * s, { color: jacket, mirror: true });
-  const neck = new THREE.SphereGeometry(.05 * s, 6, 5);
-  addGeo(b, neck, { position: [x + .05 * s, y + .50 * s, 0], color: SKIN, scale: [1, 1.3, 1] });
-  const head = new THREE.SphereGeometry(.085 * s, 7, 6);
-  addGeo(b, head, { position: [x + .06 * s, y + .56 * s, 0], color: SKIN });
-  // El casco va marcado aparte: el lote lo esconde cuando esa persona no lo lleva.
-  b.rider(seat + 1, 1);
-  const helmet = new THREE.SphereGeometry(.105 * s, 8, 6);
-  addGeo(b, helmet, { position: [x + .05 * s, y + .57 * s, 0], color: WHITE, metal: PAINTED, scale: [1, 1, 1.06] });
-  box(b, [.06 * s, .04 * s, .19 * s], [x + .15 * s, y + .55 * s, 0], { color: HELMET_VISOR });
-  b.rider(seat + 1, 0);
+/** Lo que lleva cada puesto: el morral a la espalda y la bolsa del mercado; la persona la dibuja motoRiders. */
+function addRider(b, seat, { x, y }) {
+  b.seat(seat, [x, y, 0]);
+  b.mark({ garment: 1, part: 5 });
+  box(b, [.26, .30, .16], [x - .20, y + .34, 0], { color: WHITE });
+  b.mark({ part: 4 });
+  box(b, [.20, .28, .13], [x - .02, y + .26, .30], { color: BAG, mirror: true });
+  bar(b, [x + .03, y + .42, .30], [x - .02, y + .40, .30], .012, .012, { color: BAG, mirror: true });
+  b.mark();
 }
 
 /** Scooter: paso bajo entre las piernas, carenado frontal y cola abultada sobre la rueda pequeña. */
@@ -285,8 +334,8 @@ function addBasket(b) {
 
 /** Caja de domicilio sobre la parrilla: solo el volumen y la tapa, sin marcas. */
 function addDeliveryBox(b) {
-  box(b, [.52, .48, .52], [-1.00, 1.06, 0], { color: [.13, .15, .18] });
-  box(b, [.55, .05, .55], [-1.00, 1.32, 0], { color: [.30, .32, .35] });
+  box(b, [.52, .48, .52], [-1.00, 1.06, 0], { color: [.78, .34, .04] });
+  box(b, [.55, .05, .55], [-1.00, 1.32, 0], { color: [.60, .25, .03] });
   bar(b, [-.74, 1.20, .27], [-.74, 1.20, -.27], .02, .02, { color: COLOR.dark });
   bar(b, [-.84, .90, .12], [-.94, .96, 0], .016, .016, { color: COLOR.dark, mirror: true });
 }
@@ -296,32 +345,86 @@ export const MOTO_VARIANTS = Object.freeze(['urbana', 'scooter', 'canasta', 'dom
 export const MOTO_SIZES = Object.freeze([
   { length: 2, width: .72 }, { length: 1.78, width: .7 }, { length: 2.1, width: .74 }, { length: 2.28, width: .78 }
 ]);
-/** Quién cabe en cada variante: solo, con parrillero, o con el chico apretado en medio. */
-export const MOTO_LAYOUTS = Object.freeze({
-  urbana: [[0], [0, 2], [0, 1, 2]],
-  scooter: [[0], [0, 2]],
-  canasta: [[0], [0, 2], [0, 1, 2]],
-  domicilio: [[0]]
-});
+// Cada variante reparte sus cargas entre las motos que le tocan; la moto sigue eligiendo su variante con
+// `count % MOTO_VARIANTS.length`, como antes. Cada persona va por puesto como [puesto, niño, casco, bolsa,
+// morral, color]. La mayoría lleva uno o dos; también hay familia, colegio y domicilio.
+const LOADS = {
+  urbana: [
+    [[0, 0, 1, 0, 0, 1]],
+    [[0, 0, 1, 0, 0, 0], [3, 0, 1, 0, 0, 2]],
+    [[0, 0, 1, 0, 0, 0], [1, 1, 0, 1, 0, 2], [2, 1, 0, 1, 0, 3], [3, 1, 0, 1, 0, 6], [4, 0, 0, 1, 0, 4]],
+    [[0, 0, 1, 0, 0, 5], [1, 1, 0, 0, 1, 4], [2, 1, 0, 0, 1, 4], [3, 1, 0, 0, 1, 4]],
+    [[0, 0, 1, 0, 0, 0], [2, 1, 0, 0, 0, 3]],
+    [[0, 0, 0, 0, 0, 5], [2, 1, 0, 1, 0, 2], [3, 0, 0, 1, 0, 6]],
+    [[0, 0, 1, 0, 0, 0], [4, 1, 0, 0, 0, 2]],
+    [[0, 0, 1, 0, 0, 1], [1, 1, 0, 0, 0, 2], [3, 1, 0, 0, 0, 3]]
+  ],
+  scooter: [
+    [[0, 0, 1, 0, 0, 1]],
+    [[0, 0, 1, 0, 0, 1], [3, 0, 1, 0, 0, 3]],
+    [[0, 0, 1, 0, 0, 1], [1, 1, 0, 0, 0, 4]],
+    [[0, 0, 1, 0, 0, 1], [1, 1, 0, 0, 0, 4], [3, 1, 0, 0, 0, 2]]
+  ],
+  canasta: [
+    [[0, 0, 0, 0, 0, 5]],
+    [[0, 0, 1, 0, 0, 0], [2, 1, 0, 0, 0, 3]]
+  ],
+  domicilio: [
+    [[0, 0, 1, 0, 0, 7]],
+    [[0, 0, 0, 0, 0, 7]]
+  ]
+};
+
+/** Quién cabe en cada variante, tal como lo reparte el catálogo de cargas. */
+export const MOTO_LAYOUTS = Object.freeze(MOTO_VARIANTS.reduce((map, name) => {
+  map[name] = LOADS[name].map(people => people.map(person => person[0]).sort((a, b) => a - b));
+  return map;
+}, {}));
+
+/** Cuántas cargas distintas reparte el catálogo entre las cuatro variantes. */
+export const MOTO_LOAD_COUNT = Object.values(LOADS).reduce((sum, list) => sum + list.length, 0);
+
+/** La carga de la moto número `count`: variante, puestos, cascos, tamaños, accesorios y color, sin gastar azar. */
+export function motoLoad(count) {
+  const variant = count % MOTO_VARIANTS.length;
+  const options = LOADS[MOTO_VARIANTS[variant]];
+  const people = options[Math.floor(count / MOTO_VARIANTS.length) % options.length];
+  const occupancy = [false, false, false, false, false], helmets = [...occupancy], kids = [...occupancy];
+  const bags = [...occupancy], packs = [...occupancy], cloth = [0, 0, 0, 0, 0];
+  for (const [seat, kid, helmet, bag, pack, clothIndex] of people) {
+    occupancy[seat] = true; kids[seat] = !!kid; helmets[seat] = !!helmet;
+    bags[seat] = !!bag; packs[seat] = !!pack; cloth[seat] = clothIndex;
+  }
+  return {
+    variant, occupancy, helmets, kids, bags, packs, cloth,
+    color: MOTO_COLORS[count % MOTO_COLORS.length], phase: (count * 2.399) % 6.2832
+  };
+}
 
 const URBANA_SEATS = [
   { x: -.30, y: .92, hands: [.37, 1.06, .32], feet: [-.06, .30, .20] },
-  { x: -.54, y: .96, hands: [-.34, 1.02, .16], feet: [-.44, .46, .24], kid: true },
-  { x: -.74, y: .92, hands: [-.44, 1.00, .18], feet: [-.16, .32, .22] }
+  { x: .13, y: .84, hands: [.42, .98, .12], feet: [.34, .40, .26] },
+  { x: -.52, y: .98, hands: [.28, 1.02, .18], feet: [-.42, .50, .26] },
+  { x: -.70, y: .94, hands: [-.28, 1.00, .20], feet: [-.16, .32, .22] },
+  { x: -.88, y: .94, hands: [-.50, .98, .22], feet: [-.34, .36, .24] }
 ];
+// La scooter lleva pocos: niño en el tanque y un adulto atrás. La canasta ocupa el último puesto con su parrilla.
 const SEATS = {
   urbana: URBANA_SEATS,
   scooter: [
     { x: -.34, y: .86, hands: [.34, 1.04, .30], feet: [-.06, .32, .18] },
+    { x: .02, y: .80, hands: [.44, .94, .12], feet: [.30, .42, .24] },
     null,
-    { x: -.70, y: .88, hands: [-.34, .96, .20], feet: [-.30, .40, .24] }
+    { x: -.70, y: .90, hands: [-.34, .96, .20], feet: [-.30, .40, .24] },
+    null
   ],
-  canasta: URBANA_SEATS,
-  domicilio: [{ x: -.30, y: .92, hands: [.37, 1.06, .32], feet: [-.06, .30, .20] }]
+  canasta: [URBANA_SEATS[0], URBANA_SEATS[1], URBANA_SEATS[2], null, null],
+  domicilio: [URBANA_SEATS[0], null, null, null, null]
 };
 
+const NO_SWAY = { roll: 0, pitch: 0, yaw: 0 };
 let variantGeometries = null;
-/** Una geometría por variante, con sus tres puestos ya horneados; el lote esconde los que van vacíos. */
+/** Una geometría por variante, con sus puestos ya horneados; el lote esconde los que van vacíos. */
 function motoVariantGeometries() {
   if (variantGeometries) return variantGeometries;
   variantGeometries = MOTO_VARIANTS.map((name, index) => {
@@ -331,21 +434,22 @@ function motoVariantGeometries() {
     else if (name === 'domicilio') addDeliveryBox(b);
     SEATS[name].forEach((seat, slot) => { if (seat) addRider(b, slot, seat); });
     const geometry = b.toGeometry(`Moto ${name}`);
-    geometry.setAttribute('aRider', new THREE.BufferAttribute(new Float32Array(b.R), 2));
+    geometry.setAttribute('aRider', new THREE.BufferAttribute(new Float32Array(b.R), 4));
+    geometry.setAttribute('aSeatAt', new THREE.BufferAttribute(new Float32Array(b.A), 3));
     return geometry;
   });
   return variantGeometries;
 }
 
-/** Cuántas motos de cada variante caben en el lote. La flota diaria más llena reparte unas ocho por variante. */
-export const MOTO_CAPACITY = 16;
+/** Cuántas motos de cada variante caben en el lote. El tráfico denso pone cientos a la vez. */
+export const MOTO_CAPACITY = 256;
 
 /**
  * Las motos que circulan: un lote instanciado por variante, con el asiento y el casco por instancia. Se sincroniza
  * desde los vehículos del tráfico y la esfera envolvente cubre lo vivo, para que el lote se descarte entero.
  */
 export class MotoFleet {
-  constructor(scene, capacity = MOTO_CAPACITY) {
+  constructor(scene, capacity = MOTO_CAPACITY, riderOptions = {}) {
     this.root = new THREE.Group();
     this.root.name = 'Motos en circulación';
     scene.add(this.root);
@@ -358,18 +462,27 @@ export class MotoFleet {
       mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
       // La esfera la lleva el lote, no la geometría: cubre solo lo vivo y el resto del tiempo se descarta.
       mesh.boundingSphere = new THREE.Sphere();
-      const riders = new THREE.InstancedBufferAttribute(new Float32Array(capacity * 3), 3);
-      const helmets = new THREE.InstancedBufferAttribute(new Float32Array(capacity * 3), 3);
-      geometry.setAttribute('aRiderOn', riders);
-      geometry.setAttribute('aHelmetOn', helmets);
+      const riders = new THREE.InstancedBufferAttribute(new Float32Array(capacity * 4), 4);
+      const packs = new THREE.InstancedBufferAttribute(new Float32Array(capacity), 1);
+      const cloth = new THREE.InstancedBufferAttribute(new Float32Array(capacity), 1);
+      const motion = new THREE.InstancedBufferAttribute(new Float32Array(capacity * 4), 4);
+      geometry.setAttribute('aBits', riders);
+      geometry.setAttribute('aPack', packs);
+      geometry.setAttribute('aCloth', cloth);
+      geometry.setAttribute('aMotion', motion);
       this.root.add(mesh);
-      return { mesh, riders, helmets, capacity, count: 0, minX: 0, maxX: 0, minZ: 0, maxZ: 0 };
+      return { mesh, bits: riders, packs, cloth, motion, capacity, count: 0, minX: 0, maxX: 0, minZ: 0, maxZ: 0 };
     });
     this._dummy = new THREE.Object3D();
+    // La gente que va montada son los modelos de la calle, horneados sentados y dibujados aparte.
+    this.riders = new MotoRiders(this.root, riderOptions);
+    this.ready = this.riders.ready;
   }
 
   /** Coloca cada moto viva en su lote; la que va apagada no ocupa instancia. Devuelve cuántas se dibujan. */
-  sync(vehicles) {
+  sync(vehicles, focus = null) {
+    motoTime.value = performance.now() * .001;
+    this.riders.begin();
     for (const batch of this.batches) batch.count = 0;
     for (const vehicle of vehicles) {
       const moto = vehicle.car;
@@ -382,11 +495,42 @@ export class MotoFleet {
       this._dummy.updateMatrix();
       batch.mesh.setMatrixAt(index, this._dummy.matrix);
       batch.mesh.setColorAt(index, moto.color);
-      const riders = batch.riders.array, helmets = batch.helmets.array;
-      for (let seat = 0; seat < 3; seat++) {
-        riders[index * 3 + seat] = moto.occupancy[seat] ? 1 : 0;
-        helmets[index * 3 + seat] = moto.helmets[seat] ? 1 : 0;
+      const occupancy = moto.occupancy ?? [], helmets = moto.helmets ?? [], kids = moto.kids ?? [];
+      const bags = moto.bags ?? [], packs = moto.packs ?? [], cloth = moto.cloth ?? [];
+      let on = 0, head = 0, small = 0, bag = 0, backpack = 0, tint = 0;
+      for (let seat = 0; seat < 5; seat++) {
+        if (!occupancy[seat]) continue;
+        on |= 1 << seat;
+        if (helmets[seat]) head |= 1 << seat;
+        if (kids[seat]) small |= 1 << seat;
+        if (bags[seat]) bag |= 1 << seat;
+        if (packs[seat]) backpack |= 1 << seat;
+        tint += ((cloth[seat] ?? 0) & 7) * 8 ** seat;
       }
+      const near = !focus || (x - focus.x) ** 2 + (z - focus.z) ** 2 < RIDER_SWAY_RANGE ** 2;
+      const speed = vehicle.speed ?? 0, accel = vehicle.acceleration ?? 0, steer = vehicle._driveContext?.steering ?? 0, phase = moto.phase ?? 0;
+      const sway = near ? {
+        roll: Math.max(-.6, Math.min(.6, steer)) * .45 + Math.sin(motoTime.value * .7 + phase) * .02,
+        pitch: Math.max(-.16, Math.min(.16, -accel * .04)) + Math.sin(motoTime.value * 2.1 + phase) * .02 * Math.min(Math.abs(speed), 6) / 6,
+        // Quien espera parado en la moto (el conductor del robo express) gira a mirar a todos lados.
+        yaw: vehicle.lookAround ? Math.sin(motoTime.value * .8 + phase) * .55 : 0
+      } : NO_SWAY;
+      const seats = SEATS[MOTO_VARIANTS[moto.variant]];
+      for (let seat = 0; seat < 5; seat++) {
+        if (!occupancy[seat] || !seats[seat]) continue;
+        const kid = !!kids[seat], role = seat === 0 ? 'driver' : kid && seat === 1 ? 'tank' : 'pillion';
+        const look = Math.floor(phase * 97) + seat * 5 + (cloth[seat] ?? 0);
+        this.riders.add(kid ? 'kid' : 'adult', look, role === 'tank' && !kid ? 'pillion' : role, this._dummy.matrix, [seats[seat].x, seats[seat].y], sway, cloth[seat] ?? 0, helmets[seat] ? moto.color : null);
+      }
+      const bits = batch.bits.array;
+      bits[index * 4] = on; bits[index * 4 + 1] = head; bits[index * 4 + 2] = small; bits[index * 4 + 3] = bag;
+      batch.packs.array[index] = backpack;
+      batch.cloth.array[index] = tint;
+      const context = vehicle._driveContext, motion = batch.motion.array, base = index * 4;
+      motion[base] = vehicle.acceleration ?? 0;
+      motion[base + 1] = vehicle.speed ?? 0;
+      motion[base + 2] = context?.steering ?? 0;
+      motion[base + 3] = moto.phase ?? 0;
       if (!index) { batch.minX = batch.maxX = x; batch.minZ = batch.maxZ = z; }
       else {
         batch.minX = Math.min(batch.minX, x); batch.maxX = Math.max(batch.maxX, x);
@@ -394,6 +538,7 @@ export class MotoFleet {
       }
       batch.count = index + 1;
     }
+    this.riders.end();
     for (const batch of this.batches) {
       const { mesh, count } = batch;
       mesh.count = count;
@@ -404,8 +549,10 @@ export class MotoFleet {
       }
       mesh.instanceMatrix.needsUpdate = true;
       if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
-      batch.riders.needsUpdate = true;
-      batch.helmets.needsUpdate = true;
+      batch.bits.needsUpdate = true;
+      batch.packs.needsUpdate = true;
+      batch.cloth.needsUpdate = true;
+      batch.motion.needsUpdate = true;
       const sphere = mesh.boundingSphere;
       sphere.center.set((batch.minX + batch.maxX) / 2, 1, (batch.minZ + batch.maxZ) / 2);
       sphere.radius = Math.hypot(batch.maxX - batch.minX, batch.maxZ - batch.minZ) / 2 + 3;
@@ -414,7 +561,11 @@ export class MotoFleet {
 
   get drawn() { return this.batches.reduce((sum, batch) => sum + batch.count, 0); }
 
+  /** Cuántas personas se dibujan montadas. */
+  get ridersDrawn() { return this.riders.drawn; }
+
   dispose() {
+    this.riders.dispose();
     for (const batch of this.batches) { this.root.remove(batch.mesh); batch.mesh.dispose(); }
     this.root.removeFromParent();
   }

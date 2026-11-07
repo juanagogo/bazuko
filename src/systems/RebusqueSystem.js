@@ -617,7 +617,7 @@ export class RebusqueSystem {
     this.jornada.furiaHoy = true;
     // La voz sigue al cuerpo: antes de que el carro grite, queda con un conductor del sexo de quien se va a bajar.
     // Si al carro ya se le oyó otra voz, la conserva (como en el robo del espejo) y VoiceDirector le da la pareja.
-    const sexo = rage.driver?.look?.real?.sexo, voces = this.game.audio?.vehicles;
+    const sexo = (rage.driverOf?.(car) ?? rage.driver)?.look?.real?.sexo, voces = this.game.audio?.vehicles;
     if (sexo && voces?.recastDriver && !voces.heard?.(car)) voces.recastDriver(car, sexo);
     avisar('El conductor se bajó con una varilla: ¡no pidió que le limpiara el vidrio!', 'danger');
     return true;

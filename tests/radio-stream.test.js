@@ -371,3 +371,30 @@ test('Frecuencia repetida: manda la emisora elegida a mano; el dial suelto vuelv
   radio.setFrequency(98.5);
   assert.equal(radio.getStationInfo().station.id, 'unradio-bogota', 'mover el dial suelta la elegida');
 });
+
+test('La búsqueda suena al cargar una emisora en vivo y calla al sonar', (t) => {
+  const { radio, creados } = montar(t);
+  radio.setStation(emisora('unradio-bogota'));
+  assert.equal(radio._tuning, true, 'elegir la emisora arranca la búsqueda');
+
+  const el = creados.at(-1);
+  el.emitir('playing');
+  assert.equal(radio._tuning, false, 'al sonar se calla');
+
+  el.emitir('stalled');
+  assert.equal(radio._tuning, true, 'un parón la reanuda');
+  el.emitir('timeupdate');
+  assert.equal(radio._tuning, false);
+
+  // Una emisora inventada no busca señal.
+  radio.setStation(emisora('rock'));
+  assert.equal(radio._tuning, false);
+});
+
+test('Apagar la radio calla la búsqueda', (t) => {
+  const { radio } = montar(t);
+  radio.setStation(emisora('univalle'));
+  assert.equal(radio._tuning, true);
+  radio.turnOff();
+  assert.equal(radio._tuning, false);
+});

@@ -1,23 +1,30 @@
 // src/systems/StreetVoices.js
 // Frases de la calle: suenan de quien está cerca, una a la vez y con enfriamiento por persona y por grabación.
 import { distanceGain } from './VehicleAudio.js';
-import { sameSex, setPan, setRate, takeVariation, voicePan } from './voiceVariety.js';
+import { setPan, setRate, takeVariation, voicePan } from './voiceVariety.js';
 
 /**
- * Las cinco frases de la calle, grabadas de verdad. `text` es lo que muestra la burbuja.
- * Sin `gender` son voz de hombre: solo las dicen los hombres (ver `sameSex`). No son de ninguna voz del reparto:
- * las dice quien todavía no se ha oído con la suya (`_vozOida`). Decirlas no le cambia la voz del reparto: el banco
- * casi no tiene frases sin voz para hombre (robo, testigo, limosna... ninguna), así que quedarse con una "voz de la
- * calle" lo dejaría mudo justo cuando lo roban. Lo que queda: quien dijo una de la calle puede después hablar con
- * la suya (un cambio, una vez), pero quien ya se oyó con la suya no vuelve a la de la calle.
+ * Las frases de la calle, grabadas de verdad. `text` es lo que muestra la burbuja; `sexo` dice quién la puede decir,
+ * según la voz grabada (ver `voiceFits`). No son de ninguna voz del reparto: las dice quien todavía no se ha oído
+ * con la suya (`_vozOida`). Decirlas no le cambia la voz del reparto: el banco casi no tiene frases sin voz para
+ * hombre (robo, testigo, limosna... ninguna), así que quedarse con una "voz de la calle" lo dejaría mudo justo
+ * cuando lo roban. Lo que queda: quien dijo una de la calle puede después hablar con la suya (un cambio, una vez),
+ * pero quien ya se oyó con la suya no vuelve a la de la calle.
  */
 export const STREET_VOICES = [
-  { key: 'carechimba', file: 'calle_las_mejores_carechimba.mp3', text: 'Las mejores, carechimba.' },
-  { key: 'pirobito', file: 'calle_pirobito.mp3', text: 'Pirobito.' },
-  { key: 'enano', file: 'calle_enano_gonorrea.mp3', text: 'Enano gonorrea.' },
-  { key: 'medallo', file: 'calle_medallo.mp3', text: 'Medallo.' },
-  { key: 'nacional', file: 'calle_un3snacional.mp3', text: 'Un 3 nacional.' }
+  { key: 'carechimba', file: 'calle_las_mejores_carechimba.mp3', text: 'Las mejores, carechimba.', sexo: 'mujer' },
+  { key: 'pirobito', file: 'calle_pirobito.mp3', text: 'Pirobito.', sexo: 'hombre' },
+  { key: 'enano', file: 'calle_enano_gonorrea.mp3', text: 'Enano gonorrea.', sexo: 'mujer' },
+  { key: 'medallo', file: 'calle_medallo.mp3', text: 'Medallo.', sexo: 'hombre' },
+  { key: 'nacional', file: 'calle_un3snacional.mp3', text: 'Un 3 nacional.', sexo: 'hombre' },
+  { key: 'mamacita', file: 'calle_mamacita.mp3', text: 'Mamacita, todas somos perras porque a todas nos gusta que nos den por el mismo hueco. No se azare por eso, mi amor.', sexo: 'mujer' },
+  { key: 'envidia', file: 'calle_mucha_envidia.mp3', text: '¿Mucha envidia o qué, perra?', sexo: 'mujer' },
+  { key: 'besitos', file: 'calle_besitos.mp3', text: 'Besitos hasta donde no llega el sol, y cuando quiera, carechimba.', sexo: 'mujer' },
+  { key: 'papasito', file: 'calle_papasito.mp3', text: 'Papasito.', sexo: 'mujer' }
 ];
+
+/** La voz grabada tiene que ser de quien habla: una frase de mujer no sale de un hombre. */
+export const voiceFits = (clip, npc) => clip.sexo === (npc.look?.real?.sexo ?? npc.person?.real?.sexo);
 
 const RANGE = 18, FULL = 5;               // metros: pleno hasta FULL, mudo desde RANGE
 const NPC_COOLDOWN = 25000;               // ms antes de volver a oír a la misma persona
@@ -85,11 +92,11 @@ export class StreetVoices {
     const libres = STREET_VOICES.filter(clip => (this._clipAt.get(clip.key) ?? -Infinity) <= now);
     if (!libres.length) return null;
     // Solo cuenta quien tenga alguna frase libre de su sexo: una mujer no habla con voz de hombre.
-    const conFrase = candidatos.filter(({ npc }) => libres.some(clip => sameSex(clip, npc.look?.real?.sexo)));
+    const conFrase = candidatos.filter(({ npc }) => libres.some(clip => voiceFits(clip, npc)));
     if (!conFrase.length) return null;
     const pool = Math.min(POOL, conFrase.length);
     const persona = conFrase[Math.floor(this.random() * pool)];
-    const clips = libres.filter(clip => sameSex(clip, persona.npc.look?.real?.sexo));
+    const clips = libres.filter(clip => voiceFits(clip, persona.npc));
     return { npc: persona.npc, distance: persona.distance, clip: clips[Math.floor(this.random() * clips.length)] };
   }
 

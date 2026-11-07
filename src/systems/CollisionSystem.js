@@ -11,6 +11,8 @@ export class CollisionSystem {
     this._staticGrid = new SpatialGrid();
     this._staticOrder = new Map();
     this._fallGrid = new SpatialGrid();
+    this._postGrid = new SpatialGrid();
+    this._postCandidates = [];
     this._moveCandidates = [];
     this._cameraCandidates = [];
     this._occlusionCandidates = [];
@@ -36,9 +38,16 @@ export class CollisionSystem {
     this.invalidateStaticIndex();
   }
 
+  /** Un poste, farola o tronco: sólido para quien camina (resbala a su alrededor) y sin efecto sobre la cámara. */
+  addPost(x, z, radius, y, height = 3) {
+    const box = new THREE.Box3(new THREE.Vector3(x - radius, y, z - radius), new THREE.Vector3(x + radius, y + height, z + radius));
+    // Índice aparte: solo el que camina los consulta; la cámara, los NPC y la red de andenes siguen sin verlos.
+    this._postGrid.insert({ box, mesh: new THREE.Object3D(), post: true }, x - radius, z - radius, x + radius, z + radius);
+  }
+
   clear() {
     this.colliders = []; this.dynamicColliders = []; this._vehicles.clear();
-    this.invalidateStaticIndex(); this._staticGrid.clear(); this._staticOrder.clear(); this._fallGrid.clear();
+    this.invalidateStaticIndex(); this._staticGrid.clear(); this._staticOrder.clear(); this._fallGrid.clear(); this._postGrid.clear();
   }
 
   /** Lo que ocupa sitio sin detener a nadie (una banca, un bolardo, una zorra). No cuenta para caminar ni para la cámara. */
@@ -119,12 +128,15 @@ export class CollisionSystem {
       let entry = this._vehicles.get(vehicle);
       if (!entry) { entry = { vehicle, box: new THREE.Box3() }; this._vehicles.set(vehicle, entry); }
       const isBus = buses.has(vehicle);
-      if (isBus) {
+      // Un vehículo de lado a 45 grados no puede ocupar la caja que lo rodea: ahí se camina. Solo los alineados usan caja simple.
+      const yaw = vehicle.group.rotation.y, aligned = Math.abs(Math.sin(2 * yaw)) < .02;
+      if (isBus || !aligned) {
         entry.obb ??= { center: new THREE.Vector3(), halfSize: new THREE.Vector3(), quaternion: new THREE.Quaternion(),
           inverse: new THREE.Quaternion(), axes: [new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3()] };
         const o = entry.obb;
         o.quaternion.copy(vehicle.group.quaternion); o.inverse.copy(o.quaternion).invert();
-        o.halfSize.set(vehicle.width / 2, 3.5 / 2, vehicle.length / 2);
+        const height = isBus ? 3.5 : vehicle.kind === 'buseta' ? 3 : 1.65;
+        o.halfSize.set(vehicle.width / 2, height / 2, vehicle.length / 2);
         o.center.set(0, o.halfSize.y, 0).applyQuaternion(o.quaternion).add(vehicle.position);
         o.axes[0].set(1,0,0).applyQuaternion(o.quaternion);
         o.axes[1].set(0,1,0).applyQuaternion(o.quaternion);
@@ -268,6 +280,8 @@ export class CollisionSystem {
     const endX = pos.x + (axis === 'x' ? delta : 0), endZ = pos.z + (axis === 'z' ? delta : 0);
     yield* this.queryStatic(Math.min(pos.x, endX) - radius, Math.min(pos.z, endZ) - radius,
       Math.max(pos.x, endX) + radius, Math.max(pos.z, endZ) + radius, this._moveCandidates);
+    yield* this._postGrid.query(Math.min(pos.x, endX) - radius, Math.min(pos.z, endZ) - radius,
+      Math.max(pos.x, endX) + radius, Math.max(pos.z, endZ) + radius, this._postCandidates);
     yield* this.dynamicColliders;
   }
 }

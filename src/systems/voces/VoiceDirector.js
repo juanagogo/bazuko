@@ -229,8 +229,9 @@ export class VoiceDirector {
    */
   _roboEspejo(car) {
     const rr = this.game?.roadRage;
-    if (!car || !rr?.vehicle || rr.vehicle.car !== car) return;
-    this.audio.recastMovingTheft?.(car, rr.driver?.look?.real?.sexo);
+    const driver = rr?.driverOf ? rr.driverOf(car) : rr?.vehicle?.car === car ? rr.driver : null;
+    if (!car || !driver) return;
+    this.audio.recastMovingTheft?.(car, driver.look?.real?.sexo);
   }
 
   /**

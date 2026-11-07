@@ -4,6 +4,7 @@
 // Coordenadas en metros desde el centro de la huella: X hacia el frente, Y arriba.
 import * as THREE from 'three';
 import { lerp } from './carLoft.js';
+import { paintLivery } from './busLiveries.js';
 import { BUS_BLUE, RECT, rectUv, dayDrop, dayHeadRect } from './carAtlas.js';
 import { COLOR, PATCH_FLAG, patchAround, patchOutline, patchSide, patchTop, seamLine, box, bar, tube, addGrid } from './carParts.js';
 import { OPTICS } from './carLamps.js';
@@ -733,7 +734,9 @@ export const CAR_MODELS = {
     mirror: { x: 3.42, y: 2.22, big: true }, wiper: 2.1, frame: 'trim', pillar: 'trim',
     gaps: { fuel: null },
     // Franjas de la empresa: dan la vuelta completa porque la cola y la cara usan la misma carta lateral.
-    detail(ctx, { sy, W }) {
+    detail(ctx, args) {
+      if (args.livery) return paintLivery(ctx, args, args.livery, args.livery.stripe);
+      const { sy, W } = args;
       const band = (y0, y1, color) => { ctx.fillStyle = color; ctx.fillRect(0, sy(y1), W, sy(y0) - sy(y1)); };
       band(1.02, 1.30, BUS_BLUE);
       band(.93, .985, '#c4202a');
@@ -771,10 +774,13 @@ export const CAR_MODELS = {
       // Ventana de atrás, grande, con su marco de caucho.
       k.tail({ a0: -.93, a1: .93, top: 2.66, bot: 1.70, off: .006, color: COLOR.dark, rows: 1 });
       k.tail({ a0: -.88, a1: .88, top: 2.62, bot: 1.75, off: .01, color: [.045, .06, .07], metal: .4, rows: 1 });
-      // Filas de asientos: se alcanzan a ver por las ventanas.
+      // Seis filas de dos asientos por lado con pasillo en medio: los pasajeros (BusPassengers) se sientan delante de cada respaldo.
       for (let i = 0; i < 6; i++) {
         const x = -2.95 + i * .96;
-        box(b.trim, [.09, .82, 1.9], [x, 1.46, 0], { color: [.1, .12, .17] });
+        for (const z of [-.6, .6]) {
+          box(b.trim, [.09, .68, .8], [x, 1.64, z], { color: [.16, .19, .3] });
+          box(b.trim, [.46, .1, .8], [x + .3, 1.32, z], { color: [.16, .19, .3] });
+        }
       }
     },
   }),
