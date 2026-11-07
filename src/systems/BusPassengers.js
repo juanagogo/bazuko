@@ -1,12 +1,12 @@
 // src/systems/BusPassengers.js
-// Pasajeros de las busetas cercanas: sentados, de pie en el pasillo, colgados de la puerta y el cobrador asomado.
-// Todos van en el mismo PersonBatch (dos llamadas de dibujo). Solo se arma gente para las busetas más cercanas a
-// la cámara y a menos de NEAR metros; lejos no se toca ni una matriz, y el lote lejano ni siquiera lleva gente.
-import * as THREE from 'three';
-import { PersonBatch, SKIN, SHIRTS, PANTS, HAIR } from './PersonBatch.js';
+// Pasajeros de las busetas cercanas: personas reales de la calle (PeoplePool) sentadas, de pie en el pasillo, colgadas de
+// la puerta y el cobrador asomado agitando la mano. Solo las 3 busetas más cercanas a la cámara y a menos de NEAR metros
+// llevan gente (las dos primeras llenas, la tercera a medias); al alejarse, cada persona vuelve al grupo para otro bus.
 
-export const MAX_BUSES = 8;      // busetas con pasajeros a la vez
+export const MAX_BUSES = 3;      // busetas con pasajeros a la vez
+export const FILL = [45, 45, 22]; // tope de gente real por puesto de cercanía
 export const NEAR = 30;          // metros a la cámara
+export const OPS_PER_FRAME = 6;  // personas que se prestan o devuelven por cuadro: sin tirones al llegar un bus
 export const SEATS = 24;         // seis filas de dos por lado
 export const AISLE = 30;
 export const PRESSED = 24;
@@ -16,7 +16,7 @@ export const CAPACITY = SEATS + AISLE + PRESSED + FRONT + DOOR;
 export const PEOPLE_PER_BUS = CAPACITY + 1;
 export const PACKED = .85;       // desde esta carga el bus va lleno hasta la puerta
 
-const FLOOR = .92, SEAT_TOP = 1.25, STEP = .6;
+const FLOOR = .92, STEP = .6;
 
 // Carga de pasajeros por hora (0 vacío, 1 reventando): pico de 6 a 9 y de 17 a 20, medio vacío al mediodía, pocos de noche.
 const LOAD_CURVE = [[0, .04], [4.5, .05], [5.5, .3], [6, .75], [7.5, 1], [9, .85], [10, .5], [12, .42], [14, .45], [16, .6], [17, .85], [18.5, 1], [20, .7], [21.5, .3], [23, .1], [24, .04]];
@@ -44,86 +44,85 @@ const mulberry = seed => () => {
 };
 const pick = (list, rnd) => list[Math.floor(rnd() * list.length)];
 const shuffle = (list, rnd) => { for (let i = list.length - 1; i > 0; i--) { const j = Math.floor(rnd() * (i + 1)); [list[i], list[j]] = [list[j], list[i]]; } return list; };
-const windowOf = (x, side) => Math.min(5, Math.max(0, Math.floor((x + 3.46) / 1.18))) + (side > 0 ? 6 : 0);
 
 function slots() {
   const seats = [], aisle = [], front = [], pressed = [];
-  for (let i = 0; i < 6; i++) for (const side of [-1, 1]) for (const zz of [.4, .8]) seats.push({ kind: 'seat', x: -2.95 + i * .96 + .26, y: SEAT_TOP - .9 + .05, z: side * zz, yaw: 0, side });
+  // Sentados delante de cada respaldo; de pie en el hueco entre filas pegados al vidrio, en el pasillo y adelante.
+  for (let i = 0; i < 6; i++) for (const side of [-1, 1]) for (const zz of [.4, .82]) seats.push({ kind: 'seat', x: -2.95 + i * .96 + .3, y: FLOOR, z: side * zz, yaw: 0, side });
   for (let i = 0; i < 10; i++) for (const z of [-.2, 0, .2]) aisle.push({ kind: 'stand', x: -3.1 + i * .5 + (z ? .12 : 0), y: FLOOR, z });
-  // De pie en el hueco entre filas, pegados al vidrio.
-  for (let i = 0; i < 6; i++) for (const side of [-1, 1]) for (const zz of [.55, .88]) pressed.push({ kind: 'stand', x: -2.95 + i * .96 + .72, y: FLOOR, z: side * zz });
+  for (let i = 0; i < 6; i++) for (const side of [-1, 1]) for (const zz of [.55, .88]) pressed.push({ kind: 'stand', x: -2.95 + i * .96 + .74, y: FLOOR, z: side * zz });
   for (const [x, z] of [[2.5, .3], [2.5, .75], [2.95, .2], [2.95, .62], [3.3, .3], [3.3, .72]]) front.push({ kind: 'stand', x, y: FLOOR, z });
-  const door = [[3.18, 1.15], [3.46, 1.14], [3.32, 1.27]].map(([x, z]) => ({ kind: 'door', x, y: STEP, z, yaw: -Math.PI / 2, legs: true }));
+  const door = [[3.18, 1.15], [3.46, 1.14], [3.32, 1.27]].map(([x, z]) => ({ kind: 'door', x, y: STEP, z, yaw: -Math.PI / 2 }));
   return { seats, aisle, front, door, pressed };
 }
 const SLOTS = slots();
 
-/** Los pasajeros posibles de una buseta, en el orden en que suben: sentados, pasillo, frente y puerta. Fijos por semilla. */
+// Cómo esperan los de pie que no se agarran del tubo.
+export const WAITING = ['bolsillos', 'celular', 'brazos-cruzados', 'manos-atras', 'hablar', 'bolsillos', 'cambiar-peso'];
+
+/** Los pasajeros posibles de una buseta, en el orden en que suben: sentados, contra el vidrio, pasillo, frente y puerta. Fijos por semilla. */
 export function rosterOf(vehicle) {
   if (vehicle._roster) return vehicle._roster;
-  const rnd = mulberry(vehicle.seed ?? 1), mask = vehicle.windowMask ?? 0;
-  const look = () => ({ shirt: pick(SHIRTS, rnd), pants: pick(PANTS, rnd), skin: pick(SKIN, rnd), hair: pick(HAIR, rnd), phase: rnd() * 6.28 });
+  const rnd = mulberry(vehicle.seed ?? 1);
   const people = [];
-  const add = (slot, extra = {}) => people.push({ legs: false, yaw: rnd() < .5 ? 0 : Math.PI, arm: false, ...slot, ...look(), ...extra });
-  for (const s of shuffle(SLOTS.seats.slice(), rnd)) {
-    const open = mask >> windowOf(s.x, s.side) & 1;
-    add(s, { arm: open && rnd() < .4 ? { out: s.side } : false });
-  }
-  const standing = [...shuffle(SLOTS.aisle.slice(), rnd), ...shuffle(SLOTS.pressed.slice(), rnd), ...SLOTS.front];
-  for (const s of standing) add(s, { yaw: pick([0, 0, Math.PI, Math.PI / 2, -Math.PI / 2], rnd), arm: rnd() < .6 ? { up: rnd() < .5 ? 1 : -1 } : false });
-  for (const s of SLOTS.door) add(s, { arm: { up: 1 } });
+  const add = (slot, extra = {}) => people.push({ yaw: rnd() < .5 ? 0 : Math.PI, bar: false, waiting: Math.floor(rnd() * WAITING.length), ...slot, ...extra });
+  for (const s of shuffle(SLOTS.seats.slice(), rnd)) add(s);
+  const standing = [...shuffle(SLOTS.pressed.slice(), rnd), ...shuffle(SLOTS.aisle.slice(), rnd), ...SLOTS.front];
+  for (const s of standing) add(s, { yaw: pick([0, 0, Math.PI, Math.PI / 2, -Math.PI / 2], rnd), bar: rnd() < .45 });
+  for (const s of SLOTS.door) add(s, { bar: true });
   vehicle._roster = people;
   vehicle._cobrador = vehicle.livery?.old ? rnd() < .85 : rnd() < .3;
   vehicle._luck ??= rnd();
   return people;
 }
 
-const CAP = { x: 3.34, y: STEP, z: 1.3 };
-const ARM_Q = new THREE.Quaternion(), AXIS_Z = new THREE.Vector3(0, 0, 1);
-
-/** Dibuja una persona en el marco {x, y, z, yaw, c, s} (traslación y giro del bus). */
-export function drawPerson(batch, f, p, time) {
-  const bob = p.kind === 'stand' ? Math.sin(time * 1.6 + p.phase) * .012 : 0;
-  const yaw = f.yaw + p.yaw, y0 = p.y + bob;
-  // Local de la persona al mundo: primero el giro propio, luego el del bus.
-  const at = (ox, oy, oz) => {
-    const ca = Math.cos(p.yaw), sa = Math.sin(p.yaw);
-    const lx = p.x + ox * ca + oz * sa, lz = p.z - ox * sa + oz * ca;
-    return [f.x + lx * f.c + lz * f.s, f.y + oy, f.z - lx * f.s + lz * f.c];
-  };
-  const put = (ox, oy, oz, sx, sy, sz, color, q) => batch.box(...at(ox, oy, oz), yaw, sx, sy, sz, color, q);
-  if (p.legs) for (const side of [-1, 1]) put(0, y0 + .45, side * .11, .17, .9, .17, p.pants);
-  put(0, y0 + 1.19, 0, .27, .6, .5, p.shirt);
-  batch.head(...at(0, y0 + 1.66, 0), .125, p.skin);
-  put(-.02, y0 + 1.745, 0, .21, .06, .22, p.hair);
-  if (p.pack) put(-.2, y0 + 1.22, 0, .16, .42, .34, p.pack);
-  if (p.arm?.up) put(0, y0 + 1.5, p.arm.up * .27, .09, .5, .09, p.skin);
-  if (p.arm?.out) put(0, 1.66, p.arm.out * 1.14 - p.z, .1, .1, .5, p.skin);
+/** La postura de la persona: sentada en la banca, agarrada del tubo, o esperando como cualquiera en la calle. */
+export function stanceOf(p) {
+  if (p.kind === 'seat') return 'banca';
+  if (p.kind === 'door' || p.bar) return 'agarrado';
+  return WAITING[p.waiting % WAITING.length];
 }
 
-function drawCobrador(batch, f, time, shirt, skin) {
-  const sway = Math.sin(time * 1.3) * .02, y0 = CAP.y;
-  const p = { x: CAP.x, y: y0, z: CAP.z, yaw: -Math.PI / 2, legs: true, shirt, pants: PANTS[1], skin, hair: HAIR[0], phase: 0, kind: 'cob' };
-  drawPerson(batch, f, p, time);
-  // Brazo en alto que llama a los que esperan: sube hacia delante y se agita.
-  const theta = .9 + Math.sin(time * 9) * .45, len = .62;
-  ARM_Q.setFromAxisAngle(AXIS_Z, -theta);
-  const cx = CAP.x + Math.sin(theta) * len / 2, cy = y0 + 1.4 + sway + Math.cos(theta) * len / 2, cz = CAP.z + .12;
-  batch.box(f.x + cx * f.c + cz * f.s, f.y + cy, f.z - cx * f.s + cz * f.c, f.yaw, .09, len, .09, skin, ARM_Q);
-}
+const COBRADOR = { x: 3.34, y: STEP, z: 1.2, yaw: -Math.PI / 2 };
 
 export class BusPassengers {
-  constructor(scene) {
-    this.batch = new PersonBatch(scene, { people: MAX_BUSES * PEOPLE_PER_BUS, name: 'Pasajeros de buseta' });
+  /** @param {import('./PeoplePool.js').PeoplePool} pool */
+  constructor(scene, pool) {
+    this.pool = pool;
     this.stats = { buses: 0, people: 0 };
-    this._frame = { x: 0, y: 0, z: 0, yaw: 0, c: 1, s: 0 };
     this._near = [];
+    this._held = new Set();  // busetas que tienen gente prestada
+    this._ops = 0;
   }
 
-  /** Arma los pasajeros de las busetas cercanas. `time` en segundos; `hour` es la hora del juego. */
-  sync(vehicles, cameraPosition, hour, time = 0) {
-    const batch = this.batch, near = this._near;
+  _place(figure, bus, p, time, bob = 0) {
+    const g = figure.group, c = bus.c, s = bus.s;
+    g.position.set(bus.x + p.x * c + p.z * s, bus.y + p.y + bob, bus.z - p.x * s + p.z * c);
+    g.rotation.y = bus.yaw + p.yaw + Math.PI / 2;
+  }
+
+  /** Ajusta cuántas personas reales tiene prestadas el bus: las que sobran vuelven al grupo, las que faltan se posan. */
+  _fill(v, target, roster, withCobrador) {
+    const crowd = v._crowd ??= [];
+    while (crowd.length > target) { this.pool.release(crowd.pop()); this._ops++; }
+    while (crowd.length < target && this._ops < OPS_PER_FRAME) {
+      const figure = this.pool.acquire();
+      if (!figure) break;
+      this.pool.pose(figure, { stance: stanceOf(roster[crowd.length]) });
+      crowd.push(figure);
+      this._ops++;
+    }
+    if (withCobrador && !v._cobFigure && this._ops < OPS_PER_FRAME) {
+      const figure = this.pool.acquire();
+      if (figure) { this.pool.pose(figure, { action: 'saludo', live: true }); v._cobFigure = figure; this._ops++; }
+    } else if (!withCobrador && v._cobFigure) { this.pool.release(v._cobFigure); v._cobFigure = null; }
+  }
+
+  /** `time` y `dt` en segundos; `hour` es la hora del juego. */
+  sync(vehicles, cameraPosition, hour, time = 0, dt = 0) {
+    const near = this._near;
     near.length = 0;
+    this._ops = 0;
     if (cameraPosition && Number.isFinite(hour)) {
       for (const vehicle of vehicles) {
         const car = vehicle.car, v = car?.vehicle;
@@ -132,26 +131,42 @@ export class BusPassengers {
         if (d2 > NEAR * NEAR) continue;
         near.push({ car, v, d2 });
       }
-      if (near.length > MAX_BUSES) { near.sort((a, b) => a.d2 - b.d2); near.length = MAX_BUSES; }
+      near.sort((a, b) => a.d2 - b.d2);
+      if (near.length > MAX_BUSES) near.length = MAX_BUSES;
     }
-    batch.begin();
-    const f = this._frame;
+    // Las que ya no están entre las cercanas devuelven a su gente.
+    for (const v of this._held) {
+      if (near.some(n => n.v === v)) continue;
+      this._fill(v, 0, null, false);
+      this._held.delete(v);
+    }
     let people = 0;
-    for (const { car, v } of near) {
+    near.forEach(({ car, v }, rank) => {
       const roster = rosterOf(v), count = headcount(loadFor(hour, v._luck));
+      this._held.add(v);
+      const target = Math.min(count, FILL[rank], roster.length);
+      this._fill(v, target, roster, !!v._cobrador && count > 3 && rank < 2);
       const g = car.group;
-      f.x = g.position.x; f.y = g.position.y; f.z = g.position.z; f.yaw = g.rotation.y;
-      f.c = Math.cos(f.yaw); f.s = Math.sin(f.yaw);
-      // Lleno hasta la puerta: los tres colgados van al final de la lista y solo suben con la carga alta.
-      const upto = Math.min(count, roster.length);
-      for (let i = 0; i < upto; i++) drawPerson(batch, f, roster[i], time);
-      people += upto;
-      if (v._cobrador && count > 3) { drawCobrador(batch, f, time, SHIRTS[(v.seed >>> 4) % SHIRTS.length], SKIN[(v.seed >>> 9) % SKIN.length]); people++; }
-    }
-    batch.end();
+      this._bus ??= {};
+      const bus = this._bus;
+      bus.x = g.position.x; bus.y = g.position.y; bus.z = g.position.z; bus.yaw = g.rotation.y;
+      bus.c = Math.cos(bus.yaw); bus.s = Math.sin(bus.yaw);
+      const crowd = v._crowd ?? [];
+      for (let i = 0; i < crowd.length; i++) this._place(crowd[i], bus, roster[i], time);
+      people += crowd.length;
+      if (v._cobFigure) {
+        this._place(v._cobFigure, bus, COBRADOR, time);
+        this.pool.animate(v._cobFigure, dt, { action: 'saludo' });
+        people++;
+      }
+    });
     this.stats.buses = near.length; this.stats.people = people;
     return near.length;
   }
 
-  dispose() { this.batch.dispose(); }
+  dispose() {
+    for (const v of this._held) this._fill(v, 0, null, false);
+    this._held.clear();
+  }
 }
+

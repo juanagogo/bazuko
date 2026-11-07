@@ -5,8 +5,9 @@ import * as THREE from 'three';
 import { LIVERIES, pickLivery, liveryKey } from '../src/world/bogota/busLiveries.js';
 import { makeVehicle, liveryOf, windowMaskOf } from '../src/world/bogota/vehicles.js';
 import {
-  BusPassengers, CAPACITY, MAX_BUSES, NEAR, PACKED, PEOPLE_PER_BUS, headcount, loadBase, loadFor, rosterOf,
+  BusPassengers, CAPACITY, FILL, MAX_BUSES, NEAR, OPS_PER_FRAME, PACKED, headcount, loadBase, loadFor, rosterOf, stanceOf,
 } from '../src/systems/BusPassengers.js';
+import { fakePool } from './fakePool.js';
 
 const mix = seed => { let h = Math.imul(seed + 0x9e37, 0x9e3779b1); h ^= h >>> 15; h = Math.imul(h, 0x85ebca77); h ^= h >>> 13; return h >>> 0; };
 
@@ -70,43 +71,85 @@ function fakeBus(x, z, seed, { instanced = false } = {}) {
   return { car: { group, instanced, vehicle } };
 }
 const camera = (x = 0, z = 0) => new THREE.Vector3(x, 2, z);
+const settle = (pax, buses, hour = 7.5, cam = camera(), frames = 40) => { for (let i = 0; i < frames; i++) pax.sync(buses, cam, hour, i / 30, 1 / 30); };
 
-test('el tope de gente: con cincuenta busetas encima solo se arman las más cercanas y nunca sobra una instancia', () => {
-  const scene = new THREE.Scene(), pax = new BusPassengers(scene);
+test('solo las tres busetas más cercanas llevan gente real, las dos primeras llenas, y nunca se pasa del grupo', async () => {
+  const pool = await fakePool(120), pax = new BusPassengers(null, pool);
   const buses = Array.from({ length: 50 }, (_, i) => fakeBus(i % 10 * 2, Math.floor(i / 10) * 3, mix(i) | 0));
-  const drawn = pax.sync(buses, camera(), 7.5, 0);
-  assert.equal(drawn, MAX_BUSES);
-  assert.ok(pax.batch.nHeads <= MAX_BUSES * PEOPLE_PER_BUS);
-  assert.equal(pax.batch.heads.count, pax.batch.nHeads);
-  assert.ok(pax.batch.boxes.count <= pax.batch.capacity.boxes);
-  assert.ok(pax.stats.people <= MAX_BUSES * PEOPLE_PER_BUS);
+  buses.forEach(b => { b.car.vehicle._luck = .95; });
+  settle(pax, buses);
+  assert.equal(pax.stats.buses, MAX_BUSES);
+  const held = buses.map(b => b.car.vehicle._crowd?.length ?? 0).filter(n => n > 0);
+  assert.equal(held.length, MAX_BUSES, 'solo tres tienen gente');
+  assert.equal(Math.max(...held), FILL[0]);
+  assert.ok(held.sort((a, b) => b - a)[2] <= FILL[2]);
+  assert.equal(pool.inUse + pool.available, pool.size);
+  assert.ok(pool.inUse <= FILL[0] + FILL[1] + FILL[2] + 2);
   pax.dispose();
+  assert.equal(pool.inUse, 0, 'al terminar todos vuelven al grupo');
 });
 
-test('lejos de la cámara no se toca ni una instancia, y las busetas del lote lejano no llevan gente', () => {
-  const scene = new THREE.Scene(), pax = new BusPassengers(scene);
+test('cada cuadro solo se prestan unas pocas personas: llegar un bus no da tirones', async () => {
+  const pool = await fakePool(120), pax = new BusPassengers(null, pool), bus = fakeBus(2, 2, 77);
+  bus.car.vehicle._luck = .95;
+  pax.sync([bus], camera(), 7.5, 0, 1 / 30);
+  assert.ok(pool.inUse > 0 && pool.inUse <= OPS_PER_FRAME + 1, `${pool.inUse} en el primer cuadro`);
+  settle(pax, [bus], 7.5, camera(), 20);
+  assert.ok(pool.inUse >= FILL[0]);
+});
+
+test('lejos de la cámara no se presta ni se mueve nadie, y las busetas del lote lejano no llevan gente', async () => {
+  const pool = await fakePool(60), pax = new BusPassengers(null, pool);
   const far = Array.from({ length: 60 }, (_, i) => fakeBus(NEAR + 5 + i, 0, i + 1));
-  assert.equal(pax.sync(far, camera(), 7.5, 0), 0);
-  assert.equal(pax.batch.nHeads, 0); assert.equal(pax.batch.nBoxes, 0);
-  assert.equal(pax.batch.boxes.count, 0);
-  assert.equal(pax.batch.root.visible, false);
-  const version = pax.batch.boxes.instanceMatrix.version;
-  for (let i = 0; i < 5; i++) pax.sync(far, camera(), 7.5, i);
-  assert.equal(pax.batch.boxes.instanceMatrix.version, version, 'sin gente no se suben matrices');
+  settle(pax, far);
+  assert.equal(pool.inUse, 0);
+  assert.equal(pax.stats.people, 0);
+  assert.equal(pool.figures.reduce((n, f) => n + f.character.updates, 0), 0, 'ni una actualización');
   const lejano = Array.from({ length: 5 }, (_, i) => fakeBus(i, 0, i + 1, { instanced: true }));
-  assert.equal(pax.sync(lejano, camera(), 7.5, 0), 0);
-  assert.equal(pax.sync([fakeBus(3, 3, 5)], null, 7.5, 0), 0);
-  pax.dispose();
+  settle(pax, lejano);
+  settle(pax, [fakeBus(3, 3, 5)], 7.5, null);
+  assert.equal(pool.inUse, 0);
 });
 
-test('un bus cercano lleva más gente en la hora pico que de noche, y la lista de pasajeros es fija por semilla', () => {
-  const scene = new THREE.Scene(), pax = new BusPassengers(scene), bus = fakeBus(2, 2, 77);
+test('al alejarse el bus devuelve a su gente al grupo para el siguiente', async () => {
+  const pool = await fakePool(100), pax = new BusPassengers(null, pool), bus = fakeBus(2, 2, 9);
+  bus.car.vehicle._luck = .95;
+  settle(pax, [bus]);
+  assert.ok(pool.inUse > 30);
+  bus.car.group.position.set(NEAR + 20, 0, 0);
+  settle(pax, [bus], 7.5, camera(), 5);
+  assert.equal(pool.inUse, 0);
+  assert.equal(bus.car.vehicle._crowd.length, 0);
+});
+
+test('una persona sentada se posa una vez y queda quieta; el cobrador se anima cada cuadro', async () => {
+  const pool = await fakePool(100), pax = new BusPassengers(null, pool), bus = fakeBus(2, 2, 13);
+  bus.car.vehicle._luck = .95;
+  rosterOf(bus.car.vehicle);
+  bus.car.vehicle._cobrador = true;
+  settle(pax, [bus]);
+  const crowd = bus.car.vehicle._crowd, seated = crowd.find((f, i) => rosterOf(bus.car.vehicle)[i].kind === 'seat');
+  assert.equal(seated.character.last.stance, 'banca');
+  const updates = seated.character.updates;
+  settle(pax, [bus], 7.5, camera(), 30);
+  assert.equal(seated.character.updates, updates, 'quieta: sin mezclador');
+  const cobrador = bus.car.vehicle._cobFigure;
+  assert.ok(cobrador, 'hay cobrador');
+  const before = cobrador.character.updates;
+  settle(pax, [bus], 7.5, camera(), 10);
+  assert.equal(cobrador.character.updates, before + 10);
+  assert.equal(cobrador.character.last.action, 'saludo');
+  assert.ok(crowd.every(f => f.group.visible));
+});
+
+test('un bus cercano lleva más gente en la hora pico que de noche, y la lista de pasajeros es fija por semilla', async () => {
+  const pool = await fakePool(100), pax = new BusPassengers(null, pool), bus = fakeBus(2, 2, 77);
   bus.car.vehicle._luck = .9;
-  pax.sync([bus], camera(), 7.5, 0); const rush = pax.stats.people;
-  pax.sync([bus], camera(), 2, 0); const night = pax.stats.people;
+  settle(pax, [bus], 7.5); const rush = pax.stats.people;
+  settle(pax, [bus], 2); const night = pax.stats.people;
   assert.ok(rush > 40 && night < 8, `${rush} vs ${night}`);
-  const first = rosterOf(bus.car.vehicle).map(p => p.shirt.getHex());
-  assert.deepEqual(rosterOf(fakeBus(0, 0, 77).car.vehicle).map(p => p.shirt.getHex()), first);
+  const first = rosterOf(bus.car.vehicle).map(p => stanceOf(p));
+  assert.deepEqual(rosterOf(fakeBus(0, 0, 77).car.vehicle).map(p => stanceOf(p)), first);
   assert.equal(first.length, CAPACITY);
-  pax.dispose();
+  assert.ok(first.includes('banca') && first.includes('agarrado') && first.includes('bolsillos'));
 });

@@ -779,7 +779,7 @@ export const CAR_MODELS = {
         const x = -2.95 + i * .96;
         for (const z of [-.6, .6]) {
           box(b.trim, [.09, .68, .8], [x, 1.64, z], { color: [.16, .19, .3] });
-          box(b.trim, [.46, .1, .8], [x + .27, 1.25, z], { color: [.16, .19, .3] });
+          box(b.trim, [.46, .1, .8], [x + .3, 1.32, z], { color: [.16, .19, .3] });
         }
       }
     },
