@@ -5,7 +5,7 @@
 import { createRealisticCharacter } from '../character/RealisticCharacter.js';
 import { randomStreetLook } from '../entities/Npc.js';
 
-export const POOL_SIZE = 70;
+export const POOL_SIZE = 115;
 const SETTLE_STEPS = 2, SETTLE_DT = .6;
 
 async function streetFigure() {

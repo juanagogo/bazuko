@@ -73,7 +73,7 @@ function fakeBus(x, z, seed, { instanced = false } = {}) {
 const camera = (x = 0, z = 0) => new THREE.Vector3(x, 2, z);
 const settle = (pax, buses, hour = 7.5, cam = camera(), frames = 40) => { for (let i = 0; i < frames; i++) pax.sync(buses, cam, hour, i / 30, 1 / 30); };
 
-test('solo las tres busetas más cercanas llevan gente real, las dos primeras llenas, y nunca se pasa del grupo', async () => {
+test('solo las tres busetas más cercanas llevan gente real, la más cercana llena hasta la puerta, y nunca se pasa del grupo', async () => {
   const pool = await fakePool(120), pax = new BusPassengers(null, pool);
   const buses = Array.from({ length: 50 }, (_, i) => fakeBus(i % 10 * 2, Math.floor(i / 10) * 3, mix(i) | 0));
   buses.forEach(b => { b.car.vehicle._luck = .95; });
@@ -81,10 +81,11 @@ test('solo las tres busetas más cercanas llevan gente real, las dos primeras ll
   assert.equal(pax.stats.buses, MAX_BUSES);
   const held = buses.map(b => b.car.vehicle._crowd?.length ?? 0).filter(n => n > 0);
   assert.equal(held.length, MAX_BUSES, 'solo tres tienen gente');
-  assert.equal(Math.max(...held), FILL[0]);
-  assert.ok(held.sort((a, b) => b - a)[2] <= FILL[2]);
+  held.sort((a, b) => b - a);
+  assert.equal(held[0], CAPACITY, 'solo el bus lleno más cercano llega al tope de la carga');
+  assert.ok(held[1] <= FILL[1] && held[2] <= FILL[2], 'las otras dos conservan su tope barato');
   assert.equal(pool.inUse + pool.available, pool.size);
-  assert.ok(pool.inUse <= FILL[0] + FILL[1] + FILL[2] + 2);
+  assert.ok(pool.inUse <= CAPACITY + FILL[1] + FILL[2] + 2);
   pax.dispose();
   assert.equal(pool.inUse, 0, 'al terminar todos vuelven al grupo');
 });

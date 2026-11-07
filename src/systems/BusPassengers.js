@@ -4,14 +4,14 @@
 // llevan gente (las dos primeras llenas, la tercera a medias); al alejarse, cada persona vuelve al grupo para otro bus.
 
 export const MAX_BUSES = 3;      // busetas con pasajeros a la vez
-export const FILL = [20, 14, 6]; // tope de gente real por puesto de cercanía
+export const FILL = [20, 14, 6]; // tope de gente real por puesto de cercanía; el bus lleno más cercano pasa a CAPACITY
 export const NEAR = 30;          // metros a la cámara
 export const OPS_PER_FRAME = 6;  // personas que se prestan o devuelven por cuadro: sin tirones al llegar un bus
 export const SEATS = 24;         // seis filas de dos por lado
 export const AISLE = 30;
 export const PRESSED = 24;
 export const FRONT = 6;
-export const DOOR = 3;
+export const DOOR = 5;
 export const CAPACITY = SEATS + AISLE + PRESSED + FRONT + DOOR;
 export const PEOPLE_PER_BUS = CAPACITY + 1;
 export const PACKED = .85;       // desde esta carga el bus va lleno hasta la puerta
@@ -52,7 +52,7 @@ function slots() {
   for (let i = 0; i < 10; i++) for (const z of [-.2, 0, .2]) aisle.push({ kind: 'stand', x: -3.1 + i * .5 + (z ? .12 : 0), y: FLOOR, z });
   for (let i = 0; i < 6; i++) for (const side of [-1, 1]) for (const zz of [.55, .88]) pressed.push({ kind: 'stand', x: -2.95 + i * .96 + .74, y: FLOOR, z: side * zz });
   for (const [x, z] of [[2.5, .3], [2.5, .75], [2.95, .2], [2.95, .62], [3.3, .3], [3.3, .72]]) front.push({ kind: 'stand', x, y: FLOOR, z });
-  const door = [[3.18, 1.15], [3.46, 1.14], [3.32, 1.27]].map(([x, z]) => ({ kind: 'door', x, y: STEP, z, yaw: -Math.PI / 2 }));
+  const door = [[3.18, 1.15], [3.46, 1.14], [3.32, 1.27], [3.0, 1.2], [3.6, 1.25]].map(([x, z]) => ({ kind: 'door', x, y: STEP, z, yaw: -Math.PI / 2 }));
   return { seats, aisle, front, door, pressed };
 }
 const SLOTS = slots();
@@ -140,11 +140,13 @@ export class BusPassengers {
       this._fill(v, 0, null, false);
       this._held.delete(v);
     }
+    // Solo el bus lleno más cercano se llena hasta la puerta: los demás conservan su tope y el grupo sale barato.
+    const packedRank = near.findIndex(({ v }) => { rosterOf(v); return loadFor(hour, v._luck) >= PACKED; });
     let people = 0;
     near.forEach(({ car, v }, rank) => {
       const roster = rosterOf(v), count = headcount(loadFor(hour, v._luck));
       this._held.add(v);
-      const target = Math.min(count, FILL[rank], roster.length);
+      const target = Math.min(count, rank === packedRank ? CAPACITY : FILL[rank], roster.length);
       this._fill(v, target, roster, !!v._cobrador && count > 3 && rank < 2);
       const g = car.group;
       this._bus ??= {};
