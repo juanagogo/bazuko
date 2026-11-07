@@ -515,3 +515,31 @@ body.mando kbd:not([data-k], .cx kbd, #steal-ayuda kbd) { display: none; }
   .stat-bar__value { grid-column: 3; }
   .stat-bar[data-level="critical"] .stat-bar__orden { grid-column: 2; }
 }
+
+/* ==================== pantalla grande: menos cartón encima de la calle ==================== */
+@media (min-width: 900px) and (min-height: 501px) {
+  /* Lo que toca, más chico y arriba del todo: el cartel de la zona queda donde está y el aviso no lo pisa. */
+  #mision { top: calc(8px + var(--safe-t)); max-width: 36vw; padding: 2px 12px 4px; font-size: 20px; }
+  /* Plata en la misma fila que la hora y el día; debajo, quién soy. */
+  #topbar { width: 272px; gap: 4px; }
+  .topbar__hoja { display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: baseline; gap: 0 12px; padding: 3px 12px 5px; }
+  #money { order: 1; font-size: 30px; }
+  #money.plata--larga, #money.plata--larguisima { font-size: 26px; }
+  .topbar__mundo { order: 2; font-size: 16px; gap: 0 8px; }
+  #clock { font-size: 20px; }
+  .topbar__yo { order: 3; font-size: 14px; }
+  /* La pieza del radar, más baja y angosta; el plano y las filas se turnan con el botón del radar (N). */
+  #hud-dock { width: 272px; left: calc(12px + var(--safe-l)); bottom: calc(10px + var(--safe-b)); }
+  #minimap-container { --radar-alto: clamp(96px, 15vh, 132px); }
+  #hud-dock[data-radar-size="s"] #minimap-container { --radar-alto: 84px; }
+  #hud-dock[data-radar-size="l"] #minimap-container { --radar-alto: clamp(120px, 19vh, 168px); }
+  #hud-dock:has(#minimap-container:not(.hidden)) :is(#hud, #disease-panel) { display: none; }
+  .radar__nombre, .radar__metros { font-size: 17px; }
+  .radar__orden { font-size: 14px; }
+  #retazo { max-width: 300px; padding: 4px 12px 6px; }
+  .retazo__grito { font-size: 30px; }
+  .retazo__orden { font-size: 14px; }
+  /* Los botones de abajo, pegados al borde. */
+  #panel-dock, #camera-controls, #controls-help { bottom: calc(6px + var(--safe-b)); }
+  #quickbar { bottom: calc(56px + var(--safe-b)); }
+}

@@ -151,7 +151,9 @@ test('la persecución respeta el volumen de los vehículos y del bus sin cambiar
   for (let i = 0; i < 30; i++) {
     traffic.update(.1, { player: new THREE.Vector3(20, 0, 0) });
     collisions.setVehicles([vehicle.car], bus);
-    assert.equal(collisions.dynamicColliders[0].box.intersectsBox(collisions.dynamicColliders[1].box), false);
+    // Con el coche girando su caja es orientada: sus envolventes pueden tocarse sin que los cuerpos se toquen.
+    assert.equal(collisions.dynamicColliders[1].box.containsPoint(vehicle.car.position), false);
+    assert.equal(collisions.dynamicColliders[0].box.containsPoint(bus.position), false);
   }
   assert.equal(state.arrests, 0);
   assert.equal(bus.position.x, 6);

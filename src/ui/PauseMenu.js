@@ -15,6 +15,9 @@ import { icon } from './icons.js';
 import { pasarTexto } from './pictos.js';
 import { DOG_ACCESSORIES, DOG_COATS } from '../entities/Dog.js';
 import { DEFAULT_TRAFFIC_DENSITY, TRAFFIC_DENSITY_LEVELS } from '../systems/trafficDensity.js';
+import { alternarPantallaCompleta, enPantallaCompleta, puedePantallaCompleta } from '../core/PantallaCompleta.js';
+import { trucosPanel } from './TrucosPanel.js';
+import { choice, sectionTitle, row, section } from './pauseParts.js';
 
 export const PAUSE_TABS = [
   { id: 'mapa', label: 'Mapa' },
@@ -22,6 +25,9 @@ export const PAUSE_TABS = [
   { id: 'ajustes', label: 'Ajustes' },
   { id: 'controles', label: 'Controles' },
 ];
+
+// La pestaña de trucos existe solo cuando el juego se abrió con ?trucos.
+const TRUCOS_TAB = { id: 'trucos', label: 'Trucos' };
 
 const CONTROL_GROUPS = [
   ['Movimiento', [['WASD', 'Caminar'], ['Shift', 'Correr'], ['Espacio', 'Brincar'], ['Mouse', 'Clic fija la cámara, la rueda acerca'], ['V', 'Vista tercera persona / isométrica']]],
@@ -54,7 +60,8 @@ export function openPauseMenu(game, tab = 'estado') {
     try { document.exitPointerLock(); } catch { /* sin pointer lock */ }
   }
 
-  game._pauseTab = PAUSE_TABS.some(t => t.id === tab) ? tab : 'estado';
+  const tabs = game.cheats ? [...PAUSE_TABS, TRUCOS_TAB] : PAUSE_TABS;
+  game._pauseTab = tabs.some(t => t.id === tab) ? tab : 'estado';
   const select = (id) => {
     if (id === game._pauseTab) return;
     game._pauseTab = id;
@@ -63,8 +70,8 @@ export function openPauseMenu(game, tab = 'estado') {
     if (game.menu.bodyEl) game.menu.bodyEl.scrollTop = 0;
   };
   const cycle = (dir) => {
-    const i = PAUSE_TABS.findIndex(t => t.id === game._pauseTab);
-    select(PAUSE_TABS[(i + dir + PAUSE_TABS.length) % PAUSE_TABS.length].id);
+    const i = tabs.findIndex(t => t.id === game._pauseTab);
+    select(tabs[(i + dir + tabs.length) % tabs.length].id);
   };
 
   const onKey = (e) => {
@@ -81,18 +88,18 @@ export function openPauseMenu(game, tab = 'estado') {
 
   const render = () => {
     const current = game._pauseTab;
-    const tabs = el('nav', { class: 'pause-tabs', role: 'tablist', 'aria-label': 'Secciones de la pausa' },
+    const navTabs = el('nav', { class: 'pause-tabs', role: 'tablist', 'aria-label': 'Secciones de la pausa' },
       el('kbd', { class: 'pause-tabs__key', text: 'Q', 'aria-hidden': 'true' }),
-      PAUSE_TABS.map(t => el('button', {
+      tabs.map(t => el('button', {
         type: 'button', role: 'tab', class: `pause-tab${t.id === current ? ' is-active' : ''}`,
         'aria-selected': t.id === current ? 'true' : 'false',
         onclick: () => select(t.id),
       }, el('span', { class: `pause-tab__palabra${t.id === current ? ' elegido' : ''}`, text: t.label }))),
       el('kbd', { class: 'pause-tabs__key', text: 'E', 'aria-hidden': 'true' }));
 
-    const panels = { mapa: mapPanel, estado: statePanel, ajustes: settingsPanel, controles: controlsPanel };
+    const panels = { mapa: mapPanel, estado: statePanel, ajustes: settingsPanel, controles: controlsPanel, trucos: trucosPanel };
     const body = el('div', { class: `pause-menu-body pause-menu-body--${current}` },
-      el('section', { class: 'pause-panel', role: 'tabpanel', 'aria-label': PAUSE_TABS.find(t => t.id === current).label }, panels[current](game)));
+      el('section', { class: 'pause-panel', role: 'tabpanel', 'aria-label': tabs.find(t => t.id === current).label }, panels[current](game)));
 
     const foot = [
       button(['Continuar jugando', el('kbd', { text: 'Esc', 'aria-hidden': 'true' })], {
@@ -101,7 +108,7 @@ export function openPauseMenu(game, tab = 'estado') {
       })
     ];
 
-    return { body, foot, tabs };
+    return { body, foot, tabs: navTabs };
   };
 
   game.menu.open({
@@ -122,21 +129,11 @@ function mapPanel(game) {
   return game.mapView.root;
 }
 
-/** Elegir es círculo: la opción elegida no se pinta, se encierra. */
-function choice(label, on, onClick) {
-  const b = button(el('span', { class: on ? 'elegido' : null, text: label }), { class: 'pause-choice', onClick });
-  b.setAttribute('aria-pressed', on ? 'true' : 'false');
-  return b;
-}
-
-const sectionTitle = (glyph, title) => el('h3', { class: 'pause-section-title' }, icon(glyph, { size: 22 }), title);
-
 /** Apariencia de El Chato; solo cuando ya es compañero. Cada cambio se guarda con la partida. */
 function dogSection(game) {
   const dog = game.dog;
   if (!dog?.isFriend) return null;
   const change = (look) => { dog.setLook(look); game._save?.(); game.menu.refresh(); };
-  const row = (label, ...controls) => el('div', { class: 'pause-row' }, el('label', { class: 'pause-row__label', text: label }), ...controls);
   const size = Math.round(dog.look.tamano * 100);
   const sizeLabel = el('span', { class: 'pause-value', text: porcentaje(size) });
   const sizeInput = el('input', {
@@ -190,9 +187,9 @@ function statePanel(game) {
         }),
         button('Guardar partida', {
           onClick: () => {
-            game._save?.();
+            const ok = game._save?.();
             window.dispatchEvent(new CustomEvent('toast', {
-              detail: { text: 'Partida guardada', type: 'info' }
+              detail: { text: ok ? 'Partida guardada' : 'Con trucos prendidos no se guarda', type: ok ? 'info' : 'warn' }
             }));
           }
         })),
@@ -213,8 +210,6 @@ function statePanel(game) {
 
 function settingsPanel(game) {
   const audio = game.audio;
-  const row = (label, ...controls) => el('div', { class: 'pause-row' }, el('label', { class: 'pause-row__label', text: label }), ...controls);
-  const section = (glyph, title, ...rows) => el('div', { class: 'pause-section' }, sectionTitle(glyph, title), ...rows);
   const volPct = Math.round((audio?.volume ?? 0.7) * 100);
   const volumeLabel = el('span', { class: 'pause-value', text: porcentaje(volPct) });
   const volumeInput = el('input', {
@@ -267,9 +262,9 @@ function settingsPanel(game) {
         el('p', { class: 'pause-hint', text: `Baja va más fluido. Si el equipo no da, baja sola sin cambiar lo elegido.${qualityNow}` }),
         row('Rendimiento', choice(game.performanceHUD?.visible ? 'Visible (F3)' : 'Oculto (F3)', !!game.performanceHUD?.visible,
           () => { game.performanceHUD?.toggle(); game.menu.refresh(); })),
-        row('Densidad de tráfico', el('div', { class: 'pause-segmented', role: 'group', 'aria-label': 'Densidad de tráfico' },
+        ...(game.trafficDensityChoosable ? [row('Densidad de tráfico', el('div', { class: 'pause-segmented', role: 'group', 'aria-label': 'Densidad de tráfico' },
           TRAFFIC_DENSITY_LEVELS.map(({ id, label }) => choice(label, (game.trafficDensity ?? DEFAULT_TRAFFIC_DENSITY) === id,
-            () => { game.setTrafficDensity?.(id); game.menu.refresh(); }))))),
+            () => { game.setTrafficDensity?.(id); game.menu.refresh(); }))))] : [])),
       section('user', 'Personaje y radio',
         el('div', { class: 'pause-actions' },
           button([icon('body', { size: 18 }), game.player?.modelKind === 'realista' ? 'Usar personaje liviano (K)' : 'Usar personaje realista (K)'], {
@@ -288,7 +283,13 @@ function settingsPanel(game) {
         RADAR_SIZES.map(({ id, label }) => choice(label, minimap?.size === id, () => { minimap?.setSize(id); game.menu.refresh(); })))),
       row('Alcance base', zoomInput, zoomLabel),
       row('Luz del destino', choice(game.showGpsBeacon !== false ? 'Visible' : 'Oculto', game.showGpsBeacon !== false,
-        () => { game.setGpsBeaconVisible?.(game.showGpsBeacon === false); game.menu.refresh(); }))));
+        () => { game.setGpsBeaconVisible?.(game.showGpsBeacon === false); game.menu.refresh(); }))),
+    section('eye', 'Pantalla',
+      el('div', { class: 'pause-actions' },
+        button([icon('eye', { size: 18 }), enPantallaCompleta() ? 'Salir de pantalla completa' : 'Pantalla completa'], {
+          disabled: !puedePantallaCompleta(),
+          onClick: () => alternarPantallaCompleta()
+        }))));
 }
 
 function controlsPanel() {

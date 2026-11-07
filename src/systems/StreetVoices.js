@@ -2,14 +2,21 @@
 // Frases de la calle: suenan de quien está cerca, una a la vez y con enfriamiento por persona y por grabación.
 import { distanceGain } from './VehicleAudio.js';
 
-/** Las cinco frases de la calle. `text` es lo que muestra la burbuja. */
+/** Las frases de la calle. `text` es lo que muestra la burbuja; `sexo` dice quién la puede decir, según la voz grabada. */
 export const STREET_VOICES = [
-  { key: 'carechimba', file: 'calle_las_mejores_carechimba.mp3', text: 'Las mejores, carechimba.' },
-  { key: 'pirobito', file: 'calle_pirobito.mp3', text: 'Pirobito.' },
-  { key: 'enano', file: 'calle_enano_gonorrea.mp3', text: 'Enano gonorrea.' },
-  { key: 'medallo', file: 'calle_medallo.mp3', text: 'Medallo.' },
-  { key: 'nacional', file: 'calle_un3snacional.mp3', text: 'Un 3 nacional.' }
+  { key: 'carechimba', file: 'calle_las_mejores_carechimba.mp3', text: 'Las mejores, carechimba.', sexo: 'mujer' },
+  { key: 'pirobito', file: 'calle_pirobito.mp3', text: 'Pirobito.', sexo: 'hombre' },
+  { key: 'enano', file: 'calle_enano_gonorrea.mp3', text: 'Enano gonorrea.', sexo: 'mujer' },
+  { key: 'medallo', file: 'calle_medallo.mp3', text: 'Medallo.', sexo: 'hombre' },
+  { key: 'nacional', file: 'calle_un3snacional.mp3', text: 'Un 3 nacional.', sexo: 'hombre' },
+  { key: 'mamacita', file: 'calle_mamacita.mp3', text: 'Mamacita, todas somos perras porque a todas nos gusta que nos den por el mismo hueco. No se azare por eso, mi amor.', sexo: 'mujer' },
+  { key: 'envidia', file: 'calle_mucha_envidia.mp3', text: '¿Mucha envidia o qué, perra?', sexo: 'mujer' },
+  { key: 'besitos', file: 'calle_besitos.mp3', text: 'Besitos hasta donde no llega el sol, y cuando quiera, carechimba.', sexo: 'mujer' },
+  { key: 'papasito', file: 'calle_papasito.mp3', text: 'Papasito.', sexo: 'mujer' }
 ];
+
+/** La voz grabada tiene que ser de quien habla: una frase de mujer no sale de un hombre. */
+export const voiceFits = (clip, npc) => clip.sexo === (npc.look?.real?.sexo ?? npc.person?.real?.sexo);
 
 const RANGE = 18, FULL = 5;               // metros: pleno hasta FULL, mudo desde RANGE
 const NPC_COOLDOWN = 25000;               // ms antes de volver a oír a la misma persona
@@ -67,10 +74,12 @@ export class StreetVoices {
     }
     if (!candidatos.length) return null;
     candidatos.sort((a, b) => a.distance - b.distance);
-    const clips = STREET_VOICES.filter(clip => (this._clipAt.get(clip.key) ?? -Infinity) <= now);
-    if (!clips.length) return null;
+    const free = STREET_VOICES.filter(clip => (this._clipAt.get(clip.key) ?? -Infinity) <= now);
+    if (!free.length) return null;
     const pool = Math.min(POOL, candidatos.length);
     const persona = candidatos[Math.floor(this.random() * pool)];
+    const clips = free.filter(clip => voiceFits(clip, persona.npc));
+    if (!clips.length) return null;
     return { npc: persona.npc, distance: persona.distance, clip: clips[Math.floor(this.random() * clips.length)] };
   }
 

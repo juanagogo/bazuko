@@ -83,8 +83,9 @@ test('la radio: el botón de pilas dice la acción aunque no se pueda, porque se
     const menu = { isOpen: false, open(c) { this.config = c; }, refresh() {}, close() {} };
     const radio = {
       isOn: true, battery, frequency: 98.5, volume: .5, lastBulletin: null,
+      filters: { region: '', kind: '' },
       getStationInfo: () => ({ signal: .9, station: { id: 'x', name: 'Emisora', program: 'Programa', genre: 'Género' } }),
-      toggle() {}, turnOn() {}, setFrequency() {}, setVolume() {},
+      toggle() {}, turnOn() {}, setFrequency() {}, setVolume() {}, setFilters() {}, stepStation() { return null; },
     };
     openRadioModal({ menu, radio, inventory: { items, count: (id) => items.filter(i => i.id === id).length }, player: {}, creator: {} });
     const dibujo = menu.config.render();
@@ -105,8 +106,9 @@ test('en la pausa y en la radio no se escribe con emojis', () => {
   const menu = { isOpen: false, open(c) { this.config = c; }, refresh() {}, close() {} };
   const radio = {
     isOn: true, battery: 12, frequency: 890, volume: .5, lastBulletin: null,
+    filters: { region: '', kind: '' },
     getStationInfo: () => ({ signal: .9, station: { id: 'x', name: '📻 Emisora', program: '🎵 Programa', genre: '📻 Género' } }),
-    toggle() {}, turnOn() {}, setFrequency() {}, setVolume() {},
+    toggle() {}, turnOn() {}, setFrequency() {}, setVolume() {}, setFilters() {}, stepStation() { return null; },
   };
   const game = { menu, radio, inventory: { items: [] }, player: {}, creator: {} };
   openRadioModal(game);

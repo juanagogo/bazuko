@@ -242,6 +242,8 @@ export class StealSystem {
 
   // Una patrulla que lo ve lo persigue, igual que por un retrovisor robado.
   _alertPolice() {
+    // Con el truco de invisibilidad, ningún robo llama a la patrulla.
+    if (this.game.cheats?.invisible) return;
     if (this.game.traffic) this.game.traffic.wantedLevel = this.buscado; // el robo de ahora ya cuenta
     if (this.game.traffic?.alertForTheft?.(this.game.player.position) && typeof window !== 'undefined') {
       window.dispatchEvent(new CustomEvent('police-chase', {}));

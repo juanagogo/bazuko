@@ -125,7 +125,7 @@ test('con la puerta libre se baja por donde corresponde a su modelo', () => {
   stopNearPlayer(world);
   system.update(1 / 30);
   assert.equal(system.state, 'out');
-  assert.equal(system._doorSide, vehicle.car.vehicle.driverDoor.side);
+  assert.equal(system.incidents[0].doorSide, vehicle.car.vehicle.driverDoor.side);
   assert.ok(system.driver.position.distanceTo(vehicle.car.driverDoor()) < .3);
 });
 
@@ -179,7 +179,7 @@ test('el carro frena gradualmente al retenerlo y sigue su ruta al liberarlo', ()
   assert.ok(vehicle.speed > 1);
 });
 
-test('solo a veces, solo en carros en circulación y un conductor a la vez', () => {
+test('solo a veces, solo en carros en circulación y un conductor por carro', () => {
   const lucky = setup({ random: () => .99 });
   assert.equal(lucky.system.trigger(lucky.vehicle.car), false);
   const { system, vehicle } = setup();
@@ -288,4 +288,176 @@ test('al recuperarse tras morir, el conductor ya está en su carro', () => {
   assert.equal(vehicle.hold, false);
   assert.equal(vehicle.car.driver.visible, true);
   assert.equal(people.length, 0);
+});
+
+test('cada detonante tiene su probabilidad: con azar alto no se baja y con azar bajo sí', () => {
+  for (const cause of Object.keys(ROAD_RAGE.triggers)) {
+    const timid = setup({ random: () => .99 });
+    assert.equal(timid.system.trigger(timid.vehicle.car, cause), false, `${cause} no siempre`);
+    const hot = setup({ random: () => 0 });
+    assert.equal(hot.system.trigger(hot.vehicle.car, cause), true, `${cause} a veces sí`);
+  }
+});
+
+test('cada detonante con enfriamiento no reintenta hasta cumplirlo', () => {
+  for (const [cause, rule] of Object.entries(ROAD_RAGE.triggers)) {
+    if (!rule.cooldown) continue;
+    const { system, vehicle } = setup({ random: () => .99 });
+    assert.equal(system.trigger(vehicle.car, cause), false, 'falló el azar pero armó el enfriamiento');
+    system.random = () => 0;
+    assert.equal(system.trigger(vehicle.car, cause), false, `el enfriamiento de ${cause} aguanta`);
+    for (let t = 0; t < rule.cooldown + .2; t += 1 / 30) system.update(1 / 30);
+    assert.equal(system.trigger(vehicle.car, cause), true, `pasado el enfriamiento sí`);
+  }
+});
+
+test('un carro no puede tener dos conductores ni se suman más del tope', () => {
+  const scene = new THREE.Scene();
+  const traffic = new TrafficSystem(scene, [new TrafficRoute(0, 200, 0, 200, 3.2)], { carsPerRoute: 6, random: () => .5 });
+  const player = { position: new THREE.Vector3(), isStunned: false, receiveHit() {} };
+  const system = new RoadRageSystem(scene, { player, stats: new StatsSystem(), random: () => 0 });
+  system.setup({ isWalkableAt: () => true, getGroundHeight: () => 0 }, traffic, []);
+  // La flota sale por conteo y el primero ya es buseta: los conductores solo salen de carros, taxis y motos.
+  const cars = traffic.vehicles.map(vehicle => vehicle.car).filter(car => car.kind !== 'buseta' && car.kind !== 'police');
+  assert.ok(cars.length >= ROAD_RAGE.maxDrivers + 1);
+  for (const car of cars) {
+    if (system.incidents.length >= ROAD_RAGE.maxDrivers) {
+      assert.equal(system.trigger(car, 'mirror'), false, 'el del tope no arranca');
+      continue;
+    }
+    assert.equal(system.trigger(car, 'mirror'), true);
+    assert.equal(system.trigger(car, 'mirror'), false, 'un carro, un conductor');
+  }
+  assert.equal(system.incidents.length, ROAD_RAGE.maxDrivers);
+});
+
+test('ni una patrulla, ni una buseta, ni un parqueado sacan conductor', () => {
+  const { system } = setup();
+  assert.equal(system.trigger({ traffic: true, kind: 'police' }, 'mirror'), false);
+  assert.equal(system.trigger({ traffic: true, kind: 'buseta' }, 'mirror'), false);
+  assert.equal(system.trigger({ traffic: false, kind: 'carro' }, 'mirror'), false);
+  assert.equal(system.trigger(null, 'mirror'), false);
+  assert.equal(system.trigger({ traffic: true }, 'inventado'), false);
+});
+
+test('la moto también saca a su motociclista y lo devuelve al puesto', () => {
+  const scene = new THREE.Scene();
+  const group = new THREE.Object3D();
+  const moto = { isMoto: true, kind: 'moto', occupancy: [true, false, false], width: .72, length: 1.9,
+    position: group.position, group };
+  const player = { position: new THREE.Vector3(2, 0, 0), isStunned: false, receiveHit() {} };
+  const vehicle = { car: moto, speed: 0 };
+  const system = new RoadRageSystem(scene, { player, stats: new StatsSystem(), random: () => 0 });
+  system.setup({ isWalkableAt: () => true, getGroundHeight: () => 0 }, { hold: () => vehicle }, []);
+  assert.equal(system.trigger(moto, 'hit'), true);
+  system.update(1 / 30);
+  assert.equal(system.state, 'out');
+  assert.equal(moto.occupancy[0], false, 'el puesto quedó vacío');
+  system.reset();
+  assert.equal(moto.occupancy[0], true, 'y lo recupera al volver');
+});
+
+test('el enfriamiento se anota por carro y no se pierde al liberar', () => {
+  const { system, vehicle } = setup({ random: () => .99 });
+  system.trigger(vehicle.car, 'hit');
+  assert.ok(system._carStateOf(vehicle.car).cooldowns.hit > 0);
+  system.reset();
+  assert.equal(system.incidents.length, 0);
+});
+
+test('hasta tres conductores pueden estar fuera a la vez, y el tope se recupera', () => {
+  const scene = new THREE.Scene();
+  const traffic = new TrafficSystem(scene, [new TrafficRoute(0, 200, 0, 200, 3.2)], { carsPerRoute: 4, random: () => .5 });
+  const player = { position: new THREE.Vector3(), isStunned: false, receiveHit() {} };
+  const people = [];
+  const system = new RoadRageSystem(scene, { player, stats: new StatsSystem(), random: () => 0 });
+  system.setup({ isWalkableAt: () => true, getGroundHeight: () => 0 }, traffic, people);
+  const cars = traffic.vehicles.map(vehicle => vehicle.car).slice(0, 3);
+  assert.equal(cars.length, 3);
+  // Los tres quedan detenidos junto al jugador; sin `traffic.update` no vuelven a su carril.
+  for (const car of cars) {
+    car.position.set(player.position.x + 2, 0, player.position.z + 2);
+    assert.equal(system.trigger(car, 'mirror'), true);
+  }
+  for (const incident of system.incidents) incident.vehicle.speed = 0;
+  system.update(1 / 30);
+  assert.equal(system.incidents.length, 3);
+  assert.ok(system.incidents.every(incident => incident.state === 'out'));
+  assert.equal(people.length, 3, 'los tres frenan a los carros como peatones');
+  assert.ok(cars.every(car => car.driver.visible === false), 'y ninguno se ve sentado');
+  system.reset();
+  assert.equal(system.incidents.length, 0);
+  assert.equal(people.length, 0);
+  assert.ok(cars.every(car => car.driver.visible === true));
+});
+
+/** Un carro ya detenido frente a un jugador que no se mueve: la simulación no lo deja arrancar. */
+function blockedWorld(random) {
+  const scene = new THREE.Scene();
+  const traffic = new TrafficSystem(scene, [new TrafficRoute(0, 200, 0, 200, 3.2)], { carsPerRoute: 1, random: () => .5 });
+  const vehicle = traffic.vehicles[0];
+  const player = { position: new THREE.Vector3(), isStunned: false, receiveHit() {} };
+  const system = new RoadRageSystem(scene, { player, stats: new StatsSystem(), random });
+  system.setup({ isWalkableAt: () => true, getGroundHeight: () => 0 }, traffic, []);
+  vehicle.cruiseSpeed = 0; vehicle.speed = 0;
+  standInFront(vehicle, player, 3.5);
+  return { traffic, vehicle, player, system };
+}
+
+function standInFront(vehicle, player, distance = 3.5) {
+  const yaw = vehicle.car.group.rotation.y;
+  player.position.set(vehicle.car.position.x + Math.cos(yaw) * distance, 0, vehicle.car.position.z - Math.sin(yaw) * distance);
+}
+
+function advanceFront(world, seconds, step = 1 / 30) {
+  for (let t = 0; t < seconds; t += step) {
+    standInFront(world.vehicle, world.player);
+    world.traffic.update(step, { player: world.player.position });
+    world.system.update(step);
+  }
+}
+
+test('si el jugador se le planta adelante, a veces se baja', () => {
+  const hot = blockedWorld(() => 0);
+  advanceFront(hot, 2.5);
+  assert.equal(hot.system.state, 'out');
+  assert.equal(hot.system.incidents[0].cause, 'front');
+});
+
+test('frenar por el jugador solo a veces: con azar alto aguanta y con azar bajo se baja', () => {
+  const cold = blockedWorld(() => .99);
+  advanceFront(cold, 6);
+  assert.equal(cold.system.active, false, 'no se baja el que no quiere');
+  cold.system.random = () => 0;
+  advanceFront(cold, 6);
+  assert.equal(cold.system.state, 'out', 'cuando el azar acompaña, se baja');
+  assert.equal(cold.system.incidents[0].cause, 'front');
+});
+
+test('bloqueado varios segundos, se baja a reclamar', () => {
+  const world = blockedWorld(() => .4); // el intento de adelante falla .3; el del bloqueo .5 sí pasa
+  advanceFront(world, 3.9);
+  assert.equal(world.system.active, false, 'a los 3,9 s todavía no');
+  advanceFront(world, .5);
+  assert.equal(world.system.state, 'out');
+  assert.equal(world.system.incidents[0].cause, 'block');
+});
+
+test('el popó que cae sobre un carro también lo hace bajarse', () => {
+  const scene = new THREE.Scene();
+  const traffic = new TrafficSystem(scene, [new TrafficRoute(0, 200, 0, 200, 3.2)], { carsPerRoute: 1, random: () => .5 });
+  const vehicle = traffic.vehicles[0];
+  const player = { position: new THREE.Vector3(), isStunned: false, receiveHit() {} };
+  const system = new RoadRageSystem(scene, { player, stats: new StatsSystem(), random: () => 0 });
+  system.setup({ isWalkableAt: () => true, getGroundHeight: () => 0 }, traffic, []);
+  const projectile = { alive: true, position: vehicle.car.position.clone() };
+  system.noteThrown(projectile);
+  system.update(1 / 30);
+  assert.equal(system.incidents.length, 1);
+  assert.equal(system.incidents[0].cause, 'thrown');
+  assert.equal(system._projectiles.length, 0, 'el vuelo se deja de seguir');
+  const gone = { alive: false, position: new THREE.Vector3() };
+  system.noteThrown(gone);
+  system.update(1 / 30);
+  assert.equal(system._projectiles.length, 0, 'y el que ya cayó se descarta');
 });

@@ -109,6 +109,7 @@ export class Player {
 
     // Combate cuerpo a cuerpo: `attack` = { weapon, step, phase: windup|active|recovery, t, progress, timing }
     this.equippedWeapon = DEFAULT_WEAPON;
+    this._radioHeld = false; // la radio va en la mano izquierda mientras esté prendida
 
     // Cigarrillo o porro: `smoking` = { kind, left, nextPuff, puff } (segundos; `puff` corre durante la calada)
     this.smoking = null;
@@ -321,6 +322,15 @@ export class Player {
     }
   }
 
+  /** La radio va en la mano izquierda mientras esté prendida; se guarda al apagarla. */
+  _syncHeldRadio() {
+    const on = !!this.game?.radio?.isOn;
+    if (on === this._radioHeld) return;
+    this._radioHeld = on;
+    this.procedural?.setHeldRadio?.(on);
+    this._realistic?.setHeldRadio?.(on);
+  }
+
   setLook(look) {
     this.look = look;
     this.procedural.setLook(look);
@@ -355,6 +365,7 @@ export class Player {
       this._realistic.setWeapon?.(this.equippedWeapon === DEFAULT_WEAPON ? null : this.equippedWeapon);
       this._realistic.setSmoking?.(this._holdingCigarette, this.smoking?.kind);
       this._realistic.setBasuco?.(!!this.basuco && !this.basuco.stowed);
+      this._realistic.setHeldRadio?.(this._radioHeld);
       this._realistic.clearSleepPose?.();
     } else {
       this.root.remove(this.character.group);
@@ -363,6 +374,7 @@ export class Player {
       this.procedural.setWeapon?.(this.equippedWeapon === DEFAULT_WEAPON ? null : this.equippedWeapon);
       this.procedural.setSmoking?.(this._holdingCigarette, this.smoking?.kind);
       this.procedural.setBasuco?.(!!this.basuco && !this.basuco.stowed);
+      this.procedural.setHeldRadio?.(this._radioHeld);
     }
     this.root.add(this.character.group);
   }
@@ -561,8 +573,8 @@ export class Player {
     }
     const beganAttackThisFrame = !attackBeforeInput && !!this.attack;
 
-    // con la pipa en la boca se queda quieto
-    const { x = 0, z = 0 } = this.basuco && !this.basuco.stowed ? {} : (this.input?.axis ?? {});
+    // con la pipa en la boca, o en cuclillas, se queda quieto
+    const { x = 0, z = 0 } = (this.basuco && !this.basuco.stowed) || this.action === 'cagar' ? {} : (this.input?.axis ?? {});
     const stunned = this._impactTime > 0;
     const moving = !stunned && (x !== 0 || z !== 0);
     const running = Boolean(this.input?.isRunning && moving);
@@ -713,8 +725,10 @@ export class Player {
     this._smoke?.update(dt);
     this._updateGlance(dt);
     // Una pulsación nueva muestra al menos un frame de anticipación, también a 10 FPS.
-    const hit = this.melee.update(beganAttackThisFrame ? 0 : dt, this, npcs);
-    if (hit) {
+    const targets = this.extraMeleeTargets?.length ? (npcs ?? []).concat(this.extraMeleeTargets) : npcs;
+    const hit = this.melee.update(beganAttackThisFrame ? 0 : dt, this, targets);
+    // Pegarle a una sombra no es una pelea de calle: no suma dinero ni busca.
+    if (hit && !hit.hits.every((h) => h.target.isShadow)) {
       if (hit.reward > 0 && typeof this.stats?.dinero === 'number') this.stats.dinero += hit.reward;
       if (typeof this.game?.steal?.buscado === 'number') this.game.steal.buscado = Math.min(3, this.game.steal.buscado + 1);
       emit('street-fight', { attacker: this });
@@ -735,6 +749,7 @@ export class Player {
       || !!this.action || this.sorting || !!this.attack || !!this.smoking || !!this.basuco);
 
     // Animación del personaje (velocidad en metros del modelo, no del mundo)
+    this._syncHeldRadio();
     this.character.update(dt, {
       stance,
       style: this.bodyStyle,
