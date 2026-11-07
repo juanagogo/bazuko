@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { busPathX, bridgeCenter, bridgeNormal } from './Colpatria.js';
+import { busPathX, bridgeCenter, bridgeNormal, BUS_AXIS_MIN_X, BUS_AXIS_MAX_X } from './Colpatria.js';
 import { BRIDGE_RISE, BRIDGE_DECK_HEIGHT } from './BridgeElevation.js';
 import { LAKE_BRIDGE, bridgeHeight } from './LakePark.js';
 
@@ -70,7 +70,9 @@ function indexSurface() {
 
 /** Cota de los triángulos dibujados, con el mismo orden y tolerancia de bordes. */
 export function viaductSurface(x, z) {
-  if (z < VIADUCT.start - 16 || z > VIADUCT.end + 16 || Math.abs(x - busPathX(z)) > 24) return null;
+  if (z < VIADUCT.start - 16 || z > VIADUCT.end + 16) return null;
+  // El carril (eje + 3,5 m) cae entre BUS_AXIS_MIN_X y BUS_AXIS_MAX_X + 3,5: fuera de eso no hace falta buscarlo.
+  if (x < BUS_AXIS_MIN_X - 24 || x > BUS_AXIS_MAX_X + 3.5 + 24 || Math.abs(x - busPathX(z)) > 24) return null;
   surfaceCells ??= indexSurface();
   const candidates = surfaceCells.get(Math.floor(z / SURFACE_CELL));
   if (!candidates) return null;
