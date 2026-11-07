@@ -10,12 +10,32 @@ body.is-loading #creator-modal { visibility: visible; }
 }
 .carga__arte { position: absolute; inset: 0; z-index: -1; pointer-events: none; animation: carga-sale .3s ease-out both; }
 @keyframes carga-sale { from { opacity: 0; } }
-.carga__marca { width: 100%; }
+.carga__marca { width: 100%; position: relative; }
 .carga__marca svg { display: block; width: 100%; height: auto; overflow: visible; }
+/* Con el worker, BAZUKO se dibuja en este lienzo y el SVG queda debajo, invisible, con su progreso. */
+.carga__lienzo { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+.carga__marca--fluida svg { opacity: 0; }
 /* Más grueso que cualquier punta: lo que se ve es la tinta que recorta cada trazo. */
 .carga__lomo { fill: none; stroke: var(--marcador); stroke-width: 210; stroke-linecap: round; stroke-linejoin: round; transition: stroke-dasharray .45s ease-out; }
 .carga__texto { grid-row: 3; display: flex; flex-direction: column; align-items: flex-start; gap: 14px; max-width: min(620px, 100%); }
 #loading-status { font-weight: 800; font-size: var(--letra-retazo); line-height: 1; }
+/* Con BAZUKO entero, «Un momentico» tiembla como cartón sacudido y repite mientras siga cargando.
+   Solo transform: el compositor lo mueve aunque el hilo principal esté construyendo la ciudad. */
+#loading-screen.carga--escrita:not(.has-loading-error) #loading-status {
+  transform-origin: 18% 70%; will-change: transform;
+  animation: momentico-vibra 2s ease-in-out infinite;
+}
+@keyframes momentico-vibra {
+  0%, 26%, 100% { transform: none; }
+  3% { transform: translate(-2px, .6px) rotate(-1.6deg); }
+  7% { transform: translate(2px, -.6px) rotate(1.4deg); }
+  11% { transform: translate(-1.5px, .4px) rotate(-1deg); }
+  15% { transform: translate(1.2px, -.2px) rotate(.7deg); }
+  19% { transform: translate(-.6px, 0) rotate(-.3deg); }
+}
+@media (prefers-reduced-motion: reduce) {
+  #loading-screen.carga--escrita #loading-status { animation: none; }
+}
 .has-loading-error #loading-status { font-size: var(--letra-titulo); line-height: 1.1; }
 
 @media (max-width: 899px) and (orientation: landscape), (max-height: 520px) {

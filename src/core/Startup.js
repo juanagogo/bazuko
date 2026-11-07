@@ -19,6 +19,32 @@ export function loadTaskGroups(groups, onProgress, concurrency = 6) {
   return loadInBatches(tasks, task => task(), onProgress, concurrency);
 }
 
+// Safari no tiene requestIdleCallback: un cuadro de espera hace lo mismo a grandes rasgos.
+const whenIdle = () => new Promise(resolve => {
+  if (globalThis.requestIdleCallback) globalThis.requestIdleCallback(() => resolve(), { timeout: 250 });
+  else setTimeout(resolve, 16);
+});
+
+/**
+ * Deja pasar las tareas de a una, cada una en un rato libre del navegador, mientras está cerrada;
+ * abierta, las corre de inmediato. Sirve para cargar con el creador de personaje abierto sin trabarlo.
+ */
+export class CreatorGate {
+  constructor() {
+    this.closed = true;
+    this._turn = Promise.resolve();
+  }
+
+  run(task) {
+    if (!this.closed) return task();
+    const result = this._turn.then(() => (this.closed ? whenIdle() : undefined)).then(task);
+    this._turn = result.catch(() => {});
+    return result;
+  }
+
+  open() { this.closed = false; }
+}
+
 export async function withLoadTimeout(promise, message, milliseconds = 120000) {
   let timer;
   try {

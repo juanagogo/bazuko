@@ -77,7 +77,7 @@ import { LocalLights } from './LocalLights.js';
 import { ContactShadows } from './ContactShadows.js';
 import { GRAPHICS_PROFILES } from './GraphicsQuality.js';
 import { FrameProfiler } from './FrameProfiler.js';
-import { loadTaskGroups, withLoadTimeout } from './Startup.js';
+import { CreatorGate, loadTaskGroups, withLoadTimeout } from './Startup.js';
 import { paintLoadingFrame } from '../ui/LoadingScreen.js';
 import { el } from '../ui/dom.js';
 import { Menu } from '../ui/Menu.js';
@@ -305,10 +305,6 @@ export class Game {
     this.weather?.update(0, this.player.position, this.renderer.quality === 'baja' ? null : district, this.clock);
     streetWetness.value = this.weather?.wetness ?? 0;
 
-    if (!this.look) {
-      await this._createCharacter(loading);
-    }
-    await loading.stage('Cargando personajes, vehículos y ciudad…', 2);
     let modelo = null;
     try { modelo = localStorage.getItem('bazuko.modelo'); } catch { /* sin almacenamiento */ }
     // La vista explícita de animaciones requiere el rig realista. La preferencia
@@ -319,14 +315,20 @@ export class Game {
       ...(this.traffic?.vehicles ?? []).map(vehicle => vehicle.car),
       ...(district?.busServices ?? [district?.busService]), this.cambuche, this.dog, ...(this.pickups ?? [])
     ].filter(Boolean);
-    let lastPaint = performance.now();
-    await withLoadTimeout(loadTaskGroups([
-      [() => modelo !== 'procedural' ? this.player.setModel('realista') : Promise.resolve(),
-        () => this.audio.ready],
+    // El jugador espera a su apariencia; la gente, los vehículos y la ciudad no dependen de ella.
+    const playerTasks = [() => modelo !== 'procedural' ? this.player.setModel('realista') : Promise.resolve()];
+    const worldTasks = [
+      [() => this.audio.ready],
       [...(district?.npcs ?? []), ...(this.roadRage?.preloadables ?? []), ...(this.limpieza?.preloadables ?? [])].map(npc => () => npc.preload()),
       importedEntities.map(entity => () => entity.preloadModel()),
       [() => district?.preloadDetails?.()]
-    ], (done, total) => {
+    ];
+    const total = playerTasks.length + worldTasks.reduce((sum, group) => sum + group.length, 0);
+    let done = 0, lastPaint = performance.now(), showProgress = !!this.look;
+    const progressed = () => {
+      done++;
+      // Con el creador abierto no se pinta nada: la pantalla de carga taparía al personaje.
+      if (!showProgress) return;
       const text = `Cargando recursos… ${done} de ${total}`;
       const progress = 2 + 1.8 * done / total;
       // Repintar por presupuesto temporal, no dos fotogramas por cada instancia.
@@ -335,7 +337,27 @@ export class Game {
         return loading.stage(text, progress);
       }
       loading.update?.(text, progress);
-    }), 'La carga de los recursos de la ciudad tardó demasiado.');
+    };
+
+    let worldLoad;
+    if (!this.look) {
+      // Mientras se elige la apariencia ya se cargan los demás, de a uno y en los ratos libres del
+      // navegador, para que el creador siga respondiendo. Al cerrarlo se sigue a toda velocidad.
+      const gate = new CreatorGate();
+      worldLoad = loadTaskGroups(worldTasks.map(group => group.map(task => () => gate.run(task))), progressed);
+      worldLoad.catch(() => {}); // el error se atiende abajo, al esperarla
+      // Con la gente y los vehículos ya cargados, sus texturas y las de la ciudad suben a la GPU.
+      // Los shaders no: dependen de luces y sombras que se fijan después del creador.
+      worldLoad.then(() => gate.run(() => this.renderer.uploadTextures([this.sceneMgr.scene, ...this._preloadedModels()])))
+        .catch(() => {}); // si falla, prepare() vuelve a subirlas
+      try { await this._createCharacter(loading); } finally { gate.open(); }
+    } else {
+      worldLoad = loadTaskGroups(worldTasks, progressed);
+    }
+    showProgress = true;
+    await loading.stage('Cargando personajes, vehículos y ciudad…', 2 + 1.8 * done / total);
+    await withLoadTimeout(Promise.all([loadTaskGroups([playerTasks], progressed), worldLoad]),
+      'La carga de los recursos de la ciudad tardó demasiado.');
     if (this.traffic) this.traffic.signals = district?.signals;
     this.traffic?.setBus?.(district?.busServices ?? district?.busService);
     if (this.cambuche) this.cambuche.group.position.y = district?.getGroundHeightUnder?.(this.cambuche.group)
@@ -358,7 +380,9 @@ export class Game {
     this.world.update(0, this.player.position, this.cameraRig.camera);
     this.localLights.update(0, this.player.position, (x, z) => district?.getGroundHeight?.(x, z) ?? 0, this.cameraRig.camera);
     await loading.stage('Preparando texturas, luces y shaders…', 4);
-    const extraModels = [...(district?.npcs ?? []), ...(this.roadRage?.preloadables ?? []), ...(this.limpieza?.preloadables ?? [])].flatMap(npc => [npc.lodChar?.group, npc.fullChar?.group]).filter(Boolean);
+    // BAZUKO se termina de escribir mientras se compila: al final no se quita la carga con la O a medias.
+    const palabraEntera = loading.completar?.();
+    const extraModels = this._preloadedModels();
     const rain = this.weather?.rainParticles;
     if (rain) rain.visible = true;
     try {
@@ -372,6 +396,7 @@ export class Game {
     }
     await this.renderer.waitForGPU();
     await loading.stage('Todo listo', 5);
+    await palabraEntera;
     this.performanceHUD.metrics.reset();
     this.performanceHUD.nextPaint = 0;
     this.renderer.resolution.resetWindow();
@@ -388,6 +413,13 @@ export class Game {
   }
 
   /** Primera vez: abre el creador antes de jugar */
+  /** Cuerpos de la gente que se precarga fuera de la escena: también hay que prepararlos para la GPU. */
+  _preloadedModels() {
+    const district = this.world.active;
+    return [...(district?.npcs ?? []), ...(this.roadRage?.preloadables ?? []), ...(this.limpieza?.preloadables ?? [])]
+      .flatMap(npc => [npc.lodChar?.group, npc.fullChar?.group]).filter(Boolean);
+  }
+
   async _createCharacter(loading = null) {
     const look = await this.creator.open(DEFAULT_LOOK, {
       doneLabel: 'Empezar', onReady: () => loading?.forCreator()

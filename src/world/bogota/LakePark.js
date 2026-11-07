@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { busPathX } from './Colpatria.js';
+import { busPathX, BUS_AXIS_MIN_X, BUS_AXIS_MAX_X } from './Colpatria.js';
 import { BRIDGE_RISE } from './BridgeElevation.js';
 import { createLakeWaterMaterial } from './LakeWaterMaterial.js';
 import { createLakeShoreMaterial, createLakeShorePalette, sampleLakeShore } from './LakeShoreMaterials.js';
@@ -11,8 +11,14 @@ export const LAKE_TERRAIN = Object.freeze({ x0: 21, x1: 129, z0: 231, z1: 293, s
 export const LAKE_BRIDGE = Object.freeze({ x0: 68, x1: 82, z0: 220, z1: 318,
   crestStart: 220, crestEnd: 280, rise: BRIDGE_RISE });
 
+// Los bordes del tablero son el eje desplazado ±7 m: el izquierdo nunca baja de x0 y el derecho
+// nunca pasa del eje más lejano + 7. Fuera de esa franja no hace falta buscar el carril.
+const BRIDGE_X_MIN = LAKE_BRIDGE.x0;
+const BRIDGE_X_MAX = BUS_AXIS_MAX_X + (LAKE_BRIDGE.x1 - BUS_AXIS_MIN_X);
+
 export function onLakeBridge(x, z) {
-  return z >= LAKE_BRIDGE.z0 && z <= LAKE_BRIDGE.z1 && x >= busPathX(z,LAKE_BRIDGE.x0) && x <= busPathX(z,LAKE_BRIDGE.x1);
+  if (z < LAKE_BRIDGE.z0 || z > LAKE_BRIDGE.z1 || x < BRIDGE_X_MIN || x > BRIDGE_X_MAX) return false;
+  return x >= busPathX(z,LAKE_BRIDGE.x0) && x <= busPathX(z,LAKE_BRIDGE.x1);
 }
 
 export function bridgeHeight(z) {

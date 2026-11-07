@@ -202,3 +202,12 @@ Este último cambio también alcanza a media, porque los lotes se arman una sola
 | Cambuche | 2.402 | 1.610 (−33 %) | 1.374.000 | 1.511.000 (+10 %) |
 | Centro | 2.195 | 1.471 (−33 %) | 1.270.000 | 1.367.000 (+8 %) |
 | Avenida | 2.404 | 1.668 (−31 %) | 1.339.000 | 1.378.000 (+3 %) |
+
+## La carga
+
+En un M1 Pro, con el servidor de desarrollo y la misma caché de Vite, tres cargas alternadas de cada versión: hasta el creador de personaje, de unos 4,5 s a unos 3,6 s; desde «Empezar» hasta jugar, con ocho segundos en el creador, de unos 2,5 s a unos 1,4 s. Las cifras varían de una corrida a otra en unos cientos de milisegundos.
+
+- **Lo que no depende de la apariencia se carga con el creador abierto.** Peatones, vehículos, detalles de la ciudad y audio empiezan antes de abrirlo, de a una tarea y en los ratos libres del navegador (`CreatorGate` de `Startup.js`), para que el creador siga respondiendo. Al cerrarlo sigue a toda velocidad. Después suben sus texturas a la GPU (`Renderer.uploadTextures`); los shaders no, porque dependen de las luces y las sombras que se fijan después. El modelo del jugador espera a la apariencia. Quien ya tiene partida guardada no pasa por el creador y carga como antes.
+- **El carril del bus guarda lo ya calculado.** `busPathX` hacía una búsqueda de 28 pasos por consulta y la ciudad pregunta miles de veces por las mismas Z. Además `onLakeBridge` y `viaductSurface` descartan antes de buscar lo que queda fuera de la franja que puede ocupar el eje (`BUS_AXIS_MIN_X`, `BUS_AXIS_MAX_X`). El resultado es el mismo número: 0 diferencias en 12.000 puntos del carril y 365.000 del puente del lago.
+- **La navegación de El Chato usa el índice de colisiones.** Cada celda del mapa revisaba las más de mil cajas de la ciudad; ahora pide las cercanas a `queryStatic` y aplica la misma prueba.
+- **La palabra de la carga no depende del hilo principal.** Antes se pintaban unos 44 cuadros en 4,2 s de carga, con 3,5 s congelados; el worker dibuja unos 230 en el mismo tiempo. Ver `docs/identidad-visual.md`, «Carga».

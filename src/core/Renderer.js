@@ -321,9 +321,13 @@ export class Renderer {
     }
   }
 
-  async prepare(scene, camera, extraModels = []) {
+  /**
+   * Sube a la GPU las texturas de estos objetos, en tramos de 8 ms. Una textura ya subida no se
+   * vuelve a mandar, así que se puede adelantar (con el creador abierto) y repetir sin costo.
+   */
+  async uploadTextures(roots) {
     const textures = new Set();
-    for (const root of [scene, ...extraModels]) root.traverse(object => {
+    for (const root of roots) root.traverse(object => {
       for (const material of [object.material].flat().filter(Boolean)) {
         for (const value of Object.values(material)) {
           if (value?.isTexture && !value.isRenderTargetTexture) textures.add(value);
@@ -338,6 +342,10 @@ export class Renderer {
         uploadStart = performance.now();
       }
     }
+  }
+
+  async prepare(scene, camera, extraModels = []) {
+    await this.uploadTextures([scene, ...extraModels]);
     await this.instance.compileAsync(scene, camera);
     // Referencias temporales: no cambia los padres ni el LOD visible de cada NPC.
     const models = new THREE.Group();
