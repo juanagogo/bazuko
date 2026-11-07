@@ -34,14 +34,14 @@ vec3 motoRotX(vec3 p, float a) { float c = cos(a), s = sin(a); return vec3(p.x, 
 vec3 motoRotY(vec3 p, float a) { float c = cos(a), s = sin(a); return vec3(c * p.x + s * p.z, p.y, -s * p.x + c * p.z); }
 vec3 motoRotZ(vec3 p, float a) { float c = cos(a), s = sin(a); return vec3(c * p.x - s * p.y, s * p.x + c * p.y, p.z); }
 vec3 motoClothColor(float i) {
-  if (i < .5) return vec3(.10, .12, .20);
-  if (i < 1.5) return vec3(.07, .07, .08);
-  if (i < 2.5) return vec3(.45, .09, .08);
-  if (i < 3.5) return vec3(.20, .34, .52);
-  if (i < 4.5) return vec3(.80, .80, .78);
-  if (i < 5.5) return vec3(.28, .30, .20);
-  if (i < 6.5) return vec3(.10, .30, .18);
-  return vec3(.72, .30, .06);
+  if (i < .5) return vec3(.22, .30, .52);
+  if (i < 1.5) return vec3(.30, .30, .32);
+  if (i < 2.5) return vec3(.62, .14, .12);
+  if (i < 3.5) return vec3(.30, .50, .72);
+  if (i < 4.5) return vec3(.90, .90, .88);
+  if (i < 5.5) return vec3(.42, .46, .30);
+  if (i < 6.5) return vec3(.16, .50, .28);
+  return vec3(.90, .45, .10);
 }
 `;
 // Quien va en la moto se mueve con ella desde el sombreador: se ladea en la curva, se mece con los cambios de

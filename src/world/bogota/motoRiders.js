@@ -22,7 +22,10 @@ const POSES = {
   tank: { hips: [-.02, .10], lean: 10, hands: [.30, .12, .12], feet: [.21, -.44, .26] },
   pillion: { hips: [0, .10], lean: 12, hands: [.34, .14, .22], feet: [.10, -.48, .26] }
 };
-const CLOTH = [[.10, .12, .20], [.07, .07, .08], [.45, .09, .08], [.20, .34, .52], [.80, .80, .78], [.28, .30, .20], [.10, .30, .18], [.72, .30, .06]];
+// Colores de la ropa en sRGB. Ninguno baja de CLOTH_MIN_LUMA en lineal: más oscuro y la persona se lee como una sombra.
+export const CLOTH = [[.22, .30, .52], [.30, .30, .32], [.62, .14, .12], [.30, .50, .72], [.90, .90, .88], [.42, .46, .30], [.16, .50, .28], [.90, .45, .10]];
+export const CLOTH_MIN_LUMA = .05;
+export const SKIN_MIN_LUMA = .035;
 
 const PART = { body: 0, top: 1, shell: 2, visor: 3 };
 
@@ -35,14 +38,16 @@ const HIDE = `#include <begin_vertex>
   if (aPart > 1.5 && aHelmet.a < .5) transformed *= 0.;`;
 let paint = null, shadow = null;
 
-function riderMaterial() {
+export function riderMaterial() {
   if (paint) return paint;
   paint = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: .85, metalness: 0, side: THREE.DoubleSide });
   paint.name = 'Gente en moto';
   paint.onBeforeCompile = shader => {
     shader.vertexShader = (ATTRIBUTES + shader.vertexShader)
       .replace('#include <begin_vertex>', HIDE)
-      .replace('#include <color_vertex>', `#include <color_vertex>
+      // El chunk de three multiplica el color de instancia en todos los vértices: aquí solo tiñe la parte de arriba.
+      .replace('#include <color_vertex>', `vColor = vec4(1.0);
+      vColor.rgb *= color;
       #ifdef USE_INSTANCING_COLOR
         if (aPart > .5 && aPart < 1.5) vColor.rgb *= instanceColor.rgb;
       #endif
@@ -83,12 +88,20 @@ function sampler(texture) {
 
 const luminance = color => color.r * .2126 + color.g * .7152 + color.b * .0722;
 
+/** Sube lo muy oscuro hasta el piso de luminancia lineal, sin cambiarle el tono. */
+export function liftDark(color, floor = CLOTH_MIN_LUMA) {
+  const luma = luminance(color);
+  if (luma >= floor) return color;
+  if (luma < 1e-4) return color.setRGB(floor, floor, floor);
+  return color.multiplyScalar(floor / luma);
+}
+
 /** Color y marca de cada vértice de una malla: la piel y el pelo, el calzado, el pantalón y la parte de arriba que tiñe cada persona. */
 function paintMesh(mesh, real, restY, hipY) {
   const { material, geometry } = mesh, uv = geometry.attributes.uv, count = geometry.attributes.position.count;
   const sample = sampler(material.map), colors = new Float32Array(count * 3), parts = new Uint8Array(count), pixel = new THREE.Color();
   const garment = geometry.attributes.streetZone !== undefined;
-  const tint = material.color, bottom = garment && real.tonos?.abajo ? new THREE.Color(real.tonos.abajo) : null;
+  const tint = material.color, bottom = garment && real.tonos?.abajo ? liftDark(new THREE.Color(real.tonos.abajo)) : null;
   let mean = 0;
   const shade = new Float32Array(count);
   for (let i = 0; i < count; i++) {
@@ -107,6 +120,11 @@ function paintMesh(mesh, real, restY, hipY) {
       colors.set([relative, relative, relative], i * 3);
     } else if (garment && bottom) colors.set([bottom.r * relative, bottom.g * relative, bottom.b * relative], i * 3);
     else if (hair) colors.set([tint.r * relative, tint.g * relative, tint.b * relative], i * 3);
+  }
+  for (let i = 0; i < count; i++) {
+    if (parts[i] === PART.top) continue;
+    pixel.setRGB(colors[i * 3], colors[i * 3 + 1], colors[i * 3 + 2]);
+    liftDark(pixel, SKIN_MIN_LUMA).toArray(colors, i * 3);
   }
   return { colors, parts };
 }
