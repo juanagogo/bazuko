@@ -14,7 +14,7 @@ export const RIDER_ROLES = Object.freeze(['driver', 'tank', 'pillion']);
 export const RIDER_SWAY_RANGE = 45;
 
 const ADULT_TYPES = ['oficinista', 'obrero', 'estudiante', 'vendedor', 'senora', 'oficinista', 'obrero', 'estudiante'];
-const KID_SCALE = .72;
+export const KID_SCALE = .72;
 const CELL = .05;
 // Posición de manos y pies respecto al punto del asiento (x adelante, y arriba, z a un lado), la cadera y cuánto se inclina el torso.
 const POSES = {
@@ -185,7 +185,7 @@ function pose(character, bones, rest, spec, scale) {
 
 // ---------- hornear ----------
 
-function helmetParts(center, size) {
+export function helmetParts(center, size) {
   const shell = new THREE.SphereGeometry(.13 * size, 10, 7);
   shell.scale(1, 1.04, 1.02);
   shell.translate(center.x, center.y, center.z);
@@ -230,7 +230,7 @@ function merge(pieces) {
   return geometry;
 }
 
-function rider(index, kid, catalog) {
+export function riderLook(index, kid, catalog) {
   const type = kid ? 'nino' : ADULT_TYPES[index % ADULT_TYPES.length];
   const person = rollPerson(type, { seed: `moto:${kid ? 'nino' : 'adulto'}:${index}`, sinCarga: true });
   person.real.accesorios = [];
@@ -290,6 +290,25 @@ async function bakeLook(look, kid) {
   return out;
 }
 
+/** La misma persona de la calle, completa (con cara y sin hornear), sentada una vez en la pose de su puesto. */
+export async function seatedFigure(look, kid, role, lod = true) {
+  const size = kid ? KID_SCALE : 1;
+  const character = await createRealisticCharacter(look, { lod });
+  const { group } = character;
+  group.scale.setScalar(size * (look.alto ?? 1));
+  group.rotation.y = Math.PI / 2;
+  group.updateMatrixWorld(true);
+  const bones = [];
+  group.traverse(object => {
+    if (object.isBone) bones.push(object);
+    if (object.isMesh && /low-poly/i.test(object.name)) object.visible = false;
+  });
+  pose(character, bones, bones.map(bone => [bone, bone.position.clone(), bone.quaternion.clone()]), POSES[role], size);
+  const head = boneNamed(bones, 'Head').getWorldPosition(new THREE.Vector3());
+  head.y += .085 * size;
+  return { character, group, head, size };
+}
+
 let built = null;
 /** Las personas de la calle ya sentadas: `{ adult: [...], kid: [...] }`, cada una con sus poses. Se hornea una sola vez. */
 export function bakeRiders() {
@@ -297,7 +316,7 @@ export function bakeRiders() {
     const catalog = await loadCatalog();
     const result = { adult: [], kid: [] };
     for (const kind of ['adult', 'kid']) {
-      for (let i = 0; i < RIDER_LOOKS[kind]; i++) result[kind].push(await bakeLook(rider(i, kind === 'kid', catalog), kind === 'kid'));
+      for (let i = 0; i < RIDER_LOOKS[kind]; i++) result[kind].push(await bakeLook(riderLook(i, kind === 'kid', catalog), kind === 'kid'));
     }
     return result;
   })().catch(error => { built = null; throw error; });
@@ -316,6 +335,10 @@ export class MotoRiders {
     this.root = root;
     this.capacity = capacity;
     this.lots = new Map();
+    this.real = null;
+    this.focus = null;
+    this._wanted = [];
+    this._spare = [];
     this.ready = bake().then(set => {
       for (const kind of ['adult', 'kid']) set[kind].forEach((poses, look) => {
         for (const [role, geometry] of Object.entries(poses)) this.lots.set(`${kind}:${look}:${role}`, this._lot(geometry));
@@ -341,18 +364,44 @@ export class MotoRiders {
     return { mesh, helmet, count: 0, box: new THREE.Box3() };
   }
 
-  begin() { for (const lot of this.lots.values()) { lot.count = 0; lot.box.makeEmpty(); } }
+  begin(focus = null) {
+    this.focus = focus;
+    this._wanted.length = 0;
+    this.real?.begin();
+    for (const lot of this.lots.values()) { lot.count = 0; lot.box.makeEmpty(); }
+  }
 
   /** Pone a una persona: `moto` es su matriz, `seat` el punto del asiento y `sway` el cabeceo de la moto. */
   add(kind, look, role, motoMatrix, seat, sway, cloth, helmet) {
-    const lot = this.lots.get(`${kind}:${look % this.looks[kind]}:${role}`);
-    if (!lot || lot.count >= this.capacity) return;
-    const index = lot.count++;
+    const { focus, real } = this;
+    if (real && focus) {
+      const dx = motoMatrix.elements[12] - focus.x, dz = motoMatrix.elements[14] - focus.z, d2 = dx * dx + dz * dz;
+      if (d2 < real.near ** 2) {
+        // Los de cerca se reparten al final, del más cercano al más lejano, entre las personas reales que haya libres.
+        const want = this._spare[this._wanted.length] ??= { matrix: new THREE.Matrix4(), seat: [0, 0], sway: {} };
+        want.matrix.copy(motoMatrix); want.seat[0] = seat[0]; want.seat[1] = seat[1];
+        Object.assign(want.sway, { yaw: 0 }, sway);
+        Object.assign(want, { kind, look, role, cloth, helmet, d2 });
+        this._wanted.push(want);
+        return;
+      }
+    }
+    this._addBaked(kind, look, role, motoMatrix, seat, sway, cloth, helmet);
+  }
+
+  _place(matrix, seat, sway) {
     _qx.setFromAxisAngle(_ex, sway.roll); _qz.setFromAxisAngle(_ez, sway.pitch);
     // `yaw`: el cuerpo gira sobre el asiento (quien espera mirando a todos lados).
     _qy.setFromAxisAngle(_ey, sway.yaw ?? 0);
     _local.compose(_pos.set(seat[0], seat[1], 0), _qy.multiply(_qx.multiply(_qz)), _unit);
-    _m.multiplyMatrices(motoMatrix, _local);
+    return _m.multiplyMatrices(matrix, _local);
+  }
+
+  _addBaked(kind, look, role, motoMatrix, seat, sway, cloth, helmet) {
+    const lot = this.lots.get(`${kind}:${look % this.looks[kind]}:${role}`);
+    if (!lot || lot.count >= this.capacity) return;
+    const index = lot.count++;
+    this._place(motoMatrix, seat, sway);
     lot.mesh.setMatrixAt(index, _m);
     _color.setRGB(...CLOTH[cloth & 7], THREE.SRGBColorSpace);
     lot.mesh.setColorAt(index, _color);
@@ -362,6 +411,12 @@ export class MotoRiders {
   }
 
   end() {
+    for (const w of this._wanted.sort((a, b) => a.d2 - b.d2)) {
+      const figure = this.real.take(`${w.kind}:${w.look % this.looks[w.kind]}:${w.role}`);
+      if (figure) this.real.put(figure, this._place(w.matrix, w.seat, w.sway), w.helmet);
+      else this._addBaked(w.kind, w.look, w.role, w.matrix, w.seat, w.sway, w.cloth, w.helmet);
+    }
+    this.real?.end();
     for (const { mesh, helmet, count, box } of this.lots.values()) {
       mesh.count = count;
       mesh.visible = count > 0;
@@ -372,7 +427,7 @@ export class MotoRiders {
     }
   }
 
-  get drawn() { let sum = 0; for (const lot of this.lots.values()) sum += lot.count; return sum; }
+  get drawn() { let sum = this.real?.used ?? 0; for (const lot of this.lots.values()) sum += lot.count; return sum; }
 
   dispose() {
     for (const { mesh } of this.lots.values()) { this.root.remove(mesh); mesh.dispose(); }

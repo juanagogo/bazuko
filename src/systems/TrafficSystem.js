@@ -1537,6 +1537,7 @@ export class TrafficSystem {
       }
       remaining -= stepTime;
     }
+    if (this._motoFleet) this._motoFleet.riders.real = this.motoPeople ?? null;
     this._motoFleet?.sync(this.extraMotos.length ? this.vehicles.concat(this.extraMotos) : this.vehicles, camera?.position);
     this._carFleet ??= new CarFleet(this.scene);
     this._carFleet.sync(this.vehicles);

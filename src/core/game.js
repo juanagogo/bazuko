@@ -81,6 +81,7 @@ import { WaterEffects } from '../systems/WaterEffects.js';
 import { BusExhaust } from '../systems/BusExhaust.js';
 import { StationCrowd } from '../systems/StationCrowd.js';
 import { PeoplePool, POOL_SIZE } from '../systems/PeoplePool.js';
+import { RealRiders } from '../world/bogota/realRiders.js';
 import { ArticulatedPassengers } from '../systems/ArticulatedPassengers.js';
 import { LocalLights } from './LocalLights.js';
 import { ContactShadows } from './ContactShadows.js';
@@ -146,6 +147,8 @@ export class Game {
     this.people = new PeoplePool(this.sceneMgr.scene, { size: globalThis.location?.search?.includes('sinGente') ? 0 : POOL_SIZE });
     this.stationCrowd = new StationCrowd(this.sceneMgr.scene, this.people);
     this.busRiders = new ArticulatedPassengers(this.people);
+    // La gente de las motos más cercanas: personas completas ya sentadas (`?sinMotoReales` las apaga para medir)
+    this.motoPeople = new RealRiders(this.sceneMgr.scene, { copies: globalThis.location?.search?.includes('sinMotoReales') ? { driver: 0, pillion: 0, tank: 0 } : undefined });
     this.contactShadows = new ContactShadows(this.sceneMgr.scene);
     this._contactShadowFrame = {
       player: this.player,
@@ -347,7 +350,8 @@ export class Game {
       [...(district?.npcs ?? []), ...(this.roadRage?.preloadables ?? []), ...(this.limpieza?.preloadables ?? []), ...(this.robo?.preloadables ?? [])].map(npc => () => npc.preload()),
       importedEntities.map(entity => () => entity.preloadModel()),
       [() => district?.preloadDetails?.()],
-      this.people?.tasks() ?? []
+      this.people?.tasks() ?? [],
+      this.motoPeople?.tasks() ?? []
     ], (done, total) => {
       const text = `Cargando recursos… ${done} de ${total}`;
       // Repintar por presupuesto temporal, no dos fotogramas por cada instancia.
@@ -651,6 +655,7 @@ export class Game {
     if (district.getTrafficRoutes) {
       this.traffic = new TrafficSystem(this.sceneMgr.scene, district.getTrafficRoutes(), { policeCount: 2 });
       this.traffic.people = this.people;
+      this.traffic.motoPeople = this.motoPeople;
       this.traffic.setDensity(this.trafficDensity);
       // La flota diaria entra y sale con el reloj: el juego le da de alta el carro nuevo y de baja el que se va.
       this.traffic.onVehicleAdded = (car) => {
@@ -1610,6 +1615,7 @@ export class Game {
     this.stationCrowd?.dispose();
     this.busRiders?.dispose();
     this.people?.dispose();
+    this.motoPeople?.dispose();
     this.contactShadows?.dispose();
     this.gpsBeacon?.dispose();
     this.psychosis?.dispose?.();

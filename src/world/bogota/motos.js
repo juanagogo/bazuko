@@ -482,7 +482,7 @@ export class MotoFleet {
   /** Coloca cada moto viva en su lote; la que va apagada no ocupa instancia. Devuelve cuántas se dibujan. */
   sync(vehicles, focus = null) {
     motoTime.value = performance.now() * .001;
-    this.riders.begin();
+    this.riders.begin(focus);
     for (const batch of this.batches) batch.count = 0;
     for (const vehicle of vehicles) {
       const moto = vehicle.car;
