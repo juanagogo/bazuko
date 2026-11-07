@@ -80,6 +80,8 @@ import { CheatMode } from './trucos.js';
 import { WaterEffects } from '../systems/WaterEffects.js';
 import { BusExhaust } from '../systems/BusExhaust.js';
 import { StationCrowd } from '../systems/StationCrowd.js';
+import { PeoplePool, POOL_SIZE } from '../systems/PeoplePool.js';
+import { ArticulatedPassengers } from '../systems/ArticulatedPassengers.js';
 import { LocalLights } from './LocalLights.js';
 import { ContactShadows } from './ContactShadows.js';
 import { GRAPHICS_PROFILES } from './GraphicsQuality.js';
@@ -139,7 +141,11 @@ export class Game {
     this.player = new Player(this.sceneMgr.scene, this.input, this.stats, this.audio, { animaciones });
     this.waterEffects = new WaterEffects(this.sceneMgr.scene);
     this.busExhaust = new BusExhaust(this.sceneMgr.scene);
-    this.stationCrowd = new StationCrowd(this.sceneMgr.scene);
+    // Gente real de la calle prestada a las busetas y al andén cuando la cámara está cerca; se precarga con la ciudad
+    // `?sinGente` apaga el grupo (para medir cuánto cuesta la gente de los buses y del andén)
+    this.people = new PeoplePool(this.sceneMgr.scene, { size: globalThis.location?.search?.includes('sinGente') ? 0 : POOL_SIZE });
+    this.stationCrowd = new StationCrowd(this.sceneMgr.scene, this.people);
+    this.busRiders = new ArticulatedPassengers(this.people);
     this.contactShadows = new ContactShadows(this.sceneMgr.scene);
     this._contactShadowFrame = {
       player: this.player,
@@ -340,7 +346,8 @@ export class Game {
         () => this.audio.ready],
       [...(district?.npcs ?? []), ...(this.roadRage?.preloadables ?? []), ...(this.limpieza?.preloadables ?? []), ...(this.robo?.preloadables ?? [])].map(npc => () => npc.preload()),
       importedEntities.map(entity => () => entity.preloadModel()),
-      [() => district?.preloadDetails?.()]
+      [() => district?.preloadDetails?.()],
+      this.people?.tasks() ?? []
     ], (done, total) => {
       const text = `Cargando recursos… ${done} de ${total}`;
       // Repintar por presupuesto temporal, no dos fotogramas por cada instancia.
@@ -372,7 +379,7 @@ export class Game {
     this.world.update(0, this.player.position, this.cameraRig.camera);
     this.localLights.update(0, this.player.position, (x, z) => district?.getGroundHeight?.(x, z) ?? 0, this.cameraRig.camera);
     await loading.stage('Preparando texturas, luces y shaders…');
-    const extraModels = [...(district?.npcs ?? []), ...(this.roadRage?.preloadables ?? []), ...(this.limpieza?.preloadables ?? [])].flatMap(npc => [npc.lodChar?.group, npc.fullChar?.group]).filter(Boolean);
+    const extraModels = [...(district?.npcs ?? []), ...(this.roadRage?.preloadables ?? []), ...(this.limpieza?.preloadables ?? [])].flatMap(npc => [npc.lodChar?.group, npc.fullChar?.group]).filter(Boolean).concat(this.people?.groups.slice(0, 3) ?? []);
     const rain = this.weather?.rainParticles;
     if (rain) rain.visible = true;
     try {
@@ -643,6 +650,7 @@ export class Game {
     if (this.parkedMotos) this.sceneMgr.scene.add(this.parkedMotos);
     if (district.getTrafficRoutes) {
       this.traffic = new TrafficSystem(this.sceneMgr.scene, district.getTrafficRoutes(), { policeCount: 2 });
+      this.traffic.people = this.people;
       this.traffic.setDensity(this.trafficDensity);
       // La flota diaria entra y sale con el reloj: el juego le da de alta el carro nuevo y de baja el que se va.
       this.traffic.onVehicleAdded = (car) => {
@@ -1378,7 +1386,8 @@ export class Game {
     mojarCarton(streetWetness.value);
     this.audio.setRainLevel?.(this.weather?.isRaining ? this.weather.rainIntensity : 0);
     // El humo de las busetas sale del escape y lo inclina el viento que acaba de actualizarse.
-    this.stationCrowd?.update(this.cameraRig.camera.position, this.clock.hour, !!this.world?.active?.busService);
+    this.stationCrowd?.update(this.cameraRig.camera.position, this.clock.hour, !!this.world?.active?.busService, dt);
+    this.busRiders?.update(this.world?.active?.busServices ?? [], this.cameraRig.camera.position, this.clock.hour);
     this.busExhaust?.update(dt, { vehicles: this.traffic?.vehicles, camera: this.cameraRig.camera, wind: this.weather?.wind });
 
     // 9. Entidades
@@ -1599,6 +1608,8 @@ export class Game {
     this.waterEffects?.dispose();
     this.busExhaust?.dispose();
     this.stationCrowd?.dispose();
+    this.busRiders?.dispose();
+    this.people?.dispose();
     this.contactShadows?.dispose();
     this.gpsBeacon?.dispose();
     this.psychosis?.dispose?.();
