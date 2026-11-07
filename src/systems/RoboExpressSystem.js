@@ -251,6 +251,7 @@ export class RoboExpressSystem {
       case 'fight': this._fight(dt); break;
       case 'leaving': this._leave(dt); break;
     }
+    this.entry.lookAround = this.state === 'stopped' || this.state === 'demand' || this.state === 'robbing' || this.state === 'fight';
     if (this.robber.active) this._keepTargets();
     this.robber.update(dt, { player, camera });
   }

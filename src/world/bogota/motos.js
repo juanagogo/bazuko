@@ -422,7 +422,7 @@ const SEATS = {
   domicilio: [URBANA_SEATS[0], null, null, null, null]
 };
 
-const NO_SWAY = { roll: 0, pitch: 0 };
+const NO_SWAY = { roll: 0, pitch: 0, yaw: 0 };
 let variantGeometries = null;
 /** Una geometría por variante, con sus puestos ya horneados; el lote esconde los que van vacíos. */
 function motoVariantGeometries() {
@@ -511,7 +511,9 @@ export class MotoFleet {
       const speed = vehicle.speed ?? 0, accel = vehicle.acceleration ?? 0, steer = vehicle._driveContext?.steering ?? 0, phase = moto.phase ?? 0;
       const sway = near ? {
         roll: Math.max(-.6, Math.min(.6, steer)) * .45 + Math.sin(motoTime.value * .7 + phase) * .02,
-        pitch: Math.max(-.16, Math.min(.16, -accel * .04)) + Math.sin(motoTime.value * 2.1 + phase) * .02 * Math.min(Math.abs(speed), 6) / 6
+        pitch: Math.max(-.16, Math.min(.16, -accel * .04)) + Math.sin(motoTime.value * 2.1 + phase) * .02 * Math.min(Math.abs(speed), 6) / 6,
+        // Quien espera parado en la moto (el conductor del robo express) gira a mirar a todos lados.
+        yaw: vehicle.lookAround ? Math.sin(motoTime.value * .8 + phase) * .55 : 0
       } : NO_SWAY;
       const seats = SEATS[MOTO_VARIANTS[moto.variant]];
       for (let seat = 0; seat < 5; seat++) {

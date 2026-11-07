@@ -22,6 +22,9 @@ export const ROBBER = {
   health: 70
 };
 
+// El arma va más grande que la real: de lejos y con la cámara de tercera persona se tiene que leer qué empuña.
+export const WEAPON_SCALE = 1.9;
+
 export const DEMANDS = [
   '¡Quieto, gonorrea!',
   '¡El celular, rápido!',
@@ -70,15 +73,15 @@ export class RobberMember extends Npc {
   get armed() { return this.weapon; }
 
   _show(char) {
-    char.setWeapon?.(this.weapon);
+    char.setWeapon?.(this.weapon, WEAPON_SCALE);
     super._show(char);
   }
 
   setWeapon(weapon) {
     this.weapon = weapon;
-    this.character?.setWeapon?.(weapon);
-    this.lodChar?.setWeapon?.(weapon);
-    this.fullChar?.setWeapon?.(weapon);
+    this.character?.setWeapon?.(weapon, WEAPON_SCALE);
+    this.lodChar?.setWeapon?.(weapon, WEAPON_SCALE);
+    this.fullChar?.setWeapon?.(weapon, WEAPON_SCALE);
   }
 
   /** Se baja de la moto en `point` (mundo) mirando hacia `face`. */

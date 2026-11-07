@@ -543,16 +543,19 @@ export async function createRealisticCharacter(look = {}, { lod = false, animaci
   let disposed = false;
   const weights = {};
   let weaponId = null; // arma en mano (cuchillo, botella_picada) o null
+  let weaponScale = 1; // tamaño del arma en la mano: la pistola y el cuchillo de un atraco se tienen que leer de lejos
   let smoking = null;   // qué se fuma en la mano izquierda ('cigarrillo', 'hierba') o null
   let basuco = false;   // pipa en la izquierda y encendedor en la derecha
   let radioWanted = false; // radio de mano mientras esté prendida
   let radioProp = null;
 
   function syncWeapon() {
-    if (!inst || inst.weaponId === weaponId) return;
+    if (!inst || (inst.weaponId === weaponId && inst.weaponScale === weaponScale)) return;
     inst.weapon?.dispose();
     inst.weapon = weaponId ? attachWeapon(inst.root, inst.bones, weaponId) : null;
+    if (inst.weapon && weaponScale !== 1) inst.weapon.object.scale.multiplyScalar(weaponScale);
     inst.weaponId = weaponId;
+    inst.weaponScale = weaponScale;
   }
 
   function syncCigarette() {
@@ -611,7 +614,7 @@ export async function createRealisticCharacter(look = {}, { lod = false, animaci
     get look() { return look; },
     setLook(l) { look = l; return setLook(l); },
     /** Arma visible en la mano derecha; null para ir con las manos vacías */
-    setWeapon(id) { weaponId = id || null; syncWeapon(); },
+    setWeapon(id, scale = 1) { weaponId = id || null; weaponScale = scale; syncWeapon(); },
     /** Cigarrillo (o porro, con kind = 'hierba') en la mano izquierda */
     setSmoking(on, kind = 'cigarrillo') { smoking = on ? kind : null; syncCigarette(); },
     /** Brasa del cigarrillo en el mundo, o null si no está fumando */

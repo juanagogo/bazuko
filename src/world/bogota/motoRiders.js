@@ -289,7 +289,7 @@ export function bakeRiders() {
 // ---------- dibujo instanciado ----------
 
 const _m = new THREE.Matrix4(), _local = new THREE.Matrix4(), _pos = new THREE.Vector3(), _unit = new THREE.Vector3(1, 1, 1);
-const _qx = new THREE.Quaternion(), _qz = new THREE.Quaternion(), _ex = new THREE.Vector3(1, 0, 0), _ez = new THREE.Vector3(0, 0, 1);
+const _qy = new THREE.Quaternion(), _ey = new THREE.Vector3(0, 1, 0), _qx = new THREE.Quaternion(), _qz = new THREE.Quaternion(), _ex = new THREE.Vector3(1, 0, 0), _ez = new THREE.Vector3(0, 0, 1);
 const _color = new THREE.Color();
 
 /** Un lote instanciado por cada persona y pose; solo se dibujan los que tienen a alguien montado. */
@@ -331,7 +331,9 @@ export class MotoRiders {
     if (!lot || lot.count >= this.capacity) return;
     const index = lot.count++;
     _qx.setFromAxisAngle(_ex, sway.roll); _qz.setFromAxisAngle(_ez, sway.pitch);
-    _local.compose(_pos.set(seat[0], seat[1], 0), _qx.multiply(_qz), _unit);
+    // `yaw`: el cuerpo gira sobre el asiento (quien espera mirando a todos lados).
+    _qy.setFromAxisAngle(_ey, sway.yaw ?? 0);
+    _local.compose(_pos.set(seat[0], seat[1], 0), _qy.multiply(_qx.multiply(_qz)), _unit);
     _m.multiplyMatrices(motoMatrix, _local);
     lot.mesh.setMatrixAt(index, _m);
     _color.setRGB(...CLOTH[cloth & 7], THREE.SRGBColorSpace);
