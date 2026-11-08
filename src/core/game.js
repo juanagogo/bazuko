@@ -193,6 +193,8 @@ export class Game {
     this.robo.onShot = () => this.steal?._alertPolice?.();
     // La calle de los de la calle: ladrillo para raspar, refugio de chamber, bocadillos gigantes y cartón para dormir
     this.calle = new CalleSystem(this.sceneMgr.scene, { player: this.player, stats: this.stats, inventory: this.inventory, people: this.people, audio: this.audio });
+    this.calle.camera = this.cameraRig?.camera ?? null;
+    this.calle.collisions = this.collisions;
     // Imagen y sonido al consumir pegante, pastilla o hierba
     this.substanceEffects = new SubstanceEffects({ canvas, audio: this.audio });
     // el basuco además trae paranoia: sombras, susurros y mirar a los lados

@@ -43,7 +43,8 @@ export const BOCADILLO = {
   touch: 1.4,
   scare: 3,               // de ánimo que se lleva el susto
   scareCooldown: 4,
-  ring: [10, 15]
+  ring: [8, 12],
+  fov: 1.1                // rad de abanico delante de la cámara donde nace
 };
 
 export const CARTON_SLEEP = {
@@ -254,6 +255,8 @@ export class CalleSystem {
     this.hangover = null;
     this.scrape = null;
     this._scare = 0;
+    this.camera = null;
+    this.collisions = null;
     this._ground = () => 0;
     this.root = new THREE.Group();
     this.root.name = 'Calle';
@@ -423,13 +426,37 @@ export class CalleSystem {
 
   // ---------- bocadillos gigantes ----------
 
+  /** Hacia dónde mira la cámara, para que el bocadillo nazca a la vista y no a la espalda del jugador. */
+  _viewYaw() {
+    if (!this.camera) return null;
+    const d = this.camera.getWorldDirection(new THREE.Vector3());
+    return Math.hypot(d.x, d.z) > .01 ? Math.atan2(d.z, d.x) : null;
+  }
+
+  _solidAt(x, z) {
+    if (!this.collisions) return false;
+    return this.collisions.queryStatic(x - .6, z - .6, x + .6, z + .6, []).some(({ box }) => box.max.y > .4 && box.min.y < 1.6 && box.min.x < x + .6 && box.max.x > x - .6 && box.min.z < z + .6 && box.max.z > z - .6);
+  }
+
+  /** Un punto del anillo delante de la cámara y libre de paredes; si no hay, cualquiera del anillo. */
+  _bocadilloSpot() {
+    const p = this.player.position, yaw = this._viewYaw(), span = BOCADILLO.ring;
+    let angle = 0, r = span[0], x = p.x, z = p.z;
+    for (let i = 0; i < 12; i++) {
+      angle = yaw === null ? this.random() * Math.PI * 2 : yaw + (this.random() - .5) * BOCADILLO.fov;
+      r = span[0] + this.random() * (span[1] - span[0]);
+      x = p.x + Math.cos(angle) * r; z = p.z + Math.sin(angle) * r;
+      if (!this._solidAt(x, z)) break;
+    }
+    return { x, z };
+  }
+
   summonBocadillos(count = 3) {
-    const p = this.player.position;
     let made = 0;
     for (let i = 0; i < count && this.bocadillos.length < BOCADILLO.max; i++) {
-      const angle = this.random() * Math.PI * 2, r = BOCADILLO.ring[0] + this.random() * (BOCADILLO.ring[1] - BOCADILLO.ring[0]);
+      const { x, z } = this._bocadilloSpot();
       const mesh = bocadilloMesh();
-      mesh.position.set(p.x + Math.cos(angle) * r, this._ground(p.x, p.z), p.z + Math.sin(angle) * r);
+      mesh.position.set(x, this._ground(x, z), z);
       this.root.add(mesh);
       this.bocadillos.push({ mesh, age: 0, phase: this.random() * 6 });
       made++;

@@ -211,3 +211,22 @@ test('el cartón se tiende bajo el jugador mientras duerme y se recoge al desper
   calle.reset();
   assert.equal(calle.root.children.filter(c => c.name === 'Cartón tendido').length, 0);
 });
+
+test('el bocadillo nace a la vista, delante de la cámara y fuera de las paredes', async () => {
+  const { calle, player } = await build({ random: (() => { let s = 7; return () => (s = (s * 16807) % 2147483647) / 2147483647; })() });
+  const camera = new THREE.PerspectiveCamera(60, 16 / 9, .1, 200);
+  camera.position.set(player.position.x - 5, 3, player.position.z);
+  camera.lookAt(player.position.x + 5, 0, player.position.z);
+  camera.updateMatrixWorld(true);
+  calle.camera = camera;
+  const wall = new THREE.Box3(new THREE.Vector3(player.position.x + 5, 0, player.position.z), new THREE.Vector3(player.position.x + 30, 8, player.position.z + 30));
+  calle.collisions = { queryStatic: () => [{ box: wall }] };
+  for (let i = 0; i < 60; i++) {
+    calle._clearBocadillos();
+    calle.summonBocadillos(1);
+    const p = calle.bocadillos[0].mesh.position;
+    const angle = Math.atan2(p.z - player.position.z, p.x - player.position.x);
+    assert.ok(Math.abs(angle) <= BOCADILLO.fov / 2 + 1e-6, 'dentro del abanico de la cámara');
+    assert.ok(!wall.containsPoint(new THREE.Vector3(p.x, .5, p.z)), 'no nace dentro de una pared');
+  }
+});
