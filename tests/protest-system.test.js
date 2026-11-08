@@ -9,16 +9,17 @@ import { fakePool } from './fakePool.js';
 
 const route = () => straightRoute(new THREE.Vector3(40, 0, -100), new THREE.Vector3(0, 0, 1), 200);
 
-async function build({ crowd = 40, police = 12, random = () => .5 } = {}) {
+async function build({ crowd = 40, police = 24, random = () => .5 } = {}) {
   const people = await fakePool(crowd), cops = await fakePool(police);
   const player = { position: new THREE.Vector3(0, 0, 0) };
   const stats = { salud: 100 };
   const system = new ProtestSystem(new THREE.Scene(), { player, stats, people, cops, random });
-  const traffic = [], registered = [];
-  system.setup({ getGroundHeight: () => 0 }, [route()], traffic, { interaction: { register: t => registered.push(t), unregister: t => registered.splice(registered.indexOf(t), 1) } });
+  const traffic = [], registered = [], closures = [];
+  const vehicles = { closeSegment: (x, z, radius) => closures.push({ x, z, radius }), openSegment: () => closures.push(null) };
+  system.setup({ getGroundHeight: () => 0 }, [route()], traffic, { vehicles, interaction: { register: t => registered.push(t), unregister: t => registered.splice(registered.indexOf(t), 1) } });
   system.elapsed = PROTEST.grace;
   system.cooldown = 0;
-  return { system, people, cops, player, stats, traffic, registered };
+  return { system, people, cops, player, stats, traffic, registered, closures };
 }
 
 const run = (system, seconds, ctx = {}, dt = .25) => { for (let t = 0; t < seconds; t += dt) system.update(dt, ctx); };
@@ -78,11 +79,53 @@ test('la gente y los tombos salen del grupo con sus topes y los carros los respe
   system.trigger();
   assert.equal(people.inUse, 5);
   assert.equal(cops.inUse, 3);
-  assert.equal(traffic.length, 8);
+  assert.equal(traffic.length, PROTEST.crowd + 3, 'la gente instanciada completa la multitud y también cuenta para los carros');
   const full = await build();
   full.system.trigger();
   assert.equal(full.people.inUse, PROTEST.protesters);
   assert.equal(full.cops.inUse, PROTEST.cops);
+});
+
+test('es un tumulto: de 40 a 60 personas con muchas pancartas, gente en los andenes y una línea de tombos de dos filas', async () => {
+  const { system } = await build();
+  system.trigger();
+  const crowd = system.actors.filter(a => a.kind === 'protester'), cops = system.actors.filter(a => a.kind === 'cop');
+  assert.ok(crowd.length >= 40 && crowd.length <= 60, `${crowd.length} manifestantes`);
+  assert.ok(cops.length >= 16 && cops.length <= 24, `${cops.length} antimotines`);
+  assert.equal(crowd.filter(a => a.figure).length, PROTEST.protesters, 'adelante van personas reales y atrás las instanciadas');
+  assert.equal(system.cheap.length, crowd.length - PROTEST.protesters);
+  const side = system._side(), lateral = a => Math.abs((a.goal.x - system.center.x) * side.x + (a.goal.z - system.center.z) * side.z);
+  assert.ok(crowd.filter(a => lateral(a) > 6).length >= 10, 'hay gente en los andenes');
+  const banners = crowd.filter(a => a.sign || a.cheap?.slogan >= 0).length;
+  assert.ok(banners >= 14, `${banners} pancartas`);
+  const along = a => (a.goal.x - system.center.x) * system.axis.x + (a.goal.z - system.center.z) * system.axis.z;
+  const ranks = new Set(cops.map(a => along(a).toFixed(1)).filter(d => Math.abs(d - PROTEST.gap) < 1.6));
+  assert.equal(ranks.size, 2, 'dos filas de escudos');
+  assert.ok(cops.filter(a => along(a) > PROTEST.gap + 3).length >= 3, 'y unos cuantos detrás');
+  system.update(.25, {});
+  assert.equal(system.torsos.count, system.cheap.length);
+  assert.ok(system.boards.reduce((n, mesh) => n + mesh.count, 0) > 5, 'las pancartas instanciadas se dibujan');
+});
+
+test('con la protesta la calle se cierra al tráfico y se abre cuando la gente ya se fue', async () => {
+  const { system, closures } = await build();
+  system.trigger();
+  assert.equal(closures.length, 1);
+  assert.equal(closures[0].radius, PROTEST.closeRadius);
+  assert.ok(Math.hypot(closures[0].x - system.center.x, closures[0].z - system.center.z) < .01);
+  assert.equal(system.cues.group.visible, true, 'se ven las señales del cierre');
+  while (system.state !== 'dispersal') system.update(.25, {});
+  assert.equal(closures.length, 1, 'sigue cerrada con gente en la calle');
+  while (system.state === 'dispersal') system.update(.25, {});
+  assert.deepEqual(closures.at(-1), null, 'se abre al terminar la dispersión');
+  assert.equal(system.cues.group.visible, false);
+});
+
+test('morir o recargar en plena protesta también abre la calle', async () => {
+  const { system, closures } = await build();
+  system.trigger();
+  system.reset();
+  assert.deepEqual(closures.at(-1), null);
 });
 
 test('en el enfrentamiento vuelan piedras y los tombos tiran gas; quien se queda en la nube se enferma', async () => {

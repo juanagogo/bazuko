@@ -1371,3 +1371,48 @@ test('en Ultra los carros hacen cola en dos filas dentro del carril y todos sale
   assert.equal(passed, cars.length, 'Todos terminan saliendo con el verde');
   traffic.dispose();
 });
+
+test('un tramo cerrado no tiene vehículos adentro, nadie nace ahí, esperan en el borde y vuelven al abrirlo', () => {
+  const route = new TrafficRoute(0, 240, 0, 240), scene = new THREE.Scene();
+  const traffic = new TrafficSystem(scene, [route], { carsPerRoute: 5, policeCount: 0, random: () => .5 });
+  const far = { x: 120, y: 0, z: 1500 }, closure = { x: 120, z: 0, radius: 40 };
+  const inside = () => traffic.vehicles.filter(v => Math.hypot(v.car.position.x - closure.x, v.car.position.z - closure.z) < closure.radius - .01);
+  const total = traffic.vehicles.length;
+  traffic.closeSegment(closure.x, closure.z, closure.radius);
+  let waiting = 0;
+  for (let frame = 0; frame < 900; frame++) {
+    traffic.update(.1, { player: far });
+    assert.equal(inside().length, 0, `cuadro ${frame}: hay un vehículo en el tramo cerrado`);
+  }
+  assert.ok(traffic.vehicles.length > 0 && traffic.vehicles.length < total, 'los de adentro salieron de la flota y los de afuera siguen');
+  for (const v of traffic.vehicles) if (v.speed < .1) waiting++;
+  assert.ok(waiting > 0, 'alguien espera en el borde');
+  traffic.openSegment();
+  let entered = false;
+  for (let frame = 0; frame < 900 && !entered; frame++) {
+    traffic.update(.1, { player: far });
+    entered = inside().length > 0;
+  }
+  assert.ok(entered, 'al abrir el tramo el tráfico vuelve a pasar');
+  traffic.dispose();
+});
+
+test('con el tramo cerrado la flota que crece no pone vehículos nuevos adentro', () => {
+  const spawnedInside = closed => {
+    const route = new TrafficRoute(0, 200, 0, 120, 3.2), player = new THREE.Vector3(100, 0, 60);
+    let seed = 4242;
+    const random = () => { seed = (seed * 1664525 + 1013904223) >>> 0; return seed / 4294967296; };
+    const traffic = new TrafficSystem(new THREE.Scene(), [route], { carsPerRoute: 1, policeCount: 0, random });
+    let inside = 0, spawned = 0;
+    traffic.onVehicleAdded = car => { spawned++; if (Math.hypot(car.position.x, car.position.z - 60) < 50) inside++; };
+    traffic.setDensity('normal');
+    if (closed) traffic.closeSegment(0, 60, 50);
+    for (let frame = 0; frame < 900; frame++) traffic.update(.1, { player, camera: { position: player }, hour: 7 });
+    traffic.dispose();
+    return { inside, spawned };
+  };
+  assert.ok(spawnedInside(false).inside > 0, 'sin cierre sí nacen carros en esa zona');
+  const closed = spawnedInside(true);
+  assert.ok(closed.spawned > 0, 'la flota sí creció fuera del tramo');
+  assert.equal(closed.inside, 0);
+});

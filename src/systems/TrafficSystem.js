@@ -57,6 +57,7 @@ const CAR_INSTANCE_OUT = 44, CAR_INSTANCE_IN = 36;
 // A qué distancia de la vista aparece un carro del montaje diario: fuera de la niebla no se ve el salto.
 const RESIZE_SAFE_DISTANCE = 60;
 // Cambios de flota por segundo: al cambiar de densidad la ciudad tarda unos segundos, nunca un salto.
+const CLOSURE_LOOKAHEAD = 40, CLOSURE_STEP = 2, CLOSURE_SPAWN_PAD = 4, CLOSURE_TRAPPED_AFTER = 4, CLOSURE_TRAPPED_AWAY = 22, CLOSURE_TRAPPED_LAST = 12;
 const RESIZE_MIN_RATE = 1, RESIZE_MAX_RATE = 24, RESIZE_RATE_PER_MISSING = .5;
 // Al llenar una vista nueva se siembran varios carros por cuadro: no hay nada que hacer saltar a la vista.
 const FRESH_BURST = 48, FRESH_SECONDS = 2;
@@ -128,6 +129,9 @@ export class TrafficSystem {
     this._routeCumulative = null;
     this._spawnGrid = new Map();
     this._byOrder = (a, b) => a.order - b.order;
+    // Tramo cerrado al tráfico (una protesta): `{ x, z, radius }`. Nadie nace dentro, el que está fuera espera en el borde y
+    // el que ya estaba dentro se va solo; se retira cuando sale de la vista.
+    this.closure = null;
     this._holdPosition = new THREE.Vector3();
     this._holdDirection = new THREE.Vector3();
     this._holdCandidates = [];
@@ -390,6 +394,54 @@ export class TrafficSystem {
     return true;
   }
 
+  closeSegment(x, z, radius) { this.closure = { x, z, radius }; }
+
+  openSegment() {
+    this.closure = null;
+    for (const vehicle of this.vehicles) vehicle.evacuating = false;
+  }
+
+  _inClosure(x, z, pad = 0) {
+    const closure = this.closure;
+    if (!closure) return false;
+    const dx = x - closure.x, dz = z - closure.z, radius = closure.radius + pad;
+    return dx * dx + dz * dz < radius * radius;
+  }
+
+  /**
+   * Retira de la flota, ya fuera de la vista, a quien sigue dentro del tramo cerrado: dentro ya no entra nadie. Quien aún
+   * se ve no desaparece: sale del tramo sin esperar semáforos, y se retira en cuanto la cámara deja de verlo. Si queda
+   * atrapado entre la gente se retira de todos modos: pronto si está lejos de la cámara, y al fin y al cabo si está cerca.
+   */
+  _sweepClosure(dt) {
+    if (!this.closure) return;
+    const view = this._viewPosition;
+    for (let index = this.vehicles.length - 1; index >= 0; index--) {
+      const vehicle = this.vehicles[index], position = vehicle.car.position;
+      if (!this._inClosure(position.x, position.z)) { vehicle.evacuating = false; continue; }
+      if (!this._canRetire(vehicle)) continue;
+      vehicle.evacuating = true;
+      vehicle.trappedFor = vehicle.speed < .3 ? (vehicle.trappedFor ?? 0) + dt : 0;
+      const away = (position.x - view.x) ** 2 + (position.z - view.z) ** 2 > CLOSURE_TRAPPED_AWAY ** 2;
+      if (this._outOfView(position) || (vehicle.trappedFor > CLOSURE_TRAPPED_AFTER && away) || vehicle.trappedFor > CLOSURE_TRAPPED_LAST) this._retire(vehicle);
+    }
+  }
+
+  /** Hasta dónde puede avanzar un vehículo antes de entrar al tramo cerrado; el que ya está dentro sale sin estorbo. */
+  _closureClearance(vehicle) {
+    const closure = this.closure;
+    if (!closure || vehicle.state === 'chase' || vehicle.rejoinTarget) return Infinity;
+    const { car, route } = vehicle, position = this._probePosition, direction = this._probeDirection;
+    const near = closure.radius + CLOSURE_LOOKAHEAD;
+    const dx = car.position.x - closure.x, dz = car.position.z - closure.z;
+    if (dx * dx + dz * dz > near * near || this._inClosure(car.position.x, car.position.z)) return Infinity;
+    for (let ahead = 0; ahead <= CLOSURE_LOOKAHEAD; ahead += CLOSURE_STEP) {
+      route.sample(vehicle.distance + ahead, position, direction);
+      if (this._inClosure(position.x, position.z)) return Math.max(0, ahead - car.length * .5 - 1);
+    }
+    return Infinity;
+  }
+
   /**
    * Un punto libre de cualquier circuito dentro de la burbuja, elegido por largo de circuito. Con una vista nueva se
    * prefiere el que cae a la vista; después, el que está fuera de ella y entra solo, o el que ya es mancha en la niebla.
@@ -417,6 +469,7 @@ export class TrafficSystem {
       if (cx * cx + cz * cz > radiusSq) continue;
       const dx = position.x - view.x, dz = position.z - view.z, fromViewSq = dx * dx + dz * dz;
       if (fromViewSq < nearSq) continue;
+      if (this._inClosure(position.x, position.z, CLOSURE_SPAWN_PAD)) continue;
       // Nacer dentro de un cruce es pedir la reserva a la fuerza; fuera de él entra como cualquier otro.
       if (this._nearNode(position)) continue;
       const visible = !!camera && !this._outOfView(position);
@@ -1054,6 +1107,7 @@ export class TrafficSystem {
       if (car.position.x >= node.x0 - reach && car.position.x <= node.x1 + reach &&
         car.position.z >= node.z0 - reach && car.position.z <= node.z1 + reach) nodes.push(node);
     }
+    if (vehicle.evacuating) nodes.length = 0;
     const playerNear = !!player && (player.x - car.position.x) ** 2 + (player.z - car.position.z) ** 2 <= (radius + 2) ** 2;
     // Sin cruce, carro, persona ni jugador al alcance, la muestra del camino no tiene qué encontrar.
     const legacy = !!this.signals && !this.signals.nodes;
@@ -1436,6 +1490,7 @@ export class TrafficSystem {
     if (Number.isFinite(hour)) this._motoThreshold = motoThreshold(hour, this.densityId);
     if (this.densityId && Number.isFinite(hour)) this._resizeFleet(hour, dt);
     this._updateLod();
+    this._sweepClosure(dt);
     this._clearStuck(dt);
     this._coordinateIntersections();
     for (const vehicle of this.vehicles) {
@@ -1462,7 +1517,7 @@ export class TrafficSystem {
           }
           if (vehicle.car.isMoto) this._boxStep(vehicle, stepTime);
           else if (this.densityId === 'ultra' && !vehicle.police) this._fileStep(vehicle, stepTime);
-          const clearance = this._clearance(vehicle, player, pedestrians);
+          const clearance = Math.min(this._clearance(vehicle, player, pedestrians), this._closureClearance(vehicle));
           const braking = vehicle.braking ?? BRAKING;
           // Anticipa la respuesta gradual del conductor; el peatón no es una pared
           // capaz de eliminar la velocidad restante en un solo subpaso.
