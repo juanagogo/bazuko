@@ -105,6 +105,7 @@ export class InteractionSystem {
         else if (t.kind === 'cart') nearestType = 'cart';
         else if (t.kind === 'fireBarrel') nearestType = 'fireBarrel';
         else if (t.kind === 'recycler') nearestType = 'sell';
+        else if (t.kind === 'calle') nearestType = 'calle';
         else if (t.kind === 'mesa') nearestType = 'mesa';
         else if (typeof t.harvest === 'function') nearestType = 'pickup';
         else if (typeof t.steal === 'function') nearestType = 'car';
@@ -170,6 +171,9 @@ export class InteractionSystem {
           break;
         case 'fireBarrel':
           this._warmAtFire(nearest);
+          break;
+        case 'calle':
+          nearest.interact();
           break;
         case 'dog':
           this._interactDog(nearest);
