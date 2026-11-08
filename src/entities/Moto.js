@@ -2,7 +2,7 @@
 // Una moto que circula. La geometría, el material y el lote viven en motos.js: aquí solo van sus datos y su puesto,
 // que es lo que el tráfico mueve como a cualquier vehículo.
 import * as THREE from 'three';
-import { MOTO_SIZES } from '../world/bogota/motos.js';
+import { MOTO_COLLIDERS, MOTO_SIZES } from '../world/bogota/motos.js';
 
 export class Moto {
   constructor(position, rotation, { variant, occupancy, helmets, kids, bags, packs, cloth, color, phase = 0 }) {
@@ -20,6 +20,7 @@ export class Moto {
     this.color = new THREE.Color(color);
     this.length = MOTO_SIZES[variant].length;
     this.width = MOTO_SIZES[variant].width;
+    this.collider = MOTO_COLLIDERS[variant];
     this.drawn = true;
     // Sin padre en la escena: el lote dibuja la moto y este grupo solo guarda dónde va.
     this.group = new THREE.Group();

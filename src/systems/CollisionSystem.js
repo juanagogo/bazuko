@@ -104,16 +104,20 @@ export class CollisionSystem {
       let entry = this._vehicles.get(vehicle);
       if (!entry) { entry = { vehicle, box: new THREE.Box3() }; this._vehicles.set(vehicle, entry); }
       const isBus = buses.has(vehicle);
-      // Un vehículo de lado a 45 grados no puede ocupar la caja que lo rodea: ahí se camina. Solo los alineados usan caja simple.
-      const yaw = vehicle.group.rotation.y, aligned = Math.abs(Math.sin(2 * yaw)) < .02;
-      if (isBus || !aligned) {
+      // Un vehículo de lado a 45 grados no puede ocupar la caja que lo rodea: ahí se camina. Solo los alineados y sin
+      // desfase usan caja simple; la moto siempre va con su caja ajustada a la malla.
+      const yaw = vehicle.group.rotation.y, aligned = Math.abs(Math.sin(2 * yaw)) < .02, fitted = vehicle.collider;
+      if (isBus || fitted || !aligned) {
         entry.obb ??= { center: new THREE.Vector3(), halfSize: new THREE.Vector3(), quaternion: new THREE.Quaternion(),
           inverse: new THREE.Quaternion(), axes: [new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3()] };
         const o = entry.obb;
         o.quaternion.copy(vehicle.group.quaternion); o.inverse.copy(o.quaternion).invert();
-        const height = isBus ? 3.5 : vehicle.kind === 'buseta' ? 3 : 1.65;
-        o.halfSize.set(vehicle.width / 2, height / 2, vehicle.length / 2);
-        o.center.set(0, o.halfSize.y, 0).applyQuaternion(o.quaternion).add(vehicle.position);
+        const height = fitted ? fitted.h : isBus ? 3.5 : vehicle.kind === 'buseta' ? 3 : 1.65;
+        // El bus lleva su largo sobre z local; el resto de vehículos, sobre x local (el frente es +x).
+        const hl = fitted ? (fitted.x1 - fitted.x0) / 2 : vehicle.length / 2, hw = fitted ? fitted.hw : vehicle.width / 2;
+        const shift = fitted ? (fitted.x0 + fitted.x1) / 2 : 0;
+        if (isBus) o.halfSize.set(hw, height / 2, hl); else o.halfSize.set(hl, height / 2, hw);
+        o.center.set(isBus ? 0 : shift, o.halfSize.y, 0).applyQuaternion(o.quaternion).add(vehicle.position);
         o.axes[0].set(1,0,0).applyQuaternion(o.quaternion);
         o.axes[1].set(0,1,0).applyQuaternion(o.quaternion);
         o.axes[2].set(0,0,1).applyQuaternion(o.quaternion);

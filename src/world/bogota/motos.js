@@ -342,6 +342,14 @@ function addDeliveryBox(b) {
 
 export const MOTO_VARIANTS = Object.freeze(['urbana', 'scooter', 'canasta', 'domicilio']);
 /** Largo y ancho de colisión: la caja del domicilio y la canasta sobresalen de la moto. */
+/**
+ * La caja de colisión de cada variante, ajustada a su malla: de x0 a x1 a lo largo (el frente es +x), la mitad del ancho y
+ * la altura con el casco. Más corta que la envolvente del dibujo, porque los guardabarros y los espejos no frenan a nadie.
+ */
+export const MOTO_COLLIDERS = Object.freeze([
+  { x0: -1.13, x1: .88, hw: .32, h: 1.6 }, { x0: -.95, x1: .77, hw: .32, h: 1.5 },
+  { x0: -.99, x1: .88, hw: .33, h: 1.6 }, { x0: -1.19, x1: .88, hw: .36, h: 1.6 }
+]);
 export const MOTO_SIZES = Object.freeze([
   { length: 2, width: .72 }, { length: 1.78, width: .7 }, { length: 2.1, width: .74 }, { length: 2.28, width: .78 }
 ]);
