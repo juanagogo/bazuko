@@ -1074,7 +1074,6 @@ export class TrafficSystem {
       if (vehicle.guardFree > 0) vehicle.guardFree -= stepTime;
       else if (worst > OVERLAP_TOLERANCE && worst > (vehicle.overlap ?? 0) - .002) {
         this._undoStep(vehicle);
-        if (culprit.route && culprit.state !== 'chase' && !culprit.rejoinTarget) this._undoStep(culprit);
         worst = vehicle.overlap ?? 0;
         vehicle.guardHold = (vehicle.guardHold ?? 0) + stepTime;
         if (vehicle.guardHold > GUARD_PATIENCE) {
