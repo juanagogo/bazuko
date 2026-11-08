@@ -58,6 +58,8 @@ export class RobberMember extends Npc {
     this.state = 'idle';     // fase del golpe en pelea: idle | windup | strike | recover
     this.stateTimer = 0;
     this.attackTimer = 0;
+    this.demands = null;     // lo que grita al exigir; por defecto DEMANDS
+    this.choro = false;      // va pegado de algo: se mueve a espasmos
     this.shotTimer = 0;
     this.speakTimer = 0;
     this.poseParams = {};
@@ -196,16 +198,18 @@ export class RobberMember extends Npc {
     }
     if (this.staggerTimer > 0) return null;
     this._face(player.x, player.z, dt);
+    // El «pegado» no se queda quieto: el cuerpo le da espasmos
+    if (this.choro) this.root.rotation.y += Math.sin(this._twitch = (this._twitch ?? 0) + dt * 31) * .09;
 
     if (mode === 'approach') {
       const left = this._moveTowards(player, ROBBER.walkSpeed, dt, ROBBER.holdDistance);
       this.poseParams = this._threat();
-      const said = this._speak(dt, DEMANDS);
+      const said = this._speak(dt, this.demands ?? DEMANDS);
       return left <= ROBBER.holdDistance + .2 ? 'arrived' : said ? 'demand' : null;
     }
     if (mode === 'hold') {
       this.poseParams = this._threat();
-      return this._speak(dt, DEMANDS) ? 'demand' : null;
+      return this._speak(dt, this.demands ?? DEMANDS) ? 'demand' : null;
     }
 
     // pelea
