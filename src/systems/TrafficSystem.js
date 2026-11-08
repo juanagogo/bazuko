@@ -1374,6 +1374,8 @@ export class TrafficSystem {
     }
     for (const vehicle of this.parkedCars ?? []) insert(vehicle);
     for (const vehicle of this.busVehicles ?? []) if (vehicle.car.group.visible) insert(vehicle);
+    // la moto del robo express no es del tráfico, pero los carros la ven y frenan como ante un parqueado
+    for (const entry of this.extraMotos) if (entry.car.drawn) insert(entry);
     for (const person of pedestrians) this._personGrid.insert(person, person.position.x, person.position.z);
   }
 

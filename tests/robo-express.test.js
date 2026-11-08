@@ -15,6 +15,7 @@ const { ROBBER, DEMANDS } = await import('../src/entities/RobberMember.js');
 
 let toasts;
 beforeEach(() => {
+  ROBO.armed = false; ROBO.contra = false;
   globalThis.window = new EventTarget();
   toasts = [];
   window.addEventListener('toast', e => toasts.push(e.detail.text));

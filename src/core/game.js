@@ -191,7 +191,7 @@ export class Game {
     this.limpieza.onPlayerHurt = () => { if (this.stats.salud <= 0) this._deathCause = 'limpieza'; };
     // Robo express: dos en moto frenan junto al jugador; si pelea o corre, la policía y el tráfico responden como siempre
     this.robo = new RoboExpressSystem(this.sceneMgr.scene, { player: this.player, stats: this.stats, inventory: this.inventory, audio: this.audio });
-    this.robo.onPlayerHurt = () => { if (this.stats.salud <= 0) this._deathCause = 'golpiza'; };
+    this.robo.onPlayerHurt = (_damage, what) => { if (this.stats.salud <= 0) this._deathCause = what === 'tiro' ? 'tiro' : what === 'cuchillazo' ? 'cuchillada' : 'golpiza'; };
     this.robo.onShot = () => this.steal?._alertPolice?.();
     // La calle de los de la calle: ladrillo para raspar, refugio de chamber, bocadillos gigantes y cartón para dormir
     this.calle = new CalleSystem(this.sceneMgr.scene, { player: this.player, stats: this.stats, inventory: this.inventory, people: this.people, audio: this.audio });
@@ -757,7 +757,7 @@ export class Game {
     if (this.traffic) this.roadRage?.setup(district, this.traffic, district.trafficPedestrians, { collisions: this.collisions });
     if (this.crashes) { this.crashes.reset(); this.crashes.traffic = this.traffic; }
     if (this.traffic) this.limpieza?.setup(district, this.traffic.routes, district.trafficPedestrians, { collisions: this.collisions });
-    if (this.traffic) this.robo?.setup(district, this.traffic.routes, district.trafficPedestrians, { collisions: this.collisions, extraMotos: this.traffic.extraMotos });
+    if (this.traffic) this.robo?.setup(district, this.traffic.routes, district.trafficPedestrians, { collisions: this.collisions, extraMotos: this.traffic.extraMotos, traffic: this.traffic });
     if (this.traffic) this.protest?.setup(district, this.traffic.routes, district.trafficPedestrians, { interaction: this.interaction, vehicles: this.traffic, collisions: this.collisions });
 
     // ===== Tienda La Esquinita =====

@@ -7,6 +7,8 @@ import * as THREE from 'three';
 import { Moto } from '../entities/Moto.js';
 import { RobberMember, ROBBER, DRIVER_CALLS } from '../entities/RobberMember.js';
 import { straightRoute } from './LimpiezaSocialSystem.js';
+import { ARMED, CHORO_LINES, GUN_DEMANDS, KNIFE_DEMANDS, armedAct, planRobbery } from './RoboArmed.js';
+import { overlapDepth, vehicleBox } from './VehicleOverlap.js';
 
 const toast = (text, type = 'info') => globalThis.window?.dispatchEvent?.(new CustomEvent('toast', { detail: { text, type } }));
 const cop = n => `$${Math.round(n).toLocaleString('es-CO')}`;
@@ -41,7 +43,13 @@ export const ROBO = {
   lootShare: [.15, .4],  // parte de la plata que se llevan
   minLoot: 1000,
   itemChance: .35,       // probabilidad de que se lleven un objeto en vez de plata
-  knifeChance: .55
+  knifeChance: .55,
+  armed: true,           // el robo puede terminar en tiro o cuchillazo (ver RoboArmed.js); apagado, el ladrón solo revisa
+  contra: true,          // la moto puede ir en contravía al llegar y al irse
+  contraChance: .4,
+  dodge: 1.3,            // m que se corre de lado para esquivar un carro
+  look: 4.5,             // m hacia delante en los que mira si el camino está libre
+  arriveTimeout: 30      // s: si el tráfico no lo deja llegar, el robo se cancela
 };
 
 /** Cuánto pesa cada zona en el riesgo: más en las pobres y oscuras (ver ZONA_NOMBRES). */
@@ -86,7 +94,14 @@ export class RoboExpressSystem {
     this.holdTimer = 0;
     this.runTimer = 0;
     this.arrived = false;
-    this.outcome = null;  // 'entrego' | 'huyo' | 'peleo' según lo último que pasó
+    this.planOverride = null;
+    this.plan = null;     // el plan del ladrón (RoboArmed.planRobbery)
+    this.armed = null;    // { plan, phase, t, spot } mientras exige armado
+    this.traffic = null;
+    this.reverse = false; // va en contravía
+    this.dodge = 0;       // m de lado respecto al carril, para esquivar
+    this._probe = null;
+    this.outcome = null;  // 'entrego' | 'huyo' | 'peleo' | 'disparo' | 'cuchillazo' según lo último que pasó
     this.onPlayerHurt = null;
     this.onShot = null;
     this._people = null;
@@ -100,9 +115,10 @@ export class RoboExpressSystem {
    * @param {object[]} people lista de peatones que los carros respetan
    * @param {{ collisions?: object, extraMotos?: object[] }} extra `extraMotos`: la lista que dibuja el lote de motos
    */
-  setup(district, routes, people = null, { collisions = null, extraMotos = null } = {}) {
+  setup(district, routes, people = null, { collisions = null, extraMotos = null, traffic = null } = {}) {
     this.reset();
     this._dispose();
+    this.traffic = traffic;
     this.routes = routes ?? [];
     this._people = people;
     this.collisions = collisions;
@@ -120,6 +136,7 @@ export class RoboExpressSystem {
     });
     this.moto.setDrawn(false);
     this.entry = { car: this.moto, speed: 0, acceleration: 0 };
+    this._probe = { group: { rotation: { y: 0 } }, position: new THREE.Vector3(), collider: this.moto.collider, length: this.moto.length, width: this.moto.width };
   }
 
   get active() { return this.state !== 'idle'; }
@@ -154,7 +171,11 @@ export class RoboExpressSystem {
     if (!best) return false;
     this.route = best.route;
     this.stopAt = best.d;
-    this.distance = best.route.loop === false ? Math.max(0, best.d - ROBO.approach) : best.d - ROBO.approach;
+    // En contravía: entra por delante del jugador, de cara al tráfico, y llega hasta él en sentido contrario al de la ruta.
+    this.reverse = ROBO.contra && (best.route.loop !== false || best.d + ROBO.approach < best.route.length) && this.random() < ROBO.contraChance;
+    this.distance = this.reverse ? best.d + ROBO.approach
+      : best.route.loop === false ? Math.max(0, best.d - ROBO.approach) : best.d - ROBO.approach;
+    this.dodge = 0;
     this.speed = ROBO.cruise;
     this.state = 'arriving';
     this.timer = 0;
@@ -171,10 +192,54 @@ export class RoboExpressSystem {
     return true;
   }
 
+  /** La pose de la moto a una distancia de la ruta y un corrimiento de lado; sin mover nada. */
+  _pose(distance, offset, out = {}) {
+    this.route.sample(distance, _p, _d);
+    const dir = this.reverse ? -1 : 1, hx = _d.x * dir, hz = _d.z * dir;
+    out.x = _p.x - hz * offset; out.z = _p.z + hx * offset; out.yaw = Math.atan2(-hz, hx); out.hx = hx; out.hz = hz;
+    return out;
+  }
+
   _place() {
-    this.route.sample(this.distance, _p, _d);
-    this._heading.copy(_d);
-    this._setMoto(_p.x, _p.z, Math.atan2(-_d.z, _d.x));
+    const pose = this._pose(this.distance, this.dodge, this._poseA ??= {});
+    this._heading.set(pose.hx, 0, pose.hz);
+    this._setMoto(pose.x, pose.z, pose.yaw);
+  }
+
+  /** ¿Cabe la moto en esta pose sin tocar un carro, un bus ni un parqueado? */
+  _clearAt(x, z, yaw) {
+    const traffic = this.traffic;
+    if (!traffic) return true;
+    const probe = this._probe, mine = this._boxA ??= {}, theirs = this._boxB ??= {};
+    probe.position.set(x, 0, z); probe.group.rotation.y = yaw;
+    vehicleBox(probe, false, mine);
+    const check = (list, isBus) => {
+      for (const entry of list ?? []) {
+        const car = entry.car;
+        if (!car || car === this.moto || Math.abs(car.position.x - x) > 9 || Math.abs(car.position.z - z) > 9 || car.group?.visible === false) continue;
+        if (overlapDepth(mine, vehicleBox(car, isBus, theirs)) > .12) return false;
+      }
+      return true;
+    };
+    return check(traffic.vehicles, false) && check(traffic.busVehicles, true) && check(traffic.parkedCars, false);
+  }
+
+  /**
+   * Avanza `move` metros por la ruta esquivando lo que se atraviese: mira unos metros adelante y se corre de lado al hueco
+   * libre, a uno u otro lado; si no hay, frena. Devuelve cuánto avanzó de verdad.
+   */
+  _steer(move, dt) {
+    const dir = this.reverse ? -1 : 1, look = this.distance + dir * (move + ROBO.look);
+    const pose = this._poseB ??= {};
+    let target = null;
+    for (const offset of [this.dodge, 0, ROBO.dodge, -ROBO.dodge, ROBO.dodge * 1.7, -ROBO.dodge * 1.7]) {
+      this._pose(look, offset, pose);
+      if (this._clearAt(pose.x, pose.z, pose.yaw)) { target = offset; break; }
+    }
+    if (target === null) target = this.dodge;
+    this.dodge += Math.max(-3 * dt, Math.min(3 * dt, target - this.dodge));
+    this._pose(this.distance + dir * move, this.dodge, pose);
+    return this._clearAt(pose.x, pose.z, pose.yaw) ? move : 0;
   }
 
   _setMoto(x, z, yaw) {
@@ -202,6 +267,10 @@ export class RoboExpressSystem {
     this.route = null;
     this.speed = 0;
     this.arrived = false;
+    this.armed = null;
+    this.plan = null;
+    this.reverse = false;
+    this.dodge = 0;
     this.checkTimer = 0;
   }
 
@@ -259,20 +328,25 @@ export class RoboExpressSystem {
   _keepTargets() { if (this.state === 'demand' || this.state === 'fight' || this.state === 'robbing') this._addTargets(); }
 
   _arrive(dt) {
-    const left = this.stopAt - this.distance;
+    if (this.timer > ROBO.arriveTimeout) { this.reset(); return; }
+    const dir = this.reverse ? -1 : 1;
+    const left = dir * (this.stopAt - this.distance);
     const nose = this.moto.length / 2 + 1;
     this.route.sample(this.distance, _p, _d);
-    const ahead = (this.player.position.x - _p.x) * _d.x + (this.player.position.z - _p.z) * _d.z;
+    const ahead = dir * ((this.player.position.x - _p.x) * _d.x + (this.player.position.z - _p.z) * _d.z);
     const lateral = Math.abs((this.player.position.x - _p.x) * _d.z - (this.player.position.z - _p.z) * _d.x);
     const blocked = lateral < this.moto.width / 2 + .7 && ahead > 0 && ahead < nose + 2;
     const stopDistance = this.speed ** 2 / (2 * ROBO.braking);
     const braking = blocked || left <= stopDistance + .4;
     this.speed = braking ? Math.max(0, this.speed - ROBO.braking * (blocked ? 2 : 1) * dt) : Math.min(ROBO.cruise, this.speed + ROBO.acceleration * dt);
     if (left < .05 || (blocked && this.speed < .3)) this.speed = 0;
-    this.distance += Math.min(this.speed * dt, Math.max(0, left));
+    const want = Math.min(this.speed * dt, Math.max(0, left));
+    const move = this._steer(want, dt), carBlocked = want > 0 && move === 0;
+    if (carBlocked) this.speed = Math.max(0, this.speed - ROBO.braking * 2 * dt);
+    this.distance += dir * move;
     this.entry.speed = this.speed; this.entry.acceleration = braking ? -ROBO.braking : ROBO.acceleration;
     this._place();
-    if (this.speed === 0 || this.distance >= this.stopAt - .05) {
+    if ((this.speed === 0 && !carBlocked) || dir * (this.stopAt - this.distance) <= .05) {
       this.speed = 0; this.entry.speed = 0; this.entry.acceleration = 0;
       this.state = 'stopped';
       this.timer = 0;
@@ -283,6 +357,13 @@ export class RoboExpressSystem {
   _dismount() {
     this.moto.occupancy[2] = false;
     this.robber.dismount(this._doorPoint(_p), this.player.position);
+    // `planOverride` fija el plan de este robo (pruebas); si no, lo arma el azar
+    this.plan = this.planOverride ? { aired: false, ...this.planOverride, weapon: this.robber.weapon } : planRobbery({ weapon: this.robber.weapon, random: this.random, armed: ROBO.armed });
+    this.armed = null;
+    this.runTimer = 0;
+    this.robber.choro = this.plan.choro;
+    const demands = this.robber.weapon === 'pistola' ? GUN_DEMANDS : KNIFE_DEMANDS;
+    this.robber.demands = this.plan.choro ? [...CHORO_LINES, ...demands] : demands;
     this._addTargets();
     this.state = 'demand';
     this.timer = 0;
@@ -297,13 +378,93 @@ export class RoboExpressSystem {
 
   _demand(dt, giveIn) {
     const result = this.robber.think(dt, { player: this.player.position, mode: this.arrived ? 'hold' : 'approach' });
-    if (result === 'arrived' && !this.arrived) { this.arrived = true; this.holdTimer = 0; }
+    if (result === 'arrived' && !this.arrived) { this.arrived = true; this.holdTimer = 0; this._startArmed(); }
     const d = this._distanceToPlayer();
     if (this.arrived) this.holdTimer += dt;
+    if (this.armed && this._armedDemand(dt, giveIn, d)) return;
     if (giveIn && d <= ROBO.holdNear + 1) { this.rob(); return; }
     if (this.arrived && this.holdTimer >= ROBO.patience && d <= ROBO.holdNear) { this.rob(); return; }
     this.runTimer = d > ROBO.runDistance ? this.runTimer + dt : 0;
     if (this.runTimer >= ROBO.runConfirm) this._onRun();
+  }
+
+  // ---------- el robo armado ----------
+
+  _startArmed() {
+    if (!this.plan) return;
+    this.armed = { plan: this.plan, phase: 'arrive', t: 0, spot: this.player.position.clone() };
+    if (this.plan.style !== 'passive') this._doAct(armedAct(this.plan, { phase: 'arrive', random: this.random }));
+  }
+
+  /** Un paso del árbol de decisión; devuelve false si el ladrón es de los que solo revisan, y manda el robo de siempre. */
+  _armedDemand(dt, giveIn, d) {
+    const a = this.armed;
+    if (a.plan.style === 'passive') return false;
+    if (this.state !== 'demand') return true;
+    a.t += dt;
+    this.runTimer = d > ROBO.runDistance ? this.runTimer + dt : 0;
+    const act = armedAct(a.plan, {
+      phase: a.phase, t: a.t, giveIn: giveIn && d <= ROBO.holdNear + 1, random: this.random,
+      moved: this.player.position.distanceTo(a.spot) > ARMED.moveTolerance, ran: this.runTimer >= ROBO.runConfirm
+    });
+    this._doAct(act);
+    return true;
+  }
+
+  _doAct(act) {
+    const a = this.armed, robber = this.robber;
+    switch (act) {
+      case 'cock':
+        a.phase = 'cock'; a.t = 0;
+        this.audio?.playRobo?.('rastrillo', robber.position);
+        toast('¡Rastrilló la pistola!', 'warn');
+        break;
+      case 'point': a.phase = 'point'; a.t = 0; break;
+      case 'rob': this.rob(); break;
+      case 'shoot': this._shoot(false); break;
+      case 'air': this._shoot(true); break;
+      case 'stab': this._stab(); break;
+      case 'run': this._scared(); break;
+      default: break;
+    }
+  }
+
+  /** El tiro: suena, avisa a la policía y, si no es al aire, a quemarropa casi siempre pega. Después se va a la moto. */
+  _shoot(air) {
+    const robber = this.robber;
+    this.audio?.playRobo?.('disparo', robber.position);
+    this.onShot?.();
+    if (air) {
+      this.armed.plan.aired = true; this.armed.phase = 'point'; this.armed.t = 0;
+      robber.say('¡Pa que respete, marica!', 2.2);
+      toast('¡Disparó al aire!', 'warn');
+      return;
+    }
+    const d = this._distanceToPlayer();
+    if (this.random() < (d < 4 ? ARMED.pointBlank : ROBBER.shotChance)) this._hurt(ROBBER.shotDamage, 'tiro');
+    else toast('Un tiro pasó zumbando.', 'warn');
+    this.outcome = 'disparo';
+    robber.say('¡Ahí tiene, por no entregar!', 2.2);
+    this._startReturn();
+  }
+
+  _stab() {
+    const robber = this.robber;
+    this.audio?.playWhoosh?.();
+    if (this._distanceToPlayer() <= ROBBER.knifeRange + 1.7) this._hurt(ROBBER.knifeDamage, 'cuchillazo');
+    else toast('Tiró un cuchillazo al aire.', 'warn');
+    this.outcome = 'cuchillazo';
+    robber.say('¡Eso le pasa por sapo!', 2.2);
+    this._startReturn();
+  }
+
+  /** El pegado se asusta de lo que él mismo hace y sale corriendo sin llevarse nada. */
+  _scared() {
+    this.outcome = 'huyo';
+    this._chasing = false;
+    this.robber.say('¡Ay, no, no, no, yo no fui!', 2.4);
+    toast('El ladrón se asustó y salió corriendo.', 'info');
+    this._startReturn();
   }
 
   /** Lo que se llevan: plata casi siempre, o un objeto del costal; sin nada encima, un empujón y se van. */
@@ -388,6 +549,7 @@ export class RoboExpressSystem {
     const yaw = g.rotation.y + diff * Math.min(1, dt * 3);
     const step = ROBO.chaseSpeed * dt, nx = g.position.x + Math.cos(yaw) * step, nz = g.position.z - Math.sin(yaw) * step;
     if (!this._walkable(nx, nz)) { this.timer = ROBO.chaseTime; return; }
+    if (!this._clearAt(nx, nz, yaw)) { this.entry.speed = 0; return; }
     this._setMoto(nx, nz, yaw);
     this.entry.speed = ROBO.chaseSpeed; this.entry.acceleration = 0;
   }
@@ -438,7 +600,13 @@ export class RoboExpressSystem {
     this.speed = Math.min(ROBO.cruise * 1.3, this.speed + ROBO.acceleration * 1.5 * dt);
     const g = this.moto.group, step = this.speed * dt, nx = g.position.x + this._heading.x * step, nz = g.position.z + this._heading.z * step;
     const blocked = !this._walkable(nx, nz);
-    if (!blocked) this._setMoto(nx, nz, g.rotation.y);
+    // Se corre de lado para esquivar lo que se atraviese; si no cabe por ningún lado, espera.
+    let moved = false;
+    if (!blocked) for (const side of [0, ROBO.dodge, -ROBO.dodge]) {
+      const sx = nx - this._heading.z * side, sz = nz + this._heading.x * side;
+      if (this._clearAt(sx, sz, g.rotation.y) && this._walkable(sx, sz)) { this._setMoto(sx, sz, g.rotation.y); moved = true; break; }
+    }
+    if (!blocked && !moved) { this.speed = 0; this.timer += dt; if (this.timer > 12) this.reset(); return; }
     this.entry.speed = this.speed; this.entry.acceleration = ROBO.acceleration;
     if (blocked || Math.hypot(g.position.x - this.leaveFrom.x, g.position.z - this.leaveFrom.z) > ROBO.leave) this.reset();
   }
