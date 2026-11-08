@@ -300,6 +300,15 @@ export class AudioSystem {
     return true;
   }
 
+  /** El choque de dos carros: uno de los golpes grabados, más fuerte y que se oye de más lejos que un puñetazo. */
+  playCarCrash(position = null) {
+    const listener = this._listenerPosition;
+    const distance = position && listener ? Math.hypot(position.x - listener.x, position.z - listener.z) : 0;
+    const volume = Math.max(0, Math.min(1, (70 - distance) / 60));
+    if (volume <= 0 || !this._fx()) return false;
+    return this._playCarHit(volume * .7);
+  }
+
   _knockVolume(position) {
     const listener = this._listenerPosition;
     if (!position || !listener) return .3;

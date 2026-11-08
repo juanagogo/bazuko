@@ -1122,6 +1122,11 @@ export class TrafficSystem {
     if (vehicle.stepDistance === undefined) return;
     vehicle.distance = vehicle.stepDistance; vehicle.speed = 0; vehicle.nextSpeed = 0; vehicle.acceleration = 0;
     vehicle.lateral = vehicle.stepLateral;
+    this.placeVehicle(vehicle);
+  }
+
+  /** Pone el carro donde dicen su distancia y su franja sobre la ruta. */
+  placeVehicle(vehicle) {
     vehicle.route.sample(vehicle.distance, this._position, this._direction);
     if (vehicle.lateral) this._lateral(this._position, this._direction, vehicle.lateral);
     vehicle.car.position.copy(this._position);

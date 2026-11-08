@@ -100,6 +100,7 @@ import { DEFAULT_LOOK, normalizeLook } from '../character/look.js';
 import { streetWetness } from '../character/streetMaterials.js';
 import { ITEMS, COSTAL_BONUS, isForSale } from '../data/items.js';
 import { SLEEP } from '../data/cambuche.js';
+import { CrashSystem } from '../systems/CrashSystem.js';
 import { CalleSystem, cartonSleepOutcome, CARTON_SLEEP } from '../features/calle.js';
 import { cop } from '../utils/money.js';
 import { makeParkedMotos, MOTO_SIZE } from '../world/bogota/motos.js';
@@ -178,6 +179,7 @@ export class Game {
     // Conductores que se bajan con una varilla al robarles el retrovisor
     this.roadRage = new RoadRageSystem(this.sceneMgr.scene, { player: this.player, stats: this.stats, audio: this.audio });
     this.roadRage.onPlayerHurt = () => { if (this.stats.salud <= 0) this._deathCause = 'golpiza'; };
+    this.crashes = new CrashSystem({ traffic: null, roadRage: this.roadRage, audio: this.audio });
     window.addEventListener('mirror-stolen', (e) => this.roadRage?.trigger(e.detail?.car));
     window.addEventListener('poop-thrown', (e) => this.roadRage?.noteThrown(e.detail?.projectile));
     // Pegarle a un carro o a una moto también puede sacarle la rabia al conductor.
@@ -753,6 +755,7 @@ export class Game {
     // Pedir limosna requiere personas cerca; El Chato no cuenta.
     this.interaction.setPedestrians(district.npcs ?? []);
     if (this.traffic) this.roadRage?.setup(district, this.traffic, district.trafficPedestrians, { collisions: this.collisions });
+    if (this.crashes) { this.crashes.reset(); this.crashes.traffic = this.traffic; }
     if (this.traffic) this.limpieza?.setup(district, this.traffic.routes, district.trafficPedestrians, { collisions: this.collisions });
     if (this.traffic) this.robo?.setup(district, this.traffic.routes, district.trafficPedestrians, { collisions: this.collisions, extraMotos: this.traffic.extraMotos });
     if (this.traffic) this.protest?.setup(district, this.traffic.routes, district.trafficPedestrians, { interaction: this.interaction, vehicles: this.traffic, collisions: this.collisions });
@@ -1179,6 +1182,7 @@ export class Game {
     this._swimSoundTimer = 0;
     this.traffic?.endPursuit?.();
     this.roadRage?.reset();
+    this.crashes?.reset();
     this.limpieza?.reset();
     this.robo?.reset();
     this.protest?.reset();
@@ -1424,6 +1428,7 @@ export class Game {
     this.profiler?.mark('mundoNPC');
     this.traffic?.update(dt, { player: this.player.position, pedestrians: this.world.active?.trafficPedestrians ?? this.world.active?.npcs ?? [], onPlayerHit: this._onVehicleImpact, camera: this.cameraRig.camera, hour: this.clock.hour });
     this.roadRage?.update(dt);
+    this.crashes?.update(dt, { hour: this.clock.hour, player: this.player.position, camera: this.cameraRig.camera, blocked: this.isSleeping || this._deathPending || this._arrestPending || !!this.traffic?.inPursuit });
     this.knockFeedback?.update(dt);
     this.limpieza?.update(dt, {
       isNight: this.clock.isNight,

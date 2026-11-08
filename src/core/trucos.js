@@ -132,6 +132,12 @@ export class CheatMode {
     this.game.player.root.rotation.y = spot.yaw;
     return true;
   }
+  // ===== Choques =====
+  /** Hace chocar por detrás al par de carros en fila más cercano al jugador. */
+  choque() {
+    const crashes = this.game.crashes, pair = crashes?.pairNear?.(this.game.player.position);
+    return !!(pair && crashes.crash(pair));
+  }
   bocadillos() { return this.game.calle?.summonBocadillos(3) ?? 0; }
   /** Le pone un cartón en el costal y lo echa a dormir encima. */
   echarseEnCarton() { if (this.game.inventory) this.game.inventory.add(ITEMS.carton, 1); return this.game.sleepOnCarton(); }

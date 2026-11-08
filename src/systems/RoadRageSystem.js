@@ -123,7 +123,54 @@ export class RoadRageSystem {
     return true;
   }
 
+  /**
+   * Dos conductores que se chocaron se bajan y discuten entre ellos, junto a sus carros, hasta que `endArgue` los sube.
+   * Devuelve sus incidentes, o null si no hay dos conductores libres o alguno de los carros ya está en otro lío.
+   */
+  argue(carA, carB, lines = ROAD_RAGE.yells) {
+    if (!this._canSnap(carA) || !this._canSnap(carB) || this._hasCar(carA) || this._hasCar(carB)) return null;
+    const out = [];
+    for (const car of [carA, carB]) {
+      const driver = this._freeDriver();
+      if (!driver) { this.endArgue(out); return null; }
+      const incident = { driver, vehicle: null, car, cause: 'crash', state: 'out', stopTimer: 0, rider: null,
+        doorSide: car.vehicle?.driverDoor?.side ?? -1, argue: { lines, partner: null, timer: .3 + this.random() * 1.2 } };
+      this.incidents.push(incident);
+      out.push(incident);
+      this._doorPoint(car, incident.doorSide, this._door);
+      car.setDriverInside?.(false);
+      driver.exitCar(car, this._door);
+      driver.state = 'argue';
+      driver.bar.pivot.visible = false;
+      this._people?.push(driver);
+    }
+    out[0].argue.partner = out[1]; out[1].argue.partner = out[0];
+    return out;
+  }
+
+  /** Terminan de discutir: los conductores suben a sus carros. */
+  endArgue(incidents) {
+    for (const incident of [...incidents]) {
+      incident.driver.enterCar();
+      incident.driver.bar.pivot.visible = true;
+      this._release(incident);
+    }
+  }
+
+  _argueStep(incident, dt) {
+    const { driver, argue } = incident, partner = argue.partner?.driver;
+    driver.moving = false;
+    if (partner) driver._face(partner.position.x, partner.position.z, dt, 6);
+    argue.timer -= dt;
+    if (argue.timer <= 0) {
+      argue.timer = 2.4 + this.random() * 1.8;
+      driver.say?.(argue.lines[Math.floor(this.random() * argue.lines.length)], 2.4);
+    }
+    driver.update(dt, { player: this.player.position });
+  }
+
   _release(incident) {
+    if (incident.argue) incident.car.setDriverInside?.(true);
     if (incident.vehicle) {
       this.traffic?.hold(incident.car, false);
       incident.car.setDriverInside?.(true);
@@ -167,6 +214,7 @@ export class RoadRageSystem {
   }
 
   _updateIncident(incident, dt, canChase) {
+    if (incident.argue) { this._argueStep(incident, dt); return; }
     const { car, driver } = incident;
     if (incident.state === 'stopping') {
       incident.stopTimer += dt;

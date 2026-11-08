@@ -40,6 +40,7 @@ export function trucosPanel(game) {
     section('tent', 'La calle',
       row('Ladrillo', accion('Ir a una pared', () => { cheats.irA('ladrillo'); })),
       row('Chamber', accion('Ir al refugio', () => { cheats.irA('refugio'); })),
+      row('Choque', accion('Que choquen dos', () => { cheats.choque(); })),
       row('Bocadillos', accion('Que vengan', () => { cheats.bocadillos(); })),
       row('Cartón', accion('Echarme a dormir', () => { cheats.echarseEnCarton(); }))),
 
