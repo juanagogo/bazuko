@@ -144,10 +144,11 @@ test('la gente del refugio se presta del grupo cerca y vuelve al grupo al alejar
   assert.equal(people.inUse, 0);
 });
 
-test('chamber a veces trae bocadillos gigantes: pocos, persiguen, asustan una vez y se esfuman', async () => {
+test('chamber a veces trae un bocadillo gigante: uno solo, persigue, asusta una vez y se esfuma', async () => {
   const { calle, player, stats } = await build({ random: () => 0 });
-  assert.ok(calle.summonBocadillos(10) <= BOCADILLO.max);
-  assert.equal(calle.bocadillos.length, BOCADILLO.max);
+  assert.equal(BOCADILLO.max, 1);
+  assert.equal(calle.summonBocadillos(10), 1, 'por mucho que se pida nace uno');
+  assert.equal(calle.bocadillos.length, 1);
   assert.equal(calle.summonBocadillos(2), 0, 'nunca más del tope');
   const first = calle.bocadillos[0].mesh.position;
   const d0 = Math.hypot(first.x - player.position.x, first.z - player.position.z);
@@ -162,10 +163,20 @@ test('chamber a veces trae bocadillos gigantes: pocos, persiguen, asustan una ve
   assert.equal(calle.root.children.filter(c => c.name === 'Bocadillo gigante').length, 0);
 });
 
+test('el bocadillo es una barra larga y con etiqueta: más largo que ancho, con la pasta y la etiqueta a la vista', async () => {
+  const { calle } = await build({ random: () => 0 });
+  calle.summonBocadillos(1);
+  const mesh = calle.bocadillos[0].mesh, box = new THREE.Box3().setFromObject(mesh), size = box.getSize(new THREE.Vector3());
+  assert.ok(size.x > size.z * 2.5 && size.x > size.y * 3, 'una barra larga');
+  assert.ok(size.x >= 3, 'gigante');
+  assert.equal(mesh.children.length, 2, 'la pasta y la etiqueta que la envuelve');
+  assert.ok(Array.isArray(mesh.children[1].material), 'la etiqueta deja las puntas de pasta abiertas');
+});
+
 test('el chamber lanza visiones según la suerte', async () => {
   const lucky = await build({ random: () => 0 });
   lucky.registered.find(t => t.type === 'refugio').interact();
-  assert.ok(lucky.calle.bocadillos.length >= 2);
+  assert.equal(lucky.calle.bocadillos.length, 1);
   const calm = await build({ random: () => .99 });
   calm.registered.find(t => t.type === 'refugio').interact();
   assert.equal(calm.calle.bocadillos.length, 0);

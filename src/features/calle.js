@@ -3,6 +3,7 @@
 // chamber en compañía (con guayabo al otro día), los bocadillos gigantes que persiguen al que ve visiones, y el cartón
 // para echarse a dormir un rato en cualquier parte. Todo cuelga de `CalleSystem`; mientras nada de esto pasa, no cuesta nada.
 import * as THREE from 'three';
+import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
 import { ITEMS } from '../data/items.js';
 
 const toast = (text, type = 'info') => globalThis.window?.dispatchEvent?.(new CustomEvent('toast', { detail: { text, type } }));
@@ -35,7 +36,7 @@ export const CHAMBER = {
 };
 
 export const BOCADILLO = {
-  max: 4,
+  max: 1,                 // un solo bocadillo, gigante
   life: 20,
   speed: 3.1,             // más lento que correr: se les escapa
   hop: .8,
@@ -150,20 +151,83 @@ function shelterMesh() {
   return group;
 }
 
+const canvasOf = (width, height) => {
+  const canvas = globalThis.document?.createElement?.('canvas');
+  if (!canvas) return null;
+  canvas.width = width; canvas.height = height;
+  return canvas;
+};
+
+const asTexture = canvas => {
+  if (!canvas) return null;
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  return texture;
+};
+
+/** La pasta de guayaba: un marrón rojizo opaco y con grano, como el bocadillo de verdad. */
+function pasteTexture() {
+  const canvas = canvasOf(256, 256);
+  if (!canvas) return null;
+  const g = canvas.getContext('2d');
+  g.fillStyle = '#8f4637'; g.fillRect(0, 0, 256, 256);
+  for (let i = 0; i < 40; i++) {
+    g.fillStyle = `rgba(${i % 2 ? '120,52,40' : '168,84,66'},.12)`;
+    g.beginPath(); g.arc(Math.random() * 256, Math.random() * 256, 14 + Math.random() * 30, 0, Math.PI * 2); g.fill();
+  }
+  for (let i = 0; i < 1400; i++) {
+    g.fillStyle = i % 3 ? 'rgba(196,118,92,.55)' : 'rgba(86,34,28,.45)';
+    g.fillRect(Math.random() * 256, Math.random() * 256, 1 + Math.random() * 1.6, 1 + Math.random() * 1.6);
+  }
+  return asTexture(canvas);
+}
+
+/** La etiqueta verde con franja amarilla y roja, sin marca: solo el nombre y una guayaba. */
+function labelTexture() {
+  const canvas = canvasOf(1100, 440);
+  if (!canvas) return null;
+  const g = canvas.getContext('2d');
+  const base = g.createLinearGradient(0, 0, 0, 440);
+  base.addColorStop(0, '#3aa24a'); base.addColorStop(1, '#23702f');
+  g.fillStyle = base; g.fillRect(0, 0, 1100, 440);
+  g.fillStyle = '#f4c52a';
+  g.beginPath(); g.moveTo(0, 0); g.lineTo(1100, 0); g.lineTo(1100, 130); g.quadraticCurveTo(700, 80, 380, 170); g.quadraticCurveTo(170, 220, 0, 160); g.closePath(); g.fill();
+  g.strokeStyle = '#d02a22'; g.lineWidth = 12;
+  g.beginPath(); g.moveTo(1100, 140); g.quadraticCurveTo(700, 90, 380, 180); g.quadraticCurveTo(170, 230, 0, 170); g.stroke();
+  g.textAlign = 'center'; g.textBaseline = 'middle'; g.font = 'bold 92px sans-serif';
+  g.lineWidth = 16; g.lineJoin = 'round';
+  g.strokeStyle = '#143d1a'; g.strokeText('Bocadillo de guayaba', 520, 300);
+  g.fillStyle = '#fff4cf'; g.fillText('Bocadillo de guayaba', 520, 300);
+  g.fillStyle = '#a8c25a'; g.beginPath(); g.arc(1010, 70, 52, 0, Math.PI * 2); g.fill();
+  g.fillStyle = '#ee7f93'; g.beginPath(); g.arc(1010, 70, 40, 0, Math.PI * 2); g.fill();
+  g.fillStyle = '#f8cbd3'; g.beginPath(); g.arc(1010, 70, 24, 0, Math.PI * 2); g.fill();
+  g.fillStyle = '#e8d890';
+  for (let i = 0; i < 7; i++) { g.beginPath(); g.arc(1010 + Math.cos(i * .9) * 14, 70 + Math.sin(i * .9) * 14, 3, 0, Math.PI * 2); g.fill(); }
+  return asTexture(canvas);
+}
+
+let bocadilloAssets = null;
+
+/** Una barra larga de bocadillo de guayaba envuelta a medias en su etiqueta verde y amarilla; las puntas quedan a la vista. */
 function bocadilloMesh() {
+  bocadilloAssets ??= {
+    body: new RoundedBoxGeometry(3.6, .8, 1.05, 3, .1),
+    wrap: new THREE.BoxGeometry(2.4, .84, 1.09),
+    paste: new THREE.MeshLambertMaterial({ color: 0xffffff, map: pasteTexture() }),
+    label: new THREE.MeshLambertMaterial({ color: 0xffffff, map: labelTexture() }),
+    plain: new THREE.MeshLambertMaterial({ color: 0x2f8a3c }),
+    none: new THREE.MeshBasicMaterial({ visible: false })
+  };
+  const { body, wrap, paste, label, plain, none } = bocadilloAssets;
+  if (!paste.map) paste.color.set(0x8f4637);
+  if (!label.map) label.color.set(0x2f8a3c);
   const group = new THREE.Group();
   group.name = 'Bocadillo gigante';
-  const paste = new THREE.Mesh(new THREE.BoxGeometry(1.5, .45, .8), new THREE.MeshLambertMaterial({ color: 0x8a2c2e, flatShading: true }));
-  const leaf = new THREE.MeshLambertMaterial({ color: 0x7d8a45, flatShading: true });
-  for (const x of [-.35, .35]) {
-    const band = new THREE.Mesh(new THREE.BoxGeometry(.22, .5, .86), leaf);
-    band.position.x = x;
-    group.add(band);
-  }
-  const end = new THREE.Mesh(new THREE.BoxGeometry(.04, .38, .68), new THREE.MeshLambertMaterial({ color: 0xc9573f }));
-  end.position.x = .76;
-  group.add(paste, end);
-  group.children.forEach(child => { child.position.y += .3; });
+  const bar = new THREE.Mesh(body, paste);
+  // La etiqueta rodea la barra: arriba y a los dos lados lleva el nombre; abajo va lisa y las puntas quedan abiertas
+  const band = new THREE.Mesh(wrap, [none, none, label, plain, label, label]);
+  group.add(bar, band);
+  group.children.forEach(child => { child.position.y += .44; });
   return group;
 }
 
@@ -388,7 +452,7 @@ export class CalleSystem {
       if (d > .8) { m.x += dx / d * BOCADILLO.speed * dt; m.z += dz / d * BOCADILLO.speed * dt; }
       const hop = Math.abs(Math.sin(b.age * 5 + b.phase));
       m.y = this._ground(m.x, m.z) + hop * BOCADILLO.hop;
-      b.mesh.rotation.y = Math.atan2(-dz, dx) + Math.sin(b.age * 3) * .2;
+      b.mesh.rotation.y = Math.atan2(-dz, dx) + Math.PI / 2 + Math.sin(b.age * 3) * .2;
       const shrink = Math.min(1, (BOCADILLO.life - b.age) / 1.5);
       b.mesh.scale.set(1 + (1 - hop) * .08, (1 - (1 - hop) * .12) * Math.max(0, shrink), 1).multiplyScalar(Math.max(0, shrink));
       if (d < BOCADILLO.touch && !this._scare) {
