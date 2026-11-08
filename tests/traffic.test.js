@@ -1372,28 +1372,33 @@ test('en Ultra los carros hacen cola en dos filas dentro del carril y todos sale
   traffic.dispose();
 });
 
-test('un tramo cerrado no tiene vehículos adentro, nadie nace ahí, esperan en el borde y vuelven al abrirlo', () => {
+test('un tramo cerrado deja a los de adentro parados y hechos un desastre, esperan en el borde y se van al limpiar', () => {
   const route = new TrafficRoute(0, 240, 0, 240), scene = new THREE.Scene();
   const traffic = new TrafficSystem(scene, [route], { carsPerRoute: 5, policeCount: 0, random: () => .5 });
-  const far = { x: 120, y: 0, z: 1500 }, closure = { x: 120, z: 0, radius: 40 };
+  const far = { x: 120, y: 0, z: 60 }, closure = { x: 120, z: 0, radius: 50 };
   const inside = () => traffic.vehicles.filter(v => Math.hypot(v.car.position.x - closure.x, v.car.position.z - closure.z) < closure.radius - .01);
-  const total = traffic.vehicles.length;
   traffic.closeSegment(closure.x, closure.z, closure.radius);
+  traffic.update(.1, { player: far });
+  const caught = inside();
+  assert.ok(caught.length > 0, 'hay carros atrapados adentro');
+  const spots = caught.map(v => v.car.position.clone());
+  for (const v of caught) v.car.wreckSeen = [];
+  for (const v of caught) v.car.setWreck = level => v.car.wreckSeen.push(level);
   let waiting = 0;
   for (let frame = 0; frame < 900; frame++) {
     traffic.update(.1, { player: far });
-    assert.equal(inside().length, 0, `cuadro ${frame}: hay un vehículo en el tramo cerrado`);
+    if (frame === 300) traffic.setWreckLevel(1);
   }
-  assert.ok(traffic.vehicles.length > 0 && traffic.vehicles.length < total, 'los de adentro salieron de la flota y los de afuera siguen');
-  for (const v of traffic.vehicles) if (v.speed < .1) waiting++;
+  assert.ok(caught.every(v => traffic.vehicles.includes(v)), "ninguno se retira ni desaparece");
+  caught.forEach((v, i) => assert.ok(v.car.position.distanceTo(spots[i]) < 12 && v.speed < .1, 'los atrapados siguen parados donde estaban'));
+  assert.ok(caught.every(v => v.car.wreckSeen.at(-1) > .5), 'quedan hechos un desastre');
+  for (const v of traffic.vehicles) if (v.speed < .1 && !caught.includes(v)) waiting++;
   assert.ok(waiting > 0, 'alguien espera en el borde');
   traffic.openSegment();
-  let entered = false;
-  for (let frame = 0; frame < 900 && !entered; frame++) {
-    traffic.update(.1, { player: far });
-    entered = inside().length > 0;
-  }
-  assert.ok(entered, 'al abrir el tramo el tráfico vuelve a pasar');
+  for (let frame = 0; frame < 300; frame++) traffic.update(.1, { player: far });
+  assert.ok(caught.every(v => traffic.vehicles.includes(v) && v.speed < .1), 'al abrir el tramo los destrozados no se van: siguen en la calle');
+  traffic.removeWrecks();
+  assert.ok(caught.every(v => !traffic.vehicles.includes(v)), 'la limpieza se los lleva');
   traffic.dispose();
 });
 

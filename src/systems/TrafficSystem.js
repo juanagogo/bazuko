@@ -57,7 +57,7 @@ const CAR_INSTANCE_OUT = 44, CAR_INSTANCE_IN = 36;
 // A qué distancia de la vista aparece un carro del montaje diario: fuera de la niebla no se ve el salto.
 const RESIZE_SAFE_DISTANCE = 60;
 // Cambios de flota por segundo: al cambiar de densidad la ciudad tarda unos segundos, nunca un salto.
-const CLOSURE_LOOKAHEAD = 40, CLOSURE_STEP = 2, CLOSURE_SPAWN_PAD = 4, CLOSURE_TRAPPED_AFTER = 4, CLOSURE_TRAPPED_AWAY = 22, CLOSURE_TRAPPED_LAST = 12;
+const CLOSURE_LOOKAHEAD = 40, CLOSURE_STEP = 2, CLOSURE_SPAWN_PAD = 4;
 const RESIZE_MIN_RATE = 1, RESIZE_MAX_RATE = 24, RESIZE_RATE_PER_MISSING = .5;
 // Al llenar una vista nueva se siembran varios carros por cuadro: no hay nada que hacer saltar a la vista.
 const FRESH_BURST = 48, FRESH_SECONDS = 2;
@@ -396,9 +396,25 @@ export class TrafficSystem {
 
   closeSegment(x, z, radius) { this.closure = { x, z, radius }; }
 
+  /** Se abre la calle al tráfico nuevo; los carros que quedaron atrapados siguen ahí, hechos un desastre, hasta `removeWrecks`. */
   openSegment() {
     this.closure = null;
-    for (const vehicle of this.vehicles) vehicle.evacuating = false;
+  }
+
+  /** Qué tan maltrechos quedan los carros atrapados en la protesta (0 a 1); cada uno lo lleva a su manera. */
+  setWreckLevel(level) {
+    this.wreckLevel = level;
+    for (const vehicle of this.vehicles) if (vehicle.protestHold) vehicle.car.setWreck?.(Math.min(1, level * vehicle.wreckBias));
+  }
+
+  /** La limpieza se lleva los carros que quedaron en la calle. */
+  removeWrecks() {
+    this.wreckLevel = 0;
+    for (const vehicle of [...this.vehicles]) {
+      if (!vehicle.protestHold) continue;
+      vehicle.protestHold = false;
+      this._retire(vehicle);
+    }
   }
 
   _inClosure(x, z, pad = 0) {
@@ -409,21 +425,18 @@ export class TrafficSystem {
   }
 
   /**
-   * Retira de la flota, ya fuera de la vista, a quien sigue dentro del tramo cerrado: dentro ya no entra nadie. Quien aún
-   * se ve no desaparece: sale del tramo sin esperar semáforos, y se retira en cuanto la cámara deja de verlo. Si queda
-   * atrapado entre la gente se retira de todos modos: pronto si está lejos de la cámara, y al fin y al cabo si está cerca.
+   * Quien ya está dentro del tramo cuando se cierra se queda ahí, parado y pitando, como en la vida real: no se va ni
+   * desaparece, y la gente lo va dejando hecho un desastre (`setWreckLevel`). Dentro ya no entra nadie.
    */
-  _sweepClosure(dt) {
+  _sweepClosure() {
     if (!this.closure) return;
-    const view = this._viewPosition;
-    for (let index = this.vehicles.length - 1; index >= 0; index--) {
-      const vehicle = this.vehicles[index], position = vehicle.car.position;
-      if (!this._inClosure(position.x, position.z)) { vehicle.evacuating = false; continue; }
+    for (const vehicle of this.vehicles) {
       if (!this._canRetire(vehicle)) continue;
-      vehicle.evacuating = true;
-      vehicle.trappedFor = vehicle.speed < .3 ? (vehicle.trappedFor ?? 0) + dt : 0;
-      const away = (position.x - view.x) ** 2 + (position.z - view.z) ** 2 > CLOSURE_TRAPPED_AWAY ** 2;
-      if (this._outOfView(position) || (vehicle.trappedFor > CLOSURE_TRAPPED_AFTER && away) || vehicle.trappedFor > CLOSURE_TRAPPED_LAST) this._retire(vehicle);
+      const position = vehicle.car.position;
+      if (!this._inClosure(position.x, position.z)) continue;
+      vehicle.protestHold = true;
+      vehicle.wreckBias = .6 + (this._wreckCount = (this._wreckCount ?? 0) + 1) % 5 * .1;
+      vehicle.car.setWreck?.(Math.min(1, (this.wreckLevel ?? 0) * vehicle.wreckBias));
     }
   }
 
@@ -501,7 +514,7 @@ export class TrafficSystem {
 
   /** ¿Se puede retirar sin dejar a medias una persecución o una espera? */
   _canRetire(vehicle) {
-    return !vehicle.police && vehicle.state === 'patrol' && !vehicle.rejoinTarget && !vehicle.hold;
+    return !vehicle.police && vehicle.state === 'patrol' && !vehicle.rejoinTarget && !vehicle.hold && !vehicle.protestHold;
   }
 
   /** Saca de circulación al que va más lejos de la vista, sin tocar patrullas ni persecuciones. */
@@ -1107,7 +1120,6 @@ export class TrafficSystem {
       if (car.position.x >= node.x0 - reach && car.position.x <= node.x1 + reach &&
         car.position.z >= node.z0 - reach && car.position.z <= node.z1 + reach) nodes.push(node);
     }
-    if (vehicle.evacuating) nodes.length = 0;
     const playerNear = !!player && (player.x - car.position.x) ** 2 + (player.z - car.position.z) ** 2 <= (radius + 2) ** 2;
     // Sin cruce, carro, persona ni jugador al alcance, la muestra del camino no tiene qué encontrar.
     const legacy = !!this.signals && !this.signals.nodes;
@@ -1490,7 +1502,7 @@ export class TrafficSystem {
     if (Number.isFinite(hour)) this._motoThreshold = motoThreshold(hour, this.densityId);
     if (this.densityId && Number.isFinite(hour)) this._resizeFleet(hour, dt);
     this._updateLod();
-    this._sweepClosure(dt);
+    this._sweepClosure();
     this._clearStuck(dt);
     this._coordinateIntersections();
     for (const vehicle of this.vehicles) {
@@ -1532,6 +1544,13 @@ export class TrafficSystem {
           }
           // Conductor fuera del carro: frena con su aceleración normal y espera.
           if (vehicle.hold) desiredSpeed = 0;
+          if (vehicle.protestHold) {
+            desiredSpeed = 0;
+            if (this.closure && vehicle.speed < .3 && this._time - (vehicle.lastHonkTime || 0) > 7 + Math.abs(vehicle.car.position.x * 13 % 9)) {
+              vehicle.lastHonkTime = this._time;
+              emitHonk(vehicle.car.position.x, vehicle.car.position.z);
+            }
+          }
           // Anticipa las curvas y reduce la velocidad antes de girar.
           let start = 0;
           for (const segment of vehicle.route.segments) {

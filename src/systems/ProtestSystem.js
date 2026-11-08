@@ -8,6 +8,7 @@ import * as THREE from 'three';
 import { ITEMS } from '../data/items.js';
 import { DAY_LENGTH_SECONDS } from '../utils/constants.js';
 import { straightRoute } from './LimpiezaSocialSystem.js';
+import { stepMelee } from './MeleeChase.js';
 
 const toast = (text, type = 'info') => globalThis.window?.dispatchEvent?.(new CustomEvent('toast', { detail: { text, type } }));
 
@@ -22,12 +23,12 @@ export const PROTEST = {
   grace: 600,            // s de partida nueva sin protestas
   reach: [28, 70],       // m del jugador al centro de la protesta
   sampleStep: 4,
-  crowd: 56,             // personas en la calle y los andenes, contando la gente barata de atrás
-  protesters: 16,        // de ellas, las que son personas reales del PeoplePool (las de adelante); el resto es instanciada
+  crowd: 56,             // personas en la calle y los andenes: todas personas reales de la calle, con sus piernas
+  protesters: 56,        // tamaño del grupo propio de gente de la protesta
   cops: 22,
   closeRadius: 50,       // m a la redonda del centro que quedan cerrados al tráfico mientras dura la gente en la calle
   // Todo se mide en tiempo de juego: un día de juego dura DAY_LENGTH_SECONDS, así que una hora de juego son 150 s a velocidad normal.
-  phases: { gathering: gameHours(.15), faceoff: gameHours(.3), clash: gameHours(.25), dispersal: gameHours(.08), aftermath: gameHours(1), cleanup: gameHours(.3) },
+  phases: { gathering: gameHours(.15), faceoff: gameHours(.3), clash: gameHours(.4), dispersal: gameHours(.08), aftermath: gameHours(1), cleanup: gameHours(.3) },
   normalHours: 2,        // lo que dura el cara a cara y los choques de una protesta normal
   paroHours: 24,         // lo que dura un paro grande: un día de juego entero con la calle cerrada
   paroChance: .25,       // de las protestas, las que son un paro grande
@@ -35,9 +36,27 @@ export const PROTEST = {
   sidewalk: 7.4,         // m del eje de la calle al grupo de cada anden
   walkSpeed: 2.1,
   runSpeed: 5.6,
-  rockEvery: .42,
+  rockEvery: .3,
+  chargers: 12,          // tombos de adelante que rompen la fila
+  chargeSpeed: 5.6,      // corren casi como el jugador y más que la gente que huye
+  dragSpeed: 3,
+  warnTime: 2.6,         // de "¡Última advertencia!" a la carga
+  chargeTime: 13,
+  regroupTime: 7,
+  chargeGap: 6,          // pausa con la fila formada antes de otra carga
+  batonDamage: [6, 11],  // al jugador
+  beatDamage: [12, 24],  // a un manifestante
+  beatings: 4,           // golpes que recibe uno antes de que lo dejen
+  fallChance: .45,
+  dragChance: .3,        // el resto se pone a pelear
+  fightTime: 2.4,
+  hp: 70,
+  copHp: 90,
+  copRockDamage: [10, 18],
+  rockStagger: .6,
+  wreckTime: 50,         // s de choque hasta que los carros atrapados quedan hechos un desastre
   rockDamage: [5, 9],
-  strayChance: .12,      // de las piedras, las que van al jugador si está entre las filas
+  strayChance: .22,      // de las piedras, las que van al jugador si está entre las filas
   canisterEvery: 3,
   canisterLimit: 6,
   gasRadius: 5.2,
@@ -100,13 +119,10 @@ export function protestChance({ hour = 12, zone = 'andenes' } = {}) {
 }
 
 const PHASES = ['gathering', 'faceoff', 'clash', 'dispersal', 'aftermath', 'cleanup'];
-const _p = new THREE.Vector3(), _d = new THREE.Vector3(), _m = new THREE.Matrix4(), _q = new THREE.Quaternion(), _e = new THREE.Euler(), _s = new THREE.Vector3(), _c = new THREE.Color();
+const _sph = new THREE.Sphere(), _p = new THREE.Vector3(), _d = new THREE.Vector3(), _m = new THREE.Matrix4(), _q = new THREE.Quaternion(), _e = new THREE.Euler(), _s = new THREE.Vector3(), _c = new THREE.Color();
 const SIGN_STICK = new THREE.CylinderGeometry(.025, .025, 1.5, 5), SIGN_BOARD = new THREE.BoxGeometry(.95, .6, .03), SIGN_WOOD = new THREE.MeshLambertMaterial({ color: 0x6b4a2b });
-const SHIRTS = [0x6b4a3a, 0x4b5d6e, 0x5f6b52, 0x8a7a5a, 0x5a4f6b, 0x7a4a3d, 0x3d3d3d, 0xa8a090, 0x365456, 0x1f2328, 0x6a6f75, 0x8b2b2b], JEANS = [0x2b3a55, 0x1f2430, 0x3c4a63, 0x4a4036, 0x2a2a2a];
-const SKINS = [0x8d5a3b, 0xb07a52, 0xc99a73, 0x6d4630, 0xe0b48f], HAIRS = [0x15110d, 0x2b2118, 0x4a3a2a, 0x8a8a86, 0x0e0e0e];
-const ZERO = new THREE.Matrix4().makeScale(0, 0, 0);
-const _q2 = new THREE.Quaternion(), _roll = new THREE.Euler();
 const wrap = a => Math.atan2(Math.sin(a), Math.cos(a));
+const smooth = x => x * x * (3 - 2 * x);
 
 const FLAMES = 6, SMOKES = 18;
 const FIRE_VERTEX = `attribute float aAlpha;
@@ -182,7 +198,11 @@ export class ProtestSystem {
     this.interaction = null;
     this._traffic = null;
     this.vehicles = null;
-    this.cheap = [];
+    this.wavers = [];
+    this._frustum = new THREE.Frustum();
+    this.charge = { phase: 'idle', t: 0 };
+    this.deaths = { protesters: 0, cops: 0 };
+    this._wreck = 0;
     this._ground = () => 0;
     this.root = new THREE.Group();
     this.root.name = 'Protesta';
@@ -216,7 +236,6 @@ export class ProtestSystem {
     };
     // Piedras, bombas de gas gastadas y palos comparten malla: se distinguen por el color y la escala.
     this.signFaces = this._signFaces();
-    this._crowd(make);
     this.cues = this._cues();
     this._tires(make);
     this.root.add(this.cues.group);
@@ -274,24 +293,6 @@ export class ProtestSystem {
     sign.add(plate, pole);
     sign.position.set(.28, 0, .25);
     return sign;
-  }
-
-  /**
-   * La gente barata de atrás: cuerpo, cabeza y piernas instanciados, y las pancartas en una malla por consigna. No tienen
-   * mezclador ni sombra; se colocan a mano cada cuadro.
-   */
-  _crowd(make) {
-    const cap = PROTEST.crowd, material = () => new THREE.MeshLambertMaterial();
-    this.legs = make(new THREE.CylinderGeometry(.075, .065, .85, 6), material(), cap * 2);
-    this.arms = make(new THREE.CylinderGeometry(.055, .045, .62, 5), material(), cap * 2);
-    this.torsos = make(new THREE.CapsuleGeometry(.2, .42, 3, 8), material(), cap);
-    this.heads = make(new THREE.SphereGeometry(.12, 8, 6), material(), cap);
-    this.hair = make(new THREE.SphereGeometry(.13, 8, 4, 0, Math.PI * 2, 0, Math.PI * .56), material(), cap);
-    this.poles = make(SIGN_STICK, SIGN_WOOD, cap);
-    this.boards = this.signFaces.map(face => make(SIGN_BOARD, face, cap));
-    // El palo y el cartón llevan su color propio: sin color por instancia, que sin dato las pinta de negro.
-    for (const mesh of [this.poles, ...this.boards]) mesh.instanceColor = null;
-    this.crowdMeshes = [this.legs, this.arms, this.torsos, this.heads, this.hair, this.poles, ...this.boards];
   }
 
   /** Los montones de llantas y su fuego: tres llantas por montón y una nube de partículas de llama y humo negro. */
@@ -484,22 +485,21 @@ export class ProtestSystem {
     const { center: c, axis: a } = this;
     const side = this._side().clone();
     const slots = this._slots(), order = slots.map((_, i) => i).sort((x, y) => slots[x].rank - slots[y].rank || x - y);
-    const real = new Set(order.slice(0, Math.min(PROTEST.protesters, this.people.available)));
+    const placed = new Set(order.slice(0, Math.min(PROTEST.crowd, this.people.available)));
     const police = Math.min(PROTEST.cops, this.cops.available);
     slots.forEach((slot, i) => {
+      if (!placed.has(i)) return;
       const goal = c.clone().addScaledVector(a, slot.along).addScaledVector(side, slot.lateral);
       const start = goal.clone().addScaledVector(a, -(26 + this.random() * 12)).addScaledVector(side, (this.random() - .5) * 8);
       const slogan = i % PROTEST.signEvery === 0 ? i / PROTEST.signEvery % PROTEST.signs : -1;
-      const figure = real.has(i) ? this.people.acquire() : null;
+      const figure = this.people.acquire();
       const actor = this._add(figure, 'protester', start, goal, a, 'hablar');
       actor.slot = goal.clone();
-      if (!figure) {
-        actor.cheap = { shirt: SHIRTS[i % SHIRTS.length], jeans: JEANS[(i * 7) % JEANS.length], skin: SKINS[(i * 3) % SKINS.length], hair: HAIRS[(i * 5) % HAIRS.length], height: .88 + (i * 37 % 13) / 100, phase: this.random() * 6.28, slogan };
-        this.cheap.push(actor);
-      } else if (slogan >= 0) {
+      if (slogan >= 0) {
         actor.sign = this._makeSign(slogan);
         figure.group.add(actor.sign);
       }
+      if (slot.rank >= 3) this.wavers.push(actor);
     });
     for (let i = 0; i < police; i++) {
       const figure = this.cops.acquire();
@@ -508,18 +508,18 @@ export class ProtestSystem {
       const lateral = rank < 2 ? (k - 4) * .85 + rank * .42 : (k - 1.5) * 2.4;
       const goal = c.clone().addScaledVector(a, PROTEST.gap + (rank < 2 ? rank * 1.05 : 4.5)).addScaledVector(side, lateral);
       const start = goal.clone().addScaledVector(a, 28 + this.random() * 6).addScaledVector(side, (this.random() - .5) * 3);
-      this._add(figure, 'cop', start, goal, a.clone().negate(), null);
+      const cop = this._add(figure, 'cop', start, goal, a.clone().negate(), null);
+      cop.slot = goal.clone();
+      cop.rank = rank;
     }
-    this._flushCrowd(0);
   }
 
   _add(figure, kind, start, goal, facing, stance) {
-    const actor = { figure, kind, pos: start.clone(), goal, facing: Math.atan2(facing.x, facing.z), stance, base: stance, speed: PROTEST.walkSpeed * (.85 + this.random() * .3), proxy: { position: start.clone() }, arrived: false, gassed: 0 };
-    if (figure) {
-      figure.group.position.set(start.x, this._ground(start.x, start.z), start.z);
-      figure.group.rotation.set(0, Math.atan2(goal.x - start.x, goal.z - start.z), 0);
-      this.people.pose?.(figure, { stance, live: true });
-    }
+    const actor = { figure, kind, pos: start.clone(), goal, facing: Math.atan2(facing.x, facing.z), stance, base: stance, speed: PROTEST.walkSpeed * (.85 + this.random() * .3), proxy: { position: start.clone() }, arrived: false, gassed: 0,
+      mode: kind === 'cop' ? 'line' : 'stand', hp: kind === 'cop' ? PROTEST.copHp : PROTEST.hp, ko: 0, hits: 0, speedNow: 0, melee: { state: 'chase', stateTimer: 0, attackTimer: 0 } };
+    figure.group.position.set(start.x, this._ground(start.x, start.z), start.z);
+    figure.group.rotation.set(0, Math.atan2(goal.x - start.x, goal.z - start.z), 0);
+    this.people.pose?.(figure, { stance, live: true });
     this.actors.push(actor);
     this._traffic?.push(actor.proxy);
     return actor;
@@ -542,11 +542,14 @@ export class ProtestSystem {
     if (this._traffic) { const i = this._traffic.indexOf(actor.proxy); if (i >= 0) this._traffic.splice(i, 1); }
   }
 
-  _releaseActors() {
-    for (const actor of this.actors) this._drop(actor);
-    this.actors.length = 0;
-    this.cheap.length = 0;
-    this._flushCrowd(0);
+  _releaseActors(keepDead = false) {
+    const stay = [];
+    for (const actor of this.actors) {
+      if (keepDead && actor.mode === 'dead') stay.push(actor);
+      else this._drop(actor);
+    }
+    this.actors = stay;
+    this.wavers.length = 0;
   }
 
   _clearLitter() {
@@ -560,6 +563,9 @@ export class ProtestSystem {
     this._lit = false;
     this.tires.count = 0;
     this.fire.visible = false;
+    this._releaseActors();
+    this._wreck = 0;
+    this.vehicles?.removeWrecks?.();
   }
 
   /** La calle ya está libre de gente: se quitan las señales y vuelve el tráfico. */
@@ -570,11 +576,12 @@ export class ProtestSystem {
 
   /** Recuperación tras morir o recargar: nadie en la calle, ni gas, ni basura. */
   reset() {
-    this._releaseActors();
     this._reopenStreet();
     this._clearLitter();
     if (this.state !== 'idle') this.cooldown = Math.max(this.cooldown, PROTEST.afterReset);
     this.state = 'idle';
+    this.charge = { phase: 'idle', t: 0 };
+    this.deaths = { protesters: 0, cops: 0 };
     this.root.visible = false;
     this.checkTimer = 0;
   }
@@ -582,13 +589,14 @@ export class ProtestSystem {
   dispose() {
     this.reset();
     this.scene.remove(this.root);
-    for (const mesh of [this.bits, this.sheets, this.gas, this.tires, this.fire, ...this.crowdMeshes]) { mesh.geometry.dispose?.(); mesh.material.dispose(); }
+    for (const mesh of [this.bits, this.sheets, this.gas, this.tires, this.fire, ]) { mesh.geometry.dispose?.(); mesh.material.dispose(); }
   }
 
   // ---------- cada cuadro ----------
 
   update(dt, { hour = 12, zone = 'andenes', blocked = false, allowSpawn = true, camera = null, clockSpeed = 1 } = {}) {
     if (dt <= 0) return;
+    this._camera = camera;
     this.elapsed += dt;
     if (!this.active) {
       this.cooldown = Math.max(0, this.cooldown - dt);
@@ -612,7 +620,8 @@ export class ProtestSystem {
       case 'dispersal': this._disperse(dt); break;
       case 'aftermath': case 'cleanup': this._litter(dt); break;
     }
-    if (this.state !== 'aftermath' && this.state !== 'cleanup') this._moveActors(dt);
+    if (this.state !== 'aftermath' && this.state !== 'cleanup') { this._people(dt); this._moveActors(dt); }
+    this._trash(dt);
     this._rocks(dt);
     this._wave(dt);
     this._gas(dt);
@@ -623,7 +632,8 @@ export class ProtestSystem {
 
   _next() {
     const i = PHASES.indexOf(this.state);
-    if (this.state === 'dispersal') { this._releaseActors(); this._reopenStreet(); this._makeLitter(); }
+    if (this.state === 'clash') this._standDown(true);
+    if (this.state === 'dispersal') { this._releaseActors(true); this._reopenStreet(); this._makeLitter(); }
     if (this.state === 'cleanup') { this._clearLitter(); this.state = 'idle'; this.root.visible = false; return; }
     if (this.state === 'clash' && this.standoff < this.plan.total) {
       for (const a of this.actors) {
@@ -636,7 +646,7 @@ export class ProtestSystem {
     }
     this._enter(PHASES[i + 1]);
     if (this.state === 'faceoff') toast('Los tombos formaron la fila. Esto se va a poner feo.', 'warn');
-    if (this.state === 'clash') toast('¡Piedras y gas! Aléjese de la calle.', 'death');
+    if (this.state === 'clash') { toast('¡Piedras y gas! Aléjese de la calle.', 'death'); this.charge = { phase: 'idle', t: 1.2 }; }
     if (this.state === 'dispersal') toast('¡Corra! Se acabó la protesta.', 'warn');
     if (this.state === 'aftermath') toast('La calle quedó hecha un desastre. Entre los cartones algo se rescata.', 'info');
   }
@@ -653,15 +663,14 @@ export class ProtestSystem {
   }
 
   _clash(dt) {
+    this._chargeStep(dt);
     this._rockTimer = (this._rockTimer ?? 0) - dt;
     this._canisterTimer = (this._canisterTimer ?? 0) - dt;
-    const crowd = this.actors.filter(a => a.kind === 'protester'), police = this.actors.filter(a => a.kind === 'cop');
-    if (this._rockTimer <= 0 && crowd.length && police.length) {
+    const police = this.actors.filter(a => a.kind === 'cop');
+    if (this._rockTimer <= 0 && police.some(a => a.mode !== 'dead')) {
       this._rockTimer = PROTEST.rockEvery * (.6 + this.random() * .8);
-      const from = crowd[Math.floor(this.random() * crowd.length)].pos;
-      const player = this.player.position, between = this._between(player);
-      if (between && this.random() < PROTEST.strayChance) this._throw(from, player.x, player.z, 1.1, 'rock');
-      else { const to = police[Math.floor(this.random() * police.length)].pos; this._throw(from, to.x + (this.random() - .5), to.z + (this.random() - .5), 1.2, 'rock'); }
+      const crowd = this.actors.filter(a => a.kind === 'protester' && a.mode === 'stand' && !a.action && !a.hidden && !a.gassed && a.arrived);
+      if (crowd.length) this._pickUp(crowd[Math.floor(this.random() * crowd.length)]);
     }
     if (this._canisterTimer <= 0 && police.length && this.clouds.length < PROTEST.canisterLimit) {
       this._canisterTimer = PROTEST.canisterEvery * (.7 + this.random() * .6);
@@ -671,10 +680,264 @@ export class ProtestSystem {
     }
   }
 
-  _between(p) {
-    const along = (p.x - this.center.x) * this.axis.x + (p.z - this.center.z) * this.axis.z;
-    const lateral = Math.abs((p.x - this.center.x) * this.axis.z - (p.z - this.center.z) * this.axis.x);
-    return Math.abs(along) < PROTEST.gap + 2 && lateral < 9;
+  _along(p) { return (p.x - this.center.x) * this.axis.x + (p.z - this.center.z) * this.axis.z; }
+  _lateral(p) { return Math.abs((p.x - this.center.x) * this.axis.z - (p.z - this.center.z) * this.axis.x); }
+
+  _between(p) { return Math.abs(this._along(p)) < PROTEST.gap + 2 && this._lateral(p) < 9; }
+
+  /** En medio del lío: entre las filas o metido en la multitud. */
+  _inFray(p) { const along = this._along(p); return along > -14 && along < PROTEST.gap + 3 && this._lateral(p) < 14; }
+
+  // ---------- la carga ----------
+
+  /** Aviso, carga, regreso a la fila y pausa; se repite mientras dure el choque. */
+  _chargeStep(dt) {
+    const c = this.charge;
+    c.t -= dt;
+    if (c.phase === 'idle' && c.t <= 0) {
+      c.phase = 'warn'; c.t = PROTEST.warnTime;
+      toast(COP_LINES[1], 'death');
+    } else if (c.phase === 'warn' && c.t <= 0) this._launch();
+    else if (c.phase === 'run' && (c.t <= 0 || !this.actors.some(a => a.mode === 'charge' || a.mode === 'drag'))) this._standDown(false);
+    else if (c.phase === 'regroup' && (c.t <= 0 || this.actors.every(a => a.kind !== 'cop' || a.mode === 'line' || a.mode === 'dead'))) { c.phase = 'idle'; c.t = PROTEST.chargeGap; }
+  }
+
+  /** La fila se rompe: cada tombo de adelante corre tras el manifestante más cercano, y a quien esté en medio le tocan dos. */
+  _launch() {
+    const c = this.charge, free = new Set();
+    const cops = this.actors.filter(a => a.kind === 'cop' && a.mode === 'line' && a.rank < 2).slice(0, PROTEST.chargers);
+    const crowd = this.actors.filter(a => a.kind === 'protester' && a.mode === 'stand' && !a.hidden);
+    for (const cop of cops) {
+      let best = null, bestSq = Infinity;
+      for (const p of crowd) {
+        if (free.has(p)) continue;
+        const sq = (p.pos.x - cop.pos.x) ** 2 + (p.pos.z - cop.pos.z) ** 2;
+        if (sq < bestSq) { best = p; bestSq = sq; }
+      }
+      if (best) free.add(best);
+      this._send(cop, best);
+    }
+    const me = this.player.position;
+    if (this.stats.salud > 0 && this._inFray(me)) {
+      cops.sort((x, y) => (x.pos.x - me.x) ** 2 + (x.pos.z - me.z) ** 2 - (y.pos.x - me.x) ** 2 - (y.pos.z - me.z) ** 2);
+      for (const cop of cops.slice(0, 2)) cop.target = this.player;
+    }
+    for (const p of crowd) if (!free.has(p) && this._along(p.pos) > -9 && this.random() < .6) this._flee(p);
+    c.phase = 'run'; c.t = PROTEST.chargeTime;
+    toast('¡Cargan los tombos! ¡Corra!', 'death');
+  }
+
+  _send(cop, target) {
+    cop.mode = 'charge'; cop.target = target; cop.driven = true;
+    cop.melee = { state: 'chase', stateTimer: 0, attackTimer: .2 + this.random() * .6 };
+    if (target) this._flee(target);
+  }
+
+  _flee(p) {
+    if (p.mode !== 'stand') return;
+    p.mode = 'flee'; p.stance = 'huir'; p.arrived = false; p.speed = PROTEST.runSpeed * (.55 + this.random() * .35);
+    p.goal = p.pos.clone().addScaledVector(this.axis, -(16 + this.random() * 14)).addScaledVector(this._side(), (this.random() - .5) * 16);
+  }
+
+  /** Los tombos vuelven a la fila y la gente a su puesto. `hard`: ya se acabó el choque, nadie se queda corriendo. */
+  _standDown(hard) {
+    this.charge = { phase: 'regroup', t: PROTEST.regroupTime };
+    if (hard) this.charge = { phase: 'idle', t: PROTEST.chargeGap };
+    for (const a of this.actors) {
+      if (a.kind === 'cop') {
+        if (a.mode === 'line' || a.mode === 'dead') continue;
+        if (a.mode === 'drag' && !hard) { a.target = null; continue; }
+        if (a.victim) { this._knockDown(a.victim); a.victim = null; }
+        a.mode = 'return'; a.target = null; a.attack = null; a.driven = false; a.arrived = false; a.goal = a.slot.clone(); a.speed = 3.6;
+        a.melee = { state: 'chase', stateTimer: 0, attackTimer: 0 };
+      } else if (a.mode === 'flee' || a.mode === 'fight' || a.mode === 'drag') {
+        a.mode = 'stand'; a.attack = null; a.driven = false; a.arrived = false; a.stance = 'hablar'; a.speed = PROTEST.walkSpeed * 1.4; a.goal = a.slot.clone();
+      }
+    }
+  }
+
+  /** Cada cuadro: los tombos que persiguen, arrastran o vuelven, y la gente que huye, cae, se levanta o responde. */
+  _people(dt) {
+    for (const a of this.actors) {
+      a.stagger = Math.max(0, (a.stagger ?? 0) - dt);
+      a.speedNow = 0;
+      a.driven = false;
+      if (a.kind === 'cop') this._copStep(a, dt);
+      else this._personStep(a, dt);
+    }
+  }
+
+  _turn(a, x, z, dt, rate = 10) { a.facing += wrap(Math.atan2(x - a.pos.x, z - a.pos.z) - a.facing) * Math.min(1, dt * rate); }
+
+  _copStep(a, dt) {
+    if (a.mode === 'dead') { this._dying(a, dt); return; }
+    if (a.mode === 'return') {
+      if (a.arrived) { a.mode = 'line'; a.speed = PROTEST.walkSpeed; }
+      return;
+    }
+    if (a.mode === 'drag') { this._dragStep(a, dt); return; }
+    if (a.mode !== 'charge') return;
+    a.driven = true;
+    if (a.stagger > 0) return;
+    a.melee.attackTimer = Math.max(0, a.melee.attackTimer - dt);
+    const target = a.target, me = this.player;
+    const valid = t => t && (t === me ? this.stats.salud > 0 : !t.hidden && t.mode !== 'dead' && t.hits < PROTEST.beatings);
+    if (!valid(target)) { this._retarget(a); return; }
+    const spot = target === me ? me.position : target.pos;
+    this._turn(a, spot.x, spot.z, dt);
+    const result = stepMelee(a.melee, dt, spot, {
+      speed: PROTEST.chargeSpeed,
+      reach: (t, range) => Math.hypot(t.x - a.pos.x, t.z - a.pos.z) <= range,
+      move: (t, speed, step, stop) => {
+        const dx = t.x - a.pos.x, dz = t.z - a.pos.z, dist = Math.hypot(dx, dz);
+        if (dist <= stop) return;
+        const run = Math.min(dist - stop, speed * step);
+        a.pos.x += dx / dist * run; a.pos.z += dz / dist * run;
+        a.speedNow = speed;
+      },
+      pose: (phase, length) => { a.attack = phase ? { weapon: 'botella_picada', step: 0, phase, progress: 1 - Math.max(0, a.melee.stateTimer) / length } : null; }
+    });
+    if (result === 'hit') this._baton(a, target);
+  }
+
+  /** El que ya recibió su parte se deja: el tombo busca otro cerca o se devuelve. */
+  _retarget(a) {
+    const me = this.player;
+    if (this.stats.salud > 0 && this._inFray(me.position) && this.actors.filter(o => o.target === me).length < 2) { a.target = me; return; }
+    let best = null, bestSq = 20 * 20;
+    for (const p of this.actors) {
+      if (p.kind !== 'protester' || p.hidden || p.hits >= PROTEST.beatings || (p.mode !== 'stand' && p.mode !== 'flee')) continue;
+      if (this.actors.some(o => o.target === p)) continue;
+      const sq = (p.pos.x - a.pos.x) ** 2 + (p.pos.z - a.pos.z) ** 2;
+      if (sq < bestSq) { best = p; bestSq = sq; }
+    }
+    if (best) { a.target = best; this._flee(best); a.melee.state = 'chase'; return; }
+    a.mode = 'return'; a.target = null; a.attack = null; a.driven = false; a.arrived = false; a.goal = a.slot.clone(); a.speed = 3.6;
+  }
+
+  /** El bolillazo: al jugador le quita salud por el flujo de siempre; a un manifestante lo tumba, lo arrastra o lo pone a pelear. */
+  _baton(cop, target) {
+    if (target === this.player) {
+      const damage = Math.round(PROTEST.batonDamage[0] + this.random() * (PROTEST.batonDamage[1] - PROTEST.batonDamage[0]));
+      this.stats.salud = Math.max(0, this.stats.salud - damage);
+      toast(`¡Un bolillazo! −${damage} de salud.`, 'death');
+      this.onPlayerHurt?.();
+      return;
+    }
+    const p = target;
+    p.hits++;
+    p.hp -= PROTEST.beatDamage[0] + this.random() * (PROTEST.beatDamage[1] - PROTEST.beatDamage[0]);
+    if (p.hp <= 0) { this._kill(p); return; }
+    if (p.mode === 'stand' || p.mode === 'flee') {
+      const roll = this.random();
+      if (roll < PROTEST.fallChance) this._knockDown(p);
+      else if (roll < PROTEST.fallChance + PROTEST.dragChance) this._grab(cop, p);
+      else { p.mode = 'fight'; p.foe = cop; p.fightT = PROTEST.fightTime; p.punchT = 0; p.arrived = true; p.goal = p.pos.clone(); p.stance = null; }
+    } else if (p.mode === 'fight' && p.hits >= 2) this._knockDown(p);
+  }
+
+  /** Muere el tombo o el manifestante: cae y queda tendido en el desastre hasta la limpieza. Nada de sangre, solo la siesta eterna. */
+  _kill(a) {
+    if (a.mode === 'dead') return;
+    if (a.victim) { this._knockDown(a.victim); a.victim = null; }
+    if (a.kind === 'protester' && a.foe) a.foe = null;
+    a.mode = 'dead'; a.ko = 0; a.target = null; a.attack = null; a.action = null; a.arrived = true; a.goal = a.pos.clone(); a.stance = null;
+    if (a.sign) { a.sign.removeFromParent(); a.sign = null; }
+    this.deaths[a.kind === 'cop' ? 'cops' : 'protesters']++;
+    toast(a.kind === 'cop' ? 'Un tombo quedó tendido. Los compañeros ni lo miran.' : 'Un manifestante quedó tendido. Alguien gritó que llamen a la ambulancia.', 'death');
+  }
+
+  _dying(a, dt) {
+    a.driven = true;
+    a.ko = Math.min(1, a.ko + dt / .9);
+  }
+
+  _knockDown(p) {
+    p.mode = 'down'; p.ko = 0; p.koTimer = 5 + this.random() * 3; p.stance = null; p.attack = null; p.arrived = true; p.goal = p.pos.clone();
+  }
+
+  /** Lo agarra del brazo y se lo lleva por detrás de la fila; ahí lo suelta. */
+  _grab(cop, p) {
+    p.mode = 'drag'; p.stance = 'nariz'; p.arrived = true; p.goal = p.pos.clone();
+    cop.mode = 'drag'; cop.victim = p; cop.target = null; cop.attack = null; cop.melee = { state: 'chase', stateTimer: 0, attackTimer: 0 };
+    cop.dragGoal = cop.slot.clone().addScaledVector(this.axis, 5);
+  }
+
+  _dragStep(cop, dt) {
+    cop.driven = true;
+    const p = cop.victim, goal = cop.dragGoal, dx = goal.x - cop.pos.x, dz = goal.z - cop.pos.z, dist = Math.hypot(dx, dz);
+    if (dist > .6) {
+      const step = Math.min(dist, PROTEST.dragSpeed * dt);
+      cop.pos.x += dx / dist * step; cop.pos.z += dz / dist * step;
+      cop.speedNow = PROTEST.dragSpeed;
+      this._turn(cop, goal.x, goal.z, dt);
+    }
+    if (p) { p.pos.x = cop.pos.x - dx / (dist || 1) * .8; p.pos.z = cop.pos.z - dz / (dist || 1) * .8; p.speedNow = dist > .6 ? PROTEST.dragSpeed : 0; p.facing = cop.facing; p.driven = true; }
+    if (dist > .6) return;
+    if (p) this._knockDown(p);
+    cop.victim = null;
+    if (this.charge.phase === 'run') { cop.mode = 'charge'; this._retarget(cop); } else { cop.mode = 'return'; cop.driven = false; cop.arrived = false; cop.goal = cop.slot.clone(); cop.speed = 3.6; }
+  }
+
+  _personStep(a, dt) {
+    if (a.mode === 'dead') { this._dying(a, dt); return; }
+    if (a.mode === 'down') {
+      a.driven = true;
+      a.ko = Math.min(1, a.ko + dt / .7);
+      if (a.ko >= 1 && (a.koTimer -= dt) <= 0) a.mode = 'rise';
+    } else if (a.mode === 'rise') {
+      a.driven = true;
+      a.ko = Math.max(0, a.ko - dt / 1.5);
+      if (a.ko <= 0) {
+        a.mode = 'stand'; a.arrived = false; a.hits = Math.max(a.hits, PROTEST.beatings);
+        if (this.state === 'dispersal') { a.goal = a.fleeGoal ?? a.pos.clone(); a.speed = PROTEST.runSpeed; a.stance = 'huir'; }
+        else if (this.charge.phase === 'run') this._flee(a);
+        else { a.goal = a.slot.clone(); a.speed = PROTEST.walkSpeed * 1.4; a.stance = 'hablar'; }
+      }
+    } else if (a.mode === 'fight') {
+      a.driven = true;
+      a.fightT -= dt;
+      a.punchT += dt;
+      if (a.foe) this._turn(a, a.foe.pos.x, a.foe.pos.z, dt);
+      const period = .7, progress = (a.punchT % period) / period;
+      a.attack = { weapon: 'punos', step: Math.floor(a.punchT / period) % 2, phase: progress < .3 ? 'windup' : progress < .6 ? 'active' : 'recover', progress: progress < .3 ? progress / .3 : progress < .6 ? (progress - .3) / .3 : (progress - .6) / .4 };
+      if (a.foe && !a.punched && progress >= .45 && progress < .6 && Math.hypot(a.foe.pos.x - a.pos.x, a.foe.pos.z - a.pos.z) < 2) { a.punched = true; a.foe.stagger = .6; a.foe.melee.state = 'chase'; }
+      if (progress < .3) a.punched = false;
+      if (a.fightT <= 0) { a.attack = null; a.mode = 'stand'; a.foe = null; a.hits++; a.driven = false; this._flee(a); }
+    } else if (a.mode === 'flee' && a.arrived) {
+      a.mode = 'stand'; a.stance = 'hablar';
+    }
+    if (a.action) this._actionStep(a, dt);
+  }
+
+  // ---------- las piedras de la gente ----------
+
+  /** Se agacha a recoger una piedra; luego la tira. */
+  _pickUp(a) {
+    a.action = 'buscar'; a.actionT = 0; a.actionLen = .8; a.thrown = false;
+  }
+
+  _actionStep(a, dt) {
+    a.driven = true;
+    a.actionT += dt;
+    if (a.mode !== 'stand' || a.gassed || a.hidden) { a.action = null; return; }
+    if (a.action === 'buscar') {
+      if (a.actionT >= a.actionLen) { a.action = 'lanzar'; a.actionT = 0; a.actionLen = .65; a.aim = this._aim(a); }
+      return;
+    }
+    this._turn(a, a.aim.x, a.aim.z, dt, 14);
+    if (!a.thrown && a.actionT >= .3) { a.thrown = true; this._throw(a.pos, a.aim.x, a.aim.z, a.aim.time, 'rock'); }
+    if (a.actionT >= a.actionLen) a.action = null;
+  }
+
+  /** A quién le tira: casi siempre a la fila de tombos, y al jugador si anda en medio. */
+  _aim(a) {
+    const me = this.player.position, police = this.actors.filter(o => o.kind === 'cop' && o.mode !== 'dead');
+    if (this.stats.salud > 0 && this._between(me) && this.random() < PROTEST.strayChance) {
+      return { x: me.x + (this.random() - .5) * 1.2, z: me.z + (this.random() - .5) * 1.2, time: 1.1 };
+    }
+    const to = police.length ? police[Math.floor(this.random() * police.length)].pos : this.center;
+    return { x: to.x + (this.random() - .5), z: to.z + (this.random() - .5), time: 1.2 };
   }
 
   _throw(from, tx, tz, time, kind) {
@@ -695,6 +958,16 @@ export class ProtestSystem {
         this.stats.salud = Math.max(0, this.stats.salud - damage);
         toast(`¡Le cayó una piedra! −${damage} de salud.`, 'death');
         this.onPlayerHurt?.();
+      }
+      if (rock.kind === 'rock' && !rock.hit) {
+        const cop = this.actors.find(a => a.kind === 'cop' && a.mode !== 'dead' && Math.hypot(rock.x - a.pos.x, rock.z - a.pos.z) < .7 && rock.y > ground && rock.y < ground + 1.9);
+        if (cop) {
+          rock.hit = true; rock.landed = true; this._place(rock);
+          cop.stagger = PROTEST.rockStagger;
+          cop.hp -= PROTEST.copRockDamage[0] + this.random() * (PROTEST.copRockDamage[1] - PROTEST.copRockDamage[0]);
+          if (cop.hp <= 0) this._kill(cop);
+          continue;
+        }
       }
       if (rock.y <= ground) {
         rock.y = ground; rock.landed = true;
@@ -762,14 +1035,15 @@ export class ProtestSystem {
 
   /** En un paro grande la multitud se afloja y se vuelve a llenar: parte de la gente instanciada se va caminando y regresa. */
   _wave(dt) {
-    if (this.plan.kind !== 'paro' || this.state === 'gathering' || this.state === 'dispersal' || !this.cheap.length) return;
+    if (this.plan.kind !== 'paro' || this.state === 'gathering' || this.state === 'dispersal' || !this.wavers.length) return;
     this._thinTimer -= dt;
     if (this._thinTimer > 0) return;
     this._thinTimer = .6;
     const level = .45 + .55 * (.5 + .5 * Math.sin(this.standoff / gameHours(3) * Math.PI * 2));
-    const keep = Math.round(level * this.cheap.length), side = this._side().clone();
-    for (let k = 0; k < this.cheap.length; k++) {
-      const a = this.cheap[k], want = k < keep;
+    const keep = Math.round(level * this.wavers.length), side = this._side().clone();
+    for (let k = 0; k < this.wavers.length; k++) {
+      const a = this.wavers[k], want = k < keep;
+      if (a.mode !== 'stand') continue;
       if (!want && !a.away) {
         a.away = true; a.arrived = false; a.stance = null; a.speed = PROTEST.walkSpeed;
         a.goal = a.pos.clone().addScaledVector(side, (k % 2 ? 1 : -1) * 40);
@@ -786,13 +1060,16 @@ export class ProtestSystem {
   _disperse(dt) {
     if (!this._dispersed) {
       this._dispersed = true;
+      this._standDown(true);
       for (const a of this.actors) {
+        if (a.mode === 'dead') continue;
         a.away = false; a.hidden = false;
         if (a.kind === 'protester') {
           _p.copy(a.pos).sub(this.center).addScaledVector(this.axis, -2).setY(0);
           const angle = Math.atan2(_p.x, _p.z) + (this.random() - .5) * 1.8;
           a.goal = a.pos.clone().add(new THREE.Vector3(Math.sin(angle), 0, Math.cos(angle)).multiplyScalar(45));
-          a.speed = PROTEST.runSpeed * (.8 + this.random() * .4); a.stance = 'huir'; a.arrived = false;
+          a.speed = PROTEST.runSpeed * (.8 + this.random() * .4); a.stance = 'huir'; a.arrived = false; a.fleeGoal = a.goal.clone();
+          if (a.mode === 'down') a.koTimer = Math.min(a.koTimer, .5);
         } else {
           a.goal = a.pos.clone().addScaledVector(this.axis, -5); a.stance = null; a.speed = 1.6; a.arrived = false;
         }
@@ -801,85 +1078,60 @@ export class ProtestSystem {
   }
 
   _moveActors(dt) {
-    for (const a of this.actors) {
-      const dx = a.goal.x - a.pos.x, dz = a.goal.z - a.pos.z, dist = Math.hypot(dx, dz);
-      let speed = 0;
-      if (dist > .25) {
-        speed = a.speed;
-        const step = Math.min(dist, speed * dt);
-        a.pos.x += dx / dist * step; a.pos.z += dz / dist * step;
-        a.facing += wrap(Math.atan2(dx, dz) - a.facing) * Math.min(1, dt * 8);
-      } else if (!a.arrived) {
-        a.arrived = true;
-        if (a.away) a.hidden = true;
-        a.facing = a.kind === 'cop' ? Math.atan2(-this.axis.x, -this.axis.z) : Math.atan2(this.axis.x, this.axis.z);
+    this._frame = (this._frame ?? 0) + 1;
+    const view = this.player.position, camera = this._camera;
+    if (camera) this._frustum.setFromProjectionMatrix(_m.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse));
+    this.actors.forEach((a, i) => {
+      let speed = a.speedNow;
+      if (!a.driven) {
+        speed = 0;
+        const dx = a.goal.x - a.pos.x, dz = a.goal.z - a.pos.z, dist = Math.hypot(dx, dz);
+        if (dist > .25) {
+          speed = a.speed;
+          const step = Math.min(dist, speed * dt);
+          a.pos.x += dx / dist * step; a.pos.z += dz / dist * step;
+          a.facing += wrap(Math.atan2(dx, dz) - a.facing) * Math.min(1, dt * 8);
+        } else if (!a.arrived) {
+          a.arrived = true;
+          if (a.away) a.hidden = true;
+          a.facing = a.kind === 'cop' ? Math.atan2(-this.axis.x, -this.axis.z) : Math.atan2(this.axis.x, this.axis.z);
+        }
+        if (this.state === 'clash' && a.kind === 'protester' && a.arrived && a.mode === 'stand') {
+          const gassed = this._inGas(a.pos.x, a.pos.z);
+          if (gassed && !a.gassed) { a.gassed = 1; a.stance = 'nariz'; a.goal = a.pos.clone().addScaledVector(this.axis, -9); a.speed = PROTEST.runSpeed * .7; a.arrived = false; }
+        }
       }
-      if (this.state === 'clash' && a.kind === 'protester' && a.arrived) {
-        const gassed = this._inGas(a.pos.x, a.pos.z);
-        if (gassed && !a.gassed) { a.gassed = 1; a.stance = 'nariz'; a.goal = a.pos.clone().addScaledVector(this.axis, -9); a.speed = PROTEST.runSpeed * .7; a.arrived = false; }
-      }
-      a.proxy.position.copy(a.pos);
       a.speedNow = speed;
-      if (!a.figure) continue;
-      const g = a.figure.group;
-      g.position.set(a.pos.x, this._ground(a.pos.x, a.pos.z), a.pos.z);
+      a.proxy.position.copy(a.pos);
+      const g = a.figure.group, ground = this._ground(a.pos.x, a.pos.z);
+      // Lo que la cámara no ve, o está muy lejos, ni se dibuja ni se anima.
+      const seen = !camera || (this._frustum.intersectsSphere(_sph.set(_p.set(a.pos.x, ground + 1, a.pos.z), 2.4)) && (a.pos.x - view.x) ** 2 + (a.pos.z - view.z) ** 2 < 110 * 110);
+      g.visible = !a.hidden && seen;
+      if (a.hidden || !seen || (a.settled && a.mode === 'dead')) return;
+      g.position.set(a.pos.x, ground, a.pos.z);
       g.rotation.y = a.facing;
-      a.figure.character.update?.(dt, { speed, running: speed > 4, stance: speed > 0 && a.stance !== 'huir' && a.stance !== 'nariz' ? null : a.stance, stanceWeight: 1 });
-    }
-    this._flushCrowd(dt);
+      // Lejos de la cámara se anima a menor ritmo: la persona se ve igual y cuesta una fracción.
+      a.animAcc = (a.animAcc ?? 0) + dt;
+      const sq = (a.pos.x - view.x) ** 2 + (a.pos.z - view.z) ** 2;
+      const every = sq < 484 ? 1 : sq < 2025 ? 2 : sq < 6400 ? 4 : 8;
+      if (every > 1 && (this._frame + i) % every !== 0 && !a.action && !a.attack && a.mode !== 'down' && a.mode !== 'rise') return;
+      const walking = speed > 0 && a.stance !== 'huir' && a.stance !== 'nariz';
+      a.figure.character.update(Math.min(a.animAcc, .25), {
+        speed, running: speed > 4, stance: walking ? null : a.stance, stanceWeight: 1,
+        ko: smooth(a.ko), koRising: a.mode === 'rise', koPlan: 'espalda', attack: a.attack ?? null,
+        action: a.action ?? null, actionProgress: a.action ? Math.min(1, a.actionT / a.actionLen) : 0
+      });
+      a.animAcc = 0;
+      if (a.mode === 'dead' && a.ko >= 1) a.settled = true;
+    });
   }
 
-  /** Coloca la gente instanciada: piernas, brazos, cuerpo, cabeza y pancarta; saltan al gritar y corren cuando huyen. */
-  _flushCrowd(dt) {
-    this._clock = (this._clock ?? 0) + dt;
-    const list = this.cheap, counts = this.boards.map(() => 0);
-    let poles = 0, fresh = false;
-    const put = (mesh, index, x, y, z, yaw, roll, sx, sy, sz) => {
-      _q.setFromEuler(_e.set(0, yaw, 0));
-      if (roll) _q.multiply(_q2.setFromEuler(_roll.set(0, 0, roll)));
-      _m.compose(_p.set(x, y, z), _q, _s.set(sx, sy, sz));
-      mesh.setMatrixAt(index, _m);
-    };
-    list.forEach((a, i) => {
-      if (a.hidden) {
-        for (const side of [0, 1]) { this.legs.setMatrixAt(i * 2 + side, ZERO); this.arms.setMatrixAt(i * 2 + side, ZERO); }
-        this.torsos.setMatrixAt(i, ZERO); this.heads.setMatrixAt(i, ZERO); this.hair.setMatrixAt(i, ZERO);
-        return;
-      }
-      const k = a.cheap, h = k.height, yaw = a.facing, sin = Math.sin(yaw), cos = Math.cos(yaw);
-      const hop = a.speedNow > 0 ? Math.abs(Math.sin(this._clock * (a.stance === 'huir' ? 11 : 6) + k.phase)) * .08 : (this.state === 'clash' ? Math.max(0, Math.sin(this._clock * 7 + k.phase)) * .1 : 0);
-      const y = this._ground(a.pos.x, a.pos.z) + hop;
-      const at = (dx, dz) => [a.pos.x + cos * dx + sin * dz, a.pos.z - sin * dx + cos * dz];
-      const stride = a.speedNow > 0 ? Math.sin(this._clock * (a.stance === 'huir' ? 11 : 6) + k.phase) * .35 : 0;
-      for (const side of [-1, 1]) {
-        const [lx, lz] = at(side * .1, 0), [ax, az] = at(side * .27, 0);
-        put(this.legs, i * 2 + (side > 0 ? 1 : 0), lx, y + .425 * h, lz, yaw, 0, 1, h, 1);
-        const raised = side > 0 && (k.slogan >= 0 || (this.state === 'clash' && k.phase > 3.2));
-        put(this.arms, i * 2 + (side > 0 ? 1 : 0), ax, y + (raised ? 1.45 : 1.18) * h, az, yaw, raised ? -side * .25 : side * stride * .5, 1, h, 1);
-      }
-      const [tx, tz] = at(0, 0);
-      put(this.torsos, i, tx, y + 1.17 * h, tz, yaw, 0, 1.3, h, .8);
-      put(this.heads, i, tx, y + 1.7 * h, tz, yaw, 0, 1, h, 1);
-      put(this.hair, i, tx, y + 1.71 * h, tz, yaw, 0, 1, h, 1);
-      if (!a.painted) {
-        fresh = true; a.painted = true;
-        for (const side of [0, 1]) { this.legs.setColorAt(i * 2 + side, _c.set(k.jeans)); this.arms.setColorAt(i * 2 + side, _c.set(k.shirt)); }
-        this.torsos.setColorAt(i, _c.set(k.shirt)); this.heads.setColorAt(i, _c.set(k.skin)); this.hair.setColorAt(i, _c.set(k.hair));
-      }
-      if (k.slogan >= 0) {
-        const [ox, oz] = at(.28, .25);
-        put(this.poles, poles++, ox, y + 1.55, oz, yaw, 0, 1, 1, 1);
-        put(this.boards[k.slogan], counts[k.slogan]++, ox, y + 2.35, oz, yaw, 0, 1, 1, 1);
-      }
-    });
-    this.legs.count = this.arms.count = list.length * 2;
-    this.torsos.count = this.heads.count = this.hair.count = list.length;
-    this.poles.count = poles;
-    this.boards.forEach((mesh, n) => { mesh.count = counts[n]; });
-    for (const mesh of this.crowdMeshes) {
-      mesh.instanceMatrix.needsUpdate = true;
-      if (fresh && mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
-    }
+  /** La gente se va poniendo más maltrecha: a medida que sube el choque, los carros atrapados se van rompiendo. */
+  _trash(dt) {
+    if (this.state !== 'clash') return;
+    const before = this._wreck;
+    this._wreck = Math.min(1, this._wreck + dt / PROTEST.wreckTime);
+    if (Math.floor(this._wreck * 20) !== Math.floor(before * 20)) this.vehicles?.setWreckLevel?.(this._wreck);
   }
 
   // ---------- el desastre ----------

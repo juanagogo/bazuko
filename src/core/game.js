@@ -151,7 +151,8 @@ export class Game {
     this.busRiders = new ArticulatedPassengers(this.people);
     // Protestas: la multitud sale del mismo grupo de gente y los antimotines de uno propio, chico (`?sinGente` los apaga)
     this.riotCops = new PeoplePool(this.sceneMgr.scene, { size: globalThis.location?.search?.includes('sinGente') ? 0 : PROTEST.cops, factory: riotCopFigure });
-    this.protest = new ProtestSystem(this.sceneMgr.scene, { player: this.player, stats: this.stats, people: this.people, cops: this.riotCops, audio: this.audio });
+    this.protesters = new PeoplePool(this.sceneMgr.scene, { size: globalThis.location?.search?.includes('sinGente') ? 0 : PROTEST.protesters });
+    this.protest = new ProtestSystem(this.sceneMgr.scene, { player: this.player, stats: this.stats, people: this.protesters, cops: this.riotCops, audio: this.audio });
     this.protest.onPlayerHurt = () => { if (this.stats.salud <= 0) this._deathCause = 'golpiza'; };
     this.protest.onProvoked = () => this.steal?._alertPolice?.();
     this.contactShadows = new ContactShadows(this.sceneMgr.scene);
@@ -357,7 +358,8 @@ export class Game {
       importedEntities.map(entity => () => entity.preloadModel()),
       [() => district?.preloadDetails?.()],
       this.people?.tasks() ?? [],
-      this.riotCops?.tasks() ?? []
+      this.riotCops?.tasks() ?? [],
+      this.protesters?.tasks() ?? []
     ], (done, total) => {
       const text = `Cargando recursos… ${done} de ${total}`;
       // Repintar por presupuesto temporal, no dos fotogramas por cada instancia.
@@ -1395,7 +1397,8 @@ export class Game {
       zone: zonaDe(this.world.active, this.player.position.x, this.player.position.z),
       blocked: this.isSleeping || this._deathPending || this._arrestPending || !!this.photoMode?.active || !!this.traffic?.inPursuit || !!this.limpieza?.active || !!this.robo?.active,
       allowSpawn: !this._nearCambuche(40),
-      clockSpeed: this.cheats?.velocidad ?? 1
+      clockSpeed: this.cheats?.velocidad ?? 1,
+      camera: this.cameraRig.camera
     });
     this.profiler?.mark('trafico');
     if (this._handleDeath()) return;
@@ -1640,6 +1643,7 @@ export class Game {
     this.robo?.dispose?.();
     this.protest?.dispose();
     this.riotCops?.dispose();
+    this.protesters?.dispose();
     this.radio?.destroy?.();
   }
 }
