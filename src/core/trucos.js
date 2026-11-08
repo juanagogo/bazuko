@@ -119,11 +119,18 @@ export class CheatMode {
   // ===== La calle =====
   /** Lleva al jugador junto a la primera pared de ladrillo o al primer refugio de chamber. */
   irA(tipo) {
-    const target = (tipo === 'refugio' ? this.game.calle?.shelters : this.game.calle?.walls)?.[0];
-    // De frente a la cara de la pared o junto a la olla del refugio.
-    const yaw = target?.mesh.rotation.y ?? 0;
-    if (target) this.game.teleportTo(target.position.x + Math.sin(yaw) * 1.6, target.position.z + Math.cos(yaw) * 1.6);
-    return !!target;
+    const calle = this.game.calle;
+    if (tipo === 'refugio') {
+      const target = calle?.shelters?.[0];
+      if (target) this.game.teleportTo(target.position.x + Math.sin(target.mesh.rotation.y) * 1.6, target.position.z + Math.cos(target.mesh.rotation.y) * 1.6);
+      return !!target;
+    }
+    // De frente a la fachada de un edificio cualquiera, a un paso.
+    const p = this.game.player.position, spot = calle?.nearestWall?.(p.x, p.z);
+    if (!spot) return false;
+    this.game.teleportTo(spot.x, spot.z);
+    this.game.player.root.rotation.y = spot.yaw;
+    return true;
   }
   bocadillos() { return this.game.calle?.summonBocadillos(3) ?? 0; }
   /** Le pone un cartón en el costal y lo echa a dormir encima. */

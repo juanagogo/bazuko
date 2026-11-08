@@ -11,15 +11,20 @@ const toasts = [];
 globalThis.window = Object.assign(globalThis.window ?? new EventTarget(), { dispatchEvent(e) { if (e.type === 'toast') toasts.push(e.detail.text); return true; } });
 globalThis.CustomEvent ??= class { constructor(type, init) { this.type = type; this.detail = init?.detail; } };
 
+// Un edificio a la derecha del jugador: la cara que da a él queda en x = 501
+const BUILDING = new THREE.Box3(new THREE.Vector3(501, 0, 480), new THREE.Vector3(520, 30, 520));
+const faceWall = (player) => { player.position.set(500.4, 0, 500); player.root.rotation.y = Math.PI / 2; };
+
 const points = Array.from({ length: 40 }, (_, i) => new THREE.Vector3((i % 8) * 30, 0, Math.floor(i / 8) * 30));
 
 async function build({ random = () => .9, dinero = 10000, withPeople = true } = {}) {
-  const player = { position: new THREE.Vector3(500, 0, 500), playAction() {} };
+  const player = { position: new THREE.Vector3(500, 0, 500), root: new THREE.Object3D(), playAction() {} };
   const stats = { salud: 80, energia: 50, animo: 50, higiene: 80, dinero, calor: 0 };
   const inventory = new InventorySystem();
   const people = withPeople ? await fakePool(20) : null;
   const registered = [];
   const calle = new CalleSystem(new THREE.Scene(), { player, stats, inventory, people, random });
+  calle.collisions = { queryStatic: () => [{ box: BUILDING }] };
   calle.setup({ getGroundHeight: () => 0 }, points, { interaction: { register: t => registered.push(t), unregister: t => registered.splice(registered.indexOf(t), 1) }, avoid: new THREE.Vector3(0, 0, 0) });
   return { calle, player, stats, inventory, people, registered };
 }
@@ -47,25 +52,48 @@ test('con lluvia rinde menos y se daña el cartón; el tombo lo mueve y el ladr�
   assert.ok(robbed.energia <= 5 && robbed.energia >= 0);
 });
 
-test('las paredes y los refugios se reparten separados, lejos del cambuche, y se registran como objetivos', async () => {
+test('los refugios se reparten separados, lejos del cambuche, y se registran junto al aviso de pared', async () => {
   const { calle, registered } = await build();
-  assert.equal(calle.walls.length, BRICK.walls);
   assert.equal(calle.shelters.length, CHAMBER.shelters);
-  assert.equal(registered.length, BRICK.walls + CHAMBER.shelters);
-  const all = [...calle.walls, ...calle.shelters];
-  for (const a of all) {
+  assert.equal(registered.length, CHAMBER.shelters + 1, 'los refugios y el aviso de la pared');
+  assert.equal(registered.filter(t => t.type === 'ladrillo').length, 1);
+  assert.equal(calle.root.children.filter(c => c.name === 'Pared de ladrillo').length, 0, 'ya no hay losas sueltas en la calle');
+  for (const a of calle.shelters) {
     assert.equal(a.kind, 'calle');
     assert.ok(a.position.length() >= 30, 'lejos del cambuche');
-    for (const b of all) if (a !== b && a.type === b.type) assert.ok(a.position.distanceTo(b.position) >= BRICK.minSpacing);
+    for (const b of calle.shelters) if (a !== b) assert.ok(a.position.distanceTo(b.position) >= 60);
   }
   calle.setup({ getGroundHeight: () => 0 }, points, { interaction: { register() {}, unregister: t => registered.splice(registered.indexOf(t), 1) } });
   assert.equal(registered.length, 0, 'al armar de nuevo se sueltan los anteriores');
 });
 
-test('raspar ladrillo toma su tiempo, da polvo y la pared queda pelada hasta que pasa el enfriamiento', async () => {
+test('solo se raspa una pared de edificio que se tiene de frente y cerca', async () => {
+  const { calle, player, registered } = await build();
+  const spot = registered.find(t => t.type === 'ladrillo');
+  calle.update(.1, {});
+  assert.ok(spot.position.x > 1e5, 'sin pared al frente el aviso queda lejos');
+  faceWall(player);
+  calle.update(.1, {});
+  assert.ok(spot.position.distanceTo(player.position) < BRICK.face, 'de frente a la fachada el aviso queda pegado');
+  player.root.rotation.y = -Math.PI / 2;
+  calle.update(.1, {});
+  assert.ok(spot.position.x > 1e5, 'de espaldas a la pared no se raspa');
+  faceWall(player);
+  player.position.x -= 5;
+  calle.update(.1, {});
+  assert.ok(spot.position.x > 1e5, 'lejos de la pared tampoco');
+  player.position.set(500, 0, 500);
+  player.root.rotation.y = Math.PI / 2;
+  calle.collisions = { queryStatic: () => [{ box: new THREE.Box3(new THREE.Vector3(501, 0, 495), new THREE.Vector3(510, 1.2, 505)) }] };
+  calle.update(.1, {});
+  assert.ok(spot.position.x > 1e5, 'un cajón bajo no es una pared de edificio');
+});
+
+test('raspar ladrillo toma su tiempo, da polvo y el tramo queda pelado hasta que pasa el enfriamiento', async () => {
   const { calle, player, inventory, stats, registered } = await build({ random: () => 0 });
   const wall = registered.find(t => t.type === 'ladrillo');
-  player.position.copy(wall.position);
+  faceWall(player);
+  calle.update(.1, {});
   assert.ok(wall.prompt().includes('Raspar'));
   wall.interact();
   run(calle, BRICK.scrapeTime - 1);
@@ -74,9 +102,14 @@ test('raspar ladrillo toma su tiempo, da polvo y la pared queda pelada hasta que
   const got = inventory.count('polvoLadrillo');
   assert.ok(got >= BRICK.yield[0] && got <= BRICK.yield[1]);
   assert.ok(stats.higiene < 80);
-  assert.ok(wall.cooldown > 0 && wall.prompt().includes('pelada'));
+  assert.ok(wall.prompt().includes('pelada'));
   assert.equal(wall.interact(), false);
   assert.equal(inventory.count('polvoLadrillo'), got, 'sin otro raspado hasta el enfriamiento');
+  player.position.z += BRICK.cell * 2;
+  calle.update(.1, {});
+  assert.ok(wall.prompt().includes('Raspar'), 'otro tramo de la misma pared tiene su propio enfriamiento');
+  player.position.z -= BRICK.cell * 2;
+  calle.update(.1, {});
   run(calle, BRICK.cooldown + 1);
   assert.ok(wall.prompt().includes('Raspar'));
   wall.interact();
@@ -87,13 +120,21 @@ test('raspar ladrillo toma su tiempo, da polvo y la pared queda pelada hasta que
 test('si el jugador se aleja a medio raspar, no saca nada', async () => {
   const { calle, player, inventory, registered } = await build();
   const wall = registered.find(t => t.type === 'ladrillo');
-  player.position.copy(wall.position);
+  faceWall(player);
+  calle.update(.1, {});
   wall.interact();
   run(calle, 1);
-  player.position.x += 10;
+  player.position.x -= 10;
   run(calle, BRICK.scrapeTime);
   assert.equal(inventory.count('polvoLadrillo'), 0);
-  assert.equal(wall.cooldown, 0);
+  assert.equal(calle.wallCooldowns.size, 0);
+});
+
+test('nearestWall deja a un paso de la fachada, mirándola', async () => {
+  const { calle } = await build();
+  const spot = calle.nearestWall(490, 500);
+  assert.ok(spot && Math.abs(spot.x - 500.1) < .01);
+  assert.ok(Math.abs(Math.sin(spot.yaw) - 1) < 1e-6, 'mira hacia +x, donde está el edificio');
 });
 
 test('el polvo de ladrillo se consume como sustancia con efecto y con costo', () => {
@@ -188,6 +229,11 @@ test('morir o recargar borra visiones, guayabo pendiente y raspado, y deja volve
   player.position.copy(shelter.position);
   calle.update(.1, {});
   shelter.interact();
+  const { x, z } = shelter.position;
+  calle.collisions = { queryStatic: () => [{ box: new THREE.Box3(new THREE.Vector3(x + 1, 0, z - 10), new THREE.Vector3(x + 10, 30, z + 10)) }] };
+  player.position.set(x + .4, 0, z);
+  player.root.rotation.y = Math.PI / 2;
+  calle.update(.1, {});
   registered.find(t => t.type === 'ladrillo').interact();
   assert.ok(calle.hangover && calle.bocadillos.length && people.inUse && calle.scrape);
   stats.salud = 0;

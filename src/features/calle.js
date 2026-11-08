@@ -11,13 +11,14 @@ const cop = n => `$${Math.round(n).toLocaleString('es-CO')}`;
 const pick = (list, random) => list[Math.floor(random() * list.length)];
 
 export const BRICK = {
-  walls: 5,
   scrapeTime: 2.8,        // s raspando, quieto junto a la pared
   cooldown: 240,          // s que tarda una pared en dar otro poco
-  reach: 2.4,             // m a los que se alcanza a raspar
+  reach: 2.4,             // m a los que se deja de raspar si se aleja
+  face: 1.5,              // m máximos entre el jugador y la pared que raspa, de frente a ella
+  cell: 3,                // m de la cuadrícula: cada tramo de pared tiene su propio enfriamiento
+  minHeight: 5,           // m: solo es pared de edificio lo que pasa de esta altura
   yield: [1, 2],
-  dust: .4,               // de higiene que se lleva el polvo
-  minSpacing: 25
+  dust: .4                // de higiene que se lleva el polvo
 };
 
 export const CHAMBER = {
@@ -87,46 +88,10 @@ export function cartonSleepOutcome({ random = Math.random, raining = false } = {
 
 // ---------- dibujo ----------
 
-// Hileras de ladrillo pintadas una sola vez; sin lienzo (pruebas en Node) queda el color liso.
-function brickTexture() {
-  const canvas = globalThis.document?.createElement?.('canvas');
-  if (!canvas) return null;
-  canvas.width = canvas.height = 128;
-  const g = canvas.getContext('2d');
-  g.fillStyle = '#b9aa98'; g.fillRect(0, 0, 128, 128);
-  for (let row = 0; row < 8; row++) for (let col = -1; col < 4; col++) {
-    g.fillStyle = ['#9c4a32', '#8d4230', '#a85438'][(row * 3 + col + 4) % 3];
-    g.fillRect(col * 32 + (row % 2) * 16 + 1, row * 16 + 1, 30, 14);
-  }
-  const texture = new THREE.CanvasTexture(canvas);
-  texture.colorSpace = THREE.SRGBColorSpace;
-  texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
-  texture.repeat.set(3, 2);
-  return texture;
-}
-const BRICK_RED = new THREE.MeshLambertMaterial({ color: 0x9c4a32, flatShading: true, map: brickTexture() });
-const BRICK_DARK = new THREE.MeshLambertMaterial({ color: 0x5b2d20, flatShading: true });
 const TARP = new THREE.MeshLambertMaterial({ color: 0x2f67b1, side: THREE.DoubleSide });
 const CARDBOARD = new THREE.MeshLambertMaterial({ color: 0x9a7549 });
 const WOOD = new THREE.MeshLambertMaterial({ color: 0x6b4a2b });
 const METAL = new THREE.MeshLambertMaterial({ color: 0x3b3b3e });
-
-function brickWallMesh() {
-  const group = new THREE.Group();
-  group.name = 'Pared de ladrillo';
-  const wall = new THREE.Mesh(new THREE.BoxGeometry(3, 1.7, .35), BRICK_RED);
-  wall.position.y = .85;
-  const worn = new THREE.Mesh(new THREE.BoxGeometry(1.2, .8, .02), BRICK_DARK);
-  worn.position.set(.3, 1, .19);
-  group.add(wall, worn);
-  for (let i = 0; i < 4; i++) {
-    const brick = new THREE.Mesh(new THREE.BoxGeometry(.22, .08, .1), BRICK_RED);
-    brick.position.set(-1.2 + i * .4, .04, .4 + (i % 2) * .15);
-    brick.rotation.y = i * .7;
-    group.add(brick);
-  }
-  return group;
-}
 
 function shelterMesh() {
   const group = new THREE.Group();
@@ -249,7 +214,8 @@ export class CalleSystem {
     this.audio = audio;
     this.random = random;
     this.interaction = null;
-    this.walls = [];
+    this.wallSpot = null;
+    this.wallCooldowns = new Map();
     this.shelters = [];
     this.bocadillos = [];
     this.hangover = null;
@@ -283,7 +249,8 @@ export class CalleSystem {
       return out;
     };
     for (const position of choose(CHAMBER.shelters, 60)) this._addShelter(position);
-    for (const position of choose(BRICK.walls, BRICK.minSpacing)) this._addWall(position);
+    this.wallSpot = this._newWallSpot();
+    this.interaction?.register?.(this.wallSpot);
   }
 
   _register(target) {
@@ -291,16 +258,53 @@ export class CalleSystem {
     this.interaction?.register?.(target);
   }
 
-  _addWall(position) {
-    const wall = {
-      kind: 'calle', type: 'ladrillo', position, cooldown: 0, mesh: brickWallMesh(),
-      prompt: () => wall.cooldown > 0 ? '[E] Esta pared ya quedó pelada, vuelva más tarde' : '[E] Raspar ladrillo (polvo)',
-      interact: () => this.startScrape(wall)
+  /** El tramo de pared de edificio que el jugador tiene de frente, o null. La clave sale de una cuadrícula sobre la pared. */
+  _faceWall() {
+    if (!this.collisions) return null;
+    const p = this.player.position, yaw = this.player.root?.rotation?.y ?? 0, fx = Math.sin(yaw), fz = Math.cos(yaw);
+    const reach = BRICK.face;
+    let best = null, bestSq = reach * reach;
+    for (const { box } of this.collisions.queryStatic(p.x - reach, p.z - reach, p.x + reach, p.z + reach, [])) {
+      if (box.max.y - box.min.y < BRICK.minHeight || box.min.y > p.y + 1.8 || box.max.y < p.y + .5) continue;
+      const cx = Math.max(box.min.x, Math.min(p.x, box.max.x)), cz = Math.max(box.min.z, Math.min(p.z, box.max.z));
+      const dx = cx - p.x, dz = cz - p.z, sq = dx * dx + dz * dz;
+      if (sq > bestSq || (sq > .0001 && (dx * fx + dz * fz) / Math.sqrt(sq) < .6)) continue;
+      bestSq = sq; best = { x: cx, z: cz };
+    }
+    if (!best) return null;
+    return { x: best.x, z: best.z, key: Math.floor(best.x / BRICK.cell) + ',' + Math.floor(best.z / BRICK.cell) };
+  }
+
+  /** Un punto a un paso de la fachada de edificio más cercana y hacia dónde mirarla (para los trucos y las pruebas). */
+  nearestWall(x, z, radius = 60) {
+    if (!this.collisions) return null;
+    let best = null, bestSq = Infinity;
+    for (const { box } of this.collisions.queryStatic(x - radius, z - radius, x + radius, z + radius, [])) {
+      if (box.max.y - box.min.y < BRICK.minHeight) continue;
+      const cx = Math.max(box.min.x, Math.min(x, box.max.x)), cz = Math.max(box.min.z, Math.min(z, box.max.z));
+      const dx = x - cx, dz = z - cz, sq = dx * dx + dz * dz;
+      if (sq < .01 || sq >= bestSq) continue;
+      const d = Math.sqrt(sq);
+      bestSq = sq; best = { x: cx + dx / d * .9, z: cz + dz / d * .9, yaw: Math.atan2(-dx / d, -dz / d) };
+    }
+    return best;
+  }
+
+  _newWallSpot() {
+    const spot = {
+      kind: 'calle', type: 'ladrillo', position: new THREE.Vector3(1e6, 0, 1e6), key: null,
+      prompt: () => (this.wallCooldowns.get(spot.key) ?? 0) > 0 ? '[E] Esta pared ya quedó pelada, vuelva más tarde' : '[E] Raspar la pared (polvo de ladrillo)',
+      interact: () => this.startScrape(spot)
     };
-    wall.mesh.position.copy(position);
-    wall.mesh.rotation.y = this.random() * Math.PI;
-    this.walls.push(wall);
-    this._register(wall);
+    return spot;
+  }
+
+  /** Sin pared al frente el aviso se va lejos; con ella, queda pegado al tramo que se raspa. */
+  _aimWall() {
+    if (this.scrape) return;
+    const spot = this.wallSpot, face = this._faceWall();
+    if (face) { spot.position.set(face.x, this.player.position.y, face.z); spot.key = face.key; }
+    else { spot.position.set(1e6, 0, 1e6); spot.key = null; }
   }
 
   _addShelter(position) {
@@ -316,12 +320,15 @@ export class CalleSystem {
   }
 
   _dispose() {
-    for (const target of [...this.walls, ...this.shelters]) {
+    if (this.wallSpot) this.interaction?.unregister?.(this.wallSpot);
+    this.wallSpot = null;
+    this.wallCooldowns.clear();
+    for (const target of this.shelters) {
       this.interaction?.unregister?.(target);
       this.root.remove(target.mesh);
       for (const figure of target.crowd ?? []) this.people?.release(figure);
     }
-    this.walls.length = this.shelters.length = 0;
+    this.shelters.length = 0;
   }
 
   /** Recuperación tras morir o recargar: sin visiones, sin guayabo pendiente y sin raspar. */
@@ -343,8 +350,8 @@ export class CalleSystem {
 
   startScrape(wall) {
     if (this.scrape) return false;
-    if (wall.cooldown > 0) { toast('Esta pared ya quedó pelada. Que se llene de polvo otra vez.', 'info'); return false; }
-    this.scrape = { wall, time: 0 };
+    if ((this.wallCooldowns.get(wall.key) ?? 0) > 0) { toast('Esta pared ya quedó pelada. Que se llene de polvo otra vez.', 'info'); return false; }
+    this.scrape = { wall: { key: wall.key, position: wall.position.clone() }, time: 0 };
     this.player.playAction?.('buscar', BRICK.scrapeTime);
     toast('Rasco el ladrillo con una teja rota...', 'info');
     return true;
@@ -360,7 +367,7 @@ export class CalleSystem {
     this.scrape.time += dt;
     if (this.scrape.time < BRICK.scrapeTime) return;
     this.scrape = null;
-    wall.cooldown = BRICK.cooldown;
+    this.wallCooldowns.set(wall.key, BRICK.cooldown);
     const qty = BRICK.yield[0] + Math.floor(this.random() * (BRICK.yield[1] - BRICK.yield[0] + 1));
     this.stats.higiene = Math.max(0, this.stats.higiene - BRICK.dust);
     if (this.inventory.add(ITEMS.polvoLadrillo, qty)) {
@@ -517,7 +524,10 @@ export class CalleSystem {
   update(dt, { blocked = false } = {}) {
     if (dt <= 0) return;
     if (this.stats && this.stats.salud <= 0) { if (this.hangover || this.bocadillos.length || this.scrape) this.reset(); return; }
-    for (const wall of this.walls) if (wall.cooldown > 0) wall.cooldown = Math.max(0, wall.cooldown - dt);
+    for (const [key, left] of this.wallCooldowns) {
+      if (left <= dt) this.wallCooldowns.delete(key); else this.wallCooldowns.set(key, left - dt);
+    }
+    if (this.wallSpot) this._aimWall();
     for (const shelter of this.shelters) {
       if (shelter.cooldown > 0) shelter.cooldown = Math.max(0, shelter.cooldown - dt);
       this._crowd(shelter, this.player.position.distanceTo(shelter.position));
@@ -533,5 +543,5 @@ export class CalleSystem {
     }
   }
 
-  get counts() { return { walls: this.walls.length, shelters: this.shelters.length, bocadillos: this.bocadillos.length, crowd: this.shelters.reduce((n, s) => n + s.crowd.length, 0) }; }
+  get counts() { return { wallCooldowns: this.wallCooldowns.size, shelters: this.shelters.length, bocadillos: this.bocadillos.length, crowd: this.shelters.reduce((n, s) => n + s.crowd.length, 0) }; }
 }
