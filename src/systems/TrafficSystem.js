@@ -57,6 +57,7 @@ const CAR_INSTANCE_OUT = 44, CAR_INSTANCE_IN = 36;
 // A qué distancia de la vista aparece un carro del montaje diario: fuera de la niebla no se ve el salto.
 const RESIZE_SAFE_DISTANCE = 60;
 // Cambios de flota por segundo: al cambiar de densidad la ciudad tarda unos segundos, nunca un salto.
+const CLOSURE_LOOKAHEAD = 40, CLOSURE_STEP = 2, CLOSURE_SPAWN_PAD = 4;
 const RESIZE_MIN_RATE = 1, RESIZE_MAX_RATE = 24, RESIZE_RATE_PER_MISSING = .5;
 // Al llenar una vista nueva se siembran varios carros por cuadro: no hay nada que hacer saltar a la vista.
 const FRESH_BURST = 48, FRESH_SECONDS = 2;
@@ -128,6 +129,9 @@ export class TrafficSystem {
     this._routeCumulative = null;
     this._spawnGrid = new Map();
     this._byOrder = (a, b) => a.order - b.order;
+    // Tramo cerrado al tráfico (una protesta): `{ x, z, radius }`. Nadie nace dentro, el que está fuera espera en el borde y
+    // el que ya estaba dentro se va solo; se retira cuando sale de la vista.
+    this.closure = null;
     this._holdPosition = new THREE.Vector3();
     this._holdDirection = new THREE.Vector3();
     this._holdCandidates = [];
@@ -390,6 +394,67 @@ export class TrafficSystem {
     return true;
   }
 
+  closeSegment(x, z, radius) { this.closure = { x, z, radius }; }
+
+  /** Se abre la calle al tráfico nuevo; los carros que quedaron atrapados siguen ahí, hechos un desastre, hasta `removeWrecks`. */
+  openSegment() {
+    this.closure = null;
+  }
+
+  /** Qué tan maltrechos quedan los carros atrapados en la protesta (0 a 1); cada uno lo lleva a su manera. */
+  setWreckLevel(level) {
+    this.wreckLevel = level;
+    for (const vehicle of this.vehicles) if (vehicle.protestHold) vehicle.car.setWreck?.(Math.min(1, level * vehicle.wreckBias));
+  }
+
+  /** La limpieza se lleva los carros que quedaron en la calle. */
+  removeWrecks() {
+    this.wreckLevel = 0;
+    for (const vehicle of [...this.vehicles]) {
+      if (!vehicle.protestHold) continue;
+      vehicle.protestHold = false;
+      this._retire(vehicle);
+    }
+  }
+
+  _inClosure(x, z, pad = 0) {
+    const closure = this.closure;
+    if (!closure) return false;
+    const dx = x - closure.x, dz = z - closure.z, radius = closure.radius + pad;
+    return dx * dx + dz * dz < radius * radius;
+  }
+
+  /**
+   * Quien ya está dentro del tramo cuando se cierra se queda ahí, parado y pitando, como en la vida real: no se va ni
+   * desaparece, y la gente lo va dejando hecho un desastre (`setWreckLevel`). Dentro ya no entra nadie.
+   */
+  _sweepClosure() {
+    if (!this.closure) return;
+    for (const vehicle of this.vehicles) {
+      if (!this._canRetire(vehicle)) continue;
+      const position = vehicle.car.position;
+      if (!this._inClosure(position.x, position.z)) continue;
+      vehicle.protestHold = true;
+      vehicle.wreckBias = .6 + (this._wreckCount = (this._wreckCount ?? 0) + 1) % 5 * .1;
+      vehicle.car.setWreck?.(Math.min(1, (this.wreckLevel ?? 0) * vehicle.wreckBias));
+    }
+  }
+
+  /** Hasta dónde puede avanzar un vehículo antes de entrar al tramo cerrado; el que ya está dentro sale sin estorbo. */
+  _closureClearance(vehicle) {
+    const closure = this.closure;
+    if (!closure || vehicle.state === 'chase' || vehicle.rejoinTarget) return Infinity;
+    const { car, route } = vehicle, position = this._probePosition, direction = this._probeDirection;
+    const near = closure.radius + CLOSURE_LOOKAHEAD;
+    const dx = car.position.x - closure.x, dz = car.position.z - closure.z;
+    if (dx * dx + dz * dz > near * near || this._inClosure(car.position.x, car.position.z)) return Infinity;
+    for (let ahead = 0; ahead <= CLOSURE_LOOKAHEAD; ahead += CLOSURE_STEP) {
+      route.sample(vehicle.distance + ahead, position, direction);
+      if (this._inClosure(position.x, position.z)) return Math.max(0, ahead - car.length * .5 - 1);
+    }
+    return Infinity;
+  }
+
   /**
    * Un punto libre de cualquier circuito dentro de la burbuja, elegido por largo de circuito. Con una vista nueva se
    * prefiere el que cae a la vista; después, el que está fuera de ella y entra solo, o el que ya es mancha en la niebla.
@@ -417,6 +482,7 @@ export class TrafficSystem {
       if (cx * cx + cz * cz > radiusSq) continue;
       const dx = position.x - view.x, dz = position.z - view.z, fromViewSq = dx * dx + dz * dz;
       if (fromViewSq < nearSq) continue;
+      if (this._inClosure(position.x, position.z, CLOSURE_SPAWN_PAD)) continue;
       // Nacer dentro de un cruce es pedir la reserva a la fuerza; fuera de él entra como cualquier otro.
       if (this._nearNode(position)) continue;
       const visible = !!camera && !this._outOfView(position);
@@ -448,7 +514,7 @@ export class TrafficSystem {
 
   /** ¿Se puede retirar sin dejar a medias una persecución o una espera? */
   _canRetire(vehicle) {
-    return !vehicle.police && vehicle.state === 'patrol' && !vehicle.rejoinTarget && !vehicle.hold;
+    return !vehicle.police && vehicle.state === 'patrol' && !vehicle.rejoinTarget && !vehicle.hold && !vehicle.protestHold;
   }
 
   /** Saca de circulación al que va más lejos de la vista, sin tocar patrullas ni persecuciones. */
@@ -1436,6 +1502,7 @@ export class TrafficSystem {
     if (Number.isFinite(hour)) this._motoThreshold = motoThreshold(hour, this.densityId);
     if (this.densityId && Number.isFinite(hour)) this._resizeFleet(hour, dt);
     this._updateLod();
+    this._sweepClosure();
     this._clearStuck(dt);
     this._coordinateIntersections();
     for (const vehicle of this.vehicles) {
@@ -1462,7 +1529,7 @@ export class TrafficSystem {
           }
           if (vehicle.car.isMoto) this._boxStep(vehicle, stepTime);
           else if (this.densityId === 'ultra' && !vehicle.police) this._fileStep(vehicle, stepTime);
-          const clearance = this._clearance(vehicle, player, pedestrians);
+          const clearance = Math.min(this._clearance(vehicle, player, pedestrians), this._closureClearance(vehicle));
           const braking = vehicle.braking ?? BRAKING;
           // Anticipa la respuesta gradual del conductor; el peatón no es una pared
           // capaz de eliminar la velocidad restante en un solo subpaso.
@@ -1477,6 +1544,13 @@ export class TrafficSystem {
           }
           // Conductor fuera del carro: frena con su aceleración normal y espera.
           if (vehicle.hold) desiredSpeed = 0;
+          if (vehicle.protestHold) {
+            desiredSpeed = 0;
+            if (this.closure && vehicle.speed < .3 && this._time - (vehicle.lastHonkTime || 0) > 7 + Math.abs(vehicle.car.position.x * 13 % 9)) {
+              vehicle.lastHonkTime = this._time;
+              emitHonk(vehicle.car.position.x, vehicle.car.position.z);
+            }
+          }
           // Anticipa las curvas y reduce la velocidad antes de girar.
           let start = 0;
           for (const segment of vehicle.route.segments) {

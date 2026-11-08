@@ -39,6 +39,8 @@ export function trucosPanel(game) {
 
     section('alert', 'Policía',
       row('Fichas', accion('Ponerlas en cero', () => { cheats.calmarPolicia(); refrescar(); })),
+      row('Protesta', accion('Que empiece ya', () => { cheats.protesta(); })),
+      row('Paro de un día', accion('Que empiece ya', () => { cheats.protesta('paro'); })),
       row('Robo express', accion('Que llegue ya', () => { cheats.robarExpress(); })),
       row('Incógnito', el('div', { class: 'pause-segmented', role: 'group', 'aria-label': 'Invisible a la policía' },
         alternar('Invisible', cheats.invisible, (v) => cheats.setInvisible(v)))),
