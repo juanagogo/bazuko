@@ -246,6 +246,7 @@ export class ProtestSystem {
     this.piles = [];
     this._lit = false;
     this.onPlayerHurt = null;
+    this._closed = false;
     this.onProvoked = null;
     this.interaction = null;
     this._onThrown = e => this.noteThrown(e.detail?.projectile);
@@ -266,6 +267,12 @@ export class ProtestSystem {
   }
 
   get active() { return this.state !== 'idle'; }
+
+  /** Lo que el mapa y el radar dibujan de la protesta: dónde es y, mientras dura, el tramo de calle cerrado. Null si no hay protesta. */
+  get marker() {
+    if (!this.active) return null;
+    return { x: this.center.x, z: this.center.z, dx: this.axis.x, dz: this.axis.z, radius: PROTEST.closeRadius, closed: this._closed };
+  }
   get counts() { return { actors: this.actors.length, rocks: this.rocks.length, clouds: this.clouds.length, scraps: this.scraps.filter(s => !s.used).length }; }
 
   setup(district, routes, trafficPeople = null, { interaction = null, vehicles = null } = {}) {
@@ -519,6 +526,7 @@ export class ProtestSystem {
     this._enter('gathering');
     this._spawn();
     this.vehicles?.closeSegment?.(this.center.x, this.center.z, PROTEST.closeRadius);
+    this._closed = true;
     this._placeCues();
     this._placeTires();
     toast(`Mire, por ahí: ${this.cause.hint}. A ${Math.round(site.dist)} m.`, 'warn');
@@ -734,6 +742,7 @@ export class ProtestSystem {
   /** La calle ya está libre de gente: se quitan las señales y vuelve el tráfico. */
   _reopenStreet() {
     this.cues.group.visible = false;
+    this._closed = false;
     this.vehicles?.openSegment?.();
   }
 

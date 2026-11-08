@@ -506,3 +506,21 @@ test('los carros atrapados se van destrozando durante el choque y solo desaparec
   assert.ok(until(system, () => system.state === 'idle', 900, .5));
   assert.equal(wrecks.at(-1), 'limpio', 'la limpieza se los lleva con el resto del desastre');
 });
+
+test('el mapa y el radar saben dónde es la protesta y su calle cerrada solo mientras dura', async () => {
+  const { system } = await build();
+  assert.equal(system.marker, null, 'sin protesta no hay marca');
+  system.trigger({ temper: 'fight' });
+  const m = system.marker;
+  assert.ok(m && Math.hypot(m.x - system.center.x, m.z - system.center.z) < 1e-9);
+  assert.equal(m.closed, true);
+  assert.equal(m.radius, PROTEST.closeRadius);
+  assert.ok(Math.abs(Math.hypot(m.dx, m.dz) - 1) < 1e-6, 'el rumbo de la calle');
+  let reopened = false;
+  for (let t = 0; t < 900 && system.active; t += .25) {
+    system.update(.25, {});
+    if (system.marker && !system.marker.closed) reopened = true;
+  }
+  assert.ok(reopened, 'la calle se abre antes de que la marca desaparezca del todo');
+  assert.equal(system.marker, null, 'al terminar se borra');
+});

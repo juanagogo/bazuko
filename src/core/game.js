@@ -1497,7 +1497,7 @@ export class Game {
     }
     this.gpsBeacon?.update(dt, this.player.position);
     this.minimap?.update(this.player.position, this._cameraYaw(), this._getPOIs(now), now,
-      { gps: this.gps, needs: this._needs, running: this.input.isRunning && (this.input.axis.x !== 0 || this.input.axis.z !== 0) });
+      { gps: this.gps, needs: this._needs, protesta: this.protest?.marker, running: this.input.isRunning && (this.input.axis.x !== 0 || this.input.axis.z !== 0) });
 
     // 13. UI
     this.hud.setMovementState?.(this.player);
@@ -1570,7 +1570,8 @@ export class Game {
 
   _getPOIs(now = performance.now()) {
     const friend = !!this.dog?.isFriend;
-    if (!this._poiCache || now - this._poiCacheTime >= 350 || this._poiDogFriend !== friend) {
+    const protesta = this.protest?.marker ?? null;
+    if (!this._poiCache || now - this._poiCacheTime >= 350 || this._poiDogFriend !== friend || !!this._protestPOI !== !!protesta) {
       const district = this.world?.active;
       const reserved = district?.reserved ?? {};
       // Puestos y fogatas van primero para que los lugares fijos queden encima.
@@ -1586,6 +1587,8 @@ export class Game {
         })];
       if (this.world?.active?.tileTypeAt) this._poiCache.push(...(this._landmarks ??= cityLandmarks()));
       if (this.cart) this._poiCache.push({ name: 'Carreta', icon: '🛒', x: this.cart.position.x, z: this.cart.position.z, color: '#f39c12' });
+      this._protestPOI = protesta ? { name: 'Protesta', icon: '✊', color: '#d62828', x: protesta.x, z: protesta.z, fijo: true } : null;
+      if (this._protestPOI) this._poiCache.push(this._protestPOI);
       this._dogPOI = friend ? { name: 'El Chato', icon: '🐕', color: '#e6b566' } : null;
       if (this._dogPOI) this._poiCache.push(this._dogPOI);
       this._needs = needContext({

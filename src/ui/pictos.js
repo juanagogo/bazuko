@@ -22,7 +22,7 @@ export const PICTOS = {
   '🦠': 'bicho', '🐜': 'bicho', '🪱': 'bicho', '☠': 'bicho', '🤧': 'enfermo', '🤢': 'nauseas', '🥶': 'termometro',
   '😴': 'sueno', '💤': 'sueno',
   // La calle
-  '🐕': 'perro', '💀': 'luna', '🧍': 'persona', '🧸': 'persona', '🚶': 'persona', '👀': 'vista', '👊': 'golpe',
+  '🐕': 'perro', '💀': 'luna', '🧍': 'persona', '🧸': 'persona', '🚶': 'persona', '👀': 'vista', '👊': 'golpe', '✊': 'golpe',
   '🧤': 'mano', '🎯': 'centrar', '💾': 'chulo', '🚓': 'patrulla', '🚨': 'sirena', '🎮': 'mando', '📍': 'bandera',
   '🧭': 'flecha', '🔇': 'silencio', '🔊': 'sonido', '🔍': 'lupa', '🔥': 'fogata', '🔨': 'martillo', '🗑': 'basura',
   '⚠': 'peligro', '⚡': 'rayo', '✨': 'brillo', '⭐': 'brillo', '🌟': 'brillo', '♻': 'reciclar',

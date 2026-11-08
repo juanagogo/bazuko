@@ -204,6 +204,24 @@ export function flechaJugador(ctx, x, y, s, rot = 0) {
 }
 
 /** La ruta, gruesa y con halo de cinta para que se lea sin ver el rojo. El contexto ya viene en metros. */
+/** El tramo de calle que cierra una protesta: una cinta roja a rayas sobre la vía, en coordenadas del mundo. */
+export function cierreDeCalle(ctx, cierre, k) {
+  if (!cierre?.closed) return;
+  ctx.save();
+  ctx.lineCap = 'butt';
+  ctx.beginPath();
+  ctx.moveTo(cierre.x - cierre.dx * cierre.radius, cierre.z - cierre.dz * cierre.radius);
+  ctx.lineTo(cierre.x + cierre.dx * cierre.radius, cierre.z + cierre.dz * cierre.radius);
+  ctx.strokeStyle = CINTA;
+  ctx.lineWidth = 6.6 / k;
+  ctx.stroke();
+  ctx.setLineDash?.([7 / k, 5 / k]);
+  ctx.strokeStyle = ROJO;
+  ctx.lineWidth = 4 / k;
+  ctx.stroke();
+  ctx.restore();
+}
+
 export function rutaRoja(ctx, puntos, k) {
   if (!puntos || puntos.length < 2) return;
   ctx.save();

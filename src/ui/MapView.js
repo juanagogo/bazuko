@@ -7,7 +7,7 @@ import { LETRA } from './letra.js';
 import { pasarTexto } from './pictos.js';
 import { streetLabels } from '../world/bogota/CityMapRaster.js';
 import { formatDistance, nombreALaVista } from './Minimap.js';
-import { CARTON, CARTON_MOJADO, MARCADOR, flechaJugador, prepararPlano, rutaRoja, trazarPlano, xRoja } from './planoRadar.js';
+import { CARTON, CARTON_MOJADO, MARCADOR, cierreDeCalle, flechaJugador, prepararPlano, rutaRoja, trazarPlano, xRoja } from './planoRadar.js';
 import { FILTERS, NEED_COPY, hasTag, noOptionText, placeMeta, rankPlaces, sellFirstPlaces } from './mapServices.js';
 
 const PRESS_KEYS = new Set(['Enter', 'NumpadEnter', 'Space']); // las teclas que pulsan un botón
@@ -607,6 +607,15 @@ export class MapView {
       ctx.scale(this.zoom, this.zoom);
       ctx.translate(-this.centerX, -this.centerZ);
       rutaRoja(ctx, route, this.zoom);
+      ctx.restore();
+    }
+    const protesta = this.game.protest?.marker;
+    if (protesta?.closed) {
+      ctx.save();
+      ctx.translate(w / 2, h / 2);
+      ctx.scale(this.zoom, this.zoom);
+      ctx.translate(-this.centerX, -this.centerZ);
+      cierreDeCalle(ctx, protesta, this.zoom);
       ctx.restore();
     }
 
