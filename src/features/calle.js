@@ -57,13 +57,13 @@ export const CARTON_SLEEP = {
 };
 
 export const CHATTER = [
-  '—Quién fuera rico para tomarse un chamber entero.',
-  '—Eso sí es medicina: sube y baja, pero abriga.',
-  '—Ojo, parce, que los tombos pasan a la una.',
-  '—Hoy no se me pegó ni una moneda, hermano.',
-  '—Cuénteme, ¿usted también vio la rata gigante?',
-  '—Más tarde dicen que cierran la olla.',
-  '—Esto con panela sabría mejor.'
+  'Quién fuera rico para tomarse un chamber entero.',
+  'Eso sí es medicina: sube y baja, pero abriga.',
+  'Ojo, parce, que los tombos pasan a la una.',
+  'Hoy no se me pegó ni una moneda, hermano.',
+  'Cuénteme, ¿usted también vio la rata gigante?',
+  'Más tarde dicen que cierran la olla.',
+  'Esto con panela sabría mejor.'
 ];
 
 /** Lo que pasa al echarse un rato en un cartón: +5 de energía casi siempre, con el riesgo de que lo roben, lo muevan o llueva. */
