@@ -3,18 +3,18 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import * as THREE from 'three';
-import { CAUSES, PROTEST, ProtestSystem, pickCause, protestChance } from '../src/systems/ProtestSystem.js';
+import { CAUSES, PROTEST, ProtestSystem, pickCause, protestChance, rollTemper } from '../src/systems/ProtestSystem.js';
 import { stepMelee } from '../src/systems/MeleeChase.js';
 import { straightRoute } from '../src/systems/LimpiezaSocialSystem.js';
 import { fakePool } from './fakePool.js';
 
 const route = () => straightRoute(new THREE.Vector3(40, 0, -100), new THREE.Vector3(0, 0, 1), 200);
 
-async function build({ crowd = PROTEST.protesters, police = 24, random = () => .5 } = {}) {
+async function build({ crowd = PROTEST.protesters, police = 24, random = () => .5, audio = null } = {}) {
   const people = await fakePool(crowd), cops = await fakePool(police);
   const player = { position: new THREE.Vector3(0, 0, 0) };
   const stats = { salud: 100 };
-  const system = new ProtestSystem(new THREE.Scene(), { player, stats, people, cops, random });
+  const system = new ProtestSystem(new THREE.Scene(), { player, stats, people, cops, random, audio });
   const traffic = [], registered = [], closures = [];
   const wrecks = [];
   const vehicles = { closeSegment: (x, z, radius) => closures.push({ x, z, radius }), openSegment: () => closures.push(null), setWreckLevel: level => wrecks.push(level), removeWrecks: () => wrecks.push('limpio') };
@@ -59,9 +59,9 @@ test('en reposo la tirada solo ocurre cada checkEvery y no dibuja nada', async (
 
 test('la protesta recorre todos los estados en orden y la calle queda limpia al final', async () => {
   const { system, people, cops, traffic } = await build();
-  assert.equal(system.trigger(), true);
+  assert.equal(system.trigger({ temper: 'fight' }), true);
   assert.equal(system.state, 'gathering');
-  assert.equal(system.trigger(), false, 'una sola a la vez');
+  assert.equal(system.trigger({ temper: 'fight' }), false, 'una sola a la vez');
   const seen = [system.state];
   for (let t = 0; t < 900 && system.active; t += .25) {
     system.update(.25, {});
@@ -81,19 +81,19 @@ test('la protesta recorre todos los estados en orden y la calle queda limpia al 
 
 test('la gente y los tombos salen del grupo con sus topes y los carros los respetan', async () => {
   const { system, people, cops, traffic } = await build({ crowd: 5, police: 3 });
-  system.trigger();
+  system.trigger({ temper: 'fight' });
   assert.equal(people.inUse, 5);
   assert.equal(cops.inUse, 3);
   assert.equal(traffic.length, 5 + 3, 'toda la gente cuenta para los carros');
   const full = await build();
-  full.system.trigger();
+  full.system.trigger({ temper: 'fight' });
   assert.equal(full.people.inUse, PROTEST.crowd);
   assert.equal(full.cops.inUse, PROTEST.cops);
 });
 
 test('es un tumulto de personas reales: de 56 a 60 personas con muchas pancartas, gente en los andenes y una línea de tombos de dos filas', async () => {
   const { system } = await build();
-  system.trigger();
+  system.trigger({ temper: 'fight' });
   const crowd = system.actors.filter(a => a.kind === 'protester'), cops = system.actors.filter(a => a.kind === 'cop');
   assert.ok(crowd.length >= 56 && crowd.length <= 60, `${crowd.length} manifestantes`);
   assert.ok(cops.length >= 16 && cops.length <= 24, `${cops.length} antimotines`);
@@ -112,7 +112,7 @@ test('es un tumulto de personas reales: de 56 a 60 personas con muchas pancartas
 
 test('con la protesta la calle se cierra al tráfico y se abre cuando la gente ya se fue', async () => {
   const { system, closures } = await build();
-  system.trigger();
+  system.trigger({ temper: 'fight' });
   assert.equal(closures.length, 1);
   assert.equal(closures[0].radius, PROTEST.closeRadius);
   assert.ok(Math.hypot(closures[0].x - system.center.x, closures[0].z - system.center.z) < .01);
@@ -126,14 +126,14 @@ test('con la protesta la calle se cierra al tráfico y se abre cuando la gente y
 
 test('morir o recargar en plena protesta también abre la calle', async () => {
   const { system, closures } = await build();
-  system.trigger();
+  system.trigger({ temper: 'fight' });
   system.reset();
   assert.deepEqual(closures.at(-1), null);
 });
 
 test('en el enfrentamiento vuelan piedras y los tombos tiran gas; quien se queda en la nube se enferma', async () => {
   const { system, player, stats } = await build();
-  system.trigger();
+  system.trigger({ temper: 'fight' });
   run(system, PROTEST.phases.gathering + PROTEST.phases.faceoff + 1);
   assert.equal(system.state, 'clash');
   run(system, 8);
@@ -148,7 +148,7 @@ test('en el enfrentamiento vuelan piedras y los tombos tiran gas; quien se queda
 
 test('una piedra que pasa por el jugador le pega y le quita salud', async () => {
   const { system, player, stats } = await build();
-  system.trigger();
+  system.trigger({ temper: 'fight' });
   player.position.set(5, 0, 5);
   system.rocks.push({ kind: 'rock', x: 5, y: 1.2, z: 5, vx: 0, vz: 0, vy: 0, landed: false, hit: false });
   system.update(.016, {});
@@ -162,7 +162,7 @@ test('quien se pega a la fila de tombos llama a la patrulla', async () => {
   const { system, player } = await build();
   let calls = 0;
   system.onProvoked = () => calls++;
-  system.trigger();
+  system.trigger({ temper: 'fight' });
   run(system, PROTEST.phases.gathering + 1);
   assert.equal(system.state, 'faceoff');
   const cop = system.actors.find(a => a.kind === 'cop');
@@ -173,7 +173,7 @@ test('quien se pega a la fila de tombos llama a la patrulla', async () => {
 
 test('tras la dispersión quedan cartones que se recogen una sola vez y se pueden devolver si no caben', async () => {
   const { system, registered } = await build();
-  system.trigger();
+  system.trigger({ temper: 'fight' });
   while (system.state !== 'aftermath') system.update(.5, {});
   assert.equal(registered.length, PROTEST.scraps);
   const scrap = registered[0];
@@ -188,7 +188,7 @@ test('tras la dispersión quedan cartones que se recogen una sola vez y se puede
 
 test('al limpiar, los cartones dejan de poder recogerse y todo se desvanece', async () => {
   const { system, registered } = await build();
-  system.trigger();
+  system.trigger({ temper: 'fight' });
   while (system.state !== 'cleanup') system.update(.5, {});
   run(system, PROTEST.phases.cleanup * .5);
   assert.equal(registered.length, 0);
@@ -199,7 +199,7 @@ test('al limpiar, los cartones dejan de poder recogerse y todo se desvanece', as
 
 test('morir o recargar en plena protesta devuelve a todos al grupo y deja calma', async () => {
   const { system, people, cops, traffic, stats } = await build();
-  system.trigger();
+  system.trigger({ temper: 'fight' });
   run(system, 30);
   assert.ok(people.inUse > 0);
   system.reset();
@@ -209,7 +209,7 @@ test('morir o recargar en plena protesta devuelve a todos al grupo y deja calma'
   assert.ok(system.cooldown >= PROTEST.afterReset);
   system.trigger = ProtestSystem.prototype.trigger;
   system.cooldown = 0;
-  system.trigger();
+  system.trigger({ temper: 'fight' });
   stats.salud = 0;
   system.update(.1, {});
   assert.equal(system.state, 'idle');
@@ -219,7 +219,7 @@ test('morir o recargar en plena protesta devuelve a todos al grupo y deja calma'
 test('sin calles cerca, el truco arma la protesta en una recta cerca del jugador', async () => {
   const { system, people } = await build();
   system.routes = [];
-  assert.equal(system.trigger(), false);
+  assert.equal(system.trigger({ temper: 'fight' }), false);
   assert.equal(system.trigger({ force: true }), true);
   assert.ok(people.inUse > 0);
   const d = Math.hypot(system.center.x, system.center.z);
@@ -279,7 +279,7 @@ test('al arrancar una protesta sale el cartel de arriba con su causa y las panca
 
 test('una protesta normal dura un par de horas de juego y sigue el reloj del juego', async () => {
   const { system } = await build();
-  system.trigger({ force: true, kind: 'normal' });
+  system.trigger({ force: true, kind: 'normal', temper: 'fight' });
   const hours = PROTEST.normalHours * 150;
   assert.equal(system.plan.total, hours);
   const measure = (clockSpeed, dt) => {
@@ -296,14 +296,14 @@ test('una protesta normal dura un par de horas de juego y sigue el reloj del jue
   assert.ok(normal >= hours - 2 && normal <= hours + PROTEST.phases.faceoff + PROTEST.phases.clash, `${normal} s`);
   system.reset();
   system.cooldown = 0;
-  system.trigger({ force: true, kind: 'normal' });
+  system.trigger({ force: true, kind: 'normal', temper: 'fight' });
   const fast = measure(4, .5);
   assert.ok(fast < normal / 3, 'con el reloj acelerado dura menos tiempo real');
 });
 
 test('un paro grande mantiene la calle cerrada un día de juego entero, con la multitud que se afloja y se llena y las llantas ardiendo', async () => {
   const { system, closures } = await build();
-  system.trigger({ force: true, kind: 'paro' });
+  system.trigger({ force: true, kind: 'paro', temper: 'fight' });
   assert.equal(system.plan.kind, 'paro');
   assert.equal(system.plan.total, 24 * 150);
   let t = 0, hiddenMax = 0, hiddenNow = 0, refilled = false, clashes = 0, last = '';
@@ -330,13 +330,14 @@ test('un paro grande mantiene la calle cerrada un día de juego entero, con la m
 
 test('las llantas: de tres a seis montones que se prenden en el cara a cara, humean en el desastre y se van con la limpieza', async () => {
   const { system } = await build();
-  system.trigger();
+  system.trigger({ temper: 'fight' });
   assert.ok(system.piles.length >= 3 && system.piles.length <= 6);
-  assert.equal(system.tires.count, system.piles.length * 3);
+  assert.equal(system.tires.count, 0, 'las llantas no salen hasta que se calienta la cosa');
   system.update(.25, {});
   assert.equal(system.fire.visible, false, 'aún sin prender');
-  while (system.state === 'gathering') system.update(.5, {});
+  while (system.state !== 'clash') system.update(.5, {});
   system.update(.25, {});
+  assert.equal(system.tires.count, system.piles.length * 3);
   assert.equal(system.fire.visible, true);
   const alpha = system.fire.geometry.attributes.aAlpha.array;
   assert.ok(alpha.some(a => a > .3), 'hay llama y humo');
@@ -350,7 +351,7 @@ test('las llantas: de tres a seis montones que se prenden en el cara a cara, hum
 });
 
 const toClash = system => {
-  system.trigger();
+  system.trigger({ temper: 'fight' });
   for (let t = 0; t < 400 && system.state !== 'clash'; t += .25) system.update(.25, {});
   assert.equal(system.state, 'clash');
 };

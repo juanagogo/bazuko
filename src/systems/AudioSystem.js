@@ -12,6 +12,9 @@ const CAR_HITS = ['golpe_carro_1.mp3', 'golpe_carro_2.mp3', 'golpe_carro_3.mp3',
 // Mientras suena una frase, tráfico y ambiente bajan a esta fracción para que se entienda.
 // Más lejos de esto un grito de susto ya no se oye.
 const YELP_RANGE = 35;
+// La protesta: el grito de la multitud y la sirena del paro, con volumen por distancia (lleno cerca, callado desde PROTEST_FAR).
+const PROTEST_NEAR = 12, PROTEST_FAR = 95;
+const PROTEST_SOUNDS = { chant: ['protestChant', 'voices'], siren: ['protestSiren', 'effects'] };
 const VOICE_DUCK = .45, DUCK_ATTACK = 10, DUCK_RELEASE = 2.5;
 // Pisadas aisladas de Sounds_of_a_steps.opus (inicio y duración en ms).
 const STEP_SPRITES = { step1: [215, 300], step2: [605, 300], step3: [995, 300], step4: [1385, 300],
@@ -69,8 +72,11 @@ export class AudioSystem {
       ...Object.fromEntries(CAR_HITS.map((file, i) => [`carHit${i + 1}`, sound(file, { volume: .8, pool: 3 })])),
       steps: sound('Sounds_of_a_steps.opus', { volume: .65, sprite: STEP_SPRITES, pool: 6 }),
       ambient: sound('city_atmosphere_soun.opus', { volume: .18, loop: true }),
-      rain: sound('rain_sound_01.mp3', { volume: .45, loop: true })
+      rain: sound('rain_sound_01.mp3', { volume: .45, loop: true }),
+      protestChant: sound('protesta_pueblo_unido.mp3', { volume: .9 }),
+      protestSiren: sound('protesta_paro_sirena.mp3', { volume: .8 })
     };
+    this._protest = new Map();
     // Reproducción normal: sin posiciones, panners ni atenuación 3D.
     const vehicleOptions = { volume: 0, loop: true, pool: 10 };
     this.vehicleSounds = {
@@ -305,6 +311,41 @@ export class AudioSystem {
     this.sounds[name]?.stop();
   }
 
+  _protestVolume(name, distance) {
+    const [key, category] = PROTEST_SOUNDS[name];
+    return this._baseVolume.get(this.sounds[key]) * this._level(category) * Math.max(0, Math.min(1, (PROTEST_FAR - distance) / (PROTEST_FAR - PROTEST_NEAR)));
+  }
+
+  /** Arranca el grito o la sirena de la protesta si no suena ya (nunca dos copias) y la oye quien esté a menos de PROTEST_FAR. True si arrancó. */
+  playProtest(name, distance) {
+    const entry = PROTEST_SOUNDS[name];
+    if (!entry || this._paused || !(distance < PROTEST_FAR)) return false;
+    const sound = this.sounds[entry[0]], current = this._protest.get(name);
+    if (current) {
+      if (sound.playing(current.id)) { sound.volume(this._protestVolume(name, distance), current.id); return false; }
+      this._protest.delete(name);
+    }
+    if (sound.state() !== 'loaded') return false;
+    const id = sound.play();
+    sound.volume(this._protestVolume(name, distance), id);
+    this._protest.set(name, { id });
+    return true;
+  }
+
+  /** Ajusta el volumen de lo que suena de la protesta a la distancia actual. */
+  updateProtest(distance) {
+    for (const [name, { id }] of this._protest) {
+      const sound = this.sounds[PROTEST_SOUNDS[name][0]];
+      if (!sound.playing(id)) this._protest.delete(name);
+      else sound.volume(this._protestVolume(name, distance), id);
+    }
+  }
+
+  stopProtest() {
+    for (const [name, { id }] of this._protest) this.sounds[PROTEST_SOUNDS[name][0]].stop(id);
+    this._protest.clear();
+  }
+
   playCarAlarm(car) {
     const sound = this.sounds.carAlarm;
     if (!car || car.traffic || this._paused || sound.state() !== 'loaded') return false;
@@ -431,6 +472,7 @@ export class AudioSystem {
     this.vehicles.setPaused(paused);
     this.streetVoices.setPaused(paused);
     if (paused) {
+      this.stopProtest();
       for (const voice of this._theftVoices.values()) voice.sound.stop(voice.id);
       this._theftVoices.clear();
     }

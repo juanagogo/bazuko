@@ -68,7 +68,38 @@ export const PROTEST = {
   provokeRange: 4,       // m de la fila de tombos
   provokeTime: 3.5,
   scraps: 6,
-  litterCapacity: 90
+  litterCapacity: 90,
+  chantGap: [2, 5],               // s entre un grito y el siguiente
+  sirenGap: [25, 50],             // s entre sirenas en un paro
+  calmDispersal: gameHours(.2),   // la gente que se va tranquila tarda más que la que sale corriendo
+  peacefulHours: 1,               // una protesta normal pacífica dura menos
+  tension: {
+    threshold: 1,                 // al llegar aquí empieza el choque: última advertencia y carga
+    start: .08,
+    peaceful: .34,                // de las protestas normales, la tercera parte sigue pacífica y otra tercera se pone tensa; el resto es pelea
+    tense: .33,
+    paroPeaceful: .12,            // los paros se inclinan al conflicto
+    paroTense: .28,
+    shortChance: .5,              // de las tensas, las que terminan en un choque corto
+    shortClash: .35,              // fracción del choque normal que dura el corto
+    seconds: { peaceful: 45, tense: 50, tenseShort: [35, 60], fight: [12, 28] },
+    caps: { peaceful: .25, tense: .75 },
+    tenseAt: .5,                  // desde aquí se prenden las primeras llantas
+    afterClash: .3,
+    decay: .012,                  // por segundo, cuando la tensión está por encima de lo que daría la protesta sola
+    hitCop: .5,                   // le pega a un tombo con el puño
+    hitProtester: .18,
+    poopCop: .4,                  // le tira popó a un tombo
+    poopProtester: .12,
+    hostile: .35,                 // lo que cada manifestante golpeado los vuelve contra el jugador
+    hostileLimit: .3
+  },
+  // Lo que queda en la calle según qué tan feo se puso: cartones y volantes siempre; piedras, palos y llantas cuando se calentó; todo cuando hubo choque.
+  debris: {
+    peaceful: { sheets: 16, trash: 9, sticks: 0, rocks: 0, burnt: 0, tires: 0, aftermath: gameHours(.4), cleanup: gameHours(.15) },
+    tense: { sheets: 22, trash: 12, sticks: 10, rocks: 12, burnt: 2, tires: 2, aftermath: gameHours(.7), cleanup: gameHours(.22) },
+    clash: { sheets: 26, trash: 16, sticks: 24, rocks: 0, burnt: 6, tires: 5, aftermath: gameHours(1), cleanup: gameHours(.3) }
+  }
 };
 
 const cause = (alert, hint, slogans = null, chants = null) => ({ alert, hint, slogans, chants });
@@ -117,6 +148,17 @@ export function protestChance({ hour = 12, zone = 'andenes' } = {}) {
   const time = h >= 9 && h < 18 ? 1 : h >= 7 && h < 21 ? .5 : .08;
   return Math.min(PROTEST.maxChance, PROTEST.baseChance * time * (ZONE_PROTEST[zone] ?? 1));
 }
+
+/** El genio de una protesta: pacífica, tensa (a veces con un choque corto) o pelea. Los paros se inclinan al conflicto. */
+export function rollTemper(random = Math.random, paro = false) {
+  const T = PROTEST.tension, r = random();
+  const peaceful = paro ? T.paroPeaceful : T.peaceful, tense = paro ? T.paroTense : T.tense;
+  if (r < peaceful) return { temper: 'peaceful', shortClash: false };
+  if (r < peaceful + tense) return { temper: 'tense', shortClash: random() < T.shortChance };
+  return { temper: 'fight', shortClash: false };
+}
+
+const TEMPERS = ['peaceful', 'tense', 'fight'];
 
 const PHASES = ['gathering', 'faceoff', 'clash', 'dispersal', 'aftermath', 'cleanup'];
 const _sph = new THREE.Sphere(), _p = new THREE.Vector3(), _d = new THREE.Vector3(), _m = new THREE.Matrix4(), _q = new THREE.Quaternion(), _e = new THREE.Euler(), _s = new THREE.Vector3(), _c = new THREE.Color();
@@ -190,12 +232,24 @@ export class ProtestSystem {
     this.chants = CHANTS;
     this.plan = { kind: 'normal', total: gameHours(PROTEST.normalHours) };
     this.standoff = 0;
+    this.phases = { ...PROTEST.phases };
+    this.tension = 0;
+    this.peak = 0;
+    this.hostile = 0;
+    this.clashes = 0;
+    this.clashTime = 0;
+    this.tireN = 0;
+    this.outcome = null;
+    this._melee = [];
+    this._thrown = [];
     this._thinTimer = 0;
     this.piles = [];
     this._lit = false;
     this.onPlayerHurt = null;
     this.onProvoked = null;
     this.interaction = null;
+    this._onThrown = e => this.noteThrown(e.detail?.projectile);
+    globalThis.window?.addEventListener?.('poop-thrown', this._onThrown);
     this._traffic = null;
     this.vehicles = null;
     this.wavers = [];
@@ -325,12 +379,13 @@ export class ProtestSystem {
 
   _flushTires(scale) {
     this.piles.forEach((pile, i) => {
+      if (i >= this.tireN) return;
       for (let k = 0; k < 3; k++) {
         _m.compose(_p.set(pile.x + (k % 2 ? .06 : -.05), this._ground(pile.x, pile.z) + (.14 + k * .25) * scale, pile.z + (k === 1 ? .05 : 0)), _q.setFromEuler(_e.set(k * .08, pile.seed * 6 + k, k * .06)), _s.set(scale, scale, scale));
         this.tires.setMatrixAt(i * 3 + k, _m);
       }
     });
-    this.tires.count = this.piles.length * 3;
+    this.tires.count = Math.min(this.piles.length, this.tireN) * 3;
     this.tires.instanceMatrix.needsUpdate = true;
   }
 
@@ -338,24 +393,24 @@ export class ProtestSystem {
   _burn(dt) {
     if (!this.piles.length) return;
     this._fireClock = (this._fireClock ?? 0) + dt;
-    const lit = this.state === 'faceoff' || this.state === 'clash' || this.state === 'dispersal' || this.state === 'aftermath' || this.state === 'cleanup';
+    const lit = this.tireN > 0 && (this.state === 'faceoff' || this.state === 'clash' || this.state === 'dispersal' || this.state === 'aftermath' || this.state === 'cleanup');
     if (lit) this._lit = true;
     const flame = !lit ? 0 : this.state === 'aftermath' ? Math.max(0, 1 - this.timer / 40) * .6 : this.state === 'cleanup' ? 0 : 1;
-    const smoke = !lit ? 0 : this.state === 'cleanup' ? Math.max(0, 1 - this.timer / PROTEST.phases.cleanup) : 1;
+    const smoke = !lit ? 0 : this.state === 'cleanup' ? Math.max(0, 1 - this.timer / this.phases.cleanup) : 1;
     const attr = this.fire.geometry.attributes, pos = attr.position.array, alpha = attr.aAlpha.array, size = attr.aSize.array, tone = attr.aTone.array;
     const t = this._fireClock;
     let n = 0;
-    for (const pile of this.piles) {
-      const gy = this._ground(pile.x, pile.z);
+    for (const [k, pile] of this.piles.entries()) {
+      const gy = this._ground(pile.x, pile.z), on = k < this.tireN ? 1 : 0;
       for (let j = 0; j < FLAMES; j++, n++) {
         const u = (t * 1.6 + j / FLAMES + pile.seed) % 1, a = j * 2.1 + pile.seed * 9 + t * 3;
         pos[n * 3] = pile.x + Math.cos(a) * .22 * (1 - u); pos[n * 3 + 1] = gy + .45 + u * 1.5; pos[n * 3 + 2] = pile.z + Math.sin(a) * .22 * (1 - u);
-        alpha[n] = flame * (1 - u) * .95; size[n] = 2.2 * (1 - u * .5); tone[n] = u * .25;
+        alpha[n] = on * flame * (1 - u) * .95; size[n] = 2.2 * (1 - u * .5); tone[n] = u * .25;
       }
       for (let j = 0; j < SMOKES; j++, n++) {
         const u = (t * .13 + j / SMOKES + pile.seed) % 1, a = j * 1.7 + pile.seed * 7 + u * 2;
         pos[n * 3] = pile.x + u * 3.2 + Math.cos(a) * .5 * u; pos[n * 3 + 1] = gy + 1.1 + u * 8; pos[n * 3 + 2] = pile.z + u * 1.4 + Math.sin(a) * .5 * u;
-        alpha[n] = smoke * .95 * Math.min(1, u * 7) * (1 - u) ** .8; size[n] = 3 + u * 7; tone[n] = 1;
+        alpha[n] = on * smoke * .95 * Math.min(1, u * 7) * (1 - u) ** .8; size[n] = 3 + u * 7; tone[n] = 1;
       }
     }
     this.fire.visible = lit;
@@ -421,7 +476,7 @@ export class ProtestSystem {
   }
 
   /** Busca un tramo de calle a cierta distancia del jugador. `force` no mira cooldown ni gracia (el truco). */
-  trigger({ force = false, kind = null } = {}) {
+  trigger({ force = false, kind = null, temper = null } = {}) {
     if (this.active || !this.people || !this.cops) return false;
     const target = this.player.position, options = [];
     for (const route of this.routes) {
@@ -444,7 +499,19 @@ export class ProtestSystem {
     this.cause = pickCause(this.random);
     this.chants = this.cause.chants ?? CHANTS;
     const paro = kind ? kind === 'paro' : this.random() < PROTEST.paroChance;
-    this.plan = { kind: paro ? 'paro' : 'normal', total: gameHours(paro ? PROTEST.paroHours : PROTEST.normalHours) };
+    const roll = rollTemper(this.random, paro);
+    if (TEMPERS.includes(temper)) { roll.temper = temper; roll.shortClash = temper === 'tense' && this.random() < PROTEST.tension.shortChance; }
+    this.plan = { kind: paro ? 'paro' : 'normal', total: gameHours(paro ? PROTEST.paroHours : roll.temper === 'peaceful' ? PROTEST.peacefulHours : PROTEST.normalHours), ...this._heatPlan(roll) };
+    this.phases = { ...PROTEST.phases };
+    if (roll.shortClash) this.phases.clash = PROTEST.phases.clash * PROTEST.tension.shortClash;
+    this.tension = this.peak = PROTEST.tension.start;
+    this.hostile = 0;
+    this.clashes = 0;
+    this.clashTime = 0;
+    this.tireN = 0;
+    this.outcome = null;
+    this._chantWait = 1.5;
+    this._sirenWait = 6;
     this.standoff = 0;
     this._firstFaceoff = true;
     this._paintSigns(this.cause.slogans ?? SLOGANS);
@@ -457,6 +524,81 @@ export class ProtestSystem {
     toast(`Mire, por ahí: ${this.cause.hint}. A ${Math.round(site.dist)} m.`, 'warn');
     this._announce();
     return true;
+  }
+
+  /** Cómo sube la tensión sola: hasta dónde y a qué ritmo; las que llegan al umbral van al choque sin que nadie las empuje. */
+  _heatPlan({ temper, shortClash }) {
+    const T = PROTEST.tension, between = ([lo, hi]) => lo + this.random() * (hi - lo);
+    const reach = temper === 'fight' || (temper === 'tense' && shortClash);
+    const seconds = temper === 'peaceful' ? T.seconds.peaceful : temper === 'fight' ? between(T.seconds.fight) : shortClash ? between(T.seconds.tenseShort) : T.seconds.tense;
+    const cap = reach ? T.threshold : T.caps[temper];
+    return { temper, shortClash, reach, cap, rate: (cap - T.start) / seconds };
+  }
+
+  /** Sube (o baja) la tensión por lo que hizo alguien; lo que pase del umbral manda a la gente al choque. */
+  _bump(amount) {
+    const T = PROTEST.tension, before = this.tension;
+    this.tension = Math.max(0, Math.min(T.threshold, this.tension + amount));
+    this.peak = Math.max(this.peak, this.tension);
+    if (before < T.tenseAt && this.tension >= T.tenseAt && amount > 0) toast('Se están calentando los ánimos.', 'warn');
+    this._heated();
+  }
+
+  _heated() {
+    if (this.tireN === 0 && this.tension >= PROTEST.tension.tenseAt) this._ignite(PROTEST.debris.tense.tires);
+  }
+
+  /** Prende las primeras llantas (o todas) y las muestra. */
+  _ignite(n) {
+    if (n <= this.tireN) return;
+    this.tireN = Math.min(n, this.piles.length);
+    this._flushTires(1);
+  }
+
+  /** Lo que el jugador le hace a la gente: pegar o tirar popó a un tombo calienta la cosa rápido; a un manifestante, menos, pero los vuelve contra él. */
+  _provokeBy(actor, how) {
+    if (!this.active || this.state === 'dispersal' || this.state === 'aftermath' || this.state === 'cleanup') return;
+    const T = PROTEST.tension, cop = actor.kind === 'cop';
+    this._bump(how === 'poop' ? (cop ? T.poopCop : T.poopProtester) : (cop ? T.hitCop : T.hitProtester));
+    if (!cop) this.hostile = Math.min(1, this.hostile + T.hostile);
+  }
+
+  /** El golpe del jugador a quien está en la calle (por extraMeleeTargets): le quita salud, a veces lo tumba, y calienta la tensión. */
+  _playerHit(actor, hit) {
+    if (actor.mode === 'dead' || actor.hidden) return false;
+    const damage = Math.max(4, hit?.damage ?? 10);
+    this._provokeBy(actor, 'hit');
+    actor.hp -= damage * (actor.kind === 'cop' ? .6 : 1.4);
+    if (actor.hp <= 0) { this._kill(actor); return 0; }
+    actor.stagger = PROTEST.rockStagger;
+    if (actor.kind === 'protester' && (actor.mode === 'stand' || actor.mode === 'flee') && this.random() < .35) this._knockDown(actor);
+    return 0;
+  }
+
+  /** Un proyectil del jugador (popó) en el aire: si le pega a alguien de la protesta, lo toma como provocación. */
+  noteThrown(projectile) {
+    if (projectile && this.active) this._thrown.push(projectile);
+  }
+
+  _thrownStep() {
+    if (!this._thrown.length) return;
+    this._thrown = this._thrown.filter(p => {
+      if (!p.alive) return false;
+      const hit = this.actors.find(a => a.mode !== 'dead' && !a.hidden && Math.hypot(a.pos.x - p.position.x, a.pos.z - p.position.z) < .9 && Math.abs(this._ground(a.pos.x, a.pos.z) + .9 - p.position.y) < 1.2);
+      if (!hit) return true;
+      p.dispose?.();
+      p.alive = false;
+      this._provokeBy(hit, 'poop');
+      return false;
+    });
+  }
+
+  /** Que el jugador pueda pegarles: las figuras entran a la lista de blancos del puño, con el mismo contrato que los demás. */
+  _syncMelee() {
+    if (!this._melee.length) return;
+    const list = this.player.extraMeleeTargets ?? [];
+    if (this._melee.every(m => list.includes(m))) return;
+    this.player.extraMeleeTargets = [...list.filter(m => !m.isProtest), ...this._melee];
   }
 
   /** El cartel de arriba con la causa de esta protesta, aparte del aviso chiquito. */
@@ -515,13 +657,21 @@ export class ProtestSystem {
   }
 
   _add(figure, kind, start, goal, facing, stance) {
-    const actor = { figure, kind, pos: start.clone(), goal, facing: Math.atan2(facing.x, facing.z), stance, base: stance, speed: PROTEST.walkSpeed * (.85 + this.random() * .3), proxy: { position: start.clone() }, arrived: false, gassed: 0,
+    const system = this;
+    const actor = { figure, kind, pos: start.clone(), goal, facing: Math.atan2(facing.x, facing.z), stance, base: stance, speed: PROTEST.walkSpeed * (.85 + this.random() * .3), proxy: null, arrived: false, gassed: 0,
       mode: kind === 'cop' ? 'line' : 'stand', hp: kind === 'cop' ? PROTEST.copHp : PROTEST.hp, ko: 0, hits: 0, speedNow: 0, melee: { state: 'chase', stateTimer: 0, attackTimer: 0 } };
     figure.group.position.set(start.x, this._ground(start.x, start.z), start.z);
     figure.group.rotation.set(0, Math.atan2(goal.x - start.x, goal.z - start.z), 0);
     this.people.pose?.(figure, { stance, live: true });
+    actor.proxy = {
+      position: start.clone(), isProtest: true,
+      get isKnockedOut() { return actor.mode === 'dead' || actor.mode === 'down' || !!actor.hidden; },
+      takeHit: hit => system._playerHit(actor, hit),
+      hitByPoop: () => {}
+    };
     this.actors.push(actor);
     this._traffic?.push(actor.proxy);
+    this._melee.push(actor.proxy);
     return actor;
   }
 
@@ -531,6 +681,12 @@ export class ProtestSystem {
     this._eventTimer = 0;
     this._dispersed = false;
     this.root.visible = true;
+    if (state === 'dispersal') this.phases.dispersal = this._severity() === 'peaceful' ? PROTEST.calmDispersal : PROTEST.phases.dispersal;
+    if (state === 'aftermath') {
+      this.outcome = this._severity();
+      this.phases.aftermath = PROTEST.debris[this.outcome].aftermath;
+      this.phases.cleanup = PROTEST.debris[this.outcome].cleanup;
+    }
   }
 
   // ---------- acabar ----------
@@ -540,6 +696,10 @@ export class ProtestSystem {
     actor.sign?.removeFromParent();
     if (actor.figure) pool.release(actor.figure);
     if (this._traffic) { const i = this._traffic.indexOf(actor.proxy); if (i >= 0) this._traffic.splice(i, 1); }
+    const j = this._melee.indexOf(actor.proxy);
+    if (j >= 0) this._melee.splice(j, 1);
+    const list = this.player.extraMeleeTargets;
+    if (list?.includes(actor.proxy)) { const rest = list.filter(m => m !== actor.proxy); this.player.extraMeleeTargets = rest.length ? rest : null; }
   }
 
   _releaseActors(keepDead = false) {
@@ -561,6 +721,9 @@ export class ProtestSystem {
     this.gas.visible = false;
     this.piles.length = 0;
     this._lit = false;
+    this.tireN = 0;
+    this._thrown.length = 0;
+    this.audio?.stopProtest?.();
     this.tires.count = 0;
     this.fire.visible = false;
     this._releaseActors();
@@ -587,6 +750,7 @@ export class ProtestSystem {
   }
 
   dispose() {
+    globalThis.window?.removeEventListener?.('poop-thrown', this._onThrown);
     this.reset();
     this.scene.remove(this.root);
     for (const mesh of [this.bits, this.sheets, this.gas, this.tires, this.fire, ]) { mesh.geometry.dispose?.(); mesh.material.dispose(); }
@@ -612,7 +776,8 @@ export class ProtestSystem {
     this.timer += gameDt;
     if (this.state === 'faceoff' || this.state === 'clash') this.standoff += gameDt;
     this._eventTimer += dt;
-    const phase = PROTEST.phases[this.state];
+    const phase = this.phases[this.state];
+    if (this.state === 'clash') this.clashTime += dt;
     switch (this.state) {
       case 'gathering': this._gather(dt); break;
       case 'faceoff': this._faceoff(dt); break;
@@ -627,11 +792,21 @@ export class ProtestSystem {
     this._gas(dt);
     this._burn(dt);
     this._playerEffects(dt);
+    this._thrownStep();
+    this._meleeTimer = (this._meleeTimer ?? 0) - dt;
+    if (this._meleeTimer <= 0) { this._meleeTimer = .5; this._syncMelee(); }
+    this._sound(dt);
     if (this.timer >= phase) this._next();
   }
 
   _next() {
     const i = PHASES.indexOf(this.state);
+    if (this.state === 'faceoff' && this.tension < PROTEST.tension.threshold) {
+      if (this.standoff < this.plan.total) { this.timer = 0; return; }
+      this._enter('dispersal');
+      toast(this._severity() === 'peaceful' ? 'La gente se va para la casa caminando, sin afán.' : '¡Corra! Se acabó la protesta.', 'warn');
+      return;
+    }
     if (this.state === 'clash') this._standDown(true);
     if (this.state === 'dispersal') { this._releaseActors(true); this._reopenStreet(); this._makeLitter(); }
     if (this.state === 'cleanup') { this._clearLitter(); this.state = 'idle'; this.root.visible = false; return; }
@@ -640,25 +815,59 @@ export class ProtestSystem {
         if (!a.gassed) continue;
         a.gassed = 0; a.arrived = false; a.stance = 'hablar'; a.speed = PROTEST.walkSpeed; a.goal = a.slot.clone();
       }
+      this._cooled();
       this._enter('faceoff');
       toast('Se calmó la cosa un rato, pero nadie se va.', 'info');
       return;
     }
     this._enter(PHASES[i + 1]);
-    if (this.state === 'faceoff') toast('Los tombos formaron la fila. Esto se va a poner feo.', 'warn');
-    if (this.state === 'clash') { toast('¡Piedras y gas! Aléjese de la calle.', 'death'); this.charge = { phase: 'idle', t: 1.2 }; }
-    if (this.state === 'dispersal') toast('¡Corra! Se acabó la protesta.', 'warn');
-    if (this.state === 'aftermath') toast('La calle quedó hecha un desastre. Entre los cartones algo se rescata.', 'info');
+    if (this.state === 'faceoff') {
+      toast(this.plan.temper === 'peaceful' ? 'Los tombos formaron la fila. Por ahora todo tranquilo.' : 'Los tombos formaron la fila. Esto se va a poner feo.', this.plan.temper === 'peaceful' ? 'info' : 'warn');
+      this._sirenNow();
+    }
+    if (this.state === 'clash') { this.clashes++; this._ignite(PROTEST.debris.clash.tires); toast('¡Piedras y gas! Aléjese de la calle.', 'death'); this.charge = { phase: 'idle', t: 1.2 }; }
+    if (this.state === 'dispersal') toast(this._severity() === 'peaceful' ? 'La gente se va para la casa caminando, sin afán.' : '¡Corra! Se acabó la protesta.', 'warn');
+    if (this.state === 'aftermath') {
+      this.audio?.stopProtest?.();
+      toast(this.outcome === 'peaceful' ? 'Quedaron volantes y cartones en la calle. Algo se rescata.' : 'La calle quedó hecha un desastre. Entre los cartones algo se rescata.', 'info');
+    }
   }
 
   _gather(dt) {
     if (this.actors.every(a => a.arrived)) this.timer = Math.max(this.timer, PROTEST.phases.gathering - .01);
   }
 
+  /** Después de un choque la tensión baja un poco; una tensa de choque corto ya no vuelve a reventar. */
+  _cooled() {
+    const T = PROTEST.tension;
+    this.tension = Math.min(this.tension, T.afterClash);
+    this.hostile *= .5;
+    if (this.plan.shortClash && this.plan.reach) {
+      this.plan.reach = false; this.plan.cap = T.caps.tense; this.plan.rate = (T.caps.tense - T.afterClash) / T.seconds.tense;
+    }
+  }
+
+  /** El genio de la protesta empuja la tensión; al umbral se acaba el cara a cara. */
+  _heat(dt) {
+    const p = this.plan, T = PROTEST.tension;
+    if (this.tension < p.cap) this.tension = Math.min(p.cap, this.tension + p.rate * dt);
+    else if (this.tension > p.cap) this.tension = Math.max(p.cap, this.tension - T.decay * dt);
+    this.peak = Math.max(this.peak, this.tension);
+    this._heated();
+  }
+
+  /** Qué tan feo se puso: pacífica, tensa (se calentó o hubo un choque corto) o choque completo. */
+  _severity() {
+    if (this.clashes > 0 && this.clashTime >= PROTEST.phases.clash * .5) return 'clash';
+    return this.clashes > 0 || this.peak >= PROTEST.tension.tenseAt ? 'tense' : 'peaceful';
+  }
+
   _faceoff(dt) {
+    if (this.tension < PROTEST.tension.threshold) this._heat(dt);
+    if (this.tension >= PROTEST.tension.threshold || this.standoff >= this.plan.total) { this.timer = this.phases.faceoff; return; }
     if (this._eventTimer >= 5.5) {
       this._eventTimer = 0;
-      toast(this.random() < .35 ? COP_LINES[Math.floor(this.random() * COP_LINES.length)] : this.chants[Math.floor(this.random() * this.chants.length)], 'info');
+      toast(this.tension >= .4 && this.random() < .35 ? COP_LINES[Math.floor(this.random() * COP_LINES.length)] : this.chants[Math.floor(this.random() * this.chants.length)], 'info');
     }
   }
 
@@ -718,10 +927,12 @@ export class ProtestSystem {
       this._send(cop, best);
     }
     const me = this.player.position;
-    if (this.stats.salud > 0 && this._inFray(me)) {
+    const enraged = this.hostile > PROTEST.tension.hostileLimit && Math.hypot(me.x - this.center.x, me.z - this.center.z) < 30;
+    if (this.stats.salud > 0 && (this._inFray(me) || enraged)) {
       cops.sort((x, y) => (x.pos.x - me.x) ** 2 + (x.pos.z - me.z) ** 2 - (y.pos.x - me.x) ** 2 - (y.pos.z - me.z) ** 2);
-      for (const cop of cops.slice(0, 2)) cop.target = this.player;
+      for (const cop of cops.slice(0, 2 + (enraged ? Math.round(this.hostile * 3) : 0))) cop.target = this.player;
     }
+    this._sirenNow();
     for (const p of crowd) if (!free.has(p) && this._along(p.pos) > -9 && this.random() < .6) this._flee(p);
     c.phase = 'run'; c.t = PROTEST.chargeTime;
     toast('¡Cargan los tombos! ¡Corra!', 'death');
@@ -933,7 +1144,8 @@ export class ProtestSystem {
   /** A quién le tira: casi siempre a la fila de tombos, y al jugador si anda en medio. */
   _aim(a) {
     const me = this.player.position, police = this.actors.filter(o => o.kind === 'cop' && o.mode !== 'dead');
-    if (this.stats.salud > 0 && this._between(me) && this.random() < PROTEST.strayChance) {
+    const turned = this.hostile > PROTEST.tension.hostileLimit && Math.hypot(me.x - this.center.x, me.z - this.center.z) < 28;
+    if (this.stats.salud > 0 && (this._between(me) || turned) && this.random() < PROTEST.strayChance + (turned ? this.hostile * .5 : 0)) {
       return { x: me.x + (this.random() - .5) * 1.2, z: me.z + (this.random() - .5) * 1.2, time: 1.1 };
     }
     const to = police.length ? police[Math.floor(this.random() * police.length)].pos : this.center;
@@ -990,7 +1202,7 @@ export class ProtestSystem {
     all.forEach((b, i) => {
       _m.compose(_p.set(b.x, b.y, b.z), _q.setFromEuler(_e.set(b.ry, b.ry * 2, 0)), _s.set(b.s, b.kind === 'stick' ? b.s * .7 : b.s, b.kind === 'stick' ? b.s * 10 : b.s));
       mesh.setMatrixAt(i, _m);
-      mesh.setColorAt(i, _c.set(b.kind === 'canister' ? 0x2e3a2c : b.kind === 'stick' ? 0x6b4a2b : b.kind === 'burnt' ? 0x151515 : 0x77736c));
+      mesh.setColorAt(i, _c.set(b.kind === 'canister' ? 0x2e3a2c : b.kind === 'stick' ? 0x6b4a2b : b.kind === 'burnt' ? 0x151515 : b.kind === 'trash' ? 0xa7a49b : 0x77736c));
     });
     mesh.count = all.length;
     mesh.instanceMatrix.needsUpdate = true;
@@ -1031,6 +1243,35 @@ export class ProtestSystem {
     }
   }
 
+  // ---------- sonido ----------
+
+  _soundDistance() {
+    const me = this.player.position;
+    return Math.hypot(me.x - this.center.x, me.z - this.center.z);
+  }
+
+  /** La sirena del paro y de los tombos: una sola a la vez, con volumen por distancia. */
+  _sirenNow() {
+    this.audio?.playProtest?.('siren', this._soundDistance());
+  }
+
+  /** El grito de la multitud se repite en la concentración y el cara a cara (también entre choques); la sirena, en los paros. */
+  _sound(dt) {
+    const audio = this.audio;
+    if (!audio?.playProtest) return;
+    const distance = this._soundDistance();
+    audio.updateProtest?.(distance);
+    this._chantWait = Math.max(0, (this._chantWait ?? 0) - dt);
+    if ((this.state === 'gathering' || this.state === 'faceoff') && this._chantWait <= 0 && audio.playProtest('chant', distance)) {
+      this._chantWait = PROTEST.chantGap[0] + this.random() * (PROTEST.chantGap[1] - PROTEST.chantGap[0]);
+    }
+    this._sirenWait = Math.max(0, (this._sirenWait ?? 0) - dt);
+    if (this.plan.kind === 'paro' && (this.state === 'faceoff' || this.state === 'clash') && this._sirenWait <= 0) {
+      this._sirenWait = PROTEST.sirenGap[0] + this.random() * (PROTEST.sirenGap[1] - PROTEST.sirenGap[0]);
+      this._sirenNow();
+    }
+  }
+
   // ---------- gente ----------
 
   /** En un paro grande la multitud se afloja y se vuelve a llenar: parte de la gente instanciada se va caminando y regresa. */
@@ -1068,7 +1309,8 @@ export class ProtestSystem {
           _p.copy(a.pos).sub(this.center).addScaledVector(this.axis, -2).setY(0);
           const angle = Math.atan2(_p.x, _p.z) + (this.random() - .5) * 1.8;
           a.goal = a.pos.clone().add(new THREE.Vector3(Math.sin(angle), 0, Math.cos(angle)).multiplyScalar(45));
-          a.speed = PROTEST.runSpeed * (.8 + this.random() * .4); a.stance = 'huir'; a.arrived = false; a.fleeGoal = a.goal.clone();
+          const calm = this._severity() === 'peaceful';
+          a.speed = calm ? PROTEST.walkSpeed * (1 + this.random() * .4) : PROTEST.runSpeed * (.8 + this.random() * .4); a.stance = calm ? null : 'huir'; a.arrived = false; a.fleeGoal = a.goal.clone();
           if (a.mode === 'down') a.koTimer = Math.min(a.koTimer, .5);
         } else {
           a.goal = a.pos.clone().addScaledVector(this.axis, -5); a.stance = null; a.speed = 1.6; a.arrived = false;
@@ -1102,8 +1344,8 @@ export class ProtestSystem {
         }
       }
       a.speedNow = speed;
-      a.proxy.position.copy(a.pos);
       const g = a.figure.group, ground = this._ground(a.pos.x, a.pos.z);
+      a.proxy.position.set(a.pos.x, ground, a.pos.z);
       // Lo que la cámara no ve, o está muy lejos, ni se dibuja ni se anima.
       const seen = !camera || (this._frustum.intersectsSphere(_sph.set(_p.set(a.pos.x, ground + 1, a.pos.z), 2.4)) && (a.pos.x - view.x) ** 2 + (a.pos.z - view.z) ** 2 < 110 * 110);
       g.visible = !a.hidden && seen;
@@ -1138,14 +1380,20 @@ export class ProtestSystem {
 
   _makeLitter() {
     const { center: c, axis: a } = this, side = this._side().clone(), r = () => this.random();
-    for (let i = 0; i < 24; i++) this.bitsData.push({ kind: 'stick', x: c.x + a.x * (r() - .5) * 16 + side.x * (r() - .5) * 12, z: c.z + a.z * (r() - .5) * 16 + side.z * (r() - .5) * 12, y: 0, s: .09 + r() * .05, ry: r() * 6 });
-    for (let i = 0; i < 6; i++) this.bitsData.push({ kind: 'burnt', x: c.x - a.x * (2 + r() * 5) + side.x * (r() - .5) * 8, z: c.z - a.z * (2 + r() * 5) + side.z * (r() - .5) * 8, y: 0, s: .35 + r() * .25, ry: r() * 6 });
-    for (const b of this.bitsData) if (b.kind !== 'rock' && b.kind !== 'canister') b.y = this._ground(b.x, b.z) + .05;
+    const D = PROTEST.debris[this._severity()];
+    const spread = (kind, n, s0, s1, extra = {}) => {
+      for (let i = 0; i < n; i++) this.bitsData.push({ kind, x: c.x + a.x * (r() - .5) * 16 + side.x * (r() - .5) * 12, z: c.z + a.z * (r() - .5) * 16 + side.z * (r() - .5) * 12, y: 0, s: s0 + r() * s1, ry: r() * 6, ...extra });
+    };
+    spread('trash', D.trash, .1, .06);
+    spread('stick', D.sticks, .09, .05);
+    spread('rock', D.rocks, .1, .08);
+    for (let i = 0; i < D.burnt; i++) this.bitsData.push({ kind: 'burnt', x: c.x - a.x * (2 + r() * 5) + side.x * (r() - .5) * 8, z: c.z - a.z * (2 + r() * 5) + side.z * (r() - .5) * 8, y: 0, s: .35 + r() * .25, ry: r() * 6 });
+    for (const b of this.bitsData) if (b.kind !== 'canister') b.y = this._ground(b.x, b.z) + (b.kind === 'rock' ? .06 : .05);
     this._flush();
     this.sheetsData = [];
-    for (let i = 0; i < 26; i++) {
-      const board = i < PROTEST.scraps;
-      this.sheetsData.push({ x: c.x - a.x * (1 + r() * 9) + side.x * (r() - .5) * 11, z: c.z - a.z * (1 + r() * 9) + side.z * (r() - .5) * 11, w: .8 + r() * .5, d: .5 + r() * .5, ry: r() * 6, color: board ? 0x9a7549 : [0xd9d2c3, 0xb23a30, 0x2f5fa8, 0xe0b72f][i % 4], scale: 1 });
+    for (let i = 0; i < D.sheets; i++) {
+      const board = i < PROTEST.scraps, banner = !board && i % 4 >= 2;
+      this.sheetsData.push({ x: c.x - a.x * (1 + r() * 9) + side.x * (r() - .5) * 11, z: c.z - a.z * (1 + r() * 9) + side.z * (r() - .5) * 11, w: (.8 + r() * .5) * (banner ? 1.8 : 1), d: .5 + r() * .5, ry: r() * 6, color: board ? 0x9a7549 : [0xd9d2c3, 0xb23a30, 0x2f5fa8, 0xe0b72f][i % 4], scale: 1 });
     }
     this._flushSheets();
     this.scraps = this.sheetsData.slice(0, PROTEST.scraps).map((s, i) => {
@@ -1178,7 +1426,7 @@ export class ProtestSystem {
 
   _litter() {
     if (this.state !== 'cleanup') return;
-    const k = 1 - this.timer / PROTEST.phases.cleanup;
+    const k = 1 - this.timer / this.phases.cleanup;
     for (const s of this.sheetsData) if (s.scale > 0) s.scale = Math.min(1, k * 1.2);
     for (const scrap of this.scraps) if (k < .6 && !scrap.used) { scrap.used = true; this.interaction?.unregister?.(scrap); }
     this._flushSheets();
