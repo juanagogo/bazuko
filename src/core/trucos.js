@@ -111,8 +111,8 @@ export class CheatMode {
   ponerClima(id) { if (WEATHER_TYPES[id]) this.game.weather?.setWeather(id, true); }
 
   // ===== Protesta =====
-  /** Arma ya una protesta cerca del jugador; con una en curso no hace nada. Devuelve si empezó. */
-  protesta() { return !!this.game.protest?.trigger({ force: true }); }
+  /** Arma ya una protesta cerca del jugador (`'paro'` para un paro de un día entero, `'normal'` para una de un par de horas); con una en curso no hace nada. Devuelve si empezó. */
+  protesta(kind = null) { return !!this.game.protest?.trigger({ force: true, kind: kind === 'paro' ? 'paro' : kind === 'normal' ? 'normal' : null }); }
 
   // ===== Robo express =====
   /** Manda ya la moto del robo express; con una robo en curso no hace nada. Devuelve si salió. */

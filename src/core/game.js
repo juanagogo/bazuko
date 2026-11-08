@@ -12,6 +12,7 @@ import { Dog, DOG_DEFAULT_LOOK, legacyPetLook } from '../entities/Dog.js';
 import { CompanionNavigation } from '../systems/CompanionNavigation.js';
 import { Minimap, nombreALaVista } from '../ui/Minimap.js';
 import { ZonaAviso } from '../ui/ZonaAviso.js';
+import { ParoAviso } from '../ui/ParoAviso.js';
 import { alternarPantallaCompleta } from './PantallaCompleta.js';
 import { mojarCarton } from '../ui/mojado.js';
 import { servicePlaces, needContext, SHOP_PRICES, SHOP_OFFERS } from '../ui/mapServices.js';
@@ -214,6 +215,7 @@ export class Game {
     this.menu = new Menu();
     this.minimap = new Minimap();
     this.zonaAviso = new ZonaAviso();
+    this.paroAviso = new ParoAviso();
     this.weather = new WeatherSystem(this.sceneMgr.scene);
     this.hud.weather = this.weather;
     window.addEventListener('weather-lightning', ({ detail }) => this.audio.playThunder?.(detail?.distance));
@@ -1392,7 +1394,8 @@ export class Game {
       hour: this.clock.hour,
       zone: zonaDe(this.world.active, this.player.position.x, this.player.position.z),
       blocked: this.isSleeping || this._deathPending || this._arrestPending || !!this.photoMode?.active || !!this.traffic?.inPursuit || !!this.limpieza?.active || !!this.robo?.active,
-      allowSpawn: !this._nearCambuche(40)
+      allowSpawn: !this._nearCambuche(40),
+      clockSpeed: this.cheats?.velocidad ?? 1
     });
     this.profiler?.mark('trafico');
     if (this._handleDeath()) return;

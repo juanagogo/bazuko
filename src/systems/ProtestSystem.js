@@ -6,9 +6,12 @@
 // enfriamiento: más probable de día y en algunas zonas. Mientras no hay protesta no hace nada ni cuesta nada.
 import * as THREE from 'three';
 import { ITEMS } from '../data/items.js';
+import { DAY_LENGTH_SECONDS } from '../utils/constants.js';
 import { straightRoute } from './LimpiezaSocialSystem.js';
 
 const toast = (text, type = 'info') => globalThis.window?.dispatchEvent?.(new CustomEvent('toast', { detail: { text, type } }));
+
+const gameHours = hours => hours * DAY_LENGTH_SECONDS / 24;
 
 export const PROTEST = {
   checkEvery: 45,        // s de juego entre tiradas
@@ -23,7 +26,11 @@ export const PROTEST = {
   protesters: 16,        // de ellas, las que son personas reales del PeoplePool (las de adelante); el resto es instanciada
   cops: 22,
   closeRadius: 50,       // m a la redonda del centro que quedan cerrados al tráfico mientras dura la gente en la calle
-  phases: { gathering: 22, faceoff: 28, clash: 26, dispersal: 12, aftermath: 150, cleanup: 45 },
+  // Todo se mide en tiempo de juego: un día de juego dura DAY_LENGTH_SECONDS, así que una hora de juego son 150 s a velocidad normal.
+  phases: { gathering: gameHours(.15), faceoff: gameHours(.3), clash: gameHours(.25), dispersal: gameHours(.08), aftermath: gameHours(1), cleanup: gameHours(.3) },
+  normalHours: 2,        // lo que dura el cara a cara y los choques de una protesta normal
+  paroHours: 24,         // lo que dura un paro grande: un día de juego entero con la calle cerrada
+  paroChance: .25,       // de las protestas, las que son un paro grande
   gap: 7,                // m del centro a cada fila
   sidewalk: 7.4,         // m del eje de la calle al grupo de cada anden
   walkSpeed: 2.1,
@@ -35,6 +42,7 @@ export const PROTEST = {
   canisterLimit: 6,
   gasRadius: 5.2,
   signs: 6,              // consignas distintas
+  tires: 5,              // montones de llantas quemándose en la calle
   signEvery: 3,          // una de cada tantas personas lleva pancarta
   gasLife: 18,
   gasDamage: 2.4,        // de salud por segundo dentro de la nube
@@ -44,17 +52,40 @@ export const PROTEST = {
   litterCapacity: 90
 };
 
+const cause = (alert, hint, slogans = null, chants = null) => ({ alert, hint, slogans, chants });
+
+/** Las causas: paros de gremio de aquí y las cosas que a uno le da por protestar en Latinoamérica. Cada protesta elige una. */
 export const CAUSES = [
-  'contra el precio del tinto',
-  'por el derecho a la siesta a mitad del día',
-  'contra el pico y placa de los domingos',
-  'por más empanada y menos impuestos',
-  'contra los huecos de la calle de siempre',
-  'por una ciclovía que no se acabe en la esquina',
-  'contra la lluvia, que cae sin permiso',
-  'por el regreso del bus que nunca pasa',
-  'contra el tráfico, desde la mitad de la calle'
+  cause('PARO: taxistas por el precio de la gasolina', 'un paro de taxistas por el precio de la gasolina',
+    ['GASOLINA A\nPRECIO JUSTO', 'TAXISTAS\nUNIDOS', 'NO MÁS\nALZAS', '¡PARO\nYA!'], ['¡Gasolina barata!', '¡Pito, pito, que nos oigan!']),
+  cause('PARO CAMIONERO: contra los peajes', 'un paro camionero por los peajes',
+    ['PEAJES\nAL SUELO', 'CAMIONEROS\nUNIDOS', 'LA CARGA\nNO PAGA', '¡PARO\nCAMIONERO!'], ['¡Peajes no, carreteras sí!', '¡Camionero unido!']),
+  cause('PARO: mototaxistas por el pico y placa', 'un paro de mototaxistas por el pico y placa',
+    ['MOTO SIN\nPICO', 'NO AL PICO\nY PLACA', 'LA MOTO\nTAMBIÉN\nTRABAJA', 'DÉJENNOS\nRODAR'], ['¡Pico y placa, no más!', '¡Rrrrum, que nos oigan!']),
+  cause('MARCHA: estudiantes de la pública por la matrícula', 'una marcha de los estudiantes de la pública por la matrícula',
+    ['MATRÍCULA\nJUSTA', 'EDUCACIÓN\nPÚBLICA', '¡NO A LA\nALZA!', 'ESTUDIAR\nNO ES LUJO'], ['¡Educación pública, no se vende!', '¡Matrícula justa!']),
+  cause('PROTESTA: vendedores ambulantes, los sacaron del andén', 'una protesta de vendedores ambulantes porque los sacaron del andén',
+    ['EL ANDÉN\nES DE TODOS', 'DÉJENNOS\nTRABAJAR', 'VENDER NO\nES DELITO', 'NO MÁS\nDESALOJOS'], ['¡Vender no es delito!', '¡Déjenos trabajar!']),
+  cause('VOTACIÓN EN LA CALLE: votan para tumbar al presidente', 'están votando en plena calle para tumbar al presidente',
+    ['¡VOTE\nAQUÍ!', 'TUMBE AL\nPRESIDENTE', 'URNA DE\nCARTÓN', '¡UN VOTO\nPOR UNA\nEMPANADA!'], ['¡Que voten, que voten!', '¡Urna, urna, urna!']),
+  cause('CACEROLAZO: se fue la luz en todo el país', 'un cacerolazo porque se fue la luz en todo el país',
+    ['¡LA LUZ,\nLA LUZ!', 'APAGÓN\nNACIONAL', 'VELA EN\nMANO', '¡QUE VUELVA\nLA LUZ!'], ['¡Que vuelva la luz!', '¡Cacerola, cacerola!']),
+  cause('PROTESTA: adelantaron el reloj y nadie sabe qué hora es', 'una protesta porque adelantaron el reloj una hora y nadie sabe qué hora es',
+    ['¿QUÉ\nHORA ES?', 'DEVUELVAN\nMI HORA', 'EL RELOJ\nMIENTE', 'LLEGUÉ\nTARDE A\nTODO'], ['¿Qué hora es? ¡No sabemos!', '¡Devuelvan la hora!']),
+  cause('CACEROLAZO: prohibieron el tinto después de las seis', 'un cacerolazo porque prohibieron el tinto después de las seis',
+    ['TINTO\nLIBRE', 'SIN TINTO\nNO HAY PAÍS', '¡QUE SIRVAN\nEL TINTO!', 'LAS SEIS NO\nSON DELITO'], ['¡Sin tinto no hay país!', '¡Tinto, tinto, tinto!']),
+  cause('PARO: subieron el pasaje cien pesos', 'un paro porque subieron el pasaje cien pesos',
+    ['PASAJE\nJUSTO', '¡NI CIEN\nPESOS MÁS!', 'BUS YA', 'CIEN PESOS\nSON MIS\nCIEN PESOS'], ['¡Ni cien pesos más!', '¡Pasaje justo!']),
+  cause('MARCHA: la selección no clasificó al Mundial', 'una marcha porque la selección no clasificó al Mundial',
+    ['¡QUE VUELVA\nEL MUNDIAL!', 'SELECCIÓN SIN\nPASAPORTE', 'NOS DEBEN\nUN GOL', '¡AL MUNDIAL\nCON LAS\nMANOS!'], ['¡Al Mundial, al Mundial!', '¡Un gol, un gol!']),
+  cause('PARO: lustrabotas, ya nadie usa zapatos de cuero', 'un paro de lustrabotas porque ya nadie usa zapatos de cuero',
+    ['LUSTRE\nPARA TODOS', 'DEVUELVAN\nEL CUERO', 'TENIS NO,\nBETÚN SÍ', 'LUSTRABOTAS\nUNIDOS'], ['¡Betún, betún!', '¡Lustre para todos!']),
+  cause('PROTESTA: el presidente se autoproclamó presidente otra vez', 'una protesta porque el presidente se autoproclamó presidente otra vez',
+    ['YA SE\nPROCLAMÓ\nOTRA VEZ', '¡UNA VEZ\nES SUFICIENTE!', 'PRESIDENTE\nDE SÍ MISMO', '¡QUE SE VAYA\nOTRA VEZ!'], ['¡Otra vez no!', '¡Que se vaya, que se vaya!'])
 ];
+
+export const pickCause = (random = Math.random) => CAUSES[Math.min(CAUSES.length - 1, Math.floor(random() * CAUSES.length))];
+
 export const CHANTS = ['¡Que se vaya, que se vaya!', '¡El pueblo unido!', '¡Eso, eso, eso!', '¡Sin tinto no hay país!', '¡Se ve, se siente, la siesta está presente!', '¡Ruido, ruido, que nos oigan!'];
 export const SLOGANS = ['SIN TINTO\nNO HAY PAÍS', 'MÁS SIESTA', 'QUEREMOS\nEMPANADA', 'NI UN HUECO\nMÁS', 'BUS YA', '¡QUE SE\nOIGA!'];
 export const COP_LINES = ['¡Despejen la vía!', '¡Última advertencia!', '¡Atrás, atrás!', '¡Dispérsense ya!'];
@@ -73,9 +104,31 @@ const _p = new THREE.Vector3(), _d = new THREE.Vector3(), _m = new THREE.Matrix4
 const SIGN_STICK = new THREE.CylinderGeometry(.025, .025, 1.5, 5), SIGN_BOARD = new THREE.BoxGeometry(.95, .6, .03), SIGN_WOOD = new THREE.MeshLambertMaterial({ color: 0x6b4a2b });
 const SHIRTS = [0x6b4a3a, 0x4b5d6e, 0x5f6b52, 0x8a7a5a, 0x5a4f6b, 0x7a4a3d, 0x3d3d3d, 0xa8a090, 0x365456, 0x1f2328, 0x6a6f75, 0x8b2b2b], JEANS = [0x2b3a55, 0x1f2430, 0x3c4a63, 0x4a4036, 0x2a2a2a];
 const SKINS = [0x8d5a3b, 0xb07a52, 0xc99a73, 0x6d4630, 0xe0b48f], HAIRS = [0x15110d, 0x2b2118, 0x4a3a2a, 0x8a8a86, 0x0e0e0e];
+const ZERO = new THREE.Matrix4().makeScale(0, 0, 0);
 const _q2 = new THREE.Quaternion(), _roll = new THREE.Euler();
 const wrap = a => Math.atan2(Math.sin(a), Math.cos(a));
 
+const FLAMES = 6, SMOKES = 18;
+const FIRE_VERTEX = `attribute float aAlpha;
+attribute float aSize;
+attribute float aTone;
+varying float vAlpha;
+varying float vTone;
+void main() {
+  vAlpha = aAlpha;
+  vTone = aTone;
+  vec4 mv = modelViewMatrix * vec4(position, 1.);
+  gl_PointSize = aSize * 260. / max(-mv.z, 1.);
+  gl_Position = projectionMatrix * mv;
+}`;
+const FIRE_FRAGMENT = `varying float vAlpha;
+varying float vTone;
+void main() {
+  float r = length(gl_PointCoord - .5);
+  vec3 flame = mix(vec3(1., .78, .25), vec3(1., .38, .08), vTone * 4. + r);
+  vec3 color = mix(flame, vec3(.06, .06, .07), smoothstep(.6, 1., vTone));
+  gl_FragColor = vec4(color, smoothstep(.5, .1, r) * vAlpha);
+}`;
 const GAS_VERTEX = `attribute float aAlpha;
 attribute float aSize;
 varying float vAlpha;
@@ -117,7 +170,13 @@ export class ProtestSystem {
     this.scraps = [];
     this.center = new THREE.Vector3();
     this.axis = new THREE.Vector3(1, 0, 0);
-    this.cause = '';
+    this.cause = null;
+    this.chants = CHANTS;
+    this.plan = { kind: 'normal', total: gameHours(PROTEST.normalHours) };
+    this.standoff = 0;
+    this._thinTimer = 0;
+    this.piles = [];
+    this._lit = false;
     this.onPlayerHurt = null;
     this.onProvoked = null;
     this.interaction = null;
@@ -159,6 +218,7 @@ export class ProtestSystem {
     this.signFaces = this._signFaces();
     this._crowd(make);
     this.cues = this._cues();
+    this._tires(make);
     this.root.add(this.cues.group);
     this.bits = make(new THREE.IcosahedronGeometry(.5, 0), new THREE.MeshLambertMaterial({ flatShading: true }), cap);
     this.sheets = make(new THREE.BoxGeometry(1, .03, 1), new THREE.MeshLambertMaterial(), cap);
@@ -177,20 +237,33 @@ export class ProtestSystem {
 
   /** El cartón de cada consigna: un material por consigna, que comparten las pancartas reales y las instanciadas. */
   _signFaces() {
-    return SLOGANS.map((slogan, i) => {
-      const face = new THREE.MeshLambertMaterial({ color: [0xe6dcc4, 0xd9b873, 0xc9d6e0][i % 3] });
+    const faces = SLOGANS.map((_, i) => new THREE.MeshLambertMaterial({ color: [0xe6dcc4, 0xd9b873, 0xc9d6e0][i % 3] }));
+    faces.forEach((face, i) => {
       const canvas = globalThis.document?.createElement?.('canvas');
-      if (canvas) {
-        canvas.width = 256; canvas.height = 160;
-        const g = canvas.getContext('2d');
-        g.fillStyle = ['#e6dcc4', '#d9b873', '#c9d6e0'][i % 3]; g.fillRect(0, 0, 256, 160);
-        g.fillStyle = ['#a1261c', '#1c3b7a', '#222'][i % 3]; g.font = 'bold 40px sans-serif'; g.textAlign = 'center';
-        slogan.split('\n').forEach((line, row, all) => g.fillText(line, 128, 80 + (row - (all.length - 1) / 2) * 46));
-        face.map = new THREE.CanvasTexture(canvas);
-        face.map.colorSpace = THREE.SRGBColorSpace;
-      }
-      return face;
+      if (!canvas) return;
+      canvas.width = 256; canvas.height = 160;
+      face.map = new THREE.CanvasTexture(canvas);
+      face.map.colorSpace = THREE.SRGBColorSpace;
+      this._paintFace(face, i, SLOGANS[i]);
     });
+    return faces;
+  }
+
+  _paintFace(face, i, slogan) {
+    const canvas = face.map?.image;
+    if (!canvas) return;
+    const g = canvas.getContext('2d');
+    g.fillStyle = ['#e6dcc4', '#d9b873', '#c9d6e0'][i % 3]; g.fillRect(0, 0, 256, 160);
+    g.fillStyle = ['#a1261c', '#1c3b7a', '#222'][i % 3]; g.textAlign = 'center';
+    const lines = slogan.split('\n');
+    g.font = `bold ${lines.length > 2 || lines.some(l => l.length > 11) ? 32 : 40}px sans-serif`;
+    lines.forEach((line, row) => g.fillText(line, 128, 80 + 12 + (row - (lines.length - 1) / 2) * 42));
+    face.map.needsUpdate = true;
+  }
+
+  /** Las pancartas de esta protesta dicen lo de su causa. */
+  _paintSigns(slogans) {
+    this.signFaces.forEach((face, i) => this._paintFace(face, i, slogans[i % slogans.length]));
   }
 
   /** Una pancarta para quien la lleva en la mano: un cartón con consigna en un palo. */
@@ -219,6 +292,73 @@ export class ProtestSystem {
     // El palo y el cartón llevan su color propio: sin color por instancia, que sin dato las pinta de negro.
     for (const mesh of [this.poles, ...this.boards]) mesh.instanceColor = null;
     this.crowdMeshes = [this.legs, this.arms, this.torsos, this.heads, this.hair, this.poles, ...this.boards];
+  }
+
+  /** Los montones de llantas y su fuego: tres llantas por montón y una nube de partículas de llama y humo negro. */
+  _tires(make) {
+    this.tires = make(new THREE.TorusGeometry(.32, .13, 6, 12).rotateX(Math.PI / 2), new THREE.MeshLambertMaterial({ color: 0x1b1b1d }), PROTEST.tires * 3);
+    this.tires.instanceColor = null;
+    const n = PROTEST.tires * (FLAMES + SMOKES);
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array(n * 3), 3));
+    geometry.setAttribute('aAlpha', new THREE.BufferAttribute(new Float32Array(n), 1));
+    geometry.setAttribute('aSize', new THREE.BufferAttribute(new Float32Array(n), 1));
+    geometry.setAttribute('aTone', new THREE.BufferAttribute(new Float32Array(n), 1));
+    this.fire = new THREE.Points(geometry, new THREE.ShaderMaterial({ vertexShader: FIRE_VERTEX, fragmentShader: FIRE_FRAGMENT, transparent: true, depthWrite: false }));
+    this.fire.frustumCulled = false;
+    this.fire.visible = false;
+    this.root.add(this.fire);
+  }
+
+  /** Pone los montones entre las dos filas, repartidos a lo ancho de la calle; se prenden en el cara a cara. */
+  _placeTires() {
+    const side = this._side().clone(), n = PROTEST.tires;
+    this.piles = Array.from({ length: n }, (_, i) => {
+      const lateral = (i - (n - 1) / 2) * (8.6 / (n - 1)) + (this.random() - .5) * .8, along = 1.6 + this.random() * 1.6;
+      const x = this.center.x + this.axis.x * along + side.x * lateral, z = this.center.z + this.axis.z * along + side.z * lateral;
+      return { x, z, seed: this.random() };
+    });
+    this._lit = false;
+    this._flushTires(1);
+  }
+
+  _flushTires(scale) {
+    this.piles.forEach((pile, i) => {
+      for (let k = 0; k < 3; k++) {
+        _m.compose(_p.set(pile.x + (k % 2 ? .06 : -.05), this._ground(pile.x, pile.z) + (.14 + k * .25) * scale, pile.z + (k === 1 ? .05 : 0)), _q.setFromEuler(_e.set(k * .08, pile.seed * 6 + k, k * .06)), _s.set(scale, scale, scale));
+        this.tires.setMatrixAt(i * 3 + k, _m);
+      }
+    });
+    this.tires.count = this.piles.length * 3;
+    this.tires.instanceMatrix.needsUpdate = true;
+  }
+
+  /** Llamas mientras dura el cara a cara y el choque, apagándose en el desastre; el humo negro dura hasta la limpieza. */
+  _burn(dt) {
+    if (!this.piles.length) return;
+    this._fireClock = (this._fireClock ?? 0) + dt;
+    const lit = this.state === 'faceoff' || this.state === 'clash' || this.state === 'dispersal' || this.state === 'aftermath' || this.state === 'cleanup';
+    if (lit) this._lit = true;
+    const flame = !lit ? 0 : this.state === 'aftermath' ? Math.max(0, 1 - this.timer / 40) * .6 : this.state === 'cleanup' ? 0 : 1;
+    const smoke = !lit ? 0 : this.state === 'cleanup' ? Math.max(0, 1 - this.timer / PROTEST.phases.cleanup) : 1;
+    const attr = this.fire.geometry.attributes, pos = attr.position.array, alpha = attr.aAlpha.array, size = attr.aSize.array, tone = attr.aTone.array;
+    const t = this._fireClock;
+    let n = 0;
+    for (const pile of this.piles) {
+      const gy = this._ground(pile.x, pile.z);
+      for (let j = 0; j < FLAMES; j++, n++) {
+        const u = (t * 1.6 + j / FLAMES + pile.seed) % 1, a = j * 2.1 + pile.seed * 9 + t * 3;
+        pos[n * 3] = pile.x + Math.cos(a) * .22 * (1 - u); pos[n * 3 + 1] = gy + .45 + u * 1.5; pos[n * 3 + 2] = pile.z + Math.sin(a) * .22 * (1 - u);
+        alpha[n] = flame * (1 - u) * .95; size[n] = 2.2 * (1 - u * .5); tone[n] = u * .25;
+      }
+      for (let j = 0; j < SMOKES; j++, n++) {
+        const u = (t * .13 + j / SMOKES + pile.seed) % 1, a = j * 1.7 + pile.seed * 7 + u * 2;
+        pos[n * 3] = pile.x + u * 3.2 + Math.cos(a) * .5 * u; pos[n * 3 + 1] = gy + 1.1 + u * 8; pos[n * 3 + 2] = pile.z + u * 1.4 + Math.sin(a) * .5 * u;
+        alpha[n] = smoke * .95 * Math.min(1, u * 7) * (1 - u) ** .8; size[n] = 3 + u * 7; tone[n] = 1;
+      }
+    }
+    this.fire.visible = lit;
+    attr.position.needsUpdate = attr.aAlpha.needsUpdate = attr.aSize.needsUpdate = attr.aTone.needsUpdate = true;
   }
 
   /** Las señales de calle cerrada: una camioneta de la policía y barreras con conos en los dos extremos. Se arman una vez. */
@@ -280,7 +420,7 @@ export class ProtestSystem {
   }
 
   /** Busca un tramo de calle a cierta distancia del jugador. `force` no mira cooldown ni gracia (el truco). */
-  trigger({ force = false } = {}) {
+  trigger({ force = false, kind = null } = {}) {
     if (this.active || !this.people || !this.cops) return false;
     const target = this.player.position, options = [];
     for (const route of this.routes) {
@@ -300,14 +440,27 @@ export class ProtestSystem {
     if (!site) return false;
     this.center.set(site.x, 0, site.z);
     this.axis.set(site.dx, 0, site.dz).normalize();
-    this.cause = CAUSES[Math.floor(this.random() * CAUSES.length)];
+    this.cause = pickCause(this.random);
+    this.chants = this.cause.chants ?? CHANTS;
+    const paro = kind ? kind === 'paro' : this.random() < PROTEST.paroChance;
+    this.plan = { kind: paro ? 'paro' : 'normal', total: gameHours(paro ? PROTEST.paroHours : PROTEST.normalHours) };
+    this.standoff = 0;
+    this._firstFaceoff = true;
+    this._paintSigns(this.cause.slogans ?? SLOGANS);
     this.cooldown = PROTEST.cooldown;
     this._enter('gathering');
     this._spawn();
     this.vehicles?.closeSegment?.(this.center.x, this.center.z, PROTEST.closeRadius);
     this._placeCues();
-    toast(`Mire, por ahí hay protesta ${this.cause}. A ${Math.round(site.dist)} m.`, 'warn');
+    this._placeTires();
+    toast(`Mire, por ahí: ${this.cause.hint}. A ${Math.round(site.dist)} m.`, 'warn');
+    this._announce();
     return true;
+  }
+
+  /** El cartel de arriba con la causa de esta protesta, aparte del aviso chiquito. */
+  _announce() {
+    globalThis.window?.dispatchEvent?.(new CustomEvent('protest-alert', { detail: { text: this.cause.alert } }));
   }
 
   _side() { return _d.set(-this.axis.z, 0, this.axis.x); }
@@ -339,6 +492,7 @@ export class ProtestSystem {
       const slogan = i % PROTEST.signEvery === 0 ? i / PROTEST.signEvery % PROTEST.signs : -1;
       const figure = real.has(i) ? this.people.acquire() : null;
       const actor = this._add(figure, 'protester', start, goal, a, 'hablar');
+      actor.slot = goal.clone();
       if (!figure) {
         actor.cheap = { shirt: SHIRTS[i % SHIRTS.length], jeans: JEANS[(i * 7) % JEANS.length], skin: SKINS[(i * 3) % SKINS.length], hair: HAIRS[(i * 5) % HAIRS.length], height: .88 + (i * 37 % 13) / 100, phase: this.random() * 6.28, slogan };
         this.cheap.push(actor);
@@ -402,6 +556,10 @@ export class ProtestSystem {
     for (const scrap of this.scraps) this.interaction?.unregister?.(scrap);
     this.scraps.length = 0;
     this.gas.visible = false;
+    this.piles.length = 0;
+    this._lit = false;
+    this.tires.count = 0;
+    this.fire.visible = false;
   }
 
   /** La calle ya está libre de gente: se quitan las señales y vuelve el tráfico. */
@@ -424,12 +582,12 @@ export class ProtestSystem {
   dispose() {
     this.reset();
     this.scene.remove(this.root);
-    for (const mesh of [this.bits, this.sheets, this.gas, ...this.crowdMeshes]) { mesh.geometry.dispose?.(); mesh.material.dispose(); }
+    for (const mesh of [this.bits, this.sheets, this.gas, this.tires, this.fire, ...this.crowdMeshes]) { mesh.geometry.dispose?.(); mesh.material.dispose(); }
   }
 
   // ---------- cada cuadro ----------
 
-  update(dt, { hour = 12, zone = 'andenes', blocked = false, allowSpawn = true, camera = null } = {}) {
+  update(dt, { hour = 12, zone = 'andenes', blocked = false, allowSpawn = true, camera = null, clockSpeed = 1 } = {}) {
     if (dt <= 0) return;
     this.elapsed += dt;
     if (!this.active) {
@@ -442,7 +600,9 @@ export class ProtestSystem {
       return;
     }
     if (this.stats && this.stats.salud <= 0) { this.reset(); return; }
-    this.timer += dt;
+    const gameDt = dt * clockSpeed;
+    this.timer += gameDt;
+    if (this.state === 'faceoff' || this.state === 'clash') this.standoff += gameDt;
     this._eventTimer += dt;
     const phase = PROTEST.phases[this.state];
     switch (this.state) {
@@ -454,7 +614,9 @@ export class ProtestSystem {
     }
     if (this.state !== 'aftermath' && this.state !== 'cleanup') this._moveActors(dt);
     this._rocks(dt);
+    this._wave(dt);
     this._gas(dt);
+    this._burn(dt);
     this._playerEffects(dt);
     if (this.timer >= phase) this._next();
   }
@@ -463,6 +625,15 @@ export class ProtestSystem {
     const i = PHASES.indexOf(this.state);
     if (this.state === 'dispersal') { this._releaseActors(); this._reopenStreet(); this._makeLitter(); }
     if (this.state === 'cleanup') { this._clearLitter(); this.state = 'idle'; this.root.visible = false; return; }
+    if (this.state === 'clash' && this.standoff < this.plan.total) {
+      for (const a of this.actors) {
+        if (!a.gassed) continue;
+        a.gassed = 0; a.arrived = false; a.stance = 'hablar'; a.speed = PROTEST.walkSpeed; a.goal = a.slot.clone();
+      }
+      this._enter('faceoff');
+      toast('Se calmó la cosa un rato, pero nadie se va.', 'info');
+      return;
+    }
     this._enter(PHASES[i + 1]);
     if (this.state === 'faceoff') toast('Los tombos formaron la fila. Esto se va a poner feo.', 'warn');
     if (this.state === 'clash') toast('¡Piedras y gas! Aléjese de la calle.', 'death');
@@ -477,7 +648,7 @@ export class ProtestSystem {
   _faceoff(dt) {
     if (this._eventTimer >= 5.5) {
       this._eventTimer = 0;
-      toast(this.random() < .35 ? COP_LINES[Math.floor(this.random() * COP_LINES.length)] : CHANTS[Math.floor(this.random() * CHANTS.length)], 'info');
+      toast(this.random() < .35 ? COP_LINES[Math.floor(this.random() * COP_LINES.length)] : this.chants[Math.floor(this.random() * this.chants.length)], 'info');
     }
   }
 
@@ -589,10 +760,34 @@ export class ProtestSystem {
 
   // ---------- gente ----------
 
+  /** En un paro grande la multitud se afloja y se vuelve a llenar: parte de la gente instanciada se va caminando y regresa. */
+  _wave(dt) {
+    if (this.plan.kind !== 'paro' || this.state === 'gathering' || this.state === 'dispersal' || !this.cheap.length) return;
+    this._thinTimer -= dt;
+    if (this._thinTimer > 0) return;
+    this._thinTimer = .6;
+    const level = .45 + .55 * (.5 + .5 * Math.sin(this.standoff / gameHours(3) * Math.PI * 2));
+    const keep = Math.round(level * this.cheap.length), side = this._side().clone();
+    for (let k = 0; k < this.cheap.length; k++) {
+      const a = this.cheap[k], want = k < keep;
+      if (!want && !a.away) {
+        a.away = true; a.arrived = false; a.stance = null; a.speed = PROTEST.walkSpeed;
+        a.goal = a.pos.clone().addScaledVector(side, (k % 2 ? 1 : -1) * 40);
+        return;
+      }
+      if (want && a.away) {
+        a.away = false; a.hidden = false; a.arrived = false; a.stance = 'hablar'; a.speed = PROTEST.walkSpeed * 1.3;
+        a.goal = a.slot.clone();
+        return;
+      }
+    }
+  }
+
   _disperse(dt) {
     if (!this._dispersed) {
       this._dispersed = true;
       for (const a of this.actors) {
+        a.away = false; a.hidden = false;
         if (a.kind === 'protester') {
           _p.copy(a.pos).sub(this.center).addScaledVector(this.axis, -2).setY(0);
           const angle = Math.atan2(_p.x, _p.z) + (this.random() - .5) * 1.8;
@@ -616,6 +811,7 @@ export class ProtestSystem {
         a.facing += wrap(Math.atan2(dx, dz) - a.facing) * Math.min(1, dt * 8);
       } else if (!a.arrived) {
         a.arrived = true;
+        if (a.away) a.hidden = true;
         a.facing = a.kind === 'cop' ? Math.atan2(-this.axis.x, -this.axis.z) : Math.atan2(this.axis.x, this.axis.z);
       }
       if (this.state === 'clash' && a.kind === 'protester' && a.arrived) {
@@ -645,6 +841,11 @@ export class ProtestSystem {
       mesh.setMatrixAt(index, _m);
     };
     list.forEach((a, i) => {
+      if (a.hidden) {
+        for (const side of [0, 1]) { this.legs.setMatrixAt(i * 2 + side, ZERO); this.arms.setMatrixAt(i * 2 + side, ZERO); }
+        this.torsos.setMatrixAt(i, ZERO); this.heads.setMatrixAt(i, ZERO); this.hair.setMatrixAt(i, ZERO);
+        return;
+      }
       const k = a.cheap, h = k.height, yaw = a.facing, sin = Math.sin(yaw), cos = Math.cos(yaw);
       const hop = a.speedNow > 0 ? Math.abs(Math.sin(this._clock * (a.stance === 'huir' ? 11 : 6) + k.phase)) * .08 : (this.state === 'clash' ? Math.max(0, Math.sin(this._clock * 7 + k.phase)) * .1 : 0);
       const y = this._ground(a.pos.x, a.pos.z) + hop;
@@ -730,5 +931,6 @@ export class ProtestSystem {
     for (const scrap of this.scraps) if (k < .6 && !scrap.used) { scrap.used = true; this.interaction?.unregister?.(scrap); }
     this._flushSheets();
     this.bits.count = Math.ceil(this.bitsData.length * k);
+    this._flushTires(Math.min(1, k * 1.2));
   }
 }

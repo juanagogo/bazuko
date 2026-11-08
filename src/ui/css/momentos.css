@@ -253,3 +253,17 @@ body.voces #hud-dock { translate: 4px -3px; rotate: -.35deg; }
   background: radial-gradient(circle at 50% 50%, transparent 65%, rgba(6, 10, 16, .38) 100%);
 }
 body.night-mode .cinematic-vignette { background: radial-gradient(circle at 50% 50%, transparent 48%, rgba(4, 7, 12, .52) 100%); }
+
+/* ---------- protesta: la franja de arriba con la causa ---------- */
+#paro-aviso {
+  position: fixed; z-index: 120; left: 50%; top: 10px; translate: -50% 0;
+  width: max-content; max-width: min(94vw, 980px);
+  padding: 12px clamp(14px, 2vw, 28px) 10px;
+  background: #1a1a1a; color: #f4c52a; border: 3px solid #f4c52a; outline: 4px solid #1a1a1a;
+  box-shadow: 0 6px 0 rgba(0, 0, 0, .35);
+  font-weight: 800; font-size: clamp(16px, 2vw, 28px); line-height: 1.1; text-transform: uppercase;
+  pointer-events: none; text-align: center;
+  animation: paro-baja .35s cubic-bezier(.2, .9, .3, 1.04);
+}
+#paro-aviso[hidden] { display: none; }
+@keyframes paro-baja { from { transform: translateY(-80px); opacity: 0; } to { transform: none; opacity: 1; } }

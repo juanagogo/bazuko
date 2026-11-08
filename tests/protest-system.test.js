@@ -3,7 +3,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import * as THREE from 'three';
-import { PROTEST, ProtestSystem, protestChance } from '../src/systems/ProtestSystem.js';
+import { CAUSES, PROTEST, ProtestSystem, pickCause, protestChance } from '../src/systems/ProtestSystem.js';
 import { straightRoute } from '../src/systems/LimpiezaSocialSystem.js';
 import { fakePool } from './fakePool.js';
 
@@ -61,11 +61,14 @@ test('la protesta recorre todos los estados en orden y la calle queda limpia al 
   assert.equal(system.state, 'gathering');
   assert.equal(system.trigger(), false, 'una sola a la vez');
   const seen = [system.state];
-  for (let t = 0; t < 400 && system.active; t += .25) {
+  for (let t = 0; t < 900 && system.active; t += .25) {
     system.update(.25, {});
     if (seen.at(-1) !== system.state && system.active) seen.push(system.state);
   }
-  assert.deepEqual(seen, ['gathering', 'faceoff', 'clash', 'dispersal', 'aftermath', 'cleanup']);
+  assert.deepEqual(seen.slice(0, 3), ['gathering', 'faceoff', 'clash']);
+  assert.deepEqual(seen.slice(-3), ['dispersal', 'aftermath', 'cleanup']);
+  assert.ok(seen.filter(state => state === 'clash').length >= 2, 'los choques van y vienen');
+  assert.ok(seen.every((state, i) => i === 0 || state !== seen[i - 1]));
   assert.equal(system.state, 'idle');
   assert.equal(people.inUse + cops.inUse, 0);
   assert.equal(traffic.length, 0);
@@ -221,4 +224,127 @@ test('sin calles cerca, el truco arma la protesta en una recta cerca del jugador
   assert.ok(people.inUse > 0);
   const d = Math.hypot(system.center.x, system.center.z);
   assert.ok(d >= 20 && d <= 70);
+});
+
+const withWindow = async fn => {
+  const before = globalThis.window;
+  globalThis.window = new EventTarget();
+  try { return await fn(globalThis.window); } finally { globalThis.window = before; }
+};
+
+const COMMON = [
+  'Paro de taxistas por el precio de la gasolina',
+  'Paro camionero por los peajes',
+  'Paro de mototaxistas por el pico y placa',
+  'Los estudiantes de la pública marchan por la matrícula',
+  'Los vendedores ambulantes protestan porque los sacaron del andén',
+  'Están votando para tumbar al presidente en plena calle',
+  'Cacerolazo porque se fue la luz en todo el país',
+  'Protesta porque adelantaron el reloj una hora y nadie sabe qué hora es',
+  'Cacerolazo porque prohibieron el tinto después de las seis'
+];
+const norm = text => text.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+
+test('las causas son los paros de aquí y las absurdas de siempre, cada una con su cartel y sus consignas', () => {
+  assert.ok(CAUSES.length >= 9 && CAUSES.length <= 13);
+  for (const text of COMMON) {
+    const words = norm(text).split(/[^a-z0-9]+/).filter(w => w.length > 3);
+    assert.ok(CAUSES.some(c => words.every(w => norm(c.hint).includes(w.slice(0, 5)))), text);
+  }
+  for (const c of CAUSES) {
+    assert.ok(c.alert.length <= 66, c.alert);
+    assert.match(c.alert, /^(PARO|PROTESTA|MARCHA|CACEROLAZO|VOTACIÓN)/);
+    assert.ok(c.slogans.length >= 4 && c.chants.length >= 2);
+  }
+  const seen = new Set(CAUSES.map((_, i) => pickCause(() => (i + .5) / CAUSES.length)));
+  assert.equal(seen.size, CAUSES.length, 'todas pueden salir');
+});
+
+test('al arrancar una protesta sale el cartel de arriba con su causa y las pancartas dicen lo mismo', async () => {
+  await withWindow(async win => {
+    const alerts = [];
+    win.addEventListener('protest-alert', e => alerts.push(e.detail.text));
+    const { system } = await build({ random: () => .02 });
+    system.trigger({ force: true });
+    assert.equal(alerts.length, 1);
+    assert.equal(alerts[0], system.cause.alert);
+    assert.deepEqual(alerts, [CAUSES[0].alert]);
+    assert.equal(system.chants, CAUSES[0].chants);
+    system.reset();
+    system.cooldown = 0;
+    system.trigger({ force: true });
+    assert.equal(alerts.length, 2, 'una protesta nueva avisa de nuevo, sin tope por día');
+  });
+});
+
+test('una protesta normal dura un par de horas de juego y sigue el reloj del juego', async () => {
+  const { system } = await build();
+  system.trigger({ force: true, kind: 'normal' });
+  const hours = PROTEST.normalHours * 150;
+  assert.equal(system.plan.total, hours);
+  const measure = (clockSpeed, dt) => {
+    let start = null, end = null, t = 0;
+    while (system.active && end === null) {
+      system.update(dt, { clockSpeed });
+      t += dt;
+      if (start === null && system.state === 'faceoff') start = t;
+      if (system.state === 'dispersal') end = t;
+    }
+    return end - start;
+  };
+  const normal = measure(1, .5);
+  assert.ok(normal >= hours - 2 && normal <= hours + PROTEST.phases.faceoff + PROTEST.phases.clash, `${normal} s`);
+  system.reset();
+  system.cooldown = 0;
+  system.trigger({ force: true, kind: 'normal' });
+  const fast = measure(4, .5);
+  assert.ok(fast < normal / 3, 'con el reloj acelerado dura menos tiempo real');
+});
+
+test('un paro grande mantiene la calle cerrada un día de juego entero, con la multitud que se afloja y se llena y las llantas ardiendo', async () => {
+  const { system, closures } = await build();
+  system.trigger({ force: true, kind: 'paro' });
+  assert.equal(system.plan.kind, 'paro');
+  assert.equal(system.plan.total, 24 * 150);
+  let t = 0, hiddenMax = 0, hiddenNow = 0, refilled = false, clashes = 0, last = '';
+  while (system.state !== 'dispersal' && t < 5000) {
+    system.update(1, {});
+    t++;
+    if (system.state === 'clash' && last !== 'clash') clashes++;
+    last = system.state;
+    hiddenNow = system.cheap.filter(a => a.hidden).length;
+    if (hiddenNow < hiddenMax) refilled = true;
+    hiddenMax = Math.max(hiddenMax, hiddenNow);
+    if (t % 600 === 0) {
+      assert.equal(closures.at(-1)?.radius, PROTEST.closeRadius, 'la calle sigue cerrada');
+      assert.equal(system.fire.visible, true, 'las llantas siguen ardiendo');
+    }
+  }
+  assert.ok(t >= 24 * 150 && t < 24 * 150 + 200, `${t} s de juego`);
+  assert.ok(hiddenMax >= 10, 'la multitud se afloja');
+  assert.ok(refilled, 'y se vuelve a llenar');
+  assert.ok(clashes >= 10, `${clashes} choques que van y vienen`);
+  while (system.state === 'dispersal') system.update(.5, {});
+  assert.equal(closures.at(-1), null, 'la calle se abre al terminar la dispersión');
+});
+
+test('las llantas: de tres a seis montones que se prenden en el cara a cara, humean en el desastre y se van con la limpieza', async () => {
+  const { system } = await build();
+  system.trigger();
+  assert.ok(system.piles.length >= 3 && system.piles.length <= 6);
+  assert.equal(system.tires.count, system.piles.length * 3);
+  system.update(.25, {});
+  assert.equal(system.fire.visible, false, 'aún sin prender');
+  while (system.state === 'gathering') system.update(.5, {});
+  system.update(.25, {});
+  assert.equal(system.fire.visible, true);
+  const alpha = system.fire.geometry.attributes.aAlpha.array;
+  assert.ok(alpha.some(a => a > .3), 'hay llama y humo');
+  while (system.state !== 'aftermath') system.update(.5, {});
+  system.update(.25, {});
+  assert.equal(system.fire.visible, true, 'sigue humeando');
+  while (system.state !== 'idle') system.update(.5, {});
+  assert.equal(system.piles.length, 0);
+  assert.equal(system.tires.count, 0);
+  assert.equal(system.fire.visible, false);
 });
