@@ -81,6 +81,8 @@ import { WaterEffects } from '../systems/WaterEffects.js';
 import { BusExhaust } from '../systems/BusExhaust.js';
 import { StationCrowd } from '../systems/StationCrowd.js';
 import { PeoplePool, POOL_SIZE } from '../systems/PeoplePool.js';
+import { ProtestSystem, PROTEST } from '../systems/ProtestSystem.js';
+import { riotCopFigure } from '../entities/RiotCop.js';
 import { ArticulatedPassengers } from '../systems/ArticulatedPassengers.js';
 import { LocalLights } from './LocalLights.js';
 import { ContactShadows } from './ContactShadows.js';
@@ -146,6 +148,11 @@ export class Game {
     this.people = new PeoplePool(this.sceneMgr.scene, { size: globalThis.location?.search?.includes('sinGente') ? 0 : POOL_SIZE });
     this.stationCrowd = new StationCrowd(this.sceneMgr.scene, this.people);
     this.busRiders = new ArticulatedPassengers(this.people);
+    // Protestas: la multitud sale del mismo grupo de gente y los antimotines de uno propio, chico (`?sinGente` los apaga)
+    this.riotCops = new PeoplePool(this.sceneMgr.scene, { size: globalThis.location?.search?.includes('sinGente') ? 0 : PROTEST.cops, factory: riotCopFigure });
+    this.protest = new ProtestSystem(this.sceneMgr.scene, { player: this.player, stats: this.stats, people: this.people, cops: this.riotCops, audio: this.audio });
+    this.protest.onPlayerHurt = () => { if (this.stats.salud <= 0) this._deathCause = 'golpiza'; };
+    this.protest.onProvoked = () => this.steal?._alertPolice?.();
     this.contactShadows = new ContactShadows(this.sceneMgr.scene);
     this._contactShadowFrame = {
       player: this.player,
@@ -347,7 +354,8 @@ export class Game {
       [...(district?.npcs ?? []), ...(this.roadRage?.preloadables ?? []), ...(this.limpieza?.preloadables ?? []), ...(this.robo?.preloadables ?? [])].map(npc => () => npc.preload()),
       importedEntities.map(entity => () => entity.preloadModel()),
       [() => district?.preloadDetails?.()],
-      this.people?.tasks() ?? []
+      this.people?.tasks() ?? [],
+      this.riotCops?.tasks() ?? []
     ], (done, total) => {
       const text = `Cargando recursos… ${done} de ${total}`;
       // Repintar por presupuesto temporal, no dos fotogramas por cada instancia.
@@ -730,6 +738,7 @@ export class Game {
     if (this.traffic) this.roadRage?.setup(district, this.traffic, district.trafficPedestrians, { collisions: this.collisions });
     if (this.traffic) this.limpieza?.setup(district, this.traffic.routes, district.trafficPedestrians, { collisions: this.collisions });
     if (this.traffic) this.robo?.setup(district, this.traffic.routes, district.trafficPedestrians, { collisions: this.collisions, extraMotos: this.traffic.extraMotos });
+    if (this.traffic) this.protest?.setup(district, this.traffic.routes, district.trafficPedestrians, { interaction: this.interaction });
 
     // ===== Tienda La Esquinita =====
     this.shop = new Shop(
@@ -1119,6 +1128,7 @@ export class Game {
     this.roadRage?.reset();
     this.limpieza?.reset();
     this.robo?.reset();
+    this.protest?.reset();
     this.momentos?.reset();
     this.substanceEffects?.end();
     this.psychosis?.clearInduced?.();
@@ -1378,6 +1388,12 @@ export class Game {
       camera: this.cameraRig.camera,
       giveIn: this.robo.awaitingAnswer && this.input.consumePress('KeyE')
     });
+    this.protest?.update(dt, {
+      hour: this.clock.hour,
+      zone: zonaDe(this.world.active, this.player.position.x, this.player.position.z),
+      blocked: this.isSleeping || this._deathPending || this._arrestPending || !!this.photoMode?.active || !!this.traffic?.inPursuit || !!this.limpieza?.active || !!this.robo?.active,
+      allowSpawn: !this._nearCambuche(40)
+    });
     this.profiler?.mark('trafico');
     if (this._handleDeath()) return;
 
@@ -1619,6 +1635,8 @@ export class Game {
     this.knockFeedback = null;
     this.limpieza?.dispose?.();
     this.robo?.dispose?.();
+    this.protest?.dispose();
+    this.riotCops?.dispose();
     this.radio?.destroy?.();
   }
 }

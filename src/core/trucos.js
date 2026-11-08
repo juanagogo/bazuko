@@ -110,6 +110,10 @@ export class CheatMode {
   setVelocidad(mult) { this.velocidad = mult === VELOCIDAD_RAPIDA ? VELOCIDAD_RAPIDA : VELOCIDAD_NORMAL; }
   ponerClima(id) { if (WEATHER_TYPES[id]) this.game.weather?.setWeather(id, true); }
 
+  // ===== Protesta =====
+  /** Arma ya una protesta cerca del jugador; con una en curso no hace nada. Devuelve si empezó. */
+  protesta() { return !!this.game.protest?.trigger({ force: true }); }
+
   // ===== Robo express =====
   /** Manda ya la moto del robo express; con una robo en curso no hace nada. Devuelve si salió. */
   robarExpress() { return !!this.game.robo?.trigger({ force: true }); }
