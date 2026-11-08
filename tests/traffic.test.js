@@ -1421,3 +1421,85 @@ test('con el tramo cerrado la flota que crece no pone vehículos nuevos adentro'
   assert.ok(closed.spawned > 0, 'la flota sí creció fuera del tramo');
   assert.equal(closed.inside, 0);
 });
+
+const { overlapDepth, vehicleBox } = await import('../src/systems/VehicleOverlap.js');
+
+/** La mayor penetración de una moto sobre un carro o un bus en este instante. */
+function worstMotoOverlap(traffic) {
+  const a = {}, b = {};
+  let worst = 0;
+  for (const vehicle of traffic.vehicles) {
+    if (!vehicle.car.isMoto) continue;
+    vehicleBox(vehicle.car, false, a);
+    for (const other of traffic.vehicles) {
+      if (other === vehicle || other.car.isMoto) continue;
+      if (Math.abs(other.car.position.x - vehicle.car.position.x) > 9 || Math.abs(other.car.position.z - vehicle.car.position.z) > 9) continue;
+      worst = Math.max(worst, overlapDepth(a, vehicleBox(other.car, false, b)));
+    }
+  }
+  return worst;
+}
+
+test('las motos se filtran entre carros parados y nunca se montan sobre ninguno', () => {
+  const scene = new THREE.Scene();
+  const route = new TrafficRoute(0, 600, 0, 90);
+  const traffic = new TrafficSystem(scene, [route], { carsPerRoute: 0, random: () => .5 });
+  traffic.setDensity('ultra');
+  const blockers = [];
+  traffic._motoThreshold = 11;
+  for (const [at, count] of [[150, 9], [168, 9], [186, 5]]) {
+    traffic._spawnCount = count;
+    const blocker = traffic._spawn(scene, route, at, false);
+    blocker.cruiseSpeed = 0; blocker.speed = 0;
+    blockers.push(blocker);
+  }
+  traffic._motoThreshold = 0;
+  for (let i = 0; i < 14; i++) {
+    traffic._spawnCount = i * 5 + 2;
+    const moto = traffic._spawn(scene, route, 20 + i * 7, false);
+    moto.cruiseSpeed = 8 + (i % 4);
+  }
+  assert.ok(traffic.vehicles.filter(vehicle => vehicle.car.isMoto).length >= 12, `nacieron ${traffic.vehicles.length}`);
+  let worst = 0;
+  for (let frame = 0; frame < 900; frame++) {
+    traffic.update(.1);
+    worst = Math.max(worst, worstMotoOverlap(traffic));
+  }
+  assert.ok(worst <= .2, `Una moto se montó ${worst.toFixed(2)} m sobre un carro`);
+  traffic.dispose();
+});
+
+test('la red de seguridad frena a la moto y al carro que la embiste antes de que se atraviesen', () => {
+  for (const guard of [false, true]) {
+    const scene = new THREE.Scene();
+    const route = new TrafficRoute(0, 600, 0, 90);
+    const traffic = new TrafficSystem(scene, [route], { carsPerRoute: 0, random: () => .5 });
+    traffic.setDensity('ultra');
+    traffic._motoThreshold = 11;
+    traffic._spawnCount = 9;
+    const car = traffic._spawn(scene, route, 150, false);
+    traffic._motoThreshold = 0;
+    traffic._spawnCount = 2;
+    const moto = traffic._spawn(scene, route, 140, false);
+    // Un cálculo errado de frenado lleva a la moto derecho contra el carro parado: ninguna lógica la detiene.
+    traffic._clearance = (vehicle) => { vehicle.hardClearance = vehicle.playerClearance = Infinity; return Infinity; };
+    traffic._boxStep = () => {};
+    if (!guard) traffic._guardMotos = () => {};
+    moto.lateral = 0; moto.cruiseSpeed = 10; moto.speed = 10;
+    car.cruiseSpeed = 0; car.speed = 0;
+    let worst = 0;
+    for (let frame = 0; frame < 15; frame++) {
+      traffic.update(.1);
+      worst = Math.max(worst, worstMotoOverlap(traffic));
+    }
+    if (guard) assert.ok(worst <= .2, `Se montaron ${worst.toFixed(2)} m con la red de seguridad`);
+    else assert.ok(worst > 1, `Sin la red la moto debía atravesar al carro: ${worst.toFixed(2)} m`);
+    // Y no se queda trancada para siempre: pasada la paciencia, la red la suelta.
+    if (guard) {
+      const held = moto.distance;
+      for (let frame = 0; frame < 150; frame++) traffic.update(.1);
+      assert.ok(moto.distance > held + 5, 'la moto retenida termina saliendo');
+    }
+    traffic.dispose();
+  }
+});

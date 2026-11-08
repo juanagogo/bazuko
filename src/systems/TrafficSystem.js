@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { Car } from '../entities/Car.js';
 import { Moto } from '../entities/Moto.js';
+import { overlapDepth, vehicleBox } from './VehicleOverlap.js';
 import { CarFleet } from '../world/bogota/vehicles.js';
 import { BusPassengers } from './BusPassengers.js';
 import { MOTO_LATERAL, MotoFleet, motoLoad } from '../world/bogota/motos.js';
@@ -31,6 +32,12 @@ const MOTO_GAP = 1.1;
 const LANE_SEPARATION = 1.31;
 // Dos motos solo se estorban si van a menos que esto una de otra: así caben varias de lado en la caja del semáforo.
 const MOTO_SEPARATION = .85;
+// Cuánto se puede montar una moto sobre un carro (espejos, manubrio) sin que cuente como atravesarlo.
+const OVERLAP_TOLERANCE = .15;
+const GUARD_PATIENCE = 1.2;
+const GUARD_FREE = 2.5;
+// Los corrimientos que prueba una moto atascada, de menos a más: [metros hacia delante, metros de lado].
+const SLIPS = Object.freeze([[.6, 0], [0, .6], [0, -.6], [1.2, 0], [.6, .6], [.6, -.6], [0, 1], [0, -1], [2, 0], [1.2, 1], [1.2, -1], [0, 1.6], [0, -1.6], [3, 0]]);
 const ACCELERATION = 1.8;
 const BRAKING = 2;
 // La salida se toma con calma; el freno entra rápido, que a velocidad de avenida no alcanza el tiempo.
@@ -1044,6 +1051,83 @@ export class TrafficSystem {
     return conflict;
   }
 
+  /**
+   * Red de seguridad: una moto nunca se monta sobre un carro ni un bus. Si el paso de este cuadro los dejó montados (sin
+   * que se vayan separando), los dos vuelven a donde estaban y se quedan quietos; la moto esquiva, filtra y zigzaguea por
+   * su franja, pero no atraviesa a nadie.
+   */
+  _guardMotos(stepTime) {
+    if (!this._carGrid) return;
+    const mine = this._boxA ??= {}, theirs = this._boxB ??= {};
+    for (const vehicle of this.vehicles) {
+      if (!vehicle.car.isMoto || vehicle._offRouteStep || vehicle.state === 'chase') continue;
+      const car = vehicle.car, p = car.position;
+      const near = this._carGrid.query(p.x - 3.5, p.z - 3.5, p.x + 3.5, p.z + 3.5, this._guardCandidates ??= []);
+      vehicleBox(car, false, mine);
+      let worst = 0, culprit = null;
+      for (const other of near) {
+        if (other === vehicle || other.car.isMoto || Math.abs(other.car.position.y - p.y) > 3) continue;
+        const depth = overlapDepth(mine, vehicleBox(other.car, this.busVehicles?.includes(other) ?? false, theirs));
+        if (depth > worst) { worst = depth; culprit = other; }
+      }
+      // Una moto que lleva más de GUARD_PATIENCE retenida se deja pasar un rato: mejor un roce que una calle trancada.
+      if (vehicle.guardFree > 0) vehicle.guardFree -= stepTime;
+      else if (worst > OVERLAP_TOLERANCE && worst > (vehicle.overlap ?? 0) - .002) {
+        this._undoStep(vehicle);
+        if (culprit.route && culprit.state !== 'chase' && !culprit.rejoinTarget) this._undoStep(culprit);
+        worst = vehicle.overlap ?? 0;
+        vehicle.guardHold = (vehicle.guardHold ?? 0) + stepTime;
+        if (vehicle.guardHold > GUARD_PATIENCE) {
+          vehicle.guardHold = 0;
+          // Atascada con el cuerpo montado: se corre hacia delante lo justo para salir; si no puede, se la deja pasar un rato.
+          if (!this._slip(vehicle, near)) vehicle.guardFree = GUARD_FREE;
+          else worst = 0;
+        }
+      } else vehicle.guardHold = Math.max(0, (vehicle.guardHold ?? 0) - stepTime);
+      vehicle.overlap = worst;
+    }
+  }
+
+  /**
+   * La moto atascada con el cuerpo montado sobre otro vehículo se corre: hacia delante o a un lado de su franja, lo menos
+   * que pueda, hasta una posición donde no toque a nadie. Devuelve false si ninguna le sirve.
+   */
+  _slip(vehicle, near) {
+    const car = vehicle.car, startDistance = vehicle.distance, startLateral = vehicle.lateral ?? 0;
+    const box = this._boxA, other = this._boxB;
+    for (const [forward, side] of SLIPS) {
+      vehicle.distance = (startDistance + forward) % vehicle.route.length;
+      vehicle.lateral = startLateral + side;
+      vehicle.route.sample(vehicle.distance, this._position, this._direction);
+      if (vehicle.lateral) this._lateral(this._position, this._direction, vehicle.lateral);
+      car.position.copy(this._position);
+      car.group.rotation.y = Math.atan2(-this._direction.z, this._direction.x);
+      vehicleBox(car, false, box);
+      let clear = true;
+      for (const entry of near) {
+        if (entry === vehicle || entry.car.isMoto || Math.abs(entry.car.position.y - car.position.y) > 3) continue;
+        if (overlapDepth(box, vehicleBox(entry.car, this.busVehicles?.includes(entry) ?? false, other)) > OVERLAP_TOLERANCE) { clear = false; break; }
+      }
+      if (clear) { vehicle.overlap = 0; return true; }
+    }
+    vehicle.distance = startDistance; vehicle.lateral = startLateral;
+    vehicle.route.sample(vehicle.distance, this._position, this._direction);
+    if (vehicle.lateral) this._lateral(this._position, this._direction, vehicle.lateral);
+    car.position.copy(this._position);
+    car.group.rotation.y = Math.atan2(-this._direction.z, this._direction.x);
+    return false;
+  }
+
+  _undoStep(vehicle) {
+    if (vehicle.stepDistance === undefined) return;
+    vehicle.distance = vehicle.stepDistance; vehicle.speed = 0; vehicle.nextSpeed = 0; vehicle.acceleration = 0;
+    vehicle.lateral = vehicle.stepLateral;
+    vehicle.route.sample(vehicle.distance, this._position, this._direction);
+    if (vehicle.lateral) this._lateral(this._position, this._direction, vehicle.lateral);
+    vehicle.car.position.copy(this._position);
+    vehicle.car.group.rotation.y = Math.atan2(-this._direction.z, this._direction.x);
+  }
+
   _clearance(vehicle, player, pedestrians) {
     if (!this._updating) this._buildSpatialIndex(pedestrians);
     const { route, car, distance, speed } = vehicle;
@@ -1518,6 +1602,7 @@ export class TrafficSystem {
     while (remaining > 1e-8) {
       const stepTime = Math.min(remaining, 0.05);
       this._time += stepTime;
+      for (const vehicle of this.vehicles) { vehicle.stepDistance = vehicle.distance; vehicle.stepSpeed = vehicle.speed; vehicle.stepLateral = vehicle.lateral; }
       this._buildSpatialIndex(pedestrians);
       this._updating = true;
       try {
@@ -1609,6 +1694,7 @@ export class TrafficSystem {
         // El carro instanciado no gasta la animación de ruedas y carrocería: no se ve.
         if (!vehicle.car.instanced) this._animateRoute(vehicle, travel, stepTime, previousSpeed);
       }
+      this._guardMotos(stepTime);
       remaining -= stepTime;
     }
     if (this._motoFleet) this._motoFleet.riders.real = this.motoPeople ?? null;
