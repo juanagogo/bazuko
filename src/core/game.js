@@ -755,7 +755,7 @@ export class Game {
     if (this.traffic) this.roadRage?.setup(district, this.traffic, district.trafficPedestrians, { collisions: this.collisions });
     if (this.traffic) this.limpieza?.setup(district, this.traffic.routes, district.trafficPedestrians, { collisions: this.collisions });
     if (this.traffic) this.robo?.setup(district, this.traffic.routes, district.trafficPedestrians, { collisions: this.collisions, extraMotos: this.traffic.extraMotos });
-    if (this.traffic) this.protest?.setup(district, this.traffic.routes, district.trafficPedestrians, { interaction: this.interaction, vehicles: this.traffic });
+    if (this.traffic) this.protest?.setup(district, this.traffic.routes, district.trafficPedestrians, { interaction: this.interaction, vehicles: this.traffic, collisions: this.collisions });
 
     // ===== Tienda La Esquinita =====
     this.shop = new Shop(

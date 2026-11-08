@@ -68,6 +68,10 @@ export const PROTEST = {
   provokeRange: 4,       // m de la fila de tombos
   provokeTime: 3.5,
   scraps: 6,
+  holdPush: .35,         // de los que se quedan firmes ante la carga, los que además dan un paso al frente para encarar
+  pushStep: [1, 2.4],    // m que avanzan hacia los tombos sin pasar de la fila
+  bodyRadius: .32,       // m: lo que ocupa cada persona frente a carros, paredes, postes y los demás
+  separation: .5,        // m mínimos entre dos personas
   litterCapacity: 90,
   chantGap: [2, 5],               // s entre un grito y el siguiente
   sirenGap: [25, 50],             // s entre sirenas en un paro
@@ -161,6 +165,7 @@ export function rollTemper(random = Math.random, paro = false) {
 const TEMPERS = ['peaceful', 'tense', 'fight'];
 
 const PHASES = ['gathering', 'faceoff', 'clash', 'dispersal', 'aftermath', 'cleanup'];
+const _from = new THREE.Vector3(), _to = new THREE.Vector3(), _delta = new THREE.Vector3();
 const _sph = new THREE.Sphere(), _p = new THREE.Vector3(), _d = new THREE.Vector3(), _m = new THREE.Matrix4(), _q = new THREE.Quaternion(), _e = new THREE.Euler(), _s = new THREE.Vector3(), _c = new THREE.Color();
 const SIGN_STICK = new THREE.CylinderGeometry(.025, .025, 1.5, 5), SIGN_BOARD = new THREE.BoxGeometry(.95, .6, .03), SIGN_WOOD = new THREE.MeshLambertMaterial({ color: 0x6b4a2b });
 const wrap = a => Math.atan2(Math.sin(a), Math.cos(a));
@@ -275,8 +280,9 @@ export class ProtestSystem {
   }
   get counts() { return { actors: this.actors.length, rocks: this.rocks.length, clouds: this.clouds.length, scraps: this.scraps.filter(s => !s.used).length }; }
 
-  setup(district, routes, trafficPeople = null, { interaction = null, vehicles = null } = {}) {
+  setup(district, routes, trafficPeople = null, { interaction = null, vehicles = null, collisions = null } = {}) {
     this.reset();
+    this.collisions = collisions;
     this.routes = routes ?? [];
     this._traffic = trafficPeople;
     this.vehicles = vehicles;
@@ -794,7 +800,7 @@ export class ProtestSystem {
       case 'dispersal': this._disperse(dt); break;
       case 'aftermath': case 'cleanup': this._litter(dt); break;
     }
-    if (this.state !== 'aftermath' && this.state !== 'cleanup') { this._people(dt); this._moveActors(dt); }
+    if (this.state !== 'aftermath' && this.state !== 'cleanup') { this._people(dt); this._moveActors(dt); this._separate(); }
     this._trash(dt);
     this._rocks(dt);
     this._wave(dt);
@@ -942,7 +948,8 @@ export class ProtestSystem {
       for (const cop of cops.slice(0, 2 + (enraged ? Math.round(this.hostile * 3) : 0))) cop.target = this.player;
     }
     this._sirenNow();
-    for (const p of crowd) if (!free.has(p) && this._along(p.pos) > -9 && this.random() < .6) this._flee(p);
+    // La gente no se echa para atrás: aguanta o da un paso al frente. Solo corre el que ya recibió el golpe o el gas.
+    for (const p of crowd) if (!free.has(p) && this.random() < PROTEST.holdPush) this._push(p);
     c.phase = 'run'; c.t = PROTEST.chargeTime;
     toast('¡Cargan los tombos! ¡Corra!', 'death');
   }
@@ -950,7 +957,15 @@ export class ProtestSystem {
   _send(cop, target) {
     cop.mode = 'charge'; cop.target = target; cop.driven = true;
     cop.melee = { state: 'chase', stateTimer: 0, attackTimer: .2 + this.random() * .6 };
-    if (target) this._flee(target);
+  }
+
+  /** Da un paso al frente, hacia la fila de tombos, sin pasar de ella. */
+  _push(p) {
+    const room = PROTEST.gap - 1.8 - this._along(p.pos), [lo, hi] = PROTEST.pushStep;
+    const step = Math.min(lo + this.random() * (hi - lo), room);
+    if (step < .3) return;
+    p.pushed = true; p.arrived = false; p.speed = PROTEST.walkSpeed * 1.5;
+    p.goal = p.pos.clone().addScaledVector(this.axis, step);
   }
 
   _flee(p) {
@@ -970,6 +985,8 @@ export class ProtestSystem {
         if (a.victim) { this._knockDown(a.victim); a.victim = null; }
         a.mode = 'return'; a.target = null; a.attack = null; a.driven = false; a.arrived = false; a.goal = a.slot.clone(); a.speed = 3.6;
         a.melee = { state: 'chase', stateTimer: 0, attackTimer: 0 };
+      } else if (a.mode === 'stand' && a.pushed) {
+        a.pushed = false; a.arrived = false; a.speed = PROTEST.walkSpeed; a.goal = a.slot.clone();
       } else if (a.mode === 'flee' || a.mode === 'fight' || a.mode === 'drag') {
         a.mode = 'stand'; a.attack = null; a.driven = false; a.arrived = false; a.stance = 'hablar'; a.speed = PROTEST.walkSpeed * 1.4; a.goal = a.slot.clone();
       }
@@ -979,6 +996,7 @@ export class ProtestSystem {
   /** Cada cuadro: los tombos que persiguen, arrastran o vuelven, y la gente que huye, cae, se levanta o responde. */
   _people(dt) {
     for (const a of this.actors) {
+      a.px = a.pos.x; a.pz = a.pos.z;
       a.stagger = Math.max(0, (a.stagger ?? 0) - dt);
       a.speedNow = 0;
       a.driven = false;
@@ -1011,8 +1029,8 @@ export class ProtestSystem {
       move: (t, speed, step, stop) => {
         const dx = t.x - a.pos.x, dz = t.z - a.pos.z, dist = Math.hypot(dx, dz);
         if (dist <= stop) return;
-        const run = Math.min(dist - stop, speed * step);
-        a.pos.x += dx / dist * run; a.pos.z += dz / dist * run;
+        const run = Math.min(dist - stop, speed * step), [ux, uz] = this._heading(a, dx / dist, dz / dist);
+        a.pos.x += ux * run; a.pos.z += uz * run;
         a.speedNow = speed;
       },
       pose: (phase, length) => { a.attack = phase ? { weapon: 'botella_picada', step: 0, phase, progress: 1 - Math.max(0, a.melee.stateTimer) / length } : null; }
@@ -1031,7 +1049,7 @@ export class ProtestSystem {
       const sq = (p.pos.x - a.pos.x) ** 2 + (p.pos.z - a.pos.z) ** 2;
       if (sq < bestSq) { best = p; bestSq = sq; }
     }
-    if (best) { a.target = best; this._flee(best); a.melee.state = 'chase'; return; }
+    if (best) { a.target = best; a.melee.state = 'chase'; return; }
     a.mode = 'return'; a.target = null; a.attack = null; a.driven = false; a.arrived = false; a.goal = a.slot.clone(); a.speed = 3.6;
   }
 
@@ -1339,9 +1357,9 @@ export class ProtestSystem {
         const dx = a.goal.x - a.pos.x, dz = a.goal.z - a.pos.z, dist = Math.hypot(dx, dz);
         if (dist > .25) {
           speed = a.speed;
-          const step = Math.min(dist, speed * dt);
-          a.pos.x += dx / dist * step; a.pos.z += dz / dist * step;
-          a.facing += wrap(Math.atan2(dx, dz) - a.facing) * Math.min(1, dt * 8);
+          const step = Math.min(dist, speed * dt), [ux, uz] = this._heading(a, dx / dist, dz / dist);
+          a.pos.x += ux * step; a.pos.z += uz * step;
+          a.facing += wrap(Math.atan2(ux, uz) - a.facing) * Math.min(1, dt * 8);
         } else if (!a.arrived) {
           a.arrived = true;
           if (a.away) a.hidden = true;
@@ -1352,6 +1370,7 @@ export class ProtestSystem {
           if (gassed && !a.gassed) { a.gassed = 1; a.stance = 'nariz'; a.goal = a.pos.clone().addScaledVector(this.axis, -9); a.speed = PROTEST.runSpeed * .7; a.arrived = false; }
         }
       }
+      this._collide(a, dt);
       a.speedNow = speed;
       const g = a.figure.group, ground = this._ground(a.pos.x, a.pos.z);
       a.proxy.position.set(a.pos.x, ground, a.pos.z);
@@ -1375,6 +1394,58 @@ export class ProtestSystem {
       a.animAcc = 0;
       if (a.mode === 'dead' && a.ko >= 1) a.settled = true;
     });
+  }
+
+  /** Hacia dónde da el paso: derecho al destino, o girado a un lado si lleva un rato topándose con algo. */
+  _heading(a, ux, uz) {
+    if (!(a.detour > 0)) return [ux, uz];
+    const turn = (a.detourSide ?? 1) * 1.1, c = Math.cos(turn), s = Math.sin(turn);
+    return [ux * c - uz * s, ux * s + uz * c];
+  }
+
+  /**
+   * Nadie atraviesa nada: lo que se movió este cuadro se barre contra paredes, carros, buses, motos, postes y quioscos;
+   * si le cierran el paso se desvía un rato por el otro lado. Después se separa de los demás.
+   */
+  _collide(a, dt) {
+    if (a.detour > 0) a.detour -= dt;
+    if (a.hidden || a.mode === 'dead' || !this.collisions) return;
+    const dx = a.pos.x - a.px, dz = a.pos.z - a.pz, moved = Math.hypot(dx, dz);
+    if (moved < 1e-4) { a.blocked = 0; return; }
+    _from.set(a.px, this._ground(a.px, a.pz), a.pz);
+    this.collisions.resolveMove(_from, _delta.set(dx, 0, dz), PROTEST.bodyRadius, _to);
+    a.pos.x = _to.x; a.pos.z = _to.z;
+    if (Math.hypot(a.pos.x - a.px, a.pos.z - a.pz) < moved * .35) {
+      a.blocked = (a.blocked ?? 0) + dt;
+      if (a.blocked > .3) { a.blocked = 0; a.detour = .9; a.detourSide = -(a.detourSide ?? (this.actors.indexOf(a) % 2 ? 1 : -1)); }
+    } else a.blocked = 0;
+  }
+
+  /** Un empujón de la separación también respeta lo sólido: nadie sale empujado hacia dentro de un carro o una pared. */
+  _shove(a, dx, dz) {
+    if (!this.collisions) { a.pos.x += dx; a.pos.z += dz; return; }
+    _from.set(a.pos.x, this._ground(a.pos.x, a.pos.z), a.pos.z);
+    this.collisions.resolveMove(_from, _delta.set(dx, 0, dz), PROTEST.bodyRadius, _to);
+    a.pos.x = _to.x; a.pos.z = _to.z;
+  }
+
+  /** Dos personas no ocupan el mismo sitio: se corren media distancia cada una, salvo el tombo y quien está golpeando o llevando. */
+  _separate() {
+    const list = this.actors, min = PROTEST.separation, minSq = min * min;
+    for (let i = 0; i < list.length; i++) {
+      const a = list[i];
+      if (a.hidden || a.mode === 'dead') continue;
+      for (let j = i + 1; j < list.length; j++) {
+        const b = list[j];
+        if (b.hidden || b.mode === 'dead') continue;
+        const dx = b.pos.x - a.pos.x, dz = b.pos.z - a.pos.z, sq = dx * dx + dz * dz;
+        if (sq >= minSq) continue;
+        if (a.target === b || b.target === a || a.victim === b || b.victim === a || a.foe === b || b.foe === a) continue;
+        const d = Math.sqrt(sq) || .001, push = (min - d) / 2;
+        const nx = sq > 1e-8 ? dx / d : 1, nz = sq > 1e-8 ? dz / d : 0;
+        this._shove(a, -nx * push, -nz * push); this._shove(b, nx * push, nz * push);
+      }
+    }
   }
 
   /** La gente se va poniendo más maltrecha: a medida que sube el choque, los carros atrapados se van rompiendo. */

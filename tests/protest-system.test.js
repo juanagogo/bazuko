@@ -6,8 +6,10 @@ import * as THREE from 'three';
 import { CAUSES, PROTEST, ProtestSystem, pickCause, protestChance, rollTemper } from '../src/systems/ProtestSystem.js';
 import { stepMelee } from '../src/systems/MeleeChase.js';
 import { straightRoute } from '../src/systems/LimpiezaSocialSystem.js';
+import { CollisionSystem } from '../src/systems/CollisionSystem.js';
 import { fakePool } from './fakePool.js';
 
+const seeded = (seed) => () => (seed = (seed * 16807) % 2147483647) / 2147483647;
 const route = () => straightRoute(new THREE.Vector3(40, 0, -100), new THREE.Vector3(0, 0, 1), 200);
 
 async function build({ crowd = PROTEST.protesters, police = 24, random = () => .5, audio = null } = {}) {
@@ -523,4 +525,104 @@ test('el mapa y el radar saben dónde es la protesta y su calle cerrada solo mie
   }
   assert.ok(reopened, 'la calle se abre antes de que la marca desaparezca del todo');
   assert.equal(system.marker, null, 'al terminar se borra');
+});
+
+test('ante la carga los manifestantes aguantan: ninguno retrocede por miedo, unos dan un paso al frente, y solo corre el golpeado o el gaseado', async () => {
+  const { system } = await build();
+  toClash(system);
+  assert.ok(until(system, () => system.charge.phase === 'warn', 20));
+  system.random = seeded(3);
+  const crowd = system.actors.filter(a => a.kind === 'protester' && a.mode === 'stand');
+  const before = new Map(crowd.map(p => [p, system._along(p.pos)]));
+  assert.ok(until(system, () => system.charge.phase === 'run', 10));
+  const targets = new Set(system.actors.filter(a => a.kind === 'cop').map(a => a.target));
+  const runners = system.actors.filter(a => a.mode === 'flee');
+  assert.equal(runners.length, 0, 'al romperse la fila nadie sale corriendo todavía, ni siquiera a quien persiguen');
+  for (let i = 0; i < 10; i++) system.update(.25, {});
+  for (const p of crowd) {
+    if (p.mode !== 'stand' || p.hits || p.gassed || targets.has(p)) continue;
+    assert.ok(system._along(p.pos) >= before.get(p) - .6, 'el que no fue tocado no se echa para atrás');
+  }
+  assert.ok(crowd.some(p => p.pushed && system._along(p.pos) > before.get(p) + .3), 'algunos dan el paso al frente');
+  assert.ok(crowd.every(p => system._along(p.pos) < PROTEST.gap - 1), 'sin pasar de la fila de tombos');
+});
+
+test('quien recibe el bolillazo o el gas sí corre; y en la dispersión corre toda la gente', async () => {
+  const { system } = await build();
+  toClash(system);
+  const cop = system.actors.find(a => a.kind === 'cop' && a.rank === 0);
+  const hit = system.actors.find(a => a.kind === 'protester' && a.mode === 'stand');
+  system.random = () => 0;
+  system._baton(cop, hit);
+  system.random = () => .5;
+  assert.equal(hit.mode, 'down');
+  assert.ok(until(system, () => hit.mode !== 'down' && hit.mode !== 'rise', 30));
+  system.charge = { phase: 'run', t: 5 };
+  system._flee(hit);
+  assert.equal(hit.mode, 'flee', 'el golpeado puede correr');
+  while (system.state !== 'dispersal') system.update(.25, {});
+  system.update(.25, {});
+  const crowd = system.actors.filter(a => a.kind === 'protester' && !a.hidden);
+  const away = crowd.filter(a => a.goal.distanceTo(a.pos) > 4 || a.stance === 'huir' || a.away);
+  assert.ok(away.length >= crowd.length * .8, `la dispersión saca a la gente: ${away.length} de ${crowd.length}`);
+});
+
+/** Una caja de colisión para pruebas: un carro atravesado, una pared y un poste en la calle de la protesta. */
+function withObstacles(system) {
+  const { center: c, axis: a } = system, side = system._side();
+  const boxAt = (along, lateral, hx, hz) => {
+    const x = c.x + a.x * along + side.x * lateral, z = c.z + a.z * along + side.z * lateral;
+    return { box: new THREE.Box3(new THREE.Vector3(x - hx, 0, z - hz), new THREE.Vector3(x + hx, 3, z + hz)) };
+  };
+  const solids = [boxAt(-1.5, 0, 1.2, 1.2), boxAt(1.5, 3, 1, 4), boxAt(3.5, -3, .4, .4)];
+  const collisions = new CollisionSystem();
+  collisions.colliders.push(...solids);
+  system.collisions = collisions;
+  return { collisions, solids };
+}
+
+test('los manifestantes y los tombos rodean carros, paredes y postes y no se atraviesan entre sí en toda la protesta', async () => {
+  const { system } = await build({ random: seeded(5) });
+  system.trigger({ temper: 'fight' });
+  const { solids } = withObstacles(system);
+  const r = PROTEST.bodyRadius - .12;
+  let inside = 0, together = 0, frames = 0;
+  for (let t = 0; t < 700 && system.state !== 'aftermath' && system.active; t += .05) {
+    system.update(.05, {});
+    frames++;
+    const live = system.actors.filter(a => !a.hidden && a.mode !== 'dead');
+    for (const a of live) for (const { box } of solids) {
+      if (a.pos.x > box.min.x - r && a.pos.x < box.max.x + r && a.pos.z > box.min.z - r && a.pos.z < box.max.z + r) inside++;
+    }
+    for (let i = 0; i < live.length; i++) for (let j = i + 1; j < live.length; j++) {
+      const a = live[i], b = live[j];
+      if (a.target === b || b.target === a || a.victim === b || b.victim === a || a.foe === b || b.foe === a) continue;
+      if (Math.hypot(a.pos.x - b.pos.x, a.pos.z - b.pos.z) < PROTEST.separation * .6) together++;
+    }
+  }
+  assert.ok(frames > 100);
+  assert.equal(inside, 0, 'nadie queda metido en un sólido');
+  assert.equal(together, 0, 'nadie queda encima de otro');
+});
+
+test('un tombo que carga con un carro de por medio lo rodea en vez de atravesarlo', async () => {
+  const { system } = await build({ random: seeded(5) });
+  system.trigger({ temper: 'fight' });
+  toClash(system);
+  const c = system.center, a = system.axis;
+  // un carro largo atravesado entre la fila de tombos y el manifestante
+  const blocker = new THREE.Box3(new THREE.Vector3(c.x + a.x * 3.2 - 1.6 - Math.abs(a.z) * 3, 0, c.z + a.z * 3.2 - 1.6 - Math.abs(a.x) * 3), new THREE.Vector3(c.x + a.x * 3.2 + 1.6 + Math.abs(a.z) * 3, 3, c.z + a.z * 3.2 + 1.6 + Math.abs(a.x) * 3));
+  const collisions = new CollisionSystem(); collisions.colliders.push({ box: blocker }); system.collisions = collisions;
+  const cop = system.actors.find(x => x.kind === 'cop' && x.rank === 0);
+  const victim = system.actors.find(x => x.kind === 'protester' && x.mode === 'stand' && system._along(x.pos) < 0);
+  victim.pos.copy(cop.pos).addScaledVector(a, -9); victim.goal = victim.pos.clone(); victim.arrived = true; victim.pos.y = 0;
+  system._send(cop, victim);
+  let reached = false, crossed = false;
+  for (let i = 0; i < 160; i++) {
+    system.update(.1, {});
+    if (cop.pos.x > blocker.min.x - .3 && cop.pos.x < blocker.max.x + .3 && cop.pos.z > blocker.min.z - .3 && cop.pos.z < blocker.max.z + .3) crossed = true;
+    if (Math.hypot(cop.pos.x - victim.pos.x, cop.pos.z - victim.pos.z) < 1.6) { reached = true; break; }
+  }
+  assert.equal(crossed, false, 'el tombo no atraviesa el carro');
+  assert.ok(reached, 'pero lo rodea y llega');
 });
