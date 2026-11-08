@@ -110,6 +110,19 @@ export class CheatMode {
   setVelocidad(mult) { this.velocidad = mult === VELOCIDAD_RAPIDA ? VELOCIDAD_RAPIDA : VELOCIDAD_NORMAL; }
   ponerClima(id) { if (WEATHER_TYPES[id]) this.game.weather?.setWeather(id, true); }
 
+  // ===== La calle =====
+  /** Lleva al jugador junto a la primera pared de ladrillo o al primer refugio de chamber. */
+  irA(tipo) {
+    const target = (tipo === 'refugio' ? this.game.calle?.shelters : this.game.calle?.walls)?.[0];
+    // De frente a la cara de la pared o junto a la olla del refugio.
+    const yaw = target?.mesh.rotation.y ?? 0;
+    if (target) this.game.teleportTo(target.position.x + Math.sin(yaw) * 1.6, target.position.z + Math.cos(yaw) * 1.6);
+    return !!target;
+  }
+  bocadillos() { return this.game.calle?.summonBocadillos(3) ?? 0; }
+  /** Le pone un cartón en el costal y lo echa a dormir encima. */
+  echarseEnCarton() { if (this.game.inventory) this.game.inventory.add(ITEMS.carton, 1); return this.game.sleepOnCarton(); }
+
   // ===== Robo express =====
   /** Manda ya la moto del robo express; con una robo en curso no hace nada. Devuelve si salió. */
   robarExpress() { return !!this.game.robo?.trigger({ force: true }); }

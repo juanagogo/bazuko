@@ -37,6 +37,12 @@ export function trucosPanel(game) {
     section('tent', 'Cambuche',
       accion('Construir y mejorar todo', () => { cheats.construirCambuche(); refrescar(); })),
 
+    section('tent', 'La calle',
+      row('Ladrillo', accion('Ir a una pared', () => { cheats.irA('ladrillo'); })),
+      row('Chamber', accion('Ir al refugio', () => { cheats.irA('refugio'); })),
+      row('Bocadillos', accion('Que vengan', () => { cheats.bocadillos(); })),
+      row('Cartón', accion('Echarme a dormir', () => { cheats.echarseEnCarton(); }))),
+
     section('alert', 'Policía',
       row('Fichas', accion('Ponerlas en cero', () => { cheats.calmarPolicia(); refrescar(); })),
       row('Robo express', accion('Que llegue ya', () => { cheats.robarExpress(); })),
