@@ -71,6 +71,14 @@ int main() {
 
     CHECK(!adaptive.Sample(-1.0f) && !adaptive.Sample(0.0f), "intervalos invalidos");
 
+    // Modos de super-resolucion FSR / CAS
+    const auto clampUpscaleMode = [](int mode) { return std::clamp(mode, 0, 2); };
+    CHECK(clampUpscaleMode(-1) == 0, "modo menor que 0 cae en bilineal");
+    CHECK(clampUpscaleMode(0) == 0, "modo 0 es bilineal");
+    CHECK(clampUpscaleMode(1) == 1, "modo 1 es AMD CAS");
+    CHECK(clampUpscaleMode(2) == 2, "modo 2 es AMD FSR 1.0");
+    CHECK(clampUpscaleMode(5) == 2, "modo mayor que 2 cae en FSR 1.0");
+
     if (g_failures == 0) std::printf("AdaptiveResolution: todo OK\n");
     else std::printf("AdaptiveResolution: %d fallos\n", g_failures);
     return g_failures == 0 ? 0 : 1;

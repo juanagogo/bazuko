@@ -300,8 +300,14 @@ void Renderer::EndScaledTarget() {
     m_PresentShader->SetInt("uToneMap", m_ToneMapping && m_HdrTarget ? 1 : 0);
     m_PresentShader->SetFloat("uExposure", m_Exposure);
     m_PresentShader->SetInt("uDebugBloom", std::getenv("BAZUKO_DEBUG_BLOOM") ? 1 : 0);
-    { static const char* sharpEnv = std::getenv("BAZUKO_SHARPEN"); const float sharpDefault = sharpEnv ? static_cast<float>(std::atof(sharpEnv)) : 2.5f;
-      m_PresentShader->SetFloat("uSharpen", std::abs(m_RenderScale - 1.0f) > 0.01f ? sharpDefault : 0.0f); }
+    {
+        static const char* fsrModeEnv = std::getenv("BAZUKO_FSR_MODE");
+        const int upscaleMode = fsrModeEnv ? std::clamp(std::atoi(fsrModeEnv), 0, 2) : m_UpscaleMode;
+        static const char* sharpEnv = std::getenv("BAZUKO_SHARPEN");
+        const float sharpness = sharpEnv ? static_cast<float>(std::atof(sharpEnv)) : m_FsrSharpness;
+        m_PresentShader->SetInt("uUpscaleMode", upscaleMode);
+        m_PresentShader->SetFloat("uSharpen", sharpness);
+    }
     m_PresentShader->SetInt("uUseAo", m_PostAoReady ? 1 : 0);
     m_PresentShader->SetFloat("uBloomStrength", m_PostBloomReady ? m_BloomStrength : 0.0f);
     m_PresentShader->SetInt("uUseReflections", m_PostSsrReady ? 1 : 0);
