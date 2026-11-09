@@ -30,6 +30,13 @@ export function escritura(avance, largos) {
   });
 }
 
+/** Un fallo de la tarjeta gráfica no es de conexión: pedir revisar la red despista. */
+export function loadingErrorText(error) {
+  return error?.name === 'GraphicsError'
+    ? 'No se pudo preparar la gráfica. Cierre otras pestañas o aplicaciones y vuelva a intentar.'
+    : 'No se pudo cargar. Revise la conexión y vuelva a intentar.';
+}
+
 export class LoadingScreen {
   constructor() {
     this.root = document.getElementById('loading-screen');
@@ -89,7 +96,7 @@ export class LoadingScreen {
     this.artwork.stop();
     console.error('[Inicio]', error);
     this.root.hidden = false;
-    this.status.textContent = 'No se pudo cargar. Revise la conexión y vuelva a intentar.';
+    this.status.textContent = loadingErrorText(error);
     this.progress.removeAttribute('aria-valuetext');
     document.getElementById('loading-retry').hidden = false;
   }
