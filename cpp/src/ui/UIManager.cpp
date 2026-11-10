@@ -329,6 +329,12 @@ void UIManager::ShowDeathScreen(const std::string& causes, bool vehicleImpact, c
     Input::SetCursorLocked(false);
 }
 
+void UIManager::ShowArrestScreen(const std::string& name, const std::string& place) {
+    if (m_DeathScreenOpen) return;
+    ShowDeathScreen("Te atrapó la Policía", false, name, place);
+    m_DeathArrest = true;
+}
+
 bool UIManager::ConsumeRespawnRequest() {
     const bool requested = m_RespawnRequest;
     m_RespawnRequest = false;
@@ -337,6 +343,7 @@ bool UIManager::ConsumeRespawnRequest() {
 
 void UIManager::CompleteDeathRecovery() {
     m_DeathScreenOpen = false;
+    m_DeathArrest = false;
     m_DeathByVehicleImpact = false;
     m_DeathCauses.clear();
     m_Paused = false;
@@ -784,12 +791,13 @@ void UIManager::RenderHUD(float dt, const glm::vec3& playerPos, Camera& camera, 
     if (m_DeathScreenOpen) {
         SignUI::DrawBackdrop(0.85f);
         const ImVec4 blueText(0.84f, 0.89f, 1.0f, 1.0f);
-        if (SignUI::BeginMenu("Fin de la partida", m_DeathByVehicleImpact ? "Te atropellaron" : "Te quedaste sin salud",
+        if (SignUI::BeginMenu(m_DeathArrest ? "Arresto" : "Fin de la partida", m_DeathArrest ? "Te atrapó la Policía" : m_DeathByVehicleImpact ? "Te atropellaron" : "Te quedaste sin salud",
                               "La partida permanece pausada hasta que elijas recuperarte.", SignUI::Icon::Heart, nullptr, 520.0f, 440.0f)) {
             ImGui::PushStyleColor(ImGuiCol_Text, blueText);
             ImGui::TextWrapped("Estado al caer: %s.", m_DeathCauses.empty() ? "salud agotada" : m_DeathCauses.c_str());
             ImGui::Spacing();
-            ImGui::TextWrapped("Volverás al cambuche con salud y necesidades recuperadas al menos al 60 %%. Se perderá la mitad de los tipos de objetos del inventario y se curarán las enfermedades.");
+            if (m_DeathArrest) ImGui::TextWrapped("Volverás al cambuche sin nada de lo recolectado ni de lo ganado: se pierden el dinero y todo el inventario.");
+            else ImGui::TextWrapped("Volverás al cambuche con salud y necesidades recuperadas al menos al 60 %%. Se perderá la mitad de los tipos de objetos del inventario y se curarán las enfermedades.");
             ImGui::Spacing();
             if (m_DeathByVehicleImpact) {
                 ImGui::TextWrapped("Mira ambos sentidos antes de cruzar; los vehículos necesitan espacio para frenar.");

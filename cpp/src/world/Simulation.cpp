@@ -1,4 +1,5 @@
-﻿#include "Simulation.hpp"
+﻿#include <functional>
+#include "Simulation.hpp"
 #include "Viaduct.hpp"
 #include "TrafficDensity.hpp"
 #include "Station.hpp"
@@ -775,6 +776,7 @@ Simulation::Simulation(const CityLayout& city, uint32_t seed,
                 appearance.jabClip = appearance.parts.front()->FindAnimationClip("PunchJab");
                 appearance.crossClip = appearance.parts.front()->FindAnimationClip("PunchCross");
                 appearance.fightClip = appearance.parts.front()->FindAnimationClip("FightIdle");
+                appearance.grabClip = appearance.parts.front()->FindAnimationClip("PoliceGrab");
                 m_PedestrianAppearances.push_back(std::move(appearance));
             }
         }
@@ -1771,6 +1773,42 @@ bool Simulation::FindSidewalkPoint(glm::vec3& point, const glm::vec3& center, fl
     return false;
 }
 
+// Quita los rodeos de un camino de baldosas (la busqueda solo avanza en los cuatro sentidos y deja trazados en escalera): desde cada punto salta al mas lejano
+// al que se llega en linea recta sin salir de lo transitable, comprobado cada 0,3 m. `path` no incluye el punto de partida: se usa como ancla y se descarta.
+static void StraightenPath(const glm::vec3& start, std::vector<glm::vec3>& path, const std::function<bool(const glm::vec3&)>& clear) {
+    if (path.size() < 2) return;
+    const auto lineClear = [&](const glm::vec3& from, const glm::vec3& to) {
+        const float length = glm::distance(glm::vec2(from.x, from.z), glm::vec2(to.x, to.z));
+        const int steps = std::max(1, static_cast<int>(std::ceil(length / 0.3f)));
+        for (int step = 1; step < steps; ++step) {
+            const glm::vec3 point = glm::mix(from, to, static_cast<float>(step) / static_cast<float>(steps));
+            if (!clear(point)) return false;
+        }
+        return true;
+    };
+    std::vector<glm::vec3> nodes;
+    nodes.reserve(path.size() + 1);
+    nodes.push_back(glm::vec3(start.x, 0.0f, start.z));
+    nodes.insert(nodes.end(), path.begin(), path.end());
+    std::vector<glm::vec3> result;
+    size_t anchor = 0;
+    while (anchor + 1 < nodes.size()) {
+        size_t farthest = nodes.size() - 1;
+        while (farthest > anchor + 1 && !lineClear(nodes[anchor], nodes[farthest])) --farthest;
+        result.push_back(nodes[farthest]);
+        anchor = farthest;
+    }
+    if (std::getenv("BAZUKO_LOG_CAMINOS")) {   // pruebas: cuantos puntos tenia el camino y cuantos tramos quedan en diagonal
+        int diagonal = 0;
+        for (size_t i = 1; i < result.size(); ++i) {
+            const glm::vec3 d = result[i] - result[i - 1];
+            if (std::abs(d.x) > 0.5f && std::abs(d.z) > 0.5f) ++diagonal;
+        }
+        LogInfo("PRUEBA camino: {} puntos antes, {} despues, {} tramos en diagonal", nodes.size() - 1, result.size(), diagonal);
+    }
+    path = std::move(result);
+}
+
 bool Simulation::FindWalkPath(const glm::vec3& start, const glm::vec3& target, std::vector<glm::vec3>& path) const {
     constexpr int kWidth = CityLayout::WIDTH, kHeight = CityLayout::HEIGHT;
     const auto tileOf = [](float value, float origin) { return static_cast<int>(std::floor((value + origin) / CityLayout::TILE_SIZE)); };
@@ -1792,13 +1830,15 @@ bool Simulation::FindWalkPath(const glm::vec3& start, const glm::vec3& target, s
     for (const Attempt& attempt : {Attempt{16, 0.40f}, Attempt{40, 0.28f}, Attempt{1000, 0.15f}}) {
         const int minX = std::max(0, std::min(startTileX, goalTileX) - attempt.window), maxX = std::min(kWidth - 1, std::max(startTileX, goalTileX) + attempt.window);
         const int minZ = std::max(0, std::min(startTileZ, goalTileZ) - attempt.window), maxZ = std::min(kHeight - 1, std::max(startTileZ, goalTileZ) + attempt.window);
-        const auto free = [&](int x, int z) {
-            if (x < minX || x > maxX || z < minZ || z > maxZ) return false;
-            const glm::vec3 point = center(x, z);
+        const auto clearPoint = [&](const glm::vec3& point) {
             if (!(m_City.IsWalkable(point.x, point.z) && !m_City.IsBlocked(point.x, point.z, attempt.margin) && !HitsProp(point.x, point.z, attempt.margin))) return false;
             for (const StoppedBox& box : stopped)
                 if (PointInVehicleBox(point, box.position, box.direction, box.halfLength, box.halfWidth, attempt.margin + 0.25f)) return false;
             return true;
+        };
+        const auto free = [&](int x, int z) {
+            if (x < minX || x > maxX || z < minZ || z > maxZ) return false;
+            return clearPoint(center(x, z));
         };
         const auto nearestFree = [&](int tileX, int tileZ, int& outX, int& outZ) {
             int best = 1 << 30;
@@ -1832,12 +1872,13 @@ bool Simulation::FindWalkPath(const glm::vec3& start, const glm::vec3& target, s
             if (current == index(startX, startZ)) break;
         }
         std::reverse(tiles.begin(), tiles.end());
-        path.clear();   // solo se conservan las esquinas
+        path.clear();   // solo se conservan las esquinas; despues se quitan los rodeos en escalera para que el camino vaya en diagonal donde se pueda
         for (size_t i = 0; i < tiles.size(); ++i) {
             if (i > 0 && i + 1 < tiles.size()
                 && glm::dot(glm::normalize(tiles[i] - tiles[i - 1]), glm::normalize(tiles[i + 1] - tiles[i])) > 0.999f) continue;
             path.push_back(tiles[i]);
         }
+        if (!std::getenv("BAZUKO_CAMINOS_EN_ESCALERA")) StraightenPath(start, path, clearPoint);   // la variable de entorno devuelve el trazado anterior (pruebas)
         return !path.empty();
     }
     return false;
@@ -1894,6 +1935,8 @@ bool Simulation::FindSidewalkPath(const glm::vec3& start, const glm::vec3& targe
                           0.0f,
                           (z + 0.5f) * CityLayout::TILE_SIZE - CityLayout::ORIGIN_Z);
     }
+    if (!std::getenv("BAZUKO_CAMINOS_EN_ESCALERA"))   // los mismos criterios con los que camina un peatón por el andén (IsSidewalk y sin obstáculos)
+        StraightenPath(start, path, [&](const glm::vec3& point) { return m_City.IsSidewalk(point.x, point.z) && !m_City.IsBlocked(point.x, point.z, 0.18f) && !IsBlocked(point, 0.2f); });
     return !path.empty();
 }
 
@@ -3305,6 +3348,13 @@ bool Simulation::ConsumePlayerHit(int& kind, glm::vec3& fromDirection) {
     return ConsumePlayerHitFor(m_PlayerViews.empty() ? uint8_t{0} : m_PlayerViews.front().id, kind, fromDirection);
 }
 
+bool Simulation::ConsumePlayerCapture(glm::vec3& officerPosition) {
+    if (m_PlayerCaptures.empty()) return false;
+    officerPosition = m_PlayerCaptures.front().officer;
+    m_PlayerCaptures.clear();
+    return true;
+}
+
 bool Simulation::ConsumePlayerHitFor(uint8_t player, int& kind, glm::vec3& fromDirection) {
     const bool first = m_PlayerViews.empty() || player == m_PlayerViews.front().id;
     for (auto it = m_PlayerHits.begin(); it != m_PlayerHits.end(); ++it) {
@@ -4187,6 +4237,8 @@ void Simulation::UpdatePedestrians(float dt, const glm::vec3& playerPosition) {
         }
         walker.target = walker.position;
     };
+    bool captureOngoing = false;   // un policia ya esta reduciendo al jugador: el otro observa
+    for (const Pedestrian& officer : m_Pedestrians) if (officer.captureTime >= 0.0f) captureOngoing = true;
     for (auto& pedestrian : m_Pedestrians) {
         if (pedestrian.departed) continue;
         pedestrian.position.y = m_City.GetGroundHeight(pedestrian.position.x, pedestrian.position.z);   // siempre pisan el suelo
@@ -4327,6 +4379,24 @@ void Simulation::UpdatePedestrians(float dt, const glm::vec3& playerPosition) {
                 continue;
             }
             const glm::vec3 toward = playerDistance > 0.01f ? toPlayer / playerDistance : glm::vec3(0.0f, 0.0f, 1.0f);
+            if (captureOngoing && pedestrian.police && pedestrian.captureTime < 0.0f && playerDistance <= 2.4f) {   // el primer policia que alcanza al jugador lo reduce; el companero sigue acercandose y, ya cerca, se detiene a mirar
+                pedestrian.yaw = std::atan2(toward.x, toward.z);
+                pedestrian.punchTime = -1.0f;
+                pedestrian.moving = false;
+                continue;
+            }
+            if (pedestrian.captureTime >= 0.0f) {   // sostiene al jugador: no se mueve y lo mira; al terminar suelta y vuelve a lo suyo
+                pedestrian.captureTime += dt;
+                pedestrian.yaw = std::atan2(toward.x, toward.z);
+                if (pedestrian.captureTime >= kCaptureSeconds) {
+                    pedestrian.captureTime = -1.0f;
+                    pedestrian.aggressive = false;
+                    pedestrian.punchTime = -1.0f;
+                    pedestrian.route.clear();
+                    pedestrian.nextWaypoint = 0;
+                }
+                continue;
+            }
             if (pedestrian.punchTime >= 0.0f) {
                 // lanza el puno: acierta hacia la mitad del movimiento si el jugador sigue al alcance
                 pedestrian.punchTime += dt;
@@ -4378,6 +4448,10 @@ void Simulation::UpdatePedestrians(float dt, const glm::vec3& playerPosition) {
                         pedestrian.returnStuck = 0.0f;
                     }
                 }
+            } else if (pedestrian.punchCooldown <= 0.0f && pedestrian.police && !pedestrian.fleeAfterPunch && m_PlayerCaptures.size() < 4) {
+                pedestrian.captureTime = 0.0f;   // la policia no golpea: agarra y reduce
+                pedestrian.yaw = std::atan2(toward.x, toward.z);
+                m_PlayerCaptures.push_back({pedestrian.position, targetId});
             } else if (pedestrian.punchCooldown <= 0.0f) {
                 pedestrian.punchTime = 0.0f;
                 pedestrian.punchLanded = false;
@@ -6471,6 +6545,9 @@ void Simulation::Render(Renderer& renderer, float time, const glm::vec3& focusPo
             clip = appearance.fightClip;
             clipTime = 0.0f;
             Combat::AppendMove(combatTurns, pedestrian.dodgeKind == 0 ? Combat::Move::Slip : Combat::Move::RollingDuck, pedestrian.dodgeTime);
+        } else if (pedestrian.captureTime >= 0.0f && appearance.grabClip >= 0) {
+            clip = appearance.grabClip;   // PoliceGrab: agarra y reduce (3 s, igual que PoliceRestrained del jugador)
+            clipTime = pedestrian.captureTime;
         } else if (pedestrian.punchTime >= 0.0f && appearance.fightClip >= 0) {
             clip = appearance.fightClip;   // la guardia es la base y el golpe gira los huesos encima
             clipTime = 0.0f;

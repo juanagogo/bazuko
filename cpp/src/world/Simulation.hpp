@@ -54,6 +54,7 @@ struct Pedestrian {
     float aggressionRemaining = 0.0f;
     float punchCooldown = 0.0f;
     float punchTime = -1.0f;          // >= 0 mientras lanza un punetazo
+    float captureTime = -1.0f;        // >= 0 mientras un policia sostiene al jugador (kCaptureSeconds)
     bool punchLanded = false;
     bool punchCross = false;
     bool police = false;              // policia de una patrulla: persigue sin huir aunque lo golpeen y vuelve a su vehiculo cuando el jugador se aleja
@@ -84,7 +85,7 @@ struct PedestrianAppearance {
     std::string roles;               // rol de cada pieza: B cuerpo, C ropa, S calzado, H pelo, D barba, T sombrero
     int hitFaceClip = -1, hitChestClip = -1, hitLegsClip = -1;
     int fallClip = -1, lyingClip = -1, getUpClip = -1;
-    int jabClip = -1, crossClip = -1, fightClip = -1;
+    int jabClip = -1, crossClip = -1, fightClip = -1, grabClip = -1;   // grabClip: PoliceGrab (el policia que reduce al jugador)
     std::vector<std::shared_ptr<Model>> parts;
     int walkClip = -1;
     int tiredWalkClip = -1;   // andar cansado de Mixamo: lo usan unos pocos peatones
@@ -396,6 +397,9 @@ public:
     // damage > 0 sustituye el dano del golpe (arma en la mano); knockback escala el empuje
     bool HitPedestrian(const glm::vec3& from, const glm::vec2& forward, float reach, int kind, float damage = -1.0f, float knockback = 1.0f);
     bool ConsumePlayerHit(int& kind, glm::vec3& fromDirection);                       // golpes al primer jugador (el local)
+    // Captura: un policia a pie que alcanza al jugador lo agarra en vez de golpearlo; dura kCaptureSeconds y el juego la recoge una sola vez (posicion del policia).
+    static constexpr float kCaptureSeconds = 3.0f;
+    bool ConsumePlayerCapture(glm::vec3& officerPosition);
     bool ConsumePlayerHitFor(uint8_t player, int& kind, glm::vec3& fromDirection);  // golpes a un jugador concreto (por su id de PlayerView)
     // Burbujas de los peatones cercanos: posicion sobre la cabeza, texto y opacidad
     struct PedestrianBubble { glm::vec3 position; std::string text; float alpha; };
@@ -631,6 +635,8 @@ private:
     std::vector<Pedestrian> m_Pedestrians;
     struct PlayerHit { int kind; glm::vec3 from; uint8_t player = 0; };   // player 0 = el primero
     std::vector<PlayerHit> m_PlayerHits;
+    struct PlayerCapture { glm::vec3 officer; uint8_t player = 0; };
+    std::vector<PlayerCapture> m_PlayerCaptures;
     std::shared_ptr<Mesh> m_BloodMesh;
     float m_PlayerHygiene = 100.0f;
     std::vector<TrafficVehicle> m_Traffic;

@@ -187,6 +187,9 @@ public:
     bool IsCraftMenuOpen() const { return m_CraftMenuOpen; }
     bool IsDeathScreenOpen() const { return m_DeathScreenOpen; }
     void ShowDeathScreen(const std::string& causes, bool vehicleImpact, const std::string& name = {}, const std::string& place = {});
+    // Arresto: la misma pantalla de recorte con otro titular (la Policia agarro al jugador); volver al cambuche cuesta todo lo recolectado y ganado
+    void ShowArrestScreen(const std::string& name = {}, const std::string& place = {});
+    bool IsArrestScreen() const { return m_DeathScreenOpen && m_DeathArrest; }
     bool ConsumeRespawnRequest();
     void CompleteDeathRecovery();
     std::string ConsumeCraftRequest();
@@ -298,6 +301,7 @@ private:
     void DrawLoadingArtwork();
     void CloseRadioMenu();
     bool m_Paused = false;
+    bool m_DeathArrest = false;
     bool m_DeathScreenOpen = false;
     bool m_RespawnRequest = false;
     bool m_DeathByVehicleImpact = false;

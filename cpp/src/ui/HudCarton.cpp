@@ -53,7 +53,8 @@ void UIManager::RenderDeathCarton() {
         // recorte de periodico: sin exclamaciones, sin cuentas
         const std::string place = m_DeathPlace.empty() ? std::string("la calle") : m_DeathPlace;
         const std::string name = m_DeathName.empty() ? std::string("un habitante de calle") : m_DeathName;
-        const std::string headline = "Hallan muerto a " + name + ", habitante de calle, en " + place + ". Nadie vio nada.";
+        const std::string headline = m_DeathArrest ? "La Policía agarró a " + name + ", habitante de calle, en " + place + ". Se llevaron lo que cargaba."
+                                                   : "Hallan muerto a " + name + ", habitante de calle, en " + place + ". Nadie vio nada.";
         const float width = std::min(340.0f, display.x - 80.0f);
         const float height = C::TextHeight(false, 19, headline.c_str(), width - 30.0f) + 26.0f;
         const ImVec2 min((display.x - width) * 0.5f, display.y * 0.40f), max(min.x + width, min.y + height);
@@ -63,9 +64,9 @@ void UIManager::RenderDeathCarton() {
         draw->AddLine(ImVec2(min.x, max.y), ImVec2(max.x, max.y), C::kMarcador, 3.5f);
         C::Text(draw, false, 19, min + ImVec2(15.0f, 12.0f), C::kMarcador, headline.c_str(), width - 30.0f);
         // causa y consecuencia abajo a la izquierda
-        const std::string cause = m_DeathByVehicleImpact ? "Te atropelló un carro" : "Te quedaste sin fuerzas";
+        const std::string cause = m_DeathArrest ? "Te atrapó la Policía" : m_DeathByVehicleImpact ? "Te atropelló un carro" : "Te quedaste sin fuerzas";
         C::Text(draw, false, 20, ImVec2(24.0f, display.y - 84.0f), C::kMarcador, cause.c_str());
-        C::Text(draw, false, 16, ImVec2(24.0f, display.y - 50.0f), C::kMarcador, "Se vuelve al cambuche. Se pierde la mitad de lo que hay en el costal.");
+        C::Text(draw, false, 16, ImVec2(24.0f, display.y - 50.0f), C::kMarcador, m_DeathArrest ? "Se vuelve al cambuche sin nada de lo recolectado ni de lo ganado." : "Se vuelve al cambuche. Se pierde la mitad de lo que hay en el costal.");
         // boton oscuro abajo a la derecha
         const ImVec2 size(224.0f, 52.0f), bmin(display.x - size.x - 24.0f, display.y - size.y - 16.0f);
         ImGui::SetCursorScreenPos(bmin);

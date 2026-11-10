@@ -54,6 +54,7 @@
 #include "world/Lake.hpp"
 #include "character/CombatMoves.hpp"
 #include "character/JumpMoves.hpp"
+#include "character/JumpClips.hpp"
 #include "world/SkyDome.hpp"
 #include "character/CharacterManager.hpp"
 #include "character/Ragdoll.hpp"
@@ -206,6 +207,8 @@ int main(int argc, char** argv) {
     playerPos = placeSafely(playerPos);
     auto& playerYaw = session.playerYaw;
     auto& playerKnockedDown = session.playerKnockedDown;
+    float captureRemaining = 0.0f;   // s que le quedan al jugador reducido por un policia (Simulation::kCaptureSeconds); > 0 bloquea sus acciones
+    float captureElapsed = 0.0f;
     auto& knockdownRemaining = session.knockdownRemaining;
     auto& vehicleImpactCooldown = session.vehicleImpactCooldown;
     auto& deathByVehicleImpact = session.deathByVehicleImpact;
@@ -353,24 +356,7 @@ int main(int argc, char** argv) {
     };
     auto& objective = session.objective;
     auto& diseases = session.diseases;
-    const auto showDeathScreenIfNeeded = [&]() {
-        if (needs[3] > 0.0f || playerKnockedDown || ui.IsDeathScreenOpen()) return;
-        std::vector<std::string> causes;
-        if (deathByVehicleImpact) causes.emplace_back("atropello");
-        if (needs[1] <= 0.0f) causes.emplace_back("deshidratación");
-        if (needs[0] <= 0.0f) causes.emplace_back("hambre");
-        if (needs[2] <= 0.0f) causes.emplace_back("agotamiento");
-        if (needs[4] <= 0.0f) causes.emplace_back("higiene agotada");
-        if (needs[5] <= 0.0f) causes.emplace_back("ánimo agotado");
-        if (needs[6] < 20.0f) causes.emplace_back("abstinencia");
-        if (!diseases.empty()) causes.emplace_back("enfermedad");
-        if (causes.empty()) causes.emplace_back("salud agotada");
-        std::string summary;
-        for (const auto& cause : causes) {
-            if (!summary.empty()) summary += ", ";
-            summary += cause;
-        }
-        // lugar de la muerte para el recorte de periodico: la franja de calle mas cercana
+    const auto placeNearPlayer = [&]() -> std::string {
         std::string place = "la calle";
         {
             const auto& data = city.GetData();
@@ -396,6 +382,27 @@ int main(int argc, char** argv) {
                 else if (street >= 0) place = calles[std::min<size_t>(static_cast<size_t>(street), 3)];
             }
         }
+        return place;
+    };
+    const auto showDeathScreenIfNeeded = [&]() {
+        if (needs[3] > 0.0f || playerKnockedDown || ui.IsDeathScreenOpen()) return;
+        std::vector<std::string> causes;
+        if (deathByVehicleImpact) causes.emplace_back("atropello");
+        if (needs[1] <= 0.0f) causes.emplace_back("deshidratación");
+        if (needs[0] <= 0.0f) causes.emplace_back("hambre");
+        if (needs[2] <= 0.0f) causes.emplace_back("agotamiento");
+        if (needs[4] <= 0.0f) causes.emplace_back("higiene agotada");
+        if (needs[5] <= 0.0f) causes.emplace_back("ánimo agotado");
+        if (needs[6] < 20.0f) causes.emplace_back("abstinencia");
+        if (!diseases.empty()) causes.emplace_back("enfermedad");
+        if (causes.empty()) causes.emplace_back("salud agotada");
+        std::string summary;
+        for (const auto& cause : causes) {
+            if (!summary.empty()) summary += ", ";
+            summary += cause;
+        }
+        // lugar de la muerte para el recorte de periodico: la franja de calle mas cercana
+        const std::string place = placeNearPlayer();
         ui.ShowDeathScreen(summary, deathByVehicleImpact, characterManager.GetLook().nombre, place);
     };
     const fs::path savePath = "savegame.json";
@@ -892,10 +899,18 @@ int main(int argc, char** argv) {
 
         // 3. Post-poll para asegurar deltas de mouse
         Input::PostPoll();
-        const PlayerInput playerInput = SamplePlayerInput();   // intenciones del jugador en este cuadro (core/PlayerInputSampler.hpp)
+        const PlayerInput playerInput = captureRemaining > 0.0f ? PlayerInput{} : SamplePlayerInput();   // reducido por un policia: no hace nada   // intenciones del jugador en este cuadro (core/PlayerInputSampler.hpp)
 
         float dt = clock.Tick();
         if (dt > 0.1f) dt = 0.1f;
+        if (captureRemaining > 0.0f) {   // reducido: avanza la captura y, al terminar, pantalla de arresto
+            captureElapsed += dt;
+            captureRemaining -= dt;
+            if (captureRemaining <= 0.0f) {
+                captureRemaining = 0.0f;
+                ui.ShowArrestScreen(characterManager.GetLook().nombre, placeNearPlayer());
+            }
+        }
         showDeathScreenIfNeeded();
 
         // 4. Teclas de acción
@@ -1001,7 +1016,7 @@ int main(int argc, char** argv) {
         }
 
         // 6. Movimiento del personaje (WASD)
-        bool isRunning = !ui.IsPaused() && playerInput.run;
+        bool isRunning = !ui.IsPaused() && (playerInput.run || std::getenv("BAZUKO_AUTORUN") != nullptr);   // BAZUKO_AUTORUN: pruebas, corre siempre
         const float withdrawal = needs[6] < 20.0f ? (20.0f - needs[6]) * 5.0f : 0.0f;
         const bool highWithdrawal = withdrawal >= 50.0f;
         const bool criticalWithdrawal = withdrawal >= 80.0f;
@@ -1037,6 +1052,7 @@ int main(int argc, char** argv) {
         const float currentSpeed = Movement::Step(session, movementWorld, dt, moveDir, moveSpeed);
         playerWaterDepth = playerOnDeck || playerKnockedDown ? 0.0f : CityLayout::WaterDepth(playerPos.x, playerPos.z);
         playerSwimming = playerWaterDepth > (playerSwimming ? 1.0f : 1.15f);
+        if (static const bool forceSwim = std::getenv("BAZUKO_NADAR") != nullptr) playerSwimming = forceSwim || playerSwimming;   // pruebas: nada siempre
         lake.Update(dt, clock.GetElapsedTime(), playerPos, currentSpeed, playerWaterDepth, playerSwimming);
         {   // superficie bajo los pies: tierra y pasto, calzada o anden
             const TileType ground = city.GetTileAt(static_cast<int>(std::floor((playerPos.x + CityLayout::ORIGIN_X) / CityLayout::TILE_SIZE)),
@@ -1685,6 +1701,16 @@ int main(int argc, char** argv) {
 #ifdef BAZUKO_NET_ENABLED
             if (netSession) for (const Net::NetSession::IncomingHit& incoming : netSession->ConsumeHits()) netHits.push_back({incoming.kind, incoming.from});
 #endif
+            {   // un policia a pie alcanza al jugador: lo agarra y lo reduce (Simulation::kCaptureSeconds); al terminar, pantalla de arresto
+                glm::vec3 officerAt;
+                if (simulation.ConsumePlayerCapture(officerAt) && captureRemaining <= 0.0f && needs[3] > 0.0f && !playerKnockedDown && !ui.IsDeathScreenOpen() && !playerSwimming) {
+                    captureRemaining = Simulation::kCaptureSeconds;
+                    captureElapsed = 0.0f;
+                    playerYaw = std::atan2(playerPos.x - officerAt.x, playerPos.z - officerAt.z);   // de espaldas al agente: lo reducen contra su cuerpo
+                    playerHitKind = 0;
+                    ui.SetPickupNotification("La policía te agarró.");
+                }
+            }
             while (!netHits.empty() || simulation.ConsumePlayerHit(hitKind, hitFrom)) {
                 if (!netHits.empty()) { hitKind = netHits.back().first; hitFrom = netHits.back().second; netHits.pop_back(); }
                 switch (Fight::ReceiveHit(session, hitKind, hitFrom)) {   // game/Fight.cpp
@@ -1698,7 +1724,7 @@ int main(int argc, char** argv) {
             Fight::StaggerStep(session, dt, canStand);
             const bool free = playerAction == PlayerAction::None && playerHitKind == 0;
             const bool recovered = playerAction != PlayerAction::None && playerAction != PlayerAction::Jump && actionTime > actionDuration * 0.62f;
-            playerCrouching = canAct && free && playerInput.crouch;
+            playerCrouching = canAct && free && (playerInput.crouch || std::getenv("BAZUKO_AUTOCROUCH") != nullptr);   // BAZUKO_AUTOCROUCH: pruebas, siempre agachado
             if (canAct && !playerCrouching && (free || recovered)) {
                 if (playerInput.punchPressed) {
                     if (comboIdle > 1.4f) punchChain = 0;
@@ -1749,7 +1775,12 @@ int main(int argc, char** argv) {
                     clickTracking = false;
                 }
             }
-            if (canAct && free && playerInput.jumpPressed) {
+            bool autoJumpNow = false;
+            if (static const char* autoJump = std::getenv("BAZUKO_AUTOJUMP")) {   // pruebas: BAZUKO_AUTOJUMP=<s> salta una vez a esos segundos de juego (con BAZUKO_AUTOWALK, en movimiento)
+                static bool autoJumped = false;
+                if (!autoJumped && clock.GetElapsedTime() >= static_cast<float>(std::atof(autoJump))) { autoJumped = true; autoJumpNow = true; }
+            }
+            if (canAct && free && (playerInput.jumpPressed || autoJumpNow)) {
                 // desde quieto: salto vertical estatico; caminando o corriendo: salto con carrera, cuyo alcance sale de la velocidad
                 const float planarSpeed = glm::length(glm::vec2(playerVelocity.x, playerVelocity.z));
                 jumpMoving = planarSpeed > 1.2f;
@@ -1794,8 +1825,13 @@ int main(int argc, char** argv) {
             fightStanceRemaining = std::max(0.0f, fightStanceRemaining - dt);
             knifeStanceRemaining = std::max(0.0f, knifeStanceRemaining - dt);
         }
+        bool autoPoopNow = false;
+        if (static const char* autoPoop = std::getenv("BAZUKO_AUTOPOOP")) {   // pruebas: BAZUKO_AUTOPOOP=<s> hace popo una vez a esos segundos de juego
+            static bool autoPooped = false;
+            if (!autoPooped && clock.GetElapsedTime() >= static_cast<float>(std::atof(autoPoop))) { autoPooped = true; autoPoopNow = true; }
+        }
         if (!ui.IsPaused() && !characterCreatorUI.IsOpen() && !playerKnockedDown
-            && (playerInput.poopPressed || playerInput.throwPressed)) {
+            && (playerInput.poopPressed || playerInput.throwPressed || autoPoopNow)) {
             if (!equippedWeapon.empty() && inventoryCount(equippedWeapon) == 0) equippedWeapon.clear();   // se vendio, se tiro o se la robaron
             const bool throwPressed = playerInput.throwPressed && inventoryCount("popo") > 0;
             if (poopMode != 0) {
@@ -2146,10 +2182,20 @@ int main(int argc, char** argv) {
                 playerModel = glm::rotate(playerModel, playerYaw, glm::vec3(0.0f, 1.0f, 0.0f));
                 playerModel = glm::translate(playerModel, glm::vec3(0.0f, jumpOffset, 0.0f));
                 const bool movingNow = currentSpeed > 0.25f;
+                // nadar con clips de captura (SwimFwd al avanzar, SwimIdle al flotar; Quaternius, CC0); BAZUKO_NADO_ANTERIOR=1 vuelve a la brazada por codigo
+                static const bool oldSwim = std::getenv("BAZUKO_NADO_ANTERIOR") != nullptr;
+                const bool swimByClips = !oldSwim && characterManager.FindClip("SwimFwd") >= 0 && characterManager.FindClip("SwimIdle") >= 0;
+                static const float swimLift = std::getenv("BAZUKO_NADO_ALTURA") ? static_cast<float>(std::atof(std::getenv("BAZUKO_NADO_ALTURA"))) : 0.9f;
                 {   // nadando: el cuerpo se tiende sobre el agua (brazada de crol con el ciclo de la carrera) y al parar flota de pie
                     const float swimTarget = playerSwimming && movingNow ? 1.0f : 0.0f;
                     swimPitch += (swimTarget - swimPitch) * std::min(1.0f, std::max(0.0f, dt) * 4.0f);
-                    if (swimPitch > 0.01f) {
+                    if (swimByClips) {
+                        if (playerSwimming) {   // al flotar quieto el cuerpo va en vertical (la cabeza fuera del agua): casi no se sube; tendido, se sube hasta la superficie
+                            static const float idleLift = std::getenv("BAZUKO_NADO_ALTURA_QUIETO") ? static_cast<float>(std::atof(std::getenv("BAZUKO_NADO_ALTURA_QUIETO"))) : 1.2f;
+                            const float lift = idleLift + (swimLift - idleLift) * (std::getenv("BAZUKO_NADO_ADELANTE") ? 1.0f : swimPitch);
+                            playerModel = glm::translate(playerModel, glm::vec3(0.0f, lift + 0.04f * std::sin(clock.GetElapsedTime() * 2.2f), 0.0f));
+                        }   // los clips ya traen el cuerpo tendido: solo se sube hasta la superficie
+                    } else if (swimPitch > 0.01f) {
                         const float bob = 0.04f * std::sin(clock.GetElapsedTime() * 2.2f);
                         playerModel = glm::translate(playerModel, glm::vec3(0.0f, 0.95f * swimPitch + bob * swimPitch, -0.85f * swimPitch));   // el cuerpo va metido en el agua, con la espalda a flor
                         playerModel = glm::rotate(playerModel, glm::radians(78.0f) * swimPitch, glm::vec3(1.0f, 0.0f, 0.0f));
@@ -2158,7 +2204,73 @@ int main(int argc, char** argv) {
                 stillSeconds = movingNow || playerAction != PlayerAction::None ? 0.0f : stillSeconds + dt;
                 int poseClip = -1;
                 float poseTime = clock.GetElapsedTime();
-                if (poopMode != 0) {
+                int blendClip = -1;
+                float blendWeight = 0.0f;
+                float blendTime = -1.0f;   // segundo propio del clip de mezcla (el salto mezcla clips de tiempos distintos); < 0: la misma fase
+                // el salto usa los clips de captura (JumpStart, JumpLoop, JumpLand) si el banco los trae; BAZUKO_SALTO_ANTERIOR=1 vuelve al salto por codigo
+                static const bool oldJump = std::getenv("BAZUKO_SALTO_ANTERIOR") != nullptr;
+                const bool jumpByClips = !oldJump && characterManager.FindClip("JumpStart") >= 0 && characterManager.FindClip("JumpLoop") >= 0 && characterManager.FindClip("JumpLand") >= 0;
+                const auto applyJumpClips = [&](float jumpSeconds, bool moving) {
+                    Jump::ClipLengths length;
+                    length.start = characterManager.ClipDuration(characterManager.FindClip("JumpStart"));
+                    length.loop = characterManager.ClipDuration(characterManager.FindClip("JumpLoop"));
+                    length.land = characterManager.ClipDuration(characterManager.FindClip("JumpLand"));
+                    const Jump::ClipMix mix = Jump::Mix(jumpSeconds, moving, length);
+                    const auto clipOf = [&](Jump::JumpClip clip) {
+                        switch (clip) {
+                            case Jump::JumpClip::Start: return characterManager.FindClip("JumpStart");
+                            case Jump::JumpClip::Loop: return characterManager.FindClip("JumpLoop");
+                            case Jump::JumpClip::Land: return characterManager.FindClip("JumpLand");
+                            case Jump::JumpClip::Locomotion: return isRunning ? characterManager.GetRunClip() : characterManager.GetWalkClip();
+                        }
+                        return -1;
+                    };
+                    poseClip = mix.a == Jump::JumpClip::Locomotion ? -1 : clipOf(mix.a);   // sigue corriendo: se deja la marcha normal (mas abajo)
+                    poseTime = mix.aTime;
+                    if (mix.weight > 0.0f) {
+                        blendClip = clipOf(mix.b);
+                        blendWeight = mix.weight;
+                        blendTime = mix.b == Jump::JumpClip::Locomotion ? locomotionPhase * characterManager.ClipDuration(blendClip) : mix.bTime;
+                    }
+                };
+                // canecas: abrirlas y revisarlas con el gesto ChestOpen (Quaternius, CC0) en vez de bajar la mano al suelo; las bolsas del suelo siguen por codigo
+                static const bool oldBinPose = std::getenv("BAZUKO_CANECA_ANTERIOR") != nullptr;
+                const int chestClip = oldBinPose ? -1 : characterManager.FindClip("ChestOpen");
+                const auto containerAt = [&](const glm::vec3& at) {
+                    for (const PickupItem& item : simulation.GetPickups()) if (item.container && glm::distance(glm::vec2(item.position.x, item.position.z), glm::vec2(at.x, at.z)) < 0.05f) return true;
+                    return false;
+                };
+                static float binSort = 0.0f;
+                bool binWork = false;
+                float binEnvelope = 0.0f, binTime = 0.0f;
+                if (chestClip >= 0) {
+                    if (sorting && containerAt(sortPosition)) {
+                        binWork = true; binSort += std::max(0.0f, dt); binEnvelope = glm::smoothstep(0.0f, 0.3f, binSort); binTime = binSort;
+                    } else {
+                        binSort = 0.0f;
+                        if (pickupTime >= 0.0f && containerAt(pickupTarget)) {
+                            binWork = true;
+                            const float u = pickupTime / 0.85f;
+                            binEnvelope = u < 0.35f ? glm::smoothstep(0.0f, 0.35f, u) : 1.0f - glm::smoothstep(0.55f, 1.0f, u);   // baja rapido, abre y sube
+                            binTime = pickupTime;
+                        }
+                    }
+                }
+                if (chestClip >= 0) if (const char* previewBin = std::getenv("BAZUKO_PREVIEW_BIN")) {   // pruebas: BAZUKO_PREVIEW_BIN=1 con BAZUKO_PREVIEW_TIME=<s>: revisando una caneca desde hace esos segundos
+                    const char* binSeconds = std::getenv("BAZUKO_PREVIEW_TIME");
+                    binTime = binSeconds ? static_cast<float>(std::atof(binSeconds)) : 0.0f;
+                    binWork = previewBin != nullptr; binEnvelope = glm::smoothstep(0.0f, 0.3f, binTime);
+                }
+                // popo: el agachado profundo de Quaternius (el mismo clip `Crouch` de siempre) con entrada y salida suaves; el mojon cae a los 0,9 s
+                static const bool oldPoopPose = std::getenv("BAZUKO_POPO_ANTERIOR") != nullptr;
+                const int poopCrouchClip = oldPoopPose ? -1 : characterManager.FindClip("Crouch");
+                if (poopMode == 1 && poopCrouchClip >= 0 && characterManager.FindClip("Idle") >= 0) {
+                    constexpr float kFade = 0.45f, kPoopSeconds = 2.0f;
+                    poseClip = characterManager.FindClip("Idle");
+                    blendClip = poopCrouchClip;
+                    blendWeight = glm::smoothstep(0.0f, kFade, poopElapsed) * (1.0f - glm::smoothstep(kPoopSeconds - kFade, kPoopSeconds, poopElapsed));
+                    blendTime = poopElapsed;
+                } else if (poopMode != 0) {
                     poseClip = characterManager.FindClip(poopMode == 1 ? "PoopSquat" : "PoopPickThrow");
                     poseTime = poopElapsed;
                 } else if (playerHitKind > 0) {
@@ -2168,13 +2280,27 @@ int main(int argc, char** argv) {
                     poseClip = characterManager.FindClip("FightIdle");   // la guardia es la base; la tecnica gira huesos encima
                     poseTime = 0.0f;
                 } else if (playerAction == PlayerAction::Jump) {
-                    poseClip = characterManager.FindClip("Idle");   // el salto gira huesos sobre el reposo (JumpMoves.hpp)
-                    poseTime = 0.0f;
+                    if (jumpByClips) {
+                        applyJumpClips(actionTime, jumpMoving);
+                    } else {
+                        poseClip = characterManager.FindClip("Idle");   // el salto gira huesos sobre el reposo (JumpMoves.hpp)
+                        poseTime = 0.0f;
+                    }
+                } else if (binEnvelope > 0.0f && characterManager.FindClip("Idle") >= 0) {
+                    poseClip = characterManager.FindClip("Idle");
+                    blendClip = chestClip;
+                    blendWeight = binEnvelope;
+                    blendTime = binTime;
                 } else if (playerAction != PlayerAction::None) {
                     poseClip = playerActionClip;
                     poseTime = actionTime;
                 } else if (playerCrouching) {
                     poseClip = characterManager.FindClip(movingNow ? "CrouchWalk" : "Crouch");
+                    if (movingNow) {   // el ciclo de CrouchWalk avanza 0,75 m (medido en el clip): el ritmo sigue la velocidad real para que los pies no resbalen
+                        static float crouchPhase = 0.0f;
+                        crouchPhase += std::max(0.0f, dt) * std::max(currentSpeed, 0.2f) / 0.75f;
+                        poseTime = crouchPhase;
+                    }
                 } else if (!movingNow && knifeStanceRemaining > 0.0f) {
                     poseClip = characterManager.FindClip("KnifeIdle");
                 } else if (!movingNow && fightStanceRemaining > 0.0f) {
@@ -2182,8 +2308,6 @@ int main(int argc, char** argv) {
                 } else if (!movingNow && stillSeconds > 6.0f) {
                     poseClip = characterManager.FindClip("IdleRelaxed");
                 }
-                int blendClip = -1;
-                float blendWeight = 0.0f;
                 if (poseClip < 0 && movingNow) {   // caminar y correr se mezclan y avanzan al ritmo de la velocidad real: los pies no resbalan
                     const CharacterManager::LocomotionBlend blend = characterManager.ComputeLocomotion(currentSpeed);
                     if (blend.valid) {
@@ -2221,7 +2345,14 @@ int main(int argc, char** argv) {
                     }
                 }
                 std::vector<Model::BoneTurn> swimTurns;
-                if (swimPitch > 0.5f) {   // nadando: brazos en molino de crol y patada alterna sobre la pose de reposo
+                if (swimByClips && playerSwimming) {
+                    poseClip = characterManager.FindClip("SwimIdle");
+                    poseTime = clock.GetElapsedTime();
+                    blendClip = characterManager.FindClip("SwimFwd");
+                    blendWeight = std::getenv("BAZUKO_NADO_ADELANTE") ? 1.0f : swimPitch;   // la variable es solo para pruebas
+                    blendTime = clock.GetElapsedTime() * 0.9f;
+                }
+                if (!swimByClips && swimPitch > 0.5f) {   // nadando: brazos en molino de crol y patada alterna sobre la pose de reposo
                     constexpr float kTau = 6.2831853f;
                     swimPhase = std::fmod(swimPhase + std::max(0.0f, dt) * (playerWaterDepth > 1.15f ? 0.62f : 0.52f), 1.0f);
                     if (static const char* fixedPhase = std::getenv("BAZUKO_SWIMPHASE")) swimPhase = static_cast<float>(std::atof(fixedPhase));   // pruebas: congela la brazada
@@ -2275,20 +2406,73 @@ int main(int argc, char** argv) {
                     static float sortElapsed = 0.0f;
                     if (sorting) {
                         sortElapsed += std::max(0.0f, dt);
-                        Combat::AppendGroundWork(swimTurns, std::min(1.0f, sortElapsed / 0.30f), toLocal(sortPosition), sortElapsed, 1.0f, true);
+                        if (!binWork) Combat::AppendGroundWork(swimTurns, std::min(1.0f, sortElapsed / 0.30f), toLocal(sortPosition), sortElapsed, 1.0f, true);
                     } else {
                         sortElapsed = 0.0f;
-                        if (pickupTime >= 0.0f) {
+                        if (pickupTime >= 0.0f && !binWork) {
                             const float u = pickupTime / 0.85f;
                             const float envelope = u < 0.35f ? glm::smoothstep(0.0f, 0.35f, u) : 1.0f - glm::smoothstep(0.55f, 1.0f, u);   // baja rapido, toca y sube
                             Combat::AppendGroundWork(swimTurns, 0.75f * envelope, toLocal(pickupTarget), pickupTime, 0.5f, false);
                         }
                     }
                 }
+                if (static const char* previewGround = std::getenv("BAZUKO_PREVIEW_GROUND")) {   // pruebas: BAZUKO_PREVIEW_GROUND=sort|pickup con BAZUKO_PREVIEW_TIME=<s>: el trabajo en el suelo hacia un punto a 0,7 m al frente
+                    static const char* groundTime = std::getenv("BAZUKO_PREVIEW_TIME");
+                    const float seconds = groundTime ? static_cast<float>(std::atof(groundTime)) : 0.0f;
+                    const glm::vec3 ahead(0.0f, 0.0f, 0.7f);   // en el espacio del personaje: (izquierda, 0, frente)
+                    if (std::string(previewGround) == "sort") {
+                        Combat::AppendGroundWork(swimTurns, std::min(1.0f, seconds / 0.30f), ahead, seconds, 1.0f, true);
+                    } else {
+                        const float u = seconds / 0.85f;
+                        const float envelope = u < 0.35f ? glm::smoothstep(0.0f, 0.35f, u) : 1.0f - glm::smoothstep(0.55f, 1.0f, u);
+                        Combat::AppendGroundWork(swimTurns, 0.75f * envelope, ahead, seconds, 0.5f, false);
+                    }
+                }
                 if (grabTime >= 0.0f) Combat::AppendGrab(swimTurns, grabTime);   // robo de un retrovisor: el brazo derecho agarra rapido y vuelve
-                if (playerAction == PlayerAction::Jump) Jump::Append(swimTurns, actionTime, jumpMoving);
-                else if (const int combatMove = combatMoveOf(playerAction); combatMove >= 0 && playerAction != PlayerAction::None)
-                    Combat::AppendMove(swimTurns, static_cast<Combat::Move>(combatMove), actionTime);
+                // el jab y el cruzado usan clips de captura (FightJab, FightCross; Quaternius, CC0) con el tiempo repartido para que el impacto coincida con el de la
+                // tecnica por codigo (CombatMoves.hpp: ahi se aplica el dano); BAZUKO_PUNOS_ANTERIORES=1 vuelve a los golpes por codigo
+                static const bool oldPunches = std::getenv("BAZUKO_PUNOS_ANTERIORES") != nullptr;
+                // jab y cruzado: Quaternius (CC0); patadas: ACCAD Male 2 (CC BY 3.0). start/impact/end son segundos del clip: la accion del juego se reparte entre ellos
+                // para que el impacto caiga donde la tecnica por codigo aplica el dano
+                struct ClipMove { Combat::Move move; const char* clip; float start, impact, end; };   // end < 0: hasta el final del clip
+                static const std::array<ClipMove, 5> clipMoves{{
+                    {Combat::Move::Jab, "FightJab", 0.0f, 0.30f, -1.0f},
+                    {Combat::Move::Cross, "FightCross", 0.0f, 0.45f, -1.0f},
+                    {Combat::Move::Roundhouse, "FightKickFront", 0.45f, 0.75f, 1.20f},       // el pie sube de 0,5 s a 1,0 s y vuelve a bajar a 1,2 s
+                    {Combat::Move::HighRoundhouse, "FightRoundhouse", 0.0f, 0.42f, 1.17f},
+                    {Combat::Move::Hook, "FightHook", 0.75f, 1.12f, 1.50f}}};   // gancho (ACCAD): la mano llega a 0,71 m de la cadera a 1,12 s   // el pie llega a la altura de la cabeza a 0,42 s
+                const auto punchClip = [&](int move, float seconds) -> bool {
+                    if (oldPunches) return false;
+                    for (const ClipMove& entry : clipMoves) {
+                        if (static_cast<int>(entry.move) != move) continue;
+                        const int clip = characterManager.FindClip(entry.clip);
+                        if (clip < 0) return false;
+                        const Combat::MoveInfo& info = Combat::Info(entry.move);
+                        const float end = entry.end < 0.0f ? characterManager.ClipDuration(clip) : entry.end;
+                        seconds = std::clamp(seconds, 0.0f, info.duration);
+                        poseClip = clip;
+                        blendClip = -1;
+                        blendWeight = 0.0f;
+                        blendTime = -1.0f;
+                        poseTime = seconds < info.impact ? entry.start + seconds / info.impact * (entry.impact - entry.start)
+                                                         : entry.impact + (seconds - info.impact) / std::max(0.01f, info.duration - info.impact) * (end - entry.impact);
+                        return true;
+                    }
+                    return false;
+                };
+                if (captureRemaining > 0.0f) {   // reducido por un policia: PoliceRestrained (3 s, el mismo tiempo que PoliceGrab del agente)
+                    if (const int restrained = characterManager.FindClip("PoliceRestrained"); restrained >= 0) {
+                        poseClip = restrained;
+                        poseTime = captureElapsed;
+                        blendClip = -1;
+                        blendWeight = 0.0f;
+                        blendTime = -1.0f;
+                    }
+                }
+                if (playerAction == PlayerAction::Jump) { if (!jumpByClips) Jump::Append(swimTurns, actionTime, jumpMoving); }
+                else if (const int combatMove = combatMoveOf(playerAction); combatMove >= 0 && playerAction != PlayerAction::None) {
+                    if (!punchClip(combatMove, actionTime)) Combat::AppendMove(swimTurns, static_cast<Combat::Move>(combatMove), actionTime);
+                }
                 else if (!movingNow && fightStanceRemaining > 0.0f && playerAction == PlayerAction::None)
                     Combat::AppendFists(swimTurns);   // en guardia los puños van cerrados
                 if (static const char* previewJump = std::getenv("BAZUKO_PREVIEW_JUMP")) {   // pruebas: BAZUKO_PREVIEW_JUMP=static|moving con BAZUKO_PREVIEW_TIME=<s>
@@ -2296,8 +2480,11 @@ int main(int argc, char** argv) {
                     poseClip = characterManager.FindClip("Idle");
                     blendClip = -1;
                     blendWeight = 0.0f;
+                    blendTime = -1.0f;
                     poseTime = 0.0f;
-                    Jump::Append(swimTurns, jumpTime ? static_cast<float>(std::atof(jumpTime)) : 0.0f, std::string(previewJump) == "moving");
+                    const float previewSeconds = jumpTime ? static_cast<float>(std::atof(jumpTime)) : 0.0f;
+                    if (jumpByClips) applyJumpClips(previewSeconds, std::string(previewJump) == "moving");
+                    else Jump::Append(swimTurns, previewSeconds, std::string(previewJump) == "moving");
                 }
                 if (static const char* previewMove = std::getenv("BAZUKO_PREVIEW_MOVE")) {   // pruebas: BAZUKO_PREVIEW_MOVE=<tecnica> con BAZUKO_PREVIEW_TIME=<s>
                     const int move = Combat::FindMove(previewMove);
@@ -2307,7 +2494,8 @@ int main(int argc, char** argv) {
                         blendClip = -1;
                         blendWeight = 0.0f;
                         poseTime = 0.0f;
-                        Combat::AppendMove(swimTurns, static_cast<Combat::Move>(move), moveTime ? static_cast<float>(std::atof(moveTime)) : std::fmod(clock.GetElapsedTime(), Combat::Info(static_cast<Combat::Move>(move)).duration + 0.4f));
+                        const float previewSeconds = moveTime ? static_cast<float>(std::atof(moveTime)) : std::fmod(clock.GetElapsedTime(), Combat::Info(static_cast<Combat::Move>(move)).duration + 0.4f);
+                        if (!punchClip(move, previewSeconds)) Combat::AppendMove(swimTurns, static_cast<Combat::Move>(move), previewSeconds);
                     }
                 }
                 {   // pies sobre la pendiente: en rampas (viaducto, estacion) la punta de los pies sigue la inclinacion del suelo en vez de quedar horizontal
@@ -2337,7 +2525,7 @@ int main(int argc, char** argv) {
                     Pipe::AppendPose(swimTurns, basuco.reach);
                     playerModel = glm::translate(playerModel, glm::vec3(0.0f, -Pipe::Drop(basuco.reach), 0.0f));   // el cuerpo baja al doblar las rodillas: los pies siguen en el piso
                 }
-                characterManager.Draw(renderer, playerModel, poseTime, movingNow, isRunning, poseClip, blendClip, blendWeight, swimTurns.empty() ? nullptr : &swimTurns);
+                characterManager.Draw(renderer, playerModel, poseTime, movingNow, isRunning, poseClip, blendClip, blendWeight, swimTurns.empty() ? nullptr : &swimTurns, blendTime);
                 if (basuco.active && !ui.IsPaused() || pipeInHands) {   // la pipa en la mano izquierda y el encendedor en la derecha; el humo sale de la cazoleta y de la boca
                     if (!pipeMeshes) pipeMeshes = std::make_unique<PipeMeshes>();
                     const std::vector<Model::BoneTurn>* turns = swimTurns.empty() ? nullptr : &swimTurns;
@@ -2941,14 +3129,19 @@ int main(int argc, char** argv) {
                 LogError("No se encontró un andén libre para recuperar al jugador.");
                 continue;
             }
-            const size_t typesToLose = inventory.size() / 2;
+            const bool arrested = ui.IsArrestScreen();   // arresto: se pierde todo lo recolectado y ganado, y no se recupera salud
+            const size_t typesToLose = arrested ? inventory.size() : inventory.size() / 2;
+            if (arrested) money = 0.0f;
             inventory.erase(inventory.begin(), inventory.begin() + static_cast<std::ptrdiff_t>(typesToLose));
             inventoryWeight = 0.0f;
             for (const auto& entry : inventory) {
                 inventoryWeight += lootTable[entry.itemIndex].weight * static_cast<float>(entry.quantity);
             }
-            for (float& need : needs) need = std::max(60.0f, need);
-            diseases.clear();
+            if (!arrested) {
+                for (float& need : needs) need = std::max(60.0f, need);
+                diseases.clear();
+            }
+            captureRemaining = 0.0f;
             playerPos = placeSafely({respawnPosition.x, 0.0f, respawnPosition.y});
             playerOnDeck = false;
             playerYaw = 0.0f;
@@ -2957,7 +3150,7 @@ int main(int argc, char** argv) {
             vehicleImpactCooldown = 1.5f;
             deathByVehicleImpact = false;
             ui.CompleteDeathRecovery();
-            saveGame("Volviste al cambuche. Salud recuperada; partida guardada.");
+            saveGame(arrested ? "Volviste al cambuche sin nada de lo recolectado ni de lo ganado; partida guardada." : "Volviste al cambuche. Salud recuperada; partida guardada.");
         }
 
         if (ui.ConsumeSaveRequest()) {

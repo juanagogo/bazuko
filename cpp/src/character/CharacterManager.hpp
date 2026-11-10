@@ -24,7 +24,8 @@ public:
 
     void Draw(Renderer& renderer, const glm::mat4& playerTransform, float animTime, bool moving, bool isRunning,
               int animationClipOverride = -1, int blendClip = -1, float blendWeight = 0.0f,
-              const std::vector<Model::BoneTurn>* turns = nullptr);   // turns: giros de huesos por codigo (brazada de nado)
+              const std::vector<Model::BoneTurn>* turns = nullptr,   // turns: giros de huesos por codigo (brazada de nado)
+              float blendTime = -1.0f);   // segundo del clip de mezcla (blendClip); < 0: la misma fase que el primero (caminar y correr). Los saltos mezclan clips de tiempos distintos
     // Clips de animacion por nombre (Jump, Kick, PunchJab, PunchCross, FightIdle, KnifeIdle, KnifeSlash, KnifeStab, CrouchWalk,
     // IdleRelaxed...), su duracion en segundos y la matriz de una mano en la pose indicada (para sostener objetos)
     int FindClip(const std::string& name) const { return m_Body ? m_Body->FindAnimationClip(name) : -1; }
@@ -47,11 +48,11 @@ public:
     // Matriz de un hueso (en el mundo) con la MISMA pose con que se dibuja el personaje (animacion elegida por la marcha, mezcla y giros de huesos): para
     // poner un cigarrillo en la mano o sacar el humo de la boca
     glm::mat4 PosedNode(const char* node, const glm::mat4& playerTransform, float animTime, bool moving, bool isRunning, int animationClipOverride,
-                        int blendClip, float blendWeight, const std::vector<Model::BoneTurn>* turns) const {
+                        int blendClip, float blendWeight, const std::vector<Model::BoneTurn>* turns, float blendTime = -1.0f) const {
         if (!m_Body) return playerTransform;
         const int defaultClip = moving ? (isRunning && m_RunClip >= 0 ? m_RunClip : m_WalkClip) : m_IdleClip;
         const int clip = animationClipOverride >= 0 ? animationClipOverride : defaultClip;
-        return glm::scale(playerTransform, glm::vec3(1.08f)) * m_Body->GetNodeWorld(node, animTime, clip >= 0, clip, blendClip, blendWeight, turns);
+        return glm::scale(playerTransform, glm::vec3(1.08f)) * m_Body->GetNodeWorld(node, animTime, clip >= 0, clip, blendClip, blendWeight, turns, blendTime);
     }
     int GetKnockdownAnimationClip(bool recovering) const {
         if (recovering && m_CrouchClip >= 0) return m_CrouchClip;

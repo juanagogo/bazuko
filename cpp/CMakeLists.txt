@@ -271,6 +271,13 @@ if(WIN32)
     target_link_libraries(bazuko_livestream_test PRIVATE winhttp)
 endif()
 add_test(NAME bazuko_livestream COMMAND bazuko_livestream_test)
+add_executable(bazuko_animationbank_test tests/AnimationBankTest.cpp)
+target_include_directories(bazuko_animationbank_test PRIVATE third_party/include)
+target_compile_definitions(bazuko_animationbank_test PRIVATE BAZUKO_BANK_PATH="${CMAKE_CURRENT_SOURCE_DIR}/public/models/animaciones-cpp.glb")
+add_test(NAME bazuko_animationbank COMMAND bazuko_animationbank_test)
+add_executable(bazuko_jumpclips_test tests/JumpClipsTest.cpp)
+target_include_directories(bazuko_jumpclips_test PRIVATE src third_party/include)
+add_test(NAME bazuko_jumpclips COMMAND bazuko_jumpclips_test)
 
 # Sonidos de las sustancias (sintesis del original); solo DSP
 add_executable(bazuko_substancesynth_test tests/SubstanceSynthTest.cpp src/audio/SubstanceSynth.cpp)
