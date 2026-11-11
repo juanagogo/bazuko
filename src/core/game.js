@@ -4,7 +4,7 @@ import { Renderer } from './Renderer.js';
 import { SceneManager } from './Scene.js';
 import { CameraRig } from './Camera.js';
 import { TouchControls } from './TouchControls.js';
-import { Clock } from './Clock.js';
+import { Clock, DAY_CYCLE_SECONDS } from './Clock.js';
 import { Input } from './Input.js';
 
 import { World } from '../world/World.js';
@@ -64,6 +64,7 @@ import { SubstanceEffects } from '../systems/SubstanceEffects.js';
 import { SUBSTANCE_EFFECTS } from '../data/substanceEffects.js';
 import { StealSystem } from '../features/steal.js';
 import { openRadioModal } from '../ui/RadioModal.js';
+import { LosReyesStory } from '../story/LosReyesStory.js';
 
 
 import { HUD } from '../ui/HUD.js';
@@ -106,7 +107,7 @@ export class Game {
     this.sceneMgr = new SceneManager();
     this.sceneMgr.scene.environment = this.renderer.createEnvironment();
     this.cameraRig = new CameraRig(this.sceneMgr.scene, canvas);
-    this.clock = new Clock();
+    this.clock = new Clock({ dayLengthSeconds: DAY_CYCLE_SECONDS });
     this.input = new Input();
 
     // Sistemas
@@ -242,6 +243,7 @@ export class Game {
     this.cart = null;
     this.overlays = new CinematicOverlays();
     this.momentos = new Momentos();
+    this.story = new LosReyesStory(this);
 
     // Estado
     this.look = null;       // apariencia + nombre + origen (creador)
@@ -273,13 +275,15 @@ export class Game {
     this._setupGps();
 
     const district = this.world.active;
-    this._loadIfSave();
-    // Cada entrada comienza de noche y con lluvia, también al retomar un guardado.
-    this.clock.hour = 22;
-    if (this.weather) {
-      this.weather.setWeather('llovizna', false);
-      this.weather.timer = 0;
-      this.weather.wetness = .6;
+    const hasSave = this._loadIfSave();
+    // En Los Reyes comenzamos al amanecer (6:00 AM) para apreciar la luz matutina de Bogotá
+    if (!hasSave) {
+      this.clock.hour = 6;
+      if (this.weather) {
+        this.weather.setWeather('despejado', false);
+        this.weather.timer = 0;
+        this.weather.wetness = 0;
+      }
     }
     // Cada entrada a la partida comienza delante del cambuche, incluso si
     // la partida guardada conserva una ubicación anterior de exploración.
@@ -715,12 +719,15 @@ export class Game {
   /** Una partida que no se deja leer no detiene la carga: se aparta sin borrarla y se juega sin ella. */
   _loadIfSave() {
     try {
-      this._aplicarPartida(this.save.load());
+      const data = this.save.load();
+      this._aplicarPartida(data);
+      return Boolean(data);
     } catch (error) {
       console.warn('[Partida] Dañada: queda aparte y se empieza sin ella.', error);
       this.save.apartar();
       // Lo que alcanzó a aplicarse no sirve: se vuelve a cargar, ya sin ella.
       globalThis.location?.reload?.();
+      return false;
     }
   }
 
@@ -756,7 +763,7 @@ export class Game {
         this.cart.loadState(data.cart, this.player, this.inventory);
       }
       if (data.gps && this.gps) this.setGpsWaypoint({ ...data.gps, name: RENAMED_PLACES[data.gps.name] ?? data.gps.name }, { silent: true });
-
+      if (data.story && this.story) this.story.deserialize(data.story);
     }
   }
 
@@ -782,7 +789,8 @@ export class Game {
       radio: this.radio ? { isOn: this.radio.isOn, freq: this.radio.frequency, battery: this.radio.battery } : null,
       dog: { isFriend: !!this.dog?.isFriend, look: this.dog?.look ?? null },
       cart: this.cart ? this.cart.saveState() : null,
-      gps: this.gps?.serialize() ?? null
+      gps: this.gps?.serialize() ?? null,
+      story: this.story ? this.story.serialize() : null
     };
   }
 
@@ -1351,6 +1359,7 @@ export class Game {
       const { name } = this.gps.lastArrival;
       window.dispatchEvent(new CustomEvent('toast', { detail: { text: `Llegué a ${nombreALaVista(name)}`, type: 'info' } }));
     }
+    this.story?.update(dt, this.player.position);
     this.gpsBeacon?.update(dt, this.player.position);
     this.minimap?.update(this.player.position, this._cameraYaw(), this._getPOIs(now), now,
       { gps: this.gps, needs: this._needs, running: this.input.isRunning && (this.input.axis.x !== 0 || this.input.axis.z !== 0) });
