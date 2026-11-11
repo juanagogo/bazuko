@@ -1,0 +1,50 @@
+<svg width="1920" height="1080" viewBox="0 0 1920 1080" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- Fondo Atmosférico Nocturno de Bogotá -->
+  <rect width="1920" height="1080" rx="16" fill="#16181E" stroke="#F4EFE6" stroke-width="6"/>
+
+  <!-- Silueta Cerros Orientales y Viaducto -->
+  <path d="M0 720 L340 500 L700 590 L1140 410 L1560 540 L1920 460 L1920 1080 L0 1080 Z" fill="#1D1A1E"/>
+  <rect x="0" y="590" width="1920" height="58" fill="#332E2A" stroke="#F4EFE6" stroke-width="3"/>
+  <!-- Columnas en Y -->
+  <path d="M400 648 L470 740 L470 1080 L540 1080 L540 740 L610 648 Z" fill="#2A241E" stroke="#F4EFE6" stroke-width="3"/>
+  <path d="M1280 648 L1350 740 L1350 1080 L1420 1080 L1420 740 L1490 648 Z" fill="#2A241E" stroke="#F4EFE6" stroke-width="3"/>
+
+  <!-- Tren Metro de Bogotá sobre el Viaducto -->
+  <rect x="280" y="476" width="1280" height="110" rx="18" fill="#D9232A" stroke="#F4EFE6" stroke-width="4"/>
+  <rect x="290" y="520" width="1260" height="18" fill="#F4EFE6"/>
+  <rect x="290" y="562" width="1260" height="12" fill="#F2A900"/>
+  <!-- Ventanas Iluminadas -->
+  <rect x="350" y="492" width="130" height="38" rx="6" fill="#FFE082"/>
+  <rect x="520" y="492" width="130" height="38" rx="6" fill="#FFE082"/>
+  <rect x="690" y="492" width="130" height="38" rx="6" fill="#FFE082"/>
+  <rect x="860" y="492" width="130" height="38" rx="6" fill="#FFE082"/>
+  <rect x="1030" y="492" width="130" height="38" rx="6" fill="#FFE082"/>
+  <rect x="1200" y="492" width="130" height="38" rx="6" fill="#FFE082"/>
+
+  <!-- HUD Superior Izquierdo -->
+  <rect x="56" y="52" width="780" height="124" rx="10" fill="#1A1714" stroke="#F4EFE6" stroke-width="4"/>
+  <text x="90" y="96" fill="#D89A3C" font-family="Consolas, monospace" font-size="18">04 // CÁMARA EXTERIOR DE TREN · VIADUCTO AVENIDA CARACAS</text>
+  <text x="90" y="146" fill="#F4EFE6" font-family="Impact, Arial Black, sans-serif" font-size="36" letter-spacing="1.5">TRAMO: SAN VICTORINO ➔ CALLE 26 (COLPATRIA)</text>
+
+  <!-- HUD Superior Derecho (Performance + FSR 1.0) -->
+  <rect x="1220" y="52" width="644" height="84" rx="10" fill="#1A1714" stroke="#F4EFE6" stroke-width="4"/>
+  <text x="1256" y="102" fill="#4EFF6B" font-family="Consolas, monospace" font-size="22" font-weight="900">● 60 FPS · Escala: FSR 1.0 + CAS · Cota: +11.5m</text>
+
+  <!-- HUD Inferior Izquierdo: Voz del Cuerpo -->
+  <rect x="56" y="790" width="820" height="234" rx="10" fill="#1A1714" stroke="#F4EFE6" stroke-width="4"/>
+  <text x="92" y="838" fill="#F2A900" font-family="Consolas, monospace" font-size="20" font-weight="900">VOZ DEL CUERPO · ESTADO EN VAGÓN</text>
+  <text x="92" y="884" fill="#F4EFE6" font-family="Consolas, monospace" font-size="21">"El vaivén del vagón calienta las manos del frío de la Caracas.</text>
+  <text x="92" y="918" fill="#F4EFE6" font-family="Consolas, monospace" font-size="21">Abajo brillan los taxis amarillos y los avisos de panadería."</text>
+  <text x="92" y="982" fill="#4E8C52" font-family="Consolas, monospace" font-size="20" font-weight="900">+4% Descanso por segundo · Búsqueda policial congelada en tránsito</text>
+
+  <!-- HUD Inferior Derecho: Velocímetro y Controles -->
+  <rect x="1244" y="790" width="620" height="234" rx="10" fill="#1A1714" stroke="#F4EFE6" stroke-width="4"/>
+  <text x="1284" y="836" fill="#B7ADA1" font-family="Consolas, monospace" font-size="18">VELOCIDAD DEL TREN</text>
+  <text x="1284" y="922" fill="#F2A900" font-family="Impact, Arial Black, sans-serif" font-size="82">68 KM/H</text>
+
+  <text x="1610" y="836" fill="#B7ADA1" font-family="Consolas, monospace" font-size="18">PRÓXIMA PARADA</text>
+  <text x="1635" y="912" fill="#4EFF6B" font-family="Consolas, monospace" font-size="52" font-weight="900">00:19s</text>
+
+  <line x1="1284" y1="950" x2="1824" y2="950" stroke="#3F3831" stroke-width="3"/>
+  <text x="1284" y="992" fill="#F4EFE6" font-family="Consolas, monospace" font-size="20">[V] Cambiar Cámara (Interior/Viaducto) · [F] Bajar</text>
+</svg>

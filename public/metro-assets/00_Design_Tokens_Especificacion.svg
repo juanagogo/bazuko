@@ -1,0 +1,89 @@
+<svg width="1920" height="1080" viewBox="0 0 1920 1080" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- Fondo Cartón Oscuro -->
+  <rect width="1920" height="1080" rx="16" fill="#1A1714" stroke="#F4EFE6" stroke-width="6"/>
+  
+  <!-- Header -->
+  <rect x="48" y="42" width="1824" height="110" rx="8" fill="#2A241E" stroke="#F4EFE6" stroke-width="4"/>
+  <rect x="74" y="62" width="70" height="70" rx="6" fill="#D9232A" stroke="#F4EFE6" stroke-width="4"/>
+  <text x="93" y="112" fill="#F4EFE6" font-family="Impact, Arial Black, sans-serif" font-size="44" font-weight="900">M</text>
+  <text x="168" y="96" fill="#F4EFE6" font-family="Impact, Arial Black, sans-serif" font-size="38" letter-spacing="2">00 // SISTEMA DE DISEÑO: METRO DE BOGOTÁ × BAZUKO ("CARTÓN Y MARCADOR")</text>
+  <text x="168" y="130" fill="#D89A3C" font-family="Consolas, monospace" font-size="20">ESPECIFICACIÓN DE TOKENS, PALETA CROMÁTICA, TIPOGRAFÍA Y LAS TRES VOCES</text>
+
+  <!-- Sección 1: Paleta de Colores -->
+  <rect x="48" y="184" width="890" height="420" rx="10" fill="#2A241E" stroke="#F4EFE6" stroke-width="4"/>
+  <text x="80" y="232" fill="#F2A900" font-family="Impact, Arial Black, sans-serif" font-size="28" letter-spacing="1.5">1. DESIGN TOKENS — PALETA CROMÁTICA OFICIAL + CALLE</text>
+
+  <!-- Swatch 1 -->
+  <rect x="80" y="260" width="250" height="140" rx="8" fill="#D9232A" stroke="#F4EFE6" stroke-width="3"/>
+  <text x="98" y="355" fill="#F4EFE6" font-family="Impact, Arial Black, sans-serif" font-size="24">ROJO METRO L1</text>
+  <text x="98" y="382" fill="#F4EFE6" font-family="Consolas, monospace" font-size="18">#D9232A · Primary</text>
+
+  <!-- Swatch 2 -->
+  <rect x="360" y="260" width="250" height="140" rx="8" fill="#F2A900" stroke="#F4EFE6" stroke-width="3"/>
+  <text x="378" y="355" fill="#1A1714" font-family="Impact, Arial Black, sans-serif" font-size="24">ORO BOGOTÁ</text>
+  <text x="378" y="382" fill="#1A1714" font-family="Consolas, monospace" font-size="18">#F2A900 · Accent</text>
+
+  <!-- Swatch 3 -->
+  <rect x="640" y="260" width="260" height="140" rx="8" fill="#4E8C52" stroke="#F4EFE6" stroke-width="3"/>
+  <text x="658" y="355" fill="#F4EFE6" font-family="Impact, Arial Black, sans-serif" font-size="24">VERDE VÍA LIBRE</text>
+  <text x="658" y="382" fill="#F4EFE6" font-family="Consolas, monospace" font-size="18">#4E8C52 · Positive</text>
+
+  <!-- Swatch 4 -->
+  <rect x="80" y="425" width="250" height="140" rx="8" fill="#1A1714" stroke="#F4EFE6" stroke-width="3"/>
+  <text x="98" y="520" fill="#F4EFE6" font-family="Impact, Arial Black, sans-serif" font-size="24">CARTÓN OSCURO</text>
+  <text x="98" y="547" fill="#B7ADA1" font-family="Consolas, monospace" font-size="18">#1A1714 · Surface 01</text>
+
+  <!-- Swatch 5 -->
+  <rect x="360" y="425" width="250" height="140" rx="8" fill="#2A241E" stroke="#F4EFE6" stroke-width="3"/>
+  <text x="378" y="520" fill="#F4EFE6" font-family="Impact, Arial Black, sans-serif" font-size="24">PANEL KRAFT</text>
+  <text x="378" y="547" fill="#B7ADA1" font-family="Consolas, monospace" font-size="18">#2A241E · Surface 02</text>
+
+  <!-- Swatch 6 -->
+  <rect x="640" y="425" width="260" height="140" rx="8" fill="#C84B31" stroke="#F4EFE6" stroke-width="3"/>
+  <text x="658" y="520" fill="#F4EFE6" font-family="Impact, Arial Black, sans-serif" font-size="24">NARANJA TOMBOS</text>
+  <text x="658" y="547" fill="#F4EFE6" font-family="Consolas, monospace" font-size="18">#C84B31 · Danger</text>
+
+  <!-- Sección 2: Las Tres Voces Narrativas -->
+  <rect x="974" y="184" width="898" height="420" rx="10" fill="#2A241E" stroke="#F4EFE6" stroke-width="4"/>
+  <text x="1006" y="232" fill="#F2A900" font-family="Impact, Arial Black, sans-serif" font-size="28" letter-spacing="1.5">2. ARQUITECTURA UX — LAS TRES VOCES DE BAZUKO</text>
+
+  <rect x="1006" y="258" width="834" height="96" rx="6" fill="#1A1714" stroke="#D89A3C" stroke-width="3"/>
+  <text x="1030" y="294" fill="#D89A3C" font-family="Impact, Arial Black, sans-serif" font-size="22">VOZ 01 · LA CALLE (SEÑALÉTICA Y ENTORNO DE ESTACIÓN)</text>
+  <text x="1030" y="328" fill="#F4EFE6" font-family="Consolas, monospace" font-size="17">Letreros de andén, destinos del tren, avisos de lluvia y patrullaje en los bajos del viaducto.</text>
+
+  <rect x="1006" y="372" width="834" height="96" rx="6" fill="#1A1714" stroke="#4E8C52" stroke-width="3"/>
+  <text x="1030" y="408" fill="#4E8C52" font-family="Impact, Arial Black, sans-serif" font-size="22">VOZ 02 · EL CUERPO (SENSACIÓN FÍSICA EN EL VAGÓN)</text>
+  <text x="1030" y="442" fill="#F4EFE6" font-family="Consolas, monospace" font-size="17">Recuperación de calor bajo techo (+4% energía/s), refugio de la llovizna y pulso al colarse.</text>
+
+  <rect x="1006" y="486" width="834" height="96" rx="6" fill="#1A1714" stroke="#F4EFE6" stroke-width="3"/>
+  <text x="1030" y="522" fill="#F4EFE6" font-family="Impact, Arial Black, sans-serif" font-size="22">VOZ 03 · EL PAPEL ( ECONOMÍA, SALDO COP Y TAQUILLA)</text>
+  <text x="1030" y="556" fill="#B7ADA1" font-family="Consolas, monospace" font-size="17">Tarifas en Pesos ($3.100 COP), saldo en tarjeta integrada y tiquetes QR impresos.</text>
+
+  <!-- Sección 3: Especificación Geométrica 3D & Shaders -->
+  <rect x="48" y="636" width="1824" height="396" rx="10" fill="#2A241E" stroke="#F4EFE6" stroke-width="4"/>
+  <text x="80" y="686" fill="#F2A900" font-family="Impact, Arial Black, sans-serif" font-size="28" letter-spacing="1.5">3. INTEGRACIÓN CON EL MOTOR C++20 / OPENGL 4.5 Y WEB (THREE.JS)</text>
+
+  <rect x="80" y="714" width="560" height="284" rx="8" fill="#1A1714" stroke="#F4EFE6" stroke-width="3"/>
+  <text x="108" y="758" fill="#D9232A" font-family="Impact, Arial Black, sans-serif" font-size="24">VIADUCTO Y ESTACIONES (Viaduct.hpp)</text>
+  <text x="108" y="798" fill="#F4EFE6" font-family="Consolas, monospace" font-size="17">• Cuadrícula Ciudad: 400 × 322m (celdas 2m)</text>
+  <text x="108" y="832" fill="#F4EFE6" font-family="Consolas, monospace" font-size="17">• Altura Viga Cajón: +11.5m sobre Av. Caracas</text>
+  <text x="108" y="866" fill="#F4EFE6" font-family="Consolas, monospace" font-size="17">• Nivel Vestíbulo / Torniquetes: +5.5m</text>
+  <text x="108" y="900" fill="#F4EFE6" font-family="Consolas, monospace" font-size="17">• Columnas en Y: Concreto #7A746E cada 32m</text>
+  <text x="108" y="934" fill="#D89A3C" font-family="Consolas, monospace" font-size="17">• Archivo Mapa: cpp/assets/data/city-map.json</text>
+
+  <rect x="680" y="714" width="560" height="284" rx="8" fill="#1A1714" stroke="#F4EFE6" stroke-width="3"/>
+  <text x="708" y="758" fill="#F2A900" font-family="Impact, Arial Black, sans-serif" font-size="24">TREN ARTICULADO L1 (carAtlas.js / .glb)</text>
+  <text x="708" y="798" fill="#F4EFE6" font-family="Consolas, monospace" font-size="17">• Composición: 6 vagones articulados</text>
+  <text x="708" y="832" fill="#F4EFE6" font-family="Consolas, monospace" font-size="17">• Velocidad crucero en juego: 68 km/h</text>
+  <text x="708" y="866" fill="#F4EFE6" font-family="Consolas, monospace" font-size="17">• Puertas corredizas: 3 dobles por costado</text>
+  <text x="708" y="900" fill="#F4EFE6" font-family="Consolas, monospace" font-size="17">• Ruteros LED: "PORTAL - CENTRO"</text>
+  <text x="708" y="934" fill="#D89A3C" font-family="Consolas, monospace" font-size="17">• Blueprint: public/metro-assets/metro_turnaround.jpg</text>
+
+  <rect x="1280" y="714" width="560" height="284" rx="8" fill="#1A1714" stroke="#F4EFE6" stroke-width="3"/>
+  <text x="1308" y="758" fill="#4E8C52" font-family="Impact, Arial Black, sans-serif" font-size="24">RENDERIZADO &amp; ESCALADO (present.frag)</text>
+  <text x="1308" y="798" fill="#F4EFE6" font-family="Consolas, monospace" font-size="17">• Pipeline: AMD FidelityFX FSR 1.0 + CAS</text>
+  <text x="1308" y="832" fill="#F4EFE6" font-family="Consolas, monospace" font-size="17">• EASU (12-tap) + RCAS (5-tap contrast)</text>
+  <text x="1308" y="866" fill="#F4EFE6" font-family="Consolas, monospace" font-size="17">• Fuente UI: Dios Le Pague (dibujar.mjs)</text>
+  <text x="1308" y="900" fill="#F4EFE6" font-family="Consolas, monospace" font-size="17">• Atlas Señalética: SignAtlas.cpp (stb_truetype)</text>
+  <text x="1308" y="934" fill="#D89A3C" font-family="Consolas, monospace" font-size="17">• Modo por defecto: uUpscaleMode = 2 (FSR 1.0)</text>
+</svg>
