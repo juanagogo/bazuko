@@ -47,6 +47,13 @@ export class MapView {
     this._horno = null;
     this._imagenes = new Map();
     this._rotulos = null;
+    this.showOfficialCartography = true;
+    this._officialMapImg = null;
+    if (typeof Image !== 'undefined') {
+      const img = new Image();
+      img.onload = () => { this._officialMapImg = img; this._pedirDibujo(); };
+      img.src = '/metro-assets/plano-urbano-bogota-bazuko.jpg';
+    }
 
     this.canvas = el('canvas', {
       class: 'map-view__canvas', tabindex: '0',
@@ -62,7 +69,11 @@ export class MapView {
             tool('+', 'Acercar', () => this._zoomAt(this.cssWidth / 2, this.cssHeight / 2, 1.3)),
             tool('−', 'Alejar', () => this._zoomAt(this.cssWidth / 2, this.cssHeight / 2, 1 / 1.3)),
             tool(pasarTexto('◎'), 'Centrar en mí', () => this.centerOnPlayer()),
-            tool(pasarTexto('⤢'), 'Ver toda la ciudad', () => this.fitCity()))),
+            tool(pasarTexto('⤢'), 'Ver toda la ciudad', () => this.fitCity()),
+            tool('IDECA', 'Alternar Plano Cartográfico Oficial de Bogotá', () => {
+              this.showOfficialCartography = !this.showOfficialCartography;
+              this.draw();
+            }))),
         el('div', { class: 'map-view__pie' },
           el('ul', { class: 'map-view__legend', 'aria-label': 'Leyenda' },
             LEGEND.map(([name, key]) => el('li', { class: `ley ley--${key}` }, el('i', { 'aria-hidden': 'true' }), name))),
@@ -591,15 +602,29 @@ export class MapView {
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, w, h);
 
+    const plan = this.game.mapPlan;
+    if (this.showOfficialCartography && this._officialMapImg && plan) {
+      const [ox, oy] = this._toScreen(plan.originX, plan.originZ);
+      const mw = plan.worldWidth * this.zoom;
+      const mh = plan.worldHeight * this.zoom;
+      ctx.save();
+      ctx.globalAlpha = 0.94;
+      ctx.drawImage(this._officialMapImg, ox, oy, mw, mh);
+      ctx.restore();
+    }
+
     const horno = this._horno;
     if (horno) {
       const [sx, sy] = this._toScreen(horno.x0, horno.z0);
       // A la escala horneada se pega en píxeles enteros, para que la línea no se empañe.
       const exacta = horno.zoom === this.zoom;
+      ctx.save();
+      if (this.showOfficialCartography && this._officialMapImg) ctx.globalAlpha = 0.38;
       ctx.imageSmoothingEnabled = !exacta;
       ctx.drawImage(horno.canvas, exacta ? Math.round(sx * dpr) / dpr : sx, exacta ? Math.round(sy * dpr) / dpr : sy,
         exacta ? horno.canvas.width / dpr : horno.w * this.zoom, exacta ? horno.canvas.height / dpr : horno.h * this.zoom);
       ctx.imageSmoothingEnabled = true;
+      ctx.restore();
     }
 
     const gps = this.game.gps, p = this.game.player?.position;

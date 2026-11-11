@@ -162,7 +162,15 @@
       <button id="btn-focus-norte">Zona G / Zona T</button>
     </div>
     <div id="status" class="status-bar">
-      Motor 3D activo: 8 hitos IDECA + Viaducto Metro L1 + Malla Vial de Bogotá.
+      Motor 3D activo: Cartografía Oficial IDECA + Plano Urbano Nano Banana + Viaducto Metro L1.
+    </div>
+    <div style="margin-top: 12px; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; background: #14110c;">
+      <a href="/metro-assets/plano-urbano-bogota-bazuko.jpg" target="_blank" style="display:block; text-decoration:none;">
+        <img src="/metro-assets/plano-urbano-bogota-bazuko.jpg" alt="Plano Urbano de Bogotá — Bazuko" style="width:100%; display:block; border-bottom:1px solid var(--border);" />
+        <div style="padding:7px 10px; font-size:11px; color:var(--gold); font-weight:700; text-align:center;">
+          Ver Plano Urbano Oficial (Nano Banana + IDECA) ↗
+        </div>
+      </a>
     </div>
     <div class="landmark-list" id="landmark-list"></div>
   </aside>
@@ -198,8 +206,20 @@
     scene.add(dirLight);
 
     const grid = new THREE.GridHelper(520, 52, 0x2e3b52, 0x182030);
-    grid.position.set(190, 0, 160);
+    grid.position.set(190, 0.05, 160);
     scene.add(grid);
+
+    // Plano Urbano de Bogotá (Nano Banana + IDECA) proyectado sobre el terreno 3D
+    const texLoader = new THREE.TextureLoader();
+    texLoader.load('/metro-assets/plano-urbano-bogota-bazuko.jpg', (tex) => {
+      tex.colorSpace = THREE.SRGBColorSpace;
+      const groundGeo = new THREE.PlaneGeometry(460, 340);
+      const groundMat = new THREE.MeshBasicMaterial({ map: tex, transparent: true, opacity: 0.92 });
+      const groundMesh = new THREE.Mesh(groundGeo, groundMat);
+      groundMesh.rotation.x = -Math.PI / 2;
+      groundMesh.position.set(185, 0.02, 160);
+      scene.add(groundMesh);
+    });
 
     const cityGroup = new THREE.Group();
     scene.add(cityGroup);
