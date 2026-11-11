@@ -229,3 +229,13 @@ test('PanelDock y PauseMenu integran la tecla J para Misiones del día', async (
   assert.ok(jControl, 'la tecla J está registrada en los controles');
   assert.equal(jControl[1], 'Misiones del día');
 });
+
+test('abrir el ropero y salir igual no cumple «Cambio de pinta»', () => {
+  const system = new DailyMissionSystem({ stats: { dinero: 0, addXP() {}, animo: 50 } });
+  system.missions = [{ id: 'm', type: 'ropa', title: 'Cambio de pinta', target: 1, progress: 0, completed: false, reward: {} }];
+  window.dispatchEvent(new CustomEvent('look-changed', { detail: { changed: false } }));
+  assert.equal(system.missions[0].completed, false);
+  window.dispatchEvent(new CustomEvent('look-changed', { detail: { changed: true } }));
+  assert.equal(system.missions[0].completed, true);
+  system.dispose?.();
+});

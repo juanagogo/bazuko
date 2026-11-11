@@ -34,6 +34,9 @@ const MIRROR_REACH_PENALTY = .8;
 // salió: quien se queda parado en el límite no lo ve entrar y salir.
 const MARKER_SHOW = INTERACT_RANGE + 2.2, MARKER_HIDE = MARKER_SHOW + .6, MARKER_FADE = .3;
 
+/** Velocidad máxima, en m/s, a la que todavía se alcanza a limpiar un parabrisas. */
+export const CLEAN_MAX_SPEED = 1;
+
 export class Car {
   constructor(scene, position, rotation = 0, { traffic = false, kind = null, variant = null, model = null } = {}) {
     this.scene = scene;
@@ -176,8 +179,14 @@ export class Car {
   /** Si `steal` daría algo: a una patrulla no se le roban los espejos y los ya robados tardan en volver. */
   get stealable() { return this.kind !== 'police' && !this.used && this.cooldown <= 0; }
 
-  /** Si se le puede limpiar el parabrisas: carros particulares y taxis que no se hayan limpiado recientemente y no estén en alarma. */
-  get cleanable() { return this.kind !== 'police' && !this.used && (this.cleanCooldown ?? 0) <= 0; }
+  /**
+   * Si se le puede limpiar el parabrisas: paga el conductor, así que solo vale para un carro en circulación que esté
+   * quieto o a paso de persona (semáforo o trancón). Un parqueado no tiene quién pague y a uno en marcha no se le alcanza.
+   */
+  get cleanable() {
+    return this.traffic && this.kind !== 'police' && !this.used && (this.cleanCooldown ?? 0) <= 0
+      && Math.abs(this._previousSpeed ?? 0) < CLEAN_MAX_SPEED;
+  }
 
   /**
    * Distancia para el aviso de robar: al centro o, con un recargo, a un espejo. En un carro largo el espejo queda a varios metros

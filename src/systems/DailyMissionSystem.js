@@ -94,7 +94,8 @@ export class DailyMissionSystem {
     const onSell = (e) => this.reportProgress('vender', e.detail?.earned ?? 1000);
     const onComedor = () => this.reportProgress('comedor', 1);
     const onDog = () => this.reportProgress('perro', 1);
-    const onLook = () => this.reportProgress('ropa', 1);
+    // Abrir el ropero y salir igual no cuenta.
+    const onLook = (e) => { if (e?.detail?.changed !== false) this.reportProgress('ropa', 1); };
     const onFire = () => this.reportProgress('fogata', 1);
     const onBeg = (e) => { if (e.detail?.success) this.reportProgress('limosna', 1); };
     const onCraft = () => this.reportProgress('crafteo', 1);
