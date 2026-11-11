@@ -40,6 +40,7 @@ import { skylineFloors, buildAvenueOverpass, AVENUE_OVERPASS } from '../bogota/A
 import { GAS_STATION, GAS_OBSTACLES, inGasStation, underGasCanopy, buildGasStation } from '../bogota/GasStation.js';
 import { buildMetroBogota, metroSurface, underMetroRoof } from '../bogota/MetroBogota.js';
 import { buildNorthZones } from '../bogota/NorthZones.js';
+import { buildRealBogotaOSM } from '../bogota/RealBogotaOSM.js';
 import { buildD69Store } from '../bogota/D69Store.js';
 import { buildColpatria, COLPATRIA, COLPATRIA_ANNEX, BUS_DETOUR, busPathX, southBusPathX } from '../bogota/Colpatria.js';
 import { VIADUCT, buildColpatriaViaduct, viaductHeight, viaductSurface } from '../bogota/ColpatriaViaduct.js';
@@ -264,6 +265,11 @@ export class Bogota {
     if (northZones.userData.colliders) {
       for (const entry of northZones.userData.colliders) collisions?.colliders.push(entry);
     }
+
+    // Edificaciones e hitos 3D extruidos desde el catálogo OpenStreetMap + IDECA de Bogotá
+    const realOsmBogota = buildRealBogotaOSM();
+    this.realOsmBogota = realOsmBogota;
+    this.group.add(realOsmBogota);
     const parks = [
       { x0: WX(29.5), x1: WX(37.5), z0: WZ(33.5), z1: WZ(44.5) },
       ...EXTENSION_PARKS.map(park => ({ x0: W(park.x0 + .5), x1: W(park.x1 - .5), z0: W(park.z0 + .5), z1: W(park.z1 - .5) })),

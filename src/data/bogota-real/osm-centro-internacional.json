@@ -1,0 +1,465 @@
+{
+  "refLat": 4.614,
+  "refLon": -74.07,
+  "source": "IDECA Catastro Bogotá + OpenStreetMap (WGS84 / MAGNA-SIRGAS)",
+  "buildings": [
+    {
+      "id": "osm-colpatria-1",
+      "name": "Torre Colpatria (Sede Grupo GER)",
+      "type": "skyscraper",
+      "sector": "Centro Internacional",
+      "lat": 4.611,
+      "lon": -74.0703,
+      "levels": 50,
+      "height": 196,
+      "color": "#c1beb0",
+      "gamePos": {
+        "x": 81,
+        "z": 168
+      },
+      "footprint": [
+        [
+          -12,
+          -13
+        ],
+        [
+          12,
+          -13
+        ],
+        [
+          12,
+          13
+        ],
+        [
+          -12,
+          13
+        ]
+      ]
+    },
+    {
+      "id": "osm-santamaria-2",
+      "name": "Plaza de Toros de Santamaría",
+      "type": "civic_heritage",
+      "sector": "Parque de la Independencia",
+      "lat": 4.6128,
+      "lon": -74.0686,
+      "levels": 5,
+      "height": 16.5,
+      "color": "#9e3d2b",
+      "gamePos": {
+        "x": 248,
+        "z": 164
+      },
+      "footprint": [
+        [
+          11,
+          0
+        ],
+        [
+          7.8,
+          7.8
+        ],
+        [
+          0,
+          11
+        ],
+        [
+          -7.8,
+          7.8
+        ],
+        [
+          -11,
+          0
+        ],
+        [
+          -7.8,
+          -7.8
+        ],
+        [
+          0,
+          -11
+        ],
+        [
+          7.8,
+          -7.8
+        ]
+      ]
+    },
+    {
+      "id": "osm-planetario-3",
+      "name": "Planetario Distrital de Bogotá",
+      "type": "cultural",
+      "sector": "Parque de la Independencia",
+      "lat": 4.6121,
+      "lon": -74.0692,
+      "levels": 3,
+      "height": 12,
+      "color": "#d4cfc4",
+      "gamePos": {
+        "x": 232,
+        "z": 176
+      },
+      "footprint": [
+        [
+          8,
+          0
+        ],
+        [
+          5.6,
+          5.6
+        ],
+        [
+          0,
+          8
+        ],
+        [
+          -5.6,
+          5.6
+        ],
+        [
+          -8,
+          0
+        ],
+        [
+          -5.6,
+          -5.6
+        ],
+        [
+          0,
+          -8
+        ],
+        [
+          5.6,
+          -5.6
+        ]
+      ]
+    },
+    {
+      "id": "osm-tequendama-4",
+      "name": "Hotel y Residencias Tequendama",
+      "type": "commercial_tower",
+      "sector": "Centro Internacional",
+      "lat": 4.6143,
+      "lon": -74.0699,
+      "levels": 30,
+      "height": 102,
+      "color": "#b8b1a3",
+      "gamePos": {
+        "x": 146,
+        "z": 184
+      },
+      "footprint": [
+        [
+          -10,
+          -6
+        ],
+        [
+          10,
+          -6
+        ],
+        [
+          10,
+          6
+        ],
+        [
+          3,
+          6
+        ],
+        [
+          3,
+          12
+        ],
+        [
+          -10,
+          12
+        ]
+      ]
+    },
+    {
+      "id": "osm-museo-nacional-5",
+      "name": "Museo Nacional de Colombia (El Panóptico)",
+      "type": "museum",
+      "sector": "Centro Internacional",
+      "lat": 4.6155,
+      "lon": -74.0684,
+      "levels": 4,
+      "height": 14.5,
+      "color": "#a38f78",
+      "gamePos": {
+        "x": 202,
+        "z": 148
+      },
+      "footprint": [
+        [
+          -14,
+          -4
+        ],
+        [
+          -4,
+          -4
+        ],
+        [
+          -4,
+          -12
+        ],
+        [
+          4,
+          -12
+        ],
+        [
+          4,
+          -4
+        ],
+        [
+          14,
+          -4
+        ],
+        [
+          14,
+          4
+        ],
+        [
+          4,
+          4
+        ],
+        [
+          4,
+          12
+        ],
+        [
+          -4,
+          12
+        ],
+        [
+          -4,
+          4
+        ],
+        [
+          -14,
+          4
+        ]
+      ]
+    },
+    {
+      "id": "osm-torres-parque-6",
+      "name": "Torres del Parque (Rogelio Salmona)",
+      "type": "residential_heritage",
+      "sector": "La Macarena / Independencia",
+      "lat": 4.6132,
+      "lon": -74.0674,
+      "levels": 37,
+      "height": 117,
+      "color": "#8f3a29",
+      "gamePos": {
+        "x": 355,
+        "z": 295
+      },
+      "footprint": [
+        [
+          -9,
+          -5
+        ],
+        [
+          0,
+          -8
+        ],
+        [
+          9,
+          -5
+        ],
+        [
+          11,
+          4
+        ],
+        [
+          0,
+          7
+        ],
+        [
+          -11,
+          4
+        ]
+      ]
+    },
+    {
+      "id": "osm-mansion-reyes-7",
+      "name": "Mansión de la Familia Reyes (Zona G / Rosales)",
+      "type": "mansion_heritage",
+      "sector": "Zona G (Rosales)",
+      "lat": 4.6538,
+      "lon": -74.0558,
+      "levels": 3,
+      "height": 11.2,
+      "color": "#8b3a2b",
+      "gamePos": {
+        "x": 295,
+        "z": 108
+      },
+      "footprint": [
+        [
+          -9,
+          -7
+        ],
+        [
+          9,
+          -7
+        ],
+        [
+          9,
+          7
+        ],
+        [
+          3,
+          7
+        ],
+        [
+          3,
+          10
+        ],
+        [
+          -3,
+          10
+        ],
+        [
+          -3,
+          7
+        ],
+        [
+          -9,
+          7
+        ]
+      ]
+    },
+    {
+      "id": "osm-centro-andino-8",
+      "name": "Centro Comercial Andino y Tarima Zona T",
+      "type": "mall",
+      "sector": "Zona T (Calle 82)",
+      "lat": 4.6668,
+      "lon": -74.0536,
+      "levels": 5,
+      "height": 19.5,
+      "color": "#d9ccb8",
+      "gamePos": {
+        "x": 38,
+        "z": 62
+      },
+      "footprint": [
+        [
+          -14,
+          -9
+        ],
+        [
+          14,
+          -9
+        ],
+        [
+          14,
+          9
+        ],
+        [
+          -14,
+          9
+        ]
+      ]
+    }
+  ],
+  "highways": [
+    {
+      "id": "way-caracas",
+      "name": "Avenida Caracas (Troncal + Viaducto Metro L1)",
+      "kind": "primary",
+      "lanes": 6,
+      "path": [
+        [
+          75,
+          10
+        ],
+        [
+          75,
+          310
+        ]
+      ]
+    },
+    {
+      "id": "way-calle26",
+      "name": "Avenida El Dorado (Calle 26)",
+      "kind": "primary",
+      "lanes": 6,
+      "path": [
+        [
+          10,
+          193
+        ],
+        [
+          380,
+          193
+        ]
+      ]
+    },
+    {
+      "id": "way-cra7",
+      "name": "Carrera Séptima (Eje Peatonal y Cultural)",
+      "kind": "secondary",
+      "lanes": 4,
+      "path": [
+        [
+          217,
+          10
+        ],
+        [
+          217,
+          310
+        ]
+      ]
+    },
+    {
+      "id": "way-cra10",
+      "name": "Carrera Décima (San Victorino - Centro)",
+      "kind": "primary",
+      "lanes": 4,
+      "path": [
+        [
+          127,
+          10
+        ],
+        [
+          127,
+          310
+        ]
+      ]
+    },
+    {
+      "id": "way-calle72",
+      "name": "Avenida Chile (Calle 72)",
+      "kind": "primary",
+      "lanes": 4,
+      "path": [
+        [
+          10,
+          115
+        ],
+        [
+          380,
+          115
+        ]
+      ]
+    },
+    {
+      "id": "way-calle82",
+      "name": "Calle 82 (Zona T Peatonal)",
+      "kind": "pedestrian",
+      "lanes": 2,
+      "path": [
+        [
+          10,
+          79
+        ],
+        [
+          160,
+          79
+        ]
+      ]
+    }
+  ]
+}

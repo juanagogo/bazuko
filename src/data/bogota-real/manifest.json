@@ -67,7 +67,8 @@
     "hitos": [
       "Calle 69 Gourmet",
       "Casas de Conservación",
-      "Carrera 5"
+      "Carrera 5",
+      "Mansión Reyes"
     ],
     "layout": {
       "callePrincipal": {
@@ -189,6 +190,68 @@
           "z": 75,
           "ancho": 60,
           "largo": 35
+        }
+      ]
+    }
+  },
+  "centroInternacional": {
+    "nombre": "Centro Internacional y San Victorino (Av. Caracas / Calle 26)",
+    "hitos": [
+      "Torre Colpatria",
+      "Planetario de Bogotá",
+      "Museo Nacional",
+      "Hotel Tequendama",
+      "Metro Estación Calle 26"
+    ],
+    "layout": {
+      "callePrincipal": {
+        "nombre": "Av. Calle 26 (El Dorado)",
+        "ancho": 24,
+        "orientacion": "este_oeste"
+      },
+      "carreraCruce": {
+        "nombre": "Av. Caracas / Carrera 7 / Carrera 10",
+        "ancho": 18,
+        "orientacion": "norte_sur"
+      },
+      "materialSuelo": "concreto_y_ladrillo_bogotano",
+      "iluminacion": "sodio_y_led_urbano",
+      "manzanas": [
+        {
+          "nombre": "Torre Colpatria",
+          "niveles": 50,
+          "tipo": "rascacielos_icono",
+          "x": 81,
+          "z": 168,
+          "ancho": 24,
+          "largo": 26
+        },
+        {
+          "nombre": "Planetario y Plaza La Santamaría",
+          "niveles": 5,
+          "tipo": "patrimonio_circular",
+          "x": 240,
+          "z": 170,
+          "ancho": 28,
+          "largo": 28
+        },
+        {
+          "nombre": "Centro Internacional Tequendama",
+          "niveles": 30,
+          "tipo": "moderno_concreto",
+          "x": 146,
+          "z": 182,
+          "ancho": 26,
+          "largo": 18
+        },
+        {
+          "nombre": "Museo Nacional de Colombia",
+          "niveles": 4,
+          "tipo": "panoptico_piedra",
+          "x": 202,
+          "z": 148,
+          "ancho": 36,
+          "largo": 18
         }
       ]
     }

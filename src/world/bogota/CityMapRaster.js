@@ -87,6 +87,8 @@ export function cityLandmarks(tileSize = 2) {
     // 3. HITOS URBANOS Y TRADICIONALES DE BOGOTÁ
     { name: 'Torre Colpatria (Av. Calle 26)', icon: '🏙️', color: '#ffcb45', x: COLPATRIA.x, z: COLPATRIA.z, fijo: true },
     { name: 'Sede Grupo GER (Torre Colpatria)', icon: '🏢', color: '#ffb703', x: COLPATRIA.x, z: COLPATRIA.z, fijo: true },
+    { name: 'Planetario de Bogotá y La Santamaría', icon: '🏛️', color: '#d4cfc4', x: 240, z: 170, fijo: true },
+    { name: 'Museo Nacional de Colombia', icon: '🏛️', color: '#a38f78', x: 202, z: 148, fijo: true },
     { name: 'Portal del Centro (TransMilenio)', icon: '🚏', color: '#e45960', x: TERMINAL.x, z: TERMINAL.z, fijo: true },
     { name: PLAZA.name, icon: '🏛️', color: '#d9c49a', x: (PLAZA.x0 + PLAZA.x1) / 2 * tileSize, z: (PLAZA.z0 + PLAZA.z1) / 2 * tileSize, fijo: true },
     { name: TEUSAQUILLO_PARK.name, icon: '🌳', color: '#6fcf6a', x: (TEUSAQUILLO_PARK.x0 + TEUSAQUILLO_PARK.x1) / 2 * tileSize, z: (TEUSAQUILLO_PARK.z0 + TEUSAQUILLO_PARK.z1) / 2 * tileSize, fijo: true },
