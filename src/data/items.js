@@ -78,6 +78,11 @@ export const ITEMS = {
     id: 'cepillo', name: 'Cepillo', weight: 0.1, value: 2000,
     consumable: 'higiene', amount: 20
   },
+  ropaLimpia: {
+    id: 'ropaLimpia', name: 'Ropa limpia', weight: 0.8, value: 2500,
+    consumable: 'higiene', amount: 30, animo: 15, usable: true,
+    desc: 'Muda de ropa limpia donada. Usar: cambiarse de ropa para ganar higiene y ánimo.'
+  },
 
   // ===== CURAS =====
   vacuna: {
@@ -186,7 +191,7 @@ const ITEM_EMOJIS = {
   reloj: '⌚', moneda: '🪙', anillo: '💍', jabon: '🧼', cepillo: '🪥',
   empanada: '🥟', morcilla: '🌭', papaCriolla: '🥔', aguapanela: '🍵',
   retrovisor: '🪞', radio: '📻', radioTransistor: '📻', pilas: '🔋', popo: '💩', cigarrillo: '🚬', basuco: '💨',
-  curita: '🩹', hierba: '🌿', rifa: '🎟️', arma: '🗡️', cuchillo: '🔪', botella_picada: '🍾'
+  curita: '🩹', hierba: '🌿', rifa: '🎟️', arma: '🗡️', cuchillo: '🔪', botella_picada: '🍾', ropaLimpia: '👕'
 };
 for (const item of Object.values(ITEMS)) {
   item.emoji = ITEM_EMOJIS[item.id] ?? (item.cure ? '💊' : item.substance ? '🧪' : '📦');
@@ -195,6 +200,7 @@ for (const item of Object.values(ITEMS)) {
 export const isUsable = item => !!(item?.consumable || item?.cure || item?.usable);
 export function describeEffects(item) {
   const lines = [];
+  if (item.id === 'ropaLimpia') lines.push('Usar: cambiarte de ropa, sube higiene y ánimo.');
   if (item.id === 'radioTransistor') lines.push('Usar: abrir el sintonizador. También con R.');
   if (item.id === 'pilas') lines.push('Usar: 50 % más de pilas en el radio.');
   if (item.id === 'popo') lines.push('Usar o X en la calle: lanzar a un peatón.');
@@ -220,7 +226,7 @@ export const isForSale = (item, equippedWeapon = null) => isRecyclable(item) && 
 // El dibujo de cada objeto cuyo nombre no coincide con el de su dibujo (ver src/ui/icons.js)
 const ICONS = {
   radioTransistor: 'radio', papaCriolla: 'papa', aguapanela: 'pocillo', agua: 'botellaAgua', cafe: 'pocillo', tintico: 'pocillo',
-  basuco: 'papeleta', botella_picada: 'botellaPicada', antibiotico: 'pastilla', antiparasitario: 'pastilla', polvoLadrillo: 'frasco'
+  basuco: 'papeleta', botella_picada: 'botellaPicada', antibiotico: 'pastilla', antiparasitario: 'pastilla', polvoLadrillo: 'frasco', ropaLimpia: 'shirt'
 };
 export const itemIcon = (id) => ICONS[id] ?? id;
 
@@ -239,6 +245,7 @@ export const LOOT_COMMON = [
   { item: 'vendaje',    weight: 1 },
   { item: 'cigarrillo', weight: 2 },
   { item: 'madera',     weight: 3 },
+  { item: 'ropaLimpia', weight: 1.2 },
   { item: 'lona',       weight: 0.6 },
   { item: 'colchon',    weight: 0.4 },
   { item: 'vela',       weight: 0.8 },
@@ -277,6 +284,7 @@ export const SHOP_ITEMS = [
   { item: 'vendaje',    price: 4500 },
   { item: 'jabon',      price: 3500 },
   { item: 'cepillo',    price: 3000 },
+  { item: 'ropaLimpia', price: 3500, desc: 'Muda de ropa limpia: cambiarse de ropa, sube higiene y ánimo.' },
   { item: 'jarabe',     price: 11000 },
   { item: 'pomada',     price: 9500 },
   { item: 'carbon',     price: 9000 },

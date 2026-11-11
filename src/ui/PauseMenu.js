@@ -29,10 +29,10 @@ export const PAUSE_TABS = [
 // La pestaña de trucos existe solo cuando el juego se abrió con ?trucos.
 const TRUCOS_TAB = { id: 'trucos', label: 'Trucos' };
 
-const CONTROL_GROUPS = [
+export const CONTROL_GROUPS = [
   ['Movimiento', [['WASD', 'Caminar'], ['Shift', 'Correr'], ['Espacio', 'Brincar'], ['Mouse', 'Clic fija la cámara, la rueda acerca'], ['V', 'Vista tercera persona / isométrica']]],
   ['Acciones', [['E', 'Hacer lo que dice: basura, tiendas, cambuche, carros'], ['Q', 'Mantener para seleccionar basura. También abre al jíbaro'], ['E / Q', 'Junto a una persona: cosquilleo o robo directo'], ['B / L', 'Pedir limosna'], ['F', 'Envión'], ['G / Clic', 'Pegar'], ['X', 'Lanzar / recoger'], ['Z', 'Popó'], ['H', 'Echarme un rato en un cartón']]],
-  ['Paneles', [['I / Tab', 'El costal. 1 a 5: acceso rápido'], ['H', 'Estado y necesidades'], ['T', 'Mañas'], ['C', 'Fabricar'], ['P', 'Editar personaje'], ['R', 'Radio'], ['K', 'Personaje realista / liviano'], ['F2', 'Foto'], ['F3', 'Panel de rendimiento'], ['Esc', 'Pausa o cerrar panel']]],
+  ['Paneles', [['I / Tab', 'El costal. 1 a 5: acceso rápido'], ['H', 'Estado y necesidades'], ['J', 'Misiones del día'], ['T', 'Mañas'], ['C', 'Fabricar'], ['P', 'Editar personaje'], ['R', 'Radio'], ['K', 'Personaje realista / liviano'], ['F2', 'Foto'], ['F3', 'Panel de rendimiento'], ['Esc', 'Pausa o cerrar panel']]],
   ['Mapa y GPS', [['M', 'Abrir / cerrar el mapa'], ['M, Enter', 'Ruta a lo que más necesito'], ['N', 'Mostrar / ocultar radar'], ['+ / −', 'Acercar o alejar el radar'], ['Clic', 'Marcar destino en el mapa'], ['Clic der. / Supr', 'Quitar destino'], ['Q / E', 'Cambiar de pestaña en la pausa']]],
 ];
 
@@ -185,6 +185,9 @@ function statePanel(game) {
         button([`Mañas${puntos ? ` (${puntos})` : ''}`, el('kbd', { text: 'T', 'aria-hidden': 'true' })], {
           onClick: () => { game.menu.close(); game.hud?.toggleTalentPanel?.(); }
         }),
+        button('Cambiar ropa', {
+          onClick: () => { game.menu.close(); game.openWardrobe?.(); }
+        }),
         button('Guardar partida', {
           onClick: () => {
             const ok = game._save?.();
@@ -205,7 +208,29 @@ function statePanel(game) {
           el('div', { class: 'pause-meter' }, el('div', { class: 'pause-meter__fill masa', style: `width:${value}%` })),
           el('span', { class: 'pause-need__value cifra', text: `${value}` }));
       })),
-      dogSection(game)));
+      dogSection(game),
+      missionsSection(game)));
+}
+
+function missionsSection(game) {
+  const missions = game?.dailyMissions?.missions ?? [];
+  if (!missions.length) return null;
+  return el('div', { class: 'pause-section pause-section--missions' },
+    sectionTitle('pin', `Misiones del día (Día ${game.clock?.day ?? 1})`),
+    el('ul', { class: 'pause-missions-list' }, missions.map((m) => {
+      const pct = Math.round(Math.min(1, m.progress / m.target) * 100);
+      const isDone = m.completed;
+      return el('li', { class: `pause-mission-item${isDone ? ' is-done' : ''}` },
+        el('div', { class: 'pause-mission-head' },
+          el('strong', { class: 'pause-mission-title', text: m.title }),
+          el('span', { class: 'pause-mission-reward', text: `+${cop(m.reward.dinero)} · +${m.reward.xp} XP` })),
+        el('p', { class: 'pause-mission-desc', text: m.desc }),
+        el('div', { class: 'pause-meter' },
+          el('div', { class: 'pause-meter__fill masa', style: `width:${pct}%` })),
+        el('div', { class: 'pause-mission-foot' },
+          el('span', { class: 'pause-mission-prog cifra', text: `${m.progress} de ${m.target}` }),
+          el('span', { class: `pause-mission-status${isDone ? ' chulo' : ''}`, text: isDone ? 'Completada' : 'En curso' })));
+    })));
 }
 
 function settingsPanel(game) {
