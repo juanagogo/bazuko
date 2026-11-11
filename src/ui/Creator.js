@@ -440,13 +440,13 @@ export function createCreator({ audio }) {
 
   return {
     /** Abre el editor. Devuelve una promesa con la apariencia elegida (o null si se cancela). */
-    async open(current, { doneLabel = 'Listo', onReady = () => {} } = {}) {
+    async open(current, { doneLabel = 'Listo', initialTab = null, onReady = () => {} } = {}) {
       window.__game?.cameraRig?.releaseControls?.();
       volverA = document.activeElement;
       catalog ??= await loadCatalog();
       look = normalizeLook(current);
       look.real = normalizeReal(catalog, look.real);
-      tab = look.nombre ? 'cuerpo' : 'identidad';
+      tab = initialTab ?? (look.nombre ? 'cuerpo' : 'identidad');
       if (!renderer) setupScene();
       else char?.setLook(look);
       yaw = 0.35;

@@ -25,6 +25,8 @@ import { TrashContainer } from '../entities/TrashContainer.js';
 import { SellPoint } from '../entities/SellPoint.js';
 import { Cambuche } from '../entities/Cambuche.js';
 import { Shop } from '../entities/Shop.js';
+import { ComedorComunitario } from '../entities/ComedorComunitario.js';
+import { DailyMissionSystem } from '../systems/DailyMissionSystem.js';
 import { Car } from '../entities/Car.js';
 import { parkCar } from '../world/bogota/parkedCars.js';
 import { DrugDealer } from '../entities/DrugDealer.js';
@@ -81,7 +83,8 @@ import { paintLoadingFrame } from '../ui/LoadingScreen.js';
 import { el } from '../ui/dom.js';
 import { Menu } from '../ui/Menu.js';
 import { createCreator } from '../ui/Creator.js';
-import { openRecycler, openShop, openCambuche } from '../ui/placeMenus.js';
+import { openRecycler, openShop, openCambuche, openComedor } from '../ui/placeMenus.js';
+import { openMissionsModal } from '../ui/MissionsModal.js';
 import { DEFAULT_LOOK, normalizeLook } from '../character/look.js';
 import { streetWetness } from '../character/streetMaterials.js';
 import { ITEMS, COSTAL_BONUS, isForSale } from '../data/items.js';
@@ -169,6 +172,11 @@ export class Game {
 
     this.steal = new StealSystem(this);
     this.interaction.personCloserThan = (distance) => this.steal.personCloserThan(distance);
+    this.interaction.onStartMirrorTheft = (car) => {
+      this.steal.startMirrorTheft(car, (target) => {
+        this.interaction._executeCarTheft(target);
+      });
+    };
 
     // HUD, menús y creador de personaje
     this.hud = new HUD();
@@ -204,9 +212,15 @@ export class Game {
     window.addEventListener('open-recycler', () => openRecycler(this));
     window.addEventListener('open-shop', (e) => openShop(this, e.detail?.target));
     window.addEventListener('open-cambuche', () => openCambuche(this));
+    window.addEventListener('open-comedor', () => openComedor(this));
+    window.addEventListener('open-wardrobe', () => this.openWardrobe());
     window.addEventListener('open-mesa', () => { if (!this.hud?._craftOpen) this.hud?.toggleCraftPanel(); });
     window.addEventListener('police-arrest', () => this._policeArrest());
     window.addEventListener('open-radio-modal', () => openRadioModal(this));
+    window.addEventListener('open-missions', () => {
+      if (this._missionsModalOpen) this.menu.close();
+      else if (!this.paused) openMissionsModal(this);
+    });
     window.addEventListener('keydown', (e) => {
       if (e.repeat || e.target?.closest?.('input, textarea, select, [contenteditable="true"]')) return;
       if (e.code === 'KeyN' && !this.paused) this.minimap.toggle();
@@ -223,6 +237,10 @@ export class Game {
         if (this._radioModalOpen) this.menu.close();
         else if (!this.paused) openRadioModal(this);
       }
+      if (e.code === 'KeyJ' || e.code === 'KeyO') {
+        if (this._missionsModalOpen) this.menu.close();
+        else if (!this.paused) openMissionsModal(this);
+      }
     });
 
     // Entidades
@@ -230,6 +248,10 @@ export class Game {
     this.sellPoint = null;
     this.cambuche = null;
     this.shop = null;
+    this.comedor = null;
+    this.lastComedorHour = null;
+    this.dailyMissions = new DailyMissionSystem(this);
+    this._missionsModalOpen = false;
     this.cars = [];
     this.traffic = null;
     this._onVehicleImpact = this._onVehicleImpact.bind(this);
@@ -396,7 +418,53 @@ export class Game {
     this.look = normalizeLook({ ...look, v: 2 });
     const ready = this.player.setLook(this.look);
     this.interaction.originId = this.look.origen;
+    window.dispatchEvent(new CustomEvent('look-changed', { detail: { look: this.look } }));
     return ready;
+  }
+
+  /** Cambio de ropa: abre directamente la sección de ropa */
+  async openWardrobe() {
+    const look = await this.creator.open(this.look, { initialTab: 'ropa', doneLabel: 'Vestirme' });
+    if (look) {
+      await this._applyLook(look);
+      this._save();
+      window.dispatchEvent(new CustomEvent('toast', { detail: { text: 'Te cambiaste de ropa', type: 'info' } }));
+      this.audio?.play?.('pickup');
+    }
+  }
+
+  get totalGameHours() {
+    return ((this.clock?.day ?? 1) - 1) * 24 + (this.clock?.hour ?? 0);
+  }
+
+  isComedorAvailable() {
+    if (this.lastComedorHour === undefined || this.lastComedorHour === null) return true;
+    return (this.totalGameHours - this.lastComedorHour) >= 24;
+  }
+
+  getComedorRemainingHours() {
+    if (this.isComedorAvailable()) return 0;
+    const diff = this.totalGameHours - this.lastComedorHour;
+    return Math.max(0, Math.ceil(24 - diff));
+  }
+
+  serveComedor() {
+    if (!this.isComedorAvailable()) return false;
+    this.lastComedorHour = this.totalGameHours;
+    if (this.stats) {
+      this.stats.hambre = Math.min(100, (this.stats.hambre || 0) + 80);
+      this.stats.sed = Math.min(100, (this.stats.sed || 0) + 60);
+      this.stats.animo = Math.min(100, (this.stats.animo || 0) + 25);
+      this.stats.energia = Math.min(100, (this.stats.energia || 0) + 25);
+      this.stats.calor = Math.min(300, (this.stats.calor || 0) + 180);
+      this.stats.addXP?.(30, this.talents);
+    }
+    this.audio?.play?.('treasure');
+    window.dispatchEvent(new CustomEvent('comedor-served', {
+      detail: { hour: this.clock?.hour, day: this.clock?.day }
+    }));
+    this._save();
+    return true;
   }
 
   /** GPS a pie, plano del radar y haz del destino; solo para distritos con grilla de navegación. */
@@ -706,6 +774,23 @@ export class Game {
       new THREE.Vector3(2.4, 2, 1.5),
       new THREE.Vector3(0, 1, -0.7)
     );
+
+    // ===== Comedor Comunitario =====
+    if (district.reserved?.comedor) {
+      const comPos = district.reserved.comedor;
+      this.comedor = new ComedorComunitario(
+        this.sceneMgr.scene,
+        new THREE.Vector3(comPos.x, 0, comPos.z)
+      );
+      this.comedor.group.position.y = district.getGroundHeightUnder?.(this.comedor.group)
+        ?? district.getGroundHeight?.(comPos.x, comPos.z) ?? 0;
+      this.interaction.register(this.comedor);
+      this.collisions.add(
+        this.comedor.group,
+        new THREE.Vector3(3.2, 2.2, 2.2),
+        new THREE.Vector3(0, 1.1, 0)
+      );
+    }
   }
 
   /** Una partida que no se deja leer no detiene la carga: se aparta sin borrarla y se juega sin ella. */
@@ -752,7 +837,11 @@ export class Game {
         this.cart.loadState(data.cart, this.player, this.inventory);
       }
       if (data.gps && this.gps) this.setGpsWaypoint({ ...data.gps, name: RENAMED_PLACES[data.gps.name] ?? data.gps.name }, { silent: true });
-
+      if (data.lastComedorHour !== undefined) this.lastComedorHour = data.lastComedorHour;
+      if (data.dailyMissions) this.dailyMissions?.deserialize(data.dailyMissions);
+      else this.dailyMissions?.init(this.clock?.day ?? 1);
+    } else {
+      this.dailyMissions?.init(this.clock?.day ?? 1);
     }
   }
 
@@ -778,7 +867,9 @@ export class Game {
       radio: this.radio ? { isOn: this.radio.isOn, freq: this.radio.frequency, battery: this.radio.battery } : null,
       dog: { isFriend: !!this.dog?.isFriend, look: this.dog?.look ?? null },
       cart: this.cart ? this.cart.saveState() : null,
-      gps: this.gps?.serialize() ?? null
+      gps: this.gps?.serialize() ?? null,
+      lastComedorHour: this.lastComedorHour,
+      dailyMissions: this.dailyMissions?.serialize()
     };
   }
 
@@ -1197,6 +1288,7 @@ export class Game {
     this._vehicleImpactCooldown = Math.max(0, (this._vehicleImpactCooldown ?? 0) - dt);
     this.clock.update(dt);
     this.time.update(dt, this.clock);
+    this.dailyMissions?.update(dt, this.clock);
 
     // 2. Día/noche: sol, luna, nubes y clima de Bogotá; la luz sigue al jugador (sombras nítidas)
     this.sceneMgr.setTimeOfDay(this.clock.hour, this.weather, this.clock.day);
@@ -1430,6 +1522,7 @@ export class Game {
       this._poiCache = [...services, ...[[this.cambuche, reserved.bed, 'Cambuche', '⛺', '#ffd166'],
         [this.sellPoint, reserved.sell, 'Recicladora El Progreso', '♻️', '#2ab7ca', { prices: { vender: 0 } }],
         [this.shop, reserved.shop, 'Tienda La Esquinita', '🏪', '#2ecc71', { prices: SHOP_PRICES, offers: SHOP_OFFERS }],
+        [this.comedor, reserved.comedor, 'Comedor Comunitario', '🍲', '#27ae60', { prices: { comida: 0, agua: 0 } }],
         [this.craftingStation, reserved.craft, 'Crafteo', '🔨', '#e67e22'],
         [this.dealer, reserved.dealer, 'Dealer', '💀', '#9b59b6', { dealer: true }]]
         .flatMap(([entity, fallback, name, icon, color, extra]) => {

@@ -135,6 +135,12 @@ export function openCambuche(game) {
     const night = game.clock.isNight;
     const foot = [
       el('span', { class: 'menu__money', text: game.built.base ? 'Dormir guarda la partida.' : 'Sin base no se puede dormir.' }),
+      button('Cambiar ropa', {
+        onClick: () => {
+          game.menu.close();
+          game.openWardrobe?.();
+        }
+      }),
       button(night ? `Dormir hasta las ${hora(6)}` : 'Echar una siesta (3 h)', {
         primary: true,
         disabled: !game.built.base,
@@ -144,6 +150,56 @@ export function openCambuche(game) {
     return { body, foot };
   };
   game.menu.open({ title: 'Mi cambuche', sub: 'Los materiales salen de la basura de toda la ciudad: hay para todas las mejoras.', ic: 'tent', render });
+}
+
+export function openComedor(game) {
+  const render = () => {
+    const available = game?.isComedorAvailable ? game.isComedorAvailable() : true;
+    const rem = game?.getComedorRemainingHours ? game.getComedorRemainingHours() : 0;
+    const descP = el('p', {
+      class: 'menu__desc',
+      text: 'La Secretaría de Integración Social ofrece un plato de comida caliente y sustanciosa cada 24 horas para habitantes de calle y personas en situación de vulnerabilidad.'
+    });
+
+    const platoEl = available
+      ? el('div', { class: 'comedor-box' },
+          el('h4', { class: 'comedor-box__title', text: 'Menú del día: Sancocho con seco y jugo' }),
+          el('p', { class: 'comedor-box__sub', text: 'Sancocho con carne, papa y plátano, porción de arroz con tajada y aguapanela con limón.' }),
+          el('ul', { class: 'comedor-box__beneficios' },
+            el('li', { text: '+80 Hambre (satisface el apetito)' }),
+            el('li', { text: '+60 Sed (hidratación completa)' }),
+            el('li', { text: '+25 Ánimo y +25 Energía' }),
+            el('li', { text: '+3 min de Calor corporal contra el frío' }),
+            el('li', { text: '+30 XP' })
+          ))
+      : el('div', { class: 'comedor-box is-waiting' },
+          el('h4', { class: 'comedor-box__title', text: 'Ración de hoy ya entregada' }),
+          el('p', { class: 'comedor-box__sub', text: `El servicio es una vez cada 24 horas por persona. Próximo turno en aproximadamente ${rem} ${rem === 1 ? 'hora' : 'horas'}.` })
+        );
+
+    const body = el('div', { class: 'comedor-menu' }, descP, platoEl);
+    const foot = [
+      el('span', { class: 'menu__money', text: available ? 'Servicio gratuito' : `Espera: ${rem} h` }),
+      button(available ? 'Recibir almuerzo' : `Vuelva en ${rem} h`, {
+        primary: true,
+        disabled: !available,
+        onClick: () => {
+          if (game?.serveComedor?.()) {
+            toast('Almorzaste en el Comedor Comunitario. ¡Dios le pague!', 'rare');
+            game.menu.refresh();
+          }
+        }
+      })
+    ];
+    return { body, foot };
+  };
+
+  game.menu.open({
+    title: 'Comedor Comunitario',
+    sub: 'Alcaldía Mayor de Bogotá · Integración Social. Ración caliente cada 24 horas.',
+    ic: 'food',
+    render
+  });
 }
 
 function reqLine(inventory, req) {

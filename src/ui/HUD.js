@@ -62,10 +62,30 @@ export function textoDelPrompt(interaction, inventory) {
   if (!interaction?.currentTarget && !interaction?.stealPrompt) return '';
   const type = interaction.currentTargetType;
   if (type === 'pickup') return '[E] Recoger basura · [Mantener Q] Seleccionar';
-  if (type === 'car') return interaction.currentTarget?.traffic ? '[E] Robar retrovisor del carro en circulación' : '[E] Robar retrovisor del carro';
+  if (type === 'car') {
+    const car = interaction.currentTarget;
+    const canSteal = car?.stealable !== false;
+    const canClean = !!car?.cleanable;
+    if (canSteal && canClean) {
+      return car?.traffic
+        ? '[E] Robar retrovisor del carro en circulación · [Q] Limpiar parabrisas'
+        : '[E] Robar retrovisor del carro · [Q] Limpiar parabrisas';
+    }
+    if (!canSteal && canClean) {
+      return '[E] Limpiar parabrisas del carro';
+    }
+    return car?.traffic ? '[E] Robar retrovisor del carro en circulación' : '[E] Robar retrovisor del carro';
+  }
   if (type === 'fireBarrel') return '[E] Calentarme en la fogata';
   if (type === 'sell') return '[E] Vender material en la recicladora';
   if (type === 'shop') return `[E] Comprar en ${interaction.currentTarget.title ?? 'Tienda La Esquinita'}`;
+  if (type === 'comedor') {
+    const game = typeof window !== 'undefined' ? window.__game : (typeof globalThis !== 'undefined' ? globalThis.__game : null);
+    const isAvail = game?.isComedorAvailable ? game.isComedorAvailable() : true;
+    return isAvail
+      ? '[E] Almorzar en el Comedor Comunitario (Gratis)'
+      : `[E] Comedor Comunitario (Próximo servicio en ${game?.getComedorRemainingHours?.() ?? 0} h)`;
+  }
   if (type === 'dog') {
     const hasFood = inventory?.items?.some(item => item.qty > 0 && ['pan', 'lataComida', 'carne', 'hueso'].includes(item.id));
     if (interaction.currentTarget?.isFriend) return '[E] Acariciar a El Chato';
@@ -81,10 +101,13 @@ export function textoDelPrompt(interaction, inventory) {
 // Con el dedo la cinta va a un lado del personaje, y ahí no cabe la frase entera: lo mismo, en corto.
 const VERBO_CORTO = [
   [/^Robar retrovisor/, 'Robar retrovisor'],
+  [/^Limpiar parabrisas/, 'Limpiar vidrio'],
   [/^Darle pan o atún/, 'Darle comida'],
   [/^Acariciar a El Chato/, 'Acariciar'],
   [/^Calentarme/, 'Calentarme'],
   [/^Vender material/, 'Vender material'],
+  [/^Almorzar en el Comedor/, 'Almorzar'],
+  [/^Comedor Comunitario/, 'Comedor'],
   [/^Comprar en /, 'Comprar'],
   [/^Mi cambuche/, 'Mi cambuche'],
   [/^El jíbaro/, 'El jíbaro'],
@@ -152,6 +175,12 @@ export class HUD {
     this.wantedBarra = this.wantedEl?.querySelector?.('.wanted__barra .masa');
     this.wantedVoz = this.wantedEl?.querySelector?.('.wanted__voz');
     this.misionEl = document.getElementById('mision');
+    if (this.misionEl) {
+      this.misionEl.setAttribute('title', 'Misiones del día (J)');
+      this.misionEl.addEventListener('click', () => {
+        window.dispatchEvent(new CustomEvent('open-missions'));
+      });
+    }
     this.cartEl = document.getElementById('cart-indicator');
     this.boostEl = document.getElementById('boost-indicator');
     this.boostTimeEl = document.getElementById('boost-time');
@@ -350,8 +379,8 @@ export class HUD {
     const bajas = [];
     for (const id of SUBEN) {
       const v = id === 'calor'
-        ? (stats.calor > 0 && stats.calor <= CALOR_BAJO ? stats.calor / CALOR_BAJO * NEED_LOW : Infinity)
-        : stats[id] ?? Infinity;
+        ? (stats?.calor > 0 && stats.calor <= CALOR_BAJO ? stats.calor / CALOR_BAJO * NEED_LOW : Infinity)
+        : stats?.[id] ?? Infinity;
       if (v < NEED_LOW || (id === 'calor' && v !== Infinity)) bajas.push({ id, v });
     }
     return bajas.sort((a, b) => a.v - b.v);
@@ -507,13 +536,26 @@ export class HUD {
       this._pintarFila(el, this.barValues[k], value, 100, String(value), level);
     }
     if (this.bars.calor) {
-      const calor = Math.max(0, Math.ceil(stats.calor ?? 0));
+      const calor = Math.max(0, Math.ceil(stats?.calor ?? 0));
       this._pintarFila(this.bars.calor, this.barValues.calor, calor, CALOR_TOPE, `${calor} s`, calor > 0 && calor <= CALOR_BAJO ? 'low' : 'ok');
     }
-    const filaVicio = this.bars.vicio?.parentElement?.parentElement;
-    if (filaVicio && stats.abstinencia !== undefined) {
+    if (this.bars?.olor) {
+      const olor = Math.max(0, Math.min(100, Math.round(stats?.olor ?? (100 - (stats?.higiene ?? 100)))));
+      const level = olor >= 85 ? 'critical' : olor >= 70 ? 'low' : 'ok';
+      this._pintarFila(this.bars.olor, this.barValues?.olor, olor, 100, `${olor}%`, level);
+      const filaOlor = this._rows?.olor;
+      if (filaOlor) {
+        filaOlor.title = `Medidor de olor: ${olor}% (${olor >= 70 ? '¡Mal olor! Peatones huyen' : 'Aceptable'})`;
+      }
+    }
+    if (stats && this._rows?.higiene && (stats.olor !== undefined || stats.higiene !== undefined)) {
+      const olor = Math.max(0, Math.min(100, Math.round(stats.olor ?? (100 - (stats.higiene ?? 100)))));
+      this._rows.higiene.title = `Higiene: ${Math.round(stats.higiene ?? 0)}/100 - Olor: ${olor}% (${olor >= 70 ? '¡Mal olor!' : 'Limpio'})`;
+    }
+    const filaVicio = this.bars?.vicio?.parentElement?.parentElement;
+    if (filaVicio && stats?.abstinencia !== undefined) {
       const title = stats.abstinencia > 0
-        ? `Abstinencia: ${porcentaje(stats.abstinencia)} (Vicio: ${Math.round(stats.vicio)}/100)`
+        ? `Abstinencia: ${porcentaje(stats.abstinencia)} (Vicio: ${Math.round(stats?.vicio ?? 0)}/100)`
         : 'Vicio: si se vacía, llega la abstinencia';
       if (filaVicio.title !== title) filaVicio.title = title;
     }
@@ -604,7 +646,7 @@ export class HUD {
     const suben = this._subirNecesidades(bajas);
     if (!this.needsSummary) return;
     const ocultas = bajas.filter(({ id }) => !suben.includes(id));
-    const nombres = ocultas.map(({ id }) => (id === 'calor' ? 'Calor' : NEED_META.find((n) => n.id === id).label)).join(', ');
+    const nombres = ocultas.map(({ id }) => (id === 'calor' ? 'Calor' : id === 'olor' ? 'Olor' : NEED_META.find((n) => n.id === id)?.label ?? id)).join(', ');
     this._setText(this.needsSummary, nombres || 'Estado');
     const level = ocultas.some(({ v }) => v < NEED_CRITICAL) ? 'critical' : ocultas.length ? 'low' : 'ok';
     if (this.needsToggle.dataset.level !== level) this.needsToggle.dataset.level = level;
@@ -679,7 +721,10 @@ export class HUD {
       this._misionS = 0;
       return;
     }
-    const texto = textoDeMision(game?.built, inventory);
+    let texto = textoDeMision(game?.built, inventory);
+    if (!texto && game?.dailyMissions?.activeMissionText) {
+      texto = game.dailyMissions.activeMissionText;
+    }
     // Cada cartón baja la cuenta, pero no es una misión nueva: no vuelve a salir por eso.
     const clave = texto?.replace(/\d+ CART\S+/, 'CARTONES') ?? null;
     if (clave === this._misionTexto) return;
@@ -795,6 +840,17 @@ export class HUD {
     if (itemId === 'radioTransistor') {
       game.inventoryUI?.close();
       window.dispatchEvent(new CustomEvent('open-radio-modal'));
+      return;
+    }
+    if (itemId === 'ropaLimpia') {
+      game.inventoryUI?.close();
+      inv.remove('ropaLimpia', 1);
+      const def = ITEMS[itemId] ?? item;
+      game.stats.higiene = Math.min(100, (game.stats.higiene || 0) + (def.amount || 30));
+      game.stats.animo = Math.min(100, (game.stats.animo || 0) + (def.animo || 15));
+      game.audio?.play('pickup');
+      this._toast('Te pusiste ropa limpia (+30 higiene, +15 ánimo)', 'info');
+      game.openWardrobe?.();
       return;
     }
     if (itemId === 'pilas') {

@@ -76,6 +76,8 @@ export class Car {
 
     // Retrovisores (lo que se roba): dos soportes y una sola malla con ambos, que siempre se roban y vuelven juntos.
     this.mirrors = [];
+    this.cleanCooldown = 0;
+    this._wipeAnim = 0;
     const anchors = v.mirrorAnchors ?? [-1, 1].map(side => new THREE.Vector3(.82, 1.02, side * (v.width / 2 + .1)));
     for (const anchor of anchors) {
       const holder = new THREE.Group();
@@ -174,6 +176,9 @@ export class Car {
   /** Si `steal` daría algo: a una patrulla no se le roban los espejos y los ya robados tardan en volver. */
   get stealable() { return this.kind !== 'police' && !this.used && this.cooldown <= 0; }
 
+  /** Si se le puede limpiar el parabrisas: carros particulares y taxis que no se hayan limpiado recientemente y no estén en alarma. */
+  get cleanable() { return this.kind !== 'police' && !this.used && (this.cleanCooldown ?? 0) <= 0; }
+
   /**
    * Distancia para el aviso de robar: al centro o, con un recargo, a un espejo. En un carro largo el espejo queda a varios metros
    * del centro y, sin esto, el aviso no sale parado junto a él. El recargo acorta el alcance desde el espejo a un metro, para que
@@ -236,6 +241,21 @@ export class Car {
     return { items, caught };
   }
 
+  /**
+   * Limpiar el parabrisas del carro.
+   * @returns { { success: boolean, generous: boolean } | null }
+   */
+  cleanWindshield() {
+    if (!this.cleanable) return null;
+    this.cleanCooldown = 35;
+    for (const wiper of this.vehicle.wipers ?? []) wiper.visible = true;
+    this._wipeAnim = 2.0;
+    return {
+      success: true,
+      generous: Math.random() < 0.15
+    };
+  }
+
   /** @param {THREE.Vector3} [playerPosition] sin ella el contorno de un parqueado se apaga */
   update(dt, playerPosition = null) {
     if (!(dt > 0) || this._disposed) return;
@@ -244,6 +264,16 @@ export class Car {
       if (this.cooldown <= 0) {
         this.used = false;
         this.mirrors.forEach((m) => (m.visible = true));
+      }
+    }
+    if (this.cleanCooldown > 0) {
+      this.cleanCooldown = Math.max(0, this.cleanCooldown - dt);
+    }
+    if (this._wipeAnim > 0) {
+      this._wipeAnim = Math.max(0, this._wipeAnim - dt);
+      const angle = Math.sin(this._wipeAnim * 12) * 0.45;
+      for (const wiper of this.vehicle.wipers ?? []) {
+        wiper.rotation.z = angle;
       }
     }
     if (!this.traffic) this._updateMarker(dt, playerPosition);

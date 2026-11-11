@@ -24,6 +24,7 @@ export function needLevel(value) {
 export const NEED_ORDEN = {
   salud: 'a curarme', hambre: 'a comer', sed: 'a beber', energia: 'a dormir',
   higiene: 'a lavarme', animo: 'a calmarme', vicio: 'me pide', calor: 'a la candela',
+  olor: '¡peste!',
 };
 
 // Lo más urgente: un solo retazo. Cada estado pesa según qué tan mal está, y las sumas salen de lo que pasa en el
@@ -33,6 +34,7 @@ const URGENCIAS = [
   { id: 'sed', grito: 'TENGO SED', orden: 'Busco agua', peso: (s) => (s.sed <= 20 ? 95 - s.sed * 2.5 : 0) },
   { id: 'hambre', grito: 'TENGO HAMBRE', orden: 'Busco comida', peso: (s) => (s.hambre <= 20 ? 90 - s.hambre * 2.5 : 0) },
   { id: 'energia', grito: 'NO DOY MÁS', orden: 'Busco dónde dormir', peso: (s) => (s.energia <= 20 ? 80 - s.energia * 2.5 : 0) },
+  { id: 'higiene', grito: 'PESTO A CAÑO', orden: 'Busco bañarme (la gente huye)', peso: (s) => (s.higiene <= 20 ? 75 - s.higiene * 2 : 0) },
   { id: 'frio', grito: 'TENGO FRÍO', orden: 'Busco candela o techo', peso: (s) => (s.isFreezing && !(s.calor > 0) ? 70 : 0) },
   { id: 'malilla', grito: 'TENGO MALILLA', orden: 'Caminar me cuesta', peso: (s) => (s.inWithdrawal ? 55 : 0) },
 ];

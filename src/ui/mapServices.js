@@ -216,6 +216,7 @@ export function rankPlaces(pois, { tag = null, walk, needs = {}, from = null } =
 export function placeMeta(poi, tag = null, needs = {}) {
   const { money = 0, night = false } = needs;
   if (poi.service === 'fogata') return 'Calor gratis, El Cartucho';
+  if (poi.name === 'Comedor Comunitario' || poi.service === 'comedor') return 'Almuerzo caliente gratis cada 24 horas';
   if (poi.name === 'Crafteo') return 'Se abre con C, desde cualquier sitio';
   if (poi.dealer) return `Vende siempre. Compra ${night ? 'hasta las 6:00' : 'desde las 20:00'}`;
   if (poi.prices?.vender === 0) return 'Compra reciclaje';

@@ -101,7 +101,16 @@ export function prepararPlano(tiles) {
     tablero = new Path2D();
     viaducto.puntos.forEach(([x, z], i) => (i ? tablero.lineTo(x, z) : tablero.moveTo(x, z)));
   }
-  return { calle, buseta, agua, lleno, contorno, achurado, olas, matas, tablero, anchoTablero: viaducto?.ancho ?? 0 };
+  let tableroMetro = null;
+  if (tiles.metro?.puntos?.length > 1) {
+    tableroMetro = new Path2D();
+    tiles.metro.puntos.forEach(([x, z], i) => (i ? tableroMetro.lineTo(x, z) : tableroMetro.moveTo(x, z)));
+  }
+  return {
+    calle, buseta, agua, lleno, contorno, achurado, olas, matas,
+    tablero, anchoTablero: viaducto?.ancho ?? 0,
+    tableroMetro, anchoMetro: tiles.metro?.ancho ?? 7
+  };
 }
 
 /** Dibuja el plano. El contexto ya viene en metros; k son píxeles por metro: las líneas conservan su grosor. */
@@ -126,6 +135,18 @@ export function trazarPlano(ctx, plano, k) {
     ctx.strokeStyle = 'rgba(20,17,12,.12)';
     ctx.lineWidth = plano.anchoTablero;
     ctx.stroke(plano.tablero);
+  }
+  if (plano.tableroMetro) {
+    ctx.save();
+    // Viaducto de concreto elevado del Metro de Bogotá
+    ctx.strokeStyle = 'rgba(30,126,72,.28)';
+    ctx.lineWidth = plano.anchoMetro;
+    ctx.stroke(plano.tableroMetro);
+    // Doble riel central a tinta en el mapa
+    ctx.strokeStyle = MARCADOR;
+    ctx.lineWidth = 1.3 / k;
+    ctx.stroke(plano.tableroMetro);
+    ctx.restore();
   }
   ctx.save();
   ctx.clip(plano.lleno);
