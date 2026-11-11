@@ -2341,7 +2341,7 @@ int main(int argc, char** argv) {
                     static const char* previewTime = std::getenv("BAZUKO_PREVIEW_TIME");
                     if (previewName) {
                         poseClip = characterManager.FindClip(previewName);
-                        poseTime = previewTime ? static_cast<float>(std::atof(previewTime)) : std::fmod(clock.GetElapsedTime(), 3.0f);
+                        poseTime = previewTime ? static_cast<float>(std::atof(previewTime)) : std::fmod(clock.GetElapsedTime(), std::max(1.0f, characterManager.ClipDuration(poseClip)));   // sin tiempo fijo, el clip se repite entero
                     }
                 }
                 std::vector<Model::BoneTurn> swimTurns;
