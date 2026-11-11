@@ -203,9 +203,28 @@ export class StatsSystem {
     return Math.min(1, t);
   }
 
-  /** NPCs te rechazan si estás muy sucio (para futuro) */
+  /** Medidor de olor corporal (0 = limpio, 100 = peste máxima) */
+  get olor() {
+    return Math.max(0, Math.min(100, Math.round(100 - this.higiene)));
+  }
+
+  /** Verdadero si el olor corporal es fuerte y repele a los peatones */
+  tieneMalOlor() {
+    return this.higiene < 30 || this.olor >= 70;
+  }
+
+  /** Nivel descriptivo del olor corporal */
+  get olorNivel() {
+    const o = this.olor;
+    if (o < 30) return 'limpio';
+    if (o < 70) return 'normal';
+    if (o < 85) return 'fuerte';
+    return 'critico';
+  }
+
+  /** NPCs te rechazan si estás muy sucio o tienes mal olor */
   isRejectedByNPCs() {
-    return this.higiene < STAT_THRESHOLDS.higieneRechazo;
+    return this.tieneMalOlor() || this.higiene < STAT_THRESHOLDS.higieneRechazo;
   }
 
   /** ===== Serialización ===== */

@@ -168,6 +168,11 @@ export class Game {
 
     this.steal = new StealSystem(this);
     this.interaction.personCloserThan = (distance) => this.steal.personCloserThan(distance);
+    this.interaction.onStartMirrorTheft = (car) => {
+      this.steal.startMirrorTheft(car, (target) => {
+        this.interaction._executeCarTheft(target);
+      });
+    };
 
     // HUD, menús y creador de personaje
     this.hud = new HUD();

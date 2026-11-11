@@ -46,6 +46,7 @@ export class InteractionSystem {
     this._lastWarmTime = -Infinity;
     this.warmCooldown = 20; // segundos de espera entre calentarse en fogata
     this.pedestrians = [];
+    this.onStartMirrorTheft = null;
   }
 
   setPedestrians(pedestrians) {
@@ -91,8 +92,8 @@ export class InteractionSystem {
     let nearestDist = INTERACT_RANGE;
 
     for (const t of this.targets) {
-      // Un carro sin nada que robar no da aviso ni le quita el turno a lo que tenga al lado.
-      if (t.stealable === false) continue;
+      // Un carro sin nada que robar ni limpiar no da aviso ni le quita el turno a lo que tenga al lado.
+      if (t.stealable === false && !t.cleanable) continue;
       // Un carro se alcanza también desde sus espejos; lo demás, desde su centro.
       const d = t.interactDistance?.(this.player.position) ?? t.position.distanceTo(this.player.position);
       if (d < nearestDist) {
@@ -108,7 +109,7 @@ export class InteractionSystem {
         else if (t.kind === 'recycler') nearestType = 'sell';
         else if (t.kind === 'mesa') nearestType = 'mesa';
         else if (typeof t.harvest === 'function') nearestType = 'pickup';
-        else if (typeof t.steal === 'function') nearestType = 'car';
+        else if (typeof t.steal === 'function' || typeof t.cleanWindshield === 'function') nearestType = 'car';
         else if (typeof t.sellSubstances === 'function') nearestType = 'dealer';
         else if (t instanceof Object && typeof t.sell === 'function') nearestType = 'sell';
       }
@@ -182,13 +183,22 @@ export class InteractionSystem {
           nearest.toggleGrab(this.player, this.inventory);
           break;
         case 'car':
-          this._stealCar(nearest);
+          if (nearest.stealable) {
+            this._stealCar(nearest);
+          } else if (nearest.cleanable) {
+            this._cleanWindshield(nearest);
+          }
           break;
         case 'dealer':
           // Abre su tienda: ahí se compra y, de noche, se elige qué venderle. Nunca vende sin preguntar.
           window.dispatchEvent(new CustomEvent('dealer-toggle', { detail: { dealer: nearest } }));
           break;
       }
+    }
+
+    // === Limpiar parabrisas del carro (Q) ===
+    if (nearestType === 'car' && input.consumePress('KeyQ')) {
+      this._cleanWindshield(nearest);
     }
 
     // === Comprar producto / Abrir tienda del dealer (Q) ===
@@ -309,6 +319,15 @@ export class InteractionSystem {
 
   _stealCar(target) {
     if (typeof target.steal !== 'function') return;
+    if (typeof this.onStartMirrorTheft === 'function') {
+      this.onStartMirrorTheft(target);
+      return;
+    }
+    this._executeCarTheft(target);
+  }
+
+  _executeCarTheft(target) {
+    if (typeof target.steal !== 'function') return;
     const caughtMult = this.talents.getEffect('stealCaughtMult', 1);
     const result = target.steal(caughtMult);
     if (!result) return;
@@ -348,6 +367,54 @@ export class InteractionSystem {
 
     window.dispatchEvent(new CustomEvent('steal', {
       detail: { added, caught: result.caught, police: false, chase: false }
+    }));
+  }
+
+  _cleanWindshield(target) {
+    if (!target || typeof target.cleanWindshield !== 'function' || target.cleanable === false) return;
+    if (this.stats.energia < 2) {
+      this.audio?.play?.('empty');
+      window.dispatchEvent(new CustomEvent('toast', {
+        detail: { text: 'No me queda energía para limpiar vidrios.', type: 'warn' }
+      }));
+      return;
+    }
+
+    this.player?.faceTowards?.(target.position);
+    this.player?.playAction?.('buscar', 1.4);
+    this.stats.energia = Math.max(0, this.stats.energia - 2);
+
+    const cleanRes = target.cleanWindshield();
+    if (!cleanRes) return;
+
+    // 12% probabilidad de que el conductor se niegue o pite
+    if (Math.random() < 0.12) {
+      this.audio?.play?.('empty');
+      window.dispatchEvent(new CustomEvent('toast', {
+        detail: { text: 'El conductor pitó bravo y no me dio nada.', type: 'warn' }
+      }));
+      return;
+    }
+
+    // Monedas recibidas: propina generosa ($3.000 a $5.000) o propina normal ($800 a $2.200)
+    const isGenerous = cleanRes.generous || Math.random() < 0.18;
+    const amount = isGenerous
+      ? Math.floor(30 + Math.random() * 21) * 100
+      : Math.floor(8 + Math.random() * 15) * 100;
+
+    this.stats.dinero += amount;
+    this.stats.animo = Math.min(100, this.stats.animo + (isGenerous ? 4 : 2));
+    this.stats.addXP(XP_BEG, this.talents);
+    this.audio?.play?.(isGenerous ? 'treasure' : 'sell');
+
+    window.dispatchEvent(new CustomEvent('windshield-cleaned', { detail: { car: target, amount, generous: isGenerous } }));
+    window.dispatchEvent(new CustomEvent('toast', {
+      detail: {
+        text: isGenerous
+          ? `¡Buena propina! Me gané ${cop(amount)} por limpiar el parabrisas.`
+          : `Me gané ${cop(amount)} por limpiar el parabrisas.`,
+        type: isGenerous ? 'rare' : 'sell'
+      }
     }));
   }
 
@@ -469,19 +536,28 @@ export class InteractionSystem {
     // Activar animación en el jugador
     this.player?.playBeg?.();
 
-    // Check de higiene: si < 20 (STAT_THRESHOLDS.higieneRechazo)
-    const isDirty = typeof this.stats.isRejectedByNPCs === 'function'
-      ? this.stats.isRejectedByNPCs()
-      : this.stats.higiene < 20;
+    // Check de higiene y olor: con mal olor nadie da limosna y los peatones corren
+    const isDirty = typeof this.stats.tieneMalOlor === 'function'
+      ? this.stats.tieneMalOlor()
+      : (typeof this.stats.isRejectedByNPCs === 'function' ? this.stats.isRejectedByNPCs() : this.stats.higiene < 30);
 
-    if (isDirty && Math.random() < 0.70) {
+    if (isDirty) {
       this.stats.animo = Math.max(0, this.stats.animo - 2);
       this.audio?.play('empty');
+      for (const npc of nearbyPedestrians) {
+        if (!npc.isVendor && !npc.koState && typeof npc._fleeFrom === 'function') {
+          npc._fleeFrom(this.player.position);
+          npc.fleeTimer = 4.0;
+        }
+        if (typeof npc.say === 'function' && Math.random() < 0.7) {
+          npc.say('¡Uff, qué peste tan brava! ¡Aléjese!');
+        }
+      }
       window.dispatchEvent(new CustomEvent('beg-result', {
         detail: {
           success: false,
           reason: 'higiene',
-          message: 'La gente se aleja por el olor: tengo que bañarme.'
+          message: 'Nadie me da limosna con este olor: la gente huye. Toca bañarme.'
         }
       }));
       return;

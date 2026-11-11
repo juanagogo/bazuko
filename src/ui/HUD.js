@@ -62,7 +62,20 @@ export function textoDelPrompt(interaction, inventory) {
   if (!interaction?.currentTarget && !interaction?.stealPrompt) return '';
   const type = interaction.currentTargetType;
   if (type === 'pickup') return '[E] Recoger basura · [Mantener Q] Seleccionar';
-  if (type === 'car') return interaction.currentTarget?.traffic ? '[E] Robar retrovisor del carro en circulación' : '[E] Robar retrovisor del carro';
+  if (type === 'car') {
+    const car = interaction.currentTarget;
+    const canSteal = car?.stealable !== false;
+    const canClean = !!car?.cleanable;
+    if (canSteal && canClean) {
+      return car?.traffic
+        ? '[E] Robar retrovisor del carro en circulación · [Q] Limpiar parabrisas'
+        : '[E] Robar retrovisor del carro · [Q] Limpiar parabrisas';
+    }
+    if (!canSteal && canClean) {
+      return '[E] Limpiar parabrisas del carro';
+    }
+    return car?.traffic ? '[E] Robar retrovisor del carro en circulación' : '[E] Robar retrovisor del carro';
+  }
   if (type === 'fireBarrel') return '[E] Calentarme en la fogata';
   if (type === 'sell') return '[E] Vender material en la recicladora';
   if (type === 'shop') return `[E] Comprar en ${interaction.currentTarget.title ?? 'Tienda La Esquinita'}`;
@@ -88,6 +101,7 @@ export function textoDelPrompt(interaction, inventory) {
 // Con el dedo la cinta va a un lado del personaje, y ahí no cabe la frase entera: lo mismo, en corto.
 const VERBO_CORTO = [
   [/^Robar retrovisor/, 'Robar retrovisor'],
+  [/^Limpiar parabrisas/, 'Limpiar vidrio'],
   [/^Darle pan o atún/, 'Darle comida'],
   [/^Acariciar a El Chato/, 'Acariciar'],
   [/^Calentarme/, 'Calentarme'],
@@ -365,8 +379,8 @@ export class HUD {
     const bajas = [];
     for (const id of SUBEN) {
       const v = id === 'calor'
-        ? (stats.calor > 0 && stats.calor <= CALOR_BAJO ? stats.calor / CALOR_BAJO * NEED_LOW : Infinity)
-        : stats[id] ?? Infinity;
+        ? (stats?.calor > 0 && stats.calor <= CALOR_BAJO ? stats.calor / CALOR_BAJO * NEED_LOW : Infinity)
+        : stats?.[id] ?? Infinity;
       if (v < NEED_LOW || (id === 'calor' && v !== Infinity)) bajas.push({ id, v });
     }
     return bajas.sort((a, b) => a.v - b.v);
@@ -522,13 +536,26 @@ export class HUD {
       this._pintarFila(el, this.barValues[k], value, 100, String(value), level);
     }
     if (this.bars.calor) {
-      const calor = Math.max(0, Math.ceil(stats.calor ?? 0));
+      const calor = Math.max(0, Math.ceil(stats?.calor ?? 0));
       this._pintarFila(this.bars.calor, this.barValues.calor, calor, CALOR_TOPE, `${calor} s`, calor > 0 && calor <= CALOR_BAJO ? 'low' : 'ok');
     }
-    const filaVicio = this.bars.vicio?.parentElement?.parentElement;
-    if (filaVicio && stats.abstinencia !== undefined) {
+    if (this.bars?.olor) {
+      const olor = Math.max(0, Math.min(100, Math.round(stats?.olor ?? (100 - (stats?.higiene ?? 100)))));
+      const level = olor >= 85 ? 'critical' : olor >= 70 ? 'low' : 'ok';
+      this._pintarFila(this.bars.olor, this.barValues?.olor, olor, 100, `${olor}%`, level);
+      const filaOlor = this._rows?.olor;
+      if (filaOlor) {
+        filaOlor.title = `Medidor de olor: ${olor}% (${olor >= 70 ? '¡Mal olor! Peatones huyen' : 'Aceptable'})`;
+      }
+    }
+    if (stats && this._rows?.higiene && (stats.olor !== undefined || stats.higiene !== undefined)) {
+      const olor = Math.max(0, Math.min(100, Math.round(stats.olor ?? (100 - (stats.higiene ?? 100)))));
+      this._rows.higiene.title = `Higiene: ${Math.round(stats.higiene ?? 0)}/100 - Olor: ${olor}% (${olor >= 70 ? '¡Mal olor!' : 'Limpio'})`;
+    }
+    const filaVicio = this.bars?.vicio?.parentElement?.parentElement;
+    if (filaVicio && stats?.abstinencia !== undefined) {
       const title = stats.abstinencia > 0
-        ? `Abstinencia: ${porcentaje(stats.abstinencia)} (Vicio: ${Math.round(stats.vicio)}/100)`
+        ? `Abstinencia: ${porcentaje(stats.abstinencia)} (Vicio: ${Math.round(stats?.vicio ?? 0)}/100)`
         : 'Vicio: si se vacía, llega la abstinencia';
       if (filaVicio.title !== title) filaVicio.title = title;
     }
@@ -619,7 +646,7 @@ export class HUD {
     const suben = this._subirNecesidades(bajas);
     if (!this.needsSummary) return;
     const ocultas = bajas.filter(({ id }) => !suben.includes(id));
-    const nombres = ocultas.map(({ id }) => (id === 'calor' ? 'Calor' : NEED_META.find((n) => n.id === id).label)).join(', ');
+    const nombres = ocultas.map(({ id }) => (id === 'calor' ? 'Calor' : id === 'olor' ? 'Olor' : NEED_META.find((n) => n.id === id)?.label ?? id)).join(', ');
     this._setText(this.needsSummary, nombres || 'Estado');
     const level = ocultas.some(({ v }) => v < NEED_CRITICAL) ? 'critical' : ocultas.length ? 'low' : 'ok';
     if (this.needsToggle.dataset.level !== level) this.needsToggle.dataset.level = level;
