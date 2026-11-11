@@ -325,7 +325,7 @@ void UIManager::RenderSettingsTab(const PauseContext& c, float width) {
     const float sliderWidth = inner - labelWidth - 56.0f;
 
     // fila 1: sonido y calidad grafica
-    const float topHeight = 262.0f;
+    const float topHeight = 316.0f;
     if (W::BeginPanel("##sonido", columnWidth, topHeight)) {
         ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(0.0f, 4.0f));
         W::SectionTitle("Sonido", Icon::Sound);
@@ -387,6 +387,16 @@ void UIManager::RenderSettingsTab(const PauseContext& c, float width) {
             rowLabel("Rendimiento");
             if (W::Button("rendimiento", m_PerfVisible ? "Visible (F3)" : "Oculto (F3)", Icon::None, m_PerfVisible, false, 38.0f, 13)) m_PerfVisible = !m_PerfVisible;
             rowEnd(top, 40.0f);
+        }
+        {   // densidad del trafico: escala toda la curva diaria (mas carros en las horas pico) y se aplica en vivo
+            const ImVec2 top = ImGui::GetCursorScreenPos();
+            rowLabel("Tráfico");
+            const float eachLevel = (inner - 18.0f) / 4.0f;
+            for (int level = 0; level < static_cast<int>(kTrafficDensityLevels.size()); ++level) {
+                if (level > 0) ImGui::SameLine(0.0f, 6.0f);
+                if (W::Button((std::string("trafico") + std::to_string(level)).c_str(), kTrafficDensityLevels[static_cast<size_t>(level)].label, Icon::None, m_TrafficDensity == level, false, 34.0f, 12, 0.0f, eachLevel)) m_TrafficDensityRequest = level;
+            }
+            rowEnd(top, 38.0f);
         }
         ImGui::PopStyleVar();
     }

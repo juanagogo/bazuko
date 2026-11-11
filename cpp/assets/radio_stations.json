@@ -2,8 +2,8 @@
   "instructions": [
     "Agrega cada emisora como un objeto dentro del arreglo stations.",
     "Usa un id unico y completa name, frequency, genre y program para mostrarla en el sintonizador.",
-    "Pon la URL directa del stream en url, por ejemplo https://stream.example.com/radio.mp3; reemplaza el dominio de ejemplo por una URL real.",
-    "La seleccion de emisoras esta disponible en el menu de pausa, pero la reproduccion online aun no esta implementada."
+    "Las emisoras sin url se sintetizan dentro del juego. Con url sintonizan la senal oficial en vivo (solo flujos MP3 por HTTP o HTTPS: las AAC y las de HLS no suenan).",
+    "Las emisoras en vivo son las del original (src/systems/RadioSystem.js); su frecuencia es la de verdad."
   ],
   "url_example": "https://stream.example.com/radio.mp3",
   "stations": [
@@ -25,19 +25,59 @@
     },
     {
       "id": "deportes",
-      "name": "El Campín 1040 AM",
+      "name": "La Gradería 1040 AM",
       "frequency": "1040 kHz AM",
       "genre": "Fútbol y Deportes",
-      "program": "Transmisión En Vivo: Santa Fe vs Millonarios",
+      "program": "En vivo: el partido de la tarde",
       "url": ""
     },
     {
       "id": "rock",
-      "name": "Radioactiva 98.5 FM",
-      "frequency": "98.5 MHz FM",
+      "name": "La Gotera 97,4 FM",
+      "frequency": "97.4 MHz FM",
       "genre": "Rock y Baladas en Español",
-      "program": "Clásicos del Rock en tu Idioma",
+      "program": "Rock viejo en español",
       "url": ""
+    },
+    {
+      "id": "unradio-bogota",
+      "name": "UN Radio 98,5 FM",
+      "frequency": "98.5 MHz FM",
+      "genre": "Emisora en vivo · Bogotá",
+      "program": "Señal oficial de UN Radio",
+      "url": "https://radio.unal.edu.co/streaming/bogota/"
+    },
+    {
+      "id": "javeriana",
+      "name": "Javeriana Estéreo 91,9 FM",
+      "frequency": "91.9 MHz FM",
+      "genre": "Emisora en vivo · Bogotá",
+      "program": "Señal oficial de Javeriana Estéreo",
+      "url": "https://radio06.cehis.net/proxy/javerian?mp=%2Fstream"
+    },
+    {
+      "id": "unradio-medellin",
+      "name": "UN Radio 100,4 FM",
+      "frequency": "100.4 MHz FM",
+      "genre": "Emisora en vivo · Medellín",
+      "program": "Señal oficial de UN Radio Medellín",
+      "url": "https://radio.unal.edu.co/streaming/medellin/"
+    },
+    {
+      "id": "univalle",
+      "name": "Univalle Estéreo 105,3 FM",
+      "frequency": "105.3 MHz FM",
+      "genre": "Emisora en vivo · Cali",
+      "program": "Señal oficial de Univalle Estéreo",
+      "url": "https://uv-stereo.univalle.edu.co:8000/envivo.mp3"
+    },
+    {
+      "id": "unicauca",
+      "name": "Unicauca Stereo 104,1 FM",
+      "frequency": "104.1 MHz FM",
+      "genre": "Emisora en vivo · Popayán",
+      "program": "Señal oficial de Unicauca Stereo",
+      "url": "https://emisora.unicauca.edu.co/stream"
     }
   ]
 }

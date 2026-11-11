@@ -329,6 +329,12 @@ void UIManager::ShowDeathScreen(const std::string& causes, bool vehicleImpact, c
     Input::SetCursorLocked(false);
 }
 
+void UIManager::ShowArrestScreen(const std::string& name, const std::string& place) {
+    if (m_DeathScreenOpen) return;
+    ShowDeathScreen("Te atrapó la Policía", false, name, place);
+    m_DeathArrest = true;
+}
+
 bool UIManager::ConsumeRespawnRequest() {
     const bool requested = m_RespawnRequest;
     m_RespawnRequest = false;
@@ -337,6 +343,7 @@ bool UIManager::ConsumeRespawnRequest() {
 
 void UIManager::CompleteDeathRecovery() {
     m_DeathScreenOpen = false;
+    m_DeathArrest = false;
     m_DeathByVehicleImpact = false;
     m_DeathCauses.clear();
     m_Paused = false;
@@ -784,12 +791,13 @@ void UIManager::RenderHUD(float dt, const glm::vec3& playerPos, Camera& camera, 
     if (m_DeathScreenOpen) {
         SignUI::DrawBackdrop(0.85f);
         const ImVec4 blueText(0.84f, 0.89f, 1.0f, 1.0f);
-        if (SignUI::BeginMenu("Fin de la partida", m_DeathByVehicleImpact ? "Te atropellaron" : "Te quedaste sin salud",
+        if (SignUI::BeginMenu(m_DeathArrest ? "Arresto" : "Fin de la partida", m_DeathArrest ? "Te atrapó la Policía" : m_DeathByVehicleImpact ? "Te atropellaron" : "Te quedaste sin salud",
                               "La partida permanece pausada hasta que elijas recuperarte.", SignUI::Icon::Heart, nullptr, 520.0f, 440.0f)) {
             ImGui::PushStyleColor(ImGuiCol_Text, blueText);
             ImGui::TextWrapped("Estado al caer: %s.", m_DeathCauses.empty() ? "salud agotada" : m_DeathCauses.c_str());
             ImGui::Spacing();
-            ImGui::TextWrapped("Volverás al cambuche con salud y necesidades recuperadas al menos al 60 %%. Se perderá la mitad de los tipos de objetos del inventario y se curarán las enfermedades.");
+            if (m_DeathArrest) ImGui::TextWrapped("Volverás al cambuche sin nada de lo recolectado ni de lo ganado: se pierden el dinero y todo el inventario.");
+            else ImGui::TextWrapped("Volverás al cambuche con salud y necesidades recuperadas al menos al 60 %%. Se perderá la mitad de los tipos de objetos del inventario y se curarán las enfermedades.");
             ImGui::Spacing();
             if (m_DeathByVehicleImpact) {
                 ImGui::TextWrapped("Mira ambos sentidos antes de cruzar; los vehículos necesitan espacio para frenar.");
@@ -811,6 +819,18 @@ void UIManager::RenderHUD(float dt, const glm::vec3& playerPos, Camera& camera, 
         const ImVec2 screen = ImGui::GetIO().DisplaySize;
         for (const WorldBubble& bubble : m_WorldBubbles) {
             const float sx = (bubble.x * 0.5f + 0.5f) * screen.x, sy = (-bubble.y * 0.5f + 0.5f) * screen.y;
+            if (Carton::FontsReady() && !std::getenv("BAZUKO_UI_OSCURA")) {   // .npc-bubble del original: la gente de la calle habla en un cartoncito (cara de carton, filo oscuro y cola)
+                if (bubble.alpha < 0.05f) continue;
+                constexpr float wrap = 222.0f;   // max-width 240 px menos el relleno
+                const char* text = bubble.text.c_str();
+                const float textWidth = std::min(Carton::TextWidth(false, 16, text), wrap), textHeight = Carton::TextHeight(false, 16, text, wrap);
+                const float width = textWidth + 18.0f, height = textHeight + 8.0f;   // relleno de 3 9 4
+                const ImVec2 max(sx + width * 0.5f, sy - 14.0f), min(sx - width * 0.5f, sy - 14.0f - height);
+                Carton::Panel(bubbleDraw, min, max, 800u + static_cast<unsigned int>(bubble.text.size()), 3.0f);
+                Carton::Text(bubbleDraw, false, 16, min + ImVec2(9.0f, 3.0f), Carton::kMarcador, text, wrap);
+                bubbleDraw->AddTriangleFilled(ImVec2(sx - 5.0f, max.y - 0.5f), ImVec2(sx + 5.0f, max.y - 0.5f), ImVec2(sx, max.y + 7.0f), Carton::kMarcador);   // la cola
+                continue;
+            }
             const ImVec2 size = bubbleFonts.monoBold14->CalcTextSizeA(13.0f, screen.x * 0.4f, 0.0f, bubble.text.c_str());
             const ImVec2 min(sx - size.x * 0.5f - 10.0f, sy - size.y - 24.0f), max(sx + size.x * 0.5f + 10.0f, sy - 8.0f);
             const int fade = static_cast<int>(240.0f * bubble.alpha);
@@ -1397,6 +1417,9 @@ void UIManager::RenderHUD(float dt, const glm::vec3& playerPos, Camera& camera, 
                     for (int quality = 0; quality < 3; ++quality)
                         if (SignUI::Button(qualityLabels[quality], quality == 1 ? Icon::Gear : Icon::Bolt, m_GraphicsQuality == quality))
                             m_GraphicsQualityRequest = quality;
+                    SignUI::FlexReset();
+                    for (int level = 0; level < static_cast<int>(kTrafficDensityLevels.size()); ++level)
+                        if (SignUI::Button((std::string("Tráfico ") + kTrafficDensityLevels[static_cast<size_t>(level)].label).c_str(), Icon::Gear, m_TrafficDensity == level)) m_TrafficDensityRequest = level;
                     ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.78f, 0.84f, 0.95f, 0.65f));
                     ImGui::TextWrapped("Resolución interna: baja 0,75×, media 1×, alta 1,25×. El panel de rendimiento muestra el efecto en los FPS.");
                     ImGui::PopStyleColor();
@@ -1607,7 +1630,8 @@ void UIManager::RenderHUD(float dt, const glm::vec3& playerPos, Camera& camera, 
     else if (nearContainer) interactionPrompt = "[E] Revisar caneca · mantén [Q] para clasificar (más botín)";
     else if (nearPickup) interactionPrompt = "[E] Recoger bolsa · mantén [Q] para clasificar (más botín)";
     else if (inventorySummary.find("Pan duro") != std::string::npos || inventorySummary.find("Botella agua") != std::string::npos || inventorySummary.find("Vendaje") != std::string::npos || inventorySummary.find("Curita") != std::string::npos || inventorySummary.find("Tinto") != std::string::npos || inventorySummary.find("Comida enlatada") != std::string::npos || inventorySummary.find("Refresco") != std::string::npos || inventorySummary.find("Tintico") != std::string::npos || inventorySummary.find("Pegante") != std::string::npos || inventorySummary.find("Pastilla") != std::string::npos || inventorySummary.find("Cigarrillo") != std::string::npos || inventorySummary.find("Jabón") != std::string::npos || inventorySummary.find("Cepillo") != std::string::npos || inventorySummary.find("Vacuna") != std::string::npos || inventorySummary.find("Carbón activo") != std::string::npos || inventorySummary.find("Jarabe") != std::string::npos || inventorySummary.find("Pomada") != std::string::npos || inventorySummary.find("Antiparasitario") != std::string::npos || inventorySummary.find("Antibiótico") != std::string::npos) interactionPrompt = "[E] Usar el primer consumible o medicamento del costal";
-    if (!m_Paused && !m_DeathScreenOpen && std::any_of(m_Hotbar.begin(), m_Hotbar.end(), [](const HotbarSlot& slot) { return !slot.id.empty(); })) {
+    if (!m_Paused && !m_DeathScreenOpen) {   // siempre visible (en el original solo con algo asignado): vacia, una linea explica como llenarla
+        const bool hotbarEmpty = std::none_of(m_Hotbar.begin(), m_Hotbar.end(), [](const HotbarSlot& slot) { return !slot.id.empty(); });
         // Barra de acceso rapido (teclas 1-5), abajo a la derecha: solo aparece cuando hay objetos asignados desde el inventario (#quickbar)
         const SignUI::Fonts& quickFonts = SignUI::GetFonts();
         const ImVec2 display = ImGui::GetIO().DisplaySize;
@@ -1657,6 +1681,20 @@ void UIManager::RenderHUD(float dt, const glm::vec3& playerPos, Camera& camera, 
                 std::snprintf(amount, sizeof(amount), "%d", entry.quantity);
                 const float amountWidth = quickFonts.mono11->CalcTextSizeA(11.0f, FLT_MAX, 0.0f, amount).x;
                 draw->AddText(quickFonts.mono11, 11.0f, ImVec2(max.x - amountWidth - 3.0f, max.y - 14.0f), IM_COL32(201, 162, 39, 255), amount);
+            }
+            if (hotbarEmpty) {   // sin nada asignado: como llenar la barra
+                const char* hint = "Costal (I): elige un objeto y pulsa 1-5";
+                ImDrawList* fg = ImGui::GetForegroundDrawList();
+                if (cardboard) {
+                    const float w = Carton::TextWidth(true, 13, hint) + 16.0f;
+                    const ImVec2 hmin(base.x + barWidth - w, base.y - 30.0f), hmax(base.x + barWidth, base.y - 6.0f);
+                    Carton::Panel(fg, hmin, hmax, 650u, 3.0f);
+                    Carton::Text(fg, true, 13, ImVec2(hmin.x + 8.0f, hmin.y + 4.0f), Carton::kMarcador, hint);
+                } else {
+                    const float w = quickFonts.mono11->CalcTextSizeA(11.0f, FLT_MAX, 0.0f, hint).x;
+                    fg->AddRectFilled(ImVec2(base.x + barWidth - w - 10.0f, base.y - 26.0f), ImVec2(base.x + barWidth, base.y - 6.0f), IM_COL32(0, 0, 0, 170));
+                    fg->AddText(quickFonts.mono11, 11.0f, ImVec2(base.x + barWidth - w - 5.0f, base.y - 22.0f), IM_COL32(236, 240, 248, 255), hint);
+                }
             }
             ImGui::SetCursorScreenPos(base);
             ImGui::Dummy(ImVec2(barWidth, slotSize));

@@ -345,4 +345,31 @@ inline void from_json(const nlohmann::json& j, CharacterLook& l) {
     NormalizeLook(l);
 }
 
+// Apariencia en una linea corta (12 campos separados por |) para mandarla a los demas jugadores; cabe de sobra en los 200 bytes de la red.
+inline std::string EncodeLook(const CharacterLook& look) {
+    const auto clean = [](std::string text) { for (char& c : text) if (c == '|') c = ' '; return text; };
+    return clean(look.nombre) + "|" + clean(look.origen) + "|" + clean(look.sexo) + "|" + clean(look.edad) + "|" + clean(look.pelo) + "|" + clean(look.barba) + "|" + clean(look.ropa) + "|" + clean(look.calzado)
+        + "|" + std::to_string(look.pielIdx) + "|" + std::to_string(look.peloColorIdx) + "|" + std::to_string(look.ropaColorIdx) + "|" + std::to_string(look.calzadoColorIdx);
+}
+// Lee lo que llega de otro jugador: nunca se confia (se normaliza contra las opciones validas, igual que el guardado). false si no tiene la forma esperada.
+inline bool DecodeLook(const std::string& text, CharacterLook& look) {
+    std::vector<std::string> fields;
+    size_t start = 0;
+    for (;;) {
+        const size_t bar = text.find('|', start);
+        fields.push_back(text.substr(start, bar == std::string::npos ? std::string::npos : bar - start));
+        if (bar == std::string::npos) break;
+        start = bar + 1;
+    }
+    if (fields.size() != 12) return false;
+    CharacterLook decoded;
+    decoded.nombre = fields[0]; decoded.origen = fields[1]; decoded.sexo = fields[2]; decoded.edad = fields[3];
+    decoded.pelo = fields[4]; decoded.barba = fields[5]; decoded.ropa = fields[6]; decoded.calzado = fields[7];
+    const auto number = [](const std::string& value, int fallback) { try { return std::stoi(value); } catch (...) { return fallback; } };
+    decoded.pielIdx = number(fields[8], 2); decoded.peloColorIdx = number(fields[9], 0); decoded.ropaColorIdx = number(fields[10], 0); decoded.calzadoColorIdx = number(fields[11], 1);
+    NormalizeLook(decoded);
+    look = decoded;
+    return true;
+}
+
 } // namespace Bazuko
