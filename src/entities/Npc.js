@@ -828,8 +828,10 @@ export class Npc {
     if (this._noseCooldown > 0) this._noseCooldown -= dt;
     else if ((ctx.hygiene ?? 100) < CONDUCT.noseHygiene && this._playerDist < CONDUCT.noseRange
       && !this.koState && this.fleeTimer <= 0 && !LOW_STANCES.has(this.stance)) {
-      this._noseTimer = 2 + Math.random() * 2;
-      this._noseCooldown = this._noseTimer + 6 + Math.random() * 8;
+      // Solo se tapa la nariz quien tiene esa mano libre (`person.nariz`); el bastón o el costal la ocupan.
+      const gesto = 2 + Math.random() * 2;
+      if (this.person.nariz) this._noseTimer = gesto;
+      this._noseCooldown = gesto + 6 + Math.random() * 8;
       // Con mal olor, el peatón huye corriendo de la peste
       if (!this.isVendor) {
         this._fleeFrom(ctx.player);

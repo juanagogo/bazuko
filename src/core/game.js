@@ -424,7 +424,7 @@ export class Game {
     if (look) {
       await this._applyLook(look);
       this._save();
-      window.dispatchEvent(new CustomEvent('toast', { detail: { text: 'Te cambiaste de ropa', type: 'info' } }));
+      window.dispatchEvent(new CustomEvent('toast', { detail: { text: 'Me cambié de ropa', type: 'info' } }));
       this.audio?.play?.('pickup');
     }
   }

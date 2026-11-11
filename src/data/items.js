@@ -195,7 +195,7 @@ for (const item of Object.values(ITEMS)) {
 export const isUsable = item => !!(item?.consumable || item?.cure || item?.usable);
 export function describeEffects(item) {
   const lines = [];
-  if (item.id === 'ropaLimpia') lines.push('Usar: cambiarte de ropa, sube higiene y ánimo.');
+  if (item.id === 'ropaLimpia') lines.push('Usar: cambiarme de ropa, sube higiene y ánimo.');
   if (item.id === 'radioTransistor') lines.push('Usar: abrir el sintonizador. También con R.');
   if (item.id === 'pilas') lines.push('Usar: 50 % más de pilas en el radio.');
   if (item.id === 'popo') lines.push('Usar o X en la calle: lanzar a un peatón.');
