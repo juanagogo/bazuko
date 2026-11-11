@@ -104,18 +104,19 @@ export class RoadRageSystem {
    * Intenta que el conductor se baje. Cada detonante tiene su probabilidad y su enfriamiento por carro.
    * @param {object} car vehículo en circulación
    * @param {'mirror'|'front'|'block'|'hit'|'thrown'} cause
+   * @param {{ force?: boolean }} options `force` salta el enfriamiento y la suerte (el truco)
    * @returns {boolean} si el conductor va a bajarse
    */
-  trigger(car, cause = 'mirror') {
+  trigger(car, cause = 'mirror', { force = false } = {}) {
     const rule = ROAD_RAGE.triggers[cause];
     if (!rule || !this._canSnap(car)) return false;
     if (this._hasCar(car)) return false;
     const driver = this._freeDriver();
     if (!driver) return false;
     const state = this._carStateOf(car);
-    if (this._time < (state.cooldowns[cause] ?? 0)) return false;
+    if (!force && this._time < (state.cooldowns[cause] ?? 0)) return false;
     state.cooldowns[cause] = this._time + rule.cooldown;
-    if (this.random() >= rule.chance) return false;
+    if (!force && this.random() >= rule.chance) return false;
     const vehicle = this.traffic?.hold(car, true);
     if (!vehicle) return false;
     this.incidents.push({ driver, vehicle, car, cause, state: 'stopping', stopTimer: 0,

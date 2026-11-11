@@ -310,3 +310,19 @@ test('el rastrillar y el disparo suenan según la distancia y nunca se apilan', 
   assert.ok(nearVolume > farVolume && nearVolume <= 1 && farVolume > 0, `más fuerte cerca: ${nearVolume} contra ${farVolume}`);
   assert.equal(audio.playRobo('otro', near), false);
 });
+
+test('el truco del robo armado fija arma, contravía y plan armado, y el pegado va pegado', () => {
+  ROBO.contra = true;
+  for (const [opts, weapon] of [[{ weapon: 'pistola' }, 'pistola'], [{ weapon: 'cuchillo' }, 'cuchillo'], [{ choro: true }, null]]) {
+    const { system } = setup({ random: seeded(5) });
+    system.reset(); system.cooldown = 0;
+    assert.equal(system.trigger({ force: true, armado: true, contra: true, ...opts }), true);
+    assert.equal(system.reverse, true, 'viene en contravía');
+    if (weapon) assert.equal(system.robber.weapon, weapon);
+    for (let i = 0; i < 900 && !system.arrived; i++) system.update(1 / 30, {});
+    assert.ok(system.arrived);
+    assert.notEqual(system.plan.style, 'passive', 'exige armado, no solo revisa');
+    if (opts.choro) { assert.equal(system.plan.choro, true); assert.ok(CHORO_QUIRKS.includes(system.plan.quirk)); }
+    if (weapon === 'cuchillo') assert.equal(system.plan.cocks, false);
+  }
+});

@@ -208,14 +208,14 @@ El cielo sigue la posición del sol y la luna sobre Bogotá, con nubes que deriv
 
 Es una ayuda para probar el juego sin gastar energía, plata ni materiales antes de llegar a lo que se quiere ver. Se prende agregando **`?trucos`** a la dirección, tanto en el servidor de desarrollo como en la versión publicada. Sin ese parámetro el juego es el de siempre y no hay rastro del modo. El modo vive en la pestaña del navegador: dura hasta que se recargue la página sin el parámetro. Mientras está prendido, una tira roja con la palabra **Trucos** queda visible arriba para no confundir la partida con una normal, y la pausa suma una pestaña **Trucos** con los botones, que funcionan con teclado, mando y tacto.
 
-- **Necesidades**: la opción **Fijas** clava al máximo salud, hambre, sed, energía, higiene, ánimo y vicio mientras está prendida; **Llenar todo** lo hace una sola vez.
-- **Plata**: un botón suma **$ 1.000.000** de una vez.
-- **Costal**: un botón mete al costal todo el catálogo y los materiales de construcción en cantidad útil. No construye ni mejora el cambuche.
-- **Cambuche**: un botón propio construye y mejora todas las piezas de una vez.
-- **Policía**: **Ponerlas en cero** borra las fichas y termina la persecución; **Invisible** impide que una patrulla te vea y te persiga; **Sin daño** (invulnerable) evita que la salud baje, la muerte y el arresto.
-- **Reloj**: salta a las 07:30, 12:00, 18:00, 22:00 o 03:00 para probar el tráfico de cada hora, y cambia el tiempo entre **Normal** y **Rápido (10x)**.
-- **Clima**: elige cualquiera de los estados del tiempo.
-- **Viaje**: teletransporta a cada zona o barrio que el juego conoce (El Cartucho, Parque Tercer Milenio, La Candelaria, Chapinero, El centro, Los barrios y Parque del Lago) y de vuelta al cambuche, sin caminar la ciudad entera.
+Los trucos van en seis grupos, cada fila con su explicación debajo:
+
+- **Jugador**: **Llenar ahora** sube las necesidades una vez y **Siempre llenas** las clava al máximo; **Sin daño** evita que la salud baje, la muerte y el arresto; **Dar $ 1.000.000**; **Llenarlo con todo** mete al costal el catálogo y los materiales sin construir el cambuche; **Dar 3 mudas limpias** y **Abrir el ropero**; **Echarse en un cartón**.
+- **Policía**: **Borrar lo buscado** quita las fichas y termina la persecución; **Invisible** impide que una patrulla lo detecte y lo persiga.
+- **Eventos de la calle**: la **protesta** se elige normal o paro de un día y con ánimo al azar, pacífica, tensa o pelea, y se arma con **Empezar protesta** o se manda a dispersar con **Acabar protesta**; el **robo en moto** al azar, con pistola, con cuchillo o con un choro pegao (los armados llegan en contravía y siguen el árbol de decisión del robo armado); **Chocar dos carros**; **Bajar uno furioso** (el conductor del carro más cercano se baja a pelear; de noche hay pocos carros); **Soltar el gigante** (el único bocadillo); **Traer las sombras** (hombres y motos sombra, con tres dosis de paranoia) y **Calmarla**.
+- **Lugares**: **Pared de ladrillo** (de frente a una fachada) y **Refugio de chamber**, **Ir al comedor** (y **Comer otra vez**, que borra la espera de 24 horas), cada zona y barrio que el juego conoce (El Cartucho, Parque Tercer Milenio, La Candelaria, Chapinero, El centro, Los barrios y Parque del Lago) y el cambuche, y **Construir y mejorar todo** el cambuche.
+- **Tiempo y clima**: salta a las 07:30, 12:00, 18:00, 22:00 o 03:00, cambia entre **Normal** y **Rápido (10x)** y elige cualquier estado del tiempo.
+- **Misiones**: **Completarlas** paga las misiones del día y **Empezarlas de nuevo** las deja en cero.
 
 **Con trucos prendidos no se guarda nada**: ni el autoguardado, ni el guardado manual del menú de pausa. La partida que hay en el navegador queda exactamente como estaba, así que al recargar sin `?trucos` se vuelve al juego normal de siempre. Lo único que el modo no cubre es la copia a un archivo, que sigue siendo una acción explícita.
 

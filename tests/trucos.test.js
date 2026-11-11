@@ -5,7 +5,9 @@ import { Game } from '../src/core/game.js';
 import { StatsSystem, NEEDS } from '../src/systems/StatsSystem.js';
 import { ITEMS } from '../src/data/items.js';
 import { CAMBUCHE } from '../src/data/cambuche.js';
-import { CheatMode, trucosActivos, destinosDeZona, DINERO_TRUCO, QTY_TRUCO } from '../src/core/trucos.js';
+import { CheatMode, trucosActivos, destinosDeZona, DINERO_TRUCO, QTY_TRUCO, ROPAS_TRUCO } from '../src/core/trucos.js';
+import { PsychosisSystem, ATAQUE } from '../src/systems/PsychosisSystem.js';
+import { DailyMissionSystem } from '../src/systems/DailyMissionSystem.js';
 import { ZONA_NOMBRES } from '../src/ui/ZonaAviso.js';
 import { StealSystem } from '../src/features/steal.js';
 import { InteractionSystem } from '../src/systems/InteractionSystem.js';
@@ -172,4 +174,109 @@ test('con trucos prendidos la partida no se guarda', () => {
   assert.equal(normal._puedeAutoguardar(), true);
   assert.equal(normal._save(), true);
   assert.equal(normal.save.veces, 1);
+});
+
+test('la protesta sale con la clase y el genio elegidos, y se puede acabar', () => {
+  const calls = [];
+  const game = juegoFalso({ protest: { trigger: (o) => { calls.push(o); return true; }, acabar: () => { calls.push('acabar'); return true; } } });
+  const cheats = new CheatMode(game);
+  assert.equal(cheats.empezarProtesta(), true);
+  assert.deepEqual(calls.pop(), { force: true, kind: 'normal', temper: null });
+  cheats.setProtesta('paro', 'pelea');
+  cheats.empezarProtesta();
+  assert.deepEqual(calls.pop(), { force: true, kind: 'paro', temper: 'fight' });
+  cheats.setProtesta('normal', 'tensa');
+  cheats.empezarProtesta();
+  assert.equal(calls.pop().temper, 'tense');
+  assert.equal(cheats.acabarProtesta(), true);
+  assert.equal(calls.pop(), 'acabar');
+  assert.equal(new CheatMode(juegoFalso()).empezarProtesta(), false, 'sin sistema de protesta no pasa nada');
+});
+
+test('el robo en moto manda pistola, cuchillo o pegado, siempre armado y en contravía; al azar no fuerza nada', () => {
+  const calls = [];
+  const cheats = new CheatMode(juegoFalso({ robo: { trigger: (o) => { calls.push(o); return true; } } }));
+  cheats.robarEnMoto();
+  assert.deepEqual(calls.pop(), { force: true });
+  cheats.robarEnMoto('pistola');
+  assert.deepEqual(calls.pop(), { force: true, armado: true, contra: true, weapon: 'pistola', choro: false });
+  cheats.robarEnMoto('cuchillo');
+  assert.equal(calls.pop().weapon, 'cuchillo');
+  cheats.robarEnMoto('choro');
+  assert.deepEqual(calls.pop(), { force: true, armado: true, contra: true, weapon: null, choro: true });
+});
+
+test('el bocadillo se pide de a uno, que es el tope', () => {
+  const asked = [];
+  const cheats = new CheatMode(juegoFalso({ calle: { summonBocadillos: (n) => { asked.push(n); return n; } } }));
+  assert.equal(cheats.bocadillo(), 1);
+  assert.deepEqual(asked, [1]);
+});
+
+test('la psicosis llega al nivel de los hombres sombra y se calma al pedirlo', () => {
+  const psychosis = Object.assign(Object.create(PsychosisSystem.prototype), { whisperTimer: 10, paranoiaUtteranceTimer: 20, induced: null, ataque: false });
+  const cheats = new CheatMode(juegoFalso({ psychosis }));
+  cheats.psicosis();
+  assert.ok(psychosis.induced.dosis >= ATAQUE.dosis, 'las dosis que piden los hombres sombra');
+  assert.ok(psychosis.induced.left > 8, 'con tiempo de sobra para que arranque el ataque');
+  cheats.calmarPsicosis();
+  assert.equal(psychosis.induced, null);
+});
+
+test('la furia vial baja al conductor del carro libre más cercano, a la fuerza', () => {
+  const carro = (x, over = {}) => ({ car: { position: { x, z: 0 }, ...over }, hold: false });
+  const lejos = carro(50), cerca = carro(5), preso = carro(1);
+  preso.hold = true;
+  const tried = [];
+  const roadRage = { _canSnap: () => true, trigger: (car, cause, opts) => { tried.push([car.position.x, cause, opts.force]); return true; } };
+  const game = juegoFalso({ roadRage, traffic: { vehicles: [lejos, preso, cerca] }, player: { position: { x: 0, z: 0 } } });
+  assert.equal(new CheatMode(game).furiaVial(), true);
+  assert.deepEqual(tried, [[5, 'mirror', true]]);
+  assert.equal(new CheatMode(juegoFalso({ roadRage, traffic: { vehicles: [] }, player: { position: { x: 0, z: 0 } } })).furiaVial(), false);
+});
+
+test('el comedor: ir deja frente al mostrador y comer otra vez borra la espera de 24 horas', () => {
+  const game = juegoFalso({
+    world: { active: { reserved: { comedor: { x: 30, z: 40 } } } },
+    lastComedorHour: 10, clock: { day: 1, hour: 12 },
+  });
+  Object.defineProperty(game, 'totalGameHours', { get: () => 12 });
+  game.isComedorAvailable = Game.prototype.isComedorAvailable;
+  assert.equal(game.isComedorAvailable(), false, 'recién comió');
+  assert.equal(new CheatMode(game).irAlComedor(), true);
+  assert.deepEqual(game.teleported, { x: 30, z: 43 });
+  assert.equal(game.isComedorAvailable(), true);
+  game.lastComedorHour = 11;
+  new CheatMode(game).comerOtraVez();
+  assert.equal(game.isComedorAvailable(), true);
+  assert.equal(new CheatMode(juegoFalso({ world: { active: { reserved: {} } } })).irAlComedor(), false);
+});
+
+test('las misiones del día se completan con su recompensa y se pueden empezar de nuevo', () => {
+  globalThis.window = new EventTarget();
+  const game = juegoFalso({ talents: {}, audio: { play() {} } });
+  game.stats.xp = 0; game.stats.animo = 50; game.stats.addXP = function (n) { this.xp += n; };
+  game.dailyMissions = new DailyMissionSystem(game);
+  game.dailyMissions.init(3);
+  const cheats = new CheatMode(game);
+  const primeras = game.dailyMissions.missions.map((m) => m.id);
+  cheats.completarMisiones();
+  assert.ok(game.dailyMissions.missions.every((m) => m.completed && m.progress === m.target));
+  assert.ok(game.stats.dinero > 0, 'paga la recompensa');
+  let avisos = 0;
+  window.addEventListener('missions-updated', () => avisos++);
+  cheats.reiniciarMisiones();
+  assert.deepEqual(game.dailyMissions.missions.map((m) => m.id), primeras, 'las mismas del día');
+  assert.ok(game.dailyMissions.missions.every((m) => !m.completed && m.progress === 0));
+  assert.equal(avisos, 1);
+});
+
+test('la ropa limpia se da al costal y el ropero cierra la pausa antes de abrirse', () => {
+  const log = [];
+  const game = juegoFalso({ menu: { close: () => log.push('cerrar') }, openWardrobe: () => { log.push('ropero'); return Promise.resolve(); } });
+  const cheats = new CheatMode(game);
+  cheats.darRopaLimpia();
+  assert.equal(game.inventory.count('ropaLimpia'), ROPAS_TRUCO);
+  cheats.abrirRopero();
+  assert.deepEqual(log, ['cerrar', 'ropero']);
 });

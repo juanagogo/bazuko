@@ -7,7 +7,7 @@ import * as THREE from 'three';
 import { Moto } from '../entities/Moto.js';
 import { RobberMember, ROBBER, DRIVER_CALLS } from '../entities/RobberMember.js';
 import { straightRoute } from './LimpiezaSocialSystem.js';
-import { ARMED, CHORO_LINES, GUN_DEMANDS, KNIFE_DEMANDS, armedAct, planRobbery } from './RoboArmed.js';
+import { ARMED, CHORO_LINES, CHORO_QUIRKS, GUN_DEMANDS, KNIFE_DEMANDS, armedAct, planRobbery } from './RoboArmed.js';
 import { overlapDepth, vehicleBox } from './VehicleOverlap.js';
 
 const toast = (text, type = 'info') => globalThis.window?.dispatchEvent?.(new CustomEvent('toast', { detail: { text, type } }));
@@ -95,6 +95,7 @@ export class RoboExpressSystem {
     this.runTimer = 0;
     this.arrived = false;
     this.planOverride = null;
+    this.forzado = null;  // lo que fijó el truco del robo armado: { choro }
     this.plan = null;     // el plan del ladrón (RoboArmed.planRobbery)
     this.armed = null;    // { plan, phase, t, spot } mientras exige armado
     this.traffic = null;
@@ -148,8 +149,12 @@ export class RoboExpressSystem {
     return !this.active && !!this.moto && !blocked && allowSpawn && this.elapsed >= ROBO.grace && this.cooldown <= 0;
   }
 
-  /** Busca un tramo de calle cerca del jugador y manda la moto. `force` no mira cooldown ni gracia (el truco). */
-  trigger({ force = false } = {}) {
+  /**
+   * Busca un tramo de calle cerca del jugador y manda la moto. `force` no mira cooldown ni gracia (el truco).
+   * Para los trucos: `weapon` fija el arma, `contra` lo manda en contravía y `armado` (con `choro` si va pegado) lo hace exigir
+   * armado en vez de solo revisar.
+   */
+  trigger({ force = false, weapon = null, contra = false, armado = false, choro = false } = {}) {
     if (this.active || !this.moto || !this.robber) return false;
     const target = this.player.position;
     let best = null;
@@ -172,7 +177,7 @@ export class RoboExpressSystem {
     this.route = best.route;
     this.stopAt = best.d;
     // En contravía: entra por delante del jugador, de cara al tráfico, y llega hasta él en sentido contrario al de la ruta.
-    this.reverse = ROBO.contra && (best.route.loop !== false || best.d + ROBO.approach < best.route.length) && this.random() < ROBO.contraChance;
+    this.reverse = ROBO.contra && (best.route.loop !== false || best.d + ROBO.approach < best.route.length) && (contra || this.random() < ROBO.contraChance);
     this.distance = this.reverse ? best.d + ROBO.approach
       : best.route.loop === false ? Math.max(0, best.d - ROBO.approach) : best.d - ROBO.approach;
     this.dodge = 0;
@@ -183,8 +188,8 @@ export class RoboExpressSystem {
     this.arrived = false;
     this.holdTimer = this.runTimer = 0;
     this.outcome = null;
-    const weapon = this.random() < ROBO.knifeChance ? 'cuchillo' : 'pistola';
-    this.robber.setWeapon(weapon);
+    this.forzado = armado ? { choro } : null;
+    this.robber.setWeapon(weapon ?? (this.random() < ROBO.knifeChance ? 'cuchillo' : 'pistola'));
     this.moto.occupancy[2] = true;
     this.moto.setDrawn(true);
     if (this.extras && !this.extras.includes(this.entry)) this.extras.push(this.entry);
@@ -359,6 +364,11 @@ export class RoboExpressSystem {
     this.robber.dismount(this._doorPoint(_p), this.player.position);
     // `planOverride` fija el plan de este robo (pruebas); si no, lo arma el azar
     this.plan = this.planOverride ? { aired: false, ...this.planOverride, weapon: this.robber.weapon } : planRobbery({ weapon: this.robber.weapon, random: this.random, armed: ROBO.armed });
+    if (this.forzado) {
+      if (this.plan.style === 'passive') this.plan.style = 'threat';
+      if (this.forzado.choro && !this.plan.choro) { this.plan.choro = true; this.plan.quirk = CHORO_QUIRKS[Math.floor(this.random() * CHORO_QUIRKS.length) % CHORO_QUIRKS.length]; }
+      this.plan.cocks = this.robber.weapon === 'pistola' && this.plan.style !== 'passive' && this.random() < ARMED.cockFirst;
+    }
     this.armed = null;
     this.runTimer = 0;
     this.robber.choro = this.plan.choro;

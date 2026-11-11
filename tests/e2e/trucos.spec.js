@@ -31,11 +31,11 @@ test('la pestaña Trucos da costal, cambuche, plata y no guarda la partida', asy
   await page.locator('.pause-tab', { hasText: 'Trucos' }).click();
   const panel = page.locator('.pause-panel');
   await expect(panel).toBeVisible();
-  await expect(panel.locator('.pause-section-title', { hasText: 'Costal' })).toHaveCount(1);
+  await expect(panel.locator('.pause-section-title', { hasText: 'Jugador' })).toHaveCount(1);
 
   // El costal no construye: primero se llena y se comprueba que el cambuche sigue igual.
   const antes = await page.evaluate(() => ({ built: window.__game.built, guardado: localStorage.getItem('habitante-de-calle-save-v1') }));
-  await panel.getByRole('button', { name: 'Todo el catálogo y los materiales' }).click();
+  await panel.getByRole('button', { name: 'Llenarlo con todo' }).click();
   const trasCostal = await page.evaluate(() => ({
     built: window.__game.built, itemCount: window.__game.inventory.itemCount,
   }));

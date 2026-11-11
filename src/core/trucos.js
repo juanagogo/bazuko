@@ -5,12 +5,16 @@ import { NEEDS } from '../systems/StatsSystem.js';
 import { ITEMS } from '../data/items.js';
 import { CAMBUCHE } from '../data/cambuche.js';
 import { ZONA_NOMBRES, zonaDe } from '../ui/ZonaAviso.js';
+import { ATAQUE } from '../systems/PsychosisSystem.js';
 
 const TRUCOS_QUERY = 'trucos';
 export const DINERO_TRUCO = 1_000_000;
 export const QTY_TRUCO = 10;
 export const VELOCIDAD_NORMAL = 1;
 export const VELOCIDAD_RAPIDA = 10;
+export const ROPAS_TRUCO = 3;
+export const PSICOSIS_SEGUNDOS = 120;
+const GENIOS = { pacifica: 'peaceful', tensa: 'tense', pelea: 'fight' };
 
 /** El modo trucos va en la dirección: `?trucos` lo prende, y sin él se apaga al recargar. */
 export function trucosActivos(search = '') {
@@ -48,6 +52,8 @@ export class CheatMode {
     this.invisible = false;     // la policía no lo ve
     this.invulnerable = false;  // sin daño, sin muerte ni arresto
     this.velocidad = VELOCIDAD_NORMAL;
+    this.protestaKind = 'normal';  // lo que se elige antes de empezar la protesta: 'normal' o 'paro'
+    this.protestaGenio = null;     // 'pacifica', 'tensa', 'pelea' o null (al azar)
     this._destinos = null;
   }
 
@@ -111,12 +117,15 @@ export class CheatMode {
   ponerClima(id) { if (WEATHER_TYPES[id]) this.game.weather?.setWeather(id, true); }
 
   // ===== Protesta =====
-  /** Arma ya una protesta cerca del jugador (`'paro'` para un paro de un día entero, `'normal'` para una de un par de horas; segundo argumento, o el primero solo, el genio: `'pacifica'`, `'tensa'` o `'pelea'`, si no, al azar); con una en curso no hace nada. Devuelve si empezó. */
-  protesta(kind = null, temper = null) {
-    const GENIOS = { pacifica: 'peaceful', tensa: 'tense', pelea: 'fight' };
-    return !!this.game.protest?.trigger({ force: true, kind: kind === 'paro' ? 'paro' : kind === 'normal' ? 'normal' : null, temper: GENIOS[temper] ?? GENIOS[kind] ?? null });
+  setProtesta(kind, genio) { this.protestaKind = kind === 'paro' ? 'paro' : 'normal'; this.protestaGenio = GENIOS[genio] ? genio : null; }
+  /** Arma ya una protesta cerca del jugador, con la clase y el genio elegidos; con una en curso no hace nada. Devuelve si empezó. */
+  empezarProtesta() {
+    return !!this.game.protest?.trigger({ force: true, kind: this.protestaKind, temper: GENIOS[this.protestaGenio] ?? null });
   }
-  // ===== La calle =====
+  /** Manda la protesta en curso a dispersarse. Devuelve si había una que acabar. */
+  acabarProtesta() { return !!this.game.protest?.acabar(); }
+
+  // ===== Lugares =====
   /** Lleva al jugador junto a la primera pared de ladrillo o al primer refugio de chamber. */
   irA(tipo) {
     const calle = this.game.calle;
@@ -132,19 +141,61 @@ export class CheatMode {
     this.game.player.root.rotation.y = spot.yaw;
     return true;
   }
-  // ===== Choques =====
+  /** Lleva al jugador frente al comedor y deja que vuelvan a servirle ya. */
+  irAlComedor() {
+    const spot = this.game.world?.active?.reserved?.comedor;
+    if (!spot) return false;
+    this.game.teleportTo(spot.x, spot.z + 3);
+    this.comerOtraVez();
+    return true;
+  }
+  /** Borra la espera de 24 horas del comedor. */
+  comerOtraVez() { this.game.lastComedorHour = null; }
+
+  // ===== Eventos de la calle =====
   /** Hace chocar por detrás al par de carros en fila más cercano al jugador. */
   choque() {
     const crashes = this.game.crashes, pair = crashes?.pairNear?.(this.game.player.position);
     return !!(pair && crashes.crash(pair));
   }
-  bocadillos() { return this.game.calle?.summonBocadillos(3) ?? 0; }
+  /** Suelta el bocadillo gigante cerca del jugador; si ya hay uno suelto no hace nada. Devuelve cuántos salieron. */
+  bocadillo() { return this.game.calle?.summonBocadillos(1) ?? 0; }
+  /** Manda la moto del robo; con un robo en curso no hace nada. `tipo`: 'azar', 'pistola', 'cuchillo' o 'choro'. Devuelve si salió. */
+  robarEnMoto(tipo = 'azar') {
+    if (tipo === 'azar') return !!this.game.robo?.trigger({ force: true });
+    return !!this.game.robo?.trigger({ force: true, armado: true, contra: true, weapon: tipo === 'choro' ? null : tipo, choro: tipo === 'choro' });
+  }
+  /** Baja de su carro al conductor del carro más cercano, furioso, aunque no lo hayan provocado. */
+  furiaVial() {
+    const { roadRage, traffic, player } = this.game;
+    if (!roadRage || !traffic?.vehicles) return false;
+    const p = player.position, d2 = (v) => (v.car.position.x - p.x) ** 2 + (v.car.position.z - p.z) ** 2;
+    const libres = traffic.vehicles.filter((v) => !v.hold && roadRage._canSnap(v.car)).sort((a, b) => d2(a) - d2(b));
+    return libres.some((v) => roadRage.trigger(v.car, 'mirror', { force: true }));
+  }
+  /** Tres consumos seguidos de paranoia: lo que trae a los hombres sombra y a las motos sombra. */
+  psicosis() { for (let i = 0; i < ATAQUE.dosis; i++) this.game.psychosis?.induce(PSICOSIS_SEGUNDOS, 1); }
+  calmarPsicosis() { this.game.psychosis?.clearInduced(); }
+
+  // ===== Jugador =====
   /** Le pone un cartón en el costal y lo echa a dormir encima. */
   echarseEnCarton() { if (this.game.inventory) this.game.inventory.add(ITEMS.carton, 1); return this.game.sleepOnCarton(); }
+  darRopaLimpia() { this.game.inventory?.add(ITEMS.ropaLimpia, ROPAS_TRUCO); }
+  abrirRopero() { this.game.menu?.close(); return this.game.openWardrobe(); }
 
-  // ===== Robo express =====
-  /** Manda ya la moto del robo express; con una robo en curso no hace nada. Devuelve si salió. */
-  robarExpress() { return !!this.game.robo?.trigger({ force: true }); }
+  // ===== Misiones =====
+  /** Da por cumplidas las misiones del día que faltan, con su recompensa. */
+  completarMisiones() {
+    const missions = this.game.dailyMissions;
+    for (const m of missions?.missions ?? []) if (!m.completed) missions.reportProgress(m.type, m.target - m.progress);
+  }
+  /** Deja las misiones del día como nuevas, con el avance en cero. */
+  reiniciarMisiones() {
+    const missions = this.game.dailyMissions;
+    if (!missions) return;
+    missions.missions = missions.generateMissions(missions.currentDay);
+    window.dispatchEvent(new CustomEvent('missions-updated', { detail: { missions: missions.missions } }));
+  }
 
   // ===== Viaje =====
   destinos() { return (this._destinos ??= destinosDeZona(this.game.world?.active)); }

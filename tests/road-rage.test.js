@@ -461,3 +461,12 @@ test('el popó que cae sobre un carro también lo hace bajarse', () => {
   system.update(1 / 30);
   assert.equal(system._projectiles.length, 0, 'y el que ya cayó se descarta');
 });
+
+test('con force el conductor se baja sin enfriamiento ni suerte, pero no con un carro que no es de tráfico', () => {
+  const { system, traffic, vehicle } = setup({ random: () => .99 });
+  cruise(traffic, null);
+  assert.equal(system.trigger(vehicle.car), false, 'sin force la suerte lo deja en el carro');
+  assert.equal(system.trigger(vehicle.car, 'mirror', { force: true }), true);
+  assert.equal(system.incidents.length, 1);
+  assert.equal(system.trigger({ traffic: false }, 'mirror', { force: true }), false);
+});

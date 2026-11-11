@@ -16,3 +16,8 @@
   text-transform: uppercase;
   pointer-events: none;
 }
+
+/* La pestaña: filas compactas, botones juntos y una línea de explicación debajo. */
+.trucos .pause-row { align-items: center; padding-bottom: 8px; }
+.trucos .trucos-botones { margin: 0; gap: 6px 8px; }
+.trucos .trucos-nota { flex: 1 0 100%; margin: 0; font-size: 14px; line-height: 1.2; opacity: .75; }

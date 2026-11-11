@@ -569,6 +569,15 @@ export class ProtestSystem {
     this._flushTires(1);
   }
 
+  /** Manda la protesta a dispersarse ya, desde donde esté (el truco). Devuelve si pudo; en la dispersión o después no hace nada. */
+  acabar() {
+    if (this.state !== 'gathering' && this.state !== 'faceoff' && this.state !== 'clash') return false;
+    if (this.state === 'clash') this._standDown(true);
+    this._enter('dispersal');
+    toast(this._severity() === 'peaceful' ? 'La gente se va para la casa caminando, sin afán.' : '¡Corra! Se acabó la protesta.', 'warn');
+    return true;
+  }
+
   /** Lo que el jugador le hace a la gente: pegar o tirar popó a un tombo calienta la cosa rápido; a un manifestante, menos, pero los vuelve contra él. */
   _provokeBy(actor, how) {
     if (!this.active || this.state === 'dispersal' || this.state === 'aftermath' || this.state === 'cleanup') return;

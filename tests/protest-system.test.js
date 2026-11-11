@@ -626,3 +626,15 @@ test('un tombo que carga con un carro de por medio lo rodea en vez de atravesarl
   assert.equal(crossed, false, 'el tombo no atraviesa el carro');
   assert.ok(reached, 'pero lo rodea y llega');
 });
+
+test('acabar manda la protesta a dispersarse desde cualquier fase activa, y fuera de ellas no hace nada', async () => {
+  const { system } = await build();
+  assert.equal(system.acabar(), false, 'sin protesta no hay qué acabar');
+  assert.ok(system.trigger({ force: true, kind: 'normal', temper: 'tense' }));
+  assert.equal(system.state, 'gathering');
+  assert.equal(system.acabar(), true);
+  assert.equal(system.state, 'dispersal');
+  assert.equal(system.acabar(), false, 'ya se dispersa');
+  run(system, 400);
+  assert.equal(system.state, 'idle', 'la calle queda limpia');
+});
