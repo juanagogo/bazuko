@@ -1,5 +1,6 @@
 #pragma once
 #include <array>
+#include "world/TrafficDensity.hpp"
 #include <chrono>
 #include <memory>
 #include <string>
@@ -169,6 +170,8 @@ public:
     void SetSortProgress(float fraction) { m_SortProgress = fraction; }
     // Calidad grafica: 0 baja, 1 media, 2 alta (escala de resolucion interna)
     void SetGraphicsQuality(int quality) { m_GraphicsQuality = quality; }
+    void SetTrafficDensity(int level) { m_TrafficDensity = level; }   // indice de kTrafficDensityLevels
+    int ConsumeTrafficDensityRequest() { const int r = m_TrafficDensityRequest; m_TrafficDensityRequest = -1; return r; }
     // Escala de resolucion que se esta usando de verdad (la adaptativa puede bajarla) y la presion de rendimiento
     void SetEffectiveRenderScale(float scale, int pressure) { m_EffectiveScale = scale; m_RenderPressure = pressure; }
     int ConsumeGraphicsQualityRequest();
@@ -177,10 +180,16 @@ public:
     void ToggleCraftMenu();
     bool IsPaused() const { return m_Paused; }
     bool IsGpsBeaconVisible() const { return m_GpsBeaconVisible; }
+    // Donde estoy (ver world/Zones.hpp): el cartel con el nombre de la zona al entrar a una nueva (unos segundos) y la via actual bajo el radar
+    void ShowZoneNotice(const std::string& name) { m_ZoneNotice = name; m_ZoneNoticeRemaining = 3.4f; }
+    void SetRadarStreet(const std::string& street) { m_RadarStreet = street; }
     void TogglePerformance() { m_PerfVisible = !m_PerfVisible; }
     bool IsCraftMenuOpen() const { return m_CraftMenuOpen; }
     bool IsDeathScreenOpen() const { return m_DeathScreenOpen; }
     void ShowDeathScreen(const std::string& causes, bool vehicleImpact, const std::string& name = {}, const std::string& place = {});
+    // Arresto: la misma pantalla de recorte con otro titular (la Policia agarro al jugador); volver al cambuche cuesta todo lo recolectado y ganado
+    void ShowArrestScreen(const std::string& name = {}, const std::string& place = {});
+    bool IsArrestScreen() const { return m_DeathScreenOpen && m_DeathArrest; }
     bool ConsumeRespawnRequest();
     void CompleteDeathRecovery();
     std::string ConsumeCraftRequest();
@@ -200,6 +209,8 @@ public:
         return true;
     }
     // Emisora sintonizada: id del archivo de emisoras ("" si no hay ninguna) y aviso de que se acaba de elegir otra
+    std::string SelectedRadioStationUrl() const { return m_RadioStations.empty() ? std::string{} : m_RadioStations[m_SelectedRadioStation].streamUrl; }
+    std::string SelectedRadioStationName() const { return m_RadioStations.empty() ? std::string{} : m_RadioStations[m_SelectedRadioStation].name; }
     std::string SelectedRadioStationId() const { return m_RadioStations.empty() ? std::string{} : m_RadioStations[m_SelectedRadioStation].id; }
     bool ConsumeRadioTuned() { return std::exchange(m_RadioTuned, false); }
     void SelectRadioStation(const std::string& id) {
@@ -290,6 +301,7 @@ private:
     void DrawLoadingArtwork();
     void CloseRadioMenu();
     bool m_Paused = false;
+    bool m_DeathArrest = false;
     bool m_DeathScreenOpen = false;
     bool m_RespawnRequest = false;
     bool m_DeathByVehicleImpact = false;
@@ -308,6 +320,8 @@ private:
     bool m_SleepRequest = false;
     int m_PauseSection = 0;
     bool m_RadarVisible = true;
+    std::string m_ZoneNotice, m_RadarStreet;
+    float m_ZoneNoticeRemaining = 0.0f;
     float m_RadarRange = 70.0f;   // metros desde el centro hasta el borde del radar (+/- cambian el zoom)
     GpsView m_GpsView;
     bool m_GpsSetPending = false;
@@ -412,6 +426,8 @@ private:
     std::string m_DealerPurchaseRequest;
     float m_SortProgress = -1.0f;
     int m_GraphicsQuality = 1;
+    int m_TrafficDensity = 1;
+    int m_TrafficDensityRequest = -1;
     float m_EffectiveScale = 1.0f;
     int m_RenderPressure = 0;
     int m_GraphicsQualityRequest = -1;

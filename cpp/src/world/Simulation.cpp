@@ -1,5 +1,7 @@
-﻿#include "Simulation.hpp"
+﻿#include <functional>
+#include "Simulation.hpp"
 #include "Viaduct.hpp"
+#include "TrafficDensity.hpp"
 #include "Station.hpp"
 #include <glm/gtc/matrix_transform.hpp>
 #include <algorithm>
@@ -774,6 +776,7 @@ Simulation::Simulation(const CityLayout& city, uint32_t seed,
                 appearance.jabClip = appearance.parts.front()->FindAnimationClip("PunchJab");
                 appearance.crossClip = appearance.parts.front()->FindAnimationClip("PunchCross");
                 appearance.fightClip = appearance.parts.front()->FindAnimationClip("FightIdle");
+                appearance.grabClip = appearance.parts.front()->FindAnimationClip("PoliceGrab");
                 m_PedestrianAppearances.push_back(std::move(appearance));
             }
         }
@@ -1770,6 +1773,42 @@ bool Simulation::FindSidewalkPoint(glm::vec3& point, const glm::vec3& center, fl
     return false;
 }
 
+// Quita los rodeos de un camino de baldosas (la busqueda solo avanza en los cuatro sentidos y deja trazados en escalera): desde cada punto salta al mas lejano
+// al que se llega en linea recta sin salir de lo transitable, comprobado cada 0,3 m. `path` no incluye el punto de partida: se usa como ancla y se descarta.
+static void StraightenPath(const glm::vec3& start, std::vector<glm::vec3>& path, const std::function<bool(const glm::vec3&)>& clear) {
+    if (path.size() < 2) return;
+    const auto lineClear = [&](const glm::vec3& from, const glm::vec3& to) {
+        const float length = glm::distance(glm::vec2(from.x, from.z), glm::vec2(to.x, to.z));
+        const int steps = std::max(1, static_cast<int>(std::ceil(length / 0.3f)));
+        for (int step = 1; step < steps; ++step) {
+            const glm::vec3 point = glm::mix(from, to, static_cast<float>(step) / static_cast<float>(steps));
+            if (!clear(point)) return false;
+        }
+        return true;
+    };
+    std::vector<glm::vec3> nodes;
+    nodes.reserve(path.size() + 1);
+    nodes.push_back(glm::vec3(start.x, 0.0f, start.z));
+    nodes.insert(nodes.end(), path.begin(), path.end());
+    std::vector<glm::vec3> result;
+    size_t anchor = 0;
+    while (anchor + 1 < nodes.size()) {
+        size_t farthest = nodes.size() - 1;
+        while (farthest > anchor + 1 && !lineClear(nodes[anchor], nodes[farthest])) --farthest;
+        result.push_back(nodes[farthest]);
+        anchor = farthest;
+    }
+    if (std::getenv("BAZUKO_LOG_CAMINOS")) {   // pruebas: cuantos puntos tenia el camino y cuantos tramos quedan en diagonal
+        int diagonal = 0;
+        for (size_t i = 1; i < result.size(); ++i) {
+            const glm::vec3 d = result[i] - result[i - 1];
+            if (std::abs(d.x) > 0.5f && std::abs(d.z) > 0.5f) ++diagonal;
+        }
+        LogInfo("PRUEBA camino: {} puntos antes, {} despues, {} tramos en diagonal", nodes.size() - 1, result.size(), diagonal);
+    }
+    path = std::move(result);
+}
+
 bool Simulation::FindWalkPath(const glm::vec3& start, const glm::vec3& target, std::vector<glm::vec3>& path) const {
     constexpr int kWidth = CityLayout::WIDTH, kHeight = CityLayout::HEIGHT;
     const auto tileOf = [](float value, float origin) { return static_cast<int>(std::floor((value + origin) / CityLayout::TILE_SIZE)); };
@@ -1791,13 +1830,15 @@ bool Simulation::FindWalkPath(const glm::vec3& start, const glm::vec3& target, s
     for (const Attempt& attempt : {Attempt{16, 0.40f}, Attempt{40, 0.28f}, Attempt{1000, 0.15f}}) {
         const int minX = std::max(0, std::min(startTileX, goalTileX) - attempt.window), maxX = std::min(kWidth - 1, std::max(startTileX, goalTileX) + attempt.window);
         const int minZ = std::max(0, std::min(startTileZ, goalTileZ) - attempt.window), maxZ = std::min(kHeight - 1, std::max(startTileZ, goalTileZ) + attempt.window);
-        const auto free = [&](int x, int z) {
-            if (x < minX || x > maxX || z < minZ || z > maxZ) return false;
-            const glm::vec3 point = center(x, z);
+        const auto clearPoint = [&](const glm::vec3& point) {
             if (!(m_City.IsWalkable(point.x, point.z) && !m_City.IsBlocked(point.x, point.z, attempt.margin) && !HitsProp(point.x, point.z, attempt.margin))) return false;
             for (const StoppedBox& box : stopped)
                 if (PointInVehicleBox(point, box.position, box.direction, box.halfLength, box.halfWidth, attempt.margin + 0.25f)) return false;
             return true;
+        };
+        const auto free = [&](int x, int z) {
+            if (x < minX || x > maxX || z < minZ || z > maxZ) return false;
+            return clearPoint(center(x, z));
         };
         const auto nearestFree = [&](int tileX, int tileZ, int& outX, int& outZ) {
             int best = 1 << 30;
@@ -1831,12 +1872,13 @@ bool Simulation::FindWalkPath(const glm::vec3& start, const glm::vec3& target, s
             if (current == index(startX, startZ)) break;
         }
         std::reverse(tiles.begin(), tiles.end());
-        path.clear();   // solo se conservan las esquinas
+        path.clear();   // solo se conservan las esquinas; despues se quitan los rodeos en escalera para que el camino vaya en diagonal donde se pueda
         for (size_t i = 0; i < tiles.size(); ++i) {
             if (i > 0 && i + 1 < tiles.size()
                 && glm::dot(glm::normalize(tiles[i] - tiles[i - 1]), glm::normalize(tiles[i + 1] - tiles[i])) > 0.999f) continue;
             path.push_back(tiles[i]);
         }
+        if (!std::getenv("BAZUKO_CAMINOS_EN_ESCALERA")) StraightenPath(start, path, clearPoint);   // la variable de entorno devuelve el trazado anterior (pruebas)
         return !path.empty();
     }
     return false;
@@ -1893,6 +1935,8 @@ bool Simulation::FindSidewalkPath(const glm::vec3& start, const glm::vec3& targe
                           0.0f,
                           (z + 0.5f) * CityLayout::TILE_SIZE - CityLayout::ORIGIN_Z);
     }
+    if (!std::getenv("BAZUKO_CAMINOS_EN_ESCALERA"))   // los mismos criterios con los que camina un peatón por el andén (IsSidewalk y sin obstáculos)
+        StraightenPath(start, path, [&](const glm::vec3& point) { return m_City.IsSidewalk(point.x, point.z) && !m_City.IsBlocked(point.x, point.z, 0.18f) && !IsBlocked(point, 0.2f); });
     return !path.empty();
 }
 
@@ -2428,6 +2472,220 @@ std::vector<glm::vec4> Simulation::GetNearestLampLights(const glm::vec3& focus, 
 }
 
 void Simulation::Update(float dt, const glm::vec3& playerPosition) {
+    Net::PlayerView view;
+    view.id = 1;
+    view.position = {playerPosition.x, playerPosition.y, playerPosition.z};
+    view.hygiene = m_PlayerHygiene;   // el juego de un jugador la informa con SetPlayerHygiene / SetPlayerFacing
+    view.facingX = m_PlayerFacing.x;
+    view.facingZ = m_PlayerFacing.y;
+    m_PlayerViews.assign(1, view);
+    UpdateWorld(dt, playerPosition);
+}
+
+void Simulation::Update(float dt, const glm::vec3& playerPosition, const std::vector<Net::PlayerView>& others) {
+    Net::PlayerView view;
+    view.id = 1;
+    view.position = {playerPosition.x, playerPosition.y, playerPosition.z};
+    view.hygiene = m_PlayerHygiene;
+    view.facingX = m_PlayerFacing.x;
+    view.facingZ = m_PlayerFacing.y;
+    m_PlayerViews.assign(1, view);
+    m_PlayerViews.insert(m_PlayerViews.end(), others.begin(), others.end());
+    UpdateWorld(dt, playerPosition);
+}
+
+void Simulation::Update(float dt, const std::vector<Net::PlayerView>& players) {
+    m_PlayerViews = players;
+    glm::vec3 primary(1.0e6f, 0.0f, 1.0e6f);   // sin jugadores: lo que aun no es multijugador ve a alguien muy lejos
+    if (!players.empty()) primary = glm::vec3(players.front().position.x, players.front().position.y, players.front().position.z);
+    UpdateWorld(dt, primary);
+}
+
+// --- Mundo compartido ---
+Net::WorldSnapshot Simulation::ExportWorld(const glm::vec3& viewer, uint32_t tick) {
+    Net::WorldSnapshot s;
+    s.tick = tick; s.day = static_cast<uint32_t>(m_Day); s.clock = m_Clock; s.elapsed = m_Elapsed;
+    s.weather = static_cast<uint8_t>(m_WeatherType); s.weatherRemaining = std::clamp(m_WeatherRemaining, 0.0f, 600.0f);
+    s.vehicleCount = static_cast<uint16_t>(std::min<size_t>(m_Traffic.size(), 65535));
+    const auto flat = [&](const glm::vec3& p) { const float dx = p.x - viewer.x, dz = p.z - viewer.z; return dx * dx + dz * dz; };
+    for (const BusState& bus : m_Buses) {
+        if (s.buses.size() >= Net::kMaxWorldBuses) break;
+        Net::WorldBus b; b.x = bus.position.x; b.y = bus.position.y; b.z = bus.position.z; b.headingX = bus.heading.x; b.headingZ = bus.heading.y;
+        b.speed = bus.speed; b.wheelRotation = bus.wheelRotation; b.servedStation = bus.servedStation;
+        s.buses.push_back(b);
+    }
+    constexpr float kRadius2 = 160.0f * 160.0f;
+    std::vector<std::pair<float, size_t>> near;
+    for (size_t i = 0; i < m_Traffic.size() && i < 65535; ++i) {
+        const float d = flat(m_Traffic[i].position);
+        if (d <= kRadius2) near.push_back({d, i});
+    }
+    std::sort(near.begin(), near.end());
+    if (near.size() > Net::kMaxWorldVehicles) near.resize(Net::kMaxWorldVehicles);
+    for (const auto& entry : near) {
+        const TrafficVehicle& v = m_Traffic[entry.second];
+        Net::WorldVehicle w; w.index = static_cast<uint16_t>(entry.second);
+        glm::vec3 position; float yaw;
+        VehiclePose(v, position, yaw);
+        w.x = position.x; w.y = position.y; w.z = position.z;
+        w.heading = v.bike.ready ? v.bike.heading : -yaw; w.steer = v.bike.ready ? v.bike.steer : 0.0f;
+        w.speed = v.speed; w.variant = static_cast<uint8_t>(std::clamp(v.variant, 0, 31)); w.emergency = static_cast<uint8_t>(std::clamp(v.emergency, 0, 3)); w.parked = v.parked; w.dispatched = v.driver.dispatched; w.siren = v.driver.siren;
+        s.vehicles.push_back(w);
+    }
+    near.clear();
+    for (size_t i = 0; i < m_Pedestrians.size(); ++i) {
+        const Pedestrian& p = m_Pedestrians[i];
+        if (p.departed) continue;
+        const float d = flat(p.position);
+        if (d <= kRadius2) near.push_back({d, i});
+    }
+    std::sort(near.begin(), near.end());
+    if (near.size() > Net::kMaxWorldPedestrians) near.resize(Net::kMaxWorldPedestrians);
+    for (const auto& entry : near) {
+        Pedestrian& p = m_Pedestrians[entry.second];
+        if (p.netId == 0) { p.netId = m_NextPedestrianId++; if ((p.netId & 0xFFFFu) == 0) p.netId = m_NextPedestrianId++; }
+        Net::WorldPedestrian w; w.id = p.netId & 0xFFFFu;
+        w.x = p.position.x; w.y = p.position.y; w.z = p.position.z; w.yaw = p.yaw; w.speed = p.moving ? p.speed : 0.0f;
+        w.appearance = static_cast<uint8_t>(std::min<size_t>(p.appearance, 255)); w.reaction = static_cast<uint8_t>(std::clamp(p.reaction, 0, 7));
+        w.moving = p.moving; w.dead = p.dead; w.police = p.police;
+        s.pedestrians.push_back(w);
+    }
+    return s;
+}
+
+bool Simulation::ApplyWorld(const Net::WorldSnapshot& s) {
+    if (s.vehicleCount != m_Traffic.size()) return false;   // otra semilla o modelos distintos: no se mezclan mundos
+    m_Day = static_cast<int>(std::max<uint32_t>(1u, s.day));
+    m_Clock = std::clamp(s.clock, 0.0f, 1.0f); m_DayProgress = m_Clock;
+    m_Elapsed = s.elapsed;
+    if (s.weather < Climate::kWeatherCount) {
+        const auto weather = static_cast<Climate::Weather>(s.weather);
+        if (weather != m_WeatherType) { m_WeatherType = weather; m_WeatherToast = Climate::Info(weather).toast; }
+        m_WeatherRemaining = s.weatherRemaining + 10.0f;   // el invitado no elige tiempo: espera el del anfitrion
+    }
+    for (size_t i = 0; i < s.buses.size() && i < m_Buses.size(); ++i) {
+        const Net::WorldBus& b = s.buses[i]; BusState& bus = m_Buses[i];
+        bus.previousPosition = bus.position;
+        bus.position = {b.x, b.y, b.z}; bus.heading = {b.headingX, b.headingZ}; bus.speed = b.speed; bus.wheelRotation = b.wheelRotation; bus.servedStation = b.servedStation;
+    }
+    for (const Net::WorldVehicle& w : s.vehicles) {
+        if (w.index >= m_Traffic.size()) continue;
+        TrafficVehicle& v = m_Traffic[w.index];
+        BicycleParams params; params.wheelbase = std::max(1.2f, v.wheelbase);
+        v.previousPosition = v.position;
+        v.parked = w.parked; v.variant = w.variant; v.emergency = w.emergency; v.speed = w.speed;
+        v.driver.dispatched = w.dispatched; v.driver.siren = w.siren;
+        v.bike.heading = w.heading; v.bike.steer = w.steer; v.bike.ready = true;
+        v.bike.rear = glm::vec2(w.x, w.z) - v.bike.Forward() * (params.wheelbase * 0.5f);
+        v.position = {w.x, w.y, w.z}; v.yaw = v.bike.Yaw();
+        v.direction = {v.bike.Forward().x, 0.0f, v.bike.Forward().y};
+    }
+    // peatones: los que ya conoce conservan su animacion; los que no llegan se van
+    std::unordered_map<uint32_t, size_t> known;
+    for (size_t i = 0; i < m_Pedestrians.size(); ++i) if (m_Pedestrians[i].netId != 0) known[m_Pedestrians[i].netId] = i;
+    std::vector<Pedestrian> next;
+    next.reserve(s.pedestrians.size());
+    const size_t looks = std::max<size_t>(1, m_PedestrianAppearances.size());
+    for (const Net::WorldPedestrian& w : s.pedestrians) {
+        const auto it = known.find(w.id);
+        Pedestrian p = it != known.end() ? m_Pedestrians[it->second] : Pedestrian{};
+        if (it == known.end()) {
+            p.netId = w.id;
+            p.animationOffset = static_cast<float>((w.id * 37u) % 100u) * 0.1f;
+            p.color = {0.22f + static_cast<float>((w.id * 53u) % 100u) / 100.0f * 0.55f, 0.18f + static_cast<float>((w.id * 29u) % 100u) / 100.0f * 0.48f, 0.15f + static_cast<float>((w.id * 17u) % 100u) / 100.0f * 0.42f};
+        }
+        p.position = {w.x, w.y, w.z}; p.yaw = w.yaw; p.speed = std::max(0.1f, w.speed); p.moving = w.moving && w.speed > 0.05f;
+        p.appearance = w.appearance % looks; p.reaction = w.reaction; p.dead = w.dead; p.police = w.police;
+        next.push_back(std::move(p));
+    }
+    m_Pedestrians = std::move(next);
+    m_GuestSyncAge = 0.0f;
+    return true;
+}
+
+void Simulation::PromoteToHost() {
+    m_Guest = false;
+    m_GuestSyncAge = 0.0f;
+    // la gente de la calle sigue donde estaba (sin ruta: cada uno elige adonde ir en cuanto se actualiza); los policias a pie y quienes iban ligados a un vehiculo se retiran
+    m_Pedestrians.erase(std::remove_if(m_Pedestrians.begin(), m_Pedestrians.end(), [](const Pedestrian& p) { return p.police; }), m_Pedestrians.end());
+    for (Pedestrian& p : m_Pedestrians) {
+        p.route.clear(); p.nextWaypoint = 0; p.target = p.position; p.fleeRemaining = 0.0f; p.aggressive = false; p.aggressionRemaining = 0.0f;
+        p.reactionTime = 0.0f; p.punchTime = -1.0f; p.dodgeTime = -1.0f; p.vehicleIndex = -1; p.returning = false; p.departed = false; p.fleeAfterPunch = false; p.bubbleRemaining = 0.0f;
+    }
+    for (TrafficVehicle& v : m_Traffic) {
+        // una patrulla que acudia sigue acudiendo (rehace su camino); acude al primer jugador de la partida nueva
+        const bool chasing = v.emergency > 0 && v.driver.dispatched;
+        v.driver.state = DriverState::Seated; v.driver.timer = 0.0f; v.driver.boost = 0.0f; v.driver.cooldown = 0.0f;
+        v.driver.dispatched = chasing; v.driver.siren = chasing && v.driver.siren; v.driver.targetPlayer = 0; v.driver.dispatchTime = 0.0f; v.driver.pathAge = 0.0f; v.driver.pathMode = 0; v.driver.pathLength = 0.0f; v.driver.reengage = false;
+        v.driver.partnerBoarding = false; v.driver.partnerOut = false;
+        v.holdStop = false; v.forcingRemaining = 0.0f; v.stalledTime = 0.0f; v.blockedWait = 0.0f;
+        v.lateral = 0.0f; v.lateralVelocity = 0.0f; v.lateralTarget = 0.0f; v.swerveAround = -1; v.connectorRoute = -1;
+        v.blockedForPerson = false; v.yieldingForTraffic = false; v.waitingAtSignal = false; v.clearForSiren = false;
+        if (v.parked || v.route.size() < 2 || v.routeLength < 1.0f || v.routeCumulative.size() != v.route.size()) continue;
+        // el invitado solo recibio la pose: se recupera su avance sobre el circuito buscando el punto de la ruta mas cercano
+        const glm::vec2 at(v.position.x, v.position.z);
+        float bestGap = std::numeric_limits<float>::max(), bestDistance = v.distance;
+        for (size_t i = 0; i < v.route.size(); ++i) {
+            const glm::vec3& a = v.route[i];
+            const glm::vec3& b = v.route[(i + 1) % v.route.size()];
+            const glm::vec2 from(a.x, a.z), to(b.x, b.z), edge = to - from;
+            const float length2 = glm::dot(edge, edge);
+            const float t = length2 > 1.0e-6f ? std::clamp(glm::dot(at - from, edge) / length2, 0.0f, 1.0f) : 0.0f;
+            const float gap = glm::distance(at, from + edge * t);
+            if (gap < bestGap) { bestGap = gap; bestDistance = v.routeCumulative[i] + t * std::sqrt(length2); }
+        }
+        v.distance = std::fmod(bestDistance, v.routeLength);
+        glm::vec3 point, direction;
+        SampleCircuit(v.route, v.routeCumulative, v.routeLength, v.distance, point, direction, v.nextWaypoint);
+        v.position.x = point.x; v.position.z = point.z;
+        v.direction = direction;
+        v.bike.ready = false;   // el modelo de bicicleta se vuelve a colocar sobre la ruta en el siguiente paso
+    }
+}
+
+std::vector<StreetVoiceCandidate> Simulation::StreetVoiceCandidates(const glm::vec3& at, float range) {
+    std::vector<StreetVoiceCandidate> out;
+    for (Pedestrian& p : m_Pedestrians) {
+        if (p.dead || p.departed || p.police || p.vehicleIndex >= 0) continue;   // como el original: fuera quien ya tiene burbuja, el inconsciente y quien va en un carro; el que huye o reacciona tambien puede hablar
+        const float distance = glm::distance(p.position, at);
+        if (distance > range) continue;
+        if (p.netId == 0) { p.netId = m_NextPedestrianId++; if ((p.netId & 0xFFFFu) == 0) p.netId = m_NextPedestrianId++; }   // el mismo identificador estable de la red
+        out.push_back({p.netId, distance, p.bubbleRemaining <= 0.0f});   // con burbuja sigue en la lista: quien habla debe poder seguirse mientras suena
+    }
+    return out;
+}
+
+void Simulation::PedestrianSay(uint32_t id, const std::string& text, float seconds) {
+    for (Pedestrian& p : m_Pedestrians) {
+        if (p.netId != id) continue;
+        p.bubbleText = text; p.bubbleRemaining = seconds;
+        return;
+    }
+}
+
+void Simulation::GuestExtrapolate(float dt) {
+    m_GuestSyncAge += dt;
+    if (m_GuestSyncAge > 1.0f) return;   // sin noticias del anfitrion: se queda quieto en vez de seguir de largo
+    for (TrafficVehicle& v : m_Traffic) {
+        if (v.parked || !v.bike.ready || v.speed < 0.05f) continue;
+        v.bike.rear += v.bike.Forward() * (v.speed * dt);
+        BicycleParams params; params.wheelbase = std::max(1.2f, v.wheelbase);
+        const glm::vec2 center = v.bike.Center(params);
+        v.position.x = center.x; v.position.z = center.y;
+        v.wheelRotation -= v.speed * dt / 0.33f;
+    }
+    for (BusState& bus : m_Buses) {
+        if (bus.speed < 0.05f) continue;
+        bus.position.x += bus.heading.x * bus.speed * dt; bus.position.z += bus.heading.y * bus.speed * dt;
+        bus.wheelRotation += bus.speed * dt / 0.5f;
+    }
+    for (Pedestrian& p : m_Pedestrians) {
+        p.animationTime += dt;
+        if (p.moving && !p.dead) { p.position.x += std::sin(p.yaw) * p.speed * dt; p.position.z += std::cos(p.yaw) * p.speed * dt; }
+    }
+}
+
+void Simulation::UpdateWorld(float dt, const glm::vec3& playerPosition) {
     const float nextClock = m_Clock + dt / kDayLengthSeconds;
     if (nextClock >= 1.0f) ++m_Day;                       // pasa la medianoche: empieza otro dia (y a veces otra temporada)
     m_Clock = std::fmod(nextClock, 1.0f);
@@ -2559,13 +2817,20 @@ void Simulation::Update(float dt, const glm::vec3& playerPosition) {
         const float swing = m_DogSpeed < 2.4f ? 0.32f : m_DogSpeed < 5.2f ? 0.45f : 0.62f;
         m_DogPhase = std::fmod(m_DogPhase + (m_DogSpeed / (0.4f * swing)) * dt / 6.2831853f, 1.0f);
     }
-    UpdatePedestrians(dt, playerPosition);
-    UpdatePigeons(dt, playerPosition);
-    UpdateRats(dt, playerPosition);
-    UpdatePoop(dt);
-    UpdateTraffic(dt);
-    UpdateDrivers(dt, playerPosition);
-    UpdateBus(dt);
+    if (m_Guest) {
+        GuestExtrapolate(dt);   // el mundo lo simula el anfitrion: aqui solo se mueve lo que llego, hasta la siguiente instantanea
+        UpdatePigeons(dt, playerPosition);
+        UpdateRats(dt, playerPosition);
+        UpdatePoop(dt);
+    } else {
+        UpdatePedestrians(dt, playerPosition);
+        UpdatePigeons(dt, playerPosition);
+        UpdateRats(dt, playerPosition);
+        UpdatePoop(dt);
+        UpdateTraffic(dt);
+        UpdateDrivers(dt, playerPosition);
+        UpdateBus(dt);
+    }
     for (size_t index = 0; index < m_ParkedCarCooldowns.size(); ++index) {
         m_ParkedCarCooldowns[index] = std::max(0.0f, m_ParkedCarCooldowns[index] - dt);
         if (m_ParkedCarCooldowns[index] <= 0.0f) m_ParkedCars[index].mirrorsAvailable = true;
@@ -2718,7 +2983,11 @@ void Simulation::UpdatePigeons(float dt, const glm::vec3& playerPosition) {
     m_BirdDisturbances.clear();
     for (const Pedestrian& pedestrian : m_Pedestrians)
         m_BirdDisturbances.emplace_back(pedestrian.position.x, pedestrian.position.z);
-    m_Birds.Update(dt, playerPosition, m_BirdDisturbances);
+    std::vector<BirdPlayer> birdPlayers;
+    for (const Net::PlayerView& player : m_PlayerViews) {
+        if (player.alive) birdPlayers.push_back({player.id, glm::vec3(player.position.x, player.position.y, player.position.z)});
+    }
+    m_Birds.Update(dt, birdPlayers, m_BirdDisturbances);
 }
 
 void Simulation::UpdateRats(float dt, const glm::vec3& playerPosition) {
@@ -2728,9 +2997,13 @@ void Simulation::UpdateRats(float dt, const glm::vec3& playerPosition) {
         rat.animTime += dt;
 
         // 1. Detectar amenazas cercanas (jugador o peatones)
-        float threatDistance = glm::distance(glm::vec2(playerPosition.x, playerPosition.z),
-                                             glm::vec2(rat.position.x, rat.position.z));
-        glm::vec2 threatPos(playerPosition.x, playerPosition.z);
+        float threatDistance = 1.0e12f;   // la persona mas cercana: cualquiera de los jugadores o un peaton
+        glm::vec2 threatPos(rat.position.x + 1.0e6f, rat.position.z);
+        for (const Net::PlayerView& player : m_PlayerViews) {
+            if (!player.alive) continue;
+            const float distance = glm::distance(glm::vec2(player.position.x, player.position.z), glm::vec2(rat.position.x, rat.position.z));
+            if (distance < threatDistance) { threatDistance = distance; threatPos = glm::vec2(player.position.x, player.position.z); }
+        }
 
         for (const auto& pedestrian : m_Pedestrians) {
             const float pedDist = glm::distance(glm::vec2(pedestrian.position.x, pedestrian.position.z),
@@ -2940,6 +3213,7 @@ void Simulation::UpdatePoop(float dt) {
 }
 
 void Simulation::UpdatePickups(float dt, const glm::vec3& playerPosition) {
+    (void)playerPosition;   // las bolsas miran a todos los jugadores (m_PlayerViews)
     // Reactivar contenedores vacíos después del enfriamiento
     for (auto& pickup : m_Pickups) {
         if (!pickup.container || pickup.available) continue;
@@ -2950,29 +3224,33 @@ void Simulation::UpdatePickups(float dt, const glm::vec3& playerPosition) {
     // Contar solo bolsas dinámicas (los contenedores fijos no cuentan)
     const size_t dynamicBags = std::count_if(m_Pickups.begin(), m_Pickups.end(),
         [](const PickupItem& p) { return !p.container; });
-    if (dynamicBags >= 35 || m_PickupSpawnTimer > 0.0f || m_ValidTrashSpots.empty()) return;
+    // 35 bolsas con un jugador; cada jugador extra suma 8 (hasta 300)
+    const size_t bagLimit = std::min<size_t>(35 + (m_PlayerViews.size() > 1 ? m_PlayerViews.size() - 1 : 0) * 8, 300);
+    if (dynamicBags >= bagLimit || m_PickupSpawnTimer > 0.0f || m_ValidTrashSpots.empty()) return;
 
-    const glm::vec2 playerXZ(playerPosition.x, playerPosition.z);
-    static size_t s_SpotCursor = 0;
     const size_t spotCount = m_ValidTrashSpots.size();
     // Limitar iteraciones por frame para no bloquear el hilo principal
     const size_t maxTries = std::min(spotCount, size_t(400));
     size_t tried = 0;
     while (tried < maxTries) {
-        const glm::vec3& spot = m_ValidTrashSpots[s_SpotCursor % spotCount];
-        ++s_SpotCursor;
+        const glm::vec3& spot = m_ValidTrashSpots[m_TrashSpotCursor % spotCount];
+        ++m_TrashSpotCursor;
         ++tried;
-        const glm::vec2 toSpot(spot.x - playerXZ.x, spot.z - playerXZ.y);
-        const float dist = glm::length(toSpot);
-        // No aparece a menos de 12 m del jugador
-        if (dist < 12.0f) continue;
-        // No aparece justo delante del jugador si está muy cerca (8–25 m)
-        if (dist < 25.0f) {
-            const float dot = (dist > 0.01f)
-                ? glm::dot(glm::normalize(toSpot), m_PlayerFacing)
-                : 0.0f;
-            if (dot > 0.65f) continue; // dentro del FOV frontal estrecho
+        // Ninguna bolsa aparece a la vista de NINGUN jugador: a menos de 12 m, ni justo delante de alguien (8–25 m, FOV frontal estrecho)
+        bool seen = false;
+        for (size_t i = 0; i < m_PlayerViews.size() && !seen; ++i) {
+            const Net::PlayerView& player = m_PlayerViews[i];
+            if (!player.alive) continue;
+            const glm::vec2 toSpot(spot.x - player.position.x, spot.z - player.position.z);
+            const float dist = glm::length(toSpot);
+            if (dist < 12.0f) { seen = true; break; }
+            if (dist < 25.0f) {
+                const glm::vec2 facing(player.facingX, player.facingZ);
+                const float dot = (dist > 0.01f) ? glm::dot(glm::normalize(toSpot), facing) : 0.0f;
+                if (dot > 0.65f) seen = true;
+            }
         }
+        if (seen) continue;
         // No solapar con otra bolsa existente
         const bool overlapping = std::any_of(m_Pickups.begin(), m_Pickups.end(),
             [&](const PickupItem& p) { return !p.container && glm::distance(p.position, spot) < 2.5f; });
@@ -3067,11 +3345,59 @@ bool Simulation::HitPedestrian(const glm::vec3& from, const glm::vec2& forward, 
 }
 
 bool Simulation::ConsumePlayerHit(int& kind, glm::vec3& fromDirection) {
-    if (m_PlayerHits.empty()) return false;
-    kind = m_PlayerHits.front().kind;
-    fromDirection = m_PlayerHits.front().from;
-    m_PlayerHits.erase(m_PlayerHits.begin());
+    return ConsumePlayerHitFor(m_PlayerViews.empty() ? uint8_t{0} : m_PlayerViews.front().id, kind, fromDirection);
+}
+
+bool Simulation::ConsumePlayerCapture(glm::vec3& officerPosition) {
+    if (m_PlayerCaptures.empty()) return false;
+    officerPosition = m_PlayerCaptures.front().officer;
+    m_PlayerCaptures.clear();
     return true;
+}
+
+bool Simulation::ConsumePlayerHitFor(uint8_t player, int& kind, glm::vec3& fromDirection) {
+    const bool first = m_PlayerViews.empty() || player == m_PlayerViews.front().id;
+    for (auto it = m_PlayerHits.begin(); it != m_PlayerHits.end(); ++it) {
+        if (it->player != player && !(first && it->player == 0)) continue;   // player 0: golpe sin destinatario, es del primero
+        kind = it->kind;
+        fromDirection = it->from;
+        m_PlayerHits.erase(it);
+        return true;
+    }
+    return false;
+}
+
+const Net::PlayerView* Simulation::NearestPlayerTo(const glm::vec3& at) const {
+    return Net::NearestPlayer(m_PlayerViews, Net::Vec3{at.x, at.y, at.z});
+}
+
+glm::vec3 Simulation::NearestPlayerPosition(const glm::vec3& at, const glm::vec3& fallback) const {
+    const Net::PlayerView* nearest = NearestPlayerTo(at);
+    return nearest ? glm::vec3(nearest->position.x, nearest->position.y, nearest->position.z) : fallback;
+}
+
+glm::vec3 Simulation::PlayerPositionById(uint8_t id, const glm::vec3& fallback) const {
+    if (m_PlayerViews.empty()) return fallback;
+    const Net::PlayerView* found = &m_PlayerViews.front();   // 0 = el primero
+    if (id != 0) {
+        found = nullptr;
+        for (const Net::PlayerView& player : m_PlayerViews) if (player.id == id) { found = &player; break; }
+        if (!found) return NearestPlayerPosition(fallback, fallback);   // ya no esta: el mas cercano al sitio donde se le perdio
+    }
+    return glm::vec3(found->position.x, found->position.y, found->position.z);
+}
+
+float Simulation::NearestPlayerDistanceXZ(const glm::vec3& at) const {
+    float best = 1.0e9f;
+    for (const Net::PlayerView& player : m_PlayerViews)
+        if (player.alive) best = std::min(best, glm::distance(glm::vec2(at.x, at.z), glm::vec2(player.position.x, player.position.z)));
+    return best;
+}
+
+bool Simulation::NearAnyPlayer(const glm::vec3& at, float distance) const {
+    for (const Net::PlayerView& player : m_PlayerViews)
+        if (player.alive && glm::distance(at, glm::vec3(player.position.x, player.position.y, player.position.z)) <= distance) return true;
+    return false;
 }
 
 // Los carros comunes (circulando o estacionados) solo usan modelos cuya puerta del conductor es una pieza que se abre y cierra;
@@ -3154,7 +3480,7 @@ bool Simulation::ProvokeDriver(size_t index) {
     return true;
 }
 
-bool Simulation::CallPolice(const glm::vec3& at, float chance) {
+bool Simulation::CallPolice(const glm::vec3& at, float chance, uint8_t byPlayer) {
     size_t best = m_Traffic.size();
     float bestDistance = 1.0e9f;   // acude la patrulla mas cercana sea cual sea la distancia
     for (size_t index = 0; index < m_Traffic.size(); ++index) {
@@ -3184,6 +3510,7 @@ bool Simulation::CallPolice(const glm::vec3& at, float chance) {
             called.dispatched = true;
             called.siren = true;
             called.dispatchTime = 0.0f;
+            called.targetPlayer = byPlayer;
         }
         return true;
     }
@@ -3371,9 +3698,8 @@ void Simulation::OnDriverDeath(size_t index) {
 
 constexpr float kUnseenDistance = 150.0f;   // los vehiculos se dibujan hasta 140 m: mas lejos que eso nada se ve aparecer ni desaparecer
 
-void Simulation::RespawnAbandoned(TrafficVehicle& vehicle) {
-    if (m_TrafficRoutes.empty()) return;
-    const glm::vec2 player(m_LastPlayerPosition.x, m_LastPlayerPosition.z);
+bool Simulation::RespawnAbandoned(TrafficVehicle& vehicle, float minViewDistance) {
+    if (m_TrafficRoutes.empty()) return false;
     for (int attempt = 0; attempt < 40; ++attempt) {
         const size_t routeIndex = static_cast<size_t>(m_Unit(m_Random) * static_cast<float>(m_TrafficRoutes.size())) % m_TrafficRoutes.size();
         const std::vector<float>& cumulative = m_RouteCumulative[routeIndex];
@@ -3382,7 +3708,7 @@ void Simulation::RespawnAbandoned(TrafficVehicle& vehicle) {
         glm::vec3 position, direction;
         size_t waypoint = 0;
         SampleCircuit(m_TrafficRoutes[routeIndex], cumulative, length, distance, position, direction, waypoint);
-        if (glm::distance(glm::vec2(position.x, position.z), player) < kUnseenDistance) continue;   // reaparece solo fuera de la vista del jugador
+        if (NearestPlayerDistanceXZ(position) < (minViewDistance >= 0.0f ? minViewDistance : kUnseenDistance)) continue;   // reaparece solo fuera de la vista de todos los jugadores
         bool free = true;
         for (const TrafficVehicle& other : m_Traffic) {
             if (&other != &vehicle && glm::distance(other.position, position) < 9.0f) { free = false; break; }
@@ -3416,8 +3742,9 @@ void Simulation::RespawnAbandoned(TrafficVehicle& vehicle) {
             driver.passengerColor = {0.22f + m_Unit(m_Random) * 0.55f, 0.18f + m_Unit(m_Random) * 0.48f, 0.15f + m_Unit(m_Random) * 0.42f};
             driver.passengerShade = m_Unit(m_Random) * 2.0f;
         }
-        return;
+        return true;
     }
+    return false;
 }
 
 void Simulation::UpdateDrivers(float dt, const glm::vec3& playerPosition) {
@@ -3541,6 +3868,7 @@ void Simulation::UpdateDrivers(float dt, const glm::vec3& playerPosition) {
     constexpr float kBoardSpeed = 1.6f; // subir y bajar del vehiculo se reproduce a 1,6x: el clip original se sentia lento
     for (size_t index = 0; index < m_Traffic.size(); ++index) {
         TrafficVehicle& vehicle = m_Traffic[index];
+        if (vehicle.dormant) continue;
         DriverInfo& driver = vehicle.driver;
         driver.cooldown = std::max(0.0f, driver.cooldown - dt);
         if (vehicle.emergency != 2 && vehicle.emergency != 3 && m_PoliceAppearanceFirst > 0 && m_PoliceAppearanceFirst < m_PedestrianAppearances.size()) {   // los uniformes de policia son solo de la patrulla
@@ -3552,7 +3880,7 @@ void Simulation::UpdateDrivers(float dt, const glm::vec3& playerPosition) {
         const bool moto = vehicle.emergency == 3;
         const float enterLength = moto ? 2.0f : 4.5f;           // BikeMount 48 f / CarEnter 108 f
         const float exitLength = moto ? 2.5f : 5.75f;           // BikeDismount 60 f / CarExit 138 f
-        const float playerDistance = glm::distance(glm::vec2(vehicle.position.x, vehicle.position.z), glm::vec2(playerPosition.x, playerPosition.z));
+        const float playerDistance = NearestPlayerDistanceXZ(vehicle.position);   // al jugador mas cercano (con uno solo, a ese)
         glm::vec3 pose;
         float yaw = 0.0f;
         VehiclePose(vehicle, pose, yaw);
@@ -3603,11 +3931,13 @@ void Simulation::UpdateDrivers(float dt, const glm::vec3& playerPosition) {
                     driver.passengerShade = m_Unit(m_Random) * 2.0f;
                 }
                 if (driver.dispatched) {   // acude manejando por las calles, mas rapido que el trafico, hasta llegar al jugador
+                    const glm::vec3 chasePosition = PlayerPositionById(driver.targetPlayer, playerPosition);   // su jugador, no el mas cercano
+                    const float chaseDistance = glm::distance(glm::vec2(vehicle.position.x, vehicle.position.z), glm::vec2(chasePosition.x, chasePosition.z));
                     driver.dispatchTime += dt;
                     driver.pathAge += dt;
                     driver.boost = std::max(driver.boost, 0.5f);
                     const bool atEnd = driver.pathMode == 1 && vehicle.distance >= driver.pathLength - 1.0f;
-                    if (playerDistance < 16.0f || (atEnd && playerDistance < 120.0f)) {   // llego (o es lo mas cerca que llega la calle): frena y se baja
+                    if (chaseDistance < 16.0f || (atEnd && chaseDistance < 120.0f)) {   // llego (o es lo mas cerca que llega la calle): frena y se baja
                         driver.dispatched = false;
                         vehicle.holdStop = true;
                         driver.state = DriverState::Braking;
@@ -3616,11 +3946,11 @@ void Simulation::UpdateDrivers(float dt, const glm::vec3& playerPosition) {
                         driver.dispatched = false;
                         driver.siren = false;
                         driver.boost = 0.0f;
-                    } else if (driver.pathMode != 1 || (driver.pathAge > 4.0f && glm::distance(glm::vec2(driver.pathGoal.x, driver.pathGoal.z), glm::vec2(playerPosition.x, playerPosition.z)) > 12.0f)) {
+                    } else if (driver.pathMode != 1 || (driver.pathAge > 4.0f && glm::distance(glm::vec2(driver.pathGoal.x, driver.pathGoal.z), glm::vec2(chasePosition.x, chasePosition.z)) > 12.0f)) {
                         std::vector<glm::vec3> path;   // traza (o corrige) el camino hacia donde esta el jugador ahora
-                        if (PlanRoadPath(vehicle.position, vehicle.direction, playerPosition, true, path)) {
+                        if (PlanRoadPath(vehicle.position, vehicle.direction, chasePosition, true, path)) {
                             FollowPath(vehicle, std::move(path), 1);
-                            driver.pathGoal = playerPosition;
+                            driver.pathGoal = chasePosition;
                         } else if (driver.pathMode != 1) {   // sin camino por la calle: no puede acudir
                             driver.dispatched = false;
                             driver.siren = false;
@@ -3817,15 +4147,19 @@ void Simulation::UpdateDrivers(float dt, const glm::vec3& playerPosition) {
 
 void Simulation::UpdatePedestrians(float dt, const glm::vec3& playerPosition) {
     m_PedestrianSpawnTimer -= dt;
-    const size_t populationLimit = IsNight() ? 9 : 22;
+    // con varios jugadores la calle se llena un poco mas por cada uno (hasta 110): con uno solo sigue siendo 22 de dia y 9 de noche
+    const size_t extraPlayers = m_PlayerViews.size() > 1 ? m_PlayerViews.size() - 1 : 0;
+    const size_t populationLimit = std::min<size_t>((IsNight() ? 9 : 22) + extraPlayers * (IsNight() ? 4 : 8), IsNight() ? 50 : 110);
     const size_t alivePedestrians = static_cast<size_t>(std::count_if(m_Pedestrians.begin(), m_Pedestrians.end(), [](const Pedestrian& p) { return !p.dead && !p.departed; }));
-    if (alivePedestrians < populationLimit && m_PedestrianSpawnTimer <= 0.0f) {
+    if (alivePedestrians < populationLimit && m_PedestrianSpawnTimer <= 0.0f && !m_PlayerViews.empty()) {
+        const Net::PlayerView& spawnAround = m_PlayerViews[m_SpawnPlayerCursor++ % m_PlayerViews.size()];   // por turnos: con uno, siempre el mismo
+        const glm::vec3 spawnCenter(spawnAround.position.x, spawnAround.position.y, spawnAround.position.z);
         glm::vec3 spawn(0.0f);
         bool foundSpawn = false;
         for (int attempt = 0; attempt < 60 && !foundSpawn; ++attempt) {
             const float angle = m_Unit(m_Random) * glm::two_pi<float>();
             const float distance = 58.0f + m_Unit(m_Random) * 12.0f;
-            const glm::vec3 candidate = playerPosition
+            const glm::vec3 candidate = spawnCenter
                 + glm::vec3(std::cos(angle) * distance, 0.0f, std::sin(angle) * distance);
             if (!m_City.IsSidewalk(candidate.x, candidate.z)
                 || m_City.IsBlocked(candidate.x, candidate.z, 0.25f)) continue;
@@ -3903,6 +4237,8 @@ void Simulation::UpdatePedestrians(float dt, const glm::vec3& playerPosition) {
         }
         walker.target = walker.position;
     };
+    bool captureOngoing = false;   // un policia ya esta reduciendo al jugador: el otro observa
+    for (const Pedestrian& officer : m_Pedestrians) if (officer.captureTime >= 0.0f) captureOngoing = true;
     for (auto& pedestrian : m_Pedestrians) {
         if (pedestrian.departed) continue;
         pedestrian.position.y = m_City.GetGroundHeight(pedestrian.position.x, pedestrian.position.z);   // siempre pisan el suelo
@@ -3923,12 +4259,13 @@ void Simulation::UpdatePedestrians(float dt, const glm::vec3& playerPosition) {
         pedestrian.punchCooldown = std::max(0.0f, pedestrian.punchCooldown - dt);
         pedestrian.bubbleRemaining = std::max(0.0f, pedestrian.bubbleRemaining - dt);
         pedestrian.bubbleCooldown = std::max(0.0f, pedestrian.bubbleCooldown - dt);
-        if (pedestrian.bubbleCooldown <= 0.0f && pedestrian.reaction == 0 && !pedestrian.aggressive
-            && glm::distance(glm::vec2(pedestrian.position.x, pedestrian.position.z), glm::vec2(playerPosition.x, playerPosition.z)) < 2.8f) {
+        const Net::PlayerView* closestPlayer = NearestPlayerTo(pedestrian.position);
+        if (pedestrian.bubbleCooldown <= 0.0f && pedestrian.reaction == 0 && !pedestrian.aggressive && closestPlayer
+            && glm::distance(glm::vec2(pedestrian.position.x, pedestrian.position.z), glm::vec2(closestPlayer->position.x, closestPlayer->position.z)) < 2.8f) {
             // al pasar cerca del jugador saluda (una de cada dos veces); si esta sucio, se queja del olor
             pedestrian.bubbleCooldown = 14.0f;
             if (m_Unit(m_Random) < 0.5f) {
-                pedestrian.bubbleText = m_PlayerHygiene < 30.0f ? kDirtyPhrases[static_cast<size_t>(m_Unit(m_Random) * 3.99f)]
+                pedestrian.bubbleText = closestPlayer->hygiene < 30.0f ? kDirtyPhrases[static_cast<size_t>(m_Unit(m_Random) * 3.99f)]
                                                                 : kGreetings[static_cast<size_t>(m_Unit(m_Random) * 7.99f)];
                 pedestrian.bubbleRemaining = 3.5f;
             }
@@ -3966,7 +4303,7 @@ void Simulation::UpdatePedestrians(float dt, const glm::vec3& playerPosition) {
                     pedestrian.aggressionRemaining = pedestrian.police ? 45.0f : 14.0f;
                 } else {
                     pedestrian.fleeRemaining = 6.0f;
-                    glm::vec3 away = pedestrian.position - playerPosition;
+                    glm::vec3 away = pedestrian.position - NearestPlayerPosition(pedestrian.position, playerPosition);
                     away.y = 0.0f;
                     pedestrian.fleeDirection = glm::length(away) > 0.01f ? glm::normalize(away) : glm::vec3(1.0f, 0.0f, 0.0f);
                 }
@@ -4019,7 +4356,10 @@ void Simulation::UpdatePedestrians(float dt, const glm::vec3& playerPosition) {
         }
         if (pedestrian.aggressive) {
             pedestrian.aggressionRemaining -= dt;
-            glm::vec3 toPlayer = playerPosition - pedestrian.position;
+            const Net::PlayerView* targetPlayer = NearestPlayerTo(pedestrian.position);
+            const glm::vec3 targetPosition = targetPlayer ? glm::vec3(targetPlayer->position.x, targetPlayer->position.y, targetPlayer->position.z) : playerPosition;
+            const uint8_t targetId = targetPlayer ? targetPlayer->id : uint8_t{0};
+            glm::vec3 toPlayer = targetPosition - pedestrian.position;
             toPlayer.y = 0.0f;
             const float playerDistance = glm::length(toPlayer);
             const auto startFleeing = [&]() {
@@ -4027,7 +4367,7 @@ void Simulation::UpdatePedestrians(float dt, const glm::vec3& playerPosition) {
                 pedestrian.fleeAfterPunch = false;
                 pedestrian.punchTime = -1.0f;
                 pedestrian.fleeRemaining = 8.0f;
-                glm::vec3 away = pedestrian.position - playerPosition;
+                glm::vec3 away = pedestrian.position - targetPosition;
                 away.y = 0.0f;
                 pedestrian.fleeDirection = glm::length(away) > 0.01f ? glm::normalize(away) : glm::vec3(1.0f, 0.0f, 0.0f);
                 pedestrian.route.clear();
@@ -4039,6 +4379,24 @@ void Simulation::UpdatePedestrians(float dt, const glm::vec3& playerPosition) {
                 continue;
             }
             const glm::vec3 toward = playerDistance > 0.01f ? toPlayer / playerDistance : glm::vec3(0.0f, 0.0f, 1.0f);
+            if (captureOngoing && pedestrian.police && pedestrian.captureTime < 0.0f && playerDistance <= 2.4f) {   // el primer policia que alcanza al jugador lo reduce; el companero sigue acercandose y, ya cerca, se detiene a mirar
+                pedestrian.yaw = std::atan2(toward.x, toward.z);
+                pedestrian.punchTime = -1.0f;
+                pedestrian.moving = false;
+                continue;
+            }
+            if (pedestrian.captureTime >= 0.0f) {   // sostiene al jugador: no se mueve y lo mira; al terminar suelta y vuelve a lo suyo
+                pedestrian.captureTime += dt;
+                pedestrian.yaw = std::atan2(toward.x, toward.z);
+                if (pedestrian.captureTime >= kCaptureSeconds) {
+                    pedestrian.captureTime = -1.0f;
+                    pedestrian.aggressive = false;
+                    pedestrian.punchTime = -1.0f;
+                    pedestrian.route.clear();
+                    pedestrian.nextWaypoint = 0;
+                }
+                continue;
+            }
             if (pedestrian.punchTime >= 0.0f) {
                 // lanza el puno: acierta hacia la mitad del movimiento si el jugador sigue al alcance
                 pedestrian.punchTime += dt;
@@ -4048,7 +4406,7 @@ void Simulation::UpdatePedestrians(float dt, const glm::vec3& playerPosition) {
                     pedestrian.punchLanded = true;
                     if (playerDistance < 1.6f) {
                         const float roll = pedestrian.fleeAfterPunch ? 0.2f + 0.4f * m_Unit(m_Random) : m_Unit(m_Random);
-                        m_PlayerHits.push_back({roll < 0.4f ? 1 : roll < 0.8f ? 2 : 3, -toward});
+                        if (m_PlayerHits.size() < 64) m_PlayerHits.push_back({roll < 0.4f ? 1 : roll < 0.8f ? 2 : 3, -toward, targetId});
                     }
                 }
                 if (pedestrian.punchTime >= blow.duration) {
@@ -4062,7 +4420,7 @@ void Simulation::UpdatePedestrians(float dt, const glm::vec3& playerPosition) {
                     pedestrian.pathPlan -= dt;
                     if (pedestrian.pathPlan <= 0.0f) {
                         pedestrian.pathPlan = 1.0f;
-                        pedestrian.nextWaypoint = FindWalkPath(pedestrian.position, playerPosition, pedestrian.route) ? 0 : pedestrian.route.size();
+                        pedestrian.nextWaypoint = FindWalkPath(pedestrian.position, targetPosition, pedestrian.route) ? 0 : pedestrian.route.size();
                         if (pedestrian.route.size() > 1 && glm::distance(pedestrian.position, pedestrian.route[1]) < glm::distance(pedestrian.route[0], pedestrian.route[1])) pedestrian.nextWaypoint = 1;
                     }
                     while (pedestrian.nextWaypoint < pedestrian.route.size() && glm::distance(glm::vec2(pedestrian.route[pedestrian.nextWaypoint].x, pedestrian.route[pedestrian.nextWaypoint].z), glm::vec2(pedestrian.position.x, pedestrian.position.z)) < 0.7f)
@@ -4090,6 +4448,10 @@ void Simulation::UpdatePedestrians(float dt, const glm::vec3& playerPosition) {
                         pedestrian.returnStuck = 0.0f;
                     }
                 }
+            } else if (pedestrian.punchCooldown <= 0.0f && pedestrian.police && !pedestrian.fleeAfterPunch && m_PlayerCaptures.size() < 4) {
+                pedestrian.captureTime = 0.0f;   // la policia no golpea: agarra y reduce
+                pedestrian.yaw = std::atan2(toward.x, toward.z);
+                m_PlayerCaptures.push_back({pedestrian.position, targetId});
             } else if (pedestrian.punchCooldown <= 0.0f) {
                 pedestrian.punchTime = 0.0f;
                 pedestrian.punchLanded = false;
@@ -4148,7 +4510,7 @@ void Simulation::UpdatePedestrians(float dt, const glm::vec3& playerPosition) {
         constexpr float kReach = 56.0f;   // solo los que el jugador ve
         for (size_t i = 0; i < m_Pedestrians.size(); ++i) {
             Pedestrian& a = m_Pedestrians[i];
-            if (a.dead || a.departed || glm::distance(a.position, playerPosition) > kReach) continue;
+            if (a.dead || a.departed || !NearAnyPlayer(a.position, kReach)) continue;
             for (size_t j = i + 1; j < m_Pedestrians.size(); ++j) {
                 Pedestrian& b = m_Pedestrians[j];
                 if (b.dead || b.departed || std::abs(a.position.y - b.position.y) > 1.0f) continue;
@@ -4166,7 +4528,7 @@ void Simulation::UpdatePedestrians(float dt, const glm::vec3& playerPosition) {
     }
     // los muertos se quedan donde cayeron mientras el jugador los tenga a la vista (los peatones se dibujan hasta 56 m)
     {   // los muertos se retiran a 62 m y el resto a 96 m; los peatones ligados a un vehiculo se conservan y los indices que guardan los conductores se reajustan
-        const auto removable = [&](const Pedestrian& p) { return p.vehicleIndex < 0 && glm::distance(p.position, playerPosition) > (p.dead ? 62.0f : 96.0f); };
+        const auto removable = [&](const Pedestrian& p) { return p.vehicleIndex < 0 && !NearAnyPlayer(p.position, p.dead ? 62.0f : 96.0f); };
         std::vector<size_t> remap(m_Pedestrians.size(), 0);
         size_t kept = 0;
         for (size_t i = 0; i < m_Pedestrians.size(); ++i) if (!removable(m_Pedestrians[i])) remap[i] = kept++;
@@ -4187,8 +4549,43 @@ void Simulation::UpdatePedestrians(float dt, const glm::vec3& playerPosition) {
     }
 }
 
+void Simulation::ResizeTrafficFleet(float dt) {
+    // Como el original (TrafficSystem._resizeFleet): la ciudad pide una flota segun la hora y el nivel, y los carros entran o salen a unos pocos por segundo, siempre fuera de la vista.
+    // Las patrullas, la ambulancia, la moto y los buses no entran en la cuenta; el que se retira queda guardado, no se destruye (los indices de la flota no cambian).
+    if (m_TrafficDensity < 0) return;
+    constexpr float kMinRate = 1.0f, kMaxRate = 8.0f, kRatePerMissing = 0.15f, kSafeDistance = 60.0f;   // 60 m: mas cerca se veria aparecer o desaparecer (el original usa la niebla, con ese minimo)
+    const auto civilian = [](const TrafficVehicle& v) { return !v.bus && !v.parked && v.emergency == 0; };
+    int active = 0, total = 0;
+    for (const TrafficVehicle& v : m_Traffic) if (civilian(v)) { ++total; if (!v.dormant) ++active; }
+    const int target = std::min(TrafficTargetVehicles(GetHour(), m_TrafficDensity), total);
+    const int missing = target - active;
+    if (missing == 0) { m_ResizeCredit = 0.0f; return; }
+    m_ResizeCredit += std::clamp(std::abs(static_cast<float>(missing)) * kRatePerMissing, kMinRate, kMaxRate) * dt;
+    while (m_ResizeCredit >= 1.0f) {
+        m_ResizeCredit -= 1.0f;
+        bool changed = false;
+        if (missing > 0) {   // vuelve uno: reaparece fuera de la vista, en un punto libre de un circuito
+            for (TrafficVehicle& v : m_Traffic) {
+                if (!civilian(v) || !v.dormant) continue;
+                if (RespawnAbandoned(v, kSafeDistance)) { v.dormant = false; changed = true; }
+                break;
+            }
+        } else {   // sale el que va mas lejos de la vista, sin tocar al que esta en una pelea, una espera o una persecucion
+            TrafficVehicle* farthest = nullptr; float best = kSafeDistance;
+            for (TrafficVehicle& v : m_Traffic) {
+                if (!civilian(v) || v.dormant || v.holdStop || (v.driver.state != DriverState::Seated && v.driver.state != DriverState::Braking) || v.driver.siren || v.swerveAround >= 0) continue;
+                const float distance = NearestPlayerDistanceXZ(v.position);
+                if (distance > best) { best = distance; farthest = &v; }
+            }
+            if (farthest) { farthest->dormant = true; farthest->speed = farthest->nextSpeed = 0.0f; farthest->position = farthest->previousPosition = glm::vec3(-5000.0f, -50.0f, -5000.0f); farthest->bike.ready = false; changed = true; }
+        }
+        if (!changed) { m_ResizeCredit = 0.0f; if (std::getenv("BAZUKO_LOG_TRAFFIC")) LogInfo("Flota: no hubo a quien retirar/reponer (faltan {})", missing); break; }
+    }
+}
+
 void Simulation::UpdateTraffic(float dt) {
     if (dt <= 0.0f) return;
+    ResizeTrafficFleet(dt);
     for (auto& vehicle : m_Traffic) vehicle.previousPosition = vehicle.position;
     constexpr float braking = 5.0f;
     constexpr float acceleration = 1.8f;
@@ -4244,6 +4641,7 @@ void Simulation::UpdateTraffic(float dt) {
             }
         }
         for (auto& vehicle : m_Traffic) {
+            if (vehicle.dormant) continue;
             float clearance = std::numeric_limits<float>::infinity();
             bool stoppedForPerson = false;
             {   // Un vehiculo detenido delante en mi carril (patrulla que se bajo a pelear, abandonado): lo rodeo por el carril libre y vuelvo al mio al pasarlo
@@ -4595,6 +4993,7 @@ void Simulation::UpdateTraffic(float dt) {
             }
         }
         for (auto& vehicle : m_Traffic) {
+            if (vehicle.dormant) continue;
             const float previousDistance = vehicle.distance;
             vehicle.distance = vehicle.nextDistance;
             vehicle.speed = vehicle.nextSpeed;
@@ -5966,7 +6365,7 @@ void Simulation::Render(Renderer& renderer, float time, const glm::vec3& focusPo
                 drawOccupant(vehicle.driver.passengerAppearance, vehicle.driver.passengerColor, vehicle.driver.passengerShade, true);
         }
     };
-    for (const auto& vehicle : m_Traffic) drawCar(vehicle);
+    for (const auto& vehicle : m_Traffic) if (!vehicle.dormant) drawCar(vehicle);
     for (const auto& vehicle : m_ParkedCars) {
         if (const char* forced = std::getenv("BAZUKO_PARK_EMERGENCY"); forced && &vehicle == &m_ParkedCars.front()) {   // pruebas: el primer carro parqueado es de emergencia (1 ambulancia, 2 patrulla)
             TrafficVehicle copy = vehicle;
@@ -6146,6 +6545,9 @@ void Simulation::Render(Renderer& renderer, float time, const glm::vec3& focusPo
             clip = appearance.fightClip;
             clipTime = 0.0f;
             Combat::AppendMove(combatTurns, pedestrian.dodgeKind == 0 ? Combat::Move::Slip : Combat::Move::RollingDuck, pedestrian.dodgeTime);
+        } else if (pedestrian.captureTime >= 0.0f && appearance.grabClip >= 0) {
+            clip = appearance.grabClip;   // PoliceGrab: agarra y reduce (3 s, igual que PoliceRestrained del jugador)
+            clipTime = pedestrian.captureTime;
         } else if (pedestrian.punchTime >= 0.0f && appearance.fightClip >= 0) {
             clip = appearance.fightClip;   // la guardia es la base y el golpe gira los huesos encima
             clipTime = 0.0f;
@@ -6183,6 +6585,25 @@ void Simulation::Render(Renderer& renderer, float time, const glm::vec3& focusPo
             glm::vec4 tint = PedestrianPartTint(appearance, partIndex, pedestrian.color, pedestrian.animationOffset);
             if (pedestrian.splatRemaining > 0.0f) tint *= glm::vec4(0.42f, 0.32f, 0.20f, 1.0f);
             model->Draw(renderer, character, tint, clipTime, clip >= 0, clip, -1, false, glm::vec4(1.0f), -1, 0.0f, combatTurns.empty() ? nullptr : &combatTurns);
+        }
+    }
+
+    // Otros jugadores (multijugador): el mismo cuerpo de un civil segun su id, caminando o corriendo segun su velocidad
+    for (const RemotePlayerView& remote : m_RemotePlayers) {
+        const glm::vec2 offset(remote.position.x - focusPosition.x, remote.position.z - focusPosition.z);
+        if (glm::dot(offset, offset) > 140.0f * 140.0f) continue;
+        const size_t civilians = std::min(m_PoliceAppearanceFirst, m_PedestrianAppearances.size());
+        if (civilians == 0) continue;
+        const auto& appearance = m_PedestrianAppearances[(static_cast<size_t>(remote.id) * 7u + 3u) % civilians];
+        int clip = remote.speed > 4.5f && appearance.runClip >= 0 ? appearance.runClip : remote.speed > 0.3f ? appearance.walkClip : appearance.idleClip;
+        float clipTime = time + static_cast<float>(remote.id) * 0.37f;
+        if (remote.knockedDown && appearance.lyingClip >= 0) { clip = appearance.lyingClip; clipTime = 0.0f; }
+        glm::mat4 character = glm::translate(glm::mat4(1.0f), remote.position);
+        character = glm::rotate(character, remote.yaw, {0.0f, 1.0f, 0.0f});
+        for (size_t partIndex = 0; partIndex < appearance.parts.size(); ++partIndex) {
+            const auto& model = appearance.parts[partIndex];
+            if (!model) continue;
+            model->Draw(renderer, character, PedestrianPartTint(appearance, partIndex, glm::vec3(0.65f, 0.55f, 0.42f), static_cast<float>(remote.id) * 0.37f), clipTime, clip >= 0, clip, -1, false);
         }
     }
 

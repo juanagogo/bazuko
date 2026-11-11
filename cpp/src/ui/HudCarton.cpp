@@ -53,7 +53,8 @@ void UIManager::RenderDeathCarton() {
         // recorte de periodico: sin exclamaciones, sin cuentas
         const std::string place = m_DeathPlace.empty() ? std::string("la calle") : m_DeathPlace;
         const std::string name = m_DeathName.empty() ? std::string("un habitante de calle") : m_DeathName;
-        const std::string headline = "Hallan muerto a " + name + ", habitante de calle, en " + place + ". Nadie vio nada.";
+        const std::string headline = m_DeathArrest ? "La Policía agarró a " + name + ", habitante de calle, en " + place + ". Se llevaron lo que cargaba."
+                                                   : "Hallan muerto a " + name + ", habitante de calle, en " + place + ". Nadie vio nada.";
         const float width = std::min(340.0f, display.x - 80.0f);
         const float height = C::TextHeight(false, 19, headline.c_str(), width - 30.0f) + 26.0f;
         const ImVec2 min((display.x - width) * 0.5f, display.y * 0.40f), max(min.x + width, min.y + height);
@@ -63,9 +64,9 @@ void UIManager::RenderDeathCarton() {
         draw->AddLine(ImVec2(min.x, max.y), ImVec2(max.x, max.y), C::kMarcador, 3.5f);
         C::Text(draw, false, 19, min + ImVec2(15.0f, 12.0f), C::kMarcador, headline.c_str(), width - 30.0f);
         // causa y consecuencia abajo a la izquierda
-        const std::string cause = m_DeathByVehicleImpact ? "Te atropelló un carro" : "Te quedaste sin fuerzas";
+        const std::string cause = m_DeathArrest ? "Te atrapó la Policía" : m_DeathByVehicleImpact ? "Te atropelló un carro" : "Te quedaste sin fuerzas";
         C::Text(draw, false, 20, ImVec2(24.0f, display.y - 84.0f), C::kMarcador, cause.c_str());
-        C::Text(draw, false, 16, ImVec2(24.0f, display.y - 50.0f), C::kMarcador, "Se vuelve al cambuche. Se pierde la mitad de lo que hay en el costal.");
+        C::Text(draw, false, 16, ImVec2(24.0f, display.y - 50.0f), C::kMarcador, m_DeathArrest ? "Se vuelve al cambuche sin nada de lo recolectado ni de lo ganado." : "Se vuelve al cambuche. Se pierde la mitad de lo que hay en el costal.");
         // boton oscuro abajo a la derecha
         const ImVec2 size(224.0f, 52.0f), bmin(display.x - size.x - 24.0f, display.y - size.y - 16.0f);
         ImGui::SetCursorScreenPos(bmin);
@@ -129,6 +130,23 @@ void UIManager::RenderHudCarton(const HudContext& c) {
             if (progress[0]) C::Text(draw, false, 16, at + ImVec2(20.0f, 14.0f + textHeight), C::kMarcador, progress);
         }
         ImGui::End();
+    }
+
+    // ---- arriba al centro, bajo la mision: la zona nueva donde se entra ----
+    if (m_ZoneNoticeRemaining > 0.0f) {
+        m_ZoneNoticeRemaining -= ImGui::GetIO().DeltaTime;
+        if (m_ZoneNoticeRemaining > 0.0f && !m_ZoneNotice.empty()) {
+            const std::string upper = SignUI::Upper(m_ZoneNotice);
+            const float width = C::TextWidth(true, 30, upper.c_str()) + 56.0f, height = 56.0f;
+            const float top = c.objective.empty() ? 14.0f : 118.0f;
+            if (BeginHud("##cartonZona", ImVec2(display.x * 0.5f, top), ImVec2(width, height), ImVec2(0.5f, 0.0f), false)) {
+                ImDrawList* draw = ImGui::GetWindowDrawList();
+                const ImVec2 at = ImGui::GetWindowPos();
+                C::Panel(draw, at, at + ImVec2(width, height), 17u, 6.0f);
+                C::Text(draw, true, 30, at + ImVec2(28.0f, 11.0f), C::kMarcador, upper.c_str(), width - 40.0f);
+            }
+            ImGui::End();
+        }
     }
 
     // ---- arriba a la derecha: plata, hora y quien eres ----
@@ -201,8 +219,9 @@ void UIManager::RenderHudCarton(const HudContext& c) {
         const float radarHeight = m_RadarVisible ? std::round(dockWidth * 3.0f / 4.0f) : 0.0f;
         const float infoHeight = m_RadarVisible ? 46.0f : 0.0f;
         const bool merged = m_RadarVisible && !std::getenv("BAZUKO_HUD_SEPARADO");   // tarjeta de destino, plano y necesidades en un solo panel de carton
+        const float streetHeight = merged && !m_RadarStreet.empty() ? 24.0f : 0.0f;   // la via donde estoy, bajo el plano
         float stackHeight = static_cast<float>(warnings.size() + diseases.size()) * 42.0f;
-        if (merged) stackHeight += infoHeight + 6.0f + radarHeight + 10.0f + needsHeight;
+        if (merged) stackHeight += infoHeight + 6.0f + radarHeight + streetHeight + 10.0f + needsHeight;
         else stackHeight += needsHeight + 10.0f + (m_RadarVisible ? radarHeight + 6.0f + infoHeight : 0.0f);
         const ImVec2 dockPos(14.0f, display.y - 14.0f - stackHeight);
         if (BeginHud("##cartonDock", dockPos, ImVec2(dockWidth, stackHeight))) {
@@ -222,7 +241,11 @@ void UIManager::RenderHudCarton(const HudContext& c) {
                 C::Panel(draw, ImVec2(dockPos.x, y), ImVec2(dockPos.x + dockWidth, dockPos.y + stackHeight), 13u, 7.0f);
                 const float mapTop = y + 6.0f + infoHeight;
                 RenderMinimap(c, ImVec2(dockPos.x + 8.0f, mapTop), ImVec2(dockWidth - 16.0f, radarHeight), infoHeight, true);
-                y = mapTop + radarHeight + 6.0f;
+                if (streetHeight > 0.0f) {
+                    const float textWidth = C::TextWidth(false, 15, m_RadarStreet.c_str());
+                    C::Text(draw, false, 15, ImVec2(dockPos.x + (dockWidth - std::min(textWidth, dockWidth - 20.0f)) * 0.5f, mapTop + radarHeight + 6.0f), C::kMarcador, m_RadarStreet.c_str(), dockWidth - 20.0f);
+                }
+                y = mapTop + radarHeight + 6.0f + streetHeight;
             }
             const ImVec2 needsMin(dockPos.x, y), needsMax(dockPos.x + dockWidth, merged ? dockPos.y + stackHeight : y + needsHeight);
             if (!merged) C::Panel(draw, needsMin, needsMax, 13u, 7.0f);
