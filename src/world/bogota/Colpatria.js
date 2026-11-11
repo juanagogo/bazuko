@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 
-export const COLPATRIA = Object.freeze({ x: 81, z: 168, width: 24, depth: 26, height: 112 });
-export const COLPATRIA_ANNEX = Object.freeze({ x: 98, z: 168, width: 10, depth: 18, height: 22 });
+export const COLPATRIA = Object.freeze({ x: 236, z: 182, width: 24, depth: 26, height: 112 });
+export const COLPATRIA_ANNEX = Object.freeze({ x: 254, z: 182, width: 10, depth: 18, height: 22 });
 export const BUS_DETOUR = Object.freeze({ z0: 80, z1: 260, offset: 44 });
 
 export function bridgeCenter(z) {

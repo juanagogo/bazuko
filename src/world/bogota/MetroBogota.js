@@ -19,9 +19,10 @@ export const METRO = Object.freeze({
 });
 
 export const METRO_STATIONS = Object.freeze([
-  { id: 'san_victorino', name: 'EstacionMetroSanVictorino', title: 'Estación San Victorino', shortName: 'San Victorino', z: 95 },
-  { id: 'calle_26', name: 'EstacionMetroCalle26', title: 'Estación Calle 26', shortName: 'Calle 26', z: 135 },
-  { id: 'calle_72', name: 'EstacionMetroCalle72', title: 'Estación Calle 72', shortName: 'Calle 72', z: 210 }
+  { id: 'san_victorino', name: 'EstacionMetroSanVictorino', title: 'Estación San Victorino', shortName: 'San Victorino', z: 270, x: 74 },
+  { id: 'calle_26', name: 'EstacionMetroCalle26', title: 'Estación Calle 26 / Centro Internacional', shortName: 'Calle 26', z: 193, x: 75 },
+  { id: 'calle_72', name: 'EstacionMetroCalle72', title: 'Estación Calle 72 / Zona T', shortName: 'Calle 72', z: 115, x: 76 },
+  { id: 'calle_93', name: 'EstacionMetroCalle93', title: 'Estación Calle 93 (Norte)', shortName: 'Calle 93', z: 32, x: 77 }
 ]);
 
 const STATION_HALF_LEN = 16;

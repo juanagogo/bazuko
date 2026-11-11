@@ -604,11 +604,15 @@ export class MapView {
 
     const plan = this.game.mapPlan;
     if (this.showOfficialCartography && this._officialMapImg && plan) {
-      const [ox, oy] = this._toScreen(plan.originX, plan.originZ);
-      const mw = plan.worldWidth * this.zoom;
-      const mh = plan.worldHeight * this.zoom;
+      // Ajuste de encuadre métrico exacto (margen exterior del plano artístico vs cuadrícula de juego)
+      // El marco del plano tiene un margen de cartón exterior (~5% X, ~4.5% Z)
+      const padX = plan.worldWidth * 0.048;
+      const padZ = plan.worldHeight * 0.042;
+      const [ox, oy] = this._toScreen(plan.originX - padX, plan.originZ - padZ);
+      const mw = (plan.worldWidth + padX * 2) * this.zoom;
+      const mh = (plan.worldHeight + padZ * 2) * this.zoom;
       ctx.save();
-      ctx.globalAlpha = 0.94;
+      ctx.globalAlpha = 0.95;
       ctx.drawImage(this._officialMapImg, ox, oy, mw, mh);
       ctx.restore();
     }
