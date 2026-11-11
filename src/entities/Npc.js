@@ -826,10 +826,16 @@ export class Npc {
     if (this._raining && this.person.paraguas === null && !this.target && !this.fijo && this.wait > 2) this.wait = .5 + Math.random() * 1.5;
     if (this._noseTimer > 0) this._noseTimer -= dt;
     if (this._noseCooldown > 0) this._noseCooldown -= dt;
-    else if ((ctx.hygiene ?? 100) < CONDUCT.noseHygiene && this._playerDist < CONDUCT.noseRange && this.person.nariz
-      && !this.koState && this.fleeTimer <= 0 && !LOW_STANCES.has(this.stance) && !(this._raining && this.person.paraguas !== null && !this.fijo?.techo)) {
+    else if ((ctx.hygiene ?? 100) < CONDUCT.noseHygiene && this._playerDist < CONDUCT.noseRange
+      && !this.koState && this.fleeTimer <= 0 && !LOW_STANCES.has(this.stance)) {
       this._noseTimer = 2 + Math.random() * 2;
-      this._noseCooldown = this._noseTimer + 8 + Math.random() * 12;
+      this._noseCooldown = this._noseTimer + 6 + Math.random() * 8;
+      // Con mal olor, el peatón huye corriendo de la peste
+      if (!this.isVendor) {
+        this._fleeFrom(ctx.player);
+        this.fleeTimer = 4.0;
+      }
+      this.say(this.isVendor ? '¡Aléjese del puesto con esa peste!' : any(BOGOTA_DIRTY_PHRASES));
     }
   }
 
