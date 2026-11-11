@@ -38,7 +38,7 @@ import { TrafficRoute } from '../bogota/TrafficRoute.js';
 import { BusService } from '../bogota/BusService.js';
 import { skylineFloors, buildAvenueOverpass, AVENUE_OVERPASS } from '../bogota/AvenueLandmarks.js';
 import { GAS_STATION, GAS_OBSTACLES, inGasStation, underGasCanopy, buildGasStation } from '../bogota/GasStation.js';
-import { buildMetroBogota } from '../bogota/MetroBogota.js';
+import { buildMetroBogota, metroSurface, underMetroRoof } from '../bogota/MetroBogota.js';
 import { buildNorthZones } from '../bogota/NorthZones.js';
 import { buildD69Store } from '../bogota/D69Store.js';
 import { buildColpatria, COLPATRIA, COLPATRIA_ANNEX, BUS_DETOUR, busPathX, southBusPathX } from '../bogota/Colpatria.js';
@@ -249,6 +249,10 @@ export class Bogota {
 
     // Metro de Bogotá (Línea 1 PLMB - Viaducto elevado sobre la Caracas y tren oficial)
     const metro = buildMetroBogota({ pavement: this.groundMaterials.road });
+    this.metro = metro;
+    this.metroTrain = metro.userData.train ?? null;
+    this.metroStations = metro.userData.stations ?? [];
+    if (this.metroTrain?.group) this.animated.push(this.metroTrain.group);
     this.group.add(metro);
     if (metro.userData.colliders) {
       for (const entry of metro.userData.colliders) collisions?.colliders.push(entry);
@@ -276,12 +280,13 @@ export class Bogota {
     // Las torres se ven desde todo el barrio: su material lo permite, y aquí tampoco las corta Three.
     this.group.traverse(mesh => { if (mesh.material?.userData?.pastFar) mesh.frustumCulled = false; });
     const closedView = this.buildingVisibility.closedView;
+    const dynamicGroups = new Set([closedView, this.cerros, ...this.busServices.map(bus => bus.group), this.metroTrain?.group].filter(Boolean));
     this.renderSectors = [
-      ...createRenderSectors(this.group, new Set([closedView, this.cerros, ...this.busServices.map(bus => bus.group)]), CLOSED_CHUNK_SIZE),
+      ...createRenderSectors(this.group, dynamicGroups, CLOSED_CHUNK_SIZE),
       ...createRenderSectors(closedView, undefined, CLOSED_CHUNK_SIZE)
     ];
     scene.add(this.group);
-    freezeStaticTransforms(this.group, new Set(this.busServices.map(bus => bus.group)));
+    freezeStaticTransforms(this.group, new Set([...this.busServices.map(bus => bus.group), this.metroTrain?.group].filter(Boolean)));
     this.signals = new TrafficSignals();
     this.group.add(this.signals.group);
     for (const bus of this.busServices) bus.signals = this.signals;
@@ -1054,6 +1059,8 @@ export class Bogota {
 
   getMovementGroundHeight(x, z, currentY) {
     if (inTerminal(x,z)) return terminalGroundHeight(x,z);
+    const metro = metroSurface(x, z);
+    if (metro !== null && Math.abs(metro - currentY) < .75) return metro;
     const deck = viaductSurface(x, z);
     // Solo se entra por la rampa o desde el propio tablero; debajo se conserva la calle.
     if (deck !== null && Math.abs(deck - currentY) < .6) return deck;
@@ -1071,8 +1078,17 @@ export class Bogota {
     const tileX = Math.round(x / T), tileZ = Math.round(z / T);
     const ground = { height: inTerminal(x, z) ? terminalGroundHeight(x, z)
       : this._lakeGroundHeight(x, z) ?? churchStepHeight(x, z) ?? tileGroundHeight(this.map[tileZ]?.[tileX], tileX, tileZ), layer: 'ground' };
-    const deck = viaductSurface(x, z);
     const feetY = from?.y ?? surface?.height ?? ground.height;
+    const metro = metroSurface(x, z);
+    if (metro !== null) {
+      const entersMetro = grounded && Math.abs(metro - feetY) < .75;
+      const previousMetro = from ? metroSurface(from.x, from.z) : null;
+      const abovePreviousMetro = previousMetro !== null && feetY >= previousMetro - 1e-7;
+      const landsOnMetro = !grounded && surface?.layer === 'metro' &&
+        (metro <= feetY + 1e-7 || abovePreviousMetro);
+      if (entersMetro || landsOnMetro) return { height: metro, layer: 'metro' };
+    }
+    const deck = viaductSurface(x, z);
     if (deck !== null) {
       // A pie se accede por una rampa cercana a los pies. En un salto desde
       // el tablero, comprobar también el apoyo anterior: al correr cuesta
@@ -1603,8 +1619,8 @@ export class Bogota {
     this.group.updateWorldMatrix(true, true);
   }
 
-  /** ¿Hay techo encima? La cubierta del Portal y la marquesina de la gasolinera. */
-  isRoofedAt(x, z) { return underTerminalRoof(x, z) || underGasCanopy(x, z); }
+  /** ¿Hay techo encima? La cubierta del Portal, estaciones/viaducto del Metro y la marquesina de la gasolinera. */
+  isRoofedAt(x, z) { return underTerminalRoof(x, z) || underGasCanopy(x, z) || underMetroRoof(x, z); }
 
   update(dt, playerPos, camera, trafficVehicles = []) {
     this.t += dt;

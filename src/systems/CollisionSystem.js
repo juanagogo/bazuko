@@ -157,7 +157,9 @@ export class CollisionSystem {
     const epsilon = 1e-7;
     const start = pos[axis];
     let end = start + delta;
+    const onMetroDeck = pos.y >= 12.2 && pos.y <= 15.5;
     for (const { box, vehicle, layered, obb } of this._movementColliders(pos, radius, axis, delta)) {
+      if (onMetroDeck && !layered && !vehicle) continue;
       if ((vehicle || layered) && (pos.y > box.max.y || pos.y + 1.6 < box.min.y)) continue;
       if (obb) {
         const movement = new THREE.Vector3(); movement[axis] = end - start;

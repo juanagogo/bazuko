@@ -106,6 +106,7 @@ export class InteractionSystem {
         else if (t.kind === 'fireBarrel') nearestType = 'fireBarrel';
         else if (t.kind === 'recycler') nearestType = 'sell';
         else if (t.kind === 'mesa') nearestType = 'mesa';
+        else if (t.kind === 'metro') nearestType = 'metro';
         else if (typeof t.harvest === 'function') nearestType = 'pickup';
         else if (typeof t.steal === 'function') nearestType = 'car';
         else if (typeof t.sellSubstances === 'function') nearestType = 'dealer';
@@ -184,7 +185,15 @@ export class InteractionSystem {
           // Abre su tienda: ahí se compra y, de noche, se elige qué venderle. Nunca vende sin preguntar.
           window.dispatchEvent(new CustomEvent('dealer-toggle', { detail: { dealer: nearest } }));
           break;
+        case 'metro':
+          window.dispatchEvent(new CustomEvent('metro-action', { detail: { target: nearest, action: 'primary' } }));
+          break;
       }
+    }
+
+    // === Acción secundaria en estación del Metro (Q) ===
+    if (nearestType === 'metro' && input.consumePress('KeyQ')) {
+      window.dispatchEvent(new CustomEvent('metro-action', { detail: { target: nearest, action: 'secondary' } }));
     }
 
     // === Comprar producto / Abrir tienda del dealer (Q) ===

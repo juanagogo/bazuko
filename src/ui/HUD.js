@@ -59,8 +59,17 @@ export function piezasDelPrompt(texto) {
 
 /** Lo que dice la tecla de contexto ahora mismo. Cadena vacía si no hay nada que hacer. */
 export function textoDelPrompt(interaction, inventory) {
+  if (globalThis.__game?.ridingMetro) {
+    return '[E] Bajarme en estación o viaducto · [Q] Bajar a la calle';
+  }
   if (!interaction?.currentTarget && !interaction?.stealPrompt) return '';
   const type = interaction.currentTargetType;
+  if (type === 'metro') {
+    const elevated = (interaction.player?.position?.y ?? 0) >= 11;
+    return elevated
+      ? '[E] Subirme al tren del Metro · [Q] Bajar a la calle'
+      : '[E] Subir a la estación y viaducto · [Q] Subirme al tren del Metro';
+  }
   if (type === 'pickup') return '[E] Recoger basura · [Mantener Q] Seleccionar';
   if (type === 'car') return interaction.currentTarget?.traffic ? '[E] Robar retrovisor del carro en circulación' : '[E] Robar retrovisor del carro';
   if (type === 'fireBarrel') return '[E] Calentarme en la fogata';
@@ -88,6 +97,9 @@ const VERBO_CORTO = [
   [/^Comprar en /, 'Comprar'],
   [/^Mi cambuche/, 'Mi cambuche'],
   [/^El jíbaro/, 'El jíbaro'],
+  [/^Subir a la estación/, 'Subir al Metro'],
+  [/^Subirme al tren/, 'Subirme al tren'],
+  [/^Bajarme en estación/, 'Bajarme'],
   [/^Agarrar la carreta/, 'Agarrar carreta'],
   [/^Soltar la carreta/, 'Soltar carreta'],
   [/^Cosquilleo/, 'Cosquilleo'],
