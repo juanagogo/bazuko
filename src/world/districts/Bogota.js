@@ -38,6 +38,7 @@ import { TrafficRoute } from '../bogota/TrafficRoute.js';
 import { BusService } from '../bogota/BusService.js';
 import { skylineFloors, buildAvenueOverpass, AVENUE_OVERPASS } from '../bogota/AvenueLandmarks.js';
 import { GAS_STATION, GAS_OBSTACLES, inGasStation, underGasCanopy, buildGasStation } from '../bogota/GasStation.js';
+import { buildMetroBogota } from '../bogota/MetroBogota.js';
 import { buildD69Store } from '../bogota/D69Store.js';
 import { buildColpatria, COLPATRIA, COLPATRIA_ANNEX, BUS_DETOUR, busPathX, southBusPathX } from '../bogota/Colpatria.js';
 import { VIADUCT, buildColpatriaViaduct, viaductHeight, viaductSurface } from '../bogota/ColpatriaViaduct.js';
@@ -244,6 +245,13 @@ export class Bogota {
     const tower = buildColpatria({ createSign: signTexture });
     this.towerLights = tower.userData.lightMaterials;
     this.group.add(tower);
+
+    // Metro de Bogotá (Línea 1 PLMB - Viaducto elevado sobre la Caracas y tren oficial)
+    const metro = buildMetroBogota({ pavement: this.groundMaterials.road });
+    this.group.add(metro);
+    if (metro.userData.colliders) {
+      for (const entry of metro.userData.colliders) collisions?.colliders.push(entry);
+    }
     const parks = [
       { x0: WX(29.5), x1: WX(37.5), z0: WZ(33.5), z1: WZ(44.5) },
       ...EXTENSION_PARKS.map(park => ({ x0: W(park.x0 + .5), x1: W(park.x1 - .5), z0: W(park.z0 + .5), z1: W(park.z1 - .5) })),
@@ -1400,6 +1408,7 @@ export class Bogota {
 
   /** Zona de la ciudad en ese punto: decide qué gente anda por ahí (ver character/archetypes.js). */
   _zoneAt(x, z) {
+    if (Math.abs(x - 75) <= 6 && z >= 10 && z <= 310) return 'metro';
     if (x >= WX(9) - 1 && x <= WX(21) + 1 && z >= WZ(17) && z <= WZ(26)) return 'cartucho';
     if (x >= WX(29) && x <= WX(38) && z >= WZ(33) && z <= WZ(45)) return 'parque';
     if (x >= W(EAST_SEAM)) return z < W(CANDELARIA_END_Z) ? 'candelaria' : 'chapinero';
