@@ -178,7 +178,7 @@
   left: 50%; top: calc(18px + var(--safe-t)); transform: translateX(-50%);
   max-width: 44vw; padding: 6px 18px 8px;
   font-weight: 800; font-size: var(--letra-titulo); line-height: 1.05; text-align: center; white-space: nowrap;
-  pointer-events: none;
+  pointer-events: auto; cursor: pointer;
 }
 #mision[hidden] { display: none; }
 body:has(#movement-status:not([hidden])) #mision { display: none; }

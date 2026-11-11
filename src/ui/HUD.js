@@ -66,6 +66,13 @@ export function textoDelPrompt(interaction, inventory) {
   if (type === 'fireBarrel') return '[E] Calentarme en la fogata';
   if (type === 'sell') return '[E] Vender material en la recicladora';
   if (type === 'shop') return `[E] Comprar en ${interaction.currentTarget.title ?? 'Tienda La Esquinita'}`;
+  if (type === 'comedor') {
+    const game = typeof window !== 'undefined' ? window.__game : (typeof globalThis !== 'undefined' ? globalThis.__game : null);
+    const isAvail = game?.isComedorAvailable ? game.isComedorAvailable() : true;
+    return isAvail
+      ? '[E] Almorzar en el Comedor Comunitario (Gratis)'
+      : `[E] Comedor Comunitario (Próximo servicio en ${game?.getComedorRemainingHours?.() ?? 0} h)`;
+  }
   if (type === 'dog') {
     const hasFood = inventory?.items?.some(item => item.qty > 0 && ['pan', 'lataComida', 'carne', 'hueso'].includes(item.id));
     if (interaction.currentTarget?.isFriend) return '[E] Acariciar a El Chato';
@@ -85,6 +92,8 @@ const VERBO_CORTO = [
   [/^Acariciar a El Chato/, 'Acariciar'],
   [/^Calentarme/, 'Calentarme'],
   [/^Vender material/, 'Vender material'],
+  [/^Almorzar en el Comedor/, 'Almorzar'],
+  [/^Comedor Comunitario/, 'Comedor'],
   [/^Comprar en /, 'Comprar'],
   [/^Mi cambuche/, 'Mi cambuche'],
   [/^El jíbaro/, 'El jíbaro'],
@@ -152,6 +161,12 @@ export class HUD {
     this.wantedBarra = this.wantedEl?.querySelector?.('.wanted__barra .masa');
     this.wantedVoz = this.wantedEl?.querySelector?.('.wanted__voz');
     this.misionEl = document.getElementById('mision');
+    if (this.misionEl) {
+      this.misionEl.setAttribute('title', 'Misiones del día (J)');
+      this.misionEl.addEventListener('click', () => {
+        window.dispatchEvent(new CustomEvent('open-missions'));
+      });
+    }
     this.cartEl = document.getElementById('cart-indicator');
     this.boostEl = document.getElementById('boost-indicator');
     this.boostTimeEl = document.getElementById('boost-time');
@@ -679,7 +694,10 @@ export class HUD {
       this._misionS = 0;
       return;
     }
-    const texto = textoDeMision(game?.built, inventory);
+    let texto = textoDeMision(game?.built, inventory);
+    if (!texto && game?.dailyMissions?.activeMissionText) {
+      texto = game.dailyMissions.activeMissionText;
+    }
     // Cada cartón baja la cuenta, pero no es una misión nueva: no vuelve a salir por eso.
     const clave = texto?.replace(/\d+ CART\S+/, 'CARTONES') ?? null;
     if (clave === this._misionTexto) return;
@@ -795,6 +813,17 @@ export class HUD {
     if (itemId === 'radioTransistor') {
       game.inventoryUI?.close();
       window.dispatchEvent(new CustomEvent('open-radio-modal'));
+      return;
+    }
+    if (itemId === 'ropaLimpia') {
+      game.inventoryUI?.close();
+      inv.remove('ropaLimpia', 1);
+      const def = ITEMS[itemId] ?? item;
+      game.stats.higiene = Math.min(100, (game.stats.higiene || 0) + (def.amount || 30));
+      game.stats.animo = Math.min(100, (game.stats.animo || 0) + (def.animo || 15));
+      game.audio?.play('pickup');
+      this._toast('Te pusiste ropa limpia (+30 higiene, +15 ánimo)', 'info');
+      game.openWardrobe?.();
       return;
     }
     if (itemId === 'pilas') {

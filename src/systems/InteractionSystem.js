@@ -100,6 +100,7 @@ export class InteractionSystem {
         nearest = t;
         // Determinar tipo por `kind` o por métodos disponibles
         if (t.kind === 'shop') nearestType = 'shop';
+        else if (t.kind === 'comedor') nearestType = 'comedor';
         else if (t.kind === 'cambuche') nearestType = 'cambuche';
         else if (t.kind === 'dog') nearestType = 'dog';
         else if (t.kind === 'cart') nearestType = 'cart';
@@ -162,6 +163,9 @@ export class InteractionSystem {
         case 'shop':
           window.dispatchEvent(new CustomEvent('open-shop', { detail: { target: nearest } }));
           break;
+        case 'comedor':
+          window.dispatchEvent(new CustomEvent('open-comedor'));
+          break;
         case 'cambuche':
           window.dispatchEvent(new CustomEvent('open-cambuche'));
           break;
@@ -212,12 +216,14 @@ export class InteractionSystem {
       this.inventory.remove(foodItem.id, 1);
       dog.befriend();
       this.stats.saludMental = Math.min(100, this.stats.saludMental + 15);
+      window.dispatchEvent(new CustomEvent('dog-interacted', { detail: { action: 'feed' } }));
       window.dispatchEvent(new CustomEvent('toast', {
         detail: { text: `Le di ${ITEMS[foodItem.id]?.name ?? 'comida'} a El Chato. Ahora me acompaña.`, type: 'rare' }
       }));
     } else {
       if (!dog.pet()) return;
       this.stats.saludMental = Math.min(100, this.stats.saludMental + 5);
+      window.dispatchEvent(new CustomEvent('dog-interacted', { detail: { action: 'pet' } }));
       window.dispatchEvent(new CustomEvent('toast', {
         detail: { text: 'Acaricié a El Chato (+5 de ánimo).', type: 'info' }
       }));
@@ -245,6 +251,7 @@ export class InteractionSystem {
     this.stats.energia = Math.min(100, (this.stats.energia || 0) + 8);
     this.stats.animo = Math.min(100, (this.stats.animo || 0) + 12);
     this.audio?.play?.('full');
+    window.dispatchEvent(new CustomEvent('fire-warmed', { detail: {} }));
     window.dispatchEvent(new CustomEvent('toast', {
       detail: {
         text: 'Me calenté las manos en la fogata: +calor, +ánimo, +energía.',

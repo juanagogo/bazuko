@@ -285,7 +285,8 @@ export class Bogota {
       bed:    { ...SHELTER_LOCATION },
       dealer: { x: WX(14.5), z: WZ(21.5) },   // la olla de El Cartucho
       craft:  { x: WX(16.5), z: WZ(24.5) },
-      shop:   { x: WX(34), z: WZ(29) }        // andén de la Calle 9, de espaldas a la manzana
+      shop:   { x: WX(34), z: WZ(29) },        // andén de la Calle 9, de espaldas a la manzana
+      comedor: { x: WX(30), z: WZ(33) }       // comedor comunitario junto al parque
     };
     this.isNearReserved = (x, z, dist = 6) =>
       Object.values(this.reserved).some((r) => Math.hypot(x - r.x, z - r.z) < dist);
