@@ -33,7 +33,7 @@ function lineaMano(path, x0, y0, x1, y1, r, { over = 1.2, jit = .28, paso = 9 } 
  */
 export function prepararPlano(tiles) {
   if (!tiles || typeof Path2D === 'undefined') return null;
-  const { ancho, desdeZ, hastaZ, T, tipo, originX, originZ, viaducto, metro, gasStation, colpatria, santamaria } = tiles;
+  const { ancho, desdeZ, hastaZ, T, tipo, originX, originZ, viaducto, metro, gasStation, colpatria, santamaria, planetario, museoNacional } = tiles;
   const alto = hastaZ - desdeZ + 1;
   const filas = [];
   for (let z = 0; z < alto; z++) {
@@ -170,7 +170,7 @@ export function prepararPlano(tiles) {
     calle, buseta, anden, pasto, plaza, agua, lleno, contorno, bordesCalzada, achurado, olas, matas,
     tablero, anchoTablero: viaducto?.ancho ?? 0,
     tableroMetro, anchoMetro: metro?.ancho ?? 7,
-    hitos, hitosRojos, estaciones, santamaria
+    hitos, hitosRojos, estaciones, santamaria, planetario, museoNacional
   };
 }
 
@@ -276,6 +276,37 @@ export function trazarPlano(ctx, plano, k) {
     ctx.fillStyle = 'rgba(235, 195, 130, 0.9)';
     ctx.fill();
     ctx.stroke();
+    ctx.restore();
+  }
+
+  // 8b. Cúpula del Planetario Distrital (geodésica celeste)
+  if (plano.planetario) {
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(plano.planetario.x, plano.planetario.z, plano.planetario.r, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(74, 144, 226, 0.85)';
+    ctx.fill();
+    ctx.lineWidth = 1.6 / k;
+    ctx.strokeStyle = MARCADOR;
+    ctx.stroke();
+    // Centro de cúpula
+    ctx.beginPath();
+    ctx.arc(plano.planetario.x, plano.planetario.z, plano.planetario.r * 0.45, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(235, 240, 250, 0.9)';
+    ctx.fill();
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  // 8c. Museo Nacional (El Panóptico en piedra)
+  if (plano.museoNacional) {
+    ctx.save();
+    const mw = plano.museoNacional.w, md = plano.museoNacional.d;
+    ctx.fillStyle = 'rgba(163, 143, 120, 0.85)';
+    ctx.fillRect(plano.museoNacional.x - mw / 2, plano.museoNacional.z - md / 2, mw, md);
+    ctx.strokeStyle = MARCADOR;
+    ctx.lineWidth = 1.5 / k;
+    ctx.strokeRect(plano.museoNacional.x - mw / 2, plano.museoNacional.z - md / 2, mw, md);
     ctx.restore();
   }
 

@@ -14,8 +14,8 @@
       "height": 196,
       "color": "#c1beb0",
       "gamePos": {
-        "x": 81,
-        "z": 168
+        "x": 235,
+        "z": 171
       },
       "footprint": [
         [
@@ -47,8 +47,8 @@
       "height": 16.5,
       "color": "#9e3d2b",
       "gamePos": {
-        "x": 248,
-        "z": 164
+        "x": 232,
+        "z": 220
       },
       "footprint": [
         [
@@ -96,8 +96,8 @@
       "height": 12,
       "color": "#d4cfc4",
       "gamePos": {
-        "x": 232,
-        "z": 176
+        "x": 254,
+        "z": 225
       },
       "footprint": [
         [
@@ -186,7 +186,7 @@
       "height": 14.5,
       "color": "#a38f78",
       "gamePos": {
-        "x": 202,
+        "x": 236,
         "z": 148
       },
       "footprint": [
@@ -293,7 +293,7 @@
       "color": "#8b3a2b",
       "gamePos": {
         "x": 295,
-        "z": 108
+        "z": 115
       },
       "footprint": [
         [
@@ -342,7 +342,7 @@
       "color": "#d9ccb8",
       "gamePos": {
         "x": 38,
-        "z": 62
+        "z": 75
       },
       "footprint": [
         [

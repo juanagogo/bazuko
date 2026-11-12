@@ -47,7 +47,9 @@ export function cityMapPlan(district, tileSize = 2) {
       metro: { ancho: 7, puntos: puntosMetro, estaciones: estacionesMetro },
       gasStation: GAS_STATION,
       colpatria: COLPATRIA,
-      santamaria: { x: 232, z: 220, r: 14 }
+      santamaria: { x: 232, z: 220, r: 14 },
+      planetario: { x: 254, z: 225, r: 7 },
+      museoNacional: { x: 236, z: 148, w: 22, d: 16 }
     };
   };
   return plan;
@@ -83,10 +85,10 @@ export function cityLandmarks(tileSize = 2) {
   return [
     // 1. ZONAS EXCLUSIVAS DEL NORTE DE BOGOTÁ
     { name: 'Parque de la 93 (Chicó)', icon: '🌳', color: '#2a9d8f', x: 38, z: 25, fijo: true },
-    { name: 'Zona T (Calle 82 / Zona Rosa)', icon: '🍸', color: '#ff007f', x: 22, z: 75, fijo: true },
+    { name: 'Zona T (Calle 82 / Zona Rosa)', icon: '🍸', color: '#ff007f', x: 38, z: 75, fijo: true },
     { name: 'Zona G (Rosales / Gourmet)', icon: '🍽️', color: '#e76f51', x: 295, z: 115, fijo: true },
     { name: 'Mansión Reyes (Rosales / Zona G)', icon: '🏰', color: '#ffd166', x: 295, z: 115, fijo: true },
-    { name: 'Tarima Zona T (Show de Hilda)', icon: '🎤', color: '#f72585', x: 22, z: 75, fijo: true },
+    { name: 'Tarima Zona T (Show de Hilda)', icon: '🎤', color: '#f72585', x: 38, z: 75, fijo: true },
 
     // 2. METRO DE BOGOTÁ (PRIMERA LÍNEA ELEVADA - PLMB)
     { name: 'Metro de Bogotá · Estación Calle 93', icon: '🚇', color: '#2e7d32', x: 77, z: 32, fijo: true },
@@ -99,6 +101,8 @@ export function cityLandmarks(tileSize = 2) {
     { name: 'Torre Colpatria (Av. Calle 26)', icon: '🏙️', color: '#ffcb45', x: COLPATRIA.x, z: COLPATRIA.z, fijo: true },
     { name: 'Sede Grupo GER (Torre Colpatria)', icon: '🏢', color: '#ffb703', x: COLPATRIA.x, z: COLPATRIA.z, fijo: true },
     { name: 'Planetario de Bogotá y La Santamaría', icon: '🏛️', color: '#d4cfc4', x: 232, z: 220, fijo: true },
+    { name: 'Plaza de Toros de Santamaría', icon: '🏛️', color: '#c3915a', x: 232, z: 220, fijo: true },
+    { name: 'Planetario Distrital de Bogotá', icon: '🌌', color: '#4a90e2', x: 254, z: 225, fijo: true },
     { name: 'Museo Nacional de Colombia', icon: '🏛️', color: '#a38f78', x: 236, z: 148, fijo: true },
     { name: 'Portal del Centro (TransMilenio)', icon: '🚏', color: '#e45960', x: TERMINAL.x, z: TERMINAL.z, fijo: true },
     { name: PLAZA.name, icon: '🏛️', color: '#d9c49a', x: (PLAZA.x0 + PLAZA.x1) / 2 * tileSize, z: (PLAZA.z0 + PLAZA.z1) / 2 * tileSize, fijo: true },
