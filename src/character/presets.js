@@ -87,7 +87,7 @@ export const STREET_PRESETS = [
       accesorios: [],
       real: {
         sexo: 'mujer',
-        edad: 'adulta',
+        edad: 'adulto',
         pelo: 'largo',
         barba: 'ninguna',
         ropa: 'blusa',
@@ -116,7 +116,7 @@ export const STREET_PRESETS = [
       accesorios: [],
       real: {
         sexo: 'mujer',
-        edad: 'adulta',
+        edad: 'adulto',
         pelo: 'melena',
         barba: 'ninguna',
         ropa: 'blusa',

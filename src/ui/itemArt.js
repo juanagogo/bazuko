@@ -38,6 +38,7 @@ const ART = {
   radio: art('radio'),
   pan: art('pan'),
   comidaDanada: art('pan'),
+  sobrados: art('pan'),
   lataComida: art('lataComida'),
   agua: art('agua'),
   aguaCalle: art('agua'),

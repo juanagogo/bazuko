@@ -183,7 +183,7 @@ test('CERRADO dice la hora real de despertar', () => {
   assert.equal(letreroDeDormir(30).abajo, 'ABRIMOS A LAS 06:00');
   assert.equal(letreroDeDormir(6).arriba, 'CERRADO');
   assert.equal(letreroDeDormir(15.5).abajo, 'ABRIMOS A LAS 15:30');
-  assert.match(leer('src/core/game.js'), /'sleep-start', \{ detail: \{ despierta: this\.clock\.hour \+ hours \} \}/);
+  assert.match(leer('src/core/game.js'), /'sleep-start', \{ detail: \{ despierta: \(this\.clock\.hour \+ hours\) % 24, isResidencia \} \}/);
 });
 
 // ---------- la foto ----------

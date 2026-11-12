@@ -620,7 +620,7 @@ export class Bogota {
         const neighborhood = neighborhoodAt(W(x), W(z));
         const materialKey = neighborhood.id === 'candelaria' && t === 'road' ? 'road_cobbles'
           : neighborhood.id === 'candelaria' && t === 'plaza' ? 'plaza_candelaria'
-            : t === 'sidewalk' && neighborhood.id !== 'centro' ? `sidewalk_${neighborhood.id}` : t;
+            : t === 'sidewalk' && neighborhood.id !== 'centro' && mats[`sidewalk_${neighborhood.id}`] ? `sidewalk_${neighborhood.id}` : t;
         for (let i = 0; i < uv.count; i++) uv.setXY(i, pos.getX(i) / scaleOf[materialKey], pos.getZ(i) / scaleOf[materialKey]);
         (quads[materialKey] ??= []).push(g);
         // Contra el pasto, que queda más alto, una cara cierra la rendija por donde se vería el cielo.
@@ -1278,54 +1278,10 @@ export class Bogota {
       if (sign.userData.update) this.animated.push(sign);
     }
 
-    // Paraderos zonales del transporte integrado
-    const busStops = [
-      { x: W(CARRERAS[0][1] + 1), z: W(CALLES[0][0] + 5), ry: Math.PI / 2, title: 'PARADERO KR 10 - CL 13', code: '045A00', routes: ['T12', 'C15', '544A'] },
-      { x: W(CARRERAS[1][1] + 1), z: W(CALLES[1][0] + 6), ry: Math.PI / 2, title: 'PARADERO KR 7 - CL 26', code: '088B01', routes: ['18-3', 'T25', '192', '593'] },
-      { x: W(CARACAS.lanes[1][1] + 2), z: W(CALLES[0][1] + 6), ry: 0, title: 'PARADERO AV. CARACAS - CL 19', code: '112A02', routes: ['60', '97', 'A124'] },
-      { x: W(CARRERAS[0][0] - 2), z: W(CALLES[1][1] + 5), ry: -Math.PI / 2, title: 'PARADERO KR 13 - CL 72', code: '190C03', routes: ['C115', 'E25', '359'] }
-    ];
-    for (const stop of busStops) {
-      const ps = P.sitpBusStop(stop);
-      this._takesRoom(this._add(ps, stop.x, stop.z, stop.ry));
-    }
-
-    // Cabinas telefónicas públicas
-    const phoneSpots = [
-      { x: W(CARRERAS[0][0] - 1), z: W(CALLES[0][1] - 2), ry: Math.PI / 2 },
-      { x: W(CARRERAS[1][0] - 1), z: W(CALLES[1][1] - 2), ry: -Math.PI / 2 },
-      { x: W(CARACAS.lanes[0][0] - 2), z: W(CALLES[1][0] + 3), ry: 0 }
-    ];
-    for (const spot of phoneSpots) {
-      this._takesRoom(this._add(P.cabinaTelefonica(), spot.x, spot.z, spot.ry));
-    }
-
-    // Kioscos de periódicos y revistas
-    const kiosks = [
-      { x: W(CARRERAS[0][1] + 2), z: W(CALLES[0][1] + 4), ry: -Math.PI / 2 },
-      { x: W(CARRERAS[1][0] - 2), z: W(CALLES[0][0] - 4), ry: Math.PI / 2 }
-    ];
-    for (const k of kiosks) {
-      this._takesRoom(this._add(P.kioscoRevistas(), k.x, k.z, k.ry));
-    }
-
     // Canecas distritales de acero inoxidable en andenes cerca de faroles alternados
     for (let i = 0; i < lampSpots.length; i += 3) {
       const [lx, lz] = lampSpots[i];
       this._add(P.canecaDistrital(), lx + 0.6, lz + 0.6);
-    }
-
-    // Bolardos en esquinas peatonales principales
-    const bollardCorners = [
-      [W(CARRERAS[0][0] - 0.5), W(CALLES[0][0] - 0.5)],
-      [W(CARRERAS[0][1] + 0.5), W(CALLES[0][0] - 0.5)],
-      [W(CARRERAS[1][0] - 0.5), W(CALLES[1][0] - 0.5)],
-      [W(CARRERAS[1][1] + 0.5), W(CALLES[1][0] - 0.5)]
-    ];
-    for (const [bx, bz] of bollardCorners) {
-      for (const [dx, dz] of [[-0.8, 0], [0, 0], [0.8, 0], [0, -0.8], [0, 0.8]]) {
-        this._add(P.bolardoBogotano(), bx + dx, bz + dz);
-      }
     }
 
     // Vendedores ambulantes: chazas, fritanga y carritos de tinto campesino
@@ -1333,8 +1289,6 @@ export class Bogota {
     this._vendor(WX(21), WZ(18.5), Math.PI / 2, 'chaza', 'Chaza de don Efraín', ['cigarrillo', 'cafe', 'pan', 'agua', 'empanada']);
     this._vendor(WX(28), WZ(29), 0, 'fritanga', 'Fritanga La Mona', ['empanada', 'morcilla', 'papaCriolla', 'aguapanela', 'refresco']);
     this._vendor(WX(39), WZ(36), -Math.PI / 2, 'chaza', 'Dulces y minutos', ['cigarrillo', 'refresco', 'agua', 'empanada']);
-    this._vendor(WX(33), WZ(19), Math.PI / 2, 'carritoTinto', 'Tinto y Aromáticas Don Wilson', ['cafe', 'agua', 'pan', 'empanada']);
-    this._vendor(WX(48), WZ(26), -Math.PI / 2, 'carritoTinto', 'Café El Manantial', ['cafe', 'agua', 'pan', 'empanada']);
   }
 
   /** Vendedor ambulante: puesto + persona; se le puede comprar (lo atiende la tienda con otro catálogo) */
@@ -1572,11 +1526,16 @@ export class Bogota {
     });
   }
 
-  /** Zona de la ciudad en ese punto: decide qué gente anda por ahí (ver character/archetypes.js). */
-  _zoneAt(x, z) {
+  /** Zona que anuncia el aviso al entrar: las del norte (Parque de la 93, Zona T, Zona G) y, si no, la de `_zoneAt`. */
+  _noticeZoneAt(x, z) {
     if (x < 70 && z < 50) return 'parque93';
     if (x < 70 && z >= 50 && z < 100) return 'zonaT';
     if (x >= 260 && z >= 90 && z < 140) return 'zonaG';
+    return this._zoneAt(x, z);
+  }
+
+  /** Zona de la ciudad en ese punto: decide qué gente anda por ahí (ver character/archetypes.js). */
+  _zoneAt(x, z) {
     if (Math.abs(x - 75) <= 6 && z >= 10 && z <= 310) return 'metro';
     if (x >= WX(9) - 1 && x <= WX(21) + 1 && z >= WZ(17) && z <= WZ(26)) return 'cartucho';
     if (x >= WX(29) && x <= WX(38) && z >= WZ(33) && z <= WZ(45)) return 'parque';
@@ -1604,7 +1563,6 @@ export class Bogota {
       { at: [116.5, 95.2], facing: -1.2, stance: 'sentado', arquetipo: 'habitante' },
       { at: [110.2, 101.5], facing: 0.8, stance: 'acurrucado', arquetipo: 'habitante' },
       { at: [106.8, 92.4], facing: Math.PI / 2, stance: 'pedir', arquetipo: 'habitante' },
-      { at: [114.2, 48.0], facing: -Math.PI / 2, stance: 'fumar-quieto', arquetipo: 'habitante' },
       // Zona Roja / Carrera 10: dos personajes reales en el andén bajo la luz roja de neón
       { at: [118.2, 64.2], facing: Math.PI / 2, stance: 'fumar-quieto', arquetipo: 'vendedor', alternas: ['fumar-quieto', 'brazos-cruzados', 'celular'] },
       { at: [118.2, 66.8], facing: Math.PI / 2, stance: 'celular', arquetipo: 'oficinista', alternas: ['celular', 'mirar-izquierda', 'fumar-quieto'] },

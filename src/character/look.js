@@ -50,42 +50,27 @@ export const STYLES = {
 
 export const DEFAULT_LOOK = {
   v: 2,
-  nombre: 'Beto Reyes',
-  origen: 'beto',
+  nombre: '',
+  origen: 'reciclador',
   cuerpo: 'a',
-  contextura: 'robusto',
+  contextura: 'normal',
   estatura: 1,
   piel: 2,
   pelo: 'corto',
   peloColor: 0,
   ojos: 0,
   cejas: 'gruesas',
-  barba: 'ninguna',
-  arriba: 'chaqueta',
-  arribaColor: 10,
+  barba: 'candado',
+  arriba: 'buzo',
+  arribaColor: 0,
   abajo: 'jean',
   abajoColor: 10,
-  zapatos: 'zapatos',
-  zapatoColor: 0,
-  cabeza: 'nada',
+  zapatos: 'tenis',
+  zapatoColor: 1,
+  cabeza: 'gorra',
   cabezaColor: 0,
-  desgaste: 0,
+  desgaste: 2,
   accesorios: [],
-  real: {
-    sexo: 'hombre',
-    edad: 'adulto',
-    pelo: 'corto',
-    barba: 'ninguna',
-    ropa: 'chaqueta',
-    calzado: 'zapatos',
-    cabeza: 'sin-sombrero',
-    talla: { ancho: 1.08, alto: 1.02 },
-    tonos: {
-      arriba: '#1d2b45',
-      abajo: '#131b28',
-      calzado: '#111111'
-    }
-  }
 };
 
 export const NAME_IDEAS = ['Beto', 'Edilberto', 'Leo', 'Hilda', 'Laisa', 'Jairo', 'Yeison', 'Luz Dary', 'Wilmer', 'Yuli', 'Brayan', 'Marleny', 'Don Chepe', 'Nelson', 'Leidy', 'El Mono', 'Doña Gloria', 'Kevin', 'La Flaca', 'Fredy', 'Sandra'];

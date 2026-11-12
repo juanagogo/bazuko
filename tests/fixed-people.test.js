@@ -60,11 +60,11 @@ test('seis esquineras salen a la ciudad: de noche, en el Cartucho, los andenes y
   assert.equal(new Set(esquineras.map(npc => npc.seed)).size, 6, 'cada persona tiene su semilla');
 });
 
-test('al construir hay 53 personas: 8 vendedores, 6 esquineras y, de los otros 39, entre 15 y 20 se quedan en su sitio', () => {
-  assert.equal(everyone.length, 53);
+test('al construir hay 58 personas: 8 vendedores, 6 esquineras y, de los otros 44, entre 15 y 25 se quedan en su sitio', () => {
+  assert.equal(everyone.length, 58);
   assert.equal(vendors.length, 8);
-  assert.ok(fixed.length >= 15 && fixed.length <= 20, `${fixed.length} fijos`);
-  assert.equal(walkers.length + fixed.length, 39 + 6, 'la burbuja crea a los caminantes, no se cuentan aquí; las esquineras van aparte');
+  assert.ok(fixed.length >= 15 && fixed.length <= 25, `${fixed.length} fijos`);
+  assert.equal(walkers.length + fixed.length, 44 + 6, 'la burbuja crea a los caminantes, no se cuentan aquí; las esquineras van aparte');
   assert.ok(new Set(fixed.map(npc => npc.fijo.stance)).size >= 5, 'hay sentados, dormidos, quien pide, quien conversa…');
   assert.ok(fixed.filter(onBench).length >= 3);
   assert.ok(fixed.some(npc => npc.fijo.stance === 'dormido'));

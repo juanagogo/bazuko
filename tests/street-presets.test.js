@@ -31,11 +31,13 @@ test('cada estilo de calle usa piezas exportadas para su cuerpo', () => {
 
 test('aplicar un estilo conserva el nombre y el origen', () => {
   const look = { ...DEFAULT_LOOK, nombre: 'Don Chepe', origen: 'desplazado' };
-  const next = applyStreetPreset(look, STREET_PRESETS[0]);
+  // Los personajes de la historia traen su propio nombre y origen: aquí se prueba un estilo de calle.
+  const estilo = STREET_PRESETS.find((preset) => !preset.look.nombre);
+  const next = applyStreetPreset(look, estilo);
   assert.equal(next.nombre, 'Don Chepe');
   assert.equal(next.origen, 'desplazado');
-  assert.deepEqual(next.real, STREET_PRESETS[0].look.real);
-  assert.equal(next.desgaste, STREET_PRESETS[0].look.desgaste);
+  assert.deepEqual(next.real, estilo.look.real);
+  assert.equal(next.desgaste, estilo.look.desgaste);
 });
 
 test('el desgaste se normaliza y las partidas viejas quedan sucias', () => {

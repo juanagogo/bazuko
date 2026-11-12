@@ -28,7 +28,7 @@ export const ZONA_NOMBRES = {
 /** La zona donde está el jugador: todo el parque del sur es lago, aunque `_zoneAt` lo meta en los barrios. */
 export function zonaDe(district, x, z) {
   if (z >= LAKE_PARK.z0 && z <= LAKE_PARK.z1 && x < SUR_X) return 'lago';
-  return district?._zoneAt?.(x, z) ?? 'andenes';
+  return district?._noticeZoneAt?.(x, z) ?? district?._zoneAt?.(x, z) ?? 'andenes';
 }
 
 export class ZonaAviso {
