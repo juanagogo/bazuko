@@ -4,6 +4,7 @@
 #include <cstdio>
 #include "../core/Paths.hpp"
 #include "Texture.hpp"
+#include "GLCompat.hpp"
 #include <glad/gl.h>
 #include <algorithm>
 #include <cmath>
@@ -50,6 +51,15 @@ Renderer::Renderer() {
     glCreateBuffers(1, &m_ClusterIndexBuffer);
     m_ClusterIndexCapacity = 65536;
     glNamedBufferData(m_ClusterIndexBuffer, static_cast<GLsizeiptr>(m_ClusterIndexCapacity * sizeof(uint32_t)), nullptr, GL_DYNAMIC_DRAW);
+    if (GLCompat::Legacy()) {   // OpenGL 4.1: sin SSBO, default.frag lee las mismas tablas como texture buffers (unidades 14 y 15)
+        glGenTextures(1, &m_ClusterTableTexture);
+        glBindTexture(GL_TEXTURE_BUFFER, m_ClusterTableTexture);
+        glTexBuffer(GL_TEXTURE_BUFFER, GL_RG32UI, m_ClusterTableBuffer);
+        glGenTextures(1, &m_ClusterIndexTexture);
+        glBindTexture(GL_TEXTURE_BUFFER, m_ClusterIndexTexture);
+        glTexBuffer(GL_TEXTURE_BUFFER, GL_R32UI, m_ClusterIndexBuffer);
+        glBindTexture(GL_TEXTURE_BUFFER, 0);
+    }
 }
 
 void Renderer::BuildClusters(const Camera& camera) {
@@ -104,8 +114,16 @@ void Renderer::BuildClusters(const Camera& camera) {
     }
     if (!m_ClusterIndices.empty())
         glNamedBufferSubData(m_ClusterIndexBuffer, 0, static_cast<GLsizeiptr>(m_ClusterIndices.size() * sizeof(uint32_t)), m_ClusterIndices.data());
-    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 3, m_ClusterTableBuffer);
-    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 4, m_ClusterIndexBuffer);
+    if (GLCompat::Legacy()) {
+        glActiveTexture(GL_TEXTURE14);
+        glBindTexture(GL_TEXTURE_BUFFER, m_ClusterTableTexture);
+        glActiveTexture(GL_TEXTURE15);
+        glBindTexture(GL_TEXTURE_BUFFER, m_ClusterIndexTexture);
+        glActiveTexture(GL_TEXTURE0);
+    } else {
+        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 3, m_ClusterTableBuffer);
+        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 4, m_ClusterIndexBuffer);
+    }
     int viewport[4]{};
     glGetIntegerv(GL_VIEWPORT, viewport);
     m_DefaultShader->SetFloat("uClusterNear", nearPlane);

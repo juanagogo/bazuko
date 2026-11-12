@@ -167,6 +167,7 @@ private:
     static constexpr int kClusterX = 16, kClusterY = 9, kClusterZ = 24;
     void BuildClusters(const Camera& camera);
     unsigned int m_ClusterTableBuffer = 0, m_ClusterIndexBuffer = 0;
+    unsigned int m_ClusterTableTexture = 0, m_ClusterIndexTexture = 0;   // solo en OpenGL 4.1: las mismas tablas como texture buffers
     size_t m_ClusterIndexCapacity = 0;
     std::vector<std::vector<uint32_t>> m_ClusterLists;
     std::vector<uint32_t> m_ClusterTable, m_ClusterIndices;

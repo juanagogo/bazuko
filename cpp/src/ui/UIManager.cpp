@@ -9,6 +9,7 @@
 #include <GLFW/glfw3.h>
 #include "../core/Input.hpp"
 #include "../core/Log.hpp"
+#include "../renderer/GLCompat.hpp"
 #include "../core/Paths.hpp"
 #include "../renderer/Texture.hpp"
 #include "SignStyle.hpp"
@@ -90,7 +91,7 @@ UIManager::UIManager(GLFWwindow* window) {
     SetupDarkUrbanBogotaTheme();
 
     ImGui_ImplGlfw_InitForOpenGL(window, true);
-    ImGui_ImplOpenGL3_Init("#version 450");
+    ImGui_ImplOpenGL3_Init(GLCompat::GlslVersion());
 
     const std::string configPath = Paths::Find("assets/radio_stations.json");
     std::ifstream configFile(configPath);

@@ -144,7 +144,7 @@ add_executable(bazuko
     src/main.cpp
     src/audio/AudioManager.cpp src/audio/SubstanceSynth.cpp
     src/core/Window.cpp src/core/Input.cpp src/core/Paths.cpp
-    src/renderer/Buffer.cpp src/renderer/VertexArray.cpp src/renderer/Shader.cpp
+    src/renderer/Buffer.cpp src/renderer/VertexArray.cpp src/renderer/Shader.cpp src/renderer/GLCompat.cpp
     src/renderer/Mesh.cpp src/renderer/Camera.cpp src/renderer/Renderer.cpp
     src/renderer/Texture.cpp src/renderer/Model.cpp
     src/ui/UIManager.cpp src/ui/SignStyle.cpp src/ui/Carton.cpp src/ui/Costal.cpp src/ui/HudCarton.cpp src/ui/Halftone.cpp src/ui/WebPanels.cpp src/ui/CharacterCreatorUI.cpp
@@ -162,6 +162,20 @@ if(WIN32)
     elseif(MINGW)
         target_link_options(bazuko PRIVATE "-mwindows")
     endif()
+elseif(APPLE)
+    # macOS: OpenGL 4.1 Core del sistema (el renderer pasa por src/renderer/GLCompat.cpp) y un Bazuko.app con los recursos en Contents/Resources
+    set_target_properties(bazuko PROPERTIES
+        MACOSX_BUNDLE TRUE
+        OUTPUT_NAME Bazuko
+        MACOSX_BUNDLE_BUNDLE_NAME "Bazuko"
+        MACOSX_BUNDLE_GUI_IDENTIFIER "org.bazuko.juego"
+        MACOSX_BUNDLE_SHORT_VERSION_STRING "${PROJECT_VERSION}"
+        MACOSX_BUNDLE_BUNDLE_VERSION "${PROJECT_VERSION}")
+    target_compile_definitions(bazuko PRIVATE GL_SILENCE_DEPRECATION)
+    target_link_libraries(bazuko PRIVATE "-framework OpenGL" "-framework Cocoa" "-framework IOKit")
+    # cmake --install build --prefix dist  ->  dist/Bazuko.app con assets/ y public/ adentro (en desarrollo se leen desde el codigo fuente)
+    install(TARGETS bazuko BUNDLE DESTINATION .)
+    install(DIRECTORY assets public DESTINATION Bazuko.app/Contents/Resources)
 endif()
 target_include_directories(bazuko PRIVATE src third_party/include third_party/glad/include ${BAZUKO_WEBP_INCLUDE_DIR})
 target_compile_definitions(bazuko PRIVATE BAZUKO_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
@@ -390,7 +404,7 @@ add_test(NAME bazuko_safespawn COMMAND bazuko_safespawn_test)
 add_executable(bazuko_traffic_test
     tests/TrafficTest.cpp
     src/core/Paths.cpp
-    src/renderer/Buffer.cpp src/renderer/VertexArray.cpp src/renderer/Shader.cpp
+    src/renderer/Buffer.cpp src/renderer/VertexArray.cpp src/renderer/Shader.cpp src/renderer/GLCompat.cpp
     src/renderer/Mesh.cpp src/renderer/Camera.cpp src/renderer/Renderer.cpp
     src/renderer/Texture.cpp src/renderer/Model.cpp
     src/world/CityLayout.cpp src/world/Simulation.cpp src/world/BirdFlock.cpp src/world/Lake.cpp src/world/Decals.cpp src/world/Zones.cpp
@@ -460,7 +474,7 @@ endif()
 add_executable(bazuko_simulation_hash_test
     tests/SimulationHashTest.cpp
     src/core/Paths.cpp
-    src/renderer/Buffer.cpp src/renderer/VertexArray.cpp src/renderer/Shader.cpp
+    src/renderer/Buffer.cpp src/renderer/VertexArray.cpp src/renderer/Shader.cpp src/renderer/GLCompat.cpp
     src/renderer/Mesh.cpp src/renderer/Camera.cpp src/renderer/Renderer.cpp
     src/renderer/Texture.cpp src/renderer/Model.cpp
     src/world/CityLayout.cpp src/world/Simulation.cpp src/world/BirdFlock.cpp src/world/Lake.cpp src/world/Decals.cpp src/world/Zones.cpp
@@ -478,7 +492,7 @@ set_tests_properties(bazuko_simulation_hash PROPERTIES SKIP_RETURN_CODE 77 TIMEO
 add_executable(bazuko_world_share_test
     tests/WorldShareTest.cpp
     src/core/Paths.cpp
-    src/renderer/Buffer.cpp src/renderer/VertexArray.cpp src/renderer/Shader.cpp
+    src/renderer/Buffer.cpp src/renderer/VertexArray.cpp src/renderer/Shader.cpp src/renderer/GLCompat.cpp
     src/renderer/Mesh.cpp src/renderer/Camera.cpp src/renderer/Renderer.cpp
     src/renderer/Texture.cpp src/renderer/Model.cpp
     src/world/CityLayout.cpp src/world/Simulation.cpp src/world/BirdFlock.cpp src/world/Lake.cpp src/world/Decals.cpp src/world/Zones.cpp
@@ -497,7 +511,7 @@ add_executable(bazuko_spawn_city_test
     tests/SpawnCityTest.cpp
     src/world/SafeSpawn.cpp
     src/core/Paths.cpp
-    src/renderer/Buffer.cpp src/renderer/VertexArray.cpp src/renderer/Shader.cpp
+    src/renderer/Buffer.cpp src/renderer/VertexArray.cpp src/renderer/Shader.cpp src/renderer/GLCompat.cpp
     src/renderer/Mesh.cpp src/renderer/Camera.cpp src/renderer/Renderer.cpp
     src/renderer/Texture.cpp src/renderer/Model.cpp
     src/world/CityLayout.cpp src/world/Simulation.cpp src/world/BirdFlock.cpp src/world/Lake.cpp src/world/Decals.cpp src/world/Zones.cpp

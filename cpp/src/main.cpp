@@ -99,6 +99,15 @@ int main(int argc, char** argv) {
 #endif
     using namespace Bazuko;
     Paths::Init(argc, argv);
+#if defined(__APPLE__)
+    // Abierto desde el Finder, Bazuko.app arranca en "/" (solo lectura): guardado, imgui.ini y capturas van a ~/Library/Application Support/Bazuko
+    if (const char* home = std::getenv("HOME")) {
+        std::error_code ec;
+        const fs::path support = fs::path(home) / "Library" / "Application Support" / "Bazuko";
+        fs::create_directories(support, ec);
+        if (!ec) fs::current_path(support, ec);
+    }
+#endif
 
     LogInfo("Iniciando Bazuko - Motor C++ / OpenGL 4.5 Core DSA...");
 

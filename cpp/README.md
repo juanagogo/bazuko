@@ -86,6 +86,23 @@ cmake --build build --config Release --parallel
 En Windows, el ejecutable se inicia como aplicación gráfica (sin ventana de consola). La pantalla de carga
 actualiza el progreso al completar la carga de los modelos de peatones y del personaje.
 
+### macOS (Xcode Command Line Tools y CMake)
+
+```bash
+cd cpp
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build --parallel
+open build/Bazuko.app                      # en desarrollo lee assets/ y public/ desde cpp/
+cmake --install build --prefix dist        # dist/Bazuko.app con los recursos en Contents/Resources
+```
+
+macOS se quedó en OpenGL 4.1 Core: sin Direct State Access, sin almacenamiento inmutable de texturas, sin
+`layout(binding = N)` en GLSL y sin buffers de almacenamiento. `src/renderer/GLCompat.cpp` deja las mismas llamadas
+DSA del renderer apuntando a sus equivalentes de 4.1 (enlazar, editar y devolver el enlace anterior). `Shader.cpp`
+baja los shaders a `#version 410`, define `BAZUKO_GL41` y asigna desde C++ los `binding` que quita, y las luces por
+cluster de `default.frag` se leen de texture buffers en vez de SSBO. Fuera del Mac, este mismo camino se prueba con
+`BAZUKO_GL41=1`. Desde el Finder, el guardado y `imgui.ini` van a `~/Library/Application Support/Bazuko`.
+
 ### Datos compartidos con el juego web
 
 Los objetos (precios, pesos, efectos, qué compra la recicladora), la tienda La Esquinita, las tablas de botín y los talentos
