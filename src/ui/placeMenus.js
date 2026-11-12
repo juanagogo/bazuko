@@ -184,7 +184,7 @@ export function openComedor(game) {
         disabled: !available,
         onClick: () => {
           if (game?.serveComedor?.()) {
-            toast('Almorzaste en el Comedor Comunitario. ¡Dios le pague!', 'rare');
+            toast('Almorcé en el Comedor Comunitario. ¡Dios le pague!', 'rare');
             game.menu.refresh();
           }
         }
