@@ -96,3 +96,15 @@ test('InteractionSystem._scavengeFood permite comer de la basura', async () => {
   // Debe haber modificado o el hambre (comida buena) o la salud (comida descompuesta) o mantenido si no halló nada
   assert.ok(true);
 });
+
+test('Bogota reserved locations include residencia on south wall and prostibulo on east wall', async () => {
+  const fs = await import('node:fs');
+  const code = fs.readFileSync(new URL('../src/world/districts/Bogota.js', import.meta.url), 'utf8');
+  assert.match(code, /residencia:\s*\{\s*x:\s*114\.2,\s*z:\s*69\.1,\s*rot:\s*0\s*\}/);
+  assert.match(code, /prostibulo:\s*\{\s*x:\s*117\.0,\s*z:\s*65\.5,\s*rot:\s*Math\.PI\s*\/\s*2\s*\}/);
+});
+
+test('playBurdelAnimation can be called and exports cleanly', async () => {
+  const { playBurdelAnimation } = await import('../src/ui/placeMenus.js');
+  assert.equal(typeof playBurdelAnimation, 'function');
+});

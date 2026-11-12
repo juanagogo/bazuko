@@ -200,7 +200,7 @@ export class Game {
     this.creator = createCreator({ audio: null });
     this.inventoryUI = new InventoryUI(this.inventory, this);
     this.panelDock = createPanelDock(this);
-    this.cameraRig.canControl = () => this.photoMode?.active || (!this.paused && !this.isSleeping &&
+    this.cameraRig.canControl = () => this.photoMode?.active || (!this.paused && !this.isSleeping && !this._cutsceneActive &&
       !this.hud._talentOpen && !this.hud._craftOpen && !this.hud._dealerOpen);
     this.cameraRig.allowPointerLock = () => !this.photoMode?.active;
     this.hud.setCameraMode(this.cameraRig.mode);
@@ -269,6 +269,7 @@ export class Game {
     this.built = {};        // piezas del cambuche
     this.costal = false;    // costal grande comprado
     this.isSleeping = false;
+    this._cutsceneActive = false;
     this.deathCount = 0;
     this._deathPending = false;
     this._arrestPending = false;
@@ -540,7 +541,7 @@ export class Game {
 
   /** El mundo se congela mientras hay un menú o el creador abierto */
   get paused() {
-    return this._loading || this._deathPending || this._arrestPending || !!this.photoMode?.active || this.menu.isOpen || this.creator.isOpen || !!this.inventoryUI?.isOpen || !!this.hud?._talentOpen || !!this.hud?._craftOpen || !!this.hud?._dealerOpen;
+    return this._loading || this._deathPending || this._arrestPending || !!this.photoMode?.active || this.menu.isOpen || this.creator.isOpen || !!this.inventoryUI?.isOpen || !!this.hud?._talentOpen || !!this.hud?._craftOpen || !!this.hud?._dealerOpen || !!this._cutsceneActive;
   }
 
   _spawnEntities() {
@@ -944,10 +945,20 @@ export class Game {
     this.substanceEffects?.end();
     this.psychosis?.clearInduced?.();
     const night = this.clock.isNight;
-    const hours = isResidencia ? 8 : (night
-      ? (this.clock.hour >= 6 ? 24 - this.clock.hour + 6 : 6 - this.clock.hour)
-      : 3);
-    window.dispatchEvent(new CustomEvent('sleep-start', { detail: { despierta: this.clock.hour + hours } }));
+    let hours;
+    if (isResidencia) {
+      // Residencias El Carmen: siempre despierta de día (07:30 AM)
+      const wakeHour = 7.5;
+      if (this.clock.hour < wakeHour) {
+        hours = wakeHour - this.clock.hour;
+      } else {
+        hours = (24 - this.clock.hour) + wakeHour;
+      }
+      if (hours < 4) hours += 24;
+    } else {
+      hours = night ? (this.clock.hour >= 6 ? 24 - this.clock.hour + 6 : 6 - this.clock.hour) : 3;
+    }
+    window.dispatchEvent(new CustomEvent('sleep-start', { detail: { despierta: (this.clock.hour + hours) % 24, isResidencia } }));
     this.dog?.restAt(this.player.position);
     this.player.stopSmoking?.();
     this.player.stopBasuco?.();
@@ -957,6 +968,18 @@ export class Game {
     const factor = Math.min(1, hours / 8); // una siesta rinde menos
     this.clock.hour += hours;
     while (this.clock.hour >= 24) { this.clock.hour -= 24; this.clock.day += 1; }
+
+    if (isResidencia) {
+      if (this.weather) this.weather.setWeather('despejado', false);
+      this.sceneMgr.setTimeOfDay(this.clock.hour, this.weather, this.clock.day);
+      this.sceneMgr.followTarget(this.player.position, this.clock.hour);
+      this._wasNight = this.clock.isNight;
+      this._wasRaining = this.weather?.isRaining ?? false;
+      this._wasLights = this.clock.lightsOn;
+      this._wasFoggy = this.weather?.weather === 'niebla';
+      this.world.active?.setNightMode?.(this._wasLights);
+      this.cambuche?.setNight(this._wasLights);
+    }
 
     const b = this.built;
     const st = this.stats;
@@ -1030,7 +1053,7 @@ export class Game {
 
       if (isResidencia) {
         window.dispatchEvent(new CustomEvent('toast', {
-          detail: { text: 'Dormí cómodo y seguro en la pieza de la residencia.', type: 'rare' }
+          detail: { text: 'Dormí cómodo y seguro en la pieza de la residencia. Ya amaneció en Bogotá.', type: 'rare' }
         }));
       } else if (robbed !== null) {
         this.activeThief = {
