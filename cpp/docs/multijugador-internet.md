@@ -8,10 +8,10 @@ El multijugador del port en C++ funciona de dos maneras:
 | **Por relevo** | Internet, cada jugador detrás de su router, sin abrir nada | Un **servidor de relevo** con IP pública (`bazuko_relay`) |
 
 Todo lo demás (mundo compartido, combate, economía, perfiles, migración y traspaso de anfitrión) es igual en los dos modos.
-Se compila con `-DBAZUKO_NET=ON` (por defecto está apagado y el juego es el de siempre).
+El multijugador se compila por defecto. Con `-DBAZUKO_NET=OFF` se compila el juego de un jugador, sin red.
 
 ```sh
-cmake -S cpp -B cpp/build -DBAZUKO_NET=ON
+cmake -S cpp -B cpp/build
 cmake --build cpp/build --config Release
 ```
 

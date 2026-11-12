@@ -441,9 +441,10 @@ add_executable(bazuko_netevents_test tests/NetEventsTest.cpp)
 target_include_directories(bazuko_netevents_test PRIVATE src)
 add_test(NAME bazuko_netevents COMMAND bazuko_netevents_test)
 
-# Multijugador (ver docs/plan-multijugador.md): transporte UDP con ENet, servidor de juguete y bots. Apagado por defecto: el juego no lo usa todavia.
-#   cmake -S cpp -B build -DBAZUKO_NET=ON   y luego  build\\Release\\bazuko_net_bots.exe --servidor
-option(BAZUKO_NET "Compilar el transporte de red (ENet), las pruebas de red y los bots" OFF)
+# Multijugador (ver docs/multijugador-internet.md): transporte UDP con ENet, lobby, relevo con salas, pruebas de red y bots. Encendido por defecto;
+# con -DBAZUKO_NET=OFF se compila el juego solo, sin red.
+#   bots de prueba:  build\\Release\\bazuko_net_bots.exe --servidor
+option(BAZUKO_NET "Compilar el multijugador (ENet, lobby, relevo, pruebas de red y bots)" ON)
 if(BAZUKO_NET)
     FetchContent_Declare(enet GIT_REPOSITORY https://github.com/lsalzman/enet.git GIT_TAG v1.3.18 GIT_SHALLOW TRUE)
     FetchContent_MakeAvailable(enet)
