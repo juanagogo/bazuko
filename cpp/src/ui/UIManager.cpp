@@ -9,6 +9,7 @@
 #include <GLFW/glfw3.h>
 #include "../core/Input.hpp"
 #include "../core/Log.hpp"
+#include "../renderer/GLCompat.hpp"
 #include "../core/Paths.hpp"
 #include "../renderer/Texture.hpp"
 #include "SignStyle.hpp"
@@ -90,7 +91,7 @@ UIManager::UIManager(GLFWwindow* window) {
     SetupDarkUrbanBogotaTheme();
 
     ImGui_ImplGlfw_InitForOpenGL(window, true);
-    ImGui_ImplOpenGL3_Init("#version 450");
+    ImGui_ImplOpenGL3_Init(GLCompat::GlslVersion());
 
     const std::string configPath = Paths::Find("assets/radio_stations.json");
     std::ifstream configFile(configPath);
@@ -232,6 +233,20 @@ void UIManager::SelectPauseTab(int section) {
     if (section == 8) m_MapNeedsCenter = true;
 }
 
+void UIManager::OpenMissionsSection() {
+    if (m_DeathScreenOpen) return;
+    if (m_Paused && m_PauseSection == 11) {
+        TogglePause();
+        return;
+    }
+    m_Paused = true;
+    m_PauseSection = 11;
+    m_RadioMenuOpen = false;
+    m_RadioReturnsToPause = false;
+    m_CraftMenuOpen = false;
+    Input::SetCursorLocked(false);
+}
+
 void UIManager::OpenMapSection() {
     if (m_DeathScreenOpen) return;
     if (m_Paused && m_PauseSection == 8) {
@@ -329,6 +344,19 @@ void UIManager::ShowDeathScreen(const std::string& causes, bool vehicleImpact, c
     Input::SetCursorLocked(false);
 }
 
+void UIManager::ShowLimpiezaDeathScreen(const std::string& name, const std::string& place, bool woman) {
+    if (m_DeathScreenOpen) return;
+    ShowDeathScreen("limpieza social", false, name, place);
+    m_DeathLimpieza = true;
+    m_DeathWoman = woman;
+}
+
+void UIManager::ShowArrestScreen(const std::string& name, const std::string& place) {
+    if (m_DeathScreenOpen) return;
+    ShowDeathScreen("Te atrapó la Policía", false, name, place);
+    m_DeathArrest = true;
+}
+
 bool UIManager::ConsumeRespawnRequest() {
     const bool requested = m_RespawnRequest;
     m_RespawnRequest = false;
@@ -337,6 +365,8 @@ bool UIManager::ConsumeRespawnRequest() {
 
 void UIManager::CompleteDeathRecovery() {
     m_DeathScreenOpen = false;
+    m_DeathArrest = false;
+    m_DeathLimpieza = false;
     m_DeathByVehicleImpact = false;
     m_DeathCauses.clear();
     m_Paused = false;
@@ -449,6 +479,13 @@ void UIManager::RenderQuitScreen(Window& window) {
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
     BeginFrame();
+
+    if (Carton::FontsReady() && !std::getenv("BAZUKO_UI_OSCURA")) {   // la pantalla de despedida tambien es de carton
+        RenderQuitCarton();
+        EndFrame();
+        window.SwapBuffers();
+        return;
+    }
 
     ImGuiIO& io = ImGui::GetIO();
     ImVec2 center(io.DisplaySize.x * 0.5f, io.DisplaySize.y * 0.5f);
@@ -777,6 +814,10 @@ void UIManager::RenderHUD(float dt, const glm::vec3& playerPos, Camera& camera, 
     const int minute = totalMinutes % 60;
     const float fps = dt > 0.0f ? 1.0f / dt : 0.0f;
 
+    if (m_PreviewQuit && Carton::FontsReady()) {
+        RenderQuitCarton();
+        return;
+    }
     if (m_DeathScreenOpen && Carton::FontsReady() && !std::getenv("BAZUKO_UI_OSCURA")) {
         RenderDeathCarton();
         return;
@@ -784,14 +825,17 @@ void UIManager::RenderHUD(float dt, const glm::vec3& playerPos, Camera& camera, 
     if (m_DeathScreenOpen) {
         SignUI::DrawBackdrop(0.85f);
         const ImVec4 blueText(0.84f, 0.89f, 1.0f, 1.0f);
-        if (SignUI::BeginMenu("Fin de la partida", m_DeathByVehicleImpact ? "Te atropellaron" : "Te quedaste sin salud",
+        if (SignUI::BeginMenu(m_DeathArrest ? "Arresto" : "Fin de la partida", m_DeathArrest ? "Te atrapó la Policía" : m_DeathLimpieza ? "Te mató la limpieza social" : m_DeathByVehicleImpact ? "Te atropellaron" : "Te quedaste sin salud",
                               "La partida permanece pausada hasta que elijas recuperarte.", SignUI::Icon::Heart, nullptr, 520.0f, 440.0f)) {
             ImGui::PushStyleColor(ImGuiCol_Text, blueText);
             ImGui::TextWrapped("Estado al caer: %s.", m_DeathCauses.empty() ? "salud agotada" : m_DeathCauses.c_str());
             ImGui::Spacing();
-            ImGui::TextWrapped("Volverás al cambuche con salud y necesidades recuperadas al menos al 60 %%. Se perderá la mitad de los tipos de objetos del inventario y se curarán las enfermedades.");
+            if (m_DeathArrest) ImGui::TextWrapped("Volverás al cambuche sin nada de lo recolectado ni de lo ganado: se pierden el dinero y todo el inventario.");
+            else ImGui::TextWrapped("Volverás al cambuche con salud y necesidades recuperadas al menos al 60 %%. Se perderá la mitad de los tipos de objetos del inventario y se curarán las enfermedades.");
             ImGui::Spacing();
-            if (m_DeathByVehicleImpact) {
+            if (m_DeathLimpieza) {
+                // sin consejo: el suyo llega al anochecer siguiente
+            } else if (m_DeathByVehicleImpact) {
                 ImGui::TextWrapped("Mira ambos sentidos antes de cruzar; los vehículos necesitan espacio para frenar.");
             } else {
                 ImGui::TextWrapped("Come, bebe y descansa para mantener tus necesidades.");
@@ -811,6 +855,18 @@ void UIManager::RenderHUD(float dt, const glm::vec3& playerPos, Camera& camera, 
         const ImVec2 screen = ImGui::GetIO().DisplaySize;
         for (const WorldBubble& bubble : m_WorldBubbles) {
             const float sx = (bubble.x * 0.5f + 0.5f) * screen.x, sy = (-bubble.y * 0.5f + 0.5f) * screen.y;
+            if (Carton::FontsReady() && !std::getenv("BAZUKO_UI_OSCURA")) {   // .npc-bubble del original: la gente de la calle habla en un cartoncito (cara de carton, filo oscuro y cola)
+                if (bubble.alpha < 0.05f) continue;
+                constexpr float wrap = 222.0f;   // max-width 240 px menos el relleno
+                const char* text = bubble.text.c_str();
+                const float textWidth = std::min(Carton::TextWidth(false, 16, text), wrap), textHeight = Carton::TextHeight(false, 16, text, wrap);
+                const float width = textWidth + 18.0f, height = textHeight + 8.0f;   // relleno de 3 9 4
+                const ImVec2 max(sx + width * 0.5f, sy - 14.0f), min(sx - width * 0.5f, sy - 14.0f - height);
+                Carton::Panel(bubbleDraw, min, max, 800u + static_cast<unsigned int>(bubble.text.size()), 3.0f);
+                Carton::Text(bubbleDraw, false, 16, min + ImVec2(9.0f, 3.0f), Carton::kMarcador, text, wrap);
+                bubbleDraw->AddTriangleFilled(ImVec2(sx - 5.0f, max.y - 0.5f), ImVec2(sx + 5.0f, max.y - 0.5f), ImVec2(sx, max.y + 7.0f), Carton::kMarcador);   // la cola
+                continue;
+            }
             const ImVec2 size = bubbleFonts.monoBold14->CalcTextSizeA(13.0f, screen.x * 0.4f, 0.0f, bubble.text.c_str());
             const ImVec2 min(sx - size.x * 0.5f - 10.0f, sy - size.y - 24.0f), max(sx + size.x * 0.5f + 10.0f, sy - 8.0f);
             const int fade = static_cast<int>(240.0f * bubble.alpha);
@@ -852,7 +908,9 @@ void UIManager::RenderHUD(float dt, const glm::vec3& playerPos, Camera& camera, 
 
     if (m_CraftMenuOpen && !m_Paused) RenderCraftWindow(craftingOptions, inventoryWeight, inventoryCapacity);
 
-    if (m_Paused && m_NewGameConfirmOpen) {
+    if (m_Paused && m_NewGameConfirmOpen && Carton::FontsReady() && !std::getenv("BAZUKO_UI_OSCURA")) {
+        RenderNewGameConfirmCarton();
+    } else if (m_Paused && m_NewGameConfirmOpen) {
         // Confirmacion: solo se ve este mensaje, centrado y fijo, sobre el juego oscurecido (el menu de pausa se oculta)
         using SignUI::Icon;
         SignUI::DrawBackdrop(0.7f);
@@ -891,7 +949,7 @@ void UIManager::RenderHUD(float dt, const glm::vec3& playerPos, Camera& camera, 
     } else if (m_Paused && m_PauseSection == 4) {
         if (Carton::FontsReady() && !std::getenv("BAZUKO_UI_OSCURA")) RenderJibaro(dealerOptions, money);
         else RenderDealerWindow(dealerOptions, money);
-    } else if (m_Paused && !m_RadioMenuOpen && (m_PauseSection == 0 || m_PauseSection == 3 || m_PauseSection == 8 || m_PauseSection == 9 || m_PauseSection == 10)) {
+    } else if (m_Paused && !m_RadioMenuOpen && (m_PauseSection == 0 || m_PauseSection == 3 || m_PauseSection == 8 || m_PauseSection == 9 || m_PauseSection == 10 || m_PauseSection == 11)) {
         PauseContext context;
         context.playerPos = playerPos;
         context.camera = &camera;
@@ -1397,6 +1455,9 @@ void UIManager::RenderHUD(float dt, const glm::vec3& playerPos, Camera& camera, 
                     for (int quality = 0; quality < 3; ++quality)
                         if (SignUI::Button(qualityLabels[quality], quality == 1 ? Icon::Gear : Icon::Bolt, m_GraphicsQuality == quality))
                             m_GraphicsQualityRequest = quality;
+                    SignUI::FlexReset();
+                    for (int level = 0; level < static_cast<int>(kTrafficDensityLevels.size()); ++level)
+                        if (SignUI::Button((std::string("Tráfico ") + kTrafficDensityLevels[static_cast<size_t>(level)].label).c_str(), Icon::Gear, m_TrafficDensity == level)) m_TrafficDensityRequest = level;
                     ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.78f, 0.84f, 0.95f, 0.65f));
                     ImGui::TextWrapped("Resolución interna: baja 0,75×, media 1×, alta 1,25×. El panel de rendimiento muestra el efecto en los FPS.");
                     ImGui::PopStyleColor();
@@ -1586,8 +1647,12 @@ void UIManager::RenderHUD(float dt, const glm::vec3& playerPos, Camera& camera, 
     const bool nearMissionNpc = simulation.IsNearMissionNpc(playerPos, 2.0f);
     const size_t nearbyCar = simulation.GetNearbyCar(playerPos, 2.0f);
     const size_t nearbyParkedCar = simulation.GetNearbyParkedCar(playerPos, 2.0f);
+    bool cleanableParked = false;
+    size_t cleanableIndex = 0;
+    const bool cleanableCar = simulation.GetNearbyCleanableCar(playerPos, 2.0f, cleanableParked, cleanableIndex);
     const bool nearDealer = simulation.IsNearDealer(playerPos, 2.2f);
     const bool nearRecycler = simulation.IsNearRecycler(playerPos, 2.5f);
+    const bool nearComedor = simulation.IsNearComedor(playerPos, 2.8f);
     const size_t nearbyVendor = simulation.GetNearbyVendor(playerPos, 2.0f);
     const size_t nearbyPedestrian = simulation.GetNearbyPedestrian(playerPos, 1.8f);
     const bool nearPickup = std::any_of(simulation.GetPickups().begin(), simulation.GetPickups().end(), [&](const PickupItem& pickup) {
@@ -1597,6 +1662,10 @@ void UIManager::RenderHUD(float dt, const glm::vec3& playerPos, Camera& camera, 
         return pickup.available && pickup.container && glm::distance(playerPos, pickup.position) < 1.8f;
     });
     if (nearMissionNpc && !simulation.IsMissionStarted() && !simulation.IsMissionComplete()) interactionPrompt = "[E] Hablar con el vecino · iniciar mision";
+    else if (nearComedor) interactionPrompt = m_ComedorAvailable ? "[E] Almorzar en el Comedor Comunitario (Gratis)"
+                                                                 : "[E] Comedor Comunitario (Próximo servicio en " + std::to_string(m_ComedorHours) + " h)";
+    else if (simulation.IsNearCart(playerPos, 2.3f)) interactionPrompt = simulation.GetCart().attached ? "[E] Soltar la carreta" : "[E] Enganchar la carreta (+120 kg, pero pesa)";
+    else if (simulation.IsNearFireBarrel(playerPos, 2.2f)) interactionPrompt = "[E] Calentarme en la fogata";
     else if (simulation.IsNearDog(playerPos, 2.0f)) interactionPrompt = simulation.IsDogFriend()
         ? "[E] Acariciar a El Chato" : "[E] Acercarte a El Chato y hacer amistad";
     else if (nearDealer) interactionPrompt = simulation.IsNight()
@@ -1605,13 +1674,47 @@ void UIManager::RenderHUD(float dt, const glm::vec3& playerPos, Camera& camera, 
     else if (nearRecycler) interactionPrompt = "[E] Vender reciclables · [F] Entregar objetos de la mision";
     else if (nearbyVendor < simulation.GetStreetVendorCount()) interactionPrompt = "[E] Comprar en " + simulation.GetVendor(nearbyVendor).name;
     else if (nearbyPedestrian < simulation.GetPedestrianCount()) interactionPrompt = "[E] Intentar cosquilleo · [Q] Robo directo";
-    else if (nearbyParkedCar < simulation.GetParkedCarCount()) interactionPrompt = "[E] Robar retrovisores del auto estacionado";
-    else if (nearbyCar < simulation.GetTrafficCount()) interactionPrompt = "[E] Intentar robar retrovisores del auto";
+    else if (nearbyParkedCar < simulation.GetParkedCarCount()) interactionPrompt = std::string("[E] Robar retrovisores del auto estacionado") + (cleanableCar ? " · [Q] Limpiar parabrisas" : "");
+    else if (nearbyCar < simulation.GetTrafficCount()) interactionPrompt = std::string("[E] Intentar robar retrovisores del auto") + (cleanableCar ? " · [Q] Limpiar parabrisas" : "");
+    else if (cleanableCar) interactionPrompt = "[E] Limpiar parabrisas del carro";
     else if (simulation.IsNearShop(playerPos, 2.2f)) interactionPrompt = "[E] Tienda · comprar un articulo";
     else if (nearContainer) interactionPrompt = "[E] Revisar caneca · mantén [Q] para clasificar (más botín)";
     else if (nearPickup) interactionPrompt = "[E] Recoger bolsa · mantén [Q] para clasificar (más botín)";
     else if (inventorySummary.find("Pan duro") != std::string::npos || inventorySummary.find("Botella agua") != std::string::npos || inventorySummary.find("Vendaje") != std::string::npos || inventorySummary.find("Curita") != std::string::npos || inventorySummary.find("Tinto") != std::string::npos || inventorySummary.find("Comida enlatada") != std::string::npos || inventorySummary.find("Refresco") != std::string::npos || inventorySummary.find("Tintico") != std::string::npos || inventorySummary.find("Pegante") != std::string::npos || inventorySummary.find("Pastilla") != std::string::npos || inventorySummary.find("Cigarrillo") != std::string::npos || inventorySummary.find("Jabón") != std::string::npos || inventorySummary.find("Cepillo") != std::string::npos || inventorySummary.find("Vacuna") != std::string::npos || inventorySummary.find("Carbón activo") != std::string::npos || inventorySummary.find("Jarabe") != std::string::npos || inventorySummary.find("Pomada") != std::string::npos || inventorySummary.find("Antiparasitario") != std::string::npos || inventorySummary.find("Antibiótico") != std::string::npos) interactionPrompt = "[E] Usar el primer consumible o medicamento del costal";
-    if (!m_Paused && !m_DeathScreenOpen && std::any_of(m_Hotbar.begin(), m_Hotbar.end(), [](const HotbarSlot& slot) { return !slot.id.empty(); })) {
+    if (m_ColdOverlay > 0.01f && !m_DeathScreenOpen) {   // frio: escarcha en los bordes de la pantalla (#cinematic-cold del original)
+        const ImVec2 display = ImGui::GetIO().DisplaySize;
+        ImDrawList* draw = ImGui::GetBackgroundDrawList();
+        const float band = std::min(display.x, display.y) * 0.30f;
+        const int strong = static_cast<int>(150.0f * m_ColdOverlay), none = 0;
+        const ImU32 edge = IM_COL32(205, 228, 255, strong), clear = IM_COL32(205, 228, 255, none);
+        draw->AddRectFilledMultiColor(ImVec2(0, 0), ImVec2(display.x, band), edge, edge, clear, clear);                                   // arriba
+        draw->AddRectFilledMultiColor(ImVec2(0, display.y - band), ImVec2(display.x, display.y), clear, clear, edge, edge);               // abajo
+        draw->AddRectFilledMultiColor(ImVec2(0, 0), ImVec2(band, display.y), edge, clear, clear, edge);                                   // izquierda
+        draw->AddRectFilledMultiColor(ImVec2(display.x - band, 0), ImVec2(display.x, display.y), clear, edge, edge, clear);               // derecha
+        draw->AddRectFilled(ImVec2(0, 0), display, IM_COL32(120, 160, 215, static_cast<int>(34.0f * m_ColdOverlay)));                      // y un velo azul sobre toda la imagen
+    }
+    if (m_TimingBar.active && !m_Paused && !m_DeathScreenOpen) {   // robo del retrovisor: barra de timing sobre la barra rapida
+        const ImVec2 display = ImGui::GetIO().DisplaySize;
+        ImDrawList* draw = ImGui::GetForegroundDrawList();
+        const float width = std::min(420.0f, display.x - 40.0f), height = 24.0f;
+        const ImVec2 box((display.x - width) * 0.5f, display.y - 190.0f);
+        const bool cardboard = Carton::FontsReady() && !std::getenv("BAZUKO_UI_OSCURA");
+        const char* help = m_TimingBar.step == 1 ? "Paso 1/2: palanquear el soporte [Espacio] halar" : "Paso 2/2: ¡arrancar cables y espejo! [Espacio] halar con fuerza";
+        if (cardboard) {
+            Carton::Panel(draw, box + ImVec2(-10.0f, -34.0f), box + ImVec2(width + 10.0f, height + 12.0f), 777u, 5.0f);
+            Carton::Text(draw, true, 15, box + ImVec2(0.0f, -28.0f), Carton::kMarcador, help);
+        } else {
+            draw->AddRectFilled(box + ImVec2(-10.0f, -34.0f), box + ImVec2(width + 10.0f, height + 12.0f), IM_COL32(40, 30, 20, 220), 6.0f);
+            draw->AddText(box + ImVec2(0.0f, -28.0f), IM_COL32(255, 240, 210, 255), help);
+        }
+        draw->AddRectFilled(box, box + ImVec2(width, height), IM_COL32(230, 215, 180, 255));
+        draw->AddRectFilled(box + ImVec2(width * m_TimingBar.zoneStart, 0.0f), box + ImVec2(width * (m_TimingBar.zoneStart + m_TimingBar.zoneSize), height), IM_COL32(30, 24, 18, 255));
+        const float markerX = box.x + width * m_TimingBar.marker;
+        draw->AddRectFilled(ImVec2(markerX - 2.5f, box.y - 5.0f), ImVec2(markerX + 2.5f, box.y + height + 5.0f), IM_COL32(200, 40, 40, 255));
+        draw->AddRect(box, box + ImVec2(width, height), IM_COL32(30, 24, 18, 255), 0.0f, 0, 2.0f);
+    }
+    if (!m_Paused && !m_DeathScreenOpen) {   // siempre visible (en el original solo con algo asignado): vacia, una linea explica como llenarla
+        const bool hotbarEmpty = std::none_of(m_Hotbar.begin(), m_Hotbar.end(), [](const HotbarSlot& slot) { return !slot.id.empty(); });
         // Barra de acceso rapido (teclas 1-5), abajo a la derecha: solo aparece cuando hay objetos asignados desde el inventario (#quickbar)
         const SignUI::Fonts& quickFonts = SignUI::GetFonts();
         const ImVec2 display = ImGui::GetIO().DisplaySize;
@@ -1661,6 +1764,20 @@ void UIManager::RenderHUD(float dt, const glm::vec3& playerPos, Camera& camera, 
                 std::snprintf(amount, sizeof(amount), "%d", entry.quantity);
                 const float amountWidth = quickFonts.mono11->CalcTextSizeA(11.0f, FLT_MAX, 0.0f, amount).x;
                 draw->AddText(quickFonts.mono11, 11.0f, ImVec2(max.x - amountWidth - 3.0f, max.y - 14.0f), IM_COL32(201, 162, 39, 255), amount);
+            }
+            if (hotbarEmpty) {   // sin nada asignado: como llenar la barra
+                const char* hint = "Costal (I): elige un objeto y pulsa 1-5";
+                ImDrawList* fg = ImGui::GetForegroundDrawList();
+                if (cardboard) {
+                    const float w = Carton::TextWidth(true, 13, hint) + 16.0f;
+                    const ImVec2 hmin(base.x + barWidth - w, base.y - 30.0f), hmax(base.x + barWidth, base.y - 6.0f);
+                    Carton::Panel(fg, hmin, hmax, 650u, 3.0f);
+                    Carton::Text(fg, true, 13, ImVec2(hmin.x + 8.0f, hmin.y + 4.0f), Carton::kMarcador, hint);
+                } else {
+                    const float w = quickFonts.mono11->CalcTextSizeA(11.0f, FLT_MAX, 0.0f, hint).x;
+                    fg->AddRectFilled(ImVec2(base.x + barWidth - w - 10.0f, base.y - 26.0f), ImVec2(base.x + barWidth, base.y - 6.0f), IM_COL32(0, 0, 0, 170));
+                    fg->AddText(quickFonts.mono11, 11.0f, ImVec2(base.x + barWidth - w - 5.0f, base.y - 22.0f), IM_COL32(236, 240, 248, 255), hint);
+                }
             }
             ImGui::SetCursorScreenPos(base);
             ImGui::Dummy(ImVec2(barWidth, slotSize));
@@ -2085,6 +2202,8 @@ void UIManager::RenderMapView(const glm::vec3& playerPos, const CityLayout& city
             {"Cambuche", simulation.GetCambuchePosition(), IM_COL32(255, 209, 102, 255), SignUI::Icon::Home},
             {"Recicladora", simulation.GetRecyclerPosition(), IM_COL32(42, 183, 202, 255), SignUI::Icon::Bag},
             {"Dealer", simulation.GetDealerPosition(), IM_COL32(155, 89, 182, 255), SignUI::Icon::Pill},
+            {"Comedor Comunitario", simulation.GetComedorPosition(), IM_COL32(39, 174, 96, 255), SignUI::Icon::Bread},
+            {"Carreta", simulation.GetCart().position, IM_COL32(243, 156, 18, 255), SignUI::Icon::Bag},
         };
         for (const auto& landmark : city.GetLandmarks()) {
             if (landmark.name == "Pasarela") continue;

@@ -66,14 +66,14 @@ CharacterCreatorUI::CharacterCreatorUI()
     : m_Rng(std::random_device{}()) {
 }
 
-void CharacterCreatorUI::Open(const CharacterLook& currentLook, bool allowCancel) {
+void CharacterCreatorUI::Open(const CharacterLook& currentLook, bool allowCancel, int initialTab) {
     m_TempLook = currentLook;
     NormalizeLook(m_TempLook);
     snprintf(m_NameBuffer, sizeof(m_NameBuffer), "%s", m_TempLook.nombre.c_str());
     m_AllowCancel = allowCancel;
     m_IsOpen = true;
     m_BringToFront = true;
-    m_ActiveTab = 0;
+    m_ActiveTab = std::clamp(initialTab, 0, 4);
 }
 
 void CharacterCreatorUI::Close() {
@@ -147,6 +147,9 @@ bool CharacterCreatorUI::Render(CharacterPreview& preview, CharacterLook& outLoo
             ImGui::Spacing();
         }
 
+        // Las secciones se desplazan en su propia caja, encima de la franja del boton Listo: el boton nunca tapa un texto
+        ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.0f, 0.0f, 0.0f, 0.0f));
+        ImGui::BeginChild("##secciones", ImVec2(0.0f, -(kDoneHeight + 28.0f)), ImGuiChildFlags_None, ImGuiWindowFlags_None);
         if (m_ActiveTab == 0) {
             if (SignUI::BeginSection("Nombre del personaje", Icon::Person)) {
                 ImGui::SetNextItemWidth(300.0f);
@@ -159,6 +162,26 @@ bool CharacterCreatorUI::Render(CharacterPreview& preview, CharacterLook& outLoo
                     snprintf(m_NameBuffer, sizeof(m_NameBuffer), "%s", m_TempLook.nombre.c_str());
                 }
                 SignUI::NoteText("Así te llamarán en la cuadra. Máximo 16 letras.");
+            }
+            SignUI::EndSection();
+
+            if (SignUI::BeginSection("Estilos de calle", Icon::Person)) {   // character/presets.js del original: no cambian el nombre ni el origen
+                const int current = MatchingStreetPreset(m_TempLook);
+                for (size_t i = 0; i < StreetPresets.size(); ++i) {
+                    const StreetPreset& preset = StreetPresets[i];
+                    ImGui::PushID(preset.id);
+                    SignUI::FlexReset();
+                    if (SignUI::Button(preset.label, Icon::None, current == static_cast<int>(i))) {
+                        ApplyStreetPreset(m_TempLook, preset);
+                        outAppearanceChanged = true;
+                    }
+                    ImGui::PushTextWrapPos(0.0f);
+                    ImGui::TextUnformatted(preset.desc);
+                    ImGui::PopTextWrapPos();
+                    ImGui::Spacing();
+                    ImGui::PopID();
+                }
+                SignUI::NoteText("Cambian la apariencia; el nombre y el origen se quedan. Después puedes ajustar cada pieza.");
             }
             SignUI::EndSection();
 
@@ -247,6 +270,7 @@ bool CharacterCreatorUI::Render(CharacterPreview& preview, CharacterLook& outLoo
                 SignUI::FlexReset();
                 for (const auto& item : ClothesOptions) {
                     if (!item.sexo.empty() && item.sexo != m_TempLook.sexo) continue;
+                    if (m_TempLook.edad == "joven" && GarmentUncovered(item.id)) continue;   // un cuerpo joven no lleva prendas que dejen al aire el torso o las piernas
                     if (SignUI::Button(item.label.c_str(), Icon::None, m_TempLook.ropa == item.id)) {
                         m_TempLook.ropa = item.id;
                         outAppearanceChanged = true;
@@ -277,8 +301,30 @@ bool CharacterCreatorUI::Render(CharacterPreview& preview, CharacterLook& outLoo
                 SignUI::NoteText(("Calzado seleccionado: " + ShoeColorNames[m_TempLook.calzadoColorIdx]).c_str());
             }
             SignUI::EndSection();
+
+            if (SignUI::BeginSection("En la cabeza", Icon::Person)) {
+                SignUI::FlexReset();
+                for (const auto& head : HeadOptions) {
+                    if (SignUI::Button(head.label.c_str(), Icon::None, m_TempLook.cabeza == head.id)) {
+                        m_TempLook.cabeza = head.id;
+                        outAppearanceChanged = true;
+                    }
+                }
+                SignUI::NoteText("Toma el color de la ropa.");
+            }
+            SignUI::EndSection();
+
+            if (SignUI::BeginSection("Lo que carga", Icon::Bag)) {   // accesorios del original (look.js): se pueden llevar los dos
+                SignUI::FlexReset();
+                if (SignUI::Button("Bastón", Icon::None, m_TempLook.baston)) { m_TempLook.baston = !m_TempLook.baston; outAppearanceChanged = true; }
+                if (SignUI::Button("Mochila", Icon::None, m_TempLook.mochila)) { m_TempLook.mochila = !m_TempLook.mochila; outAppearanceChanged = true; }
+                SignUI::NoteText("El bastón se guarda al pelear, fumar o empujar la carreta.");
+            }
+            SignUI::EndSection();
         }
-        // Listo: centrado en la pantalla, apoyado en el fondo del panel de opciones (un poco por encima del pie)
+        ImGui::EndChild();
+        ImGui::PopStyleColor();
+        // Listo: centrado en la pantalla, en su franja al fondo del panel de opciones (un poco por encima del pie)
         {
             const float doneWidth = PrimaryWidth("Listo");
             const float bottom = ImGui::GetWindowPos().y + ImGui::GetWindowHeight();
@@ -313,7 +359,7 @@ bool CharacterCreatorUI::Render(CharacterPreview& preview, CharacterLook& outLoo
     SignUI::EndMenu();
 
     if (confirmed || closeRequested) Close();
-    if (outAppearanceChanged) outLook = m_TempLook;
+    if (outAppearanceChanged) { NormalizeLook(m_TempLook); outLook = m_TempLook; }   // p. ej. al volverse joven cambia una prenda que deje el cuerpo al aire
     return confirmed;
 }
 

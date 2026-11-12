@@ -544,6 +544,26 @@ export class TrafficSystem {
     return true;
   }
 
+  /** ¿Es una patrulla de ronda, sin persecución ni espera a medias? */
+  _canRelocate(vehicle) {
+    return !!vehicle.police && vehicle.state === 'patrol' && !vehicle.rejoinTarget && !vehicle.hold;
+  }
+
+  /** Pasa un vehículo a un punto libre de su propia ruta, lejos de la vista y fuera de los cruces. Devuelve si lo logró. */
+  _relocate(vehicle) {
+    const distance = this._freeDistance(vehicle.route);
+    if (distance === null) return false;
+    // Suelta cruces y turnos antes de moverlo: un dueño de cruce que ya no está bloquearía a los demás.
+    this._releaseReservations(vehicle);
+    const point = this._position;
+    vehicle.route.sample(distance, point, this._direction);
+    vehicle.distance = vehicle.nextDistance = distance;
+    vehicle.car.position.copy(point);
+    vehicle.car.group.rotation.y = Math.atan2(-this._direction.z, this._direction.x);
+    vehicle.speed = vehicle.nextSpeed = 0;
+    return true;
+  }
+
   /** Saca de circulación al que va más lejos de la vista, sin tocar patrullas ni persecuciones. */
   _removeVehicle() {
     const view = this._center;
