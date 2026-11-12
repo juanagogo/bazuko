@@ -812,8 +812,8 @@ export class Game {
       this.interaction.register(this.residencia);
       this.collisions.add(
         this.residencia.group,
-        new THREE.Vector3(3.2, 2.5, 0.6),
-        new THREE.Vector3(0, 1.25, -0.3)
+        new THREE.Vector3(1.8, 2.4, 0.2),
+        new THREE.Vector3(0, 1.2, -0.1)
       );
     }
 
@@ -830,8 +830,8 @@ export class Game {
       this.interaction.register(this.prostibulo);
       this.collisions.add(
         this.prostibulo.group,
-        new THREE.Vector3(3.6, 2.5, 0.6),
-        new THREE.Vector3(0, 1.25, -0.3)
+        new THREE.Vector3(1.8, 2.4, 0.2),
+        new THREE.Vector3(0, 1.2, -0.1)
       );
     }
   }
