@@ -53,6 +53,15 @@ export class DiseaseSystem {
     return this._contract('sarna');
   }
 
+  /**
+   * Provoca directamente una enfermedad específica (ej. por comer comida en mal estado).
+   * @param {string} id - clave de DISEASES (ej: 'intoxicacion')
+   */
+  infect(id) {
+    if (!DISEASES[id]) return null;
+    return this._contract(id);
+  }
+
   _contract(id) {
     // No apilar la misma enfermedad
     if (this.active[id]) {

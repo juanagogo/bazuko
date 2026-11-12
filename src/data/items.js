@@ -48,6 +48,12 @@ export const ITEMS = {
     id: 'lataComida', name: 'Lata de atún', weight: 0.4, value: 4500,
     consumable: 'hambre', amount: 45, animo: 8
   },
+  sobrados: {
+    id: 'sobrados', name: 'Sobrados de comida', weight: 0.3, value: 0,
+    consumable: 'hambre', amount: 25, animo: -2,
+    desc: 'Comida rescatada de la basura. Puede calmar el hambre o sentar muy mal.',
+    isScraps: true
+  },
   agua: {
     id: 'agua', name: 'Botella de agua', weight: 0.5, value: 1500,
     consumable: 'sed', amount: 35

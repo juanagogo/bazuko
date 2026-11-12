@@ -202,6 +202,105 @@ export function openComedor(game) {
   });
 }
 
+export function openResidencia(game) {
+  const PRECIO_PIEZA = 10000;
+  const render = () => {
+    const puedePagar = (game.stats?.dinero ?? 0) >= PRECIO_PIEZA;
+    const descP = el('p', {
+      class: 'menu__desc',
+      text: 'Residencias El Carmen: Pieza individual con cama, cobija limpia y candado. Nadie le va a robar y no le da frío ni lo molesta la policía.'
+    });
+    const detalleEl = el('div', { class: 'comedor-box' },
+      el('h4', { class: 'comedor-box__title', text: 'Noche de descanso seguro' }),
+      el('ul', { class: 'comedor-box__beneficios' },
+        el('li', { text: '+100% Energía al despertar' }),
+        el('li', { text: '+100% Salud mental restaurada' }),
+        el('li', { text: '+35 Salud recuperada' }),
+        el('li', { text: '0% Riesgo de robo o asalto' }),
+        el('li', { text: 'Protegido de la lluvia, el frío y la policía' })
+      )
+    );
+    const body = el('div', { class: 'comedor-menu' }, descP, detalleEl);
+    const foot = [
+      moneyFoot(game),
+      button(puedePagar ? `Pagar pieza (${cop(PRECIO_PIEZA)})` : 'Plata insuficiente', {
+        primary: true,
+        disabled: !puedePagar,
+        onClick: () => {
+          if ((game.stats?.dinero ?? 0) < PRECIO_PIEZA) return;
+          game.stats.dinero -= PRECIO_PIEZA;
+          game.menu.close();
+          game.sleep({ residencia: true });
+        }
+      })
+    ];
+    return { body, foot };
+  };
+
+  game.menu.open({
+    title: 'Residencias El Carmen',
+    sub: 'Piezas por noche. Privacidad, descanso seguro y agua caliente.',
+    ic: 'bed',
+    render
+  });
+}
+
+export function openProstibulo(game) {
+  const PRECIO_SERVICIO = 20000;
+  const render = () => {
+    const puedePagar = (game.stats?.dinero ?? 0) >= PRECIO_SERVICIO;
+    const descP = el('p', {
+      class: 'menu__desc',
+      text: 'Callejón de la 19. Entre luces rojas y música de cantina, un rato de desahogo en la noche bogotana.'
+    });
+    const detalleEl = el('div', { class: 'comedor-box' },
+      el('h4', { class: 'comedor-box__title', text: 'Servicio en la habitación' }),
+      el('ul', { class: 'comedor-box__beneficios' },
+        el('li', { text: '+40 Energía (desahogo y descanso)' }),
+        el('li', { text: '+20 Ánimo y salud mental' }),
+        el('li', { text: '-25 Hambre y -25 Sed (desgaste físico)' }),
+        el('li', { text: 'Peligro: 20% riesgo de emboscada o robo en el callejón' })
+      )
+    );
+    const body = el('div', { class: 'comedor-menu' }, descP, detalleEl);
+    const foot = [
+      moneyFoot(game),
+      button(puedePagar ? `Contratar servicio (${cop(PRECIO_SERVICIO)})` : 'Plata insuficiente', {
+        primary: true,
+        disabled: !puedePagar,
+        onClick: () => {
+          if ((game.stats?.dinero ?? 0) < PRECIO_SERVICIO) return;
+          game.stats.dinero -= PRECIO_SERVICIO;
+          game.menu.close();
+
+          // 20% probabilidad de robo en el callejón
+          if (Math.random() < 0.20) {
+            const robado = Math.min(game.stats.dinero, Math.floor(10000 + Math.random() * 20000));
+            game.stats.dinero = Math.max(0, game.stats.dinero - robado);
+            toast(`¡Emboscada en el callejón! Te amenazaron y te quitaron ${cop(robado)}.`, 'death');
+            game.audio?.play?.('thud');
+          } else {
+            game.stats.energia = Math.min(100, (game.stats.energia || 0) + 40);
+            game.stats.saludMental = Math.min(100, (game.stats.saludMental || 0) + 20);
+            game.stats.hambre = Math.max(0, (game.stats.hambre || 0) - 25);
+            game.stats.sed = Math.max(0, (game.stats.sed || 0) - 25);
+            game.audio?.play?.('pickup');
+            toast('Contrataste el servicio: quedaste descansado pero con hambre y sed.', 'rare');
+          }
+        }
+      })
+    ];
+    return { body, foot };
+  };
+
+  game.menu.open({
+    title: 'Callejón Rojo · Zona de Tolerancia',
+    sub: 'Noche, luces de neón y compañía en el centro.',
+    ic: 'star',
+    render
+  });
+}
+
 function reqLine(inventory, req) {
   return el('span', { class: 'req' }, Object.entries(req).map(([id, q]) => {
     const n = inventory.count(id);

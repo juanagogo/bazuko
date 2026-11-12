@@ -82,7 +82,7 @@ import { paintLoadingFrame } from '../ui/LoadingScreen.js';
 import { el } from '../ui/dom.js';
 import { Menu } from '../ui/Menu.js';
 import { createCreator } from '../ui/Creator.js';
-import { openRecycler, openShop, openCambuche, openComedor } from '../ui/placeMenus.js';
+import { openRecycler, openShop, openCambuche, openComedor, openResidencia, openProstibulo } from '../ui/placeMenus.js';
 import { openMissionsModal } from '../ui/MissionsModal.js';
 import { DEFAULT_LOOK, normalizeLook } from '../character/look.js';
 import { streetWetness } from '../character/streetMaterials.js';
@@ -209,6 +209,8 @@ export class Game {
     window.addEventListener('open-shop', (e) => openShop(this, e.detail?.target));
     window.addEventListener('open-cambuche', () => openCambuche(this));
     window.addEventListener('open-comedor', () => openComedor(this));
+    window.addEventListener('open-residencia', () => openResidencia(this));
+    window.addEventListener('open-prostibulo', () => openProstibulo(this));
     window.addEventListener('open-wardrobe', () => this.openWardrobe());
     window.addEventListener('open-mesa', () => { if (!this.hud?._craftOpen) this.hud?.toggleCraftPanel(); });
     window.addEventListener('police-arrest', () => this._policeArrest());
@@ -863,12 +865,33 @@ export class Game {
     });
   }
 
-  /** Dormir en el cambuche (requiere la base). De noche hasta las 6:00; de día, siesta de 3 h. */
-  sleep() {
+  /** Dormir en el cambuche, en cartón o en residencia. */
+  sleep(opts = {}) {
     if (this.isSleeping) return;
-    if (!this.built.base) {
+    const isCarton = !!opts.carton;
+    const isResidencia = !!opts.residencia;
+
+    if (!isCarton && !isResidencia && !this.built.base) {
       window.dispatchEvent(new CustomEvent('sleep-fail', { detail: { reason: 'nobase' } }));
       return;
+    }
+
+    if (isCarton) {
+      if (!this.inventory?.items?.some(it => it.id === 'carton' && it.qty > 0)) {
+        window.dispatchEvent(new CustomEvent('toast', {
+          detail: { text: 'No tengo ningún cartón en el costal para tenderlo en el suelo.', type: 'warn' }
+        }));
+        return;
+      }
+      const isRaining = !!(this.climate?.isRaining || this.weather?.isRaining);
+      const p = this.player?.position ?? { x: 0, z: 0 };
+      const bajoTecho = (p.x >= 105 && p.x <= 135 && p.z >= 15 && p.z <= 320) || (p.z >= 220 && p.z <= 280);
+      if (isRaining && !bajoTecho) {
+        window.dispatchEvent(new CustomEvent('toast', {
+          detail: { text: 'Está cayendo agua y no hay techo. Toca buscar resguardo bajo el metro o un puente.', type: 'warn' }
+        }));
+        return;
+      }
     }
 
     this.isSleeping = true;
@@ -876,9 +899,9 @@ export class Game {
     this.substanceEffects?.end();
     this.psychosis?.clearInduced?.();
     const night = this.clock.isNight;
-    const hours = night
+    const hours = isResidencia ? 8 : (night
       ? (this.clock.hour >= 6 ? 24 - this.clock.hour + 6 : 6 - this.clock.hour)
-      : 3;
+      : 3);
     window.dispatchEvent(new CustomEvent('sleep-start', { detail: { despierta: this.clock.hour + hours } }));
     this.dog?.restAt(this.player.position);
     this.player.stopSmoking?.();
@@ -892,28 +915,61 @@ export class Game {
 
     const b = this.built;
     const st = this.stats;
-    st.energia = Math.min(100, st.energia + (SLEEP.energia + (b.cama ? SLEEP.energiaCama : 0)) * factor);
-    st.salud = Math.min(100, st.salud + (SLEEP.salud + (b.techo ? SLEEP.saludTecho : 0)) * factor);
-    st.saludMental = Math.min(100, st.saludMental + (MENTAL_RESTORE_SLEEP + (b.fogon ? SLEEP.animoFogon : 0)) * factor);
-    if (this.dog?.isFriend) st.saludMental = Math.min(100, st.saludMental + 15);
-    st.vicio = b.vela
-      ? Math.min(100, st.vicio + SLEEP.vicioVela)
-      : Math.max(0, st.vicio - WITHDRAWAL.vicioDormir * factor);
-    if (!b.fogon) st.hambre = Math.max(0, st.hambre - SLEEP.hambreFogon * factor);
 
-    // Sin paredes te pueden robar si duermes de noche
     let robbed = null;
-    if (night && !b.paredes && Math.random() < SLEEP.roboProb) {
-      const lost = Math.floor(st.dinero * SLEEP.roboDinero);
-      st.dinero -= lost;
-      for (const it of [...this.inventory.items]) {
-        if (isForSale(ITEMS[it.id] ?? it, this.player.equippedWeapon)) this.inventory.remove(it.id, Math.ceil(it.qty * SLEEP.roboMaterial));
+    const stolenItems = [];
+    let policeAwake = false;
+    let coldSuffered = false;
+
+    if (isResidencia) {
+      st.energia = 100;
+      st.saludMental = 100;
+      st.salud = Math.min(100, st.salud + 35);
+      st.vicio = Math.max(0, st.vicio - 15);
+      st.hambre = Math.max(0, st.hambre - 20);
+      st.sed = Math.max(0, st.sed - 20);
+    } else {
+      st.energia = Math.min(100, st.energia + (SLEEP.energia + (b.cama ? SLEEP.energiaCama : 0)) * factor);
+      st.salud = Math.min(100, st.salud + (SLEEP.salud + (b.techo ? SLEEP.saludTecho : 0)) * factor);
+      st.saludMental = Math.min(100, st.saludMental + (MENTAL_RESTORE_SLEEP + (b.fogon ? SLEEP.animoFogon : 0)) * factor);
+      if (this.dog?.isFriend) st.saludMental = Math.min(100, st.saludMental + 15);
+      st.vicio = b.vela
+        ? Math.min(100, st.vicio + SLEEP.vicioVela)
+        : Math.max(0, st.vicio - WITHDRAWAL.vicioDormir * factor);
+      if (!b.fogon) st.hambre = Math.max(0, st.hambre - SLEEP.hambreFogon * factor);
+
+      // Frío en cartón: se evita si metió vicio o tiene calor
+      if (isCarton) {
+        const hasVicio = (st.vicio > 40) || ((st.calor || 0) > 40);
+        if (!hasVicio) {
+          coldSuffered = true;
+          st.salud = Math.max(0, st.salud - 15);
+          st.saludMental = Math.max(0, st.saludMental - 20);
+        }
+        if (Math.random() < 0.35) {
+          policeAwake = true;
+          if (this.traffic) this.traffic.wantedLevel = Math.min(3, (this.traffic.wantedLevel || 0) + 1);
+        }
       }
-      robbed = lost;
+
+      // Robo al dormir sin paredes o en cartón
+      const roboProb = isCarton ? 0.50 : (night && !b.paredes ? SLEEP.roboProb : 0);
+      if (roboProb > 0 && Math.random() < roboProb) {
+        const lost = Math.floor(st.dinero * (isCarton ? 0.4 : SLEEP.roboDinero));
+        st.dinero -= lost;
+        for (const it of [...this.inventory.items]) {
+          if (isForSale(ITEMS[it.id] ?? it, this.player.equippedWeapon)) {
+            const q = Math.ceil(it.qty * (isCarton ? 0.5 : SLEEP.roboMaterial));
+            this.inventory.remove(it.id, q);
+            stolenItems.push({ item: ITEMS[it.id] ?? it, qty: q });
+          }
+        }
+        robbed = lost;
+      }
     }
 
-    // Dormir sucio en un colchón de la calle puede pegar sarna.
-    const sarna = this.diseases?.tryInfectWhileSleeping?.(st.higiene, this.interaction?.diseaseResistance?.() ?? 1);
+    // Dormir sucio en un colchón de la calle puede pegar sarna (no en residencia).
+    const sarna = !isResidencia && this.diseases?.tryInfectWhileSleeping?.(st.higiene, this.interaction?.diseaseResistance?.() ?? 1);
 
     this._save();
 
@@ -926,11 +982,40 @@ export class Game {
       }
       this.dog?.wake();
       window.dispatchEvent(new CustomEvent('sleep-end', { detail: { hours: Math.round(hours) } }));
-      if (robbed !== null) {
+
+      if (isResidencia) {
         window.dispatchEvent(new CustomEvent('toast', {
-          detail: { text: `Me robaron mientras dormía (${cop(robbed)} y material). Unas paredes ayudarían.`, type: 'death' }
+          detail: { text: 'Dormí cómodo y seguro en la pieza de la residencia.', type: 'rare' }
+        }));
+      } else if (robbed !== null) {
+        this.activeThief = {
+          money: robbed,
+          items: stolenItems,
+          timer: 20,
+          recovered: false
+        };
+        window.dispatchEvent(new CustomEvent('toast', {
+          detail: { text: `¡ME ROBARON! Un habitante se lleva ${cop(robbed)} y material. ¡Péguele rápido para recuperar lo suyo!`, type: 'death' }
         }));
       }
+
+      if (policeAwake) {
+        this.audio?.play?.('policeSiren') || this.audio?.play?.('car-honk');
+        window.dispatchEvent(new CustomEvent('toast', {
+          detail: { text: '¡La patrulla me despertó a pitos!: "¡Levántese del andén, no puede acampar aquí!"', type: 'warn' }
+        }));
+      }
+
+      if (coldSuffered) {
+        window.dispatchEvent(new CustomEvent('toast', {
+          detail: { text: 'El frío de la noche caló hasta los huesos. Amanecí tullido.', type: 'warn' }
+        }));
+      } else if (isCarton) {
+        window.dispatchEvent(new CustomEvent('toast', {
+          detail: { text: 'El vicio me mantuvo caliente contra el sereno de la noche.', type: 'rare' }
+        }));
+      }
+
       if (sarna) {
         window.dispatchEvent(new CustomEvent('toast', {
           detail: { text: 'Dormí sucio y me pegó la sarna. La pomada la quita.', type: 'warn' }
@@ -1210,6 +1295,16 @@ export class Game {
     this.clock.update(dt);
     this.time.update(dt, this.clock);
     this.dailyMissions?.update(dt, this.clock);
+
+    if (this.activeThief && !this.activeThief.recovered) {
+      this.activeThief.timer -= dt;
+      if (this.activeThief.timer <= 0) {
+        window.dispatchEvent(new CustomEvent('toast', {
+          detail: { text: '¡El ladrón dobló la esquina y se me escapó con todo!', type: 'death' }
+        }));
+        this.activeThief = null;
+      }
+    }
 
     // 2. Día/noche: sol, luna, nubes y clima de Bogotá; la luz sigue al jugador (sombras nítidas)
     this.sceneMgr.setTimeOfDay(this.clock.hour, this.weather, this.clock.day);

@@ -294,7 +294,9 @@ export class Bogota {
       dealer: { x: WX(14.5), z: WZ(21.5) },   // la olla de El Cartucho
       craft:  { x: WX(16.5), z: WZ(24.5) },
       shop:   { x: WX(34), z: WZ(29) },        // andén de la Calle 9, de espaldas a la manzana
-      comedor: { x: WX(30), z: WZ(33) }       // comedor comunitario junto al parque
+      comedor: { x: WX(30), z: WZ(33) },      // comedor comunitario junto al parque
+      residencia: { x: WX(24), z: WZ(30) },   // residencias y piezas seguras
+      prostibulo: { x: WX(36), z: WZ(16) }    // callejón rojo / zona de tolerancia
     };
     this.isNearReserved = (x, z, dist = 6) =>
       Object.values(this.reserved).some((r) => Math.hypot(x - r.x, z - r.z) < dist);
@@ -1620,7 +1622,7 @@ export class Bogota {
     chasers.length = 0;
     for (const vehicle of trafficVehicles) if (vehicle.state === 'chase' || vehicle.rejoinTarget) chasers.push(vehicle);
     const ctx = { player: playerPos, frustum, camera, isRaining: (this.wetness ?? 0) > 0.05, animationBudget: this.animationBudget ?? 1,
-      drawDistance: this.farDetailDistance, skipHiddenMatrices: true, hygiene: this.playerHygiene ?? 100, chasers };
+      drawDistance: this.farDetailDistance, skipHiddenMatrices: true, hygiene: this.playerHygiene ?? 100, chasers, hour: this.hour ?? 12 };
     for (const n of this.npcs) n.update(dt, ctx);
     for (const flock of this.pigeonFlocks ?? []) flock.update(dt, playerPos, this.npcs, camera);
   }

@@ -103,6 +103,9 @@ export class InteractionSystem {
         if (t.kind === 'shop') nearestType = 'shop';
         else if (t.kind === 'comedor') nearestType = 'comedor';
         else if (t.kind === 'cambuche') nearestType = 'cambuche';
+        else if (t.kind === 'residencia') nearestType = 'residencia';
+        else if (t.kind === 'prostibulo') nearestType = 'prostibulo';
+        else if (t.kind === 'hidingSpot') nearestType = 'hidingSpot';
         else if (t.kind === 'dog') nearestType = 'dog';
         else if (t.kind === 'cart') nearestType = 'cart';
         else if (t.kind === 'fireBarrel') nearestType = 'fireBarrel';
@@ -166,6 +169,15 @@ export class InteractionSystem {
           break;
         case 'comedor':
           window.dispatchEvent(new CustomEvent('open-comedor'));
+          break;
+        case 'residencia':
+          window.dispatchEvent(new CustomEvent('open-residencia'));
+          break;
+        case 'prostibulo':
+          window.dispatchEvent(new CustomEvent('open-prostibulo'));
+          break;
+        case 'hidingSpot':
+          this._toggleHiding(nearest);
           break;
         case 'cambuche':
           window.dispatchEvent(new CustomEvent('open-cambuche'));
@@ -236,6 +248,25 @@ export class InteractionSystem {
       window.dispatchEvent(new CustomEvent('dog-interacted', { detail: { action: 'pet' } }));
       window.dispatchEvent(new CustomEvent('toast', {
         detail: { text: 'Acaricié a El Chato (+5 de ánimo).', type: 'info' }
+      }));
+    }
+  }
+
+  _toggleHiding(target) {
+    if (!this.game) return;
+    this.game.isPlayerHidden = !this.game.isPlayerHidden;
+    if (this.game.traffic) this.game.traffic.isPlayerHidden = this.game.isPlayerHidden;
+    if (this.game.isPlayerHidden) {
+      window.dispatchEvent(new CustomEvent('toast', {
+        detail: {
+          text: `Te escondiste en: ${target.title ?? 'el escondite'}. La policía no te puede ver aquí. Pulsa [E] para salir.`,
+          type: 'rare'
+        }
+      }));
+      this.audio?.play?.('pickup');
+    } else {
+      window.dispatchEvent(new CustomEvent('toast', {
+        detail: { text: 'Saliste del escondite.', type: 'info' }
       }));
     }
   }

@@ -12,10 +12,15 @@ export const CONFIG = {
   baseZoneSize: 0.35,
   lootMoneyCosquilleo: [800, 4000],
   lootMoneyDirect: [12000, 45000],
+  lootMoneyCosquilleoHabitante: [200, 1500],
+  lootMoneyDirectHabitante: [800, 3500],
   lootItems: ['pan', 'lataComida', 'cigarrillo', 'tintico', 'moneda', 'reloj'],
   directDamageMin: 6,
   directDamageMax: 16
 };
+
+/** Sustancias que cargan otros habitantes de calle. */
+export const LOOT_VICIOS = ['basuco', 'porro', 'pegante', 'chirrinchi'];
 
 /** Segundos de juego sin robar y sin persecución para que «te tienen fichado» baje un nivel. */
 export const WANTED_DECAY_SECONDS = 120;
@@ -331,14 +336,22 @@ export class StealSystem {
     this._calma = 0;
     if (npc) npc._robadoTimer = CONFIG.npcCooldown;
     if (success) {
-      this._giveLoot(CONFIG.lootMoneyCosquilleo, true);
+      this._giveLoot(CONFIG.lootMoneyCosquilleo, true, npc);
       this._toast('Cosquilleo limpio: nadie se dio cuenta.', 'rare');
     } else {
       const bonus = this.game?.dog?.distractionBonus?.(this.game.player?.position) ?? 0;
       const noticeChance = Math.max(0.2, (npc?.alerta ?? 0.5) - bonus);
       if (Math.random() < noticeChance) {
         npc?.alarmedByTheft?.(this.game.player.position);
-        this._toast('¡Me pillaron con las manos en la masa! El peatón gritó.', 'death');
+        const isHabitante = npc?.arquetipo === 'habitante' || npc?.person?.arquetipo === 'habitante';
+        if (isHabitante && this.game.stats) {
+          const stabDmg = Math.floor(15 + Math.random() * 11);
+          this.game.stats.salud = Math.max(0, this.game.stats.salud - stabDmg);
+          this.game.audio?.play?.('thud');
+          this._toast(`¡El habitante sacó un chuzo y te apuñaló! −${stabDmg} salud.`, 'death');
+        } else {
+          this._toast('¡Me pillaron con las manos en la masa! El peatón gritó.', 'death');
+        }
         // De último: los avisos caen uno encima del otro y este es el que hay que alcanzar a leer.
         this._alertPolice();
       } else {
@@ -353,17 +366,25 @@ export class StealSystem {
     npc._robadoTimer = CONFIG.npcCooldown;
     this._calma = 0;
     this.buscado = Math.min(3, this.buscado + 1);
-    this._giveLoot(CONFIG.lootMoneyDirect, false);
+    this._giveLoot(CONFIG.lootMoneyDirect, false, npc);
     // Quien está en el piso o en la banca no alcanza a defenderse: bastante hace con pararse.
     const down = LOW_STANCES.has(npc.stance);
-    npc.alarmedByTheft?.(this.game.player.position);
-    const isStrong = !down && (npc.look?.real?.edad === 'adulto' || Math.random() < 0.45);
-    if (isStrong && this.game.stats) {
-      const dmg = Math.floor(CONFIG.directDamageMin + Math.random() * (CONFIG.directDamageMax - CONFIG.directDamageMin));
-      this.game.stats.salud = Math.max(0, this.game.stats.salud - dmg);
-      this._toast(`¡El peatón se defendió! −${dmg} de salud.`, 'death');
+    npc.alarmedByTheft?.(this.game.player?.position);
+    const isHabitante = npc?.arquetipo === 'habitante' || npc?.person?.arquetipo === 'habitante';
+    if (isHabitante && !down && this.game.stats) {
+      const stabDmg = Math.floor(15 + Math.random() * 11);
+      this.game.stats.salud = Math.max(0, this.game.stats.salud - stabDmg);
+      this.game.audio?.play?.('thud');
+      this._toast(`¡El habitante de calle se defendió con un chuzo! −${stabDmg} salud.`, 'death');
     } else {
-      this._toast('¡Raponazo! El peatón se asustó.', 'warn');
+      const isStrong = !down && (npc.look?.real?.edad === 'adulto' || Math.random() < 0.45);
+      if (isStrong && this.game.stats) {
+        const dmg = Math.floor(CONFIG.directDamageMin + Math.random() * (CONFIG.directDamageMax - CONFIG.directDamageMin));
+        this.game.stats.salud = Math.max(0, this.game.stats.salud - dmg);
+        this._toast(`¡El peatón se defendió! −${dmg} de salud.`, 'death');
+      } else {
+        this._toast('¡Raponazo! El peatón se asustó.', 'warn');
+      }
     }
     this._alertPolice();
   }
@@ -377,11 +398,28 @@ export class StealSystem {
   }
 
   // Otorga botín aleatorio entre dinero e ítems al inventario del jugador.
-  _giveLoot(moneyRange, includeItemChance) {
-    const money = Math.round((moneyRange[0] + Math.random() * (moneyRange[1] - moneyRange[0])) / 100) * 100;
+  _giveLoot(moneyRange, includeItemChance, target = null) {
+    const isHabitante = target?.arquetipo === 'habitante' || target?.person?.arquetipo === 'habitante';
+    const range = isHabitante
+      ? (moneyRange === CONFIG.lootMoneyDirect ? CONFIG.lootMoneyDirectHabitante : CONFIG.lootMoneyCosquilleoHabitante)
+      : moneyRange;
+    const money = Math.round((range[0] + Math.random() * (range[1] - range[0])) / 100) * 100;
     if (this.game.stats) this.game.stats.dinero += money;
     this._toast(`+${cop(money)}`, 'sell');
-    if (includeItemChance && Math.random() < 0.4 && this.game.inventory) {
+
+    if (isHabitante) {
+      // 65% probabilidad de robarle el vicio
+      if (Math.random() < 0.65 && this.game.inventory) {
+        const vicioId = LOOT_VICIOS[Math.floor(Math.random() * LOOT_VICIOS.length)];
+        if (ITEMS[vicioId]) {
+          if (this.game.inventory.add(ITEMS[vicioId], 1)) {
+            this._toast(`¡Le quité el vicio!: ${ITEMS[vicioId].name}`, 'rare');
+          } else {
+            this._toast(`No me cabe más en el costal: dejé ${ITEMS[vicioId].name}.`, 'warn');
+          }
+        }
+      }
+    } else if (includeItemChance && Math.random() < 0.4 && this.game.inventory) {
       const itemId = CONFIG.lootItems[Math.floor(Math.random() * CONFIG.lootItems.length)];
       if (ITEMS[itemId]) {
         if (this.game.inventory.add(ITEMS[itemId], 1)) this._toast(`Robé: ${ITEMS[itemId].name}`, 'info');
