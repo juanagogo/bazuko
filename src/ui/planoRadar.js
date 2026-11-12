@@ -146,7 +146,7 @@ export function prepararPlano(tiles) {
   const hitosRojos = new Path2D();
   const estaciones = [];
 
-  // Gasolinera Texaco: marquesina y tienda
+  // Estación de servicio: marquesina y tienda
   if (gasStation) {
     // Marquesina roja (154, 100, 17.5 x 15)
     hitosRojos.rect(154 - 8.75, 100 - 7.5, 17.5, 15);
@@ -293,7 +293,7 @@ export function trazarPlano(ctx, plano, k) {
   ctx.lineWidth = 1.6 / k;
   ctx.stroke(plano.contorno);
 
-  // 10. Hitos emblemáticos: Torre Colpatria y Gasolinera Texaco
+  // 10. Hitos emblemáticos: Torre Colpatria y Estación de servicio
   if (plano.hitosRojos) {
     ctx.save();
     ctx.fillStyle = 'rgba(188, 23, 38, 0.85)';
