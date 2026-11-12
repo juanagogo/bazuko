@@ -1433,6 +1433,11 @@ export class Bogota {
       // Parque Tercer Milenio: dos vecinos conversando en el prado.
       { at: [102.6, 94.2], facing: .9, stance: 'hablar', arquetipo: 'senora', alternas: TALK, pareja: 1 },
       { at: [103.5, 95], facing: .9 + Math.PI, stance: 'hablar', arquetipo: 'abuelo', alternas: TALK, pareja: -1 },
+      // Habitantes de calle visibles junto al cambuche y la zona de inicio
+      { at: [116.5, 95.2], facing: -1.2, stance: 'sentado', arquetipo: 'habitante' },
+      { at: [110.2, 101.5], facing: 0.8, stance: 'acurrucado', arquetipo: 'habitante' },
+      { at: [106.8, 92.4], facing: Math.PI / 2, stance: 'pedir', arquetipo: 'habitante' },
+      { at: [114.2, 48.0], facing: -Math.PI / 2, stance: 'fumar-quieto', arquetipo: 'habitante' },
       // Entrada del Portal: quien pide contra el muro y dos que esperan en el andén de enfrente.
       { at: [54.6, 2.6], facing: Math.PI / 2, stance: 'pedir', arquetipo: 'habitante' },
       { at: [94.2, 3.2], facing: -.7, stance: 'hablar', arquetipo: 'oficinista', alternas: TALK, pareja: 1 },

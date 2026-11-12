@@ -133,23 +133,34 @@ export function openCambuche(game) {
     }));
     const body = el('div', { class: 'shelter-menu' }, shelterPreview(game), rows);
     const night = game.clock.isNight;
+    const hasCarton = inventory.count('carton') > 0;
     const foot = [
-      el('span', { class: 'menu__money', text: game.built.base ? 'Dormir guarda la partida.' : 'Sin base no se puede dormir.' }),
+      el('span', {
+        class: 'menu__money',
+        text: game.built.base
+          ? 'Cambuche armado: duermes protegido de la intemperie.'
+          : (hasCarton ? 'Puedes dormir improvisado sobre 1 cartón o armar la base con 8 cartones.' : 'Recolecta 8 cartones de la basura para armar la base o consigue 1 para dormir improvisado.')
+      }),
       button('Cambiar ropa', {
         onClick: () => {
           game.menu.close();
           game.openWardrobe?.();
         }
       }),
-      button(night ? `Dormir hasta las ${hora(6)}` : 'Echar una siesta (3 h)', {
-        primary: true,
-        disabled: !game.built.base,
-        onClick: () => { game.menu.close(); game.sleep(); }
-      })
+      !game.built.base && hasCarton
+        ? button('Dormir sobre 1 cartón', {
+            primary: true,
+            onClick: () => { game.menu.close(); game.sleep({ carton: true }); }
+          })
+        : button(night ? `Dormir hasta las ${hora(6)}` : 'Echar una siesta (3 h)', {
+            primary: true,
+            disabled: !game.built.base,
+            onClick: () => { game.menu.close(); game.sleep(); }
+          })
     ];
     return { body, foot };
   };
-  game.menu.open({ title: 'Mi cambuche', sub: 'Los materiales salen de la basura de toda la ciudad: hay para todas las mejoras.', ic: 'tent', render });
+  game.menu.open({ title: 'Mi cambuche', sub: 'Mejora tu refugio con basura (8 cartones para la base) o duerme en cualquier lado con 1 cartón [K].', ic: 'tent', render });
 }
 
 export function openComedor(game) {

@@ -26,6 +26,8 @@ import { SellPoint } from '../entities/SellPoint.js';
 import { Cambuche } from '../entities/Cambuche.js';
 import { Shop } from '../entities/Shop.js';
 import { ComedorComunitario } from '../entities/ComedorComunitario.js';
+import { ResidenciaElCarmen } from '../entities/ResidenciaElCarmen.js';
+import { ZonaRoja } from '../entities/ZonaRoja.js';
 import { DailyMissionSystem } from '../systems/DailyMissionSystem.js';
 import { Car } from '../entities/Car.js';
 import { parkCar } from '../world/bogota/parkedCars.js';
@@ -247,6 +249,8 @@ export class Game {
     this.cambuche = null;
     this.shop = null;
     this.comedor = null;
+    this.residencia = null;
+    this.prostibulo = null;
     this.lastComedorHour = null;
     this.dailyMissions = new DailyMissionSystem(this);
     this._missionsModalOpen = false;
@@ -787,6 +791,40 @@ export class Game {
         this.comedor.group,
         new THREE.Vector3(3.2, 2.2, 2.2),
         new THREE.Vector3(0, 1.1, 0)
+      );
+    }
+
+    // ===== Residencia El Carmen =====
+    if (district.reserved?.residencia) {
+      const resPos = district.reserved.residencia;
+      this.residencia = new ResidenciaElCarmen(
+        this.sceneMgr.scene,
+        new THREE.Vector3(resPos.x, 0, resPos.z)
+      );
+      this.residencia.group.position.y = district.getGroundHeightUnder?.(this.residencia.group)
+        ?? district.getGroundHeight?.(resPos.x, resPos.z) ?? 0;
+      this.interaction.register(this.residencia);
+      this.collisions.add(
+        this.residencia.group,
+        new THREE.Vector3(3.2, 2.5, 1.8),
+        new THREE.Vector3(0, 1.25, 0)
+      );
+    }
+
+    // ===== Zona Roja / Callejón Rojo =====
+    if (district.reserved?.prostibulo) {
+      const prosPos = district.reserved.prostibulo;
+      this.prostibulo = new ZonaRoja(
+        this.sceneMgr.scene,
+        new THREE.Vector3(prosPos.x, 0, prosPos.z)
+      );
+      this.prostibulo.group.position.y = district.getGroundHeightUnder?.(this.prostibulo.group)
+        ?? district.getGroundHeight?.(prosPos.x, prosPos.z) ?? 0;
+      this.interaction.register(this.prostibulo);
+      this.collisions.add(
+        this.prostibulo.group,
+        new THREE.Vector3(3.6, 2.5, 1.8),
+        new THREE.Vector3(0, 1.25, 0)
       );
     }
   }
@@ -1394,6 +1432,16 @@ export class Game {
     }
     this.poopSystem.update(dt);
 
+    // 7b2. Atajo para dormir en cartón si se tiene en inventario
+    if (!this.player.isStunned && !this.player.isSwimming && this.input.consumePress('KeyK')) {
+      if (this.inventory.count('carton') > 0) {
+        this.sleep({ carton: true });
+      } else {
+        this.hud?._toast('No tienes cartón en el inventario. Recógelo de la basura.', 'info');
+      }
+    }
+    this.prostibulo?.update(dt);
+
     // 7c. Sistema de abstinencia, alucinaciones y psicosis inducida
 
     // 8. Mundo
@@ -1539,6 +1587,8 @@ export class Game {
         [this.sellPoint, reserved.sell, 'Recicladora El Progreso', '♻️', '#2ab7ca', { prices: { vender: 0 } }],
         [this.shop, reserved.shop, 'Tienda La Esquinita', '🏪', '#2ecc71', { prices: SHOP_PRICES, offers: SHOP_OFFERS }],
         [this.comedor, reserved.comedor, 'Comedor Comunitario', '🍲', '#27ae60', { prices: { comida: 0, agua: 0 } }],
+        [this.residencia, reserved.residencia, 'Residencias El Carmen', '🏨', '#3498db', { prices: { pieza: 10000 } }],
+        [this.prostibulo, reserved.prostibulo, 'Zona Roja (Callejón)', '💃', '#e74c3c', { prices: { servicio: 20000 } }],
         [this.craftingStation, reserved.craft, 'Crafteo', '🔨', '#e67e22'],
         [this.dealer, reserved.dealer, 'Dealer', '💀', '#9b59b6', { dealer: true }]]
         .flatMap(([entity, fallback, name, icon, color, extra]) => {

@@ -830,6 +830,11 @@ export class HUD {
     if (!game) return;
 
 
+    if (itemId === 'carton') {
+      game.inventoryUI?.close();
+      game.sleep({ carton: true });
+      return;
+    }
     if (itemId === 'popo') {
       if (game.player?.isStunned) return;
       game.inventoryUI?.close();
