@@ -5,6 +5,7 @@ import { STREET_VOICES, StreetVoices } from './StreetVoices.js';
 import { PoliceSirenAudio } from './PoliceSirenAudio.js';
 import { NpcConversations } from './NpcConversations.js';
 import { NPC_CONVERSATIONS } from '../data/npcConversations.js';
+import { FlyBuzzAudio } from './FlyBuzzAudio.js';
 
 export const MIX_CATEGORIES = ['ambient', 'traffic', 'voices', 'effects'];
 // El audio vive en public/audio: la ruta se arma con la base para que la demo de Pages funcione bajo su subcamino.
@@ -104,6 +105,7 @@ export class AudioSystem {
       }
     });
     this.policeSiren = new PoliceSirenAudio({ fx: () => this._fx() });
+    this.flyBuzz = new FlyBuzzAudio({ fx: () => this._fx() });
     // Una sola voz a la vez entre conductores, robo, calle y conversaciones.
     this.vehicles.externalVoiceActive = () => this._theftVoiceActive() || this.streetVoices.active || this.conversations.busy;
     this.streetVoices.externalVoiceActive = () => this._theftVoiceActive() || this.vehicles.remarkPlaying() || this.conversations.busy;

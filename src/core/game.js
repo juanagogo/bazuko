@@ -48,6 +48,7 @@ import {
 import { StatsSystem, NEEDS } from '../systems/StatsSystem.js';
 import { TimeSystem } from '../systems/TimeSystem.js';
 import { SaveSystem } from '../systems/SaveSystem.js';
+import { AutoSave } from '../systems/AutoSave.js';
 import { CollisionSystem } from '../systems/CollisionSystem.js';
 import { TrafficSystem } from '../systems/TrafficSystem.js';
 import { DEFAULT_TRAFFIC_DENSITY, trafficDensityId, trafficDensityLabel } from '../systems/trafficDensity.js';
@@ -123,6 +124,9 @@ export class Game {
     this.stats = new StatsSystem();
     this.time = new TimeSystem();
     this.save = new SaveSystem();
+    // El autoguardado se engancha a la pestaña: esconderse o cerrarla es el último momento para guardar.
+    this.autoSave = new AutoSave({ guardar: () => this._save(), puede: () => this._puedeAutoguardar() });
+    this._soltarAutoguardado = this.autoSave.enganchar();
     this.diseases = new DiseaseSystem();
     this.talents = new TalentSystem();
     this.crafting = new CraftingSystem();
@@ -146,7 +150,8 @@ export class Game {
 
     // Sistemas de nuevas mecánicas: Popó y Psicosis por abstinencia
     this.poopSystem = new PoopSystem(
-      this.sceneMgr.scene, this.audio, this.inventory, this.stats, this.world
+      this.sceneMgr.scene, this.audio, this.inventory, this.stats, this.world,
+      { quality: () => this.renderer?.effectiveQuality ?? 'alta' }
     );
     this.psychosis = new PsychosisSystem(
       this.sceneMgr.scene, this.player, this.stats, this.audio, this.world
@@ -974,8 +979,14 @@ export class Game {
     }
   }
 
-  _save() {
-    this.save.save({
+  /** ¿Es un momento firme para guardar solo? Ni cargando, ni en el creador, ni muerto, ni preso, ni dormido. */
+  _puedeAutoguardar() {
+    return !this._loading && !this._deathPending && !this._arrestPending && this.stats.salud > 0 && !this.isSleeping && !this.creator?.isOpen;
+  }
+
+  /** Lo que se guarda de la partida en curso. */
+  _estado() {
+    return {
       stats: this.stats.serialize(),
       clock: this.clock.serialize(),
       inventory: this.inventory.serialize(),
@@ -994,7 +1005,74 @@ export class Game {
       lastComedorHour: this.lastComedorHour,
       dailyMissions: this.dailyMissions?.serialize(),
       street: this.street?.serialize()
+    };
+  }
+
+  _save() {
+    const ok = this.save.save(this._estado());
+    if (ok) this._saveFallo = false;
+    else if (!this._saveFallo) {
+      // El aviso sale una sola vez: repetirlo cada minuto es ruido.
+      this._saveFallo = true;
+      this._avisar('No se pudo guardar: el navegador no deja escribir la partida.');
+    }
+    return ok;
+  }
+
+  /** Un aviso corto, por donde pasan los de la partida guardada. */
+  _avisar(texto, tipo = 'warn') {
+    globalThis.window?.dispatchEvent?.(new CustomEvent('toast', { detail: { text: texto, type: tipo } }));
+  }
+
+  /** Copia la partida a un archivo, para no perderla con el almacenamiento del navegador. */
+  exportarPartida() {
+    const url = URL.createObjectURL(new Blob([this.save.comoTexto(this._estado())], { type: 'application/json' }));
+    const link = el('a', { href: url, download: `Bazuko-partida-${new Date().toISOString().slice(0, 10)}.json` });
+    document.body.append(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 5000);
+    this._avisar('Partida copiada a un archivo', 'info');
+  }
+
+  /** Pide un archivo y cambia la partida en curso por la que traiga, si es de este juego. */
+  importarPartida() {
+    this._inputPartida?.remove();
+    const input = el('input', { type: 'file', accept: '.json,application/json', style: 'display:none' });
+    this._inputPartida = input;
+    input.addEventListener('change', async () => {
+      const file = input.files?.[0];
+      input.remove();
+      if (file) this._importarTexto(await file.text());
     });
+    input.addEventListener('cancel', () => input.remove());
+    document.body.append(input);
+    input.click();
+  }
+
+  /** Aplica la partida que trae un texto. Si no es de este juego no se escribe nada. */
+  _importarTexto(texto) {
+    const data = this.save.leerArchivo(texto);
+    if (!data) {
+      this._avisar('Ese archivo no es una partida de Bazuko.');
+      return;
+    }
+    const respaldo = this._estado();
+    try {
+      this._aplicarPartida(data);
+    } catch (error) {
+      // La partida del navegador sigue intacta: lo que falló fue el archivo, y se vuelve a la que había.
+      console.warn('[Partida] El archivo no se pudo aplicar.', error);
+      try { this._aplicarPartida(respaldo); } catch { /* se queda como estaba */ }
+      this._avisar('Ese archivo no se pudo aplicar.');
+      return;
+    }
+    // El cuerpo, la cámara y el vecindario, como al recuperarse de un atropello.
+    this.player.root.position.copy(this.player.position);
+    this._resetAfterRelocation();
+    this.cameraRig._snap = true;
+    this.menu?.refresh?.();
+    if (this._save()) this._avisar('Partida importada', 'info');
   }
 
   /**
@@ -1224,6 +1302,8 @@ export class Game {
   _handleDeath() {
     if (this._deathPending || this._arrestPending) return true;
     if (this.stats.salud > 0) return false;
+    // Quien muere haciendo popó queda vestido desde el primer cuadro de la caída.
+    this.poopSystem?.cancel?.();
     if (this.player.isRagdollActive) return false;
 
     this._deathPending = true;
@@ -1264,6 +1344,7 @@ export class Game {
   _policeArrest() {
     if (this._arrestPending || this._deathPending || this.stats.salud <= 0) return;
     this._arrestPending = true;
+    this.poopSystem?.cancel?.();
     if (this.steal?.minigameActive) this.steal._endMinigame(false, 'cancel');
     this.input.keys = {};
     this.input.endFrame();
@@ -1411,6 +1492,8 @@ export class Game {
     requestAnimationFrame(this._loop);
 
     const now = performance.now();
+    // El reloj de la pestaña decide el autoguardado, aunque el juego esté en pausa.
+    this.autoSave?.update(now);
     // El intervalo entre cuadros se mide con el sello de rAF: el reloj al entrar aquí oscila y cuenta como lentitud lo que no lo es.
     this._frameStamp = stamp ?? now;
     const dt = Math.min((now - this._lastTime) / 1000, 0.1);
@@ -1550,7 +1633,8 @@ export class Game {
       // Los temporizadores y la selección de basura terminan normalmente al entrar;
       // nadar no permite comerciar ni iniciar acciones terrestres bajo el agua.
       // Con la barra del espejo o del cosquilleo abierta, E y Q no empiezan otra cosa ni reinician el intento.
-      const controls = this.player.isSwimming || this.steal?.minigameActive
+      // Haciendo popó tampoco: la escena se queda con las manos.
+      const controls = this.player.isSwimming || this.steal?.minigameActive || this.player.busyPoop
         ? (this._waterInput ??= { consumePress: () => false, isDown: () => false }) : this.input;
       this.interaction.update(dt, controls, this.clock);
       if (this.player.isSwimming) this.interaction.currentTarget = this.interaction.currentTargetType = null;
@@ -1572,7 +1656,7 @@ export class Game {
     if (!this.player.isStunned && !this.player.isSwimming && this.input.consumePress('KeyZ')) {
       this.poopSystem.poop(this.player);
     }
-    this.poopSystem.update(dt);
+    this.poopSystem.update(dt, { listener: this.player.position, camera: this.cameraRig.camera });
 
     // 7b2. Atajo para dormir en cartón si se tiene en inventario
     if (!this.player.isStunned && !this.player.isSwimming && this.input.consumePress('KeyK')) {
@@ -1833,6 +1917,7 @@ export class Game {
 
   stop() {
     this._running = false;
+    this._soltarAutoguardado?.();
     this.waterEffects?.dispose();
     this.contactShadows?.dispose();
     this.gpsBeacon?.dispose();

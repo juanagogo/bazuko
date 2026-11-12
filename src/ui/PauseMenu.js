@@ -304,7 +304,10 @@ function settingsPanel(game) {
           }),
           button([icon('radio', { size: 18 }), game.radio?.isOn ? 'Sintonizar radio (R)' : 'Radio (R)'], {
             onClick: () => window.dispatchEvent(new CustomEvent('open-radio-modal'))
-          })))),
+          }))),
+      section('save', 'La partida',
+        row('Copiarla a un archivo', button('Exportar', { onClick: () => game.exportarPartida?.() })),
+        row('Volver a una copia', button('Importar', { onClick: () => game.importarPartida?.() })))),
     section('arrow', 'Radar y GPS',
       row('Radar', choice(minimap?.visible ? 'Visible (N)' : 'Oculto (N)', !!minimap?.visible,
         () => { minimap?.toggle(); game.menu.refresh(); })),
