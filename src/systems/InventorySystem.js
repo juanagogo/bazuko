@@ -40,26 +40,42 @@ export class InventorySystem {
     return this.items.reduce((s, i) => s + i.qty, 0);
   }
 
-  add(item, qty = 1) {
+  /**
+   * `vence`: horas de juego en que se dañan las unidades que entran, si ya las traen (de la caleta).
+   * Sin eso, lo perecible recibe su vencimiento con la hora de ahora (`now`, que pone el juego).
+   */
+  add(item, qty = 1, { vence = null } = {}) {
     if (!item) return false;
     if (this.totalWeight + item.weight * qty > this.maxWeight) return false;
 
-    const existing = this.items.find((i) => i.id === item.id);
+    let existing = this.items.find((i) => i.id === item.id);
     if (existing) {
       existing.qty += qty;
     } else {
-      this.items.push({ ...item, qty });
+      const { vence: _v, usos: _u, ...clean } = item;
+      this.items.push(existing = { ...clean, qty });
+    }
+    const perece = ITEMS[item.id]?.perece;
+    const now = this.now?.();
+    if (perece && (vence?.length || typeof now === 'number')) {
+      const lots = vence?.length ? vence.slice(0, qty) : [];
+      while (lots.length < qty) lots.push(now + perece);
+      existing.vence = [...(existing.vence ?? []), ...lots].sort((a, b) => a - b);
     }
     this._notify();
     return true;
   }
 
+  /** Lo que sale primero es lo más viejo; un arma que sale se lleva su desgaste. */
   remove(itemId, qty = 1) {
     const idx = this.items.findIndex((x) => x.id === itemId);
     if (idx === -1) return false;
 
-    this.items[idx].qty -= qty;
-    if (this.items[idx].qty <= 0) this.items.splice(idx, 1);
+    const entry = this.items[idx];
+    entry.qty -= qty;
+    if (Array.isArray(entry.vence)) entry.vence.splice(0, Math.max(0, entry.vence.length - Math.max(0, entry.qty)));
+    if (qty > 0 && 'usos' in entry) delete entry.usos;
+    if (entry.qty <= 0) this.items.splice(idx, 1);
     this._notify();
     return true;
   }
@@ -88,7 +104,14 @@ export class InventorySystem {
   serialize() { return { items: this.items, hotbar: this.hotbar }; }
   // Refresca cada objeto con el catálogo actual (precios y efectos pueden haber cambiado)
   deserialize(d) {
-    this.items = (d.items ?? []).map((i) => (ITEMS[i.id] ? { ...ITEMS[i.id], qty: i.qty } : i));
+    this.items = (d.items ?? []).map((i) => {
+      if (!ITEMS[i.id]) return i;
+      const entry = { ...ITEMS[i.id], qty: i.qty };
+      // Vencimientos y desgaste del arma: se guardan con el costal.
+      if (Array.isArray(i.vence) && ITEMS[i.id].perece) entry.vence = i.vence.filter(Number.isFinite).slice(-i.qty);
+      if (Number.isFinite(i.usos) && ITEMS[i.id].durabilidad) entry.usos = Math.min(i.usos, ITEMS[i.id].durabilidad);
+      return entry;
+    });
     this.hotbar = Array.from({ length: 5 }, (_, i) => ITEMS[d.hotbar?.[i]] ? d.hotbar[i] : null);
     this._notify();
   }
