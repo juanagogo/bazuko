@@ -153,13 +153,24 @@ void UIManager::TogglePause() {
     m_CraftMenuOpen = false;
     m_PauseSection = 0;
     m_NewGameConfirmOpen = false;
+    m_QuitConfirmOpen = false;
     Input::SetCursorLocked(!m_Paused);
+}
+
+void UIManager::RequestQuit() {
+    if (m_QuitWarningTitle.empty() || !Carton::FontsReady()) { m_QuitRequest = true; return; }
+    if (!m_Paused) TogglePause();
+    m_QuitConfirmOpen = true;
 }
 
 void UIManager::HandleEscape() {
     if (m_DeathScreenOpen) return;
     if (m_NewGameConfirmOpen) {
         m_NewGameConfirmOpen = false;   // Esc cancela la confirmacion y vuelve a la pausa
+        return;
+    }
+    if (m_QuitConfirmOpen) {
+        m_QuitConfirmOpen = false;
         return;
     }
     if (m_RadioMenuOpen) {
@@ -908,7 +919,9 @@ void UIManager::RenderHUD(float dt, const glm::vec3& playerPos, Camera& camera, 
 
     if (m_CraftMenuOpen && !m_Paused) RenderCraftWindow(craftingOptions, inventoryWeight, inventoryCapacity);
 
-    if (m_Paused && m_NewGameConfirmOpen && Carton::FontsReady() && !std::getenv("BAZUKO_UI_OSCURA")) {
+    if (m_Paused && m_QuitConfirmOpen) {
+        RenderQuitConfirmCarton();
+    } else if (m_Paused && m_NewGameConfirmOpen && Carton::FontsReady() && !std::getenv("BAZUKO_UI_OSCURA")) {
         RenderNewGameConfirmCarton();
     } else if (m_Paused && m_NewGameConfirmOpen) {
         // Confirmacion: solo se ve este mensaje, centrado y fijo, sobre el juego oscurecido (el menu de pausa se oculta)
@@ -1555,7 +1568,7 @@ void UIManager::RenderHUD(float dt, const glm::vec3& playerPos, Camera& camera, 
                 if (SignUI::PrimaryButton("Continuar jugando")) TogglePause();
                 ImGui::SameLine(0.0f, 14.0f);
                 SignUI::FlexReset();
-                if (SignUI::Button("Guardar y salir del juego", Icon::None, false, true)) m_QuitRequest = true;
+                if (SignUI::Button("Guardar y salir del juego", Icon::None, false, true)) RequestQuit();
             }
         }
         SignUI::EndMenu();

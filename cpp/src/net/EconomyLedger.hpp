@@ -53,7 +53,7 @@ inline constexpr float kMaxMoney = 1.0e7f;
 // Migracion de anfitrion: el anfitrion reparte la lista de jugadores (para saber a quien le toca ser el siguiente y donde esta) y le manda al siguiente
 // un punto de control con la economia de todos, para que el nuevo anfitrion no los trate como perfiles nuevos.
 struct RosterEntry { uint8_t id = 0; std::string ip; };
-struct Roster { uint16_t port = 0; std::vector<RosterEntry> entries; std::string relayAddress; uint16_t relayPort = 0; std::string room; };   // con relevo: sin IPs, se reentra por el codigo de la sala   // ordenada por id: el primero es el siguiente anfitrion
+struct Roster { uint16_t port = 0; std::vector<RosterEntry> entries; std::string relayAddress; uint16_t relayPort = 0; std::string room; };   // con relevo: sin IPs, se reentra por el codigo de la sala. En el orden de sucesion (NetSession::Succession): el primero es el siguiente anfitrion
 struct CheckpointEntry { std::string key; EconomySnapshot state; };
 struct Checkpoint { std::vector<CheckpointEntry> entries; std::string roomSecret; };   // el secreto de la sala solo lo recibe el siguiente anfitrion
 void Write(BitWriter& w, const Roster& m);

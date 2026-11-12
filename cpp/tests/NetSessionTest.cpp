@@ -2,6 +2,7 @@
 // entrada y salida; rechazo con la partida llena; el anfitrion ignora estados fuera del mapa o no finitos. Solo se compila con -DBAZUKO_NET=ON.
 #include "net/NetSession.hpp"
 #include "net/RelayServer.hpp"
+#include "net/RoomDirectory.hpp"
 
 #include <chrono>
 #include <filesystem>
@@ -22,7 +23,8 @@ struct Walker {
     glm::vec3 position;
     glm::vec3 velocity{0.0f};
     float yaw = 0.0f;
-    LocalState State() const { LocalState s; s.position = position; s.velocity = velocity; s.yaw = yaw; return s; }
+    float fps = 0.0f;   // 0: no cuenta su rendimiento (como un jugador recien llegado)
+    LocalState State() const { LocalState s; s.position = position; s.velocity = velocity; s.yaw = yaw; s.fps = fps; return s; }
 };
 
 // Corre `seconds` a 30 Hz moviendo a cada uno en linea recta a 3 m/s
@@ -504,6 +506,177 @@ int main() {
         anaHands = 0; run(1.0);
         CHECK(handsOf(*b, a->LocalId()) == 0, "K: al soltar el porro se apaga para todos");
         std::printf("K) manos: fumar y la pipa se ven en los demas jugadores\n");
+    }
+    // L: lista de salas del lobby: una sala publica del relevo aparece con su nombre y sus jugadores, una privada no; una sala de la red local
+    //    se encuentra por su baliza; un nombre con saltos de linea llega limpio
+    {
+        auto relay = RelayServer::Create(0);
+        CHECK(relay != nullptr, "L: el relevo abre un puerto");
+        if (relay) {
+            auto open = NetSession::StartHostViaRelay("127.0.0.1", relay->Port(), "Hugo");
+            open->SetRoomInfo("Parche de la S\xC3\xA9ptima\n", true);
+            auto hidden = NetSession::StartHostViaRelay("127.0.0.1", relay->Port(), "Rosa");
+            hidden->SetRoomInfo("Solo con codigo", false);
+            auto lanHost = NetSession::StartHost(0, "Lucho");
+            const uint16_t discovery = 17779;
+            auto beacon = LanBeacon::Create(lanHost->Port(), "Cambuche del lago", 8, discovery);
+            CHECK(beacon != nullptr, "L: la baliza de la red local abre su puerto");
+            RoomBrowser browser(discovery);
+            browser.SetRelay("127.0.0.1", relay->Port());
+            Walker w{{100.0f, 0.0f, 100.0f}};
+            std::unique_ptr<NetSession> guest;
+            const auto run = [&](double seconds) { Pump(seconds, [&](float dt) {
+                relay->Update();
+                if (open) open->Update(dt, w.State());
+                hidden->Update(dt, w.State()); lanHost->Update(dt, w.State());
+                if (guest) guest->Update(dt, w.State());
+                if (beacon) beacon->Update(lanHost->PlayerCount());
+                browser.Update(); }); };
+            run(1.5);
+            guest = NetSession::JoinViaRelay("127.0.0.1", relay->Port(), open->RoomCode(), "Ana");
+            run(1.0);
+            browser.Refresh();
+            run(1.5);
+            const auto rooms = browser.Rooms();
+            const RoomListing* internet = nullptr; const RoomListing* lan = nullptr; bool privateSeen = false;
+            int lanCopies = 0;
+            for (const RoomListing& room : rooms) {
+                if (!room.lan && room.code == open->RoomCode()) internet = &room;
+                if (!room.lan && room.code == hidden->RoomCode()) privateSeen = true;
+                if (room.lan && room.port == lanHost->Port()) { lan = &room; ++lanCopies; }
+            }
+            CHECK(browser.GetRelayState() == RoomBrowser::RelayState::Online, "L: el buscador se conecta al relevo");
+            CHECK(internet && internet->name == "Parche de la S\xC3\xA9ptima" && internet->players == 2, "L: la sala publica sale con su nombre limpio y 2 jugadores");
+            CHECK(!privateSeen, "L: la sala privada no sale en la lista");
+            CHECK(lan && lan->name == "Cambuche del lago" && lan->players == 1 && lan->maxPlayers == 8, "L: la sala de la red local se encuentra por su baliza");
+            CHECK(lanCopies == 1, "L: la sala local sale una sola vez aunque responda por dos caminos");
+            open.reset(); guest.reset();
+            run(1.0);
+            browser.Refresh();
+            run(1.0);
+            bool stillThere = false;
+            for (const RoomListing& room : browser.Rooms()) if (!room.lan && room.name.rfind("Parche", 0) == 0) stillThere = true;
+            CHECK(!stillThere, "L: cuando el anfitrion se va, la sala sale de la lista");
+            std::printf("L) lista de salas: relevo (publica si, privada no) y red local\n");
+        }
+    }
+    // M: el sucesor se elige por rendimiento (cuadros por segundo y latencia) y no cambia por poco. Despues el anfitrion se congela sin despedirse
+    // (como un cierre forzado o un apagon): el relevo y los invitados lo notan en segundos y la sucesora retoma la misma sala
+    {
+        auto relay = RelayServer::Create(0);
+        auto host = relay ? NetSession::StartHostViaRelay("127.0.0.1", relay->Port(), "Anfitrion") : nullptr;
+        CHECK(relay && host, "M: relevo y anfitrion listos");
+        if (relay && host) {
+            Walker hw{{100.0f, 0.0f, 100.0f}}, aw{{101.0f, 0.0f, 100.0f}}, bw{{102.0f, 0.0f, 100.0f}}, cw{{103.0f, 0.0f, 100.0f}};
+            aw.fps = 15.0f; bw.fps = 58.0f;   // Ana tiene un equipo lento, Beto uno bueno, Caro todavia no cuenta nada
+            std::unique_ptr<NetSession> a, b, c;
+            bool hostFrozen = false;
+            double promotedAtMs = 0.0;
+            const auto step = [&](float dt, std::unique_ptr<NetSession>& s, const Walker& w) { if (s) { s->Update(dt, w.State()); if (s->ConsumePromotion()) promotedAtMs = NowMs(); } };
+            const auto run = [&](double seconds) { Pump(seconds, [&](float dt) { relay->Update(); if (!hostFrozen) host->Update(dt, hw.State()); step(dt, a, aw); step(dt, b, bw); step(dt, c, cw); }); };
+            run(1.0);
+            const std::string code = host->RoomCode();
+            CHECK(!code.empty(), "M: la sala existe en el relevo");
+            a = NetSession::JoinViaRelay("127.0.0.1", relay->Port(), code, "Ana");
+            b = NetSession::JoinViaRelay("127.0.0.1", relay->Port(), code, "Beto");
+            c = NetSession::JoinViaRelay("127.0.0.1", relay->Port(), code, "Caro");
+            run(3.0);
+            CHECK(a && b && c && a->Connected() && b->Connected() && c->Connected(), "M: los tres entran a la sala");
+            if (a && b && c) {
+                std::vector<uint8_t> order = host->Succession();
+                CHECK(order.size() == 3 && order[0] == b->LocalId() && order[1] == a->LocalId() && order[2] == c->LocalId(), "M: primero el mejor equipo (Beto), luego el lento (Ana) y al final quien no ha contado nada (Caro)");
+                CHECK(host->SuccessorName() == "Beto", "M: el aviso de salida nombra a Beto");
+                aw.fps = 60.0f; bw.fps = 55.0f;   // Ana queda un poco por encima de Beto: no vale la pena cambiar
+                run(2.5);
+                order = host->Succession();
+                CHECK(!order.empty() && order[0] == b->LocalId(), "M: por una diferencia pequena el sucesor no cambia");
+                bw.fps = 30.0f;   // Beto se queda corto: ahora si
+                run(2.5);
+                order = host->Succession();
+                CHECK(!order.empty() && order[0] == a->LocalId(), "M: con una diferencia clara el sucesor pasa a Ana");
+                const double freezeMs = NowMs();
+                hostFrozen = true;   // ni se despide ni contesta: el proceso murio (sin hilo de guardia que conteste por el)
+                host->Network().FreezeForTests();
+                run(16.0);
+                CHECK(a->GetRole() == NetSession::Role::Host, "M: tras la caida, Ana (la sucesora) retoma la sala");
+                CHECK(b->Connected() && c->Connected() && b->GetRole() == NetSession::Role::Client && c->GetRole() == NetSession::Role::Client, "M: Beto y Caro se reconectan a ella");
+                CHECK(a->RoomCode() == code, "M: con el mismo codigo de sala");
+                const double resumedS = promotedAtMs > 0.0 ? (promotedAtMs - freezeMs) / 1000.0 : -1.0;
+                CHECK(resumedS > 0.0 && resumedS < 10.0, "M: la caida se nota y la partida sigue en menos de 10 s");
+                std::printf("M) sucesor por rendimiento (Beto, se conserva por poco, pasa a Ana); anfitrion congelado: Ana retoma la sala a los %.1f s\n", resumedS);
+            }
+            c.reset(); b.reset(); a.reset(); host.reset();
+        }
+    }
+    // N: el anfitrion se traba 12 s (un cuadro eterno, la ventana arrastrada) pero su hilo de red sigue contestando: nadie lo da por caido
+    {
+        auto host = NetSession::StartHost(0, "Anfitrion");
+        CHECK(host != nullptr, "N: el anfitrion abre un puerto");
+        if (host) {
+            auto a = NetSession::Join("127.0.0.1", host->Port(), "Ana");
+            auto b = NetSession::Join("127.0.0.1", host->Port(), "Beto");
+            Walker hw{{100.0f, 0.0f, 100.0f}}, aw{{101.0f, 0.0f, 100.0f}}, bw{{102.0f, 0.0f, 100.0f}};
+            bool hostStalled = false;
+            const auto run = [&](double seconds) { Pump(seconds, [&](float dt) { if (!hostStalled) host->Update(dt, hw.State()); a->Update(dt, aw.State()); b->Update(dt, bw.State()); }); };
+            run(2.0);
+            CHECK(a->Connected() && b->Connected(), "N: los dos se conectan");
+            const uint8_t idA = a->LocalId(), idB = b->LocalId();
+            hostStalled = true;
+            run(12.0);
+            CHECK(a->Connected() && b->Connected() && !a->Migrating() && !b->Migrating(), "N: con el anfitrion trabado 12 s nadie lo da por caido");
+            hostStalled = false;
+            run(2.0);
+            CHECK(host->GetRole() == NetSession::Role::Host && a->GetRole() == NetSession::Role::Client && b->GetRole() == NetSession::Role::Client, "N: nadie cambio de papel");
+            CHECK(a->LocalId() == idA && b->LocalId() == idB && Find(*host, idA) && Find(*host, idB), "N: al destrabarse sigue la misma partida, con los mismos jugadores");
+            std::printf("N) anfitrion trabado 12 s: la partida sigue sin migrar\n");
+        }
+    }
+    // O: en esta red, el sucesor tiene que poder recibir a los demas: Beto abre el puerto de sondeo, Ana (con mejor equipo) no puede
+    // (en un mismo equipo solo uno puede tener el puerto, como si el de Ana estuviera ocupado o bloqueado), asi que el sucesor es Beto
+    {
+        auto host = NetSession::StartHost(0, "Anfitrion");
+        CHECK(host != nullptr, "O: el anfitrion abre un puerto");
+        if (host) {
+            constexpr uint16_t kProbe = 47391;
+            host->SetProbePort(kProbe);
+            Walker hw{{100.0f, 0.0f, 100.0f}}, aw{{101.0f, 0.0f, 100.0f}}, bw{{102.0f, 0.0f, 100.0f}};
+            aw.fps = 60.0f; bw.fps = 40.0f;
+            std::unique_ptr<NetSession> a, b;
+            const auto run = [&](double seconds) { Pump(seconds, [&](float dt) { host->Update(dt, hw.State()); if (a) a->Update(dt, aw.State()); if (b) b->Update(dt, bw.State()); }); };
+            b = NetSession::Join("127.0.0.1", host->Port(), "Beto");
+            b->SetProbePort(kProbe);
+            run(1.5);   // Beto ya tiene el puerto de sondeo
+            a = NetSession::Join("127.0.0.1", host->Port(), "Ana");
+            a->SetProbePort(kProbe);
+            run(2.5);
+            std::vector<uint8_t> order = host->Succession();
+            CHECK(!order.empty() && order[0] == a->LocalId(), "O: al principio manda el rendimiento (Ana)");
+            run(10.0);   // ya tuvieron tiempo de sondear
+            order = host->Succession();
+            CHECK(order.size() == 2 && order[0] == b->LocalId() && order[1] == a->LocalId(), "O: Ana no puede recibir a nadie: el sucesor es Beto");
+            std::printf("O) sucesor alcanzable en esta red: Beto antes que Ana (mejor equipo, puerto cerrado)\n");
+        }
+    }
+    // P: compatibilidad: un reporte de estado de una copia anterior (sin los campos del final) se sigue leyendo, y el nuevo trae los campos
+    {
+        BitWriter old;
+        old.U8(static_cast<uint32_t>(MessageType::State));
+        old.Quantized(120.0f, kWorldMinX, kWorldMaxX, 16); old.Quantized(0.0f, kWorldMinY, kWorldMaxY, 16); old.Quantized(90.0f, kWorldMinZ, kWorldMaxZ, 16);
+        old.Quantized(1.0f, 0.0f, 6.2831853f, 10);
+        old.Quantized(2.0f, 0.0f, kMaxSpeed, 8); old.U8(0); old.U8(0);
+        old.Quantized(1.0f, -kMaxVelocity, kMaxVelocity, 10); old.Quantized(0.0f, -kMaxVelocity, kMaxVelocity, 10);
+        BitReader oldReader(old.Data());
+        const auto oldType = ReadType(oldReader);
+        const auto oldReport = oldReader.Failed() ? std::nullopt : ReadState(oldReader);
+        CHECK(oldType && oldReport && !oldReport->extended && oldReport->fps == 0 && std::abs(oldReport->player.x - 120.0f) < 0.1f, "P: el reporte de una copia anterior se lee igual");
+        StateReport fresh; fresh.player.x = 120.0f; fresh.player.z = 90.0f; fresh.fps = 57; fresh.rttMs = 42; fresh.probeBound = true; fresh.reached = {3, 5};
+        BitWriter now; Write(now, fresh);
+        BitReader nowReader(now.Data());
+        ReadType(nowReader);
+        const auto report = ReadState(nowReader);
+        CHECK(report && report->extended && report->fps == 57 && report->rttMs == 42 && report->probeBound && report->reached == std::vector<uint8_t>({3, 5}), "P: el nuevo trae rendimiento y sondeo");
+        CHECK(kProtocolVersion == 2, "P: la version del protocolo no cambio: juegan copias anteriores y nuevas");
+        std::printf("P) compatibilidad con copias anteriores del juego\n");
     }
     if (failures == 0) std::printf("Sesion de red: todo correcto\n");
     return failures == 0 ? 0 : 1;

@@ -75,6 +75,7 @@ public:
     }
     void Align() { if (m_BitPosition != 0) { m_BitPosition = 0; ++m_BytePosition; } }
     bool Failed() const { return m_Failed; }
+    size_t BitsLeft() const { return m_BytePosition >= m_Size ? 0 : (m_Size - m_BytePosition) * 8 - m_BitPosition; }   // para campos opcionales al final
 
 private:
     const uint8_t* m_Data;

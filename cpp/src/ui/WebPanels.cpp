@@ -124,7 +124,7 @@ void UIManager::RenderPauseTabs(const PauseContext& c) {
         ImGui::SameLine(0.0f, 12.0f);
         if (W::Button("partidaNueva", "Empezar partida nueva", Icon::None, false, false, 40.0f, 14)) m_NewGameConfirmOpen = true;
         ImGui::SameLine(0.0f, 12.0f);
-        if (W::Button("salir", "Guardar y salir del juego", Icon::None, false, false, 40.0f, 14)) m_QuitRequest = true;
+        if (W::Button("salir", "Guardar y salir del juego", Icon::None, false, false, 40.0f, 14)) RequestQuit();
     }
     SignUI::EndMenu();
     if (closeRequested) TogglePause();

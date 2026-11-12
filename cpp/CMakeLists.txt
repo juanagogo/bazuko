@@ -143,17 +143,21 @@ endif()
 add_executable(bazuko
     src/main.cpp
     src/audio/AudioManager.cpp src/audio/SubstanceSynth.cpp
-    src/core/Window.cpp src/core/Input.cpp src/core/Paths.cpp
+    src/core/Window.cpp src/core/Input.cpp src/core/Paths.cpp src/core/ServerList.cpp src/core/OwnServer.cpp
     src/renderer/Buffer.cpp src/renderer/VertexArray.cpp src/renderer/Shader.cpp src/renderer/GLCompat.cpp
     src/renderer/Mesh.cpp src/renderer/Camera.cpp src/renderer/Renderer.cpp
     src/renderer/Texture.cpp src/renderer/Model.cpp
-    src/ui/UIManager.cpp src/ui/SignStyle.cpp src/ui/Carton.cpp src/ui/Costal.cpp src/ui/HudCarton.cpp src/ui/Halftone.cpp src/ui/WebPanels.cpp src/ui/CharacterCreatorUI.cpp
+    src/ui/UIManager.cpp src/ui/SignStyle.cpp src/ui/Carton.cpp src/ui/Costal.cpp src/ui/HudCarton.cpp src/ui/Halftone.cpp src/ui/WebPanels.cpp src/ui/CharacterCreatorUI.cpp src/ui/Lobby.cpp
     src/character/CharacterManager.cpp src/character/CharacterPreview.cpp src/character/Ragdoll.cpp
     src/world/CityLayout.cpp src/world/Simulation.cpp src/world/BirdFlock.cpp src/world/Lake.cpp src/world/Decals.cpp src/world/Zones.cpp src/character/SmokePuffs.cpp src/effects/SubstanceEffects.cpp
     src/world/TextRaster.cpp src/world/SignAtlas.cpp
     src/game/GameData.cpp src/game/Harvest.cpp src/game/Survival.cpp src/game/Economy.cpp src/game/Movement.cpp src/game/Fight.cpp
     src/audio/RadioSynth.cpp src/audio/LiveStream.cpp src/world/SafeSpawn.cpp
 )
+# Servidores de salas del lobby: el juego baja la lista publicada al abrir y, si falla, usa el de respaldo (ver core/ServerList.hpp y servidores.json)
+set(BAZUKO_LISTA_SERVIDORES "https://raw.githubusercontent.com/juanagogo/bazuko/main/cpp/servidores.json" CACHE STRING "URL de la lista de servidores de salas")
+set(BAZUKO_SERVIDOR_SALAS "impairment-touchdown.tun.ply.gg:29702" CACHE STRING "Servidor de salas de respaldo (host:puerto)")
+target_compile_definitions(bazuko PRIVATE BAZUKO_LISTA_SERVIDORES_DEFAULT="${BAZUKO_LISTA_SERVIDORES}" BAZUKO_SERVIDOR_SALAS_DEFAULT="${BAZUKO_SERVIDOR_SALAS}")
 if(WIN32)
     target_sources(bazuko PRIVATE resources/bazuko.rc)
     set_target_properties(bazuko PROPERTIES WIN32_EXECUTABLE TRUE)
@@ -188,7 +192,7 @@ if(MINGW)
 endif()
 target_link_libraries(bazuko PRIVATE glfw glm::glm glad imgui Threads::Threads opusfile assimp ${BAZUKO_WEBP_TARGET} ${CMAKE_DL_LIBS})
 if(WIN32)
-    target_link_libraries(bazuko PRIVATE winhttp)   # emisoras en vivo (audio/LiveStream.cpp)
+    target_link_libraries(bazuko PRIVATE winhttp)   # emisoras en vivo (audio/LiveStream.cpp) y lista de servidores de salas (core/ServerList.cpp)
 endif()
 
 option(BAZUKO_BUILD_OPUS_TESTS "Build the Opus audio decoding smoke test" OFF)
@@ -443,7 +447,7 @@ option(BAZUKO_NET "Compilar el transporte de red (ENet), las pruebas de red y lo
 if(BAZUKO_NET)
     FetchContent_Declare(enet GIT_REPOSITORY https://github.com/lsalzman/enet.git GIT_TAG v1.3.18 GIT_SHALLOW TRUE)
     FetchContent_MakeAvailable(enet)
-    add_library(bazuko_net STATIC src/net/Transport.cpp src/net/RelayServer.cpp src/net/ToyWorld.cpp src/net/NetSession.cpp src/net/PlayerSim.cpp src/net/EconomyLedger.cpp src/net/ProfileStore.cpp src/game/Movement.cpp
+    add_library(bazuko_net STATIC src/net/Transport.cpp src/net/RelayServer.cpp src/net/RoomDirectory.cpp src/net/ToyWorld.cpp src/net/NetSession.cpp src/net/PlayerSim.cpp src/net/EconomyLedger.cpp src/net/ProfileStore.cpp src/game/Movement.cpp
                               src/game/Economy.cpp src/game/Harvest.cpp src/game/GameData.cpp src/core/Paths.cpp)
     target_include_directories(bazuko_net PUBLIC src third_party/include ${enet_SOURCE_DIR}/include)
     target_link_libraries(bazuko_net PUBLIC enet glm::glm)
@@ -464,7 +468,7 @@ if(BAZUKO_NET)
     target_link_libraries(bazuko_netsession_test PRIVATE bazuko_net)
     target_compile_definitions(bazuko_netsession_test PRIVATE BAZUKO_GAME_DATA_PATH="${CMAKE_CURRENT_SOURCE_DIR}/assets/data/game-data.json" BAZUKO_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
     add_test(NAME bazuko_netsession COMMAND bazuko_netsession_test)
-    set_tests_properties(bazuko_netsession PROPERTIES TIMEOUT 120)
+    set_tests_properties(bazuko_netsession PROPERTIES TIMEOUT 240)   # migraciones, cierre forzado y anfitrion trabado esperan de verdad: unos 150 s
     add_executable(bazuko_net_bots tools/NetBots.cpp)
     target_link_libraries(bazuko_net_bots PRIVATE bazuko_net)
 endif()

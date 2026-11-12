@@ -292,6 +292,11 @@ public:
     bool ConsumeSaveRequest();
     bool ConsumeNewGameRequest();
     bool ConsumeQuitRequest();
+    // Aviso antes de salir (multijugador, anfitrion): si hay texto, «Guardar y salir» y cerrar la ventana piden confirmacion con ese mensaje.
+    void SetQuitWarning(std::string title, std::string body) { m_QuitWarningTitle = std::move(title); m_QuitWarningBody = std::move(body); }
+    void RequestQuit();                                   // sale de una vez o, si hay aviso, abre la confirmacion
+    bool QuitConfirmOpen() const { return m_QuitConfirmOpen; }
+    bool HasQuitWarning() const { return !m_QuitWarningTitle.empty(); }
     bool ConsumeCharacterCreatorRequest();
     void RequestCharacterCreator() { m_CharacterCreatorRequest = true; }
     void SetSaveNotification(const std::string& message);
@@ -411,7 +416,8 @@ private:
     void RenderHudCarton(const HudContext& context);
     void RenderDeathCarton();   // pantalla de muerte de carton con el recorte de periodico (HudCarton.cpp)
     void RenderQuitCarton();    // «Guardando partida...» al salir, sobre carton (HudCarton.cpp)
-    void RenderNewGameConfirmCarton();   // confirmacion de la partida nueva, sobre carton (HudCarton.cpp)
+    void RenderNewGameConfirmCarton();
+    void RenderQuitConfirmCarton();      // confirmacion de salida con la sala abierta (HudCarton.cpp)   // confirmacion de la partida nueva, sobre carton (HudCarton.cpp)
     std::string m_DeathName, m_DeathPlace;
     bool m_Freezing = false, m_InWithdrawal = false;   // frio de noche con lluvia y sin calor; malilla (para el retazo de lo mas urgente)
     bool m_NeedsExpanded = false;   // higiene, animo y vicio a la vista aunque esten bien (boton del pie de las necesidades)
@@ -431,6 +437,8 @@ private:
     bool m_NewGameRequest = false;
     bool m_NewGameConfirmOpen = false;   // confirmacion de partida nueva: reemplaza al menu de pausa mientras esta abierta
     bool m_QuitRequest = false;
+    bool m_QuitConfirmOpen = false;
+    std::string m_QuitWarningTitle, m_QuitWarningBody;
     bool m_CharacterCreatorRequest = false;
     std::string m_SaveNotification;
     float m_SaveNotificationTimer = 0.0f;

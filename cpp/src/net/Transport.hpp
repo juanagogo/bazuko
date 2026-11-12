@@ -34,6 +34,8 @@ public:
     const std::string& RoomCode() const;     // anfitrion: vacio hasta que el relevo asigna la sala
     const std::string& RoomSecret() const;   // anfitrion: para que otro jugador pueda retomar la sala
     bool RoomFailed() const;                 // anfitrion: el relevo no pudo crear o retomar la sala (o se cayo)
+    // anfitrion por relevo: nombre, si sale en la lista publica de salas y el cupo; se manda al abrir la sala (y ya, si esta abierta)
+    void SetRoomInfo(const std::string& name, bool listed, uint8_t maxPlayers);
     uint16_t Port() const;
 
     // Cliente: abre la conexion (el evento Connected llega por Poll). Devuelve false si no se pudo preparar.
@@ -47,6 +49,7 @@ public:
     size_t PeerCount() const;
 
     void SetSimulation(const NetSimConfig& config, uint32_t seed);
+    void FreezeForTests();   // pruebas: deja de atender la red del todo, sin despedirse (como un proceso muerto o un apagon)
     uint64_t BytesSent() const { return m_BytesSent; }
     uint64_t BytesReceived() const { return m_BytesReceived; }
 
@@ -55,6 +58,22 @@ private:
     struct Impl;
     std::unique_ptr<Impl> m_Impl;
     uint64_t m_BytesSent = 0, m_BytesReceived = 0;
+};
+
+// Socket UDP suelto para el sondeo de alcance entre jugadores en modo directo (NetSession): ¿me puede llegar un paquete al puerto de la partida?
+// No bloquea. `Open(0)` toma cualquier puerto libre (el anfitrion, que solo pregunta).
+class ProbeSocket {
+public:
+    ~ProbeSocket();
+    ProbeSocket(const ProbeSocket&) = delete;
+    ProbeSocket& operator=(const ProbeSocket&) = delete;
+    static std::unique_ptr<ProbeSocket> Open(uint16_t port);   // nullptr si el puerto esta ocupado
+    void SendTo(const std::string& ip, uint16_t port, const std::vector<uint8_t>& data);
+    bool Receive(std::vector<uint8_t>& data, std::string& ip, uint16_t& port);   // false si no hay nada
+private:
+    ProbeSocket();
+    struct Impl;
+    std::unique_ptr<Impl> m_Impl;
 };
 
 double NowMs();   // reloj monotono en milisegundos

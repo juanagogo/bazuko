@@ -1,7 +1,12 @@
 // Servidor y bots de prueba de red (compilar con -DBAZUKO_NET=ON): bazuko_net_bots
 //   bazuko_net_bots --servidor [--puerto 7777] [--jugadores 8] [--segundos N]    servidor sin ventana ni GPU
 //   bazuko_net_bots --bots N [--direccion 127.0.0.1] [--puerto 7777] [--segundos N]   N bots que caminan al azar y miden la red
+//   bazuko_net_bots --salas-demo [--relevo IP:puerto] [--segundos N]   abre salas de muestra para ver la lista del lobby: dos por el relevo
+//                                                                     (una publica y una solo con codigo) y una en esta red
 // Con BAZUKO_NET_LAG / BAZUKO_NET_JITTER / BAZUKO_NET_LOSS / BAZUKO_NET_DUP los bots simulan una mala conexion.
+#include "net/NetSession.hpp"
+#include "net/RelayProtocol.hpp"
+#include "net/RoomDirectory.hpp"
 #include "net/ToyWorld.hpp"
 
 #include <algorithm>
@@ -26,6 +31,8 @@ int main(int argc, char** argv) {
     int maxPlayers = 100;
     double seconds = 0.0;   // 0 = hasta cerrar
     std::string address = "127.0.0.1";
+    bool roomsDemo = false;
+    std::string relay = "127.0.0.1:7770";
     for (int i = 1; i < argc; ++i) {
         if (!std::strcmp(argv[i], "--servidor")) serverMode = true;
         else if (!std::strcmp(argv[i], "--bots") && i + 1 < argc) bots = std::atoi(argv[++i]);
@@ -33,8 +40,39 @@ int main(int argc, char** argv) {
         else if (!std::strcmp(argv[i], "--jugadores") && i + 1 < argc) maxPlayers = std::atoi(argv[++i]);
         else if (!std::strcmp(argv[i], "--segundos") && i + 1 < argc) seconds = std::atof(argv[++i]);
         else if (!std::strcmp(argv[i], "--direccion") && i + 1 < argc) address = argv[++i];
+        else if (!std::strcmp(argv[i], "--salas-demo")) roomsDemo = true;
+        else if (!std::strcmp(argv[i], "--relevo") && i + 1 < argc) relay = argv[++i];
     }
-    if (!serverMode && bots <= 0) { std::printf("Uso: bazuko_net_bots --servidor [--puerto P] [--jugadores N] [--segundos S]\n     bazuko_net_bots --bots N [--direccion IP] [--puerto P] [--segundos S]\n"); return 2; }
+    if (roomsDemo) {
+        const size_t colon = relay.rfind(':');
+        const std::string relayHost = colon == std::string::npos ? relay : relay.substr(0, colon);
+        const uint16_t relayPort = colon == std::string::npos ? Relay::kDefaultPort : static_cast<uint16_t>(std::atoi(relay.c_str() + colon + 1));
+        auto open = NetSession::StartHostViaRelay(relayHost, relayPort, "Hugo", 8);
+        auto hidden = NetSession::StartHostViaRelay(relayHost, relayPort, "Rosa", 4);
+        auto local = NetSession::StartHost(0, "Lucho", 16);
+        if (open) open->SetRoomInfo("Parche de la S\xC3\xA9ptima", true);
+        if (hidden) hidden->SetRoomInfo("Solo con codigo", false);
+        std::unique_ptr<LanBeacon> beacon = local ? LanBeacon::Create(local->Port(), "Cambuche del lago", 16) : nullptr;
+        std::printf("Salas de muestra: relevo %s, red local en el puerto %u%s\n", relay.c_str(), local ? local->Port() : 0, beacon ? "" : " (sin baliza: puerto de descubrimiento ocupado)");
+        const double start = NowMs();
+        double last = start;
+        bool announced = false;
+        while (seconds <= 0.0 || NowMs() - start < seconds * 1000.0) {
+            const double now = NowMs();
+            const float dt = static_cast<float>((now - last) / 1000.0);
+            last = now;
+            const LocalState still{};
+            for (auto* session : {open.get(), hidden.get(), local.get()}) if (session) session->Update(dt, still);
+            if (beacon && local) beacon->Update(local->PlayerCount());
+            if (!announced && open && hidden && !open->RoomCode().empty() && !hidden->RoomCode().empty()) {
+                announced = true;
+                std::printf("Publica: %s   Solo con codigo: %s\n", open->RoomCode().c_str(), hidden->RoomCode().c_str());
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(30));
+        }
+        return 0;
+    }
+    if (!serverMode && bots <= 0) { std::printf("Uso: bazuko_net_bots --servidor [--puerto P] [--jugadores N] [--segundos S]\n     bazuko_net_bots --bots N [--direccion IP] [--puerto P] [--segundos S]\n     bazuko_net_bots --salas-demo [--relevo IP:puerto] [--segundos S]\n"); return 2; }
 
     if (serverMode) {
         auto host = Host::CreateServer(port, static_cast<size_t>(std::max(32, maxPlayers + 8)));

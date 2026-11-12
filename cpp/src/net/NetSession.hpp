@@ -41,6 +41,7 @@ struct LocalState {
     glm::vec3 velocity{0.0f};
     bool knockedDown = false;
     uint8_t animation = 0;   // ver RemotePlayer::animation
+    float fps = 0.0f;        // cuadros por segundo promedio de este equipo (0 = sin medir); el anfitrion lo usa para elegir sucesor
 };
 
 class NetSession {
@@ -54,6 +55,8 @@ public:
     std::string RoomCode() const { return m_Host && m_Host->IsRelay() ? m_Host->RoomCode() : std::string(); }
     bool RoomFailed() const { return m_Host && m_Host->IsRelay() && m_Host->RoomFailed(); }
     bool ViaRelay() const { return m_Host && m_Host->IsRelay(); }
+    // Anfitrion por relevo: nombre de la sala y si aparece en la lista publica del lobby (sigue igual si la partida pasa a otro anfitrion)
+    void SetRoomInfo(const std::string& name, bool listed);
     static std::unique_ptr<NetSession> Join(const std::string& address, uint16_t port, const std::string& name, const std::string& key = {});
 
     // Atiende la red y avanza el suavizado; cada cuadro con el estado actual del jugador local. `dt` en segundos.
@@ -91,7 +94,17 @@ public:
     void SaveProfiles();   // se llama sola; el juego la llama tambien al cerrar
     ~NetSession();
     const Ledger* LedgerOf(uint8_t player) const;   // anfitrion: la copia de ese invitado (nullptr si no hay)
-    // Migracion de anfitrion: si el anfitrion se va, el primero de la lista (menor id) abre la partida en el mismo puerto y los demas se reconectan a el;
+    // Orden de sucesion (anfitrion): ids de los invitados, el primero es quien abre la partida si el anfitrion se va. Va primero quien tiene mejor equipo y
+    // conexion (cuadros por segundo y latencia que cuenta cada uno); quien aun no ha contado nada va al final, y a igualdad, el que entro antes. Para que el
+    // sucesor no cambie a cada rato, el actual se conserva mientras no lo supere otro por un margen claro.
+    std::vector<uint8_t> Succession();
+    std::string SuccessorName();   // anfitrion: nombre de quien lo sucederia ("" si no hay nadie mas)
+    // En modo directo (sin relevo) el sucesor tiene que poder recibir a los demas en el puerto de la partida. Cada invitado abre ese puerto en su equipo
+    // con un socket de sondeo; el anfitrion y los demas invitados le preguntan cada pocos segundos y cada invitado cuenta a quien le llego. Quien no
+    // pudo abrir el puerto, o no le llega al anfitrion o a algun otro, va al final del orden de sucesion. Por relevo no hace falta: todos llegan al relevo.
+    void SetProbePort(uint16_t port) { m_ProbePortOverride = port; }   // pruebas: otro puerto de sondeo en vez del de la partida
+    const std::string& RoomName() const { return m_RoomName; }
+    // Migracion de anfitrion: si el anfitrion se va, el primero de la lista (orden de sucesion) abre la partida en el mismo puerto y los demas se reconectan a el;
     // si ese tampoco responde en unos segundos, el siguiente. `ConsumePromotion()` avisa UNA vez al jugador que pasa a ser anfitrion para que el juego
     // active su simulacion de mundo (el nuevo anfitrion tiene que volver a darle SetEconomyData/SetWorldProvider/SetProfileFolder).
     bool Migrating() const { return m_Migrating; }
@@ -127,6 +140,13 @@ private:
         std::string key;
         std::string look;
         bool profileSynced = false;
+        uint8_t fps = 0;            // lo que cuenta de su equipo y su conexion (orden de sucesion)
+        uint16_t rttMs = 0;
+        bool hasVitals = false;
+        double joinedMs = 0.0;
+        bool hasProbe = false, probeBound = false;   // sondeo de alcance (modo directo); una copia anterior del juego no lo manda
+        std::vector<uint8_t> reached;                // a quienes le llego su sondeo
+        double hostReachedMs = -1.0e9;               // cuando le llego el sondeo del anfitrion
     };
     struct Smooth { RemotePlayer shown; PlayerSnapshot target; bool fresh = true; double lastHeardMs = 0.0; };
 
@@ -164,6 +184,8 @@ private:
     std::vector<RosterEntry> m_Roster;      // invitado: los demas jugadores segun el anfitrion, por id
     uint16_t m_RosterPort = 0;
     std::string m_RelayAddress, m_RosterRoom, m_RoomSecret;
+    std::string m_RoomName;
+    bool m_RoomListed = false, m_HasRoomInfo = false;
     uint16_t m_RelayPort = 0;
     bool m_MigFailed = false;
     int m_PromoteTries = 0;
@@ -179,7 +201,16 @@ private:
     uint8_t m_OldId = 0;
     uint32_t m_Epoch = 0;
     bool m_RosterDirty = true, m_CheckpointDirty = true;
-    double m_RosterAccumulator = 0.0, m_CheckpointAccumulator = 0.0;
+    double m_RosterAccumulator = 0.0, m_CheckpointAccumulator = 0.0, m_SuccessionAccumulator = 0.0;
+    uint8_t m_SuccessorId = 0;   // anfitrion: quien lo sucede ahora (para no cambiarlo por poco)
+    std::unique_ptr<ProbeSocket> m_Probe;   // sondeo de alcance (modo directo): el invitado lo abre en el puerto de la partida, el anfitrion en cualquiera
+    bool m_ProbeIsHost = false;
+    double m_ProbeRetryMs = 0.0, m_ProbeAskMs = -1.0e9;
+    std::map<uint8_t, double> m_ReachedAt;  // invitado: cuando contesto cada jugador a mi sondeo
+    uint16_t m_ProbePortOverride = 0;
+    void ProbeTick();
+    uint16_t ProbePort() const;
+    bool Unreachable(const Peer& candidate, double now) const;
     void SavePeer(const Peer& peer);
     void SendRoster();
     void BroadcastLook(uint8_t id);

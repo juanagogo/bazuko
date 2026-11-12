@@ -27,6 +27,9 @@ struct RelayServer::Impl {
         std::map<uint32_t, ENetPeer*> guests;
         uint32_t nextVid = 1;
         double expiresMs = 0.0;   // > 0: sin anfitrion, se borra a esa hora si nadie la retoma
+        std::string name;         // lo que se ve en la lista de salas
+        bool listed = false;      // publica: aparece en la lista (si no, solo se entra con el codigo)
+        uint8_t maxPlayers = 8;
     };
     ENetHost* host = nullptr;
     std::map<std::string, Room> rooms;
@@ -127,6 +130,31 @@ struct RelayServer::Impl {
             conn->role = Conn::Role::Guest; conn->code = code; conn->vid = vid;
             Send(peer, 0, {Relay::kJoined}, true);
             Send(room.host, 0, {Relay::kGuestJoined, static_cast<uint8_t>(vid), static_cast<uint8_t>(vid >> 8), static_cast<uint8_t>(vid >> 16), static_cast<uint8_t>(vid >> 24)}, true);
+        } else if (op == Relay::kRoomInfo && conn->role == Conn::Role::Host) {   // publica, cupo, largo, nombre
+            if (size < 4) return;
+            const auto it = rooms.find(conn->code);
+            if (it == rooms.end()) return;
+            const size_t length = std::min<size_t>(data[3], Relay::kMaxRoomName);
+            size_t at = 4;
+            std::string name = ReadString(data, size, at, (std::min)(length, size - 4));
+            std::erase_if(name, [](char c) { return static_cast<unsigned char>(c) < 0x20 || c == 0x7F; });   // sin saltos ni caracteres de control
+            it->second.listed = data[1] != 0;
+            it->second.maxPlayers = std::clamp<uint8_t>(data[2], 2, 255);
+            it->second.name = name;
+        } else if (op == Relay::kList) {   // lista de salas publicas: la pide el lobby antes de entrar a una
+            std::vector<uint8_t> out{Relay::kRoomList, 0};
+            uint8_t count = 0;
+            for (const auto& [code, room] : rooms) {
+                if (!room.listed || !room.host || count >= Relay::kMaxListedRooms) continue;
+                out.insert(out.end(), code.begin(), code.end());
+                out.push_back(static_cast<uint8_t>(std::min<size_t>(room.guests.size() + 1, 255)));
+                out.push_back(room.maxPlayers);
+                out.push_back(static_cast<uint8_t>(room.name.size()));
+                out.insert(out.end(), room.name.begin(), room.name.end());
+                ++count;
+            }
+            out[1] = count;
+            Send(peer, 0, out, true);
         } else if (op == Relay::kGuestSend && conn->role == Conn::Role::Guest) {
             if (size < 3) return;
             const auto it = rooms.find(conn->code);
@@ -176,7 +204,7 @@ void RelayServer::Update() {
     while (enet_host_service(m_Impl->host, &event, 0) > 0) {
         if (event.type == ENET_EVENT_TYPE_CONNECT) {
             event.peer->data = new Impl::Conn();
-            enet_peer_timeout(event.peer, 0, 5000, 20000);   // un jugador que desaparece libera su lugar en pocos segundos
+            enet_peer_timeout(event.peer, 0, Relay::kPeerTimeoutMinMs, Relay::kPeerTimeoutMaxMs);   // un jugador o anfitrion que desaparece se nota en pocos segundos
         } else if (event.type == ENET_EVENT_TYPE_DISCONNECT) {
             m_Impl->OnDisconnect(event.peer);
         } else if (event.type == ENET_EVENT_TYPE_RECEIVE) {

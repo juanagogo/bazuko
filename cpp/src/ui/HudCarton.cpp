@@ -134,6 +134,40 @@ void UIManager::RenderNewGameConfirmCarton() {
     ImGui::End();
 }
 
+// Salir con la sala abierta: dice que pasa con la partida (se cierra o queda en manos de otro jugador) antes de cerrar el juego
+void UIManager::RenderQuitConfirmCarton() {
+    namespace C = Carton;
+    const ImVec2 display = ImGui::GetIO().DisplaySize;
+    if (BeginHud("##cartonSalir", ImVec2(0.0f, 0.0f), display)) {
+        ImDrawList* draw = ImGui::GetWindowDrawList();
+        draw->AddRectFilled(ImVec2(0, 0), display, IM_COL32(20, 14, 6, 170));
+        const float width = std::min(560.0f, display.x - 60.0f), height = 250.0f;
+        const ImVec2 min((display.x - width) * 0.5f, (display.y - height) * 0.5f), max(min.x + width, min.y + height);
+        draw->AddRectFilled(min + ImVec2(3, 4), max + ImVec2(3, 4), IM_COL32(20, 14, 6, 90));
+        C::Panel(draw, min, max, 4311u, 6.0f);
+        C::TextCentered(draw, true, 28, ImVec2(display.x * 0.5f, min.y + 38.0f), C::kMarcador, m_QuitWarningTitle.c_str());
+        C::HandLine(draw, ImVec2(min.x + 28.0f, min.y + 62.0f), ImVec2(max.x - 28.0f, min.y + 62.0f), 4312u, 2.4f);
+        C::Text(draw, false, 18, ImVec2(min.x + 32.0f, min.y + 82.0f), C::kMarcador, m_QuitWarningBody.c_str(), width - 64.0f);
+        const ImVec2 size(214.0f, 46.0f);
+        const float gap = 16.0f, y = max.y - size.y - 22.0f;
+        const float left = display.x * 0.5f - size.x - gap * 0.5f;
+        const struct { const char* label; ImVec2 at; bool confirm; } buttons[2] = {
+            {"Guardar y salir", ImVec2(left, y), true}, {"Seguir jugando", ImVec2(left + size.x + gap, y), false}};
+        for (const auto& button : buttons) {
+            ImGui::SetCursorScreenPos(button.at);
+            ImGui::PushID(button.confirm ? 1 : 2);
+            const bool pressed = ImGui::InvisibleButton("##btn", size);
+            ImGui::PopID();
+            const bool hot = ImGui::IsItemHovered();
+            draw->AddRectFilled(button.at, button.at + size, hot ? IM_COL32(0x2A, 0x22, 0x18, 255) : C::kMarcador);
+            C::TextCentered(draw, true, 17, button.at + size * 0.5f, C::kCinta, button.label);
+            if (pressed && button.confirm) { m_QuitConfirmOpen = false; m_QuitRequest = true; }
+            else if (pressed) m_QuitConfirmOpen = false;
+        }
+    }
+    ImGui::End();
+}
+
 // HUD de carton y marcador (docs/identidad-visual.md del original): botones arriba a la izquierda, la mision como retazo arriba al centro, dinero y hora
 // arriba a la derecha, las necesidades en masa rayada abajo a la izquierda con el radar, y Ayuda, Vista, Costal y Fabricar abajo a la derecha.
 void UIManager::RenderHudCarton(const HudContext& c) {

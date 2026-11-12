@@ -14,7 +14,7 @@
 
 namespace Bazuko::Net {
 
-inline constexpr uint16_t kProtocolVersion = 2;
+inline constexpr uint16_t kProtocolVersion = 2;   // los campos que se agregan al final de un mensaje son opcionales y no cambian la version: juegan copias viejas y nuevas
 inline constexpr int kChannelReliable = 0;
 inline constexpr int kChannelUnreliable = 1;
 inline constexpr size_t kMaxPlayers = 100;      // por mundo (cifra de pruebas); los ids van en 7 bits (1..127)
@@ -75,7 +75,11 @@ struct Snapshot {
     std::vector<PlayerSnapshot> players;
 };
 // Lo que un jugador cuenta de su propio personaje al anfitrion (el id lo pone el anfitrion segun la conexion)
-struct StateReport { PlayerSnapshot player; };
+// Al final, opcional (una copia anterior no lo manda y no lo lee): fps y rttMs, rendimiento del equipo y latencia de su conexion (al anfitrion o al relevo);
+// probeBound, si en su equipo se pudo abrir el puerto de la partida, y reached, a que jugadores le llego el sondeo (modo directo). Con eso el anfitrion
+// ordena quien lo sucede.
+struct StateReport { PlayerSnapshot player; uint8_t fps = 0; uint16_t rttMs = 0; bool probeBound = false; std::vector<uint8_t> reached; bool extended = false; };   // extended: al leer, si venian los campos opcionales
+inline constexpr size_t kMaxReached = 16;
 struct Ping { uint32_t token = 0; };
 struct Chat { uint8_t from = 0; std::string text; };
 
@@ -125,6 +129,10 @@ inline void Write(BitWriter& w, const StateReport& m) {
     w.Quantized(p.yaw - tau * std::floor(p.yaw / tau), 0.0f, tau, 10);
     w.Quantized(p.speed, 0.0f, kMaxSpeed, 8); w.U8(p.animation); w.U8(p.flags);
     w.Quantized(p.vx, -kMaxVelocity, kMaxVelocity, 10); w.Quantized(p.vz, -kMaxVelocity, kMaxVelocity, 10);
+    w.U8(m.fps); w.U16(m.rttMs);
+    const size_t reached = std::min(m.reached.size(), kMaxReached);
+    w.U8(m.probeBound ? 1u : 0u); w.U8(static_cast<uint32_t>(reached));
+    for (size_t i = 0; i < reached; ++i) w.U8(m.reached[i]);
 }
 inline void Write(BitWriter& w, const Ping& m, bool pong) { w.U8(static_cast<uint32_t>(pong ? MessageType::Pong : MessageType::Ping)); w.U32(m.token); }
 inline void Write(BitWriter& w, const Chat& m) { w.U8(static_cast<uint32_t>(MessageType::Chat)); w.U8(m.from); w.String(m.text, kMaxChatLength); }
@@ -182,6 +190,14 @@ inline std::optional<StateReport> ReadState(BitReader& r) {
     p.x = r.Quantized(kWorldMinX, kWorldMaxX, 16); p.y = r.Quantized(kWorldMinY, kWorldMaxY, 16); p.z = r.Quantized(kWorldMinZ, kWorldMaxZ, 16);
     p.yaw = r.Quantized(0.0f, 6.2831853f, 10); p.speed = r.Quantized(0.0f, kMaxSpeed, 8); p.animation = static_cast<uint8_t>(r.U8()); p.flags = static_cast<uint8_t>(r.U8());
     p.vx = r.Quantized(-kMaxVelocity, kMaxVelocity, 10); p.vz = r.Quantized(-kMaxVelocity, kMaxVelocity, 10);
+    if (r.Failed()) return std::nullopt;
+    if (r.BitsLeft() >= 24) { m.fps = static_cast<uint8_t>(r.U8()); m.rttMs = static_cast<uint16_t>(r.U16()); }
+    if (r.BitsLeft() >= 16) {
+        m.extended = true;
+        m.probeBound = (r.U8() & 1u) != 0;
+        const size_t count = std::min<size_t>(r.U8(), kMaxReached);
+        for (size_t i = 0; i < count && r.BitsLeft() >= 8; ++i) m.reached.push_back(static_cast<uint8_t>(r.U8()));
+    }
     if (r.Failed()) return std::nullopt;
     return m;
 }

@@ -10,6 +10,9 @@ constexpr double kSendInterval = 1.0 / 20.0;     // estado propio e instantaneas
 constexpr double kForgetMs = 3000.0;             // un remoto que no da noticias en 3 s ya no esta
 constexpr float kInterestRadius = 160.0f;
 constexpr double kWorldInterval = 1.0 / 10.0;    // el mundo (trafico, peatones) a 10 Hz; el invitado extrapola entre una y otra
+constexpr double kProbeEveryMs = 3000.0;         // sondeo de alcance (modo directo) cada 3 s
+constexpr double kProbeFreshMs = 9000.0;         // una respuesta vale 9 s: tres sondeos
+constexpr double kProbeGraceMs = 10000.0;        // tiempo que se le da a un recien llegado antes de juzgar si es alcanzable
 
 bool InMap(const PlayerSnapshot& p) {
     return std::isfinite(p.x) && std::isfinite(p.y) && std::isfinite(p.z) && p.x >= 0.0f && p.x <= 400.0f && p.z >= -74.0f && p.z <= 322.0f && p.y > -10.0f && p.y < 60.0f;
@@ -52,6 +55,11 @@ std::unique_ptr<NetSession> NetSession::StartHostViaRelay(const std::string& rel
     return session;
 }
 
+void NetSession::SetRoomInfo(const std::string& name, bool listed) {
+    m_RoomName = name; m_RoomListed = listed; m_HasRoomInfo = true;
+    if (m_Host && m_Host->IsRelay() && m_Role == Role::Host) m_Host->SetRoomInfo(name, listed, static_cast<uint8_t>(std::min<size_t>(m_MaxPlayers, 255)));
+}
+
 std::unique_ptr<NetSession> NetSession::JoinViaRelay(const std::string& relayAddress, uint16_t relayPort, const std::string& roomCode, const std::string& name, const std::string& key) {
     std::unique_ptr<NetSession> session(new NetSession());
     session->m_Role = Role::Client;
@@ -86,13 +94,14 @@ uint8_t NetSession::FreeId() const {
 void NetSession::Update(float dt, const LocalState& local) {
     m_LastLocal = local;
     if (m_Role == Role::Host) UpdateHost(dt, local); else UpdateClient(dt, local);
+    ProbeTick();
     SmoothRemote(dt);
 }
 
 void NetSession::UpdateHost(float dt, const LocalState& local) {
     NetEvent event;
     while (m_Host->Poll(event)) {
-        if (event.type == NetEvent::Type::Connected) { m_Peers[event.peer] = Peer{}; }
+        if (event.type == NetEvent::Type::Connected) { m_Peers[event.peer] = Peer{}; m_Peers[event.peer].joinedMs = NowMs(); }
         else if (event.type == NetEvent::Type::Disconnected) {
             const auto it = m_Peers.find(event.peer);
             if (it != m_Peers.end()) {
@@ -119,9 +128,15 @@ void NetSession::UpdateHost(float dt, const LocalState& local) {
         if (!anyJoined || NowMs() > m_HandoverDeadlineMs) FinishHandover();
         return;
     }
-    m_RosterAccumulator += dt; m_CheckpointAccumulator += dt;
+    m_RosterAccumulator += dt; m_CheckpointAccumulator += dt; m_SuccessionAccumulator += dt;
+    if (m_SuccessionAccumulator >= 2.0) {   // si cambia quien sucede, la lista y la economia le llegan ya
+        m_SuccessionAccumulator = 0.0;
+        const uint8_t before = m_SuccessorId;
+        const std::vector<uint8_t> order = Succession();
+        if (!order.empty() && order.front() != before) { m_RosterDirty = true; m_CheckpointDirty = true; }
+    }
     if (m_RosterDirty || m_RosterAccumulator >= 5.0) { m_RosterDirty = false; m_RosterAccumulator = 0.0; SendRoster(); }
-    if ((m_CheckpointDirty && m_CheckpointAccumulator >= 1.0) || m_CheckpointAccumulator >= 5.0) { m_CheckpointDirty = false; m_CheckpointAccumulator = 0.0; SendCheckpoint(); }
+    if ((m_CheckpointDirty && m_CheckpointAccumulator >= 1.0) || m_CheckpointAccumulator >= 3.0) { m_CheckpointDirty = false; m_CheckpointAccumulator = 0.0; SendCheckpoint(); }
     m_SaveAccumulator += dt;
     if (m_SaveAccumulator >= 30.0) { m_SaveAccumulator = 0.0; SaveProfiles(); }
     m_WorldAccumulator += dt;
@@ -196,6 +211,8 @@ void NetSession::HandleHostMessage(const NetEvent& event) {
         if (!report || !InMap(report->player)) return;   // fuera del mapa o no finito: se ignora
         peer.state = report->player;
         peer.state.id = peer.id;
+        if (report->fps > 0) { peer.fps = report->fps; peer.rttMs = report->rttMs; peer.hasVitals = true; }
+        if (report->extended) { peer.hasProbe = true; peer.probeBound = report->probeBound; peer.reached = report->reached; }
         peer.hasState = true;
         peer.lastMs = NowMs();
         Smooth& smooth = m_Smooth[peer.id];
@@ -260,6 +277,11 @@ void NetSession::UpdateClient(float dt, const LocalState& local) {
         m_SendAccumulator = std::fmod(m_SendAccumulator, kSendInterval);
         BitWriter writer;
         StateReport report; report.player = Describe(m_LocalId, local);
+        report.fps = static_cast<uint8_t>(std::clamp(std::lround(local.fps), 0l, 255l));
+        report.rttMs = static_cast<uint16_t>(std::min<uint32_t>(m_Host->RoundTripMs(m_Server), 65535u));
+        report.probeBound = m_Probe && !m_ProbeIsHost;
+        const double now = NowMs();
+        for (const auto& [id, at] : m_ReachedAt) if (id != m_LocalId && now - at < kProbeFreshMs && report.reached.size() < kMaxReached) report.reached.push_back(id);
         Write(writer, report);
         m_Host->Send(m_Server, kChannelUnreliable, writer.Data(), false);
     }
@@ -368,27 +390,114 @@ void NetSession::SendLooksTo(uint32_t peer) {
     }
 }
 
+namespace {
+// Puntaje de un invitado para suceder al anfitrion: cuadros por segundo (hasta 60) menos la latencia (100 ms cuestan 10 puntos).
+// Un equipo que no llega a 20 cuadros o una conexion de mas de 300 ms solo sucede si no hay nadie mejor.
+float SuccessionScore(uint8_t fps, uint16_t rttMs, bool hasVitals) {
+    if (!hasVitals) return -1000.0f;
+    float score = std::min<float>(fps, 60.0f) - std::min<float>(rttMs, 1000.0f) * 0.1f;
+    if (fps < 20 || rttMs > 300) score -= 100.0f;
+    return score;
+}
+constexpr float kSuccessionMargin = 8.0f;   // cuanto tiene que superar otro al sucesor actual para reemplazarlo
+constexpr float kUnreachablePenalty = 5000.0f;
+}
+
+uint16_t NetSession::ProbePort() const {
+    if (m_ProbePortOverride != 0) return m_ProbePortOverride;
+    return m_Role == Role::Host ? (m_Host ? m_Host->Port() : 0) : m_RosterPort;
+}
+
+// Sondeo de alcance (modo directo): «BZP?» + id de quien pregunta; «BZP!» + id de quien contesta, de vuelta a quien pregunto
+void NetSession::ProbeTick() {
+    const double now = NowMs();
+    const bool direct = m_Host && !m_Host->IsRelay() && (m_Role == Role::Host || m_RosterRoom.empty());
+    const bool wanted = direct && !m_Migrating && !m_HandingOver && ProbePort() != 0 && (m_Role == Role::Host || m_Connected);
+    if (!wanted) { m_Probe.reset(); return; }
+    const bool asHost = m_Role == Role::Host;
+    if (m_Probe && m_ProbeIsHost != asHost) m_Probe.reset();   // cambio de papel: el puerto de la partida queda libre para quien lo necesite
+    if (!m_Probe && now >= m_ProbeRetryMs) {
+        m_Probe = ProbeSocket::Open(asHost ? 0 : ProbePort());   // el invitado abre el puerto de la partida: si esta ocupado, aqui no se podria abrir la partida
+        m_ProbeIsHost = asHost;
+        if (!m_Probe) m_ProbeRetryMs = now + 5000.0;
+    }
+    if (!m_Probe) return;
+    std::vector<uint8_t> data; std::string ip; uint16_t port = 0;
+    while (m_Probe->Receive(data, ip, port)) {
+        if (data.size() != 5 || data[0] != 'B' || data[1] != 'Z' || data[2] != 'P') continue;
+        if (data[3] == '?' && !asHost) m_Probe->SendTo(ip, port, {'B', 'Z', 'P', '!', m_LocalId});
+        else if (data[3] == '!' && data[4] != 0) {
+            if (!asHost) { if (data[4] != m_LocalId) m_ReachedAt[data[4]] = now; }
+            else for (auto& [peer, info] : m_Peers) if (info.id == data[4]) info.hostReachedMs = now;
+        }
+    }
+    if (now - m_ProbeAskMs < kProbeEveryMs) return;
+    m_ProbeAskMs = now;
+    const std::vector<uint8_t> ask{'B', 'Z', 'P', '?', m_LocalId};
+    if (!asHost) { for (const RosterEntry& entry : m_Roster) if (entry.id != m_LocalId && !entry.ip.empty()) m_Probe->SendTo(entry.ip, ProbePort(), ask); }
+    else for (const auto& [peer, info] : m_Peers) if (info.id != 0) m_Probe->SendTo(m_Host->PeerAddress(peer), ProbePort(), ask);
+}
+
+// Un candidato es inalcanzable si ya tuvo tiempo de sondear y no pudo abrir el puerto, no le llega al anfitrion o algun otro invitado no le llega.
+// Quien no manda el sondeo (una copia anterior del juego) no se juzga.
+bool NetSession::Unreachable(const Peer& candidate, double now) const {
+    if (!m_Host || m_Host->IsRelay() || !candidate.hasProbe || now - candidate.joinedMs < kProbeGraceMs) return false;
+    if (!candidate.probeBound || now - candidate.hostReachedMs > kProbeFreshMs) return true;
+    for (const auto& [peer, other] : m_Peers) {
+        if (other.id == 0 || other.id == candidate.id || !other.hasProbe || !other.probeBound || now - other.joinedMs < kProbeGraceMs) continue;
+        if (std::find(other.reached.begin(), other.reached.end(), candidate.id) == other.reached.end()) return true;
+    }
+    return false;
+}
+
+std::vector<uint8_t> NetSession::Succession() {
+    struct Candidate { uint8_t id; float score; };
+    std::vector<Candidate> candidates;
+    const double now = NowMs();
+    for (const auto& [peer, info] : m_Peers)
+        if (info.id != 0) candidates.push_back({info.id, SuccessionScore(info.fps, info.rttMs, info.hasVitals) - (Unreachable(info, now) ? kUnreachablePenalty : 0.0f)});
+    std::sort(candidates.begin(), candidates.end(), [](const Candidate& a, const Candidate& b) { return a.score != b.score ? a.score > b.score : a.id < b.id; });
+    if (!candidates.empty() && candidates.front().id != m_SuccessorId) {
+        const auto current = std::find_if(candidates.begin(), candidates.end(), [this](const Candidate& c) { return c.id == m_SuccessorId; });
+        if (current != candidates.end() && current->score + kSuccessionMargin >= candidates.front().score) std::rotate(candidates.begin(), current, current + 1);
+    }
+    m_SuccessorId = candidates.empty() ? 0 : candidates.front().id;
+    std::vector<uint8_t> order;
+    for (const Candidate& c : candidates) order.push_back(c.id);
+    return order;
+}
+
+std::string NetSession::SuccessorName() {
+    if (m_Role != Role::Host) return {};
+    const std::vector<uint8_t> order = Succession();
+    if (order.empty()) return {};
+    for (const auto& [peer, info] : m_Peers) if (info.id == order.front()) return info.name.empty() ? std::string("otro jugador") : info.name;
+    return {};
+}
+
 void NetSession::SendRoster() {
     Roster roster; roster.port = m_Host->Port();
     if (m_Host->IsRelay()) {
         if (m_Host->RoomCode().empty()) { m_RosterDirty = true; return; }   // la sala aun no existe
         roster.relayAddress = m_RelayAddress; roster.relayPort = m_RelayPort; roster.room = m_Host->RoomCode();
     }
-    for (const auto& [peer, info] : m_Peers) if (info.id != 0) roster.entries.push_back({info.id, m_Host->PeerAddress(peer)});
-    std::sort(roster.entries.begin(), roster.entries.end(), [](const RosterEntry& a, const RosterEntry& b) { return a.id < b.id; });
+    for (uint8_t id : Succession())
+        for (const auto& [peer, info] : m_Peers) if (info.id == id) roster.entries.push_back({info.id, m_Host->PeerAddress(peer)});
     BitWriter writer; Write(writer, roster);
     for (const auto& [peer, info] : m_Peers) if (info.id != 0) m_Host->Send(peer, kChannelReliable, writer.Data(), true);
 }
 
-// La economia de todos, solo para el siguiente anfitrion (el jugador de menor id): si el anfitrion se va, no empieza de cero
+// La economia de todos, solo para el siguiente anfitrion (el primero del orden de sucesion): si el anfitrion se va, no empieza de cero
 void NetSession::SendCheckpoint() {
-    uint32_t successor = 0; uint8_t lowest = 255;
+    uint32_t successor = 0;
+    const std::vector<uint8_t> order = Succession();
+    const uint8_t successorId = order.empty() ? 0 : order.front();
     Checkpoint checkpoint;
     if (m_Host->IsRelay()) checkpoint.roomSecret = m_Host->RoomSecret();
     if (m_HasHostEconomy && !m_Key.empty()) checkpoint.entries.push_back({m_Key, m_HostEconomy});   // el anfitrion tambien tiene perfil: no se pierde si se va o cae
     for (const auto& [peer, info] : m_Peers) {
         if (info.id == 0) continue;
-        if (info.id < lowest) { lowest = info.id; successor = peer; }
+        if (info.id == successorId) successor = peer;
         if (info.ledger && info.ledger->Started() && !info.key.empty()) checkpoint.entries.push_back({info.key, info.ledger->State()});
     }
     if (successor == 0) return;
@@ -405,8 +514,8 @@ bool NetSession::HandOver(bool rejoin) {
     SendCheckpoint();
     // se recuerda a quien reentrar: la lista actual (por id) y como llegar al nuevo anfitrion
     m_Roster.clear();
-    for (const auto& [peer, info] : m_Peers) if (info.id != 0) m_Roster.push_back({info.id, m_Host->PeerAddress(peer)});
-    std::sort(m_Roster.begin(), m_Roster.end(), [](const RosterEntry& a, const RosterEntry& b) { return a.id < b.id; });
+    for (uint8_t id : Succession())
+        for (const auto& [peer, info] : m_Peers) if (info.id == id) m_Roster.push_back({info.id, m_Host->PeerAddress(peer)});
     m_RosterPort = m_Host->Port();
     if (m_Host->IsRelay()) m_RosterRoom = m_Host->RoomCode(); else m_RosterRoom.clear();
     for (const auto& [peer, info] : m_Peers) m_Host->Disconnect(peer);   // cierra despues de que salgan los mensajes fiables pendientes (la lista y el punto de control)
@@ -459,18 +568,20 @@ void NetSession::MigrationTick() {
 }
 
 bool NetSession::PromoteToHost() {
+    m_Probe.reset();   // el socket de sondeo ocupa el puerto de la partida: se suelta antes de abrirla
     const bool relay = !m_RosterRoom.empty();
     std::unique_ptr<Host> fresh = relay ? Host::CreateRelayHost(m_RelayAddress, m_RelayPort, m_RosterRoom, m_RoomSecret) : Host::CreateServer(m_RosterPort, m_MaxPlayers + 8);
     if (!fresh) return false;   // la conexion anterior sigue siendo valida: nada se rompe
+    if (relay && m_HasRoomInfo) fresh->SetRoomInfo(m_RoomName, m_RoomListed, static_cast<uint8_t>(std::min<size_t>(m_MaxPlayers, 255)));   // la sala sigue en la lista con su nombre
     m_Host = std::move(fresh);
     m_Migrating = false; m_PromoteTries = 0;
-    m_Role = Role::Host; m_LocalId = 1; m_Connected = false; m_Rejected = false;
+    m_Role = Role::Host; m_LocalId = 1; m_Connected = false; m_Rejected = false; m_SuccessorId = 0;
     m_Peers.clear(); m_Smooth.clear(); m_Remotes.clear(); m_Looks.clear(); m_Looks[1] = m_OwnLook;
     m_Seed.clear();
     for (const CheckpointEntry& entry : m_Checkpoint) m_Seed[entry.key] = entry.state;
     m_RosterDirty = true; m_CheckpointDirty = true;
     m_Promoted = true; ++m_Epoch;
-    m_Notices.push_back("Ahora eres el anfitrión de la partida.");
+    m_Notices.push_back("Ahora usted es el anfitrión de la partida.");
     return true;
 }
 
