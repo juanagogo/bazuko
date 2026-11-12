@@ -138,6 +138,51 @@ body.tactil .cierre { padding: 0; }
 .radio-info-program { font-size: 15.5px; line-height: 1.16; }
 .radio-info-credit { align-self: flex-start; font-size: 15px; text-decoration: underline; text-underline-offset: 3px; }
 
+/* ---------- la vida de calle: estación, hogar de paso, caleta y fama ---------- */
+/* Una fila con dos verbos: guardar 1 / todo, sacar 1 / todo. */
+:where(#menu) .row--dos { grid-template-columns: 30px minmax(0, 1fr) auto auto; }
+:where(#menu) .row__verbos { display: flex; gap: 6px; }
+/* Una ventana de lugar con solapas tiene una fila más: solapas, cabeza, cuerpo y pie. */
+:where(#menu) .sign--menu:not(.sign--wide):has(.menu__tabs:not(:empty)) { grid-template-rows: auto auto minmax(0, 1fr) auto; }
+/* Solapas del cambuche: las de la pausa, más chicas para caber sobre una ventana de lugar. */
+.lugar-tabs { padding: 4px 12px 0; }
+.lugar-tabs .pause-tab { min-height: 42px; padding: 6px 20px 8px; font-size: 20px; }
+
+.viaje, .hogar, .caleta { display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; }
+.viaje__titulo { margin: 4px 0 0; font-weight: 800; font-size: 20px; line-height: 1.05; }
+.viaje-opciones { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+/* Las dos formas de entrar son tarjetas: la elegida se invierte, sin color nuevo. */
+.viaje-opcion, .viaje-pedir {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 3px; min-height: 64px; padding: 8px 12px 10px;
+  background: var(--cara); color: var(--marcador); border: 0; box-shadow: inset 0 0 0 2px var(--marcador);
+  text-align: left; font: inherit; cursor: pointer;
+}
+.viaje-opcion strong { font-size: 18px; line-height: 1.05; }
+.viaje-opcion span { font-size: 15px; line-height: 1.15; }
+.viaje-opcion.is-elegida { background: var(--marcador); color: var(--cinta); }
+.viaje-opcion:disabled { cursor: default; opacity: .55; }
+.viaje-pedir { flex-direction: row; align-items: center; gap: 10px; min-height: 44px; font-size: 16px; }
+.viaje-pedir__caja { display: inline-grid; place-items: center; flex: none; width: 24px; height: 24px; box-shadow: inset 0 0 0 2px currentColor; }
+.viaje-pedir.is-elegida .viaje-pedir__caja { background: var(--marcador); color: var(--cinta); }
+
+.hogar-reglas { list-style: none; display: grid; gap: 4px; }
+.hogar-regla { display: grid; grid-template-columns: 28px minmax(0, 1fr); align-items: start; gap: 8px; padding: 4px 0 8px; background: var(--m-regla) center bottom / 100% 5px no-repeat; }
+.hogar-regla strong { display: block; font-size: 17px; line-height: 1.1; }
+.hogar-regla.is-no .hogar-regla__marca { background: var(--rojo); color: var(--cinta); }
+.hogar-regla__marca { display: inline-grid; place-items: center; width: 26px; height: 26px; }
+
+.caleta__cabeza { display: grid; grid-template-columns: auto minmax(80px, 1fr); align-items: center; gap: 12px; }
+.caleta__carga { font-size: 17px; }
+.caleta__carga strong { font-size: var(--letra-cifra); }
+.caleta__nota, .fama__ayuda, .fama__deuda { margin: 0; font-size: 15px; line-height: 1.2; }
+.caleta__columnas { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 22px; }
+:where(#menu) .sign--menu:has(.caleta__columnas) { width: min(980px, 100%); }
+
+.pause-section--fama { margin-top: 18px; }
+.pause-need.fama { grid-template-columns: minmax(96px, 9em) minmax(50px, 1fr) 2.6em; }
+.fama__efecto { grid-column: 1 / -1; font-size: 15px; line-height: 1.15; }
+.fama__deuda { padding: 2px 6px; background: var(--marcador); color: var(--cinta); justify-self: start; }
+
 /* ---------- medianas ---------- */
 @media (max-width: 1180px) {
   #talent-panel { width: 100%; }
@@ -166,6 +211,9 @@ body.tactil .cierre { padding: 0; }
   :where(#menu) .row > .btn { grid-column: 2 / -1; justify-self: end; }
   :where(#menu) .menu__foot .btn--primary { flex: 1 1 auto; }
   .shelter-preview img { height: 132px; }
+  .viaje-opciones, .caleta__columnas { grid-template-columns: minmax(0, 1fr); gap: 10px 0; }
+  :where(#menu) .row--dos { grid-template-columns: 28px minmax(0, 1fr) auto; }
+  :where(#menu) .row--dos .row__verbos { grid-column: 2 / -1; justify-self: end; }
 }
 /* ---------- celular acostado ---------- */
 @media (max-height: 520px) and (min-width: 600px) {

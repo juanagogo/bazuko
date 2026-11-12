@@ -333,12 +333,14 @@ export class StealSystem {
     if (success) {
       this._giveLoot(CONFIG.lootMoneyCosquilleo, true);
       this._toast('Cosquilleo limpio: nadie se dio cuenta.', 'rare');
+      this._robbed(npc, false);
     } else {
       const bonus = this.game?.dog?.distractionBonus?.(this.game.player?.position) ?? 0;
       const noticeChance = Math.max(0.2, (npc?.alerta ?? 0.5) - bonus);
       if (Math.random() < noticeChance) {
         npc?.alarmedByTheft?.(this.game.player.position);
         this._toast('¡Me pillaron con las manos en la masa! El peatón gritó.', 'death');
+        this._robbed(npc, true);
         // De último: los avisos caen uno encima del otro y este es el que hay que alcanzar a leer.
         this._alertPolice();
       } else {
@@ -354,6 +356,7 @@ export class StealSystem {
     this._calma = 0;
     this.buscado = Math.min(3, this.buscado + 1);
     this._giveLoot(CONFIG.lootMoneyDirect, false);
+    this._robbed(npc, true);
     // Quien está en el piso o en la banca no alcanza a defenderse: bastante hace con pararse.
     const down = LOW_STANCES.has(npc.stance);
     npc.alarmedByTheft?.(this.game.player.position);
@@ -366,6 +369,12 @@ export class StealSystem {
       this._toast('¡Raponazo! El peatón se asustó.', 'warn');
     }
     this._alertPolice();
+  }
+
+  // Robarle a alguien se sabe en la calle: la fama lo escucha (ver systems/StreetLife.js).
+  _robbed(npc, noticed) {
+    if (typeof window === 'undefined' || typeof window.dispatchEvent !== 'function') return;
+    window.dispatchEvent(new CustomEvent('pedestrian-robbed', { detail: { npc, noticed } }));
   }
 
   // Una patrulla que lo ve lo persigue, igual que por un retrovisor robado.

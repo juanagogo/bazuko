@@ -64,6 +64,9 @@ import { LimpiezaSocialSystem } from '../systems/LimpiezaSocialSystem.js';
 import { SubstanceEffects } from '../systems/SubstanceEffects.js';
 import { SUBSTANCE_EFFECTS } from '../data/substanceEffects.js';
 import { StealSystem } from '../features/steal.js';
+import { StreetLife } from '../systems/StreetLife.js';
+import { PilaPublica, HogarDePaso, TransitStop } from '../entities/StreetLifeProps.js';
+import { streetLifePlaces } from '../world/bogota/streetLifePlaces.js';
 import { openRadioModal } from '../ui/RadioModal.js';
 
 
@@ -83,6 +86,7 @@ import { el } from '../ui/dom.js';
 import { Menu } from '../ui/Menu.js';
 import { createCreator } from '../ui/Creator.js';
 import { openRecycler, openShop, openCambuche, openComedor } from '../ui/placeMenus.js';
+import { openTransit, openHogar } from '../ui/streetMenus.js';
 import { openMissionsModal } from '../ui/MissionsModal.js';
 import { DEFAULT_LOOK, normalizeLook } from '../character/look.js';
 import { streetWetness } from '../character/streetMaterials.js';
@@ -152,6 +156,13 @@ export class Game {
     // De noche, a veces, llega la camioneta negra de la «limpieza social»
     this.limpieza = new LimpiezaSocialSystem(this.sceneMgr.scene, { player: this.player, stats: this.stats, audio: this.audio });
     this.limpieza.onPlayerHurt = () => { if (this.stats.salud <= 0) this._deathCause = 'limpieza'; };
+    // Con buena fama entre los parceros, alguien avisa cuando arranca la camioneta.
+    const llegaLaCamioneta = this.limpieza.trigger.bind(this.limpieza);
+    this.limpieza.trigger = () => {
+      const viene = llegaLaCamioneta();
+      if (viene) this.street?.onLimpiezaComing();
+      return viene;
+    };
     // Imagen y sonido al consumir pegante, pastilla o hierba
     this.substanceEffects = new SubstanceEffects({ canvas, audio: this.audio });
     // el basuco además trae paranoia: sombras, susurros y mirar a los lados
@@ -165,6 +176,9 @@ export class Game {
       this.diseases, this.talents, this.crafting
     );
     this.interaction.getTraffic = () => this.traffic;
+    // Caleta, fama, cuidar carros, comida que se daña, armas que se gastan, pila, transporte y hogar de paso.
+    this.street = new StreetLife(this);
+    this.interaction.street = this.street;
 
     this.steal = new StealSystem(this);
     this.interaction.personCloserThan = (distance) => this.steal.personCloserThan(distance);
@@ -209,6 +223,8 @@ export class Game {
     window.addEventListener('open-shop', (e) => openShop(this, e.detail?.target));
     window.addEventListener('open-cambuche', () => openCambuche(this));
     window.addEventListener('open-comedor', () => openComedor(this));
+    window.addEventListener('open-transit', (e) => openTransit(this, e.detail?.target));
+    window.addEventListener('open-hogar', () => openHogar(this));
     window.addEventListener('open-wardrobe', () => this.openWardrobe());
     window.addEventListener('open-mesa', () => { if (!this.hud?._craftOpen) this.hud?.toggleCraftPanel(); });
     window.addEventListener('police-arrest', () => this._policeArrest());
@@ -531,7 +547,7 @@ export class Game {
 
   /** El mundo se congela mientras hay un menú o el creador abierto */
   get paused() {
-    return this._loading || this._deathPending || this._arrestPending || !!this.photoMode?.active || this.menu.isOpen || this.creator.isOpen || !!this.inventoryUI?.isOpen || !!this.hud?._talentOpen || !!this.hud?._craftOpen || !!this.hud?._dealerOpen;
+    return this._loading || this._traveling || this._deathPending || this._arrestPending || !!this.photoMode?.active || this.menu.isOpen || this.creator.isOpen || !!this.inventoryUI?.isOpen || !!this.hud?._talentOpen || !!this.hud?._craftOpen || !!this.hud?._dealerOpen;
   }
 
   _spawnEntities() {
@@ -789,6 +805,67 @@ export class Game {
         new THREE.Vector3(0, 1.1, 0)
       );
     }
+    this._spawnStreetLife(district);
+  }
+
+  /** Pilas públicas, hogar de paso y entradas al transporte: siempre en los mismos sitios. */
+  _spawnStreetLife(district) {
+    for (const prop of this._streetProps ?? []) prop.dispose();
+    this._streetProps = [];
+    const street = this.street;
+    if (!street || !district?.tileTypeAt) return;
+    const parks = (district.pigeonFlocks ?? []).map((flock) => flock.bounds).filter(Boolean);
+    const places = streetLifePlaces(district, this.collisions, { parks });
+    const ground = (x, z) => district.getGroundHeight?.(x, z) ?? 0;
+    const add = (prop) => { this._streetProps.push(prop); this.interaction.register(prop); return prop; };
+    street.pilas = places.pilas.map(({ x, z }) => {
+      const pila = add(new PilaPublica(this.sceneMgr.scene, new THREE.Vector3(x, ground(x, z), z)));
+      this.collisions.add(pila.group, pila.collider.size, pila.collider.offset);
+      return pila;
+    });
+    street.hogar = places.hogar
+      ? add(new HogarDePaso(this.sceneMgr.scene, new THREE.Vector3(places.hogar.x, ground(places.hogar.x, places.hogar.z), places.hogar.z), places.hogar.rot))
+      : null;
+    street.stops = places.transit.map((stop) => add(new TransitStop(this.sceneMgr.scene, new THREE.Vector3(stop.x, ground(stop.x, stop.z), stop.z), stop)));
+    this._poiCache = null;
+  }
+
+  /**
+   * Lleva al jugador a otro sitio de la ciudad (el transporte): fundido a negro, reloj adelantado y El Chato
+   * detrás. `to` trae x y z en metros.
+   */
+  relocatePlayer(to, { minutes = 0, fade = true } = {}) {
+    const district = this.world.active;
+    const mover = () => {
+      const y = district?.getMovementGroundHeight?.(to.x, to.z, 0) ?? district?.getGroundHeight?.(to.x, to.z) ?? 0;
+      this.player.position.set(to.x, y, to.z);
+      this.player.root.position.copy(this.player.position);
+      this.player.clearVehicleImpact?.();
+      this.player.resetGrounding?.();
+      if (minutes > 0) {
+        this.clock.hour += minutes / 60;
+        while (this.clock.hour >= 24) { this.clock.hour -= 24; this.clock.day += 1; }
+      }
+      if (this.dog?.isFriend) this.dog.resetNear(this.player.position);
+      this.cameraRig._snap = true;
+      this.cameraRig.follow(this.player.position, 0, this.collisions);
+      this.interaction.currentTarget = null;
+      this.interaction.currentTargetType = null;
+      this.input.keys = {};
+      this.input.endFrame();
+      if (this.gps?.waypoint) this.setGpsWaypoint(this.gps.waypoint, { silent: true });
+    };
+    const veil = fade && typeof document !== 'undefined' ? document.getElementById('viaje-fundido') : null;
+    if (!veil) { mover(); return; }
+    veil.hidden = false;
+    // Un cuadro después: de oculto a visible no hay transición.
+    requestAnimationFrame(() => veil.classList.add('is-on'));
+    this._traveling = true;
+    setTimeout(() => {
+      mover();
+      veil.classList.remove('is-on');
+      setTimeout(() => { veil.hidden = true; this._traveling = false; }, 500);
+    }, 650);
   }
 
   /** Una partida que no se deja leer no detiene la carga: se aparta sin borrarla y se juega sin ella. */
@@ -839,6 +916,7 @@ export class Game {
       }
       if (data.gps && this.gps) this.setGpsWaypoint({ ...data.gps, name: RENAMED_PLACES[data.gps.name] ?? data.gps.name }, { silent: true });
       if (data.lastComedorHour !== undefined) this.lastComedorHour = data.lastComedorHour;
+      this.street?.deserialize(data.street);
       if (data.dailyMissions) this.dailyMissions?.deserialize(data.dailyMissions);
       else this.dailyMissions?.init(this.clock?.day ?? 1);
     } else {
@@ -864,14 +942,18 @@ export class Game {
       cart: this.cart ? this.cart.saveState() : null,
       gps: this.gps?.serialize() ?? null,
       lastComedorHour: this.lastComedorHour,
-      dailyMissions: this.dailyMissions?.serialize()
+      dailyMissions: this.dailyMissions?.serialize(),
+      street: this.street?.serialize()
     });
   }
 
-  /** Dormir en el cambuche (requiere la base). De noche hasta las 6:00; de día, siesta de 3 h. */
-  sleep() {
+  /**
+   * Dormir en el cambuche (requiere la base). De noche hasta las 6:00; de día, siesta de 3 h.
+   * Con `hogar` se duerme en el hogar de paso: hasta las 6:00, sin robos y con lo que da una noche bajo techo.
+   */
+  sleep({ hogar = null } = {}) {
     if (this.isSleeping) return;
-    if (!this.built.base) {
+    if (!hogar && !this.built.base) {
       window.dispatchEvent(new CustomEvent('sleep-fail', { detail: { reason: 'nobase' } }));
       return;
     }
@@ -880,10 +962,12 @@ export class Game {
     if (this.steal?.minigameActive) this.steal._endMinigame(false, 'cancel');
     this.substanceEffects?.end();
     this.psychosis?.clearInduced?.();
-    const night = this.clock.isNight;
+    const night = this.clock.isNight || !!hogar;
     const hours = night
       ? (this.clock.hour >= 6 ? 24 - this.clock.hour + 6 : 6 - this.clock.hour)
       : 3;
+    // En el hogar se duerme adentro: afuera, frente a la puerta, no queda nadie acostado.
+    if (hogar) this.player.root.visible = false;
     window.dispatchEvent(new CustomEvent('sleep-start', { detail: { despierta: this.clock.hour + hours } }));
     this.dog?.restAt(this.player.position);
     this.player.stopSmoking?.();
@@ -897,6 +981,21 @@ export class Game {
 
     const b = this.built;
     const st = this.stats;
+    if (hogar) {
+      this.street?.wakeAtHogar();
+      this._save();
+      setTimeout(() => {
+        this.isSleeping = false;
+        this.player.root.visible = true;
+        if (this.player.action === 'dormir') {
+          this.player.action = null;
+          this.player.actionTimer = this.player.actionProgress = 0;
+        }
+        this.dog?.wake();
+        window.dispatchEvent(new CustomEvent('sleep-end', { detail: { hours: Math.round(hours), hogar: true } }));
+      }, 1200);
+      return;
+    }
     st.energia = Math.min(100, st.energia + (SLEEP.energia + (b.cama ? SLEEP.energiaCama : 0)) * factor);
     st.salud = Math.min(100, st.salud + (SLEEP.salud + (b.techo ? SLEEP.saludTecho : 0)) * factor);
     st.saludMental = Math.min(100, st.saludMental + (MENTAL_RESTORE_SLEEP + (b.fogon ? SLEEP.animoFogon : 0)) * factor);
@@ -907,7 +1006,7 @@ export class Game {
     if (!b.fogon) st.hambre = Math.max(0, st.hambre - SLEEP.hambreFogon * factor);
 
     // Sin paredes te pueden robar si duermes de noche
-    let robbed = null;
+    let robbed = null, caletaRobada = [];
     if (night && !b.paredes && Math.random() < SLEEP.roboProb) {
       const lost = Math.floor(st.dinero * SLEEP.roboDinero);
       st.dinero -= lost;
@@ -915,6 +1014,8 @@ export class Game {
         if (isForSale(ITEMS[it.id] ?? it, this.player.equippedWeapon)) this.inventory.remove(it.id, Math.ceil(it.qty * SLEEP.roboMaterial));
       }
       robbed = lost;
+      // Sin paredes, a veces también dan con la caleta.
+      caletaRobada = this.street?.caleta.robOnSleep() ?? [];
     }
 
     // Dormir sucio en un colchón de la calle puede pegar sarna.
@@ -934,6 +1035,9 @@ export class Game {
       if (robbed !== null) {
         window.dispatchEvent(new CustomEvent('toast', {
           detail: { text: `Me robaron mientras dormía (${cop(robbed)} y material). Unas paredes ayudarían.`, type: 'death' }
+        }));
+        if (caletaRobada.length) window.dispatchEvent(new CustomEvent('toast', {
+          detail: { text: `También encontraron la caleta: se llevaron ${caletaRobada.map((l) => `${ITEMS[l.id]?.name ?? l.id} ×${l.qty}`).join(', ')}.`, type: 'death' }
         }));
       }
       if (sarna) {
@@ -1074,6 +1178,7 @@ export class Game {
     this.roadRage?.reset();
     this.limpieza?.reset();
     this.momentos?.reset();
+    this.street?.reset();
     this.substanceEffects?.end();
     this.psychosis?.clearInduced?.();
     if (this.steal) {
@@ -1286,6 +1391,7 @@ export class Game {
       this.interaction.update(dt, controls, this.clock);
       if (this.player.isSwimming) this.interaction.currentTarget = this.interaction.currentTargetType = null;
     }
+    this.street?.update(dt);
     if (!this.player.isSwimming) this.steal?.update(dt);
     else if (this.steal?.minigameActive) this.steal._endMinigame(false, 'cancel');
     if (this._handleDeath()) return;
@@ -1456,6 +1562,9 @@ export class Game {
           return pos ? [{ name, icon, color, x: pos.x, z: pos.z, fijo: true, ...extra }] : [];
         })];
       if (this.world?.active?.tileTypeAt) this._poiCache.push(...(this._landmarks ??= cityLandmarks()));
+      for (const pila of this.street?.pilas ?? []) this._poiCache.push({ name: 'Pila pública', icon: '💧', color: '#5dade2', x: pila.position.x, z: pila.position.z, fijo: true });
+      if (this.street?.hogar) this._poiCache.push({ name: 'Hogar de paso', icon: '🛏', color: '#3b6ea5', x: this.street.hogar.position.x, z: this.street.hogar.position.z, fijo: true });
+      for (const stop of this.street?.stops ?? []) this._poiCache.push({ name: stop.stop.name, icon: '🚏', color: stop.stop.sistema === 'Metro' ? '#2f7d4a' : '#b3261e', x: stop.position.x, z: stop.position.z, fijo: true });
       if (this.cart) this._poiCache.push({ name: 'Carreta', icon: '🛒', x: this.cart.position.x, z: this.cart.position.z, color: '#f39c12' });
       this._dogPOI = friend ? { name: 'El Chato', icon: '🐕', color: '#e6b566' } : null;
       if (this._dogPOI) this._poiCache.push(this._dogPOI);

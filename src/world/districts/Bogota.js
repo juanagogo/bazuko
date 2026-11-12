@@ -571,6 +571,11 @@ export class Bogota {
     }
   }
 
+  /** Lluvia que está cayendo (0 sin lluvia, ~.3 llovizna, ~.7 aguacero, 1 tormenta): la que ven los peatones. */
+  setRain(intensity = 0) {
+    this.rainNow = Math.max(0, intensity);
+  }
+
   /** Cebras en los cruces, líneas amarillas y separadores de la troncal */
 
   /** Ajusta el acabado del asfalto y andenes según la lluvia o humedad ambiental */
@@ -1496,6 +1501,8 @@ export class Bogota {
         const other = this.npcs.at(-2);
         npc.fijo.pareja = other;
         other.fijo.pareja = npc;
+        // Empiezan por turnos: uno habla y el otro escucha.
+        npc.stance = npc._pairTurn(npc.stance);
       }
     }
     // Mantiene la densidad del centro y distribuye peatones por los barrios nuevos.
@@ -1619,7 +1626,9 @@ export class Bogota {
     const chasers = this._chasers ??= [];
     chasers.length = 0;
     for (const vehicle of trafficVehicles) if (vehicle.state === 'chase' || vehicle.rejoinTarget) chasers.push(vehicle);
-    const ctx = { player: playerPos, frustum, camera, isRaining: (this.wetness ?? 0) > 0.05, animationBudget: this.animationBudget ?? 1,
+    // Con el clima conectado cuenta la lluvia que cae; sin él (pruebas, sala), el piso mojado como antes.
+    const raining = this.rainNow !== undefined ? this.rainNow > 0 : (this.wetness ?? 0) > 0.05;
+    const ctx = { player: playerPos, frustum, camera, isRaining: raining, rain: this.rainNow, animationBudget: this.animationBudget ?? 1,
       drawDistance: this.farDetailDistance, skipHiddenMatrices: true, hygiene: this.playerHygiene ?? 100, chasers };
     for (const n of this.npcs) n.update(dt, ctx);
     for (const flock of this.pigeonFlocks ?? []) flock.update(dt, playerPos, this.npcs, camera);

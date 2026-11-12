@@ -155,6 +155,12 @@ export class PedestrianNavigation {
   }
 
   /** ¿Está en el centro de una baldosa que no es cruce? Es donde se puede esperar sin estorbarle a nadie. */
+  /** Está sobre el andén (o un parque): ni calzada ni cruce, donde pararse a conversar no frena a nadie. */
+  isSidewalkAt({ x, z }) {
+    const node = this.nodes[this.nodeAt(x, z)];
+    return !!node && !node.crossing;
+  }
+
   isRestingAt({ x, z }) {
     const node = this.nodes[this.nodeAt(x, z)];
     return !!node && !node.crossing && node.neighbors.length > 0 && Math.hypot(node.x * this.tileSize - x, node.z * this.tileSize - z) < .05;
