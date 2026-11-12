@@ -74,6 +74,25 @@ export class ResidenciaElCarmen {
     }, 2.8);
     sign.position.set(0, 2.7, 0.24);
     this.group.add(sign);
+
+    // Baliza vertical de luz azul visible desde lejos en el cielo
+    const blueBeacon = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.08, 0.08, 14, 8),
+      new THREE.MeshBasicMaterial({ color: 0x00b4d8, transparent: true, opacity: 0.85 })
+    );
+    blueBeacon.position.set(0, 9, 0.3);
+    this.group.add(blueBeacon);
+
+    const blueOrb = new THREE.Mesh(
+      new THREE.SphereGeometry(0.35, 12, 12),
+      new THREE.MeshBasicMaterial({ color: 0x00b4d8 })
+    );
+    blueOrb.position.set(0, 16, 0.3);
+    this.group.add(blueOrb);
+
+    const blueLight = new THREE.PointLight(0x00b4d8, 3.0, 18);
+    blueLight.position.set(0, 4, 1.0);
+    this.group.add(blueLight);
   }
 
   update() {}

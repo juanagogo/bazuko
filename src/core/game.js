@@ -395,6 +395,11 @@ export class Game {
     this._running = true;
     loading.finish();
     this.audio.startAmbient();
+    setTimeout(() => {
+      window.dispatchEvent(new CustomEvent('toast', {
+        detail: { text: 'Nuevos lugares cerca: 🏨 Residencias El Carmen y 💃 Zona Roja al norte en el andén.', type: 'rare' }
+      }));
+    }, 1500);
     requestAnimationFrame(this._loop);
   }
 
@@ -801,6 +806,7 @@ export class Game {
         this.sceneMgr.scene,
         new THREE.Vector3(resPos.x, 0, resPos.z)
       );
+      if (resPos.rot !== undefined) this.residencia.group.rotation.y = resPos.rot;
       this.residencia.group.position.y = district.getGroundHeightUnder?.(this.residencia.group)
         ?? district.getGroundHeight?.(resPos.x, resPos.z) ?? 0;
       this.interaction.register(this.residencia);
