@@ -226,7 +226,7 @@ function missionsSection(game) {
       return el('li', { class: `pause-mission-item${isDone ? ' is-done' : ''}` },
         el('div', { class: 'pause-mission-head' },
           el('strong', { class: 'pause-mission-title', text: m.title }),
-          el('span', { class: 'pause-mission-reward', text: `+${cop(m.reward.dinero)} · +${m.reward.xp} XP` })),
+          el('span', { class: 'pause-mission-reward', text: `+${cop(m.reward.dinero)}` })),
         el('p', { class: 'pause-mission-desc', text: m.desc }),
         el('div', { class: 'pause-meter' },
           el('div', { class: 'pause-meter__fill masa', style: `width:${pct}%` })),
