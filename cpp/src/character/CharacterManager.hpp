@@ -80,6 +80,7 @@ private:
     std::string m_LoadedShoes;
     std::string m_LoadedHair;
     std::string m_LoadedBeard;
+    std::string m_LoadedHead;
 
     std::shared_ptr<Model> m_AnimLibrary;
     std::shared_ptr<Model> m_Body;
@@ -87,6 +88,7 @@ private:
     std::shared_ptr<Model> m_Shoes;
     std::shared_ptr<Model> m_Hair;
     std::shared_ptr<Model> m_Beard;
+    std::shared_ptr<Model> m_Hat;   // boina o gorro de lana
 
     std::shared_ptr<Mesh> m_FallbackBody;
     std::shared_ptr<Mesh> m_FallbackHead;

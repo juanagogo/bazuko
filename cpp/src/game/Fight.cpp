@@ -25,6 +25,23 @@ HitResult ReceiveHit(PlayerSession& s, int hitKind, const glm::vec3& hitFrom) {
     return HitResult::Hurt;
 }
 
+HitResult ReceiveBlow(PlayerSession& s, float damage, const glm::vec3& hitFrom) {
+    if (s.playerKnockedDown) return HitResult::Ignored;
+    if ((s.playerAction == PlayerAction::Slip || s.playerAction == PlayerAction::Duck) && s.actionTime >= 0.10f && s.actionTime <= s.actionDuration * 0.85f)
+        return HitResult::Dodged;
+    s.needs[3] = std::max(0.0f, s.needs[3] - damage);
+    s.needs[5] = std::max(0.0f, s.needs[5] - 3.0f);
+    if (s.playerHitKind == 0) {
+        s.playerHitKind = 1;
+        s.playerHitTime = 0.0f;
+        s.playerAction = PlayerAction::None;
+        s.jumpOffset = 0.0f;
+        s.playerYaw = std::atan2(hitFrom.x, hitFrom.z);
+        s.playerStaggerDirection = -glm::normalize(glm::vec3(hitFrom.x, 0.0f, hitFrom.z) + glm::vec3(1.0e-5f, 0.0f, 0.0f));
+    }
+    return HitResult::Hurt;
+}
+
 void StaggerStep(PlayerSession& s, float dt, const std::function<bool(float, float)>& canStand) {
     if (s.playerHitKind <= 0) return;
     s.playerHitTime += dt;

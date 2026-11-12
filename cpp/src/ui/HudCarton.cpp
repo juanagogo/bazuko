@@ -54,7 +54,7 @@ void UIManager::RenderDeathCarton() {
         const std::string place = m_DeathPlace.empty() ? std::string("la calle") : m_DeathPlace;
         const std::string name = m_DeathName.empty() ? std::string("un habitante de calle") : m_DeathName;
         const std::string headline = m_DeathArrest ? "La Policía agarró a " + name + ", habitante de calle, en " + place + ". Se llevaron lo que cargaba."
-                                                   : "Hallan muerto a " + name + ", habitante de calle, en " + place + ". Nadie vio nada.";
+                                                   : std::string(m_DeathLimpieza && m_DeathWoman ? "Hallan muerta a " : "Hallan muerto a ") + name + ", habitante de calle, en " + place + ". Nadie vio nada.";
         const float width = std::min(340.0f, display.x - 80.0f);
         const float height = C::TextHeight(false, 19, headline.c_str(), width - 30.0f) + 26.0f;
         const ImVec2 min((display.x - width) * 0.5f, display.y * 0.40f), max(min.x + width, min.y + height);
@@ -64,7 +64,7 @@ void UIManager::RenderDeathCarton() {
         draw->AddLine(ImVec2(min.x, max.y), ImVec2(max.x, max.y), C::kMarcador, 3.5f);
         C::Text(draw, false, 19, min + ImVec2(15.0f, 12.0f), C::kMarcador, headline.c_str(), width - 30.0f);
         // causa y consecuencia abajo a la izquierda
-        const std::string cause = m_DeathArrest ? "Te atrapó la Policía" : m_DeathByVehicleImpact ? "Te atropelló un carro" : "Te quedaste sin fuerzas";
+        const std::string cause = m_DeathArrest ? "Te atrapó la Policía" : m_DeathLimpieza ? "Te mató la limpieza social" : m_DeathByVehicleImpact ? "Te atropelló un carro" : "Te quedaste sin fuerzas";
         C::Text(draw, false, 20, ImVec2(24.0f, display.y - 84.0f), C::kMarcador, cause.c_str());
         C::Text(draw, false, 16, ImVec2(24.0f, display.y - 50.0f), C::kMarcador, m_DeathArrest ? "Se vuelve al cambuche sin nada de lo recolectado ni de lo ganado." : "Se vuelve al cambuche. Se pierde la mitad de lo que hay en el costal.");
         // boton oscuro abajo a la derecha
@@ -75,6 +75,61 @@ void UIManager::RenderDeathCarton() {
         draw->AddRectFilled(bmin, bmin + size, hot ? IM_COL32(0x2A, 0x22, 0x18, 255) : C::kMarcador);
         C::TextCentered(draw, true, 20, bmin + size * 0.5f, C::kCinta, "Volver al cambuche");
         if (pressed) m_RespawnRequest = true;
+    }
+    ImGui::End();
+}
+
+// «Guardando partida...» al salir: el carton de siempre, un retazo en el centro y la despedida. Sin botones: la pantalla se cierra sola.
+void UIManager::RenderQuitCarton() {
+    namespace C = Carton;
+    const ImVec2 display = ImGui::GetIO().DisplaySize;
+    if (BeginHud("##cartonSalir", ImVec2(0.0f, 0.0f), display, ImVec2(0, 0), false)) {
+        ImDrawList* draw = ImGui::GetWindowDrawList();
+        draw->AddRectFilled(ImVec2(0, 0), display, C::kCarton);
+        for (float x = 0.0f; x < display.x; x += 4.0f) draw->AddLine(ImVec2(x, 0), ImVec2(x, display.y), IM_COL32(60, 40, 15, 14));   // las canales del carton
+        const float width = std::min(460.0f, display.x - 60.0f), height = 168.0f;
+        const ImVec2 min((display.x - width) * 0.5f, (display.y - height) * 0.5f), max(min.x + width, min.y + height);
+        draw->AddRectFilled(min + ImVec2(3, 4), max + ImVec2(3, 4), IM_COL32(20, 14, 6, 90));
+        C::Panel(draw, min, max, 4242u, 6.0f);
+        C::TextCentered(draw, true, 30, ImVec2(display.x * 0.5f, min.y + 40.0f), C::kMarcador, "Guardando partida...");
+        C::HandLine(draw, ImVec2(min.x + 28.0f, min.y + 66.0f), ImVec2(max.x - 28.0f, min.y + 66.0f), 4243u, 2.4f);
+        C::TextCentered(draw, false, 17, ImVec2(display.x * 0.5f, min.y + 94.0f), C::kMarcador, "Tus datos, inventario y apariencia quedaron guardados.");
+        C::TextCentered(draw, false, 17, ImVec2(display.x * 0.5f, min.y + 124.0f), C::kMarcador, "Cerrando el juego. ¡Hasta pronto, sobreviviente!");
+    }
+    ImGui::End();
+}
+
+// Confirmacion de partida nueva: el mismo carton, con la pregunta y dos botones oscuros de cinta.
+void UIManager::RenderNewGameConfirmCarton() {
+    namespace C = Carton;
+    const ImVec2 display = ImGui::GetIO().DisplaySize;
+    if (BeginHud("##cartonPartidaNueva", ImVec2(0.0f, 0.0f), display)) {
+        ImDrawList* draw = ImGui::GetWindowDrawList();
+        draw->AddRectFilled(ImVec2(0, 0), display, IM_COL32(20, 14, 6, 170));
+        const float width = std::min(520.0f, display.x - 60.0f), height = 250.0f;
+        const ImVec2 min((display.x - width) * 0.5f, (display.y - height) * 0.5f), max(min.x + width, min.y + height);
+        draw->AddRectFilled(min + ImVec2(3, 4), max + ImVec2(3, 4), IM_COL32(20, 14, 6, 90));
+        C::Panel(draw, min, max, 4301u, 6.0f);
+        C::TextCentered(draw, true, 28, ImVec2(display.x * 0.5f, min.y + 38.0f), C::kMarcador, "Partida nueva");
+        C::HandLine(draw, ImVec2(min.x + 28.0f, min.y + 62.0f), ImVec2(max.x - 28.0f, min.y + 62.0f), 4302u, 2.4f);
+        C::TextCentered(draw, false, 18, ImVec2(display.x * 0.5f, min.y + 92.0f), C::kMarcador, "¿Quieres empezar una partida completamente nueva?");
+        C::TextCentered(draw, false, 16, ImVec2(display.x * 0.5f, min.y + 122.0f), C::kMarcador, "Se pierde todo el progreso y se abre el creador de personaje.");
+        const ImVec2 size(214.0f, 46.0f);
+        const float gap = 16.0f, y = max.y - size.y - 22.0f;
+        const float left = display.x * 0.5f - size.x - gap * 0.5f;
+        const struct { const char* label; ImVec2 at; bool confirm; } buttons[2] = {
+            {"Sí, empezar de nuevo", ImVec2(left, y), true}, {"Cancelar", ImVec2(left + size.x + gap, y), false}};
+        for (const auto& button : buttons) {
+            ImGui::SetCursorScreenPos(button.at);
+            ImGui::PushID(button.confirm ? 1 : 2);
+            const bool pressed = ImGui::InvisibleButton("##btn", size);
+            ImGui::PopID();
+            const bool hot = ImGui::IsItemHovered();
+            draw->AddRectFilled(button.at, button.at + size, hot ? IM_COL32(0x2A, 0x22, 0x18, 255) : C::kMarcador);
+            C::TextCentered(draw, true, 17, button.at + size * 0.5f, C::kCinta, button.label);
+            if (pressed && button.confirm) { m_NewGameRequest = true; TogglePause(); }   // cierra la pausa y reinicia m_NewGameConfirmOpen
+            else if (pressed) m_NewGameConfirmOpen = false;
+        }
     }
     ImGui::End();
 }
@@ -334,6 +389,7 @@ void UIManager::RenderHudCarton(const HudContext& c) {
             {2, needs[0] <= 20.0f ? 90.0f - needs[0] * 2.5f : 0.0f, "TENGO HAMBRE", "Busco comida"},
             {3, needs[2] <= 20.0f ? 80.0f - needs[2] * 2.5f : 0.0f, "NO DOY MÁS", "Busco dónde dormir"},
             {4, m_Freezing && m_Warmth <= 0.0f ? 70.0f : 0.0f, "TENGO FRÍO", "Busco candela o techo"},
+            {6, needs[4] <= 20.0f ? 75.0f - needs[4] * 2.0f : 0.0f, "PESTO A CAÑO", "Busco bañarme (la gente huye)"},
             {5, m_InWithdrawal ? 55.0f : 0.0f, "TENGO MALILLA", "Caminar me cuesta"},
         };
         static int shownId = -1;

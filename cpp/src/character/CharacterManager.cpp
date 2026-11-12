@@ -33,7 +33,7 @@ void CharacterManager::Init(const ModelLoadProgress& modelLoadProgress) {
     if (!std::filesystem::exists(animPath)) {
         animPath = Paths::Find("public/models/animaciones-prueba.glb");
     }
-    const size_t partLoadCount = 3 + (m_Look.pelo != "calvo" ? 1 : 0)
+    const size_t partLoadCount = 3 + (m_Look.pelo != "calvo" ? 1 : 0) + (m_Look.cabeza != "sin-sombrero" ? 1 : 0)
         + (m_Look.sexo == "hombre" && m_Look.barba != "ninguna" ? 1 : 0);
     const size_t totalModelLoads = partLoadCount + (animPath.empty() ? 0 : 1);
     size_t completedModelLoads = 0;
@@ -57,10 +57,11 @@ bool CharacterManager::ApplyLook(const CharacterLook& look, bool forceReload,
     const bool shoesChanged = (normalized.calzado != m_LoadedShoes);
     const bool hairChanged = (normalized.pelo != m_LoadedHair);
     const bool beardChanged = (normalized.barba != m_LoadedBeard);
+    const bool headChanged = (normalized.cabeza != m_LoadedHead);
 
     m_Look = normalized;
 
-    if (forceReload || bodyChanged || clothesChanged || shoesChanged || hairChanged || beardChanged) {
+    if (forceReload || bodyChanged || clothesChanged || shoesChanged || hairChanged || beardChanged || headChanged) {
         ReloadModels(modelLoadProgress);
         return true;
     }
@@ -70,7 +71,7 @@ bool CharacterManager::ApplyLook(const CharacterLook& look, bool forceReload,
 void CharacterManager::ReloadModels(const ModelLoadProgress& modelLoadProgress) {
     const std::string bodyKey = m_Look.sexo + "-" + m_Look.edad;
     const std::string basePath = "public/models/personaje/" + GetModelFolder(m_Look) + "/";
-    const size_t totalModelLoads = 3 + (m_Look.pelo != "calvo" ? 1 : 0)
+    const size_t totalModelLoads = 3 + (m_Look.pelo != "calvo" ? 1 : 0) + (m_Look.cabeza != "sin-sombrero" ? 1 : 0)
         + (m_Look.sexo == "hombre" && m_Look.barba != "ninguna" ? 1 : 0);
     size_t completedModelLoads = 0;
     const auto reportModelLoad = [&]() {
@@ -90,9 +91,9 @@ void CharacterManager::ReloadModels(const ModelLoadProgress& modelLoadProgress) 
     reportModelLoad();
     m_LoadedClothes = m_Look.ropa;
 
-    // 3. Calzado
-    const std::string shoesPath = Paths::Find(basePath + m_Look.calzado + ".gltf");
-    m_Shoes = Model::LoadFromFile(shoesPath);
+    // 3. Calzado (descalzo: sin archivo, se ven los pies del cuerpo)
+    m_Shoes.reset();
+    if (m_Look.calzado != "descalzo") m_Shoes = Model::LoadFromFile(Paths::Find(basePath + m_Look.calzado + ".gltf"));
     if (m_Shoes) m_Shoes->SetPushOut(std::getenv("BAZUKO_PUSH") ? static_cast<float>(std::atof(std::getenv("BAZUKO_PUSH"))) : 0.008f);
     reportModelLoad();
     m_LoadedShoes = m_Look.calzado;
@@ -117,9 +118,18 @@ void CharacterManager::ReloadModels(const ModelLoadProgress& modelLoadProgress) 
     }
     m_LoadedBeard = m_Look.barba;
 
+    // 6. Cabeza: boina o gorro de lana
+    m_Hat.reset();
+    if (m_Look.cabeza != "sin-sombrero") {
+        const std::string hatPath = Paths::Find(basePath + m_Look.cabeza + ".gltf");
+        if (!hatPath.empty() && std::filesystem::exists(hatPath)) m_Hat = Model::LoadFromFile(hatPath);
+        reportModelLoad();
+    }
+    m_LoadedHead = m_Look.cabeza;
+
     // Conectar animaciones del esqueleto
     if (m_AnimLibrary) {
-        for (const auto& part : {m_Body, m_Clothes, m_Shoes, m_Hair, m_Beard}) {
+        for (const auto& part : {m_Body, m_Clothes, m_Shoes, m_Hair, m_Beard, m_Hat}) {
             if (part) part->SetAnimationSource(*m_AnimLibrary, CharacterAnimationAliases());
         }
     }
@@ -146,9 +156,9 @@ void CharacterManager::ReloadModels(const ModelLoadProgress& modelLoadProgress) 
         m_CrouchClip = -1;
     }
 
-    LogInfo("Personaje cargado: [{}] Origen: {} ({}-{}) Ropa: {} Pelo: {} Barba: {}",
+    LogInfo("Personaje cargado: [{}] Origen: {} ({}-{}) Ropa: {} Calzado: {} Pelo: {} Barba: {} Cabeza: {}",
             m_Look.nombre, m_Look.origen, m_Look.sexo, m_Look.edad,
-            m_Look.ropa, m_Look.pelo, m_Look.barba);
+            m_Look.ropa, m_Look.calzado, m_Look.pelo, m_Look.barba, m_Look.cabeza);
 }
 
 // Metros del mundo que avanza el pie apoyado en un ciclo con caminar y correr en fase, mezclados con peso `runShare` para
@@ -235,6 +245,10 @@ void CharacterManager::Draw(Renderer& renderer, const glm::mat4& playerTransform
         if (m_Shoes)   m_Shoes->Draw(renderer, mScale, shoesTint, animTime, animate, clip, -1, false, glm::vec4(1.0f), blendClip, blendWeight, turns, blendTime);
         if (m_Hair)    m_Hair->Draw(renderer, mScale, hairTint, animTime, animate, clip, -1, false, glm::vec4(1.0f), blendClip, blendWeight, turns, blendTime);
         if (m_Beard)   m_Beard->Draw(renderer, mScale, hairTint, animTime, animate, clip, -1, false, glm::vec4(1.0f), blendClip, blendWeight, turns, blendTime);
+        if (m_Hat) {   // del color de la ropa, un poco mas apagado (como el sombrero de los peatones)
+            const glm::vec4 hatTint(glm::vec3(clothesTint) * 0.8f + glm::vec3(0.08f), 1.0f);
+            m_Hat->Draw(renderer, mScale, hatTint, animTime, animate, clip, -1, false, glm::vec4(1.0f), blendClip, blendWeight, turns, blendTime);
+        }
     } else {
         // Fallback procedural
         glm::mat4 bodyModel = glm::translate(playerTransform, glm::vec3(0.0f, 0.6f, 0.0f));

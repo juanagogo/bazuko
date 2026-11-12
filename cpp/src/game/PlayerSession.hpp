@@ -27,6 +27,7 @@ struct PlayerSession {
     float knockdownRemaining = 0.0f;
     float vehicleImpactCooldown = 0.0f;
     bool deathByVehicleImpact = false;
+    bool deathByLimpieza = false;   // lo mataron los de la camioneta negra: recorte propio y consejo al anochecer siguiente
     float poopCooldown = 0.0f;
     float poopAnimationRemaining = 0.0f;
     int poopMode = 0;   // 0 nada, 1 agacharse a hacer popo, 2 recoger el mojon con la mano y lanzarlo
@@ -75,6 +76,7 @@ struct PlayerSession {
     int level = 1;
     int talentPoints = 0;
     bool bigSack = false;   // Costal grande comprado en la tienda
+    bool cartAttached = false;   // la carreta de balineras esta enganchada: +120 kg de capacidad, pero pesa (Cart.js)
     float playerWaterDepth = 0.0f;   // metros de agua del lago sobre el fondo donde pisa el jugador
     bool playerSwimming = false;   // agua profunda: nada en lugar de caminar
     float swimPhase = 0.0f;   // fase 0..1 de la brazada

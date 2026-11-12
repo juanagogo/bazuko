@@ -25,7 +25,7 @@ const std::vector<RecipeDef>& Recipes() {
 }
 
 float Capacity(const PlayerSession& s, const GameData& data) {
-    return InventoryCapacity(data, s.unlockedTalents, s.bigSack);
+    return InventoryCapacity(data, s.unlockedTalents, s.bigSack, s.cartAttached);
 }
 
 int CountItem(const PlayerSession& s, const GameData& data, const std::string& id) {

@@ -279,6 +279,22 @@ add_executable(bazuko_jumpclips_test tests/JumpClipsTest.cpp)
 target_include_directories(bazuko_jumpclips_test PRIVATE src third_party/include)
 add_test(NAME bazuko_jumpclips COMMAND bazuko_jumpclips_test)
 
+add_executable(bazuko_dailymissions_test tests/DailyMissionsTest.cpp)
+target_include_directories(bazuko_dailymissions_test PRIVATE src third_party/include)
+add_test(NAME bazuko_dailymissions COMMAND bazuko_dailymissions_test)
+
+# Tipos de peaton: zonas, ropa permitida y posturas con las manos ocupadas (character/Archetypes.hpp)
+add_executable(bazuko_archetypes_test tests/ArchetypesTest.cpp)
+target_include_directories(bazuko_archetypes_test PRIVATE src third_party/include)
+target_link_libraries(bazuko_archetypes_test PRIVATE glm::glm)
+target_compile_definitions(bazuko_archetypes_test PRIVATE PERSONAJE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/../public/models/personaje")
+add_test(NAME bazuko_archetypes COMMAND bazuko_archetypes_test)
+
+add_executable(bazuko_limpieza_test tests/LimpiezaSocialTest.cpp)
+target_include_directories(bazuko_limpieza_test PRIVATE src third_party/include)
+target_link_libraries(bazuko_limpieza_test PRIVATE glm::glm)
+add_test(NAME bazuko_limpieza COMMAND bazuko_limpieza_test)
+
 # Sonidos de las sustancias (sintesis del original); solo DSP
 add_executable(bazuko_substancesynth_test tests/SubstanceSynthTest.cpp src/audio/SubstanceSynth.cpp)
 target_include_directories(bazuko_substancesynth_test PRIVATE src)
@@ -377,7 +393,7 @@ add_executable(bazuko_traffic_test
     src/renderer/Buffer.cpp src/renderer/VertexArray.cpp src/renderer/Shader.cpp
     src/renderer/Mesh.cpp src/renderer/Camera.cpp src/renderer/Renderer.cpp
     src/renderer/Texture.cpp src/renderer/Model.cpp
-    src/world/CityLayout.cpp src/world/Simulation.cpp src/world/BirdFlock.cpp src/world/Lake.cpp src/world/Decals.cpp
+    src/world/CityLayout.cpp src/world/Simulation.cpp src/world/BirdFlock.cpp src/world/Lake.cpp src/world/Decals.cpp src/world/Zones.cpp
     src/world/TextRaster.cpp src/world/SignAtlas.cpp
     src/game/GameData.cpp src/game/Harvest.cpp
 )
@@ -447,7 +463,7 @@ add_executable(bazuko_simulation_hash_test
     src/renderer/Buffer.cpp src/renderer/VertexArray.cpp src/renderer/Shader.cpp
     src/renderer/Mesh.cpp src/renderer/Camera.cpp src/renderer/Renderer.cpp
     src/renderer/Texture.cpp src/renderer/Model.cpp
-    src/world/CityLayout.cpp src/world/Simulation.cpp src/world/BirdFlock.cpp src/world/Lake.cpp src/world/Decals.cpp
+    src/world/CityLayout.cpp src/world/Simulation.cpp src/world/BirdFlock.cpp src/world/Lake.cpp src/world/Decals.cpp src/world/Zones.cpp
     src/world/TextRaster.cpp src/world/SignAtlas.cpp
     src/game/GameData.cpp src/game/Harvest.cpp
 )
@@ -465,7 +481,7 @@ add_executable(bazuko_world_share_test
     src/renderer/Buffer.cpp src/renderer/VertexArray.cpp src/renderer/Shader.cpp
     src/renderer/Mesh.cpp src/renderer/Camera.cpp src/renderer/Renderer.cpp
     src/renderer/Texture.cpp src/renderer/Model.cpp
-    src/world/CityLayout.cpp src/world/Simulation.cpp src/world/BirdFlock.cpp src/world/Lake.cpp src/world/Decals.cpp
+    src/world/CityLayout.cpp src/world/Simulation.cpp src/world/BirdFlock.cpp src/world/Lake.cpp src/world/Decals.cpp src/world/Zones.cpp
     src/world/TextRaster.cpp src/world/SignAtlas.cpp
     src/game/GameData.cpp src/game/Harvest.cpp
 )
@@ -484,7 +500,7 @@ add_executable(bazuko_spawn_city_test
     src/renderer/Buffer.cpp src/renderer/VertexArray.cpp src/renderer/Shader.cpp
     src/renderer/Mesh.cpp src/renderer/Camera.cpp src/renderer/Renderer.cpp
     src/renderer/Texture.cpp src/renderer/Model.cpp
-    src/world/CityLayout.cpp src/world/Simulation.cpp src/world/BirdFlock.cpp src/world/Lake.cpp src/world/Decals.cpp
+    src/world/CityLayout.cpp src/world/Simulation.cpp src/world/BirdFlock.cpp src/world/Lake.cpp src/world/Decals.cpp src/world/Zones.cpp
     src/world/TextRaster.cpp src/world/SignAtlas.cpp
     src/game/GameData.cpp src/game/Harvest.cpp
 )

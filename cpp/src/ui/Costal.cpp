@@ -494,6 +494,12 @@ void UIManager::RenderCambucheCarton(const std::vector<CambuchePieceOption>& pie
     // pie: dormir
     const char* sleepNote = !hasBase ? "Sin base no se puede dormir." : !isNight ? "Dormir solo de noche." : "Dormir recupera energía y salud.";
     C::Text(draw, false, 15, ImVec2(min.x + pad, max.y - 52.0f), C::kMarcador, sleepNote);
+    const ImVec2 wardrobeSize(176.0f, 44.0f);   // cambiarse de ropa (original: boton "Cambiar ropa" del menu del cambuche)
+    if (tapeButton("##ropa", "Cambiar ropa", ImVec2(min.x + pad, max.y - wardrobeSize.y - 14.0f - 30.0f), wardrobeSize, true)) {
+        m_WardrobeRequest = true;
+        m_CambucheMenuOpen = false;
+        Input::SetCursorLocked(true);
+    }
     const ImVec2 sleepSize(250.0f, 44.0f);
     if (tapeButton("##dormir", "Dormir hasta las 06:00", ImVec2(max.x - pad - sleepSize.x, max.y - sleepSize.y - 14.0f), sleepSize, hasBase && isNight)) {
         m_SleepRequest = true;

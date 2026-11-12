@@ -13,6 +13,9 @@ enum class HitResult { Ignored, Dodged, Hurt };
 
 // Un golpe recibido (`hitKind`: 1 cara, 2 pecho, 3 piernas; `from`: de donde viene). Si ya esta caido o aturdido se ignora; un esquive a tiempo lo evita.
 HitResult ReceiveHit(PlayerSession& session, int hitKind, const glm::vec3& from);
+// Cachazo de la limpieza social: quita `damage` de salud aunque el jugador ya este tambaleando (a diferencia de un golpe comun);
+// si estaba firme, lo hace tambalear. En el piso no cuenta. Tambien se esquiva.
+HitResult ReceiveBlow(PlayerSession& session, float damage, const glm::vec3& from);
 
 // Pasos cortos hacia atras tras un golpe (sin atravesar nada) y fin del aturdimiento
 void StaggerStep(PlayerSession& session, float dt, const std::function<bool(float x, float z)>& canStand);

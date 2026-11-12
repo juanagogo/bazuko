@@ -50,6 +50,9 @@
 #include "effects/SubstanceEffects.hpp"
 #include "character/Smoking.hpp"
 #include "character/SmokingPose.hpp"
+#include "character/IdleGestures.hpp"
+#include "character/StreetProps.hpp"
+#include "game/DailyMissions.hpp"
 #include "world/Zones.hpp"
 #include "world/Lake.hpp"
 #include "character/CombatMoves.hpp"
@@ -69,6 +72,7 @@
 #include <optional>
 #include <tuple>
 #include <algorithm>
+#include <functional>
 #include <random>
 #include <fstream>
 #include <limits>
@@ -194,6 +198,7 @@ int main(int argc, char** argv) {
     // Donde se puede pisar segun la capa: sobre el tablero solo entre las barandas (y el bus elevado); en la calle,
     // el mapa, los vehiculos y el muro bajo de la rampa
     const auto canStand = [&](float x, float z) {
+        if (simulation.BlocksPlayerMove(playerPos, x, z, 0.58f)) return false;   // colision de cuerpo: no se atraviesa a peatones ni a otros jugadores (0,58 m entre centros)
         if (playerOnDeck) return !Viaduct::BlockedOnDeck(x, z, 0.35f) && !simulation.IsBlocked({x, playerPos.y, z}, 0.35f);
         return city.IsWalkable(x, z, true) && !city.HitsObstacle(x, z, 0.35f) && !Viaduct::BlockedOnGround(x, z) && !simulation.IsBlocked({x, 0.0f, z}, 0.35f);   // el jugador puede meterse al lago
     };
@@ -207,11 +212,15 @@ int main(int argc, char** argv) {
     playerPos = placeSafely(playerPos);
     auto& playerYaw = session.playerYaw;
     auto& playerKnockedDown = session.playerKnockedDown;
+    auto& cartAttached = session.cartAttached;   // carreta de balineras enganchada (+120 kg, -18 % de velocidad, sin saltar ni golpear)
     float captureRemaining = 0.0f;   // s que le quedan al jugador reducido por un policia (Simulation::kCaptureSeconds); > 0 bloquea sus acciones
     float captureElapsed = 0.0f;
     auto& knockdownRemaining = session.knockdownRemaining;
     auto& vehicleImpactCooldown = session.vehicleImpactCooldown;
     auto& deathByVehicleImpact = session.deathByVehicleImpact;
+    auto& deathByLimpieza = session.deathByLimpieza;
+    bool limpiezaAdvicePending = false;   // tras morir por la limpieza social: el consejo se dice al anochecer siguiente, una sola vez
+    int limpiezaWasNight = -1;            // -1 sin mirar todavia
     auto& poopCooldown = session.poopCooldown;
     auto& poopAnimationRemaining = session.poopAnimationRemaining;
     auto& poopMode = session.poopMode;   // 0 nada, 1 agacharse a hacer popo, 2 recoger el mojon con la mano y lanzarlo
@@ -403,8 +412,12 @@ int main(int argc, char** argv) {
         }
         // lugar de la muerte para el recorte de periodico: la franja de calle mas cercana
         const std::string place = placeNearPlayer();
+        if (deathByLimpieza) { ui.ShowLimpiezaDeathScreen(characterManager.GetLook().nombre, place, characterManager.GetLook().sexo == "mujer"); return; }
         ui.ShowDeathScreen(summary, deathByVehicleImpact, characterManager.GetLook().nombre, place);
     };
+    Missions::DailyMissions dailyMissions;   // tres misiones por dia (game/DailyMissions.hpp)
+    std::function<void(const char*, int)> missionHook = [](const char*, int) {};   // se asigna a reportMission cuando ya existen sus dependencias
+    double lastComedorHours = -1.0e9;         // hora de juego (acumulada) de la ultima racion del Comedor Comunitario; una cada 24 h
     const fs::path savePath = "savegame.json";
     bool hasSavedCharacter = false;
     ui.RenderLoadingScreen(window, 0.90f, "Comprobando y restaurando datos de partida...",
@@ -418,6 +431,8 @@ int main(int argc, char** argv) {
                 auto savedNeeds = state.value("needs", std::vector<float>{});
                 for (size_t i = 0; i < std::min(needs.size(), savedNeeds.size()); ++i) needs[i] = std::clamp(savedNeeds[i], 0.0f, 100.0f);
                 money = state.value("money", 0.0f);
+                if (state.contains("dailyMissions")) dailyMissions.Deserialize(state["dailyMissions"]);
+                lastComedorHours = state.value("lastComedorHours", -1.0e9);
                 xp = state.value("xp", 0);
                 level = std::max(1, state.value("level", 1));
                 talentPoints = std::max(0, state.value("talentPoints", level - 1));
@@ -497,10 +512,20 @@ int main(int argc, char** argv) {
                     if (glm::distance(glm::vec2(savedPosition.x, savedPosition.z), glm::vec2(playerPos.x, playerPos.z)) > 0.05f)
                         ui.Notify("Tu posición guardada estaba bloqueada: te movimos al lugar libre más cercano.", ToastType::Warn);
                 }
+                const bool savedCartAttached = state.contains("cart") && state["cart"].is_object() && state["cart"].value("isAttached", false);
                 auto restoredInventory = RestoreInventory(state.value("inventory", nlohmann::json::array()),
-                                                          gameData, unlockedTalents, bigSack);
+                                                          gameData, unlockedTalents, bigSack, savedCartAttached);
                 inventory = std::move(restoredInventory.entries);
                 inventoryWeight = restoredInventory.weight;
+                if (state.contains("cart") && state["cart"].is_object()) {
+                    const auto& savedCart = state["cart"];
+                    Simulation::CartState cart;
+                    cart.position = {savedCart.value("x", 25.0f), savedCart.value("y", 0.0f), savedCart.value("z", 31.0f)};
+                    cart.yaw = savedCart.value("rotation", 0.0f);
+                    cart.attached = savedCart.value("isAttached", false);
+                    simulation.SetCart(cart);
+                    cartAttached = cart.attached;
+                }
                 hasSavedCharacter = characterManager.Deserialize(state, [&](size_t completed, size_t total) {
                     const float progress = 0.91f + 0.06f * static_cast<float>(completed) / static_cast<float>(total);
                     const std::string stage = "Cargando apariencia del personaje (" + std::to_string(completed)
@@ -513,7 +538,12 @@ int main(int argc, char** argv) {
     ui.RenderLoadingScreen(window, 0.97f, "Partida y estado del jugador preparados...");
     std::mt19937 lootRandom(std::random_device{}());
     float survivalSaveTimer = 0.0f;
+    bool previewQuitScreen = false;   // solo pruebas: BAZUKO_OPEN_UI=salir@s muestra la pantalla de despedida
     float begCooldownRemaining = 0.0f;
+    float lungeRemaining = 0.0f;       // m que le quedan al paso corto de la ayuda de punteria
+    glm::vec2 lungeDirection{0.0f, 1.0f};
+    float fireCooldownRemaining = 0.0f;   // s hasta poder calentarse otra vez las manos en una fogata de caneca (20 s)
+    float coldOverlay = 0.0f;             // 0..1: la escarcha en los bordes de la pantalla (CinematicOverlays.js: se mete lento y se va rapido)
     const auto hasTalent = [&](const std::string& id) { return unlockedTalents.contains(id); };
     const auto talentEffect = [&](const std::string& key, float base = 1.0f) {
         return gameData.TalentEffect(unlockedTalents, key, base);
@@ -534,7 +564,6 @@ int main(int argc, char** argv) {
         const int gained = Economy::AwardXp(session, amount, activityMultiplier, talentEffect("xpMult"));
         for (int i = 1; i <= gained; ++i) ui.Notify("¡Nivel " + std::to_string(level - gained + i) + "! +1 punto de talento", ToastType::Rare);
     };
-
     constexpr float kAutoSaveSeconds = 60.0f;   // como AutoSave.js del original: cada minuto y en el ultimo momento (al perder el foco), sin avisos
     auto saveGame = [&](const std::string& feedbackMsg = "Partida guardada con éxito", bool silent = false) {
         nlohmann::json state;
@@ -559,6 +588,12 @@ int main(int argc, char** argv) {
         state["objective"] = objective;
         state["dayProgress"] = simulation.GetDayProgress();
         state["day"] = simulation.GetDay();
+        state["dailyMissions"] = dailyMissions.Serialize();
+        {
+            const Simulation::CartState& cart = simulation.GetCart();
+            state["cart"] = {{"x", cart.position.x}, {"y", cart.position.y}, {"z", cart.position.z}, {"rotation", cart.yaw}, {"isAttached", cart.attached}};
+        }
+        state["lastComedorHours"] = lastComedorHours;
         if (gps.Waypoint()) state["gps"] = {{"x", gps.Waypoint()->x}, {"z", gps.Waypoint()->z}, {"name", gps.Name()}};
         state["diseases"] = nlohmann::json::array();
         for (const auto& disease : diseases) {
@@ -603,6 +638,9 @@ int main(int argc, char** argv) {
     auto startNewGame = [&]() {
         std::error_code ec;
         fs::remove(savePath, ec);
+        simulation.ResetLimpieza();
+        deathByLimpieza = false;
+        limpiezaAdvicePending = false;
 
         playerPos = placeSafely(city.GetSpawnPoint());
         playerOnDeck = false;
@@ -696,6 +734,7 @@ int main(int argc, char** argv) {
 
         itemsCollected += static_cast<int>(added.size());
         awardXp(3);
+        missionHook("reciclar", 1);
         const auto isRareItem = [&](const std::string& id) {
             const ItemDef* item = gameData.FindItem(id);
             return item && (item->rarity == "rare" || item->rarity == "veryRare");
@@ -752,6 +791,127 @@ int main(int argc, char** argv) {
         }
         return false;
     };
+    // Limpiar el parabrisas de un carro (Q, o E si ya no hay retrovisores que robar): propina de $800 a $2.200 (15 % generosa: $3.000 a $5.000), gasta 2 de energia;
+    // el conductor se niega y pita el 12 % de las veces (original: InteractionSystem._cleanWindshield)
+    const auto tryCleanWindshield = [&](bool parked, size_t index) {
+        if (needs[2] < 2.0f) {
+            audio.Play(AudioCue::Empty);
+            ui.SetPickupNotification("No me queda energía para limpiar vidrios.");
+            return;
+        }
+        if (!simulation.CleanWindshield(parked, index)) return;
+        needs[2] = std::max(0.0f, needs[2] - 2.0f);
+        const auto roll = [&] { return std::uniform_real_distribution<float>(0.0f, 1.0f)(lootRandom); };
+        if (roll() < 0.12f) {
+            audio.Play(AudioCue::Empty);
+            ui.SetPickupNotification("El conductor pitó bravo y no me dio nada.");
+            return;
+        }
+        const bool generous = roll() < 0.15f || roll() < 0.18f;
+        const int amount = generous ? static_cast<int>(std::floor(30.0f + roll() * 21.0f)) * 100 : static_cast<int>(std::floor(8.0f + roll() * 15.0f)) * 100;
+        money += static_cast<float>(amount);
+        needs[5] = std::min(100.0f, needs[5] + (generous ? 4.0f : 2.0f));
+        awardXp(4);
+        audio.Play(generous ? AudioCue::Treasure : AudioCue::Sell);
+        ui.SetPickupNotification(generous ? "¡Buena propina! Me gané $" + std::to_string(amount) + " COP por limpiar el parabrisas."
+                                          : "Me gané $" + std::to_string(amount) + " COP por limpiar el parabrisas.");
+    };
+    // Robar un retrovisor ya no es un solo gesto (original: StealSystem.startMirrorTheft): una barra de timing en dos pasos, palanquear el soporte y arrancarlo.
+    // Espacio detiene la barra en la zona negra; fallar dos veces hace sonar la alarma y avisa a la policia.
+    struct MirrorGame {
+        bool active = false, parked = false;
+        size_t index = 0;
+        int step = 1, misses = 0;
+        float marker = 0.0f, dir = 1.0f, zoneStart = 0.3f, zoneSize = 0.34f, speed = 1.8f;
+    } mirrorGame;
+    const auto setMirrorStep = [&](int step) {
+        mirrorGame.step = step;
+        const bool moving = !mirrorGame.parked;
+        mirrorGame.speed = step == 1 ? (moving ? 2.4f : 1.8f) : (moving ? 3.0f : 2.3f);
+        mirrorGame.zoneSize = step == 1 ? (moving ? 0.28f : 0.34f) : (moving ? 0.20f : 0.24f);
+        const float low = step == 1 ? 0.18f : 0.15f, high = step == 1 ? 0.82f : 0.85f;
+        mirrorGame.zoneStart = low + std::uniform_real_distribution<float>(0.0f, 1.0f)(lootRandom) * (high - mirrorGame.zoneSize - low);
+        mirrorGame.marker = 0.0f;
+        mirrorGame.dir = 1.0f;
+    };
+    const auto startMirrorGame = [&](bool parked, size_t index) {
+        mirrorGame.active = true;
+        mirrorGame.parked = parked;
+        mirrorGame.index = index;
+        mirrorGame.misses = 0;
+        setMirrorStep(1);
+        grabTime = -1.0f;
+    };
+    const auto finishMirrorTheft = [&]() {   // el segundo paso salio bien: el mismo botin y riesgos del robo de siempre
+        const bool parked = mirrorGame.parked;
+        const size_t index = mirrorGame.index;
+        mirrorGame.active = false;
+        const int mirrorCapacity = std::min(2, availableLootCount("retrovisor"));
+        if (mirrorCapacity == 0) { ui.SetPickupNotification("El costal está lleno; deja espacio para guardar los retrovisores."); return; }
+        const bool stolen = parked ? simulation.StealParkedCar(index) : simulation.StealCar(index);
+        if (!stolen) return;
+        grabTime = 0.0f;
+        audio.PlayTheftRemark(2.0f);
+        const bool caught = std::uniform_real_distribution<float>(0.0f, 1.0f)(lootRandom) < 0.25f * talentEffect("stealCaughtMult");
+        if (simulation.CallPolice(playerPos, caught ? 1.0f : 0.6f)) ui.SetPickupNotification("¡Llamaron a la policía! Una patrulla va hacia ti.");
+        if (caught) {
+            needs[3] = std::max(0.0f, needs[3] - 25.0f);
+            money = std::max(0.0f, money - 5000.0f);
+            audio.PlayCarAlarm(2.0f);
+            if (parked) ui.SetPickupNotification("¡Alarma! Te atraparon robando los retrovisores.");
+            else audio.Play(AudioCue::Empty);
+            return;
+        }
+        awardXp(8);
+        const int mirrors = std::uniform_int_distribution<int>(1, mirrorCapacity)(lootRandom);
+        for (int count = 0; count < mirrors; ++count) addLootById("retrovisor");
+        if (!parked && std::uniform_real_distribution<float>(0.0f, 1.0f)(lootRandom) < 0.2f) addLootById("radio");
+        audio.Play(AudioCue::Treasure);
+        ui.SetPickupNotification(parked ? "Robaste los retrovisores del auto estacionado." : "¡CRACK! ¡Retrovisor arrancado!");
+    };
+    const auto failMirrorTheft = [&]() {   // dos fallos: suena la alarma y el delito llega a la policia
+        const bool parked = mirrorGame.parked;
+        const size_t index = mirrorGame.index;
+        mirrorGame.active = false;
+        ui.SetPickupNotification("¡Fallé al arrancar el retrovisor y sonó la alarma!");
+        audio.Play(AudioCue::Empty);
+        if (parked) audio.PlayCarAlarm(2.0f);
+        else { audio.PlayTheftRemark(2.0f); simulation.ProvokeDriver(index); }
+        simulation.CallPolice(playerPos, 1.0f);
+    };
+    const auto updateMirrorGame = [&](float step, bool spacePressed, bool paused) {
+        if (!mirrorGame.active) return;
+        const glm::vec3 carAt = mirrorGame.parked ? simulation.GetParkedCarPosition(mirrorGame.index) : simulation.GetTrafficPosition(mirrorGame.index);
+        if (paused || glm::distance(glm::vec2(playerPos.x, playerPos.z), glm::vec2(carAt.x, carAt.z)) > 4.5f) { mirrorGame.active = false; return; }   // se aleja o abre la pausa: se cancela sin consecuencias
+        mirrorGame.marker += mirrorGame.dir * mirrorGame.speed * step;
+        if (mirrorGame.marker >= 1.0f) { mirrorGame.marker = 1.0f; mirrorGame.dir = -1.0f; }
+        else if (mirrorGame.marker <= 0.0f) { mirrorGame.marker = 0.0f; mirrorGame.dir = 1.0f; }
+        if (!spacePressed) return;
+        const bool hit = mirrorGame.marker >= mirrorGame.zoneStart && mirrorGame.marker <= mirrorGame.zoneStart + mirrorGame.zoneSize;
+        if (hit) {
+            if (mirrorGame.step == 1) {
+                audio.Play(AudioCue::Pickup);
+                ui.SetPickupNotification("¡Clac! Soporte aflojado. ¡Hale duro para arrancarlo!");
+                setMirrorStep(2);
+            } else finishMirrorTheft();
+        } else if (++mirrorGame.misses >= 2) {
+            failMirrorTheft();
+        } else {
+            audio.Play(AudioCue::Empty);
+            ui.SetPickupNotification("¡Se resbaló! El espejo sigue trabado (último intento).");
+        }
+    };
+    // Avance de las misiones diarias: al cumplirse una se entrega la recompensa (plata, experiencia y animo) con el aviso del original
+    const auto reportMission = [&](const char* type, int amount = 1) {
+        for (const Missions::Mission& done : dailyMissions.Report(type, amount)) {
+            money += static_cast<float>(done.reward.money);
+            awardXp(done.reward.xp);
+            needs[5] = std::min(100.0f, needs[5] + static_cast<float>(done.reward.mood));
+            audio.Play(AudioCue::Treasure);
+            ui.Notify("¡Misión cumplida: " + done.title + "! Recompensa: +$" + std::to_string(done.reward.money) + " +" + std::to_string(done.reward.xp) + " XP", ToastType::Rare);
+        }
+    };
+    missionHook = reportMission;
     // Precio de la recicladora: adrenalina x1.2 y mejora de origen (Gota a gota +15 %)
     const auto recyclerMultiplier = [&]() {
         return (boostActive ? 1.2f : 1.0f) * characterManager.GetSellMultiplier();
@@ -764,6 +924,7 @@ int main(int argc, char** argv) {
             return false;
         }
         awardXp(2 * sale.soldCount);
+        missionHook("vender", static_cast<int>(sale.earned));
         audio.Play(AudioCue::Sell);
         ui.SetPickupNotification("Vendiste " + std::to_string(sale.soldCount) + " reciclables por $"
                                  + std::to_string(static_cast<int>(sale.earned)) + " COP.");
@@ -899,7 +1060,10 @@ int main(int argc, char** argv) {
 
         // 3. Post-poll para asegurar deltas de mouse
         Input::PostPoll();
-        const PlayerInput playerInput = captureRemaining > 0.0f ? PlayerInput{} : SamplePlayerInput();   // reducido por un policia: no hace nada   // intenciones del jugador en este cuadro (core/PlayerInputSampler.hpp)
+        PlayerInput sampledInput = SamplePlayerInput();
+        const bool mirrorSpace = mirrorGame.active && sampledInput.jumpPressed;   // durante la barra, Espacio detiene el marcador y no salta
+        if (mirrorGame.active) sampledInput.jumpPressed = false;
+        const PlayerInput playerInput = captureRemaining > 0.0f ? PlayerInput{} : sampledInput;   // reducido por un policia: no hace nada   // intenciones del jugador en este cuadro (core/PlayerInputSampler.hpp)
 
         float dt = clock.Tick();
         if (dt > 0.1f) dt = 0.1f;
@@ -909,6 +1073,7 @@ int main(int argc, char** argv) {
             if (captureRemaining <= 0.0f) {
                 captureRemaining = 0.0f;
                 ui.ShowArrestScreen(characterManager.GetLook().nombre, placeNearPlayer());
+        simulation.ReleasePolice();   // el arresto termina la persecucion: nadie sigue detras del jugador cuando reaparezca
             }
         }
         showDeathScreenIfNeeded();
@@ -948,9 +1113,18 @@ int main(int argc, char** argv) {
                     else if (name == "crafteo") ui.ToggleCraftMenu();
                     else if (name == "dealer") ui.OpenDealerMenu();
                     else if (name == "cambuche") ui.OpenCambucheMenu();
+                    else if (name == "misiones") ui.OpenMissionsSection();
+                    else if (name == "partidanueva") { ui.OpenPauseSection(0); ui.OpenNewGameConfirm(); }
+                    else if (name == "salir") previewQuitScreen = true;
                     else if (name == "muerte") ui.ShowDeathScreen("atropello", true, characterManager.GetLook().nombre, "la Calle 7");
                     else if (name == "tienda") ui.OpenShopMenu("Tienda La Esquinita", "Doña Rosa fía, pero solo a los conocidos.");
                     else if (name == "reciclaje") ui.OpenRecyclerMenu();
+                    else if (name.rfind("estilo", 0) == 0) {   // estilo<n>: el creador con uno de los estilos de calle puesto (0-5)
+                        CharacterLook styled = characterManager.GetLook();
+                        ApplyStreetPreset(styled, StreetPresets[static_cast<size_t>(std::clamp(std::atoi(name.c_str() + 6), 0, static_cast<int>(StreetPresets.size()) - 1))]);
+                        characterManager.ApplyLook(styled, false);   // la vista previa dibuja al personaje del juego
+                        characterCreatorUI.Open(styled, true);
+                    } else if (name == "creador") characterCreatorUI.Open(characterManager.GetLook(), true);
                 }
             }
         }
@@ -968,6 +1142,8 @@ int main(int argc, char** argv) {
         if (ui.IsPaused()) dt = 0.0f;
         vehicleImpactCooldown = std::max(0.0f, vehicleImpactCooldown - dt);
         if (Input::IsKeyPressed(GLFW_KEY_C)) ui.ToggleCraftMenu();
+        if (!characterCreatorUI.IsOpen() && Input::IsKeyPressed(GLFW_KEY_J)) ui.OpenMissionsSection();   // misiones del dia
+        if (ui.ConsumeWardrobeRequest() && !characterCreatorUI.IsOpen()) characterCreatorUI.Open(characterManager.GetLook(), true, 4);   // Cambiar ropa (cambuche)
         // con la mesa de crafteo abierta el raton queda libre para usar el menu (se vuelve a fijar con un clic al cerrarla)
         if (ui.IsCraftMenuOpen() && Input::IsCursorLocked()) Input::SetCursorLocked(false);
 
@@ -1030,7 +1206,7 @@ int main(int argc, char** argv) {
         const float psychosisSeverity = std::max(fromWithdrawal, fromDrug);
         const Movement::SpeedResult speedResult = Movement::ComputeSpeed(session, {isRunning, withdrawal, highWithdrawal, criticalWithdrawal});   // game/Movement.cpp
         isRunning = speedResult.running;
-        float moveSpeed = speedResult.speed;
+        float moveSpeed = speedResult.speed * (cartAttached ? 0.82f : 1.0f);   // la carreta pesa
 
         glm::vec3 moveDir(0.0f);
         if (static const char* autoWalk = std::getenv("BAZUKO_AUTOWALK"); autoWalk && !ui.IsPaused()) {   // pruebas: BAZUKO_AUTOWALK=x,z camina en esa direccion
@@ -1064,11 +1240,19 @@ int main(int argc, char** argv) {
 
         const float dtClamped = std::max(0.0f, dt);
         begCooldownRemaining = std::max(0.0f, begCooldownRemaining - dtClamped);
+        fireCooldownRemaining = std::max(0.0f, fireCooldownRemaining - dtClamped);
+        {   // frio en pantalla: el mismo frio que debilita al jugador (La Nevera); sube a 0,12 por segundo y baja a 1,6
+            const float target = playerFreezing ? 0.7f + 0.3f * std::min(1.0f, simulation.GetRainIntensity()) : 0.0f;
+            coldOverlay += (target - coldOverlay) * std::min(1.0f, dtClamped * (target > coldOverlay ? 0.12f : 1.6f));
+            if (coldOverlay < 0.002f && target == 0.0f) coldOverlay = 0.0f;
+            ui.SetColdOverlay(coldOverlay);
+        }
         {   // supervivencia (frio, hambre, sed, lluvia, enfermedades, animo, salud y adrenalina): game/Survival.cpp; aqui solo se avisa a la interfaz
             glm::vec4 fire;
             SurvivalInput survival;
             survival.dt = dtClamped;
             survival.nearFire = simulation.GetCambucheFireLight(0.0f, playerPos, fire) && glm::distance(glm::vec2(playerPos.x, playerPos.z), glm::vec2(fire.x, fire.z)) < 3.6f;
+            if (simulation.IsNearFireBarrel(playerPos, 3.0f)) survival.nearFire = true;   // junto a una caneca con fuego
             survival.night = simulation.IsNight();
             survival.raining = simulation.IsRaining();
             survival.rainIntensity = simulation.GetRainIntensity();
@@ -1141,6 +1325,42 @@ int main(int argc, char** argv) {
 
         showDeathScreenIfNeeded();
         if (ui.IsDeathScreenOpen()) dt = 0.0f;
+        {   // estado del Comedor Comunitario para el aviso de E
+            const double totalHours = (static_cast<double>(simulation.GetDay()) - 1.0) * 24.0 + simulation.GetHour();
+            const double since = totalHours - lastComedorHours;
+            ui.SetComedorStatus(since >= 24.0, std::max(1, static_cast<int>(std::ceil(24.0 - since))));
+        }
+        if (std::getenv("BAZUKO_AUTORESPAWN")) {   // solo pruebas: tras el arresto pulsa «Volver al cambuche» y registra cuantos policias persiguen
+            static float arrestSince = -1.0f, nextLog = 0.0f;
+            if (ui.IsArrestScreen()) {
+                if (arrestSince < 0.0f) arrestSince = clock.GetElapsedTime();
+                if (clock.GetElapsedTime() - arrestSince > 1.0f) ui.TestRespawn();
+            }
+            if (arrestSince >= 0.0f && clock.GetElapsedTime() > nextLog) {
+                nextLog = clock.GetElapsedTime() + 2.0f;
+                LogInfo("PRUEBA policias persiguiendo: {} (pantalla de arresto: {})", simulation.CountAggressivePolice(), ui.IsArrestScreen());
+            }
+        }
+        if (dailyMissions.Missions().empty()) dailyMissions.Init(simulation.GetDay());
+        else if (dailyMissions.Update(simulation.GetDay())) ui.Notify("Nuevas misiones diarias del Día " + std::to_string(simulation.GetDay()), ToastType::Info);
+        {   // misiones del dia para la pestaña de la pausa
+            std::vector<UIManager::MissionView> views;
+            for (const Missions::Mission& mission : dailyMissions.Missions())
+                views.push_back({mission.title, mission.description, mission.progress, mission.target, mission.completed, mission.reward.money, mission.reward.xp, mission.reward.mood});
+            ui.SetMissionsView(std::move(views), simulation.GetDay());
+        }
+        simulation.UpdateCart(dtClamped, playerPos, playerYaw, currentSpeed);
+        if (lungeRemaining > 0.0f) {   // paso corto hacia el oponente al golpear (5 m/s, hasta 0,75 m); no atraviesa a nadie ni nada
+            if (playerAction == PlayerAction::None || playerKnockedDown || playerSwimming) lungeRemaining = 0.0f;
+            else {
+                const float step = std::min(lungeRemaining, 5.0f * dtClamped);
+                const glm::vec3 next = playerPos + glm::vec3(lungeDirection.x * step, 0.0f, lungeDirection.y * step);
+                if (canStand(next.x, next.z)) playerPos = next;
+                lungeRemaining -= step;
+            }
+        }
+        updateMirrorGame(dtClamped, mirrorSpace, ui.IsPaused() || ui.IsDeathScreenOpen());
+        ui.SetTimingBar({mirrorGame.active, mirrorGame.step, mirrorGame.marker, mirrorGame.zoneStart, mirrorGame.zoneSize});
         if (!ui.IsPaused() && !characterCreatorUI.IsOpen() && playerInput.sortPressed) {
             if (simulation.IsNearDealer(playerPos, 2.2f)) {
                 ui.OpenDealerMenu();
@@ -1162,7 +1382,13 @@ int main(int argc, char** argv) {
                     }
                 }
                 } else {
-                    beginSorting(1.8f);
+                    bool cleanParked = false;
+                    size_t cleanIndex = 0;
+                    const bool pickupClose = std::any_of(simulation.GetPickups().begin(), simulation.GetPickups().end(), [&](const PickupItem& pickup) {
+                        return pickup.available && glm::distance(pickup.position, playerPos) < 1.8f;
+                    });
+                    if (!pickupClose && simulation.GetNearbyCleanableCar(playerPos, 2.0f, cleanParked, cleanIndex)) tryCleanWindshield(cleanParked, cleanIndex);
+                    else beginSorting(1.8f);
                 }
             }
         }
@@ -1266,9 +1492,10 @@ int main(int argc, char** argv) {
                     const auto chance = [&](float probability) {
                         return std::uniform_real_distribution<float>(0.0f, 1.0f)(lootRandom) < probability;
                     };
-                    if (needs[4] < 20.0f && chance(0.70f)) {
+                    if (needs[4] < 30.0f) {   // mal olor (original: tieneMalOlor): nadie da limosna y la gente huye
                         needs[5] = std::max(0.0f, needs[5] - 2.0f);
-                        ui.SetPickupNotification("La gente te rechaza por tu higiene. Usa jabón o un cepillo.");
+                        simulation.RepelPedestriansFrom(playerPos, 6.0f, "¡Uff, qué peste tan brava! ¡Aléjese!");
+                        ui.SetPickupNotification("Nadie te da limosna con este olor: la gente huye. Toca bañarte.");
                     } else if (chance(0.20f)) {
                         needs[5] = std::max(0.0f, needs[5] - 1.0f);
                         ui.SetPickupNotification("Los transeúntes te ignoran.");
@@ -1277,6 +1504,7 @@ int main(int argc, char** argv) {
                         const bool received = addLootById(gift);
                         needs[5] = std::min(100.0f, needs[5] + 4.0f);
                         awardXp(4);
+                        missionHook("limosna", 1);
                         ui.SetPickupNotification(received
                             ? "Una persona te regaló " + (gift == "pan" ? std::string("pan") : std::string("agua")) + "."
                             : "Te ofrecieron comida o agua, pero el costal está lleno.");
@@ -1290,6 +1518,7 @@ int main(int argc, char** argv) {
                         money += static_cast<float>(earned);
                         needs[5] = std::min(100.0f, needs[5] + (rare ? 6.0f : 2.0f));
                         awardXp(rare ? 8 : 4);
+                        missionHook("limosna", 1);
                         ui.SetPickupNotification(rare
                             ? "Una persona generosa te dio $" + std::to_string(earned) + " COP."
                             : "Recibiste $" + std::to_string(earned) + " COP de limosna.");
@@ -1300,11 +1529,50 @@ int main(int argc, char** argv) {
         if (!ui.IsPaused() && playerInput.interactPressed) {
             size_t carIndex = simulation.GetNearbyCar(playerPos, 2.0f);
             size_t parkedCarIndex = simulation.GetNearbyParkedCar(playerPos, 2.0f);
+            bool cleanableParked = false;
+            size_t cleanableIndex = 0;
+            const bool cleanableCar = simulation.GetNearbyCleanableCar(playerPos, 2.0f, cleanableParked, cleanableIndex);
             const size_t vendorIndex = simulation.GetNearbyVendor(playerPos, 2.0f);
             size_t pedestrianIndex = simulation.GetNearbyPedestrian(playerPos, 1.8f);
             bool nearShop = simulation.IsNearShop(playerPos, 2.2f);
             if (simulation.IsNearMissionNpc(playerPos, 2.0f) && !simulation.IsMissionStarted() && !simulation.IsMissionComplete()) {
                 simulation.StartMission();
+            } else if (simulation.IsNearComedor(playerPos, 2.8f)) {   // Comedor Comunitario: una racion caliente gratis cada 24 h de juego
+                const double totalHours = (static_cast<double>(simulation.GetDay()) - 1.0) * 24.0 + simulation.GetHour();
+                if (totalHours - lastComedorHours >= 24.0) {
+                    lastComedorHours = totalHours;
+                    needs[0] = std::min(100.0f, needs[0] + 80.0f);
+                    needs[1] = std::min(100.0f, needs[1] + 60.0f);
+                    needs[5] = std::min(100.0f, needs[5] + 25.0f);
+                    needs[2] = std::min(100.0f, needs[2] + 25.0f);
+                    warmTimer = std::min(900.0f, warmTimer + 180.0f);   // +3 min de calor corporal contra el frio
+                    awardXp(30);
+                    audio.Play(AudioCue::Treasure);
+                    missionHook("comedor", 1);
+                    ui.Notify("Almorzaste en el Comedor Comunitario. ¡Dios le pague! +80 hambre, +60 sed, +25 ánimo y energía.", ToastType::Rare);
+                    saveGame("Partida guardada tras el almuerzo", true);
+                } else {
+                    const int remaining = std::max(1, static_cast<int>(std::ceil(24.0 - (totalHours - lastComedorHours))));
+                    audio.Play(AudioCue::Empty);
+                    ui.SetPickupNotification("Ya recibiste la ración de hoy. Próximo turno en unas " + std::to_string(remaining) + (remaining == 1 ? " hora." : " horas."));
+                }
+            } else if (simulation.IsNearCart(playerPos, 2.3f)) {   // carreta de balineras: engancharla suma 120 kg; soltarla la deja donde esta
+                cartAttached = simulation.ToggleCart();
+                audio.Play(AudioCue::Pickup);
+                ui.Notify(cartAttached ? "Enganché la carreta: +120 kg, pero pesa." : "Dejé la carreta aquí.", ToastType::Info);
+            } else if (glm::vec3 barrelAt; simulation.IsNearFireBarrel(playerPos, 2.2f, &barrelAt)) {   // fogata de caneca: calor +180 s, +8 energia, +12 animo; una vez cada 20 s
+                if (fireCooldownRemaining > 0.0f) {
+                    ui.SetPickupNotification("Ya me calenté las manos hace poco. El calor dura (" + std::to_string(static_cast<int>(std::ceil(fireCooldownRemaining))) + " s).");
+                } else {
+                    fireCooldownRemaining = 20.0f;
+                    playerYaw = std::atan2(barrelAt.x - playerPos.x, barrelAt.z - playerPos.z);
+                    warmTimer = std::min(900.0f, warmTimer + 180.0f);
+                    needs[2] = std::min(100.0f, needs[2] + 8.0f);
+                    needs[5] = std::min(100.0f, needs[5] + 12.0f);
+                    audio.Play(AudioCue::Full);
+                    missionHook("fogata", 1);
+                    ui.Notify("Me calenté las manos en la fogata: +calor, +ánimo, +energía.", ToastType::Info);
+                }
             } else if (simulation.IsNearDog(playerPos, 2.0f)) {
                 if (simulation.IsDogFriend()) {
                     if (simulation.CanPetDog() && playerAction == PlayerAction::None && !playerCrouching && !playerKnockedDown && !petWaiting) {
@@ -1366,50 +1634,14 @@ int main(int argc, char** argv) {
                     ui.SetPickupNotification("Falló el cosquilleo, pero lograste disimular.");
                 }
             } else if (parkedCarIndex < simulation.GetParkedCarCount()) {
-                const int mirrorCapacity = std::min(2, availableLootCount("retrovisor"));
-                if (mirrorCapacity == 0) {
-                    ui.SetPickupNotification("El costal está lleno; deja espacio para guardar los retrovisores.");
-                } else if (simulation.StealParkedCar(parkedCarIndex)) {
-                    grabTime = 0.0f;
-                    audio.PlayTheftRemark(2.0f);
-                    const bool caught = std::uniform_real_distribution<float>(0.0f, 1.0f)(lootRandom)
-                        < 0.25f * talentEffect("stealCaughtMult");
-                    if (simulation.CallPolice(playerPos, caught ? 1.0f : 0.6f)) ui.SetPickupNotification("¡Llamaron a la policía! Una patrulla va hacia ti.");
-                    if (caught) {
-                        needs[3] = std::max(0.0f, needs[3] - 25.0f);
-                        money = std::max(0.0f, money - 5000.0f);
-                        audio.PlayCarAlarm(2.0f);
-                        ui.SetPickupNotification("¡Alarma! Te atraparon robando los retrovisores.");
-                    } else {
-                        awardXp(8);
-                        const int mirrors = std::uniform_int_distribution<int>(1, mirrorCapacity)(lootRandom);
-                        for (int index = 0; index < mirrors; ++index) addLootById("retrovisor");
-                        audio.Play(AudioCue::Treasure);
-                        ui.SetPickupNotification("Robaste los retrovisores del auto estacionado.");
-                    }
-                }
+                if (std::min(2, availableLootCount("retrovisor")) == 0) ui.SetPickupNotification("El costal está lleno; deja espacio para guardar los retrovisores.");
+                else startMirrorGame(true, parkedCarIndex);
             } else if (availableLootCount("retrovisor") == 0) {
                 ui.SetPickupNotification("El costal está lleno; deja espacio para guardar los retrovisores.");
-            } else if (simulation.StealCar(carIndex)) {
-                grabTime = 0.0f;
-                audio.PlayTheftRemark(2.0f);
-                const float caughtChance = 0.25f * talentEffect("stealCaughtMult");
-                const bool caught = std::uniform_real_distribution<float>(0.0f, 1.0f)(lootRandom) < caughtChance;
-                if (simulation.CallPolice(playerPos, caught ? 1.0f : 0.6f)) ui.SetPickupNotification("¡Llamaron a la policía! Una patrulla va hacia ti.");
-                if (caught) {
-                    needs[3] = std::max(0.0f, needs[3] - 25.0f);
-                    money = std::max(0.0f, money - 5000.0f);
-                    audio.PlayCarAlarm(2.0f);
-                    audio.Play(AudioCue::Empty);
-                } else {
-                    awardXp(8);
-                    const int mirrorCapacity = std::min(2, availableLootCount("retrovisor"));
-                    const int mirrors = std::uniform_int_distribution<int>(1, mirrorCapacity)(lootRandom);
-                    for (int index = 0; index < mirrors; ++index) addLootById("retrovisor");
-                    if (std::uniform_real_distribution<float>(0.0f, 1.0f)(lootRandom) < 0.2f)
-                        addLootById("radio");
-                    audio.Play(AudioCue::Treasure);
-                }
+            } else if (carIndex < simulation.GetTrafficCount()) {
+                startMirrorGame(false, carIndex);
+            } else if (cleanableCar) {
+                tryCleanWindshield(cleanableParked, cleanableIndex);
             } else if (nearShop) {
                 ui.OpenShopMenu("Tienda La Esquinita", "Doña Rosa fía, pero solo a los conocidos.");
             } else if (harvestNearbyPickup(1.8f, false)) {
@@ -1435,6 +1667,7 @@ int main(int argc, char** argv) {
             if (crafted.outcome == Economy::CraftOutcome::MissingMaterials || crafted.outcome == Economy::CraftOutcome::NoRoom) audio.Play(AudioCue::Full);
             if (crafted.outcome == Economy::CraftOutcome::Crafted) {
                 awardXp(10);
+                missionHook("crafteo", 1);
                 audio.Play(AudioCue::Treasure);
                 ui.Notify("Crafteado: " + crafted.resultName + " ×" + std::to_string(crafted.quantity), ToastType::Info);
             }
@@ -1481,6 +1714,8 @@ int main(int argc, char** argv) {
             needs[3] = std::min(100.0f, needs[3] + 20.0f); // Recupera algo de salud
             needs[5] = std::min(100.0f, needs[5] + 15.0f); // Mejora el ánimo
             simulation.SleepUntilMorning();                 // Avanza al día siguiente
+            simulation.ResetLimpieza();
+            missionHook("noche", 1);
             ui.SetPickupNotification("Dormiste en el cambuche. Energía y salud recuperadas. ¡Buenos días!");
             saveGame("Partida guardada al despertar");
         }
@@ -1490,7 +1725,7 @@ int main(int argc, char** argv) {
         else if (itemsCollected < 5) objective = "Rebusca y recoge 5 objetos [Q]";
         else if (itemsSold < 3) objective = "Recicla 3 objetos del costal [F]";
         else if (level < 2) objective = "Sigue rebuscando para alcanzar nivel 2";
-        else if (level >= 2) objective = "Sobrevive en Bogotá y mejora tu vida";
+        else if (level >= 2) objective = dailyMissions.ActiveText().empty() ? "Sobrevive en Bogotá y mejora tu vida" : dailyMissions.ActiveText();
 
         // Informar direcci\u00f3n de vista para el spawn fuera de c\u00e1mara de bolsas de basura
         {
@@ -1595,6 +1830,45 @@ int main(int argc, char** argv) {
         }
 #endif
         simulation.Update(dt, playerPos, remoteViewers);
+        if (!ui.IsPaused()) {   // limpieza social (world/LimpiezaSocial.hpp): de noche, a veces, la camioneta negra
+            if (const char* forced = std::getenv("BAZUKO_LIMPIEZA")) {   // pruebas: BAZUKO_LIMPIEZA=<s> la manda a los s segundos
+                static bool sent = false;
+                if (!sent && clock.GetElapsedTime() > static_cast<float>(std::atof(forced))) {
+                    const bool came = simulation.TriggerLimpieza(playerPos);
+                    sent = came || clock.GetElapsedTime() > static_cast<float>(std::atof(forced)) + 5.0f;
+                    LogInfo("PRUEBA limpieza: {} (jugador en {:.1f}, {:.1f})", came ? "viene la camioneta" : "sin calle cerca", playerPos.x, playerPos.z);
+                }
+            }
+            Limpieza::Context context;
+            context.player = playerPos;
+            context.isNight = simulation.IsNight();
+            context.canChase = needs[3] > 0.0f && !ui.IsDeathScreenOpen();
+            // en el cambuche no llegan: es lo unico que el jugador tiene seguro
+            context.allowSpawn = context.canChase && glm::distance(glm::vec2(playerPos.x, playerPos.z), glm::vec2(112.98f, 94.64f)) > 15.0f;
+            context.playerDown = playerKnockedDown;
+            for (const Limpieza::Event& event : simulation.UpdateLimpieza(dt, context)) {
+                if (std::getenv("BAZUKO_LIMPIEZA")) LogInfo("PRUEBA limpieza: evento {} dano {} salud {:.0f}", static_cast<int>(event.kind), event.damage, needs[3]);
+                if (event.kind == Limpieza::Event::DroppedOff) {
+                    ui.Notify("Una camioneta negra frenó en seco: limpieza social. Córrale y no se deje alcanzar.", ToastType::Warn);
+                } else if (event.kind == Limpieza::Event::GaveUp) {
+                    ui.Notify(context.canChase ? "Se cansaron de perseguirte y vuelven a la camioneta." : "Se devuelven a la camioneta.", ToastType::Info);
+                } else if (event.kind == Limpieza::Event::Hit && needs[3] > 0.0f) {
+                    const glm::vec3 from = event.from - playerPos;
+                    const Fight::HitResult result = Fight::ReceiveBlow(session, static_cast<float>(event.damage), from);
+                    if (result == Fight::HitResult::Dodged) ui.SetPickupNotification("¡Esquivaste el golpe!");
+                    else if (result == Fight::HitResult::Hurt) {
+                        ui.Notify("Me dieron un cachazo: −" + std::to_string(event.damage) + " de salud.", ToastType::Death);
+                        if (needs[3] <= 0.0f) deathByLimpieza = true;
+                    }
+                }
+            }
+            const int nightNow = simulation.IsNight() ? 1 : 0;
+            if (limpiezaAdvicePending && limpiezaWasNight == 0 && nightNow == 1) {
+                limpiezaAdvicePending = false;
+                ui.Notify("Si vuelve la camioneta, córrale y no pare", ToastType::Info);
+            }
+            limpiezaWasNight = nightNow;
+        }
         {   // fumar: caladas, el porro que pega, se acaba o se cae (character/Smoking.hpp)
             if (previewSmoke) {
                 if (!smoking.active) Smoking::Start(smoking, previewSmoke, {});
@@ -1668,6 +1942,18 @@ int main(int argc, char** argv) {
                 const int clip = characterManager.FindClip(clipName);
                 Fight::StartAction(session, action, clip, characterManager.ClipDuration(clip), seconds);   // game/Fight.cpp
                 faceForward();
+                // ayuda para conectar: el golpe se orienta hacia el oponente mas cercano delante (hasta ~65 grados) y da un paso corto hacia el si esta lejos
+                const std::string clipText(clipName);
+                if (clipText == "PunchJab" || clipText == "Kick" || clipText == "KnifeStab" || clipText == "KnifeSlash") {
+                    glm::vec3 target;
+                    if (simulation.FindMeleeTarget(playerPos, playerYaw, 2.8f, 0.42f, target)) {
+                        const glm::vec2 toTarget(target.x - playerPos.x, target.z - playerPos.z);
+                        const float distance = glm::length(toTarget);
+                        playerYaw = std::atan2(toTarget.x, toTarget.y);
+                        lungeDirection = {toTarget.x / distance, toTarget.y / distance};
+                        lungeRemaining = std::clamp(distance - 1.0f, 0.0f, 0.75f);
+                    }
+                }
             };
             {   // caricia: espera a que el Chato este sentado delante y entonces se agacha y le acaricia la cabeza (PetDog)
                 static const char* autoPet = std::getenv("BAZUKO_AUTO_PET");   // solo pruebas: pide la caricia a los s segundos
@@ -1725,7 +2011,7 @@ int main(int argc, char** argv) {
             const bool free = playerAction == PlayerAction::None && playerHitKind == 0;
             const bool recovered = playerAction != PlayerAction::None && playerAction != PlayerAction::Jump && actionTime > actionDuration * 0.62f;
             playerCrouching = canAct && free && (playerInput.crouch || std::getenv("BAZUKO_AUTOCROUCH") != nullptr);   // BAZUKO_AUTOCROUCH: pruebas, siempre agachado
-            if (canAct && !playerCrouching && (free || recovered)) {
+            if (canAct && !playerCrouching && !cartAttached && (free || recovered)) {
                 if (playerInput.punchPressed) {
                     if (comboIdle > 1.4f) punchChain = 0;
                     comboIdle = 0.0f;
@@ -1812,6 +2098,7 @@ int main(int argc, char** argv) {
                 }
                 if (tick.petRewardDue && simulation.PetDog()) {   // la mano ya esta sobre la cabeza
                     needs[5] = std::min(100.0f, needs[5] + 5.0f);
+                    missionHook("perro", 1);
                     ui.SetPickupNotification("El Chato se pone feliz. +5 de ánimo.");
                 }
                 if (tick.petEnded) simulation.EndPet();
@@ -2201,6 +2488,35 @@ int main(int argc, char** argv) {
                         playerModel = glm::rotate(playerModel, glm::radians(78.0f) * swimPitch, glm::vec3(1.0f, 0.0f, 0.0f));
                     }
                 }
+                // gestos de espera (character/IdleGestures.hpp): quieto unos segundos, el cuerpo responde al frio (se frota los brazos), al hambre y a la lluvia
+                static Gestures::Gesture idleGesture = Gestures::Gesture::None;
+                static float gestureStill = 0.0f, gestureLeft = 0.0f, gestureTime = 0.0f, gestureDelay = Gestures::kDelay, hunchWeight = 0.0f;
+                const bool gestureIdle = !movingNow && playerAction == PlayerAction::None && !playerCrouching && !playerSwimming && !playerKnockedDown && captureRemaining <= 0.0f
+                                         && !smoking.active && !Pipe::Holding(basuco) && !mirrorGame.active && playerHitKind == 0 && !sorting;
+                const auto rollGesture = [&] { return std::uniform_real_distribution<float>(0.0f, 1.0f)(lootRandom); };
+                if (!gestureIdle) {
+                    idleGesture = Gestures::Gesture::None;
+                    gestureStill = 0.0f;
+                } else if (idleGesture == Gestures::Gesture::None) {
+                    gestureStill += dt;
+                    if (gestureStill >= gestureDelay) {
+                        idleGesture = Gestures::Pick(playerFreezing, needs[0] < 35.0f, simulation.IsRaining(), rollGesture());
+                        gestureTime = 0.0f;
+                        gestureLeft = 2.5f + rollGesture() * 3.0f;
+                        if (idleGesture == Gestures::Gesture::None) { gestureStill = 0.0f; gestureDelay = Gestures::kDelay * (0.6f + rollGesture() * 0.8f); }
+                    }
+                } else {
+                    gestureTime += dt;
+                    gestureLeft -= dt;
+                    if (gestureLeft <= 0.0f) { idleGesture = Gestures::Gesture::None; gestureStill = 0.0f; gestureDelay = Gestures::kDelay * (0.6f + rollGesture() * 0.8f); }
+                }
+                if (const char* forced = std::getenv("BAZUKO_GESTO")) {   // pruebas: BAZUKO_GESTO=frotarse|encogido|barriga fuerza el gesto
+                    const std::string name(forced);
+                    idleGesture = name == "frotarse" ? Gestures::Gesture::Rub : name == "encogido" ? Gestures::Gesture::Hunch : Gestures::Gesture::Belly;
+                    gestureTime = clock.GetElapsedTime(); gestureLeft = 100.0f;
+                }
+                // bajo la lluvia, quieto, se encoge sin esperar (original: «encogido»)
+                hunchWeight += ((gestureIdle && simulation.IsRaining() && idleGesture == Gestures::Gesture::None ? 1.0f : 0.0f) - hunchWeight) * std::min(1.0f, dt * 3.0f);
                 stillSeconds = movingNow || playerAction != PlayerAction::None ? 0.0f : stillSeconds + dt;
                 int poseClip = -1;
                 float poseTime = clock.GetElapsedTime();
@@ -2460,6 +2776,8 @@ int main(int argc, char** argv) {
                     }
                     return false;
                 };
+                if (idleGesture != Gestures::Gesture::None) Gestures::Append(swimTurns, idleGesture, gestureTime, std::min({gestureTime / Gestures::kFade, gestureLeft / Gestures::kFade, 1.0f}));
+                if (hunchWeight > 0.01f) Gestures::Append(swimTurns, Gestures::Gesture::Hunch, 0.0f, hunchWeight);
                 if (captureRemaining > 0.0f) {   // reducido por un policia: PoliceRestrained (3 s, el mismo tiempo que PoliceGrab del agente)
                     if (const int restrained = characterManager.FindClip("PoliceRestrained"); restrained >= 0) {
                         poseClip = restrained;
@@ -2525,7 +2843,22 @@ int main(int argc, char** argv) {
                     Pipe::AppendPose(swimTurns, basuco.reach);
                     playerModel = glm::translate(playerModel, glm::vec3(0.0f, -Pipe::Drop(basuco.reach), 0.0f));   // el cuerpo baja al doblar las rodillas: los pies siguen en el piso
                 }
+                if (const char* stanceTest = std::getenv("BAZUKO_PARADA_JUGADOR"))   // pruebas: una postura de los peatones (numero de People::Stance) sobre el jugador, para verla de cerca
+                    StreetProps::AppendStance(swimTurns, static_cast<People::Stance>(std::clamp(std::atoi(stanceTest), 0, static_cast<int>(People::kStanceCount) - 1)), clock.GetElapsedTime(), 1.0f);
                 characterManager.Draw(renderer, playerModel, poseTime, movingNow, isRunning, poseClip, blendClip, blendWeight, swimTurns.empty() ? nullptr : &swimTurns, blendTime);
+                if (const CharacterLook& carried = characterManager.GetLook(); (carried.baston || carried.mochila) && !playerSwimming) {   // baston y mochila del creador (character/StreetProps.hpp)
+                    const std::vector<Model::BoneTurn>* turns = swimTurns.empty() ? nullptr : &swimTurns;
+                    const glm::mat4 bodyRoot = glm::scale(playerModel, glm::vec3(1.08f));
+                    const uint32_t hash = static_cast<uint32_t>(carried.ropaColorIdx * 5 + carried.calzadoColorIdx);
+                    if (carried.mochila)
+                        StreetProps::DrawBag(renderer, characterManager.PosedNode("Spine2", playerModel, poseTime, movingNow, isRunning, poseClip, blendClip, blendWeight, turns, blendTime), bodyRoot, true, StreetProps::BagColor(hash));
+                    if (carried.baston) {
+                        if (playerKnockedDown) StreetProps::DrawFallenCane(renderer, bodyRoot, StreetProps::CaneColor(hash));
+                        else if (playerAction == PlayerAction::None && !pipeInHands && !smokeInHand && !session.cartAttached && equippedWeapon != "cuchillo" && knifeStanceRemaining <= 0.0f)
+                            StreetProps::DrawCane(renderer, characterManager.PosedNode("RightHand", playerModel, poseTime, movingNow, isRunning, poseClip, blendClip, blendWeight, turns, blendTime), bodyRoot,
+                                                  movingNow && isRunning, StreetProps::CaneColor(hash));
+                    }
+                }
                 if (basuco.active && !ui.IsPaused() || pipeInHands) {   // la pipa en la mano izquierda y el encendedor en la derecha; el humo sale de la cazoleta y de la boca
                     if (!pipeMeshes) pipeMeshes = std::make_unique<PipeMeshes>();
                     const std::vector<Model::BoneTurn>* turns = swimTurns.empty() ? nullptr : &swimTurns;
@@ -2937,6 +3270,11 @@ int main(int argc, char** argv) {
                 return;
             }
             if (pipeUse) ui.Notify("Prendí la pipa", ToastType::Info);
+            if (item.id == "ropaLimpia") {   // ropa limpia: +30 higiene (el efecto del objeto), +15 animo y se abre el cambio de ropa
+                needs[5] = std::min(100.0f, needs[5] + 15.0f);
+                ui.Notify("Te pusiste ropa limpia (+30 higiene, +15 ánimo)", ToastType::Info);
+                characterCreatorUI.Open(characterManager.GetLook(), true, 4);
+            }
             inventoryWeight = std::max(0.0f, inventoryWeight - item.weight);
             if (--entry->quantity == 0) inventory.erase(entry);
             audio.Play(AudioCue::Pickup);
@@ -3004,6 +3342,7 @@ int main(int argc, char** argv) {
         if (ui.ConsumePetRequest()) {
             if (simulation.PetDog()) {
                 needs[5] = std::min(100.0f, needs[5] + 5.0f);
+                missionHook("perro", 1);
                 ui.SetPickupNotification("El Chato mueve la cola. +5 de ánimo.");
             } else {
                 ui.SetPickupNotification("El Chato necesita un momento antes de otra caricia.");
@@ -3018,6 +3357,7 @@ int main(int argc, char** argv) {
         bool appearanceUpdated = false;
         if (characterCreatorUI.Render(characterPreview, changedLook, appearanceUpdated)) {
             characterManager.ApplyLook(changedLook, true);
+            missionHook("ropa", 1);
             survivalSaveTimer = kAutoSaveSeconds; // Guardar partida al confirmar personaje
         } else if (appearanceUpdated) {
             characterManager.ApplyLook(changedLook, false);
@@ -3137,6 +3477,7 @@ int main(int argc, char** argv) {
             for (const auto& entry : inventory) {
                 inventoryWeight += lootTable[entry.itemIndex].weight * static_cast<float>(entry.quantity);
             }
+            if (arrested) simulation.ReleasePolice();   // por si alguna patrulla volvio a salir mientras estaba la pantalla de arresto
             if (!arrested) {
                 for (float& need : needs) need = std::max(60.0f, need);
                 diseases.clear();
@@ -3149,6 +3490,9 @@ int main(int argc, char** argv) {
             knockdownRemaining = 0.0f;
             vehicleImpactCooldown = 1.5f;
             deathByVehicleImpact = false;
+            simulation.ResetLimpieza();   // todos arriba y la camioneta desaparece
+            if (deathByLimpieza) { limpiezaAdvicePending = true; limpiezaWasNight = -1; }
+            deathByLimpieza = false;
             ui.CompleteDeathRecovery();
             saveGame(arrested ? "Volviste al cambuche sin nada de lo recolectado ni de lo ganado; partida guardada." : "Volviste al cambuche. Salud recuperada; partida guardada.");
         }
@@ -3161,6 +3505,7 @@ int main(int argc, char** argv) {
             startNewGame();
         }
 
+        ui.SetPreviewQuit(previewQuitScreen);
         if (ui.ConsumeQuitRequest()) {
             saveGame("Guardando partida...");
             // Mostrar pantalla de cierre con mensaje de guardado
