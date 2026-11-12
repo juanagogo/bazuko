@@ -226,7 +226,7 @@ function missionsSection(game) {
       return el('li', { class: `pause-mission-item${isDone ? ' is-done' : ''}` },
         el('div', { class: 'pause-mission-head' },
           el('strong', { class: 'pause-mission-title', text: m.title }),
-          el('span', { class: 'pause-mission-reward', text: `+${cop(m.reward.dinero)} · +${m.reward.xp} XP` })),
+          el('span', { class: 'pause-mission-reward', text: `+${cop(m.reward.dinero)}` })),
         el('p', { class: 'pause-mission-desc', text: m.desc }),
         el('div', { class: 'pause-meter' },
           el('div', { class: 'pause-meter__fill masa', style: `width:${pct}%` })),
@@ -302,7 +302,10 @@ function settingsPanel(game) {
           }),
           button([icon('radio', { size: 18 }), game.radio?.isOn ? 'Sintonizar radio (R)' : 'Radio (R)'], {
             onClick: () => window.dispatchEvent(new CustomEvent('open-radio-modal'))
-          })))),
+          }))),
+      section('save', 'La partida',
+        row('Copiarla a un archivo', button('Exportar', { onClick: () => game.exportarPartida?.() })),
+        row('Volver a una copia', button('Importar', { onClick: () => game.importarPartida?.() })))),
     section('arrow', 'Radar y GPS',
       row('Radar', choice(minimap?.visible ? 'Visible (N)' : 'Oculto (N)', !!minimap?.visible,
         () => { minimap?.toggle(); game.menu.refresh(); })),

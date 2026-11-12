@@ -9,16 +9,9 @@
 #include <vector>
 #include <glm/glm.hpp>
 #include "CombatMoves.hpp"
+#include "../game/JumpTiming.hpp"   // Jump::Timing y Jump::TimingFor
 
 namespace Bazuko::Jump {
-
-struct Timing {
-    float takeoff;    // s en que se despega
-    float air;        // s en el aire
-    float duration;   // s de toda la accion (hasta recuperar)
-};
-
-inline Timing TimingFor(bool moving) { return moving ? Timing{0.14f, 0.735f, 1.05f} : Timing{0.20f, 0.735f, 1.35f}; }
 
 namespace detail {
 

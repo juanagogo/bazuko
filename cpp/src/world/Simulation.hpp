@@ -1,11 +1,17 @@
 #pragma once
 
+#include "../character/Archetypes.hpp"
+#include "LimpiezaSocial.hpp"
 #include "PoliceSound.hpp"
 #include "Atmosphere.hpp"
 #include "Climate.hpp"
 
 #include "CityLayout.hpp"
 #include "BirdFlock.hpp"
+#include "../net/PlayerView.hpp"
+#include "../net/WorldSnapshot.hpp"
+#include "../audio/StreetVoices.hpp"
+#include <unordered_map>
 #include "../renderer/Model.hpp"
 #include <glm/glm.hpp>
 #include "VehicleKinematics.hpp"
@@ -22,6 +28,7 @@
 namespace Bazuko {
 
 struct Pedestrian {
+    uint32_t netId = 0;   // identificador estable para la red (se asigna al exportar el mundo; los indices cambian al compactar)
     float slope = 0.0f;   // pendiente del suelo que recorre (suavizada): inclina los pies
     float slopeX = 0.0f, slopeY = 0.0f, slopeZ = 0.0f;
     bool slopeReady = false;
@@ -49,6 +56,8 @@ struct Pedestrian {
     float aggressionRemaining = 0.0f;
     float punchCooldown = 0.0f;
     float punchTime = -1.0f;          // >= 0 mientras lanza un punetazo
+    float noseCooldown = 0.0f;        // s hasta que vuelva a huir del mal olor del jugador (higiene < 30)
+    float captureTime = -1.0f;        // >= 0 mientras un policia sostiene al jugador (kCaptureSeconds)
     bool punchLanded = false;
     bool punchCross = false;
     bool police = false;              // policia de una patrulla: persigue sin huir aunque lo golpeen y vuelve a su vehiculo cuando el jugador se aleja
@@ -71,15 +80,23 @@ struct Pedestrian {
     bool returning = false;           // camina de regreso al vehiculo (a `returnTarget`)
     bool departed = false;            // ya subio de nuevo: queda fuera de juego hasta que otro conductor reutilice la casilla
     glm::vec3 returnTarget{0.0f};
+    // Parada al terminar un recorrido (pausa del original): se queda `stopRemaining` s con la postura `stopStance`
+    float stopRemaining = 0.0f;
+    float stanceTime = 0.0f;
+    People::Stance stopStance = People::Stance::None;
 };
 
 struct PedestrianAppearance {
     bool worn = false;               // ropa vieja y gastada (El Cartucho)
     bool police = false;             // uniforme de la Policia Nacional (solo los ocupantes de la patrulla)
+    bool elder = false, young = false;   // edad del cuerpo (hombre-mayor, mujer-joven...): decide quien lleva baston o morral
+    bool woman = false, overol = false, hat = false;   // cuerpo de mujer, ropa de obrero (casco) y si ya trae sombrero
+    People::Archetype archetype = People::Archetype::Count;   // tipo de peaton (character/Archetypes.hpp); Count: conjuntos fijos (mision, dealer, vendedores, policia)
+    int searchClip = -1, talkClip = -1, crouchClip = -1;   // paradas con clip propio: buscar en el piso, hablar, acurrucarse
     std::string roles;               // rol de cada pieza: B cuerpo, C ropa, S calzado, H pelo, D barba, T sombrero
     int hitFaceClip = -1, hitChestClip = -1, hitLegsClip = -1;
     int fallClip = -1, lyingClip = -1, getUpClip = -1;
-    int jabClip = -1, crossClip = -1, fightClip = -1;
+    int jabClip = -1, crossClip = -1, fightClip = -1, grabClip = -1;   // grabClip: PoliceGrab (el policia que reduce al jugador)
     std::vector<std::shared_ptr<Model>> parts;
     int walkClip = -1;
     int tiredWalkClip = -1;   // andar cansado de Mixamo: lo usan unos pocos peatones
@@ -114,6 +131,7 @@ struct DriverInfo {
     float shade = 0.0f;                      // tono del pelo y desfase de animacion (animationOffset del peaton)
     float idle = 0.0f;                       // s que lleva a pie sin pelear ni huir (si pasa de 1,5 s vuelve al vehiculo)
     // Acompanante del asiento delantero: si el conductor muere, pasa a manejar
+    uint8_t targetPlayer = 0;                // a quien acude la patrulla despachada (id de PlayerView; 0 = el primero)
     bool dispatched = false;                 // la patrulla acude desde lejos con la sirena encendida (conduce hasta acercarse al jugador)
     bool siren = false;                      // sirena encendida: desde que sale a atender el delito hasta que frena para bajarse
     float dispatchTime = 0.0f;               // s que lleva acudiendo (si pasa de 3 min se rinde)
@@ -125,6 +143,7 @@ struct DriverInfo {
     float returnDistance = 0.0f;
     float radioTimer = 0.0f;                 // s hasta que la radio pueda sonar de nuevo durante la persecucion a pie
     bool reengage = false;                   // un delito nuevo mientras los policias bajaban, volvian o subian: retoman la persecucion
+    bool standDown = false;                  // tras un arresto: los policias a pie dejan de perseguir y vuelven a la patrulla (hasta que haya un delito nuevo)
     bool partnerBoarding = false;            // el acompanante sube junto con el conductor (animacion de entrada del lado del acompanante)
     bool partnerOut = false;                 // el acompanante de la patrulla tambien bajo a perseguir (su peaton esta en partnerIndex)
     size_t partnerIndex = 0;
@@ -231,7 +250,9 @@ struct TrafficVehicle {
     int variant = 0;       // 0 modelos comunes (vehiculo1/2); 1..N modelos con cabina e interior (Raptor, Renault 6, Jetta...)
     int emergency = 0;     // 0 carro comun, 1 ambulancia, 2 patrulla de policia, 3 moto de policia (rondan por las mismas rutas)
     bool parked = false;
+    bool dormant = false;   // fuera de circulacion por la hora (TrafficDensity.hpp): ni se simula ni se dibuja hasta que la ciudad lo vuelve a pedir
     bool mirrorsAvailable = true;
+    float cleanCooldown = 0.0f;   // s hasta que se le pueda limpiar de nuevo el parabrisas (35 s tras una limpieza)
     bool horizontalLane = true;
     float wheelRotation = 0.0f;
     float laneCoordinate = 0.0f;
@@ -361,6 +382,10 @@ public:
     explicit Simulation(const CityLayout& city, uint32_t seed = 42,
                         ModelLoadProgress modelLoadProgress = {});
     void Update(float dt, const glm::vec3& playerPosition);
+    // Varios jugadores (multijugador): aves y ratas ya reaccionan al mas cercano; el resto de sistemas sigue usando al primero hasta migrarse (hito 1).
+    void Update(float dt, const std::vector<Net::PlayerView>& players);
+    // El jugador local de siempre (con su higiene y su rumbo) mas otros jugadores (multijugador: el anfitrion); sin extras es identico a Update(dt, posicion)
+    void Update(float dt, const glm::vec3& playerPosition, const std::vector<Net::PlayerView>& others);
     void SetPlayerFacing(const glm::vec2& facing) { m_PlayerFacing = glm::length(facing) > 0.01f ? glm::normalize(facing) : glm::vec2(0.0f, 1.0f); }
     bool IsBlocked(const glm::vec3& position, float radius) const;
     // Objetos fijos de la calle (arboles, postes, semaforos, puestos, recicladora): un circulo o una caja orientada en planta
@@ -384,10 +409,45 @@ public:
     // ConsumePlayerHit: un peaton agresivo que acierta devuelve el tipo de golpe y de donde viene.
     // damage > 0 sustituye el dano del golpe (arma en la mano); knockback escala el empuje
     bool HitPedestrian(const glm::vec3& from, const glm::vec2& forward, float reach, int kind, float damage = -1.0f, float knockback = 1.0f);
-    bool ConsumePlayerHit(int& kind, glm::vec3& fromDirection);
+    bool ConsumePlayerHit(int& kind, glm::vec3& fromDirection);                       // golpes al primer jugador (el local)
+    // Captura: un policia a pie que alcanza al jugador lo agarra en vez de golpearlo; dura kCaptureSeconds y el juego la recoge una sola vez (posicion del policia).
+    static constexpr float kCaptureSeconds = 3.0f;
+    bool ConsumePlayerCapture(glm::vec3& officerPosition);
+    // Tras un arresto la persecucion termina para todos: los policias dejan de perseguir y vuelven a su patrulla, las patrullas en camino se rinden
+    // y no queda ninguna captura pendiente (sin esto, el jugador reaparecia junto a policias que seguian detras de el sin delito nuevo)
+    void ReleasePolice();
+    int CountAggressivePolice() const {   // pruebas: cuantos policias a pie estan persiguiendo
+        int count = 0;
+        for (const Pedestrian& pedestrian : m_Pedestrians) if (pedestrian.police && pedestrian.aggressive && !pedestrian.departed && !pedestrian.dead) ++count;
+        return count;
+    }
+    // Mal olor del jugador al pedir limosna: los peatones a menos de `radius` huyen 4 s y la mayoria se queja con `phrase`
+    void RepelPedestriansFrom(const glm::vec3& source, float radius, const char* phrase);
+    bool ConsumePlayerHitFor(uint8_t player, int& kind, glm::vec3& fromDirection);  // golpes a un jugador concreto (por su id de PlayerView)
     // Burbujas de los peatones cercanos: posicion sobre la cabeza, texto y opacidad
     struct PedestrianBubble { glm::vec3 position; std::string text; float alpha; };
     std::vector<PedestrianBubble> GetPedestrianBubbles(const glm::vec3& focus) const;
+    // Limpieza social (LimpiezaSocial.hpp): de noche, a veces, la camioneta negra llega por la calle mas cercana al jugador.
+    // El juego aplica los golpes (eventos Hit), avisa la llegada y decide la muerte; Reset al recuperarse o al empezar otra partida.
+    std::vector<Limpieza::Event> UpdateLimpieza(float dt, const Limpieza::Context& context);
+    bool TriggerLimpieza(const glm::vec3& player);   // pruebas: la manda ya
+    void ResetLimpieza() { m_Limpieza.Reset(); }
+    Limpieza::State LimpiezaState() const { return m_Limpieza.GetState(); }
+    // Otros jugadores (multijugador): se dibujan como personas con el mismo cuerpo de los peatones civiles (id fijo = mismo cuerpo). Solo se dibujan; no afectan la simulacion.
+    // Mundo compartido (hito 3): el anfitrion exporta tras cada paso; el invitado NO simula trafico, peatones ni buses, solo los aplica y los extrapola.
+    void SetGuestMode(bool guest) { m_Guest = guest; }
+    bool IsGuest() const { return m_Guest; }
+    // Frases de la calle (audio/StreetVoices.hpp): quienes andan a la vista y pueden hablar (ni muertos, ni noqueados, ni peleando o huyendo, ni con una burbuja ya) con su
+    // identificador estable, y la burbuja con lo que dicen
+    std::vector<StreetVoiceCandidate> StreetVoiceCandidates(const glm::vec3& at, float range);
+    void PedestrianSay(uint32_t id, const std::string& text, float seconds);
+    // Migracion de anfitrion: este jugador pasa de invitado a anfitrion. Cada carro sigue su circuito desde donde estaba, la gente de la calle se reinicia
+    // (vuelve a aparecer alrededor de los jugadores) y los conductores y patrullas vuelven a su estado normal.
+    void PromoteToHost();
+    Net::WorldSnapshot ExportWorld(const glm::vec3& viewer, uint32_t tick);
+    bool ApplyWorld(const Net::WorldSnapshot& snapshot);   // false si no coincide (otra semilla o modelos distintos)
+    struct RemotePlayerView { uint8_t id = 0; glm::vec3 position{0.0f}; float yaw = 0.0f; float speed = 0.0f; bool knockedDown = false; };
+    void SetRemotePlayers(std::vector<RemotePlayerView> remotes) { m_RemotePlayers = std::move(remotes); }
     void SetPlayerHygiene(float hygiene) { m_PlayerHygiene = hygiene; }
     // Posiciones de los elementos fijos de la calle (para pruebas de colocacion)
     std::vector<glm::vec3> StreetLampPositions() const { std::vector<glm::vec3> r; for (const auto& l : m_StreetLamps) r.push_back(l.position); return r; }
@@ -395,6 +455,9 @@ public:
     const std::vector<StreetVendor>& GetStreetVendors() const { return m_StreetVendors; }
     size_t GetNearbyCar(const glm::vec3& position, float radius) const;
     size_t GetNearbyParkedCar(const glm::vec3& position, float radius) const;
+    // Limpiar el parabrisas (Q): carros particulares y taxis, en circulacion o estacionados, que no se hayan limpiado hace poco; patrullas y buses no
+    bool GetNearbyCleanableCar(const glm::vec3& position, float radius, bool& parked, size_t& index) const;
+    bool CleanWindshield(bool parked, size_t index);
     size_t GetNearbyPedestrian(const glm::vec3& position, float radius) const;
     size_t GetNearbyVendor(const glm::vec3& position, float radius) const;
     const StreetVendor& GetVendor(size_t index) const { return m_StreetVendors.at(index); }
@@ -403,6 +466,21 @@ public:
     const glm::vec3& GetDealerPosition() const { return m_DealerPosition; }
     bool IsNearShop(const glm::vec3& position, float radius) const;
     bool IsNearRecycler(const glm::vec3& position, float radius) const;
+    // Carreta de balineras (Cart.js): se engancha con E, va 1,4 m delante del jugador y suma 120 kg de capacidad; suelta, se queda donde esta
+    struct CartState { glm::vec3 position{25.0f, 0.0f, 31.0f}; float yaw = 0.0f; bool attached = false; };
+    bool IsNearCart(const glm::vec3& position, float radius) const;
+    bool ToggleCart() { m_Cart.attached = !m_Cart.attached; return m_Cart.attached; }
+    void UpdateCart(float dt, const glm::vec3& playerPosition, float playerYaw, float playerSpeed);
+    const CartState& GetCart() const { return m_Cart; }
+    void SetCart(const CartState& cart) { m_Cart = cart; }
+    // Fogatas de caneca de El Cartucho (original: Bogota.js fireBarrels): E junto a ellas da calor; tambien calientan de cerca
+    const std::array<glm::vec3, 4>& GetFireBarrels() const { return m_FireBarrels; }
+    bool IsNearFireBarrel(const glm::vec3& position, float radius, glm::vec3* nearest = nullptr) const;
+    // Combate: ayuda para conectar los golpes (el oponente mas cercano delante, dentro de `range`, y dentro del cono) y colision de cuerpo con la gente
+    bool FindMeleeTarget(const glm::vec3& from, float yaw, float range, float minCos, glm::vec3& targetPosition) const;
+    bool BlocksPlayerMove(const glm::vec3& from, float toX, float toZ, float radius) const;
+    bool IsNearComedor(const glm::vec3& position, float radius) const;   // Comedor Comunitario: almuerzo caliente gratis cada 24 h
+    const glm::vec3& GetComedorPosition() const { return m_ComedorPosition; }
     const glm::vec3& GetRecyclerPosition() const { return m_RecyclerPosition; }
     bool IsNearDog(const glm::vec3& position, float radius) const;
     void BefriendDog();
@@ -428,7 +506,8 @@ public:
     bool ProvokeDriver(size_t index);
     // Delito del jugador en `at` (robo de retrovisor, cosquilleo, robo directo o golpear a un peaton): con probabilidad `chance` alguien llama a la policia y,
     // si hay una patrulla libre a menos de 55 m, frena, se baja con su companero y persigue al jugador hasta que este se aleja. Devuelve true si salio una patrulla.
-    bool CallPolice(const glm::vec3& at, float chance);
+    // `at` es donde esta quien delinque y `byPlayer` su id (0 = el primero): la patrulla despachada va tras ese jugador aunque haya otros mas cerca
+    bool CallPolice(const glm::vec3& at, float chance, uint8_t byPlayer = 0);
     // Sonidos de la policia para el audio: posiciones de las sirenas encendidas y eventos puntuales (parada de sirena, radio), que se entregan una sola vez
     std::vector<glm::vec3> GetSirenPositions() const;
     std::vector<PoliceSound> ConsumePoliceSounds();
@@ -463,6 +542,10 @@ public:
     float GetMist() const { return m_Mist; }
     // Hora del dia 0..24
     float GetHour() const { return m_DayProgress * 24.0f; }
+    // Densidad del trafico (indice de kTrafficDensityLevels; -1 = flota completa, como en las pruebas). Se aplica en vivo.
+    void SetTrafficDensity(int level) { if (level != m_TrafficDensity) { m_TrafficDensity = level; m_ResizeCredit = 0.0f; } }
+    int GetTrafficDensity() const { return m_TrafficDensity; }
+    size_t GetActiveTrafficCount() const { size_t n = 0; for (const TrafficVehicle& v : m_Traffic) if (!v.dormant) ++n; return n; }
     // Humedad 0..1: sube con la llovizna (hasta 0,25/s) y se seca despacio (0,04/s); el suelo se ve mojado
     float GetWetness() const { return m_ReducedWeather ? 0.0f : m_Wetness; }
     // Aviso del ultimo cambio de clima (nullptr si no hay ninguno pendiente); se consume al leerlo
@@ -493,7 +576,12 @@ public:
     // Noche de 20:00 a 6:00, como el original
     bool IsNight() const { return m_DayProgress >= 20.0f / 24.0f || m_DayProgress < 6.0f / 24.0f; }
     size_t GetPedestrianCount() const { return m_Pedestrians.size(); }
+    const std::vector<Pedestrian>& GetPedestrians() const { return m_Pedestrians; }
+    const BirdFlock& GetBirdFlock() const { return m_Birds; }   // solo lectura: pruebas de estado
+    std::vector<glm::vec3> GetRatPositions() const { std::vector<glm::vec3> out; for (const Rat& rat : m_Rats) out.push_back(rat.position); return out; }   // solo lectura: pruebas de estado y futura red
     size_t GetTrafficCount() const { return m_Traffic.size(); }
+    glm::vec3 GetTrafficPosition(size_t index) const { return index < m_Traffic.size() ? m_Traffic[index].position : glm::vec3(0.0f); }
+    glm::vec3 GetParkedCarPosition(size_t index) const { return index < m_ParkedCars.size() ? m_ParkedCars[index].position : glm::vec3(0.0f); }
     size_t GetMissionProgress() const { return m_MissionProgress; }
     size_t GetMissionTarget() const { return m_MissionTarget; }
     bool IsMissionStarted() const { return m_MissionStarted; }
@@ -565,16 +653,23 @@ private:
     // Camino a pie por las baldosas libres (anden y calzada, sin edificios ni objetos) para los policias que van a su patrulla o tras el jugador
     bool FindWalkPath(const glm::vec3& start, const glm::vec3& target, std::vector<glm::vec3>& path) const;
     bool FindSidewalkPath(const glm::vec3& start, const glm::vec3& target, std::vector<glm::vec3>& path) const;
+    void UpdateWorld(float dt, const glm::vec3& primaryPlayer);   // el paso completo; `primaryPlayer` es el primero de m_PlayerViews
     void UpdatePedestrians(float dt, const glm::vec3& playerPosition);
+    const Net::PlayerView* NearestPlayerTo(const glm::vec3& at) const;   // el jugador vivo mas cercano (nullptr si no hay)
+    glm::vec3 NearestPlayerPosition(const glm::vec3& at, const glm::vec3& fallback) const;
+    bool NearAnyPlayer(const glm::vec3& at, float distance) const;
+    glm::vec3 PlayerPositionById(uint8_t id, const glm::vec3& fallback) const;   // id 0 = el primero; si no existe, `fallback`
+    float NearestPlayerDistanceXZ(const glm::vec3& at) const;   // distancia en el plano al jugador vivo mas cercano (1e9 si no hay)
     void UpdateDrivers(float dt, const glm::vec3& playerPosition);
     void AssignVehicleModel(TrafficVehicle& vehicle);
     void OnDriverDeath(size_t index);                   // el conductor murio: pasa el acompanante o queda abandonado
-    void RespawnAbandoned(TrafficVehicle& vehicle);     // fuera de la vista: el vehiculo se retira y aparece otro con conductor   // elige un modelo con puerta que se abre para carros del trafico y estacionados
+    bool RespawnAbandoned(TrafficVehicle& vehicle, float minViewDistance = -1.0f);   // minViewDistance < 0: la de siempre (kUnseenDistance)     // fuera de la vista: el vehiculo se retira y aparece otro con conductor   // elige un modelo con puerta que se abre para carros del trafico y estacionados
     void VehiclePose(const TrafficVehicle& vehicle, glm::vec3& position, float& yaw) const;
     DriverProfile ProfileFor(const TrafficVehicle& vehicle) const;
     glm::vec3 VehicleLocalToWorld(const glm::vec3& position, float yaw, const glm::vec2& carFrame) const;
     glm::vec3 m_LastPlayerPosition{0.0f};
     void UpdateTraffic(float dt);
+    void ResizeTrafficFleet(float dt);   // ajusta cuantos carros circulan a lo que pide la hora y el nivel, de a pocos y fuera de la vista
     void UpdateBus(float dt);
     void UpdatePickups(float dt, const glm::vec3& playerPosition);
     void UpdatePigeons(float dt, const glm::vec3& playerPosition);
@@ -587,11 +682,15 @@ private:
     std::mt19937 m_Random;
     std::uniform_real_distribution<float> m_Unit{0.0f, 1.0f};
     std::vector<Pedestrian> m_Pedestrians;
-    struct PlayerHit { int kind; glm::vec3 from; };
+    struct PlayerHit { int kind; glm::vec3 from; uint8_t player = 0; };   // player 0 = el primero
     std::vector<PlayerHit> m_PlayerHits;
+    struct PlayerCapture { glm::vec3 officer; uint8_t player = 0; };
+    std::vector<PlayerCapture> m_PlayerCaptures;
     std::shared_ptr<Mesh> m_BloodMesh;
     float m_PlayerHygiene = 100.0f;
     std::vector<TrafficVehicle> m_Traffic;
+    int m_TrafficDensity = -1;
+    float m_ResizeCredit = 0.0f;
     std::vector<TrafficVehicle> m_ParkedCars;
     std::vector<PickupItem> m_Pickups;
     std::vector<float> m_CarCooldowns;
@@ -610,6 +709,15 @@ private:
     std::shared_ptr<Mesh> m_PedestrianBody;
     std::shared_ptr<Mesh> m_PedestrianHead;
     std::vector<PedestrianAppearance> m_PedestrianAppearances;
+    Limpieza::System m_Limpieza;
+    std::vector<Limpieza::Route> m_LimpiezaRoutes;   // los circuitos del trafico, para que la camioneta llegue por la calle
+    PedestrianAppearance m_SquadAppearance;          // hombre adulto de buzo y botas, todo de negro, sin pelo (lo cubre el pasamontanas)
+    // La Hilux no tiene CarExit / CarEnter propios: los de referencia arrancan (o terminan) en otro asiento. Se anclan donde la cadera
+    // coincide con la del sentado en la Hilux (marco de la camioneta: x adelante, y hacia afuera), y se suben lo que el asiento es mas alto.
+    glm::vec2 m_SquadExitAnchor{0.0f}, m_SquadEnterAnchor{0.0f};
+    float m_SquadSeatLift = 0.0f;
+    bool m_SquadAnchorsReady = false;
+    void DrawLimpieza(Renderer& renderer, float time, const glm::vec3& focusPosition) const;
     std::shared_ptr<Mesh> m_StrobeHalo;   // disco con borde transparente: halo de la baliza, siempre de cara a la camara
     size_t m_PoliceAppearanceFirst = 0;   // desde este indice las apariencias son de policia (no salen en la calle)
     std::shared_ptr<Model> m_PedestrianAnimation;
@@ -767,6 +875,10 @@ private:
     std::shared_ptr<Mesh> m_VendorFood;
     std::vector<StreetVendor> m_StreetVendors;
     glm::vec3 m_RecyclerPosition{-5.0f, 0.15f, 0.0f};
+    glm::vec3 m_ComedorPosition{100.0f, 0.15f, 90.0f};
+    std::array<glm::vec3, 4> m_FireBarrels{{{38.0f, 0.15f, 50.0f}, {41.5f, 0.15f, 61.0f}, {32.0f, 0.15f, 55.0f}, {51.0f, 0.15f, 56.0f}}};   // en metros, de los puntos [13,19] [14.75,24.5] [10,21.5] [19.5,22] del original
+    CartState m_Cart;
+    float m_CartWheel = 0.0f;   // giro de las ruedas (rad)
     glm::vec3 m_DealerPosition{-45.0f, 0.15f, -20.0f};
     std::shared_ptr<Mesh> m_RecyclerBody;
     std::shared_ptr<Mesh> m_RecyclerRoof;
@@ -826,6 +938,9 @@ private:
     std::vector<std::vector<std::string>> m_RenewableLoot;
     float m_Elapsed = 0.0f;
     std::vector<glm::vec3> m_ValidTrashSpots;  // Andenes limpios sin bloqueo
+    std::vector<RemotePlayerView> m_RemotePlayers;
+    std::vector<Net::PlayerView> m_PlayerViews;   // jugadores de este paso (siempre al menos uno en el juego de un jugador)
+    size_t m_TrashSpotCursor = 0;   // por donde sigue la busqueda de sitios de aparicion de bolsas (antes una variable estatica: sobrevivia entre mundos)
     glm::vec2 m_PlayerFacing{0.0f, 1.0f};      // Dirección de vista del jugador (XZ)
     size_t m_MissionProgress = 0;
     size_t m_MissionTarget = 5;
@@ -834,6 +949,11 @@ private:
     float m_Clock = 0.30f;
     float m_DayProgress = 0.30f;
     float m_PedestrianSpawnTimer = 0.0f;
+    bool m_Guest = false;
+    uint32_t m_NextPedestrianId = 1;
+    float m_GuestSyncAge = 0.0f;
+    void GuestExtrapolate(float dt);
+    size_t m_SpawnPlayerCursor = 0;   // reparte las apariciones de peatones entre los jugadores por turnos
     std::vector<ShadowPerson> m_ShadowPeople;
     std::shared_ptr<Mesh> m_ShadowHeadMesh;
     std::shared_ptr<Mesh> m_ShadowEyeMesh;

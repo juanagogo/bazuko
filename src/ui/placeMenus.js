@@ -169,8 +169,7 @@ export function openComedor(game) {
             el('li', { text: '+80 Hambre (satisface el apetito)' }),
             el('li', { text: '+60 Sed (hidratación completa)' }),
             el('li', { text: '+25 Ánimo y +25 Energía' }),
-            el('li', { text: '+3 min de Calor corporal contra el frío' }),
-            el('li', { text: '+30 XP' })
+            el('li', { text: '+3 min de Calor corporal contra el frío' })
           ))
       : el('div', { class: 'comedor-box is-waiting' },
           el('h4', { class: 'comedor-box__title', text: 'Ración de hoy ya entregada' }),
@@ -196,7 +195,7 @@ export function openComedor(game) {
 
   game.menu.open({
     title: 'Comedor Comunitario',
-    sub: 'Alcaldía Mayor de Bogotá · Integración Social. Ración caliente cada 24 horas.',
+    sub: 'Alcaldía Mayor de Bogotá, Integración Social. Ración caliente cada 24 horas.',
     ic: 'food',
     render
   });

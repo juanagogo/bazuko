@@ -151,6 +151,44 @@ static void TestPedestrian() {
     CHECK(fl.Birds()[idx].IsFlying(), "un peaton a 1.5 m deberia asustar al ave del suelo");
 }
 
+// Varios jugadores: el que esta cerca asusta aunque el otro este lejos; con un solo jugador el resultado es identico al de la sobrecarga de siempre.
+static void TestSeveralPlayers() {
+    // 1) un jugador lejano y otro junto a un ave del suelo: el ave sale volando
+    BirdFlock fl = MakeFlock(11);
+    size_t idx = 0;
+    for (size_t i = 0; i < fl.Birds().size(); ++i)
+        if (fl.Birds()[i].perch == BirdPerch::Ground) { idx = i; break; }
+    const glm::vec3 near(fl.Birds()[idx].position.x + 1.0f, 0.f, fl.Birds()[idx].position.z);
+    for (int f = 0; f < 10; ++f) fl.Update(1.f / 60.f, std::vector<BirdPlayer>{{1, kFarAway}, {2, near}}, {});
+    CHECK(fl.Birds()[idx].IsFlying(), "el segundo jugador, pegado al ave, la asusta");
+
+    // 2) sin jugadores nada asusta
+    BirdFlock calm = MakeFlock(11);
+    int flying = 0;
+    for (int f = 0; f < 120; ++f) calm.Update(1.f / 60.f, std::vector<BirdPlayer>{}, {});
+    for (const Bird& b : calm.Birds()) flying += b.IsFlying() ? 1 : 0;
+    CHECK(flying <= 8, "sin jugadores casi nada vuela (solo despegues tranquilos), volaron %d", flying);
+
+    // 3) la velocidad de cada jugador se sigue por separado: uno corre y el otro esta quieto
+    BirdFlock speeds = MakeFlock(12);
+    glm::vec3 runner(0.f, 0.f, 0.f);
+    for (int f = 0; f < 120; ++f) { runner.x += 5.0f / 60.f; speeds.Update(1.f / 60.f, std::vector<BirdPlayer>{{1, runner}, {2, kFarAway}}, {}); }
+    CHECK(speeds.PlayerSpeed() > 4.0f, "el primer jugador corre (%.1f m/s)", speeds.PlayerSpeed());
+
+    // 4) un jugador por la sobrecarga vieja y por la nueva dan exactamente lo mismo
+    BirdFlock a = MakeFlock(13), b = MakeFlock(13);
+    glm::vec3 walker(-20.f, 0.f, -10.f);
+    for (int f = 0; f < 600; ++f) {
+        walker += glm::vec3(1.4f / 60.f, 0.f, 0.6f / 60.f);
+        a.Update(1.f / 60.f, walker, {});
+        b.Update(1.f / 60.f, std::vector<BirdPlayer>{{7, walker}}, {});
+    }
+    bool same = a.Birds().size() == b.Birds().size();
+    for (size_t i = 0; same && i < a.Birds().size(); ++i)
+        same = a.Birds()[i].position == b.Birds()[i].position && a.Birds()[i].IsFlying() == b.Birds()[i].IsFlying();
+    CHECK(same, "un solo jugador: ambas sobrecargas coinciden ave por ave");
+}
+
 int main() {
     std::setvbuf(stdout, nullptr, _IONBF, 0);
     TestDistribution();
@@ -158,6 +196,7 @@ int main() {
     TestScareRadius();
     TestFleeDirection();
     TestPedestrian();
+    TestSeveralPlayers();
     if (g_failures == 0) std::printf("BirdFlock: todo OK\n");
     else std::printf("BirdFlock: %d fallos\n", g_failures);
     return g_failures == 0 ? 0 : 1;
