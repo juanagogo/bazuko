@@ -28,7 +28,7 @@ test('los demás pesos de la basura no cambian', () => {
     .filter((e) => !['pegante', 'hierba', 'pastilla'].includes(e.item))
     .map((e) => [e.item, e.weight]));
   assert.deepEqual(others, { lata: 33, botella: 24, carton: 17, chatarra: 8, cable: 4, pilas: 3, pan: 4, agua: 3,
-    lataComida: 2, vendaje: 1, cigarrillo: 2, madera: 3, lona: 0.6, colchon: 0.4, vela: 0.8 });
+    lataComida: 2, vendaje: 1, cigarrillo: 2, madera: 3, lona: 0.6, colchon: 0.4, vela: 0.8, ropaLimpia: 1.2 });
 });
 
 test('consumir una sustancia avisa substance-consumed con su id y conserva sus efectos', () => {

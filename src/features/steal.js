@@ -23,6 +23,9 @@ export const WANTED_DECAY_SECONDS = 120;
 /** Objetivos con los que la Q ya hace otra cosa. */
 const QUIET_Q_TARGETS = new Set(['pickup', 'dealer']);
 
+/** Segundos sin poder volver a intentar el espejo de un carro tras fallar. */
+export const MIRROR_RETRY_SECONDS = 20;
+
 export class StealSystem {
   // Inicializa el sistema de robo a peatones.
   constructor(game) {
@@ -126,8 +129,15 @@ export class StealSystem {
       this.game.interaction.stealPrompt = '[E] Cosquilleo (sigiloso) · [Q] Robo directo';
     }
     if (this.game.input.consumePress('KeyE')) this.startCosquilleo(nearest);
-    // Junto a basura o al dealer, Q ya tiene otro uso: no se le roba al que justo va pasando.
-    else if (!QUIET_Q_TARGETS.has(this.game.interaction?.currentTargetType) && this.game.input.consumePress('KeyQ')) this.executeRoboDirecto(nearest);
+    // Junto a basura, al dealer o a un carro al que se le limpia el vidrio, Q ya tiene otro uso: no se le roba al que justo va pasando.
+    else if (!this._qOcupada() && this.game.input.consumePress('KeyQ')) this.executeRoboDirecto(nearest);
+  }
+
+  /** Si la Q de este momento es de lo que el jugador tiene al lado y no del robo directo. */
+  _qOcupada() {
+    const interaction = this.game.interaction;
+    const type = interaction?.currentTargetType;
+    return QUIET_Q_TARGETS.has(type) || (type === 'car' && !!interaction.currentTarget?.cleanable);
   }
 
   // Dice si hay a quién hacerle cosquilleo a menos de esa distancia: un carro más lejano le cede el aviso y la tecla.
@@ -178,8 +188,8 @@ export class StealSystem {
       this._dom.zone.style.left = `${this.zoneStart * 100}%`;
       this._dom.zone.style.width = `${this.zoneSize * 100}%`;
       this._dom.ayuda.innerHTML = modoEntrada() === 'tactil'
-        ? '🪞 1/2 Palanquear - Toque la barra en lo negro'
-        : `🪞 <b>Paso 1/2: Palanquear soporte</b> <kbd>${teclaVisible('Espacio')}</kbd> Halar <kbd>${teclaVisible('Esc')}</kbd> Cancelar`;
+        ? '1/2 Palanquear - Toque la barra en lo negro'
+        : `<b>Paso 1/2: Palanquear soporte</b> <kbd>${teclaVisible('Espacio')}</kbd> Halar <kbd>${teclaVisible('Esc')}</kbd> Cancelar`;
       this._dom.box.hidden = false;
     }
   }
@@ -200,8 +210,8 @@ export class StealSystem {
           this._dom.zone.style.left = `${this.zoneStart * 100}%`;
           this._dom.zone.style.width = `${this.zoneSize * 100}%`;
           this._dom.ayuda.innerHTML = modoEntrada() === 'tactil'
-            ? '🪞 2/2 ¡Arrancar! - Toque la barra en lo negro'
-            : `🪞 <b>Paso 2/2: ¡Arrancar cables y espejo!</b> <kbd>${teclaVisible('Espacio')}</kbd> Halar con fuerza`;
+            ? '2/2 ¡Arrancar! - Toque la barra en lo negro'
+            : `<b>Paso 2/2: ¡Arrancar cables y espejo!</b> <kbd>${teclaVisible('Espacio')}</kbd> Halar con fuerza`;
         }
         return;
       }
@@ -310,6 +320,8 @@ export class StealSystem {
         else this.game?.interaction?._executeCarTheft?.(car);
       } else if (car) {
         this._toast('¡Fallé al arrancar el retrovisor y sonó la alarma!', 'death');
+        // Ya lo vieron: a ese carro no se le vuelve a intentar enseguida.
+        car.cooldown = Math.max(car.cooldown ?? 0, MIRROR_RETRY_SECONDS);
         if (car.traffic) {
           this.game?.audio?.playMovingTheft?.(car);
           if (typeof window !== 'undefined' && typeof window.dispatchEvent === 'function') {

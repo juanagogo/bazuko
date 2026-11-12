@@ -12,7 +12,7 @@ beforeEach(() => {
 
 function fakeCar(options = {}) {
   const scene = new THREE.Scene();
-  return new Car(scene, new THREE.Vector3(0, 0, 0), 0, { kind: 'carro', variant: 1, ...options });
+  return new Car(scene, new THREE.Vector3(0, 0, 0), 0, { kind: 'carro', variant: 1, traffic: true, ...options });
 }
 
 test('Carro recién creado es apto para limpiar parabrisas', () => {
@@ -90,4 +90,19 @@ test('El prompt de interacción ofrece robar retrovisor y limpiar parabrisas', (
   assert.match(prompt, /Limpiar parabrisas/);
 
   car.dispose();
+});
+
+test('Solo paga un carro en circulación detenido: ni parqueados ni carros en marcha', () => {
+  const parked = fakeCar({ traffic: false });
+  assert.equal(parked.cleanable, false, 'un parqueado no tiene conductor que pague');
+  assert.equal(parked.cleanWindshield(), null);
+
+  const moving = fakeCar();
+  moving.animateDrive(.4, false, { dt: .05, speed: 8 });
+  assert.equal(moving.cleanable, false, 'a uno en marcha no se le alcanza');
+  moving.animateDrive(0, true, { dt: .05, speed: 0 });
+  assert.equal(moving.cleanable, true, 'detenido en el semáforo, sí');
+
+  parked.dispose();
+  moving.dispose();
 });

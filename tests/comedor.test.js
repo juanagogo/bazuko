@@ -198,5 +198,13 @@ test('Comedor Comunitario figura en _getPOIs y en los servicios del mapa como lu
 
   assert.equal(hasTag(comedorPoi, 'comida'), true);
   assert.equal(hasTag(comedorPoi, 'agua'), true);
+
+  // Ya servido hoy: sigue en el mapa, pero no se ofrece como comida ni agua.
+  game._poiCache = null; game._poiCacheTime = 0;
+  game.isComedorAvailable = () => false;
+  const servido = Game.prototype._getPOIs.call(game).find(p => p.name === 'Comedor Comunitario');
+  assert.ok(servido);
+  assert.equal(hasTag(servido, 'comida'), false);
+  assert.equal(hasTag(servido, 'agua'), false);
   assert.match(placeMeta(comedorPoi), /Almuerzo caliente gratis cada 24 horas/);
 });
