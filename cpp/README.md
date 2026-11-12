@@ -86,15 +86,39 @@ cmake --build build --config Release --parallel
 En Windows, el ejecutable se inicia como aplicación gráfica (sin ventana de consola). La pantalla de carga
 actualiza el progreso al completar la carga de los modelos de peatones y del personaje.
 
-### macOS (Xcode Command Line Tools y CMake)
+### macOS (Apple Silicon o Intel, macOS 10.15 o posterior)
+
+Herramientas: el compilador de Apple, CMake 3.22 o posterior y Git LFS (los efectos WAV van por LFS).
+
+```bash
+xcode-select --install
+brew install cmake git-lfs
+git lfs install
+git clone https://github.com/juanagogo/bazuko.git
+cd bazuko
+git lfs pull
+```
+
+Compilar (CMake descarga GLFW, GLM, ImGui, Opus, Assimp y, si no está instalada, libwebp; el primer build tarda varios minutos):
 
 ```bash
 cd cpp
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build --parallel
-open build/Bazuko.app                      # en desarrollo lee assets/ y public/ desde cpp/
-cmake --install build --prefix dist        # dist/Bazuko.app con los recursos en Contents/Resources
+open build/Bazuko.app                          # en desarrollo lee assets/ y public/ desde cpp/
+./build/Bazuko.app/Contents/MacOS/Bazuko       # lo mismo, con el registro en la terminal
 ```
+
+Empaquetar un `.app` independiente, con los recursos en `Contents/Resources`:
+
+```bash
+cmake --install build --prefix dist
+open dist/Bazuko.app
+```
+
+El paquete no está firmado: la primera vez macOS lo bloquea. Se abre con clic derecho → Abrir, o quitando la
+cuarentena con `xattr -dr com.apple.quarantine dist/Bazuko.app`. En el registro debe aparecer
+`OpenGL Context inicializado exitosamente: 4.1` y luego `OpenGL: modo 4.1 (sin DSA ni SSBO)`, sin errores de shader.
 
 macOS se quedó en OpenGL 4.1 Core: sin Direct State Access, sin almacenamiento inmutable de texturas, sin
 `layout(binding = N)` en GLSL y sin buffers de almacenamiento. `src/renderer/GLCompat.cpp` deja las mismas llamadas
