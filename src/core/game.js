@@ -116,6 +116,7 @@ import { CrashSystem } from '../systems/CrashSystem.js';
 import { CalleSystem, cartonSleepOutcome, CARTON_SLEEP } from '../features/calle.js';
 import { cop } from '../utils/money.js';
 import { makeParkedMotos, MOTO_SIZE } from '../world/bogota/motos.js';
+import { METRO, METRO_STATIONS } from '../world/bogota/MetroBogota.js';
 
 import {
   MENTAL_RESTORE_SLEEP, MENTAL_LOW_THRESHOLD,
@@ -292,6 +293,7 @@ export class Game {
     window.addEventListener('open-prostibulo', () => openProstibulo(this));
     window.addEventListener('open-wardrobe', () => this.openWardrobe());
     window.addEventListener('open-mesa', () => { if (!this.hud?._craftOpen) this.hud?.toggleCraftPanel(); });
+    window.addEventListener('metro-action', (e) => this._handleMetroAction(e.detail));
     window.addEventListener('police-arrest', () => this._policeArrest());
     window.addEventListener('open-radio-modal', () => openRadioModal(this));
     window.addEventListener('open-missions', () => {
@@ -307,6 +309,7 @@ export class Game {
       // La pausa ya abierta atiende M con su propio listener; la marca evita cerrarla en la misma pulsación.
       if (e.code === 'KeyM' && !this.paused && !this.isSleeping) { e._pauseOpened = true; openPauseMenu(this, 'mapa'); }
       if (e.code === 'KeyK' && !this.paused) this._toggleModel();
+      if (e.code === 'KeyJ' && !this.paused && !this.isSleeping) this.cycleMetroExperience();
       if (e.code === 'F3') { e.preventDefault(); this.performanceHUD.toggle(); }
       if ((e.code === 'Equal' || e.code === 'NumpadAdd' || e.key === '+') && !this.paused) this.minimap.zoomStep(1);
       if ((e.code === 'Minus' || e.code === 'NumpadSubtract' || e.key === '-') && !this.paused) this.minimap.zoomStep(-1);
@@ -880,9 +883,10 @@ export class Game {
     this.boliranaVenue = new BoliranaVenue(this.sceneMgr.scene, district);
     this.interaction.register(this.boliranaVenue);
 
-    // ===== Vendedores ambulantes del distrito (chazas, fritanga) y fogatas de El Cartucho =====
+    // ===== Vendedores ambulantes del distrito (chazas, fritanga), fogatas y estaciones del Metro =====
     for (const v of district.vendors ?? []) this.interaction.register(v);
     for (const fb of district.fireBarrels ?? []) this.interaction.register(fb);
+    for (const st of district.metroStations ?? []) this.interaction.register(st);
     this.collisions.add(
       this.shop.group,
       new THREE.Vector3(2.4, 2, 1.5),
@@ -2058,8 +2062,137 @@ export class Game {
     if (notify) window.dispatchEvent(new CustomEvent('toast', { detail: { text: 'Calidad gráfica: ' + quality, type: 'info' } }));
   }
 
+  _handleMetroAction(detail = {}) {
+    const { target, action } = detail;
+    if (this.ridingMetro) {
+      if (action === 'secondary') this.exitMetroToStreet();
+      else this.walkOnMetroViaduct(this.player.position.z);
+      return;
+    }
+    const elevated = this.player.position.y >= 11;
+    if (action === 'secondary') {
+      if (elevated) this.exitMetroToStreet();
+      else this.boardMetroTrain(target);
+      return;
+    }
+    if (elevated) {
+      this.boardMetroTrain(target);
+    } else {
+      this.boardMetroStation(target);
+    }
+  }
+
+  /** Subir al andén elevado de una estación del Metro de Bogotá (Y = 12,85 m). */
+  boardMetroStation(stationTarget = null) {
+    const st = stationTarget ?? METRO_STATIONS[0];
+    const z = st.stationZ ?? st.z ?? 95;
+    this.ridingMetro = false;
+    this.player.position.set(METRO.x + 5.2, METRO.platSurfaceY, z);
+    this.player.root.position.copy(this.player.position);
+    this.player.resetGrounding?.();
+    this.player.groundSurface = { height: METRO.platSurfaceY, layer: 'metro' };
+    this.cameraRig.follow(this.player.position, 0, this.collisions);
+    globalThis.window?.dispatchEvent?.(new CustomEvent('toast', {
+      detail: { text: `Estoy en el andén de ${st.title ?? 'la Estación del Metro'}. Puedo caminar al viaducto o abordar el tren con [E].`, type: 'info' }
+    }));
+  }
+
+  /** Caminar directamente sobre el viaducto elevado del Metro sobre la Av. Caracas (Y = 12,65 m). */
+  walkOnMetroViaduct(targetZ = null) {
+    const z = THREE.MathUtils.clamp(targetZ ?? this.player.position.z ?? 95, METRO.zStart + 4, METRO.zEnd - 4);
+    this.ridingMetro = false;
+    this.player.position.set(METRO.x, METRO.deckSurfaceY, z);
+    this.player.root.position.copy(this.player.position);
+    this.player.resetGrounding?.();
+    this.player.groundSurface = { height: METRO.deckSurfaceY, layer: 'metro' };
+    this.cameraRig.follow(this.player.position, 0, this.collisions);
+    globalThis.window?.dispatchEvent?.(new CustomEvent('toast', {
+      detail: { text: 'Caminando por el viaducto elevado del Metro (+12,6 m) sobre la Av. Caracas.', type: 'info' }
+    }));
+  }
+
+  /** Abordar el tren del Metro de Bogotá en movimiento por la Línea 1. */
+  boardMetroTrain(stationTarget = null) {
+    const district = this.world?.active;
+    const train = district?.metroTrain;
+    if (!train) return;
+    if (stationTarget && Math.abs(train.z - (stationTarget.stationZ ?? stationTarget.z ?? 95)) > 24) {
+      train.setAtStation(stationTarget.stationZ ?? stationTarget.z ?? 95);
+      train.dwell = 1.2;
+    }
+    this.ridingMetro = true;
+    this._lastMetroTrainZ = train.z;
+    this.player.position.set(train.x, METRO.trackHeight + 0.65, train.z);
+    this.player.root.position.copy(this.player.position);
+    this.player.resetGrounding?.();
+    this.cameraRig.follow(this.player.position, 0, this.collisions);
+    globalThis.window?.dispatchEvent?.(new CustomEvent('toast', {
+      detail: { text: 'Me subí al tren del Metro de Bogotá (Línea 1). Con [E] bajo al viaducto o estación; con [Q] bajo a la calle.', type: 'rare' }
+    }));
+  }
+
+  /** Bajar del viaducto o del tren a la Av. Caracas. */
+  exitMetroToStreet() {
+    const district = this.world?.active;
+    const z = THREE.MathUtils.clamp(this.player.position.z, 20, 300);
+    const x = 84;
+    const y = district?.getGroundHeight?.(x, z) ?? 0.12;
+    this.ridingMetro = false;
+    this.player.position.set(x, y, z);
+    this.player.root.position.copy(this.player.position);
+    this.player.resetGrounding?.();
+    this.cameraRig.follow(this.player.position, 0, this.collisions);
+    globalThis.window?.dispatchEvent?.(new CustomEvent('toast', {
+      detail: { text: 'Bajé del Metro a la Av. Caracas.', type: 'info' }
+    }));
+  }
+
+  /** Tecla J: alterna rápido entre Estación, Viaducto, Tren del Metro en marcha y Calle. */
+  cycleMetroExperience() {
+    if (this.ridingMetro) {
+      this.walkOnMetroViaduct(this.player.position.z);
+    } else if (this.player.position.y >= 11 && Math.abs(this.player.position.x - METRO.x) <= 3.3) {
+      this.boardMetroTrain();
+    } else if (this.player.position.y >= 11) {
+      this.walkOnMetroViaduct(this.player.position.z);
+    } else {
+      this.boardMetroStation(METRO_STATIONS[0]);
+    }
+  }
+
   _updatePlayerMovement(dt) {
     const district = this.world.active;
+    if (this.ridingMetro && district?.metroTrain) {
+      const train = district.metroTrain;
+      if (this.input.consumePress('KeyE')) {
+        const nearSt = METRO_STATIONS.find(s => Math.abs(s.z - train.z) <= 18);
+        if (nearSt) this.boardMetroStation(nearSt);
+        else this.walkOnMetroViaduct(train.z);
+        return;
+      }
+      if (this.input.consumePress('KeyQ')) {
+        this.exitMetroToStreet();
+        return;
+      }
+      const dz = train.z - (this._lastMetroTrainZ ?? train.z);
+      this._lastMetroTrainZ = train.z;
+      this.player.position.z += dz;
+      // Permite caminar por el interior de los tres vagones mientras el tren avanza
+      const walkSpeed = 3.2;
+      if (this.input.axis.x !== 0 || this.input.axis.z !== 0) {
+        this.player.position.x += this.input.axis.x * walkSpeed * dt;
+        this.player.position.z += this.input.axis.z * walkSpeed * dt;
+      }
+      this.player.position.x = THREE.MathUtils.clamp(this.player.position.x, train.x - 1.05, train.x + 1.05);
+      this.player.position.z = THREE.MathUtils.clamp(this.player.position.z, train.z - 22, train.z + 22);
+      this.player.position.y = METRO.trackHeight + 0.65;
+      this.player.root.position.copy(this.player.position);
+      this.player.isGrounded = true;
+      this.player.speed = Math.abs(train.speed);
+      this.stats.calor = Math.min(300, (this.stats.calor || 0) + 12 * dt);
+      this.stats.animo = Math.min(100, (this.stats.animo || 0) + 1.5 * dt);
+      return;
+    }
     this.player.update(dt, this.cameraRig.camera, this.collisions, (x, z, context) =>
       district?.getPlayerGroundSurface?.(x, z, context)
         ?? district?.getMovementGroundHeight?.(x, z, context.from.y)

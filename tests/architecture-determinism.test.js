@@ -90,10 +90,9 @@ function architecture(seed, churn) {
 test('la arquitectura no cambia con el azar global ni con más creaciones de texturas y materiales', () => {
   const first = architecture(89123, false);
   assert.deepEqual(architecture(17, true), first);
-  // Capturados antes de separar el azar arquitectónico: el mapa y sus sólidos siguen exactos.
-  // El oriente se añadió sin mover nada: recortado a la ciudad anterior, da los mismos valores.
-  assert.equal(first.oldMap, 'ad927fbac5cbcbb2fae2f8b8b0ae0f64a4beda7492b1c482c317d04b35ec8f9c');
-  assert.equal(first.oldColliders, '6b8d21ce0063a9a7ef0f4f4bfb43608e02335553ab98206151f237594ef3dd0d');
+  // Capturados con la Torre Colpatria ubicada en su lugar real en Centro Internacional (x: 235, z: 171).
+  assert.equal(first.oldMap, '4ce81bdd10a7abdda7f0e8032530a1eba04b8b7a2379ceefa68ad7fc33188a52');
+  assert.equal(first.oldColliders, '54c7c78fc6d9471d5089f3506163502cb6802c6c0869860934883ac54381f085');
 });
 
 test('cerrar la ciudad libera una vez todos los mapas del suelo y el detalle propio de la ribera', () => {

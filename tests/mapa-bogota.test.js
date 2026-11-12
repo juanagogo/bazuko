@@ -2,6 +2,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { cityMapPlan, streetLabels, cityLandmarks } from '../src/world/bogota/CityMapRaster.js';
+import { buildRealBogotaOSM } from '../src/world/bogota/RealBogotaOSM.js';
 
 test('streetLabels: incluye las principales vías de la cuadrícula real de Bogotá', () => {
   const labels = streetLabels(2);
@@ -56,4 +57,15 @@ test('cityMapPlan: define el trazado y geometría del viaducto del Metro', () =>
   assert.equal(tiles.metro.ancho, 7, 'El ancho del viaducto debe ser de 7 metros');
   assert.ok(tiles.metro.puntos.length > 50, 'El viaducto debe contar con múltiples puntos a lo largo de la Caracas');
   assert.ok(tiles.metro.puntos.every(([x]) => x === 75), 'Los puntos del viaducto están situados sobre el eje de la Av. Caracas');
+});
+
+test('buildRealBogotaOSM: extruye edificaciones reales de OpenStreetMap e IDECA en Three.js', () => {
+  const group = buildRealBogotaOSM();
+  assert.equal(group.name, 'RealBogotaOSM_IDECA');
+  assert.ok(group.children.length >= 5, 'Contiene los grupos 3D de La Santamaría, Planetario, Museo Nacional, Mansión Reyes y Tarima Zona T');
+  assert.ok(group.getObjectByName('Plaza de Toros de Santamaría'), 'Incluye Plaza de Toros de Santamaría');
+  assert.ok(group.getObjectByName('Planetario Distrital de Bogotá'), 'Incluye Planetario Distrital');
+  assert.ok(group.getObjectByName('Museo Nacional de Colombia (El Panóptico)'), 'Incluye Museo Nacional');
+  assert.ok(group.getObjectByName('Mansión de la Familia Reyes (Zona G / Rosales)'), 'Incluye Mansión de Los Reyes');
+  assert.ok(group.userData.osmDataset.buildings.length >= 8, 'El dataset OSM/IDECA incluye al menos 8 hitos con huellas poligonales');
 });

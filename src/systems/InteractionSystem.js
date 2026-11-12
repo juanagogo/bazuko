@@ -117,6 +117,7 @@ export class InteractionSystem {
         else if (t.kind === 'pila') nearestType = 'pila';
         else if (t.kind === 'hogar') nearestType = 'hogar';
         else if (t.kind === 'transit') nearestType = 'transit';
+        else if (t.kind === 'metro') nearestType = 'metro';
         else if (typeof t.harvest === 'function') nearestType = 'pickup';
         else if (typeof t.steal === 'function' || typeof t.cleanWindshield === 'function') nearestType = 'car';
         else if (typeof t.sellSubstances === 'function') nearestType = 'dealer';
@@ -231,6 +232,9 @@ export class InteractionSystem {
           // Abre su tienda: ahí se compra y, de noche, se elige qué venderle. Nunca vende sin preguntar.
           window.dispatchEvent(new CustomEvent('dealer-toggle', { detail: { dealer: nearest } }));
           break;
+        case 'metro':
+          window.dispatchEvent(new CustomEvent('metro-action', { detail: { target: nearest, action: 'primary' } }));
+          break;
       }
     }
 
@@ -243,6 +247,11 @@ export class InteractionSystem {
     // === Q en la fogata: compartir comida; Q en la pila: llenar la botella ===
     if (nearestType === 'fireBarrel' && input.consumePress('KeyQ')) this.street?.shareFood();
     if (nearestType === 'pila' && input.consumePress('KeyQ')) this.street?.fillBottle('pila');
+
+    // === Acción secundaria en estación del Metro (Q) ===
+    if (nearestType === 'metro' && input.consumePress('KeyQ')) {
+      window.dispatchEvent(new CustomEvent('metro-action', { detail: { target: nearest, action: 'secondary' } }));
+    }
 
     // === Comprar producto / Abrir tienda del dealer (Q) ===
     if (nearestType === 'dealer' && input.consumePress('KeyQ')) {

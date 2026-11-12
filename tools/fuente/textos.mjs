@@ -114,7 +114,10 @@ export function cadenasDelJuego(raiz, opciones = {}) {
 }
 
 function recorrerElJuego(raiz, mapa, { excluir = [] }) {
-  const fuera = (rel) => excluir.some((e) => rel.startsWith(e));
+  const fuera = (rel) => {
+    const normalizado = rel.replace(/\\/g, '/');
+    return excluir.some((e) => normalizado.startsWith(e));
+  };
   const recorrer = (dir) => {
     for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
       const ruta = path.join(dir, e.name), rel = path.relative(raiz, ruta);

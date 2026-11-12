@@ -47,6 +47,14 @@ export class MapView {
     this._horno = null;
     this._imagenes = new Map();
     this._rotulos = null;
+    this.showOfficialCartography = true;
+    this.showTransitLayer = true;
+    this._officialMapImg = null;
+    if (typeof Image !== 'undefined') {
+      const img = new Image();
+      img.onload = () => { this._officialMapImg = img; this._pedirDibujo(); };
+      img.src = '/metro-assets/plano-urbano-bogota-bazuko.jpg';
+    }
 
     this.canvas = el('canvas', {
       class: 'map-view__canvas', tabindex: '0',
@@ -62,7 +70,15 @@ export class MapView {
             tool('+', 'Acercar', () => this._zoomAt(this.cssWidth / 2, this.cssHeight / 2, 1.3)),
             tool('−', 'Alejar', () => this._zoomAt(this.cssWidth / 2, this.cssHeight / 2, 1 / 1.3)),
             tool(pasarTexto('◎'), 'Centrar en mí', () => this.centerOnPlayer()),
-            tool(pasarTexto('⤢'), 'Ver toda la ciudad', () => this.fitCity()))),
+            tool(pasarTexto('⤢'), 'Ver toda la ciudad', () => this.fitCity()),
+            tool('IDECA', 'Alternar Plano Cartográfico Oficial de Bogotá', () => {
+              this.showOfficialCartography = !this.showOfficialCartography;
+              this.draw();
+            }),
+            tool('🚆', 'Alternar Capa de Transporte (Metro L1 y TransMilenio en vivo)', () => {
+              this.showTransitLayer = !this.showTransitLayer;
+              this.draw();
+            }))),
         el('div', { class: 'map-view__pie' },
           el('ul', { class: 'map-view__legend', 'aria-label': 'Leyenda' },
             LEGEND.map(([name, key]) => el('li', { class: `ley ley--${key}` }, el('i', { 'aria-hidden': 'true' }), name))),
@@ -457,23 +473,30 @@ export class MapView {
     ctx.lineWidth = 4 * px;
     ctx.strokeStyle = this._cara();
     ctx.fillStyle = MARCADOR;
-    const poner = (name, x, z, giro) => {
+    const poner = (name, popular, x, z, giro) => {
       if (x < x0 || z < z0 || x > x0 + w || z > z0 + h || !NO_ES_MANZANA.has(tipo(x, z))) return;
       ctx.setTransform(1, 0, 0, 1, (x - x0) * k, (z - z0) * k);
       if (giro) ctx.rotate(-Math.PI / 2);
+      ctx.font = `700 ${15 * px}px ${LETRA}`;
       ctx.strokeText(name, 0, 0);
       ctx.fillText(name, 0, 0);
+      if (popular && this.zoom > 1.35) {
+        ctx.font = `italic 400 ${11 * px}px ${LETRA}`;
+        ctx.fillStyle = '#654321';
+        ctx.fillText(popular, 0, 14 * px);
+        ctx.fillStyle = MARCADOR;
+      }
     };
     const plan = this.game.mapPlan;
     for (const label of this._labels) {
       if (label.vertical) {
         const desdeZ = Math.max(plan.originZ, label.minZ ?? -Infinity);
         const hastaZ = Math.min(plan.originZ + plan.worldHeight, label.maxZ ?? Infinity);
-        for (let z = desdeZ + CALLE_CADA / 2; z < hastaZ; z += CALLE_CADA) poner(label.name, label.x, z, true);
+        for (let z = desdeZ + CALLE_CADA / 2; z < hastaZ; z += CALLE_CADA) poner(label.name, label.popular, label.x, z, true);
       } else {
         const desde = Math.max(plan.originX, label.minX ?? -Infinity);
         const hasta = Math.min(plan.originX + plan.worldWidth, label.maxX ?? Infinity);
-        for (let x = desde + CALLE_CADA / 2; x < hasta; x += CALLE_CADA) poner(label.name, x, label.z, false);
+        for (let x = desde + CALLE_CADA / 2; x < hasta; x += CALLE_CADA) poner(label.name, label.popular, x, label.z, false);
       }
     }
   }
@@ -591,15 +614,33 @@ export class MapView {
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, w, h);
 
+    const plan = this.game.mapPlan;
+    if (this.showOfficialCartography && this._officialMapImg && plan) {
+      // Ajuste de encuadre métrico exacto (margen exterior del plano artístico vs cuadrícula de juego)
+      // El marco del plano tiene un margen de cartón exterior (~5% X, ~4.5% Z)
+      const padX = plan.worldWidth * 0.048;
+      const padZ = plan.worldHeight * 0.042;
+      const [ox, oy] = this._toScreen(plan.originX - padX, plan.originZ - padZ);
+      const mw = (plan.worldWidth + padX * 2) * this.zoom;
+      const mh = (plan.worldHeight + padZ * 2) * this.zoom;
+      ctx.save();
+      ctx.globalAlpha = 0.95;
+      ctx.drawImage(this._officialMapImg, ox, oy, mw, mh);
+      ctx.restore();
+    }
+
     const horno = this._horno;
     if (horno) {
       const [sx, sy] = this._toScreen(horno.x0, horno.z0);
       // A la escala horneada se pega en píxeles enteros, para que la línea no se empañe.
       const exacta = horno.zoom === this.zoom;
+      ctx.save();
+      if (this.showOfficialCartography && this._officialMapImg) ctx.globalAlpha = 0.38;
       ctx.imageSmoothingEnabled = !exacta;
       ctx.drawImage(horno.canvas, exacta ? Math.round(sx * dpr) / dpr : sx, exacta ? Math.round(sy * dpr) / dpr : sy,
         exacta ? horno.canvas.width / dpr : horno.w * this.zoom, exacta ? horno.canvas.height / dpr : horno.h * this.zoom);
       ctx.imageSmoothingEnabled = true;
+      ctx.restore();
     }
 
     const gps = this.game.gps, p = this.game.player?.position;
@@ -650,7 +691,80 @@ export class MapView {
     if (gps?.waypoint) {
       const [sx, sy] = this._toScreen(gps.waypoint.x, gps.waypoint.z);
       xRoja(ctx, sx, sy, 9);
+
+      // Cartela con cinta de papel para el punto marcado
+      if (gps.waypoint.name) {
+        ctx.save();
+        ctx.font = `800 12px ${LETRA}`;
+        const noteText = nombreALaVista(gps.waypoint.name);
+        const nw = ctx.measureText(noteText).width + 12;
+        ctx.fillStyle = '#E9DBB4'; // color cinta
+        ctx.fillRect(sx - nw / 2, sy - 24, nw, 18);
+        ctx.strokeStyle = MARCADOR;
+        ctx.lineWidth = 1;
+        ctx.strokeRect(sx - nw / 2, sy - 24, nw, 18);
+        ctx.fillStyle = MARCADOR;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(noteText, sx, sy - 15);
+        ctx.restore();
+      }
     }
+
+    // Capa de transporte en tiempo real (Metro L1 y TransMilenio)
+    if (this.showTransitLayer) {
+      const metroTrain = this.game.world?.active?.group?.userData?.train;
+      if (metroTrain) {
+        const trainX = metroTrain.position?.x ?? metroTrain.x ?? 75;
+        const trainZ = metroTrain.position?.z ?? metroTrain.z ?? 155;
+        const [tx, ty] = this._toScreen(trainX, trainZ);
+        if (tx >= 0 && tx <= w && ty >= 0 && ty <= h) {
+          ctx.save();
+          ctx.fillStyle = '#1e7e48';
+          ctx.beginPath();
+          ctx.arc(tx, ty, 7, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.strokeStyle = '#ffffff';
+          ctx.lineWidth = 2;
+          ctx.stroke();
+          ctx.font = `800 10px ${LETRA}`;
+          ctx.fillStyle = '#ffffff';
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          ctx.fillText('M', tx, ty + 0.5);
+          ctx.restore();
+        }
+      }
+
+      const busServices = this.game.world?.active?.busServices ?? [];
+      for (const bs of busServices) {
+        if (bs.position) {
+          const [bx, by] = this._toScreen(bs.position.x, bs.position.z);
+          if (bx >= 0 && bx <= w && by >= 0 && by <= h) {
+            ctx.save();
+            ctx.fillStyle = '#b3261e';
+            ctx.fillRect(bx - 4, by - 4, 8, 8);
+            ctx.strokeStyle = '#ffffff';
+            ctx.lineWidth = 1.2;
+            ctx.strokeRect(bx - 4, by - 4, 8, 8);
+            ctx.restore();
+          }
+        }
+      }
+    }
+
+    // Marcador permanente de los Cerros Orientales (Monserrate / Guadalupe al Oriente)
+    const [cxEast, czEast] = this._toScreen(plan ? plan.originX + plan.worldWidth + 12 : 365, this.centerZ);
+    if (cxEast <= w + 40) {
+      ctx.save();
+      ctx.font = `800 13px ${LETRA}`;
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'middle';
+      ctx.fillStyle = '#1f4e24';
+      ctx.fillText('⛰️ CERROS ORIENTALES · MONSERRATE', Math.min(w - 240, cxEast), h / 2);
+      ctx.restore();
+    }
+
     if (p) {
       const [sx, sy] = this._toScreen(p.x, p.z);
       flechaJugador(ctx, sx, sy, 11, -(this.game._cameraYaw?.() ?? 0));

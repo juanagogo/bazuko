@@ -8,7 +8,7 @@ const $ = (id) => document.getElementById(id);
 const setText = (id, value) => { if ($(id).textContent !== value) $(id).textContent = value; };
 
 function showError(error) {
-  $('sala-error').textContent = `${error.message ?? error} Puedes recargar para reintentar.`;
+  $('sala-error').textContent = `${error.message ?? error} Puede recargar para reintentar.`;
   $('sala-error').hidden = false;
 }
 

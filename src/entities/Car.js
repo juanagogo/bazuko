@@ -220,6 +220,9 @@ export class Car {
   /** Si `steal` daría algo: a una patrulla no se le roban los espejos y los ya robados tardan en volver. */
   get stealable() { return this.kind !== 'police' && !this.used && this.cooldown <= 0; }
 
+  /** Si se le puede limpiar el parabrisas: carros particulares y taxis que no se hayan limpiado recientemente y no estén en alarma. */
+  get cleanable() { return this.kind !== 'police' && !this.used && (this.cleanCooldown ?? 0) <= 0; }
+
   /**
    * Si se le puede limpiar el parabrisas: paga el conductor, así que solo vale para un carro en circulación que esté
    * quieto o a paso de persona (semáforo o trancón). Un parqueado no tiene quién pague y a uno en marcha no se le alcanza.

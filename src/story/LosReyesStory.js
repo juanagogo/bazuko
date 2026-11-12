@@ -64,7 +64,7 @@ export const REYES_CHAPTERS = [
         id: 'colpatria_ger',
         texto: 'PRESIDIR LA JUNTA DE GER EN TORRE COLPATRIA (CLL 26)',
         meta: 'Llega a la sede corporativa del Grupo GER en la Torre Colpatria.',
-        target: { name: 'Sede Grupo GER (Torre Colpatria)', x: 34, z: 190, radio: 16 },
+        target: { name: 'Sede Grupo GER (Torre Colpatria)', x: 235, z: 156, radio: 16 },
         dialogoInicio: 'Hoy es mi primera junta como Presidente de GER. A ponerse la mejor camisa de domingo.',
         dialogoCompletado: 'Beto rechaza el contrato tramposo de Iriarte y reparte empanadas y fritanga en la junta.',
         recompensaDinero: 2000000,
