@@ -10,6 +10,8 @@ const COOLDOWN = 2.2;
 const BEHIND = .3, PEE_AHEAD = .06;  // metros desde los pies: el montón detrás, el chichi entre los pies
 const HIP = .32, STREAM_HIP = .24, STREAM_AHEAD = .05;
 
+const SQUAT_SECONDS = 1.6;
+
 export class PoopSystem {
   /**
    * @param {THREE.Scene} scene
@@ -132,7 +134,7 @@ export class PoopSystem {
       window.dispatchEvent(new CustomEvent('toast', {
         detail: { text: `¡Popó al aire! (Quedan: ${remaining})`, type: 'info' }
       }));
-      window.dispatchEvent(new CustomEvent('poop-thrown', { detail: { remaining } }));
+      window.dispatchEvent(new CustomEvent('poop-thrown', { detail: { remaining, projectile } }));
     }
 
     return true;

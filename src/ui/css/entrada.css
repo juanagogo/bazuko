@@ -11,9 +11,10 @@ body.is-loading #creator-modal { visibility: visible; }
 .carga__arte { position: absolute; inset: 0; z-index: -1; pointer-events: none; animation: carga-sale .3s ease-out both; }
 @keyframes carga-sale { from { opacity: 0; } }
 .carga__marca { width: 100%; }
-.carga__marca svg { display: block; width: 100%; height: auto; overflow: visible; }
-/* Más grueso que cualquier punta: lo que se ve es la tinta que recorta cada trazo. */
-.carga__lomo { fill: none; stroke: var(--marcador); stroke-width: 210; stroke-linecap: round; stroke-linejoin: round; transition: stroke-dasharray .45s ease-out; }
+.carga__marca svg, .carga__marca canvas { display: block; width: 100%; height: auto; }
+.carga__marca svg { overflow: visible; }
+/* El grosor va en el propio trazo, para que el lienzo del trabajador y el SVG usen el mismo. */
+.carga__lomo { fill: none; stroke: var(--marcador); stroke-linecap: round; stroke-linejoin: round; }
 .carga__texto { grid-row: 3; display: flex; flex-direction: column; align-items: flex-start; gap: 14px; max-width: min(620px, 100%); }
 #loading-status { font-weight: 800; font-size: var(--letra-retazo); line-height: 1; }
 .has-loading-error #loading-status { font-size: var(--letra-titulo); line-height: 1.1; }

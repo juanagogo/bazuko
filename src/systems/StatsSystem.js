@@ -9,6 +9,7 @@ export class StatsSystem {
     this.hambre  = 100;
     this.sed     = 100;
     this.energia = 100;
+    this.invulnerable = false; // modo trucos: ignora las bajadas de salud
     this.salud   = 100;
     this.higiene = 100;   // NUEVA
     this.animo   = 100;   // NUEVA
@@ -28,6 +29,16 @@ export class StatsSystem {
 
   set saludMental(v) {
     this.animo = v;
+  }
+
+  /** Salud con el modo trucos prendido: no baja, y no pasa de 100 al subir. */
+  get salud() {
+    return this._salud;
+  }
+
+  set salud(value) {
+    if (!this.invulnerable) this._salud = value;
+    else if (value > this._salud) this._salud = Math.min(value, 100);
   }
 
   /** Abstinencia: el vicio está por debajo del umbral */

@@ -75,7 +75,7 @@ test('el distrito completo construye y actualiza barrios, vendedores, peatones y
   assert.equal(city.busServices.length, 2);
   try {
     await Promise.all(city.npcs.map(npc=>npc.ready));
-    assert.equal(city.npcs.length,88); // 66 peatones del centro, 14 del oriente y 8 vendedores.
+    assert.equal(city.npcs.length,53); // 8 vendedores, 6 esquineras, la gente fija y los de sitio; los caminantes los reparte la hora (PedestrianCrowd).
     assert.equal(city.vendors.length,8);
     const places=servicePlaces(city),gps=city.createGpsNavigation();
     assert.deepEqual(['chaza','fritanga','fogata'].map(kind=>places.filter(place=>place.service===kind).length),[5,3,4]);

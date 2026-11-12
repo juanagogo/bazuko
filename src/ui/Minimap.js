@@ -7,7 +7,7 @@ import { metros } from './formato.js';
 import { pasarTexto, dibujo } from './pictos.js';
 import { iconChar } from './icons.js';
 import { modoEntrada, teclaVisible } from '../core/modoEntrada.js';
-import { CARTON, CARTON_MOJADO, CINTA, MARCADOR, ROJO, flechaJugador, hornearPlano, rutaRoja, xRoja } from './planoRadar.js';
+import { CARTON, CARTON_MOJADO, CINTA, MARCADOR, ROJO, cierreDeCalle, flechaJugador, hornearPlano, rutaRoja, xRoja } from './planoRadar.js';
 
 const ZOOM_KEY = 'bazuko.minimap_zoom';
 const SIZE_KEY = 'bazuko.minimap_size';
@@ -194,7 +194,7 @@ export class Minimap {
    * @param {number} now Timestamp de performance.now()
    * @param {{gps?: import('../systems/GpsNavigation.js').GpsNavigation, running?: boolean, needs?: Object}} [opts] `needs` viene de needContext (mapServices.js)
    */
-  update(playerPos, cameraYaw = 0, pois = [], now = performance.now(), { gps = null, running = false, needs = null } = {}) {
+  update(playerPos, cameraYaw = 0, pois = [], now = performance.now(), { gps = null, running = false, needs = null, protesta = null } = {}) {
     if (!this.visible || !this.ctx || !this.canvas || !playerPos) return;
 
     // Actualizar a ~20 FPS para eficiencia
@@ -244,6 +244,7 @@ export class Minimap {
     if (plano) ctx.drawImage?.(plano.canvas, plano.originX, plano.originZ, plano.worldWidth, plano.worldHeight);
     const route = gps?.waypoint ? gps.remainingRoute(playerPos) : [];
     rutaRoja(ctx, route, scale / dpr);
+    cierreDeCalle(ctx, protesta, scale / dpr);
     ctx.restore();
 
     ctx.textAlign = 'center';

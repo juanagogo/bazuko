@@ -92,6 +92,7 @@ export function textoDelPrompt(interaction, inventory) {
     return inventory?.count?.('botella') > 0 ? '[E] Lavarme en la pila · [Q] Llenar la botella' : '[E] Lavarme en la pila · Con una botella vacía, aquí la lleno';
   }
   if (type === 'hogar') return '[E] Hogar de paso: dormir bajo techo';
+  if (type === 'calle') return interaction.currentTarget.prompt();
   if (type === 'transit') return `[E] ${interaction.currentTarget?.stop?.name ?? 'Estación'}: viajar`;
   if (type === 'sell') return '[E] Vender material en la recicladora';
   if (type === 'shop') return `[E] Comprar en ${interaction.currentTarget.title ?? 'Tienda La Esquinita'}`;

@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { PALETTES, DEFAULT_LOOK, normalizeLook } from './look.js';
 import { animationDamping } from './SecondaryMotion.js';
 import { ActionPose } from './ActionPose.js';
-import { createWeapon } from './props.js';
+import { createWeapon, createHeldRadio } from './props.js';
 import { createCigarette, puffReach, emberGlow } from './smoking.js';
 import { createPipe, createLighter, basucoReach, isLit, BASUCO } from './pipe.js';
 import { createLightPantsDown } from './pantsDownLight.js';
@@ -423,6 +423,22 @@ export function createCharacter(initial = DEFAULT_LOOK, { undress = false } = {}
     basucoProps = { pipe, lighter };
   }
 
+  // Radio en la mano izquierda mientras esté prendida; se guarda al apagarla.
+  let radioProp = null, radioOn = false;
+  function setHeldRadio(on) {
+    on = !!on;
+    radioOn = on;
+    if (!on && !radioProp) return;
+    if (!radioProp) {
+      radioProp = createHeldRadio();
+      radioProp.position.set(0, -.2, 0);
+      radioProp.rotation.set(0, 0, Math.PI);
+      radioProp.scale.setScalar(1.25);
+      arms[0].elbow.add(radioProp);
+    }
+    radioProp.visible = on;
+  }
+
   function update(dt, { speed = 0, running = false, action = null, t = 0, load = 0, dirt = 0, wet = 0, look: lookAt = 0, movement = {}, actionProgress, attack = null, smoke = null, basuco: pipeT = null, point = 0 } = {}) {
     if (disposed) return;
     actionPose.restore();
@@ -446,6 +462,9 @@ export function createCharacter(initial = DEFAULT_LOOK, { undress = false } = {}
       basucoProps.pipe.object.visible = pipeAllowed;
       basucoProps.lighter.object.visible = pipeAllowed;
     }
+    // La radio cede la mano izquierda al cigarrillo o a la pipa, y se guarda acostado o nadando.
+    if (radioProp) radioProp.visible = radioOn && !detached && action !== 'dormir' && !pipeAllowed
+      && !(cigarette && cigarette.object.visible);
     const gaitSpeed = detached ? 0 : speed;
     const target = { lean: 0, twist: 0, sway: 0, armLx: 0, armRx: 0, armLz: 0.12, armRz: -0.12, elbL: -0.2, elbR: -0.2, legL: 0, legR: 0, kneeL: 0, kneeR: 0, bob: 0, crouch: 0, lie: 0, headX: 0, headY: lookAt };
     const amp = Math.min(1, gaitSpeed / 3) * (running ? 1 : .78);
@@ -679,12 +698,15 @@ export function createCharacter(initial = DEFAULT_LOOK, { undress = false } = {}
       pantsDown.setDrop(undressDrop);
       pantsDown.setCensor({ on: !!state.censor, block: state.block, seed: state.seed });
     },
+    setHeldRadio,
     dispose() {
       if (disposed) return;
       disposed = true;
       actionPose.restore();
       weapon?.dispose(); cigarette?.dispose();
       basucoProps?.pipe.dispose(); basucoProps?.lighter.dispose();
+      // La radio comparte geometría y material con las demás: se quita, no se libera.
+      radioProp?.removeFromParent();
       const geometries = new Set(), materials = new Set();
       root.traverse(object => {
         if (object.geometry) geometries.add(object.geometry);

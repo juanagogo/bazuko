@@ -7,6 +7,7 @@ import { PoopProjectile } from '../src/entities/PoopProjectile.js';
 import { InventorySystem } from '../src/systems/InventorySystem.js';
 import { StatsSystem } from '../src/systems/StatsSystem.js';
 import { ITEMS } from '../src/data/items.js';
+import { Player } from '../src/entities/Player.js';
 
 beforeEach(() => {
   globalThis.window = new EventTarget();
