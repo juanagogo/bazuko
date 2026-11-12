@@ -71,6 +71,7 @@ import { StreetLife } from '../systems/StreetLife.js';
 import { PilaPublica, HogarDePaso, TransitStop } from '../entities/StreetLifeProps.js';
 import { streetLifePlaces } from '../world/bogota/streetLifePlaces.js';
 import { openRadioModal } from '../ui/RadioModal.js';
+import { LosReyesStory } from '../story/LosReyesStory.js';
 
 
 import { HUD } from '../ui/HUD.js';
@@ -284,6 +285,7 @@ export class Game {
     this.cart = null;
     this.overlays = new CinematicOverlays();
     this.momentos = new Momentos();
+    this.story = new LosReyesStory(this);
 
     // Estado
     this.look = null;       // apariencia + nombre + origen (creador)
@@ -972,6 +974,7 @@ export class Game {
       if (data.gps && this.gps) this.setGpsWaypoint({ ...data.gps, name: RENAMED_PLACES[data.gps.name] ?? data.gps.name }, { silent: true });
       if (data.lastComedorHour !== undefined) this.lastComedorHour = data.lastComedorHour;
       this.street?.deserialize(data.street);
+      if (data.story && this.story) this.story.deserialize(data.story);
       if (data.dailyMissions) this.dailyMissions?.deserialize(data.dailyMissions);
       else this.dailyMissions?.init(this.clock?.day ?? 1);
     } else {
@@ -1004,7 +1007,8 @@ export class Game {
       gps: this.gps?.serialize() ?? null,
       lastComedorHour: this.lastComedorHour,
       dailyMissions: this.dailyMissions?.serialize(),
-      street: this.street?.serialize()
+      street: this.street?.serialize(),
+      story: this.story ? this.story.serialize() : null
     };
   }
 
@@ -1729,6 +1733,7 @@ export class Game {
       const { name } = this.gps.lastArrival;
       window.dispatchEvent(new CustomEvent('toast', { detail: { text: `Llegué a ${nombreALaVista(name)}`, type: 'info' } }));
     }
+    this.story?.update(dt, this.player.position);
     this.gpsBeacon?.update(dt, this.player.position);
     this.minimap?.update(this.player.position, this._cameraYaw(), this._getPOIs(now), now,
       { gps: this.gps, needs: this._needs, running: this.input.isRunning && (this.input.axis.x !== 0 || this.input.axis.z !== 0) });

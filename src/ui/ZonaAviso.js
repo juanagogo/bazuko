@@ -19,6 +19,9 @@ export const ZONA_NOMBRES = {
   andenes: 'El centro',
   barrio: 'Los barrios',
   lago: LAKE_PARK.name,
+  zonaT: 'Zona T (Calle 82 / Zona Rosa)',
+  zonaG: 'Zona G (Rosales / Gourmet)',
+  parque93: 'Parque de la 93 (Chicó)',
   metro: 'Metro de Bogotá (Línea 1 PLMB)'
 };
 

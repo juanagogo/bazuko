@@ -75,6 +75,10 @@ test('un solo signo de menos y coma decimal en lo que se lee', () => {
 
 test('los orígenes: la historia no explica el efecto, y ids y efectos no cambian', () => {
   assert.deepEqual(Object.fromEntries(Object.entries(ORIGINS).map(([id, o]) => [id, o.effects])), {
+    beto: { sellMult: 1.25, diseaseResist: 0.8 },
+    leo: { extraLoot: 1, sellMult: 1.1 },
+    hilda: { begMult: 1.4, diseaseResist: 0.85 },
+    laisa: { sellMult: 1.3, begMult: 1.2 },
     reciclador: { extraLoot: 1 },
     desplazado: { diseaseResist: 0.7 },
     migrante: { begMult: 1.3 },

@@ -760,7 +760,7 @@ export class HUD {
     }
   }
 
-  /** Lo que toca hacer con el cambuche, unos segundos cada vez que cambia. Nunca durante una persecución. */
+  /** Lo que toca hacer con el cambuche o la historia, unos segundos cada vez que cambia. Nunca durante una persecución. */
   _pintarMision(inventory) {
     if (!this.misionEl) return;
     const game = window.__game;
@@ -769,7 +769,7 @@ export class HUD {
       this._misionS = 0;
       return;
     }
-    let texto = textoDeMision(game?.built, inventory);
+    let texto = game?.story?.currentMissionText?.() || textoDeMision(game?.built, inventory);
     if (!texto && game?.dailyMissions?.activeMissionText) {
       texto = game.dailyMissions.activeMissionText;
     }
@@ -780,7 +780,7 @@ export class HUD {
     if (!texto) { this.misionEl.hidden = true; this._misionS = 0; return; }
     this._setText(this.misionEl, texto);
     this.misionEl.hidden = false;
-    this._misionS = MISION_S;
+    this._misionS = storyText ? 15 : MISION_S;
   }
 
   /** En la barra rápida, el círculo va en el arma que tengo en la mano. */

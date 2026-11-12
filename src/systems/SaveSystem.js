@@ -34,7 +34,7 @@ export class SaveSystem {
     const pos = data.player.pos;
     if (!Array.isArray(pos) || pos.length !== 3 || !pos.every((n) => Number.isFinite(n))) return null;
     for (const k of ['look', 'built', 'talents', 'diseases']) if (data[k] !== undefined && !objeto(data[k])) return null;
-    for (const k of ['cart', 'gps', 'radio', 'dog']) if (data[k] != null && !objeto(data[k])) return null;
+    for (const k of ['cart', 'gps', 'radio', 'dog', 'story']) if (data[k] != null && !objeto(data[k])) return null;
     // La migración de las partidas v1 cambia el dinero: se revisa después, no antes.
     const migrada = this._migrar(data);
     return Object.values(migrada.stats).every(Number.isFinite) ? migrada : null;

@@ -13,13 +13,13 @@ export const ORIGINAL_CITY_HEIGHT = STREET_Z.size;
 export const CITY_WIDTH = EAST_CITY_WIDTH;
 export const CITY_HEIGHT = 161;
 export const CITY_AREA_MULTIPLIER = CITY_WIDTH * CITY_HEIGHT / (ORIGINAL_CITY_WIDTH * ORIGINAL_CITY_HEIGHT);
-const BASE_CARRERAS = [...CARRERAS, [84, 89, 'Carrera 8'], [106, 111, 'Carrera 6']];
+const BASE_CARRERAS = [...CARRERAS, [84, 89, 'Carrera 8'], [106, 111, 'Carrera 7']];
 // La Carrera 5 es la única nueva con semáforos: las angostas de EastZones no los necesitan.
 export const CITY_CARRERAS = [...BASE_CARRERAS, CARRERA_5];
-export const CITY_CALLES = [...CALLES, [72, 77, 'Calle 8'], [94, 99, 'Calle 7']];
+export const CITY_CALLES = [...CALLES, [72, 77, 'Calle 72'], [94, 99, 'Av. Calle 26']];
 export const EXTENSION_PARKS = [
   { x0: 92, x1: 103, z0: 21, z1: 34, name: 'Parque de la Estación' },
-  { x0: 69, x1: 81, z0: 80, z1: 91, name: 'Parque del Sur' }
+  { x0: 69, x1: 81, z0: 80, z1: 91, name: 'Parque de Teusaquillo' }
 ];
 
 /** Añade barrios al oriente y al sur sin desplazar el centro existente. */

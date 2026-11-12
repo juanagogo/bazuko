@@ -39,6 +39,7 @@ import { BusService } from '../bogota/BusService.js';
 import { skylineFloors, buildAvenueOverpass, AVENUE_OVERPASS } from '../bogota/AvenueLandmarks.js';
 import { GAS_STATION, GAS_OBSTACLES, inGasStation, underGasCanopy, buildGasStation } from '../bogota/GasStation.js';
 import { buildMetroBogota } from '../bogota/MetroBogota.js';
+import { buildNorthZones } from '../bogota/NorthZones.js';
 import { buildD69Store } from '../bogota/D69Store.js';
 import { buildColpatria, COLPATRIA, COLPATRIA_ANNEX, BUS_DETOUR, busPathX, southBusPathX } from '../bogota/Colpatria.js';
 import { VIADUCT, buildColpatriaViaduct, viaductHeight, viaductSurface } from '../bogota/ColpatriaViaduct.js';
@@ -251,6 +252,13 @@ export class Bogota {
     this.group.add(metro);
     if (metro.userData.colliders) {
       for (const entry of metro.userData.colliders) collisions?.colliders.push(entry);
+    }
+
+    // Sectores del Norte: Zona T, Zona G y Parque de la 93
+    const northZones = buildNorthZones();
+    this.group.add(northZones);
+    if (northZones.userData.colliders) {
+      for (const entry of northZones.userData.colliders) collisions?.colliders.push(entry);
     }
     const parks = [
       { x0: WX(29.5), x1: WX(37.5), z0: WZ(33.5), z1: WZ(44.5) },
@@ -1415,6 +1423,9 @@ export class Bogota {
 
   /** Zona de la ciudad en ese punto: decide qué gente anda por ahí (ver character/archetypes.js). */
   _zoneAt(x, z) {
+    if (x < 70 && z < 50) return 'parque93';
+    if (x < 70 && z >= 50 && z < 100) return 'zonaT';
+    if (x >= 260 && z >= 90 && z < 140) return 'zonaG';
     if (Math.abs(x - 75) <= 6 && z >= 10 && z <= 310) return 'metro';
     if (x >= WX(9) - 1 && x <= WX(21) + 1 && z >= WZ(17) && z <= WZ(26)) return 'cartucho';
     if (x >= WX(29) && x <= WX(38) && z >= WZ(33) && z <= WZ(45)) return 'parque';

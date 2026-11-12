@@ -1,0 +1,196 @@
+{
+  "zonaT": {
+    "nombre": "Zona T (Zona Rosa, Calle 82)",
+    "hitos": [
+      "Centro Andino",
+      "Calle Peatonal T",
+      "El Retiro",
+      "Atlantis"
+    ],
+    "layout": {
+      "callePrincipal": {
+        "nombre": "Calle 82 (Eje Peatonal)",
+        "ancho": 14,
+        "orientacion": "este_oeste"
+      },
+      "carreraCruce": {
+        "nombre": "Carrera 12A (La T)",
+        "ancho": 12,
+        "orientacion": "norte_sur"
+      },
+      "materialSuelo": "adoquin_peatonal",
+      "iluminacion": "marquesinas_y_neon",
+      "seguridad": "alta_privada",
+      "reciclajeBonus": "botellas_vidrio_licor_premium",
+      "manzanas": [
+        {
+          "nombre": "Manzana Centro Andino",
+          "niveles": 5,
+          "tipo": "mall_lujo",
+          "x": -40,
+          "z": -35,
+          "ancho": 70,
+          "largo": 65
+        },
+        {
+          "nombre": "Manzana Bares y Pubs T",
+          "niveles": 3,
+          "tipo": "restaurante_terraza",
+          "x": 45,
+          "z": -35,
+          "ancho": 60,
+          "largo": 55
+        },
+        {
+          "nombre": "Manzana El Retiro",
+          "niveles": 6,
+          "tipo": "boutiques",
+          "x": -40,
+          "z": 45,
+          "ancho": 70,
+          "largo": 60
+        },
+        {
+          "nombre": "Manzana Atlantis / Cine",
+          "niveles": 4,
+          "tipo": "comercial",
+          "x": 45,
+          "z": 45,
+          "ancho": 60,
+          "largo": 60
+        }
+      ]
+    }
+  },
+  "zonaG": {
+    "nombre": "Zona G (Distrito Gourmet, Rosales)",
+    "hitos": [
+      "Calle 69 Gourmet",
+      "Casas de Conservación",
+      "Carrera 5"
+    ],
+    "layout": {
+      "callePrincipal": {
+        "nombre": "Calle 69A Gourmet",
+        "ancho": 10,
+        "orientacion": "este_oeste"
+      },
+      "carreraCruce": {
+        "nombre": "Carrera 5 Rosales",
+        "ancho": 11,
+        "orientacion": "norte_sur"
+      },
+      "materialSuelo": "asfalto_arbolado_adoquin",
+      "iluminacion": "farolas_calidas_ambar",
+      "seguridad": "vigilancia_residencial",
+      "reciclajeBonus": "sobras_gourmet_limpias",
+      "manzanas": [
+        {
+          "nombre": "Casas Inglesas Gastronómicas",
+          "niveles": 2,
+          "tipo": "ladrillo_ingles",
+          "x": -35,
+          "z": -30,
+          "ancho": 55,
+          "largo": 50
+        },
+        {
+          "nombre": "Restaurantes Alta Cocina",
+          "niveles": 3,
+          "tipo": "patrimonio_conservacion",
+          "x": 35,
+          "z": -30,
+          "ancho": 55,
+          "largo": 50
+        },
+        {
+          "nombre": "Residencial Rosales",
+          "niveles": 4,
+          "tipo": "residencial_lujo",
+          "x": -35,
+          "z": 35,
+          "ancho": 55,
+          "largo": 50
+        },
+        {
+          "nombre": "Bistró y Cafés Especialidad",
+          "niveles": 2,
+          "tipo": "ladrillo_chimenea",
+          "x": 35,
+          "z": 35,
+          "ancho": 55,
+          "largo": 50
+        }
+      ]
+    }
+  },
+  "parque93": {
+    "nombre": "Parque de la 93 (Chicó)",
+    "hitos": [
+      "Parque Central de la 93",
+      "Pérgolas y Escultura",
+      "Edificios Corporativos"
+    ],
+    "layout": {
+      "parqueCentral": {
+        "nombre": "Parque de la 93",
+        "x": 0,
+        "z": 0,
+        "ancho": 80,
+        "largo": 110,
+        "elementos": [
+          "escultura_metalica",
+          "fuente_iluminada",
+          "pergolas_modernas",
+          "urapanes_centenarios"
+        ]
+      },
+      "callePerimetro": {
+        "nombre": "Carrera 11A / Calle 93A",
+        "ancho": 12
+      },
+      "materialSuelo": "senderos_adoquin_y_pasto",
+      "iluminacion": "postes_modernos_led",
+      "seguridad": "patrullaje_frecuente",
+      "reciclajeBonus": "carton_embalaje_oficinas",
+      "manzanas": [
+        {
+          "nombre": "Torre Corporativa Vidrio Norte",
+          "niveles": 12,
+          "tipo": "curtain_wall_espejado",
+          "x": -55,
+          "z": -75,
+          "ancho": 70,
+          "largo": 35
+        },
+        {
+          "nombre": "Franja Gastronómica Norte",
+          "niveles": 3,
+          "tipo": "terrazas_juanvaldez",
+          "x": 30,
+          "z": -75,
+          "ancho": 60,
+          "largo": 35
+        },
+        {
+          "nombre": "Edificio Empresarial Sur",
+          "niveles": 14,
+          "tipo": "vidrio_acero",
+          "x": -55,
+          "z": 75,
+          "ancho": 70,
+          "largo": 35
+        },
+        {
+          "nombre": "Cafés y Bares Perímetro Sur",
+          "niveles": 3,
+          "tipo": "restaurantes_plaza",
+          "x": 30,
+          "z": 75,
+          "ancho": 60,
+          "largo": 35
+        }
+      ]
+    }
+  }
+}

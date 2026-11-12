@@ -1400,6 +1400,10 @@ void UIManager::RenderHUD(float dt, const glm::vec3& playerPos, Camera& camera, 
                     ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.78f, 0.84f, 0.95f, 0.65f));
                     ImGui::TextWrapped("Resolución interna: baja 0,75×, media 1×, alta 1,25×. El panel de rendimiento muestra el efecto en los FPS.");
                     ImGui::PopStyleColor();
+                    const char* fsrEnv = std::getenv("BAZUKO_FSR_MODE");
+                    const int mode = fsrEnv ? std::clamp(std::atoi(fsrEnv), 0, 2) : 2;
+                    static const char* const fsrStatus[3] = {"Escalado: Bilineal estándar", "Escalado: AMD CAS activo", "Escalado: AMD FidelityFX FSR 1.0 + CAS activo"};
+                    ImGui::TextColored(ImVec4(0.38f, 0.88f, 0.52f, 0.95f), "%s", fsrStatus[mode]);
                 }
                 SignUI::EndSection();
 
