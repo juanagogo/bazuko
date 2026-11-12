@@ -295,8 +295,8 @@ export class Bogota {
       craft:  { x: WX(16.5), z: WZ(24.5) },
       shop:   { x: WX(34), z: WZ(29) },        // andén de la Calle 9, de espaldas a la manzana
       comedor: { x: WX(30), z: WZ(33) },      // comedor comunitario junto al parque
-      residencia: { x: 102.0, z: 71.0, rot: 0 },   // residencias y piezas seguras (junto a la tienda La Esquinita)
-      prostibulo: { x: 116.5, z: 78.0, rot: -Math.PI / 2 }    // callejón rojo / zona de tolerancia cerca al parque y tienda
+      residencia: { x: 96.0, z: 70.2, rot: 0 },   // residencias y piezas seguras (andén norte de Calle 9, fachada de edificio)
+      prostibulo: { x: 114.5, z: 70.2, rot: 0 }   // zona roja (andén norte de Calle 9, esquina de edificio junto al callejón)
     };
     this.isNearReserved = (x, z, dist = 6) =>
       Object.values(this.reserved).some((r) => Math.hypot(x - r.x, z - r.z) < dist);

@@ -96,5 +96,11 @@ export class ResidenciaElCarmen {
   }
 
   update() {}
+
+  interactDistance(playerPos) {
+    if (!this.group) return Infinity;
+    const doorPos = new THREE.Vector3(0, 0, 0.4).applyMatrix4(this.group.matrixWorld);
+    return Math.hypot(playerPos.x - doorPos.x, playerPos.z - doorPos.z);
+  }
 }
 

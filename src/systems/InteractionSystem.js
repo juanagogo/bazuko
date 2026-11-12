@@ -89,14 +89,15 @@ export class InteractionSystem {
     // Encontrar target más cercano
     let nearest = null;
     let nearestType = null;
-    let nearestDist = INTERACT_RANGE;
+    let nearestDist = 3.6;
 
     for (const t of this.targets) {
       // Un carro sin nada que robar ni limpiar no da aviso ni le quita el turno a lo que tenga al lado.
       if (t.stealable === false && !t.cleanable) continue;
+      const maxRange = (t.kind === 'prostibulo' || t.kind === 'residencia' || t.kind === 'comedor' || t.kind === 'shop') ? 3.0 : INTERACT_RANGE;
       // Un carro se alcanza también desde sus espejos; lo demás, desde su centro.
       const d = t.interactDistance?.(this.player.position) ?? t.position.distanceTo(this.player.position);
-      if (d < nearestDist) {
+      if (d < maxRange && d < nearestDist) {
         nearestDist = d;
         nearest = t;
         // Determinar tipo por `kind` o por métodos disponibles
