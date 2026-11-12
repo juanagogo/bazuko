@@ -34,11 +34,20 @@ export function cityMapPlan(district, tileSize = 2) {
     // Viaducto elevado de la Primera Línea del Metro sobre la Av. Caracas (x: 75)
     const puntosMetro = [];
     for (let z = 10; z <= 310; z += 2) puntosMetro.push([75, z]);
+    const estacionesMetro = [
+      { name: 'Est. Calle 93', x: 75, z: 32, w: 9, d: 24 },
+      { name: 'Est. Calle 72', x: 75, z: 115, w: 9, d: 26 },
+      { name: 'Est. Central Calle 26', x: 75, z: 193, w: 9, d: 28 },
+      { name: 'Est. San Victorino', x: 75, z: 270, w: 9, d: 24 }
+    ];
     return {
       ancho: width, desdeZ: zMin, hastaZ: zMax, T: tileSize, tipo: typeAt,
       originX: plan.originX, originZ: plan.originZ,
       viaducto: { ancho: VIADUCT.width, puntos },
-      metro: { ancho: 7, puntos: puntosMetro },
+      metro: { ancho: 7, puntos: puntosMetro, estaciones: estacionesMetro },
+      gasStation: GAS_STATION,
+      colpatria: COLPATRIA,
+      santamaria: { x: 232, z: 220, r: 14 }
     };
   };
   return plan;
