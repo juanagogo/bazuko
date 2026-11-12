@@ -294,7 +294,7 @@ export function playBurdelAnimation(game, precioServicio = 20000) {
 
   // Título Neón Rojo
   const neonTitle = document.createElement('h2');
-  neonTitle.textContent = 'ZONA ROJA · HABITACIÓN RESERVADA';
+  neonTitle.textContent = 'ZONA ROJA - HABITACIÓN RESERVADA';
   Object.assign(neonTitle.style, {
     margin: '0',
     fontSize: 'clamp(24px, 4vw, 36px)',
@@ -317,7 +317,7 @@ export function playBurdelAnimation(game, precioServicio = 20000) {
 
   // Texto narrativo
   const textNarrative = document.createElement('p');
-  textNarrative.textContent = 'Cruzas la cortina de terciopelo rojo, dejando atrás el asfalto helado de la Carrera 10...';
+  textNarrative.textContent = 'Cruza la cortina de terciopelo rojo, dejando atrás el asfalto helado de la Carrera 10...';
   Object.assign(textNarrative.style, {
     fontSize: 'clamp(17px, 2.4vw, 21px)',
     lineHeight: '1.45',
@@ -342,7 +342,7 @@ export function playBurdelAnimation(game, precioServicio = 20000) {
   setTimeout(() => {
     textNarrative.style.opacity = '0';
     setTimeout(() => {
-      textNarrative.innerHTML = 'Entre luces tenues y música de cantina, te tomas un trago caliente.<br><span style="color:#f6ad55; font-size: 0.92em;">Un rato de intimidad y calor para olvidar la dureza de la calle bogotana...</span>';
+      textNarrative.innerHTML = 'Entre luces tenues y música de cantina, se toma un trago caliente.<br><span style="color:#f6ad55; font-size: 0.92em;">Un rato de intimidad y calor para olvidar la dureza de la calle bogotana...</span>';
       textNarrative.style.opacity = '1';
 
       if (game.clock && game.sceneMgr) {
@@ -364,7 +364,7 @@ export function playBurdelAnimation(game, precioServicio = 20000) {
         if (game.stats) game.stats.dinero = Math.max(0, game.stats.dinero - robado);
         neonTitle.style.color = '#ef4444';
         neonTitle.style.textShadow = '0 0 12px #ef4444';
-        textNarrative.innerHTML = `<strong style="color: #f87171; font-size: 1.05em;">¡Emboscada al salir por el callejón!</strong><br>Dos tipos con chuzo te acorralaron y te esculcaron los bolsillos. Perdiste ${cop(robado)}.`;
+        textNarrative.innerHTML = `<strong style="color: #f87171; font-size: 1.05em;">¡Emboscada al salir por el callejón!</strong><br>Dos tipos con chuzo lo acorralaron y le esculcaron los bolsillos. Perdió ${cop(robado)}.`;
         game.audio?.play?.('empty');
       } else {
         if (game.stats) {
@@ -375,7 +375,7 @@ export function playBurdelAnimation(game, precioServicio = 20000) {
         }
         neonTitle.style.color = '#38bdf8';
         neonTitle.style.textShadow = '0 0 12px #38bdf8';
-        textNarrative.innerHTML = '<strong style="color: #38bdf8; font-size: 1.05em;">Servicio cumplido.</strong><br>Sales descansado y aliviado al andén, aunque con el cuerpo pidiendo comida y agua.';
+        textNarrative.innerHTML = '<strong style="color: #38bdf8; font-size: 1.05em;">Servicio cumplido.</strong><br>Sale descansado y aliviado al andén, aunque con el cuerpo pidiendo comida y agua.';
         game.audio?.play?.('treasure');
       }
       textNarrative.style.opacity = '1';
@@ -406,7 +406,7 @@ export function openProstibulo(game) {
       el('ul', { class: 'comedor-box__beneficios' },
         el('li', { text: '+40 Energía (desahogo y descanso)' }),
         el('li', { text: '+20 Ánimo y salud mental' }),
-        el('li', { text: '-25 Hambre y -25 Sed (desgaste físico)' }),
+        el('li', { text: 'Baja 25 de hambre y 25 de sed por desgaste físico' }),
         el('li', { text: 'Peligro: 20% riesgo de emboscada o robo en el callejón' })
       )
     );
@@ -428,7 +428,7 @@ export function openProstibulo(game) {
   };
 
   game.menu.open({
-    title: 'Callejón Rojo · Zona de Tolerancia',
+    title: 'Callejón Rojo - Zona de Tolerancia',
     sub: 'Noche, luces de neón y compañía en el centro.',
     ic: 'star',
     render

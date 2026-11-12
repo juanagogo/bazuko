@@ -1438,6 +1438,9 @@ export class Bogota {
       { at: [110.2, 101.5], facing: 0.8, stance: 'acurrucado', arquetipo: 'habitante' },
       { at: [106.8, 92.4], facing: Math.PI / 2, stance: 'pedir', arquetipo: 'habitante' },
       { at: [114.2, 48.0], facing: -Math.PI / 2, stance: 'fumar-quieto', arquetipo: 'habitante' },
+      // Zona Roja / Carrera 10: dos personajes reales en el andén bajo la luz roja de neón
+      { at: [118.2, 64.2], facing: Math.PI / 2, stance: 'fumar-quieto', arquetipo: 'vendedor', alternas: ['fumar-quieto', 'brazos-cruzados', 'celular'] },
+      { at: [118.2, 66.8], facing: Math.PI / 2, stance: 'celular', arquetipo: 'oficinista', alternas: ['celular', 'mirar-izquierda', 'fumar-quieto'] },
       // Entrada del Portal: quien pide contra el muro y dos que esperan en el andén de enfrente.
       { at: [54.6, 2.6], facing: Math.PI / 2, stance: 'pedir', arquetipo: 'habitante' },
       { at: [94.2, 3.2], facing: -.7, stance: 'hablar', arquetipo: 'oficinista', alternas: TALK, pareja: 1 },

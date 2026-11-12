@@ -378,7 +378,7 @@ export class InteractionSystem {
         this.stats.salud = Math.max(1, (this.stats.salud || 100) - 10);
         this.audio?.play('damage');
         window.dispatchEvent(new CustomEvent('toast', {
-          detail: { text: 'Comiste sobras dañadas de la basura... Te dio intoxicación (-10 salud).', type: 'warn' }
+          detail: { text: 'Comiste sobras dañadas de la basura... Te dio intoxicación (pierdes 10 de salud).', type: 'warn' }
         }));
       }
 
