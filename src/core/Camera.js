@@ -71,7 +71,8 @@ export class CameraRig {
 
   orbit(dx, dy) {
     this.yaw -= dx * 0.005;
-    this.pitch = THREE.MathUtils.clamp(this.pitch + dy * 0.005, 0.05, 0.65);
+    // Rango vertical extendido: permite mirar ampliamente hacia arriba (hasta ~-72°) y hacia abajo
+    this.pitch = THREE.MathUtils.clamp(this.pitch + dy * 0.005, -1.25, 0.95);
     this._targetRoll = THREE.MathUtils.clamp(-dx * 0.0004, -0.022, 0.022);
   }
 
@@ -180,7 +181,7 @@ export class CameraRig {
     const look = input.look ?? { x: 0, y: 0 };
     this.orbit(
       ((input.isDown('ArrowRight') ? 1 : 0) - (input.isDown('ArrowLeft') ? 1 : 0) + look.x) * dt * 250,
-      ((input.isDown('ArrowDown') ? 1 : 0) - (input.isDown('ArrowUp') ? 1 : 0) + look.y) * dt * 180
+      ((input.isDown('ArrowDown') ? 1 : 0) - (input.isDown('ArrowUp') ? 1 : 0) + look.y) * dt * 220
     );
   }
 
@@ -236,15 +237,34 @@ export class CameraRig {
           distance = Math.min(distance, Math.max(0, this._look.distanceTo(this._hit) - 0.05));
         }
       }
+      // Evita que la cámara traspase el nivel del suelo al inclinar la vista hacia arriba
+      if (this._direction.y < -0.01) {
+        const floorY = (targetPos.y ?? 0) + 0.25;
+        const maxFloorDist = (floorY - this._look.y) / this._direction.y;
+        if (maxFloorDist > 0) {
+          distance = Math.min(distance, Math.max(0.35, maxFloorDist));
+        }
+      }
       // Se acerca de inmediato ante obstáculos y vuelve suavemente al alejarse.
       if (this._snap || distance < this._armDistance) this._armDistance = distance;
       else this._armDistance = THREE.MathUtils.lerp(this._armDistance, distance, 1 - Math.exp(-8 * dt));
       this.camera.position.copy(this._look).addScaledVector(this._direction, this._armDistance);
+      // Salvaguarda adicional: la altura mínima de la cámara nunca traspasa el pavimento
+      const minCamY = (targetPos.y ?? 0) + 0.22;
+      if (this.camera.position.y < minCamY) {
+        this.camera.position.y = minCamY;
+      }
     }
     this.insideBody = this.mode === 'third-person' && this._armDistance < (this.insideBody ? INSIDE_BODY_OUT : INSIDE_BODY_IN);
     // Orientación definida incluso si un obstáculo obliga a acercarse hasta el punto de mira.
     this._desired.copy(this._look);
-    if (this.mode === 'third-person') this._desired.addScaledVector(this._direction, -1);
+    if (this.mode === 'third-person') {
+      this._desired.addScaledVector(this._direction, -1);
+      // Al mirar pronunciadamente hacia arriba, elevar el foco para despejar al personaje y contemplar rascacielos
+      if (this.pitch < 0) {
+        this._desired.y += Math.abs(this.pitch) * 0.8;
+      }
+    }
     this.camera.lookAt(this._desired);
     if (this.mode === 'third-person' && dt > 0) {
       this._targetRoll = THREE.MathUtils.lerp(this._targetRoll, 0, 1 - Math.exp(-7 * dt));
