@@ -3,7 +3,7 @@ import { CARRERAS, CALLES, CARACAS, STREET_X, STREET_Z, SIDEWALK_TILES } from '.
 import { paintLakePark } from './LakePark.js';
 import { paintGasStation } from './GasStation.js';
 import { paintD69Store } from './D69Store.js';
-import { paintColpatria } from './Colpatria.js';
+import { paintColpatria, paintColpatriaTower } from './Colpatria.js';
 import { paintViaductClearance, paintViaductGardens } from './ColpatriaViaduct.js';
 import { paintTerminalEntrance } from './TransitTerminal.js';
 import { BASE_CITY_WIDTH, CARRERA_5, EAST_CITY_WIDTH, paintEastCity } from './EastZones.js';
@@ -24,7 +24,7 @@ export const EXTENSION_PARKS = [
 
 /** Añade barrios al oriente y al sur sin desplazar el centro existente. */
 export function expandCity(center) {
-  return paintEastCity(expandBaseCity(center));
+  return paintColpatriaTower(paintEastCity(expandBaseCity(center)));
 }
 
 // El mapa de antes de la Candelaria se calcula igual que siempre: así cada tile con X menor
