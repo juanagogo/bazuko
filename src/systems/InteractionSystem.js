@@ -131,8 +131,13 @@ export class InteractionSystem {
       }
     }
 
+    // === Hurgar comida (Q) en basura ===
+    if (nearestType === 'pickup' && input.consumePress('KeyQ')) {
+      this._scavengeFood(nearest);
+    }
+
     // === Selección de basura (mantener Q) ===
-    if (nearestType === 'pickup' && input.isDown('KeyQ')) {
+    if (nearestType === 'pickup' && input.isDown('KeyQ') && !input.consumePress('KeyQ')) {
       if (!this.isHoldingQ) {
         this.isHoldingQ = true;
         if (nearest.startSorting) {
@@ -346,6 +351,52 @@ export class InteractionSystem {
     window.dispatchEvent(new CustomEvent('pickup', {
       detail: { added, rare: collectedRare, sorted: result.sorted }
     }));
+  }
+
+  _scavengeFood(target) {
+    if (!target || typeof target.harvest !== 'function') return;
+
+    this.player?.playAction?.('buscar', 1.2);
+
+    // 75% probabilidad de hallar restos o comida
+    const foundFood = Math.random() < 0.75;
+
+    if (foundFood) {
+      // 55% comida buena / 45% comida dañada o descompuesta
+      const isGood = Math.random() < 0.55;
+
+      if (isGood) {
+        this.stats.hambre = Math.min(100, (this.stats.hambre || 0) + 30);
+        this.stats.energia = Math.min(100, (this.stats.energia || 0) + 15);
+        this.audio?.play('treasure');
+        window.dispatchEvent(new CustomEvent('toast', {
+          detail: { text: '¡Encontraste comida buena en la basura! (+30 hambre, +15 energía).', type: 'rare' }
+        }));
+      } else {
+        this.disease?.infect?.('intoxicacion');
+        this.stats.salud = Math.max(1, (this.stats.salud || 100) - 10);
+        this.audio?.play('damage');
+        window.dispatchEvent(new CustomEvent('toast', {
+          detail: { text: 'Comiste sobras dañadas de la basura... Te dio intoxicación (-10 salud).', type: 'warn' }
+        }));
+      }
+
+      // Guardar una porción de sobrados en el inventario si hay espacio
+      const sobradosItem = ITEMS['sobrados'];
+      if (sobradosItem && this.inventory.add(sobradosItem)) {
+        window.dispatchEvent(new CustomEvent('toast', {
+          detail: { text: 'Guardaste una porción de sobrados en el costal.', type: 'info' }
+        }));
+      }
+    } else {
+      this.audio?.play('empty');
+      window.dispatchEvent(new CustomEvent('toast', {
+        detail: { text: 'Hurgaste entre los desperdicios pero no había nada comestible.', type: 'info' }
+      }));
+    }
+
+    // Consumir el contenedor o bolsa de basura
+    target.harvest?.(false, false, {});
   }
 
   _stealCar(target) {

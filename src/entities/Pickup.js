@@ -158,7 +158,7 @@ export class Pickup {
       items.push(this._weightedPick(LOOT_COMMON));
     }
     // Ocasionalmente se rescatan sobrados de comida de la basura
-    if (!pending && Math.random() < 0.35) {
+    if (!pending && Math.random() < 0.60) {
       items.push('sobrados');
     }
 

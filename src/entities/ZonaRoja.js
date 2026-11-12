@@ -60,6 +60,25 @@ export class ZonaRoja {
     sign.position.set(0, 2.85, 0.24);
     this.group.add(sign);
 
+    // Columna de luz roja / Baliza de neón visible en el cielo desde toda la manzana
+    const redBeacon = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.08, 0.08, 14, 8),
+      new THREE.MeshBasicMaterial({ color: 0xff0055, transparent: true, opacity: 0.85 })
+    );
+    redBeacon.position.set(0, 9, 0.4);
+    this.group.add(redBeacon);
+
+    const redBeaconOrb = new THREE.Mesh(
+      new THREE.SphereGeometry(0.35, 12, 12),
+      new THREE.MeshBasicMaterial({ color: 0xff0055 })
+    );
+    redBeaconOrb.position.set(0, 16, 0.4);
+    this.group.add(redBeaconOrb);
+
+    const tallLight = new THREE.PointLight(0xff0055, 3.5, 22);
+    tallLight.position.set(0, 4, 1.2);
+    this.group.add(tallLight);
+
     // ===== Personaje 3D: Trabajadora de la zona roja parada afuera =====
     this.character = this._buildWorkerFigure(lam);
     this.character.position.set(0.9, 0, 0.6);
@@ -148,3 +167,4 @@ export class ZonaRoja {
     }
   }
 }
+

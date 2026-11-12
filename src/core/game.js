@@ -818,6 +818,7 @@ export class Game {
         this.sceneMgr.scene,
         new THREE.Vector3(prosPos.x, 0, prosPos.z)
       );
+      if (prosPos.rot !== undefined) this.prostibulo.group.rotation.y = prosPos.rot;
       this.prostibulo.group.position.y = district.getGroundHeightUnder?.(this.prostibulo.group)
         ?? district.getGroundHeight?.(prosPos.x, prosPos.z) ?? 0;
       this.interaction.register(this.prostibulo);

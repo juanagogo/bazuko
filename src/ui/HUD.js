@@ -61,7 +61,7 @@ export function piezasDelPrompt(texto) {
 export function textoDelPrompt(interaction, inventory) {
   if (!interaction?.currentTarget && !interaction?.stealPrompt) return '';
   const type = interaction.currentTargetType;
-  if (type === 'pickup') return '[E] Recoger basura · [Mantener Q] Seleccionar';
+  if (type === 'pickup') return '[E] Recoger reciclaje · [Q] Hurgar comida';
   if (type === 'car') {
     const car = interaction.currentTarget;
     const canSteal = car?.stealable !== false;
@@ -106,6 +106,7 @@ export function textoDelPrompt(interaction, inventory) {
 
 // Con el dedo la cinta va a un lado del personaje, y ahí no cabe la frase entera: lo mismo, en corto.
 const VERBO_CORTO = [
+  [/^Recoger reciclaje/, 'Reciclar / Comer'],
   [/^Robar retrovisor/, 'Robar retrovisor'],
   [/^Limpiar parabrisas/, 'Limpiar vidrio'],
   [/^Darle pan o atún/, 'Darle comida'],

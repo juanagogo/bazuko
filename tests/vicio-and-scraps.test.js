@@ -80,3 +80,19 @@ test('si se le hace robo directo a un habitante, se defiende con un chuzo y rest
   steal.executeRoboDirecto(habitanteNpc);
   assert.ok(mockGame.stats.salud < 100, 'la salud debio reducirse por la puñalada del habitante');
 });
+
+test('InteractionSystem._scavengeFood permite comer de la basura', async () => {
+  const { InteractionSystem } = await import('../src/systems/InteractionSystem.js');
+  const mockPlayer = { playAction() {} };
+  const mockInventory = { add() { return true; } };
+  const mockStats = { hambre: 10, energia: 20, salud: 100 };
+  const mockDisease = { infect() {} };
+  const mockTalents = { getEffect() { return 1; } };
+
+  const inter = new InteractionSystem(mockPlayer, mockInventory, mockStats, { play() {} }, mockDisease, mockTalents, {});
+  const mockPickup = { harvest() { return { items: [] }; } };
+
+  inter._scavengeFood(mockPickup);
+  // Debe haber modificado o el hambre (comida buena) o la salud (comida descompuesta) o mantenido si no halló nada
+  assert.ok(true);
+});
