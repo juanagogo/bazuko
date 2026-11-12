@@ -153,6 +153,14 @@ const DROP_TURNS = [0, Math.PI / 2, -Math.PI / 2, Math.PI]; // si en ninguno cab
 const _q1 = new THREE.Quaternion(), _q2 = new THREE.Quaternion();
 const _xAxis = new THREE.Vector3(1, 0, 0);
 const _yAxis = new THREE.Vector3(0, 1, 0);
+// Conversando: a qué distancia da por llegado a su sitio, qué tan rápido se voltea hacia el otro y hasta dónde gira
+// la cabeza para mirarlo (más que al jugador: a quien le hablan lo miran de frente).
+const TALK = { arrive: .08, turn: 4, lookMax: 1.25 };
+// s: en una pareja fija, cuánto tarda el otro en contestar cuando uno deja de hablar (entre una y dos veces esto).
+const PAIR_REPLY = .8;
+// Lluvia sin paraguas: desde qué intensidad es un aguacero (la llovizna es .3, el aguacero .72), qué parte se encoge
+// con llovizna y qué parte se cubre la cabeza con un aguacero.
+const RAIN_REACTION = { heavy: .5, drizzleHunch: .3, heavyCover: .6 };
 // Quien está así no mira a nadie: duerme o tiene la vista en lo suyo.
 const NO_GLANCE = new Set(['dormido', 'acurrucado', 'celular', 'telefono']);
 // De pie, mientras se le pasa el susto: nadie se queda tieso esperando a que el jugador se vaya.
@@ -238,6 +246,7 @@ export class Npc {
     this._poseStale = false;
     this._posedStance = null;  // la postura que ya tiene encima, aunque esté lejos y no se anime
     this._raining = false;
+    this._rain = 0;
     this._playerDist = Infinity;
     this._noseTimer = 0;
     this._noseCooldown = Math.random() * 3;
@@ -457,6 +466,8 @@ export class Npc {
       return;
     }
     if (this._riseLeft > 0) return; // se está parando de donde estaba agachado
+    // Conversando (NpcConversations): se acerca a su sitio frente al otro y desde ahí lo mira.
+    if (this.talk) { this._converse(dt); return; }
 
     if (this.fijo && this._stayAtSpot(dt)) return;
     if (!this.navigation && this.wander <= 0 && !this.fijo) return;
@@ -497,6 +508,34 @@ export class Npc {
       this.root.rotation.y += wrapAngle(Math.atan2(d.x, d.z) - this.root.rotation.y) * Math.min(1, dt * 5);
       if (step >= dist) this._advanceTarget();
     }
+  }
+
+  /**
+   * Va a paso normal hasta `talk.spot`, a distancia de conversación del otro, y queda de frente a él. Si algo le corta
+   * el paso se queda donde está: no rodea ni sale del andén por una charla. El fijo no se mueve de su sitio.
+   */
+  _converse(dt) {
+    const talk = this.talk, other = talk.partner.position;
+    if (!talk.ready) {
+      const spot = talk.spot;
+      const d = spot && !this.fijo ? this._direction.set(spot.x - this.position.x, 0, spot.z - this.position.z) : null;
+      const dist = d ? d.length() : 0;
+      if (dist < TALK.arrive) talk.ready = true;
+      else {
+        const step = Math.min(dist, this._paceNow() * dt);
+        const next = this._nextPosition.copy(this.position).addScaledVector(d.normalize(), step);
+        if (!this._canStep(next.x, next.z)) talk.ready = true;
+        else {
+          next.y = this.groundHeight(next.x, next.z);
+          this.position.copy(next);
+          this.moving = step > 0;
+          this.root.rotation.y += wrapAngle(Math.atan2(d.x, d.z) - this.root.rotation.y) * Math.min(1, dt * 5);
+          return;
+        }
+      }
+    }
+    if (this.fijo) return;
+    this.root.rotation.y += wrapAngle(Math.atan2(other.x - this.position.x, other.z - this.position.z) - this.root.rotation.y) * Math.min(1, dt * TALK.turn);
   }
 
   /** Huye derecho; si se topa, gira a un lado que esté libre. */
@@ -719,7 +758,13 @@ export class Npc {
       this.root.rotation.y += wrapAngle(fijo.facing - this.root.rotation.y) * Math.min(1, dt * CONDUCT.turn);
       if (fijo.alternas && (fijo.nextPose -= dt) <= 0) {
         fijo.nextPose = CONDUCT.alternateMin + Math.random() * CONDUCT.alternateExtra;
-        this.stance = fijo.alternas[Math.floor(Math.random() * fijo.alternas.length)];
+        const was = this.stance;
+        this.stance = this._pairTurn(fijo.alternas[Math.floor(Math.random() * fijo.alternas.length)]);
+        // Terminó de hablar: al rato le contesta el otro, no se quedan los dos callados mirándose.
+        const other = fijo.pareja;
+        if (was === 'hablar' && this.stance !== 'hablar' && other?.fijo && !other.fijo.out) {
+          other.fijo.nextPose = Math.min(other.fijo.nextPose, PAIR_REPLY + Math.random() * PAIR_REPLY);
+        }
       }
       return true;
     }
@@ -738,6 +783,16 @@ export class Npc {
     this.stance = null;
     if (!this.target) this.fijo = null; // sin camino a casa: sigue como cualquier peatón
     return false;
+  }
+
+  /**
+   * En una pareja que conversa se habla por turnos: si el otro ya está gesticulando, este escucha con otra de sus
+   * posturas. Sin pareja, o con el otro fuera de su sitio, la postura queda como viene.
+   */
+  _pairTurn(stance) {
+    const other = this.fijo?.pareja;
+    if (stance !== 'hablar' || !other?.fijo || other.fijo.out || other.stance !== 'hablar') return stance;
+    return this.fijo.alternas?.find(name => name !== 'hablar') ?? stance;
   }
 
   /** Esperando a que se vaya el jugador tampoco se queda tieso: cambia de postura, como cuando está en su sitio. */
@@ -773,7 +828,7 @@ export class Npc {
     fijo.out = false;
     fijo.dodging = false;
     this.position.copy(this.home);
-    this.stance = fijo.stance;
+    this.stance = this._pairTurn(fijo.stance);
     if (fijo.low) this.style = null;
     this.wait = 0;
   }
@@ -783,11 +838,31 @@ export class Npc {
     const person = this.person;
     if (!person || LOW_STANCES.has(this.stance)) return this.stance;
     if (this._noseTimer > 0) return 'nariz';
+    // Conversando ya en su sitio: gesticula al hablar y escucha a su manera. Con paraguas bajo la lluvia, lo conserva.
+    const talk = this.talk;
+    if (talk?.ready && talk.stance && !(this._raining && person.paraguas !== null)) return talk.stance;
     if (this._raining && !this.isVendor && !(this.fijo?.techo && !this.fijo.out)) {
       if (person.paraguas !== null) return 'paraguas';
-      if (this.moving || this.fijo) return person.lluvia ?? this.stance;
+      if (this.moving || this.fijo) return this._rainReaction() ?? this.stance;
     }
     return this.stance;
+  }
+
+  /**
+   * Sin paraguas, cada quien reacciona según lo que cae y a su manera: con llovizna casi nadie se pone la mano en la
+   * cabeza (unos pocos se encogen de frío); con aguacero la mayoría se cubre y el resto se encoge. Quien está en su
+   * sitio no se cubre por una llovizna. Las manos ocupadas con una carga no se juntan al frente.
+   */
+  _rainReaction() {
+    const person = this.person;
+    const temper = this._rainTemper ??= Math.random();
+    const handsFree = !person.style?.carry;
+    if (this._rain < RAIN_REACTION.heavy) {
+      if (this.fijo || temper >= RAIN_REACTION.drizzleHunch) return null;
+      return person.lluvia === 'encogido' || handsFree ? 'encogido' : null;
+    }
+    if (this.fijo) return handsFree ? 'encogido' : person.lluvia;
+    return temper < RAIN_REACTION.heavyCover || !handsFree ? person.lluvia : 'encogido';
   }
 
   /** Dónde está el jugador: una sola medida por cuadro para todo lo que la pregunta. */
@@ -820,6 +895,8 @@ export class Npc {
   /** Lluvia, olor y jugador cerca: lo que cambia la conducta aunque no le toque animarse. */
   _updateConduct(dt, ctx) {
     this._raining = !!ctx.isRaining;
+    // Sin intensidad (pruebas, sala) se toma como lluvia fuerte: la reacción de siempre.
+    this._rain = this._raining ? (ctx.rain ?? 1) : 0;
     this._measurePlayer(ctx);
     if (this.fijo && ctx.chasers?.length) this._dodgeChasers(ctx.chasers);
     // Empezó a llover con él parado: sin paraguas se va pronto.
@@ -841,8 +918,15 @@ export class Npc {
 
   /** Giro de cabeza hacia el jugador cercano, solo con el modelo completo. */
   _glanceAt(ctx, stance) {
-    if (!this.person || !ctx.player || this.character !== this.fullChar || !(this._playerDist < CONDUCT.glance)) return 0;
+    if (!this.person || this.character !== this.fullChar) return 0;
     if (this.koState || this.fleeTimer > 0 || this.action || NO_GLANCE.has(stance)) return 0;
+    // Conversando mira a quien le habla, no al jugador: la cabeza completa lo que el cuerpo no ha girado.
+    const partner = this.talk?.partner?.position;
+    if (partner) {
+      const toPartner = wrapAngle(Math.atan2(partner.x - this.position.x, partner.z - this.position.z) - this.root.rotation.y);
+      return Math.max(-TALK.lookMax, Math.min(TALK.lookMax, toPartner));
+    }
+    if (!ctx.player || !(this._playerDist < CONDUCT.glance)) return 0;
     const angle = wrapAngle(Math.atan2(ctx.player.x - this.position.x, ctx.player.z - this.position.z) - this.root.rotation.y);
     if (Math.abs(angle) > CONDUCT.glanceBehind) return 0;
     return Math.max(-CONDUCT.glanceMax, Math.min(CONDUCT.glanceMax, angle));
@@ -912,6 +996,7 @@ export class Npc {
       }
     }
 
+    this._tickBubble(dt);
     if (!this.character) return;
 
     const dist = ctx.player ? this._playerDist : 0;
@@ -1449,18 +1534,20 @@ export class Npc {
     empezarFrase(this);
   }
 
-  _updateSpeech(dt, ctx) {
-    if (this._bubbleTimer > 0) {
-      this._bubbleTimer -= dt;
-      if (this._bubbleTimer <= 0 && this._bubbleEl) {
-        this._bubbleEl.remove();
-        this._bubbleEl = null;
-        acabarFrase(this);
-      }
+  /** La burbuja se acaba a su tiempo aunque quien habló haya salido de cámara: si no, queda flotando para siempre. */
+  _tickBubble(dt) {
+    if (!(this._bubbleTimer > 0)) return;
+    this._bubbleTimer -= dt;
+    if (this._bubbleTimer <= 0 && this._bubbleEl) {
+      this._bubbleEl.remove();
+      this._bubbleEl = null;
+      acabarFrase(this);
     }
+  }
 
+  _updateSpeech(dt, ctx) {
     if (!ctx.player || this.koState || this.action === 'recibirGolpe' || this._counter || this.panicTimer > 0) return;
-    if (this.stance === 'dormido') return;
+    if (this.stance === 'dormido' || this.talk) return; // conversando le habla al otro, no al jugador
     const now = performance.now();
 
     if (this._playerDist < 2.8 && (now - this._lastSpokenTime > 14000)) {
