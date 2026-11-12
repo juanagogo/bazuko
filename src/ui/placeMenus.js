@@ -162,23 +162,34 @@ export function openCambuche(game, tab = 'armar') {
     }));
     const body = el('div', { class: 'shelter-menu' }, shelterPreview(game), rows);
     const night = game.clock.isNight;
+    const hasCarton = inventory.count('carton') > 0;
     const foot = [
-      el('span', { class: 'menu__money', text: game.built.base ? 'Dormir guarda la partida.' : 'Sin base no se puede dormir.' }),
+      el('span', {
+        class: 'menu__money',
+        text: game.built.base
+          ? 'Cambuche armado: duermes protegido de la intemperie.'
+          : (hasCarton ? 'Puedes dormir improvisado sobre 1 cartón o armar la base con 8 cartones.' : 'Recolecta 8 cartones de la basura para armar la base o consigue 1 para dormir improvisado.')
+      }),
       button('Cambiar ropa', {
         onClick: () => {
           game.menu.close();
           game.openWardrobe?.();
         }
       }),
-      button(night ? `Dormir hasta las ${hora(6)}` : 'Echar una siesta (3 h)', {
-        primary: true,
-        disabled: !game.built.base,
-        onClick: () => { game.menu.close(); game.sleep(); }
-      })
+      !game.built.base && hasCarton
+        ? button('Dormir sobre 1 cartón', {
+            primary: true,
+            onClick: () => { game.menu.close(); game.sleep({ carton: true }); }
+          })
+        : button(night ? `Dormir hasta las ${hora(6)}` : 'Echar una siesta (3 h)', {
+            primary: true,
+            disabled: !game.built.base,
+            onClick: () => { game.menu.close(); game.sleep(); }
+          })
     ];
     return { body, foot, tabs: solapas() };
   };
-  game.menu.open({ title: 'Mi cambuche', sub: 'Los materiales salen de la basura de toda la ciudad: hay para todas las mejoras.', ic: 'tent', render });
+  game.menu.open({ title: 'Mi cambuche', sub: 'Mejora tu refugio con basura (8 cartones para la base) o duerme en cualquier lado con 1 cartón [K].', ic: 'tent', render });
 }
 
 export function openComedor(game) {
@@ -226,6 +237,228 @@ export function openComedor(game) {
     title: 'Comedor Comunitario',
     sub: 'Alcaldía Mayor de Bogotá, Integración Social. Ración caliente cada 24 horas.',
     ic: 'food',
+    render
+  });
+}
+
+export function openResidencia(game) {
+  const PRECIO_PIEZA = 10000;
+  const render = () => {
+    const puedePagar = (game.stats?.dinero ?? 0) >= PRECIO_PIEZA;
+    const descP = el('p', {
+      class: 'menu__desc',
+      text: 'Residencias El Carmen: Pieza individual con cama, cobija limpia y candado. Nadie le va a robar y no le da frío ni lo molesta la policía.'
+    });
+    const detalleEl = el('div', { class: 'comedor-box' },
+      el('h4', { class: 'comedor-box__title', text: 'Noche de descanso seguro' }),
+      el('ul', { class: 'comedor-box__beneficios' },
+        el('li', { text: '+100% Energía al despertar' }),
+        el('li', { text: '+100% Salud mental restaurada' }),
+        el('li', { text: '+35 Salud recuperada' }),
+        el('li', { text: '0% Riesgo de robo o asalto' }),
+        el('li', { text: 'Protegido de la lluvia, el frío y la policía' })
+      )
+    );
+    const body = el('div', { class: 'comedor-menu' }, descP, detalleEl);
+    const foot = [
+      moneyFoot(game),
+      button(puedePagar ? `Pagar pieza (${cop(PRECIO_PIEZA)})` : 'Plata insuficiente', {
+        primary: true,
+        disabled: !puedePagar,
+        onClick: () => {
+          if ((game.stats?.dinero ?? 0) < PRECIO_PIEZA) return;
+          game.stats.dinero -= PRECIO_PIEZA;
+          game.menu.close();
+          game.sleep({ residencia: true });
+        }
+      })
+    ];
+    return { body, foot };
+  };
+
+  game.menu.open({
+    title: 'Residencias El Carmen',
+    sub: 'Piezas por noche. Privacidad, descanso seguro y agua caliente.',
+    ic: 'bed',
+    render
+  });
+}
+
+export function playBurdelAnimation(game, precioServicio = 20000) {
+  if (game._cutsceneActive || typeof document === 'undefined') return;
+  game._cutsceneActive = true;
+  game.audio?.play?.('pickup');
+
+  // Contenedor pantalla completa de la cinemática
+  const overlay = document.createElement('div');
+  overlay.id = 'burdel-cutscene';
+  Object.assign(overlay.style, {
+    position: 'fixed',
+    inset: '0',
+    zIndex: '99999',
+    background: 'radial-gradient(circle at center, #1b0714 0%, #0a0307 70%, #000000 100%)',
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: '24px',
+    color: '#f8f8f8',
+    fontFamily: "'Segoe UI', Roboto, Helvetica, Arial, sans-serif",
+    opacity: '0',
+    transition: 'opacity 0.7s ease',
+    pointerEvents: 'all',
+    userSelect: 'none'
+  });
+
+  const contentBox = document.createElement('div');
+  Object.assign(contentBox.style, {
+    maxWidth: '560px',
+    textAlign: 'center',
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'center',
+    gap: '18px'
+  });
+
+  // Título Neón Rojo
+  const neonTitle = document.createElement('h2');
+  neonTitle.textContent = 'ZONA ROJA - HABITACIÓN RESERVADA';
+  Object.assign(neonTitle.style, {
+    margin: '0',
+    fontSize: 'clamp(24px, 4vw, 36px)',
+    fontWeight: '900',
+    letterSpacing: '2px',
+    color: '#ff2a6d',
+    textShadow: '0 0 12px rgba(255, 42, 109, 0.9), 0 0 28px rgba(255, 42, 109, 0.6)',
+    textTransform: 'uppercase'
+  });
+
+  // Línea luminosa de neón
+  const neonBar = document.createElement('div');
+  Object.assign(neonBar.style, {
+    width: '120px',
+    height: '3px',
+    backgroundColor: '#ff2a6d',
+    boxShadow: '0 0 10px #ff2a6d, 0 0 20px #ff2a6d',
+    borderRadius: '2px'
+  });
+
+  // Texto narrativo
+  const textNarrative = document.createElement('p');
+  textNarrative.textContent = 'Cruza la cortina de terciopelo rojo, dejando atrás el asfalto helado de la Carrera 10...';
+  Object.assign(textNarrative.style, {
+    fontSize: 'clamp(17px, 2.4vw, 21px)',
+    lineHeight: '1.45',
+    color: '#e2e8f0',
+    minHeight: '60px',
+    margin: '0',
+    transition: 'opacity 0.4s ease'
+  });
+
+  contentBox.appendChild(neonTitle);
+  contentBox.appendChild(neonBar);
+  contentBox.appendChild(textNarrative);
+  overlay.appendChild(contentBox);
+  document.body.appendChild(overlay);
+
+  // Fade-in
+  requestAnimationFrame(() => {
+    overlay.style.opacity = '1';
+  });
+
+  // Compás 2 (2.0s): música, calor y avance de hora
+  setTimeout(() => {
+    textNarrative.style.opacity = '0';
+    setTimeout(() => {
+      textNarrative.innerHTML = 'Entre luces tenues y música de cantina, se toma un trago caliente.<br><span style="color:#f6ad55; font-size: 0.92em;">Un rato de intimidad y calor para olvidar la dureza de la calle bogotana...</span>';
+      textNarrative.style.opacity = '1';
+
+      if (game.clock && game.sceneMgr) {
+        game.clock.hour = (game.clock.hour + 1.5) % 24;
+        game.sceneMgr.setTimeOfDay(game.clock.hour, game.weather, game.clock.day);
+        game.sceneMgr.followTarget(game.player.position, game.clock.hour);
+      }
+    }, 400);
+  }, 2000);
+
+  // Compás 3 (4.2s): resolución (robo o satisfacción)
+  setTimeout(() => {
+    const isRobbed = Math.random() < 0.20;
+    textNarrative.style.opacity = '0';
+
+    setTimeout(() => {
+      if (isRobbed) {
+        const robado = Math.min(game.stats?.dinero ?? 0, Math.floor(10000 + Math.random() * 20000));
+        if (game.stats) game.stats.dinero = Math.max(0, game.stats.dinero - robado);
+        neonTitle.style.color = '#ef4444';
+        neonTitle.style.textShadow = '0 0 12px #ef4444';
+        textNarrative.innerHTML = `<strong style="color: #f87171; font-size: 1.05em;">¡Emboscada al salir por el callejón!</strong><br>Dos tipos con chuzo lo acorralaron y le esculcaron los bolsillos. Perdió ${cop(robado)}.`;
+        game.audio?.play?.('empty');
+      } else {
+        if (game.stats) {
+          game.stats.energia = Math.min(100, (game.stats.energia || 0) + 40);
+          game.stats.saludMental = Math.min(100, (game.stats.saludMental || 0) + 20);
+          game.stats.hambre = Math.max(0, (game.stats.hambre || 0) - 25);
+          game.stats.sed = Math.max(0, (game.stats.sed || 0) - 25);
+        }
+        neonTitle.style.color = '#38bdf8';
+        neonTitle.style.textShadow = '0 0 12px #38bdf8';
+        textNarrative.innerHTML = '<strong style="color: #38bdf8; font-size: 1.05em;">Servicio cumplido.</strong><br>Sale descansado y aliviado al andén, aunque con el cuerpo pidiendo comida y agua.';
+        game.audio?.play?.('treasure');
+      }
+      textNarrative.style.opacity = '1';
+    }, 400);
+  }, 4200);
+
+  // Compás 4 (6.3s): fade out y retorno
+  setTimeout(() => {
+    overlay.style.opacity = '0';
+    setTimeout(() => {
+      overlay.remove();
+      game._cutsceneActive = false;
+      game._save();
+    }, 700);
+  }, 6300);
+}
+
+export function openProstibulo(game) {
+  const PRECIO_SERVICIO = 20000;
+  const render = () => {
+    const puedePagar = (game.stats?.dinero ?? 0) >= PRECIO_SERVICIO;
+    const descP = el('p', {
+      class: 'menu__desc',
+      text: 'Callejón de la 19. Entre luces rojas y música de cantina, un rato de desahogo en la noche bogotana.'
+    });
+    const detalleEl = el('div', { class: 'comedor-box' },
+      el('h4', { class: 'comedor-box__title', text: 'Servicio en la habitación' }),
+      el('ul', { class: 'comedor-box__beneficios' },
+        el('li', { text: '+40 Energía (desahogo y descanso)' }),
+        el('li', { text: '+20 Ánimo y salud mental' }),
+        el('li', { text: 'Baja 25 de hambre y 25 de sed por desgaste físico' }),
+        el('li', { text: 'Peligro: 20% riesgo de emboscada o robo en el callejón' })
+      )
+    );
+    const body = el('div', { class: 'comedor-menu' }, descP, detalleEl);
+    const foot = [
+      moneyFoot(game),
+      button(puedePagar ? `Contratar servicio (${cop(PRECIO_SERVICIO)})` : 'Plata insuficiente', {
+        primary: true,
+        disabled: !puedePagar,
+        onClick: () => {
+          if ((game.stats?.dinero ?? 0) < PRECIO_SERVICIO) return;
+          game.stats.dinero -= PRECIO_SERVICIO;
+          game.menu.close();
+          playBurdelAnimation(game, PRECIO_SERVICIO);
+        }
+      })
+    ];
+    return { body, foot };
+  };
+
+  game.menu.open({
+    title: 'Callejón Rojo - Zona de Tolerancia',
+    sub: 'Noche, luces de neón y compañía en el centro.',
+    ic: 'star',
     render
   });
 }

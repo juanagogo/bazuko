@@ -717,7 +717,35 @@ export class Player {
     if (hit) {
       if (hit.reward > 0 && typeof this.stats?.dinero === 'number') this.stats.dinero += hit.reward;
       if (typeof this.game?.steal?.buscado === 'number') this.game.steal.buscado = Math.min(3, this.game.steal.buscado + 1);
+<<<<<<< HEAD
+      if (this.game?.activeThief && !this.game.activeThief.recovered) {
+        const th = this.game.activeThief;
+        th.recovered = true;
+        if (typeof this.stats?.dinero === 'number') this.stats.dinero += th.money;
+        if (this.inventory && Array.isArray(th.items)) {
+          for (const it of th.items) this.inventory.add(it.item, it.qty);
+        }
+        window.dispatchEvent(new CustomEvent('toast', {
+          detail: { text: `¡Le alcancé a pegar y soltó lo mío! Recuperé mi plata y cosas.`, type: 'rare' }
+        }));
+        this.game.activeThief = null;
+      }
       emit('street-fight', { attacker: this, hits: (hit.hits ?? [hit]).map((h) => h.target).filter(Boolean), weapon: this.equippedWeapon ?? null });
+=======
+      if (this.game?.activeThief && !this.game.activeThief.recovered) {
+        const th = this.game.activeThief;
+        th.recovered = true;
+        if (typeof this.stats?.dinero === 'number') this.stats.dinero += th.money;
+        if (this.inventory && Array.isArray(th.items)) {
+          for (const it of th.items) this.inventory.add(it.item, it.qty);
+        }
+        window.dispatchEvent(new CustomEvent('toast', {
+          detail: { text: `¡Le alcancé a pegar y soltó lo mío! Recuperé mi plata y cosas.`, type: 'rare' }
+        }));
+        this.game.activeThief = null;
+      }
+      emit('street-fight', { attacker: this });
+>>>>>>> pr-84
     }
     if (this.melee.active) {
       this.action = 'golpear';

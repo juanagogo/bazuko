@@ -202,6 +202,7 @@ export class Npc {
     // (escuadrón, conductor bravo) no tienen arquetipo ni conductas: los lleva su propio sistema.
     const arquetipo = opts.look || this.constructor !== Npc ? null
       : opts.arquetipo ?? (opts.gastada ? 'habitante' : pickArchetype(opts.zona));
+    this.arquetipo = arquetipo;
     const low = LOW_STANCES.has(opts.fijo?.stance);
     this.person = arquetipo ? rollPerson(arquetipo, { sinCarga: !!opts.fijo, tallaFija: opts.fijo?.stance === 'banca' }) : null;
     this.walkSpeed = opts.speed ?? this.person?.speed ?? (0.85 + Math.random() * 0.45);
@@ -672,9 +673,15 @@ export class Npc {
     return Math.hypot(player.x - this.home.x, player.z - this.home.z) < CONDUCT.spotTaken;
   }
 
-  /** Velocidad al andar: bajo la lluvia, quien no lleva paraguas apura el paso. */
+  /** Velocidad al andar: bajo la lluvia apuran el paso; en horas pico trabajadores y estudiantes andan con prisa. */
   _paceNow() {
-    return this._raining && this.person?.paraguas === null ? this.walkSpeed * this.person.correr : this.walkSpeed;
+    let speed = this.walkSpeed;
+    const hour = this._currentHour ?? 12;
+    const isRushHour = (hour >= 7 && hour <= 9) || (hour >= 18 && hour <= 20);
+    const isWorkerOrStudent = this.arquetipo === 'oficinista' || this.arquetipo === 'estudiante';
+    if (isRushHour && isWorkerOrStudent) speed *= 1.25;
+    if (this._raining && this.person?.paraguas === null) speed *= (this.person.correr ?? 1.2);
+    return speed;
   }
 
   /** El arraigo: lejos de su sitio prefiere volver, y así cada zona conserva a su gente. */
@@ -688,13 +695,19 @@ export class Npc {
   }
 
   /**
-   * Terminó un recorrido: según quién sea, se queda un rato en lo suyo o sigue. Nunca se queda parado
-   * en un cruce ni fuera de la red: ahí solo toma aire. Bajo la lluvia, sin paraguas, tampoco.
+   * Terminó un recorrido: según quién sea, se queda un rato en lo suyo o sigue. De noche, los peatones
+   * comunes no se quedan parados en la calle. Bajo la lluvia, sin paraguas, tampoco.
    */
   _takeStop() {
     this.stance = null;
     const node = this.navigation.nodes?.[this.navigation.nodeAt?.(this.position.x, this.position.z)];
     const wet = this._raining && this.person.paraguas === null;
+    const hour = this._currentHour ?? 12;
+    const isNight = hour >= 21 || hour < 5;
+    if (isNight && (this.arquetipo === 'oficinista' || this.arquetipo === 'estudiante' || this.arquetipo === 'senora')) {
+      this.wait = CONDUCT.breathMin;
+      return;
+    }
     if (!node || node.crossing || wet || Math.random() >= this.person.pausa) {
       this.wait = CONDUCT.breathMin + Math.random() * CONDUCT.breathExtra;
       return;
@@ -958,6 +971,7 @@ export class Npc {
    * @param {{ player?: THREE.Vector3, frustum?: THREE.Frustum }} ctx
    */
   update(dt, ctx = {}) {
+    this._currentHour = ctx.hour ?? 12;
     if (this._riseLeft > 0) this._riseLeft = Math.max(0, this._riseLeft - dt);
     if (this.person) this._updateConduct(dt, ctx);
     else this._measurePlayer(ctx);

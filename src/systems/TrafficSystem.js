@@ -303,6 +303,7 @@ export class TrafficSystem {
   }
 
   _canWitness(vehicle, playerPosition) {
+    if (this.isPlayerHidden || this.game?.isPlayerHidden) return false;
     if (Math.abs((playerPosition.y ?? 0) - vehicle.car.position.y) > CHASE_HEIGHT_TOLERANCE) return false;
     if (!hasClearCombatLine({ from: vehicle.car.position, to: playerPosition,
       collisions: this.environment?.collisions, ignoreVehicle: vehicle.car })) return false;
@@ -905,9 +906,21 @@ export class TrafficSystem {
       vehicle.nextSpeed = 0;
       return;
     }
-    if (!returning && (dist > POLICE_GIVE_UP_RANGE || vehicle.chaseTime + stepTime >= POLICE_CHASE_TIMEOUT)) {
+    const seesPlayer = this._canWitness(vehicle, player);
+    if (!seesPlayer) {
+      vehicle._lostSightTime = (vehicle._lostSightTime || 0) + stepTime;
+    } else {
+      vehicle._lostSightTime = 0;
+    }
+
+    if (!returning && (dist > POLICE_GIVE_UP_RANGE || vehicle.chaseTime + stepTime >= POLICE_CHASE_TIMEOUT || vehicle._lostSightTime >= 6.0)) {
       vehicle._chaseGiveUp = true;
       vehicle.nextSpeed = 0;
+      if (vehicle._lostSightTime >= 6.0 && typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('toast', {
+          detail: { text: '¡Me les perdí de vista a los tombos! La patrulla desistió de la persecución.', type: 'rare' }
+        }));
+      }
       return;
     }
     const rate = POLICE_CHASE_SPEED < vehicle.speed ? BRAKING : CHASE_ACCELERATION;

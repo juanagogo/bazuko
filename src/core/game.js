@@ -26,6 +26,8 @@ import { SellPoint } from '../entities/SellPoint.js';
 import { Cambuche } from '../entities/Cambuche.js';
 import { Shop } from '../entities/Shop.js';
 import { ComedorComunitario } from '../entities/ComedorComunitario.js';
+import { ResidenciaElCarmen } from '../entities/ResidenciaElCarmen.js';
+import { ZonaRoja } from '../entities/ZonaRoja.js';
 import { DailyMissionSystem } from '../systems/DailyMissionSystem.js';
 import { Car } from '../entities/Car.js';
 import { parkCar } from '../world/bogota/parkedCars.js';
@@ -85,7 +87,7 @@ import { paintLoadingFrame } from '../ui/LoadingScreen.js';
 import { el } from '../ui/dom.js';
 import { Menu } from '../ui/Menu.js';
 import { createCreator } from '../ui/Creator.js';
-import { openRecycler, openShop, openCambuche, openComedor } from '../ui/placeMenus.js';
+import { openRecycler, openShop, openCambuche, openComedor, openResidencia, openProstibulo } from '../ui/placeMenus.js';
 import { openTransit, openHogar } from '../ui/streetMenus.js';
 import { openMissionsModal } from '../ui/MissionsModal.js';
 import { DEFAULT_LOOK, normalizeLook } from '../character/look.js';
@@ -212,7 +214,7 @@ export class Game {
     this.creator = createCreator({ audio: null });
     this.inventoryUI = new InventoryUI(this.inventory, this);
     this.panelDock = createPanelDock(this);
-    this.cameraRig.canControl = () => this.photoMode?.active || (!this.paused && !this.isSleeping &&
+    this.cameraRig.canControl = () => this.photoMode?.active || (!this.paused && !this.isSleeping && !this._cutsceneActive &&
       !this.hud._talentOpen && !this.hud._craftOpen && !this.hud._dealerOpen);
     this.cameraRig.allowPointerLock = () => !this.photoMode?.active;
     this.hud.setCameraMode(this.cameraRig.mode);
@@ -225,6 +227,8 @@ export class Game {
     window.addEventListener('open-comedor', () => openComedor(this));
     window.addEventListener('open-transit', (e) => openTransit(this, e.detail?.target));
     window.addEventListener('open-hogar', () => openHogar(this));
+    window.addEventListener('open-residencia', () => openResidencia(this));
+    window.addEventListener('open-prostibulo', () => openProstibulo(this));
     window.addEventListener('open-wardrobe', () => this.openWardrobe());
     window.addEventListener('open-mesa', () => { if (!this.hud?._craftOpen) this.hud?.toggleCraftPanel(); });
     window.addEventListener('police-arrest', () => this._policeArrest());
@@ -261,6 +265,8 @@ export class Game {
     this.cambuche = null;
     this.shop = null;
     this.comedor = null;
+    this.residencia = null;
+    this.prostibulo = null;
     this.lastComedorHour = null;
     this.dailyMissions = new DailyMissionSystem(this);
     this._missionsModalOpen = false;
@@ -279,6 +285,7 @@ export class Game {
     this.built = {};        // piezas del cambuche
     this.costal = false;    // costal grande comprado
     this.isSleeping = false;
+    this._cutsceneActive = false;
     this.deathCount = 0;
     this._deathPending = false;
     this._arrestPending = false;
@@ -407,6 +414,11 @@ export class Game {
     this._running = true;
     loading.finish();
     this.audio.startAmbient();
+    setTimeout(() => {
+      window.dispatchEvent(new CustomEvent('toast', {
+        detail: { text: 'Nuevos lugares cerca: 🏨 Residencias El Carmen y 💃 Zona Roja al norte en el andén.', type: 'rare' }
+      }));
+    }, 1500);
     requestAnimationFrame(this._loop);
   }
 
@@ -549,7 +561,7 @@ export class Game {
 
   /** El mundo se congela mientras hay un menú o el creador abierto */
   get paused() {
-    return this._loading || this._traveling || this._deathPending || this._arrestPending || !!this.photoMode?.active || this.menu.isOpen || this.creator.isOpen || !!this.inventoryUI?.isOpen || !!this.hud?._talentOpen || !!this.hud?._craftOpen || !!this.hud?._dealerOpen;
+    return this._loading || this._traveling || this._deathPending || this._arrestPending || !!this.photoMode?.active || this.menu.isOpen || this.creator.isOpen || !!this.inventoryUI?.isOpen || !!this.hud?._talentOpen || !!this.hud?._craftOpen || !!this.hud?._dealerOpen || !!this._cutsceneActive;
   }
 
   _spawnEntities() {
@@ -807,6 +819,42 @@ export class Game {
         new THREE.Vector3(0, 1.1, 0)
       );
     }
+
+    // ===== Residencia El Carmen =====
+    if (district.reserved?.residencia) {
+      const resPos = district.reserved.residencia;
+      this.residencia = new ResidenciaElCarmen(
+        this.sceneMgr.scene,
+        new THREE.Vector3(resPos.x, 0, resPos.z)
+      );
+      if (resPos.rot !== undefined) this.residencia.group.rotation.y = resPos.rot;
+      this.residencia.group.position.y = district.getGroundHeightUnder?.(this.residencia.group)
+        ?? district.getGroundHeight?.(resPos.x, resPos.z) ?? 0;
+      this.interaction.register(this.residencia);
+      this.collisions.add(
+        this.residencia.group,
+        new THREE.Vector3(1.8, 2.4, 0.2),
+        new THREE.Vector3(0, 1.2, -0.1)
+      );
+    }
+
+    // ===== Zona Roja / Callejón Rojo =====
+    if (district.reserved?.prostibulo) {
+      const prosPos = district.reserved.prostibulo;
+      this.prostibulo = new ZonaRoja(
+        this.sceneMgr.scene,
+        new THREE.Vector3(prosPos.x, 0, prosPos.z)
+      );
+      if (prosPos.rot !== undefined) this.prostibulo.group.rotation.y = prosPos.rot;
+      this.prostibulo.group.position.y = district.getGroundHeightUnder?.(this.prostibulo.group)
+        ?? district.getGroundHeight?.(prosPos.x, prosPos.z) ?? 0;
+      this.interaction.register(this.prostibulo);
+      this.collisions.add(
+        this.prostibulo.group,
+        new THREE.Vector3(1.8, 2.4, 0.2),
+        new THREE.Vector3(0, 1.2, -0.1)
+      );
+    }
     this._spawnStreetLife(district);
   }
 
@@ -953,11 +1001,31 @@ export class Game {
    * Dormir en el cambuche (requiere la base). De noche hasta las 6:00; de día, siesta de 3 h.
    * Con `hogar` se duerme en el hogar de paso: hasta las 6:00, sin robos y con lo que da una noche bajo techo.
    */
-  sleep({ hogar = null } = {}) {
+  sleep({ hogar = null, carton = false, residencia = false } = {}) {
     if (this.isSleeping) return;
-    if (!hogar && !this.built.base) {
+    const isCarton = !!carton;
+    const isResidencia = !!residencia;
+    if (!hogar && !isCarton && !isResidencia && !this.built.base) {
       window.dispatchEvent(new CustomEvent('sleep-fail', { detail: { reason: 'nobase' } }));
       return;
+    }
+
+    if (isCarton) {
+      if (!this.inventory?.items?.some(it => it.id === 'carton' && it.qty > 0)) {
+        window.dispatchEvent(new CustomEvent('toast', {
+          detail: { text: 'No tengo ningún cartón en el costal para tenderlo en el suelo.', type: 'warn' }
+        }));
+        return;
+      }
+      const isRaining = !!(this.climate?.isRaining || this.weather?.isRaining);
+      const p = this.player?.position ?? { x: 0, z: 0 };
+      const bajoTecho = (p.x >= 105 && p.x <= 135 && p.z >= 15 && p.z <= 320) || (p.z >= 220 && p.z <= 280);
+      if (isRaining && !bajoTecho) {
+        window.dispatchEvent(new CustomEvent('toast', {
+          detail: { text: 'Está cayendo agua y no hay techo. Toca buscar resguardo bajo el metro o un puente.', type: 'warn' }
+        }));
+        return;
+      }
     }
 
     this.isSleeping = true;
@@ -965,12 +1033,20 @@ export class Game {
     this.substanceEffects?.end();
     this.psychosis?.clearInduced?.();
     const night = this.clock.isNight || !!hogar;
-    const hours = night
-      ? (this.clock.hour >= 6 ? 24 - this.clock.hour + 6 : 6 - this.clock.hour)
-      : 3;
+    let hours;
+    if (isResidencia) {
+      // Residencias El Carmen: siempre despierta de día (07:30 AM)
+      const wakeHour = 7.5;
+      hours = this.clock.hour < wakeHour ? wakeHour - this.clock.hour : (24 - this.clock.hour) + wakeHour;
+      if (hours < 4) hours += 24;
+    } else {
+      hours = night
+        ? (this.clock.hour >= 6 ? 24 - this.clock.hour + 6 : 6 - this.clock.hour)
+        : 3;
+    }
     // En el hogar se duerme adentro: afuera, frente a la puerta, no queda nadie acostado.
     if (hogar) this.player.root.visible = false;
-    window.dispatchEvent(new CustomEvent('sleep-start', { detail: { despierta: this.clock.hour + hours } }));
+    window.dispatchEvent(new CustomEvent('sleep-start', { detail: { despierta: (this.clock.hour + hours) % 24, isResidencia } }));
     this.dog?.restAt(this.player.position);
     this.player.stopSmoking?.();
     this.player.stopBasuco?.();
@@ -980,6 +1056,18 @@ export class Game {
     const factor = Math.min(1, hours / 8); // una siesta rinde menos
     this.clock.hour += hours;
     while (this.clock.hour >= 24) { this.clock.hour -= 24; this.clock.day += 1; }
+
+    if (isResidencia) {
+      if (this.weather) this.weather.setWeather('despejado', false);
+      this.sceneMgr.setTimeOfDay(this.clock.hour, this.weather, this.clock.day);
+      this.sceneMgr.followTarget(this.player.position, this.clock.hour);
+      this._wasNight = this.clock.isNight;
+      this._wasRaining = this.weather?.isRaining ?? false;
+      this._wasLights = this.clock.lightsOn;
+      this._wasFoggy = this.weather?.weather === 'niebla';
+      this.world.active?.setNightMode?.(this._wasLights);
+      this.cambuche?.setNight(this._wasLights);
+    }
 
     const b = this.built;
     const st = this.stats;
@@ -998,30 +1086,64 @@ export class Game {
       }, 1200);
       return;
     }
-    st.energia = Math.min(100, st.energia + (SLEEP.energia + (b.cama ? SLEEP.energiaCama : 0)) * factor);
-    st.salud = Math.min(100, st.salud + (SLEEP.salud + (b.techo ? SLEEP.saludTecho : 0)) * factor);
-    st.saludMental = Math.min(100, st.saludMental + (MENTAL_RESTORE_SLEEP + (b.fogon ? SLEEP.animoFogon : 0)) * factor);
-    if (this.dog?.isFriend) st.saludMental = Math.min(100, st.saludMental + 15);
-    st.vicio = b.vela
-      ? Math.min(100, st.vicio + SLEEP.vicioVela)
-      : Math.max(0, st.vicio - WITHDRAWAL.vicioDormir * factor);
-    if (!b.fogon) st.hambre = Math.max(0, st.hambre - SLEEP.hambreFogon * factor);
 
-    // Sin paredes te pueden robar si duermes de noche
-    let robbed = null, caletaRobada = [];
-    if (night && !b.paredes && Math.random() < SLEEP.roboProb) {
-      const lost = Math.floor(st.dinero * SLEEP.roboDinero);
-      st.dinero -= lost;
-      for (const it of [...this.inventory.items]) {
-        if (isForSale(ITEMS[it.id] ?? it, this.player.equippedWeapon)) this.inventory.remove(it.id, Math.ceil(it.qty * SLEEP.roboMaterial));
+    let robbed = null;
+    let caletaRobada = [];
+    const stolenItems = [];
+    let policeAwake = false;
+    let coldSuffered = false;
+
+    if (isResidencia) {
+      st.energia = 100;
+      st.saludMental = 100;
+      st.salud = Math.min(100, st.salud + 35);
+      st.vicio = Math.max(0, st.vicio - 15);
+      st.hambre = Math.max(0, st.hambre - 20);
+      st.sed = Math.max(0, st.sed - 20);
+    } else {
+      st.energia = Math.min(100, st.energia + (SLEEP.energia + (b.cama ? SLEEP.energiaCama : 0)) * factor);
+      st.salud = Math.min(100, st.salud + (SLEEP.salud + (b.techo ? SLEEP.saludTecho : 0)) * factor);
+      st.saludMental = Math.min(100, st.saludMental + (MENTAL_RESTORE_SLEEP + (b.fogon ? SLEEP.animoFogon : 0)) * factor);
+      if (this.dog?.isFriend) st.saludMental = Math.min(100, st.saludMental + 15);
+      st.vicio = b.vela
+        ? Math.min(100, st.vicio + SLEEP.vicioVela)
+        : Math.max(0, st.vicio - WITHDRAWAL.vicioDormir * factor);
+      if (!b.fogon) st.hambre = Math.max(0, st.hambre - SLEEP.hambreFogon * factor);
+
+      // Frío en cartón: se evita si metió vicio o tiene calor
+      if (isCarton) {
+        const hasVicio = (st.vicio > 40) || ((st.calor || 0) > 40);
+        if (!hasVicio) {
+          coldSuffered = true;
+          st.salud = Math.max(0, st.salud - 15);
+          st.saludMental = Math.max(0, st.saludMental - 20);
+        }
+        if (Math.random() < 0.35) {
+          policeAwake = true;
+          if (this.traffic) this.traffic.wantedLevel = Math.min(3, (this.traffic.wantedLevel || 0) + 1);
+        }
       }
-      robbed = lost;
-      // Sin paredes, a veces también dan con la caleta.
-      caletaRobada = this.street?.caleta.robOnSleep() ?? [];
+
+      // Robo al dormir sin paredes o en cartón
+      const roboProb = isCarton ? 0.50 : (night && !b.paredes ? SLEEP.roboProb : 0);
+      if (roboProb > 0 && Math.random() < roboProb) {
+        const lost = Math.floor(st.dinero * (isCarton ? 0.4 : SLEEP.roboDinero));
+        st.dinero -= lost;
+        for (const it of [...this.inventory.items]) {
+          if (isForSale(ITEMS[it.id] ?? it, this.player.equippedWeapon)) {
+            const q = Math.ceil(it.qty * (isCarton ? 0.5 : SLEEP.roboMaterial));
+            this.inventory.remove(it.id, q);
+            stolenItems.push({ item: ITEMS[it.id] ?? it, qty: q });
+          }
+        }
+        robbed = lost;
+        // Sin paredes, a veces también dan con la caleta.
+        caletaRobada = this.street?.caleta.robOnSleep() ?? [];
+      }
     }
 
-    // Dormir sucio en un colchón de la calle puede pegar sarna.
-    const sarna = this.diseases?.tryInfectWhileSleeping?.(st.higiene, this.interaction?.diseaseResistance?.() ?? 1);
+    // Dormir sucio en un colchón de la calle puede pegar sarna (no en residencia).
+    const sarna = !isResidencia && this.diseases?.tryInfectWhileSleeping?.(st.higiene, this.interaction?.diseaseResistance?.() ?? 1);
 
     this._save();
 
@@ -1034,14 +1156,43 @@ export class Game {
       }
       this.dog?.wake();
       window.dispatchEvent(new CustomEvent('sleep-end', { detail: { hours: Math.round(hours) } }));
-      if (robbed !== null) {
+
+      if (isResidencia) {
         window.dispatchEvent(new CustomEvent('toast', {
-          detail: { text: `Me robaron mientras dormía (${cop(robbed)} y material). Unas paredes ayudarían.`, type: 'death' }
+          detail: { text: 'Dormí cómodo y seguro en la pieza de la residencia. Ya amaneció en Bogotá.', type: 'rare' }
+        }));
+      } else if (robbed !== null) {
+        this.activeThief = {
+          money: robbed,
+          items: stolenItems,
+          timer: 20,
+          recovered: false
+        };
+        window.dispatchEvent(new CustomEvent('toast', {
+          detail: { text: `¡ME ROBARON! Un habitante se lleva ${cop(robbed)} y material. ¡Péguele rápido para recuperar lo suyo!`, type: 'death' }
         }));
         if (caletaRobada.length) window.dispatchEvent(new CustomEvent('toast', {
           detail: { text: `También encontraron la caleta: se llevaron ${caletaRobada.map((l) => `${ITEMS[l.id]?.name ?? l.id} ×${l.qty}`).join(', ')}.`, type: 'death' }
         }));
       }
+
+      if (policeAwake) {
+        this.audio?.play?.('policeSiren') || this.audio?.play?.('car-honk');
+        window.dispatchEvent(new CustomEvent('toast', {
+          detail: { text: '¡La patrulla me despertó a pitos!: "¡Levántese del andén, no puede acampar aquí!"', type: 'warn' }
+        }));
+      }
+
+      if (coldSuffered) {
+        window.dispatchEvent(new CustomEvent('toast', {
+          detail: { text: 'El frío de la noche caló hasta los huesos. Amanecí tullido.', type: 'warn' }
+        }));
+      } else if (isCarton) {
+        window.dispatchEvent(new CustomEvent('toast', {
+          detail: { text: 'El vicio me mantuvo caliente contra el sereno de la noche.', type: 'rare' }
+        }));
+      }
+
       if (sarna) {
         window.dispatchEvent(new CustomEvent('toast', {
           detail: { text: 'Dormí sucio y me pegó la sarna. La pomada la quita.', type: 'warn' }
@@ -1323,6 +1474,16 @@ export class Game {
     this.time.update(dt, this.clock);
     this.dailyMissions?.update(dt, this.clock);
 
+    if (this.activeThief && !this.activeThief.recovered) {
+      this.activeThief.timer -= dt;
+      if (this.activeThief.timer <= 0) {
+        window.dispatchEvent(new CustomEvent('toast', {
+          detail: { text: '¡El ladrón dobló la esquina y se me escapó con todo!', type: 'death' }
+        }));
+        this.activeThief = null;
+      }
+    }
+
     // 2. Día/noche: sol, luna, nubes y clima de Bogotá; la luz sigue al jugador (sombras nítidas)
     this.sceneMgr.setTimeOfDay(this.clock.hour, this.weather, this.clock.day);
     this.sceneMgr.followTarget(this.player.position, this.clock.hour);
@@ -1412,6 +1573,16 @@ export class Game {
       this.poopSystem.poop(this.player);
     }
     this.poopSystem.update(dt);
+
+    // 7b2. Atajo para dormir en cartón si se tiene en inventario
+    if (!this.player.isStunned && !this.player.isSwimming && this.input.consumePress('KeyK')) {
+      if (this.inventory.count('carton') > 0) {
+        this.sleep({ carton: true });
+      } else {
+        this.hud?._toast('No tienes cartón en el inventario. Recógelo de la basura.', 'info');
+      }
+    }
+    this.prostibulo?.update(dt);
 
     // 7c. Sistema de abstinencia, alucinaciones y psicosis inducida
 
@@ -1558,6 +1729,8 @@ export class Game {
         [this.sellPoint, reserved.sell, 'Recicladora El Progreso', '♻️', '#2ab7ca', { prices: { vender: 0 } }],
         [this.shop, reserved.shop, 'Tienda La Esquinita', '🏪', '#2ecc71', { prices: SHOP_PRICES, offers: SHOP_OFFERS }],
         [this.comedor, reserved.comedor, 'Comedor Comunitario', '🍲', '#27ae60', (this.isComedorAvailable?.() ?? true) ? { prices: { comida: 0, agua: 0 } } : undefined],
+        [this.residencia, reserved.residencia, 'Residencias El Carmen', '🏨', '#3498db', { prices: { pieza: 10000 } }],
+        [this.prostibulo, reserved.prostibulo, 'Zona Roja (Callejón)', '💃', '#e74c3c', { prices: { servicio: 20000 } }],
         [this.craftingStation, reserved.craft, 'Crafteo', '🔨', '#e67e22'],
         [this.dealer, reserved.dealer, 'Dealer', '💀', '#9b59b6', { dealer: true }]]
         .flatMap(([entity, fallback, name, icon, color, extra]) => {
