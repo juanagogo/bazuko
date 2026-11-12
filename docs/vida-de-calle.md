@@ -16,6 +16,17 @@ Nueve mecánicas que dan razones para volver al cambuche, cuidar la relación co
 
 `StreetLife` une todo con el juego: escucha los golpes (`street-fight`), los robos a peatones (`pedestrian-robbed`) y los espejos (`mirror-stolen`), avanza con el tiempo de la simulación y se guarda en `street` de la partida. `streetLifePlaces` calcula siempre los mismos sitios sobre el plano de la ciudad, solo en suelo de peatón y sin cajas sólidas encima.
 
+## Capturas
+
+Imágenes reales del juego, tomadas en el navegador con el modelo liviano.
+
+| | |
+| --- | --- |
+| ![Pila pública: E lavarse, Q llenar la botella](images/vida-de-calle/01-pila.webp) | ![Caleta del cambuche](images/vida-de-calle/02-caleta.webp) |
+| ![Cuidando un carro parqueado](images/vida-de-calle/03-cuidar-carro.webp) | ![Estación: pagar o colarse](images/vida-de-calle/04-estacion.webp) |
+| ![Puerta del hogar de paso](images/vida-de-calle/05-hogar-puerta.webp) | ![Reglas del hogar de paso](images/vida-de-calle/06-hogar-reglas.webp) |
+| ![Fama en la pestaña Estado](images/vida-de-calle/07-fama.webp) | ![Costal con frescura y desgaste](images/vida-de-calle/08-costal.webp) |
+
 ## Caleta
 
 Un hueco escondido en el cambuche. Sin base no hay caleta; cada pieza suma kilos (base 6, techo 3, paredes 8, colchón 3, fogón 2, vela 1). Lo guardado no se pierde al morir ni en un arresto. Sin paredes, cuando roban de noche, una de cada cuatro veces también encuentran la caleta y se llevan la mitad. La comida se sigue dañando adentro y las armas conservan su desgaste.

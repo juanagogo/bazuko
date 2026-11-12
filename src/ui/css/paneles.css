@@ -142,6 +142,8 @@ body.tactil .cierre { padding: 0; }
 /* Una fila con dos verbos: guardar 1 / todo, sacar 1 / todo. */
 :where(#menu) .row--dos { grid-template-columns: 30px minmax(0, 1fr) auto auto; }
 :where(#menu) .row__verbos { display: flex; gap: 6px; }
+/* Una ventana de lugar con solapas tiene una fila más: solapas, cabeza, cuerpo y pie. */
+:where(#menu) .sign--menu:not(.sign--wide):has(.menu__tabs:not(:empty)) { grid-template-rows: auto auto minmax(0, 1fr) auto; }
 /* Solapas del cambuche: las de la pausa, más chicas para caber sobre una ventana de lugar. */
 .lugar-tabs { padding: 4px 12px 0; }
 .lugar-tabs .pause-tab { min-height: 42px; padding: 6px 20px 8px; font-size: 20px; }
