@@ -59,23 +59,23 @@ export function cityMapPlan(district, tileSize = 2) {
 export function streetLabels(tileSize = 2) {
   const mid = ([a, b]) => (a + b) / 2 * tileSize;
   return [
-    { name: 'Carrera 15', x: 19, vertical: true },
-    { name: 'Av. Caracas · Metro L1', x: mid([CARACAS.lanes[0][0], CARACAS.lanes[1][1]]), vertical: true },
-    { name: 'Carrera 10', x: 127, vertical: true },
-    { name: 'Carrera 8', x: 173, vertical: true },
-    { name: 'Carrera 7 (Av. Séptima)', x: 217, vertical: true },
-    { name: 'Carrera 5', x: 261, vertical: true },
-    { name: 'Carrera 4', x: 311, vertical: true },
-    { name: 'Carrera 3', x: 351, vertical: true },
+    { name: 'Carrera 15', popular: 'Chicó', x: 19, vertical: true },
+    { name: 'Av. Caracas · Metro L1', popular: 'Troncal Caracas', x: mid([CARACAS.lanes[0][0], CARACAS.lanes[1][1]]), vertical: true },
+    { name: 'Carrera 10', popular: 'La Décima', x: 127, vertical: true },
+    { name: 'Carrera 8', popular: 'San Victorino', x: 173, vertical: true },
+    { name: 'Carrera 7 (Av. Séptima)', popular: 'La Séptima', x: 217, vertical: true },
+    { name: 'Carrera 5', popular: 'La Macarena', x: 261, vertical: true },
+    { name: 'Carrera 4', popular: 'Rosales', x: 311, vertical: true },
+    { name: 'Carrera 3', popular: 'Torres del Parque', x: 351, vertical: true },
     // Calles reales de Bogotá de Norte a Sur
-    { name: 'Calle 93', z: 31, vertical: false, maxX: 150 },
-    { name: 'Calle 82', z: 79, vertical: false, maxX: 150 },
-    { name: 'Calle 72', z: 115, vertical: false, minX: 180 },
-    { name: 'Calle 8A', z: 115, vertical: false, minX: 261 },
-    { name: 'Av. Calle 26', z: 193, vertical: false },
-    { name: 'Calle 10', z: 241, vertical: false, minX: 180 },
-    { name: 'Calle 6', z: 285, vertical: false },
-    { name: 'Calle 5', z: 285, vertical: false, minX: 261 }
+    { name: 'Calle 93', popular: 'Parque de la 93', z: 31, vertical: false, maxX: 150 },
+    { name: 'Calle 82', popular: 'Zona T / Zona Rosa', z: 79, vertical: false, maxX: 150 },
+    { name: 'Calle 72', popular: 'Avenida Chile', z: 115, vertical: false, minX: 180 },
+    { name: 'Calle 8A', popular: 'El Cartucho', z: 115, vertical: false, minX: 261 },
+    { name: 'Av. Calle 26', popular: 'Avenida El Dorado', z: 193, vertical: false },
+    { name: 'Calle 10', popular: 'La Candelaria', z: 241, vertical: false, minX: 180 },
+    { name: 'Calle 6', popular: 'San Victorino', z: 285, vertical: false },
+    { name: 'Calle 5', popular: 'Puente Aranda', z: 285, vertical: false, minX: 261 }
   ];
 }
 
