@@ -1,4 +1,5 @@
 #include "CharacterPreview.hpp"
+#include "StreetProps.hpp"
 #include <glm/gtc/matrix_transform.hpp>
 #include <algorithm>
 #include <cmath>
@@ -105,6 +106,14 @@ void CharacterPreview::Render(Renderer& renderer, CharacterManager& characterMan
     // Personaje con su rotación actual
     glm::mat4 charTransform = glm::rotate(glm::mat4(1.0f), m_Yaw, glm::vec3(0.0f, 1.0f, 0.0f));
     characterManager.Draw(renderer, charTransform, animTime, false, false);
+    if (const CharacterLook& carried = characterManager.GetLook(); carried.baston || carried.mochila) {   // lo que carga, igual que en la calle
+        const glm::mat4 bodyRoot = glm::scale(charTransform, glm::vec3(1.08f));
+        const uint32_t hash = static_cast<uint32_t>(carried.ropaColorIdx * 5 + carried.calzadoColorIdx);
+        if (carried.mochila)
+            StreetProps::DrawBag(renderer, characterManager.PosedNode("Spine2", charTransform, animTime, false, false, -1, -1, 0.0f, nullptr), bodyRoot, true, StreetProps::BagColor(hash));
+        if (carried.baston)
+            StreetProps::DrawCane(renderer, characterManager.PosedNode("RightHand", charTransform, animTime, false, false, -1, -1, 0.0f, nullptr), bodyRoot, false, StreetProps::CaneColor(hash));
+    }
 
     renderer.EndScene();
 

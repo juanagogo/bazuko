@@ -10,7 +10,7 @@ public:
     CharacterCreatorUI();
     ~CharacterCreatorUI() = default;
 
-    void Open(const CharacterLook& currentLook, bool allowCancel = true);
+    void Open(const CharacterLook& currentLook, bool allowCancel = true, int initialTab = 0);   // initialTab 4: directo a la ropa (cambiarse de ropa)
     void Close();
     bool IsOpen() const { return m_IsOpen; }
     bool IsFocusingFace() const { return m_ActiveTab == 2 || m_ActiveTab == 3; }
