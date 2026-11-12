@@ -294,7 +294,9 @@ export class Bogota {
       dealer: { x: WX(14.5), z: WZ(21.5) },   // la olla de El Cartucho
       craft:  { x: WX(16.5), z: WZ(24.5) },
       shop:   { x: WX(34), z: WZ(29) },        // andén de la Calle 9, de espaldas a la manzana
-      comedor: { x: WX(30), z: WZ(33) }       // comedor comunitario junto al parque
+      comedor: { x: WX(30), z: WZ(33) },      // comedor comunitario junto al parque
+      residencia: { x: 114.2, z: 69.1, rot: 0 },              // pared sur de ladrillo en Calle 9 (círculo rojo Foto 3 y 4, al lado de la esquina)
+      prostibulo: { x: 117.0, z: 65.5, rot: Math.PI / 2 }     // pared este de ladrillo en Carrera 10 (círculo rojo Foto 1 y 2)
     };
     this.isNearReserved = (x, z, dist = 6) =>
       Object.values(this.reserved).some((r) => Math.hypot(x - r.x, z - r.z) < dist);
@@ -1431,6 +1433,14 @@ export class Bogota {
       // Parque Tercer Milenio: dos vecinos conversando en el prado.
       { at: [102.6, 94.2], facing: .9, stance: 'hablar', arquetipo: 'senora', alternas: TALK, pareja: 1 },
       { at: [103.5, 95], facing: .9 + Math.PI, stance: 'hablar', arquetipo: 'abuelo', alternas: TALK, pareja: -1 },
+      // Habitantes de calle visibles junto al cambuche y la zona de inicio
+      { at: [116.5, 95.2], facing: -1.2, stance: 'sentado', arquetipo: 'habitante' },
+      { at: [110.2, 101.5], facing: 0.8, stance: 'acurrucado', arquetipo: 'habitante' },
+      { at: [106.8, 92.4], facing: Math.PI / 2, stance: 'pedir', arquetipo: 'habitante' },
+      { at: [114.2, 48.0], facing: -Math.PI / 2, stance: 'fumar-quieto', arquetipo: 'habitante' },
+      // Zona Roja / Carrera 10: dos personajes reales en el andén bajo la luz roja de neón
+      { at: [118.2, 64.2], facing: Math.PI / 2, stance: 'fumar-quieto', arquetipo: 'vendedor', alternas: ['fumar-quieto', 'brazos-cruzados', 'celular'] },
+      { at: [118.2, 66.8], facing: Math.PI / 2, stance: 'celular', arquetipo: 'oficinista', alternas: ['celular', 'mirar-izquierda', 'fumar-quieto'] },
       // Entrada del Portal: quien pide contra el muro y dos que esperan en el andén de enfrente.
       { at: [54.6, 2.6], facing: Math.PI / 2, stance: 'pedir', arquetipo: 'habitante' },
       { at: [94.2, 3.2], facing: -.7, stance: 'hablar', arquetipo: 'oficinista', alternas: TALK, pareja: 1 },
@@ -1620,7 +1630,7 @@ export class Bogota {
     chasers.length = 0;
     for (const vehicle of trafficVehicles) if (vehicle.state === 'chase' || vehicle.rejoinTarget) chasers.push(vehicle);
     const ctx = { player: playerPos, frustum, camera, isRaining: (this.wetness ?? 0) > 0.05, animationBudget: this.animationBudget ?? 1,
-      drawDistance: this.farDetailDistance, skipHiddenMatrices: true, hygiene: this.playerHygiene ?? 100, chasers };
+      drawDistance: this.farDetailDistance, skipHiddenMatrices: true, hygiene: this.playerHygiene ?? 100, chasers, hour: this.hour ?? 12 };
     for (const n of this.npcs) n.update(dt, ctx);
     for (const flock of this.pigeonFlocks ?? []) flock.update(dt, playerPos, this.npcs, camera);
   }

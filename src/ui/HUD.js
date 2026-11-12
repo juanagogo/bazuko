@@ -61,7 +61,7 @@ export function piezasDelPrompt(texto) {
 export function textoDelPrompt(interaction, inventory) {
   if (!interaction?.currentTarget && !interaction?.stealPrompt) return '';
   const type = interaction.currentTargetType;
-  if (type === 'pickup') return '[E] Recoger basura · [Mantener Q] Seleccionar';
+  if (type === 'pickup') return '[E] Recoger reciclaje · [Q] Hurgar comida';
   if (type === 'car') {
     const car = interaction.currentTarget;
     const canSteal = car?.stealable !== false;
@@ -91,6 +91,12 @@ export function textoDelPrompt(interaction, inventory) {
     if (interaction.currentTarget?.isFriend) return '[E] Acariciar a El Chato';
     return hasFood ? '[E] Darle pan o atún a El Chato para que me siga' : '[E] Acariciar a El Chato · Si le traigo pan o una lata de atún, me sigue';
   }
+  if (type === 'residencia') return '[E] Residencias El Carmen: Pagar pieza y dormir ($10.000)';
+  if (type === 'prostibulo') return '[E] Callejón Rojo: Entrar y contratar servicio ($20.000)';
+  if (type === 'hidingSpot') {
+    const isHidden = interaction.game?.isPlayerHidden || false;
+    return isHidden ? '[E] Salir del escondite' : `[E] Esconderse en ${interaction.currentTarget?.title ?? 'el escondite'}`;
+  }
   if (type === 'cambuche') return '[E] Mi cambuche: armar o dormir';
   if (type === 'mesa') return '[E] Fabricar';
   if (type === 'dealer') return '[Q / E] El jíbaro: comprar o vender';
@@ -100,6 +106,7 @@ export function textoDelPrompt(interaction, inventory) {
 
 // Con el dedo la cinta va a un lado del personaje, y ahí no cabe la frase entera: lo mismo, en corto.
 const VERBO_CORTO = [
+  [/^Recoger reciclaje/, 'Reciclar / Comer'],
   [/^Robar retrovisor/, 'Robar retrovisor'],
   [/^Limpiar parabrisas/, 'Limpiar vidrio'],
   [/^Darle pan o atún/, 'Darle comida'],
@@ -824,6 +831,11 @@ export class HUD {
     if (!game) return;
 
 
+    if (itemId === 'carton') {
+      game.inventoryUI?.close();
+      game.sleep({ carton: true });
+      return;
+    }
     if (itemId === 'popo') {
       if (game.player?.isStunned) return;
       game.inventoryUI?.close();
@@ -906,7 +918,18 @@ export class HUD {
       if (!smokes && !pipe) game.player?.playAction?.(isDrink ? 'beber' : 'comer', 1.2);
       const lit = smokable(item.id);
       const curedText = cured ? `, me curé: ${diseaseName(item.cure)}` : '';
-      this._toast(smokes ? `Prendí un ${lit.name}` : pipe ? 'Prendí la pipa' : `${verb}: ${item.name}${curedText}`, 'info');
+      if (item.isScraps) {
+        if (Math.random() < 0.45) {
+          game.diseases?.infect?.('intoxicacion');
+          game.stats.salud = Math.max(0, game.stats.salud - 8);
+          this._toast('¡Gas! Esos sobrados estaban pichos... me dio intoxicación.', 'death');
+        } else {
+          game.stats.energia = Math.min(100, (game.stats.energia || 0) + 12);
+          this._toast('Comí sobrados: estaban buenos y me dieron energía.', 'rare');
+        }
+      } else {
+        this._toast(smokes ? `Prendí un ${lit.name}` : pipe ? 'Prendí la pipa' : `${verb}: ${item.name}${curedText}`, 'info');
+      }
       // lo que se fuma pega al aspirar: el jugador avisa en cada calada o al soltar la pipa
       const smokedLater = (smokes || pipe) && game.player?.startSmoking;
       if (item.substance && !smokedLater) window.dispatchEvent(new CustomEvent('substance-consumed', { detail: { id: itemId } }));

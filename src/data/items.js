@@ -10,7 +10,7 @@ export const ITEMS = {
   // `sharp`: corta al escarbar, así que la bolsa que lo trae puede dar tétanos.
   lata:     { id: 'lata',     name: 'Lata vacía',    weight: 0.2,  value: 250, rarity: 'common', sharp: true },
   botella:  { id: 'botella',  name: 'Botella',   weight: 0.3,  value: 150 },
-  carton:   { id: 'carton',   name: 'Cartón',        weight: 0.5,  value: 200, rarity: 'common' },
+  carton:   { id: 'carton',   name: 'Cartón',        weight: 0.5,  value: 200, rarity: 'common', usable: true, useLabel: 'Dormir en cartón' },
   chatarra: { id: 'chatarra', name: 'Chatarra',      weight: 1.0,  value: 900, sharp: true },
   cable:    { id: 'cable',    name: 'Cable de cobre',   weight: 0.4,  value: 2400 },
 
@@ -47,6 +47,12 @@ export const ITEMS = {
   lataComida: {
     id: 'lataComida', name: 'Lata de atún', weight: 0.4, value: 4500,
     consumable: 'hambre', amount: 45, animo: 8
+  },
+  sobrados: {
+    id: 'sobrados', name: 'Sobrados de comida', weight: 0.3, value: 0,
+    consumable: 'hambre', amount: 25, animo: -2,
+    desc: 'Comida rescatada de la basura. Puede calmar el hambre o sentar muy mal.',
+    isScraps: true
   },
   agua: {
     id: 'agua', name: 'Botella de agua', weight: 0.5, value: 1500,

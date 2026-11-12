@@ -4,6 +4,7 @@
 import { el } from './dom.js';
 import { cargarImprenta } from './PrimeraPlana.js';
 import { CONSECUENCIAS, CONSEJO_CAMIONETA, letreroDeDormir } from './momentosTextos.js';
+import { hora as horaDeReloj } from './formato.js';
 
 const NOQUEADO_S = .35;    // un tambaleo de un golpe dura .3 s y no es estar en el suelo
 const CASCADO_MIN_S = 1.4; // lo mínimo para alcanzar a leerlo
@@ -50,7 +51,7 @@ export class Momentos {
     this._eraDeNoche = null;
     this._relojCerrado = 0;
     cargarImprenta();
-    globalThis.addEventListener?.('sleep-start', (e) => this.abrirCerrado(e.detail?.despierta));
+    globalThis.addEventListener?.('sleep-start', (e) => this.abrirCerrado(e.detail?.despierta, e.detail?.isResidencia));
     globalThis.addEventListener?.('sleep-end', () => this.cerrarCerrado());
   }
 
@@ -92,12 +93,17 @@ export class Momentos {
     if (dock) this.cascadoEl.style.setProperty('--bajo-el-hud', `${Math.round(dock.bottom)}px`);
   }
 
-  abrirCerrado(despierta) {
+  abrirCerrado(despierta, isResidencia = false) {
     if (!this.cerradoEl) return;
     clearTimeout(this._relojCerrado);
-    const { arriba, abajo } = letreroDeDormir(despierta ?? 6);
-    this.cerradoEl.querySelector?.('.cerrado__arriba')?.replaceChildren(arriba);
-    this.cerradoHoraEl?.replaceChildren(abajo);
+    if (isResidencia) {
+      this.cerradoEl.querySelector?.('.cerrado__arriba')?.replaceChildren('RESIDENCIAS EL CARMEN');
+      this.cerradoHoraEl?.replaceChildren(`DESCANSANDO HASTA LAS ${horaDeReloj(despierta ?? 7.5)}`);
+    } else {
+      const { arriba, abajo } = letreroDeDormir(despierta ?? 6);
+      this.cerradoEl.querySelector?.('.cerrado__arriba')?.replaceChildren(arriba);
+      this.cerradoHoraEl?.replaceChildren(abajo);
+    }
     this.cerradoEl.hidden = false;
   }
 

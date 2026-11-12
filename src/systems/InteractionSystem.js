@@ -89,20 +89,24 @@ export class InteractionSystem {
     // Encontrar target más cercano
     let nearest = null;
     let nearestType = null;
-    let nearestDist = INTERACT_RANGE;
+    let nearestDist = 3.6;
 
     for (const t of this.targets) {
       // Un carro sin nada que robar ni limpiar no da aviso ni le quita el turno a lo que tenga al lado.
       if (t.stealable === false && !t.cleanable) continue;
+      const maxRange = (t.kind === 'prostibulo' || t.kind === 'residencia' || t.kind === 'comedor' || t.kind === 'shop') ? 3.0 : INTERACT_RANGE;
       // Un carro se alcanza también desde sus espejos; lo demás, desde su centro.
       const d = t.interactDistance?.(this.player.position) ?? t.position.distanceTo(this.player.position);
-      if (d < nearestDist) {
+      if (d < maxRange && d < nearestDist) {
         nearestDist = d;
         nearest = t;
         // Determinar tipo por `kind` o por métodos disponibles
         if (t.kind === 'shop') nearestType = 'shop';
         else if (t.kind === 'comedor') nearestType = 'comedor';
         else if (t.kind === 'cambuche') nearestType = 'cambuche';
+        else if (t.kind === 'residencia') nearestType = 'residencia';
+        else if (t.kind === 'prostibulo') nearestType = 'prostibulo';
+        else if (t.kind === 'hidingSpot') nearestType = 'hidingSpot';
         else if (t.kind === 'dog') nearestType = 'dog';
         else if (t.kind === 'cart') nearestType = 'cart';
         else if (t.kind === 'fireBarrel') nearestType = 'fireBarrel';
@@ -128,8 +132,13 @@ export class InteractionSystem {
       }
     }
 
+    // === Hurgar comida (Q) en basura ===
+    if (nearestType === 'pickup' && input.consumePress('KeyQ')) {
+      this._scavengeFood(nearest);
+    }
+
     // === Selección de basura (mantener Q) ===
-    if (nearestType === 'pickup' && input.isDown('KeyQ')) {
+    if (nearestType === 'pickup' && input.isDown('KeyQ') && !input.consumePress('KeyQ')) {
       if (!this.isHoldingQ) {
         this.isHoldingQ = true;
         if (nearest.startSorting) {
@@ -166,6 +175,15 @@ export class InteractionSystem {
           break;
         case 'comedor':
           window.dispatchEvent(new CustomEvent('open-comedor'));
+          break;
+        case 'residencia':
+          window.dispatchEvent(new CustomEvent('open-residencia'));
+          break;
+        case 'prostibulo':
+          window.dispatchEvent(new CustomEvent('open-prostibulo'));
+          break;
+        case 'hidingSpot':
+          this._toggleHiding(nearest);
           break;
         case 'cambuche':
           window.dispatchEvent(new CustomEvent('open-cambuche'));
@@ -236,6 +254,25 @@ export class InteractionSystem {
       window.dispatchEvent(new CustomEvent('dog-interacted', { detail: { action: 'pet' } }));
       window.dispatchEvent(new CustomEvent('toast', {
         detail: { text: 'Acaricié a El Chato (+5 de ánimo).', type: 'info' }
+      }));
+    }
+  }
+
+  _toggleHiding(target) {
+    if (!this.game) return;
+    this.game.isPlayerHidden = !this.game.isPlayerHidden;
+    if (this.game.traffic) this.game.traffic.isPlayerHidden = this.game.isPlayerHidden;
+    if (this.game.isPlayerHidden) {
+      window.dispatchEvent(new CustomEvent('toast', {
+        detail: {
+          text: `Te escondiste en: ${target.title ?? 'el escondite'}. La policía no te puede ver aquí. Pulsa [E] para salir.`,
+          type: 'rare'
+        }
+      }));
+      this.audio?.play?.('pickup');
+    } else {
+      window.dispatchEvent(new CustomEvent('toast', {
+        detail: { text: 'Saliste del escondite.', type: 'info' }
       }));
     }
   }
@@ -315,6 +352,52 @@ export class InteractionSystem {
     window.dispatchEvent(new CustomEvent('pickup', {
       detail: { added, rare: collectedRare, sorted: result.sorted }
     }));
+  }
+
+  _scavengeFood(target) {
+    if (!target || typeof target.harvest !== 'function') return;
+
+    this.player?.playAction?.('buscar', 1.2);
+
+    // 75% probabilidad de hallar restos o comida
+    const foundFood = Math.random() < 0.75;
+
+    if (foundFood) {
+      // 55% comida buena / 45% comida dañada o descompuesta
+      const isGood = Math.random() < 0.55;
+
+      if (isGood) {
+        this.stats.hambre = Math.min(100, (this.stats.hambre || 0) + 30);
+        this.stats.energia = Math.min(100, (this.stats.energia || 0) + 15);
+        this.audio?.play('treasure');
+        window.dispatchEvent(new CustomEvent('toast', {
+          detail: { text: '¡Encontraste comida buena en la basura! (+30 hambre, +15 energía).', type: 'rare' }
+        }));
+      } else {
+        this.disease?.infect?.('intoxicacion');
+        this.stats.salud = Math.max(1, (this.stats.salud || 100) - 10);
+        this.audio?.play('damage');
+        window.dispatchEvent(new CustomEvent('toast', {
+          detail: { text: 'Comiste sobras dañadas de la basura... Te dio intoxicación (pierdes 10 de salud).', type: 'warn' }
+        }));
+      }
+
+      // Guardar una porción de sobrados en el inventario si hay espacio
+      const sobradosItem = ITEMS['sobrados'];
+      if (sobradosItem && this.inventory.add(sobradosItem)) {
+        window.dispatchEvent(new CustomEvent('toast', {
+          detail: { text: 'Guardaste una porción de sobrados en el costal.', type: 'info' }
+        }));
+      }
+    } else {
+      this.audio?.play('empty');
+      window.dispatchEvent(new CustomEvent('toast', {
+        detail: { text: 'Hurgaste entre los desperdicios pero no había nada comestible.', type: 'info' }
+      }));
+    }
+
+    // Consumir el contenedor o bolsa de basura
+    target.harvest?.(false, false, {});
   }
 
   _stealCar(target) {
