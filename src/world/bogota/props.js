@@ -541,3 +541,289 @@ export function neonSign({ title = 'DROGUERÍA', sub = '24 HORAS', color = '#00f
 
   return g;
 }
+
+/** Paradero zonal del transporte integrado (cubierta, panel de rutas y banca) */
+export function sitpBusStop({ title = 'PARADERO ZONAL', code = '124A00', routes = ['128', 'C15', 'T12', '544A'] } = {}) {
+  const g = new THREE.Group();
+  const steel = std('#30353c', { metalness: 0.65, roughness: 0.35 });
+  const blue = std('#003087', { metalness: 0.2, roughness: 0.5 });
+  const yellow = std('#ffcd00', { metalness: 0.1, roughness: 0.5 });
+
+  // Columnas traseras de soporte
+  for (const sx of [-1.1, 1.1]) {
+    const col = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.045, 2.45, 10), steel);
+    col.position.set(sx, 1.225, -0.45);
+    g.add(col);
+
+    // Brazo en voladizo para la cubierta
+    const arm = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.08, 1.05), steel);
+    arm.position.set(sx, 2.4, 0.05);
+    g.add(arm);
+  }
+
+  // Cubierta traslúcida curvada hacia el frente
+  const roofMat = new THREE.MeshStandardMaterial({
+    color: '#3a506b',
+    roughness: 0.15,
+    metalness: 0.1,
+    transparent: true,
+    opacity: 0.45,
+    side: THREE.DoubleSide
+  });
+  const roof = new THREE.Mesh(new THREE.PlaneGeometry(2.45, 1.15, 6, 2), roofMat);
+  roof.rotation.x = -Math.PI / 2 + 0.1;
+  roof.position.set(0, 2.46, 0.05);
+  g.add(roof);
+
+  // Banca metálica perforada
+  const bench = new THREE.Mesh(new THREE.BoxGeometry(2.0, 0.05, 0.38), std('#70767c', { metalness: 0.8, roughness: 0.3 }));
+  bench.position.set(0, 0.48, -0.32);
+  g.add(bench);
+
+  // Tótem vertical de información de rutas en el extremo derecho
+  const totem = new THREE.Mesh(new THREE.BoxGeometry(0.48, 2.5, 0.08), blue);
+  totem.position.set(1.35, 1.25, -0.45);
+  g.add(totem);
+
+  const totemCap = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.35, 0.09), yellow);
+  totemCap.position.set(1.35, 2.35, -0.45);
+  g.add(totemCap);
+
+  // Muestra de códigos de ruta en rectángulos distintivos
+  const routeColors = ['#0033a0', '#c8102e', '#007a33', '#e87722'];
+  routes.slice(0, 4).forEach((rt, idx) => {
+    const badge = new THREE.Mesh(new THREE.PlaneGeometry(0.18, 0.1), std(routeColors[idx % routeColors.length]));
+    badge.position.set(1.26 + (idx % 2) * 0.18, 1.85 - Math.floor(idx / 2) * 0.14, -0.405);
+    g.add(badge);
+  });
+
+  return shadow(g);
+}
+
+/** Bolardo cilíndrico de andén bogotano con franja reflectiva superior */
+export function bolardoBogotano({ color = '#2c2e30', reflectiveColor = '#f5c300' } = {}) {
+  const g = new THREE.Group();
+  const bodyMat = std(color, { roughness: 0.7, metalness: 0.3 });
+  const reflectMat = new THREE.MeshStandardMaterial({
+    color: reflectiveColor,
+    roughness: 0.3,
+    metalness: 0.1,
+    emissive: reflectiveColor,
+    emissiveIntensity: 0.15
+  });
+
+  // Base ancha a nivel de suelo
+  const base = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.15, 0.05, 14), bodyMat);
+  base.position.y = 0.025;
+  g.add(base);
+
+  // Fuste o cuerpo principal
+  const shaft = new THREE.Mesh(new THREE.CylinderGeometry(0.11, 0.12, 0.58, 14), bodyMat);
+  shaft.position.y = 0.34;
+  g.add(shaft);
+
+  // Franja reflectiva
+  const ring = new THREE.Mesh(new THREE.CylinderGeometry(0.112, 0.112, 0.08, 14), reflectMat);
+  ring.position.y = 0.65;
+  g.add(ring);
+
+  // Cabezal redondeado
+  const cap = new THREE.Mesh(new THREE.SphereGeometry(0.11, 14, 8, 0, Math.PI * 2, 0, Math.PI / 2), bodyMat);
+  cap.position.y = 0.69;
+  g.add(cap);
+
+  return shadow(g);
+}
+
+/** Caneca pública de basura de acero inoxidable perforado montada sobre poste */
+export function canecaDistrital() {
+  const g = new THREE.Group();
+  const steelMat = std('#a2a8ad', { metalness: 0.85, roughness: 0.2 });
+  const darkMat = std('#1a1a1a', { roughness: 0.8 });
+
+  // Poste de anclaje
+  const post = new THREE.Mesh(new THREE.CylinderGeometry(0.028, 0.028, 1.15, 10), steelMat);
+  post.position.y = 0.575;
+  g.add(post);
+
+  // Brazo de soporte lateral
+  const arm = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.04, 0.18), steelMat);
+  arm.position.set(0, 0.68, 0.09);
+  g.add(arm);
+
+  // Tambor de la papelera
+  const drum = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.15, 0.52, 14, 1, true), steelMat);
+  drum.position.set(0, 0.68, 0.22);
+  g.add(drum);
+
+  // Fondo y tapa interior
+  const inside = new THREE.Mesh(new THREE.CylinderGeometry(0.145, 0.14, 0.48, 12), darkMat);
+  inside.position.set(0, 0.67, 0.22);
+  g.add(inside);
+
+  // Visera protectora de lluvia
+  const lid = new THREE.Mesh(new THREE.ConeGeometry(0.20, 0.06, 14), steelMat);
+  lid.position.set(0, 0.98, 0.22);
+  g.add(lid);
+
+  return shadow(g);
+}
+
+/** Carrito ambulante de café, aromática campesina y empanadas */
+export function carritoTinto() {
+  const g = new THREE.Group();
+  const woodMat = std('#6b482b', { roughness: 0.8 });
+  const darkSteel = std('#262626', { metalness: 0.6, roughness: 0.4 });
+  const glassMat = new THREE.MeshStandardMaterial({
+    color: '#eef6fc',
+    roughness: 0.1,
+    transparent: true,
+    opacity: 0.4,
+    side: THREE.DoubleSide
+  });
+
+  // Cajón / mesa con ruedas
+  const cart = new THREE.Mesh(new THREE.BoxGeometry(0.72, 0.48, 0.5), woodMat);
+  cart.position.y = 0.58;
+  g.add(cart);
+
+  // 2 ruedas grandes traseras
+  for (const sx of [-0.38, 0.38]) {
+    const wheel = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.22, 0.035, 14), darkSteel);
+    wheel.rotation.z = Math.PI / 2;
+    wheel.position.set(sx, 0.22, 0.12);
+    g.add(wheel);
+
+    // Patas delanteras de apoyo
+    const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.02, 0.32, 6), darkSteel);
+    leg.position.set(sx * 0.85, 0.16, -0.18);
+    g.add(leg);
+  }
+
+  // Manillar para empujar
+  const handle = new THREE.Mesh(new THREE.BoxGeometry(0.68, 0.03, 0.03), darkSteel);
+  handle.position.set(0, 0.82, 0.32);
+  g.add(handle);
+
+  // Termos de café y aromática (rojo, verde, azul, plateado)
+  const thermosColors = ['#b81414', '#1e7b34', '#145bb8', '#b87314', '#c0c0c0'];
+  thermosColors.forEach((color, i) => {
+    const flask = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.045, 0.22, 8), std(color, { roughness: 0.3, metalness: 0.3 }));
+    flask.position.set(-0.24 + i * 0.12, 0.93, 0.1);
+    g.add(flask);
+
+    // Tapa dosificadora de bomba
+    const cap = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.025, 0.05, 6), darkSteel);
+    cap.position.set(-0.24 + i * 0.12, 1.06, 0.1);
+    g.add(cap);
+  });
+
+  // Vitrina de pandebonos y empanadas
+  const caseBox = new THREE.Mesh(new THREE.BoxGeometry(0.38, 0.22, 0.22), glassMat);
+  caseBox.position.set(0, 0.93, -0.1);
+  g.add(caseBox);
+
+  // Pasteles dorados dentro
+  for (let p = 0; p < 4; p++) {
+    const pastry = new THREE.Mesh(new THREE.SphereGeometry(0.035, 6, 5), std('#cf8b2b', { roughness: 0.6 }));
+    pastry.position.set(-0.12 + p * 0.08, 0.85, -0.1);
+    g.add(pastry);
+  }
+
+  // Torre de vasitos blancos desechables apilados
+  const cups = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.02, 0.22, 8), std('#f8f9fa', { roughness: 0.6 }));
+  cups.position.set(0.26, 0.93, -0.1);
+  g.add(cups);
+
+  // Paraguas colorido que cubre el carrito
+  const u = umbrella(['#ffcd00', '#003087']);
+  u.position.set(0.2, 0, 0.15);
+  u.scale.setScalar(0.85);
+  g.add(u);
+
+  return shadow(g);
+}
+
+/** Cabina telefónica pública clásica sobre pedestal */
+export function cabinaTelefonica() {
+  const g = new THREE.Group();
+  const steelMat = std('#40454d', { metalness: 0.6, roughness: 0.4 });
+  const domeMat = std('#0b4a9c', { roughness: 0.35, metalness: 0.15 });
+
+  // Poste principal
+  const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.045, 2.05, 10), steelMat);
+  pole.position.y = 1.025;
+  g.add(pole);
+
+  // Cúpula o capota semicilíndrica azul protectora
+  const dome = new THREE.Mesh(
+    new THREE.SphereGeometry(0.42, 14, 10, 0, Math.PI, 0, Math.PI),
+    domeMat
+  );
+  dome.rotation.x = Math.PI / 2;
+  dome.rotation.z = Math.PI;
+  dome.position.set(0, 1.55, 0.05);
+  g.add(dome);
+
+  // Consola metálica del teléfono
+  const consoleBox = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.38, 0.12), std('#889098', { metalness: 0.8, roughness: 0.25 }));
+  consoleBox.position.set(0, 1.35, 0.14);
+  g.add(consoleBox);
+
+  // Teclado y ranura
+  const keypad = new THREE.Mesh(new THREE.PlaneGeometry(0.14, 0.12), std('#151515'));
+  keypad.position.set(0, 1.32, 0.201);
+  g.add(keypad);
+
+  // Auricular
+  const handset = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.22, 0.05), std('#101010'));
+  handset.position.set(-0.16, 1.38, 0.16);
+  g.add(handset);
+
+  return shadow(g);
+}
+
+/** Módulo / Kiosco urbano de periódicos, revistas y golosinas */
+export function kioscoRevistas() {
+  const g = new THREE.Group();
+  const frameMat = std('#1f3a2b', { roughness: 0.6, metalness: 0.3 }); // verde oscuro institucional
+  const counterMat = std('#8b5a2b', { roughness: 0.7 });
+
+  // Cuerpo cerrado de la caseta
+  const booth = new THREE.Mesh(new THREE.BoxGeometry(1.6, 2.1, 1.1), frameMat);
+  booth.position.y = 1.05;
+  g.add(booth);
+
+  // Ventana / hueco de atención al frente
+  const counter = new THREE.Mesh(new THREE.BoxGeometry(1.5, 0.1, 0.35), counterMat);
+  counter.position.set(0, 0.95, 0.45);
+  g.add(counter);
+
+  // Techo inclinado con alero
+  const roof = new THREE.Mesh(new THREE.BoxGeometry(1.85, 0.08, 1.35), std('#14241b', { roughness: 0.5 }));
+  roof.rotation.x = 0.08;
+  roof.position.set(0, 2.15, 0.05);
+  g.add(roof);
+
+  // Periódicos y revistas colgadas al frente
+  const magColors = ['#c0392b', '#2980b9', '#f39c12', '#27ae60', '#8e44ad'];
+  for (let row = 0; row < 2; row++) {
+    for (let col = 0; col < 5; col++) {
+      const mag = new THREE.Mesh(new THREE.PlaneGeometry(0.16, 0.22), std(magColors[(row * 5 + col) % magColors.length]));
+      mag.position.set(-0.52 + col * 0.26, 1.35 - row * 0.26, 0.56);
+      g.add(mag);
+    }
+  }
+
+  // Letrero superior
+  let bannerMap = null;
+  if (typeof document !== 'undefined') {
+    bannerMap = signTexture({ title: 'REVISTAS · PERIÓDICOS', sub: 'MINUTOS A TODO DESTINO', bg: '#102216', fg: '#ffea00', accent: '#ffffff', w: 512, h: 128 });
+  }
+  const bannerMat = new THREE.MeshBasicMaterial({ map: bannerMap, color: bannerMap ? 0xffffff : 0xffea00 });
+  const banner = new THREE.Mesh(new THREE.PlaneGeometry(1.4, 0.28), bannerMat);
+  banner.position.set(0, 1.95, 0.56);
+  g.add(banner);
+
+  return shadow(g);
+}

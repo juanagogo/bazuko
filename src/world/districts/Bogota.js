@@ -1194,16 +1194,69 @@ export class Bogota {
       this.group.add(sign);
       if (sign.userData.update) this.animated.push(sign);
     }
-    // cerca de la estación: vendedor de tinto y una chaza
+
+    // Paraderos zonales del transporte integrado
+    const busStops = [
+      { x: W(CARRERAS[0][1] + 1), z: W(CALLES[0][0] + 5), ry: Math.PI / 2, title: 'PARADERO KR 10 - CL 13', code: '045A00', routes: ['T12', 'C15', '544A'] },
+      { x: W(CARRERAS[1][1] + 1), z: W(CALLES[1][0] + 6), ry: Math.PI / 2, title: 'PARADERO KR 7 - CL 26', code: '088B01', routes: ['18-3', 'T25', '192', '593'] },
+      { x: W(CARACAS.lanes[1][1] + 2), z: W(CALLES[0][1] + 6), ry: 0, title: 'PARADERO AV. CARACAS - CL 19', code: '112A02', routes: ['60', '97', 'A124'] },
+      { x: W(CARRERAS[0][0] - 2), z: W(CALLES[1][1] + 5), ry: -Math.PI / 2, title: 'PARADERO KR 13 - CL 72', code: '190C03', routes: ['C115', 'E25', '359'] }
+    ];
+    for (const stop of busStops) {
+      const ps = P.sitpBusStop(stop);
+      this._takesRoom(this._add(ps, stop.x, stop.z, stop.ry));
+    }
+
+    // Cabinas telefónicas públicas
+    const phoneSpots = [
+      { x: W(CARRERAS[0][0] - 1), z: W(CALLES[0][1] - 2), ry: Math.PI / 2 },
+      { x: W(CARRERAS[1][0] - 1), z: W(CALLES[1][1] - 2), ry: -Math.PI / 2 },
+      { x: W(CARACAS.lanes[0][0] - 2), z: W(CALLES[1][0] + 3), ry: 0 }
+    ];
+    for (const spot of phoneSpots) {
+      this._takesRoom(this._add(P.cabinaTelefonica(), spot.x, spot.z, spot.ry));
+    }
+
+    // Kioscos de periódicos y revistas
+    const kiosks = [
+      { x: W(CARRERAS[0][1] + 2), z: W(CALLES[0][1] + 4), ry: -Math.PI / 2 },
+      { x: W(CARRERAS[1][0] - 2), z: W(CALLES[0][0] - 4), ry: Math.PI / 2 }
+    ];
+    for (const k of kiosks) {
+      this._takesRoom(this._add(P.kioscoRevistas(), k.x, k.z, k.ry));
+    }
+
+    // Canecas distritales de acero inoxidable en andenes cerca de faroles alternados
+    for (let i = 0; i < lampSpots.length; i += 3) {
+      const [lx, lz] = lampSpots[i];
+      this._add(P.canecaDistrital(), lx + 0.6, lz + 0.6);
+    }
+
+    // Bolardos en esquinas peatonales principales
+    const bollardCorners = [
+      [W(CARRERAS[0][0] - 0.5), W(CALLES[0][0] - 0.5)],
+      [W(CARRERAS[0][1] + 0.5), W(CALLES[0][0] - 0.5)],
+      [W(CARRERAS[1][0] - 0.5), W(CALLES[1][0] - 0.5)],
+      [W(CARRERAS[1][1] + 0.5), W(CALLES[1][0] - 0.5)]
+    ];
+    for (const [bx, bz] of bollardCorners) {
+      for (const [dx, dz] of [[-0.8, 0], [0, 0], [0.8, 0], [0, -0.8], [0, 0.8]]) {
+        this._add(P.bolardoBogotano(), bx + dx, bz + dz);
+      }
+    }
+
+    // Vendedores ambulantes: chazas, fritanga y carritos de tinto campesino
     this.vendors = [];
     this._vendor(WX(21), WZ(18.5), Math.PI / 2, 'chaza', 'Chaza de don Efraín', ['cigarrillo', 'cafe', 'pan', 'agua', 'empanada']);
     this._vendor(WX(28), WZ(29), 0, 'fritanga', 'Fritanga La Mona', ['empanada', 'morcilla', 'papaCriolla', 'aguapanela', 'refresco']);
     this._vendor(WX(39), WZ(36), -Math.PI / 2, 'chaza', 'Dulces y minutos', ['cigarrillo', 'refresco', 'agua', 'empanada']);
+    this._vendor(WX(33), WZ(19), Math.PI / 2, 'carritoTinto', 'Tinto y Aromáticas Don Wilson', ['cafe', 'agua', 'pan', 'empanada']);
+    this._vendor(WX(48), WZ(26), -Math.PI / 2, 'carritoTinto', 'Café El Manantial', ['cafe', 'agua', 'pan', 'empanada']);
   }
 
   /** Vendedor ambulante: puesto + persona; se le puede comprar (lo atiende la tienda con otro catálogo) */
   _vendor(x, z, rotY, kind, title, items) {
-    const stall = kind === 'fritanga' ? P.fritanga() : P.chaza();
+    const stall = kind === 'fritanga' ? P.fritanga() : kind === 'carritoTinto' ? P.carritoTinto() : P.chaza();
     this._takesRoom(this._add(stall, x, z, rotY));
     if (stall.userData.setNight) this.props.push({ instance: { setNight: stall.userData.setNight } });
     const back = new THREE.Vector3(Math.sin(rotY), 0, Math.cos(rotY)).multiplyScalar(-0.9);
