@@ -115,6 +115,7 @@ export function textoDelPrompt(interaction, inventory) {
   }
   if (type === 'cambuche') return '[E] Mi cambuche: armar o dormir';
   if (type === 'mesa') return '[E] Fabricar';
+  if (type === 'bolirana') return '[E] Entrar a El Rumbiadero';
   if (type === 'dealer') return '[Q / E] El jíbaro: comprar o vender';
   if (type === 'cart') return interaction.currentTarget?.isAttached ? '[E] Soltar la carreta' : '[E] Agarrar la carreta (+120 kg)';
   return interaction.stealPrompt ?? '';
@@ -139,6 +140,7 @@ const VERBO_CORTO = [
   [/^Comedor Comunitario/, 'Comedor'],
   [/^Comprar en /, 'Comprar'],
   [/^Mi cambuche/, 'Mi cambuche'],
+  [/^Entrar a El Rumbiadero/, 'Entrar'],
   [/^El jíbaro/, 'El jíbaro'],
   [/^Agarrar la carreta/, 'Agarrar carreta'],
   [/^Soltar la carreta/, 'Soltar carreta'],

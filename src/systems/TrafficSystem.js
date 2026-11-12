@@ -256,6 +256,26 @@ export class TrafficSystem {
     return !vehicle.police && vehicle.state === 'patrol' && !vehicle.rejoinTarget && !vehicle.hold;
   }
 
+  /** ¿Es una patrulla de ronda, sin persecución ni espera a medias? */
+  _canRelocate(vehicle) {
+    return !!vehicle.police && vehicle.state === 'patrol' && !vehicle.rejoinTarget && !vehicle.hold;
+  }
+
+  /** Pasa un vehículo a un punto libre de su propia ruta, lejos de la vista y fuera de los cruces. Devuelve si lo logró. */
+  _relocate(vehicle) {
+    const distance = this._freeDistance(vehicle.route);
+    if (distance === null) return false;
+    // Suelta cruces y turnos antes de moverlo: un dueño de cruce que ya no está bloquearía a los demás.
+    this._releaseReservations(vehicle);
+    const point = this._position;
+    vehicle.route.sample(distance, point, this._direction);
+    vehicle.distance = vehicle.nextDistance = distance;
+    vehicle.car.position.copy(point);
+    vehicle.car.group.rotation.y = Math.atan2(-this._direction.z, this._direction.x);
+    vehicle.speed = vehicle.nextSpeed = 0;
+    return true;
+  }
+
   /** Saca de circulación al que va más lejos de la vista, sin tocar patrullas ni persecuciones. */
   _removeVehicle() {
     const view = this._viewPosition;
@@ -279,11 +299,15 @@ export class TrafficSystem {
     const view = this._viewPosition, safeSq = this._resizeDistance() ** 2;
     for (const vehicle of this.vehicles) {
       vehicle.stoppedFor = vehicle.speed < .05 ? (vehicle.stoppedFor ?? 0) + dt : 0;
-      if (vehicle.stoppedFor < STUCK_LIMIT || !this._canRetire(vehicle)) continue;
+      if (vehicle.stoppedFor < STUCK_LIMIT) continue;
+      const retire = this._canRetire(vehicle);
+      // La patrulla de ronda no cuenta en la flota, así que no se retira (no la repondría nadie): si lleva rato parada
+      // lejos de la vista, pasa a un punto libre de su ruta, como el regreso de una persecución.
+      if (!retire && !this._canRelocate(vehicle)) continue;
       const dx = vehicle.car.position.x - view.x, dz = vehicle.car.position.z - view.z;
       if (dx * dx + dz * dz < safeSq) continue;
-      this._retire(vehicle);
-      return; // uno por cuadro, para que la retirada se note como el resto del montaje
+      if (retire) { this._retire(vehicle); return; } // uno por cuadro, para que la retirada se note como el resto del montaje
+      if (this._relocate(vehicle)) { vehicle.stoppedFor = 0; return; }
     }
   }
 

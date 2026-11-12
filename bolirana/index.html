@@ -1,0 +1,203 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>El Rumbiadero · Bolirana</title>
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <header>
+      <a class="brand" href="#" aria-label="El Rumbiadero"
+        ><span class="brand-mark">R</span
+        ><span>EL RUMBIADERO<small>BOGOTÁ · BOLIRANA</small></span></a
+      >
+      <nav aria-label="Modo de juego">
+        <button id="street-exit">Volver a la calle</button
+        ><button id="exit-venue">Volver a la entrada</button
+        ><button id="practice" class="selected">Práctica libre</button
+        ><button id="match-tab">Partida con NPC</button>
+      </nav>
+      <button
+        id="toggle-instructions"
+        class="help-toggle"
+        aria-controls="instructions-panel"
+        aria-expanded="true"
+        hidden
+      >
+        Ocultar ayuda</button
+      ><span class="local-label"><i></i> EL RUMBIADERO</span>
+    </header>
+    <section id="entrance" class="entrance" aria-label="Entrada al rumbiadero">
+      <div class="entrance-card">
+        <div class="eyebrow">BIENVENIDO AL RUMBIADERO</div>
+        <h1>¿Cómo quieres jugar?</h1>
+        <p>Elige antes de acercarte a la mesa.</p>
+        <div id="entry-choices">
+          <button id="enter-practice" class="primary">
+            Práctica gratis · sin límite de tiempo ↗</button
+          ><button id="enter-betting" class="secondary">
+            Jugar contra un NPC · con apuesta ↗
+          </button>
+        </div>
+        <button id="entry-street" class="secondary street-link">
+          Volver a la calle ↗
+        </button>
+        <p id="street-status" role="status" hidden></p>
+        <div id="entry-bet"></div>
+        <button id="entry-back" class="secondary" hidden>
+          Volver a elegir
+        </button>
+      </div>
+    </section>
+    <main>
+      <section class="arena" aria-label="Mesa de Bolirana">
+        <canvas
+          id="game"
+          aria-label="Apunta con el cursor; mantén pulsado y suelta para lanzar"
+          tabindex="0"
+        ></canvas>
+        <div class="arena-top">
+          <div class="score-card">
+            <span>TÚ <b id="player-balls">∞ BOLAS</b></span
+            ><strong id="player-score">00</strong>
+          </div>
+          <div class="round-status">
+            <span id="mode-label">SIN APUESTA · PRÁCTICA</span
+            ><strong id="turn-label">La próxima puede ser rana.</strong>
+          </div>
+          <div class="score-card npc">
+            <span id="npc-name">LA MESA <b id="level-label">20 MÁX.</b></span
+            ><strong id="npc-score">20</strong>
+          </div>
+        </div>
+        <div id="timer" class="timer-badge">Tómate tu tiempo</div>
+        <div id="toast" role="status" aria-live="polite">
+          Apunta a un agujero. Mantén pulsado y suelta.
+        </div>
+        <div id="rana" class="rana" hidden>
+          <span>🐸</span><strong>¡RANA!</strong
+          ><small>+20 · LA REINA DE LA MESA</small>
+        </div>
+        <div class="arena-bottom">
+          <span class="view-label"
+            >01 / MESA CLÁSICA<br /><small
+              >Gráficos originales · vista de lanzamiento</small
+            ></span
+          >
+          <div class="power-control">
+            <div>
+              <span>POTENCIA</span><b id="power-text">MANTÉN PULSADO</b>
+            </div>
+            <div class="power-track">
+              <div id="power-fill"></div>
+              <i title="Zona de potencia recomendada"></i>
+            </div>
+            <small>El punto dorado marca una buena fuerza inicial.</small>
+          </div>
+          <button
+            id="sound"
+            class="sound"
+            aria-label="Activar o silenciar sonido"
+          >
+            SONIDO: SÍ
+          </button>
+        </div>
+      </section>
+      <aside id="instructions-panel">
+        <div class="eyebrow">UN CLÁSICO DE BARRIO</div>
+        <h1>Puntería.<br />Pulso.<br /><em>¡Rana!</em></h1>
+        <p class="intro">
+          Tres bolas, una mesa y el tiro que se celebra en todo el rumbiadero.
+        </p>
+        <div class="how">
+          <span class="step">01</span>
+          <div>
+            <strong>Apunta</strong>
+            <p>Mueve el cursor sobre la mesa.</p>
+          </div>
+          <span class="step">02</span>
+          <div>
+            <strong>Carga y suelta</strong>
+            <p>Mantén clic o espacio para elegir fuerza. Suelta para lanzar.</p>
+          </div>
+          <span class="step">03</span>
+          <div>
+            <strong>Busca la rana</strong>
+            <p>Los agujeros valen 1–10. La boca vale 20.</p>
+          </div>
+        </div>
+        <section id="bet-panel" class="bet-panel" hidden>
+          <div class="balance-row">
+            <span>TU SALDO</span><strong id="balance">$ 10.000</strong>
+          </div>
+          <div class="stakes">
+            <button data-percent="20">20%</button
+            ><button data-percent="50">50%</button
+            ><button data-percent="100">100%</button>
+          </div>
+          <label for="stake">Tu apuesta en pesos</label>
+          <div class="amount">
+            <span>$</span
+            ><input
+              id="stake"
+              type="number"
+              min="1"
+              step="1"
+              value="2000"
+              inputmode="numeric"
+            />
+          </div>
+          <p id="payout">Si ganas, recibes $ 4.000 en total.</p>
+          <button id="start" class="primary">
+            Apostar y jugar <span>↗</span>
+          </button>
+          <p class="terms">
+            3 bolas cada uno · máximo 2 minutos.<br />Empate: recuperas tu
+            apuesta. Abandonar, cerrar, recargar o agotar el tiempo: pierdes la
+            apuesta.
+          </p>
+        </section>
+        <section id="practice-panel" class="practice-panel">
+          <span class="pill">SIN RIESGO · SIN LÍMITE</span>
+          <h2>Encuentra tu tiro.</h2>
+          <p>
+            Practica antes de apostar. Cada lanzamiento muestra dónde aterrizó y
+            cuántos puntos sumaste.
+          </p>
+          <button id="reset-practice" class="secondary">
+            Limpiar marcador ↺
+          </button>
+        </section>
+        <section id="match-panel" hidden>
+          <h2 id="match-heading">Partida en curso</h2>
+          <p id="match-detail"></p>
+          <button id="abandon" class="secondary">
+            Abandonar y perder la apuesta
+          </button>
+        </section>
+        <div class="board-note">
+          <span>EL TABLERO ES JUSTO</span>
+          <p>
+            Los valores se sortean antes de apostar. Tú y el NPC juegan sobre la
+            misma mesa.
+          </p>
+        </div>
+        <footer>BOLIRANA <span>EL RUMBIADERO</span></footer>
+      </aside>
+    </main>
+    <dialog id="result">
+      <div class="eyebrow">FIN DE LA PARTIDA</div>
+      <h2 id="result-title"></h2>
+      <div id="result-money" class="result-money">
+        <span id="result-money-label"></span
+        ><strong id="result-money-amount"></strong>
+      </div>
+      <p id="result-score"></p>
+      <button id="result-street" class="secondary street-link">
+        Volver a la calle ↗</button
+      ><button id="result-close" class="primary">Volver a la entrada ↗</button>
+    </dialog>
+    <script type="module" src="app.js"></script>
+  </body>
+</html>
