@@ -4,7 +4,7 @@ import { Renderer } from './Renderer.js';
 import { SceneManager } from './Scene.js';
 import { CameraRig } from './Camera.js';
 import { TouchControls } from './TouchControls.js';
-import { Clock } from './Clock.js';
+import { Clock, DAY_CYCLE_SECONDS } from './Clock.js';
 import { Input } from './Input.js';
 
 import { World } from '../world/World.js';
@@ -107,7 +107,7 @@ export class Game {
     this.sceneMgr = new SceneManager();
     this.sceneMgr.scene.environment = this.renderer.createEnvironment();
     this.cameraRig = new CameraRig(this.sceneMgr.scene, canvas);
-    this.clock = new Clock();
+    this.clock = new Clock({ dayLengthSeconds: DAY_CYCLE_SECONDS });
     this.input = new Input();
 
     // Sistemas
@@ -288,13 +288,15 @@ export class Game {
     this._setupGps();
 
     const district = this.world.active;
-    this._loadIfSave();
-    // Cada entrada comienza de noche y con lluvia, también al retomar un guardado.
-    this.clock.hour = 22;
-    if (this.weather) {
-      this.weather.setWeather('llovizna', false);
-      this.weather.timer = 0;
-      this.weather.wetness = .6;
+    const hasSave = this._loadIfSave();
+    // Al iniciar una partida nueva, comenzamos al amanecer (6:00 AM) para apreciar la luz matutina de Bogotá
+    if (!hasSave) {
+      this.clock.hour = 6;
+      if (this.weather) {
+        this.weather.setWeather('despejado', false);
+        this.weather.timer = 0;
+        this.weather.wetness = 0;
+      }
     }
     // Cada entrada a la partida comienza delante del cambuche, incluso si
     // la partida guardada conserva una ubicación anterior de exploración.
@@ -792,12 +794,15 @@ export class Game {
   /** Una partida que no se deja leer no detiene la carga: se aparta sin borrarla y se juega sin ella. */
   _loadIfSave() {
     try {
-      this._aplicarPartida(this.save.load());
+      const data = this.save.load();
+      this._aplicarPartida(data);
+      return Boolean(data);
     } catch (error) {
       console.warn('[Partida] Dañada: queda aparte y se empieza sin ella.', error);
       this.save.apartar();
       // Lo que alcanzó a aplicarse no sirve: se vuelve a cargar, ya sin ella.
       globalThis.location?.reload?.();
+      return false;
     }
   }
 
