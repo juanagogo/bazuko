@@ -277,6 +277,12 @@ export class WeatherSystem {
       this._sentWetness = this.wetness;
       district.setWetness(this.wetness);
     }
+    // La gente reacciona a lo que cae, no al piso mojado: con llovizna no se cubre como en un aguacero.
+    const falling = this.isRaining ? this.rainIntensity : 0;
+    if (district?.setRain && Math.abs(falling - (this._sentRain ?? -1)) > .01) {
+      this._sentRain = falling;
+      district.setRain(falling);
+    }
     // Cada cuadro: una ciudad recién construida también debe enterarse de que el suelo sigue mojado.
     setPuddles(this.wetness);
 

@@ -4,6 +4,7 @@ import { mock, test } from 'node:test';
 import * as THREE from 'three';
 import { AudioSystem } from '../src/systems/AudioSystem.js';
 import { audioMetadata } from './helpers/audio-file.js';
+import { NPC_CONVERSATIONS } from '../src/data/npcConversations.js';
 import { InteractionSystem } from '../src/systems/InteractionSystem.js';
 import { VehicleAudio } from '../src/systems/VehicleAudio.js';
 import * as textures from '../src/world/bogota/textures.js';
@@ -206,8 +207,16 @@ test('la carpeta de audio contiene únicamente archivos utilizados y todos tiene
   try {
     const sounds = [...Object.values(audio.sounds), ...Object.values(audio.vehicleSounds), ...audio.driverSounds, ...audio.theftSounds, ...Object.values(audio.streetVoiceSounds)];
     const used = sounds.map(sound => decodeURIComponent(sound.options.src[0].split('/').at(-1))).sort();
-    const files = readdirSync(new URL('../public/audio/', import.meta.url)).sort();
+    // Las conversaciones viven en su propia carpeta y se cargan al empezar cada una: se revisan aparte.
+    const files = readdirSync(new URL('../public/audio/', import.meta.url), { withFileTypes: true })
+      .filter(entry => entry.isFile()).map(entry => entry.name).sort();
     assert.deepEqual(files, used);
+    const lines = NPC_CONVERSATIONS.flatMap(conversation => conversation.lineas.map(line => line.file)).sort();
+    assert.deepEqual(readdirSync(new URL('../public/audio/conversaciones/', import.meta.url)).sort(), lines);
+    for (const file of lines) {
+      const bytes = readFileSync(new URL(`../public/audio/conversaciones/${encodeURIComponent(file)}`, import.meta.url));
+      assert.ok(audioMetadata(bytes).duration > 0, file);
+    }
     assert.equal(files.filter(file => file.endsWith('.opus')).length, 10);
     for (const file of files) {
       const bytes = readFileSync(new URL(`../public/audio/${encodeURIComponent(file)}`, import.meta.url));

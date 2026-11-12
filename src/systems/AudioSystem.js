@@ -3,6 +3,8 @@ import { Howl, Howler } from 'howler';
 import { VehicleAudio } from './VehicleAudio.js';
 import { STREET_VOICES, StreetVoices } from './StreetVoices.js';
 import { PoliceSirenAudio } from './PoliceSirenAudio.js';
+import { NpcConversations } from './NpcConversations.js';
+import { NPC_CONVERSATIONS } from '../data/npcConversations.js';
 
 export const MIX_CATEGORIES = ['ambient', 'traffic', 'voices', 'effects'];
 // El audio vive en public/audio: la ruta se arma con la base para que la demo de Pages funcione bajo su subcamino.
@@ -89,10 +91,23 @@ export class AudioSystem {
     this._theftVoices = new Map();
     this.vehicles = new VehicleAudio(this.vehicleSounds, Math.random, this.driverSounds);
     this.streetVoices = new StreetVoices({ bank: this.streetVoiceSounds });
+    // Conversaciones entre peatones: sus audios se cargan al empezar cada una y se sueltan al terminar.
+    this.conversations = new NpcConversations({
+      conversations: NPC_CONVERSATIONS,
+      load: (file) => {
+        const howl = new HowlClass({
+          src: [`${AUDIO_BASE}conversaciones/${encodeURIComponent(file)}`], volume: 0, loop: false, pool: 1,
+          onloaderror: (_id, error) => { howl.loadFailed = true; console.error(`[Audio] No se pudo cargar conversaciones/${file}:`, error); },
+          onplayerror(id) { this.once('unlock', () => this.play(id)); }
+        });
+        return howl;
+      }
+    });
     this.policeSiren = new PoliceSirenAudio({ fx: () => this._fx() });
-    // Una sola voz a la vez entre conductores, robo y calle.
-    this.vehicles.externalVoiceActive = () => this._theftVoiceActive() || this.streetVoices.active;
-    this.streetVoices.externalVoiceActive = () => this._theftVoiceActive() || this.vehicles.remarkPlaying();
+    // Una sola voz a la vez entre conductores, robo, calle y conversaciones.
+    this.vehicles.externalVoiceActive = () => this._theftVoiceActive() || this.streetVoices.active || this.conversations.busy;
+    this.streetVoices.externalVoiceActive = () => this._theftVoiceActive() || this.vehicles.remarkPlaying() || this.conversations.busy;
+    this.conversations.externalVoiceActive = () => this._theftVoiceActive() || this.vehicles.remarkPlaying() || this.streetVoices.active;
     this._carAlarms = new Map();
 
     // El audio es opcional: un archivo ausente o bloqueado no impide jugar.
@@ -180,6 +195,7 @@ export class AudioSystem {
   _applyLevels(force = false) {
     this.vehicles.levels = { traffic: this._level('traffic'), voices: this._level('voices') };
     this.streetVoices.levels.voices = this._level('voices');
+    this.conversations.levels.voices = this._level('voices');
     const ambient = this._level('ambient');
     if (!force && Math.abs(ambient - (this._appliedAmbient ?? -1)) < .002) return;
     this._appliedAmbient = ambient;
@@ -276,6 +292,7 @@ export class AudioSystem {
     this._theftVoices.clear();
     this.vehicles.stopRemarks();
     this.streetVoices.cancel();
+    this.conversations.cancel();
     const voice = { sound, id: sound.play() };
     sound.volume(this._theftVolume(car, this._listenerPosition), voice.id);
     this._theftVoices.set(car, voice);
@@ -374,6 +391,7 @@ export class AudioSystem {
     this._syncRain();
     this.vehicles.setPaused(paused);
     this.streetVoices.setPaused(paused);
+    this.conversations.setPaused(paused);
     if (paused) {
       for (const voice of this._theftVoices.values()) voice.sound.stop(voice.id);
       this._theftVoices.clear();
@@ -401,6 +419,9 @@ export class AudioSystem {
     this.vehicles.update(dt, position, vehicles, bus);
     this.policeSiren.update(dt, position, vehicles);
     this.streetVoices.update(position, pedestrians);
+    // Las conversaciones van con el tiempo de la simulación, igual que los peatones que se acercan a conversar.
+    this._simulationMs = (this._simulationMs ?? 0) + dt * 1000;
+    this.conversations.update(position, pedestrians, this._simulationMs);
     for (const [car, voice] of this._theftVoices) {
       if (!voice.sound.playing(voice.id)) this._theftVoices.delete(car);
       else voice.sound.volume(this._theftVolume(car, position), voice.id);
@@ -422,6 +443,7 @@ export class AudioSystem {
     this._theftVoices.clear();
     this._carAlarms.clear();
     this.streetVoices.clear();
+    this.conversations.clear();
     this.eventTarget?.removeEventListener('dog-bark', this._dogBark);
     this.eventTarget?.removeEventListener('car-honk', this._carHonk);
     this.vehicles.clear();

@@ -7,6 +7,9 @@ import { createImportedModel, disposeImportedInstance } from '../utils/ImportedM
 import { createFlame, fireGlow, stepFlames } from '../world/bogota/flame.js';
 import { cardboard } from '../world/bogota/textures.js';
 
+/** Las piezas que trae el modelo completo: con las cuatro armadas, el modelo las reemplaza. */
+export const STRUCTURE = ['base', 'techo', 'paredes', 'cama'];
+
 export class Cambuche {
   constructor(scene, position) {
     this.scene = scene;
@@ -167,10 +170,11 @@ export class Cambuche {
     for (const [id, obj] of Object.entries(this.pieces)) obj.visible = !!built[id];
     this.markerPile.visible = !built.base;
     if (this.model) {
-      const assembled = !!built.base && !!built.techo;
+      // El modelo completo trae techo, paredes y colchón: sale solo cuando las cuatro piezas de la estructura están
+      // armadas. Antes se ve cada pieza por separado, así que cada una que se arma cambia lo que se ve.
+      const assembled = STRUCTURE.every((id) => built[id]);
       this.model.visible = assembled;
-      // Hasta reunir base y techo solo se ven las piezas ya construidas.
-      if (assembled) for (const id of ['base', 'techo', 'paredes', 'cama']) this.pieces[id].visible = false;
+      if (assembled) for (const id of STRUCTURE) this.pieces[id].visible = false;
     }
   }
 
