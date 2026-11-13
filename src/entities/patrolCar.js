@@ -13,11 +13,12 @@ const SKINS = ['#e0b08a', '#c68a5e', '#9a6440', '#6e4529'];
 
 const DOOR_OPEN = 1.12;   // rad: la puerta abierta queda a unos 64°
 const DOOR_TIME = .35;    // s en abrir o cerrar
-const DOOR_SNAP = .22;    // s en abrirse de un tirón, cuando se bajan a perseguir
-const DOOR_BOUNCE = .3;   // s del rebote contra el tope después del tirón
-const BOUNCE = .07;       // cuánto pasa del tope en el rebote
-const SEATED_HIP = .9;    // m de la coronilla a la cadera de alguien sentado
-const BENCH = .45;        // m: altura de cadera de la postura `banca`
+const DOOR_SNAP = .16;    // s en abrirse de un tirón, cuando se bajan a perseguir
+const DOOR_BOUNCE = .2;   // s del rebote contra el tope después del tirón
+const BOUNCE = .03;       // cuánto pasa del tope en el rebote: apenas un par de grados
+const SEATED_TOP = 1.13;  // m de la raíz al tope de la gorra en la postura `patrulla` (lo mide patrol-seat.test.js)
+const HEAD_ROOM = .05;    // m entre el tope de la gorra y el techo por dentro
+const ROOF_SKIN = .03;    // m de grueso del techo
 const OUT = .55;          // m desde el costado hasta donde queda parado quien se baja (como `Car.driverDoor`)
 
 let materials = null;
@@ -114,6 +115,22 @@ function doorParts(model, side) {
 }
 
 /**
+ * A qué altura va la raíz de quien se sienta en un modelo, con `anchor` su asiento y `height` la altura a la que llega
+ * la cabeza del conductor de siempre: la que deja el tope de la gorra `HEAD_ROOM` m bajo el techo, medido en la carrocería
+ * sobre el asiento y un poco alrededor, que el techo baja hacia el parabrisas y hacia los lados.
+ */
+export function seatLift(model, anchor, height) {
+  let top = height;
+  if (CAR_MODELS[model]) {
+    const body = getCarBody(model), z = Math.abs(anchor.z);
+    let roof = Infinity;
+    for (const dx of [-.3, -.2, -.1, 0, .1]) for (const dz of [-.12, 0, .12]) roof = Math.min(roof, body.topY(anchor.x + dx, z + dz));
+    top = Math.min(top, roof - ROOF_SKIN - HEAD_ROOM);
+  }
+  return Math.max(0, top - SEATED_TOP);
+}
+
+/**
  * Accesorios de una patrulla para los agentes a pie. Se crea una vez por patrulla; `update(dt)` anima las puertas y
  * ajusta lo que se ve sentado al detalle del carro.
  */
@@ -123,6 +140,7 @@ export class PatrolCar {
     const v = car.vehicle, parent = v.bodyVisual ?? car.group, m = shared();
     this.anchor = (v.driverAnchor ?? new THREE.Vector3(.2, 0, -.38)).clone();
     this.height = v.driverHeight ?? 1.5;
+    this.seatLift = seatLift(v.model, this.anchor, this.height);
     this.doors = {};
     for (const side of [-1, 1]) {
       const parts = CAR_MODELS[v.model] ? doorParts(v.model, side) : null;
@@ -173,14 +191,13 @@ export class PatrolCar {
 
   setPassengerInside(inside) { this.passengerInside = !!inside; }
 
-  /** Dónde va sentado cada uno, en el mundo: la cadera a la altura del asiento. */
+  /** Dónde va sentado cada uno, en el mundo: la raíz a la altura que le deja la cabeza bajo el techo (ver `seatLift`). */
   seatPoint(side, target = new THREE.Vector3()) {
-    const lift = Math.max(0, this.height - SEATED_HIP - BENCH);
     this.car.group.updateMatrixWorld();
-    return target.set(this.anchor.x, lift, side * Math.abs(this.anchor.z)).applyMatrix4(this.car.group.matrixWorld);
+    return target.set(this.anchor.x, this.seatLift, side * Math.abs(this.anchor.z)).applyMatrix4(this.car.group.matrixWorld);
   }
 
-  /** Justo afuera del costado, a la altura `lift` sobre el carro: por ahí saca las piernas antes de pararse. */
+  /** Justo afuera del costado, a la altura `lift` sobre la calle: hasta ahí se desliza, con un pie ya en el piso, antes de pararse. */
   edgePoint(side, lift, target = new THREE.Vector3()) {
     this.car.group.updateMatrixWorld();
     const x = this.car.vehicle.driverDoor?.x ?? this.anchor.x;

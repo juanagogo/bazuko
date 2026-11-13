@@ -469,3 +469,32 @@ test('el saco y la camiseta rota también ocultan la piel en el cuerpo completo'
     }
   }
 });
+
+test('las posturas con peso propio entran sin transición, una sobre otra, y se retiran con restore', async () => {
+  const baked = await library('hombre-adulto');
+  const { layer, bones, root } = standing(baked);
+  const before = snapshot(bones);
+  const hips = [...bones.values()].find(bone => /hips$/i.test(bone.name));
+  const standingHip = hips.position.y;
+  // Un solo cuadro corto: ya está sentado del todo, sin esperar los segundos de `transition`.
+  layer.apply(1 / 60, { speed: 0, poses: [['patrulla', 1]] });
+  const seated = hips.position.y;
+  assert.ok(standingHip - seated > .5, `la cadera baja ${(standingHip - seated).toFixed(2)} m de una`);
+  assert.ok(layer.active && layer.hipWeight === 1);
+  layer.restore();
+  assert.deepEqual(snapshot(bones), before, 'restore la deja como estaba');
+  // A medio peso queda a medio camino, y la de encima manda sobre los huesos que comparten.
+  layer.apply(1 / 60, { speed: 0, poses: [['patrulla', 1], ['baja-derecha', .5]] });
+  const half = hips.position.y;
+  layer.restore();
+  layer.apply(1 / 60, { speed: 0, poses: [['patrulla', 1], ['baja-derecha', 1]] });
+  const edge = hips.position.y;
+  layer.restore();
+  assert.ok(half > seated + .05 && half < edge - .05, `sentado ${seated.toFixed(2)}, a medias ${half.toFixed(2)}, en el borde ${edge.toFixed(2)}`);
+  // Otra capa dueña del cuerpo las calla, y sin ellas la capa no queda trabajando.
+  layer.apply(1 / 60, { speed: 0, poses: [['patrulla', 1]], blocked: true });
+  root.updateMatrixWorld(true);
+  assert.deepEqual(snapshot(bones), before);
+  layer.apply(1 / 60, { speed: 0 });
+  assert.equal(layer.active, false);
+});

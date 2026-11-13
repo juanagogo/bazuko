@@ -149,20 +149,21 @@ test('bajarse no tiene saltos: del asiento a la puerta en pasos cortos, sentado 
   const local = new THREE.Vector3().copy(officer.position);
   car.group.worldToLocal(local);
   assert.ok(Math.abs(local.z) < car.width / 2, 'arranca adentro, en su silla');
-  assert.equal(officer.poseParams.stance, 'banca');
+  assert.deepEqual(officer.poseParams.poses[0], ['patrulla', 1], 'sentado como va en el carro');
   assert.equal(world.unit.fit.doors[1].wanted, true, 'abre su puerta');
   let previous = officer.position.clone(), largest = 0, stoodUp = false;
   runUntil(world, () => {
     largest = Math.max(largest, officer.position.distanceTo(previous));
     previous.copy(officer.position);
-    if (officer.poseParams.stance === 'banca' && officer.poseParams.stanceWeight < .5) stoodUp = true;
+    const [first, weight] = officer.poseParams.poses?.[0] ?? [];
+    if (first === 'baja-derecha' && weight < .5) stoodUp = true;
     return officer.state === 'persecucion';
   }, 4);
   assert.ok(largest < .12, `el mayor salto por cuadro fue ${largest.toFixed(3)} m`);
   assert.ok(stoodUp, 'se para de a poco');
   const outside = car.group.worldToLocal(officer.position.clone());
   assert.ok(Math.abs(outside.z) > car.width / 2 + .3, 'terminó afuera, junto a la puerta');
-  assert.equal(officer.poseParams.stanceWeight, 0, 'la postura de sentado se va sin pesar');
+  assert.equal(officer.poseParams.poses, undefined, 'ya de pie no queda ninguna postura de la bajada');
   assert.equal(world.unit.fit.doorAmount(1), 1, 'la puerta queda abierta mientras persigue');
 });
 

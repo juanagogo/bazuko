@@ -7,6 +7,7 @@ import * as THREE from 'three';
 import { Npc, NPC_COMBAT, NPC_HIT_REACTION_DURATION, NPC_LOD } from './Npc.js';
 import { DEFAULT_LOOK } from '../character/look.js';
 import { smooth } from '../character/BodyLanguage.js';
+import { EXIT, EXIT_SECONDS, exitMotion, exitTimes, seatRise, seatSlide } from './patrolExit.js';
 import { canReachCombatTarget, hasClearCombatLine, resolveCombatWalk } from '../systems/CombatGeometry.js';
 import { PATROL_COLORS } from './patrolCar.js';
 
@@ -93,9 +94,6 @@ const GASP = .25;          // s del último resuello al enderezarse
 const HEAVY_STYLE = { stoop: .22, swing: .7, headDown: .12 };
 const HEAVY_PACE = .8;     // de lo que camina normalmente
 
-// Bajarse y subirse, en segundos: la puerta se abre, gira sentado hacia afuera, se para junto a la puerta y da un paso.
-const EXIT = { door: .3, swing: .45, rise: .5, step: .4 };
-const EXIT_SECONDS = EXIT.door + EXIT.swing + EXIT.rise + EXIT.step;
 const URGENT_STEP = 3.6;    // m/s al final del primer paso de una bajada de afán: ya arrancó a correr
 const LOOK_MAX = 1.1;       // rad que gira la cabeza
 const STILL_REPLAN = 1.5;   // s entre rutas hacia un punto que no se mueve
@@ -117,6 +115,7 @@ const ROUND_HOLD = 1.2;     // s que sostiene la punta que escogió para rodearl
 const ROUND_REST = 2.5;     // s sin insistir en rodear su patrulla por la punta, si ahí fue donde se quedó quieto
 
 const _dir = new THREE.Vector3();
+const _motion = {};
 const _try = new THREE.Vector3();
 const _a = new THREE.Vector3();
 const _b = new THREE.Vector3();
@@ -279,9 +278,10 @@ export class PoliceOfficer extends Npc {
   _carPoints(side) {
     const fit = this.fit;
     fit.seatPoint(this.seatSide, this._seat);
-    fit.edgePoint(side, this._seat.y - fit.car.group.position.y, this._edge);
+    fit.edgePoint(side, 0, this._edge);
     fit.doorPoint(side, this._door);
     this._door.y = this.groundHeight(this._door.x, this._door.z, fit.car.group.position.y);
+    this._edge.y = this._door.y;
     const yaw = fit.car.group.rotation.y;
     this._seatYaw = Math.atan2(Math.cos(yaw), -Math.sin(yaw));
     this._outYaw = Math.atan2(side * Math.sin(yaw), side * Math.cos(yaw));
@@ -297,8 +297,7 @@ export class PoliceOfficer extends Npc {
     this.doorSide = side;
     this.state = 'bajando';
     this.timer = 0;
-    const k = seconds / EXIT_SECONDS;
-    this._exitTimes = { door: EXIT.door * k, swing: EXIT.swing * k, rise: EXIT.rise * k, step: EXIT.step * k, urgent: k < .95 };
+    this._exitTimes = exitTimes(seconds);
     this._carPoints(side);
     this._faceYaw = face ? Math.atan2(face.x - this._door.x, face.z - this._door.z) : this._outYaw;
     this.position.copy(this._seat);
@@ -306,7 +305,7 @@ export class PoliceOfficer extends Npc {
     this.root.rotation.set(0, this._seatYaw, 0);
     this.root.visible = true;
     this.moving = false;
-    this.poseParams = { stance: 'banca', stanceWeight: 1, look: this._lookAt(face) };
+    this.poseParams = { poses: [['patrulla', 1]], look: this._lookAt(face) };
     // Arranca sentado de una vez: la postura de sentado no entra de a poco desde de pie.
     this.character?.snapPose?.();
     this._poseStale = true;
@@ -336,32 +335,27 @@ export class PoliceOfficer extends Npc {
   _updateExit(dt, player = null) {
     this.timer += dt;
     this._carPoints(this.doorSide);
-    const t = this.timer, e = this._exitTimes;
-    const swingEnd = e.door + e.swing, riseEnd = swingEnd + e.rise, stepEnd = riseEnd + e.step;
+    const t = this.timer, e = this._exitTimes, m = exitMotion(t, e, this.doorSide, _motion);
     this.moving = false;
     // Desde el primer cuadro la cabeza va hacia el jugador; el cuerpo lo sigue al pararse.
     if (player) this._faceYaw = Math.atan2(player.x - this.position.x, player.z - this.position.z);
-    if (t < e.door) {
-      this.position.copy(this._seat);
-      this.root.rotation.y = this._seatYaw;
-      this.poseParams = { stance: 'banca', stanceWeight: 1, look: this._lookAt(player) };
-    } else if (t < swingEnd) {
-      // Sentado todavía: gira hacia la puerta y saca las piernas.
-      const k = smooth((t - e.door) / e.swing);
-      this.position.lerpVectors(this._seat, this._edge, k);
-      this.root.rotation.y = lerpAngle(this._seatYaw, this._outYaw, k);
-      this.poseParams = { stance: 'banca', stanceWeight: 1, look: this._lookAt(player) };
-    } else if (t < riseEnd) {
-      // Se para: la cadera sube mientras el cuerpo sale del marco de la puerta. De afán ya va echado hacia adelante.
-      const k = smooth((t - swingEnd) / e.rise);
-      this.position.lerpVectors(this._edge, this._door, k);
-      this.root.rotation.y = this._outYaw;
-      this.poseParams = { stance: 'banca', stanceWeight: 1 - k, look: this._lookAt(player), style: e.urgent ? { stoop: .4 * k } : undefined };
+    if (m.phase === 'door' || m.phase === 'swing') {
+      // La puerta se abre con él todavía sentado; después se desliza hasta el borde girando hacia afuera.
+      this.position.lerpVectors(this._seat, this._edge, m.slide);
+      this.position.y = this._seat.y + (this._edge.y - this._seat.y) * m.drop;
+      this.root.rotation.y = lerpAngle(this._seatYaw, this._outYaw, m.yaw);
+      this.poseParams = { poses: m.poses, look: this._lookAt(player) };
+    } else if (m.phase === 'rise') {
+      // Se para saliendo del marco. De afán, al desdoblarse ya queda echado hacia adelante para arrancar a correr.
+      this.position.lerpVectors(this._edge, this._door, m.out);
+      this.position.y += m.lift;
+      this.root.rotation.y = lerpAngle(this._outYaw, this._faceYaw, m.turn);
+      this.poseParams = { poses: m.poses, look: this._lookAt(player), style: m.stoop > 0 ? { stoop: m.stoop } : undefined };
       this._stepFrom.copy(this._door);
-    } else if (t < stepEnd) {
+    } else if (m.phase === 'step') {
       // El primer paso, ya de pie, hacia donde va a correr: de afán es el arranque de la carrera, inclinado.
-      const k = (t - riseEnd) / e.step;
-      this.root.rotation.y = lerpAngle(this._outYaw, this._faceYaw, smooth(Math.min(1, k * 1.6)));
+      const k = m.step;
+      this.root.rotation.y = lerpAngle(this._outYaw, this._faceYaw, m.turn);
       const speed = e.urgent ? POLICE_FOOT.stepSpeed + (URGENT_STEP - POLICE_FOOT.stepSpeed) * k : POLICE_FOOT.stepSpeed;
       _dir.set(Math.sin(this.root.rotation.y), 0, Math.cos(this.root.rotation.y));
       // Hacia el jugador, pero nunca contra su carro: si queda del otro lado, el paso va a lo largo del costado.
@@ -457,20 +451,18 @@ export class PoliceOfficer extends Npc {
       this.root.rotation.y = lerpAngle(this.root.rotation.y, this._outYaw, Math.min(1, dt * 9));
       this.poseParams = { stanceWeight: 0 };
     } else if (t < sitEnd) {
-      if (this.poseParams.stance !== 'banca') {
-        this.poseParams = { stance: 'banca', stanceWeight: 0 };
-        this.character?.snapPose?.();
-        this._poseStale = true;
-      }
-      const k = smooth((t - BOARD.door) / BOARD.sit);
-      this.position.lerpVectors(this._door, this._edge, k);
+      // Se sienta en el borde, agachando tronco y cabeza: lo mismo que pararse, al revés.
+      const m = seatRise(1 - (t - BOARD.door) / BOARD.sit, this.doorSide, _motion);
+      this.position.lerpVectors(this._edge, this._door, m.out);
+      this.position.y += m.lift;
       this.root.rotation.y = lerpAngle(this.root.rotation.y, this._outYaw, Math.min(1, dt * 12));
-      this.poseParams.stanceWeight = k;
+      this.poseParams = { poses: m.poses };
     } else if (t < swingEnd) {
-      const k = smooth((t - sitEnd) / BOARD.swing);
-      this.position.lerpVectors(this._edge, this._seat, k);
-      this.root.rotation.y = lerpAngle(this._outYaw, this._seatYaw, k);
-      this.poseParams = { stance: 'banca', stanceWeight: 1 };
+      const m = seatSlide(1 - (t - sitEnd) / BOARD.swing, this.doorSide, _motion);
+      this.position.lerpVectors(this._seat, this._edge, m.slide);
+      this.position.y = this._seat.y + (this._edge.y - this._seat.y) * m.drop;
+      this.root.rotation.y = lerpAngle(this._seatYaw, this._outYaw, m.yaw);
+      this.poseParams = { poses: m.poses };
     } else {
       this.enterCar();
       return true;

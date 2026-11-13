@@ -67,27 +67,48 @@ async function strip(page, dir, prefix, isOn, max = 14) {
 
 /**
  * Solo para las fotos: la cámara deja de seguir al jugador y mira la puerta del acompañante desde afuera y un poco
- * adelante, a 6 m. `on = false` la devuelve al jugador.
+ * adelante, a 6 m. `on = false` la devuelve al jugador. Con `who: 'driver'` mira la del conductor; con `back`, desde
+ * atrás, por donde la puerta abierta no tapa a quien se baja.
  */
-async function aimAtDoor(page, on = true) {
-  await page.evaluate(on => {
+async function aimAtDoor(page, on = true, { who = 'partner', back = false } = {}) {
+  await page.evaluate(({ on, who, back }) => {
     const rig = window.__game.cameraRig;
     if (!rig.__followPlayer) {
       rig.__followPlayer = rig.follow.bind(rig);
       rig.follow = (target, ...rest) => rig.__followPlayer(window.__aim?.() ?? target, ...rest);
     }
     window.__aim = on ? () => {
-      const { unit } = window.__policia, fit = unit.fit, car = fit.car, side = unit.partner.out ? unit.partner.doorSide : unit.partner.seatSide;
+      const { unit } = window.__policia, fit = unit.fit, car = fit.car, officer = unit[who], side = officer.out ? officer.doorSide : officer.seatSide;
       const door = fit.doorPoint(side);
       const yaw = car.group.rotation.y, ox = door.x - car.position.x, oz = door.z - car.position.z, length = Math.hypot(ox, oz) || 1;
-      const dx = ox / length + Math.cos(yaw) * .8, dz = oz / length - Math.sin(yaw) * .8;
+      const along = back ? -.9 : .8;
+      const dx = ox / length + Math.cos(yaw) * along, dz = oz / length - Math.sin(yaw) * along;
       rig.yaw = Math.atan2(dx, dz);
       return door;
     } : null;
-    rig.pitch = on ? .28 : .22;
-    rig.distance = on ? 6 : 5.5;
+    rig.pitch = on ? (back ? .16 : .28) : .22;
+    rig.distance = on ? (back ? 4.6 : 6) : 5.5;
     rig._snap = true;
-  }, on);
+  }, { on, who, back });
+}
+
+/**
+ * Solo para las fotos: desde que `who` empieza a bajarse, la tripulación queda quieta y avanza lo que se le pida en
+ * `window.__policia.hold.step` (segundos). Así cada cuadro de la bajada se puede mirar desde dos cámaras.
+ */
+async function holdExit(page, who) {
+  await page.evaluate(who => {
+    const game = window.__game, log = window.__policia, update = game.policeFoot.update.bind(game.policeFoot);
+    log.hold = { on: false, step: 0, who };
+    game.policeFoot.update = (dt, ctx) => {
+      const hold = log.hold;
+      if (hold && !hold.on && log.unit[hold.who].state === 'bajando') hold.on = true;
+      if (!hold?.on) return update(dt, ctx);
+      const step = hold.step;
+      hold.step = 0;
+      return update(step || 1e-6, ctx);
+    };
+  }, who);
 }
 
 /**
@@ -220,6 +241,63 @@ test('robo cerca de la patrulla: se acerca, frena del todo, se baja el agente, l
   expect(after).toEqual({ officers: [['dentro', false], ['dentro', false]], state: 'patrol', doors: [0, 0], pursuit: false, people: 0 });
   expect(errors).toEqual([]);
 });
+
+for (const level of [1, 2]) {
+  test(`fichado ${level}: sentados caben bajo el techo y cada uno sale agachado por su puerta, cuadro a cuadro`, async ({ page }, testInfo) => {
+    test.setTimeout(240_000);
+    const errors = collectErrors(page);
+    await start(page);
+    const dir = await stripDir(testInfo, 'bajada-por-puerta');
+    for (const who of ['partner', 'driver']) {
+      await facePatrol(page, { wanted: level });
+      await holdExit(page, who);
+      await stealInSight(page);
+      // Para las fotos se bajan los dos: con fichado 1, o tapando un carril, el conductor se quedaría al volante.
+      await page.evaluate(() => {
+        const { unit } = window.__policia;
+        unit._forceDriver = true;
+        unit._driverShouldExit = () => !unit.driver.out && !(unit._driverDelay > 0);
+      });
+      await page.waitForFunction(who => window.__policia.hold.on && window.__policia.unit[who].state === 'bajando', who, { polling: 'raf', timeout: 40_000 });
+      const info = await page.evaluate(who => {
+        const { unit } = window.__policia, officer = unit[who], e = officer._exitTimes;
+        return { model: unit.fit.car.vehicle.model, seconds: e.door + e.swing + e.rise + e.step, seated: e.door, side: officer.doorSide };
+      }, who);
+      const name = `${info.model}-${who === 'partner' ? 'acompanante' : 'conductor'}-fichado${level}`;
+      const frames = 10, seats = [];
+      for (let frame = 0; frame < frames; frame++) {
+        for (const back of [false, true]) {
+          await aimAtDoor(page, true, { who, back });
+          await page.evaluate(() => new Promise(done => requestAnimationFrame(() => requestAnimationFrame(done))));
+          await page.screenshot({ path: path.join(dir, `${name}-${back ? 'atras' : 'adelante'}-${String(frame).padStart(2, '0')}.png`) });
+        }
+        // La cabeza del personaje de verdad, contra la altura a la que va la del conductor de siempre en ese carro.
+        seats.push(await page.evaluate(who => {
+          const { unit } = window.__policia, officer = unit[who], fit = unit.fit;
+          let head = null;
+          officer.character.group.traverse(node => { if (node.isBone && /Head$/.test(node.name)) head = node; });
+          const y = head ? head.getWorldPosition(head.position.clone()).y - fit.car.group.position.y : null;
+          return { timer: officer.timer, state: officer.state, head: y, top: fit.height, lift: fit.seatLift };
+        }, who));
+        // Hasta el primer paso: puerta, deslizarse y pararse son el 76 % de la bajada.
+        await page.evaluate(step => { window.__policia.hold.step = step; }, info.seconds * .8 / (frames - 1));
+        await page.evaluate(() => new Promise(done => requestAnimationFrame(() => requestAnimationFrame(done))));
+      }
+      await page.evaluate(() => { window.__policia.hold = null; });
+      await aimAtDoor(page, false);
+      testInfo.annotations.push({ type: name, description: seats.map(seat => `${seat.timer.toFixed(2)} s: ${seat.head?.toFixed(2)}`).join(' · ') });
+      const sitting = seats.filter(seat => seat.state === 'bajando' && seat.timer < info.seated);
+      expect(sitting.length, `${name}: cuadros sentado`).toBeGreaterThan(0);
+      // De la articulación de la cabeza al tope de la gorra hay unos 24 cm: sentado no pasa de donde va el conductor de siempre.
+      for (const seat of sitting) expect(seat.head + .24, `${name}: tope de la gorra a los ${seat.timer.toFixed(2)} s`).toBeLessThanOrEqual(seat.top + .02);
+      // Otra vez de ronda, con los dos adentro, para la puerta que sigue.
+      await page.evaluate(() => window.__game.traffic.endPursuit());
+      await expect.poll(() => page.evaluate(() => window.__policia.unit.officers.every(officer => officer.state === 'dentro'))).toBe(true);
+      await expect.poll(() => page.evaluate(() => window.__policia.patrol.state), { timeout: 30_000 }).toBe('patrol');
+    }
+    expect(errors).toEqual([]);
+  });
+}
 
 test('sin verlo: busca donde lo vio, desiste, vuelve caminando, se sube y la patrulla sigue su ronda', async ({ page }, testInfo) => {
   test.setTimeout(240_000);
