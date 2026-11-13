@@ -49,7 +49,7 @@ function deathFixture(substanceEffects) {
     diseases: { hasAny: false, cureAll() {} },
     inventory: new InventorySystem(),
     cameraRig: { follow() {} },
-    substanceEffects
+    substanceEffects, _save() {}
   });
   return game;
 }

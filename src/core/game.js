@@ -283,6 +283,8 @@ export class Game {
     this.deathCount = 0;
     this._deathPending = false;
     this._arrestPending = false;
+    // 'arresto' o 'muerte' mientras su cartón está abierto. Va en la partida: recargar en ese momento no se lo salta.
+    this._castigoPendiente = null;
     this._wasNight = null;
 
     this._lastTime = performance.now();
@@ -903,6 +905,8 @@ export class Game {
       this.inventory.deserialize(data.inventory ?? {});
       this.talents.deserialize(data.talents ?? {});
       this.diseases.deserialize(data.diseases ?? {});
+      // Se recargó con el cartón del arresto o de la muerte abierto: lo que cuesta se paga aquí, una vez.
+      if (data.castigo) this._aplicarCastigo(data.castigo);
       if (data.player) {
         // partidas de otro mapa: si la posición guardada no es transitable, vuelve al inicio
         const district = this.world.active;
@@ -957,6 +961,7 @@ export class Game {
       gps: this.gps?.serialize() ?? null,
       lastComedorHour: this.lastComedorHour,
       ultimaSiesta: this.ultimaSiesta,
+      castigo: this._castigoPendiente ?? null,
       dailyMissions: this.dailyMissions?.serialize(),
       street: this.street?.serialize()
     });
@@ -1090,8 +1095,21 @@ export class Game {
     }));
   }
 
+  /**
+   * La muerte se debe desde que la salud llega a 0, aunque el cartón espere (el cuerpo aún en el aire, el costal
+   * abierto): la marca se guarda una sola vez. Si algo lo levanta antes del cartón, la partida deja de deberla.
+   */
+  _marcarMuerte() {
+    if (this._deathPending || this._arrestPending) return;
+    const muerto = this.stats.salud <= 0;
+    if (muerto === (this._castigoPendiente === 'muerte')) return;
+    this._castigoPendiente = muerto ? 'muerte' : null;
+    this._save();
+  }
+
   _handleDeath() {
     if (this._deathPending || this._arrestPending) return true;
+    this._marcarMuerte();
     if (this.stats.salud > 0) return false;
     if (this.player.isRagdollActive) return false;
 
@@ -1162,6 +1180,8 @@ export class Game {
       plana?.capturar(foto?.calle ?? this.canvas, foto?.camara ?? this.cameraRig?.camera, this.player, foto?.figura);
     };
     this._nextPausedRender = 0;
+    this._castigoPendiente = 'arresto';
+    this._save();
   }
 
   /** La vía más cercana donde está el jugador, como se dice en la calle. */
@@ -1211,10 +1231,29 @@ export class Game {
     this._vehicleImpactCooldown = 1.5;
   }
 
+  /**
+   * Lo que cuesta caer preso (el costal y la plata) o morir (la mitad de las filas del costal; vuelve con las
+   * necesidades en 60 y sin enfermedades). Al seguir desde el cartón, o al cargar una partida guardada con él abierto.
+   */
+  _aplicarCastigo(castigo) {
+    if (castigo === 'arresto') {
+      this.inventory.clear();
+      this.stats.dinero = 0;
+    } else if (castigo === 'muerte') {
+      const half = Math.floor(this.inventory.items.length / 2);
+      for (let i = 0; i < half; i++) {
+        const it = this.inventory.items[0];
+        if (it) this.inventory.remove(it.id, it.qty);
+      }
+      // Recuperar todas las necesidades evita seguir recibiendo daño al reaparecer.
+      for (const need of NEEDS) this.stats[need] = Math.max(60, this.stats[need]);
+      this.diseases.cureAll();
+    }
+  }
+
   _finishArrest() {
     if (!this._arrestPending) return;
-    this.inventory.clear();
-    this.stats.dinero = 0;
+    this._aplicarCastigo('arresto');
     const pos = this._randomWalkablePosition();
     this.player.position.copy(pos);
     this.player.root.position.copy(this.player.position);
@@ -1228,19 +1267,13 @@ export class Game {
     this.input.endFrame();
     this._arrestPending = false;
     this.menu.close();
+    this._castigoPendiente = null;
+    this._save();
   }
 
   _respawn() {
     if (!this._deathPending) return;
-    const half = Math.floor(this.inventory.items.length / 2);
-    for (let i = 0; i < half; i++) {
-      const it = this.inventory.items[0];
-      if (it) this.inventory.remove(it.id, it.qty);
-    }
-
-    // Recuperar todas las necesidades evita seguir recibiendo daño al reaparecer.
-    for (const need of NEEDS) this.stats[need] = Math.max(60, this.stats[need]);
-    this.diseases.cureAll();
+    this._aplicarCastigo('muerte');
     this.psychosis?.dispose?.();
     this.poopSystem?.activeProjectiles?.forEach?.(p => p.dispose?.());
     if (this.poopSystem) this.poopSystem.activeProjectiles = [];
@@ -1267,6 +1300,8 @@ export class Game {
     this.input.endFrame();
     this._deathPending = false;
     this.menu.close();
+    this._castigoPendiente = null;
+    this._save();
   }
 
   _syncVehicleColliders() {

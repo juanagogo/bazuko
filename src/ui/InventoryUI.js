@@ -370,6 +370,8 @@ export class InventoryUI {
     const before = this.inv.count(id);
     if (before <= 0) return;
     this.game.hud._useItem(id, this.inv);
+    // Con el costal abierto el mundo está en pausa y el cartón espera a cerrarlo: si esto mató, ya se debe.
+    this.game._marcarMuerte?.();
     if (this.isOpen && this.inv.count(id) < before) this._feedback('just-used');
   }
 
