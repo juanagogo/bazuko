@@ -1,4 +1,5 @@
 import { Euler, Quaternion } from 'three';
+import { criticalSpring, dampedSpring, spring } from './springs.js';
 
 /** La misma transición a 30/60/144 FPS y con las actualizaciones espaciadas de los NPC. */
 export const animationDamping = (dt, rate) => -Math.expm1(-Math.max(0, dt) * rate);
@@ -18,6 +19,11 @@ export class SecondaryMotion {
     this.motion = 0;
     this.load = 0;
     this.turn = 0;
+    // Arrancar, frenar y girar con resortes de segundo orden (ζ 0,7-0,75): el pecho se pasa un poco y
+    // vuelve; la cabeza entra en el giro antes que el cuerpo (~80 ms).
+    this._motion = spring();
+    this._turn = spring();
+    this._lead = spring();
     this.active = false;
     this.euler = new Euler();
     this.offset = new Quaternion();
@@ -34,13 +40,14 @@ export class SecondaryMotion {
     this.time += dt;
     const k = animationDamping(dt, 6);
     const desiredMotion = Math.min(1, Math.max(0, speed) / 4);
-    this.motion += (desiredMotion - this.motion) * k;
+    this.motion = dampedSpring(this._motion, desiredMotion, 9, .75, dt);
     const transfer = desiredMotion - this.motion;
     this.load += (Math.min(1, Math.max(0, load)) - this.load) * k;
     // Un giro rápido produce una torsión breve y limitada; se desvanece al enderezarse.
     // A velocidades bajas se reduce para no desplazar los pies de la pose de reposo.
     const turn = Number.isFinite(turnRate) ? Math.min(1, Math.max(-1, turnRate / 5)) : 0;
-    this.turn += (turn * desiredMotion - this.turn) * animationDamping(dt, 10);
+    this.turn = dampedSpring(this._turn, turn * desiredMotion, 16, .7, dt);
+    const lead = criticalSpring(this._lead, turn * desiredMotion, 30, dt);
     // Los gestos, las acciones de cuerpo entero y su altura original tienen prioridad.
     if (action) return;
 
@@ -58,7 +65,7 @@ export class SecondaryMotion {
       } else {
         this.euler.set(
           -breath * .008 * rest - this.load * .012 - transfer * .04,
-          Math.sin(this.time * .47) * .035 * rest + stride * .009 + this.turn * .045,
+          Math.sin(this.time * .47) * .035 * rest + stride * .009 + this.turn * .045 + lead * .4,
           Math.sin(this.time * .67) * .007 * rest - stride * .006 + this.turn * .02
         );
       }
