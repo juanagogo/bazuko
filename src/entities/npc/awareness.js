@@ -3,9 +3,11 @@
 // de lejos) mira el canal de estímulos: lo que ve en su cono y lo que oye. Eso le sube la alerta, que baja sola con
 // el tiempo, y según el nivel:
 // - curiosidad: voltea la cabeza 1 a 3 s y afloja el paso (el indiferente no: sigue a su paso mirando de reojo);
-//   si es curioso y hay pelea o arresto cerca, se arrima a paso vivo a mirar en corrillo: en arco a 4 a 6 m, de
-//   cara, a un metro del de al lado, nunca detrás de algo ni en la calzada; y se va de a pocos cuando se acaba. El
-//   miedoso, ante una pelea, la mira de lejos (8 a 10 m) o se va;
+// - una pelea o un arresto cerca arman corrillo, y cada uno mira a su manera: el curioso se arrima a paso vivo al arco
+//   de adentro (a 4 a 6 m, de cara, repartidos); el bravo y el avisador miran desde el anillo de afuera (de 6 a 9 m), y
+//   el avisador, al rato, avisa y sigue; el indiferente que pasa a menos de 10 m afloja, la mira y a veces se detiene
+//   unos segundos donde va; el miedoso la mira de lejos (8 a 10 m) o se va. Nadie mira desde la calzada ni detrás de
+//   algo, nadie cruza la calle para ir, va quien alcanza a llegar a tiempo y se van de a pocos cuando se acaba;
 // - recelo: a quien se lo causó le deja 3 m (lo rodea abierto) y, si lo tiene adelante sin sitio para rodearlo,
 //   cambia de camino;
 // - miedo: si el peligro está a su alcance de miedo (según su temperamento), retrocede un momento de frente (o de
@@ -16,7 +18,7 @@
 // - el avisador grita que llamen a la policía cuando ve al jugador hacer algo malo.
 // El temperamento (temperament.js) solo cambia los umbrales. Lo malo que le vio hacer al jugador lo recuerda unos
 // minutos (memory.js): lo reconoce, le da recelo de lejos, no le da limosna y lo cuenta al que tiene al lado.
-import { STIMULI } from './stimuli.js';
+import { OUTER, STIMULI } from './stimuli.js';
 import { canSee, decayAlarm, levelFor, strength } from './perception.js';
 import { FlightPlanner } from './flight.js';
 import { GOSSIP_PHRASES, MEMORY, Memory, RECLAIM_PHRASES, RECOGNIZE_PHRASES } from './memory.js';
@@ -39,18 +41,30 @@ export const REACT = {
   ring: [4, 6],      // m del corrillo: en arco alrededor de lo que pasa
   rows: [4.4, 5.5],  // m de las dos filas del corrillo (la segunda queda a 1,1 m de la primera)
   gap: 1.05,         // m entre dos mirones de la misma fila
-  alone: 6,          // m de arco que prefiere caminar de más con tal de quedar junto a otro mirón
-  backRow: 2,        // m de arco que prefiere caminar de más con tal de quedar en la primera fila
+  crowd: 6,          // m de arco que prefiere caminar de más con tal de no quedar pegado a otro mirón: el arco se reparte
+  backRow: 4,        // m de arco que prefiere caminar de más con tal de quedar en la primera fila
   notice: [.1, .5],  // s desde el estímulo hasta que la cabeza arranca a voltear (a medio giro, de .3 a .8 s)
   hesitate: [.2, .9], // s que se queda mirando antes de arrancar hacia el corrillo: no salen todos a la vez
-  arrive: 6,         // s desde que lo nota para estar en su puesto: más lejos no se arrima, solo mira
+  arrive: 12,        // s desde que lo nota para estar en su puesto, como mucho...
+  fight: 18,         // ...y lo que queda de pelea: de la primera trompada al final de la escena van unos 18 s (10 de golpes y 8 más)
+  watchLeft: 3,      // s de escena que le tienen que quedar al llegar para que valga la pena ir
+  retry: 1.5,        // s: si no le alcanzaba para llegar, vuelve a mirar si la pelea sigue...
+  retries: 4,        // ...estas veces; después mira desde donde va
+  turnBack: 15,      // m: quien iba alejándose de la escena y la tiene más lejos que esto no se devuelve a mirarla
+  outer: [6, 9],     // m del anillo de afuera: de ahí miran los que quieren ver pero no arrimarse
+  outerOff: .6,      // m más allá de su radio de miedo se para quien mira desde afuera
+  spread: 2,         // m entre dos puestos del anillo de afuera
+  passBy: 10,        // m: el indiferente que pasa así de cerca de una escena afloja el paso y voltea...
+  passStop: .75,     // ...y esta parte de ellos se detiene a mirar desde donde va, si queda a 6 m o más...
+  passLook: [2, 5],  // ...estos segundos, y sigue su camino
+  tell: [3, 5],      // s que mira el avisador antes de avisar y seguir en lo suyo
   brisk: 1.3,        // ritmo hacia el corrillo, a paso vivo...
   briskSpeed: 1.6,   // ...y no menos de esto (m/s)
   far: [8, 10],      // m desde los que el miedoso mira una pelea, si no se va
   lastLeg: 1.6,      // m: tan cerca de su puesto en el corrillo, va derecho a él (sin correrse de lado)
   room: .85,         // m: trabado camino a su puesto, se queda donde está si nadie le queda más cerca que esto
-  watchers: 8,       // curiosos por escena
-  leave: [0, 7],     // s que tardan en irse cuando se acaba (la escena dura 8 s tras el último golpe: de 8 a 15)
+  watchers: 8,       // mirones por escena, entre los dos anillos y los que miran de lejos
+  leave: [1, 4],     // s que tardan en irse cuando se acaba, escalonados (la escena dura 8 s tras el último golpe: de 9 a 12)
   reportEvery: 30,   // s entre dos avisos de la misma persona
   replan: 1.5,       // s entre dos cambios de rumbo al huir
   safe: 25,          // m: huyendo, más allá de esto y sin ver el peligro un rato, para
@@ -104,6 +118,11 @@ export class Awareness {
     this.ringX = 0; this.ringZ = 0; this.watchFar = false;
     this.watchLeave = Infinity; this._skipScene = 0; this._watchRank = 0;
     this._sceneSeen = 0; this._sceneGo = Infinity; // la escena que notó y cuándo arranca hacia ella
+    this._sceneTries = 0; this._sceneTryAt = 0;     // si no le alcanzaba para llegar: cuántas veces miró y cuándo vuelve a mirar
+    this.watchPass = false;                         // mira de paso: se detuvo donde iba y sigue su camino
+    this._tellAt = Infinity;                        // el avisador: cuándo avisa y se va
+    this._toTell = null;                            // lo que tiene por avisar cuando haya mirado un momento
+    this._stareUntil = -Infinity;                   // el indiferente junto a una escena: la mira de frente, no de reojo
     this._farScene = 0; this._farChoice = false;    // el miedoso: si mira esa pelea de lejos o se va
     this._exiting = false;                          // sale de la calzada antes de reaccionar
     this._fleeRetry = -Infinity; this._replanAt = -Infinity; this._waryAt = -Infinity;
@@ -128,7 +147,7 @@ export class Awareness {
     this.reaction = NONE; this.reactionUntil = 0; this.reactionAt = 0; this._turnAt = 0;
     this._fleeStart = -1; this.lookBackUntil = -Infinity;
     this.gazeUntil = -Infinity; this.gazeYaw = 0; this.gazeVel = 0; this.noticeAt = -Infinity; this.slowUntil = -Infinity;
-    this._sceneSeen = 0; this._sceneGo = Infinity; this._exiting = false;
+    this._sceneSeen = 0; this._sceneGo = Infinity; this._exiting = false; this._stareUntil = -Infinity; this._toTell = null;
     this.seen = this.system.bus.count; // lo que pasó donde estaba ya no lo ve
   }
   get npc() { return this.mind.npc; }
@@ -223,8 +242,20 @@ export class Awareness {
   _react(before, kind, origin) {
     const sys = this.system, now = sys.time, level = this.level, mind = this.mind;
     if (level >= 1 && !mind.temper.glance) this.slowUntil = now + 1.5; // el indiferente no afloja: mira de reojo
-    // El avisador grita que llamen a la policía cuando ve al jugador hacer algo malo.
-    if (kind && STIMULI[kind]?.bad && origin === sys._playerAgent && level >= 2 && mind.temper.report >= .5) this._report(kind);
+    // El avisador grita que llamen a la policía cuando ve al jugador hacer algo malo. Si es algo que se puede quedar
+    // mirando (una pelea), primero mira un momento y avisa desde su puesto; si no va a mirarla, avisa ya (`_watchScene`).
+    if (kind && STIMULI[kind]?.bad && origin === sys._playerAgent && level >= 2 && mind.temper.report >= .5) {
+      if (STIMULI[kind].scene) this._toTell = kind;
+      else this._report(kind);
+    }
+  }
+
+  /** El avisador que no va a mirar (o ya no): avisa lo que tenía por avisar. */
+  _tellNow() {
+    const kind = this._toTell;
+    if (!kind) return;
+    this._toTell = null;
+    this._report(kind);
   }
 
   /** Con miedo y el peligro a su alcance: retrocede y huye, o le planta cara. Se mira en cada turno: puede acercarse. */
@@ -280,6 +311,7 @@ export class Awareness {
       return false;
     }
     if (this.watching === scene) return true;
+    if (scene.watchers >= REACT.watchers) return false; // ya hay un gentío mirando: se va
     if (this.watching) this._stopWatching();
     // Su puesto: donde está, si ya queda a 8-10 m; si no, en la línea que lo une a la pelea, a esa distancia.
     const r = Math.min(REACT.far[1] - .3, Math.max(REACT.far[0] + .3, ds));
@@ -292,6 +324,7 @@ export class Awareness {
       start = this._routeStart;
     }
     mind.leaveTalk();
+    scene.watchers++;
     this.watching = scene; this.watchFar = true; this._watchId = scene.id; this.watchSlot = -1;
     this.watchX = x; this.watchZ = z; this.ringX = scene.x; this.ringZ = scene.z; this.watchLeave = Infinity;
     if (route) { npc.route = route; npc.routeIndex = start; npc.target = route[start]; }
@@ -434,7 +467,9 @@ export class Awareness {
     const npc = this.npc, sys = this.system, now = sys.time;
     if (now - this.reportAt < REACT.reportEvery || now - sys.reportAt < 5) return;
     this.reportAt = now; sys.reportAt = now;
-    if (!(npc._bubbleTimer > 0)) npc.say(REPORT_PHRASES[Math.floor(this.mind.random() * REPORT_PHRASES.length)]);
+    // La primera frase habla de un robo: solo para un robo.
+    const first = kind === 'robo' ? 0 : 1;
+    if (!(npc._bubbleTimer > 0)) npc.say(REPORT_PHRASES[first + Math.floor(this.mind.random() * (REPORT_PHRASES.length - first))]);
     // Nadie lo escucha todavía: es el punto de enganche para que la policía se entere (ver docs/peatones-inteligencia.md).
     if (typeof window !== 'undefined' && typeof window.dispatchEvent === 'function' && typeof CustomEvent === 'function') {
       window.dispatchEvent(new CustomEvent('npc-police-report', { detail: { npc, tipo: kind, x: this.threatX, z: this.threatZ } }));
@@ -499,77 +534,189 @@ export class Awareness {
   // --- Corrillo ---------------------------------------------------------------------------------------------
 
   _watchScene(now) {
-    const npc = this.npc, sys = this.system, scene = this.watching;
+    const npc = this.npc, sys = this.system, scene = this.watching, temper = this.mind.temper;
     if (scene) {
-      if (scene.id !== this._watchId || scene.until < now) {
-        // Se acabó: se van de a pocos. Cada uno en su franja según el orden en que llegó, con algo de azar: así no se
-        // van todos a la vez aunque el azar de varios caiga parecido.
+      const over = scene.id !== this._watchId || scene.until < now;
+      // El que mira de paso: unos segundos (o hasta que se acabe) y sigue por donde iba.
+      if (this.watchPass) {
+        if (over || now >= this.watchLeave) { this._skipScene = this._watchId; this._stopWatching(); }
+        return;
+      }
+      if (over) {
+        // Se acabó. Quien todavía iba hacia su puesto ya no va. Los que miraban se van de a pocos: cada uno en su franja
+        // según el orden en que llegó, con algo de azar; así no se van todos a la vez aunque el azar caiga parecido.
+        this._tellNow();
         if (this.watchLeave === Infinity) {
           const share = ((this._watchRank % 4) + this.mind.random()) / 4;
-          this.watchLeave = now + REACT.leave[0] + share * (REACT.leave[1] - REACT.leave[0]);
+          this.watchLeave = npc.target && !this.watchFar ? now : now + REACT.leave[0] + share * (REACT.leave[1] - REACT.leave[0]);
         }
         if (now >= this.watchLeave) this._stopWatching(true);
         return;
       }
-      // La pelea se corrió: busca otro puesto alrededor (el miedoso lo mira `_watchFar`).
-      if (!this.watchFar && hypot(scene.x - this.ringX, scene.z - this.ringZ) > 2.5) this._takeSpot(scene);
+      if (this.watchFar) return; // el miedoso lo mira `_watchFar`
+      // El avisador mira un momento desde su puesto, avisa (si es algo de avisar) y sigue en lo suyo.
+      if (temper.report >= .5 && !npc.target) {
+        if (this._tellAt === Infinity) this._tellAt = now + REACT.tell[0] + this.mind.random() * (REACT.tell[1] - REACT.tell[0]);
+        else if (now >= this._tellAt) {
+          this._toTell = null;
+          if (STIMULI[scene.kind]?.bad) this._report(scene.kind);
+          this._skipScene = scene.id;
+          this._stopWatching(true);
+          return;
+        }
+      }
+      // La pelea se corrió: busca otro puesto alrededor.
+      if (hypot(scene.x - this.ringX, scene.z - this.ringZ) > 2.5) this._takeSpot(scene);
       return;
     }
-    if (this.level < 1 || npc.fijo || npc.fleeTimer > 0 || this.reaction !== NONE || this.mind.temper.watch <= 0) return;
-    const near = sys.bus.sceneNear(npc.position.x, npc.position.z, REACT.watchReach, now);
-    if (!near || near.watchers >= REACT.watchers || near.id === this._skipScene) return;
-    // A quien la pelea le queda encima no se arrima: retrocede (lo decide _fear).
-    if (hypot(near.x - npc.position.x, near.z - npc.position.z) <= this.mind.temper.fearReach) return;
-    // Se decide una vez por escena: el curioso casi siempre, el indiferente nunca. Primero voltea la cabeza, se queda
-    // un instante mirando y después arranca: cada uno a su tiempo.
+    if (npc.fijo || npc.fleeTimer > 0 || this.reaction !== NONE) return this._tellNow();
+    // El curioso, el bravo y el avisador van a mirar; el indiferente mira de paso; el miedoso, de lejos o se va (`_fear`).
+    // Para ir hasta allá hay que haberse enterado; a quien le pasa a menos de `passBy` no le hace falta más.
+    const passer = temper.watch <= 0 && temper.glance;
+    if (temper.watch <= 0 && !passer || this.level < 1 && !passer) return this._tellNow();
+    const near = sys.bus.sceneNear(npc.position.x, npc.position.z, passer ? REACT.passBy : REACT.watchReach, now);
+    if (!near) return this._tellNow();
+    // El indiferente que pasa cerca afloja el paso y voltea a mirar, se detenga o no, mientras no la haya dejado atrás.
+    if (passer && Math.abs(wrap(Math.atan2(near.x - npc.position.x, near.z - npc.position.z) - (npc.root?.rotation.y ?? 0))) < REACT.gazeBehind) {
+      this.slowUntil = now + 1.5; this._stareUntil = now + 1.5; this.lookAt(near.x, near.z, 1.5);
+    }
+    if (near.watchers >= REACT.watchers || near.id === this._skipScene) return this._tellNow();
+    // A quien la pelea le queda encima no se arrima: retrocede (lo decide _fear). Quien mira desde afuera y la tiene
+    // más cerca de lo que quisiera, sin llegar a asustarse, se retira hasta su distancia y mira desde ahí.
+    const d = hypot(near.x - npc.position.x, near.z - npc.position.z);
+    if (d <= temper.fearReach && !(this.level < 3 && this._watchesFromOutside())) return this._tellNow();
+    // Se decide una vez por escena: el curioso casi siempre, del indiferente la mitad. Primero voltea la cabeza, se
+    // queda un instante mirando y después arranca (o se detiene): cada uno a su tiempo.
     if (this._sceneSeen !== near.id) {
-      this._sceneSeen = near.id;
-      if (this.mind.random() >= this.mind.temper.watch) { this._skipScene = near.id; return; }
+      this._sceneSeen = near.id; this._sceneTries = 0; this._sceneTryAt = 0;
+      if (this.mind.random() >= (passer ? REACT.passStop : temper.watch)) { this._skipScene = near.id; return this._tellNow(); }
       this._sceneGo = Math.max(now, this.noticeAt) + REACT.hesitate[0] + this.mind.random() * (REACT.hesitate[1] - REACT.hesitate[0]);
     }
-    if (now < this._sceneGo) return;
-    if (!this._takeSpot(near)) this._skipScene = near.id; // no llega a tiempo a ningún puesto: mira desde donde va
+    if (now < this._sceneGo || now < this._sceneTryAt) return;
+    // De paso: se detiene cuando su camino lo deja en el anillo de afuera, en un sitio que sirva; mientras, sigue.
+    if (passer) { this._passBy(near, d); return; }
+    if (this._takeSpot(near)) return;
+    // No le alcanza lo que queda para llegar a ningún puesto. La pelea puede seguir: vuelve a mirar en un rato, unas
+    // veces; después mira desde donde va.
+    if (++this._sceneTries >= REACT.retries) { this._skipScene = near.id; this._tellNow(); }
+    else this._sceneTryAt = now + REACT.retry;
   }
 
   /**
-   * Un puesto en el corrillo: en una de las dos filas, del lado por el que llega y junto a otro mirón si lo hay (así
-   * se arma un arco, no gente suelta), pisable, fuera de la calzada, sin nada que le tape la pelea y con una ruta que
-   * no le pase por encima y le alcance para llegar a tiempo. false si no hay ninguno.
+   * Un puesto para mirar `scene`. El curioso, en el arco de adentro (dos filas, a 4,4 y 5,5 m): el libre más cercano a
+   * su lado que no quede pegado a otro ya ocupado, así el arco se llena repartido aunque todos lleguen por el mismo
+   * lado. Quien no se arrima tanto (el bravo, el avisador), en el anillo de afuera, a la distancia a la que se siente
+   * tranquilo: desde donde está si ya queda ahí, o en el punto más cercano de ese círculo. Siempre pisable, fuera de la
+   * calzada, sin nada que le tape la pelea y con una ruta que no cruce la calle, no le pase por encima a la pelea y le
+   * alcance para llegar con algo de pelea por ver. false si no hay ninguno.
    */
   _takeSpot(scene, elsewhere = false) {
     const npc = this.npc, nav = npc.navigation, now = this.system.time;
     if (!nav?.routeTo || !npc.position.clone) return false;
     const retake = this.watching === scene;
+    const outer = this._watchesFromOutside();
     // Para buscar otro puesto (`elsewhere`) el suyo sigue tomado mientras elige; se suelta al cambiarse.
-    const row = this.watchRow, slot = this.watchSlot;
     if (retake && !elsewhere) this._releaseSlot(scene);
     const px = npc.position.x, pz = npc.position.z, from = Math.atan2(px - scene.x, pz - scene.z);
-    // Lo que alcanza a andar a paso vivo en lo que le queda (con algo de margen por los que se le atraviesan).
+    const far = hypot(px - scene.x, pz - scene.z);
+    if (outer && !retake && this._standHere(scene, far)) return true;
+    // El plazo depende de la distancia: lo que alcanza a andar a paso vivo (con algo de margen por los que se le
+    // atraviesan) en lo que le queda de pelea, dejando `watchLeft` para mirar, y nunca más de `arrive` desde que lo notó.
     const since = retake ? now : Math.min(now, Math.max(this.noticeAt, now - 1.5));
-    const reach = Math.max(0, since + REACT.arrive - now - .6) * this._briskSpeed();
-    const keepOff = Math.min(this.mind.temper.fearReach + .3, hypot(px - scene.x, pz - scene.z) - .1);
-    const list = spotCandidates(scene, from);
+    const reachBy = ends => Math.max(0, Math.min(since + REACT.arrive, ends - REACT.watchLeft) - now - .6) * this._briskSpeed();
+    // `wide`: lo que alcanzaría si esto resulta ser una pelea. Tras un golpe suelto no se conforma con un puesto peor
+    // solo porque es el que le alcanza: espera a ver si sigue (vuelve a mirar en `retry`).
+    const reach = reachBy(sceneEnds(scene)), wide = retake ? reach : reachBy(sceneEnds(scene, true));
+    // Quien iba alejándose y ya la tiene lejos no se devuelve.
+    if (!retake && far > REACT.turnBack && npc.target && this.mind._segX * (scene.x - px) + this.mind._segZ * (scene.z - pz) < 0) return false;
+    const keepOff = Math.min(this.mind.temper.fearReach + .3, far - .1);
+    const list = outer ? outerCandidates(scene, from, this._outerRadius()) : spotCandidates(scene, from);
     for (let k = 0, tries = 0; k < list.length && tries < 8; k++) {
       const c = list[k];
-      if (!this._spotOk(c.x, c.z, scene)) continue;
+      if (hypot(c.x - px, c.z - pz) > wide || !this._spotOk(c.x, c.z, scene)) continue;
       tries++;
-      const route = this._routeFor(c.x, c.z, scene, keepOff, reach);
+      const route = this._routeFor(c.x, c.z, scene, keepOff, wide, true);
       if (!route) continue;
+      if (this._routeLength > reach) return false;
       if (retake && elsewhere) this._releaseSlot(scene);
-      if (c.row === 0) scene.slots |= 1 << c.slot; else scene.slots2 |= 1 << c.slot;
-      if (!retake) {
-        this._watchRank = scene.watchers;
-        scene.watchers++;
-        this.mind.leaveTalk();
-        if (this.mind.random() < .3 && !(npc._bubbleTimer > 0)) npc.say(WATCH_PHRASES[Math.floor(this.mind.random() * WATCH_PHRASES.length)]);
-      }
-      this.watching = scene; this._watchId = scene.id; this.watchSlot = c.slot; this.watchRow = c.row; this.watchFar = false;
-      this.watchX = c.x; this.watchZ = c.z; this.ringX = scene.x; this.ringZ = scene.z; this.watchLeave = Infinity;
+      if (!this._hold(scene, c.row, c.slot, c.x, c.z)) return false;
+      if (!retake) this._join(scene);
       const start = this._routeStart;
       npc.route = route; npc.routeIndex = start; npc.target = route[start]; npc.wait = 0; npc.stance = null; npc.action = null;
       return true;
     }
     if (retake) this._stopWatching(true);
+    return false;
+  }
+
+  /** ¿Mira desde el anillo de afuera? Quien empieza a tenerle miedo a la pelea antes de llegar al arco de adentro. */
+  _watchesFromOutside() { return this.mind.temper.fearReach > REACT.rows[0] - .3; }
+
+  /** A qué distancia de la escena se para en el anillo de afuera: un poco más allá de su radio de miedo, de 6 a 9 m. */
+  _outerRadius() { return Math.min(REACT.outer[1], Math.max(REACT.outer[0], this.mind.temper.fearReach + REACT.outerOff)); }
+
+  /**
+   * Mira desde donde está, si ya queda más allá de su radio de miedo y a no más de `passBy`, y el sitio sirve: andén,
+   * con vista, sin nadie encima ni otro mirón pegado. true si se quedó.
+   */
+  _standHere(scene, far) {
+    const npc = this.npc, x = npc.position.x, z = npc.position.z;
+    if (far < Math.max(REACT.outer[0], this.mind.temper.fearReach + .3) || far > REACT.passBy || this.mind.crossing.state !== 0) return false;
+    if (!this._spotOk(x, z, scene) || this._crowded(x, z) || spotTaken(scene, x, z, REACT.gap)) return false;
+    if (!this._hold(scene, 2, -1, x, z)) return false;
+    this._join(scene);
+    npc.route = []; npc.routeIndex = 0; npc.target = null; npc.wait = 0; npc.stance = null; npc.action = null;
+    return true;
+  }
+
+  /**
+   * El indiferente, de paso: si por donde va queda a la distancia del anillo de afuera (de 6 m a `passBy`) y el sitio
+   * sirve, se detiene ahí unos segundos a mirar y después sigue su camino (conserva su ruta). No busca puesto ni se
+   * desvía. true si se detuvo.
+   */
+  _passBy(scene, far) {
+    const npc = this.npc, x = npc.position.x, z = npc.position.z;
+    if (far < REACT.outer[0] || far > REACT.passBy || this.mind.crossing.state !== 0 || !npc.target) return false;
+    if (!this._spotOk(x, z, scene) || this._crowded(x, z) || spotTaken(scene, x, z, REACT.gap)) return false;
+    if (!this._hold(scene, 2, -1, x, z)) return false;
+    this._join(scene);
+    this.watchPass = true;
+    this.watchLeave = this.system.time + REACT.passLook[0] + this.mind.random() * (REACT.passLook[1] - REACT.passLook[0]);
+    return true;
+  }
+
+  /** Toma el puesto (fila 0 o 1 del arco, con su casilla; 2 = anillo de afuera, donde sea). false si ya no hay. */
+  _hold(scene, row, slot, x, z) {
+    if (row === 2) {
+      slot = 0;
+      while (slot < OUTER && scene.outMask & (1 << slot)) slot++;
+      if (slot === OUTER) return false;
+      scene.outMask |= 1 << slot; scene.outX[slot] = x; scene.outZ[slot] = z;
+    } else if (row === 0) scene.slots |= 1 << slot;
+    else scene.slots2 |= 1 << slot;
+    this.watching = scene; this._watchId = scene.id; this.watchSlot = slot; this.watchRow = row; this.watchFar = false; this.watchPass = false;
+    this.watchX = x; this.watchZ = z; this.ringX = scene.x; this.ringZ = scene.z; this.watchLeave = Infinity;
+    return true;
+  }
+
+  /** Entra a la cuenta de mirones de la escena: deja la charla y, a veces, lo comenta. */
+  _join(scene) {
+    const npc = this.npc;
+    this._watchRank = scene.watchers;
+    scene.watchers++;
+    this._tellAt = Infinity;
+    this.mind.leaveTalk();
+    if (this.mind.random() < .3 && !(npc._bubbleTimer > 0)) npc.say(WATCH_PHRASES[Math.floor(this.mind.random() * WATCH_PHRASES.length)]);
+  }
+
+  /** ¿Tiene a alguien encima (a menos de `room`) en (x, z)? */
+  _crowded(x, z) {
+    const sys = this.system, npc = this.npc;
+    const n = sys.grid ? sys.grid.query(x, z, REACT.room, sys.neighbors) : 0;
+    for (let k = 0; k < n; k++) {
+      const other = sys.grid.agents[sys.neighbors[k]];
+      if (other && other !== npc && hypot(other.position.x - x, other.position.z - z) < REACT.room) return true;
+    }
     return false;
   }
 
@@ -585,9 +732,10 @@ export class Awareness {
    * Ruta de la red hasta (x, z), derecha donde se pueda: de cada punto salta al más lejano que se alcanza en línea
    * recta sin salirse de la red ni pasar por algo sólido (las baldosas van en escuadra; la gente, no). Los cruces de
    * calle no se saltan: ahí sigue mirando el tráfico. null si es más larga que `reach` m o pasa a menos de `keepOff` m
-   * de la escena. Arranca por el primer punto (`_routeStart` = 0).
+   * de la escena; con `sameSide`, también si baja a la calzada (nadie cruza la calle para ir a mirar). Arranca por el
+   * primer punto (`_routeStart` = 0).
    */
-  _routeFor(x, z, scene, keepOff, reach) {
+  _routeFor(x, z, scene, keepOff, reach, sameSide = false) {
     const npc = this.npc, p = npc.position, spot = p.clone();
     spot.x = x; spot.z = z;
     const full = npc.navigation.routeTo(p, spot);
@@ -602,17 +750,19 @@ export class Awareness {
       const q = full[j];
       length += hypot(q.x - ax, q.z - az);
       if (length > reach || segmentDistance(ax, az, q.x, q.z, scene.x, scene.z) < keepOff) return null;
+      if (sameSide && this._onRoadAt(q.x, q.z)) return null;
       route.push(q);
       ax = q.x; az = q.z; i = j + 1;
     }
-    this._routeStart = 0;
+    this._routeStart = 0; this._routeLength = length;
     return route;
   }
 
   _releaseSlot(scene) {
     if (this.watchSlot < 0) return;
     if (this.watchRow === 0) scene.slots &= ~(1 << this.watchSlot);
-    else scene.slots2 &= ~(1 << this.watchSlot);
+    else if (this.watchRow === 1) scene.slots2 &= ~(1 << this.watchSlot);
+    else scene.outMask &= ~(1 << this.watchSlot);
     this.watchSlot = -1;
   }
 
@@ -621,9 +771,9 @@ export class Awareness {
     if (!scene) return;
     if (scene.id === this._watchId) {
       this._releaseSlot(scene);
-      if (!this.watchFar) scene.watchers = Math.max(0, scene.watchers - 1);
+      scene.watchers = Math.max(0, scene.watchers - 1);
     }
-    this.watching = null; this.watchSlot = -1; this.watchLeave = Infinity; this.watchFar = false;
+    this.watching = null; this.watchSlot = -1; this.watchLeave = Infinity; this.watchFar = false; this.watchPass = false; this._tellAt = Infinity;
     if (walkOn) { const npc = this.npc; npc.target = null; npc.wait = .2 + this.mind.random() * .8; }
   }
 
@@ -684,6 +834,12 @@ export class Awareness {
     }
     if (this._exiting && !this._onRoadAt(npc.position.x, npc.position.z)) this._exiting = false;
     if (this.watching) {
+      if (this.watchPass) {
+        // De paso: quieto donde iba, de cara a lo que pasa; su ruta sigue ahí para cuando arranque.
+        npc.moving = false;
+        this._face(this.watching.x - npc.position.x, this.watching.z - npc.position.z, dt);
+        return true;
+      }
       const dx = this.watchX - npc.position.x, dz = this.watchZ - npc.position.z, d = hypot(dx, dz);
       if (d < .6 || !npc.target) {
         // En su puesto: el último trecho hasta el punto exacto (al llegar corrido de lado por la esquiva) y quieto,
@@ -717,8 +873,9 @@ export class Awareness {
   /** Ritmo: mirando algo afloja el paso (no al cruzar la calle); hacia el corrillo y saliendo de la calzada, apura. */
   paceFactor() {
     if (this._exiting) return REACT.brisk;
-    if (this.watching && !this.watchFar && this.npc.target) return this._briskSpeed() / Math.max(.5, this.npc.walkSpeed ?? 1);
-    return this.level >= 1 && this.level < 3 && this.system.time < this.slowUntil && this.mind.crossing.state !== 2 ? REACT.slow : 1;
+    if (this.watching && !this.watchFar && !this.watchPass && this.npc.target) return this._briskSpeed() / Math.max(.5, this.npc.walkSpeed ?? 1);
+    const now = this.system.time, looks = (this.level >= 1 && this.level < 3) || now < this._stareUntil;
+    return looks && now < this.slowUntil && this.mind.crossing.state !== 2 ? REACT.slow : 1;
   }
 
   /** Mira una escena o va hacia ella, reacciona a un susto o va saliendo de la calzada. */
@@ -735,16 +892,12 @@ export class Awareness {
    * si queda a 4-6 m, fuera de la calzada y sin nadie encima; si no, busca otro puesto; si no hay, sigue su camino.
    */
   unstick() {
-    const npc = this.npc, scene = this.watching, sys = this.system, x = npc.position.x, z = npc.position.z;
+    const npc = this.npc, scene = this.watching, x = npc.position.x, z = npc.position.z;
     const d = hypot(x - scene.x, z - scene.z);
-    let crowded = false;
-    const n = sys.grid ? sys.grid.query(x, z, REACT.room, sys.neighbors) : 0;
-    for (let k = 0; k < n; k++) {
-      const other = sys.grid.agents[sys.neighbors[k]];
-      if (other !== npc && hypot(other.position.x - x, other.position.z - z) < REACT.room) crowded = true;
-    }
-    if (!crowded && !this._onRoadAt(x, z) && (this.watchFar || (d >= REACT.ring[0] && d <= REACT.ring[1]))) {
+    const lo = this.watchRow === 2 ? this.mind.temper.fearReach + .3 : REACT.ring[0], hi = this.watchRow === 2 ? REACT.outer[1] : REACT.ring[1];
+    if (!this._crowded(x, z) && !this._onRoadAt(x, z) && (this.watchFar || (d >= lo && d <= hi))) {
       this.watchX = x; this.watchZ = z;
+      if (this.watchRow === 2 && this.watchSlot >= 0) { scene.outX[this.watchSlot] = x; scene.outZ[this.watchSlot] = z; }
       npc.route = []; npc.routeIndex = 0; npc.target = null;
       return;
     }
@@ -765,7 +918,7 @@ export class Awareness {
       const noticed = now >= this.noticeAt;
       if (this.watching && noticed) { tx = this.watching.x; tz = this.watching.z; }
       else if (this.reaction !== NONE) { tx = this.threatX; tz = this.threatZ; }
-      else if (now < this.gazeUntil && noticed && (!this.mind.temper.glance || this._glancing(now))) { tx = this.gazeX; tz = this.gazeZ; }
+      else if (now < this.gazeUntil && noticed && (!this.mind.temper.glance || now < this._stareUntil || this._glancing(now))) { tx = this.gazeX; tz = this.gazeZ; }
       else if ((this.mind.crossing.state === 1 || (this.mind.crossing.hurry && this._glancing(now))) && this.mind.crossing.threat?.position) {
         // En el borde mira el carro (o el bus) que viene; apurado en la calzada, de a vistazos: también mira adelante.
         tx = this.mind.crossing.threat.position.x; tz = this.mind.crossing.threat.position.z;
@@ -854,9 +1007,10 @@ export class Awareness {
 }
 
 /**
- * Los puestos libres del corrillo de `scene`, de menos a más costo para quien llega desde el ángulo `from`: lo que
- * camina por el arco desde su lado, más si es la fila de atrás, mucho más si queda suelto lejos de los demás, y en la
- * fila de atrás, más si queda justo detrás de alguien de la primera (que le tapa).
+ * Los puestos libres del arco de adentro de `scene`, de menos a más costo para quien llega desde el ángulo `from`: lo
+ * que camina por el arco desde su lado, más si es la fila de atrás, mucho más si queda pegado a otro mirón (así se
+ * reparten por el arco en vez de amontonarse por donde llegaron), y en la fila de atrás, más si queda justo detrás de
+ * alguien de la primera (que le tapa).
  */
 function spotCandidates(scene, from) {
   const list = [], taken = [];
@@ -869,17 +1023,58 @@ function spotCandidates(scene, from) {
     for (let k = 0; k < n; k++) {
       if (mask & (1 << k)) continue;
       const angle = k * step, x = scene.x + Math.sin(angle) * r, z = scene.z + Math.cos(angle) * r;
-      let next = false, behind = false;
+      let next = outerTaken(scene, x, z, REACT.gap * 1.2), behind = false;
       for (let i = 0; i < taken.length; i += 2) {
         const tr = REACT.rows[taken[i]], ta = taken[i + 1];
         if (hypot(scene.x + Math.sin(ta) * tr - x, scene.z + Math.cos(ta) * tr - z) <= REACT.gap * 1.2) next = true;
         if (row === 1 && taken[i] === 0 && Math.abs(wrap(ta - angle)) < step * .4) behind = true;
       }
-      const cost = Math.abs(wrap(angle - from)) * r + row * REACT.backRow + (taken.length && !next ? REACT.alone : 0) + (behind ? 2 : 0);
+      const cost = Math.abs(wrap(angle - from)) * r + row * REACT.backRow + (next ? REACT.crowd : 0) + (behind ? 2 : 0);
       list.push({ row, slot: k, x, z, cost });
     }
   }
   return list.sort((a, b) => a.cost - b.cost);
+}
+
+/**
+ * Los puestos del anillo de afuera de `scene`, a `r` m: del más cercano a su lado (`from`) hacia los dos lados, cada
+ * `spread` m de arco, hasta un cuarto de vuelta; sin los que quedan pegados a otro mirón.
+ */
+function outerCandidates(scene, from, r) {
+  const list = [], step = REACT.spread / r;
+  for (let k = 0; k * step <= Math.PI / 2; k++) {
+    for (let sign = 1; sign >= (k ? -1 : 1); sign -= 2) {
+      const angle = from + sign * k * step, x = scene.x + Math.sin(angle) * r, z = scene.z + Math.cos(angle) * r;
+      if (!spotTaken(scene, x, z, REACT.gap * 1.2)) list.push({ row: 2, slot: -1, x, z, cost: k });
+    }
+  }
+  return list;
+}
+
+/** ¿Hay un mirón del anillo de afuera a menos de `within` m de (x, z)? */
+function outerTaken(scene, x, z, within) {
+  for (let k = 0; k < OUTER; k++) if (scene.outMask & (1 << k) && hypot(scene.outX[k] - x, scene.outZ[k] - z) < within) return true;
+  return false;
+}
+
+/** ¿Hay un puesto tomado, del arco de adentro o del anillo de afuera, a menos de `within` m de (x, z)? */
+function spotTaken(scene, x, z, within) {
+  if (outerTaken(scene, x, z, within)) return true;
+  for (let row = 0; row < 2; row++) {
+    const mask = row === 0 ? scene.slots : scene.slots2, n = ROW_SLOTS[row], step = 2 * Math.PI / n, r = REACT.rows[row];
+    for (let k = 0; k < n; k++) if (mask & (1 << k) && hypot(scene.x + Math.sin(k * step) * r - x, scene.z + Math.cos(k * step) * r - z) < within) return true;
+  }
+  return false;
+}
+
+/**
+ * Hasta cuándo se cuenta con que dure `scene`. Una pelea que ya lleva más de un golpe suele durar `fight` desde que
+ * empezó; lo demás (un golpe suelto, un choque, un arresto), lo que diga la escena. Con `goesOn`: si el golpe suelto
+ * resulta ser una pelea.
+ */
+function sceneEnds(scene, goesOn = false) {
+  const fight = (scene.kind === 'pelea' || scene.kind === 'golpe') && (goesOn || scene.hits >= 2);
+  return fight ? Math.max(scene.until, scene.born + REACT.fight) : scene.until;
 }
 
 /** Distancia de (cx, cz) al trecho de (ax, az) a (bx, bz). */

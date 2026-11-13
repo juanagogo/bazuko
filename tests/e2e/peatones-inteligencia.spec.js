@@ -376,12 +376,12 @@ test('quien ve un raponazo huye por la red de andenes, lejos del ladrón y sin e
   expect(result.farthest).toBeGreaterThan(result.start + 4);
 });
 
-test('una pelea arma corrillo: los curiosos llegan a paso vivo y quedan en arco a 4-6 m, de cara y a un metro entre sí, y se van al acabarse', async ({ page }) => {
+test('una pelea arma corrillo: los curiosos llegan a paso vivo y quedan en arco a 4-6 m, de cara y repartidos, y se van al acabarse', async ({ page }) => {
   await start(page);
   await page.evaluate(async () => { window.__peatones = await import('/src/entities/npc/temperament.js'); });
   const spot = await openSpot(page);
   expect(spot.open).toBeGreaterThan(40);
-  // Seis curiosos a 10 m, tres de cada lado (como llega la gente por un andén): cada grupo arma su arco.
+  // Seis curiosos a 10 m, tres de cada lado (como llega la gente por un andén): cada grupo se reparte por su lado del arco.
   const placed = await placeAround(page, 6, 10, 'curioso', [-.35, 0, .35, Math.PI - .35, Math.PI, Math.PI + .35].map(a => a + Math.PI / 2));
   expect(placed).toBeGreaterThanOrEqual(5);
   // La pelea: el jugador reparte golpes 12 s de juego (lo que el juego avisa con `street-fight` en cada golpe que
@@ -406,10 +406,11 @@ test('una pelea arma corrillo: los curiosos llegan a paso vivo y quedan en arco 
       })).filter(w => w.d >= 3.9 && w.d <= 6.1 && w.facing < .5);
       for (const w of planted) if (!arrived.has(w.n)) arrived.set(w.n, t);
       if (!arc && t < 8) {
-        // El arco: tres o más, ninguno a menos de 0,9 m de otro y al menos tres con alguien al lado a 0,9-1,2 m.
+        // El arco: tres o más, ninguno pegado a otro (a menos de 1,5 m) y al menos tres con alguien a un puesto libre
+        // de por medio (a no más de 2,4 m).
         const near = w => Math.min(...planted.filter(o => o !== w).map(o => Math.hypot(o.x - w.x, o.z - w.z)));
-        const apart = planted.every(w => near(w) >= .9);
-        const together = planted.filter(w => near(w) <= 1.2).length;
+        const apart = planted.every(w => near(w) >= 1.5);
+        const together = planted.filter(w => near(w) <= 2.4).length;
         best = Math.max(best, apart ? together : 0);
         if (planted.length >= 3 && apart && together >= 3) {
           arc = { t, ring: planted.map(w => ({ d: +w.d.toFixed(2), facing: +w.facing.toFixed(2), next: +near(w).toFixed(2) })) };
@@ -431,6 +432,89 @@ test('una pelea arma corrillo: los curiosos llegan a paso vivo y quedan en arco 
   expect(result.arrivals[0], 'nadie se planta al instante').toBeGreaterThanOrEqual(2.5);
   expect(result.arc.t).toBeLessThanOrEqual(6.5);
   expect(result.after, 'se dispersaron al acabarse').toBe(0);
+});
+
+/**
+ * Una pelea del jugador junto al caminante que más gente tiene andando a 5-16 m (y a más de 40 m de `used`, las peleas
+ * anteriores): ocho golpes, uno cada 1,5 s de juego, y lo que dura la escena después. A nadie se le pone en un sitio ni
+ * se le cambia el temperamento. Devuelve quién miró y desde dónde, cuántos a la vez, cuántos cuadros alguien miró
+ * parado en la calzada y cuántos seguían mirando 5 s después de acabarse.
+ */
+async function fightWhereThePeopleAre(page, used) {
+  return page.evaluate(used => new Promise(resolve => {
+    const game = window.__game, city = game.world.active, nav = city.pedestrianNavigation;
+    const main = (x, z) => { const id = nav.nodeAt(x, z); return id >= 0 && !nav.nodes[id].crossing && nav.nodes[id].main; };
+    const walkers = city.npcs.filter(n => n.mind && !n.fijo && !n.isVendor && !n.koState && !(n.fleeTimer > 0));
+    const d = (a, b) => Math.hypot(a.position.x - b.position.x, a.position.z - b.position.z);
+    const around = n => walkers.filter(o => o !== n && d(o, n) > 5 && d(o, n) < 16).length;
+    const beside = n => [[-.8, 0], [.8, 0], [0, -.8], [0, .8]].map(([x, z]) => ({ x: n.position.x + x, z: n.position.z + z })).find(q => main(q.x, q.z));
+    const free = walkers.filter(n => main(n.position.x, n.position.z) && beside(n) && used.every(u => Math.hypot(u.x - n.position.x, u.z - n.position.z) > 40));
+    if (!free.length) { resolve(null); return; }
+    const victim = free.reduce((best, n) => (around(n) > around(best) ? n : best));
+    const spot = beside(victim), player = game.player;
+    player.position.set(spot.x, city.getMovementGroundHeight(spot.x, spot.z, 0), spot.z); player.root.position.copy(player.position);
+    player.velocity.set(0, 0, 0); player.resetGrounding(); player.action = null;
+    const p = player.position, people = city.npcs.filter(n => n.mind && n !== victim);
+    const sim0 = city.minds.time, wall0 = performance.now(), seen = new Map();
+    let blows = 0, most = 0, onRoad = 0, cap = 0;
+    const tick = () => {
+      const t = city.minds.time - sim0;
+      if (blows < 8 && t >= blows * 1.5) { blows++; window.dispatchEvent(new CustomEvent('street-fight', { detail: { attacker: player } })); }
+      let now = 0;
+      for (const n of people) {
+        const a = n.mind.aware, far = Math.hypot(n.position.x - p.x, n.position.z - p.z);
+        if (!a.watching || far > 30) continue;
+        now++;
+        cap = Math.max(cap, a.watching.watchers);
+        const how = a.watchFar ? 'lejos' : a.watchPass ? 'paso' : a.watchRow === 2 ? 'afuera' : 'arco';
+        const row = seen.get(n) ?? { tipo: n.mind.temper.tipo, como: how, reach: n.mind.temper.fearReach, nearest: null };
+        seen.set(n, row);
+        if (!n.target || a.watchPass) {
+          // Ya en su sitio: desde dónde mira, y que no sea la calzada.
+          row.nearest = Math.min(row.nearest ?? Infinity, far);
+          if (!main(n.position.x, n.position.z)) onRoad++;
+        }
+      }
+      most = Math.max(most, now);
+      if (t > 23.5 || performance.now() - wall0 > 50_000) {
+        resolve({ spot: { x: +p.x.toFixed(1), z: +p.z.toFixed(1) }, around: around(victim), most, cap, onRoad, simSeconds: t,
+          watchers: [...seen.values()].map(w => ({ ...w, nearest: w.nearest === null ? null : +w.nearest.toFixed(2) })),
+          after: people.filter(n => n.mind.aware.watching && Math.hypot(n.position.x - p.x, n.position.z - p.z) < 30).length });
+        return;
+      }
+      requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
+  }), used);
+}
+
+test('una pelea donde anda gente junta mirones sin que nadie los ponga: cada uno mira desde su distancia, nadie parado en la calzada, no más de ocho, y se van al acabarse', async ({ page }) => {
+  await start(page);
+  // La gente es la que anda por la calle, con el temperamento que le tocó; por eso varía: de cada 24 peleas donde más
+  // gente hay, en 21 mira alguien. Hasta tres peleas, en tres sitios distintos, o hasta juntar tres mirones.
+  const fights = [];
+  for (let k = 0; k < 3; k++) {
+    const fight = await fightWhereThePeopleAre(page, fights.map(f => f.spot));
+    if (!fight) break;
+    console.log('[peatones] pelea con la gente de la calle', JSON.stringify(fight));
+    fights.push(fight);
+    expect(fight.simSeconds, 'el juego avanzó hasta después de acabarse la escena').toBeGreaterThan(23.5);
+    // Lo que no puede pasar, haya mirado quien haya mirado.
+    expect(fight.onRoad, 'nadie mira parado en la calzada').toBe(0);
+    expect(fight.most, 'el corrillo tiene tope').toBeLessThanOrEqual(8);
+    expect(fight.cap).toBeLessThanOrEqual(8);
+    expect(fight.after, 'a los 5 s de acabarse ya no mira nadie').toBe(0);
+    for (const w of fight.watchers.filter(w => w.nearest !== null)) {
+      // El curioso, en el arco (de 4 a 6 m); los demás, sin arrimarse: a 6 m o más y nunca dentro de su radio de miedo.
+      if (w.como === 'arco') { expect(w.tipo).toBe('curioso'); expect(w.nearest).toBeGreaterThanOrEqual(3.9); expect(w.nearest).toBeLessThanOrEqual(6.1); }
+      else if (w.como === 'lejos') expect(w.nearest).toBeGreaterThanOrEqual(7.4);
+      else { expect(w.nearest).toBeGreaterThanOrEqual(5.9); expect(w.nearest).toBeGreaterThan(w.reach); }
+    }
+    if (fights.reduce((sum, f) => sum + f.watchers.length, 0) >= 3) break;
+  }
+  expect(fights.length).toBeGreaterThan(0);
+  const total = fights.reduce((sum, f) => sum + f.watchers.length, 0);
+  expect(total, `mirones entre ${fights.length} peleas: ${JSON.stringify(fights.map(f => f.watchers.map(w => `${w.tipo} ${w.como}`)))}`).toBeGreaterThanOrEqual(2);
 });
 
 test('quien lo vio robar se acuerda: un rato después le saca el cuerpo y no le da limosna; quien no vio pasa normal', async ({ page }) => {
