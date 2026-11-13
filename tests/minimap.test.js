@@ -286,3 +286,18 @@ test('el radar oculto no calcula la sugerencia', () => {
   map.update(HERE, 0, [FOGATA], 1000, { needs: { get need() { read = true; return 'calor'; } } });
   assert.equal(read, false);
 });
+
+test('el radar dibuja el plano oficial artistico de Bogota cuando esta disponible', () => {
+  const map = new Minimap();
+  const fakeImg = { tag: 'img', src: 'bogota.jpg' };
+  map.setOfficialMapImage(fakeImg);
+
+  map.update(HERE, 0, [], 1000);
+  const drawCalls = map.ctx.calls.filter(([name]) => name === 'drawImage');
+  assert.ok(drawCalls.length > 0, 'Debe haber llamado a drawImage');
+  assert.equal(drawCalls[0][1][0], fakeImg, 'Debe dibujar la imagen del plano oficial de Bogota');
+  assert.equal(drawCalls[0][1][1], -85, 'Origen X métrico correcto (-85)');
+  assert.equal(drawCalls[0][1][2], -15, 'Origen Z métrico correcto (-15)');
+  assert.equal(drawCalls[0][1][3], 580, 'Ancho métrico correcto (580)');
+  assert.equal(drawCalls[0][1][4], 325, 'Alto métrico correcto (325)');
+});

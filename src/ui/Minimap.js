@@ -66,6 +66,18 @@ export class Minimap {
     this.container?.classList.toggle('hidden', !this.visible);
     this.raster = null;
     this.plano = null;
+    this.showOfficialCartography = true;
+    this.officialMapImg = null;
+    if (typeof Image !== 'undefined') {
+      const existing = globalThis.window?.__game?.mapView?._officialMapImg;
+      if (existing && existing.complete) {
+        this.officialMapImg = existing;
+      } else {
+        const img = new Image();
+        img.onload = () => { this.officialMapImg = img; };
+        img.src = '/metro-assets/plano-urbano-bogota-bazuko.jpg';
+      }
+    }
     this.setSize(this.size, false);
     this._bindControls();
 
@@ -150,6 +162,13 @@ export class Minimap {
   setRaster(raster) {
     this.raster = raster;
     this.plano = hornearPlano(raster?.tiles?.());
+    if (raster?.officialMapImg) {
+      this.officialMapImg = raster.officialMapImg;
+    }
+  }
+
+  setOfficialMapImage(img) {
+    this.officialMapImg = img;
   }
 
   toggle() {
@@ -260,8 +279,13 @@ export class Minimap {
     ctx.rotate(cameraYaw);
     ctx.scale?.(scale, scale);
     ctx.translate(-px, -pz);
-    const plano = this.plano;
-    if (plano) ctx.drawImage?.(plano.canvas, plano.originX, plano.originZ, plano.worldWidth, plano.worldHeight);
+    if (this.showOfficialCartography && this.officialMapImg) {
+      // Plano oficial artístico de Bogotá en coordenadas métricas del mundo (-85 a 495 en X, -15 a 310 en Z)
+      ctx.drawImage?.(this.officialMapImg, -85, -15, 580, 325);
+    } else {
+      const plano = this.plano;
+      if (plano) ctx.drawImage?.(plano.canvas, plano.originX, plano.originZ, plano.worldWidth, plano.worldHeight);
+    }
     const route = gps?.waypoint ? gps.remainingRoute(playerPos) : [];
     rutaRoja(ctx, route, scale / dpr);
     ctx.restore();
