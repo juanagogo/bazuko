@@ -93,6 +93,7 @@ La captura del modo foto conserva la resolución del canvas (según calidad/DPR)
 
 - `combat-geometry.test.js` y `enemy-reach.test.js`: alcance en calle, puente y agua; paredes y buses girados; barrido de persecuciones y nueva comprobación del contacto al impactar.
 - `police-chase-integration.test.js`: captura única, obstáculos, ribera, altura, abandono y retorno gradual al patrullaje.
+- `police-foot.test.js`: la patrulla que frena, la tripulación que se baja, persigue a pie, arresta y vuelve, con tráfico, carros y colisiones reales sobre un circuito. La patrulla no sale de la calzada ni pasa sobre el mobiliario, se arrima al sardinel con las cuatro ruedas en el asfalto, y pegada a otro carro echa reversa y pasa por el lado. Ver `docs/policia-a-pie.md`.
 - `npc-combat-integration.test.js`: contactos únicos por ataque, KO y recuperación sin renovar botín, empujes seguros y cancelación de contraataques.
 - `tests-player-combat-integration.test.js`: combos, energía, orientación actual, múltiples objetivos y cancelación al cambiar arma, caer, recibir daño o entrar al agua.
 - `gamepad-context.test.js`: navegación de paneles y modo foto, acciones según contexto y liberación de entradas al perder foco, ocultar la pestaña o desconectar el mando. Usa un mando simulado; no valida un dispositivo físico.

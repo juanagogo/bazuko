@@ -81,6 +81,12 @@ const LAUNCH_STILL = .5;       // m/s: más despacio es estar quieta
 const STEER_EVERY = .2;        // s entre un rumbo y otro, como el tráfico
 const STEERING = [0, .45, -.45, .9, -.9, 1.35, -1.35, Math.PI / 2, -Math.PI / 2]; // los rumbos que prueba, como el tráfico
 const FOLLOW_STEERING = [0, .15, -.15, .35, -.35]; // frenando sigue su camino: solo corrige un poco
+const JAM_TIME = .4;           // s sin poder avanzar ni girar (pegada a un carro, a un parqueado): echa reversa
+const REVERSE_SPEED = 2.5;     // m/s
+const REVERSE_TIME = 1.2;      // s de reversa: unos 3 m, lo que necesita para volver a girar
+const REVERSE_MAX = 2;         // veces por persecución; después, trabada: frena y se bajan
+const REVERSE_OPEN = .8;       // m que se abre de lado mientras retrocede, hacia donde queda más despejado seguir
+const REVERSE_KEEP = 2.5;      // m: con alguno de los suyos a pie así de cerca de la cola no retrocede
 const STEER_HOLD = 1e-6;       // s: en este subpaso el tráfico no le cambia el rumbo (ver `_keepOnRoad`)
 
 function emit(type, detail = {}) {
@@ -186,6 +192,10 @@ class PatrolUnit {
     this._launch = 0;
     this._steerClock = 0;
     this._roadBlocked = false;
+    this._jam = 0;
+    this._reverse = 0;
+    this._reverseSide = 0;
+    this._reverses = 0;
     this._unreachable = 0;
     this._reachable = true;
     this._probeTimer = 0;
@@ -1366,8 +1376,9 @@ export class PoliceFootSystem {
   _keepOnRoad(unit, vehicle, stepTime, traffic) {
     vehicle._chaseSteerTime = STEER_HOLD;
     const distance = vehicle._chaseDist || 0;
-    if (distance <= 1e-6 || !(vehicle.nextSpeed > 0)) return;
+    if (distance <= 1e-6 || !(vehicle.nextSpeed > 0)) { unit._jam = 0; return; }
     const car = vehicle.car, allow = this._roadAllowance(car), follow = unit.phase === 'frenando';
+    if (unit._reverse > 0 && !follow) { this._backUp(unit, vehicle, stepTime, traffic, allow); return; }
     const want = Math.min(vehicle.nextSpeed * stepTime, Math.max(0, distance - CHASE_PAD));
     unit._steerClock -= stepTime;
     if (follow || unit._steerClock <= 0 || unit._roadBlocked || vehicle._chaseHeading === undefined) {
@@ -1376,13 +1387,71 @@ export class PoliceFootSystem {
       unit._steerClock = STEER_EVERY;
     }
     const nx = Math.cos(vehicle._chaseHeading), nz = Math.sin(vehicle._chaseHeading);
-    const travel = vehicle._chaseCanMove ? this._roadReach(car, nx, nz, want, allow) : 0;
+    let travel = vehicle._chaseCanMove ? this._roadReach(car, nx, nz, want, allow) : 0;
     unit._roadBlocked = travel < want - 1e-4;
+    // Pegada a algo (el carro de adelante, un parqueado al lado) no avanza ni tiene cómo girar: echa reversa unos metros.
+    if (!follow && want > 1e-4) {
+      if (travel > 1e-4 && traffic.environment) travel = Math.min(travel, traffic._chaseClearance(vehicle, nx, nz, travel));
+      unit._jam = travel > 1e-4 ? 0 : unit._jam + stepTime;
+      if (unit._jam >= JAM_TIME && unit._reverses < REVERSE_MAX) {
+        unit._jam = 0;
+        unit._reverses++;
+        unit._reverse = REVERSE_TIME;
+        unit._reverseSide = this._openSide(vehicle, traffic, allow);
+        unit._launch = LAUNCH_GRACE + REVERSE_TIME; // maniobrando no cuenta como trabada
+      }
+    }
     // _applyChase avanza lo que pida la velocidad sin pasar de `_chaseDist` menos lo que deja sin recorrer.
     const left = travel + CHASE_PAD;
     vehicle._chaseDx = nx * left;
     vehicle._chaseDz = nz * left;
     vehicle._chaseDist = left;
+  }
+
+  /**
+   * Hacia qué lado abrirse al echar reversa (1 a su derecha, -1 a su izquierda, 0 si da lo mismo): desde donde quedaría,
+   * el lado por el que más avanza derecho. Sin esto volvería por la misma línea a quedar pegada a lo mismo.
+   */
+  _openSide(vehicle, traffic, allow) {
+    if (!traffic.environment) return 0;
+    const car = vehicle.car, p = car.position, yaw = car.group.rotation.y, fx = Math.cos(yaw), fz = -Math.sin(yaw), rx = Math.sin(yaw), rz = Math.cos(yaw);
+    const x = p.x, z = p.z, back = REVERSE_SPEED * REVERSE_TIME, reach = back + car.length + 3;
+    const clear = side => {
+      p.x = x - fx * back + rx * side * REVERSE_OPEN;
+      p.z = z - fz * back + rz * side * REVERSE_OPEN;
+      return Math.min(this._roadReach(car, fx, fz, reach, allow), traffic._chaseClearance(vehicle, fx, fz, reach));
+    };
+    const left = clear(-1), right = clear(1);
+    p.x = x;
+    p.z = z;
+    return Math.abs(left - right) < .3 ? 0 : left > right ? -1 : 1;
+  }
+
+  /**
+   * Un subpaso de reversa por su propio eje, abriéndose hacia `_reverseSide`, mientras quepa: en la calzada, sin
+   * mobiliario, sin chocar con nada y sin ninguno de los suyos detrás. TrafficSystem._applyChase solo sabe ir hacia
+   * adelante: aquí el carro lo mueve la tripulación y en este subpaso el tráfico lo deja quieto.
+   */
+  _backUp(unit, vehicle, stepTime, traffic, allow) {
+    const car = vehicle.car, p = car.position, yaw = car.group.rotation.y, fx = Math.cos(yaw), fz = -Math.sin(yaw), rx = Math.sin(yaw), rz = Math.cos(yaw);
+    const back = REVERSE_SPEED * stepTime, open = unit._reverseSide * REVERSE_OPEN / REVERSE_TIME * stepTime;
+    unit._reverse = Math.max(0, unit._reverse - stepTime);
+    vehicle.nextSpeed = 0;
+    vehicle._chaseDist = 0;
+    const behind = unit.officers.some(officer => {
+      if (!officer.onFoot) return false;
+      const dx = officer.position.x - p.x, dz = officer.position.z - p.z, along = dx * fx + dz * fz;
+      return along < 0 && along > -(car.length / 2 + REVERSE_KEEP) && Math.abs(-dx * fz + dz * fx) < car.width / 2 + .8;
+    });
+    const fits = (x, z) => this._roadCost(car, x, z, fx, fz) <= allow
+      && (!traffic.environment || traffic._chaseFootprint(vehicle, x, z, p.y, fx, fz) !== null);
+    let x = p.x - fx * back + rx * open, z = p.z - fz * back + rz * open;
+    if (!behind && open && !fits(x, z)) { x = p.x - fx * back; z = p.z - fz * back; }
+    if (behind || !fits(x, z)) { unit._reverse = 0; return; }
+    p.x = x;
+    p.z = z;
+    car.animateDrive(-back, false);
+    unit._steerClock = 0;
   }
 
   /**

@@ -1405,6 +1405,50 @@ test('con un carro parqueado pegado al costado, aunque el rumbo pida irse hacia 
   assert.ok(Math.abs(wrapAngle(vehicle._chaseHeading)) < .05, `rumbo ${vehicle._chaseHeading.toFixed(2)}`);
 });
 
+test('pegada al carro de adelante, sin por dónde avanzar ni girar, echa reversa y pasa por el lado', () => {
+  const collisions = new CollisionSystem();
+  const world = setup({ collisions, environment: { collisions, getGroundHeight: () => 0 }, player: [80, 0] });
+  const vehicle = world.vehicle, car = vehicle.car;
+  car.position.set(50, 0, 0);
+  car.group.rotation.y = 0;
+  vehicle.speed = 0;
+  // Un carro detenido a 2 cm de la trompa y montado 25 cm sobre su franja: derecho no pasa, y girando en el sitio lo roza.
+  const nose = 50 + car.length / 2 + .14, side = car.width / 2 + .12 - .25;
+  collisions.dynamicColliders.push({ box: new THREE.Box3(new THREE.Vector3(nose, 0, side), new THREE.Vector3(nose + 4.4, 1.5, side + 1.8)),
+    vehicle: { position: new THREE.Vector3(nose + 2.2, 0, side + .9) } });
+  world.traffic._startChase(vehicle);
+  let back = 50;
+  const t = runUntil(world, () => world.unit.phase !== 'carro', 14, () => { back = Math.min(back, car.position.x); });
+  assert.ok(world.unit._reverses >= 1, 'echó reversa');
+  assert.ok(back < 49, `retrocedió hasta x = ${back.toFixed(2)}`);
+  assert.ok(Number.isFinite(t), 'siguió y frenó cerca del jugador');
+  assert.ok(car.position.x > nose + 4.4, `quedó en x = ${car.position.x.toFixed(1)}: no pasó al carro detenido`);
+  assert.equal(world.unit.endReason, null);
+});
+
+test('en reversa no se sale de la calzada ni retrocede con uno de los suyos detrás', () => {
+  const road = (tx, tz) => Math.abs(tz) <= 2 && tx >= 24 ? 'road' : 'sidewalk'; // la calzada empieza en x = 47
+  const world = setup({ district: { tileTypeAt: road }, player: [80, 0] });
+  const vehicle = world.vehicle, car = vehicle.car, unit = world.unit;
+  car.position.set(50, 0, 0);
+  car.group.rotation.y = 0;
+  // La calzada se acaba 1 m detrás de la cola: no retrocede más que eso.
+  car.position.x = 47 + car.length / 2 + 1;
+  const from = car.position.x;
+  unit._reverse = 1.2;
+  for (let i = 0; i < 40; i++) world.system._backUp(unit, vehicle, .05, world.traffic, 0);
+  assert.ok(from - car.position.x > .6 && from - car.position.x < 1.01, `retrocedió ${(from - car.position.x).toFixed(2)} m`);
+  assert.equal(unit._reverse, 0);
+  // Con el compañero a pie a 1 m de la cola, nada.
+  car.position.x = 60;
+  unit.partner.state = 'persecucion';
+  unit.partner.position.set(60 - car.length / 2 - 1, 0, 0);
+  unit._reverse = 1.2;
+  world.system._backUp(unit, vehicle, .05, world.traffic, 0);
+  assert.equal(car.position.x, 60);
+  assert.equal(unit._reverse, 0);
+});
+
 /**
  * La patrulla parada encima del carril (z = 0), con el compañero buscando a 5 m del carro (ni tan lejos como para correrla
  * por tapar el carril, ni tan cerca como para no poder arrancar) y un carro que viene detrás por ese carril. Con `civilian`
