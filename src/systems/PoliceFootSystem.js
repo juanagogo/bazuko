@@ -5,7 +5,7 @@
 // se suben y la patrulla sigue su ronda. Cada patrulla lleva su tripulación en `vehicle.crew`: TrafficSystem le pregunta
 // cómo mover el carro mientras dura la persecución (`planCar`) y la sube de una al terminar (`recall`).
 import * as THREE from 'three';
-import { PoliceOfficer, POLICE_FOOT, POLICE_GRAB_LINES } from '../entities/PoliceOfficer.js';
+import { PoliceOfficer, POLICE_FOOT, POLICE_GRAB_LINES, POLICE_GRAB_PLATE } from '../entities/PoliceOfficer.js';
 import { PatrolCar } from '../entities/patrolCar.js';
 import { hasClearCombatLine } from './CombatGeometry.js';
 import { POLICE_CATCH_RANGE, POLICE_GIVE_UP_RANGE, TILE_SIZE } from '../utils/constants.js';
@@ -102,6 +102,8 @@ function emit(type, detail = {}) {
   } catch {}
 }
 const toast = (text, type = 'info') => emit('toast', { text, type });
+// Lo del agarrón no hace cola con los demás avisos: va en la placa de la persecución, en corto (ver HUD._gritarEnPlaca).
+const shout = name => emit('toast', { text: POLICE_GRAB_LINES[name], type: 'warn', placa: POLICE_GRAB_PLATE[name] });
 const byScore = (a, b) => a.score - b.score || a.order - b.order;
 const byDistance = (a, b) => a.distance - b.distance;
 const wrap = angle => Math.atan2(Math.sin(angle), Math.cos(angle));
@@ -621,10 +623,10 @@ class PatrolUnit {
         doorOk: side => this._doorOk[side], carStill: parked, hurry
       });
       if (event === 'arresto') this.system._arrest();
-      // El aviso y el zarpazo que no alcanzó se leen en pantalla: van como advertencia, que en plena persecución el HUD
-      // bota los avisos de información. Al agarrarlo, el juego deja de mover al jugador.
-      else if (event === 'aviso') { toast(POLICE_GRAB_LINES.aviso, 'warn'); this.system.audio?.playWhistle?.(); }
-      else if (event === 'zafo') { toast(POLICE_GRAB_LINES.zafo, 'warn'); this.system.audio?.playWhoosh?.(); }
+      // El aviso, el zarpazo que no alcanzó y cuando se le tira encima se leen en la placa de la persecución, en el mismo
+      // cuadro. Al agarrarlo, el juego deja de mover al jugador.
+      else if (event === 'aviso' || event === 'encima') { shout(event); this.system.audio?.playWhistle?.(); }
+      else if (event === 'zafo') { shout('zafo'); this.system.audio?.playWhoosh?.(); }
       else if (event === 'agarre') { emit('police-grab', { reason: 'a-pie' }); this.system.audio?.playThud?.(); }
       else if (event === 'adentro') this._boarded(officer);
       else if (event === 'recoger') this._pickUp(officer);
@@ -803,7 +805,7 @@ class PatrolUnit {
   /**
    * ¿Vale la pena seguir? Aunque lo vean, una persecución tiene que poder terminar: si en `progressTime` s nadie le acortó
    * distancia y va a más de `progressFar` m; si lo ven sin poder llegarle (nadando, en un techo) `giveUpTime` s; y a los
-   * `pursuitCap` s, salvo que lo tengan cerca. Devuelve el motivo para desistir, o null.
+   * `pursuitCap` s, salvo que lo tengan cerca (y a los `pursuitCapHard`, aunque lo tengan). Devuelve el motivo para desistir, o null.
    */
   _worthGoingOn(dt) {
     this._clock += dt;
@@ -816,7 +818,7 @@ class PatrolUnit {
     else if (!stuck) this._gapClock += dt;
     if (this._stalled >= POLICE_FOOT.giveUpTime) return 'inalcanzable';
     if (this._gapClock >= POLICE_FOOT.progressTime && gap > POLICE_FOOT.progressFar) return 'sin-avance';
-    if (this._clock >= POLICE_FOOT.pursuitCap && gap >= POLICE_FOOT.pursuitCapNear) return 'tope';
+    if (this._clock >= POLICE_FOOT.pursuitCap && (gap >= POLICE_FOOT.pursuitCapNear || this._clock >= POLICE_FOOT.pursuitCapHard)) return 'tope';
     return null;
   }
 

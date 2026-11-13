@@ -140,6 +140,10 @@
   width: min(56vw, 800px); padding: 8px 22px 12px;
 }
 #wanted[data-estado="encima"] .wanted__grito { grid-column: 1 / -1; font-size: 96px; line-height: .98; }
+/* El grito de un agente (el aviso del agarrón) sale en la placa misma, sin hacer cola: tres destellos. */
+#wanted[data-grito] { animation: wanted-destello .16s steps(1, end) 3; }
+@keyframes wanted-destello { 50% { opacity: .4; } }
+@media (prefers-reduced-motion: reduce) { #wanted[data-grito] { animation: none; } }
 
 /* ---------- arriba a la izquierda: una tira de cinta, solo dibujos ---------- */
 #game-settings {

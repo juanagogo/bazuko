@@ -29,6 +29,7 @@ const CALOR_BAJO = 60;   // de aquí para abajo la fila de calor se sube
 const ENCIMA_M = 18;     // la patrulla está encima
 const ENCIMA_SUELTA_M = 21; // y deja de estarlo un poco más lejos, para que la placa no vaya y venga
 const MISION_S = 4;
+const GRITO_MS = 900;    // lo que dura el grito de un agente en la placa de la persecución
 /** Los segundos de calor como se leen en el cartón: 2:59. */
 export const calorALaVista = cuentaAtras;
 const PLATA_LARGA = 1_000_000;
@@ -456,7 +457,11 @@ export class HUD {
   }
 
   _bindEvents() {
-    window.addEventListener('toast', (e) => this._toast(e.detail.text, e.detail.type ?? e.detail.kind));
+    window.addEventListener('toast', (e) => {
+      // Lo que no puede esperar su turno (el aviso del agarrón dura medio segundo) va en la placa de la persecución.
+      if (e.detail.placa && this._gritarEnPlaca(e.detail.placa, e.detail.text)) return;
+      this._toast(e.detail.text, e.detail.type ?? e.detail.kind);
+    });
     window.addEventListener('resize', () => this.avisos?.acomodar());
     window.addEventListener('pickup', (e) => this._onPickup(e.detail));
     window.addEventListener('sell', (e) => this._onSell(e.detail));
@@ -739,9 +744,19 @@ export class HUD {
       this.wantedEl.className = estado === 'fichado' ? 'carton corte-d' : estado === 'encima' ? 'placa corte-c' : 'placa corte-b';
       this.wantedEl.dataset.estado = estado;
       document.getElementById('topbar')?.setAttribute('data-estado', estado);
-      this._setText(this.wantedGrito, estado === 'fichado' ? 'Te tienen fichado' : estado === 'encima' ? '¡CÓRRALE!' : '¡PILAS!');
+      this._wantedBase = estado === 'fichado' ? 'Te tienen fichado' : estado === 'encima' ? '¡CÓRRALE!' : '¡PILAS!';
+      this._gritoPuesto = null;
+      this._setText(this.wantedGrito, this._wantedBase);
       this._setText(this.wantedVoz, { nada: '', fichado: 'Te tienen fichado', detras: '¡Pilas! Una patrulla viene detrás', encima: '¡Córrale! La patrulla está encima' }[estado]);
       this.avisos?.acomodar();
+    }
+    // El grito de un agente ocupa el sitio de «¡CÓRRALE!» mientras dura, y la placa destella.
+    const grito = this._grito && performance.now() < this._grito.hasta && (estado === 'encima' || estado === 'detras') ? this._grito.texto : null;
+    if (grito !== (this._gritoPuesto ?? null)) {
+      this._gritoPuesto = grito;
+      this._setText(this.wantedGrito, grito ?? this._wantedBase ?? '');
+      if (grito) this.wantedEl.dataset.grito = '1';
+      else { delete this.wantedEl.dataset.grito; this._grito = null; }
     }
     if (estado === 'fichado' && this.wantedRayas && this._wantedNivel !== nivel) {
       this._wantedNivel = nivel;
@@ -752,6 +767,23 @@ export class HUD {
       this._setText(this.wantedDato, `${info.onFoot ? 'Agente' : 'Patrulla'} a ${d} m`);
       if (this.wantedBarra) this._setWidth(this.wantedBarra, Math.round(info.closeness * 100));
     }
+  }
+
+  /**
+   * Pone `texto` en la placa de la persecución en este mismo cuadro, en vez de «¡CÓRRALE!», durante `ms`. Devuelve false
+   * si la placa no está a la vista: entonces sale como un aviso cualquiera.
+   */
+  _gritarEnPlaca(texto, voz = texto, ms = GRITO_MS) {
+    if (!this.wantedEl || (this._wantedEstado !== 'encima' && this._wantedEstado !== 'detras')) return false;
+    this._grito = { texto, hasta: performance.now() + ms };
+    this._gritoPuesto = texto;
+    this._setText(this.wantedGrito, texto);
+    this._setText(this.wantedVoz, voz);
+    // El destello arranca de nuevo con cada grito.
+    delete this.wantedEl.dataset.grito;
+    void this.wantedEl.offsetWidth;
+    this.wantedEl.dataset.grito = '1';
+    return true;
   }
 
   /** Lo que toca hacer con el cambuche, unos segundos cada vez que cambia. Nunca durante una persecución. */

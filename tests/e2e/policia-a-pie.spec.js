@@ -270,9 +270,12 @@ async function stageGrab(page, { gap = 4, side = false } = {}) {
     rig.distance = side ? 6.5 : 5.5;
     rig._snap = true;
     if (!log.grab) {
-      // Además de la hora, si la línea llega de verdad a la vista en un aviso del HUD (puede esperar turno un momento).
+      // Además de la hora, si la línea llega de verdad a la vista en el HUD.
+      // En persecución el grito va en la placa roja, en vez de «¡CÓRRALE!»; sin placa a la vista sale como un aviso más.
+      const PLATE = { '¡Quieto ahí!': '¡QUIETO!', '¡Se le zafó!': '¡SE ZAFÓ!' };
       const watch = (text, grab, tries = 40) => {
-        if ([...document.querySelectorAll('.loot-toast')].some(el => el.textContent.includes(text.slice(1, -1)))) grab.shown.push(text);
+        const plate = document.querySelector('#wanted:not([hidden]) .wanted__grito')?.textContent;
+        if (plate === PLATE[text] || [...document.querySelectorAll('.loot-toast')].some(el => el.textContent.includes(text.slice(1, -1)))) grab.shown.push(text);
         else if (tries > 0) setTimeout(() => watch(text, grab, tries - 1), 50);
       };
       window.addEventListener('toast', event => {

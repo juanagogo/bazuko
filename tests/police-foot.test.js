@@ -991,7 +991,7 @@ test('jugador nadando a la vista: esperan en la orilla gritándole, sin ir y ven
   assert.equal(count('police-arrest'), 0);
 });
 
-test('tope de 90 s: desisten, salvo que lo tengan a menos de 10 m', () => {
+test('tope de 90 s: desisten, salvo que lo tengan a menos de 10 m; a los 110 s, aunque lo tengan', () => {
   const world = setup();
   world.traffic._startChase(world.vehicle);
   exitOf(world);
@@ -1005,6 +1005,20 @@ test('tope de 90 s: desisten, salvo que lo tengan a menos de 10 m', () => {
   step(world);
   assert.equal(world.unit.mode, 'desiste');
   assert.equal(world.unit.endReason, 'tope');
+  // Ninguna persecución dura para siempre: a 6 m y con el tope largo cumplido, desisten igual.
+  const near = setup();
+  near.traffic._startChase(near.vehicle);
+  exitOf(near);
+  runUntil(near, () => near.unit.partner.state === 'persecucion');
+  near.player.position.copy(near.unit.partner.position).add(new THREE.Vector3(6, 0, 0));
+  near.unit._clock = POLICE_FOOT.pursuitCapHard - .5;
+  step(near);
+  assert.equal(near.unit.mode, 'persigue');
+  near.unit._clock = POLICE_FOOT.pursuitCapHard;
+  near.player.position.copy(near.unit.partner.position).add(new THREE.Vector3(6, 0, 0));
+  step(near);
+  assert.equal(near.unit.mode, 'desiste');
+  assert.equal(near.unit.endReason, 'tope');
 });
 
 test('a más de 40 m del jugador, el agente afuera sigue animándose', async () => {

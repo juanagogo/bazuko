@@ -52,6 +52,7 @@ export const POLICE_FOOT = {
   progressFar: 8,
   pursuitCap: 90,        // s de persecución: desisten, salvo que lo tengan a menos de `pursuitCapNear` m
   pursuitCapNear: 10,
+  pursuitCapHard: 110,   // s: desisten aunque lo tengan cerca; ninguna persecución dura para siempre
   returnTimeout: 28,     // s volviendo: si nadie lo ve, se sube de una
   returnStall: 4,        // s sin acercarse a su carro: cambia de plan
   returnCap: 45,         // s volviendo: se sube de una aunque lo vean
@@ -87,10 +88,18 @@ export const POLICE_GRAB = {
   stumbleCarry: .45,     // s que sigue de largo por el rumbo del zarpazo
   stumbleLow: .2,        // s hasta lo más lento del traspié
   stumbleSpeed: 1.75,    // m/s en lo más lento: así sigue hasta recomponerse
-  stumbleSprint: 1.5     // s de pique que le cuesta
+  stumbleSprint: 1.5,    // s de pique que le cuesta
+  lead: .6,              // s, como mucho, que se le adelanta persiguiéndolo de cerca: corre a cortarle el camino, no a la cola
+  sure: 2,               // zarpazos al aire seguidos: el siguiente ya no es un zarpazo, se le tira encima con todo el cuerpo
+  sureTurn: 12,          // rad/s que gira entonces, avisando y echado: quebrar ya no lo deja de lado
+  sureFar: 8,            // m: si se le aleja así, la cuenta de zarpazos al aire vuelve a cero...
+  sureForget: 6          // ...y también a los tantos s sin echarle otro
 };
-// Lo que grita al avisar y lo que se lee en pantalla con el aviso y con el zarpazo que no alcanzó.
-export const POLICE_GRAB_LINES = { aviso: '¡Quieto ahí!', zafo: '¡Se le zafó!' };
+// Lo que grita al avisar y lo que se lee en pantalla: con el aviso, con el zarpazo que no alcanzó y cuando, después de
+// `sure` zarpazos al aire, se le tira encima. `traspie` es lo que se le escapa al agente al irse de largo.
+export const POLICE_GRAB_LINES = { aviso: '¡Quieto ahí!', zafo: '¡Se le zafó!', encima: '¡Ya no se me va!', traspie: '¡Uy!' };
+// Lo mismo, en corto, para la placa de la persecución: cabe donde va «¡CÓRRALE!» y sale en el mismo cuadro.
+export const POLICE_GRAB_PLATE = { aviso: '¡QUIETO!', zafo: '¡SE ZAFÓ!', encima: '¡ENCIMA!' };
 
 export const POLICE_SHOUTS = ['¡Quieto!', '¡Alto ahí!', '¡Policía, quieto!', '¡Deténgase!', '¡No se mueva!'];
 export const POLICE_ARMED_SHOUTS = ['¡Las manos donde las vea!', '¡Quieto, policía!', '¡Al piso!'];
@@ -157,6 +166,7 @@ const _was = new THREE.Vector3();
 const _side = new THREE.Vector3();
 const _eye = new THREE.Vector3();
 const _mark = new THREE.Vector3();
+const _lead = new THREE.Vector3();
 
 const wrap = angle => Math.atan2(Math.sin(angle), Math.cos(angle));
 const lerpAngle = (from, to, k) => from + wrap(to - from) * k;
@@ -249,6 +259,8 @@ export class PoliceOfficer extends Npc {
     this._pace = 0;            // m/s a los que corre ahora: acelera hasta el pique con `POLICE_GRAB.accel`
     this._pointClock = 0;      // s sin señalar
     this._nearClock = 0;       // s con él a distancia de avisarle
+    this._misses = 0;          // zarpazos al aire seguidos
+    this._missClock = 0;       // s desde el último
     this._seenAt = new THREE.Vector3(Infinity, 0, Infinity); // dónde iba el jugador el cuadro anterior
     this._seenVelocity = new THREE.Vector3();
     this._gesture = 0;         // s que le quedan de desistir quieto (ver `_desisting`)
@@ -354,6 +366,7 @@ export class PoliceOfficer extends Npc {
     this.runTime = 0;
     this._dropGrab();
     this._stumble = 0;
+    this._misses = this._missClock = 0;
     this._pace = 0;
     this._pointClock = 0;
     this._nearClock = 0;
@@ -822,6 +835,12 @@ export class PoliceOfficer extends Npc {
     const goal = sees ? target : lastSeen;
     this.distance = Math.hypot(player.x - this.position.x, player.z - this.position.z);
     this._readMotion(target, dt);
+    // Los zarpazos al aire se le olvidan si el jugador de verdad se le fue lejos, o si pasa un rato sin echarle otro: el
+    // que se zafa y huye no paga por los quiebres buenos.
+    if (this._misses > 0) {
+      this._missClock += dt;
+      if (this.distance > POLICE_GRAB.sureFar || this._missClock >= POLICE_GRAB.sureForget) this._misses = 0;
+    }
     // El agarrón en curso manda: aviso, zarpazo y agarre.
     if (this._grab) return this._grabbing(dt, player, target, sees);
     const toGoal = Math.hypot(goal.x - this.position.x, goal.z - this.position.z);
@@ -877,6 +896,16 @@ export class PoliceOfficer extends Npc {
     }
     const direct = sees && toGoal < POLICE_FOOT.directRange;
     const stop = sees ? .75 : .5;
+    // De cerca y viéndolo no corre a la cola: va adonde él va a estar cuando llegue. Al que da vueltas le corta el camino
+    // en vez de quedarse girando por dentro, y al que sigue derecho lo persigue igual que antes.
+    if (direct && POLICE_GRAB.lead > 0 && !(this._sidestep > 0)) {
+      const v = this._seenVelocity;
+      if (Math.hypot(v.x, v.z) > 1) {
+        const t = Math.min(POLICE_GRAB.lead, toGoal / Math.max(this._pace, 1));
+        _lead.set(aim.x + v.x * t, aim.y, aim.z + v.z * t);
+        if (this.isWalkable(_lead.x, _lead.z)) aim = _lead;
+      }
+    }
     let moved;
     if (this._sidestep > 0) {
       // El paso de lado: en diagonal hacia el lado por donde le toca rodear.
@@ -931,10 +960,12 @@ export class PoliceOfficer extends Npc {
       this._nearClock = 0;
     }
     if (clear) {
-      this._grab = { phase: 'aviso', t: 0, yaw: 0, speed: 0, run: 0, fromX: 0, fromZ: 0 };
-      this.say(POLICE_GRAB_LINES.aviso, 1.6);
+      // Al que ya se le zafó `sure` veces seguidas no lo vuelve a dejar de lado: se le tira encima y lo sigue con el cuerpo.
+      const sure = this._misses >= POLICE_GRAB.sure;
+      this._grab = { phase: 'aviso', t: 0, yaw: 0, speed: 0, run: 0, fromX: 0, fromZ: 0, sure };
+      this.say(sure ? POLICE_GRAB_LINES.encima : POLICE_GRAB_LINES.aviso, 1.6);
       this.shoutTimer = Math.max(this.shoutTimer, 1.6);
-      return this._grabbing(0, player, target, sees) ?? 'aviso';
+      return this._grabbing(0, player, target, sees) ?? (sure ? 'encima' : 'aviso');
     }
     return null;
   }
@@ -958,7 +989,7 @@ export class PoliceOfficer extends Npc {
       const left = Math.max(0, G.warnTime - g.t), v = this._seenVelocity;
       const ahead = left + G.lunge;
       const want = Math.atan2(target.x + v.x * ahead - this.position.x, target.z + v.z * ahead - this.position.z);
-      const most = G.warnTurn * dt;
+      const most = (g.sure ? G.sureTurn : G.warnTurn) * dt;
       const yaw = this.root.rotation.y + Math.max(-most, Math.min(most, wrap(want - this.root.rotation.y)));
       const fx = Math.sin(yaw), fz = Math.cos(yaw);
       const along = (target.x - this.position.x) * fx + (target.z - this.position.z) * fz, pace = v.x * fx + v.z * fz;
@@ -968,9 +999,9 @@ export class PoliceOfficer extends Npc {
         this._pace = Math.max(0, Math.min(top, this._pace + G.accel * dt, pace + (along - G.gap) / Math.max(dt, left)));
         this._carryOn(dt, this._pace, yaw);
       }
-      this.poseParams.stance = 'aviso';
+      this.poseParams.stance = g.sure ? 'embestida' : 'aviso';
       this.poseParams.stanceWeight = 1;
-      if (g.t < G.warnTime) return g.t === 0 ? 'aviso' : null;
+      if (g.t < G.warnTime) return g.t === 0 ? (g.sure ? 'encima' : 'aviso') : null;
       // El zarpazo: lo justo para que al que sigue derecho le alcance el brazo.
       const reach = (target.x - this.position.x) * fx + (target.z - this.position.z) * fz + pace * G.lunge - G.hand;
       g.phase = 'zarpazo';
@@ -980,27 +1011,28 @@ export class PoliceOfficer extends Npc {
       g.fromZ = this.position.z;
       g.speed = Math.max(0, Math.min(G.lungeMax, reach)) / G.lunge;
       g.run = this._pace;
-      this.poseParams.stance = 'zarpazo';
+      this.poseParams.stance = g.sure ? 'embestida' : 'zarpazo';
       return null;
     }
     if (g.phase === 'zarpazo') {
       // Ya echado tuerce apenas hacia él. El último cuadro avanza solo lo que le queda del zarpazo.
-      const most = G.lungeTurn * dt;
+      const most = (g.sure ? G.sureTurn : G.lungeTurn) * dt;
       g.yaw += Math.max(-most, Math.min(most, wrap(Math.atan2(target.x - this.position.x, target.z - this.position.z) - g.yaw)));
       this._carryOn(dt, g.speed * Math.min(dt, Math.max(0, G.lunge - (g.t - dt))) / Math.max(dt, 1e-6), g.yaw);
       this.walkSpeed = Math.max(this.walkSpeed, g.run);
-      this.poseParams.stance = 'zarpazo';
+      this.poseParams.stance = g.sure ? 'embestida' : 'zarpazo';
       this.poseParams.stanceWeight = 1;
       if (g.t < G.lunge - 1e-6) return null;
       // Se resuelve una sola vez: a su alcance y por delante de donde se echó. Saltar no lo salva.
       const dx = target.x - this.position.x, dz = target.z - this.position.z, distance = Math.hypot(dx, dz);
       const bearing = Math.atan2(target.x - g.fromX, target.z - g.fromZ);
-      const hit = distance <= G.reach && Math.abs(wrap(bearing - g.yaw)) <= G.cone
+      const hit = distance <= G.reach && (g.sure || Math.abs(wrap(bearing - g.yaw)) <= G.cone)
         && canReachCombatTarget({ from: this.position, to: target, maxDistance: G.reach,
           collisions: this.collisions, getWaterInfo: this.getWaterInfo });
       if (hit) {
         g.phase = 'agarre';
         g.t = 0;
+        this._misses = 0;
         g.hx = distance > 1e-3 ? dx / distance : Math.sin(g.yaw);
         g.hz = distance > 1e-3 ? dz / distance : Math.cos(g.yaw);
         this.poseParams.stance = 'agarre';
@@ -1008,6 +1040,9 @@ export class PoliceOfficer extends Npc {
       }
       // Se le zafó: el traspié le cuesta metros y pique.
       this._grab = null;
+      this._misses++;
+      this._missClock = 0;
+      this.say(POLICE_GRAB_LINES.traspie, G.stumble);
       this._stumble = G.stumble;
       this._stumbleSpeed = Math.max(g.run, G.stumbleSpeed);
       this._stumbleYaw = g.yaw;

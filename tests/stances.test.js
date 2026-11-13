@@ -221,8 +221,8 @@ test('el agente que desiste: sin aire y radio en la solapa', async () => {
   }
 });
 
-test('el agarrón de un agente: aviso, zarpazo, agarre y el traspié cuando no alcanza', async () => {
-  for (const name of ['aviso', 'zarpazo', 'agarre', 'traspie']) assert.ok(STANCE_NAMES.includes(name), name);
+test('el agarrón de un agente: aviso, zarpazo, embestida, agarre y el traspié cuando no alcanza', async () => {
+  for (const name of ['aviso', 'zarpazo', 'embestida', 'agarre', 'traspie']) assert.ok(STANCE_NAMES.includes(name), name);
   for (const id of BODIES) {
     const { bones, hold } = standing(await library(id));
     const find = suffix => [...bones.values()].find(bone => bone.name.endsWith(suffix));
@@ -254,6 +254,17 @@ test('el agarrón de un agente: aviso, zarpazo, agarre y el traspié cuando no a
     assert.ok(hand.z > shoulder.z + .38 && hand.y < shoulder.y && hand.y > shoulder.y - .25, `${report('zarpazo')}: la mano en (${hand.x.toFixed(2)}, ${hand.y.toFixed(2)}, ${hand.z.toFixed(2)})`);
     assert.ok(elbow('Left') < 20, report('zarpazo'));
     assert.ok(turn() > 15 && turn() < 25 && pitch() > 12, report('zarpazo'));
+    // La embestida: los dos brazos adelante y abiertos, más separados que los hombros, por debajo de ellos; el tronco
+    // echado de 20 a 40° y sin girar.
+    hold('embestida');
+    hand = at(find('LeftHand')); shoulder = at(find('LeftArm'));
+    {
+      const other = at(find('RightHand')), otherShoulder = at(find('RightArm'));
+      assert.ok(hand.z > shoulder.z + .3 && other.z > otherShoulder.z + .3, `${report('embestida')}: las manos en z ${hand.z.toFixed(2)} y ${other.z.toFixed(2)}`);
+      assert.ok(hand.y < shoulder.y && other.y < otherShoulder.y, `${report('embestida')}: las manos por debajo de los hombros`);
+      assert.ok(hand.x - other.x > shoulder.x - otherShoulder.x, `${report('embestida')}: los brazos abiertos (${(hand.x - other.x).toFixed(2)} m entre las manos)`);
+      assert.ok(pitch() > 20 && pitch() < 40 && Math.abs(turn()) < 6, report('embestida'));
+    }
     // El agarre: la mano cerrada a la altura del hombro de él y el tronco ya echado atrás unos 5°.
     hold('agarre');
     hand = at(find('LeftHand')); shoulder = at(find('LeftArm'));

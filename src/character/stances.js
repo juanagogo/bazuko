@@ -638,6 +638,22 @@ function zarpazo(rig, m) {
   looseHand(rig, 'right', V(0, -1, -.3), .4);
 }
 
+/**
+ * Cuando ya se le zafó dos veces no estira el brazo: se le tira encima. El tronco echado unos 30° con la cabeza arriba,
+ * clavada en él, y los dos brazos adelante y abiertos, a la altura del pecho, para abrazarlo por donde quiebre.
+ */
+function embestida(rig, m) {
+  lean(rig, .95);
+  rig.turn('neck', -.3, 0, 0).turn('head', -.35, 0, 0);
+  for (const side of ['left', 'right']) {
+    const sign = side === 'left' ? 1 : -1, shoulder = rig.where(`${side}Arm`, V(0, 0, 0));
+    const reach = (rig.length.arm + rig.length.forearm) * .88;
+    rig.reachArm(side, V(shoulder.x + sign * .16, shoulder.y - .12, shoulder.z + reach), V(sign * .8, -.6, -.2));
+    rig.hand(side, V(-sign * .25, .1, .96), V(-sign * .3, -.5, .8));
+    rig.curl(side, .15, .1);
+  }
+}
+
 /** El agarre: la mano izquierda cerrada sobre el hombro de él, el codo doblado, y el tronco ya echado atrás, frenando. */
 function agarre(rig, m) {
   lean(rig, -.15);
@@ -779,6 +795,7 @@ const CATALOG = {
   // a 5° atrás) y el traspié de una.
   aviso: { pose: aviso, walk: true, transition: .2 },
   zarpazo: { pose: zarpazo, walk: true, transition: .05 },
+  embestida: { pose: embestida, walk: true, transition: .15 },
   agarre: { pose: agarre, walk: true, transition: .3 },
   traspie: { pose: traspie, walk: true, transition: .08 },
   // Los agentes en la patrulla y al bajarse (ver `PoliceOfficer._updateExit`)

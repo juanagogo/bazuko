@@ -12,7 +12,7 @@ mock.module('../src/character/RealisticCharacter.js', { namedExports: {
 const textures = await import('../src/world/bogota/textures.js');
 mock.module('../src/world/bogota/textures.js', { namedExports: { ...textures, radialSprite: () => new THREE.Texture() } });
 const { PoliceFootSystem } = await import('../src/systems/PoliceFootSystem.js');
-const { POLICE_FOOT, POLICE_GRAB, POLICE_GRAB_LINES } = await import('../src/entities/PoliceOfficer.js');
+const { POLICE_FOOT, POLICE_GRAB, POLICE_GRAB_LINES, POLICE_GRAB_PLATE } = await import('../src/entities/PoliceOfficer.js');
 const { TrafficSystem } = await import('../src/systems/TrafficSystem.js');
 const { TrafficRoute } = await import('../src/world/bogota/TrafficRoute.js');
 const { CollisionSystem } = await import('../src/systems/CollisionSystem.js');
@@ -24,7 +24,7 @@ beforeEach(() => {
   events = [];
   clock = 0;
   for (const type of ['police-arrest', 'police-escaped', 'police-grab', 'toast']) {
-    window.addEventListener(type, e => events.push({ type, text: e.detail?.text ?? null, kind: e.detail?.type ?? null, t: clock }));
+    window.addEventListener(type, e => events.push({ type, text: e.detail?.text ?? null, kind: e.detail?.type ?? null, plate: e.detail?.placa ?? null, t: clock }));
   }
 });
 const first = (type, text = null) => events.find(e => e.type === type && (text === null || e.text === text)) ?? null;
@@ -78,7 +78,7 @@ function chase({ gap = 4, heading = .3, level = 1, collisions = null } = {}) {
   return world;
 }
 const _zero = new THREE.Vector3();
-const AVISO = POLICE_GRAB_LINES.aviso, ZAFO = POLICE_GRAB_LINES.zafo;
+const AVISO = POLICE_GRAB_LINES.aviso, ZAFO = POLICE_GRAB_LINES.zafo, ENCIMA = POLICE_GRAB_LINES.encima;
 
 /** Corre derecho y, a `delay` s del aviso, quiebra `angle` grados. Devuelve el mundo ya resuelto el zarpazo. */
 function dodge({ delay, angle, gap = 4, heading = .3 }) {
@@ -175,8 +175,11 @@ test('quebrar a tiempo: el zarpazo pasa de largo, «¡Se le zafó!», y el trasp
     const world = dodge({ delay, angle });
     const { officer } = world, label = `${angle}° a los ${delay} s`;
     assert.equal(count('toast', ZAFO), 1, label);
-    // Los dos avisos van como advertencia: en plena persecución el HUD bota los de información.
+    // Los dos avisos van como advertencia y con su texto corto para la placa de la persecución: no hacen cola.
     assert.deepEqual([first('toast', AVISO).kind, first('toast', ZAFO).kind], ['warn', 'warn'], label);
+    assert.deepEqual([first('toast', AVISO).plate, first('toast', ZAFO).plate], [POLICE_GRAB_PLATE.aviso, POLICE_GRAB_PLATE.zafo], label);
+    // Yéndose de largo ya no dice «¡Quieto ahí!».
+    assert.equal(officer.lastLine, POLICE_GRAB_LINES.traspie, label);
     assert.equal(count('police-grab'), 0, label);
     assert.equal(officer.poseParams.stance, 'traspie', label);
     // El traspié: 0,9 s, baja a 1,75 m/s y así sigue; al final el jugador le sacó entre 3,5 y 4,5 m.
@@ -231,6 +234,83 @@ test('quebrar tarde no salva, quebrar antes del aviso tampoco y el zigzag a cieg
     if (!world.held) world.want(RUN, world.heading + sign * 45 * DEG);
     return count('police-arrest') > 0;
   }), 'al del zigzag lo arrestó');
+});
+
+/** Maneras de correr sin mirar el aviso: lo que pide el teclado a los `t` s, con rumbo de salida `base`. */
+const BLIND = {
+  // En redondo, `rate` grados por segundo.
+  circle: rate => (t, base) => base + t * rate * DEG,
+  // De lado a lado: `angle` grados a cada lado, cambiando cada `period` s.
+  weave: (angle, period) => (t, base) => base + (Math.floor(t / period) % 2 ? angle : -angle) * DEG
+};
+
+/** Corre a ciegas hasta el arresto o `seconds`. Devuelve los segundos que duró, o Infinity. */
+function runBlind(world, turn, seconds) {
+  const base = world.heading, from = clock;
+  let t = 0;
+  const caught = world.until(() => {
+    t += DT;
+    if (!world.held) world.want(RUN, turn(t, base));
+    return count('police-arrest') > 0;
+  }, seconds);
+  return caught ? clock - from : Infinity;
+}
+
+test('a ciegas no se salva: en redondo o de lado a lado se le zafa dos veces y a la tercera se le tira encima', () => {
+  const ways = {
+    'en redondo a 120° por segundo': BLIND.circle(120), 'en redondo a 240° por segundo': BLIND.circle(240),
+    'de lado a lado, 60° cada 0,5 s': BLIND.weave(60, .5), 'de lado a lado, 90° cada 0,5 s': BLIND.weave(90, .5),
+    'de lado a lado, 90° cada segundo': BLIND.weave(90, 1)
+  };
+  for (const [name, turn] of Object.entries(ways)) {
+    const world = chase(), { officer } = world;
+    const stances = new Set();
+    const step = world.step;
+    world.step = () => { step(); if (officer._grab?.sure) stances.add(officer.poseParams.stance); };
+    const seconds = runBlind(world, turn, 15);
+    assert.ok(seconds < 15, `${name}: sin arresto a los 15 s, con ${count('toast', ZAFO)} zarpazos al aire`);
+    // Dos zarpazos al aire como mucho; si los hubo, el tercero ya no es un zarpazo: lo dice y se ve distinto.
+    assert.ok(count('toast', ZAFO) <= POLICE_GRAB.sure, `${name}: ${count('toast', ZAFO)} zarpazos al aire`);
+    if (count('toast', ZAFO) === POLICE_GRAB.sure) {
+      assert.equal(count('toast', ENCIMA), 1, name);
+      assert.equal(first('toast', ENCIMA).plate, POLICE_GRAB_PLATE.encima, name);
+      assert.ok(stances.has('embestida') && !stances.has('aviso') && !stances.has('zarpazo'), `${name}: ${[...stances]}`);
+      assert.equal(officer._misses, 0, `${name}: al agarrarlo la cuenta vuelve a cero`);
+    }
+  }
+});
+
+test('dando vueltas no hay persecución sin fin: el agente le corta el camino en vez de girar por dentro', () => {
+  // A 70° por segundo el jugador da vueltas de 4,9 m de radio. Corriendo a la cola, el agente ya sin pique se queda girando
+  // por dentro sin llegar a los 2 m del aviso. Yendo adonde él va a estar, lo alcanza.
+  for (const rate of [55, 70, 90]) {
+    const world = chase(), { officer } = world;
+    officer.sprintLeft = 0;
+    const seconds = runBlind(world, BLIND.circle(rate), 60);
+    assert.ok(seconds < 30, `a ${rate}° por segundo: sin arresto a los ${Math.min(seconds, 60).toFixed(0)} s, con el agente a ${world.distance().toFixed(1)} m`);
+  }
+});
+
+test('la cuenta de zarpazos al aire se borra si se le aleja o si pasa un rato: el que se zafa y huye no paga por los quiebres buenos', () => {
+  const world = chase(), { officer } = world;
+  const turn = BLIND.circle(120), base = world.heading;
+  let t = 0;
+  assert.ok(world.until(() => { t += DT; world.want(RUN, turn(t, base)); return count('toast', ZAFO) === POLICE_GRAB.sure; }, 15), 'dos zarpazos al aire');
+  assert.equal(officer._misses, POLICE_GRAB.sure);
+  // Sale corriendo derecho: a `sureFar` m la cuenta vuelve a cero, y el siguiente es otra vez un aviso de los de siempre.
+  world.want(RUN);
+  assert.ok(world.until(() => world.distance() > POLICE_GRAB.sureFar || officer._misses === 0, 30), 'se le alejó');
+  world.until(() => false, DT * 2);
+  assert.equal(officer._misses, 0);
+  // Y sin alejarse, a los `sureForget` s sin otro zarpazo también.
+  officer._misses = POLICE_GRAB.sure;
+  officer._missClock = 0;
+  const p = world.p;
+  world.step = (step => () => { step(); officer.position.set(p.x - 5, 0, p.z); officer._dropGrab(); })(world.step);
+  world.until(() => false, POLICE_GRAB.sureForget - .1);
+  assert.equal(officer._misses, POLICE_GRAB.sure, 'todavía se acuerda');
+  world.until(() => false, .2);
+  assert.equal(officer._misses, 0, 'ya se le olvidó');
 });
 
 test('quieto junto a un poste: con el poste en medio lo ve, no se queda mirándolo, da un paso de lado y lo agarra', () => {
