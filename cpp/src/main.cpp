@@ -141,6 +141,7 @@ int main(int argc, char** argv) {
     LobbyChoice lobbyChoice;
     lobbyChoice.mode = LobbyChoice::Mode::Story;
     bool lobbyShown = false;
+    LobbyRoom lobbyRoom;   // la sala que se abre desde el lobby; sigue abierta si el anfitrion vuelve al lobby sin nadie dentro
     {
         bool skipLobby = std::getenv("BAZUKO_SHOT") || std::getenv("BAZUKO_BENCH") || std::getenv("BAZUKO_SIN_LOBBY") || std::getenv("BAZUKO_HOST")
                       || std::getenv("BAZUKO_JOIN") || std::getenv("BAZUKO_RELAY") || std::getenv("BAZUKO_ROOM");
@@ -150,7 +151,7 @@ int main(int argc, char** argv) {
         }
         if (skipLobby) lobbySettings.ApplyAudio(audio);
         else {
-            lobbyChoice = RunLobby(window, ui, audio, lobbySettings, "savegame.json");
+            lobbyChoice = RunLobby(window, ui, audio, lobbySettings, "savegame.json", lobbyRoom);
             lobbyShown = true;
             lobbySettings.ReadAudio(audio);
             lobbySettings.Save(settingsPath);
@@ -992,7 +993,33 @@ int main(int argc, char** argv) {
         hosting.SetProfileFolder(folder);
         hosting.SetWorldProvider([&simulation](const glm::vec3& viewer, uint32_t tick) { return simulation.ExportWorld(viewer, tick); });
     };
-    {   // multijugador (compilado con -DBAZUKO_NET=ON): --anfitrion[=puerto] o --conectar=ip[:puerto]  (tambien BAZUKO_HOST / BAZUKO_JOIN)
+    // clave del perfil: se crea una vez y se guarda junto al guardado; con ella el anfitrion te devuelve tu plata, tu costal y tu progreso
+    std::string profileKey;
+    {
+        const std::string keyFile = std::getenv("BAZUKO_CLAVE_ARCHIVO") ? std::getenv("BAZUKO_CLAVE_ARCHIVO") : "bazuko_clave_perfil.txt";   // pruebas con varias instancias en una maquina
+        std::ifstream keyIn(keyFile);
+        std::getline(keyIn, profileKey);
+        if (!Net::IsValidPlayerKey(profileKey)) {
+            profileKey = Net::NewPlayerKey();
+            std::ofstream keyOut(keyFile, std::ios::trunc);
+            keyOut << profileKey << std::endl;
+        }
+    }
+    uint64_t netGeneration = 0;   // sube con cada sesion nueva: lo que se hace una vez por sesion (saludo, aviso de la sala) vuelve a hacerse
+    // multijugador (compilado con -DBAZUKO_NET=ON): --anfitrion[=puerto] o --conectar=ip[:puerto]  (tambien BAZUKO_HOST / BAZUKO_JOIN),
+    // o lo que se eligio en el lobby (`fromLobby`): tambien al volver al lobby desde una partida
+    const auto startNet = [&](bool fromLobby, const LobbyChoice& pick) {
+        ++netGeneration;
+        if (fromLobby && pick.mode == LobbyChoice::Mode::EnterRoom && lobbyRoom.session) {   // la sala que se abrio en el lobby: ya esta abierta
+            netSession = std::move(lobbyRoom.session);
+            lanBeacon = std::move(lobbyRoom.beacon);
+            configureNetHost(*netSession);
+            netSession->SetLocalKey(profileKey);
+            const std::string code = netSession->RoomCode();
+            LogInfo("Multijugador: entrando a la sala propia «{}»{}", lobbyRoom.name, code.empty() ? std::string() : " (codigo " + code + ")");
+            ui.Notify("Sala «" + lobbyRoom.name + "»" + (code.empty() ? std::string() : " · código " + code), ToastType::Info);
+            return;
+        }
         std::string hostArg, joinArg, relayHostArg, roomArg;   // relevo: --anfitrion-relay=IP[:puerto] y --sala=CODIGO@IP[:puerto] (jugar por internet sin abrir puertos)
         for (int i = 1; i < argc; ++i) {
             const std::string arg = argv[i];
@@ -1008,29 +1035,18 @@ int main(int argc, char** argv) {
         if (const char* env = std::getenv("BAZUKO_ROOM")) roomArg = env;
         size_t maxPlayers = Net::kMaxPlayers;
         std::string roomName;
-        if (lobbyShown) {   // lo que se eligio en el lobby
-            switch (lobbyChoice.mode) {
+        if (fromLobby) {   // lo que se eligio en el lobby
+            hostArg.clear(); joinArg.clear(); relayHostArg.clear(); roomArg.clear();
+            switch (pick.mode) {
                 case LobbyChoice::Mode::HostLan: hostArg = "7777"; break;
-                case LobbyChoice::Mode::HostRelay: relayHostArg = lobbyChoice.address; break;
-                case LobbyChoice::Mode::JoinAddress: joinArg = lobbyChoice.address; break;
-                case LobbyChoice::Mode::JoinRoom: roomArg = lobbyChoice.code + "@" + lobbyChoice.address; break;
+                case LobbyChoice::Mode::HostRelay: relayHostArg = pick.address; break;
+                case LobbyChoice::Mode::JoinAddress: joinArg = pick.address; break;
+                case LobbyChoice::Mode::JoinRoom: roomArg = pick.code + "@" + pick.address; break;
                 default: break;
             }
-            if (lobbyChoice.mode == LobbyChoice::Mode::HostLan || lobbyChoice.mode == LobbyChoice::Mode::HostRelay) {
-                maxPlayers = static_cast<size_t>(std::clamp(lobbyChoice.maxPlayers, 2, 16));
-                roomName = lobbyChoice.roomName;
-            }
-        }
-        // clave del perfil: se crea una vez y se guarda junto al guardado; con ella el anfitrion te devuelve tu plata, tu costal y tu progreso
-        std::string profileKey;
-        const std::string keyFile = std::getenv("BAZUKO_CLAVE_ARCHIVO") ? std::getenv("BAZUKO_CLAVE_ARCHIVO") : "bazuko_clave_perfil.txt";   // pruebas con varias instancias en una maquina
-        {
-            std::ifstream keyIn(keyFile);
-            std::getline(keyIn, profileKey);
-            if (!Net::IsValidPlayerKey(profileKey)) {
-                profileKey = Net::NewPlayerKey();
-                std::ofstream keyOut(keyFile, std::ios::trunc);
-                keyOut << profileKey << std::endl;
+            if (pick.mode == LobbyChoice::Mode::HostLan || pick.mode == LobbyChoice::Mode::HostRelay) {
+                maxPlayers = static_cast<size_t>(std::clamp(pick.maxPlayers, 2, 16));
+                roomName = pick.roomName;
             }
         }
         const auto splitHostPort = [](const std::string& text, uint16_t defaultPort, std::string& host, uint16_t& port) {
@@ -1044,7 +1060,7 @@ int main(int argc, char** argv) {
             std::string relayAddress; uint16_t relayPort = 0;
             splitHostPort(relayHostArg, Net::Relay::kDefaultPort, relayAddress, relayPort);
             netSession = Net::NetSession::StartHostViaRelay(relayAddress, relayPort, playerName, maxPlayers);
-            if (netSession) { configureNetHost(*netSession); netSession->SetLocalKey(profileKey); netSession->SetRoomInfo(roomName, !lobbyShown || lobbyChoice.listed); LogInfo("Multijugador: conectando al relevo {}:{} para abrir una sala", relayAddress, relayPort); ui.Notify("Abriendo sala en el relevo...", ToastType::Info); }
+            if (netSession) { configureNetHost(*netSession); netSession->SetLocalKey(profileKey); netSession->SetRoomInfo(roomName, !fromLobby || pick.listed); LogInfo("Multijugador: conectando al relevo {}:{} para abrir una sala", relayAddress, relayPort); ui.Notify("Abriendo sala en el relevo...", ToastType::Info); }
             else { LogWarn("Multijugador: no se pudo conectar al relevo {}", relayHostArg); ui.Notify("No se pudo abrir la sala: revise el servidor de salas.", ToastType::Warn); }
         } else if (!roomArg.empty()) {   // invitado por relevo: CODIGO@IP[:puerto]
             const size_t at = roomArg.find('@');
@@ -1069,7 +1085,8 @@ int main(int argc, char** argv) {
             if (netSession) { LogInfo("Multijugador: conectando a {}:{}", address, port); ui.Notify("Conectando a " + address + ":" + std::to_string(port) + "...", ToastType::Info); }
             else { LogWarn("Multijugador: no se pudo conectar a {}:{}", address, port); ui.Notify("No se pudo conectar a " + address + ".", ToastType::Warn); }
         }
-    }
+    };
+    startNet(lobbyShown, lobbyChoice);
 #endif
     // Verificacion visual: BAZUKO_SHOT=ruta.png guarda una captura tras BAZUKO_SHOT_DELAY s (por defecto 6) y cierra
     const char* shotPath = std::getenv("BAZUKO_SHOT");
@@ -1088,7 +1105,11 @@ int main(int argc, char** argv) {
         if (const char* station = std::getenv("BAZUKO_RADIO_STATION")) { ui.SelectRadioStation(station); radioOn = true; radioBattery = 100.0f; }   // pruebas: enciende la radio en esa emisora (id de radio_stations.json)
         camera.SetOrbit(envFloat("BAZUKO_YAW", camera.GetYaw()), envFloat("BAZUKO_PITCH", 0.22f), envFloat("BAZUKO_DIST", 5.5f));
     } else {
+#ifdef BAZUKO_NET_ENABLED
+        if (!netSession) ui.OpenDeveloperNote();   // en el multijugador no sale: se entra directo a jugar con los demas
+#else
         ui.OpenDeveloperNote();
+#endif
         // pruebas: hora y clima tambien al jugar normal (sin captura)
         if (const char* weather = std::getenv("BAZUKO_WEATHER")) simulation.ForceWeather(static_cast<Climate::Weather>(std::clamp(std::atoi(weather), 0, Climate::kWeatherCount - 1)));
         if (const char* hour = std::getenv("BAZUKO_HOUR")) simulation.SetDayProgress(static_cast<float>(std::atof(hour)) / 24.0f);
@@ -1114,6 +1135,54 @@ int main(int argc, char** argv) {
     };
     LogInfo("Motor iniciado con exito. Entrando al bucle principal.");
 
+    bool closingApp = false;   // se pidio cerrar la ventana (no «Guardar y salir», que lleva al lobby)
+    // Vuelve al lobby desde la partida (ya guardada). Devuelve false si alli se eligio cerrar el juego. El anfitrion sin nadie dentro deja su sala
+    // abierta en el lobby; con jugadores dentro, la partida pasa al siguiente y siguen jugando sin el. Un invitado sale de la sala.
+    const auto returnToLobby = [&]() -> bool {
+#ifdef BAZUKO_NET_ENABLED
+        if (netSession) {
+            const bool host = netSession->GetRole() == Net::NetSession::Role::Host;
+            if (host && netSession->PlayerCount() > 1 && netSession->HandOver(false)) {
+                const double handoverStart = glfwGetTime();
+                while (!netSession->HandoverDone() && glfwGetTime() - handoverStart < 2.5) {
+                    netSession->Update(0.016f, Net::LocalState{playerPos, playerYaw, playerVelocity, playerKnockedDown});
+                    std::this_thread::sleep_for(std::chrono::milliseconds(16));
+                }
+            } else if (host && !netSession->Migrating() && !netSession->RoomFailed()) {
+                if (lobbyRoom.name.empty()) lobbyRoom.name = netSession->RoomName();
+                lobbyRoom.internet = netSession->ViaRelay();
+                lobbyRoom.listed = !lobbyRoom.internet || netSession->RoomListed();
+                lobbyRoom.maxPlayers = static_cast<int>(netSession->MaxPlayers());
+                lobbyRoom.session = std::move(netSession);
+                lobbyRoom.beacon = std::move(lanBeacon);
+            }
+            netSession.reset();
+            lanBeacon.reset();
+            simulation.SetGuestMode(false);
+            simulation.SetRemotePlayers({});
+            remoteAvatars.clear();
+        }
+#endif
+        ui.SetQuitWarning({}, {});
+        audio.Update(false, false);
+        audio.UpdateVehicleAudio(0.0f, playerPos, simulation, true);
+        audio.UpdatePolice(playerPos, {}, {}, true);
+        audio.StopStreetVoice();
+        audio.StopSubstanceSustain();
+        audio.SetWorldSilenced(true);
+        lobbyChoice = RunLobby(window, ui, audio, lobbySettings, "savegame.json", lobbyRoom, true);
+        lobbySettings.ReadAudio(audio);
+        lobbySettings.Save(settingsPath);
+        if (lobbyChoice.mode == LobbyChoice::Mode::Quit) return false;
+        graphicsQuality = lobbySettings.quality;
+        audio.SetWorldSilenced(false);
+        if (ui.IsPaused()) ui.TogglePause(); else Input::SetCursorLocked(true);
+#ifdef BAZUKO_NET_ENABLED
+        if (lobbyChoice.mode != LobbyChoice::Mode::Story) startNet(true, lobbyChoice);
+#endif
+        clock.Tick();   // el tiempo en el lobby no cuenta como un cuadro largo
+        return true;
+    };
     while (!window.ShouldClose()) {
         // 1. Snapshot de estado previo
         Input::BeginFrame();
@@ -1799,19 +1868,13 @@ int main(int argc, char** argv) {
         std::vector<Net::PlayerView> remoteViewers;   // anfitrion: los otros jugadores existen para peatones, policia y trafico
 #ifdef BAZUKO_NET_ENABLED
         if (netSession) {   // multijugador: cuenta mi estado, recibe el de los demas y los dibuja (net/NetSession.hpp)
-            static bool ownLookSent = false;
-            if (!ownLookSent) { ownLookSent = true; netSession->SetLook(EncodeLook(characterManager.GetLook())); }   // va en el saludo
+            static uint64_t lookSentFor = 0;
+            if (lookSentFor != netGeneration) { lookSentFor = netGeneration; netSession->SetLook(EncodeLook(characterManager.GetLook())); }   // va en el saludo
             // lo que hace con las manos, para que los demas lo vean: fuma un cigarrillo (1), un porro (2) o la pipa (3); peleando o nadando no se ve
             const uint8_t handsCode = Pipe::Holding(basuco) ? 3 : (smoking.active && playerAction == PlayerAction::None && !playerSwimming) ? (smoking.kind == "hierba" ? 2 : 1) : 0;
             static float netFps = 0.0f;   // cuadros por segundo promedio: el anfitrion lo usa para elegir quien lo sucede
             if (dt > 0.0001f) netFps = netFps <= 0.0f ? 1.0f / dt : netFps + (1.0f / dt - netFps) * 0.03f;
             netSession->Update(dt, Net::LocalState{playerPos, playerYaw, playerVelocity, playerKnockedDown, handsCode, netFps});
-            if (netSession->GetRole() == Net::NetSession::Role::Host && !netSession->HandingOver()) {   // antes de salir se dice que pasa con la sala
-                const std::string successor = netSession->SuccessorName();
-                const std::string room = netSession->RoomName().empty() ? std::string("Su sala") : "Su sala «" + netSession->RoomName() + "»";
-                if (successor.empty()) ui.SetQuitWarning("Cerrar la sala", room + " se cerrará y nadie más podrá entrar. Su partida queda guardada.");
-                else ui.SetQuitWarning("Salir de la partida", "La partida pasa a " + successor + ", que la sigue como anfitrión: los demás siguen jugando sin usted. Su partida queda guardada.");
-            } else ui.SetQuitWarning({}, {});
             if (lanBeacon) lanBeacon->Update(netSession->GetRole() == Net::NetSession::Role::Host ? netSession->PlayerCount() : 0);
             // mundo compartido: el invitado deja de simular trafico y peatones y aplica lo que manda el anfitrion (misma semilla = mismos carros)
             if (netSession->ConsumePromotion()) {   // el anfitrion se fue y me toca: ahora el mundo lo simulo yo
@@ -1820,9 +1883,9 @@ int main(int argc, char** argv) {
             }
             simulation.SetGuestMode(netSession->GetRole() == Net::NetSession::Role::Client && (netSession->Connected() || netSession->Migrating()));
             if (simulation.IsGuest()) {
-                static bool warnedMismatch = false;
+                static uint64_t warnedMismatchFor = 0;
                 if (auto world = netSession->ConsumeWorld()) {
-                    if (!simulation.ApplyWorld(*world) && !warnedMismatch) { warnedMismatch = true; LogWarn("Multijugador: el mundo del anfitrion no coincide con el local (otra semilla o modelos distintos)"); }
+                    if (!simulation.ApplyWorld(*world) && warnedMismatchFor != netGeneration) { warnedMismatchFor = netGeneration; LogWarn("Multijugador: el mundo del anfitrion no coincide con el local (otra semilla o modelos distintos)"); }
                 }
             }
             const auto economyNow = [&]() {
@@ -1836,13 +1899,13 @@ int main(int argc, char** argv) {
             };
             if (netSession->GetRole() == Net::NetSession::Role::Host) {
                 netSession->SetHostEconomy(economyNow());   // el anfitrion tambien tiene perfil: viaja en el punto de control
-                static bool roomAnnounced = false, roomFailedAnnounced = false;
-                if (netSession->ViaRelay() && !roomAnnounced && !netSession->RoomCode().empty()) {
-                    roomAnnounced = true;
+                static uint64_t roomAnnouncedFor = 0, roomFailedFor = 0;
+                if (netSession->ViaRelay() && roomAnnouncedFor != netGeneration && !netSession->RoomCode().empty()) {
+                    roomAnnouncedFor = netGeneration;
                     LogInfo("Multijugador: sala abierta en el relevo, codigo {}", netSession->RoomCode());
                     ui.Notify("Sala " + netSession->RoomCode() + ": compártala con quien quiera entrar", ToastType::Info);
                 }
-                if (netSession->RoomFailed() && !roomFailedAnnounced) { roomFailedAnnounced = true; LogWarn("Multijugador: el relevo no pudo abrir la sala"); ui.Notify("El relevo no pudo abrir la sala.", ToastType::Warn); }
+                if (netSession->RoomFailed() && roomFailedFor != netGeneration) { roomFailedFor = netGeneration; LogWarn("Multijugador: el relevo no pudo abrir la sala"); ui.Notify("El relevo no pudo abrir la sala.", ToastType::Warn); }
                 if (Input::IsKeyPressed(GLFW_KEY_F9) && !netSession->HandingOver()) {   // traspasar la partida al siguiente jugador y volver como invitado
                     if (netSession->HandOver(true)) ui.Notify("Traspasando la partida...", ToastType::Info);
                     else ui.Notify("No hay a quien pasarle la partida.", ToastType::Warn);
@@ -1852,7 +1915,8 @@ int main(int argc, char** argv) {
                 // economia: el anfitrion lleva una copia de mi plata y mi costal y revierte lo que no se explica (net/EconomyLedger.hpp); yo sigo jugando sin esperas
                 static Net::EconomyMirror economyMirror;
                 static uint32_t economyEpoch = 0;
-                if (economyEpoch != netSession->Epoch()) { economyEpoch = netSession->Epoch(); economyMirror.Restart(); }   // otra partida (reconexion): vuelve a contar el estado completo
+                static uint64_t economyGeneration = 0;
+                if (economyEpoch != netSession->Epoch() || economyGeneration != netGeneration) { economyEpoch = netSession->Epoch(); economyGeneration = netGeneration; economyMirror.Restart(); }   // otra partida (reconexion): vuelve a contar el estado completo
                 const double economyClock = static_cast<double>(clock.GetElapsedTime());
                 if (const auto report = economyMirror.Poll(economyNow(), economyClock)) netSession->SendEconomy(*report);
                 if (const auto sync = netSession->ConsumeEconomySync()) {
@@ -3529,6 +3593,10 @@ int main(int argc, char** argv) {
         }
 
 
+        if (const char* back = std::getenv("BAZUKO_PRUEBA_VOLVER")) {   // pruebas: «Guardar y salir» a esos segundos (ver Lobby.cpp)
+            static bool asked = false;
+            if (!asked && clock.GetElapsedTime() > static_cast<float>(std::atof(back))) { asked = true; ui.RequestQuit(); }
+        }
         if (shotPath && glfwGetTime() - shotStart > shotDelay) {
             if (std::getenv("BAZUKO_BENCH")) LogInfo("BENCH {}", ui.PerformanceSummary());
             int shotWidth = 0, shotHeight = 0;
@@ -3612,6 +3680,10 @@ int main(int argc, char** argv) {
         ui.SetPreviewQuit(previewQuitScreen);
         if (ui.ConsumeQuitRequest()) {
             saveGame("Guardando partida...");
+            if (lobbyShown && !closingApp && !shotPath) {   // «Guardar y salir» lleva al lobby; desde alli se cierra el juego
+                if (returnToLobby()) continue;
+                break;
+            }
             // Mostrar pantalla de cierre con mensaje de guardado
             ui.RenderQuitScreen(window);
             // Breve espera para que el usuario vea el mensaje
@@ -3633,9 +3705,21 @@ int main(int argc, char** argv) {
                 if (survivalSaveTimer >= kAutoSaveSeconds || lostFocus) saveGame("Partida guardada", true);
             }
         }
-        if (window.ShouldClose() && !shotPath && ui.HasQuitWarning()) {   // cerrar la ventana con la sala abierta tambien pregunta (y guarda al confirmar)
-            glfwSetWindowShouldClose(glfwGetCurrentContext(), GLFW_FALSE);
-            ui.RequestQuit();
+        if (closingApp && !ui.IsQuitConfirmOpen()) { closingApp = false; ui.SetQuitWarning({}, {}); }   // cancelo el cierre: «Guardar y salir» vuelve a llevar al lobby
+        if (window.ShouldClose() && !shotPath) {   // cerrar la ventana es cerrar el juego: con la sala abierta se pregunta (y se guarda al confirmar)
+#ifdef BAZUKO_NET_ENABLED
+            if (netSession && netSession->GetRole() == Net::NetSession::Role::Host && !netSession->HandingOver()) {
+                const std::string successor = netSession->SuccessorName();
+                const std::string room = netSession->RoomName().empty() ? std::string("Su sala") : "Su sala «" + netSession->RoomName() + "»";
+                if (successor.empty()) ui.SetQuitWarning("Cerrar la sala", room + " se cerrará y nadie más podrá entrar. Su partida queda guardada.");
+                else ui.SetQuitWarning("Salir de la partida", "La partida pasa a " + successor + ", que la sigue como anfitrión: los demás siguen jugando sin usted. Su partida queda guardada.");
+            }
+#endif
+            if (ui.HasQuitWarning()) {
+                glfwSetWindowShouldClose(glfwGetCurrentContext(), GLFW_FALSE);
+                closingApp = true;
+                ui.RequestQuit();
+            }
         }
     }
 
@@ -3646,8 +3730,11 @@ int main(int argc, char** argv) {
             netSession->Update(0.016f, Net::LocalState{playerPos, playerYaw, playerVelocity, playerKnockedDown});
             std::this_thread::sleep_for(std::chrono::milliseconds(16));
         }
+    } else if (netSession && netSession->GetRole() == Net::NetSession::Role::Host) {
+        netSession->CloseRoom();   // nadie a quien pasarla: la sala se cierra y su codigo queda libre de una vez
     }
     netSession.reset();
+    lobbyRoom.Close();
 #endif
     Input::Shutdown();
     LogInfo("Cerrando aplicacion con normalidad.");

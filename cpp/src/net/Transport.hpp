@@ -28,12 +28,16 @@ public:
     static std::unique_ptr<Host> CreateClient();
     // Por internet sin abrir puertos (ver RelayProtocol.hpp): el anfitrion crea una sala en el servidor de relevo (o retoma una con su codigo y secreto);
     // los invitados entran por su codigo. Para el resto del codigo se comportan igual que un servidor y un cliente directos (mismos eventos).
-    static std::unique_ptr<Host> CreateRelayHost(const std::string& relayAddress, uint16_t relayPort, const std::string& roomCode = {}, const std::string& roomSecret = {});
+    // `wantedCode`: al crear, el codigo que eligio el jugador (vacio = el relevo pone uno al azar).
+    static std::unique_ptr<Host> CreateRelayHost(const std::string& relayAddress, uint16_t relayPort, const std::string& roomCode = {}, const std::string& roomSecret = {},
+                                                 const std::string& wantedCode = {});
     static std::unique_ptr<Host> CreateRelayGuest(const std::string& relayAddress, uint16_t relayPort, const std::string& roomCode);
     bool IsRelay() const;
     const std::string& RoomCode() const;     // anfitrion: vacio hasta que el relevo asigna la sala
     const std::string& RoomSecret() const;   // anfitrion: para que otro jugador pueda retomar la sala
     bool RoomFailed() const;                 // anfitrion: el relevo no pudo crear o retomar la sala (o se cayo)
+    uint8_t RoomError() const;               // anfitrion: la razon que dio el relevo (Relay::ErrorCode); 0 si no dio ninguna
+    void CloseRoom();                        // anfitrion por relevo: cierra la sala a proposito (su codigo queda libre de una vez)
     // anfitrion por relevo: nombre, si sale en la lista publica de salas y el cupo; se manda al abrir la sala (y ya, si esta abierta)
     void SetRoomInfo(const std::string& name, bool listed, uint8_t maxPlayers);
     uint16_t Port() const;

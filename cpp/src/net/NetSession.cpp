@@ -44,13 +44,14 @@ std::unique_ptr<NetSession> NetSession::StartHost(uint16_t port, const std::stri
     return session;
 }
 
-std::unique_ptr<NetSession> NetSession::StartHostViaRelay(const std::string& relayAddress, uint16_t relayPort, const std::string& name, size_t maxPlayers) {
+std::unique_ptr<NetSession> NetSession::StartHostViaRelay(const std::string& relayAddress, uint16_t relayPort, const std::string& name, size_t maxPlayers,
+                                                          const std::string& wantedCode) {
     std::unique_ptr<NetSession> session(new NetSession());
     session->m_Role = Role::Host;
     session->m_Name = CleanPlayerName(name);
     session->m_MaxPlayers = std::clamp<size_t>(maxPlayers, 2, kMaxPlayers);
     session->m_RelayAddress = relayAddress; session->m_RelayPort = relayPort;
-    session->m_Host = Host::CreateRelayHost(relayAddress, relayPort);
+    session->m_Host = Host::CreateRelayHost(relayAddress, relayPort, {}, {}, wantedCode);
     if (!session->m_Host) return nullptr;
     session->m_LocalId = 1;
     return session;

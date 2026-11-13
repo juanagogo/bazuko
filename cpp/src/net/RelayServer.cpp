@@ -15,8 +15,8 @@ namespace Bazuko::Net {
 namespace {
 int g_Users = 0;
 constexpr size_t kChannels = 2;
-// sin 0/O ni 1/I/L para que se pueda dictar por voz o escribir sin dudas
-constexpr char kAlphabet[] = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
+constexpr const char* kAlphabet = Relay::kCodeAlphabet;
+constexpr size_t kAlphabetSize = sizeof Relay::kCodeAlphabet - 1;
 }
 
 struct RelayServer::Impl {
@@ -48,7 +48,7 @@ struct RelayServer::Impl {
     std::string NewCode() {
         for (;;) {
             std::string code;
-            for (size_t i = 0; i < Relay::kCodeLength; ++i) code.push_back(kAlphabet[random() % (sizeof kAlphabet - 1)]);
+            for (size_t i = 0; i < Relay::kCodeLength; ++i) code.push_back(kAlphabet[random() % kAlphabetSize]);
             if (!rooms.count(code)) return code;
         }
     }
@@ -104,7 +104,13 @@ struct RelayServer::Impl {
             if (secret.size() != secretLength) return Error(peer, Relay::kBadRequest);
             if (op == Relay::kCreate) {
                 if (rooms.size() >= Relay::kMaxRooms) return Error(peer, Relay::kTooManyRooms);
-                code = NewCode();
+                if (at < size) {   // codigo propio pedido por el anfitrion
+                    const size_t wantedLength = data[at++];
+                    const std::string wanted = Relay::NormalizeRoomCode(ReadString(data, size, at, wantedLength));
+                    if (wanted.empty()) return Error(peer, Relay::kBadRequest);
+                    if (rooms.count(wanted)) return Error(peer, Relay::kCodeTaken);
+                    code = wanted;
+                } else code = NewCode();
                 Room room; room.host = peer; room.secret = secret;
                 rooms[code] = std::move(room);
             } else {
@@ -174,6 +180,13 @@ struct RelayServer::Impl {
             out.insert(out.end(), data + 5, data + size);   // canal, fiable, bytes
             relayed += size;
             Send(guest->second, data[6] ? 0 : 1, out, data[6] != 0);
+        } else if (op == Relay::kCloseRoom && conn->role == Conn::Role::Host) {
+            const auto it = rooms.find(conn->code);
+            if (it == rooms.end() || it->second.host != peer) return;
+            for (auto& [vid, guest] : it->second.guests) { if (ConnOf(guest)) ConnOf(guest)->role = Conn::Role::None; enet_peer_disconnect(guest, 0); }
+            rooms.erase(it);
+            conn->role = Conn::Role::None;
+            conn->code.clear();
         } else if (op == Relay::kKick && conn->role == Conn::Role::Host && size >= 5) {
             const uint32_t vid = data[1] | (data[2] << 8) | (data[3] << 16) | (static_cast<uint32_t>(data[4]) << 24);
             const auto it = rooms.find(conn->code);

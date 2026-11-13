@@ -5,8 +5,14 @@
 #include <array>
 #include <cstdint>
 #include <filesystem>
+#include <memory>
 #include <string>
 #include <vector>
+
+#ifdef BAZUKO_NET_ENABLED
+#include "../net/NetSession.hpp"
+#include "../net/RoomDirectory.hpp"
+#endif
 
 namespace Bazuko {
 
@@ -35,8 +41,29 @@ struct LobbySettings {
     void ReadAudio(const AudioManager& audio);
 };
 
+// La sala que este jugador tiene abierta: se crea en el lobby y sigue abierta mientras el anfitrion vuelve al lobby (sin jugadores dentro).
+// Se entra a ella con Mode::EnterRoom; se cierra desde la lista de salas o al cerrar el juego.
+struct LobbyRoom {
+#ifdef BAZUKO_NET_ENABLED
+    std::unique_ptr<Net::NetSession> session;
+    std::unique_ptr<Net::LanBeacon> beacon;   // en esta red: responde a las listas de la red local
+#endif
+    std::string name;
+    std::string relay;         // por internet: el servidor de salas IP:puerto
+    bool internet = false, listed = true;
+    int maxPlayers = 8;
+    std::string wantedCode;    // el codigo que pidio el jugador (vacio = al azar)
+    LobbyRoom() = default;
+    ~LobbyRoom() { Close(); }
+    LobbyRoom(const LobbyRoom&) = delete;
+    LobbyRoom& operator=(const LobbyRoom&) = delete;
+    bool Active() const;
+    std::string Code() const;  // por internet: el codigo que dio el relevo (vacio mientras se abre)
+    void Close();
+};
+
 struct LobbyChoice {
-    enum class Mode { Quit, Story, HostLan, HostRelay, JoinAddress, JoinRoom };
+    enum class Mode { Quit, Story, HostLan, HostRelay, JoinAddress, JoinRoom, EnterRoom };
     Mode mode = Mode::Quit;
     std::string roomName;   // anfitrion: nombre de la sala
     bool listed = true;     // anfitrion por internet: sale en la lista publica
@@ -46,6 +73,8 @@ struct LobbyChoice {
 };
 
 // Muestra el lobby hasta que se elige un modo o se cierra la ventana (Mode::Quit). Aplica el sonido al momento y deja la calidad en `settings`.
-LobbyChoice RunLobby(Window& window, UIManager& ui, AudioManager& audio, LobbySettings& settings, const std::filesystem::path& savegame);
+// `room`: la sala de este jugador. Abrir sala la crea aqui mismo; cerrar el juego con ella abierta pide confirmacion y la cierra.
+// `inGame`: se volvio al lobby desde una partida (la ciudad ya esta cargada): «Historia» la retoma.
+LobbyChoice RunLobby(Window& window, UIManager& ui, AudioManager& audio, LobbySettings& settings, const std::filesystem::path& savegame, LobbyRoom& room, bool inGame = false);
 
 } // namespace Bazuko

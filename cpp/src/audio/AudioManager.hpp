@@ -35,6 +35,8 @@ public:
     void SetMuted(bool muted);
     float GetVolume() const;
     void SetVolume(float volume);
+    // De vuelta en el lobby con la ciudad cargada: se callan el ambiente, la lluvia y las pisadas; al volver a jugar arranca el ambiente otra vez
+    void SetWorldSilenced(bool silenced);
     // El volumen del bucle de lluvia sigue su intensidad (0..1)
     void SetRaining(bool raining, float intensity = 1.0f);
     void Play(AudioCue cue);

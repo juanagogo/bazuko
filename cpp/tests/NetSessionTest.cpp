@@ -1,6 +1,7 @@
 // Sesion de red del juego (anfitrion y clientes por 127.0.0.1): los jugadores se ven moverse entre si, con y sin latencia/perdida; avisos de
 // entrada y salida; rechazo con la partida llena; el anfitrion ignora estados fuera del mapa o no finitos. Solo se compila con -DBAZUKO_NET=ON.
 #include "net/NetSession.hpp"
+#include "net/RelayProtocol.hpp"
 #include "net/RelayServer.hpp"
 #include "net/RoomDirectory.hpp"
 
@@ -701,6 +702,43 @@ int main() {
         CHECK(nameOf(*host, a->LocalId()) == "jairo 2" && nameOf(*b, a->LocalId()) == "jairo 2", "Q: el repetido (sin importar mayusculas) queda numerado para todos");
         CHECK(nameOf(*host, b->LocalId()) == "Jairo 3" && nameOf(*a, b->LocalId()) == "Jairo 3", "Q: el tercero con el mismo nombre, ya limpio, recibe el numero siguiente");
         std::printf("Q) nombres: anfitrion \"%s\", repetidos \"%s\" y \"%s\"\n", nameOf(*a, 1).c_str(), nameOf(*host, a->LocalId()).c_str(), nameOf(*host, b->LocalId()).c_str());
+    }
+    // R: codigo propio de la sala. El anfitrion pide uno (escrito en minusculas y con guion) y el relevo lo da; otro que pide el mismo recibe
+    //    «codigo ocupado»; un invitado entra con ese codigo. Un codigo con letras que se confunden (O, I, L, 0, 1) no vale.
+    {
+        CHECK(Relay::NormalizeRoomCode("bzk-7aq") == "BZK7AQ", "R: el codigo escrito se pasa a mayusculas y sin guiones");
+        CHECK(Relay::NormalizeRoomCode("HOLA12").empty() && Relay::NormalizeRoomCode("ABC").empty() && Relay::NormalizeRoomCode("ABCDEFG").empty(),
+              "R: un codigo con O, L o 1, corto o largo no vale");
+        auto relay = RelayServer::Create(0);
+        CHECK(relay != nullptr, "R: el relevo abre un puerto");
+        if (relay) {
+            auto first = NetSession::StartHostViaRelay("127.0.0.1", relay->Port(), "Hugo", 8, "bzk-7aq");
+            Walker w{{100.0f, 0.0f, 100.0f}}, gw{{102.0f, 0.0f, 100.0f}};
+            std::unique_ptr<NetSession> second, guest;
+            const auto run = [&](double seconds) { Pump(seconds, [&](float dt) {
+                relay->Update(); first->Update(dt, w.State());
+                if (second) second->Update(dt, w.State());
+                if (guest) guest->Update(dt, gw.State()); }); };
+            run(1.0);
+            CHECK(first->RoomCode() == "BZK7AQ", "R: el relevo da el codigo que se pidio");
+            second = NetSession::StartHostViaRelay("127.0.0.1", relay->Port(), "Rosa", 8, "BZK7AQ");
+            guest = NetSession::JoinViaRelay("127.0.0.1", relay->Port(), "BZK7AQ", "Ana");
+            run(1.5);
+            CHECK(second->RoomFailed() && second->RoomError() == Relay::kCodeTaken && second->RoomCode().empty(), "R: el mismo codigo en otra sala responde «codigo ocupado»");
+            CHECK(guest->Connected() && first->PlayerCount() == 2, "R: el invitado entra a la sala con el codigo propio");
+            // cerrar la sala a proposito libera el codigo de una vez (una caida, en cambio, lo guarda un minuto para que otro la retome)
+            {   // el relevo corre aparte (como en su propio equipo) mientras el anfitrion espera el acuse
+                std::thread relayThread([&]() { for (int i = 0; i < 40; ++i) { relay->Update(); std::this_thread::sleep_for(std::chrono::milliseconds(10)); } });
+                first->CloseRoom();
+                relayThread.join();
+            }
+            first.reset(); second.reset();
+            Pump(0.5, [&](float dt) { relay->Update(); guest->Update(dt, gw.State()); });
+            auto again = NetSession::StartHostViaRelay("127.0.0.1", relay->Port(), "Rosa", 8, "BZK7AQ");
+            Pump(1.0, [&](float dt) { relay->Update(); again->Update(dt, w.State()); });
+            CHECK(again->RoomCode() == "BZK7AQ" && !again->RoomFailed(), "R: al cerrar la sala, su codigo se puede usar enseguida");
+            std::printf("R) codigo propio: BZK7AQ; repetido: codigo ocupado; tras cerrar la sala: %s\n", again->RoomCode().c_str());
+        }
     }
     if (failures == 0) std::printf("Sesion de red: todo correcto\n");
     return failures == 0 ? 0 : 1;

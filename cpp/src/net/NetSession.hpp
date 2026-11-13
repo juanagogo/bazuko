@@ -50,10 +50,17 @@ public:
 
     static std::unique_ptr<NetSession> StartHost(uint16_t port, const std::string& name, size_t maxPlayers = kMaxPlayers);
     // Por internet sin abrir puertos: el anfitrion abre una sala en un servidor de relevo (bazuko_relay) y los invitados entran con su codigo (RoomCode()).
-    static std::unique_ptr<NetSession> StartHostViaRelay(const std::string& relayAddress, uint16_t relayPort, const std::string& name, size_t maxPlayers = kMaxPlayers);
+    // `wantedCode`: el codigo que eligio el jugador (vacio = al azar). Si otra sala ya lo usa, RoomFailed() y RoomError() == Relay::kCodeTaken.
+    static std::unique_ptr<NetSession> StartHostViaRelay(const std::string& relayAddress, uint16_t relayPort, const std::string& name, size_t maxPlayers = kMaxPlayers,
+                                                         const std::string& wantedCode = {});
     static std::unique_ptr<NetSession> JoinViaRelay(const std::string& relayAddress, uint16_t relayPort, const std::string& roomCode, const std::string& name, const std::string& key = {});
     std::string RoomCode() const { return m_Host && m_Host->IsRelay() ? m_Host->RoomCode() : std::string(); }
     bool RoomFailed() const { return m_Host && m_Host->IsRelay() && m_Host->RoomFailed(); }
+    uint8_t RoomError() const { return m_Host && m_Host->IsRelay() ? m_Host->RoomError() : 0; }
+    size_t MaxPlayers() const { return m_MaxPlayers; }
+    // Anfitrion por relevo: cerrar la sala a proposito (no es una caida): el relevo la borra ya y su codigo se puede volver a usar. Llamarlo antes de destruir la sesion.
+    void CloseRoom() { if (m_Host && m_Host->IsRelay() && m_Role == Role::Host) m_Host->CloseRoom(); }
+    bool RoomListed() const { return m_RoomListed; }
     bool ViaRelay() const { return m_Host && m_Host->IsRelay(); }
     // Anfitrion por relevo: nombre de la sala y si aparece en la lista publica del lobby (sigue igual si la partida pasa a otro anfitrion)
     void SetRoomInfo(const std::string& name, bool listed);

@@ -674,6 +674,21 @@ void AudioManager::SetMuted(bool muted) {
     ma_engine_set_volume(&m_Impl->engine, muted ? 0.0f : m_Impl->masterVolume);
 }
 
+void AudioManager::SetWorldSilenced(bool silenced) {
+    if (!m_Impl || !m_Impl->ready) return;
+    auto& ambient = m_Impl->sounds[static_cast<size_t>(SoundSlot::Ambient)];
+    auto& rain = m_Impl->sounds[static_cast<size_t>(SoundSlot::Rain)];
+    auto& steps = m_Impl->sounds[static_cast<size_t>(SoundSlot::Steps)];
+    if (silenced) {
+        if (ambient.initialized) ma_sound_stop(&ambient.value);
+        if (rain.initialized) ma_sound_stop(&rain.value);
+        if (steps.initialized) ma_sound_stop(&steps.value);
+        m_Impl->raining = false;   // la lluvia vuelve a arrancar con el siguiente SetRaining
+    } else if (ambient.initialized) {
+        ma_sound_start(&ambient.value);
+    }
+}
+
 void AudioManager::SetRaining(bool raining, float intensity) {
     if (!m_Impl || !m_Impl->ready) return;
     auto& sound = m_Impl->sounds[static_cast<size_t>(SoundSlot::Rain)];

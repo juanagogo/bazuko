@@ -297,6 +297,7 @@ public:
     void RequestQuit();                                   // sale de una vez o, si hay aviso, abre la confirmacion
     bool QuitConfirmOpen() const { return m_QuitConfirmOpen; }
     bool HasQuitWarning() const { return !m_QuitWarningTitle.empty(); }
+    bool IsQuitConfirmOpen() const { return m_QuitConfirmOpen; }
     bool ConsumeCharacterCreatorRequest();
     void RequestCharacterCreator() { m_CharacterCreatorRequest = true; }
     void SetSaveNotification(const std::string& message);

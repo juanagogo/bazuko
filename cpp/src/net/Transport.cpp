@@ -49,8 +49,9 @@ struct Host::Impl {
     // modo relevo
     enum class Mode { Direct, RelayHost, RelayGuest } mode = Mode::Direct;
     ENetPeer* relayPeer = nullptr;
-    std::string roomCode, roomSecret;
+    std::string roomCode, roomSecret, wantedCode;
     bool roomFailed = false;
+    uint8_t roomError = 0;
     std::set<uint32_t> guests;   // anfitrion por relevo: los invitados que el relevo anuncio
     std::string roomName;        // anfitrion por relevo: lo que se ve en la lista de salas
     bool roomListed = false, hasRoomInfo = false;
@@ -112,6 +113,10 @@ struct Host::Impl {
                         if (reclaim) hello.insert(hello.end(), roomCode.begin(), roomCode.end());
                         hello.push_back(static_cast<uint8_t>(roomSecret.size()));
                         hello.insert(hello.end(), roomSecret.begin(), roomSecret.end());
+                        if (!reclaim && wantedCode.size() == Relay::kCodeLength) {   // codigo propio (un relevo anterior lo ignora)
+                            hello.push_back(static_cast<uint8_t>(wantedCode.size()));
+                            hello.insert(hello.end(), wantedCode.begin(), wantedCode.end());
+                        }
                     } else {
                         hello.push_back(Relay::kJoin);
                         hello.insert(hello.end(), roomCode.begin(), roomCode.end());
@@ -129,7 +134,7 @@ struct Host::Impl {
                         const uint8_t op = d[0];
                         if (op == Relay::kCreated && isHost && n >= 1 + Relay::kCodeLength) { roomCode.assign(reinterpret_cast<const char*>(d + 1), Relay::kCodeLength); SendRoomInfo(); }
                         else if (op == Relay::kError) {
-                            if (isHost) roomFailed = true;
+                            if (isHost) { roomFailed = true; roomError = n >= 2 ? d[1] : 0; }
                             else { push(NetEvent::Type::Disconnected, 1); if (relayPeer) enet_peer_disconnect_later(relayPeer, 0); }
                         }
                         else if (op == Relay::kJoined && !isHost) push(NetEvent::Type::Connected, 1);
@@ -218,7 +223,8 @@ std::unique_ptr<Host> Host::CreateClient() {
 
 uint16_t Host::Port() const { std::lock_guard<std::recursive_mutex> lock(m_Impl->mutex); return m_Impl->host && m_Impl->mode == Impl::Mode::Direct ? m_Impl->host->address.port : 0; }
 
-std::unique_ptr<Host> Host::CreateRelayHost(const std::string& relayAddress, uint16_t relayPort, const std::string& roomCode, const std::string& roomSecret) {
+std::unique_ptr<Host> Host::CreateRelayHost(const std::string& relayAddress, uint16_t relayPort, const std::string& roomCode, const std::string& roomSecret,
+                                           const std::string& wantedCode) {
     std::unique_ptr<Host> host(new Host());
     ENetAddress target;
     host->m_Impl->host = enet_host_create(nullptr, 1, kChannels, 0, 0);
@@ -230,6 +236,7 @@ std::unique_ptr<Host> Host::CreateRelayHost(const std::string& relayAddress, uin
     host->m_Impl->mode = Impl::Mode::RelayHost;
     host->m_Impl->roomCode = roomCode;
     host->m_Impl->roomSecret = roomSecret;
+    host->m_Impl->wantedCode = Relay::NormalizeRoomCode(wantedCode);
     if (host->m_Impl->roomSecret.empty()) {   // secreto nuevo: 16 caracteres aleatorios
         static const char digits[] = "0123456789abcdefghijklmnopqrstuvwxyz";
         std::random_device device;
@@ -256,6 +263,24 @@ bool Host::IsRelay() const { std::lock_guard<std::recursive_mutex> lock(m_Impl->
 const std::string& Host::RoomCode() const { std::lock_guard<std::recursive_mutex> lock(m_Impl->mutex); return m_Impl->roomCode; }
 const std::string& Host::RoomSecret() const { std::lock_guard<std::recursive_mutex> lock(m_Impl->mutex); return m_Impl->roomSecret; }
 bool Host::RoomFailed() const { std::lock_guard<std::recursive_mutex> lock(m_Impl->mutex); return m_Impl->roomFailed; }
+uint8_t Host::RoomError() const { std::lock_guard<std::recursive_mutex> lock(m_Impl->mutex); return m_Impl->roomError; }
+void Host::CloseRoom() {
+    std::lock_guard<std::recursive_mutex> lock(m_Impl->mutex);
+    if (m_Impl->mode != Impl::Mode::RelayHost || !m_Impl->relayPeer || m_Impl->roomCode.empty()) return;
+    m_Impl->RelaySend({Relay::kCloseRoom}, true);
+    // se espera a que el relevo acuse recibo (a lo sumo medio segundo): si se corta antes, el aviso se pierde y la sala queda guardada un minuto
+    const double until = NowMs() + 500.0;
+    ENetEvent event;
+    while (m_Impl->relayPeer && NowMs() < until) {
+        enet_host_flush(m_Impl->host);
+        if (enet_list_empty(&m_Impl->relayPeer->sentReliableCommands) && enet_list_empty(&m_Impl->relayPeer->outgoingCommands)) break;
+        if (enet_host_service(m_Impl->host, &event, 10) > 0) {
+            if (event.type == ENET_EVENT_TYPE_RECEIVE) enet_packet_destroy(event.packet);
+            else if (event.type == ENET_EVENT_TYPE_DISCONNECT) m_Impl->relayPeer = nullptr;
+        }
+    }
+    m_Impl->roomCode.clear();
+}
 void Host::SetRoomInfo(const std::string& name, bool listed, uint8_t maxPlayers) {
     std::lock_guard<std::recursive_mutex> lock(m_Impl->mutex);
     m_Impl->roomName = CleanRoomName(name, Relay::kMaxRoomName); m_Impl->roomListed = listed; m_Impl->roomMax = maxPlayers; m_Impl->hasRoomInfo = true;
