@@ -20,6 +20,7 @@ import { attachBasucoProps } from './pipe.js';
 import { addHatClip, hatEdgeProfile } from './hatFit.js';
 import { animationDamping, SecondaryMotion } from './SecondaryMotion.js';
 import { ActionPose } from './ActionPose.js';
+import { airborneStrideRate, nextFootfall } from './jumpMotion.js';
 import { BodyLanguage } from './BodyLanguage.js';
 import { bakeStances } from './stances.js';
 import { preparePlayback, blendAnimationWeights, HipBlend } from './AnimationPlayback.js';
@@ -620,6 +621,8 @@ export async function createRealisticCharacter(look = {}, { lod = false, animaci
     mouth(target) { return inst?.actionPose.mouth(target) ?? null; },
     /** Cuánto sigue acostado, de 0 (de pie) a 1 */
     get sleepWeight() { return inst?.actionPose.sleep?.weight ?? 0; },
+    /** Cuánto baja la cadera visible respecto a la raíz por el salto (m) */
+    get jumpHipDrop() { return inst?.actionPose.jumpHipDrop ?? 0; },
     /** Olvida una pose de dormir que quedó a medias, para no retomarla al volver a este modelo */
     clearSleepPose() { inst?.actionPose.sleep?.reset(); },
     dispose() {
@@ -635,9 +638,11 @@ export async function createRealisticCharacter(look = {}, { lod = false, animaci
       const a = inst.actions;
       const sourceCadence = isMixamoProfile(profile.id) && movement.previewCadence === 'source';
       const detached = movement.swimming || movement.grounded === false;
+      const airborne = movement.grounded === false && !movement.swimming;
       const previewClip = isMixamoProfile(profile.id) && !!a[action];
       const poseAction = action === 'saltar' || action === 'golpear' || action === 'recibirGolpe' || (action === 'saludo' && !previewClip);
-      const gaitSpeed = detached ? 0 : speed;
+      // En el aire la zancada no se pierde: saltar corriendo sigue en el paso (ver la fase más abajo).
+      const gaitSpeed = movement.swimming ? 0 : speed;
       const handsBlocked = detached || movement.landing > 0 || action === 'recibirGolpe' || action === 'dormir';
       const pipeAllowed = !handsBlocked && !attack && action !== 'golpear' && speed < .15 && pipeT != null;
       const smokeAllowed = !handsBlocked && !attack && action !== 'golpear' && !pipeAllowed;
@@ -666,14 +671,20 @@ export async function createRealisticCharacter(look = {}, { lod = false, animaci
       const locomotion = a.walk?.getClip().userData.locomotion;
       // Con tres pasos (el del jugador) `runShare` va de 0 a 2: andar, trote y correr.
       const trot = a.trote?.getClip().userData.locomotion;
+      let stepFoot = 0;
       if (locomotion) {
         const blend = sourceCadence ? { run: running && a.run ? 1 : 0 } : trot ? { run: gaitStage(gaitSpeed, locomotion, trot) } : locomotionBlend(gaitSpeed, locomotion);
         inst.runShare += (blend.run - inst.runShare) * k;
         // La cadencia corresponde al reparto suavizado, no al reparto futuro: evita
         // que el pie patine mientras se acelera de caminar a correr (o al frenar).
-        const rate = sourceCadence
+        let rate = sourceCadence
           ? (gaitSpeed < .15 ? 0 : 1 / THREE.MathUtils.lerp(locomotion.walkDuration, locomotion.runDuration ?? locomotion.walkDuration, inst.runShare))
           : trot ? stageRate(gaitSpeed, locomotion, trot, inst.runShare) : locomotionRate(gaitSpeed, locomotion, inst.runShare);
+        if (airborne) {
+          const aligned = !!a.walk.getClip().userData.gait;
+          rate = airborneStrideRate(rate, inst.phase, movement.timeToGround, dt, aligned, movement.verticalVelocity, movement.launchSpeed > 0);
+          if (aligned) stepFoot = nextFootfall(inst.phase);
+        }
         inst.phase = (inst.phase + rate * dt) % 1;
         a.walk.time = inst.phase * locomotion.walkDuration;
         if (trot) {
@@ -715,7 +726,7 @@ export async function createRealisticCharacter(look = {}, { lod = false, animaci
       // Un saludo o descanso horneado es dueño de la pose; no sumar encima el
       // gesto procedural. Las acciones sin clip conservan su capa identificable.
       const overlayAction = previewClip && target === action ? 'clip' : action;
-      inst.actionPose.apply(dt, { speed, running, action: overlayAction, actionProgress, movement, attack, smoke: smokeAllowed ? smoke : null, basuco: pipeAllowed ? pipeT : null, look: glance, point, hipLow: inst.bodyLanguage?.hipWeight ?? 0 });
+      inst.actionPose.apply(dt, { speed, running, action: overlayAction, actionProgress, movement, attack, smoke: smokeAllowed ? smoke : null, basuco: pipeAllowed ? pipeT : null, look: glance, point, hipLow: inst.bodyLanguage?.hipWeight ?? 0, step: stepFoot });
       inst.groundContact?.apply(!detached);
       inst.cigarette?.setGlow(emberGlow(smokeAllowed ? smoke?.puff : null));
       if (pipeAllowed) inst.basucoProps?.update(pipeT);

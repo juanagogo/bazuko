@@ -58,6 +58,30 @@ test('saltos conservan la planta del puente, atenúan el apoyo y no proyectan en
   shadows.dispose();
 });
 
+test('al despegar la sombra sigue al cuerpo que se ve, no a la raíz que ya subió', () => {
+  const shadows = new ContactShadows(new THREE.Scene());
+  const player = person();
+  shadows.update({ player, groundHeight, camera });
+  const grounded = alpha(shadows.actors);
+  // Salto parado, ~84 ms después de despegar: la raíz va 0,35 m arriba y la cadera visible 0,33 m por debajo.
+  player.position.y = .35; player.isGrounded = false; player.bodyDrop = .33;
+  shadows.update({ player, groundHeight, camera });
+  const body = alpha(shadows.actors);
+  player.bodyDrop = 0;
+  shadows.update({ player, groundHeight, camera });
+  const root = alpha(shadows.actors);
+  assert.ok(body > .97 * grounded, `con el cuerpo casi en el piso la sombra sigue entera: ${body} vs ${grounded}`);
+  assert.ok(root < .9 * grounded, `sin cuerpo que la sostenga se aclara con la altura de la raíz: ${root}`);
+  // Una bajada mayor que la altura no la hace más oscura que en el piso; en el piso no cuenta.
+  player.bodyDrop = 2;
+  shadows.update({ player, groundHeight, camera });
+  assert.ok(alpha(shadows.actors) <= grounded + 1e-9);
+  player.position.y = 0; player.isGrounded = true;
+  shadows.update({ player, groundHeight, camera });
+  assert.ok(Math.abs(alpha(shadows.actors) - grounded) < 1e-9);
+  shadows.dispose();
+});
+
 test('el agua profunda y actores inactivos no dejan manchas, pero el puente sobre agua sí', () => {
   const shadows = new ContactShadows(new THREE.Scene());
   const water = () => ({ surfaceY: 0, depth: 2 });

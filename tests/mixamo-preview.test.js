@@ -247,3 +247,22 @@ test('solo el perfil de juego complementa comer/agacharse sin contaminar banco e
   assert.deepEqual(buildMixamoGameComplements(null, null, { comer: {}, cagar: {} }), {}, 'no sustituye futuros clips propios');
   game.dispose(); strict.dispose(); normal.dispose();
 });
+
+test('con el banco Mixamo de vista previa la zancada sigue en el aire y no se congela a media pisada', async () => {
+  failPreview = false;
+  const preview = await createRealisticCharacter({}, { animaciones: 'mixamo-preview' });
+  for (let i = 0; i < 30; i++) preview.update(1 / 60, { speed: 3, running: true, movement: { grounded: true } });
+  const ground = preview.motionState().phase;
+  for (let i = 0; i < 6; i++) preview.update(1 / 60, { speed: 3, running: true, movement: { grounded: true } });
+  const groundStep = (preview.motionState().phase - ground + 1) % 1;
+  const before = preview.motionState().phase;
+  for (let i = 0; i < 6; i++) {
+    preview.update(1 / 60, { speed: 3, running: true, action: 'saltar', movement: {
+      grounded: false, verticalVelocity: 2 - i * .3, airTime: .1 + i / 60, launchSpeed: 5.45, groundGap: .5, timeToGround: .4 - i / 60 } });
+  }
+  const airStep = (preview.motionState().phase - before + 1) % 1;
+  assert.ok(groundStep > .02, `en el suelo el paso avanza: ${groundStep}`);
+  assert.ok(airStep > .5 * groundStep, `en el aire el paso sigue (sin fase alineada, a su ritmo): ${airStep} vs ${groundStep}`);
+  preview.group.traverse(node => assert.ok([...node.position, ...node.quaternion].every(Number.isFinite)));
+  preview.dispose();
+});

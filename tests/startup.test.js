@@ -74,9 +74,12 @@ test('el inicio espera modelos, shaders y GPU antes de mostrar, medir o simular;
   f.game.weather = new WeatherSystem(f.game.sceneMgr.scene);
   f.game.world.active.reserved = { spawn: { x: 112.98, z: 97.84 } };
   f.game.world.active.getGroundHeight = () => .08;
+  // Una partida guardada conserva su hora y su clima; solo una nueva empieza al amanecer.
   f.game._loadIfSave = () => {
     f.game.player.position.set(40, 0, 26);
     f.game.clock.deserialize({ day: 5, hour: 9 });
+    f.game.weather.setWeather('llovizna', false);
+    return true;
   };
   const start = f.game.start(f.loading);
   assert.equal(f.game.start(f.loading), start);
@@ -98,9 +101,9 @@ test('el inicio espera modelos, shaders y GPU antes de mostrar, medir o simular;
   assert.equal(f.metrics.frames, 0);
   assert.equal(f.metrics.previous, null);
   assert.deepEqual(f.game.input.keys, {});
-  assert.equal(f.game.clock.hour, 22);
+  assert.equal(f.game.clock.hour, 9);
   assert.equal(f.game.clock.day, 5);
-  assert.equal(f.game.clock.isNight, true);
+  assert.equal(f.game.clock.isNight, false);
   assert.equal(f.game.weather.isRaining, true);
   assert.equal(f.game.weather.rainParticles.visible, true);
   assert.ok(f.game.weather.rainParticles.material.opacity > 0);
@@ -114,6 +117,26 @@ test('el inicio espera modelos, shaders y GPU antes de mostrar, medir o simular;
   f.metrics.sample(20000); f.metrics.sample(20020);
   assert.equal(f.metrics.min, 50); // la espera no contamina mínimo ni promedio
   assert.equal(f.metrics.average, 50);
+});
+
+test('una partida nueva, sin guardado, empieza a las 6:00 y despejada', async t => {
+  const f = fixture(t);
+  f.game.clock = new Clock();
+  f.game.clock.deserialize({ day: 1, hour: 22 });
+  f.game.weather = new WeatherSystem(f.game.sceneMgr.scene);
+  f.game.weather.setWeather('llovizna', false);
+  f.game.world.active.reserved = { spawn: { x: 112.98, z: 97.84 } };
+  f.game.world.active.getGroundHeight = () => .08;
+  f.game._loadIfSave = () => false;
+  const start = f.game.start(f.loading);
+  f.models.resolve(); await tick();
+  f.shaders.resolve(); await tick();
+  f.gpu.resolve(); await start;
+  assert.equal(f.game.clock.hour, 6);
+  assert.equal(f.game.clock.isNight, false);
+  assert.equal(f.game.weather.isRaining, false);
+  assert.equal(f.game.weather.wetness, 0);
+  assert.deepEqual(f.game.player.position.toArray(), [112.98, .08, 97.84]);
 });
 
 test('si falla un modelo no arranca una partida incompleta', async t => {
