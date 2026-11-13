@@ -27,6 +27,16 @@ export class Cart {
     Object.assign(this, createCartVisual(this.group));
   }
 
+  /** Con la carreta enganchada: lo que aguanto sin ella, que es lo de siempre, sin su bono. */
+  aguanteSinCarreta(inventory) {
+    return inventory ? Math.max(10, inventory.maxWeight - this.capacityBonus) : Infinity;
+  }
+
+  /** Solo la suelto si lo que llevo cabe sin ella; con más encima, primero descargo (vender, botar o comer). */
+  puedeSoltar(inventory) {
+    return (inventory?.totalWeight ?? 0) <= this.aguanteSinCarreta(inventory);
+  }
+
   toggleGrab(player, inventory) {
     if (!this.isAttached) {
       this.isAttached = true;
@@ -39,9 +49,18 @@ export class Cart {
         }));
       }
     } else {
+      const sinCarreta = this.aguanteSinCarreta(inventory);
+      if (!this.puedeSoltar(inventory)) {
+        if (typeof window !== 'undefined' && window.dispatchEvent) {
+          window.dispatchEvent(new CustomEvent('toast', {
+            detail: { text: `Tengo que descargar antes de dejar la carreta: llevo ${Math.ceil(inventory.totalWeight)} kg y sin ella aguanto ${Math.floor(sinCarreta)}.`, kind: 'warn' }
+          }));
+        }
+        return this.isAttached;
+      }
       this.isAttached = false;
       if (player) player.hasCart = false;
-      if (inventory) inventory.maxWeight = Math.max(10, inventory.maxWeight - this.capacityBonus);
+      if (inventory) inventory.maxWeight = sinCarreta;
 
       if (typeof window !== 'undefined' && window.dispatchEvent) {
         window.dispatchEvent(new CustomEvent('toast', {

@@ -110,7 +110,12 @@ export function textoDelPrompt(interaction, inventory) {
   if (type === 'cambuche') return '[E] Mi cambuche: armar o dormir';
   if (type === 'mesa') return '[E] Fabricar';
   if (type === 'dealer') return '[Q / E] El jíbaro: comprar o vender';
-  if (type === 'cart') return interaction.currentTarget?.isAttached ? '[E] Soltar la carreta' : '[E] Agarrar la carreta (+120 kg)';
+  if (type === 'cart') {
+    const cart = interaction.currentTarget;
+    if (!cart?.isAttached) return '[E] Agarrar la carreta (+120 kg)';
+    // E no la suelta con más carga de la que aguanto sin ella: la tecla dice qué hacer antes.
+    return cart.puedeSoltar?.(inventory) === false ? '[E] Carreta muy cargada · Para soltarla, primero descargo' : '[E] Soltar la carreta';
+  }
   return interaction.stealPrompt ?? '';
 }
 
@@ -135,6 +140,7 @@ const VERBO_CORTO = [
   [/^El jíbaro/, 'El jíbaro'],
   [/^Agarrar la carreta/, 'Agarrar carreta'],
   [/^Soltar la carreta/, 'Soltar carreta'],
+  [/^Carreta muy cargada/, 'Carreta cargada'],
   [/^Cosquilleo/, 'Cosquilleo'],
   [/^Mantener: seleccionar/, 'Seleccionar'],
 ];

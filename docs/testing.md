@@ -20,6 +20,8 @@ Las regresiones de jugabilidad comprueban el salto y el recorrido de ambas rampa
 
 `inventory-actions.test.js` verifica que vaciar el inventario notifique a sus suscriptores, desequipe el arma y cancele su ataque pendiente. También comprueba que intentar fumar nadando, en el aire o aturdido conserve objeto, necesidades, audio y efectos, y que un consumo permitido gaste una sola unidad.
 
+`next-level.test.js` comprueba además que con más carga de la que se aguanta sin carreta no se pueda soltarla: sigue enganchada, con sus penas, hasta botar lo que sobra; y que mientras tanto la tecla no diga «Soltar la carreta», sino qué hacer antes.
+
 `input.test.js` comprueba que una tecla sostenida cuente como una sola pulsación: con Espacio sostenido se salta una vez aunque el sistema repita la tecla, y sostener E no vuelve a interactuar, tampoco al volver a la ventana con la tecla oprimida.
 
 En C++, `bazuko_playerstate_test` comprueba que la carga conserve los objetos permitidos por el costal grande y los talentos, y que la regeneración no reviva al jugador durante una caída mortal. Se ejecuta con `ctest --test-dir cpp/build --output-on-failure` después de configurar y compilar los objetivos nativos. Estas pruebas de lógica no requieren abrir la ventana del juego.
