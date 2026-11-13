@@ -1,4 +1,5 @@
 import { paintSmallBuilding } from './SmallBuilding.js';
+import { metroTrackX } from './MetroBogota.js';
 import { CARRERAS, CALLES, CARACAS, STREET_X, STREET_Z, SIDEWALK_TILES } from './StreetLayout.js';
 import { paintLakePark } from './LakePark.js';
 import { paintGasStation } from './GasStation.js';
@@ -25,6 +26,20 @@ export const EXTENSION_PARKS = [
 /** Añade barrios al oriente y al sur sin desplazar el centro existente. */
 export function expandCity(center) {
   return paintColpatriaTower(paintEastCity(expandBaseCity(center)));
+}
+
+export function paintMetroCorridor(map) {
+  for (let z = 10; z <= 310; z += 1) {
+    const mx = metroTrackX(z);
+    const tz = Math.round(z / 2);
+    if (!map[tz]) continue;
+    for (let dx = -6; dx <= 6; dx++) {
+      const tx = Math.round((mx + dx) / 2);
+      if (map[tz][tx] === 'building' || map[tz][tx] === 'ruin') {
+        map[tz][tx] = Math.abs(dx) <= 2 ? 'busway' : Math.abs(dx) <= 5 ? 'road' : 'sidewalk';
+      }
+    }
+  }
 }
 
 // El mapa de antes de la Candelaria se calcula igual que siempre: así cada tile con X menor
@@ -69,6 +84,7 @@ function expandBaseCity(center) {
   paintViaductClearance(map);
   paintSmallBuilding(map);
   paintViaductGardens(map);
+  paintMetroCorridor(map);
   for(let x=0;x<BASE_CITY_WIDTH;x++) map[0][x]=map[CITY_HEIGHT-1][x]='wall';
   for(let z=0;z<CITY_HEIGHT;z++) map[z][0]=map[z][BASE_CITY_WIDTH-1]='wall';
   paintTerminalEntrance(map);

@@ -9,6 +9,7 @@ import { LAKE_PARK } from './LakePark.js';
 import { GAS_STATION } from './GasStation.js';
 import { D69_STORE } from './D69Store.js';
 import { COLPATRIA } from './Colpatria.js';
+import { metroTrackX } from './MetroBogota.js';
 import { EAST_LABELLED_CARRERAS, EAST_LABELLED_CALLES, PLAZA, TEUSAQUILLO_PARK, TOWERS_LOT, MARKET } from './EastZones.js';
 
 /**
@@ -31,14 +32,14 @@ export function cityMapPlan(district, tileSize = 2) {
   plan.tiles = () => {
     const puntos = [];
     for (let z = VIADUCT.start; z <= VIADUCT.end; z += 2) puntos.push([bridgeCenter(z), z]);
-    // Viaducto elevado de la Primera Línea del Metro sobre la Av. Caracas (x: 75)
+    // Viaducto elevado de la Primera Línea del Metro sobre la Av. Caracas con curva nororiente oficial
     const puntosMetro = [];
-    for (let z = 10; z <= 310; z += 2) puntosMetro.push([75, z]);
+    for (let z = 10; z <= 310; z += 2) puntosMetro.push([metroTrackX(z), z]);
     const estacionesMetro = [
-      { name: 'Est. Calle 93', x: 75, z: 32, w: 9, d: 24 },
-      { name: 'Est. Calle 72', x: 75, z: 86, w: 9, d: 26 },
-      { name: 'Est. Central Calle 26', x: 75, z: 193, w: 9, d: 28 },
-      { name: 'Est. San Victorino', x: 75, z: 270, w: 9, d: 24 }
+      { name: 'Est. Calle 93', x: metroTrackX(32), z: 32, w: 9, d: 24 },
+      { name: 'Est. Calle 72', x: metroTrackX(86), z: 86, w: 9, d: 26 },
+      { name: 'Est. Centro Internacional Calle 26', x: metroTrackX(193), z: 193, w: 9, d: 28 },
+      { name: 'Est. San Victorino', x: metroTrackX(270), z: 270, w: 9, d: 24 }
     ];
     return {
       ancho: width, desdeZ: zMin, hastaZ: zMax, T: tileSize, tipo: typeAt,
@@ -91,11 +92,12 @@ export function cityLandmarks(tileSize = 2) {
     { name: 'Tarima Zona T (Show de Hilda)', icon: '🎤', color: '#f72585', x: 38, z: 75, fijo: true },
 
     // 2. METRO DE BOGOTÁ (PRIMERA LÍNEA ELEVADA - PLMB)
-    { name: 'Metro de Bogotá · Estación Calle 93', icon: '🚇', color: '#2e7d32', x: 77, z: 32, fijo: true },
-    { name: 'Metro de Bogotá · Estación Calle 72', icon: '🚇', color: '#2e7d32', x: 76, z: 86, fijo: true },
-    { name: 'Metro de Bogotá · Estación Central (Calle 26)', icon: '🚇', color: '#2e7d32', x: 75, z: 193, fijo: true },
-    { name: 'Metro de Bogotá · Estación San Victorino', icon: '🚇', color: '#2e7d32', x: 74, z: 270, fijo: true },
-    { name: 'Metro de Bogotá · Viaducto Caracas', icon: '🚇', color: '#2e7d32', x: 75, z: 155, fijo: true },
+    { name: 'Metro de Bogotá · Estación Calle 93', icon: '🚇', color: '#2e7d32', x: metroTrackX(32), z: 32, fijo: true },
+    { name: 'Metro de Bogotá · Estación Calle 72', icon: '🚇', color: '#2e7d32', x: metroTrackX(86), z: 86, fijo: true },
+    { name: 'Metro de Bogotá · Estación Central (Calle 26)', icon: '🚇', color: '#2e7d32', x: metroTrackX(193), z: 193, fijo: true },
+    { name: 'Metro de Bogotá · Estación San Victorino', icon: '🚇', color: '#2e7d32', x: metroTrackX(270), z: 270, fijo: true },
+    { name: 'Metro de Bogotá · Viaducto Caracas', icon: '🚇', color: '#2e7d32', x: metroTrackX(155), z: 155, fijo: true },
+    { name: 'Santuario de Monserrate (Cerros Orientales)', icon: '⛪', color: '#2d6a4f', x: 380, z: 155, fijo: true },
 
     // 3. HITOS URBANOS Y TRADICIONALES DE BOGOTÁ
     { name: 'Torre Colpatria (Av. Calle 26)', icon: '🏙️', color: '#ffcb45', x: COLPATRIA.x, z: COLPATRIA.z, fijo: true },

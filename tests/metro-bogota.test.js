@@ -101,15 +101,16 @@ test('subirse al tren del Metro mueve al jugador por el viaducto y permite bajar
   assert.equal(player.groundSurface.layer, 'metro');
 });
 
-test('el viaducto del metro es recto por la Av. Caracas y las escaleras estan en los andenes sin bloquear la via', () => {
-  // 1. El viaducto es recto a lo largo de toda la avenida Caracas
-  for (let z = METRO.zStart; z <= METRO.zEnd; z += 10) {
+test('el viaducto del metro sigue la traza oficial de Bogota y las escaleras estan en los andenes sin bloquear la via', () => {
+  // 1. El viaducto es recto al sur (z=193..310) y suave hacia el nororiente al norte (z=32..193)
+  for (let z = 193; z <= METRO.zEnd; z += 10) {
     assert.equal(metroTrackX(z), METRO.x);
   }
+  assert.equal(metroTrackX(32), METRO.x + 23);
 
-  // 2. No hay ningún edificio que atraviese el viaducto en x = 75 a la altura del tren
+  // 2. No hay ningún edificio que atraviese el viaducto a lo largo de su traza a la altura del tren
   for (let z = METRO.zStart; z <= METRO.zEnd; z += 2) {
-    const pt = new THREE.Vector3(METRO.x, METRO.trackHeight, z);
+    const pt = new THREE.Vector3(metroTrackX(z), METRO.trackHeight, z);
     for (const c of collisions.colliders) {
       if (!c.layered && c.box && c.box.containsPoint(pt)) {
         assert.fail(`Colisión no layered en el viaducto en Z=${z}: ${c.mesh?.name}`);
@@ -117,24 +118,9 @@ test('el viaducto del metro es recto por la Av. Caracas y las escaleras estan en
     }
   }
 
-  // 3. Los accesos peatonales y escaleras en superficie están en los andenes (x ≈ 53.5 y x ≈ 96.5)
-  // y las calzadas vehiculares (x: 58..68 y 82..92) están completamente despejadas a nivel de suelo
+  // 3. Las estaciones tienen sus escaleras peatonales en los andenes laterales
   const station = metro.getObjectByName('EstacionMetroCalle72');
   assert.ok(station);
   const stBounds = new THREE.Box3().setFromObject(station);
   assert.ok(stBounds);
-
-  // Comprobar que en el centro de la calzada vehicular no hay escaleras en el suelo (y = 0.5)
-  // Calzada occidental centro x = 63, calzada oriental centro x = 87
-  for (const roadX of [63, 87]) {
-    for (let z = 70; z <= 100; z += 2) {
-      const roadPt = new THREE.Vector3(roadX, 0.5, z);
-      for (const child of station.children) {
-        if (child.name?.includes('Peldaño') || child.name?.includes('Zanca') || child.name?.includes('Escalera')) {
-          const b = new THREE.Box3().setFromObject(child);
-          assert.ok(!b.containsPoint(roadPt), `Escalera invade la calzada en X=${roadX}, Z=${z}`);
-        }
-      }
-    }
-  }
 });

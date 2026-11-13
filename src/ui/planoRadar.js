@@ -170,7 +170,7 @@ export function prepararPlano(tiles) {
     calle, buseta, anden, pasto, plaza, agua, lleno, contorno, bordesCalzada, achurado, olas, matas,
     tablero, anchoTablero: viaducto?.ancho ?? 0,
     tableroMetro, anchoMetro: metro?.ancho ?? 7,
-    hitos, hitosRojos, estaciones, santamaria, planetario, museoNacional
+    hitos, hitosRojos, estaciones, santamaria, planetario, museoNacional, colpatria
   };
 }
 
@@ -343,6 +343,60 @@ export function trazarPlano(ctx, plano, k) {
     ctx.stroke(plano.hitos);
     ctx.restore();
   }
+
+  // 11. Helipuerto circular en la azotea de la Torre Colpatria con letra 'H'
+  if (plano.colpatria) {
+    ctx.save();
+    const cx = plano.colpatria.x, cz = plano.colpatria.z;
+    ctx.beginPath();
+    ctx.arc(cx, cz, 4.4, 0, Math.PI * 2);
+    ctx.strokeStyle = '#ffffff';
+    ctx.lineWidth = 1.1 / k;
+    ctx.stroke();
+
+    ctx.fillStyle = '#ffffff';
+    const hw = 0.75, hh = 4.2;
+    ctx.fillRect(cx - 1.8, cz - hh / 2, hw, hh);
+    ctx.fillRect(cx + 1.05, cz - hh / 2, hw, hh);
+    ctx.fillRect(cx - 1.8, cz - 0.4, 3.6, 0.8);
+    ctx.restore();
+  }
+
+  // 12. Glorieta Circular (Roundabout) de la Calle 13 / Conidoc en el sector occidental
+  ctx.save();
+  const gx = 10, gz = 73;
+  ctx.beginPath();
+  ctx.arc(gx, gz, 11, 0, Math.PI * 2);
+  ctx.fillStyle = 'rgba(40, 36, 30, 0.45)';
+  ctx.fill();
+  ctx.strokeStyle = MARCADOR;
+  ctx.lineWidth = 1.4 / k;
+  ctx.stroke();
+
+  ctx.beginPath();
+  ctx.arc(gx, gz, 5.5, 0, Math.PI * 2);
+  ctx.fillStyle = 'rgba(95, 155, 75, 0.85)';
+  ctx.fill();
+  ctx.strokeStyle = MARCADOR;
+  ctx.lineWidth = 1.2 / k;
+  ctx.stroke();
+  ctx.restore();
+
+  // 13. Franja montañosa de los Cerros Orientales (Monserrate) al oriente
+  ctx.save();
+  const cerrosX = 352;
+  ctx.fillStyle = 'rgba(45, 95, 55, 0.42)';
+  ctx.fillRect(cerrosX, 0, 75, 330);
+  ctx.strokeStyle = 'rgba(30, 70, 40, 0.65)';
+  ctx.lineWidth = 1.8 / k;
+  ctx.beginPath();
+  ctx.moveTo(cerrosX, 0);
+  for (let z = 0; z <= 330; z += 22) {
+    const rx = cerrosX + Math.sin(z * 0.04) * 9;
+    ctx.lineTo(rx, z);
+  }
+  ctx.stroke();
+  ctx.restore();
 
   ctx.restore();
 }

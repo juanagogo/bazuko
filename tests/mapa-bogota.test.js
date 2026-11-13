@@ -56,7 +56,7 @@ test('cityMapPlan: define el trazado y geometría del viaducto del Metro', () =>
   assert.ok(tiles.metro, 'El plan debe contener datos del viaducto del metro');
   assert.equal(tiles.metro.ancho, 7, 'El ancho del viaducto debe ser de 7 metros');
   assert.ok(tiles.metro.puntos.length > 50, 'El viaducto debe contar con múltiples puntos a lo largo de la Caracas');
-  assert.ok(tiles.metro.puntos.every(([x]) => x === 75), 'Los puntos del viaducto están situados sobre el eje de la Av. Caracas');
+  assert.ok(tiles.metro.puntos.every(([x]) => x >= 75 && x <= 98), 'Los puntos del viaducto siguen la traza oficial de la Av. Caracas');
 });
 
 test('buildRealBogotaOSM: extruye edificaciones reales de OpenStreetMap e IDECA en Three.js', () => {

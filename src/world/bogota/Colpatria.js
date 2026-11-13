@@ -79,6 +79,25 @@ export function buildColpatria({ createSign = null } = {}) {
   const { x, z, width: w, depth: d, height } = COLPATRIA;
   box(w, height - 2, d, x, (height - 2) / 2, z, glass, 'Cuerpo de la torre');
   box(w - 1.5, 2, d - 1.5, x, height - 1, z, stone, 'Coronación');
+
+  // Helipuerto circular oficial en la azotea con baliza y letra 'H' (como en el Plano Urbano de Bogotá)
+  const heliPad = new THREE.Mesh(new THREE.CylinderGeometry(5.2, 5.2, 0.08, 24), stone);
+  heliPad.position.set(x, height - 0.04, z);
+  heliPad.name = 'Helipuerto Colpatria';
+  group.add(heliPad);
+  const heliRing = new THREE.Mesh(new THREE.RingGeometry(3.6, 4.2, 24), new THREE.MeshBasicMaterial({ color: 0xffffff, side: THREE.DoubleSide }));
+  heliRing.rotation.x = -Math.PI / 2;
+  heliRing.position.set(x, height - 0.01, z);
+  group.add(heliRing);
+  const heliH = new THREE.Mesh(new THREE.BoxGeometry(0.65, 0.02, 3.2), new THREE.MeshBasicMaterial({ color: 0xffffff }));
+  heliH.position.set(x - 1.1, height - 0.01, z);
+  group.add(heliH);
+  const heliH2 = heliH.clone();
+  heliH2.position.set(x + 1.1, height - 0.01, z);
+  group.add(heliH2);
+  const heliHBar = new THREE.Mesh(new THREE.BoxGeometry(2.2, 0.02, 0.65), new THREE.MeshBasicMaterial({ color: 0xffffff }));
+  heliHBar.position.set(x, height - 0.01, z);
+  group.add(heliHBar);
   const lights = ['#e52a32', '#134bff', '#ffcc32'].map(color => new THREE.MeshStandardMaterial({
     color, emissive: color, emissiveIntensity: 1.8, roughness: .5
   }));

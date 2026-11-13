@@ -19,10 +19,10 @@ export const METRO = Object.freeze({
 });
 
 export const METRO_STATIONS = Object.freeze([
-  { id: 'san_victorino', name: 'EstacionMetroSanVictorino', title: 'Estación San Victorino', shortName: 'San Victorino', z: 270, x: 74 },
-  { id: 'calle_26', name: 'EstacionMetroCalle26', title: 'Estación Calle 26 / Centro Internacional', shortName: 'Calle 26', z: 193, x: 75 },
-  { id: 'calle_72', name: 'EstacionMetroCalle72', title: 'Estación Calle 72 / Zona T', shortName: 'Calle 72', z: 86, x: 75 },
-  { id: 'calle_93', name: 'EstacionMetroCalle93', title: 'Estación Calle 93 (Norte)', shortName: 'Calle 93', z: 32, x: 77 }
+  { id: 'san_victorino', name: 'EstacionMetroSanVictorino', title: 'Estación San Victorino', shortName: 'San Victorino', z: 270, x: 75 },
+  { id: 'calle_26', name: 'EstacionMetroCalle26', title: 'Estación Centro Internacional Calle 26', shortName: 'Calle 26', z: 193, x: 75 },
+  { id: 'calle_72', name: 'EstacionMetroCalle72', title: 'Estación Calle 72 / Zona T', shortName: 'Calle 72', z: 86, x: 92 },
+  { id: 'calle_93', name: 'EstacionMetroCalle93', title: 'Estación Calle 93 (Chicó)', shortName: 'Calle 93', z: 32, x: 98 }
 ]);
 
 const STATION_HALF_LEN = 16;
@@ -30,10 +30,23 @@ const STATION_HALF_WIDTH = 7.2;
 
 /**
  * Traza del eje X del viaducto del Metro de Bogotá.
- * Alineado de manera uniforme y recta sobre el eje central del separador de la Av. Caracas (x = 75).
+ * Sigue la cartografía oficial del Plano Urbano de Bogotá (PLMB):
+ * - Tramo Sur recto en x = 75 sobre el separador de la Av. Caracas (z = 193..310).
+ * - Tramo Norte con suave curva continua hacia el nororiente hacia x = 98 en la Calle 93 (z = 32..193).
  */
 export function metroTrackX(z) {
-  return METRO.x;
+  if (z >= 193) return METRO.x;
+  if (z <= 32) return METRO.x + 23;
+  const t = (193 - z) / (193 - 32);
+  const ease = t * t * (3 - 2 * t);
+  return METRO.x + ease * 23;
+}
+
+/** Ángulo de orientación tangencial (yaw en radianes) a lo largo de la traza curva del metro. */
+export function metroTrackYaw(z) {
+  const delta = 0.5;
+  const dx = metroTrackX(z - delta) - metroTrackX(z + delta);
+  return Math.atan2(dx, delta * 2);
 }
 
 /**
@@ -118,26 +131,31 @@ export function buildMetroBogota() {
     const segLen = Math.min(span, METRO.zEnd - z);
     const zMid = z + segLen / 2;
     const trackX = metroTrackX(zMid);
+    const yaw = metroTrackYaw(zMid);
 
-    // Tablero principal (viga cajón continua)
+    // Tablero principal (viga cajón continua orientada según la tangente)
     const deckSeg = new THREE.Mesh(new THREE.BoxGeometry(deckWidth, deckThickness, segLen + 0.05), darkConcreteMat);
     deckSeg.position.set(trackX, METRO.trackHeight - deckThickness / 2, zMid);
+    deckSeg.rotation.y = yaw;
     group.add(deckSeg);
 
     // Lecho de vías (balasto) y pasillo central técnico caminable
     const ballastSeg = new THREE.Mesh(new THREE.BoxGeometry(deckWidth - 0.8, 0.16, segLen + 0.05), ballastMat);
     ballastSeg.position.set(trackX, METRO.trackHeight + 0.08, zMid);
+    ballastSeg.rotation.y = yaw;
     group.add(ballastSeg);
 
     // Pasarela peatonal central en concreto claro a lo largo de todo el viaducto
     const walkwaySeg = new THREE.Mesh(new THREE.BoxGeometry(1.5, 0.18, segLen + 0.05), platformFloorMat);
     walkwaySeg.position.set(trackX, METRO.trackHeight + 0.1, zMid);
+    walkwaySeg.rotation.y = yaw;
     group.add(walkwaySeg);
 
     // 4 Rieles de acero (vía norte y vía sur)
     for (const rX of [-2.6, -1.2, 1.2, 2.6]) {
       const railSeg = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.18, segLen + 0.05), railMat);
-      railSeg.position.set(trackX + rX, METRO.trackHeight + 0.19, zMid);
+      railSeg.position.set(trackX + rX * Math.cos(yaw), METRO.trackHeight + 0.19, zMid - rX * Math.sin(yaw));
+      railSeg.rotation.y = yaw;
       group.add(railSeg);
     }
   }
@@ -147,11 +165,13 @@ export function buildMetroBogota() {
   const armGeo = new THREE.BoxGeometry(5.6, 0.12, 0.12);
   for (let z = METRO.zStart + 10; z <= METRO.zEnd - 10; z += 24) {
     const trackX = metroTrackX(z);
+    const yaw = metroTrackYaw(z);
     const mast = new THREE.Mesh(mastGeo, catenaryMat);
     mast.position.set(trackX, METRO.trackHeight + 2.3, z);
     group.add(mast);
     const arm = new THREE.Mesh(armGeo, catenaryMat);
     arm.position.set(trackX, METRO.trackHeight + 4.3, z);
+    arm.rotation.y = yaw;
     group.add(arm);
   }
 
@@ -173,12 +193,16 @@ export function buildMetroBogota() {
       const segLen = Math.min(subSpan, z1 - z);
       const segCenterZ = z + segLen / 2;
       const trackX = metroTrackX(segCenterZ);
+      const yaw = metroTrackYaw(segCenterZ);
       const parapetGeo = new THREE.BoxGeometry(parapetThickness, parapetHeight, segLen + 0.02);
       for (const side of [-1, 1]) {
-        const px = trackX + side * (METRO.deckWidth / 2 - parapetThickness / 2);
+        const offsetDist = side * (METRO.deckWidth / 2 - parapetThickness / 2);
+        const px = trackX + offsetDist * Math.cos(yaw);
+        const pz = segCenterZ - offsetDist * Math.sin(yaw);
         const py = METRO.trackHeight + parapetHeight / 2;
         const parapet = new THREE.Mesh(parapetGeo, concreteMat);
-        parapet.position.set(px, py, segCenterZ);
+        parapet.position.set(px, py, pz);
+        parapet.rotation.y = yaw;
         group.add(parapet);
 
         // Colisión layered: protege al jugador sobre el viaducto sin bloquear la calle abajo
@@ -202,6 +226,7 @@ export function buildMetroBogota() {
 
   for (let z = METRO.zStart + 6; z <= METRO.zEnd - 6; z += METRO.pillarSpacing) {
     const trackX = metroTrackX(z);
+    const yaw = metroTrackYaw(z);
     const pillar = new THREE.Mesh(pillarGeo, concreteMat);
     pillar.position.set(trackX, (pillarHeight - 2.0) / 2, z);
     group.add(pillar);
@@ -209,13 +234,15 @@ export function buildMetroBogota() {
     // Brazos inclinados de la pila en Y
     for (const side of [-1, 1]) {
       const branch = new THREE.Mesh(branchGeo, concreteMat);
-      branch.position.set(trackX + side * 1.65, pillarHeight - 1.1, z);
+      branch.position.set(trackX + side * 1.65 * Math.cos(yaw), pillarHeight - 1.1, z - side * 1.65 * Math.sin(yaw));
       branch.rotation.z = -side * 0.48;
+      branch.rotation.y = yaw;
       group.add(branch);
     }
 
     const cap = new THREE.Mesh(capGeo, darkConcreteMat);
     cap.position.set(trackX, pillarHeight + 0.55, z);
+    cap.rotation.y = yaw;
     group.add(cap);
 
     // Colisión sólida del pilar en el suelo (layered para no estorbar arriba en el viaducto)
@@ -426,8 +453,10 @@ export function buildMetroBogota() {
       trainState.dwell = 2.5;
     }
 
-    trainState.x = metroTrackX(trainState.z) + trackOffsetX;
+    const yaw = metroTrackYaw(trainState.z);
+    trainState.x = metroTrackX(trainState.z) + trackOffsetX * Math.cos(yaw);
     trainGroup.position.set(trainState.x, trainState.y, trainState.z);
+    trainGroup.rotation.y = yaw;
   };
 
   group.add(trainGroup);
@@ -682,7 +711,9 @@ export function buildMetroBogota() {
     stationRoof.position.set(0, METRO.trackHeight + 4.6, 0);
     stationGroup.add(stationRoof);
 
+    const stationYaw = metroTrackYaw(stationZ);
     stationGroup.position.set(stationX, 0, stationZ);
+    stationGroup.rotation.y = stationYaw;
 
     // Puntos de interacción [E]: en los accesos peatonales de los andenes y arriba en la estación
     const accessStreetZ = stationZ - 14.7;

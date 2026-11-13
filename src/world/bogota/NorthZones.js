@@ -25,12 +25,13 @@ export function buildNorthZones() {
   const modernMetalMat = new THREE.MeshStandardMaterial({ color: 0x495057, roughness: 0.3, metalness: 0.8, name: 'MetalModerno' });
 
   // -------------------------------------------------------------------------
-  // 1. ZONA T (Calle 82 / Zona Rosa) - Integrada en el sector norte-occidente
+  // 1. ZONA T (Calle 82 / Zona Rosa) - Cuadrícula Urbana Diagonal a ~45°
+  // Con manzanas diagonales, plazoletas comerciales y glorieta según el Plano Urbano
   // -------------------------------------------------------------------------
   const zonaTGroup = new THREE.Group();
   zonaTGroup.position.set(38, 0, 75);
 
-  // Eje peatonal en "T": Calle horizontal (Calle 82) y Carrera vertical peatonal
+  // Eje peatonal en "T" y plazoletas adoquinadas
   const tWalkHoriz = new THREE.Mesh(new THREE.BoxGeometry(60, 0.08, 14), pavingTMat);
   tWalkHoriz.position.set(0, 0.04, 0);
   zonaTGroup.add(tWalkHoriz);
@@ -38,6 +39,61 @@ export function buildNorthZones() {
   const tWalkVert = new THREE.Mesh(new THREE.BoxGeometry(14, 0.08, 40), pavingTMat);
   tWalkVert.position.set(0, 0.04, -20);
   zonaTGroup.add(tWalkVert);
+
+  // Manzanas y edificios comerciales diagonales a ~45° (como en el Plano Urbano)
+  const diagAngle = Math.PI / 4;
+  const diagPositions = [
+    { x: -22, z: -26, w: 16, d: 14, h: 14 },
+    { x: 22, z: -26, w: 16, d: 14, h: 16 },
+    { x: -26, z: 18, w: 14, d: 14, h: 12 },
+    { x: 24, z: 20, w: 18, d: 14, h: 15 }
+  ];
+
+  for (const dp of diagPositions) {
+    const diagBldg = new THREE.Mesh(new THREE.BoxGeometry(dp.w, dp.h, dp.d), brickEnglishMat);
+    diagBldg.position.set(dp.x, dp.h / 2, dp.z);
+    diagBldg.rotation.y = diagAngle;
+    zonaTGroup.add(diagBldg);
+
+    // Cornisa y remate de azotea comercial
+    const cornice = new THREE.Mesh(new THREE.BoxGeometry(dp.w + 0.4, 0.4, dp.d + 0.4), woodTrimMat);
+    cornice.position.set(dp.x, dp.h + 0.2, dp.z);
+    cornice.rotation.y = diagAngle;
+    zonaTGroup.add(cornice);
+
+    // Plazoleta peatonal anexa frente al edificio
+    const plazaMesh = new THREE.Mesh(new THREE.BoxGeometry(dp.w + 4, 0.06, 6), pavingTMat);
+    plazaMesh.position.set(dp.x, 0.05, dp.z + (dp.d / 2 + 3) * Math.cos(diagAngle));
+    plazaMesh.rotation.y = diagAngle;
+    zonaTGroup.add(plazaMesh);
+  }
+
+  // Glorieta Circular (Roundabout) en la intersección diagonal de la Calle 13 / Conidoc
+  const glorietaGroup = new THREE.Group();
+  glorietaGroup.position.set(-28, 0, -2);
+
+  // Anillo de calzada circular vehicular
+  const glorietaRoad = new THREE.Mesh(new THREE.RingGeometry(6.5, 12.5, 32), new THREE.MeshLambertMaterial({ color: 0x3a3835, side: THREE.DoubleSide }));
+  glorietaRoad.rotation.x = -Math.PI / 2;
+  glorietaRoad.position.y = 0.03;
+  glorietaGroup.add(glorietaRoad);
+
+  // Isla verde central de la glorieta con bordillo de concreto
+  const glorietaIsland = new THREE.Mesh(new THREE.CylinderGeometry(6.4, 6.4, 0.35, 24), grassParkMat);
+  glorietaIsland.position.y = 0.18;
+  glorietaGroup.add(glorietaIsland);
+
+  const glorietaCurb = new THREE.Mesh(new THREE.RingGeometry(6.3, 6.6, 24), woodTrimMat);
+  glorietaCurb.rotation.x = -Math.PI / 2;
+  glorietaCurb.position.y = 0.36;
+  glorietaGroup.add(glorietaCurb);
+
+  // Monumento / mástil central en la glorieta
+  const monument = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.24, 7.5, 8), modernMetalMat);
+  monument.position.y = 3.75;
+  glorietaGroup.add(monument);
+
+  zonaTGroup.add(glorietaGroup);
 
   // Terrazas con sombrillas y calentadores de llama cilíndricos para el frío nocturno
   for (let s = -20; s <= 20; s += 14) {
