@@ -36,7 +36,7 @@ export function cityMapPlan(district, tileSize = 2) {
     for (let z = 10; z <= 310; z += 2) puntosMetro.push([75, z]);
     const estacionesMetro = [
       { name: 'Est. Calle 93', x: 75, z: 32, w: 9, d: 24 },
-      { name: 'Est. Calle 72', x: 75, z: 115, w: 9, d: 26 },
+      { name: 'Est. Calle 72', x: 75, z: 86, w: 9, d: 26 },
       { name: 'Est. Central Calle 26', x: 75, z: 193, w: 9, d: 28 },
       { name: 'Est. San Victorino', x: 75, z: 270, w: 9, d: 24 }
     ];
@@ -92,7 +92,7 @@ export function cityLandmarks(tileSize = 2) {
 
     // 2. METRO DE BOGOTÁ (PRIMERA LÍNEA ELEVADA - PLMB)
     { name: 'Metro de Bogotá · Estación Calle 93', icon: '🚇', color: '#2e7d32', x: 77, z: 32, fijo: true },
-    { name: 'Metro de Bogotá · Estación Calle 72', icon: '🚇', color: '#2e7d32', x: 76, z: 115, fijo: true },
+    { name: 'Metro de Bogotá · Estación Calle 72', icon: '🚇', color: '#2e7d32', x: 76, z: 86, fijo: true },
     { name: 'Metro de Bogotá · Estación Central (Calle 26)', icon: '🚇', color: '#2e7d32', x: 75, z: 193, fijo: true },
     { name: 'Metro de Bogotá · Estación San Victorino', icon: '🚇', color: '#2e7d32', x: 74, z: 270, fijo: true },
     { name: 'Metro de Bogotá · Viaducto Caracas', icon: '🚇', color: '#2e7d32', x: 75, z: 155, fijo: true },
