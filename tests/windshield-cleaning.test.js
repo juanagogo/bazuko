@@ -31,7 +31,7 @@ test('Carro recién creado es apto para limpiar parabrisas', () => {
   car.dispose();
 });
 
-test('Limpiar parabrisas otorga monedas y consume energía', () => {
+test('Limpiar parabrisas otorga monedas y consume energía', (t) => {
   const car = fakeCar();
   const player = { position: new THREE.Vector3(0, 0, 1.2), faceTowards() {}, playAction() {} };
   const stats = { energia: 50, dinero: 1000, animo: 50, addXP() {} };
@@ -50,6 +50,8 @@ test('Limpiar parabrisas otorga monedas y consume energía', () => {
     cleanedEvent = e.detail;
   });
 
+  // El conductor se niega una de cada ocho veces: con el azar fijo, este paga una propina normal ($ 1.500).
+  t.mock.method(Math, 'random', () => 0.5);
   interaction._cleanWindshield(car);
 
   assert.ok(cleanedEvent);

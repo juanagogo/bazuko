@@ -17,7 +17,7 @@ export const PICTOS = {
   '🪙': 'moneda', '💰': 'moneda', '💸': 'moneda', '💎': 'moneda', '💍': 'anillo', '🧼': 'jabon', '🪥': 'cepillo',
   '💊': 'pastilla', '🧪': 'frasco', '🪞': 'retrovisor', '📻': 'radio', '📡': 'radio', '📶': 'radio', '🎸': 'radio',
   '🔋': 'pilas', '💩': 'popo', '🌿': 'hierba', '🎟': 'rifa', '🗡': 'arma', '🔪': 'cuchillo', '🍾': 'botellaPicada',
-  '🚬': 'cigarrillo', '🧴': 'pegante',
+  '🚬': 'cigarrillo', '🧴': 'pegante', '👕': 'camisa',
   // El cuerpo
   '🦠': 'bicho', '🐜': 'bicho', '🪱': 'bicho', '☠': 'bicho', '🤧': 'enfermo', '🤢': 'nauseas', '🥶': 'termometro',
   '😴': 'sueno', '💤': 'sueno',
@@ -28,7 +28,7 @@ export const PICTOS = {
   '⚠': 'peligro', '⚡': 'rayo', '✨': 'brillo', '⭐': 'brillo', '🌟': 'brillo', '♻': 'reciclar',
   // Los sitios
   '🏪': 'tienda', '🏬': 'tienda', '🧺': 'tienda', '🏙': 'edificio', '🏢': 'edificio', '🌊': 'lago', '⛲': 'parque',
-  '🌳': 'parque', '⛽': 'gasolina', '🚏': 'bus', '🍬': 'chaza', '🍲': 'comida', '🍴': 'comida', '🛒': 'carreta',
+  '🌳': 'parque', '⛽': 'gasolina', '🚏': 'bus', '🚇': 'bus', '🍬': 'chaza', '🍲': 'comida', '🍴': 'comida', '🛒': 'carreta',
   '🎒': 'costal', '❌': 'cerrar', '🚫': 'cerrar',
   // Símbolos que no son emoji y la letra no trae
   '◎': 'centrar', '⤢': 'ciudad',
