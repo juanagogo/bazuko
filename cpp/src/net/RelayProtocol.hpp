@@ -10,7 +10,10 @@
 //   anfitrion -> relevo : HostData{vid, canal, fiable, bytes} | Kick{vid}
 //   relevo -> anfitrion : GuestJoined{vid} | GuestLeft{vid} | GuestData{vid, canal, fiable, bytes}
 //   anfitrion -> relevo : RoomInfo{publica, cupo, largo, nombre}   (una sala publica aparece en la lista de salas del lobby)
-//   cualquiera -> relevo : List  ->  RoomList{n, n x (codigo, jugadores, cupo, largo, nombre)}   (solo salas publicas con anfitrion)
+//   cualquiera -> relevo : List[{opciones}]  ->  RoomList{n, n x (codigo, jugadores, cupo, largo, nombre)}   (solo salas con anfitrion)
+//                       Sin opciones, solo las publicas. Con kListLocked tambien las de codigo, pero su codigo llega tapado (kLockedCode):
+//                       se ven en la lista y para entrar hay que escribirlo. Un relevo anterior ignora la opcion y da solo las publicas.
+//   cualquiera -> relevo : Check{codigo}  ->  CheckResult{codigo, existe}   (el lobby revisa el codigo escrito antes de salir a la partida)
 #include <cstdint>
 #include <string>
 
@@ -18,18 +21,20 @@ namespace Bazuko::Net::Relay {
 
 enum Op : uint8_t {
     // jugador -> relevo
-    kCreate = 0x01, kReclaim = 0x02, kJoin = 0x03, kList = 0x04, kGuestSend = 0x22,
+    kCreate = 0x01, kReclaim = 0x02, kJoin = 0x03, kList = 0x04, kCheck = 0x05, kGuestSend = 0x22,
     // anfitrion -> relevo
     kHostSend = 0x12, kKick = 0x13, kRoomInfo = 0x14,
     kCloseRoom = 0x15,   // el anfitrion cierra la sala a proposito: se borra ya (sin la espera para retomarla) y su codigo queda libre
     // relevo -> jugador
-    kCreated = 0x81, kJoined = 0x83, kRoomList = 0x84, kError = 0x8F, kToGuest = 0xA2,
+    kCreated = 0x81, kJoined = 0x83, kRoomList = 0x84, kCheckResult = 0x85, kError = 0x8F, kToGuest = 0xA2,
     // relevo -> anfitrion
     kGuestJoined = 0x90, kGuestLeft = 0x91, kFromGuest = 0x92,
 };
 enum ErrorCode : uint8_t { kNoRoom = 1, kRoomFull, kBadSecret, kTooManyRooms, kBadRequest, kCodeTaken };
 
 inline constexpr size_t kCodeLength = 6;
+inline constexpr uint8_t kListLocked = 1;                 // opcion de List: tambien las salas con codigo
+inline constexpr char kLockedCode[] = "******";          // el codigo tapado de una sala con codigo en la lista (no es del alfabeto)
 // Letras de los codigos: sin 0/O ni 1/I/L para que se puedan dictar por voz o escribir sin dudas
 inline constexpr char kCodeAlphabet[] = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
 // Codigo escrito por el jugador: pasa a mayusculas y quita espacios y guiones; vacio si no tiene 6 letras del alfabeto de codigos

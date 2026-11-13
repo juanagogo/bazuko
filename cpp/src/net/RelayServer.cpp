@@ -148,11 +148,13 @@ struct RelayServer::Impl {
             it->second.maxPlayers = std::clamp<uint8_t>(data[2], 2, 255);
             it->second.name = name;
         } else if (op == Relay::kList) {   // lista de salas publicas: la pide el lobby antes de entrar a una
+            const bool withLocked = size >= 2 && (data[1] & Relay::kListLocked) != 0;   // tambien las de codigo, con el codigo tapado
             std::vector<uint8_t> out{Relay::kRoomList, 0};
             uint8_t count = 0;
             for (const auto& [code, room] : rooms) {
-                if (!room.listed || !room.host || count >= Relay::kMaxListedRooms) continue;
-                out.insert(out.end(), code.begin(), code.end());
+                if ((!room.listed && !withLocked) || !room.host || count >= Relay::kMaxListedRooms) continue;
+                const std::string shown = room.listed ? code : std::string(Relay::kLockedCode);
+                out.insert(out.end(), shown.begin(), shown.end());
                 out.push_back(static_cast<uint8_t>(std::min<size_t>(room.guests.size() + 1, 255)));
                 out.push_back(room.maxPlayers);
                 out.push_back(static_cast<uint8_t>(room.name.size()));
@@ -160,6 +162,14 @@ struct RelayServer::Impl {
                 ++count;
             }
             out[1] = count;
+            Send(peer, 0, out, true);
+        } else if (op == Relay::kCheck) {   // existe una sala con ese codigo? (el lobby lo revisa antes de salir a la partida)
+            if (size < 1 + Relay::kCodeLength) return;
+            const std::string code(reinterpret_cast<const char*>(data + 1), Relay::kCodeLength);
+            const auto it = rooms.find(code);
+            std::vector<uint8_t> out{Relay::kCheckResult};
+            out.insert(out.end(), code.begin(), code.end());
+            out.push_back(it != rooms.end() && it->second.host ? 1 : 0);
             Send(peer, 0, out, true);
         } else if (op == Relay::kGuestSend && conn->role == Conn::Role::Guest) {
             if (size < 3) return;

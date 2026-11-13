@@ -553,7 +553,14 @@ int main() {
             }
             CHECK(browser.GetRelayState() == RoomBrowser::RelayState::Online, "L: el buscador se conecta al relevo");
             CHECK(internet && internet->name == "Parche de la S\xC3\xA9ptima" && internet->players == 2, "L: la sala publica sale con su nombre limpio y 2 jugadores");
-            CHECK(!privateSeen, "L: la sala privada no sale en la lista");
+            CHECK(!privateSeen, "L: el codigo de la sala privada no sale en la lista");
+            const bool lockedSeen = std::any_of(rooms.begin(), rooms.end(), [](const RoomListing& r) { return r.locked && r.code.empty() && r.name == "Solo con codigo"; });
+            CHECK(lockedSeen, "L: la sala con codigo sale en la lista, tapada, para que otros la vean");
+            const std::string relayAt = "127.0.0.1:" + std::to_string(relay->Port());
+            browser.CheckCode(relayAt, hidden->RoomCode());
+            browser.CheckCode(relayAt, "ZZZZZZ");
+            run(0.5);
+            CHECK(browser.CodeCheck(relayAt, hidden->RoomCode()) == 1 && browser.CodeCheck(relayAt, "ZZZZZZ") == 0, "L: el relevo dice si un codigo escrito es de una sala abierta");
             CHECK(lan && lan->name == "Cambuche del lago" && lan->players == 1 && lan->maxPlayers == 8, "L: la sala de la red local se encuentra por su baliza");
             CHECK(lanCopies == 1, "L: la sala local sale una sola vez aunque responda por dos caminos");
             open.reset(); guest.reset();

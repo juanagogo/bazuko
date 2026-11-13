@@ -23,6 +23,7 @@ struct RoomListing {
     uint16_t port = 0;     // LAN: puerto del juego; por relevo: el del relevo
     int players = 0, maxPlayers = 0;
     bool lan = false;
+    bool locked = false;   // por relevo: sala con codigo; sale en la lista sin el codigo (`code` vacio) y para entrar hay que escribirlo
 };
 
 class LanBeacon {
@@ -54,6 +55,10 @@ public:
     std::vector<RoomListing> Rooms() const;   // primero la red local, luego internet
     RelayState GetRelayState() const;   // del conjunto: conectado si alguno responde
     std::string OnlineRelay() const;    // "host:puerto" del primer servidor que responde (donde se abre una sala nueva); vacio si ninguno
+    // Revisa si existe una sala con `code` en el servidor `relay` ("host:puerto", uno de la lista). CodeCheck: 1 existe, 0 no existe,
+    // -1 aun sin respuesta (o ese servidor no responde, o es un relevo anterior que no sabe revisar codigos).
+    void CheckCode(const std::string& relay, const std::string& code);
+    int CodeCheck(const std::string& relay, const std::string& code) const;
 
 private:
     struct Impl;

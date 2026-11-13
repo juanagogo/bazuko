@@ -20,20 +20,20 @@ cmake --build cpp/build --config Release
 Lo normal es usar el lobby al abrir el juego: **Multijugador** muestra la lista de salas abiertas y deja crear una o entrar.
 
 - **Salas de esta red**: un anfitrión directo responde a una pregunta por difusión UDP en el puerto **7779** (`src/net/RoomDirectory.cpp`), así que quienes estén en la misma red lo ven en su lista sin escribir la IP. El juego sigue en el puerto 7777.
-- **Salas por internet**: se abren en el servidor de salas (el relevo de abajo). Una sala **pública** aparece en la lista de todos los que usan ese servidor; una **solo con código** no aparece y se entra escribiendo el código. El jugador no escribe ninguna dirección: el lobby dice «Servidor de salas: automático» (ver abajo).
+- **Salas por internet**: se abren en el servidor de salas (el relevo de abajo) y todas aparecen en la lista de quienes usan ese servidor. A una **pública** entra cualquiera con «Unirse». En una **solo con código** la lista no muestra el código: al pulsar «Unirse» el juego lo pide, el servidor revisa que sea de una sala abierta (`kCheck`) y solo entonces se entra. Un relevo anterior no lista las salas con código. El jugador no escribe ninguna dirección: el lobby dice «Servidor de salas: automático» (ver abajo).
 - **Unirse con código o IP**: un código de 6 caracteres entra por el servidor de salas; una IP (con `:puerto` si no es 7777) entra directo.
 
 ### Abrir, ver y cerrar la sala propia
 
 - **Código propio**: al crear una sala por internet se puede escribir un código de 6 letras o números (sin I, L, O, 0 ni 1). Vacío, el servidor pone uno. Si otra sala ya lo usa, el lobby lo dice y deja escoger otro. Un servidor de salas viejo ignora el código pedido y da uno al azar; la tarjeta de la sala lo avisa.
 - **Tarjeta de la sala**: la sala se abre desde el lobby, sin cargar la ciudad. Cuando el servidor responde sale una tarjeta con el nombre, el código grande, dónde está, quién la ve y el cupo, y dos botones: **Entrar a la sala** (Enter) y **Volver** (Esc). Volver deja la sala abierta y lleva a la lista.
-- **Lista de salas**: la sala propia aparece arriba («Su sala»), con su código y los botones **Entrar** y **Cerrar**. Las demás salas tienen **Unirse** (o «Llena») y **Actualizar** vuelve a pedir la lista. Un invitado solo puede unirse a una sala con cupo o escribir el código. Escribir el código propio en «Unirse» entra a la sala propia.
+- **Lista de salas**: la sala propia aparece arriba («Su sala»), con su código y los botones **Entrar** y **Cerrar**. Las demás salas tienen **Unirse** (o «Llena») y **Actualizar** vuelve a pedir la lista. Un invitado solo puede unirse a una sala con cupo; si la sala es con código, primero lo escribe. Escribir el código propio en «Unirse» entra a la sala propia.
 - **Cerrar la sala** la borra del servidor al momento y el código queda libre (operación `kCloseRoom` del protocolo). Unirse a otra sala o jugar Historia también cierra la propia.
 - **Volver al lobby**: «Guardar y salir», en Historia o en multijugador, guarda y vuelve al lobby sin preguntar nada. Desde allí se puede seguir la historia, entrar o abrir otra sala, cambiar ajustes o cerrar el juego. Un anfitrión que vuelve con invitados dentro pasa la partida a otro; si estaba solo, la sala sigue abierta en el lobby.
 - **Salir del juego** está en el lobby. Si hay una sala abierta, primero avisa que se va a cerrar y que nadie más podrá entrar («Cerrar sala y salir» o «Cancelar»). Lo mismo pasa al cerrar la ventana.
 - La nota del desarrollador solo sale en Historia, no en multijugador.
 
-Ganchos para pruebas: `BAZUKO_LOBBY_PANTALLA=crear|sala|sala-lista|sala-salir` (con `BAZUKO_LOBBY_CODIGO`) captura esas pantallas, y `BAZUKO_PRUEBA_VOLVER=<segundos>` pide «Guardar y salir» para probar la vuelta al lobby (`BAZUKO_PRUEBA_VOLVER_SHOT` guarda la captura).
+Ganchos para pruebas: `BAZUKO_LOBBY_PANTALLA=crear|sala|sala-lista|sala-salir|pedir-codigo` (con `BAZUKO_LOBBY_CODIGO`) captura esas pantallas, y `BAZUKO_PRUEBA_VOLVER=<segundos>` pide «Guardar y salir» para probar la vuelta al lobby (`BAZUKO_PRUEBA_VOLVER_SHOT` guarda la captura).
 
 ### Servidor de salas automático
 

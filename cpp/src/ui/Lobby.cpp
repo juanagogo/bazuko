@@ -64,7 +64,7 @@ namespace {
 namespace C = Carton;
 
 enum class Screen { Home, Multi, Create, Join, Settings, Profile };
-enum class Modal { None, Opening, RoomReady, ConfirmQuit };   // lo que se muestra encima de la pantalla: abriendo la sala, la ficha de la sala, salir con la sala abierta
+enum class Modal { None, Opening, RoomReady, ConfirmQuit, AskCode };   // encima de la pantalla: abriendo la sala, su ficha, salir con la sala abierta, pedir el codigo de otra
 
 struct SaveSummary { bool exists = false; std::string name; float money = 0.0f; int day = 0; };
 
@@ -174,6 +174,12 @@ struct Lobby {
     char codeText[16] = {};               // codigo propio de la sala (opcional)
     Modal modal = Modal::None;
     double openingSince = 0.0;
+    // unirse a una sala con codigo de la lista: se escribe el codigo y el servidor lo revisa antes de salir a la partida
+    std::string askName, askRelay;
+    char askText[16] = {};
+    std::string askError;
+    double askCheckSince = -1.0;   // < 0: no se esta revisando
+    bool askFocus = false;
 #ifdef BAZUKO_NET_ENABLED
     std::unique_ptr<Net::RoomBrowser> browser;
 #endif
@@ -386,7 +392,58 @@ struct Lobby {
     }
 
     // Lo que se ve encima de la pantalla (la pieza de carton cambia de contenido); devuelve la altura que necesita
-    static float ModalHeight(Modal m) { return m == Modal::RoomReady ? 470.0f : m == Modal::ConfirmQuit ? 330.0f : 260.0f; }
+    static float ModalHeight(Modal m) { return m == Modal::RoomReady ? 470.0f : m == Modal::ConfirmQuit ? 330.0f : m == Modal::AskCode ? 360.0f : 260.0f; }
+
+    void AskCodeFor(const std::string& name, const std::string& relay) {
+        askName = name; askRelay = relay;
+        CopyTo(askText, sizeof askText, "");
+        askError.clear();
+        askCheckSince = -1.0;
+        askFocus = true;
+        modal = Modal::AskCode;
+    }
+
+    void JoinWithCode(const std::string& code) {
+        hosted.Close();   // entrar a la sala de otro cierra la propia
+        choice.mode = LobbyChoice::Mode::JoinRoom; choice.roomName = askName; choice.code = code; choice.address = askRelay;
+        modal = Modal::None;
+        done = true;
+    }
+
+    void DrawAskCode(ImDrawList* draw, float x, float y, float inner) {
+        C::Text(draw, true, 34, ImVec2(x, y), C::kMarcador, "SALA CON CÓDIGO");
+        y += 52.0f;
+        C::HandLine(draw, ImVec2(x, y), ImVec2(x + inner, y), 4u, 2.5f);
+        y += 18.0f;
+        C::Text(draw, true, 24, ImVec2(x, y), C::kMarcador, askName.empty() ? "Sala sin nombre" : askName.c_str(), inner);
+        y += 40.0f;
+        C::Text(draw, false, 18, ImVec2(x, y), C::kMarcador, "Para entrar escriba el código que le dio quien abrió la sala.", inner);
+        y += 40.0f;
+        const bool checking = askCheckSince >= 0.0;
+        ImGui::SetCursorScreenPos(ImVec2(x, y));
+        if (askFocus) { ImGui::SetKeyboardFocusHere(); askFocus = false; }
+        const bool entered = Field("##codigoPedido", askText, sizeof askText, 200.0f, ImGuiInputTextFlags_CharsUppercase | ImGuiInputTextFlags_CharsNoBlank | ImGuiInputTextFlags_EnterReturnsTrue);
+        ImGui::SetCursorScreenPos(ImVec2(x + 220.0f, y - 4.0f));
+        const bool pressed = C::Tape("entrarConCodigo", checking ? "Revisando..." : "Entrar", ImVec2(180.0f, 50.0f), true, !checking, "Enter", 20);
+        ImGui::SetCursorScreenPos(ImVec2(x + 420.0f, y - 4.0f));
+        if (C::Tape("cancelarCodigo", "Cancelar", ImVec2(150.0f, 50.0f), false, true, "Esc", 18)) { CancelModal(); return; }
+        y += 64.0f;
+        if (!askError.empty()) C::Text(draw, false, 17, ImVec2(x, y), C::kRojo, askError.c_str(), inner);
+        if ((pressed || entered) && !checking) {
+            const std::string code = Net::Relay::NormalizeRoomCode(askText);
+            if (code.empty()) askError = "Escriba el código: 6 letras o números.";
+            else if (code == hosted.Code()) { modal = Modal::None; EnterOwnRoom(); }
+            else if (browser) { askError.clear(); browser->CheckCode(askRelay, code); askCheckSince = ImGui::GetTime(); }
+            else JoinWithCode(code);
+            return;
+        }
+        if (checking && browser) {   // la respuesta del servidor: existe, no existe o (relevo anterior) no contesta
+            const std::string code = Net::Relay::NormalizeRoomCode(askText);
+            const int found = browser->CodeCheck(askRelay, code);
+            if (found == 1 || (found < 0 && ImGui::GetTime() - askCheckSince > 3.0)) JoinWithCode(code);
+            else if (found == 0) { askCheckSince = -1.0; askError = "Ese código no es de ninguna sala abierta. Revíselo con quien abrió la sala."; }
+        }
+    }
 
     void DrawModal(ImDrawList* draw, ImVec2 min, float width) {
         float y = min.y + 22.0f;
@@ -403,6 +460,9 @@ struct Lobby {
             if (C::Tape("cancelarApertura", "Cancelar", ImVec2(160.0f, 44.0f), false, true, "Esc", 18)) CancelModal();
             return;
         }
+#ifdef BAZUKO_NET_ENABLED
+        if (modal == Modal::AskCode) { DrawAskCode(draw, x, y, inner); return; }
+#endif
         if (modal == Modal::ConfirmQuit) {
             C::Text(draw, true, 34, ImVec2(x, y), C::kMarcador, "HAY UNA SALA ABIERTA");
             y += 52.0f;
@@ -452,7 +512,7 @@ struct Lobby {
         const uint16_t lanPort = 0;
 #endif
         row("Dónde", hosted.internet ? "Por internet (" + hosted.relay + ")" : "En esta red, puerto " + std::to_string(lanPort));
-        if (hosted.internet) row("Quién la ve", hosted.listed ? "Todos: sale en la lista de salas" : "Solo quien tenga el código");
+        if (hosted.internet) row("Quién entra", hosted.listed ? "Todos: sale en la lista y entra cualquiera" : "Sale en la lista; para entrar piden el código");
         row("Cupo", std::to_string(hosted.maxPlayers) + " jugadores");
         y += 18.0f;
         ImGui::SetCursorScreenPos(ImVec2(x, y));
@@ -466,6 +526,7 @@ struct Lobby {
     void CancelModal() {
         if (modal == Modal::Opening) { hosted.Close(); screen = Screen::Create; }
         else if (modal == Modal::RoomReady) Go(Screen::Multi);
+        else if (modal == Modal::AskCode) askCheckSince = -1.0;
         modal = Modal::None;
     }
 
@@ -512,10 +573,15 @@ struct Lobby {
             const std::string ownCode = hosted.Code();
             const uint16_t ownPort = hosted.session->Port();
             std::erase_if(rooms, [&](const Net::RoomListing& r) { return r.lan ? (!hosted.internet && r.port == ownPort && r.name == hosted.name) : (!ownCode.empty() && r.code == ownCode); });
+            if (hosted.internet && !hosted.listed) {   // la propia con codigo llega tapada: se quita la primera de ese servidor con su nombre
+                const auto own = std::find_if(rooms.begin(), rooms.end(), [&](const Net::RoomListing& r) {
+                    return r.locked && r.name == Net::CleanRoomName(hosted.name, Net::Relay::kMaxRoomName) && r.address + ":" + std::to_string(r.port) == hosted.relay; });
+                if (own != rooms.end()) rooms.erase(own);
+            }
             const ImVec2 rowMin = ImGui::GetCursorScreenPos();
             const float rowWidth = inner - 20.0f;
             C::Text(list, true, 21, rowMin + ImVec2(8.0f, 6.0f), C::kRojo, ("Su sala: " + hosted.name).c_str(), rowWidth - 330.0f);
-            std::string where = hosted.internet ? "Por internet · código " + (ownCode.empty() ? std::string("...") : ownCode) + (hosted.listed ? " · la ven todos" : " · solo con código")
+            std::string where = hosted.internet ? "Por internet · código " + (ownCode.empty() ? std::string("...") : ownCode) + (hosted.listed ? " · entra cualquiera" : " · piden el código")
                                                 : "En esta red · puerto " + std::to_string(ownPort);
             C::Text(list, false, 16, rowMin + ImVec2(8.0f, 34.0f), C::kMarcador, where.c_str(), rowWidth - 330.0f);
             char count[32];
@@ -541,7 +607,7 @@ struct Lobby {
             const ImVec2 rowMin = ImGui::GetCursorScreenPos();
             const float rowWidth = inner - 20.0f;
             C::Text(list, true, 21, rowMin + ImVec2(8.0f, 6.0f), C::kMarcador, room.name.empty() ? "Sala sin nombre" : room.name.c_str(), rowWidth - 300.0f);
-            const std::string where = room.lan ? "En esta red · " + room.address : "Por internet · código " + room.code;
+            const std::string where = room.lan ? "En esta red · " + room.address : room.locked ? "Por internet · piden el código para entrar" : "Por internet · código " + room.code;
             C::Text(list, false, 16, rowMin + ImVec2(8.0f, 34.0f), C::kMarcador, where.c_str());
             char count[32];
             std::snprintf(count, sizeof count, "%d de %d", room.players, room.maxPlayers);
@@ -551,11 +617,14 @@ struct Lobby {
             const bool full = room.maxPlayers > 0 && room.players >= room.maxPlayers;
             ImGui::SetCursorScreenPos(rowMin + ImVec2(rowWidth - 124.0f, 10.0f));
             if (C::Tape("entrar", full ? "Llena" : "Unirse", ImVec2(124.0f, 42.0f), !full, !full, nullptr, 18)) {
+              if (room.locked) AskCodeFor(room.name, room.address + ":" + std::to_string(room.port));   // pide el codigo antes de entrar
+              else {
                 hosted.Close();   // entrar a la sala de otro cierra la propia
                 choice.roomName = room.name;
                 if (room.lan) { choice.mode = LobbyChoice::Mode::JoinAddress; choice.address = room.address + ":" + std::to_string(room.port); }
                 else { choice.mode = LobbyChoice::Mode::JoinRoom; choice.code = room.code; choice.address = room.address + ":" + std::to_string(room.port); }
                 done = true;
+              }
             }
             ImGui::SetCursorScreenPos(rowMin + ImVec2(0.0f, 62.0f));
             if (i + 1 < rooms.size()) C::HandLine(list, rowMin + ImVec2(6.0f, 60.0f), rowMin + ImVec2(rowWidth - 6.0f, 60.0f), 30u + static_cast<unsigned>(i), 1.5f);
@@ -657,7 +726,7 @@ struct Lobby {
         const char* hint = !settings.roomInternet
             ? "Quienes estén conectados a la misma red la verán en su lista."
             : settings.roomPublic ? "Se abre en el servidor de salas y sale en la lista de todos."
-                                  : "Se abre en el servidor de salas; solo entra quien tenga el código.";
+                                  : "Sale en la lista de todos, pero para entrar hay que escribir el código.";
         C::Text(draw, false, 17, ImVec2(x, y), C::kMarcador, hint, inner);
         y += 44.0f;
         const std::string name = Trim(roomName);
@@ -872,6 +941,26 @@ LobbyChoice RunLobby(Window& window, UIManager& ui, AudioManager& audio, LobbySe
         else if (name == "perfil") lobby.Go(Screen::Profile);
 #ifdef BAZUKO_NET_ENABLED
         // sala | sala-lista | sala-salir: abre una sala por internet (codigo en BAZUKO_LOBBY_CODIGO) y muestra su ficha, la lista con ella o el aviso al salir
+        // pedir-codigo: la lista con una sala con codigo y el recuadro que pide el codigo para entrar (BAZUKO_LOBBY_CODIGO: lo escrito, se revisa)
+        else if (name == "pedir-codigo") {
+            lobby.Go(Screen::Multi);
+            for (int i = 0; i < 300; ++i) {
+                lobby.browser->Update();
+                const auto rooms = lobby.browser->Rooms();
+                const auto locked = std::find_if(rooms.begin(), rooms.end(), [](const Net::RoomListing& r) { return r.locked; });
+                if (locked != rooms.end()) {
+                    lobby.AskCodeFor(locked->name, locked->address + ":" + std::to_string(locked->port));
+                    if (const char* code = std::getenv("BAZUKO_LOBBY_CODIGO")) {
+                        CopyTo(lobby.askText, sizeof lobby.askText, code);
+                        lobby.browser->CheckCode(lobby.askRelay, Net::Relay::NormalizeRoomCode(code));
+                        for (int k = 0; k < 60 && lobby.browser->CodeCheck(lobby.askRelay, Net::Relay::NormalizeRoomCode(code)) < 0; ++k) { lobby.browser->Update(); std::this_thread::sleep_for(std::chrono::milliseconds(16)); }
+                        if (lobby.browser->CodeCheck(lobby.askRelay, Net::Relay::NormalizeRoomCode(code)) == 0) lobby.askError = "Ese código no es de ninguna sala abierta. Revíselo con quien abrió la sala.";
+                    }
+                    break;
+                }
+                std::this_thread::sleep_for(std::chrono::milliseconds(16));
+            }
+        }
         else if (name.rfind("sala", 0) == 0) {
             if (const char* code = std::getenv("BAZUKO_LOBBY_CODIGO")) CopyTo(lobby.codeText, sizeof lobby.codeText, code);
             settings.roomInternet = true;

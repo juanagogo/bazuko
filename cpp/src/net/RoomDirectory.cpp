@@ -117,6 +117,7 @@ struct RoomBrowser::Impl {
         RelayState state = RelayState::Off;
         double askedMs = -1.0e9, retryMs = 0.0;
         std::vector<RoomListing> rooms;
+        std::map<std::string, bool> checked;   // codigo revisado -> existe
 
         void Close() {
             if (peer) { enet_peer_reset(peer); peer = nullptr; }
@@ -137,8 +138,8 @@ struct RoomBrowser::Impl {
         }
         void Ask() {
             if (state != RelayState::Online || !peer) return;
-            const uint8_t op = Relay::kList;
-            ENetPacket* packet = enet_packet_create(&op, 1, ENET_PACKET_FLAG_RELIABLE);
+            const uint8_t ask[2] = {Relay::kList, Relay::kListLocked};   // tambien las salas con codigo (llegan con el codigo tapado)
+            ENetPacket* packet = enet_packet_create(ask, sizeof ask, ENET_PACKET_FLAG_RELIABLE);
             if (enet_peer_send(peer, 0, packet) < 0) enet_packet_destroy(packet);
             askedMs = NowMs();
         }
@@ -152,6 +153,7 @@ struct RoomBrowser::Impl {
                 RoomListing room;
                 room.code.assign(reinterpret_cast<const char*>(d + at), Relay::kCodeLength);
                 at += Relay::kCodeLength;
+                if (room.code == Relay::kLockedCode) { room.code.clear(); room.locked = true; }
                 room.players = d[at++];
                 room.maxPlayers = d[at++];
                 const size_t length = d[at++];
@@ -173,7 +175,10 @@ struct RoomBrowser::Impl {
                     rooms.clear();
                     retryMs = now + kRelayRetryMs;
                 } else if (event.type == ENET_EVENT_TYPE_RECEIVE) {
-                    if (event.packet->dataLength >= 1 && event.packet->data[0] == Relay::kRoomList) ReadRoomList(event.packet->data, event.packet->dataLength);
+                    const uint8_t* d = event.packet->data; const size_t n = event.packet->dataLength;
+                    if (n >= 1 && d[0] == Relay::kRoomList) ReadRoomList(d, n);
+                    else if (n >= 2 + Relay::kCodeLength && d[0] == Relay::kCheckResult)
+                        checked[std::string(reinterpret_cast<const char*>(d + 1), Relay::kCodeLength)] = d[1 + Relay::kCodeLength] != 0;
                     enet_packet_destroy(event.packet);
                 }
             }
@@ -293,6 +298,27 @@ std::string RoomBrowser::OnlineRelay() const {
     for (const auto& link : m_Impl->relays)
         if (link->state == RelayState::Online) return link->address + ":" + std::to_string(link->port);
     return {};
+}
+
+void RoomBrowser::CheckCode(const std::string& relay, const std::string& code) {
+    if (code.size() != Relay::kCodeLength) return;
+    for (auto& link : m_Impl->relays) {
+        if (link->address + ":" + std::to_string(link->port) != relay || link->state != RelayState::Online || !link->peer) continue;
+        link->checked.erase(code);
+        std::vector<uint8_t> ask{Relay::kCheck};
+        ask.insert(ask.end(), code.begin(), code.end());
+        ENetPacket* packet = enet_packet_create(ask.data(), ask.size(), ENET_PACKET_FLAG_RELIABLE);
+        if (enet_peer_send(link->peer, 0, packet) < 0) enet_packet_destroy(packet);
+    }
+}
+
+int RoomBrowser::CodeCheck(const std::string& relay, const std::string& code) const {
+    for (const auto& link : m_Impl->relays) {
+        if (link->address + ":" + std::to_string(link->port) != relay) continue;
+        const auto it = link->checked.find(code);
+        if (it != link->checked.end()) return it->second ? 1 : 0;
+    }
+    return -1;
 }
 
 } // namespace Bazuko::Net
