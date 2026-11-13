@@ -111,6 +111,10 @@ const CAR_NEAR = 6;         // m de su patrulla: más lejos no hay nada que rode
 const STILL_SPEED = .3;     // m/s: más despacio, persiguiendo y sin tenerlo agarrado, está quieto contra algo
 const STILL_TIME = .6;      // s así (lo que cuenta es lo que se alejó de donde estaba, no el temblor): paso de lado y rodea
 const SIDESTEP = .45;       // s del paso de lado
+const BARRED_RANGE = 2;     // m: así de cerca y con algo atravesado en la línea...
+const BARRED_TIME = .6;     // ...a los tantos s da medio paso de lado para agarrarlo por ahí
+const SHOULDER = .3;        // m del centro del cuerpo al hombro: de cerca, lo que asoma detrás de un poste
+const SHOULDER_SIGHT = 8;   // m: hasta ahí un poste o un tronco en medio no lo esconde
 const ROUND_HOLD = 1.2;     // s que sostiene la punta que escogió para rodearla
 const ROUND_REST = 2.5;     // s sin insistir en rodear su patrulla por la punta, si ahí fue donde se quedó quieto
 
@@ -124,6 +128,8 @@ const _probe = new THREE.Vector3(); // solo para _underVehicle: _b y _c pueden s
 const _corner = new THREE.Vector3();
 const _was = new THREE.Vector3();
 const _side = new THREE.Vector3();
+const _eye = new THREE.Vector3();
+const _mark = new THREE.Vector3();
 
 const wrap = angle => Math.atan2(Math.sin(angle), Math.cos(angle));
 const lerpAngle = (from, to, k) => from + wrap(to - from) * k;
@@ -212,6 +218,7 @@ export class PoliceOfficer extends Npc {
     this._exitTimes = EXIT;
     this._fumble = 0;
     this._grabLost = 0;
+    this._barred = 0;
     this._gesture = 0;         // s que le quedan de desistir quieto (ver `_desisting`)
     this._gestureClock = 0;
     this._halt = 0;
@@ -316,6 +323,7 @@ export class PoliceOfficer extends Npc {
     this.catchTimer = 0;
     this._fumble = 0;
     this._grabLost = 0;
+    this._barred = 0;
     this._gesture = this._heavy = 0;
     this.shoutTimer = .4 + this.random() * .8;
     this.returnTimer = 0;
@@ -703,11 +711,27 @@ export class PoliceOfficer extends Npc {
     return !this.isWalkable(x, z) || (!!water && this.groundHeight(x, z, this.position.y) <= water.surfaceY + .12);
   }
 
-  /** Lo ve si está a su alcance y nada se atraviesa; bajándose ya mira hacia afuera. */
+  /**
+   * Lo ve si está a su alcance y nada se atraviesa; bajándose ya mira hacia afuera. De cerca, algo angosto en medio (un
+   * poste, un tronco) no lo esconde: le asoma un hombro por un lado. Un carro sí lo tapa, como siempre: de la punta de su
+   * patrulla no saca la cuenta de que ya lo ve y se le echa derecho contra la carrocería.
+   */
   canSee(player) {
     if (!player || !(this.onFoot || this.state === 'bajando')) return false;
-    const distance = Math.hypot(player.x - this.position.x, player.z - this.position.z);
-    return distance <= POLICE_FOOT.sight && Math.abs((player.y ?? 0) - this.position.y) < 4 && this._clearTo(player);
+    const dx = player.x - this.position.x, dz = player.z - this.position.z, distance = Math.hypot(dx, dz);
+    if (distance > POLICE_FOOT.sight || Math.abs((player.y ?? 0) - this.position.y) >= 4) return false;
+    if (this._clearTo(player)) return true;
+    if (distance > SHOULDER_SIGHT || distance < 1e-3) return false;
+    const car = this.fit?.car ?? null, vehicles = this.collisions?.dynamicColliders;
+    if (this._crossesCar(this.position, player)
+      || (vehicles?.length && !hasClearCombatLine({ from: this.position, to: player, collisions: { dynamicColliders: vehicles }, ignoreVehicle: car }))) return false;
+    const sx = -dz / distance * SHOULDER, sz = dx / distance * SHOULDER;
+    for (const side of [1, -1]) {
+      _eye.set(this.position.x + sx * side, this.position.y, this.position.z + sz * side);
+      _mark.set(player.x + sx * side, player.y ?? this.position.y, player.z + sz * side);
+      if (hasClearCombatLine({ from: _eye, to: _mark, collisions: this.collisions, ignoreVehicle: car }) && !this._crossesCar(_eye, _mark)) return true;
+    }
+    return false;
   }
 
   _shout(dt, list) {
@@ -853,6 +877,15 @@ export class PoliceOfficer extends Npc {
         this._fumble = POLICE_FOOT.fumble;
         this.poseParams.point = 0;
       }
+    }
+    // Lo tiene encima pero con algo en medio (un poste, una caneca): no se queda mirándolo. Medio paso de lado, y por ahí.
+    const barred = sees && !(this.catchTimer > 0) && Math.hypot(target.x - this.position.x, target.z - this.position.z) <= BARRED_RANGE
+      && !canReachCombatTarget({ from: this.position, to: target, maxDistance: BARRED_RANGE, collisions: this.collisions, getWaterInfo: this.getWaterInfo });
+    this._barred = barred ? this._barred + dt : 0;
+    if (this._barred >= BARRED_TIME && !(this._sidestep > 0)) {
+      this._sidestep = SIDESTEP * .5;
+      this._slide = -this._slide;
+      this._barred = 0;
     }
     return null;
   }

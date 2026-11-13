@@ -1619,6 +1619,59 @@ test('persiguiendo, quieto contra algo sin tenerlo agarrado: a los 0,6 s da un p
   assert.equal(officer.state, 'persecucion');
 });
 
+/** El compañero ya afuera, persiguiendo y a más de 6 m de su patrulla. */
+function onFootAway(world) {
+  world.traffic._startChase(world.vehicle);
+  exitOf(world);
+  const officer = world.unit.partner;
+  runUntil(world, () => officer.state === 'persecucion');
+  runUntil(world, () => officer.position.distanceTo(world.vehicle.car.position) > 6, 6);
+  return officer;
+}
+
+test('quieto detrás de un poste: de cerca le ve un hombro, no se queda mirando el poste y lo arresta', () => {
+  // Un poste de 30 cm a medio metro del jugador, del lado por donde llega el agente: justo en la línea y a cada lado.
+  for (const aside of [0, .12, -.12]) {
+    events.length = 0;
+    const collisions = new CollisionSystem();
+    const world = setup({ level: 1, player: [60, 12], collisions });
+    const officer = onFootAway(world), p = world.player.position;
+    p.set(officer.position.x + 6, 0, officer.position.z);
+    collisions.add({ position: new THREE.Vector3(p.x - .5, 0, p.z + aside) }, new THREE.Vector3(.3, 3, .3));
+    const label = `poste ${aside} m al lado`;
+    // A 6 m, con el poste tapándole el pecho: lo ve por el hombro.
+    if (!aside) assert.ok(officer.canSee(p) && !officer._clearTo(p), `${label}: lo ve por un lado del poste`);
+    const seconds = runUntil(world, () => count('police-arrest') > 0, 10);
+    assert.ok(seconds < 5, `${label}: lo arrestó a los ${seconds.toFixed(1)} s, con el agente a ${officer.position.distanceTo(p).toFixed(2)} m`);
+  }
+});
+
+test('la punta de un carro sí lo tapa: por el hombro no se ve a través de su patrulla ni de otro carro', () => {
+  const collisions = new CollisionSystem();
+  const world = setup({ level: 1, player: [60, 12], collisions });
+  const officer = onFootAway(world), car = world.vehicle.car, p = world.player.position;
+  const yaw = car.group.rotation.y, fx = Math.cos(yaw), fz = -Math.sin(yaw), rx = Math.sin(yaw), rz = Math.cos(yaw);
+  const local = (along, across) => new THREE.Vector3(car.position.x + fx * along + rx * across, 0, car.position.z + fz * along + rz * across);
+  // Detrás de la cola de su patrulla, con el jugador al costado: la línea del pecho roza la punta por 5 cm y un hombro pasa libre.
+  const back = -car.length / 2 - 1, side = car.width / 2;
+  officer.position.copy(local(back, side - .55));
+  p.copy(local(back + 2, side + .45));
+  assert.ok(officer._crossesCar(officer.position, p), 'la línea del pecho cruza la punta de la patrulla');
+  assert.equal(officer.canSee(p), false, 'por la punta de su patrulla no lo ve');
+  // Un paso más afuera la línea ya no toca el carro, y lo ve.
+  officer.position.copy(local(back, side - .35));
+  assert.equal(officer.canSee(p), true, 'con la línea libre lo ve');
+  // Lo mismo con la punta de otro carro, lejos de la suya.
+  const ox = car.position.x + 40, oz = car.position.z + 30;
+  collisions.dynamicColliders.push({ box: new THREE.Box3(new THREE.Vector3(ox + 1, 0, oz - 2), new THREE.Vector3(ox + 5.4, 1.5, oz + .05)),
+    vehicle: { position: new THREE.Vector3(ox + 3.2, 0, oz - 1) } });
+  officer.position.set(ox, 0, oz - .6);
+  p.set(ox + 2, 0, oz + .55);
+  assert.equal(officer.canSee(p), false, 'por la punta de otro carro no lo ve');
+  officer.position.set(ox, 0, oz - .2);
+  assert.equal(officer.canSee(p), true, 'con la línea libre lo ve');
+});
+
 /**
  * La patrulla parada encima del carril (z = 0), con el compañero buscando a 5 m del carro (ni tan lejos como para correrla
  * por tapar el carril, ni tan cerca como para no poder arrancar) y un carro que viene detrás por ese carril. Con `civilian`
