@@ -24,7 +24,7 @@ Soleado, parcialmente nublado, nublado, neblina, llovizna, aguacero y tormenta e
 - La transición dura alrededor de un minuto: primero se cierran las nubes y después empieza la lluvia; al escampar, la lluvia se va primero.
 - `isRaining` se deriva de la intensidad mezclada. La humedad del asfalto sube según la intensidad y se seca más rápido con sol.
 
-Al iniciar o continuar una partida se mantienen las 22:00 con llovizna inmediata; después el clima sigue su ciclo.
+Una partida nueva empieza a las 6:00, soleada y con el asfalto seco; una guardada conserva su hora. Después el clima sigue su ciclo. En `npm run dev`, pedir un estado que no existe avisa en la consola en vez de quedarse callado.
 
 ## Sol, luna y cielo
 

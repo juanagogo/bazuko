@@ -17,7 +17,7 @@ import { Avisos } from './avisos.js';
 import { cierreHTML } from './cierre.js';
 import { cuentaAtras, hora, porcentaje } from './formato.js';
 import { tabDaLaVuelta } from './dom.js';
-import { CAMBUCHE } from '../data/cambuche.js';
+import { CAMBUCHE, textoSinSiesta } from '../data/cambuche.js';
 
 /** Las cuatro filas de siempre, siempre en este orden y en el mismo sitio. */
 const FILAS = ['salud', 'hambre', 'sed', 'energia'];
@@ -110,7 +110,12 @@ export function textoDelPrompt(interaction, inventory) {
   if (type === 'cambuche') return '[E] Mi cambuche: armar o dormir';
   if (type === 'mesa') return '[E] Fabricar';
   if (type === 'dealer') return '[Q / E] El jíbaro: comprar o vender';
-  if (type === 'cart') return interaction.currentTarget?.isAttached ? '[E] Soltar la carreta' : '[E] Agarrar la carreta (+120 kg)';
+  if (type === 'cart') {
+    const cart = interaction.currentTarget;
+    if (!cart?.isAttached) return '[E] Agarrar la carreta (+120 kg)';
+    // E no la suelta con más carga de la que aguanto sin ella: la tecla dice qué hacer antes.
+    return cart.puedeSoltar?.(inventory) === false ? '[E] Carreta muy cargada · Para soltarla, primero descargo' : '[E] Soltar la carreta';
+  }
   return interaction.stealPrompt ?? '';
 }
 
@@ -135,6 +140,7 @@ const VERBO_CORTO = [
   [/^El jíbaro/, 'El jíbaro'],
   [/^Agarrar la carreta/, 'Agarrar carreta'],
   [/^Soltar la carreta/, 'Soltar carreta'],
+  [/^Carreta muy cargada/, 'Carreta cargada'],
   [/^Cosquilleo/, 'Cosquilleo'],
   [/^Mantener: seleccionar/, 'Seleccionar'],
 ];
@@ -515,7 +521,8 @@ export class HUD {
 
     window.addEventListener('sleep-end', (e) => this._toast(`Dormí ${e.detail?.hours ?? ''} h. Partida guardada`, 'info'));
     window.addEventListener('sleep-fail', (e) => this._toast(
-      e.detail.reason === 'nobase' ? 'Primero toca armar el cambuche (8 cartones)' : 'Aquí no puedo dormir',
+      e.detail.reason === 'nobase' ? 'Primero toca armar el cambuche (8 cartones)'
+        : e.detail.reason === 'descansado' ? textoSinSiesta(e.detail) : 'Aquí no puedo dormir',
       'warn'
     ));
   }
@@ -890,7 +897,7 @@ export class HUD {
       game.stats.higiene = Math.min(100, (game.stats.higiene || 0) + (def.amount || 30));
       game.stats.animo = Math.min(100, (game.stats.animo || 0) + (def.animo || 15));
       game.audio?.play('pickup');
-      this._toast('Te pusiste ropa limpia (+30 higiene, +15 ánimo)', 'info');
+      this._toast('Me puse ropa limpia (+30 higiene, +15 ánimo)', 'info');
       game.openWardrobe?.();
       return;
     }

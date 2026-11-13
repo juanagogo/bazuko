@@ -64,7 +64,8 @@ test('lo perdido es lo que de verdad se pierde', () => {
 
 // ---------- las muertes ----------
 test('la muerte no grita: sin exclamación en títulos ni consejos', () => {
-  const casos = [['atropello', {}], ['golpiza', {}], ['limpieza', {}], [null, { isFreezing: true }], [null, { sed: 0 }], [null, { hambre: 0 }], [null, {}]];
+  const casos = [['atropello', {}], ['golpiza', {}], ['limpieza', {}], ['pelea', {}], ['enfermedad', {}], ['sed', {}], ['hambre', {}],
+    [null, { isFreezing: true }], [null, { sed: 0 }], [null, { hambre: 0 }], [null, {}]];
   for (const [causa, stats] of casos) {
     assert.doesNotMatch(tituloDeMuerte(causa, stats), /[¡!]/);
     assert.doesNotMatch(consejoDeMuerte(causa, stats) ?? '', /[¡!]/);
@@ -72,6 +73,17 @@ test('la muerte no grita: sin exclamación en títulos ni consejos', () => {
   assert.equal(tituloDeMuerte('atropello', {}), 'Me atropellaron');
   assert.equal(tituloDeMuerte('golpiza', {}), 'Te cascaron');
   assert.equal(tituloDeMuerte('limpieza', {}), 'Te mató la limpieza social');
+});
+
+test('el cartón nombra lo que quitó la salud: el frío y el cansancio no matan', () => {
+  assert.equal(tituloDeMuerte('sed', { isFreezing: true, energia: 0 }), 'Me mató la sed');
+  assert.equal(tituloDeMuerte('hambre', { isFreezing: true }), 'Me mató el hambre');
+  assert.equal(tituloDeMuerte('enfermedad', { energia: 0, sed: 0 }), 'Me mató la enfermedad');
+  assert.equal(tituloDeMuerte('pelea', { sed: 0 }), 'Me mataron a golpes');
+  // Sin causa anotada, lo que digan la sed y el hambre; si no, nada inventado.
+  assert.equal(tituloDeMuerte(null, { isFreezing: true, sed: 0 }), 'Me mató la sed');
+  assert.equal(tituloDeMuerte(null, { isFreezing: true, energia: 0 }), 'Me quedé sin salud');
+  assert.doesNotMatch(consejoDeMuerte(null, { isFreezing: true, energia: 0 }), /candela|techo/);
 });
 
 test('el recorte es plano y el consejo no va en él', () => {

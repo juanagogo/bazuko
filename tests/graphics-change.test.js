@@ -301,7 +301,7 @@ test('arresto, muerte y sueño cierran la barra del cosquilleo: no queda debajo 
   const shared = () => ({
     steal: { minigameActive: true, _endMinigame: (ok, why) => cancel.push([ok, why]) },
     input: { keys: {}, endFrame() {} }, audio: { updateSteps() {}, setPaused() {} },
-    interaction: { boostActive: false }, menu: { open() {} }, stats: { salud: 0 }
+    interaction: { boostActive: false }, menu: { open() {} }, stats: { salud: 0 }, _save() {}
   });
   const death = Object.assign(Object.create(Game.prototype), shared(), { player: { isRagdollActive: false }, deathCount: 0, diseases: {}, stats: { salud: 0 } });
   death._handleDeath();
@@ -311,7 +311,7 @@ test('arresto, muerte y sueño cierran la barra del cosquilleo: no queda debajo 
   arrest._policeArrest();
   assert.deepEqual(cancel, [[false, 'cancel']]);
   cancel.length = 0;
-  const sleeping = Object.assign(Object.create(Game.prototype), shared(), { built: { base: true }, player: { position: new THREE.Vector3() } });
+  const sleeping = Object.assign(Object.create(Game.prototype), shared(), { built: { base: true }, clock: { isNight: true }, player: { position: new THREE.Vector3() } });
   // Basta con ver la barra cerrada: lo que sigue del sueño no se prueba aquí.
   try { sleeping.sleep(); } catch { /* falta el resto del juego */ }
   assert.deepEqual(cancel, [[false, 'cancel']]);

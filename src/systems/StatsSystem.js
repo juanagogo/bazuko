@@ -18,6 +18,8 @@ export class StatsSystem {
     this.level   = 1;
     this.calor   = 0;     // segundos de calor corporal / protección contra el frío
     this.isFreezing = false;
+    // Lo que quitó salud la última vez ('sed', 'hambre', 'enfermedad' o 'pelea'): el cartón de la muerte lo nombra.
+    this.danoPor = null;
 
     this.diseaseSystem = null;
   }
@@ -124,14 +126,20 @@ export class StatsSystem {
     this.animo = Math.max(0, this.animo - animoDecay * mentalDecayMult * dt);
 
     // ===== Daño por stats críticos =====
-    let damage = 0;
-    if (this.hambre === 0)  damage += SURVIVAL_DAMAGE.hambre;
-    if (this.sed === 0)     damage += SURVIVAL_DAMAGE.sed;
+    // De lo que quita salud en este cuadro se anota lo que más quita. El frío y el cansancio no quitan salud.
+    // Si nada quita salud y sigue vivo, la causa vieja (una sed que ya pasó, un golpe al que sobrevivió) se borra.
+    let damage = 0, mayor = 0, causa = null;
+    if (this.hambre === 0)  { damage += SURVIVAL_DAMAGE.hambre; mayor = SURVIVAL_DAMAGE.hambre; causa = 'hambre'; }
+    if (this.sed === 0)     { damage += SURVIVAL_DAMAGE.sed; if (SURVIVAL_DAMAGE.sed > mayor) { mayor = SURVIVAL_DAMAGE.sed; causa = 'sed'; } }
     if (this.inWithdrawal)  damage += WITHDRAWAL.saludPorSeg;
     damage += fx.healthDrain;
+    if (fx.healthDrain > mayor) causa = 'enfermedad';
 
     if (damage > 0) {
       this.salud = Math.max(0, this.salud - damage * dt);
+      this.danoPor = causa;
+    } else if (this.salud > 0) {
+      this.danoPor = null;
     }
 
     // ===== Regeneración natural =====

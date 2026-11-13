@@ -162,9 +162,9 @@ Los materiales del cambuche aparecen en bolsas de basura repartidas por nueve zo
 1. Recorre los andenes y acércate a los objetos para ver las acciones disponibles.
 2. Recoge materiales y véndelos en la recicladora para conseguir dinero.
 3. Compra comida y agua y consúmelas desde el costal.
-4. Construye y mejora el cambuche para poder descansar. Su menú muestra una vista previa del modelo terminado, incluso antes de reunir los materiales.
+4. Construye y mejora el cambuche para poder descansar. Su menú muestra una vista previa del modelo terminado, incluso antes de reunir los materiales. De noche se duerme hasta las 6:00; de día solo cabe una siesta de 3 h, con la energía en 70 o menos y después de 6 horas despierto desde la anterior. El botón dice por qué no, y la espera se guarda con la partida.
 
-La partida guarda datos localmente en el navegador al crear o editar el personaje, al dormir y con **Guardar partida ahora** en el menú de pausa. También conserva la amistad de El Chato, las preferencias de cámara, radar, calidad y volumen. Los datos dependen del navegador y de la dirección desde la que juegas; no hay sincronización entre dispositivos.
+La partida guarda datos localmente en el navegador al crear o editar el personaje, al dormir, al caer preso o morir y con **Guardar partida ahora** en el menú de pausa. Recargar la página con la primera plana o el cartón de la muerte abiertos, o con el cuerpo aún en el aire tras un atropello, no se salta lo que cuestan: se paga al cargar, una sola vez. También conserva la amistad de El Chato, las preferencias de cámara, radar, calidad y volumen. Los datos dependen del navegador y de la dirección desde la que juegas; no hay sincronización entre dispositivos.
 
 Al cruzar delante de un carro, este intenta frenar progresivamente. Si te atraviesas demasiado cerca, puede atropellarte: el daño depende de la velocidad y puede ser mortal. El golpe activa un ragdoll articulado y lanza al personaje hacia arriba y hacia delante según la velocidad. Si sobrevive, se levanta después de caer; si muere, la pantalla de recuperación espera a que termine la caída. El conductor sigue frenando hasta detenerse y espera brevemente antes de continuar. Los vehículos en movimiento y estacionados tienen colisiones mediante cajas invisibles simples, sin calcular los triángulos de sus modelos.
 
@@ -191,7 +191,7 @@ Si la salud llega a cero, el juego se pausa y muestra una pantalla de recuperaci
 - **Caleta:** el cambuche tiene una solapa «Caleta» para guardar lo que no se quiere cargar. Cabe más con cada pieza armada y no se pierde al morir ni en un arresto; sin paredes, a veces la encuentran cuando roban de noche.
 - **Fama en la calle:** los parceros y los de las chazas recuerdan lo que haces cerca de ellos. Compartir comida en la fogata (**Q**) y cuidar carros sube; robar o pelear cerca baja. Con buena fama avisan cuando viene la camioneta, fían y rebajan; con mala no dejan arrimar a la fogata y cobran más. Se consulta en la pestaña Estado.
 - **Cuidar carros:** **Q** junto a un carro parqueado. Si te quedas cerca hasta que vuelve el dueño, deja propina.
-- **Comida que se daña y armas que se gastan:** empanadas, morcilla, papa, café y aguapanela se dañan en horas; el pan dura día y medio. Cuchillo, botella picada y arma casera se parten después de cierto número de golpes. Las casillas del costal muestran lo que queda.
+- **Comida que se daña y armas que se gastan:** empanadas, morcilla y papa duran un día de juego; café y aguapanela, medio día, y el pan, tres días. Cuchillo, botella picada y arma casera se parten después de cierto número de golpes. Las casillas del costal muestran lo que queda.
 - **Agua y pila:** la botella vacía se llena con lluvia fuerte o en una de las tres pilas públicas de los parques, donde además te puedes lavar (con jabón, mejor).
 - **Transporte:** desde el Portal del Centro y las estaciones del Metro se viaja pagando el pasaje o colándose, con riesgo de que te pillen.
 - **Hogar de paso:** de 18:00 a 23:00, una noche bajo techo con ducha, comida y sin robos, sin entrar sustancias ni armas.

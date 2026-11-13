@@ -49,7 +49,7 @@ function deathFixture(substanceEffects) {
     diseases: { hasAny: false, cureAll() {} },
     inventory: new InventorySystem(),
     cameraRig: { follow() {} },
-    substanceEffects
+    substanceEffects, _save() {}
   });
   return game;
 }
@@ -83,7 +83,7 @@ test('dormir corta el efecto', (t) => {
     isSleeping: false, built: { base: true }, dog: null,
     player: { position: new THREE.Vector3(), playAction() {} },
     clock: { isNight: false, hour: 12, day: 1 },
-    stats: new StatsSystem(), inventory: new InventorySystem(),
+    stats: Object.assign(new StatsSystem(), { energia: 60 }), inventory: new InventorySystem(), // cansado para la siesta
     _save() {}, substanceEffects: fx
   });
   game.sleep();

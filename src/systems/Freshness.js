@@ -4,6 +4,9 @@
 // Lo que está en la caleta se daña igual: el tiempo no se detiene porque esté guardado.
 import { ITEMS } from '../data/items.js';
 
+/** En el último cuarto de su vida la casilla se pone roja y sale el aviso de comérsela pronto. */
+export const AVISO_FRESCURA = 0.25;
+
 /** Fracción de vida que le queda a la unidad más vieja de una fila: 1 recién comprada, 0 dañada. */
 export function freshness(entry, now) {
   const perece = ITEMS[entry?.id]?.perece;
@@ -71,8 +74,8 @@ export class FreshnessSystem {
     const inv = this.inventory;
     const bag = spoilEntries(inv.items, now, {
       onRemove: (id, n) => inv.remove(id, n),
-      // Lo dañado no pesa más que lo fresco que reemplaza: siempre cabe.
-      addSpoiled: (n) => { inv.add(ITEMS.comidaDanada, n); },
+      // Lo dañado no pesa más que lo fresco que reemplaza: entra aunque el costal ya vaya pasado de peso.
+      addSpoiled: (n) => { inv.add(ITEMS.comidaDanada, n, { force: true }); },
     });
     const caleta = this.caleta;
     const stash = caleta ? spoilEntries(caleta.items, now, {
@@ -88,11 +91,10 @@ export class FreshnessSystem {
         entry.qty += n;
       },
     }) : {};
-    // Un aviso antes de que se dañe lo del costal: una vez por fila y por vencimiento.
+    // Un aviso antes de que se dañe lo del costal, cuando su casilla se pone roja: una vez por fila y por vencimiento.
     const soon = [];
     for (const entry of inv.items) {
-      const h = hoursLeft(entry, now);
-      if (h === null || h > 1.5) continue;
+      if (hoursLeft(entry, now) === null || freshness(entry, now) > AVISO_FRESCURA) continue;
       const key = `${entry.id}:${entry.vence[0]}`;
       if (this._warned.has(key)) continue;
       this._warned.add(key);

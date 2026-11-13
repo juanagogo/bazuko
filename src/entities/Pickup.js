@@ -153,6 +153,15 @@ export class Pickup {
       rareChance = (boostActive ? 0.15 : 0.05) * rareChanceMult;
     }
     rolls += talentEffects.extraRolls ?? 0;
+    // «Escoger con calma»: escogiendo saco más de lo mismo, tiradas y chance de algo raro, para que el valor medio
+    // suba lo que promete la maña. Una tirada a medias se juega a la suerte.
+    const valueMult = sorted ? (talentEffects.sortValueMult ?? 1) : 1;
+    if (valueMult !== 1) {
+      const exact = rolls * valueMult;
+      rolls = Math.floor(exact);
+      if (exact > rolls && Math.random() < exact - rolls) rolls++;
+      rareChance = Math.min(1, rareChance * valueMult);
+    }
 
     for (let i = 0; !pending && i < rolls; i++) {
       items.push(this._weightedPick(LOOT_COMMON));

@@ -837,7 +837,8 @@ export class Npc {
   _stanceNow() {
     const person = this.person;
     if (!person || LOW_STANCES.has(this.stance)) return this.stance;
-    if (this._noseTimer > 0) return 'nariz';
+    // Se tapa la nariz solo si tiene libre esa mano (el bastón, por ejemplo, la ocupa).
+    if (this._noseTimer > 0 && person.nariz) return 'nariz';
     // Conversando ya en su sitio: gesticula al hablar y escucha a su manera. Con paraguas bajo la lluvia, lo conserva.
     const talk = this.talk;
     if (talk?.ready && talk.stance && !(this._raining && person.paraguas !== null)) return talk.stance;
@@ -1114,6 +1115,7 @@ export class Npc {
         maxDistance: NPC_COMBAT.counterRange,
         fromInWater: false, toInWater: !!attacker.inWater })) {
         attacker.stats.salud = Math.max(0, attacker.stats.salud - counter.damage);
+        attacker.stats.danoPor = 'pelea';
         attacker.audio?.playPunchHit?.();
         if (typeof window !== 'undefined' && window.dispatchEvent) {
           window.dispatchEvent(new CustomEvent('toast', {

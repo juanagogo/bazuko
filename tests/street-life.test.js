@@ -7,11 +7,12 @@ import { InventorySystem } from '../src/systems/InventorySystem.js';
 import { Caleta, CALETA_KG } from '../src/systems/Caleta.js';
 import { FreshnessSystem, freshness, freshnessLabel } from '../src/systems/Freshness.js';
 import { wearWeapon, usesLeft } from '../src/systems/WeaponWear.js';
-import { Reputation, FAMA, famaNivel, famaEfecto, avisoDeFama } from '../src/systems/Reputation.js';
+import { Reputation, FAMA, FAMA_ACCION, famaNivel, famaEfecto, avisoDeFama } from '../src/systems/Reputation.js';
 import { CarGuarding, GUARD } from '../src/systems/CarGuarding.js';
 import { resolveTrip, sneakRisk, travelMinutes, PASAJE } from '../src/systems/Transit.js';
 import { HOGAR, checkIn, checkOut, contraband, hasRoom, isOpen, nightEffects } from '../src/systems/Shelter.js';
-import { foodToShare } from '../src/systems/StreetLife.js';
+import { StreetLife, foodToShare } from '../src/systems/StreetLife.js';
+import { openShop } from '../src/ui/placeMenus.js';
 
 beforeEach(() => { globalThis.window = new EventTarget(); });
 
@@ -110,6 +111,20 @@ test('al pasar su hora la comida se vuelve comida dañada, en el costal y en la 
   assert.deepEqual(caleta.items, [{ id: 'comidaDanada', qty: 1 }]);
 });
 
+test('con el costal pasado de peso, lo que se daña también queda como comida dañada: no desaparece', () => {
+  const hour = { value: 0 };
+  const inv = inventoryAt(hour);
+  inv.add(ITEMS.chatarra, 15);
+  inv.add(ITEMS.empanada, 4);
+  inv.maxWeight = 10; // llevo más de lo que aguanto, como al perder capacidad con todo encima
+  const fresh = new FreshnessSystem({ inventory: inv, now: () => hour.value });
+  hour.value = ITEMS.empanada.perece + .1;
+  assert.deepEqual(fresh.check().bag, { empanada: 4 });
+  assert.equal(inv.count('empanada'), 0);
+  assert.equal(inv.count('comidaDanada'), 4);
+  assert.equal(inv.add(ITEMS.lata, 1), false, 'lo demás sigue sin caber');
+});
+
 test('la comida avisa una vez antes de dañarse y su barra baja con el reloj', () => {
   const hour = { value: 0 };
   const inv = inventoryAt(hour);
@@ -121,6 +136,34 @@ test('la comida avisa una vez antes de dañarse y su barra baja con el reloj', (
   assert.deepEqual(fresh.check().soon, ['Morcilla criolla']);
   assert.deepEqual(fresh.check().soon, [], 'el aviso no se repite');
   assert.equal(freshnessLabel(inv.items[0], hour.value), 'Se daña en 1 h');
+});
+
+const PERECEDEROS = Object.keys(ITEMS).filter((id) => ITEMS[id].perece);
+
+test('lo de comer aguanta la noche: lo comprado a las 19:30 amanece bueno después de dormir hasta las 6:00', () => {
+  assert.ok(PERECEDEROS.length >= 6);
+  const hour = { value: 19.5 };
+  const inv = inventoryAt(hour);
+  for (const id of PERECEDEROS) inv.add(ITEMS[id], 1);
+  const fresh = new FreshnessSystem({ inventory: inv, now: () => hour.value });
+  hour.value = 24 + 6; // Game.sleep de noche: hasta las 6:00 del día siguiente
+  assert.deepEqual(fresh.check().bag, {});
+  assert.equal(inv.count('comidaDanada'), 0);
+});
+
+test('el aviso de comerme pronto llega con un cuarto de vida por delante, y nunca menos de 3 h de juego', () => {
+  for (const id of PERECEDEROS) {
+    const hour = { value: 0 };
+    const inv = inventoryAt(hour);
+    inv.add(ITEMS[id], 1);
+    const fresh = new FreshnessSystem({ inventory: inv, now: () => hour.value });
+    const cuarto = ITEMS[id].perece / 4;
+    assert.ok(cuarto >= 3, `${id}: ${cuarto} h para comérselo después del aviso`);
+    hour.value = ITEMS[id].perece - cuarto - .1;
+    assert.deepEqual(fresh.check().soon, [], `${id}: todavía no`);
+    hour.value = ITEMS[id].perece - cuarto + .1;
+    assert.deepEqual(fresh.check().soon, [ITEMS[id].name], `${id}: con ${cuarto} h por delante`);
+  }
 });
 
 test('lo que entró sin hora (partidas viejas) empieza a contar al revisarlo', () => {
@@ -162,7 +205,16 @@ test('la fama sube y baja por lo que hago, y cada nivel cambia algo que se ve', 
   assert.match(famaEfecto('calle', 10), /fogata/);
 });
 
-test('el fiado se paga al comprar y, si no, quedo mal pasado un día', () => {
+test('el fiado da dos días de juego: un día después todavía se puede pagar', () => {
+  const fama = new Reputation();
+  fama.chazas = FAMA.buena;
+  fama.credit(2500, 12);
+  assert.equal(fama.checkDebt(12 + 24), null, 'pasó una noche y un día: todavía hay tiempo');
+  assert.equal(fama.debtHoursLeft(12 + 24), 24);
+  assert.equal(fama.checkDebt(12 + 48).perdida, 2500);
+});
+
+test('el fiado se paga al comprar y, si no, quedo mal pasado el plazo', () => {
   const fama = new Reputation();
   fama.chazas = FAMA.buena;
   fama.credit(2500, 10);
@@ -178,6 +230,66 @@ test('el fiado se paga al comprar y, si no, quedo mal pasado un día', () => {
   const otra = new Reputation();
   otra.deserialize(JSON.parse(JSON.stringify(fama.serialize())));
   assert.deepEqual(otra.serialize(), fama.serialize());
+});
+
+/** Lo mínimo del DOM para armar un menú sin navegador: cada nodo guarda sus hijos, su texto y su clic. */
+function domDePrueba() {
+  const nodo = (tag) => ({
+    tag, className: '', textContent: '', children: [], attributes: {},
+    addEventListener(evento, fn) { this[`on${evento}`] = fn; },
+    setAttribute(k, v) { this.attributes[k] = v; },
+    append(...hijos) { for (const h of hijos) { if (typeof h === 'string') this.textContent += h; this.children.push(h); } },
+  });
+  globalThis.document = { createElement: nodo };
+}
+const botonesDe = (n, todos = []) => {
+  if (n?.tag === 'button') todos.push(n);
+  for (const h of n?.children ?? []) botonesDe(h, todos);
+  return todos;
+};
+
+test('comprar fiado no sube la fama con las chazas: sube al pagar lo que debo y al comprar de contado', () => {
+  domDePrueba();
+  try {
+    const fama = new Reputation();
+    fama.chazas = 80;
+    const game = { totalGameHours: 30, stats: { dinero: 0 }, inventory: new InventorySystem(1e6), costal: false,
+      audio: { play() {} }, street: { fama }, menu: { open(o) { this.o = o; }, refresh() {} } };
+    const chaza = { title: 'Chaza de la Mona', items: ['papaCriolla'] };
+    const boton = (texto) => botonesDe(game.menu.o.render().body).find((b) => b.textContent === texto && !('disabled' in b.attributes));
+    openShop(game, chaza);
+    let fiadas = 0;
+    for (let b = boton('Fiado'); b; b = boton('Fiado')) { b.onclick(); fiadas++; }
+    assert.ok(fiadas >= 5, `me fiaron ${fiadas} veces`);
+    assert.ok(fama.deuda > 0);
+    assert.equal(fama.chazas, 80, 'lo fiado todavía no es una compra');
+    game.stats.dinero = 20000;
+    openShop(game, chaza); // al volver se paga solo
+    assert.equal(fama.deuda, 0);
+    assert.equal(fama.chazas, 80 + FAMA_ACCION.pagarFiado.chazas);
+    boton('Comprar').onclick();
+    assert.equal(fama.chazas, 80 + FAMA_ACCION.pagarFiado.chazas + FAMA_ACCION.comprarChaza.chazas);
+  } finally { delete globalThis.document; }
+});
+
+test('al quedar mal con el fiado, «ya no me creen» solo si de verdad dejaron de fiarme', () => {
+  const quedarMal = (famaAntes) => {
+    const avisos = [];
+    window.addEventListener('toast', (e) => avisos.push(e.detail.text));
+    const game = { inventory: new InventorySystem(), totalGameHours: 10, player: { position: { x: 0, z: 0 } } };
+    const calle = new StreetLife(game);
+    calle.fama.chazas = famaAntes;
+    calle.fama.credit(2000, 10);
+    game.totalGameHours += FAMA.fiadoHoras;
+    calle.update(.1);
+    return { aviso: avisos.find((t) => t.startsWith('No pagué el fiado')), meFian: calle.fama.canCredit(1) };
+  };
+  const todaviaMeFian = quedarMal(90);
+  assert.equal(todaviaMeFian.meFian, true);
+  assert.match(todaviaMeFian.aviso, /quedé mal con los de las chazas/);
+  const yaNoMeFian = quedarMal(70);
+  assert.equal(yaNoMeFian.meFian, false);
+  assert.match(yaNoMeFian.aviso, /ya no me creen/);
 });
 
 test('cuidar un carro paga cuando vuelve el dueño si no me alejo', () => {
