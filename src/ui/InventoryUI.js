@@ -4,7 +4,7 @@
 // lo que cambia (onChange del InventorySystem) y la selección y el foco sobreviven al redibujado.
 import { ITEMS, isUsable, isRecyclable, describeEffects, itemRarityLabel } from '../data/items.js';
 import { itemArtHTML, itemCategory, itemEffectLine } from './itemArt.js';
-import { freshness, freshnessLabel } from '../systems/Freshness.js';
+import { freshness, freshnessLabel, AVISO_FRESCURA } from '../systems/Freshness.js';
 import { usesLeft, wearFraction, WEAR_WARN } from '../systems/WeaponWear.js';
 
 /**
@@ -20,7 +20,7 @@ export function slotLife(entry, now) {
   }
   if (def.perece && entry.vence?.length && typeof now === 'number') {
     const f = freshness(entry, now);
-    return { f, paso: Math.ceil(f * 10), bajo: f <= .25, texto: freshnessLabel(entry, now)?.toLowerCase() };
+    return { f, paso: Math.ceil(f * 10), bajo: f <= AVISO_FRESCURA, texto: freshnessLabel(entry, now)?.toLowerCase() };
   }
   return null;
 }

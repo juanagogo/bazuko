@@ -24,6 +24,8 @@ Las regresiones de jugabilidad comprueban el salto y el recorrido de ambas rampa
 
 `integration-features.test.js` comprueba que El Chato y la vela rindan como el resto del sueño: la noche entera da sus 15 de ánimo y de vicio, y una siesta de 3 h, 3/8 de eso. También comprueba que la siesta pida la energía en 70 o menos y 6 horas despierto desde la anterior, que de noche no haya ese límite, y que la hora de la última siesta se guarde y las partidas viejas carguen sin ella. `wardrobe.test.js` comprueba que el botón de la siesta se apague con su motivo a la vista y que el aviso diga lo mismo cuando el juego se niega; el escenario de la siesta en `tests/e2e/integration.spec.js` lo recorre en el juego.
 
+`street-life.test.js` comprueba que lo perecible comprado al anochecer amanezca bueno después de dormir, que el aviso de comérselo llegue con un cuarto de su vida y nunca menos de 3 h de juego por delante, y que el fiado dé dos días para pagar; `inventory-ui.test.js`, que la casilla se ponga roja justo cuando sale ese aviso.
+
 `input.test.js` comprueba que una tecla sostenida cuente como una sola pulsación: con Espacio sostenido se salta una vez aunque el sistema repita la tecla, y sostener E no vuelve a interactuar, tampoco al volver a la ventana con la tecla oprimida.
 
 En C++, `bazuko_playerstate_test` comprueba que la carga conserve los objetos permitidos por el costal grande y los talentos, y que la regeneración no reviva al jugador durante una caída mortal. Se ejecuta con `ctest --test-dir cpp/build --output-on-failure` después de configurar y compilar los objetivos nativos. Estas pruebas de lógica no requieren abrir la ventana del juego.

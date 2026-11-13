@@ -36,7 +36,7 @@ Un hueco escondido en el cambuche. Sin base no hay caleta; cada pieza suma kilos
 Dos valores de 0 a 100 que empiezan en 50:
 
 - **Los parceros** (habitantes de calle). Compartir comida en la fogata (Q) sube; robarle o pegarle a un habitante baja. Desde 60, alguien avisa cuando arranca la camioneta de la limpieza social. Desde 80, a veces regalan pan o aguapanela en la candela. Por debajo de 25 no dejan arrimar a la fogata.
-- **Los de las chazas** (vendedores ambulantes). Comprarles y cuidar carros sube; robar o pelear a 20 m de un puesto baja, y pegarle a un vendedor baja mucho. Desde 60 fían hasta $ 6.000, que se pagan solos en la siguiente compra; lo fiado no sube la fama al comprarlo, sino al pagarlo. Si en 24 horas de juego no se paga, la fama cae, y el aviso solo dice que ya no le creen si de verdad dejaron de fiarle. Desde 80 rebajan el 10 %; por debajo de 25 cobran el 20 % más.
+- **Los de las chazas** (vendedores ambulantes). Comprarles y cuidar carros sube; robar o pelear a 20 m de un puesto baja, y pegarle a un vendedor baja mucho. Desde 60 fían hasta $ 6.000, que se pagan solos en la siguiente compra; lo fiado no sube la fama al comprarlo, sino al pagarlo. Si en 48 horas de juego (dos días) no se paga, la fama cae, y el aviso solo dice que ya no le creen si de verdad dejaron de fiarle. Desde 80 rebajan el 10 %; por debajo de 25 cobran el 20 % más.
 
 Cada cambio de nivel sale como aviso y la pestaña Estado explica qué significa el nivel actual. La Tienda La Esquinita no usa esta fama: es un local, no una chaza.
 
@@ -46,7 +46,7 @@ Junto a un carro parqueado, Q empieza el turno. Un cartón encima de la tecla de
 
 ## Comida que se daña
 
-Cada unidad perecible lleva la hora de juego en que se daña (`vence` en la fila del costal): empanada, morcilla y papa criolla 8 h, aguapanela y café 6 h, pan 36 h. Atún, agua y gaseosa no se dañan. Se come y se vende primero lo más viejo. Al vencer, la unidad se vuelve «Comida dañada», que llena poco y la mitad de las veces intoxica, aunque el costal vaya pasado de peso: pesa lo mismo o menos que lo que reemplaza. Una barra en la casilla muestra la frescura, se vuelve roja en el último cuarto y hay un aviso hora y media antes.
+Cada unidad perecible lleva la hora de juego en que se daña (`vence` en la fila del costal): empanada, morcilla y papa criolla 24 h, aguapanela y café 12 h, pan 72 h: lo que se compra al anochecer aguanta la noche de sueño. Atún, agua y gaseosa no se dañan. Se come y se vende primero lo más viejo. Al vencer, la unidad se vuelve «Comida dañada», que llena poco y la mitad de las veces intoxica, aunque el costal vaya pasado de peso: pesa lo mismo o menos que lo que reemplaza. Una barra en la casilla muestra la frescura; en el último cuarto se vuelve roja y sale el aviso de comérsela pronto, con 3 h o más por delante (`AVISO_FRESCURA`).
 
 ## Armas que se gastan
 

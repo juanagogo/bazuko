@@ -138,6 +138,34 @@ test('la comida avisa una vez antes de dañarse y su barra baja con el reloj', (
   assert.equal(freshnessLabel(inv.items[0], hour.value), 'Se daña en 1 h');
 });
 
+const PERECEDEROS = Object.keys(ITEMS).filter((id) => ITEMS[id].perece);
+
+test('lo de comer aguanta la noche: lo comprado a las 19:30 amanece bueno después de dormir hasta las 6:00', () => {
+  assert.ok(PERECEDEROS.length >= 6);
+  const hour = { value: 19.5 };
+  const inv = inventoryAt(hour);
+  for (const id of PERECEDEROS) inv.add(ITEMS[id], 1);
+  const fresh = new FreshnessSystem({ inventory: inv, now: () => hour.value });
+  hour.value = 24 + 6; // Game.sleep de noche: hasta las 6:00 del día siguiente
+  assert.deepEqual(fresh.check().bag, {});
+  assert.equal(inv.count('comidaDanada'), 0);
+});
+
+test('el aviso de comerme pronto llega con un cuarto de vida por delante, y nunca menos de 3 h de juego', () => {
+  for (const id of PERECEDEROS) {
+    const hour = { value: 0 };
+    const inv = inventoryAt(hour);
+    inv.add(ITEMS[id], 1);
+    const fresh = new FreshnessSystem({ inventory: inv, now: () => hour.value });
+    const cuarto = ITEMS[id].perece / 4;
+    assert.ok(cuarto >= 3, `${id}: ${cuarto} h para comérselo después del aviso`);
+    hour.value = ITEMS[id].perece - cuarto - .1;
+    assert.deepEqual(fresh.check().soon, [], `${id}: todavía no`);
+    hour.value = ITEMS[id].perece - cuarto + .1;
+    assert.deepEqual(fresh.check().soon, [ITEMS[id].name], `${id}: con ${cuarto} h por delante`);
+  }
+});
+
 test('lo que entró sin hora (partidas viejas) empieza a contar al revisarlo', () => {
   const inv = new InventorySystem();
   inv.add(ITEMS.empanada, 1); // sin reloj: sin vencimiento
@@ -177,7 +205,16 @@ test('la fama sube y baja por lo que hago, y cada nivel cambia algo que se ve', 
   assert.match(famaEfecto('calle', 10), /fogata/);
 });
 
-test('el fiado se paga al comprar y, si no, quedo mal pasado un día', () => {
+test('el fiado da dos días de juego: un día después todavía se puede pagar', () => {
+  const fama = new Reputation();
+  fama.chazas = FAMA.buena;
+  fama.credit(2500, 12);
+  assert.equal(fama.checkDebt(12 + 24), null, 'pasó una noche y un día: todavía hay tiempo');
+  assert.equal(fama.debtHoursLeft(12 + 24), 24);
+  assert.equal(fama.checkDebt(12 + 48).perdida, 2500);
+});
+
+test('el fiado se paga al comprar y, si no, quedo mal pasado el plazo', () => {
   const fama = new Reputation();
   fama.chazas = FAMA.buena;
   fama.credit(2500, 10);
