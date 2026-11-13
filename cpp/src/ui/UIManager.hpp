@@ -311,6 +311,9 @@ public:
     // Burbujas de conversacion de los peatones: posicion en pantalla normalizada (-1..1), texto y opacidad
     struct WorldBubble { float x, y; std::string text; float alpha; };
     void SetWorldBubbles(std::vector<WorldBubble> bubbles) { m_WorldBubbles = std::move(bubbles); }
+    // Multijugador: el nombre de cada jugador sobre su cabeza (x, y en coordenadas de recorte; alpha se apaga con la distancia)
+    struct NameTag { float x, y; std::string text; float alpha; };
+    void SetNameTags(std::vector<NameTag> tags) { m_NameTags = std::move(tags); }
     void RenderQuitScreen(Window& window);
 
 private:
@@ -342,6 +345,7 @@ private:
     std::unordered_map<std::string, std::shared_ptr<Texture>> m_ItemIcons;
     void DrawItemIcon(ImDrawList* draw, ImVec2 center, float size, const std::string& id, const std::string& name, unsigned int color);
     std::vector<WorldBubble> m_WorldBubbles;
+    std::vector<NameTag> m_NameTags;
     std::string m_CraftSelected;   // receta elegida en el banco de trabajo
     float m_CraftFlash = 0.0f;     // destello al fabricar
     bool m_CambucheMenuOpen = false;

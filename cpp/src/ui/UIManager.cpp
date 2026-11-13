@@ -859,6 +859,29 @@ void UIManager::RenderHUD(float dt, const glm::vec3& playerPos, Camera& camera, 
         return;
     }
 
+    if (!m_Paused && !m_NameTags.empty()) {
+        // Nombre de cada jugador sobre su cabeza: tirita de carton con el nombre a marcador; se apaga con la distancia
+        ImDrawList* tagDraw = ImGui::GetBackgroundDrawList();
+        const ImVec2 screen = ImGui::GetIO().DisplaySize;
+        for (const NameTag& tag : m_NameTags) {
+            if (tag.alpha < 0.05f || tag.text.empty()) continue;
+            const float sx = (tag.x * 0.5f + 0.5f) * screen.x, sy = (-tag.y * 0.5f + 0.5f) * screen.y;
+            const char* text = tag.text.c_str();
+            if (Carton::FontsReady() && !std::getenv("BAZUKO_UI_OSCURA")) {
+                const float width = Carton::TextWidth(true, 15, text) + 14.0f, height = Carton::TextHeight(true, 15, text, 400.0f) + 4.0f;
+                const ImVec2 min(sx - width * 0.5f, sy - height), max(sx + width * 0.5f, sy);
+                Carton::Panel(tagDraw, min, max, 900u + static_cast<unsigned int>(tag.text.size()), 2.0f);
+                Carton::Text(tagDraw, true, 15, min + ImVec2(7.0f, 2.0f), Carton::kMarcador, text, 400.0f);
+                continue;
+            }
+            const SignUI::Fonts& fonts = SignUI::GetFonts();
+            const ImVec2 size = fonts.monoBold14->CalcTextSizeA(14.0f, FLT_MAX, 0.0f, text);
+            const ImVec2 pos(sx - size.x * 0.5f, sy - size.y);
+            tagDraw->AddText(fonts.monoBold14, 14.0f, pos + ImVec2(1.0f, 1.0f), IM_COL32(0, 0, 0, static_cast<int>(200.0f * tag.alpha)), text);
+            tagDraw->AddText(fonts.monoBold14, 14.0f, pos, IM_COL32(245, 235, 210, static_cast<int>(255.0f * tag.alpha)), text);
+        }
+    }
+
     if (!m_Paused && !m_WorldBubbles.empty()) {
         // Burbujas blancas con borde oscuro sobre la cabeza de cada peatón (.npc-bubble del original)
         const SignUI::Fonts& bubbleFonts = SignUI::GetFonts();

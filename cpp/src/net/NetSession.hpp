@@ -178,6 +178,7 @@ private:
     double m_SaveAccumulator = 0.0;
     std::string m_Key;                      // invitado: su clave
     std::string m_OwnLook;
+    std::map<uint8_t, std::string> m_Names;   // nombre de cada jugador por id, para dibujarlo sobre su cabeza (viaja con la apariencia)
     std::map<uint8_t, std::string> m_Looks;   // apariencia de cada jugador por id (el anfitrion la recibe en el saludo y la reparte)
     std::string m_JoinAddress;
     uint16_t m_JoinPort = 0;

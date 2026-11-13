@@ -144,6 +144,15 @@ anfitrión se la reparte a todos, también a quien entra después. Se lee con va
 normaliza). Mientras el personaje de otro jugador se está armando se ve un civil por unos instantes. Si alguien cambia su apariencia en medio de la partida, los demás
 la ven al volver a entrar.
 
+## Nombre sobre la cabeza
+
+Cada jugador lleva su nombre en una tirita de cartón sobre la cabeza: el que puso en el creador de personaje, o «Parcero» si lo dejó vacío (máximo 24 caracteres).
+El nombre llega en el saludo; el anfitrión lo reparte a todos junto con la apariencia, también el suyo y a quien entra después. Va al final del mensaje de
+apariencia, así que una copia vieja del juego sigue jugando con una nueva (solo que la vieja muestra «Jugador N»). Se ve nítido hasta 25 m, se apaga hasta
+los 40 m y baja con el jugador cuando está caído. Dos jugadores pueden tener el mismo nombre.
+
+![Nombre sobre la cabeza](capturas/multijugador/6-nombre-sobre-la-cabeza.jpg)
+
 ## Perfiles
 
 Cada jugador tiene una clave de perfil (`bazuko_clave_perfil.txt`, junto al guardado). El anfitrión guarda su plata, costal, experiencia, nivel y talentos en

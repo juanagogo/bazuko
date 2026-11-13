@@ -75,6 +75,11 @@ int main() {
         CHECK(bSeenByA != nullptr, "un cliente ve a otro cliente a traves del anfitrion");
         if (bSeenByA) CHECK(std::hypot(bSeenByA->position.x - bw.position.x, bSeenByA->position.z - bw.position.z) < 2.0f, "y lo ve cerca de su posicion real");
         CHECK(hostNotices.size() == 2, "el anfitrion recibe un aviso por cada jugador que entra");
+        // el nombre de cada uno, para dibujarlo sobre su cabeza: llega a todos, tambien el del anfitrion y el de otro invitado
+        if (hostSeenByA) CHECK(hostSeenByA->name == "Anfitrion", "el invitado ve el nombre del anfitrion");
+        if (bSeenByA) CHECK(bSeenByA->name == "Beto", "un invitado ve el nombre de otro invitado");
+        if (aSeenByHost) CHECK(aSeenByHost->name == "Ana", "el anfitrion ve el nombre del invitado");
+        if (const RemotePlayer* aSeenByB = Find(*b, a->LocalId())) CHECK(aSeenByB->name == "Ana", "el que entro despues ve el nombre del que ya estaba");
         std::printf("A) 3 jugadores: ana ve al anfitrion a %.2f m de error, el anfitrion ve a ana a %.2f m; avisos: %zu\n",
                     hostSeenByA ? std::hypot(hostSeenByA->position.x - hw.position.x, hostSeenByA->position.z - hw.position.z) : -1.0f,
                     aSeenByHost ? std::hypot(aSeenByHost->position.x - aw.position.x, aSeenByHost->position.z - aw.position.z) : -1.0f, hostNotices.size());

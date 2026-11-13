@@ -3049,6 +3049,23 @@ int main(int argc, char** argv) {
             }
             ui.SetWorldBubbles(std::move(bubbles));
         }
+#ifdef BAZUKO_NET_ENABLED
+        {   // multijugador: el nombre de cada jugador sobre su cabeza, nitido hasta 25 m y apagado a 40 m
+            std::vector<UIManager::NameTag> tags;
+            if (netSession) {
+                for (const Net::RemotePlayer& remote : netSession->Remotes()) {
+                    const float distance = glm::distance(remote.position, playerPos);
+                    if (distance > 40.0f) continue;
+                    const glm::vec3 head = remote.position + glm::vec3(0.0f, remote.knockedDown ? 0.7f : 2.05f, 0.0f);
+                    const glm::vec4 clip = camera.GetViewProjectionMatrix() * glm::vec4(head, 1.0f);
+                    if (clip.w <= 0.1f) continue;   // detras de la camara
+                    const float alpha = std::clamp((40.0f - distance) / 15.0f, 0.0f, 1.0f);
+                    tags.push_back({clip.x / clip.w, clip.y / clip.w, remote.name.empty() ? std::string("Parcero") : remote.name, alpha});
+                }
+            }
+            ui.SetNameTags(std::move(tags));
+        }
+#endif
         ui.BeginFrame();
         std::string inventorySummary = inventory.empty() ? "Vacío" : "";
         for (const auto& entry : inventory) {
