@@ -71,8 +71,8 @@ export class FreshnessSystem {
     const inv = this.inventory;
     const bag = spoilEntries(inv.items, now, {
       onRemove: (id, n) => inv.remove(id, n),
-      // Lo dañado no pesa más que lo fresco que reemplaza: siempre cabe.
-      addSpoiled: (n) => { inv.add(ITEMS.comidaDanada, n); },
+      // Lo dañado no pesa más que lo fresco que reemplaza: entra aunque el costal ya vaya pasado de peso.
+      addSpoiled: (n) => { inv.add(ITEMS.comidaDanada, n, { force: true }); },
     });
     const caleta = this.caleta;
     const stash = caleta ? spoilEntries(caleta.items, now, {

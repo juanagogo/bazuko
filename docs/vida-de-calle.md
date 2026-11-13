@@ -46,7 +46,7 @@ Junto a un carro parqueado, Q empieza el turno. Un cartón encima de la tecla de
 
 ## Comida que se daña
 
-Cada unidad perecible lleva la hora de juego en que se daña (`vence` en la fila del costal): empanada, morcilla y papa criolla 8 h, aguapanela y café 6 h, pan 36 h. Atún, agua y gaseosa no se dañan. Se come y se vende primero lo más viejo. Al vencer, la unidad se vuelve «Comida dañada», que llena poco y la mitad de las veces intoxica. Una barra en la casilla muestra la frescura, se vuelve roja en el último cuarto y hay un aviso hora y media antes.
+Cada unidad perecible lleva la hora de juego en que se daña (`vence` en la fila del costal): empanada, morcilla y papa criolla 8 h, aguapanela y café 6 h, pan 36 h. Atún, agua y gaseosa no se dañan. Se come y se vende primero lo más viejo. Al vencer, la unidad se vuelve «Comida dañada», que llena poco y la mitad de las veces intoxica, aunque el costal vaya pasado de peso: pesa lo mismo o menos que lo que reemplaza. Una barra en la casilla muestra la frescura, se vuelve roja en el último cuarto y hay un aviso hora y media antes.
 
 ## Armas que se gastan
 

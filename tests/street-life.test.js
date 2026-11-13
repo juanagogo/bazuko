@@ -110,6 +110,20 @@ test('al pasar su hora la comida se vuelve comida dañada, en el costal y en la 
   assert.deepEqual(caleta.items, [{ id: 'comidaDanada', qty: 1 }]);
 });
 
+test('con el costal pasado de peso, lo que se daña también queda como comida dañada: no desaparece', () => {
+  const hour = { value: 0 };
+  const inv = inventoryAt(hour);
+  inv.add(ITEMS.chatarra, 15);
+  inv.add(ITEMS.empanada, 4);
+  inv.maxWeight = 10; // llevo más de lo que aguanto, como al perder capacidad con todo encima
+  const fresh = new FreshnessSystem({ inventory: inv, now: () => hour.value });
+  hour.value = ITEMS.empanada.perece + .1;
+  assert.deepEqual(fresh.check().bag, { empanada: 4 });
+  assert.equal(inv.count('empanada'), 0);
+  assert.equal(inv.count('comidaDanada'), 4);
+  assert.equal(inv.add(ITEMS.lata, 1), false, 'lo demás sigue sin caber');
+});
+
 test('la comida avisa una vez antes de dañarse y su barra baja con el reloj', () => {
   const hour = { value: 0 };
   const inv = inventoryAt(hour);
