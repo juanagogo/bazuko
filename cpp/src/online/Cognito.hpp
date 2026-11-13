@@ -20,7 +20,7 @@ struct CognitoConfig {
 };
 
 enum class AuthError { None, Network, NotConfigured, BadCredentials, NameTaken, NameInvalid, PasswordInvalid, TooManyAttempts, SessionExpired, CodeWrong, CodeExpired,
-                       EmailInvalid, Unknown };
+                       EmailInvalid, EmailTaken, Unknown };
 const char* AuthErrorText(AuthError error);   // lo que se le dice al jugador
 
 struct Tokens {

@@ -469,7 +469,7 @@ endif()
 target_link_libraries(bazuko PRIVATE bazuko_online)
 # Cuentas de jugador: region y cliente del grupo de Cognito (servicios/salida.json tras el despliegue). Vacio = sin cuentas.
 set(BAZUKO_CUENTAS_REGION "us-east-2" CACHE STRING "Region de las cuentas de jugador")
-set(BAZUKO_CUENTAS_CLIENTE "r66k0og0edo5o1sqf69ftssp2" CACHE STRING "Cliente bazuko-juego del grupo de usuarios de Cognito (vacio = sin cuentas); es publico, sin secreto")
+set(BAZUKO_CUENTAS_CLIENTE "2ks42g2s7c3j554fdqmtp4mujn" CACHE STRING "Cliente bazuko-juego del grupo de usuarios de Cognito (vacio = sin cuentas); es publico, sin secreto")
 set(BAZUKO_CUENTAS_API "https://otia45bnhc.execute-api.us-east-2.amazonaws.com" CACHE STRING "Servicios del juego (HTTP API bazuko-social; vacio = sin perfil en linea)")
 target_compile_definitions(bazuko PRIVATE BAZUKO_CUENTAS_REGION_DEFAULT="${BAZUKO_CUENTAS_REGION}" BAZUKO_CUENTAS_CLIENTE_DEFAULT="${BAZUKO_CUENTAS_CLIENTE}"
                                           BAZUKO_CUENTAS_API_DEFAULT="${BAZUKO_CUENTAS_API}")

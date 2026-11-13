@@ -187,6 +187,9 @@ La pantalla **Perfil** del lobby sirve para entrar, crear una cuenta y cerrar se
 mayúsculas. La contraseña se escribe dos veces y tiene al menos 8 caracteres. El correo es opcional: sin él no se puede recuperar la contraseña. El juego nunca guarda la
 contraseña; la sesión queda cifrada para este usuario de Windows en `bazuko_sesion.bin` y se renueva sola. «Cerrar sesión» la revoca y borra ese archivo.
 
+Para entrar sirve el usuario o el correo, si está **verificado**. Un correo verificado pertenece a una sola cuenta: si otra ya lo verificó, el juego lo dice
+y hay que usar otro. «Olvidé mi contraseña» también acepta el usuario o el correo.
+
 Con la sesión abierta, el Perfil muestra el correo y si está verificado:
 
 - **Agregar o cambiar correo**: queda sin verificar y llega un código de 6 números al correo; se escribe en «Verificar». Dejarlo vacío lo quita.

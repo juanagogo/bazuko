@@ -56,6 +56,7 @@ const char* AuthErrorText(AuthError error) {
     case AuthError::CodeWrong: return "Ese código no es. Revíselo en su correo.";
     case AuthError::CodeExpired: return "Ese código ya venció. Pida otro.";
     case AuthError::EmailInvalid: return "Ese correo no sirve. Revíselo.";
+    case AuthError::EmailTaken: return "Ese correo ya está verificado en otra cuenta. Use otro.";
     case AuthError::Unknown: return "El servidor de cuentas no pudo hacerlo. Intente de nuevo.";
     case AuthError::None: break;
     }
@@ -139,7 +140,8 @@ AuthError ParseAuthError(const HttpResponse& response) {
     const std::string message = body.is_object() ? body.value("message", std::string()) : std::string();
     if (const size_t hash = type.rfind('#'); hash != std::string::npos) type = type.substr(hash + 1);
     if (type == "TooManyRequestsException" || type == "LimitExceededException" || message.find("attempts exceeded") != std::string::npos) return AuthError::TooManyAttempts;
-    if (type == "UsernameExistsException" || type == "AliasExistsException") return AuthError::NameTaken;
+    if (type == "UsernameExistsException") return AuthError::NameTaken;
+    if (type == "AliasExistsException") return AuthError::EmailTaken;   // el correo ya esta verificado en otra cuenta (se entra tambien con el correo)
     if (type == "UserLambdaValidationException") return AuthError::NameInvalid;
     if (type == "InvalidPasswordException") return AuthError::PasswordInvalid;
     if (type == "CodeMismatchException") return AuthError::CodeWrong;

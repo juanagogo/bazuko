@@ -148,6 +148,13 @@ int OnlyLettersAndDigits(ImGuiInputTextCallbackData* data) {
     return ok ? 0 : 1;
 }
 
+// Para entrar: el usuario o el correo verificado de la cuenta (letras, numeros y lo que lleva un correo)
+int NameOrEmail(ImGuiInputTextCallbackData* data) {
+    const ImWchar c = data->EventChar;
+    const bool ok = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '@' || c == '.' || c == '_' || c == '-' || c == '+';
+    return ok ? 0 : 1;
+}
+
 // Borra una contrasena escrita en cuanto ya no hace falta
 // Codigos de verificacion: solo numeros
 int OnlyDigits(ImGuiInputTextCallbackData* data) {
@@ -233,7 +240,7 @@ struct Lobby {
     Online::Session* account = nullptr;
     bool signUpTab = false;      // false: «Entrar»; true: «Crear cuenta»
     bool wantMulti = false;      // se pidio el Multijugador sin sesion: al entrar, sigue a la lista de salas
-    char accName[Online::kNameMax + 1] = {};
+    char accName[96] = {};   // al crear cuenta, el nombre (CheckName lo limita a 16); al entrar, el nombre o el correo
     char accPass[72] = {}, accPass2[72] = {};
     char accEmail[96] = {};
     std::string accError;        // lo que salio mal (revisado en el juego o devuelto por el servidor)
@@ -341,7 +348,7 @@ struct Lobby {
             }
             account->SignUp(name, std::string(accPass), email);
         } else {
-            if (name.empty() || accPass[0] == '\0') { accError = "Escriba su usuario y su contraseña."; return; }
+            if (name.empty() || accPass[0] == '\0') { accError = "Escriba su usuario (o su correo) y su contraseña."; return; }
             account->SignIn(name, std::string(accPass));
         }
         ForgetPasswords();   // la contrasena ya va en camino (por TLS) y no se queda en el lobby
@@ -1366,16 +1373,16 @@ struct Lobby {
         const float half = (inner - 14.0f) * 0.5f;
         if (accPanel == AccPanel::ForgotName) {
             C::Text(draw, false, 17, ImVec2(x, y), C::kMarcador,
-                    "Escriba su usuario. Si la cuenta tiene un correo verificado, le llega un código para poner una contraseña nueva.", inner);
+                    "Escriba su usuario o su correo. Si la cuenta tiene un correo verificado, le llega un código para poner una contraseña nueva.", inner);
             y += 54.0f;
-            Label(draw, x, y, "Usuario");
+            Label(draw, x, y, "Usuario o correo");
             ImGui::SetCursorScreenPos(ImVec2(x, y));
-            const bool enter = Field("##usuario-olvido", accName, sizeof accName, inner, ImGuiInputTextFlags_EnterReturnsTrue, OnlyLettersAndDigits);
+            const bool enter = Field("##usuario-olvido", accName, sizeof accName, inner, ImGuiInputTextFlags_EnterReturnsTrue, NameOrEmail);
             y += 52.0f;
             Notes(draw, x, y, inner);
             ImGui::SetCursorScreenPos(ImVec2(x, y));
             if ((C::Tape("mandar-codigo", busy ? "Mandando..." : "Mandar código", ImVec2(half, 46.0f), true, !busy, nullptr, 20) || enter) && !busy) {
-                if (accName[0] == '\0') accError = "Escriba su usuario.";
+                if (accName[0] == '\0') accError = "Escriba su usuario o su correo.";
                 else { accError.clear(); accInfo.clear(); account->ForgotPassword(accName); }
             }
             ImGui::SetCursorScreenPos(ImVec2(x + half + 14.0f, y));
@@ -1457,9 +1464,9 @@ struct Lobby {
         y += 62.0f;
 
         bool submit = false;
-        Label(draw, x, y, "Usuario");
+        Label(draw, x, y, signUpTab ? "Usuario" : "Usuario o correo");
         ImGui::SetCursorScreenPos(ImVec2(x, y));
-        Field("##usuario", accName, sizeof accName, inner, 0, OnlyLettersAndDigits);
+        Field(signUpTab ? "##usuario" : "##usuario-entrar", accName, sizeof accName, inner, 0, signUpTab ? OnlyLettersAndDigits : NameOrEmail);
         y += 44.0f;
         if (signUpTab) {
             const auto problem = Online::CheckName(accName);

@@ -28,10 +28,11 @@ export class PilaCuentas extends Stack {
 
     // --- Cuentas: Cognito guarda y compara las contrasenas; nada nuestro las ve (FR-009) ---
     const preRegistro = this.funcion('PreRegistro', 'disparadores/preRegistro.ts');
-    this.grupo = new cognito.UserPool(this, 'Jugadores', {
+    // 'JugadoresCorreo': el grupo de antes ('Jugadores') solo entraba con el nombre, y Cognito no deja agregar el correo despues
+    this.grupo = new cognito.UserPool(this, 'JugadoresCorreo', {
       userPoolName: 'bazuko-jugadores',
       selfSignUpEnabled: true,
-      signInAliases: { username: true },
+      signInAliases: { username: true, email: true },        // se entra con el nombre o con el correo verificado (unico entre cuentas); fijarlo obliga a un grupo nuevo
       signInCaseSensitive: false,                            // "Jairo" y "jairo" son la misma cuenta (FR-002)
       standardAttributes: { email: { required: false, mutable: true } },
       autoVerify: { email: false },                          // el correo se verifica a pedido, desde el perfil (FR-008a)

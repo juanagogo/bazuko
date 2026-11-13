@@ -183,3 +183,7 @@ description: "Lista de tareas: cuentas de jugador y funciones sociales"
 5. US6 → voz.
 
 Cada paso se entrega probado, con capturas del juego, y con commit solo cuando el usuario lo pida.
+
+## Cambios posteriores
+
+- Entrar con el correo verificado además del usuario (alias de Cognito). Cognito no permite agregarlo a un grupo existente, así que se creó un grupo nuevo (`JugadoresCorreo`) y se borró el anterior, que solo tenía una cuenta de prueba.

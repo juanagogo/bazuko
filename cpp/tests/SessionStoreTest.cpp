@@ -53,6 +53,8 @@ int main() {
     CHECK(ParseAuthError(oldCode) == AuthError::CodeExpired, "codigo vencido");
     HttpResponse weak{true, 400, R"({"__type":"InvalidPasswordException","message":"Password did not conform with policy"})"};
     CHECK(ParseAuthError(weak) == AuthError::PasswordInvalid, "contrasena que no cumple");
+    HttpResponse alias{true, 400, R"({"__type":"AliasExistsException","message":"An account with the email already exists."})"};
+    CHECK(ParseAuthError(alias) == AuthError::EmailTaken, "correo ya verificado en otra cuenta");
 
     // Lo que la cuenta sabe de si misma (GetUser): correo y si esta verificado
     HttpResponse user{true, 200, R"({"Username":"jairo117","UserAttributes":[{"Name":"sub","Value":"abc"},{"Name":"email","Value":"jairo@ejemplo.com"},{"Name":"email_verified","Value":"true"}]})"};
