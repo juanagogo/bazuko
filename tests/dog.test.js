@@ -107,7 +107,10 @@ test('Dog emite alerta cuando olfatea basura cercana y ante sospechosos', () => 
   assert.ok(texts.some(text => text.includes('sospechoso')));
 });
 
-test('sin dueño merodea cerca de su lugar', () => {
+test('sin dueño merodea cerca de su lugar', (t) => {
+  // Azar sembrado: sin semilla, alguna vez el perro apenas se movía en esos 10 s.
+  let semilla = 7;
+  t.mock.method(Math, 'random', () => (semilla = semilla * 16807 % 2147483647) / 2147483647);
   const dog = new Dog(new THREE.Scene(), new THREE.Vector3(5, 0, 5));
   dog._wanderPause = 0;
   for (let i = 0; i < 300; i++) {

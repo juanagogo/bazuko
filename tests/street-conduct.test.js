@@ -135,7 +135,10 @@ test('un fijo no se mueve ni cambia de postura en toda la partida', async () => 
   npc.dispose();
 });
 
-test('quien conversa alterna sus posturas sin moverse', async () => {
+test('quien conversa alterna sus posturas sin moverse', async (t) => {
+  // Azar sembrado: sin semilla, alguna vez en 240 s no salía una de las tres posturas.
+  let semilla = 11;
+  t.mock.method(Math, 'random', () => (semilla = semilla * 16807 % 2147483647) / 2147483647);
   const stances = ['hablar', 'brazos-cruzados', 'bolsillos'];
   const npc = await person('estudiante', { fijo: { stance: 'hablar', alternas: stances } });
   const seen = new Set();
