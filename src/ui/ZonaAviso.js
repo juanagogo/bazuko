@@ -18,7 +18,8 @@ export const ZONA_NOMBRES = {
   chapinero: 'Chapinero',
   andenes: 'El centro',
   barrio: 'Los barrios',
-  lago: LAKE_PARK.name
+  lago: LAKE_PARK.name,
+  metro: 'Metro de Bogotá (Línea 1 PLMB)'
 };
 
 /** La zona donde está el jugador: todo el parque del sur es lago, aunque `_zoneAt` lo meta en los barrios. */

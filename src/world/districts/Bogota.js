@@ -39,6 +39,7 @@ import { TrafficRoute } from '../bogota/TrafficRoute.js';
 import { BusService } from '../bogota/BusService.js';
 import { skylineFloors, buildAvenueOverpass, AVENUE_OVERPASS } from '../bogota/AvenueLandmarks.js';
 import { GAS_STATION, GAS_OBSTACLES, inGasStation, underGasCanopy, buildGasStation } from '../bogota/GasStation.js';
+import { buildMetroBogota } from '../bogota/MetroBogota.js';
 import { buildD69Store } from '../bogota/D69Store.js';
 import { buildColpatria, COLPATRIA, COLPATRIA_ANNEX, BUS_DETOUR, busPathX, southBusPathX } from '../bogota/Colpatria.js';
 import { VIADUCT, buildColpatriaViaduct, viaductHeight, viaductSurface } from '../bogota/ColpatriaViaduct.js';
@@ -248,6 +249,13 @@ export class Bogota {
     const tower = buildColpatria({ createSign: signTexture });
     this.towerLights = tower.userData.lightMaterials;
     this.group.add(tower);
+
+    // Metro de Bogotá (Línea 1 PLMB - Viaducto elevado sobre la Caracas y tren oficial)
+    const metro = buildMetroBogota({ pavement: this.groundMaterials.road });
+    this.group.add(metro);
+    if (metro.userData.colliders) {
+      for (const entry of metro.userData.colliders) collisions?.colliders.push(entry);
+    }
     const parks = [
       { x0: WX(29.5), x1: WX(37.5), z0: WZ(33.5), z1: WZ(44.5) },
       ...EXTENSION_PARKS.map(park => ({ x0: W(park.x0 + .5), x1: W(park.x1 - .5), z0: W(park.z0 + .5), z1: W(park.z1 - .5) })),
@@ -634,6 +642,11 @@ export class Bogota {
     for (const [t, list] of Object.entries(quads)) {
       this.group.add(mergeByChunk(list, mats[t], { receiveShadow: true }));
     }
+  }
+
+  /** Lluvia que está cayendo (0 sin lluvia, ~.3 llovizna, ~.7 aguacero, 1 tormenta): la que ven los peatones. */
+  setRain(intensity = 0) {
+    this.rainNow = Math.max(0, intensity);
   }
 
   /** Cebras en los cruces, líneas amarillas y separadores de la troncal */
@@ -1474,6 +1487,7 @@ export class Bogota {
 
   /** Zona de la ciudad en ese punto: decide qué gente anda por ahí (ver character/archetypes.js). */
   _zoneAt(x, z) {
+    if (Math.abs(x - 75) <= 6 && z >= 10 && z <= 310) return 'metro';
     if (x >= WX(9) - 1 && x <= WX(21) + 1 && z >= WZ(17) && z <= WZ(26)) return 'cartucho';
     if (x >= WX(29) && x <= WX(38) && z >= WZ(33) && z <= WZ(45)) return 'parque';
     if (x >= W(EAST_SEAM)) return z < W(CANDELARIA_END_Z) ? 'candelaria' : 'chapinero';
@@ -1563,6 +1577,8 @@ export class Bogota {
         const other = this.npcs.at(-2);
         npc.fijo.pareja = other;
         other.fijo.pareja = npc;
+        // Empiezan por turnos: uno habla y el otro escucha.
+        npc.stance = npc._pairTurn(npc.stance);
       }
     }
     // La gente de la calle sale con el reloj y rodea al jugador: los andenes por su largo y los parques por su hora.
@@ -1701,7 +1717,9 @@ export class Bogota {
     const chasers = this._chasers ??= [];
     chasers.length = 0;
     for (const vehicle of trafficVehicles) if (vehicle.state === 'chase' || vehicle.rejoinTarget) chasers.push(vehicle);
-    const ctx = { player: playerPos, frustum, camera, isRaining: (this.wetness ?? 0) > 0.05, animationBudget: this.animationBudget ?? 1,
+    // Con el clima conectado cuenta la lluvia que cae; sin él (pruebas, sala), el piso mojado como antes.
+    const raining = this.rainNow !== undefined ? this.rainNow > 0 : (this.wetness ?? 0) > 0.05;
+    const ctx = { player: playerPos, frustum, camera, isRaining: raining, rain: this.rainNow, animationBudget: this.animationBudget ?? 1,
       drawDistance: this.farDetailDistance, skipHiddenMatrices: true, vehicles: trafficVehicles, hygiene: this.playerHygiene ?? 100, chasers, night: this.night };
     if (this.crowd && playerPos && Number.isFinite(hour)) {
       const forward = camera?.getWorldDirection?.(_crowdForward);

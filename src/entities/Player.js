@@ -731,7 +731,7 @@ export class Player {
     if (hit && !hit.hits.every((h) => h.target.isShadow)) {
       if (hit.reward > 0 && typeof this.stats?.dinero === 'number') this.stats.dinero += hit.reward;
       if (typeof this.game?.steal?.buscado === 'number') this.game.steal.buscado = Math.min(3, this.game.steal.buscado + 1);
-      emit('street-fight', { attacker: this });
+      emit('street-fight', { attacker: this, hits: (hit.hits ?? [hit]).map((h) => h.target).filter(Boolean), weapon: this.equippedWeapon ?? null });
     }
     if (this.melee.active) {
       this.action = 'golpear';

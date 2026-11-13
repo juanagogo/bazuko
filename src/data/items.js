@@ -9,7 +9,8 @@ export const ITEMS = {
   // ===== BASURA =====
   // `sharp`: corta al escarbar, así que la bolsa que lo trae puede dar tétanos.
   lata:     { id: 'lata',     name: 'Lata vacía',    weight: 0.2,  value: 250, rarity: 'common', sharp: true },
-  botella:  { id: 'botella',  name: 'Botella',   weight: 0.3,  value: 150 },
+  // Vacía se vende; con lluvia fuerte o junto a una pila pública se llena de agua (`aguaCalle`).
+  botella:  { id: 'botella',  name: 'Botella',   weight: 0.3,  value: 150, usable: true },
   carton:   { id: 'carton',   name: 'Cartón',        weight: 0.5,  value: 200, rarity: 'common' },
   chatarra: { id: 'chatarra', name: 'Chatarra',      weight: 1.0,  value: 900, sharp: true },
   cable:    { id: 'cable',    name: 'Cable de cobre',   weight: 0.4,  value: 2400 },
@@ -30,19 +31,19 @@ export const ITEMS = {
   // ===== CONSUMIBLES =====
   pan: {
     id: 'pan', name: 'Pan duro', weight: 0.3, value: 1000,
-    consumable: 'hambre', amount: 25, animo: 5
+    consumable: 'hambre', amount: 25, animo: 5, perece: 36
   },
   empanada: {
     id: 'empanada', name: 'Empanada con ají', weight: 0.2, value: 1200,
-    consumable: 'hambre', amount: 35, animo: 15, calor: 120, desc: 'Empanada de carne y papa con ají casero.'
+    consumable: 'hambre', amount: 35, animo: 15, calor: 120, perece: 8, desc: 'Empanada de carne y papa con ají casero.'
   },
   morcilla: {
     id: 'morcilla', name: 'Morcilla criolla', weight: 0.35, value: 2500,
-    consumable: 'hambre', amount: 60, energia: 20, animo: 10, calor: 180, desc: 'Rellena de la Mona: contundente y calórica.'
+    consumable: 'hambre', amount: 60, energia: 20, animo: 10, calor: 180, perece: 8, desc: 'Rellena de la Mona: contundente y calórica.'
   },
   papaCriolla: {
     id: 'papaCriolla', name: 'Papa criolla', weight: 0.25, value: 1000,
-    consumable: 'hambre', amount: 25, animo: 10, calor: 90, desc: 'Porción de papa criolla doradita con sal.'
+    consumable: 'hambre', amount: 25, animo: 10, calor: 90, perece: 8, desc: 'Porción de papa criolla doradita con sal.'
   },
   lataComida: {
     id: 'lataComida', name: 'Lata de atún', weight: 0.4, value: 4500,
@@ -54,7 +55,13 @@ export const ITEMS = {
   },
   aguapanela: {
     id: 'aguapanela', name: 'Aguapanela caliente', weight: 0.35, value: 1200,
-    consumable: 'sed', amount: 40, energia: 25, animo: 15, calor: 180, cure: 'gripe', desc: 'Aguapanela con limón: revive y cura la gripe.'
+    consumable: 'sed', amount: 40, energia: 25, animo: 15, calor: 180, cure: 'gripe', perece: 6, desc: 'Aguapanela con limón: revive y cura la gripe.'
+  },
+  // Agua de lluvia o de pila: quita la sed, pero no es potable y a veces cae mal.
+  aguaCalle: {
+    id: 'aguaCalle', name: 'Agua de la calle', weight: 0.5, value: 0,
+    consumable: 'sed', amount: 30, riesgo: { enfermedad: 'intoxicacion', prob: 0.12 },
+    desc: 'Botella llenada con lluvia o en una pila. Quita la sed, pero puede caer mal.'
   },
   refresco: {
     id: 'refresco', name: 'Gaseosa', weight: 0.4, value: 2500,
@@ -62,7 +69,13 @@ export const ITEMS = {
   },
   cafe: {
     id: 'cafe', name: 'Café caliente', weight: 0.3, value: 1500,
-    consumable: 'energia', amount: 40, animo: 15
+    consumable: 'energia', amount: 40, animo: 15, perece: 6
+  },
+  // Lo que se dañó en el costal: llena poco y la mitad de las veces cae mal.
+  comidaDanada: {
+    id: 'comidaDanada', name: 'Comida dañada', weight: 0.2, value: 0,
+    consumable: 'hambre', amount: 12, animo: -5, riesgo: { enfermedad: 'intoxicacion', prob: 0.5 },
+    desc: 'Se dañó en el costal. Llena poco y la mitad de las veces cae mal.'
   },
   vendaje: {
     id: 'vendaje', name: 'Vendaje', weight: 0.1, value: 3000,
@@ -149,16 +162,17 @@ export const ITEMS = {
     consumable: 'vicio', amount: 25, salud: -1, substance: true
   },
   rifa:  { id: 'rifa', name: 'Cartón de rifa', weight: 0.02, value: 1500 },
+  // `durabilidad`: golpes que aguanta antes de partirse (ver systems/WeaponWear.js).
   arma: {
-    id: 'arma', name: 'Arma casera', weight: 1.2, value: 6000, usable: true, weapon: 'arma',
+    id: 'arma', name: 'Arma casera', weight: 1.2, value: 6000, usable: true, weapon: 'arma', durabilidad: 55,
     desc: 'Tabla con chatarra amarrada con cable: lenta, pero pega duro y alcanza más. Usar: sacar o guardar.'
   },
   cuchillo: {
-    id: 'cuchillo', name: 'Cuchillo', weight: 0.4, value: 2800, usable: true, weapon: 'cuchillo',
+    id: 'cuchillo', name: 'Cuchillo', weight: 0.4, value: 2800, usable: true, weapon: 'cuchillo', durabilidad: 40,
     desc: 'Corta y rápida. Usar: sacar o guardar.'
   },
   botella_picada: {
-    id: 'botella_picada', name: 'Botella picada', weight: 0.3, value: 100, usable: true, weapon: 'botella_picada',
+    id: 'botella_picada', name: 'Botella picada', weight: 0.3, value: 100, usable: true, weapon: 'botella_picada', durabilidad: 18,
     desc: 'Vidrio roto con buen alcance. Usar: sacar o guardar.'
   },
 
@@ -187,7 +201,7 @@ export const itemRarityLabel = id => RARITIES[ITEMS[id]?.rarity] ?? '';
 const ITEM_EMOJIS = {
   lata: '🥫', botella: '🍶', carton: '📦', chatarra: '🔩', cable: '🔌',
   lona: '⛺', madera: '🪵', colchon: '🛏️', vela: '🕯️', pan: '🍞',
-  agua: '💧', refresco: '🥤', cafe: '☕', lataComida: '🐟', vendaje: '🩹',
+  agua: '💧', aguaCalle: '💧', comidaDanada: '🍞', refresco: '🥤', cafe: '☕', lataComida: '🐟', vendaje: '🩹',
   reloj: '⌚', moneda: '🪙', anillo: '💍', jabon: '🧼', cepillo: '🪥',
   empanada: '🥟', morcilla: '🌭', papaCriolla: '🥔', aguapanela: '🍵',
   retrovisor: '🪞', radio: '📻', radioTransistor: '📻', pilas: '🔋', popo: '💩', cigarrillo: '🚬', basuco: '💨',
@@ -204,6 +218,10 @@ export function describeEffects(item) {
   if (item.id === 'radioTransistor') lines.push('Usar: abrir el sintonizador. También con R.');
   if (item.id === 'pilas') lines.push('Usar: 50 % más de pilas en el radio.');
   if (item.id === 'popo') lines.push('Usar o X en la calle: lanzar a un peatón.');
+  if (item.id === 'botella') lines.push('Usar con lluvia fuerte: recoger agua. Junto a una pila pública también se llena.');
+  if (item.perece) lines.push(`Se daña en ${item.perece} h si no se come.`);
+  if (item.durabilidad) lines.push(`Aguanta unos ${item.durabilidad} golpes antes de partirse.`);
+  if (item.riesgo) lines.push(`Riesgo: ${Math.round(item.riesgo.prob * 100)} % de que caiga mal.`);
   if (item.weapon) lines.push('Usar: sacar o guardar. Se pega con clic o G, y golpes seguidos pegan más.');
   if (item.consumable) lines.push(`${item.consumable}: +${item.amount}`);
   if (item.calor) lines.push(`Calor: +${Math.round(item.calor / 60)} min contra el frío`);
@@ -225,7 +243,7 @@ export const isForSale = (item, equippedWeapon = null) => isRecyclable(item) && 
 
 // El dibujo de cada objeto cuyo nombre no coincide con el de su dibujo (ver src/ui/icons.js)
 const ICONS = {
-  radioTransistor: 'radio', papaCriolla: 'papa', aguapanela: 'pocillo', agua: 'botellaAgua', cafe: 'pocillo', tintico: 'pocillo',
+  radioTransistor: 'radio', papaCriolla: 'papa', aguapanela: 'pocillo', agua: 'botellaAgua', aguaCalle: 'botellaAgua', comidaDanada: 'pan', cafe: 'pocillo', tintico: 'pocillo',
   basuco: 'papeleta', botella_picada: 'botellaPicada', antibiotico: 'pastilla', antiparasitario: 'pastilla', polvoLadrillo: 'frasco', ropaLimpia: 'shirt'
 };
 export const itemIcon = (id) => ICONS[id] ?? id;

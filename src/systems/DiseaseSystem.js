@@ -53,6 +53,15 @@ export class DiseaseSystem {
     return this._contract('sarna');
   }
 
+  /**
+   * Una enfermedad concreta con su probabilidad: agua de la calle, comida dañada o la pila de noche.
+   * @returns {object|null} enfermedad contraída o null
+   */
+  tryContract(id, prob, resistanceMult = 1, random = Math.random) {
+    if (!DISEASES[id] || random() > prob * resistanceMult) return null;
+    return this._contract(id);
+  }
+
   _contract(id) {
     // No apilar la misma enfermedad
     if (this.active[id]) {

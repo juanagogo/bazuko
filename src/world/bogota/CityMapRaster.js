@@ -31,9 +31,14 @@ export function cityMapPlan(district, tileSize = 2) {
   plan.tiles = () => {
     const puntos = [];
     for (let z = VIADUCT.start; z <= VIADUCT.end; z += 2) puntos.push([bridgeCenter(z), z]);
+    // Viaducto elevado de la Primera Línea del Metro sobre la Av. Caracas (x: 75)
+    const puntosMetro = [];
+    for (let z = 10; z <= 310; z += 2) puntosMetro.push([75, z]);
     return {
       ancho: width, desdeZ: zMin, hastaZ: zMax, T: tileSize, tipo: typeAt,
-      originX: plan.originX, originZ: plan.originZ, viaducto: { ancho: VIADUCT.width, puntos },
+      originX: plan.originX, originZ: plan.originZ,
+      viaducto: { ancho: VIADUCT.width, puntos },
+      metro: { ancho: 7, puntos: puntosMetro },
     };
   };
   return plan;
@@ -59,6 +64,9 @@ export function cityLandmarks(tileSize = 2) {
     { name: 'Gasolinera', icon: '⛽', color: '#f25b5b', decor: true, ...center(GAS_STATION) },
     { name: 'Portal del Centro', icon: '🚏', color: '#e45960', x: TERMINAL.x, z: TERMINAL.z },
     { name: 'Torre Colpatria', icon: '🏙️', color: '#ffcb45', x: COLPATRIA.x, z: COLPATRIA.z },
+    { name: 'Metro de Bogotá · Estación Calle 72', icon: '🚇', color: '#2e7d32', x: 75, z: 115 },
+    { name: 'Metro de Bogotá · Estación Central (Calle 26)', icon: '🚇', color: '#2e7d32', x: 75, z: 193 },
+    { name: 'Metro de Bogotá · Viaducto Caracas', icon: '🚇', color: '#2e7d32', x: 75, z: 155 },
     { name: 'Parque del Lago', icon: '🌊', color: '#5ed4dc', x: LAKE_PARK.lakeX, z: LAKE_PARK.z0 + 6 },
     { name: 'Mercado Doña Inés', icon: '🏬', color: '#3cc47c', decor: true, ...center(D69_STORE) },
     ...EXTENSION_PARKS.map(p => ({ name: p.name, icon: '🌳', color: '#6fcf6a',

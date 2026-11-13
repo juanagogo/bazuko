@@ -37,6 +37,12 @@ export class StealSystem {
     this.markerDir = 1;
     this.zoneStart = 0.35;
     this.zoneSize = CONFIG.baseZoneSize;
+    this.theftType = null; // 'cosquilleo' | 'mirror'
+    this.targetCar = null;
+    this.mirrorStep = 1;
+    this.mirrorMisses = 0;
+    this.markerSpeed = CONFIG.markerSpeed;
+    this._onMirrorComplete = null;
     this._spaceOwned = false;
     if (typeof window !== 'undefined') window.addEventListener('keyup', (e) => { if (e.code === 'Space') this._spaceOwned = false; }, true);
     this._dom = null;
@@ -133,12 +139,15 @@ export class StealSystem {
   // Inicia el minijuego de timing para el cosquilleo.
   startCosquilleo(npc) {
     this.minigameActive = true;
+    this.theftType = 'cosquilleo';
     this.targetNpc = npc;
+    this.targetCar = null;
     npc.alerta ??= 0.35 + Math.random() * 0.4;
     this.zoneSize = Math.max(0.18, CONFIG.baseZoneSize * (1.1 - npc.alerta * 0.4));
     this.zoneStart = 0.15 + Math.random() * (0.85 - this.zoneSize - 0.15);
     this.markerPos = 0;
     this.markerDir = 1;
+    this.markerSpeed = CONFIG.markerSpeed * (1 + (npc?.alerta ?? 0.3) * 0.5);
     if (this._dom) {
       this._dom.zone.style.left = `${this.zoneStart * 100}%`;
       this._dom.zone.style.width = `${this.zoneSize * 100}%`;
@@ -150,6 +159,71 @@ export class StealSystem {
     }
   }
 
+  // Inicia el minijuego para arrancar el retrovisor de un carro (palanquear y arrancar).
+  startMirrorTheft(car, onComplete = null) {
+    if (!car || car.stealable === false) return;
+    this.minigameActive = true;
+    this.theftType = 'mirror';
+    this.targetCar = car;
+    this.targetNpc = null;
+    this.mirrorStep = 1;
+    this.mirrorMisses = 0;
+    this._onMirrorComplete = onComplete;
+    this.markerSpeed = car.traffic ? 2.4 : 1.8;
+    this.zoneSize = car.traffic ? 0.28 : 0.34;
+    this.zoneStart = 0.18 + Math.random() * (0.82 - this.zoneSize - 0.18);
+    this.markerPos = 0;
+    this.markerDir = 1;
+    if (this._dom) {
+      this._dom.zone.style.left = `${this.zoneStart * 100}%`;
+      this._dom.zone.style.width = `${this.zoneSize * 100}%`;
+      this._dom.ayuda.innerHTML = modoEntrada() === 'tactil'
+        ? '🪞 1/2 Palanquear - Toque la barra en lo negro'
+        : `🪞 <b>Paso 1/2: Palanquear soporte</b> <kbd>${teclaVisible('Espacio')}</kbd> Halar <kbd>${teclaVisible('Esc')}</kbd> Cancelar`;
+      this._dom.box.hidden = false;
+    }
+  }
+
+  // Maneja la pulsación durante el minijuego de robar retrovisor
+  _handleMirrorKey(success) {
+    if (success) {
+      if (this.mirrorStep === 1) {
+        this.mirrorStep = 2;
+        this.game?.audio?.play?.('pickup');
+        this._toast('¡Clac! Soporte aflojado. ¡Hale duro para arrancarlo!', 'info');
+        this.markerSpeed = (this.targetCar?.traffic ? 3.0 : 2.3);
+        this.zoneSize = (this.targetCar?.traffic ? 0.20 : 0.24);
+        this.zoneStart = 0.15 + Math.random() * (0.85 - this.zoneSize - 0.15);
+        this.markerPos = 0;
+        this.markerDir = 1;
+        if (this._dom) {
+          this._dom.zone.style.left = `${this.zoneStart * 100}%`;
+          this._dom.zone.style.width = `${this.zoneSize * 100}%`;
+          this._dom.ayuda.innerHTML = modoEntrada() === 'tactil'
+            ? '🪞 2/2 ¡Arrancar! - Toque la barra en lo negro'
+            : `🪞 <b>Paso 2/2: ¡Arrancar cables y espejo!</b> <kbd>${teclaVisible('Espacio')}</kbd> Halar con fuerza`;
+        }
+        return;
+      }
+      this._endMinigame(true, 'play');
+    } else {
+      this.mirrorMisses++;
+      this.game?.audio?.play?.('empty');
+      if (this.mirrorMisses >= 2) {
+        this._endMinigame(false, 'play');
+      } else {
+        this._toast('¡Se resbaló! El espejo sigue trabado (último intento).', 'warn');
+        if (this.targetCar?.traffic) {
+          if (typeof window !== 'undefined' && typeof window.dispatchEvent === 'function') {
+            try {
+              window.dispatchEvent(new CustomEvent('car-honk', { detail: { x: this.targetCar.position.x, z: this.targetCar.position.z } }));
+            } catch {}
+          }
+        }
+      }
+    }
+  }
+
   // Mientras dura la barra, Espacio la detiene sin saltar y Esc la cancela sin abrir la pausa.
   _onMinigameKey(e) {
     // El Espacio que detuvo la barra sigue siendo suyo hasta soltarlo: su repetición no es un salto.
@@ -158,7 +232,7 @@ export class StealSystem {
       e.stopImmediatePropagation();
       return;
     }
-    if (!this.minigameActive || this.game.paused) return;
+    if (!this.minigameActive || this.game?.paused) return;
     if (e.code === 'Escape') {
       e._panelHandled = true;
       this._endMinigame(false, 'cancel');
@@ -168,18 +242,43 @@ export class StealSystem {
       if (e.repeat) return;
       this._spaceOwned = true;
       const success = this.markerPos >= this.zoneStart && this.markerPos <= (this.zoneStart + this.zoneSize);
-      this._endMinigame(success, 'play');
+      if (this.theftType === 'mirror') {
+        this._handleMirrorKey(success);
+      } else {
+        this._endMinigame(success, 'play');
+      }
     }
   }
 
   // Actualiza la oscilación del marcador; si el jugador y la persona se separan, ya no hay a quién robarle.
   _updateMinigame(dt) {
-    const npc = this.targetNpc, player = this.game.player?.position;
+    if (this.theftType === 'mirror') {
+      const car = this.targetCar, player = this.game?.player?.position;
+      if (car?.position && player && player.distanceTo(car.position) > 4.5) {
+        this._endMinigame(false, 'cancel');
+        return;
+      }
+      const speed = this.markerSpeed ?? 2.0;
+      this.markerPos += this.markerDir * speed * dt;
+      if (this.markerPos >= 1) {
+        this.markerPos = 1;
+        this.markerDir = -1;
+      } else if (this.markerPos <= 0) {
+        this.markerPos = 0;
+        this.markerDir = 1;
+      }
+      if (this._dom) {
+        this._dom.marker.style.left = `${this.markerPos * 100}%`;
+      }
+      return;
+    }
+
+    const npc = this.targetNpc, player = this.game?.player?.position;
     if (npc?.position && player && player.distanceTo(npc.position) > CONFIG.stealDistance * 2) {
       this._endMinigame(false, 'cancel');
       return;
     }
-    const speed = CONFIG.markerSpeed * (1 + (this.targetNpc?.alerta ?? 0.3) * 0.5);
+    const speed = this.markerSpeed ?? (CONFIG.markerSpeed * (1 + (this.targetNpc?.alerta ?? 0.3) * 0.5));
     this.markerPos += this.markerDir * speed * dt;
     if (this.markerPos >= 1) {
       this.markerPos = 1;
@@ -197,6 +296,35 @@ export class StealSystem {
   _endMinigame(success, reason) {
     this.minigameActive = false;
     if (this._dom) this._dom.box.hidden = true;
+
+    if (this.theftType === 'mirror') {
+      const car = this.targetCar;
+      const cb = this._onMirrorComplete;
+      this.theftType = null;
+      this.targetCar = null;
+      this._onMirrorComplete = null;
+      if (reason === 'cancel') return;
+      if (success && car) {
+        this._toast('¡CRACK! ¡Retrovisor arrancado!', 'rare');
+        if (typeof cb === 'function') cb(car);
+        else this.game?.interaction?._executeCarTheft?.(car);
+      } else if (car) {
+        this._toast('¡Fallé al arrancar el retrovisor y sonó la alarma!', 'death');
+        if (car.traffic) {
+          this.game?.audio?.playMovingTheft?.(car);
+          if (typeof window !== 'undefined' && typeof window.dispatchEvent === 'function') {
+            try {
+              window.dispatchEvent(new CustomEvent('mirror-stolen', { detail: { car } }));
+            } catch {}
+          }
+        } else {
+          this.game?.audio?.playCarAlarm?.(car);
+        }
+        this._alertPolice();
+      }
+      return;
+    }
+
     if (reason === 'cancel') return;
     const npc = this.targetNpc;
     this.cooldown = CONFIG.globalCooldown;
@@ -205,12 +333,14 @@ export class StealSystem {
     if (success) {
       this._giveLoot(CONFIG.lootMoneyCosquilleo, true);
       this._toast('Cosquilleo limpio: nadie se dio cuenta.', 'rare');
+      this._robbed(npc, false);
     } else {
       const bonus = this.game?.dog?.distractionBonus?.(this.game.player?.position) ?? 0;
       const noticeChance = Math.max(0.2, (npc?.alerta ?? 0.5) - bonus);
       if (Math.random() < noticeChance) {
         npc?.alarmedByTheft?.(this.game.player.position);
         this._toast('¡Me pillaron con las manos en la masa! El peatón gritó.', 'death');
+        this._robbed(npc, true);
         // De último: los avisos caen uno encima del otro y este es el que hay que alcanzar a leer.
         this._alertPolice();
       } else {
@@ -226,6 +356,7 @@ export class StealSystem {
     this._calma = 0;
     this.buscado = Math.min(3, this.buscado + 1);
     this._giveLoot(CONFIG.lootMoneyDirect, false);
+    this._robbed(npc, true);
     // Quien está en el piso o en la banca no alcanza a defenderse: bastante hace con pararse.
     const down = LOW_STANCES.has(npc.stance);
     npc.alarmedByTheft?.(this.game.player.position);
@@ -238,6 +369,12 @@ export class StealSystem {
       this._toast('¡Raponazo! El peatón se asustó.', 'warn');
     }
     this._alertPolice();
+  }
+
+  // Robarle a alguien se sabe en la calle: la fama lo escucha (ver systems/StreetLife.js).
+  _robbed(npc, noticed) {
+    if (typeof window === 'undefined' || typeof window.dispatchEvent !== 'function') return;
+    window.dispatchEvent(new CustomEvent('pedestrian-robbed', { detail: { npc, noticed } }));
   }
 
   // Una patrulla que lo ve lo persigue, igual que por un retrovisor robado.

@@ -205,3 +205,21 @@ test('lo que ocupa sitio sin detener a nadie está anotado para quien cae, y no 
   const bench = city.benchSpots[0];
   assert.equal(collisions.queryStatic(bench.x, bench.z, bench.x, bench.z, []).some(({ box }) => bench.y + .3 > box.min.y && bench.y + .3 < box.max.y && bench.x > box.min.x && bench.x < box.max.x && bench.z > box.min.z && bench.z < box.max.z), false);
 });
+
+test('las parejas que conversan se turnan: nunca gesticulan los dos a la vez', () => {
+  const pairs = fixed.filter(npc => npc.fijo.pareja && everyone.indexOf(npc) < everyone.indexOf(npc.fijo.pareja));
+  assert.ok(pairs.length >= 3, 'en el prado, el Portal y la plaza');
+  for (const a of pairs) {
+    const b = a.fijo.pareja;
+    assert.ok(!(a.stance === 'hablar' && b.stance === 'hablar'), 'empiezan uno hablando y el otro escuchando');
+    let turns = 0, last = null;
+    for (let i = 0; i < 4000; i++) {
+      a._stayAtSpot(.25);
+      b._stayAtSpot(.25);
+      assert.ok(!(a.stance === 'hablar' && b.stance === 'hablar'), `${a.person.arquetipo} y ${b.person.arquetipo} a la vez`);
+      const speaker = a.stance === 'hablar' ? a : b.stance === 'hablar' ? b : null;
+      if (speaker && speaker !== last) { turns++; last = speaker; }
+    }
+    assert.ok(turns >= 4, `la palabra pasa de uno a otro (${turns} turnos)`);
+  }
+});
