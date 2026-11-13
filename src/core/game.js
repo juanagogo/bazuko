@@ -80,6 +80,8 @@ import { LocalLights } from './LocalLights.js';
 import { ContactShadows } from './ContactShadows.js';
 import { GRAPHICS_PROFILES } from './GraphicsQuality.js';
 import { FrameProfiler } from './FrameProfiler.js';
+import { registerSectorChildren } from './SectorCulling.js';
+import { renderBreakdown } from './RenderBreakdown.js';
 import { loadTaskGroups, withLoadTimeout } from './Startup.js';
 import { paintLoadingFrame } from '../ui/LoadingScreen.js';
 import { el } from '../ui/dom.js';
@@ -309,7 +311,7 @@ export class Game {
     if (!hasSave) {
       this.clock.hour = 6;
       if (this.weather) {
-        this.weather.setWeather('despejado', false);
+        this.weather.setWeather('soleado', false);
         this.weather.timer = 0;
         this.weather.wetness = 0;
       }
@@ -442,7 +444,7 @@ export class Game {
     if (look) {
       await this._applyLook(look);
       this._save();
-      window.dispatchEvent(new CustomEvent('toast', { detail: { text: 'Te cambiaste de ropa', type: 'info' } }));
+      window.dispatchEvent(new CustomEvent('toast', { detail: { text: 'Me cambié de ropa', type: 'info' } }));
       this.audio?.play?.('pickup');
     }
   }
@@ -1492,7 +1494,8 @@ export class Game {
     return {
       cpu: this.profiler.report(), frames: this.performanceHUD.metrics.recentStats(),
       graphics: { selected: this.renderer.quality, effective: this.renderer.effectiveQuality,
-        pixelRatio: this.renderer.instance.getPixelRatio(), ...this.renderer.instance.info.render }
+        pixelRatio: this.renderer.instance.getPixelRatio(), ...this.renderer.instance.info.render },
+      breakdown: renderBreakdown(this)
     };
   }
 
@@ -1646,6 +1649,7 @@ export class Game {
     if (this.dog) culling.register(this.dog.group, { dynamic: true, margin: 1 });
     for (const flock of district?.pigeonFlocks ?? []) culling.register(flock.group);
     for (const sector of district?.renderSectors ?? []) culling.register(sector);
+    registerSectorChildren(culling, district?.renderSectors ?? []);
     if (district?.signals) culling.register(district.signals.group);
     for (const pickup of this.pickups) culling.register(pickup.group, { dynamic: true, margin: .2 });
     for (const object of district?.animated ?? []) culling.register(object, { margin: 1 });
