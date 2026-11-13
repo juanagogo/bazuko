@@ -156,7 +156,7 @@ add_executable(bazuko
 )
 # Servidores de salas del lobby: el juego baja la lista publicada al abrir y, si falla, usa el de respaldo (ver core/ServerList.hpp y servidores.json)
 set(BAZUKO_LISTA_SERVIDORES "https://raw.githubusercontent.com/juanagogo/bazuko/main/cpp/servidores.json" CACHE STRING "URL de la lista de servidores de salas")
-set(BAZUKO_SERVIDOR_SALAS "impairment-touchdown.tun.ply.gg:29702" CACHE STRING "Servidor de salas de respaldo (host:puerto)")
+set(BAZUKO_SERVIDOR_SALAS "3.18.205.94:7770" CACHE STRING "Servidor de salas de respaldo (host:puerto): el relevo en AWS")
 target_compile_definitions(bazuko PRIVATE BAZUKO_LISTA_SERVIDORES_DEFAULT="${BAZUKO_LISTA_SERVIDORES}" BAZUKO_SERVIDOR_SALAS_DEFAULT="${BAZUKO_SERVIDOR_SALAS}")
 if(WIN32)
     target_sources(bazuko PRIVATE resources/bazuko.rc)
