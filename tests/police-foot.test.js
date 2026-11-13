@@ -1618,6 +1618,31 @@ test('una sola ruta nueva por cuadro entre todos los agentes', () => {
   assert.equal(most, 1, `hasta ${most} por cuadro`);
 });
 
+test('la placa dice «Agente a X m» con un agente corriendo detrás, y «Patrulla» mientras va en carro', async () => {
+  const { HUD } = await import('../src/ui/HUD.js');
+  const world = setup();
+  const dato = { textContent: '' };
+  const hud = Object.assign(Object.create(HUD.prototype), {
+    wantedEl: { hidden: true, className: '', dataset: {} }, wantedDato: dato, _wantedEstado: 'nada'
+  });
+  globalThis.document = { getElementById: () => null };
+  try {
+    window.__game = { traffic: world.traffic, steal: { buscado: 1 } };
+    world.traffic._startChase(world.vehicle);
+    step(world);
+    hud._pintarBusqueda();
+    assert.match(dato.textContent, /^Patrulla a \d+ m$/);
+    assert.equal(world.traffic.pursuitInfo.onFoot, false);
+    const officer = world.unit.partner;
+    runUntil(world, () => officer.state === 'persecucion');
+    world.player.position.set(officer.position.x + 14, 0, officer.position.z);
+    step(world);
+    hud._pintarBusqueda();
+    assert.equal(world.traffic.pursuitInfo.onFoot, true);
+    assert.equal(dato.textContent, `Agente a ${Math.round(officer.distance)} m`);
+  } finally { delete globalThis.document; }
+});
+
 test('el agarrón se ve venir: estira el brazo y se le echa encima; si se le zafa, manotazo al aire y media marcha', () => {
   const world = setup();
   world.traffic._startChase(world.vehicle);

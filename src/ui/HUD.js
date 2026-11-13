@@ -748,7 +748,7 @@ export class HUD {
     }
     if (info) {
       const d = info.distance < 30 ? Math.round(info.distance) : Math.round(info.distance / 5) * 5;
-      this._setText(this.wantedDato, `Patrulla a ${d} m`);
+      this._setText(this.wantedDato, `${info.onFoot ? 'Agente' : 'Patrulla'} a ${d} m`);
       if (this.wantedBarra) this._setWidth(this.wantedBarra, Math.round(info.closeness * 100));
     }
   }
