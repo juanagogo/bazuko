@@ -312,7 +312,7 @@ export class Game {
     if (!hasSave) {
       this.clock.hour = 6;
       if (this.weather) {
-        this.weather.setWeather('despejado', false);
+        this.weather.setWeather('soleado', false);
         this.weather.timer = 0;
         this.weather.wetness = 0;
       }
