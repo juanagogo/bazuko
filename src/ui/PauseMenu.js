@@ -184,7 +184,7 @@ function statePanel(game) {
         card('Tiempo', `Día ${clock.day ?? 1}, ${horaDe(clock.hour ?? 0)}`),
         ...(sky ? [card('Clima', sky.label, sky.glyph),
           card('Temporada', `${game.weather.season.label} (${game.weather.season.months})`, game.weather.season.glyph)] : []),
-        card('El Chato', game.dog?.isFriend ? 'Me acompaña' : 'Sin adoptar', game.dog?.isFriend ? 'dog' : null)),
+        card('El Chato', !game.dog?.isFriend ? 'Sin adoptar' : game.dog.guarding ? 'Cuidando el cambuche' : 'Me acompaña', game.dog?.isFriend ? 'dog' : null)),
       el('div', { class: 'pause-actions' },
         button([`Mañas${puntos ? ` (${puntos})` : ''}`, el('kbd', { text: 'T', 'aria-hidden': 'true' })], {
           onClick: () => { game.menu.close(); game.hud?.toggleTalentPanel?.(); }

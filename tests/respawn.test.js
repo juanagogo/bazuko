@@ -213,3 +213,30 @@ test('una muerte pendiente tiene prioridad sobre un aviso policial', () => {
   assert.equal(game._handleDeath(), true);
   assert.equal(game._deathPending, true);
 });
+
+test('al reaparecer, salir del calabozo o viajar, El Chato que cuida el cambuche se queda en su puesto', async () => {
+  const { Dog } = await import('../src/entities/Dog.js');
+  const puesto = new THREE.Vector3(91, 0, 83);
+  const traslados = {
+    'salir del calabozo': (game) => {
+      Object.assign(game.world.active, { isWalkableAt: () => true, width: 40, height: 40 });
+      game._arrestPending = true; game._finishArrest();
+    },
+    reaparecer: (game) => { game._deathPending = true; game._respawn(); },
+    viajar: (game) => game.relocatePlayer({ x: 10, z: 12 }, { fade: false }),
+  };
+  for (const [nombre, trasladar] of Object.entries(traslados)) {
+    for (const cuida of [false, true]) {
+      const game = fixture();
+      game.dog = new Dog(new THREE.Scene(), puesto);
+      game.dog.befriend();
+      if (cuida) game.dog.guard();
+      const antes = game.player.position.clone();
+      trasladar(game);
+      assert.ok(game.player.position.distanceTo(antes) > 1, `${nombre}: el jugador se movió`);
+      if (cuida) assert.deepEqual(game.dog.position.toArray(), puesto.toArray(), `${nombre}: el que cuida no se mueve`);
+      else assert.deepEqual(game.dog.position.toArray(), game.player.position.toArray(), `${nombre}: el que acompaña llega conmigo`);
+      game.dog.destroy();
+    }
+  }
+});

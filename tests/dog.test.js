@@ -234,3 +234,17 @@ test('mientras le ladra a la patrulla, El Chato queda mirando hacia donde viene'
   assert.equal(dog._lookAt, player);
   dog.destroy();
 });
+
+test('cuidando el cambuche no sigue al jugador y vuelve a su puesto', async () => {
+  const dog = await dogWithModel(new THREE.Vector3(0, 0, 0));
+  dog.befriend();
+  assert.equal(dog.guard(new THREE.Vector3(2, 0, 0)), true);
+  const far = new THREE.Vector3(30, 0, 0);
+  for (let i = 0; i < 40; i++) dog.update(.1, far, [], []);
+  assert.ok(dog.position.distanceTo(new THREE.Vector3(2, 0, 0)) < 1.3);
+  dog.restAt(far);
+  assert.equal(dog.sleeping, false, 'no se va a dormir al lado del jugador lejano');
+  dog.stopGuarding();
+  assert.equal(dog.guarding, null);
+  dog.destroy();
+});

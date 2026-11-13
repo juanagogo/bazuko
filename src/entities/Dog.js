@@ -28,6 +28,8 @@ export const DOG_POLICE_ALERT = 32;
 const POLICE_BARK_COOLDOWN = 15;
 const POLICE_FORGET = 8;   // metros más allá del aviso a los que la da por ida
 const POLICE_LOOK = 4;     // segundos que se queda mirando hacia la patrulla
+/** Metros alrededor del cambuche donde se le puede pedir que lo cuide. */
+export const DOG_GUARD_RANGE = 8;
 
 // Desfase de cada pata en el ciclo según la marcha (FL, FR, HL, HR).
 const GAITS = [
@@ -87,6 +89,8 @@ export class Dog {
     this._wanderPause = 2;
     this._phase = 0;
     this._posture = { sit: 0, lie: 0, sniff: 0, alert: 0 };
+    this.guarding = null;          // puesto desde el que cuida el cambuche; null si sigue al jugador
+    this.cambucheCerca = false;    // lo pone el juego: hay cambuche armado y el jugador está junto a él
     this._lastPoliceBark = -Infinity;
     this._heardPatrols = new WeakSet(); // patrullas de las que ya avisó y siguen cerca
     this._policeAt = null;         // hacia dónde mira mientras le ladra a la patrulla
@@ -184,6 +188,19 @@ export class Dog {
     return this.position.distanceTo(playerPosition) < 6 ? .1 : 0;
   }
 
+  /**
+   * Se queda cuidando el cambuche: no sigue al jugador y espanta a los ladrones mientras duerme.
+   * Su puesto es su rincón de siempre, a unos pasos del cambuche: encima le quitaría la E.
+   */
+  guard(position = this.home) {
+    if (!this.isFriend || !position) return false;
+    const nearest = this.navigation?.nearest(position) ?? -1;
+    this.guarding = nearest >= 0 ? this.navigation.point(nearest) : position.clone();
+    return true;
+  }
+
+  stopGuarding() { this.guarding = null; }
+
   bark(reason = '¡Guau!') {
     if (this.time - this._lastBarkTime < BARK_COOLDOWN) return false;
     this._lastBarkTime = this.time;
@@ -206,6 +223,15 @@ export class Dog {
 
     if (this.sleeping) {
       this.state = 'sleep';
+    } else if (this.isFriend && this.guarding) {
+      // Cuidando: vuelve a su puesto y mira a quien se arrima.
+      const dist = Math.hypot(this.guarding.x - this.position.x, this.guarding.z - this.position.z);
+      if (dist > 1.2) { goal = this.guarding; desiredSpeed = dist > 6 ? 3.6 : 1.5; this.state = 'guard'; }
+      else {
+        this.state = 'idle';
+        const near = npcs.find(npc => npc?.position && !npc.koState && npc.position.distanceTo(this.position) < 4);
+        if (near) { this._lookAt = near.position; this._posture.alert = 1; }
+      }
     } else if (this.isFriend && playerPosition) {
       const dist = Math.hypot(playerPosition.x - this.position.x, playerPosition.z - this.position.z);
       // Si quedó muy atrás (bus, viaducto, ruta imposible), aparece cerca del jugador.
@@ -454,7 +480,8 @@ export class Dog {
   }
 
   restAt(position) {
-    if (!this.isFriend) return;
+    // Cuidando el cambuche se queda en su puesto, aunque el jugador duerma en otra parte.
+    if (!this.isFriend || this.guarding) return;
     this.resetNear(position.clone().add(new THREE.Vector3(1, 0, 0)));
     this.sleeping = true;
     this._posture.lie = 1;
