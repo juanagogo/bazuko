@@ -1414,7 +1414,7 @@ export class Game {
 
     // 8. Mundo
     // La visibilidad de edificios usa la cámara del mismo cuadro.
-    this.cameraRig.follow(this.player.position, dt, this.collisions, this.player.speed, this.input.isRunning);
+    this.cameraRig.follow(this.player.position, dt, this.collisions, this.player.speed, this.input.isRunning, this.player.movement);
     this.psychosis.update(dt, this.cameraRig);
     this.substanceEffects?.update(dt);
     this.profiler?.mark('sistemas');

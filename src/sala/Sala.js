@@ -152,7 +152,7 @@ export class Sala {
       for (const npc of this.npcs) npc.update(dt, { player: this.player });
       for (const update of this.updaters) update(dt);
     }
-    this.cameraRig.follow(this.player.position, real, null, this.player.speed, this.input.isRunning);
+    this.cameraRig.follow(this.player.position, real, null, this.player.speed, this.input.isRunning, this.player.movement);
     this.psychosis.update(dt, this.cameraRig);
     this.effects.update(dt);
     this.sceneMgr.followTarget?.(this.player.position, this.hour);

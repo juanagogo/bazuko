@@ -6,6 +6,7 @@ import {
   landingDuration, landingGive, landingImpact, nextFootfall, pushOffset, recoveryTime, smoothstep, stepVertical, strideShape, timeToGround
 } from '../src/character/jumpMotion.js';
 import { criticalSpring, dampedSpring, spring } from '../src/character/springs.js';
+import { CameraRig, CAMERA_HEIGHT } from '../src/core/Camera.js';
 import { Player } from '../src/entities/Player.js';
 
 /** Teclado de prueba: `press` encola una pulsación y `held` dice si el salto sigue oprimido. */
@@ -409,6 +410,41 @@ test('en el aire queda poco control y un aterrizaje fuerte frena el paso y lo de
   assert.equal(p.landing, 0);
 });
 
+test('la cámara sigue parte del salto con un resorte, baja al aterrizar y respeta movimiento reducido', () => {
+  const rig = Object.create(CameraRig.prototype);
+  const reset = () => Object.assign(rig, { _height: spring(), _groundRef: null, _lastY: 0, _snap: false });
+  const run = () => {
+    reset();
+    const { player: p, input } = player();
+    rig.followHeight(0, 1 / 60, p.movement);
+    input.presses.add('Space'); input.held = true;
+    let peak = 0, low = 0, frames = 0;
+    do {
+      p.update(1 / 60, null, null, () => 0);
+      const h = rig.followHeight(p.position.y, 1 / 60, p.movement);
+      peak = Math.max(peak, h);
+      // Cuánto baja por el aterrizaje respecto a donde la deja el resorte.
+      if (p.isGrounded) low = Math.min(low, h - rig._height.x);
+    } while (frames++ < 90);
+    return { peak, low };
+  };
+  const normal = run();
+  assert.ok(normal.peak > .45 && normal.peak < .6, `sigue ~2/3 del salto (con retraso): ${normal.peak}`);
+  assert.ok(normal.low < -.02 && normal.low > -.04, `baja de 2 a 4 cm al aterrizar: ${normal.low}`);
+  rig.reducedMotion = true;
+  const calm = run();
+  assert.ok(calm.peak < normal.peak - .1, `con movimiento reducido sigue menos el salto: ${calm.peak}`);
+  assert.ok(calm.low > -.005, `y no baja al aterrizar: ${calm.low}`);
+  delete rig.reducedMotion;
+  reset();
+  rig.followHeight(0, 1 / 60, { grounded: true });
+  for (let i = 0; i < 30; i++) rig.followHeight(i * .03, 1 / 60, { grounded: true });
+  assert.ok(Math.abs(rig._height.x - 29 * .03) < .01, 'en una rampa va con el cuerpo, sin retraso');
+  assert.equal(rig.followHeight(10, 1 / 60, { grounded: true }), 10, 'un teletransporte no se anima');
+  assert.equal(rig.followHeight(3, 1 / 60, null), 3, 'sin movimiento informado va pegada');
+  assert.ok(CAMERA_HEIGHT.jumpShare >= .6 && CAMERA_HEIGHT.jumpShare <= .7);
+});
+
 // --- Estados que cortan el salto, FPS y salida del lago ---
 
 /** Simula un ragdoll de `frames` cuadros como `PlayerRagdoll` (el cuerpo queda en manos del ragdoll). */
@@ -549,6 +585,54 @@ test('el toque sube lo mismo a 20, 30, 60 y 144 FPS: el corte entra en su instan
   for (const peak of full) assert.ok(Math.abs(peak - full[2]) <= .01, `sostenido: ${full.map(v => v.toFixed(3))}`);
 });
 
+/**
+ * Cae desde `h` m (suelta en el aire, quieta) con la cámara siguiendo a `fps`. Devuelve el retraso de la
+ * cámara sobre el cuerpo en `times` (interpolado entre cuadros), el máximo y lo más que baja del cuerpo.
+ */
+function cameraFall(h, fps, times = [.1, .2, .3, .4, .55]) {
+  const rig = Object.create(CameraRig.prototype);
+  Object.assign(rig, { _height: spring(), _groundRef: null, _lastY: 0, _snap: false });
+  const { player: p } = player();
+  const dt = 1 / fps, ground = () => 0;
+  p.position.set(0, h, 0); p.root.position.copy(p.position);
+  rig.followHeight(h, dt, { grounded: true });
+  rig.followHeight(h, dt, { grounded: true });
+  p.isGrounded = false; p.jumpVelocity = 0;
+  const samples = [[0, 0]];
+  let most = 0, below = 0, t = 0;
+  for (let i = 0; i < fps * 2; i++) {
+    p.update(dt, null, null, ground);
+    t += dt;
+    const lag = rig.followHeight(p.position.y, dt, p.movement) - p.position.y;
+    samples.push([t, lag]);
+    most = Math.max(most, lag);
+    if (p.isGrounded) below = Math.min(below, lag);
+  }
+  const at = time => {
+    const k = samples.findIndex(([s]) => s >= time);
+    const [t0, l0] = samples[k - 1], [t1, l1] = samples[k];
+    return l0 + (l1 - l0) * (time - t0) / (t1 - t0);
+  };
+  return { lags: times.map(at), most, below };
+}
+
+test('cayendo, la cámara no se queda atrás: tope de ~0,25 m y el mismo retraso a 20 y a 144 FPS', () => {
+  for (const h of [1.2, 2.2, 7.8]) {
+    // Antes de tocar el suelo (1,2 m tarda ~0,32 s, 2,2 m ~0,44 s y 7,8 m ~0,82 s), en instantes que caen
+    // justo en un cuadro a 20, 30 y 60 FPS.
+    const times = h < 2 ? [.1, .2, .3] : h < 5 ? [.1, .2, .3, .4] : [.1, .2, .4, .6, .8];
+    const ref = cameraFall(h, 60, times);
+    for (const fps of [20, 30, 60, 144]) {
+      const r = cameraFall(h, fps, times);
+      assert.ok(r.most <= CAMERA_HEIGHT.maxFallLag + .005, `${h} m a ${fps} FPS: como mucho ${CAMERA_HEIGHT.maxFallLag} m por encima (${r.most.toFixed(3)})`);
+      assert.ok(r.below > -.06, `${h} m a ${fps} FPS: al aterrizar no se pasa por debajo (${r.below.toFixed(3)})`);
+      r.lags.forEach((lag, i) => assert.ok(Math.abs(lag - ref.lags[i]) <= .05 * Math.max(ref.lags[i], .02),
+        `${h} m a ${fps} FPS, ${times[i]} s: retraso ${lag.toFixed(4)} vs ${ref.lags[i].toFixed(4)}`));
+    }
+  }
+  assert.ok(CAMERA_HEIGHT.maxFallLag >= .2 && CAMERA_HEIGHT.maxFallLag <= .3);
+});
+
 test('golpe fuerte: desde 10,3 m/s al tocar (unos 2,3 m) y completo desde 11,8 m/s (unos 3 m); 2,2 m sigue siendo un aterrizaje medio', () => {
   assert.ok(Math.abs(contactSpeed(0, 5) - Math.sqrt(2 * JUMP.fallGravity * 5)) < 1e-9);
   assert.ok(Math.abs(contactSpeed(JUMP.launchSpeed, 0) - 5.92) < .01, 'un salto parado toca a ~5,9 m/s');
@@ -638,6 +722,60 @@ test('un golpe que lo aturde se publica en el movimiento (la pose suelta los pie
   p.receiveHit(new THREE.Vector3(1, 0, 0), 2);
   p.update(1 / 60, null, null, () => 0);
   assert.equal(p.movement.stunned, true);
+});
+
+test('al caer al agua desde el puente la cámara frena con un resorte, no de golpe con el cuerpo, y se pasa lo mismo a 20, 30, 60 y 144 FPS', () => {
+  const unders = [];
+  for (const fps of [20, 30, 60, 144]) {
+    const dt = 1 / fps, { player: p, input } = player();
+    const rig = Object.create(CameraRig.prototype);
+    Object.assign(rig, { _height: spring(), _groundRef: null, _lastY: 0, _snap: false, reducedMotion: false });
+    const water = x => (x >= 0 ? { surfaceY: 0, bottomY: -3, depth: 3 } : null);
+    p.position.set(-3, 7.8, 0); p.root.position.copy(p.position);
+    input.axis = { x: 1, z: 0 }; input.isRunning = true;
+    rig.followHeight(p.position.y, dt, p.movement);
+    let prev = null, speed = null, worst = 0, below = 0, swam = false;
+    for (let i = 0; i < fps * 3; i++) {
+      p.update(dt, null, null, x => (x < 0 ? 7.8 : -3), [], water);
+      const cam = rig.followHeight(p.position.y, dt, p.movement);
+      if (prev !== null) {
+        const v = (cam - prev) / dt;
+        if (speed !== null && (swam || p.isSwimming)) worst = Math.max(worst, Math.abs(v - speed) / dt);
+        speed = v;
+      }
+      if (p.isSwimming) { swam = true; below = Math.max(below, p.position.y - cam); }
+      prev = cam;
+    }
+    assert.ok(swam, `${fps} FPS: entró al agua`);
+    // Parar de ~20 m/s en los 25 cm que lleva por encima más unos pocos por debajo pide ~650 m/s² de media; el
+    // cuerpo frena en un cuadro (más de 1000 m/s²).
+    assert.ok(worst < 600, `${fps} FPS: la cámara frena a ${worst.toFixed(0)} m/s² como mucho`);
+    assert.ok(below < .08, `${fps} FPS: se pasa ${(100 * below).toFixed(1)} cm por debajo del cuerpo`);
+    unders.push(below);
+  }
+  assert.ok(Math.max(...unders) - Math.min(...unders) < .07, `lo que se pasa casi no cambia con los FPS: ${unders.map(u => (100 * u).toFixed(1)).join(', ')} cm`);
+});
+
+test('la cámara baja 6-8 cm en un golpe fuerte, con un rebote chico; con movimiento reducido no baja', () => {
+  const dip = (speed, reduced = false) => {
+    const rig = Object.create(CameraRig.prototype);
+    Object.assign(rig, { _height: spring(), _groundRef: null, _lastY: 0, _snap: false, reducedMotion: reduced });
+    rig.followHeight(0, 1 / 60, { grounded: true });
+    let low = 0, high = 0;
+    for (let t = 0; t < 1; t += 1 / 60) {
+      const y = rig.followHeight(0, 1 / 60, { grounded: true, landingTime: t, landingSpeed: speed, landingImpact: landingImpact(speed) });
+      low = Math.min(low, y); high = Math.max(high, y);
+    }
+    return { low, high };
+  };
+  for (const speed of [12, 15.2, 18.9]) {
+    const { low, high } = dip(speed);
+    assert.ok(low <= -.058 && low >= -.082, `${speed} m/s: baja ${low.toFixed(3)}`);
+    assert.ok(high > 0 && high < .015, `${speed} m/s: vuelve pasándose un poco (${high.toFixed(4)})`);
+  }
+  assert.ok(dip(18.9).low < dip(12).low, 'más alto, más baja');
+  assert.ok(dip(9).low > -.045, 'un aterrizaje medio sigue en 2-4 cm');
+  assert.deepEqual(dip(15.2, true), { low: 0, high: 0 });
 });
 
 test('despegue parado: la cadera visible baja 4-6 cm en ~55 ms y alcanza a la raíz con su velocidad', () => {
