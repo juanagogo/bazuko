@@ -441,6 +441,8 @@ test('a media persecución a pie no se duerme; ya desistidos, dormir no deja a n
     const save = game.save.save.bind(game.save);
     game.save.save = data => { window.__guardado = { pursuit: game.traffic.inPursuit, out: game.policeFoot.active }; return save(data); };
     const out = game.policeFoot.active, pursuit = game.traffic.inPursuit;
+    // Cansado, como en la unitaria: así lo único que se mira es la persecución, no que ya esté descansado.
+    game.stats.energia = 10;
     game.sleep();
     return { out, pursuit, sleeping: game.isSleeping };
   });
