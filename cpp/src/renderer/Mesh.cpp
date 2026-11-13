@@ -238,6 +238,54 @@ std::shared_ptr<Mesh> Mesh::CreateCylinder(float radius, float depth, uint32_t r
     return std::make_shared<Mesh>(vertices, indices);
 }
 
+std::shared_ptr<Mesh> Mesh::CreateSphere(float radius, uint32_t segments, uint32_t rings, const glm::vec4& color) {
+    segments = std::max<uint32_t>(segments, 3); rings = std::max<uint32_t>(rings, 2);
+    std::vector<Vertex> vertices;
+    std::vector<uint32_t> indices;
+    for (uint32_t ring = 0; ring <= rings; ++ring) {
+        const float v = static_cast<float>(ring) / static_cast<float>(rings);
+        const float phi = v * std::numbers::pi_v<float>;
+        for (uint32_t seg = 0; seg <= segments; ++seg) {
+            const float u = static_cast<float>(seg) / static_cast<float>(segments);
+            const float theta = u * 2.0f * std::numbers::pi_v<float>;
+            const glm::vec3 normal(std::sin(phi) * std::cos(theta), std::cos(phi), std::sin(phi) * std::sin(theta));
+            vertices.push_back({normal * radius, normal, {u, v}, color});
+        }
+    }
+    for (uint32_t ring = 0; ring < rings; ++ring)
+        for (uint32_t seg = 0; seg < segments; ++seg) {
+            const uint32_t a = ring * (segments + 1) + seg, b = a + segments + 1;
+            indices.insert(indices.end(), {a, a + 1, b, a + 1, b + 1, b});
+        }
+    return std::make_shared<Mesh>(vertices, indices);
+}
+
+std::shared_ptr<Mesh> Mesh::CreateCone(float radius, float height, uint32_t radialSegments, const glm::vec4& color) {
+    radialSegments = std::max<uint32_t>(radialSegments, 3);
+    std::vector<Vertex> vertices;
+    std::vector<uint32_t> indices;
+    const float slope = radius / std::max(height, 1.0e-5f);
+    for (uint32_t i = 0; i <= radialSegments; ++i) {
+        const float angle = 2.0f * std::numbers::pi_v<float> * static_cast<float>(i) / static_cast<float>(radialSegments);
+        const glm::vec3 normal = glm::normalize(glm::vec3(std::cos(angle), slope, std::sin(angle)));
+        vertices.push_back({{std::cos(angle) * radius, -height * 0.5f, std::sin(angle) * radius}, normal, {static_cast<float>(i) / static_cast<float>(radialSegments), 0.0f}, color});
+        vertices.push_back({{0.0f, height * 0.5f, 0.0f}, normal, {static_cast<float>(i) / static_cast<float>(radialSegments), 1.0f}, color});
+    }
+    for (uint32_t i = 0; i < radialSegments; ++i) {
+        const uint32_t b = i * 2, nb = b + 2;
+        indices.insert(indices.end(), {b, nb, b + 1});
+    }
+    const uint32_t center = static_cast<uint32_t>(vertices.size());
+    vertices.push_back({{0.0f, -height * 0.5f, 0.0f}, {0.0f, -1.0f, 0.0f}, {0.5f, 0.5f}, color});
+    const uint32_t ring = static_cast<uint32_t>(vertices.size());
+    for (uint32_t i = 0; i < radialSegments; ++i) {
+        const float angle = 2.0f * std::numbers::pi_v<float> * static_cast<float>(i) / static_cast<float>(radialSegments);
+        vertices.push_back({{std::cos(angle) * radius, -height * 0.5f, std::sin(angle) * radius}, {0.0f, -1.0f, 0.0f}, {0.5f, 0.5f}, color});
+    }
+    for (uint32_t i = 0; i < radialSegments; ++i) indices.insert(indices.end(), {center, ring + (i + 1) % radialSegments, ring + i});
+    return std::make_shared<Mesh>(vertices, indices);
+}
+
 std::shared_ptr<Mesh> Mesh::CreatePlane(float width, float depth, const glm::vec4& color, float uvScale) {
     float hx = width * 0.5f;
     float hz = depth * 0.5f;

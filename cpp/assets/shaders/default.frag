@@ -37,8 +37,17 @@ layout(std140, binding = 1) uniform LightBlock {
 #define CLUSTER_X 16
 #define CLUSTER_Y 9
 #define CLUSTER_Z 24
+#ifdef BAZUKO_GL41   // OpenGL 4.1 (macOS) no tiene buffers de almacenamiento: las mismas tablas se leen como texture buffers
+layout(binding = 14) uniform usamplerBuffer uClusterRangeTex;   // RG32UI: x desplazamiento, y cantidad
+layout(binding = 15) uniform usamplerBuffer uClusterIndexTex;   // R32UI
+#define CLUSTER_RANGE(i) texelFetch(uClusterRangeTex, int(i)).xy
+#define CLUSTER_INDEX(i) texelFetch(uClusterIndexTex, int(i)).x
+#else
 layout(std430, binding = 3) readonly buffer ClusterTable { uvec2 uClusterRange[]; };   // x desplazamiento, y cantidad
 layout(std430, binding = 4) readonly buffer ClusterIndices { uint uClusterIndex[]; };
+#define CLUSTER_RANGE(i) uClusterRange[i]
+#define CLUSTER_INDEX(i) uClusterIndex[i]
+#endif
 uniform float uClusterNear = 0.1;
 uniform float uClusterFar = 500.0;
 uniform vec2 uViewportSize = vec2(1920.0, 1080.0);
@@ -46,7 +55,7 @@ uvec2 clusterRangeAt(vec3 worldPos) {
     const float depth = -(uView * vec4(worldPos, 1.0)).z;
     const int slice = clamp(int(floor(log(max(depth, uClusterNear) / uClusterNear) / log(uClusterFar / uClusterNear) * float(CLUSTER_Z))), 0, CLUSTER_Z - 1);
     const ivec2 tile = clamp(ivec2(gl_FragCoord.xy / uViewportSize * vec2(float(CLUSTER_X), float(CLUSTER_Y))), ivec2(0), ivec2(CLUSTER_X - 1, CLUSTER_Y - 1));
-    return uClusterRange[(slice * CLUSTER_Y + tile.y) * CLUSTER_X + tile.x];
+    return CLUSTER_RANGE((slice * CLUSTER_Y + tile.y) * CLUSTER_X + tile.x);
 }
 
 uniform vec4 uAlbedo;
@@ -286,7 +295,7 @@ void main() {
     // farolas encendidas: luz puntual calida con caida suave hasta su alcance
     const uvec2 clusterLights = clusterRangeAt(vFragPos);   // solo las luces de mi celda
     for (uint k = 0u; k < clusterLights.y; ++k) {
-        const uint i = uClusterIndex[clusterLights.x + k];
+        const uint i = CLUSTER_INDEX(clusterLights.x + k);
         const vec3 toLamp = uLampPosition[i].xyz - vFragPos;
         const float lampDistance = length(toLamp);
         const float lampRange = uLampPosition[i].w;
@@ -326,7 +335,7 @@ void main() {
         }
         // reflejo de las luces locales (farolas, faros, balizas): la mancha se estira hacia quien mira, como en el asfalto mojado
         for (uint k = 0u; k < clusterLights.y; ++k) {
-            const uint i = uClusterIndex[clusterLights.x + k];
+            const uint i = CLUSTER_INDEX(clusterLights.x + k);
             const vec3 toLamp = uLampPosition[i].xyz - vFragPos;
             const float lampDistance = length(toLamp);
             const float lampRange = uLampPosition[i].w;

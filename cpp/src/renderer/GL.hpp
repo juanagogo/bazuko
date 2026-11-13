@@ -36,12 +36,12 @@ inline void GLAPIENTRY OpenGLDebugCallback(
 inline void EnableOpenGLDebug() {
     GLint flags = 0;
     glGetIntegerv(GL_CONTEXT_FLAGS, &flags);
-    if (flags & GL_CONTEXT_FLAG_DEBUG_BIT) {
+    if ((flags & GL_CONTEXT_FLAG_DEBUG_BIT) && glDebugMessageCallback && glDebugMessageControl) {   // macOS (4.1) no trae KHR_debug
         glEnable(GL_DEBUG_OUTPUT);
         glEnable(GL_DEBUG_OUTPUT_SYNCHRONOUS);
         glDebugMessageCallback(OpenGLDebugCallback, nullptr);
         glDebugMessageControl(GL_DONT_CARE, GL_DONT_CARE, GL_DONT_CARE, 0, nullptr, GL_TRUE);
-        LogInfo("OpenGL 4.5 Debug Output habilitado");
+        LogInfo("OpenGL Debug Output habilitado");
     }
 }
 

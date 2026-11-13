@@ -1,5 +1,6 @@
 #pragma once
 #include <array>
+#include "world/TrafficDensity.hpp"
 #include <chrono>
 #include <memory>
 #include <string>
@@ -152,6 +153,15 @@ public:
     void HandleRadioShortcut();
     void OpenRadioMenu(bool returnToPause = true);
     void OpenPauseSection(int section);
+    // Misiones del dia (pestana 11 de la pausa, tecla J): main publica el avance y la pestana lo dibuja
+    struct MissionView { std::string title, description; int progress = 0, target = 1; bool completed = false; int rewardMoney = 0, rewardXp = 0, rewardMood = 0; };
+    void SetComedorStatus(bool available, int remainingHours) { m_ComedorAvailable = available; m_ComedorHours = remainingHours; }   // Comedor Comunitario: racion libre o horas que faltan
+    void SetMissionsView(std::vector<MissionView> missions, int day) { m_Missions = std::move(missions); m_MissionsDay = day; }
+    void OpenMissionsSection();
+    void SetColdOverlay(float intensity) { m_ColdOverlay = intensity; }   // 0..1: escarcha en los bordes cuando se congela
+    void TestRespawn() { if (m_DeathScreenOpen) m_RespawnRequest = true; }   // pruebas: pulsa «Volver al cambuche»
+    void SetPreviewQuit(bool on) { m_PreviewQuit = on; }   // pruebas: dibuja la pantalla de despedida sobre el juego
+    void OpenNewGameConfirm() { if (m_Paused) m_NewGameConfirmOpen = true; }   // pruebas: abre la confirmacion de partida nueva
     void OpenDealerMenu();
     // Tiendas y recicladora: se abren como secciones de la pausa (la partida se detiene mientras se compra).
     // `itemKeys` limita los productos (vendedores ambulantes); vacio = toda la tienda.
@@ -169,6 +179,8 @@ public:
     void SetSortProgress(float fraction) { m_SortProgress = fraction; }
     // Calidad grafica: 0 baja, 1 media, 2 alta (escala de resolucion interna)
     void SetGraphicsQuality(int quality) { m_GraphicsQuality = quality; }
+    void SetTrafficDensity(int level) { m_TrafficDensity = level; }   // indice de kTrafficDensityLevels
+    int ConsumeTrafficDensityRequest() { const int r = m_TrafficDensityRequest; m_TrafficDensityRequest = -1; return r; }
     // Escala de resolucion que se esta usando de verdad (la adaptativa puede bajarla) y la presion de rendimiento
     void SetEffectiveRenderScale(float scale, int pressure) { m_EffectiveScale = scale; m_RenderPressure = pressure; }
     int ConsumeGraphicsQualityRequest();
@@ -177,10 +189,18 @@ public:
     void ToggleCraftMenu();
     bool IsPaused() const { return m_Paused; }
     bool IsGpsBeaconVisible() const { return m_GpsBeaconVisible; }
+    // Donde estoy (ver world/Zones.hpp): el cartel con el nombre de la zona al entrar a una nueva (unos segundos) y la via actual bajo el radar
+    void ShowZoneNotice(const std::string& name) { m_ZoneNotice = name; m_ZoneNoticeRemaining = 3.4f; }
+    void SetRadarStreet(const std::string& street) { m_RadarStreet = street; }
     void TogglePerformance() { m_PerfVisible = !m_PerfVisible; }
     bool IsCraftMenuOpen() const { return m_CraftMenuOpen; }
     bool IsDeathScreenOpen() const { return m_DeathScreenOpen; }
     void ShowDeathScreen(const std::string& causes, bool vehicleImpact, const std::string& name = {}, const std::string& place = {});
+    // Arresto: la misma pantalla de recorte con otro titular (la Policia agarro al jugador); volver al cambuche cuesta todo lo recolectado y ganado
+    void ShowArrestScreen(const std::string& name = {}, const std::string& place = {});
+    bool IsArrestScreen() const { return m_DeathScreenOpen && m_DeathArrest; }
+    // Muerte por la limpieza social: el recorte cuenta que lo hallaron (muerto o muerta) y nadie vio nada; no lleva consejo
+    void ShowLimpiezaDeathScreen(const std::string& name, const std::string& place, bool woman);
     bool ConsumeRespawnRequest();
     void CompleteDeathRecovery();
     std::string ConsumeCraftRequest();
@@ -200,6 +220,8 @@ public:
         return true;
     }
     // Emisora sintonizada: id del archivo de emisoras ("" si no hay ninguna) y aviso de que se acaba de elegir otra
+    std::string SelectedRadioStationUrl() const { return m_RadioStations.empty() ? std::string{} : m_RadioStations[m_SelectedRadioStation].streamUrl; }
+    std::string SelectedRadioStationName() const { return m_RadioStations.empty() ? std::string{} : m_RadioStations[m_SelectedRadioStation].name; }
     std::string SelectedRadioStationId() const { return m_RadioStations.empty() ? std::string{} : m_RadioStations[m_SelectedRadioStation].id; }
     bool ConsumeRadioTuned() { return std::exchange(m_RadioTuned, false); }
     void SelectRadioStation(const std::string& id) {
@@ -227,6 +249,7 @@ public:
     bool GetCambuchePreviewRect(glm::vec4& rect) const { rect = m_CambuchePreviewRect; return m_CambucheMenuOpen && m_CambuchePreviewRect.z > 8.0f; }
     std::string ConsumeCambucheBuildRequest() { return std::exchange(m_CambucheBuildRequest, {}); }
     bool ConsumeSleepRequest() { return std::exchange(m_SleepRequest, false); }
+    bool ConsumeWardrobeRequest() { return std::exchange(m_WardrobeRequest, false); }   // el jugador pidio cambiarse de ropa
     // GPS a pie: main entrega la ruta cada cuadro y recoge las peticiones de destino hechas en el mapa
     struct GpsView {
         bool active = false;
@@ -269,6 +292,12 @@ public:
     bool ConsumeSaveRequest();
     bool ConsumeNewGameRequest();
     bool ConsumeQuitRequest();
+    // Aviso antes de salir (multijugador, anfitrion): si hay texto, «Guardar y salir» y cerrar la ventana piden confirmacion con ese mensaje.
+    void SetQuitWarning(std::string title, std::string body) { m_QuitWarningTitle = std::move(title); m_QuitWarningBody = std::move(body); }
+    void RequestQuit();                                   // sale de una vez o, si hay aviso, abre la confirmacion
+    bool QuitConfirmOpen() const { return m_QuitConfirmOpen; }
+    bool HasQuitWarning() const { return !m_QuitWarningTitle.empty(); }
+    bool IsQuitConfirmOpen() const { return m_QuitConfirmOpen; }
     bool ConsumeCharacterCreatorRequest();
     void RequestCharacterCreator() { m_CharacterCreatorRequest = true; }
     void SetSaveNotification(const std::string& message);
@@ -277,9 +306,15 @@ public:
     // Dia de juego, estado del tiempo y temporada para el HUD y el panel de pausa
     void SetWorldInfo(int day, std::string weather, std::string season) { m_Day = day; m_WeatherLabel = std::move(weather); m_SeasonLabel = std::move(season); }
     void SetPickupNotification(const std::string& message, bool rare = false);
+    // Barra de timing del robo de retrovisor (dos pasos): main publica el marcador cada cuadro y Espacio lo detiene en la zona oscura
+    struct TimingBar { bool active = false; int step = 1; float marker = 0.0f, zoneStart = 0.0f, zoneSize = 0.0f; };
+    void SetTimingBar(const TimingBar& bar) { m_TimingBar = bar; }
     // Burbujas de conversacion de los peatones: posicion en pantalla normalizada (-1..1), texto y opacidad
     struct WorldBubble { float x, y; std::string text; float alpha; };
     void SetWorldBubbles(std::vector<WorldBubble> bubbles) { m_WorldBubbles = std::move(bubbles); }
+    // Multijugador: el nombre de cada jugador sobre su cabeza (x, y en coordenadas de recorte; alpha se apaga con la distancia)
+    struct NameTag { float x, y; std::string text; float alpha; };
+    void SetNameTags(std::vector<NameTag> tags) { m_NameTags = std::move(tags); }
     void RenderQuitScreen(Window& window);
 
 private:
@@ -290,7 +325,17 @@ private:
     void DrawLoadingArtwork();
     void CloseRadioMenu();
     bool m_Paused = false;
+    bool m_DeathArrest = false;
+    bool m_DeathLimpieza = false, m_DeathWoman = false;
     bool m_DeathScreenOpen = false;
+    float m_ColdOverlay = 0.0f;
+    bool m_PreviewQuit = false;
+    bool m_WardrobeRequest = false;
+    std::vector<MissionView> m_Missions;
+    int m_MissionsDay = 1;
+    bool m_ComedorAvailable = true;
+    int m_ComedorHours = 0;
+    TimingBar m_TimingBar;
     bool m_RespawnRequest = false;
     bool m_DeathByVehicleImpact = false;
     std::string m_DeathCauses;
@@ -301,6 +346,7 @@ private:
     std::unordered_map<std::string, std::shared_ptr<Texture>> m_ItemIcons;
     void DrawItemIcon(ImDrawList* draw, ImVec2 center, float size, const std::string& id, const std::string& name, unsigned int color);
     std::vector<WorldBubble> m_WorldBubbles;
+    std::vector<NameTag> m_NameTags;
     std::string m_CraftSelected;   // receta elegida en el banco de trabajo
     float m_CraftFlash = 0.0f;     // destello al fabricar
     bool m_CambucheMenuOpen = false;
@@ -308,6 +354,8 @@ private:
     bool m_SleepRequest = false;
     int m_PauseSection = 0;
     bool m_RadarVisible = true;
+    std::string m_ZoneNotice, m_RadarStreet;
+    float m_ZoneNoticeRemaining = 0.0f;
     float m_RadarRange = 70.0f;   // metros desde el centro hasta el borde del radar (+/- cambian el zoom)
     GpsView m_GpsView;
     bool m_GpsSetPending = false;
@@ -337,6 +385,7 @@ private:
     void RenderStateTab(const PauseContext& context, float width);
     void RenderSettingsTab(const PauseContext& context, float width);
     void RenderControlsTab(float width);
+    void RenderMissionsTab(float width);
     void RenderRadioMenu();
     void RenderTalentWindow(const std::vector<TalentOption>& talents, int points);
     void RenderDealerWindow(const std::vector<DealerOption>& options, float money);
@@ -371,6 +420,9 @@ private:
     void RenderWebHud(const HudContext& context);
     void RenderHudCarton(const HudContext& context);
     void RenderDeathCarton();   // pantalla de muerte de carton con el recorte de periodico (HudCarton.cpp)
+    void RenderQuitCarton();    // «Guardando partida...» al salir, sobre carton (HudCarton.cpp)
+    void RenderNewGameConfirmCarton();
+    void RenderQuitConfirmCarton();      // confirmacion de salida con la sala abierta (HudCarton.cpp)   // confirmacion de la partida nueva, sobre carton (HudCarton.cpp)
     std::string m_DeathName, m_DeathPlace;
     bool m_Freezing = false, m_InWithdrawal = false;   // frio de noche con lluvia y sin calor; malilla (para el retazo de lo mas urgente)
     bool m_NeedsExpanded = false;   // higiene, animo y vicio a la vista aunque esten bien (boton del pie de las necesidades)
@@ -390,6 +442,8 @@ private:
     bool m_NewGameRequest = false;
     bool m_NewGameConfirmOpen = false;   // confirmacion de partida nueva: reemplaza al menu de pausa mientras esta abierta
     bool m_QuitRequest = false;
+    bool m_QuitConfirmOpen = false;
+    std::string m_QuitWarningTitle, m_QuitWarningBody;
     bool m_CharacterCreatorRequest = false;
     std::string m_SaveNotification;
     float m_SaveNotificationTimer = 0.0f;
@@ -412,6 +466,8 @@ private:
     std::string m_DealerPurchaseRequest;
     float m_SortProgress = -1.0f;
     int m_GraphicsQuality = 1;
+    int m_TrafficDensity = 1;
+    int m_TrafficDensityRequest = -1;
     float m_EffectiveScale = 1.0f;
     int m_RenderPressure = 0;
     int m_GraphicsQualityRequest = -1;

@@ -105,7 +105,7 @@ Colpatria.js define la torre de 112 metros, planta de 24 × 26 metros y anexo gr
 
 AvenueLandmarks.js define alturas variadas y la pasarela en Z 8. GasStation.js reserva el lote X 145–163, Z 89–117; sus colisiones permiten circular bajo la cubierta. D69Store.js reserva los tiles X 22–26, Z 80–86 con el tipo sólido storeD69, sin generar casas ni objetos encima. Ambos conjuntos se agrupan como geometría estática.
 
-Al iniciar, después de cargar el guardado, fijar las 22:00 sin cambiar el día ni el progreso. Activar llovizna, reiniciar su temporizador y colocar partículas junto al jugador antes del primer render; luego continúan los ciclos normales.
+Al iniciar, una partida guardada conserva su día, hora y clima (`_loadIfSave` devuelve si había guardado). Una partida nueva empieza a las 6:00 con clima `soleado`, sin humedad y con el temporizador del clima en cero. En ambos casos el clima se actualiza junto al jugador antes del primer render; luego continúan los ciclos normales. `setWeather` ignora sin avisar un nombre que no esté en `WEATHER_TYPES`.
 
 Climate.js define temporadas (cuatro días de juego cada una), estados del tiempo y la posición de sol y luna; los cerros orientales están en −X. WeatherSystem mezcla las transiciones y deriva `isRaining` de la intensidad; la lluvia se anima en el vertex shader y su presupuesto depende de la calidad. Cielo, nubes, luna y relámpagos viven en el shader de la cúpula, sin luces nuevas. Los truenos usan `_fx()`. Ver `docs/clima.md`.
 

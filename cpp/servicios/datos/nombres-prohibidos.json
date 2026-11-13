@@ -1,0 +1,5 @@
+{
+  "nota": "Nombres de usuario no permitidos, en minusculas. 'partes' se busca dentro del nombre (solo palabras largas, para no rechazar nombres normales como Vergara o Computador); 'exactos' solo si el nombre es esa palabra, con o sin numeros al final. El juego usa las mismas listas (cpp/src/online/NameRules.hpp, generado al compilar).",
+  "partes": ["admin", "moderador", "moderator", "bazuko", "hijueputa", "gonorrea", "malparido", "carechimba", "hitler"],
+  "exactos": ["soporte", "support", "oficial", "official", "staff", "sistema", "system", "root", "puta", "puto", "marica", "culo", "verga", "mierda", "pendejo", "pirobo", "nazi"]
+}

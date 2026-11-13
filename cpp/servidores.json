@@ -1,0 +1,6 @@
+{
+  "version": 1,
+  "servidores": [
+    { "direccion": "3.18.205.94:7770", "nota": "relevo en AWS (us-east-2), siempre prendido, IP fija" }
+  ]
+}

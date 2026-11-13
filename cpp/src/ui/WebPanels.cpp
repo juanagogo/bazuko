@@ -47,7 +47,7 @@ void Label(bool black, int px, ImU32 color, const char* text) {
 
 void UIManager::RenderPauseTabs(const PauseContext& c) {
     struct Tab { int section; const char* label; Icon icon; };
-    static const std::array<Tab, 4> tabs{{{8, "Mapa", Icon::Compass}, {0, "Estado", Icon::Chart}, {9, "Ajustes", Icon::Gear}, {10, "Controles", Icon::Keyboard}}};
+    static const std::array<Tab, 5> tabs{{{8, "Mapa", Icon::Compass}, {0, "Estado", Icon::Chart}, {11, "Misiones", Icon::Pin}, {9, "Ajustes", Icon::Gear}, {10, "Controles", Icon::Keyboard}}};
     const int current = m_PauseSection == 3 ? 0 : m_PauseSection;
     size_t active = 1;
     for (size_t i = 0; i < tabs.size(); ++i) if (tabs[i].section == current) active = i;
@@ -69,7 +69,7 @@ void UIManager::RenderPauseTabs(const PauseContext& c) {
         W::TabKey(draw, ImVec2(innerLeft + 13.0f, origin.y + barHeight * 0.5f), "Q");
         W::TabKey(draw, ImVec2(innerRight - 13.0f, origin.y + barHeight * 0.5f), "E");
         const float tabsLeft = innerLeft + 26.0f + 6.0f, tabsRight = innerRight - 26.0f - 6.0f;
-        const float tabWidth = (tabsRight - tabsLeft - 6.0f * 3.0f) / 4.0f;
+        const float tabWidth = (tabsRight - tabsLeft - 6.0f * static_cast<float>(tabs.size() - 1)) / static_cast<float>(tabs.size());
         ImFont* tabFont = Ov(true, 15);
         for (size_t i = 0; i < tabs.size(); ++i) {
             const ImVec2 min(tabsLeft + static_cast<float>(i) * (tabWidth + 6.0f), origin.y + 8.0f);
@@ -112,6 +112,8 @@ void UIManager::RenderPauseTabs(const PauseContext& c) {
             RenderStateTab(c, panelWidth);
         } else if (section == 9) {
             RenderSettingsTab(c, panelWidth);
+        } else if (section == 11) {
+            RenderMissionsTab(panelWidth);
         } else {
             RenderControlsTab(panelWidth);
         }
@@ -120,7 +122,9 @@ void UIManager::RenderPauseTabs(const PauseContext& c) {
         SignUI::BeginFooter();
         if (W::Button("continuar", "Continuar jugando", Icon::None, true, false, 40.0f, 14, 0.0f)) TogglePause();
         ImGui::SameLine(0.0f, 12.0f);
-        if (W::Button("salir", "Guardar y salir del juego", Icon::None, false, false, 40.0f, 14)) m_QuitRequest = true;
+        if (W::Button("partidaNueva", "Empezar partida nueva", Icon::None, false, false, 40.0f, 14)) m_NewGameConfirmOpen = true;
+        ImGui::SameLine(0.0f, 12.0f);
+        if (W::Button("salir", "Guardar y salir del juego", Icon::None, false, false, 40.0f, 14)) RequestQuit();
     }
     SignUI::EndMenu();
     if (closeRequested) TogglePause();
@@ -325,7 +329,7 @@ void UIManager::RenderSettingsTab(const PauseContext& c, float width) {
     const float sliderWidth = inner - labelWidth - 56.0f;
 
     // fila 1: sonido y calidad grafica
-    const float topHeight = 262.0f;
+    const float topHeight = 316.0f;
     if (W::BeginPanel("##sonido", columnWidth, topHeight)) {
         ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(0.0f, 4.0f));
         W::SectionTitle("Sonido", Icon::Sound);
@@ -388,6 +392,16 @@ void UIManager::RenderSettingsTab(const PauseContext& c, float width) {
             if (W::Button("rendimiento", m_PerfVisible ? "Visible (F3)" : "Oculto (F3)", Icon::None, m_PerfVisible, false, 38.0f, 13)) m_PerfVisible = !m_PerfVisible;
             rowEnd(top, 40.0f);
         }
+        {   // densidad del trafico: escala toda la curva diaria (mas carros en las horas pico) y se aplica en vivo
+            const ImVec2 top = ImGui::GetCursorScreenPos();
+            rowLabel("Tráfico");
+            const float eachLevel = (inner - 18.0f) / 4.0f;
+            for (int level = 0; level < static_cast<int>(kTrafficDensityLevels.size()); ++level) {
+                if (level > 0) ImGui::SameLine(0.0f, 6.0f);
+                if (W::Button((std::string("trafico") + std::to_string(level)).c_str(), kTrafficDensityLevels[static_cast<size_t>(level)].label, Icon::None, m_TrafficDensity == level, false, 34.0f, 12, 0.0f, eachLevel)) m_TrafficDensityRequest = level;
+            }
+            rowEnd(top, 38.0f);
+        }
         ImGui::PopStyleVar();
     }
     W::EndPanel();
@@ -445,13 +459,50 @@ void UIManager::RenderSettingsTab(const PauseContext& c, float width) {
     W::EndPanel();
 }
 
+void UIManager::RenderMissionsTab(float width) {
+    // Misiones del dia (original: MissionsModal.js): tres tarjetas con avance y recompensa; se renuevan con cada dia de juego
+    int done = 0;
+    for (const MissionView& mission : m_Missions) done += mission.completed ? 1 : 0;
+    char summary[160];
+    std::snprintf(summary, sizeof(summary), "%d de %d misiones completadas hoy (día %d). Se renuevan cada día de juego.", done, static_cast<int>(m_Missions.size()), m_MissionsDay);
+    W::Text(ImGui::GetWindowDrawList(), Ov(false, 15), ImGui::GetCursorScreenPos(), kAzulTexto, summary);
+    ImGui::Dummy(ImVec2(1.0f, 26.0f));
+    if (m_Missions.empty()) {
+        W::Text(ImGui::GetWindowDrawList(), Ov(false, 15), ImGui::GetCursorScreenPos(), kAzulTexto, "No hay misiones disponibles por hoy.");
+        return;
+    }
+    for (size_t index = 0; index < m_Missions.size(); ++index) {
+        const MissionView& mission = m_Missions[index];
+        const std::string id = "##mision" + std::to_string(index);
+        if (W::BeginPanel(id.c_str(), width, 96.0f, ImVec2(14.0f, 10.0f))) {
+            ImDrawList* d = ImGui::GetWindowDrawList();
+            const ImVec2 at = ImGui::GetCursorScreenPos();
+            W::Text(d, Ov(true, 16), at, IM_COL32(255, 255, 255, 255), mission.title.c_str());
+            const char* badge = mission.completed ? "COMPLETADA" : "EN CURSO";
+            const float badgeWidth = W::TextWidth(Ov(true, 12), badge);
+            W::Text(d, Ov(true, 12), ImVec2(at.x + width - 28.0f - badgeWidth, at.y + 3.0f), mission.completed ? IM_COL32(25, 196, 99, 255) : kAmarillo, badge, 1.0f);
+            W::Text(d, Ov(false, 14), at + ImVec2(0.0f, 24.0f), kAzulTexto, mission.description.c_str());
+            const float fraction = std::clamp(static_cast<float>(mission.progress) / static_cast<float>(std::max(1, mission.target)), 0.0f, 1.0f);
+            ImGui::SetCursorScreenPos(at + ImVec2(0.0f, 48.0f));
+            W::Meter(fraction, mission.completed ? IM_COL32(25, 196, 99, 255) : kAmarillo, width - 28.0f);
+            char progress[96], reward[128];
+            std::snprintf(progress, sizeof(progress), "%d de %d (%d %%)", mission.progress, mission.target, static_cast<int>(std::lround(fraction * 100.0f)));
+            std::snprintf(reward, sizeof(reward), "+$%d · +%d XP · +%d Ánimo", mission.rewardMoney, mission.rewardXp, mission.rewardMood);
+            W::Text(d, Ov(true, 12), at + ImVec2(0.0f, 64.0f), kAzulTexto, progress);
+            const float rewardWidth = W::TextWidth(Ov(true, 12), reward);
+            W::Text(d, Ov(true, 12), ImVec2(at.x + width - 28.0f - rewardWidth, at.y + 64.0f), kAmarillo, reward);
+        }
+        W::EndPanel();
+    }
+}
+
 void UIManager::RenderControlsTab(float width) {
     struct Group { const char* title; std::vector<std::pair<const char*, const char*>> items; };
     static const std::array<Group, 4> groups{{
         {"Movimiento", {{"WASD", "Caminar"}, {"Shift", "Correr"}, {"Espacio", "Saltar"}, {"Ratón", "Clic fija la cámara · rueda acerca"}, {"V", "Vista tercera persona / isométrica"}}},
         {"Acciones", {{"E", "Interactuar: basura, tiendas, cambuche, carros"}, {"Q", "Mantener para clasificar basura · dealer"}, {"B / L", "Pedir limosna"},
                       {"F", "Boost de adrenalina"}, {"G / Clic", "Golpear"}, {"X", "Lanzar / recoger"}, {"Z", "Defecar"}}},
-        {"Paneles", {{"I / Tab", "Inventario · 1-5 acceso rápido"}, {"T", "Talentos"}, {"C", "Fabricar"}, {"P", "Editar personaje"}, {"R", "Radio transistor"},
+        {"Paneles", {{"I / Tab", "Inventario · 1-5 acceso rápido"}, {"J", "Misiones del día"}, {"T", "Talentos"}, {"C", "Fabricar"}, {"P", "Editar personaje"}, {"R", "Radio transistor"},
                      {"F3", "Panel de rendimiento"}, {"Esc", "Pausa · cerrar panel"}}},
         {"Mapa y GPS", {{"M", "Abrir / cerrar el mapa"}, {"N", "Mostrar / ocultar radar"}, {"+ / −", "Zoom del radar"}, {"Clic", "Marcar destino en el mapa"},
                         {"Clic der. / Supr", "Quitar destino"}, {"Q / E", "Cambiar de pestaña en la pausa"}}},
@@ -1492,6 +1543,8 @@ void UIManager::RenderMinimap(const HudContext& c, ImVec2 origin, ImVec2 size, f
     pois.push_back({"Cambuche", c.simulation->GetCambuchePosition(), IM_COL32(255, 209, 102, 255)});
     pois.push_back({"Recicladora", c.simulation->GetRecyclerPosition(), IM_COL32(42, 183, 202, 255)});
     pois.push_back({"Dealer", c.simulation->GetDealerPosition(), IM_COL32(155, 89, 182, 255)});
+    pois.push_back({"Comedor Comunitario", c.simulation->GetComedorPosition(), IM_COL32(39, 174, 96, 255)});
+    pois.push_back({"Carreta", c.simulation->GetCart().position, IM_COL32(243, 156, 18, 255)});
     for (const auto& landmark : c.city->GetLandmarks()) {
         if (landmark.name == "Pasarela") continue;
         pois.push_back({landmark.name, landmark.position, landmark.name == "Gasolinera" ? IM_COL32(222, 62, 62, 255) : landmark.name == "Tienda D69" ? IM_COL32(236, 76, 118, 255) : landmark.name == "Torre Colpatria" ? IM_COL32(255, 203, 69, 255) : IM_COL32(92, 168, 226, 255)});

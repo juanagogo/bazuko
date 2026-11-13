@@ -903,8 +903,8 @@ export class Npc {
     if (this._raining && this.person.paraguas === null && !this.target && !this.fijo && this.wait > 2) this.wait = .5 + Math.random() * 1.5;
     if (this._noseTimer > 0) this._noseTimer -= dt;
     if (this._noseCooldown > 0) this._noseCooldown -= dt;
-    else if ((ctx.hygiene ?? 100) < CONDUCT.noseHygiene && this._playerDist < CONDUCT.noseRange
-      && !this.koState && this.fleeTimer <= 0 && !LOW_STANCES.has(this.stance)) {
+    else if ((ctx.hygiene ?? 100) < CONDUCT.noseHygiene && this._playerDist < CONDUCT.noseRange && this.person.nariz
+      && !this.koState && this.fleeTimer <= 0 && !LOW_STANCES.has(this.stance) && !(this._raining && this.person.paraguas !== null && !this.fijo?.techo)) {
       this._noseTimer = 2 + Math.random() * 2;
       this._noseCooldown = this._noseTimer + 6 + Math.random() * 8;
       // Con mal olor, el peatón huye corriendo de la peste
