@@ -568,3 +568,39 @@ test('el lienzo dibuja según zoom y filtro, y atenúa lo que no coincide', () =
   assert.ok(dim < lit, 'lo atenuado queda debajo');
   assert.equal(state.globalAlpha, 1, 'la opacidad vuelve a la normalidad');
 });
+
+test('el plano oficial se dibuja a escala metrica 1:1 y sin cuadricula procedural ortogonal superpuesta', () => {
+  const drawnImages = [];
+  const state = {};
+  const ctx = new Proxy(state, {
+    get(target, key) {
+      if (key === 'drawImage') return (...args) => drawnImages.push(args);
+      if (key in target) return target[key];
+      return () => {};
+    },
+    set(target, key, value) { target[key] = value; return true; },
+  });
+  const map = view();
+  map.ctx = ctx;
+  map._hornoAlDia = () => {};
+  map._reparto = () => [];
+  map._visiblePois = () => [];
+
+  const fakeOfficialImg = { tag: 'img', src: 'official.jpg' };
+  const fakeHornoCanvas = { tag: 'horno' };
+  map._officialMapImg = fakeOfficialImg;
+  map.showOfficialCartography = true;
+  map._horno = { canvas: fakeHornoCanvas, x0: 0, z0: 0, w: 100, h: 100, zoom: map.zoom };
+
+  map.draw();
+  // Se debe haber dibujado fakeOfficialImg pero NUNCA fakeHornoCanvas
+  assert.ok(drawnImages.some(call => call[0] === fakeOfficialImg), 'Debe dibujar la imagen del plano oficial');
+  assert.ok(!drawnImages.some(call => call[0] === fakeHornoCanvas), 'NO debe dibujar la cuadrícula ortogonal del horno sobre el plano oficial');
+
+  // Si se desactiva la cartografía oficial, entonces sí se dibuja el horno de fallback
+  drawnImages.length = 0;
+  map.showOfficialCartography = false;
+  map.draw();
+  assert.ok(drawnImages.some(call => call[0] === fakeHornoCanvas), 'Al desactivar el plano oficial, debe dibujar el horno de fallback');
+  assert.ok(!drawnImages.some(call => call[0] === fakeOfficialImg), 'No debe dibujar la imagen oficial');
+});

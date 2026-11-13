@@ -85,11 +85,11 @@ export function cityLandmarks(tileSize = 2) {
   const center = (o) => ({ x: (o.x0 + o.x1) / 2, z: (o.z0 + o.z1) / 2 });
   return [
     // 1. ZONAS EXCLUSIVAS DEL NORTE DE BOGOTÁ
-    { name: 'Parque de la 93 (Chicó)', icon: '🌳', color: '#2a9d8f', x: 38, z: 25, fijo: true },
-    { name: 'Zona T (Calle 82 / Zona Rosa)', icon: '🍸', color: '#ff007f', x: 38, z: 75, fijo: true },
-    { name: 'Zona G (Rosales / Gourmet)', icon: '🍽️', color: '#e76f51', x: 295, z: 115, fijo: true },
-    { name: 'Mansión Reyes (Rosales / Zona G)', icon: '🏰', color: '#ffd166', x: 295, z: 115, fijo: true },
-    { name: 'Tarima Zona T (Show de Hilda)', icon: '🎤', color: '#f72585', x: 38, z: 75, fijo: true },
+    { name: 'Parque de la 93 (Chicó)', icon: '🌳', color: '#2a9d8f', x: 215, z: 40, fijo: true },
+    { name: 'Zona T (Calle 82 / Zona Rosa)', icon: '🍸', color: '#ff007f', x: 38, z: 80, fijo: true },
+    { name: 'Zona G (Rosales / Gourmet)', icon: '🍽️', color: '#e76f51', x: 295, z: 75, fijo: true },
+    { name: 'Mansión Reyes (Rosales / Zona G)', icon: '🏰', color: '#ffd166', x: 295, z: 75, fijo: true },
+    { name: 'Tarima Zona T (Show de Hilda)', icon: '🎤', color: '#f72585', x: 38, z: 80, fijo: true },
 
     // 2. METRO DE BOGOTÁ (PRIMERA LÍNEA ELEVADA - PLMB)
     { name: 'Metro de Bogotá · Estación Calle 93', icon: '🚇', color: '#2e7d32', x: metroTrackX(32), z: 32, fijo: true },
@@ -97,7 +97,7 @@ export function cityLandmarks(tileSize = 2) {
     { name: 'Metro de Bogotá · Estación Central (Calle 26)', icon: '🚇', color: '#2e7d32', x: metroTrackX(193), z: 193, fijo: true },
     { name: 'Metro de Bogotá · Estación San Victorino', icon: '🚇', color: '#2e7d32', x: metroTrackX(270), z: 270, fijo: true },
     { name: 'Metro de Bogotá · Viaducto Caracas', icon: '🚇', color: '#2e7d32', x: metroTrackX(155), z: 155, fijo: true },
-    { name: 'Santuario de Monserrate (Cerros Orientales)', icon: '⛪', color: '#2d6a4f', x: 380, z: 155, fijo: true },
+    { name: 'Santuario de Monserrate (Cerros Orientales)', icon: '⛪', color: '#2d6a4f', x: 410, z: 180, fijo: true },
 
     // 3. HITOS URBANOS Y TRADICIONALES DE BOGOTÁ
     { name: 'Torre Colpatria (Av. Calle 26)', icon: '🏙️', color: '#ffcb45', x: COLPATRIA.x, z: COLPATRIA.z, fijo: true },

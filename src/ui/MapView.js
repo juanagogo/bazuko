@@ -123,8 +123,13 @@ export class MapView {
   fitCity() {
     const r = this.game.mapPlan;
     if (!r || !this.cssWidth) return;
-    this.centerX = r.originX + r.worldWidth / 2;
-    this.centerZ = r.originZ + r.worldHeight / 2;
+    const isOfficial = this.showOfficialCartography && this._officialMapImg;
+    const origX = isOfficial ? -85 : r.originX;
+    const origZ = isOfficial ? -15 : r.originZ;
+    const wWidth = isOfficial ? 580 : r.worldWidth;
+    const wHeight = isOfficial ? 325 : r.worldHeight;
+    this.centerX = origX + wWidth / 2;
+    this.centerZ = origZ + wHeight / 2;
     this.zoom = this._clampZoom(0);
     this._panned = false;
     this.draw();
@@ -132,7 +137,10 @@ export class MapView {
 
   _clampZoom(z) {
     const r = this.game.mapPlan;
-    const min = r && this.cssWidth ? Math.min(this.cssWidth / r.worldWidth, this.cssHeight / r.worldHeight) * .9 : .5;
+    const isOfficial = this.showOfficialCartography && this._officialMapImg;
+    const wWidth = isOfficial ? 580 : r?.worldWidth;
+    const wHeight = isOfficial ? 325 : r?.worldHeight;
+    const min = wWidth && this.cssWidth ? Math.min(this.cssWidth / wWidth, this.cssHeight / wHeight) * .9 : .5;
     return Math.max(min, Math.min(9, z));
   }
 
@@ -579,13 +587,18 @@ export class MapView {
   _alCentroDeLaCiudad() {
     const plan = this.game.mapPlan;
     if (!plan) return;
+    const isOfficial = this.showOfficialCartography && this._officialMapImg;
+    const origX = isOfficial ? -85 : plan.originX;
+    const origZ = isOfficial ? -15 : plan.originZ;
+    const wWidth = isOfficial ? 580 : plan.worldWidth;
+    const wHeight = isOfficial ? 325 : plan.worldHeight;
     // Si la ciudad no cabe, la vista no enseña más que un borde de cartón vacío; si cabe, queda en el medio.
     const dentro = (centro, desde, largo, vista) => {
       const mitad = vista / 2 / this.zoom - BORDE_VACIO / this.zoom;
       return mitad * 2 >= largo ? desde + largo / 2 : Math.max(desde + mitad, Math.min(desde + largo - mitad, centro));
     };
-    this.centerX = dentro(this.centerX, plan.originX, plan.worldWidth, this.cssWidth);
-    this.centerZ = dentro(this.centerZ, plan.originZ, plan.worldHeight, this.cssHeight);
+    this.centerX = dentro(this.centerX, origX, wWidth, this.cssWidth);
+    this.centerZ = dentro(this.centerZ, origZ, wHeight, this.cssHeight);
   }
 
   /** ¿Sirve lo horneado? A otra escala se estira un momento, y al quedarse quieto se hornea de nuevo. */
@@ -615,32 +628,32 @@ export class MapView {
     ctx.clearRect(0, 0, w, h);
 
     const plan = this.game.mapPlan;
-    if (this.showOfficialCartography && this._officialMapImg && plan) {
-      // Ajuste de encuadre métrico exacto (margen exterior del plano artístico vs cuadrícula de juego)
-      // El marco del plano tiene un margen de cartón exterior (~5% X, ~4.5% Z)
-      const padX = plan.worldWidth * 0.048;
-      const padZ = plan.worldHeight * 0.042;
-      const [ox, oy] = this._toScreen(plan.originX - padX, plan.originZ - padZ);
-      const mw = (plan.worldWidth + padX * 2) * this.zoom;
-      const mh = (plan.worldHeight + padZ * 2) * this.zoom;
+    if (this.showOfficialCartography && this._officialMapImg) {
+      // Plano oficial de Bogotá en escala métrica 1:1 real (-85 a 495 en X, -15 a 310 en Z)
+      const mapOriginX = -85;
+      const mapOriginZ = -15;
+      const mapWorldWidth = 580;
+      const mapWorldHeight = 325;
+      const [ox, oy] = this._toScreen(mapOriginX, mapOriginZ);
+      const mw = mapWorldWidth * this.zoom;
+      const mh = mapWorldHeight * this.zoom;
       ctx.save();
-      ctx.globalAlpha = 0.95;
+      ctx.globalAlpha = 1.0;
       ctx.drawImage(this._officialMapImg, ox, oy, mw, mh);
       ctx.restore();
-    }
-
-    const horno = this._horno;
-    if (horno) {
-      const [sx, sy] = this._toScreen(horno.x0, horno.z0);
-      // A la escala horneada se pega en píxeles enteros, para que la línea no se empañe.
-      const exacta = horno.zoom === this.zoom;
-      ctx.save();
-      if (this.showOfficialCartography && this._officialMapImg) ctx.globalAlpha = 0.38;
-      ctx.imageSmoothingEnabled = !exacta;
-      ctx.drawImage(horno.canvas, exacta ? Math.round(sx * dpr) / dpr : sx, exacta ? Math.round(sy * dpr) / dpr : sy,
-        exacta ? horno.canvas.width / dpr : horno.w * this.zoom, exacta ? horno.canvas.height / dpr : horno.h * this.zoom);
-      ctx.imageSmoothingEnabled = true;
-      ctx.restore();
+    } else {
+      const horno = this._horno;
+      if (horno) {
+        const [sx, sy] = this._toScreen(horno.x0, horno.z0);
+        // A la escala horneada se pega en píxeles enteros, para que la línea no se empañe.
+        const exacta = horno.zoom === this.zoom;
+        ctx.save();
+        ctx.imageSmoothingEnabled = !exacta;
+        ctx.drawImage(horno.canvas, exacta ? Math.round(sx * dpr) / dpr : sx, exacta ? Math.round(sy * dpr) / dpr : sy,
+          exacta ? horno.canvas.width / dpr : horno.w * this.zoom, exacta ? horno.canvas.height / dpr : horno.h * this.zoom);
+        ctx.imageSmoothingEnabled = true;
+        ctx.restore();
+      }
     }
 
     const gps = this.game.gps, p = this.game.player?.position;
