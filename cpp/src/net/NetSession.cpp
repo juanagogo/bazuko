@@ -587,7 +587,7 @@ bool NetSession::PromoteToHost() {
     m_Host = std::move(fresh);
     m_Migrating = false; m_PromoteTries = 0;
     m_Role = Role::Host; m_LocalId = 1; m_Connected = false; m_Rejected = false; m_SuccessorId = 0;
-    m_Peers.clear(); m_Smooth.clear(); m_Remotes.clear(); m_Looks.clear(); m_Looks[1] = m_OwnLook;
+    m_Peers.clear(); m_Smooth.clear(); m_Remotes.clear(); m_Looks.clear(); m_Looks[1] = m_OwnLook; m_Names.clear(); m_Names[1] = m_Name;
     m_Seed.clear();
     for (const CheckpointEntry& entry : m_Checkpoint) m_Seed[entry.key] = entry.state;
     m_RosterDirty = true; m_CheckpointDirty = true;
