@@ -999,9 +999,10 @@ export class Game {
     st.energia = Math.min(100, st.energia + (SLEEP.energia + (b.cama ? SLEEP.energiaCama : 0)) * factor);
     st.salud = Math.min(100, st.salud + (SLEEP.salud + (b.techo ? SLEEP.saludTecho : 0)) * factor);
     st.saludMental = Math.min(100, st.saludMental + (MENTAL_RESTORE_SLEEP + (b.fogon ? SLEEP.animoFogon : 0)) * factor);
-    if (this.dog?.isFriend) st.saludMental = Math.min(100, st.saludMental + 15);
+    // El Chato y la vela rinden como el resto del sueño: una siesta da una parte.
+    if (this.dog?.isFriend) st.saludMental = Math.min(100, st.saludMental + 15 * factor);
     st.vicio = b.vela
-      ? Math.min(100, st.vicio + SLEEP.vicioVela)
+      ? Math.min(100, st.vicio + SLEEP.vicioVela * factor)
       : Math.max(0, st.vicio - WITHDRAWAL.vicioDormir * factor);
     if (!b.fogon) st.hambre = Math.max(0, st.hambre - SLEEP.hambreFogon * factor);
 

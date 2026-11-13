@@ -22,6 +22,8 @@ Las regresiones de jugabilidad comprueban el salto y el recorrido de ambas rampa
 
 `next-level.test.js` comprueba además que con más carga de la que se aguanta sin carreta no se pueda soltarla: sigue enganchada, con sus penas, hasta botar lo que sobra; y que mientras tanto la tecla no diga «Soltar la carreta», sino qué hacer antes.
 
+`integration-features.test.js` comprueba que El Chato y la vela rindan como el resto del sueño: la noche entera da sus 15 de ánimo y de vicio, y una siesta de 3 h, 3/8 de eso.
+
 `input.test.js` comprueba que una tecla sostenida cuente como una sola pulsación: con Espacio sostenido se salta una vez aunque el sistema repita la tecla, y sostener E no vuelve a interactuar, tampoco al volver a la ventana con la tecla oprimida.
 
 En C++, `bazuko_playerstate_test` comprueba que la carga conserve los objetos permitidos por el costal grande y los talentos, y que la regeneración no reviva al jugador durante una caída mortal. Se ejecuta con `ctest --test-dir cpp/build --output-on-failure` después de configurar y compilar los objetivos nativos. Estas pruebas de lógica no requieren abrir la ventana del juego.

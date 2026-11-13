@@ -14,6 +14,7 @@ import { InteractionSystem } from '../src/systems/InteractionSystem.js';
 import { StatsSystem } from '../src/systems/StatsSystem.js';
 import { ITEMS } from '../src/data/items.js';
 import { Game } from '../src/core/game.js';
+import { SLEEP } from '../src/data/cambuche.js';
 
 beforeEach(() => {
   globalThis.window = new EventTarget();
@@ -155,24 +156,45 @@ test('inventario y paneles existentes pausan la simulación y los POI usan la ub
   assert.equal(game._getPOIs()[0].z, 94.64);
 });
 
-test('dormir con El Chato suma quince de ánimo y lo despierta al terminar la siesta', () => {
+test('dormir con El Chato suma su ánimo como el resto del sueño: quince la noche entera, menos en la siesta', () => {
   mock.timers.enable({ apis: ['setTimeout'] });
   try {
-    const run = friend => {
+    const run = (friend, clock) => {
       const dog = new Dog(new THREE.Scene()); if (friend) dog.befriend();
-      const stats = new StatsSystem(); stats.saludMental = 20;
+      const stats = new StatsSystem(); stats.saludMental = 20; stats.energia = 50; // llega cansado
       const game = Object.assign(Object.create(Game.prototype), {
-        built: { base: true }, clock: { hour: 12, day: 1, isNight: false }, stats,
+        built: { base: true, paredes: true }, clock, stats,
         player: { position: new THREE.Vector3(), playAction() {} }, dog, _save() {}, inventory: new InventorySystem()
       });
       game.sleep(); return game;
     };
-    const alone = run(false), accompanied = run(true);
-    assert.equal(accompanied.stats.saludMental - alone.stats.saludMental, 15);
+    const siesta = () => ({ hour: 12, day: 1, isNight: false });
+    const noche = () => ({ hour: 22, day: 1, isNight: true }); // hasta las 6:00: ocho horas
+    const alone = run(false, siesta()), accompanied = run(true, siesta());
+    assert.equal(accompanied.stats.saludMental - alone.stats.saludMental, 15 * 3 / 8, 'la siesta de 3 h rinde 3/8');
+    const nightAlone = run(false, noche()), nightAccompanied = run(true, noche());
+    assert.equal(nightAccompanied.stats.saludMental - nightAlone.stats.saludMental, 15);
     assert.equal(accompanied.dog.sleeping, true);
     mock.timers.tick(1200);
     assert.equal(accompanied.dog.sleeping, false); assert.equal(accompanied.isSleeping, false);
-    alone.dog.destroy(); accompanied.dog.destroy();
+    for (const g of [alone, accompanied, nightAlone, nightAccompanied]) g.dog.destroy();
+  } finally { mock.timers.reset(); }
+});
+
+test('la vela calma el vicio como el resto del sueño: una siesta no la paga entera', () => {
+  mock.timers.enable({ apis: ['setTimeout'] });
+  try {
+    const vicio = (clock) => {
+      const stats = new StatsSystem(); stats.vicio = 10; stats.energia = 50;
+      const game = Object.assign(Object.create(Game.prototype), {
+        built: { base: true, paredes: true, vela: true }, clock, stats, dog: null,
+        player: { position: new THREE.Vector3(), playAction() {} }, _save() {}, inventory: new InventorySystem()
+      });
+      game.sleep();
+      return stats.vicio;
+    };
+    assert.equal(vicio({ hour: 12, day: 1, isNight: false }), 10 + SLEEP.vicioVela * 3 / 8);
+    assert.equal(vicio({ hour: 22, day: 1, isNight: true }), 10 + SLEEP.vicioVela);
   } finally { mock.timers.reset(); }
 });
 
