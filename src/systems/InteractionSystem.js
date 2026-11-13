@@ -384,6 +384,7 @@ export class InteractionSystem {
 
     if (result.caught) {
       this.stats.salud = Math.max(0, this.stats.salud - STEAL_CAUGHT_PENALTY);
+      this.stats.danoPor = 'pelea';
       this.stats.dinero = Math.max(0, this.stats.dinero - STEAL_CAUGHT_MONEY);
       window.dispatchEvent(new CustomEvent('steal-caught', {}));
     } else {

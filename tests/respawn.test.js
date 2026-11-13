@@ -6,6 +6,9 @@ import { StatsSystem, NEEDS } from '../src/systems/StatsSystem.js';
 import { InventorySystem } from '../src/systems/InventorySystem.js';
 import { Menu } from '../src/ui/Menu.js';
 import { Player } from '../src/entities/Player.js';
+import { StealSystem } from '../src/features/steal.js';
+import { InteractionSystem } from '../src/systems/InteractionSystem.js';
+import { consejoDeMuerte } from '../src/ui/momentosTextos.js';
 
 beforeEach(() => { globalThis.window = new EventTarget(); });
 
@@ -212,4 +215,117 @@ test('una muerte pendiente tiene prioridad sobre un aviso policial', () => {
   assert.equal(game._arrestPending, false);
   assert.equal(game._handleDeath(), true);
   assert.equal(game._deathPending, true);
+});
+
+// ---------- de qué murió ----------
+const sinEnfermedad = { getAggregatedEffects: () => ({ healthDrain: 0, mentalDrain: 0, speedMultiplier: 1, hungerDrainMultiplier: 1, energyDrainMultiplier: 1, hygieneDrain: 0, canEat: true }) };
+const enfermo = { getAggregatedEffects: () => ({ ...sinEnfermedad.getAggregatedEffects(), healthDrain: .5 }) };
+/** Deja correr las necesidades hasta morir, como el bucle: un cuadro de 0,1 s tras otro. */
+function hastaMorir(game, { diseases = sinEnfermedad, clock = { isNight: false }, weather = { isRaining: false } } = {}) {
+  for (let t = 0; t < 3600 && game.stats.salud > 0; t += .1) game.stats.update(.1, null, diseases, clock, null, weather);
+  assert.equal(game.stats.salud, 0);
+  assert.equal(game._handleDeath(), true);
+  return { titulo: game.menu.options.title, consejo: consejoDeMuerte(game.stats.danoPor, game.stats) };
+}
+
+test('si me mata la sed una noche de lluvia sin calor, el cartón culpa a la sed y no al frío', () => {
+  const game = fixture();
+  Object.assign(game.stats, { sed: 0, calor: 0, salud: 20 });
+  const { titulo, consejo } = hastaMorir(game, { clock: { isNight: true }, weather: { isRaining: true } });
+  assert.equal(game.stats.isFreezing, true, 'murió con frío');
+  assert.equal(titulo, 'Me mató la sed');
+  assert.match(consejo, /agua/);
+});
+
+test('si me mata una enfermedad con la energía en 0, el cartón culpa a la enfermedad y no al cansancio', () => {
+  const game = fixture();
+  Object.assign(game.stats, { energia: 0, salud: 20 });
+  const { titulo, consejo } = hastaMorir(game, { diseases: enfermo });
+  assert.equal(game.stats.energia, 0);
+  assert.equal(titulo, 'Me mató la enfermedad');
+  assert.match(consejo, /remedio/);
+});
+
+test('el hambre que ya pasó no se lleva la culpa de lo que mató después', () => {
+  const game = fixture();
+  Object.assign(game.stats, { hambre: 0, salud: 30 });
+  for (let i = 0; i < 100; i++) game.stats.update(.1, null, sinEnfermedad, { isNight: false }, null, { isRaining: false });
+  assert.equal(game.stats.danoPor, 'hambre');
+  game.stats.hambre = 80; // comió
+  const { titulo } = hastaMorir(game, { diseases: enfermo });
+  assert.equal(titulo, 'Me mató la enfermedad');
+});
+
+test('si me matan a golpes al robar, el cartón lo dice: el raponazo que se defiende y el retrovisor pillado', () => {
+  const raponazo = fixture();
+  raponazo.stats.salud = 5;
+  const robo = Object.assign(Object.create(StealSystem.prototype), { game: raponazo, buscado: 0, cooldown: 0, _calma: 0 });
+  robo.game.player.position = new THREE.Vector3();
+  robo._toast = () => {};
+  robo.executeRoboDirecto({ look: { real: { edad: 'adulto' } }, stance: null, alarmedByTheft() {} });
+  assert.equal(raponazo._handleDeath(), true);
+  assert.equal(raponazo.menu.options.title, 'Me mataron a golpes');
+
+  const retrovisor = fixture();
+  Object.assign(retrovisor.stats, { salud: 10, sed: 0 }); // con sed, para que no se la culpe de lo que no fue
+  const ix = Object.assign(Object.create(InteractionSystem.prototype), {
+    talents: retrovisor.talents, stats: retrovisor.stats, inventory: retrovisor.inventory, player: retrovisor.player, audio: null,
+  });
+  ix._executeCarTheft({ steal: () => ({ items: [], caught: true }) });
+  assert.equal(retrovisor._handleDeath(), true);
+  assert.equal(retrovisor.menu.options.title, 'Me mataron a golpes');
+});
+
+/** Unos cuadros de necesidades sin nada que quite salud. */
+const sinDano = (game, cuadros = 10) => {
+  for (let i = 0; i < cuadros; i++) game.stats.update(.1, null, sinEnfermedad, { isNight: false }, null, { isRaining: false });
+};
+
+test('la sed que ya pasó no se lleva la culpa si después me mata lo que me metí', () => {
+  const game = fixture();
+  Object.assign(game.stats, { sed: 0, salud: 30 });
+  sinDano(game, 100);
+  assert.equal(game.stats.danoPor, 'sed');
+  game.stats.sed = 100; // bebió
+  sinDano(game);
+  assert.equal(game.stats.danoPor, null, 'ya nada quita salud: la sed deja de ser la causa');
+  game.stats.salud = Math.max(0, 4 - 6); // la pipa de basuco con la salud en 4, que no pasa por las necesidades
+  assert.equal(game._handleDeath(), true);
+  assert.equal(game.menu.options.title, 'Me quedé sin salud');
+  assert.notEqual(consejoDeMuerte(game.stats.danoPor, game.stats), consejoDeMuerte('sed', game.stats));
+});
+
+test('sobrevivir a un peatón que se defiende no deja «a golpes» para lo que mate después', () => {
+  const game = fixture();
+  game.stats.salud = 40;
+  const robo = Object.assign(Object.create(StealSystem.prototype), { game, buscado: 0, cooldown: 0, _calma: 0, _toast() {} });
+  robo.executeRoboDirecto({ look: { real: { edad: 'adulto' } }, stance: null, alarmedByTheft() {} });
+  assert.equal(game.stats.danoPor, 'pelea');
+  assert.ok(game.stats.salud > 0);
+  sinDano(game);
+  assert.equal(game.stats.danoPor, null);
+  game.stats.salud = 0;
+  assert.equal(game._handleDeath(), true);
+  assert.notEqual(game.menu.options.title, 'Me mataron a golpes');
+});
+
+test('en el cuadro de la muerte la causa no se borra aunque las necesidades ya no quiten salud', () => {
+  const game = fixture();
+  Object.assign(game.stats, { salud: 5, hambre: 40 }); // con hambre, pero sin que quite salud ni deje reponerla
+  const robo = Object.assign(Object.create(StealSystem.prototype), { game, buscado: 0, cooldown: 0, _calma: 0, _toast() {} });
+  robo.executeRoboDirecto({ look: { real: { edad: 'adulto' } }, stance: null, alarmedByTheft() {} });
+  assert.equal(game.stats.salud, 0);
+  sinDano(game, 1); // si las necesidades corren otra vez antes de abrir el cartón, la causa sigue
+  assert.equal(game.stats.danoPor, 'pelea');
+  assert.equal(game._handleDeath(), true);
+  assert.equal(game.menu.options.title, 'Me mataron a golpes');
+});
+
+test('la causa no pasa a la vida siguiente', () => {
+  const game = fixture();
+  Object.assign(game.stats, { sed: 0, salud: 1 });
+  hastaMorir(game);
+  assert.equal(game.stats.danoPor, 'sed');
+  game._respawn();
+  assert.equal(game.stats.danoPor, null);
 });

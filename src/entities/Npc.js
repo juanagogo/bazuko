@@ -1114,6 +1114,7 @@ export class Npc {
         maxDistance: NPC_COMBAT.counterRange,
         fromInWater: false, toInWater: !!attacker.inWater })) {
         attacker.stats.salud = Math.max(0, attacker.stats.salud - counter.damage);
+        attacker.stats.danoPor = 'pelea';
         attacker.audio?.playPunchHit?.();
         if (typeof window !== 'undefined' && window.dispatchEvent) {
           window.dispatchEvent(new CustomEvent('toast', {

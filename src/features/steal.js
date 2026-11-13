@@ -366,6 +366,7 @@ export class StealSystem {
     if (isStrong && this.game.stats) {
       const dmg = Math.floor(CONFIG.directDamageMin + Math.random() * (CONFIG.directDamageMax - CONFIG.directDamageMin));
       this.game.stats.salud = Math.max(0, this.game.stats.salud - dmg);
+      this.game.stats.danoPor = 'pelea';
       this._toast(`¡El peatón se defendió! −${dmg} de salud.`, 'death');
     } else {
       this._toast('¡Raponazo! El peatón se asustó.', 'warn');

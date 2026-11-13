@@ -1083,7 +1083,7 @@ export class Game {
     this.audio.updateSteps(false, false);
     this.audio.setPaused?.(true);
     if (this.interaction.boostActive) this.interaction._endBoost();
-    const causa = this._deathCause;
+    const causa = this._deathCause ?? this.stats.danoPor;
     const salir = () => this._respawn();
     if (causa === 'limpieza') {
       const texto = recorteDeLimpieza(this.look, this._calleCercana());
@@ -1236,6 +1236,7 @@ export class Game {
     this._vehicleImpactCooldown = 1.5;
     if (this._deathCause === 'limpieza') this.momentos?.guardarConsejoDeCamioneta();
     this._deathCause = null;
+    this.stats.danoPor = null;
     this.cameraRig._snap = true;
     this.cameraRig.follow(this.player.position, 0, this.collisions);
     this.interaction.currentTarget = null;
