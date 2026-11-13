@@ -5,6 +5,7 @@
 // Canales: 0 = fiable y ordenado (Hello, Welcome, Bye, Chat); 1 = no fiable (Input, Snapshot, Ping, Pong).
 // Todo mensaje empieza con su tipo (8 bits). Cualquier dato fuera de rango o truncado hace fallar la lectura (nunca se confia en el cliente).
 #include "BitStream.hpp"
+#include <algorithm>
 
 #include <array>
 #include <cstdint>
@@ -20,6 +21,33 @@ inline constexpr int kChannelUnreliable = 1;
 inline constexpr size_t kMaxPlayers = 100;      // por mundo (cifra de pruebas); los ids van en 7 bits (1..127)
 inline constexpr size_t kMaxSnapshotEntries = 48;  // jugadores por instantanea: los 48 mas cercanos (cabe en un paquete de ~600 B)
 inline constexpr size_t kMaxNameLength = 24;
+
+// Nombre de jugador tal como se muestra: solo lo que la letra del juego sabe dibujar (letras, tambien con tilde y la ene, numeros, espacio y - _ . '),
+// sin espacios al borde ni repetidos, y de kMaxNameLength bytes como mucho. Lo que no sirve se quita; si no queda nada, "Parcero".
+// Lo aplican el anfitrion al recibir un saludo y cada copia al recibir un nombre: nunca se confia en lo que llega por la red.
+inline std::string CleanPlayerName(const std::string& raw) {
+    std::string out;
+    bool pendingSpace = false;
+    for (size_t i = 0; i < raw.size();) {
+        const unsigned char c = static_cast<unsigned char>(raw[i]);
+        uint32_t code = 0xFFFD; size_t length = 1;
+        if (c < 0x80) code = c;
+        else if ((c & 0xE0) == 0xC0 && i + 1 < raw.size() && (static_cast<unsigned char>(raw[i + 1]) & 0xC0) == 0x80) { code = ((c & 0x1Fu) << 6) | (static_cast<unsigned char>(raw[i + 1]) & 0x3Fu); length = 2; }
+        else if ((c & 0xF0) == 0xE0) length = 3;
+        else if ((c & 0xF8) == 0xF0) length = 4;
+        i += std::min(length, raw.size() - i);
+        const bool letter = (code >= 'A' && code <= 'Z') || (code >= 'a' && code <= 'z') || (code >= 0xC0 && code <= 0xFF && code != 0xD7 && code != 0xF7);
+        const bool other = (code >= '0' && code <= '9') || code == '-' || code == '_' || code == '.' || code == 0x27;   // apostrofo
+        if (code == ' ') { pendingSpace = !out.empty(); continue; }
+        if (!letter && !other) continue;
+        const size_t bytes = code < 0x80 ? 1 : 2;
+        if (out.size() + (pendingSpace ? 1 : 0) + bytes > kMaxNameLength) break;
+        if (pendingSpace) { out += ' '; pendingSpace = false; }
+        if (code < 0x80) out += static_cast<char>(code);
+        else { out += static_cast<char>(0xC0 | (code >> 6)); out += static_cast<char>(0x80 | (code & 0x3F)); }
+    }
+    return out.empty() ? std::string("Parcero") : out;
+}
 inline constexpr size_t kMaxLookBytes = 200;   // apariencia del creador de personaje, opaca para la red
 inline constexpr size_t kMaxChatLength = 120;
 

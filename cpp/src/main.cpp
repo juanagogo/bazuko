@@ -3050,19 +3050,33 @@ int main(int argc, char** argv) {
             ui.SetWorldBubbles(std::move(bubbles));
         }
 #ifdef BAZUKO_NET_ENABLED
-        {   // multijugador: el nombre de cada jugador sobre su cabeza, nitido hasta 25 m y apagado a 40 m
+        {   // multijugador: el nombre de cada jugador sobre su cabeza, nitido hasta 25 m y apagado a 40 m; solo si esta a la vista (no delata a quien esta tras un edificio)
+            static std::unordered_map<uint8_t, float> tagSight;   // cuanto se ve cada nombre (0..1): entra y sale suave para no parpadear en las esquinas
             std::vector<UIManager::NameTag> tags;
             if (netSession) {
                 for (const Net::RemotePlayer& remote : netSession->Remotes()) {
                     const float distance = glm::distance(remote.position, playerPos);
-                    if (distance > 40.0f) continue;
+                    if (distance > 40.0f) { tagSight.erase(remote.id); continue; }
                     const glm::vec3 head = remote.position + glm::vec3(0.0f, remote.knockedDown ? 0.7f : 2.05f, 0.0f);
+                    bool inSight = true;   // la linea entre las dos cabezas no cruza casillas solidas (edificios, muros); se saltan los extremos por si alguien esta pegado a una pared
+                    const glm::vec2 from(playerPos.x, playerPos.z), to(remote.position.x, remote.position.z);
+                    const float flat = glm::distance(from, to);
+                    for (float along = 0.8f; inSight && along < flat - 0.8f; along += 0.4f) {
+                        const glm::vec2 point = from + (to - from) * (along / flat);
+                        inSight = city.IsWalkable(point.x, point.y, true);
+                    }
+                    if (std::getenv("BAZUKO_LOG_NOMBRES")) {   // pruebas: una linea por segundo con lo que se ve de cada nombre
+                        static float logTimer = 0.0f;
+                        if ((logTimer += dt) >= 1.0f) { logTimer = 0.0f; LogInfo("Nombre «{}»: a {:.1f} m, {} (yo {:.1f},{:.1f}; el {:.1f},{:.1f})", remote.name, distance, inSight ? "a la vista" : "tapado", playerPos.x, playerPos.z, remote.position.x, remote.position.z); }
+                    }
+                    float& sight = tagSight.try_emplace(remote.id, inSight ? 1.0f : 0.0f).first->second;
+                    sight = std::clamp(sight + (inSight ? 1.0f : -1.0f) * std::min(dt, 0.1f) * 5.0f, 0.0f, 1.0f);
                     const glm::vec4 clip = camera.GetViewProjectionMatrix() * glm::vec4(head, 1.0f);
                     if (clip.w <= 0.1f) continue;   // detras de la camara
-                    const float alpha = std::clamp((40.0f - distance) / 15.0f, 0.0f, 1.0f);
+                    const float alpha = std::clamp((40.0f - distance) / 15.0f, 0.0f, 1.0f) * sight;
                     tags.push_back({clip.x / clip.w, clip.y / clip.w, remote.name.empty() ? std::string("Parcero") : remote.name, alpha});
                 }
-            }
+            } else tagSight.clear();
             ui.SetNameTags(std::move(tags));
         }
 #endif

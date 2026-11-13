@@ -1,6 +1,7 @@
 #include "NetSession.hpp"
 
 #include <algorithm>
+#include <cctype>
 #include <cmath>
 
 namespace Bazuko::Net {
@@ -35,7 +36,7 @@ PlayerSnapshot Describe(uint8_t id, const LocalState& local) {
 std::unique_ptr<NetSession> NetSession::StartHost(uint16_t port, const std::string& name, size_t maxPlayers) {
     std::unique_ptr<NetSession> session(new NetSession());
     session->m_Role = Role::Host;
-    session->m_Name = name;
+    session->m_Name = CleanPlayerName(name);
     session->m_MaxPlayers = std::clamp<size_t>(maxPlayers, 2, kMaxPlayers);
     session->m_Host = Host::CreateServer(port, session->m_MaxPlayers + 8);
     if (!session->m_Host) return nullptr;
@@ -46,7 +47,7 @@ std::unique_ptr<NetSession> NetSession::StartHost(uint16_t port, const std::stri
 std::unique_ptr<NetSession> NetSession::StartHostViaRelay(const std::string& relayAddress, uint16_t relayPort, const std::string& name, size_t maxPlayers) {
     std::unique_ptr<NetSession> session(new NetSession());
     session->m_Role = Role::Host;
-    session->m_Name = name;
+    session->m_Name = CleanPlayerName(name);
     session->m_MaxPlayers = std::clamp<size_t>(maxPlayers, 2, kMaxPlayers);
     session->m_RelayAddress = relayAddress; session->m_RelayPort = relayPort;
     session->m_Host = Host::CreateRelayHost(relayAddress, relayPort);
@@ -63,7 +64,7 @@ void NetSession::SetRoomInfo(const std::string& name, bool listed) {
 std::unique_ptr<NetSession> NetSession::JoinViaRelay(const std::string& relayAddress, uint16_t relayPort, const std::string& roomCode, const std::string& name, const std::string& key) {
     std::unique_ptr<NetSession> session(new NetSession());
     session->m_Role = Role::Client;
-    session->m_Name = name; session->m_Key = key;
+    session->m_Name = CleanPlayerName(name); session->m_Key = key;
     session->m_RelayAddress = relayAddress; session->m_RelayPort = relayPort; session->m_RosterRoom = roomCode;
     session->m_Host = Host::CreateRelayGuest(relayAddress, relayPort, roomCode);
     if (!session->m_Host) return nullptr;
@@ -73,7 +74,7 @@ std::unique_ptr<NetSession> NetSession::JoinViaRelay(const std::string& relayAdd
 std::unique_ptr<NetSession> NetSession::Join(const std::string& address, uint16_t port, const std::string& name, const std::string& key) {
     std::unique_ptr<NetSession> session(new NetSession());
     session->m_Role = Role::Client;
-    session->m_Name = name;
+    session->m_Name = CleanPlayerName(name);
     session->m_Key = key;
     session->m_JoinAddress = address;
     session->m_JoinPort = port;
@@ -189,7 +190,21 @@ void NetSession::HandleHostMessage(const NetEvent& event) {
             Write(answer, Reject{RejectReason::ServerFull});   // se cuentan los que YA estan dentro (el anfitrion es uno), no los que aun no saludaron
         else {
             peer.id = FreeId();
-            peer.name = hello->name;
+            {   // nombre limpio y distinto del de los que ya estan: al repetido se le pone un numero ("Jairo 2")
+                const auto same = [](const std::string& x, const std::string& y) { return x.size() == y.size() && std::equal(x.begin(), x.end(), y.begin(), [](char l, char r) { return std::tolower(static_cast<unsigned char>(l)) == std::tolower(static_cast<unsigned char>(r)); }); };
+                const auto taken = [&](const std::string& candidate) {
+                    if (same(candidate, m_Name)) return true;
+                    return std::any_of(m_Peers.begin(), m_Peers.end(), [&](const auto& entry) { return entry.first != event.peer && entry.second.id != 0 && same(entry.second.name, candidate); });
+                };
+                std::string base = CleanPlayerName(hello->name), name = base;
+                for (int n = 2; taken(name) && n < 200; ++n) {
+                    const std::string suffix = " " + std::to_string(n);
+                    while (!base.empty() && base.size() + suffix.size() > kMaxNameLength) { const bool continuation = (static_cast<unsigned char>(base.back()) & 0xC0) == 0x80; base.pop_back(); if (continuation && !base.empty()) base.pop_back(); }   // se recorta por letras enteras (las de tilde ocupan dos bytes)
+                    while (!base.empty() && base.back() == ' ') base.pop_back();
+                    name = base + suffix;
+                }
+                peer.name = name;
+            }
             peer.key = hello->key;
             peer.look.assign(hello->look.begin(), hello->look.end());
             Welcome welcome; welcome.playerId = peer.id; welcome.serverTick = m_Tick; welcome.worldSeed = 0;
@@ -306,7 +321,7 @@ void NetSession::HandleClientMessage(const NetEvent& event) {
     } else if (*type == MessageType::Appearance) {
         if (const auto appearance = ReadAppearance(reader)) {
             if (!appearance->look.empty()) m_Looks[appearance->player] = appearance->look;
-            if (!appearance->name.empty()) m_Names[appearance->player] = appearance->name;
+            if (!appearance->name.empty()) m_Names[appearance->player] = CleanPlayerName(appearance->name);
         }
     } else if (*type == MessageType::Roster) {
         if (auto roster = ReadRoster(reader)) { m_Roster = std::move(roster->entries); m_RosterPort = roster->port; if (!roster->room.empty()) { m_RosterRoom = roster->room; m_RelayAddress = roster->relayAddress; m_RelayPort = roster->relayPort; } }

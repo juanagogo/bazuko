@@ -870,8 +870,16 @@ void UIManager::RenderHUD(float dt, const glm::vec3& playerPos, Camera& camera, 
             if (Carton::FontsReady() && !std::getenv("BAZUKO_UI_OSCURA")) {
                 const float width = Carton::TextWidth(true, 15, text) + 14.0f, height = Carton::TextHeight(true, 15, text, 400.0f) + 4.0f;
                 const ImVec2 min(sx - width * 0.5f, sy - height), max(sx + width * 0.5f, sy);
+                const int firstVertex = tagDraw->VtxBuffer.Size;
                 Carton::Panel(tagDraw, min, max, 900u + static_cast<unsigned int>(tag.text.size()), 2.0f);
                 Carton::Text(tagDraw, true, 15, min + ImVec2(7.0f, 2.0f), Carton::kMarcador, text, 400.0f);
+                if (tag.alpha < 0.99f) {   // el carton no trae transparencia: se baja la de los vertices recien dibujados
+                    for (int v = firstVertex; v < tagDraw->VtxBuffer.Size; ++v) {
+                        ImU32& color = tagDraw->VtxBuffer[v].col;
+                        const ImU32 a = static_cast<ImU32>(static_cast<float>(color >> IM_COL32_A_SHIFT) * tag.alpha);
+                        color = (color & ~IM_COL32_A_MASK) | (a << IM_COL32_A_SHIFT);
+                    }
+                }
                 continue;
             }
             const SignUI::Fonts& fonts = SignUI::GetFonts();

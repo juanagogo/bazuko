@@ -683,6 +683,25 @@ int main() {
         CHECK(kProtocolVersion == 2, "P: la version del protocolo no cambio: juegan copias anteriores y nuevas");
         std::printf("P) compatibilidad con copias anteriores del juego\n");
     }
+    // Q: nombres. Se limpian (solo lo que la letra del juego dibuja) y el anfitrion numera los repetidos
+    {
+        CHECK(CleanPlayerName("  Jairo   el  \x01<b>Duro</b>  ") == "Jairo el bDurob", "Q: se quitan simbolos y espacios de sobra");
+        CHECK(CleanPlayerName("\xC3\x91o\xC3\xB1o P\xC3\xA9rez") == "\xC3\x91o\xC3\xB1o P\xC3\xA9rez", "Q: la ene y las tildes se conservan");
+        CHECK(CleanPlayerName("\xF0\x9F\x98\x80\xE2\x98\x85 \t") == "Parcero", "Q: un nombre sin nada dibujable queda en Parcero");
+        CHECK(CleanPlayerName(std::string(40, 'a')).size() == kMaxNameLength, "Q: el nombre se recorta al maximo");
+        CHECK(CleanPlayerName(std::string("\xC3\xB1", 2) + std::string(23, 'a')) == std::string("\xC3\xB1", 2) + std::string(22, 'a'), "Q: el recorte no parte una letra de dos bytes");
+        auto host = NetSession::StartHost(0, "Jairo");
+        auto a = NetSession::Join("127.0.0.1", host->Port(), "jairo");
+        Walker hw{{100.0f, 0.0f, 100.0f}}, aw{{104.0f, 0.0f, 100.0f}}, bw{{108.0f, 0.0f, 100.0f}};
+        Pump(1.0, [&](float dt) { host->Update(dt, hw.State()); a->Update(dt, aw.State()); });
+        auto b = NetSession::Join("127.0.0.1", host->Port(), "<Jairo>");
+        Pump(2.5, [&](float dt) { host->Update(dt, hw.State()); a->Update(dt, aw.State()); b->Update(dt, bw.State()); });
+        const auto nameOf = [](const NetSession& s, uint8_t id) { const RemotePlayer* r = Find(s, id); return r ? r->name : std::string("(no esta)"); };
+        CHECK(nameOf(*a, 1) == "Jairo", "Q: el anfitrion conserva su nombre");
+        CHECK(nameOf(*host, a->LocalId()) == "jairo 2" && nameOf(*b, a->LocalId()) == "jairo 2", "Q: el repetido (sin importar mayusculas) queda numerado para todos");
+        CHECK(nameOf(*host, b->LocalId()) == "Jairo 3" && nameOf(*a, b->LocalId()) == "Jairo 3", "Q: el tercero con el mismo nombre, ya limpio, recibe el numero siguiente");
+        std::printf("Q) nombres: anfitrion \"%s\", repetidos \"%s\" y \"%s\"\n", nameOf(*a, 1).c_str(), nameOf(*host, a->LocalId()).c_str(), nameOf(*host, b->LocalId()).c_str());
+    }
     if (failures == 0) std::printf("Sesion de red: todo correcto\n");
     return failures == 0 ? 0 : 1;
 }

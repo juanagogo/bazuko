@@ -149,7 +149,15 @@ la ven al volver a entrar.
 Cada jugador lleva su nombre en una tirita de cartón sobre la cabeza: el que puso en el creador de personaje, o «Parcero» si lo dejó vacío (máximo 24 caracteres).
 El nombre llega en el saludo; el anfitrión lo reparte a todos junto con la apariencia, también el suyo y a quien entra después. Va al final del mensaje de
 apariencia, así que una copia vieja del juego sigue jugando con una nueva (solo que la vieja muestra «Jugador N»). Se ve nítido hasta 25 m, se apaga hasta
-los 40 m y baja con el jugador cuando está caído. Dos jugadores pueden tener el mismo nombre.
+los 40 m y baja con el jugador cuando está caído.
+
+El nombre solo sale si el jugador está a la vista: si la línea entre las dos cabezas cruza un edificio o un muro (casillas no caminables del mapa), la tirita
+se desvanece en una fracción de segundo, para no delatar a quien se esconde. `BAZUKO_LOG_NOMBRES=1` escribe cada segundo si cada nombre está a la vista o tapado.
+
+Los nombres se limpian con `CleanPlayerName` (`net/Protocol.hpp`): quedan letras (también con tilde y la ñ), números, espacios sueltos y `- _ . '`; lo demás
+se quita y, si no queda nada, el nombre es «Parcero». Lo aplica el anfitrión al recibir el saludo y cada copia al recibir un nombre, porque nunca se confía en
+lo que llega por la red. Si el nombre ya está en la partida (sin importar mayúsculas), el anfitrión le pone un número: «Jairo», «Jairo 2», «Jairo 3». El número
+lo ven los demás; cada uno sigue viendo su propio nombre sin número en su pantalla.
 
 ![Nombre sobre la cabeza](capturas/multijugador/6-nombre-sobre-la-cabeza.jpg)
 
