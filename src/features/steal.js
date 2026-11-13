@@ -362,7 +362,7 @@ export class StealSystem {
           const stabDmg = Math.floor(15 + Math.random() * 11);
           this.game.stats.salud = Math.max(0, this.game.stats.salud - stabDmg);
           this.game.audio?.play?.('thud');
-          this._toast(`¡El habitante sacó un chuzo y te apuñaló! −${stabDmg} salud.`, 'death');
+          this._toast(`¡El habitante sacó un chuzo y me apuñaló! −${stabDmg} de salud.`, 'death');
         } else {
           this._toast('¡Me pillaron con las manos en la masa! El peatón gritó.', 'death');
         }

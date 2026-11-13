@@ -299,7 +299,7 @@ export class InteractionSystem {
     if (this.game.isPlayerHidden) {
       window.dispatchEvent(new CustomEvent('toast', {
         detail: {
-          text: `Te escondiste en: ${target.title ?? 'el escondite'}. La policía no te puede ver aquí. Pulsa [E] para salir.`,
+          text: `Me escondí en ${target.title ?? 'el escondite'}. La policía no me ve aquí. [E] para salir.`,
           type: 'rare'
         }
       }));
@@ -421,7 +421,7 @@ export class InteractionSystem {
         this.stats.salud = Math.max(1, (this.stats.salud || 100) - 10);
         this.audio?.play('damage');
         window.dispatchEvent(new CustomEvent('toast', {
-          detail: { text: 'Comiste sobras dañadas de la basura... Te dio intoxicación (pierdes 10 de salud).', type: 'warn' }
+          detail: { text: 'Comí sobras dañadas de la basura... Me dio intoxicación (−10 de salud).', type: 'warn' }
         }));
       }
 

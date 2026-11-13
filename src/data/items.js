@@ -249,7 +249,7 @@ export const isForSale = (item, equippedWeapon = null) => isRecyclable(item) && 
 
 // El dibujo de cada objeto cuyo nombre no coincide con el de su dibujo (ver src/ui/icons.js)
 const ICONS = {
-  radioTransistor: 'radio', papaCriolla: 'papa', aguapanela: 'pocillo', agua: 'botellaAgua', aguaCalle: 'botellaAgua', comidaDanada: 'pan', cafe: 'pocillo', tintico: 'pocillo',
+  radioTransistor: 'radio', papaCriolla: 'papa', aguapanela: 'pocillo', agua: 'botellaAgua', aguaCalle: 'botellaAgua', comidaDanada: 'pan', sobrados: 'pan', cafe: 'pocillo', tintico: 'pocillo',
   basuco: 'papeleta', botella_picada: 'botellaPicada', antibiotico: 'pastilla', antiparasitario: 'pastilla', polvoLadrillo: 'frasco', ropaLimpia: 'shirt'
 };
 export const itemIcon = (id) => ICONS[id] ?? id;

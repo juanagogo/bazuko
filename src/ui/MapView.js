@@ -761,7 +761,7 @@ export class MapView {
       ctx.textAlign = 'left';
       ctx.textBaseline = 'middle';
       ctx.fillStyle = '#1f4e24';
-      ctx.fillText('⛰️ CERROS ORIENTALES · MONSERRATE', Math.min(w - 240, cxEast), h / 2);
+      ctx.fillText('⛰️ CERROS ORIENTALES, MONSERRATE', Math.min(w - 240, cxEast), h / 2);
       ctx.restore();
     }
 

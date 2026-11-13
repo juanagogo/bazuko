@@ -167,8 +167,8 @@ export function openCambuche(game, tab = 'armar') {
       el('span', {
         class: 'menu__money',
         text: game.built.base
-          ? 'Cambuche armado: duermes protegido de la intemperie.'
-          : (hasCarton ? 'Puedes dormir improvisado sobre 1 cartón o armar la base con 8 cartones.' : 'Recolecta 8 cartones de la basura para armar la base o consigue 1 para dormir improvisado.')
+          ? 'Cambuche armado: se duerme protegido de la intemperie.'
+          : (hasCarton ? 'Se puede dormir improvisado sobre 1 cartón o armar la base con 8 cartones.' : 'Hay que recoger 8 cartones de la basura para armar la base, o conseguir 1 para dormir improvisado.')
       }),
       button('Cambiar ropa', {
         onClick: () => {
@@ -189,7 +189,7 @@ export function openCambuche(game, tab = 'armar') {
     ];
     return { body, foot, tabs: solapas() };
   };
-  game.menu.open({ title: 'Mi cambuche', sub: 'Mejora tu refugio con basura (8 cartones para la base) o duerme en cualquier lado con 1 cartón [K].', ic: 'tent', render });
+  game.menu.open({ title: 'Mi cambuche', sub: 'Se mejora el refugio con basura (8 cartones para la base) o se duerme en cualquier lado con 1 cartón.', ic: 'tent', render });
 }
 
 export function openComedor(game) {

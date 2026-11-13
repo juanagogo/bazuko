@@ -1803,14 +1803,6 @@ export class Game {
     }
     this.poopSystem.update(dt, { listener: this.player.position, camera: this.cameraRig.camera });
 
-    // 7b2. Atajo para dormir en cartón si se tiene en inventario
-    if (!this.player.isStunned && !this.player.isSwimming && this.input.consumePress('KeyK')) {
-      if (this.inventory.count('carton') > 0) {
-        this.sleep({ carton: true });
-      } else {
-        this.hud?._toast('No tienes cartón en el inventario. Recógelo de la basura.', 'info');
-      }
-    }
     this.prostibulo?.update(dt);
 
     // 7c. Sistema de abstinencia, alucinaciones y psicosis inducida
@@ -1859,7 +1851,7 @@ export class Game {
       camera: this.cameraRig.camera
     });
     this.calle?.update(dt, { blocked: this.isSleeping || this._deathPending || this._arrestPending });
-    if (this.input.consumePress('KeyH')) this.sleepOnCarton();
+    if (this.input.consumePress('KeyU')) this.sleepOnCarton();
     this.profiler?.mark('trafico');
     if (this._handleDeath()) return;
 

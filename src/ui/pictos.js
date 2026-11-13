@@ -30,6 +30,9 @@ export const PICTOS = {
   '🏪': 'tienda', '🏬': 'tienda', '🧺': 'tienda', '🏙': 'edificio', '🏢': 'edificio', '🌊': 'lago', '⛲': 'parque',
   '🌳': 'parque', '⛽': 'gasolina', '🚏': 'bus', '🚇': 'bus', '🍬': 'chaza', '🍲': 'comida', '🍴': 'comida', '🛒': 'carreta',
   '🎒': 'costal', '❌': 'cerrar', '🚫': 'cerrar',
+  // Los sitios de la cuadrícula del norte, la historia de Los Reyes y el Metro
+  '🏨': 'colchon', '💃': 'persona', '🍸': 'pocillo', '🍽': 'comida', '🏰': 'edificio', '🏛': 'edificio', '🎤': 'radio',
+  '🌌': 'luna', '🚆': 'bus', '⛰': 'parque', '👑': 'brillo', '📜': 'carton', '🏆': 'brillo',
   // Símbolos que no son emoji y la letra no trae
   '◎': 'centrar', '⤢': 'ciudad',
   // Se quitan
