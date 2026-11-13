@@ -1,7 +1,7 @@
 // src/ui/placeMenus.js
 // Menús de los lugares: Recicladora El Progreso, Tienda La Esquinita y el cambuche.
 import { ITEMS, SHOP_ITEMS, isForSale, itemIcon, itemRarityLabel } from '../data/items.js';
-import { CAMBUCHE } from '../data/cambuche.js';
+import { CAMBUCHE, textoSinSiesta } from '../data/cambuche.js';
 import { hora } from './formato.js';
 import { diseaseName } from '../data/diseases.js';
 import { originEffect } from '../data/origins.js';
@@ -163,8 +163,11 @@ export function openCambuche(game, tab = 'armar') {
     }));
     const body = el('div', { class: 'shelter-menu' }, shelterPreview(game), rows);
     const night = game.clock.isNight;
+    // La siesta pide cansancio y unas horas desde la anterior: el botón dice por qué no.
+    const sinSiesta = game.built.base && !night ? game.motivoSinSiesta?.() : null;
+    const nota = !game.built.base ? 'Sin base no se puede dormir.' : sinSiesta ? textoSinSiesta(sinSiesta) : 'Dormir guarda la partida.';
     const foot = [
-      el('span', { class: 'menu__money', text: game.built.base ? 'Dormir guarda la partida.' : 'Sin base no se puede dormir.' }),
+      el('span', { class: 'menu__money', text: nota }),
       button('Cambiar ropa', {
         onClick: () => {
           game.menu.close();
@@ -173,7 +176,7 @@ export function openCambuche(game, tab = 'armar') {
       }),
       button(night ? `Dormir hasta las ${hora(6)}` : 'Echar una siesta (3 h)', {
         primary: true,
-        disabled: !game.built.base,
+        disabled: !game.built.base || !!sinSiesta,
         onClick: () => { game.menu.close(); game.sleep(); }
       })
     ];

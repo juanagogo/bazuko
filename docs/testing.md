@@ -22,7 +22,7 @@ Las regresiones de jugabilidad comprueban el salto y el recorrido de ambas rampa
 
 `next-level.test.js` comprueba además que con más carga de la que se aguanta sin carreta no se pueda soltarla: sigue enganchada, con sus penas, hasta botar lo que sobra; y que mientras tanto la tecla no diga «Soltar la carreta», sino qué hacer antes.
 
-`integration-features.test.js` comprueba que El Chato y la vela rindan como el resto del sueño: la noche entera da sus 15 de ánimo y de vicio, y una siesta de 3 h, 3/8 de eso.
+`integration-features.test.js` comprueba que El Chato y la vela rindan como el resto del sueño: la noche entera da sus 15 de ánimo y de vicio, y una siesta de 3 h, 3/8 de eso. También comprueba que la siesta pida la energía en 70 o menos y 6 horas despierto desde la anterior, que de noche no haya ese límite, y que la hora de la última siesta se guarde y las partidas viejas carguen sin ella. `wardrobe.test.js` comprueba que el botón de la siesta se apague con su motivo a la vista y que el aviso diga lo mismo cuando el juego se niega; el escenario de la siesta en `tests/e2e/integration.spec.js` lo recorre en el juego.
 
 `input.test.js` comprueba que una tecla sostenida cuente como una sola pulsación: con Espacio sostenido se salta una vez aunque el sistema repita la tecla, y sostener E no vuelve a interactuar, tampoco al volver a la ventana con la tecla oprimida.
 

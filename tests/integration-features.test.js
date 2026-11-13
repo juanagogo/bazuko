@@ -15,6 +15,7 @@ import { StatsSystem } from '../src/systems/StatsSystem.js';
 import { ITEMS } from '../src/data/items.js';
 import { Game } from '../src/core/game.js';
 import { SLEEP } from '../src/data/cambuche.js';
+import { Clock } from '../src/core/Clock.js';
 
 beforeEach(() => {
   globalThis.window = new EventTarget();
@@ -198,12 +199,76 @@ test('la vela calma el vicio como el resto del sueño: una siesta no la paga ent
   } finally { mock.timers.reset(); }
 });
 
+test('la siesta pide cansancio y seis horas despierto desde la anterior; dormir de noche no tiene ese límite', () => {
+  mock.timers.enable({ apis: ['setTimeout'] });
+  try {
+    const fallos = [];
+    window.addEventListener('sleep-fail', (e) => fallos.push(e.detail));
+    const stats = new StatsSystem();
+    const clock = new Clock({ hour: 8 });
+    const game = Object.assign(Object.create(Game.prototype), {
+      built: { base: true, paredes: true }, clock, stats, dog: null, ultimaSiesta: null, isSleeping: false,
+      player: { position: new THREE.Vector3(), playAction() {} }, _save() {}, inventory: new InventorySystem()
+    });
+    const dormir = () => { game.sleep(); const durmio = game.isSleeping; mock.timers.tick(1200); return durmio; };
+
+    assert.equal(dormir(), false, 'con la energía en 100 no hay sueño');
+    assert.deepEqual(fallos.at(-1), { reason: 'descansado' });
+    assert.equal(clock.hour, 8, 'el reloj no se mueve');
+
+    stats.energia = SLEEP.siestaEnergiaMax;
+    assert.equal(dormir(), true);
+    assert.equal(clock.hour, 11);
+    assert.equal(game.ultimaSiesta, 11, 'se anota al despertar');
+
+    stats.energia = 20;
+    clock.hour = 16.5; // 5 h 30 min despierto
+    assert.equal(dormir(), false, 'aunque esté rendido, la siguiente espera');
+    assert.deepEqual(fallos.at(-1), { reason: 'descansado', horas: 1 });
+    clock.hour = 17;
+    assert.equal(dormir(), true, 'a las seis horas, sí');
+
+    // De noche se duerme hasta las 6:00, con energía y recién levantado de una siesta.
+    stats.energia = 100;
+    clock.hour = 21;
+    assert.equal(dormir(), true);
+    assert.equal(clock.hour, 6);
+  } finally { mock.timers.reset(); }
+});
+
+test('la hora de la última siesta se guarda: recargar no reinicia la espera, y una partida vieja carga sin ella', () => {
+  let saved = null;
+  const serializable = () => ({ serialize: () => ({}) });
+  const guardando = Object.assign(Object.create(Game.prototype), {
+    stats: serializable(), clock: serializable(), inventory: serializable(), talents: serializable(), diseases: serializable(),
+    player: { position: new THREE.Vector3() }, world: {}, save: { save: data => { saved = data; } }, ultimaSiesta: 11
+  });
+  guardando._save();
+  assert.equal(saved.ultimaSiesta, 11);
+
+  const cargar = (data) => {
+    const game = Object.assign(Object.create(Game.prototype), {
+      stats: new StatsSystem(), clock: new Clock(), inventory: new InventorySystem(), world: {}, ultimaSiesta: null,
+      talents: { deserialize() {} }, diseases: { deserialize() {} }
+    });
+    game._aplicarPartida(data);
+    game.stats.energia = 20;
+    return game;
+  };
+  const recargada = cargar({ clock: { day: 1, hour: 13 }, ultimaSiesta: 11 });
+  assert.deepEqual(recargada.motivoSinSiesta(), { reason: 'descansado', horas: 4 });
+  const vieja = cargar({ clock: { day: 1, hour: 13 } });
+  assert.equal(vieja.ultimaSiesta, null);
+  assert.equal(vieja.motivoSinSiesta(), null);
+});
+
 test('dormir acuesta el cuerpo con la simulación quieta, le quita lo que tenía en las manos y al despertar queda de pie', () => {
   mock.timers.enable({ apis: ['setTimeout'] });
   try {
     const scene = new THREE.Scene();
     const input = { axis: { x: 0, z: 0 }, isRunning: false, consumePress: () => false, isDown: () => false };
     const stats = new StatsSystem();
+    stats.energia = 60; // cansado para la siesta; la postura solo se encorva por debajo de 45
     const player = new Player(scene, input, stats, null);
     const game = Object.assign(Object.create(Game.prototype), {
       built: { base: true, paredes: true }, clock: { hour: 12, day: 1, isNight: false }, stats,
@@ -244,6 +309,7 @@ test('quien se acuesta corriendo se endereza y al despertar no resbala', () => {
     const scene = new THREE.Scene();
     const input = { axis: { x: 0, z: -1 }, isRunning: true, consumePress: () => false, isDown: () => false };
     const stats = new StatsSystem();
+    stats.energia = 60; // cansado para la siesta; la postura solo se encorva por debajo de 45
     const player = new Player(scene, input, stats, null);
     const game = Object.assign(Object.create(Game.prototype), {
       built: { base: true, paredes: true }, clock: { hour: 12, day: 1, isNight: false }, stats,

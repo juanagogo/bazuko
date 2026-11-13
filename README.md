@@ -162,7 +162,7 @@ Los materiales del cambuche aparecen en bolsas de basura repartidas por nueve zo
 1. Recorre los andenes y acércate a los objetos para ver las acciones disponibles.
 2. Recoge materiales y véndelos en la recicladora para conseguir dinero.
 3. Compra comida y agua y consúmelas desde el costal.
-4. Construye y mejora el cambuche para poder descansar. Su menú muestra una vista previa del modelo terminado, incluso antes de reunir los materiales.
+4. Construye y mejora el cambuche para poder descansar. Su menú muestra una vista previa del modelo terminado, incluso antes de reunir los materiales. De noche se duerme hasta las 6:00; de día solo cabe una siesta de 3 h, con la energía en 70 o menos y después de 6 horas despierto desde la anterior. El botón dice por qué no, y la espera se guarda con la partida.
 
 La partida guarda datos localmente en el navegador al crear o editar el personaje, al dormir y con **Guardar partida ahora** en el menú de pausa. También conserva la amistad de El Chato, las preferencias de cámara, radar, calidad y volumen. Los datos dependen del navegador y de la dirección desde la que juegas; no hay sincronización entre dispositivos.
 

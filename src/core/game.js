@@ -262,6 +262,7 @@ export class Game {
     this.shop = null;
     this.comedor = null;
     this.lastComedorHour = null;
+    this.ultimaSiesta = null; // hora de juego (totalGameHours) en que terminó la última siesta
     this.dailyMissions = new DailyMissionSystem(this);
     this._missionsModalOpen = false;
     this.cars = [];
@@ -479,6 +480,18 @@ export class Game {
     }));
     this._save();
     return true;
+  }
+
+  /**
+   * Por qué no hay siesta ahora, o null si la hay. De noche se duerme hasta las 6:00 sin este límite.
+   * Sin él, una siesta tras otra pasa el día en segundos: cura, calma el vicio y trae el comedor y las misiones.
+   */
+  motivoSinSiesta() {
+    if (this.clock.isNight) return null;
+    const despierto = Number.isFinite(this.ultimaSiesta) ? this.totalGameHours - this.ultimaSiesta : Infinity;
+    if (despierto >= 0 && despierto < SLEEP.siestaEspera) return { reason: 'descansado', horas: Math.ceil(SLEEP.siestaEspera - despierto) };
+    if (this.stats.energia > SLEEP.siestaEnergiaMax) return { reason: 'descansado' };
+    return null;
   }
 
   /** GPS a pie, plano del radar y haz del destino; solo para distritos con grilla de navegación. */
@@ -916,6 +929,7 @@ export class Game {
       }
       if (data.gps && this.gps) this.setGpsWaypoint({ ...data.gps, name: RENAMED_PLACES[data.gps.name] ?? data.gps.name }, { silent: true });
       if (data.lastComedorHour !== undefined) this.lastComedorHour = data.lastComedorHour;
+      this.ultimaSiesta = Number.isFinite(data.ultimaSiesta) ? data.ultimaSiesta : null; // las partidas viejas no lo traen
       this.street?.deserialize(data.street);
       if (data.dailyMissions) this.dailyMissions?.deserialize(data.dailyMissions);
       else this.dailyMissions?.init(this.clock?.day ?? 1);
@@ -942,6 +956,7 @@ export class Game {
       cart: this.cart ? this.cart.saveState() : null,
       gps: this.gps?.serialize() ?? null,
       lastComedorHour: this.lastComedorHour,
+      ultimaSiesta: this.ultimaSiesta,
       dailyMissions: this.dailyMissions?.serialize(),
       street: this.street?.serialize()
     });
@@ -955,6 +970,11 @@ export class Game {
     if (this.isSleeping) return;
     if (!hogar && !this.built.base) {
       window.dispatchEvent(new CustomEvent('sleep-fail', { detail: { reason: 'nobase' } }));
+      return;
+    }
+    const sinSiesta = hogar ? null : this.motivoSinSiesta();
+    if (sinSiesta) {
+      window.dispatchEvent(new CustomEvent('sleep-fail', { detail: sinSiesta }));
       return;
     }
 
@@ -978,6 +998,7 @@ export class Game {
     const factor = Math.min(1, hours / 8); // una siesta rinde menos
     this.clock.hour += hours;
     while (this.clock.hour >= 24) { this.clock.hour -= 24; this.clock.day += 1; }
+    if (!night) this.ultimaSiesta = this.totalGameHours;
 
     const b = this.built;
     const st = this.stats;

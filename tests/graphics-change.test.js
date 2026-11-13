@@ -311,7 +311,7 @@ test('arresto, muerte y sueño cierran la barra del cosquilleo: no queda debajo 
   arrest._policeArrest();
   assert.deepEqual(cancel, [[false, 'cancel']]);
   cancel.length = 0;
-  const sleeping = Object.assign(Object.create(Game.prototype), shared(), { built: { base: true }, player: { position: new THREE.Vector3() } });
+  const sleeping = Object.assign(Object.create(Game.prototype), shared(), { built: { base: true }, clock: { isNight: true }, player: { position: new THREE.Vector3() } });
   // Basta con ver la barra cerrada: lo que sigue del sueño no se prueba aquí.
   try { sleeping.sleep(); } catch { /* falta el resto del juego */ }
   assert.deepEqual(cancel, [[false, 'cancel']]);
