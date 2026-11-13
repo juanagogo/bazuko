@@ -14,7 +14,7 @@ mock.module('../src/character/RealisticCharacter.js', { namedExports: {
 const textures = await import('../src/world/bogota/textures.js');
 mock.module('../src/world/bogota/textures.js', { namedExports: { ...textures, radialSprite: () => new THREE.Texture() } });
 const { PoliceFootSystem } = await import('../src/systems/PoliceFootSystem.js');
-const { POLICE_FOOT } = await import('../src/entities/PoliceOfficer.js');
+const { POLICE_FOOT, POLICE_GRAB, POLICE_GRAB_LINES } = await import('../src/entities/PoliceOfficer.js');
 const { TrafficSystem } = await import('../src/systems/TrafficSystem.js');
 const { TrafficRoute } = await import('../src/world/bogota/TrafficRoute.js');
 const { CollisionSystem } = await import('../src/systems/CollisionSystem.js');
@@ -26,7 +26,7 @@ let events;
 beforeEach(() => {
   globalThis.window = new EventTarget();
   events = [];
-  for (const type of ['police-arrest', 'police-escaped', 'toast']) window.addEventListener(type, e => events.push({ type, detail: e.detail }));
+  for (const type of ['police-arrest', 'police-escaped', 'police-grab', 'toast']) window.addEventListener(type, e => events.push({ type, detail: e.detail }));
 });
 const count = type => events.filter(event => event.type === type).length;
 
@@ -86,7 +86,7 @@ test('la patrulla no captura con el carro: frena del todo y después se baja el 
   assert.equal(world.unit.phase, 'parada');
   assert.equal(world.unit.driver.state, 'dentro', 'con fichado 1 el conductor se queda al volante');
   const gap = world.vehicle.car.position.distanceTo(world.player.position);
-  assert.ok(gap > POLICE_FOOT.catchRange * 2 && gap < POLICE_FOOT.dismountRange + 2, `paró a ${gap.toFixed(1)} m`);
+  assert.ok(gap > POLICE_GRAB.reach * 2 && gap < POLICE_FOOT.dismountRange + 2, `paró a ${gap.toFixed(1)} m`);
   assert.equal(count('police-arrest'), 0);
   assert.equal(world.vehicle.state, 'chase');
   assert.equal(world.vehicle.hold, true, 'mientras haya alguien afuera queda marcada como en espera');
@@ -102,7 +102,7 @@ test('con el jugador quieto, el agente lo alcanza y el arresto sale una sola vez
   const t = runUntil(world, () => count('police-arrest') > 0, 20);
   assert.ok(Number.isFinite(t), 'lo arrestó');
   const officer = world.unit.partner;
-  assert.ok(officer.position.distanceTo(world.player.position) <= POLICE_FOOT.catchRange + .05);
+  assert.ok(officer.position.distanceTo(world.player.position) <= POLICE_GRAB.reach + .05);
   for (let i = 0; i < 60; i++) step(world);
   assert.equal(count('police-arrest'), 1, 'una sola vez');
   assert.equal(events.find(event => event.type === 'police-arrest').detail.reason, 'a-pie');
@@ -117,29 +117,32 @@ test('con el jugador quieto, el agente lo alcanza y el arresto sale una sola vez
   assert.equal(world.traffic.inPursuit, false);
 });
 
-test('captura a 1,2 m sostenida 0,4 s, no a 3 m como el carro', () => {
+test('a pie no captura a 3 m como el carro: avisa a 2 m y solo lo agarra si lo tiene a su alcance', () => {
   const world = setup();
   world.traffic._startChase(world.vehicle);
   exitOf(world);
   runUntil(world, () => world.unit.partner.state === 'persecucion');
   const officer = world.unit.partner;
-  // Lo mantiene a 2,5 m, dentro de los 3 m a los que captura el carro (`POLICE_CATCH_RANGE`): a pie no lo agarra.
+  // Lo mantiene a 2,5 m, dentro de los 3 m a los que captura el carro (`POLICE_CATCH_RANGE`): a pie ni le avisa.
   for (let t = 0; t < 3; t += DT) {
     const away = new THREE.Vector3().subVectors(world.player.position, officer.position).setY(0).normalize();
     world.player.position.copy(officer.position).addScaledVector(away, 2.5);
     step(world);
   }
   assert.equal(count('police-arrest'), 0);
-  // Quieto al lado: lo agarra cuando pasan 0,4 s a menos de 1,2 m.
-  let close = null;
+  assert.equal(count('police-grab'), 0);
+  assert.equal(officer._grab, null, 'a 2,5 m no avisa');
+  // Quieto: le avisa, se le echa y lo agarra; el arresto llega con el agarre ya hecho.
+  let warnedAt = null, grabbedAt = null;
   const t = runUntil(world, () => {
-    const d = officer.position.distanceTo(world.player.position);
-    if (close === null && d <= POLICE_FOOT.catchRange) close = 0;
-    else if (close !== null) close += DT;
+    if (warnedAt === null && officer._grab?.phase === 'aviso') warnedAt = officer.position.distanceTo(world.player.position);
+    if (grabbedAt === null && count('police-grab') > 0) grabbedAt = officer.position.distanceTo(world.player.position);
     return count('police-arrest') > 0;
   }, 5);
   assert.ok(Number.isFinite(t));
-  assert.ok(close >= POLICE_FOOT.catchHold - DT * 1.5, `lo sostuvo ${close?.toFixed(2)} s`);
+  assert.ok(warnedAt <= POLICE_GRAB.warn + .01 && warnedAt > POLICE_GRAB.reach, `avisó a ${warnedAt?.toFixed(2)} m`);
+  assert.ok(grabbedAt <= POLICE_GRAB.reach, `lo agarró a ${grabbedAt?.toFixed(2)} m`);
+  assert.equal(events.filter(event => event.type === 'toast' && event.detail.text === POLICE_GRAB_LINES.aviso).length, 1);
 });
 
 test('bajarse no tiene saltos: del asiento a la puerta en pasos cortos, sentado al principio y de pie al final', () => {
@@ -700,7 +703,7 @@ test('cerrándole el paso, el carro no arresta aunque el jugador se le meta cont
   runUntil(world, () => arrests.length > 0, 8, () => {
     world.player.position.x += Math.sign(car.position.x - world.player.position.x) * 6 * DT;
   });
-  for (const arrest of arrests) assert.ok(arrest.officer <= POLICE_FOOT.catchRange + .05, `arresto con el agente a ${arrest.officer.toFixed(2)} m y el carro a ${arrest.car.toFixed(2)} m`);
+  for (const arrest of arrests) assert.ok(arrest.officer <= POLICE_GRAB.reach + .05, `arresto con el agente a ${arrest.officer.toFixed(2)} m y el carro a ${arrest.car.toFixed(2)} m`);
 });
 
 test('persiguiendo en carro tampoco arresta el carro, aunque el carro del jugador se le arrime', () => {
@@ -718,7 +721,7 @@ test('persiguiendo en carro tampoco arresta el carro, aunque el carro del jugado
     closest = Math.min(closest, world.vehicle.car.position.distanceTo(playerCar.position));
   });
   assert.ok(closest < 3, `se le arrimó a ${closest.toFixed(2)} m`);
-  for (const arrest of arrests) assert.ok(arrest.officer <= POLICE_FOOT.catchRange + .05, `arresto con el carro a ${arrest.car.toFixed(2)} m`);
+  for (const arrest of arrests) assert.ok(arrest.officer <= POLICE_GRAB.reach + .05, `arresto con el carro a ${arrest.car.toFixed(2)} m`);
 });
 
 test('con los dos afuera el carro no ve: solo cuentan los agentes', () => {
@@ -1717,6 +1720,9 @@ function heldBehind({ level = 1, driverAway = false, civilian = true, cut = fals
   };
   search(unit.partner, 102, 4.6);
   if (driverAway) search(unit.driver, 100, -10);
+  // La escena empieza aquí: lo que alcanzaron a acortarle antes no cuenta para desistir por falta de avance.
+  unit._gapBest = unit._gap();
+  unit._gapClock = 0;
   return { world, unit, car, civilian: civilian ? world.traffic._spawn(world.scene, world.traffic.routes[0], 100 - 3.2 - 12, false) : null };
 }
 
@@ -2166,49 +2172,6 @@ test('la placa dice «Agente a X m» con un agente corriendo detrás, y «Patrul
   } finally { delete globalThis.document; }
 });
 
-test('el agarrón se ve venir: estira el brazo y se le echa encima; si se le zafa, manotazo al aire y media marcha', () => {
-  const world = setup();
-  world.traffic._startChase(world.vehicle);
-  exitOf(world);
-  const officer = world.unit.partner;
-  runUntil(world, () => officer.state === 'persecucion');
-  officer.sprintLeft = 0;
-  // Lo tiene a 1 m: empieza el agarrón.
-  const near = () => world.player.position.set(officer.position.x + 1, 0, officer.position.z);
-  runUntil(world, () => officer.catchTimer > .2, 2, near);
-  assert.equal(officer.poseParams.point, 1, 'estira el brazo');
-  assert.ok(officer.poseParams.style?.stoop > .3, 'se le echa encima');
-  // Se zafa antes de los 0,4 s.
-  world.player.position.set(officer.position.x + 4, 0, officer.position.z);
-  runUntil(world, () => officer._fumble > 0, 1, () => world.player.position.set(officer.position.x + 4, 0, officer.position.z));
-  assert.ok(officer._fumble > 0, 'agarrón fallido');
-  assert.equal(officer.catchTimer, 0);
-  // Mientras se recompone, el brazo queda abajo aunque lo tenga a 3 m, donde normalmente lo señalaría.
-  assert.ok(3 < POLICE_FOOT.warnRange);
-  // El brazo sigue de largo (con el tronco tras él) mientras el de señalar se recoge; después un traspié y se recompone.
-  let fastest = 0, pointed = 0, swing = 0, stumbleAt = null, lastSwing = 0;
-  for (let t = 0; t < 1 && officer._fumble > 0; t += DT) {
-    world.player.position.set(officer.position.x + 3, 0, officer.position.z);
-    step(world);
-    if (officer._fumble > 0) pointed = Math.max(pointed, officer.poseParams.point ?? 0);
-    if (officer._fumble > 0 && officer.moving) fastest = Math.max(fastest, officer.walkSpeed);
-    if (officer.poseParams.stance === 'manotazo') { swing += DT; lastSwing = t; }
-    if (stumbleAt === null && officer.poseParams.style?.limp > 0) stumbleAt = t;
-  }
-  assert.ok(fastest > 0 && fastest <= POLICE_FOOT.tiredSpeed / 2 + .05, `a media marcha: ${fastest.toFixed(2)} m/s`);
-  assert.equal(pointed, 0, 'brazo abajo mientras se recompone');
-  // El de señalar se recoge con e^(-7 t): a menos de 0,3 a los 0,17 s; el manotazo lo tapa hasta entonces y un poco más.
-  assert.ok(swing > .25 && swing < .36, `el brazo de largo ${swing.toFixed(2)} s`);
-  assert.ok(stumbleAt !== null && stumbleAt >= lastSwing, 'el traspié viene después del manotazo');
-  assert.ok(officer.sees && officer.distance < POLICE_FOOT.warnRange, 'ya recompuesto, lo tiene cerca y a la vista');
-  step(world);
-  assert.equal(officer.poseParams.point, 1, 'y ya recompuesto lo vuelve a señalar');
-  assert.equal(count('police-arrest'), 0);
-  // Si lo sostiene, el arresto sale una vez.
-  runUntil(world, () => count('police-arrest') > 0, 5, () => world.player.position.set(officer.position.x + .8, 0, officer.position.z));
-  for (let i = 0; i < 30; i++) step(world);
-  assert.equal(count('police-arrest'), 1);
-});
 
 test('bajada de afán: 1,4 s con fichado 1 y 0,95 con fichado 2; la puerta de un tirón, con rebote; el conductor después', () => {
   for (const [level, seconds] of [[1, 1.4], [2, .95]]) {

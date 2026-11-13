@@ -594,12 +594,77 @@ function radioSolapa(rig, m) {
   rig.curl('right', .35);
 }
 
-/** El agarrón que no alcanzó: el brazo izquierdo sigue de largo hacia adelante y abajo, cruzando un poco el cuerpo, y el tronco gira tras él. */
-function manotazo(rig, m) {
-  rig.turn('spine', .03, -.08, 0).turn('spine1', .04, -.12, 0).turn('spine2', .04, -.14, 0);
-  rig.reachArm('left', V(-.08, m.hip.y + .02, m.front + .3), V(.6, -.6, -.5));
-  rig.hand('left', V(-.4, -.6, .7), V(-.6, -.4, -.3));
-  rig.curl('left', .35);
+// El agarrón de un agente, con la mano izquierda (en la derecha va la pistola con fichado 3): el aviso, el zarpazo, el
+// agarre y el traspié cuando no alcanza.
+
+/** La muñeca a `along` m por delante del hombro izquierdo con el codo doblado `elbow` radianes, a la altura `y`. */
+function grabReach(rig, elbow, y, inward = .08) {
+  const shoulder = rig.where('leftArm', V(0, 0, 0)), a = rig.length.arm, f = rig.length.forearm;
+  const reach = Math.sqrt(a * a + f * f + 2 * a * f * Math.cos(elbow));
+  const across = shoulder.x - inward, drop = y - shoulder.y;
+  const along = Math.sqrt(Math.max(0, reach * reach - inward * inward - drop * drop));
+  return V(across, y, shoulder.z + along);
+}
+
+/**
+ * El aviso: el tronco 11° adelante con la cabeza derecha, clavada en él; la mano izquierda estirada al frente a la altura
+ * del hombro, abierta, con el codo doblado unos 70°, y la derecha atrás.
+ */
+function aviso(rig, m) {
+  lean(rig, .33);
+  rig.turn('neck', -.12, 0, 0).turn('head', -.14, 0, 0);
+  const shoulder = rig.where('leftArm', V(0, 0, 0));
+  rig.reachArm('left', grabReach(rig, 70 * Math.PI / 180, shoulder.y - .02), V(.75, -.6, -.3));
+  rig.hand('left', V(-.15, .2, .97), V(-.25, -.35, .9));
+  rig.curl('left', .12, .1);
+  const hip = rig.where('rightUpLeg', V(0, 0, 0));
+  rig.reachArm('right', V(hip.x - .1, hip.y + .1, hip.z - .2), V(-.5, -.2, -.8));
+  looseHand(rig, 'right', V(0, -1, -.2), .35);
+}
+
+/**
+ * El zarpazo: el brazo izquierdo se va del todo, adelante y un poco abajo, con el tronco girado unos 20° tras él y más
+ * echado; la mano abierta y el brazo derecho atrás.
+ */
+function zarpazo(rig, m) {
+  lean(rig, .45);
+  rig.turn('spine', 0, -.08, 0).turn('spine1', 0, -.12, 0).turn('spine2', 0, -.15, 0).turn('neck', -.15, .1, 0).turn('head', -.17, .12, 0);
+  const shoulder = rig.where('leftArm', V(0, 0, 0));
+  rig.reachArm('left', V(shoulder.x - .1, shoulder.y - .12, shoulder.z + rig.length.arm + rig.length.forearm + .05), V(.8, -.6, -.1));
+  rig.hand('left', V(-.1, -.1, 1), V(-.2, -.6, .78));
+  rig.curl('left', .08, .05);
+  const hip = rig.where('rightUpLeg', V(0, 0, 0));
+  rig.reachArm('right', V(hip.x - .12, hip.y + .08, hip.z - .28), V(-.5, -.2, -.8));
+  looseHand(rig, 'right', V(0, -1, -.3), .4);
+}
+
+/** El agarre: la mano izquierda cerrada sobre el hombro de él, el codo doblado, y el tronco ya echado atrás, frenando. */
+function agarre(rig, m) {
+  lean(rig, -.15);
+  rig.turn('neck', .06, 0, 0).turn('head', .07, 0, 0);
+  const shoulder = rig.where('leftArm', V(0, 0, 0));
+  rig.reachArm('left', grabReach(rig, 55 * Math.PI / 180, shoulder.y + .02), V(.7, -.7, -.2));
+  rig.hand('left', V(-.1, -.35, .93), V(-.15, -.9, .3));
+  rig.curl('left', .75, .5);
+  const hip = rig.where('rightUpLeg', V(0, 0, 0));
+  rig.reachArm('right', V(hip.x - .12, hip.y + .1, hip.z + .05), V(-.8, -.3, -.4));
+  looseHand(rig, 'right');
+}
+
+/**
+ * El zarpazo que no alcanzó: el brazo izquierdo barre de largo cruzándole el cuerpo, abajo; el tronco pasado unos 32° y
+ * echado unos 35°, la cabeza caída y el brazo derecho abierto para no irse de bruces.
+ */
+function traspie(rig, m) {
+  lean(rig, 1.15);
+  rig.turn('spine', 0, -.13, 0).turn('spine1', 0, -.2, 0).turn('spine2', 0, -.24, 0).turn('neck', .2, 0, 0).turn('head', .25, 0, 0);
+  rig.reachArm('left', V(-.12, m.hip.y + .08, m.front + .22), V(.6, -.5, -.6));
+  rig.hand('left', V(-.6, -.55, .58), V(-.5, -.3, -.8));
+  rig.curl('left', .3);
+  const shoulder = rig.where('rightArm', V(0, 0, 0));
+  rig.reachArm('right', V(shoulder.x - .42, shoulder.y - .22, shoulder.z + .08), V(-.3, -.9, -.3));
+  rig.hand('right', V(-.85, -.4, .3), V(0, -1, .1));
+  rig.curl('right', .25);
 }
 
 // Sentado en un carro, el piso del personaje es el piso del carro. Las dos alturas las usa `patrolCar.js` para poner la
@@ -710,7 +775,12 @@ const CATALOG = {
   'mirar-derecha': { pose: mirar(-1), walk: false, transition: .6 },
   'sin-aire': { pose: sinAire, walk: false, hip: true, alt: true, motion: { rate: 1.1 }, transition: .45 },
   'radio-solapa': { pose: radioSolapa, walk: false, transition: .4 },
-  manotazo: { pose: manotazo, walk: true, transition: .1 },
+  // El agarrón: entra suave el aviso, el zarpazo en tres o cuatro cuadros, el agarre en lo que frenan (de 20° adelante
+  // a 5° atrás) y el traspié de una.
+  aviso: { pose: aviso, walk: true, transition: .2 },
+  zarpazo: { pose: zarpazo, walk: true, transition: .05 },
+  agarre: { pose: agarre, walk: true, transition: .3 },
+  traspie: { pose: traspie, walk: true, transition: .08 },
   // Los agentes en la patrulla y al bajarse (ver `PoliceOfficer._updateExit`)
   patrulla: { pose: patrulla, walk: false, hip: true, transition: .5 },
   'baja-izquierda': { pose: baja('left'), walk: false, hip: true, transition: .3 },

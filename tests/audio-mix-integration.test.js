@@ -105,3 +105,24 @@ test('salpicadura y golpe comparten bus y un contexto suspendido no crea fuentes
   audio.playThud();
   assert.equal(created.length, count);
 });
+
+test('el pitazo del agente pasa por el bus Efectos, dura menos que el aviso y suelta sus nodos al acabar', t => {
+  const { audio, created, destination } = fixture(t);
+  audio.setMix('effects', .5);
+  audio.playWhistle();
+  const [tone, trill] = created.filter(node => node.kind === 'oscillator');
+  assert.ok(tone.started && trill.started);
+  assert.ok(tone.frequency.value > 2000 && tone.frequency.value < 4000, 'un silbo agudo');
+  assert.ok(tone.stopAt > .3 && tone.stopAt < .5, 'cabe en el medio segundo del aviso');
+  const gain = tone.connections[0];
+  assert.deepEqual(gain.connections, [audio._effectsBus]);
+  assert.equal(audio._effectsBus.gain.value, .5);
+  assert.ok(created.every(node => !node.connections.includes(destination)), 'no evade el maestro');
+  tone.onended();
+  assert.equal(tone.connections.length + trill.connections.length + gain.connections.length, 0);
+  // Silenciado no suena.
+  audio.setMuted(true);
+  const before = created.length;
+  audio.playWhistle();
+  assert.equal(created.length, before);
+});

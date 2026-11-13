@@ -5,7 +5,7 @@
 // se suben y la patrulla sigue su ronda. Cada patrulla lleva su tripulación en `vehicle.crew`: TrafficSystem le pregunta
 // cómo mover el carro mientras dura la persecución (`planCar`) y la sube de una al terminar (`recall`).
 import * as THREE from 'three';
-import { PoliceOfficer, POLICE_FOOT } from '../entities/PoliceOfficer.js';
+import { PoliceOfficer, POLICE_FOOT, POLICE_GRAB_LINES } from '../entities/PoliceOfficer.js';
 import { PatrolCar } from '../entities/patrolCar.js';
 import { hasClearCombatLine } from './CombatGeometry.js';
 import { POLICE_CATCH_RANGE, POLICE_GIVE_UP_RANGE, TILE_SIZE } from '../utils/constants.js';
@@ -621,6 +621,11 @@ class PatrolUnit {
         doorOk: side => this._doorOk[side], carStill: parked, hurry
       });
       if (event === 'arresto') this.system._arrest();
+      // El aviso y el zarpazo que no alcanzó se leen en pantalla: van como advertencia, que en plena persecución el HUD
+      // bota los avisos de información. Al agarrarlo, el juego deja de mover al jugador.
+      else if (event === 'aviso') { toast(POLICE_GRAB_LINES.aviso, 'warn'); this.system.audio?.playWhistle?.(); }
+      else if (event === 'zafo') { toast(POLICE_GRAB_LINES.zafo, 'warn'); this.system.audio?.playWhoosh?.(); }
+      else if (event === 'agarre') { emit('police-grab', { reason: 'a-pie' }); this.system.audio?.playThud?.(); }
       else if (event === 'adentro') this._boarded(officer);
       else if (event === 'recoger') this._pickUp(officer);
       // Ya cerca de la puerta de vuelta: la abre si el carro la había cerrado para arrancar (nunca con el carro andando).

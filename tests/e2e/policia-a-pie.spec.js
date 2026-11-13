@@ -207,6 +207,102 @@ async function stealInSight(page, { alone = true } = {}) {
   }, alone);
 }
 
+
+// El pasto del parque del suroccidente: 40 m derechos sin calzada, muros ni mobiliario, y 12 m libres a cada lado. Ahí
+// se prueba el agarrón: hay por dónde correr derecho y por dónde quebrar.
+const FIELD = { x: 10, z: 240, heading: 0 };
+
+/** Solo para las fotos: todo el juego (jugador, tráfico y agentes) corre a `scale` de su velocidad. */
+async function slowMotion(page, scale) {
+  await page.evaluate(scale => {
+    const real = window.__realNow ??= performance.now.bind(performance);
+    const at = real(), base = performance.now();
+    performance.now = () => base + (real() - at) * scale;
+  }, scale);
+}
+
+/** Espera a que haya una patrulla de ronda con los dos adentro (la anterior persecución ya se recogió). */
+async function patrolReady(page) {
+  await page.waitForFunction(() => window.__game.traffic.vehicles.some(vehicle => vehicle.police && vehicle.state === 'patrol'
+    && !vehicle.rejoinTarget && vehicle.crew?.officers.every(officer => officer.state === 'dentro')), null, { timeout: 60_000 });
+}
+
+/**
+ * La persecución a pie ya empezada, llevada al pasto: el jugador listo para correr derecho y el acompañante `gap` m
+ * detrás, descansado y arrancando de quieto. Devuelve las teclas que, con esa cámara, corren derecho (`run`) y quiebran
+ * a cada lado (`left`, `right`). Con `side`, la cámara mira la carrera de lado, para las fotos. Lo que pase desde ahí
+ * (el aviso, el zarpazo, el agarre o el traspié) queda con su hora en `window.__policia.grab`.
+ */
+async function stageGrab(page, { gap = 4, side = false } = {}) {
+  return page.evaluate(({ FIELD, gap, side }) => {
+    const game = window.__game, log = window.__policia, { unit } = log, player = game.player, officer = unit.partner;
+    const district = game.world.active, hx = Math.cos(FIELD.heading), hz = Math.sin(FIELD.heading);
+    const put = (who, x, z) => who.position.set(x, district.getMovementGroundHeight?.(x, z, 0) ?? district.getGroundHeight(x, z), z);
+    put(player, FIELD.x, FIELD.z);
+    player.root.position.copy(player.position);
+    player.root.rotation.y = Math.atan2(hx, hz);
+    player.velocity?.set(0, 0, 0);
+    player.resetGrounding?.();
+    for (const stat of ['salud', 'energia', 'animo']) if (stat in game.stats) game.stats[stat] = 100;
+    if (game.dog) {
+      put(game.dog, FIELD.x - 40 * hz, FIELD.z + 40 * hx);
+      game.dog.home?.copy?.(game.dog.position);
+      game.dog._wanderTarget = null;
+    }
+    put(officer, FIELD.x - hx * gap, FIELD.z - hz * gap);
+    officer.root.rotation.y = Math.atan2(hx, hz);
+    officer.sprintLeft = 7;
+    officer.runTime = 0;
+    officer._pace = 0;
+    officer._route = [];
+    // Ya salió de la puerta: la prueba lo movió.
+    officer._exitClock = officer._roundHold = 0;
+    // La cámara: detrás del jugador, o de lado con los dos en el cuadro.
+    const rig = game.cameraRig, fx = side ? hz : hx, fz = side ? -hx : hz;
+    if (!rig.__followPlayer) {
+      rig.__followPlayer = rig.follow.bind(rig);
+      rig.follow = (target, ...rest) => rig.__followPlayer(window.__aim?.() ?? target, ...rest);
+    }
+    const middle = player.position.clone();
+    window.__aim = side ? () => middle.copy(player.position).lerp(officer.position, .5) : null;
+    rig.yaw = Math.atan2(fx, fz) + Math.PI;
+    rig.pitch = side ? .12 : .22;
+    rig.distance = side ? 6.5 : 5.5;
+    rig._snap = true;
+    if (!log.grab) {
+      // Además de la hora, si la línea llega de verdad a la vista en un aviso del HUD (puede esperar turno un momento).
+      const watch = (text, grab, tries = 40) => {
+        if ([...document.querySelectorAll('.loot-toast')].some(el => el.textContent.includes(text.slice(1, -1)))) grab.shown.push(text);
+        else if (tries > 0) setTimeout(() => watch(text, grab, tries - 1), 50);
+      };
+      window.addEventListener('toast', event => {
+        const text = event.detail?.text;
+        if (text === '¡Quieto ahí!') { log.grab.avisos.push(performance.now()); watch(text, log.grab); }
+        if (text === '¡Se le zafó!') { log.grab.zafos.push(performance.now()); watch(text, log.grab); }
+      });
+      window.addEventListener('police-grab', () => log.grab.grabs.push(performance.now()));
+      window.addEventListener('keydown', event => { if (!event.repeat) log.grab.keys.push([event.code, performance.now()]); });
+    }
+    log.grab = { avisos: [], zafos: [], grabs: [], shown: [], keys: [], arrests: log.arrests.length };
+    // Con esa cámara, hacia dónde lleva cada tecla: W adelante, D a la derecha.
+    const key = (dx, dz) => {
+      const forward = dx * fx + dz * fz, right = dx * -fz + dz * fx;
+      return Math.abs(forward) > Math.abs(right) ? (forward > 0 ? 'KeyW' : 'KeyS') : (right > 0 ? 'KeyD' : 'KeyA');
+    };
+    return { run: key(hx, hz), left: key(hz, -hx), right: key(-hz, hx) };
+  }, { FIELD, gap, side });
+}
+
+/** Lo que ha pasado en el agarrón desde `stageGrab`, con las horas del juego en ms. */
+const grabLog = page => page.evaluate(() => {
+  const { grab, arrests, unit } = window.__policia;
+  return { ...grab, arrested: arrests.length > grab.arrests, distance: unit.partner.distance, state: unit.partner.state, now: performance.now() };
+});
+const grabResolved = () => {
+  const { grab, arrests } = window.__policia;
+  return grab.zafos.length > 0 || grab.grabs.length > 0 || arrests.length > grab.arrests;
+};
+
 const partnerState = () => window.__policia.unit.partner.state;
 
 test('robo cerca de la patrulla: se acerca, frena del todo, se baja el agente, lo persigue a pie y lo arresta', async ({ page }, testInfo) => {
@@ -298,6 +394,67 @@ for (const level of [1, 2]) {
     expect(errors).toEqual([]);
   });
 }
+
+test('el agarrón con el teclado: quebrando a tiempo el zarpazo pasa de largo; corriendo derecho, aviso, zarpazo y agarre', async ({ page }, testInfo) => {
+  test.setTimeout(300_000);
+  const errors = collectErrors(page);
+  await start(page);
+  const dir = await stripDir(testInfo, 'agarre');
+  const chase = async () => {
+    await patrolReady(page);
+    await facePatrol(page);
+    await stealInSight(page);
+    await page.waitForFunction(() => window.__policia.unit.partner.state === 'persecucion', null, { timeout: 60_000 });
+    const keys = await stageGrab(page, { side: true });
+    // Despacio, para que cada pose alcance a salir en las fotos; el teclado es el de verdad.
+    await slowMotion(page, .2);
+    await page.keyboard.down('ShiftLeft');
+    await page.keyboard.down(keys.run);
+    return keys;
+  };
+  const release = async keys => {
+    for (const key of ['ShiftLeft', keys.run, keys.left, keys.right]) await page.keyboard.up(key);
+    await slowMotion(page, 1);
+  };
+  const busy = () => { const officer = window.__policia.unit.partner; return !!officer._grab || officer._stumble > 0; };
+
+  // Quiebre de 90° a 0,25 s del aviso: se le zafa y da el traspié.
+  let keys = await chase();
+  await page.waitForFunction(() => window.__policia.grab.avisos.length > 0, null, { polling: 'raf', timeout: 60_000 });
+  const first = strip(page, dir, 'zafo', busy, 30);
+  await page.waitForFunction(() => performance.now() >= window.__policia.grab.avisos[0] + 250, null, { polling: 'raf' });
+  await page.keyboard.up(keys.run);
+  await page.keyboard.down(keys.left);
+  expect(await first, 'fotos del zarpazo fallido').toBeGreaterThan(8);
+  await page.waitForFunction(grabResolved, null, { timeout: 30_000 });
+  let log = await grabLog(page);
+  expect(log.zafos.length, 'se le zafó').toBe(1);
+  await expect.poll(() => page.evaluate(() => window.__policia.grab.shown), { message: 'las dos líneas salen en pantalla', timeout: 5_000 })
+    .toEqual(['¡Quieto ahí!', '¡Se le zafó!']);
+  expect(log.grabs.length).toBe(0);
+  // Al final del traspié ya le sacó varios metros y nadie lo arrestó.
+  await page.waitForFunction(() => !(window.__policia.unit.partner._stumble > 0), null, { polling: 'raf', timeout: 30_000 });
+  log = await grabLog(page);
+  expect(log.arrested).toBe(false);
+  expect(log.distance, 'lo que le sacó').toBeGreaterThan(4.5);
+  await release(keys);
+  await page.evaluate(() => window.__game.traffic.endPursuit());
+
+  // Corriendo derecho: aviso de medio segundo, zarpazo, agarre y arresto.
+  keys = await chase();
+  const shots = await strip(page, dir, 'agarre', busy, 30);
+  expect(shots, 'fotos del agarre').toBeGreaterThan(8);
+  await release(keys);
+  await expect.poll(() => page.evaluate(() => window.__policia.arrests.length), { timeout: 30_000 }).toBeGreaterThan(0);
+  log = await grabLog(page);
+  expect(log.avisos.length).toBe(1);
+  expect(log.zafos.length).toBe(0);
+  expect(log.grabs.length).toBe(1);
+  expect(log.grabs[0] - log.avisos[0], 'del aviso al agarre, en ms del juego').toBeGreaterThan(550);
+  expect(log.grabs[0] - log.avisos[0]).toBeLessThan(750);
+  await expect(page.locator('#menu-title')).toHaveText('Te atrapó la Policía');
+  expect(errors).toEqual([]);
+});
 
 test('sin verlo: busca donde lo vio, desiste, vuelve caminando, se sube y la patrulla sigue su ronda', async ({ page }, testInfo) => {
   test.setTimeout(240_000);

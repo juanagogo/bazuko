@@ -497,6 +497,40 @@ export class AudioSystem {
     } catch {}
   }
 
+  /**
+   * Pitazo de policía sintetizado: dos silbos cortos con el trino de la bolita. Es el aviso del agente que se va a
+   * echar encima (ver `POLICE_GRAB`). Comparte mezcla de efectos, maestro, silencio y pausa.
+   */
+  playWhistle() {
+    const fx = this._fx();
+    if (!fx) return;
+    try {
+      const { ctx, out } = fx;
+      const t = ctx.currentTime;
+      const tone = ctx.createOscillator(), trill = ctx.createOscillator(), depth = ctx.createGain(), gain = ctx.createGain();
+      tone.type = 'sine';
+      tone.frequency.setValueAtTime(2850, t);
+      trill.type = 'sine';
+      trill.frequency.setValueAtTime(38, t);
+      depth.gain.setValueAtTime(190, t);
+      gain.gain.setValueAtTime(0.001, t);
+      gain.gain.linearRampToValueAtTime(0.16, t + 0.02);
+      gain.gain.setValueAtTime(0.16, t + 0.16);
+      gain.gain.linearRampToValueAtTime(0.02, t + 0.2);
+      gain.gain.linearRampToValueAtTime(0.16, t + 0.23);
+      gain.gain.exponentialRampToValueAtTime(0.001, t + 0.42);
+      trill.connect(depth);
+      depth.connect(tone.frequency);
+      tone.connect(gain);
+      gain.connect(out);
+      tone.onended = () => { tone.disconnect(); trill.disconnect(); depth.disconnect(); gain.disconnect(); };
+      tone.start(t);
+      trill.start(t);
+      tone.stop(t + 0.44);
+      trill.stop(t + 0.44);
+    } catch {}
+  }
+
   playWhoosh() {
     const fx = this._fx();
     if (!fx) return;

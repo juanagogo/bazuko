@@ -230,6 +230,7 @@ export class Game {
     window.addEventListener('open-hogar', () => openHogar(this));
     window.addEventListener('open-wardrobe', () => this.openWardrobe());
     window.addEventListener('open-mesa', () => { if (!this.hud?._craftOpen) this.hud?.toggleCraftPanel(); });
+    window.addEventListener('police-grab', () => this._policeGrab());
     window.addEventListener('police-arrest', () => this._policeArrest());
     window.addEventListener('open-radio-modal', () => openRadioModal(this));
     window.addEventListener('open-missions', () => {
@@ -1119,7 +1120,25 @@ export class Game {
     return true;
   }
 
+  /**
+   * Un agente lo agarró del hombro: el jugador deja de responder al teclado y frena con su inercia mientras el agente lo
+   * sostiene; el arresto llega enseguida. Por si no llega, se suelta solo.
+   */
+  _policeGrab() {
+    if (this._arrestPending || this._deathPending || this.input.locked) return;
+    this.input.locked = true;
+    this._grabLock = setTimeout(() => this._releaseGrab(), 1000);
+  }
+
+  _releaseGrab() {
+    if (!this._grabLock) return;
+    clearTimeout(this._grabLock);
+    this._grabLock = null;
+    this.input.locked = false;
+  }
+
   _policeArrest() {
+    this._releaseGrab();
     if (this._arrestPending || this._deathPending || this.stats.salud <= 0) return;
     this._arrestPending = true;
     if (this.steal?.minigameActive) this.steal._endMinigame(false, 'cancel');
