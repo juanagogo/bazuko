@@ -16,6 +16,7 @@ import {
   SUBSTANCE_RISK_CHANCE
 } from '../utils/constants.js';
 import { cop } from '../utils/money.js';
+import { allRefuseAlms } from '../entities/npc/memory.js';
 import { originEffect } from '../data/origins.js';
 
 export class InteractionSystem {
@@ -586,6 +587,14 @@ export class InteractionSystem {
           message: 'Nadie me da limosna con este olor: la gente huye. Toca bañarme.'
         }
       }));
+      return;
+    }
+
+    // Quien lo vio robar, pegar o tirar popó hace poco no le da nada (entities/npc/memory.js).
+    if (allRefuseAlms(nearbyPedestrians)) {
+      this.stats.animo = Math.max(0, this.stats.animo - 2);
+      this.audio?.play('empty');
+      window.dispatchEvent(new CustomEvent('beg-result', { detail: { success: false, reason: 'memoria', message: 'Aquí ya me conocen: nadie me quiere dar nada.' } }));
       return;
     }
 

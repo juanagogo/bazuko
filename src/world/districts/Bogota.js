@@ -31,6 +31,7 @@ import { buildGroundWear, dressGrass, dressPaving } from '../bogota/GroundDressi
 import * as TX from '../bogota/textures.js';
 import * as P from '../bogota/props.js';
 import { Npc } from '../../entities/Npc.js';
+import { thinkStreet } from '../../entities/npc/mind.js';
 import { BuildingVisibility, CLOSED_CHUNK_SIZE, createBuildingShell } from '../bogota/BuildingVisibility.js';
 import { PedestrianNavigation } from '../bogota/PedestrianNavigation.js';
 import { GpsNavigation } from '../../systems/GpsNavigation.js';
@@ -1622,6 +1623,8 @@ export class Bogota {
     // La niebla cambia con la hora y el clima: el límite de lo chico la sigue. Media y alta no lo usan.
     const fog = this.scene?.fog;
     this.farDetailDistance = this.farDetailFog && fog ? fog.near + (fog.far - fog.near) * this.farDetailFog : Infinity;
+    // Quién está cerca de quién, lo que oyen y lo que ven los peatones: entities/npc/mind.js.
+    thinkStreet(this, dt, playerPos, trafficVehicles);
     // Patrullas en persecución o de regreso: las únicas que no frenan por nadie, y la gente fija las esquiva.
     const chasers = this._chasers ??= [];
     chasers.length = 0;
@@ -1675,6 +1678,7 @@ export class Bogota {
       for (const material of meshMaterials(object)) rememberTextures(material);
     });
     for (const flock of this.pigeonFlocks ?? []) flock.dispose();
+    this.minds?.dispose();
     this.signals?.dispose();
     this.stationGroup?.userData.dispose?.();
     this.stationGroup?.clear();
