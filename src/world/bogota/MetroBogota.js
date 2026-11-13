@@ -30,31 +30,25 @@ const STATION_HALF_WIDTH = 7.2;
 
 /**
  * Traza del eje X del viaducto del Metro de Bogotá.
- * En el sector de la Calle 72 bordea suavemente la manzana residencial (z = 106..144)
- * garantizando gálibo libre total respecto a las fachadas de los inmuebles protegidos.
+ * Alineado de manera uniforme y recta sobre el eje central del separador de la Av. Caracas (x = 75).
  */
 export function metroTrackX(z) {
-  if (z >= 106 && z <= 144) {
-    const t = Math.sin(((z - 106) / 38) * Math.PI);
-    return METRO.x + t * 13.5;
-  }
   return METRO.x;
 }
 
 /**
- * Superficie caminable elevada del Metro de Bogotá (andenes de estación y tablero del viaducto).
+ * Superficie caminable elevada del Metro de Bogotá (andenes de estación, pasarelas y viaducto).
  * Devuelve `null` fuera de la huella elevada para no interferir con el tráfico a nivel de calle.
  */
 export function metroSurface(x, z) {
   if (z < METRO.zStart || z > METRO.zEnd) return null;
   const currentX = metroTrackX(z);
   const dx = Math.abs(x - currentX);
-  if (dx > STATION_HALF_WIDTH + 2.4) return null;
 
   for (const st of METRO_STATIONS) {
     const dz = Math.abs(z - st.z);
-    // Pasarela de acceso y mirador lateral de la estación
-    if (dz <= 4.5 && dx <= STATION_HALF_WIDTH + 2.2) {
+    // Pasarela aérea volada (Skybridge) conectando el andén de calle con la estación elevada
+    if (Math.abs(z - (st.z + 1.0)) <= 1.6 && dx <= 23.0) {
       return METRO.platSurfaceY;
     }
     // Andenes laterales y cruce de vías dentro de la estación
@@ -499,8 +493,10 @@ export function buildMetroBogota() {
       }
 
       // ACCESO PEATONAL LATERAL, ESCALERAS REALISTAS Y TÓTEM INSTITUCIONAL DEL METRO DE BOGOTÁ
+      // Ubicados en los andenes peatonales de la Av. Caracas (x ≈ 53.5 occidente, x ≈ 96.5 oriente)
+      // dejando las calzadas vehiculares totalmente libres de obstáculos.
       const accessWidth = 2.8;
-      const stairX = side * (STATION_HALF_WIDTH + 1.85);
+      const stairX = side * 21.5;
 
       // 1. Zancas metálicas estructurales en diagonal que soportan la escalera
       const stairLengthZ = 13.5;
@@ -591,14 +587,14 @@ export function buildMetroBogota() {
         stationGroup.add(rib);
       }
 
-      // 6. Pasarela aérea superior de conexión hacia el andén elevado (Skybridge)
-      const skybridgeLen = Math.abs(side * (STATION_HALF_WIDTH + 1.85) - side * 5.45);
+      // 6. Pasarela aérea superior de conexión hacia el andén elevado (Skybridge sobre la calzada vehicular)
+      const skybridgeLen = Math.abs(stairX - side * 5.45);
       const skybridgeMidX = (stairX + side * 5.45) / 2;
       const skybridge = new THREE.Mesh(new THREE.BoxGeometry(skybridgeLen, 0.35, 3.2), platformFloorMat);
       skybridge.position.set(skybridgeMidX, METRO.platSurfaceY - 0.17, 1.0);
       stationGroup.add(skybridge);
 
-      // Barandas de vidrio de la pasarela
+      // Barandas de vidrio de la pasarela volada
       for (const bZ of [-1.5, 1.5]) {
         const bGlass = new THREE.Mesh(new THREE.BoxGeometry(skybridgeLen, 1.1, 0.08), trainGlassMat);
         bGlass.position.set(skybridgeMidX, METRO.platSurfaceY + 0.55, 1.0 + bZ);
@@ -688,8 +684,9 @@ export function buildMetroBogota() {
 
     stationGroup.position.set(stationX, 0, stationZ);
 
-    // Puntos de interacción [E]: en los accesos a nivel de calle y arriba en el andén
+    // Puntos de interacción [E]: en los accesos peatonales de los andenes y arriba en la estación
     const accessStreetZ = stationZ - 14.7;
+    const stairOffset = 21.5;
     stationTargets.push({
       kind: 'metro',
       stationId: station.id,
@@ -697,11 +694,11 @@ export function buildMetroBogota() {
       shortName: station.shortName,
       stationZ,
       level: 'street',
-      position: new THREE.Vector3(stationX + (STATION_HALF_WIDTH + 1.85), 0.12, accessStreetZ),
+      position: new THREE.Vector3(stationX + stairOffset, 0.12, accessStreetZ),
       interactDistance(playerPos) {
-        // Alcanzable desde ambos accesos peatonales de la estación o desde el andén elevado
-        const dEast = Math.hypot(playerPos.x - (stationX + (STATION_HALF_WIDTH + 1.85)), playerPos.z - accessStreetZ);
-        const dWest = Math.hypot(playerPos.x - (stationX - (STATION_HALF_WIDTH + 1.85)), playerPos.z - accessStreetZ);
+        // Alcanzable desde ambos andenes laterales peatonales o desde el andén elevado
+        const dEast = Math.hypot(playerPos.x - (stationX + stairOffset), playerPos.z - accessStreetZ);
+        const dWest = Math.hypot(playerPos.x - (stationX - stairOffset), playerPos.z - accessStreetZ);
         const dCenter = Math.hypot(playerPos.x - stationX, playerPos.z - stationZ) * 0.45;
         return Math.min(dEast, dWest, dCenter);
       }

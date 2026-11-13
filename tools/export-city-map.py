@@ -265,7 +265,7 @@ def expand_city(center):
         z += .5
     # paintSmallBuilding, paintViaductGardens
     for zz in range(60, 66):
-        for xx in range(35, 41): m[zz][xx] = 'smallBuilding'
+        for xx in range(20, 26): m[zz][xx] = 'smallBuilding'
     for zz in range(math.ceil(VIADUCT['crestStart'] / 2), int(math.ceil(VIADUCT['join'] / 2))):
         for xx in range(1, len(m[zz]) - 1):
             if m[zz][xx] == 'busway': m[zz][xx] = 'grass'

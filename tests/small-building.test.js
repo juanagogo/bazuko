@@ -9,7 +9,7 @@ import {busPathX,southBusPathX} from '../src/world/bogota/Colpatria.js';
 test('el edificio ocupa el lugar indicado, bloquea su interior y deja libre el paso de ambos buses',()=>{
   const wallMap=new THREE.Texture(),wallBump=new THREE.Texture();
   const building=buildSmallBuilding({brickTextures:{map:wallMap,bumpMap:wallBump}}),bounds=new THREE.Box3().setFromObject(building);
-  assert.ok(bounds.containsPoint(new THREE.Vector3(72.64,1,125.18)));
+  assert.ok(bounds.containsPoint(new THREE.Vector3(42.64,1,125.18)));
   assert.ok(bounds.max.y<=SMALL_BUILDING.height+.001);
   assert.ok(building.getObjectByName('Puerta'));
   const wall=building.getObjectByName('Cuerpo de cinco pisos');
@@ -23,10 +23,10 @@ test('el edificio ocupa el lugar indicado, bloquea su interior y deja libre el p
   assert.ok(bounds.max.x-bounds.min.x>12);
   assert.equal(building.children.some(o=>o.isLight),false);
   const city=new Bogota();city.map=city._layout();
-  assert.equal(city.map[63][36],'smallBuilding');
+  assert.equal(city.map[63][22],'smallBuilding');
   const collisions=new CollisionSystem();city._buildCollisions(city.map,collisions);
-  assert.ok(collisions.colliders.some(({box})=>box.containsPoint(new THREE.Vector3(73,2,125))));
-  assert.ok(!collisions.colliders.some(({box})=>box.containsPoint(new THREE.Vector3(73,17,125))));
+  assert.ok(collisions.colliders.some(({box})=>box.containsPoint(new THREE.Vector3(43,2,125))));
+  assert.ok(!collisions.colliders.some(({box})=>box.containsPoint(new THREE.Vector3(43,17,125))));
   for(let z=111;z<=140;z+=.5) for(const path of [busPathX,southBusPathX]) {
     const lane=path===busPathX?78.5:71.5;
     assert.ok(!bounds.containsPoint(new THREE.Vector3(path(z,lane),7.82,z)));
