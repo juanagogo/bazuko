@@ -19,6 +19,9 @@ const CUT_OFF_FROM = 14;       // m: más cerca no vale la pena arrancar
 const CUT_OFF_RETRY = 4;       // s de espera después de trabarse cerrándole el paso
 const CUT_OFF_PARTNER_FAR = 20; // m: el compañero viene tan atrás que el conductor tiene que bajarse
 const CUT_OFF_CATCH = 1.5;     // s con el jugador al alcance del carro antes de bajarse
+const CUT_OFF_CREW = 2.5;      // m: con alguno de los suyos así de cerca de la carrocería no arranca a cerrarle el paso
+const CUT_OFF_YIELD = 1;       // s frenada por un agente suyo que tampoco avanza: manda el agente y el carro se queda
+const CUT_OFF_YIELD_SPEED = .5; // m/s: más despacio, ese agente no está avanzando
 const RELOCATE_EVERY = 2;      // s entre una mirada y otra a si la patrulla parada tapa un carril o un cruce
 const RELOCATE_CLEAR = 6;      // m del carro a los que tiene que ir el compañero para que el conductor la corra
 const RELOCATE_MAX = 2;        // veces por persecución
@@ -200,6 +203,7 @@ class PatrolUnit {
     this._reachable = true;
     this._probeTimer = 0;
     this._cutOffTimer = CUT_OFF_EVERY;
+    this._yieldClock = 0;
     this._dismountPending = false;
     this._forceDriver = false;
     this._escort = 0;
@@ -357,7 +361,18 @@ class PatrolUnit {
     // Por la calzada: con el jugador fuera de ella, le cierra el paso desde el punto de calzada más cercano a él.
     if (!this.system._roadAim(player, this.roadPoint, vehicle.car.position.y)) this._toRoadPoint(vehicle, stepTime);
     // Su compañero a pie va adelante: frena antes que llevárselo.
-    if (this._officerAhead(vehicle)) vehicle.nextSpeed = Math.max(0, vehicle.speed - BRAKE_STOP * stepTime);
+    const ahead = this._officerAhead(vehicle);
+    if (ahead) vehicle.nextSpeed = Math.max(0, vehicle.speed - BRAKE_STOP * stepTime);
+    // Los dos quietos, el carro por el agente y el agente contra el carro: manda el agente. El carro se queda donde está
+    // unos segundos y él vuelve a trazar su camino.
+    this._yieldClock = ahead && vehicle.speed < .3 && ahead.groundSpeed < CUT_OFF_YIELD_SPEED ? this._yieldClock + stepTime : 0;
+    if (this._yieldClock >= CUT_OFF_YIELD) {
+      this._yieldClock = 0;
+      this._cutOffTimer = CUT_OFF_RETRY;
+      ahead.giveWay();
+      this._startBrake(vehicle, traffic);
+      return true;
+    }
     // Trabada: quiere andar y no avanza. Que el jugador corra casi igual de rápido no es estar trabada.
     if (vehicle.nextSpeed > .5 && vehicle.speed < .3) this._stuckClock += stepTime;
     else this._stuckClock = 0;
@@ -381,11 +396,21 @@ class PatrolUnit {
 
   _officerAhead(vehicle) {
     const car = vehicle.car, yaw = car.group.rotation.y, fx = Math.cos(yaw), fz = -Math.sin(yaw);
-    return this.officers.some(officer => {
+    return this.officers.find(officer => {
       if (!officer.onFoot) return false;
       const dx = officer.position.x - car.position.x, dz = officer.position.z - car.position.z;
       const ahead = dx * fx + dz * fz, side = Math.abs(-dx * fz + dz * fx);
       return ahead > 0 && ahead < car.length / 2 + 3.5 && side < car.width / 2 + .8;
+    }) ?? null;
+  }
+
+  /** ¿Alguno de los suyos anda afuera a menos de `reach` m de la carrocería? */
+  _crewBeside(reach) {
+    const car = this.vehicle.car, yaw = car.group.rotation.y, fx = Math.cos(yaw), fz = -Math.sin(yaw);
+    return this.officers.some(officer => {
+      if (!officer.out) return false;
+      const dx = officer.position.x - car.position.x, dz = officer.position.z - car.position.z;
+      return Math.hypot(Math.max(0, Math.abs(dx * fx + dz * fz) - car.length / 2), Math.max(0, Math.abs(-dx * fz + dz * fx) - car.width / 2)) < reach;
     });
   }
 
@@ -721,6 +746,8 @@ class PatrolUnit {
     this._cutOffTimer -= dt;
     if (this._cutOffTimer > 0 || this.driver.out || !partnerChasing || this.partner.doorSide !== this.partner.seatSide) return;
     if (!this.seen || this.carDistance < CUT_OFF_FROM || !this._reachable) { this._cutOffTimer = CUT_OFF_EVERY; return; }
+    // Con alguno de los suyos todavía junto al carro, o en su camino, no arranca: lo dejaría sin por dónde pasar.
+    if (this._crewBeside(CUT_OFF_CREW) || this._officerAhead(this.vehicle)) { this._cutOffTimer = .25; return; }
     this.fit.setDoor(this.partner.doorSide, false);
     if (this.fit.doorAmount(this.partner.doorSide) > 0) { this._cutOffTimer = .1; return; }
     this._cutOffTimer = CUT_OFF_EVERY;

@@ -1449,6 +1449,126 @@ test('en reversa no se sale de la calzada ni retrocede con uno de los suyos detr
   assert.equal(unit._reverse, 0);
 });
 
+const fromBody = (car, point) => {
+  const yaw = car.group.rotation.y, fx = Math.cos(yaw), fz = -Math.sin(yaw), dx = point.x - car.position.x, dz = point.z - car.position.z;
+  return Math.hypot(Math.max(0, Math.abs(dx * fx + dz * fz) - car.length / 2), Math.max(0, Math.abs(-dx * fz + dz * fx) - car.width / 2));
+};
+
+/**
+ * La patrulla frena rumbo a +X y, en cuanto el compañero abre su puerta (la de +Z), el jugador aparece a `across` m de
+ * ese costado (negativo: del otro lado) y a `along` m hacia adelante. Devuelve los segundos desde que abrió la puerta
+ * hasta quedar a 3 m del carro del lado del jugador, lo más que estuvo quieto y lo más cerca que pasó de la carrocería.
+ */
+function exitToward(level, across, along = 0) {
+  const world = setup({ level, player: [60, 0] });
+  world.traffic._startChase(world.vehicle);
+  const officer = world.unit.partner, car = world.vehicle.car;
+  let clock = 0, opened = null, clear = null, closest = Infinity, still = 0, worst = 0;
+  const last = new THREE.Vector3();
+  runUntil(world, () => clear !== null, 20, () => {
+    clock += DT;
+    if (officer.state === 'dentro') return;
+    if (opened === null) {
+      opened = clock;
+      world.player.position.set(car.position.x + along, 0, car.position.z + Math.sign(across) * (car.width / 2 + Math.abs(across)));
+    }
+    if (!officer.onFoot) { last.copy(officer.position); return; }
+    still = officer.position.distanceTo(last) < .3 * DT ? still + DT : 0;
+    last.copy(officer.position);
+    worst = Math.max(worst, still);
+    closest = Math.min(closest, fromBody(car, officer.position));
+    const side = (officer.position.z - car.position.z) * Math.sign(across);
+    if (side > 0 && fromBody(car, officer.position) >= 3) clear = clock;
+  });
+  assert.equal(officer.doorSide, 1);
+  assert.ok(Math.abs(car.group.rotation.y) < .2, 'la patrulla quedó rumbo a +X');
+  return { seconds: clear === null ? Infinity : clear - opened, worst, closest };
+}
+
+test('con el jugador al otro lado de la patrulla, el que se baja la rodea por la punta sin quedarse contra el costado', () => {
+  for (const level of [1, 2]) for (const along of [-1.5, 0, 1.5]) {
+    const { seconds, worst, closest } = exitToward(level, -9, along);
+    // La bajada, y unos 9 m de carrera: media patrulla, su ancho y los 3 m.
+    const limit = (level === 1 ? 1.4 : .95) + 1.7;
+    assert.ok(seconds <= limit, `fichado ${level}, ${along} m: tardó ${seconds.toFixed(2)} s desde que abrió la puerta (tope ${limit.toFixed(2)})`);
+    assert.ok(worst <= .2, `fichado ${level}, ${along} m: se quedó quieto ${worst.toFixed(2)} s`);
+    assert.ok(closest >= .28, `fichado ${level}, ${along} m: pasó a ${closest.toFixed(2)} m de la carrocería`);
+  }
+});
+
+test('con el jugador de su mismo lado, o hacia una punta del carro, el que se baja queda a 3 m en un segundo', () => {
+  for (const level of [1, 2]) for (const [across, along] of [[12, 0], [6, 8], [1.5, 14], [1.5, -14]]) {
+    const { seconds, worst } = exitToward(level, across, along);
+    const limit = (level === 1 ? 1.4 : .95) + 1;
+    assert.ok(seconds <= limit, `fichado ${level}, (${across}; ${along}): tardó ${seconds.toFixed(2)} s (tope ${limit.toFixed(2)})`);
+    assert.ok(worst <= .2, `fichado ${level}, (${across}; ${along}): se quedó quieto ${worst.toFixed(2)} s`);
+  }
+});
+
+test('el carro no arranca a cerrarle el paso con uno de los suyos todavía junto a la carrocería', () => {
+  const world = setup({ level: 1, player: [60, 0] });
+  world.traffic._startChase(world.vehicle);
+  exitOf(world);
+  const officer = world.unit.partner, car = world.vehicle.car;
+  runUntil(world, () => officer.state === 'persecucion');
+  // El compañero no logra despegarse del carro: a 1,5 m del costado.
+  const hold = () => { world.player.position.x += 6 * DT; officer.position.set(car.position.x, 0, car.position.z + car.width / 2 + 1.5); };
+  const t = runUntil(world, () => world.unit.phase === 'cierre', 3, hold);
+  assert.equal(t, Infinity, 'arrancó con el compañero al lado');
+  assert.equal(world.unit.phase, 'parada');
+  // Ya lejos, sí.
+  const go = runUntil(world, () => world.unit.phase === 'cierre', 10, () => { world.player.position.x += 6 * DT; });
+  assert.ok(Number.isFinite(go), 'con el compañero lejos arrancó');
+});
+
+test('cerrándole el paso, si el carro y su agente se atajan el uno al otro manda el agente: el carro se queda y él vuelve a trazar', () => {
+  const world = setup({ level: 1, player: [60, 0] });
+  world.traffic._startChase(world.vehicle);
+  exitOf(world);
+  const officer = world.unit.partner, car = world.vehicle.car, unit = world.unit;
+  runUntil(world, () => officer.state === 'persecucion');
+  runUntil(world, () => unit.phase === 'cierre', 10, () => world.player.position.x += 6 * DT);
+  assert.equal(unit.phase, 'cierre');
+  // El agente queda quieto 2 m adelante de la trompa (contra algo), y el carro frenado por él.
+  let gaveWay = 0;
+  const giveWay = officer.giveWay.bind(officer);
+  officer.giveWay = () => { gaveWay++; giveWay(); };
+  const pin = () => {
+    world.player.position.x += 6 * DT;
+    officer.position.set(car.position.x + car.length / 2 + 2, 0, car.position.z);
+    officer._pause = 1;
+  };
+  const t = runUntil(world, () => unit.phase !== 'cierre', 6, pin);
+  assert.ok(t >= .9 && t < 3.5, `el carro cedió a los ${t.toFixed(2)} s`);
+  assert.equal(gaveWay, 1);
+  assert.ok(Math.abs(world.vehicle.speed) < .3, 'no se lo llevó por delante');
+  runUntil(world, () => unit.phase === 'parada', 4, pin);
+  assert.equal(unit.phase, 'parada');
+  assert.ok(unit._cutOffTimer > 2, 'se queda unos segundos antes de volver a arrancar');
+});
+
+test('persiguiendo, quieto contra algo sin tenerlo agarrado: a los 0,6 s da un paso de lado y busca por otro lado', () => {
+  const collisions = new CollisionSystem();
+  const world = setup({ level: 1, player: [60, 12], collisions });
+  world.traffic._startChase(world.vehicle);
+  exitOf(world);
+  const officer = world.unit.partner;
+  runUntil(world, () => officer.state === 'persecucion');
+  runUntil(world, () => officer.position.distanceTo(world.vehicle.car.position) > 6, 6);
+  // Un bolsillo de muro bajo (lo ve por encima) en el que apenas cabe: adelante y a los dos lados.
+  const p = officer.position;
+  const wall = (cx, cz, sx, sz) => collisions.add({ position: new THREE.Vector3(cx, 0, cz) }, new THREE.Vector3(sx, .6, sz));
+  wall(p.x + .9, p.z, .6, 3);
+  wall(p.x - .5, p.z + .75, 3, .6);
+  wall(p.x - .5, p.z - .75, 3, .6);
+  world.player.position.set(p.x + 12, 0, p.z);
+  let stepped = null, clock = 0, seen = 0;
+  runUntil(world, () => stepped !== null, 4, () => { clock += DT; if (officer._sidestep > 0) stepped ??= clock; seen = Math.max(seen, officer._still); });
+  assert.ok(stepped !== null && stepped <= 1, `dio el paso de lado a los ${stepped} s`);
+  assert.ok(seen <= .6 + DT * 2, `llevaba ${seen.toFixed(2)} s quieto`);
+  assert.equal(officer.state, 'persecucion');
+});
+
 /**
  * La patrulla parada encima del carril (z = 0), con el compañero buscando a 5 m del carro (ni tan lejos como para correrla
  * por tapar el carril, ni tan cerca como para no poder arrancar) y un carro que viene detrás por ese carril. Con `civilian`

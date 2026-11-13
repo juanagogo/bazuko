@@ -105,6 +105,16 @@ const BENCH_FADE = .8;      // s que tarda en irse la postura de sentado: mientr
 const SLIDES = [.7, -.7, 1.3, -1.3];
 const CAR_MARGIN = .3;      // m entre la carrocería de su patrulla y el centro del agente
 const WALK_RADIUS = .32;    // el de resolveCombatWalk
+const DOOR_CLEAR = 1.2;     // m del costado de su patrulla: el primer punto al bajarse, para no salir rozándola
+const DOOR_LEAD = .8;       // m que ese punto se adelanta hacia donde va
+const DOOR_TIME = 1;        // s: si en esto no llegó a ese punto, sigue sin él
+const CAR_ROUND = .5;       // m que deja al rodear su patrulla por una punta
+const CAR_NEAR = 6;         // m de su patrulla: más lejos no hay nada que rodear
+const STILL_SPEED = .3;     // m/s: más despacio, persiguiendo y sin tenerlo agarrado, está quieto contra algo
+const STILL_TIME = .6;      // s así (lo que cuenta es lo que se alejó de donde estaba, no el temblor): paso de lado y rodea
+const SIDESTEP = .45;       // s del paso de lado
+const ROUND_HOLD = 1.2;     // s que sostiene la punta que escogió para rodearla
+const ROUND_REST = 2.5;     // s sin insistir en rodear su patrulla por la punta, si ahí fue donde se quedó quieto
 
 const _dir = new THREE.Vector3();
 const _try = new THREE.Vector3();
@@ -113,6 +123,8 @@ const _b = new THREE.Vector3();
 const _c = new THREE.Vector3();
 const _probe = new THREE.Vector3(); // solo para _underVehicle: _b y _c pueden ser el destino que se está siguiendo
 const _corner = new THREE.Vector3();
+const _was = new THREE.Vector3();
+const _side = new THREE.Vector3();
 
 const wrap = angle => Math.atan2(Math.sin(angle), Math.cos(angle));
 const lerpAngle = (from, to, k) => from + wrap(to - from) * k;
@@ -175,6 +187,14 @@ export class PoliceOfficer extends Npc {
     this._replan = 0;
     this._blocked = 0;
     this._slide = 1;
+    this._still = 0;
+    this._stillAt = new THREE.Vector3();
+    this._sidestep = 0;
+    this._roundRest = 0;
+    this._roundHold = 0;
+    this._exitPoint = new THREE.Vector3();
+    this._exitClock = 0;
+    this.groundSpeed = 0;
     this._anchor = new THREE.Vector3();
     this._anchorTimer = 0;
     this._stuckCount = 0;
@@ -303,6 +323,7 @@ export class PoliceOfficer extends Npc {
     this._returnAfterExit = false;
     this._route = [];
     this._blocked = 0;
+    this._still = this._sidestep = this._exitClock = this._roundRest = this._roundHold = 0;
   }
 
   /** Giro de la cabeza hacia `point` (lo que acepta el personaje en `look`). */
@@ -357,11 +378,64 @@ export class PoliceOfficer extends Npc {
       // Si mientras se bajaba la patrulla desistió, de una vez vuelve a la puerta.
       this.state = this._returnAfterExit ? 'regreso' : 'persecucion';
       this._returnAfterExit = false;
+      this._planExit(player);
       this._benchFade = BENCH_FADE;
       this.poseParams = { stanceWeight: 0 };
       return true;
     }
     return false;
+  }
+
+  /**
+   * El primer punto ya de pie: a `DOOR_CLEAR` m del costado, adelantado hacia donde va. Sin él sale rozando la carrocería
+   * y, con el jugador hacia una punta del carro, se queda deslizándose contra ella.
+   */
+  _planExit(player) {
+    const car = this.fit?.car;
+    this._exitClock = 0;
+    if (!car || !player) return;
+    const yaw = car.group.rotation.y, fx = Math.cos(yaw), fz = -Math.sin(yaw), rx = Math.sin(yaw), rz = Math.cos(yaw);
+    const dx = this.position.x - car.position.x, dz = this.position.z - car.position.z;
+    const along = dx * fx + dz * fz, across = dx * rx + dz * rz, side = Math.sign(across) || this.doorSide;
+    const lateral = (car.width ?? 1.9) / 2 + DOOR_CLEAR;
+    if (Math.abs(across) >= lateral - .15) return;
+    const toward = (player.x - this.position.x) * fx + (player.z - this.position.z) * fz;
+    const a = along + Math.max(-DOOR_LEAD, Math.min(DOOR_LEAD, toward));
+    this._exitPoint.set(car.position.x + fx * a + rx * side * lateral, this.position.y, car.position.z + fz * a + rz * side * lateral);
+    this._exitClock = DOOR_TIME;
+  }
+
+  /**
+   * Junto a su patrulla, por dónde arranca hacia `goal`: el punto de `_planExit` mientras no se haya abierto de la puerta
+   * y, si `goal` queda al otro lado del carro, la punta por donde el rodeo es más corto, a `CAR_ROUND` m. Escogida una
+   * punta va hasta ella (si no, de un cuadro al otro cambiaría de idea) y desde ahí vuelve a trazar. Null si va derecho.
+   */
+  _leaveCar(goal, dt) {
+    const car = this.fit?.car;
+    if (!car) return null;
+    if (this._roundRest > 0) { this._roundRest -= dt; this._exitClock = this._roundHold = 0; return null; }
+    if (this._exitClock > 0) {
+      this._exitClock -= dt;
+      const point = this._exitPoint;
+      const reached = Math.hypot(point.x - this.position.x, point.z - this.position.z) < .35;
+      const blocked = !this.isWalkable(point.x, point.z) || !this._clearTo(point);
+      if (reached || blocked) this._exitClock = 0;
+      else return point;
+    }
+    if (this._roundHold > 0) {
+      this._roundHold -= dt;
+      const corner = this._cornerGoal;
+      if (Math.hypot(corner.x - this.position.x, corner.z - this.position.z) > .05 && this._roundHold > 0) return corner;
+      // En la punta: la ruta que traía salía de donde estaba antes.
+      this._roundHold = 0;
+      this._route = [];
+      this._replan = 0;
+    }
+    if (Math.hypot(car.position.x - this.position.x, car.position.z - this.position.z) > CAR_NEAR + (car.length ?? 4.4) / 2) return null;
+    const around = this._aroundCar(goal, CAR_ROUND + .1, CAR_ROUND - .1);
+    if (around === goal) return null;
+    this._roundHold = ROUND_HOLD;
+    return around;
   }
 
   /** Empieza a subirse por la puerta por la que se bajó (que la patrulla ya abre). */
@@ -460,14 +534,14 @@ export class PoliceOfficer extends Npc {
     return point;
   }
 
-  /** ¿La línea de `from` a `to` cruza la carrocería de su patrulla (sin margen)? */
-  _crossesCar(from, to) {
+  /** ¿La línea de `from` a `to` cruza la carrocería de su patrulla (con `pad` m de margen)? */
+  _crossesCar(from, to, pad = 0) {
     const car = this.fit?.car;
     if (!car) return false;
     const yaw = car.group.rotation.y, fx = Math.cos(yaw), fz = -Math.sin(yaw), rx = Math.sin(yaw), rz = Math.cos(yaw);
     const ax = from.x - car.position.x, az = from.z - car.position.z, bx = to.x - car.position.x, bz = to.z - car.position.z;
     const p0 = [ax * fx + az * fz, ax * rx + az * rz], p1 = [bx * fx + bz * fz, bx * rx + bz * rz];
-    const half = [(car.length ?? 4.4) / 2, (car.width ?? 1.9) / 2];
+    const half = [(car.length ?? 4.4) / 2 + pad, (car.width ?? 1.9) / 2 + pad];
     let t0 = 0, t1 = 1;
     for (let i = 0; i < 2; i++) {
       const d = p1[i] - p0[i];
@@ -587,6 +661,9 @@ export class PoliceOfficer extends Npc {
       const waypoint = this._waypoint(target, dt, this._blocked > 1);
       if (waypoint && far > 1.5) goal = waypoint;
     }
+    // Persiguiendo, recién bajado se abre de la puerta, y lo que quede al otro lado de su patrulla (el jugador, o el
+    // nodo por el que va la ruta) se alcanza por la punta, no contra el costado.
+    if (this.state === 'persecucion') goal = this._leaveCar(goal, dt) ?? goal;
     const last = goal === target;
     const moved = this._advance(goal, speed, dt, last ? stop : 0);
     if (this._watch(dt, far > stop + .4) && this._stuckCount >= 2) { this._pause = .8; this._stuckCount = 0; this.moving = false; }
@@ -660,6 +737,23 @@ export class PoliceOfficer extends Npc {
    *   inView?: (point: THREE.Vector3) => boolean }} ctx
    */
   think(dt, ctx) {
+    _was.copy(this.position);
+    const event = this._think(dt, ctx);
+    // Lo que de verdad avanzó, para saber si está quieto contra algo.
+    this.groundSpeed = dt > 0 ? Math.hypot(this.position.x - _was.x, this.position.z - _was.z) / dt : 0;
+    return event;
+  }
+
+  /** Su patrulla lo tenía atajado: vuelve a trazar el camino desde donde está. */
+  giveWay() {
+    this._route = [];
+    this._replan = 0;
+    this._pause = 0;
+    this._still = 0;
+    this._roundRest = 0;
+  }
+
+  _think(dt, ctx) {
     if (dt <= 0 || this.state === 'dentro') { this.moving = false; return null; }
     if (this._benchFade > 0) this._benchFade = Math.max(0, this._benchFade - dt);
     if (this.state === 'bajando') return this._updateExit(dt, ctx.player) ? 'fuera' : null;
@@ -714,7 +808,32 @@ export class PoliceOfficer extends Npc {
       if (this.isWalkable(_b.x, _b.z)) aim = _b;
     }
     const direct = sees && toGoal < POLICE_FOOT.directRange;
-    const moved = this._goTo(aim, speed, dt, sees ? .75 : .5, direct);
+    const stop = sees ? .75 : .5;
+    let moved;
+    if (this._sidestep > 0) {
+      // El paso de lado: en diagonal hacia el lado por donde le toca rodear.
+      this._sidestep -= dt;
+      _side.set(aim.x - this.position.x, 0, aim.z - this.position.z).normalize();
+      _side.set(this.position.x + (_side.x * .4 - _side.z * this._slide) * 2, this.position.y, this.position.z + (_side.z * .4 + _side.x * this._slide) * 2);
+      moved = this._advance(_side, speed, dt);
+      if (moved < speed * dt * .35) this._slide = -this._slide;
+    } else moved = this._goTo(aim, speed, dt, stop, direct);
+    // Quieto contra algo sin tenerlo agarrado: no se queda ahí. Paso de lado, y otra ruta.
+    const trying = toGoal > stop + .4 && !(this._pause > 0) && !(this.catchTimer > 0);
+    if (!trying || Math.hypot(this.position.x - this._stillAt.x, this.position.z - this._stillAt.z) > STILL_SPEED * STILL_TIME) {
+      this._still = 0;
+      this._stillAt.copy(this.position);
+    } else this._still += dt;
+    if (this._still >= STILL_TIME) {
+      this._still = 0;
+      this._stillAt.copy(this.position);
+      this._sidestep = SIDESTEP;
+      this._roundRest = ROUND_REST;
+      this._roundHold = 0;
+      this._slide = -this._slide;
+      this._route = [];
+      this._replan = 0;
+    }
     if (moved > 0) {
       this.runTime += dt;
       if (this.sprintLeft > 0) this.sprintLeft = Math.max(0, this.sprintLeft - dt);
@@ -941,21 +1060,23 @@ export class PoliceOfficer extends Npc {
   _canUse(side, doorOk) { return doorOk(side) && side !== this._avoidDoor; }
 
   /**
-   * Si la línea a `goal` cruza su patrulla, la esquina del carro por donde rodearlo (la del camino más corto que no la
-   * cruce); si no, `goal`. La red de andenes no sabe de carros: sin esto se queda contra el costado.
+   * Si la línea a `goal` cruza su patrulla (con `pad` m de margen), la esquina del carro, a `round` m, por donde rodearlo
+   * (la del camino más corto que no la cruce); si no, `goal`. La red de andenes no sabe de carros: sin esto se queda
+   * contra el costado.
    */
-  _aroundCar(goal) {
+  _aroundCar(goal, round = CAR_MARGIN + .35, pad = 0) {
     const car = this.fit?.car;
-    if (!car || !this._crossesCar(this.position, goal)) return goal;
+    if (!car || !this._crossesCar(this.position, goal, pad)) return goal;
     const yaw = car.group.rotation.y, fx = Math.cos(yaw), fz = -Math.sin(yaw), rx = Math.sin(yaw), rz = Math.cos(yaw);
-    const halfLength = (car.length ?? 4.4) / 2 + CAR_MARGIN + .35, halfWidth = (car.width ?? 1.9) / 2 + CAR_MARGIN + .35;
+    const halfLength = (car.length ?? 4.4) / 2 + round, halfWidth = (car.width ?? 1.9) / 2 + round;
     let best = goal, bestCost = Infinity;
     for (const along of [-halfLength, halfLength]) for (const across of [-halfWidth, halfWidth]) {
       _corner.set(car.position.x + fx * along + rx * across, this.position.y, car.position.z + fz * along + rz * across);
       const here = Math.hypot(_corner.x - this.position.x, _corner.z - this.position.z);
-      if (here < .3 || this._crossesCar(this.position, _corner)) continue;
+      // Ya en esa esquina (llega justo: entre el margen y el rodeo queda una franja angosta), sigue con la próxima.
+      if (here < Math.min(.3, (round - pad) / 2) || this._crossesCar(this.position, _corner, pad)) continue;
       // Desde esa esquina, ¿todavía tiene que cruzar? Entonces le falta otra esquina: cuesta el ancho del carro más.
-      const cost = here + Math.hypot(goal.x - _corner.x, goal.z - _corner.z) + (this._crossesCar(_corner, goal) ? halfWidth * 2.5 : 0);
+      const cost = here + Math.hypot(goal.x - _corner.x, goal.z - _corner.z) + (this._crossesCar(_corner, goal, pad) ? halfWidth * 2.5 : 0);
       if (cost < bestCost) { bestCost = cost; best = this._cornerGoal.copy(_corner); }
     }
     return best;
