@@ -459,7 +459,7 @@ export class HUD {
   _bindEvents() {
     window.addEventListener('toast', (e) => {
       // Lo que no puede esperar su turno (el aviso del agarrón dura medio segundo) va en la placa de la persecución.
-      if (e.detail.placa && this._gritarEnPlaca(e.detail.placa, e.detail.text)) return;
+      if (e.detail.placa && this._gritarEnPlaca(e.detail.placa, e.detail.text, GRITO_MS, e.detail)) return;
       this._toast(e.detail.text, e.detail.type ?? e.detail.kind);
     });
     window.addEventListener('resize', () => this.avisos?.acomodar());
@@ -746,6 +746,9 @@ export class HUD {
       document.getElementById('topbar')?.setAttribute('data-estado', estado);
       this._wantedBase = estado === 'fichado' ? 'Te tienen fichado' : estado === 'encima' ? '¡CÓRRALE!' : '¡PILAS!';
       this._gritoPuesto = null;
+      // Sin placa de persecución no hay grito que valga: se va con ella, y su destello también (si quedara puesto,
+      // volvería a destellar cuando la placa o el cartón salieran otra vez).
+      if (estado !== 'encima' && estado !== 'detras') { this._grito = null; delete this.wantedEl.dataset.grito; }
       this._setText(this.wantedGrito, this._wantedBase);
       this._setText(this.wantedVoz, { nada: '', fichado: 'Te tienen fichado', detras: '¡Pilas! Una patrulla viene detrás', encima: '¡Córrale! La patrulla está encima' }[estado]);
       this.avisos?.acomodar();
@@ -771,11 +774,15 @@ export class HUD {
 
   /**
    * Pone `texto` en la placa de la persecución en este mismo cuadro, en vez de «¡CÓRRALE!», durante `ms`. Devuelve false
-   * si la placa no está a la vista: entonces sale como un aviso cualquiera.
+   * si la placa no está a la vista: entonces sale como un aviso cualquiera. El grito que pide reaccionar (`manda`) no se
+   * deja tapar, mientras dura, por el que solo informa de otro agente (`de`): con dos agentes, el «¡SE ZAFÓ!» de uno
+   * no borra el «¡QUIETO!» del otro.
    */
-  _gritarEnPlaca(texto, voz = texto, ms = GRITO_MS) {
+  _gritarEnPlaca(texto, voz = texto, ms = GRITO_MS, { de = null, manda = false } = {}) {
     if (!this.wantedEl || (this._wantedEstado !== 'encima' && this._wantedEstado !== 'detras')) return false;
-    this._grito = { texto, hasta: performance.now() + ms };
+    const ahora = performance.now();
+    if (!manda && this._grito?.manda && this._grito.de !== de && ahora < this._grito.hasta) return true;
+    this._grito = { texto, hasta: ahora + ms, de, manda };
     this._gritoPuesto = texto;
     this._setText(this.wantedGrito, texto);
     this._setText(this.wantedVoz, voz);

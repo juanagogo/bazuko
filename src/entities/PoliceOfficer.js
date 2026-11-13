@@ -92,6 +92,10 @@ export const POLICE_GRAB = {
   lead: .6,              // s, como mucho, que se le adelanta persiguiéndolo de cerca: corre a cortarle el camino, no a la cola
   sure: 2,               // zarpazos al aire seguidos: el siguiente ya no es un zarpazo, se le tira encima con todo el cuerpo
   sureTurn: 12,          // rad/s que gira entonces, avisando y echado: quebrar ya no lo deja de lado
+  sureSwept: 1,          // rad que trae girados hacia un mismo lado sin enderezar...
+  sureSweptTime: .3,     // ...y s que lleva girándolos: al que viene dando vueltas se le tira encima de una. Un quiebre suelto dura menos
+  sweptTurn: .6,         // rad/s: menos que eso no es venir girando
+  sweptRest: .8,         // s derecho (o quieto) para que lo girado se le olvide
   sureFar: 8,            // m: si se le aleja así, la cuenta de zarpazos al aire vuelve a cero...
   sureForget: 6          // ...y también a los tantos s sin echarle otro
 };
@@ -263,6 +267,10 @@ export class PoliceOfficer extends Npc {
     this._missClock = 0;       // s desde el último
     this._seenAt = new THREE.Vector3(Infinity, 0, Infinity); // dónde iba el jugador el cuadro anterior
     this._seenVelocity = new THREE.Vector3();
+    this._seenHeading = null;  // el rumbo del jugador el cuadro anterior, si iba andando
+    this._seenSwept = 0;       // rad que lleva girados hacia un mismo lado sin enderezar
+    this._seenTurning = 0;     // s que lleva girándolos
+    this._seenStraight = 0;    // s que lleva sin girar
     this._gesture = 0;         // s que le quedan de desistir quieto (ver `_desisting`)
     this._gestureClock = 0;
     this._halt = 0;
@@ -961,7 +969,9 @@ export class PoliceOfficer extends Npc {
     }
     if (clear) {
       // Al que ya se le zafó `sure` veces seguidas no lo vuelve a dejar de lado: se le tira encima y lo sigue con el cuerpo.
-      const sure = this._misses >= POLICE_GRAB.sure;
+      // Y al que viene dando vueltas tampoco le regala el primero: girando sin parar el zarpazo derecho cae siempre al aire.
+      const sure = this._misses >= POLICE_GRAB.sure
+        || (Math.abs(this._seenSwept) >= POLICE_GRAB.sureSwept && this._seenTurning >= POLICE_GRAB.sureSweptTime);
       this._grab = { phase: 'aviso', t: 0, yaw: 0, speed: 0, run: 0, fromX: 0, fromZ: 0, sure };
       this.say(sure ? POLICE_GRAB_LINES.encima : POLICE_GRAB_LINES.aviso, 1.6);
       this.shoutTimer = Math.max(this.shoutTimer, 1.6);
@@ -1077,6 +1087,17 @@ export class PoliceOfficer extends Npc {
       // Un salto de sitio (se subió a un carro, se le perdió) no es moverse.
       if (Math.hypot(vx, vz) < 15) this._seenVelocity.set(vx, 0, vz);
       else this._seenVelocity.set(0, 0, 0);
+      // Lo que trae girado hacia un mismo lado: un quiebre suelto no llega lejos; el que da vueltas, sea de corrido o a
+      // golpes de tecla, sí. Se le olvida al cambiar de lado, o tras un rato derecho o quieto.
+      const v = this._seenVelocity, heading = Math.hypot(v.x, v.z) > 2 ? Math.atan2(v.z, v.x) : null;
+      const step = heading !== null && this._seenHeading !== null ? wrap(heading - this._seenHeading) : 0;
+      if (Math.abs(step) > POLICE_GRAB.sweptTurn * dt) {
+        if (step * this._seenSwept < 0) this._seenSwept = this._seenTurning = 0;
+        this._seenSwept += step;
+        this._seenTurning += dt;
+        this._seenStraight = 0;
+      } else if ((this._seenStraight += dt) >= POLICE_GRAB.sweptRest) this._seenSwept = this._seenTurning = 0;
+      this._seenHeading = heading;
     }
     this._seenAt.copy(target);
   }
@@ -1091,6 +1112,11 @@ export class PoliceOfficer extends Npc {
     this.moving = moved > 1e-3;
     this.walkSpeed = Math.max(.5, moved / Math.max(dt, 1e-6));
     return moved;
+  }
+
+  /** ¿Va en mitad de un agarrón (avisando, echado o con la mano en el hombro)? */
+  get grabbing() {
+    return !!this._grab;
   }
 
   /** Suelta el agarrón en curso (golpeado, lo perdió de vista, se subió al carro...). */

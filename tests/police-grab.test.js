@@ -24,7 +24,7 @@ beforeEach(() => {
   events = [];
   clock = 0;
   for (const type of ['police-arrest', 'police-escaped', 'police-grab', 'toast']) {
-    window.addEventListener(type, e => events.push({ type, text: e.detail?.text ?? null, kind: e.detail?.type ?? null, plate: e.detail?.placa ?? null, t: clock }));
+    window.addEventListener(type, e => events.push({ type, text: e.detail?.text ?? null, kind: e.detail?.type ?? null, plate: e.detail?.placa ?? null, leads: e.detail?.manda ?? null, t: clock }));
   }
 });
 const first = (type, text = null) => events.find(e => e.type === type && (text === null || e.text === text)) ?? null;
@@ -178,6 +178,8 @@ test('quebrar a tiempo: el zarpazo pasa de largo, «¡Se le zafó!», y el trasp
     // Los dos avisos van como advertencia y con su texto corto para la placa de la persecución: no hacen cola.
     assert.deepEqual([first('toast', AVISO).kind, first('toast', ZAFO).kind], ['warn', 'warn'], label);
     assert.deepEqual([first('toast', AVISO).plate, first('toast', ZAFO).plate], [POLICE_GRAB_PLATE.aviso, POLICE_GRAB_PLATE.zafo], label);
+    // El aviso manda en la placa; el «¡SE ZAFÓ!» solo informa.
+    assert.deepEqual([first('toast', AVISO).leads, first('toast', ZAFO).leads], [true, false], label);
     // Yéndose de largo ya no dice «¡Quieto ahí!».
     assert.equal(officer.lastLine, POLICE_GRAB_LINES.traspie, label);
     assert.equal(count('police-grab'), 0, label);
@@ -280,6 +282,52 @@ test('a ciegas no se salva: en redondo o de lado a lado se le zafa dos veces y a
   }
 });
 
+test('girar hasta el primer zarpazo al aire y de ahí correr derecho tampoco salva: al que viene girando se le tira encima de una', () => {
+  // Un zarpazo al aire es el escape de ese agente (4 m y 1,5 s de pique), y al que gira sin parar el zarpazo derecho le cae
+  // siempre al aire: sin mirar el aviso, bastaba dar una vuelta y salir derecho.
+  const keys = (rate, each) => (t, base) => base + Math.floor(t * rate / each) * each * DEG;
+  const ways = {
+    'en redondo a 90° por segundo': BLIND.circle(90), 'en redondo a 120° por segundo': BLIND.circle(120),
+    'en redondo a 180° por segundo': BLIND.circle(180), 'rotando las ocho direcciones, 120° por segundo': keys(120, 45),
+    'rotando las ocho direcciones, 90° por segundo': keys(90, 45)
+  };
+  for (const [name, turn] of Object.entries(ways)) for (const gap of [4, 6]) {
+    const world = chase({ gap }), base = world.heading, label = `${name}, a ${gap} m`;
+    let t = 0, leaves = null;
+    const caught = world.until(() => {
+      t += DT;
+      if (leaves === null && first('toast', ZAFO)) leaves = clock + .5;
+      // Hasta medio segundo después del primer zarpazo al aire sigue girando; de ahí, derecho por donde iba.
+      if (!world.held && (leaves === null || clock < leaves)) world.want(RUN, world.heading = turn(t, base));
+      else if (!world.held) world.want(RUN);
+      return count('police-arrest') > 0;
+    }, 25);
+    assert.ok(caught, `${label}: se fue, con ${count('toast', ZAFO)} zarpazos al aire y el agente a ${world.distance().toFixed(1)} m`);
+    assert.equal(count('toast', ZAFO), 0, `${label}: ${count('toast', ZAFO)} zarpazos al aire`);
+    assert.equal(first('toast', AVISO), null, `${label}: no le echa el zarpazo derecho`);
+    assert.equal(first('toast', ENCIMA).plate, POLICE_GRAB_PLATE.encima, label);
+  }
+  // La curva corta también: empieza a girar cuando lo tiene a 3 m y a los 2 s sale derecho.
+  for (const rate of [90, 120, 180]) {
+    const world = chase({ gap: 5 }), base = world.heading;
+    let from = null;
+    world.want(RUN);
+    const caught = world.until(() => {
+      if (from === null && world.distance() < 3) from = clock;
+      if (!world.held && from !== null && clock - from < 2) world.want(RUN, world.heading = base + (clock - from) * rate * DEG);
+      else if (!world.held) world.want(RUN);
+      return count('police-arrest') > 0;
+    }, 25);
+    assert.ok(caught, `curva de 2 s a ${rate}° por segundo: se fue, con el agente a ${world.distance().toFixed(1)} m`);
+  }
+  // Un quiebre suelto no es venir girando: al que corre derecho y quiebra a tiempo le sigue echando el zarpazo de siempre.
+  for (const angle of [70, 90, 110, -110]) {
+    const world = dodge({ delay: .25, angle });
+    assert.ok(first('toast', ZAFO) && !first('toast', ENCIMA) && !first('police-grab'), `quiebre de ${angle}°: se zafa de un zarpazo corriente`);
+    assert.ok(world.officer._seenTurning < POLICE_GRAB.sureSweptTime, `quiebre de ${angle}°: ${world.officer._seenTurning.toFixed(2)} s girando`);
+  }
+});
+
 test('dando vueltas no hay persecución sin fin: el agente le corta el camino en vez de girar por dentro', () => {
   // A 70° por segundo el jugador da vueltas de 4,9 m de radio. Corriendo a la cola, el agente ya sin pique se queda girando
   // por dentro sin llegar a los 2 m del aviso. Yendo adonde él va a estar, lo alcanza.
@@ -292,20 +340,21 @@ test('dando vueltas no hay persecución sin fin: el agente le corta el camino en
 });
 
 test('la cuenta de zarpazos al aire se borra si se le aleja o si pasa un rato: el que se zafa y huye no paga por los quiebres buenos', () => {
-  const world = chase(), { officer } = world;
-  const turn = BLIND.circle(120), base = world.heading;
-  let t = 0;
-  assert.ok(world.until(() => { t += DT; world.want(RUN, turn(t, base)); return count('toast', ZAFO) === POLICE_GRAB.sure; }, 15), 'dos zarpazos al aire');
-  assert.equal(officer._misses, POLICE_GRAB.sure);
-  // Sale corriendo derecho: a `sureFar` m la cuenta vuelve a cero, y el siguiente es otra vez un aviso de los de siempre.
+  // Con dos zarpazos al aire a cuestas y ya sin pique, a 7 m del jugador, que corre derecho.
+  const world = chase({ gap: 7 }), { officer } = world;
+  officer._misses = POLICE_GRAB.sure;
+  officer._missClock = 0;
+  officer.sprintLeft = 0;
+  // A `sureFar` m la cuenta vuelve a cero, y el siguiente es otra vez un aviso de los de siempre.
   world.want(RUN);
-  assert.ok(world.until(() => world.distance() > POLICE_GRAB.sureFar || officer._misses === 0, 30), 'se le alejó');
+  assert.ok(world.until(() => world.distance() > POLICE_GRAB.sureFar, 5), 'se le alejó');
   world.until(() => false, DT * 2);
   assert.equal(officer._misses, 0);
   // Y sin alejarse, a los `sureForget` s sin otro zarpazo también.
   officer._misses = POLICE_GRAB.sure;
   officer._missClock = 0;
   const p = world.p;
+  officer.position.set(p.x - 5, 0, p.z);
   world.step = (step => () => { step(); officer.position.set(p.x - 5, 0, p.z); officer._dropGrab(); })(world.step);
   world.until(() => false, POLICE_GRAB.sureForget - .1);
   assert.equal(officer._misses, POLICE_GRAB.sure, 'todavía se acuerda');

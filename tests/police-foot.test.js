@@ -1018,8 +1018,22 @@ test('tope de 90 s: desisten, salvo que lo tengan a menos de 10 m; a los 110 s, 
   near.player.position.copy(near.unit.partner.position).add(new THREE.Vector3(6, 0, 0));
   step(near);
   assert.equal(near.unit.mode, 'desiste');
-  assert.equal(near.unit.endReason, 'tope');
+  assert.equal(near.unit.endReason, 'tope');  // Pero no en mitad de un agarrón: con el aviso ya dado lo terminan, y con la mano en el hombro lo arrestan.
+  const grabbing = setup();
+  grabbing.traffic._startChase(grabbing.vehicle);
+  exitOf(grabbing);
+  runUntil(grabbing, () => grabbing.unit.partner.state === 'persecucion');
+  const grabs = count('police-grab'), arrests = count('police-arrest');
+  assert.ok(runUntil(grabbing, () => grabbing.unit.partner.grabbing, 20) < Infinity, 'avisa');
+  grabbing.unit._clock = POLICE_FOOT.pursuitCapHard;
+  step(grabbing);
+  assert.equal(grabbing.unit.mode, 'persigue', 'avisando no desisten');
+  assert.ok(runUntil(grabbing, () => count('police-grab') > grabs, 2) < Infinity, 'la mano en el hombro');
+  grabbing.unit._clock = POLICE_FOOT.pursuitCapHard + 5;
+  runUntil(grabbing, () => count('police-arrest') > arrests || grabbing.unit.mode === 'desiste', 3);
+  assert.equal(count('police-arrest'), arrests + 1, 'con la mano en el hombro no lo sueltan: lo arrestan');
 });
+
 
 test('a más de 40 m del jugador, el agente afuera sigue animándose', async () => {
   const world = setup();
@@ -2183,6 +2197,65 @@ test('la placa dice «Agente a X m» con un agente corriendo detrás, y «Patrul
     hud._pintarBusqueda();
     assert.equal(world.traffic.pursuitInfo.onFoot, true);
     assert.equal(dato.textContent, `Agente a ${Math.round(officer.distance)} m`);
+  } finally { delete globalThis.document; }
+});
+
+test('el grito de un agente en la placa se va con la persecución: no deja el destello puesto para la próxima vez que salga', async () => {
+  const { HUD } = await import('../src/ui/HUD.js');
+  const grito = { textContent: '' };
+  const hud = Object.assign(Object.create(HUD.prototype), {
+    wantedEl: { hidden: true, className: '', dataset: {}, offsetWidth: 0 }, wantedGrito: grito, _wantedEstado: 'nada'
+  });
+  globalThis.document = { getElementById: () => null };
+  try {
+    window.__game = { traffic: { pursuitInfo: { distance: 2, onFoot: true, closeness: 1 } }, steal: { buscado: 1 } };
+    hud._pintarBusqueda();
+    assert.equal(hud._wantedEstado, 'encima');
+    assert.equal(hud._gritarEnPlaca('¡QUIETO!', '¡Quieto ahí!'), true);
+    assert.equal(grito.textContent, '¡QUIETO!');
+    assert.equal(hud.wantedEl.dataset.grito, '1');
+    // Lo arrestan con el grito todavía puesto: la placa se quita, y con ella el grito y su destello.
+    window.__game = { traffic: { pursuitInfo: null }, steal: { buscado: 0 } };
+    hud._pintarBusqueda();
+    assert.equal(hud.wantedEl.hidden, true);
+    assert.equal('grito' in hud.wantedEl.dataset, false, 'el destello no queda puesto');
+    assert.equal(hud._grito, null);
+    // Y fichado otra vez enseguida, el cartón no dice lo que gritó el agente.
+    window.__game = { traffic: { pursuitInfo: null }, steal: { buscado: 1 } };
+    hud._pintarBusqueda();
+    assert.equal(hud._wantedEstado, 'fichado');
+    assert.equal(grito.textContent, 'Te tienen fichado');
+    assert.equal('grito' in hud.wantedEl.dataset, false);
+  } finally { delete globalThis.document; }
+});
+
+test('en la placa, el aviso de un agente manda sobre el «¡SE ZAFÓ!» de otro; el suyo propio sí lo reemplaza', async () => {
+  const { HUD } = await import('../src/ui/HUD.js');
+  const grito = { textContent: '' };
+  const hud = Object.assign(Object.create(HUD.prototype), {
+    wantedEl: { hidden: true, className: '', dataset: {}, offsetWidth: 0 }, wantedGrito: grito, _wantedEstado: 'nada'
+  });
+  const first = { role: 'acompanante' }, second = { role: 'conductor' };
+  const say = (text, plate, officer, leads) => hud._gritarEnPlaca(plate, text, 900, { de: officer, manda: leads });
+  globalThis.document = { getElementById: () => null };
+  try {
+    window.__game = { traffic: { pursuitInfo: { distance: 2, onFoot: true, closeness: 1 } }, steal: { buscado: 2 } };
+    hud._pintarBusqueda();
+    // Los dos a la par: al primero se le zafa cuando el segundo ya avisó y todavía no se ha echado.
+    assert.equal(say('¡Quieto ahí!', '¡QUIETO!', first, true), true);
+    assert.equal(say('¡Quieto ahí!', '¡QUIETO!', second, true), true);
+    assert.equal(say('¡Se le zafó!', '¡SE ZAFÓ!', first, false), true, 'no sale tampoco como aviso suelto');
+    assert.equal(grito.textContent, '¡QUIETO!', 'el aviso del segundo sigue en la placa');
+    // Cuando es al segundo al que se le zafa, sí.
+    assert.equal(say('¡Se le zafó!', '¡SE ZAFÓ!', second, false), true);
+    assert.equal(grito.textContent, '¡SE ZAFÓ!');
+    // Y un aviso nuevo siempre entra.
+    assert.equal(say('¡Ya no se me va!', '¡ENCIMA!', first, true), true);
+    assert.equal(grito.textContent, '¡ENCIMA!');
+    // Pasado su tiempo, el aviso ya no tapa nada.
+    hud._grito.hasta = performance.now() - 1;
+    assert.equal(say('¡Se le zafó!', '¡SE ZAFÓ!', second, false), true);
+    assert.equal(grito.textContent, '¡SE ZAFÓ!');
   } finally { delete globalThis.document; }
 });
 

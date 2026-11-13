@@ -103,7 +103,10 @@ function emit(type, detail = {}) {
 }
 const toast = (text, type = 'info') => emit('toast', { text, type });
 // Lo del agarrón no hace cola con los demás avisos: va en la placa de la persecución, en corto (ver HUD._gritarEnPlaca).
-const shout = name => emit('toast', { text: POLICE_GRAB_LINES[name], type: 'warn', placa: POLICE_GRAB_PLATE[name] });
+// El grito que pide reaccionar (el aviso, o cuando se le tira encima) manda: el «¡SE ZAFÓ!» de otro agente no lo tapa.
+const shout = (name, officer) => emit('toast', {
+  text: POLICE_GRAB_LINES[name], type: 'warn', placa: POLICE_GRAB_PLATE[name], de: officer, manda: name !== 'zafo'
+});
 const byScore = (a, b) => a.score - b.score || a.order - b.order;
 const byDistance = (a, b) => a.distance - b.distance;
 const wrap = angle => Math.atan2(Math.sin(angle), Math.cos(angle));
@@ -625,8 +628,8 @@ class PatrolUnit {
       if (event === 'arresto') this.system._arrest();
       // El aviso, el zarpazo que no alcanzó y cuando se le tira encima se leen en la placa de la persecución, en el mismo
       // cuadro. Al agarrarlo, el juego deja de mover al jugador.
-      else if (event === 'aviso' || event === 'encima') { shout(event); this.system.audio?.playWhistle?.(); }
-      else if (event === 'zafo') { shout('zafo'); this.system.audio?.playWhoosh?.(); }
+      else if (event === 'aviso' || event === 'encima') { shout(event, officer); this.system.audio?.playWhistle?.(); }
+      else if (event === 'zafo') { shout('zafo', officer); this.system.audio?.playWhoosh?.(); }
       else if (event === 'agarre') { emit('police-grab', { reason: 'a-pie' }); this.system.audio?.playThud?.(); }
       else if (event === 'adentro') this._boarded(officer);
       else if (event === 'recoger') this._pickUp(officer);
@@ -818,6 +821,9 @@ class PatrolUnit {
     else if (!stuck) this._gapClock += dt;
     if (this._stalled >= POLICE_FOOT.giveUpTime) return 'inalcanzable';
     if (this._gapClock >= POLICE_FOOT.progressTime && gap > POLICE_FOOT.progressFar) return 'sin-avance';
+    // Con un agarrón empezado no se van: el aviso ya sonó y, con la mano en el hombro, el jugador ya no se puede mover.
+    // Lo terminan (dura menos de un segundo) y, si falla, ahí sí.
+    if (chasing.some(officer => officer.grabbing)) return null;
     if (this._clock >= POLICE_FOOT.pursuitCap && (gap >= POLICE_FOOT.pursuitCapNear || this._clock >= POLICE_FOOT.pursuitCapHard)) return 'tope';
     return null;
   }
