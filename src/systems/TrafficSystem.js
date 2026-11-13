@@ -33,6 +33,9 @@ const REJOIN_PERSON_RADIUS = 4;
 // A la vista del jugador el salto se nota: aguanta más, sin quedarse trancando la vía para siempre.
 const REJOIN_SEEN_RADIUS = 40;
 const REJOIN_SEEN_TIMEOUT = 30;
+const REJOIN_TAKEN_TIME = 1.5; // s sin avanzar para mirar si otro carro le tapa el punto de su carril al que vuelve
+const REJOIN_ADVANCE = 30; // m de carril, adelante, en los que busca otro punto libre
+const REJOIN_BEHIND = 25; // m que se le suman a un punto de carril que le queda detrás o en sentido contrario
 const REJOIN_STILL = .5; // m: menos que esto desde donde se trabó es seguir trabada
 // Más acá del alcance de la niebla nadie ve un carro: se apaga entero y solo avanza por su ruta.
 const HIDE_MIN_DISTANCE = 70, HIDE_FOG_MARGIN = 12;
@@ -413,8 +416,14 @@ export class TrafficSystem {
     this._snapToNearestRoute(vehicle);
   }
 
-  _snapToNearestRoute(vehicle) {
+  /**
+   * El punto de carril más cercano, fuera de los cruces. Con `ahead`, el que le queda adelante y en su mismo sentido: uno
+   * detrás de ella o de la calzada contraria vale como si estuviera `REJOIN_BEHIND` m más lejos, porque para llegar tendría
+   * que dar la vuelta en el sitio.
+   */
+  _snapToNearestRoute(vehicle, ahead = false) {
     if (!this.routes.length) return;
+    const yaw = vehicle.car.group.rotation.y, fx = Math.cos(yaw), fz = -Math.sin(yaw);
     let bestRoute = this.routes[0], bestDistance = 0, bestScore = Infinity;
     for (const route of this.routes) {
       for (let d = 0; d < route.length; d += ROUTE_SAMPLE_STEP) {
@@ -422,7 +431,10 @@ export class TrafficSystem {
         const dx = this._probePosition.x - vehicle.car.position.x;
         const dz = this._probePosition.z - vehicle.car.position.z;
         const dy = this._probePosition.y - vehicle.car.position.y;
-        const score = dx * dx + dz * dz + dy * dy * 25;
+        let score = dx * dx + dz * dz + dy * dy * 25;
+        if (ahead && (dx * fx + dz * fz < 0 || this._probeDirection.x * fx + this._probeDirection.z * fz < .3)) {
+          score = (Math.sqrt(score) + REJOIN_BEHIND) ** 2;
+        }
         if (score < bestScore) { bestScore = score; bestRoute = route; bestDistance = d; }
       }
     }
@@ -486,6 +498,27 @@ export class TrafficSystem {
     const { position } = vehicle.car;
     return (this.busVehicles ?? []).some(({ car }) => car.speed < .1 && Math.abs(car.position.y - position.y) < 3 &&
       Math.hypot(car.position.x - position.x, car.position.z - position.z) < car.length / 2 + 6);
+  }
+
+  /**
+   * El punto de su carril al que vuelve lo tapa otro carro, el que espera a que ella se quite de adelante: ninguno de los
+   * dos se movería. Toma el siguiente punto del carril en el que quepa, fuera de los cruces: entra adelante de él.
+   */
+  _advanceRejoin(vehicle) {
+    if (!this.environment) return false;
+    const { route, car } = vehicle, point = this._probePosition, direction = this._probeDirection;
+    const fits = () => this._chaseFootprint(vehicle, point.x, point.z, point.y, direction.x, direction.z) !== null;
+    route.sample(vehicle.distance, point, direction);
+    if (fits()) return false;
+    for (let walked = 3; walked <= REJOIN_ADVANCE; walked += 3) {
+      const distance = (vehicle.distance + walked) % route.length;
+      route.sample(distance, point, direction);
+      if (this._nearNode(point) || Math.abs(point.y - car.position.y) > CHASE_HEIGHT_TOLERANCE || !fits()) continue;
+      vehicle.distance = vehicle.nextDistance = distance;
+      vehicle.rejoinTarget.copy(point);
+      return true;
+    }
+    return false;
   }
 
   /**
@@ -1048,6 +1081,7 @@ export class TrafficSystem {
           if (!(vehicle._rejoinStuck > 0)) (vehicle._rejoinStuckAt ??= new THREE.Vector3()).copy(vehicle.car.position);
           vehicle._rejoinStuck = (vehicle._rejoinStuck ?? 0) + stepTime;
         }
+        if (vehicle._rejoinStuck > REJOIN_TAKEN_TIME) this._advanceRejoin(vehicle);
         if (vehicle._rejoinStuck > REJOIN_TIMEOUT && this._forceRejoin(vehicle)) return false;
       }
       vehicle.car.position.x += nx * travel;
@@ -1093,6 +1127,8 @@ export class TrafficSystem {
             // Con agentes a bordo, ellos deciden cuándo frenar, orillar o esperar (ver PoliceFootSystem).
             if (!vehicle.rejoinTarget && vehicle.crew?.planCar(vehicle, stepTime, player, this)) continue;
             this._planChase(vehicle, stepTime, vehicle.rejoinTarget ?? player, !!vehicle.rejoinTarget);
+            // De vuelta a su carril la maneja la misma tripulación: por la calzada y con reversa si quedó pegada a algo.
+            if (vehicle.rejoinTarget) vehicle.crew?.planReturn?.(vehicle, stepTime, this);
             continue;
           }
           const clearance = this._clearance(vehicle, player, pedestrians);

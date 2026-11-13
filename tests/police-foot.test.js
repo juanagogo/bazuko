@@ -1450,6 +1450,55 @@ test('en reversa no se sale de la calzada ni retrocede con uno de los suyos detr
   assert.equal(unit._reverse, 0);
 });
 
+/**
+ * La patrulla de vuelta a su carril, ya con todos adentro: parada en (x, z) rumbo a +X, y el punto del carril al que
+ * vuelve a `back` m detrás de ella. Devuelve los segundos hasta que entra y el mayor salto de un cuadro al otro.
+ */
+function returnToLane(world, { x, z, back }) {
+  const { vehicle, traffic } = world, car = vehicle.car;
+  traffic._startChase(vehicle);
+  car.position.set(x, 0, z);
+  car.group.rotation.y = 0;
+  traffic.endPursuit();
+  vehicle.distance = vehicle.nextDistance = x - back;
+  vehicle.route.sample(vehicle.distance, vehicle.rejoinTarget, new THREE.Vector3());
+  const last = car.position.clone();
+  let jump = 0;
+  const seconds = runUntil(world, () => !vehicle.rejoinTarget, 40, () => {
+    jump = Math.max(jump, Math.hypot(car.position.x - last.x, car.position.z - last.z));
+    last.copy(car.position);
+  });
+  return { seconds, jump: Math.max(jump, Math.hypot(car.position.x - last.x, car.position.z - last.z)) };
+}
+
+test('de vuelta a su carril con un parqueado al costado no espera a que la reubiquen: sale derecho y entra rodando', () => {
+  const collisions = new CollisionSystem();
+  const world = setup({ collisions, environment: { collisions, getGroundHeight: () => 0 }, district: roadDistrict, player: [60, 30] });
+  const car = world.vehicle.car, z = 2.8;
+  // Parada en la calzada, arrimada al sardinel; el parqueado, a 30 cm de su costado derecho y de ahí hacia adelante:
+  // girar en el sitio lo roza, y su carril le quedó atrás.
+  const near = z + car.width / 2 + .3;
+  collisions.dynamicColliders.push({ box: new THREE.Box3(new THREE.Vector3(60, 0, near), new THREE.Vector3(64.4, 1.5, near + 1.7)),
+    vehicle: { position: new THREE.Vector3(62.2, 0, near + .85) } });
+  const { seconds, jump } = returnToLane(world, { x: 60, z, back: 14 });
+  assert.ok(seconds < 20, `entró a su carril a los ${seconds.toFixed(1)} s`);
+  assert.ok(jump < 1, `rodando, sin saltos (el mayor, ${jump.toFixed(2)} m)`);
+  assert.equal(world.vehicle.state, 'patrol');
+});
+
+test('si otro carro quedó parado encima del punto de su carril al que vuelve, entra adelante de él', () => {
+  const collisions = new CollisionSystem();
+  const world = setup({ collisions, environment: { collisions, getGroundHeight: () => 0 }, district: roadDistrict, player: [60, 30] });
+  const vehicle = world.vehicle, car = vehicle.car;
+  // Un carro detenido en su carril, justo al lado: tapa el punto por el que ella iba a entrar.
+  collisions.dynamicColliders.push({ box: new THREE.Box3(new THREE.Vector3(60.5, 0, -.9), new THREE.Vector3(64.9, 1.5, .9)),
+    vehicle: { position: new THREE.Vector3(62.7, 0, 0) } });
+  const { seconds, jump } = returnToLane(world, { x: 62, z: 2.8, back: 0 });
+  assert.ok(seconds < 20, `entró a su carril a los ${seconds.toFixed(1)} s`);
+  assert.ok(jump < 1, `rodando, sin saltos (el mayor, ${jump.toFixed(2)} m)`);
+  assert.ok(car.position.x > 64.9 + car.length / 2, `entró adelante del carro parado, en x = ${car.position.x.toFixed(1)}`);
+});
+
 const fromBody = (car, point) => {
   const yaw = car.group.rotation.y, fx = Math.cos(yaw), fz = -Math.sin(yaw), dx = point.x - car.position.x, dz = point.z - car.position.z;
   return Math.hypot(Math.max(0, Math.abs(dx * fx + dz * fz) - car.length / 2), Math.max(0, Math.abs(-dx * fz + dz * fx) - car.width / 2));

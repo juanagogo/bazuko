@@ -46,7 +46,7 @@ El juego todavía no deja manejar. `PoliceFootSystem` acepta `getPlayerVehicle`:
 - En `TrafficSystem._chaseFootprint`, un carro que ya está trabado con la patrulla (las cajas se tocan) no la ataja si el paso la aleja de él: sin esto, una patrulla y el carro que se le metió encima no se vuelven a mover. Hacia él, sigue atajándola.
 - Afuera, el agente se anima aunque el jugador esté a más de 40 m: no lo congela el LOD de los NPC.
 - Los agentes caminan contra su propia patrulla con su forma girada, no con la caja alineada a los ejes, que en diagonal tapa la puerta.
-- De vuelta a la ronda, el regreso al carril es el de siempre (`_returnToPatrol`). Si queda trabada, por ejemplo atravesada frente a su carril y sin espacio para girar en el sitio, la reubica `TrafficSystem._forceRejoin` como a cualquier patrulla: a los 6 s, o a los 30 s si el jugador está a menos de 40 m.
+- De vuelta a la ronda, ya con todos adentro, la tripulación también maneja el regreso al carril (`PatrolUnit.planReturn`): por la calzada, con reversa si quedó pegada a un parqueado o a otro carro, hacia el punto de su carril que le queda adelante y en su sentido (lo vuelve a escoger cada segundo), y si otro carro quedó parado encima de ese punto entra adelante de él (`TrafficSystem._advanceRejoin`). El último metro lo recorre como siempre (`_returnToPatrol`). Si aun así queda trabada, la reubica `TrafficSystem._forceRejoin` como a cualquier patrulla: a los 6 s, o a los 30 s si el jugador está a menos de 40 m.
 
 ## Pruebas
 

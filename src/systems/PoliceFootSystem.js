@@ -89,6 +89,9 @@ const REVERSE_SPEED = 2.5;     // m/s
 const REVERSE_TIME = 1.2;      // s de reversa: unos 3 m, lo que necesita para volver a girar
 const REVERSE_MAX = 2;         // veces por persecución; después, trabada: frena y se bajan
 const REVERSE_OPEN = .8;       // m que se abre de lado mientras retrocede, hacia donde queda más despejado seguir
+const RETURN_HOLD = 1e-5;      // m: de vuelta a su carril y sin poder avanzar, lo que le deja al tráfico para que cuente la trabada
+const RETURN_AIM = 1;          // s entre una escogida y otra del punto de su carril al que vuelve
+const RETURN_CLOSE = 1;        // m: a esta distancia del punto ya está sobre su carril y entra sin más maniobra
 const REVERSE_KEEP = 2.5;      // m: con alguno de los suyos a pie así de cerca de la cola no retrocede
 const STEER_HOLD = 1e-6;       // s: en este subpaso el tráfico no le cambia el rumbo (ver `_keepOnRoad`)
 
@@ -193,6 +196,8 @@ class PatrolUnit {
     this._bestDistance = Infinity;
     this._stuckClock = 0;
     this._launch = 0;
+    this._returnClock = 0;
+    this._returnAt = -Infinity;
     this._steerClock = 0;
     this._roadBlocked = false;
     this._jam = 0;
@@ -257,6 +262,39 @@ class PatrolUnit {
     // Por la calzada: el rumbo y lo que avanza en este subpaso los decide la tripulación (ver `_keepOnRoad`).
     if (handled && !vehicle._chaseGiveUp) this.system._keepOnRoad(this, vehicle, stepTime, traffic);
     return handled;
+  }
+
+  /**
+   * De vuelta a su carril, ya con todos adentro: maniobra igual que persiguiendo (ver `_keepOnRoad`). Parada en la calzada
+   * queda junto a un parqueado o con un carro en la trompa, y ahí girar en el sitio no cabe: sale derecho o con reversa.
+   */
+  planReturn(vehicle, stepTime, traffic) {
+    if (this.dead || this.mode !== 'ronda' || !traffic.environment) return;
+    if (traffic._time - this._returnAt > RETURN_AIM) {
+      this._steerClock = this._jam = this._reverse = this._reverses = this._returnClock = 0;
+      this._roadBlocked = false;
+    }
+    this._returnAt = traffic._time;
+    // Vuelve al carril que tiene adelante y en su sentido, y mientras rueda lo va escogiendo de nuevo: el más cercano a
+    // donde paró puede quedarle detrás, y por la calzada no hay cómo dar la vuelta en el sitio.
+    this._returnClock -= stepTime;
+    if (this._returnClock <= 0 && this._jam === 0 && !(this._reverse > 0)) {
+      this._returnClock = RETURN_AIM;
+      traffic._snapToNearestRoute(vehicle, true);
+      if (!vehicle.rejoinTarget) return;
+      traffic._planChase(vehicle, stepTime, vehicle.rejoinTarget, true);
+      if (!vehicle.rejoinTarget) return;
+    }
+    // Encima de su carril lo que falta lo recorre como siempre: atravesada, la trompa pisa el otro borde de la calzada y
+    // maniobrando no terminaría de llegar.
+    if (vehicle._chaseDist < RETURN_CLOSE) {
+      vehicle._chaseSteerTime = 0;
+      this._jam = 0;
+      return;
+    }
+    // Sin poder avanzar: si otro carro le tapa el punto al que va, entra adelante de él, con sus reversas de nuevo.
+    if (this._jam >= JAM_TIME / 2 && traffic._advanceRejoin(vehicle)) this._reverses = 0;
+    this.system._keepOnRoad(this, vehicle, stepTime, traffic, true);
   }
 
   _begin(traffic) {
@@ -1400,13 +1438,14 @@ export class PoliceFootSystem {
    * este subpaso sin salirse de la calzada ni pasar por encima del mobiliario. TrafficSystem._applyChase hace el resto:
    * avanza eso por ese rumbo, contra los sólidos y los carros como siempre.
    */
-  _keepOnRoad(unit, vehicle, stepTime, traffic) {
+  _keepOnRoad(unit, vehicle, stepTime, traffic, returning = false) {
     vehicle._chaseSteerTime = STEER_HOLD;
     const distance = vehicle._chaseDist || 0;
     if (distance <= 1e-6 || !(vehicle.nextSpeed > 0)) { unit._jam = 0; return; }
-    const car = vehicle.car, allow = this._roadAllowance(car), follow = unit.phase === 'frenando';
+    // De vuelta a su carril llega hasta el punto mismo: ahí TrafficSystem._applyChase no deja nada sin recorrer.
+    const car = vehicle.car, allow = this._roadAllowance(car), follow = unit.phase === 'frenando', pad = returning ? 0 : CHASE_PAD;
     if (unit._reverse > 0 && !follow) { this._backUp(unit, vehicle, stepTime, traffic, allow); return; }
-    const want = Math.min(vehicle.nextSpeed * stepTime, Math.max(0, distance - CHASE_PAD));
+    const want = Math.min(vehicle.nextSpeed * stepTime, Math.max(0, distance - pad));
     unit._steerClock -= stepTime;
     if (follow || unit._steerClock <= 0 || unit._roadBlocked || vehicle._chaseHeading === undefined) {
       const reach = follow ? want : Math.min(distance, 3 + vehicle.speed * .5);
@@ -1428,8 +1467,10 @@ export class PoliceFootSystem {
         unit._launch = LAUNCH_GRACE + REVERSE_TIME; // maniobrando no cuenta como trabada
       }
     }
-    // _applyChase avanza lo que pida la velocidad sin pasar de `_chaseDist` menos lo que deja sin recorrer.
-    const left = travel + CHASE_PAD;
+    // _applyChase avanza lo que pida la velocidad sin pasar de `_chaseDist` menos lo que deja sin recorrer. De vuelta a su
+    // carril y sin poder avanzar, le deja una distancia mínima y velocidad cero: así sigue contando el tiempo trabada.
+    const left = returning ? Math.max(travel, RETURN_HOLD) : travel + pad;
+    if (returning && travel <= 1e-6) vehicle.nextSpeed = 0;
     vehicle._chaseDx = nx * left;
     vehicle._chaseDz = nz * left;
     vehicle._chaseDist = left;
