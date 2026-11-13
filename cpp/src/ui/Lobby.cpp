@@ -6,6 +6,7 @@
 #include "MarcaBazuko.hpp"
 #include "UIManager.hpp"
 #include "../audio/AudioManager.hpp"
+#include "../core/Input.hpp"
 #include "../core/Paths.hpp"
 #include "../core/ServerList.hpp"
 #include "../core/ScreenshotPng.hpp"
@@ -612,6 +613,9 @@ LobbyChoice RunLobby(Window& window, UIManager& ui, AudioManager& audio, LobbySe
     std::mt19937 pick(static_cast<unsigned>(std::chrono::steady_clock::now().time_since_epoch().count()));
     const int artwork = static_cast<int>(pick() % 4u) + 1;
     GLFWwindow* native = window.GetNativeWindow();
+    // Input::Init deja el raton atrapado para la camara: en el lobby se necesita la flecha, y al salir vuelve a quedar atrapado como antes
+    const bool wasLocked = Input::IsCursorLocked();
+    Input::SetCursorLocked(false);
     // pruebas: BAZUKO_LOBBY_SHOT=ruta.png guarda una captura del lobby y cierra; BAZUKO_LOBBY_PANTALLA=multi|crear|unirse|ajustes|perfil elige cual
     const char* shotPath = std::getenv("BAZUKO_LOBBY_SHOT");
     int shotFrames = 0;
@@ -721,6 +725,7 @@ LobbyChoice RunLobby(Window& window, UIManager& ui, AudioManager& audio, LobbySe
     }
     settings.roomName = Trim(lobby.roomName);
     settings.relay = Trim(lobby.relay);
+    if (wasLocked) Input::SetCursorLocked(true);
     return lobby.choice;
 }
 
