@@ -63,10 +63,10 @@ function standing({ gltf, library: lib, rest }, options = {}) {
   const mixer = new THREE.AnimationMixer(item.root);
   mixer.clipAction(rest).play();
   mixer.update(0);
-  const hold = (stance, params = {}) => {
+  const hold = (stance, params = {}, dt = 5) => {
     item.layer.restore();
     mixer.setTime(0);
-    item.layer.apply(5, { stance, speed: 0, ...params });
+    item.layer.apply(dt, { stance, speed: 0, ...params });
     item.root.updateMatrixWorld(true);
   };
   return { ...item, hold };
@@ -135,7 +135,7 @@ test('las posturas bajas descansan en el piso sin atravesarlo; en la banca los p
     const { root, bones, hold } = standing(baked);
     const support = createSkinSupport(root);
     const hips = [...bones.values()].find(bone => /Hips$/.test(bone.name));
-    for (const [stance, min, max] of [['sentado', -.01, .03], ['acurrucado', -.01, .03], ['pedir', -.01, .04], ['dormido', -.05, .03], ['banca', -.01, .03]]) {
+    for (const [stance, min, max] of [['sentado', -.01, .03], ['acurrucado', -.01, .03], ['pedir', -.01, .04], ['dormido', -.05, .03], ['banca', -.01, .03], ['sin-aire', -.01, .03]]) {
       hold(stance);
       const low = support.minimumY();
       assert.ok(low > min && low < max, `${id}/${stance}: lo más bajo a ${low.toFixed(3)} m`);
@@ -174,6 +174,53 @@ test('las manos llegan: bolsillo, oído, nariz, cabeza y espalda, en todos los c
     assert.ok(at(right).x > -.03 && at(left).x < .03, `${id}: los brazos no se cruzan`);
     hold('paraguas');
     assert.ok(at(right).z > at(hips).z + .2 && at(right).y > at(hips).y + .25, `${id}: la mano del paraguas no queda arriba y al frente`);
+    hold(null);
+  }
+});
+
+test('el agente que desiste: sin aire, radio en la solapa y el manotazo que no alcanzó', async () => {
+  for (const name of ['sin-aire', 'radio-solapa', 'manotazo']) assert.ok(STANCE_NAMES.includes(name), name);
+  for (const id of BODIES) {
+    const { bones, hold } = standing(await library(id));
+    const find = suffix => [...bones.values()].find(bone => bone.name.endsWith(suffix));
+    const at = bone => bone.getWorldPosition(new THREE.Vector3());
+    const degrees = radians => radians * 180 / Math.PI;
+    // Sin aire, a lo largo de dos respiraciones: las manos apoyadas encima de los muslos, de la mitad hacia la rodilla
+    // (ni atravesándolos ni flotando), las rodillas algo dobladas y el tronco doblado desde la cadera, que sube al tomar aire.
+    hold('sin-aire');
+    const torso = [], shoulder = [];
+    for (let i = 0; i < 120; i++) {
+      hold('sin-aire', {}, 1 / 60);
+      const label = `${id}/sin-aire en ${i}/60 s`;
+      const spine = at(find('Neck')).sub(at(find('Hips')));
+      torso.push(degrees(Math.acos(spine.y / spine.length())));
+      shoulder.push(at(find('LeftArm')).y);
+      for (const side of ['Left', 'Right']) {
+        const hip = at(find(`${side}UpLeg`)), knee = at(find(`${side}Leg`)), foot = at(find(`${side}Foot`)), hand = at(find(`${side}Hand`));
+        const thigh = knee.clone().sub(hip), length = thigh.length();
+        thigh.normalize();
+        const along = hand.clone().sub(hip).dot(thigh), closest = hip.clone().addScaledVector(thigh, along);
+        assert.ok(along / length > .5 && along / length < .72, `${label}: la mano ${side} va al ${(along / length * 100).toFixed(0)} % del muslo`);
+        const off = hand.distanceTo(closest), above = hand.y - closest.y;
+        assert.ok(off > .06 && off < .14 && above > .02 && above < .08, `${label}: la mano ${side} a ${off.toFixed(3)} m del eje del muslo, ${above.toFixed(3)} m por encima`);
+        const bend = degrees(thigh.angleTo(foot.clone().sub(knee)));
+        assert.ok(bend > 10 && bend < 22, `${label}: la rodilla ${side} doblada ${bend.toFixed(1)}°`);
+      }
+    }
+    const range = list => Math.max(...list) - Math.min(...list);
+    assert.ok(Math.min(...torso) > 45 && Math.max(...torso) < 58, `${id}: el tronco va de ${Math.min(...torso).toFixed(1)}° a ${Math.max(...torso).toFixed(1)}°`);
+    assert.ok(range(torso) > 2 && range(torso) < 5, `${id}: al respirar el tronco se mueve ${range(torso).toFixed(1)}°`);
+    assert.ok(range(shoulder) > .01 && range(shoulder) < .04, `${id}: al respirar los hombros suben ${(range(shoulder) * 100).toFixed(1)} cm`);
+    // El radio: la mano izquierda en la solapa, junto al hombro y delante del pecho; la derecha en la cintura, por fuera.
+    hold('radio-solapa');
+    const left = at(find('LeftHand')), right = at(find('RightHand')), rightHip = at(find('RightUpLeg'));
+    assert.ok(left.distanceTo(at(find('LeftArm'))) < .23, `${id}: la mano del radio a ${left.distanceTo(at(find('LeftArm'))).toFixed(3)} m del hombro`);
+    assert.ok(left.z > at(find('Spine2')).z + .15, `${id}: la mano del radio no queda delante del pecho`);
+    assert.ok(right.distanceTo(rightHip) < .2 && right.x < rightHip.x && right.y > rightHip.y + .08, `${id}: la mano derecha no queda en la cintura`);
+    // El manotazo: el brazo sigue de largo hacia adelante y abajo, cruzando un poco el cuerpo.
+    hold('manotazo');
+    const swing = at(find('LeftHand')), hips = at(find('Hips'));
+    assert.ok(swing.z > hips.z + .3 && swing.y < hips.y + .15 && swing.x < .02, `${id}: el manotazo queda en (${swing.x.toFixed(2)}, ${swing.y.toFixed(2)}, ${swing.z.toFixed(2)})`);
     hold(null);
   }
 });
