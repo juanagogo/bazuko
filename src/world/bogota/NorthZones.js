@@ -161,10 +161,10 @@ export function buildNorthZones() {
   group.add(zonaGGroup);
 
   // -------------------------------------------------------------------------
-  // 3. PARQUE DE LA 93 (Chicó) - Integrado en la zona norte (Calle 93, X: 38, Z: 25)
+  // 3. PARQUE DE LA 93 (Chicó) - Integrado en la zona norte (Calle 93, X: 160, Z: 50)
   // -------------------------------------------------------------------------
   const p93Group = new THREE.Group();
-  p93Group.position.set(38, 0, 25);
+  p93Group.position.set(160, 0, 50);
 
   // Gran parque rectangular verde
   const parkW = 42, parkL = 34;
@@ -180,6 +180,35 @@ export function buildNorthZones() {
   const crossPath = new THREE.Mesh(new THREE.BoxGeometry(parkW, 0.14, 6), pavingTMat);
   crossPath.position.set(0, 0.07, 0);
   p93Group.add(crossPath);
+
+  // Pérgolas de madera para sombra y descanso
+  const pergolaWoodMat = new THREE.MeshLambertMaterial({ color: 0x5c4033, name: 'MaderaPergola93' });
+  for (const px of [-12, 12]) {
+    for (const pz of [-8, 8]) {
+      const pergolaPost = new THREE.Mesh(new THREE.BoxGeometry(0.3, 3.2, 0.3), pergolaWoodMat);
+      pergolaPost.position.set(px, 1.6, pz);
+      p93Group.add(pergolaPost);
+      const pergolaBeam = new THREE.Mesh(new THREE.BoxGeometry(4, 0.25, 1.2), pergolaWoodMat);
+      pergolaBeam.position.set(px, 3.2, pz);
+      p93Group.add(pergolaBeam);
+    }
+  }
+
+  // Árboles y vegetación cuidada del parque
+  const foliageMat = new THREE.MeshLambertMaterial({ color: 0x1e4d2b, name: 'FollajeParque93' });
+  const trunkMat = new THREE.MeshLambertMaterial({ color: 0x4a3728, name: 'TroncoParque93' });
+  const treeOffsets = [
+    [-16, -12], [16, -12], [-16, 12], [16, 12],
+    [-8, 13], [8, 13], [-8, -13], [8, -13]
+  ];
+  for (const [tx, tz] of treeOffsets) {
+    const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.26, 2.8, 6), trunkMat);
+    trunk.position.set(tx, 1.4, tz);
+    p93Group.add(trunk);
+    const foliage = new THREE.Mesh(new THREE.DodecahedronGeometry(1.6), foliageMat);
+    foliage.position.set(tx, 3.5, tz);
+    p93Group.add(foliage);
+  }
 
   // Escultura metálica icónica y fuente central
   const fountainBase = new THREE.Mesh(new THREE.CylinderGeometry(5, 5, 0.6, 16), modernMetalMat);

@@ -1490,8 +1490,8 @@ export class Bogota {
 
   /** Zona de la ciudad en ese punto: decide qué gente anda por ahí (ver character/archetypes.js). */
   _zoneAt(x, z) {
-    if (x < 70 && z < 50) return 'parque93';
-    if (x < 70 && z >= 50 && z < 100) return 'zonaT';
+    if (x >= 105 && x <= 220 && z >= 20 && z <= 75) return 'parque93';
+    if (x < 75 && z < 100) return 'zonaT';
     if (x >= 260 && z >= 90 && z < 140) return 'zonaG';
     if (Math.abs(x - 75) <= 6 && z >= 10 && z <= 310) return 'metro';
     if (x >= WX(9) - 1 && x <= WX(21) + 1 && z >= WZ(17) && z <= WZ(26)) return 'cartucho';

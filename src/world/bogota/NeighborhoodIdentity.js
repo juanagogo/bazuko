@@ -63,8 +63,8 @@ export const NEIGHBORHOODS = Object.freeze({
 export function neighborhoodAt(x, z) {
   if (!Number.isFinite(x) || !Number.isFinite(z)) return NEIGHBORHOODS.centro;
   // Sectores exclusivos del Norte de Bogotá integrados (corredor Carrera 15)
-  if (x <= 36 && z < 50) return NEIGHBORHOODS.parque93;
-  if (x <= 36 && z >= 50 && z < 100) return NEIGHBORHOODS.zonaT;
+  if (x >= 105 && x <= 220 && z < 75) return NEIGHBORHOODS.parque93;
+  if (x < 75 && z < 100) return NEIGHBORHOODS.zonaT;
   // Al oriente de la Carrera 5; la avenida misma conserva el asfalto y sus líneas.
   if (x >= 267) return z < 121 ? NEIGHBORHOODS.candelaria : NEIGHBORHOODS.chapinero;
   if (z >= 222) return NEIGHBORHOODS.lago;

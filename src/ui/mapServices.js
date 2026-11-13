@@ -13,7 +13,11 @@ export const NEED_COPY = {
 };
 
 const OFFERS = ['comida', 'agua', 'calor'];
-const STALLS = { chaza: { icon: '🍬', color: '#f78fb3' }, fritanga: { icon: '🥟', color: '#ff9f43' } };
+const STALLS = {
+  chaza: { icon: '🍬', color: '#f78fb3' },
+  fritanga: { icon: '🥟', color: '#ff9f43' },
+  carritoTinto: { icon: '☕', color: '#8d6e63' }
+};
 
 /** Compras de comida, agua y calor con su precio y sus kilos. Con `itemIds`, solo en ese catálogo (el mismo filtro de openShop). */
 export function offersFor(itemIds = null) {

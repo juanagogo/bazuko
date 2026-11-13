@@ -23,9 +23,34 @@ export const EXTENSION_PARKS = [
   { x0: 69, x1: 81, z0: 80, z1: 91, name: 'Parque de Teusaquillo' }
 ];
 
+export const PARQUE_93 = Object.freeze({
+  x0: 55,
+  x1: 104,
+  z0: 16,
+  z1: 34,
+  name: 'Parque de la 93'
+});
+
 /** Añade barrios al oriente y al sur sin desplazar el centro existente. */
 export function expandCity(center) {
   return paintColpatriaTower(paintEastCity(expandBaseCity(center)));
+}
+
+export function paintParque93(map) {
+  const p = PARQUE_93;
+  const pathX = Math.round((p.x0 + p.x1) / 2);
+  const pathZ = Math.round((p.z0 + p.z1) / 2);
+  for (let z = p.z0; z <= p.z1; z++) {
+    for (let x = p.x0; x <= p.x1; x++) {
+      if (x === p.x0 || x === p.x1 || z === p.z0 || z === p.z1) {
+        map[z][x] = 'sidewalk';
+      } else if (x === pathX || z === pathZ || (Math.abs(x - pathX) <= 2 && Math.abs(z - pathZ) <= 2)) {
+        map[z][x] = 'plaza';
+      } else {
+        map[z][x] = 'grass';
+      }
+    }
+  }
 }
 
 export function paintMetroCorridor(map) {
@@ -85,6 +110,7 @@ function expandBaseCity(center) {
   paintSmallBuilding(map);
   paintViaductGardens(map);
   paintMetroCorridor(map);
+  paintParque93(map);
   for(let x=0;x<BASE_CITY_WIDTH;x++) map[0][x]=map[CITY_HEIGHT-1][x]='wall';
   for(let z=0;z<CITY_HEIGHT;z++) map[z][0]=map[z][BASE_CITY_WIDTH-1]='wall';
   paintTerminalEntrance(map);
