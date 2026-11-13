@@ -441,6 +441,48 @@ add_executable(bazuko_netevents_test tests/NetEventsTest.cpp)
 target_include_directories(bazuko_netevents_test PRIVATE src)
 add_test(NAME bazuko_netevents COMMAND bazuko_netevents_test)
 
+# Cuentas de jugador (ver specs/002-cuentas-sociales): cliente de Cognito y de los servicios del juego, sesion cifrada en el equipo.
+# Las listas de nombres prohibidos salen del mismo archivo que usa el servidor (servicios/datos/nombres-prohibidos.json).
+file(READ ${CMAKE_CURRENT_SOURCE_DIR}/servicios/datos/nombres-prohibidos.json BAZUKO_NAMES_JSON)
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/servicios/datos/nombres-prohibidos.json)
+foreach(BAZUKO_LIST partes exactos)
+    set(BAZUKO_ITEMS "")
+    string(JSON BAZUKO_COUNT LENGTH "${BAZUKO_NAMES_JSON}" ${BAZUKO_LIST})
+    math(EXPR BAZUKO_LAST "${BAZUKO_COUNT} - 1")
+    foreach(BAZUKO_I RANGE ${BAZUKO_LAST})
+        string(JSON BAZUKO_WORD GET "${BAZUKO_NAMES_JSON}" ${BAZUKO_LIST} ${BAZUKO_I})
+        string(APPEND BAZUKO_ITEMS "\"${BAZUKO_WORD}\", ")
+    endforeach()
+    if(BAZUKO_LIST STREQUAL "partes")
+        set(BAZUKO_FORBIDDEN_PARTS "${BAZUKO_ITEMS}")
+    else()
+        set(BAZUKO_FORBIDDEN_EXACT "${BAZUKO_ITEMS}")
+    endif()
+endforeach()
+configure_file(src/online/NameRulesData.hpp.in ${CMAKE_CURRENT_BINARY_DIR}/generated/online/NameRulesData.hpp @ONLY)
+add_library(bazuko_online STATIC src/online/Http.cpp src/online/Cognito.cpp src/online/SecureStore.cpp src/online/Session.cpp src/online/Social.cpp src/online/Match.cpp)
+target_include_directories(bazuko_online PUBLIC src third_party/include ${CMAKE_CURRENT_BINARY_DIR}/generated)
+target_link_libraries(bazuko_online PUBLIC Threads::Threads)
+if(WIN32)
+    target_link_libraries(bazuko_online PUBLIC winhttp crypt32)
+endif()
+target_link_libraries(bazuko PRIVATE bazuko_online)
+# Cuentas de jugador: region y cliente del grupo de Cognito (servicios/salida.json tras el despliegue). Vacio = sin cuentas.
+set(BAZUKO_CUENTAS_REGION "us-east-2" CACHE STRING "Region de las cuentas de jugador")
+set(BAZUKO_CUENTAS_CLIENTE "r66k0og0edo5o1sqf69ftssp2" CACHE STRING "Cliente bazuko-juego del grupo de usuarios de Cognito (vacio = sin cuentas); es publico, sin secreto")
+set(BAZUKO_CUENTAS_API "https://otia45bnhc.execute-api.us-east-2.amazonaws.com" CACHE STRING "Servicios del juego (HTTP API bazuko-social; vacio = sin perfil en linea)")
+target_compile_definitions(bazuko PRIVATE BAZUKO_CUENTAS_REGION_DEFAULT="${BAZUKO_CUENTAS_REGION}" BAZUKO_CUENTAS_CLIENTE_DEFAULT="${BAZUKO_CUENTAS_CLIENTE}"
+                                          BAZUKO_CUENTAS_API_DEFAULT="${BAZUKO_CUENTAS_API}")
+add_executable(bazuko_namerules_test tests/NameRulesTest.cpp)
+target_link_libraries(bazuko_namerules_test PRIVATE bazuko_online)
+add_test(NAME bazuko_namerules COMMAND bazuko_namerules_test)
+add_executable(bazuko_sessionstore_test tests/SessionStoreTest.cpp)
+target_link_libraries(bazuko_sessionstore_test PRIVATE bazuko_online)
+add_test(NAME bazuko_sessionstore COMMAND bazuko_sessionstore_test)
+add_executable(bazuko_match_test tests/MatchTallyTest.cpp)
+target_link_libraries(bazuko_match_test PRIVATE bazuko_online)
+add_test(NAME bazuko_match COMMAND bazuko_match_test)
+
 # Multijugador (ver docs/multijugador-internet.md): transporte UDP con ENet, lobby, relevo con salas, pruebas de red y bots. Encendido por defecto;
 # con -DBAZUKO_NET=OFF se compila el juego solo, sin red.
 #   bots de prueba:  build\\Release\\bazuko_net_bots.exe --servidor

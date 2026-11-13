@@ -89,6 +89,8 @@ public:
     void SendHit(uint8_t player, int kind, const glm::vec3& from);   // anfitrion: entrega un golpe (por ejemplo de un peaton) a ese jugador
     std::vector<IncomingHit> ConsumeHits() { std::vector<IncomingHit> out; out.swap(m_Hits); return out; }
     std::vector<RemoteStrike> ConsumeRemoteStrikes() { std::vector<RemoteStrike> out; out.swap(m_RemoteStrikes); return out; }   // anfitrion: golpes de otros al mundo (peatones, vehiculos)
+    struct PlayerHit { uint8_t attacker = 0; uint8_t victim = 0; };
+    std::vector<PlayerHit> ConsumePlayerHits() { std::vector<PlayerHit> out; out.swap(m_PlayerHits); return out; }   // anfitrion: golpes entre jugadores (para la clasificacion)
     // Economia (hito 4): el anfitrion lleva una copia de la plata y el costal de cada invitado (net/EconomyLedger.hpp) y rechaza lo que no se explica con las reglas.
     // Anfitrion: SetEconomyData() activa la validacion (sin datos del juego se acepta todo). Invitado: SendEconomy() cuenta su estado; ConsumeEconomySync() trae la correccion.
     void SetEconomyData(const GameData* data) { m_EconomyData = data; }
@@ -172,6 +174,7 @@ private:
     uint32_t m_Server = 0;                 // cliente: la conexion con el anfitrion
     bool m_Connected = false, m_Rejected = false;
     uint8_t m_LocalId = 1;
+    std::vector<PlayerHit> m_PlayerHits;
     std::map<uint32_t, Peer> m_Peers;      // anfitrion: por conexion
     std::map<uint8_t, Smooth> m_Smooth;    // por id remoto
     std::vector<RemotePlayer> m_Remotes;

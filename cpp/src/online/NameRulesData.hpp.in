@@ -1,0 +1,6 @@
+#pragma once
+// GENERADO por CMake desde servicios/datos/nombres-prohibidos.json: no editar a mano.
+namespace Bazuko::Online {
+inline constexpr const char* kForbiddenParts[] = {@BAZUKO_FORBIDDEN_PARTS@};
+inline constexpr const char* kForbiddenExact[] = {@BAZUKO_FORBIDDEN_EXACT@};
+} // namespace Bazuko::Online

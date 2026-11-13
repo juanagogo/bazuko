@@ -12,6 +12,8 @@
 #include "../core/ScreenshotPng.hpp"
 #include "../core/Window.hpp"
 #include "../renderer/GL.hpp"
+#include "online/NameRules.hpp"
+#include "online/Session.hpp"
 #ifdef BAZUKO_NET_ENABLED
 #include "../net/RelayProtocol.hpp"
 #include "../net/RoomDirectory.hpp"
@@ -26,8 +28,10 @@
 #include <chrono>
 #include <cstdio>
 #include <cstring>
+#include <ctime>
 #include <fstream>
 #include <memory>
+#include <optional>
 #include <random>
 #include <thread>
 #include <vector>
@@ -63,10 +67,10 @@ void LobbyRoom::Close() {
 namespace {
 namespace C = Carton;
 
-enum class Screen { Home, Multi, Create, Join, Settings, Profile };
+enum class Screen { Home, Multi, Create, Join, Settings, Profile, Ranking };
 enum class Modal { None, Opening, RoomReady, ConfirmQuit, AskCode };   // encima de la pantalla: abriendo la sala, su ficha, salir con la sala abierta, pedir el codigo de otra
 
-struct SaveSummary { bool exists = false; std::string name; float money = 0.0f; int day = 0; };
+struct SaveSummary { bool exists = false; std::string name; float money = 0.0f; int day = 0; std::string look; };   // look: JSON plano del personaje sin nombre
 
 SaveSummary ReadSave(const std::filesystem::path& savegame) {
     SaveSummary summary;
@@ -78,7 +82,13 @@ SaveSummary ReadSave(const std::filesystem::path& savegame) {
         summary.exists = true;
         summary.money = state.value("money", 0.0f);
         summary.day = state.value("day", 1);
-        if (state.contains("character") && state["character"].is_object()) summary.name = state["character"].value("nombre", std::string{});
+        if (state.contains("character") && state["character"].is_object()) {
+            summary.name = state["character"].value("nombre", std::string{});
+            nlohmann::json look = nlohmann::json::object();
+            for (const auto& [key, value] : state["character"].items())
+                if (key != "nombre" && (value.is_string() || value.is_number() || value.is_boolean())) look[key] = value;
+            if (!look.empty()) summary.look = look.dump();
+        }
     } catch (...) { summary.exists = false; }
     return summary;
 }
@@ -112,7 +122,7 @@ bool Slider(const char* id, float* value, float width) {
 }
 
 // Campo de texto: tira de cinta con letra de marcador
-bool Field(const char* id, char* buffer, size_t size, float width, ImGuiInputTextFlags flags = 0) {
+bool Field(const char* id, char* buffer, size_t size, float width, ImGuiInputTextFlags flags = 0, ImGuiInputTextCallback filter = nullptr) {
     ImGui::PushFont(C::Font(false, 20));
     ImGui::PushStyleColor(ImGuiCol_FrameBg, ImGui::ColorConvertU32ToFloat4(C::kCinta));
     ImGui::PushStyleColor(ImGuiCol_FrameBgHovered, ImVec4(0.95f, 0.90f, 0.77f, 1.0f));
@@ -124,11 +134,29 @@ bool Field(const char* id, char* buffer, size_t size, float width, ImGuiInputTex
     ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 0.0f);
     ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 2.0f);
     ImGui::SetNextItemWidth(width);
-    const bool changed = ImGui::InputText(id, buffer, size, flags);
+    const bool changed = ImGui::InputText(id, buffer, size, filter ? flags | ImGuiInputTextFlags_CallbackCharFilter : flags, filter);
     ImGui::PopStyleVar(3);
     ImGui::PopStyleColor(6);
     ImGui::PopFont();
     return changed;
+}
+
+// Nombre de usuario: solo letras a-z y numeros (el resto ni se escribe)
+int OnlyLettersAndDigits(ImGuiInputTextCallbackData* data) {
+    const ImWchar c = data->EventChar;
+    const bool ok = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9');
+    return ok ? 0 : 1;
+}
+
+// Borra una contrasena escrita en cuanto ya no hace falta
+// Codigos de verificacion: solo numeros
+int OnlyDigits(ImGuiInputTextCallbackData* data) {
+    return data->EventChar >= '0' && data->EventChar <= '9' ? 0 : 1;
+}
+
+void WipeBuffer(char* buffer, size_t size) {
+    volatile char* p = buffer;
+    for (size_t i = 0; i < size; ++i) p[i] = '\0';
 }
 
 void CopyTo(char* buffer, size_t size, const std::string& text) {
@@ -139,6 +167,27 @@ std::string Trim(const std::string& text) {
     const size_t first = text.find_first_not_of(" \t");
     if (first == std::string::npos) return {};
     return text.substr(first, text.find_last_not_of(" \t") - first + 1);
+}
+
+// 13/11/2026 (hora local)
+std::string DateText(long long seconds) {
+    const std::time_t when = static_cast<std::time_t>(seconds);
+    std::tm parts{};
+#ifdef _WIN32
+    localtime_s(&parts, &when);
+#else
+    localtime_r(&when, &parts);
+#endif
+    char text[16];
+    std::snprintf(text, sizeof text, "%02d/%02d/%04d", parts.tm_mday, parts.tm_mon + 1, parts.tm_year + 1900);
+    return text;
+}
+
+// 3 h 20 min de juego
+std::string HoursText(long long seconds) {
+    const long long minutes = std::max(0LL, seconds) / 60;
+    if (minutes < 60) return std::to_string(minutes) + " min";
+    return std::to_string(minutes / 60) + " h " + std::to_string(minutes % 60) + " min";
 }
 
 // Lo marcado: circulo rojo hecho a mano alrededor de la ultima cinta dibujada
@@ -180,12 +229,32 @@ struct Lobby {
     std::string askError;
     double askCheckSince = -1.0;   // < 0: no se esta revisando
     bool askFocus = false;
+    // cuenta del jugador (pantalla Perfil): entrar, crear cuenta, cerrar sesion
+    Online::Session* account = nullptr;
+    bool signUpTab = false;      // false: «Entrar»; true: «Crear cuenta»
+    bool wantMulti = false;      // se pidio el Multijugador sin sesion: al entrar, sigue a la lista de salas
+    char accName[Online::kNameMax + 1] = {};
+    char accPass[72] = {}, accPass2[72] = {};
+    char accEmail[96] = {};
+    std::string accError;        // lo que salio mal (revisado en el juego o devuelto por el servidor)
+    std::string accInfo;         // lo que salio bien («Correo verificado», «Contraseña cambiada»)
+    // dentro del Perfil: la ficha (Main) o una gestion de la cuenta
+    enum class AccPanel { Main, Email, Verify, Password, ForgotName, ForgotCode, Delete };
+    AccPanel accPanel = AccPanel::Main;
+    char accOld[72] = {};        // contrasena actual al cambiarla
+    char accCode[8] = {};        // codigo de 6 numeros que llega al correo
+    char accCode2[24] = {};      // el nombre escrito para confirmar que se borra la cuenta
+    // clasificacion: estadistica elegida (kRankTables), alcance (0 top 10, 1 top 100, 2 global) y la pagina global
+    int rankTable = 0, rankScope = 0, rankFrom = 0;
+    std::shared_ptr<Online::HttpCall> rankCall;
+    std::optional<Online::Leaderboard> rankBoard;
+    bool rankFailed = false;
 #ifdef BAZUKO_NET_ENABLED
     std::unique_ptr<Net::RoomBrowser> browser;
 #endif
 
-    Lobby(LobbySettings& s, AudioManager& a, const std::filesystem::path& savegame, LobbyRoom& room, bool fromGame)
-        : settings(s), audio(a), save(ReadSave(savegame)), hosted(room), inGame(fromGame) {
+    Lobby(LobbySettings& s, AudioManager& a, const std::filesystem::path& savegame, LobbyRoom& room, bool fromGame, Online::Session* acc)
+        : settings(s), audio(a), save(ReadSave(savegame)), hosted(room), inGame(fromGame), account(acc) {
         const std::string fallbackName = "Parche de " + (save.name.empty() ? std::string("la calle") : save.name);
         CopyTo(roomName, sizeof roomName, settings.roomName.empty() ? fallbackName : settings.roomName);
         CopyTo(relay, sizeof relay, settings.relay);
@@ -224,6 +293,8 @@ struct Lobby {
     }
 
     void Go(Screen next) {
+        if (screen == Screen::Profile && next != Screen::Profile) { ForgetPasswords(); accPanel = AccPanel::Main; accError.clear(); accInfo.clear(); }
+        if (next != Screen::Profile) wantMulti = false;
         screen = next;
         joinError.clear();
         createError.clear();
@@ -234,6 +305,121 @@ struct Lobby {
             browser->Refresh();
         }
 #endif
+    }
+
+    bool AccountsOn() const { return account && account->Configured(); }
+    bool SignedIn() const { return account && account->GetState() == Online::Session::State::SignedIn; }
+
+    // El multijugador pide cuenta (si este juego tiene servidor de cuentas): sin sesion, primero la pantalla de entrar
+    void TryMulti() {
+        if (AccountsOn() && !SignedIn()) {
+            Go(Screen::Profile);
+            wantMulti = true;
+            return;
+        }
+        Go(Screen::Multi);
+    }
+
+    void ForgetPasswords() {
+        WipeBuffer(accPass, sizeof accPass);
+        WipeBuffer(accPass2, sizeof accPass2);
+        WipeBuffer(accOld, sizeof accOld);
+    }
+
+    void SubmitAccount() {
+        if (!account || account->GetState() == Online::Session::State::Working) return;
+        accError.clear();
+        account->ClearError();
+        const std::string name = accName;
+        if (signUpTab) {
+            if (const auto problem = Online::CheckName(name); problem != Online::NameProblem::None) { accError = Online::NameProblemText(problem); return; }
+            if (const auto problem = Online::CheckPassword(accPass, accPass2, name); problem != Online::PasswordProblem::None) { accError = Online::PasswordProblemText(problem); return; }
+            const std::string email = Trim(accEmail);
+            if (!email.empty() && (email.find('@') == std::string::npos || email.find('.') == std::string::npos || email.find(' ') != std::string::npos)) {
+                accError = "Ese correo no parece bien escrito. Revíselo o déjelo vacío.";
+                return;
+            }
+            account->SignUp(name, std::string(accPass), email);
+        } else {
+            if (name.empty() || accPass[0] == '\0') { accError = "Escriba su usuario y su contraseña."; return; }
+            account->SignIn(name, std::string(accPass));
+        }
+        ForgetPasswords();   // la contrasena ya va en camino (por TLS) y no se queda en el lobby
+    }
+
+    // cada cuadro: la sesion termina lo pendiente; si se entro viniendo del Multijugador, sigue a la lista de salas
+    void TickAccount() {
+        if (!account) return;
+        account->Update(static_cast<long long>(std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count()));
+        using Task = Online::Session::Task;
+        using TaskState = Online::Session::TaskState;
+        const TaskState state = account->GetTaskState();
+        if (state == TaskState::Done || state == TaskState::Failed) {
+            const Task task = account->CurrentTask();
+            const Online::AuthError error = account->TaskError();
+            const bool ok = state == TaskState::Done;
+            switch (task) {
+            case Task::SetEmail:
+                if (!ok) accError = Online::AuthErrorText(error);
+                else if (account->Email().empty()) { SetPanel(AccPanel::Main); accInfo = "Correo quitado. Sin correo no se puede recuperar la contraseña."; }
+                else SetPanel(AccPanel::Verify);   // ya se mando el codigo
+                break;
+            case Task::SendEmailCode:
+                if (ok) accInfo = "Código enviado. Revise su correo.";
+                else accError = Online::AuthErrorText(error);
+                break;
+            case Task::VerifyEmail:
+                if (ok) { SetPanel(AccPanel::Main); accInfo = "Correo verificado. Si olvida la contraseña, puede recuperarla."; }
+                else accError = Online::AuthErrorText(error);
+                break;
+            case Task::ChangePassword:
+                if (ok) { SetPanel(AccPanel::Main); accInfo = "Contraseña cambiada. Su cuenta se cerró en los demás equipos."; }
+                else accError = error == Online::AuthError::BadCredentials ? "La contraseña actual no es esa." : Online::AuthErrorText(error);
+                break;
+            case Task::ForgotPassword:
+                if (ok) { if (accPanel == AccPanel::ForgotName) SetPanel(AccPanel::ForgotCode); else accInfo = "Si la cuenta tiene correo verificado, le llegó otro código."; }
+                else accError = Online::AuthErrorText(error);
+                break;
+            case Task::ConfirmForgotPassword:
+                if (ok) { SetPanel(AccPanel::Main); accInfo = "Contraseña cambiada. Su cuenta se cerró en los demás equipos."; }
+                else accError = Online::AuthErrorText(error);
+                break;
+            case Task::SaveProfile:
+                if (ok) accInfo = "Perfil guardado.";
+                else accError = Online::AuthErrorText(error);
+                break;
+            case Task::DeleteAccount:
+                if (ok) { SetPanel(AccPanel::Main); signUpTab = false; accInfo = "Su cuenta se borró. El nombre quedó libre."; }
+                else accError = Online::AuthErrorText(error);
+                break;
+            case Task::LoadUser:
+            case Task::None:
+                break;
+            }
+            account->ClearTask();
+        }
+        if (SignedIn() && screen == Screen::Profile && wantMulti) {
+            wantMulti = false;
+            Go(Screen::Multi);
+        }
+    }
+
+    float ProfileHeight() const {
+        if (!AccountsOn()) return 400.0f;
+        const float notes = accError.empty() && accInfo.empty() ? 0.0f : 46.0f;
+        if (SignedIn()) {
+            switch (accPanel) {
+            case AccPanel::Email: return 300.0f + notes;
+            case AccPanel::Verify: return 360.0f + notes;
+            case AccPanel::Password: return 450.0f + notes;
+            case AccPanel::Delete: return 360.0f + notes;
+            default: return 570.0f + notes;
+            }
+        }
+        if (account->GetState() == Online::Session::State::Working) return 300.0f;
+        if (accPanel == AccPanel::ForgotName) return 340.0f + notes;
+        if (accPanel == AccPanel::ForgotCode) return 450.0f + notes;
+        return (signUpTab ? 630.0f : 440.0f) + (wantMulti ? 54.0f : 0.0f) + notes;
     }
 
 #ifdef BAZUKO_NET_ENABLED
@@ -252,7 +438,8 @@ struct Lobby {
 #endif
 
     void Back() {
-        if (screen == Screen::Create || screen == Screen::Join) Go(Screen::Multi);
+        if (screen == Screen::Profile && accPanel != AccPanel::Main) { SetPanel(AccPanel::Main); accInfo.clear(); return; }   // Esc: primero sale de la gestion
+        if (screen == Screen::Create || screen == Screen::Join || screen == Screen::Ranking) Go(Screen::Multi);
         else if (screen != Screen::Home) Go(Screen::Home);
     }
 
@@ -275,14 +462,15 @@ struct Lobby {
 
         ImGui::SetCursorScreenPos(ImVec2(x, y));
 #ifdef BAZUKO_NET_ENABLED
-        if (C::Tape("multijugador", "Multijugador", ImVec2(inner, 52.0f), false, true, nullptr, 24)) Go(Screen::Multi);
+        if (C::Tape("multijugador", "Multijugador", ImVec2(inner, 52.0f), false, true, nullptr, 24)) TryMulti();
 #else
         C::Tape("multijugador", "Multijugador", ImVec2(inner, 52.0f), false, false, nullptr, 24);
 #endif
         Scrawl(draw, ImVec2(x + inner - 140.0f, y - 14.0f), "en desarrollo", 16);
         y += 58.0f;
 #ifdef BAZUKO_NET_ENABLED
-        C::Text(draw, false, 17, ImVec2(x + 6.0f, y), C::kMarcador, "Abra una sala o entre a la de alguien más.", inner - 12.0f);
+        C::Text(draw, false, 17, ImVec2(x + 6.0f, y), C::kMarcador,
+                AccountsOn() && !SignedIn() ? "Abra una sala o entre a la de alguien más. Se juega con cuenta." : "Abra una sala o entre a la de alguien más.", inner - 12.0f);
 #else
         C::Text(draw, false, 17, ImVec2(x + 6.0f, y), C::kMarcador, "Esta copia del juego se compiló sin red.", inner - 12.0f);
 #endif
@@ -292,8 +480,8 @@ struct Lobby {
         ImGui::SetCursorScreenPos(ImVec2(x, y));
         if (C::Tape("ajustes", "Ajustes", ImVec2(half, 46.0f), false, true, nullptr, 21)) Go(Screen::Settings);
         ImGui::SetCursorScreenPos(ImVec2(x + half + 14.0f, y));
-        if (C::Tape("perfil", "Perfil", ImVec2(half, 46.0f), false, true, nullptr, 21)) Go(Screen::Profile);
-        Scrawl(draw, ImVec2(x + half + 14.0f + half - 120.0f, y - 14.0f), "en desarrollo", 15);
+        if (C::Tape("perfil", SignedIn() ? account->Name().c_str() : "Perfil", ImVec2(half, 46.0f), false, true, nullptr, 21)) Go(Screen::Profile);
+        if (AccountsOn() && !SignedIn()) Scrawl(draw, ImVec2(x + half + 14.0f + half - 104.0f, y - 14.0f), "sin entrar", 15);
         y += 62.0f;
         ImGui::SetCursorScreenPos(ImVec2(x, y));
         if (C::Tape("salir", "Salir del juego", ImVec2(190.0f, 40.0f), false, true, nullptr, 18)) RequestQuit();
@@ -540,6 +728,126 @@ struct Lobby {
         y += 16.0f;
     }
 
+    // ---- clasificacion (GET /clasificacion/{tabla}): una tabla por estadistica, top 10, top 100 y global por paginas ----
+    static constexpr const char* kRankTables[] = {"dias", "plata", "peleas", "partidas", "tiempo"};
+    static constexpr const char* kRankLabels[] = {"Días", "Plata", "Peleas", "Partidas", "Tiempo"};
+    static constexpr int kRankPage = 50;
+
+    void RankFetch() {
+        rankBoard.reset();
+        rankFailed = false;
+        if (!SignedIn() || !account->ProfileOnline()) { rankCall.reset(); return; }
+        const int count = rankScope == 0 ? 10 : rankScope == 1 ? 100 : kRankPage;
+        rankCall = Online::ApiLeaderboard(account->Config(), account->AccessToken(), kRankTables[rankTable], rankScope == 2 ? rankFrom : 0, count);
+    }
+
+    void RankTick() {
+        if (!rankCall || !rankCall->Done()) return;
+        const Online::HttpResponse response = rankCall->Result();
+        rankCall.reset();
+        if (auto board = Online::ParseLeaderboard(response)) rankBoard = std::move(*board);
+        else rankFailed = true;
+    }
+
+    std::string RankValue(long long value) const {
+        switch (rankTable) {
+            case 0: return std::to_string(value) + (value == 1 ? " día" : " días");
+            case 1: return "$ " + Thousands(static_cast<int>(std::min<long long>(value, 2000000000LL)));
+            case 2: return std::to_string(value) + (value == 1 ? " pelea" : " peleas");
+            case 3: return std::to_string(value) + (value == 1 ? " partida" : " partidas");
+            default: return HoursText(value);
+        }
+    }
+
+    void Ranking(ImDrawList* draw, ImVec2 min, float width, float height) {
+        float y = min.y + 22.0f;
+        const float x = min.x + 30.0f, inner = width - 60.0f;
+        Header(draw, x, y, inner, "CLASIFICACIÓN", false);
+        if (!AccountsOn() || !account->ProfileOnline()) {
+            C::Text(draw, false, 18, ImVec2(x, y), C::kMarcador, "La clasificación no está disponible en esta copia del juego.", inner);
+            return;
+        }
+        if (!SignedIn()) {
+            C::Text(draw, false, 18, ImVec2(x, y), C::kMarcador, "Entre a su cuenta para ver la clasificación.", inner);
+            return;
+        }
+        RankTick();
+        if (!rankCall && !rankBoard && !rankFailed) RankFetch();
+
+        // una pestana por estadistica
+        const float tab = (inner - 4.0f * 10.0f) / 5.0f;
+        for (int i = 0; i < 5; ++i) {
+            ImGui::SetCursorScreenPos(ImVec2(x + i * (tab + 10.0f), y));
+            if (C::Tape(kRankTables[i], kRankLabels[i], ImVec2(tab, 42.0f), rankTable == i, true, nullptr, 18) && rankTable != i) { rankTable = i; rankFrom = 0; RankFetch(); }
+        }
+        y += 54.0f;
+        static constexpr const char* scopes[] = {"Top 10", "Top 100", "Global"};
+        for (int i = 0; i < 3; ++i) {
+            ImGui::SetCursorScreenPos(ImVec2(x + i * 136.0f, y));
+            if (C::Tape(scopes[i], scopes[i], ImVec2(126.0f, 38.0f), rankScope == i, true, nullptr, 17) && rankScope != i) { rankScope = i; rankFrom = 0; RankFetch(); }
+        }
+        ImGui::SetCursorScreenPos(ImVec2(x + inner - 150.0f, y));
+        if (C::Tape("rank-actualizar", "Actualizar", ImVec2(150.0f, 38.0f), false, !rankCall, "R", 16) || (ImGui::IsKeyPressed(ImGuiKey_R) && !ImGui::GetIO().WantTextInput && !rankCall)) RankFetch();
+        y += 52.0f;
+
+        // la fila propia, siempre a la vista aunque no este en la pagina
+        std::string own;
+        if (rankBoard && rankBoard->ownPlace > 0) own = "Su puesto: " + std::to_string(rankBoard->ownPlace) + " · " + RankValue(rankBoard->ownValue);
+        else if (rankBoard) own = "Usted todavía no sale: las estadísticas se suman al jugar por internet.";
+        if (!own.empty()) C::Text(draw, true, 19, ImVec2(x, y), C::kRojo, own.c_str(), inner);
+        y += 32.0f;
+
+        const float footer = rankScope == 2 ? 70.0f : 24.0f;
+        const float listHeight = std::max(80.0f, min.y + height - footer - y);
+        C::HandRect(draw, ImVec2(x - 6.0f, y - 4.0f), ImVec2(x + inner + 6.0f, y + listHeight), 13u, C::kMarcador, 2.0f);
+        ImGui::SetCursorScreenPos(ImVec2(x, y));
+        ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0, 0, 0, 0));
+        ImGui::PushStyleColor(ImGuiCol_ScrollbarBg, ImVec4(0, 0, 0, 0));
+        ImGui::PushStyleColor(ImGuiCol_ScrollbarGrab, ImGui::ColorConvertU32ToFloat4(C::kCanto));
+        ImGui::BeginChild("##clasificacion", ImVec2(inner, listHeight - 6.0f), false, ImGuiWindowFlags_NoBackground);
+        ImDrawList* list = ImGui::GetWindowDrawList();
+        const float rowWidth = inner - 20.0f;
+        if (rankCall) {
+            C::Text(list, false, 18, ImGui::GetCursorScreenPos() + ImVec2(8.0f, 12.0f), C::kMarcador, "Buscando la clasificación...");
+            ImGui::Dummy(ImVec2(rowWidth, 40.0f));
+        } else if (rankFailed) {
+            C::Text(list, false, 18, ImGui::GetCursorScreenPos() + ImVec2(8.0f, 12.0f), C::kMarcador, "No se pudo traer la clasificación. Revise el internet y actualice.", rowWidth);
+            ImGui::Dummy(ImVec2(rowWidth, 40.0f));
+        } else if (rankBoard && rankBoard->rows.empty()) {
+            C::Text(list, false, 18, ImGui::GetCursorScreenPos() + ImVec2(8.0f, 12.0f), C::kMarcador,
+                    rankFrom > 0 ? "No hay más jugadores." : "Todavía nadie tiene partidas por internet. Juegue una y aparecerá aquí.", rowWidth);
+            ImGui::Dummy(ImVec2(rowWidth, 40.0f));
+        } else if (rankBoard) {
+            std::string me = account->Name();
+            for (char& c : me) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+            for (const Online::LeaderRow& row : rankBoard->rows) {
+                std::string name = row.name;
+                for (char& c : name) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+                const ImU32 ink = name == me ? C::kRojo : C::kMarcador;
+                const ImVec2 at = ImGui::GetCursorScreenPos();
+                const std::string place = std::to_string(row.place) + ".";
+                C::Text(list, true, 20, at + ImVec2(8.0f, 4.0f), ink, place.c_str());
+                C::Text(list, row.place <= 3, 20, at + ImVec2(78.0f, 4.0f), ink, row.name.c_str(), rowWidth - 330.0f);
+                const std::string value = RankValue(row.value);
+                C::Text(list, false, 19, at + ImVec2(rowWidth - 8.0f - C::TextWidth(false, 19, value.c_str()), 5.0f), ink, value.c_str());
+                ImGui::Dummy(ImVec2(rowWidth, 34.0f));
+            }
+        }
+        ImGui::EndChild();
+        ImGui::PopStyleColor(3);
+
+        if (rankScope == 2) {   // global: paginas de 50
+            const float by = min.y + height - footer + 12.0f;
+            ImGui::SetCursorScreenPos(ImVec2(x, by));
+            if (C::Tape("rank-anterior", "Anterior", ImVec2(150.0f, 40.0f), false, rankFrom > 0 && !rankCall, nullptr, 17)) { rankFrom = std::max(0, rankFrom - kRankPage); RankFetch(); }
+            const std::string pageText = "Página " + std::to_string(rankFrom / kRankPage + 1);
+            C::Text(draw, false, 18, ImVec2(x + inner * 0.5f - C::TextWidth(false, 18, pageText.c_str()) * 0.5f, by + 10.0f), C::kMarcador, pageText.c_str());
+            ImGui::SetCursorScreenPos(ImVec2(x + inner - 150.0f, by));
+            const bool more = rankBoard && rankBoard->next >= 0;
+            if (C::Tape("rank-siguiente", "Siguiente", ImVec2(150.0f, 40.0f), false, more && !rankCall, nullptr, 17) && more) { rankFrom = rankBoard->next; RankFetch(); }
+        }
+    }
+
     void Multi(ImDrawList* draw, ImVec2 min, float width, float height) {
         float y = min.y + 22.0f;
         const float x = min.x + 30.0f, inner = width - 60.0f;
@@ -549,11 +857,13 @@ struct Lobby {
         y += 30.0f;
         // barra de acciones
         ImGui::SetCursorScreenPos(ImVec2(x, y));
-        if (C::Tape("crear", "Crear sala", ImVec2(200.0f, 46.0f), true, true, nullptr, 21)) Go(Screen::Create);
-        ImGui::SetCursorScreenPos(ImVec2(x + 214.0f, y));
-        if (C::Tape("codigo", "Unirse con código o IP", ImVec2(260.0f, 46.0f), false, true, nullptr, 18)) { CopyTo(joinText, sizeof joinText, ""); Go(Screen::Join); }
-        ImGui::SetCursorScreenPos(ImVec2(x + inner - 150.0f, y));
-        if (C::Tape("actualizar", "Actualizar", ImVec2(150.0f, 46.0f), false, true, "R", 17)) browser->Refresh();
+        if (C::Tape("crear", "Crear sala", ImVec2(180.0f, 46.0f), true, true, nullptr, 21)) Go(Screen::Create);
+        ImGui::SetCursorScreenPos(ImVec2(x + 192.0f, y));
+        if (C::Tape("codigo", "Unirse con código o IP", ImVec2(244.0f, 46.0f), false, true, nullptr, 17)) { CopyTo(joinText, sizeof joinText, ""); Go(Screen::Join); }
+        ImGui::SetCursorScreenPos(ImVec2(x + 448.0f, y));
+        if (C::Tape("clasificacion", "Clasificación", ImVec2(170.0f, 46.0f), false, true, nullptr, 17)) { rankBoard.reset(); rankFailed = false; Go(Screen::Ranking); }
+        ImGui::SetCursorScreenPos(ImVec2(x + inner - 130.0f, y));
+        if (C::Tape("actualizar", "Actualizar", ImVec2(130.0f, 46.0f), false, true, "R", 17)) browser->Refresh();
         if (ImGui::IsKeyPressed(ImGuiKey_R) && !ImGui::GetIO().WantTextInput) browser->Refresh();
         y += 62.0f;
 
@@ -815,28 +1125,390 @@ struct Lobby {
                 "Baja da más cuadros por segundo en equipos modestos; alta suma reflejos, sombras lejanas y más detalle. Se puede cambiar después en la pausa.", inner);
     }
 
+    // Lo de la Historia guardada en este equipo (no necesita cuenta)
+    void StorySummary(ImDrawList* draw, float x, float& y, float inner) {
+        if (save.exists) {
+            const std::string line = "Historia: " + (save.name.empty() ? std::string("sin nombre") : save.name) + " · $ " + Thousands(static_cast<int>(save.money)) +
+                                     " · " + std::to_string(std::max(1, save.day)) + (save.day == 1 ? " día en la calle" : " días en la calle");
+            C::Text(draw, false, 18, ImVec2(x, y), C::kMarcador, line.c_str(), inner);
+            y += C::TextHeight(false, 18, line.c_str(), inner) + 10.0f;
+        } else {
+            C::Text(draw, false, 18, ImVec2(x, y), C::kMarcador, "Todavía no tiene una Historia guardada en este equipo.", inner);
+            y += 32.0f;
+        }
+    }
+
+    void Label(ImDrawList* draw, float x, float& y, const char* text) {
+        C::Text(draw, true, 19, ImVec2(x, y), C::kMarcador, text);
+        y += 28.0f;
+    }
+
+    // Aviso bajo los campos: lo que salio mal en rojo, lo que salio bien con marcador
+    void Notes(ImDrawList* draw, float x, float& y, float inner) {
+        const std::string& text = !accError.empty() ? accError : accInfo;
+        if (text.empty()) return;
+        C::Text(draw, false, 17, ImVec2(x, y), accError.empty() ? C::kMarcador : C::kRojo, text.c_str(), inner);
+        y += C::TextHeight(false, 17, text.c_str(), inner) + 10.0f;
+    }
+
+    bool TaskBusy() const { return account && account->GetTaskState() == Online::Session::TaskState::Working; }
+
+    void SetPanel(AccPanel next) {
+        accPanel = next;
+        accError.clear();
+        ForgetPasswords();
+        WipeBuffer(accCode, sizeof accCode);
+        WipeBuffer(accCode2, sizeof accCode2);
+    }
+
+    bool LooksLikeEmail(const std::string& email) const {
+        const size_t at = email.find('@');
+        return at != std::string::npos && at > 0 && email.find('.', at) != std::string::npos && email.find(' ') == std::string::npos && email.size() <= 90;
+    }
+
+    // Con sesion: el correo (agregar, cambiar, verificar), cambiar la contrasena y cerrar sesion
+    void SignedInPanel(ImDrawList* draw, float x, float& y, float inner) {
+        const bool busy = TaskBusy();
+        const float half = (inner - 14.0f) * 0.5f;
+        if (accPanel == AccPanel::Email) {
+            C::Text(draw, false, 17, ImVec2(x, y), C::kMarcador,
+                    "Con un correo verificado puede recuperar la contraseña si la olvida. Nadie más lo ve. Si lo deja vacío, se quita.", inner);
+            y += 54.0f;
+            Label(draw, x, y, "Correo");
+            ImGui::SetCursorScreenPos(ImVec2(x, y));
+            const bool enter = Field("##correo-nuevo", accEmail, sizeof accEmail, inner, ImGuiInputTextFlags_CharsNoBlank | ImGuiInputTextFlags_EnterReturnsTrue);
+            y += 52.0f;
+            Notes(draw, x, y, inner);
+            ImGui::SetCursorScreenPos(ImVec2(x, y));
+            if ((C::Tape("guardar-correo", busy ? "Guardando..." : "Guardar", ImVec2(half, 46.0f), true, !busy, nullptr, 20) || enter) && !busy) {
+                const std::string email = Trim(accEmail);
+                if (!email.empty() && !LooksLikeEmail(email)) accError = "Ese correo no parece bien escrito. Revíselo.";
+                else { accError.clear(); accInfo.clear(); account->SetEmail(email); }
+            }
+            ImGui::SetCursorScreenPos(ImVec2(x + half + 14.0f, y));
+            if (C::Tape("cancelar-correo", "Cancelar", ImVec2(half, 46.0f), false, !busy, nullptr, 20)) SetPanel(AccPanel::Main);
+            return;
+        }
+        if (accPanel == AccPanel::Verify) {
+            const std::string text = "Le mandamos un código a " + account->Email() + ". Escríbalo aquí; si no llega en unos minutos, revise el correo no deseado.";
+            C::Text(draw, false, 17, ImVec2(x, y), C::kMarcador, text.c_str(), inner);
+            y += C::TextHeight(false, 17, text.c_str(), inner) + 14.0f;
+            Label(draw, x, y, "Código");
+            ImGui::SetCursorScreenPos(ImVec2(x, y));
+            const bool enter = Field("##codigo-correo", accCode, sizeof accCode, 200.0f, ImGuiInputTextFlags_EnterReturnsTrue, OnlyDigits);
+            y += 52.0f;
+            Notes(draw, x, y, inner);
+            ImGui::SetCursorScreenPos(ImVec2(x, y));
+            if ((C::Tape("verificar", busy ? "Revisando..." : "Verificar", ImVec2(half, 46.0f), true, !busy, nullptr, 20) || enter) && !busy) {
+                if (std::strlen(accCode) < 6) accError = "El código tiene 6 números.";
+                else { accError.clear(); accInfo.clear(); account->VerifyEmail(accCode); }
+            }
+            ImGui::SetCursorScreenPos(ImVec2(x + half + 14.0f, y));
+            if (C::Tape("otro-codigo", "Mandar otro código", ImVec2(half, 46.0f), false, !busy, nullptr, 18)) { accError.clear(); accInfo.clear(); account->SendEmailCode(); }
+            y += 58.0f;
+            ImGui::SetCursorScreenPos(ImVec2(x, y));
+            if (C::Tape("cancelar-codigo", "Después", ImVec2(half, 40.0f), false, !busy, nullptr, 18)) SetPanel(AccPanel::Main);
+            return;
+        }
+        if (accPanel == AccPanel::Delete) { DeletePanel(draw, x, y, inner); return; }
+        if (accPanel == AccPanel::Password) {
+            C::Text(draw, false, 17, ImVec2(x, y), C::kMarcador, "Al cambiarla, su cuenta se cierra en los demás equipos y sigue abierta en este.", inner);
+            y += 50.0f;
+            Label(draw, x, y, "Contraseña actual");
+            ImGui::SetCursorScreenPos(ImVec2(x, y));
+            Field("##clave-actual", accOld, sizeof accOld, inner, ImGuiInputTextFlags_Password);
+            y += 52.0f;
+            Label(draw, x, y, "Contraseña nueva");
+            ImGui::SetCursorScreenPos(ImVec2(x, y));
+            Field("##clave-nueva", accPass, sizeof accPass, inner, ImGuiInputTextFlags_Password);
+            y += 52.0f;
+            Label(draw, x, y, "Repita la nueva");
+            ImGui::SetCursorScreenPos(ImVec2(x, y));
+            Field("##clave-nueva2", accPass2, sizeof accPass2, inner, ImGuiInputTextFlags_Password);
+            y += 52.0f;
+            Notes(draw, x, y, inner);
+            ImGui::SetCursorScreenPos(ImVec2(x, y));
+            if (C::Tape("cambiar-clave", busy ? "Cambiando..." : "Cambiar", ImVec2(half, 46.0f), true, !busy, nullptr, 20) && !busy) {
+                if (accOld[0] == '\0') accError = "Escriba su contraseña actual.";
+                else if (const auto problem = Online::CheckPassword(accPass, accPass2, account->Name()); problem != Online::PasswordProblem::None) accError = Online::PasswordProblemText(problem);
+                else if (std::strcmp(accOld, accPass) == 0) accError = "La nueva tiene que ser distinta de la actual.";
+                else {
+                    accError.clear(); accInfo.clear();
+                    account->ChangePassword(std::string(accOld), std::string(accPass));
+                    ForgetPasswords();
+                }
+            }
+            ImGui::SetCursorScreenPos(ImVec2(x + half + 14.0f, y));
+            if (C::Tape("cancelar-clave", "Cancelar", ImVec2(half, 46.0f), false, !busy, nullptr, 20)) SetPanel(AccPanel::Main);
+            return;
+        }
+
+        // la ficha de la cuenta
+        C::Text(draw, true, 34, ImVec2(x, y), C::kMarcador, account->Name().c_str());
+        const Online::OwnProfile& profile = account->Profile();
+        if (account->ProfileLoaded() && profile.created > 0) {
+            const std::string since = "cuenta desde " + DateText(profile.created);
+            C::Text(draw, false, 15, ImVec2(x + inner - C::TextWidth(false, 15, since.c_str()), y + 14.0f), C::kMarcador, since.c_str());
+        }
+        y += 48.0f;
+        std::string mail;
+        if (!account->UserLoaded()) mail = busy ? "Correo: buscando..." : "Correo: no se pudo consultar ahora.";
+        else if (account->Email().empty()) mail = "Sin correo: si olvida la contraseña, no hay cómo recuperarla.";
+        else mail = "Correo: " + account->Email() + (account->EmailVerified() ? " · verificado" : " · sin verificar");
+        C::Text(draw, false, 18, ImVec2(x, y), account->UserLoaded() && !account->EmailVerified() ? C::kRojo : C::kMarcador, mail.c_str(), inner);
+        y += C::TextHeight(false, 18, mail.c_str(), inner) + 12.0f;
+        const bool loaded = account->UserLoaded();
+        const bool canVerify = loaded && !account->Email().empty() && !account->EmailVerified();
+        ImGui::SetCursorScreenPos(ImVec2(x, y));
+        if (C::Tape("correo", loaded && account->Email().empty() ? "Agregar correo" : "Cambiar correo", ImVec2(half, 42.0f), false, loaded && !busy, nullptr, 18)) {
+            SetPanel(AccPanel::Email);
+            CopyTo(accEmail, sizeof accEmail, account->Email());
+            accInfo.clear();
+        }
+        ImGui::SetCursorScreenPos(ImVec2(x + half + 14.0f, y));
+        if (C::Tape("verificar-correo", "Verificar correo", ImVec2(half, 42.0f), canVerify, canVerify && !busy, nullptr, 18)) {
+            accInfo.clear();
+            account->SendEmailCode();
+            SetPanel(AccPanel::Verify);
+        }
+        y += 52.0f;
+        ImGui::SetCursorScreenPos(ImVec2(x, y));
+        if (C::Tape("clave", "Cambiar contraseña", ImVec2(half, 42.0f), false, !busy, nullptr, 18)) { SetPanel(AccPanel::Password); accInfo.clear(); }
+        ImGui::SetCursorScreenPos(ImVec2(x + half + 14.0f, y));
+        if (C::Tape("cerrar-sesion", "Cerrar sesión", ImVec2(half, 42.0f), false, !busy, nullptr, 18)) {
+            account->SignOut();
+            accError.clear();
+            accInfo.clear();
+            signUpTab = false;
+            SetPanel(AccPanel::Main);
+        }
+        y += 56.0f;
+
+        // multijugador: estadisticas y lo que ven los demas
+        C::HandLine(draw, ImVec2(x, y), ImVec2(x + inner, y), 9u, 2.0f);
+        y += 12.0f;
+        C::Text(draw, true, 20, ImVec2(x, y), C::kMarcador, "En multijugador");
+        y += 30.0f;
+        if (!account->ProfileOnline()) {
+            C::Text(draw, false, 16, ImVec2(x, y), C::kMarcador, "El perfil en línea no está disponible en esta copia del juego.", inner);
+            y += 30.0f;
+        } else if (!account->ProfileLoaded()) {
+            C::Text(draw, false, 16, ImVec2(x, y), C::kMarcador, busy ? "Buscando su perfil..." : "No se pudo traer su perfil ahora. Revise el internet.", inner);
+            y += 30.0f;
+        } else {
+            const std::string stats = std::to_string(profile.games) + (profile.games == 1 ? " partida · " : " partidas · ") + std::to_string(profile.days) +
+                                      (profile.days == 1 ? " día · $ " : " días · $ ") + Thousands(static_cast<int>(std::min<long long>(profile.money, 2000000000LL))) + " · " +
+                                      std::to_string(profile.fights) + (profile.fights == 1 ? " pelea · " : " peleas · ") + HoursText(profile.seconds);
+            C::Text(draw, false, 18, ImVec2(x, y), C::kMarcador, stats.c_str(), inner);
+            y += C::TextHeight(false, 18, stats.c_str(), inner) + 4.0f;
+            if (profile.games == 0) {
+                C::Text(draw, false, 15, ImVec2(x, y), C::kMarcador, "Se suman al terminar partidas por internet y salen en la tabla de clasificación.", inner);
+                y += C::TextHeight(false, 15, "Se suman al terminar partidas por internet y salen en la tabla de clasificación.", inner) + 4.0f;
+            }
+            y += 8.0f;
+            ImGui::SetCursorScreenPos(ImVec2(x, y));
+            if (C::Tape("visibilidad", profile.friendsOnly ? "Mi perfil: solo amigos" : "Mi perfil: lo ven todos", ImVec2(half, 42.0f), false, !busy, nullptr, 17)) {
+                accInfo.clear(); accError.clear();
+                account->SetFriendsOnly(!profile.friendsOnly);
+            }
+            ImGui::SetCursorScreenPos(ImVec2(x + half + 14.0f, y));
+            const bool hasLook = !save.look.empty();
+            if (C::Tape("apariencia", profile.appearance.empty() ? "Llevar mi personaje" : "Actualizar mi personaje", ImVec2(half, 42.0f), false, hasLook && !busy, nullptr, 17)) {
+                accInfo.clear(); accError.clear();
+                account->SetAppearance(save.look);
+            }
+            y += 50.0f;
+            const char* lookNote = !hasLook ? "Para llevar su personaje a la cuenta, créelo primero en la Historia (tecla P)."
+                                 : profile.appearance.empty() ? "Así lo verán en las salas: el aspecto de su personaje de la Historia, sin su nombre."
+                                 : "Su cuenta lleva el aspecto de su personaje. Si lo cambia en la Historia, actualícelo aquí.";
+            C::Text(draw, false, 15, ImVec2(x, y), C::kMarcador, lookNote, inner);
+            y += C::TextHeight(false, 15, lookNote, inner) + 8.0f;
+        }
+        Notes(draw, x, y, inner);
+        C::HandLine(draw, ImVec2(x, y), ImVec2(x + inner, y), 7u, 2.0f);
+        y += 12.0f;
+        StorySummary(draw, x, y, inner);
+        ImGui::SetCursorScreenPos(ImVec2(x, y));
+        if (C::Tape("borrar-cuenta", "Borrar cuenta", ImVec2(180.0f, 36.0f), false, !busy, nullptr, 16)) { SetPanel(AccPanel::Delete); accInfo.clear(); }
+    }
+
+    // Borrar la cuenta: se escribe el nombre para confirmar. No tiene vuelta atras.
+    void DeletePanel(ImDrawList* draw, float x, float& y, float inner) {
+        const bool busy = TaskBusy();
+        const float half = (inner - 14.0f) * 0.5f;
+        C::Text(draw, true, 24, ImVec2(x, y), C::kRojo, "Esto no tiene vuelta atrás.");
+        y += 36.0f;
+        const char* text = "Se borran su cuenta, su perfil, sus estadísticas y sus amigos, y el nombre queda libre para otro. La Historia guardada en este equipo no se toca.";
+        C::Text(draw, false, 17, ImVec2(x, y), C::kMarcador, text, inner);
+        y += C::TextHeight(false, 17, text, inner) + 14.0f;
+        const std::string label = "Escriba " + account->Name() + " para confirmar";
+        Label(draw, x, y, label.c_str());
+        ImGui::SetCursorScreenPos(ImVec2(x, y));
+        Field("##borrar-nombre", accCode2, sizeof accCode2, inner, 0, OnlyLettersAndDigits);
+        y += 52.0f;
+        Notes(draw, x, y, inner);
+        std::string typed = accCode2, name = account->Name();
+        for (char& c : typed) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+        for (char& c : name) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+        const bool matches = !typed.empty() && typed == name;
+        ImGui::SetCursorScreenPos(ImVec2(x, y));
+        if (C::Tape("borrar-ya", busy ? "Borrando..." : "Borrar mi cuenta", ImVec2(half, 46.0f), true, matches && !busy, nullptr, 19) && matches && !busy) {
+            accError.clear(); accInfo.clear();
+            account->DeleteAccount();
+        }
+        ImGui::SetCursorScreenPos(ImVec2(x + half + 14.0f, y));
+        if (C::Tape("no-borrar", "No, volver", ImVec2(half, 46.0f), false, !busy, nullptr, 19)) SetPanel(AccPanel::Main);
+    }
+
+    // Sin sesion: contrasena olvidada (nombre, luego codigo y contrasena nueva)
+    void ForgotPanel(ImDrawList* draw, float x, float& y, float inner) {
+        const bool busy = TaskBusy() || account->GetState() == Online::Session::State::Working;
+        const float half = (inner - 14.0f) * 0.5f;
+        if (accPanel == AccPanel::ForgotName) {
+            C::Text(draw, false, 17, ImVec2(x, y), C::kMarcador,
+                    "Escriba su usuario. Si la cuenta tiene un correo verificado, le llega un código para poner una contraseña nueva.", inner);
+            y += 54.0f;
+            Label(draw, x, y, "Usuario");
+            ImGui::SetCursorScreenPos(ImVec2(x, y));
+            const bool enter = Field("##usuario-olvido", accName, sizeof accName, inner, ImGuiInputTextFlags_EnterReturnsTrue, OnlyLettersAndDigits);
+            y += 52.0f;
+            Notes(draw, x, y, inner);
+            ImGui::SetCursorScreenPos(ImVec2(x, y));
+            if ((C::Tape("mandar-codigo", busy ? "Mandando..." : "Mandar código", ImVec2(half, 46.0f), true, !busy, nullptr, 20) || enter) && !busy) {
+                if (accName[0] == '\0') accError = "Escriba su usuario.";
+                else { accError.clear(); accInfo.clear(); account->ForgotPassword(accName); }
+            }
+            ImGui::SetCursorScreenPos(ImVec2(x + half + 14.0f, y));
+            if (C::Tape("volver-entrar", "Volver a Entrar", ImVec2(half, 46.0f), false, !busy, nullptr, 18)) { SetPanel(AccPanel::Main); accInfo.clear(); }
+            return;
+        }
+        const std::string text = "Si la cuenta " + std::string(accName) + " tiene un correo verificado, le llegó un código. Escríbalo con su contraseña nueva.";
+        C::Text(draw, false, 17, ImVec2(x, y), C::kMarcador, text.c_str(), inner);
+        y += C::TextHeight(false, 17, text.c_str(), inner) + 14.0f;
+        Label(draw, x, y, "Código");
+        ImGui::SetCursorScreenPos(ImVec2(x, y));
+        Field("##codigo-olvido", accCode, sizeof accCode, 200.0f, 0, OnlyDigits);
+        y += 52.0f;
+        Label(draw, x, y, "Contraseña nueva");
+        ImGui::SetCursorScreenPos(ImVec2(x, y));
+        Field("##olvido-clave", accPass, sizeof accPass, inner, ImGuiInputTextFlags_Password);
+        y += 52.0f;
+        Label(draw, x, y, "Repita la nueva");
+        ImGui::SetCursorScreenPos(ImVec2(x, y));
+        Field("##olvido-clave2", accPass2, sizeof accPass2, inner, ImGuiInputTextFlags_Password);
+        y += 52.0f;
+        Notes(draw, x, y, inner);
+        ImGui::SetCursorScreenPos(ImVec2(x, y));
+        if (C::Tape("cambiar-entrar", busy ? "Cambiando..." : "Cambiar y entrar", ImVec2(half, 46.0f), true, !busy, nullptr, 19) && !busy) {
+            if (std::strlen(accCode) < 6) accError = "El código tiene 6 números.";
+            else if (const auto problem = Online::CheckPassword(accPass, accPass2, accName); problem != Online::PasswordProblem::None) accError = Online::PasswordProblemText(problem);
+            else {
+                accError.clear(); accInfo.clear();
+                account->ConfirmForgotPassword(accName, accCode, std::string(accPass));
+                ForgetPasswords();
+            }
+        }
+        ImGui::SetCursorScreenPos(ImVec2(x + half + 14.0f, y));
+        if (C::Tape("otro-codigo-olvido", "Mandar otro código", ImVec2(half, 46.0f), false, !busy, nullptr, 18)) { accError.clear(); accInfo.clear(); account->ForgotPassword(accName); }
+    }
+
     void Profile(ImDrawList* draw, ImVec2 min, float width) {
         float y = min.y + 22.0f;
         const float x = min.x + 30.0f, inner = width - 60.0f;
-        Header(draw, x, y, inner, "PERFIL", true);
-        if (save.exists) {
-            const std::string name = save.name.empty() ? std::string("Sin nombre todavía") : save.name;
-            C::Text(draw, true, 30, ImVec2(x, y), C::kMarcador, name.c_str());
-            y += 48.0f;
-            const std::string money = "Plata guardada: $ " + Thousands(static_cast<int>(save.money));
-            C::Text(draw, false, 20, ImVec2(x, y), C::kMarcador, money.c_str());
-            y += 32.0f;
-            const std::string day = "Lleva " + std::to_string(std::max(1, save.day)) + (save.day == 1 ? " día en la calle" : " días en la calle");
-            C::Text(draw, false, 20, ImVec2(x, y), C::kMarcador, day.c_str());
-            y += 46.0f;
-        } else {
-            C::Text(draw, false, 20, ImVec2(x, y), C::kMarcador, "Todavía no tiene una partida guardada. Su perfil empieza con la primera noche.", inner);
-            y += 70.0f;
+        using State = Online::Session::State;
+        Header(draw, x, y, inner, SignedIn() ? "SU CUENTA" : "PERFIL", false);
+
+        if (!AccountsOn()) {   // este juego no tiene servidor de cuentas: solo lo de la Historia
+            StorySummary(draw, x, y, inner);
+            C::HandLine(draw, ImVec2(x, y), ImVec2(x + inner, y), 7u, 2.0f);
+            y += 18.0f;
+            C::Text(draw, false, 17, ImVec2(x, y), C::kMarcador,
+                    "Las cuentas de jugador todavía no están abiertas en esta copia del juego. La Historia se juega sin cuenta y sin internet; su aspecto se cambia en el juego con la tecla P.", inner);
+            return;
         }
-        C::HandLine(draw, ImVec2(x, y), ImVec2(x + inner, y), 7u, 2.0f);
-        y += 18.0f;
-        C::Text(draw, false, 17, ImVec2(x, y), C::kMarcador,
-                "Pronto podrá cambiar su nombre aquí y llevar su perfil a las salas de otros jugadores. Por ahora su aspecto se cambia en el juego con la tecla P.", inner);
+
+        if (SignedIn()) {
+            SignedInPanel(draw, x, y, inner);
+            return;
+        }
+
+        if (account->GetState() == State::Working) {
+            C::Text(draw, true, 26, ImVec2(x, y + 10.0f), C::kMarcador, "Conectando con el servidor de cuentas...");
+            y += 60.0f;
+            C::Text(draw, false, 17, ImVec2(x, y), C::kMarcador, "Un momento. Si no hay internet, se puede jugar la Historia sin cuenta.", inner);
+            return;
+        }
+
+        if (accPanel == AccPanel::ForgotName || accPanel == AccPanel::ForgotCode) {
+            ForgotPanel(draw, x, y, inner);
+            return;
+        }
+        if (wantMulti) {
+            C::Text(draw, false, 18, ImVec2(x, y), C::kRojo, "Para el Multijugador necesita una cuenta. Entre o cree una; la Historia no la pide.", inner);
+            y += 54.0f;
+        }
+        const float half = (inner - 14.0f) * 0.5f;
+        ImGui::SetCursorScreenPos(ImVec2(x, y));
+        if (C::Tape("tab-entrar", "Entrar", ImVec2(half, 42.0f), false, true, nullptr, 20) && signUpTab) { signUpTab = false; accError.clear(); account->ClearError(); ForgetPasswords(); }
+        if (!signUpTab) CircleLast(draw, 31u);
+        ImGui::SetCursorScreenPos(ImVec2(x + half + 14.0f, y));
+        if (C::Tape("tab-crear", "Crear cuenta", ImVec2(half, 42.0f), false, true, nullptr, 20) && !signUpTab) { signUpTab = true; accError.clear(); account->ClearError(); ForgetPasswords(); }
+        if (signUpTab) CircleLast(draw, 37u);
+        y += 62.0f;
+
+        bool submit = false;
+        Label(draw, x, y, "Usuario");
+        ImGui::SetCursorScreenPos(ImVec2(x, y));
+        Field("##usuario", accName, sizeof accName, inner, 0, OnlyLettersAndDigits);
+        y += 44.0f;
+        if (signUpTab) {
+            const auto problem = Online::CheckName(accName);
+            const char* hint = accName[0] == '\0' ? "De 3 a 16 letras (a-z) o números, sin espacios. Así lo verán los demás."
+                             : problem == Online::NameProblem::None ? "Sirve. Si nadie más lo tiene, es suyo." : Online::NameProblemText(problem);
+            C::Text(draw, false, 15, ImVec2(x, y), accName[0] != '\0' && problem != Online::NameProblem::None ? C::kRojo : C::kMarcador, hint, inner);
+            y += 26.0f;
+        }
+
+        Label(draw, x, y, "Contraseña");
+        ImGui::SetCursorScreenPos(ImVec2(x, y));
+        submit |= Field("##clave", accPass, sizeof accPass, inner, ImGuiInputTextFlags_Password | (signUpTab ? 0 : ImGuiInputTextFlags_EnterReturnsTrue));
+        y += 52.0f;
+        if (signUpTab) {
+            Label(draw, x, y, "Repita la contraseña");
+            ImGui::SetCursorScreenPos(ImVec2(x, y));
+            Field("##clave2", accPass2, sizeof accPass2, inner, ImGuiInputTextFlags_Password);
+            y += 44.0f;
+            if (accPass[0] != '\0') {
+                const auto problem = Online::CheckPassword(accPass, accPass2, accName);
+                if (problem != Online::PasswordProblem::None && !(problem == Online::PasswordProblem::Mismatch && accPass2[0] == '\0'))
+                    C::Text(draw, false, 15, ImVec2(x, y), C::kRojo, Online::PasswordProblemText(problem), inner);
+            }
+            y += 26.0f;
+            Label(draw, x, y, "Correo (opcional)");
+            ImGui::SetCursorScreenPos(ImVec2(x, y));
+            Field("##correo", accEmail, sizeof accEmail, inner, ImGuiInputTextFlags_CharsNoBlank);
+            y += 44.0f;
+            const char* note = "Solo sirve para recuperar la contraseña si la olvida. Sin correo no hay cómo recuperarla. Nadie más lo ve.";
+            C::Text(draw, false, 15, ImVec2(x, y), C::kMarcador, note, inner);
+            y += C::TextHeight(false, 15, note, inner) + 12.0f;
+        }
+
+        const std::string error = !accError.empty() ? accError : account->Error() != Online::AuthError::None ? std::string(Online::AuthErrorText(account->Error())) : std::string();
+        if (!error.empty()) {
+            C::Text(draw, false, 17, ImVec2(x, y), C::kRojo, error.c_str(), inner);
+            y += C::TextHeight(false, 17, error.c_str(), inner) + 10.0f;
+        } else if (!accInfo.empty()) {   // por ejemplo, «Su cuenta se borró»
+            C::Text(draw, false, 17, ImVec2(x, y), C::kMarcador, accInfo.c_str(), inner);
+            y += C::TextHeight(false, 17, accInfo.c_str(), inner) + 10.0f;
+        }
+        ImGui::SetCursorScreenPos(ImVec2(x, y));
+        if (C::Tape("cuenta-ok", signUpTab ? "Crear cuenta" : "Entrar", ImVec2(inner, 50.0f), true, true, signUpTab ? nullptr : "Enter", 22)) submit = true;
+        if (submit) SubmitAccount();
+        if (!signUpTab) {
+            y += 62.0f;
+            ImGui::SetCursorScreenPos(ImVec2(x, y));
+            if (C::Tape("olvido", "Olvidé mi contraseña", ImVec2(260.0f, 38.0f), false, true, nullptr, 17)) { SetPanel(AccPanel::ForgotName); accInfo.clear(); account->ClearError(); }
+        }
     }
 };
 
@@ -911,9 +1583,10 @@ void LobbySettings::ReadAudio(const AudioManager& audio) {
 
 // ---- lobby ----
 
-LobbyChoice RunLobby(Window& window, UIManager& ui, AudioManager& audio, LobbySettings& settings, const std::filesystem::path& savegame, LobbyRoom& room, bool inGame) {
+LobbyChoice RunLobby(Window& window, UIManager& ui, AudioManager& audio, LobbySettings& settings, const std::filesystem::path& savegame, LobbyRoom& room, bool inGame,
+                     Online::Session* account) {
     settings.ApplyAudio(audio);
-    Lobby lobby(settings, audio, savegame, room, inGame);
+    Lobby lobby(settings, audio, savegame, room, inGame, account);
     double lastTime = glfwGetTime();
     std::vector<C::HalftoneDot> dots;
     float builtWidth = 0.0f, builtHeight = 0.0f;
@@ -935,10 +1608,44 @@ LobbyChoice RunLobby(Window& window, UIManager& ui, AudioManager& audio, LobbySe
     if (const char* which = std::getenv("BAZUKO_LOBBY_PANTALLA")) {
         const std::string name = which;
         if (name == "multi") lobby.Go(Screen::Multi);
+        else if (name.rfind("clasificacion", 0) == 0 && account) {   // con filas de muestra, sin red
+            account->PreviewSignedIn("Jairo117", "", false);
+            lobby.Go(Screen::Ranking);
+            lobby.rankTable = 1;
+            lobby.rankScope = name == "clasificacion-global" ? 2 : 0;
+            Online::Leaderboard sample;
+            const char* names[] = {"Rosa", "ElFlaco", "Marlon", "Yeimy", "Chucho", "Doris", "Jairo117", "Pacho", "Lucero", "Wilson"};
+            for (int i = 0; i < 10; ++i) sample.rows.push_back({i + 1, names[i], 2400000LL - i * 215000LL});
+            sample.ownPlace = 7;
+            sample.ownValue = sample.rows[6].value;
+            sample.next = lobby.rankScope == 2 ? 50 : -1;
+            if (name == "clasificacion-vacia") { sample.rows.clear(); sample.ownPlace = 0; }
+            lobby.rankBoard = sample;
+        }
         else if (name == "crear") lobby.Go(Screen::Create);
         else if (name == "unirse") lobby.Go(Screen::Join);
         else if (name == "ajustes") lobby.Go(Screen::Settings);
         else if (name == "perfil") lobby.Go(Screen::Profile);
+        else if (name == "crear-cuenta") { lobby.Go(Screen::Profile); lobby.signUpTab = true; }
+        else if (name == "pide-cuenta") lobby.TryMulti();
+        // cuenta-*: una cuenta de muestra (sin red) para ver la ficha y sus gestiones; olvido*: contrasena olvidada
+        else if (name.rfind("cuenta", 0) == 0 && account) {
+            Online::OwnProfile sample;
+            sample.name = "Jairo117";
+            sample.created = 1794600000;
+            if (name == "cuenta") { sample.games = 12; sample.days = 31; sample.money = 184500; sample.fights = 7; sample.seconds = 5 * 3600 + 20 * 60; sample.appearance = "{}"; }
+            account->PreviewSignedIn("Jairo117", name == "cuenta-sin-correo" ? "" : "jairo117@ejemplo.com", name == "cuenta", &sample);
+            lobby.Go(Screen::Profile);
+            if (name == "cuenta-correo") { lobby.SetPanel(Lobby::AccPanel::Email); CopyTo(lobby.accEmail, sizeof lobby.accEmail, account->Email()); }
+            else if (name == "cuenta-codigo") lobby.SetPanel(Lobby::AccPanel::Verify);
+            else if (name == "cuenta-clave") lobby.SetPanel(Lobby::AccPanel::Password);
+            else if (name == "cuenta-borrar") lobby.SetPanel(Lobby::AccPanel::Delete);
+        }
+        else if (name == "olvido" || name == "olvido-codigo") {
+            lobby.Go(Screen::Profile);
+            CopyTo(lobby.accName, sizeof lobby.accName, "Jairo117");
+            lobby.SetPanel(name == "olvido" ? Lobby::AccPanel::ForgotName : Lobby::AccPanel::ForgotCode);
+        }
 #ifdef BAZUKO_NET_ENABLED
         // sala | sala-lista | sala-salir: abre una sala por internet (codigo en BAZUKO_LOBBY_CODIGO) y muestra su ficha, la lista con ella o el aviso al salir
         // pedir-codigo: la lista con una sala con codigo y el recuadro que pide el codigo para entrar (BAZUKO_LOBBY_CODIGO: lo escrito, se revisa)
@@ -999,6 +1706,7 @@ LobbyChoice RunLobby(Window& window, UIManager& ui, AudioManager& audio, LobbySe
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
         ui.BeginFrame();
         lobby.PollFetch();
+        lobby.TickAccount();
 #ifdef BAZUKO_NET_ENABLED
         if (lobby.browser && (lobby.screen == Screen::Multi || lobby.screen == Screen::Join || lobby.screen == Screen::Create)) lobby.browser->Update();
 #endif
@@ -1028,18 +1736,19 @@ LobbyChoice RunLobby(Window& window, UIManager& ui, AudioManager& audio, LobbySe
         }
 
         // la pieza de carton del menu, a la izquierda (el arte queda a la vista a la derecha)
-        const bool wide = lobby.screen == Screen::Multi || lobby.screen == Screen::Settings || lobby.screen == Screen::Create;
+        const bool wide = lobby.screen == Screen::Multi || lobby.screen == Screen::Settings || lobby.screen == Screen::Create || lobby.screen == Screen::Ranking;
         const float width = std::min(display.x - 32.0f, wide ? 820.0f : 560.0f);
         const float top = margin + wordHeight + 18.0f;
         const float room = std::max(300.0f, display.y - top - 24.0f);
         float fit = room;   // cada pantalla mide lo que tiene; la de salas usa todo el alto para la lista
         switch (lobby.screen) {
             case Screen::Home: fit = 440.0f; break;
-            case Screen::Profile: fit = 400.0f; break;
+            case Screen::Profile: fit = lobby.ProfileHeight(); break;
             case Screen::Join: fit = 380.0f; break;
             case Screen::Create: fit = settings.roomInternet ? 602.0f : 478.0f; break;
             case Screen::Settings: fit = 560.0f; break;
             case Screen::Multi: break;
+            case Screen::Ranking: break;
         }
         if (lobby.modal != Modal::None) fit = Lobby::ModalHeight(lobby.modal);
         const float height = std::min(fit, room);
@@ -1060,6 +1769,7 @@ LobbyChoice RunLobby(Window& window, UIManager& ui, AudioManager& audio, LobbySe
         else switch (lobby.screen) {
             case Screen::Home: lobby.Home(draw, panelMin, width); break;
             case Screen::Multi: lobby.Multi(draw, panelMin, width, height); break;
+            case Screen::Ranking: lobby.Ranking(draw, panelMin, width, height); break;
             case Screen::Create: lobby.Create(draw, panelMin, width); break;
             case Screen::Join: lobby.Join(draw, panelMin, width); break;
             case Screen::Settings: lobby.Settings(draw, panelMin, width); break;

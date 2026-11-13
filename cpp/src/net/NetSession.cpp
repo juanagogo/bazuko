@@ -693,6 +693,7 @@ void NetSession::ResolveStrike(uint8_t attacker, const glm::vec3& position, cons
     glm::vec3 from(position.x - best->position.x, 0.0f, position.z - best->position.z);
     const float length = std::hypot(from.x, from.z);
     from = length > 0.01f ? from / length : glm::vec3(-forward.x, 0.0f, -forward.y);
+    if (m_PlayerHits.size() < 256) m_PlayerHits.push_back({attacker, best->id});
     SendHit(best->id, command.kind, from);
 }
 

@@ -19,6 +19,7 @@ namespace Bazuko {
 class Window;
 class UIManager;
 class AudioManager;
+namespace Online { class Session; }
 
 // Ajustes del equipo (no de la partida): se guardan en bazuko_ajustes.json junto al guardado.
 struct LobbySettings {
@@ -75,6 +76,8 @@ struct LobbyChoice {
 // Muestra el lobby hasta que se elige un modo o se cierra la ventana (Mode::Quit). Aplica el sonido al momento y deja la calidad en `settings`.
 // `room`: la sala de este jugador. Abrir sala la crea aqui mismo; cerrar el juego con ella abierta pide confirmacion y la cierra.
 // `inGame`: se volvio al lobby desde una partida (la ciudad ya esta cargada): «Historia» la retoma.
-LobbyChoice RunLobby(Window& window, UIManager& ui, AudioManager& audio, LobbySettings& settings, const std::filesystem::path& savegame, LobbyRoom& room, bool inGame = false);
+// `account`: la cuenta del jugador (online/Session.hpp). Con cuentas configuradas, el Multijugador pide entrar primero; la Historia nunca.
+LobbyChoice RunLobby(Window& window, UIManager& ui, AudioManager& audio, LobbySettings& settings, const std::filesystem::path& savegame, LobbyRoom& room,
+                     bool inGame = false, Online::Session* account = nullptr);
 
 } // namespace Bazuko

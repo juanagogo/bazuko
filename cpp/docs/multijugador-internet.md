@@ -179,7 +179,46 @@ lo ven los demás; cada uno sigue viendo su propio nombre sin número en su pant
 
 Cada jugador tiene una clave de perfil (`bazuko_clave_perfil.txt`, junto al guardado). El anfitrión guarda su plata, costal, experiencia, nivel y talentos en
 `bazuko_perfiles/` (`--perfiles=carpeta`). Un perfil que ese anfitrión no conoce entra recortado (50 000 de plata, 60 objetos, nivel 20): un perfil se gana jugando en
-ese anfitrión. **No hay cuentas ni contraseñas todavía**: quien copie la clave es ese jugador.
+ese anfitrión. Quien copie la clave es ese jugador.
+
+## Cuentas de jugador
+
+La pantalla **Perfil** del lobby sirve para entrar, crear una cuenta y cerrar sesión. El nombre de usuario lleva de 3 a 16 letras (a-z) o números. Es único y no distingue
+mayúsculas. La contraseña se escribe dos veces y tiene al menos 8 caracteres. El correo es opcional: sin él no se puede recuperar la contraseña. El juego nunca guarda la
+contraseña; la sesión queda cifrada para este usuario de Windows en `bazuko_sesion.bin` y se renueva sola. «Cerrar sesión» la revoca y borra ese archivo.
+
+Con la sesión abierta, el Perfil muestra el correo y si está verificado:
+
+- **Agregar o cambiar correo**: queda sin verificar y llega un código de 6 números al correo; se escribe en «Verificar». Dejarlo vacío lo quita.
+- **Cambiar contraseña**: pide la actual y la nueva dos veces. Al cambiarla, la cuenta se cierra en los demás equipos y sigue abierta en este.
+- **Olvidé mi contraseña** (en «Entrar»): con el usuario llega un código al correo **verificado** y se pone una contraseña nueva. Al terminar se entra y la cuenta
+  se cierra en los demás equipos. El juego siempre dice «si la cuenta tiene correo verificado, le llegó un código», exista o no: así nadie averigua qué nombres existen.
+
+En «En multijugador», el Perfil muestra las estadísticas de la cuenta y deja elegir quién ve el perfil (todos o solo amigos). «Llevar mi personaje» sube a la cuenta
+el aspecto del personaje de la Historia, sin su nombre. «Borrar cuenta» pide escribir el nombre: borra perfil, estadísticas y amigos, y el nombre queda libre.
+
+Los correos los manda Cognito desde una dirección genérica de Amazon, con un límite de unos 50 al día; con más jugadores habrá que conectar Amazon SES.
+
+Con el servidor de cuentas configurado, **Multijugador** pide entrar primero, y en las salas se ve el nombre de la cuenta. La **Historia** nunca pide cuenta ni internet.
+Las cuentas viven en AWS (`cpp/servicios/`, ver `specs/002-cuentas-sociales/`). El juego las busca con `-DBAZUKO_CUENTAS_REGION=` y `-DBAZUKO_CUENTAS_CLIENTE=` al
+compilar, o con las variables de entorno del mismo nombre. Sin cliente configurado, el Perfil lo dice y el multijugador funciona como antes, sin cuenta.
+
+## Clasificación
+
+En **Multijugador**, el botón «Clasificación» abre una tabla por estadística: días, plata, peleas, partidas y tiempo. Cada una tiene Top 10, Top 100 y Global, por
+páginas de 50. Arriba sale siempre el puesto propio, aunque no esté en la página.
+
+Solo cuentan las salas por internet: las de la red local y la Historia no suman. Al entrar a una sala, cada cuenta avisa ella misma que está dentro. El anfitrión cuenta
+lo que ve de cada jugador y lo manda cada minuto y al salir; si no hay internet, lo guarda y lo reintenta. Lo que se cuenta:
+
+- **Tiempo**: el que el jugador pasa dentro de la sala.
+- **Días**: los que pasan en el mundo de la sala mientras está dentro.
+- **Plata**: la que gana; lo gastado no resta.
+- **Peleas ganadas**: derribar a otro jugador hasta 4 s después de golpearlo.
+- **Partidas**: una por sala, después de un minuto dentro.
+
+El servidor solo acredita a cuentas que avisaron que estaban en esa sala, y como mucho lo que cabe en el tiempo real que llevan dentro. Si el informe trae algo imposible
+(por ejemplo, 30 días en dos minutos), ese jugador no recibe nada. Lo ya acreditado no se vuelve a sumar, aunque cambie el anfitrión.
 
 ## Límites actuales
 

@@ -43,6 +43,9 @@
 #include "game/Harvest.hpp"
 #include "audio/AudioManager.hpp"
 #include "world/Decals.hpp"
+#include "online/AccountConfig.hpp"
+#include "online/Match.hpp"
+#include "online/Session.hpp"
 #include "world/LightBeams.hpp"
 #include "world/CityLayout.hpp"
 #include "world/Simulation.hpp"
@@ -141,6 +144,10 @@ int main(int argc, char** argv) {
     LobbyChoice lobbyChoice;
     lobbyChoice.mode = LobbyChoice::Mode::Story;
     bool lobbyShown = false;
+    // cuenta del jugador (online/Session.hpp): si quedo una sesion guardada en este equipo, se renueva en segundo plano mientras se ve el lobby
+    Online::Session account(Online::AccountConfig(), "bazuko_sesion.bin");
+    Online::MatchReporter matchReporter(account);   // clasificacion: avisa que esta en la sala por internet y, siendo anfitrion, manda lo que ve
+    account.Resume();
     LobbyRoom lobbyRoom;   // la sala que se abre desde el lobby; sigue abierta si el anfitrion vuelve al lobby sin nadie dentro
     {
         bool skipLobby = std::getenv("BAZUKO_SHOT") || std::getenv("BAZUKO_BENCH") || std::getenv("BAZUKO_SIN_LOBBY") || std::getenv("BAZUKO_HOST")
@@ -151,7 +158,7 @@ int main(int argc, char** argv) {
         }
         if (skipLobby) lobbySettings.ApplyAudio(audio);
         else {
-            lobbyChoice = RunLobby(window, ui, audio, lobbySettings, "savegame.json", lobbyRoom);
+            lobbyChoice = RunLobby(window, ui, audio, lobbySettings, "savegame.json", lobbyRoom, false, &account);
             lobbyShown = true;
             lobbySettings.ReadAudio(audio);
             lobbySettings.Save(settingsPath);
@@ -1054,7 +1061,9 @@ int main(int argc, char** argv) {
             host = colon == std::string::npos ? text : text.substr(0, colon);
             port = colon == std::string::npos ? defaultPort : static_cast<uint16_t>(std::atoi(text.c_str() + colon + 1));
         };
-        const std::string playerName = characterManager.GetLook().nombre.empty() ? std::string("Parcero") : characterManager.GetLook().nombre;
+        // con sesion abierta, los demas ven el nombre de la cuenta (unico y revisado); sin cuentas, el del personaje como antes
+        const std::string playerName = account.GetState() == Online::Session::State::SignedIn ? account.Name()
+                                     : characterManager.GetLook().nombre.empty() ? std::string("Parcero") : characterManager.GetLook().nombre;
         if (roomName.empty()) roomName = "Sala de " + playerName;
         if (!relayHostArg.empty()) {   // anfitrion por relevo: crea una sala y muestra su codigo
             std::string relayAddress; uint16_t relayPort = 0;
@@ -1140,6 +1149,7 @@ int main(int argc, char** argv) {
     // abierta en el lobby; con jugadores dentro, la partida pasa al siguiente y siguen jugando sin el. Un invitado sale de la sala.
     const auto returnToLobby = [&]() -> bool {
 #ifdef BAZUKO_NET_ENABLED
+        matchReporter.End();   // el anfitrion manda lo que falte antes de soltar la sala
         if (netSession) {
             const bool host = netSession->GetRole() == Net::NetSession::Role::Host;
             if (host && netSession->PlayerCount() > 1 && netSession->HandOver(false)) {
@@ -1170,7 +1180,7 @@ int main(int argc, char** argv) {
         audio.StopStreetVoice();
         audio.StopSubstanceSustain();
         audio.SetWorldSilenced(true);
-        lobbyChoice = RunLobby(window, ui, audio, lobbySettings, "savegame.json", lobbyRoom, true);
+        lobbyChoice = RunLobby(window, ui, audio, lobbySettings, "savegame.json", lobbyRoom, true, &account);
         lobbySettings.ReadAudio(audio);
         lobbySettings.Save(settingsPath);
         if (lobbyChoice.mode == LobbyChoice::Mode::Quit) return false;
@@ -1189,6 +1199,8 @@ int main(int argc, char** argv) {
 
         // 2. Procesar eventos del sistema
         window.PollEvents();
+        account.Update(static_cast<long long>(std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count()));   // renueva la sesion antes de que venza
+        matchReporter.Update(glfwGetTime());
 
         // 3. Post-poll para asegurar deltas de mouse
         Input::PostPoll();
@@ -1867,6 +1879,7 @@ int main(int argc, char** argv) {
         }
         std::vector<Net::PlayerView> remoteViewers;   // anfitrion: los otros jugadores existen para peatones, policia y trafico
 #ifdef BAZUKO_NET_ENABLED
+        if (!netSession && matchReporter.Active()) matchReporter.End();   // salio de la sala (al lobby, o la sala se cerro)
         if (netSession) {   // multijugador: cuenta mi estado, recibe el de los demas y los dibuja (net/NetSession.hpp)
             static uint64_t lookSentFor = 0;
             if (lookSentFor != netGeneration) { lookSentFor = netGeneration; netSession->SetLook(EncodeLook(characterManager.GetLook())); }   // va en el saludo
@@ -1897,6 +1910,33 @@ int main(int argc, char** argv) {
                 for (const auto& entry : inventory) snapshot.items.push_back({static_cast<uint16_t>(entry.itemIndex), static_cast<uint16_t>(std::min(entry.quantity, 65535))});
                 return Net::Canonical(std::move(snapshot), lootTable.size());
             };
+            {   // clasificacion (online/Match.hpp): solo salas por internet; las de la red local no cuentan
+                const bool matchHost = netSession->GetRole() == Net::NetSession::Role::Host;
+                const std::string matchCode = netSession->ViaRelay() && netSession->Connected() ? netSession->RoomCode() : std::string();
+                if (matchCode.empty()) { if (matchReporter.Active()) matchReporter.End(); }
+                else if (!matchReporter.Active() || matchReporter.Code() != matchCode) { matchReporter.End(); matchReporter.Begin(matchCode, matchHost); }
+                else if (matchHost && !matchReporter.Host()) matchReporter.BecomeHost();
+                const auto hits = netSession->ConsumePlayerHits();
+                if (matchReporter.Active() && matchReporter.Host()) {
+                    const double matchNow = glfwGetTime();
+                    std::unordered_map<uint8_t, std::string> names{{netSession->LocalId(), account.Name()}};
+                    std::vector<Online::MatchTally::Seen> seen{{account.Name(), playerKnockedDown, true, static_cast<double>(money)}};
+                    for (const Net::RemotePlayer& remote : netSession->Remotes()) {
+                        names[remote.id] = remote.name;
+                        Online::MatchTally::Seen guest{remote.name, remote.knockedDown};
+                        if (const Net::Ledger* ledger = netSession->LedgerOf(remote.id); ledger && ledger->Started()) { guest.hasMoney = true; guest.money = ledger->State().money; }
+                        seen.push_back(std::move(guest));
+                    }
+                    for (const auto& hit : hits) {
+                        const auto attacker = names.find(hit.attacker), victim = names.find(hit.victim);
+                        if (attacker != names.end() && victim != names.end()) matchReporter.Tally().Hit(attacker->second, victim->second, matchNow);
+                    }
+                    static int matchDay = 0;
+                    if (matchDay != 0 && simulation.GetDay() != matchDay) matchReporter.Tally().NewDay();
+                    matchDay = simulation.GetDay();
+                    matchReporter.Tally().Observe(matchNow, seen);
+                }
+            }
             if (netSession->GetRole() == Net::NetSession::Role::Host) {
                 netSession->SetHostEconomy(economyNow());   // el anfitrion tambien tiene perfil: viaja en el punto de control
                 static uint64_t roomAnnouncedFor = 0, roomFailedFor = 0;
