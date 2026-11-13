@@ -515,7 +515,8 @@ export class HUD {
 
     window.addEventListener('sleep-end', (e) => this._toast(`Dormí ${e.detail?.hours ?? ''} h. Partida guardada`, 'info'));
     window.addEventListener('sleep-fail', (e) => this._toast(
-      e.detail.reason === 'nobase' ? 'Primero toca armar el cambuche (8 cartones)' : 'Aquí no puedo dormir',
+      e.detail.reason === 'nobase' ? 'Primero toca armar el cambuche (8 cartones)'
+        : e.detail.reason === 'persecucion' ? 'Con la tomba encima no puedo dormir' : 'Aquí no puedo dormir',
       'warn'
     ));
   }
@@ -748,7 +749,7 @@ export class HUD {
     }
     if (info) {
       const d = info.distance < 30 ? Math.round(info.distance) : Math.round(info.distance / 5) * 5;
-      this._setText(this.wantedDato, `Patrulla a ${d} m`);
+      this._setText(this.wantedDato, `${info.onFoot ? 'Agente' : 'Patrulla'} a ${d} m`);
       if (this.wantedBarra) this._setWidth(this.wantedBarra, Math.round(info.closeness * 100));
     }
   }
@@ -890,7 +891,7 @@ export class HUD {
       game.stats.higiene = Math.min(100, (game.stats.higiene || 0) + (def.amount || 30));
       game.stats.animo = Math.min(100, (game.stats.animo || 0) + (def.animo || 15));
       game.audio?.play('pickup');
-      this._toast('Te pusiste ropa limpia (+30 higiene, +15 ánimo)', 'info');
+      this._toast('Me puse ropa limpia (+30 higiene, +15 ánimo)', 'info');
       game.openWardrobe?.();
       return;
     }

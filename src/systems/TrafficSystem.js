@@ -33,6 +33,7 @@ const REJOIN_PERSON_RADIUS = 4;
 // A la vista del jugador el salto se nota: aguanta más, sin quedarse trancando la vía para siempre.
 const REJOIN_SEEN_RADIUS = 40;
 const REJOIN_SEEN_TIMEOUT = 30;
+const REJOIN_STILL = .5; // m: menos que esto desde donde se trabó es seguir trabada
 // Más acá del alcance de la niebla nadie ve un carro: se apaga entero y solo avanza por su ruta.
 const HIDE_MIN_DISTANCE = 70, HIDE_FOG_MARGIN = 12;
 // A qué distancia de la vista aparece y desaparece un carro del montaje diario.
@@ -73,7 +74,7 @@ export class TrafficSystem {
     this._viewPosition = new THREE.Vector3();
     this._routeLength = null;
     this._byRoom = (a, b) => b.room - a.room;
-    this._pursuitInfo = { distance: 0, dx: 0, dz: 0, closeness: 0, x: 0, z: 0 };
+    this._pursuitInfo = { distance: 0, dx: 0, dz: 0, closeness: 0, x: 0, z: 0, onFoot: false };
     this.random = random;
     // Los circuitos de partida: sobre ellos se reparte la flota diaria; las alternativas solo reciben a quien cambia de ruta.
     this.startRoutes = routes;
@@ -96,6 +97,7 @@ export class TrafficSystem {
     this._routeVehicles = new Map();
     this._chaseColliders = [];
     this._chaseBox = new THREE.Box3();
+    this._hereBox = new THREE.Box3();
     for (const route of routes) {
       // Evita una población inicial mayor que el espacio disponible en el circuito.
       const count = Math.min(carsPerRoute, Math.floor(route.length / 12));
@@ -273,18 +275,41 @@ export class TrafficSystem {
 
   /**
    * Un carro parado mucho rato fuera de la vista se retira y la flota manda otro a un tramo libre. Los trancones que el
-   * jugador ve se quedan, como el tráfico de verdad, y se despejan cuando deja de mirar.
+   * jugador ve se quedan, como el tráfico de verdad, y se despejan cuando deja de mirar. La patrulla de ronda no tiene
+   * repuesto: en vez de retirarse, se pasa a un tramo libre de su ruta, también fuera de la vista.
    */
   _clearStuck(dt) {
     const view = this._viewPosition, safeSq = this._resizeDistance() ** 2;
     for (const vehicle of this.vehicles) {
       vehicle.stoppedFor = vehicle.speed < .05 ? (vehicle.stoppedFor ?? 0) + dt : 0;
-      if (vehicle.stoppedFor < STUCK_LIMIT || !this._canRetire(vehicle)) continue;
+      if (vehicle.stoppedFor < STUCK_LIMIT) continue;
+      const patrol = vehicle.police && vehicle.state === 'patrol' && !vehicle.rejoinTarget && !vehicle.hold;
+      if (!patrol && !this._canRetire(vehicle)) continue;
       const dx = vehicle.car.position.x - view.x, dz = vehicle.car.position.z - view.z;
       if (dx * dx + dz * dz < safeSq) continue;
+      if (patrol) {
+        if (this._moveToFreeStretch(vehicle)) return;
+        continue;
+      }
       this._retire(vehicle);
       return; // uno por cuadro, para que la retirada se note como el resto del montaje
     }
+  }
+
+  /** Lleva un vehículo parado a un tramo libre de su ruta, lejos de la vista, como si entrara de nuevo. */
+  _moveToFreeStretch(vehicle) {
+    const distance = this._freeDistance(vehicle.route);
+    if (distance === null) return false;
+    this._releaseReservations(vehicle);
+    vehicle.route.sample(distance, this._position, this._direction);
+    vehicle.distance = vehicle.nextDistance = distance;
+    vehicle.car.position.copy(this._position);
+    vehicle.car.group.rotation.y = Math.atan2(-this._direction.z, this._direction.x);
+    vehicle.speed = vehicle.nextSpeed = vehicle.acceleration = 0;
+    vehicle.stopped = false;
+    vehicle.resumeDelay = 0;
+    vehicle.stoppedFor = 0;
+    return true;
   }
 
   /** Saca al vehículo de las colas, los planes y los dueños de todos los cruces. */
@@ -321,7 +346,8 @@ export class TrafficSystem {
   /** ¿Alguna patrulla tiene al jugador a la vista (cerca o de frente)? */
   witnessesTheft(playerPosition) {
     if (!playerPosition) return false;
-    return this.vehicles.some(vehicle => vehicle.police && vehicle.state === 'patrol' && this._canWitness(vehicle, playerPosition));
+    return this.vehicles.some(vehicle => vehicle.police && ((vehicle.state === 'patrol' && this._canWitness(vehicle, playerPosition))
+      || !!vehicle.crew?.witnesses?.(playerPosition)));
   }
 
   /** Pasa a persecución a las patrullas que ven el robo. */
@@ -329,7 +355,10 @@ export class TrafficSystem {
     if (!playerPosition) return false;
     let alerted = false;
     for (const vehicle of this.vehicles) {
-      if (!vehicle.police || vehicle.state !== 'patrol' || !this._canWitness(vehicle, playerPosition)) continue;
+      if (!vehicle.police) continue;
+      // Los agentes que volvían al carro y lo ven robar retoman la persecución desde donde están (ver PoliceFootSystem).
+      if (vehicle.crew?.witnesses?.(playerPosition)) { vehicle.crew.resume(playerPosition); alerted = true; continue; }
+      if (vehicle.state !== 'patrol' || !this._canWitness(vehicle, playerPosition)) continue;
       this._startChase(vehicle);
       alerted = true;
     }
@@ -355,12 +384,19 @@ export class TrafficSystem {
   endPursuit() {
     this._arrestDispatched = false;
     for (const vehicle of this.vehicles) {
+      // Los agentes que anden a pie se suben antes de que la patrulla arranque (ver PoliceFootSystem).
+      vehicle.crew?.recall();
       if (vehicle.police && vehicle.state !== 'patrol') this._returnToPatrol(vehicle);
     }
   }
 
+  /** ¿Sigue persiguiendo? Una patrulla cuyos agentes ya desistieron y vuelven al carro no cuenta. */
+  _pursuing(vehicle) {
+    return vehicle.police && vehicle.state === 'chase' && vehicle.crew?.pursuing !== false;
+  }
+
   get inPursuit() {
-    return this.vehicles.some(vehicle => vehicle.police && vehicle.state === 'chase');
+    return this.vehicles.some(vehicle => this._pursuing(vehicle));
   }
 
   /**
@@ -371,8 +407,9 @@ export class TrafficSystem {
   get pursuitInfo() {
     let nearest = null, distance = Infinity;
     for (const vehicle of this.vehicles) {
-      if (!vehicle.police || vehicle.state !== 'chase') continue;
-      const d = vehicle._chaseDist ?? POLICE_GIVE_UP_RANGE;
+      if (!this._pursuing(vehicle)) continue;
+      // A pie cuenta el agente más cercano, no el carro parqueado.
+      const d = vehicle.crew?.pursuitDistance ?? vehicle._chaseDist ?? POLICE_GIVE_UP_RANGE;
       if (d < distance) { distance = d; nearest = vehicle; }
     }
     if (!nearest) return null;
@@ -383,6 +420,7 @@ export class TrafficSystem {
     info.closeness = Math.max(0, Math.min(1, (POLICE_GIVE_UP_RANGE - distance) / (POLICE_GIVE_UP_RANGE - POLICE_CATCH_RANGE)));
     info.x = nearest.car.position.x;
     info.z = nearest.car.position.z;
+    info.onFoot = !!nearest.crew?.pursuitOnFoot;
     return info;
   }
 
@@ -424,7 +462,9 @@ export class TrafficSystem {
     if (this.environment && vehicle.car.position.distanceTo(this._position) > .2) {
       // Regresar al carril también es movimiento físico; no saltar una manzana ni cambiar de planta.
       vehicle.rejoinTarget = this._position.clone();
-      vehicle._rejoinStuck = 0;
+      // Si sigue donde se había trabado (una persecución corta que no la movió), el tope de `_forceRejoin` sigue contando.
+      const stuck = vehicle._rejoinStuckAt;
+      if (!(vehicle._rejoinStuck > 0 && stuck && vehicle.car.position.distanceTo(stuck) < REJOIN_STILL)) vehicle._rejoinStuck = 0;
       return;
     }
     vehicle.rejoinTarget = null;
@@ -933,11 +973,27 @@ export class TrafficSystem {
     const box = this._chaseBox;
     box.min.set(x - halfX, ground + .25, z - halfZ);
     box.max.set(x + halfX, ground + 1.65, z + halfZ);
-    const blocked = entry => entry?.box && entry.vehicle !== vehicle.car && box.intersectsBox(entry.box);
+    const blocked = entry => entry?.box && entry.vehicle !== vehicle.car && box.intersectsBox(entry.box)
+      && !this._leaving(vehicle, entry, x, z);
     const obstacles = collisions?.queryStatic?.(box.min.x, box.min.z, box.max.x, box.max.z, this._chaseColliders)
       ?? collisions?.colliders ?? [];
     if (obstacles.some(blocked) || collisions?.dynamicColliders?.some(blocked)) return null;
     return ground;
+  }
+
+  /**
+   * ¿El carro de `entry` ya está trabado con `vehicle` donde está (las cajas ya se tocan) y (x, z) no lo acerca a él? Ese
+   * no lo ataja: sin esto, una patrulla y el carro que se le metió encima no se vuelven a mover.
+   */
+  _leaving(vehicle, entry, x, z) {
+    const other = entry.vehicle?.position, car = vehicle.car;
+    if (!other) return false;
+    const yaw = car.group.rotation.y, c = Math.abs(Math.cos(yaw)), s = Math.abs(Math.sin(yaw));
+    const halfLength = car.length / 2 + .12, halfWidth = car.width / 2 + .12, here = this._hereBox;
+    here.min.set(car.position.x - c * halfLength - s * halfWidth, car.position.y + .25, car.position.z - s * halfLength - c * halfWidth);
+    here.max.set(car.position.x + c * halfLength + s * halfWidth, car.position.y + 1.65, car.position.z + s * halfLength + c * halfWidth);
+    if (!here.intersectsBox(entry.box)) return false;
+    return (x - other.x) ** 2 + (z - other.z) ** 2 >= (car.position.x - other.x) ** 2 + (car.position.z - other.z) ** 2;
   }
 
   _chaseClearance(vehicle, nx, nz, travel) {
@@ -1009,7 +1065,12 @@ export class TrafficSystem {
         if (vehicle._chaseCanMove) vehicle.car.position.y = this._chaseSweepY;
       }
       if (vehicle.rejoinTarget) {
-        vehicle._rejoinStuck = travel > 1e-3 ? 0 : (vehicle._rejoinStuck ?? 0) + stepTime;
+        if (travel > 1e-3) vehicle._rejoinStuck = 0;
+        else {
+          // Dónde se trabó: una persecución que no la saque de ahí no le reinicia el tope (ver `_snapToNearestRoute`).
+          if (!(vehicle._rejoinStuck > 0)) (vehicle._rejoinStuckAt ??= new THREE.Vector3()).copy(vehicle.car.position);
+          vehicle._rejoinStuck = (vehicle._rejoinStuck ?? 0) + stepTime;
+        }
         if (vehicle._rejoinStuck > REJOIN_TIMEOUT && this._forceRejoin(vehicle)) return false;
       }
       vehicle.car.position.x += nx * travel;
@@ -1052,6 +1113,8 @@ export class TrafficSystem {
         for (const vehicle of this.vehicles) {
           if (vehicle.state === 'chase' || vehicle.rejoinTarget) {
             vehicle._offRouteStep = true;
+            // Con agentes a bordo, ellos deciden cuándo frenar, orillar o esperar (ver PoliceFootSystem).
+            if (!vehicle.rejoinTarget && vehicle.crew?.planCar(vehicle, stepTime, player, this)) continue;
             this._planChase(vehicle, stepTime, vehicle.rejoinTarget ?? player, !!vehicle.rejoinTarget);
             continue;
           }
