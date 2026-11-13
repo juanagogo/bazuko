@@ -283,6 +283,7 @@ export class Npc {
     this.action = null;
     this.actionProgress = 0;
     this._hitReactionRemaining = 0;
+    this.hitBy = undefined;    // quién le dio el último golpe (null si nadie: un carro); undefined si nunca le pegaron
     this._punchFacing = this.root.rotation.y;
     this.maxHealth = NPC_HEALTH;
     this.health = NPC_HEALTH;
@@ -460,12 +461,13 @@ export class Npc {
       this._leaveSpot();
       if (this._riseLeft > 0) return; // desde el piso primero se para: no se desliza sentado
       if (this._fleeRouted) this._fleeAlongRoute(dt);
-      else this._fleeStraight(dt);
+      else if (!this.mind?.fleeSmart()) this._fleeStraight(dt); // con mente huye por la red, lejos de la amenaza
       if (this.fleeTimer <= 0 && this._fleeRouted) this._endFleeRoute();
       this.root.rotation.y += wrapAngle(Math.atan2(this.fleeDir.x, this.fleeDir.z) - this.root.rotation.y) * Math.min(1, dt * 10);
       return;
     }
     if (this._riseLeft > 0) return; // se está parando de donde estaba agachado
+    if (this.mind?.holdWalk(dt)) return; // espera, cede o mira: ver entities/npc/mind.js
     // Conversando (NpcConversations): se acerca a su sitio frente al otro y desde ahí lo mira.
     if (this.talk) { this._converse(dt); return; }
 
@@ -485,7 +487,8 @@ export class Npc {
       if (this.person) this.stance = pickWalk(this.person);
     }
     if (this.target) {
-      const d = this._direction.copy(this.target).sub(this.position);
+      // Con mente apunta al punto de su ruta corrido de lado si esquiva a alguien (entities/npc/steering.js).
+      const d = this._direction.copy(this.mind?.aim(this.target) ?? this.target).sub(this.position);
       d.y = 0;
       const dist = d.length();
       if (dist < 0.001) {
@@ -541,7 +544,7 @@ export class Npc {
   /** Huye derecho; si se topa, gira a un lado que esté libre. */
   _fleeStraight(dt) {
     this._leaveBench();
-    const dir = this.fleeDir, step = this.walkSpeed * 2.4 * dt;
+    const dir = this.fleeDir, step = this._fleeSpeed() * dt;
     const next = this._nextPosition.copy(this.position).addScaledVector(dir, step);
     next.y = this.groundHeight(next.x, next.z);
     if (this._canFleeTo(next)) {
@@ -602,7 +605,7 @@ export class Npc {
     d.y = 0;
     const dist = d.length();
     if (dist < .001) { this.target = this.route[++this.routeIndex] ?? null; return; }
-    const step = Math.min(dist, this.walkSpeed * 2.4 * dt);
+    const step = Math.min(dist, this._fleeSpeed() * dt);
     const next = this._nextPosition.copy(this.position).addScaledVector(d.divideScalar(dist), step);
     next.y = this.groundHeight(next.x, next.z);
     if (this._entersSolid(next)) { this._endFleeRoute(); this._cower(); return; }
@@ -672,9 +675,15 @@ export class Npc {
     return Math.hypot(player.x - this.home.x, player.z - this.home.z) < CONDUCT.spotTaken;
   }
 
+  /** Velocidad al huir: 2,4 veces su paso; con mente, la huida de un peligro arranca andando (entities/npc/awareness.js). */
+  _fleeSpeed() {
+    return this.walkSpeed * 2.4 * (this.mind ? this.mind.fleePace() : 1);
+  }
+
   /** Velocidad al andar: bajo la lluvia, quien no lleva paraguas apura el paso. */
   _paceNow() {
-    return this._raining && this.person?.paraguas === null ? this.walkSpeed * this.person.correr : this.walkSpeed;
+    const pace = this._raining && this.person?.paraguas === null ? this.walkSpeed * this.person.correr : this.walkSpeed;
+    return this.mind ? pace * this.mind.paceFactor() : pace; // frena para ceder, apura al cruzar la calle
   }
 
   /** El arraigo: lejos de su sitio prefiere volver, y así cada zona conserva a su gente. */
@@ -1033,12 +1042,12 @@ export class Npc {
     // La velocidad va en metros del modelo: con la talla cambia el largo del paso, no se patina.
     const scale = REALISTIC_SCALE * (this.look?.real?.talla?.alto ?? 1);
     this.character.update(Math.min(this.animAcc, 0.2), {
-      speed: this.moving ? (this.fleeTimer > 0 ? this.walkSpeed * 2.4 : this._paceNow()) / scale : 0,
+      speed: this.moving ? (this.fleeTimer > 0 ? this._fleeSpeed() : this._paceNow()) / scale : 0,
       running: this.moving && this.fleeTimer > 0,
       ...this.poseParams,
       state: this.state, action: this.action, actionProgress: this.actionProgress,
       attack: this._counterPose ?? this.poseParams?.attack,
-      look: this.poseParams?.look ?? this._glanceAt(ctx, stance),
+      look: this.poseParams?.look ?? this.mind?.gaze(stance) ?? this._glanceAt(ctx, stance), // mira lo que le llama la atención
       // Caer sigue a la misma mezcla que acuesta el cuerpo.
       stance,
       style: this.poseParams?.style ?? this.style,
@@ -1143,6 +1152,7 @@ export class Npc {
   takeHit({ damage = 10, dir = null, knockback = 0, attacker = null, weapon = 'punos', attackId = null, id = null } = {}) {
     if (this._disposed || this.koState || !Number.isFinite(damage) || damage <= 0) return false;
     if (!this._acceptAttackId(attacker, attackId ?? id)) return false;
+    this.hitBy = attacker; // la mente culpa a quien le pegó (entities/npc/awareness.js); null: un carro, nadie
     let dx = dir?.x ?? 0, dz = dir?.z ?? 0;
     if (!dir && attacker?.position) { dx = this.position.x - attacker.position.x; dz = this.position.z - attacker.position.z; }
     const len = Math.hypot(dx, dz);
