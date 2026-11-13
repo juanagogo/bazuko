@@ -17,19 +17,22 @@ export const PICTOS = {
   '🪙': 'moneda', '💰': 'moneda', '💸': 'moneda', '💎': 'moneda', '💍': 'anillo', '🧼': 'jabon', '🪥': 'cepillo',
   '💊': 'pastilla', '🧪': 'frasco', '🪞': 'retrovisor', '📻': 'radio', '📡': 'radio', '📶': 'radio', '🎸': 'radio',
   '🔋': 'pilas', '💩': 'popo', '🌿': 'hierba', '🎟': 'rifa', '🗡': 'arma', '🔪': 'cuchillo', '🍾': 'botellaPicada',
-  '🚬': 'cigarrillo', '🧴': 'pegante',
+  '🚬': 'cigarrillo', '🧴': 'pegante', '👕': 'camisa',
   // El cuerpo
   '🦠': 'bicho', '🐜': 'bicho', '🪱': 'bicho', '☠': 'bicho', '🤧': 'enfermo', '🤢': 'nauseas', '🥶': 'termometro',
   '😴': 'sueno', '💤': 'sueno',
   // La calle
-  '🐕': 'perro', '💀': 'luna', '🧍': 'persona', '🧸': 'persona', '🚶': 'persona', '👀': 'vista', '👊': 'golpe',
+  '🐕': 'perro', '💀': 'luna', '🧍': 'persona', '🧸': 'persona', '🚶': 'persona', '👀': 'vista', '👊': 'golpe', '✊': 'golpe',
   '🧤': 'mano', '🎯': 'centrar', '💾': 'chulo', '🚓': 'patrulla', '🚨': 'sirena', '🎮': 'mando', '📍': 'bandera',
   '🧭': 'flecha', '🔇': 'silencio', '🔊': 'sonido', '🔍': 'lupa', '🔥': 'fogata', '🔨': 'martillo', '🗑': 'basura',
   '⚠': 'peligro', '⚡': 'rayo', '✨': 'brillo', '⭐': 'brillo', '🌟': 'brillo', '♻': 'reciclar',
   // Los sitios
   '🏪': 'tienda', '🏬': 'tienda', '🧺': 'tienda', '🏙': 'edificio', '🏢': 'edificio', '🌊': 'lago', '⛲': 'parque',
-  '🌳': 'parque', '⛽': 'gasolina', '🚏': 'bus', '🍬': 'chaza', '🍲': 'comida', '🍴': 'comida', '🛒': 'carreta',
+  '🌳': 'parque', '⛽': 'gasolina', '🚏': 'bus', '🚇': 'bus', '🍬': 'chaza', '🍲': 'comida', '🍴': 'comida', '🛒': 'carreta',
   '🎒': 'costal', '❌': 'cerrar', '🚫': 'cerrar',
+  // Los sitios de la cuadrícula del norte, la historia de Los Reyes y el Metro
+  '🏨': 'colchon', '💃': 'persona', '🍸': 'pocillo', '🍽': 'comida', '🏰': 'edificio', '🏛': 'edificio', '🎤': 'radio',
+  '🌌': 'luna', '🚆': 'bus', '⛰': 'parque', '👑': 'brillo', '📜': 'carton', '🏆': 'brillo',
   // Símbolos que no son emoji y la letra no trae
   '◎': 'centrar', '⤢': 'ciudad',
   // Se quitan

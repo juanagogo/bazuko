@@ -85,7 +85,7 @@ test('no reescribe casillas ni detalle cuando nada cambia', () => {
 
 test('las acciones del banco dependen del objeto elegido', () => {
   const inv = new InventorySystem(60);
-  inv.add(ITEMS.pan, 1); inv.add(ITEMS.carton, 3); inv.add(ITEMS.popo, 2);
+  inv.add(ITEMS.pan, 1); inv.add(ITEMS.lata, 3); inv.add(ITEMS.popo, 2);
   inv.bindHotbar(2, 'pan');
   const { ui } = panel(inv);
 

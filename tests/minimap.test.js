@@ -286,3 +286,21 @@ test('el radar oculto no calcula la sugerencia', () => {
   map.update(HERE, 0, [FOGATA], 1000, { needs: { get need() { read = true; return 'calor'; } } });
   assert.equal(read, false);
 });
+
+test('con protesta el radar dibuja su calle cerrada en rayas rojas y sin ella no dibuja nada', () => {
+  const map = new Minimap();
+  const ctx = map.ctx, player = { x: 30, z: 80 };
+  const drawn = (now, options) => { ctx.calls.length = 0; map.update(player, 0, [], now, options); return ctx.calls.filter(([name]) => name === 'lineTo').length; };
+  const base = drawn(1000);
+  assert.equal(drawn(2000, { protesta: { x: 40, z: 90, dx: 1, dz: 0, radius: 50, closed: false } }), base, 'abierta no se marca');
+  assert.ok(drawn(3000, { protesta: { x: 40, z: 90, dx: 1, dz: 0, radius: 50, closed: true } }) > base, 'la calle cerrada se dibuja');
+  assert.ok(ctx.calls.some(([name, args]) => name === 'moveTo' && args[0] === -10 && args[1] === 90), 'de un extremo del cierre');
+});
+
+test('la protesta es un lugar fijo del radar con el puño y el icono sale en letra', () => {
+  assert.equal(typeof pasarTexto('✊'), 'string');
+  assert.ok(!pasarTexto('✊').includes('✊'), 'el emoji sale como su dibujo');
+  const map = new Minimap();
+  map.update({ x: 30, z: 80 }, 0, [{ name: 'Protesta', icon: '✊', x: 40, z: 90, color: '#d62828', fijo: true }], 1000);
+  assert.match(map.infoEl.textContent, /Protesta/);
+});

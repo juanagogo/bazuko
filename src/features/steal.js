@@ -12,16 +12,24 @@ export const CONFIG = {
   baseZoneSize: 0.35,
   lootMoneyCosquilleo: [800, 4000],
   lootMoneyDirect: [12000, 45000],
+  lootMoneyCosquilleoHabitante: [200, 1500],
+  lootMoneyDirectHabitante: [800, 3500],
   lootItems: ['pan', 'lataComida', 'cigarrillo', 'tintico', 'moneda', 'reloj'],
   directDamageMin: 6,
   directDamageMax: 16
 };
+
+/** Sustancias que cargan otros habitantes de calle. */
+export const LOOT_VICIOS = ['basuco', 'porro', 'pegante', 'chirrinchi'];
 
 /** Segundos de juego sin robar y sin persecución para que «te tienen fichado» baje un nivel. */
 export const WANTED_DECAY_SECONDS = 120;
 
 /** Objetivos con los que la Q ya hace otra cosa. */
 const QUIET_Q_TARGETS = new Set(['pickup', 'dealer']);
+
+/** Segundos sin poder volver a intentar el espejo de un carro tras fallar. */
+export const MIRROR_RETRY_SECONDS = 20;
 
 export class StealSystem {
   // Inicializa el sistema de robo a peatones.
@@ -105,7 +113,8 @@ export class StealSystem {
   // Encuentra el NPC más cercano y procesa las teclas de interacción E y Q.
   _checkProximity(npcs) {
     const playerPos = this.game?.player?.position;
-    if (!playerPos || this.game.paused || this.game.player?.isStunned) {
+    // Agachado haciendo popó tampoco: la escena se queda con las manos.
+    if (!playerPos || this.game.paused || this.game.player?.isStunned || this.game.player?.busyPoop) {
       this.targetNpc = null;
       return;
     }
@@ -126,8 +135,15 @@ export class StealSystem {
       this.game.interaction.stealPrompt = '[E] Cosquilleo (sigiloso) · [Q] Robo directo';
     }
     if (this.game.input.consumePress('KeyE')) this.startCosquilleo(nearest);
-    // Junto a basura o al dealer, Q ya tiene otro uso: no se le roba al que justo va pasando.
-    else if (!QUIET_Q_TARGETS.has(this.game.interaction?.currentTargetType) && this.game.input.consumePress('KeyQ')) this.executeRoboDirecto(nearest);
+    // Junto a basura, al dealer o a un carro al que se le limpia el vidrio, Q ya tiene otro uso: no se le roba al que justo va pasando.
+    else if (!this._qOcupada() && this.game.input.consumePress('KeyQ')) this.executeRoboDirecto(nearest);
+  }
+
+  /** Si la Q de este momento es de lo que el jugador tiene al lado y no del robo directo. */
+  _qOcupada() {
+    const interaction = this.game.interaction;
+    const type = interaction?.currentTargetType;
+    return QUIET_Q_TARGETS.has(type) || (type === 'car' && !!interaction.currentTarget?.cleanable);
   }
 
   // Dice si hay a quién hacerle cosquilleo a menos de esa distancia: un carro más lejano le cede el aviso y la tecla.
@@ -178,8 +194,8 @@ export class StealSystem {
       this._dom.zone.style.left = `${this.zoneStart * 100}%`;
       this._dom.zone.style.width = `${this.zoneSize * 100}%`;
       this._dom.ayuda.innerHTML = modoEntrada() === 'tactil'
-        ? '🪞 1/2 Palanquear - Toque la barra en lo negro'
-        : `🪞 <b>Paso 1/2: Palanquear soporte</b> <kbd>${teclaVisible('Espacio')}</kbd> Halar <kbd>${teclaVisible('Esc')}</kbd> Cancelar`;
+        ? '1/2 Palanquear - Toque la barra en lo negro'
+        : `<b>Paso 1/2: Palanquear soporte</b> <kbd>${teclaVisible('Espacio')}</kbd> Halar <kbd>${teclaVisible('Esc')}</kbd> Cancelar`;
       this._dom.box.hidden = false;
     }
   }
@@ -200,8 +216,8 @@ export class StealSystem {
           this._dom.zone.style.left = `${this.zoneStart * 100}%`;
           this._dom.zone.style.width = `${this.zoneSize * 100}%`;
           this._dom.ayuda.innerHTML = modoEntrada() === 'tactil'
-            ? '🪞 2/2 ¡Arrancar! - Toque la barra en lo negro'
-            : `🪞 <b>Paso 2/2: ¡Arrancar cables y espejo!</b> <kbd>${teclaVisible('Espacio')}</kbd> Halar con fuerza`;
+            ? '2/2 ¡Arrancar! - Toque la barra en lo negro'
+            : `<b>Paso 2/2: ¡Arrancar cables y espejo!</b> <kbd>${teclaVisible('Espacio')}</kbd> Halar con fuerza`;
         }
         return;
       }
@@ -310,6 +326,8 @@ export class StealSystem {
         else this.game?.interaction?._executeCarTheft?.(car);
       } else if (car) {
         this._toast('¡Fallé al arrancar el retrovisor y sonó la alarma!', 'death');
+        // Ya lo vieron: a ese carro no se le vuelve a intentar enseguida.
+        car.cooldown = Math.max(car.cooldown ?? 0, MIRROR_RETRY_SECONDS);
         if (car.traffic) {
           this.game?.audio?.playMovingTheft?.(car);
           if (typeof window !== 'undefined' && typeof window.dispatchEvent === 'function') {
@@ -331,7 +349,7 @@ export class StealSystem {
     this._calma = 0;
     if (npc) npc._robadoTimer = CONFIG.npcCooldown;
     if (success) {
-      this._giveLoot(CONFIG.lootMoneyCosquilleo, true);
+      this._giveLoot(CONFIG.lootMoneyCosquilleo, true, npc);
       this._toast('Cosquilleo limpio: nadie se dio cuenta.', 'rare');
       this._robbed(npc, false);
     } else {
@@ -339,7 +357,15 @@ export class StealSystem {
       const noticeChance = Math.max(0.2, (npc?.alerta ?? 0.5) - bonus);
       if (Math.random() < noticeChance) {
         npc?.alarmedByTheft?.(this.game.player.position);
-        this._toast('¡Me pillaron con las manos en la masa! El peatón gritó.', 'death');
+        const isHabitante = npc?.arquetipo === 'habitante' || npc?.person?.arquetipo === 'habitante';
+        if (isHabitante && this.game.stats) {
+          const stabDmg = Math.floor(15 + Math.random() * 11);
+          this.game.stats.salud = Math.max(0, this.game.stats.salud - stabDmg);
+          this.game.audio?.play?.('thud');
+          this._toast(`¡El habitante sacó un chuzo y me apuñaló! −${stabDmg} de salud.`, 'death');
+        } else {
+          this._toast('¡Me pillaron con las manos en la masa! El peatón gritó.', 'death');
+        }
         this._robbed(npc, true);
         // De último: los avisos caen uno encima del otro y este es el que hay que alcanzar a leer.
         this._alertPolice();
@@ -355,18 +381,26 @@ export class StealSystem {
     npc._robadoTimer = CONFIG.npcCooldown;
     this._calma = 0;
     this.buscado = Math.min(3, this.buscado + 1);
-    this._giveLoot(CONFIG.lootMoneyDirect, false);
+    this._giveLoot(CONFIG.lootMoneyDirect, false, npc);
     this._robbed(npc, true);
     // Quien está en el piso o en la banca no alcanza a defenderse: bastante hace con pararse.
     const down = LOW_STANCES.has(npc.stance);
-    npc.alarmedByTheft?.(this.game.player.position);
-    const isStrong = !down && (npc.look?.real?.edad === 'adulto' || Math.random() < 0.45);
-    if (isStrong && this.game.stats) {
-      const dmg = Math.floor(CONFIG.directDamageMin + Math.random() * (CONFIG.directDamageMax - CONFIG.directDamageMin));
-      this.game.stats.salud = Math.max(0, this.game.stats.salud - dmg);
-      this._toast(`¡El peatón se defendió! −${dmg} de salud.`, 'death');
+    npc.alarmedByTheft?.(this.game.player?.position);
+    const isHabitante = npc?.arquetipo === 'habitante' || npc?.person?.arquetipo === 'habitante';
+    if (isHabitante && !down && this.game.stats) {
+      const stabDmg = Math.floor(15 + Math.random() * 11);
+      this.game.stats.salud = Math.max(0, this.game.stats.salud - stabDmg);
+      this.game.audio?.play?.('thud');
+      this._toast(`¡El habitante de calle se defendió con un chuzo! −${stabDmg} salud.`, 'death');
     } else {
-      this._toast('¡Raponazo! El peatón se asustó.', 'warn');
+      const isStrong = !down && (npc.look?.real?.edad === 'adulto' || Math.random() < 0.45);
+      if (isStrong && this.game.stats) {
+        const dmg = Math.floor(CONFIG.directDamageMin + Math.random() * (CONFIG.directDamageMax - CONFIG.directDamageMin));
+        this.game.stats.salud = Math.max(0, this.game.stats.salud - dmg);
+        this._toast(`¡El peatón se defendió! −${dmg} de salud.`, 'death');
+      } else {
+        this._toast('¡Raponazo! El peatón se asustó.', 'warn');
+      }
     }
     this._alertPolice();
   }
@@ -379,6 +413,8 @@ export class StealSystem {
 
   // Una patrulla que lo ve lo persigue, igual que por un retrovisor robado.
   _alertPolice() {
+    // Con el truco de invisibilidad, ningún robo llama a la patrulla.
+    if (this.game.cheats?.invisible) return;
     if (this.game.traffic) this.game.traffic.wantedLevel = this.buscado; // el robo de ahora ya cuenta
     if (this.game.traffic?.alertForTheft?.(this.game.player.position) && typeof window !== 'undefined') {
       window.dispatchEvent(new CustomEvent('police-chase', {}));
@@ -386,11 +422,28 @@ export class StealSystem {
   }
 
   // Otorga botín aleatorio entre dinero e ítems al inventario del jugador.
-  _giveLoot(moneyRange, includeItemChance) {
-    const money = Math.round((moneyRange[0] + Math.random() * (moneyRange[1] - moneyRange[0])) / 100) * 100;
+  _giveLoot(moneyRange, includeItemChance, target = null) {
+    const isHabitante = target?.arquetipo === 'habitante' || target?.person?.arquetipo === 'habitante';
+    const range = isHabitante
+      ? (moneyRange === CONFIG.lootMoneyDirect ? CONFIG.lootMoneyDirectHabitante : CONFIG.lootMoneyCosquilleoHabitante)
+      : moneyRange;
+    const money = Math.round((range[0] + Math.random() * (range[1] - range[0])) / 100) * 100;
     if (this.game.stats) this.game.stats.dinero += money;
     this._toast(`+${cop(money)}`, 'sell');
-    if (includeItemChance && Math.random() < 0.4 && this.game.inventory) {
+
+    if (isHabitante) {
+      // 65% probabilidad de robarle el vicio
+      if (Math.random() < 0.65 && this.game.inventory) {
+        const vicioId = LOOT_VICIOS[Math.floor(Math.random() * LOOT_VICIOS.length)];
+        if (ITEMS[vicioId]) {
+          if (this.game.inventory.add(ITEMS[vicioId], 1)) {
+            this._toast(`¡Le quité el vicio!: ${ITEMS[vicioId].name}`, 'rare');
+          } else {
+            this._toast(`No me cabe más en el costal: dejé ${ITEMS[vicioId].name}.`, 'warn');
+          }
+        }
+      }
+    } else if (includeItemChance && Math.random() < 0.4 && this.game.inventory) {
       const itemId = CONFIG.lootItems[Math.floor(Math.random() * CONFIG.lootItems.length)];
       if (ITEMS[itemId]) {
         if (this.game.inventory.add(ITEMS[itemId], 1)) this._toast(`Robé: ${ITEMS[itemId].name}`, 'info');

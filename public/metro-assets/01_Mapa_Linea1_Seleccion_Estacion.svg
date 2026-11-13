@@ -1,0 +1,94 @@
+<svg width="1920" height="1080" viewBox="0 0 1920 1080" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- Marco Principal Cartón y Marcador -->
+  <rect width="1920" height="1080" rx="16" fill="#1A1714" stroke="#F4EFE6" stroke-width="6"/>
+
+  <!-- Header -->
+  <rect x="48" y="42" width="1824" height="120" rx="8" fill="#2A241E" stroke="#F4EFE6" stroke-width="4"/>
+  <rect x="76" y="64" width="76" height="76" rx="8" fill="#D9232A" stroke="#F4EFE6" stroke-width="4"/>
+  <text x="96" y="118" fill="#F4EFE6" font-family="Impact, Arial Black, sans-serif" font-size="48" font-weight="900">M</text>
+  <text x="178" y="100" fill="#F4EFE6" font-family="Impact, Arial Black, sans-serif" font-size="42" letter-spacing="2">01 // LÍNEA 1 · VIADUCTO AVENIDA CARACAS</text>
+  <text x="178" y="136" fill="#D89A3C" font-family="Consolas, monospace" font-size="20">SENTIDO SUR → NORTE · ESTACIÓN ACTUAL: SAN VICTORINO (CENTRO)</text>
+
+  <rect x="1480" y="60" width="364" height="84" rx="6" fill="#14110F" stroke="#F4EFE6" stroke-width="3"/>
+  <text x="1506" y="92" fill="#B7ADA1" font-family="Consolas, monospace" font-size="16">FRECUENCIA DE PASO EN ANDÉN</text>
+  <text x="1506" y="128" fill="#4E8C52" font-family="Consolas, monospace" font-size="30" font-weight="900">CADA 02:30 MIN</text>
+
+  <!-- Contenedor Esquema de Ruta Horizontal -->
+  <rect x="48" y="192" width="1824" height="390" rx="10" fill="#14110F" stroke="#F4EFE6" stroke-width="4"/>
+  <text x="84" y="238" fill="#B7ADA1" font-family="Consolas, monospace" font-size="18">◄ SUR / BOSA (PATIO TALLER)</text>
+  <text x="780" y="238" fill="#D89A3C" font-family="Consolas, monospace" font-size="18">VIADUCTO ELEVADO · COTA +11.5M</text>
+  <text x="1560" y="238" fill="#B7ADA1" font-family="Consolas, monospace" font-size="18">NORTE / CHAPINERO ►</text>
+
+  <!-- Línea de Riel -->
+  <rect x="150" y="366" width="1020" height="20" rx="10" fill="#D9232A" stroke="#F4EFE6" stroke-width="3"/>
+  <rect x="1150" y="366" width="620" height="20" rx="10" fill="#3D352E" stroke="#F4EFE6" stroke-width="3"/>
+
+  <!-- Estación 01 -->
+  <circle cx="200" cy="376" r="28" fill="#D9232A" stroke="#F4EFE6" stroke-width="5"/>
+  <text x="187" y="384" fill="#F4EFE6" font-family="Consolas, monospace" font-size="20" font-weight="900">01</text>
+  <text x="135" y="442" fill="#F4EFE6" font-family="Impact, Arial Black, sans-serif" font-size="24">PORTAL SUR</text>
+  <text x="135" y="470" fill="#D89A3C" font-family="Consolas, monospace" font-size="16">Talleres · 04:20</text>
+
+  <!-- Estación 02 -->
+  <circle cx="510" cy="376" r="28" fill="#D9232A" stroke="#F4EFE6" stroke-width="5"/>
+  <text x="497" y="384" fill="#F4EFE6" font-family="Consolas, monospace" font-size="20" font-weight="900">02</text>
+  <text x="420" y="442" fill="#F4EFE6" font-family="Impact, Arial Black, sans-serif" font-size="24">PRIMERO DE MAYO</text>
+  <text x="440" y="470" fill="#D89A3C" font-family="Consolas, monospace" font-size="16">Zona Sur · 02:50</text>
+
+  <!-- Estación 03 -->
+  <circle cx="820" cy="376" r="28" fill="#D9232A" stroke="#F4EFE6" stroke-width="5"/>
+  <text x="807" y="384" fill="#F4EFE6" font-family="Consolas, monospace" font-size="20" font-weight="900">03</text>
+  <text x="760" y="442" fill="#F4EFE6" font-family="Impact, Arial Black, sans-serif" font-size="24">HOSPITALES</text>
+  <text x="745" y="470" fill="#D89A3C" font-family="Consolas, monospace" font-size="16">Av. Caracas · 01:15</text>
+
+  <!-- Estación 04 (Actual) -->
+  <circle cx="1130" cy="376" r="42" fill="#F2A900" fill-opacity="0.25"/>
+  <circle cx="1130" cy="376" r="32" fill="#F2A900" stroke="#F4EFE6" stroke-width="5"/>
+  <text x="1118" y="386" fill="#1A1714" font-family="Consolas, monospace" font-size="24" font-weight="900">★</text>
+  <text x="1052" y="442" fill="#F2A900" font-family="Impact, Arial Black, sans-serif" font-size="26">SAN VICTORINO</text>
+  <text x="1080" y="470" fill="#4E8C52" font-family="Consolas, monospace" font-size="17" font-weight="900">● ESTÁS AQUÍ</text>
+
+  <!-- Estación 05 -->
+  <circle cx="1440" cy="376" r="28" fill="#1A1714" stroke="#F4EFE6" stroke-width="5"/>
+  <text x="1427" y="384" fill="#F4EFE6" font-family="Consolas, monospace" font-size="20" font-weight="900">05</text>
+  <text x="1395" y="442" fill="#F4EFE6" font-family="Impact, Arial Black, sans-serif" font-size="24">CALLE 26</text>
+  <text x="1355" y="470" fill="#D89A3C" font-family="Consolas, monospace" font-size="16">Torre Colpatria · +45s</text>
+
+  <!-- Estación 06 -->
+  <circle cx="1740" cy="376" r="28" fill="#1A1714" stroke="#F4EFE6" stroke-width="5"/>
+  <text x="1727" y="384" fill="#F4EFE6" font-family="Consolas, monospace" font-size="20" font-weight="900">06</text>
+  <text x="1695" y="442" fill="#F4EFE6" font-family="Impact, Arial Black, sans-serif" font-size="24">CALLE 72</text>
+  <text x="1660" y="470" fill="#D89A3C" font-family="Consolas, monospace" font-size="16">Terminal Norte · +02:10</text>
+
+  <!-- Panel Inferior Izquierdo: Detalle de Estación -->
+  <rect x="48" y="612" width="760" height="420" rx="10" fill="#2A241E" stroke="#F4EFE6" stroke-width="4"/>
+  <text x="82" y="660" fill="#D89A3C" font-family="Consolas, monospace" font-size="18">VOZ DE LA CALLE · ENTORNO DE ESTACIÓN SELECCIONADA</text>
+  <text x="82" y="710" fill="#F4EFE6" font-family="Impact, Arial Black, sans-serif" font-size="36">ESTACIÓN 05: CALLE 26 — TORRE COLPATRIA</text>
+  <text x="82" y="760" fill="#B7ADA1" font-family="Consolas, monospace" font-size="20">Conexión directa con el puente peatonal de la Caracas y el</text>
+  <text x="82" y="792" fill="#B7ADA1" font-family="Consolas, monospace" font-size="20">Parque Centenario. Vigilancia policial media en los torniquetes</text>
+  <text x="82" y="824" fill="#B7ADA1" font-family="Consolas, monospace" font-size="20">del segundo piso; comercio de chaza activo bajo las columnas</text>
+  <text x="82" y="856" fill="#B7ADA1" font-family="Consolas, monospace" font-size="20">en Y del viaducto.</text>
+  <rect x="82" y="900" width="692" height="96" rx="6" fill="#1A1714" stroke="#D89A3C" stroke-width="2"/>
+  <text x="106" y="942" fill="#F2A900" font-family="Consolas, monospace" font-size="18">PUNTO DE INTERÉS CERCANO: Torre Colpatria / Viaducto Centro</text>
+  <text x="106" y="974" fill="#F4EFE6" font-family="Consolas, monospace" font-size="17">Comerciantes de reciclaje: 3 activos · Cota de andén: +11.5m</text>
+
+  <!-- Panel Inferior Central: Datos del Trayecto -->
+  <rect x="836" y="612" width="500" height="420" rx="10" fill="#2A241E" stroke="#F4EFE6" stroke-width="4"/>
+  <text x="870" y="660" fill="#B7ADA1" font-family="Consolas, monospace" font-size="18">DATOS DEL TRAYECTO</text>
+  <text x="870" y="725" fill="#F4EFE6" font-family="Consolas, monospace" font-size="22">• DISTANCIA: 1.4 KM (Viaducto)</text>
+  <text x="870" y="775" fill="#F4EFE6" font-family="Consolas, monospace" font-size="22">• TIEMPO EN TREN: 00:45 SEG</text>
+  <text x="870" y="825" fill="#F2A900" font-family="Consolas, monospace" font-size="22">• RIESGO DE TOMBOS: MODERADO</text>
+  <text x="870" y="875" fill="#F4EFE6" font-family="Consolas, monospace" font-size="22">• TARIFA PASAJE: $3.100 COP</text>
+  <rect x="870" y="925" width="432" height="72" rx="6" fill="#14110F" stroke="#4E8C52" stroke-width="3"/>
+  <text x="896" y="968" fill="#4E8C52" font-family="Consolas, monospace" font-size="20" font-weight="900">● TREN EN ANDÉN — PUERTAS ABIERTAS</text>
+
+  <!-- Panel Inferior Derecho: Botones de Acción -->
+  <rect x="1364" y="612" width="508" height="124" rx="8" fill="#4E8C52" stroke="#F4EFE6" stroke-width="4"/>
+  <text x="1445" y="686" fill="#F4EFE6" font-family="Impact, Arial Black, sans-serif" font-size="34">[E] SUBIR AL TREN ($3.100)</text>
+
+  <rect x="1364" y="760" width="508" height="124" rx="8" fill="#D89A3C" stroke="#F4EFE6" stroke-width="4"/>
+  <text x="1398" y="834" fill="#1A1714" font-family="Impact, Arial Black, sans-serif" font-size="30">[ESPACIO] CAMINAR POR EL VIADUCTO</text>
+
+  <rect x="1364" y="908" width="508" height="124" rx="8" fill="#C84B31" stroke="#F4EFE6" stroke-width="4"/>
+  <text x="1485" y="982" fill="#F4EFE6" font-family="Impact, Arial Black, sans-serif" font-size="32">[ESC] VOLVER AL ANDÉN</text>
+</svg>

@@ -55,6 +55,7 @@ Cada archivo de `src/ui/item-art/` (salvo esos dos) se adaptó de la misma forma
 
 - `pegante`: la colección no tiene un icono de pegante o tubo de pegamento que se lea a ese tamaño; los tubos disponibles parecen probetas. Usa su dibujo de la letra del juego.
 - `basuco`: no hay un icono de pipa o papeleta que se distinga del cigarrillo y la hierba. Usa su dibujo de la letra del juego.
+- `polvoLadrillo`: la colección no tiene un icono de polvo o raspado que se distinga de la arena o la harina. Usa el dibujo de frasco de la letra del juego, como las demás sustancias.
 - `empanada`, `morcilla`, `papaCriolla` y `aguapanela`: la comida callejera bogotana no tiene equivalentes legibles en la colección. Usan sus dibujos de la letra del juego.
 - `ropaLimpia`: usa el dibujo de camisa de la letra del juego.
 

@@ -103,7 +103,7 @@ export class ComedorComunitario {
     // Letrero oficial
     const sign = signMesh({
       title: 'COMEDOR COMUNITARIO',
-      sub: 'ALCALDÍA MAYOR · INTEGRACIÓN SOCIAL',
+      sub: 'ALCALDÍA MAYOR - INTEGRACIÓN SOCIAL',
       bg: '#991b1b',
       fg: '#ffffff',
       accent: '#fef08a'

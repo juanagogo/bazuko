@@ -89,28 +89,35 @@ export class InteractionSystem {
     // Encontrar target más cercano
     let nearest = null;
     let nearestType = null;
-    let nearestDist = INTERACT_RANGE;
+    let nearestDist = 3.6;
 
     for (const t of this.targets) {
       // Un carro sin nada que robar ni limpiar no da aviso ni le quita el turno a lo que tenga al lado.
       if (t.stealable === false && !t.cleanable) continue;
+      const maxRange = (t.kind === 'prostibulo' || t.kind === 'residencia' || t.kind === 'comedor' || t.kind === 'shop') ? 3.0 : INTERACT_RANGE;
       // Un carro se alcanza también desde sus espejos; lo demás, desde su centro.
       const d = t.interactDistance?.(this.player.position) ?? t.position.distanceTo(this.player.position);
-      if (d < nearestDist) {
+      if (d < maxRange && d < nearestDist) {
         nearestDist = d;
         nearest = t;
         // Determinar tipo por `kind` o por métodos disponibles
-        if (t.kind === 'shop') nearestType = 'shop';
+        if (t.kind === 'bolirana') nearestType = 'bolirana';
+        else if (t.kind === 'shop') nearestType = 'shop';
         else if (t.kind === 'comedor') nearestType = 'comedor';
         else if (t.kind === 'cambuche') nearestType = 'cambuche';
+        else if (t.kind === 'residencia') nearestType = 'residencia';
+        else if (t.kind === 'prostibulo') nearestType = 'prostibulo';
+        else if (t.kind === 'hidingSpot') nearestType = 'hidingSpot';
         else if (t.kind === 'dog') nearestType = 'dog';
         else if (t.kind === 'cart') nearestType = 'cart';
         else if (t.kind === 'fireBarrel') nearestType = 'fireBarrel';
         else if (t.kind === 'recycler') nearestType = 'sell';
+        else if (t.kind === 'calle') nearestType = 'calle';
         else if (t.kind === 'mesa') nearestType = 'mesa';
         else if (t.kind === 'pila') nearestType = 'pila';
         else if (t.kind === 'hogar') nearestType = 'hogar';
         else if (t.kind === 'transit') nearestType = 'transit';
+        else if (t.kind === 'metro') nearestType = 'metro';
         else if (typeof t.harvest === 'function') nearestType = 'pickup';
         else if (typeof t.steal === 'function' || typeof t.cleanWindshield === 'function') nearestType = 'car';
         else if (typeof t.sellSubstances === 'function') nearestType = 'dealer';
@@ -131,8 +138,13 @@ export class InteractionSystem {
       }
     }
 
+    // === Hurgar comida (Q) en basura ===
+    if (nearestType === 'pickup' && input.consumePress('KeyQ')) {
+      this._scavengeFood(nearest);
+    }
+
     // === Selección de basura (mantener Q) ===
-    if (nearestType === 'pickup' && input.isDown('KeyQ')) {
+    if (nearestType === 'pickup' && input.isDown('KeyQ') && !input.consumePress('KeyQ')) {
       if (!this.isHoldingQ) {
         this.isHoldingQ = true;
         if (nearest.startSorting) {
@@ -164,11 +176,23 @@ export class InteractionSystem {
         case 'sell':
           window.dispatchEvent(new CustomEvent('open-recycler'));
           break;
+        case 'bolirana':
+          window.dispatchEvent(new CustomEvent('open-bolirana', { detail: { target: nearest } }));
+          break;
         case 'shop':
           window.dispatchEvent(new CustomEvent('open-shop', { detail: { target: nearest } }));
           break;
         case 'comedor':
           window.dispatchEvent(new CustomEvent('open-comedor'));
+          break;
+        case 'residencia':
+          window.dispatchEvent(new CustomEvent('open-residencia'));
+          break;
+        case 'prostibulo':
+          window.dispatchEvent(new CustomEvent('open-prostibulo'));
+          break;
+        case 'hidingSpot':
+          this._toggleHiding(nearest);
           break;
         case 'cambuche':
           window.dispatchEvent(new CustomEvent('open-cambuche'));
@@ -188,6 +212,9 @@ export class InteractionSystem {
         case 'transit':
           window.dispatchEvent(new CustomEvent('open-transit', { detail: { target: nearest } }));
           break;
+        case 'calle':
+          nearest.interact();
+          break;
         case 'dog':
           this._interactDog(nearest);
           break;
@@ -205,6 +232,9 @@ export class InteractionSystem {
           // Abre su tienda: ahí se compra y, de noche, se elige qué venderle. Nunca vende sin preguntar.
           window.dispatchEvent(new CustomEvent('dealer-toggle', { detail: { dealer: nearest } }));
           break;
+        case 'metro':
+          window.dispatchEvent(new CustomEvent('metro-action', { detail: { target: nearest, action: 'primary' } }));
+          break;
       }
     }
 
@@ -217,6 +247,11 @@ export class InteractionSystem {
     // === Q en la fogata: compartir comida; Q en la pila: llenar la botella ===
     if (nearestType === 'fireBarrel' && input.consumePress('KeyQ')) this.street?.shareFood();
     if (nearestType === 'pila' && input.consumePress('KeyQ')) this.street?.fillBottle('pila');
+
+    // === Acción secundaria en estación del Metro (Q) ===
+    if (nearestType === 'metro' && input.consumePress('KeyQ')) {
+      window.dispatchEvent(new CustomEvent('metro-action', { detail: { target: nearest, action: 'secondary' } }));
+    }
 
     // === Comprar producto / Abrir tienda del dealer (Q) ===
     if (nearestType === 'dealer' && input.consumePress('KeyQ')) {
@@ -253,6 +288,25 @@ export class InteractionSystem {
       window.dispatchEvent(new CustomEvent('dog-interacted', { detail: { action: 'pet' } }));
       window.dispatchEvent(new CustomEvent('toast', {
         detail: { text: 'Acaricié a El Chato (+5 de ánimo).', type: 'info' }
+      }));
+    }
+  }
+
+  _toggleHiding(target) {
+    if (!this.game) return;
+    this.game.isPlayerHidden = !this.game.isPlayerHidden;
+    if (this.game.traffic) this.game.traffic.isPlayerHidden = this.game.isPlayerHidden;
+    if (this.game.isPlayerHidden) {
+      window.dispatchEvent(new CustomEvent('toast', {
+        detail: {
+          text: `Me escondí en ${target.title ?? 'el escondite'}. La policía no me ve aquí. [E] para salir.`,
+          type: 'rare'
+        }
+      }));
+      this.audio?.play?.('pickup');
+    } else {
+      window.dispatchEvent(new CustomEvent('toast', {
+        detail: { text: 'Saliste del escondite.', type: 'info' }
       }));
     }
   }
@@ -343,6 +397,52 @@ export class InteractionSystem {
     }));
   }
 
+  _scavengeFood(target) {
+    if (!target || typeof target.harvest !== 'function') return;
+
+    this.player?.playAction?.('buscar', 1.2);
+
+    // 75% probabilidad de hallar restos o comida
+    const foundFood = Math.random() < 0.75;
+
+    if (foundFood) {
+      // 55% comida buena / 45% comida dañada o descompuesta
+      const isGood = Math.random() < 0.55;
+
+      if (isGood) {
+        this.stats.hambre = Math.min(100, (this.stats.hambre || 0) + 30);
+        this.stats.energia = Math.min(100, (this.stats.energia || 0) + 15);
+        this.audio?.play('treasure');
+        window.dispatchEvent(new CustomEvent('toast', {
+          detail: { text: '¡Encontraste comida buena en la basura! (+30 hambre, +15 energía).', type: 'rare' }
+        }));
+      } else {
+        this.disease?.infect?.('intoxicacion');
+        this.stats.salud = Math.max(1, (this.stats.salud || 100) - 10);
+        this.audio?.play('damage');
+        window.dispatchEvent(new CustomEvent('toast', {
+          detail: { text: 'Comí sobras dañadas de la basura... Me dio intoxicación (−10 de salud).', type: 'warn' }
+        }));
+      }
+
+      // Guardar una porción de sobrados en el inventario si hay espacio
+      const sobradosItem = ITEMS['sobrados'];
+      if (sobradosItem && this.inventory.add(sobradosItem)) {
+        window.dispatchEvent(new CustomEvent('toast', {
+          detail: { text: 'Guardaste una porción de sobrados en el costal.', type: 'info' }
+        }));
+      }
+    } else {
+      this.audio?.play('empty');
+      window.dispatchEvent(new CustomEvent('toast', {
+        detail: { text: 'Hurgaste entre los desperdicios pero no había nada comestible.', type: 'info' }
+      }));
+    }
+
+    // Consumir el contenedor o bolsa de basura
+    target.harvest?.(false, false, {});
+  }
+
   _stealCar(target) {
     if (typeof target.steal !== 'function') return;
     if (typeof this.onStartMirrorTheft === 'function') {
@@ -371,7 +471,8 @@ export class InteractionSystem {
     }
 
     // Si una patrulla te ve, te persigue; solo te capturan si te alcanzan.
-    const chased = this.getTraffic?.()?.alertForTheft?.(this.player.position);
+    // `policeBlind` lo prende el modo trucos para que nadie te vea.
+    const chased = this.policeBlind ? false : this.getTraffic?.()?.alertForTheft?.(this.player.position);
     if (chased) {
       this.audio?.play('pickup');
       this.stats.addXP(XP_STEAL, this.talents);

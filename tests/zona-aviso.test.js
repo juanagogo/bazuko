@@ -48,10 +48,10 @@ test('bajo el radar se escribe la vía actual, sin reescribirla cada cuadro', ()
   const aviso = new ZonaAviso({ doc });
   const district = { _zoneAt: () => 'andenes' };
   aviso.update(1 / 60, district, 20, 40);
-  assert.equal(aviso.calleEl.textContent, 'la Carrera 15');
+  assert.equal(aviso.calleEl.textContent, 'la Carrera 15 · Chicó');
   assert.equal(doc.radar.children[0], aviso.calleEl);
   aviso.update(.1, district, 112, 97);
-  assert.equal(aviso.calleEl.textContent, 'la Carrera 15', 'dentro del intervalo no cambia');
+  assert.equal(aviso.calleEl.textContent, 'la Carrera 15 · Chicó', 'dentro del intervalo no cambia');
   aviso.update(.4, district, 112, 97);
-  assert.equal(aviso.calleEl.textContent, 'la Carrera 10');
+  assert.equal(aviso.calleEl.textContent, 'la Carrera 10 · La Décima');
 });

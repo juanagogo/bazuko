@@ -14,9 +14,9 @@ export const CARRERA_5 = Object.freeze([128, 133, 'Carrera 5']);
 // Las carreras angostas no entran en CITY_CARRERAS: sin semáforos ni pintura de avenida.
 export const CARRERA_4 = Object.freeze([154, 157, 'Carrera 4']);
 export const CARRERA_3 = Object.freeze([174, 177, 'Carrera 3']);
-export const CALLE_8A = Object.freeze([56, 59, 'Calle 8A']);
-export const CALLE_6 = Object.freeze([118, 123, 'Calle 6']);
-export const CALLE_5 = Object.freeze([140, 145, 'Calle 5']);
+export const CALLE_8A = Object.freeze([56, 59, 'Calle 72']);
+export const CALLE_6 = Object.freeze([118, 123, 'Calle 10']);
+export const CALLE_5 = Object.freeze([140, 145, 'Calle 6']);
 export const EAST_LABELLED_CARRERAS = Object.freeze([CARRERA_4, CARRERA_3]);
 export const EAST_LABELLED_CALLES = Object.freeze([CALLE_8A, CALLE_6, CALLE_5]);
 

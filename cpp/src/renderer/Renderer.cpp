@@ -4,6 +4,7 @@
 #include <cstdio>
 #include "../core/Paths.hpp"
 #include "Texture.hpp"
+#include "GLCompat.hpp"
 #include <glad/gl.h>
 #include <algorithm>
 #include <cmath>
@@ -50,6 +51,15 @@ Renderer::Renderer() {
     glCreateBuffers(1, &m_ClusterIndexBuffer);
     m_ClusterIndexCapacity = 65536;
     glNamedBufferData(m_ClusterIndexBuffer, static_cast<GLsizeiptr>(m_ClusterIndexCapacity * sizeof(uint32_t)), nullptr, GL_DYNAMIC_DRAW);
+    if (GLCompat::Legacy()) {   // OpenGL 4.1: sin SSBO, default.frag lee las mismas tablas como texture buffers (unidades 14 y 15)
+        glGenTextures(1, &m_ClusterTableTexture);
+        glBindTexture(GL_TEXTURE_BUFFER, m_ClusterTableTexture);
+        glTexBuffer(GL_TEXTURE_BUFFER, GL_RG32UI, m_ClusterTableBuffer);
+        glGenTextures(1, &m_ClusterIndexTexture);
+        glBindTexture(GL_TEXTURE_BUFFER, m_ClusterIndexTexture);
+        glTexBuffer(GL_TEXTURE_BUFFER, GL_R32UI, m_ClusterIndexBuffer);
+        glBindTexture(GL_TEXTURE_BUFFER, 0);
+    }
 }
 
 void Renderer::BuildClusters(const Camera& camera) {
@@ -104,8 +114,16 @@ void Renderer::BuildClusters(const Camera& camera) {
     }
     if (!m_ClusterIndices.empty())
         glNamedBufferSubData(m_ClusterIndexBuffer, 0, static_cast<GLsizeiptr>(m_ClusterIndices.size() * sizeof(uint32_t)), m_ClusterIndices.data());
-    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 3, m_ClusterTableBuffer);
-    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 4, m_ClusterIndexBuffer);
+    if (GLCompat::Legacy()) {
+        glActiveTexture(GL_TEXTURE14);
+        glBindTexture(GL_TEXTURE_BUFFER, m_ClusterTableTexture);
+        glActiveTexture(GL_TEXTURE15);
+        glBindTexture(GL_TEXTURE_BUFFER, m_ClusterIndexTexture);
+        glActiveTexture(GL_TEXTURE0);
+    } else {
+        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 3, m_ClusterTableBuffer);
+        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 4, m_ClusterIndexBuffer);
+    }
     int viewport[4]{};
     glGetIntegerv(GL_VIEWPORT, viewport);
     m_DefaultShader->SetFloat("uClusterNear", nearPlane);
@@ -300,8 +318,14 @@ void Renderer::EndScaledTarget() {
     m_PresentShader->SetInt("uToneMap", m_ToneMapping && m_HdrTarget ? 1 : 0);
     m_PresentShader->SetFloat("uExposure", m_Exposure);
     m_PresentShader->SetInt("uDebugBloom", std::getenv("BAZUKO_DEBUG_BLOOM") ? 1 : 0);
-    { static const char* sharpEnv = std::getenv("BAZUKO_SHARPEN"); const float sharpDefault = sharpEnv ? static_cast<float>(std::atof(sharpEnv)) : 2.5f;
-      m_PresentShader->SetFloat("uSharpen", std::abs(m_RenderScale - 1.0f) > 0.01f ? sharpDefault : 0.0f); }
+    {
+        static const char* fsrModeEnv = std::getenv("BAZUKO_FSR_MODE");
+        const int upscaleMode = fsrModeEnv ? std::clamp(std::atoi(fsrModeEnv), 0, 2) : m_UpscaleMode;
+        static const char* sharpEnv = std::getenv("BAZUKO_SHARPEN");
+        const float sharpness = sharpEnv ? static_cast<float>(std::atof(sharpEnv)) : m_FsrSharpness;
+        m_PresentShader->SetInt("uUpscaleMode", upscaleMode);
+        m_PresentShader->SetFloat("uSharpen", sharpness);
+    }
     m_PresentShader->SetInt("uUseAo", m_PostAoReady ? 1 : 0);
     m_PresentShader->SetFloat("uBloomStrength", m_PostBloomReady ? m_BloomStrength : 0.0f);
     m_PresentShader->SetInt("uUseReflections", m_PostSsrReady ? 1 : 0);
@@ -327,6 +351,58 @@ void Renderer::EndScaledTarget() {
     glTextureParameteri(m_ScaledColor, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
     glBindTextureUnit(0, m_ScaledColor);
     glBindVertexArray(m_PresentVao);
+    // Efectos de consumo: la estela se actualiza con el cuadro limpio (sin filtro) en media resolucion y luego la imagen final lleva el filtro, la estela y la capa
+    const bool substance = m_Substance.active;
+    const int screenWidth = std::max(1, m_ScreenViewport[2]), screenHeight = std::max(1, m_ScreenViewport[3]);
+    if (substance && m_Substance.trail) {
+        const int w = std::max(1, screenWidth / 2), h = std::max(1, screenHeight / 2);
+        if (!m_TrailTexture || w != m_TrailWidth || h != m_TrailHeight) {
+            if (m_TrailFbo) glDeleteFramebuffers(1, &m_TrailFbo);
+            if (m_TrailTexture) glDeleteTextures(1, &m_TrailTexture);
+            glCreateTextures(GL_TEXTURE_2D, 1, &m_TrailTexture);
+            glTextureStorage2D(m_TrailTexture, 1, GL_RGBA8, w, h);
+            glTextureParameteri(m_TrailTexture, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+            glTextureParameteri(m_TrailTexture, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+            glTextureParameteri(m_TrailTexture, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+            glTextureParameteri(m_TrailTexture, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+            glCreateFramebuffers(1, &m_TrailFbo);
+            glNamedFramebufferTexture(m_TrailFbo, GL_COLOR_ATTACHMENT0, m_TrailTexture, 0);
+            m_TrailWidth = w; m_TrailHeight = h;
+            const float clear[4] = {0.0f, 0.0f, 0.0f, 0.0f};
+            glClearTexImage(m_TrailTexture, 0, GL_RGBA, GL_FLOAT, clear);
+        }
+        glBindFramebuffer(GL_FRAMEBUFFER, m_TrailFbo);
+        glViewport(0, 0, w, h);
+        glEnable(GL_BLEND);   // como drawImage con globalAlpha sobre un lienzo transparente
+        glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
+        m_PresentShader->SetInt("uSubstance", 0);
+        m_PresentShader->SetFloat("uOutAlpha", 1.0f - m_Substance.trailKeep);
+        glDrawArrays(GL_TRIANGLES, 0, 3);
+        glDisable(GL_BLEND);
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+        glViewport(m_ScreenViewport[0], m_ScreenViewport[1], m_ScreenViewport[2], m_ScreenViewport[3]);
+        m_TrailHasData = true;
+    } else if (m_TrailHasData && m_TrailTexture) {   // termino el efecto: la estela se borra
+        const float clear[4] = {0.0f, 0.0f, 0.0f, 0.0f};
+        glClearTexImage(m_TrailTexture, 0, GL_RGBA, GL_FLOAT, clear);
+        m_TrailHasData = false;
+    }
+    m_PresentShader->SetFloat("uOutAlpha", 1.0f);
+    m_PresentShader->SetInt("uSubstance", substance ? 1 : 0);
+    if (substance) {
+        const SubstanceLook& look = m_Substance;
+        m_PresentShader->SetFloat("uSubBlur", look.blurPx); m_PresentShader->SetFloat("uSubSepia", look.sepia); m_PresentShader->SetFloat("uSubHue", look.hueDegrees);
+        m_PresentShader->SetFloat("uSubSaturate", look.saturate); m_PresentShader->SetFloat("uSubBrightness", look.brightness); m_PresentShader->SetFloat("uSubContrast", look.contrast);
+        m_PresentShader->SetInt("uSubOverlay", look.overlay); m_PresentShader->SetFloat("uSubOverlayOpacity", look.overlayOpacity);
+        m_PresentShader->SetFloat("uSubOverlayAngle", look.overlayAngleDegrees); m_PresentShader->SetFloat("uSubOverlayStop", look.overlayStop);
+        m_PresentShader->SetVec2("uScreenSize", glm::vec2(static_cast<float>(screenWidth), static_cast<float>(screenHeight)));
+        const bool useTrail = look.trail && m_TrailTexture != 0 && look.trailOpacity > 0.0f;
+        m_PresentShader->SetInt("uUseTrail", useTrail ? 1 : 0);
+        if (useTrail) {
+            glBindTextureUnit(6, m_TrailTexture);
+            m_PresentShader->SetFloat("uTrailOpacity", look.trailOpacity); m_PresentShader->SetFloat("uTrailShift", look.trailShiftPx); m_PresentShader->SetFloat("uTrailScale", look.trailScale);
+        }
+    }
     glDrawArrays(GL_TRIANGLES, 0, 3);
     glBindVertexArray(0);
     m_PresentShader->Unbind();

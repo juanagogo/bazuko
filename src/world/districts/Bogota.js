@@ -21,6 +21,7 @@ import { buildSmallBuilding, SMALL_BUILDING } from '../bogota/SmallBuilding.js';
 // bodega de reciclaje (x 8-21, z 32-46), parque (x 28-39, z 32-46), lote baldío con el
 // cambuche (x 42-46, z 32-46) y la tienda (frente a la Calle 9, x 34).
 import * as THREE from 'three';
+import { BOLIRANA_LOCATION } from '../bogota/BoliranaLocation.js';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { TILE_SIZE } from '../../utils/constants.js';
 import { Farol } from '../props/Farol.js';
@@ -31,6 +32,7 @@ import { buildGroundWear, dressGrass, dressPaving } from '../bogota/GroundDressi
 import * as TX from '../bogota/textures.js';
 import * as P from '../bogota/props.js';
 import { Npc } from '../../entities/Npc.js';
+import { PedestrianCrowd } from '../../systems/PedestrianCrowd.js';
 import { BuildingVisibility, CLOSED_CHUNK_SIZE, createBuildingShell } from '../bogota/BuildingVisibility.js';
 import { PedestrianNavigation } from '../bogota/PedestrianNavigation.js';
 import { GpsNavigation } from '../../systems/GpsNavigation.js';
@@ -38,7 +40,9 @@ import { TrafficRoute } from '../bogota/TrafficRoute.js';
 import { BusService } from '../bogota/BusService.js';
 import { skylineFloors, buildAvenueOverpass, AVENUE_OVERPASS } from '../bogota/AvenueLandmarks.js';
 import { GAS_STATION, GAS_OBSTACLES, inGasStation, underGasCanopy, buildGasStation } from '../bogota/GasStation.js';
-import { buildMetroBogota } from '../bogota/MetroBogota.js';
+import { buildMetroBogota, metroSurface, underMetroRoof } from '../bogota/MetroBogota.js';
+import { buildNorthZones } from '../bogota/NorthZones.js';
+import { buildRealBogotaOSM } from '../bogota/RealBogotaOSM.js';
 import { buildD69Store } from '../bogota/D69Store.js';
 import { buildColpatria, COLPATRIA, COLPATRIA_ANNEX, BUS_DETOUR, busPathX, southBusPathX } from '../bogota/Colpatria.js';
 import { VIADUCT, buildColpatriaViaduct, viaductHeight, viaductSurface } from '../bogota/ColpatriaViaduct.js';
@@ -47,6 +51,7 @@ import { LAKE_BRIDGE, LAKE_PARK, onLakeBridge, bridgeHeight, buildLakeWater, bui
   inLakeTerrain, lakeTerrainHeight, lakeWaterInfo } from '../bogota/LakePark.js';
 import { createLakeWaterMaterial } from '../bogota/LakeWaterMaterial.js';
 import { PigeonFlock } from '../../entities/PigeonFlock.js';
+import { hashSeed } from '../../character/people.js';
 import { geometryChunk, mergeByChunk, freezeStaticTransforms, createRenderSectors, instanceStaticModels } from '../bogota/StaticGeometry.js';
 import { updateFarStreetLamps } from '../bogota/StreetLampModel.js';
 import { CITY_WIDTH, CITY_HEIGHT, CITY_AREA_MULTIPLIER, CITY_CARRERAS as CARRERAS,
@@ -97,9 +102,11 @@ const SHOP_NAMES = [
 
 // Del tablero del puente al piso, para que quepa una persona debajo: la losa mide .71 m.
 const DECK_HEADROOM = 2.8;
-const EAST_PEDESTRIANS = 14;
-// Peatones de la ciudad, sin contar a los vendedores.
-const TOTAL_PEDESTRIANS = 80;
+// Hasta dónde se reparte la gente alrededor del jugador, en metros: la niebla más una cuadra.
+const CROWD_RADIUS = 95;
+const _crowdForward = new THREE.Vector3(), _crowdCenter = { x: 0, z: 0 };
+// Esquinas de las esquineras, en celdas del mapa: Cartucho (3), andenes (2) y parque (1).
+const ESQUINAS = [[13.5, 21], [17, 23], [19, 20.5], [21, 13], [28, 20], [31, 38]];
 // Posturas de quien atiende un puesto.
 const VENDOR_POSES = ['atender', 'atender', 'atender', 'brazos-cruzados', 'celular'];
 // Posturas de quien conversa con alguien.
@@ -248,10 +255,26 @@ export class Bogota {
 
     // Metro de Bogotá (Línea 1 PLMB - Viaducto elevado sobre la Caracas y tren oficial)
     const metro = buildMetroBogota({ pavement: this.groundMaterials.road });
+    this.metro = metro;
+    this.metroTrain = metro.userData.train ?? null;
+    this.metroStations = metro.userData.stations ?? [];
+    if (this.metroTrain?.group) this.animated.push(this.metroTrain.group);
     this.group.add(metro);
     if (metro.userData.colliders) {
       for (const entry of metro.userData.colliders) collisions?.colliders.push(entry);
     }
+
+    // Sectores del Norte: Zona T, Zona G y Parque de la 93
+    const northZones = buildNorthZones();
+    this.group.add(northZones);
+    if (northZones.userData.colliders) {
+      for (const entry of northZones.userData.colliders) collisions?.colliders.push(entry);
+    }
+
+    // Edificaciones e hitos 3D extruidos desde el catálogo OpenStreetMap + IDECA de Bogotá
+    const realOsmBogota = buildRealBogotaOSM();
+    this.realOsmBogota = realOsmBogota;
+    this.group.add(realOsmBogota);
     const parks = [
       { x0: WX(29.5), x1: WX(37.5), z0: WZ(33.5), z1: WZ(44.5) },
       ...EXTENSION_PARKS.map(park => ({ x0: W(park.x0 + .5), x1: W(park.x1 - .5), z0: W(park.z0 + .5), z1: W(park.z1 - .5) })),
@@ -268,12 +291,13 @@ export class Bogota {
     // Las torres se ven desde todo el barrio: su material lo permite, y aquí tampoco las corta Three.
     this.group.traverse(mesh => { if (mesh.material?.userData?.pastFar) mesh.frustumCulled = false; });
     const closedView = this.buildingVisibility.closedView;
+    const dynamicGroups = new Set([closedView, this.cerros, ...this.busServices.map(bus => bus.group), this.metroTrain?.group].filter(Boolean));
     this.renderSectors = [
-      ...createRenderSectors(this.group, new Set([closedView, this.cerros, ...this.busServices.map(bus => bus.group)]), CLOSED_CHUNK_SIZE),
+      ...createRenderSectors(this.group, dynamicGroups, CLOSED_CHUNK_SIZE),
       ...createRenderSectors(closedView, undefined, CLOSED_CHUNK_SIZE)
     ];
     scene.add(this.group);
-    freezeStaticTransforms(this.group, new Set(this.busServices.map(bus => bus.group)));
+    freezeStaticTransforms(this.group, new Set([...this.busServices.map(bus => bus.group), this.metroTrain?.group].filter(Boolean)));
     this.signals = new TrafficSignals();
     this.group.add(this.signals.group);
     for (const bus of this.busServices) bus.signals = this.signals;
@@ -287,6 +311,7 @@ export class Bogota {
 
     // Zonas reservadas (en metros)
     this.reserved = {
+      bolirana: { x: BOLIRANA_LOCATION.x, z: BOLIRANA_LOCATION.z },
       spawn:  { ...SHELTER_RESPAWN },
       respawn: { ...SHELTER_RESPAWN },
       sell:   { x: WX(14.5), z: WZ(34) },     // dentro del portón de la bodega
@@ -294,7 +319,9 @@ export class Bogota {
       dealer: { x: WX(14.5), z: WZ(21.5) },   // la olla de El Cartucho
       craft:  { x: WX(16.5), z: WZ(24.5) },
       shop:   { x: WX(34), z: WZ(29) },        // andén de la Calle 9, de espaldas a la manzana
-      comedor: { x: WX(30), z: WZ(33) }       // comedor comunitario junto al parque
+      comedor: { x: WX(30), z: WZ(33) },      // comedor comunitario junto al parque
+      residencia: { x: 114.2, z: 69.1, rot: 0 },              // pared sur de ladrillo en Calle 9 (círculo rojo Foto 3 y 4, al lado de la esquina)
+      prostibulo: { x: 117.0, z: 65.5, rot: Math.PI / 2 }     // pared este de ladrillo en Carrera 10 (círculo rojo Foto 1 y 2)
     };
     this.isNearReserved = (x, z, dist = 6) =>
       Object.values(this.reserved).some((r) => Math.hypot(x - r.x, z - r.z) < dist);
@@ -380,8 +407,23 @@ export class Bogota {
       // Los circuitos de ese costado giran en Calle 8; los demás siguen por los barrios.
       if ([left, right].some(x => x >= 83 && x <= 93) && bottom > 155) bottom = lane(CALLES[2], -1);
       if (bottom - top <= 6.4) return null;
-      return new TrafficRoute(left, right, top, bottom, 3.2);
+      const route = new TrafficRoute(left, right, top, bottom, 3.2);
+      route.wide = true;
+      return route;
     };
+    // Las vías anchas (seis baldosas) llevan dos carriles por sentido: el interior, junto al eje, y el del bordillo.
+    // Cada uno es el mismo circuito corrido 1,5 m; `laneSide` dice hacia qué lado queda la franja de las motos (el entre-carriles).
+    const twoLanes = (list) => list.flatMap(route => {
+      if (!route.wide) return [route];
+      const [left, right, top, bottom, radius] = route.key.split(':').map(Number);
+      const make = (shift, lane, laneSide) => {
+        if (right - left + 2 * shift <= 2 * (radius + shift) + 1 || bottom - top + 2 * shift <= 2 * (radius + shift) + 1) return null;
+        const variant = new TrafficRoute(left - shift, right + shift, top - shift, bottom + shift, radius + Math.max(0, shift));
+        variant.lane = lane; variant.laneSide = laneSide;
+        return variant;
+      };
+      return [make(1.5, 'inner', -1), make(-1.5, 'curb', 1)].filter(Boolean);
+    });
     const routes = [
       circuit(lane(CARRERAS[0], 1), lane(CARACAS.lanes[0], -1), top, bottom),
       circuit(lane(CARACAS.lanes[1], 1), lane(CARRERAS[1], -1), top, bottom),
@@ -416,7 +458,61 @@ export class Bogota {
       new TrafficRoute(carrera5, carrera3, narrow(NARROW_CALLES[0], 1), lane(CALLES[3], -1), 3.2)
     ]) if (!alternatives.has(route.key)) alternatives.set(route.key, route);
     routes.alternatives = [...alternatives.values()];
+    // Solo Ultra usa los dos carriles: los demás niveles conservan el carril único de siempre.
+    const doubled = twoLanes(routes);
+    doubled.alternatives = twoLanes(routes.alternatives);
+    routes.twoLanes = doubled;
+    this._fileLayouts([...routes, ...routes.alternatives]);
     return routes;
+  }
+
+  /**
+   * Dos filas de carros por carril en las vías de un solo carril por sentido. Cada tramo recto guarda hasta dónde llega la
+   * calzada hacia el andén (con puestos de parqueo, solo lo que deja libre el carro parqueado) y hasta el eje, y de ahí salen
+   * los desplazamientos laterales de cada fila, de la moto y del vehículo ancho. Positivo es hacia el eje de la calle.
+   */
+  _fileLayouts(routes) {
+    const FILE_HALF = .8, FILE_MIN = 3.4, FILE_ROOMY = 4.5, FILE_GAP = 2, FILE_GAP_ROOMY = 2.9, AXIS_MARGIN = .25, PARKED_REACH = 1.25;
+    this.map ??= this._layout();
+    const spots = this.getParkingSpots();
+    const road = (x, z) => this.map[Math.round(z / T)]?.[Math.round(x / T)] === 'road';
+    const seen = new Set();
+    for (const route of routes) {
+      if (route.wide || seen.has(route)) continue;
+      seen.add(route);
+      for (const segment of route.segments) {
+        if (segment.radius) continue;
+        const nx = -segment.dz, nz = segment.dx;
+        let curb = Infinity;
+        for (let along = 1; along < segment.length; along += 2) {
+          const x = segment.x + segment.dx * along, z = segment.z + segment.dz * along;
+          let side = 0;
+          while (side < 8 && road(x + nx * side, z + nz * side)) side += .25;
+          if (side < 8) curb = Math.min(curb, side - .125);
+        }
+        if (!Number.isFinite(curb)) continue;
+        const parked = spots.some(spot => {
+          const dx = spot.x - segment.x, dz = spot.z - segment.z;
+          const along = dx * segment.dx + dz * segment.dz, side = dx * nx + dz * nz;
+          return along > -2 && along < segment.length + 2 && side > 1.5 && side < curb + .5;
+        });
+        const reachIn = curb - AXIS_MARGIN, reachOut = parked ? PARKED_REACH : curb - .1, center = (reachIn - reachOut) / 2;
+        const free = reachIn + reachOut;
+        const spread = free >= FILE_ROOMY ? FILE_GAP_ROOMY : Math.min(FILE_GAP, free - 2 * FILE_HALF);
+        const files = free >= FILE_MIN;
+        segment.layout = {
+          center, reachIn, reachOut, files,
+          inner: files ? center + spread / 2 : center, outer: files ? center - spread / 2 : center,
+          // Con sitio la moto va entre las dos filas y el vehículo ancho junto a la de dentro; sin él, todos van al centro.
+          moto: free >= FILE_ROOMY ? center : Math.min(center + 1.4, reachIn - .4), wide: free >= FILE_ROOMY ? center + 1.1 : center,
+        };
+      }
+      route.segments.forEach((segment, index, all) => {
+        if (!segment.radius) return;
+        const before = all.at(index - 1).layout, after = all[(index + 1) % all.length].layout;
+        segment.layout = !before ? after : !after ? before : before.reachIn + before.reachOut <= after.reachIn + after.reachOut ? before : after;
+      });
+    }
   }
 
   getBusRoute() {
@@ -524,7 +620,7 @@ export class Bogota {
         const neighborhood = neighborhoodAt(W(x), W(z));
         const materialKey = neighborhood.id === 'candelaria' && t === 'road' ? 'road_cobbles'
           : neighborhood.id === 'candelaria' && t === 'plaza' ? 'plaza_candelaria'
-            : t === 'sidewalk' && neighborhood.id !== 'centro' ? `sidewalk_${neighborhood.id}` : t;
+            : t === 'sidewalk' && neighborhood.id !== 'centro' && mats[`sidewalk_${neighborhood.id}`] ? `sidewalk_${neighborhood.id}` : t;
         for (let i = 0; i < uv.count; i++) uv.setXY(i, pos.getX(i) / scaleOf[materialKey], pos.getZ(i) / scaleOf[materialKey]);
         (quads[materialKey] ??= []).push(g);
         // Contra el pasto, que queda más alto, una cara cierra la rendija por donde se vería el cielo.
@@ -1052,6 +1148,8 @@ export class Bogota {
 
   getMovementGroundHeight(x, z, currentY) {
     if (inTerminal(x,z)) return terminalGroundHeight(x,z);
+    const metro = metroSurface(x, z);
+    if (metro !== null && Math.abs(metro - currentY) < .75) return metro;
     const deck = viaductSurface(x, z);
     // Solo se entra por la rampa o desde el propio tablero; debajo se conserva la calle.
     if (deck !== null && Math.abs(deck - currentY) < .6) return deck;
@@ -1069,8 +1167,17 @@ export class Bogota {
     const tileX = Math.round(x / T), tileZ = Math.round(z / T);
     const ground = { height: inTerminal(x, z) ? terminalGroundHeight(x, z)
       : this._lakeGroundHeight(x, z) ?? churchStepHeight(x, z) ?? tileGroundHeight(this.map[tileZ]?.[tileX], tileX, tileZ), layer: 'ground' };
-    const deck = viaductSurface(x, z);
     const feetY = from?.y ?? surface?.height ?? ground.height;
+    const metro = metroSurface(x, z);
+    if (metro !== null) {
+      const entersMetro = grounded && Math.abs(metro - feetY) < .75;
+      const previousMetro = from ? metroSurface(from.x, from.z) : null;
+      const abovePreviousMetro = previousMetro !== null && feetY >= previousMetro - 1e-7;
+      const landsOnMetro = !grounded && surface?.layer === 'metro' &&
+        (metro <= feetY + 1e-7 || abovePreviousMetro);
+      if (entersMetro || landsOnMetro) return { height: metro, layer: 'metro' };
+    }
+    const deck = viaductSurface(x, z);
     if (deck !== null) {
       // A pie se accede por una rampa cercana a los pies. En un salto desde
       // el tablero, comprobar también el apoyo anterior: al correr cuesta
@@ -1170,7 +1277,14 @@ export class Bogota {
       this.group.add(sign);
       if (sign.userData.update) this.animated.push(sign);
     }
-    // cerca de la estación: vendedor de tinto y una chaza
+
+    // Canecas distritales de acero inoxidable en andenes cerca de faroles alternados
+    for (let i = 0; i < lampSpots.length; i += 3) {
+      const [lx, lz] = lampSpots[i];
+      this._add(P.canecaDistrital(), lx + 0.6, lz + 0.6);
+    }
+
+    // Vendedores ambulantes: chazas, fritanga y carritos de tinto campesino
     this.vendors = [];
     this._vendor(WX(21), WZ(18.5), Math.PI / 2, 'chaza', 'Chaza de don Efraín', ['cigarrillo', 'cafe', 'pan', 'agua', 'empanada']);
     this._vendor(WX(28), WZ(29), 0, 'fritanga', 'Fritanga La Mona', ['empanada', 'morcilla', 'papaCriolla', 'aguapanela', 'refresco']);
@@ -1179,13 +1293,13 @@ export class Bogota {
 
   /** Vendedor ambulante: puesto + persona; se le puede comprar (lo atiende la tienda con otro catálogo) */
   _vendor(x, z, rotY, kind, title, items) {
-    const stall = kind === 'fritanga' ? P.fritanga() : P.chaza();
+    const stall = kind === 'fritanga' ? P.fritanga() : kind === 'carritoTinto' ? P.carritoTinto() : P.chaza();
     this._takesRoom(this._add(stall, x, z, rotY));
     if (stall.userData.setNight) this.props.push({ instance: { setNight: stall.userData.setNight } });
     const back = new THREE.Vector3(Math.sin(rotY), 0, Math.cos(rotY)).multiplyScalar(-0.9);
     const seller = new Npc(this.scene, new THREE.Vector3(x + back.x, this.getGroundHeight(x, z), z + back.z), {
       facing: rotY, isWalkable: () => false,
-      arquetipo: 'vendedor', fijo: { stance: 'atender', alternas: VENDOR_POSES }
+      seed: hashSeed(`bogota:vendedor:${Math.round(x)}:${Math.round(z)}`), arquetipo: 'vendedor', fijo: { stance: 'atender', alternas: VENDOR_POSES }
     });
     seller.isVendor = true;
     this.npcs.push(seller);
@@ -1238,6 +1352,7 @@ export class Bogota {
     const round = (x, z, r, height = 3) => {
       const y = this.getGroundHeight(x, z);
       collisions.addFallObstacle(x - r, z - r, x + r, z + r, y, y + height);
+      collisions.addPost?.(x, z, r, y, height);
     };
     for (const spot of this.benchSpots) {
       const { minX, minZ, maxX, maxZ } = benchFootprint(spot);
@@ -1411,6 +1526,14 @@ export class Bogota {
     });
   }
 
+  /** Zona que anuncia el aviso al entrar: las del norte (Parque de la 93, Zona T, Zona G) y, si no, la de `_zoneAt`. */
+  _noticeZoneAt(x, z) {
+    if (x < 70 && z < 50) return 'parque93';
+    if (x < 70 && z >= 50 && z < 100) return 'zonaT';
+    if (x >= 260 && z >= 90 && z < 140) return 'zonaG';
+    return this._zoneAt(x, z);
+  }
+
   /** Zona de la ciudad en ese punto: decide qué gente anda por ahí (ver character/archetypes.js). */
   _zoneAt(x, z) {
     if (Math.abs(x - 75) <= 6 && z >= 10 && z <= 310) return 'metro';
@@ -1436,6 +1559,13 @@ export class Bogota {
       // Parque Tercer Milenio: dos vecinos conversando en el prado.
       { at: [102.6, 94.2], facing: .9, stance: 'hablar', arquetipo: 'senora', alternas: TALK, pareja: 1 },
       { at: [103.5, 95], facing: .9 + Math.PI, stance: 'hablar', arquetipo: 'abuelo', alternas: TALK, pareja: -1 },
+      // Habitantes de calle visibles junto al cambuche y la zona de inicio
+      { at: [116.5, 95.2], facing: -1.2, stance: 'sentado', arquetipo: 'habitante' },
+      { at: [110.2, 101.5], facing: 0.8, stance: 'acurrucado', arquetipo: 'habitante' },
+      { at: [106.8, 92.4], facing: Math.PI / 2, stance: 'pedir', arquetipo: 'habitante' },
+      // Zona Roja / Carrera 10: dos personajes reales en el andén bajo la luz roja de neón
+      { at: [118.2, 64.2], facing: Math.PI / 2, stance: 'fumar-quieto', arquetipo: 'vendedor', alternas: ['fumar-quieto', 'brazos-cruzados', 'celular'] },
+      { at: [118.2, 66.8], facing: Math.PI / 2, stance: 'celular', arquetipo: 'oficinista', alternas: ['celular', 'mirar-izquierda', 'fumar-quieto'] },
       // Entrada del Portal: quien pide contra el muro y dos que esperan en el andén de enfrente.
       { at: [54.6, 2.6], facing: Math.PI / 2, stance: 'pedir', arquetipo: 'habitante' },
       { at: [94.2, 3.2], facing: -.7, stance: 'hablar', arquetipo: 'oficinista', alternas: TALK, pareja: 1 },
@@ -1464,13 +1594,15 @@ export class Bogota {
   /** Peatones que recorren la ciudad y los que se quedan en su sitio; los vendedores conservan su puesto. */
   _spawnPeople() {
     const navigation = this.pedestrianNavigation = this._createPedestrianNavigation();
-    const vendors = this.npcs.length;
     const walk = (x, z) => navigation.isWalkableAt(x, z);
     const water = (x, z) => this.getWaterInfo(x, z);
     // Sin pisar el borde: el bus para si alguien queda a menos de medio metro de su costado.
     const onPlatform = (x, z) => x >= 73.5 && x <= 76.5 && z >= -57 && z <= -3;
-    const walker = (position) => this.npcs.push(new Npc(this.scene, position, {
-      navigation, groundHeight: navigation.groundHeight, isWalkable: walk, collisions: this._collisions, getWaterInfo: water, zona: this._zoneAt(position.x, position.z)
+    // Cada persona sale de una semilla que depende de su puesto en la lista: la ciudad se repite igual en cada partida.
+    const seedFor = () => hashSeed(`bogota:${this.npcs.length}`);
+    const walker = (position, extra = null) => this.npcs.push(new Npc(this.scene, position, {
+      navigation, groundHeight: navigation.groundHeight, isWalkable: walk, collisions: this._collisions, getWaterInfo: water, zona: this._zoneAt(position.x, position.z),
+      seed: seedFor(), ...extra
     }));
     const spots = [
       // El Cartucho y parque.
@@ -1493,7 +1625,7 @@ export class Bogota {
       const npc = new Npc(this.scene, home, {
         // La red no sube al andén: quien se asusta allá arriba se queda en él y vuelve en línea recta.
         navigation: person.anden ? null : navigation, groundHeight: (px, pz) => person.anden ? this.getGroundHeight(px, pz) : navigation.groundHeight(px, pz), isWalkable: person.anden ? onPlatform : walk, collisions: this._collisions, getWaterInfo: water, facing: person.facing,
-        arquetipo: person.arquetipo, fijo: { stance: person.stance, alternas: person.alternas, techo: person.anden, reach: person.anden ? 0 : FIXED_REACH }
+        seed: seedFor(), arquetipo: person.arquetipo, fijo: { stance: person.stance, alternas: person.alternas, techo: person.anden, reach: person.anden ? 0 : FIXED_REACH }
       });
       this.npcs.push(npc);
       // Cada pareja son dos entradas seguidas: el que se asusta se lleva al otro.
@@ -1505,18 +1637,33 @@ export class Bogota {
         npc.stance = npc._pairTurn(npc.stance);
       }
     }
-    // Mantiene la densidad del centro y distribuye peatones por los barrios nuevos.
-    const candidates = navigation.nodes.filter(node => !node.crossing && node.x < EAST_SEAM &&
-      (node.x >= ORIGINAL_CITY_WIDTH-1 || node.z >= ORIGINAL_CITY_HEIGHT-1));
-    // Los barrios del oriente suman un grupo moderado, repartido por sus propios andenes.
-    const east = navigation.nodes.filter(node => !node.crossing && node.x >= EAST_SEAM);
-    const eastFixed = fixed.filter(person => person.at[0] >= W(EAST_SEAM)).length;
-    const eastCount = Math.min(east.length, Math.max(0, EAST_PEDESTRIANS - eastFixed));
-    // Siempre los mismos 80: quien se queda en su sitio no se suma, reemplaza a un caminante.
-    const count = Math.min(candidates.length, Math.max(0, TOTAL_PEDESTRIANS - (this.npcs.length - vendors) - eastCount));
-    const place = node => walker(new THREE.Vector3(W(node.x), this.getGroundHeight(W(node.x),W(node.z)), W(node.z)));
-    for (let i=0;i<count;i++) place(candidates[Math.floor((i+0.5)*candidates.length/count)]);
-    for (let i=0;i<eastCount;i++) place(east[Math.floor((i+0.5)*east.length/eastCount)]);
+    // La gente de la calle sale con el reloj y rodea al jugador: los andenes por su largo y los parques por su hora.
+    const streets = [], parks = [];
+    for (const node of navigation.nodes) {
+      if (node.crossing || !node.main) continue;
+      const type = this.map[node.z]?.[node.x];
+      (type === 'grass' || type === 'plaza' || type === 'dirt' ? parks : streets).push({ x: W(node.x), z: W(node.z) });
+    }
+    let crowdCount = 0;
+    this.crowd = new PedestrianCrowd({
+      streets, parks,
+      create: (x, z) => {
+        const npc = new Npc(this.scene, new THREE.Vector3(x, navigation.groundHeight(x, z), z), {
+          navigation, groundHeight: navigation.groundHeight, isWalkable: walk, collisions: this._collisions, getWaterInfo: water, zona: this._zoneAt(x, z), seed: hashSeed(`bogota:gente:${crowdCount++}`)
+        });
+        npc.root.visible = false;
+        return npc;
+      },
+      place: (npc, x, z) => npc.relocate(x, navigation.groundHeight(x, z), z),
+      show: (npc) => { npc.root.visible = true; if (!this.npcs.includes(npc)) this.npcs.push(npc); },
+      hide: (npc) => { npc.root.visible = false; const index = this.npcs.indexOf(npc); if (index >= 0) this.npcs.splice(index, 1); },
+      canMove: (npc) => !npc.koState && !npc.isSplatted && !(npc.panicTimer > 0) && !(npc.fleeTimer > 0) && !npc._cowering
+    });
+    // De noche están en unas pocas esquinas del Cartucho, los andenes y el parque; de día no hay nadie. No cuentan en la gente de la burbuja.
+    for (const [x, z] of ESQUINAS) {
+      const position = navigation.nearestPoint(WX(x), WZ(z));
+      if (position) walker(position, { arquetipo: 'esquinera' });
+    }
   }
 
   /**
@@ -1600,10 +1747,10 @@ export class Bogota {
     this.group.updateWorldMatrix(true, true);
   }
 
-  /** ¿Hay techo encima? La cubierta del Portal y la marquesina de la gasolinera. */
-  isRoofedAt(x, z) { return underTerminalRoof(x, z) || underGasCanopy(x, z); }
+  /** ¿Hay techo encima? La cubierta del Portal, estaciones/viaducto del Metro y la marquesina de la gasolinera. */
+  isRoofedAt(x, z) { return underTerminalRoof(x, z) || underGasCanopy(x, z) || underMetroRoof(x, z); }
 
-  update(dt, playerPos, camera, trafficVehicles = []) {
+  update(dt, playerPos, camera, trafficVehicles = [], hour = null) {
     this.t += dt;
     P.foliageWind.value = this.t;
     this.signals?.update(this.t);
@@ -1629,7 +1776,16 @@ export class Bogota {
     // Con el clima conectado cuenta la lluvia que cae; sin él (pruebas, sala), el piso mojado como antes.
     const raining = this.rainNow !== undefined ? this.rainNow > 0 : (this.wetness ?? 0) > 0.05;
     const ctx = { player: playerPos, frustum, camera, isRaining: raining, rain: this.rainNow, animationBudget: this.animationBudget ?? 1,
-      drawDistance: this.farDetailDistance, skipHiddenMatrices: true, hygiene: this.playerHygiene ?? 100, chasers };
+      drawDistance: this.farDetailDistance, skipHiddenMatrices: true, vehicles: trafficVehicles, hygiene: this.playerHygiene ?? 100, chasers,
+      hour: hour ?? this.hour ?? 12, night: this.night };
+    if (this.crowd && playerPos && Number.isFinite(hour)) {
+      const forward = camera?.getWorldDirection?.(_crowdForward);
+      const aim = forward ? { x: forward.x, z: forward.z } : null, length = aim ? Math.hypot(aim.x, aim.z) || 1 : 1;
+      if (aim) { aim.x /= length; aim.z /= length; }
+      const view = camera?.position ?? playerPos;
+      _crowdCenter.x = playerPos.x + (aim ? aim.x * 30 : 0); _crowdCenter.z = playerPos.z + (aim ? aim.z * 30 : 0);
+      this.crowd.update(dt, hour, _crowdCenter, CROWD_RADIUS, aim, view);
+    }
     for (const n of this.npcs) n.update(dt, ctx);
     for (const flock of this.pigeonFlocks ?? []) flock.update(dt, playerPos, this.npcs, camera);
   }

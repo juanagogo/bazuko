@@ -34,6 +34,48 @@ const MIRROR_REACH_PENALTY = .8;
 // salió: quien se queda parado en el límite no lo ve entrar y salir.
 const MARKER_SHOW = INTERACT_RANGE + 2.2, MARKER_HIDE = MARKER_SHOW + .6, MARKER_FADE = .3;
 
+/** Velocidad máxima, en m/s, a la que todavía se alcanza a limpiar un parabrisas. */
+export const CLEAN_MAX_SPEED = 1;
+const WRECK_MATERIALS = {};
+function wreckMaterial(key, make) { return WRECK_MATERIALS[key] ??= make(); }
+
+function buildWreck(length, width) {
+  const group = new THREE.Group();
+  group.name = 'Desastre del carro';
+  const plane = (w, h, material) => new THREE.Mesh(new THREE.PlaneGeometry(w, h), material);
+  const glass = wreckMaterial('crack', () => new THREE.MeshBasicMaterial({ color: 0xe8f0f4, transparent: true, opacity: .55, depthWrite: false, side: THREE.DoubleSide }));
+  const paintMat = wreckMaterial('paint', () => new THREE.MeshBasicMaterial({ color: 0xd8243a, side: THREE.DoubleSide }));
+  const dentMat = wreckMaterial('dent', () => new THREE.MeshLambertMaterial({ color: 0x2a2a2c, flatShading: true }));
+  const sootMat = wreckMaterial('soot', () => new THREE.MeshBasicMaterial({ color: 0x050505, transparent: true, opacity: .6, depthWrite: false, side: THREE.DoubleSide }));
+  // frente hacia +X local
+  const crack = new THREE.Group();
+  for (const [x, rot] of [[.3, .5], [.3, -.6], [.3, 1.5]]) {
+    const line = plane(.9, .035, glass);
+    line.position.set(length * x, 1.08, 0);
+    line.rotation.set(-1.0, Math.PI / 2, rot);
+    crack.add(line);
+  }
+  const paint = new THREE.Group();
+  for (const side of [-1, 1]) {
+    const tag = plane(length * .32, .42, paintMat);
+    tag.position.set(-length * .05, .8, side * (width / 2 + .02));
+    tag.rotation.set(0, side > 0 ? 0 : Math.PI, side * .12);
+    paint.add(tag);
+  }
+  const dents = new THREE.Group();
+  for (const [x, z, s] of [[.42, .25, .5], [.1, -.4, .4], [-.3, .38, .45]]) {
+    const dent = new THREE.Mesh(new THREE.BoxGeometry(.3 * s * 2, .06, .24 * s * 2), dentMat);
+    dent.position.set(length * x, .98, width * z * .5);
+    dent.rotation.set(.2, x * 4, .15);
+    dents.add(dent);
+  }
+  const soot = plane(length * .5, width * .7, sootMat);
+  soot.position.set(length * .22, 1.01, 0);
+  soot.rotation.x = -Math.PI / 2;
+  group.add(crack, paint, dents, soot);
+  return { group, crack, paint, dents, soot };
+}
+
 export class Car {
   constructor(scene, position, rotation = 0, { traffic = false, kind = null, variant = null, model = null } = {}) {
     this.scene = scene;
@@ -48,6 +90,8 @@ export class Car {
     this._steering = 0;
     this._motionWeight = 0;
     this._previousSpeed = null;
+    // Lejos, el tráfico lo dibuja el lote instanciado y este grupo queda apagado.
+    this.instanced = false;
 
     this.group = new THREE.Group();
     this.group.position.copy(position);
@@ -178,6 +222,15 @@ export class Car {
 
   /** Si se le puede limpiar el parabrisas: carros particulares y taxis que no se hayan limpiado recientemente y no estén en alarma. */
   get cleanable() { return this.kind !== 'police' && !this.used && (this.cleanCooldown ?? 0) <= 0; }
+
+  /**
+   * Si se le puede limpiar el parabrisas: paga el conductor, así que solo vale para un carro en circulación que esté
+   * quieto o a paso de persona (semáforo o trancón). Un parqueado no tiene quién pague y a uno en marcha no se le alcanza.
+   */
+  get cleanable() {
+    return this.traffic && this.kind !== 'police' && !this.used && (this.cleanCooldown ?? 0) <= 0
+      && Math.abs(this._previousSpeed ?? 0) < CLEAN_MAX_SPEED;
+  }
 
   /**
    * Distancia para el aviso de robar: al centro o, con un recargo, a un espejo. En un carro largo el espejo queda a varios metros
@@ -392,9 +445,26 @@ export class Car {
     }
   }
 
+  /**
+   * Un carro que la gente de una protesta fue dejando hecho un desastre, de 0 (intacto) a 1: primero el parabrisas roto,
+   * luego un grafiti y las abolladuras, al final el hollín del fuego. Son parches sueltos, sin tocar los materiales del modelo.
+   */
+  setWreck(level) {
+    this.wreckLevel = level;
+    if (level <= 0 && !this._wreck) return;
+    if (!this._wreck) this._wreck = buildWreck(this.length, this.width);
+    const w = this._wreck;
+    w.crack.visible = level > .15;
+    w.paint.visible = level > .4;
+    w.dents.visible = level > .55;
+    w.soot.visible = level > .75;
+    if (!w.group.parent) this.group.add(w.group);
+  }
+
   dispose() {
     if (this._disposed) return;
     this._disposed = true;
+    this._wreck?.group.traverse(o => o.geometry?.dispose());
     this.scene.remove(this.group);
     if (this.vehicle.bodyVisual) this.vehicle.bodyVisual.onBeforeRender = () => {};
     this.group.remove(this.vehicle.group);

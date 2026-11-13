@@ -63,6 +63,8 @@ export function perdidoAlMorir(items, nombres, max = 3) {
 export function tituloDeMuerte(causa, stats) {
   if (causa === 'atropello') return 'Me atropellaron';
   if (causa === 'golpiza') return 'Te cascaron';
+  if (causa === 'tiro') return 'Me dieron un tiro';
+  if (causa === 'cuchillada') return 'Me pincharon';
   if (causa === 'limpieza') return 'Te mató la limpieza social';
   if (stats?.isFreezing) return 'Me mató el frío';
   if (stats?.sed <= 0) return 'Me mató la sed';
@@ -76,6 +78,7 @@ export function consejoDeMuerte(causa, stats) {
   if (causa === 'limpieza') return null;
   if (causa === 'atropello') return 'Mire a los dos lados antes de cruzar: un carro no frena de una.';
   if (causa === 'golpiza') return 'Si un conductor se baja con la varilla, córrale y no pare.';
+  if (causa === 'tiro' || causa === 'cuchillada') return 'Con un ladrón armado, entregue rápido y sin moverse: la plata se recupera, la salud no.';
   if (stats?.isFreezing) return 'Con lluvia de noche, busque candela o techo.';
   if (stats?.sed <= 0) return 'Busque agua antes de que el cuerpo no dé más.';
   if (stats?.hambre <= 0) return 'Busque comida antes de que el cuerpo no dé más.';

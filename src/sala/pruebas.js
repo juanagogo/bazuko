@@ -211,7 +211,7 @@ export const PRUEBAS = [
   {
     id: 'fumar',
     nombre: 'Fumar',
-    descripcion: 'Cigarrillo, porro y basuco: caladas, humo y efectos. Sube la velocidad para no esperar 30 s.',
+    descripcion: 'Cigarrillo, porro y basuco: caladas, humo y efectos. Suba la velocidad para no esperar 30 s.',
     montar: fumar
   },
   {
@@ -322,7 +322,7 @@ export const PRUEBAS = [
   {
     id: 'limpieza',
     nombre: 'Limpieza social',
-    descripcion: 'La camioneta negra llega por la calle de la derecha (x = 7) y se bajan los tres. Corre con Shift.',
+    descripcion: 'La camioneta negra llega por la calle de la derecha (x = 7) y se bajan los tres. Corra con Shift.',
     async montar(sala) {
       sala.setHour(22);
       const squad = new LimpiezaSocialSystem(sala.scene, { player: sala.player, stats: sala.stats, audio: sala.audio });
@@ -332,7 +332,7 @@ export const PRUEBAS = [
       sala.limpieza = squad;
       return {
         acciones: [
-          { texto: '🚙 Que llegue', hacer: () => { if (!squad.trigger()) toast('Ya están aquí (o estás muy lejos de la calle)'); } },
+          { texto: '🚙 Que llegue', hacer: () => { if (!squad.trigger()) toast('Ya están aquí (o está muy lejos de la calle)'); } },
           { texto: '❤️ Curar', hacer: () => { sala.stats.salud = 100; } },
           { texto: '⏹ Que se vayan', hacer: () => squad.reset() }
         ],

@@ -1,0 +1,81 @@
+<svg width="1920" height="1080" viewBox="0 0 1920 1080" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- Marco Principal -->
+  <rect width="1920" height="1080" rx="16" fill="#1A1714" stroke="#F4EFE6" stroke-width="6"/>
+
+  <!-- Encabezado Técnico -->
+  <text x="64" y="72" fill="#D89A3C" font-family="Consolas, monospace" font-size="22" font-weight="700">FRAME 02 // PANTALLA LED DE ANDÉN (PID OVERHEAD DISPLAY) · 1920 × 1080</text>
+
+  <!-- Carcasa Metálica del Tablero Colgante -->
+  <rect x="64" y="106" width="1792" height="720" rx="16" fill="#100E0D" stroke="#756A5F" stroke-width="8"/>
+  <rect x="104" y="146" width="1712" height="640" rx="8" fill="#0B0A09" stroke="#3A332C" stroke-width="4"/>
+
+  <!-- Fila Superior: Línea, Destino y Reloj de Arribo -->
+  <text x="148" y="212" fill="#D9232A" font-family="Consolas, monospace" font-size="26" font-weight="900">● LÍNEA 1 · DIRECCIÓN SUR / CENTRO</text>
+  <text x="148" y="286" fill="#F2A900" font-family="Impact, Arial Black, sans-serif" font-size="64" letter-spacing="3">DESTINO: PORTAL - CENTRO</text>
+
+  <rect x="1320" y="176" width="450" height="134" rx="8" fill="#1C160E" stroke="#F2A900" stroke-width="4"/>
+  <text x="1510" y="216" fill="#F2A900" font-family="Consolas, monospace" font-size="20">PRÓXIMO TREN EN</text>
+  <text x="1420" y="284" fill="#4EFF6B" font-family="Consolas, monospace" font-size="64" font-weight="900">01:45 MIN</text>
+
+  <line x1="148" y1="340" x2="1770" y2="340" stroke="#3A332C" stroke-width="3" stroke-dasharray="12 12"/>
+
+  <!-- Ocupación por Vagón -->
+  <text x="148" y="392" fill="#B7ADA1" font-family="Consolas, monospace" font-size="22">OCUPACIÓN EN TIEMPO REAL POR VAGÓN (TREN #104 — 6 VAGONES ARTICULADOS):</text>
+
+  <!-- Vagón 1 -->
+  <rect x="148" y="424" width="252" height="190" rx="6" fill="#1B1815" stroke="#F4EFE6" stroke-width="3"/>
+  <rect x="148" y="424" width="252" height="14" fill="#D9232A"/>
+  <text x="172" y="478" fill="#F4EFE6" font-family="Consolas, monospace" font-size="22" font-weight="900">VAGÓN 01</text>
+  <text x="172" y="518" fill="#4EFF6B" font-family="Consolas, monospace" font-size="20">BAJA (32%)</text>
+  <rect x="172" y="552" width="204" height="18" rx="4" fill="#2A241E"/>
+  <rect x="172" y="552" width="68" height="18" rx="4" fill="#4EFF6B"/>
+
+  <!-- Vagón 2 -->
+  <rect x="424" y="424" width="252" height="190" rx="6" fill="#1B1815" stroke="#F4EFE6" stroke-width="3"/>
+  <rect x="424" y="424" width="252" height="14" fill="#D9232A"/>
+  <text x="448" y="478" fill="#F4EFE6" font-family="Consolas, monospace" font-size="22" font-weight="900">VAGÓN 02</text>
+  <text x="448" y="518" fill="#4EFF6B" font-family="Consolas, monospace" font-size="20">BAJA (40%)</text>
+  <rect x="448" y="552" width="204" height="18" rx="4" fill="#2A241E"/>
+  <rect x="448" y="552" width="82" height="18" rx="4" fill="#4EFF6B"/>
+
+  <!-- Vagón 3 -->
+  <rect x="700" y="424" width="252" height="190" rx="6" fill="#1B1815" stroke="#F4EFE6" stroke-width="3"/>
+  <rect x="700" y="424" width="252" height="14" fill="#D9232A"/>
+  <text x="724" y="478" fill="#F4EFE6" font-family="Consolas, monospace" font-size="22" font-weight="900">VAGÓN 03</text>
+  <text x="724" y="518" fill="#F2A900" font-family="Consolas, monospace" font-size="20">MEDIA (68%)</text>
+  <rect x="724" y="552" width="204" height="18" rx="4" fill="#2A241E"/>
+  <rect x="724" y="552" width="138" height="18" rx="4" fill="#F2A900"/>
+
+  <!-- Vagón 4 -->
+  <rect x="976" y="424" width="252" height="190" rx="6" fill="#1B1815" stroke="#F4EFE6" stroke-width="3"/>
+  <rect x="976" y="424" width="252" height="14" fill="#D9232A"/>
+  <text x="1000" y="478" fill="#F4EFE6" font-family="Consolas, monospace" font-size="22" font-weight="900">VAGÓN 04</text>
+  <text x="1000" y="518" fill="#FF5252" font-family="Consolas, monospace" font-size="20">ALTA (89%)</text>
+  <rect x="1000" y="552" width="204" height="18" rx="4" fill="#2A241E"/>
+  <rect x="1000" y="552" width="182" height="18" rx="4" fill="#FF5252"/>
+
+  <!-- Vagón 5 -->
+  <rect x="1252" y="424" width="252" height="190" rx="6" fill="#1B1815" stroke="#F4EFE6" stroke-width="3"/>
+  <rect x="1252" y="424" width="252" height="14" fill="#D9232A"/>
+  <text x="1276" y="478" fill="#F4EFE6" font-family="Consolas, monospace" font-size="22" font-weight="900">VAGÓN 05</text>
+  <text x="1276" y="518" fill="#F2A900" font-family="Consolas, monospace" font-size="20">MEDIA (61%)</text>
+  <rect x="1276" y="552" width="204" height="18" rx="4" fill="#2A241E"/>
+  <rect x="1276" y="552" width="124" height="18" rx="4" fill="#F2A900"/>
+
+  <!-- Vagón 6 -->
+  <rect x="1528" y="424" width="242" height="190" rx="6" fill="#1B1815" stroke="#F4EFE6" stroke-width="3"/>
+  <rect x="1528" y="424" width="242" height="14" fill="#D9232A"/>
+  <text x="1552" y="478" fill="#F4EFE6" font-family="Consolas, monospace" font-size="22" font-weight="900">VAGÓN 06</text>
+  <text x="1552" y="518" fill="#4EFF6B" font-family="Consolas, monospace" font-size="20">BAJA (25%)</text>
+  <rect x="1552" y="552" width="194" height="18" rx="4" fill="#2A241E"/>
+  <rect x="1552" y="552" width="52" height="18" rx="4" fill="#4EFF6B"/>
+
+  <!-- Cintillo Inferior Rojo -->
+  <rect x="148" y="654" width="1622" height="86" rx="6" fill="#D9232A" stroke="#F4EFE6" stroke-width="3"/>
+  <text x="178" y="706" fill="#FFFFFF" font-family="Consolas, monospace" font-size="22" font-weight="900">⚠ AVISO DE ESTACIÓN: NO CRUCE LA LÍNEA AMARILLA PODOTÁCTIL · HORA: 18:42 · LLUVIA EN LA CARACAS</text>
+
+  <!-- Nota de Integración SignAtlas -->
+  <rect x="64" y="864" width="1792" height="156" rx="10" fill="#2A241E" stroke="#F4EFE6" stroke-width="4"/>
+  <text x="104" y="920" fill="#F2A900" font-family="Impact, Arial Black, sans-serif" font-size="30">ESPECIFICACIÓN DE TEXTURA PARA SIGNATLAS.CPP Y STATION.HPP</text>
+  <text x="104" y="968" fill="#B7ADA1" font-family="Consolas, monospace" font-size="20">Proyección 16:5 en pórticos de andén elevado · UV Slot: SIGN_METRO_PID_01 · Intensidad Emisiva: 1.85</text>
+</svg>

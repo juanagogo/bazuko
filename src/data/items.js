@@ -11,7 +11,7 @@ export const ITEMS = {
   lata:     { id: 'lata',     name: 'Lata vacía',    weight: 0.2,  value: 250, rarity: 'common', sharp: true },
   // Vacía se vende; con lluvia fuerte o junto a una pila pública se llena de agua (`aguaCalle`).
   botella:  { id: 'botella',  name: 'Botella',   weight: 0.3,  value: 150, usable: true },
-  carton:   { id: 'carton',   name: 'Cartón',        weight: 0.5,  value: 200, rarity: 'common' },
+  carton:   { id: 'carton',   name: 'Cartón',        weight: 0.5,  value: 200, rarity: 'common', usable: true, useLabel: 'Dormir en cartón' },
   chatarra: { id: 'chatarra', name: 'Chatarra',      weight: 1.0,  value: 900, sharp: true },
   cable:    { id: 'cable',    name: 'Cable de cobre',   weight: 0.4,  value: 2400 },
 
@@ -48,6 +48,12 @@ export const ITEMS = {
   lataComida: {
     id: 'lataComida', name: 'Lata de atún', weight: 0.4, value: 4500,
     consumable: 'hambre', amount: 45, animo: 8
+  },
+  sobrados: {
+    id: 'sobrados', name: 'Sobrados de comida', weight: 0.3, value: 0,
+    consumable: 'hambre', amount: 25, animo: -2,
+    desc: 'Comida rescatada de la basura. Puede calmar el hambre o sentar muy mal.',
+    isScraps: true
   },
   agua: {
     id: 'agua', name: 'Botella de agua', weight: 0.5, value: 1500,
@@ -141,6 +147,11 @@ export const ITEMS = {
     consumable: 'vicio', amount: 70, animo: 30, energia: 15, salud: -6, hambre: -10, substance: true,
     desc: 'Se fuma en pipa, agachado. Sube el ánimo de golpe pero trae paranoia y alucinaciones.'
   },
+  polvoLadrillo: {
+    id: 'polvoLadrillo', name: 'Polvo de ladrillo', weight: 0.05, value: 600,
+    consumable: 'vicio', amount: 25, animo: 8, energia: 12, salud: -4, substance: true,
+    desc: 'Raspado de una pared y esnifado: engaña al vicio un rato, da tos y deja la nariz hecha un ladrillo.'
+  },
   cigarrillo: {
     id: 'cigarrillo', name: 'Cigarrillo suelto', weight: 0.01, value: 300,
     consumable: 'vicio', amount: 35, salud: -1
@@ -209,7 +220,7 @@ for (const item of Object.values(ITEMS)) {
 export const isUsable = item => !!(item?.consumable || item?.cure || item?.usable);
 export function describeEffects(item) {
   const lines = [];
-  if (item.id === 'ropaLimpia') lines.push('Usar: cambiarte de ropa, sube higiene y ánimo.');
+  if (item.id === 'ropaLimpia') lines.push('Usar: cambiarme de ropa, sube higiene y ánimo.');
   if (item.id === 'radioTransistor') lines.push('Usar: abrir el sintonizador. También con R.');
   if (item.id === 'pilas') lines.push('Usar: 50 % más de pilas en el radio.');
   if (item.id === 'popo') lines.push('Usar o X en la calle: lanzar a un peatón.');
@@ -238,8 +249,8 @@ export const isForSale = (item, equippedWeapon = null) => isRecyclable(item) && 
 
 // El dibujo de cada objeto cuyo nombre no coincide con el de su dibujo (ver src/ui/icons.js)
 const ICONS = {
-  radioTransistor: 'radio', papaCriolla: 'papa', aguapanela: 'pocillo', agua: 'botellaAgua', aguaCalle: 'botellaAgua', comidaDanada: 'pan', cafe: 'pocillo', tintico: 'pocillo',
-  basuco: 'papeleta', botella_picada: 'botellaPicada', antibiotico: 'pastilla', antiparasitario: 'pastilla', ropaLimpia: 'shirt'
+  radioTransistor: 'radio', papaCriolla: 'papa', aguapanela: 'pocillo', agua: 'botellaAgua', aguaCalle: 'botellaAgua', comidaDanada: 'pan', sobrados: 'pan', cafe: 'pocillo', tintico: 'pocillo',
+  basuco: 'papeleta', botella_picada: 'botellaPicada', antibiotico: 'pastilla', antiparasitario: 'pastilla', polvoLadrillo: 'frasco', ropaLimpia: 'shirt'
 };
 export const itemIcon = (id) => ICONS[id] ?? id;
 

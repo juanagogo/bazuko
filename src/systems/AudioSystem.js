@@ -5,11 +5,19 @@ import { STREET_VOICES, StreetVoices } from './StreetVoices.js';
 import { PoliceSirenAudio } from './PoliceSirenAudio.js';
 import { NpcConversations } from './NpcConversations.js';
 import { NPC_CONVERSATIONS } from '../data/npcConversations.js';
+import { FlyBuzzAudio } from './FlyBuzzAudio.js';
 
 export const MIX_CATEGORIES = ['ambient', 'traffic', 'voices', 'effects'];
 // El audio vive en public/audio: la ruta se arma con la base para que la demo de Pages funcione bajo su subcamino.
 const AUDIO_BASE = `${import.meta.env?.BASE_URL ?? '/'}audio/`;
+// Golpes grabados a un carro: cada puño o patada a un vehículo suena uno al azar.
+const CAR_HITS = ['golpe_carro_1.mp3', 'golpe_carro_2.mp3', 'golpe_carro_3.mp3', 'golpe_carro_4.mp3'];
 // Mientras suena una frase, tráfico y ambiente bajan a esta fracción para que se entienda.
+// Más lejos de esto un grito de susto ya no se oye.
+const YELP_RANGE = 35;
+// La protesta: el grito de la multitud y la sirena del paro, con volumen por distancia (lleno cerca, callado desde PROTEST_FAR).
+const PROTEST_NEAR = 12, PROTEST_FAR = 95;
+const PROTEST_SOUNDS = { chant: ['protestChant', 'voices'], siren: ['protestSiren', 'effects'] };
 const VOICE_DUCK = .45, DUCK_ATTACK = 10, DUCK_RELEASE = 2.5;
 // Pisadas aisladas de Sounds_of_a_steps.opus (inicio y duración en ms).
 const STEP_SPRITES = { step1: [215, 300], step2: [605, 300], step3: [995, 300], step4: [1385, 300],
@@ -64,10 +72,16 @@ export class AudioSystem {
       full: sound('full.wav', { volume: .5 }),
       empty: sound('empty.wav', { volume: .4 }),
       carAlarm: sound('Sonido De Alarma De Auto.opus', { volume: .6, loop: false, pool: 6 }),
+      ...Object.fromEntries(CAR_HITS.map((file, i) => [`carHit${i + 1}`, sound(file, { volume: .8, pool: 3 })])),
       steps: sound('Sounds_of_a_steps.opus', { volume: .65, sprite: STEP_SPRITES, pool: 6 }),
       ambient: sound('city_atmosphere_soun.opus', { volume: .18, loop: true }),
-      rain: sound('rain_sound_01.mp3', { volume: .45, loop: true })
+      rain: sound('rain_sound_01.mp3', { volume: .45, loop: true }),
+      roboRastrillo: sound('robo_rastrillo.mp3', { volume: .9, pool: 1 }),
+      roboDisparo: sound('robo_disparo.mp3', { volume: 1, pool: 1 }),
+      protestChant: sound('protesta_pueblo_unido.mp3', { volume: .9 }),
+      protestSiren: sound('protesta_paro_sirena.mp3', { volume: .8 })
     };
+    this._protest = new Map();
     // Reproducción normal: sin posiciones, panners ni atenuación 3D.
     const vehicleOptions = { volume: 0, loop: true, pool: 10 };
     this.vehicleSounds = {
@@ -104,6 +118,7 @@ export class AudioSystem {
       }
     });
     this.policeSiren = new PoliceSirenAudio({ fx: () => this._fx() });
+    this.flyBuzz = new FlyBuzzAudio({ fx: () => this._fx() });
     // Una sola voz a la vez entre conductores, robo, calle y conversaciones.
     this.vehicles.externalVoiceActive = () => this._theftVoiceActive() || this.streetVoices.active || this.conversations.busy;
     this.streetVoices.externalVoiceActive = () => this._theftVoiceActive() || this.vehicles.remarkPlaying() || this.conversations.busy;
@@ -154,6 +169,9 @@ export class AudioSystem {
     };
     globalThis.document?.addEventListener?.('visibilitychange', this._visibilityChanged);
     this._dogBark = () => this.barkDog();
+    this._npcYelp = (event) => this.playYelp(event.detail?.distance);
+    this._yelps = 0;
+    eventTarget?.addEventListener('npc-yelp', this._npcYelp);
     eventTarget?.addEventListener('dog-bark', this._dogBark);
   }
 
@@ -202,8 +220,14 @@ export class AudioSystem {
     if (this._ambientId !== undefined) this.sounds.ambient.volume(this._baseVolume.get(this.sounds.ambient) * ambient, this._ambientId);
     if (this._rainId !== undefined) this.sounds.rain.volume(this._baseVolume.get(this.sounds.rain) * ambient, this._rainId);
   }
+  // Silencia el banco de la calle y conserva la preferencia de volumen general.
+  setVenueMuted(muted) {
+    this._venueMuted = !!muted;
+    this.howler.volume(this.muted || this._venueMuted ? 0 : this.volume);
+  }
+
   _applySettings() {
-    this.howler.volume(this.muted ? 0 : this.volume);
+    this.howler.volume(this.muted || this._venueMuted ? 0 : this.volume);
     try {
       globalThis.localStorage?.setItem('bazuko.audio_volume', String(this.volume));
       globalThis.localStorage?.setItem('bazuko.audio_muted', String(this.muted));
@@ -261,8 +285,116 @@ export class AudioSystem {
     source.start();
   }
 
+  /** Golpe corto a lo sólido: metálico en un carro, hueco en una caneca o una pared. Se apaga con la distancia. */
+  playKnock(position = null, { metal = false } = {}) {
+    const fx = this._fx();
+    if (!fx) return;
+    const volume = this._knockVolume(position);
+    if (volume <= 0) return;
+    // A un carro o una moto le suena uno de los golpes grabados; mientras cargan, o en lo demás, el sintetizado.
+    if (metal && this._playCarHit(volume)) return;
+    try {
+      const { ctx, out } = fx;
+      const t = ctx.currentTime;
+      const osc = ctx.createOscillator();
+      const filter = ctx.createBiquadFilter();
+      const gain = ctx.createGain();
+      const base = (metal ? 430 : 210) * (.9 + Math.random() * .25);
+      osc.type = metal ? 'square' : 'triangle';
+      osc.frequency.setValueAtTime(base, t);
+      osc.frequency.exponentialRampToValueAtTime(base * .55, t + .12);
+      filter.type = metal ? 'bandpass' : 'lowpass';
+      filter.frequency.value = metal ? base * 3 : base * 2.2;
+      filter.Q.value = metal ? 4 : .8;
+      gain.gain.setValueAtTime(.0001, t);
+      gain.gain.linearRampToValueAtTime(volume, t + .004);
+      gain.gain.exponentialRampToValueAtTime(.0001, t + .13);
+      osc.connect(filter); filter.connect(gain); gain.connect(out);
+      osc.onended = () => { osc.disconnect(); filter.disconnect(); gain.disconnect(); };
+      osc.start(t); osc.stop(t + .14);
+    } catch {}
+  }
+
+  /** Uno de los cuatro golpes grabados a un carro, al azar; false si ninguno ha cargado, y suena el sintetizado. */
+  _playCarHit(volume) {
+    const ready = CAR_HITS.map((_, i) => this.sounds[`carHit${i + 1}`]).filter(hit => hit?.state() === 'loaded');
+    if (!ready.length) return false;
+    const hit = ready[Math.floor(Math.random() * ready.length)];
+    const id = hit.play();
+    hit.volume(Math.min(1, volume * 2.4), id);
+    hit.rate(.94 + Math.random() * .12, id);
+    return true;
+  }
+
+  /**
+   * El rastrillar y el disparo del robo, con volumen por distancia (lleno a menos de 10 m, mudo desde 90) y sin apilarse:
+   * mientras uno suena, el mismo no vuelve a arrancar. Devuelve false si no sonó.
+   */
+  playRobo(name, position = null) {
+    const sound = this.sounds[name === 'rastrillo' ? 'roboRastrillo' : name === 'disparo' ? 'roboDisparo' : null];
+    if (!sound || sound.playing()) return false;
+    const listener = this._listenerPosition;
+    const distance = position && listener ? Math.hypot(position.x - listener.x, position.z - listener.z) : 0;
+    const volume = Math.max(0, Math.min(1, (90 - distance) / 80));
+    if (volume <= 0) return false;
+    const id = sound.play();
+    sound.volume(volume * (name === 'disparo' ? 1 : .9), id);
+    return true;
+  }
+
+  /** El choque de dos carros: uno de los golpes grabados, más fuerte y que se oye de más lejos que un puñetazo. */
+  playCarCrash(position = null) {
+    const listener = this._listenerPosition;
+    const distance = position && listener ? Math.hypot(position.x - listener.x, position.z - listener.z) : 0;
+    const volume = Math.max(0, Math.min(1, (70 - distance) / 60));
+    if (volume <= 0 || !this._fx()) return false;
+    return this._playCarHit(volume * .7);
+  }
+
+  _knockVolume(position) {
+    const listener = this._listenerPosition;
+    if (!position || !listener) return .3;
+    const distance = Math.hypot(position.x - listener.x, position.y - listener.y, position.z - listener.z);
+    return .35 * Math.max(0, Math.min(1, (8 - distance) / 7));
+  }
+
   stop(name) {
     this.sounds[name]?.stop();
+  }
+
+  _protestVolume(name, distance) {
+    const [key, category] = PROTEST_SOUNDS[name];
+    return this._baseVolume.get(this.sounds[key]) * this._level(category) * Math.max(0, Math.min(1, (PROTEST_FAR - distance) / (PROTEST_FAR - PROTEST_NEAR)));
+  }
+
+  /** Arranca el grito o la sirena de la protesta si no suena ya (nunca dos copias) y la oye quien esté a menos de PROTEST_FAR. True si arrancó. */
+  playProtest(name, distance) {
+    const entry = PROTEST_SOUNDS[name];
+    if (!entry || this._paused || !(distance < PROTEST_FAR)) return false;
+    const sound = this.sounds[entry[0]], current = this._protest.get(name);
+    if (current) {
+      if (sound.playing(current.id)) { sound.volume(this._protestVolume(name, distance), current.id); return false; }
+      this._protest.delete(name);
+    }
+    if (sound.state() !== 'loaded') return false;
+    const id = sound.play();
+    sound.volume(this._protestVolume(name, distance), id);
+    this._protest.set(name, { id });
+    return true;
+  }
+
+  /** Ajusta el volumen de lo que suena de la protesta a la distancia actual. */
+  updateProtest(distance) {
+    for (const [name, { id }] of this._protest) {
+      const sound = this.sounds[PROTEST_SOUNDS[name][0]];
+      if (!sound.playing(id)) this._protest.delete(name);
+      else sound.volume(this._protestVolume(name, distance), id);
+    }
+  }
+
+  stopProtest() {
+    for (const [name, { id }] of this._protest) this.sounds[PROTEST_SOUNDS[name][0]].stop(id);
+    this._protest.clear();
   }
 
   playCarAlarm(car) {
@@ -393,6 +525,7 @@ export class AudioSystem {
     this.streetVoices.setPaused(paused);
     this.conversations.setPaused(paused);
     if (paused) {
+      this.stopProtest();
       for (const voice of this._theftVoices.values()) voice.sound.stop(voice.id);
       this._theftVoices.clear();
     }
@@ -445,6 +578,7 @@ export class AudioSystem {
     this.streetVoices.clear();
     this.conversations.clear();
     this.eventTarget?.removeEventListener('dog-bark', this._dogBark);
+    this.eventTarget?.removeEventListener('npc-yelp', this._npcYelp);
     this.eventTarget?.removeEventListener('car-honk', this._carHonk);
     this.vehicles.clear();
     this._removeUnlock();
@@ -467,6 +601,35 @@ export class AudioSystem {
     return { ctx, out: this._effectsBus };
   }
 
+
+  /** Un «ay» o un «uy» corto de quien se asusta: sintetizado, espacial por distancia y máximo tres a la vez. */
+  playYelp(distance = 0) {
+    const fx = this._fx();
+    if (!fx || this._yelps >= 3 || !(distance < YELP_RANGE)) return;
+    try {
+      const { ctx, out } = fx;
+      const t = ctx.currentTime, length = .22 + Math.random() * .16;
+      const base = 300 + Math.random() * 260, uy = Math.random() < .5;
+      const voice = ctx.createOscillator(), vibrato = ctx.createOscillator(), vibratoGain = ctx.createGain();
+      const formant = ctx.createBiquadFilter(), gain = ctx.createGain();
+      voice.type = 'sawtooth';
+      voice.frequency.setValueAtTime(base * 1.15, t);
+      voice.frequency.exponentialRampToValueAtTime(base * (uy ? 1.5 : .8), t + length);
+      vibrato.frequency.value = 22; vibratoGain.gain.value = 9;
+      vibrato.connect(vibratoGain); vibratoGain.connect(voice.frequency);
+      formant.type = 'bandpass'; formant.Q.value = 4;
+      formant.frequency.setValueAtTime(uy ? 400 : 850, t);
+      formant.frequency.linearRampToValueAtTime(uy ? 1900 : 1500, t + length);
+      const volume = .22 * Math.max(0, 1 - distance / YELP_RANGE);
+      gain.gain.setValueAtTime(.001, t);
+      gain.gain.linearRampToValueAtTime(volume, t + .03);
+      gain.gain.exponentialRampToValueAtTime(.001, t + length);
+      voice.connect(formant); formant.connect(gain); gain.connect(out);
+      voice.start(t); vibrato.start(t); voice.stop(t + length + .02); vibrato.stop(t + length + .02);
+      this._yelps++;
+      voice.onended = () => { this._yelps = Math.max(0, this._yelps - 1); };
+    } catch {}
+  }
 
   playFart() {
     const fx = this._fx();

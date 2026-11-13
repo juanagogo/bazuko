@@ -19,16 +19,18 @@ struct InventoryState {
 };
 
 // Carga y juego deben aplicar las mismas mejoras de capacidad.
+constexpr float kCartCapacityBonus = 120.0f;   // kg extra con la carreta de balineras enganchada
+
 inline float InventoryCapacity(const GameData& data,
-                               const std::unordered_set<std::string>& talents, bool bigSack) {
+                               const std::unordered_set<std::string>& talents, bool bigSack, bool cart = false) {
     return 20.0f + data.TalentEffect(talents, "maxWeightBonus", 0.0f)
-        + (bigSack ? data.costalBonus : 0.0f);
+        + (bigSack ? data.costalBonus : 0.0f) + (cart ? kCartCapacityBonus : 0.0f);
 }
 
 inline InventoryState RestoreInventory(const nlohmann::json& savedEntries, const GameData& data,
-                                       const std::unordered_set<std::string>& talents, bool bigSack) {
+                                       const std::unordered_set<std::string>& talents, bool bigSack, bool cart = false) {
     InventoryState inventory;
-    const float capacity = InventoryCapacity(data, talents, bigSack);
+    const float capacity = InventoryCapacity(data, talents, bigSack, cart);
     for (const auto& entry : savedEntries) {
         const std::size_t itemIndex = entry.value("item", data.items.size());
         const int quantity = entry.value("quantity", 0);

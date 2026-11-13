@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { mock, test } from 'node:test';
 import * as THREE from 'three';
 import { GpsNavigation } from '../src/systems/GpsNavigation.js';
+import { COLPATRIA } from '../src/world/bogota/Colpatria.js';
 import { STREET_X, STREET_Z } from '../src/world/bogota/StreetLayout.js';
 
 mock.module('../src/character/RealisticCharacter.js', { namedExports: {
@@ -87,13 +88,13 @@ test('el destino se serializa para el guardado', () => {
 
 test('marcar Colpatria lleva a una acera y completa el destino al terminar la ruta', () => {
   const nav = city.createGpsNavigation();
-  const building = { x: 81, z: 168, name: 'Colpatria', icon: '🏢' };
+  const building = { x: COLPATRIA.x, z: COLPATRIA.z, name: 'Colpatria', icon: '🏢' };
   assert.equal(nav.isRoutable(building.x, building.z), false);
   assert.equal(nav.setWaypoint(building, START, 0), true);
   const end = nav.route.at(-1);
   assert.ok(nav.isRoutable(end.x, end.z));
   assert.deepEqual(nav.waypoint, { ...building, ...end });
-  assert.deepEqual(building, { x: 81, z: 168, name: 'Colpatria', icon: '🏢' }, 'no mueve el hito original');
+  assert.deepEqual(building, { x: COLPATRIA.x, z: COLPATRIA.z, name: 'Colpatria', icon: '🏢' }, 'no mueve el hito original');
   assertWalkable(nav.route);
   for (const point of [...nav.route]) nav.update(point, 100);
   assert.equal(nav.waypoint, null);
@@ -103,7 +104,7 @@ test('marcar Colpatria lleva a una acera y completa el destino al terminar la ru
 
 test('el destino ajustado conserva su posición accesible al guardar y reanudar', () => {
   const nav = city.createGpsNavigation();
-  nav.setWaypoint({ x: 81, z: 168, name: 'Colpatria', icon: '🏢' }, START, 0);
+  nav.setWaypoint({ x: COLPATRIA.x, z: COLPATRIA.z, name: 'Colpatria', icon: '🏢' }, START, 0);
   const saved = JSON.parse(JSON.stringify(nav.serialize()));
   const restored = city.createGpsNavigation();
   assert.equal(restored.setWaypoint(saved, START, 0), true);
@@ -127,7 +128,7 @@ test('un destino transitable conserva la coordenada marcada y uno sin acceso no 
 });
 
 test('routeLengthTo mide lo mismo que la ruta marcada', () => {
-  const places = [city.reserved.sell, city.reserved.shop, { x: 75, z: -30 }, { x: 81, z: 168 }, { x: 12.4, z: 80.3 }];
+  const places = [city.reserved.sell, city.reserved.shop, { x: 75, z: -30 }, { x: COLPATRIA.x, z: COLPATRIA.z }, { x: 12.4, z: 80.3 }];
   for (const place of places) {
     const nav = city.createGpsNavigation();
     const meters = nav.routeLengthTo(START, place);
@@ -142,17 +143,20 @@ test('routeLengthTo no toca el destino activo', () => {
   nav.update({ x: START.x - 8, z: START.z }, 100);
   const state = () => structuredClone({ waypoint: nav.waypoint, route: nav.route, length: nav.routeLength, suffix: nav._suffix, progress: nav._progress });
   const before = state();
-  for (const place of [city.reserved.shop, { x: 75, z: -30 }, { x: 81, z: 168 }, { x: 75, z: 262 }]) nav.routeLengthTo(START, place);
+  for (const place of [city.reserved.shop, { x: 75, z: -30 }, { x: COLPATRIA.x, z: COLPATRIA.z }, { x: 75, z: 262 }]) nav.routeLengthTo(START, place);
   assert.deepEqual(state(), before);
 });
 
-test('a pie el orden cambia: desde la orilla del lago el mercado queda antes que Colpatria', () => {
+test('a pie se rodea el lago: desde la orilla, la ruta al mercado y a Colpatria nunca es más corta que la recta', () => {
+  // Antes Colpatria estaba junto a la Caracas y esta prueba comparaba el orden de ambos lugares; con la torre
+  // en Centro Internacional (oriente de la Cra. 7) lo que se conserva es que el lago obliga a rodear.
   const from = { x: 75, z: 226 };
-  const place = (name) => cityLandmarks().find(l => l.name === name);
+  const place = (name) => cityLandmarks().find(l => l.name === name || l.name.startsWith(name + ' ('));
   const straight = (to) => Math.hypot(to.x - from.x, to.z - from.z);
-  const d69 = place('Mercado Doña Inés'), colpatria = place('Torre Colpatria');
-  assert.ok(straight(colpatria) < straight(d69));
-  assert.ok(gps.routeLengthTo(from, d69) < gps.routeLengthTo(from, colpatria));
+  for (const to of [place('Mercado Doña Inés'), place('Torre Colpatria')]) {
+    const walk = gps.routeLengthTo(from, to);
+    assert.ok(walk !== null && walk >= straight(to) - 2, `${to.name}: ${walk} vs ${straight(to)}`);
+  }
 });
 
 test('routeLengthTo devuelve null si no hay camino y mide en recta dentro de un mismo tile', () => {
@@ -166,7 +170,7 @@ test('routeLengthTo devuelve null si no hay camino y mide en recta dentro de un 
 
 test('routeLengthTo desde la acera de un edificio mide hasta esa acera, no hasta su interior', () => {
   for (const name of ['Torre Colpatria', 'Mercado Doña Inés']) {
-    const place = cityLandmarks().find(l => l.name === name);
+    const place = cityLandmarks().find(l => l.name === name || l.name.startsWith(name + ' ('));
     const door = gps._point(gps._nearestOpen(place.x, place.z));
     const from = { x: door.x + .3, z: door.z };
     const nav = city.createGpsNavigation();

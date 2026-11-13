@@ -28,3 +28,8 @@ cpp/public/models/vehiculos/renault6*
 cpp/public/models/vehiculos/modelx*
 cpp/public/models/perro_nuevo/
 cpp/public/models/vehiculos animados/
+.DS_Store
+
+# Multijugador del port en C++: clave de perfil del invitado y perfiles guardados por el anfitrion (datos locales)
+bazuko_clave_perfil.txt
+bazuko_perfiles/
