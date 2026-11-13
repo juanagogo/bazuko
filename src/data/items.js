@@ -141,6 +141,11 @@ export const ITEMS = {
     consumable: 'vicio', amount: 70, animo: 30, energia: 15, salud: -6, hambre: -10, substance: true,
     desc: 'Se fuma en pipa, agachado. Sube el ánimo de golpe pero trae paranoia y alucinaciones.'
   },
+  polvoLadrillo: {
+    id: 'polvoLadrillo', name: 'Polvo de ladrillo', weight: 0.05, value: 600,
+    consumable: 'vicio', amount: 25, animo: 8, energia: 12, salud: -4, substance: true,
+    desc: 'Raspado de una pared y esnifado: engaña al vicio un rato, da tos y deja la nariz hecha un ladrillo.'
+  },
   cigarrillo: {
     id: 'cigarrillo', name: 'Cigarrillo suelto', weight: 0.01, value: 300,
     consumable: 'vicio', amount: 35, salud: -1
@@ -239,7 +244,7 @@ export const isForSale = (item, equippedWeapon = null) => isRecyclable(item) && 
 // El dibujo de cada objeto cuyo nombre no coincide con el de su dibujo (ver src/ui/icons.js)
 const ICONS = {
   radioTransistor: 'radio', papaCriolla: 'papa', aguapanela: 'pocillo', agua: 'botellaAgua', aguaCalle: 'botellaAgua', comidaDanada: 'pan', cafe: 'pocillo', tintico: 'pocillo',
-  basuco: 'papeleta', botella_picada: 'botellaPicada', antibiotico: 'pastilla', antiparasitario: 'pastilla', ropaLimpia: 'shirt'
+  basuco: 'papeleta', botella_picada: 'botellaPicada', antibiotico: 'pastilla', antiparasitario: 'pastilla', polvoLadrillo: 'frasco', ropaLimpia: 'shirt'
 };
 export const itemIcon = (id) => ICONS[id] ?? id;
 

@@ -12,6 +12,8 @@ import { Dog, DOG_DEFAULT_LOOK, legacyPetLook } from '../entities/Dog.js';
 import { CompanionNavigation } from '../systems/CompanionNavigation.js';
 import { Minimap, nombreALaVista } from '../ui/Minimap.js';
 import { ZonaAviso } from '../ui/ZonaAviso.js';
+import { ParoAviso } from '../ui/ParoAviso.js';
+import { alternarPantallaCompleta } from './PantallaCompleta.js';
 import { mojarCarton } from '../ui/mojado.js';
 import { servicePlaces, needContext, SHOP_PRICES, SHOP_OFFERS } from '../ui/mapServices.js';
 import { originEffect } from '../data/origins.js';
@@ -46,9 +48,10 @@ import {
 import { StatsSystem, NEEDS } from '../systems/StatsSystem.js';
 import { TimeSystem } from '../systems/TimeSystem.js';
 import { SaveSystem } from '../systems/SaveSystem.js';
+import { AutoSave } from '../systems/AutoSave.js';
 import { CollisionSystem } from '../systems/CollisionSystem.js';
 import { TrafficSystem } from '../systems/TrafficSystem.js';
-import { DEFAULT_TRAFFIC_DENSITY, trafficDensityId, trafficDensityLabel } from '../systems/trafficDensity.js';
+import { DEFAULT_TRAFFIC_DENSITY, trafficDensityChoosable, trafficDensityId, trafficDensityLabel } from '../systems/trafficDensity.js';
 import { distributeShelterLoot, spreadPickupPositions } from '../systems/ShelterLoot.js';
 import { InventorySystem } from '../systems/InventorySystem.js';
 import { AudioSystem } from '../systems/AudioSystem.js';
@@ -60,7 +63,10 @@ import { RadioSystem } from '../systems/RadioSystem.js';
 import { PoopSystem } from '../systems/PoopSystem.js';
 import { PsychosisSystem } from '../systems/PsychosisSystem.js';
 import { RoadRageSystem } from '../systems/RoadRageSystem.js';
+import { KnockFeedback } from '../systems/KnockFeedback.js';
 import { LimpiezaSocialSystem } from '../systems/LimpiezaSocialSystem.js';
+import { RoboExpressSystem } from '../systems/RoboExpressSystem.js';
+import { zonaDe } from '../ui/ZonaAviso.js';
 import { SubstanceEffects } from '../systems/SubstanceEffects.js';
 import { SUBSTANCE_EFFECTS } from '../data/substanceEffects.js';
 import { StealSystem } from '../features/steal.js';
@@ -75,7 +81,16 @@ import { InventoryUI } from '../ui/InventoryUI.js';
 import { createPanelDock } from '../ui/PanelDock.js';
 import { PerformanceHUD } from '../ui/PerformanceHUD.js';
 import { PhotoMode } from '../ui/PhotoMode.js';
+import { montarMarcaTrucos } from '../ui/TrucosPanel.js';
+import { CheatMode } from './trucos.js';
 import { WaterEffects } from '../systems/WaterEffects.js';
+import { BusExhaust } from '../systems/BusExhaust.js';
+import { StationCrowd } from '../systems/StationCrowd.js';
+import { PeoplePool, POOL_SIZE } from '../systems/PeoplePool.js';
+import { RealRiders } from '../world/bogota/realRiders.js';
+import { ProtestSystem, PROTEST } from '../systems/ProtestSystem.js';
+import { riotCopFigure } from '../entities/RiotCop.js';
+import { ArticulatedPassengers } from '../systems/ArticulatedPassengers.js';
 import { LocalLights } from './LocalLights.js';
 import { ContactShadows } from './ContactShadows.js';
 import { GRAPHICS_PROFILES } from './GraphicsQuality.js';
@@ -92,6 +107,8 @@ import { DEFAULT_LOOK, normalizeLook } from '../character/look.js';
 import { streetWetness } from '../character/streetMaterials.js';
 import { ITEMS, COSTAL_BONUS, isForSale } from '../data/items.js';
 import { SLEEP } from '../data/cambuche.js';
+import { CrashSystem } from '../systems/CrashSystem.js';
+import { CalleSystem, cartonSleepOutcome, CARTON_SLEEP } from '../features/calle.js';
 import { cop } from '../utils/money.js';
 import { makeParkedMotos, MOTO_SIZE } from '../world/bogota/motos.js';
 
@@ -104,7 +121,7 @@ import {
 const RENAMED_PLACES = { Recicladora: 'Recicladora El Progreso', Tienda: 'Tienda La Esquinita' };
 
 export class Game {
-  constructor(canvas, { animaciones = 'default', modeloRealista = false } = {}) {
+  constructor(canvas, { animaciones = 'default', modeloRealista = false, trucos = false } = {}) {
     this.modeloRealista = modeloRealista;
     this.canvas = canvas;
     this.renderer = new Renderer(canvas);
@@ -121,6 +138,9 @@ export class Game {
     this.stats = new StatsSystem();
     this.time = new TimeSystem();
     this.save = new SaveSystem();
+    // El autoguardado se engancha a la pestaña: esconderse o cerrarla es el último momento para guardar.
+    this.autoSave = new AutoSave({ guardar: () => this._save(), puede: () => this._puedeAutoguardar() });
+    this._soltarAutoguardado = this.autoSave.enganchar();
     this.diseases = new DiseaseSystem();
     this.talents = new TalentSystem();
     this.crafting = new CraftingSystem();
@@ -133,6 +153,20 @@ export class Game {
     this.world = new World(this.sceneMgr.scene);
     this.player = new Player(this.sceneMgr.scene, this.input, this.stats, this.audio, { animaciones });
     this.waterEffects = new WaterEffects(this.sceneMgr.scene);
+    this.busExhaust = new BusExhaust(this.sceneMgr.scene);
+    // Gente real de la calle prestada a las busetas y al andén cuando la cámara está cerca; se precarga con la ciudad
+    // `?sinGente` apaga el grupo (para medir cuánto cuesta la gente de los buses y del andén)
+    this.people = new PeoplePool(this.sceneMgr.scene, { size: globalThis.location?.search?.includes('sinGente') ? 0 : POOL_SIZE });
+    this.stationCrowd = new StationCrowd(this.sceneMgr.scene, this.people);
+    this.busRiders = new ArticulatedPassengers(this.people);
+    // La gente de las motos más cercanas: personas completas ya sentadas (`?sinMotoReales` las apaga para medir)
+    this.motoPeople = new RealRiders(this.sceneMgr.scene, { copies: globalThis.location?.search?.includes('sinMotoReales') ? { driver: 0, pillion: 0, tank: 0 } : undefined });
+    // Protestas: la multitud sale del mismo grupo de gente y los antimotines de uno propio, chico (`?sinGente` los apaga)
+    this.riotCops = new PeoplePool(this.sceneMgr.scene, { size: globalThis.location?.search?.includes('sinGente') ? 0 : PROTEST.cops, factory: riotCopFigure });
+    this.protesters = new PeoplePool(this.sceneMgr.scene, { size: globalThis.location?.search?.includes('sinGente') ? 0 : PROTEST.protesters });
+    this.protest = new ProtestSystem(this.sceneMgr.scene, { player: this.player, stats: this.stats, people: this.protesters, cops: this.riotCops, audio: this.audio });
+    this.protest.onPlayerHurt = () => { if (this.stats.salud <= 0) this._deathCause = 'golpiza'; };
+    this.protest.onProvoked = () => this.steal?._alertPolice?.();
     this.contactShadows = new ContactShadows(this.sceneMgr.scene);
     this._contactShadowFrame = {
       player: this.player,
@@ -152,10 +186,24 @@ export class Game {
     // Conductores que se bajan con una varilla al robarles el retrovisor
     this.roadRage = new RoadRageSystem(this.sceneMgr.scene, { player: this.player, stats: this.stats, audio: this.audio });
     this.roadRage.onPlayerHurt = () => { if (this.stats.salud <= 0) this._deathCause = 'golpiza'; };
+    this.crashes = new CrashSystem({ traffic: null, roadRage: this.roadRage, audio: this.audio });
     window.addEventListener('mirror-stolen', (e) => this.roadRage?.trigger(e.detail?.car));
+    window.addEventListener('poop-thrown', (e) => this.roadRage?.noteThrown(e.detail?.projectile));
+    // Pegarle a un carro o a una moto también puede sacarle la rabia al conductor.
+    window.addEventListener('solid-hit', (e) => { if (e.detail?.car) this.roadRage?.trigger(e.detail.car, 'hit'); });
+    // El golpe corto a lo sólido: sonido, alarma del parqueado y un vaivén mínimo.
+    this.knockFeedback = new KnockFeedback({ player: this.player, audio: this.audio, collisions: this.collisions });
     // De noche, a veces, llega la camioneta negra de la «limpieza social»
     this.limpieza = new LimpiezaSocialSystem(this.sceneMgr.scene, { player: this.player, stats: this.stats, audio: this.audio });
     this.limpieza.onPlayerHurt = () => { if (this.stats.salud <= 0) this._deathCause = 'limpieza'; };
+    // Robo express: dos en moto frenan junto al jugador; si pelea o corre, la policía y el tráfico responden como siempre
+    this.robo = new RoboExpressSystem(this.sceneMgr.scene, { player: this.player, stats: this.stats, inventory: this.inventory, audio: this.audio });
+    this.robo.onPlayerHurt = (_damage, what) => { if (this.stats.salud <= 0) this._deathCause = what === 'tiro' ? 'tiro' : what === 'cuchillazo' ? 'cuchillada' : 'golpiza'; };
+    this.robo.onShot = () => this.steal?._alertPolice?.();
+    // La calle de los de la calle: ladrillo para raspar, refugio de chamber, bocadillos gigantes y cartón para dormir
+    this.calle = new CalleSystem(this.sceneMgr.scene, { player: this.player, stats: this.stats, inventory: this.inventory, people: this.people, audio: this.audio });
+    this.calle.camera = this.cameraRig?.camera ?? null;
+    this.calle.collisions = this.collisions;
     // Con buena fama entre los parceros, alguien avisa cuando arranca la camioneta.
     const llegaLaCamioneta = this.limpieza.trigger.bind(this.limpieza);
     this.limpieza.trigger = () => {
@@ -169,6 +217,8 @@ export class Game {
     window.addEventListener('substance-consumed', (e) => {
       const paranoia = SUBSTANCE_EFFECTS[e.detail?.id]?.paranoia;
       if (paranoia) this.psychosis?.induce(paranoia.seconds, paranoia.severity);
+      // pegante, pastilla, basuco y polvo de ladrillo a veces traen bocadillos gigantes
+      if (['pegante', 'pastilla', 'basuco', 'polvoLadrillo'].includes(e.detail?.id) && Math.random() < .2) this.calle?.summonBocadillos(2);
     });
     // Interacción
     this.interaction = new InteractionSystem(
@@ -200,14 +250,18 @@ export class Game {
     this.menu = new Menu();
     this.minimap = new Minimap();
     this.zonaAviso = new ZonaAviso();
+    this.paroAviso = new ParoAviso();
     this.weather = new WeatherSystem(this.sceneMgr.scene);
     this.hud.weather = this.weather;
     window.addEventListener('weather-lightning', ({ detail }) => this.audio.playThunder?.(detail?.distance));
     let quality = 'baja';
     try { quality = localStorage.getItem('bazuko.graphics_quality') || quality; } catch { /* sin almacenamiento */ }
     this.setGraphicsQuality(quality, false);
+    this.trafficDensityChoosable = trafficDensityChoosable(location.search);
     this.trafficDensity = DEFAULT_TRAFFIC_DENSITY;
-    try { this.trafficDensity = trafficDensityId(localStorage.getItem('bazuko.traffic_density')); } catch { /* sin almacenamiento */ }
+    if (this.trafficDensityChoosable) {
+      try { this.trafficDensity = trafficDensityId(localStorage.getItem('bazuko.traffic_density')); } catch { /* sin almacenamiento */ }
+    }
     this.hud.setMuted(this.audio.isMuted());
     this.creator = createCreator({ audio: null });
     this.inventoryUI = new InventoryUI(this.inventory, this);
@@ -218,6 +272,8 @@ export class Game {
     this.hud.setCameraMode(this.cameraRig.mode);
     window.addEventListener('open-pause-menu', (e) => openPauseMenu(this, e.detail?.tab));
     window.addEventListener('audio-toggle', () => this.audio.toggleMute());
+    window.addEventListener('fullscreen-toggle', () => alternarPantallaCompleta());
+    document.addEventListener('fullscreenchange', () => { if (this.menu.isOpen) this.menu.refresh(); });
     window.addEventListener('camera-toggle', () => this._toggleCamera());
     window.addEventListener('open-recycler', () => openRecycler(this));
     window.addEventListener('open-shop', (e) => openShop(this, e.detail?.target));
@@ -290,6 +346,10 @@ export class Game {
 
     this.photoMode = new PhotoMode(this);
 
+    // Modo trucos: solo cuando la dirección trae ?trucos. No toca la partida guardada.
+    this.cheats = trucos ? new CheatMode(this) : null;
+    if (this.cheats) montarMarcaTrucos();
+
     window.__game = this;
   }
 
@@ -298,7 +358,7 @@ export class Game {
   }
 
   async _initialize(loading) {
-    await loading.stage('Construyendo la ciudad…', 1);
+    await loading.stage('Construyendo la ciudad…');
     this.world.loadDistrict('Bogota', this.collisions);
     this._spawnEntities();
     this._setupGps();
@@ -331,7 +391,7 @@ export class Game {
     if (!this.look) {
       await this._createCharacter(loading);
     }
-    await loading.stage('Cargando personajes, vehículos y ciudad…', 2);
+    await loading.stage('Cargando personajes, vehículos y ciudad…');
     let modelo = null;
     try { modelo = localStorage.getItem('bazuko.modelo'); } catch { /* sin almacenamiento */ }
     // La vista explícita de animaciones requiere el rig realista. La preferencia
@@ -346,18 +406,21 @@ export class Game {
     await withLoadTimeout(loadTaskGroups([
       [() => modelo !== 'procedural' ? this.player.setModel('realista') : Promise.resolve(),
         () => this.audio.ready],
-      [...(district?.npcs ?? []), ...(this.roadRage?.preloadables ?? []), ...(this.limpieza?.preloadables ?? [])].map(npc => () => npc.preload()),
+      [...(district?.npcs ?? []), ...(this.roadRage?.preloadables ?? []), ...(this.limpieza?.preloadables ?? []), ...(this.robo?.preloadables ?? [])].map(npc => () => npc.preload()),
       importedEntities.map(entity => () => entity.preloadModel()),
-      [() => district?.preloadDetails?.()]
+      [() => district?.preloadDetails?.()],
+      this.people?.tasks() ?? [],
+      this.motoPeople?.tasks() ?? [],
+      this.riotCops?.tasks() ?? [],
+      this.protesters?.tasks() ?? []
     ], (done, total) => {
       const text = `Cargando recursos… ${done} de ${total}`;
-      const progress = 2 + 1.8 * done / total;
       // Repintar por presupuesto temporal, no dos fotogramas por cada instancia.
       if (performance.now() - lastPaint >= 50) {
         lastPaint = performance.now();
-        return loading.stage(text, progress);
+        return loading.stage(text);
       }
-      loading.update?.(text, progress);
+      loading.update?.(text);
     }), 'La carga de los recursos de la ciudad tardó demasiado.');
     if (this.traffic) this.traffic.signals = district?.signals;
     this.traffic?.setBus?.(district?.busServices ?? district?.busService);
@@ -380,21 +443,21 @@ export class Game {
     this.dealer?.setNight(this._wasNight);
     this.world.update(0, this.player.position, this.cameraRig.camera);
     this.localLights.update(0, this.player.position, (x, z) => district?.getGroundHeight?.(x, z) ?? 0, this.cameraRig.camera);
-    await loading.stage('Preparando texturas, luces y shaders…', 4);
-    const extraModels = [...(district?.npcs ?? []), ...(this.roadRage?.preloadables ?? []), ...(this.limpieza?.preloadables ?? [])].flatMap(npc => [npc.lodChar?.group, npc.fullChar?.group]).filter(Boolean);
+    await loading.stage('Preparando texturas, luces y shaders…');
+    const extraModels = [...(district?.npcs ?? []), ...(this.roadRage?.preloadables ?? []), ...(this.limpieza?.preloadables ?? [])].flatMap(npc => [npc.lodChar?.group, npc.fullChar?.group]).filter(Boolean).concat(this.people?.groups.slice(0, 3) ?? []);
     const rain = this.weather?.rainParticles;
     if (rain) rain.visible = true;
     try {
       await withLoadTimeout(this.renderer.prepare(this.sceneMgr.scene, this.cameraRig.camera, extraModels), 'La preparación gráfica tardó demasiado.');
     } finally { if (rain) rain.visible = this.weather.isRaining; }
-    await loading.stage('Preparando el primer fotograma…', 4.8);
+    await loading.stage('Preparando el primer fotograma…');
     // Estas pasadas preparan sombras, geometría y silueta sin simular ni medir FPS.
     for (let frame = 0; frame < 3; frame++) {
       this.renderer.render(this.sceneMgr.scene, this.cameraRig.camera, this.player.root, [this.sceneMgr.sun]);
       await paintLoadingFrame();
     }
     await this.renderer.waitForGPU();
-    await loading.stage('Todo listo', 5);
+    await loading.stage('Todo listo');
     this.performanceHUD.metrics.reset();
     this.performanceHUD.nextPaint = 0;
     this.renderer.resolution.resetWindow();
@@ -405,7 +468,7 @@ export class Game {
     this._loading = false;
     if (this.save?.fueApartada?.()) window.dispatchEvent(new CustomEvent('toast', { detail: { text: 'La partida estaba dañada: quedó aparte y se empieza de nuevo.', type: 'warn' } }));
     this._running = true;
-    loading.finish();
+    await loading.finish();
     this.audio.startAmbient();
     requestAnimationFrame(this._loop);
   }
@@ -550,6 +613,12 @@ export class Game {
     return this._loading || this._traveling || this._deathPending || this._arrestPending || !!this.photoMode?.active || this.menu.isOpen || this.creator.isOpen || !!this.inventoryUI?.isOpen || !!this.hud?._talentOpen || !!this.hud?._craftOpen || !!this.hud?._dealerOpen;
   }
 
+  /** La radio solo calla con la partida de verdad detenida: los paneles que pausan el mundo no la apagan. */
+  get radioSuspended() {
+    return !!(this.isSleeping || globalThis.document?.hidden || this._loading
+      || this._deathPending || this._arrestPending || this.photoMode?.active);
+  }
+
   _spawnEntities() {
     this.dog?.destroy();
     this.audio.vehicles?.clear();
@@ -622,6 +691,7 @@ export class Game {
     distributeShelterLoot(this.pickups);
     // Canecas permanentes en puntos de basura separados de las bolsas y lugares reservados.
     const containerSpots = spawnPositions.filter(point => this.pickups.every(pickup => point.distanceTo(pickup.position) >= 4));
+    this.calle?.setup(district, containerSpots.slice(12), { interaction: this.interaction, avoid: this.cambuche?.position });
     for (const point of containerSpots.slice(0, 12)) {
       const position = point.clone();
       position.y = district.getGroundHeight?.(position.x, position.z) ?? 0;
@@ -692,15 +762,18 @@ export class Game {
     if (this.parkedMotos) this.sceneMgr.scene.add(this.parkedMotos);
     if (district.getTrafficRoutes) {
       this.traffic = new TrafficSystem(this.sceneMgr.scene, district.getTrafficRoutes(), { policeCount: 2 });
+      this.traffic.people = this.people;
+      this.traffic.motoPeople = this.motoPeople;
       this.traffic.setDensity(this.trafficDensity);
       // La flota diaria entra y sale con el reloj: el juego le da de alta el carro nuevo y de baja el que se va.
       this.traffic.onVehicleAdded = (car) => {
-        this.interaction.register(car);
+        // A la moto no se le roban los espejos: no entra al selector de la E ni cuesta en su barrido.
+        if (!car.isMoto) this.interaction.register(car);
         this._contactVehicles?.push(car);
         car.setNight?.(this.clock.lightsOn, this.weather?.isRaining ?? false, this.weather?.weather === 'niebla');
       };
       this.traffic.onVehicleRemoved = (car) => {
-        this.interaction.unregister(car);
+        if (!car.isMoto) this.interaction.unregister(car);
         this.renderer.culling.unregister(car.group);
         const index = this._contactVehicles?.indexOf(car) ?? -1;
         if (index >= 0) this._contactVehicles.splice(index, 1);
@@ -711,7 +784,7 @@ export class Game {
         getGroundHeight: (x, z, y) => district.getMovementGroundHeight?.(x, z, y) ?? district.getGroundHeight?.(x, z) ?? 0,
         getWaterInfo: (x, z) => district.getWaterInfo?.(x, z)
       });
-      for (const { car } of this.traffic.vehicles) this.interaction.register(car);
+      for (const { car } of this.traffic.vehicles) if (!car.isMoto) this.interaction.register(car);
     }
 
     // ===== Puesto de venta =====
@@ -768,7 +841,10 @@ export class Game {
     // Pedir limosna requiere personas cerca; El Chato no cuenta.
     this.interaction.setPedestrians(district.npcs ?? []);
     if (this.traffic) this.roadRage?.setup(district, this.traffic, district.trafficPedestrians, { collisions: this.collisions });
+    if (this.crashes) { this.crashes.reset(); this.crashes.traffic = this.traffic; }
     if (this.traffic) this.limpieza?.setup(district, this.traffic.routes, district.trafficPedestrians, { collisions: this.collisions });
+    if (this.traffic) this.robo?.setup(district, this.traffic.routes, district.trafficPedestrians, { collisions: this.collisions, extraMotos: this.traffic.extraMotos, traffic: this.traffic });
+    if (this.traffic) this.protest?.setup(district, this.traffic.routes, district.trafficPedestrians, { interaction: this.interaction, vehicles: this.traffic, collisions: this.collisions });
 
     // ===== Tienda La Esquinita =====
     this.shop = new Shop(
@@ -924,8 +1000,14 @@ export class Game {
     }
   }
 
-  _save() {
-    this.save.save({
+  /** ¿Es un momento firme para guardar solo? Ni cargando, ni en el creador, ni muerto, ni preso, ni dormido. */
+  _puedeAutoguardar() {
+    return !this._loading && !this._deathPending && !this._arrestPending && this.stats.salud > 0 && !this.isSleeping && !this.creator?.isOpen && !this.cheats;
+  }
+
+  /** Lo que se guarda de la partida en curso. */
+  _estado() {
+    return {
       stats: this.stats.serialize(),
       clock: this.clock.serialize(),
       inventory: this.inventory.serialize(),
@@ -944,7 +1026,75 @@ export class Game {
       lastComedorHour: this.lastComedorHour,
       dailyMissions: this.dailyMissions?.serialize(),
       street: this.street?.serialize()
+    };
+  }
+
+  _save() {
+    // Con trucos prendidos no se escribe nada: la partida del navegador queda como estaba.
+    if (this.cheats) return false;
+    const ok = this.save.save(this._estado());
+    if (ok) this._saveFallo = false;
+    else if (!this._saveFallo) {
+      // El aviso sale una sola vez: repetirlo cada minuto es ruido.
+      this._saveFallo = true;
+      this._avisar('No se pudo guardar: el navegador no deja escribir la partida.');
+    }
+    return ok;
+  }
+
+  /** Un aviso corto, por donde pasan los de la partida guardada. */
+  _avisar(texto, tipo = 'warn') {
+    globalThis.window?.dispatchEvent?.(new CustomEvent('toast', { detail: { text: texto, type: tipo } }));
+  }
+
+  /** Copia la partida a un archivo, para no perderla con el almacenamiento del navegador. */
+  exportarPartida() {
+    const url = URL.createObjectURL(new Blob([this.save.comoTexto(this._estado())], { type: 'application/json' }));
+    const link = el('a', { href: url, download: `Bazuko-partida-${new Date().toISOString().slice(0, 10)}.json` });
+    document.body.append(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 5000);
+    this._avisar('Partida copiada a un archivo', 'info');
+  }
+
+  /** Pide un archivo y cambia la partida en curso por la que traiga, si es de este juego. */
+  importarPartida() {
+    this._inputPartida?.remove();
+    const input = el('input', { type: 'file', accept: '.json,application/json', style: 'display:none' });
+    this._inputPartida = input;
+    input.addEventListener('change', async () => {
+      const file = input.files?.[0];
+      input.remove();
+      if (file) this._importarTexto(await file.text());
     });
+    input.addEventListener('cancel', () => input.remove());
+    document.body.append(input);
+    input.click();
+  }
+
+  /** Aplica la partida que trae un texto. Si no es de este juego no se escribe nada. */
+  _importarTexto(texto) {
+    const data = this.save.leerArchivo(texto);
+    if (!data) {
+      this._avisar('Ese archivo no es una partida de Bazuko.');
+      return;
+    }
+    const respaldo = this._estado();
+    try {
+      this._aplicarPartida(data);
+    } catch (error) {
+      // La partida del navegador sigue intacta: lo que falló fue el archivo, y se vuelve a la que había.
+      console.warn('[Partida] El archivo no se pudo aplicar.', error);
+      try { this._aplicarPartida(respaldo); } catch { /* se queda como estaba */ }
+      this._avisar('Ese archivo no se pudo aplicar.');
+      return;
+    }
+    // El cuerpo, la cámara y el vecindario, como al recuperarse de un atropello.
+    this._acomodarTrasViaje();
+    this.menu?.refresh?.();
+    if (this._save()) this._avisar('Partida importada', 'info');
+    else if (this.cheats) this._avisar('Con trucos prendidos no se guarda', 'warn');
   }
 
   /**
@@ -1048,6 +1198,42 @@ export class Game {
     }, 1200);
   }
 
+  /** Echarse un rato en un cartón del costal, donde sea: rinde poco (+5 de energía) y trae sus riesgos. */
+  sleepOnCarton() {
+    const free = !this.isSleeping && !this._deathPending && !this._arrestPending && !this.traffic?.inPursuit && !this.limpieza?.active && !this.robo?.active;
+    if (!free) return false;
+    if (this.inventory.count('carton') < 1) {
+      window.dispatchEvent(new CustomEvent('toast', { detail: { text: 'Necesito un cartón en el costal para echarme en la calle.', type: 'info' } }));
+      return false;
+    }
+    this.isSleeping = true;
+    this.substanceEffects?.end();
+    this.psychosis?.clearInduced?.();
+    this.player.stopSmoking?.();
+    this.player.stopBasuco?.();
+    this.player.settleForSleep?.();
+    this.player.playAction('dormir', 1.6);
+    this.calle?.layCarton(this.player.position, this.player.root.rotation.y);
+    const outcome = cartonSleepOutcome({ raining: !!this.weather?.isRaining });
+    const st = this.stats;
+    this.clock.hour += CARTON_SLEEP.hours;
+    while (this.clock.hour >= 24) { this.clock.hour -= 24; this.clock.day += 1; }
+    st.energia = Math.min(100, st.energia + outcome.energia);
+    st.salud = Math.max(0, Math.min(100, st.salud + outcome.salud));
+    if (outcome.ruined) this.inventory.remove('carton', 1);
+    if (outcome.robbed) st.dinero -= Math.floor(st.dinero * outcome.robbed);
+    setTimeout(() => {
+      this.isSleeping = false;
+      this.calle?.pickUpCarton();
+      if (this.player.action === 'dormir') {
+        this.player.action = null;
+        this.player.actionTimer = this.player.actionProgress = 0;
+      }
+      window.dispatchEvent(new CustomEvent('toast', { detail: { text: outcome.text, type: outcome.moved || outcome.robbed || outcome.ruined ? 'warn' : 'info' } }));
+    }, 1200);
+    return true;
+  }
+
   /** ¿Está el jugador a menos de `radius` m del cambuche? */
   _nearCambuche(radius) {
     const c = this.cambuche?.position;
@@ -1110,6 +1296,7 @@ export class Game {
 
   _policeArrest() {
     if (this._arrestPending || this._deathPending || this.stats.salud <= 0) return;
+    if (this.cheats?.invisible || this.cheats?.invulnerable) return;
     this._arrestPending = true;
     if (this.steal?.minigameActive) this.steal._endMinigame(false, 'cancel');
     this.input.keys = {};
@@ -1163,6 +1350,25 @@ export class Game {
     return new THREE.Vector3(spot.x, y, spot.z);
   }
 
+  /** Teletransporte de los trucos: deja al jugador en el suelo de un punto y limpia lo que quedó atrás. */
+  teleportTo(x, z) {
+    const district = this.world.active;
+    const y = district?.getMovementGroundHeight?.(x, z, 0) ?? district?.getGroundHeight?.(x, z) ?? 0;
+    this.player.position.set(x, y, z);
+    this._acomodarTrasViaje();
+  }
+
+  /** El cuerpo, la cámara y el vecindario quedan como tras un viaje; las banderas las pone quien llama. */
+  _acomodarTrasViaje() {
+    this.player.root.position.copy(this.player.position);
+    this._resetAfterRelocation();
+    if (this.dog?.isFriend) { this.dog.wake(); this.dog.resetNear(this.player.position); }
+    this.cameraRig._snap = true;
+    this.cameraRig.follow(this.player.position, 0, this.collisions);
+    this.interaction.currentTarget = null;
+    this.interaction.currentTargetType = null;
+  }
+
   /** Muerte y arresto comparten la limpieza de acciones, agua y persecuciones. */
   _resetAfterRelocation() {
     if (this.hud?._dealerOpen) this.hud.toggleDealerPanel();
@@ -1176,7 +1382,11 @@ export class Game {
     this._swimSoundTimer = 0;
     this.traffic?.endPursuit?.();
     this.roadRage?.reset();
+    this.crashes?.reset();
     this.limpieza?.reset();
+    this.robo?.reset();
+    this.protest?.reset();
+    this.calle?.reset();
     this.momentos?.reset();
     this.street?.reset();
     this.substanceEffects?.end();
@@ -1195,13 +1405,7 @@ export class Game {
     this.stats.dinero = 0;
     const pos = this._randomWalkablePosition();
     this.player.position.copy(pos);
-    this.player.root.position.copy(this.player.position);
-    this._resetAfterRelocation();
-    if (this.dog?.isFriend) { this.dog.wake(); this.dog.resetNear(this.player.position); }
-    this.cameraRig._snap = true;
-    this.cameraRig.follow(this.player.position, 0, this.collisions);
-    this.interaction.currentTarget = null;
-    this.interaction.currentTargetType = null;
+    this._acomodarTrasViaje();
     this.input.keys = {};
     this.input.endFrame();
     this._arrestPending = false;
@@ -1230,16 +1434,9 @@ export class Game {
         ?? district.getGroundHeight?.(spawn.x, spawn.z) ?? 0;
       this.player.position.set(spawn.x, y, spawn.z);
     }
-    this.player.root.position.copy(this.player.position);
-    this._resetAfterRelocation();
-    if (this.dog?.isFriend) { this.dog.wake(); this.dog.resetNear(this.player.position); }
-    this._vehicleImpactCooldown = 1.5;
+    this._acomodarTrasViaje();
     if (this._deathCause === 'limpieza') this.momentos?.guardarConsejoDeCamioneta();
     this._deathCause = null;
-    this.cameraRig._snap = true;
-    this.cameraRig.follow(this.player.position, 0, this.collisions);
-    this.interaction.currentTarget = null;
-    this.interaction.currentTargetType = null;
     this.input.keys = {};
     this.input.endFrame();
     this._deathPending = false;
@@ -1258,12 +1455,17 @@ export class Game {
     requestAnimationFrame(this._loop);
 
     const now = performance.now();
+    // El reloj de la pestaña decide el autoguardado, aunque el juego esté en pausa.
+    this.autoSave?.update(now);
     // El intervalo entre cuadros se mide con el sello de rAF: el reloj al entrar aquí oscila y cuenta como lentitud lo que no lo es.
     this._frameStamp = stamp ?? now;
     const dt = Math.min((now - this._lastTime) / 1000, 0.1);
     this._lastTime = now;
 
-    this.radio?.setPaused(!!(this.isSleeping || globalThis.document?.hidden || (this.paused && !this._radioModalOpen)));
+    // La radio solo calla con la partida de verdad detenida: dormir, la pestaña oculta, la carga, la
+    // muerte y el modo foto. Con el costal, la mesa o la pausa abiertos el mundo se congela pero la
+    // radio sigue sonando, con su volumen y sus pilas.
+    this.radio?.setPaused(this.radioSuspended);
     if (this.photoMode?.active && !globalThis.document?.hidden) {
       this.audio.setPaused(true);
       this.audio.updateSteps(false, false);
@@ -1302,7 +1504,7 @@ export class Game {
       if (this.steal?.minigameActive) this.steal._endMinigame(false, 'cancel');
       this._syncVehicleColliders();
       this.player.update(dt, this.cameraRig.camera, this.collisions);
-      this.world.update(dt, this.player.position, this.cameraRig.camera, this.traffic?.vehicles ?? []);
+      this.world.update(dt, this.player.position, this.cameraRig.camera, this.traffic?.vehicles ?? [], this.clock.hour);
       this.traffic?.update(dt, { pedestrians: this.world.active?.trafficPedestrians ?? this.world.active?.npcs ?? [], camera: this.cameraRig.camera, hour: this.clock.hour });
       this.cameraRig.follow(this.player.position, dt, this.collisions);
       this.audio.updateSteps(false, false);
@@ -1317,7 +1519,7 @@ export class Game {
     this.profiler?.beginFrame();
     // 1. Tiempo
     this._vehicleImpactCooldown = Math.max(0, (this._vehicleImpactCooldown ?? 0) - dt);
-    this.clock.update(dt);
+    this.clock.update(dt * (this.cheats?.velocidad ?? 1));
     this.time.update(dt, this.clock);
     this.dailyMissions?.update(dt, this.clock);
 
@@ -1371,6 +1573,7 @@ export class Game {
     const cartBonus = (this.cart?.isAttached) ? this.cart.capacityBonus : 0;
     this.inventory.maxWeight = INVENTORY_MAX_WEIGHT + maxWeightBonus + (this.costal ? COSTAL_BONUS : 0) + cartBonus;
     this.player.load = this.inventory.totalWeight / this.inventory.maxWeight;
+    this.cheats?.update();
 
     // 5. Debuff por salud mental baja (el desgaste se calcula en StatsSystem).
     if (this.stats.saludMental < MENTAL_LOW_THRESHOLD) {
@@ -1419,12 +1622,17 @@ export class Game {
     this.substanceEffects?.update(dt);
     this.profiler?.mark('sistemas');
     // Los peatones se tapan la nariz si el jugador huele mal.
-    if (this.world.active) this.world.active.playerHygiene = this.stats.higiene;
-    this.world.update(dt, this.player.position, this.cameraRig.camera, this.traffic?.vehicles ?? []);
+    if (this.world.active) {
+      this.world.active.playerHygiene = this.stats.higiene;
+      this.world.active.night = this.clock.isNight;
+    }
+    this.world.update(dt, this.player.position, this.cameraRig.camera, this.traffic?.vehicles ?? [], this.clock.hour);
     actualizarFrases(this.cameraRig.camera, this.player.position, now);
     this.profiler?.mark('mundoNPC');
     this.traffic?.update(dt, { player: this.player.position, pedestrians: this.world.active?.trafficPedestrians ?? this.world.active?.npcs ?? [], onPlayerHit: this._onVehicleImpact, camera: this.cameraRig.camera, hour: this.clock.hour });
     this.roadRage?.update(dt);
+    this.crashes?.update(dt, { hour: this.clock.hour, player: this.player.position, camera: this.cameraRig.camera, blocked: this.isSleeping || this._deathPending || this._arrestPending || !!this.traffic?.inPursuit });
+    this.knockFeedback?.update(dt);
     this.limpieza?.update(dt, {
       isNight: this.clock.isNight,
       canChase: !this.isSleeping,
@@ -1432,6 +1640,26 @@ export class Game {
       allowSpawn: !this.isSleeping && !this._nearCambuche(15),
       camera: this.cameraRig.camera
     });
+    this.robo?.update(dt, {
+      hour: this.clock.hour,
+      zone: zonaDe(this.world.active, this.player.position.x, this.player.position.z),
+      // ni dormido, ni arrestado, ni en pantalla de muerte, ni con la policía encima, ni con la camioneta negra cerca
+      blocked: this.isSleeping || this._deathPending || this._arrestPending || !!this.photoMode?.active || !!this.traffic?.inPursuit || !!this.limpieza?.active,
+      // en el cambuche no llegan: es lo único que el jugador tiene seguro
+      allowSpawn: !this._nearCambuche(15),
+      camera: this.cameraRig.camera,
+      giveIn: this.robo.awaitingAnswer && this.input.consumePress('KeyE')
+    });
+    this.protest?.update(dt, {
+      hour: this.clock.hour,
+      zone: zonaDe(this.world.active, this.player.position.x, this.player.position.z),
+      blocked: this.isSleeping || this._deathPending || this._arrestPending || !!this.photoMode?.active || !!this.traffic?.inPursuit || !!this.limpieza?.active || !!this.robo?.active,
+      allowSpawn: !this._nearCambuche(40),
+      clockSpeed: this.cheats?.velocidad ?? 1,
+      camera: this.cameraRig.camera
+    });
+    this.calle?.update(dt, { blocked: this.isSleeping || this._deathPending || this._arrestPending });
+    if (this.input.consumePress('KeyH')) this.sleepOnCarton();
     this.profiler?.mark('trafico');
     if (this._handleDeath()) return;
 
@@ -1439,6 +1667,10 @@ export class Game {
     streetWetness.value = this.weather?.wetness ?? 0;
     mojarCarton(streetWetness.value);
     this.audio.setRainLevel?.(this.weather?.isRaining ? this.weather.rainIntensity : 0);
+    // El humo de las busetas sale del escape y lo inclina el viento que acaba de actualizarse.
+    this.stationCrowd?.update(this.cameraRig.camera.position, this.clock.hour, !!this.world?.active?.busService, dt);
+    this.busRiders?.update(this.world?.active?.busServices ?? [], this.cameraRig.camera.position, this.clock.hour);
+    this.busExhaust?.update(dt, { vehicles: this.traffic?.vehicles, camera: this.cameraRig.camera, wind: this.weather?.wind });
 
     // 9. Entidades
     this._updatePickups(dt);
@@ -1473,7 +1705,7 @@ export class Game {
     }
     this.gpsBeacon?.update(dt, this.player.position);
     this.minimap?.update(this.player.position, this._cameraYaw(), this._getPOIs(now), now,
-      { gps: this.gps, needs: this._needs, running: this.input.isRunning && (this.input.axis.x !== 0 || this.input.axis.z !== 0) });
+      { gps: this.gps, needs: this._needs, protesta: this.protest?.marker, running: this.input.isRunning && (this.input.axis.x !== 0 || this.input.axis.z !== 0) });
 
     // 13. UI
     this.hud.setMovementState?.(this.player);
@@ -1546,7 +1778,8 @@ export class Game {
 
   _getPOIs(now = performance.now()) {
     const friend = !!this.dog?.isFriend;
-    if (!this._poiCache || now - this._poiCacheTime >= 350 || this._poiDogFriend !== friend) {
+    const protesta = this.protest?.marker ?? null;
+    if (!this._poiCache || now - this._poiCacheTime >= 350 || this._poiDogFriend !== friend || !!this._protestPOI !== !!protesta) {
       const district = this.world?.active;
       const reserved = district?.reserved ?? {};
       // Puestos y fogatas van primero para que los lugares fijos queden encima.
@@ -1566,6 +1799,8 @@ export class Game {
       if (this.street?.hogar) this._poiCache.push({ name: 'Hogar de paso', icon: '🛏', color: '#3b6ea5', x: this.street.hogar.position.x, z: this.street.hogar.position.z, fijo: true });
       for (const stop of this.street?.stops ?? []) this._poiCache.push({ name: stop.stop.name, icon: '🚏', color: stop.stop.sistema === 'Metro' ? '#2f7d4a' : '#b3261e', x: stop.position.x, z: stop.position.z, fijo: true });
       if (this.cart) this._poiCache.push({ name: 'Carreta', icon: '🛒', x: this.cart.position.x, z: this.cart.position.z, color: '#f39c12' });
+      this._protestPOI = protesta ? { name: 'Protesta', icon: '✊', color: '#d62828', x: protesta.x, z: protesta.z, fijo: true } : null;
+      if (this._protestPOI) this._poiCache.push(this._protestPOI);
       this._dogPOI = friend ? { name: 'El Chato', icon: '🐕', color: '#e6b566' } : null;
       if (this._dogPOI) this._poiCache.push(this._dogPOI);
       this._needs = needContext({
@@ -1582,6 +1817,7 @@ export class Game {
 
   /** Densidad de tráfico elegida: escala toda la curva diaria y se aplica en vivo, sin recargar. */
   setTrafficDensity(level = DEFAULT_TRAFFIC_DENSITY) {
+    if (!this.trafficDensityChoosable) return;
     const id = trafficDensityId(level);
     this.trafficDensity = id;
     try { localStorage.setItem('bazuko.traffic_density', id); } catch { /* sin almacenamiento */ }
@@ -1657,14 +1893,26 @@ export class Game {
 
   stop() {
     this._running = false;
+    this._soltarAutoguardado?.();
     this.waterEffects?.dispose();
+    this.busExhaust?.dispose();
+    this.stationCrowd?.dispose();
+    this.busRiders?.dispose();
+    this.people?.dispose();
+    this.motoPeople?.dispose();
     this.contactShadows?.dispose();
     this.gpsBeacon?.dispose();
     this.psychosis?.dispose?.();
     this.substanceEffects?.dispose?.();
     this.poopSystem?.dispose?.();
     this.roadRage?.dispose?.();
+    this.knockFeedback = null;
     this.limpieza?.dispose?.();
+    this.robo?.dispose?.();
+    this.protest?.dispose();
+    this.riotCops?.dispose();
+    this.protesters?.dispose();
+    this.calle?.dispose();
     this.radio?.destroy?.();
   }
 }

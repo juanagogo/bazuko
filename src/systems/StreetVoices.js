@@ -2,7 +2,7 @@
 // Frases de la calle: suenan de quien está cerca, una a la vez y con enfriamiento por persona y por grabación.
 
 /**
- * Las cinco frases de la calle. `text` es lo que muestra la burbuja y `sexo` la voz de la grabación:
+ * Las frases de la calle. `text` es lo que muestra la burbuja y `sexo` la voz de la grabación:
  * solo la dice alguien de ese sexo. Una grabación con voz de mujer se añade con `sexo: 'mujer'`.
  * `lufs` es la sonoridad medida del archivo (`ffmpeg -af ebur128`): vienen grabadas muy dispares, de -7,5 a -18,4,
  * y sin compensar «Un 3 nacional» sonaría más de tres veces más fuerte que «Las mejores». Una nueva se mide al añadirla.
@@ -12,7 +12,11 @@ export const STREET_VOICES = [
   { key: 'pirobito', file: 'calle_pirobito.mp3', text: 'Pirobito.', sexo: 'mujer', lufs: -15.3 },
   { key: 'enano', file: 'calle_enano_gonorrea.mp3', text: 'Enano gonorrea.', sexo: 'mujer', lufs: -12.9 },
   { key: 'medallo', file: 'calle_medallo.mp3', text: 'Medallo.', sexo: 'hombre', lufs: -11 },
-  { key: 'nacional', file: 'calle_un3snacional.mp3', text: 'Un 3 nacional.', sexo: 'hombre', lufs: -7.5 }
+  { key: 'nacional', file: 'calle_un3snacional.mp3', text: 'Un 3 nacional.', sexo: 'hombre', lufs: -7.5 },
+  { key: 'mamacita', file: 'calle_mamacita.mp3', text: 'Mamacita, todas somos perras porque a todas nos gusta que nos den por el mismo hueco. No se azare por eso, mi amor.', sexo: 'mujer', lufs: -14.2 },
+  { key: 'envidia', file: 'calle_mucha_envidia.mp3', text: '¿Mucha envidia o qué, perra?', sexo: 'mujer', lufs: -13.6 },
+  { key: 'besitos', file: 'calle_besitos.mp3', text: 'Besitos hasta donde no llega el sol, y cuando quiera, carechimba.', sexo: 'mujer', lufs: -13.9 },
+  { key: 'papasito', file: 'calle_papasito.mp3', text: 'Papasito.', sexo: 'mujer', lufs: -14.1 }
 ];
 
 /** Todas las voces del juego quedan a esta sonoridad: la de los conductores y el reclamo por robo (≈ -17,5). */
@@ -25,7 +29,7 @@ export function loudnessGain(lufs) {
 
 /** Sexo de quien habla: el de su cuerpo; sin dato no se le asigna voz. */
 export function npcSexo(npc) {
-  return npc?.look?.real?.sexo ?? npc?.person?.sexo ?? null;
+  return npc?.look?.real?.sexo ?? npc?.person?.real?.sexo ?? npc?.person?.sexo ?? null;
 }
 
 /**

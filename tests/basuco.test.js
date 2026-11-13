@@ -83,6 +83,10 @@ test('el basuco trae paranoia: sombras y mirar a los lados, sin abstinencia', ()
   assert.ok(paranoia.seconds > 0 && paranoia.severity > 0);
   const { scene, player, tick } = smoker();
   const psychosis = new PsychosisSystem(scene, player, { abstinencia: 0 }, null, null);
+  for (let i = 0; i < 7; i++) {
+    const group = new THREE.Group(), material = new THREE.MeshBasicMaterial();
+    psychosis.reserva.push({ group, material, character: { update() {}, dispose() {} } });
+  }
   psychosis.induce(paranoia.seconds, paranoia.severity);
   let maxGlance = 0;
   for (let t = 0; t < 20; t += 0.05) {

@@ -107,6 +107,7 @@ export class InteractionSystem {
         else if (t.kind === 'cart') nearestType = 'cart';
         else if (t.kind === 'fireBarrel') nearestType = 'fireBarrel';
         else if (t.kind === 'recycler') nearestType = 'sell';
+        else if (t.kind === 'calle') nearestType = 'calle';
         else if (t.kind === 'mesa') nearestType = 'mesa';
         else if (t.kind === 'pila') nearestType = 'pila';
         else if (t.kind === 'hogar') nearestType = 'hogar';
@@ -178,6 +179,9 @@ export class InteractionSystem {
           break;
         case 'fireBarrel':
           this._warmAtFire(nearest);
+          break;
+        case 'calle':
+          nearest.interact();
           break;
         case 'pila':
           this.street?.wash(nearest);
@@ -371,7 +375,8 @@ export class InteractionSystem {
     }
 
     // Si una patrulla te ve, te persigue; solo te capturan si te alcanzan.
-    const chased = this.getTraffic?.()?.alertForTheft?.(this.player.position);
+    // `policeBlind` lo prende el modo trucos para que nadie te vea.
+    const chased = this.policeBlind ? false : this.getTraffic?.()?.alertForTheft?.(this.player.position);
     if (chased) {
       this.audio?.play('pickup');
       this.stats.addXP(XP_STEAL, this.talents);

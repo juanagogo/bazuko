@@ -40,3 +40,16 @@ test('la caja conserva dimensiones, inclinación y posición al girar y permite 
   assert.equal(entry.obb, shape);
   assert.ok(entry.obb.quaternion.equals(bus.group.quaternion));
 });
+
+test("una buseta del tráfico girada 45 grados no bloquea un punto fuera de su carrocería", () => {
+  const group = new THREE.Group(); group.rotation.y = Math.PI / 4;
+  const buseta = { group, position: new THREE.Vector3(0, 0, 0), length: 9, width: 2.5, kind: "buseta" };
+  const collisions = new CollisionSystem(); collisions.setVehicles([buseta]);
+  const entry = collisions.dynamicColliders[0];
+  assert.ok(entry.obb, "la buseta girada usa caja orientada");
+  const corner = new THREE.Vector3(4, 0, 4), delta = new THREE.Vector3(.2, 0, 0);
+  assert.ok(entry.box.containsPoint(corner));
+  assert.deepEqual(collisions.resolveMove(corner, delta), corner.clone().add(delta));
+  const body = new THREE.Vector3(0, 0, 0);
+  assert.notDeepEqual(collisions.resolveMove(body, new THREE.Vector3()), body);
+});

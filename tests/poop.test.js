@@ -7,6 +7,7 @@ import { PoopProjectile } from '../src/entities/PoopProjectile.js';
 import { InventorySystem } from '../src/systems/InventorySystem.js';
 import { StatsSystem } from '../src/systems/StatsSystem.js';
 import { ITEMS } from '../src/data/items.js';
+import { Player } from '../src/entities/Player.js';
 
 beforeEach(() => {
   globalThis.window = new EventTarget();
@@ -110,4 +111,43 @@ test('el proyectil de popó impacta contra el suelo si no toca ningún peatón',
 
   assert.ok(hitResult);
   assert.equal(hitResult.type, 'ground');
+});
+
+function squatter(axis = { x: 0, z: 0 }) {
+  const scene = new THREE.Scene();
+  const input = { axis, isRunning: false, consumePress() { return false; }, isDown() { return false; } };
+  const player = new Player(scene, input, { dinero: 0 }, {});
+  player.position.set(0, 0, 0);
+  const poseActions = [];
+  const update = player.character.update.bind(player.character);
+  player.character.update = (dt, state) => { poseActions.push(state.action); return update(dt, state); };
+  const tick = (seconds, dt = 0.05) => { for (let t = 0; t < seconds - 1e-9; t += dt) player.update(dt, null, null, () => 0, []); };
+  const system = new PoopSystem(scene, null, new InventorySystem(), null, { active: { getGroundHeight: () => 0 } });
+  return { player, tick, system, poseActions };
+}
+
+test('al hacer popó se agacha, queda quieto aunque empuje, y se levanta al terminar', () => {
+  const { player, tick, system, poseActions } = squatter({ x: 1, z: 0 });
+  assert.equal(system.poop(player), true);
+  assert.equal(player.action, 'cagar');
+  tick(1.2);
+  assert.ok(player.position.length() < 0.01, 'quieto en cuclillas');
+  assert.equal(poseActions.at(-1), 'cagar', 'la pose sigue puesta');
+  tick(0.6);
+  assert.equal(player.action, null, 'terminó la acción');
+  assert.notEqual(poseActions.at(-1), 'cagar', 'ya no está en la pose');
+  tick(0.5);
+  assert.ok(player.position.length() > 0.05, 'vuelve a caminar');
+});
+
+test('hacer popó no pisa una acción en curso ni un golpe', () => {
+  const { player, system } = squatter();
+  player.playAction('saludo', 1);
+  assert.equal(system.poop(player), true);
+  assert.equal(player.action, 'saludo');
+  const played = [];
+  const fighting = { position: new THREE.Vector3(), attack: { t: 0 }, playAction: (a) => played.push(a) };
+  system.poopCooldown = 0;
+  assert.equal(system.poop(fighting), true);
+  assert.deepEqual(played, []);
 });

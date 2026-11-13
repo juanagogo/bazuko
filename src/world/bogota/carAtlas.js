@@ -494,11 +494,11 @@ export function drawAtlas(ctx) {
   }
   // Rótulo genérico de la buseta: nombre inventado, se lee como el de una cooperativa cualquiera.
   const [nx, ny, nw, nh] = RECT.busName;
-  // Sobre la franja de la buseta: del mismo azul, para que solo se lea el letrero.
-  ctx.fillStyle = BUS_BLUE; ctx.fillRect(nx, ny, nw, nh);
-  ctx.fillStyle = '#f4f2ea'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-  ctx.font = '900 21px sans-serif'; ctx.fillText('RUTAS DE LA CAPITAL', nx + nw / 2, ny + 19);
-  ctx.font = '800 13px sans-serif'; ctx.fillText('SERVICIO URBANO · 19 PASAJEROS', nx + nw / 2, ny + 42);
+  // Letrero genérico, crema con letra oscura: queda bien sobre cualquier librea y no nombra a ninguna empresa.
+  ctx.fillStyle = '#efe9d8'; ctx.fillRect(nx, ny, nw, nh);
+  ctx.fillStyle = '#23262b'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.font = '900 24px sans-serif'; ctx.fillText('SERVICIO URBANO', nx + nw / 2, ny + 20);
+  ctx.font = '800 13px sans-serif'; ctx.fillText('19 PASAJEROS SENTADOS', nx + nw / 2, ny + 42);
   drawOptics(ctx);
 }
 

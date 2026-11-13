@@ -2,7 +2,8 @@
 // combinación (incluido "Al azar") se vea bien.
 
 export const PALETTES = {
-  piel: ['#f6d3b3', '#e8b88f', '#d39a6d', '#b07a52', '#8a5a3b', '#5e3b27'],
+  piel: ['#f6d3b3', '#e8b88f', '#d39a6d', '#b07a52', '#8a5a3b', '#5e3b27',
+    '#fbdcc8', '#e9c58f', '#a8683f', '#c08a5a', '#46281c', '#6f4430'],
   pelo: ['#1b1410', '#3b2416', '#6b4423', '#a8742f', '#d9b26a', '#8c8c8c', '#e8e2d6', '#8e2333', '#2a4d8f'],
   ojos: ['#3b2416', '#1b1410', '#5f7a3a', '#3d6b9c', '#a6762f', '#6b6f73'],
   ropa: ['#c0392b', '#2f6fb0', '#3f7a3a', '#7d8288', '#e0962b', '#7a4fa0', '#1f1f1f', '#e8e3d6', '#0f6b6b', '#d6336c', '#33445c', '#f2c600', '#6b4a2e'],
@@ -13,11 +14,13 @@ export const PALETTES = {
 // multiplicado por una textura que ya es rojiza da naranja, así que aquí se guarda lo que debe verse.
 // Los dos más oscuros se quedan lo bastante arriba para que la cara conserve su forma a la sombra.
 export const SKIN_ALBEDO = [
-  [.5, .295, .19], [.44, .24, .146], [.35, .18, .105], [.25, .126, .074], [.21, .108, .066], [.17, .088, .059]
+  [.5, .295, .19], [.44, .24, .146], [.35, .18, .105], [.25, .126, .074], [.21, .108, .066], [.17, .088, .059],
+  // Del 6 al 11 se añadieron después, para que ninguna partida guardada cambie de tono: marfil, dorada, cobriza, oliva, ébano y chocolate.
+  [.56, .34, .26], [.46, .3, .15], [.3, .145, .085], [.37, .22, .12], [.14, .075, .055], [.2, .1, .062]
 ];
 
 export const COLOR_NAMES = {
-  piel: ['Muy clara', 'Clara', 'Trigueña', 'Morena', 'Oscura', 'Muy oscura'],
+  piel: ['Muy clara', 'Clara', 'Trigueña', 'Morena', 'Oscura', 'Muy oscura', 'Marfil', 'Dorada', 'Cobriza', 'Oliva', 'Ébano', 'Chocolate'],
   pelo: ['Negro', 'Castaño oscuro', 'Castaño', 'Cobrizo', 'Rubio', 'Canoso', 'Blanco', 'Vinotinto', 'Azul'],
   ojos: ['Café', 'Negros', 'Verdes', 'Azules', 'Miel', 'Grises'],
   ropa: ['Rojo', 'Azul', 'Verde', 'Gris', 'Naranja', 'Morado', 'Negro', 'Crema', 'Verde petróleo', 'Fucsia', 'Azul jean', 'Amarillo', 'Café'],
