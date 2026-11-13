@@ -53,6 +53,7 @@ const REJOIN_NODE_MARGIN = 4;
 const REJOIN_CLEAR_RADIUS = 9;
 const REJOIN_PERSON_RADIUS = 4;
 // A la vista del jugador el salto se nota: aguanta más, sin quedarse trancando la vía para siempre.
+const RESIZE_GAP = 8;
 const REJOIN_SEEN_RADIUS = 40;
 const REJOIN_SEEN_TIMEOUT = 30;
 // Más acá del alcance de la niebla nadie ve un carro: se apaga entero y solo avanza por su ruta. La burbuja es ese
@@ -509,6 +510,25 @@ export class TrafficSystem {
     return best;
   }
 
+  /** Punto de la ruta lejos de la vista, libre de otros carros y fuera de los cruces. */
+  _freeDistance(route) {
+    const view = this._viewPosition, safeSq = this._resizeDistance() ** 2;
+    for (let tries = 0; tries < 12; tries++) {
+      const distance = this.random() * route.length;
+      route.sample(distance, this._position, this._direction);
+      if ((this._position.x - view.x) ** 2 + (this._position.z - view.z) ** 2 < safeSq) continue;
+      // Nacer dentro de un cruce es pedir la reserva a la fuerza; fuera de él entra como cualquier otro.
+      if (this._nearNode(this._position)) continue;
+      if (this._inClosure(this._position.x, this._position.z, CLOSURE_SPAWN_PAD)) continue;
+      // Un carro puede compartir el carril con otro de una ruta distinta: se mira el mundo, no la distancia en la ruta.
+      const crowded = this.vehicles.some(other => Math.hypot(other.car.position.x - this._position.x,
+        other.car.position.z - this._position.z) < other.car.length / 2 + RESIZE_GAP);
+      if (crowded) continue;
+      return distance;
+    }
+    return null;
+  }
+
   /** Saca de circulación un carro del montaje: se suelta de los cruces, se avisa y se libera. */
   _retire(vehicle) {
     const index = this.vehicles.indexOf(vehicle);
@@ -596,6 +616,11 @@ export class TrafficSystem {
       if (dx * dx + dz * dz < safeSq) continue;
       if (retire) { this._retire(vehicle); return; } // uno por cuadro, para que la retirada se note como el resto del montaje
       if (this._relocate(vehicle)) { vehicle.stoppedFor = 0; return; }
+      // Sin punto libre donde pasarla, la patrulla vuelve a su circuito como al regresar de una persecución.
+      if (!this._playerWithin(vehicle.car.position, REJOIN_SEEN_RADIUS)) {
+        vehicle._rejoinStuck = REJOIN_SEEN_TIMEOUT + 1;
+        if (this._forceRejoin(vehicle)) { vehicle._rejoinStuck = 0; vehicle.stoppedFor = 0; return; }
+      }
     }
   }
 
