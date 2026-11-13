@@ -66,6 +66,14 @@ export function textoDelPrompt(interaction, inventory) {
     const car = interaction.currentTarget;
     const canSteal = car?.stealable !== false;
     const canClean = !!car?.cleanable;
+    // Al parqueado no se le limpia el vidrio: se le cuida hasta que vuelve el dueño.
+    const guard = interaction.street?.guard;
+    if (!car?.traffic && guard) {
+      const robar = canSteal ? '[E] Robar retrovisor del carro' : '';
+      const cuidar = guard.car === car ? 'Lo estoy cuidando: no me alejo'
+        : guard.active ? '' : guard.canGuard(car) ? '[Q] Cuidarlo (propina del dueño)' : '';
+      return [robar, cuidar].filter(Boolean).join(' · ');
+    }
     if (canSteal && canClean) {
       return car?.traffic
         ? '[E] Robar retrovisor del carro en circulación · [Q] Limpiar parabrisas'
@@ -76,7 +84,15 @@ export function textoDelPrompt(interaction, inventory) {
     }
     return car?.traffic ? '[E] Robar retrovisor del carro en circulación' : '[E] Robar retrovisor del carro';
   }
-  if (type === 'fireBarrel') return '[E] Calentarme en la fogata';
+  if (type === 'fireBarrel') {
+    const comida = inventory?.items?.some((i) => i.qty > 0 && ITEMS[i.id]?.consumable === 'hambre' && i.id !== 'comidaDanada');
+    return comida ? '[E] Calentarme en la fogata · [Q] Compartir comida' : '[E] Calentarme en la fogata · Compartir comida aquí da confianza';
+  }
+  if (type === 'pila') {
+    return inventory?.count?.('botella') > 0 ? '[E] Lavarme en la pila · [Q] Llenar la botella' : '[E] Lavarme en la pila · Con una botella vacía, aquí la lleno';
+  }
+  if (type === 'hogar') return '[E] Hogar de paso: dormir bajo techo';
+  if (type === 'transit') return `[E] ${interaction.currentTarget?.stop?.name ?? 'Estación'}: viajar`;
   if (type === 'sell') return '[E] Vender material en la recicladora';
   if (type === 'shop') return `[E] Comprar en ${interaction.currentTarget.title ?? 'Tienda La Esquinita'}`;
   if (type === 'comedor') {
@@ -105,6 +121,12 @@ const VERBO_CORTO = [
   [/^Darle pan o atún/, 'Darle comida'],
   [/^Acariciar a El Chato/, 'Acariciar'],
   [/^Calentarme/, 'Calentarme'],
+  [/^Compartir comida/, 'Compartir'],
+  [/^Cuidarlo/, 'Cuidar carro'],
+  [/^Lavarme/, 'Lavarme'],
+  [/^Llenar la botella/, 'Llenar botella'],
+  [/^Hogar de paso/, 'Hogar de paso'],
+  [/: viajar$/, 'Viajar'],
   [/^Vender material/, 'Vender material'],
   [/^Almorzar en el Comedor/, 'Almorzar'],
   [/^Comedor Comunitario/, 'Comedor'],
@@ -251,6 +273,10 @@ export class HUD {
     this.dealerPanel = document.getElementById('dealer-panel');
     this.promptEl = document.getElementById('interaction-prompt');
     this.poopAmmoEl = document.getElementById('poop-hud-ammo');
+    this.tareaEl = document.getElementById('tarea');
+    this.tareaLabel = this.tareaEl?.querySelector?.('.tarea__label');
+    this.tareaHint = this.tareaEl?.querySelector?.('.tarea__pista');
+    this.tareaMasa = this.tareaEl?.querySelector?.('.tarea__barra .masa');
 
     // Estado de paneles
     this._talentOpen = false;
@@ -598,6 +624,8 @@ export class HUD {
     // La tecla de contexto
     this._pintarPrompt(window.__game?.paused ? '' : textoDelPrompt(interaction, inventory), interaction);
 
+    this._pintarTarea(window.__game?.street?.task ?? null);
+
     if (this._misionS > 0 && (this._misionS -= dt) <= 0 && this.misionEl) this.misionEl.hidden = true;
 
     // Lo demás se revisa a 10 Hz; movimiento, filas y tecla de contexto siguen cada cuadro.
@@ -626,6 +654,19 @@ export class HUD {
     if (this._dealerOpen) {
       this.renderDealer();
     }
+  }
+
+  /** Lo que estoy haciendo y toma tiempo (cuidar un carro): nombre, barra y qué hacer. */
+  _pintarTarea(tarea) {
+    if (!this.tareaEl) return;
+    const visible = !!tarea;
+    if (this.tareaEl.hidden === visible) this.tareaEl.hidden = !visible;
+    if (!tarea) return;
+    this._setText(this.tareaLabel, tarea.label);
+    this._setText(this.tareaHint, tarea.hint ?? '');
+    if (this.tareaMasa) this._setWidth(this.tareaMasa, Math.round(tarea.progress * 100));
+    const estado = tarea.warn ? 'aviso' : 'ok';
+    if (this.tareaEl.dataset.estado !== estado) this.tareaEl.dataset.estado = estado;
   }
 
   /** Una fila: relleno, nivel y número. La página se toca solo si cambió lo que se ve. */
@@ -853,6 +894,10 @@ export class HUD {
       game.openWardrobe?.();
       return;
     }
+    if (itemId === 'botella') {
+      if (game.street?.useBottle()) game.inventoryUI?.close();
+      return;
+    }
     if (itemId === 'pilas') {
       if (game.radio) {
         if (game.radio.battery >= 100) {
@@ -899,6 +944,9 @@ export class HUD {
       inv.remove(itemId, 1);
       // Lo que alimenta y además cura (la aguapanela con la gripe) también quita la enfermedad.
       const cured = !!item.cure && !!game.diseases?.cure?.(item.cure);
+      // El agua de la calle y la comida dañada a veces caen mal.
+      const def = ITEMS[itemId] ?? item;
+      if (def.riesgo) game.diseases?.tryContract?.(def.riesgo.enfermedad, def.riesgo.prob, game.interaction?.diseaseResistance?.() ?? 1);
       game.audio?.play('pickup');
       const isDrink = item.consumable === 'sed' || item.id === 'cafe' || item.id === 'refresco' || item.id === 'aguapanela';
       const verb = isDrink ? 'Bebí' : item.substance ? 'Consumí' : item.consumable === 'salud' ? 'Me apliqué' : 'Comí';

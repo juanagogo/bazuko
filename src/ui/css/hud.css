@@ -183,6 +183,27 @@
 #mision[hidden] { display: none; }
 body:has(#movement-status:not([hidden])) #mision { display: none; }
 
+/* ---------- lo que estoy haciendo y toma tiempo: cuidar un carro ---------- */
+/* Encima de la tecla de contexto, centrado: qué es, cuánto falta y qué hacer. Con aviso, la pista se invierte. */
+#tarea {
+  position: fixed; z-index: 60;
+  left: 50%; bottom: calc(150px + var(--safe-b)); transform: translateX(-50%);
+  display: grid; grid-template-columns: minmax(0, 1fr); gap: 4px;
+  width: min(340px, 80vw); padding: 7px 14px 9px; pointer-events: none;
+}
+#tarea[hidden] { display: none; }
+.tarea__label { font-weight: 800; font-size: 20px; line-height: 1.05; }
+.tarea__barra { display: block; height: 12px; box-shadow: inset 0 0 0 1.5px var(--marcador); }
+.tarea__barra .masa { display: block; height: 100%; width: 0; }
+.tarea__pista { font-size: 15.5px; line-height: 1.15; }
+#tarea[data-estado="aviso"] .tarea__pista { justify-self: start; padding: 0 5px; background: var(--rojo); color: var(--cinta); }
+
+/* ---------- el viaje en el transporte: un fundido a negro mientras se cambia de sitio ---------- */
+#viaje-fundido { position: fixed; inset: 0; z-index: 900; background: #000; opacity: 0; transition: opacity .45s ease; pointer-events: none; }
+#viaje-fundido.is-on { opacity: 1; pointer-events: auto; }
+#viaje-fundido[hidden] { display: none; }
+@media (prefers-reduced-motion: reduce) { #viaje-fundido { transition: none; } }
+
 /* ---------- abajo a la derecha: costal, mesa y barra rápida ---------- */
 #quickbar {
   --corte: var(--corte-b);
@@ -286,7 +307,7 @@ body.mojado #quickbar .qb-slot.elegido::after { border-image-source: var(--m-cir
 .is-photo-mode #steal-minigame { visibility: hidden !important; }
 
 /* ---------- cuando no toca ---------- */
-body:has(#menu:not([hidden]), #inv-overlay.open, #craft-panel.open, #talent-panel.open, #dealer-panel.open, #creator-modal:not([hidden]), #cerrado:not([hidden])) :is(#topbar, #hud-dock, #panel-dock, #quickbar, #game-settings, #camera-controls, #controls-help, #controls-help-toggle, #interaction-prompt, #movement-status, #poop-hud-ammo, #mision, #boost-indicator, #cart-indicator, #zona-cartel) {
+body:has(#menu:not([hidden]), #inv-overlay.open, #craft-panel.open, #talent-panel.open, #dealer-panel.open, #creator-modal:not([hidden]), #cerrado:not([hidden])) :is(#topbar, #hud-dock, #panel-dock, #quickbar, #game-settings, #camera-controls, #controls-help, #controls-help-toggle, #interaction-prompt, #movement-status, #poop-hud-ammo, #mision, #tarea, #boost-indicator, #cart-indicator, #zona-cartel) {
   visibility: hidden; pointer-events: none;
 }
 body.is-loading :is(#performance-panel, #quickbar, #hud-dock, #panel-dock) { visibility: hidden; }

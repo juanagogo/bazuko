@@ -459,3 +459,31 @@ test('las palomas no le temen a quien duerme en el parque', async () => {
   assert.ok(flock.birds.every(bird => bird.state !== 'flying' && bird.state !== 'startled'));
   flock.dispose(); npc.dispose();
 });
+
+test('sin paraguas, la llovizna no pone la mano en la cabeza; el aguacero sí, a la mayoría', async () => {
+  const people = [];
+  for (let i = 0; i < 40; i++) {
+    const npc = await person('oficinista');
+    npc.person.paraguas = null; npc.person.lluvia = 'cubrirse'; npc.person.style = null;
+    npc._rainTemper = i / 40; // el temperamento de cada uno, repartido parejo
+    npc.moving = true;
+    people.push(npc);
+  }
+  const far = new THREE.Vector3(500, 0, 500);
+  const count = (stance) => people.filter(npc => npc._stanceNow() === stance).length;
+  for (const npc of people) npc._updateConduct(.05, { isRaining: true, rain: .3, player: far });
+  assert.equal(count('cubrirse'), 0, 'con llovizna nadie se cubre la cabeza');
+  assert.ok(count('encogido') >= 8 && count('encogido') <= 16, `unos pocos se encogen (${count('encogido')})`);
+  for (const npc of people) npc._updateConduct(.05, { isRaining: true, rain: .72, player: far });
+  assert.ok(count('cubrirse') >= 20 && count('cubrirse') < 40, `con aguacero la mayoría se cubre (${count('cubrirse')})`);
+  assert.equal(count('cubrirse') + count('encogido'), 40, 'y el resto se encoge');
+  for (const npc of people) npc._updateConduct(.05, { isRaining: false, rain: 0, player: far });
+  assert.equal(count('cubrirse') + count('encogido'), 0, 'escampó: aunque el piso siga mojado, caminan normal');
+  const fija = await person('oficinista', { navigation: null, fijo: { stance: 'brazos-cruzados' } });
+  fija.person.paraguas = null; fija.person.lluvia = 'cubrirse'; fija.person.style = null; fija._rainTemper = 0;
+  fija._updateConduct(.05, { isRaining: true, rain: .3, player: far });
+  assert.equal(fija._stanceNow(), 'brazos-cruzados', 'quien está en su sitio no se cubre por una llovizna');
+  fija._updateConduct(.05, { isRaining: true, rain: .72, player: far });
+  assert.equal(fija._stanceNow(), 'encogido', 'con aguacero se encoge donde está');
+  for (const npc of [...people, fija]) npc.dispose();
+});

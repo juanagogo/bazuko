@@ -108,6 +108,9 @@ export class InteractionSystem {
         else if (t.kind === 'fireBarrel') nearestType = 'fireBarrel';
         else if (t.kind === 'recycler') nearestType = 'sell';
         else if (t.kind === 'mesa') nearestType = 'mesa';
+        else if (t.kind === 'pila') nearestType = 'pila';
+        else if (t.kind === 'hogar') nearestType = 'hogar';
+        else if (t.kind === 'transit') nearestType = 'transit';
         else if (typeof t.harvest === 'function') nearestType = 'pickup';
         else if (typeof t.steal === 'function' || typeof t.cleanWindshield === 'function') nearestType = 'car';
         else if (typeof t.sellSubstances === 'function') nearestType = 'dealer';
@@ -176,6 +179,15 @@ export class InteractionSystem {
         case 'fireBarrel':
           this._warmAtFire(nearest);
           break;
+        case 'pila':
+          this.street?.wash(nearest);
+          break;
+        case 'hogar':
+          window.dispatchEvent(new CustomEvent('open-hogar'));
+          break;
+        case 'transit':
+          window.dispatchEvent(new CustomEvent('open-transit', { detail: { target: nearest } }));
+          break;
         case 'dog':
           this._interactDog(nearest);
           break;
@@ -196,10 +208,15 @@ export class InteractionSystem {
       }
     }
 
-    // === Limpiar parabrisas del carro (Q) ===
+    // === Q junto a un carro: al parqueado se le cuida, al que va en la vía se le limpia el vidrio ===
     if (nearestType === 'car' && input.consumePress('KeyQ')) {
-      this._cleanWindshield(nearest);
+      if (!nearest.traffic && this.street) this.street.guardCar(nearest);
+      else this._cleanWindshield(nearest);
     }
+
+    // === Q en la fogata: compartir comida; Q en la pila: llenar la botella ===
+    if (nearestType === 'fireBarrel' && input.consumePress('KeyQ')) this.street?.shareFood();
+    if (nearestType === 'pila' && input.consumePress('KeyQ')) this.street?.fillBottle('pila');
 
     // === Comprar producto / Abrir tienda del dealer (Q) ===
     if (nearestType === 'dealer' && input.consumePress('KeyQ')) {
@@ -254,6 +271,14 @@ export class InteractionSystem {
       }));
       return;
     }
+    // Con los parceros bravos no hay candela para mí.
+    if (this.street && !this.street.canWarm()) {
+      this.audio?.play?.('empty');
+      window.dispatchEvent(new CustomEvent('toast', {
+        detail: { text: 'Los parceros no me dejan arrimar a la fogata. Compartir comida aquí los ablanda.', type: 'warn' }
+      }));
+      return;
+    }
     this._lastWarmTime = now;
     this.player?.faceTowards?.(target.position);
     this.player?.playAction?.('calentarse', 2.8);
@@ -268,6 +293,7 @@ export class InteractionSystem {
         type: 'info'
       }
     }));
+    this.street?.afterWarm();
   }
 
   _harvestTrash(target, sorted) {

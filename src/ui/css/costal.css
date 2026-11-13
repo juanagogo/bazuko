@@ -57,6 +57,13 @@
 .inv-slot-qty { position: absolute; right: 10px; top: 5px; font-weight: 800; font-size: 20px; line-height: 1; }
 .inv-slot-key { position: absolute; left: 7px; top: 6px; padding: 2px 5px 1px; background: var(--marcador); color: var(--cinta); font-weight: 800; font-size: 14px; line-height: 1; }
 .inv-slot-rare { position: absolute; right: 9px; top: 28px; font-size: 18px; line-height: 1; }
+/* Lo que le queda: frescura de la comida o golpes del arma. Baja, la barra se vuelve placa roja; nada parpadea. */
+.inv-slot-vida { position: absolute; left: 12px; right: 12px; bottom: 9px; height: 6px; box-shadow: inset 0 0 0 1px var(--marcador); }
+.inv-slot-vida .masa { display: block; height: 100%; }
+.inv-slot-vida.is-bajo { background: var(--rojo); box-shadow: none; }
+.inv-slot-vida.is-bajo .masa { background-image: var(--m-rayado-cinta); }
+.qb-slot.con-vida::after { content: ''; position: absolute; left: 8px; bottom: 4px; height: 4px; width: calc(100% - 16px); transform: scaleX(var(--vida, 1)); transform-origin: left center; background: var(--marcador); pointer-events: none; }
+.qb-slot.con-vida.vida-baja::after { background: var(--rojo); }
 .inv-slot.selected::after {
   content: ''; position: absolute; inset: 11px 10px 10px 9px; pointer-events: none;
   border: 1px solid transparent;
