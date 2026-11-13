@@ -19,6 +19,7 @@ const { TrafficSystem } = await import('../src/systems/TrafficSystem.js');
 const { TrafficRoute } = await import('../src/world/bogota/TrafficRoute.js');
 const { CollisionSystem } = await import('../src/systems/CollisionSystem.js');
 const { Car } = await import('../src/entities/Car.js');
+const { seatLift } = await import('../src/entities/patrolCar.js');
 
 const DT = 1 / 30;
 let events;
@@ -165,6 +166,25 @@ test('bajarse no tiene saltos: del asiento a la puerta en pasos cortos, sentado 
   assert.ok(Math.abs(outside.z) > car.width / 2 + .3, 'terminó afuera, junto a la puerta');
   assert.equal(officer.poseParams.poses, undefined, 'ya de pie no queda ninguna postura de la bajada');
   assert.equal(world.unit.fit.doorAmount(1), 1, 'la puerta queda abierta mientras persigue');
+});
+
+test('sentado va a la altura que le deja la cabeza bajo el techo, y ya de pie se abre de la puerta antes de correr', () => {
+  const world = setup();
+  const officer = world.unit.partner, car = world.vehicle.car, fit = world.unit.fit;
+  // La silla: la altura que mide `seatLift` sobre la carrocería de este modelo, no el piso.
+  const lift = seatLift(car.vehicle.model, fit.anchor, fit.height);
+  assert.ok(lift > .2, `el asiento de la ${car.vehicle.model} va a ${lift.toFixed(2)} m`);
+  assert.equal(fit.seatLift, lift);
+  world.traffic._startChase(world.vehicle);
+  exitOf(world);
+  assert.ok(Math.abs(officer.position.y - car.position.y - lift) < .02, `arranca sentado a ${(officer.position.y - car.position.y).toFixed(2)} m`);
+  // El jugador quedó adelante, por el eje del carro: derecho hacia él saldría rozando la carrocería. Primero se abre.
+  runUntil(world, () => officer.state === 'persecucion', 4);
+  const across = () => Math.abs(car.group.worldToLocal(officer.position.clone()).z);
+  const door = across();
+  let widest = door;
+  runUntil(world, () => { widest = Math.max(widest, across()); return false; }, .5);
+  assert.ok(widest > door + .3, `de ${door.toFixed(2)} m del eje del carro se abrió hasta ${widest.toFixed(2)} m`);
 });
 
 test('quien corre derecho se le va: pique y cansancio, lo busca, desiste, se sube y la patrulla sigue su ronda', () => {
