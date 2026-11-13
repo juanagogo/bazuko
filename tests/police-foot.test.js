@@ -1242,6 +1242,7 @@ test('entre cortar un sentido de un solo carril y tapar un carril de un sentido 
   // Hacia -X un solo carril (z = -3,2); hacia +X dos (z = 0 y z = 3,2). Junto a la calle no hay dónde parar sin tapar.
   world.system._buildLanes([street(-3.2, -1), street(0), street(3.2)]);
   world.system._isWalkable = (x, z) => z < -4.3 || z > 5.5;
+  world.system._isRoad = (x, z) => z >= -4.3 && z <= 5.5; // la calzada, entre los dos andenes
   const vehicle = world.vehicle, car = vehicle.car;
   car.position.set(100, 0, 0);
   car.group.rotation.y = 0;
@@ -1268,6 +1269,140 @@ test('orillada junto al carril queda derecha, con su eje, y llega en curva sin c
   assert.ok(swerve < .9, `coleteó ${(swerve * 180 / Math.PI).toFixed(0)}°`);
   assert.ok(Math.abs(car.position.z) >= 2, `quedó a ${Math.abs(car.position.z).toFixed(2)} m del eje del carril`);
   assert.equal(world.system._laneBlock(car.position.x, car.position.z, 1, 0, car), 0);
+});
+
+// ---------- la patrulla es un carro: por la calzada ----------
+
+/**
+ * La calle del circuito (z = 0) con 10 m de calzada (|z| <= 5, las baldosas de -2 a 2), andén de 4 m a cada lado (+0,12)
+ * y grama más allá (+0,06). Las baldosas son de 2 m, como en Bogotá.
+ */
+const ROAD_EDGE = 5;
+const roadType = (tx, tz) => Math.abs(tz) <= 2 ? 'road' : Math.abs(tz) <= 4 ? 'sidewalk' : 'grass';
+const roadDistrict = {
+  tileTypeAt: roadType,
+  getGroundHeight: (x, z) => ({ road: 0, sidewalk: .12, grass: .06 })[roadType(Math.round(x / 2), Math.round(z / 2))]
+};
+
+/** Puntos del contorno y del centro de la carrocería, sin margen: dónde va el carro de verdad. */
+function bodyPoints(car) {
+  const yaw = car.group.rotation.y, fx = Math.cos(yaw), fz = -Math.sin(yaw), points = [];
+  for (const along of [-1, -.5, 0, .5, 1]) for (const across of [-1, 0, 1]) {
+    const a = along * car.length / 2, s = across * car.width / 2;
+    points.push([car.position.x + fx * a - fz * s, car.position.z + fz * a + fx * s]);
+  }
+  return points;
+}
+const offRoad = car => bodyPoints(car).filter(([, z]) => Math.abs(z) > ROAD_EDGE).length;
+
+/** ¿La carrocería pisa la caja `box` (x0, z0, x1, z1)? Barre la planta del carro de a 10 cm. */
+function bodyOver(car, [x0, z0, x1, z1]) {
+  const yaw = car.group.rotation.y, fx = Math.cos(yaw), fz = -Math.sin(yaw);
+  for (let a = -car.length / 2; a <= car.length / 2 + 1e-6; a += .1) for (let s = -car.width / 2; s <= car.width / 2 + 1e-6; s += .1) {
+    const x = car.position.x + fx * a - fz * s, z = car.position.z + fz * a + fx * s;
+    if (x > x0 && x < x1 && z > z0 && z < z1) return true;
+  }
+  return false;
+}
+
+test('la patrulla es un carro: con el jugador en el andén no se sube, no pasa por encima de un cono y para en la calzada, derecha', () => {
+  const collisions = new CollisionSystem();
+  // Un cono en la calzada, justo por donde pasaría orillándose.
+  const cone = [49.85, 2.5, 50.15, 2.8];
+  collisions.addFallObstacle(cone[0], cone[1], cone[2], cone[3], 0, .59);
+  const world = setup({ collisions, player: [60, 8], district: roadDistrict });
+  world.player.position.y = .12;
+  world.traffic._startChase(world.vehicle);
+  const car = world.vehicle.car;
+  let worst = 0, overCone = 0;
+  const t = runUntil(world, () => world.unit.partner.state !== 'dentro', 20, () => {
+    worst = Math.max(worst, offRoad(car));
+    if (bodyOver(car, cone)) overCone++;
+  });
+  assert.ok(Number.isFinite(t), 'se bajaron');
+  assert.equal(worst, 0, 'en ningún cuadro pisó el andén');
+  assert.equal(overCone, 0, `${overCone} cuadros encima del cono`);
+  assert.equal(world.unit.phase, 'parada');
+  assert.equal(offRoad(car), 0, 'parada con las cuatro ruedas en la calzada');
+  assert.ok(Math.abs(wrapAngle(car.group.rotation.y)) < 10 * Math.PI / 180, `quedó a ${(wrapAngle(car.group.rotation.y) * 180 / Math.PI).toFixed(1)}° del carril`);
+  assert.ok(car.position.z > 1, 'orillada del lado del jugador');
+  assert.ok(car.position.distanceTo(world.player.position) < POLICE_FOOT.dismountRange, 'cerca de él');
+});
+
+test('con el jugador lejos de la calzada (en la grama), va al punto de calzada más cercano a él, para ahí y se bajan de una', () => {
+  const world = setup({ player: [60, 25], district: roadDistrict });
+  world.player.position.y = .06;
+  world.traffic._startChase(world.vehicle);
+  const car = world.vehicle.car;
+  let worst = 0, toast = null;
+  const t = runUntil(world, () => world.unit.partner.state !== 'dentro', 20, () => { worst = Math.max(worst, offRoad(car)); });
+  toast = events.find(event => event.type === 'toast' && /Se bajaron/.test(event.detail.text));
+  assert.ok(Number.isFinite(t), 'se bajaron');
+  assert.ok(toast, 'con el aviso de siempre');
+  assert.equal(worst, 0, 'nunca se metió a la grama ni al andén');
+  assert.equal(offRoad(car), 0);
+  // El punto de calzada más cercano al jugador es (60, 5): para cerca de ahí, a lo largo de la calle.
+  assert.ok(Math.abs(car.position.x - 60) < 10 && car.position.z > 1, `paró en (${car.position.x.toFixed(1)}, ${car.position.z.toFixed(1)})`);
+  assert.ok(Math.abs(wrapAngle(car.group.rotation.y)) < 10 * Math.PI / 180, 'derecha');
+});
+
+test('llegando en diagonal hacia el sardinel de una calle de un carril por sentido, para en la calzada sin tapar ninguno: entre los dos', () => {
+  const world = setup({ player: [72, 7], district: roadDistrict });
+  // Un carril por sentido, a 2,5 m de cada sardinel: arrimada al del jugador tapa el suyo; entre los dos, ninguno.
+  world.system._buildLanes([street(2.5), street(-2.5, -1)]);
+  world.player.position.y = .12;
+  const vehicle = world.vehicle, car = vehicle.car;
+  // Por su carril, ya corrida hacia el sardinel y apuntándole en diagonal (9°), a toda.
+  car.position.set(60, 0, 3.3);
+  car.group.rotation.y = -9 * Math.PI / 180;
+  vehicle.speed = 7.5;
+  const target = new THREE.Vector3(), axis = new THREE.Vector3();
+  assert.equal(world.system._chooseStop(vehicle, world.traffic, target, { axis }), true);
+  const heading = axis.lengthSq() > 0 ? axis : new THREE.Vector3(target.x - car.position.x, 0, target.z - car.position.z).normalize();
+  assert.equal(world.system._roadCost(car, target.x, target.z, heading.x, heading.z), 0, 'con las cuatro ruedas en la calzada');
+  assert.equal(world.system._laneBlock(target.x, target.z, heading.x, heading.z, car), 0,
+    `para en (${target.x.toFixed(1)}, ${target.z.toFixed(1)}) encima de un carril`);
+});
+
+test('arrancando desde quieta no queda «trabada»: al que corre por la calzada lo alcanza y frena cerca, no a 20 m', () => {
+  const world = setup({ player: [43.2, 0] });
+  world.vehicle.speed = 0;
+  world.traffic._startChase(world.vehicle);
+  let brakeAt = null;
+  const t = runUntil(world, () => world.unit.phase !== 'carro', 30, () => { world.player.position.x += 6 * DT; });
+  brakeAt = world.vehicle.car.position.distanceTo(world.player.position);
+  assert.ok(Number.isFinite(t));
+  assert.ok(brakeAt <= POLICE_FOOT.dismountRange + .5, `frenó a ${brakeAt.toFixed(1)} m: no le gana al que corre a 6 m/s?`);
+  assert.equal(world.unit.endReason, null);
+});
+
+test('trabada de verdad (un muro atravesado en la calle), pasado el arranque frena y se bajan', () => {
+  const collisions = new CollisionSystem();
+  // De andén a andén, 6 m adelante de la patrulla: el carro no pasa; el agente, por el andén de arriba, sí.
+  collisions.colliders.push({ box: new THREE.Box3(new THREE.Vector3(29, 0, -6), new THREE.Vector3(30, 3, 6)) });
+  const world = setup({ collisions, environment: { collisions, getGroundHeight: () => 0 }, player: [55, 0] });
+  world.traffic._startChase(world.vehicle);
+  const brake = runUntil(world, () => world.unit.phase !== 'carro', 15);
+  assert.ok(brake >= 2, `frenó a los ${brake.toFixed(2)} s, todavía arrancando`);
+  assert.ok(brake <= 2 + POLICE_FOOT.stuckTime + .8, `frenó a los ${brake.toFixed(2)} s`);
+  assert.ok(Number.isFinite(runUntil(world, () => world.unit.partner.state !== 'dentro', 10)), 'se bajaron');
+});
+
+test('con un carro parqueado pegado al costado, aunque el rumbo pida irse hacia él no frena en seco: sigue derecho', () => {
+  const collisions = new CollisionSystem();
+  const world = setup({ collisions, environment: { collisions, getGroundHeight: () => 0 } });
+  const vehicle = world.vehicle, car = vehicle.car;
+  car.position.set(50, 0, 0);
+  car.group.rotation.y = 0;
+  vehicle.speed = 6.5;
+  // Parqueado a la derecha, a 25 cm de la carrocería: girar en el sitio hacia cualquier lado lo roza.
+  const near = car.width / 2 + .25;
+  collisions.dynamicColliders.push({ box: new THREE.Box3(new THREE.Vector3(48, 0, near), new THREE.Vector3(52.5, 1.5, near + 1.7)),
+    vehicle: { position: new THREE.Vector3(50.25, 0, near + .85) } });
+  // Lo que busca queda adelante y 30° hacia ese lado.
+  world.system._steer(vehicle, world.traffic, Math.PI / 6, 6, 0, false);
+  assert.equal(vehicle._chaseCanMove, true, 'sin rumbo: frenaría en seco a 6,5 m/s');
+  assert.ok(Math.abs(wrapAngle(vehicle._chaseHeading)) < .05, `rumbo ${vehicle._chaseHeading.toFixed(2)}`);
 });
 
 /**

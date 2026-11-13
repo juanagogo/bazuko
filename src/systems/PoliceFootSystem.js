@@ -8,7 +8,7 @@ import * as THREE from 'three';
 import { PoliceOfficer, POLICE_FOOT } from '../entities/PoliceOfficer.js';
 import { PatrolCar } from '../entities/patrolCar.js';
 import { hasClearCombatLine } from './CombatGeometry.js';
-import { POLICE_CATCH_RANGE, POLICE_GIVE_UP_RANGE } from '../utils/constants.js';
+import { POLICE_CATCH_RANGE, POLICE_GIVE_UP_RANGE, TILE_SIZE } from '../utils/constants.js';
 
 const BRAKE_STOP = 6;          // m/s²: lo último para quedar quieto del todo
 const CHASE_PAD = POLICE_CATCH_RANGE * .35; // lo que TrafficSystem._applyChase deja sin recorrer antes del objetivo
@@ -59,6 +59,29 @@ const STAND_REACH = 6;         // m hasta el andén desde donde queda parado qui
 const VIEW_DISTANCE = 90;
 const SPACING = .7;            // m entre dos agentes a pie
 const PULL_OVER = [3.4, 2.8, 2.2, 1.6, .8, 0]; // m de lado que prueba para orillarse
+// La patrulla es un carro: va por la calzada (las baldosas de vía del mapa; sin mapa, lo que no tiene el alto del andén
+// ni el de la grama) y no se mete al andén ni encima del mobiliario (bolardos, canecas, bancas, avisos, guacales, conos).
+const ROAD_TILES = new Set(['road', 'roadV', 'busway']);
+const ROAD_HEIGHT = .04;       // m sobre la calzada: más alto es andén (+0,12) o grama (+0,06)
+const ROAD_MARGIN = .05;       // m entre la carrocería y el borde de la calzada: el sardinel sobresale 2,6 cm
+const ROAD_ALONG = [-1, -.5, 0, .5, 1]; // dónde se mira la huella, en fracciones del medio largo...
+const ROAD_ACROSS = [-1, 0, 1];         // ...y del medio ancho
+const FURNITURE_TOP = 1.65;    // m que barre la carrocería por encima del piso, como TrafficSystem._chaseFootprint
+const ROAD_PROBE = .25;        // m entre pruebas de la huella a lo largo de un recorrido
+const CURB_REACH = 4.5;        // m de lado hasta donde busca el borde de la calzada para arrimarse al sardinel
+const CURB_STEP = .2;          // m entre una prueba y otra (después, al centímetro)
+const CURB_SLACK = [0, .15];   // m que deja hacia el sardinel: al centímetro, o con holgura por si así no llega derecha
+const CLEAR_REACH = 6;         // m de lado hasta donde busca un sitio de la calzada que no tape ningún carril
+const CLEAR_STEP = .25;        // m entre una prueba y otra
+const AIM_SEARCH = 30;         // m alrededor del jugador donde busca el punto de calzada más cercano a él
+const AIM_LINES = 6;           // de los más cercanos, cuántos prueba buscando uno desde el que se le vea
+const AIM_ARRIVE = 8;          // m (más lo que necesita para frenar) del punto de calzada: llegó, frena y se bajan
+const LAUNCH_GRACE = 2;        // s arrancando desde quieta en que no cuenta como trabada
+const LAUNCH_STILL = .5;       // m/s: más despacio es estar quieta
+const STEER_EVERY = .2;        // s entre un rumbo y otro, como el tráfico
+const STEERING = [0, .45, -.45, .9, -.9, 1.35, -1.35, Math.PI / 2, -Math.PI / 2]; // los rumbos que prueba, como el tráfico
+const FOLLOW_STEERING = [0, .15, -.15, .35, -.35]; // frenando sigue su camino: solo corrige un poco
+const STEER_HOLD = 1e-6;       // s: en este subpaso el tráfico no le cambia el rumbo (ver `_keepOnRoad`)
 
 function emit(type, detail = {}) {
   if (typeof window === 'undefined' || typeof window.dispatchEvent !== 'function') return;
@@ -68,6 +91,8 @@ function emit(type, detail = {}) {
 }
 const toast = (text, type = 'info') => emit('toast', { text, type });
 const byScore = (a, b) => a.score - b.score || a.order - b.order;
+const byDistance = (a, b) => a.distance - b.distance;
+const wrap = angle => Math.atan2(Math.sin(angle), Math.cos(angle));
 
 const _sphere = new THREE.Sphere(new THREE.Vector3(), 1.2);
 const _matrix = new THREE.Matrix4();
@@ -79,6 +104,9 @@ const _pick = new THREE.Vector3();
 const _node = new THREE.Vector3();
 const _door = new THREE.Vector3();
 const _axis = new THREE.Vector3();
+const _reach = new THREE.Vector3();
+const _curb = new THREE.Vector3();
+const _seen = new THREE.Vector3();
 const _curve = { x: 0, z: 0, tx: 0, tz: 0 };
 
 /**
@@ -124,6 +152,7 @@ class PatrolUnit {
     this._brakeDir = new THREE.Vector3();
     this._relocateTo = new THREE.Vector3();
     this._relocateAxis = new THREE.Vector3();
+    this.roadPoint = new THREE.Vector3();  // a dónde va el carro: el jugador, o el punto de calzada más cercano a él
     this._held = new Map();                // carros retenidos detrás de la patrulla quieta y desde hace cuánto
     this._path = [];                       // el camino hasta una parada con eje (ver `_buildPath`)
     this._doorOk = { [-1]: true, [1]: true };
@@ -154,6 +183,9 @@ class PatrolUnit {
     this._brakeClock = 0;
     this._bestDistance = Infinity;
     this._stuckClock = 0;
+    this._launch = 0;
+    this._steerClock = 0;
+    this._roadBlocked = false;
     this._unreachable = 0;
     this._reachable = true;
     this._probeTimer = 0;
@@ -204,10 +236,13 @@ class PatrolUnit {
   planCar(vehicle, stepTime, player, traffic) {
     if (!player || this.dead) return false;
     if (this.mode === 'ronda') this._begin(traffic);
-    if (this.phase === 'carro') return this._drive(vehicle, stepTime, player, traffic);
-    if (this.phase === 'cierre') return this._cutOff(vehicle, stepTime, player, traffic);
-    if (this.phase === 'frenando') return this._brake(vehicle, stepTime);
-    return this._park(vehicle, stepTime);
+    const handled = this.phase === 'carro' ? this._drive(vehicle, stepTime, player, traffic)
+      : this.phase === 'cierre' ? this._cutOff(vehicle, stepTime, player, traffic)
+        : this.phase === 'frenando' ? this._brake(vehicle, stepTime)
+          : this._park(vehicle, stepTime);
+    // Por la calzada: el rumbo y lo que avanza en este subpaso los decide la tripulación (ver `_keepOnRoad`).
+    if (handled && !vehicle._chaseGiveUp) this.system._keepOnRoad(this, vehicle, stepTime, traffic);
+    return handled;
   }
 
   _begin(traffic) {
@@ -221,6 +256,7 @@ class PatrolUnit {
     this.endReason = null;
     this.vehicle._lostSightTime = 0;
     this._reset();
+    if (Math.abs(this.vehicle.speed ?? 0) < LAUNCH_STILL) this._launch = LAUNCH_GRACE;
     for (const officer of this.officers) officer.setArmed(this.level >= 3);
     if (this.level >= 3) this.system._reinforce(this);
   }
@@ -229,10 +265,14 @@ class PatrolUnit {
     return this.system.playerVehicle?.position ?? player;
   }
 
-  /** Persecución en carro, como siempre, salvo que no captura: frena para que se bajen. */
+  /**
+   * Persecución en carro, como siempre, salvo que no captura (frena para que se bajen) y que no sale de la calzada: con el
+   * jugador fuera de ella va al punto de calzada más cercano a él (ver `_roadAim`) y, al llegar, frena y se bajan.
+   */
   _drive(vehicle, stepTime, player, traffic) {
     const target = this._carTarget(player), car = vehicle.car;
     const distance = Math.hypot(target.x - car.position.x, target.z - car.position.z);
+    const onRoad = this.system._roadAim(target, this.roadPoint, car.position.y);
     // El refuerzo viene de lejos: mientras insiste, apunta en la misma dirección pero dentro de los 55 m, para que el
     // tráfico no lo dé por perdido por distancia.
     let aim = target;
@@ -250,8 +290,15 @@ class PatrolUnit {
       return true;
     }
     this._standoff(vehicle, stepTime, distance, POLICE_FOOT.standoff);
-    if (distance < this._bestDistance - POLICE_FOOT.stuckProgress) {
-      this._bestDistance = distance;
+    const road = onRoad ? distance : this._toRoadPoint(vehicle, stepTime);
+    // Trabada: no se acerca al punto al que va. Arrancando desde quieta no cuenta: mientras coge vuelo, quien corre por
+    // la calzada le saca ventaja.
+    if (this._launch > 0) {
+      this._launch = Math.max(0, this._launch - stepTime);
+      this._bestDistance = road;
+      this._stuckClock = 0;
+    } else if (road < this._bestDistance - POLICE_FOOT.stuckProgress) {
+      this._bestDistance = road;
       this._stuckClock = 0;
     } else this._stuckClock += stepTime;
     const playerCar = this.system.playerVehicle;
@@ -260,6 +307,9 @@ class PatrolUnit {
       this._playerCarStill = (playerCar.speed ?? 0) < .3 ? this._playerCarStill + stepTime : 0;
       if (this._playerCarStill >= 1 && distance <= 14) this._startBrake(vehicle, traffic);
     } else if (distance <= POLICE_FOOT.dismountRange && this.carSees) this._startBrake(vehicle, traffic);
+    // Con el jugador fuera de la calzada: llegó (o ya le alcanza para frenar ahí) al punto de calzada más cercano a él.
+    else if (!onRoad && distance <= POLICE_FOOT.stuckReach
+      && road <= vehicle.speed * vehicle.speed / (2 * POLICE_FOOT.brake) + AIM_ARRIVE) this._startBrake(vehicle, traffic);
     else if (this._stuckClock >= POLICE_FOOT.stuckTime && distance <= POLICE_FOOT.stuckReach) this._startBrake(vehicle, traffic);
     else if (this._stuckClock >= POLICE_FOOT.stuckGiveUp && !this.reinforcing) {
       vehicle._chaseGiveUp = true;
@@ -294,6 +344,8 @@ class PatrolUnit {
     }
     const distance = vehicle._chaseDist ?? 0;
     this._standoff(vehicle, stepTime, distance, POLICE_FOOT.cutOffStandoff, POLICE_FOOT.cutOffSpeed);
+    // Por la calzada: con el jugador fuera de ella, le cierra el paso desde el punto de calzada más cercano a él.
+    if (!this.system._roadAim(player, this.roadPoint, vehicle.car.position.y)) this._toRoadPoint(vehicle, stepTime);
     // Su compañero a pie va adelante: frena antes que llevárselo.
     if (this._officerAhead(vehicle)) vehicle.nextSpeed = Math.max(0, vehicle.speed - BRAKE_STOP * stepTime);
     // Trabada: quiere andar y no avanza. Que el jugador corra casi igual de rápido no es estar trabada.
@@ -304,6 +356,17 @@ class PatrolUnit {
       this._startBrake(vehicle, traffic);
     }
     return true;
+  }
+
+  /** Va al punto de calzada más cercano al jugador (`roadPoint`) y para ahí, sin echarse contra el sardinel. Devuelve a cuánto está. */
+  _toRoadPoint(vehicle, stepTime) {
+    const car = vehicle.car, point = this.roadPoint;
+    const dx = point.x - car.position.x, dz = point.z - car.position.z, distance = Math.hypot(dx, dz);
+    vehicle._chaseDx = dx;
+    vehicle._chaseDz = dz;
+    vehicle._chaseDist = distance;
+    this._standoff(vehicle, stepTime, distance, CHASE_PAD);
+    return distance;
   }
 
   _officerAhead(vehicle) {
@@ -708,6 +771,7 @@ class PatrolUnit {
     this.phase = 'carro';
     this._bestDistance = Infinity;
     this._stuckClock = 0;
+    this._launch = LAUNCH_GRACE;
     this._playerCarStill = 0;
     this.vehicle.hold = false;
     this._resumeLights();
@@ -959,6 +1023,11 @@ export class PoliceFootSystem {
     this._ground = (x, z, currentY = 0) => district?.getMovementGroundHeight?.(x, z, currentY)
       ?? district?.getGroundHeight?.(x, z) ?? currentY;
     this._water = (x, z) => district?.getWaterInfo?.(x, z) ?? null;
+    // Lo que el mapa sabe de cada baldosa (calzada, andén, grama...); sin mapa, la calzada se reconoce por la altura.
+    const map = district?.map;
+    this._tileType = district?.tileTypeAt ? (tx, tz) => district.tileTypeAt(tx, tz) ?? null
+      : Array.isArray(map) ? (tx, tz) => map[tz]?.[tx] ?? null : null;
+    this._aimCache = null;
     if (!traffic) return;
     this.units = traffic.vehicles.filter(vehicle => vehicle.police).map((vehicle, index) => {
       const unit = new PatrolUnit(this, vehicle, index);
@@ -1135,18 +1204,23 @@ export class PoliceFootSystem {
       && hasClearCombatLine({ from: door, to: { x: door.x + .04, y: door.y, z: door.z + .04 }, collisions, chestHeight: .8 });
   }
 
-  /** ¿Hay por dónde meter el carro hacia el jugador? Prueba de frente y abriéndose un poco a cada lado. */
+  /**
+   * ¿Hay por dónde meter el carro hacia el jugador? Por la calzada: hacia él, o hacia el punto de calzada más cercano a él
+   * si anda fuera, y ya ahí no llega más cerca. Prueba de frente y abriéndose un poco a cada lado.
+   */
   _carCanReach(vehicle, player) {
-    const traffic = this.traffic;
-    if (!traffic?.environment) return true;
-    const car = vehicle.car, dx = player.x - car.position.x, dz = player.z - car.position.z;
+    const traffic = this.traffic, car = vehicle.car;
+    const onRoad = this._roadAim(player, _reach, car.position.y);
+    const dx = _reach.x - car.position.x, dz = _reach.z - car.position.z;
     const distance = Math.hypot(dx, dz);
-    if (distance < 3) return true;
+    if (distance < 3) return onRoad;
+    if (!traffic?.environment) return true;
     if (Math.abs((player.y ?? 0) - car.position.y) > HEIGHT_TOLERANCE) return false;
-    const bearing = Math.atan2(dz, dx), length = Math.min(5, distance - 1.5);
+    const bearing = Math.atan2(dz, dx), length = Math.min(5, distance - 1.5), allow = this._roadAllowance(car);
     for (const offset of [0, .45, -.45, .9, -.9]) {
-      const angle = bearing + offset;
-      if (traffic._chaseClearance(vehicle, Math.cos(angle), Math.sin(angle), length) >= length - .1) return true;
+      const angle = bearing + offset, nx = Math.cos(angle), nz = Math.sin(angle);
+      if (this._roadReach(car, nx, nz, length, allow) < length - .1) continue;
+      if (traffic._chaseClearance(vehicle, nx, nz, length) >= length - .1) return true;
     }
     return false;
   }
@@ -1166,11 +1240,186 @@ export class PoliceFootSystem {
       let walk = true;
       for (const k of [.35, .7, 1]) walk &&= this._isWalkable(from.x + (_pick.x - from.x) * k, from.z + (_pick.z - from.z) * k);
       if (!walk || Math.abs(this._ground(_pick.x, _pick.z, from.y) - from.y) > .6) continue;
+      // El carro para ahí: en la calzada, sin mobiliario debajo.
+      const toX = _pick.x - car.position.x, toZ = _pick.z - car.position.z, length = Math.hypot(toX, toZ) || 1;
+      if (this._roadCost(car, _pick.x, _pick.z, toX / length, toZ / length) > 0) continue;
       if (this.collisions && !hasClearCombatLine({ from, to: _pick, collisions: this.collisions, chestHeight: .8 })) continue;
       if (!this._carCanReach(vehicle, _pick)) continue;
       target.copy(_pick);
       return true;
     }
+    return false;
+  }
+
+  // ---------- la patrulla es un carro: por la calzada ----------
+
+  /** ¿(x, z) es calzada? Lo dice la baldosa del mapa; sin mapa, que no tenga el alto del andén ni de la grama sobre `y`. */
+  _isRoad(x, z, y = 0) {
+    const type = this._tileType?.(Math.round(x / TILE_SIZE), Math.round(z / TILE_SIZE));
+    if (type !== undefined) return ROAD_TILES.has(type);
+    return this._ground(x, z, y) <= y + ROAD_HEIGHT;
+  }
+
+  /** Cuántas cosas del mobiliario (lo de `CollisionSystem.addFallObstacle`) quedarían debajo de la carrocería. */
+  _furniture(car, x, z, nx, nz, y) {
+    const collisions = this.collisions;
+    if (!collisions?.queryFallObstacles) return 0;
+    const halfLength = car.length / 2 + ROAD_MARGIN, halfWidth = car.width / 2 + ROAD_MARGIN;
+    const ex = Math.abs(nx) * halfLength + Math.abs(nz) * halfWidth, ez = Math.abs(nz) * halfLength + Math.abs(nx) * halfWidth;
+    const list = collisions.queryFallObstacles(x - ex, z - ez, x + ex, z + ez, this._fallList ??= []);
+    let count = 0;
+    for (const { box } of list) {
+      if (box.max.y <= y + .02 || box.min.y >= y + FURNITURE_TOP) continue;
+      const bx = (box.max.x - box.min.x) / 2, bz = (box.max.z - box.min.z) / 2;
+      const cx = box.min.x + bx - x, cz = box.min.z + bz - z;
+      // La caja del mueble va con los ejes del mundo; la carrocería, girada: se separan si los separa alguno de los cuatro ejes.
+      if (Math.abs(cx) >= ex + bx || Math.abs(cz) >= ez + bz) continue;
+      if (Math.abs(cx * nx + cz * nz) >= halfLength + bx * Math.abs(nx) + bz * Math.abs(nz)) continue;
+      if (Math.abs(-cx * nz + cz * nx) >= halfWidth + bx * Math.abs(nz) + bz * Math.abs(nx)) continue;
+      count++;
+    }
+    return count;
+  }
+
+  /**
+   * Qué tan mal queda la patrulla en (x, z) mirando hacia (nx, nz): cuántos puntos de su huella (las cuatro esquinas, los
+   * costados y el centro) caen fuera de la calzada, más cuántos muebles quedan debajo. Cero es bien parqueada.
+   */
+  _roadCost(car, x, z, nx, nz, y = car.position.y) {
+    return this._offRoad(car, x, z, nx, nz, y) + this._furniture(car, x, z, nx, nz, y);
+  }
+
+  /** Cuántos puntos de la huella de `_roadCost` caen fuera de la calzada (sin contar el mobiliario). */
+  _offRoad(car, x, z, nx, nz, y = car.position.y) {
+    const halfLength = car.length / 2 + ROAD_MARGIN, halfWidth = car.width / 2 + ROAD_MARGIN;
+    let cost = 0;
+    for (const along of ROAD_ALONG) for (const across of ROAD_ACROSS) {
+      const a = along * halfLength, s = across * halfWidth;
+      if (!this._isRoad(x + nx * a - nz * s, z + nz * a + nx * s, y)) cost++;
+    }
+    return cost;
+  }
+
+  /**
+   * Lo que pisa donde está ahora: lo que se le tolera al moverse. En la calzada es cero; si arrancó la persecución con
+   * una rueda en el andén (en un giro cerrado), puede salir de ahí pero no meterse más.
+   */
+  _roadAllowance(car) {
+    const yaw = car.group.rotation.y;
+    return this._roadCost(car, car.position.x, car.position.z, Math.cos(yaw), -Math.sin(yaw));
+  }
+
+  /** Cuánto avanza derecho hacia (nx, nz), hasta `travel` m, sin que la huella pise más de `allow` (ver `_roadCost`). */
+  _roadReach(car, nx, nz, travel, allow = 0) {
+    const count = Math.max(1, Math.ceil(travel / ROAD_PROBE));
+    let reached = 0;
+    for (let i = 0; i <= count; i++) {
+      const distance = travel * i / count;
+      if (this._roadCost(car, car.position.x + nx * distance, car.position.z + nz * distance, nx, nz) > allow) break;
+      reached = distance;
+    }
+    return reached;
+  }
+
+  /** ¿Gira en el sitio de su rumbo `from` a `to` sin pisar fuera ni chocar (como TrafficSystem._steerChase)? */
+  _canTurn(vehicle, traffic, from, to, allow) {
+    const car = vehicle.car, p = car.position, turn = wrap(to - from);
+    const samples = Math.max(1, Math.ceil(Math.abs(turn) / .2));
+    for (let i = 1; i <= samples; i++) {
+      const yaw = from + turn * i / samples, nx = Math.cos(yaw), nz = Math.sin(yaw);
+      if (this._roadCost(car, p.x, p.z, nx, nz) > allow) return false;
+      if (traffic.environment && traffic._chaseFootprint(vehicle, p.x, p.z, p.y, nx, nz) === null) return false;
+    }
+    return true;
+  }
+
+  /**
+   * El rumbo, como TrafficSystem._steerChase (los mismos rumbos a probar y el mismo puntaje: lo despejado que queda
+   * adelante, más derecho hacia `bearing` y sin cambiar de lado), pero contando solo lo que queda en la calzada. Siguiendo
+   * un camino ya probado (`follow`), el que menos se aparta de él y deja avanzar `reach` m.
+   */
+  _steer(vehicle, traffic, bearing, reach, allow, follow) {
+    const car = vehicle.car, current = -car.group.rotation.y, previous = vehicle._chaseHeading ?? bearing;
+    const offsets = follow ? FOLLOW_STEERING : STEERING;
+    let best = -Infinity, bestAngle = bearing;
+    // Además de los rumbos de siempre, seguir derecho como va: con un carro parqueado al lado, girar en el sitio lo roza
+    // hacia cualquier lado, y sin esa opción frenaría en seco.
+    for (let k = 0; k <= offsets.length; k++) {
+      const angle = k < offsets.length ? bearing + offsets[k] : current, offset = wrap(angle - bearing);
+      if (!this._canTurn(vehicle, traffic, current, angle, allow)) continue;
+      const nx = Math.cos(angle), nz = Math.sin(angle);
+      let clear = this._roadReach(car, nx, nz, reach, allow);
+      if (traffic.environment && clear > 0) clear = Math.min(clear, traffic._chaseClearance(vehicle, nx, nz, clear));
+      const score = follow ? clear - Math.abs(offset) * .01 : clear * (.35 + Math.cos(offset)) + Math.cos(angle - previous) * .08;
+      if (score > best) { best = score; bestAngle = angle; }
+    }
+    vehicle._chaseHeading = bestAngle;
+    vehicle._chaseCanMove = best > -Infinity;
+  }
+
+  /**
+   * Después de que la tripulación decide a dónde va el carro y a qué velocidad (`_chaseDx`, `_chaseDz`, `nextSpeed`): el
+   * rumbo (cada `STEER_EVERY` s, o ya si se topó con algo; frenando, en cada subpaso por su camino) y lo que avanza en
+   * este subpaso sin salirse de la calzada ni pasar por encima del mobiliario. TrafficSystem._applyChase hace el resto:
+   * avanza eso por ese rumbo, contra los sólidos y los carros como siempre.
+   */
+  _keepOnRoad(unit, vehicle, stepTime, traffic) {
+    vehicle._chaseSteerTime = STEER_HOLD;
+    const distance = vehicle._chaseDist || 0;
+    if (distance <= 1e-6 || !(vehicle.nextSpeed > 0)) return;
+    const car = vehicle.car, allow = this._roadAllowance(car), follow = unit.phase === 'frenando';
+    const want = Math.min(vehicle.nextSpeed * stepTime, Math.max(0, distance - CHASE_PAD));
+    unit._steerClock -= stepTime;
+    if (follow || unit._steerClock <= 0 || unit._roadBlocked || vehicle._chaseHeading === undefined) {
+      const reach = follow ? want : Math.min(distance, 3 + vehicle.speed * .5);
+      this._steer(vehicle, traffic, Math.atan2(vehicle._chaseDz, vehicle._chaseDx), reach, allow, follow);
+      unit._steerClock = STEER_EVERY;
+    }
+    const nx = Math.cos(vehicle._chaseHeading), nz = Math.sin(vehicle._chaseHeading);
+    const travel = vehicle._chaseCanMove ? this._roadReach(car, nx, nz, want, allow) : 0;
+    unit._roadBlocked = travel < want - 1e-4;
+    // _applyChase avanza lo que pida la velocidad sin pasar de `_chaseDist` menos lo que deja sin recorrer.
+    const left = travel + CHASE_PAD;
+    vehicle._chaseDx = nx * left;
+    vehicle._chaseDz = nz * left;
+    vehicle._chaseDist = left;
+  }
+
+  /**
+   * A dónde va el carro por `target`: si está en la calzada, ahí mismo (`out` = `target`; devuelve true). Si no, al punto
+   * de calzada más cercano a él a menos de `AIM_SEARCH` m; de los `AIM_LINES` más cercanos, el primero desde el que se le
+   * ve (el de la calle de atrás, al otro lado de una pared, no sirve). La baldosa escogida se guarda mientras el jugador
+   * no cambie de baldosa. Sin calzada cerca, `target`.
+   */
+  _roadAim(target, out, y = 0) {
+    if (this._isRoad(target.x, target.z, y)) { out.copy(target); return true; }
+    const T = TILE_SIZE, tx = Math.round(target.x / T), tz = Math.round(target.z / T);
+    let cache = this._aimCache;
+    if (!cache || cache.tx !== tx || cache.tz !== tz || Math.abs(cache.y - y) > LANE_HEIGHT) {
+      cache = this._aimCache = { tx, tz, y, found: false, x: 0, z: 0 };
+      const reach = Math.ceil(AIM_SEARCH / T), list = this._aimList ??= [];
+      list.length = 0;
+      for (let j = -reach; j <= reach; j++) for (let i = -reach; i <= reach; i++) {
+        const cx = (tx + i) * T, cz = (tz + j) * T;
+        if (!this._isRoad(cx, cz, y)) continue;
+        const px = Math.max(cx - T / 2, Math.min(cx + T / 2, target.x)), pz = Math.max(cz - T / 2, Math.min(cz + T / 2, target.z));
+        const distance = Math.hypot(px - target.x, pz - target.z);
+        if (distance <= AIM_SEARCH) list.push({ x: cx, z: cz, distance });
+      }
+      list.sort(byDistance);
+      const statics = this.collisions?.queryStatic ? this._statics ??= { queryStatic: (...box) => this.collisions.queryStatic(...box) } : null;
+      for (let k = 0; k < list.length && k < AIM_LINES; k++) {
+        const tile = list[k];
+        _seen.set(Math.max(tile.x - T / 2, Math.min(tile.x + T / 2, target.x)), y, Math.max(tile.z - T / 2, Math.min(tile.z + T / 2, target.z)));
+        if (statics && !hasClearCombatLine({ from: _seen, to: target, collisions: statics, chestHeight: .8 })) continue;
+        cache.found = true; cache.x = tile.x; cache.z = tile.z;
+        break;
+      }
+      if (!cache.found && list.length) { cache.found = true; cache.x = list[0].x; cache.z = list[0].z; }
+    }
+    if (!cache.found) { out.copy(target); return false; }
+    out.set(Math.max(cache.x - T / 2, Math.min(cache.x + T / 2, target.x)), y,
+      Math.max(cache.z - T / 2, Math.min(cache.z + T / 2, target.z)));
     return false;
   }
 
@@ -1295,9 +1544,10 @@ export class PoliceFootSystem {
 
   /**
    * ¿La patrulla llega a (ex, ez) quedando con el eje (ax, az)? Sigue la curva de `curveAt` desde donde está: la carrocería
-   * cabe en cada punto (con el rumbo de la curva ahí) y no coletea más de `ALIGN_SWERVE` respecto del eje.
+   * cabe en cada punto (con el rumbo de la curva ahí), sin pisar fuera de la calzada más de `allow` (ver `_roadCost`), y no
+   * coletea más de `ALIGN_SWERVE` respecto del eje.
    */
-  _curveClear(vehicle, traffic, ex, ez, ax, az) {
+  _curveClear(vehicle, traffic, ex, ez, ax, az, allow = Infinity) {
     const car = vehicle.car, yaw = car.group.rotation.y, fx = Math.cos(yaw), fz = -Math.sin(yaw);
     const sx = car.position.x, sz = car.position.z, lead = leadOf(sx, sz, ex, ez), lx = ex - ax * lead, lz = ez - az * lead;
     const steps = Math.max(4, Math.ceil(Math.hypot(lx - sx, lz - sz) / .5)), last = Math.ceil(lead / .5);
@@ -1310,6 +1560,7 @@ export class PoliceFootSystem {
         x = point.x; z = point.z; tx = point.tx / length; tz = point.tz / length;
         if (tx * ax + tz * az < swerve) return false;
       } else { x = lx + ax * lead * (i - steps) / last; z = lz + az * lead * (i - steps) / last; }
+      if (allow !== Infinity && this._roadCost(car, x, z, tx, tz, y) > allow) return false;
       if (!traffic.environment) continue;
       const ground = traffic._chaseFootprint(vehicle, x, z, y, tx, tz);
       if (ground === null) return false;
@@ -1365,44 +1616,56 @@ export class PoliceFootSystem {
    * carril con otro libre al lado que cortar un sentido entero, y cualquier carril antes que el corredor del bus. Junto a
    * un carril queda derecha, con su eje (`axis`, en cero si no: llega derecho y queda como llegue). Si nada sirve, frena
    * derecho. Con `free`, solo un sitio que no tape nada; con `offBus`, uno fuera del corredor del bus con al menos una
-   * puerta que sirva; con `uncut`, además, uno que no corte ningún sentido entero.
+   * puerta que sirva; con `uncut`, además, uno que no corte ningún sentido entero. Es un carro: un sitio con alguna
+   * esquina fuera de la calzada o con un mueble debajo no se considera, ni uno al que no llega por la calzada; frenando
+   * derecho, tampoco se sale de ella.
    */
   _chooseStop(vehicle, traffic, target, { free = false, offBus = false, uncut = false, axis = null } = {}) {
     const car = vehicle.car, yaw = car.group.rotation.y, player = this.player?.position ?? car.position;
     const fx = Math.cos(yaw), fz = -Math.sin(yaw), rx = Math.sin(yaw), rz = Math.cos(yaw);
+    const allow = this._roadAllowance(car);
     const playerSide = (player.x - car.position.x) * rx + (player.z - car.position.z) * rz >= 0 ? 1 : -1;
     const brakeDistance = vehicle.speed * vehicle.speed / (2 * POLICE_FOOT.brake);
     const first = Math.max(2.5, brakeDistance + .5);
     const candidates = this._stops;
     axis?.set(0, 0, 0);
     let count = 0;
-    for (const ahead of [first, first + 2.5, first + 5, first + 8]) for (const lateral of PULL_OVER) for (const side of [playerSide, -playerSide]) {
-      if (!lateral && side !== playerSide) continue;
+    const consider = (ahead, lateral, side) => {
       const ox = fx * ahead + rx * lateral * side, oz = fz * ahead + rz * lateral * side;
       const length = Math.hypot(ox, oz), nx = ox / length, nz = oz / length;
       const x = car.position.x + ox, z = car.position.z + oz;
-      if (Math.hypot(player.x - x, player.z - z) < 3) continue;
+      if (Math.hypot(player.x - x, player.z - z) < 3) return;
       // Junto a un carril queda con su eje si alcanza a enderezarse en el camino; si no, como llegue.
       const aligned = !!axis && this._laneAxis(x, z, nx, nz, car.position.y, _axis)
         && this._curveClear(vehicle, { environment: null }, x, z, _axis.x, _axis.z);
       const hx = aligned ? _axis.x : nx, hz = aligned ? _axis.z : nz;
+      if (this._roadCost(car, x, z, hx, hz) > 0) return;
       // Lo que manda es no cortar un sentido ni tapar un carril (y menos el corredor del bus); después, no meterse a un
       // cruce, que las puertas den a donde se camina, frenar cerca y no quedar atravesada.
       _node.set(x, car.position.y, z);
       const lane = this._laneBlock(x, z, hx, hz, car), crossing = !!traffic._nearNode?.(_node);
-      if (free && (lane || crossing)) continue;
+      if (free && (lane || crossing)) return;
       const bus = lane ? this._busBlock(x, z, hx, hz, car) : 0;
-      if ((offBus || uncut) && bus) continue;
+      if ((offBus || uncut) && bus) return;
       const doors = this._doorsOk(x, z, hx, hz, car);
-      if ((free && doors < 2) || ((offBus || uncut) && doors < 1)) continue;
+      if ((free && doors < 2) || ((offBus || uncut) && doors < 1)) return;
       const cut = lane ? this._laneCut(x, z, hx, hz, car) : 0;
-      if (uncut && cut) continue;
+      if (uncut && cut) return;
       const candidate = candidates[count] ??= {};
       candidate.x = x; candidate.z = z; candidate.nx = nx; candidate.nz = nz; candidate.length = length; candidate.order = count;
       candidate.aligned = aligned; candidate.ax = hx; candidate.az = hz;
       candidate.score = lane * 3 + cut * CUT_WEIGHT + bus * BUS_WEIGHT + (crossing ? 6 : 0) + (2 - doors) * 4
         + ahead * .3 + Math.abs(Math.atan2(lateral, ahead)) * 2 + (side === playerSide ? 0 : 1.5);
       count++;
+    };
+    for (const ahead of [first, first + 2.5, first + 5, first + 8]) for (const side of [playerSide, -playerSide]) {
+      for (const lateral of PULL_OVER) if (lateral || side === playerSide) consider(ahead, lateral, side);
+      // Y arrimada al sardinel: con la calzada justa para un carril y su orilla, solo así no lo tapa.
+      const curb = this._curbLateral(car, ahead, side, !!axis);
+      if (curb !== null) for (const slack of CURB_SLACK) consider(ahead, curb - slack, side);
+      // Y el sitio más cercano de ese lado que no tapa ningún carril: en una calle de un carril por sentido, entre los dos.
+      const clear = this._clearLateral(car, ahead, side, !!axis);
+      if (clear !== null) consider(ahead, clear, side);
     }
     // El mejor puntaje al que el carro llega. Probar si llega es lo caro (barre la carrocería contra las colisiones):
     // se prueba en orden de puntaje y solo hasta el primero que sirve.
@@ -1412,17 +1675,67 @@ export class PoliceFootSystem {
     for (let i = 0; i < count; i++) ordered.push(candidates[i]);
     ordered.sort(byScore);
     for (const candidate of ordered) {
-      if (traffic.environment && (candidate.aligned
-        ? !this._curveClear(vehicle, traffic, candidate.x, candidate.z, candidate.ax, candidate.az)
-        : traffic._chaseClearance(vehicle, candidate.nx, candidate.nz, candidate.length) < candidate.length - .05)) continue;
+      if (candidate.aligned ? !this._curveClear(vehicle, traffic, candidate.x, candidate.z, candidate.ax, candidate.az, allow)
+        : this._roadReach(car, candidate.nx, candidate.nz, candidate.length, allow) < candidate.length - .05
+          || (traffic.environment && traffic._chaseClearance(vehicle, candidate.nx, candidate.nz, candidate.length) < candidate.length - .05)) continue;
       target.set(candidate.x, car.position.y, candidate.z);
       if (candidate.aligned) axis?.set(candidate.ax, 0, candidate.az);
       return true;
     }
     if (free || offBus || uncut) return false;
-    const clear = traffic.environment ? traffic._chaseClearance(vehicle, fx, fz, first) : first;
+    const road = this._roadReach(car, fx, fz, first, allow);
+    const clear = traffic.environment ? Math.min(road, traffic._chaseClearance(vehicle, fx, fz, first)) : road;
     target.set(car.position.x + fx * clear, car.position.y, car.position.z + fz * clear);
     return true;
+  }
+
+  /**
+   * Cuánto de lado (hacia `side`, a `ahead` m adelante; negativo es hacia el otro lado, si viene en diagonal hacia ese
+   * borde) queda la patrulla arrimada al borde de la calzada de ese lado con las cuatro ruedas adentro: al centímetro, y
+   * con el eje del carril si `aligned` y lo hay. Null si de ese lado no hay borde a menos de `CURB_REACH` m.
+   */
+  _curbLateral(car, ahead, side, aligned) {
+    const yaw = car.group.rotation.y, fx = Math.cos(yaw), fz = -Math.sin(yaw), rx = Math.sin(yaw), rz = Math.cos(yaw);
+    const fits = lateral => {
+      const ox = fx * ahead + rx * lateral * side, oz = fz * ahead + rz * lateral * side;
+      const length = Math.hypot(ox, oz), x = car.position.x + ox, z = car.position.z + oz;
+      let nx = ox / length, nz = oz / length;
+      if (aligned && this._laneAxis(x, z, nx, nz, car.position.y, _curb)) { nx = _curb.x; nz = _curb.z; }
+      return this._offRoad(car, x, z, nx, nz) === 0;
+    };
+    // Desde afuera hacia adentro: la primera que cabe es la más arrimada. Si ya cabe a `CURB_REACH`, hay calzada de sobra
+    // y no hay sardinel al que arrimarse.
+    if (fits(CURB_REACH)) return null;
+    let coarse = null;
+    for (let lateral = CURB_REACH - CURB_STEP; lateral >= -CURB_REACH - 1e-6; lateral -= CURB_STEP) {
+      if (fits(lateral)) { coarse = lateral; break; }
+    }
+    if (coarse === null) return null;
+    let best = coarse;
+    for (let lateral = coarse + .01; lateral < coarse + CURB_STEP - 1e-6; lateral += .01) {
+      if (!fits(lateral)) break;
+      best = lateral;
+    }
+    return best;
+  }
+
+  /**
+   * Cuánto de lado (hacia `side`, a `ahead` m adelante) queda el primer tramo de calzada donde la patrulla no tapa ningún
+   * carril, hasta `CLEAR_REACH` m: el medio del tramo, para que frenando un poco antes o después siga sin tapar. Con el eje
+   * del carril si `aligned` y lo hay. Null si no hay.
+   */
+  _clearLateral(car, ahead, side, aligned) {
+    const yaw = car.group.rotation.y, fx = Math.cos(yaw), fz = -Math.sin(yaw), rx = Math.sin(yaw), rz = Math.cos(yaw);
+    let from = null, to = null;
+    for (let lateral = 0; lateral <= CLEAR_REACH + 1e-6; lateral += CLEAR_STEP) {
+      const ox = fx * ahead + rx * lateral * side, oz = fz * ahead + rz * lateral * side;
+      const length = Math.hypot(ox, oz), x = car.position.x + ox, z = car.position.z + oz;
+      let nx = ox / length, nz = oz / length;
+      if (aligned && this._laneAxis(x, z, nx, nz, car.position.y, _curb)) { nx = _curb.x; nz = _curb.z; }
+      const clear = this._offRoad(car, x, z, nx, nz) === 0 && this._laneBlock(x, z, nx, nz, car) === 0;
+      if (clear) { from ??= lateral; to = lateral; } else if (from !== null) break;
+    }
+    return from === null ? null : (from + to) / 2;
   }
 
   /** Cuántas de las dos puertas de un carro parado en (x, z) mirando hacia (nx, nz) dan a donde se puede bajar y volver. */
