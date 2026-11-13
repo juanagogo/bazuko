@@ -336,7 +336,9 @@ export class StealSystem {
       this._robbed(npc, false);
     } else {
       const bonus = this.game?.dog?.distractionBonus?.(this.game.player?.position) ?? 0;
-      const noticeChance = Math.max(0.2, (npc?.alerta ?? 0.5) - bonus);
+      // «Mano suave» disimula mejor el fallo; aun así, uno de cada cinco se nota.
+      const caughtMult = this.game?.talents?.getEffect?.('stealCaughtMult', 1) ?? 1;
+      const noticeChance = Math.max(0.2, ((npc?.alerta ?? 0.5) - bonus) * caughtMult);
       if (Math.random() < noticeChance) {
         npc?.alarmedByTheft?.(this.game.player.position);
         this._toast('¡Me pillaron con las manos en la masa! El peatón gritó.', 'death');

@@ -5,6 +5,7 @@ import { TalentSystem } from '../src/systems/TalentSystem.js';
 import { DiseaseSystem } from '../src/systems/DiseaseSystem.js';
 import { Pickup } from '../src/entities/Pickup.js';
 import { ITEMS } from '../src/data/items.js';
+import { StealSystem } from '../src/features/steal.js';
 
 globalThis.window ??= { dispatchEvent() {} };
 globalThis.CustomEvent ??= class { constructor(type, init) { this.type = type; this.detail = init?.detail; } };
@@ -103,4 +104,30 @@ test('«Escoger con calma» da tiradas enteras de más: cuatro pasan a seis, y l
   // La chance de algo raro también sube a la mitad más: de 12 % a 18 %.
   assert.equal(tiradas({}, .15), 4, 'sin la maña, con esa suerte no sale nada raro');
   assert.equal(tiradas({ sortValueMult: 1.5 }, .15), 6 + 1, 'con la maña sí');
+});
+
+test('«Mano suave» me pillan 20 % menos al fallar el cosquilleo, sin bajar del piso de uno de cada cinco', (t) => {
+  let roll = 0;
+  t.mock.method(Math, 'random', () => roll);
+  const pillado = (talents, alerta, bonus = 0) => {
+    let veces = 0;
+    // Tiradas uniformes deterministas: cubren la probabilidad completa sin azar.
+    for (let i = 0; i < 1000; i++) {
+      roll = (i + 0.5) / 1000;
+      const robo = Object.assign(Object.create(StealSystem.prototype), {
+        theftType: 'cosquilleo', minigameActive: true, buscado: 0, cooldown: 0, _calma: 0,
+        targetNpc: { alerta, alarmedByTheft() { veces++; } },
+        game: { talents, player: { position: new THREE.Vector3() }, dog: { distractionBonus: () => bonus }, traffic: null },
+      });
+      robo._toast = () => {};
+      robo._endMinigame(false, 'play');
+    }
+    return veces;
+  };
+  const sin = new TalentSystem(), mano = unlock('crime1');
+  assert.equal(pillado(sin, .55), 550);
+  assert.equal(pillado(mano, .55), 440);
+  assert.equal(pillado(mano, .55, .2), 280, 'con El Chato distrayendo, también cuenta');
+  assert.equal(pillado(sin, .2), 200);
+  assert.equal(pillado(mano, .2), 200, 'el piso de 0,2 se conserva');
 });

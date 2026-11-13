@@ -12,7 +12,7 @@ npm run build
 
 Las regresiones de jugabilidad comprueban el salto y el recorrido de ambas rampas del viaducto, la resistencia a enfermedades de Piel Dura, el peso final al fabricar con el costal lleno y la llegada del GPS a destinos marcados sobre edificios. En este último caso, ruta, marcador y guardado comparten el punto transitable cercano al edificio.
 
-`talents.test.js` comprueba además lo que prometen las mañas: «Escoger con calma» saca en promedio el 50 % más de valor al escoger la basura, con y sin envión, porque da la mitad más de tiradas y de chance de algo raro, y no cambia nada al recoger de una.
+`talents.test.js` comprueba además lo que prometen las mañas: «Escoger con calma» saca en promedio el 50 % más de valor al escoger la basura, con y sin envión, porque da la mitad más de tiradas y de chance de algo raro, y no cambia nada al recoger de una. Con «Mano suave», fallar el cosquilleo a un peatón se nota el 20 % menos, también con El Chato distrayendo, sin bajar del piso de uno de cada cinco.
 
 `map-services.test.js` y `map-view.test.js` comprueban precios, espacio en el costal, prioridad de necesidades, sugerencias y filas del mapa.
 
