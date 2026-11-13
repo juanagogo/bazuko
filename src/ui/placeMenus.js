@@ -92,7 +92,8 @@ export function openShop(game, target = null) {
             if (s.upgrade) game.costal = true;
             else inventory.add(it, qty);
             game.audio.play('pickup');
-            if (fama) for (const cambio of fama.apply('comprarChaza')) toast(avisoDeFama(cambio), 'rare');
+            // Lo fiado no cuenta como comprarles: la fama sube cuando lo pago (`pagarFiado`).
+            if (fama && !fiado) for (const cambio of fama.apply('comprarChaza')) toast(avisoDeFama(cambio), 'rare');
             toast(fiado ? `Me fiaron ${s.label ?? it.name}. Debo ${cop(fama.deuda)}: lo pago la próxima vez que compre.` : `Compré ${s.label ?? it.name}`);
             game.menu.refresh();
           }

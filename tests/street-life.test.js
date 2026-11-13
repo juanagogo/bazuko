@@ -7,11 +7,12 @@ import { InventorySystem } from '../src/systems/InventorySystem.js';
 import { Caleta, CALETA_KG } from '../src/systems/Caleta.js';
 import { FreshnessSystem, freshness, freshnessLabel } from '../src/systems/Freshness.js';
 import { wearWeapon, usesLeft } from '../src/systems/WeaponWear.js';
-import { Reputation, FAMA, famaNivel, famaEfecto, avisoDeFama } from '../src/systems/Reputation.js';
+import { Reputation, FAMA, FAMA_ACCION, famaNivel, famaEfecto, avisoDeFama } from '../src/systems/Reputation.js';
 import { CarGuarding, GUARD } from '../src/systems/CarGuarding.js';
 import { resolveTrip, sneakRisk, travelMinutes, PASAJE } from '../src/systems/Transit.js';
 import { HOGAR, checkIn, checkOut, contraband, hasRoom, isOpen, nightEffects } from '../src/systems/Shelter.js';
-import { foodToShare } from '../src/systems/StreetLife.js';
+import { StreetLife, foodToShare } from '../src/systems/StreetLife.js';
+import { openShop } from '../src/ui/placeMenus.js';
 
 beforeEach(() => { globalThis.window = new EventTarget(); });
 
@@ -192,6 +193,66 @@ test('el fiado se paga al comprar y, si no, quedo mal pasado un día', () => {
   const otra = new Reputation();
   otra.deserialize(JSON.parse(JSON.stringify(fama.serialize())));
   assert.deepEqual(otra.serialize(), fama.serialize());
+});
+
+/** Lo mínimo del DOM para armar un menú sin navegador: cada nodo guarda sus hijos, su texto y su clic. */
+function domDePrueba() {
+  const nodo = (tag) => ({
+    tag, className: '', textContent: '', children: [], attributes: {},
+    addEventListener(evento, fn) { this[`on${evento}`] = fn; },
+    setAttribute(k, v) { this.attributes[k] = v; },
+    append(...hijos) { for (const h of hijos) { if (typeof h === 'string') this.textContent += h; this.children.push(h); } },
+  });
+  globalThis.document = { createElement: nodo };
+}
+const botonesDe = (n, todos = []) => {
+  if (n?.tag === 'button') todos.push(n);
+  for (const h of n?.children ?? []) botonesDe(h, todos);
+  return todos;
+};
+
+test('comprar fiado no sube la fama con las chazas: sube al pagar lo que debo y al comprar de contado', () => {
+  domDePrueba();
+  try {
+    const fama = new Reputation();
+    fama.chazas = 80;
+    const game = { totalGameHours: 30, stats: { dinero: 0 }, inventory: new InventorySystem(1e6), costal: false,
+      audio: { play() {} }, street: { fama }, menu: { open(o) { this.o = o; }, refresh() {} } };
+    const chaza = { title: 'Chaza de la Mona', items: ['papaCriolla'] };
+    const boton = (texto) => botonesDe(game.menu.o.render().body).find((b) => b.textContent === texto && !('disabled' in b.attributes));
+    openShop(game, chaza);
+    let fiadas = 0;
+    for (let b = boton('Fiado'); b; b = boton('Fiado')) { b.onclick(); fiadas++; }
+    assert.ok(fiadas >= 5, `me fiaron ${fiadas} veces`);
+    assert.ok(fama.deuda > 0);
+    assert.equal(fama.chazas, 80, 'lo fiado todavía no es una compra');
+    game.stats.dinero = 20000;
+    openShop(game, chaza); // al volver se paga solo
+    assert.equal(fama.deuda, 0);
+    assert.equal(fama.chazas, 80 + FAMA_ACCION.pagarFiado.chazas);
+    boton('Comprar').onclick();
+    assert.equal(fama.chazas, 80 + FAMA_ACCION.pagarFiado.chazas + FAMA_ACCION.comprarChaza.chazas);
+  } finally { delete globalThis.document; }
+});
+
+test('al quedar mal con el fiado, «ya no me creen» solo si de verdad dejaron de fiarme', () => {
+  const quedarMal = (famaAntes) => {
+    const avisos = [];
+    window.addEventListener('toast', (e) => avisos.push(e.detail.text));
+    const game = { inventory: new InventorySystem(), totalGameHours: 10, player: { position: { x: 0, z: 0 } } };
+    const calle = new StreetLife(game);
+    calle.fama.chazas = famaAntes;
+    calle.fama.credit(2000, 10);
+    game.totalGameHours += FAMA.fiadoHoras;
+    calle.update(.1);
+    return { aviso: avisos.find((t) => t.startsWith('No pagué el fiado')), meFian: calle.fama.canCredit(1) };
+  };
+  const todaviaMeFian = quedarMal(90);
+  assert.equal(todaviaMeFian.meFian, true);
+  assert.match(todaviaMeFian.aviso, /quedé mal con los de las chazas/);
+  const yaNoMeFian = quedarMal(70);
+  assert.equal(yaNoMeFian.meFian, false);
+  assert.match(yaNoMeFian.aviso, /ya no me creen/);
 });
 
 test('cuidar un carro paga cuando vuelve el dueño si no me alejo', () => {
