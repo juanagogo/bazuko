@@ -8,7 +8,7 @@ import { Clock, DAY_CYCLE_SECONDS } from './Clock.js';
 import { Input } from './Input.js';
 
 import { World } from '../world/World.js';
-import { Dog, DOG_DEFAULT_LOOK, legacyPetLook } from '../entities/Dog.js';
+import { Dog, DOG_DEFAULT_LOOK, DOG_GUARD_RANGE, legacyPetLook } from '../entities/Dog.js';
 import { CompanionNavigation } from '../systems/CompanionNavigation.js';
 import { Minimap, nombreALaVista } from '../ui/Minimap.js';
 import { ZonaAviso } from '../ui/ZonaAviso.js';
@@ -309,7 +309,7 @@ export class Game {
     if (!hasSave) {
       this.clock.hour = 6;
       if (this.weather) {
-        this.weather.setWeather('despejado', false);
+        this.weather.setWeather('soleado', false);
         this.weather.timer = 0;
         this.weather.wetness = 0;
       }
@@ -442,7 +442,7 @@ export class Game {
     if (look) {
       await this._applyLook(look);
       this._save();
-      window.dispatchEvent(new CustomEvent('toast', { detail: { text: 'Te cambiaste de ropa', type: 'info' } }));
+      window.dispatchEvent(new CustomEvent('toast', { detail: { text: 'Me cambié de ropa', type: 'info' } }));
       this.audio?.play?.('pickup');
     }
   }
@@ -832,7 +832,7 @@ export class Game {
 
   /**
    * Lleva al jugador a otro sitio de la ciudad (el transporte): fundido a negro, reloj adelantado y El Chato
-   * detrás. `to` trae x y z en metros.
+   * detrás, salvo que se haya quedado cuidando el cambuche. `to` trae x y z en metros.
    */
   relocatePlayer(to, { minutes = 0, fade = true } = {}) {
     const district = this.world.active;
@@ -846,7 +846,7 @@ export class Game {
         this.clock.hour += minutes / 60;
         while (this.clock.hour >= 24) { this.clock.hour -= 24; this.clock.day += 1; }
       }
-      if (this.dog?.isFriend) this.dog.resetNear(this.player.position);
+      if (this.dog?.isFriend && !this.dog.guarding) this.dog.resetNear(this.player.position);
       this.cameraRig._snap = true;
       this.cameraRig.follow(this.player.position, 0, this.collisions);
       this.interaction.currentTarget = null;
@@ -908,6 +908,7 @@ export class Game {
       }
       if (data.dog?.isFriend && this.dog) {
         this.dog.befriend();
+        if (data.dog.cuida && this.built.base) this.dog.guard();
       }
       // La apariencia de la antigua mascota personalizable se conserva si la partida aún no tiene una.
       this.dog?.setLook(data.dog?.look ?? legacyPetLook() ?? DOG_DEFAULT_LOOK);
@@ -938,7 +939,7 @@ export class Game {
       costal: this.costal,
       weapon: this.player.equippedWeapon,
       radio: this.radio ? { isOn: this.radio.isOn, freq: this.radio.frequency, battery: this.radio.battery } : null,
-      dog: { isFriend: !!this.dog?.isFriend, look: this.dog?.look ?? null },
+      dog: { isFriend: !!this.dog?.isFriend, look: this.dog?.look ?? null, cuida: !!this.dog?.guarding },
       cart: this.cart ? this.cart.saveState() : null,
       gps: this.gps?.serialize() ?? null,
       lastComedorHour: this.lastComedorHour,
@@ -1005,9 +1006,12 @@ export class Game {
       : Math.max(0, st.vicio - WITHDRAWAL.vicioDormir * factor);
     if (!b.fogon) st.hambre = Math.max(0, st.hambre - SLEEP.hambreFogon * factor);
 
-    // Sin paredes te pueden robar si duermes de noche
+    // Sin paredes te pueden robar si duermes de noche; El Chato al lado, o cuidando el cambuche, espanta al ladrón.
     let robbed = null, caletaRobada = [];
-    if (night && !b.paredes && Math.random() < SLEEP.roboProb) {
+    const cuidado = !!this.dog?.isFriend && (!!this.dog.guarding || this.dog.position.distanceTo(this.player.position) < 6);
+    const intento = night && !b.paredes && Math.random() < SLEEP.roboProb;
+    const espantado = intento && cuidado;
+    if (intento && !cuidado) {
       const lost = Math.floor(st.dinero * SLEEP.roboDinero);
       st.dinero -= lost;
       for (const it of [...this.inventory.items]) {
@@ -1032,6 +1036,11 @@ export class Game {
       }
       this.dog?.wake();
       window.dispatchEvent(new CustomEvent('sleep-end', { detail: { hours: Math.round(hours) } }));
+      if (espantado) {
+        window.dispatchEvent(new CustomEvent('toast', {
+          detail: { text: 'El Chato espantó a un ladrón mientras dormía.', type: 'rare' }
+        }));
+      }
       if (robbed !== null) {
         window.dispatchEvent(new CustomEvent('toast', {
           detail: { text: `Me robaron mientras dormía (${cop(robbed)} y material). Unas paredes ayudarían.`, type: 'death' }
@@ -1197,7 +1206,7 @@ export class Game {
     this.player.position.copy(pos);
     this.player.root.position.copy(this.player.position);
     this._resetAfterRelocation();
-    if (this.dog?.isFriend) { this.dog.wake(); this.dog.resetNear(this.player.position); }
+    if (this.dog?.isFriend && !this.dog.guarding) { this.dog.wake(); this.dog.resetNear(this.player.position); }
     this.cameraRig._snap = true;
     this.cameraRig.follow(this.player.position, 0, this.collisions);
     this.interaction.currentTarget = null;
@@ -1232,7 +1241,7 @@ export class Game {
     }
     this.player.root.position.copy(this.player.position);
     this._resetAfterRelocation();
-    if (this.dog?.isFriend) { this.dog.wake(); this.dog.resetNear(this.player.position); }
+    if (this.dog?.isFriend && !this.dog.guarding) { this.dog.wake(); this.dog.resetNear(this.player.position); }
     this._vehicleImpactCooldown = 1.5;
     if (this._deathCause === 'limpieza') this.momentos?.guardarConsejoDeCamioneta();
     this._deathCause = null;
@@ -1446,7 +1455,9 @@ export class Game {
     for (const { car } of this.traffic?.vehicles ?? []) car.update(dt);
     this.cambuche?.update(dt);
     this.dealer?.update(dt);
-    this.dog?.update(dt, this.player.position, this.pickups, this.world.active?.npcs ?? []);
+    if (this.dog) this.dog.cambucheCerca = !!this.built.base && this._nearCambuche(DOG_GUARD_RANGE);
+    this.dog?.update(dt, this.player.position, this.pickups, this.world.active?.npcs ?? [],
+      { patrols: this.traffic?.vehicles ?? [], wanted: this.steal?.buscado ?? 0 });
     this.cart?.update(dt, this.player, this.audio);
 
     // 10. Audio
