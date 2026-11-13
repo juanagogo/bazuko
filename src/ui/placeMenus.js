@@ -161,9 +161,11 @@ export function openCambuche(game, tab = 'armar') {
       );
     }));
     const body = el('div', { class: 'shelter-menu' }, shelterPreview(game), rows);
+    // Con la tomba encima no se duerme (ver Game.sleep): el botón queda apagado y la nota dice por qué.
+    const perseguido = !!game.traffic?.inPursuit;
     const night = game.clock.isNight;
     const foot = [
-      el('span', { class: 'menu__money', text: game.built.base ? 'Dormir guarda la partida.' : 'Sin base no se puede dormir.' }),
+      el('span', { class: 'menu__money', text: perseguido ? 'Con la tomba encima no puedo dormir.' : game.built.base ? 'Dormir guarda la partida.' : 'Sin base no se puede dormir.' }),
       button('Cambiar ropa', {
         onClick: () => {
           game.menu.close();
@@ -172,7 +174,7 @@ export function openCambuche(game, tab = 'armar') {
       }),
       button(night ? `Dormir hasta las ${hora(6)}` : 'Echar una siesta (3 h)', {
         primary: true,
-        disabled: !game.built.base,
+        disabled: !game.built.base || perseguido,
         onClick: () => { game.menu.close(); game.sleep(); }
       })
     ];

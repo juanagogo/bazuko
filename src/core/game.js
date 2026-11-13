@@ -957,12 +957,19 @@ export class Game {
    */
   sleep({ hogar = null } = {}) {
     if (this.isSleeping) return;
+    // Con la tomba encima no se duerme, ni en el cambuche ni en el hogar: el menú lo dice con el botón apagado.
+    if (this.traffic?.inPursuit) {
+      window.dispatchEvent(new CustomEvent('sleep-fail', { detail: { reason: 'persecucion' } }));
+      return;
+    }
     if (!hogar && !this.built.base) {
       window.dispatchEvent(new CustomEvent('sleep-fail', { detail: { reason: 'nobase' } }));
       return;
     }
 
     this.isSleeping = true;
+    // Los que ya desistieron y vuelven caminando (o una patrulla que se devuelve) no quedan afuera: todos a su ronda.
+    if (this.traffic?.vehicles?.some(vehicle => vehicle.police && vehicle.state === 'chase') || this.policeFoot?.active) this.traffic.endPursuit();
     if (this.steal?.minigameActive) this.steal._endMinigame(false, 'cancel');
     this.substanceEffects?.end();
     this.psychosis?.clearInduced?.();

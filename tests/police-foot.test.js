@@ -1618,6 +1618,107 @@ test('una sola ruta nueva por cuadro entre todos los agentes', () => {
   assert.equal(most, 1, `hasta ${most} por cuadro`);
 });
 
+test('con la patrulla o los agentes persiguiendo no se duerme; ya desistidos sí, y nadie queda afuera', async () => {
+  const { Game } = await import('../src/core/game.js');
+  const { StatsSystem } = await import('../src/systems/StatsSystem.js');
+  const { InventorySystem } = await import('../src/systems/InventorySystem.js');
+  const world = setup({ level: 2 });
+  const refused = [];
+  window.addEventListener('sleep-fail', event => refused.push(event.detail.reason));
+  mock.timers.enable({ apis: ['setTimeout'] });
+  try {
+    const game = Object.assign(Object.create(Game.prototype), {
+      built: { base: true, paredes: true }, clock: { hour: 12, day: 1, isNight: false }, stats: new StatsSystem(),
+      player: { position: world.player.position, playAction() {} }, dog: null, _save() {}, inventory: new InventorySystem(),
+      traffic: world.traffic, policeFoot: world.system
+    });
+    // Cansado: lo único que le impide dormir a mediodía es la persecución, no que ya esté descansado.
+    game.stats.energia = 10;
+    // La patrulla viene en carro, y después el agente corre detrás: ninguna de las dos veces se duerme.
+    world.traffic._startChase(world.vehicle);
+    step(world);
+    game.sleep();
+    exitOf(world);
+    runUntil(world, () => world.unit.partner.state === 'persecucion');
+    assert.ok(world.system.active && world.traffic.inPursuit, 'en plena persecución a pie');
+    game.sleep();
+    assert.deepEqual(refused, ['persecucion', 'persecucion']);
+    assert.ok(!game.isSleeping);
+    assert.equal(game.clock.hour, 12, 'no pasó el tiempo');
+    assert.ok(world.traffic.inPursuit && world.system.active, 'la persecución sigue igual');
+    // Desisten: el agente vuelve caminando a su carro. Ya no lo persiguen, así que se duerme, y nadie queda afuera.
+    world.unit._desist();
+    assert.equal(world.traffic.inPursuit, false);
+    assert.ok(world.system.active, 'el agente sigue afuera, volviendo');
+    game.sleep();
+    assert.equal(game.isSleeping, true);
+    assert.equal(world.system.active, false, 'nadie quedó afuera');
+    assert.equal(world.vehicle.state, 'patrol');
+    assert.deepEqual([world.unit.fit.doorAmount(-1), world.unit.fit.doorAmount(1)], [0, 0], 'puertas cerradas');
+    mock.timers.tick(1200);
+    for (let i = 0; i < 60; i++) step(world);
+    assert.equal(world.traffic.inPursuit, false, 'al despertar no sigue');
+    assert.equal(count('police-arrest'), 0);
+  } finally { mock.timers.reset(); }
+});
+
+/** Lo mínimo del DOM para armar los menús, como en las pruebas del ropero. */
+function menuDocument() {
+  const node = tag => ({
+    tag, className: '', textContent: '', children: [], attributes: {}, style: {}, dataset: {},
+    addEventListener(type, listener) { this[`on${type}`] = listener; }, removeEventListener() {},
+    setAttribute(key, value) { this.attributes[key] = value; },
+    append(...items) { for (const item of items) { if (typeof item === 'string') this.textContent += item; this.children.push(item); } },
+    appendChild(item) { this.children.push(item); return item; }, prepend() {}, replaceChildren(...items) { this.children = items; },
+    querySelector: () => null, querySelectorAll: () => [],
+    classList: { add() {}, remove() {}, toggle() {}, contains: () => false },
+    getContext: () => ({ fillRect() {}, strokeRect() {}, fillText() {} })
+  });
+  return { createElement: node, createElementNS: (_, tag) => node(tag), getElementById: () => null, activeElement: null };
+}
+
+test('con la tomba encima, el cambuche y el hogar apagan el botón de dormir y dicen por qué', async () => {
+  const { openCambuche } = await import('../src/ui/placeMenus.js');
+  const { openHogar } = await import('../src/ui/streetMenus.js');
+  const { StreetLife } = await import('../src/systems/StreetLife.js');
+  const { HUD } = await import('../src/ui/HUD.js');
+  const { hasRoom } = await import('../src/systems/Shelter.js');
+  const traffic = { inPursuit: true };
+  const day = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10].find(hasRoom);
+  const game = {
+    built: { base: true }, inventory: { count: () => 10, items: [] }, clock: { isNight: true, hour: 20, day }, traffic,
+    street: {}, player: {}, menu: { open(config) { this.config = config; }, close() {}, refresh() {} }
+  };
+  const foot = open => { open(game); return game.menu.config.render().foot; };
+  const sleepButton = items => items.find(item => item.tag === 'button' && item.className.includes('btn--primary'));
+  const note = items => items.find(item => item.className === 'menu__money').textContent;
+  globalThis.document = menuDocument();
+  try {
+    for (const open of [openCambuche, openHogar]) {
+      traffic.inPursuit = true;
+      assert.equal(sleepButton(foot(open)).attributes.disabled, '', `${open.name}: apagado`);
+      assert.match(note(foot(open)), /^Con la tomba encima no puedo dormir\.?$/, open.name);
+      traffic.inPursuit = false;
+      assert.equal('disabled' in sleepButton(foot(open)).attributes, false, `${open.name}: sin persecución se puede`);
+      assert.doesNotMatch(note(foot(open)), /tomba/, open.name);
+    }
+  } finally { delete globalThis.document; }
+  // Entrar al hogar es dormir: con la tomba encima ni entra, y en la portería no entrega nada.
+  traffic.inPursuit = true;
+  const street = Object.assign(Object.create(StreetLife.prototype), { game });
+  let slept = false;
+  game.sleep = () => { slept = true; };
+  assert.equal(street.hogarBlocked(), 'persecucion');
+  assert.equal(street.enterHogar(), false);
+  assert.equal(slept, false);
+  assert.equal(street.porteria, undefined, 'no entregó nada');
+  // Y si llega a intentarlo, el aviso en su voz.
+  const toasts = [];
+  Object.assign(Object.create(HUD.prototype), { _toast: text => toasts.push(text) })._bindEvents();
+  window.dispatchEvent(new CustomEvent('sleep-fail', { detail: { reason: 'persecucion' } }));
+  assert.deepEqual(toasts, ['Con la tomba encima no puedo dormir']);
+});
+
 test('la placa dice «Agente a X m» con un agente corriendo detrás, y «Patrulla» mientras va en carro', async () => {
   const { HUD } = await import('../src/ui/HUD.js');
   const world = setup();

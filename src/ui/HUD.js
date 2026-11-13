@@ -515,7 +515,8 @@ export class HUD {
 
     window.addEventListener('sleep-end', (e) => this._toast(`Dormí ${e.detail?.hours ?? ''} h. Partida guardada`, 'info'));
     window.addEventListener('sleep-fail', (e) => this._toast(
-      e.detail.reason === 'nobase' ? 'Primero toca armar el cambuche (8 cartones)' : 'Aquí no puedo dormir',
+      e.detail.reason === 'nobase' ? 'Primero toca armar el cambuche (8 cartones)'
+        : e.detail.reason === 'persecucion' ? 'Con la tomba encima no puedo dormir' : 'Aquí no puedo dormir',
       'warn'
     ));
   }
