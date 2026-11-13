@@ -1446,7 +1446,8 @@ export class Game {
     for (const { car } of this.traffic?.vehicles ?? []) car.update(dt);
     this.cambuche?.update(dt);
     this.dealer?.update(dt);
-    this.dog?.update(dt, this.player.position, this.pickups, this.world.active?.npcs ?? []);
+    this.dog?.update(dt, this.player.position, this.pickups, this.world.active?.npcs ?? [],
+      { patrols: this.traffic?.vehicles ?? [], wanted: this.steal?.buscado ?? 0 });
     this.cart?.update(dt, this.player, this.audio);
 
     // 10. Audio

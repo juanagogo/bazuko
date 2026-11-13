@@ -22,6 +22,12 @@ const BARK_COOLDOWN = 7;
 const PET_COOLDOWN = 20;
 const LEG = .4; // largo de la pata del modelo, para que la zancada no deslice
 const HOME_RADIUS = 5;
+/** Metros a los que El Chato oye venir una patrulla. */
+export const DOG_POLICE_ALERT = 32;
+// Avisa una vez por patrulla que se arrima: no repite hasta que esa se aleje, y nunca antes de 15 s.
+const POLICE_BARK_COOLDOWN = 15;
+const POLICE_FORGET = 8;   // metros más allá del aviso a los que la da por ida
+const POLICE_LOOK = 4;     // segundos que se queda mirando hacia la patrulla
 
 // Desfase de cada pata en el ciclo según la marcha (FL, FR, HL, HR).
 const GAITS = [
@@ -81,6 +87,10 @@ export class Dog {
     this._wanderPause = 2;
     this._phase = 0;
     this._posture = { sit: 0, lie: 0, sniff: 0, alert: 0 };
+    this._lastPoliceBark = -Infinity;
+    this._heardPatrols = new WeakSet(); // patrullas de las que ya avisó y siguen cerca
+    this._policeAt = null;         // hacia dónde mira mientras le ladra a la patrulla
+    this._policeLook = 0;
     this._lookAt = null;
     this._delta = new THREE.Vector3();
 
@@ -185,7 +195,7 @@ export class Dog {
     return true;
   }
 
-  update(dt, playerPosition, pickups = [], npcs = []) {
+  update(dt, playerPosition, pickups = [], npcs = [], { patrols = [], wanted = 0 } = {}) {
     this.time += dt;
     this._petCooldown = Math.max(0, this._petCooldown - dt);
     this._happy = Math.max(0, this._happy - dt * .25);
@@ -212,6 +222,7 @@ export class Dog {
         this._lookAt = playerPosition;
       }
       this._sniffAndAlert(dt, pickups, npcs);
+      this._watchForPolice(dt, patrols, wanted);
     } else {
       // Sin dueño: merodea cerca de su lugar, olfatea y mira a quien se acerca.
       const near = playerPosition && playerPosition.distanceTo(this.position) < 4;
@@ -236,6 +247,34 @@ export class Dog {
     this._still = this.speed < .2 && this._hop <= 0 ? this._still + dt : 0;
     this._groundAndPlace();
     this._animate(dt);
+  }
+
+  /** Con el jugador fichado o perseguido, le ladra a la patrulla que se arrima y se queda mirándola. */
+  _watchForPolice(dt, patrols, wanted) {
+    const listo = this.time - this._lastPoliceBark >= POLICE_BARK_COOLDOWN;
+    for (const vehicle of patrols) {
+      const p = vehicle?.police ? vehicle.car?.position : null;
+      if (!p) continue;
+      const dist = Math.hypot(p.x - this.position.x, p.z - this.position.z);
+      const amenaza = wanted > 0 || vehicle.state === 'chase';
+      if (!amenaza || dist > DOG_POLICE_ALERT + POLICE_FORGET) { this._heardPatrols.delete(vehicle); continue; }
+      if (dist > DOG_POLICE_ALERT || !listo || this._heardPatrols.has(vehicle)) continue;
+      this._heardPatrols.add(vehicle);
+      this._policeAt = p;
+      this._policeLook = POLICE_LOOK;
+      this._lastPoliceBark = this.time;
+      this._lastBarkTime = -Infinity; // este aviso pasa por encima de los demás ladridos
+      this.bark('¡Le ladra a una patrulla que viene!');
+      window.dispatchEvent(new CustomEvent('dog-alert', { detail: { kind: 'policia', x: p.x, z: p.z } }));
+      break;
+    }
+    // Mientras ladra mira hacia la patrulla, por ahí viene; no se echa ni se sienta, y si el jugador anda lo sigue igual.
+    if (this._policeLook > 0) {
+      this._policeLook -= dt;
+      this._lookAt = this._policeAt;
+      this._posture.alert = Math.max(this._posture.alert, .6);
+      this._still = 0;
+    }
   }
 
   _sniffAndAlert(dt, pickups, npcs) {

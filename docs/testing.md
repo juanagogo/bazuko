@@ -16,6 +16,8 @@ Las regresiones de jugabilidad comprueban el salto y el recorrido de ambas rampa
 
 `cures.test.js` comprueba que cada remedio cure una enfermedad que existe y no se gaste sin ella, que la aguapanela cure la gripe y se tome aunque no la haya, que solo la basura con metal traiga tétanos y dormir sucio traiga sarna, y que las partidas viejas conserven la intoxicación. `dealer.test.js` verifica que comprarle al dealer para revenderle nunca deje ganancia, ni con Contactos; que `E` abra su tienda sin vender; que se venda solo la sustancia elegida, y que la requisa se lleve la mercancía sin pagar.
 
+`dog.test.js` comprueba el modelo y la marcha de El Chato, que siga al jugador y reaparezca si queda muy atrás, y sus avisos: le ladra a una patrulla cercana solo con el jugador fichado o perseguido, una vez por patrulla que se arrima y sin dos avisos pegados, y mientras ladra, con el jugador quieto, se queda parado y gira hacia ella. `tests/e2e/chato.spec.js` lo comprueba en el juego: estando fichado avisa de la patrulla que tiene cerca y queda mirando hacia ella.
+
 `inventory-actions.test.js` verifica que vaciar el inventario notifique a sus suscriptores, desequipe el arma y cancele su ataque pendiente. También comprueba que intentar fumar nadando, en el aire o aturdido conserve objeto, necesidades, audio y efectos, y que un consumo permitido gaste una sola unidad.
 
 En C++, `bazuko_playerstate_test` comprueba que la carga conserve los objetos permitidos por el costal grande y los talentos, y que la regeneración no reviva al jugador durante una caída mortal. Se ejecuta con `ctest --test-dir cpp/build --output-on-failure` después de configurar y compilar los objetivos nativos. Estas pruebas de lógica no requieren abrir la ventana del juego.
