@@ -1223,15 +1223,15 @@ struct Lobby {
             y += 50.0f;
             Label(draw, x, y, "Contraseña actual");
             ImGui::SetCursorScreenPos(ImVec2(x, y));
-            Field("##clave-actual", accOld, sizeof accOld, inner, ImGuiInputTextFlags_Password);
+            if (Field("##clave-actual", accOld, sizeof accOld, inner, ImGuiInputTextFlags_Password)) accError.clear();   // corregir borra el aviso anterior
             y += 52.0f;
             Label(draw, x, y, "Contraseña nueva");
             ImGui::SetCursorScreenPos(ImVec2(x, y));
-            Field("##clave-nueva", accPass, sizeof accPass, inner, ImGuiInputTextFlags_Password);
+            if (Field("##clave-nueva", accPass, sizeof accPass, inner, ImGuiInputTextFlags_Password)) accError.clear();   // corregir borra el aviso anterior
             y += 52.0f;
             Label(draw, x, y, "Repita la nueva");
             ImGui::SetCursorScreenPos(ImVec2(x, y));
-            Field("##clave-nueva2", accPass2, sizeof accPass2, inner, ImGuiInputTextFlags_Password);
+            if (Field("##clave-nueva2", accPass2, sizeof accPass2, inner, ImGuiInputTextFlags_Password)) accError.clear();   // corregir borra el aviso anterior
             y += 52.0f;
             Notes(draw, x, y, inner);
             ImGui::SetCursorScreenPos(ImVec2(x, y));
@@ -1394,15 +1394,15 @@ struct Lobby {
         y += C::TextHeight(false, 17, text.c_str(), inner) + 14.0f;
         Label(draw, x, y, "Código");
         ImGui::SetCursorScreenPos(ImVec2(x, y));
-        Field("##codigo-olvido", accCode, sizeof accCode, 200.0f, 0, OnlyDigits);
+        if (Field("##codigo-olvido", accCode, sizeof accCode, 200.0f, 0, OnlyDigits)) accError.clear();
         y += 52.0f;
         Label(draw, x, y, "Contraseña nueva");
         ImGui::SetCursorScreenPos(ImVec2(x, y));
-        Field("##olvido-clave", accPass, sizeof accPass, inner, ImGuiInputTextFlags_Password);
+        if (Field("##olvido-clave", accPass, sizeof accPass, inner, ImGuiInputTextFlags_Password)) accError.clear();   // corregir borra el aviso anterior
         y += 52.0f;
         Label(draw, x, y, "Repita la nueva");
         ImGui::SetCursorScreenPos(ImVec2(x, y));
-        Field("##olvido-clave2", accPass2, sizeof accPass2, inner, ImGuiInputTextFlags_Password);
+        if (Field("##olvido-clave2", accPass2, sizeof accPass2, inner, ImGuiInputTextFlags_Password)) accError.clear();   // corregir borra el aviso anterior
         y += 52.0f;
         Notes(draw, x, y, inner);
         ImGui::SetCursorScreenPos(ImVec2(x, y));
@@ -1464,9 +1464,10 @@ struct Lobby {
         y += 62.0f;
 
         bool submit = false;
+        bool edited = false;   // al corregir cualquier campo, el aviso del intento anterior ya no aplica
         Label(draw, x, y, signUpTab ? "Usuario" : "Usuario o correo");
         ImGui::SetCursorScreenPos(ImVec2(x, y));
-        Field(signUpTab ? "##usuario" : "##usuario-entrar", accName, sizeof accName, inner, 0, signUpTab ? OnlyLettersAndDigits : NameOrEmail);
+        edited |= Field(signUpTab ? "##usuario" : "##usuario-entrar", accName, sizeof accName, inner, 0, signUpTab ? OnlyLettersAndDigits : NameOrEmail);
         y += 44.0f;
         if (signUpTab) {
             const auto problem = Online::CheckName(accName);
@@ -1478,12 +1479,14 @@ struct Lobby {
 
         Label(draw, x, y, "Contraseña");
         ImGui::SetCursorScreenPos(ImVec2(x, y));
-        submit |= Field("##clave", accPass, sizeof accPass, inner, ImGuiInputTextFlags_Password | (signUpTab ? 0 : ImGuiInputTextFlags_EnterReturnsTrue));
+        // al entrar, Enter en la contrasena manda el formulario; al crear cuenta, solo el boton (InputText sin EnterReturnsTrue avisa en cada tecla)
+        const bool passwordReturn = Field("##clave", accPass, sizeof accPass, inner, ImGuiInputTextFlags_Password | (signUpTab ? 0 : ImGuiInputTextFlags_EnterReturnsTrue));
+        if (signUpTab) edited |= passwordReturn; else submit |= passwordReturn;
         y += 52.0f;
         if (signUpTab) {
             Label(draw, x, y, "Repita la contraseña");
             ImGui::SetCursorScreenPos(ImVec2(x, y));
-            Field("##clave2", accPass2, sizeof accPass2, inner, ImGuiInputTextFlags_Password);
+            edited |= Field("##clave2", accPass2, sizeof accPass2, inner, ImGuiInputTextFlags_Password);
             y += 44.0f;
             if (accPass[0] != '\0') {
                 const auto problem = Online::CheckPassword(accPass, accPass2, accName);
@@ -1493,13 +1496,14 @@ struct Lobby {
             y += 26.0f;
             Label(draw, x, y, "Correo (opcional)");
             ImGui::SetCursorScreenPos(ImVec2(x, y));
-            Field("##correo", accEmail, sizeof accEmail, inner, ImGuiInputTextFlags_CharsNoBlank);
+            edited |= Field("##correo", accEmail, sizeof accEmail, inner, ImGuiInputTextFlags_CharsNoBlank);
             y += 44.0f;
             const char* note = "Solo sirve para recuperar la contraseña si la olvida. Sin correo no hay cómo recuperarla. Nadie más lo ve.";
             C::Text(draw, false, 15, ImVec2(x, y), C::kMarcador, note, inner);
             y += C::TextHeight(false, 15, note, inner) + 12.0f;
         }
 
+        if (edited && account->GetState() != Online::Session::State::Working) { accError.clear(); account->ClearError(); }
         const std::string error = !accError.empty() ? accError : account->Error() != Online::AuthError::None ? std::string(Online::AuthErrorText(account->Error())) : std::string();
         if (!error.empty()) {
             C::Text(draw, false, 17, ImVec2(x, y), C::kRojo, error.c_str(), inner);
