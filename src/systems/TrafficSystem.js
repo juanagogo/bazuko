@@ -275,18 +275,41 @@ export class TrafficSystem {
 
   /**
    * Un carro parado mucho rato fuera de la vista se retira y la flota manda otro a un tramo libre. Los trancones que el
-   * jugador ve se quedan, como el tráfico de verdad, y se despejan cuando deja de mirar.
+   * jugador ve se quedan, como el tráfico de verdad, y se despejan cuando deja de mirar. La patrulla de ronda no tiene
+   * repuesto: en vez de retirarse, se pasa a un tramo libre de su ruta, también fuera de la vista.
    */
   _clearStuck(dt) {
     const view = this._viewPosition, safeSq = this._resizeDistance() ** 2;
     for (const vehicle of this.vehicles) {
       vehicle.stoppedFor = vehicle.speed < .05 ? (vehicle.stoppedFor ?? 0) + dt : 0;
-      if (vehicle.stoppedFor < STUCK_LIMIT || !this._canRetire(vehicle)) continue;
+      if (vehicle.stoppedFor < STUCK_LIMIT) continue;
+      const patrol = vehicle.police && vehicle.state === 'patrol' && !vehicle.rejoinTarget && !vehicle.hold;
+      if (!patrol && !this._canRetire(vehicle)) continue;
       const dx = vehicle.car.position.x - view.x, dz = vehicle.car.position.z - view.z;
       if (dx * dx + dz * dz < safeSq) continue;
+      if (patrol) {
+        if (this._moveToFreeStretch(vehicle)) return;
+        continue;
+      }
       this._retire(vehicle);
       return; // uno por cuadro, para que la retirada se note como el resto del montaje
     }
+  }
+
+  /** Lleva un vehículo parado a un tramo libre de su ruta, lejos de la vista, como si entrara de nuevo. */
+  _moveToFreeStretch(vehicle) {
+    const distance = this._freeDistance(vehicle.route);
+    if (distance === null) return false;
+    this._releaseReservations(vehicle);
+    vehicle.route.sample(distance, this._position, this._direction);
+    vehicle.distance = vehicle.nextDistance = distance;
+    vehicle.car.position.copy(this._position);
+    vehicle.car.group.rotation.y = Math.atan2(-this._direction.z, this._direction.x);
+    vehicle.speed = vehicle.nextSpeed = vehicle.acceleration = 0;
+    vehicle.stopped = false;
+    vehicle.resumeDelay = 0;
+    vehicle.stoppedFor = 0;
+    return true;
   }
 
   /** Saca al vehículo de las colas, los planes y los dueños de todos los cruces. */
