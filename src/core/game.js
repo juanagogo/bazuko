@@ -429,10 +429,12 @@ export class Game {
   }
 
   _applyLook(look) {
+    const before = JSON.stringify(this.look ?? null);
     this.look = normalizeLook({ ...look, v: 2 });
+    const changed = JSON.stringify(this.look) !== before;
     const ready = this.player.setLook(this.look);
     this.interaction.originId = this.look.origen;
-    window.dispatchEvent(new CustomEvent('look-changed', { detail: { look: this.look } }));
+    window.dispatchEvent(new CustomEvent('look-changed', { detail: { look: this.look, changed } }));
     return ready;
   }
 
@@ -442,7 +444,7 @@ export class Game {
     if (look) {
       await this._applyLook(look);
       this._save();
-      window.dispatchEvent(new CustomEvent('toast', { detail: { text: 'Te cambiaste de ropa', type: 'info' } }));
+      window.dispatchEvent(new CustomEvent('toast', { detail: { text: 'Me cambié de ropa', type: 'info' } }));
       this.audio?.play?.('pickup');
     }
   }
@@ -1386,7 +1388,8 @@ export class Game {
     if (!this.player.isStunned) {
       // Los temporizadores y la selección de basura terminan normalmente al entrar;
       // nadar no permite comerciar ni iniciar acciones terrestres bajo el agua.
-      const controls = this.player.isSwimming
+      // Con la barra del espejo o del cosquilleo abierta, E y Q no empiezan otra cosa ni reinician el intento.
+      const controls = this.player.isSwimming || this.steal?.minigameActive
         ? (this._waterInput ??= { consumePress: () => false, isDown: () => false }) : this.input;
       this.interaction.update(dt, controls, this.clock);
       if (this.player.isSwimming) this.interaction.currentTarget = this.interaction.currentTargetType = null;
@@ -1554,7 +1557,7 @@ export class Game {
       this._poiCache = [...services, ...[[this.cambuche, reserved.bed, 'Cambuche', '⛺', '#ffd166'],
         [this.sellPoint, reserved.sell, 'Recicladora El Progreso', '♻️', '#2ab7ca', { prices: { vender: 0 } }],
         [this.shop, reserved.shop, 'Tienda La Esquinita', '🏪', '#2ecc71', { prices: SHOP_PRICES, offers: SHOP_OFFERS }],
-        [this.comedor, reserved.comedor, 'Comedor Comunitario', '🍲', '#27ae60', { prices: { comida: 0, agua: 0 } }],
+        [this.comedor, reserved.comedor, 'Comedor Comunitario', '🍲', '#27ae60', (this.isComedorAvailable?.() ?? true) ? { prices: { comida: 0, agua: 0 } } : undefined],
         [this.craftingStation, reserved.craft, 'Crafteo', '🔨', '#e67e22'],
         [this.dealer, reserved.dealer, 'Dealer', '💀', '#9b59b6', { dealer: true }]]
         .flatMap(([entity, fallback, name, icon, color, extra]) => {
