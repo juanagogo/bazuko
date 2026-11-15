@@ -126,7 +126,7 @@ Los E2E `actions.spec.js` recorren caminar/correr, congelan un salto y un impact
 
 `building-details.test.js` comprueba límites de geometría, agrupación por pared, alineación de ventanas y brillo nocturno en las dos vistas. `urban-trees.test.js`, `urban-planting.test.js` y `park-vegetation.test.js` verifican semillas, materiales compartidos, viento, reservas, agua y presupuestos. `vegetation-lifecycle.test.js` construye y libera el arbolado integrado para detectar recursos huérfanos o liberaciones duplicadas, incluyendo los materiales de profundidad.
 
-`shadow-every.test.js` usa el `Renderer` y el descarte de verdad, con un sol que sigue al jugador: en media la sombra del sol se pinta en 5 de cada 10 imágenes y en alta en todas, cambiar de calidad la pinta en la imagen siguiente, lo que pide pintarla sigue funcionando, la foto del arresto no adelanta la cuenta y, en las imágenes sin pasada, el mapa se lee con la matriz con que se pintó y el jugador sale con la pose de esa imagen.
+`shadow-every.test.js` usa el `Renderer` y el descarte de verdad, con un sol que sigue al jugador: en media la sombra del sol se pinta en 5 de cada 10 imágenes y en alta en todas, a más de 9 m/s o tras un salto de lugar o de hora (también tras una pausa) se pinta en todas, corriendo o girando la cámara no, cambiar de calidad la pinta en la imagen siguiente, lo que pide pintarla sigue funcionando, la foto del arresto no adelanta la cuenta y, en las imágenes sin pasada, el mapa se lee con la matriz con que se pintó y el jugador sale con la pose de esa imagen.
 
 ## Ciudad, tráfico y luz
 

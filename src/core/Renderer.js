@@ -114,6 +114,12 @@ const ENVIRONMENT_STEP = 1 / 128;
 // La matriz con que se pintó la sombra del sol, guardada mientras el descarte la mueve.
 const PAINTED_SHADOW = new THREE.Matrix4();
 
+// Más rápido que esto, en m/s, la sombra de la imagen anterior se nota en lo que se mueve: un carro a 90 km/h
+// con la cámara detrás se oscurece la parte de atrás una imagen sí y otra no. A pie, aun corriendo (6 m/s), no.
+const SHADOW_SKIP_SPEED = 9;
+// Una pausa o una imagen lenta no hacen pasar un salto por movimiento lento: la imagen cuenta hasta 1/20 s.
+const SHADOW_SKIP_STEP = 1 / 20;
+
 /**
  * Un solo mapa de entorno que se funde entre el de día y el de noche. Three alumbra con él todo material
  * PBR, no solo sus reflejos: cambiarlo de golpe hacía saltar el brillo del piso de un cuadro a otro.
@@ -371,6 +377,13 @@ export class Renderer {
     } finally { gl.deleteSync(fence); }
   }
 
+  /** Si el sol se alejó de donde se pintó su sombra más rápido que `SHADOW_SKIP_SPEED`. Cuelga de la escena. */
+  _sunOutran(sun, now) {
+    if (!sun || !this._shadowSun) return false;
+    const seconds = Math.min((now - this._shadowTime) / 1000, SHADOW_SKIP_STEP);
+    return sun.position.distanceTo(this._shadowSun) > SHADOW_SKIP_SPEED * seconds;
+  }
+
   render(scene, camera, playerRoot = null, shadowLights = [], showSilhouette = true) {
     this.instance.info.reset();
     // Cambiar la resolución borra el lienzo: se hace justo antes de dibujar, o se ve un cuadro negro.
@@ -389,17 +402,22 @@ export class Renderer {
     const environmentDay = scene.userData?.environmentDay;
     if (this.environmentMix && Number.isFinite(environmentDay)) this.environmentMix.update(environmentDay);
     const autoUpdate = scene.matrixWorldAutoUpdate;
-    // En media la sombra del sol se pinta una imagen sí y otra no: lo quieto no cambia y lo que se mueve
+    // En media la sombra del sol se pinta una imagen sí y otra no: lo quieto no cambia y lo que va a pie
     // la renueva 30 veces por segundo. Lo que pide pintarla (cambiar de calidad, un mapa nuevo o de otro
     // tamaño) la pinta en la siguiente, y quien ya la congeló para su propio dibujo, como la foto del
-    // arresto, la deja como está.
+    // arresto, la deja como está. También se pinta si el sol corrió más de 9 m/s desde la última pasada:
+    // sigue a quien sigue la cámara, a pie o en un carro, y gira con la hora, así que un carro rápido o un
+    // salto de lugar o de hora lo mueven, y girar la cámara no.
     const shadowMap = this.instance.shadowMap, shadowEvery = GRAPHICS_PROFILES[this.effectiveQuality].shadowEvery;
-    const spaced = shadowMap.autoUpdate === true && shadowEvery > 1, sunShadow = shadowLights[0]?.shadow;
+    const spaced = shadowMap.autoUpdate === true && shadowEvery > 1, sun = shadowLights[0], sunShadow = sun?.shadow;
     if (spaced) {
       shadowMap.autoUpdate = false;
-      const fresh = sunShadow && (!sunShadow.map || sunShadow.needsUpdate);
-      if (shadowMap.needsUpdate || fresh || !this._shadowWait) { shadowMap.needsUpdate = true; this._shadowWait = shadowEvery - 1; }
-      else this._shadowWait--;
+      const now = performance.now(), fresh = sunShadow && (!sunShadow.map || sunShadow.needsUpdate);
+      if (shadowMap.needsUpdate || fresh || !this._shadowWait || this._sunOutran(sun, now)) {
+        shadowMap.needsUpdate = true;
+        this._shadowWait = shadowEvery - 1;
+        if (sun) { (this._shadowSun ??= new THREE.Vector3()).copy(sun.position); this._shadowTime = now; }
+      } else this._shadowWait--;
     }
     try {
       // Los inmuebles ya tienen matrices mundiales fijas. El recorrido automático
@@ -414,13 +432,13 @@ export class Renderer {
       }
       // Sin pasada de sombra el mapa es el de la imagen anterior y se lee con la matriz con que se pintó:
       // el descarte la acerca al jugador y, sin devolverla, hasta la sombra de lo quieto temblaría al andar.
-      const kept = spaced && !shadowMap.needsUpdate ? sunShadow : null;
+      const skipped = spaced && !shadowMap.needsUpdate, kept = skipped ? sunShadow : null;
       if (kept) PAINTED_SHADOW.copy(kept.matrix);
       this.culling.apply(camera, this.instance.shadowMap.enabled ? shadowLights : []);
       if (kept) kept.matrix.copy(PAINTED_SHADOW);
       // Three pone al día huesos, instancias y geometría una vez por número de imagen, y la pasada de sombra de la
       // imagen anterior ya usó el de esta: sin pasada, el jugador y la gente saldrían con la pose de la anterior.
-      if (kept) this.instance.info.render.frame++;
+      if (skipped) this.instance.info.render.frame++;
       // Lo que hay que compilar si cambian las sombras. El objeto se reutiliza: se escribe en cada cuadro.
       const frame = this._lastFrame ??= {};
       frame.scene = scene; frame.camera = camera; frame.shadowLights = shadowLights;

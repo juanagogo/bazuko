@@ -1,18 +1,26 @@
-// En calidad media la sombra del sol se pinta una imagen sí y otra no; en alta, en todas; baja no tiene.
+// En calidad media la sombra del sol se pinta una imagen sí y otra no, y en todas si lo que se sigue va a más
+// de 9 m/s o salta de lugar o de hora; en alta, en todas; baja no tiene.
 import assert from 'node:assert/strict';
-import { beforeEach, test } from 'node:test';
+import { afterEach, beforeEach, mock, test } from 'node:test';
 import * as THREE from 'three';
 import { Renderer } from '../src/core/Renderer.js';
 import { AdaptiveResolution } from '../src/core/AdaptiveResolution.js';
 import { FrustumCulling } from '../src/core/FrustumCulling.js';
 import { AutoQuality, GRAPHICS_PROFILES } from '../src/core/GraphicsQuality.js';
 
+// El reloj del dibujo es el de la prueba: cada imagen lo adelanta lo que dura.
+let reloj = 0;
+
 beforeEach(() => {
   globalThis.window = new EventTarget();
   window.devicePixelRatio = 1;
   const store = new Map();
   globalThis.localStorage = { getItem: key => store.get(key) ?? null, setItem: (key, value) => store.set(key, value) };
+  reloj = 0;
+  mock.method(performance, 'now', () => reloj);
 });
+
+afterEach(() => mock.restoreAll());
 
 const baked = () => {
   const texture = new THREE.Texture({ width: 384, height: 512 });
@@ -63,13 +71,18 @@ function partida({ saved = null } = {}) {
     _bakeEnvironment: () => ({ day: baked(), night: baked() })
   });
   let x = 0;
-  // El jugador corre a 6 m/s: el sol y su caja de sombra avanzan 10 cm por imagen.
-  const imagen = () => {
+  const haciaElSol = new THREE.Vector3(-30, 80, 40);
+  // Sin más, el jugador corre a 6 m/s a 60 imágenes por segundo: el sol y su caja de sombra avanzan 10 cm por
+  // imagen. `salto` lo lleva lejos de una imagen a otra, `sol` cambia la hora (hacia dónde queda el sol) y `giro`
+  // da vuelta a la cámara a su alrededor. El dibujo no recibe al jugador: el sol sigue a lo que siga la cámara.
+  const imagen = ({ velocidad = 6, espera = 1 / 60, salto = 0, sol = null, giro = 0 } = {}) => {
     juego++;
-    x += 6 / 60;
+    reloj += espera * 1000;
+    x += velocidad * espera + salto;
+    if (sol) haciaElSol.set(...sol);
     sun.target.position.set(x, 0, 0);
-    sun.position.set(x - 30, 80, 40);
-    camera.position.set(x - 5, 2, 0);
+    sun.position.copy(haciaElSol).add(sun.target.position);
+    camera.position.set(x - 5 * Math.cos(giro), 2, 5 * Math.sin(giro));
     camera.lookAt(x, 1.5, 0);
     renderer.render(scene, camera, null, [sun]);
     return imagenes.at(-1);
@@ -129,6 +142,38 @@ test('lo que pide pintarla la pinta en la imagen siguiente, aunque le tocara sal
   instance.domElement.dispatchEvent(new Event('webglcontextrestored'));
   imagen(); imagen(); imagen();
   assert.deepEqual(imagenes.map(i => i.pinta), [true, true, false, true, true, false, true, true, false, true]);
+});
+
+test('a más de 9 m/s, como en un carro, la sombra se pinta en todas las imágenes; corriendo o girando la cámara, una sí y otra no', () => {
+  const { renderer, imagenes, imagen } = partida();
+  renderer.setQuality('media');
+  const pinta = (n, como) => Array.from({ length: n }, () => imagen(como).pinta);
+  // Un carro a 90 km/h con la cámara detrás, uno a 10 m/s y uno a 12 m/s en un equipo a 30 imágenes por segundo.
+  assert.deepEqual(pinta(6, { velocidad: 25 }), [true, true, true, true, true, true]);
+  assert.deepEqual(pinta(4, { velocidad: 10 }), [true, true, true, true]);
+  assert.deepEqual(pinta(4, { velocidad: 12, espera: 1 / 30 }), [true, true, true, true]);
+  // Al frenar vuelve a una sí y otra no, también a 30 imágenes por segundo, y quieto con la cámara girando rápido.
+  assert.deepEqual(pinta(4, { velocidad: 8 }), [false, true, false, true]);
+  assert.deepEqual(pinta(4, { velocidad: 6, espera: 1 / 30 }), [false, true, false, true]);
+  let giro = 0;
+  assert.deepEqual(Array.from({ length: 4 }, () => imagen({ velocidad: 0, giro: giro += .4 }).pinta), [false, true, false, true]);
+  assert.ok(imagenes.every(i => i.leeLoPintado && i.pose === i.juego));
+});
+
+test('un salto de lugar o de hora pinta la sombra en esa imagen aunque le tocara saltársela, también tras una pausa', () => {
+  const { renderer, imagenes, imagen } = partida();
+  renderer.setQuality('media');
+  const quieto = { velocidad: 0 };
+  imagen(quieto);
+  // Recuperarse o salir del arresto deja al jugador a 80 m de un cuadro a otro, sin fundido.
+  imagen({ ...quieto, salto: 80 });
+  imagen(quieto); imagen(quieto);
+  // Pasar el tiempo voltea el sol alrededor del jugador, que no se mueve.
+  imagen({ ...quieto, sol: [40, 60, -50] });
+  imagen(quieto); imagen(quieto);
+  // Con el juego en pausa no se dibuja: un salto hecho en diez segundos de pausa no es ir despacio.
+  imagen({ ...quieto, salto: 80, espera: 10 });
+  assert.deepEqual(imagenes.map(i => i.pinta), [true, true, false, true, true, false, true, true]);
 });
 
 test('sin pasada de sombra el mapa se lee con la matriz con que se pintó, aunque el sol siga al jugador', () => {
