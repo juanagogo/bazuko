@@ -90,10 +90,13 @@ export class InteractionSystem {
     let nearest = null;
     let nearestType = null;
     let nearestDist = INTERACT_RANGE;
+    // Con un rebusque en curso, los carros no dan aviso ni toman E o Q: primero se corta el trabajo.
+    const rebuscando = !!this.rebusque?.activo;
 
     for (const t of this.targets) {
       // Un carro sin nada que robar ni limpiar no da aviso ni le quita el turno a lo que tenga al lado.
       if (t.stealable === false && !t.cleanable) continue;
+      if (rebuscando && (typeof t.steal === 'function' || typeof t.cleanWindshield === 'function')) continue;
       // Un carro se alcanza también desde sus espejos; lo demás, desde su centro.
       const d = t.interactDistance?.(this.player.position) ?? t.position.distanceTo(this.player.position);
       if (d < nearestDist) {
@@ -224,7 +227,10 @@ export class InteractionSystem {
     }
 
     // === Pedir limosna (B o L) ===
-    if (input.consumePress('KeyB') || input.consumePress('KeyL')) {
+    // Con pelotas y frente a la cola de un semáforo en rojo, B es del rebusque (RebusqueSystem); L siempre pide.
+    if (input.consumePress('KeyB')) {
+      if (!this.rebusque?.intentar()) this._beg();
+    } else if (input.consumePress('KeyL')) {
       this._beg();
     }
 

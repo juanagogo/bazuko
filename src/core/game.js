@@ -65,6 +65,7 @@ import { SubstanceEffects } from '../systems/SubstanceEffects.js';
 import { SUBSTANCE_EFFECTS } from '../data/substanceEffects.js';
 import { StealSystem } from '../features/steal.js';
 import { StreetLife } from '../systems/StreetLife.js';
+import { RebusqueSystem } from '../systems/RebusqueSystem.js';
 import { PilaPublica, HogarDePaso, TransitStop } from '../entities/StreetLifeProps.js';
 import { streetLifePlaces } from '../world/bogota/streetLifePlaces.js';
 import { openRadioModal } from '../ui/RadioModal.js';
@@ -181,6 +182,9 @@ export class Game {
     this.interaction.street = this.street;
 
     this.steal = new StealSystem(this);
+    // Rebusque en el semáforo: malabares con B frente a los carros en rojo.
+    this.rebusque = new RebusqueSystem(this);
+    this.interaction.rebusque = this.rebusque;
     this.interaction.personCloserThan = (distance) => this.steal.personCloserThan(distance);
     this.interaction.onStartMirrorTheft = (car) => {
       this.steal.startMirrorTheft(car, (target) => {
@@ -962,6 +966,7 @@ export class Game {
     if (this.steal?.minigameActive) this.steal._endMinigame(false, 'cancel');
     this.substanceEffects?.end();
     this.psychosis?.clearInduced?.();
+    this.rebusque?.cancelar();
     const night = this.clock.isNight || !!hogar;
     const hours = night
       ? (this.clock.hour >= 6 ? 24 - this.clock.hour + 6 : 6 - this.clock.hour)
@@ -1074,6 +1079,7 @@ export class Game {
     if (this.player.isRagdollActive) return false;
 
     this._deathPending = true;
+    this.rebusque?.cancelar();
     if (this.steal?.minigameActive) this.steal._endMinigame(false, 'cancel');
     this.substanceEffects?.end();
     this.psychosis?.clearInduced?.();
@@ -1111,6 +1117,7 @@ export class Game {
   _policeArrest() {
     if (this._arrestPending || this._deathPending || this.stats.salud <= 0) return;
     this._arrestPending = true;
+    this.rebusque?.cancelar();
     if (this.steal?.minigameActive) this.steal._endMinigame(false, 'cancel');
     this.input.keys = {};
     this.input.endFrame();
@@ -1392,6 +1399,8 @@ export class Game {
       if (this.player.isSwimming) this.interaction.currentTarget = this.interaction.currentTargetType = null;
     }
     this.street?.update(dt);
+    this.rebusque?.update(dt);
+    this.interaction.rebusquePrompt = this.rebusque?.prompt ?? null;
     if (!this.player.isSwimming) this.steal?.update(dt);
     else if (this.steal?.minigameActive) this.steal._endMinigame(false, 'cancel');
     if (this._handleDeath()) return;
@@ -1664,6 +1673,7 @@ export class Game {
     this.substanceEffects?.dispose?.();
     this.poopSystem?.dispose?.();
     this.roadRage?.dispose?.();
+    this.rebusque?.dispose();
     this.limpieza?.dispose?.();
     this.radio?.destroy?.();
   }

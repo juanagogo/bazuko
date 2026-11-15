@@ -137,13 +137,17 @@ const VERBO_CORTO = [
   [/^Soltar la carreta/, 'Soltar carreta'],
   [/^Cosquilleo/, 'Cosquilleo'],
   [/^Mantener: seleccionar/, 'Seleccionar'],
+  [/^Hacer malabares/, 'Malabares'],
 ];
 
-/** Las piezas de la tecla de contexto para el dedo: máximo dos, cortas y sin la nota de al lado. */
-export function piezasParaElDedo(piezas) {
-  return piezas.filter((p) => p.tecla).slice(0, 2).map((p) => ({
-    ...p, verbo: VERBO_CORTO.find(([patron]) => patron.test(p.verbo))?.[1] ?? p.verbo,
-  }));
+const corto = (p) => ({ ...p, verbo: VERBO_CORTO.find(([patron]) => patron.test(p.verbo))?.[1] ?? p.verbo });
+
+/**
+ * Las piezas de la tecla de contexto para el dedo: máximo dos, cortas y sin la nota de al lado. Las del rebusque
+ * (`rebusque`) van después y enteras: su tecla y sus cuentas («Haciendo malabares, 4 s», «rojo 12 s»).
+ */
+export function piezasParaElDedo(piezas, rebusque = []) {
+  return [...piezas.filter((p) => p.tecla).slice(0, 2), ...rebusque].map(corto);
 }
 
 function piezaHTML({ tecla, verbo, sostener }, principal) {
@@ -622,7 +626,7 @@ export class HUD {
     }
 
     // La tecla de contexto
-    this._pintarPrompt(window.__game?.paused ? '' : textoDelPrompt(interaction, inventory), interaction);
+    this._pintarContexto(interaction, inventory);
 
     this._pintarTarea(window.__game?.street?.task ?? null);
 
@@ -808,23 +812,33 @@ export class HUD {
     this.moneyEl?.classList?.toggle('plata--larguisima', dinero >= PLATA_LARGUISIMA);
   }
 
+  /** La tecla de contexto y, después, el aviso del rebusque del semáforo. Con la pausa abierta, nada. */
+  _pintarContexto(interaction, inventory) {
+    if (window.__game?.paused) { this._pintarPrompt('', interaction); return; }
+    this._pintarPrompt(textoDelPrompt(interaction, inventory), interaction, interaction?.rebusquePrompt ?? '');
+  }
+
   /** La tecla de contexto se reescribe solo si cambia el texto; mantener Q muestra su progreso de verdad. */
-  _pintarPrompt(texto, interaction) {
+  _pintarPrompt(texto, interaction, rebusque = '') {
     if (!this.promptEl) return;
-    if (texto !== this._promptTexto) {
-      this._promptTexto = texto;
-      if (texto) {
+    const todo = [texto, rebusque].filter(Boolean).join(' · ');
+    const clave = rebusque ? `${texto}|${rebusque}` : texto;
+    if (clave !== this._promptTexto) {
+      this._promptTexto = clave;
+      if (todo) {
         let principal = true;
-        const piezas = piezasDelPrompt(texto);
-        const html = (modoEntrada() === 'tactil' ? piezasParaElDedo(piezas) : piezas).map((p) => {
+        const piezas = modoEntrada() === 'tactil'
+          ? piezasParaElDedo(texto ? piezasDelPrompt(texto) : [], rebusque ? piezasDelPrompt(rebusque) : [])
+          : piezasDelPrompt(todo);
+        const html = piezas.map((p) => {
           const pieza = piezaHTML(p, principal && !!p.tecla);
           if (p.tecla) principal = false;
           return pieza;
         }).join('');
         this._setHTML(this.promptEl, html);
       }
-      this.promptEl.classList.toggle('visible', !!texto);
-      this._sostenerEl = texto ? this.promptEl.querySelector?.('.cx__sostener') ?? null : null;
+      this.promptEl.classList.toggle('visible', !!todo);
+      this._sostenerEl = todo ? this.promptEl.querySelector?.('.cx__sostener') ?? null : null;
       this._sostenerMasa = this._sostenerEl?.querySelector?.('.masa') ?? null;
     }
     if (!this._sostenerEl) return;
