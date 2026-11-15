@@ -253,6 +253,7 @@ export class Npc {
     this._dropped = [];        // lo que se le cayó al quedar noqueado, mientras está en el piso
     this._fallenCane = null;
     this._player = null;
+    this._witness = null;      // testigo de un robo o una pelea: grabando o llamando (ver WitnessSystem)
     this._riseLeft = 0;        // s que le faltan para tener la cadera arriba después de un susto
     this._lowFrom = null;      // la postura baja que acaba de dejar
     this._koPlan = 'espalda';  // cómo cae y cómo se para (ver KO_PLANS)
@@ -974,7 +975,8 @@ export class Npc {
       if (this._ownsLocomotionState) this.state = 'defend';
     } else {
       if (this.action === 'recibirGolpe') { this.action = null; this.actionProgress = 0; }
-      if (!this.koState && dt > reactionTime) this._walk(dt - reactionTime);
+      if (!this.koState && dt > reactionTime && this._updateWitness(dt - reactionTime)) { /* quieto, grabando o llamando */ }
+      else if (!this.koState && dt > reactionTime) this._walk(dt - reactionTime);
       else this.moving = false;
       if (this._ownsLocomotionState) this.state = this.koState ?? (this.moving ? (this.fleeTimer > 0 ? 'flee' : 'walk') : 'idle');
     }
@@ -1012,8 +1014,10 @@ export class Npc {
 
     this._updateDetail(dist);
     this._updateSpeech(dt, ctx);
-    // Huir manda sobre la postura que tuviera, menos sobre el paraguas: sale corriendo con él en la mano.
-    const posture = this.poseParams?.stance ?? this._stanceNow();
+    // Huir manda sobre la postura que tuviera, menos sobre el paraguas: sale corriendo con él en la mano. El testigo
+    // tiene el celular en la oreja (llamando) o al frente (grabando).
+    const witness = this._witness && (this._witness.mode === 'llamar' ? 'telefono' : 'celular');
+    const posture = this.poseParams?.stance ?? (witness || this._stanceNow());
     const stance = this.fleeTimer > 0 && this.moving && posture !== 'paraguas' ? 'huir' : posture;
     this._updateHeld(stance);
 
@@ -1140,6 +1144,7 @@ export class Npc {
    * Los IDs se deduplican por atacante, sin bloquear pasos legítimos del combo.
    */
   takeHit({ damage = 10, dir = null, knockback = 0, attacker = null, weapon = 'punos', attackId = null, id = null } = {}) {
+    this._witness = null; // un golpe o un carro le hacen soltar el celular
     if (this._disposed || this.koState || !Number.isFinite(damage) || damage <= 0) return false;
     if (!this._acceptAttackId(attacker, attackId ?? id)) return false;
     let dx = dir?.x ?? 0, dz = dir?.z ?? 0;
@@ -1369,6 +1374,37 @@ export class Npc {
   _setCaneInHand(inHand) {
     this.lodChar?.setPropVisible?.('baston-calle', inHand);
     this.fullChar?.setPropVisible?.('baston-calle', inHand);
+  }
+
+  /**
+   * Testigo de un robo o una pelea: se queda quieto mirando al jugador con el celular, grabando o llamando a la
+   * Policía, durante `seconds`. Un golpe, un susto o quedar noqueado lo interrumpen (ver WitnessSystem).
+   */
+  witness(mode, seconds) {
+    if (this._disposed || this.koState || this.isVendor || this.fijo || this.fleeTimer > 0 || this._hitReactionRemaining > 0) return false;
+    this._witness = { mode, time: seconds };
+    this._witnessFinished = false;
+    this.target = null;
+    this.route = [];
+    return true;
+  }
+
+  stopWitness() { this._witness = null; }
+
+  get witnessing() { return this._witness?.mode ?? null; }
+
+  /** Quieto, de frente al jugador y con el celular arriba mientras dura. */
+  _updateWitness(dt) {
+    const w = this._witness;
+    if (!w) return false;
+    if (this.koState || this.fleeTimer > 0) { this._witness = null; return false; }
+    if ((w.time -= dt) <= 0) { this._witness = null; this._witnessFinished = true; return false; }
+    this.moving = false;
+    if (this._player) {
+      const yaw = Math.atan2(this._player.x - this.position.x, this._player.z - this.position.z);
+      this.root.rotation.y += wrapAngle(yaw - this.root.rotation.y) * Math.min(1, dt * 6);
+    }
+    return true;
   }
 
   /** Pasa el objeto al mundo, una sola vez: desde ahí ya no gasta matrices de ningún hueso. */

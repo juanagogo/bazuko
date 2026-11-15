@@ -64,6 +64,7 @@ import { LimpiezaSocialSystem } from '../systems/LimpiezaSocialSystem.js';
 import { SubstanceEffects } from '../systems/SubstanceEffects.js';
 import { SUBSTANCE_EFFECTS } from '../data/substanceEffects.js';
 import { StealSystem } from '../features/steal.js';
+import { WitnessSystem } from '../systems/WitnessSystem.js';
 import { StreetLife } from '../systems/StreetLife.js';
 import { PilaPublica, HogarDePaso, TransitStop } from '../entities/StreetLifeProps.js';
 import { streetLifePlaces } from '../world/bogota/streetLifePlaces.js';
@@ -182,6 +183,8 @@ export class Game {
 
     this.steal = new StealSystem(this);
     this.interaction.personCloserThan = (distance) => this.steal.personCloserThan(distance);
+    // Quien ve un robo o una pelea llama a la Policía, graba o sale corriendo (ver WitnessSystem).
+    this.witnesses = new WitnessSystem(this);
     this.interaction.onStartMirrorTheft = (car) => {
       this.steal.startMirrorTheft(car, (target) => {
         this.interaction._executeCarTheft(target);
@@ -836,6 +839,7 @@ export class Game {
    */
   relocatePlayer(to, { minutes = 0, fade = true } = {}) {
     const district = this.world.active;
+    this.witnesses?.reset(); // quien llamaba o grababa se queda atrás
     const mover = () => {
       const y = district?.getMovementGroundHeight?.(to.x, to.z, 0) ?? district?.getGroundHeight?.(to.x, to.z) ?? 0;
       this.player.position.set(to.x, y, to.z);
@@ -960,6 +964,7 @@ export class Game {
 
     this.isSleeping = true;
     if (this.steal?.minigameActive) this.steal._endMinigame(false, 'cancel');
+    this.witnesses?.reset();
     this.substanceEffects?.end();
     this.psychosis?.clearInduced?.();
     const night = this.clock.isNight || !!hogar;
@@ -1179,6 +1184,7 @@ export class Game {
     this.limpieza?.reset();
     this.momentos?.reset();
     this.street?.reset();
+    this.witnesses?.reset();
     this.substanceEffects?.end();
     this.psychosis?.clearInduced?.();
     if (this.steal) {
@@ -1392,6 +1398,7 @@ export class Game {
       if (this.player.isSwimming) this.interaction.currentTarget = this.interaction.currentTargetType = null;
     }
     this.street?.update(dt);
+    this.witnesses?.update(dt);
     if (!this.player.isSwimming) this.steal?.update(dt);
     else if (this.steal?.minigameActive) this.steal._endMinigame(false, 'cancel');
     if (this._handleDeath()) return;
@@ -1666,5 +1673,6 @@ export class Game {
     this.roadRage?.dispose?.();
     this.limpieza?.dispose?.();
     this.radio?.destroy?.();
+    this.witnesses?.dispose();
   }
 }
