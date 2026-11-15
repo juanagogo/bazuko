@@ -152,6 +152,20 @@ node node_modules/@playwright/test/cli.js test --list
 
 La ejecución con renderizado por software sirve para verificar flujos; sus FPS no representan el rendimiento de una GPU real.
 
+## Robo a peatones
+
+- `steal-odds.test.js`: las cuentas del robo sin el juego, con los números escritos: de espaldas, de frente o de lado según hacia dónde mira la víctima, con el borde en ±0,35; quien duerme o está acurrucado cuenta como de espaldas; la zona, el marcador y el aviso según la posición, la distracción y la carrera; «Mano suave» con piso y techo; los cuatro avisos con la E primero y la Q al final; lo que carga cada arquetipo, todo en el catálogo; la práctica hasta +12 % con valores raros; y que el aviso de cada cuadro no cree objetos.
+- `steal.test.js`, «el aviso dice si la víctima está de espaldas, de frente o va en lo suyo»: el texto que deja `StealSystem` en `interaction.stealPrompt`.
+- `steal.test.js`, «de espaldas la zona es más grande y la barra más lenta que de frente»: ×1,35 de ancho y ×0,85 de velocidad contra la de lado.
+- `steal.test.js`, «a quien duerme o está acurrucado, el aviso nunca dice que me ve…»: el aviso y la zona de espaldas aunque se le llegue de frente.
+- `steal.test.js`, «a quien camina la zona es un 15 % más ancha…»: la zona y la probabilidad de que me pillen con la víctima caminando y llegando a la carrera.
+- `steal.test.js`, «"Mano suave" salva un cosquilleo que antes me pillaba, y cuenta una sola vez»: con el talento, 0,7 × 0,8 y no 0,7 × 0,8 × 0,8.
+- `steal.test.js`, «un cosquilleo limpio suena, da experiencia, cuenta para la práctica…»: el sonido, la experiencia, la cuenta de limpios y el aviso «Por la espalda, limpio».
+- `steal.test.js`, «cada quien carga distinto botín»: la plata y los objetos según el arquetipo, en el cosquilleo y en el robo directo.
+- `steal.test.js`, «la mano se guarda en la partida…»: `serialize` y `deserialize` con partidas sin `robo` y valores raros (texto, negativos, fracciones, infinitos, enormes), y el tope de +12 %.
+- `steal.test.js`, «la partida guarda la mano como `robo`…»: `Game._save` y `_loadIfSave` de verdad, también con una partida vieja sin `robo`.
+- `tests/e2e/robo-aviso.spec.js`: en el juego, una víctima quieta en el parque, el jugador detrás, al lado y delante: el aviso de cada caso y el ancho de la barra en pantalla.
+
 ## Identidad de la interfaz
 
 `letra.test.js` comprueba que el manifiesto diga lo que trae la letra, que todo carácter de un texto del juego exista en ella o en la tabla de dibujos, las cifras de ancho fijo, el peso y que el programa dé lo que está guardado y repita los mismos bytes. `pictos.test.js` comprueba la tabla de dibujos y el paso de los textos. `materiales.test.js` comprueba los seis colores, el contraste, las marcas, el foco único, los 44 px, el movimiento reducido, que nada parpadee, el orden de las hojas y la lluvia.

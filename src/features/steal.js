@@ -3,6 +3,8 @@ import { ITEMS } from '../data/items.js';
 import { cop } from '../utils/money.js';
 import { LOW_STANCES } from '../character/archetypes.js';
 import { modoEntrada, teclaVisible } from '../core/modoEntrada.js';
+import { XP_STEAL } from '../utils/constants.js';
+import { ROBO_ODDS, ventajaDeRobo, probabilidadDeAviso, avisoDeRobo, botinDe, zonaDeCosquilleo } from './stealOdds.js';
 
 export const CONFIG = {
   stealDistance: 1.8,
@@ -22,6 +24,9 @@ export const WANTED_DECAY_SECONDS = 120;
 
 /** Objetivos con los que la Q ya hace otra cosa. */
 const QUIET_Q_TARGETS = new Set(['pickup', 'dealer']);
+
+/** Lo que el robo guarda en la partida: los cosquilleos limpios, que son la práctica de la mano. */
+const HISTORIAL_VACIO = () => ({ limpios: 0 });
 
 export class StealSystem {
   // Inicializa el sistema de robo a peatones.
@@ -46,12 +51,21 @@ export class StealSystem {
     this._spaceOwned = false;
     if (typeof window !== 'undefined') window.addEventListener('keyup', (e) => { if (e.code === 'Space') this._spaceOwned = false; }, true);
     this._dom = null;
+    this._ventaja = null;  // cómo se le llegó a quien tiene la barra abierta
+    this._ventajaAviso = {}; // la del aviso, que se recalcula cada cuadro sin crear objetos
+    this._opcionesVentaja = { playerSpeed: 0, odds: null, out: null };
+    this._historial = HISTORIAL_VACIO(); // se guarda en la partida como `robo`
     this._buildUI();
     // En captura, como los paneles: el jugador gasta Espacio antes de que la barra se actualice y Esc abriría la pausa.
     globalThis.window?.addEventListener?.('keydown', (e) => this._onMinigameKey(e), true);
     // El retrovisor se roba en InteractionSystem: también cuenta como robar.
     globalThis.window?.addEventListener?.('steal', () => { this._calma = 0; });
   }
+
+  // Los ajustes del robo (stealOdds.js) y lo que lleva robado; se arman al primer uso si el sistema se armó sin constructor.
+  get ajustes() { return this._ajustes ??= structuredClone(ROBO_ODDS); }
+  get historial() { return this._historial ??= HISTORIAL_VACIO(); }
+  set historial(v) { this._historial = v; }
 
   // Construye la interfaz HTML para el minijuego de cosquilleo.
   _buildUI() {
@@ -123,11 +137,21 @@ export class StealSystem {
     this.targetNpc = nearest;
     if (!nearest || this.cooldown > 0) return;
     if (this.game.interaction) {
-      this.game.interaction.stealPrompt = '[E] Cosquilleo (sigiloso) · [Q] Robo directo';
+      // El aviso dice cómo está la cosa: de espaldas, de frente o distraída.
+      this.game.interaction.stealPrompt = avisoDeRobo(this._ventajaCon(nearest, this._ventajaAviso));
     }
     if (this.game.input.consumePress('KeyE')) this.startCosquilleo(nearest);
     // Junto a basura o al dealer, Q ya tiene otro uso: no se le roba al que justo va pasando.
     else if (!QUIET_Q_TARGETS.has(this.game.interaction?.currentTargetType) && this.game.input.consumePress('KeyQ')) this.executeRoboDirecto(nearest);
+  }
+
+  /** `out` reutiliza un objeto: el aviso se calcula cada cuadro que hay alguien cerca (las opciones también se reusan). */
+  _ventajaCon(npc, out = undefined) {
+    const player = this.game.player, o = this._opcionesVentaja;
+    o.playerSpeed = player?.speed ?? 0;
+    o.odds = this.ajustes;
+    o.out = out ?? {};
+    return ventajaDeRobo(player?.position, npc, o);
   }
 
   // Dice si hay a quién hacerle cosquilleo a menos de esa distancia: un carro más lejano le cede el aviso y la tecla.
@@ -143,11 +167,13 @@ export class StealSystem {
     this.targetNpc = npc;
     this.targetCar = null;
     npc.alerta ??= 0.35 + Math.random() * 0.4;
-    this.zoneSize = Math.max(0.18, CONFIG.baseZoneSize * (1.1 - npc.alerta * 0.4));
+    // De espaldas o a uno distraído la zona crece; de frente o llegando a la carrera, se achica. La práctica la agranda.
+    const ventaja = this._ventaja = this._ventajaCon(npc);
+    this.zoneSize = zonaDeCosquilleo(Math.max(0.18, CONFIG.baseZoneSize * (1.1 - npc.alerta * 0.4)), ventaja, this.historial.limpios, this.ajustes);
     this.zoneStart = 0.15 + Math.random() * (0.85 - this.zoneSize - 0.15);
     this.markerPos = 0;
     this.markerDir = 1;
-    this.markerSpeed = CONFIG.markerSpeed * (1 + (npc?.alerta ?? 0.3) * 0.5);
+    this.markerSpeed = CONFIG.markerSpeed * (1 + (npc?.alerta ?? 0.3) * 0.5) * ventaja.marcadorMult;
     if (this._dom) {
       this._dom.zone.style.left = `${this.zoneStart * 100}%`;
       this._dom.zone.style.width = `${this.zoneSize * 100}%`;
@@ -331,12 +357,20 @@ export class StealSystem {
     this._calma = 0;
     if (npc) npc._robadoTimer = CONFIG.npcCooldown;
     if (success) {
-      this._giveLoot(CONFIG.lootMoneyCosquilleo, true);
-      this._toast('Cosquilleo limpio: nadie se dio cuenta.', 'rare');
+      const botin = botinDe(npc, CONFIG.lootItems);
+      this._giveLoot(this._rango(CONFIG.lootMoneyCosquilleo, botin.plata), true, botin.objetos);
+      this.game.audio?.play?.('pickup');
+      this.game.stats?.addXP?.(XP_STEAL, this.game.talents);
+      this.historial.limpios++;
+      this._toast(this._ventaja?.posicion === 'espalda' ? 'Por la espalda, limpio: ni lo sintió.' : 'Cosquilleo limpio: nadie se dio cuenta.', 'rare');
       this._robbed(npc, false);
     } else {
       const bonus = this.game?.dog?.distractionBonus?.(this.game.player?.position) ?? 0;
-      const noticeChance = Math.max(0.2, (npc?.alerta ?? 0.5) - bonus);
+      // «Mano suave» disimula mejor el fallo; de espaldas se nota menos y de frente más.
+      const noticeChance = probabilidadDeAviso({
+        alerta: npc?.alerta ?? 0.5, perro: bonus, ventaja: this._ventaja,
+        talento: this.game?.talents?.getEffect?.('stealCaughtMult', 1) ?? 1, odds: this.ajustes
+      });
       if (Math.random() < noticeChance) {
         npc?.alarmedByTheft?.(this.game.player.position);
         this._toast('¡Me pillaron con las manos en la masa! El peatón gritó.', 'death');
@@ -355,7 +389,7 @@ export class StealSystem {
     npc._robadoTimer = CONFIG.npcCooldown;
     this._calma = 0;
     this.buscado = Math.min(3, this.buscado + 1);
-    this._giveLoot(CONFIG.lootMoneyDirect, false);
+    this._giveLoot(this._rango(CONFIG.lootMoneyDirect, botinDe(npc).plata), false);
     this._robbed(npc, true);
     // Quien está en el piso o en la banca no alcanza a defenderse: bastante hace con pararse.
     const down = LOW_STANCES.has(npc.stance);
@@ -369,6 +403,22 @@ export class StealSystem {
       this._toast('¡Raponazo! El peatón se asustó.', 'warn');
     }
     this._alertPolice();
+  }
+
+  /** El rango de plata según lo que carga cada quien, en cientos. */
+  _rango([min, max], factor = 1) {
+    const f = Number.isFinite(factor) ? factor : 1;
+    return [Math.max(100, Math.round(min * f / 100) * 100), Math.max(100, Math.round(max * f / 100) * 100)];
+  }
+
+  /** Para guardar: los cosquilleos limpios, que son la mano que tiene. «Te tienen fichado» no se guarda. */
+  serialize() { return { historial: { ...this.historial } }; }
+
+  /** Una partida sin `robo` (anterior a esto) o con basura empieza de cero. Una cuenta enorme no da más que el tope (manoMult). */
+  deserialize(data) {
+    this.historial = HISTORIAL_VACIO();
+    const limpios = data?.historial?.limpios;
+    if (Number.isSafeInteger(limpios) && limpios > 0) this.historial.limpios = limpios;
   }
 
   // Robarle a alguien se sabe en la calle: la fama lo escucha (ver systems/StreetLife.js).
@@ -386,12 +436,13 @@ export class StealSystem {
   }
 
   // Otorga botín aleatorio entre dinero e ítems al inventario del jugador.
-  _giveLoot(moneyRange, includeItemChance) {
+  _giveLoot(moneyRange, includeItemChance, itemPool = CONFIG.lootItems) {
     const money = Math.round((moneyRange[0] + Math.random() * (moneyRange[1] - moneyRange[0])) / 100) * 100;
     if (this.game.stats) this.game.stats.dinero += money;
     this._toast(`+${cop(money)}`, 'sell');
     if (includeItemChance && Math.random() < 0.4 && this.game.inventory) {
-      const itemId = CONFIG.lootItems[Math.floor(Math.random() * CONFIG.lootItems.length)];
+      const pool = itemPool?.length ? itemPool : CONFIG.lootItems;
+      const itemId = pool[Math.floor(Math.random() * pool.length)];
       if (ITEMS[itemId]) {
         if (this.game.inventory.add(ITEMS[itemId], 1)) this._toast(`Robé: ${ITEMS[itemId].name}`, 'info');
         else this._toast(`No me cabe más en el costal: dejé ${ITEMS[itemId].name}.`, 'warn');
