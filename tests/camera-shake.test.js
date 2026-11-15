@@ -14,6 +14,7 @@ const systemCalm = { matches: false };
 globalThis.matchMedia ??= (query) => (query.includes('reduced-motion') ? systemCalm : { matches: false });
 const { CameraRig } = await import('../src/core/Camera.js');
 const { Game } = await import('../src/core/game.js');
+const { Player } = await import('../src/entities/Player.js');
 
 const canvas = { addEventListener() {}, removeEventListener() {}, requestPointerLock() {}, style: {} };
 const rig = (mode = 'third-person') => {
@@ -149,6 +150,20 @@ test('tomarse una pastilla, basuco o pegante quita salud sin sacudir la cámara;
     assert.ok(game._shakeOnDamage() > 0, 'un puño después sí');
     assert.equal(trauma.length, 1);
   } finally { delete window.__game; }
+});
+
+test('el golpe que conecta el jugador sacude la cámara; el que no conecta, no', () => {
+  const shakes = [];
+  (listeners['camera-shake'] ??= []).push((event) => shakes.push(event.detail.amount));
+  const input = { axis: { x: 0, z: 0 }, isRunning: false, presses: new Set(), consumePress() { return false; }, isDown() { return false; } };
+  const p = new Player(new THREE.Scene(), input);
+  let hit = null;
+  p.melee.update = () => hit;
+  p.update(1 / 60, null, null, () => 0);
+  assert.deepEqual(shakes, [], 'sin golpe');
+  hit = { hits: [], reward: 0 };
+  p.update(1 / 60, null, null, () => 0);
+  assert.deepEqual(shakes, [.24]);
 });
 
 test('un atropello de 20 gira la vista ~1° en su pico y se apaga en ~0,35 s; un puño, ~0,4°', () => {
