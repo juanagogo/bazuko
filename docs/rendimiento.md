@@ -48,6 +48,7 @@ El tiempo alrededor del render es CPU y envío de órdenes: **no mide el tiempo 
 - Las cajas estáticas se indexan de nuevo al sustituir su array o cambiar su longitud. Tras mover o modificar una caja ya registrada, llamar a `collisions.invalidateStaticIndex()`.
 - Al añadir luces dentro de una rama existente, llamar a `localLights.register(rama)`. Tras mover fuentes marcadas como estáticas, usar `localLights.refreshSources({ static: true })` después de terminar los cambios. Añadir o retirar raíces directamente de la escena ya registra o retira sus luces.
 - Mantener los materiales de lotes cerrados separados de los clones que cambian de opacidad. No liberar geometrías o texturas compartidas al destruir un personaje.
+- `busPathX` corre muchas veces en cada cuadro: la piden los peatones del puente del lago, el tráfico en cada cruce, los buses y el viaducto. Su búsqueda hace la cuenta de la normal con números, sin pedirle un objeto a `bridgeNormal` ni llamar a `Math.hypot`; medido con la ciudad completa, eso ahorra entre un 5 y un 9 % de la lógica de un cuadro y entre un 11 y un 19 % de su basura. `bus-path.test.js` la compara con el cálculo anterior y falla si vuelve a llamar a `Math.hypot`.
 - Validar con `npm test`, `npm run build` y `npm run test:e2e`. Las pruebas de regresión comparan el barrido indexado con una consulta exhaustiva e incluyen límites de celdas, cajas extensas, limpieza de recursos, recuperación de calidad y estadísticas acotadas.
 
 ## Validación de la primera entrega

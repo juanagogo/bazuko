@@ -128,6 +128,8 @@ Los E2E `actions.spec.js` recorren caminar/correr, congelan un salto y un impact
 
 ## Ciudad, tráfico y luz
 
+`bus-path.test.js` comprueba que los dos carriles del bus por el rodeo de la Colpatria no se separen más de una milmillonésima de metro de una copia entera del cálculo anterior, en 2.000 puntos de cada uno, y que su búsqueda no llame a `Math.hypot`.
+
 `city-placement.test.js` comprueba lo que se colocó en la ciudad: ni vendedores ni objetos en la calzada, el vendedor de la plaza alcanzable, la portada y las gradas de la iglesia, el muro de las torres curvas, la fuente que frena antes de su borde y se rodea sin trabarse, el carril del bus libre hasta la lámina, el suelo junto a los estribos y bajo la rampa del puente del lago, sin rendijas, el GPS junto a los postes del separador, ningún poste ni mobiliario sobre una rampa, la rejilla de aparición fuera de las cajas y el semáforo a la vista del carril de la X 66.
 
 La prueba larga de `traffic.test.js` monta el tráfico como una partida: ciudad completa, una flota con dos patrullas, parqueados, NPC y perro como peatones, y buses con semáforos. Corre cinco semillas de cinco minutos, y una más con persecuciones repetidas, y falla si un vehículo pasa más de 200 segundos parado. Para medir un cambio de flota, usar ese montaje y varias semillas en procesos nuevos: una medición sin parqueados ni peatones no vio los atascos reales. Para un cambio en la conducta de la gente, sumar sustos periódicos a personas fijas cercanas a cruces y calzada, con el jugador quedándose cerca como lo haría al robar: sin sustos, un fijo nunca sale de su sitio y un atasco de minutos no se ve.
