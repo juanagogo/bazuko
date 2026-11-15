@@ -938,6 +938,8 @@ export class HUD {
         const delta = (k === item.consumable ? item.amount : 0) + (k !== item.consumable ? (item[k] ?? 0) : 0);
         if (delta) game.stats[k] = Math.max(0, Math.min(100, game.stats[k] + delta));
       }
+      // Lo que me tomo no es un golpe: la cámara no acusa la salud que quita.
+      game._saludVista = game.stats.salud;
       if (item.calor) {
         game.stats.calor = Math.min(300, (game.stats.calor || 0) + item.calor);
       }
