@@ -24,8 +24,8 @@ export function ponerModo(nuevo, { fijar = false } = {}) {
 /** La misma tecla con el nombre del botón que la produce (`BUTTON_KEYS` de Gamepad.js). */
 export const TECLA_EN_MANDO = {
   E: 'A', Q: 'X', I: 'Y', V: 'LB', G: 'RB', M: 'View', N: 'R3', R: 'Arriba', X: 'Abajo', B: 'Izquierda', F: 'Derecha', Esc: 'B', Espacio: 'LT', Shift: 'RT',
-  // Sostener LB cambia lo que hacen la cruceta, A, X y Y (`CON_LB` de Gamepad.js).
-  C: 'LB+Y', T: 'LB+X', 1: 'LB+↑', 2: 'LB+→', 3: 'LB+↓', 4: 'LB+←', 5: 'LB+A',
+  // Sostener LB cambia lo que hacen la cruceta, A, B, X y Y (`CON_LB` de Gamepad.js).
+  C: 'LB+Y', T: 'LB+X', Y: 'LB+B', 1: 'LB+↑', 2: 'LB+→', 3: 'LB+↓', 4: 'LB+←', 5: 'LB+A',
 };
 
 /** Lo que dice la celda de la tecla: con mando dice su botón, y si no, la tecla de siempre. */
