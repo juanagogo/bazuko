@@ -1,5 +1,6 @@
 // El cuerpo de los malabares: las manos siguen el calendario de la cascada sobre el esqueleto real, sin mover pies ni
-// raíz, y andar, saltar u otra acción bajan los brazos.
+// raíz; andar, saltar u otra acción bajan los brazos; y el show pone la pose mientras dura y la suelta al terminar o
+// al cortarse.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -7,6 +8,13 @@ import * as THREE from 'three';
 import { ActionPose } from '../src/character/ActionPose.js';
 import { faseMano, manoEnCascada } from '../src/character/rebusquePose.js';
 import { BEAT, PERMANENCIA } from '../src/systems/rebusque/ritmo.js';
+import { RebusqueSystem } from '../src/systems/RebusqueSystem.js';
+import { InventorySystem } from '../src/systems/InventorySystem.js';
+import { TrafficSignals, signalState } from '../src/world/bogota/TrafficSignals.js';
+import { TrafficSystem } from '../src/systems/TrafficSystem.js';
+import { ITEMS } from '../src/data/items.js';
+
+globalThis.window ??= new EventTarget();
 
 function bodyRig() {
   const json = JSON.parse(readFileSync(new URL('../public/models/personaje/hombre-adulto/cuerpo.gltf', import.meta.url)));
@@ -79,4 +87,58 @@ test('el muñeco procedural no toma la pose de malabares', () => {
   const { bones } = bodyRig(); const pose = new ActionPose(bones, { procedural: true });
   correr(pose, 'malabares', 1);
   assert.equal(pose.rebusqueWeight, 0);
+});
+
+/** Una cola quieta en rojo y el jugador frente al primero, con pelotas, y un jugador que anota sus acciones. */
+function show(modelKind = 'realista') {
+  const signals = new TrafficSignals();
+  let t = 0;
+  while (signalState(t, 0) === 0 || 36 - t % 36 < 10) t += .5;
+  signals.update(t);
+  const node = signals.nodes[0];
+  const z = node.z0 + 4.3, x0 = node.x0 - 8;
+  const vehicles = [0, 1].map(i => ({ car: { position: { x: x0 - 5.5 * i, y: 0, z }, group: { rotation: { y: 0 } }, length: 4.2, width: 1.8, kind: 'carro' }, speed: 0, stopped: true }));
+  const traffic = Object.assign(Object.create(TrafficSystem.prototype), { signals, vehicles });
+  const inventory = new InventorySystem();
+  inventory.add(ITEMS.malabares, 1);
+  const acciones = [];
+  const player = { modelKind, action: null, actionTimer: 0, position: new THREE.Vector3(x0 + 3.2, 0, z), faceTowards() {},
+    playAction(a, d) { this.action = a; this.actionTimer = d; acciones.push(a); } };
+  const game = { traffic, inventory, player, stats: { dinero: 0, energia: 100, salud: 100, animo: 50, higiene: 80, addXP() {} } };
+  const rebusque = new RebusqueSystem(game, { random: () => 0 });
+  rebusque.update(.1);
+  return { rebusque, player, acciones };
+}
+
+test('el show pone la pose de malabares mientras dura y la suelta al cobrar; el muñeco procedural se frota las manos', () => {
+  const { rebusque, player, acciones } = show();
+  assert.ok(rebusque.intentar());
+  assert.equal(player.action, 'malabares');
+  // Se renueva: la acción dura menos que el show y no se apaga a mitad.
+  for (let i = 0; i < 80 && rebusque.activo; i++) {
+    player.actionTimer -= .1;
+    if (player.actionTimer <= 0) player.action = null;
+    rebusque.update(.1);
+    if (rebusque.activo) assert.equal(player.action, 'malabares', `a los ${(i + 1) / 10} s`);
+  }
+  assert.ok(acciones.length > 3, 'se renueva');
+  assert.ok(!rebusque.activo);
+  assert.equal(player.action, null, 'al cobrar baja los brazos');
+  const procedural = show('procedural');
+  procedural.rebusque.intentar();
+  assert.equal(procedural.player.action, 'calentarse');
+});
+
+test('cortar el show (alejarse, cancelar) baja los brazos, pero no le quita al jugador una acción que ya cambió', () => {
+  const a = show();
+  a.rebusque.intentar();
+  a.player.position.x += 3;
+  a.rebusque.update(.1);
+  assert.ok(!a.rebusque.activo);
+  assert.equal(a.player.action, null, 'caminando lejos');
+  const b = show();
+  b.rebusque.intentar();
+  b.player.playAction('saltar', .65);
+  b.rebusque.cancelar();
+  assert.equal(b.player.action, 'saltar', 'el salto sigue');
 });

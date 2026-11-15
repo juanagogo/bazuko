@@ -3,12 +3,24 @@ import { mkdir } from 'node:fs/promises';
 import path from 'node:path';
 
 // Rebusque en el semáforo con el juego de verdad: compra las pelotas en el menú de la Tienda La Esquinita, espera al
-// primero de una cola quieto en rojo, se para frente a su trompa, oprime B, abre y cierra la pausa a mitad del show y
-// cobra. Las evaluaciones solo abren la tienda, ponen al jugador en su sitio y fijan el azar; el tráfico, los
-// semáforos, la compra, la tecla y el cobro son los del juego.
+// primero de una cola quieto en rojo, se para frente a su trompa, oprime B, comprueba que el cuerpo hace los malabares
+// con las pelotas en el aire, abre y cierra la pausa a mitad del show, cobra y comprueba que los brazos bajan.
+// Las evaluaciones solo abren la tienda, ponen al jugador y la cámara en su sitio y fijan el azar; el tráfico, los
+// semáforos, la compra, la tecla, la pose y el cobro son los del juego.
 // Las fotos van a REBUSQUE_FOTOS (o a test-results/rebusque); con REBUSQUE_GIF también los cuadros del show.
 
 test.use({ video: 'off' });
+
+/** Lo que se ve del cuerpo: la acción, la mano derecha y las pelotas, en metros sobre los pies. */
+const cuerpo = page => page.evaluate(() => {
+  const g = window.__game, p = g.player;
+  let mano = null;
+  p.character.group.traverse(o => { if (!mano && /righthand$/.test(o.name.replace(/[^a-z0-9]/gi, '').toLowerCase())) mano = o; });
+  const pelotas = g.sceneMgr.scene.getObjectByName('Rebusque: pelotas');
+  const y = o => o.getWorldPosition(o.position.clone()).y - p.position.y;
+  return { modelo: p.modelKind, accion: p.action, mano: mano ? y(mano) : null, pelotas: !!pelotas?.visible,
+    alto: pelotas?.visible ? Math.max(...pelotas.children.map(y)) : null };
+});
 
 test('Rebusque: compra las pelotas, hace malabares frente al primero de la cola en rojo y cobra', async ({ page }) => {
   test.setTimeout(400_000);
@@ -72,6 +84,8 @@ test('Rebusque: compra las pelotas, hace malabares frente al primero de la cola 
     g.player.velocity?.set?.(0, 0, 0);
     g.player.faceTowards?.(v.car.position);
     g.dog?.position?.set?.(x + 40, g.dog.position.y, z + 40);
+    // La cámara de lado y cerca (de perfil, un poco hacia el carro), para ver las manos, las pelotas y la trompa.
+    Object.assign(g.cameraRig, { yaw: yaw - Math.PI * .14, pitch: .1, distance: 3.6 });
     window.__carro = v;
     return '';
   }), { timeout: 240_000, intervals: [400] }).toMatch(/malabares/);
@@ -84,7 +98,13 @@ test('Rebusque: compra las pelotas, hace malabares frente al primero de la cola 
   // El aviso lleva la cuenta del show y del rojo.
   await expect(page.locator('#interaction-prompt')).toContainText('Haciendo malabares');
   await expect(page.locator('#interaction-prompt')).toContainText('rojo');
+  // El cuerpo hace los malabares y las pelotas suben por encima de las manos.
+  const enShow = await cuerpo(page);
+  expect(enShow.accion).toBe(enShow.modelo === 'procedural' ? 'calentarse' : 'malabares');
+  expect(enShow.pelotas).toBe(true);
+  await expect.poll(async () => { const c = await cuerpo(page); return c.alto - (c.mano ?? 1); }).toBeGreaterThan(.3);
   await page.waitForTimeout(800);
+  const manoArriba = (await cuerpo(page)).mano;
   await page.screenshot({ path: path.join(fotos, '3-malabares.png') });
 
   // A mitad del show se abre la pausa: el show espera (el reloj del rojo también) y al cerrarla sigue.
@@ -106,6 +126,11 @@ test('Rebusque: compra las pelotas, hace malabares frente al primero de la cola 
   await expect.poll(() => page.evaluate(() => window.__game.rebusque.activo), { timeout: 60_000 }).toBe(false);
   await expect(page.getByText(/me dieron \$/i).first()).toBeVisible();
   await page.screenshot({ path: path.join(fotos, '4-cobro.png') });
+  // Terminado el show, los brazos bajan y las pelotas se guardan.
+  const despuesDelShow = await cuerpo(page);
+  expect(despuesDelShow.accion).not.toBe('malabares');
+  expect(despuesDelShow.pelotas).toBe(false);
+  if (enShow.modelo !== 'procedural') await expect.poll(async () => manoArriba - (await cuerpo(page)).mano).toBeGreaterThan(.1);
   if (process.env.REBUSQUE_GIF) {
     for (let i = 40; i < 52; i++) {
       await page.screenshot({ path: path.join(fotos, `gif-${String(i).padStart(2, '0')}.png`), clip: { x: 240, y: 100, width: 800, height: 600 } });

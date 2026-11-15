@@ -66,6 +66,7 @@ import { SUBSTANCE_EFFECTS } from '../data/substanceEffects.js';
 import { StealSystem } from '../features/steal.js';
 import { StreetLife } from '../systems/StreetLife.js';
 import { RebusqueSystem } from '../systems/RebusqueSystem.js';
+import { RebusqueVisual } from '../systems/rebusque/RebusqueVisual.js';
 import { PilaPublica, HogarDePaso, TransitStop } from '../entities/StreetLifeProps.js';
 import { streetLifePlaces } from '../world/bogota/streetLifePlaces.js';
 import { openRadioModal } from '../ui/RadioModal.js';
@@ -185,6 +186,7 @@ export class Game {
     // Rebusque en el semáforo: malabares con B frente a los carros en rojo.
     this.rebusque = new RebusqueSystem(this);
     this.interaction.rebusque = this.rebusque;
+    this.rebusqueVisual = new RebusqueVisual(this.sceneMgr.scene, this);
     this.interaction.personCloserThan = (distance) => this.steal.personCloserThan(distance);
     this.interaction.onStartMirrorTheft = (car) => {
       this.steal.startMirrorTheft(car, (target) => {
@@ -1401,6 +1403,7 @@ export class Game {
     this.street?.update(dt);
     this.rebusque?.update(dt);
     this.interaction.rebusquePrompt = this.rebusque?.prompt ?? null;
+    this.rebusqueVisual?.update();
     if (!this.player.isSwimming) this.steal?.update(dt);
     else if (this.steal?.minigameActive) this.steal._endMinigame(false, 'cancel');
     if (this._handleDeath()) return;
@@ -1669,6 +1672,7 @@ export class Game {
     this.waterEffects?.dispose();
     this.contactShadows?.dispose();
     this.gpsBeacon?.dispose();
+    this.rebusqueVisual?.dispose();
     this.psychosis?.dispose?.();
     this.substanceEffects?.dispose?.();
     this.poopSystem?.dispose?.();

@@ -8,6 +8,8 @@
 //    antes del verde. El aviso lleva la cuenta del rojo.
 //  - Al terminar, cada conductor reacciona por su cuenta (systems/rebusque/reacciones.js); lo que pasa sale en el aviso.
 //  - El carro que arranca no paga y alejarse corta el show. Morir, dormir o caer preso lo cancelan (core/game.js).
+//  - Mientras dura, el cuerpo hace los malabares (character/rebusquePose.js) y las pelotas vuelan entre las manos
+//    (rebusque/RebusqueVisual.js). Terminar o cortar el show suelta la pose.
 import { REBUSQUE, ESPERA_POR_CARRO } from '../data/rebusque.js';
 import { DICHOS, PROPINA } from '../data/rebusqueReacciones.js';
 import { ITEMS } from '../data/items.js';
@@ -26,6 +28,7 @@ const NARIZ_EXTRA = 1.15;   // frente al primero de la cola: un poco más de pla
 // sencillo» (salvo el primero del minuto, que pasa entero).
 const TECHO_MINUTO = 3000, MINUTO_S = 60;
 const MALABARES_MIN = 2.5;  // metros: más cerca del carro no se lanzan pelotas
+const GESTO_S = .5;         // la pose se renueva mientras dura el show; si deja de renovarse, se apaga sola
 
 const SEPARADOR = ' · ';     // separador de piezas del aviso (ui/HUD.js)
 const emitir = (name, detail) => globalThis.window?.dispatchEvent?.(new CustomEvent(name, { detail }));
@@ -37,7 +40,8 @@ export class RebusqueSystem {
   constructor(game, { random = Math.random } = {}) {
     this.game = game;
     this.random = random;
-    this.trabajo = null;     // { def, cars, desde, tiempo, dur, nariz }
+    this.trabajo = null;     // { def, cars, desde, tiempo, dur, nariz, gesto }
+    this._poseActiva = null; // la acción del jugador que puso el show, para soltarla al terminar
     this.prompt = null;
     this._t = 0;
     this._atendidos = new WeakMap(); // carro → instante en que se le trabajó
@@ -162,8 +166,9 @@ export class RebusqueSystem {
     const dur = Math.min(def.segundos, this._rojo(cars) - MARGEN_VERDE_S);
     const nodo = this._signals ? cruceCercano(this._signals.nodes, pos, ESQUINA_M) : -1;
     if (nodo >= 0) this._esquinas.set(nodo, this._t);
-    this.trabajo = { def, cars, desde: { x: pos.x, z: pos.z }, tiempo: 0, dur, nariz: !!nariz };
+    this.trabajo = { def, cars, desde: { x: pos.x, z: pos.z }, tiempo: 0, dur, nariz: !!nariz, gesto: 0 };
     this.game.player.faceTowards?.(this._centro(cars));
+    this._pose();
     avisar(def.empezar, 'info');
     return true;
   }
@@ -174,7 +179,23 @@ export class RebusqueSystem {
     this._marcar(this.trabajo);
     this.trabajo = null;
     this.prompt = null;
+    this._soltarPose();
     if (texto) avisar(texto, 'warn');
+  }
+
+  /** El cuerpo de los malabares; el muñeco procedural no tiene esa pose y se frota las manos (calentarse). */
+  _pose() {
+    const player = this.game.player;
+    if (!player?.playAction) return;
+    this._poseActiva = player.modelKind === 'procedural' ? 'calentarse' : 'malabares';
+    player.playAction(this._poseActiva, GESTO_S + .1);
+  }
+
+  /** Baja los brazos ya, si la acción del jugador sigue siendo la del show (dormir, saltar o golpear ya la cambiaron). */
+  _soltarPose() {
+    const player = this.game.player;
+    if (this._poseActiva && player?.action === this._poseActiva) { player.action = null; player.actionTimer = 0; }
+    this._poseActiva = null;
   }
 
   dispose() { this.cancelar(); }
@@ -203,6 +224,7 @@ export class RebusqueSystem {
       return;
     }
     t.tiempo += dt;
+    if ((t.gesto += dt) >= GESTO_S) { t.gesto = 0; this._pose(); }
     if (t.tiempo >= t.dur) this._cobrar();
     else this.prompt = this._promptTrabajo(t);
   }
@@ -255,6 +277,7 @@ export class RebusqueSystem {
     this._marcar(t);
     this.trabajo = null;
     this.prompt = null;
+    this._soltarPose();
     const sucio = this._sucio();
     // Un show recortado por el rojo paga en proporción; frente a la cola, un poco más.
     const fraccion = Math.min(1, Math.max(.1, t.dur / def.segundos)) * (t.nariz ? NARIZ_EXTRA : 1);

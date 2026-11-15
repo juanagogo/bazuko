@@ -21,4 +21,9 @@ Si hay pelotas y carros pero algo de eso falla, B dice por qué («Ya va a cambi
 - Después del cobro el jugador sigue frente a la trompa y, como con cualquier peatón, el carro lo espera en verde hasta que se quite; la cola de atrás espera con él.
 - Cuesta 5 de energía y da 4 de experiencia por conductor que paga.
 
-Hoy el cuerpo no hace la pose de malabares: el jugador se queda quieto mirando a los carros mientras corre el aviso.
+## El cuerpo y las pelotas
+
+- Mientras dura el show, el personaje mira a la cola y hace malabares con tres pelotas en cascada: un lanzamiento cada 0,32 s, alternando manos (`systems/rebusque/ritmo.js`). Los brazos (`character/rebusquePose.js`, aplicada por `ActionPose` después del mezclador, como calentarse) suben cada mano justo cuando lanza, y las pelotas (`systems/rebusque/RebusqueVisual.js`) vuelan entre las palmas con el mismo reloj, a unos 73 cm sobre la mano.
+- El muñeco procedural no tiene esa pose: se frota las manos (calentarse) y las pelotas salen de un punto delante del pecho.
+- El show renueva la acción cada medio segundo. Cobrar o cortar el show (alejarse, morir, dormir, caer preso) la suelta de una vez; saltar u otra acción baja los brazos al instante y caminar los baja de a poco. Si el jugador ya está en otra acción (un salto, un golpe), soltar el show no se la quita.
+- Las pelotas son tres mallas propias sin sombras que se crean con el primer show y se ocultan al terminar.

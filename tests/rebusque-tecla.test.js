@@ -1,5 +1,6 @@
 // La tecla B entre la limosna y el rebusque (teclado, mando y pantalla táctil), el carro sin E ni Q mientras dura el
-// show, la tienda que vende las pelotas una vez y el juego que corta el show al morir, dormir o caer preso.
+// show, la tienda que vende las pelotas una vez y el juego que corta el show (y baja los brazos) al morir, dormir o
+// caer preso.
 import assert from 'node:assert/strict';
 import { beforeEach, test } from 'node:test';
 import * as THREE from 'three';
@@ -41,7 +42,8 @@ function calle({ malabares = false, verde = false, lejos = false } = {}) {
   const inventory = new InventorySystem();
   if (malabares) inventory.add(ITEMS.malabares, 1);
   const stats = { dinero: 0, energia: 100, salud: 100, animo: 50, higiene: 80, addXP() {} };
-  const player = { position: new THREE.Vector3(x0 + 3.2 + (lejos ? 15 : 0), 0, z), faceTowards() {} };
+  const player = { position: new THREE.Vector3(x0 + 3.2 + (lejos ? 15 : 0), 0, z), faceTowards() {}, action: null,
+    playAction(a, d) { this.action = a; this.actionTimer = d; } };
   const game = { traffic, inventory, stats, player };
   const rebusque = new RebusqueSystem(game, { random: () => 0 });
   const interaction = new InteractionSystem(player, inventory, stats, { play() {} }, null, { getEffect: (_k, base) => base }, null);
@@ -103,7 +105,7 @@ test('rebusque en curso: el carro no da aviso de E ni de Q y sus teclas no hacen
   assert.equal(interaction.currentTargetType, 'car');
 });
 
-test('morir, dormir o caer preso a mitad del show lo cortan, y el carro vuelve a ofrecer E y Q', () => {
+test('morir, dormir o caer preso a mitad del show lo cortan y bajan los brazos, y el carro vuelve a ofrecer E y Q', () => {
   const casos = {
     morir: g => {
       Object.assign(g, { _deathPending: false, _arrestPending: false, deathCount: 0, substanceEffects: { end() {} }, psychosis: null });
@@ -124,6 +126,7 @@ test('morir, dormir o caer preso a mitad del show lo cortan, y el carro vuelve a
     c.interaction.update(.016, press('KeyB'), null);
     c.rebusque.update(.5);
     assert.ok(c.rebusque.activo && c.rebusque.prompt, caso);
+    assert.equal(c.game.player.action, 'malabares', caso);
     const car = carroEnLaVia();
     car.position.copy(c.game.player.position);
     c.interaction.register(car);
@@ -134,6 +137,7 @@ test('morir, dormir o caer preso a mitad del show lo cortan, y el carro vuelve a
     hacer(game);
     assert.ok(!c.rebusque.activo, `${caso}: el show no queda colgado`);
     assert.equal(c.rebusque.prompt, null, `${caso}: sin el aviso pegado`);
+    assert.notEqual(c.game.player.action, 'malabares', `${caso}: no queda con los brazos arriba`);
     c.interaction.update(.016, press('KeyF0'), null);
     assert.equal(c.interaction.currentTarget, car, `${caso}: el carro vuelve a dar su aviso`);
     assert.equal(c.game.stats.dinero, 0);
