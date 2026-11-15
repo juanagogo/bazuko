@@ -64,6 +64,7 @@ import { LimpiezaSocialSystem } from '../systems/LimpiezaSocialSystem.js';
 import { SubstanceEffects } from '../systems/SubstanceEffects.js';
 import { SUBSTANCE_EFFECTS } from '../data/substanceEffects.js';
 import { StealSystem } from '../features/steal.js';
+import { JornadaSystem } from '../systems/JornadaSystem.js';
 import { StreetLife } from '../systems/StreetLife.js';
 import { PilaPublica, HogarDePaso, TransitStop } from '../entities/StreetLifeProps.js';
 import { streetLifePlaces } from '../world/bogota/streetLifePlaces.js';
@@ -112,6 +113,8 @@ export class Game {
     this.sceneMgr.scene.environment = this.renderer.createEnvironment();
     this.cameraRig = new CameraRig(this.sceneMgr.scene, canvas);
     this.clock = new Clock({ dayLengthSeconds: DAY_CYCLE_SECONDS });
+    // La hora cambia cómo responde la calle: la patrulla, el robo y la limosna (ver JornadaSystem).
+    this.jornada = new JornadaSystem(this.clock);
     this.input = new Input();
 
     // Sistemas
@@ -176,6 +179,7 @@ export class Game {
       this.diseases, this.talents, this.crafting
     );
     this.interaction.getTraffic = () => this.traffic;
+    this.interaction.jornada = this.jornada;
     // Caleta, fama, cuidar carros, comida que se daña, armas que se gastan, pila, transporte y hogar de paso.
     this.street = new StreetLife(this);
     this.interaction.street = this.street;
@@ -692,6 +696,7 @@ export class Game {
     if (this.parkedMotos) this.sceneMgr.scene.add(this.parkedMotos);
     if (district.getTrafficRoutes) {
       this.traffic = new TrafficSystem(this.sceneMgr.scene, district.getTrafficRoutes(), { policeCount: 2 });
+      this.traffic.jornada = this.jornada;
       this.traffic.setDensity(this.trafficDensity);
       // La flota diaria entra y sale con el reloj: el juego le da de alta el carro nuevo y de baja el que se va.
       this.traffic.onVehicleAdded = (car) => {
@@ -887,6 +892,7 @@ export class Game {
     if (data) {
       this.stats.deserialize(data.stats);
       this.clock.deserialize(data.clock);
+      this.jornada?.sincronizar(); // al cargar, la franja se toma tal cual, sin aviso
       this.inventory.deserialize(data.inventory ?? {});
       this.talents.deserialize(data.talents ?? {});
       this.diseases.deserialize(data.diseases ?? {});
@@ -1318,6 +1324,7 @@ export class Game {
     // 1. Tiempo
     this._vehicleImpactCooldown = Math.max(0, (this._vehicleImpactCooldown ?? 0) - dt);
     this.clock.update(dt);
+    this.jornada?.update();
     this.time.update(dt, this.clock);
     this.dailyMissions?.update(dt, this.clock);
 
