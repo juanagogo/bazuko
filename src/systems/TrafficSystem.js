@@ -551,6 +551,27 @@ export class TrafficSystem {
     return vehicle;
   }
 
+  /**
+   * Carros quietos frente a un semáforo en rojo a menos de `radius` metros de `position`, del más cercano al más
+   * lejano. Sin patrullas ni carros sostenidos: el rebusque solo se le hace a quien espera la luz. Solo lee.
+   */
+  stoppedAtRed(position, radius = 6) {
+    const found = [];
+    if (!this.signals?.redAhead) return found;
+    for (const vehicle of this.vehicles) {
+      // `stopped`: ya frenó del todo; uno que apenas se arrima a la línea o que arranca no cuenta.
+      if (vehicle.police || vehicle.hold || !vehicle.stopped || vehicle.speed > .1) continue;
+      const car = vehicle.car;
+      const dx = car.position.x - position.x, dz = car.position.z - position.z;
+      const distance = Math.hypot(dx, dz);
+      if (distance > radius || Math.abs(car.position.y - (position.y ?? 0)) > 1.5) continue;
+      const yaw = car.group.rotation.y;
+      if (!this.signals.redAhead(car.position, { x: Math.cos(yaw), z: -Math.sin(yaw) })) continue;
+      found.push({ vehicle, car, distance });
+    }
+    return found.sort((a, b) => a.distance - b.distance);
+  }
+
   _chooseRoute(vehicle) {
     if (vehicle.crossingNode) return false;
     if (this.routes.length < 2) return false;
