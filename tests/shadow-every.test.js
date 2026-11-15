@@ -1,5 +1,5 @@
-// En calidad media la sombra del sol se pinta una imagen sí y otra no, y en todas si lo que se sigue va a más
-// de 9 m/s o salta de lugar o de hora; en alta, en todas; baja no tiene.
+// En calidad media la sombra del sol se pinta una imagen sí y otra no, y en todas si el jugador va a más de
+// 9 m/s o salta de lugar o de hora; en alta, en todas; baja no tiene.
 import assert from 'node:assert/strict';
 import { afterEach, beforeEach, mock, test } from 'node:test';
 import * as THREE from 'three';
@@ -74,7 +74,7 @@ function partida({ saved = null } = {}) {
   const haciaElSol = new THREE.Vector3(-30, 80, 40);
   // Sin más, el jugador corre a 6 m/s a 60 imágenes por segundo: el sol y su caja de sombra avanzan 10 cm por
   // imagen. `salto` lo lleva lejos de una imagen a otra, `sol` cambia la hora (hacia dónde queda el sol) y `giro`
-  // da vuelta a la cámara a su alrededor. El dibujo no recibe al jugador: el sol sigue a lo que siga la cámara.
+  // da vuelta a la cámara a su alrededor. El dibujo no recibe al jugador: el sol va con él.
   const imagen = ({ velocidad = 6, espera = 1 / 60, salto = 0, sol = null, giro = 0 } = {}) => {
     juego++;
     reloj += espera * 1000;

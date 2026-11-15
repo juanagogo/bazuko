@@ -406,8 +406,8 @@ export class Renderer {
     // la renueva 30 veces por segundo. Lo que pide pintarla (cambiar de calidad, un mapa nuevo o de otro
     // tamaño) la pinta en la siguiente, y quien ya la congeló para su propio dibujo, como la foto del
     // arresto, la deja como está. También se pinta si el sol corrió más de 9 m/s desde la última pasada:
-    // sigue a quien sigue la cámara, a pie o en un carro, y gira con la hora, así que un carro rápido o un
-    // salto de lugar o de hora lo mueven, y girar la cámara no.
+    // va con el jugador y gira con la hora, así que lo mueven el jugador cuando va rápido (como irá en un
+    // carro) o un salto de lugar o de hora, y girar la cámara no.
     const shadowMap = this.instance.shadowMap, shadowEvery = GRAPHICS_PROFILES[this.effectiveQuality].shadowEvery;
     const spaced = shadowMap.autoUpdate === true && shadowEvery > 1, sun = shadowLights[0], sunShadow = sun?.shadow;
     if (spaced) {
