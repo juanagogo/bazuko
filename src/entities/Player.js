@@ -408,6 +408,36 @@ export class Player {
     this._faceYaw = Math.atan2(point.x - this.position.x, point.z - this.position.z);
   }
 
+  /**
+   * Pose que dirige otro sistema (subir o bajar de un carro): sin control, físicas ni colisiones.
+   * `speed` en m/s mueve las piernas; `action` y `actionProgress` dan el gesto; `yaw` orienta el cuerpo.
+   */
+  animateScripted(dt, { speed = 0, action = null, actionProgress = 0, yaw = null } = {}) {
+    if (!(dt > 0)) return;
+    this.time += dt;
+    this.melee?.cancel();
+    const previousYaw = this.root.rotation.y;
+    if (Number.isFinite(yaw)) {
+      const diff = Math.atan2(Math.sin(yaw - previousYaw), Math.cos(yaw - previousYaw));
+      this.root.rotation.y = previousYaw + diff * (1 - Math.exp(-14 * dt));
+      this._faceYaw = null;
+    }
+    this.root.rotation.z = THREE.MathUtils.lerp(this.root.rotation.z, 0, 1 - Math.exp(-12 * dt));
+    this.speed = Math.max(0, speed);
+    this.state = this.speed < .25 ? 'idle' : 'walk';
+    Object.assign(this.movement, { grounded: true, verticalVelocity: 0, airTime: 0, landing: 0, swimming: false,
+      waterDepth: 0, turnRate: (this.root.rotation.y - previousYaw) / dt });
+    this.character.update(dt, {
+      stance: this._updateBodyLanguage(dt, true), style: this.bodyStyle, speed: this.speed / this.modelScale, running: false,
+      action, actionProgress, actionDuration: 1, movement: this.movement, attack: null, smoke: null, basuco: null,
+      look: 0, t: this.time, load: this.load,
+      dirt: this.stats ? Math.max(0, (40 - this.stats.higiene) / 40) : 0
+    });
+  }
+
+  /** Al volante no corre `update`: el aturdimiento se descuenta desde el carro. */
+  tickWheelStun(dt) { this._impactTime = Math.max(0, this._impactTime - dt); }
+
   /** Anima una acción breve (segundos) */
   playAction(action, duration = 1) {
     if (action !== 'golpear') this.melee?.cancel();
@@ -486,6 +516,8 @@ export class Player {
   receiveHit(direction, strength = 2, { salud } = {}) {
     if (this.ragdoll?.active) return;
     this.melee.cancel();
+    // Al volante (CarjackSystem) no lo tumban ni lo empujan: queda aturdido un momento y el carro sigue solo.
+    if (this.atWheel) { this._impactTime = Math.max(this._impactTime, .3); return; }
     this._impactVelocity.copy(direction).setY(0);
     if (this._impactVelocity.lengthSq() < 1e-4) this._impactVelocity.set(0, 0, 1);
     this._impactVelocity.normalize().multiplyScalar(strength);
