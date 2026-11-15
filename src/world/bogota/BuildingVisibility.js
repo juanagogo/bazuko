@@ -165,8 +165,10 @@ export class BuildingVisibility {
         const key = `${mesh.material.userData.staticBatchKey ?? mesh.material.uuid}|${mesh.castShadow}|${mesh.receiveShadow}|${geometryChunk(mesh.geometry, mesh.matrixWorld, CLOSED_CHUNK_SIZE)}`;
         if (!buckets.has(key)) buckets.set(key, { source: mesh, geometries: [] });
         const geometry = mesh.geometry.clone().applyMatrix4(mesh.matrixWorld);
-        // Las caras y los adornos comparten estos atributos; no se necesitan tangentes.
-        for (const name of Object.keys(geometry.attributes)) if (!['position', 'normal', 'uv'].includes(name)) geometry.deleteAttribute(name);
+        // Las caras y los adornos comparten estos atributos; no se necesitan tangentes. Un material
+        // puede pedir los suyos (el color de fondo de los avisos).
+        const keep = ['position', 'normal', 'uv', ...(mesh.material.userData.batchAttributes ?? [])];
+        for (const name of Object.keys(geometry.attributes)) if (!keep.includes(name)) geometry.deleteAttribute(name);
         buckets.get(key).geometries.push(geometry);
       });
     }

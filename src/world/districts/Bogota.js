@@ -26,6 +26,7 @@ import { TILE_SIZE } from '../../utils/constants.js';
 import { Farol } from '../props/Farol.js';
 import { TrafficSignals } from '../bogota/TrafficSignals.js';
 import { signTexture } from '../../utils/signs.js';
+import { signTextAtlas, atlasPlane, SignTextMaterial } from '../../utils/signAtlas.js';
 import { Banca } from '../props/Banca.js';
 import { buildGroundWear, dressGrass, dressPaving } from '../bogota/GroundDressing.js';
 import * as TX from '../bogota/textures.js';
@@ -845,6 +846,15 @@ export class Bogota {
     this.backdrop = this.cerros;
   }
 
+  /** Texto de todos los avisos de local en un atlas: 16 nombres con letra oscura o clara. */
+  _shopSignAtlas() {
+    if (this._shopSigns !== undefined) return this._shopSigns;
+    if (typeof document === 'undefined' || typeof document.createElement !== 'function') return (this._shopSigns = null);
+    const entries = SHOP_NAMES.flatMap(([title, sub]) => ['#26302e', '#fff3da'].map(fg => ({ title, sub, fg })));
+    const { texture, cells } = signTextAtlas(entries, { w: 768, h: 192 });
+    return (this._shopSigns = { cells, material: new SignTextMaterial({ map: texture }) });
+  }
+
   _house(tiles, dx, dz, face, alongX, isB, map, sideMat, roofMat, tileRoof, covered) {
     const ruin = tiles.some(([x, z]) => map[z][x] === 'ruin');
     // Profundidad: hasta 3 tiles hacia adentro, sin invadir casas ya construidas.
@@ -925,14 +935,22 @@ export class Bogota {
 
     // aviso de local en el primer piso
     if (!ruin && random() < 0.55) {
-      const [title, sub] = choose(SHOP_NAMES);
+      const shopName = choose(SHOP_NAMES);
+      const [title, sub] = shopName;
       const signColor = new THREE.Color(choose(['#0b4fa3', '#c0392b', '#1f6b3a', '#f2c600', '#ffffff', '#6a1b9a']));
       signColor.lerp(new THREE.Color(neighborhood.palette.signBackground), .18);
       const luminance = .2126 * signColor.r + .7152 * signColor.g + .0722 * signColor.b;
-      const map = signTexture({ title, sub, bg: `#${signColor.getHexString()}`, fg: luminance > .4 ? '#26302e' : '#fff3da', w: 768, h: 192 });
-      if (map) {
-        const sign = new THREE.Mesh(new THREE.PlaneGeometry(Math.min(widthM * 0.85, 3.6), Math.min(widthM * 0.85, 3.6) / 4),
-          new THREE.MeshBasicMaterial({ map }));
+      const fg = luminance > .4 ? 0 : 1;
+      const bg = `#${signColor.getHexString()}`, signW = Math.min(widthM * 0.85, 3.6);
+      // El texto sale del atlas compartido y el fondo va en los vértices del plano. Sin lienzo (las
+      // pruebas en Node) o sin sitio en el atlas, el aviso lleva su propia textura.
+      const atlas = this._shopSignAtlas();
+      const cell = atlas?.cells[SHOP_NAMES.indexOf(shopName) * 2 + fg];
+      const map = cell ? null : signTexture({ title, sub, bg, fg: fg ? '#fff3da' : '#26302e', w: 768, h: 192 });
+      if (cell || map) {
+        const sign = cell
+          ? new THREE.Mesh(atlasPlane(signW, signW / 4, cell, new THREE.Color(bg)), atlas.material)
+          : new THREE.Mesh(new THREE.PlaneGeometry(signW, signW / 4), new THREE.MeshBasicMaterial({ map }));
         sign.position.set(fx + dx * 0.06 - cx, 3.05, fz + dz * 0.06 - cz);
         sign.rotation.y = yaw;
         shell.walls.get(face).add(sign);
@@ -1682,6 +1700,9 @@ export class Bogota {
     for (const bus of this.busServices ?? []) bus.dispose();
     this.buildingVisibility.dispose();
     this._facadeTextures.clear();
+    // Los avisos llevan copias de este material (BuildingVisibility); el original se suelta aquí.
+    this._shopSigns?.material.dispose();
+    this._shopSigns = undefined;
     this._facadeSeeds.clear();
     this._facadeMaterials.clear();
     scene.remove(this.group);
