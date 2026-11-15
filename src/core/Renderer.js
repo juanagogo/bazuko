@@ -111,6 +111,9 @@ const SETTLE_FRAMES = 20;
 // piso y deja unas pocas por segundo, solo durante el minuto que dura el amanecer o el atardecer.
 const ENVIRONMENT_STEP = 1 / 128;
 
+// La matriz con que se pintó la sombra del sol, guardada mientras el descarte la mueve.
+const PAINTED_SHADOW = new THREE.Matrix4();
+
 /**
  * Un solo mapa de entorno que se funde entre el de día y el de noche. Three alumbra con él todo material
  * PBR, no solo sus reflejos: cambiarlo de golpe hacía saltar el brillo del piso de un cuadro a otro.
@@ -299,7 +302,10 @@ export class Renderer {
     // Lista desde ya: compila aquí y no en el primer atardecer.
     this.environmentMix.update(1);
     // Three vuelve a subir lo que tiene en memoria, pero estos mapas son dibujos: un contexto perdido los vacía.
-    this.instance.domElement.addEventListener('webglcontextrestored', () => { this._environmentLost = true; this._settleFrames = SETTLE_FRAMES; });
+    // También vacía la sombra del sol, que en media no se pinta en todas las imágenes: se pide en la siguiente.
+    this.instance.domElement.addEventListener('webglcontextrestored', () => {
+      this._environmentLost = true; this._settleFrames = SETTLE_FRAMES; this.instance.shadowMap.needsUpdate = true;
+    });
     return this.environmentMix.texture;
   }
 
@@ -383,6 +389,18 @@ export class Renderer {
     const environmentDay = scene.userData?.environmentDay;
     if (this.environmentMix && Number.isFinite(environmentDay)) this.environmentMix.update(environmentDay);
     const autoUpdate = scene.matrixWorldAutoUpdate;
+    // En media la sombra del sol se pinta una imagen sí y otra no: lo quieto no cambia y lo que se mueve
+    // la renueva 30 veces por segundo. Lo que pide pintarla (cambiar de calidad, un mapa nuevo o de otro
+    // tamaño) la pinta en la siguiente, y quien ya la congeló para su propio dibujo, como la foto del
+    // arresto, la deja como está.
+    const shadowMap = this.instance.shadowMap, shadowEvery = GRAPHICS_PROFILES[this.effectiveQuality].shadowEvery;
+    const spaced = shadowMap.autoUpdate === true && shadowEvery > 1, sunShadow = shadowLights[0]?.shadow;
+    if (spaced) {
+      shadowMap.autoUpdate = false;
+      const fresh = sunShadow && (!sunShadow.map || sunShadow.needsUpdate);
+      if (shadowMap.needsUpdate || fresh || !this._shadowWait) { shadowMap.needsUpdate = true; this._shadowWait = shadowEvery - 1; }
+      else this._shadowWait--;
+    }
     try {
       // Los inmuebles ya tienen matrices mundiales fijas. El recorrido automático
       // de Scene aún visitaba sus miles de nodos, incluso con matrices congeladas.
@@ -394,7 +412,15 @@ export class Renderer {
         for (const root of this.dynamicWorldRoots) root.updateMatrixWorld();
         scene.matrixWorldAutoUpdate = false;
       }
+      // Sin pasada de sombra el mapa es el de la imagen anterior y se lee con la matriz con que se pintó:
+      // el descarte la acerca al jugador y, sin devolverla, hasta la sombra de lo quieto temblaría al andar.
+      const kept = spaced && !shadowMap.needsUpdate ? sunShadow : null;
+      if (kept) PAINTED_SHADOW.copy(kept.matrix);
       this.culling.apply(camera, this.instance.shadowMap.enabled ? shadowLights : []);
+      if (kept) kept.matrix.copy(PAINTED_SHADOW);
+      // Three pone al día huesos, instancias y geometría una vez por número de imagen, y la pasada de sombra de la
+      // imagen anterior ya usó el de esta: sin pasada, el jugador y la gente saldrían con la pose de la anterior.
+      if (kept) this.instance.info.render.frame++;
       // Lo que hay que compilar si cambian las sombras. El objeto se reutiliza: se escribe en cada cuadro.
       const frame = this._lastFrame ??= {};
       frame.scene = scene; frame.camera = camera; frame.shadowLights = shadowLights;
@@ -404,6 +430,7 @@ export class Renderer {
         this.silhouette.render(this.instance, scene, camera, playerRoot, this.overlayLights);
       }
     } finally {
+      if (spaced) shadowMap.autoUpdate = true;
       sunFieldUniforms.uSunFieldOn.value = 0;
       scene.matrixWorldAutoUpdate = autoUpdate;
       this.culling.restore();

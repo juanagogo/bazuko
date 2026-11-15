@@ -1,0 +1,162 @@
+// En calidad media la sombra del sol se pinta una imagen sí y otra no; en alta, en todas; baja no tiene.
+import assert from 'node:assert/strict';
+import { beforeEach, test } from 'node:test';
+import * as THREE from 'three';
+import { Renderer } from '../src/core/Renderer.js';
+import { AdaptiveResolution } from '../src/core/AdaptiveResolution.js';
+import { FrustumCulling } from '../src/core/FrustumCulling.js';
+import { AutoQuality, GRAPHICS_PROFILES } from '../src/core/GraphicsQuality.js';
+
+beforeEach(() => {
+  globalThis.window = new EventTarget();
+  window.devicePixelRatio = 1;
+  const store = new Map();
+  globalThis.localStorage = { getItem: key => store.get(key) ?? null, setItem: (key, value) => store.set(key, value) };
+});
+
+const baked = () => {
+  const texture = new THREE.Texture({ width: 384, height: 512 });
+  texture.mapping = THREE.CubeUVReflectionMapping;
+  return texture;
+};
+
+/**
+ * El Renderer y el descarte de verdad, con un sol que sigue al jugador como en `SceneManager.followTarget`.
+ * Del motor solo se imita lo que toca a la sombra: el mapa se pinta si `autoUpdate` o `needsUpdate`, con la
+ * matriz del sol de ese momento; al pintarlo existe `shadow.map` y los dos `needsUpdate` vuelven a false, y la
+ * escena lo lee con `sun.shadow.matrix`. Como en `WebGLRenderer.render`, se recorre lo que ve la cámara con el
+ * número de imagen de `info`, se le suma uno y la pasada de sombra usa el nuevo; los huesos de quien da sombra
+ * se ponen al día una sola vez por número, como en `WebGLObjects.update`.
+ */
+function partida({ saved = null } = {}) {
+  if (saved) localStorage.setItem('bazuko.graphics_quality', saved);
+  const scene = new THREE.Scene(), camera = new THREE.PerspectiveCamera(60, 1.6, .1, 300);
+  const sun = new THREE.DirectionalLight();
+  sun.castShadow = true;
+  scene.add(sun, sun.target);
+  const shadowMap = { enabled: true, autoUpdate: true, needsUpdate: false };
+  const pintadoCon = new THREE.Matrix4(), imagenes = [], info = { render: { frame: 0 }, reset() {} };
+  let juego = 0, huesosEn = -1, pose = -1;
+  const huesos = () => { if (huesosEn !== info.render.frame) { huesosEn = info.render.frame; pose = juego; } };
+  const instance = {
+    shadowMap, domElement: new EventTarget(), info, setPixelRatio() {},
+    compileAsync: () => Promise.resolve(), target: null,
+    getRenderTarget() { return this.target; }, setRenderTarget(target) { this.target = target; },
+    render(what) {
+      if (what !== scene) return; // la mezcla de los mapas de entorno no tiene luces
+      huesos();
+      info.render.frame++;
+      const pinta = shadowMap.enabled && sun.castShadow && (shadowMap.autoUpdate || shadowMap.needsUpdate);
+      if (pinta) {
+        huesos();
+        sun.shadow.updateMatrices(sun);
+        pintadoCon.copy(sun.shadow.matrix);
+        sun.shadow.map ??= { texture: new THREE.Texture() };
+        sun.shadow.needsUpdate = shadowMap.needsUpdate = false;
+      }
+      imagenes.push({ pinta, leeLoPintado: sun.shadow.matrix.equals(pintadoCon), matriz: sun.shadow.matrix.clone(), pose, juego });
+    }
+  };
+  const renderer = Object.assign(Object.create(Renderer.prototype), {
+    resolution: new AdaptiveResolution(1), instance, autoQuality: new AutoQuality(saved === null),
+    culling: new FrustumCulling(), silhouette: { render() {} }, _pixelRatio: 1,
+    _bakeEnvironment: () => ({ day: baked(), night: baked() })
+  });
+  let x = 0;
+  // El jugador corre a 6 m/s: el sol y su caja de sombra avanzan 10 cm por imagen.
+  const imagen = () => {
+    juego++;
+    x += 6 / 60;
+    sun.target.position.set(x, 0, 0);
+    sun.position.set(x - 30, 80, 40);
+    camera.position.set(x - 5, 2, 0);
+    camera.lookAt(x, 1.5, 0);
+    renderer.render(scene, camera, null, [sun]);
+    return imagenes.at(-1);
+  };
+  const pintadas = n => { let total = 0; for (let i = 0; i < n; i++) if (imagen().pinta) total++; return total; };
+  return { renderer, instance, shadowMap, sun, scene, camera, imagenes, imagen, pintadas };
+}
+
+test('en media la sombra se pinta en 5 de 10 imágenes, en alta en todas, y baja no tiene sombras', () => {
+  const { renderer, shadowMap, imagenes, pintadas } = partida();
+  renderer.setQuality('media');
+  assert.equal(pintadas(10), 5);
+  assert.deepEqual(imagenes.map(i => i.pinta), [true, false, true, false, true, false, true, false, true, false]);
+  assert.equal(shadowMap.autoUpdate, true, 'fuera del dibujo el mapa sigue en automático');
+  renderer.setQuality('alta');
+  assert.equal(pintadas(10), 10);
+  assert.equal(shadowMap.autoUpdate, true);
+  renderer.setQuality('baja');
+  assert.equal(shadowMap.enabled, false);
+  assert.equal(pintadas(10), 0);
+  assert.equal(GRAPHICS_PROFILES.baja.shadowSize, 0);
+  assert.deepEqual([GRAPHICS_PROFILES.media.shadowEvery, GRAPHICS_PROFILES.alta.shadowEvery], [2, 1]);
+});
+
+test('al cambiar de calidad la imagen siguiente pinta la sombra, aunque le tocara saltársela', async () => {
+  const { renderer, imagen, pintadas } = partida();
+  renderer.setQuality('media');
+  pintadas(3);
+  renderer.setQuality('alta');
+  assert.equal(imagen().pinta, true);
+  renderer.setQuality('media');
+  assert.deepEqual([imagen().pinta, imagen().pinta, imagen().pinta], [true, false, true]);
+
+  // La subida automática de baja a media también la pide.
+  const auto = partida();
+  auto.renderer.setQuality('baja');
+  assert.equal(auto.pintadas(3), 0);
+  auto.renderer.autoQuality.preparing = true;
+  assert.equal(await auto.renderer._raiseAutoQuality(), true);
+  assert.equal(auto.renderer.effectiveQuality, 'media');
+  assert.deepEqual([auto.imagen().pinta, auto.imagen().pinta, auto.imagen().pinta], [true, false, true]);
+});
+
+test('lo que pide pintarla la pinta en la imagen siguiente, aunque le tocara saltársela, y la cuenta sigue desde ahí', () => {
+  const { renderer, instance, shadowMap, sun, imagenes, imagen } = partida();
+  renderer.setQuality('media');
+  renderer.createEnvironment();
+  imagen();
+  // Compilar o cambiar las sombras, como `adaptResolution` al apagarlas por presión.
+  shadowMap.needsUpdate = true;
+  imagen(); imagen(); imagen();
+  // `SceneManager.setQuality` desecha el mapa cuando la presión le cambia el tamaño y pide repintarlo.
+  sun.shadow.map = null;
+  sun.shadow.needsUpdate = true;
+  imagen(); imagen(); imagen();
+  // Un contexto perdido y recuperado deja el mapa vacío.
+  instance.domElement.dispatchEvent(new Event('webglcontextrestored'));
+  imagen(); imagen(); imagen();
+  assert.deepEqual(imagenes.map(i => i.pinta), [true, true, false, true, true, false, true, true, false, true]);
+});
+
+test('sin pasada de sombra el mapa se lee con la matriz con que se pintó, aunque el sol siga al jugador', () => {
+  const { renderer, imagenes, pintadas } = partida();
+  renderer.setQuality('media');
+  pintadas(12);
+  assert.ok(imagenes.every(i => i.leeLoPintado), 'una imagen leyó el mapa anterior con la matriz de otra posición del sol');
+  const pintadasEn = imagenes.filter(i => i.pinta).map(i => i.matriz);
+  assert.ok(pintadasEn.every((m, i) => i === 0 || !m.equals(pintadasEn[i - 1])), 'el sol se movió entre una pintada y la otra');
+});
+
+test('sin pasada de sombra el jugador y la gente se dibujan con la pose de esa imagen, no con la de la anterior', () => {
+  const { renderer, imagenes, pintadas } = partida();
+  renderer.setQuality('media');
+  pintadas(12);
+  assert.equal(imagenes.filter(i => !i.pinta).length, 6);
+  assert.deepEqual(imagenes.filter(i => i.pose !== i.juego).map(i => i.juego), [], 'imágenes dibujadas con los huesos de la anterior');
+});
+
+test('quien congela la sombra para su propio dibujo, como la foto del arresto, no la pinta ni corre la cuenta', () => {
+  const { renderer, shadowMap, scene, imagenes, imagen } = partida();
+  renderer.setQuality('media');
+  assert.equal(imagen().pinta, true);
+  const foto = new THREE.PerspectiveCamera(36, 1.6, .25, 160);
+  shadowMap.autoUpdate = false;
+  renderer.render(scene, foto, null, [], false);
+  assert.equal(imagenes.at(-1).pinta, false);
+  assert.equal(shadowMap.autoUpdate, false, 'la foto lo devuelve ella misma');
+  shadowMap.autoUpdate = true;
+  assert.deepEqual([imagen().pinta, imagen().pinta], [false, true], 'la cuenta sigue donde iba');
+});
