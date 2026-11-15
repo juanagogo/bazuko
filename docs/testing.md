@@ -91,6 +91,8 @@ La captura del modo foto conserva la resolución del canvas (según calidad/DPR)
 
 `character-action-integration.test.js` carga los GLTF y clips locales para comprobar articulación en el cuerpo vestido, continuidad de locomoción, salto en movimiento y natación. `action-pose.test.js` cubre restauración por instancia, fases de golpe de respaldo y límites del esqueleto. `melee-combat.test.js` y `melee.test.js` verifican resolución del ataque, combos y fases por arma, selección frontal, daño y KO; la integración conserva la comprobación de altura y obstáculos, incluida la OBB del bus.
 
+`hit-lean.test.js` cubre el golpe que no tumba al jugador: lo inclina hacia donde lo empujan, midiendo hacia dónde va la cabeza en el mundo con 264 pares de rumbo y empujón (los cuatro lados y las diagonales con ocho rumbos, más 200 al azar con semilla fija), cede poco a poco sin pasar de unos 10°, vuelve a derecho en menos de un segundo sin dejar el cuerpo torcido, da la misma inclinación y el mismo tiempo a 30, 60 y 144 imágenes por segundo y nunca pasa del tope; el golpe que tumba y el atropello lo siguen acostando de lado como antes, sin inclinación encima, sin golpe no se activa nada, un empujón infinito o sin número se ignora, y si cambia de cuerpo en pleno golpe, el que sale queda derecho.
+
 - `combat-geometry.test.js` y `enemy-reach.test.js`: alcance en calle, puente y agua; paredes y buses girados; barrido de persecuciones y nueva comprobación del contacto al impactar.
 - `police-chase-integration.test.js`: captura única, obstáculos, ribera, altura, abandono y retorno gradual al patrullaje.
 - `npc-combat-integration.test.js`: contactos únicos por ataque, KO y recuperación sin renovar botín, empujes seguros y cancelación de contraataques.

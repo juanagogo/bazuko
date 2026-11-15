@@ -7,6 +7,7 @@ import {
   CHARACTER_SCALE
 } from '../utils/constants.js';
 import { createCharacter } from '../character/character.js';
+import { HitLean } from '../character/HitLean.js';
 import { createRealisticCharacter, REALISTIC_SCALE } from '../character/RealisticCharacter.js';
 import { PlayerRagdoll } from '../systems/PlayerRagdoll.js';
 import { MeleeCombat } from '../systems/MeleeCombat.js';
@@ -77,6 +78,8 @@ export class Player {
     this._before = new THREE.Vector3();
     this._impactVelocity = new THREE.Vector3();
     this._impactTime = 0;
+    this._impactHeavy = false; // atropello o golpe que tumba: el cuerpo se va de lado
+    this.hitLean = new HitLean();
     this._respiroTumbo = 0;
     this.tiradoPor = null;
 
@@ -349,6 +352,7 @@ export class Player {
       }
       if (this._realistic.look !== this.look && this.look) await this._realistic.setLook(this.look);
       if (this.modelKind !== 'realista') return; // se cambió mientras cargaba
+      this.hitLean.remove(this.character.group); // la inclinación no se queda en el cuerpo que sale
       this.root.remove(this.character.group);
       this.character = this._realistic;
       this.modelScale = REALISTIC_SCALE;
@@ -357,6 +361,7 @@ export class Player {
       this._realistic.setBasuco?.(!!this.basuco && !this.basuco.stowed);
       this._realistic.clearSleepPose?.();
     } else {
+      this.hitLean.remove(this.character.group); // la inclinación no se queda en el cuerpo que sale
       this.root.remove(this.character.group);
       this.character = this.procedural;
       this.modelScale = CHARACTER_SCALE;
@@ -422,6 +427,9 @@ export class Player {
     this.velocity?.set(0, 0, 0);
     this._impactVelocity.set(0, 0, 0);
     this._impactTime = 0;
+    this._impactHeavy = false;
+    this.hitLean.remove(this.character.group);
+    this.hitLean.clear();
     this.landing = 0;
   }
 
@@ -473,9 +481,12 @@ export class Player {
   receiveVehicleImpact(direction, speed, { collisions = this._lastCollisions } = {}) {
     this.melee.cancel();
     this.tiradoPor = 'carro';
+    this.hitLean.remove(this.character.group);
+    this.hitLean.clear();
     if (this.ragdoll.start(direction, speed, collisions)) return;
     this._impactVelocity.copy(direction).setY(0).normalize().multiplyScalar(Math.min(9, speed * .7));
     this._impactTime = 1;
+    this._impactHeavy = true;
     this.root.rotation.z = .85;
   }
 
@@ -492,11 +503,16 @@ export class Player {
     if (golpeTumba(salud, this._respiroTumbo)) {
       this.tiradoPor = 'golpe';
       this._respiroTumbo = GOLPE_TUMBA.respiroS;
+      this.hitLean.remove(this.character.group);
+      this.hitLean.clear();
       if (this.ragdoll?.start(this._impactVelocity.clone(), GOLPE_TUMBA.velocidad, this._lastCollisions)) return;
       this._impactTime = 1;
+      this._impactHeavy = true;
       this.root.rotation.z = .85;
       return;
     }
+    // Golpe que no tumba: el tronco cede hacia donde lo empujan (ver HitLean).
+    if (!this._impactHeavy) this.hitLean.kick(this._impactVelocity, this.root.rotation.y, strength / 1.6);
     this._impactTime = Math.max(this._impactTime, .3);
   }
 
@@ -509,6 +525,9 @@ export class Player {
     this.ragdoll.clear();
     this._impactVelocity.set(0, 0, 0);
     this._impactTime = 0;
+    this._impactHeavy = false;
+    this.hitLean.remove(this.character.group);
+    this.hitLean.clear();
     this.root.rotation.z = 0;
   }
 
@@ -525,6 +544,7 @@ export class Player {
 
   update(dt, camera, collisions, groundHeight = null, npcs = [], waterInfo = null) {
     this.time += dt;
+    this.hitLean.remove(this.character.group);
     this._lastCollisions = collisions;
     if (this._respiroTumbo > 0) this._respiroTumbo -= dt;
     if (this.ragdoll?.active) {
@@ -607,8 +627,10 @@ export class Player {
       delta.addScaledVector(this._impactVelocity, (1 - Math.exp(-4 * dt)) / 4);
       this._impactVelocity.multiplyScalar(Math.exp(-4 * dt));
       this._impactTime = Math.max(0, this._impactTime - dt);
+      if (this._impactTime === 0) this._impactHeavy = false;
     }
-    this.root.rotation.z = .85 * this._impactTime;
+    // Solo el golpe que tumba lo acuesta de lado; el leve lo inclina hitLean.
+    this.root.rotation.z = this._impactHeavy ? .85 * this._impactTime : 0;
 
     const before = this._before.copy(this.position);
     if (collisions) {
@@ -751,6 +773,9 @@ export class Player {
       load: this.load,
       dirt: this.stats ? Math.max(0, (40 - this.stats.higiene) / 40) : 0
     });
+    // La inclinación del golpe va en el cuerpo, después de animarlo, y se quita al empezar el cuadro siguiente.
+    this.hitLean.update(dt);
+    if (!this._impactHeavy) this.hitLean.apply(this.character.group);
   }
 
   dispose() {
