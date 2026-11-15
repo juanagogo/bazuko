@@ -243,17 +243,21 @@ body.mojado #quickbar .qb-slot.elegido::after { border-image-source: var(--m-cir
 .dock-key { font-size: 15px; }
 #camera-controls {
   position: fixed; z-index: 40;
-  right: calc(322px + var(--safe-r)); bottom: calc(104px + var(--safe-b));
+  /* A la izquierda de la barra de paneles, midiendo su ancho real (PanelDock.js). */
+  right: calc(30px + var(--panel-dock-w, 435px) + var(--safe-r)); bottom: calc(104px + var(--safe-b));
 }
 #camera-toggle.cinta { min-height: 42px; padding: 4px 9px; font-size: 19px; }
 #camera-toggle kbd { font-size: 15px; }
 #camera-hint { position: absolute; right: 0; bottom: calc(100% + 10px); display: none; width: 280px; font-size: 16px; line-height: 1.2; }
 #camera-controls:focus-within #camera-hint { display: block; }
-#controls-help { position: fixed; z-index: 40; right: calc(412px + var(--safe-r)); bottom: calc(104px + var(--safe-b)); }
+#controls-help {
+  --ayuda-r: calc(50px + var(--panel-dock-w, 435px) + var(--camera-w, 70px)); /* a la izquierda de la cámara */
+  position: fixed; z-index: 40; right: calc(var(--ayuda-r) + var(--safe-r)); bottom: calc(104px + var(--safe-b));
+}
 #controls-help-toggle { min-width: 42px; min-height: 42px; padding: 4px 9px; font-size: 19px; white-space: nowrap; }
 #controls-help-content {
   position: absolute; right: 0; bottom: calc(100% + 10px);
-  width: min(560px, calc(100vw - 788px)); max-height: 58vh; overflow: auto; /* sin pisar el radar, que tiene sus botones */
+  width: min(560px, calc(100vw - var(--ayuda-r) - 376px)); max-height: 58vh; overflow: auto; /* sin pisar el radar, que tiene sus botones */
   display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 5px 16px;
   font-size: 16px; line-height: 1.15;
 }
