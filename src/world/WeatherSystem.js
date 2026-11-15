@@ -177,6 +177,7 @@ export class WeatherSystem {
    * partida, pruebas); `transition` mezcla nubes, lluvia y viento durante ~40 s.
    */
   setWeather(type, notify = true, { transition = false } = {}) {
+    if (!WEATHER_TYPES[type] && import.meta.env?.DEV) console.warn(`[Clima] No existe el tiempo «${type}»: sigue el que había.`);
     if (!WEATHER_TYPES[type] || this.weather === type) return;
     this.weather = type;
     const target = WEATHER_TYPES[type];
