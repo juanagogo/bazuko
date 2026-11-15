@@ -6,6 +6,7 @@ import { PoliceSirenAudio } from './PoliceSirenAudio.js';
 import { NpcConversations } from './NpcConversations.js';
 import { NPC_CONVERSATIONS } from '../data/npcConversations.js';
 import { VoiceDirector } from './voces/VoiceDirector.js';
+import { PRIORIDAD_CANAL } from './voces/prioridad.js';
 
 export const MIX_CATEGORIES = ['ambient', 'traffic', 'voices', 'effects'];
 // El audio vive en public/audio: la ruta se arma con la base para que la demo de Pages funcione bajo su subcamino.
@@ -120,6 +121,11 @@ export class AudioSystem {
     this.conversations.externalVoiceActive = () => this._theftVoiceActive() || this.vehicles.remarkPlaying() || this.streetVoices.active || this.voces.active;
     this.voces.otraVoz = () => this._theftVoiceActive() || this.vehicles.remarkPlaying() || this.streetVoices.active || this.conversations.busy;
     this.voces.audioListo = () => !this.howler.ctx || (this.howler.state === 'running' && this.howler.ctx.state === 'running');
+    // Un testigo espera al reclamo por robo y corta a la calle, las conversaciones y los conductores (voces/prioridad.js).
+    this.voces.pesoOtraVoz = () => this._theftVoiceActive() ? PRIORIDAD_CANAL.carro
+      : this.vehicles.remarkPlaying() ? PRIORIDAD_CANAL.reclamo
+        : this.streetVoices.active || this.conversations.busy ? PRIORIDAD_CANAL.calle : 0;
+    this.voces.callarOtras = () => { this.vehicles.stopRemarks(); this.streetVoices.cancel(); this.conversations.cancel(); };
     this._carAlarms = new Map();
 
     // El audio es opcional: un archivo ausente o bloqueado no impide jugar.
