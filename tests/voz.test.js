@@ -54,7 +54,7 @@ test('cada excepción de tuteo sigue viva: si una frase se va, se quita de la li
 });
 
 test('los puntos medios quedan solo en lo impreso de la ciudad y como separador interno de los avisos', () => {
-  const impreso = (donde) => /^src\/(world|entities\/(SellPoint|Shop)\.js)/.test(donde);
+  const impreso = (donde) => /^src\/(world|entities\/(SellPoint|Shop|ComedorComunitario)\.js)/.test(donde);
   // `[E] Recoger · [Q] Algo`: HUD los parte en piezas y el punto no llega a verse.
   const separador = (texto, donde) => /^\s*\[/.test(texto) || texto.trim() === '·';
   const malos = CADENAS
