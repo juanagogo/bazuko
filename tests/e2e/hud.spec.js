@@ -147,6 +147,60 @@ test('la ayuda de los controles no pisa el radar', async ({ page }) => {
   await page.locator('#needs-toggle').click({ timeout: 3000 });
 });
 
+/** Las cajas de «Ayuda», el ojo de la cámara y la barra de paneles: enteras en pantalla y sin montarse. */
+const choquesAbajo = () => {
+  const cajas = { ayuda: 'controls-help-toggle', ojo: 'camera-toggle', barra: 'panel-dock' };
+  const r = Object.fromEntries(Object.entries(cajas).map(([k, id]) => [k, document.getElementById(id).getBoundingClientRect()]));
+  const malas = [];
+  for (const [k, c] of Object.entries(r)) if (!c.width || c.left < 0 || c.right > innerWidth) malas.push(`${k} fuera de la pantalla`);
+  const nombres = Object.keys(r);
+  for (let i = 0; i < nombres.length; i++) for (let j = i + 1; j < nombres.length; j++) {
+    const a = r[nombres[i]], b = r[nombres[j]];
+    if (a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom) malas.push(`${nombres[i]} sobre ${nombres[j]}`);
+  }
+  return malas;
+};
+
+/** La pista de la cámara (sale al enfocar el ojo): entera en pantalla y sin pisar el radar. */
+async function pistaSinRadar(page) {
+  await page.locator('#camera-toggle').focus();
+  await expect(page.locator('#camera-hint')).toBeVisible();
+  const [pista, radar] = await page.evaluate(() => ['camera-hint', 'hud-dock'].map((id) => document.getElementById(id).getBoundingClientRect().toJSON()));
+  expect(pista.left).toBeGreaterThanOrEqual(radar.right);
+  expect(pista.right).toBeLessThanOrEqual(page.viewportSize().width);
+  await page.evaluate(() => document.activeElement?.blur());
+}
+
+test('la ayuda y el ojo de la cámara quedan enteros a la izquierda de la barra de paneles', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await readyGame(page);
+  await expect.poll(() => page.evaluate(choquesAbajo)).toEqual([]);
+  await pistaSinRadar(page);
+  // Con mando la barra se ensancha («LB+Y» en vez de «C») y las dos se corren con ella.
+  const antes = await page.locator('#panel-dock').boundingBox();
+  await page.evaluate(async () => (await import('/src/core/modoEntrada.js')).ponerModo('mando'));
+  await expect(page.locator('#craft-open kbd')).toHaveText('LB+Y');
+  expect((await page.locator('#panel-dock').boundingBox()).width).toBeGreaterThan(antes.width);
+  await expect.poll(() => page.evaluate(choquesAbajo)).toEqual([]);
+  // Justo por encima de 1100 px, la pista y el cartón abierto se leen enteros y no pisan el radar.
+  await page.setViewportSize({ width: 1101, height: 800 });
+  await expect.poll(() => page.evaluate(choquesAbajo)).toEqual([]);
+  await pistaSinRadar(page);
+  await page.locator('#controls-help-toggle').click();
+  await expect(page.locator('#controls-help-content')).toBeVisible();
+  const carton = await page.evaluate(() => {
+    const c = document.getElementById('controls-help-content');
+    const cortadas = [...c.querySelectorAll('span')].filter((s) => {
+      const r = document.createRange();
+      r.selectNodeContents(s);
+      return r.getBoundingClientRect().right > s.getBoundingClientRect().right + .5;
+    }).map((s) => s.textContent.trim());
+    return { izquierda: c.getBoundingClientRect().left, radar: document.getElementById('hud-dock').getBoundingClientRect().right, cortadas };
+  });
+  expect(carton.cortadas).toEqual([]);
+  expect(carton.izquierda).toBeGreaterThanOrEqual(carton.radar);
+});
+
 test('con un menú abierto, Tab da la vuelta dentro y el aviso no cae en medio', async ({ page }) => {
   await page.setViewportSize({ width: 375, height: 812 });
   await readyGame(page);
