@@ -622,7 +622,10 @@ export class HUD {
     }
 
     // La tecla de contexto
-    this._pintarPrompt(window.__game?.paused ? '' : textoDelPrompt(interaction, inventory), interaction);
+    const base = window.__game?.paused ? '' : textoDelPrompt(interaction, inventory);
+    // El robo de carros pone su tecla al lado de la de contexto.
+    const carro = window.__game?.paused ? null : interaction?.carjackPrompt;
+    this._pintarPrompt([base, carro].filter(Boolean).join(' · '), interaction);
 
     this._pintarTarea(window.__game?.street?.task ?? null);
 
