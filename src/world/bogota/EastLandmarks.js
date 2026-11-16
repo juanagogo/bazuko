@@ -359,11 +359,24 @@ export function buildMarket(m) {
           [u0 + (u1 - u0) * s0, v0, u0 + (u1 - u0) * s1, v0, u0 + (u1 - u0) * s1, v0 + (v1 - v0) * .3, u0 + (u1 - u0) * s0, v0 + (v1 - v0) * .3]);
       }
     }
-    // Plástico o costal colgado de un costado para tapar el sol y la lluvia, visto por las dos caras.
-    const shadeSide = extra() < .5 ? -1 : 1, shadeX = cx + shadeSide * (w / 2 + .02), shade = pick(['blueTarp', 'burlap', 'burlap', 'greenTarp'].filter(name => name !== tarp));
-    const low = .7 + extra() * .5, tuck = .2 + extra() * .5, za = cz - shadeSide * (d / 2 - .05), zb = cz + shadeSide * (d / 2 - .05);
-    cloth([shadeX + shadeSide * .04, low + tuck, za], [shadeX + shadeSide * .1, low, zb], [shadeX, eave + .12, zb], [shadeX, eave + .12, za], shade, .16, 4, 3);
-    cloth([shadeX + shadeSide * .1, low, zb], [shadeX + shadeSide * .04, low + tuck, za], [shadeX, eave + .12, za], [shadeX, eave + .12, zb], shade, .16, 4, 3);
+    // Plástico o costal amarrado a un travesaño del costado: angosto, con dobleces a lo largo y la punta de abajo recogida.
+    const shadeSide = extra() < .5 ? -1 : 1, shadeX = cx + shadeSide * (w / 2 - .08), shade = pick(['blueTarp', 'burlap', 'burlap', 'greenTarp'].filter(name => name !== tarp));
+    f.box(m.detail, shadeX, eave - .06, cz, .04, .04, d - .2, 'woodDark', ALL_FACES);
+    {
+      const [u0, v0, u1, v1] = detailRect(shade), from = extra() < .5 ? -1 : 1, wide = 1.15 + extra() * .35, long = 1.05 + extra() * .4;
+      const gather = .3 + extra() * .3, skew = (extra() - .5) * .5, tuck = .15 + extra() * .3, folds = 2 + Math.floor(extra() * 2), deep = .05 + extra() * .04;
+      const zTie = cz + from * (d / 2 - .14), cols = 6, rows = 4;
+      const at = (i, j) => {
+        const s = i / cols, t = j / rows, across = (s - .5) * (1 - gather * t * t) + .5 + skew * t * t;
+        return [shadeX + shadeSide * (.05 + deep * (.35 + .65 * t) * Math.sin(s * Math.PI * folds + from)), eave - .05 - .05 * Math.sin(Math.PI * s) * (1 - t) - long * t * (1 - tuck * s * t), zTie - from * wide * across];
+      };
+      const uv = (i, j) => [u0 + (u1 - u0) * i / cols, v1 - (v1 - v0) * j / rows];
+      for (let i = 0; i < cols; i++) for (let j = 0; j < rows; j++) {
+        const a = at(i, j + 1), b = at(i + 1, j + 1), c = at(i + 1, j), e = at(i, j);
+        f.quadUV(m.detail, a, b, c, e, [...uv(i, j + 1), ...uv(i + 1, j + 1), ...uv(i + 1, j), ...uv(i, j)]);
+        f.quadUV(m.detail, b, a, e, c, [...uv(i + 1, j + 1), ...uv(i, j + 1), ...uv(i, j), ...uv(i + 1, j)]);
+      }
+    }
     // Racimos de plátano colgados de un palo bajo la cumbrera, a la altura de los ojos.
     f.box(m.detail, cx, ridge - .34, cz, w - .3, .05, .05, 'woodDark', ALL_FACES);
     for (let i = 0; i < 3; i++) {
