@@ -102,10 +102,19 @@ const material = (clave, opciones) => {
   m.userData.staticMergeKey = `venta-calle:${clave}`;
   return m;
 };
+// Three sortea un identificador por cada material y textura. Los compartidos nacen al cargar el archivo: si gastaran el
+// azar del juego, con una semilla fija (pruebas de navegador, mediciones) correrían todo lo que se sortea después.
+const sinGastarAzar = (crear) => {
+  const delJuego = Math.random;
+  Math.random = azarDe('ventas de la calle');
+  try { return crear(); } finally { Math.random = delJuego; }
+};
 // Compartidos por todos los puestos: la ciudad funde en un lote por material lo que no se mueve.
-const CUERPO = material('cuerpo', { map: texturaDeAvisos() });
-const LUZ_DE_CHAZA = material('luz', { emissive: '#ffc27a', emissiveIntensity: .04, roughness: .5 });
-const VIDRIO = new THREE.MeshStandardMaterial({ color: '#c9d4cc', transparent: true, opacity: .34, roughness: .3, depthWrite: false });
+const [CUERPO, LUZ_DE_CHAZA, VIDRIO] = sinGastarAzar(() => [
+  material('cuerpo', { map: texturaDeAvisos() }),
+  material('luz', { emissive: '#ffc27a', emissiveIntensity: .04, roughness: .5 }),
+  new THREE.MeshStandardMaterial({ color: '#c9d4cc', transparent: true, opacity: .34, roughness: .3, depthWrite: false })
+]);
 const LUZ_DE_DIA = .04, LUZ_DE_NOCHE = 2.2;
 
 /** Junta piezas de un color en mallas con color por vértice. Lo de abajo sale más sucio. */

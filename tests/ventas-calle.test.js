@@ -19,6 +19,12 @@ mock.module('../src/character/RealisticCharacter.js', { namedExports: {
   REALISTIC_SCALE: 1.08, createRealisticCharacter: async () => ({ group: new THREE.Group(), update() {} }),
   loadCatalog: async () => ({}), normalizeReal: (_, look) => look, optionsFor: () => [{ id: 'test' }]
 } });
+// Con el azar sembrado desde antes de cargar el juego, como en las pruebas de navegador.
+let sorteosAlCargar = 0;
+const azarDelJuego = Math.random;
+Math.random = () => { sorteosAlCargar++; return azarDelJuego(); };
+await import('../src/world/bogota/ventasCalle.js');
+Math.random = azarDelJuego;
 const { chaza, fritanga, umbrella } = await import('../src/world/bogota/props.js');
 const { Bogota } = await import('../src/world/districts/Bogota.js');
 const { buildMarket } = await import('../src/world/bogota/EastLandmarks.js');
@@ -119,6 +125,10 @@ test('los puestos piden el mismo azar que antes al armarse y al fundirse en la c
     ciudad.add(objeto);
   }
   assert.equal(conAzar(5, () => fundir(ciudad)).sorteos, 808);
+});
+
+test('cargar las ventas de la calle no gasta azar del juego', () => {
+  assert.equal(sorteosAlCargar, 0, 'los materiales y el lienzo compartidos no corren lo que se sortea después con una semilla fija');
 });
 
 test('de noche se prenden las brasas, el bombillo y la linterna de la chaza, sin luces nuevas', () => {
