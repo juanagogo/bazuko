@@ -4,6 +4,7 @@ import { test } from 'node:test';
 import * as THREE from 'three';
 import { DrugDealer } from '../src/entities/DrugDealer.js';
 import { SellPoint } from '../src/entities/SellPoint.js';
+import { CraftingStation } from '../src/entities/CraftingStation.js';
 import { ITEMS } from '../src/data/items.js';
 
 /** Mallas, triángulos, luces y caja de un puesto, en metros desde su centro. */
@@ -140,5 +141,35 @@ test('la recicladora se dibuja con tres mallas, sin luces, y cabe en el portón 
 
 test('al quitar la recicladora se libera todo lo que creó', () => {
   const { scene, puesto } = armar(SellPoint);
+  assert.equal(sinLiberar(puesto, scene), 0);
+});
+
+test('la mesa conserva su interfaz y su círculo', (t) => {
+  const { puesto: mesa } = armar(CraftingStation, t);
+  assert.equal(mesa.kind, 'mesa');
+  assert.equal(mesa.position, mesa.group.position);
+  const { innerRadius, outerRadius } = mesa.marker.geometry.parameters;
+  assert.deepEqual([innerRadius, outerRadius, mesa.marker.position.y], [1.2, 1.5, 0.05]);
+  const giro = mesa.marker.rotation.z;
+  mesa.update(0.5);
+  assert.ok(Math.abs(mesa.marker.rotation.z - giro - 0.3) < 1e-9);
+});
+
+test('la mesa se dibuja con dos mallas, sin luces, y no se mete en los muros de la esquina', (t) => {
+  const { puesto: mesa } = armar(CraftingStation, t);
+  const { mallas, luces, triangulos, caja } = censo(mesa);
+  assert.equal(mallas.length, 2, 'banco de trabajo y círculo');
+  assert.ok(triangulos > 1200 && triangulos <= 2600, `${triangulos} triángulos`);
+  assert.equal(luces.length, 0);
+  assert.ok(mesa.banco.castShadow && mesa.banco.receiveShadow);
+  // Los muros de la esquina quedan a 2 m al oriente (+x) y al sur (+z).
+  assert.ok(caja.max.x < 1.95 && caja.max.z < 1.95 && caja.min.x > -1.95 && caja.min.z > -1.95, JSON.stringify(caja));
+  // La lona queda por encima de una persona y hay tablas a la altura de trabajar.
+  assert.ok(caja.max.y > 2.1 && caja.max.y < 2.6, `lo más alto está a ${caja.max.y.toFixed(2)} m`);
+  assert.ok(caja.min.y >= 0.04 - 0.005, `lo más bajo está a ${caja.min.y.toFixed(3)} m`);
+});
+
+test('al quitar la mesa se libera todo lo que creó', () => {
+  const { scene, puesto } = armar(CraftingStation);
   assert.equal(sinLiberar(puesto, scene), 0);
 });
