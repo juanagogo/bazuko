@@ -9,13 +9,17 @@ import { detailAtlas } from '../src/world/bogota/textures-calle.js';
 
 // Solo se sustituye el dibujo: los textos que se pintan quedan anotados para revisarlos.
 function lienzo(textos) {
-  const contexto = new Proxy({
-    measureText: () => ({ width: 0 }),
-    createRadialGradient: () => ({ addColorStop() {} }),
-    createLinearGradient: () => ({ addColorStop() {} }),
-    fillText(texto) { textos.push(String(texto)); }
-  }, { get: (objeto, clave) => objeto[clave] ?? (() => {}), set: () => true });
-  return { createElement: () => ({ width: 0, height: 0, getContext: () => contexto }) };
+  return { createElement: () => {
+    // Cada lienzo recuerda además lo suyo: así se sabe qué dice la textura de cada aviso.
+    const propios = [];
+    const contexto = new Proxy({
+      measureText: () => ({ width: 0 }),
+      createRadialGradient: () => ({ addColorStop() {} }),
+      createLinearGradient: () => ({ addColorStop() {} }),
+      fillText(texto) { textos.push(String(texto)); propios.push(String(texto)); }
+    }, { get: (objeto, clave) => objeto[clave] ?? (() => {}), set: () => true });
+    return { width: 0, height: 0, textos: propios, getContext: () => contexto };
+  } };
 }
 
 /** Arma las cuadras como el juego y devuelve, en el orden en que se construyen, el local de cada solar. */
@@ -104,16 +108,25 @@ test('el muro pintado termina 6 cm por debajo del aviso grande y no lo tapa', ()
   assert.ok(revisados >= 80, `${revisados} locales con aviso grande y muro pintado`);
 });
 
-test('los avisos grandes usan como mucho dos nombres por oficio: 54 textos distintos', () => {
+/** Lo que dice un aviso colgado: lo pintado en su textura y, si es una celda de un atlas, cuál. */
+function textoDe(aviso) {
+  const uv = aviso.geometry.attributes.uv, pintado = [...new Set(aviso.material.map?.image?.textos ?? [])];
+  return `${pintado.join(' · ')} @ ${uv.getX(0).toFixed(4)},${uv.getY(0).toFixed(4)}`;
+}
+
+test('los avisos grandes colgados en la ciudad no pasan de 54 textos distintos, dos nombres por oficio', () => {
   const { solares } = cuadras(89123);
-  const conAviso = solares.filter(solar => solar.local?.aviso);
-  assert.ok(conAviso.length >= 80, `${conAviso.length} avisos grandes con oficio`);
-  for (const { raiz, local } of conAviso) assert.equal(avisosDe(raiz).length, 1, `${local.id} dice tener aviso y no lo cuelga`);
-  const textos = new Set(conAviso.map(solar => `${solar.local.id} · ${solar.local.nombre}`));
-  assert.ok(textos.size <= 54, `${textos.size} textos distintos en los avisos grandes`);
+  const colgados = solares.flatMap(solar => solar.raiz ? avisosDe(solar.raiz).map(aviso => ({ local: solar.local, texto: textoDe(aviso) })) : []);
+  assert.ok(colgados.length >= 80, `${colgados.length} avisos grandes colgados`);
+  const textos = new Set(colgados.map(colgado => colgado.texto));
+  assert.ok(textos.size <= 54, `${textos.size} textos distintos en los avisos grandes colgados`);
   const porOficio = new Map();
-  for (const { local } of conAviso) porOficio.set(local.id, (porOficio.get(local.id) ?? new Set()).add(local.nombre));
-  for (const [id, nombres] of porOficio) assert.ok(nombres.size <= 2, `${id} usa ${nombres.size} nombres en sus avisos`);
+  for (const { local, texto } of colgados) {
+    assert.ok(local?.aviso, `un aviso colgado sin local que lo anuncie: ${texto}`);
+    porOficio.set(local.id, (porOficio.get(local.id) ?? new Set()).add(texto));
+  }
+  for (const [id, suyos] of porOficio) assert.ok(suyos.size <= 2, `${id} cuelga ${suyos.size} textos distintos`);
+  for (const { raiz, local } of solares) if (local?.aviso) assert.equal(avisosDe(raiz).length, 1, `${local.id} dice tener aviso y no lo cuelga`);
 });
 
 test('ningún local lleva el nombre de una marca real', async () => {
@@ -138,21 +151,56 @@ test('ningún local lleva el nombre de una marca real', async () => {
   assert.ok(OFICIOS.some(oficio => oficio.id === local.id && oficio.nombres.includes(local.nombre)));
 });
 
+/** Una casa suelta con la fachada de la calle en z = 23 (3 m delante de su centro). */
+function casa(opciones, local) {
+  const material = new THREE.MeshStandardMaterial();
+  const shell = createBuildingShell(new THREE.BoxGeometry(opciones.width, opciones.height, opciones.depth), Array(6).fill(material),
+    { x: 10, z: 20, height: opciones.height, interiorMaterial: material });
+  const azar = Math.random;
+  let sorteos = 0;
+  Math.random = () => { sorteos++; return azar(); };
+  let resultado;
+  try { resultado = addBuildingDetails({ shell, ...opciones, ...(local ? { local } : {}) }); } finally { Math.random = azar; }
+  const mallas = [], materiales = new Set();
+  shell.root.traverse(objeto => { if (objeto.isMesh) { mallas.push(objeto); materiales.add(objeto.material); } });
+  return { shell, resultado, sorteos, mallas, materiales };
+}
+
+test('el tejadillo y la lona corta van altos y vuelan poco: no tapan a quien camina pegado a la pared', async () => {
+  const { localDelSolar } = await import('../src/world/bogota/Locales.js');
+  const celdas = Object.entries(detailAtlas().uv).filter(([nombre]) => /^(toldo|zinc)/.test(nombre)).map(([, celda]) => celda);
+  assert.ok(celdas.length >= 3, 'el atlas trae las lonas y la lata de los locales');
+  const esToldo = (u, v) => celdas.some(([u0, v0, u1, v1]) => u >= u0 - 1e-6 && u <= u1 + 1e-6 && v >= v0 - 1e-6 && v <= v1 + 1e-6);
+  let tejadillos = 0, anchos = 0;
+  for (let seed = 1; seed <= 120; seed++) {
+    const width = 4 + (seed % 3) * 2, opciones = { width, depth: 6, height: 9, floors: 3, face: 4, seed: seed * 7919, neighborhood: 'comercio' };
+    const local = { ...localDelSolar({ seed: opciones.seed, paso: seed, x: 110, z: 150 }), conAviso: seed % 2 === 0 };
+    const con = casa(opciones, local);
+    if (con.resultado.local !== 'completo') continue;
+    let vuelo = 0, bajo = Infinity, alto = -Infinity, izquierda = Infinity, derecha = -Infinity;
+    for (const malla of con.mallas.filter(malla => malla.userData.streetLife)) {
+      const posicion = malla.geometry.attributes.position, uv = malla.geometry.attributes.uv;
+      for (let i = 0; i < posicion.count; i++) {
+        if (posicion.getY(i) < 1.9 || !esToldo(uv.getX(i), uv.getY(i))) continue;
+        vuelo = Math.max(vuelo, posicion.getZ(i) - 3);
+        bajo = Math.min(bajo, posicion.getY(i)); alto = Math.max(alto, posicion.getY(i));
+        izquierda = Math.min(izquierda, posicion.getX(i)); derecha = Math.max(derecha, posicion.getX(i));
+      }
+    }
+    // El toldo de lona de siempre vuela 85 cm o más; lo que vuela menos es el tejadillo o la lona corta de un local.
+    if (vuelo === 0 || vuelo >= .84) continue;
+    tejadillos++;
+    assert.ok(vuelo <= .5 + 1e-6, `un tejadillo vuela ${vuelo.toFixed(2)} m con la semilla ${opciones.seed}`);
+    assert.ok(bajo >= 2.6 - 1e-6, `un tejadillo baja a ${bajo.toFixed(2)} m con la semilla ${opciones.seed}`);
+    assert.ok(alto >= 2.8 - 1e-6, `un tejadillo arranca a ${alto.toFixed(2)} m con la semilla ${opciones.seed}`);
+    if (derecha - izquierda >= width * .7) anchos++;
+  }
+  assert.ok(tejadillos >= 12, `${tejadillos} tejadillos y lonas cortas revisados`);
+  assert.ok(anchos * 2 >= tejadillos, `${anchos} de ${tejadillos} ocupan casi todo el frente`);
+});
+
 test('armar el local no añade mallas, materiales ni sorteos a la casa, y lo del andén queda pegado al muro', async () => {
   const { localDelSolar } = await import('../src/world/bogota/Locales.js');
-  const casa = (opciones, local) => {
-    const material = new THREE.MeshStandardMaterial();
-    const shell = createBuildingShell(new THREE.BoxGeometry(opciones.width, opciones.height, opciones.depth), Array(6).fill(material),
-      { x: 10, z: 20, height: opciones.height, interiorMaterial: material });
-    const azar = Math.random;
-    let sorteos = 0;
-    Math.random = () => { sorteos++; return azar(); };
-    let resultado;
-    try { resultado = addBuildingDetails({ shell, ...opciones, ...(local ? { local } : {}) }); } finally { Math.random = azar; }
-    const mallas = [], materiales = new Set();
-    shell.root.traverse(objeto => { if (objeto.isMesh) { mallas.push(objeto); materiales.add(objeto.material); } });
-    return { shell, resultado, sorteos, mallas, materiales };
-  };
   let armados = 0, completos = 0, salen = 0;
   for (let seed = 1; seed <= 60; seed++) {
     const width = 4 + (seed % 3) * 2, opciones = { width, depth: 6, height: 9, floors: 3, face: 4, seed: seed * 7919, neighborhood: 'comercio' };
@@ -178,8 +226,8 @@ test('armar el local no añade mallas, materiales ni sorteos a la casa, y lo del
         else vuelo = Math.max(vuelo, posicion.getZ(i) - 3);
       }
     }
-    if (vuelo > .6) salen++;
-    assert.equal(con.shell.root.userData.local.sale, vuelo > .6, `la marca de vuelo con la semilla ${opciones.seed}`);
+    if (vuelo > .4) salen++;
+    assert.equal(con.shell.root.userData.local.sale, vuelo > .4, `la marca de vuelo con la semilla ${opciones.seed}`);
   }
   assert.ok(armados >= 45 && completos >= 30, `${armados} locales armados, ${completos} completos`);
   assert.ok(salen * 2 >= armados, `${salen} de ${armados} locales con algo que sale de la pared`);
