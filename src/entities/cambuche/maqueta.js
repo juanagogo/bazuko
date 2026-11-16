@@ -1,17 +1,20 @@
 // src/entities/cambuche/maqueta.js
-// Arma una pieza del cambuche como una sola malla de caras planas: cada parte se pinta por vértice y todas se unen,
+// Arma una pieza del cambuche como una sola malla: cada parte se pinta por vértice y todas se unen,
 // así una pieza entera cuesta una llamada de dibujo y comparte material con las demás.
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 
-/** Paleta corta: negro del plástico, azul de la lona y cartón, con la cobija y el guacal de acento cálido. */
+/**
+ * Paleta corta: negro del plástico, azul de la lona y cartón, con la cobija y el guacal de acento cálido. La tela, el
+ * plástico y la lata van en tonos apagados, cerca de los tonos medios del modelo escaneado al que acompañan.
+ */
 export const PALETA = Object.freeze({
-  plastico: '#16171a', lona: '#27508f', lonaClara: '#4471ab', cinta: '#8f989f', polisombra: '#2a553b',
-  zinc: '#8d9698', zincOscuro: '#737c7f', oxido: '#7a5238', carton: '#a9814f', cartonViejo: '#8b6a41', tabla: '#73553a', tablaVieja: '#5b4632', tablaClara: '#8a6c4b',
-  palo: '#4a3a28', piedra: '#7d7973', llanta: '#1c1c1e', cuerda: '#b3a276', cobija: '#7f3d2c', raya: '#cdbd95',
-  colchon: '#b8b29f', sabana: '#d8d1bf', olla: '#262524', tizne: '#141312', balde: '#d6d2c6', guacal: '#a8502f',
-  costal: '#978d74', lata: '#9aa0a6', hoja: '#3f7d3a', cera: '#f2eee0', tierra: '#5a4a3a', ceniza: '#6f6a64',
-  mezclilla: '#4f637d', camisa: '#e2dccb',
+  plastico: '#1b1e24', plasticoClaro: '#2c3038', lona: '#284675', lonaClara: '#3b5d88', cinta: '#767e84', polisombra: '#1e3a2a',
+  zinc: '#6c7375', zincOscuro: '#585f61', oxido: '#6a4732', carton: '#a9814f', cartonViejo: '#8b6a41', tabla: '#73553a', tablaVieja: '#5b4632', tablaClara: '#8a6c4b',
+  palo: '#4a3a28', piedra: '#716d67', llanta: '#1c1c1e', polvo: '#6b5f50', cuerda: '#a39369', cobija: '#5e3a30', raya: '#a89a7c',
+  colchon: '#b8b29f', sabana: '#c4bdaa', olla: '#262524', tizne: '#141312', balde: '#d6d2c6', guacal: '#a8502f',
+  lata: '#9aa0a6', hoja: '#3f7d3a', cera: '#f2eee0', tierra: '#5a4a3a', ceniza: '#6f6a64',
+  mezclilla: '#45566c', camisa: '#c9c2b0',
 });
 
 /** Azar con semilla: el cambuche sale igual en cada partida y en cada foto. */
@@ -28,6 +31,7 @@ export function azar(seed) {
 const _matrix = new THREE.Matrix4(), _quaternion = new THREE.Quaternion(), _euler = new THREE.Euler();
 const _position = new THREE.Vector3(), _scale = new THREE.Vector3(), _color = new THREE.Color();
 const _a = new THREE.Vector3(), _b = new THREE.Vector3(), _up = new THREE.Vector3(0, 1, 0);
+const _polvo = new THREE.Color(), _du = new THREE.Vector3(), _dv = new THREE.Vector3();
 
 export class Maqueta {
   constructor(seed = 1) {
@@ -36,7 +40,7 @@ export class Maqueta {
   }
 
   /** Suma una geometría pintada de un color; `tono` es cuánto cambia la luz de una cara a otra. */
-  pon(geometry, color, { en = [0, 0, 0], giro = [0, 0, 0], escala = 1, tono = .07 } = {}) {
+  pon(geometry, color, { en = [0, 0, 0], giro = [0, 0, 0], escala = 1, tono = .07, polvo = null } = {}) {
     const part = geometry.index ? geometry.toNonIndexed() : geometry;
     if (part !== geometry) geometry.dispose();
     _scale.set(...(Array.isArray(escala) ? escala : [escala, escala, escala]));
@@ -44,10 +48,12 @@ export class Maqueta {
     part.applyMatrix4(_matrix);
     for (const name of Object.keys(part.attributes)) if (name !== 'position') part.deleteAttribute(name);
     part.computeVertexNormals();
-    const count = part.attributes.position.count, colors = new Float32Array(count * 3);
-    _color.set(color);
+    const count = part.attributes.position.count, colors = new Float32Array(count * 3), normals = part.attributes.normal;
     for (let i = 0; i < count; i += 3) {
       const k = 1 + (this.r() - .5) * 2 * tono;
+      // El polvo se asienta en las caras que miran hacia arriba.
+      _color.set(color);
+      if (polvo && normals.getY(i) > .25) _color.lerp(_polvo.set(polvo), Math.min(.6, normals.getY(i) * .6));
       for (let j = i; j < i + 3 && j < count; j++) colors.set([_color.r * k, _color.g * k, _color.b * k], j * 3);
     }
     part.setAttribute('color', new THREE.BufferAttribute(colors, 3));
@@ -75,7 +81,7 @@ export class Maqueta {
   }
 
   llanta(radio, en, giro = [Math.PI / 2, 0, 0]) {
-    return this.pon(new THREE.TorusGeometry(radio, radio * .36, 5, 10), PALETA.llanta, { en, giro, tono: .25 });
+    return this.pon(new THREE.TorusGeometry(radio, radio * .36, 5, 10), PALETA.llanta, { en, giro, tono: .2, polvo: PALETA.polvo });
   }
 
   /** Palo o cuerda de un punto a otro. */
@@ -89,32 +95,37 @@ export class Maqueta {
   }
 
   /**
-   * Tela, plástico o lámina: una rejilla cuyos puntos da `punto(u, v)` con u y v de 0 a 1.
-   * `color` puede ser una función (u, v) → color para pintar parches, rayas o manchas; con `suave` se pinta por
-   * punto y no por cuadro, para degradados.
+   * Tela, plástico o lámina: una rejilla cuyos puntos da `punto(u, v)` con u y v de 0 a 1, de superficie continua
+   * (sin caras marcadas). `color` puede ser una función (u, v) → color para pintar parches o rayas; con `suave` se
+   * pinta por punto y no por cuadro, para degradados. `sombra(u, v, y)` oscurece por punto: la mugre de la orilla y
+   * la sombra de lo que toca el piso.
    */
-  tela(nu, nv, punto, color, { tono = .09, suave = false } = {}) {
-    const positions = [], colors = [], grid = [];
-    for (let j = 0; j <= nv; j++) for (let i = 0; i <= nu; i++) grid.push([...punto(i / nu, j / nv), i / nu, j / nv]);
-    const at = (i, j) => grid[j * (nu + 1) + i];
+  tela(nu, nv, punto, color, { tono = .09, suave = false, sombra = null } = {}) {
+    const positions = [], normals = [], colors = [], grid = [];
+    for (let j = 0; j <= nv; j++) for (let i = 0; i <= nu; i++) {
+      const u = i / nu, v = j / nv, p = punto(u, v);
+      grid.push({ p, u, v, k: (1 + (this.r() - .5) * 2 * tono) * (sombra ? sombra(u, v, p[1]) : 1), n: [0, 1, 0] });
+    }
+    const at = (i, j) => grid[Math.min(nv, Math.max(0, j)) * (nu + 1) + Math.min(nu, Math.max(0, i))];
+    for (let j = 0; j <= nv; j++) for (let i = 0; i <= nu; i++) {
+      _du.fromArray(at(i + 1, j).p).sub(_a.fromArray(at(i - 1, j).p));
+      _dv.fromArray(at(i, j + 1).p).sub(_a.fromArray(at(i, j - 1).p)).cross(_du);
+      if (_dv.lengthSq() > 1e-12) at(i, j).n = _dv.normalize().toArray();
+    }
     const pinta = (u, v) => _color.set(typeof color === 'function' ? color(u, v) : color);
     for (let j = 0; j < nv; j++) for (let i = 0; i < nu; i++) {
       if (!suave) pinta((i + .5) / nu, (j + .5) / nv);
       const flip = (i + j) % 2 === 0;
       const quad = flip ? [at(i, j), at(i, j + 1), at(i + 1, j), at(i + 1, j), at(i, j + 1), at(i + 1, j + 1)]
         : [at(i, j), at(i, j + 1), at(i + 1, j + 1), at(i, j), at(i + 1, j + 1), at(i + 1, j)];
-      for (let t = 0; t < 2; t++) {
-        const k = 1 + (this.r() - .5) * 2 * tono;
-        for (let v = 0; v < 3; v++) {
-          const [x, y, z, pu, pv] = quad[t * 3 + v];
-          if (suave) pinta(pu, pv);
-          positions.push(x, y, z); colors.push(_color.r * k, _color.g * k, _color.b * k);
-        }
+      for (const g of quad) {
+        if (suave) pinta(g.u, g.v);
+        positions.push(...g.p); normals.push(...g.n); colors.push(_color.r * g.k, _color.g * g.k, _color.b * g.k);
       }
     }
     const geometry = new THREE.BufferGeometry();
     geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
-    geometry.computeVertexNormals();
+    geometry.setAttribute('normal', new THREE.Float32BufferAttribute(normals, 3));
     geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
     this.partes.push(geometry);
     return this;
@@ -141,7 +152,10 @@ export class Maqueta {
   }
 }
 
-/** El material de lo que se arma a mano: color por vértice y caras planas. La tela y el plástico van de dos caras. */
-export function materialDeMaqueta(side = THREE.FrontSide) {
-  return new THREE.MeshStandardMaterial({ vertexColors: true, flatShading: true, roughness: .88, metalness: 0, side });
+/**
+ * El material de lo que se arma a mano, con color por vértice. Las cajas, palos y piedras llevan sus caras marcadas
+ * en la propia geometría; con `liso`, la tela, el plástico y la lata se ven continuos, y va de dos caras.
+ */
+export function materialDeMaqueta(side = THREE.FrontSide, liso = false) {
+  return new THREE.MeshStandardMaterial({ vertexColors: true, flatShading: !liso, roughness: liso ? .8 : .88, metalness: 0, side });
 }

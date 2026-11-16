@@ -31,10 +31,10 @@ export class Cambuche {
     root.scale.setScalar(CHARACTER_SCALE);
     this.group.add(root);
 
-    // Los materiales de todo lo armado a mano: el de las maquetas (de dos caras donde hay tela o plástico), el de
-    // las brasas y el de la luz de noche.
+    // Los materiales de todo lo armado a mano: el de las maquetas (de dos caras y liso donde hay tela, plástico o
+    // lata), el de las brasas y el de la luz de noche.
     this._material = materialDeMaqueta();
-    this._tela = materialDeMaqueta(THREE.DoubleSide);
+    this._tela = materialDeMaqueta(THREE.DoubleSide, true);
     this._brasas = new THREE.MeshBasicMaterial({ vertexColors: true, toneMapped: false });
     this._luz = new THREE.MeshBasicMaterial({ vertexColors: true, blending: THREE.AdditiveBlending, transparent: true,
       depthWrite: false, toneMapped: false, fog: false, side: THREE.DoubleSide });
@@ -73,7 +73,7 @@ export class Cambuche {
     // Base de cartón aplanado
     pieces.base = malla(piezas.base(), false);
 
-    // Techo en capas: plástico negro, lona azul remendada, piedras, una llanta y cuerdas
+    // Techo en capas, alto atrás y bajo adelante: plástico negro, lona azul remendada, piedras, una llanta y cuerdas
     pieces.techo = malla(piezas.techo(), true, true);
 
     // Paredes de tablas y cartón, con la cobija de cortina; de noche la luz se cuela por las rendijas
@@ -103,13 +103,13 @@ export class Cambuche {
     fogon.position.set(1.0, 0, 1.3);
     pieces.fogon = fogon;
 
-    // Vela y estampa en su cajón, con una matica al lado
+    // Vela y estampa en su cajón, con una matica al lado: adentro, a la vista desde la entrada
     const vela = new THREE.Group();
     this.flame = new THREE.Mesh(new THREE.SphereGeometry(0.02, 6, 6), new THREE.MeshBasicMaterial({ color: new THREE.Color('#ffc46b').multiplyScalar(5) }));
     this.flame.position.set(...piezas.LLAMA_VELA);
     vela.add(malla(piezas.vela(), false), this.flame);
-    vela.position.set(1.62, 0, 0.98);
-    vela.rotation.y = -0.5;
+    vela.position.set(0.6, 0, 0.3);
+    vela.rotation.y = -0.12;
     pieces.vela = vela;
 
     Object.values(pieces).forEach((p) => {

@@ -1,14 +1,15 @@
 // src/entities/cambuche/piezas.js
 // Las seis piezas que se arman una por una (base, techo, paredes, colchón, fogón, vela), cada una como una maqueta
 // de caras planas. Medidas del modelo de rebusque (el cambuche las lleva a la escala del mundo). La entrada mira
-// hacia +Z, que es donde aparece el jugador, y el techo sube hacia el frente derecho, como en el modelo terminado.
+// hacia +Z, que es donde aparece el jugador, y el techo baja hacia el frente (palos altos atrás, bajos adelante):
+// desde la cámara del juego se le ve la cara de arriba.
 import * as THREE from 'three';
 import { Maqueta, PALETA as P } from './maqueta.js';
 
 const X0 = -1.6, X1 = 1.6, Z0 = -1.2, Z1 = .78;
 
 /** Altura del techo armado a mano sobre el punto (x, z). */
-export const techoArmado = (x, z) => 1.38 + .17 * x + .13 * z;
+export const techoArmado = (x, z) => 1.44 + .05 * x - .2 * z;
 
 /** Giro que acuesta algo plano sobre una superficie de alturas (llanta, lámina). */
 export function acostado(h, x, z, d = .25) {
@@ -45,12 +46,13 @@ export function techo() {
   m.tela(8, 5, (u, v) => {
     const x = -1.9 + u * 3.62, z = -1.55 + v * 2.37;
     return [x, lona(x, z) - .03 - (Math.max(0, X0 - x) + Math.max(0, Z0 - z)) * .85, z];
-  }, P.plastico, { tono: .4 });
+  }, (u, v) => u < .1 || v < .12 ? P.plastico : P.plasticoClaro, { tono: .1, suave: true });
   // Lona azul encima, con dos remiendos de otra lona.
   m.tela(8, 6, (u, v) => {
     const x = -1.2 + u * 3, z = -1.3 + v * 2.3;
     return [x, lona(x, z) - Math.max(0, x - X1) * .9 - Math.max(0, z - Z1) * .5 - Math.max(0, Z0 - z) * .6, z];
-  }, (u, v) => (u > .5 && u < .75 && v > .34 && v < .66) || (u < .125 && v > .66) ? P.lonaClara : P.lona, { tono: .13 });
+  }, (u, v) => (u > .5 && u < .75 && v > .34 && v < .66) || (u < .125 && v > .66) ? P.lonaClara : P.lona,
+    { tono: .1, sombra: (u, v) => 1 - .3 * Math.max(0, Math.max(Math.abs(u - .5), Math.abs(v - .5)) - .4) / .1 });
   // Dos tiras de cinta gris sobre una rasgadura.
   for (const [x0, z0, x1, z1] of [[-.62, -.74, -.02, -.8], [-.5, -.56, -.08, -.6]]) {
     const largo = Math.hypot(x1 - x0, z1 - z0), nx = -(z1 - z0) / largo * .09, nz = (x1 - x0) / largo * .09;
@@ -100,12 +102,14 @@ export function paredes() {
 
 /** Cobija colgada de `x0` a `x1` y recogida hacia `x0` con un nudo a media altura; lleva dos rayas claras. */
 export function cortina(m, x0, x1, z, arriba, abajo) {
-  return m.tela(6, 10, (u, v) => {
-    // Ancha arriba, apretada en el nudo y otra vez suelta abajo.
+  return m.tela(10, 14, (u, v) => {
+    // Ancha arriba, apretada en el nudo y otra vez suelta abajo; los pliegues se marcan más hacia el ruedo.
     const ancho = 1 - .62 * Math.sin(Math.PI * Math.min(1, v / .62) / 2) + .3 * Math.max(0, v - .62) / .38;
     const top = arriba(x0 + (x1 - x0) * u) - .06 * Math.sin(Math.PI * u);
-    return [x0 + (x1 - x0) * u * ancho, top - (top - abajo) * v, z + Math.sin(u * Math.PI * 4) * .035 * (.3 + v)];
-  }, (u, v) => (v > .1 && v < .2) || (v > .8 && v < .9) ? P.raya : P.cobija, { tono: .16 });
+    const ruedo = v > .93 ? .03 * Math.sin(u * 23) : 0;
+    return [x0 + (x1 - x0) * u * ancho, top - (top - abajo) * v + ruedo, z + Math.sin(u * Math.PI * 5 + v * 2) * .04 * (.3 + v)];
+  }, (u, v) => (v > .1 && v < .2) || (v > .8 && v < .88) ? P.raya : P.cobija,
+  { tono: .12, sombra: (u, v) => (1 - .45 * Math.max(0, v - .7) / .3) * (.86 + .14 * Math.cos(u * Math.PI * 10 + v * 4)) });
 }
 
 export function cama() {

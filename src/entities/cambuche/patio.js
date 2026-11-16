@@ -1,7 +1,7 @@
 // src/entities/cambuche/patio.js
 // Lo que rodea al cambuche y lo que se le suma encima cuando ya está terminado: el patio (asiento, balde, ropa
-// tendida, lo reciclado), las capas del techo sobre el modelo (zinc, polisombra, plástico negro, llanta, piedras y
-// cuerdas) y la luz cálida de la noche. Medidas en metros del mundo, con el cambuche en el origen y la entrada en +Z.
+// tendida, lo reciclado), las capas del techo sobre el modelo (zinc, polisombra, llanta y piedras)
+// y la luz cálida de la noche. Medidas en metros del mundo, con el cambuche en el origen y la entrada en +Z.
 import * as THREE from 'three';
 import { Maqueta, PALETA as P } from './maqueta.js';
 import { acostado, cortina } from './piezas.js';
@@ -28,44 +28,30 @@ export function rincon() {
   return m;
 }
 
-/** Cuerda entre dos palos, con la ropa colgada. */
+/** Cuerda corta entre dos palos, en la esquina de atrás, con la ropa colgada. */
 export function tendedero() {
   const m = new Maqueta(83);
-  const a = [2.78, 0, 1.15], b = [2.58, 0, -1.75], alto = 1.72;
-  m.palo(a, [a[0] - .05, alto + .12, a[2] - .06], .032); m.palo(b, [b[0] + .04, alto + .1, b[2] + .08], .03);
-  m.palo([a[0] - .05, alto, a[2] - .06], [a[0] + .28, .03, a[2] + .5], .009, P.cuerda, 4);
-  m.palo([b[0] + .04, alto, b[2] + .08], [b[0] + .3, .03, b[2] - .45], .009, P.cuerda, 4);
-  const linea = t => [a[0] - .05 + (b[0] + .09 - a[0]) * t, alto - .13 * Math.sin(Math.PI * t), a[2] - .06 + (b[2] + .14 - a[2]) * t];
+  const a = [.45, 0, -2.25], b = [2.05, 0, -1.4], alto = 1.6;
+  m.palo(a, [a[0] + .04, alto + .12, a[2] + .03], .032); m.palo(b, [b[0] - .05, alto + .1, b[2] - .02], .03);
+  const linea = t => [a[0] + .04 + (b[0] - .09 - a[0]) * t, alto - .1 * Math.sin(Math.PI * t), a[2] + .03 + (b[2] - .05 - a[2]) * t];
   for (let i = 0; i < 6; i++) m.palo(linea(i / 6), linea((i + 1) / 6), .007, P.cuerda, 4);
-  // Cada prenda cuelga entre dos puntos de la cuerda y se arruga hacia abajo.
-  const prenda = (t0, t1, largo, color) => m.tela(3, 4, (u, v) => {
+  // Cada prenda cuelga entre dos puntos de la cuerda, se arruga hacia abajo y se ensucia en el ruedo.
+  const prenda = (t0, t1, largo, color) => m.tela(4, 5, (u, v) => {
     const [x, y, z] = linea(t0 + (t1 - t0) * u);
-    return [x + Math.sin(u * 5 + v * 2) * .03 * v, y - .01 - largo * v, z];
-  }, color, { tono: .1 });
-  prenda(.1, .27, .52, P.camisa);
-  prenda(.33, .43, .72, P.mezclilla);
-  prenda(.445, .545, .7, P.mezclilla);
-  prenda(.62, .74, .44, P.cobija);
-  prenda(.8, .9, .3, P.sabana);
+    return [x + Math.sin(u * 5 + v * 2) * .035 * v, y - .01 - largo * v + .02 * Math.sin(u * 9) * v, z + Math.cos(u * 6 + v * 3) * .03 * v];
+  }, color, { tono: .08, sombra: (u, v) => 1 - .25 * v * v });
+  prenda(.08, .34, .5, P.camisa);
+  prenda(.42, .6, .7, P.mezclilla);
+  prenda(.68, .92, .42, P.cobija);
   return m;
 }
 
-/** Lo reciclado, ordenado: costales de lona llenos y el cartón aplanado y amarrado. */
+/** Lo reciclado, recostado contra el cambuche: el cartón aplanado y amarrado, listo para llevar a vender. */
 export function reciclaje() {
   const m = new Maqueta(97), r = m.r;
-  const costal = (x, z, radio, alto, giro) => {
-    // Panza ancha abajo, hombros caídos y la boca amarrada con cabuya.
-    m.cilindro(radio * .92, alto * .62, P.costal, { lados: 6, radioArriba: radio, en: [x, 0, z], giro: [0, giro, 0], escala: [1.05, 1, .82], tono: .1 });
-    m.cilindro(radio, alto * .26, P.costal, { lados: 6, radioArriba: radio * .2, en: [x, alto * .62, z], giro: [0, giro, 0], escala: [1.05, 1, .82], tono: .1 });
-    m.cilindro(radio * .17, alto * .12, P.costal, { lados: 5, radioArriba: radio * .3, en: [x, alto * .88, z], giro: [.25, giro, 0], tono: .1 });
-    m.caja(radio * .38, .025, radio * .38, P.cuerda, { en: [x, alto * .88, z], giro: [0, giro, 0] });
-  };
-  costal(-2.55, -1.0, .3, .58, .4); costal(-2.92, -.52, .27, .5, 1.3); costal(-2.46, -.42, .25, .44, 2.2);
   // Cartón aplanado en un atado, con dos vueltas de cabuya.
-  for (let i = 0; i < 5; i++) m.caja(.78 + r() * .06, .035, .56 + r() * .05, i % 2 ? P.cartonViejo : P.carton, { en: [-2.62, .03 + i * .037, .42], giro: [0, .5 + (r() - .5) * .08, 0], tono: .05 });
-  for (const d of [-.2, .2]) m.caja(.016, .2, .62, P.cuerda, { en: [-2.62 + d * Math.cos(.5), .1, .42 - d * Math.sin(.5)], giro: [0, .5, 0] });
-  // Una llanta vieja recostada, con botellas aplastadas adentro.
-  m.llanta(.3, [-2.2, .1, -1.72], [Math.PI / 2 - .12, 0, .05, 'ZYX']);
+  for (let i = 0; i < 5; i++) m.caja(.74 + r() * .06, .035, .52 + r() * .05, i % 2 ? P.cartonViejo : P.carton, { en: [-2.22, .03 + i * .037, .36], giro: [0, 1.35 + (r() - .5) * .08, 0], tono: .05 });
+  for (const d of [-.18, .18]) m.caja(.016, .2, .58, P.cuerda, { en: [-2.22 + d * Math.cos(1.35), .1, .36 - d * Math.sin(1.35)], giro: [0, 1.35, 0] });
   return m;
 }
 
@@ -96,13 +82,15 @@ export function alturasDelModelo(model, group, celda = .25) {
 
 /**
  * Las capas que cuentan la historia desde arriba, apoyadas en el techo del modelo terminado: una teja de zinc,
- * un alero de polisombra, plástico negro echado a un lado, remiendos, una llanta, piedras, cuerdas, la cobija
- * de cortina y la tabla del nombre (la pintura va aparte, en `letreros.js`).
+ * un alero de polisombra, cinta, una llanta, piedras, la cobija de cortina y la tabla del nombre (la pintura va
+ * aparte, en `letreros.js`).
  */
 export function cubierta(alturas) {
   const m = new Maqueta(101);
   const techo = (x, z) => alturas(x, z, .14);
-  // Teja de zinc: rígida, así que va en un plano que libra todo lo que tiene debajo.
+  const orilla = (u, v) => Math.min(u, 1 - u, v, 1 - v) < .001 ? .62 : 1;
+  // Teja de zinc: rígida, así que va en un plano que libra todo lo que tiene debajo. Vieja: óxido en bandas y
+  // las orillas oscuras.
   {
     const cx = -.78, cz = -.72, w = 1.62, d = 1.02, giro = .1, n = 12;
     const at = (u, v) => { const lx = (u - .5) * w, lz = (v - .5) * d; return [cx + lx * Math.cos(giro) + lz * Math.sin(giro), cz - lx * Math.sin(giro) + lz * Math.cos(giro)]; };
@@ -111,45 +99,35 @@ export function cubierta(alturas) {
     let sube = 0;
     for (let i = 0; i <= 6; i++) for (let k = 0; k <= 4; k++) sube = Math.max(sube, corner(i / 6, k / 4) - plano(i / 6, k / 4));
     const lamina = (u, v) => plano(u, v) + sube + .03;
-    m.tela(n, 2, (u, v) => { const [x, z] = at(u, v); return [x, lamina(u, v) + (Math.round(u * n) % 2 ? .045 : 0), z]; },
-      (u, v) => (u > .16 && u < .26 && v < .5) || (u > .9 && v > .5) ? P.oxido : Math.floor(u * n) % 2 ? P.zinc : P.zincOscuro, { tono: .07 });
+    m.tela(n, 3, (u, v) => { const [x, z] = at(u, v); return [x, lamina(u, v) + (Math.round(u * n) % 2 ? .022 : 0), z]; },
+      (u, v) => (u > .16 && u < .26) || (u > .58 && u < .67 && v > .34) || u > .92 || (v > .67 && u < .09) ? P.oxido : Math.floor(u * n) % 2 ? P.zinc : P.zincOscuro,
+      { tono: .08, sombra: orilla });
     // La sujetan una llanta vieja y una piedra.
     const [lx, lz] = at(.62, .5), [px, pz] = at(.1, .22);
-    m.llanta(.27, [lx, lamina(.62, .5) + .14, lz], acostado((x, z) => plano((x - cx) / w + .5, (z - cz) / d + .5), lx, lz));
-    m.piedra(.1, [px, lamina(.1, .22) + .04, pz]);
+    m.llanta(.27, [lx, lamina(.62, .5) + .12, lz], acostado((x, z) => plano((x - cx) / w + .5, (z - cz) / d + .5), lx, lz));
+    m.piedra(.1, [px, lamina(.1, .22) + .02, pz]);
   }
-  // Remiendos y cinta sobre la lona del modelo.
-  for (const [x0, z0, w, d, color] of [[.3, -.95, .5, .42, P.lonaClara], [-.95, .12, .5, .08, P.cinta], [-.85, -.05, .42, .08, P.cinta]]) {
-    m.tela(2, 2, (u, v) => { const x = x0 + u * w, z = z0 + v * d; return [x, alturas(x, z, .2) + .035, z]; }, color, { tono: .06 });
+  // Cinta gris sobre una rasgadura de la lona del modelo.
+  for (const [x0, z0, w, d] of [[-.95, .12, .5, .08], [-.85, -.05, .42, .08]]) {
+    m.tela(3, 1, (u, v) => { const x = x0 + u * w, z = z0 + v * d; return [x, alturas(x, z, .2) + .03, z]; }, P.cinta, { tono: .06, sombra: orilla });
   }
   // Piedras que sujetan la lona.
   for (const [x, z, radio] of [[-1.5, .35, .1], [.95, -1.05, .09], [1.15, -.3, .085], [.1, .45, .08]]) m.piedra(radio, [x, techo(x, z) + .01, z]);
-  // Plástico negro echado sobre lo que se guarda al costado derecho: baja pegado a lo que tapa.
-  {
-    const filas = [];
-    m.tela(5, 4, (u, v) => {
-      const x = 1.08 + u * 1.0, z = -1.2 + v * 1.25;
-      const y = Math.max(alturas(x, z, .16) + .05, .05), fila = Math.round(v * 4);
-      return [x, filas[fila] = Math.min(filas[fila] ?? Infinity, y), z];
-    }, P.plastico, { tono: .45 });
-  }
-  // Alero de polisombra sobre el frente izquierdo, en dos palos, con la tabla del nombre colgada.
+  // Alero de polisombra sobre el frente izquierdo, en dos palos, con la tabla del nombre colgada. La malla cuelga
+  // entre sus apoyos y la orilla de afuera quedó dispareja.
   {
     const x0 = -1.78, x1 = -.25, z0 = .5, z1 = 1.62, borde = x => Math.max(techo(x, z0), techo(x, z0 - .2)) + .06;
-    m.tela(6, 4, (u, v) => {
-      const x = x0 + (x1 - x0) * u;
-      return [x, borde(x) + (1.52 - borde(x)) * v - .07 * Math.sin(Math.PI * u) * Math.sin(Math.PI * v), z0 + (z1 - z0) * v];
-    }, P.polisombra, { tono: .12 });
+    m.tela(8, 5, (u, v) => {
+      const suelta = v === 1 ? .06 + .08 * Math.sin(u * 13) + .05 * Math.sin(u * 29) : 0;
+      const x = x0 + (x1 - x0) * u + (u === 0 ? .06 : u === 1 ? -.06 : 0) * Math.sin(Math.PI * v);
+      const cuelga = .1 * Math.sin(Math.PI * u) * Math.sin(Math.PI * v) + .04 * Math.sin(Math.PI * u) * v + .03 * Math.sin(Math.PI * v);
+      return [x, borde(x) + (1.52 - borde(x)) * v - cuelga - Math.abs(suelta) * .7, z0 + (z1 - z0) * v + suelta];
+    }, P.polisombra, { tono: .14, sombra: (u, v) => orilla(u, v) < 1 ? .7 : 1 });
     m.palo([x0 + .04, 0, z1], [x0, 1.6, z1 - .03], .034); m.palo([x1 - .04, 0, z1 + .02], [x1, 1.6, z1 - .03], .034);
     m.palo([x0 - .1, 1.53, z1 - .02], [x1 + .1, 1.53, z1 - .02], .026);
     m.piedra(.085, [x0 + .5, borde(x0 + .5) - .02, z0]); m.piedra(.08, [x1 - .4, borde(x1 - .4) - .02, z0 + .02]);
     m.caja(TABLA.ancho, TABLA.alto, .025, P.tablaVieja, { en: TABLA.en, giro: [0, 0, TABLA.caida], tono: .05 });
     for (const d of [-.36, .36]) m.palo([TABLA.en[0] + d, 1.53, z1 - .02], [TABLA.en[0] + d, TABLA.en[1] + TABLA.alto / 2 - .02, TABLA.en[2]], .006, P.cuerda, 4);
-  }
-  // Cuerdas a estacas.
-  for (const [x, z, sx, sz] of [[-1.55, -1.05, -2.2, -1.85], [1.2, -1.05, 1.95, -1.9]]) {
-    m.palo([x, techo(x, z) + .03, z], [sx, .04, sz], .008, P.cuerda, 4);
-    m.palo([sx, 0, sz], [sx + (sx - x) * .03, .16, sz + (sz - z) * .03], .02, P.palo, 4);
   }
   // La cobija de cortina, recogida a la izquierda de la entrada.
   cortina(m, .04, .9, .74, x => Math.min(Math.max(alturas(x, .5, .12), 1.3), 1.5), .1);
