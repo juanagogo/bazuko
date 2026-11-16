@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
 import { Shop } from '../src/entities/Shop.js';
+import { D69_STORE, paintD69Store, buildD69Store } from '../src/world/bogota/D69Store.js';
 
 // Los letreros se pintan en un lienzo: en Node basta uno que acepte cualquier llamada.
 const pencil = new Proxy({}, { get: () => () => {}, set: () => true });
@@ -68,4 +69,37 @@ test('La Esquinita se enciende de noche y al cerrar lo libera todo', () => {
   shop.dispose();
   assert.equal(shop.group.parent, null);
   assert.equal(freed.size, owned.size);
+});
+
+test('Doña Inés es una sola malla más sus dos avisos, sin luces y dentro de su lote', () => {
+  assert.deepEqual({ ...D69_STORE }, { x0: 43, x1: 53, z0: 159, z1: 173, height: 5, name: 'Doña Inés' });
+  assert.equal(typeof paintD69Store, 'function');
+  const signs = [];
+  const model = buildD69Store({ createSign: options => { signs.push(options); return new THREE.Texture(); } });
+  assert.equal(model.name, 'Tienda D69');
+  assert.equal(signs.length, 2);
+  // Antes eran veinte cajas con cinco materiales.
+  const meshes = meshesOf(model);
+  assert.equal(meshes.length, 3);
+  assert.ok(trianglesOf(model) <= 6000, `${trianglesOf(model)} triángulos`);
+  assert.equal(lightsOf(model).length, 0);
+  const building = meshes.find(mesh => mesh.material.emissive);
+  // Fuera de la fusión de la ciudad: su material cambia con la hora.
+  assert.equal(building.userData.noMerge, true);
+  building.onBeforeRender(null, day);
+  assert.equal(building.material.emissiveIntensity, 0);
+  building.onBeforeRender(null, night);
+  assert.equal(building.material.emissiveIntensity, 1);
+  // Carritos, fruta y bolardos quedan en el corredor: nada pisa el andén ni sube más que el antepecho.
+  const bounds = new THREE.Box3().setFromObject(model);
+  assert.ok(bounds.min.x > 42.5 && bounds.max.x < 53.4);
+  assert.ok(bounds.min.z > 158.5 && bounds.max.z < 173.5);
+  assert.ok(bounds.max.y < 5.2);
+  // Hay techo con equipos: algo sobresale de la losa, que queda hundida tras el antepecho.
+  const position = building.geometry.attributes.position;
+  let onRoof = 0;
+  for (let i = 0; i < position.count; i++) {
+    if (position.getY(i) > 4.7 && position.getX(i) > 43.6 && position.getX(i) < 52.4 && position.getZ(i) > 159.6 && position.getZ(i) < 172.4) onRoof++;
+  }
+  assert.ok(onRoof > 50, `${onRoof} vértices sobre la losa`);
 });
