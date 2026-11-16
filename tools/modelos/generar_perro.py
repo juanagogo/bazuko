@@ -234,12 +234,12 @@ def cabeza(malla):
     ], tapa_inicio=False)
     trufa.pintar(TRUFA, DETALLE)
 
-    # Lengua asomada.
+    # Lengua: apenas la punta, asomada bajo la trufa.
     lengua = malla.pieza(['cabeza'])
     lengua.tubo([
-        aro((0, -.470, .590), (1, 0, 0), (0, 0, 1), .015, .006, 4, pi / 4),
-        aro((0, -.493, .586), (1, 0, 0), (0, 0, 1), .014, .005, 4, pi / 4),
-        aro((0, -.502, .574), (1, 0, 0), (0, 1, 0), .010, .005, 4, pi / 4),
+        aro((0, -.476, .590), (1, 0, 0), (0, 0, 1), .014, .006, 4, pi / 4),
+        aro((0, -.491, .588), (1, 0, 0), (0, 0, 1), .013, .005, 4, pi / 4),
+        [(0, -.497, .584)],
     ])
     lengua.pintar(LENGUA, DETALLE)
 
@@ -281,25 +281,28 @@ def cabeza(malla):
 
 
 def orejas(malla):
-    # Izquierda, caída: sale del costado del cráneo, dobla y cuelga hacia delante.
+    # Las dos van relajadas: cuando el perro se pone alerta el juego las echa atrás y las junta,
+    # y es entonces cuando la derecha queda derecha y la izquierda se levanta a medias.
+    # Izquierda, caída: sale del costado del cráneo, dobla arriba y la punta cuelga hacia delante.
     caida = malla.pieza(['oreja_L'])
     eje = Vector((.25, -1, 0))
     fino = Vector((.8, .2, .55))
     caida.tubo([
         aro((.066, -.335, .726), eje, fino, .042, .016, 4),
-        aro((.110, -.345, .722), eje, (.5, .1, .85), .050, .015, 4),
-        aro((.132, -.360, .668), eje, (1, .2, .1), .042, .013, 4),
-        [(.126, -.378, .608)],
+        aro((.109, -.341, .716), eje, (.5, .1, .85), .050, .015, 4),
+        aro((.142, -.366, .705), eje, (1, .2, .1), .042, .013, 4),
+        [(.128, -.394, .621)],
     ], huesos_inicio=['cabeza'])
-    caida.pintar(lambda c: PARCHE if c.z < .66 else LOMO)
-    # Derecha, parada: un triángulo que mira al frente y algo hacia fuera.
+    caida.pintar(lambda c: PARCHE if c.z < .70 else LOMO)
+    # Derecha, parada: un triángulo que mira al frente, ladeado hacia fuera y hacia delante.
     parada = malla.pieza(['oreja_R'])
+    base = Vector((-.080, -.326, .716))
+    sube = Vector((-.42, -.47, .78)).normalized()
     ancho = Vector((.7, -.7, 0))
-    frente = Vector((-.7, -.7, 0))
     parada.tubo([
-        aro((-.080, -.326, .716), ancho, frente, .044, .030, 4),
-        aro((-.090, -.332, .766), ancho, frente, .035, .021, 4),
-        [(-.101, -.342, .818)],
+        aro(base, ancho, (-.7, -.7, 0), .044, .030, 4),
+        aro(base + sube * .054, ancho, ancho.cross(sube), .035, .021, 4),
+        [base + sube * .112],
     ], huesos_inicio=['cabeza'])
     parada.pintar(PARCHE)
 
