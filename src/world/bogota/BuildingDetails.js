@@ -223,9 +223,10 @@ function addRooftopLife(shell, { baseY, width, depth, height, seed, ruin, tankSi
 /** Lo que el local saca al andén. Todo queda a menos de 40 cm del muro: nadie lo atraviesa a la vista. */
 const ANDEN = {
   canastas(life, UV, q, u, s) {
-    const cells = [UV.canastaRoja, UV.canastaAmarilla, UV.canastaAzul], count = 2 + Math.floor(q() * 3);
-    for (let i = 0; i < count; i++) life.box(cells[Math.floor(q() * 3)], u + (q() - .5) * .04, i * .27, .2, .42, .27, .32);
-    if (q() < .5) life.box(cells[Math.floor(q() * 3)], u + s * .47, 0, .2, .42, .27, .32);
+    const cells = [UV.canastaRoja, UV.canastaAmarilla, UV.canastaAzul];
+    for (const [du, count] of [[0, 3 + Math.floor(q() * 2)], [s * .47, 2 + Math.floor(q() * 2)]]) {
+      for (let i = 0; i < count; i++) life.box(cells[Math.floor(q() * 3)], u + du + (q() - .5) * .04, i * .27, .2, .42, .27, .32);
+    }
   },
   nevera(life, UV, q, u) { life.box(UV.nevera, u, 0, .2, .78, .86, .38); },
   tijera(life, UV, q, u) { life.slope(UV.tijera, u, .86, .16, 0, .38, .56); life.panel(UV.wood, u, .43, .14, .56, .86); },
@@ -239,25 +240,28 @@ const ANDEN = {
     }
   },
   llantas(life, UV, q, u) {
-    const count = 3 + Math.floor(q() * 3);
-    for (let i = 0; i < count; i++) life.cylinder(UV.tire, u + (q() - .5) * .04, i * .16, .2, .2, .2, .16, 8);
-    life.cylinder(UV.tire, u, count * .16, .2, .2, .08, .01, 8);
+    const count = 4 + Math.floor(q() * 3);
+    for (let i = 0; i < count; i++) life.cylinder(UV.tire, u + (q() - .5) * .03, i * .17, .2, .19, .19, .17, 8);
+    life.cylinder(UV.tire, u, count * .17, .2, .19, .08, .01, 8);
   },
   costales(life, UV, q, u) {
-    life.box(UV.sack, u, 0, .19, .58, .22, .36);
-    life.box(UV.sack, u + .05, .22, .19, .5, .2, .34);
-    if (q() < .6) life.box(UV.sack, u - .03, .42, .18, .46, .18, .32);
+    const count = 3 + Math.floor(q() * 2);
+    for (let i = 0; i < count; i++) life.box(UV.sack, u + (i % 2 ? .05 : -.03), i * .21, .2, .6 - i * .04, .21, .38 - i * .02);
   },
   cajas(life, UV, q, u, s) {
-    life.box(UV.box, u, 0, .2, .46, .36, .36);
-    life.box(UV.cardboard, u + .03, .36, .19, .38, .3, .32);
-    if (q() < .5) life.box(UV.box, u + s * .46, 0, .19, .36, .3, .34);
+    life.box(UV.box, u, 0, .2, .48, .38, .38);
+    life.box(UV.cardboard, u + .03, .38, .2, .42, .32, .36);
+    if (q() < .6) life.box(UV.box, u - .02, .7, .19, .34, .26, .32);
+    life.box(UV.box, u + s * .47, 0, .19, .38, .32, .36);
   },
   guacales(life, UV, q, u, s) {
     for (const du of [0, s * .58]) {
-      life.box(UV.guacal, u + du, 0, .2, .54, .3, .36);
-      life.box(UV.guacal, u + du, .3, .18, .54, .08, .32);
-      life.slope(UV.frutas, u + du, .56, .03, .38, .39, .54);
+      // El primero va montado sobre un guacal vacío: la fruta queda a la altura de la mano.
+      const base = du ? 0 : .3;
+      if (base) life.box(UV.guacal, u, 0, .2, .54, base, .38);
+      life.box(UV.guacal, u + du, base, .2, .54, .3, .36);
+      life.box(UV.guacal, u + du, base + .3, .18, .54, .08, .32);
+      life.slope(UV.frutas, u + du, base + .56, .03, base + .38, .39, .54);
     }
   },
   matera(life, UV, q, u) {
@@ -267,23 +271,32 @@ const ANDEN = {
     life.cylinder(UV.planta, u, .3 + alto, .2, .2, .05, .16, 6);
   },
   caneca(life, UV, q, u) { life.cylinder(UV.bin, u, 0, .2, .17, .19, .62, 8); life.cylinder(UV.bin, u, .62, .2, .19, .05, .02, 8); },
-  chatarra(life, UV, q, u) { life.box(UV.pila, u, 0, .2, .8, .34 + q() * .2, .36); life.box(UV.pila, u + .1, .34, .17, .42, .2, .28); },
+  chatarra(life, UV, q, u) {
+    const alto = .5 + q() * .25;
+    life.box(UV.pila, u, 0, .2, .86, alto, .38);
+    life.box(UV.pila, u + .12, alto, .18, .46, .26, .3);
+    life.box(UV.rust, u - .3, 0, .33, .05, alto + .5, .05);
+  },
   afiches(life, UV, q, u, s) { life.panel(UV.afiches, u - s * .2, 1.5 + q() * .25, .03, .52, .64); }
 };
 
 /** El local del primer piso: muro, persiana, lo que se ve adentro, rótulo y lo que sale al andén. */
-function addLocal(life, front, m, UV, { length, facadeHeight, seed, local, toldo, contadores, warm, flat = false }) {
-  const q = rng((seed ^ 0x6c0ca15) >>> 0), half = length / 2, bajo = facadeHeight < 3.7;
+function addLocal(life, front, m, UV, { length, facadeHeight, floorHeight, seed, local, toldo, contadores, warm, avisoBajo, flat = false }) {
+  const q = rng((seed ^ 0x6c0ca15) >>> 0), half = length / 2, bajo = facadeHeight < 3.7, alto = bajo ? 2 : 2.3;
   const panos = Math.ceil(length / 2.3), ancho = length / panos, muro = UV[MUROS[Math.floor(q() * MUROS.length)]];
-  const altoMuro = Math.min(2.95, facadeHeight - .2);
+  // La pintura llega a la placa del segundo piso o solo al dintel. El aviso grande retrocede con la fachada y queda
+  // por detrás de este muro: donde lo hay, la pintura termina 6 cm por debajo de él.
+  const tope = local.conAviso ? avisoBajo - .06 : q() < .5 ? alto + .19 : floorHeight + .12;
+  const altoMuro = Math.min(tope, 3.5, facadeHeight - .2);
   for (let i = 0; i < panos; i++) life.panel(muro, -half + ancho * (i + .5), altoMuro / 2, .01, ancho, altoMuro);
+  if (!flat) life.box(UV.concrete, 0, altoMuro - .03, .035, length, .06, .05);
   // El muro y el vano van por delante del zócalo del cascarón, que no se mueve. El vano deja libres contadores y esquinas.
   let a = -half + .3, b = half - .3;
+  const borde = contadores ? half - .62 - (contadores.count - 1) * .42 - .32 : 0;
   if (contadores) {
-    const borde = half - .62 - (contadores.count - 1) * .42 - .32;
     if (contadores.side < 0) a = -borde; else b = borde;
   }
-  const libre = b - a, vanos = libre >= 5.2 ? 2 : 1, vano = Math.min(3.1, libre / vanos - .25), alto = bajo ? 2 : 2.3;
+  const libre = b - a, vanos = libre >= 5.2 ? 2 : 1, vano = Math.min(3.1, libre / vanos - .25);
   const centros = [];
   if (vano >= .85) for (let i = 0; i < vanos; i++) {
     const u = a + libre * (i + .5) / vanos, estado = i && q() < .5 ? 'cerrada' : local.estado;
@@ -305,7 +318,7 @@ function addLocal(life, front, m, UV, { length, facadeHeight, seed, local, toldo
     const w = Math.min(length - .5, bajo ? 2 : 2.6), y = bajo ? Math.min(2.5, facadeHeight - w / 8 - .1) : 3.05;
     life.panel(UV[`rot_${local.id}`], Math.max(-half + w / 2 + .1, Math.min(half - w / 2 - .1, centro)), y, .03, w, w / 4);
   }
-  if (!centros.length || flat) return;
+  if (!centros.length || flat) return false;
   const izquierda = centros[0] - vano / 2, derecha = centros[centros.length - 1] + vano / 2;
   if (local.bandera === 'cruz') life.box(UV.cruz, Math.min(half - .12, derecha + .12), 2.5, .31, .05, .5, .5);
   if (local.bandera === 'barbero') {
@@ -316,25 +329,38 @@ function addLocal(life, front, m, UV, { length, facadeHeight, seed, local, toldo
   // El andén: a cada lado del vano, sin tapar la entrada ni el toldo de nadie.
   const sitios = [Math.max(-half + .45, izquierda - .2), Math.min(half - .45, derecha + .2)];
   if (sitios[1] - sitios[0] < 1.6) sitios.length = 1;
-  const quieto = local.estado === 'cerrada' ? .3 : .85;
+  const quieto = local.estado === 'cerrada' ? .45 : 1;
+  const sobreContador = u => contadores && (contadores.side < 0 ? u < -borde + .4 : u > borde - .4);
   sitios.forEach((u, i) => {
-    const pieza = local.anden[i];
-    if (q() < (pieza === 'afiches' || pieza === 'matera' ? .7 : quieto)) ANDEN[pieza](life, UV, q, u, i ? -1 : 1);
+    const pieza = local.anden[i], s = i ? -1 : 1;
+    if (pieza === 'afiches' && sobreContador(u - s * .2)) return;
+    if (q() < (pieza === 'afiches' || pieza === 'matera' ? .7 : quieto)) ANDEN[pieza](life, UV, q, u, s);
   });
-  if (toldo) return;
-  // Sin toldo de lona, algunos tienen tejadillo de lata sobre la entrada.
-  if (local.toldos.includes('zinc') && q() < .5) {
-    const w = Math.min(length - .4, vano + .5);
-    life.slope(UV.zinc, centros[0], alto + .3, -.05, alto + .12, .62, w);
-    for (const side of [-1, 1]) life.box(UV.rust, centros[0] + side * (w / 2 - .06), alto + .12, .3, .02, .02, .62);
+  let sale = !!toldo;
+  // Sin toldo de antes, muchos tienen tejadillo de lata o una lona corta sobre la entrada.
+  const lata = local.toldos.includes('zinc');
+  if (!toldo && q() < (lata ? .7 : .5)) {
+    const w = Math.min(length - .4, vano + .5), cell = lata ? UV.zinc : UV[local.toldos[0]], vuelo = lata ? .62 : .8;
+    life.slope(cell, centros[0], alto + .3, -.05, alto + .12, vuelo, w);
+    if (lata) for (const side of [-1, 1]) life.box(UV.rust, centros[0] + side * (w / 2 - .06), alto + .12, .3, .02, .02, .62);
+    else life.panel(cell, centros[0], alto + .04, vuelo, w, .16);
+    sale = true;
   }
+  // Aviso de bandera: una lata colgada de un ángulo, perpendicular a la fachada; se lee al derecho viniendo de cualquier lado.
+  if (facadeHeight > 3.6 && q() < .55) {
+    const lado = contadores ? -contadores.side : q() < .5 ? -1 : 1, u = lado * (half - .14);
+    life.box(UV[`rot_${local.id}`], u, 2.95, .72, .05, .3, 1.2);
+    life.box(UV.rust, u, 3.25, .68, .025, .025, 1.36);
+    sale = true;
+  }
+  return sale;
 }
 
 /**
  * Primer piso: toldos, contadores, letreros a mano, humedad bajo los alféizares y, donde ya había vida, el local.
  * Solo arma piezas; las mallas nacen en `finish`, en el orden de siempre.
  */
-function addFacadeLife(wall, face, plane, front, m, { length, facadeHeight, floorHeight, centers, windowWidth, windowHeight, rows, seed, ruin, shopfront, tower, local, warm }) {
+function addFacadeLife(wall, face, plane, front, m, { length, facadeHeight, floorHeight, centers, windowWidth, windowHeight, rows, seed, ruin, shopfront, tower, local, warm, avisoBajo }) {
   const UV = detailAtlas().uv, life = lifeBatch(wall, face, plane), damp = lifeBatch(wall, face, plane, sharedStainMaterial);
   const r = rng((seed ^ Math.imul(face + 3, 0x2f6e2b)) >>> 0);
   // La lluvia baja de cada alféizar: lo que más delata una pared recién pintada es no tener esto.
@@ -382,8 +408,8 @@ function addFacadeLife(wall, face, plane, front, m, { length, facadeHeight, floo
   // contadores queda la de la humedad, que se pinta en orden y sin fondo: ahí el local va plano, sin andén.
   const flat = life.empty;
   if (!local || (flat && damp.empty)) return { local: false, finish };
-  addLocal(flat ? damp : life, front, m, UV, { length, facadeHeight, seed, local, toldo, contadores, warm, flat });
-  return { local: flat ? 'plano' : 'completo', finish };
+  const sale = addLocal(flat ? damp : life, front, m, UV, { length, facadeHeight, floorHeight, seed, local, toldo, contadores, warm, avisoBajo, flat });
+  return { local: flat ? 'plano' : 'completo', sale, finish };
 }
 
 function insetRoofCap(shell, height, inset) {
@@ -429,6 +455,9 @@ export function addBuildingDetails({ shell, width, depth, height, floors, face =
   for (const child of wall.children) if (child.isMesh && child.geometry.attributes.position.count === 4) {
     child.geometry.translate(-nx * .08, 0, -nz * .08);
   }
+  // El aviso grande del local cuelga de esta pared: la pintura del primer piso tiene que terminar antes de él.
+  const aviso = wall.children.find(child => child.isMesh && child.material.isMeshBasicMaterial && child.geometry.parameters?.height);
+  const avisoBajo = aviso ? aviso.position.y - aviso.geometry.parameters.height / 2 : 3.05 - Math.min(length * .85, 3.6) / 8;
   const front = batches(wall, face, plane);
   const floorHeight = height / floors;
   const bay = windowBayWidth ?? length / Math.max(1, Math.round(length / 3.2));
@@ -471,8 +500,9 @@ export function addBuildingDetails({ shell, width, depth, height, floors, face =
     windowCount++;
   }
   const life = addFacadeLife(wall, face, plane, front, m, { length, facadeHeight, floorHeight, centers, windowWidth, windowHeight,
-    rows, seed, ruin, shopfront: windowBayWidth === null, tower: windowBayWidth !== null, local, warm });
-  if (local) shell.root.userData.local = { id: local.id, nombre: local.nombre, armado: life.local };
+    rows, seed, ruin, shopfront: windowBayWidth === null, tower: windowBayWidth !== null, local, warm, avisoBajo });
+  if (local) shell.root.userData.local = { id: local.id, nombre: local.conAviso ? local.nombre : local.rotulo ?? local.nombre,
+    armado: life.local, aviso: !!local.conAviso, sale: !!life.sale };
   // Rejas bajas laterales: el centro del local y su rótulo siguen despejados. Donde hay local, la reja es suya.
   if (length >= 4.5 && !life.local) for (const side of [-1, 1]) {
     const u = side * length * .34, w = Math.min(.85, length * .15);
