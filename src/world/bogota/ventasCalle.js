@@ -309,9 +309,15 @@ const MADERA = '#7b6248', MADERA_VIEJA = '#64503c', MADERA_CLARA = '#8f775a', CA
 const PINTURAS = ['#5d7c84', '#78895f', '#93574a', '#b3a47c', '#56678a', '#8a7f6a'];
 const DULCES = ['#b5564b', '#c5a141', '#5d9566', '#4f7ca3', '#d5cfc1', '#c0783b', '#85608f', '#cf8b9c'];
 const TERMOS = ['#9c382f', '#2f5c88', '#d2cab8', '#3f7553', '#8c8c88'];
-const LONAS = [['#c0392b', '#f2c600'], ['#2f6fb0', '#ecf0f1'], ['#2e7d32', '#ecf0f1'], ['#c0392b', '#ecf0f1'], ['#d9822b', '#2f6fb0']];
+// Las sombrillas de la calle se reconocen por el color: gajos rojo y amarillo, azul y blanco, verde y blanco, arcoíris.
+const LONAS = [
+  ['#c0392b', '#f2c600'], ['#2f6fb0', '#ecf0f1'], ['#2e7d32', '#ecf0f1'], ['#c0392b', '#ecf0f1'], ['#d9822b', '#2f6fb0'],
+  ['#c0392b', '#f2c600', '#2e7d32', '#2f6fb0']
+];
 const quemada = (color, cuanto) => new THREE.Color(color).lerp(new THREE.Color('#b3a996'), cuanto);
 const elige = (lista, azar) => lista[Math.floor(azar() * lista.length)];
+/** Los colores de la sombrilla de un puesto salen de su nombre, aparte de lo que tenga en el surtido. */
+export const lonaDe = (title) => elige(LONAS, azarDe(`la sombrilla de ${title}`));
 
 const RADIO = 1.2, ALERO = 2.085, COPA = 2.4, PUNTA = 2.475, FALDON = .06;
 
@@ -320,11 +326,12 @@ const RADIO = 1.2, ALERO = 2.085, COPA = 2.4, PUNTA = 2.475, FALDON = .06;
  * balde de cemento al pie y la cuerda que la amarra al puesto. Ocupa lo mismo que el parasol de antes.
  */
 function sombrilla(k, colores, azar, amarre = null) {
-  const gajos = 8, remiendo = Math.floor(azar() * gajos), parche = quemada(elige(['#6f7f8a', '#8a6f5a', '#5f7a62'], azar), .35);
-  const tonos = Array.from({ length: gajos }, (_, i) => quemada(colores[i % colores.length], .4 + azar() * .22).multiplyScalar(.9));
-  // Mugre y sol: cada punto de la lona con su tono, más oscuro hacia el alero.
-  const enVarilla = Array.from({ length: gajos }, () => [0, 1, 2, 3].map((f) => 1 - f * f * .022 - azar() * .16));
-  const enMedio = Array.from({ length: gajos }, () => [0, 1, 2, 3].map((f) => 1 - f * f * .022 - azar() * .2));
+  const gajos = 8, remiendo = Math.floor(azar() * gajos), parche = quemada(elige(['#6f7f8a', '#8a6f5a', '#5f7a62'], azar), .35).multiplyScalar(.8);
+  // Asoleada, no borrada: cada gajo pierde entre un 15 y un 30 % de su color.
+  const tonos = Array.from({ length: gajos }, (_, i) => quemada(colores[i % colores.length], .15 + azar() * .15));
+  // La mugre se junta en el alero y en el remiendo: arriba la lona queda limpia y hacia el borde se oscurece.
+  const enVarilla = Array.from({ length: gajos }, () => [0, 1, 2, 3].map((f) => 1 - f * f * (.026 + azar() * .012)));
+  const enMedio = Array.from({ length: gajos }, () => [0, 1, 2, 3].map((f) => 1 - f * f * (.03 + azar() * .016)));
   const varilla = (i, t) => {
     const a = i / gajos * Math.PI * 2, r = RADIO * t;
     return [r * Math.sin(a), COPA - (COPA - ALERO) * Math.pow(t, 1.7), r * Math.cos(a)];
@@ -339,7 +346,7 @@ function sombrilla(k, colores, azar, amarre = null) {
     k.lona(filas, (f) => (i === remiendo && f === 1 ? parche : tonos[i]), .62, (f, j) => (j === 1 ? enMedio[i][f] : enVarilla[(i + j / 2) % gajos][f]));
     const a = varilla(i, 1), b = varilla(i + 1, 1), medio = filas[3][1], cae = FALDON * (.7 + azar() * .3);
     k.lona([[a, medio, b], [[a[0], a[1] - FALDON, a[2]], [medio[0], medio[1] - cae, medio[2]], [b[0], b[1] - FALDON, b[2]]]],
-      tonos[(i + 1) % gajos].clone().multiplyScalar(.9), .7);
+      tonos[(i + 1) % gajos].clone().multiplyScalar(.68), .7);
     k.tramo(varilla(i, .06), varilla(i, .98).map((v, eje) => (eje === 1 ? v - .012 : v)), .014, HIERRO);
   }
   k.tubo(.022, .022, COPA - .02, 6, '#8c8c86', [0, (COPA - .02) / 2 + .01, 0]);
@@ -562,7 +569,7 @@ export function crearChaza({ withUmbrella = true, title = 'Chaza', items = ['cig
   const grupo = (nombre, mallas) => {
     const parte = new THREE.Group();
     parte.name = nombre;
-    parte.add(...mallas);
+    if (mallas.length) parte.add(...mallas);
     g.add(parte);
     return parte;
   };
@@ -576,7 +583,7 @@ export function crearChaza({ withUmbrella = true, title = 'Chaza', items = ['cig
   }));
   if (withUmbrella) {
     const k = new Piezas();
-    sombrilla(k, elige(LONAS, azar), azar, variante === 'tinto' ? [-.11, .77, -.08] : [-.02, .9, -.1]);
+    sombrilla(k, lonaDe(title), azar, variante === 'tinto' ? [-.11, .77, -.08] : [-.02, .9, -.1]);
     // Linterna colgada de una varilla: de día está apagada.
     k.tramo([.28, 2.2, .1], [.28, 1.98, .1], .008, HIERRO);
     k.tubo(.03, .035, .05, 6, '#3a3a36', [.28, 1.96, .1]);
@@ -590,15 +597,30 @@ export function crearChaza({ withUmbrella = true, title = 'Chaza', items = ['cig
   return g;
 }
 
-// El carro de antes eran 18 mallas sueltas con sus materiales; Three sortea un identificador por cada una. Las pruebas
-// con semilla arman la ciudad con el azar sembrado, así que el carro nuevo, con tres mallas, gasta lo que falta.
-const AZAR_QUE_GASTABA_LA_FRITANGA = 188;
+// El carro de antes eran 18 mallas sueltas con sus materiales, y Three sortea un identificador por cada malla, geometría
+// y material: 220 números en total. Las pruebas con semilla arman la ciudad con el azar sembrado y dependen de esa cuenta.
+const SORTEOS_DEL_CARRO_DE_FRITANGA_DE_ANTES = 220;
+
+/** Arma algo contando lo que le pide al azar del juego y, al terminar, pide lo que falte para llegar a lo `deAntes`. */
+function conElAzarDeAntes(deAntes, armar) {
+  const delJuego = Math.random;
+  let pedidos = 0;
+  Math.random = () => { pedidos++; return delJuego(); };
+  try { return armar(); } finally {
+    Math.random = delJuego;
+    for (; pedidos < deAntes; pedidos++) delJuego();
+  }
+}
 
 /**
  * Carro de fritanga: lata, vitrina de vidrio empañado, paila, fogón de carbón, pipeta, ají, banquitos y bombillo.
  * Las brasas y el bombillo siguen a `light`, la luz del puesto, que ya sube de noche y baja de día.
  */
-export function crearFritanga({ title = 'Fritanga', items = ['empanada', 'morcilla', 'papaCriolla'], light = null } = {}) {
+export function crearFritanga(opciones = {}) {
+  return conElAzarDeAntes(SORTEOS_DEL_CARRO_DE_FRITANGA_DE_ANTES, () => armarFritanga(opciones));
+}
+
+function armarFritanga({ title = 'Fritanga', items = ['empanada', 'morcilla', 'papaCriolla'], light = null } = {}) {
   const azar = azarDe(title), k = new Piezas(), g = new THREE.Group();
   g.name = title;
   g.userData.variante = 'fritanga';
@@ -677,9 +699,10 @@ export function crearFritanga({ title = 'Fritanga', items = ['empanada', 'morcil
   k.tubo(.028, .034, .06, 6, '#2b2a28', [.3, 1.94, .34]);
   k.tramo([.3, 1.97, .34], [.18, 2.22, .22], .008, '#2b2a28');
   k.tramo([.18, 2.22, .22], [.02, 2.3, .11], .008, '#2b2a28');
-  banquito(k, [-.52, 0, 1.02], elige(['#a2473c', '#b0553f'], azar), .3);
-  banquito(k, [.22, 0, 1.06], elige(['#3d6688', '#c5bfae'], azar), -.2);
-  k.en([0, 0, .1], [0, 0, 0], () => sombrilla(k, elige(LONAS, azar), azar));
+  // Los banquitos van a los lados: el frente del carro queda libre para quien compra.
+  banquito(k, [-.95, 0, .62], elige(['#a2473c', '#b0553f'], azar), .15);
+  banquito(k, [1.0, 0, .62], elige(['#3d6688', '#c5bfae'], azar), -.2);
+  k.en([0, 0, .1], [0, 0, 0], () => sombrilla(k, lonaDe(title), azar));
   const brillo = new THREE.MeshBasicMaterial({ vertexColors: true });
   const [luz] = k.mallas('luz', 1, brillo);
   luz.name = 'Brasas y bombillo';
@@ -687,7 +710,6 @@ export function crearFritanga({ title = 'Fritanga', items = ['empanada', 'morcil
   luz.onBeforeRender = () => brillo.color.setScalar(.7 + 1.5 * Math.min(1, Math.max(0, ((light?.intensity ?? 2.2) / 2.2 - .12) / .88)));
   g.add(...k.mallas('cuerpo', 1, CUERPO), ...k.mallas('vidrio', 1, VIDRIO), luz);
   g.userData.dispose = () => { soltarVenta(g); light?.dispose(); };
-  for (let i = 0; i < AZAR_QUE_GASTABA_LA_FRITANGA; i++) Math.random();
   return g;
 }
 

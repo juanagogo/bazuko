@@ -23,7 +23,7 @@ mock.module('../src/character/RealisticCharacter.js', { namedExports: {
 let sorteosAlCargar = 0;
 const azarDelJuego = Math.random;
 Math.random = () => { sorteosAlCargar++; return azarDelJuego(); };
-await import('../src/world/bogota/ventasCalle.js');
+const { lonaDe } = await import('../src/world/bogota/ventasCalle.js');
 Math.random = azarDelJuego;
 const { chaza, fritanga, umbrella } = await import('../src/world/bogota/props.js');
 const { Bogota } = await import('../src/world/districts/Bogota.js');
@@ -97,6 +97,42 @@ test('un puesto sale igual en cada partida y distinto de su vecino: su aspecto v
   }
   assert.notEqual(huella(armar(PUESTOS[0])), huella(armar(PUESTOS[3])), 'dos chazas de dulces salen idénticas');
   assert.notEqual(huella(armar(PUESTOS[1])), huella(armar(PUESTOS[5])), 'dos fritangas salen idénticas');
+});
+
+test('armar los ocho puestos no escribe errores en la consola', () => {
+  const errores = mock.method(console, 'error', () => {});
+  try {
+    for (const puesto of PUESTOS) armar(puesto);
+    chaza({ withUmbrella: false, title: 'Chaza', items: ['cigarrillo'] });
+    assert.deepEqual(errores.mock.calls.map((llamada) => llamada.arguments.join(' ')), []);
+  } finally { errores.mock.restore(); }
+});
+
+test('las sombrillas conservan el color de la calle: varias combinaciones, varios tonos y ninguna igual a la del vecino', () => {
+  const combinaciones = PUESTOS.map(([, title]) => lonaDe(title).join());
+  assert.ok(new Set(combinaciones).size >= 4, `solo hay ${new Set(combinaciones).size} combinaciones de color entre los ocho puestos`);
+  PUESTOS.forEach(([, title, , , x, z], i) => {
+    const distancia = ([, , , , a, b]) => Math.hypot(a - x, b - z);
+    const vecino = PUESTOS.filter((_, k) => k !== i).reduce((cerca, otro) => (distancia(otro) < distancia(cerca) ? otro : cerca));
+    assert.notEqual(combinaciones[i], lonaDe(vecino[1]).join(), `${title} repite la sombrilla de ${vecino[1]}`);
+  });
+  // Lo que de verdad se ve: el matiz de cada punto vivo de la lona, por encima del alero, en franjas de 30 grados.
+  const tonos = new Set(), hsl = {}, color = new THREE.Color();
+  for (const puesto of PUESTOS) {
+    const propios = new Set();
+    for (const malla of mallas(armar(puesto))) {
+      const p = malla.geometry.attributes.position, c = malla.geometry.attributes.color;
+      malla.updateWorldMatrix(true, false);
+      for (let i = 0; c && i < p.count; i++) {
+        if (new THREE.Vector3().fromBufferAttribute(p, i).applyMatrix4(malla.matrixWorld).y < 2.12) continue;
+        color.fromBufferAttribute(c, i).getHSL(hsl, THREE.SRGBColorSpace);
+        if (hsl.s > .2 && hsl.l > .2) propios.add(Math.floor(hsl.h * 12) % 12);
+      }
+    }
+    assert.ok(propios.size >= 1, `${puesto[1]}: la sombrilla salió lavada, sin un solo tono vivo`);
+    for (const tono of propios) tonos.add(tono);
+  }
+  assert.ok(tonos.size >= 3, `entre los ocho puestos solo se ven ${tonos.size} tonos`);
 });
 
 test('lo que se ve cuadra con lo que vende', () => {
@@ -203,7 +239,7 @@ test('los avisos son pintados a mano y ninguno nombra una marca de verdad', () =
   for (const marca of marcas) assert.ok(!new RegExp(`(^|[^a-záéíóúñ])${marca}([^a-záéíóúñ]|$)`).test(texto), `el aviso nombra «${marca}»`);
 });
 
-test('la plaza de mercado conserva sus colisiones y gana toldos colgados, fruta apilada, racimos y básculas', () => {
+test('la plaza de mercado conserva sus colisiones y gana toldos colgados y remendados, montones de fruta, racimos y básculas', () => {
   const { group, colliders, blockedTiles } = buildMarket({ detail: new THREE.MeshStandardMaterial() });
   // Las mesas de siempre: seis, con el mismo sitio y tamaño (lo que detiene a la gente no cambia).
   assert.deepEqual(colliders.map((c) => [+c.x.toFixed(3), c.z, c.w, c.d, c.h]), [
@@ -214,7 +250,7 @@ test('la plaza de mercado conserva sus colisiones y gana toldos colgados, fruta 
     '161,87 161,88 162,87 162,88 163,87 163,88 165,87 165,88 166,87 166,88 167,87 167,88 168,87 168,88 169,87 169,88 170,87 170,88');
   assert.equal(mallas(group).length, 1, 'la plaza sigue siendo una sola malla');
   const total = triangulos(group);
-  assert.ok(total > 2500 && total <= 6 * 2500, `${total} triángulos en los seis puestos`);
+  assert.ok(total > 2500 && total <= 7000, `${total} triángulos en los seis puestos`);
   // La lona cuelga: hay puntos del toldo por debajo de la recta entre el alero y la cumbrera.
   const p = mallas(group)[0].geometry.attributes.position;
   let colgados = 0;
