@@ -1,14 +1,14 @@
 // Celdas de los locales de barrio dentro del atlas de mobiliario: muros del primer piso, persianas, rótulos
 // pintados a mano, lo que se ve tras la persiana abierta y lo que el local saca al andén.
 // Todo lleva polvo abajo, pintura caída y sol encima: nada sale limpio ni de color pleno.
-import { OFICIOS } from './Locales.js';
+import { NOMBRES_DE_AVISO, OFICIOS } from './Locales.js';
 
 export const MUROS = ['muroCrema', 'muroMenta', 'muroBaldosin', 'muroOcre', 'muroAzul', 'muroRosa'];
 export const PERSIANAS = ['persianaGris', 'persianaVerde', 'persianaAzul', 'persianaRoja', 'persianaOcre'];
 const INTERIORES = ['abarrotes', 'botellas', 'farmacia', 'pan', 'carne', 'fruta', 'pollos', 'mesas',
   'taller', 'ferre', 'ropa', 'barberia', 'cabinas', 'billar', 'oficina', 'chatarra'];
 const PIEZAS = ['canastaRoja', 'canastaAmarilla', 'canastaAzul', 'guacal', 'frutas', 'matera', 'planta', 'cruz',
-  'barbero', 'toldoVerde', 'toldoLona', 'zinc', 'sillaRoja', 'pila', 'afiche'];
+  'barbero', 'toldoVerde', 'toldoLona', 'zinc', 'sillaRoja', 'pila'];
 
 /** Ancho que los locales añaden a la derecha del atlas, en unidades de diseño. */
 export const LOCAL_W = 512;
@@ -23,6 +23,8 @@ export function localRects(x0) {
   ['nevera', 'afiches', 'reja'].forEach((name, i) => { rects[name] = [x0 + 320 + i * 64, 96, 64, 80]; });
   OFICIOS.forEach((oficio, i) => { rects[`rot_${oficio.id}`] = [x0 + (i % 4) * 128, 176 + Math.floor(i / 4) * 32, 128, 32]; });
   PIEZAS.forEach((name, i) => { rects[name] = [x0 + (i % 8) * 64, 400 + Math.floor(i / 8) * 56, 64, 56]; });
+  // Dos interiores más, en el hueco que dejan las piezas.
+  ['recepcion', 'papeleria'].forEach((name, i) => { rects[name] = [x0 + 384 + i * 64, 456, 64, 56]; });
   // Las dos filas que el atlas anterior dejaba libres encima de los portales.
   INTERIORES.forEach((name, i) => { rects[name] = [(i % 8) * 64, 256 + Math.floor(i / 8) * 64, 64, 64]; });
   return rects;
@@ -48,7 +50,7 @@ function dentro(ctx, [x, y, w, h], draw) {
 function mugre(ctx, rect, r, fuerza = 1) {
   const [x, y, w, h] = rect;
   const polvo = ctx.createLinearGradient(0, y + h * .6, 0, y + h);
-  polvo.addColorStop(0, 'rgba(60,50,38,0)'); polvo.addColorStop(1, `rgba(60,50,38,${(.46 * fuerza).toFixed(2)})`);
+  polvo.addColorStop(0, 'rgba(60,50,38,0)'); polvo.addColorStop(1, `rgba(60,50,38,${Math.min(.8, .5 * fuerza).toFixed(2)})`);
   ctx.fillStyle = polvo; ctx.fillRect(x, y + h * .6, w, h * .4);
   for (let i = 0; i < 4 * fuerza; i++) {
     const sx = x + r() * (w - 4), largo = h * (.2 + r() * .55);
@@ -102,10 +104,22 @@ function muro(ctx, rect, r, arriba, zocalo, { baldosin = null, ladrillo = false 
     ctx.fillStyle = 'rgba(0,0,0,.22)'; ctx.fillRect(x, corte, w, 1);
     ctx.fillStyle = 'rgba(255,255,255,.12)'; ctx.fillRect(x, corte + 1, w, .6);
   }
-  desconche(ctx, [x, corte - 4, w, 9], r, 5, 'rgba(168,160,142,.5)');
-  desconche(ctx, [x, y + h - 12, w, 12], r, 7, 'rgba(104,96,82,.55)');
-  desconche(ctx, [x, y, w, h * .6], r, 3, 'rgba(176,170,154,.3)');
-  mugre(ctx, rect, r, 1.15);
+  desconche(ctx, [x, corte - 4, w, 9], r, 7, 'rgba(168,160,142,.5)');
+  desconche(ctx, [x, y + h - 12, w, 12], r, 10, 'rgba(104,96,82,.55)');
+  desconche(ctx, [x, y + 5, w, h * .55], r, 4, 'rgba(176,170,154,.32)');
+  // Filete del color del zócalo donde termina la pintura, y lo que escurre de él con cada aguacero.
+  ctx.fillStyle = zocalo; ctx.fillRect(x, y, w, 3.2);
+  ctx.fillStyle = 'rgba(255,250,235,.14)'; ctx.fillRect(x, y, w, .7);
+  ctx.fillStyle = 'rgba(0,0,0,.3)'; ctx.fillRect(x, y + 3.2, w, .8);
+  for (let i = 0; i < 9; i++) {
+    const sx = x + r() * (w - 3), largo = h * (.08 + r() * .3), ancho = 1 + r() * 3.5;
+    const chorro = ctx.createLinearGradient(0, y + 4, 0, y + 4 + largo);
+    chorro.addColorStop(0, 'rgba(38,33,26,.34)'); chorro.addColorStop(1, 'rgba(38,33,26,0)');
+    ctx.fillStyle = chorro; ctx.fillRect(sx, y + 4, ancho, largo);
+  }
+  // Salpicadura del andén: barro seco que sube un palmo.
+  grano(ctx, [x, y + h - 9, w, 9], r, 70, ['rgba(74,62,46,.4)', 'rgba(92,80,62,.3)', 'rgba(50,42,32,.3)'], 2.2);
+  mugre(ctx, rect, r, 1.5);
 }
 
 function persiana(ctx, rect, r, color, oxido = .5) {
@@ -145,7 +159,7 @@ function rotulo(ctx, rect, r, oficio) {
   ctx.fillStyle = sol; ctx.fillRect(x, y, w, h);
   ctx.strokeStyle = oficio.tinta; ctx.lineWidth = 1.1; ctx.strokeRect(x + 2.5, y + 2.5, w - 5, h - 5);
   letra(ctx, oficio.titulo, x + w / 2, y + h * .4, oficio.titulo.length > 11 ? 13 : 15.5, oficio.tinta, w - 12, { sombra: 'rgba(0,0,0,.34)' });
-  letra(ctx, oficio.nombres[0], x + w / 2, y + h * .78, 7.5, oficio.acento, w - 16, { fuente: 'Georgia, "Times New Roman", serif', peso: 'italic 700' });
+  letra(ctx, oficio.nombres[NOMBRES_DE_AVISO], x + w / 2, y + h * .78, 7.5, oficio.acento, w - 16, { fuente: 'Georgia, "Times New Roman", serif', peso: 'italic 700' });
   desconche(ctx, rect, r, 4, 'rgba(188,180,162,.4)');
   desconche(ctx, [x, y + h - 6, w, 6], r, 5, 'rgba(92,80,64,.4)');
   mugre(ctx, rect, r, .6);
@@ -369,6 +383,37 @@ const INTERIOR = {
       ctx.save(); ctx.translate(px, py); ctx.rotate((r() - .5) * 1.6); ctx.fillRect(-3, -1, 3 + r() * 7, 1 + r() * 2.6); ctx.restore();
     }
     ctx.fillStyle = '#3f5a6a'; ctx.fillRect(x + w - 15, y + h - 26, 11, 19); ctx.fillStyle = '#d8d2c0'; ctx.fillRect(x + w - 13, y + h - 24, 7, 5);
+  },
+  /** Residencias: la ventanilla con reja y tablero de llaves, y la escalera que sube a las piezas. */
+  recepcion(ctx, rect) {
+    const [x, y, w, h] = rect;
+    fondoInterior(ctx, rect, '#3a332b', '#665a4a');
+    for (let i = 0; i < 8; i++) {
+      ctx.fillStyle = i % 2 ? '#56493b' : '#6e604e';
+      ctx.fillRect(x + w * .54 + i * 2, y + h - 7 - (i + 1) * 4.4, w * .46 - i * 2, 4.4);
+      ctx.fillStyle = 'rgba(0,0,0,.35)'; ctx.fillRect(x + w * .54 + i * 2, y + h - 7 - i * 4.4 - .8, w * .46 - i * 2, .8);
+    }
+    ctx.fillStyle = '#8a7a5c'; ctx.save(); ctx.translate(x + w * .56, y + h - 22); ctx.rotate(-1.14); ctx.fillRect(0, 0, 34, 1.4); ctx.restore();
+    ctx.fillStyle = '#231f1b'; ctx.fillRect(x + w * .5, y + 5, 2, h - 12);
+    ctx.fillStyle = '#6b5640'; ctx.fillRect(x + 3, y + h - 27, w * .45, 20);
+    ctx.fillStyle = '#8c765a'; ctx.fillRect(x + 2, y + h - 29, w * .47, 2.6);
+    ctx.fillStyle = '#16140f'; ctx.fillRect(x + 5, y + 9, w * .4, h - 39);
+    ctx.fillStyle = '#4a3a2a'; ctx.fillRect(x + 8, y + 11, 17, 9);
+    ctx.fillStyle = '#c9b25a'; for (let i = 0; i < 10; i++) ctx.fillRect(x + 9.5 + (i % 5) * 3.1, y + 12.4 + Math.floor(i / 5) * 4, 1.2, 2.4);
+    ctx.fillStyle = '#8f8a7c'; for (let i = 0; i < 6; i++) ctx.fillRect(x + 6.5 + i * 4.6, y + 9, .8, h - 39);
+    ctx.fillStyle = '#d8d2c0'; ctx.fillRect(x + 8, y + h - 23, 10, 6);
+  },
+  /** Papelería: cuadernos y cartulinas en los estantes, resmas y la fotocopiadora. */
+  papeleria(ctx, rect, r) {
+    const [x, y, w, h] = rect;
+    fondoInterior(ctx, rect, '#44403a', '#74705f');
+    estantes(ctx, [x, y, w * .64, h], r, ['#b5503f', '#3f6a94', '#cdb75a', '#4f7f52', '#d8d0b8', '#7d5a8c', '#c98444'], { filas: 4, alto: 6, tabla: '#b8b2a0', hasta: h - 22 });
+    for (let i = 0; i < 6; i++) { ctx.fillStyle = pick(r, ['#cdb75a', '#b5503f', '#6f9cba', '#7fae7a', '#e4decb']); ctx.fillRect(x + w * .68 + i * 3, y + 6 + r() * 3, 2.2, 15); }
+    ctx.fillStyle = '#c2c0b6'; ctx.fillRect(x + w * .68, y + h - 33, 17, 13); ctx.fillStyle = '#8d8b82'; ctx.fillRect(x + w * .68 - 1, y + h - 35, 19, 3);
+    ctx.fillStyle = '#34363a'; ctx.fillRect(x + w * .68 + 2, y + h - 30, 8, 3);
+    ctx.fillStyle = '#ece8da'; ctx.fillRect(x + w * .68 + 3, y + h - 24, 12, 1.5);
+    mostrador(ctx, rect, '#b3a98e', '#273f73', true);
+    ctx.fillStyle = '#ece8da'; for (let i = 0; i < 3; i++) ctx.fillRect(x + 8 + i * 9, y + h - 16 - i % 2, 7, 4);
   }
 };
 
@@ -402,17 +447,17 @@ function cartel(ctx, rect, r, fondo, lineas) {
 
 /** Pinta todas las celdas de los locales. `R` trae sus rectángulos y `r` el azar del atlas. */
 export function drawLocales(ctx, R, r) {
-  muro(ctx, R.muroCrema, r, '#cfc3a4', '#7d3b34');
-  muro(ctx, R.muroMenta, r, '#a9bfa6', '#4c6a55');
-  muro(ctx, R.muroBaldosin, r, '#c2b07a', '#4a4840', { baldosin: 'rgba(122,146,158,.9)' });
-  muro(ctx, R.muroOcre, r, '#b3ada0', '#a8853f');
-  muro(ctx, R.muroAzul, r, '#9fb6c2', '#48667c');
-  muro(ctx, R.muroRosa, r, '#c08f80', '#7a4f44', { ladrillo: true });
-  persiana(ctx, R.persianaGris, r, '#868a82', .55);
-  persiana(ctx, R.persianaVerde, r, '#5f7d64', .45);
-  persiana(ctx, R.persianaAzul, r, '#58748c', .45);
-  persiana(ctx, R.persianaRoja, r, '#8f5345', .5);
-  persiana(ctx, R.persianaOcre, r, '#a8925a', .5);
+  muro(ctx, R.muroCrema, r, '#c2b79c', '#70453d');
+  muro(ctx, R.muroMenta, r, '#a0ad9c', '#51645a');
+  muro(ctx, R.muroBaldosin, r, '#b5a67c', '#4a4840', { baldosin: 'rgba(122,140,148,.9)' });
+  muro(ctx, R.muroOcre, r, '#aaa598', '#94804e');
+  muro(ctx, R.muroAzul, r, '#96a6ad', '#51616d');
+  muro(ctx, R.muroRosa, r, '#ad8c80', '#6f5046', { ladrillo: true });
+  persiana(ctx, R.persianaGris, r, '#80837c', .62);
+  persiana(ctx, R.persianaVerde, r, '#627568', .55);
+  persiana(ctx, R.persianaAzul, r, '#5f707e', .55);
+  persiana(ctx, R.persianaRoja, r, '#80574d', .58);
+  persiana(ctx, R.persianaOcre, r, '#978862', .58);
   for (const oficio of OFICIOS) rotulo(ctx, R[`rot_${oficio.id}`], r, oficio);
   for (const [name, draw] of Object.entries(INTERIOR)) dentro(ctx, R[name], () => {
     const [x, y, w, h] = R[name];
@@ -535,5 +580,4 @@ export function drawLocales(ctx, R, r) {
     }
     mugre(ctx, R.pila, r, .8);
   });
-  cartel(ctx, R.afiche, r, '#c9b88a', [['FIESTA', 12, '#8a2a22'], ['DEL BARRIO', 8, '#26221c'], ['SÁBADO 8 P.M.', 6.5, '#26221c'], ['caseta comunal', 6, '#4a3f30', 'Georgia, serif']]);
 }
