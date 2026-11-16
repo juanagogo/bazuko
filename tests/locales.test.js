@@ -122,10 +122,11 @@ test('los avisos grandes colgados en la ciudad no pasan de 54 textos distintos, 
   assert.ok(textos.size <= 54, `${textos.size} textos distintos en los avisos grandes colgados`);
   const porOficio = new Map();
   for (const { local, texto } of colgados) {
-    assert.ok(local?.aviso, `un aviso colgado sin local que lo anuncie: ${texto}`);
-    porOficio.set(local.id, (porOficio.get(local.id) ?? new Set()).add(texto));
+    const oficio = local?.id ?? texto.split(' · ')[0];
+    porOficio.set(oficio, (porOficio.get(oficio) ?? new Set()).add(texto));
   }
-  for (const [id, suyos] of porOficio) assert.ok(suyos.size <= 2, `${id} cuelga ${suyos.size} textos distintos`);
+  for (const [oficio, suyos] of porOficio) assert.ok(suyos.size <= 2, `${oficio} cuelga ${suyos.size} textos distintos`);
+  for (const { local, texto } of colgados) assert.ok(local?.aviso, `un aviso colgado sin local que lo anuncie: ${texto}`);
   for (const { raiz, local } of solares) if (local?.aviso) assert.equal(avisosDe(raiz).length, 1, `${local.id} dice tener aviso y no lo cuelga`);
 });
 
