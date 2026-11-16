@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import * as THREE from 'three';
 import { DrugDealer } from '../src/entities/DrugDealer.js';
+import { SellPoint } from '../src/entities/SellPoint.js';
 import { ITEMS } from '../src/data/items.js';
 
 /** Mallas, triángulos, luces y caja de un puesto, en metros desde su centro. */
@@ -106,5 +107,38 @@ test('de noche se prenden la bombilla y el fogón del dealer; de día la luz no 
 
 test('al quitar al dealer se libera todo lo que creó', () => {
   const { scene, puesto } = armar(DrugDealer);
+  assert.equal(sinLiberar(puesto, scene), 0);
+});
+
+test('la recicladora conserva su interfaz y se arma sin navegador', (t) => {
+  const { puesto: recicladora } = armar(SellPoint, t);
+  assert.equal(recicladora.kind, 'recycler');
+  assert.equal(recicladora.position, recicladora.group.position);
+  const pedidos = [];
+  assert.equal(recicladora.sell({ sellAll: (mult) => { pedidos.push(mult); return 1200; } }, 1.5), 1200);
+  assert.equal(recicladora.sell({ sellAll: (mult) => { pedidos.push(mult); return 0; } }), 0);
+  assert.deepEqual(pedidos, [1.5, 1]);
+});
+
+test('la recicladora se dibuja con tres mallas, sin luces, y cabe en el portón de la bodega', (t) => {
+  const { puesto: recicladora } = armar(SellPoint, t);
+  const { mallas, luces, triangulos, caja } = censo(recicladora);
+  assert.equal(mallas.length, 3, 'bodega, aviso y bombilla');
+  assert.ok(triangulos > 1200 && triangulos <= 2600, `${triangulos} triángulos`);
+  assert.equal(luces.length, 0);
+  // El portón mide 8 m de ancho por 6 de fondo y su piso está a 12 cm: nada atraviesa los muros ni queda bajo el piso.
+  assert.ok(caja.min.x > -3.95 && caja.max.x < 3.95, `x de ${caja.min.x.toFixed(2)} a ${caja.max.x.toFixed(2)}`);
+  assert.ok(caja.min.z > -2.95 && caja.max.z < 2.95, `z de ${caja.min.z.toFixed(2)} a ${caja.max.z.toFixed(2)}`);
+  assert.ok(caja.min.y >= 0.12 - 1e-6, `lo más bajo está a ${caja.min.y.toFixed(3)} m`);
+  // El aviso se lee desde la calle, que queda en -z, y está por encima de las cabezas.
+  const aviso = mallas.find((malla) => malla.name === 'Aviso de la recicladora');
+  const frente = new THREE.Vector3(0, 0, 1).applyQuaternion(aviso.getWorldQuaternion(new THREE.Quaternion()));
+  assert.ok(frente.z < -0.99, 'mira a la calle');
+  assert.equal(aviso.material.side, THREE.FrontSide, 'por detrás no se lee al revés');
+  assert.ok(aviso.position.y - aviso.geometry.parameters.height / 2 > 2);
+});
+
+test('al quitar la recicladora se libera todo lo que creó', () => {
+  const { scene, puesto } = armar(SellPoint);
   assert.equal(sinLiberar(puesto, scene), 0);
 });
