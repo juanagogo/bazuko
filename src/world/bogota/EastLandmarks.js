@@ -251,12 +251,24 @@ export function buildFountain(m) {
   return group;
 }
 
-/** Puestos de la plaza de mercado: toldos, mesas, canastas y costales. Devuelve sus colisiones. */
+/** Puestos de la plaza de mercado: toldos colgados, mesas con fruta apilada, racimos, básculas, canastas y bultos. Devuelve sus colisiones. */
 export function buildMarket(m) {
   const group = new THREE.Group();
   group.name = 'Plaza de mercado';
   const random = rng(5151);
+  // El surtido nuevo lleva su propio azar: el de siempre sigue fijando sitio y tamaño de mesas, canastas y costales.
+  const extra = rng(5152);
   const batch = new Batch(), f = batch.frame(4, 0);
+  /** Lona por paños entre cuatro esquinas, con la tela caída hacia el medio y las rayas seguidas. */
+  const cloth = (a, b, c, d, rect, sag, cols = 5, rows = 4) => {
+    const [u0, v0, u1, v1] = detailRect(rect);
+    const at = (s, t) => [0, 1, 2].map(k => (a[k] * (1 - s) + b[k] * s) * (1 - t) + (d[k] * (1 - s) + c[k] * s) * t - (k === 1 ? sag * Math.sin(Math.PI * t) * (.55 + .45 * Math.sin(Math.PI * s)) : 0));
+    for (let i = 0; i < cols; i++) for (let j = 0; j < rows; j++) {
+      const s0 = i / cols, s1 = (i + 1) / cols, t0 = j / rows, t1 = (j + 1) / rows;
+      f.quadUV(m.detail, at(s0, t0), at(s1, t0), at(s1, t1), at(s0, t1),
+        [u0 + (u1 - u0) * s0, v0 + (v1 - v0) * t0, u0 + (u1 - u0) * s1, v0 + (v1 - v0) * t0, u0 + (u1 - u0) * s1, v0 + (v1 - v0) * t1, u0 + (u1 - u0) * s0, v0 + (v1 - v0) * t1]);
+    }
+  };
   const x0 = MARKET.x0 * T, x1 = MARKET.x1 * T, z0 = MARKET.z0 * T, z1 = MARKET.z1 * T;
   const colliders = [], blockedTiles = [];
   const tarps = ['redStripe', 'greenTarp', 'blueStripe', 'blueTarp', 'orangeTarp', 'redStripe'];
@@ -270,8 +282,21 @@ export function buildMarket(m) {
     for (let c = 0; c < crates; c++) for (const side of [-1, 1]) {
       const crateX = cx - (w - .7) / 2 + crateW * (c + .5), crateZ = cz + side * (d - 1.1) / 4;
       f.box(m.detail, crateX, 1.01, crateZ, crateW - .08, .17, (d - 1.2) / 2 - .06, 'woodLight', FACES.front | FACES.back | FACES.left | FACES.right);
-      f.box(m.detail, crateX, 1.01, crateZ, crateW - .08, .17, (d - 1.2) / 2 - .06, goods[Math.floor(random() * goods.length)], FACES.top);
+      const good = goods[Math.floor(random() * goods.length)], crateD = (d - 1.2) / 2 - .06;
+      f.box(m.detail, crateX, 1.01, crateZ, crateW - .08, .17, crateD, good, FACES.top);
+      // Fruta y verdura en pirámide sobre la canasta.
+      const tiers = 1 + Math.floor(extra() * 3);
+      for (let tier = 0; tier < tiers; tier++) {
+        const shrink = 1 - (tier + 1) * .24;
+        f.box(m.detail, crateX + (extra() - .5) * .04, 1.18 + tier * .1, crateZ, (crateW - .08) * shrink, .1, crateD * shrink, good, ALL_FACES & ~FACES.bottom);
+      }
     }
+    // Báscula de reloj en una punta de la mesa.
+    const scaleX = cx + (extra() < .5 ? -1 : 1) * (w / 2 - .42);
+    f.box(m.detail, scaleX, 1.01, cz, .3, .05, .3, 'iron', ALL_FACES & ~FACES.bottom);
+    f.box(m.detail, scaleX, 1.06, cz, .05, .3, .05, 'iron', ALL_FACES & ~FACES.bottom);
+    f.box(m.detail, scaleX, 1.3, cz, .24, .24, .07, 'plasterWhite', ALL_FACES);
+    f.box(m.detail, scaleX, 1.56, cz, .34, .03, .3, 'stoneGray', ALL_FACES);
     for (const [du, dn] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) {
       f.box(m.detail, cx + du * (w / 2 - .32), .12, cz + dn * (d / 2 - .58), .09, .8, .09, 'woodDark', SKIN);
     }
@@ -280,12 +305,26 @@ export function buildMarket(m) {
       f.box(m.detail, cx + du * (w / 2 - .1), .12, cz + dn * (d / 2 - .1), .07, 2.32, .07, 'iron', SKIN);
     }
     const ridge = 2.95, eave = 2.32;
-    f.quad(m.detail, [cx - w / 2 - .15, eave, cz + d / 2 + .15], [cx + w / 2 + .15, eave, cz + d / 2 + .15], [cx + w / 2 + .15, ridge, cz], [cx - w / 2 - .15, ridge, cz], tarp);
-    f.quad(m.detail, [cx + w / 2 + .15, eave, cz - d / 2 - .15], [cx - w / 2 - .15, eave, cz - d / 2 - .15], [cx - w / 2 - .15, ridge, cz], [cx + w / 2 + .15, ridge, cz], tarp);
-    // Faldón que cuelga del alero: es lo que hace que la lona parezca lona y no una tabla.
+    const sag = .1 + extra() * .08;
+    cloth([cx - w / 2 - .15, eave, cz + d / 2 + .15], [cx + w / 2 + .15, eave, cz + d / 2 + .15], [cx + w / 2 + .15, ridge, cz], [cx - w / 2 - .15, ridge, cz], tarp, sag);
+    cloth([cx + w / 2 + .15, eave, cz - d / 2 - .15], [cx - w / 2 - .15, eave, cz - d / 2 - .15], [cx - w / 2 - .15, ridge, cz], [cx + w / 2 + .15, ridge, cz], tarp, sag);
+    // Faldón que cuelga del alero, más largo entre amarre y amarre.
     for (const side of [-1, 1]) {
-      const zv = cz + side * (d / 2 + .15), a = side > 0 ? -1 : 1;
-      f.quad(m.detail, [cx + a * (w / 2 + .15), eave - .22, zv], [cx - a * (w / 2 + .15), eave - .22, zv], [cx - a * (w / 2 + .15), eave, zv], [cx + a * (w / 2 + .15), eave, zv], tarp);
+      const zv = cz + side * (d / 2 + .15), a = side > 0 ? -1 : 1, [u0, v0, u1, v1] = detailRect(tarp);
+      for (let i = 0; i < 6; i++) {
+        const s0 = i / 6, s1 = (i + 1) / 6, xa = cx + a * (w / 2 + .15) * (1 - 2 * s0), xb = cx + a * (w / 2 + .15) * (1 - 2 * s1);
+        const drop = t => .2 + .09 * Math.abs(Math.sin(Math.PI * 3 * t));
+        f.quadUV(m.detail, [xa, eave - drop(s0), zv], [xb, eave - drop(s1), zv], [xb, eave, zv], [xa, eave, zv],
+          [u0 + (u1 - u0) * s0, v0, u0 + (u1 - u0) * s1, v0, u0 + (u1 - u0) * s1, v0 + (v1 - v0) * .3, u0 + (u1 - u0) * s0, v0 + (v1 - v0) * .3]);
+      }
+    }
+    // Racimos de plátano colgados de un palo bajo la cumbrera.
+    f.box(m.detail, cx, ridge - .34, cz, w - .3, .05, .05, 'woodDark', ALL_FACES);
+    for (let i = 0; i < 3; i++) {
+      const bx = cx + (i - 1) * (w / 3.4) + (extra() - .5) * .3, long = .42 + extra() * .2, kind = extra() < .6 ? 'produce' : 'fruit';
+      f.box(m.detail, bx, ridge - .34 - .12, cz, .03, .12, .03, 'woodDark', SKIN | FACES.back);
+      f.box(m.detail, bx, ridge - .46 - long * .55, cz, .26, long * .55, .24, kind, ALL_FACES);
+      f.box(m.detail, bx, ridge - .46 - long, cz, .18, long * .45, .17, kind, ALL_FACES & ~FACES.top);
     }
     // Costales arrugados en el suelo: un cuerpo ancho y un cuello amarrado.
     for (let i = 0; i < 4; i++) {
@@ -293,6 +332,14 @@ export function buildMarket(m) {
       const size = .42 + random() * .16, tall = .5 + random() * .2;
       f.box(m.detail, bx, .12, bz, size, tall, size * .78, 'burlap', ALL_FACES & ~FACES.bottom);
       f.box(m.detail, bx, .12 + tall, bz, size * .46, .12, size * .36, 'burlap', ALL_FACES & ~FACES.bottom);
+    }
+    // Bultos de papa arrumados en una punta y canastas de mimbre al frente.
+    const end = cx + (scaleX > cx ? -1 : 1) * (w / 2 - .5);
+    for (let i = 0; i < 3; i++) f.box(m.detail, end + (extra() - .5) * .12, .12 + i * .24, cz + (row === 0 ? .95 : -.95), .74 - i * .05, .24, .42, 'burlap', ALL_FACES & ~FACES.bottom);
+    for (let i = 0; i < 2; i++) {
+      const bx = cx + (i ? .55 : -.45) + (extra() - .5) * .3, bz = cz + (row === 0 ? 1.02 : -1.02), good = goods[Math.floor(extra() * goods.length)];
+      f.box(m.detail, bx, .12, bz, .5, .28, .38, 'woodLight', FACES.front | FACES.back | FACES.left | FACES.right);
+      f.box(m.detail, bx, .12, bz, .46, .34, .34, good, FACES.top);
     }
     colliders.push({ x: cx, z: cz, w: w - .4, d: d - .9, h: 1.3 });
     for (let tx = Math.floor((cx - w / 2) / T + .5); tx <= Math.floor((cx + w / 2) / T + .5); tx++) {

@@ -21,6 +21,7 @@ mock.module('../src/character/RealisticCharacter.js', { namedExports: {
 } });
 const { chaza, fritanga, umbrella } = await import('../src/world/bogota/props.js');
 const { Bogota } = await import('../src/world/districts/Bogota.js');
+const { buildMarket } = await import('../src/world/bogota/EastLandmarks.js');
 delete globalThis.document;
 
 // Los ocho puestos de la ciudad, con el sitio, el nombre y lo que vende cada uno (Bogota.js).
@@ -167,4 +168,26 @@ test('los avisos son pintados a mano y ninguno nombra una marca de verdad', () =
     'b21h', 'anVhbiB2YWxkZXo=', 'bmVzY2Fmw6k=', 'bmVzY2FmZQ==', 'YmltYm8=', 'dHJpZGVudA==', 'aGFsbHM='
   ].map((nombre) => Buffer.from(nombre, 'base64').toString('utf8'));
   for (const marca of marcas) assert.ok(!new RegExp(`(^|[^a-záéíóúñ])${marca}([^a-záéíóúñ]|$)`).test(texto), `el aviso nombra «${marca}»`);
+});
+
+test('la plaza de mercado conserva sus colisiones y gana toldos colgados, fruta apilada, racimos y básculas', () => {
+  const { group, colliders, blockedTiles } = buildMarket({ detail: new THREE.MeshStandardMaterial() });
+  // Las mesas de siempre: seis, con el mismo sitio y tamaño (lo que detiene a la gente no cambia).
+  assert.deepEqual(colliders.map((c) => [+c.x.toFixed(3), c.z, c.w, c.d, c.h]), [
+    [325.146, 166.32, 3.5, 1.7000000000000002, 1.3], [330.853, 166.32, 3.5, 1.7000000000000002, 1.3], [337.14, 166.32, 3.5, 1.7000000000000002, 1.3],
+    [324.868, 175.68, 3.5, 1.7000000000000002, 1.3], [331.102, 175.68, 3.5, 1.7000000000000002, 1.3], [337.126, 175.68, 3.5, 1.7000000000000002, 1.3]
+  ]);
+  assert.equal(blockedTiles.join(' '), '162,83 162,84 163,83 163,84 164,83 164,84 164,83 164,84 165,83 165,84 166,83 166,84 168,83 168,84 169,83 169,84 170,83 170,84 ' +
+    '161,87 161,88 162,87 162,88 163,87 163,88 165,87 165,88 166,87 166,88 167,87 167,88 168,87 168,88 169,87 169,88 170,87 170,88');
+  assert.equal(mallas(group).length, 1, 'la plaza sigue siendo una sola malla');
+  const total = triangulos(group);
+  assert.ok(total > 2500 && total <= 6 * 2500, `${total} triángulos en los seis puestos`);
+  // La lona cuelga: hay puntos del toldo por debajo de la recta entre el alero y la cumbrera.
+  const p = mallas(group)[0].geometry.attributes.position;
+  let colgados = 0;
+  for (let i = 0; i < p.count; i++) {
+    const y = p.getY(i), fila = p.getZ(i) < 171 ? 166.32 : 175.68, lejos = Math.abs(p.getZ(i) - fila);
+    if (y > 2.4 && y < 2.9 && lejos > .3 && lejos < 1.2 && y < 2.95 - lejos * (2.95 - 2.32) / 1.45 - .03) colgados++;
+  }
+  assert.ok(colgados > 20, `el toldo está tieso (${colgados} puntos colgados)`);
 });
