@@ -280,6 +280,11 @@ const ANDEN = {
   afiches(life, UV, q, u, s) { life.panel(UV.afiches, u - s * .2, 1.5 + q() * .25, .03, .52, .64); }
 };
 
+/** Tejadillo o lona corta de un local: alto en la pared, lo que cae hasta el borde de afuera y lo que vuela, en metros. */
+const TEJADILLO = { arranque: 2.8, caida: .06, vuelo: .42 };
+/** Aviso de bandera: distancia a la medianera y holgura hasta el borde del rótulo pintado, en metros. */
+const BANDERA = { medianera: .9, holgura: .15 };
+
 /** El local del primer piso: muro, persiana, lo que se ve adentro, rótulo y lo que sale al andén. */
 function addLocal(life, front, m, UV, { length, facadeHeight, floorHeight, seed, local, toldo, contadores, warm, avisoBajo, flat = false }) {
   const q = rng((seed ^ 0x6c0ca15) >>> 0), half = length / 2, bajo = facadeHeight < 3.7, alto = bajo ? 2 : 2.3;
@@ -316,13 +321,15 @@ function addLocal(life, front, m, UV, { length, facadeHeight, floorHeight, seed,
     if (local.luz && warm) front.box(m.warmWindow, u, alto + .2, .05, Math.min(1.5, vano * .7), .09, .07);
   }
   const centro = centros.length ? (centros[0] + centros[centros.length - 1]) / 2 : (a + b) / 2;
-  if (!local.conAviso) {
-    const w = anchoRotulo;
-    life.panel(UV[`rot_${local.id}`], Math.max(-half + w / 2 + .1, Math.min(half - w / 2 - .1, centro)), yRotulo, .03, w, w / 4);
-  }
+  const uRotulo = Math.max(-half + anchoRotulo / 2 + .1, Math.min(half - anchoRotulo / 2 - .1, centro));
+  if (!local.conAviso) life.panel(UV[`rot_${local.id}`], uRotulo, yRotulo, .03, anchoRotulo, anchoRotulo / 4);
   if (!centros.length || flat) return false;
   const izquierda = centros[0] - vano / 2, derecha = centros[centros.length - 1] + vano / 2;
-  if (local.bandera === 'cruz') life.box(UV.cruz, Math.min(half - .12, derecha + .12), 2.5, .31, .05, .5, .5);
+  let sale = !!toldo;
+  if (local.bandera === 'cruz') {
+    life.box(UV.cruz, Math.min(half - .12, derecha + .12), 2.5, .31, .05, .5, .5);
+    sale = true;
+  }
   if (local.bandera === 'barbero') {
     const u = Math.max(-half + .12, izquierda - .14);
     life.cylinder(UV.barbero, u, 1.25, .1, .06, .06, .6, 6);
@@ -338,20 +345,32 @@ function addLocal(life, front, m, UV, { length, facadeHeight, floorHeight, seed,
     if (pieza === 'afiches' && sobreContador(u - s * .2)) return;
     if (q() < (pieza === 'afiches' || pieza === 'matera' ? .7 : quieto)) ANDEN[pieza](life, UV, q, u, s);
   });
-  let sale = !!toldo;
-  // Sin toldo de antes, muchos tienen tejadillo de lata o una lona corta sobre la entrada.
-  const lata = local.toldos.includes('zinc');
-  if (!toldo && q() < (lata ? .7 : .5)) {
-    const w = Math.min(length - .4, vano + .5), cell = lata ? UV.zinc : UV[local.toldos[0]], vuelo = lata ? .62 : .8;
-    life.slope(cell, centros[0], alto + .3, -.05, alto + .12, vuelo, w);
-    if (lata) for (const side of [-1, 1]) life.box(UV.rust, centros[0] + side * (w / 2 - .06), alto + .12, .3, .02, .02, .62);
-    else life.panel(cell, centros[0], alto + .04, vuelo, w, .16);
+  // Sin toldo de antes, muchos tienen tejadillo de lata o una lona corta sobre la entrada. Va alto y vuela poco, para
+  // no tapar a quien camina pegado a la pared, y ocupa casi todo el frente, para verse desde arriba. Donde el aviso
+  // grande baja de ahí no hay tejadillo: lo taparía.
+  const lata = local.toldos.includes('zinc'), { arranque, caida, vuelo } = TEJADILLO;
+  const cabeTejadillo = arranque <= facadeHeight - .3 && (!local.conAviso || avisoBajo >= arranque - .04);
+  if (!toldo && cabeTejadillo && q() < (lata ? .96 : .92)) {
+    const w = Math.min(length - .3, Math.max(vano + .9, length * .82)), u = Math.max(-half + w / 2 + .15, Math.min(half - w / 2 - .15, centros[0]));
+    const cell = lata ? UV.zinc : UV[local.toldos[0]], borde = arranque - caida;
+    if (lata) {
+      life.slope(cell, u, arranque, -.05, borde, vuelo, w);
+      for (const side of [-1, 1]) life.box(UV.rust, u + side * (w / 2 - .06), borde - .02, vuelo / 2, .02, .02, vuelo);
+    } else {
+      // La lona hace comba entre la pared y el tubo de afuera, y le cuelga un faldón corto y raído.
+      life.slope(cell, u, arranque, -.05, borde - .015, vuelo * .55, w);
+      life.slope(cell, u, borde - .015, vuelo * .55, borde, vuelo, w);
+      life.panel(cell, u, borde - .03, vuelo, w, .06);
+    }
     sale = true;
   }
   // Aviso de bandera: un cajón de lata colgado de un ángulo, perpendicular a la fachada; se lee al derecho viniendo
-  // de cualquier lado y su tapa se ve desde arriba.
-  if (facadeHeight > 3.6 && q() < .55) {
-    const lado = contadores ? -contadores.side : q() < .5 ? -1 : 1, u = lado * (half - .18);
+  // de cualquier lado y su tapa se ve desde arriba. Solo donde no hay aviso grande, que diría lo mismo; a un lado del
+  // rótulo pintado, sin cruzarlo, y lejos de la medianera, para no quedar delante del aviso del vecino.
+  const lados = local.conAviso || facadeHeight <= 3.6 ? [] : [-1, 1].filter(lado =>
+    half - BANDERA.medianera - (lado * uRotulo + anchoRotulo / 2) >= BANDERA.holgura && !(lado > 0 && local.bandera === 'cruz'));
+  if (lados.length && q() < .9) {
+    const u = lados[Math.floor(q() * lados.length)] * (half - BANDERA.medianera);
     life.box(UV[`rot_${local.id}`], u, 2.93, .76, .14, .34, 1.36);
     life.box(UV.rust, u, 3.27, .74, .17, .02, 1.48);
     sale = true;
