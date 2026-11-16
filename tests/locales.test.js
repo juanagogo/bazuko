@@ -43,6 +43,15 @@ function cuadras(semilla) {
   }
 }
 
+/** El aviso grande es el plano que la casa cuelga a 3,05 m, lleve textura propia o una celda de un atlas. */
+function avisosDe(raiz) {
+  const avisos = [];
+  raiz.traverse(objeto => {
+    if (objeto.isMesh && !objeto.userData.streetLife && Math.abs(objeto.position.y - 3.05) < 1e-6 && objeto.geometry.attributes.position.count === 4) avisos.push(objeto);
+  });
+  return avisos;
+}
+
 const seguidos = (a, b) => a.face === b.face && Math.abs(b.primero[0] - a.ultimo[0]) + Math.abs(b.primero[1] - a.ultimo[1]) === 1;
 
 test('la ciudad reparte muchos oficios y nunca pone el mismo en dos solares seguidos', () => {
@@ -78,10 +87,10 @@ test('el muro pintado termina 6 cm por debajo del aviso grande y no lo tapa', ()
   let revisados = 0;
   for (const { raiz, local } of solares) {
     if (!local?.armado) continue;
-    const avisos = [];
-    raiz.traverse(objeto => { if (objeto.isMesh && objeto.material.isMeshBasicMaterial && objeto.geometry.parameters?.height) avisos.push(objeto); });
-    if (!avisos.length) continue;
-    const [aviso] = avisos, abajo = aviso.position.y - aviso.geometry.parameters.height / 2;
+    const [aviso] = avisosDe(raiz);
+    if (!aviso) continue;
+    aviso.geometry.computeBoundingBox();
+    const abajo = aviso.position.y + aviso.geometry.boundingBox.min.y;
     let tope = -Infinity;
     for (const malla of aviso.parent.children) {
       if (!malla.userData.streetLife) continue;
@@ -99,11 +108,7 @@ test('los avisos grandes usan como mucho dos nombres por oficio: 54 textos disti
   const { solares } = cuadras(89123);
   const conAviso = solares.filter(solar => solar.local?.aviso);
   assert.ok(conAviso.length >= 80, `${conAviso.length} avisos grandes con oficio`);
-  for (const { raiz, local } of conAviso) {
-    let planos = 0;
-    raiz.traverse(objeto => { if (objeto.isMesh && objeto.material.isMeshBasicMaterial && objeto.geometry.parameters?.height) planos++; });
-    assert.equal(planos, 1, `${local.id} dice tener aviso y no lo cuelga`);
-  }
+  for (const { raiz, local } of conAviso) assert.equal(avisosDe(raiz).length, 1, `${local.id} dice tener aviso y no lo cuelga`);
   const textos = new Set(conAviso.map(solar => `${solar.local.id} · ${solar.local.nombre}`));
   assert.ok(textos.size <= 54, `${textos.size} textos distintos en los avisos grandes`);
   const porOficio = new Map();
@@ -112,7 +117,8 @@ test('los avisos grandes usan como mucho dos nombres por oficio: 54 textos disti
 });
 
 test('ningún local lleva el nombre de una marca real', async () => {
-  const { OFICIOS, localDelSolar } = await import('../src/world/bogota/Locales.js');
+  const { AVISOS_GRANDES, OFICIOS, localDelSolar } = await import('../src/world/bogota/Locales.js');
+  assert.ok(AVISOS_GRANDES.length <= 54, `${AVISOS_GRANDES.length} textos posibles de aviso grande`);
   const vetadas = ['COCA', 'COLA', 'POSTOBON', 'PEPSI', 'BAVARIA', 'AGUILA', 'POKER', 'PILSEN', 'COSTENA', 'CLARO', 'MOVISTAR', 'TIGO',
     'EXITO', 'CARULLA', 'JUMBO', 'OLIMPICA', 'D1', 'ARA', 'SURTIMAX', 'MAKRO', 'ALKOSTO', 'HOMECENTER', 'EFECTY', 'BALOTO', 'SERVIENTREGA',
     'GANA', 'PAGATODO', 'SURED', 'KOKORIKO', 'FRISBY', 'SURTIFRUVER', 'REBAJA', 'COLSUBSIDIO', 'CAFAM', 'FARMATODO', 'LOCATEL', 'TOSTAO',

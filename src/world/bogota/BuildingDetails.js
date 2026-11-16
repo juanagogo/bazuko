@@ -456,8 +456,10 @@ export function addBuildingDetails({ shell, width, depth, height, floors, face =
     child.geometry.translate(-nx * .08, 0, -nz * .08);
   }
   // El aviso grande del local cuelga de esta pared: la pintura del primer piso tiene que terminar antes de él.
-  const aviso = wall.children.find(child => child.isMesh && child.material.isMeshBasicMaterial && child.geometry.parameters?.height);
-  const avisoBajo = aviso ? aviso.position.y - aviso.geometry.parameters.height / 2 : 3.05 - Math.min(length * .85, 3.6) / 8;
+  // Es el único plano que la casa cuelga a media altura, lleve textura propia o una celda de un atlas.
+  const aviso = wall.children.find(child => child.isMesh && child.position.y > 1 && child.geometry.attributes.position.count === 4);
+  aviso?.geometry.computeBoundingBox();
+  const avisoBajo = aviso ? aviso.position.y + aviso.geometry.boundingBox.min.y : 3.05 - Math.min(length * .85, 3.6) / 8;
   const front = batches(wall, face, plane);
   const floorHeight = height / floors;
   const bay = windowBayWidth ?? length / Math.max(1, Math.round(length / 3.2));

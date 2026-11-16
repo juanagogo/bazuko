@@ -74,6 +74,10 @@ export const OFICIOS = Object.freeze([
     'recepcion', 'persianaGris', ['toldoLona', 'awning'], ['matera', 'afiches'], [2, .6, .3, 1], { luz: true })
 ]);
 
+/** Cada texto posible de un aviso grande: 54, para que quepan juntos en una sola textura. */
+export const AVISOS_GRANDES = Object.freeze(OFICIOS.flatMap(oficio =>
+  oficio.nombres.slice(0, NOMBRES_DE_AVISO).map(nombre => Object.freeze({ oficio, nombre }))));
+
 const POR_CLASE = Array.from({ length: CLASES }, (_, clase) => OFICIOS.filter(o => o.clase === clase));
 const ZONAS = ['popular', 'comercio', 'residencial', 'centro'];
 
