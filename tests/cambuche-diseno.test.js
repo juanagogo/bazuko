@@ -4,7 +4,6 @@ import * as THREE from 'three';
 import { Cambuche, STRUCTURE } from '../src/entities/Cambuche.js';
 import { CAMBUCHE } from '../src/data/cambuche.js';
 import { cloneFinishedShelter } from '../src/ui/ShelterPreview.js';
-import { alturasDelModelo, cubierta } from '../src/entities/cambuche/patio.js';
 
 const TODO = Object.fromEntries(CAMBUCHE.map(piece => [piece.id, true]));
 const SITIO = new THREE.Vector3(112.98, 0.06, 94.64);
@@ -20,8 +19,21 @@ function dibujo(shelter) {
   });
   return { mallas, triangulos, luces };
 }
+/** Los vértices de lo visible bajo `objeto`, en las medidas del cambuche (sin el giro ni la escala con que se planta). */
+function puntos(shelter, objeto) {
+  const root = shelter.group.children[0], salida = [], v = new THREE.Vector3();
+  shelter.group.updateMatrixWorld(true);
+  const aLocal = root.matrixWorld.clone().invert();
+  objeto.traverseVisible(node => {
+    if (!node.isMesh) return;
+    const position = node.geometry.attributes.position;
+    for (let i = 0; i < position.count; i++) salida.push(v.fromBufferAttribute(position, i).applyMatrix4(node.matrixWorld).applyMatrix4(aLocal).toArray());
+  });
+  return salida;
+}
 /** Un modelo de mentira del tamaño del importado, para probar lo que se le apoya encima sin cargar el GLB. */
-function conModelo(shelter) {
+async function conModelo(shelter) {
+  const { alturasDelModelo, cubierta } = await import('../src/entities/cambuche/patio.js');
   shelter.model = new THREE.Mesh(new THREE.BoxGeometry(3.9, 1.6, 2.8).translate(0, 0.8, 0), new THREE.MeshStandardMaterial());
   shelter.group.add(shelter.model);
   shelter.encima.add(new THREE.Mesh(cubierta(alturasDelModelo(shelter.model, shelter.group)).geometria(), shelter.pieces.techo.material));
@@ -45,7 +57,7 @@ test('el cambuche conserva lo que usa el juego: piezas, anillo, fuego y métodos
   shelter.dispose();
 });
 
-test('cada etapa se dibuja con pocas mallas y sin luces nuevas', () => {
+test('cada etapa se dibuja con pocas mallas y sin luces nuevas', async () => {
   const shelter = nuevo();
   const etapas = [{}, { base: true }, { base: true, techo: true }, { base: true, techo: true, paredes: true }, TODO];
   // Anillo, cartones sueltos o base, y lo que suma cada pieza: una malla por pieza, más la tinta y la llama.
@@ -58,7 +70,7 @@ test('cada etapa se dibuja con pocas mallas y sin luces nuevas', () => {
     assert.equal(luces, built.fogon ? 1 : 0, 'la única luz es la del fogón');
   });
   // Terminado, con el modelo: lo de encima suma dos mallas y el modelo reemplaza cuatro piezas.
-  conModelo(shelter).setBuilt(TODO);
+  (await conModelo(shelter)).setBuilt(TODO);
   shelter.update(1 / 60);
   const { mallas, triangulos } = dibujo(shelter);
   assert.ok(mallas <= 13, `terminado: ${mallas} mallas`);
@@ -69,8 +81,44 @@ test('cada etapa se dibuja con pocas mallas y sin luces nuevas', () => {
   shelter.dispose();
 });
 
-test('el patio se va poblando y las capas del techo llegan con la estructura completa', () => {
-  const shelter = conModelo(nuevo());
+test('el techo a medio armar es una sola pieza que baja hacia el frente, de cara a la cámara del juego', () => {
+  const shelter = nuevo();
+  shelter.setBuilt({ base: true, techo: true });
+  assert.ok(shelter.pieces.techo.isMesh, 'el techo va en una sola malla');
+  // La lona y el plástico: lo que queda por encima de la cabeza de quien se agacha a entrar.
+  const tela = puntos(shelter, shelter.pieces.techo).filter(([, y]) => y > 1);
+  const media = lista => lista.reduce((suma, [, y]) => suma + y, 0) / lista.length;
+  const atras = tela.filter(([, , z]) => z < -.7), frente = tela.filter(([, , z]) => z > .4);
+  assert.ok(atras.length > 20 && frente.length > 20, 'hay tela atrás y adelante');
+  assert.ok(media(atras) - media(frente) > .25, `atrás ${media(atras).toFixed(2)} m, adelante ${media(frente).toFixed(2)} m`);
+  // El jugador mira desde el frente y desde arriba: la cara de encima de la lona le queda de frente, no de canto.
+  const xs = tela.map(([x]) => x), zs = tela.map(([, , z]) => z), ys = tela.map(([, y]) => y);
+  assert.ok(Math.max(...xs) - Math.min(...xs) > 3 && Math.max(...zs) - Math.min(...zs) > 2, 'la lona cubre el cambuche');
+  assert.ok(Math.max(...ys) - Math.min(...ys) < 1, 'y no se empina');
+  shelter.dispose();
+});
+
+test('la vela queda dentro de las paredes, en la mitad de adelante, donde se ve desde la entrada', () => {
+  const shelter = nuevo();
+  shelter.setBuilt(TODO);
+  const caja = new THREE.Box3().setFromPoints(puntos(shelter, shelter.pieces.paredes).map(p => new THREE.Vector3(...p)));
+  const vela = new THREE.Box3().setFromPoints(puntos(shelter, shelter.pieces.vela).map(p => new THREE.Vector3(...p)));
+  assert.ok(caja.max.x - caja.min.x > 3 && caja.max.z - caja.min.z > 1.8, 'las paredes encierran el cambuche');
+  assert.ok(vela.min.x > caja.min.x + .1 && vela.max.x < caja.max.x - .1, `de lado a lado: ${vela.min.x.toFixed(2)} a ${vela.max.x.toFixed(2)}`);
+  assert.ok(vela.min.z > caja.min.z + .1 && vela.max.z < caja.max.z - .05, `de fondo: ${vela.min.z.toFixed(2)} a ${vela.max.z.toFixed(2)}`);
+  // La entrada queda al frente (+Z): la vela va en la mitad de adelante y bajo el techo, no afuera.
+  const centro = (caja.min.z + caja.max.z) / 2;
+  assert.ok(shelter.pieces.vela.position.z > centro, 'en la mitad de adelante');
+  assert.ok(vela.max.y < caja.max.y, 'bajo el techo');
+  // La llama de la vela es la que enciende la luz de la entrada: van juntas.
+  const llama = shelter.flame.getWorldPosition(new THREE.Vector3());
+  shelter.group.children[0].worldToLocal(llama);
+  assert.ok(llama.z > centro && llama.z < caja.max.z && Math.abs(llama.x) < caja.max.x - .1, 'la llama también');
+  shelter.dispose();
+});
+
+test('el patio se va poblando y las capas del techo llegan con la estructura completa', async () => {
+  const shelter = await conModelo(nuevo());
   const patio = () => Object.entries(shelter.patio).filter(([, part]) => part.visible).map(([id]) => id);
   shelter.setBuilt({});
   assert.deepEqual(patio(), []);
@@ -118,8 +166,8 @@ test('de noche sale luz por la entrada solo si hay vela y paredes, y sube y baja
   shelter.dispose();
 });
 
-test('lo que toca el piso pisa las mismas baldosas que ya pisaba el anillo', () => {
-  const shelter = conModelo(nuevo());
+test('lo que toca el piso pisa las mismas baldosas que ya pisaba el anillo', async () => {
+  const shelter = await conModelo(nuevo());
   shelter.setBuilt(TODO);
   shelter.group.updateWorldMatrix(true, true);
   // La misma cuenta que hace la ciudad para apoyar el cambuche (`getGroundHeightUnder`), con baldosas de 2 m.
@@ -137,8 +185,8 @@ test('lo que toca el piso pisa las mismas baldosas que ya pisaba el anillo', () 
   shelter.dispose();
 });
 
-test('el cambuche sale igual cada vez y la vista previa muestra lo mismo que el mundo', () => {
-  const a = nuevo(), b = conModelo(nuevo());
+test('el cambuche sale igual cada vez y la vista previa muestra lo mismo que el mundo', async () => {
+  const a = nuevo(), b = await conModelo(nuevo());
   for (const id of Object.keys(a.pieces)) {
     const first = [], second = [];
     a.pieces[id].traverse(node => { if (node.isMesh) first.push(...node.geometry.attributes.position.array.slice(0, 60)); });
@@ -159,8 +207,8 @@ test('el cambuche sale igual cada vez y la vista previa muestra lo mismo que el 
   a.dispose(); b.dispose();
 });
 
-test('al destruirlo se libera todo lo que creó y la escena queda vacía', () => {
-  const scene = new THREE.Scene(), shelter = conModelo(nuevo(scene));
+test('al destruirlo se libera todo lo que creó y la escena queda vacía', async () => {
+  const scene = new THREE.Scene(), shelter = await conModelo(nuevo(scene));
   const modelo = shelter.model;
   shelter.setBuilt(TODO);
   const recursos = new Set();
