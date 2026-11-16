@@ -7,9 +7,22 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { Dog, DOG_ACCESSORIES } from '../src/entities/Dog.js';
 
 const ARCHIVO = new URL('../public/models/perro.glb', import.meta.url);
-// Todos los huesos que mueve Dog._animate.
-const HUESOS = ['raiz', 'pelvis', 'pecho', 'cuello', 'cabeza', 'cola_1', 'cola_2', 'cola_3', 'oreja_L', 'oreja_R',
-  ...['brazo', 'antebrazo', 'mano', 'muslo', 'pierna', 'pie'].flatMap(name => [`${name}_L`, `${name}_R`])];
+// Pose de reposo de los 22 huesos que mueve Dog._animate: posición y giro (cuaternión) respecto a su padre.
+const IZQUIERDOS = {
+  muslo_L: [.07, .00217, .04995, .53266, .05945, -.00129, .84424], pierna_L: [0, .15264, 0, .44351, -.02985, .05143, .89429],
+  pie_L: [0, .16125, 0, -.56026, 0, 0, .82831], brazo_L: [.07, .20526, .05973, .71704, .04852, .00231, .69533],
+  antebrazo_L: [0, .15067, 0, .06137, -.03332, .03534, .99693], mano_L: [0, .17029, 0, -.50376, 0, 0, .86385],
+  oreja_L: [.055, .04946, -.13249, .70662, .33122, .0358, .62426]
+};
+const REPOSO = {
+  raiz: [0, 0, 0, 0, 0, 0, 1], pelvis: [0, .44, -.26, .7223, 0, 0, .69158], pecho: [0, .23022, 0, -.06915, 0, 0, .99761],
+  cuello: [0, .21474, -.03982, -.27671, 0, 0, .96095], cabeza: [0, .16401, 0, .21839, 0, 0, .97586],
+  cola_1: [0, -.03084, -.01868, -.97185, 0, 0, .23561], cola_2: [0, .08062, 0, .04319, 0, 0, .99907], cola_3: [0, .15811, 0, -.01941, 0, 0, .99981],
+  ...IZQUIERDOS,
+  // Los derechos son el espejo de los izquierdos.
+  ...Object.fromEntries(Object.entries(IZQUIERDOS).map(([name, [x, y, z, qx, qy, qz, qw]]) => [name.replace('_L', '_R'), [-x, y, z, qx, -qy, -qz, qw]]))
+};
+const HUESOS = Object.keys(REPOSO);
 
 beforeEach(() => {
   globalThis.window = new EventTarget();
@@ -66,6 +79,11 @@ test('trae el esqueleto que anima el juego, en su pose de reposo y con las patas
   const dog = await dogWithModel();
   for (const name of HUESOS) assert.ok(dog._rig.has(name), `falta el hueso ${name}`);
   assert.equal(dog._rig.size, HUESOS.length, 'ni un hueso de más');
+  for (const [name, reposo] of Object.entries(REPOSO)) {
+    const { position, rest } = dog._rig.get(name);
+    const tiene = [...position.toArray(), ...rest.toArray()];
+    assert.ok(reposo.every((valor, i) => Math.abs(tiene[i] - valor) < 1e-5), `${name} cambió de pose de reposo: ${tiene.map(v => v.toFixed(5))}`);
+  }
   const altura = name => dog._rig.get(name).bone.getWorldPosition(new THREE.Vector3());
   // LEG = .4 en Dog.js: hombros y caderas a esa altura, o la zancada patina.
   for (const name of ['brazo_L', 'brazo_R', 'muslo_L', 'muslo_R']) assert.ok(Math.abs(altura(name).y - .39) < .005, name);
