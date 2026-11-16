@@ -160,9 +160,27 @@ function rotulo(ctx, rect, r, oficio) {
   ctx.strokeStyle = oficio.tinta; ctx.lineWidth = 1.1; ctx.strokeRect(x + 2.5, y + 2.5, w - 5, h - 5);
   letra(ctx, oficio.titulo, x + w / 2, y + h * .4, oficio.titulo.length > 11 ? 13 : 15.5, oficio.tinta, w - 12, { sombra: 'rgba(0,0,0,.34)' });
   letra(ctx, oficio.nombres[NOMBRES_DE_AVISO], x + w / 2, y + h * .78, 7.5, oficio.acento, w - 16, { fuente: 'Georgia, "Times New Roman", serif', peso: 'italic 700' });
+  // Pintura gastada a brochazos, polvo que se asienta arriba y esquinas quemadas por el sol y el óxido. El texto,
+  // en el centro, queda casi limpio para que se siga leyendo.
+  for (let i = 0; i < 14; i++) {
+    ctx.fillStyle = `rgba(206,198,176,${(.06 + r() * .1).toFixed(2)})`;
+    ctx.fillRect(x + r() * (w - 20), y + 2 + r() * (h - 5), 8 + r() * 22, .7 + r() * 1.2);
+  }
+  const polvo = ctx.createLinearGradient(0, y, 0, y + h * .45);
+  polvo.addColorStop(0, 'rgba(150,138,112,.34)'); polvo.addColorStop(1, 'rgba(150,138,112,0)');
+  ctx.fillStyle = polvo; ctx.fillRect(x, y, w, h * .45);
+  dentro(ctx, rect, () => {
+    for (const [cx, cy] of [[x, y], [x + w, y], [x, y + h], [x + w, y + h]]) {
+      const radio = 12 + r() * 10, quemado = ctx.createRadialGradient(cx, cy, 1, cx, cy, radio);
+      quemado.addColorStop(0, 'rgba(46,32,20,.62)'); quemado.addColorStop(1, 'rgba(46,32,20,0)');
+      ctx.fillStyle = quemado; ctx.fillRect(cx - radio, cy - radio, radio * 2, radio * 2);
+    }
+  });
   desconche(ctx, rect, r, 4, 'rgba(188,180,162,.4)');
+  desconche(ctx, [x, y, 14, h], r, 3, 'rgba(104,70,44,.5)');
+  desconche(ctx, [x + w - 14, y, 14, h], r, 3, 'rgba(104,70,44,.5)');
   desconche(ctx, [x, y + h - 6, w, 6], r, 5, 'rgba(92,80,64,.4)');
-  mugre(ctx, rect, r, .6);
+  mugre(ctx, rect, r, .9);
 }
 
 /** Fondo de todo interior: la luz de la calle entra por abajo y el fondo se pierde. */
@@ -434,7 +452,26 @@ function toldo(ctx, rect, r, a, b) {
   ctx.fillStyle = 'rgba(0,0,0,.2)'; ctx.fillRect(x, y + h - 9, w, 9);
   // La lona se destiñe a manchas y guarda el agua sucia en los pliegues.
   for (let i = 0; i < 6; i++) { ctx.fillStyle = 'rgba(236,228,206,.14)'; ctx.fillRect(x + r() * w * .8, y + r() * h * .7, w * (.1 + r() * .25), h * (.1 + r() * .2)); }
-  mugre(ctx, rect, r, .9);
+  // El sol se come el color: un velo pajizo, más fuerte arriba, deja las rayas a medio borrar.
+  const sol = ctx.createLinearGradient(0, y, 0, y + h);
+  sol.addColorStop(0, 'rgba(214,204,176,.5)'); sol.addColorStop(1, 'rgba(196,186,158,.26)');
+  ctx.fillStyle = sol; ctx.fillRect(x, y, w, h);
+  for (let i = 0; i < 9; i++) {
+    const mx = x + r() * (w - 8), my = y + r() * h * .7, ancho = 3 + r() * 7, alto = 2 + r() * 5;
+    ctx.fillStyle = `rgba(62,56,40,${(.1 + r() * .14).toFixed(2)})`; ctx.fillRect(mx, my, ancho, alto);
+    // De cada mancha baja su escurrido hasta el borde.
+    const chorro = ctx.createLinearGradient(0, my + alto, 0, y + h);
+    chorro.addColorStop(0, 'rgba(52,46,34,.24)'); chorro.addColorStop(1, 'rgba(52,46,34,.04)');
+    ctx.fillStyle = chorro; ctx.fillRect(mx + r() * ancho * .6, my + alto, .8 + r() * 1.6, y + h - my - alto);
+  }
+  // El borde de afuera, raído: mordiscos oscuros, hilachas claras y una costura.
+  ctx.fillStyle = 'rgba(40,34,26,.3)'; ctx.fillRect(x, y + h - 5.5, w, .7);
+  for (let bx = x; bx < x + w - 1;) {
+    const paso = 1 + r() * 3.5;
+    ctx.fillStyle = r() < .5 ? 'rgba(28,24,18,.55)' : 'rgba(214,206,184,.3)'; ctx.fillRect(bx, y + h - 1 - r() * 3, paso * .7, 1 + r() * 3);
+    bx += paso;
+  }
+  mugre(ctx, rect, r, 1.5);
 }
 
 function cartel(ctx, rect, r, fondo, lineas) {
