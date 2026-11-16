@@ -37,8 +37,10 @@ test('La Esquinita conserva su interfaz y se dibuja con pocas mallas', t => {
 test('lo que pisa el andén en La Esquinita no se sale de su sitio', t => {
   const shop = new Shop(new THREE.Scene(), new THREE.Vector3());
   t.after(() => shop.dispose());
-  // El colisionador del juego va de x −1,2 a 1,2 y de z −1,45 a 0,05. Por debajo de la cabeza nada se aleja
-  // más de medio metro; el toldo y los bombillos sí vuelan sobre el andén, por encima de quien pasa.
+  // El sólido real del juego va de x −1,2 a 1,2 y de z −0,75 a 0,75: `CollisionSystem.add` no usa el
+  // desplazamiento que le pasa `game.js`. Lo que se apoya en el andén (canastas, silla, mesita, fruta) queda
+  // dentro, para que nadie pueda pararse encima; hacia atrás la caseta llega a −1,5, como la estantería de
+  // antes. El toldo y los bombillos sí vuelan sobre el andén, por encima de quien pasa.
   let top = 0;
   for (const mesh of meshesOf(shop.group)) {
     mesh.updateMatrixWorld(true);
@@ -47,7 +49,7 @@ test('lo que pisa el andén en La Esquinita no se sale de su sitio', t => {
       point.fromBufferAttribute(position, i).applyMatrix4(mesh.matrixWorld);
       top = Math.max(top, point.y);
       if (point.y > 2.05) continue;
-      assert.ok(Math.abs(point.x) <= 1.7 && point.z >= -1.55 && point.z <= .5, `(${point.x.toFixed(2)}, ${point.y.toFixed(2)}, ${point.z.toFixed(2)})`);
+      assert.ok(Math.abs(point.x) <= 1.22 && point.z >= -1.55 && point.z <= .76, `(${point.x.toFixed(2)}, ${point.y.toFixed(2)}, ${point.z.toFixed(2)})`);
     }
   }
   assert.ok(top > 3 && top < 3.8, `altura ${top}`);

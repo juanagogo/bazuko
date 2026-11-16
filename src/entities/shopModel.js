@@ -15,7 +15,10 @@ const FLOOR = .24;     // piso de la caseta: un escalón sobre el andén
 const SIDEWALK = .12;  // lo que queda afuera se apoya en el andén
 const FRONT = 'px nx py ny nz'; // caras que se saltan cuando solo se ve el frente
 
-/** Geometría de la tienda en coordenadas del grupo: el frente mira a +Z y la huella es la del colisionador. */
+/**
+ * Geometría de la tienda en coordenadas del grupo: el frente mira a +Z.
+ * El sólido del juego va de x −1,2 a 1,2 y de z −0,75 a 0,75: lo que se apoya en el andén queda dentro.
+ */
 export function buildShopGeometry() {
   const kit = new MeshKit({ alpha: true });
   kit.alphaValue = 0;
@@ -30,8 +33,8 @@ export function buildShopGeometry() {
   const pick = list => list[Math.floor(random() * list.length)];
 
   // ---- Caseta: escalón, muros con zócalo, techo de zinc y persiana enrollada ----
-  box(0, FLOOR / 2, -.68, 2.66, FLOOR, 1.64, C.concreto, { bottom: .8 });
-  box(0, FLOOR - .03, .135, 2.66, .061, .03, C.amarillo);
+  box(0, FLOOR / 2, -.68, 2.4, FLOOR, 1.64, C.concreto, { bottom: .8 });
+  box(0, FLOOR - .03, .135, 2.4, .061, .03, C.amarillo);
   const wall = (x, z, sx, sz) => {
     box(x, FLOOR + .36, z, sx + .02, .72, sz + .02, C.zocalo, { bottom: .72 });
     box(x, FLOOR + 1.56, z, sx, 1.68, sz, C.crema);
@@ -123,14 +126,14 @@ export function buildShopGeometry() {
   box(.585, FLOOR + .9, .012, .022, .5, .03, C.oscuro);
 
   // ---- Fruta al frente, en cajas inclinadas hacia el andén ----
-  box(-.34, FLOOR + .2, .15, 1.5, .4, .26, C.madera, { bottom: .7 });
+  box(-.2, FLOOR + .2, .15, 1.24, .4, .26, C.madera, { bottom: .7 });
   [[C.naranja, C.naranja], [C.rojo, C.verde], [C.verde, C.platano]].forEach((fruit, n) => {
-    placed(at(-.86 + n * .52, FLOOR + .52, .2, .55, 0, 0), () => {
-      box(0, 0, 0, .48, .14, .34, C.tabla, { skip: 'py' });
-      box(0, -.04, 0, .44, .02, .3, shade(C.madera, .7));
-      for (let i = 0; i < 4; i++) for (let j = 0; j < 3; j++) {
+    placed(at(-.6 + n * .4, FLOOR + .52, .2, .55, 0, 0), () => {
+      box(0, 0, 0, .38, .14, .34, C.tabla, { skip: 'py' });
+      box(0, -.04, 0, .34, .02, .3, shade(C.madera, .7));
+      for (let i = 0; i < 3; i++) for (let j = 0; j < 3; j++) {
         const r = .05 + random() * .012;
-        kit.ellipsoid([-.165 + i * .11, .03 + random() * .02, -.1 + j * .1], [r, r, r], shade(fruit[(i + j) % 2], .9 + random() * .2), { rows: 3, cols: 5 });
+        kit.ellipsoid([-.11 + i * .11, .03 + random() * .02, -.1 + j * .1], [r, r, r], shade(fruit[(i + j) % 2], .9 + random() * .2), { rows: 3, cols: 5 });
       }
     });
   });
@@ -181,32 +184,36 @@ export function buildShopGeometry() {
   box(0, FLOOR + 2.9, -.06, 2.66, .7, .03, C.oscuro);
   for (const x of [-1, 1]) kit.tube([[x, FLOOR + 2.56, -.5], [x, FLOOR + 3.05, -.08]], .016, 4, C.oscuro);
 
-  // ---- Afuera, pegado a los costados: canastas de gaseosa a un lado; silla y mesita al otro ----
+  // ---- En las esquinas del frente, dentro de lo sólido: canastas de gaseosa a un lado; silla y mesita al otro ----
   const crate = (x, y, z, color, turn = 0) => placed(at(x, y, z, 0, turn, 0), () => {
     box(0, .12, 0, .34, .24, .44, color, { bottom: .78 });
     box(0, .13, 0, .345, .07, .3, shade(color, .55));
     box(0, .241, 0, .28, .004, .38, shade(color, .45), { skip: 'px nx ny pz nz' });
   });
-  [C.rojo, C.rojo, C.amarillo, C.rojo].forEach((color, k) => crate(-1.42, SIDEWALK + k * .245, -.45, color, (k % 2 ? .05 : -.04)));
-  [C.amarillo, C.rojo, C.rojo].forEach((color, k) => crate(-1.42, SIDEWALK + k * .245, -.98, color, (k % 2 ? -.06 : .03)));
+  [C.rojo, C.rojo, C.amarillo, C.rojo].forEach((color, k) => crate(-1.01, SIDEWALK + k * .245, .4, color, (k % 2 ? .03 : -.03)));
+  [C.amarillo, C.rojo].forEach((color, k) => crate(-.64, SIDEWALK + k * .245, .5, color, (k % 2 ? -.04 : .03)));
   for (let i = 0; i < 3; i++) for (let j = 0; j < 4; j++) {
-    const x = -1.51 + i * .09, z = -1.115 + j * .09, y = SIDEWALK + 3 * .245;
+    const x = -1.1 + i * .09, z = .265 + j * .09, y = SIDEWALK + 4 * .245;
     kit.tube([[x, y - .04, z], [x, y + .09, z]], .026, 5, C.vidrio);
     box(x, y + .1, z, .03, .02, .03, C.zinc);
   }
-  const chair = SIDEWALK + .42;
-  for (const dx of [-.17, .17]) for (const dz of [-.17, .17]) box(1.47 + dx, SIDEWALK + .21, -.86 + dz, .035, .42, .035, C.blanco, { bottom: .8 });
-  box(1.47, chair, -.86, .42, .035, .42, C.blanco);
-  box(1.47, chair + .27, -1.07, .42, .46, .035, C.blanco, { rotation: [-.14, 0, 0] });
-  for (const dx of [-.2, .2]) {
-    box(1.47 + dx, chair + .2, -.88, .035, .035, .4, C.blanco);
-    box(1.47 + dx, chair + .1, -.7, .035, .2, .035, C.blanco);
-  }
-  for (const dx of [-.14, .14]) for (const dz of [-.14, .14]) box(1.47 + dx, SIDEWALK + .22, -.26 + dz, .03, .44, .03, C.rojo, { bottom: .75 });
-  box(1.47, SIDEWALK + .455, -.26, .38, .03, .38, C.rojo);
-  kit.tube([[1.4, SIDEWALK + .47, -.3], [1.4, SIDEWALK + .7, -.3]], .045, 6, C.oscuro);
-  kit.tube([[1.4, SIDEWALK + .7, -.3], [1.4, SIDEWALK + .76, -.3]], .03, 6, C.rojo);
-  for (const dx of [.1, .17]) box(1.47 + dx, SIDEWALK + .5, -.18 - dx * .5, .045, .06, .045, C.blanco);
+  // Silla plástica de lado, con el espaldar contra la esquina
+  const seat = SIDEWALK + .42;
+  placed(at(.94, 0, .5, 0, -Math.PI / 2, 0), () => {
+    for (const dx of [-.17, .17]) for (const dz of [-.17, .17]) box(dx, SIDEWALK + .21, dz, .035, .42, .035, C.blanco, { bottom: .8 });
+    box(0, seat, 0, .42, .035, .42, C.blanco);
+    box(0, seat + .27, -.21, .42, .46, .035, C.blanco, { rotation: [-.1, 0, 0] });
+    for (const dx of [-.2, .2]) {
+      box(dx, seat + .2, -.02, .035, .035, .4, C.blanco);
+      box(dx, seat + .1, .16, .035, .2, .035, C.blanco);
+    }
+  });
+  // Mesita con el termo del tinto
+  for (const dx of [-.14, .14]) for (const dz of [-.14, .14]) box(.54 + dx, SIDEWALK + .22, .53 + dz, .03, .44, .03, C.rojo, { bottom: .75 });
+  box(.54, SIDEWALK + .455, .53, .36, .03, .36, C.rojo);
+  kit.tube([[.48, SIDEWALK + .47, .5], [.48, SIDEWALK + .7, .5]], .045, 6, C.oscuro);
+  kit.tube([[.48, SIDEWALK + .7, .5], [.48, SIDEWALK + .76, .5]], .03, 6, C.rojo);
+  for (const dx of [.1, .15]) box(.5 + dx, SIDEWALK + .5, .62 - dx, .045, .06, .045, C.blanco);
 
   return kit.geometry();
 }
