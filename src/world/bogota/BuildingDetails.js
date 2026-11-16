@@ -346,11 +346,12 @@ function addLocal(life, front, m, UV, { length, facadeHeight, floorHeight, seed,
     else life.panel(cell, centros[0], alto + .04, vuelo, w, .16);
     sale = true;
   }
-  // Aviso de bandera: una lata colgada de un ángulo, perpendicular a la fachada; se lee al derecho viniendo de cualquier lado.
+  // Aviso de bandera: un cajón de lata colgado de un ángulo, perpendicular a la fachada; se lee al derecho viniendo
+  // de cualquier lado y su tapa se ve desde arriba.
   if (facadeHeight > 3.6 && q() < .55) {
-    const lado = contadores ? -contadores.side : q() < .5 ? -1 : 1, u = lado * (half - .14);
-    life.box(UV[`rot_${local.id}`], u, 2.95, .72, .05, .3, 1.2);
-    life.box(UV.rust, u, 3.25, .68, .025, .025, 1.36);
+    const lado = contadores ? -contadores.side : q() < .5 ? -1 : 1, u = lado * (half - .18);
+    life.box(UV[`rot_${local.id}`], u, 2.93, .76, .14, .34, 1.36);
+    life.box(UV.rust, u, 3.27, .74, .17, .02, 1.48);
     sale = true;
   }
   return sale;
