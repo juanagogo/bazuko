@@ -284,10 +284,12 @@ const ANDEN = {
 function addLocal(life, front, m, UV, { length, facadeHeight, floorHeight, seed, local, toldo, contadores, warm, avisoBajo, flat = false }) {
   const q = rng((seed ^ 0x6c0ca15) >>> 0), half = length / 2, bajo = facadeHeight < 3.7, alto = bajo ? 2 : 2.3;
   const panos = Math.ceil(length / 2.3), ancho = length / panos, muro = UV[MUROS[Math.floor(q() * MUROS.length)]];
-  // La pintura llega a la placa del segundo piso o solo al dintel. El aviso grande retrocede con la fachada y queda
-  // por detrás de este muro: donde lo hay, la pintura termina 6 cm por debajo de él.
-  const tope = local.conAviso ? avisoBajo - .06 : q() < .5 ? alto + .19 : floorHeight + .12;
-  const altoMuro = Math.min(tope, 3.5, facadeHeight - .2);
+  // La pintura llega hasta arriba del rótulo, cerca de la placa del segundo piso, o solo al dintel. El aviso grande
+  // retrocede con la fachada y queda por detrás de este muro: donde lo hay, la pintura termina 6 cm por debajo de él.
+  const anchoRotulo = Math.min(length - .5, bajo ? 2 : 2.6), yRotulo = bajo ? Math.min(2.5, facadeHeight - anchoRotulo / 8 - .1) : 3.05;
+  const placa = yRotulo + anchoRotulo / 8 + .1, cabe = placa <= Math.min(floorHeight * 1.2, facadeHeight - .2);
+  const tope = local.conAviso ? avisoBajo - .06 : q() < .5 && cabe ? placa : alto + .19;
+  const altoMuro = Math.min(tope, facadeHeight - .2);
   for (let i = 0; i < panos; i++) life.panel(muro, -half + ancho * (i + .5), altoMuro / 2, .01, ancho, altoMuro);
   if (!flat) life.box(UV.concrete, 0, altoMuro - .03, .035, length, .06, .05);
   // El muro y el vano van por delante del zócalo del cascarón, que no se mueve. El vano deja libres contadores y esquinas.
@@ -315,8 +317,8 @@ function addLocal(life, front, m, UV, { length, facadeHeight, floorHeight, seed,
   }
   const centro = centros.length ? (centros[0] + centros[centros.length - 1]) / 2 : (a + b) / 2;
   if (!local.conAviso) {
-    const w = Math.min(length - .5, bajo ? 2 : 2.6), y = bajo ? Math.min(2.5, facadeHeight - w / 8 - .1) : 3.05;
-    life.panel(UV[`rot_${local.id}`], Math.max(-half + w / 2 + .1, Math.min(half - w / 2 - .1, centro)), y, .03, w, w / 4);
+    const w = anchoRotulo;
+    life.panel(UV[`rot_${local.id}`], Math.max(-half + w / 2 + .1, Math.min(half - w / 2 - .1, centro)), yRotulo, .03, w, w / 4);
   }
   if (!centros.length || flat) return false;
   const izquierda = centros[0] - vano / 2, derecha = centros[centros.length - 1] + vano / 2;
