@@ -26,6 +26,7 @@ import { TILE_SIZE } from '../../utils/constants.js';
 import { Farol } from '../props/Farol.js';
 import { TrafficSignals } from '../bogota/TrafficSignals.js';
 import { signTexture } from '../../utils/signs.js';
+import { localDelSolar } from '../bogota/Locales.js';
 import { Banca } from '../props/Banca.js';
 import { buildGroundWear, dressGrass, dressPaving } from '../bogota/GroundDressing.js';
 import * as TX from '../bogota/textures.js';
@@ -88,13 +89,6 @@ export const SHELTER_LOCATION = Object.freeze({ x: 112.98, z: 94.64 });
 export const SHELTER_RESPAWN = Object.freeze({ x: 112.98, z: 97.84 });
 
 const CARTUCHO = { x0: 8, x1: 21, z0: 14, z1: 29 };
-const SHOP_NAMES = [
-  ['DROGUERÍA', 'SALUD Y VIDA'], ['PANADERÍA', 'EL TRIGAL'], ['CIGARRERÍA', 'LA 10'], ['ASADERO', 'POLLO DORADO'],
-  ['MISCELÁNEA', 'TODO A MIL'], ['COMPRAVENTA', 'EL CENTAVO'], ['RESIDENCIAS', 'EL DORADO'], ['BILLARES', 'LA BOLA 8'],
-  ['TIENDA', 'DONDE PACHO'], ['FERRETERÍA', 'EL TORNILLO'], ['SASTRERÍA', 'ARREGLOS'], ['CAFETERÍA', 'TINTO Y PAN'],
-  ['CHATARRERÍA', 'COMPRAMOS'], ['MINUTOS', 'A TODO OPERADOR'], ['LAVANDERÍA', 'AL INSTANTE'], ['PAPELERÍA', 'FOTOCOPIAS']
-];
-
 // Del tablero del puente al piso, para que quepa una persona debajo: la losa mide .71 m.
 const DECK_HEADROOM = 2.8;
 const EAST_PEDESTRIANS = 14;
@@ -864,7 +858,6 @@ export class Bogota {
     const houseSeed = (Math.imul(x0 + 17, 73856093) ^ Math.imul(z0 + 31, 19349663)
       ^ Math.imul(tiles.length, 83492791) ^ Math.imul(depth, 2654435761) ^ Math.imul(face + 1, 97531)) >>> 0;
     const random = TX.rng(houseSeed);
-    const choose = values => values[Math.floor(random() * values.length)];
     const floors = skylineFloors(x0, z0, ruin, random());
     const h = floors * 3;
     const style = ruin ? 'ruina' : random() < 0.55 ? 'ladrillo' : 'pintada';
@@ -923,13 +916,13 @@ export class Bogota {
     const fz = (W(z0) + W(z1)) / 2 + dz * T / 2;
     const yaw = Math.atan2(dx, dz);
 
-    // aviso de local en el primer piso
-    if (!ruin && random() < 0.55) {
-      const [title, sub] = choose(SHOP_NAMES);
-      const signColor = new THREE.Color(choose(['#0b4fa3', '#c0392b', '#1f6b3a', '#f2c600', '#ffffff', '#6a1b9a']));
-      signColor.lerp(new THREE.Color(neighborhood.palette.signBackground), .18);
-      const luminance = .2126 * signColor.r + .7152 * signColor.g + .0722 * signColor.b;
-      const map = signTexture({ title, sub, bg: `#${signColor.getHexString()}`, fg: luminance > .4 ? '#26302e' : '#fff3da', w: 768, h: 192 });
+    // aviso de local en el primer piso: el oficio sale del solar, no del sorteo
+    const local = localDelSolar({ seed: houseSeed, paso: alongX ? x0 : z0, x: cx, z: cz });
+    local.conAviso = !ruin && random() < 0.55;
+    if (local.conAviso) {
+      // Los dos sorteos del nombre y el color de antes se siguen gastando: balcones y tejados no se mueven.
+      random(); random();
+      const map = signTexture({ title: local.titulo, sub: local.nombre, bg: local.fondo, fg: local.tinta, accent: local.acento, w: 768, h: 192 });
       if (map) {
         const sign = new THREE.Mesh(new THREE.PlaneGeometry(Math.min(widthM * 0.85, 3.6), Math.min(widthM * 0.85, 3.6) / 4),
           new THREE.MeshBasicMaterial({ map }));
@@ -959,7 +952,7 @@ export class Bogota {
       shell.walls.get(face).add(bal);
     }
     addBuildingDetails({ shell, width: sx, depth: sz, height: h, floors, face,
-      seed: houseSeed, neighborhood: neighborhood.id, ruin, balconies: false });
+      seed: houseSeed, neighborhood: neighborhood.id, ruin, balconies: false, local });
     const building = this.buildingVisibility.register(shell);
     for (const part of building.parts) for (const material of part.materials) {
       if (material.emissiveMap || material.userData.windowGlow) this.facadeMats.push(material);
