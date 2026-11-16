@@ -5,6 +5,7 @@ import { addBuildingDetails } from '../src/world/bogota/BuildingDetails.js';
 import { createBuildingShell } from '../src/world/bogota/BuildingVisibility.js';
 import { Bogota } from '../src/world/districts/Bogota.js';
 import { rng } from '../src/world/bogota/textures.js';
+import { detailAtlas } from '../src/world/bogota/textures-calle.js';
 
 // Solo se sustituye el dibujo: los textos que se pintan quedan anotados para revisarlos.
 function lienzo(textos) {
@@ -31,7 +32,7 @@ function cuadras(semilla) {
       const antes = this.group.children.length;
       casa.call(this, tiles, dx, dz, face, ...resto);
       const raiz = this.group.children[antes];
-      solares.push({ face, primero: tiles[0], ultimo: tiles[tiles.length - 1], local: raiz?.userData.local ?? null });
+      solares.push({ face, primero: tiles[0], ultimo: tiles[tiles.length - 1], raiz, local: raiz?.userData.local ?? null });
     };
     ciudad._buildBlocks(ciudad.map);
     return { solares, textos };
@@ -70,6 +71,46 @@ test('cada solar conserva su local aunque cambie el azar del juego', () => {
   assert.deepEqual(resumen(17), primera);
 });
 
+test('el muro pintado termina 6 cm por debajo del aviso grande y no lo tapa', () => {
+  const { solares } = cuadras(89123);
+  const celdas = Object.entries(detailAtlas().uv).filter(([nombre]) => nombre.startsWith('muro')).map(([, celda]) => celda);
+  const esMuro = (u, v) => celdas.some(([u0, v0, u1, v1]) => u >= u0 - 1e-6 && u <= u1 + 1e-6 && v >= v0 - 1e-6 && v <= v1 + 1e-6);
+  let revisados = 0;
+  for (const { raiz, local } of solares) {
+    if (!local?.armado) continue;
+    const avisos = [];
+    raiz.traverse(objeto => { if (objeto.isMesh && objeto.material.isMeshBasicMaterial && objeto.geometry.parameters?.height) avisos.push(objeto); });
+    if (!avisos.length) continue;
+    const [aviso] = avisos, abajo = aviso.position.y - aviso.geometry.parameters.height / 2;
+    let tope = -Infinity;
+    for (const malla of aviso.parent.children) {
+      if (!malla.userData.streetLife) continue;
+      const posicion = malla.geometry.attributes.position, uv = malla.geometry.attributes.uv;
+      for (let i = 0; i < posicion.count; i++) if (esMuro(uv.getX(i), uv.getY(i))) tope = Math.max(tope, posicion.getY(i));
+    }
+    if (tope === -Infinity) continue;
+    revisados++;
+    assert.ok(tope <= abajo - .06 + 1e-6, `el muro de ${local.id} sube a ${tope.toFixed(2)} m y el aviso empieza en ${abajo.toFixed(2)} m`);
+  }
+  assert.ok(revisados >= 80, `${revisados} locales con aviso grande y muro pintado`);
+});
+
+test('los avisos grandes usan como mucho dos nombres por oficio: 54 textos distintos', () => {
+  const { solares } = cuadras(89123);
+  const conAviso = solares.filter(solar => solar.local?.aviso);
+  assert.ok(conAviso.length >= 80, `${conAviso.length} avisos grandes con oficio`);
+  for (const { raiz, local } of conAviso) {
+    let planos = 0;
+    raiz.traverse(objeto => { if (objeto.isMesh && objeto.material.isMeshBasicMaterial && objeto.geometry.parameters?.height) planos++; });
+    assert.equal(planos, 1, `${local.id} dice tener aviso y no lo cuelga`);
+  }
+  const textos = new Set(conAviso.map(solar => `${solar.local.id} · ${solar.local.nombre}`));
+  assert.ok(textos.size <= 54, `${textos.size} textos distintos en los avisos grandes`);
+  const porOficio = new Map();
+  for (const { local } of conAviso) porOficio.set(local.id, (porOficio.get(local.id) ?? new Set()).add(local.nombre));
+  for (const [id, nombres] of porOficio) assert.ok(nombres.size <= 2, `${id} usa ${nombres.size} nombres en sus avisos`);
+});
+
 test('ningún local lleva el nombre de una marca real', async () => {
   const { OFICIOS, localDelSolar } = await import('../src/world/bogota/Locales.js');
   const vetadas = ['COCA', 'COLA', 'POSTOBON', 'PEPSI', 'BAVARIA', 'AGUILA', 'POKER', 'PILSEN', 'COSTENA', 'CLARO', 'MOVISTAR', 'TIGO',
@@ -106,7 +147,7 @@ test('armar el local no añade mallas, materiales ni sorteos a la casa, y lo del
     shell.root.traverse(objeto => { if (objeto.isMesh) { mallas.push(objeto); materiales.add(objeto.material); } });
     return { shell, resultado, sorteos, mallas, materiales };
   };
-  let armados = 0, completos = 0;
+  let armados = 0, completos = 0, salen = 0;
   for (let seed = 1; seed <= 60; seed++) {
     const width = 4 + (seed % 3) * 2, opciones = { width, depth: 6, height: 9, floors: 3, face: 4, seed: seed * 7919, neighborhood: 'comercio' };
     const local = { ...localDelSolar({ seed: opciones.seed, paso: seed, x: 110, z: 150 }), conAviso: seed % 2 === 0 };
@@ -122,12 +163,18 @@ test('armar el local no añade mallas, materiales ni sorteos a la casa, y lo del
     if (con.resultado.local !== 'completo') continue;
     completos++;
     // Por debajo del toldo (1,9 m) nada sale más de 40 cm de la fachada (z = 23 en esta casa): se ve pegado al muro.
+    // Por encima, toldos, tejadillos y avisos de bandera sí vuelan sobre el andén.
+    let vuelo = 0;
     for (const malla of con.mallas.filter(malla => malla.userData.streetLife)) {
       const posicion = malla.geometry.attributes.position;
       for (let i = 0; i < posicion.count; i++) {
         if (posicion.getY(i) < 1.9) assert.ok(posicion.getZ(i) <= 3 + .4 + 1e-6, `una pieza sale ${(posicion.getZ(i) - 3).toFixed(2)} m con la semilla ${opciones.seed}`);
+        else vuelo = Math.max(vuelo, posicion.getZ(i) - 3);
       }
     }
+    if (vuelo > .6) salen++;
+    assert.equal(con.shell.root.userData.local.sale, vuelo > .6, `la marca de vuelo con la semilla ${opciones.seed}`);
   }
   assert.ok(armados >= 45 && completos >= 30, `${armados} locales armados, ${completos} completos`);
+  assert.ok(salen * 2 >= armados, `${salen} de ${armados} locales con algo que sale de la pared`);
 });
