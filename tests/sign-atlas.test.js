@@ -211,14 +211,15 @@ test('cada celda del atlas pinta lo mismo que el aviso con su propia textura, si
   const { signTextAtlas } = await atlasModule();
   const cases = [
     { title: 'ASADERO', sub: 'POLLO DORADO', fg: '#fff3da', bg: '#c84236' },
-    { title: 'TIENDA', sub: 'DONDE PACHO', fg: '#26302e', bg: '#eeebeb' }
+    { title: 'TIENDA', sub: 'DONDE PACHO', fg: '#26302e', bg: '#eeebeb' },
+    { title: 'FRUVER', sub: 'LA COSECHA', fg: '#f2e9c4', bg: '#5f8a3e', accent: '#e2863a' }
   ];
-  for (const { title, sub, fg, bg } of cases) {
-    const own = withDocument(recordingDocument(), () => originalSignTexture({ title, sub, bg, fg, w: 768, h: 192 }));
+  for (const { title, sub, fg, bg, accent } of cases) {
+    const own = withDocument(recordingDocument(), () => originalSignTexture({ title, sub, bg, fg, accent, w: 768, h: 192 }));
     // Lo que pinta signTexture menos el fondo, que en el atlas es un plano de color.
     const expected = own.image.log.filter(([key, , value]) => !(key === '=' && value === bg) && key !== 'fillRect');
     // Seis celdas antes de esta: la celda empieza fuera del origen del lienzo.
-    const entries = [...Array(6).fill({ title: 'X' }), { title, sub, fg }];
+    const entries = [...Array(6).fill({ title: 'X' }), { title, sub, fg, accent }];
     const { texture } = withDocument(recordingDocument(), () => signTextAtlas(entries, { w: 768, h: 192 }));
     const log = texture.image.log, start = log.findIndex(([key, ...args]) => key === 'translate' && args[0] === 2 * 832 + 32 && args[1] === 208 + 8);
     assert.ok(start > 0, 'la séptima celda se pinta en la tercera columna de la segunda fila');

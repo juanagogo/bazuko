@@ -845,7 +845,7 @@ export class Bogota {
   _shopSignAtlas() {
     if (this._shopSigns !== undefined) return this._shopSigns;
     if (typeof document === 'undefined' || typeof document.createElement !== 'function') return (this._shopSigns = null);
-    const entries = AVISOS_GRANDES.map(({ oficio, nombre }) => ({ title: oficio.titulo, sub: nombre, fg: oficio.tinta }));
+    const entries = AVISOS_GRANDES.map(({ oficio, nombre }) => ({ title: oficio.titulo, sub: nombre, fg: oficio.tinta, accent: oficio.acento }));
     const { texture, cells } = signTextAtlas(entries, { w: 768, h: 192 });
     return (this._shopSigns = { cells, material: new SignTextMaterial({ map: texture }) });
   }
