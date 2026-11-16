@@ -257,6 +257,7 @@ export class Bogota {
         Math.hypot(x - SHELTER_LOCATION.x, z - SHELTER_LOCATION.z) > 6
     }));
 
+    if (collisions) this._quitarBanderasContraSolidos(collisions.colliders);
     this._mergeStatic();
     this.group.add(this.buildingVisibility.buildClosedView());
     // Las torres se ven desde todo el barrio: su material lo permite, y aquí tampoco las corta Three.
@@ -957,6 +958,33 @@ export class Bogota {
     for (const part of building.parts) for (const material of part.materials) {
       if (material.emissiveMap || material.userData.windowGlow) this.facadeMats.push(material);
     }
+  }
+
+  /**
+   * Un aviso de bandera que toca un sólido de la ciudad no se cuelga. Los sólidos nacen después de las casas, así que
+   * se recoge al final: sus caras se pliegan en un punto y la malla de la fachada queda con los mismos vértices.
+   */
+  _quitarBanderasContraSolidos(colliders) {
+    const caja = new THREE.Box3(), punto = new THREE.Vector3();
+    let quitadas = 0;
+    for (const { root } of this.buildingVisibility.buildings) root.traverse(malla => {
+      const bandera = malla.userData.bandera;
+      if (!bandera) return;
+      malla.updateWorldMatrix(true, false);
+      const posicion = malla.geometry.attributes.position;
+      caja.makeEmpty();
+      for (let i = bandera.desde; i < bandera.hasta; i++) caja.expandByPoint(punto.fromBufferAttribute(posicion, i).applyMatrix4(malla.matrixWorld));
+      // La bandera nace al ras de la caja de su propia casa: rozarla no cuenta, meterse 3 cm en un sólido sí.
+      caja.expandByScalar(-.03);
+      if (!colliders.some(solido => solido.box.intersectsBox(caja))) return;
+      punto.fromBufferAttribute(posicion, bandera.desde);
+      for (let i = bandera.desde; i < bandera.hasta; i++) posicion.setXYZ(i, punto.x, punto.y, punto.z);
+      posicion.needsUpdate = true;
+      malla.geometry.computeBoundingBox(); malla.geometry.computeBoundingSphere();
+      delete malla.userData.bandera;
+      quitadas++;
+    });
+    return quitadas;
   }
 
   /** Colisiones: tramos horizontales de tiles sólidos unidos en una caja */

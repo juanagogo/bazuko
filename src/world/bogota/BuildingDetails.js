@@ -145,6 +145,7 @@ function lifeBatch(parent, face, plane, material = sharedLifeMaterial) {
       }
     },
     get empty() { return !out.index.length; },
+    get vertices() { return out.position.length / 3; },
     finish(label) {
       if (!out.index.length) return 0;
       const geometry = new THREE.BufferGeometry();
@@ -156,6 +157,7 @@ function lifeBatch(parent, face, plane, material = sharedLifeMaterial) {
       mesh.castShadow = material === sharedLifeMaterial;
       mesh.receiveShadow = true;
       mesh.userData.streetLife = true;
+      if (this.bandera) mesh.userData.bandera = this.bandera;
       parent.add(mesh);
       return 1;
     }
@@ -286,7 +288,7 @@ const TEJADILLO = { arranque: 2.8, caida: .06, vuelo: .42 };
 const BANDERA = { medianera: .9, holgura: .15 };
 
 /** El local del primer piso: muro, persiana, lo que se ve adentro, rótulo y lo que sale al andén. */
-function addLocal(life, front, m, UV, { length, facadeHeight, floorHeight, seed, local, toldo, contadores, warm, avisoBajo, flat = false }) {
+function addLocal(life, front, m, UV, { length, facadeHeight, floorHeight, seed, local, toldo, contadores, warm, avisoBajo, balcon, flat = false }) {
   const q = rng((seed ^ 0x6c0ca15) >>> 0), half = length / 2, bajo = facadeHeight < 3.7, alto = bajo ? 2 : 2.3;
   const panos = Math.ceil(length / 2.3), ancho = length / panos, muro = UV[MUROS[Math.floor(q() * MUROS.length)]];
   // La pintura llega hasta arriba del rótulo, cerca de la placa del segundo piso, o solo al dintel. El aviso grande
@@ -366,13 +368,19 @@ function addLocal(life, front, m, UV, { length, facadeHeight, floorHeight, seed,
   }
   // Aviso de bandera: un cajón de lata colgado de un ángulo, perpendicular a la fachada; se lee al derecho viniendo
   // de cualquier lado y su tapa se ve desde arriba. Solo donde no hay aviso grande, que diría lo mismo; a un lado del
-  // rótulo pintado, sin cruzarlo, y lejos de la medianera, para no quedar delante del aviso del vecino.
-  const lados = local.conAviso || facadeHeight <= 3.6 ? [] : [-1, 1].filter(lado =>
+  // rótulo pintado, sin cruzarlo, y lejos de la medianera, para no quedar delante del aviso del vecino. Como el rótulo
+  // ya dice el nombre, la bandera lleva solo el título del oficio: la franja de arriba de la misma celda. Tampoco
+  // cuelga donde el balcón de madera llega hasta ella.
+  const bajoBalcon = balcon && half - BANDERA.medianera - .07 < Math.min(length * .7, 3.5) / 2 + .05;
+  const lados = local.conAviso || bajoBalcon || facadeHeight <= 3.6 ? [] : [-1, 1].filter(lado =>
     half - BANDERA.medianera - (lado * uRotulo + anchoRotulo / 2) >= BANDERA.holgura && !(lado > 0 && local.bandera === 'cruz'));
   if (lados.length && q() < .9) {
     const u = lados[Math.floor(q() * lados.length)] * (half - BANDERA.medianera);
-    life.box(UV[`rot_${local.id}`], u, 2.93, .76, .14, .34, 1.36);
+    const celda = UV[`rot_${local.id}`], titulo = [celda[0], celda[3] + (celda[1] - celda[3]) * .64, celda[2], celda[3]], desde = life.vertices;
+    life.box(titulo, u, 3.01, .76, .14, .26, 1.36);
     life.box(UV.rust, u, 3.27, .74, .17, .02, 1.48);
+    // Si después resulta que toca un sólido de la ciudad, `Bogota` la recoge: estos son sus vértices.
+    life.bandera = { desde, hasta: life.vertices };
     sale = true;
   }
   return sale;
@@ -382,7 +390,7 @@ function addLocal(life, front, m, UV, { length, facadeHeight, floorHeight, seed,
  * Primer piso: toldos, contadores, letreros a mano, humedad bajo los alféizares y, donde ya había vida, el local.
  * Solo arma piezas; las mallas nacen en `finish`, en el orden de siempre.
  */
-function addFacadeLife(wall, face, plane, front, m, { length, facadeHeight, floorHeight, centers, windowWidth, windowHeight, rows, seed, ruin, shopfront, tower, local, warm, avisoBajo }) {
+function addFacadeLife(wall, face, plane, front, m, { length, facadeHeight, floorHeight, centers, windowWidth, windowHeight, rows, seed, ruin, shopfront, tower, local, warm, avisoBajo, balcon }) {
   const UV = detailAtlas().uv, life = lifeBatch(wall, face, plane), damp = lifeBatch(wall, face, plane, sharedStainMaterial);
   const r = rng((seed ^ Math.imul(face + 3, 0x2f6e2b)) >>> 0);
   // La lluvia baja de cada alféizar: lo que más delata una pared recién pintada es no tener esto.
@@ -430,7 +438,7 @@ function addFacadeLife(wall, face, plane, front, m, { length, facadeHeight, floo
   // contadores queda la de la humedad, que se pinta en orden y sin fondo: ahí el local va plano, sin andén.
   const flat = life.empty;
   if (!local || (flat && damp.empty)) return { local: false, finish };
-  const sale = addLocal(flat ? damp : life, front, m, UV, { length, facadeHeight, floorHeight, seed, local, toldo, contadores, warm, avisoBajo, flat });
+  const sale = addLocal(flat ? damp : life, front, m, UV, { length, facadeHeight, floorHeight, seed, local, toldo, contadores, warm, avisoBajo, balcon, flat });
   return { local: flat ? 'plano' : 'completo', sale, finish };
 }
 
@@ -482,6 +490,7 @@ export function addBuildingDetails({ shell, width, depth, height, floors, face =
   const aviso = wall.children.find(child => child.isMesh && child.position.y > 1 && child.geometry.attributes.position.count === 4);
   aviso?.geometry.computeBoundingBox();
   const avisoBajo = aviso ? aviso.position.y + aviso.geometry.boundingBox.min.y : 3.05 - Math.min(length * .85, 3.6) / 8;
+  const balcon = wall.children.some(child => child.isGroup && Math.abs(child.position.y - 3.1) < 1e-6);
   const front = batches(wall, face, plane);
   const floorHeight = height / floors;
   const bay = windowBayWidth ?? length / Math.max(1, Math.round(length / 3.2));
@@ -524,7 +533,7 @@ export function addBuildingDetails({ shell, width, depth, height, floors, face =
     windowCount++;
   }
   const life = addFacadeLife(wall, face, plane, front, m, { length, facadeHeight, floorHeight, centers, windowWidth, windowHeight,
-    rows, seed, ruin, shopfront: windowBayWidth === null, tower: windowBayWidth !== null, local, warm, avisoBajo });
+    rows, seed, ruin, shopfront: windowBayWidth === null, tower: windowBayWidth !== null, local, warm, avisoBajo, balcon });
   if (local) shell.root.userData.local = { id: local.id, nombre: local.conAviso ? local.nombre : local.rotulo ?? local.nombre,
     armado: life.local, aviso: !!local.conAviso, sale: !!life.sale };
   // Rejas bajas laterales: el centro del local y su rótulo siguen despejados. Donde hay local, la reja es suya.
