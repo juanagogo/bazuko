@@ -6,11 +6,11 @@ import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js
 
 /** Paleta corta: negro del plástico, azul de la lona y cartón, con la cobija y el guacal de acento cálido. */
 export const PALETA = Object.freeze({
-  plastico: '#16171a', lona: '#2459ad', lonaClara: '#3b6cb6', cinta: '#8f989f', polisombra: '#2a553b',
-  zinc: '#8d9698', zincOscuro: '#737c7f', oxido: '#7a5238', carton: '#a9814f', cartonViejo: '#8b6a41', tabla: '#73553a', tablaVieja: '#5b4632',
-  palo: '#4a3a28', piedra: '#7d7973', llanta: '#1c1c1e', cuerda: '#b3a276', cobija: '#8f3f2b', raya: '#d9c9a0',
-  colchon: '#b8b29f', sabana: '#d8d1bf', olla: '#262524', tizne: '#141312', balde: '#d6d2c6', guacal: '#b4552f',
-  costal: '#b5ad98', lata: '#9aa0a6', hoja: '#3f7d3a', cera: '#f2eee0', tierra: '#5a4a3a', ceniza: '#6f6a64',
+  plastico: '#16171a', lona: '#27508f', lonaClara: '#4471ab', cinta: '#8f989f', polisombra: '#2a553b',
+  zinc: '#8d9698', zincOscuro: '#737c7f', oxido: '#7a5238', carton: '#a9814f', cartonViejo: '#8b6a41', tabla: '#73553a', tablaVieja: '#5b4632', tablaClara: '#8a6c4b',
+  palo: '#4a3a28', piedra: '#7d7973', llanta: '#1c1c1e', cuerda: '#b3a276', cobija: '#7f3d2c', raya: '#cdbd95',
+  colchon: '#b8b29f', sabana: '#d8d1bf', olla: '#262524', tizne: '#141312', balde: '#d6d2c6', guacal: '#a8502f',
+  costal: '#978d74', lata: '#9aa0a6', hoja: '#3f7d3a', cera: '#f2eee0', tierra: '#5a4a3a', ceniza: '#6f6a64',
   mezclilla: '#4f637d', camisa: '#e2dccb',
 });
 

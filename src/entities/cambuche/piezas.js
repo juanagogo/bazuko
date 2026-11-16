@@ -73,7 +73,7 @@ export function techo() {
 
 export function paredes() {
   const m = new Maqueta(37), r = m.r, h = techoArmado;
-  const tabla = (x, z, w, girada, color = r() < .4 ? P.tablaVieja : P.tabla, alto = h(x, z) - .06 - r() * .1) =>
+  const tabla = (x, z, w, girada, color = [P.tablaVieja, P.tabla, P.tabla, P.tablaClara][Math.floor(r() * 4)], alto = h(x, z) - .06 - r() * .1) =>
     m.tabla(girada ? .035 : w, alto, girada ? w : .035, color, { en: [x, 0, z], giro: [0, 0, girada ? 0 : (r() - .5) * .05] });
   // Fondo: tablas y dos cajas grandes abiertas.
   for (const [x, w, carton] of [[-1.46, .28], [-1.17, .28], [-.66, .72, true], [-.15, .28], [.14, .28], [.65, .72, true], [1.16, .28], [1.45, .28]]) {
@@ -94,16 +94,18 @@ export function paredes() {
   m.tabla(.8, h(-1.2, Z1) - .1, .02, P.carton, { en: [-1.18, 0, Z1 + .01], tono: .05 });
   tabla(-.62, Z1, .27, false); tabla(-.33, Z1, .27, false); tabla(-.04, Z1, .26, false);
   // La cobija de cortina, recogida a un lado para que se vea adentro.
-  cortina(m, .12, .5, Z1 + .04, x => h(x, Z1) - .05, .07);
+  cortina(m, .12, .95, Z1 + .04, x => h(x, Z1) - .05, .07);
   return m;
 }
 
-/** Cobija colgada de `x0` a `x1`, recogida en pliegues, con dos rayas claras. */
+/** Cobija colgada de `x0` a `x1` y recogida hacia `x0` con un nudo a media altura; lleva dos rayas claras. */
 export function cortina(m, x0, x1, z, arriba, abajo) {
-  return m.tela(5, 10, (u, v) => {
-    const x = x0 + (x1 - x0) * u, top = arriba(x);
-    return [x, top - (top - abajo) * v, z + Math.sin(u * Math.PI * 3.5) * .04 * (.35 + v)];
-  }, (u, v) => (v > .2 && v < .3) || (v > .7 && v < .8) ? P.raya : P.cobija, { tono: .12 });
+  return m.tela(6, 10, (u, v) => {
+    // Ancha arriba, apretada en el nudo y otra vez suelta abajo.
+    const ancho = 1 - .62 * Math.sin(Math.PI * Math.min(1, v / .62) / 2) + .3 * Math.max(0, v - .62) / .38;
+    const top = arriba(x0 + (x1 - x0) * u) - .06 * Math.sin(Math.PI * u);
+    return [x0 + (x1 - x0) * u * ancho, top - (top - abajo) * v, z + Math.sin(u * Math.PI * 4) * .035 * (.3 + v)];
+  }, (u, v) => (v > .1 && v < .2) || (v > .8 && v < .9) ? P.raya : P.cobija, { tono: .16 });
 }
 
 export function cama() {

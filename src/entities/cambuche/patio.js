@@ -54,11 +54,13 @@ export function tendedero() {
 export function reciclaje() {
   const m = new Maqueta(97), r = m.r;
   const costal = (x, z, radio, alto, giro) => {
-    m.pon(new THREE.IcosahedronGeometry(radio, 0), P.costal, { en: [x, alto * .46, z], giro: [0, giro, .2], escala: [1.05, alto / radio * .6, .8], tono: .1 });
-    m.pon(new THREE.ConeGeometry(radio * .28, radio * .5, 4), P.costal, { en: [x, alto * .98, z], tono: .1 });
-    m.caja(radio * .3, .025, radio * .3, P.cuerda, { en: [x, alto * .86, z], giro: [0, giro, 0] });
+    // Panza ancha abajo, hombros caídos y la boca amarrada con cabuya.
+    m.cilindro(radio * .92, alto * .62, P.costal, { lados: 6, radioArriba: radio, en: [x, 0, z], giro: [0, giro, 0], escala: [1.05, 1, .82], tono: .1 });
+    m.cilindro(radio, alto * .26, P.costal, { lados: 6, radioArriba: radio * .2, en: [x, alto * .62, z], giro: [0, giro, 0], escala: [1.05, 1, .82], tono: .1 });
+    m.cilindro(radio * .17, alto * .12, P.costal, { lados: 5, radioArriba: radio * .3, en: [x, alto * .88, z], giro: [.25, giro, 0], tono: .1 });
+    m.caja(radio * .38, .025, radio * .38, P.cuerda, { en: [x, alto * .88, z], giro: [0, giro, 0] });
   };
-  costal(-2.55, -1.0, .36, .8, .4); costal(-2.95, -.5, .32, .7, 1.3); costal(-2.48, -.36, .3, .62, 2.2);
+  costal(-2.55, -1.0, .3, .58, .4); costal(-2.92, -.52, .27, .5, 1.3); costal(-2.46, -.42, .25, .44, 2.2);
   // Cartón aplanado en un atado, con dos vueltas de cabuya.
   for (let i = 0; i < 5; i++) m.caja(.78 + r() * .06, .035, .56 + r() * .05, i % 2 ? P.cartonViejo : P.carton, { en: [-2.62, .03 + i * .037, .42], giro: [0, .5 + (r() - .5) * .08, 0], tono: .05 });
   for (const d of [-.2, .2]) m.caja(.016, .2, .62, P.cuerda, { en: [-2.62 + d * Math.cos(.5), .1, .42 - d * Math.sin(.5)], giro: [0, .5, 0] });
@@ -117,8 +119,8 @@ export function cubierta(alturas) {
     m.piedra(.1, [px, lamina(.1, .22) + .04, pz]);
   }
   // Remiendos y cinta sobre la lona del modelo.
-  for (const [x0, z0, w, d, color] of [[.3, -.95, .5, .42, P.lonaClara], [.5, -.15, .36, .3, P.lonaClara], [-.95, .12, .5, .08, P.cinta], [-.85, -.05, .42, .08, P.cinta]]) {
-    m.tela(2, 2, (u, v) => { const x = x0 + u * w, z = z0 + v * d; return [x, techo(x, z) + .035, z]; }, color, { tono: .06 });
+  for (const [x0, z0, w, d, color] of [[.3, -.95, .5, .42, P.lonaClara], [-.95, .12, .5, .08, P.cinta], [-.85, -.05, .42, .08, P.cinta]]) {
+    m.tela(2, 2, (u, v) => { const x = x0 + u * w, z = z0 + v * d; return [x, alturas(x, z, .2) + .035, z]; }, color, { tono: .06 });
   }
   // Piedras que sujetan la lona.
   for (const [x, z, radio] of [[-1.5, .35, .1], [.95, -1.05, .09], [1.15, -.3, .085], [.1, .45, .08]]) m.piedra(radio, [x, techo(x, z) + .01, z]);
@@ -150,7 +152,7 @@ export function cubierta(alturas) {
     m.palo([sx, 0, sz], [sx + (sx - x) * .03, .16, sz + (sz - z) * .03], .02, P.palo, 4);
   }
   // La cobija de cortina, recogida a la izquierda de la entrada.
-  cortina(m, .04, .56, .74, x => Math.min(Math.max(alturas(x, .5, .12), 1.3), 1.5), .1);
+  cortina(m, .04, .9, .74, x => Math.min(Math.max(alturas(x, .5, .12), 1.3), 1.5), .1);
   return m;
 }
 
