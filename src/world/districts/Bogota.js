@@ -1179,7 +1179,7 @@ export class Bogota {
 
   /** Vendedor ambulante: puesto + persona; se le puede comprar (lo atiende la tienda con otro catálogo) */
   _vendor(x, z, rotY, kind, title, items) {
-    const stall = kind === 'fritanga' ? P.fritanga() : P.chaza();
+    const stall = kind === 'fritanga' ? P.fritanga({ title, items }) : P.chaza({ title, items });
     this._takesRoom(this._add(stall, x, z, rotY));
     if (stall.userData.setNight) this.props.push({ instance: { setNight: stall.userData.setNight } });
     const back = new THREE.Vector3(Math.sin(rotY), 0, Math.cos(rotY)).multiplyScalar(-0.9);

@@ -6,6 +6,7 @@ import { signTexture } from '../../utils/signs.js';
 import { trashBag, cardboard, radialSprite } from './textures.js';
 import { createFlame, fireGlow, stepFlames } from './flame.js';
 import { createUrbanTree } from './UrbanTrees.js';
+import { crearChaza, crearFritanga, crearSombrilla } from './ventasCalle.js';
 export { foliageWind } from './UrbanTrees.js';
 
 const lam = (color, opts = {}) => new THREE.MeshLambertMaterial({ color, ...opts });
@@ -98,68 +99,27 @@ export function zorra() {
 
 /** Paraguas de vendedor ambulante */
 export function umbrella(colors = ['#c0392b', '#f2c600']) {
-  const g = new THREE.Group();
-  const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.025, 2.2, 6), std('#cccccc', { metalness: 0.5 }));
-  pole.position.y = 1.1;
-  g.add(pole);
-  const segs = 8;
-  for (let i = 0; i < segs; i++) {
-    const seg = new THREE.Mesh(new THREE.ConeGeometry(1.2, 0.45, 1, 1, true, (i / segs) * Math.PI * 2, Math.PI * 2 / segs),
-      std(colors[i % colors.length], { side: THREE.DoubleSide, roughness: 0.6 }));
-    seg.position.y = 2.25;
-    g.add(seg);
-  }
-  return shadow(g);
+  return shadow(crearSombrilla(colors));
 }
 
-/** Chaza: puesto de dulces y cigarrillos sueltos (con o sin paraguas) */
-export function chaza({ withUmbrella = true } = {}) {
-  const g = new THREE.Group();
-  const box = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.7, 0.6), std('#7a5a3a'));
-  box.position.y = 0.75;
-  g.add(box);
-  for (const sx of [-0.4, 0.4]) {
-    const leg = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.4, 0.05), std('#3a3a3a'));
-    leg.position.set(sx, 0.2, 0);
-    g.add(leg);
-  }
-  const colors = ['#e74c3c', '#f1c40f', '#2ecc71', '#3498db', '#ecf0f1', '#e67e22', '#9b59b6'];
-  for (let i = 0; i < 14; i++) {
-    const candy = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.05, 0.14), std(colors[i % colors.length], { roughness: 0.4 }));
-    candy.position.set(-0.38 + (i % 7) * 0.12, 1.13, -0.15 + Math.floor(i / 7) * 0.3);
-    g.add(candy);
-  }
-  if (withUmbrella) {
-    const u = umbrella(Math.random() < 0.5 ? ['#c0392b', '#f2c600'] : ['#2f6fb0', '#ecf0f1']);
-    u.position.set(0.3, 0, 0.2);
-    g.add(u);
-  }
-  return shadow(g);
+/** Chaza: puesto de dulces y minutos o carrito de tinto, según lo que venda (con o sin paraguas) */
+export function chaza({ withUmbrella = true, title, items } = {}) {
+  // Antes se sorteaba aquí el color del paraguas. El color sale ahora del nombre del puesto, pero el sorteo se sigue
+  // pidiendo: las pruebas con semilla dependen de cuánto azar gasta la ciudad al armarse.
+  if (withUmbrella) rand(0, 1);
+  return shadow(crearChaza({ withUmbrella, title, items }));
 }
 
-/** Puesto de fritanga: parrilla con humo, mesa y banquitos */
-export function fritanga() {
+/** Puesto de fritanga: carro de lata con vitrina, paila, fogón de carbón y banquitos */
+export function fritanga({ title, items } = {}) {
   const g = new THREE.Group();
-  const table = new THREE.Mesh(new THREE.BoxGeometry(1.4, 0.06, 0.7), std('#8a6a4a'));
-  table.position.y = 0.85;
-  g.add(table);
-  const grill = new THREE.Mesh(new THREE.CylinderGeometry(0.35, 0.3, 0.6, 12), std('#2a2a2a', { metalness: 0.5 }));
-  grill.position.set(0.9, 0.5, 0);
-  g.add(grill);
-  const coals = new THREE.Mesh(new THREE.CircleGeometry(0.32, 12), new THREE.MeshBasicMaterial({ color: new THREE.Color('#ff5a1a').multiplyScalar(1.8) }));
-  coals.rotation.x = -Math.PI / 2;
-  coals.position.set(0.9, 0.81, 0);
-  g.add(coals);
   const light = new THREE.PointLight(0xff6a2a, 2.5, 5);
   light.position.set(0.9, 1.1, 0);
   g.add(light);
-  for (let i = 0; i < 6; i++) {
-    const food = new THREE.Mesh(new THREE.SphereGeometry(0.06, 6, 5), std(i % 2 ? '#c8902a' : '#7a3a1a'));
-    food.position.set(-0.5 + i * 0.15, 0.92, rand(-0.15, 0.15));
-    g.add(food);
-  }
-  const u = umbrella(['#2e7d32', '#ecf0f1']);
-  u.position.set(0, 0, 0.1);
+  // Los seis sorteos de la comida de antes, en su sitio (ver chaza).
+  for (let i = 0; i < 6; i++) rand(-0.15, 0.15);
+  const u = crearFritanga({ title, items, light });
+  g.userData.dispose = () => { u.userData.dispose(); g.removeFromParent(); };
   g.add(u);
   const glow = fireGlow();
   g.userData.setNight = glow.setNight;
