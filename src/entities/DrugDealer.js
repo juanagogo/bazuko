@@ -37,6 +37,11 @@ const APARIENCIA = {
 const GORRO = '#2b2c33';
 const POSTURA = { speed: 0, stance: 'brazos-cruzados' };
 const PASO_DE_ANIMACION = 1 / 30;
+// Como a los peatones: lejos no se dibuja (con un margen para que no parpadee en el borde), más allá de 40 m
+// la pose queda congelada, y fuera de cuadro ni se dibuja ni se anima.
+const VER_HASTA = 60, MARGEN_DE_VISTA = 4, ANIMAR_HASTA = 40;
+// El hombre no se mueve de su sitio: esta esfera, en metros del puesto, lo envuelve de sobra en cualquier pose.
+const ENVOLVENTE = new THREE.Sphere(new THREE.Vector3(CUERPO[0], 1.0, CUERPO[1]), 1.6);
 
 const PIEL = '#8a5a3b', PIEL_SOMBRA = '#6f4630', BUZO = '#303237', BUZO_CLARO = '#3e4046', JEAN = '#333a48', TENIS = '#c4bfb2';
 const REVOQUE = '#6f6858', REVOQUE_SUCIO = '#635c4f', LADRILLO = '#74432f', LADRILLO_OSCURO = '#613828';
@@ -260,6 +265,11 @@ export class DrugDealer {
     this.isNight = false;
     this._animar = 0;
     this._destruido = false;
+    this._distancia = 0;      // de la cámara al puesto, la última vez que la esquina entró en cuadro
+    this._dibujado = false;   // si el hombre se dibujó desde el último update
+    this._marcarDibujado = () => { this._dibujado = true; };
+    // La esquina es estática y Three ya la descarta fuera de cuadro; cuando sí se dibuja, trae la cámara.
+    this.sitio.onBeforeRender = (renderer, scene, camera) => this._mirar(camera);
     this.setNight(false);
     // En el juego el modelo se pide solo; sin navegador (pruebas) queda la figura hecha a mano.
     if (typeof document !== 'undefined') this.preloadModel();
@@ -279,10 +289,19 @@ export class DrugDealer {
       .catch((error) => { console.warn('[DrugDealer] no llegó el modelo; queda la figura de mientras', error); });
   }
 
+  /** Con la cámara que está dibujando la esquina: de lejos, el hombre (o la figura de mientras) se apaga. */
+  _mirar(camera) {
+    const e = camera.matrixWorld.elements, p = this.group.position;
+    this._distancia = Math.hypot(e[12] - p.x, e[13] - p.y, e[14] - p.z);
+    const gente = this.persona?.group ?? this.figura;
+    if (gente) gente.visible = this._distancia <= VER_HASTA + (gente.visible ? MARGEN_DE_VISTA : 0);
+  }
+
   _ponerPersona(persona) {
     this.persona = persona;
     persona.group.position.set(CUERPO[0], SUELO, CUERPO[1]);
     persona.group.rotation.y = GIRO;
+    persona.group.visible = this.figura.visible;
     this.group.add(persona.group);
     persona.update(1, POSTURA);
     persona.snapPose?.();
@@ -292,11 +311,20 @@ export class DrugDealer {
     this.group.remove(this.figura);
     this.figura.geometry.dispose();
     this.figura = null;
+    // Las mallas con huesos vienen sin descarte por cuadro, porque la gente camina. Este no se mueve: cada una
+    // lleva la esfera fija del hombre, en sus propias medidas, y avisa cuando se dibuja.
+    this.group.updateWorldMatrix(true, true);
+    const centro = this.group.localToWorld(ENVOLVENTE.center.clone());
+    persona.group.traverse((o) => {
+      if (!o.isSkinnedMesh) return;
+      o.boundingSphere = new THREE.Sphere(o.worldToLocal(centro.clone()), ENVOLVENTE.radius / o.matrixWorld.getMaxScaleOnAxis());
+      o.frustumCulled = true;
+      o.onBeforeRender = this._marcarDibujado;
+    });
     // El pañuelo se amarra al hueso del cuello y lo sigue.
     let cuello = null;
     persona.group.traverse((o) => { if (!cuello && o.isBone && /Neck$/i.test(o.name)) cuello = o; });
     if (!cuello) return;
-    this.group.updateWorldMatrix(true, true);
     this.panuelo = armarPanuelo();
     this.panuelo.name = 'Pañuelo del dealer';
     cuello.getWorldPosition(this.panuelo.position);
@@ -446,6 +474,10 @@ export class DrugDealer {
 
     // El hombre respira y cambia el peso a 30 cuadros por segundo: de cerca no se nota y cuesta la mitad.
     if (!this.persona) return;
+    // Si no se dibujó en el cuadro anterior (fuera de cuadro o lejos) nadie ve sus huesos: la pose espera donde iba.
+    const dibujado = this._dibujado;
+    this._dibujado = false;
+    if (!dibujado || this._distancia > ANIMAR_HASTA) { this._animar = 0; return; }
     this._animar += dt;
     if (this._animar < PASO_DE_ANIMACION) return;
     this.persona.update(this._animar, POSTURA);

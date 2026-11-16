@@ -1,5 +1,6 @@
 // Los puestos de la calle: lo que el juego usa de cada uno, lo que cuestan de dibujar y que al quitarlos no queda nada.
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 import { test } from 'node:test';
 import * as THREE from 'three';
 import { DrugDealer } from '../src/entities/DrugDealer.js';
@@ -117,13 +118,14 @@ test('de noche se prenden la bombilla y las brasas del dealer; de día la luz no
   assert.equal(brillo(), apagado);
 });
 
-/** Un peatón de mentira con su hueso del cuello, como el que entrega el sistema de personajes. */
+/** Un peatón de mentira como el que entrega el sistema de personajes: hueso del cuello y una malla con huesos sin descarte por cuadro. */
 function peatonFalso() {
   const group = new THREE.Group(), cuello = new THREE.Bone();
   cuello.name = 'mixamorigNeck';
   cuello.position.y = 1.5;
   group.add(cuello);
-  const cuerpo = new THREE.Mesh(new THREE.BoxGeometry(0.4, 1.8, 0.3), new THREE.MeshBasicMaterial());
+  const cuerpo = new THREE.SkinnedMesh(new THREE.BoxGeometry(0.4, 1.8, 0.3).translate(0, 0.9, 0), new THREE.MeshBasicMaterial());
+  cuerpo.frustumCulled = false;
   group.add(cuerpo);
   const persona = { group, cuerpo, pedidos: [], liberado: 0, update(dt, estado) { persona.pedidos.push([dt, estado]); }, dispose() { persona.liberado++; group.removeFromParent(); } };
   return persona;
@@ -155,9 +157,9 @@ test('el dealer es un peatón de la calle: llega el modelo, se quita la figura d
   assert.ok(Math.max(panuelo.x, panuelo.y, panuelo.z) < 0.3, 'un pañuelo, no una capa');
   const mundo = dealer.panuelo.getWorldPosition(new THREE.Vector3());
   assert.ok(mundo.y > 1.4 && mundo.y < 1.7, `pañuelo a ${mundo.y.toFixed(2)} m`);
-  // Se anima a 30 cuadros por segundo como mucho.
+  // Se anima a 30 cuadros por segundo como mucho, mientras se esté dibujando.
   const antes = persona.pedidos.length;
-  for (let i = 0; i < 60; i++) dealer.update(1 / 60);
+  for (let i = 0; i < 60; i++) { dibujar(dealer, camaraEn(dealer, [0.5, 1.7, 6])); dealer.update(1 / 60); }
   const hechos = persona.pedidos.length - antes;
   assert.ok(hechos >= 28 && hechos <= 31, `${hechos} pasos de animación en un segundo`);
   // Al quitarlo, el personaje se suelta por su cuenta y lo de aquí se libera.
@@ -170,6 +172,98 @@ test('el dealer es un peatón de la calle: llega el modelo, se quita la figura d
   assert.equal(vivos.size, 0);
   assert.equal(ajeno, false, 'no libera el cuerpo compartido de los peatones');
   assert.equal(scene.children.length, 0);
+});
+
+/** Cámara del juego puesta a `desde` metros del puesto; mira al dealer o, con `deEspaldas`, al lado contrario. */
+function camaraEn(dealer, desde, deEspaldas = false) {
+  const camara = new THREE.PerspectiveCamera(55, 16 / 10, 0.1, 400), p = dealer.position;
+  camara.position.set(p.x + desde[0], p.y + desde[1], p.z + desde[2]);
+  camara.lookAt(deEspaldas ? p.clone().lerp(camara.position, 2) : p.clone().setY(1.2));
+  camara.updateMatrixWorld(true);
+  return camara;
+}
+
+/** Lo que haría el render con esa cámara: descarta lo que no está en cuadro y avisa a lo que sí dibuja. Devuelve los nombres. */
+function dibujar(dealer, camara) {
+  const cuadro = new THREE.Frustum().setFromProjectionMatrix(new THREE.Matrix4().multiplyMatrices(camara.projectionMatrix, camara.matrixWorldInverse));
+  const lista = [];
+  dealer.group.updateMatrixWorld(true);
+  const bajar = (o) => {
+    if (!o.visible) return;
+    if (o.isMesh && (!o.frustumCulled || cuadro.intersectsObject(o))) lista.push(o);
+    for (const hijo of o.children) bajar(hijo);
+  };
+  bajar(dealer.group);
+  for (const o of lista) o.onBeforeRender(null, null, camara);
+  return lista;
+}
+
+test('el dealer no se dibuja ni se anima lejos o fuera de cuadro, y al volver sigue donde iba', async () => {
+  const { puesto: dealer } = armar(DrugDealer);
+  // La figura de mientras sigue la misma regla.
+  const figura = dealer.figura;
+  assert.ok(dibujar(dealer, camaraEn(dealer, [1, 1.7, 6])).includes(figura), 'cerca y en cuadro se dibuja');
+  assert.ok(!dibujar(dealer, camaraEn(dealer, [1, 1.7, 6], true)).includes(figura), 'de espaldas no');
+  dibujar(dealer, camaraEn(dealer, [0, 8, 70]));
+  assert.equal(figura.visible, false, 'a 70 m la figura se apaga');
+  const persona = peatonFalso();
+  await dealer.preloadModel(async () => persona);
+  assert.equal(persona.group.visible, false, 'el modelo que llega estando lejos llega apagado');
+  assert.equal(persona.cuerpo.frustumCulled, true, 'el cuerpo se descarta fuera de cuadro, aunque el sistema lo entregue sin descarte');
+  const pasos = (camara, cuadros = 60) => {
+    const antes = persona.pedidos.length;
+    let dibujado = 0;
+    for (let i = 0; i < cuadros; i++) { if (dibujar(dealer, camara).includes(persona.cuerpo)) dibujado++; dealer.update(1 / 60); }
+    return { dibujado, animado: persona.pedidos.length - antes };
+  };
+  // Lejos: ni se dibuja ni se anima, aunque la esquina esté en cuadro.
+  assert.deepEqual(pasos(camaraEn(dealer, [0, 8, 70])), { dibujado: 0, animado: 0 });
+  // El margen evita que parpadee en el borde: apagado aguanta hasta los 60 m; prendido, hasta los 64.
+  assert.deepEqual(pasos(camaraEn(dealer, [0, 3, 62]), 3), { dibujado: 0, animado: 0 });
+  dibujar(dealer, camaraEn(dealer, [0, 3, 58]));
+  assert.equal(persona.group.visible, true);
+  dibujar(dealer, camaraEn(dealer, [0, 3, 62]));
+  assert.equal(persona.group.visible, true);
+  // A media distancia se dibuja con la pose congelada, como los peatones.
+  const media = pasos(camaraEn(dealer, [0, 3, 50]));
+  assert.equal(media.dibujado, 60);
+  assert.equal(media.animado, 0);
+  // Cerca y en cuadro: se dibuja y se anima.
+  const cerca = pasos(camaraEn(dealer, [1, 1.7, 6]));
+  assert.equal(cerca.dibujado, 60);
+  assert.ok(cerca.animado >= 28 && cerca.animado <= 31, `${cerca.animado} pasos de animación en un segundo`);
+  // Cerca pero fuera de cuadro: nada, por más que pase el tiempo.
+  assert.deepEqual(pasos(camaraEn(dealer, [1, 1.7, 6], true), 600), { dibujado: 0, animado: 0 });
+  assert.deepEqual(pasos(camaraEn(dealer, [40, 1.7, 30], true)), { dibujado: 0, animado: 0 });
+  // Al volver sigue donde iba: los diez segundos sin verse no entran de golpe en la animación.
+  const antes = persona.pedidos.length;
+  pasos(camaraEn(dealer, [1, 1.7, 6]), 6);
+  const saltos = persona.pedidos.slice(antes).map(([dt]) => dt);
+  assert.ok(saltos.length > 0 && Math.max(...saltos) < 0.05, `pasos de ${saltos.map((dt) => dt.toFixed(3))} s`);
+  dealer.dispose();
+});
+
+test('el cuerpo liviano de verdad trae lo que el dealer usa de él: el hueso del cuello, la ropa y el gorro', async () => {
+  const { puesto: dealer } = armar(DrugDealer);
+  let apariencia = null;
+  await dealer.preloadModel(async (pedida) => { apariencia = pedida; return peatonFalso(); });
+  dealer.dispose();
+  const carpeta = new URL('../public/models/personaje/', import.meta.url);
+  const leer = async (ruta) => JSON.parse(await readFile(new URL(ruta, carpeta), 'utf8'));
+  const catalogo = await leer('catalogo.json'), real = apariencia.real;
+  const cuerpo = catalogo.cuerpos.find((c) => c.sexo === real.sexo && c.edad === real.edad);
+  assert.ok(cuerpo, `hay cuerpo de ${real.sexo} ${real.edad}`);
+  for (const pieza of [real.ropa, real.calzado, real.cabeza]) assert.ok(cuerpo.piezas[pieza]?.lod, `${pieza} tiene versión liviana`);
+  assert.equal(cuerpo.piezas[real.pelo].file, null, 'sin pelo como malla aparte');
+  // El pañuelo se amarra al hueso que termina en «Neck» (Three le quita los dos puntos al nombre); tiene que ser un hueso del cuerpo liviano.
+  const gltf = await leer(`${cuerpo.id}/lod/cuerpo.gltf`);
+  const huesos = new Set(gltf.skins.flatMap((skin) => skin.joints));
+  const cuellos = gltf.nodes.map((nodo, i) => ({ nombre: THREE.PropertyBinding.sanitizeNodeName(nodo.name ?? ''), i })).filter(({ nombre }) => /Neck$/i.test(nombre));
+  assert.equal(cuellos.length, 1, `huesos del cuello: ${cuellos.map((c) => c.nombre)}`);
+  assert.ok(huesos.has(cuellos[0].i), 'es un hueso de la piel, no un nodo suelto');
+  // El gorro se oscurece buscando su malla por nombre.
+  const gorro = await leer(`${cuerpo.id}/${cuerpo.piezas[real.cabeza].lod}`);
+  assert.ok(gorro.nodes.some((nodo) => nodo.mesh != null && /hat/i.test(nodo.name ?? '')), `mallas del gorro: ${gorro.nodes.filter((n) => n.mesh != null).map((n) => n.name)}`);
 });
 
 test('si el modelo del dealer llega tarde o no llega, no queda nada colgado', async () => {
