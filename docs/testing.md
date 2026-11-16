@@ -126,6 +126,8 @@ Los E2E `actions.spec.js` recorren caminar/correr, congelan un salto y un impact
 
 `building-details.test.js` comprueba límites de geometría, agrupación por pared, alineación de ventanas y brillo nocturno en las dos vistas. `urban-trees.test.js`, `urban-planting.test.js` y `park-vegetation.test.js` verifican semillas, materiales compartidos, viento, reservas, agua y presupuestos. `vegetation-lifecycle.test.js` construye y libera el arbolado integrado para detectar recursos huérfanos o liberaciones duplicadas, incluyendo los materiales de profundidad.
 
+`locales.test.js` arma las cuadras con la semilla del juego y comprueba que salen al menos veinte oficios, que ninguno se repite en dos solares seguidos, que cada solar conserva su local con otro azar, que ningún nombre ni texto pintado coincide con una lista de marcas reales, y que armar el local no añade mallas, materiales ni sorteos a la casa ni saca nada más de 40 cm al andén.
+
 ## Ciudad, tráfico y luz
 
 `city-placement.test.js` comprueba lo que se colocó en la ciudad: ni vendedores ni objetos en la calzada, el vendedor de la plaza alcanzable, la portada y las gradas de la iglesia, el muro de las torres curvas, la fuente que frena antes de su borde y se rodea sin trabarse, el carril del bus libre hasta la lámina, el suelo junto a los estribos y bajo la rampa del puente del lago, sin rendijas, el GPS junto a los postes del separador, ningún poste ni mobiliario sobre una rampa, la rejilla de aparición fuera de las cajas y el semáforo a la vista del carril de la X 66.
