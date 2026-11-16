@@ -102,7 +102,6 @@ test('se reconoce de lejos: una oreja parada y otra caída, cola en gancho, manc
   const cola = verticesDe(dog.model, 'cola_3');
   const punta = cola.reduce((a, b) => (b.y > a.y ? b : a));
   assert.ok(Math.max(...cola.map(p => p.z)) < -.36 && punta.y > .7, 'la cola sube y se enrosca hacia el lomo, no sale recta');
-  assert.equal(dog._coat.flatShading, true, 'caras planas');
   const tonos = new Set(), colores = [];
   for (const mesh of mallas(dog.model)) {
     const color = mesh.geometry.attributes.color;
@@ -116,6 +115,41 @@ test('se reconoce de lejos: una oreja parada y otra caída, cola en gancho, manc
   assert.ok(colores.some(c => Math.min(c.r, c.g, c.b) > .95), 'el brillo de los ojos es blanco');
   assert.ok(colores.some(c => Math.max(c.r, c.g, c.b) < .05), 'trufa y ojos oscuros');
   assert.ok(colores.some(c => c.r > c.g * 2 && c.r > .4), 'lengua rosada');
+});
+
+/** Puntos de una malla según sus normales: suaves si todas coinciden, con filo si alguna se aparta. */
+function filos(mesh, huesos) {
+  const { position, normal, skinIndex, skinWeight } = mesh.geometry.attributes, puntos = new Map();
+  for (let i = 0; i < position.count; i++) {
+    if (huesos) {
+      let mayor = 0;
+      for (let k = 1; k < 4; k++) if (skinWeight.getComponent(i, k) > skinWeight.getComponent(i, mayor)) mayor = k;
+      if (!huesos.includes(mesh.skeleton.bones[skinIndex.getComponent(i, mayor)].name)) continue;
+    }
+    const clave = [position.getX(i), position.getY(i), position.getZ(i)].map(v => Math.round(v * 1e4)).join();
+    if (!puntos.has(clave)) puntos.set(clave, []);
+    puntos.get(clave).push(new THREE.Vector3().fromBufferAttribute(normal, i));
+  }
+  const cuenta = { suaves: 0, conFilo: 0 };
+  for (const normales of puntos.values()) cuenta[normales.every(n => n.dot(normales[0]) > .999) ? 'suaves' : 'conFilo']++;
+  return cuenta;
+}
+
+test('va con sombreado suave y filo solo en las aristas, el perro y sus accesorios', async () => {
+  const dog = await dogWithModel({ accesorio: 'ninguno' });
+  assert.equal(dog._coat.flatShading, false, 'el filo viene en las normales del modelo, no de dibujarlo con caras planas');
+  const pelaje = mallas(dog.model).find(mesh => mesh.material.name === 'pelaje');
+  const cuerpo = filos(pelaje, ['pecho', 'pelvis', 'cuello']);
+  assert.ok(cuerpo.suaves > 50, `tronco y cuello suaves: ${cuerpo.suaves} puntos`);
+  const patas = filos(pelaje, HUESOS.filter(name => /^(antebrazo|mano|pierna|pie)_/.test(name)));
+  assert.ok(patas.conFilo > 60 && patas.suaves < 10, `las patas conservan su filo: ${patas.conFilo} con filo, ${patas.suaves} suaves`);
+  for (const name of ['oreja_L', 'oreja_R', 'cola_3']) assert.ok(filos(pelaje, [name]).conFilo > 3, `${name} conserva su filo`);
+  for (const kind of Object.keys(DOG_ACCESSORIES).filter(k => k !== 'ninguno')) {
+    dog.setLook({ accesorio: kind });
+    assert.equal(dog._accessory.material.flatShading, false, `${kind} no se dibuja con caras planas`);
+    const { suaves, conFilo } = filos(dog._accessory);
+    assert.ok(suaves > 0 && conFilo > 0, `${kind} tiene partes suaves y bordes con filo: ${suaves} y ${conFilo}`);
+  }
 });
 
 test('cada accesorio es una sola malla que se ata a su hueso y se libera al cambiarlo', async () => {

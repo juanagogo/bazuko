@@ -4,7 +4,7 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { clone as cloneSkinned } from 'three/examples/jsm/utils/SkeletonUtils.js';
-import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
+import { mergeGeometries, toCreasedNormals } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 
 export const DOG_COATS = Object.freeze({
   canela: { label: 'Canela', color: '#a8652e' },
@@ -109,7 +109,6 @@ export class Dog {
       object.receiveShadow = true;
       object.frustumCulled = false; // la malla con huesos se recorta mal al animar
       object.material = object.material.clone();
-      object.material.flatShading = true; // caras planas, como el resto del barrio
       if (object.material.name === 'pelaje') this._coat = object.material;
     });
     this.group.add(model);
@@ -446,6 +445,8 @@ function gaitAt(speed) {
 // Dónde van los accesorios en el perro en reposo (mira a +Z): el cuello sube inclinado hacia la cabeza.
 const NECK = new THREE.Vector3(0, .548, .262), NECK_TILT = .722;
 const CAP = new THREE.Vector3(0, .75, .4);
+// Sombreado suave con filo donde dos caras se doblan más de 40 grados, igual que el modelo (ARISTA en generar_perro.py).
+const CREASE = THREE.MathUtils.degToRad(40);
 const _place = new THREE.Object3D(), _color = new THREE.Color();
 
 /** Una pieza de accesorio ya colocada y pintada, lista para fundirse con las demás. */
@@ -472,7 +473,7 @@ function cloth(points, color) {
 }
 
 /**
- * Accesorios en el espacio del perro en reposo. Cada uno es una sola malla de caras planas pintada por vértice.
+ * Accesorios en el espacio del perro en reposo. Cada uno es una sola malla pintada por vértice, suave y con filo en pliegues y bordes.
  * Los del cuello se arman con el eje del cuello en Z y la nuca en +Y, y luego se inclinan como él.
  */
 function createAccessory(kind) {
@@ -506,12 +507,12 @@ function createAccessory(kind) {
   } else {
     return null;
   }
-  const geometry = mergeGeometries(parts);
+  const geometry = toCreasedNormals(mergeGeometries(parts), CREASE);
   for (const part of parts) part.dispose();
   if (kind === 'gorra') geometry.rotateX(.06).rotateZ(-.1).rotateY(.32).translate(CAP.x, CAP.y, CAP.z); // ladeada
   else geometry.rotateX(-NECK_TILT).translate(NECK.x, NECK.y, NECK.z);
   const mesh = new THREE.Mesh(geometry, new THREE.MeshStandardMaterial({
-    vertexColors: true, flatShading: true, roughness: .85, side: THREE.DoubleSide
+    vertexColors: true, roughness: .85, side: THREE.DoubleSide
   }));
   mesh.name = `accesorio-${kind}`;
   mesh.castShadow = true;

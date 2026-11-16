@@ -4,14 +4,14 @@ Uso: blender -b --factory-startup --python tools/modelos/generar_perro.py
 
 La malla se arma por código, pieza por pieza, con anillos de pocos lados: tronco de pecho hondo y cintura
 metida, cuello, cabeza de hocico corto, una oreja parada y otra caída, patas con codo y corvejón, cola en
-gancho y mechones. El juego la dibuja con caras planas. El esqueleto (BONES) es el de siempre: la animación
+gancho y mechones. Va con sombreado suave y filo solo en las aristas marcadas (ARISTA). El esqueleto (BONES) es el de siempre: la animación
 de src/entities/Dog.js depende de sus nombres y de su pose de reposo, así que no se toca.
 Los pesos se asignan por distancia a los huesos de cada pieza, sin la heurística de Blender.
 Los colores de vértice del material «pelaje» son tonos relativos: el juego los multiplica por el pelaje
 elegido. El material «detalle» no se tiñe: trufa, ojos con su brillo y lengua.
 En Blender el perro mira a −Y; al exportar con Y arriba queda mirando a +Z, como en el juego.
 """
-from math import cos, pi, sin
+from math import cos, pi, radians, sin
 from pathlib import Path
 
 import bmesh
@@ -68,6 +68,9 @@ BLANCO = (.9, .86, .78)  # dedos, pechera y punta de la cola: blancos con cualqu
 PELAJE, DETALLE = 0, 1
 OJO_PARCHE = Vector((-.047, -.428, .683))  # el ojo derecho lleva el parche
 CABEZA_CENTRO, CABEZA_ESCALA = Vector((0, -.31, .60)), 1.15
+# Dos caras que se doblan más de este ángulo llevan filo; las demás se funden en un sombreado suave.
+# Es el mismo ángulo de los accesorios (CREASE en src/entities/Dog.js).
+ARISTA = radians(40)
 
 
 class Malla:
@@ -405,6 +408,7 @@ def construir():
     bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
     bm.to_mesh(mesh)
     bm.free()
+    mesh.set_sharp_from_angle(angle=ARISTA)
     return body, malla
 
 
