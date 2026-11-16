@@ -104,9 +104,6 @@ export function umbrella(colors = ['#c0392b', '#f2c600']) {
 
 /** Chaza: puesto de dulces y minutos o carrito de tinto, según lo que venda (con o sin paraguas) */
 export function chaza({ withUmbrella = true, title, items } = {}) {
-  // Antes se sorteaba aquí el color del paraguas. El color sale ahora del nombre del puesto, pero el sorteo se sigue
-  // pidiendo: las pruebas con semilla dependen de cuánto azar gasta la ciudad al armarse.
-  if (withUmbrella) rand(0, 1);
   return shadow(crearChaza({ withUmbrella, title, items }));
 }
 
@@ -116,7 +113,8 @@ export function fritanga({ title, items } = {}) {
   const light = new THREE.PointLight(0xff6a2a, 2.5, 5);
   light.position.set(0.9, 1.1, 0);
   g.add(light);
-  // Los seis sorteos de la comida de antes, en su sitio (ver chaza).
+  // Los seis sorteos de la comida de antes se siguen pidiendo: las pruebas con semilla dependen de cuánto azar gasta
+  // la ciudad al armarse.
   for (let i = 0; i < 6; i++) rand(-0.15, 0.15);
   const u = crearFritanga({ title, items, light });
   g.userData.dispose = () => { u.userData.dispose(); g.removeFromParent(); };

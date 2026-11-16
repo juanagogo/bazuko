@@ -114,11 +114,17 @@ const sinGastarAzar = (crear) => {
   try { return crear(); } finally { Math.random = delJuego; }
 };
 // Compartidos por todos los puestos: la ciudad funde en un lote por material lo que no se mueve.
-const [CUERPO, LUZ_DE_CHAZA, VIDRIO] = sinGastarAzar(() => [
-  material('cuerpo', { map: texturaDeAvisos() }),
-  material('luz', { emissive: '#ffc27a', emissiveIntensity: .04, roughness: .5 }),
-  new THREE.MeshStandardMaterial({ color: '#c9d4cc', transparent: true, opacity: .34, roughness: .3, depthWrite: false })
-]);
+// Hay dos juegos iguales (ver crearChaza): antes dos chazas del mismo sector se fundían juntas solo si les tocaba el
+// mismo paraguas, y de eso dependía cuánto azar gastaba la ciudad al fundir.
+const [CUERPOS, LUCES, VIDRIO] = sinGastarAzar(() => {
+  const map = texturaDeAvisos(), luz = { emissive: '#ffc27a', emissiveIntensity: .04, roughness: .5 };
+  return [
+    [material('cuerpo', { map }), material('cuerpo:b', { map })],
+    [material('luz', luz), material('luz:b', luz)],
+    new THREE.MeshStandardMaterial({ color: '#c9d4cc', transparent: true, opacity: .34, roughness: .3, depthWrite: false })
+  ];
+});
+const CUERPO = CUERPOS[0];
 const LUZ_DE_DIA = .04, LUZ_DE_NOCHE = 2.2;
 
 /** Junta piezas de un color en mallas con color por vértice. Lo de abajo sale más sucio. */
@@ -282,7 +288,7 @@ class Piezas {
   }
 
   /** Reparte las piezas de un canal en `cuantas` mallas seguidas. */
-  mallas(canal, cuantas, material) {
+  mallas(canal, cuantas, material, alCrear = null) {
     const partes = this.partes.filter((parte) => parte.canal === canal), mallas = [];
     const n = Math.min(cuantas, partes.length);
     for (let k = 0; k < n; k++) {
@@ -292,6 +298,7 @@ class Piezas {
         geometry.setAttribute(nombre, new THREE.Float32BufferAttribute(trozo.flatMap((parte) => parte[clave]), paso));
       }
       mallas.push(new THREE.Mesh(geometry, material));
+      alCrear?.(k + 1);
     }
     return mallas;
   }
@@ -536,6 +543,7 @@ const VARIANTES = { dulces: carroDeDulces, tinto: carroDeTinto };
 // La ciudad vuelve a sortear por cada malla y por cada lote cuando funde lo estático, y las pruebas con semilla dependen
 // de cuánto azar se gasta: estas 38 piezas en dos lotes piden lo mismo que las 26 mallas en doce lotes de antes.
 const MALLAS_DE_CHAZA = { sombrilla: 9, luz: 1, carro: 12, surtido: 16 };
+const MALLAS_DEL_SURTIDO_ANTES_DEL_SORTEO = 12;
 
 /** Sombrilla suelta, con los colores que se le pidan (ya quemados por el sol). */
 export function crearSombrilla(colores, nombre = colores.join()) {
@@ -559,7 +567,13 @@ export function crearChaza({ withUmbrella = true, title = 'Chaza', items = ['cig
     return parte;
   };
   grupo('Carro', carro.mallas('cuerpo', MALLAS_DE_CHAZA.carro, CUERPO));
-  grupo('Surtido', surtido.mallas('cuerpo', MALLAS_DE_CHAZA.surtido, CUERPO));
+  // El paraguas de antes se sorteaba entre dos, justo después de la mesa y los dulces (208 números). Ese sorteo sigue
+  // en su sitio y decide con cuál de los dos juegos de materiales se funde el puesto; lo que se ve no cambia.
+  const parteSurtido = grupo('Surtido', []), parteSombrilla = withUmbrella ? grupo('Sombrilla', []) : null;
+  let juego = 0;
+  parteSurtido.add(...surtido.mallas('cuerpo', MALLAS_DE_CHAZA.surtido, CUERPO, (hechas) => {
+    if (withUmbrella && hechas === MALLAS_DEL_SURTIDO_ANTES_DEL_SORTEO) juego = Math.random() < .5 ? 0 : 1;
+  }));
   if (withUmbrella) {
     const k = new Piezas();
     sombrilla(k, elige(LONAS, azar), azar, variante === 'tinto' ? [-.11, .77, -.08] : [-.02, .9, -.1]);
@@ -567,9 +581,10 @@ export function crearChaza({ withUmbrella = true, title = 'Chaza', items = ['cig
     k.tramo([.28, 2.2, .1], [.28, 1.98, .1], .008, HIERRO);
     k.tubo(.03, .035, .05, 6, '#3a3a36', [.28, 1.96, .1]);
     k.con('luz', () => k.bola(.045, '#e9dcc0', [.28, 1.9, .1], [1, 1.15, 1], 6, 4));
-    const parte = grupo('Sombrilla', [...k.mallas('cuerpo', MALLAS_DE_CHAZA.sombrilla, CUERPO), ...k.mallas('luz', MALLAS_DE_CHAZA.luz, LUZ_DE_CHAZA)]);
-    parte.position.set(.3, 0, .2);
-    g.userData.setNight = (isNight) => { LUZ_DE_CHAZA.emissiveIntensity = isNight ? LUZ_DE_NOCHE : LUZ_DE_DIA; };
+    parteSombrilla.add(...k.mallas('cuerpo', MALLAS_DE_CHAZA.sombrilla, CUERPO), ...k.mallas('luz', MALLAS_DE_CHAZA.luz, LUCES[0]));
+    parteSombrilla.position.set(.3, 0, .2);
+    g.traverse((o) => { if (o.isMesh) o.material = (o.material === LUCES[0] ? LUCES : CUERPOS)[juego]; });
+    g.userData.setNight = (isNight) => { LUCES[juego].emissiveIntensity = isNight ? LUZ_DE_NOCHE : LUZ_DE_DIA; };
   }
   g.userData.dispose = () => soltarVenta(g);
   return g;
@@ -681,7 +696,7 @@ function soltarVenta(puesto) {
   puesto.traverse((o) => {
     if (!o.isMesh) return;
     o.geometry.dispose();
-    if (![CUERPO, LUZ_DE_CHAZA, VIDRIO].includes(o.material)) o.material.dispose();
+    if (![...CUERPOS, ...LUCES, VIDRIO].includes(o.material)) o.material.dispose();
   });
   puesto.clear();
   puesto.removeFromParent();

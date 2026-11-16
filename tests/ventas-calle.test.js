@@ -116,15 +116,28 @@ test('los puestos piden el mismo azar que antes al armarse y al fundirse en la c
   // Las pruebas de tráfico y de gente siembran el azar y arman la ciudad: si un puesto pide otra cantidad, todo lo que
   // se sortea después cambia. Antes la chaza pedía 321 números y la fritanga 238.
   for (const puesto of PUESTOS) assert.equal(conAzar(5, () => armar(puesto)).sorteos, puesto[0] === 'fritanga' ? 238 : 321, puesto[1]);
-  // Al fundir lo estático la ciudad vuelve a sortear por cada malla y por cada lote. Con las cinco chazas en su sitio
-  // (tres comparten sector), antes eran 26 mallas y 12 lotes por sector: 5 × 26 × 4 + 3 × 12 × 8 = 808.
-  const ciudad = new THREE.Group();
-  for (const puesto of PUESTOS) {
-    const objeto = armar(puesto);
-    objeto.position.set(puesto[4], 0.12, puesto[5]);
-    ciudad.add(objeto);
+  // Al fundir lo estático la ciudad vuelve a sortear por cada malla y por cada lote. Antes cada chaza eran 26 mallas y,
+  // por sector, diez lotes comunes más dos por cada paraguas distinto; el paraguas era el sorteo 209 de la chaza. Las
+  // tres primeras chazas comparten sector y las otras dos van solas.
+  const paraguasDistintos = new Set();
+  for (let semilla = 1; semilla <= 12; semilla++) {
+    const ciudad = new THREE.Group(), paraguas = [];
+    conAzar(semilla, () => {
+      const sembrado = Math.random;
+      for (const puesto of PUESTOS) {
+        let n = 0;
+        Math.random = () => { const valor = sembrado(); if (++n === 209 && puesto[0] === 'chaza') paraguas.push(valor < .5); return valor; };
+        const objeto = armar(puesto);
+        objeto.position.set(puesto[4], 0.12, puesto[5]);
+        ciudad.add(objeto);
+      }
+      Math.random = sembrado;
+    });
+    const distintos = new Set(paraguas.slice(0, 3)).size;
+    paraguasDistintos.add(distintos);
+    assert.equal(conAzar(semilla, () => fundir(ciudad)).sorteos, 5 * 26 * 4 + (3 * 10 + 2 * (distintos + 2)) * 8, `semilla ${semilla}`);
   }
-  assert.equal(conAzar(5, () => fundir(ciudad)).sorteos, 808);
+  assert.deepEqual([...paraguasDistintos].sort(), [1, 2], 'entre las semillas hay sectores con un paraguas y con dos');
 });
 
 test('cargar las ventas de la calle no gasta azar del juego', () => {
@@ -163,7 +176,8 @@ test('de noche se prenden las brasas, el bombillo y la linterna de la chaza, sin
 
 test('al quitar un puesto se libera lo suyo y los demás siguen con sus materiales', () => {
   for (const puesto of [PUESTOS[0], PUESTOS[1]]) {
-    const objeto = armar(puesto), vecino = armar(puesto), liberados = new Set();
+    // Con el mismo azar a los dos les toca el mismo juego de materiales compartidos.
+    const objeto = conAzar(7, () => armar(puesto)).resultado, vecino = conAzar(7, () => armar(puesto)).resultado, liberados = new Set();
     const propios = new Set(mallas(objeto).flatMap((o) => [o.geometry, o.material]));
     const ajenos = new Set(mallas(vecino).map((o) => o.material));
     for (const recurso of [...propios, ...ajenos]) recurso.addEventListener('dispose', () => liberados.add(recurso));
