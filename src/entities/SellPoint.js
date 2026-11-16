@@ -11,7 +11,7 @@ const CARTON = '#a17e52', CARTON_OSCURO = '#8b6c45', ZUNCHO = '#2b2824';
 const LONA = '#cfcabb', LONA_SOMBRA = '#b4af9f', BOTELLA = '#9fb5a6', BOTELLA_CLARA = '#c9d6d0', BOTELLA_VERDE = '#5f8f6f';
 const ACERO = '#70767c', ACERO_OSCURO = '#4a4f55', OXIDO = '#6b4630', ZINC = '#939c9f';
 const VERDE = '#1f6b3a', AMARILLO = '#c9a227', MADERA = '#6b5238', MADERA_VIEJA = '#54402c', LLANTA = '#1d1d1f';
-const AVISO = { x: 0, y: PISO + 2.55, z: 1.0, ancho: 2.7, alto: 0.84 };
+const AVISO = { x: 0, y: PISO + 2.25, z: 1.0, ancho: 2.7, alto: 0.84 };
 
 /** Paca de cartón aplastado, amarrada con dos zunchos. */
 function paca(k, x, y, z, giro = 0, color = CARTON) {
@@ -172,8 +172,8 @@ export class SellPoint {
     // Postes y tabla del aviso; la bombilla cuelga de la tabla.
     for (const px of [-1.22, 1.22]) k.caja(0.08, AVISO.y + 0.3 - PISO, 0.08, MADERA_VIEJA, [px, (AVISO.y + 0.3 + PISO) / 2, AVISO.z + 0.07]);
     k.caja(AVISO.ancho + 0.06, AVISO.alto + 0.06, 0.035, MADERA_VIEJA, [AVISO.x, AVISO.y, AVISO.z + 0.012]);
-    k.tramo([0.9, AVISO.y - AVISO.alto / 2, AVISO.z - 0.02], [0.9, PISO + 1.95, AVISO.z - 0.02], 0.014, 0.014, ZUNCHO);
-    k.tubo(0.03, 0.04, 0.07, 6, ZUNCHO, [0.9, PISO + 1.93, AVISO.z - 0.02]);
+    k.tramo([0.9, AVISO.y - AVISO.alto / 2, AVISO.z - 0.02], [0.9, AVISO.y - 0.5, AVISO.z - 0.02], 0.014, 0.014, ZUNCHO);
+    k.tubo(0.03, 0.04, 0.07, 6, ZUNCHO, [0.9, AVISO.y - 0.52, AVISO.z - 0.02]);
     // Piso: cartones pisados, manchas de aceite y latas.
     const y = PISO + 0.004;
     k.caja(1.1, 0.012, 0.8, CARTON_OSCURO, [-1.7, PISO + 0.008, 0.9], [0, 0.4, 0]);
@@ -204,7 +204,7 @@ export class SellPoint {
     // Luz ámbar (nivel 0)
     const light = new THREE.Mesh(new THREE.SphereGeometry(0.075, 6, 4), new THREE.MeshBasicMaterial({ color: COLORS.ACCENT_AMBER, toneMapped: false }));
     light.name = 'Bombilla de la recicladora';
-    light.position.set(0.9, PISO + 1.86, AVISO.z - 0.02);
+    light.position.set(0.9, AVISO.y - 0.59, AVISO.z - 0.02);
     this.group.add(light);
   }
 

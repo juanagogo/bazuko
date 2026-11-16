@@ -136,7 +136,9 @@ test('la recicladora se dibuja con tres mallas, sin luces, y cabe en el portón 
   const frente = new THREE.Vector3(0, 0, 1).applyQuaternion(aviso.getWorldQuaternion(new THREE.Quaternion()));
   assert.ok(frente.z < -0.99, 'mira a la calle');
   assert.equal(aviso.material.side, THREE.FrontSide, 'por detrás no se lee al revés');
-  assert.ok(aviso.position.y - aviso.geometry.parameters.height / 2 > 2);
+  const bajo = aviso.position.y - aviso.geometry.parameters.height / 2;
+  assert.ok(bajo > 1.9, `el borde de abajo queda a ${bajo.toFixed(2)} m`);
+  assert.ok(aviso.position.y <= 0.12 + 2.25 + 1e-6, 'más arriba tapa el letrero del local del fondo');
 });
 
 test('al quitar la recicladora se libera todo lo que creó', () => {
