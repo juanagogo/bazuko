@@ -23,7 +23,7 @@ function lienzo(textos) {
 }
 
 /** Arma las cuadras como el juego y devuelve, en el orden en que se construyen, el local de cada solar. */
-function cuadras(semilla) {
+function cuadras(semilla, conLaCiudad = null) {
   const azar = Math.random, documento = globalThis.document, textos = [], solares = [];
   let ciudad;
   try {
@@ -39,6 +39,7 @@ function cuadras(semilla) {
       solares.push({ face, primero: tiles[0], ultimo: tiles[tiles.length - 1], raiz, local: raiz?.userData.local ?? null });
     };
     ciudad._buildBlocks(ciudad.map);
+    conLaCiudad?.(ciudad);
     return { solares, textos };
   } finally {
     ciudad?.dispose(new THREE.Scene());
@@ -150,6 +151,48 @@ test('ningún local lleva el nombre de una marca real', async () => {
   const local = localDelSolar({ seed: 318, paso: 7, x: 108, z: 66 });
   assert.deepEqual(localDelSolar({ seed: 318, paso: 7, x: 108, z: 66 }), local);
   assert.ok(OFICIOS.some(oficio => oficio.id === local.id && oficio.nombres.includes(local.nombre)));
+});
+
+test('un aviso de bandera que se mete en un sólido de la ciudad no se cuelga', async () => {
+  const { CollisionSystem } = await import('../src/systems/CollisionSystem.js');
+  cuadras(89123, ciudad => {
+    const banderas = () => {
+      const lista = [];
+      ciudad.group.traverse(malla => { if (malla.userData.bandera) lista.push(malla); });
+      return lista;
+    };
+    const punto = new THREE.Vector3();
+    const cajaDe = (malla, { desde, hasta }) => {
+      const caja = new THREE.Box3(), posicion = malla.geometry.attributes.position;
+      malla.updateWorldMatrix(true, false);
+      for (let i = desde; i < hasta; i++) caja.expandByPoint(punto.fromBufferAttribute(posicion, i).applyMatrix4(malla.matrixWorld));
+      return caja;
+    };
+    const colgadas = banderas().length;
+    assert.ok(colgadas >= 40, `${colgadas} avisos de bandera colgados`);
+    // Las cajas de las casas, como las arma el juego: casi ninguna bandera las toca.
+    const solidos = new CollisionSystem();
+    ciudad._buildCollisions(ciudad.map, solidos);
+    const contraCasas = ciudad._quitarBanderasContraSolidos(solidos.colliders);
+    assert.ok(contraCasas <= colgadas * .1, `${contraCasas} de ${colgadas} banderas tocaban la caja de una casa`);
+    // Un sólido puesto encima de una bandera: esa se recoge y las demás siguen.
+    const [victima, ...resto] = banderas(), rango = { ...victima.userData.bandera };
+    const pilar = { box: cajaDe(victima, rango).expandByVector(new THREE.Vector3(.2, 4, .2)) };
+    const vertices = victima.geometry.attributes.position.count, triangulos = victima.geometry.index.count;
+    assert.equal(ciudad._quitarBanderasContraSolidos([pilar]), resto.filter(malla => pilar.box.intersectsBox(cajaDe(malla, malla.userData.bandera).expandByScalar(-.03))).length + 1);
+    assert.equal(victima.userData.bandera, undefined, 'la bandera recogida ya no cuenta');
+    const plegada = cajaDe(victima, rango).getSize(new THREE.Vector3());
+    assert.ok(plegada.length() < 1e-6, 'la bandera recogida no ocupa sitio');
+    assert.equal(victima.geometry.attributes.position.count, vertices, 'la malla conserva sus vértices');
+    assert.equal(victima.geometry.index.count, triangulos, 'la malla conserva su índice');
+    // Ninguna de las que quedan está dentro de un sólido.
+    const todos = [...solidos.colliders, pilar];
+    for (const malla of banderas()) {
+      const caja = cajaDe(malla, malla.userData.bandera).expandByScalar(-.03);
+      assert.ok(!todos.some(solido => solido.box.intersectsBox(caja)), 'una bandera sigue dentro de un sólido');
+    }
+    assert.ok(banderas().length >= colgadas - contraCasas - 3, 'las demás banderas siguen colgadas');
+  });
 });
 
 /** Una casa suelta con la fachada de la calle en z = 23 (3 m delante de su centro). */
