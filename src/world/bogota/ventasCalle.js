@@ -133,7 +133,7 @@ class Piezas {
     return this;
   }
 
-  _emite(puntos, normales, caras, color, local, uvs) {
+  _emite(puntos, normales, caras, color, local, uvs, reves = false) {
     const m = local ? this.marcos.at(-1).clone().multiply(local) : this.marcos.at(-1);
     const nm = new THREE.Matrix3().getNormalMatrix(m);
     const parte = { canal: this.canal, P: [], N: [], C: [], U: [] };
@@ -142,7 +142,7 @@ class Piezas {
     const lado = new THREE.Vector3(), otro = new THREE.Vector3();
     for (const [a, b, c] of caras) {
       lado.subVectors(p[b], p[a]).cross(otro.subVectors(p[c], p[a]));
-      const orden = lado.dot(otro.copy(n[a]).add(n[b]).add(n[c])) < 0 ? [a, c, b] : [a, b, c];
+      const orden = (lado.dot(otro.copy(n[a]).add(n[b]).add(n[c])) < 0) !== reves ? [a, c, b] : [a, b, c];
       for (const i of orden) {
         const k = tinte(i), sucio = this.canal === 'cuerpo' ? .56 + .44 * suave(0, .55, p[i].y) : 1;
         // Nada baja del piso: las patas abiertas se recortan al ras.
@@ -234,7 +234,7 @@ class Piezas {
   }
 
   /** Tela por filas de puntos, con sombreado suave y las dos caras; `color(fila, columna)` pinta cada paño. */
-  lona(filas, color, dentro = .55, mancha = null) {
+  lona(filas, color, dentro = .62, mancha = null) {
     const alto = filas.length, ancho = filas[0].length, puntos = filas.flat(), suma = puntos.map(() => new THREE.Vector3());
     const p = puntos.map(vec), u = new THREE.Vector3(), w = new THREE.Vector3(), caras = [], tintes = [];
     for (let i = 0; i + 1 < alto; i++) for (let j = 0; j + 1 < ancho; j++) {
@@ -250,9 +250,10 @@ class Piezas {
     }
     // Cada triángulo lleva sus tres puntos propios para que el paño vecino pueda ser de otro color.
     const sueltos = caras.flat(), indices = caras.map((_, t) => [t * 3, t * 3 + 1, t * 3 + 2]);
-    for (const [signo, tono] of [[1, 1], [-1, dentro]]) {
-      this._emite(sueltos.map((q) => puntos[q]), sueltos.map((q) => suma[q].clone().normalize().multiplyScalar(signo).toArray()), indices,
-        (i) => tintes[Math.floor(i / 3)].clone().multiplyScalar(tono * (mancha ? mancha(Math.floor(sueltos[i] / ancho), sueltos[i] % ancho) : 1)));
+    // El envés se alumbra como el haz, más apagado: la lona deja pasar la luz.
+    for (const [reves, tono] of [[false, 1], [true, dentro]]) {
+      this._emite(sueltos.map((q) => puntos[q]), sueltos.map((q) => suma[q].clone().normalize().toArray()), indices,
+        (i) => tintes[Math.floor(i / 3)].clone().multiplyScalar(tono * (mancha ? mancha(Math.floor(sueltos[i] / ancho), sueltos[i] % ancho) : 1)), null, null, reves);
     }
     return this;
   }
@@ -315,7 +316,7 @@ function sombrilla(k, colores, azar, amarre = null) {
       // La tela cuelga entre varilla y varilla: el medio queda más bajo y metido.
       filas.push([a, [(a[0] + b[0]) / 2 * (1 - .035 * t), (a[1] + b[1]) / 2 - .075 * t * t, (a[2] + b[2]) / 2 * (1 - .035 * t)], b]);
     }
-    k.lona(filas, (f) => (i === remiendo && f === 1 ? parche : tonos[i]), .55, (f, j) => (j === 1 ? enMedio[i][f] : enVarilla[(i + j / 2) % gajos][f]));
+    k.lona(filas, (f) => (i === remiendo && f === 1 ? parche : tonos[i]), .62, (f, j) => (j === 1 ? enMedio[i][f] : enVarilla[(i + j / 2) % gajos][f]));
     const a = varilla(i, 1), b = varilla(i + 1, 1), medio = filas[3][1], cae = FALDON * (.7 + azar() * .3);
     k.lona([[a, medio, b], [[a[0], a[1] - FALDON, a[2]], [medio[0], medio[1] - cae, medio[2]], [b[0], b[1] - FALDON, b[2]]]],
       tonos[(i + 1) % gajos].clone().multiplyScalar(.9), .7);
