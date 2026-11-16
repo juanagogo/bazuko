@@ -14,7 +14,7 @@ export function paintD69Store(map) {
 const C = {
   muro: rgb('#eeeadf'), verde: rgb(VERDE), verdeClaro: rgb('#2f7a4e'), crema: rgb('#fff3da'), marco: rgb('#b6bab8'),
   techo: rgb('#777a77'), grava: rgb('#8f918a'), zocalo: rgb('#5c625f'), piso: rgb('#c9c2b2'), equipo: rgb('#c3c7c5'),
-  oscuro: rgb('#2b2f31'), tanque: rgb('#3c4246'), vidrio: rgb('#46433a'), claraboya: rgb('#5d8791'), luz: rgb('#fff1cf'),
+  oscuro: rgb('#2b2f31'), tanque: rgb('#3c4246'), vidrio: rgb('#4a3d2a'), calido: rgb('#8a6a3a'), claraboya: rgb('#5d8791'), luz: rgb('#fff1cf'),
   amarillo: rgb('#f2c230'), rojo: rgb('#c0392b'), naranja: rgb('#e58a1f'), fruta: rgb('#6f9a3a'), madera: rgb('#7a5a3a'), tabla: rgb('#b08a58')
 };
 // Letras de puntos 5×7 para los carteles de oferta: geometría, sin texturas nuevas.
@@ -28,7 +28,9 @@ const GLYPHS = {
   5: '11111,10000,11110,00001,00001,10001,01110', 9: '01110,10001,10001,01111,00001,00010,01100', $: '00100,01111,10100,01110,00101,11110,00100',
   '.': '00000,00000,00000,00000,00000,01100,01100', ' ': '00000,00000,00000,00000,00000,00000,00000'
 };
-const PORCH = 51.7;  // el frente del andén oriental se retira: queda un corredor cubierto dentro de la misma huella
+// El frente oriental va apenas remetido: lo que se ve queda donde uno choca, en el borde del lote (x = 53).
+const PORCH = 52.55;
+const BAY = 51.9, BAY_Z0 = 168.9, BAY_Z1 = 171.8; // nicho de los carritos, cerrado con su baranda
 const FLOOR = .16;
 const ONLY = { px: 'nx py ny pz nz', nz: 'px nx py ny pz', py: 'px nx ny pz nz', ny: 'px nx py pz nz' };
 
@@ -44,7 +46,7 @@ export function buildD69Store({ createSign }) {
   const random = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
 
   // `face` describe un plano de fachada: origen, hacia dónde avanza un texto y hacia dónde mira.
-  const EAST = z => ({ at: (u, y, out = 0) => [PORCH + .08 + out, y, z - u], normal: [1, 0, 0] });
+  const EAST = (z, x = PORCH + .08) => ({ at: (u, y, out = 0) => [x + out, y, z - u], normal: [1, 0, 0] });
   const NORTH = x => ({ at: (u, y, out = 0) => [x - u, y, 158.9 - out], normal: [0, 0, -1] });
   const panel = (face, u0, y0, w, h, color, out = 0) => kit.quad(face.at(u0, y0, out), face.at(u0 + w, y0, out),
     face.at(u0 + w, y0 + h, out), face.at(u0, y0 + h, out), color, { normal: face.normal, facing: face.normal });
@@ -64,12 +66,13 @@ export function buildD69Store({ createSign }) {
       column += 6;
     }
   };
-  const poster = (face, u, y, top, price, color = C.amarillo) => lit(.9, () => {
-    panel(face, u, y, 1.12, .86, color, .022);
-    panel(face, u + .04, y + .56, 1.04, .26, C.rojo, .03);
-    text(face, top, u + .56 - (top.length * 6 - 1) * .013, y + .6, .026, C.crema, .038);
-    const size = Math.min(.045, 1 / (price.length * 6 - 1));
-    text(face, price, u + .56 - (price.length * 6 - 1) * size / 2, y + .29 - size * 3.5, size, C.oscuro, .03);
+  // Pocos carteles y grandes: se leen desde el andén.
+  const poster = (face, u, y, top, price, color = C.amarillo, w = 1.34) => lit(.9, () => {
+    const h = w * .74, dot = w * .024, size = Math.min(w * .044, (w - .14) / (price.length * 6 - 1));
+    panel(face, u, y, w, h, color, .022);
+    panel(face, u + .04, y + h * .66, w - .08, h * .3, C.rojo, .03);
+    text(face, top, u + w / 2 - (top.length * 6 - 1) * dot / 2, y + h * .81 - dot * 3.5, dot, C.crema, .038);
+    text(face, price, u + w / 2 - (price.length * 6 - 1) * size / 2, y + h * .34 - size * 3.5, size, C.oscuro, .03);
   });
   // Lo que se ve tras el vidrio: góndolas con mercancía. De día queda oscuro; de noche es lo que alumbra.
   const shelves = (face, width) => lit(1.7, () => {
@@ -83,17 +86,18 @@ export function buildD69Store({ createSign }) {
       }
     }
   });
-  // Vidrio oscuro de día; de noche deja ver la luz del local y sus tubos en el cielo raso.
+  // Vidrio oscuro de día; de noche se ve encendido y cálido, sin tapar la mercancía de adentro.
   const glass = (face, u, y, w, h) => {
-    lit(6, () => panel(face, u, y, w, h, C.vidrio));
-    lit(14, () => { for (let t = .3; t + .9 < w; t += 1.3) panel(face, t, y + h - .3, .9, .05, C.vidrio, .012); });
+    lit(2.4, () => panel(face, u, y, w, h, C.vidrio));
+    lit(3, () => { for (let t = .3; t + .9 < w; t += 1.3) panel(face, t, y + h - .3, .9, .05, C.calido, .012); });
   };
 
-  // ---- Volumen: muros, pilares del corredor, franja verde con antepecho y techo hundido ----
-  box(PORCH - 43, 3.8, 14, (43 + PORCH) / 2, 1.9, 166, C.muro, { bottom: .9 });
-  for (const z of [159.6, 172.4]) {
-    box(53 - PORCH, 3.8, 1.2, (53 + PORCH) / 2, 1.9, z, C.muro, { bottom: .9 });
-    box(.06, .42, 1.2, 53.02, .21, z, C.zocalo);
+  // ---- Volumen: muros, franja verde con antepecho y techo hundido ----
+  box(BAY - 43, 3.8, 14, (43 + BAY) / 2, 1.9, 166, C.muro, { bottom: .9 });
+  box(PORCH - BAY, 3.8, BAY_Z0 - 159, (BAY + PORCH) / 2, 1.9, (159 + BAY_Z0) / 2, C.muro, { bottom: .9 });
+  for (const [z, depth, x] of [[159.6, 1.2, PORCH], [168.7, .4, PORCH], [172.4, 1.2, BAY]]) {
+    box(53 - x, 3.8, depth, (53 + x) / 2, 1.9, z, C.muro, { bottom: .9 });
+    box(.06, .42, depth, 53.02, .21, z, C.zocalo);
   }
   // Pórticos verdes en las esquinas, sin ocupar la anchura del andén.
   for (const z of [159.3, 172.7]) box(.1, 3.8, .6, 53.04, 1.9, z, C.verde);
@@ -106,21 +110,23 @@ export function buildD69Store({ createSign }) {
   box(10.12, .09, .02, 48, 3.87, 158.93, C.crema);
   box(9.4, .1, 13.4, 48, 4.5, 166, C.techo);
 
-  // ---- Corredor cubierto: piso, cielo raso con lámparas, columnas ----
-  lit(.2, () => box(53.02 - PORCH, FLOOR, 11.6, (53.02 + PORCH) / 2, FLOOR / 2, 166, C.piso));
+  // ---- Frente remetido: umbral, alero con lámparas que vuela sobre el andén ----
+  lit(.2, () => {
+    box(53.02 - PORCH, FLOOR, 11.6, (53.02 + PORCH) / 2, FLOOR / 2, 166, C.piso);
+    box(PORCH - BAY, FLOOR, BAY_Z1 - BAY_Z0, (PORCH + BAY) / 2, FLOOR / 2, (BAY_Z0 + BAY_Z1) / 2, C.piso);
+  });
   box(.06, FLOOR + .02, 11.6, 53, FLOOR / 2, 166, C.verdeClaro);
   lit(.16, () => {
-    box(.01, 3.8, 11.6, PORCH + .006, 1.9, 166, C.muro, { skip: ONLY.px });
-    box(1, .08, 11.6, PORCH + .5, 3.76, 166, shade(C.muro, .9));
+    box(.01, 3.8, BAY_Z0 - 160.2, PORCH + .006, 1.9, (160.2 + BAY_Z0) / 2, C.muro, { skip: ONLY.px });
+    box(.01, 3.8, BAY_Z1 - BAY_Z0, BAY + .006, 1.9, (BAY_Z0 + BAY_Z1) / 2, shade(C.muro, .8), { skip: ONLY.px });
+    box(53.33 - PORCH, .08, 11.6, (53.33 + PORCH) / 2, 3.76, 166, shade(C.muro, .9));
+    box(PORCH - BAY, .08, BAY_Z1 - BAY_Z0, (PORCH + BAY) / 2, 3.76, (BAY_Z0 + BAY_Z1) / 2, shade(C.muro, .9));
   });
-  lit(3, () => { for (const z of [161.8, 164.6, 167.4, 170.2]) box(.18, .03, 1.3, PORCH + .5, 3.71, z, C.luz); });
-  for (const z of [163.9, 168]) {
-    box(.3, 3.8, .3, 52.85, 1.9, z, C.muro);
-    box(.34, .6, .34, 52.85, .3 + FLOOR, z, C.verde);
-  }
+  box(.03, .1, 11.6, 53.34, 3.76, 166, C.crema);
+  lit(3, () => { for (const [x, z] of [[PORCH + .34, 161.8], [PORCH + .34, 166.9], [52.4, 170.35]]) box(.18, .03, 1.3, x, 3.71, z, C.luz); });
 
-  // ---- Frente: puertas de vidrio y dos vitrinas con carteles de oferta ----
-  for (const z of [161.8, 166, 170]) {
+  // ---- Frente: puertas de vidrio y una vitrina con dos carteles de oferta ----
+  for (const z of [161.8, 166.9]) {
     const face = EAST(z + 1.475), door = z === 161.8;
     box(.1, 2.9, 3.2, PORCH + .02, 1.57 + FLOOR, z, C.marco);
     glass(face, 0, .245 + FLOOR, 2.95, 2.65);
@@ -131,55 +137,55 @@ export function buildD69Store({ createSign }) {
       lit(.9, () => { panel(face, .5, 2.2, 1.95, .34, C.verde, .022); text(face, 'ABIERTO', .5 + .975 - 41 * .0175, 2.26, .035, C.crema, .03); });
     }
   }
-  poster(EAST(166 + 1.475), .18, 1.2, 'OFERTA', '$990');
-  poster(EAST(166 + 1.475), 1.66, 1.2, 'HOY', '2X1', C.crema);
-  poster(EAST(170 + 1.475), .18, 1.2, 'PAN', '$500', C.crema);
-  poster(EAST(170 + 1.475), 1.66, 1.2, 'FRUTA', '$1.990');
-  // Marquesina sobre la entrada, con su luz por debajo
-  box(53.3 - PORCH, .16, 3.5, (53.3 + PORCH) / 2, 3.05, 161.8, C.verde);
-  box(.03, .17, 3.5, 53.31, 3.05, 161.8, C.crema);
-  lit(2.5, () => box(1.2, .02, 2.9, 52.45, 2.96, 161.8, C.luz, { skip: ONLY.ny }));
-  for (const z of [160.3, 163.3]) kit.tube([[53.2, 3.13, z], [52.9, 3.8, z]], .02, 4, C.oscuro);
+  poster(EAST(166.9 + 1.475), .1, 1.15, 'OFERTA', '$990');
+  poster(EAST(166.9 + 1.475), 1.51, 1.15, 'HOY', '2X1', C.crema);
+  poster(EAST(165.05, PORCH + .012), 0, 1.5, 'FRUTA', '$1990', C.crema, 1.4);
+  // Marquesina sobre la entrada, con su luz por debajo: vuela sobre el andén, por encima de quien pasa.
+  box(53.32 - PORCH, .16, 3.5, (53.32 + PORCH) / 2, 3.05, 161.8, C.verde);
+  box(.03, .17, 3.5, 53.335, 3.05, 161.8, C.crema);
+  lit(2.5, () => box(.6, .02, 2.9, PORCH + .4, 2.96, 161.8, C.luz, { skip: ONLY.ny }));
+  for (const z of [160.3, 163.3]) kit.tube([[53.2, 3.13, z], [52.9, 3.72, z]], .02, 4, C.oscuro);
 
   // ---- Frente lateral, visible desde la esquina de la calle ----
   box(5.7, 2.9, .1, 48, 1.57, 158.96, C.marco);
   glass(NORTH(48 + 2.725), 0, .245, 5.45, 2.65);
   shelves(NORTH(48 + 2.725), 5.45);
   for (const x of [46.18, 49.82]) box(.06, 2.7, .05, x, 1.57, 158.885, C.marco);
-  poster(NORTH(48 + 2.725), .3, 1.25, 'OFERTA', '$1.500');
-  poster(NORTH(48 + 2.725), 3.95, 1.25, 'HOY', '2X1', C.crema);
+  poster(NORTH(48 + 2.725), .25, 1.15, 'OFERTA', '$1500', C.amarillo, 1.5);
+  poster(NORTH(48 + 2.725), 3.7, 1.15, 'HOY', '2X1', C.crema, 1.5);
 
-  // ---- En el corredor: fila de carritos, fruta a la puerta y bolardos al borde ----
+  // ---- Pegado a la fachada, dentro de lo sólido: carritos en su nicho, fruta y bolardos ----
   for (let i = 0; i < 5; i++) {
-    const z = 171.2 - i * .44, y = FLOOR;
-    kit.frustum(52.3, z, y + .45, y + .82, .4, .52, .5, .74, shade(C.marco, i % 2 ? .82 : 1), { bottom: .7, skipTop: true });
-    box(.44, .01, .66, 52.3, y + .8, z, C.oscuro, { skip: ONLY.py });
-    box(.4, .03, .56, 52.3, y + .2, z, shade(C.marco, .8));
-    box(.5, .04, .05, 52.3, y + .92, z + .4, C.verdeClaro);
+    const x = 52.36, z = 171.3 - i * .44, y = FLOOR;
+    kit.frustum(x, z, y + .45, y + .82, .4, .52, .5, .74, shade(C.marco, i % 2 ? .82 : 1), { bottom: .7, skipTop: true });
+    box(.44, .01, .66, x, y + .8, z, C.oscuro, { skip: ONLY.py });
+    box(.4, .03, .56, x, y + .2, z, shade(C.marco, .8));
+    box(.5, .04, .05, x, y + .92, z + .4, C.verdeClaro);
     for (const side of [-1, 1]) {
-      box(.025, .5, .025, 52.3 + side * .2, y + .68, z + .37, shade(C.marco, .8));
-      for (const end of [-1, 1]) box(.05, .1, .1, 52.3 + side * .19, y + .06, z + end * .24, C.oscuro);
+      box(.025, .5, .025, x + side * .2, y + .68, z + .37, shade(C.marco, .8));
+      for (const end of [-1, 1]) box(.05, .1, .1, x + side * .19, y + .06, z + end * .24, C.oscuro);
     }
   }
-  for (const x of [51.98, 52.62]) {
-    kit.tube([[x, FLOOR, 171.72], [x, FLOOR + .98, 171.72], [x, FLOOR + .98, 168.9], [x, FLOOR, 168.9]], .03, 5, C.verdeClaro);
+  for (const x of [52.03, 52.86]) {
+    kit.tube([[x, FLOOR, BAY_Z1 - .08], [x, FLOOR + .98, BAY_Z1 - .08], [x, FLOOR + .98, BAY_Z0 + .08], [x, FLOOR, BAY_Z0 + .08]], .03, 5, C.verdeClaro);
   }
-  box(.46, .56, 1.62, 52, .28 + FLOOR, 164.3, C.madera, { bottom: .7 });
+  kit.tube([[52.86, FLOOR + .52, BAY_Z1 - .08], [52.86, FLOOR + .52, BAY_Z0 + .08]], .022, 4, C.verdeClaro);
+  box(.24, .56, 1.62, 52.74, .28 + FLOOR, 164.35, C.madera, { bottom: .7 });
   [[C.naranja, C.naranja], [C.rojo, C.fruta], [C.fruta, C.amarillo]].forEach((fruit, n) => {
-    kit.matrix = new THREE.Matrix4().compose(new THREE.Vector3(52.08, FLOOR + .68, 163.78 + n * .52),
+    kit.matrix = new THREE.Matrix4().compose(new THREE.Vector3(52.74, FLOOR + .68, 163.83 + n * .52),
       new THREE.Quaternion().setFromEuler(new THREE.Euler(0, 0, -.5)), new THREE.Vector3(1, 1, 1));
-    kit.box(0, 0, 0, .4, .14, .48, C.tabla, { skip: 'py' });
-    kit.box(0, -.04, 0, .36, .02, .44, shade(C.madera, .7));
-    for (let i = 0; i < 3; i++) for (let j = 0; j < 4; j++) {
+    kit.box(0, 0, 0, .3, .14, .48, C.tabla, { skip: 'py' });
+    kit.box(0, -.04, 0, .26, .02, .44, shade(C.madera, .7));
+    for (let i = 0; i < 2; i++) for (let j = 0; j < 4; j++) {
       const r = .055 + random() * .012;
-      kit.ellipsoid([-.12 + i * .12, .03 + random() * .02, -.165 + j * .11], [r, r, r], shade(fruit[(i + j) % 2], .9 + random() * .2), { rows: 3, cols: 5 });
+      kit.ellipsoid([-.065 + i * .13, .03 + random() * .02, -.165 + j * .11], [r, r, r], shade(fruit[(i + j) % 2], .9 + random() * .2), { rows: 3, cols: 5 });
     }
     kit.matrix = null;
   });
-  for (const z of [160.6, 163, 165.2, 167.4, 169.6, 171.5]) {
-    kit.tube([[53.2, .1, z], [53.2, .72, z]], .09, 6, C.verde);
-    kit.tube([[53.2, .72, z], [53.2, .82, z]], .09, 6, C.crema, { caps: false });
-    kit.tube([[53.2, .82, z], [53.2, .9, z]], .08, 6, C.verde);
+  for (const z of [160.42, 163.18, 165.52, 168.3]) {
+    kit.tube([[52.8, .1, z], [52.8, .72, z]], .09, 6, C.verde);
+    kit.tube([[52.8, .72, z], [52.8, .82, z]], .09, 6, C.crema, { caps: false });
+    kit.tube([[52.8, .82, z], [52.8, .9, z]], .08, 6, C.verde);
   }
 
   // ---- Techo: lo que más se ve desde la cámara alta ----

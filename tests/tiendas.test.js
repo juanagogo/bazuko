@@ -90,11 +90,24 @@ test('Doña Inés es una sola malla más sus dos avisos, sin luces y dentro de s
   assert.equal(building.material.emissiveIntensity, 0);
   building.onBeforeRender(null, night);
   assert.equal(building.material.emissiveIntensity, 1);
-  // Carritos, fruta y bolardos quedan en el corredor: nada pisa el andén ni sube más que el antepecho.
+  // Nada sube más que el antepecho ni se sale del lote más que el alero y la marquesina.
   const bounds = new THREE.Box3().setFromObject(model);
   assert.ok(bounds.min.x > 42.5 && bounds.max.x < 53.4);
   assert.ok(bounds.min.z > 158.5 && bounds.max.z < 173.5);
   assert.ok(bounds.max.y < 5.2);
+  // El lote es sólido hasta x = 53. Carritos, fruta y bolardos quedan dentro, pegados a la fachada, y el vidrio
+  // a medio metro del borde: lo que se ve coincide con donde uno choca. Solo el alero y la marquesina vuelan.
+  const spot = building.geometry.attributes.position, glow = building.geometry.attributes.color;
+  let glassAt = 0, brightest = 0;
+  for (let i = 0; i < spot.count; i++) {
+    brightest = Math.max(brightest, glow.getW(i));
+    if (spot.getZ(i) < 159.5 || spot.getZ(i) > 172.5) continue;
+    if (spot.getY(i) < 2.5) assert.ok(spot.getX(i) <= 53.1, `x ${spot.getX(i).toFixed(2)} a ${spot.getY(i).toFixed(2)} m`);
+    if (glow.getW(i) > 2) glassAt = Math.max(glassAt, spot.getX(i) < 53 && spot.getY(i) < 3 ? spot.getX(i) : 0);
+  }
+  assert.ok(glassAt > 52.4 && glassAt < 52.9, `vidrio en x ${glassAt}`);
+  // De noche las vitrinas se ven encendidas, no quemadas.
+  assert.ok(brightest <= 3, `brillo ${brightest}`);
   // Hay techo con equipos: algo sobresale de la losa, que queda hundida tras el antepecho.
   const position = building.geometry.attributes.position;
   let onRoof = 0;
