@@ -34,12 +34,16 @@ const rectDe = (nombre) => {
   return [u0, v1 - 192 / 512 + .012, u0 + .5 - .012, v1];
 };
 
+const PINCEL = ['fillRect', 'measureText', 'save', 'translate', 'rotate', 'fillText', 'restore', 'beginPath', 'moveTo', 'quadraticCurveTo', 'stroke', 'createLinearGradient'];
+
 /** Avisos pintados a mano en cartón y lata. Los nombres son inventados. */
 function texturaDeAvisos() {
   if (typeof document === 'undefined') return null;
-  const canvas = document.createElement('canvas');
+  const canvas = document.createElement?.('canvas'), c = canvas?.getContext?.('2d');
+  // Sin un lienzo completo (pruebas de Node con un document a medias) los puestos salen sin avisos.
+  if (!PINCEL.every((orden) => typeof c?.[orden] === 'function')) return null;
   canvas.width = canvas.height = 512;
-  const c = canvas.getContext('2d'), azar = azarDe('avisos');
+  const azar = azarDe('avisos');
   c.fillStyle = '#ffffff';
   c.fillRect(0, 0, 512, 512);
   const aviso = (col, fila, fondo, tinta, grande, chico, tinta2) => {

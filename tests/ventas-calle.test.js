@@ -131,6 +131,15 @@ test('cargar las ventas de la calle no gasta azar del juego', () => {
   assert.equal(sorteosAlCargar, 0, 'los materiales y el lienzo compartidos no corren lo que se sortea después con una semilla fija');
 });
 
+test('con un lienzo a medias, como el de otras pruebas, los puestos cargan sin avisos en vez de romperse', async () => {
+  globalThis.document = { createElement: () => ({ getContext: () => ({ fillRect() {}, fillText() {} }) }) };
+  try {
+    await assert.doesNotReject(import('../src/world/bogota/ventasCalle.js?lienzo-a-medias'));
+    globalThis.document = { createElement: () => ({}) };
+    await assert.doesNotReject(import('../src/world/bogota/ventasCalle.js?sin-lienzo'));
+  } finally { delete globalThis.document; }
+});
+
 test('de noche se prenden las brasas, el bombillo y la linterna de la chaza, sin luces nuevas', () => {
   const puesto = fritanga({ title: 'Fritanga La Mona', items: PUESTOS[1][2] });
   const brasas = mallas(puesto).find((o) => o.material.isMeshBasicMaterial);
