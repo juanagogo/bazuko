@@ -15,6 +15,7 @@ mock.module('../src/utils/signs.js', { namedExports: {
   signTexture: options => { ownSigns.push(options); return new THREE.Texture(); }
 } });
 const { Bogota } = await import('../src/world/districts/Bogota.js');
+const { AVISOS_GRANDES } = await import('../src/world/bogota/Locales.js');
 const atlasModule = () => import('../src/utils/signAtlas.js');
 
 function canvasDocument(shared) {
@@ -150,13 +151,15 @@ test('con lienzo todos los avisos comparten una textura y salen en los mismos si
   assert.equal(new Set(signs.map(s => s.object.material.map)).size, 1, 'una textura para todos los avisos');
   assert.deepEqual(signs.map(s => s.at), plain.signs.map(s => s.at), 'los avisos quedan donde estaban');
   assert.deepEqual(signs.map(s => backOf(s.object)), plain.own.map(o => o.bg), 'mismos colores de fondo');
-  // Entradas del atlas en orden: cada nombre con letra oscura y luego clara.
-  const titles = [], calls = city._shopSigns.material.map.image.calls;
-  calls.forEach((call, i) => { if (call[0] === 'translate') titles.push(calls[i + 1][1]); });
+  // Entradas del atlas en orden: una por oficio y nombre (AVISOS_GRANDES), con la letra de su oficio.
+  const texts = [], calls = city._shopSigns.material.map.image.calls;
+  calls.forEach((call, i) => { if (call[0] === 'translate') texts.push(`${calls[i + 1][1]}|${calls[i + 2]?.[0] === 'fillText' ? calls[i + 2][1] : ''}`); });
   signs.forEach((s, i) => {
-    const { title, fg } = plain.own[i];
-    const cell = city._shopSigns.cells[titles.indexOf(title) + (fg === '#fff3da' ? 1 : 0)];
-    assert.ok(cell && uvOf(s.object).every((v, k) => Math.abs(v - cell[k]) < 1e-6), `aviso ${i}: ${title} con letra ${fg}`);
+    const { title, sub, fg } = plain.own[i];
+    const index = texts.indexOf(`${title}|${sub}`);
+    const cell = city._shopSigns.cells[index];
+    assert.ok(cell && uvOf(s.object).every((v, k) => Math.abs(v - cell[k]) < 1e-6), `aviso ${i}: ${title} ${sub}`);
+    assert.equal(AVISOS_GRANDES[index].oficio.tinta, fg, `aviso ${i}: ${title} con letra ${fg}`);
   });
 });
 
@@ -233,30 +236,35 @@ test('cada celda del atlas pinta lo mismo que el aviso con su propia textura, si
   ]);
 });
 
-test('el fondo, el nombre y el color de letra de cada aviso son los de develop', () => {
+test('el fondo, el nombre y el color de letra de cada aviso son los del oficio de cada local', () => {
   const { city, signs } = buildBlocks(canvasDocument());
   const calls = city._shopSigns.material.map.image.calls, titles = [];
   calls.forEach((call, i) => { if (call[0] === 'translate') titles.push([calls[i + 1][1], calls[i + 2]?.[0] === 'fillText' ? calls[i + 2][1] : '']); });
   const cells = city._shopSigns.cells;
   const list = signs.map(s => {
     const index = cells.findIndex(cell => cell && uvOf(s.object).every((v, k) => Math.abs(v - cell[k]) < 1e-6));
-    // Las entradas van de dos en dos: letra oscura y luego clara.
-    return [...titles[index], backOf(s.object), index % 2 ? '#fff3da' : '#26302e'];
+    // Una entrada por oficio y nombre, con la letra de su oficio.
+    return [...titles[index], backOf(s.object), AVISOS_GRANDES[index].oficio.tinta];
   });
-  // Los doce primeros avisos de develop: fondo claro con letra oscura y fondo oscuro con letra clara.
+  // Los doce primeros avisos de la ciudad, con el oficio que el solar le da a cada local.
   assert.deepEqual(list.slice(0, 12), [
-    ['CHATARRERÍA', 'COMPRAMOS', '#e0b926', '#26302e'], ['DROGUERÍA', 'SALUD Y VIDA', '#2e6942', '#fff3da'],
-    ['CAFETERÍA', 'TINTO Y PAN', '#672f91', '#fff3da'], ['COMPRAVENTA', 'EL CENTAVO', '#ececec', '#26302e'],
-    ['CHATARRERÍA', 'COMPRAMOS', '#672f91', '#fff3da'], ['BILLARES', 'LA BOLA 8', '#e0b926', '#26302e'],
-    ['PANADERÍA', 'EL TRIGAL', '#672f91', '#fff3da'], ['DROGUERÍA', 'SALUD Y VIDA', '#2e6942', '#fff3da'],
-    ['SASTRERÍA', 'ARREGLOS', '#672f91', '#fff3da'], ['RESIDENCIAS', 'EL DORADO', '#6c865e', '#fff3da'],
-    ['CHATARRERÍA', 'COMPRAMOS', '#344c97', '#fff3da'], ['TIENDA', 'DONDE PACHO', '#eeebeb', '#26302e']
+    ['CHATARRERÍA', 'EL COBRE', '#5a4a3c', '#e8d49a'], ['CHANCE', 'EL PÁLPITO', '#3f7a4a', '#f3ecc8'],
+    ['PAPELERÍA', 'EL TAJALÁPIZ', '#d8cf9e', '#273f73'], ['PANADERÍA', 'EL TRIGAL', '#c79a4a', '#5a2a16'],
+    ['BILLARES', 'EL TACO', '#2f5f48', '#ead9a0'], ['LICORERA', 'LA ÚLTIMA', '#3a3f6a', '#ecd98a'],
+    ['ASADERO', 'EL FOGÓN', '#c68a2a', '#6a1c14'], ['FRUVER', 'LA COSECHA', '#5f8a3e', '#f2e9c4'],
+    ['COMPRAVENTA', 'LA PRENDA', '#b3a03a', '#2a2a26'], ['MISCELÁNEA', 'LA CHUCHERÍA', '#4f7fa0', '#f3e7c0'],
+    ['MISCELÁNEA', 'DOÑA FLOR', '#4f7fa0', '#f3e7c0'], ['TALLER DE MOTOS', 'LA BIELA', '#2f3a36', '#e2863a']
   ]);
-  // Los 131 avisos de develop: 77 con letra clara y 54 con letra oscura, y la lista entera igual.
+  // Los mismos 131 avisos de siempre (el sorteo de cuáles casas llevan aviso no cambió), cada uno con el fondo y la
+  // letra de su oficio y un texto de los avisos grandes, y la lista entera igual.
   assert.equal(list.length, 131);
-  assert.equal(list.filter(([, , , fg]) => fg === '#fff3da').length, 77);
+  for (const [title, sub, bg, fg] of list) {
+    const entry = AVISOS_GRANDES.find(e => e.oficio.titulo === title && e.nombre === sub);
+    assert.ok(entry, `${title} ${sub} es un aviso grande`);
+    assert.deepEqual([bg, fg], [entry.oficio.fondo, entry.oficio.tinta], `${title} ${sub}: fondo y letra de su oficio`);
+  }
   assert.equal(createHash('sha256').update(JSON.stringify(list)).digest('hex'),
-    '40edc51c7a9280df4921fa3350a42761f616ab90dff2a94674f8f2dbcbd14938', 'la lista entera de develop');
+    'c1cc1bbaf3e8733708026827dca07ceac0a9ee206d1a6bb6078a764c68809b8e', 'la lista entera');
 });
 
 test('el aviso es opaco y sus copias de cada casa se atenúan en isométrica como un aviso con textura propia', async () => {
