@@ -12,11 +12,21 @@ npm run build
 
 Las regresiones de jugabilidad comprueban el salto y el recorrido de ambas rampas del viaducto, la resistencia a enfermedades de Piel Dura, el peso final al fabricar con el costal lleno y la llegada del GPS a destinos marcados sobre edificios. En este último caso, ruta, marcador y guardado comparten el punto transitable cercano al edificio.
 
+`talents.test.js` comprueba además lo que prometen las mañas: «Escoger con calma» saca en promedio el 50 % más de valor al escoger la basura, con y sin envión, porque da la mitad más de tiradas y de chance de algo raro, y no cambia nada al recoger de una. Con «Mano suave», fallar el cosquilleo a un peatón se nota el 20 % menos, también con El Chato distrayendo, sin bajar del piso de uno de cada cinco.
+
 `map-services.test.js` y `map-view.test.js` comprueban precios, espacio en el costal, prioridad de necesidades, sugerencias y filas del mapa.
 
 `cures.test.js` comprueba que cada remedio cure una enfermedad que existe y no se gaste sin ella, que la aguapanela cure la gripe y se tome aunque no la haya, que solo la basura con metal traiga tétanos y dormir sucio traiga sarna, y que las partidas viejas conserven la intoxicación. `dealer.test.js` verifica que comprarle al dealer para revenderle nunca deje ganancia, ni con Contactos; que `E` abra su tienda sin vender; que se venda solo la sustancia elegida, y que la requisa se lleve la mercancía sin pagar.
 
 `inventory-actions.test.js` verifica que vaciar el inventario notifique a sus suscriptores, desequipe el arma y cancele su ataque pendiente. También comprueba que intentar fumar nadando, en el aire o aturdido conserve objeto, necesidades, audio y efectos, y que un consumo permitido gaste una sola unidad.
+
+`next-level.test.js` comprueba además que con más carga de la que se aguanta sin carreta no se pueda soltarla: sigue enganchada, con sus penas, hasta botar lo que sobra; y que mientras tanto la tecla no diga «Soltar la carreta», sino qué hacer antes.
+
+`integration-features.test.js` comprueba que El Chato y la vela rindan como el resto del sueño: la noche entera da sus 15 de ánimo y de vicio, y una siesta de 3 h, 3/8 de eso. También comprueba que la siesta pida la energía en 70 o menos y 6 horas despierto desde la anterior, que de noche no haya ese límite, y que la hora de la última siesta se guarde y las partidas viejas carguen sin ella. `wardrobe.test.js` comprueba que el botón de la siesta se apague con su motivo a la vista y que el aviso diga lo mismo cuando el juego se niega; el escenario de la siesta en `tests/e2e/integration.spec.js` lo recorre en el juego.
+
+`street-life.test.js` comprueba que lo perecible comprado al anochecer amanezca bueno después de dormir, que el aviso de comérselo llegue con un cuarto de su vida y nunca menos de 3 h de juego por delante, y que el fiado dé dos días para pagar; `inventory-ui.test.js`, que la casilla se ponga roja justo cuando sale ese aviso.
+
+`input.test.js` comprueba que una tecla sostenida cuente como una sola pulsación: con Espacio sostenido se salta una vez aunque el sistema repita la tecla, y sostener E no vuelve a interactuar, tampoco al volver a la ventana con la tecla oprimida.
 
 En C++, `bazuko_playerstate_test` comprueba que la carga conserve los objetos permitidos por el costal grande y los talentos, y que la regeneración no reviva al jugador durante una caída mortal. Se ejecuta con `ctest --test-dir cpp/build --output-on-failure` después de configurar y compilar los objetivos nativos. Estas pruebas de lógica no requieren abrir la ventana del juego.
 
@@ -156,7 +166,7 @@ La ejecución con renderizado por software sirve para verificar flujos; sus FPS 
 
 `letra.test.js` comprueba que el manifiesto diga lo que trae la letra, que todo carácter de un texto del juego exista en ella o en la tabla de dibujos, las cifras de ancho fijo, el peso y que el programa dé lo que está guardado y repita los mismos bytes. `pictos.test.js` comprueba la tabla de dibujos y el paso de los textos. `materiales.test.js` comprueba los seis colores, el contraste, las marcas, el foco único, los 44 px, el movimiento reducido, que nada parpadee, el orden de las hojas y la lluvia.
 
-`tests/momentos.test.js` y `tests/e2e/momentos.spec.js` comprueban los momentos grandes: primera plana impresa, muertes sin grito, recorte de la limpieza social de punta a punta con el juego real, TE CASCARON, CERRADO, voces sin filtro en el lienzo y el consejo al anochecer siguiente. `npm run imprenta` regenera la letra de imprenta, y la prueba comprueba que dé lo mismo.
+`tests/momentos.test.js` y `tests/e2e/momentos.spec.js` comprueban los momentos grandes: primera plana impresa, muertes sin grito y con su causa de verdad, recorte de la limpieza social de punta a punta con el juego real, TE CASCARON, CERRADO, voces sin filtro en el lienzo y el consejo al anochecer siguiente. `npm run imprenta` regenera la letra de imprenta, y la prueba comprueba que dé lo mismo. `tests/respawn.test.js` deja correr las necesidades hasta morir y comprueba que el cartón culpe a la sed bajo la lluvia sin calor, a la enfermedad con la energía en 0 y a los golpes del raponazo que se defiende o del retrovisor pillado, nunca al frío, al cansancio ni a una sed, un hambre o un golpe que ya pasaron; `npc-combat-integration.test.js` anota los golpes de la defensa de un peatón. También comprueba que recargar la página con la plana del arresto o el cartón de la muerte abiertos, con el cuerpo aún en el aire tras un atropello mortal o con el costal abierto después de morir por lo que uno se metió, o después de seguir, no devuelva la plata ni el costal ni los cobre dos veces; que un vendaje en pleno vuelo quite la deuda, y que las partidas sin esa marca carguen tal cual; el mismo recorrido, con recargas de verdad, está en `tests/e2e/momentos.spec.js`.
 
 `tests/hud-estados.test.js` y `tests/e2e/hud.spec.js` comprueban el HUD: estados de búsqueda, retazo, avisos y, en los cinco anchos con el juego real, que ninguna letra quede sobre el relleno y que los avisos no entren en la zona del personaje.
 

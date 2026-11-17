@@ -342,7 +342,8 @@ export class StreetLife {
     this._updateGuard(dt);
     const mal = this.fama.checkDebt(this.game.totalGameHours);
     if (mal) {
-      toast(`No pagué el fiado de ${cop(mal.perdida)}: los de las chazas ya no me creen.`, 'death');
+      const meFian = this.fama.canCredit(1);
+      toast(`No pagué el fiado de ${cop(mal.perdida)}: ${meFian ? 'quedé mal con los de las chazas' : 'los de las chazas ya no me creen'}.`, 'death');
       for (const c of mal.cambios) toast(avisoDeFama(c), 'warn');
     }
     this.task = this.guard.active ? {

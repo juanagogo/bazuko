@@ -336,7 +336,9 @@ export class StealSystem {
       this._robbed(npc, false);
     } else {
       const bonus = this.game?.dog?.distractionBonus?.(this.game.player?.position) ?? 0;
-      const noticeChance = Math.max(0.2, (npc?.alerta ?? 0.5) - bonus);
+      // «Mano suave» disimula mejor el fallo; aun así, uno de cada cinco se nota.
+      const caughtMult = this.game?.talents?.getEffect?.('stealCaughtMult', 1) ?? 1;
+      const noticeChance = Math.max(0.2, ((npc?.alerta ?? 0.5) - bonus) * caughtMult);
       if (Math.random() < noticeChance) {
         npc?.alarmedByTheft?.(this.game.player.position);
         this._toast('¡Me pillaron con las manos en la masa! El peatón gritó.', 'death');
@@ -364,6 +366,7 @@ export class StealSystem {
     if (isStrong && this.game.stats) {
       const dmg = Math.floor(CONFIG.directDamageMin + Math.random() * (CONFIG.directDamageMax - CONFIG.directDamageMin));
       this.game.stats.salud = Math.max(0, this.game.stats.salud - dmg);
+      this.game.stats.danoPor = 'pelea';
       this._toast(`¡El peatón se defendió! −${dmg} de salud.`, 'death');
     } else {
       this._toast('¡Raponazo! El peatón se asustó.', 'warn');

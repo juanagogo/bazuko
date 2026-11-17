@@ -31,19 +31,19 @@ export const ITEMS = {
   // ===== CONSUMIBLES =====
   pan: {
     id: 'pan', name: 'Pan duro', weight: 0.3, value: 1000,
-    consumable: 'hambre', amount: 25, animo: 5, perece: 36
+    consumable: 'hambre', amount: 25, animo: 5, perece: 72
   },
   empanada: {
     id: 'empanada', name: 'Empanada con ají', weight: 0.2, value: 1200,
-    consumable: 'hambre', amount: 35, animo: 15, calor: 120, perece: 8, desc: 'Empanada de carne y papa con ají casero.'
+    consumable: 'hambre', amount: 35, animo: 15, calor: 120, perece: 24, desc: 'Empanada de carne y papa con ají casero.'
   },
   morcilla: {
     id: 'morcilla', name: 'Morcilla criolla', weight: 0.35, value: 2500,
-    consumable: 'hambre', amount: 60, energia: 20, animo: 10, calor: 180, perece: 8, desc: 'Rellena de la Mona: contundente y calórica.'
+    consumable: 'hambre', amount: 60, energia: 20, animo: 10, calor: 180, perece: 24, desc: 'Rellena de la Mona: contundente y calórica.'
   },
   papaCriolla: {
     id: 'papaCriolla', name: 'Papa criolla', weight: 0.25, value: 1000,
-    consumable: 'hambre', amount: 25, animo: 10, calor: 90, perece: 8, desc: 'Porción de papa criolla doradita con sal.'
+    consumable: 'hambre', amount: 25, animo: 10, calor: 90, perece: 24, desc: 'Porción de papa criolla doradita con sal.'
   },
   lataComida: {
     id: 'lataComida', name: 'Lata de atún', weight: 0.4, value: 4500,
@@ -55,7 +55,7 @@ export const ITEMS = {
   },
   aguapanela: {
     id: 'aguapanela', name: 'Aguapanela caliente', weight: 0.35, value: 1200,
-    consumable: 'sed', amount: 40, energia: 25, animo: 15, calor: 180, cure: 'gripe', perece: 6, desc: 'Aguapanela con limón: revive y cura la gripe.'
+    consumable: 'sed', amount: 40, energia: 25, animo: 15, calor: 180, cure: 'gripe', perece: 12, desc: 'Aguapanela con limón: revive y cura la gripe.'
   },
   // Agua de lluvia o de pila: quita la sed, pero no es potable y a veces cae mal.
   aguaCalle: {
@@ -69,7 +69,7 @@ export const ITEMS = {
   },
   cafe: {
     id: 'cafe', name: 'Café caliente', weight: 0.3, value: 1500,
-    consumable: 'energia', amount: 40, animo: 15, perece: 6
+    consumable: 'energia', amount: 40, animo: 15, perece: 12
   },
   // Lo que se dañó en el costal: llena poco y la mitad de las veces cae mal.
   comidaDanada: {
@@ -209,7 +209,7 @@ for (const item of Object.values(ITEMS)) {
 export const isUsable = item => !!(item?.consumable || item?.cure || item?.usable);
 export function describeEffects(item) {
   const lines = [];
-  if (item.id === 'ropaLimpia') lines.push('Usar: cambiarte de ropa, sube higiene y ánimo.');
+  if (item.id === 'ropaLimpia') lines.push('Usar: cambiarse de ropa, sube higiene y ánimo.');
   if (item.id === 'radioTransistor') lines.push('Usar: abrir el sintonizador. También con R.');
   if (item.id === 'pilas') lines.push('Usar: 50 % más de pilas en el radio.');
   if (item.id === 'popo') lines.push('Usar o X en la calle: lanzar a un peatón.');

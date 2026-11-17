@@ -89,6 +89,46 @@ for (const [width, height] of TAM) {
   });
 }
 
+test('recargar la página con la plana o el cartón abiertos, o después de seguir, no deshace el castigo ni lo cobra dos veces', async ({ page }) => {
+  await readyGame(page);
+  const recargar = async () => {
+    await page.reload();
+    await expect(page.locator('#loading-screen')).toBeHidden({ timeout: 120_000 });
+    await page.getByRole('button', { name: 'Continuar jugando', exact: true }).click();
+    await expect.poll(() => page.evaluate(() => window.__game.paused)).toBe(false);
+    return page.evaluate(() => ({ plata: window.__game.stats.dinero, filas: window.__game.inventory.items.map((i) => i.id), salud: window.__game.stats.salud }));
+  };
+  // Lo último guardado (como al dormir): cuatro filas en el costal y algo de plata.
+  const guardadoCon = (plata) => page.evaluate(async (plata) => {
+    const g = window.__game, { ITEMS } = await import('/src/data/items.js');
+    g.inventory.clear();
+    for (const [id, n] of [['carton', 2], ['lata', 3], ['pilas', 1], ['cable', 1]]) g.inventory.add(ITEMS[id], n);
+    g.stats.dinero = plata;
+    g._save();
+  }, plata);
+
+  await guardadoCon(12400);
+  await page.evaluate(() => window.dispatchEvent(new CustomEvent('police-arrest')));
+  await expect(page.locator('#menu')).toHaveAttribute('data-momento', 'plana');
+  expect(await recargar(), 'F5 con la plana abierta').toMatchObject({ plata: 0, filas: [] });
+  await expect(page.locator('#menu')).toBeHidden();
+
+  await guardadoCon(5000);
+  await page.evaluate(() => window.dispatchEvent(new CustomEvent('police-arrest')));
+  await page.getByRole('button', { name: 'Continuar', exact: true }).click();
+  await expect(page.locator('#menu')).toBeHidden();
+  expect(await recargar(), 'F5 después de seguir').toMatchObject({ plata: 0, filas: [] });
+
+  await guardadoCon(3000);
+  await page.evaluate(() => { const g = window.__game; g._deathCause = 'atropello'; g.stats.salud = 0; });
+  await expect(page.locator('#menu')).toHaveAttribute('data-momento', 'muerte');
+  const muerto = await recargar();
+  expect(muerto, 'F5 con el cartón abierto: se pierde la primera mitad del costal, no la plata').toMatchObject({ plata: 3000, filas: ['pilas', 'cable'] });
+  expect(muerto.salud, 'vuelve como del cambuche, no muerto otra vez').toBeGreaterThan(50);
+  await expect(page.locator('#menu')).toBeHidden();
+  expect((await recargar()).filas, 'otro F5 no se lleva otra mitad').toEqual(['pilas', 'cable']);
+});
+
 test('la limpieza social de punta a punta: aviso, golpes, recorte, cambuche y consejo', async ({ page }) => {
   test.setTimeout(240_000);
   await page.setViewportSize({ width: 1280, height: 800 });
