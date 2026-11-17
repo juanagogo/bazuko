@@ -128,7 +128,7 @@ test('los temperamentos son umbrales: el miedoso se asusta más que el indiferen
   assert.equal(TEMPERS.bravo.stand, 1); assert.equal(TEMPERS.avisador.report, 1);
   for (const t of Object.values(TEMPERS)) assert.deepEqual(Object.keys(t).sort(), ['far', 'fearReach', 'gain', 'glance', 'report', 'stand', 'watch']);
   assert.ok(TEMPERS.miedoso.fearReach > TEMPERS.curioso.fearReach && TEMPERS.curioso.fearReach < REACT.ring[0], 'el curioso mira desde el corrillo');
-  // Ante una pelea: el miedoso la mira de lejos o se va, el indiferente sigue de largo mirando de reojo.
+  // Ante una pelea: el miedoso la mira de lejos o se va, el indiferente no se arrima (la mira de paso).
   assert.ok(TEMPERS.miedoso.far > 0 && TEMPERS.miedoso.far < 1 && TEMPERS.indiferente.watch === 0 && TEMPERS.indiferente.glance);
   // Sale de su arquetipo y de su azar: el mismo azar da el mismo carácter.
   const count = arquetipo => {
@@ -324,7 +324,7 @@ const angleTo = (npc, p) => {
   return Math.abs(Math.atan2(Math.sin(a), Math.cos(a)));
 };
 
-test('corrillo: voltean la cabeza a los 0,3-0,8 s, llegan a paso vivo y escalonados en 3 a 6 s, y quedan en arco a 4-6 m, de cara y a un metro del de al lado, sin nada que les tape', async () => {
+test('corrillo: voltean la cabeza a los 0,3-0,8 s, llegan a paso vivo y escalonados en 3 a 6 s, y quedan en arco a 4-6 m, de cara, repartidos (nadie pegado al de al lado) y sin nada que les tape', async () => {
   const nav = plaza(40, 30);
   const fight = new THREE.Vector3(40, 0, 30);
   // Un puesto de 1,2 m de lado a 2,5 m de la pelea: desde detrás de él no se vería nada.
@@ -371,20 +371,24 @@ test('corrillo: voltean la cabeza a los 0,3-0,8 s, llegan a paso vivo y escalona
     assert.ok(d >= 4 && d <= 6, `a ${d.toFixed(2)} m`);
     assert.ok(angleTo(n, fight) < .35, `de cara a la pelea (${angleTo(n, fight).toFixed(2)} rad)`);
     assert.ok(sightClear(collisions, 0, n.position.x, n.position.z, fight.x, fight.z), `detrás del puesto en (${n.position.x.toFixed(1)}, ${n.position.z.toFixed(1)})`);
+    // Repartidos: dejan un puesto libre de por medio (2,1 m en la primera fila); quien no alcanza a tanto se queda en
+    // la segunda fila, entre dos de la primera, y aun así a metro y medio o más.
     const others = watchers.filter(o => o !== n).map(o => o.position.distanceTo(n.position));
-    assert.ok(Math.min(...others) >= .9 && Math.min(...others) <= 1.25, `al de al lado a ${Math.min(...others).toFixed(2)} m`);
+    assert.ok(Math.min(...others) >= 1.5, `al de al lado a ${Math.min(...others).toFixed(2)} m`);
   }
-  // Se acaba (8 s después del último golpe) y se dispersan de a pocos: cada uno entre 8 y 15 s después del golpe, en
-  // franjas por el orden en que se arrimaron (el 1.º y el 5.º en los primeros 1,75 s, el 2.º y el 6.º en los siguientes...).
+  // Se acaba (8 s después del último golpe) y se dispersan de a pocos: cada uno entre 9 y 12 s después del golpe (de 1
+  // a 4 s después de acabarse), en franjas por el orden en que se arrimaron (el 1.º y el 5.º en los primeros 0,75 s, el
+  // 2.º y el 6.º en los siguientes...).
   const lastBlow = s.minds.time - 1 - 1 / 30, left = new Map();
   run(s, 16, player, () => {
     for (const n of watchers) if (!left.has(n) && !n.mind.aware.watching) left.set(n, s.minds.time - lastBlow);
   });
   assert.equal(people.filter(n => n.mind.aware.watching).length, 0, 'se fueron');
   const gone = [...left.values()].sort((a, b) => a - b);
-  assert.ok(gone[0] >= 7.9 && gone.at(-1) <= 15.3, `se fueron a los ${gone.map(t => t.toFixed(1)).join(', ')} s del último golpe`);
+  assert.ok(gone[0] >= 8.9 && gone.at(-1) <= 12.7, `se fueron a los ${gone.map(t => t.toFixed(1)).join(', ')} s del último golpe`);
   assert.ok(gone.at(-1) - gone[0] >= 1.5, `de a pocos, no todos a la vez: ${gone.map(t => t.toFixed(1)).join(', ')}`);
-  const band = (REACT.leave[1] - REACT.leave[0]) / 4, think = .3; // lo que tarda en notarlo, a su turno de pensar
+  // Lo nota en un turno de pensar y se va en otro: hasta 0,6 s más que su franja.
+  const band = (REACT.leave[1] - REACT.leave[0]) / 4, think = .6;
   const bands = [...joined.entries()].filter(([n]) => left.has(n)).map(([n, k]) => ({ k, at: +(left.get(n) - 8 - REACT.leave[0]).toFixed(2) }));
   assert.ok(bands.every(({ k, at }) => at >= (k % 4) * band - .05 && at <= (k % 4 + 1) * band + think), `fuera de su franja: ${JSON.stringify(bands)}`);
 });
@@ -954,7 +958,8 @@ test('quien conversa y reacciona (se asusta o se arrima a mirar) deja la charla:
     run(s, 2.5, player, talking);
     const speaker = [a, b].find(n => n._bubbleTimer > 0);
     assert.ok(a.talk && b.talk && sounds.some(x => x.playingId) && speaker, `${caso}: conversan y uno tiene la palabra, con su frase en pantalla`);
-    // Una pelea: a 3 m del miedoso, o a 12 m del curioso (se arrima a mirar). Al indiferente no le hace nada.
+    // Una pelea: a 3 m del miedoso, o a 12 m del curioso (se arrima a mirar cuando ve que el primer golpe no fue el
+    // único: para llegar a tiempo a uno solo le queda lejos). Al indiferente, a 12 m, no le hace nada.
     const fighter = { position: caso === 'susto' ? new THREE.Vector3(17, 0, 20) : new THREE.Vector3(21, 0, 32) };
     let reactedAt = null, endedAt = null, backed = false, frames = 0, alone = false;
     run(s, 3, player, t => {
@@ -978,7 +983,7 @@ test('quien conversa y reacciona (se asusta o se arrima a mirar) deja la charla:
       assert.ok(a.fleeTimer > 0 || Math.hypot(a.position.x - 17, a.position.z - 20) > 6, 'y se fue');
     } else {
       assert.ok(a.mind.aware.watching, 'se fue a mirar la pelea');
-      assert.ok(Math.hypot(a.position.x - 21, a.position.z - 32) < 9.5, 'y ya va para allá');
+      assert.ok(a.target && Math.hypot(a.position.x - 21, a.position.z - 32) < 11.5, 'y ya va para allá');
     }
     // El otro no se queda en la charla: sigue con lo suyo.
     assert.notEqual(b.stance, 'hablar');
@@ -1013,7 +1018,11 @@ test('quien va a mirar una pelea o ya la está mirando no se pone a conversar: e
   a.dispose(); b.dispose();
 });
 
-test('el miedoso ante una pelea la mira de lejos, a 8 a 10 m, o se va; el indiferente sigue de largo mirando de reojo, sin aflojar el paso', async () => {
+test('el miedoso ante una pelea la mira de lejos, a 8 a 10 m, o se va; el indiferente que pasa a menos de 10 m afloja el paso y voltea a mirarla, y el que no se detiene sigue su camino', async (t) => {
+  // De los indiferentes que pasan, una parte se detiene unos segundos (tests/npc-corrillo.test.js): aquí, ninguno.
+  const passStop = REACT.passStop;
+  REACT.passStop = 0;
+  t.after(() => { REACT.passStop = passStop; });
   const nav = plaza(40, 30);
   const fight = new THREE.Vector3(40, 0, 30);
   // Dos miedosos a 9 y 13 m que la miran de lejos, uno a 6 m que también querría pero le queda cerca, y uno que se va.
@@ -1033,7 +1042,7 @@ test('el miedoso ante una pelea la mira de lejos, a 8 a 10 m, o se va; el indife
   for (let x = 32; x <= 56; x += 2) route.push(new THREE.Vector3(x, 0, 37));
   passer.route = route; passer.routeIndex = 0; passer.target = route[0]; passer.wait = 0; passer.stance = null;
   const blow = fighting(10, fight);
-  let closest = { far9: Infinity, far13: Infinity }, glanced = 0, looking = 0, minPace = 1, passerWatched = false;
+  let closest = { far9: Infinity, far13: Infinity }, near = 0, looking = 0, slowed = 0, farPace = 0, passerWatched = false, stopped = 0, lastX = passer.position.x;
   const fled = new Set();
   run(s, 10, fight, t => {
     blow(t);
@@ -1042,9 +1051,16 @@ test('el miedoso ante una pelea la mira de lejos, a 8 a 10 m, o se va; el indife
       if (a.watching && !n.target) closest[key] = Math.min(closest[key], Math.hypot(n.position.x - fight.x, n.position.z - fight.z));
     }
     for (const n of people) if (n.fleeTimer > 0) fled.add(n);
-    const g = passer.mind.gaze(null);
-    if (g !== null && Math.abs(g) > .3) looking++;
-    if (t > 1 && t < 6) { glanced++; minPace = Math.min(minPace, passer.mind.paceFactor()); }
+    // El que pasa: lejos va a su paso; desde que la tiene a menos de 10 m (y un momento para notarlo), afloja y la mira.
+    const g = passer.mind.gaze(null), d = Math.hypot(passer.position.x - fight.x, passer.position.z - fight.z);
+    if (d > REACT.passBy + .5) farPace = Math.max(farPace, passer.mind.paceFactor());
+    else if (d < REACT.passBy - 1) {
+      near++;
+      if (g !== null && Math.abs(g) > .3) looking++;
+      if (passer.mind.paceFactor() === REACT.slow) slowed++;
+    }
+    if (t > .5 && passer.position.x - lastX < 1e-4) stopped++;
+    lastX = passer.position.x;
     if (passer.mind.aware.watching) passerWatched = true;
   });
   for (const [key, n] of [['far9', far9], ['far13', far13]]) {
@@ -1056,10 +1072,12 @@ test('el miedoso ante una pelea la mira de lejos, a 8 a 10 m, o se va; el indife
   }
   assert.ok(fled.has(near6) && !near6.mind.aware.watching, 'a 6 m no se queda: huye');
   assert.ok(fled.has(leaves) && Math.hypot(leaves.position.x - fight.x, leaves.position.z - fight.z) > 14, 'el que no quiere mirar se va');
-  assert.equal(passerWatched, false, 'el indiferente no se arrima');
-  assert.equal(minPace, 1, `el indiferente no afloja (ritmo ${minPace.toFixed(2)})`);
-  assert.ok(looking > 0 && looking < glanced, 'mira de reojo: a ratos, no todo el tiempo');
-  assert.ok(passer.position.x > 41, `siguió su camino (x = ${passer.position.x.toFixed(1)})`);
+  assert.equal(passerWatched, false, 'el indiferente no se arrima ni toma puesto');
+  assert.equal(farPace, 1, 'a más de 10 m va a su paso');
+  assert.ok(near > 60 && slowed >= near * .9, `a menos de 10 m afloja el paso (${slowed} de ${near} cuadros)`);
+  assert.ok(looking >= near * .8, `y la mira mientras pasa, no de reojo (${looking} de ${near} cuadros)`);
+  assert.equal(stopped, 0, 'sin detenerse');
+  assert.ok(passer.target && passer.position.x > 36, `sigue su camino (x = ${passer.position.x.toFixed(1)})`);
 });
 
 test('asustado en plena calzada no se queda ahí: sale al andén que no lo acerca al peligro (sigue o se devuelve) y ahí reacciona', async () => {
@@ -1205,7 +1223,8 @@ test('un atropello no es culpa del jugador que pasaba al lado: solo cuenta como 
     // Como TrafficSystem al atropellar (sin atacante) o como el golpe del jugador (MeleeCombat, con atacante).
     if (by === 'carro') hit.takeHit({ damage: 10, dir: { x: -1, z: 0 }, knockback: 2, weapon: 'carro' });
     else hit.takeHit({ damage: 10, attacker: { position: player }, weapon: 'punos', attackId: 1 });
-    run(s, 2, player);
+    // El avisador, a 6 m, se queda mirando un momento antes de avisar (de 3 a 5 s, o hasta que se acaba).
+    run(s, by === 'carro' ? 2 : 7, player);
     const victimGrudge = hit.mind.aware.memory.grudge(s.minds.time), witnessGrudge = witness.mind.aware.memory.grudge(s.minds.time);
     if (by === 'carro') {
       assert.equal(victimGrudge, 0, 'el atropellado no culpa al jugador');

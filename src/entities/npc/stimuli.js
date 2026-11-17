@@ -29,6 +29,7 @@ export const STIMULI = {
 const CAPACITY = 64;
 const SCENES = 4;
 const SCENE_MERGE = 8; // m: dos golpes de la misma pelea son la misma escena
+export const OUTER = 8; // puestos del anillo de afuera de una escena (el tope del corrillo)
 
 /** Canal de estímulos de un distrito: anillo de los últimos 64, y hasta 4 escenas a la vez. */
 export class StimulusBus {
@@ -42,8 +43,11 @@ export class StimulusBus {
     this.born = new Float64Array(CAPACITY);
     this.origin = new Array(CAPACITY).fill(null);
     // Escenas: sitios donde algo sigue pasando un rato (una pelea, un arresto).
-    // `slots` y `slots2`: los puestos tomados de cada fila del corrillo (awareness.js); `born`: cuándo empezó.
-    this.scenes = Array.from({ length: SCENES }, () => ({ kind: null, x: 0, z: 0, until: -Infinity, origin: null, slots: 0, slots2: 0, watchers: 0, id: 0, born: 0 }));
+    // `slots` y `slots2`: los puestos tomados de cada fila del corrillo (awareness.js); `outMask`, `outX` y `outZ`: los
+    // de quienes miran desde el anillo de afuera, cada uno donde quedó; `born`: cuándo empezó; `hits`: cuántos
+    // estímulos lleva (un golpe suelto no es todavía una pelea).
+    this.scenes = Array.from({ length: SCENES }, () => ({ kind: null, x: 0, z: 0, until: -Infinity, origin: null, slots: 0, slots2: 0,
+      outMask: 0, outX: new Float32Array(OUTER), outZ: new Float32Array(OUTER), watchers: 0, id: 0, born: 0, hits: 0 }));
     this._sceneIds = 0;
   }
 
@@ -81,7 +85,7 @@ export class StimulusBus {
     // La misma escena si sigue viva y es cerca: se alarga y se corre con quien pelea.
     for (const scene of this.scenes) {
       if (!scene.kind || scene.until < time || hypot(scene.x - x, scene.z - z) > SCENE_MERGE) continue;
-      scene.x = x; scene.z = z; scene.until = Math.max(scene.until, until);
+      scene.x = x; scene.z = z; scene.until = Math.max(scene.until, until); scene.hits++;
       if (origin) scene.origin = origin;
       return scene;
     }
@@ -89,7 +93,7 @@ export class StimulusBus {
     let scene = this.scenes[0];
     for (const other of this.scenes) if (other.until < scene.until) scene = other;
     scene.kind = kind; scene.x = x; scene.z = z; scene.until = until; scene.origin = origin ?? null;
-    scene.slots = 0; scene.slots2 = 0; scene.watchers = 0; scene.id = ++this._sceneIds; scene.born = time;
+    scene.slots = 0; scene.slots2 = 0; scene.outMask = 0; scene.watchers = 0; scene.id = ++this._sceneIds; scene.born = time; scene.hits = 1;
     return scene;
   }
 
@@ -108,6 +112,6 @@ export class StimulusBus {
     this.count = 0;
     this.kind.fill(null);
     this.origin.fill(null);
-    for (const scene of this.scenes) { scene.kind = null; scene.until = -Infinity; scene.origin = null; scene.slots = 0; scene.slots2 = 0; scene.watchers = 0; }
+    for (const scene of this.scenes) { scene.kind = null; scene.until = -Infinity; scene.origin = null; scene.slots = 0; scene.slots2 = 0; scene.outMask = 0; scene.watchers = 0; scene.hits = 0; }
   }
 }
