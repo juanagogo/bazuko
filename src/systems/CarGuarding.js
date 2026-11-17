@@ -31,7 +31,8 @@ export class CarGuarding {
 
   /** ¿Se puede cuidar este carro? Parqueado, sin usar y sin haberlo cuidado hace poco. */
   canGuard(car) {
-    return !!car && !car.traffic && car.kind !== 'police' && !car.used && !this.active && !(this._cooldowns.get(car) > 0);
+    // El carro que el jugador se robó no tiene dueño que vuelva a darle propina.
+    return !!car && !car.traffic && !car.robado && car.kind !== 'police' && !car.used && !this.active && !(this._cooldowns.get(car) > 0);
   }
 
   /** Segundos antes de poder volver a cuidar ese carro, o 0. */
