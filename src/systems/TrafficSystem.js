@@ -320,9 +320,10 @@ export class TrafficSystem {
     }
   }
 
-  /** Metros a los que una patrulla alcanza a ver un robo: cada nivel de fichado los alarga. */
+  /** Metros a los que una patrulla alcanza a ver un robo: cada nivel de fichado los alarga y de noche ve menos. */
   get sightRange() {
-    return POLICE_SIGHT_RANGE * (1 + POLICE_SIGHT_PER_WANTED * this.wantedLevel);
+    // La jornada la pone el juego (JornadaSystem); sin ella, la vista de siempre.
+    return POLICE_SIGHT_RANGE * (1 + POLICE_SIGHT_PER_WANTED * this.wantedLevel) * (this.jornada?.franja?.policiaVista ?? 1);
   }
 
   _canWitness(vehicle, playerPosition) {

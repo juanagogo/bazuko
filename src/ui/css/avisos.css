@@ -12,10 +12,11 @@
 .loot-toast.death { --cara: var(--rojo); color: var(--cinta); }
 .loot-toast.rare { background: var(--m-regla) left bottom / 100% 6px no-repeat, var(--flauta), var(--cara); padding-bottom: 8px; }
 @media (max-width: 899px) and (orientation: landscape), (max-height: 500px) and (orientation: landscape) {
-  .loot-toast { left: auto; right: calc(6px + var(--safe-r)); max-width: 39vw; font-size: 16px; padding: 2px 9px 4px 7px; }
+  .loot-toast { left: auto; right: calc(6px + var(--safe-r)); max-width: min(39vw, calc(40vw - 8px - var(--safe-r))); font-size: 16px; padding: 2px 9px 4px 7px; }
 }
 @media (max-width: 899px) and (orientation: portrait) {
   .loot-toast { left: calc(6px + var(--safe-l)); max-width: calc(100vw - 12px); font-size: 16px; padding: 2px 9px 4px 7px; }
+  body.avisos-sin-retazo #retazo { visibility: hidden; }
 }
 
 /* Con un menú abierto el HUD se esconde pero conserva su caja: sin esto, la pila queda en medio del menú.

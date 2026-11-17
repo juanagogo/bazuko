@@ -193,15 +193,19 @@ test('entrar desde isométrica restaura edificios completos y salir recupera su 
   camera.userData.cameraMode = 'isometric';
   camera.position.set(0, 6, 9); camera.lookAt(new THREE.Vector3(0, 1.1, -5)); camera.updateMatrixWorld();
   for (let i = 0; i < 60; i++) visibility.update(1 / 60, game.player.position, camera);
-  assert.equal(building.roofPart.opacity, 0); assert.equal(closed.visible, false);
+  assert.equal(building.roofPart.opacity, 0); assert.equal(building.loose, true);
+  const shown = () => closed.children.filter(mesh => mesh.visible);
+  assert.equal(shown().length, 0, 'su única casa tapa al jugador: ningún lote se dibuja');
   game.world = { active: { buildingVisibility: visibility, npcs: [] } };
   photo.enter();
   assert.equal(closed.visible, true);
+  assert.equal(shown().length, closed.children.length, 'en tercera persona la casa vuelve entera a sus lotes');
   assert.equal(visibility.enabled, false);
   assert.ok(building.parts.every(part => part.opacity === 1 && !part.object.visible));
   photo.exit();
   assert.equal(visibility.enabled, true);
-  assert.equal(closed.visible, false, 'ningún lote cerrado tapa la vista isométrica restaurada');
+  assert.equal(shown().length, 0, 'ningún lote cerrado tapa la vista isométrica restaurada');
+  assert.equal(building.loose, true);
   visibility.dispose();
 });
 

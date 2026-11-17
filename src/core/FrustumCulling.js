@@ -14,10 +14,11 @@ export class FrustumCulling {
     this.stats = { total: 0, visible: 0, shadowOnly: 0, culled: 0 };
   }
 
-  register(object, { dynamic = false, margin = 0 } = {}) {
+  /** `bounds`, si se da, es la caja mundial ya calculada de la rama (se copia). Devuelve si quedó registrada. */
+  register(object, { dynamic = false, margin = 0, bounds: given = null } = {}) {
     object.updateWorldMatrix(true, true);
-    const bounds = new THREE.Box3().setFromObject(object).expandByScalar(margin);
-    if (bounds.isEmpty()) return;
+    const bounds = (given ? new THREE.Box3().copy(given) : new THREE.Box3().setFromObject(object)).expandByScalar(margin);
+    if (bounds.isEmpty()) return false;
     let castsShadow = false, pastFar = false;
     object.traverse(child => {
       if (child.castShadow) castsShadow = true;
@@ -27,6 +28,7 @@ export class FrustumCulling {
     // Los vehículos solo cambian su transformación raíz; se conserva una caja local holgada.
     const local = dynamic ? bounds.clone().applyMatrix4(object.matrixWorld.clone().invert()) : null;
     this.entries.push({ object, bounds, local, castsShadow, pastFar });
+    return true;
   }
 
   apply(camera, shadowLights = []) {
@@ -56,7 +58,7 @@ export class FrustumCulling {
         bounds.copy(local).applyMatrix4(object.matrixWorld);
       }
       if ((pastFar ? this.pastFarFrustum : this.frustum).intersectsBox(bounds)) { stats.visible++; continue; }
-      if (castsShadow && this.shadowFrustums.some(frustum => frustum.intersectsBox(bounds))) {
+      if (castsShadow && this._inShadow(bounds)) {
         stats.shadowOnly++;
         continue;
       }
@@ -64,6 +66,12 @@ export class FrustumCulling {
       this.hidden.push(object);
       stats.culled++;
     }
+  }
+
+  _inShadow(bounds) {
+    const frustums = this.shadowFrustums;
+    for (let i = 0; i < frustums.length; i++) if (frustums[i].intersectsBox(bounds)) return true;
+    return false;
   }
 
   restore() {
