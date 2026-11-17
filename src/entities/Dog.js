@@ -4,6 +4,7 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { clone as cloneSkinned } from 'three/examples/jsm/utils/SkeletonUtils.js';
+import { mergeGeometries, toCreasedNormals } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 
 export const DOG_COATS = Object.freeze({
   canela: { label: 'Canela', color: '#a8652e' },
@@ -507,41 +508,79 @@ function gaitAt(speed) {
   };
 }
 
-/** Accesorios en el espacio del perro en reposo (mira a +Z, cuello hacia +Y+Z). */
+// Dónde van los accesorios en el perro en reposo (mira a +Z): el cuello sube inclinado hacia la cabeza.
+const NECK = new THREE.Vector3(0, .548, .262), NECK_TILT = .722;
+const CAP = new THREE.Vector3(0, .75, .4);
+// Sombreado suave con filo donde dos caras se doblan más de 40 grados, igual que el modelo (ARISTA en generar_perro.py).
+const CREASE = THREE.MathUtils.degToRad(40);
+const _place = new THREE.Object3D(), _color = new THREE.Color();
+
+/** Una pieza de accesorio ya colocada y pintada, lista para fundirse con las demás. */
+function piece(geometry, color, position = [0, 0, 0], rotation = [0, 0, 0], scale = [1, 1, 1]) {
+  const part = geometry.index ? geometry.toNonIndexed() : geometry;
+  if (part !== geometry) geometry.dispose();
+  _place.position.set(...position); _place.rotation.set(...rotation); _place.scale.set(...scale);
+  _place.updateMatrix();
+  part.applyMatrix4(_place.matrix);
+  part.deleteAttribute('uv');
+  const colors = new Float32Array(part.attributes.position.count * 3);
+  _color.set(color);
+  for (let i = 0; i < colors.length; i += 3) _color.toArray(colors, i);
+  part.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+  return part;
+}
+
+/** Tela plana a partir de triángulos sueltos. */
+function cloth(points, color) {
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array(points.flat()), 3));
+  geometry.computeVertexNormals();
+  return piece(geometry, color);
+}
+
+/**
+ * Accesorios en el espacio del perro en reposo. Cada uno es una sola malla pintada por vértice, suave y con filo en pliegues y bordes.
+ * Los del cuello se arman con el eje del cuello en Z y la nuca en +Y, y luego se inclinan como él.
+ */
 function createAccessory(kind) {
-  const mat = (color) => new THREE.MeshStandardMaterial({ color, roughness: .85 });
-  const group = new THREE.Group();
-  group.name = `accesorio-${kind}`;
-  const neck = new THREE.Vector3(0, .515, .255);
-  if (kind === 'panuelo' || kind === 'collar') {
-    const band = new THREE.Mesh(new THREE.TorusGeometry(.112, kind === 'collar' ? .015 : .022, 6, 18),
-      mat(kind === 'collar' ? 0x2a6fb5 : 0xc62f2a));
-    band.position.copy(neck);
-    band.rotation.x = -Math.PI / 4;
-    band.scale.set(1, 1.12, 1);
-    group.add(band);
-    if (kind === 'panuelo') {
-      const tip = new THREE.Mesh(new THREE.ConeGeometry(.09, .16, 3), band.material);
-      tip.position.set(0, .45, .36);
-      tip.rotation.set(Math.PI + .5, 0, 0);
-      tip.scale.set(1, 1, .35);
-      group.add(tip);
-    } else {
-      const tag = new THREE.Mesh(new THREE.CylinderGeometry(.022, .022, .006, 10), mat(0xd9b44a));
-      tag.position.set(0, .44, .355);
-      tag.rotation.x = Math.PI / 2 - .6;
-      group.add(tag);
-    }
+  let parts;
+  if (kind === 'panuelo') {
+    const red = 0xc62f2a, fold = 0x9f2320;
+    parts = [
+      piece(new THREE.TorusGeometry(.089, .02, 5, 12), red, [0, 0, 0], [0, 0, 0], [.93, 1.06, 1.5]),
+      // El triángulo cae sobre el pecho con un doblez al centro.
+      cloth([[-.094, -.03, .026], [0, -.112, .056], [0, -.196, -.024],
+        [0, -.112, .056], [.094, -.03, .026], [0, -.196, -.024]], red),
+      // Nudo en la nuca con sus dos puntas.
+      piece(new THREE.BoxGeometry(.042, .03, .04), fold, [0, .106, -.004], [0, 0, .5]),
+      piece(new THREE.ConeGeometry(.02, .07, 3), fold, [-.034, .104, -.04], [-1.9, 0, .5], [1, 1, .5]),
+      piece(new THREE.ConeGeometry(.02, .06, 3), fold, [.03, .112, -.036], [-1.7, 0, -.6], [1, 1, .5])
+    ];
+  } else if (kind === 'collar') {
+    parts = [
+      piece(new THREE.TorusGeometry(.087, .011, 4, 12), 0x2a6fb5, [0, 0, 0], [0, 0, 0], [.93, 1.06, 2.2]),
+      piece(new THREE.BoxGeometry(.034, .014, .036), 0xc4c6c8, [.05, .08, 0], [0, 0, -.55]),           // hebilla
+      piece(new THREE.TorusGeometry(.011, .004, 3, 6), 0xc4c6c8, [0, -.103, .012], [0, Math.PI / 2, 0]), // argolla
+      piece(new THREE.CylinderGeometry(.026, .026, .008, 6), 0xd9b44a, [0, -.134, .016], [Math.PI / 2, 0, 0]) // placa
+    ];
   } else if (kind === 'gorra') {
-    const cap = new THREE.Mesh(new THREE.SphereGeometry(.085, 12, 6, 0, Math.PI * 2, 0, Math.PI / 2), mat(0xe39b2a));
-    cap.position.set(0, .725, .35);
-    const brim = new THREE.Mesh(new THREE.CylinderGeometry(.06, .06, .01, 12, 1, false, -Math.PI / 2, Math.PI), cap.material);
-    brim.position.set(0, .728, .41);
-    brim.scale.set(1.2, 1, 1.1);
-    group.add(cap, brim);
+    const crown = 0xe39b2a, dark = 0xb5701c;
+    parts = [
+      piece(new THREE.SphereGeometry(.06, 7, 3, 0, Math.PI * 2, 0, Math.PI / 2), crown, [0, 0, 0], [0, 0, 0], [1, .82, 1.08]),
+      piece(new THREE.CylinderGeometry(.05, .05, .008, 6, 1, false, -Math.PI / 2, Math.PI), dark, [0, .004, .052], [.2, 0, 0], [1.05, 1, 1.25]),
+      piece(new THREE.CylinderGeometry(.011, .011, .008, 5), dark, [0, .049, 0])                          // botón
+    ];
   } else {
     return null;
   }
-  group.traverse(o => { if (o.isMesh) o.castShadow = true; });
-  return group;
+  const geometry = toCreasedNormals(mergeGeometries(parts), CREASE);
+  for (const part of parts) part.dispose();
+  if (kind === 'gorra') geometry.rotateX(.06).rotateZ(-.1).rotateY(.32).translate(CAP.x, CAP.y, CAP.z); // ladeada
+  else geometry.rotateX(-NECK_TILT).translate(NECK.x, NECK.y, NECK.z);
+  const mesh = new THREE.Mesh(geometry, new THREE.MeshStandardMaterial({
+    vertexColors: true, roughness: .85, side: THREE.DoubleSide
+  }));
+  mesh.name = `accesorio-${kind}`;
+  mesh.castShadow = true;
+  return mesh;
 }
