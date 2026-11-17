@@ -167,26 +167,113 @@ export function fritanga() {
   return shadow(g);
 }
 
-/** Cambuche ajeno: plástico negro y lona sobre palos */
+/** Varias cajas en una sola geometría: cada una es [ancho, alto, fondo, x, y, z, giroX, giroY, giroZ]. */
+function boxes(list) {
+  const position = [], normal = [], uv = [], index = [];
+  const matrix = new THREE.Matrix4(), turn = new THREE.Euler(), quaternion = new THREE.Quaternion();
+  const at = new THREE.Vector3(), one = new THREE.Vector3(1, 1, 1), point = new THREE.Vector3();
+  for (const [w, h, d, x, y, z, rx = 0, ry = 0, rz = 0] of list) {
+    matrix.compose(at.set(x, y, z), quaternion.setFromEuler(turn.set(rx, ry, rz)), one);
+    const half = [w / 2, h / 2, d / 2];
+    for (let a = 0; a < 3; a++) for (const side of [1, -1]) {
+      const b = (a + 1) % 3, c = (a + 2) % 3, first = position.length / 3;
+      for (const [u, v] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) {
+        const corner = [0, 0, 0], out = [0, 0, 0];
+        corner[a] = side * half[a]; corner[b] = u * side * half[b]; corner[c] = v * half[c];
+        out[a] = side;
+        point.fromArray(corner).applyMatrix4(matrix);
+        position.push(point.x, point.y, point.z);
+        point.fromArray(out).transformDirection(matrix);
+        normal.push(point.x, point.y, point.z);
+        uv.push((u + 1) / 2, (v + 1) / 2);
+      }
+      index.push(first, first + 1, first + 2, first, first + 2, first + 3);
+    }
+  }
+  const geometry = new THREE.BufferGeometry();
+  geometry.setIndex(index);
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(position, 3));
+  geometry.setAttribute('normal', new THREE.Float32BufferAttribute(normal, 3));
+  geometry.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+  return geometry;
+}
+
+/** Lonas colgadas en una sola geometría: cada una es [ancho, fondo, x, y, alza, giro] sobre el plano del techo. */
+function sheets(list, sag, tilt) {
+  const position = [], uv = [], index = [], nx = 4, ny = 6, up = Math.sin(tilt), back = Math.cos(tilt);
+  for (const [w, d, x0, y0, lift, turn] of list) {
+    const first = position.length / 3, cos = Math.cos(turn), sin = Math.sin(turn);
+    for (let j = 0; j <= ny; j++) for (let i = 0; i <= nx; i++) {
+      const u = (i / nx - 0.5) * w, v = (j / ny - 0.5) * d;
+      const x = x0 + u * cos - v * sin, y = y0 + u * sin + v * cos, z = lift + sag(y);
+      position.push(x, y * up + z * back, z * up - y * back);
+      uv.push(i / nx, j / ny);
+    }
+    for (let j = 0; j < ny; j++) for (let i = 0; i < nx; i++) {
+      const p = first + j * (nx + 1) + i;
+      index.push(p, p + 1, p + nx + 1, p + 1, p + nx + 2, p + nx + 1);
+    }
+  }
+  const geometry = new THREE.BufferGeometry();
+  geometry.setIndex(index);
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(position, 3));
+  geometry.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+  geometry.computeVertexNormals();
+  return geometry;
+}
+
+/** Cambuche ajeno: lona doble colgada entre varas, con una cobija tendida encima, espaldar de tablas y el tendido */
 export function shack() {
   const g = new THREE.Group();
+  // Siete mallas, cuatro materiales y dos sorteos, como el cambuche de antes: Three sortea un identificador por cada
+  // malla, material y geometría, y las pruebas con semilla arman la ciudad. Con otra cantidad, lo que se sortea
+  // después cambia. Por eso las partes van unidas (`boxes`, `sheets`) y lo demás sale de esos dos sorteos.
+  const a = Math.random(), b = Math.random();
+  let seed = (Math.floor(a * 65536) * 65536 + Math.floor(b * 65536)) >>> 0;
+  const r = (lo, hi) => { seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0; return lo + (hi - lo) * seed / 4294967296; };
+  const add = (geometry, material, y = 0) => {
+    const mesh = new THREE.Mesh(geometry, material);
+    mesh.position.y = y;
+    g.add(mesh);
+    return mesh;
+  };
+  // El techo cuelga entre las dos varas: `roof` es su altura sobre cada punto del piso.
+  const tilt = 0.2, sag = v => -0.06 * Math.cos(Math.PI * v / 1.9);
+  const roof = z => 1.12 - Math.tan(tilt) * z + sag(-z / Math.cos(tilt)) * Math.cos(tilt);
+  // Algo acostado sobre el techo, de un punto a otro de la pendiente.
+  const lay = (w, d, x, z, lift, turn = 0) => [w, 0.03, d, x, (roof(z - d / 2) + roof(z + d / 2)) / 2 + lift, z, Math.atan2(roof(z - d / 2) - roof(z + d / 2), d), turn, 0];
+  const edge = r(0, 1) < 0.5 ? -1 : 1, half = r(0.5, 0.7), deep = r(1.25, 1.6), slide = r(-1, 1);
   const stick = std('#4a3a28');
-  for (const [x, z, h] of [[-1, -0.8, 1.3], [1, -0.8, 1.3], [-1, 0.8, 0.9], [1, 0.8, 0.9]]) {
-    const s = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, h, 5), stick);
-    s.position.set(x, h / 2, z);
-    g.add(s);
+  // Palos y varas de lado a lado.
+  add(boxes([
+    [0.06, 1.3, 0.06, -1, 0.65, -0.8], [0.06, 1.3, 0.06, 1, 0.65, -0.8], [0.06, 0.9, 0.06, -1, 0.45, 0.8], [0.06, 0.9, 0.06, 1, 0.45, 0.8],
+    [2.06, 0.04, 0.04, 0, 1.245, -0.8], [2.06, 0.04, 0.04, 0, 0.92, 0.8]
+  ]), stick);
+  // Tablas que sujetan lo de encima.
+  add(boxes([
+    lay(0.07, 1, Math.max(-0.9, Math.min(0.9, edge * (1.1 - half * 2))), 0.1 + slide * 0.1, 0.05, slide * 0.08),
+    lay(0.8, 0.07, -edge * 0.55, 0.36, 0.065, slide * 0.06),
+    lay(0.07, 0.5, edge * 0.86, -0.15, 0.05, -slide * 0.1)
+  ]), stick);
+  // Espaldar de tablas disparejas y un costado: abrigan del viento del callejón.
+  const back = [], side = slide < 0 ? -1 : 1;
+  for (let i = 0, x = -0.92; i < 6; i++) {
+    const w = i < 5 ? r(0.26, 0.34) : 0.92 - x, h = r(0.62, 0.86);
+    back.push([w - 0.015, h, 0.025, x + w / 2, 0.04 + h / 2, -0.71, -0.05, 0, r(-0.02, 0.02)]);
+    x += w;
   }
-  const tarpColor = Math.random() < 0.5 ? '#1c1c1c' : '#1f5fbf';
-  const tarp = new THREE.Mesh(new THREE.PlaneGeometry(2.3, 1.9, 4, 4), std(tarpColor, { side: THREE.DoubleSide, roughness: 0.4 }));
-  tarp.rotation.x = -Math.PI / 2 + 0.2;
-  tarp.position.y = 1.12;
-  g.add(tarp);
-  const card = new THREE.Mesh(new THREE.BoxGeometry(1.9, 0.04, 1.5), cardMat());
-  card.position.y = 0.02;
-  g.add(card);
-  const blanket = new THREE.Mesh(new THREE.BoxGeometry(0.8, 0.12, 1.4), std(['#7a2c2c', '#3b4a6b', '#6b6b2a'][Math.floor(Math.random() * 3)]));
-  blanket.position.set(-0.4, 0.1, 0);
-  g.add(blanket);
+  add(boxes(back), stick);
+  add(boxes([0, 1, 2].map(i => { const h = r(0.5, 0.74); return [0.025, h, 0.3, side * 0.91, 0.04 + h / 2, -0.52 + i * 0.32, 0, 0, side * 0.04]; })), stick);
+  // La lona o el plástico de siempre y, montado de un lado, otro pedazo igual.
+  const tarpColor = a < 0.5 ? '#1c1c1c' : '#1f5fbf';
+  add(sheets([[2.3, 1.9, 0, 0, 0, 0], [half * 2, deep, edge * (1.1 - half), slide * (0.8 - deep / 2), 0.022, slide * 0.04]], sag, tilt),
+    std(tarpColor, { side: THREE.DoubleSide, roughness: 0.4 }), 1.12);
+  add(new THREE.BoxGeometry(1.9, 0.04, 1.5), cardMat(), 0.02);
+  // El tendido: la cobija con una punta doblada de almohada, y otra igual puesta a secar en el techo.
+  add(boxes([
+    [0.8, 0.12, 1.4, -0.4, 0.1, 0], [0.5, 0.09, 0.28, -0.4, 0.205, -0.5, 0, slide * 0.2, 0],
+    lay(0.62, 0.45, -edge * 0.55, 0.12, 0.03, slide * 0.05), lay(0.62, 0.45, -edge * 0.55, 0.57, 0.03, slide * 0.05)
+  ]), std(['#7a2c2c', '#3b4a6b', '#6b6b2a'][Math.floor(b * 3)]));
   return shadow(g);
 }
 
