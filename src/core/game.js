@@ -26,6 +26,9 @@ import { SellPoint } from '../entities/SellPoint.js';
 import { Cambuche } from '../entities/Cambuche.js';
 import { Shop } from '../entities/Shop.js';
 import { ComedorComunitario } from '../entities/ComedorComunitario.js';
+import { Bicycle } from '../entities/Bicycle.js';
+import { BikeFence } from '../entities/BikeFence.js';
+import { RandomHallucinationSystem } from '../systems/RandomHallucinationSystem.js';
 import { DailyMissionSystem } from '../systems/DailyMissionSystem.js';
 import { Car } from '../entities/Car.js';
 import { parkCar } from '../world/bogota/parkedCars.js';
@@ -262,6 +265,16 @@ export class Game {
     this.shop = null;
     this.comedor = null;
     this.lastComedorHour = null;
+    this.lastComedorTimestamp = null;
+    this.bicycles = [];
+    this.bikeFence = null;
+    this.randomHallucinations = new RandomHallucinationSystem(
+      this.sceneMgr.scene,
+      this.player,
+      this.stats,
+      this.audio,
+      this.world
+    );
     this.dailyMissions = new DailyMissionSystem(this);
     this._missionsModalOpen = false;
     this.cars = [];
@@ -442,7 +455,7 @@ export class Game {
     if (look) {
       await this._applyLook(look);
       this._save();
-      window.dispatchEvent(new CustomEvent('toast', { detail: { text: 'Te cambiaste de ropa', type: 'info' } }));
+      window.dispatchEvent(new CustomEvent('toast', { detail: { text: 'Me cambié de ropa', type: 'info' } }));
       this.audio?.play?.('pickup');
     }
   }
@@ -452,19 +465,33 @@ export class Game {
   }
 
   isComedorAvailable() {
+    if (this.lastComedorTimestamp) {
+      return (Date.now() - this.lastComedorTimestamp) >= 5 * 60 * 1000;
+    }
     if (this.lastComedorHour === undefined || this.lastComedorHour === null) return true;
-    return (this.totalGameHours - this.lastComedorHour) >= 24;
+    return (this.totalGameHours - this.lastComedorHour) >= 2;
+  }
+
+  getComedorRemainingMinutes() {
+    if (this.isComedorAvailable()) return 0;
+    if (this.lastComedorTimestamp) {
+      const elapsed = (Date.now() - this.lastComedorTimestamp) / 1000;
+      return Math.max(0, Math.ceil((300 - elapsed) / 60));
+    }
+    const diff = this.totalGameHours - this.lastComedorHour;
+    return Math.max(0, Math.ceil((2 - diff) * 2.5));
   }
 
   getComedorRemainingHours() {
     if (this.isComedorAvailable()) return 0;
-    const diff = this.totalGameHours - this.lastComedorHour;
-    return Math.max(0, Math.ceil(24 - diff));
+    const min = this.getComedorRemainingMinutes();
+    return Math.max(0, Math.ceil(min / 60));
   }
 
   serveComedor() {
     if (!this.isComedorAvailable()) return false;
     this.lastComedorHour = this.totalGameHours;
+    this.lastComedorTimestamp = Date.now();
     if (this.stats) {
       this.stats.hambre = Math.min(100, (this.stats.hambre || 0) + 80);
       this.stats.sed = Math.min(100, (this.stats.sed || 0) + 60);
@@ -559,6 +586,10 @@ export class Game {
     this.pickups = [];
     this.cars.forEach((c) => c.dispose());
     this.cars = [];
+    this.bicycles.forEach((b) => b.dispose());
+    this.bicycles = [];
+    this.bikeFence?.dispose();
+    this.bikeFence = null;
     this.interaction.targets = [];
 
     const district = this.world.active;
@@ -744,6 +775,32 @@ export class Game {
     );
     this.interaction.register(this.craftingStation);
 
+    // ===== Puesto de compras de bicicletas robadas =====
+    if (district.reserved?.bikeFence) {
+      const fencePos = new THREE.Vector3(district.reserved.bikeFence.x, 0, district.reserved.bikeFence.z);
+      this.bikeFence = new BikeFence(this.sceneMgr.scene, fencePos);
+      this.bikeFence.group.position.y = district.getGroundHeightUnder?.(this.bikeFence.group)
+        ?? district.getGroundHeight?.(fencePos.x, fencePos.z) ?? 0;
+      this.interaction.register(this.bikeFence);
+    }
+
+    // ===== Bicicletas en la ciudad =====
+    const bikeCoords = [
+      { x: (district.reserved?.comedor?.x ?? 60) + 2, z: (district.reserved?.comedor?.z ?? 66) - 3, r: 0 },
+      { x: (district.reserved?.shop?.x ?? 68) + 3, z: (district.reserved?.shop?.z ?? 58) - 1, r: Math.PI / 2 },
+      { x: (district.reserved?.sell?.x ?? 29) + 4, z: (district.reserved?.sell?.z ?? 68) - 2, r: -0.4 },
+      { x: 50, z: 62, r: 0.8 },
+      { x: 76, z: 46, r: -Math.PI / 2 }
+    ];
+    for (const b of bikeCoords) {
+      const bPos = new THREE.Vector3(b.x, 0, b.z);
+      const bike = new Bicycle(this.sceneMgr.scene, bPos, b.r, { locked: true });
+      bike.group.position.y = district.getGroundHeightUnder?.(bike.group)
+        ?? district.getGroundHeight?.(bPos.x, bPos.z) ?? 0;
+      this.bicycles.push(bike);
+      this.interaction.register(bike);
+    }
+
     // ===== Carreta de balineras de reciclaje =====
     this.cart = new Cart(this.sceneMgr.scene, new THREE.Vector3(25, 0, 31));
     this.interaction.register(this.cart);
@@ -916,6 +973,7 @@ export class Game {
       }
       if (data.gps && this.gps) this.setGpsWaypoint({ ...data.gps, name: RENAMED_PLACES[data.gps.name] ?? data.gps.name }, { silent: true });
       if (data.lastComedorHour !== undefined) this.lastComedorHour = data.lastComedorHour;
+      if (data.lastComedorTimestamp !== undefined) this.lastComedorTimestamp = data.lastComedorTimestamp;
       this.street?.deserialize(data.street);
       if (data.dailyMissions) this.dailyMissions?.deserialize(data.dailyMissions);
       else this.dailyMissions?.init(this.clock?.day ?? 1);
@@ -942,6 +1000,7 @@ export class Game {
       cart: this.cart ? this.cart.saveState() : null,
       gps: this.gps?.serialize() ?? null,
       lastComedorHour: this.lastComedorHour,
+      lastComedorTimestamp: this.lastComedorTimestamp,
       dailyMissions: this.dailyMissions?.serialize(),
       street: this.street?.serialize()
     });
@@ -1416,6 +1475,7 @@ export class Game {
     // La visibilidad de edificios usa la cámara del mismo cuadro.
     this.cameraRig.follow(this.player.position, dt, this.collisions, this.player.speed, this.input.isRunning);
     this.psychosis.update(dt, this.cameraRig);
+    this.randomHallucinations?.update(dt, this.player, this.cameraRig, this.clock, this.stats);
     this.substanceEffects?.update(dt);
     this.profiler?.mark('sistemas');
     // Los peatones se tapan la nariz si el jugador huele mal.
@@ -1443,6 +1503,7 @@ export class Game {
     // 9. Entidades
     this._updatePickups(dt);
     for (const c of this.cars) c.update(dt, this.player.position);
+    for (const b of this.bicycles) b.update(dt, this.player, this.audio);
     for (const { car } of this.traffic?.vehicles ?? []) car.update(dt);
     this.cambuche?.update(dt);
     this.dealer?.update(dt);
@@ -1665,6 +1726,9 @@ export class Game {
     this.poopSystem?.dispose?.();
     this.roadRage?.dispose?.();
     this.limpieza?.dispose?.();
+    this.randomHallucinations?.dispose?.();
+    this.bicycles?.forEach((b) => b.dispose?.());
+    this.bikeFence?.dispose?.();
     this.radio?.destroy?.();
   }
 }

@@ -133,6 +133,7 @@ export class Player {
     this._glanceTarget = 0;
     this._glanceTimer = 0;
     this._glanceSide = 1;
+    this.ridingBike = null;
   }
 
   /** Humo en la escena (cigarrillo, porro y basuco); se crea la primera vez que hace falta */
@@ -459,7 +460,7 @@ export class Player {
   get _attackQueued() { return this.melee.queued; }
 
   punch() {
-    if (this.isSwimming || this.isStunned || !this.isGrounded || this.hasCart || this.sorting
+    if (this.ridingBike || this.isSwimming || this.isStunned || !this.isGrounded || this.hasCart || this.sorting
       || (this.basuco && !this.basuco.stowed) || (this.action && this.action !== 'golpear')) return false;
     const started = this.melee.active ? this.melee.queue(this) : this.melee.start(this);
     if (started) this.playAction('golpear', this.melee.duration);
@@ -471,6 +472,9 @@ export class Player {
   }
 
   receiveVehicleImpact(direction, speed, { collisions = this._lastCollisions } = {}) {
+    if (this.ridingBike) {
+      this.ridingBike.dismount();
+    }
     this.melee.cancel();
     this.tiradoPor = 'carro';
     if (this.ragdoll.start(direction, speed, collisions)) return;
@@ -490,6 +494,9 @@ export class Player {
     if (this._impactVelocity.lengthSq() < 1e-4) this._impactVelocity.set(0, 0, 1);
     this._impactVelocity.normalize().multiplyScalar(strength);
     if (golpeTumba(salud, this._respiroTumbo)) {
+      if (this.ridingBike) {
+        this.ridingBike.dismount();
+      }
       this.tiradoPor = 'golpe';
       this._respiroTumbo = GOLPE_TUMBA.respiroS;
       if (this.ragdoll?.start(this._impactVelocity.clone(), GOLPE_TUMBA.velocidad, this._lastCollisions)) return;
@@ -547,7 +554,7 @@ export class Player {
     const wasGrounded = this.isGrounded ?? true;
     // Salto y combate cuerpo a cuerpo estilo GTA
     const wantsJump = typeof this.input?.consumePress === 'function' && (this.input.consumePress('Space') || this.input.consumePress('KeySpace'));
-    if (wantsJump && this.isGrounded && !this.isSwimming && !this.melee.active && !this.isStunned && !this.hasCart && !this.sorting) {
+    if (wantsJump && !this.ridingBike && this.isGrounded && !this.isSwimming && !this.melee.active && !this.isStunned && !this.hasCart && !this.sorting) {
       this.jumpVelocity = 5.2;
       this.isGrounded = false;
       this.playAction('saltar', 0.65);
@@ -556,10 +563,15 @@ export class Player {
 
     const attackBeforeInput = this.attack;
     const wantsPunch = typeof this.input?.consumePress === 'function' && (this.input.consumePress('KeyG') || this.input.consumePress('Mouse0'));
-    if (wantsPunch && !this.isSwimming && !this.isStunned && (!this.action || this.attack) && !this.hasCart && !this.sorting) {
+    if (wantsPunch && !this.ridingBike && !this.isSwimming && !this.isStunned && (!this.action || this.attack) && !this.hasCart && !this.sorting) {
       this.punch();
     }
     const beganAttackThisFrame = !attackBeforeInput && !!this.attack;
+
+    // Desmontar de la bicicleta con E
+    if (this.ridingBike && typeof this.input?.consumePress === 'function' && this.input.consumePress('KeyE')) {
+      this.ridingBike.dismount();
+    }
 
     // con la pipa en la boca se queda quieto
     const { x = 0, z = 0 } = this.basuco && !this.basuco.stowed ? {} : (this.input?.axis ?? {});
@@ -567,7 +579,12 @@ export class Player {
     const moving = !stunned && (x !== 0 || z !== 0);
     const running = Boolean(this.input?.isRunning && moving);
     let speed = running ? this.speedRun : this.speedWalk;
-    if (this.stats?.getSpeedMultiplier) {
+    if (this.ridingBike) {
+      speed = running ? 13.5 : 8.5;
+      if (running && moving && this.stats && this.stats.energia > 0) {
+        this.stats.energia = Math.max(0, this.stats.energia - dt * 2.0);
+      }
+    } else if (this.stats?.getSpeedMultiplier) {
       speed *= this.stats.getSpeedMultiplier();
     }
     if (this.hasCart) {
@@ -712,6 +729,7 @@ export class Player {
     this._updateBasuco(dt);
     this._smoke?.update(dt);
     this._updateGlance(dt);
+    if (this.ridingBike) this.ridingBike.update(dt, this, this.audio);
     // Una pulsación nueva muestra al menos un frame de anticipación, también a 10 FPS.
     const hit = this.melee.update(beganAttackThisFrame ? 0 : dt, this, npcs);
     if (hit) {

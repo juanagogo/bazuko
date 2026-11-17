@@ -105,6 +105,8 @@ export class InteractionSystem {
         else if (t.kind === 'cambuche') nearestType = 'cambuche';
         else if (t.kind === 'dog') nearestType = 'dog';
         else if (t.kind === 'cart') nearestType = 'cart';
+        else if (t.kind === 'bicycle') nearestType = 'bicycle';
+        else if (t.kind === 'bikeFence') nearestType = 'bikeFence';
         else if (t.kind === 'fireBarrel') nearestType = 'fireBarrel';
         else if (t.kind === 'recycler') nearestType = 'sell';
         else if (t.kind === 'mesa') nearestType = 'mesa';
@@ -193,6 +195,16 @@ export class InteractionSystem {
           break;
         case 'cart':
           nearest.toggleGrab(this.player, this.inventory);
+          break;
+        case 'bicycle':
+          if (nearest.isLocked) {
+            nearest.steal(this.player, this.game);
+          } else {
+            nearest.mount(this.player);
+          }
+          break;
+        case 'bikeFence':
+          nearest.sellStolenBike(this.game);
           break;
         case 'car':
           if (nearest.stealable) {

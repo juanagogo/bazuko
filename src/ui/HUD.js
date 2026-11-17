@@ -59,9 +59,25 @@ export function piezasDelPrompt(texto) {
 
 /** Lo que dice la tecla de contexto ahora mismo. Cadena vacía si no hay nada que hacer. */
 export function textoDelPrompt(interaction, inventory) {
+  if (interaction?.player?.ridingBike) {
+    return '[E] Bajarse de la bicicleta · [Shift] Pedalear rápido';
+  }
   if (!interaction?.currentTarget && !interaction?.stealPrompt) return '';
   const type = interaction.currentTargetType;
   if (type === 'pickup') return '[E] Recoger basura · [Mantener Q] Seleccionar';
+  if (type === 'bicycle') {
+    const bike = interaction.currentTarget;
+    if (bike?.isRidden) return '';
+    return bike?.isLocked ? '[E] Robar bicicleta' : '[E] Montar bicicleta';
+  }
+  if (type === 'bikeFence') {
+    const game = typeof window !== 'undefined' ? window.__game : (typeof globalThis !== 'undefined' ? globalThis.__game : null);
+    const bike = interaction.currentTarget?.getNearbyBike?.(game);
+    if (bike?.stolen) {
+      return '[E] Vender bicicleta robada ($ 60.000)';
+    }
+    return '[E] Taller de ciclas: comprar ciclas robadas';
+  }
   if (type === 'car') {
     const car = interaction.currentTarget;
     const canSteal = car?.stealable !== false;
@@ -98,9 +114,12 @@ export function textoDelPrompt(interaction, inventory) {
   if (type === 'comedor') {
     const game = typeof window !== 'undefined' ? window.__game : (typeof globalThis !== 'undefined' ? globalThis.__game : null);
     const isAvail = game?.isComedorAvailable ? game.isComedorAvailable() : true;
-    return isAvail
-      ? '[E] Almorzar en el Comedor Comunitario (Gratis)'
-      : `[E] Comedor Comunitario (Próximo servicio en ${game?.getComedorRemainingHours?.() ?? 0} h)`;
+    if (isAvail) return '[E] Almorzar en el Comedor Comunitario (Gratis)';
+    const remMin = game?.getComedorRemainingMinutes ? game.getComedorRemainingMinutes() : null;
+    if (remMin !== null && remMin !== undefined && remMin > 0) {
+      return `[E] Comedor Comunitario (Próximo servicio en ${remMin} min)`;
+    }
+    return `[E] Comedor Comunitario (Próximo servicio en ${game?.getComedorRemainingHours?.() ?? 0} h)`;
   }
   if (type === 'dog') {
     const hasFood = inventory?.items?.some(item => item.qty > 0 && ['pan', 'lataComida', 'carne', 'hueso'].includes(item.id));
@@ -890,7 +909,7 @@ export class HUD {
       game.stats.higiene = Math.min(100, (game.stats.higiene || 0) + (def.amount || 30));
       game.stats.animo = Math.min(100, (game.stats.animo || 0) + (def.animo || 15));
       game.audio?.play('pickup');
-      this._toast('Te pusiste ropa limpia (+30 higiene, +15 ánimo)', 'info');
+      this._toast('Me puse ropa limpia (+30 higiene, +15 ánimo)', 'info');
       game.openWardrobe?.();
       return;
     }

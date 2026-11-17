@@ -184,10 +184,10 @@ export function openCambuche(game, tab = 'armar') {
 export function openComedor(game) {
   const render = () => {
     const available = game?.isComedorAvailable ? game.isComedorAvailable() : true;
-    const rem = game?.getComedorRemainingHours ? game.getComedorRemainingHours() : 0;
+    const remMin = game?.getComedorRemainingMinutes ? game.getComedorRemainingMinutes() : (game?.getComedorRemainingHours ? game.getComedorRemainingHours() * 60 : 0);
     const descP = el('p', {
       class: 'menu__desc',
-      text: 'La Secretaría de Integración Social ofrece un plato de comida caliente y sustanciosa cada 24 horas para habitantes de calle y personas en situación de vulnerabilidad.'
+      text: 'La Secretaría de Integración Social ofrece un plato de comida caliente y sustanciosa cada 5 minutos para personas en situación de vulnerabilidad.'
     });
 
     const platoEl = available
@@ -199,22 +199,22 @@ export function openComedor(game) {
             el('li', { text: '+60 Sed (hidratación completa)' }),
             el('li', { text: '+25 Ánimo y +25 Energía' }),
             el('li', { text: '+3 min de Calor corporal contra el frío' }),
-            el('li', { text: '+30 XP' })
+            el('li', { text: '+30 de maña' })
           ))
       : el('div', { class: 'comedor-box is-waiting' },
-          el('h4', { class: 'comedor-box__title', text: 'Ración de hoy ya entregada' }),
-          el('p', { class: 'comedor-box__sub', text: `El servicio es una vez cada 24 horas por persona. Próximo turno en aproximadamente ${rem} ${rem === 1 ? 'hora' : 'horas'}.` })
+          el('h4', { class: 'comedor-box__title', text: 'Ración reciente ya entregada' }),
+          el('p', { class: 'comedor-box__sub', text: `El servicio es cada 5 minutos por persona. Próximo turno en aproximadamente ${remMin} ${remMin === 1 ? 'minuto' : 'minutos'}.` })
         );
 
     const body = el('div', { class: 'comedor-menu' }, descP, platoEl);
     const foot = [
-      el('span', { class: 'menu__money', text: available ? 'Servicio gratuito' : `Espera: ${rem} h` }),
-      button(available ? 'Recibir almuerzo' : `Vuelva en ${rem} h`, {
+      el('span', { class: 'menu__money', text: available ? 'Servicio gratuito' : `Espera: ${remMin} min` }),
+      button(available ? 'Recibir almuerzo' : `Vuelva en ${remMin} min`, {
         primary: true,
         disabled: !available,
         onClick: () => {
           if (game?.serveComedor?.()) {
-            toast('Almorzaste en el Comedor Comunitario. ¡Dios le pague!', 'rare');
+            toast('Almorcé en el Comedor Comunitario. ¡Dios le pague!', 'rare');
             game.menu.refresh();
           }
         }
@@ -225,7 +225,7 @@ export function openComedor(game) {
 
   game.menu.open({
     title: 'Comedor Comunitario',
-    sub: 'Alcaldía Mayor de Bogotá · Integración Social. Ración caliente cada 24 horas.',
+    sub: 'Alcaldía Mayor de Bogotá - Integración Social. Ración caliente cada 5 minutos.',
     ic: 'food',
     render
   });
