@@ -243,21 +243,22 @@ body.mojado #quickbar .qb-slot.elegido::after { border-image-source: var(--m-cir
 .dock-key { font-size: 15px; }
 #camera-controls {
   position: fixed; z-index: 40;
-  right: calc(322px + var(--safe-r)); bottom: calc(104px + var(--safe-b));
+  right: calc(20px + var(--safe-r)); bottom: calc(154px + var(--safe-b));
 }
 #camera-toggle.cinta { min-height: 42px; padding: 4px 9px; font-size: 19px; }
 #camera-toggle kbd { font-size: 15px; }
 #camera-hint { position: absolute; right: 0; bottom: calc(100% + 10px); display: none; width: 280px; font-size: 16px; line-height: 1.2; }
 #camera-controls:focus-within #camera-hint { display: block; }
-#controls-help { position: fixed; z-index: 40; right: calc(412px + var(--safe-r)); bottom: calc(104px + var(--safe-b)); }
+#controls-help { position: fixed; z-index: 40; right: calc(110px + var(--safe-r)); bottom: calc(154px + var(--safe-b)); }
 #controls-help-toggle { min-width: 42px; min-height: 42px; padding: 4px 9px; font-size: 19px; white-space: nowrap; }
 #controls-help-content {
   position: absolute; right: 0; bottom: calc(100% + 10px);
-  width: min(560px, calc(100vw - 788px)); max-height: 58vh; overflow: auto; /* sin pisar el radar, que tiene sus botones */
+  width: min(560px, calc(100vw - 486px)); max-height: 58vh; overflow: auto; /* sin pisar el radar, que tiene sus botones */
   display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 5px 16px;
   font-size: 16px; line-height: 1.15;
 }
 #controls-help.is-collapsed #controls-help-content { display: none; }
+#controls-help:not(.is-collapsed) { z-index: 116; } /* La guía abierta queda sobre el cartel del barrio. */
 #controls-help-content span { display: flex; align-items: center; gap: 6px; }
 #controls-help-content kbd { flex: none; }
 
@@ -535,4 +536,35 @@ body.mando kbd:not([data-k], .cx kbd, #steal-ayuda kbd) { display: none; }
   .stat-bar .bar { grid-column: 2; }
   .stat-bar__value { grid-column: 3; }
   .stat-bar[data-level="critical"] .stat-bar__orden { grid-column: 2; }
+}
+
+/* En una pantalla angosta con teclado, la ayuda sigue disponible con Ñ y
+   los paneles se separan para que sus textos no se monten. En táctil se usa
+   la hoja «Más», por eso conserva la ocultación anterior. */
+@media (max-width: 899px) and (pointer: fine), (max-height: 500px) and (orientation: landscape) and (pointer: fine) {
+  #controls-help { display: block; right: calc(8px + var(--safe-r)); bottom: calc(110px + var(--safe-b)); }
+  #controls-help-content {
+    width: min(360px, calc(100vw - 16px));
+    max-height: min(62vh, calc(100dvh - 220px), 430px);
+    grid-template-columns: 1fr;
+    gap: 6px;
+    padding: 9px 11px;
+    font-size: 15px;
+  }
+  #panel-dock {
+    right: calc(8px + var(--safe-r)); left: auto;
+    bottom: calc(8px + var(--safe-b));
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 6px;
+    width: min(300px, calc(100vw - 16px));
+  }
+  #panel-dock .dock-btn.cinta { width: auto; min-width: 0; padding-inline: 8px; }
+  #panel-dock .dock-label, #panel-dock .dock-key { display: inline; }
+}
+
+@media (max-width: 480px) and (pointer: fine) {
+  #controls-help { bottom: calc(158px + var(--safe-b)); }
+  #panel-dock { grid-template-columns: 1fr; width: min(210px, calc(100vw - 16px)); }
+  #panel-dock .dock-btn.cinta { justify-content: space-between; }
 }

@@ -53,6 +53,7 @@ Para las pruebas de navegador, instalar Chromium con `npx playwright install chr
 - `src/systems/GpsNavigation.js`, `src/world/bogota/CityMapRaster.js`, `src/ui/MapView.js`, `src/ui/PauseMenu.js`: GPS a pie, plano del radar, mapa grande y pausa por pestañas.
 - `src/systems/SubstanceEffects.js` y `SubstanceAudio.js`: imagen y sonido de los efectos de consumo; recetas en `src/data/substanceEffects.js`.
 - `src/systems/StreetLife.js`: une caleta (`Caleta.js`), fama (`Reputation.js`), cuidar carros (`CarGuarding.js`), comida que se daña (`Freshness.js`), armas que se gastan (`WeaponWear.js`), transporte (`Transit.js`) y hogar de paso (`Shelter.js`); sus ventanas están en `src/ui/streetMenus.js` y sus sitios en `src/world/bogota/streetLifePlaces.js`. Ver `docs/vida-de-calle.md`.
+- `src/systems/Rest.js`: residencia de pago ($8.000/8 h) y descanso gratuito de banca (3 h). `Game.sleep` valida el lugar y cobra una vez; la banca usa `dormir-banca`, sin tumbar al personaje al suelo. El mapa distingue hogar gratuito (cama) y residencia (moneda). El despertar guarda también el premio de misión y renueva las misiones si cambió el día.
 
 ## Decisiones que deben conservarse
 

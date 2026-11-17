@@ -47,6 +47,7 @@ export class StreetLife {
     this.stops = [];
     this.pilas = [];
     this.hogar = null;
+    this.residencia = null;
     this.task = null;         // lo que se muestra en el cartón de tarea: { label, progress, hint }
     this._listen();
   }

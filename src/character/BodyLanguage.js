@@ -4,7 +4,8 @@
 // del mezclador, como las demás capas. Solo hace `slerp` y productos de cuaterniones en espacio local:
 // ni una matriz de mundo por cuadro, porque casi todos los peatones se ven con el modelo liviano.
 // Sin postura, sin estilo y sin caída no toca ningún hueso.
-import { Quaternion } from 'three';
+import { Quaternion, Vector3 } from 'three';
+import { BICYCLE } from '../data/bicycle.js';
 
 const QUIET_SPEED = .15;
 const RETIRE_TIME = .14;
@@ -43,6 +44,7 @@ export const smooth = t => t * t * (3 - 2 * t);
 const clamp01 = value => Math.min(1, Math.max(0, value));
 
 const _alt = new Quaternion(), _delta = new Quaternion();
+const _back = new Quaternion(), _backNext = new Quaternion();
 
 /** Peso que avanza a ritmo fijo: da lo mismo a 30 que a 144 FPS y llega exactamente a 0 y a 1. */
 const ramp = (value, target, step) => (value < target ? Math.min(target, value + step) : Math.max(target, value - step));
@@ -64,6 +66,7 @@ export class BodyLanguage {
     this.resolved = new Map();
     this.dirty = [];
     this.hipSaved = this.hips.position.clone();
+    this.bikeHip = new Vector3();
     this.hipDirty = false;
     this.styleWeight = 0;
     this.carryWeight = 0;
@@ -97,9 +100,11 @@ export class BodyLanguage {
     for (const item of source.entries) {
       if (this.lod && item.dedo) continue;
       const slot = this._slot(item.boneName);
-      if (slot) entries.push({ slot, quaternion: item.quaternion, alt: item.alt ?? null, peso: item.peso });
+      if (slot) entries.push({ slot, quaternion: item.quaternion, alt: item.alt ?? null,
+        cycle: item.cycle, supportCycle: item.supportCycle, reverseCycle: item.reverseCycle, backCycle: item.backCycle, peso: item.peso });
     }
-    stance = { name, entries, hip: source.hip, hipDrop: source.hipDrop, walk: source.walk, anchored: source.anchored, transition: source.transition, motion: source.motion };
+    stance = { name, entries, hip: source.hip, supportHip: source.supportHip, reverseHip: source.reverseHip,
+      hipDrop: source.hipDrop, walk: source.walk, anchored: source.anchored, pedal: source.pedal, transition: source.transition, motion: source.motion };
     this.resolved.set(name, stance);
     return stance;
   }
@@ -170,7 +175,8 @@ export class BodyLanguage {
    * @param {boolean} handsBusy   otra capa es dueña de las manos: pegar, fumar con pipa, señalar
    * @param {boolean} rising      se está parando del piso de afán: la postura baja se retira en RISE_TIME
    */
-  apply(dt, { stance = null, stanceWeight = 1, style = null, ko = 0, koRising = false, koPlan = 'espalda', koFrom = null, speed = 0, phase = 0, blocked = false, handsBusy = false, rising = false } = {}) {
+  apply(dt, { stance = null, stanceWeight = 1, style = null, ko = 0, koRising = false, koPlan = 'espalda', koFrom = null, speed = 0, phase = 0, blocked = false, handsBusy = false, rising = false, bicycle = null } = {}) {
+    this.bicycle = bicycle;
     const hasStyle = !!style && !blocked;
     // Aunque no haya nada que hacer, la orden se gasta: si no, la próxima postura entraría de un cuadro.
     const snap = this.snapNext;
@@ -214,22 +220,55 @@ export class BodyLanguage {
     }
     for (let i = 0; i < this.layers.length; i++) {
       const layer = this.layers[i];
-      this._applyLayer(layer.stance, smooth(layer.weight) * clamp01(stanceWeight));
+      this._applyLayer(layer.stance, smooth(layer.weight) * clamp01(stanceWeight), speed);
     }
   }
 
-  _applyLayer(stance, weight) {
+  _applyLayer(stance, weight, speed = 0) {
     if (weight <= 0) return;
     const entries = stance.entries;
     const swing = stance.motion ? this._motion(stance.motion) : 0;
+    const cycle = ((this.bicycle?.pedalPhase ?? 0) / (Math.PI * 2) % 1 + 1) % 1 * BICYCLE.cycleFrames;
+    const frame = Math.floor(cycle), next = (frame + 1) % BICYCLE.cycleFrames;
+    const steering = Math.max(-1, Math.min(1, (this.bicycle?.steerAngle ?? 0) / BICYCLE.maxSteer)) + 1;
+    const row = Math.min(1, Math.floor(steering));
+    const support = clamp01(this.bicycle?.supportFoot ?? 0), reverse = clamp01(this.bicycle?.reverseFoot ?? 0);
+    const reverseCycle = ((this.bicycle?.reversePhase ?? 0) / (Math.PI * 2) % 1 + 1) % 1 * BICYCLE.cycleFrames;
+    const reverseFrame = Math.floor(reverseCycle), reverseNext = (reverseFrame + 1) % BICYCLE.cycleFrames;
     for (let i = 0; i < entries.length; i++) {
       const entry = entries[i];
       this._touch(entry.slot);
-      const goal = swing > 0 && entry.alt ? _alt.copy(entry.quaternion).slerp(entry.alt, swing) : entry.quaternion;
+      let goal = swing > 0 && entry.alt ? _alt.copy(entry.quaternion).slerp(entry.alt, swing) : entry.quaternion;
+      if (entry.cycle) {
+        const a = row * BICYCLE.cycleFrames, b = a + BICYCLE.cycleFrames;
+        _alt.copy(entry.cycle[a + frame]).slerp(entry.cycle[a + next], cycle - frame);
+        _delta.copy(entry.cycle[b + frame]).slerp(entry.cycle[b + next], cycle - frame);
+        goal = _alt.slerp(_delta, steering - row);
+        if (entry.supportCycle && support > 0) {
+          _back.copy(entry.supportCycle[a + frame]).slerp(entry.supportCycle[a + next], cycle - frame);
+          _backNext.copy(entry.supportCycle[b + frame]).slerp(entry.supportCycle[b + next], cycle - frame);
+          goal.slerp(_back.slerp(_backNext, steering - row), support);
+        }
+        if (entry.reverseCycle && reverse > 0) {
+          _back.copy(entry.reverseCycle[a + reverseFrame]).slerp(entry.reverseCycle[a + reverseNext], reverseCycle - reverseFrame);
+          _backNext.copy(entry.reverseCycle[b + reverseFrame]).slerp(entry.reverseCycle[b + reverseNext], reverseCycle - reverseFrame);
+          goal.slerp(_back.slerp(_backNext, steering - row), reverse);
+        }
+        if (entry.backCycle && this.bicycle?.lookBack > 0) {
+          _back.copy(entry.backCycle[a + frame]).slerp(entry.backCycle[a + next], cycle - frame);
+          _backNext.copy(entry.backCycle[b + frame]).slerp(entry.backCycle[b + next], cycle - frame);
+          goal.slerp(_back.slerp(_backNext, steering - row), clamp01(this.bicycle.lookBack));
+        }
+      }
       entry.slot.bone.quaternion.slerp(goal, weight * entry.peso);
     }
     if (stance.anchored && this.gaitWeight > 0) this._leanBack(weight);
-    if (stance.hip) this._moveHip(stance.hip, weight);
+    if (stance.hip) {
+      this.bikeHip.copy(stance.hip);
+      if (stance.supportHip) this.bikeHip.lerp(stance.supportHip, support);
+      if (stance.reverseHip) this.bikeHip.lerp(stance.reverseHip, reverse);
+      this._moveHip(this.bikeHip, weight);
+    }
   }
 
   /** Manos en la cadera: el tronco que se inclina al andar no se las lleva hacia delante. */

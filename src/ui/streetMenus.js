@@ -9,6 +9,7 @@ import { icon } from './icons.js';
 import { hora } from './formato.js';
 import { PASAJE, sneakRisk, travelMinutes } from '../systems/Transit.js';
 import { HOGAR, contraband, hasRoom, isOpen } from '../systems/Shelter.js';
+import { RESIDENCIA, BANCA } from '../systems/Rest.js';
 import { CALETA_KG } from '../systems/Caleta.js';
 import { FAMA, FAMA_GRUPOS, famaEfecto, famaNivel } from '../systems/Reputation.js';
 import { freshnessLabel } from '../systems/Freshness.js';
@@ -128,6 +129,43 @@ export function openHogar(game) {
     return { body, foot };
   };
   game.menu.open({ title: 'Hogar de paso', sub: 'Integración Social. Una noche bajo techo, con reglas.', ic: 'bed', render });
+}
+
+function openRest(game, options) {
+  const paid = !!options.residencia, profile = paid ? RESIDENCIA : BANCA;
+  if (!options.residencia && !options.banca || game.isSleeping) return;
+  const render = () => {
+    const reason = game.restBlocked(options);
+    const body = el('div', { class: 'hogar rest-options' },
+      el('p', { text: paid
+        ? `Habitación privada durante ${profile.horas} horas por ${cop(profile.precio)}. Abierto las 24 horas; incluye cama y ducha.`
+        : `Puedo dormir sentado en esta banca durante ${profile.horas} horas, gratis.` }),
+      el('ul', { class: 'comedor-box__beneficios' },
+        el('li', { text: `+${profile.energia} de energía y +${profile.animo} de ánimo` }),
+        paid ? el('li', { text: `+${profile.salud} de salud y +${profile.higiene} de higiene` })
+          : el('li', { text: `La higiene baja ${-profile.higiene}; sigo a la intemperie.` }),
+        el('li', { text: `La comida y el agua no están incluidas: hambre y sed bajan ${-profile.hambre}.` }),
+        el('li', { text: paid ? 'Mis pertenencias quedan a salvo. No tengo que entregarlas en portería.'
+          : `Hay un ${Math.round(profile.roboProb * 100)} % de riesgo de que me roben el ${Math.round(profile.roboDinero * 100)} % de la plata que llevo.` })),
+      el('p', { text: 'El reloj avanza y el descanso guarda la partida.' }));
+    return { body, foot: [
+      moneyFoot(game),
+      button(reason ?? (paid ? `Pagar ${cop(profile.precio)} y dormir` : `Dormir ${profile.horas} h gratis`), {
+        primary: true, disabled: !!reason,
+        onClick: () => { if (game.sleep(options)) game.menu.close(); else game.menu.refresh(); },
+      })
+    ] };
+  };
+  game.menu.open({ title: paid ? 'Residencia El Descanso' : 'Descansar en la banca',
+    sub: paid ? 'Una habitación de pago, sin horario de ingreso.' : 'Descanso gratuito al aire libre.', ic: paid ? 'coins' : 'bed', render });
+}
+
+export function openResidence(game, target = game.street?.residencia) {
+  openRest(game, { residencia: target });
+}
+
+export function openBenchRest(game, target) {
+  openRest(game, { banca: target });
 }
 
 // ---------- caleta ----------

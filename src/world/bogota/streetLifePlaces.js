@@ -13,6 +13,13 @@ export const TRANSIT_ANCHORS = [
   { id: 'metro26', name: 'Metro, Estación Calle 26', sistema: 'Metro', x: 78, z: 205 },
 ];
 
+/** Estaciones de bicicleta pública: junto a nodos de transporte y parques. */
+export const BICYCLE_STATION_ANCHORS = [
+  { id: 'bici-portal', name: 'Bici Portal del Centro', x: 70, z: -11 },
+  { id: 'bici-calle-72', name: 'Bici Calle 72', x: 71, z: 112 },
+  { id: 'bici-parque-lago', name: 'Bici Parque del Lago', x: 78, z: 218 }
+];
+
 /** ¿Cabe aquí una persona parada, con `radius` de holgura, sobre suelo de peatón? */
 export function isFreeSpot(district, collisions, x, z, radius = .7, tiles = SUELO_PEATON) {
   const type = district.tileTypeAt?.(Math.round(x / T), Math.round(z / T));
@@ -56,9 +63,9 @@ export function streetLifePlaces(district, collisions, { parks = [], reserved = 
 
   // Hogar de paso: andén con edificio al lado, entre 45 y 110 m del cambuche, el más cercano al comedor.
   let hogar = null;
+  const fachadas = [];
   const bed = reserved.bed, comedor = reserved.comedor ?? bed;
   if (bed && district.tileTypeAt) {
-    const candidatos = [];
     for (let tz = 1; tz < (district.height ?? 0) - 1; tz++) {
       for (let tx = 1; tx < (district.width ?? 0) - 1; tx++) {
         if (district.tileTypeAt(tx, tz) !== 'sidewalk') continue;
@@ -67,11 +74,11 @@ export function streetLifePlaces(district, collisions, { parks = [], reserved = 
         if (dBed < 45 || dBed > 110 || !lejos(x, z, 10)) continue;
         const frente = [[1, 0], [-1, 0], [0, 1], [0, -1]].find(([dx, dz]) => district.tileTypeAt(tx + dx, tz + dz) === 'building');
         if (!frente) continue;
-        candidatos.push({ x, z, frente, d: Math.hypot(x - comedor.x, z - comedor.z) });
+        fachadas.push({ x, z, frente, d: Math.hypot(x - comedor.x, z - comedor.z) });
       }
     }
-    candidatos.sort((a, b) => a.d - b.d || a.x - b.x || a.z - b.z);
-    for (const c of candidatos) {
+    fachadas.sort((a, b) => a.d - b.d || a.x - b.x || a.z - b.z);
+    for (const c of fachadas) {
       // La puerta queda pegada a la fachada; quien entra se para un metro afuera.
       if (!isFreeSpot(district, collisions, c.x, c.z, .9)) continue;
       hogar = { x: c.x, z: c.z, rot: Math.atan2(c.frente[0], c.frente[1]) };
@@ -83,5 +90,28 @@ export function streetLifePlaces(district, collisions, { parks = [], reserved = 
     const spot = freeSpotNear(district, collisions, a.x, a.z, { maxR: 10 });
     return spot ? [{ ...a, ...spot }] : [];
   });
-  return { pilas, hogar, transit };
+  const bikeStations = [];
+  for (const anchor of BICYCLE_STATION_ANCHORS) {
+    let spot = null;
+    for (let r = 0; r <= 60 && !spot; r += 1) {
+      const steps = r === 0 ? 1 : Math.ceil(Math.PI * 2 * r);
+      for (let i = 0; i < steps; i++) {
+        const x = anchor.x + Math.cos(i / steps * Math.PI * 2) * r;
+        const z = anchor.z + Math.sin(i / steps * Math.PI * 2) * r;
+        if ([...transit, ...pilas, ...bikeStations, ...(hogar ? [hogar] : [])].some(p => Math.hypot(x - p.x, z - p.z) < 6)) continue;
+        // Huella de todo el rack y pasillo de salida, no solo su centro.
+        if (![-2.3, 0, 2.3].every(dx => [-1, 0, 1].every(dz => isFreeSpot(district, collisions, x + dx, z + dz, .5)))) continue;
+        if (![2.8, -2.8].some(dz => isFreeSpot(district, collisions, x, z + dz, 1))) continue;
+        spot = { x, z };
+        break;
+      }
+    }
+    if (spot) bikeStations.push({ ...anchor, ...spot, y: district.getMovementGroundHeight?.(spot.x, spot.z, 0) ?? district.getGroundHeight?.(spot.x, spot.z) ?? 0 });
+  }
+  // Otra fachada, sin mover los lugares existentes ni sus rutas guardadas.
+  const puerta = fachadas.find(c =>
+    [...transit, ...pilas, ...bikeStations, ...(hogar ? [hogar] : [])].every(p => Math.hypot(c.x - p.x, c.z - p.z) >= 12)
+    && isFreeSpot(district, collisions, c.x, c.z, .9));
+  const residencia = puerta ? { x: puerta.x, z: puerta.z, rot: Math.atan2(puerta.frente[0], puerta.frente[1]) } : null;
+  return { pilas, hogar, residencia, transit, bikeStations };
 }

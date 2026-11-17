@@ -17,6 +17,7 @@ import {
 } from '../utils/constants.js';
 import { cop } from '../utils/money.js';
 import { originEffect } from '../data/origins.js';
+import { BICYCLE } from '../data/bicycle.js';
 
 export class InteractionSystem {
   constructor(player, inventory, stats, audio, diseaseSystem, talentSystem, craftingSystem) {
@@ -92,6 +93,9 @@ export class InteractionSystem {
     let nearestDist = INTERACT_RANGE;
 
     for (const t of this.targets) {
+      if (this.player.bicycle) continue;
+      // La estación entrega una bici fuera del rack; no montar entre las demás.
+      if (t.kind === 'bicycle' && (t.rider || t.status === 'available' && t.stationId)) continue;
       // Un carro sin nada que robar ni limpiar no da aviso ni le quita el turno a lo que tenga al lado.
       if (t.stealable === false && !t.cleanable) continue;
       // Un carro se alcanza también desde sus espejos; lo demás, desde su centro.
@@ -105,17 +109,26 @@ export class InteractionSystem {
         else if (t.kind === 'cambuche') nearestType = 'cambuche';
         else if (t.kind === 'dog') nearestType = 'dog';
         else if (t.kind === 'cart') nearestType = 'cart';
+        else if (t.kind === 'bench') nearestType = 'bench';
+        else if (t.kind === 'bicycle') nearestType = 'bicycle';
+        else if (t.kind === 'bicycle-station') nearestType = 'bicycle-station';
         else if (t.kind === 'fireBarrel') nearestType = 'fireBarrel';
         else if (t.kind === 'recycler') nearestType = 'sell';
         else if (t.kind === 'mesa') nearestType = 'mesa';
         else if (t.kind === 'pila') nearestType = 'pila';
         else if (t.kind === 'hogar') nearestType = 'hogar';
+        else if (t.kind === 'residencia') nearestType = 'residencia';
         else if (t.kind === 'transit') nearestType = 'transit';
         else if (typeof t.harvest === 'function') nearestType = 'pickup';
         else if (typeof t.steal === 'function' || typeof t.cleanWindshield === 'function') nearestType = 'car';
         else if (typeof t.sellSubstances === 'function') nearestType = 'dealer';
         else if (t instanceof Object && typeof t.sell === 'function') nearestType = 'sell';
       }
+    }
+    if (this.player.bicycle) {
+      nearest = this.player.bicycle;
+      nearestType = 'bicycle';
+      nearestDist = 0;
     }
     // Con una persona más cerca que el carro, el aviso y la E son del cosquilleo. Basura, tiendas y demás conservan su turno.
     if ((nearestType === 'car' || nearestType === 'dog') && this.personCloserThan?.(nearestDist)) nearest = nearestType = null;
@@ -185,6 +198,9 @@ export class InteractionSystem {
         case 'hogar':
           window.dispatchEvent(new CustomEvent('open-hogar'));
           break;
+        case 'residencia':
+          window.dispatchEvent(new CustomEvent('open-residencia', { detail: { target: nearest } }));
+          break;
         case 'transit':
           window.dispatchEvent(new CustomEvent('open-transit', { detail: { target: nearest } }));
           break;
@@ -193,6 +209,17 @@ export class InteractionSystem {
           break;
         case 'cart':
           nearest.toggleGrab(this.player, this.inventory);
+          break;
+        case 'bench':
+          if (this.player.benchSeat?.target === nearest) this.player.standFromBench?.();
+          else this.player.sitOnBench?.(nearest);
+          break;
+        case 'bicycle':
+          this._interactBicycle(nearest);
+          break;
+        case 'bicycle-station':
+          if (this.player.bicycle) this._returnBicycle(nearest);
+          else this._rentBicycle(nearest);
           break;
         case 'car':
           if (nearest.stealable) {
@@ -217,6 +244,15 @@ export class InteractionSystem {
     // === Q en la fogata: compartir comida; Q en la pila: llenar la botella ===
     if (nearestType === 'fireBarrel' && input.consumePress('KeyQ')) this.street?.shareFood();
     if (nearestType === 'pila' && input.consumePress('KeyQ')) this.street?.fillBottle('pila');
+    if (nearestType === 'bench' && input.consumePress('KeyQ')) {
+      window.dispatchEvent(new CustomEvent('open-bench-rest', { detail: { target: nearest } }));
+    }
+
+    if (nearestType === 'bicycle' && input.consumePress('KeyQ')) this._stealBicycle(nearest);
+    if (nearestType === 'bicycle-station' && input.consumePress('KeyQ')) {
+      const bike = nearest.availableBike?.();
+      if (bike) this._stealBicycle(bike, nearest);
+    }
 
     // === Comprar producto / Abrir tienda del dealer (Q) ===
     if (nearestType === 'dealer' && input.consumePress('KeyQ')) {
@@ -233,6 +269,91 @@ export class InteractionSystem {
       const ok = this.toggleBoost();
       if (!ok) this.audio?.play('empty');
     }
+  }
+
+  _rentBicycle(station) {
+    if (!station || this.player.bicycle || this.player.hasCart) return false;
+    if (!Number.isFinite(this.stats?.dinero) || this.stats.dinero < BICYCLE.rentalCost) {
+      window.dispatchEvent(new CustomEvent('toast', { detail: { text: `Necesito ${cop(BICYCLE.rentalCost)} para alquilar la bicicleta.`, type: 'info' } }));
+      return false;
+    }
+    const bike = station.availableBike?.();
+    if (!bike) return false;
+    if (!bike.mount(this.player)) {
+      window.dispatchEvent(new CustomEvent('toast', { detail: { text: 'Necesito espacio libre para sacar la bicicleta.', type: 'info' } }));
+      return false;
+    }
+    station.removeBike?.(bike);
+    this.stats.dinero -= BICYCLE.rentalCost;
+    bike.rentalOrigin = station.id;
+    bike.rentalPaid = true;
+    this.player.game?.markBicycleRentalOrigin?.(bike);
+    this.player.game?._save?.();
+    window.dispatchEvent(new CustomEvent('toast', { detail: { text: `Alquilé una bicicleta en ${station.title} por ${cop(BICYCLE.rentalCost)}. Si la traigo aquí, me dan ${cop(BICYCLE.honestReturnReward)}.`, type: 'info' } }));
+    return true;
+  }
+
+  _removeFromBikeStations(bike) {
+    for (const station of this.player.game?.bikeStations ?? []) station.removeBike?.(bike);
+  }
+
+  _returnBicycle(station) {
+    const bike = this.player.bicycle;
+    if (!bike || !station || station.bikes.length >= station.capacity) return false;
+    if (station.interactDistance(this.player.position) >= 1.8) return false;
+    const reward = bike.rentalPaid && bike.rentalOrigin === station.id && bike.status !== 'stolen' ? BICYCLE.honestReturnReward : 0;
+    const originId = bike.rentalOrigin;
+    if (!bike.dismount(this.player)) return false;
+    if (!station.returnBike(bike)) {
+      bike.mount(this.player);
+      return false;
+    }
+    this.stats.dinero += reward;
+    this.player.game?.refreshBicycleRentalMap?.(originId);
+    // El contrato ya quedó cerrado: solo una devolución pagada en origen cuenta.
+    // Notificar antes de guardar para conservar también la recompensa de misión.
+    if (reward) window.dispatchEvent(new CustomEvent('bicycle-rental-completed', {
+      detail: { bicycleId: bike.id, stationId: station.id }
+    }));
+    this.player.game?._save?.();
+    window.dispatchEvent(new CustomEvent('toast', { detail: { text: `Devolví la bicicleta en ${station.title}.${reward ? ` Me dieron ${cop(reward)} por devolverla donde la alquilé.` : ''}`, type: 'info' } }));
+    return true;
+  }
+
+  _interactBicycle(bike) {
+    if (!bike) return false;
+    if (this.player.bicycle === bike) {
+      const station = this.player.game?.bikeStations?.find((item) => item.interactDistance(this.player.position) < 1.8);
+      if (station && station.bikes.length < station.capacity) return this._returnBicycle(station);
+      if (!bike.dismount(this.player)) {
+        window.dispatchEvent(new CustomEvent('toast', { detail: { text: 'Frena y busca un costado libre para bajarte.', type: 'info' } }));
+        return false;
+      }
+      this.player.game?._save?.();
+      return true;
+    }
+    if (this.player.bicycle || this.player.hasCart) return false;
+    if (!bike.mount(this.player)) return false;
+    this._removeFromBikeStations(bike);
+    this.player.game?._save?.();
+    return true;
+  }
+
+  _stealBicycle(bike, station = null) {
+    if (!bike || this.player.bicycle || this.player.hasCart || bike.rider) return false;
+    const originId = bike.rentalOrigin;
+    if (!bike.mount(this.player, true)) return false;
+    if (station?.bikes) station.removeBike?.(bike);
+    else this._removeFromBikeStations(bike);
+    const game = this.player.game;
+    game?.refreshBicycleRentalMap?.(originId);
+    if (typeof game?.steal?.buscado === 'number') {
+      game.steal.buscado = Math.min(3, game.steal.buscado + 1);
+      if (game.traffic) game.traffic.wantedLevel = game.steal.buscado;
+    }
+    game?._save?.();
+    window.dispatchEvent(new CustomEvent('toast', { detail: { text: 'Robé la bicicleta. La policía puede buscarme.', kind: 'warn' } }));
+    return true;
   }
 
   _interactDog(dog) {

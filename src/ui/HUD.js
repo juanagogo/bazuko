@@ -18,6 +18,8 @@ import { cierreHTML } from './cierre.js';
 import { cuentaAtras, hora, porcentaje } from './formato.js';
 import { tabDaLaVuelta } from './dom.js';
 import { CAMBUCHE } from '../data/cambuche.js';
+import { BICYCLE } from '../data/bicycle.js';
+import { RESIDENCIA } from '../systems/Rest.js';
 
 /** Las cuatro filas de siempre, siempre en este orden y en el mismo sitio. */
 const FILAS = ['salud', 'hambre', 'sed', 'energia'];
@@ -92,6 +94,7 @@ export function textoDelPrompt(interaction, inventory) {
     return inventory?.count?.('botella') > 0 ? '[E] Lavarme en la pila · [Q] Llenar la botella' : '[E] Lavarme en la pila · Con una botella vacía, aquí la lleno';
   }
   if (type === 'hogar') return '[E] Hogar de paso: dormir bajo techo';
+  if (type === 'residencia') return `[E] Residencia: dormir ${RESIDENCIA.horas} h (${cop(RESIDENCIA.precio)})`;
   if (type === 'transit') return `[E] ${interaction.currentTarget?.stop?.name ?? 'Estación'}: viajar`;
   if (type === 'sell') return '[E] Vender material en la recicladora';
   if (type === 'shop') return `[E] Comprar en ${interaction.currentTarget.title ?? 'Tienda La Esquinita'}`;
@@ -109,6 +112,25 @@ export function textoDelPrompt(interaction, inventory) {
   }
   if (type === 'cambuche') return '[E] Mi cambuche: armar o dormir';
   if (type === 'mesa') return '[E] Fabricar';
+  if (type === 'bench') return `${interaction.currentTarget?.playerSeated ? '[E] Levantarme de la banca' : '[E] Sentarme en la banca'} · [Q] Dormir gratis`;
+  if (type === 'bicycle') {
+    if (interaction.player?.bicycle === interaction.currentTarget) {
+      const bike = interaction.currentTarget;
+      const station = interaction.player.game?.bikeStations?.find(item => item.interactDistance(interaction.player.position) < 1.8 && item.bikes.length < item.capacity);
+      const reward = station && bike.rentalPaid && bike.rentalOrigin === station.id && bike.status !== 'stolen';
+      const exit = station ? `Devolver${reward ? ` (+${cop(BICYCLE.honestReturnReward)})` : ''}` : 'Bajarme';
+      return `[W] Pedalear · [Shift] Más rápido · [S] Freno / reversa · [A/D] Girar · [Espacio] Saltar · [E] ${exit}`;
+    }
+    return ['parked', 'stolen'].includes(interaction.currentTarget?.status)
+      ? '[E] Volver a montar bicicleta'
+      : `[E] Alquilar bicicleta (${cop(BICYCLE.rentalCost)}) · [Q] Robarla`;
+  }
+  if (type === 'bicycle-station') {
+    if (interaction.player?.bicycle) return '[E] Devolver bicicleta';
+    return interaction.currentTarget?.availableBike?.()
+      ? `[E] Alquilar (${cop(BICYCLE.rentalCost)}) · Devolver aquí da ${cop(BICYCLE.honestReturnReward)} · [Q] Robar bicicleta`
+      : 'Estación sin bicicletas';
+  }
   if (type === 'dealer') return '[Q / E] El jíbaro: comprar o vender';
   if (type === 'cart') return interaction.currentTarget?.isAttached ? '[E] Soltar la carreta' : '[E] Agarrar la carreta (+120 kg)';
   return interaction.stealPrompt ?? '';
@@ -126,6 +148,10 @@ const VERBO_CORTO = [
   [/^Lavarme/, 'Lavarme'],
   [/^Llenar la botella/, 'Llenar botella'],
   [/^Hogar de paso/, 'Hogar de paso'],
+  [/^Residencia:/, 'Residencia'],
+  [/^Sentarme en la banca/, 'Sentarme'],
+  [/^Levantarme de la banca/, 'Levantarme'],
+  [/^Dormir gratis/, 'Dormir gratis'],
   [/: viajar$/, 'Viajar'],
   [/^Vender material/, 'Vender material'],
   [/^Almorzar en el Comedor/, 'Almorzar'],

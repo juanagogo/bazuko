@@ -108,7 +108,13 @@ Con `npm run dev` activo, abre **/sala.html** (por ejemplo http://localhost:5173
 | `C` o botón Fabricar | Abrir La mesa, desde cualquier parte; junto a la mesa de verdad también abre con `E`. Los botones Costal y Fabricar están abajo a la derecha, con su tecla al lado. |
 | `1`–`5` | Asignar el objeto seleccionado a acceso rápido mientras el costal está abierto; usarlo cuando está cerrado. |
 | `Enter`, `X`, `R` en el costal | Usar, tirar una unidad (Mayús: todo), ordenar. Las flechas o WASD mueven la selección. |
+| `E` junto a una estación o bicicleta | Sacar una bicicleta pública, volver a montar o bajarse por un costado libre. |
+| `W`, `S`, `A/D` en bicicleta | Pedalear, frenar/reversa y girar. Mantener S después de frenar permite retroceder despacio mirando sobre el hombro. Al soltar se conserva el impulso; Mayús permite pedalear más fuerte. |
+| `Espacio` en bicicleta | Saltar con la bicicleta y conservar el impulso en el aire. |
 | `E` | Interactuar con el objetivo cercano. |
+| `E` junto a una banca | Sentarse o levantarse; también puedes levantarte caminando. |
+| `Q` junto a una banca | Abrir el descanso gratuito de 3 horas, con sus beneficios y riesgo de robo antes de confirmar. |
+| `E` junto al hogar de paso o la residencia | Consultar las reglas del alojamiento gratuito o pagar $8.000 por 8 horas en la residencia. Abrir el menú no cobra. |
 | `E` junto a una persona | Cosquilleo: sale una barra que se detiene con `Espacio` y se cancela con `Esc` (en el mando, `LT` y `B`). Si aciertas, robas poco sin que se den cuenta; si fallas, pueden pillarte, y una patrulla que lo vea te persigue. Robar te deja fichado: ver «Fichado y patrullas». |
 | `Q` junto a una persona | Robo directo: paga más, siempre se nota, la persona puede defenderse si está de pie y una patrulla que lo vea te persigue. Robar te deja fichado: ver «Fichado y patrullas». |
 | Mantener y soltar `Q` junto a basura | Seleccionar materiales y recogerlos al soltar. |
@@ -119,7 +125,9 @@ Con `npm run dev` activo, abre **/sala.html** (por ejemplo http://localhost:5173
 | `F` | Activar o desactivar el boost, que consume energía y salud. |
 | `T` | Abrir las mañas. |
 | `P` | Editar el personaje. |
-| `M` | Abrir el mapa para marcar un destino; en el mapa, cerrarlo. |
+| `M` | Abrir el mapa para marcar un destino; en el mapa, cerrarlo. Filtros Cambuche, Residencias y Refugios. Cama: hogar de paso gratis. Moneda: residencia con precio. |
+| `Ñ` | Mostrar u ocultar la ayuda de controles. |
+| `J` / `O` | Abrir o cerrar las misiones del día. |
 | `K` | Alternar entre el personaje realista y el modelo liviano. |
 | `Esc` o botón Pausa | Abrir la pausa en la pestaña Estado; cerrar primero el panel activo y liberar el cursor. |
 | `N` | Mostrar u ocultar el radar. |
@@ -132,18 +140,20 @@ Con `npm run dev` activo, abre **/sala.html** (por ejemplo http://localhost:5173
 | `Z` en la calle | Hacer popó. |
 | Clic en una casilla del costal | Ver el objeto en el banco; doble clic o el botón principal lo usan (comer, beber, aplicar, lanzar…). |
 
+Al detener la bicicleta, el personaje apoya un pie; al avanzar vuelve a los pedales. En reversa empuja alternando ambos pies sobre el suelo y mira hacia atrás. A gira a la izquierda del ciclista y D a la derecha. Alquilar cuesta $1.000; devolver la bicicleta a la misma estación entrega $2.000 por honestidad, una vez por alquiler pagado. La misión diaria **Bici de ida y vuelta**, disponible con J junto a las tres misiones rotativas, añade $1.000, 30 XP y 10 de ánimo por completar un alquiler y devolverlo al origen; se premia una vez por día. La estación entrega la bicicleta fuera del rack; después de un golpe queda disponible para volver a subir. Ver [bicicletas e interacción](docs/bicicletas.md).
+
 ### Mando
 
-Funciona con mandos de Xbox, PlayStation o genéricos conectados por USB o Bluetooth. El navegador los detecta al pulsar cualquier botón. Los botones equivalen a las teclas de la tabla anterior; los menús siguen usando el ratón.
+Funciona con mandos de Xbox, PlayStation o genéricos conectados por USB o Bluetooth. El navegador los detecta al pulsar cualquier botón. En los menús, el stick o la cruceta navegan, A confirma y B vuelve; los botones no disparan acciones de la calle mientras hay un panel abierto.
 
 | Mando (Xbox) | Función |
 | --- | --- |
 | Stick izquierdo | Moverse. |
 | Stick derecho | Girar la cámara en tercera persona. |
 | `RT` o pulsar el stick izquierdo | Correr. |
-| `A` | Interactuar (`E`). |
+| `A` | Interactuar (`E`): sentarse, levantarse o consultar un alojamiento. |
 | `B` | Cerrar el panel activo (`Esc`). |
-| `X` | Mantener junto a basura o abrir la tienda del jíbaro (`Q`). |
+| `X` | Mantener junto a basura o abrir la tienda del jíbaro (`Q`); junto a una banca, abrir el descanso gratuito. |
 | `Y` | El costal (`I`). |
 | `LB` tocado solo | Cambiar de cámara (`V`), al soltarlo. |
 | `LB` sostenido + `Y` / `X` | Fabricar (`C`) / Mañas (`T`). |
@@ -155,6 +165,8 @@ Funciona con mandos de Xbox, PlayStation o genéricos conectados por USB o Bluet
 | Pulsar el stick derecho | Radar (`N`). |
 | Cruceta ↑ ↓ ← → | Radio (`R`), lanzar o popó (`X`), limosna (`B`), boost (`F`). |
 
+En pantalla táctil, toca la cinta **Sentarme / Levantarme** o **Dormir gratis** junto a la banca. Junto a una puerta, **Residencia** o **Hogar de paso** abre sus condiciones. La pestaña **Controles** adapta la ayuda al teclado, al mando o al dedo.
+
 ## Cómo empezar
 
 Los materiales del cambuche aparecen en bolsas de basura repartidas por nueve zonas de la ciudad. Cada conjunto de bolsas reserva al menos **8 cartones, 8 tablas, 6 latas, 1 lona, 1 colchón y 1 vela**, además del botín aleatorio. Los cartones y las latas son comunes, las tablas poco comunes, la lona y la vela raras, y el colchón muy raro. Las bolsas vaciadas se reponen tras 20 segundos y conservan su reserva de materiales para que venderlos, perderlos o usarlos no bloquee la construcción. Si el costal está lleno, lo que no cabe permanece en esa bolsa; recogerlo de nuevo no vuelve a sortear su contenido. Las rarezas aparecen al recoger materiales y al pasar el cursor sobre el inventario o los requisitos de construcción.
@@ -162,7 +174,7 @@ Los materiales del cambuche aparecen en bolsas de basura repartidas por nueve zo
 1. Recorre los andenes y acércate a los objetos para ver las acciones disponibles.
 2. Recoge materiales y véndelos en la recicladora para conseguir dinero.
 3. Compra comida y agua y consúmelas desde el costal.
-4. Construye y mejora el cambuche para poder descansar. Su menú muestra una vista previa del modelo terminado, incluso antes de reunir los materiales.
+4. Construye y mejora el cambuche para descansar con más seguridad. También puedes acudir al hogar de paso, pagar una residencia o dormir en una banca. El menú del cambuche muestra una vista previa del modelo terminado, incluso antes de reunir los materiales.
 
 La partida guarda datos localmente en el navegador al crear o editar el personaje, al dormir y con **Guardar partida ahora** en el menú de pausa. También conserva la amistad de El Chato, las preferencias de cámara, radar, calidad y volumen. Los datos dependen del navegador y de la dirección desde la que juegas; no hay sincronización entre dispositivos.
 
@@ -195,6 +207,8 @@ Si la salud llega a cero, el juego se pausa y muestra una pantalla de recuperaci
 - **Agua y pila:** la botella vacía se llena con lluvia fuerte o en una de las tres pilas públicas de los parques, donde además te puedes lavar (con jabón, mejor).
 - **Transporte:** desde el Portal del Centro y las estaciones del Metro se viaja pagando el pasaje o colándose, con riesgo de que te pillen.
 - **Hogar de paso:** de 18:00 a 23:00, una noche bajo techo con ducha, comida y sin robos, sin entrar sustancias ni armas.
+- **Residencia El Descanso:** abierta las 24 horas. Por $8.000 puedes dormir 8 horas en una habitación con cama y ducha, sin entregar tus pertenencias. No incluye comida. En el mapa se distingue por una moneda y el precio; el hogar gratuito lleva una cama y la palabra «gratis».
+- **Bancas:** E permite sentarse o levantarse; Q abre la opción de dormir sentado 3 horas gratis. Recuperas 25 de energía y 5 de ánimo, con un 25 % de riesgo de perder el 20 % de la plata que llevas. El descanso adelanta el reloj y guarda la partida al despertar.
 
 Los detalles y las cifras están en [docs/vida-de-calle.md](docs/vida-de-calle.md).
 

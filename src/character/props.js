@@ -31,6 +31,9 @@ function geometries() {
     bag,
     knot: new THREE.SphereGeometry(0.045, 8, 6),
     strap: new THREE.TorusGeometry(0.1, 0.012, 4, 10, Math.PI * 1.2),
+    carryHandle: new THREE.TorusGeometry(0.055, 0.012, 6, 12, Math.PI),
+    zipper: new THREE.BoxGeometry(0.012, 0.28, 0.008),
+    zipPull: new THREE.SphereGeometry(0.018, 8, 6),
   };
   return shared;
 }
@@ -42,6 +45,34 @@ export function findBone(bones, name) {
 }
 
 const tone = (hex, wear) => new THREE.Color(hex).multiplyScalar(1 - wear * 0.18);
+
+let backpackClothTexture = null;
+function backpackTexture() {
+  if (backpackClothTexture) return backpackClothTexture;
+  const size = 48;
+  const data = new Uint8Array(size * size * 4);
+  for (let y = 0; y < size; y++) for (let x = 0; x < size; x++) {
+    // Tejido cruzado muy discreto: se aprecia en el creador sin convertir la
+    // mochila en una textura grande ni crear una imagen por personaje.
+    const weave = ((x * 7 + y * 11) % 13) < 2 ? 12 : 0;
+    const fine = ((x * 17 + y * 5) % 19) < 3 ? -8 : 0;
+    const value = Math.max(0, Math.min(255, 128 + weave + fine));
+    const i = (y * size + x) * 4;
+    data[i] = value;
+    data[i + 1] = value;
+    data[i + 2] = value;
+    data[i + 3] = 255;
+  }
+  backpackClothTexture = new THREE.DataTexture(data, size, size, THREE.RGBAFormat);
+  backpackClothTexture.colorSpace = THREE.SRGBColorSpace;
+  backpackClothTexture.wrapS = backpackClothTexture.wrapT = THREE.RepeatWrapping;
+  backpackClothTexture.repeat.set(3.5, 4.5);
+  backpackClothTexture.magFilter = THREE.LinearFilter;
+  backpackClothTexture.minFilter = THREE.LinearMipmapLinearFilter;
+  backpackClothTexture.generateMipmaps = true;
+  backpackClothTexture.needsUpdate = true;
+  return backpackClothTexture;
+}
 
 function cane(wear) {
   const g = geometries();
@@ -70,22 +101,47 @@ function cane(wear) {
 
 function backpack(wear) {
   const g = geometries();
-  const cloth = new THREE.MeshStandardMaterial({ color: tone('#3d4a3a', wear), roughness: 1 });
+  const clothTexture = backpackTexture();
+  const cloth = new THREE.MeshStandardMaterial({
+    color: tone('#35432f', wear),
+    map: clothTexture,
+    bumpMap: clothTexture,
+    bumpScale: 0.018,
+    roughness: 0.92,
+    metalness: 0
+  });
   const strapMat = new THREE.MeshStandardMaterial({ color: tone('#222018', wear), roughness: 1 });
   const group = new THREE.Group();
   group.name = 'prop-mochila';
   const bag = new THREE.Mesh(g.bag, cloth);
   const knot = new THREE.Mesh(g.knot, cloth);
-  knot.position.set(0, 0.2, 0);
-  group.add(bag, knot);
+  const carryHandle = new THREE.Mesh(g.carryHandle, strapMat);
+  const zipper = new THREE.Mesh(g.zipper, strapMat);
+  const zipPull = new THREE.Mesh(g.zipPull, strapMat);
+
+  // La mochila debe quedar entre los omóplatos: ligeramente más ancha que
+  // profunda, pegada a la espalda y sin invadir el cuello.
+  bag.scale.set(1.02, 1.08, 1.05);
+  bag.position.set(0, -0.025, 0.045);
+  knot.position.set(0, 0.16, 0.055);
+  // Asa superior para agarrar la mochila.
+  carryHandle.rotation.y = Math.PI / 2;
+  carryHandle.position.set(0, 0.205, 0.055);
+  // Cremallera central y tirador sobre la cara frontal de la mochila.
+  zipper.position.set(0, -0.005, 0.132);
+  zipPull.position.set(0, -0.155, 0.139);
+  group.add(bag, knot, carryHandle, zipper, zipPull);
   for (const side of [-1, 1]) {
     const strap = new THREE.Mesh(g.strap, strapMat);
     strap.rotation.y = Math.PI / 2;
-    strap.position.set(side * 0.1, 0.1, 0.1);
+    strap.rotation.z = side * 0.08;
+    strap.position.set(side * 0.07, 0.095, 0.085);
+    strap.scale.set(0.82, 1.08, 1);
     group.add(strap);
   }
-  // en el espacio del personaje (mira a +Z): detrás de la espalda, a la altura del pecho
-  group.position.set(0, -0.08, -0.2);
+  // En el espacio del personaje (mira a +Z): detrás de la espalda,
+  // centrada entre los hombros y un poco por debajo de Spine2.
+  group.position.set(0, -0.055, -0.085);
   return { bone: 'Spine2', object: group, space: 'body' };
 }
 

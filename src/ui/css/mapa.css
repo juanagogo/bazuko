@@ -27,7 +27,11 @@
 
 /* ---------- el lado: lo que se puede marcar ---------- */
 .map-view__side { display: flex; flex-direction: column; gap: 8px; min-width: 0; min-height: 0; overflow: auto; padding: 0 24px 14px 20px; background: var(--m-regla-v) left center / 5px 100% no-repeat; scrollbar-width: thin; scrollbar-color: var(--marcador) transparent; }
-.map-view__filters { display: flex; flex: none; flex-wrap: nowrap; align-items: center; justify-content: space-between; gap: 4px; min-height: 44px; margin-top: 4px; }
+.map-view__filters {
+  position: sticky; top: 0; z-index: 2; flex: none;
+  display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px;
+  padding-block: 4px; background: var(--flauta), var(--cara);
+}
 .map-view__filter { display: inline-flex; align-items: center; justify-content: center; min-height: 40px; padding: 0 5px; background: none; border: 0; color: var(--marcador); font-weight: 800; font-size: 18px; line-height: 1; }
 /* Lo que el cuerpo pide lleva su raya abajo: se ve aunque el filtro esté en otra parte. */
 .map-view__filter.is-need:not(.is-active) span { background: var(--m-regla) center bottom / 100% 5px no-repeat; padding-bottom: 4px; }

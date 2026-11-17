@@ -10,6 +10,7 @@ import { BodyLanguage } from '../src/character/BodyLanguage.js';
 import { bakeGaitFamily, buildGaitSources } from '../src/character/gaitFamilies.js';
 import { createRealisticCharacter } from '../src/character/RealisticCharacter.js';
 import { bakeStances } from '../src/character/stances.js';
+import { BICYCLE, bicycleGrip, bicyclePedal } from '../src/data/bicycle.js';
 
 // Lo que la capa de cuerpo le promete al juego, con los cuerpos y las prendas reales: el liviano también
 // la lleva, sin pedir matrices; cada familia de paso se hornea una vez; los gestos no tiemblan.
@@ -49,11 +50,78 @@ const bonesOf = character => {
   character.group.traverse(node => { if (node.isBone) bones.set(node.name, node); });
   return bones;
 };
+
+test('el ciclista real avanza sin excepciones y manos/pies siguen cabrilla y pedales incluso al saltar', async () => {
+  for (const options of [{}, { lod: true }]) {
+    const person = await createRealisticCharacter(LOOK, options);
+    const bones = bonesOf(person);
+    const bike = { pedalPhase: 0, steerAngle: 0, lookBack: 0 };
+    let forwardHead = null;
+    let previous = null, travel = 0;
+    for (let i = 0; i < 64; i++) {
+      bike.pedalPhase = i / 32 * Math.PI * 2;
+      bike.steerAngle = Math.sin(i / 20) * BICYCLE.maxSteer;
+      bike.lookBack = i > 35 ? 1 : 0;
+      person.update(1 / 30, { stance: 'bicicleta', movement: { bicycle: bike, grounded: i < 40, landing: i > 55 ? 1 : 0 } });
+      person.group.updateMatrixWorld(true);
+      if (i === 20) forwardHead = bones.get('mixamorigHead').getWorldQuaternion(new THREE.Quaternion());
+      if (i < 12) continue;
+      for (const side of ['left', 'right']) {
+        const prefix = 'mixamorig' + (side === 'left' ? 'Left' : 'Right');
+        const hand = bones.get(prefix + 'Hand').getWorldPosition(new THREE.Vector3());
+        const target = bicycleGrip(side, bike.steerAngle, new THREE.Vector3());
+        assert.ok(hand.distanceTo(target) < .12, `mano ${side} cuadro ${i}: ${hand.toArray()} objetivo ${target.toArray()}`);
+        const foot = bones.get(prefix + 'Foot').getWorldPosition(new THREE.Vector3());
+        const pedal = bicyclePedal(side, bike.pedalPhase, new THREE.Vector3());
+        pedal.y += .10; pedal.z -= .108;
+        assert.ok(foot.distanceTo(pedal) < .1, `pie ${side}: ${foot.distanceTo(pedal)}`);
+        if (side === 'left') { if (previous) travel += foot.distanceTo(previous); previous = foot; }
+      }
+      const pelvis = bones.get('mixamorigHips').getWorldPosition(new THREE.Vector3());
+      assert.ok(pelvis.y > BICYCLE.seat[1] && pelvis.y < BICYCLE.seat[1] + .25, `pelvis ${pelvis.y}`);
+    }
+    assert.ok(travel > .8, `el pie debe completar una trayectoria, recorrió ${travel}`);
+    const backHead = bones.get('mixamorigHead').getWorldQuaternion(new THREE.Quaternion());
+    assert.ok(backHead.angleTo(forwardHead) > 1.6, 'mira sobre el hombro sin desplazar manos ni pies');
+    person.dispose();
+  }
+});
 const skinMesh = character => {
   let found = null;
   character.group.traverse(node => { if (node.isSkinnedMesh && node.material.userData.streetSurface === 'skin' && /body/i.test(node.name)) found = node; });
   return found;
 };
+
+test('la bici apoya un pie al parar y usa ambos junto al suelo al retroceder, conservando las manos', async () => {
+  for (const sexo of ['hombre', 'mujer']) for (const lod of [false, true]) {
+    const person = await createRealisticCharacter({ real: { ...LOOK.real, sexo } }, { lod });
+    const bones = bonesOf(person);
+    const bike = { pedalPhase: .7, steerAngle: .12, reversePhase: 0, supportFoot: 1, reverseFoot: 0, lookBack: 0 };
+    for (const mode of ['support', 'reverse', 'pedal']) {
+      bike.supportFoot = mode === 'support' ? 1 : 0;
+      bike.reverseFoot = mode === 'reverse' ? 1 : 0;
+      bike.lookBack = mode === 'reverse' ? 1 : 0;
+      for (let i = 0; i < 32; i++) {
+        bike.reversePhase = i / 16 * Math.PI * 2;
+        person.update(1 / 30, { stance: 'bicicleta', movement: { bicycle: bike, grounded: true } });
+        person.group.updateMatrixWorld(true);
+        if (i < 12) continue;
+        for (const side of ['left', 'right']) {
+          const prefix = 'mixamorig' + (side === 'left' ? 'Left' : 'Right');
+          const hand = bones.get(prefix + 'Hand').getWorldPosition(new THREE.Vector3());
+          assert.ok(hand.distanceTo(bicycleGrip(side, bike.steerAngle, new THREE.Vector3())) < .12, `${sexo}/${mode}: mano ${side}`);
+          const foot = bones.get(prefix + 'Foot').getWorldPosition(new THREE.Vector3());
+          if (mode === 'reverse' || mode === 'support' && side === 'left') {
+            assert.ok(foot.y > .025 && foot.y < .13 + (mode === 'reverse' ? .05 : 0), `${sexo}/${mode}: pie ${side} a ${foot.y}`);
+          } else {
+            assert.ok(foot.y > .2, `${sexo}/${mode}: pie ${side} debe permanecer en el pedal, a ${foot.y}`);
+          }
+        }
+      }
+    }
+    person.dispose();
+  }
+});
 
 /** Dos personajes iguales al mismo reloj: lo que los separa es lo que se le pidió a uno de ellos. */
 async function pairDifference(options, params, seconds = 1) {

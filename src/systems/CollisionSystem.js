@@ -13,6 +13,9 @@ export class CollisionSystem {
     this._cameraCandidates = [];
     this._occlusionCandidates = [];
     this._extent = new THREE.Vector3();
+    this._bikeStart = new THREE.Vector3();
+    this._bikeEnd = new THREE.Vector3();
+    this._bikeDelta = new THREE.Vector3();
   }
 
   /** Registra un mesh como sólido. size opcional para hitbox custom. */
@@ -126,14 +129,64 @@ export class CollisionSystem {
     }
   }
 
+  /** Bicicletas: cajas sencillas para que el jugador no atraviese ruedas ni cuadros. */
+  setBicycles(bicycles = [], ignored = null) {
+    this.dynamicColliders = this.dynamicColliders.filter((entry) => !entry.bicycle);
+    for (const bicycle of bicycles) {
+      if (!bicycle || bicycle === ignored || bicycle.rider) continue;
+      const entry = bicycle._collisionEntry ??= { bicycle, layered: true, box: new THREE.Box3() };
+      const p = bicycle.position;
+      const yaw = bicycle.group?.rotation.y ?? 0;
+      const c = Math.abs(Math.cos(yaw)), s = Math.abs(Math.sin(yaw));
+      const halfX = (c * .64 + s * 1.9) / 2;
+      const halfZ = (s * .64 + c * 1.9) / 2;
+      entry.box.min.set(p.x - halfX, p.y, p.z - halfZ);
+      entry.box.max.set(p.x + halfX, p.y + 1.12, p.z + halfZ);
+      this.dynamicColliders.push(entry);
+    }
+  }
+
+  /** Consulta al montar/desmontar; incluye vehículos y bicis, con altura por capas. */
+  isPositionFree(point, radius = .4, ignoredBicycle = null) {
+    const entries = this.queryStatic(point.x - radius, point.z - radius, point.x + radius, point.z + radius, []);
+    for (const entry of [...entries, ...this.dynamicColliders]) {
+      if (ignoredBicycle && entry.bicycle === ignoredBicycle) continue;
+      const { box } = entry;
+      if (point.y >= box.max.y || point.y + 1.6 <= box.min.y) continue;
+      if (entry.obb) {
+        const { local, half } = this._orientedPlayer(point, radius, entry.obb);
+        if (Math.abs(local.x) < half.x && Math.abs(local.y) < half.y && Math.abs(local.z) < half.z) return false;
+      } else if (point.x > box.min.x - radius && point.x < box.max.x + radius && point.z > box.min.z - radius && point.z < box.max.z + radius) return false;
+    }
+    return true;
+  }
+
+  /** Tres apoyos barridos cubren también ruedas y manubrio del ciclista. */
+  resolveBicycleMove(current, delta, bicycle, result) {
+    const allowed = this._bikeDelta.copy(delta);
+    const yaw = bicycle.group.rotation.y;
+    for (const offset of [-.58, 0, .58]) {
+      this._bikeStart.copy(current);
+      this._bikeStart.x += Math.sin(yaw) * offset;
+      this._bikeStart.z += Math.cos(yaw) * offset;
+      this.resolveMove(this._bikeStart, allowed, .32, this._bikeEnd, bicycle);
+      for (const axis of ['x', 'z']) {
+        const moved = this._bikeEnd[axis] - this._bikeStart[axis];
+        allowed[axis] = allowed[axis] >= 0 ? Math.max(0, Math.min(allowed[axis], moved)) : Math.min(0, Math.max(allowed[axis], moved));
+      }
+    }
+    return result.copy(current).add(allowed);
+  }
+
   /**
    * Resuelve el movimiento del player (radio `radius`).
    * Devuelve nueva posición válida.
    */
-  resolveMove(currentPos, delta, radius = 0.4, result = new THREE.Vector3()) {
+  resolveMove(currentPos, delta, radius = 0.4, result = new THREE.Vector3(), ignoredBicycle = null) {
     const pos = result.copy(currentPos);
     // Un vehículo que avanza lentamente empuja hacia la cara más próxima.
     for (const entry of this.dynamicColliders) {
+      if (ignoredBicycle && entry.bicycle === ignoredBicycle) continue;
       const { box, obb } = entry;
       if (pos.y > box.max.y || pos.y + 1.6 < box.min.y) continue;
       if (obb) { this._pushFromOriented(pos, radius, obb); continue; }
@@ -146,18 +199,19 @@ export class CollisionSystem {
       else if (face === 2) pos.z = z0; else pos.z = z1;
     }
 
-    this._moveAxis(pos, radius, 'x', 'z', delta.x);
-    this._moveAxis(pos, radius, 'z', 'x', delta.z);
+    this._moveAxis(pos, radius, 'x', 'z', delta.x, ignoredBicycle);
+    this._moveAxis(pos, radius, 'z', 'x', delta.z, ignoredBicycle);
 
     return pos;
   }
 
-  _moveAxis(pos, radius, axis, other, delta) {
+  _moveAxis(pos, radius, axis, other, delta, ignoredBicycle = null) {
     if (delta === 0) return;
     const epsilon = 1e-7;
     const start = pos[axis];
     let end = start + delta;
-    for (const { box, vehicle, layered, obb } of this._movementColliders(pos, radius, axis, delta)) {
+    for (const { box, vehicle, bicycle, layered, obb } of this._movementColliders(pos, radius, axis, delta)) {
+      if (ignoredBicycle && bicycle === ignoredBicycle) continue;
       if ((vehicle || layered) && (pos.y > box.max.y || pos.y + 1.6 < box.min.y)) continue;
       if (obb) {
         const movement = new THREE.Vector3(); movement[axis] = end - start;

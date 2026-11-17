@@ -34,6 +34,7 @@ export const CON_LB = { 12: 'Digit1', 15: 'Digit2', 13: 'Digit3', 14: 'Digit4', 
 export const CONTROLES_CON_MANDO = [
   ['Moverse', [['Stick izquierdo', 'Caminar'], ['RT', 'Correr'], ['LT', 'Brincar'], ['Stick derecho', 'Mirar'], ['LB', 'Cambiar la cámara, al soltarlo']]],
   ['Hacer', [['A', 'Lo que dice la cinta'], ['X', 'Robo directo. Sostenido: seleccionar basura'], ['RB', 'Pegar'], ['Arriba', 'Radio'], ['Abajo', 'Lanzar'], ['Izquierda', 'Pedir'], ['Derecha', 'Envión']]],
+  ['Descansar', [['A en banca', 'Sentarme o levantarme'], ['X en banca', 'Abrir el descanso gratuito de 3 h'], ['A en alojamiento', 'Consultar el hogar gratis o pagar la residencia'], ['View', 'Ver mapa: cama para hogar gratis, moneda para residencia']]],
   ['Paneles', [['Y', 'El costal'], ['LB+Y', 'Fabricar'], ['LB+X', 'Mañas'], ['LB+cruceta', 'Casillas 1 a 4: arriba, derecha, abajo, izquierda'], ['LB+A', 'Casilla 5'], ['View', 'El mapa'], ['R3', 'El radar'], ['Menú', 'Pausa'], ['B', 'Cerrar o volver']]],
 ];
 const DIRECTIONS = { 12: 'up', 13: 'down', 14: 'left', 15: 'right' };

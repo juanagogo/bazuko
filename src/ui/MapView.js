@@ -8,7 +8,7 @@ import { pasarTexto } from './pictos.js';
 import { streetLabels } from '../world/bogota/CityMapRaster.js';
 import { formatDistance, nombreALaVista } from './Minimap.js';
 import { CARTON, CARTON_MOJADO, MARCADOR, flechaJugador, prepararPlano, rutaRoja, trazarPlano, xRoja } from './planoRadar.js';
-import { FILTERS, NEED_COPY, hasTag, noOptionText, placeMeta, rankPlaces, sellFirstPlaces } from './mapServices.js';
+import { FILTERS, NEED_COPY, REST_FILTERS, isRestFilter, hasTag, noOptionText, placeMeta, rankPlaces, sellFirstPlaces } from './mapServices.js';
 
 const PRESS_KEYS = new Set(['Enter', 'NumpadEnter', 'Space']); // las teclas que pulsan un botón
 const PAN_STEP = 24;
@@ -369,9 +369,9 @@ export class MapView {
       const options = tag === filter ? rows : rank(tag);
       // Igual que en el radar: el Dealer no compra reciclaje, así que no alivia el costal.
       const best = options.find(tag === 'vender' && need === 'vender' ? (row) => row.usable && !row.poi.dealer : (row) => row.usable);
-      const sellers = best ? [] : sellFirstPlaces(pois, tag, needs);
+      const sellers = best || isRestFilter(tag) ? [] : sellFirstPlaces(pois, tag, needs);
       const sell = sellers.length ? rank('vender').find(row => sellers.includes(row.poi)) : null;
-      if (best) cta = goButton(NEED_COPY[tag].cta, best.poi);
+      if (best) cta = goButton((REST_FILTERS[tag] ?? NEED_COPY[tag]).cta, best.poi);
       else {
         if (sell) cta = goButton(NEED_COPY.vender.cta, sell.poi);
         const text = noOptionText(tag, options, needs, sell?.poi);
