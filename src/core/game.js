@@ -1092,12 +1092,27 @@ export class Game {
     return !!c && Math.hypot(this.player.position.x - c.x, this.player.position.z - c.z) < radius;
   }
 
+  /** Temblor leve, proporcional al daño recibido en un cuadro; el desgaste lento (hambre, frío) no alcanza el umbral. */
+  _shakeOnDamage() {
+    const salud = this.stats?.salud;
+    if (!Number.isFinite(salud)) return 0;
+    const lost = (this._saludVista ?? salud) - salud;
+    this._saludVista = salud;
+    if (lost < 2) return 0;
+    // Un puño (~10) da ~0,4° y un atropello (~20), ~1°; el tope (~1,1°) sacude sin marear.
+    const amount = Math.min(.5, .15 + lost / 60);
+    this.cameraRig?.addTrauma?.(amount);
+    return amount;
+  }
+
   _onVehicleImpact({ speed, direction }) {
     if (this._deathPending || this.stats.salud <= 0 || (this._vehicleImpactCooldown ?? 0) > 0) return;
     const damage = Math.min(100, Math.max(4, Math.round(.6 * speed ** 2 + 1.5 * speed)));
     this.stats.salud = Math.max(0, this.stats.salud - damage);
     this.stats.energia = Math.max(0, this.stats.energia - damage * .25);
     this._vehicleImpactCooldown = 1.5;
+    // Un atropello mortal corta el bucle antes del paso de temblor: se aplica aquí mismo.
+    this._shakeOnDamage();
     this._syncVehicleColliders();
     this.player.receiveVehicleImpact(direction, speed, { collisions: this.collisions });
     if (this.stats.salud === 0) this._deathCause = 'atropello';
@@ -1545,6 +1560,9 @@ export class Game {
     this.gpsBeacon?.update(dt, this.player.position);
     this.minimap?.update(this.player.position, this._cameraYaw(), this._getPOIs(now), now,
       { gps: this.gps, needs: this._needs, running: this.input.isRunning && (this.input.axis.x !== 0 || this.input.axis.z !== 0) });
+
+    // 12b. La cámara acusa cada golpe que baja la salud de una vez (atropellos, puños, varillas).
+    this._shakeOnDamage();
 
     // 13. UI
     this.hud.setMovementState?.(this.player);
