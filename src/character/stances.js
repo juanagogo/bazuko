@@ -7,6 +7,7 @@
 import { Matrix4, Quaternion, Vector3 } from 'three';
 import { GAIT_FAMILIES, standAt, standingFrozen } from './gaitFamilies.js';
 import { PoseRig } from './poseRig.js';
+import { BICYCLE, bicycleGrip, bicyclePedal, bicycleGroundFoot } from '../data/bicycle.js';
 
 const V = (x, y, z) => new Vector3(x, y, z);
 const SIGN = { left: 1, right: -1 };
@@ -175,6 +176,49 @@ function banca(rig, m) {
     rig.reachArm(side, V(on.x, on.y + .118, on.z - .005), V(sign * .9, -.5, -.5));
     rig.hand(side, V(-sign * .12, -.5, .86), V(-sign * .1, -.86, -.5));
     rig.curl(side, .25);
+  }
+}
+
+function bicicleta(rig, m, phase = 0, steer = 0, mode = 'pedal') {
+  const scale = BICYCLE.riderScale;
+  const support = mode === 'support', reverse = mode === 'reverse';
+  // La altura de banca (45 cm) no sirve para el sillín (88 cm).
+  setHips(rig, (BICYCLE.seat[1] + .105 - (reverse ? .075 : support ? .035 : 0)) / scale + m.over,
+    (BICYCLE.seat[2] + (reverse || support ? .16 : 0)) / scale, .15);
+  if (support) rig.moveHips(.035 / scale, 0, 0);
+  if (support || reverse) {
+    // Al apoyar se adelanta al sillín. Ajustar la altura a la longitud real de
+    // las piernas, con una cota constante para todo el ciclo: no rebota al pisar.
+    const reach = rig.length.thigh + rig.length.shin - .008;
+    let drop = 0;
+    for (const side of reverse ? SIDES : ['left']) {
+      const hip = rig.where(`${side}UpLeg`);
+      for (const z of reverse ? [-.25, .1] : [.02]) {
+        const dx = SIGN[side] * .25 / scale - hip.x, dz = z / scale - hip.z;
+        const vertical = Math.sqrt(Math.max(.01, reach * reach - dx * dx - dz * dz));
+        drop = Math.max(drop, hip.y - rig.marks.ankleY - vertical);
+      }
+    }
+    if (drop > 0) rig.moveHips(0, -drop, 0);
+  }
+  bendSpine(rig, [.22, .28, .32], .04, -.04);
+  for (const side of SIDES) {
+    const sign = SIGN[side];
+    const foot = bicyclePedal(side, phase, V(0, 0, 0)).divideScalar(scale);
+    foot.y += rig.marks.ankleY + .018 / scale;
+    foot.z -= .10;
+    if (reverse) {
+      bicycleGroundFoot(side, phase, foot).divideScalar(scale);
+      foot.y += rig.marks.ankleY;
+    } else if (support && side === 'left') foot.set(.25 / scale, rig.marks.ankleY, .02 / scale);
+    rig.reachLeg(side, foot, V(sign * .18, 0, 1));
+    rig.flatFoot(side, 0);
+    const grip = bicycleGrip(side, steer, V(0, 0, 0)).divideScalar(scale);
+    // Del buje de la muñeca al centro de la palma hay unos cinco centímetros.
+    grip.y += .045; grip.z -= .035;
+    rig.reachArm(side, grip, V(sign * .4, -.8, .1));
+    rig.hand(side, V(-Math.sin(steer), -.3, Math.cos(steer)), V(0, -1, -.3));
+    rig.curl(side, .85, .7);
   }
 }
 
@@ -579,6 +623,7 @@ const CATALOG = {
   sentado: { pose: sentado, walk: false, hip: true, transition: .8 },
   acurrucado: { pose: acurrucado, walk: false, hip: true, transition: .9 },
   banca: { pose: banca, walk: false, hip: true, transition: .7 },
+  bicicleta: { pose: bicicleta, walk: false, hip: true, pedal: true, transition: .3 },
   pedir: { pose: pedir, walk: false, hip: true, transition: .9 },
   paraguas: { pose: paraguas, walk: true, steady: true },
   cubrirse: { pose: cubrirse, walk: true },
@@ -640,7 +685,7 @@ function capture(rig, entry) {
   const before = rig.reference;
   const out = [];
   for (const [bone, quaternion] of before) {
-    if (bone.quaternion.angleTo(quaternion) < ANGLE_EPS) continue;
+    if (!entry.pedal && bone.quaternion.angleTo(quaternion) < ANGLE_EPS) continue;
     const name = bone.name;
     const peso = ARM.test(name) ? entry.arms ?? 1 : TORSO.test(name) ? entry.torso ?? 1 : 1;
     out.push({ boneName: name, quaternion: bone.quaternion.clone(), peso, dedo: FINGER.test(name) });
@@ -674,17 +719,49 @@ export function bakeStances(scene, standing = null) {
   const stances = new Map();
   for (const [name, entry] of Object.entries(CATALOG)) {
     rig.reset();
-    entry.pose(rig, m, false);
+    entry.pose(rig, m, entry.pedal ? 0 : false);
     let entries = capture(rig, entry);
     const hip = entry.hip ? rig.hips.position.clone() : null;
+    let supportHip = null, reverseHip = null;
+    if (entry.pedal) {
+      const samples = [], supports = [], reverses = [];
+      const rearLook = new Map(['neck', 'head'].map(key => [rig.joints[key].name, []]));
+      for (const steer of [-BICYCLE.maxSteer, 0, BICYCLE.maxSteer]) {
+        for (let i = 0; i < BICYCLE.cycleFrames; i++) {
+          rig.reset();
+          bicicleta(rig, m, i / BICYCLE.cycleFrames * Math.PI * 2, steer);
+          samples.push(capture(rig, entry));
+          // Mirar sobre el hombro solo mueve cuello y cabeza; conserva los agarres.
+          rig.turn('neck', 0, .65, 0).turn('head', 0, 1.15, 0);
+          for (const key of ['neck', 'head']) {
+            const bone = rig.joints[key];
+            rearLook.get(bone.name).push(bone.quaternion.clone());
+          }
+          rig.reset();
+          bicicleta(rig, m, i / BICYCLE.cycleFrames * Math.PI * 2, steer, 'support');
+          supports.push(capture(rig, entry));
+          supportHip ??= rig.hips.position.clone();
+          rig.reset();
+          bicicleta(rig, m, i / BICYCLE.cycleFrames * Math.PI * 2, steer, 'reverse');
+          reverses.push(capture(rig, entry));
+          reverseHip ??= rig.hips.position.clone();
+        }
+      }
+      entries = entries.map((item, index) => ({ ...item,
+        cycle: samples.map(sample => sample[index].quaternion),
+        supportCycle: supports.map(sample => sample[index].quaternion),
+        reverseCycle: reverses.map(sample => sample[index].quaternion),
+        backCycle: rearLook.get(item.boneName) }));
+    }
     if (entry.alt) {
       rig.reset();
       entry.pose(rig, m, true);
       entries = withAlternative(entries, capture(rig, entry));
     }
     stances.set(name, {
-      name, entries, hip, hipDrop: hip ? hipStanding.y - hip.y : 0,
-      walk: !!entry.walk, anchored: !!entry.anchored, transition: entry.transition ?? .35, motion: entry.motion ?? null
+      name, entries, hip, supportHip, reverseHip, hipDrop: hip ? hipStanding.y - hip.y : 0,
+      walk: !!entry.walk, anchored: !!entry.anchored, pedal: !!entry.pedal,
+      transition: entry.transition ?? .35, motion: entry.motion ?? null
     });
   }
   const knockout = bakeKnockout(rig, m);

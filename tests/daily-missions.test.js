@@ -34,16 +34,17 @@ function fakeGame() {
   };
 }
 
-test('DailyMissionSystem genera 3 misiones variadas para el día', () => {
+test('DailyMissionSystem conserva tres misiones rotativas y añade un alquiler diario', () => {
   const game = fakeGame();
   const system = new DailyMissionSystem(game);
   system.init(1);
 
-  assert.equal(system.missions.length, 3);
+  assert.equal(system.missions.length, 4);
   assert.equal(system.currentDay, 1);
 
   const types = new Set(system.missions.map(m => m.type));
-  assert.equal(types.size, 3, 'las 3 misiones diarias son de tipos distintos');
+  assert.equal(types.size, 4, 'las misiones diarias son de tipos distintos');
+  assert.equal(system.missions.filter(m => m.type === 'bicicleta').length, 1);
 
   for (const m of system.missions) {
     assert.ok(m.title, 'tiene título');
@@ -112,7 +113,8 @@ test('cambio de día (cada 24 horas) renueva las misiones diarias', () => {
   // Pasa al Día 2
   system.update(0.1, { day: 2, hour: 6 });
   assert.equal(system.currentDay, 2);
-  assert.equal(system.missions.length, 3);
+  assert.equal(system.missions.length, 4);
+  assert.equal(system.missions.find(m => m.type === 'bicicleta').progress, 0);
   const day2Missions = system.missions.map(m => m.id);
 
   assert.notDeepEqual(day1Missions, day2Missions, 'las misiones se renovaron para el nuevo día');
@@ -153,17 +155,58 @@ test('serialize y deserialize conservan las misiones y su progreso', () => {
 
   const data = system.serialize();
   assert.equal(data.currentDay, 3);
-  assert.equal(data.missions.length, 3);
+  assert.equal(data.missions.length, 4);
   assert.equal(data.missions[0].progress, 2);
 
   const restored = new DailyMissionSystem(game);
   restored.deserialize(data);
   assert.equal(restored.currentDay, 3);
-  assert.equal(restored.missions.length, 3);
+  assert.equal(restored.missions.length, 4);
   assert.equal(restored.missions[0].progress, 2);
 
   system.dispose();
   restored.dispose();
+});
+
+test('una partida anterior recibe la misión de bicicleta sin perder progreso ni duplicarla al cargar', () => {
+  const system = new DailyMissionSystem(fakeGame());
+  const previous = system.generateMissions(5).filter(m => m.type !== 'bicicleta');
+  previous[0].progress = 1;
+  previous[1].completed = previous[1].claimed = true;
+  system.deserialize({ currentDay: 5, missions: previous });
+  assert.equal(system.missions.length, 4);
+  assert.deepEqual(system.missions.slice(0, 3), previous);
+  const bicycle = system.missions.find(m => m.type === 'bicicleta');
+  assert.equal(bicycle.id, 'bicicleta_d5');
+  bicycle.progress = 1; bicycle.completed = bicycle.claimed = true;
+  const saved = JSON.parse(JSON.stringify(system.serialize()));
+  system.deserialize(saved); system.init(5);
+  assert.deepEqual(system.serialize(), saved);
+  system.update(.1, { day: 6 });
+  assert.equal(system.missions.find(m => m.type === 'bicicleta').completed, false);
+  system.dispose();
+});
+
+test('completar un recorrido entrega una sola recompensa diaria y libera el listener al cerrar', () => {
+  const previous = globalThis.window;
+  globalThis.window = new EventTarget();
+  const game = fakeGame(), system = new DailyMissionSystem(game);
+  try {
+    system.init(1);
+    const emit = () => window.dispatchEvent(new CustomEvent('bicycle-rental-completed'));
+    emit(); emit();
+    const mission = system.missions.find(m => m.type === 'bicicleta');
+    assert.equal(mission.progress, 1); assert.equal(mission.claimed, true);
+    assert.equal(game.stats.dinero, 2000); assert.equal(game.stats.xp, 30);
+    assert.equal(game.stats.animo, 60);
+    assert.equal(system.claimReward(mission.id), false);
+    system.update(.1, { day: 2 });
+    system.dispose(); emit();
+    assert.equal(system.missions.find(m => m.type === 'bicicleta').progress, 0);
+  } finally {
+    system.dispose();
+    if (previous === undefined) delete globalThis.window; else globalThis.window = previous;
+  }
 });
 
 test('openMissionsModal abre el panel de misiones con título, tarjetas y sin emojis', async () => {

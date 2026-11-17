@@ -3,6 +3,27 @@ import assert from 'node:assert/strict';
 import * as THREE from 'three';
 import { createCharacter } from '../src/character/character.js';
 
+test('el modelo geométrico también apoya un pie al parar y ambos al retroceder', () => {
+  const character = createCharacter();
+  character.group.scale.setScalar(1.15);
+  const bicycle = { pedalPhase: .7, steerAngle: 0, lookBack: 0, reversePhase: 0, supportFoot: 0, reverseFoot: 0 };
+  for (const mode of ['support', 'reverse']) {
+    bicycle.supportFoot = mode === 'support' ? 1 : 0;
+    bicycle.reverseFoot = mode === 'reverse' ? 1 : 0;
+    for (let i = 0; i < 32; i++) {
+      bicycle.reversePhase = i / 16 * Math.PI * 2;
+      character.update(1 / 60, { movement: { bicycle, grounded: true } });
+      character.group.updateMatrixWorld(true);
+      for (const side of mode === 'support' ? ['left'] : ['left', 'right']) {
+        const foot = character.ragdollRig[`${side}Foot`].getWorldPosition(new THREE.Vector3());
+        assert.ok(foot.y > .025 && foot.y < .13, `${mode}/${side}: ${foot.y}`);
+      }
+    }
+  }
+  assert.deepEqual(character.group.position.toArray(), [0, 0, 0]);
+  character.dispose();
+});
+
 test('agacharse y levantarse mezclan la altura sin desplazar la raíz física', () => {
   const character = createCharacter();
   for (let i = 0; i < 120; i++) character.update(1 / 60, {});

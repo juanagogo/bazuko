@@ -80,6 +80,7 @@ export class Player {
     this._respiroTumbo = 0;
     this.tiradoPor = null;
     this.benchSeat = null;
+    this.bicycle = null;
 
     // Contenedor raíz (posición + rumbo); el personaje va escalado adentro
     this.root = new THREE.Group();
@@ -439,6 +440,23 @@ export class Player {
     return true;
   }
 
+  mountBicycle(bicycle) {
+    if (!bicycle || this.bicycle || this.benchSeat || this.hasCart || this.isSwimming || this.isStunned || !this.isGrounded || this.stats?.salud <= 0 || this.sorting) return false;
+    this.bicycle = bicycle;
+    this.velocity.set(0, 0, 0);
+    this.melee.cancel();
+    this.action = null;
+    this.actionTimer = this.actionProgress = 0;
+    this._faceYaw = null;
+    this.stopSmoking(); this.stopBasuco();
+    return true;
+  }
+
+  dismountBicycle(options = { forced: true }) {
+    if (!this.bicycle) return false;
+    return this.bicycle.dismount(this, options);
+  }
+
   /** Anima una acción breve (segundos) */
   playAction(action, duration = 1) {
     if (action !== 'golpear') this.melee?.cancel();
@@ -503,6 +521,7 @@ export class Player {
 
   receiveVehicleImpact(direction, speed, { collisions = this._lastCollisions } = {}) {
     this.standFromBench();
+    this.dismountBicycle();
     this.melee.cancel();
     this.tiradoPor = 'carro';
     if (this.ragdoll.start(direction, speed, collisions)) return;
@@ -518,6 +537,7 @@ export class Player {
   receiveHit(direction, strength = 2, { salud } = {}) {
     if (this.ragdoll?.active) return;
     this.standFromBench();
+    this.dismountBicycle();
     this.melee.cancel();
     this._impactVelocity.copy(direction).setY(0);
     if (this._impactVelocity.lengthSq() < 1e-4) this._impactVelocity.set(0, 0, 1);
@@ -580,16 +600,16 @@ export class Player {
     const wasGrounded = this.isGrounded ?? true;
     // Salto y combate cuerpo a cuerpo estilo GTA
     const wantsJump = typeof this.input?.consumePress === 'function' && (this.input.consumePress('Space') || this.input.consumePress('KeySpace'));
-    if (wantsJump && !this.benchSeat && this.isGrounded && !this.isSwimming && !this.melee.active && !this.isStunned && !this.hasCart && !this.sorting) {
-      this.jumpVelocity = 5.2;
+    if (wantsJump && !this.benchSeat && this.isGrounded && !this.isSwimming && !this.melee.active && !this.isStunned && !this.hasCart && !this.sorting && (!this.bicycle || this.bicycle.mountTime === 0)) {
+      this.jumpVelocity = this.bicycle ? 4.6 : 5.2;
       this.isGrounded = false;
-      this.playAction('saltar', 0.65);
+      if (!this.bicycle) this.playAction('saltar', 0.65);
       this.audio?.playJump?.();
     }
 
     const attackBeforeInput = this.attack;
     const wantsPunch = typeof this.input?.consumePress === 'function' && (this.input.consumePress('KeyG') || this.input.consumePress('Mouse0'));
-    if (wantsPunch && !this.benchSeat && !this.isSwimming && !this.isStunned && (!this.action || this.attack) && !this.hasCart && !this.sorting) {
+    if (wantsPunch && !this.benchSeat && !this.bicycle && !this.isSwimming && !this.isStunned && (!this.action || this.attack) && !this.hasCart && !this.sorting) {
       this.punch();
     }
     const beganAttackThisFrame = !attackBeforeInput && !!this.attack;
@@ -599,9 +619,9 @@ export class Player {
     if (this.benchSeat && (x !== 0 || z !== 0)) this.standFromBench();
     const seated = !!this.benchSeat;
     const stunned = this._impactTime > 0;
-    const moving = !seated && !stunned && (x !== 0 || z !== 0);
+    const moving = !seated && !stunned && (this.bicycle ? z !== 0 : (x !== 0 || z !== 0));
     const running = Boolean(this.input?.isRunning && moving);
-    let speed = running ? this.speedRun : this.speedWalk;
+    let speed = this.bicycle ? (running ? 7.2 : 5.2) : (running ? this.speedRun : this.speedWalk);
     if (this.stats?.getSpeedMultiplier) {
       speed *= this.stats.getSpeedMultiplier();
     }
@@ -612,7 +632,7 @@ export class Player {
     if (this.melee.active) speed *= .55;
     // Movimiento
     const dir = this._direction.set(x, 0, z);
-    if (camera?.userData?.cameraMode === 'third-person' || this.input?.palancaManda) {
+    if (!this.bicycle && (camera?.userData?.cameraMode === 'third-person' || this.input?.palancaManda)) {
       const forward = camera.getWorldDirection(this._forward);
       forward.y = 0;
       forward.normalize();
@@ -623,12 +643,25 @@ export class Player {
     const inputStrength = Math.min(1, Math.hypot(x, z));
     if (moving) dir.normalize().multiplyScalar(inputStrength);
     let delta;
-    if (this.hasInertia && dt > 0) {
+    if (this.bicycle && dt > 0) {
+      // Control de vehículo: W acelera, S frena y A/D giran el manubrio.
+      // La velocidad siempre permanece alineada con el rumbo; no hay strafe de bicicleta.
+      // El modelo mira hacia +Z: su derecha es -X. Convertir aquí el eje de entrada
+      // mantiene cabrilla, manos e inclinación con el mismo sentido de dirección.
+      this.velocity.copy(this.bicycle.drive(dt, stunned ? 0 : -z, stunned ? 0 : -x, running, this.isGrounded));
+      this.root.rotation.y = this.bicycle.group.rotation.y;
+      dir.copy(this.velocity);
+      delta = this._delta.copy(this.velocity).multiplyScalar(dt);
+    } else if (this.hasInertia && dt > 0) {
       this.velocity ??= new THREE.Vector3();
       const targetSpeed = moving ? speed : 0;
       const targetVelX = moving ? dir.x * targetSpeed : 0;
       const targetVelZ = moving ? dir.z * targetSpeed : 0;
-      const accelRate = this.waterMovement.swimming ? (moving ? 5 : 4) : (moving ? 22 : 18);
+      const accelRate = this.waterMovement.swimming
+        ? (moving ? 5 : 4)
+        : this.bicycle
+          ? (moving ? 5.5 : 1.35)
+          : (moving ? 22 : 18);
       this.velocity.x = THREE.MathUtils.lerp(this.velocity.x, targetVelX, 1 - Math.exp(-accelRate * dt));
       this.velocity.z = THREE.MathUtils.lerp(this.velocity.z, targetVelZ, 1 - Math.exp(-accelRate * dt));
       if (!moving && this.velocity.lengthSq() < 0.0005) {
@@ -648,12 +681,18 @@ export class Player {
     const before = this._before.copy(this.position);
     if (collisions) {
       this.position.copy(
-        collisions.resolveMove(this.position, delta, this.radius, this.position)
+        this.bicycle && collisions.resolveBicycleMove
+          ? collisions.resolveBicycleMove(this.position, delta, this.bicycle, this.position)
+          : collisions.resolveMove(this.position, delta, this.radius, this.position, this.bicycle)
       );
     } else {
       this.position.add(delta);
     }
     this.speed = dt > 0 ? before.distanceTo(this.position) / dt : 0;
+    if (this.bicycle && dt > 0 && this._delta.lengthSq() > .000001 && this.speed < Math.abs(this.bicycle.speed) * .2) {
+      this.bicycle.speed = Math.sign(this.bicycle.speed) * this.speed;
+      this.velocity.set(0, 0, 0);
+    }
     this.isGrounded ??= true;
     this.jumpVelocity ??= 0;
     const resolved = typeof groundHeight === 'function'
@@ -669,6 +708,7 @@ export class Player {
     });
     this.isSwimming = this.waterFrame.swimming;
     this.inWater = this.waterFrame.inWater;
+    if (this.bicycle && this.isSwimming) this.dismountBicycle();
     this.waterDepth = this.waterFrame.depth ?? water?.depth ?? 0;
     if (this.stats && this.waterFrame.energyDrain > 0) this.stats.energia = Math.max(0, (this.stats.energia ?? 100) - this.waterFrame.energyDrain);
     if (this.isSwimming && this.melee.active) {
@@ -714,7 +754,10 @@ export class Player {
     // La velocidad angular se comunica a la capa visual sin modificar la física.
     const previousYaw = this.root.rotation.y;
     // Rotación suave
-    if (moving) {
+    if (this.bicycle) {
+      this._faceYaw = null;
+      this.root.rotation.x = this.root.rotation.z = 0;
+    } else if (moving) {
       this._faceYaw = null;
       const diff = shortestTurn(Math.atan2(dir.x, dir.z) - this.root.rotation.y);
       // Al levantarse voltea solo lo que ya se enderezó: acostado barrería el piso como una aspa.
@@ -722,10 +765,10 @@ export class Player {
       this.root.rotation.y += diff * Math.min(1, 14 * dt) * upright;
 
       // Inclinación centrífuga (banking lateral en giros)
-      const targetBank = THREE.MathUtils.clamp(-diff * (this.isSwimming ? .08 : running ? 0.38 : 0.22), -0.22, 0.22) * upright;
+      const targetBank = THREE.MathUtils.clamp(-diff * (this.isSwimming ? .08 : this.bicycle ? .52 : running ? 0.38 : 0.22), -0.22, 0.22) * upright;
       this.root.rotation.z = THREE.MathUtils.lerp(this.root.rotation.z, targetBank, 1 - Math.exp(-14 * dt));
       // Inclinación hacia adelante con la aceleración
-      this.root.rotation.x = THREE.MathUtils.lerp(this.root.rotation.x, (this.isSwimming ? 0 : running ? 0.08 : 0.02) * upright, 1 - Math.exp(-10 * dt));
+      this.root.rotation.x = THREE.MathUtils.lerp(this.root.rotation.x, (this.isSwimming ? 0 : this.bicycle ? 0.06 : running ? 0.08 : 0.02) * upright, 1 - Math.exp(-10 * dt));
     } else {
       this.root.rotation.z = THREE.MathUtils.lerp(this.root.rotation.z, 0, 1 - Math.exp(-12 * dt));
       this.root.rotation.x = THREE.MathUtils.lerp(this.root.rotation.x, 0, 1 - Math.exp(-10 * dt));
@@ -758,24 +801,33 @@ export class Player {
       this.action = 'golpear';
       this.actionProgress = this.melee.progress;
     } else if (this.action === 'golpear') this.action = null;
-    this.state = this.isSwimming ? (moving ? 'swim' : 'tread') : seated ? 'sit' : !this.isGrounded ? 'jump' : (this.speed < 0.25) ? 'idle' : (running ? 'run' : 'walk');
+    this.state = this.isSwimming ? (moving ? 'swim' : 'tread') : seated ? 'sit' : this.bicycle ? 'bike' : !this.isGrounded ? 'jump' : (this.speed < 0.25) ? 'idle' : (running ? 'run' : 'walk');
     Object.assign(this.movement, {
       grounded: this.isGrounded, verticalVelocity: this.jumpVelocity, airTime: this.airTime,
       landing: this.landing, swimming: this.isSwimming, waterDepth: this.waterDepth,
       surfaceY: this.waterFrame?.surfaceY,
       turnRate: dt > 0 ? (this.root.rotation.y - previousYaw) / dt : 0
     });
+    if (this.bicycle) {
+      const yaw = this.bicycle.group.rotation.y;
+      const travelled = (this.position.x - before.x) * Math.sin(yaw) + (this.position.z - before.z) * Math.cos(yaw);
+      const pedaling = z < -.05 && this.bicycle.speed > 0 || z > .05 && this.bicycle.speed < 0;
+      this.bicycle.advanceAnimation(dt, travelled, this.isGrounded, pedaling);
+    }
+    this.movement.bicycle = this.bicycle;
 
-    const stance = seated ? 'banca' : this._updateBodyLanguage(dt, moving || this.speed >= .25 || stunned || !this.isGrounded || this.isSwimming
+    // Una sola postura mezcla pedaleo, apoyo detenido y pasos de reversa;
+    // estas capas visuales nunca controlan la velocidad ni la raíz física.
+    const stance = seated ? 'banca' : this.bicycle ? 'bicicleta' : this._updateBodyLanguage(dt, moving || this.speed >= .25 || stunned || !this.isGrounded || this.isSwimming
       || !!this.action || this.sorting || !!this.attack || !!this.smoking || !!this.basuco);
 
     // Animación del personaje (velocidad en metros del modelo, no del mundo)
     this.character.update(dt, {
       stance,
-      style: this.bodyStyle,
-      speed: stunned ? 0 : this.speed / this.modelScale,
+      style: this.bicycle ? null : this.bodyStyle,
+      speed: stunned || this.bicycle ? 0 : this.speed / this.modelScale,
       running,
-      action: stunned ? null : this.isSwimming ? null : !this.isGrounded ? 'saltar' : (this.sorting ? 'buscar' : this.action),
+      action: stunned || this.bicycle ? null : this.isSwimming ? null : !this.isGrounded ? 'saltar' : (this.sorting ? 'buscar' : this.action),
       actionProgress: this.actionProgress,
       movement: this.movement,
       attack: this.attack,
@@ -786,6 +838,8 @@ export class Player {
       load: this.load,
       dirt: this.stats ? Math.max(0, (40 - this.stats.higiene) / 40) : 0
     });
+    if (this.bicycle) this.character.group.rotation.z = this.bicycle.visual.rotation.z;
+    else this.character.group.rotation.z = 0;
   }
 
   dispose() {

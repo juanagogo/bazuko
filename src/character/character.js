@@ -5,6 +5,7 @@ import { ActionPose } from './ActionPose.js';
 import { createWeapon } from './props.js';
 import { createCigarette, puffReach, emberGlow } from './smoking.js';
 import { createPipe, createLighter, basucoReach, isLit, BASUCO } from './pipe.js';
+import { BICYCLE, bicycleGrip, bicyclePedal, bicycleGroundFoot } from '../data/bicycle.js';
 
 export { DEFAULT_LOOK };
 
@@ -147,6 +148,23 @@ export function createCharacter(initial = DEFAULT_LOOK) {
   }
   const arms = [armRig(1), armRig(-1)];
   const legs = [legRig(1), legRig(-1)];
+  const cycleTarget = new THREE.Vector3(), cycleGround = new THREE.Vector3(), cycleDir = new THREE.Vector3(), cyclePole = new THREE.Vector3();
+  const cycleJoint = new THREE.Vector3(), cycleAim = new THREE.Vector3();
+  const cycleDown = new THREE.Vector3(0, -1, 0), cycleQ = new THREE.Quaternion();
+  // IK de dos segmentos del personaje geométrico, usando sus articulaciones existentes.
+  function cycleLimb(upper, lower, a, b, target, side) {
+    cycleDir.copy(target).sub(upper.position);
+    const distance = Math.max(.001, Math.min(a + b - .001, cycleDir.length()));
+    cycleDir.normalize();
+    const along = (a * a + distance * distance - b * b) / (2 * distance);
+    cyclePole.set(side * .15, 0, 1).addScaledVector(cycleDir, -cycleDir.z).normalize();
+    cycleJoint.copy(cycleDir).multiplyScalar(along).addScaledVector(cyclePole, Math.sqrt(Math.max(0, a * a - along * along)));
+    upper.quaternion.setFromUnitVectors(cycleDown, cycleAim.copy(cycleJoint).normalize());
+    cycleAim.copy(target).sub(upper.position).sub(cycleJoint);
+    cycleQ.copy(upper.quaternion).invert();
+    cycleAim.applyQuaternion(cycleQ).normalize();
+    lower.quaternion.setFromUnitVectors(cycleDown, cycleAim);
+  }
 
   // contenedores de piezas intercambiables
   const slots = { torso: new THREE.Group(), head: new THREE.Group(), arms: [], legs: [] };
@@ -429,14 +447,15 @@ export function createCharacter(initial = DEFAULT_LOOK) {
     previousProgress = Number.isFinite(actionProgress) ? actionProgress : 0;
     const progress = duration => Number.isFinite(actionProgress) ? clamp01(actionProgress) : clamp01(actionTime / duration);
     idleTime += dt;
-    const detached = movement.swimming || movement.grounded === false;
+    const cycling = movement.bicycle;
+    const detached = !cycling && (movement.swimming || movement.grounded === false);
     const handsBlocked = detached || movement.landing > 0 || action === 'recibirGolpe' || action === 'dormir';
     const pipeAllowed = !handsBlocked && !attack && action !== 'golpear' && speed < .15 && pipeT != null;
     if (handsBlocked || attack || action === 'golpear' || pipeAllowed || point) smoke = null;
     if (!pipeAllowed) pipeT = null;
     if (handsBlocked || attack || smoke || pipeAllowed) lookAt = 0;
     if (cigarette) cigarette.object.visible = !handsBlocked && !attack && action !== 'golpear' && !pipeAllowed;
-    if (weapon) weapon.object.visible = !detached && !pipeAllowed && action !== 'dormir';
+    if (weapon) weapon.object.visible = !cycling && !detached && !pipeAllowed && action !== 'dormir';
     if (basucoProps) {
       basucoProps.pipe.object.visible = pipeAllowed;
       basucoProps.lighter.object.visible = pipeAllowed;
@@ -628,7 +647,39 @@ export function createCharacter(initial = DEFAULT_LOOK) {
     body.rotation.x = -pose.lie * Math.PI / 2;
     body.position.y = pose.lie * 0.3;
     body.position.z = -pose.lie * 0.55;
-    actionPose.apply(dt, { speed, running, action, actionProgress, movement, attack, point });
+    if (cycling) {
+      const scale = root.scale.y || 1.15;
+      const support = cycling.supportFoot ?? 0, reverse = cycling.reverseFoot ?? 0;
+      // Sentado conserva el sillín; al apoyar se adelanta y baja según sus piernas cortas.
+      hips.position.set(0, BICYCLE.seat[1] / scale + .035, BICYCLE.seat[2] / scale);
+      hips.position.x += support * .035 / scale * (1 - reverse);
+      const groundZ = (BICYCLE.seat[2] + .16) / scale;
+      const footX = .25 / scale - .1;
+      const supportHeight = .05 + Math.sqrt(Math.max(.01, .479 ** 2 - (footX - .035 / scale) ** 2 - (.02 / scale - groundZ) ** 2));
+      const reverseHeight = .05 + Math.sqrt(Math.max(.01, .479 ** 2 - footX ** 2 - Math.max(Math.abs(-.25 / scale - groundZ), Math.abs(.1 / scale - groundZ)) ** 2));
+      hips.position.y = lerp(lerp(hips.position.y, supportHeight, support), reverseHeight, reverse);
+      hips.position.z = lerp(lerp(hips.position.z, groundZ, support), groundZ, reverse);
+      torso.rotation.set(.22, 0, 0); body.position.set(0, 0, 0); body.rotation.set(0, 0, 0);
+      head.rotation.set(.04, 1.8 * (cycling.lookBack ?? 0), 0);
+      for (let i = 0; i < 2; i++) {
+        const side = i === 0 ? 'left' : 'right', sign = i === 0 ? 1 : -1;
+        bicyclePedal(side, cycling.pedalPhase, cycleTarget);
+        cycleTarget.y += .05 * scale; cycleTarget.z -= .05 * scale;
+        if (i === 0) cycleTarget.lerp(cycleGround.set(.25, .05 * scale, .02), support);
+        bicycleGroundFoot(side, cycling.reversePhase ?? 0, cycleGround);
+        cycleGround.y += .05 * scale;
+        cycleTarget.lerp(cycleGround, reverse).divideScalar(scale).sub(hips.position);
+        cycleLimb(legs[i].hip, legs[i].knee, .24, .24, cycleTarget, sign);
+        legs[i].foot.quaternion.copy(legs[i].hip.quaternion).multiply(legs[i].knee.quaternion).invert();
+        bicycleGrip(side, cycling.steerAngle, cycleTarget).divideScalar(scale).sub(hips.position);
+        cycleTarget.y += .03;
+        cycleQ.copy(torso.quaternion).invert(); cycleTarget.applyQuaternion(cycleQ);
+        cycleLimb(arms[i].shoulder, arms[i].elbow, .21, .24, cycleTarget, sign);
+      }
+    } else {
+      hips.position.x = hips.position.z = 0;
+      actionPose.apply(dt, { speed, running, action, actionProgress, movement, attack, point });
+    }
 
     // parpadeo
     blink -= dt;

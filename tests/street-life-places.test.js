@@ -59,6 +59,17 @@ test('siempre los mismos sitios: el jugador los aprende', () => {
   assert.deepEqual(streetLifePlaces(city, collisions, { parks }), places);
 });
 
+test('los racks tienen salida y quedan separados de las entradas de transporte', () => {
+  assert.equal(places.bikeStations.length, 3);
+  for (const station of places.bikeStations) {
+    for (const stop of places.transit) assert.ok(Math.hypot(station.x - stop.x, station.z - stop.z) >= 6, station.id);
+    for (const dx of [-2.3, 0, 2.3]) for (const dz of [-1, 0, 1]) {
+      assert.ok(isFreeSpot(city, collisions, station.x + dx, station.z + dz, .5), `${station.id}: rack libre`);
+    }
+    assert.ok([2.8, -2.8].some(dz => isFreeSpot(city, collisions, station.x, station.z + dz, 1)), `${station.id}: salida libre`);
+  }
+});
+
 test('los objetos se arman sin luces y sueltan su geometría al cerrar', () => {
   const s = new THREE.Scene();
   const props = [

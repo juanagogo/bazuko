@@ -108,6 +108,9 @@ Con `npm run dev` activo, abre **/sala.html** (por ejemplo http://localhost:5173
 | `C` o botón Fabricar | Abrir La mesa, desde cualquier parte; junto a la mesa de verdad también abre con `E`. Los botones Costal y Fabricar están abajo a la derecha, con su tecla al lado. |
 | `1`–`5` | Asignar el objeto seleccionado a acceso rápido mientras el costal está abierto; usarlo cuando está cerrado. |
 | `Enter`, `X`, `R` en el costal | Usar, tirar una unidad (Mayús: todo), ordenar. Las flechas o WASD mueven la selección. |
+| `E` junto a una estación o bicicleta | Sacar una bicicleta pública, volver a montar o bajarse por un costado libre. |
+| `W`, `S`, `A/D` en bicicleta | Pedalear, frenar/reversa y girar. Mantener S después de frenar permite retroceder despacio mirando sobre el hombro. Al soltar se conserva el impulso; Mayús permite pedalear más fuerte. |
+| `Espacio` en bicicleta | Saltar con la bicicleta y conservar el impulso en el aire. |
 | `E` | Interactuar con el objetivo cercano. |
 | `E` junto a una persona | Cosquilleo: sale una barra que se detiene con `Espacio` y se cancela con `Esc` (en el mando, `LT` y `B`). Si aciertas, robas poco sin que se den cuenta; si fallas, pueden pillarte, y una patrulla que lo vea te persigue. Robar te deja fichado: ver «Fichado y patrullas». |
 | `Q` junto a una persona | Robo directo: paga más, siempre se nota, la persona puede defenderse si está de pie y una patrulla que lo vea te persigue. Robar te deja fichado: ver «Fichado y patrullas». |
@@ -131,6 +134,8 @@ Con `npm run dev` activo, abre **/sala.html** (por ejemplo http://localhost:5173
 | `X` en la calle | Lanzar si llevas munición; de lo contrario, hacer popó. |
 | `Z` en la calle | Hacer popó. |
 | Clic en una casilla del costal | Ver el objeto en el banco; doble clic o el botón principal lo usan (comer, beber, aplicar, lanzar…). |
+
+Al detener la bicicleta, el personaje apoya un pie; al avanzar vuelve a los pedales. En reversa empuja alternando ambos pies sobre el suelo y mira hacia atrás. A gira a la izquierda del ciclista y D a la derecha. Alquilar cuesta $1.000; devolver la bicicleta a la misma estación entrega $2.000 por honestidad, una vez por alquiler pagado. La misión diaria **Bici de ida y vuelta**, disponible con J junto a las tres misiones rotativas, añade $1.000, 30 XP y 10 de ánimo por completar un alquiler y devolverlo al origen; se premia una vez por día. La estación entrega la bicicleta fuera del rack; después de un golpe queda disponible para volver a subir. Ver [bicicletas e interacción](docs/bicicletas.md).
 
 ### Mando
 

@@ -1,5 +1,5 @@
 // src/systems/DailyMissionSystem.js
-// Sistema de misiones diarias y recompensas: 3 objetivos renovables cada 24 horas (al iniciar nuevo día).
+// Tres objetivos rotativos y un recorrido diario en bicicleta, renovados cada medianoche.
 import { cop } from '../utils/money.js';
 
 export const MISSION_TEMPLATES = [
@@ -74,8 +74,32 @@ export const MISSION_TEMPLATES = [
     target: 1,
     icon: 'tent',
     reward: { dinero: 2500, xp: 30, animo: 20 }
+  },
+  {
+    type: 'bicicleta',
+    title: 'Bici de ida y vuelta',
+    desc: 'Alquila una bicicleta pública por $1.000 y devuélvela a la misma estación. No cuentan las robadas.',
+    target: 1,
+    icon: 'pin',
+    daily: true,
+    reward: { dinero: 1000, xp: 30, animo: 10 }
   }
 ];
+
+function missionFor(template, day) {
+  return {
+    id: `${template.type}_d${day}`,
+    type: template.type,
+    title: template.title,
+    desc: template.desc,
+    target: template.target,
+    progress: 0,
+    completed: false,
+    claimed: false,
+    icon: template.icon,
+    reward: { ...template.reward }
+  };
+}
 
 export class DailyMissionSystem {
   constructor(game = null) {
@@ -99,6 +123,7 @@ export class DailyMissionSystem {
     const onBeg = (e) => { if (e.detail?.success) this.reportProgress('limosna', 1); };
     const onCraft = () => this.reportProgress('crafteo', 1);
     const onSleep = () => this.reportProgress('noche', 1);
+    const onBicycle = () => this.reportProgress('bicicleta', 1);
 
     window.addEventListener('pickup', onPickup);
     window.addEventListener('sell', onSell);
@@ -109,6 +134,7 @@ export class DailyMissionSystem {
     window.addEventListener('beg-result', onBeg);
     window.addEventListener('craft', onCraft);
     window.addEventListener('sleep-end', onSleep);
+    window.addEventListener('bicycle-rental-completed', onBicycle);
 
     this._listeners = [
       ['pickup', onPickup],
@@ -120,6 +146,7 @@ export class DailyMissionSystem {
       ['beg-result', onBeg],
       ['craft', onCraft],
       ['sleep-end', onSleep],
+      ['bicycle-rental-completed', onBicycle],
     ];
   }
 
@@ -137,11 +164,22 @@ export class DailyMissionSystem {
     if (!this.missions || this.missions.length === 0) {
       this.missions = this.generateMissions(day);
     }
+    this._ensureDailyMissions();
   }
 
-  /** Genera 3 misiones diarias con rotación según el número de día */
+  _ensureDailyMissions() {
+    // Incorporar objetivos nuevos sin borrar el progreso de una partida anterior.
+    for (const template of MISSION_TEMPLATES.filter(t => t.daily)) {
+      if (!this.missions.some(m => m.type === template.type)) {
+        this.missions.push(missionFor(template, this.currentDay));
+      }
+    }
+  }
+
+  /** Tres misiones rotativas más los objetivos que se ofrecen todos los días. */
   generateMissions(day) {
-    const total = MISSION_TEMPLATES.length;
+    const rotating = MISSION_TEMPLATES.filter(t => !t.daily);
+    const total = rotating.length;
     const selected = [];
     const usedTypes = new Set();
 
@@ -149,24 +187,13 @@ export class DailyMissionSystem {
     let seed = (day * 7 + 13) % total;
     for (let step = 0; step < total && selected.length < 3; step++) {
       const idx = (seed + step * 3) % total;
-      const t = MISSION_TEMPLATES[idx];
+      const t = rotating[idx];
       if (!usedTypes.has(t.type)) {
         usedTypes.add(t.type);
-        selected.push({
-          id: `${t.type}_d${day}`,
-          type: t.type,
-          title: t.title,
-          desc: t.desc,
-          target: t.target,
-          progress: 0,
-          completed: false,
-          claimed: false,
-          icon: t.icon,
-          reward: { ...t.reward }
-        });
+        selected.push(missionFor(t, day));
       }
     }
-    return selected;
+    return selected.concat(MISSION_TEMPLATES.filter(t => t.daily).map(t => missionFor(t, day)));
   }
 
   /** Notifica avance en misiones del tipo especificado */
@@ -267,5 +294,6 @@ export class DailyMissionSystem {
     } else {
       this.missions = this.generateMissions(this.currentDay);
     }
+    this._ensureDailyMissions();
   }
 }

@@ -13,6 +13,13 @@ export const TRANSIT_ANCHORS = [
   { id: 'metro26', name: 'Metro, Estación Calle 26', sistema: 'Metro', x: 78, z: 205 },
 ];
 
+/** Estaciones de bicicleta pública: junto a nodos de transporte y parques. */
+export const BICYCLE_STATION_ANCHORS = [
+  { id: 'bici-portal', name: 'Bici Portal del Centro', x: 70, z: -11 },
+  { id: 'bici-calle-72', name: 'Bici Calle 72', x: 71, z: 112 },
+  { id: 'bici-parque-lago', name: 'Bici Parque del Lago', x: 78, z: 218 }
+];
+
 /** ¿Cabe aquí una persona parada, con `radius` de holgura, sobre suelo de peatón? */
 export function isFreeSpot(district, collisions, x, z, radius = .7, tiles = SUELO_PEATON) {
   const type = district.tileTypeAt?.(Math.round(x / T), Math.round(z / T));
@@ -83,5 +90,23 @@ export function streetLifePlaces(district, collisions, { parks = [], reserved = 
     const spot = freeSpotNear(district, collisions, a.x, a.z, { maxR: 10 });
     return spot ? [{ ...a, ...spot }] : [];
   });
-  return { pilas, hogar, transit };
+  const bikeStations = [];
+  for (const anchor of BICYCLE_STATION_ANCHORS) {
+    let spot = null;
+    for (let r = 0; r <= 60 && !spot; r += 1) {
+      const steps = r === 0 ? 1 : Math.ceil(Math.PI * 2 * r);
+      for (let i = 0; i < steps; i++) {
+        const x = anchor.x + Math.cos(i / steps * Math.PI * 2) * r;
+        const z = anchor.z + Math.sin(i / steps * Math.PI * 2) * r;
+        if ([...transit, ...pilas, ...bikeStations, ...(hogar ? [hogar] : [])].some(p => Math.hypot(x - p.x, z - p.z) < 6)) continue;
+        // Huella de todo el rack y pasillo de salida, no solo su centro.
+        if (![-2.3, 0, 2.3].every(dx => [-1, 0, 1].every(dz => isFreeSpot(district, collisions, x + dx, z + dz, .5)))) continue;
+        if (![2.8, -2.8].some(dz => isFreeSpot(district, collisions, x, z + dz, 1))) continue;
+        spot = { x, z };
+        break;
+      }
+    }
+    if (spot) bikeStations.push({ ...anchor, ...spot, y: district.getMovementGroundHeight?.(spot.x, spot.z, 0) ?? district.getGroundHeight?.(spot.x, spot.z) ?? 0 });
+  }
+  return { pilas, hogar, transit, bikeStations };
 }

@@ -66,6 +66,8 @@ import { SUBSTANCE_EFFECTS } from '../data/substanceEffects.js';
 import { StealSystem } from '../features/steal.js';
 import { StreetLife } from '../systems/StreetLife.js';
 import { PilaPublica, HogarDePaso, TransitStop } from '../entities/StreetLifeProps.js';
+import { Bicycle, BicycleStation } from '../entities/Bicycle.js';
+import { BICYCLE } from '../data/bicycle.js';
 import { streetLifePlaces } from '../world/bogota/streetLifePlaces.js';
 import { openRadioModal } from '../ui/RadioModal.js';
 
@@ -271,6 +273,8 @@ export class Game {
     this.craftingStation = null;
     this.dog = null;
     this.cart = null;
+    this.bicycles = [];
+    this.bikeStations = [];
     this.overlays = new CinematicOverlays();
     this.momentos = new Momentos();
 
@@ -509,6 +513,27 @@ export class Game {
   clearGpsWaypoint() {
     this.gps?.clear();
     this._syncGpsBeacon();
+  }
+
+  _bicycleStationPoi(station) {
+    const origin = this.bicycles?.some(bike => bike.rentalPaid && bike.rentalOrigin === station.id && bike.status !== 'stolen');
+    return { name: origin ? `Origen del alquiler: ${station.title} (+${cop(BICYCLE.honestReturnReward)})` : station.title,
+      icon: '📍', color: origin ? '#ffd166' : '#3b8990', x: station.position.x, z: station.position.z,
+      fijo: true, rentalOrigin: origin ? station.id : null };
+  }
+
+  markBicycleRentalOrigin(bike) {
+    this._poiCache = null;
+    const station = this.bikeStations?.find(item => item.id === bike.rentalOrigin);
+    if (station && bike.rentalPaid) this.setGpsWaypoint(this._bicycleStationPoi(station), { silent: true });
+  }
+
+  refreshBicycleRentalMap(originId) {
+    this._poiCache = null;
+    const station = this.bikeStations?.find(item => item.id === originId);
+    if (!station || this.bicycles?.some(bike => bike.rentalPaid && bike.rentalOrigin === originId && bike.status !== 'stolen')) return;
+    const oldName = `Origen del alquiler: ${station.title} (+${cop(BICYCLE.honestReturnReward)})`;
+    if (this.gps?.waypoint?.name === oldName) this.clearGpsWaypoint();
   }
 
   setGpsBeaconVisible(visible) {
@@ -827,7 +852,12 @@ export class Game {
   /** Pilas públicas, hogar de paso y entradas al transporte: siempre en los mismos sitios. */
   _spawnStreetLife(district) {
     for (const prop of this._streetProps ?? []) prop.dispose();
+    this.player.dismountBicycle();
+    for (const bike of this.bicycles ?? []) bike.dispose();
+    for (const station of this.bikeStations ?? []) station.dispose();
     this._streetProps = [];
+    this.bicycles = [];
+    this.bikeStations = [];
     const street = this.street;
     if (!street || !district?.tileTypeAt) return;
     const parks = (district.pigeonFlocks ?? []).map((flock) => flock.bounds).filter(Boolean);
@@ -843,6 +873,21 @@ export class Game {
       ? add(new HogarDePaso(this.sceneMgr.scene, new THREE.Vector3(places.hogar.x, ground(places.hogar.x, places.hogar.z), places.hogar.z), places.hogar.rot))
       : null;
     street.stops = places.transit.map((stop) => add(new TransitStop(this.sceneMgr.scene, new THREE.Vector3(stop.x, ground(stop.x, stop.z), stop.z), stop)));
+    street.bikeStations = places.bikeStations.map((spot) => {
+      const station = new BicycleStation(this.sceneMgr.scene, spot);
+      this.bikeStations.push(station);
+      this.interaction.register(station);
+      for (let i = 0; i < Math.min(4, station.capacity); i++) {
+        const bike = new Bicycle(this.sceneMgr.scene,
+          station.dockPosition(i),
+          spot.rot, { id: `${spot.id}-${i + 1}`, stationId: spot.id });
+        station.addBike(bike);
+        bike.dockSlot = i;
+        this.bicycles.push(bike);
+        this.interaction.register(bike);
+      }
+      return station;
+    });
     this._poiCache = null;
   }
 
@@ -930,7 +975,22 @@ export class Game {
       if (data.cart && this.cart) {
         this.cart.loadState(data.cart, this.player, this.inventory);
       }
+      for (const state of data.bicycles ?? []) this.bicycles.find((bike) => bike.id === state.id)?.loadState(state);
+      for (const station of this.bikeStations) station.bikes = [];
+      for (const bike of this.bicycles) {
+        const station = this.bikeStations.find((item) => item.id === bike.stationId);
+        if (station && bike.status === 'available') station.returnBike(bike);
+      }
+      const savedBike = this.bicycles.find((bike) => bike.id === data.player?.bicycleId);
+      if (savedBike && savedBike.status !== 'available') {
+        const stolen = savedBike.status === 'stolen';
+        // mount() solo acepta bicicletas disponibles; al restaurar una partida
+        // convertimos temporalmente el estado guardado en una bicicleta montable.
+        savedBike.status = 'available';
+        savedBike.mount(this.player, stolen);
+      }
       if (data.gps && this.gps) this.setGpsWaypoint({ ...data.gps, name: RENAMED_PLACES[data.gps.name] ?? data.gps.name }, { silent: true });
+      this._poiCache = null;
       if (data.lastComedorHour !== undefined) this.lastComedorHour = data.lastComedorHour;
       this.street?.deserialize(data.street);
       if (data.dailyMissions) this.dailyMissions?.deserialize(data.dailyMissions);
@@ -947,7 +1007,7 @@ export class Game {
       inventory: this.inventory.serialize(),
       talents: this.talents.serialize(),
       diseases: this.diseases.serialize(),
-      player: { pos: this.player.position.toArray() },
+      player: { pos: this.player.position.toArray(), bicycleId: this.player.bicycle?.id ?? null },
       worldLayoutVersion: this.world.active?.layoutVersion ?? 0,
       look: this.look,
       built: this.built,
@@ -956,6 +1016,7 @@ export class Game {
       radio: this.radio ? { isOn: this.radio.isOn, freq: this.radio.frequency, battery: this.radio.battery } : null,
       dog: { isFriend: !!this.dog?.isFriend, look: this.dog?.look ?? null },
       cart: this.cart ? this.cart.saveState() : null,
+      bicycles: this.bicycles.map((bike) => bike.saveState()),
       gps: this.gps?.serialize() ?? null,
       lastComedorHour: this.lastComedorHour,
       dailyMissions: this.dailyMissions?.serialize(),
@@ -1267,6 +1328,7 @@ export class Game {
     const cars = [...(this.cars ?? [])];
     for (const vehicle of this.traffic?.vehicles ?? []) cars.push(vehicle.car);
     this.collisions.setVehicles(cars, this.world.active?.busServices ?? this.world.active?.busService);
+    this.collisions.setBicycles?.(this.bicycles ?? [], this.player?.bicycle);
   }
 
   _loop = (stamp) => {
@@ -1368,6 +1430,7 @@ export class Game {
     const previousX = this.player.position.x, previousZ = this.player.position.z;
     this._syncVehicleColliders?.();
     this._updatePlayerMovement(dt);
+    for (const bike of this.bicycles) bike.update(dt, this.player);
     this.waterEffects?.update(dt, this.player);
     if (this.player.waterFrame?.entered) this.audio.playWaterSplash?.(this.player.waterFrame.entryIntensity);
     this._swimSoundTimer = Math.max(0, (this._swimSoundTimer ?? 0) - dt);
@@ -1473,7 +1536,7 @@ export class Game {
     this.audio.setRaining?.(isRaining);
     // Las pisadas siguen la distancia recorrida en el suelo; en el aire no suenan.
     const travelled = this.player.isGrounded === false || this.player.inWater ? 0 : Math.hypot(this.player.position.x - previousX, this.player.position.z - previousZ);
-    this.audio.updateSteps(moving, this.input.isRunning, groundType, isRaining, travelled, dt);
+    this.audio.updateSteps(moving && !this.player.bicycle, this.input.isRunning, groundType, isRaining, travelled, dt);
     this.audio.updateBoost(this.interaction.boostActive);
     this.overlays?.update?.(dt, this.weather, this.stats, this.psychosis);
     this.profiler?.mark?.('entidadesClimaAudio');
@@ -1581,6 +1644,7 @@ export class Game {
       for (const pila of this.street?.pilas ?? []) this._poiCache.push({ name: 'Pila pública', icon: '💧', color: '#5dade2', x: pila.position.x, z: pila.position.z, fijo: true });
       if (this.street?.hogar) this._poiCache.push({ name: 'Hogar de paso', icon: '🛏', color: '#3b6ea5', x: this.street.hogar.position.x, z: this.street.hogar.position.z, fijo: true });
       for (const stop of this.street?.stops ?? []) this._poiCache.push({ name: stop.stop.name, icon: '🚏', color: stop.stop.sistema === 'Metro' ? '#2f7d4a' : '#b3261e', x: stop.position.x, z: stop.position.z, fijo: true });
+      for (const station of this.bikeStations ?? []) this._poiCache.push(this._bicycleStationPoi(station));
       if (this.cart) this._poiCache.push({ name: 'Carreta', icon: '🛒', x: this.cart.position.x, z: this.cart.position.z, color: '#f39c12' });
       this._dogPOI = friend ? { name: 'El Chato', icon: '🐕', color: '#e6b566' } : null;
       if (this._dogPOI) this._poiCache.push(this._dogPOI);
@@ -1656,7 +1720,8 @@ export class Game {
       this.limpieza?.suv].filter(Boolean);
     this.renderer.dynamicWorldRoots = [
       ...(district?.animated ?? []),
-      ...(district?.busServices ?? [district?.busService].filter(Boolean)).map(bus => bus.group)
+      ...(district?.busServices ?? [district?.busService].filter(Boolean)).map(bus => bus.group),
+      ...this.bicycles.map(bike => bike.group)
     ];
     culling.clear();
     if (this.dog) culling.register(this.dog.group, { dynamic: true, margin: 1 });
@@ -1668,11 +1733,15 @@ export class Game {
     for (const bus of district?.busServices ?? [district?.busService].filter(Boolean)) culling.register(bus.group, { dynamic: true, margin: .5 });
     for (const car of this.cars) culling.register(car.group, { dynamic: true, margin: .5 });
     for (const { car } of this.traffic?.vehicles ?? []) culling.register(car.group, { dynamic: true, margin: .5 });
+    for (const bike of this.bicycles) culling.register(bike.group, { dynamic: true, margin: 1 });
     for (const motos of this.parkedMotos?.children ?? []) culling.register(motos);
   }
 
   stop() {
     this._running = false;
+    this.player.dismountBicycle();
+    for (const bike of this.bicycles) bike.dispose();
+    for (const station of this.bikeStations) station.dispose();
     this.waterEffects?.dispose();
     this.contactShadows?.dispose();
     this.gpsBeacon?.dispose();
