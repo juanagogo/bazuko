@@ -10,6 +10,7 @@ import { SMOKABLES, smokable } from '../character/smoking.js';
 import { itemArtHTML, itemCategory, itemEffectLine } from './itemArt.js';
 import { NEED_META, NEED_LOW, NEED_CRITICAL, NEED_ORDEN, needLevel, masUrgente } from './needsMeta.js';
 import { describeWeather } from '../world/Climate.js';
+import { franjaDe } from '../systems/JornadaSystem.js';
 import { icon, setIcon } from './icons.js';
 import { pasarTexto } from './pictos.js';
 import { modoEntrada, teclaVisible, sinTeclas } from '../core/modoEntrada.js';
@@ -17,7 +18,7 @@ import { Avisos } from './avisos.js';
 import { cierreHTML } from './cierre.js';
 import { cuentaAtras, hora, porcentaje } from './formato.js';
 import { tabDaLaVuelta } from './dom.js';
-import { CAMBUCHE } from '../data/cambuche.js';
+import { CAMBUCHE, textoSinSiesta } from '../data/cambuche.js';
 
 /** Las cuatro filas de siempre, siempre en este orden y en el mismo sitio. */
 const FILAS = ['salud', 'hambre', 'sed', 'energia'];
@@ -104,13 +105,21 @@ export function textoDelPrompt(interaction, inventory) {
   }
   if (type === 'dog') {
     const hasFood = inventory?.items?.some(item => item.qty > 0 && ['pan', 'lataComida', 'carne', 'hueso'].includes(item.id));
-    if (interaction.currentTarget?.isFriend) return '[E] Acariciar a El Chato';
+    const dog = interaction.currentTarget;
+    if (dog?.isFriend && dog.guarding) return '[E] Llamar a El Chato para que me siga';
+    if (dog?.isFriend && dog.cambucheCerca) return '[E] Pedirle a El Chato que cuide el cambuche';
+    if (dog?.isFriend) return '[E] Acariciar a El Chato';
     return hasFood ? '[E] Darle pan o atún a El Chato para que me siga' : '[E] Acariciar a El Chato · Si le traigo pan o una lata de atún, me sigue';
   }
   if (type === 'cambuche') return '[E] Mi cambuche: armar o dormir';
   if (type === 'mesa') return '[E] Fabricar';
   if (type === 'dealer') return '[Q / E] El jíbaro: comprar o vender';
-  if (type === 'cart') return interaction.currentTarget?.isAttached ? '[E] Soltar la carreta' : '[E] Agarrar la carreta (+120 kg)';
+  if (type === 'cart') {
+    const cart = interaction.currentTarget;
+    if (!cart?.isAttached) return '[E] Agarrar la carreta (+120 kg)';
+    // E no la suelta con más carga de la que aguanto sin ella: la tecla dice qué hacer antes.
+    return cart.puedeSoltar?.(inventory) === false ? '[E] Carreta muy cargada · Para soltarla, primero descargo' : '[E] Soltar la carreta';
+  }
   return interaction.stealPrompt ?? '';
 }
 
@@ -120,6 +129,8 @@ const VERBO_CORTO = [
   [/^Limpiar parabrisas/, 'Limpiar vidrio'],
   [/^Darle pan o atún/, 'Darle comida'],
   [/^Acariciar a El Chato/, 'Acariciar'],
+  [/^Pedirle a El Chato que cuide/, 'Dejarlo cuidando'],
+  [/^Llamar a El Chato/, 'Llamar a El Chato'],
   [/^Calentarme/, 'Calentarme'],
   [/^Compartir comida/, 'Compartir'],
   [/^Cuidarlo/, 'Cuidar carro'],
@@ -135,15 +146,20 @@ const VERBO_CORTO = [
   [/^El jíbaro/, 'El jíbaro'],
   [/^Agarrar la carreta/, 'Agarrar carreta'],
   [/^Soltar la carreta/, 'Soltar carreta'],
+  [/^Carreta muy cargada/, 'Carreta cargada'],
   [/^Cosquilleo/, 'Cosquilleo'],
   [/^Mantener: seleccionar/, 'Seleccionar'],
+  [/^Hacer malabares/, 'Malabares'],
 ];
 
-/** Las piezas de la tecla de contexto para el dedo: máximo dos, cortas y sin la nota de al lado. */
-export function piezasParaElDedo(piezas) {
-  return piezas.filter((p) => p.tecla).slice(0, 2).map((p) => ({
-    ...p, verbo: VERBO_CORTO.find(([patron]) => patron.test(p.verbo))?.[1] ?? p.verbo,
-  }));
+const corto = (p) => ({ ...p, verbo: VERBO_CORTO.find(([patron]) => patron.test(p.verbo))?.[1] ?? p.verbo });
+
+/**
+ * Las piezas de la tecla de contexto para el dedo: máximo dos, cortas y sin la nota de al lado. Las del rebusque
+ * (`rebusque`) van después y enteras: su tecla y sus cuentas («Haciendo malabares, 4 s», «rojo 12 s»).
+ */
+export function piezasParaElDedo(piezas, rebusque = []) {
+  return [...piezas.filter((p) => p.tecla).slice(0, 2), ...rebusque].map(corto);
 }
 
 function piezaHTML({ tecla, verbo, sostener }, principal) {
@@ -515,7 +531,8 @@ export class HUD {
 
     window.addEventListener('sleep-end', (e) => this._toast(`Dormí ${e.detail?.hours ?? ''} h. Partida guardada`, 'info'));
     window.addEventListener('sleep-fail', (e) => this._toast(
-      e.detail.reason === 'nobase' ? 'Primero toca armar el cambuche (8 cartones)' : 'Aquí no puedo dormir',
+      e.detail.reason === 'nobase' ? 'Primero toca armar el cambuche (8 cartones)'
+        : e.detail.reason === 'descansado' ? textoSinSiesta(e.detail) : 'Aquí no puedo dormir',
       'warn'
     ));
   }
@@ -599,6 +616,7 @@ export class HUD {
 
     // Reloj
     this._setText(this.clockEl, hora(clock.hour));
+    this._pintarFranja(franjaDe(clock.hour));
     this._setText(this.dayEl, `Día ${clock.day}`);
     this._pintarClima(clock);
     this._pintarPlata(stats.dinero);
@@ -622,10 +640,7 @@ export class HUD {
     }
 
     // La tecla de contexto
-    const base = window.__game?.paused ? '' : textoDelPrompt(interaction, inventory);
-    // El robo de carros pone su tecla al lado de la de contexto.
-    const carro = window.__game?.paused ? null : interaction?.carjackPrompt;
-    this._pintarPrompt([base, carro].filter(Boolean).join(' · '), interaction);
+    this._pintarContexto(interaction, inventory);
 
     this._pintarTarea(window.__game?.street?.task ?? null);
 
@@ -787,6 +802,14 @@ export class HUD {
     this._casillas.forEach?.((casilla, i) => casilla.classList.toggle('elegido', !!arma && inventory.hotbar[i] === arma));
   }
 
+  /** La franja del día marca el reloj: de noche y de madrugada va subrayado, y el título dice qué cambia. */
+  _pintarFranja(franja) {
+    if (!this.clockEl || this._franjaVista === franja.id) return;
+    this._franjaVista = franja.id;
+    this.clockEl.dataset.franja = franja.id;
+    this.clockEl.title = `${franja.label}: ${franja.aviso.slice(franja.aviso.indexOf(': ') + 2)}`;
+  }
+
   /** La hora dice el clima con palabra; la temporada queda en el título. */
   _pintarClima(clock) {
     if (!this.weatherEl) return;
@@ -811,23 +834,33 @@ export class HUD {
     this.moneyEl?.classList?.toggle('plata--larguisima', dinero >= PLATA_LARGUISIMA);
   }
 
+  /** La tecla de contexto y, después, el aviso del rebusque del semáforo. Con la pausa abierta, nada. */
+  _pintarContexto(interaction, inventory) {
+    if (window.__game?.paused) { this._pintarPrompt('', interaction); return; }
+    this._pintarPrompt(textoDelPrompt(interaction, inventory), interaction, interaction?.rebusquePrompt ?? '');
+  }
+
   /** La tecla de contexto se reescribe solo si cambia el texto; mantener Q muestra su progreso de verdad. */
-  _pintarPrompt(texto, interaction) {
+  _pintarPrompt(texto, interaction, rebusque = '') {
     if (!this.promptEl) return;
-    if (texto !== this._promptTexto) {
-      this._promptTexto = texto;
-      if (texto) {
+    const todo = [texto, rebusque].filter(Boolean).join(' · ');
+    const clave = rebusque ? `${texto}|${rebusque}` : texto;
+    if (clave !== this._promptTexto) {
+      this._promptTexto = clave;
+      if (todo) {
         let principal = true;
-        const piezas = piezasDelPrompt(texto);
-        const html = (modoEntrada() === 'tactil' ? piezasParaElDedo(piezas) : piezas).map((p) => {
+        const piezas = modoEntrada() === 'tactil'
+          ? piezasParaElDedo(texto ? piezasDelPrompt(texto) : [], rebusque ? piezasDelPrompt(rebusque) : [])
+          : piezasDelPrompt(todo);
+        const html = piezas.map((p) => {
           const pieza = piezaHTML(p, principal && !!p.tecla);
           if (p.tecla) principal = false;
           return pieza;
         }).join('');
         this._setHTML(this.promptEl, html);
       }
-      this.promptEl.classList.toggle('visible', !!texto);
-      this._sostenerEl = texto ? this.promptEl.querySelector?.('.cx__sostener') ?? null : null;
+      this.promptEl.classList.toggle('visible', !!todo);
+      this._sostenerEl = todo ? this.promptEl.querySelector?.('.cx__sostener') ?? null : null;
       this._sostenerMasa = this._sostenerEl?.querySelector?.('.masa') ?? null;
     }
     if (!this._sostenerEl) return;
@@ -941,6 +974,8 @@ export class HUD {
         const delta = (k === item.consumable ? item.amount : 0) + (k !== item.consumable ? (item[k] ?? 0) : 0);
         if (delta) game.stats[k] = Math.max(0, Math.min(100, game.stats[k] + delta));
       }
+      // Lo que me tomo no es un golpe: la cámara no acusa la salud que quita.
+      game._saludVista = game.stats.salud;
       if (item.calor) {
         game.stats.calor = Math.min(300, (game.stats.calor || 0) + item.calor);
       }

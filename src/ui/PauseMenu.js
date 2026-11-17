@@ -26,7 +26,7 @@ export const PAUSE_TABS = [
 
 export const CONTROL_GROUPS = [
   ['Movimiento', [['WASD', 'Caminar'], ['Shift', 'Correr'], ['Espacio', 'Brincar'], ['Mouse', 'Clic fija la cámara, la rueda acerca'], ['V', 'Vista tercera persona / isométrica']]],
-  ['Acciones', [['E', 'Hacer lo que dice: basura, tiendas, cambuche, carros, pila, estaciones, hogar de paso'], ['Q', 'Mantener para seleccionar basura. También: el jíbaro, cuidar un carro parqueado, compartir comida en la fogata y llenar la botella en la pila'], ['E / Q', 'Junto a una persona: cosquilleo o robo directo'], ['B / L', 'Pedir limosna'], ['F', 'Envión'], ['G / Clic', 'Pegar'], ['X', 'Lanzar / recoger'], ['Z', 'Popó'], ['Y', 'Junto a un carro parqueado: robarlo. Al volante: bajarme']]],
+  ['Acciones', [['E', 'Hacer lo que dice: basura, tiendas, cambuche, carros, pila, estaciones, hogar de paso'], ['Q', 'Mantener para seleccionar basura. También: el jíbaro, cuidar un carro parqueado, compartir comida en la fogata y llenar la botella en la pila'], ['E / Q', 'Junto a una persona: cosquilleo o robo directo'], ['B', 'Pedir limosna. Con pelotas de malabares, frente a la cola de un semáforo en rojo: hacer el show'], ['L', 'Pedir limosna'], ['F', 'Envión'], ['G / Clic', 'Pegar'], ['X', 'Lanzar / recoger'], ['Z', 'Popó']]],
   ['Paneles', [['I / Tab', 'El costal. 1 a 5: acceso rápido'], ['H', 'Estado y necesidades'], ['J', 'Misiones del día'], ['T', 'Mañas'], ['C', 'Fabricar'], ['P', 'Editar personaje'], ['R', 'Radio'], ['K', 'Personaje realista / liviano'], ['F2', 'Foto'], ['F3', 'Panel de rendimiento'], ['Esc', 'Pausa o cerrar panel']]],
   ['Mapa y GPS', [['M', 'Abrir / cerrar el mapa'], ['M, Enter', 'Ruta a lo que más necesito'], ['N', 'Mostrar / ocultar radar'], ['+ / −', 'Acercar o alejar el radar'], ['Clic', 'Marcar destino en el mapa'], ['Clic der. / Supr', 'Quitar destino'], ['Q / E', 'Cambiar de pestaña en la pausa']]],
 ];
@@ -184,7 +184,7 @@ function statePanel(game) {
         card('Tiempo', `Día ${clock.day ?? 1}, ${horaDe(clock.hour ?? 0)}`),
         ...(sky ? [card('Clima', sky.label, sky.glyph),
           card('Temporada', `${game.weather.season.label} (${game.weather.season.months})`, game.weather.season.glyph)] : []),
-        card('El Chato', game.dog?.isFriend ? 'Me acompaña' : 'Sin adoptar', game.dog?.isFriend ? 'dog' : null)),
+        card('El Chato', !game.dog?.isFriend ? 'Sin adoptar' : game.dog.guarding ? 'Cuidando el cambuche' : 'Me acompaña', game.dog?.isFriend ? 'dog' : null)),
       el('div', { class: 'pause-actions' },
         button([`Mañas${puntos ? ` (${puntos})` : ''}`, el('kbd', { text: 'T', 'aria-hidden': 'true' })], {
           onClick: () => { game.menu.close(); game.hud?.toggleTalentPanel?.(); }
