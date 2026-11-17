@@ -10,6 +10,7 @@ import { SMOKABLES, smokable } from '../character/smoking.js';
 import { itemArtHTML, itemCategory, itemEffectLine } from './itemArt.js';
 import { NEED_META, NEED_LOW, NEED_CRITICAL, NEED_ORDEN, needLevel, masUrgente } from './needsMeta.js';
 import { describeWeather } from '../world/Climate.js';
+import { franjaDe } from '../systems/JornadaSystem.js';
 import { icon, setIcon } from './icons.js';
 import { pasarTexto } from './pictos.js';
 import { modoEntrada, teclaVisible, sinTeclas } from '../core/modoEntrada.js';
@@ -611,6 +612,7 @@ export class HUD {
 
     // Reloj
     this._setText(this.clockEl, hora(clock.hour));
+    this._pintarFranja(franjaDe(clock.hour));
     this._setText(this.dayEl, `Día ${clock.day}`);
     this._pintarClima(clock);
     this._pintarPlata(stats.dinero);
@@ -794,6 +796,14 @@ export class HUD {
     if (!inventory?.hotbar) return;
     this._casillas ??= document.querySelectorAll?.('#quickbar .qb-slot') ?? [];
     this._casillas.forEach?.((casilla, i) => casilla.classList.toggle('elegido', !!arma && inventory.hotbar[i] === arma));
+  }
+
+  /** La franja del día marca el reloj: de noche y de madrugada va subrayado, y el título dice qué cambia. */
+  _pintarFranja(franja) {
+    if (!this.clockEl || this._franjaVista === franja.id) return;
+    this._franjaVista = franja.id;
+    this.clockEl.dataset.franja = franja.id;
+    this.clockEl.title = `${franja.label}: ${franja.aviso.slice(franja.aviso.indexOf(': ') + 2)}`;
   }
 
   /** La hora dice el clima con palabra; la temporada queda en el título. */

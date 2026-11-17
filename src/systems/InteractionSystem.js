@@ -644,11 +644,12 @@ export class InteractionSystem {
       return;
     }
 
-    // Dinero recibido: monedas ($200 a $1.500) o billete raro ($5.000 a $10.000)
+    // Dinero recibido: monedas ($200 a $1.500, más o menos según el origen y la franja del día)
+    // o billete raro ($5.000 o $10.000, igual a cualquier hora)
     const isRare = Math.random() < 0.08;
     const amount = isRare
       ? (Math.random() < 0.5 ? 5000 : 10000)
-      : Math.round((2 + Math.random() * 13) * this._origin('begMult')) * 100;
+      : Math.round((2 + Math.random() * 13) * this._origin('begMult') * (this.jornada?.franja?.limosna ?? 1)) * 100;
 
     this.stats.dinero += amount;
     this.stats.animo = Math.min(100, this.stats.animo + (isRare ? 6 : 2));

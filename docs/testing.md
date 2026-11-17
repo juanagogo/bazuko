@@ -199,6 +199,11 @@ node node_modules/@playwright/test/cli.js test --list
 
 La ejecución con renderizado por software sirve para verificar flujos; sus FPS no representan el rendimiento de una GPU real.
 
+## Jornada
+
+- `jornada.test.js`: cada hora cae en su franja, con los bordes; el reloj de verdad pasa de 23:59 a 0:00 y de 5:59 a 6:00 con un solo aviso, y un día entero da los cuatro en orden; sincronizar no avisa; cargar partida a cualquier hora (`Game._aplicarPartida`) no avisa; dormir de noche, de madrugada o de tarde (`Game.sleep`) y despertar a las 6 avisa una vez; los avisos no tutean; el mismo robo saca ×1,35 de noche y ×1,5 de madrugada, multiplicado antes de redondear a $100, el robado que se defiende pega ×1,3 y ×1,5, la patrulla ve ×1,15 de mañana, ×0,75 de noche y ×0,65 de madrugada, sin tocar el cerco de 12 m, y la limosna rinde ×1,1, ×1,2, ×0,7 y ×0,4, sin tocar el billete raro; la tabla solo trae esos factores; el reloj del HUD marca la franja con `data-franja`, subrayado solo de noche y de madrugada, con el título que dice qué cambia.
+- `tests/e2e/jornada.spec.js`: en el juego, al pasar de las 19:59 a las 20:00 sale el aviso una sola vez, el reloj queda con `data-franja="noche"`, subrayado y con su título, y la patrulla ve ×0,75 en vez de ×1,15.
+
 ## Identidad de la interfaz
 
 `letra.test.js` comprueba que el manifiesto diga lo que trae la letra, que todo carácter de un texto del juego exista en ella o en la tabla de dibujos, las cifras de ancho fijo, el peso y que el programa dé lo que está guardado y repita los mismos bytes. `pictos.test.js` comprueba la tabla de dibujos y el paso de los textos. `materiales.test.js` comprueba los seis colores, el contraste, las marcas, el foco único, los 44 px, el movimiento reducido, que nada parpadee, el orden de las hojas y la lluvia.
