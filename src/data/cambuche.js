@@ -39,5 +39,12 @@ export const SLEEP = {
   vicioVela: 15,          // vicio que se calma con vela (en vez de subir)
   roboProb: 0.25,         // probabilidad de robo sin paredes
   roboDinero: 0.4,        // fracción del dinero robado
-  roboMaterial: 0.5       // fracción del material robado
+  roboMaterial: 0.5,      // fracción del material robado
+  siestaEspera: 6,        // horas de juego despierto entre una siesta y la siguiente
+  siestaEnergiaMax: 70    // con más energía que esto no hay sueño para una siesta
 };
+
+/** Por qué no hay siesta, dicho por el personaje. `motivo` es lo que da `Game.motivoSinSiesta`. */
+export function textoSinSiesta(motivo) {
+  return motivo?.horas ? `Ya eché una siesta: puedo echar otra en ${motivo.horas} h.` : 'Todavía no tengo sueño para una siesta.';
+}
