@@ -46,6 +46,7 @@ El tiempo alrededor del render es CPU y envío de órdenes: **no mide el tiempo 
 ## Mantenimiento
 
 - Las cajas estáticas se indexan de nuevo al sustituir su array o cambiar su longitud. Tras mover o modificar una caja ya registrada, llamar a `collisions.invalidateStaticIndex()`.
+- `SpatialGrid` busca cada celda con una llave numérica, `cellKey`: exacta de −16.384 a 16.383 celdas por eje (±262 km con celdas de 16 m) y siempre un entero de 0 a 2³⁰ − 1, de los que V8 guarda sin crear un objeto, así que no deja basura. Medido con la ciudad completa, frente a la llave de texto de antes ahorra entre un 6 y un 8 % de la lógica de un cuadro. `performance-regressions.test.js` falla si dos celdas comparten llave o si una llave deja de ser un entero pequeño, de −2³⁰ a 2³⁰ − 1.
 - Al añadir luces dentro de una rama existente, llamar a `localLights.register(rama)`. Tras mover fuentes marcadas como estáticas, usar `localLights.refreshSources({ static: true })` después de terminar los cambios. Añadir o retirar raíces directamente de la escena ya registra o retira sus luces.
 - Mantener los materiales de lotes cerrados separados de los clones que cambian de opacidad. No liberar geometrías o texturas compartidas al destruir un personaje.
 - Validar con `npm test`, `npm run build` y `npm run test:e2e`. Las pruebas de regresión comparan el barrido indexado con una consulta exhaustiva e incluyen límites de celdas, cajas extensas, limpieza de recursos, recuperación de calidad y estadísticas acotadas.
