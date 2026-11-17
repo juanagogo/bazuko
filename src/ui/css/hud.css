@@ -544,3 +544,22 @@ body.mando kbd:not([data-k], .cx kbd, #steal-ayuda kbd) { display: none; }
   .stat-bar__value { grid-column: 3; }
   .stat-bar[data-level="critical"] .stat-bar__orden { grid-column: 2; }
 }
+
+/* ---------- al volante del carro robado: la velocidad y las teclas ---------- */
+#carjack-hud {
+  position: fixed; z-index: 40;
+  right: calc(20px + var(--safe-r, 0px)); bottom: calc(240px + var(--safe-b, 0px));
+  display: grid; gap: 2px; padding: 6px 12px 7px; text-align: right; pointer-events: none;
+}
+#carjack-hud[hidden] { display: none; }
+#carjack-speed { font-weight: 800; font-size: 30px; line-height: 1; }
+#carjack-hud p { margin: 0; font-weight: 800; font-size: 15px; line-height: 1.2; }
+#carjack-hud kbd { font-size: 13px; }
+.is-photo-mode #carjack-hud { visibility: hidden !important; }
+/* Pantalla baja acostada: bajo la barra de arriba, encima de los botones de abajo. */
+@media (max-height: 500px) and (orientation: landscape) {
+  #carjack-hud { bottom: calc(60px + var(--safe-b, 0px)); padding: 4px 8px 5px; }
+  #carjack-speed { font-size: 22px; }
+  #carjack-hud p { font-size: 12px; }
+  #carjack-hud kbd { font-size: 11px; }
+}

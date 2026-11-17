@@ -131,6 +131,7 @@ Con `npm run dev` activo, abre **/sala.html** (por ejemplo http://localhost:5173
 | `R` en la calle | Abrir o cerrar la radio AM/FM; permite sintonizar emisoras y cambiar pilas. En 890 AM se escuchan boletines de lluvia y de la ciudad. Además de las emisoras inventadas, el dial sintoniza emisoras colombianas reales en vivo, que suenan con internet y caen a la estática cuando no responden. |
 | `X` en la calle | Lanzar si llevas munición; de lo contrario, hacer popó. |
 | `Z` en la calle | Hacer popó. |
+| `Y` junto a un carro parqueado | Forzar la puerta y robarlo. Al volante: `W`, `A`, `S`, `D` manejan, `Espacio` frena, las flechas mueven solo la cámara y `Y` lo baja (frenado y con un lado libre). |
 | Clic en una casilla del costal | Ver el objeto en el banco; doble clic o el botón principal lo usan (comer, beber, aplicar, lanzar…). |
 
 ### Mando
@@ -149,6 +150,7 @@ Funciona con mandos de Xbox, PlayStation o genéricos conectados por USB o Bluet
 | `LB` tocado solo | Cambiar de cámara (`V`), al soltarlo. |
 | `LB` sostenido + `Y` / `X` | Fabricar (`C`) / Mañas (`T`). |
 | `LB` sostenido + cruceta ↑ → ↓ ← / `A` | Casillas 1 a 4 / casilla 5. |
+| `LB` sostenido + `B` | Robar un carro parqueado o bajarse de él (`Y`). |
 | `RB` | Golpear (`G`). |
 | `LT` | Saltar (`Espacio`). |
 | `View` | Mapa (`M`). |

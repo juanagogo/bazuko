@@ -60,6 +60,7 @@ import { RadioSystem } from '../systems/RadioSystem.js';
 import { PoopSystem } from '../systems/PoopSystem.js';
 import { PsychosisSystem } from '../systems/PsychosisSystem.js';
 import { RoadRageSystem } from '../systems/RoadRageSystem.js';
+import { CarjackSystem } from '../systems/CarjackSystem.js';
 import { LimpiezaSocialSystem } from '../systems/LimpiezaSocialSystem.js';
 import { SubstanceEffects } from '../systems/SubstanceEffects.js';
 import { SUBSTANCE_EFFECTS } from '../data/substanceEffects.js';
@@ -159,6 +160,7 @@ export class Game {
     );
     // Conductores que se bajan con una varilla al robarles el retrovisor
     this.roadRage = new RoadRageSystem(this.sceneMgr.scene, { player: this.player, stats: this.stats, audio: this.audio });
+    this.carjack = new CarjackSystem(this);
     this.roadRage.onPlayerHurt = () => { if (this.stats.salud <= 0) this._deathCause = 'golpiza'; };
     window.addEventListener('mirror-stolen', (e) => this.roadRage?.trigger(e.detail?.car));
     // De noche, a veces, llega la camioneta negra de la «limpieza social»
@@ -1124,6 +1126,8 @@ export class Game {
   }
 
   _onVehicleImpact({ speed, direction }) {
+    // Dentro del carro robado los choques los resuelve CarjackSystem.
+    if (this.carjack?.driving) return;
     if (this._deathPending || this.stats.salud <= 0 || (this._vehicleImpactCooldown ?? 0) > 0) return;
     const damage = Math.min(100, Math.max(4, Math.round(.6 * speed ** 2 + 1.5 * speed)));
     this.stats.salud = Math.max(0, this.stats.salud - damage);
@@ -1263,6 +1267,7 @@ export class Game {
     this.waterEffects?.reset();
     this._swimSoundTimer = 0;
     this.traffic?.endPursuit?.();
+    this.carjack?.reset();
     this.roadRage?.reset();
     this.limpieza?.reset();
     this.momentos?.reset();
@@ -1457,7 +1462,9 @@ export class Game {
     this.cameraRig.prepareMovement();
     const previousX = this.player.position.x, previousZ = this.player.position.z;
     this._syncVehicleColliders?.();
-    this._updatePlayerMovement(dt);
+    // Robo de carros: mientras maneja, el carro reemplaza el movimiento a pie.
+    const driving = this._updateCarjack(dt);
+    if (!driving) this._updatePlayerMovement(dt);
     this.waterEffects?.update(dt, this.player);
     if (this.player.waterFrame?.entered) this.audio.playWaterSplash?.(this.player.waterFrame.entryIntensity);
     this._swimSoundTimer = Math.max(0, (this._swimSoundTimer ?? 0) - dt);
@@ -1489,7 +1496,7 @@ export class Game {
     this.diseases.update(dt);
 
     // 7. Interacción (basura, autos, recicladora, tienda, cambuche, dealer)
-    if (!this.player.isStunned) {
+    if (!this.player.isStunned && !driving) {
       // Los temporizadores y la selección de basura terminan normalmente al entrar;
       // nadar no permite comerciar ni iniciar acciones terrestres bajo el agua.
       const controls = this.player.isSwimming
@@ -1501,10 +1508,13 @@ export class Game {
     this.witnesses?.update(dt);
     if (!this.player.isSwimming) this.steal?.update(dt);
     else if (this.steal?.minigameActive) this.steal._endMinigame(false, 'cancel');
+    this.interaction.carjackPrompt = driving ? null : this.carjack?.prompt ?? null;
+    // Al volante no queda ningún aviso de a pie (el retrovisor, el bolsillo) colgando de antes de subirse.
+    if (driving) this.interaction.currentTarget = this.interaction.currentTargetType = this.interaction.stealPrompt = null;
     if (this._handleDeath()) return;
 
     // 7b. Mecánica de popó y lanzamiento a peatones
-    if (!this.player.isStunned && !this.player.isSwimming && this.input.consumePress('KeyX')) {
+    if (!this.player.isStunned && !this.player.isSwimming && !driving && this.input.consumePress('KeyX')) {
       const hasPoop = this.inventory.count('popo') > 0;
       if (hasPoop) {
         this.poopSystem.throwPoop(this.player, this.cameraRig);
@@ -1512,7 +1522,7 @@ export class Game {
         this.poopSystem.poop(this.player);
       }
     }
-    if (!this.player.isStunned && !this.player.isSwimming && this.input.consumePress('KeyZ')) {
+    if (!this.player.isStunned && !this.player.isSwimming && !driving && this.input.consumePress('KeyZ')) {
       this.poopSystem.poop(this.player);
     }
     this.poopSystem.update(dt);
@@ -1559,13 +1569,22 @@ export class Game {
     this.cart?.update(dt, this.player, this.audio);
 
     // 10. Audio
-    const moving = !this.player.isStunned && (this.input.axis.x !== 0 || this.input.axis.z !== 0 || Math.hypot(this.player.position.x - previousX, this.player.position.z - previousZ) > .001);
+    const moving = !this.player.isStunned && !driving && (this.input.axis.x !== 0 || this.input.axis.z !== 0 || Math.hypot(this.player.position.x - previousX, this.player.position.z - previousZ) > .001);
     const groundType = this.world.active?.getGroundTypeAt?.(this.player.position.x, this.player.position.z) ?? 'sidewalk';
     const isRaining = !!this.weather?.isRaining;
-    this.audio.updateWorld?.(dt, this.player.position, this.cameraRig.camera, this.traffic?.vehicles ?? [], this.world.active?.busServices ?? this.world.active?.busService, this.world.active?.npcs ?? []);
+    // El carro robado suena como uno más del tráfico mientras se maneja.
+    let audibles = this.traffic?.vehicles ?? [];
+    if (this.carjack?.audioEntry) {
+      const list = this._audibles ??= [];
+      list.length = 0;
+      for (const vehicle of audibles) list.push(vehicle);
+      list.push(this.carjack.audioEntry);
+      audibles = list;
+    }
+    this.audio.updateWorld?.(dt, this.player.position, this.cameraRig.camera, audibles, this.world.active?.busServices ?? this.world.active?.busService, this.world.active?.npcs ?? []);
     this.audio.setRaining?.(isRaining);
     // Las pisadas siguen la distancia recorrida en el suelo; en el aire no suenan.
-    const travelled = this.player.isGrounded === false || this.player.inWater ? 0 : Math.hypot(this.player.position.x - previousX, this.player.position.z - previousZ);
+    const travelled = driving || this.player.isGrounded === false || this.player.inWater ? 0 : Math.hypot(this.player.position.x - previousX, this.player.position.z - previousZ);
     this.audio.updateSteps(moving, this.input.isRunning, groundType, isRaining, travelled, dt);
     this.audio.updateBoost(this.interaction.boostActive);
     this.overlays?.update?.(dt, this.weather, this.stats, this.psychosis);
@@ -1733,6 +1752,13 @@ export class Game {
     if (this.world?.active) this.world.active.graphicsQuality = quality;
     this.world?.active?.setWetness?.(this.weather?.wetness ?? 0);
     if (notify) window.dispatchEvent(new CustomEvent('toast', { detail: { text: 'Calidad gráfica: ' + quality, type: 'info' } }));
+  }
+
+  /** Avanza el robo de carros; true mientras maneja. Al volante un golpe no lo baja: el carro sigue a cargo. */
+  _updateCarjack(dt) {
+    const inCar = !!(this.carjack?.car || this.carjack?.transition);
+    if (this.player.isSwimming || (!inCar && this.player.isStunned)) return false;
+    return this.carjack?.update(dt, this.input) ?? false;
   }
 
   _updatePlayerMovement(dt) {
