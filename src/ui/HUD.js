@@ -109,6 +109,7 @@ export function textoDelPrompt(interaction, inventory) {
   }
   if (type === 'cambuche') return '[E] Mi cambuche: armar o dormir';
   if (type === 'mesa') return '[E] Fabricar';
+  if (type === 'bench') return interaction.currentTarget?.playerSeated ? '[E] Levantarme de la banca' : '[E] Sentarme en la banca';
   if (type === 'dealer') return '[Q / E] El jíbaro: comprar o vender';
   if (type === 'cart') return interaction.currentTarget?.isAttached ? '[E] Soltar la carreta' : '[E] Agarrar la carreta (+120 kg)';
   return interaction.stealPrompt ?? '';

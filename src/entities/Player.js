@@ -79,6 +79,7 @@ export class Player {
     this._impactTime = 0;
     this._respiroTumbo = 0;
     this.tiradoPor = null;
+    this.benchSeat = null;
 
     // Contenedor raíz (posición + rumbo); el personaje va escalado adentro
     this.root = new THREE.Group();
@@ -408,6 +409,36 @@ export class Player {
     this._faceYaw = Math.atan2(point.x - this.position.x, point.z - this.position.z);
   }
 
+  /** Se sienta en el punto del asiento más cercano al jugador, conservando el suelo físico. */
+  sitOnBench(target) {
+    const spot = target?.spot;
+    if (!spot || this.isSwimming || this.isStunned || this.hasCart || this.sorting || this.action) return false;
+    const sideX = Math.cos(spot.rot), sideZ = -Math.sin(spot.rot);
+    const side = THREE.MathUtils.clamp(
+      (this.position.x - spot.x) * sideX + (this.position.z - spot.z) * sideZ,
+      -.52, .52
+    );
+    const frontX = Math.sin(spot.rot), frontZ = Math.cos(spot.rot);
+    this.position.set(spot.x + frontX * .1 + sideX * side, this.position.y, spot.z + frontZ * .1 + sideZ * side);
+    this.root.position.copy(this.position);
+    this.root.rotation.y = spot.rot;
+    this.root.rotation.x = 0;
+    this.root.rotation.z = 0;
+    this._faceYaw = null;
+    this.velocity.set(0, 0, 0);
+    this.benchSeat = { target, spot };
+    this.state = 'sit';
+    return true;
+  }
+
+  standFromBench() {
+    if (!this.benchSeat) return false;
+    this.benchSeat = null;
+    this.velocity.set(0, 0, 0);
+    this._faceYaw = null;
+    return true;
+  }
+
   /** Anima una acción breve (segundos) */
   playAction(action, duration = 1) {
     if (action !== 'golpear') this.melee?.cancel();
@@ -471,6 +502,7 @@ export class Player {
   }
 
   receiveVehicleImpact(direction, speed, { collisions = this._lastCollisions } = {}) {
+    this.standFromBench();
     this.melee.cancel();
     this.tiradoPor = 'carro';
     if (this.ragdoll.start(direction, speed, collisions)) return;
@@ -485,6 +517,7 @@ export class Player {
    */
   receiveHit(direction, strength = 2, { salud } = {}) {
     if (this.ragdoll?.active) return;
+    this.standFromBench();
     this.melee.cancel();
     this._impactVelocity.copy(direction).setY(0);
     if (this._impactVelocity.lengthSq() < 1e-4) this._impactVelocity.set(0, 0, 1);
@@ -547,7 +580,7 @@ export class Player {
     const wasGrounded = this.isGrounded ?? true;
     // Salto y combate cuerpo a cuerpo estilo GTA
     const wantsJump = typeof this.input?.consumePress === 'function' && (this.input.consumePress('Space') || this.input.consumePress('KeySpace'));
-    if (wantsJump && this.isGrounded && !this.isSwimming && !this.melee.active && !this.isStunned && !this.hasCart && !this.sorting) {
+    if (wantsJump && !this.benchSeat && this.isGrounded && !this.isSwimming && !this.melee.active && !this.isStunned && !this.hasCart && !this.sorting) {
       this.jumpVelocity = 5.2;
       this.isGrounded = false;
       this.playAction('saltar', 0.65);
@@ -556,15 +589,17 @@ export class Player {
 
     const attackBeforeInput = this.attack;
     const wantsPunch = typeof this.input?.consumePress === 'function' && (this.input.consumePress('KeyG') || this.input.consumePress('Mouse0'));
-    if (wantsPunch && !this.isSwimming && !this.isStunned && (!this.action || this.attack) && !this.hasCart && !this.sorting) {
+    if (wantsPunch && !this.benchSeat && !this.isSwimming && !this.isStunned && (!this.action || this.attack) && !this.hasCart && !this.sorting) {
       this.punch();
     }
     const beganAttackThisFrame = !attackBeforeInput && !!this.attack;
 
     // con la pipa en la boca se queda quieto
     const { x = 0, z = 0 } = this.basuco && !this.basuco.stowed ? {} : (this.input?.axis ?? {});
+    if (this.benchSeat && (x !== 0 || z !== 0)) this.standFromBench();
+    const seated = !!this.benchSeat;
     const stunned = this._impactTime > 0;
-    const moving = !stunned && (x !== 0 || z !== 0);
+    const moving = !seated && !stunned && (x !== 0 || z !== 0);
     const running = Boolean(this.input?.isRunning && moving);
     let speed = running ? this.speedRun : this.speedWalk;
     if (this.stats?.getSpeedMultiplier) {
@@ -723,7 +758,7 @@ export class Player {
       this.action = 'golpear';
       this.actionProgress = this.melee.progress;
     } else if (this.action === 'golpear') this.action = null;
-    this.state = this.isSwimming ? (moving ? 'swim' : 'tread') : !this.isGrounded ? 'jump' : (this.speed < 0.25) ? 'idle' : (running ? 'run' : 'walk');
+    this.state = this.isSwimming ? (moving ? 'swim' : 'tread') : seated ? 'sit' : !this.isGrounded ? 'jump' : (this.speed < 0.25) ? 'idle' : (running ? 'run' : 'walk');
     Object.assign(this.movement, {
       grounded: this.isGrounded, verticalVelocity: this.jumpVelocity, airTime: this.airTime,
       landing: this.landing, swimming: this.isSwimming, waterDepth: this.waterDepth,
@@ -731,7 +766,7 @@ export class Player {
       turnRate: dt > 0 ? (this.root.rotation.y - previousYaw) / dt : 0
     });
 
-    const stance = this._updateBodyLanguage(dt, moving || this.speed >= .25 || stunned || !this.isGrounded || this.isSwimming
+    const stance = seated ? 'banca' : this._updateBodyLanguage(dt, moving || this.speed >= .25 || stunned || !this.isGrounded || this.isSwimming
       || !!this.action || this.sorting || !!this.attack || !!this.smoking || !!this.basuco);
 
     // Animación del personaje (velocidad en metros del modelo, no del mundo)

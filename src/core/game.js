@@ -780,6 +780,22 @@ export class Game {
     );
     this.interaction.register(this.shop);
 
+    // Las bancas son puntos interactivos: no tienen una colisión de movimiento
+    // porque el asiento debe poder alcanzarse, pero sí conservan su orientación
+    // y altura para colocar la postura sentada.
+    const player = this.player;
+    this.benches = (district.benchSpots ?? []).map((spot) => {
+      const bench = {
+        kind: 'bench',
+        position: new THREE.Vector3(spot.x, spot.y, spot.z),
+        spot,
+        interactDistance: (point) => Math.hypot(point.x - spot.x, point.z - spot.z),
+        get playerSeated() { return this === player.benchSeat?.target; }
+      };
+      this.interaction.register(bench);
+      return bench;
+    });
+
     // ===== Vendedores ambulantes del distrito (chazas, fritanga) y fogatas de El Cartucho =====
     for (const v of district.vendors ?? []) this.interaction.register(v);
     for (const fb of district.fireBarrels ?? []) this.interaction.register(fb);
