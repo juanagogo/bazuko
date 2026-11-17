@@ -165,7 +165,7 @@ El diseño, las constantes y las medidas están en [animacion-salto.md](animacio
 
 `building-details.test.js` comprueba límites de geometría, agrupación por pared, alineación de ventanas y brillo nocturno en las dos vistas. `urban-trees.test.js`, `urban-planting.test.js` y `park-vegetation.test.js` verifican semillas, materiales compartidos, viento, reservas, agua y presupuestos. `vegetation-lifecycle.test.js` construye y libera el arbolado integrado para detectar recursos huérfanos o liberaciones duplicadas, incluyendo los materiales de profundidad.
 
-`shadow-every.test.js` usa el `Renderer` y el descarte de verdad, con un sol que sigue al jugador: en media la sombra del sol se pinta en 5 de cada 10 imágenes y en alta en todas, a más de 9 m/s o tras un salto de lugar o de hora (también tras una pausa) se pinta en todas, corriendo o girando la cámara no, cambiar de calidad la pinta en la imagen siguiente, lo que pide pintarla sigue funcionando, la foto del arresto no adelanta la cuenta y, en las imágenes sin pasada, el mapa se lee con la matriz con que se pintó y el jugador sale con la pose de esa imagen.
+`shared-surface-maps.test.js` graba cada orden de dibujo de las fachadas y los andenes en todos los barrios y falla si el relieve, la rugosidad o las ventanas encendidas cambian con el barrio; arma la ciudad y comprueba que esas imágenes se guardan una vez por variante (cada barrio conserva su textura, con sus ajustes, y su color), y que soltar la ciudad libera cada textura una sola vez.
 
 ## Ciudad, tráfico y luz
 
