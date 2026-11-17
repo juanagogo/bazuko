@@ -10,10 +10,11 @@ import { createCharacter } from '../character/character.js';
 import { createRealisticCharacter, REALISTIC_SCALE } from '../character/RealisticCharacter.js';
 import { PlayerRagdoll } from '../systems/PlayerRagdoll.js';
 import { MeleeCombat } from '../systems/MeleeCombat.js';
-import { WaterMovement } from '../systems/WaterMovement.js';
+import { WATER_MOVEMENT, WaterMovement } from '../systems/WaterMovement.js';
 import { WEAPONS, DEFAULT_WEAPON } from '../data/weapons.js';
 import { SMOKE_DURATION, PUFF_INTERVAL, FIRST_PUFF, PUFF, PUFF_LENGTH, isExhaling, smokable, SmokePuffs } from '../character/smoking.js';
 import { BASUCO, BASUCO_LENGTH, BASUCO_TOTAL, isBasucoExhaling } from '../character/pipe.js';
+import { HARD_LANDING, JUMP, hardBrake, hardLanding, hardSlide, landingDuration, landingImpact, smoothstep, stepVertical, timeToGround } from '../character/jumpMotion.js';
 
 const shortestTurn = angle => Math.atan2(Math.sin(angle), Math.cos(angle));
 // El protagonista vive en la calle: anda cansado aunque tenga energía.
@@ -59,7 +60,24 @@ export class Player {
     this.waterFrame = null;
     this.airTime = 0;
     this.landing = 0;
-    this.movement = { grounded: true, verticalVelocity: 0, airTime: 0, landing: 0, swimming: false, waterDepth: 0 };
+    // Salto: margen tras salir del borde, salto pedido en el aire, corte al soltar y cómo se aterrizó.
+    this._coyote = 0;
+    this._jumpBuffer = 0;
+    this._jumpCut = false;
+    this._launchSpeed = 0;
+    this._airPeak = 0;
+    this._recovery = .22;
+    this._vertical = { y: 0, vy: 0 };
+    this.landingTime = Infinity;
+    this.landingImpact = 0;
+    this.landingSpeed = 0;
+    // Velocidad horizontal con que tocó el suelo: el frenazo de un golpe fuerte sale de ella (`hardBrake`).
+    this._landingVelocity = 0;
+    // Rampa: el piso del cuadro anterior y lo que sube el de debajo por segundo y por metro de avance.
+    this._groundAt = { x: 0, z: 0, y: 0, slope: 0, known: false };
+    this._groundRate = this._groundSlope = 0;
+    this.movement = { grounded: true, verticalVelocity: 0, airTime: 0, landing: 0, swimming: false, waterDepth: 0,
+      launchSpeed: 0, groundGap: 0, timeToGround: 0, groundRate: 0, groundSlope: 0, fallHeight: 0, overWater: false, landingTime: Infinity, landingImpact: 0, landingSpeed: 0, stunned: false };
     this.input = input;
     this.scene = scene;
     this.stats = stats;
@@ -423,6 +441,8 @@ export class Player {
     this._impactVelocity.set(0, 0, 0);
     this._impactTime = 0;
     this.landing = 0;
+    this.landingTime = Infinity;
+    this._jumpBuffer = this._coyote = 0;
   }
 
   /** Dormir congela la simulación, no el cuerpo: se acuesta y sigue así hasta que Game lo despierta. */
@@ -500,6 +520,9 @@ export class Player {
     this._impactTime = Math.max(this._impactTime, .3);
   }
 
+  /** Cuánto va la cadera visible por debajo de la raíz (el empuje del salto): la sombra de contacto sigue al cuerpo. */
+  get bodyDrop() { return this.character?.jumpHipDrop ?? 0; }
+
   get isStunned() { return !!this.ragdoll?.active || this._impactTime > 0; }
   get isRagdollActive() { return !!this.ragdoll?.active; }
 
@@ -519,8 +542,20 @@ export class Player {
     this.waterMovement.reset();
     this.isSwimming = this.inWater = false;
     this.waterDepth = this.airTime = this.landing = 0;
+    this._coyote = this._jumpBuffer = this._launchSpeed = this._airPeak = 0;
+    this._jumpCut = false;
+    this.landingTime = Infinity;
+    this.landingImpact = this.landingSpeed = 0;
+    this._groundAt.known = false;
     this.waterFrame = null;
     this.melee.cancel();
+  }
+
+  /** ¿Sigue oprimido el salto? Sin teclado que lo diga (pruebas, visor) cuenta como sostenido. */
+  _jumpHeld() {
+    const input = this.input;
+    if (typeof input?.isDown !== 'function') return true;
+    return input.isDown('Space') || input.isDown('KeySpace');
   }
 
   update(dt, camera, collisions, groundHeight = null, npcs = [], waterInfo = null) {
@@ -528,6 +563,10 @@ export class Player {
     this._lastCollisions = collisions;
     if (this._respiroTumbo > 0) this._respiroTumbo -= dt;
     if (this.ragdoll?.active) {
+      // Tumbado no se puede saltar ni sigue el aterrizaje: no queda guardado nada que salga al levantarse.
+      this._jumpBuffer = this._coyote = 0;
+      this.landing = this.landingImpact = this.landingSpeed = 0;
+      this.landingTime = Infinity;
       this.melee.cancel();
       this.stopSmoking(); // el cigarrillo se cae al salir volando
       this.stopBasuco();
@@ -542,14 +581,32 @@ export class Player {
       this.actionProgress = Math.min(1, 1 - Math.max(0, this.actionTimer) / (this.actionDuration || 1));
       if (this.actionTimer <= 0) this.action = null;
     }
-    this.landing = Math.max(0, this.landing - dt / .22);
+    // El aterrizaje dura según el golpe: un saltito se recupera en 0,18 s y una caída fuerte en 0,45 s,
+    // contados desde el instante del contacto (`landingTime`), no desde el final de aquel cuadro.
+    this.landingTime += dt;
+    this.landing = this.landing > 0 ? Math.max(0, 1 - this.landingTime / this._recovery) : 0;
 
     const wasGrounded = this.isGrounded ?? true;
     // Salto y combate cuerpo a cuerpo estilo GTA
-    const wantsJump = typeof this.input?.consumePress === 'function' && (this.input.consumePress('Space') || this.input.consumePress('KeySpace'));
-    if (wantsJump && this.isGrounded && !this.isSwimming && !this.melee.active && !this.isStunned && !this.hasCart && !this.sorting) {
-      this.jumpVelocity = 5.2;
+    const pressedJump = typeof this.input?.consumePress === 'function' && (this.input.consumePress('Space') || this.input.consumePress('KeySpace'));
+    // Recién salido de un borde todavía se puede saltar (coyote); un salto pedido justo antes de tocar el
+    // suelo se recuerda y sale al apoyar (búfer). Un salto ya dado no deja coyote, y mientras algo impide
+    // saltar (nadar, pegar, aturdido, la zorra, buscar) no se guarda nada que salga después.
+    const jumpBlocked = this.isSwimming || this.melee.active || this.isStunned || this.hasCart || this.sorting;
+    this._coyote = jumpBlocked ? 0 : wasGrounded ? JUMP.coyoteTime : Math.max(0, this._coyote - dt);
+    this._jumpBuffer = jumpBlocked ? 0 : Math.max(0, this._jumpBuffer - dt);
+    const onFoot = this.isGrounded || this._coyote > 0;
+    if (pressedJump && !onFoot && !jumpBlocked) this._jumpBuffer = JUMP.bufferTime;
+    const wantsJump = pressedJump || (this.isGrounded && this._jumpBuffer > 0);
+    if (wantsJump && onFoot && !jumpBlocked) {
+      // El impulso es inmediato: la pose muestra el empuje sin retrasar el mando.
+      this.jumpVelocity = this._launchSpeed = JUMP.launchSpeed;
       this.isGrounded = false;
+      this._coyote = this._jumpBuffer = 0;
+      this._jumpCut = false;
+      this.airTime = 0; // un salto desde el coyote cuenta su propio tiempo de vuelo
+      this.landing = 0;
+      this.landingTime = Infinity;
       this.playAction('saltar', 0.65);
       this.audio?.playJump?.();
     }
@@ -590,12 +647,28 @@ export class Player {
     let delta;
     if (this.hasInertia && dt > 0) {
       this.velocity ??= new THREE.Vector3();
-      const targetSpeed = moving ? speed : 0;
+      // Tras un aterrizaje medio-fuerte el cuerpo tarda en volver a la velocidad de antes (0,6 al tocar).
+      // Un golpe fuerte lleva una sola curva (`hardBrake`): patina ~14 cm, se queda quieto en el fondo y
+      // recupera la marcha mientras se levanta.
+      const hard = this.landing > 0 ? hardLanding(this.landingSpeed) : 0;
+      const heavy = smoothstep(.35, .8, this.landingImpact) * this.landing * (1 - hard);
+      const brake = hard ? 1 - hard * (1 - hardBrake(this.landingTime)) : 1;
+      const targetSpeed = moving ? speed * (1 - JUMP.landingSlow * heavy) * brake : 0;
       const targetVelX = moving ? dir.x * targetSpeed : 0;
       const targetVelZ = moving ? dir.z * targetSpeed : 0;
-      const accelRate = this.waterMovement.swimming ? (moving ? 5 : 4) : (moving ? 22 : 18);
+      // En el aire queda poco control: el arco se lee balístico.
+      const air = !this.isGrounded && !this.waterMovement.swimming ? JUMP.airControl : 1;
+      const accelRate = (this.waterMovement.swimming ? (moving ? 5 : 4) : (moving ? 22 : 18)) * air;
       this.velocity.x = THREE.MathUtils.lerp(this.velocity.x, targetVelX, 1 - Math.exp(-accelRate * dt));
       this.velocity.z = THREE.MathUtils.lerp(this.velocity.z, targetVelZ, 1 - Math.exp(-accelRate * dt));
+      // Mientras frena, la curva manda: cada cuadro avanza lo que la curva avanza en ese tramo (`hardSlide`),
+      // así que el patinazo es el mismo a cualquier FPS.
+      if (hard && this.landingTime < HARD_LANDING.fall + HARD_LANDING.hold) {
+        const t = this.landingTime, span = Math.min(dt, t);
+        const average = span > 0 ? (hardSlide(t) - hardSlide(t - span)) / span : hardBrake(t);
+        const cap = this._landingVelocity * (1 - hard * (1 - average)), now = Math.hypot(this.velocity.x, this.velocity.z);
+        if (now > cap) this.velocity.multiplyScalar(cap / now);
+      }
       if (!moving && this.velocity.lengthSq() < 0.0005) {
         this.velocity.set(0, 0, 0);
       }
@@ -627,6 +700,18 @@ export class Player {
       }) : 0;
     const surface = typeof resolved === 'number' ? { height: resolved, layer: 'ground' } : resolved;
     const groundY = Number.isFinite(surface?.height) ? surface.height : 0;
+    // En una rampa el piso de debajo sube (o baja) mientras avanza: el tiempo hasta el suelo y el golpe lo cuentan.
+    // Un bordillo, un escalón o un borde no son rampa: cambian más que `JUMP.rampSlope` por metro de avance, o la
+    // pendiente no es la del cuadro anterior (`JUMP.rampBend`), y cuentan como piso plano.
+    // Un cuadro sin tiempo no mide nada: la rampa sigue siendo la del cuadro anterior.
+    const ramp = this._groundAt, run = Math.hypot(this.position.x - ramp.x, this.position.z - ramp.z);
+    if (dt > 0 || !ramp.known) {
+      const slope = ramp.known && dt > 0 && run > 1e-4 ? (groundY - ramp.y) / run : 0;
+      const sloped = slope !== 0 && Math.abs(slope) <= JUMP.rampSlope && Math.abs(slope - ramp.slope) <= JUMP.rampBend;
+      this._groundRate = sloped ? slope * run / dt : 0;
+      this._groundSlope = sloped ? slope : 0;
+      ramp.x = this.position.x; ramp.z = this.position.z; ramp.y = groundY; ramp.slope = slope; ramp.known = true;
+    }
     const water = typeof waterInfo === 'function' ? waterInfo(this.position.x, this.position.z) : null;
     this.waterFrame = this.waterMovement.update(dt, {
       water, feetY: this.position.y, verticalVelocity: this.jumpVelocity, grounded: this.isGrounded,
@@ -647,23 +732,91 @@ export class Player {
     if (!this.waterFrame.handlesVertical && this.isGrounded && typeof groundHeight === 'function' && before.y - groundY > .6) {
       this.isGrounded = false;
       this.jumpVelocity = 0;
+      this._launchSpeed = 0;
+      this._airPeak = before.y;
     }
     if (this.waterFrame.handlesVertical) {
       this.position.y = this.waterFrame.feetY;
       this.jumpVelocity = this.waterFrame.verticalVelocity;
       this.isGrounded = this.waterFrame.grounded;
       this.groundSurface = { height: groundY, layer: 'ground' };
+      // En el agua el salto con que se entró ya terminó: al salir no es un despegue ni una caída desde su cima.
+      this._launchSpeed = 0;
+      this._jumpCut = false;
+      this._airPeak = this.position.y;
     } else if (!this.isGrounded) {
-      this.jumpVelocity -= 17.0 * dt;
-      this.position.y += this.jumpVelocity * dt;
+      if (wasGrounded) this._airPeak = this.position.y;
+      const v = this._vertical;
+      let y = this.position.y, vy = this.jumpVelocity, left = dt;
+      // Soltar antes del ápice recorta la subida, pero nunca antes de una subida mínima. El corte entra en
+      // su instante dentro del cuadro (`minHold` después de despegar): el toque sube lo mismo a cualquier FPS.
+      if (!this._jumpCut && this._launchSpeed > 0 && vy > 0 && !this._jumpHeld()) {
+        const until = Math.max(0, JUMP.minHold - this.airTime);
+        if (until <= left) {
+          stepVertical(v, y, vy, until, true);
+          y = v.y; vy = v.vy; left -= until;
+          if (vy > 0) {
+            vy *= JUMP.cutFactor;
+            // El impulso de referencia se recorta igual: la pose (vy / impulso) sigue sin saltar.
+            this._launchSpeed *= JUMP.cutFactor;
+          }
+          this._jumpCut = true;
+        }
+      }
+      const floaty = this._launchSpeed > 0;
+      stepVertical(v, y, vy, left, floaty);
+      this.position.y = v.y;
+      this.jumpVelocity = v.vy;
+      this._airPeak = Math.max(this._airPeak, this.position.y);
       // La pendiente también puede alcanzar los pies al avanzar cuesta arriba,
       // incluso antes del ápice; la superficie ya respeta la capa de despegue.
       if (this.position.y <= groundY) {
+        // El golpe es la velocidad en el instante del contacto, dentro del cuadro, y no la de después de
+        // atravesar el piso: el mismo salto se dobla y frena igual a cualquier FPS.
+        // En una rampa el piso venía subiendo (o bajando) con el avance de este cuadro, y el golpe es la velocidad
+        // contra el piso (la normal): cuesta arriba el suelo sale al encuentro y cuesta abajo acompaña la caída.
+        const rate = this._groundRate;
+        const gap = y - (groundY - rate * left);
+        const contact = gap > 0 ? Math.min(left, timeToGround(gap, vy, floaty, rate)) : 0;
+        const contactVy = contact > 0 ? stepVertical(v, y, vy, contact, floaty).vy : vy;
+        const contactSpeed = rate ? Math.max(0, (rate - contactVy) / Math.hypot(1, this._groundSlope)) : Math.abs(contactVy);
+        const impact = landingImpact(contactSpeed), hard = hardLanding(contactSpeed);
         this.position.y = groundY;
         this.jumpVelocity = 0;
         this.isGrounded = true;
         this.groundSurface = surface;
+        // El golpe decide cuánto se dobla y cuánto tarda en recuperarse; el aterrizaje empezó en el contacto.
+        this._recovery = landingDuration(contactSpeed);
+        // `landing` vale 1 en el cuadro del contacto (la señal de siempre) y luego baja con `landingTime`.
+        this.landingTime = left - contact;
         this.landing = 1;
+        this.landingImpact = impact;
+        this.landingSpeed = contactSpeed;
+        this._launchSpeed = 0;
+        this.velocity?.multiplyScalar(1 - JUMP.landingSlow * smoothstep(.35, .8, impact) * (1 - hard));
+        this._landingVelocity = this.velocity ? Math.hypot(this.velocity.x, this.velocity.z) : 0;
+        if (hard > 0 && this._landingVelocity > 0) {
+          // Este cuadro ya avanzó a toda marcha después de tocar: se descuenta lo que la curva no habría
+          // avanzado (sin pasar de lo que de verdad se movió, por si un muro lo frenó).
+          const extra = this._landingVelocity * hard * (this.landingTime - hardSlide(this.landingTime));
+          const moved = Math.hypot(this.position.x - before.x, this.position.z - before.z);
+          const back = Math.min(extra, moved) / this._landingVelocity;
+          this.position.x -= this.velocity.x * back;
+          this.position.z -= this.velocity.z * back;
+          // En una rampa el piso de un poco más atrás está a otra altura: se apoya ahí, en la misma capa.
+          if (back > 0 && typeof groundHeight === 'function') {
+            const landed = (this._landedAt ??= new THREE.Vector3())
+              .set(this.position.x + this.velocity.x * back, groundY, this.position.z + this.velocity.z * back);
+            const again = groundHeight(this.position.x, this.position.z, { from: landed, grounded: true, surface });
+            const height = typeof again === 'number' ? again : again?.height;
+            if (Number.isFinite(height)) {
+              this.position.y = height;
+              this.groundSurface = typeof again === 'number' ? { height, layer: 'ground' } : again;
+            }
+          }
+        }
+        // La pose del aterrizaje sale de `landing`; la acción del salto no debe tapar un golpe ni la pipa.
+        if (this.action === 'saltar') { this.action = null; this.actionTimer = 0; }
         this.audio?.playLanding?.();
       }
     } else if (typeof groundHeight === 'function') {
@@ -724,12 +877,25 @@ export class Player {
       this.actionProgress = this.melee.progress;
     } else if (this.action === 'golpear') this.action = null;
     this.state = this.isSwimming ? (moving ? 'swim' : 'tread') : !this.isGrounded ? 'jump' : (this.speed < 0.25) ? 'idle' : (running ? 'run' : 'walk');
-    Object.assign(this.movement, {
-      grounded: this.isGrounded, verticalVelocity: this.jumpVelocity, airTime: this.airTime,
-      landing: this.landing, swimming: this.isSwimming, waterDepth: this.waterDepth,
-      surfaceY: this.waterFrame?.surfaceY,
-      turnRate: dt > 0 ? (this.root.rotation.y - previousYaw) / dt : 0
-    });
+    const airborne = !this.isGrounded && !this.isSwimming;
+    const gap = airborne ? Math.max(0, this.position.y - groundY) : 0;
+    // La pose del salto sale de aquí: impulso, distancia y tiempo hasta el suelo, y el aterrizaje. Se escribe
+    // campo a campo para no crear un objeto por cuadro.
+    const m = this.movement;
+    m.grounded = this.isGrounded; m.verticalVelocity = this.jumpVelocity; m.airTime = this.airTime;
+    m.landing = this.landing; m.swimming = this.isSwimming; m.waterDepth = this.waterDepth;
+    m.surfaceY = this.waterFrame?.surfaceY;
+    m.turnRate = dt > 0 ? (this.root.rotation.y - previousYaw) / dt : 0;
+    m.launchSpeed = airborne ? this._launchSpeed : 0; m.groundGap = gap;
+    m.groundRate = this._groundRate; m.groundSlope = this._groundSlope;
+    m.timeToGround = airborne ? timeToGround(gap, this.jumpVelocity, this._launchSpeed > 0, this._groundRate) : 0;
+    m.fallHeight = airborne ? Math.max(0, this._airPeak - groundY) : 0;
+    // Debajo hay agua en la que se entra nadando (el lago, no el tablero de un puente sobre él): la pose no
+    // busca el suelo ni se prepara para un golpe.
+    m.overWater = airborne && water?.surfaceY > groundY && water.depth >= WATER_MOVEMENT.swimEnterDepth;
+    m.landingTime = this.landingTime; m.landingImpact = this.landingImpact; m.landingSpeed = this.landingSpeed;
+    // Aturdido (un golpe, un carro) la pose suelta los pies clavados del aterrizaje.
+    m.stunned = stunned;
 
     const stance = this._updateBodyLanguage(dt, moving || this.speed >= .25 || stunned || !this.isGrounded || this.isSwimming
       || !!this.action || this.sorting || !!this.attack || !!this.smoking || !!this.basuco);

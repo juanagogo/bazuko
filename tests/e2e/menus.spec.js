@@ -144,6 +144,53 @@ test('la carreta se ve en el indicador mientras se lleva', async ({ page }) => {
   await expect(page.locator('#cart-indicator')).toBeHidden();
 });
 
+test('con más carga de la que aguanto sin ella, E no suelta la carreta y la tecla dice qué hacer; descargado, sí', async ({ page }) => {
+  await entrar(page, { width: 1280, height: 800 });
+  await page.evaluate(() => {
+    window.__avisos = [];
+    new MutationObserver((cambios) => {
+      for (const { addedNodes } of cambios) for (const n of addedNodes) if (n.classList?.contains('loot-toast')) window.__avisos.push(n.textContent);
+    }).observe(document.body, { childList: true });
+    // Al lado de la carreta, lejos del cambuche y de El Chato.
+    const game = window.__game, player = game.player, at = game.cart.position;
+    player.position.set(at.x - 1.2, game.world.active.getMovementGroundHeight(at.x - 1.2, at.z, 0), at.z);
+    player.root.position.copy(player.position); player.velocity.set(0, 0, 0); player.resetGrounding();
+  });
+  const aviso = (texto) => expect.poll(() => page.evaluate(() => window.__avisos)).toContainEqual(expect.stringContaining(texto));
+  const prompt = page.locator('#interaction-prompt');
+  await expect(prompt).toContainText('Agarrar la carreta');
+  await page.keyboard.press('e');
+  await aviso('Enganché la carreta');
+  await expect(page.locator('#cart-indicator')).toBeVisible();
+
+  // Cargo más de lo que aguanto sin la carreta.
+  const sinCarreta = await page.evaluate(async () => {
+    const game = window.__game, { ITEMS } = await import('/src/data/items.js');
+    const sin = game.inventory.maxWeight - game.cart.capacityBonus;
+    game.inventory.clear();
+    if (!game.inventory.add(ITEMS.chatarra, Math.ceil((sin + 10) / ITEMS.chatarra.weight))) throw new Error('no cupo la chatarra');
+    return sin;
+  });
+  await expect(prompt).toContainText('Carreta muy cargada');
+  await expect(prompt).toContainText('Para soltarla, primero descargo');
+  await expect(prompt).not.toContainText('Soltar la carreta');
+  await page.keyboard.press('e');
+  await aviso('Tengo que descargar antes de dejar la carreta');
+  expect(await page.evaluate(() => [window.__game.cart.isAttached, window.__game.player.hasCart])).toEqual([true, true]);
+  await expect(page.locator('#cart-indicator')).toBeVisible();
+
+  // Vendo o boto lo que sobra, y entonces sí la dejo.
+  await page.evaluate((sin) => {
+    const { inventory } = window.__game, chatarra = inventory.items.find((i) => i.id === 'chatarra');
+    inventory.remove('chatarra', chatarra.qty - Math.floor(sin / 2 / chatarra.weight));
+  }, sinCarreta);
+  await expect(prompt).toContainText('Soltar la carreta');
+  await page.keyboard.press('e');
+  await aviso('Dejé la carreta aquí');
+  expect(await page.evaluate(() => [window.__game.cart.isAttached, window.__game.player.hasCart])).toEqual([false, false]);
+  await expect(page.locator('#cart-indicator')).toBeHidden();
+});
+
 test('sin ratón: Q y E recorren la pausa, las flechas el costal, y el foco se ve', async ({ page }) => {
   await entrar(page, { width: 1280, height: 800 });
   await page.keyboard.press('Escape');

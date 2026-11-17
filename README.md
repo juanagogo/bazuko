@@ -99,7 +99,7 @@ Con `npm run dev` activo, abre **/sala.html** (por ejemplo http://localhost:5173
 | --- | --- |
 | `W`, `A`, `S`, `D` | Moverse. En tercera persona, el movimiento sigue el rumbo de la cámara. |
 | `Shift` | Correr; nadar más rápido si queda energía. |
-| `Espacio` | Saltar; también permite lanzarse al lago desde tierra. |
+| `Espacio` | Saltar: sostenido sube más que un toque, sale aunque se pulse un instante antes de tocar el suelo o recién salido de un borde, y en el aire queda poco control. También permite lanzarse al lago desde tierra. |
 | `V` o botón de cámara | Alternar entre tercera persona e isométrica. |
 | Clic izquierdo en la calle | Fijar el ratón para girar la cámara en tercera persona. |
 | Arrastrar con botón izquierdo/derecho o flechas | Girar la cámara sin fijar el ratón. |
@@ -162,9 +162,9 @@ Los materiales del cambuche aparecen en bolsas de basura repartidas por nueve zo
 1. Recorre los andenes y acércate a los objetos para ver las acciones disponibles.
 2. Recoge materiales y véndelos en la recicladora para conseguir dinero.
 3. Compra comida y agua y consúmelas desde el costal.
-4. Construye y mejora el cambuche para poder descansar. Su menú muestra una vista previa del modelo terminado, incluso antes de reunir los materiales.
+4. Construye y mejora el cambuche para poder descansar. Su menú muestra una vista previa del modelo terminado, incluso antes de reunir los materiales. De noche se duerme hasta las 6:00; de día solo cabe una siesta de 3 h, con la energía en 70 o menos y después de 6 horas despierto desde la anterior. El botón dice por qué no, y la espera se guarda con la partida.
 
-La partida guarda datos localmente en el navegador al crear o editar el personaje, al dormir y con **Guardar partida ahora** en el menú de pausa. También conserva la amistad de El Chato, las preferencias de cámara, radar, calidad y volumen. Los datos dependen del navegador y de la dirección desde la que juegas; no hay sincronización entre dispositivos.
+La partida guarda datos localmente en el navegador al crear o editar el personaje, al dormir, al caer preso o morir y con **Guardar partida ahora** en el menú de pausa. Recargar la página con la primera plana o el cartón de la muerte abiertos, o con el cuerpo aún en el aire tras un atropello, no se salta lo que cuestan: se paga al cargar, una sola vez. También conserva la amistad de El Chato, las preferencias de cámara, radar, calidad y volumen. Los datos dependen del navegador y de la dirección desde la que juegas; no hay sincronización entre dispositivos.
 
 Al cruzar delante de un carro, este intenta frenar progresivamente. Si te atraviesas demasiado cerca, puede atropellarte: el daño depende de la velocidad y puede ser mortal. El golpe activa un ragdoll articulado y lanza al personaje hacia arriba y hacia delante según la velocidad. Si sobrevive, se levanta después de caer; si muere, la pantalla de recuperación espera a que termine la caída. El conductor sigue frenando hasta detenerse y espera brevemente antes de continuar. Los vehículos en movimiento y estacionados tienen colisiones mediante cajas invisibles simples, sin calcular los triángulos de sus modelos.
 
@@ -191,7 +191,7 @@ Si la salud llega a cero, el juego se pausa y muestra una pantalla de recuperaci
 - **Caleta:** el cambuche tiene una solapa «Caleta» para guardar lo que no se quiere cargar. Cabe más con cada pieza armada y no se pierde al morir ni en un arresto; sin paredes, a veces la encuentran cuando roban de noche.
 - **Fama en la calle:** los parceros y los de las chazas recuerdan lo que haces cerca de ellos. Compartir comida en la fogata (**Q**) y cuidar carros sube; robar o pelear cerca baja. Con buena fama avisan cuando viene la camioneta, fían y rebajan; con mala no dejan arrimar a la fogata y cobran más. Se consulta en la pestaña Estado.
 - **Cuidar carros:** **Q** junto a un carro parqueado. Si te quedas cerca hasta que vuelve el dueño, deja propina.
-- **Comida que se daña y armas que se gastan:** empanadas, morcilla, papa, café y aguapanela se dañan en horas; el pan dura día y medio. Cuchillo, botella picada y arma casera se parten después de cierto número de golpes. Las casillas del costal muestran lo que queda.
+- **Comida que se daña y armas que se gastan:** empanadas, morcilla y papa duran un día de juego; café y aguapanela, medio día, y el pan, tres días. Cuchillo, botella picada y arma casera se parten después de cierto número de golpes. Las casillas del costal muestran lo que queda.
 - **Agua y pila:** la botella vacía se llena con lluvia fuerte o en una de las tres pilas públicas de los parques, donde además te puedes lavar (con jabón, mejor).
 - **Transporte:** desde el Portal del Centro y las estaciones del Metro se viaja pagando el pasaje o colándose, con riesgo de que te pillen.
 - **Hogar de paso:** de 18:00 a 23:00, una noche bajo techo con ducha, comida y sin robos, sin entrar sustancias ni armas.
@@ -276,6 +276,8 @@ La compilación se genera en `dist/`. Abre la dirección que muestre el comando 
 
 Las pruebas de navegador con Playwright y su instalación se explican en [docs/testing.md](docs/testing.md). Incluyen creación del personaje, fabricación, ayuda, inventario y pausa. Antes de ejecutarlas, instala Chromium como indica esa guía.
 
+Para revisar una animación del jugador cuadro a cuadro, `tools/animacion/tiras.mjs` toma tiras de fotogramas en la sala con un Vite ya abierto y mide tirones y patinaje de los pies; el uso está en [salto, caída y aterrizaje](docs/animacion-salto.md#medir).
+
 Para ejecutar las pruebas con el runner de Node.js:
 
 ```sh
@@ -316,7 +318,7 @@ Integra los cambios de `juanagogo/bazuko` hasta `77f66bd`: radio AM/FM sintetiza
 
 ### Animaciones del personaje
 
-El personaje realista usa movimientos de Quaternius exportados con ActionForge para buscar, pedir, consumir, agacharse y lanzar. Andar, correr y estar de pie se hornean una vez por cuerpo mezclando un andar erguido con Sad Walk y Running de Mixamo, en varias familias de paso. Encima va una capa de postura y forma de llevar el cuerpo, en el modelo completo y en el liviano: manos en los bolsillos, sentarse, hablar por teléfono, una caída con brazos y piernas. Quien no la usa no paga nada. La mezcla caminar/correr mantiene una fase compartida y ajusta la cadencia a la zancada real, con movimiento secundario de torso y peso. Salto, aterrizaje, puñetazo, reacción y natación se articulan sobre cada esqueleto sin modificar los clips compartidos. El salto sigue el vuelo físico, incluso mientras se corre. Cada arma y paso del combo define su preparación, impacto y recuperación; el contacto respeta distancia, orientación, altura y obstáculos. El NPC reacciona, huye o cae temporalmente al quedarse sin salud. Se conserva la personalización, el modelo liviano y el ragdoll. El banco optimizado contiene ocho clips sin duplicar texturas; consulta [procedencia y adaptación](docs/animaciones-actionforge.md).
+El personaje realista usa movimientos de Quaternius exportados con ActionForge para buscar, pedir, consumir, agacharse y lanzar. Andar, correr y estar de pie se hornean una vez por cuerpo mezclando un andar erguido con Sad Walk y Running de Mixamo, en varias familias de paso. Encima va una capa de postura y forma de llevar el cuerpo, en el modelo completo y en el liviano: manos en los bolsillos, sentarse, hablar por teléfono, una caída con brazos y piernas. Quien no la usa no paga nada. La mezcla caminar/correr mantiene una fase compartida y ajusta la cadencia a la zancada real, con movimiento secundario de torso y peso. Salto, aterrizaje, puñetazo, reacción y natación se articulan sobre cada esqueleto sin modificar los clips compartidos. El salto sigue el vuelo físico, incluso mientras se corre: parado se agacha antes de subir, corriendo la zancada sigue en el aire hasta la próxima pisada, y el aterrizaje es más hondo cuanto más alto se cae; desde unos 2,3 m de caída (del todo desde unos 3 m) es un golpe fuerte que frena la marcha y deja al personaje un instante en sentadilla, con una mano hacia el piso. La cámara acompaña el salto y la caída con resortes, y el arco y el golpe son los mismos a cualquier FPS. Ver [salto, caída y aterrizaje](docs/animacion-salto.md). Cada arma y paso del combo define su preparación, impacto y recuperación; el contacto respeta distancia, orientación, altura y obstáculos. El NPC reacciona, huye o cae temporalmente al quedarse sin salud. Se conserva la personalización, el modelo liviano y el ragdoll. El banco optimizado contiene ocho clips sin duplicar texturas; consulta [procedencia y adaptación](docs/animaciones-actionforge.md).
 
 La sala tiene un banco de revisión independiente con nueve clips de **Mixamo preparados en Blender**, incluidos Old Man Idle y Sad Walk para una postura cansada y contenida. Se abre con `sala.html?prueba=personaje&animaciones=mixamo-preview` o con el selector **Mixamo + Blender**. Conserva las duraciones originales de los gestos y permite comparar con el banco actual. Para probarlos en la ciudad, abrir `/?animaciones=mixamo-preview`; comer y agacharse se complementan con ActionForge. La entrada habitual del juego usa solo tres de esos clips, recortados. Consulta la [selección de clips, dónde se usa Mixamo y el proceso de Blender](tools/personaje/MIXAMO.md).
 
