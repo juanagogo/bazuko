@@ -2,6 +2,8 @@ import * as THREE from 'three';
 import { PALETTES, DEFAULT_LOOK, normalizeLook } from './look.js';
 import { animationDamping } from './SecondaryMotion.js';
 import { ActionPose } from './ActionPose.js';
+import { airborneStride, hardLanding } from './jumpMotion.js';
+import { criticalSpring, spring } from './springs.js';
 import { createWeapon } from './props.js';
 import { createCigarette, puffReach, emberGlow } from './smoking.js';
 import { createPipe, createLighter, basucoReach, isLit, BASUCO } from './pipe.js';
@@ -13,6 +15,12 @@ const clamp01 = value => Math.min(1, Math.max(0, value));
 const ease = (start, end, value) => {
   const u = clamp01((value - start) / (end - start));
   return u * u * (3 - 2 * u);
+};
+const TAU = Math.PI * 2;
+/** Fase (rad) que falta para llegar a `goal` avanzando; una pisada recién alcanzada cuenta como 0. */
+const phaseAhead = (phase, goal) => {
+  const d = ((goal - phase) % TAU + TAU) % TAU;
+  return d > TAU - 1e-6 ? 0 : d;
 };
 const lam = (color) => new THREE.MeshLambertMaterial({ color });
 
@@ -362,6 +370,9 @@ export function createCharacter(initial = DEFAULT_LOOK) {
   const pose = { lean: 0, twist: 0, sway: 0, armLx: 0, armRx: 0, armLz: 0, armRz: 0, elbL: 0, elbR: 0, legL: 0, legR: 0, kneeL: 0, kneeR: 0, bob: 0, crouch: 0, lie: 0, headX: 0, headY: 0 };
   let phase = 0;
   let actionTime = 0, previousAction = null, previousProgress = 0;
+  // Lo que la cadera todavía debe de la altura que tenía al despegar o al tocar el suelo (ver `update`).
+  const hipLag = spring();
+  let wasDetached = null;
   let idleTime = Math.random() * 20;
   let blink = 2;
   const ragdollRig = { hips, spine: torso, head,
@@ -441,14 +452,26 @@ export function createCharacter(initial = DEFAULT_LOOK) {
       basucoProps.pipe.object.visible = pipeAllowed;
       basucoProps.lighter.object.visible = pipeAllowed;
     }
-    const gaitSpeed = detached ? 0 : speed;
+    // En el aire sigue el paso; la fase se estira hasta la próxima pisada (como en el modelo completo).
+    const airborne = movement.grounded === false && !movement.swimming;
+    const gaitSpeed = movement.swimming ? 0 : speed;
+    let stepFoot = 0;
     const target = { lean: 0, twist: 0, sway: 0, armLx: 0, armRx: 0, armLz: 0.12, armRz: -0.12, elbL: -0.2, elbR: -0.2, legL: 0, legR: 0, kneeL: 0, kneeR: 0, bob: 0, crouch: 0, lie: 0, headX: 0, headY: lookAt };
     const amp = Math.min(1, gaitSpeed / 3) * (running ? 1 : .78);
     if (gaitSpeed > 0.15) {
       // La fase sigue la distancia, no el reloj: al frenar el pie no sigue dando pasos.
       // Una vuelta contiene dos apoyos; el corredor usa una zancada más larga.
       const stride = lerp(2.1, 3.4, Math.min(1, Math.max(0, (gaitSpeed - 3) / 3)));
-      phase = (phase + dt * gaitSpeed / stride * Math.PI * 2) % (Math.PI * 2);
+      let step = dt * gaitSpeed / stride * Math.PI * 2;
+      const toGround = movement.timeToGround;
+      if (airborne && toGround > 0 && Number.isFinite(toGround)) {
+        // Cada pie llega adelante en π/2 (el derecho) y 3π/2 (el izquierdo): la pisada siguiente coincide
+        // con el contacto; se estira o se apura hasta 1,8 veces, lento en el ápice (`airborneStride`).
+        const right = phaseAhead(phase, Math.PI / 2), left = phaseAhead(phase, Math.PI * 1.5);
+        stepFoot = left <= right ? 1 : -1;
+        step = Math.min(step * 1.8, airborneStride(Math.min(left, right), toGround, dt, movement.verticalVelocity, movement.launchSpeed > 0) * dt);
+      }
+      phase = (phase + step) % (Math.PI * 2);
       const s = Math.sin(phase);
       // La rodilla se recoge durante el paso de recuperación y cede al apoyar.
       const leftSwing = Math.max(0, -Math.cos(phase));
@@ -624,11 +647,18 @@ export function createCharacter(initial = DEFAULT_LOOK) {
     lR.foot.rotation.x = -pose.legR - pose.kneeR;
     const support = (leg, knee) => .24 * Math.cos(leg) + .24 * Math.cos(leg + knee) + .04;
     const groundSupport = Math.max(support(pose.legL, pose.kneeL), support(pose.legR, pose.kneeR));
-    hips.position.y = detached ? .52 : lerp(groundSupport, .52, pose.lie);
+    // En el aire la cadera va a la altura de las piernas estiradas y en el piso a la del apoyo (corriendo,
+    // ~7 cm más abajo). En un golpe fuerte, con los pies clavados en el piso, esa diferencia se suelta en
+    // ~0,12 s y no en el cuadro del contacto; en un aterrizaje normal los pies son los del paso y la cadera
+    // baja con ellos.
+    const hipY = detached ? .52 : lerp(groundSupport, .52, pose.lie);
+    if (wasDetached === true && !detached) hipLag.x += (hips.position.y - hipY) * hardLanding(movement.landingSpeed);
+    wasDetached = detached;
+    hips.position.y = hipY + criticalSpring(hipLag, 0, 4.7 / .12, dt);
     body.rotation.x = -pose.lie * Math.PI / 2;
     body.position.y = pose.lie * 0.3;
     body.position.z = -pose.lie * 0.55;
-    actionPose.apply(dt, { speed, running, action, actionProgress, movement, attack, point });
+    actionPose.apply(dt, { speed, running, action, actionProgress, movement, attack, point, step: stepFoot });
 
     // parpadeo
     blink -= dt;
@@ -648,6 +678,8 @@ export function createCharacter(initial = DEFAULT_LOOK) {
     get look() { return look; },
     /** Cuánto sigue acostado, de 0 (de pie) a 1 */
     get sleepWeight() { return pose.lie; },
+    /** Cuánto baja la cadera visible respecto a la raíz por el salto (m) */
+    get jumpHipDrop() { return actionPose.jumpHipDrop; },
     setLook(l) {
       look = normalizeLook(l);
       build();

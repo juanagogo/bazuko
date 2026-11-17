@@ -38,6 +38,8 @@ const onSidewalk = (npc, point = npc.position) => npc.navigation?.isSidewalkAt?.
 function canTalk(npc) {
   if (!npc?.person || npc.talk || npc._bubbleEl) return false;
   if (npc.koState || npc.fleeTimer > 0 || npc.panicTimer > 0 || npc.isVendor || npc._riseLeft > 0) return false;
+  // Pendiente de otra cosa (mira una pelea o va hacia ella, se asustó): ver entities/npc/mind.js.
+  if (npc.mind?.busy()) return false;
   // Sentado, acurrucado, pidiendo o dormido no entra en una charla de pie; con el celular o fumando tampoco.
   if (LOW_STANCES.has(npc.stance) || BUSY_STANCES.has(npc.stance)) return false;
   // Un fijo que va o vuelve de su sitio no se para: en la calle armaría un atasco.
