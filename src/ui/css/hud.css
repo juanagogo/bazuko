@@ -243,16 +243,22 @@ body.mojado #quickbar .qb-slot.elegido::after { border-image-source: var(--m-cir
 .dock-key { font-size: 15px; }
 #camera-controls {
   position: fixed; z-index: 40;
-  right: calc(322px + var(--safe-r)); bottom: calc(104px + var(--safe-b));
+  /* A la izquierda de la barra de paneles, midiendo su ancho real (PanelDock.js). */
+  right: calc(30px + var(--panel-dock-w, 435px) + var(--safe-r)); bottom: calc(104px + var(--safe-b));
 }
 #camera-toggle.cinta { min-height: 42px; padding: 4px 9px; font-size: 19px; }
 #camera-toggle kbd { font-size: 15px; }
-#camera-hint { position: absolute; right: 0; bottom: calc(100% + 10px); display: none; width: 280px; font-size: 16px; line-height: 1.2; }
+/* La pista queda donde estaba, a 322px del borde, aunque la cámara se corra a la izquierda: así no pisa el radar. */
+#camera-hint { position: absolute; right: calc(292px - var(--panel-dock-w, 435px)); bottom: calc(100% + 10px); display: none; width: 280px; font-size: 16px; line-height: 1.2; }
 #camera-controls:focus-within #camera-hint { display: block; }
-#controls-help { position: fixed; z-index: 40; right: calc(412px + var(--safe-r)); bottom: calc(104px + var(--safe-b)); }
+#controls-help {
+  --ayuda-r: calc(50px + var(--panel-dock-w, 435px) + var(--camera-w, 70px)); /* a la izquierda de la cámara */
+  position: fixed; z-index: 40; right: calc(var(--ayuda-r) + var(--safe-r)); bottom: calc(104px + var(--safe-b));
+}
 #controls-help-toggle { min-width: 42px; min-height: 42px; padding: 4px 9px; font-size: 19px; white-space: nowrap; }
 #controls-help-content {
-  position: absolute; right: 0; bottom: calc(100% + 10px);
+  /* El cartón queda donde estaba, entre el radar y 412px del borde, aunque la ayuda se corra a la izquierda. */
+  position: absolute; right: calc(412px - var(--ayuda-r)); bottom: calc(100% + 10px);
   width: min(560px, calc(100vw - 788px)); max-height: 58vh; overflow: auto; /* sin pisar el radar, que tiene sus botones */
   display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 5px 16px;
   font-size: 16px; line-height: 1.15;
@@ -318,8 +324,9 @@ body.is-loading :is(#performance-panel, #quickbar, #hud-dock, #panel-dock) { vis
 /* ==================== 1280 y ventanas medianas ==================== */
 @media (max-width: 1100px) {
   #camera-controls { right: calc(20px + var(--safe-r)); bottom: calc(154px + var(--safe-b)); }
+  #camera-hint { right: 0; }
   #controls-help { right: calc(110px + var(--safe-r)); bottom: calc(154px + var(--safe-b)); }
-  #controls-help-content { width: min(560px, calc(100vw - 486px)); }
+  #controls-help-content { right: 0; width: min(560px, calc(100vw - 486px)); }
   #interaction-prompt { max-width: 30vw; }
   #boost-indicator { right: calc(240px + var(--safe-r)); bottom: calc(204px + var(--safe-b)); }
 }
