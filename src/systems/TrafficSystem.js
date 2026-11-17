@@ -360,6 +360,27 @@ export class TrafficSystem {
     return alerted;
   }
 
+  /**
+   * Un testigo llamó: la patrulla libre más cercana al sitio de la llamada sale a perseguir sin haberlo visto. Solo
+   * las que están a menos de lo que una persecución aguanta del sitio y también del jugador (`player`, donde está
+   * ahora): si no, desistiría al cuadro siguiente por una persecución que nunca empezó. Con una persecución en curso
+   * no cambia nada: ya lo están buscando.
+   */
+  dispatchTo(position, player = position) {
+    if (!position || this.inPursuit) return false;
+    const rangeSq = POLICE_GIVE_UP_RANGE * POLICE_GIVE_UP_RANGE;
+    const sq = (a, b) => (a.x - b.x) ** 2 + (a.z - b.z) ** 2;
+    let best = null, bestSq = rangeSq;
+    for (const vehicle of this.vehicles) {
+      if (!vehicle.police || vehicle.state !== 'patrol' || vehicle.rejoinTarget || vehicle.hold) continue;
+      const distSq = sq(vehicle.car.position, position);
+      if (distSq < bestSq && sq(vehicle.car.position, player ?? position) < rangeSq) { bestSq = distSq; best = vehicle; }
+    }
+    if (!best) return false;
+    this._startChase(best);
+    return true;
+  }
+
   _startChase(vehicle) {
     vehicle.state = 'chase';
     vehicle.chaseTime = 0;

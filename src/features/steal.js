@@ -343,6 +343,7 @@ export class StealSystem {
         npc?.alarmedByTheft?.(this.game.player.position);
         this._toast('¡Me pillaron con las manos en la masa! El peatón gritó.', 'death');
         this._robbed(npc, true);
+        this.game.witnesses?.report?.('robo', npc);
         // De último: los avisos caen uno encima del otro y este es el que hay que alcanzar a leer.
         this._alertPolice();
       } else {
@@ -359,6 +360,7 @@ export class StealSystem {
     this.buscado = Math.min(3, this.buscado + 1);
     this._giveLoot(CONFIG.lootMoneyDirect, false);
     this._robbed(npc, true);
+    this.game.witnesses?.report?.('robo', npc);
     // Quien está en el piso o en la banca no alcanza a defenderse: bastante hace con pararse.
     const down = LOW_STANCES.has(npc.stance);
     npc.alarmedByTheft?.(this.game.player.position);
