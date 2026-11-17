@@ -25,6 +25,7 @@ import { BodyLanguage } from './BodyLanguage.js';
 import { bakeStances } from './stances.js';
 import { preparePlayback, blendAnimationWeights, HipBlend } from './AnimationPlayback.js';
 import { shareImages } from './sharedImages.js';
+import { shareSkeletons } from './sharedSkeleton.js';
 
 const MODEL_BASE = `${import.meta.env?.BASE_URL ?? '/'}models/`;
 const BASE = `${MODEL_BASE}personaje/`;
@@ -416,6 +417,7 @@ async function buildInstance(catalog, look, lod = false, profile = resolveAnimat
     clips = groundedClipCache.get(key);
   }
 
+  shareSkeletons(root);
   const mixer = new THREE.AnimationMixer(root);
   const actions = {};
   for (const [name, clip] of Object.entries(clips)) {
