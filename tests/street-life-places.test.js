@@ -17,7 +17,7 @@ mock.module('../src/character/RealisticCharacter.js', { namedExports: {
 } });
 const { Bogota } = await import('../src/world/districts/Bogota.js');
 const { streetLifePlaces, isFreeSpot, TRANSIT_ANCHORS } = await import('../src/world/bogota/streetLifePlaces.js');
-const { PilaPublica, HogarDePaso, TransitStop } = await import('../src/entities/StreetLifeProps.js');
+const { PilaPublica, HogarDePaso, Residencia, TransitStop } = await import('../src/entities/StreetLifeProps.js');
 
 const city = new Bogota(), scene = new THREE.Scene(), collisions = new CollisionSystem();
 city.build(scene, collisions);
@@ -55,6 +55,16 @@ test('las tres paradas del transporte existen, se llega a pie y no hay cajas enc
   }
 });
 
+test('la residencia tiene otra puerta accesible, separada del hogar gratuito y de los racks', () => {
+  const r = places.residencia;
+  assert.ok(r, 'hay residencia');
+  assert.equal(city.tileTypeAt(Math.round(r.x / 2), Math.round(r.z / 2)), 'sidewalk');
+  assert.ok(isFreeSpot(city, collisions, r.x, r.z, .9));
+  assert.ok(gps.isRoutable(r.x, r.z));
+  assert.ok(gps.setWaypoint({ ...r, name: 'Residencia' }, { x: city.reserved.bed.x, z: city.reserved.bed.z + 3.2 }));
+  for (const p of [places.hogar, ...places.bikeStations]) assert.ok(Math.hypot(r.x - p.x, r.z - p.z) >= 12);
+});
+
 test('siempre los mismos sitios: el jugador los aprende', () => {
   assert.deepEqual(streetLifePlaces(city, collisions, { parks }), places);
 });
@@ -73,13 +83,13 @@ test('los racks tienen salida y quedan separados de las entradas de transporte',
 test('los objetos se arman sin luces y sueltan su geometría al cerrar', () => {
   const s = new THREE.Scene();
   const props = [
-    new PilaPublica(s, new THREE.Vector3()), new HogarDePaso(s, new THREE.Vector3()),
+    new PilaPublica(s, new THREE.Vector3()), new HogarDePaso(s, new THREE.Vector3()), new Residencia(s, new THREE.Vector3()),
     new TransitStop(s, new THREE.Vector3(), { name: 'Prueba', sistema: 'Metro' })
   ];
   let lights = 0;
   s.traverse((o) => { if (o.isLight) lights++; });
   assert.equal(lights, 0);
-  assert.deepEqual(props.map((p) => p.kind), ['pila', 'hogar', 'transit']);
+  assert.deepEqual(props.map((p) => p.kind), ['pila', 'hogar', 'residencia', 'transit']);
   for (const p of props) p.dispose();
   assert.equal(s.children.length, 0);
 });

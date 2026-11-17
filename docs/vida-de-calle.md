@@ -64,9 +64,18 @@ Torniquetes en el Portal del Centro (TransMilenio) y en las estaciones del Metro
 
 Una puerta con reja y letrero contra una fachada. Se entra de 18:00 a 23:00 y hay cupo tres de cada cuatro noches, siempre el mismo para un mismo día. Las sustancias se entregan y no vuelven; las armas se dejan en la portería y se devuelven al salir, con su desgaste. La noche da +70 de energía, +25 de salud, +45 de hambre y de sed, higiene de 85 o más y ningún robo, pero el vicio baja 25 porque adentro no se consume. La ventana muestra las reglas con lo que pasa en cada una antes de entrar.
 
+## Residencia y bancas
+
+La **Residencia El Descanso** tiene otra puerta, sobre un andén accesible y separada del hogar gratuito y las bicicletas. E abre su menú: cuesta $8.000 por 8 horas, a cualquier hora. Recupera 80 de energía, 20 de salud, 30 de ánimo y 25 de higiene. No incluye comida ni agua: ambas necesidades bajan 20. No retiene armas ni sustancias y no hay robo. El cobro ocurre solo al iniciar un descanso válido; abrir o cerrar el menú no cobra y repetir la acción mientras duerme tampoco.
+
+En una banca, **E** conserva sentarse y levantarse; **Q** abre el descanso gratuito de 3 horas. El personaje dormita sentado, con las manos en el regazo y los pies en el suelo; al despertar sigue sentado y puede levantarse con E o caminar. Recupera 25 de energía y 5 de ánimo; pierde 5 de higiene, 10 de hambre y 10 de sed. Hay un 25 % de riesgo de perder el 20 % del dinero que lleva. Las paredes del cambuche no lo protegen allí y ese robo no afecta a la caleta. No se duerme en una banca ocupada ni conduciendo una bicicleta.
+
+El mapa y el radar muestran **Hogar de paso (gratis)** con el dibujo de cama y la residencia con una **moneda**, su precio y duración. Los filtros **Cambuche**, **Residencias** y **Refugios** separan tu refugio propio, los alojamientos de pago y el hogar gratuito. Permanecen visibles al desplazar la lista; cada lugar indica si falta construir la base, está cerrado, no hay cupo o no alcanza el dinero. Todos permiten marcar una ruta peatonal. Dormir adelanta el reloj, renueva las misiones si cruza medianoche y guarda también la recompensa de descanso al despertar. La posición inicial de cada entrada al juego continúa siendo frente al cambuche.
+
 ## Pruebas
 
 - `tests/street-life.test.js`: la lógica de las nueve mecánicas y la tecla de contexto.
 - `tests/street-life-places.test.js`: sobre la ciudad completa, que pilas, hogar y estaciones caigan en suelo de peatón sin cajas encima, se alcancen a pie y salgan siempre en el mismo sitio.
+- `tests/rest.test.js`: cobro único, bloqueo por dinero y distancia, descanso gratuito, riesgos, guardado de misiones e iconos distintos para cada alojamiento. `tests/stances.test.js` comprueba el apoyo del cuerpo y las manos al dormitar en todos los cuerpos.
 
 Son pruebas de lógica. Las ventanas, la tecla de contexto y los flujos completos (cuidar hasta el pago, viajar colado, dormir en el hogar, lavarse) se revisaron además en el navegador.

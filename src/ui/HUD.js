@@ -19,6 +19,7 @@ import { cuentaAtras, hora, porcentaje } from './formato.js';
 import { tabDaLaVuelta } from './dom.js';
 import { CAMBUCHE } from '../data/cambuche.js';
 import { BICYCLE } from '../data/bicycle.js';
+import { RESIDENCIA } from '../systems/Rest.js';
 
 /** Las cuatro filas de siempre, siempre en este orden y en el mismo sitio. */
 const FILAS = ['salud', 'hambre', 'sed', 'energia'];
@@ -93,6 +94,7 @@ export function textoDelPrompt(interaction, inventory) {
     return inventory?.count?.('botella') > 0 ? '[E] Lavarme en la pila · [Q] Llenar la botella' : '[E] Lavarme en la pila · Con una botella vacía, aquí la lleno';
   }
   if (type === 'hogar') return '[E] Hogar de paso: dormir bajo techo';
+  if (type === 'residencia') return `[E] Residencia: dormir ${RESIDENCIA.horas} h (${cop(RESIDENCIA.precio)})`;
   if (type === 'transit') return `[E] ${interaction.currentTarget?.stop?.name ?? 'Estación'}: viajar`;
   if (type === 'sell') return '[E] Vender material en la recicladora';
   if (type === 'shop') return `[E] Comprar en ${interaction.currentTarget.title ?? 'Tienda La Esquinita'}`;
@@ -110,7 +112,7 @@ export function textoDelPrompt(interaction, inventory) {
   }
   if (type === 'cambuche') return '[E] Mi cambuche: armar o dormir';
   if (type === 'mesa') return '[E] Fabricar';
-  if (type === 'bench') return interaction.currentTarget?.playerSeated ? '[E] Levantarme de la banca' : '[E] Sentarme en la banca';
+  if (type === 'bench') return `${interaction.currentTarget?.playerSeated ? '[E] Levantarme de la banca' : '[E] Sentarme en la banca'} · [Q] Dormir gratis`;
   if (type === 'bicycle') {
     if (interaction.player?.bicycle === interaction.currentTarget) {
       const bike = interaction.currentTarget;
@@ -146,6 +148,10 @@ const VERBO_CORTO = [
   [/^Lavarme/, 'Lavarme'],
   [/^Llenar la botella/, 'Llenar botella'],
   [/^Hogar de paso/, 'Hogar de paso'],
+  [/^Residencia:/, 'Residencia'],
+  [/^Sentarme en la banca/, 'Sentarme'],
+  [/^Levantarme de la banca/, 'Levantarme'],
+  [/^Dormir gratis/, 'Dormir gratis'],
   [/: viajar$/, 'Viajar'],
   [/^Vender material/, 'Vender material'],
   [/^Almorzar en el Comedor/, 'Almorzar'],

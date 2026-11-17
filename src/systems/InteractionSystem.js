@@ -117,6 +117,7 @@ export class InteractionSystem {
         else if (t.kind === 'mesa') nearestType = 'mesa';
         else if (t.kind === 'pila') nearestType = 'pila';
         else if (t.kind === 'hogar') nearestType = 'hogar';
+        else if (t.kind === 'residencia') nearestType = 'residencia';
         else if (t.kind === 'transit') nearestType = 'transit';
         else if (typeof t.harvest === 'function') nearestType = 'pickup';
         else if (typeof t.steal === 'function' || typeof t.cleanWindshield === 'function') nearestType = 'car';
@@ -197,6 +198,9 @@ export class InteractionSystem {
         case 'hogar':
           window.dispatchEvent(new CustomEvent('open-hogar'));
           break;
+        case 'residencia':
+          window.dispatchEvent(new CustomEvent('open-residencia', { detail: { target: nearest } }));
+          break;
         case 'transit':
           window.dispatchEvent(new CustomEvent('open-transit', { detail: { target: nearest } }));
           break;
@@ -240,6 +244,9 @@ export class InteractionSystem {
     // === Q en la fogata: compartir comida; Q en la pila: llenar la botella ===
     if (nearestType === 'fireBarrel' && input.consumePress('KeyQ')) this.street?.shareFood();
     if (nearestType === 'pila' && input.consumePress('KeyQ')) this.street?.fillBottle('pila');
+    if (nearestType === 'bench' && input.consumePress('KeyQ')) {
+      window.dispatchEvent(new CustomEvent('open-bench-rest', { detail: { target: nearest } }));
+    }
 
     if (nearestType === 'bicycle' && input.consumePress('KeyQ')) this._stealBicycle(nearest);
     if (nearestType === 'bicycle-station' && input.consumePress('KeyQ')) {

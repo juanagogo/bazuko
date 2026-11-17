@@ -179,6 +179,19 @@ function banca(rig, m) {
   }
 }
 
+function dormirBanca(rig, m) {
+  banca(rig, m);
+  // Dormita sentado: conserva asiento y pies, con el torso recogido y las manos en el regazo.
+  bendSpine(rig, [.16, .3, .46], .6, .65);
+  for (const side of SIDES) {
+    const sign = SIGN[side], knee = rig.where(`${side}Leg`), hip = rig.where(`${side}UpLeg`);
+    const on = hip.clone().lerp(knee, .4);
+    rig.reachArm(side, V(sign * .065, on.y + .13, on.z), V(sign * .9, -.5, -.35));
+    rig.hand(side, V(-sign * .8, -.12, .4), V(0, 1, -.1));
+    rig.curl(side, .32);
+  }
+}
+
 function bicicleta(rig, m, phase = 0, steer = 0, mode = 'pedal') {
   const scale = BICYCLE.riderScale;
   const support = mode === 'support', reverse = mode === 'reverse';
@@ -623,6 +636,7 @@ const CATALOG = {
   sentado: { pose: sentado, walk: false, hip: true, transition: .8 },
   acurrucado: { pose: acurrucado, walk: false, hip: true, transition: .9 },
   banca: { pose: banca, walk: false, hip: true, transition: .7 },
+  'dormir-banca': { pose: dormirBanca, walk: false, hip: true, transition: .6 },
   bicicleta: { pose: bicicleta, walk: false, hip: true, pedal: true, transition: .3 },
   pedir: { pose: pedir, walk: false, hip: true, transition: .9 },
   paraguas: { pose: paraguas, walk: true, steady: true },

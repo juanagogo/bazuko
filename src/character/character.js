@@ -436,7 +436,7 @@ export function createCharacter(initial = DEFAULT_LOOK) {
     basucoProps = { pipe, lighter };
   }
 
-  function update(dt, { speed = 0, running = false, action = null, t = 0, load = 0, dirt = 0, wet = 0, look: lookAt = 0, movement = {}, actionProgress, attack = null, smoke = null, basuco: pipeT = null, point = 0 } = {}) {
+  function update(dt, { speed = 0, running = false, action = null, t = 0, load = 0, dirt = 0, wet = 0, look: lookAt = 0, movement = {}, actionProgress, attack = null, smoke = null, basuco: pipeT = null, point = 0, stance = null } = {}) {
     if (disposed) return;
     actionPose.restore();
     dt = Number.isFinite(dt) ? Math.max(0, dt) : 0;
@@ -448,6 +448,8 @@ export function createCharacter(initial = DEFAULT_LOOK) {
     const progress = duration => Number.isFinite(actionProgress) ? clamp01(actionProgress) : clamp01(actionTime / duration);
     idleTime += dt;
     const cycling = movement.bicycle;
+    const seatedBench = stance === 'banca' || stance === 'dormir-banca';
+    const benchRest = stance === 'dormir-banca';
     const detached = !cycling && (movement.swimming || movement.grounded === false);
     const handsBlocked = detached || movement.landing > 0 || action === 'recibirGolpe' || action === 'dormir';
     const pipeAllowed = !handsBlocked && !attack && action !== 'golpear' && speed < .15 && pipeT != null;
@@ -455,7 +457,7 @@ export function createCharacter(initial = DEFAULT_LOOK) {
     if (!pipeAllowed) pipeT = null;
     if (handsBlocked || attack || smoke || pipeAllowed) lookAt = 0;
     if (cigarette) cigarette.object.visible = !handsBlocked && !attack && action !== 'golpear' && !pipeAllowed;
-    if (weapon) weapon.object.visible = !cycling && !detached && !pipeAllowed && action !== 'dormir';
+    if (weapon) weapon.object.visible = !benchRest && !cycling && !detached && !pipeAllowed && action !== 'dormir';
     if (basucoProps) {
       basucoProps.pipe.object.visible = pipeAllowed;
       basucoProps.lighter.object.visible = pipeAllowed;
@@ -673,6 +675,21 @@ export function createCharacter(initial = DEFAULT_LOOK) {
         legs[i].foot.quaternion.copy(legs[i].hip.quaternion).multiply(legs[i].knee.quaternion).invert();
         bicycleGrip(side, cycling.steerAngle, cycleTarget).divideScalar(scale).sub(hips.position);
         cycleTarget.y += .03;
+        cycleQ.copy(torso.quaternion).invert(); cycleTarget.applyQuaternion(cycleQ);
+        cycleLimb(arms[i].shoulder, arms[i].elbow, .21, .24, cycleTarget, sign);
+      }
+    } else if (seatedBench) {
+      const scale = root.scale.y || 1.15;
+      hips.position.set(0, .45 / scale + .06, -.05 / scale);
+      torso.rotation.set(benchRest ? .25 : -.03, 0, 0);
+      head.rotation.set(benchRest ? .4 : .04, 0, 0);
+      body.position.set(0, 0, 0); body.rotation.set(0, 0, 0);
+      for (let i = 0; i < 2; i++) {
+        const sign = i === 0 ? 1 : -1;
+        cycleTarget.set(sign * .13, .05 * scale, .32).divideScalar(scale).sub(hips.position);
+        cycleLimb(legs[i].hip, legs[i].knee, .24, .24, cycleTarget, sign);
+        legs[i].foot.quaternion.copy(legs[i].hip.quaternion).multiply(legs[i].knee.quaternion).invert();
+        cycleTarget.set(sign * (benchRest ? .07 : .16), -.03, benchRest ? .2 : .25);
         cycleQ.copy(torso.quaternion).invert(); cycleTarget.applyQuaternion(cycleQ);
         cycleLimb(arms[i].shoulder, arms[i].elbow, .21, .24, cycleTarget, sign);
       }

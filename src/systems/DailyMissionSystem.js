@@ -70,7 +70,7 @@ export const MISSION_TEMPLATES = [
   {
     type: 'noche',
     title: 'Pasar la noche',
-    desc: 'Sobrevive la noche o descansa en el cambuche.',
+    desc: 'Descansa en el cambuche, el hogar de paso, una residencia o una banca.',
     target: 1,
     icon: 'tent',
     reward: { dinero: 2500, xp: 30, animo: 20 }

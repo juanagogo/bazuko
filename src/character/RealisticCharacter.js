@@ -635,14 +635,15 @@ export async function createRealisticCharacter(look = {}, { lod = false, animaci
       const a = inst.actions;
       const sourceCadence = isMixamoProfile(profile.id) && movement.previewCadence === 'source';
       const cycling = !!movement.bicycle;
+      const benchRest = stance === 'dormir-banca';
       const detached = !cycling && (movement.swimming || movement.grounded === false);
       const previewClip = isMixamoProfile(profile.id) && !!a[action];
       const poseAction = action === 'saltar' || action === 'golpear' || action === 'recibirGolpe' || (action === 'saludo' && !previewClip);
       const gaitSpeed = detached || cycling ? 0 : speed;
       const handsBlocked = detached || (!cycling && movement.landing > 0) || action === 'recibirGolpe' || action === 'dormir';
-      const pipeAllowed = !handsBlocked && !attack && action !== 'golpear' && speed < .15 && pipeT != null;
-      const smokeAllowed = !handsBlocked && !attack && action !== 'golpear' && !pipeAllowed;
-      if (inst.weapon) inst.weapon.object.visible = !cycling && !detached && !pipeAllowed && action !== 'dormir';
+      const pipeAllowed = !benchRest && !handsBlocked && !attack && action !== 'golpear' && speed < .15 && pipeT != null;
+      const smokeAllowed = !benchRest && !handsBlocked && !attack && action !== 'golpear' && !pipeAllowed;
+      if (inst.weapon) inst.weapon.object.visible = !benchRest && !cycling && !detached && !pipeAllowed && action !== 'dormir';
       if (inst.cigarette) inst.cigarette.object.visible = smokeAllowed;
       if (inst.basucoProps) {
         inst.basucoProps.pipe.object.visible = pipeAllowed;

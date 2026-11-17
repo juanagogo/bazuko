@@ -65,7 +65,8 @@ import { SubstanceEffects } from '../systems/SubstanceEffects.js';
 import { SUBSTANCE_EFFECTS } from '../data/substanceEffects.js';
 import { StealSystem } from '../features/steal.js';
 import { StreetLife } from '../systems/StreetLife.js';
-import { PilaPublica, HogarDePaso, TransitStop } from '../entities/StreetLifeProps.js';
+import { PilaPublica, HogarDePaso, Residencia, TransitStop } from '../entities/StreetLifeProps.js';
+import { RESIDENCIA, BANCA, restEffects, benchTheft, restMapInfo } from '../systems/Rest.js';
 import { Bicycle, BicycleStation } from '../entities/Bicycle.js';
 import { BICYCLE } from '../data/bicycle.js';
 import { streetLifePlaces } from '../world/bogota/streetLifePlaces.js';
@@ -88,7 +89,7 @@ import { el } from '../ui/dom.js';
 import { Menu } from '../ui/Menu.js';
 import { createCreator } from '../ui/Creator.js';
 import { openRecycler, openShop, openCambuche, openComedor } from '../ui/placeMenus.js';
-import { openTransit, openHogar } from '../ui/streetMenus.js';
+import { openTransit, openHogar, openResidence, openBenchRest } from '../ui/streetMenus.js';
 import { openMissionsModal } from '../ui/MissionsModal.js';
 import { DEFAULT_LOOK, normalizeLook } from '../character/look.js';
 import { streetWetness } from '../character/streetMaterials.js';
@@ -227,6 +228,8 @@ export class Game {
     window.addEventListener('open-comedor', () => openComedor(this));
     window.addEventListener('open-transit', (e) => openTransit(this, e.detail?.target));
     window.addEventListener('open-hogar', () => openHogar(this));
+    window.addEventListener('open-residencia', (e) => openResidence(this, e.detail?.target));
+    window.addEventListener('open-bench-rest', (e) => openBenchRest(this, e.detail?.target));
     window.addEventListener('open-wardrobe', () => this.openWardrobe());
     window.addEventListener('open-mesa', () => { if (!this.hud?._craftOpen) this.hud?.toggleCraftPanel(); });
     window.addEventListener('police-arrest', () => this._policeArrest());
@@ -872,6 +875,9 @@ export class Game {
     street.hogar = places.hogar
       ? add(new HogarDePaso(this.sceneMgr.scene, new THREE.Vector3(places.hogar.x, ground(places.hogar.x, places.hogar.z), places.hogar.z), places.hogar.rot))
       : null;
+    street.residencia = places.residencia
+      ? add(new Residencia(this.sceneMgr.scene, new THREE.Vector3(places.residencia.x, ground(places.residencia.x, places.residencia.z), places.residencia.z), places.residencia.rot))
+      : null;
     street.stops = places.transit.map((stop) => add(new TransitStop(this.sceneMgr.scene, new THREE.Vector3(stop.x, ground(stop.x, stop.z), stop.z), stop)));
     street.bikeStations = places.bikeStations.map((spot) => {
       const station = new BicycleStation(this.sceneMgr.scene, spot);
@@ -1024,27 +1030,68 @@ export class Game {
     });
   }
 
+  /** Motivo visible de bloqueo para un descanso fuera del cambuche. */
+  restBlocked({ residencia = null, banca = null } = {}) {
+    const p = this.player;
+    if (this.isSleeping) return 'Ya estoy descansando';
+    if (this._deathPending || this._arrestPending || this.stats.salud <= 0) return 'Ahora no puedo descansar';
+    if (p.isSwimming || p.isGrounded === false || p.isStunned || p.sorting) return 'Necesito estar a salvo y en tierra';
+    if (p.bicycle || p.hasCart) return 'Primero me bajo de la bicicleta o suelto la carreta';
+    const target = residencia ?? banca;
+    if (!target || residencia && banca) return 'No hay un lugar de descanso';
+    if (residencia && residencia !== this.street?.residencia || banca && !this.benches?.includes(banca)) return 'Este lugar no está disponible';
+    if (p.position.distanceTo(target.position) >= 1.8) return 'Necesito acercarme';
+    if (banca && (this.world?.active?.npcs ?? []).some(npc => npc.position && npc.position.distanceTo(banca.position) < .85)) return 'La banca está ocupada';
+    if (residencia && (!Number.isFinite(this.stats.dinero) || this.stats.dinero < RESIDENCIA.precio)) return `Necesito ${cop(RESIDENCIA.precio)}`;
+    return null;
+  }
+
+  /** Despierta sin conservar impulsos ni una acción de sueño; guarda también la misión. */
+  _finishSleep(hours, detail = {}) {
+    this.isSleeping = false;
+    if (this.player.root) this.player.root.visible = true;
+    this.player.sleepingOnBench = false;
+    if (this.player.action === 'dormir') {
+      this.player.action = null;
+      this.player.actionTimer = this.player.actionProgress = 0;
+    }
+    this.dog?.wake();
+    window.dispatchEvent(new CustomEvent('sleep-end', { detail: { hours: Math.round(hours), ...detail } }));
+    this.dailyMissions?.update(0, this.clock);
+    this._save();
+  }
+
   /**
    * Dormir en el cambuche (requiere la base). De noche hasta las 6:00; de día, siesta de 3 h.
    * Con `hogar` se duerme en el hogar de paso: hasta las 6:00, sin robos y con lo que da una noche bajo techo.
    */
-  sleep({ hogar = null } = {}) {
-    if (this.isSleeping) return;
-    if (!hogar && !this.built.base) {
+  sleep({ hogar = null, residencia = null, banca = null } = {}) {
+    if (this.isSleeping) return false;
+    if (residencia || banca) {
+      const reason = this.restBlocked({ residencia, banca });
+      if (reason) {
+        window.dispatchEvent(new CustomEvent('toast', { detail: { text: reason, type: 'info' } }));
+        return false;
+      }
+      if (banca && !this.player.sitOnBench(banca)) return false;
+      if (residencia) this.stats.dinero -= RESIDENCIA.precio;
+    } else if (!hogar && !this.built.base) {
       window.dispatchEvent(new CustomEvent('sleep-fail', { detail: { reason: 'nobase' } }));
-      return;
+      return false;
     }
 
+    if (!banca) this.player.standFromBench?.();
+    this.player.sleepingOnBench = !!banca;
     this.isSleeping = true;
     if (this.steal?.minigameActive) this.steal._endMinigame(false, 'cancel');
     this.substanceEffects?.end();
     this.psychosis?.clearInduced?.();
     const night = this.clock.isNight || !!hogar;
-    const hours = night
+    const hours = residencia ? RESIDENCIA.horas : banca ? BANCA.horas : night
       ? (this.clock.hour >= 6 ? 24 - this.clock.hour + 6 : 6 - this.clock.hour)
       : 3;
     // En el hogar se duerme adentro: afuera, frente a la puerta, no queda nadie acostado.
-    if (hogar) this.player.root.visible = false;
+    if (hogar || residencia) this.player.root.visible = false;
     window.dispatchEvent(new CustomEvent('sleep-start', { detail: { despierta: this.clock.hour + hours } }));
     this.dog?.restAt(this.player.position);
     this.player.stopSmoking?.();
@@ -1058,20 +1105,26 @@ export class Game {
 
     const b = this.built;
     const st = this.stats;
+    if (residencia || banca) {
+      restEffects(st, residencia ? RESIDENCIA : BANCA);
+      const robbed = banca ? benchTheft(st) : null;
+      this._save();
+      setTimeout(() => {
+        this._finishSleep(hours, { residencia: !!residencia, banca: !!banca });
+        const text = residencia ? 'Descansé en la residencia, bajo techo y con ducha.'
+          : robbed !== null ? `Descansé en la banca, pero me robaron ${cop(robbed)}.`
+            : 'Descansé en la banca. Recuperé algo de energía.';
+        window.dispatchEvent(new CustomEvent('toast', { detail: { text, type: robbed !== null ? 'warn' : 'info' } }));
+      }, 1200);
+      return true;
+    }
     if (hogar) {
       this.street?.wakeAtHogar();
       this._save();
       setTimeout(() => {
-        this.isSleeping = false;
-        this.player.root.visible = true;
-        if (this.player.action === 'dormir') {
-          this.player.action = null;
-          this.player.actionTimer = this.player.actionProgress = 0;
-        }
-        this.dog?.wake();
-        window.dispatchEvent(new CustomEvent('sleep-end', { detail: { hours: Math.round(hours), hogar: true } }));
+        this._finishSleep(hours, { hogar: true });
       }, 1200);
-      return;
+      return true;
     }
     st.energia = Math.min(100, st.energia + (SLEEP.energia + (b.cama ? SLEEP.energiaCama : 0)) * factor);
     st.salud = Math.min(100, st.salud + (SLEEP.salud + (b.techo ? SLEEP.saludTecho : 0)) * factor);
@@ -1101,14 +1154,7 @@ export class Game {
     this._save();
 
     setTimeout(() => {
-      this.isSleeping = false;
-      // Despierta y se levanta: lo que quedaba de la acción no debe tenerlo acostado con el juego en marcha.
-      if (this.player.action === 'dormir') {
-        this.player.action = null;
-        this.player.actionTimer = this.player.actionProgress = 0;
-      }
-      this.dog?.wake();
-      window.dispatchEvent(new CustomEvent('sleep-end', { detail: { hours: Math.round(hours) } }));
+      this._finishSleep(hours);
       if (robbed !== null) {
         window.dispatchEvent(new CustomEvent('toast', {
           detail: { text: `Me robaron mientras dormía (${cop(robbed)} y material). Unas paredes ayudarían.`, type: 'death' }
@@ -1123,6 +1169,7 @@ export class Game {
         }));
       }
     }, 1200);
+    return true;
   }
 
   /** ¿Está el jugador a menos de `radius` m del cambuche? */
@@ -1628,9 +1675,10 @@ export class Game {
     if (!this._poiCache || now - this._poiCacheTime >= 350 || this._poiDogFriend !== friend) {
       const district = this.world?.active;
       const reserved = district?.reserved ?? {};
+      const restInfo = type => restMapInfo(type, { built: this.built, hour: this.clock?.hour, day: this.clock?.day });
       // Puestos y fogatas van primero para que los lugares fijos queden encima.
       const services = district?.vendors ? (this._services ??= servicePlaces(district)) : [];
-      this._poiCache = [...services, ...[[this.cambuche, reserved.bed, 'Cambuche', '⛺', '#ffd166'],
+      this._poiCache = [...services, ...[[this.cambuche, reserved.bed, 'Cambuche', '⛺', '#ffd166', { rest: restInfo('cambuche') }],
         [this.sellPoint, reserved.sell, 'Recicladora El Progreso', '♻️', '#2ab7ca', { prices: { vender: 0 } }],
         [this.shop, reserved.shop, 'Tienda La Esquinita', '🏪', '#2ecc71', { prices: SHOP_PRICES, offers: SHOP_OFFERS }],
         [this.comedor, reserved.comedor, 'Comedor Comunitario', '🍲', '#27ae60', { prices: { comida: 0, agua: 0 } }],
@@ -1642,7 +1690,8 @@ export class Game {
         })];
       if (this.world?.active?.tileTypeAt) this._poiCache.push(...(this._landmarks ??= cityLandmarks()));
       for (const pila of this.street?.pilas ?? []) this._poiCache.push({ name: 'Pila pública', icon: '💧', color: '#5dade2', x: pila.position.x, z: pila.position.z, fijo: true });
-      if (this.street?.hogar) this._poiCache.push({ name: 'Hogar de paso', icon: '🛏', color: '#3b6ea5', x: this.street.hogar.position.x, z: this.street.hogar.position.z, fijo: true });
+      if (this.street?.hogar) this._poiCache.push({ name: 'Hogar de paso (gratis)', icon: '🛏', color: '#3b6ea5', x: this.street.hogar.position.x, z: this.street.hogar.position.z, fijo: true, rest: restInfo('refugio') });
+      if (this.street?.residencia) this._poiCache.push({ name: `Residencia El Descanso (${cop(RESIDENCIA.precio)} / ${RESIDENCIA.horas} h)`, icon: '💰', color: '#b77927', x: this.street.residencia.position.x, z: this.street.residencia.position.z, fijo: true, rest: restInfo('residencia') });
       for (const stop of this.street?.stops ?? []) this._poiCache.push({ name: stop.stop.name, icon: '🚏', color: stop.stop.sistema === 'Metro' ? '#2f7d4a' : '#b3261e', x: stop.position.x, z: stop.position.z, fijo: true });
       for (const station of this.bikeStations ?? []) this._poiCache.push(this._bicycleStationPoi(station));
       if (this.cart) this._poiCache.push({ name: 'Carreta', icon: '🛒', x: this.cart.position.x, z: this.cart.position.z, color: '#f39c12' });

@@ -6,6 +6,7 @@
 // Los materiales se comparten entre todas las copias; al cerrar el distrito cada objeto suelta su geometría.
 import * as THREE from 'three';
 import { signMesh } from '../utils/signs.js';
+import { RESIDENCIA } from '../systems/Rest.js';
 
 let shared = null;
 function mats() {
@@ -71,9 +72,9 @@ export class PilaPublica extends Prop {
 }
 
 /** Hogar de paso: puerta con reja, letrero y timbre contra la fachada. */
-export class HogarDePaso extends Prop {
-  constructor(scene, position, rot = 0) {
-    super(scene, position, 'hogar');
+class Alojamiento extends Prop {
+  constructor(scene, position, rot, kind, signData) {
+    super(scene, position, kind);
     const m = mats();
     this.group.rotation.y = rot;
     // La puerta va contra la fachada (hacia +Z local) y la gente se para del lado de -Z.
@@ -84,11 +85,24 @@ export class HogarDePaso extends Prop {
     fachada.add(box(1.6, .06, .06, m.reja, 0, .3, -.1));
     fachada.add(box(1.6, .06, .06, m.reja, 0, 2.1, -.1));
     fachada.add(box(.12, .12, .05, m.rojo, .9, 1.3, -.06));
-    const sign = signMesh({ title: 'HOGAR DE PASO', sub: 'NOCHE, DUCHA Y COMIDA', bg: '#1f4f7a', fg: '#ffffff', accent: '#ffd166' }, 2.2);
+    const sign = signMesh({ ...signData, fg: '#ffffff', accent: '#ffd166' }, 2.2);
     sign.position.set(0, 2.75, -.12);
     sign.rotation.y = Math.PI;
     fachada.add(sign);
     this.group.add(fachada);
+  }
+}
+
+export class HogarDePaso extends Alojamiento {
+  constructor(scene, position, rot = 0) {
+    super(scene, position, rot, 'hogar', { title: 'HOGAR DE PASO', sub: 'NOCHE, DUCHA Y COMIDA', bg: '#1f4f7a' });
+  }
+}
+
+export class Residencia extends Alojamiento {
+  constructor(scene, position, rot = 0) {
+    super(scene, position, rot, 'residencia', { title: 'RESIDENCIA EL DESCANSO',
+      sub: `$${RESIDENCIA.precio.toLocaleString('es-CO')} / ${RESIDENCIA.horas} HORAS - ABIERTO 24 H`, bg: '#634434' });
   }
 }
 

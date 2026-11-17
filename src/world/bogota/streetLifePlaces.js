@@ -63,9 +63,9 @@ export function streetLifePlaces(district, collisions, { parks = [], reserved = 
 
   // Hogar de paso: andén con edificio al lado, entre 45 y 110 m del cambuche, el más cercano al comedor.
   let hogar = null;
+  const fachadas = [];
   const bed = reserved.bed, comedor = reserved.comedor ?? bed;
   if (bed && district.tileTypeAt) {
-    const candidatos = [];
     for (let tz = 1; tz < (district.height ?? 0) - 1; tz++) {
       for (let tx = 1; tx < (district.width ?? 0) - 1; tx++) {
         if (district.tileTypeAt(tx, tz) !== 'sidewalk') continue;
@@ -74,11 +74,11 @@ export function streetLifePlaces(district, collisions, { parks = [], reserved = 
         if (dBed < 45 || dBed > 110 || !lejos(x, z, 10)) continue;
         const frente = [[1, 0], [-1, 0], [0, 1], [0, -1]].find(([dx, dz]) => district.tileTypeAt(tx + dx, tz + dz) === 'building');
         if (!frente) continue;
-        candidatos.push({ x, z, frente, d: Math.hypot(x - comedor.x, z - comedor.z) });
+        fachadas.push({ x, z, frente, d: Math.hypot(x - comedor.x, z - comedor.z) });
       }
     }
-    candidatos.sort((a, b) => a.d - b.d || a.x - b.x || a.z - b.z);
-    for (const c of candidatos) {
+    fachadas.sort((a, b) => a.d - b.d || a.x - b.x || a.z - b.z);
+    for (const c of fachadas) {
       // La puerta queda pegada a la fachada; quien entra se para un metro afuera.
       if (!isFreeSpot(district, collisions, c.x, c.z, .9)) continue;
       hogar = { x: c.x, z: c.z, rot: Math.atan2(c.frente[0], c.frente[1]) };
@@ -108,5 +108,10 @@ export function streetLifePlaces(district, collisions, { parks = [], reserved = 
     }
     if (spot) bikeStations.push({ ...anchor, ...spot, y: district.getMovementGroundHeight?.(spot.x, spot.z, 0) ?? district.getGroundHeight?.(spot.x, spot.z) ?? 0 });
   }
-  return { pilas, hogar, transit, bikeStations };
+  // Otra fachada, sin mover los lugares existentes ni sus rutas guardadas.
+  const puerta = fachadas.find(c =>
+    [...transit, ...pilas, ...bikeStations, ...(hogar ? [hogar] : [])].every(p => Math.hypot(c.x - p.x, c.z - p.z) >= 12)
+    && isFreeSpot(district, collisions, c.x, c.z, .9));
+  const residencia = puerta ? { x: puerta.x, z: puerta.z, rot: Math.atan2(puerta.frente[0], puerta.frente[1]) } : null;
+  return { pilas, hogar, residencia, transit, bikeStations };
 }

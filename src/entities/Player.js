@@ -80,6 +80,7 @@ export class Player {
     this._respiroTumbo = 0;
     this.tiradoPor = null;
     this.benchSeat = null;
+    this.sleepingOnBench = false;
     this.bicycle = null;
 
     // Contenedor raíz (posición + rumbo); el personaje va escalado adentro
@@ -413,7 +414,7 @@ export class Player {
   /** Se sienta en el punto del asiento más cercano al jugador, conservando el suelo físico. */
   sitOnBench(target) {
     const spot = target?.spot;
-    if (!spot || this.isSwimming || this.isStunned || this.hasCart || this.sorting || this.action) return false;
+    if (!spot || this.isSwimming || this.isStunned || this.bicycle || this.hasCart || this.sorting || this.action) return false;
     const sideX = Math.cos(spot.rot), sideZ = -Math.sin(spot.rot);
     const side = THREE.MathUtils.clamp(
       (this.position.x - spot.x) * sideX + (this.position.z - spot.z) * sideZ,
@@ -487,7 +488,8 @@ export class Player {
     this.character.update(dt, {
       speed: 0,
       running: false,
-      action: 'dormir',
+      stance: this.sleepingOnBench ? 'dormir-banca' : null,
+      action: this.sleepingOnBench ? null : 'dormir',
       actionProgress: this.actionProgress,
       movement: this.movement,
       attack: null,
