@@ -85,12 +85,18 @@ test('salto y puñetazo se componen sobre el cuerpo vestido también con velocid
   const { group } = character;
   const rightArm = joint(group, 'RightArm');
   const rightHand = joint(group, 'RightHand');
-  const rightLeg = joint(group, 'RightLeg');
-  const rightThigh = joint(group, 'RightUpLeg');
   for (let frame = 0; frame < 60; frame++) character.update(1 / 60, { speed: 3, movement: { grounded: true } });
-  character.update(1 / 60, { speed: 3, action: 'saltar', movement: { grounded: false, verticalVelocity: 3, airTime: .2 } });
-  const thighDirection = rightLeg.getWorldPosition(new THREE.Vector3()).sub(rightThigh.getWorldPosition(new THREE.Vector3())).normalize();
-  assert.ok(thighDirection.z > .7, 'las rodillas apuntan al frente durante despegue aun corriendo');
+  // Saltar corriendo no vuelve al reposo: la zancada sigue y llega a la pisada justo al tocar el suelo,
+  // con el pie de delante abajo.
+  const foot = name => joint(group, name).getWorldPosition(new THREE.Vector3());
+  for (let ttg = .5; ttg > 1e-6; ttg -= 1 / 60) {
+    character.update(1 / 60, { speed: 3, action: 'saltar', movement: { grounded: false, verticalVelocity: -2, airTime: .6 - ttg, launchSpeed: 5.45, groundGap: .3 * ttg, timeToGround: Math.max(ttg - 1 / 60, 0) } });
+  }
+  // Tobillos: al pisar, el de delante entra de talón y el de atrás ya despega.
+  const [left, right] = [foot('LeftFoot'), foot('RightFoot')];
+  const [front, back] = left.z > right.z ? [left, right] : [right, left];
+  assert.ok(front.z - back.z > .2, `las piernas van abiertas en zancada: ${front.z - back.z}`);
+  assert.ok(front.y < back.y, `apoya con el pie de delante: ${front.y.toFixed(3)} / ${back.y.toFixed(3)}`);
   character.update(1 / 60, { speed: 3, action: 'golpear', actionProgress: .22 / .58, movement: { grounded: true } });
   const hand = rightHand.getWorldPosition(new THREE.Vector3());
   const shoulder = rightArm.getWorldPosition(new THREE.Vector3());
@@ -127,14 +133,61 @@ test('nadar deja de caminar, vuelve a tierra y los NPC LOD muestran el golpe rec
 test('el personaje procedural recibe salto y nado con el mismo contrato de movimiento', () => {
   const character = createCharacter();
   character.group.scale.setScalar(CHARACTER_SCALE);
-  character.update(.2, { speed: 3 });
+  character.update(.2, { speed: 0 });
   const before = character.ragdollRig.rightLeg.quaternion.clone();
-  character.update(.1, { speed: 3, action: 'saltar', movement: { grounded: false, verticalVelocity: 4, airTime: .2 } });
-  assert.ok(character.ragdollRig.rightLeg.quaternion.angleTo(before) > .15);
+  // En el ápice de un salto parado recoge las rodillas.
+  character.update(.1, { speed: 0, action: 'saltar', movement: { grounded: false, verticalVelocity: 0, airTime: .28, launchSpeed: 5.45, groundGap: .78, timeToGround: .3 } });
+  assert.ok(character.ragdollRig.rightLeg.quaternion.angleTo(before) > .5);
   for (let frame = 0; frame < 20; frame++) character.update(1 / 60, { speed: 2, movement: { swimming: true, surfaceY: 1.05 } });
   assert.ok(Math.abs(character.ragdollRig.hips.rotation.x) > .7);
   assert.ok(character.ragdollRig.head.getWorldPosition(new THREE.Vector3()).y > 1.1, 'el modelo liviano mantiene la cara sobre el agua');
   assert.deepEqual(character.group.position.toArray(), [0, 0, 0]);
+});
+
+test('modelo liviano: al caer corriendo de 5 m la cadera no salta a la altura de la carrera en el cuadro del contacto', () => {
+  const input = { axis: { x: 0, z: 0 }, isRunning: true, consumePress: () => false };
+  const player = new Player(new THREE.Scene(), input);
+  assert.equal(player.modelKind, 'procedural');
+  const rig = player.character.ragdollRig, ground = x => (x < 0 ? 5 : 0);
+  player.position.set(-6.5, 5, 0); player.root.position.copy(player.position);
+  // Quieto un momento (la pose mide dónde quedan los tobillos de pie) y después corre hacia el borde.
+  for (let frame = 0; frame < 10; frame++) player.update(1 / 60, null, null, ground);
+  input.axis.x = 1;
+  const hip = () => rig.hips.getWorldPosition(new THREE.Vector3()).y - player.position.y;
+  let before = null, knee = null, contact = null;
+  for (let frame = 0; frame < 170 && contact === null; frame++) {
+    const wasGrounded = player.isGrounded;
+    player.update(1 / 60, null, null, ground);
+    player.character.group.updateMatrixWorld(true);
+    if (!wasGrounded && player.isGrounded && player.landingSpeed > 10) {
+      contact = { drop: before - hip(), turn: rig.rightLeg.quaternion.angleTo(knee) * 180 / Math.PI };
+    }
+    before = hip(); knee = rig.rightLeg.quaternion.clone();
+  }
+  assert.ok(contact, 'llegó al suelo de abajo');
+  assert.ok(contact.drop < .03, `en el cuadro del contacto la cadera baja ${(100 * contact.drop).toFixed(1)} cm`);
+  assert.ok(contact.turn < 30, `y la rodilla gira ${contact.turn.toFixed(0)}° en ese cuadro`);
+});
+
+test('modelo liviano: en un golpe fuerte los tobillos quedan a la altura de pie aunque nunca haya estado quieto', () => {
+  const ankles = still => {
+    const input = { axis: { x: still ? 0 : 1, z: 0 }, isRunning: true, consumePress: () => false };
+    const player = new Player(new THREE.Scene(), input), rig = player.character.ragdollRig, ground = x => (x < 0 ? 5 : 0);
+    player.position.set(-6.5, 5, 0); player.root.position.copy(player.position);
+    // Quieto, la pose mide dónde quedan los tobillos de pie; corriendo desde el primer cuadro, no.
+    if (still) for (let frame = 0; frame < 10; frame++) player.update(1 / 60, null, null, ground);
+    input.axis.x = 1;
+    let after = -1;
+    for (let frame = 0; frame < 240 && after < 8; frame++) {
+      const wasGrounded = player.isGrounded;
+      player.update(1 / 60, null, null, ground);
+      if (after >= 0 || (!wasGrounded && player.isGrounded && player.landingSpeed > 10)) after++;
+    }
+    player.character.group.updateMatrixWorld(true);
+    return Math.min(rig.leftFoot.getWorldPosition(new THREE.Vector3()).y, rig.rightFoot.getWorldPosition(new THREE.Vector3()).y);
+  };
+  const measured = ankles(true), unmeasured = ankles(false);
+  assert.ok(Math.abs(unmeasured - measured) < .01, `tobillos a ${(100 * unmeasured).toFixed(1)} cm sin medir y a ${(100 * measured).toFixed(1)} cm medidos`);
 });
 
 test('en el modelo liviano calentarse sube las manos y echar a andar las baja', () => {

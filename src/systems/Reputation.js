@@ -19,7 +19,7 @@ export const FAMA = {
   muyBuena: 80,   // desde aquí rebajan y regalan
   mala: 25,       // por debajo cobran más y no dejan arrimar
   fiadoMax: 6000, // lo que fían como mucho
-  fiadoHoras: 24, // horas de juego para pagar antes de quedar mal
+  fiadoHoras: 48, // horas de juego para pagar antes de quedar mal: dos días
   cercaPuesto: 20 // metros: lo que pasa a esta distancia de una chaza lo ven
 };
 

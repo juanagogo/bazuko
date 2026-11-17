@@ -10,6 +10,7 @@ import { SMOKABLES, smokable } from '../character/smoking.js';
 import { itemArtHTML, itemCategory, itemEffectLine } from './itemArt.js';
 import { NEED_META, NEED_LOW, NEED_CRITICAL, NEED_ORDEN, needLevel, masUrgente } from './needsMeta.js';
 import { describeWeather } from '../world/Climate.js';
+import { franjaDe } from '../systems/JornadaSystem.js';
 import { icon, setIcon } from './icons.js';
 import { pasarTexto } from './pictos.js';
 import { modoEntrada, teclaVisible, sinTeclas } from '../core/modoEntrada.js';
@@ -17,7 +18,7 @@ import { Avisos } from './avisos.js';
 import { cierreHTML } from './cierre.js';
 import { cuentaAtras, hora, porcentaje } from './formato.js';
 import { tabDaLaVuelta } from './dom.js';
-import { CAMBUCHE } from '../data/cambuche.js';
+import { CAMBUCHE, textoSinSiesta } from '../data/cambuche.js';
 
 /** Las cuatro filas de siempre, siempre en este orden y en el mismo sitio. */
 const FILAS = ['salud', 'hambre', 'sed', 'energia'];
@@ -104,13 +105,21 @@ export function textoDelPrompt(interaction, inventory) {
   }
   if (type === 'dog') {
     const hasFood = inventory?.items?.some(item => item.qty > 0 && ['pan', 'lataComida', 'carne', 'hueso'].includes(item.id));
-    if (interaction.currentTarget?.isFriend) return '[E] Acariciar a El Chato';
+    const dog = interaction.currentTarget;
+    if (dog?.isFriend && dog.guarding) return '[E] Llamar a El Chato para que me siga';
+    if (dog?.isFriend && dog.cambucheCerca) return '[E] Pedirle a El Chato que cuide el cambuche';
+    if (dog?.isFriend) return '[E] Acariciar a El Chato';
     return hasFood ? '[E] Darle pan o atún a El Chato para que me siga' : '[E] Acariciar a El Chato · Si le traigo pan o una lata de atún, me sigue';
   }
   if (type === 'cambuche') return '[E] Mi cambuche: armar o dormir';
   if (type === 'mesa') return '[E] Fabricar';
   if (type === 'dealer') return '[Q / E] El jíbaro: comprar o vender';
-  if (type === 'cart') return interaction.currentTarget?.isAttached ? '[E] Soltar la carreta' : '[E] Agarrar la carreta (+120 kg)';
+  if (type === 'cart') {
+    const cart = interaction.currentTarget;
+    if (!cart?.isAttached) return '[E] Agarrar la carreta (+120 kg)';
+    // E no la suelta con más carga de la que aguanto sin ella: la tecla dice qué hacer antes.
+    return cart.puedeSoltar?.(inventory) === false ? '[E] Carreta muy cargada · Para soltarla, primero descargo' : '[E] Soltar la carreta';
+  }
   return interaction.stealPrompt ?? '';
 }
 
@@ -120,6 +129,8 @@ const VERBO_CORTO = [
   [/^Limpiar parabrisas/, 'Limpiar vidrio'],
   [/^Darle pan o atún/, 'Darle comida'],
   [/^Acariciar a El Chato/, 'Acariciar'],
+  [/^Pedirle a El Chato que cuide/, 'Dejarlo cuidando'],
+  [/^Llamar a El Chato/, 'Llamar a El Chato'],
   [/^Calentarme/, 'Calentarme'],
   [/^Compartir comida/, 'Compartir'],
   [/^Cuidarlo/, 'Cuidar carro'],
@@ -135,6 +146,7 @@ const VERBO_CORTO = [
   [/^El jíbaro/, 'El jíbaro'],
   [/^Agarrar la carreta/, 'Agarrar carreta'],
   [/^Soltar la carreta/, 'Soltar carreta'],
+  [/^Carreta muy cargada/, 'Carreta cargada'],
   [/^Cosquilleo/, 'Cosquilleo'],
   [/^Mantener: seleccionar/, 'Seleccionar'],
 ];
@@ -515,7 +527,8 @@ export class HUD {
 
     window.addEventListener('sleep-end', (e) => this._toast(`Dormí ${e.detail?.hours ?? ''} h. Partida guardada`, 'info'));
     window.addEventListener('sleep-fail', (e) => this._toast(
-      e.detail.reason === 'nobase' ? 'Primero toca armar el cambuche (8 cartones)' : 'Aquí no puedo dormir',
+      e.detail.reason === 'nobase' ? 'Primero toca armar el cambuche (8 cartones)'
+        : e.detail.reason === 'descansado' ? textoSinSiesta(e.detail) : 'Aquí no puedo dormir',
       'warn'
     ));
   }
@@ -599,6 +612,7 @@ export class HUD {
 
     // Reloj
     this._setText(this.clockEl, hora(clock.hour));
+    this._pintarFranja(franjaDe(clock.hour));
     this._setText(this.dayEl, `Día ${clock.day}`);
     this._pintarClima(clock);
     this._pintarPlata(stats.dinero);
@@ -784,6 +798,14 @@ export class HUD {
     this._casillas.forEach?.((casilla, i) => casilla.classList.toggle('elegido', !!arma && inventory.hotbar[i] === arma));
   }
 
+  /** La franja del día marca el reloj: de noche y de madrugada va subrayado, y el título dice qué cambia. */
+  _pintarFranja(franja) {
+    if (!this.clockEl || this._franjaVista === franja.id) return;
+    this._franjaVista = franja.id;
+    this.clockEl.dataset.franja = franja.id;
+    this.clockEl.title = `${franja.label}: ${franja.aviso.slice(franja.aviso.indexOf(': ') + 2)}`;
+  }
+
   /** La hora dice el clima con palabra; la temporada queda en el título. */
   _pintarClima(clock) {
     if (!this.weatherEl) return;
@@ -938,6 +960,8 @@ export class HUD {
         const delta = (k === item.consumable ? item.amount : 0) + (k !== item.consumable ? (item[k] ?? 0) : 0);
         if (delta) game.stats[k] = Math.max(0, Math.min(100, game.stats[k] + delta));
       }
+      // Lo que me tomo no es un golpe: la cámara no acusa la salud que quita.
+      game._saludVista = game.stats.salud;
       if (item.calor) {
         game.stats.calor = Math.min(300, (game.stats.calor || 0) + item.calor);
       }
