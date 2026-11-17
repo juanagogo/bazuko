@@ -1,6 +1,7 @@
 import { Euler, Matrix4, Quaternion, Vector3 } from 'three';
 import { createMeleeOverlay, rotateInFrame } from './melee.js';
 import { createSmokeOverlay } from './smoking.js';
+import { aplicarMalabares } from './rebusquePose.js';
 import { createBasucoOverlay } from './pipe.js';
 import { createPointOverlay } from './pointing.js';
 import { SleepPose } from './SleepPose.js';
@@ -113,6 +114,8 @@ export class ActionPose {
     this.greetWeight = 0;
     this.greetTime = 0;
     this.warmWeight = 0;
+    this.rebusqueWeight = 0;
+    this.rebusqueTime = 0;
     this.warmTime = 0;
     this._frameQ = new Quaternion();
     this._worldQ = new Quaternion();
@@ -299,6 +302,11 @@ export class ActionPose {
     if (airborne || swim || landing || (action && action !== 'calentarse') || (!warm && (attack || smoke || basuco != null || point))) this.warmWeight = 0;
     if (!warm && this.warmWeight < .001) this.warmWeight = this.warmTime = 0;
     if (this.warmWeight) this.warmTime += elapsed;
+    // Rebusque (malabares): como calentarse, andar baja las manos de a poco.
+    const rebusque = !this.procedural && action === 'malabares' && !airborne && !swim && !landing && speed < .15;
+    this.rebusqueWeight += ((rebusque ? 1 : 0) - this.rebusqueWeight) * -Math.expm1(-8 * elapsed);
+    if (airborne || swim || landing || (action && action !== 'malabares')) this.rebusqueWeight = 0;
+    if (!rebusque && this.rebusqueWeight < .001) this.rebusqueWeight = this.rebusqueTime = 0; else this.rebusqueTime += elapsed;
     const handsBlocked = swim || airborne || landing > 0 || hit || (action && !['golpear', 'basuco'].includes(action));
     // Un dueño de manos por vez. El agua, el vuelo y los impactos cancelan incluso
     // los restos de una transición; no se suman un puñetazo y una calada al mismo brazo.
@@ -330,7 +338,7 @@ export class ActionPose {
     }
     this.glance += (finite(look) - this.glance) * -Math.expm1(-16 * elapsed);
     if (handsBlocked) this.glance = 0;
-    const gestures = attack || smoke || basuco != null || point > 0 || this.melee?.active || this.smoke?.active || this.pipe?.active || this.point?.active || Math.abs(this.glance) > .002;
+    const gestures = attack || smoke || basuco != null || point > 0 || this.melee?.active || this.smoke?.active || this.pipe?.active || this.point?.active || Math.abs(this.glance) > .002 || this.rebusqueWeight > 0;
     // El LOD mantiene animación barata salvo una reacción de combate visible.
     if (this.lod && !punch && !hit && !gestures && !this.greetWeight && !this.warmWeight) return;
     const swimTarget = swim ? Math.min(3, Math.max(0, finite(speed))) : 0;
@@ -375,6 +383,7 @@ export class ActionPose {
     if (hit) this._hit(clamp(finite(actionProgress)), clamp(finite(hipLow)));
     if (this.greetWeight) this._greet(this.greetWeight);
     if (this.warmWeight) this._warm(this.warmWeight);
+    if (this.rebusqueWeight) aplicarMalabares(this, this.rebusqueWeight, this.rebusqueTime);
   }
 
   /**

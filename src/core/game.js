@@ -67,6 +67,8 @@ import { StealSystem } from '../features/steal.js';
 import { WitnessSystem } from '../systems/WitnessSystem.js';
 import { JornadaSystem } from '../systems/JornadaSystem.js';
 import { StreetLife } from '../systems/StreetLife.js';
+import { RebusqueSystem } from '../systems/RebusqueSystem.js';
+import { RebusqueVisual } from '../systems/rebusque/RebusqueVisual.js';
 import { PilaPublica, HogarDePaso, TransitStop } from '../entities/StreetLifeProps.js';
 import { streetLifePlaces } from '../world/bogota/streetLifePlaces.js';
 import { openRadioModal } from '../ui/RadioModal.js';
@@ -188,6 +190,10 @@ export class Game {
     this.interaction.street = this.street;
 
     this.steal = new StealSystem(this);
+    // Rebusque en el semáforo: malabares con B frente a los carros en rojo.
+    this.rebusque = new RebusqueSystem(this);
+    this.interaction.rebusque = this.rebusque;
+    this.rebusqueVisual = new RebusqueVisual(this.sceneMgr.scene, this);
     this.interaction.personCloserThan = (distance) => this.steal.personCloserThan(distance);
     // Quien ve un robo o una pelea llama a la Policía, graba o sale corriendo (ver WitnessSystem).
     this.witnesses = new WitnessSystem(this);
@@ -1001,6 +1007,7 @@ export class Game {
     this.witnesses?.reset();
     this.substanceEffects?.end();
     this.psychosis?.clearInduced?.();
+    this.rebusque?.cancelar();
     const night = this.clock.isNight || !!hogar;
     const hours = night
       ? (this.clock.hour >= 6 ? 24 - this.clock.hour + 6 : 6 - this.clock.hour)
@@ -1151,6 +1158,7 @@ export class Game {
     if (this.player.isRagdollActive) return false;
 
     this._deathPending = true;
+    this.rebusque?.cancelar();
     if (this.steal?.minigameActive) this.steal._endMinigame(false, 'cancel');
     this.substanceEffects?.end();
     this.psychosis?.clearInduced?.();
@@ -1188,6 +1196,7 @@ export class Game {
   _policeArrest() {
     if (this._arrestPending || this._deathPending || this.stats.salud <= 0) return;
     this._arrestPending = true;
+    this.rebusque?.cancelar();
     if (this.steal?.minigameActive) this.steal._endMinigame(false, 'cancel');
     this.input.keys = {};
     this.input.endFrame();
@@ -1765,10 +1774,12 @@ export class Game {
     this.waterEffects?.dispose();
     this.contactShadows?.dispose();
     this.gpsBeacon?.dispose();
+    this.rebusqueVisual?.dispose();
     this.psychosis?.dispose?.();
     this.substanceEffects?.dispose?.();
     this.poopSystem?.dispose?.();
     this.roadRage?.dispose?.();
+    this.rebusque?.dispose();
     this.limpieza?.dispose?.();
     this.radio?.destroy?.();
     this.witnesses?.dispose();

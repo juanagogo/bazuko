@@ -28,6 +28,12 @@ export const ITEMS = {
   retrovisor: { id: 'retrovisor', name: 'Retrovisor',   weight: 0.8, value: 15000 },
   radio:      { id: 'radio',      name: 'Radio de carro',   weight: 1.5, value: 35000 },
 
+  // ===== REBUSQUE EN EL SEMÁFORO (ver data/rebusque.js) =====
+  malabares: {
+    id: 'malabares', name: 'Pelotas de malabares', weight: 0.3, value: 1500, tool: true,
+    desc: 'Tres pelotas de trapo para hacer malabares frente a los carros en rojo.'
+  },
+
   // ===== CONSUMIBLES =====
   pan: {
     id: 'pan', name: 'Pan duro', weight: 0.3, value: 1000,
@@ -231,7 +237,7 @@ export function describeEffects(item) {
 
 /** La recicladora compra todo lo que no se come, no cura, no es sustancia ni sirve para construir */
 export const isRecyclable = (item) =>
-  !!item && !item.consumable && !item.cure && !item.substance && !item.build && item.id !== 'popo' && item.id !== 'radioTransistor' && item.id !== 'pilas';
+  !!item && !item.consumable && !item.cure && !item.substance && !item.build && !item.tool && item.id !== 'popo' && item.id !== 'radioTransistor' && item.id !== 'pilas';
 
 /** Lo que la recicladora o un ladrón se llevan del costal: todo lo reciclable menos el arma que el jugador tiene en la mano. */
 export const isForSale = (item, equippedWeapon = null) => isRecyclable(item) && !(item.weapon && item.weapon === equippedWeapon);
@@ -239,7 +245,8 @@ export const isForSale = (item, equippedWeapon = null) => isRecyclable(item) && 
 // El dibujo de cada objeto cuyo nombre no coincide con el de su dibujo (ver src/ui/icons.js)
 const ICONS = {
   radioTransistor: 'radio', papaCriolla: 'papa', aguapanela: 'pocillo', agua: 'botellaAgua', aguaCalle: 'botellaAgua', comidaDanada: 'pan', cafe: 'pocillo', tintico: 'pocillo',
-  basuco: 'papeleta', botella_picada: 'botellaPicada', antibiotico: 'pastilla', antiparasitario: 'pastilla', ropaLimpia: 'shirt'
+  basuco: 'papeleta', botella_picada: 'botellaPicada', antibiotico: 'pastilla', antiparasitario: 'pastilla', ropaLimpia: 'shirt',
+  malabares: 'dado'
 };
 export const itemIcon = (id) => ICONS[id] ?? id;
 
@@ -307,6 +314,7 @@ export const SHOP_ITEMS = [
   { item: 'vela',       price: 1000, desc: 'Ilumina el cambuche: duermo más tranquilo.' },
   { item: 'lona',       price: 9000, desc: 'Para el techo del cambuche.' },
   { item: 'madera',     price: 6000, qty: 3, label: 'Tablas ×3', desc: 'Para las paredes del cambuche.' },
+  { item: 'malabares',  price: 3000, desc: 'Para rebuscarme con B frente a los carros en rojo.' },
   { item: 'pilas',           price: 2000,  desc: 'Pilas AA: recargan la radio transistor.' },
   { item: 'radioTransistor', price: 18000, desc: 'Radio transistor: sintoniza emisoras y calma la mente.' },
   { upgrade: 'costal',  price: 12000, label: 'Costal grande', icon: 'backpack', desc: 'Cargo 20 kg más.' }

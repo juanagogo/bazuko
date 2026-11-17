@@ -113,7 +113,8 @@ Con `npm run dev` activo, abre **/sala.html** (por ejemplo http://localhost:5173
 | `Q` junto a una persona | Robo directo: paga más, siempre se nota, la persona puede defenderse si está de pie y una patrulla que lo vea te persigue. Robar te deja fichado: ver «Fichado y patrullas». |
 | Mantener y soltar `Q` junto a basura | Seleccionar materiales y recogerlos al soltar. |
 | `Q` o `E` junto al jíbaro | Abrir o cerrar su tienda: comprar y, de noche, elegir qué venderle. |
-| `B` o `L` | Pedir limosna. |
+| `B` | Pedir limosna. Con pelotas de malabares, frente a la cola de un semáforo en rojo, hace el show. |
+| `L` | Pedir limosna. |
 | Clic izquierdo o `G` en la calle | Atacar con los puños o con el arma equipada; pulsar de nuevo al final del golpe encadena el combo. |
 | Usar un cuchillo, una botella picada o el arma casera del costal | Equiparla en la mano; usarla otra vez la guarda y vuelves a los puños. El arma equipada se conserva al guardar, y ni la recicladora ni quien te robe mientras duermes se llevan la que tienes en la mano. |
 | `F` | Activar o desactivar el boost, que consume energía y salud. |
@@ -153,7 +154,7 @@ Funciona con mandos de Xbox, PlayStation o genéricos conectados por USB o Bluet
 | `View` | Mapa (`M`). |
 | `Menu` | Pausa (`Esc`). |
 | Pulsar el stick derecho | Radar (`N`). |
-| Cruceta ↑ ↓ ← → | Radio (`R`), lanzar o popó (`X`), limosna (`B`), boost (`F`). |
+| Cruceta ↑ ↓ ← → | Radio (`R`), lanzar o popó (`X`), limosna o malabares en el rojo (`B`), boost (`F`). |
 
 ## Cómo empezar
 
