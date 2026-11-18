@@ -2,6 +2,7 @@
 // Todo se dibuja por código. Sin DOM (pruebas en Node) devuelven una textura vacía con los mismos UV.
 import * as THREE from 'three';
 import { rng } from './textures.js';
+import { LOCAL_W, localRects, drawLocales } from './textures-locales.js';
 
 function newCanvas(w, h) {
   if (typeof document === 'undefined' || typeof document.createElement !== 'function') return null;
@@ -304,7 +305,8 @@ export function paintAtlas() {
 // ---------- mobiliario, fachadas y azoteas ----------
 
 // El lienzo es el doble del diseño: letreros y portales se leen de cerca sin cambiar coordenadas.
-const DETAIL_W = 512, DETAIL_H = 512, DETAIL_SCALE = 2;
+// La mitad derecha es de los locales de barrio: 2048 × 1024 píxeles en total.
+const DETAIL_BASE_W = 512, DETAIL_W = DETAIL_BASE_W + LOCAL_W, DETAIL_H = 512, DETAIL_SCALE = 2;
 const CELL = 64;
 const DETAIL_NAMES = ['plain', 'concrete', 'rust', 'crate', 'tire', 'cardboard', 'sack', 'canvas',
   'tank', 'rebar', 'awning', 'awning2', 'meter', 'cloth', 'cloth2', 'cloth3',
@@ -317,6 +319,7 @@ DETAIL_NAMES.forEach((name, i) => {
 });
 // Los portales ocupan cuatro celdas: son lo que el jugador tiene más cerca en cada cuadra.
 ['door', 'door2', 'door3', 'door4'].forEach((name, i) => { DETAIL_RECTS[name] = [i * CELL * 2, CELL * 6, CELL * 2, CELL * 2]; });
+Object.assign(DETAIL_RECTS, localRects(DETAIL_BASE_W));
 export const DETAIL_UV = Object.fromEntries(Object.entries(DETAIL_RECTS).map(([k, v]) => {
   // Un texel de margen: el mipmap no trae el color de la celda vecina.
   const [x, y, w, h] = v;
@@ -513,6 +516,7 @@ export function detailAtlas() {
     drawDoors(ctx, R, r);
     fill('wood', '#6d4f33');
     { const [x, y] = R.wood; ctx.fillStyle = 'rgba(30,20,10,.3)'; for (let i = 0; i < 6; i++) ctx.fillRect(x, y + 4 + i * 11, 64, 2); }
+    drawLocales(ctx, R, r);
   }
   detailCache = { texture: finishTexture(surface), uv: DETAIL_UV };
   detailCache.texture.name = 'Atlas de mobiliario urbano';
