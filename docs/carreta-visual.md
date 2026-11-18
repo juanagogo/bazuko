@@ -20,6 +20,8 @@ La geometría y las texturas son originales y se generan en código. La imagen d
 
 Las funciones `toggleGrab`, `update`, `saveState` y `loadState` son idénticas a las originales. Se conserva E para agarrar/soltar, el bono de 120 kg, la distancia de 1,4 metros delante del personaje, el rumbo, la animación de las ruedas, el sonido existente y el formato del guardado. El manubrio mantiene la altura y distancia de agarre originales.
 
+Después se añadió una regla al soltarla: con más carga de la que se aguanta sin ella, E no la suelta y avisa «Tengo que descargar antes de dejar la carreta», con lo que se lleva y lo que se aguanta. Mientras tanto la tecla no promete soltarla: dice «Carreta muy cargada · Para soltarla, primero descargo». La cuenta está en un solo sitio, `puedeSoltar`. Así nadie sigue corriendo, saltando y peleando con la carga de la carreta encima. Vender, botar o comer siempre bajan el peso.
+
 Solo se sustituye la construcción del modelo y se adapta su liberación para limpiar los recursos nuevos. No se añaden colisiones, controles, luces ni acciones de inventario a la carga decorativa.
 
 ## Recursos y revisión

@@ -89,6 +89,46 @@ for (const [width, height] of TAM) {
   });
 }
 
+test('recargar la página con la plana o el cartón abiertos, o después de seguir, no deshace el castigo ni lo cobra dos veces', async ({ page }) => {
+  await readyGame(page);
+  const recargar = async () => {
+    await page.reload();
+    await expect(page.locator('#loading-screen')).toBeHidden({ timeout: 120_000 });
+    await page.getByRole('button', { name: 'Continuar jugando', exact: true }).click();
+    await expect.poll(() => page.evaluate(() => window.__game.paused)).toBe(false);
+    return page.evaluate(() => ({ plata: window.__game.stats.dinero, filas: window.__game.inventory.items.map((i) => i.id), salud: window.__game.stats.salud }));
+  };
+  // Lo último guardado (como al dormir): cuatro filas en el costal y algo de plata.
+  const guardadoCon = (plata) => page.evaluate(async (plata) => {
+    const g = window.__game, { ITEMS } = await import('/src/data/items.js');
+    g.inventory.clear();
+    for (const [id, n] of [['carton', 2], ['lata', 3], ['pilas', 1], ['cable', 1]]) g.inventory.add(ITEMS[id], n);
+    g.stats.dinero = plata;
+    g._save();
+  }, plata);
+
+  await guardadoCon(12400);
+  await page.evaluate(() => window.dispatchEvent(new CustomEvent('police-arrest')));
+  await expect(page.locator('#menu')).toHaveAttribute('data-momento', 'plana');
+  expect(await recargar(), 'F5 con la plana abierta').toMatchObject({ plata: 0, filas: [] });
+  await expect(page.locator('#menu')).toBeHidden();
+
+  await guardadoCon(5000);
+  await page.evaluate(() => window.dispatchEvent(new CustomEvent('police-arrest')));
+  await page.getByRole('button', { name: 'Continuar', exact: true }).click();
+  await expect(page.locator('#menu')).toBeHidden();
+  expect(await recargar(), 'F5 después de seguir').toMatchObject({ plata: 0, filas: [] });
+
+  await guardadoCon(3000);
+  await page.evaluate(() => { const g = window.__game; g._deathCause = 'atropello'; g.stats.salud = 0; });
+  await expect(page.locator('#menu')).toHaveAttribute('data-momento', 'muerte');
+  const muerto = await recargar();
+  expect(muerto, 'F5 con el cartón abierto: se pierde la primera mitad del costal, no la plata').toMatchObject({ plata: 3000, filas: ['pilas', 'cable'] });
+  expect(muerto.salud, 'vuelve como del cambuche, no muerto otra vez').toBeGreaterThan(50);
+  await expect(page.locator('#menu')).toBeHidden();
+  expect((await recargar()).filas, 'otro F5 no se lleva otra mitad').toEqual(['pilas', 'cable']);
+});
+
 test('la limpieza social de punta a punta: aviso, golpes, recorte, cambuche y consejo', async ({ page }) => {
   test.setTimeout(240_000);
   await page.setViewportSize({ width: 1280, height: 800 });
@@ -162,4 +202,104 @@ test('las voces van en rojo, sin filtro en el lienzo y sin tapar las cifras', as
   expect(m.filtro).toBe('');
   expect(m.color).toBe('rgb(171, 29, 23)');
   expect(m.tapa).toBe(false);
+});
+
+test('el cartel del lugar no toca la plata, los avisos ni la misión del día', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await readyGame(page);
+  // El cartel se pone con la zona elegida, sin caminar hasta ella, y se queda quieto mientras se mide.
+  const poner = (zona) => page.evaluate((zona) => {
+    const za = window.__game.zonaAviso;
+    za._update ??= za.update;
+    za._zona = null;
+    za._update.call(za, 1 / 60, { _zoneAt: () => zona }, 10, 10);
+    za.update = () => {};
+  }, zona);
+  // La misión del día con su texto real, a la vista mientras dure la prueba.
+  const mision = () => page.evaluate(() => {
+    const h = window.__game.hud;
+    h._misionTexto = undefined;
+    h._pintarMision(window.__game.inventory);
+    if (h.misionEl.hidden) { h._setText(h.misionEl, 'TOCA JUNTAR 8 CARTONES'); h.misionEl.hidden = false; }
+    h._misionS = 1e9;
+  });
+  const avisos = () => page.evaluate(() => {
+    for (const text of ['Encontraste 2 latas de atún', 'Te robaron el costal mientras dormías', 'Ganaste 1.500 pesos reciclando']) {
+      window.dispatchEvent(new CustomEvent('toast', { detail: { text, type: 'info' } }));
+    }
+  });
+  // Cajas reales: el cartel no se monta en nada de lo que sale arriba y no se sale de la pantalla.
+  const choques = (ignorar = []) => page.evaluate((ignorar) => {
+    const ver = (el) => el && !el.hidden && getComputedStyle(el).display !== 'none' && getComputedStyle(el).visibility !== 'hidden' && el.getBoundingClientRect().width > 0;
+    const cartel = document.getElementById('zona-cartel');
+    if (!ver(cartel)) return ['el cartel no se ve'];
+    const c = cartel.getBoundingClientRect(), nombre = cartel.textContent;
+    const malas = [];
+    if (c.left < 0 || c.right > innerWidth || c.top < 0) malas.push(`${nombre} se sale de la pantalla`);
+    const otros = [['plata', document.querySelector('#topbar .topbar__hoja')], ['misión', document.getElementById('mision')],
+      ['botones', document.getElementById('game-settings')], ['radar', document.getElementById('hud-dock')],
+      ...[...document.querySelectorAll('.loot-toast')].map((e, i) => [`aviso ${i + 1}`, e])];
+    for (const [que, el] of otros) {
+      if (!ver(el) || ignorar.some((i) => que.startsWith(i))) continue;
+      const o = el.getBoundingClientRect();
+      if (Math.min(c.right, o.right) - Math.max(c.left, o.left) > .5 && Math.min(c.bottom, o.bottom) - Math.max(c.top, o.top) > .5) malas.push(`${nombre} sobre ${que}`);
+    }
+    return malas;
+  }, ignorar);
+
+  await mision();
+  await expect(page.locator('#mision')).toBeVisible();
+  for (const [width, height] of [[1280, 800], [1000, 800]]) {
+    await page.setViewportSize({ width, height });
+    for (const zona of ['metro', 'parque', 'lago', 'candelaria', 'andenes']) {
+      await avisos();
+      await poner(zona);
+      await expect(page.locator('.loot-toast')).toHaveCount(3);
+      await page.waitForTimeout(400);
+      expect(await choques(), `${zona} a ${width}`).toEqual([]);
+    }
+  }
+  // Un nombre corto queda con la letra de siempre (5,2vw), en una línea.
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await poner('andenes');
+  await page.waitForTimeout(400);
+  const corto = await page.locator('#zona-cartel').evaluate((e) => ({ letra: getComputedStyle(e).fontSize, alto: e.getBoundingClientRect().height }));
+  expect(corto.letra).toBe('66.56px');
+  expect(corto.alto).toBeLessThan(66.56 * 2);
+
+  // Ventanas de escritorio bajas: de 900 a 1126 px de ancho, el nombre largo en dos o tres líneas alcanzaría el radar.
+  // Desde 610 px de alto no lo toca, tampoco con el radar grande; desde 1127 px de ancho, a ningún alto.
+  for (const tam of ['m', 'l']) {
+    await page.evaluate((t) => window.__game.minimap.setSize(t, false), tam);
+    for (const [width, height] of [[900, 610], [1000, 610], [1126, 610], [1127, 501]]) {
+      await page.setViewportSize({ width, height });
+      await poner('metro');
+      await page.waitForTimeout(400);
+      // Con menos de 525 px de alto el cartel (a 12vh) ya rozaba la misión de arriba antes de este cambio: aquí no se mira.
+      expect(await choques(height < 525 ? ['misión'] : []), `metro a ${width} × ${height}, radar ${tam}`).toEqual([]);
+    }
+  }
+  await page.evaluate(() => window.__game.minimap.setSize('m', false));
+  // Un píxel más abajo (a 609 de alto) o más angosto (a 1126 × 501), el cartel queda como antes: letra de 5,2vw y
+  // ancho máximo de 90vw.
+  for (const [width, height] of [[900, 609], [1126, 609], [1126, 501]]) {
+    await page.setViewportSize({ width, height });
+    await poner('metro');
+    const antes = await page.locator('#zona-cartel').evaluate((e) => ({ letra: parseFloat(getComputedStyle(e).fontSize), ancho: parseFloat(getComputedStyle(e).maxWidth) }));
+    expect(antes.letra, `letra a ${width} × ${height}`).toBeCloseTo(width * .052, 1);
+    expect(antes.ancho, `ancho máximo a ${width} × ${height}`).toBeCloseTo(width * .9, 1);
+  }
+
+  // En pantalla angosta, la misión y el cartel iban en el mismo sitio, bajo el radar. De pie, los avisos van
+  // debajo de la misión desde antes y no se miran aquí.
+  for (const [width, height, ignorar] of [[820, 800, []], [390, 844, ['aviso']]]) {
+    await page.setViewportSize({ width, height });
+    await mision();
+    for (const zona of ['metro', 'andenes']) {
+      await poner(zona);
+      await page.waitForTimeout(400);
+      await expect(page.locator('#mision')).toBeVisible();
+      expect(await choques(ignorar), `${zona} a ${width}`).toEqual([]);
+    }
+  }
 });

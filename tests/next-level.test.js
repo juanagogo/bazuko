@@ -7,6 +7,9 @@ import { Cart } from '../src/entities/Cart.js';
 import { AudioSystem } from '../src/systems/AudioSystem.js';
 import { Bogota } from '../src/world/districts/Bogota.js';
 import { Npc } from '../src/entities/Npc.js';
+import { InventorySystem } from '../src/systems/InventorySystem.js';
+import { ITEMS } from '../src/data/items.js';
+import { piezasDelPrompt, piezasParaElDedo, textoDelPrompt } from '../src/ui/HUD.js';
 
 beforeEach(() => {
   globalThis.window = new EventTarget();
@@ -189,6 +192,46 @@ test('Carreta de balineras: estructura 3D, acople al jugador, bonificación de c
   cart.loadState(saved, player, inventory);
   assert.equal(cart.isAttached, true);
   assert.equal(inventory.maxWeight, 140);
+});
+
+test('con más carga de la que aguanto sin ella, no suelto la carreta: primero descargo', () => {
+  const avisos = [];
+  window.addEventListener('toast', (e) => avisos.push(e.detail));
+  const cart = new Cart(new THREE.Scene(), new THREE.Vector3(15, 0, 20));
+  const player = { position: new THREE.Vector3(), root: { rotation: { y: 0 } }, hasCart: false };
+  const inventory = new InventorySystem(20);
+  cart.toggleGrab(player, inventory);
+  inventory.add(ITEMS.chatarra, 30); // 30 kg: en la carreta caben, en el costal no
+  assert.equal(cart.toggleGrab(player, inventory), true, 'sigue enganchada');
+  assert.equal(player.hasCart, true, 'con la carreta siguen sus penas: más lento, sin salto ni golpe');
+  assert.equal(inventory.maxWeight, 140);
+  assert.match(avisos.at(-1).text, /^Tengo que descargar antes de dejar la carreta: llevo 30 kg y sin ella aguanto 20\.$/);
+  // Botar lo que sobra siempre se puede: con lo que aguanto encima, ya la suelto.
+  inventory.remove('chatarra', 10);
+  assert.equal(cart.toggleGrab(player, inventory), false);
+  assert.equal(player.hasCart, false);
+  assert.equal(inventory.maxWeight, 20);
+  assert.ok(inventory.totalWeight <= inventory.maxWeight);
+});
+
+test('junto a la carreta, la tecla no promete soltarla si no se puede: dice qué hacer antes', () => {
+  const cart = new Cart(new THREE.Scene(), new THREE.Vector3(15, 0, 20));
+  const player = { position: new THREE.Vector3(), root: { rotation: { y: 0 } }, hasCart: false };
+  const inventory = new InventorySystem(20);
+  const aviso = () => textoDelPrompt({ currentTarget: cart, currentTargetType: 'cart' }, inventory);
+  const conElDedo = () => piezasParaElDedo(piezasDelPrompt(aviso())).map((p) => p.verbo);
+  assert.equal(aviso(), '[E] Agarrar la carreta (+120 kg)');
+  cart.toggleGrab(player, inventory);
+  assert.equal(cart.puedeSoltar(inventory), true);
+  assert.equal(aviso(), '[E] Soltar la carreta');
+  assert.deepEqual(conElDedo(), ['Soltar carreta']);
+  inventory.add(ITEMS.chatarra, 30); // 30 kg: sin la carreta aguanto 20
+  assert.equal(cart.puedeSoltar(inventory), false);
+  assert.equal(aviso(), '[E] Carreta muy cargada · Para soltarla, primero descargo');
+  assert.deepEqual(conElDedo(), ['Carreta cargada'], 'con el dedo, en corto y sin la nota');
+  inventory.remove('chatarra', 10);
+  assert.equal(cart.puedeSoltar(inventory), true, 'con lo que aguanto encima, ya se puede');
+  assert.equal(aviso(), '[E] Soltar la carreta');
 });
 
 test('NPC reactivos: diálogos flotantes y paraguas procedural en lluvia', () => {

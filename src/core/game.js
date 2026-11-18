@@ -8,7 +8,7 @@ import { Clock, DAY_CYCLE_SECONDS } from './Clock.js';
 import { Input } from './Input.js';
 
 import { World } from '../world/World.js';
-import { Dog, DOG_DEFAULT_LOOK, legacyPetLook } from '../entities/Dog.js';
+import { Dog, DOG_DEFAULT_LOOK, DOG_GUARD_RANGE, legacyPetLook } from '../entities/Dog.js';
 import { CompanionNavigation } from '../systems/CompanionNavigation.js';
 import { Minimap, nombreALaVista } from '../ui/Minimap.js';
 import { ZonaAviso } from '../ui/ZonaAviso.js';
@@ -26,6 +26,9 @@ import { SellPoint } from '../entities/SellPoint.js';
 import { Cambuche } from '../entities/Cambuche.js';
 import { Shop } from '../entities/Shop.js';
 import { ComedorComunitario } from '../entities/ComedorComunitario.js';
+import { Bicycle } from '../entities/Bicycle.js';
+import { BikeFence } from '../entities/BikeFence.js';
+import { RandomHallucinationSystem } from '../systems/RandomHallucinationSystem.js';
 import { DailyMissionSystem } from '../systems/DailyMissionSystem.js';
 import { Car } from '../entities/Car.js';
 import { parkCar } from '../world/bogota/parkedCars.js';
@@ -60,12 +63,17 @@ import { RadioSystem } from '../systems/RadioSystem.js';
 import { PoopSystem } from '../systems/PoopSystem.js';
 import { PsychosisSystem } from '../systems/PsychosisSystem.js';
 import { RoadRageSystem } from '../systems/RoadRageSystem.js';
+import { CarjackSystem } from '../systems/CarjackSystem.js';
 import { LimpiezaSocialSystem } from '../systems/LimpiezaSocialSystem.js';
 import { PoliceFootSystem } from '../systems/PoliceFootSystem.js';
 import { SubstanceEffects } from '../systems/SubstanceEffects.js';
 import { SUBSTANCE_EFFECTS } from '../data/substanceEffects.js';
 import { StealSystem } from '../features/steal.js';
+import { WitnessSystem } from '../systems/WitnessSystem.js';
+import { JornadaSystem } from '../systems/JornadaSystem.js';
 import { StreetLife } from '../systems/StreetLife.js';
+import { RebusqueSystem } from '../systems/RebusqueSystem.js';
+import { RebusqueVisual } from '../systems/rebusque/RebusqueVisual.js';
 import { PilaPublica, HogarDePaso, TransitStop } from '../entities/StreetLifeProps.js';
 import { streetLifePlaces } from '../world/bogota/streetLifePlaces.js';
 import { openRadioModal } from '../ui/RadioModal.js';
@@ -81,6 +89,8 @@ import { LocalLights } from './LocalLights.js';
 import { ContactShadows } from './ContactShadows.js';
 import { GRAPHICS_PROFILES } from './GraphicsQuality.js';
 import { FrameProfiler } from './FrameProfiler.js';
+import { registerSectorChildren } from './SectorCulling.js';
+import { renderBreakdown } from './RenderBreakdown.js';
 import { loadTaskGroups, withLoadTimeout } from './Startup.js';
 import { paintLoadingFrame } from '../ui/LoadingScreen.js';
 import { el } from '../ui/dom.js';
@@ -113,6 +123,8 @@ export class Game {
     this.sceneMgr.scene.environment = this.renderer.createEnvironment();
     this.cameraRig = new CameraRig(this.sceneMgr.scene, canvas);
     this.clock = new Clock({ dayLengthSeconds: DAY_CYCLE_SECONDS });
+    // La hora cambia cómo responde la calle: la patrulla, el robo y la limosna (ver JornadaSystem).
+    this.jornada = new JornadaSystem(this.clock);
     this.input = new Input();
 
     // Sistemas
@@ -152,6 +164,7 @@ export class Game {
     );
     // Conductores que se bajan con una varilla al robarles el retrovisor
     this.roadRage = new RoadRageSystem(this.sceneMgr.scene, { player: this.player, stats: this.stats, audio: this.audio });
+    this.carjack = new CarjackSystem(this);
     this.roadRage.onPlayerHurt = () => { if (this.stats.salud <= 0) this._deathCause = 'golpiza'; };
     window.addEventListener('mirror-stolen', (e) => this.roadRage?.trigger(e.detail?.car));
     // De noche, a veces, llega la camioneta negra de la «limpieza social»
@@ -179,12 +192,19 @@ export class Game {
       this.diseases, this.talents, this.crafting
     );
     this.interaction.getTraffic = () => this.traffic;
+    this.interaction.jornada = this.jornada;
     // Caleta, fama, cuidar carros, comida que se daña, armas que se gastan, pila, transporte y hogar de paso.
     this.street = new StreetLife(this);
     this.interaction.street = this.street;
 
     this.steal = new StealSystem(this);
+    // Rebusque en el semáforo: malabares con B frente a los carros en rojo.
+    this.rebusque = new RebusqueSystem(this);
+    this.interaction.rebusque = this.rebusque;
+    this.rebusqueVisual = new RebusqueVisual(this.sceneMgr.scene, this);
     this.interaction.personCloserThan = (distance) => this.steal.personCloserThan(distance);
+    // Quien ve un robo o una pelea llama a la Policía, graba o sale corriendo (ver WitnessSystem).
+    this.witnesses = new WitnessSystem(this);
     this.interaction.onStartMirrorTheft = (car) => {
       this.steal.startMirrorTheft(car, (target) => {
         this.interaction._executeCarTheft(target);
@@ -286,6 +306,8 @@ export class Game {
     this.deathCount = 0;
     this._deathPending = false;
     this._arrestPending = false;
+    // 'arresto' o 'muerte' mientras su cartón está abierto. Va en la partida: recargar en ese momento no se lo salta.
+    this._castigoPendiente = null;
     this._wasNight = null;
 
     this._lastTime = performance.now();
@@ -456,19 +478,33 @@ export class Game {
   }
 
   isComedorAvailable() {
+    if (this.lastComedorTimestamp) {
+      return (Date.now() - this.lastComedorTimestamp) >= 5 * 60 * 1000;
+    }
     if (this.lastComedorHour === undefined || this.lastComedorHour === null) return true;
-    return (this.totalGameHours - this.lastComedorHour) >= 24;
+    return (this.totalGameHours - this.lastComedorHour) >= 2;
+  }
+
+  getComedorRemainingMinutes() {
+    if (this.isComedorAvailable()) return 0;
+    if (this.lastComedorTimestamp) {
+      const elapsed = (Date.now() - this.lastComedorTimestamp) / 1000;
+      return Math.max(0, Math.ceil((300 - elapsed) / 60));
+    }
+    const diff = this.totalGameHours - this.lastComedorHour;
+    return Math.max(0, Math.ceil((2 - diff) * 2.5));
   }
 
   getComedorRemainingHours() {
     if (this.isComedorAvailable()) return 0;
-    const diff = this.totalGameHours - this.lastComedorHour;
-    return Math.max(0, Math.ceil(24 - diff));
+    const min = this.getComedorRemainingMinutes();
+    return Math.max(0, Math.ceil(min / 60));
   }
 
   serveComedor() {
     if (!this.isComedorAvailable()) return false;
     this.lastComedorHour = this.totalGameHours;
+    this.lastComedorTimestamp = Date.now();
     if (this.stats) {
       this.stats.hambre = Math.min(100, (this.stats.hambre || 0) + 80);
       this.stats.sed = Math.min(100, (this.stats.sed || 0) + 60);
@@ -483,6 +519,18 @@ export class Game {
     }));
     this._save();
     return true;
+  }
+
+  /**
+   * Por qué no hay siesta ahora, o null si la hay. De noche se duerme hasta las 6:00 sin este límite.
+   * Sin él, una siesta tras otra pasa el día en segundos: cura, calma el vicio y trae el comedor y las misiones.
+   */
+  motivoSinSiesta() {
+    if (this.clock.isNight) return null;
+    const despierto = Number.isFinite(this.ultimaSiesta) ? this.totalGameHours - this.ultimaSiesta : Infinity;
+    if (despierto >= 0 && despierto < SLEEP.siestaEspera) return { reason: 'descansado', horas: Math.ceil(SLEEP.siestaEspera - despierto) };
+    if (this.stats.energia > SLEEP.siestaEnergiaMax) return { reason: 'descansado' };
+    return null;
   }
 
   /** GPS a pie, plano del radar y haz del destino; solo para distritos con grilla de navegación. */
@@ -563,6 +611,10 @@ export class Game {
     this.pickups = [];
     this.cars.forEach((c) => c.dispose());
     this.cars = [];
+    this.bicycles.forEach((b) => b.dispose());
+    this.bicycles = [];
+    this.bikeFence?.dispose();
+    this.bikeFence = null;
     this.interaction.targets = [];
 
     const district = this.world.active;
@@ -696,6 +748,7 @@ export class Game {
     if (this.parkedMotos) this.sceneMgr.scene.add(this.parkedMotos);
     if (district.getTrafficRoutes) {
       this.traffic = new TrafficSystem(this.sceneMgr.scene, district.getTrafficRoutes(), { policeCount: 2 });
+      this.traffic.jornada = this.jornada;
       this.traffic.setDensity(this.trafficDensity);
       // La flota diaria entra y sale con el reloj: el juego le da de alta el carro nuevo y de baja el que se va.
       this.traffic.onVehicleAdded = (car) => {
@@ -747,6 +800,32 @@ export class Game {
       )
     );
     this.interaction.register(this.craftingStation);
+
+    // ===== Puesto de compras de bicicletas robadas =====
+    if (district.reserved?.bikeFence) {
+      const fencePos = new THREE.Vector3(district.reserved.bikeFence.x, 0, district.reserved.bikeFence.z);
+      this.bikeFence = new BikeFence(this.sceneMgr.scene, fencePos);
+      this.bikeFence.group.position.y = district.getGroundHeightUnder?.(this.bikeFence.group)
+        ?? district.getGroundHeight?.(fencePos.x, fencePos.z) ?? 0;
+      this.interaction.register(this.bikeFence);
+    }
+
+    // ===== Bicicletas en la ciudad =====
+    const bikeCoords = [
+      { x: (district.reserved?.comedor?.x ?? 60) + 2, z: (district.reserved?.comedor?.z ?? 66) - 3, r: 0 },
+      { x: (district.reserved?.shop?.x ?? 68) + 3, z: (district.reserved?.shop?.z ?? 58) - 1, r: Math.PI / 2 },
+      { x: (district.reserved?.sell?.x ?? 29) + 4, z: (district.reserved?.sell?.z ?? 68) - 2, r: -0.4 },
+      { x: 50, z: 62, r: 0.8 },
+      { x: 76, z: 46, r: -Math.PI / 2 }
+    ];
+    for (const b of bikeCoords) {
+      const bPos = new THREE.Vector3(b.x, 0, b.z);
+      const bike = new Bicycle(this.sceneMgr.scene, bPos, b.r, { locked: true });
+      bike.group.position.y = district.getGroundHeightUnder?.(bike.group)
+        ?? district.getGroundHeight?.(bPos.x, bPos.z) ?? 0;
+      this.bicycles.push(bike);
+      this.interaction.register(bike);
+    }
 
     // ===== Carreta de balineras de reciclaje =====
     this.cart = new Cart(this.sceneMgr.scene, new THREE.Vector3(25, 0, 31));
@@ -837,10 +916,11 @@ export class Game {
 
   /**
    * Lleva al jugador a otro sitio de la ciudad (el transporte): fundido a negro, reloj adelantado y El Chato
-   * detrás. `to` trae x y z en metros.
+   * detrás, salvo que se haya quedado cuidando el cambuche. `to` trae x y z en metros.
    */
   relocatePlayer(to, { minutes = 0, fade = true } = {}) {
     const district = this.world.active;
+    this.witnesses?.reset(); // quien llamaba o grababa se queda atrás
     const mover = () => {
       const y = district?.getMovementGroundHeight?.(to.x, to.z, 0) ?? district?.getGroundHeight?.(to.x, to.z) ?? 0;
       this.player.position.set(to.x, y, to.z);
@@ -851,7 +931,7 @@ export class Game {
         this.clock.hour += minutes / 60;
         while (this.clock.hour >= 24) { this.clock.hour -= 24; this.clock.day += 1; }
       }
-      if (this.dog?.isFriend) this.dog.resetNear(this.player.position);
+      if (this.dog?.isFriend && !this.dog.guarding) this.dog.resetNear(this.player.position);
       this.cameraRig._snap = true;
       this.cameraRig.follow(this.player.position, 0, this.collisions);
       this.interaction.currentTarget = null;
@@ -892,9 +972,12 @@ export class Game {
     if (data) {
       this.stats.deserialize(data.stats);
       this.clock.deserialize(data.clock);
+      this.jornada?.sincronizar(); // al cargar, la franja se toma tal cual, sin aviso
       this.inventory.deserialize(data.inventory ?? {});
       this.talents.deserialize(data.talents ?? {});
       this.diseases.deserialize(data.diseases ?? {});
+      // Se recargó con el cartón del arresto o de la muerte abierto: lo que cuesta se paga aquí, una vez.
+      if (data.castigo) this._aplicarCastigo(data.castigo);
       if (data.player) {
         // partidas de otro mapa: si la posición guardada no es transitable, vuelve al inicio
         const district = this.world.active;
@@ -913,6 +996,7 @@ export class Game {
       }
       if (data.dog?.isFriend && this.dog) {
         this.dog.befriend();
+        if (data.dog.cuida && this.built.base) this.dog.guard();
       }
       // La apariencia de la antigua mascota personalizable se conserva si la partida aún no tiene una.
       this.dog?.setLook(data.dog?.look ?? legacyPetLook() ?? DOG_DEFAULT_LOOK);
@@ -943,7 +1027,7 @@ export class Game {
       costal: this.costal,
       weapon: this.player.equippedWeapon,
       radio: this.radio ? { isOn: this.radio.isOn, freq: this.radio.frequency, battery: this.radio.battery } : null,
-      dog: { isFriend: !!this.dog?.isFriend, look: this.dog?.look ?? null },
+      dog: { isFriend: !!this.dog?.isFriend, look: this.dog?.look ?? null, cuida: !!this.dog?.guarding },
       cart: this.cart ? this.cart.saveState() : null,
       gps: this.gps?.serialize() ?? null,
       lastComedorHour: this.lastComedorHour,
@@ -967,13 +1051,20 @@ export class Game {
       window.dispatchEvent(new CustomEvent('sleep-fail', { detail: { reason: 'nobase' } }));
       return;
     }
+    const sinSiesta = hogar ? null : this.motivoSinSiesta();
+    if (sinSiesta) {
+      window.dispatchEvent(new CustomEvent('sleep-fail', { detail: sinSiesta }));
+      return;
+    }
 
     this.isSleeping = true;
     // Los que ya desistieron y vuelven caminando (o una patrulla que se devuelve) no quedan afuera: todos a su ronda.
     if (this.traffic?.vehicles?.some(vehicle => vehicle.police && vehicle.state === 'chase') || this.policeFoot?.active) this.traffic.endPursuit();
     if (this.steal?.minigameActive) this.steal._endMinigame(false, 'cancel');
+    this.witnesses?.reset();
     this.substanceEffects?.end();
     this.psychosis?.clearInduced?.();
+    this.rebusque?.cancelar();
     const night = this.clock.isNight || !!hogar;
     const hours = night
       ? (this.clock.hour >= 6 ? 24 - this.clock.hour + 6 : 6 - this.clock.hour)
@@ -990,6 +1081,7 @@ export class Game {
     const factor = Math.min(1, hours / 8); // una siesta rinde menos
     this.clock.hour += hours;
     while (this.clock.hour >= 24) { this.clock.hour -= 24; this.clock.day += 1; }
+    if (!night) this.ultimaSiesta = this.totalGameHours;
 
     const b = this.built;
     const st = this.stats;
@@ -1011,15 +1103,19 @@ export class Game {
     st.energia = Math.min(100, st.energia + (SLEEP.energia + (b.cama ? SLEEP.energiaCama : 0)) * factor);
     st.salud = Math.min(100, st.salud + (SLEEP.salud + (b.techo ? SLEEP.saludTecho : 0)) * factor);
     st.saludMental = Math.min(100, st.saludMental + (MENTAL_RESTORE_SLEEP + (b.fogon ? SLEEP.animoFogon : 0)) * factor);
-    if (this.dog?.isFriend) st.saludMental = Math.min(100, st.saludMental + 15);
+    // El Chato y la vela rinden como el resto del sueño: una siesta da una parte.
+    if (this.dog?.isFriend) st.saludMental = Math.min(100, st.saludMental + 15 * factor);
     st.vicio = b.vela
-      ? Math.min(100, st.vicio + SLEEP.vicioVela)
+      ? Math.min(100, st.vicio + SLEEP.vicioVela * factor)
       : Math.max(0, st.vicio - WITHDRAWAL.vicioDormir * factor);
     if (!b.fogon) st.hambre = Math.max(0, st.hambre - SLEEP.hambreFogon * factor);
 
-    // Sin paredes te pueden robar si duermes de noche
+    // Sin paredes te pueden robar si duermes de noche; El Chato al lado, o cuidando el cambuche, espanta al ladrón.
     let robbed = null, caletaRobada = [];
-    if (night && !b.paredes && Math.random() < SLEEP.roboProb) {
+    const cuidado = !!this.dog?.isFriend && (!!this.dog.guarding || this.dog.position.distanceTo(this.player.position) < 6);
+    const intento = night && !b.paredes && Math.random() < SLEEP.roboProb;
+    const espantado = intento && cuidado;
+    if (intento && !cuidado) {
       const lost = Math.floor(st.dinero * SLEEP.roboDinero);
       st.dinero -= lost;
       for (const it of [...this.inventory.items]) {
@@ -1044,6 +1140,11 @@ export class Game {
       }
       this.dog?.wake();
       window.dispatchEvent(new CustomEvent('sleep-end', { detail: { hours: Math.round(hours) } }));
+      if (espantado) {
+        window.dispatchEvent(new CustomEvent('toast', {
+          detail: { text: 'El Chato espantó a un ladrón mientras dormía.', type: 'rare' }
+        }));
+      }
       if (robbed !== null) {
         window.dispatchEvent(new CustomEvent('toast', {
           detail: { text: `Me robaron mientras dormía (${cop(robbed)} y material). Unas paredes ayudarían.`, type: 'death' }
@@ -1066,12 +1167,29 @@ export class Game {
     return !!c && Math.hypot(this.player.position.x - c.x, this.player.position.z - c.z) < radius;
   }
 
+  /** Temblor leve, proporcional al daño recibido en un cuadro; el desgaste lento (hambre, frío) no alcanza el umbral. */
+  _shakeOnDamage() {
+    const salud = this.stats?.salud;
+    if (!Number.isFinite(salud)) return 0;
+    const lost = (this._saludVista ?? salud) - salud;
+    this._saludVista = salud;
+    if (lost < 2) return 0;
+    // Un puño (~10) da ~0,4° y un atropello (~20), ~1°; el tope (~1,1°) sacude sin marear.
+    const amount = Math.min(.5, .15 + lost / 60);
+    this.cameraRig?.addTrauma?.(amount);
+    return amount;
+  }
+
   _onVehicleImpact({ speed, direction }) {
+    // Dentro del carro robado los choques los resuelve CarjackSystem.
+    if (this.carjack?.driving) return;
     if (this._deathPending || this.stats.salud <= 0 || (this._vehicleImpactCooldown ?? 0) > 0) return;
     const damage = Math.min(100, Math.max(4, Math.round(.6 * speed ** 2 + 1.5 * speed)));
     this.stats.salud = Math.max(0, this.stats.salud - damage);
     this.stats.energia = Math.max(0, this.stats.energia - damage * .25);
     this._vehicleImpactCooldown = 1.5;
+    // Un atropello mortal corta el bucle antes del paso de temblor: se aplica aquí mismo.
+    this._shakeOnDamage();
     this._syncVehicleColliders();
     this.player.receiveVehicleImpact(direction, speed, { collisions: this.collisions });
     if (this.stats.salud === 0) this._deathCause = 'atropello';
@@ -1080,12 +1198,26 @@ export class Game {
     }));
   }
 
+  /**
+   * La muerte se debe desde que la salud llega a 0, aunque el cartón espere (el cuerpo aún en el aire, el costal
+   * abierto): la marca se guarda una sola vez. Si algo lo levanta antes del cartón, la partida deja de deberla.
+   */
+  _marcarMuerte() {
+    if (this._deathPending || this._arrestPending) return;
+    const muerto = this.stats.salud <= 0;
+    if (muerto === (this._castigoPendiente === 'muerte')) return;
+    this._castigoPendiente = muerto ? 'muerte' : null;
+    this._save();
+  }
+
   _handleDeath() {
     if (this._deathPending || this._arrestPending) return true;
+    this._marcarMuerte();
     if (this.stats.salud > 0) return false;
     if (this.player.isRagdollActive) return false;
 
     this._deathPending = true;
+    this.rebusque?.cancelar();
     if (this.steal?.minigameActive) this.steal._endMinigame(false, 'cancel');
     this.substanceEffects?.end();
     this.psychosis?.clearInduced?.();
@@ -1095,7 +1227,7 @@ export class Game {
     this.audio.updateSteps(false, false);
     this.audio.setPaused?.(true);
     if (this.interaction.boostActive) this.interaction._endBoost();
-    const causa = this._deathCause;
+    const causa = this._deathCause ?? this.stats.danoPor;
     const salir = () => this._respawn();
     if (causa === 'limpieza') {
       const texto = recorteDeLimpieza(this.look, this._calleCercana());
@@ -1141,6 +1273,7 @@ export class Game {
     this._releaseGrab();
     if (this._arrestPending || this._deathPending || this.stats.salud <= 0) return;
     this._arrestPending = true;
+    this.rebusque?.cancelar();
     if (this.steal?.minigameActive) this.steal._endMinigame(false, 'cancel');
     this.input.keys = {};
     this.input.endFrame();
@@ -1170,6 +1303,8 @@ export class Game {
       plana?.capturar(foto?.calle ?? this.canvas, foto?.camara ?? this.cameraRig?.camera, this.player, foto?.figura);
     };
     this._nextPausedRender = 0;
+    this._castigoPendiente = 'arresto';
+    this._save();
   }
 
   /** La vía más cercana donde está el jugador, como se dice en la calle. */
@@ -1205,10 +1340,12 @@ export class Game {
     this.waterEffects?.reset();
     this._swimSoundTimer = 0;
     this.traffic?.endPursuit?.();
+    this.carjack?.reset();
     this.roadRage?.reset();
     this.limpieza?.reset();
     this.momentos?.reset();
     this.street?.reset();
+    this.witnesses?.reset();
     this.substanceEffects?.end();
     this.psychosis?.clearInduced?.();
     if (this.steal) {
@@ -1219,15 +1356,34 @@ export class Game {
     this._vehicleImpactCooldown = 1.5;
   }
 
+  /**
+   * Lo que cuesta caer preso (el costal y la plata) o morir (la mitad de las filas del costal; vuelve con las
+   * necesidades en 60 y sin enfermedades). Al seguir desde el cartón, o al cargar una partida guardada con él abierto.
+   */
+  _aplicarCastigo(castigo) {
+    if (castigo === 'arresto') {
+      this.inventory.clear();
+      this.stats.dinero = 0;
+    } else if (castigo === 'muerte') {
+      const half = Math.floor(this.inventory.items.length / 2);
+      for (let i = 0; i < half; i++) {
+        const it = this.inventory.items[0];
+        if (it) this.inventory.remove(it.id, it.qty);
+      }
+      // Recuperar todas las necesidades evita seguir recibiendo daño al reaparecer.
+      for (const need of NEEDS) this.stats[need] = Math.max(60, this.stats[need]);
+      this.diseases.cureAll();
+    }
+  }
+
   _finishArrest() {
     if (!this._arrestPending) return;
-    this.inventory.clear();
-    this.stats.dinero = 0;
+    this._aplicarCastigo('arresto');
     const pos = this._randomWalkablePosition();
     this.player.position.copy(pos);
     this.player.root.position.copy(this.player.position);
     this._resetAfterRelocation();
-    if (this.dog?.isFriend) { this.dog.wake(); this.dog.resetNear(this.player.position); }
+    if (this.dog?.isFriend && !this.dog.guarding) { this.dog.wake(); this.dog.resetNear(this.player.position); }
     this.cameraRig._snap = true;
     this.cameraRig.follow(this.player.position, 0, this.collisions);
     this.interaction.currentTarget = null;
@@ -1236,19 +1392,13 @@ export class Game {
     this.input.endFrame();
     this._arrestPending = false;
     this.menu.close();
+    this._castigoPendiente = null;
+    this._save();
   }
 
   _respawn() {
     if (!this._deathPending) return;
-    const half = Math.floor(this.inventory.items.length / 2);
-    for (let i = 0; i < half; i++) {
-      const it = this.inventory.items[0];
-      if (it) this.inventory.remove(it.id, it.qty);
-    }
-
-    // Recuperar todas las necesidades evita seguir recibiendo daño al reaparecer.
-    for (const need of NEEDS) this.stats[need] = Math.max(60, this.stats[need]);
-    this.diseases.cureAll();
+    this._aplicarCastigo('muerte');
     this.psychosis?.dispose?.();
     this.poopSystem?.activeProjectiles?.forEach?.(p => p.dispose?.());
     if (this.poopSystem) this.poopSystem.activeProjectiles = [];
@@ -1262,10 +1412,11 @@ export class Game {
     }
     this.player.root.position.copy(this.player.position);
     this._resetAfterRelocation();
-    if (this.dog?.isFriend) { this.dog.wake(); this.dog.resetNear(this.player.position); }
+    if (this.dog?.isFriend && !this.dog.guarding) { this.dog.wake(); this.dog.resetNear(this.player.position); }
     this._vehicleImpactCooldown = 1.5;
     if (this._deathCause === 'limpieza') this.momentos?.guardarConsejoDeCamioneta();
     this._deathCause = null;
+    this.stats.danoPor = null;
     this.cameraRig._snap = true;
     this.cameraRig.follow(this.player.position, 0, this.collisions);
     this.interaction.currentTarget = null;
@@ -1274,6 +1425,8 @@ export class Game {
     this.input.endFrame();
     this._deathPending = false;
     this.menu.close();
+    this._castigoPendiente = null;
+    this._save();
   }
 
   _syncVehicleColliders() {
@@ -1348,6 +1501,7 @@ export class Game {
     // 1. Tiempo
     this._vehicleImpactCooldown = Math.max(0, (this._vehicleImpactCooldown ?? 0) - dt);
     this.clock.update(dt);
+    this.jornada?.update();
     this.time.update(dt, this.clock);
     this.dailyMissions?.update(dt, this.clock);
 
@@ -1381,7 +1535,9 @@ export class Game {
     this.cameraRig.prepareMovement();
     const previousX = this.player.position.x, previousZ = this.player.position.z;
     this._syncVehicleColliders?.();
-    this._updatePlayerMovement(dt);
+    // Robo de carros: mientras maneja, el carro reemplaza el movimiento a pie.
+    const driving = this._updateCarjack(dt);
+    if (!driving) this._updatePlayerMovement(dt);
     this.waterEffects?.update(dt, this.player);
     if (this.player.waterFrame?.entered) this.audio.playWaterSplash?.(this.player.waterFrame.entryIntensity);
     this._swimSoundTimer = Math.max(0, (this._swimSoundTimer ?? 0) - dt);
@@ -1413,7 +1569,7 @@ export class Game {
     this.diseases.update(dt);
 
     // 7. Interacción (basura, autos, recicladora, tienda, cambuche, dealer)
-    if (!this.player.isStunned) {
+    if (!this.player.isStunned && !driving) {
       // Los temporizadores y la selección de basura terminan normalmente al entrar;
       // nadar no permite comerciar ni iniciar acciones terrestres bajo el agua.
       const controls = this.player.isSwimming
@@ -1422,12 +1578,16 @@ export class Game {
       if (this.player.isSwimming) this.interaction.currentTarget = this.interaction.currentTargetType = null;
     }
     this.street?.update(dt);
+    this.witnesses?.update(dt);
     if (!this.player.isSwimming) this.steal?.update(dt);
     else if (this.steal?.minigameActive) this.steal._endMinigame(false, 'cancel');
+    this.interaction.carjackPrompt = driving ? null : this.carjack?.prompt ?? null;
+    // Al volante no queda ningún aviso de a pie (el retrovisor, el bolsillo) colgando de antes de subirse.
+    if (driving) this.interaction.currentTarget = this.interaction.currentTargetType = this.interaction.stealPrompt = null;
     if (this._handleDeath()) return;
 
     // 7b. Mecánica de popó y lanzamiento a peatones
-    if (!this.player.isStunned && !this.player.isSwimming && this.input.consumePress('KeyX')) {
+    if (!this.player.isStunned && !this.player.isSwimming && !driving && this.input.consumePress('KeyX')) {
       const hasPoop = this.inventory.count('popo') > 0;
       if (hasPoop) {
         this.poopSystem.throwPoop(this.player, this.cameraRig);
@@ -1435,7 +1595,7 @@ export class Game {
         this.poopSystem.poop(this.player);
       }
     }
-    if (!this.player.isStunned && !this.player.isSwimming && this.input.consumePress('KeyZ')) {
+    if (!this.player.isStunned && !this.player.isSwimming && !driving && this.input.consumePress('KeyZ')) {
       this.poopSystem.poop(this.player);
     }
     this.poopSystem.update(dt);
@@ -1444,8 +1604,9 @@ export class Game {
 
     // 8. Mundo
     // La visibilidad de edificios usa la cámara del mismo cuadro.
-    this.cameraRig.follow(this.player.position, dt, this.collisions, this.player.speed, this.input.isRunning);
+    this.cameraRig.follow(this.player.position, dt, this.collisions, this.player.speed, this.input.isRunning, this.player.movement);
     this.psychosis.update(dt, this.cameraRig);
+    this.randomHallucinations?.update(dt, this.player, this.cameraRig, this.clock, this.stats);
     this.substanceEffects?.update(dt);
     this.profiler?.mark('sistemas');
     // Los peatones se tapan la nariz si el jugador huele mal.
@@ -1474,20 +1635,32 @@ export class Game {
     // 9. Entidades
     this._updatePickups(dt);
     for (const c of this.cars) c.update(dt, this.player.position);
+    for (const b of this.bicycles) b.update(dt, this.player, this.audio);
     for (const { car } of this.traffic?.vehicles ?? []) car.update(dt);
     this.cambuche?.update(dt);
     this.dealer?.update(dt);
-    this.dog?.update(dt, this.player.position, this.pickups, this.world.active?.npcs ?? []);
+    if (this.dog) this.dog.cambucheCerca = !!this.built.base && this._nearCambuche(DOG_GUARD_RANGE);
+    this.dog?.update(dt, this.player.position, this.pickups, this.world.active?.npcs ?? [],
+      { patrols: this.traffic?.vehicles ?? [], wanted: this.steal?.buscado ?? 0 });
     this.cart?.update(dt, this.player, this.audio);
 
     // 10. Audio
-    const moving = !this.player.isStunned && (this.input.axis.x !== 0 || this.input.axis.z !== 0 || Math.hypot(this.player.position.x - previousX, this.player.position.z - previousZ) > .001);
+    const moving = !this.player.isStunned && !driving && (this.input.axis.x !== 0 || this.input.axis.z !== 0 || Math.hypot(this.player.position.x - previousX, this.player.position.z - previousZ) > .001);
     const groundType = this.world.active?.getGroundTypeAt?.(this.player.position.x, this.player.position.z) ?? 'sidewalk';
     const isRaining = !!this.weather?.isRaining;
-    this.audio.updateWorld?.(dt, this.player.position, this.cameraRig.camera, this.traffic?.vehicles ?? [], this.world.active?.busServices ?? this.world.active?.busService, this.world.active?.npcs ?? []);
+    // El carro robado suena como uno más del tráfico mientras se maneja.
+    let audibles = this.traffic?.vehicles ?? [];
+    if (this.carjack?.audioEntry) {
+      const list = this._audibles ??= [];
+      list.length = 0;
+      for (const vehicle of audibles) list.push(vehicle);
+      list.push(this.carjack.audioEntry);
+      audibles = list;
+    }
+    this.audio.updateWorld?.(dt, this.player.position, this.cameraRig.camera, audibles, this.world.active?.busServices ?? this.world.active?.busService, this.world.active?.npcs ?? []);
     this.audio.setRaining?.(isRaining);
     // Las pisadas siguen la distancia recorrida en el suelo; en el aire no suenan.
-    const travelled = this.player.isGrounded === false || this.player.inWater ? 0 : Math.hypot(this.player.position.x - previousX, this.player.position.z - previousZ);
+    const travelled = driving || this.player.isGrounded === false || this.player.inWater ? 0 : Math.hypot(this.player.position.x - previousX, this.player.position.z - previousZ);
     this.audio.updateSteps(moving, this.input.isRunning, groundType, isRaining, travelled, dt);
     this.audio.updateBoost(this.interaction.boostActive);
     this.overlays?.update?.(dt, this.weather, this.stats, this.psychosis);
@@ -1506,6 +1679,9 @@ export class Game {
     this.minimap?.update(this.player.position, this._cameraYaw(), this._getPOIs(now), now,
       { gps: this.gps, needs: this._needs, running: this.input.isRunning && (this.input.axis.x !== 0 || this.input.axis.z !== 0) });
 
+    // 12b. La cámara acusa cada golpe que baja la salud de una vez (atropellos, puños, varillas).
+    this._shakeOnDamage();
+
     // 13. UI
     this.hud.setMovementState?.(this.player);
     this.hud.update(
@@ -1523,7 +1699,8 @@ export class Game {
     return {
       cpu: this.profiler.report(), frames: this.performanceHUD.metrics.recentStats(),
       graphics: { selected: this.renderer.quality, effective: this.renderer.effectiveQuality,
-        pixelRatio: this.renderer.instance.getPixelRatio(), ...this.renderer.instance.info.render }
+        pixelRatio: this.renderer.instance.getPixelRatio(), ...this.renderer.instance.info.render },
+      breakdown: renderBreakdown(this)
     };
   }
 
@@ -1653,6 +1830,13 @@ export class Game {
     if (notify) window.dispatchEvent(new CustomEvent('toast', { detail: { text: 'Calidad gráfica: ' + quality, type: 'info' } }));
   }
 
+  /** Avanza el robo de carros; true mientras maneja. Al volante un golpe no lo baja: el carro sigue a cargo. */
+  _updateCarjack(dt) {
+    const inCar = !!(this.carjack?.car || this.carjack?.transition);
+    if (this.player.isSwimming || (!inCar && this.player.isStunned)) return false;
+    return this.carjack?.update(dt, this.input) ?? false;
+  }
+
   _updatePlayerMovement(dt) {
     const district = this.world.active;
     this.player.update(dt, this.cameraRig.camera, this.collisions, (x, z, context) =>
@@ -1677,6 +1861,7 @@ export class Game {
     if (this.dog) culling.register(this.dog.group, { dynamic: true, margin: 1 });
     for (const flock of district?.pigeonFlocks ?? []) culling.register(flock.group);
     for (const sector of district?.renderSectors ?? []) culling.register(sector);
+    registerSectorChildren(culling, district?.renderSectors ?? []);
     if (district?.signals) culling.register(district.signals.group);
     for (const pickup of this.pickups) culling.register(pickup.group, { dynamic: true, margin: .2 });
     for (const object of district?.animated ?? []) culling.register(object, { margin: 1 });
@@ -1691,12 +1876,18 @@ export class Game {
     this.waterEffects?.dispose();
     this.contactShadows?.dispose();
     this.gpsBeacon?.dispose();
+    this.rebusqueVisual?.dispose();
     this.psychosis?.dispose?.();
     this.substanceEffects?.dispose?.();
     this.poopSystem?.dispose?.();
     this.roadRage?.dispose?.();
+    this.rebusque?.dispose();
     this.limpieza?.dispose?.();
     this.policeFoot?.dispose?.();
+    this.randomHallucinations?.dispose?.();
+    this.bicycles?.forEach((b) => b.dispose?.());
+    this.bikeFence?.dispose?.();
     this.radio?.destroy?.();
+    this.witnesses?.dispose();
   }
 }
