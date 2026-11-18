@@ -1554,6 +1554,9 @@ export class Game {
       if (this.player.isSwimming) this.interaction.currentTarget = this.interaction.currentTargetType = null;
     }
     this.street?.update(dt);
+    this.rebusque?.update(dt);
+    this.interaction.rebusquePrompt = this.rebusque?.prompt ?? null;
+    this.rebusqueVisual?.update();
     this.witnesses?.update(dt);
     if (!this.player.isSwimming && !driving) this.steal?.update(dt);
     else if (this.steal?.minigameActive) this.steal._endMinigame(false, 'cancel');

@@ -254,3 +254,10 @@ test('junto a un carro parqueado y frente a la cola en rojo salen juntos el avis
     assert.equal(prompt.visible, false, 'con la pausa abierta no se ve ninguno');
   } finally { delete window.__game; }
 });
+
+test('el bucle del juego avanza el show, le pasa su aviso a la tecla de contexto y mueve las pelotas', async () => {
+  const { readFileSync } = await import('node:fs');
+  const source = readFileSync(new URL('../src/core/game.js', import.meta.url), 'utf8');
+  const loop = source.slice(source.indexOf('_loop = (stamp) =>'));
+  assert.match(loop, /this\.rebusque\?\.update\(dt\);\s*this\.interaction\.rebusquePrompt = this\.rebusque\?\.prompt \?\? null;\s*this\.rebusqueVisual\?\.update\(\);/);
+});

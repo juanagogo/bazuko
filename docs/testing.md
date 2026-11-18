@@ -34,6 +34,8 @@ Las regresiones de jugabilidad comprueban el salto y el recorrido de ambas rampa
 
 `pause-menu.test.js` comprueba que la tecla Y del robo de carros salga en Pausa › Controles, al final de «Acciones», y `rebusque-tecla.test.js`, que junto a un carro parqueado y frente a la cola en rojo salgan juntos el aviso de la Y y el del rebusque, y ninguno con la pausa abierta.
 
+`rebusque-tecla.test.js` comprueba también que el bucle del juego avance el show del semáforo, le pase su aviso a la tecla de contexto y mueva las pelotas: sin eso, B empieza el show y nunca termina ni paga.
+
 En C++, `bazuko_playerstate_test` comprueba que la carga conserve los objetos permitidos por el costal grande y los talentos, y que la regeneración no reviva al jugador durante una caída mortal. Se ejecuta con `ctest --test-dir cpp/build --output-on-failure` después de configurar y compilar los objetivos nativos. Estas pruebas de lógica no requieren abrir la ventana del juego.
 
 ## Sala de pruebas
