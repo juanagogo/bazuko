@@ -80,7 +80,7 @@ export function trucosPanel(game) {
       row('Comedor', botones(
         accion('Ir al comedor', () => cheats.irAlComedor()),
         accion('Comer otra vez', () => cheats.comerOtraVez())),
-        nota('Ir lo deja frente al mostrador. Comer otra vez borra la espera de 24 horas.')),
+        nota('Ir lo deja frente al mostrador. Comer otra vez borra la espera.')),
       row('Zonas', botones(...cheats.destinos().map((destino) => accion(destino.name, () => cheats.teletransportar(destino))))),
       row('Cambuche', botones(accion('Construir y mejorar todo', () => cheats.construirCambuche())))),
 

@@ -235,10 +235,10 @@ test('la furia vial baja al conductor del carro libre más cercano, a la fuerza'
   assert.equal(new CheatMode(juegoFalso({ roadRage, traffic: { vehicles: [] }, player: { position: { x: 0, z: 0 } } })).furiaVial(), false);
 });
 
-test('el comedor: ir deja frente al mostrador y comer otra vez borra la espera de 24 horas', () => {
+test('el comedor: ir deja frente al mostrador y comer otra vez borra la espera', () => {
   const game = juegoFalso({
     world: { active: { reserved: { comedor: { x: 30, z: 40 } } } },
-    lastComedorHour: 10, clock: { day: 1, hour: 12 },
+    lastComedorHour: 11, clock: { day: 1, hour: 12 },
   });
   Object.defineProperty(game, 'totalGameHours', { get: () => 12 });
   game.isComedorAvailable = Game.prototype.isComedorAvailable;

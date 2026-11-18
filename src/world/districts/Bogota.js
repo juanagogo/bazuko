@@ -27,12 +27,14 @@ import { TILE_SIZE } from '../../utils/constants.js';
 import { Farol } from '../props/Farol.js';
 import { TrafficSignals } from '../bogota/TrafficSignals.js';
 import { signTexture } from '../../utils/signs.js';
+import { signTextAtlas, atlasPlane, SignTextMaterial } from '../../utils/signAtlas.js';
 import { Banca } from '../props/Banca.js';
 import { buildGroundWear, dressGrass, dressPaving } from '../bogota/GroundDressing.js';
 import * as TX from '../bogota/textures.js';
 import * as P from '../bogota/props.js';
 import { Npc } from '../../entities/Npc.js';
 import { PedestrianCrowd } from '../../systems/PedestrianCrowd.js';
+import { thinkStreet } from '../../entities/npc/mind.js';
 import { BuildingVisibility, CLOSED_CHUNK_SIZE, createBuildingShell } from '../bogota/BuildingVisibility.js';
 import { PedestrianNavigation } from '../bogota/PedestrianNavigation.js';
 import { GpsNavigation } from '../../systems/GpsNavigation.js';
@@ -93,6 +95,9 @@ export const SHELTER_LOCATION = Object.freeze({ x: 112.98, z: 94.64 });
 export const SHELTER_RESPAWN = Object.freeze({ x: 112.98, z: 97.84 });
 
 const CARTUCHO = { x0: 8, x1: 21, z0: 14, z1: 29 };
+/** Mapas de fachada que no dependen del barrio. */
+const SHARED_FACADE_MAPS = ['emissiveMap', 'bumpMap', 'roughnessMap'];
+
 const SHOP_NAMES = [
   ['DROGUERÍA', 'SALUD Y VIDA'], ['PANADERÍA', 'EL TRIGAL'], ['CIGARRERÍA', 'LA 10'], ['ASADERO', 'POLLO DORADO'],
   ['MISCELÁNEA', 'TODO A MIL'], ['COMPRAVENTA', 'EL CENTAVO'], ['RESIDENCIAS', 'EL DORADO'], ['BILLARES', 'LA BOLA 8'],
@@ -162,6 +167,8 @@ export class Bogota {
     this.animated = [];       // grupos con userData.update
     this.facadeMats = [];
     this._facadeTextures = new Map();
+    // Primera fachada de cada variante: sus ventanas, relieve y rugosidad sirven a todos los barrios.
+    this._facadeShared = new Map();
     this._facadeSeeds = new Map();
     this._facadeMaterials = new Map();
     this.npcs = [];
@@ -321,7 +328,8 @@ export class Bogota {
       shop:   { x: WX(34), z: WZ(29) },        // andén de la Calle 9, de espaldas a la manzana
       comedor: { x: WX(30), z: WZ(33) },      // comedor comunitario junto al parque
       residencia: { x: 114.2, z: 69.1, rot: 0 },              // pared sur de ladrillo en Calle 9 (círculo rojo Foto 3 y 4, al lado de la esquina)
-      prostibulo: { x: 117.0, z: 65.5, rot: Math.PI / 2 }     // pared este de ladrillo en Carrera 10 (círculo rojo Foto 1 y 2)
+      prostibulo: { x: 117.0, z: 65.5, rot: Math.PI / 2 }     // pared este de ladrillo en Carrera 10 (círculo rojo Foto 1 y 2),
+      bikeFence: { x: WX(16.5), z: WZ(21) }    // compra de bicicletas robadas en El Cartucho
     };
     this.isNearReserved = (x, z, dist = 6) =>
       Object.values(this.reserved).some((r) => Math.hypot(x - r.x, z - r.z) < dist);
@@ -535,6 +543,12 @@ export class Bogota {
     const grass = TX.grass(61);
     const concrete = TX.concrete(41);
     const tex = (t, scale) => { if (!t) return t; t.wrapS = t.wrapT = THREE.RepeatWrapping; t.userData = { scale }; return t; };
+    // Los andenes de cada barrio solo cambian el tinte: relieve y rugosidad son la misma imagen
+    // (tests/shared-surface-maps.test.js), así que la GPU guarda una copia.
+    const shareSidewalk = maps => {
+      for (const kind of ['bumpMap', 'roughnessMap']) if (maps[kind] && walk[kind]) maps[kind].source = walk[kind].source;
+      return maps;
+    };
     const mats = {
       // Relieve y rugosidad independientes del color: las reparaciones no son agujeros.
       road: new THREE.MeshStandardMaterial({
@@ -569,7 +583,7 @@ export class Bogota {
     };
     // Cuatro acabados compartidos para todo el mapa, sin una textura por baldosa.
     for (const id of ['cambuche', 'comercio', 'lago']) {
-      const paving = TX.sidewalk(11, { district: id });
+      const paving = shareSidewalk(TX.sidewalk(11, { district: id }));
       const material = new THREE.MeshStandardMaterial({ map: tex(paving.map, 6),
         bumpMap: tex(paving.bumpMap, 6), bumpScale: .035, roughnessMap: paving.roughnessMap,
         roughness: .85, color: '#e2dfd5' });
@@ -589,7 +603,7 @@ export class Bogota {
     mats.sidewalk_candelaria = zoneMaterial('Andén de la Candelaria', slabs, 6, { bumpScale: .035, roughness: .85, color: '#e9e4d8' });
     mats.sidewalk_candelaria.userData.surface = 'sidewalk';
     mats.plaza_candelaria = zoneMaterial('Plaza de la Candelaria', plazaSlabs, 6, { bumpScale: .03, roughness: .85, color: '#eee8dc' });
-    const chapineroPaving = TX.sidewalk(11, { district: 'chapinero' });
+    const chapineroPaving = shareSidewalk(TX.sidewalk(11, { district: 'chapinero' }));
     mats.sidewalk_chapinero = zoneMaterial('Andén de Chapinero', chapineroPaving, 6, { bumpScale: .035, roughness: .85, color: '#e2dfd5' });
     mats.sidewalk_chapinero.userData.surface = 'sidewalk';
     const scaleOf = { road: 14, busway: 14, sidewalk: 6, floor: 6, dirt: 8, grass: 8, plaza: 6, water: 16,
@@ -941,6 +955,15 @@ export class Bogota {
     this.backdrop = this.cerros;
   }
 
+  /** Texto de todos los avisos de local en un atlas: 16 nombres con letra oscura o clara. */
+  _shopSignAtlas() {
+    if (this._shopSigns !== undefined) return this._shopSigns;
+    if (typeof document === 'undefined' || typeof document.createElement !== 'function') return (this._shopSigns = null);
+    const entries = SHOP_NAMES.flatMap(([title, sub]) => ['#26302e', '#fff3da'].map(fg => ({ title, sub, fg })));
+    const { texture, cells } = signTextAtlas(entries, { w: 768, h: 192 });
+    return (this._shopSigns = { cells, material: new SignTextMaterial({ map: texture }) });
+  }
+
   _house(tiles, dx, dz, face, alongX, isB, map, sideMat, roofMat, tileRoof, covered) {
     const ruin = tiles.some(([x, z]) => map[z][x] === 'ruin');
     // Profundidad: hasta 3 tiles hacia adentro, sin invadir casas ya construidas.
@@ -978,6 +1001,11 @@ export class Bogota {
     let tex = this._facadeTextures.get(textureKey);
     if (!tex) {
       tex = TX.facade({ seed: this._facadeSeeds.get(baseTextureKey), width: widthM, floors, pxPerM: style === 'pintada' ? 36 : 48, shopFront: true, style, district: neighborhood.id });
+      // El barrio solo cambia los colores: ventanas encendidas, relieve y rugosidad salen iguales
+      // (tests/shared-surface-maps.test.js). Se comparte la imagen y la GPU guarda una copia.
+      const shared = this._facadeShared.get(baseTextureKey);
+      if (!shared) this._facadeShared.set(baseTextureKey, tex);
+      else for (const kind of SHARED_FACADE_MAPS) if (tex[kind] && shared[kind]) tex[kind].source = shared[kind].source;
       this._facadeTextures.set(textureKey, tex);
     }
     for (const t of [tex.map, tex.emissiveMap, tex.bumpMap, tex.roughnessMap]) {
@@ -1021,14 +1049,22 @@ export class Bogota {
 
     // aviso de local en el primer piso
     if (!ruin && random() < 0.55) {
-      const [title, sub] = choose(SHOP_NAMES);
+      const shopName = choose(SHOP_NAMES);
+      const [title, sub] = shopName;
       const signColor = new THREE.Color(choose(['#0b4fa3', '#c0392b', '#1f6b3a', '#f2c600', '#ffffff', '#6a1b9a']));
       signColor.lerp(new THREE.Color(neighborhood.palette.signBackground), .18);
       const luminance = .2126 * signColor.r + .7152 * signColor.g + .0722 * signColor.b;
-      const map = signTexture({ title, sub, bg: `#${signColor.getHexString()}`, fg: luminance > .4 ? '#26302e' : '#fff3da', w: 768, h: 192 });
-      if (map) {
-        const sign = new THREE.Mesh(new THREE.PlaneGeometry(Math.min(widthM * 0.85, 3.6), Math.min(widthM * 0.85, 3.6) / 4),
-          new THREE.MeshBasicMaterial({ map }));
+      const fg = luminance > .4 ? 0 : 1;
+      const bg = `#${signColor.getHexString()}`, signW = Math.min(widthM * 0.85, 3.6);
+      // El texto sale del atlas compartido y el fondo va en los vértices del plano. Sin lienzo (las
+      // pruebas en Node) o sin sitio en el atlas, el aviso lleva su propia textura.
+      const atlas = this._shopSignAtlas();
+      const cell = atlas?.cells[SHOP_NAMES.indexOf(shopName) * 2 + fg];
+      const map = cell ? null : signTexture({ title, sub, bg, fg: fg ? '#fff3da' : '#26302e', w: 768, h: 192 });
+      if (cell || map) {
+        const sign = cell
+          ? new THREE.Mesh(atlasPlane(signW, signW / 4, cell, new THREE.Color(bg)), atlas.material)
+          : new THREE.Mesh(new THREE.PlaneGeometry(signW, signW / 4), new THREE.MeshBasicMaterial({ map }));
         sign.position.set(fx + dx * 0.06 - cx, 3.05, fz + dz * 0.06 - cz);
         sign.rotation.y = yaw;
         shell.walls.get(face).add(sign);
@@ -1293,7 +1329,7 @@ export class Bogota {
 
   /** Vendedor ambulante: puesto + persona; se le puede comprar (lo atiende la tienda con otro catálogo) */
   _vendor(x, z, rotY, kind, title, items) {
-    const stall = kind === 'fritanga' ? P.fritanga() : kind === 'carritoTinto' ? P.carritoTinto() : P.chaza();
+    const stall = kind === 'fritanga' ? P.fritanga({ title, items }) : kind === 'carritoTinto' ? P.carritoTinto() : P.chaza({ title, items });
     this._takesRoom(this._add(stall, x, z, rotY));
     if (stall.userData.setNight) this.props.push({ instance: { setNight: stall.userData.setNight } });
     const back = new THREE.Vector3(Math.sin(rotY), 0, Math.cos(rotY)).multiplyScalar(-0.9);
@@ -1769,6 +1805,8 @@ export class Bogota {
     // La niebla cambia con la hora y el clima: el límite de lo chico la sigue. Media y alta no lo usan.
     const fog = this.scene?.fog;
     this.farDetailDistance = this.farDetailFog && fog ? fog.near + (fog.far - fog.near) * this.farDetailFog : Infinity;
+    // Quién está cerca de quién, lo que oyen y lo que ven los peatones: entities/npc/mind.js.
+    thinkStreet(this, dt, playerPos, trafficVehicles);
     // Patrullas en persecución o de regreso: las únicas que no frenan por nadie, y la gente fija las esquiva.
     const chasers = this._chasers ??= [];
     chasers.length = 0;
@@ -1831,6 +1869,7 @@ export class Bogota {
       for (const material of meshMaterials(object)) rememberTextures(material);
     });
     for (const flock of this.pigeonFlocks ?? []) flock.dispose();
+    this.minds?.dispose();
     this.signals?.dispose();
     this.stationGroup?.userData.dispose?.();
     this.stationGroup?.clear();
@@ -1838,6 +1877,9 @@ export class Bogota {
     for (const bus of this.busServices ?? []) bus.dispose();
     this.buildingVisibility.dispose();
     this._facadeTextures.clear();
+    // Los avisos llevan copias de este material (BuildingVisibility); el original se suelta aquí.
+    this._shopSigns?.material.dispose();
+    this._shopSigns = undefined;
     this._facadeSeeds.clear();
     this._facadeMaterials.clear();
     scene.remove(this.group);

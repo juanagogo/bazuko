@@ -3,6 +3,7 @@
 import * as THREE from 'three';
 
 export function signTexture({ title, sub = '', bg = '#0b4fa3', fg = '#ffffff', accent = '#f6c400', w = 1024, h = 256, border = true }) {
+  if (typeof document === 'undefined') return new THREE.Texture();
   const c = document.createElement('canvas');
   c.width = w;
   c.height = h;

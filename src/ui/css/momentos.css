@@ -164,9 +164,19 @@ body:has(#menu[data-momento]:not([hidden])) > .loot-toast { display: none; }
   animation: zona-baja .3s cubic-bezier(.2, .9, .3, 1.04);
 }
 @keyframes zona-baja { from { transform: translateY(-20vh); opacity: 0; } to { transform: none; opacity: 1; } }
+/* En escritorio, centrado entre la columna de avisos de la izquierda (hasta min(440px, 30vw)) y la plata (292px): no pasa
+   de ninguna de las dos, con 2px de aire, y si no cabe parte en dos o tres líneas. Los nombres largos van con letra más chica.
+   Por debajo de 1127px de ancho el cartel llega sobre el radar (que termina en 360px), y en dos o tres líneas lo alcanza
+   en ventanas bajas: ahí solo desde 610px de alto, lo que pide el radar grande. */
+@media (min-width: 900px) and (min-height: 610px), (min-width: 1127px) and (min-height: 501px) {
+  #zona-cartel { max-width: calc(100vw - 2 * max(20px + min(440px, 30vw), 312px) - 4px); }
+  #zona-cartel.zona-cartel--largo { font-size: clamp(18px, 2.3vw, 32px); }
+}
 @media (max-width: 899px) {
   /* Debajo del cartón del radar, que en el celular ocupa la parte de arriba. */
   #zona-cartel { top: calc(var(--dock-bottom, 130px) + 6px); }
+  /* La misión del día sale en ese mismo sitio unos segundos: mientras se ve, el cartel baja una fila. */
+  body:has(#mision:not([hidden])) #zona-cartel { top: calc(var(--dock-bottom, 130px) + 48px); }
 }
 @media (max-width: 899px) and (orientation: landscape) {
   #zona-cartel { left: calc(6px + var(--safe-l, 0px)); translate: none; font-size: 20px; }

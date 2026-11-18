@@ -22,7 +22,7 @@ function squatting() {
   };
   const inventory = new InventorySystem();
   const game = Object.assign(Object.create(Game.prototype), {
-    stats: new StatsSystem(), deathCount: 0, _deathPending: false, _arrestPending: false,
+    stats: new StatsSystem(), deathCount: 0, _save() {}, _deathPending: false, _arrestPending: false,
     talents: { getEffect: (key, fallback) => fallback }, clock: { isNight: false },
     player, look: {},
     world: { active: { reserved: { bed: { x: 89, z: 80 }, spawn: { x: 32, z: 32 } }, getGroundHeight: () => 0 } },

@@ -20,8 +20,10 @@ export function bridgeCenter(z) {
   const ease=t*t*t*(10+t*(-15+6*t));
   return 75+offset*ease;
 }
+// Cuánto avanza el eje en X por cada metro de Z.
+function bridgeSlope(z) {return (bridgeCenter(z+.01)-bridgeCenter(z-.01))/.02;}
 export function bridgeNormal(z) {
-  const dx=(bridgeCenter(z+.01)-bridgeCenter(z-.01))/.02;
+  const dx=bridgeSlope(z);
   const scale=Math.hypot(1,dx);
   return {x:1/scale,z:-dx/scale};
 }
@@ -31,12 +33,13 @@ export function busPathX(z,laneX=78.5) {
   if(z<=BUS_DETOUR.z0-5 || z>=BUS_DETOUR.z1+5) return laneX;
   const offset=laneX-75;
   let lo=z-10,hi=z+10;
+  // La normal de bridgeNormal sin crear objetos ni llamar a Math.hypot: esto corre muchas veces por cuadro.
   for(let i=0;i<28;i++) {
-    const t=(lo+hi)/2;
-    if(t+bridgeNormal(t).z*offset<z)lo=t;else hi=t;
+    const t=(lo+hi)/2, dx=bridgeSlope(t);
+    if(t-dx/Math.sqrt(1+dx*dx)*offset<z)lo=t;else hi=t;
   }
-  const t=(lo+hi)/2;
-  return bridgeCenter(t)+bridgeNormal(t).x*offset;
+  const t=(lo+hi)/2, dx=bridgeSlope(t);
+  return bridgeCenter(t)+1/Math.sqrt(1+dx*dx)*offset;
 }
 export function busHeading(z,laneX=78.5) {
   const dx=busPathX(z-.01,laneX)-busPathX(z+.01,laneX),scale=Math.hypot(dx,.02);

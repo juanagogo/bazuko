@@ -6,6 +6,7 @@ import { PoliceSirenAudio } from './PoliceSirenAudio.js';
 import { NpcConversations } from './NpcConversations.js';
 import { NPC_CONVERSATIONS } from '../data/npcConversations.js';
 import { FlyBuzzAudio } from './FlyBuzzAudio.js';
+import { VoiceDirector } from './voces/VoiceDirector.js';
 
 export const MIX_CATEGORIES = ['ambient', 'traffic', 'voices', 'effects'];
 // El audio vive en public/audio: la ruta se arma con la base para que la demo de Pages funcione bajo su subcamino.
@@ -117,12 +118,23 @@ export class AudioSystem {
         return howl;
       }
     });
+    // Lo que dice la gente al pasar (public/audio/voces): cada audio se carga al pedirlo, no al arrancar.
+    this.voces = new VoiceDirector({
+      load: (file) => new HowlClass({
+        src: [`${AUDIO_BASE}${file}`], volume: 0, loop: false, pool: 2,
+        onloaderror: (_id, error) => console.error(`[Audio] No se pudo cargar ${AUDIO_BASE}${file}:`, error),
+        // Si el navegador no la deja arrancar, la frase se suelta: no suena más tarde fuera de su turno.
+        onplayerror(id) { this.stop(id); }
+      })
+    });
     this.policeSiren = new PoliceSirenAudio({ fx: () => this._fx() });
     this.flyBuzz = new FlyBuzzAudio({ fx: () => this._fx() });
-    // Una sola voz a la vez entre conductores, robo, calle y conversaciones.
-    this.vehicles.externalVoiceActive = () => this._theftVoiceActive() || this.streetVoices.active || this.conversations.busy;
-    this.streetVoices.externalVoiceActive = () => this._theftVoiceActive() || this.vehicles.remarkPlaying() || this.conversations.busy;
-    this.conversations.externalVoiceActive = () => this._theftVoiceActive() || this.vehicles.remarkPlaying() || this.streetVoices.active;
+    // Una sola voz a la vez entre conductores, robo, calle, conversaciones y la gente al pasar.
+    this.vehicles.externalVoiceActive = () => this._theftVoiceActive() || this.streetVoices.active || this.conversations.busy || this.voces.active;
+    this.streetVoices.externalVoiceActive = () => this._theftVoiceActive() || this.vehicles.remarkPlaying() || this.conversations.busy || this.voces.active;
+    this.conversations.externalVoiceActive = () => this._theftVoiceActive() || this.vehicles.remarkPlaying() || this.streetVoices.active || this.voces.active;
+    this.voces.otraVoz = () => this._theftVoiceActive() || this.vehicles.remarkPlaying() || this.streetVoices.active || this.conversations.busy;
+    this.voces.audioListo = () => !this.howler.ctx || (this.howler.state === 'running' && this.howler.ctx.state === 'running');
     this._carAlarms = new Map();
 
     // El audio es opcional: un archivo ausente o bloqueado no impide jugar.
@@ -213,6 +225,7 @@ export class AudioSystem {
   _applyLevels(force = false) {
     this.vehicles.levels = { traffic: this._level('traffic'), voices: this._level('voices') };
     this.streetVoices.levels.voices = this._level('voices');
+    this.voces.levels.voices = this._level('voices');
     this.conversations.levels.voices = this._level('voices');
     const ambient = this._level('ambient');
     if (!force && Math.abs(ambient - (this._appliedAmbient ?? -1)) < .002) return;
@@ -425,6 +438,7 @@ export class AudioSystem {
     this.vehicles.stopRemarks();
     this.streetVoices.cancel();
     this.conversations.cancel();
+    this.voces.cancel();
     const voice = { sound, id: sound.play() };
     sound.volume(this._theftVolume(car, this._listenerPosition), voice.id);
     this._theftVoices.set(car, voice);
@@ -523,6 +537,7 @@ export class AudioSystem {
     this._syncRain();
     this.vehicles.setPaused(paused);
     this.streetVoices.setPaused(paused);
+    this.voces.setPaused(paused);
     this.conversations.setPaused(paused);
     if (paused) {
       this.stopProtest();
@@ -543,7 +558,7 @@ export class AudioSystem {
     } else if (this._ambientStarted) this.sounds.ambient.play(this._ambientId);
   }
 
-  updateWorld(dt, position, _camera, vehicles, bus, pedestrians) {
+  updateWorld(dt, position, camera, vehicles, bus, pedestrians) {
     this._listenerPosition = position;
     this.setPaused(false);
     const duckTarget = this._voiceActive() ? VOICE_DUCK : 1;
@@ -552,6 +567,8 @@ export class AudioSystem {
     this.vehicles.update(dt, position, vehicles, bus);
     this.policeSiren.update(dt, position, vehicles);
     this.streetVoices.update(position, pedestrians);
+    this.voces.camera = camera ?? null;
+    this.voces.update(position, pedestrians);
     // Las conversaciones van con el tiempo de la simulación, igual que los peatones que se acercan a conversar.
     this._simulationMs = (this._simulationMs ?? 0) + dt * 1000;
     this.conversations.update(position, pedestrians, this._simulationMs);
@@ -577,6 +594,7 @@ export class AudioSystem {
     this._carAlarms.clear();
     this.streetVoices.clear();
     this.conversations.clear();
+    this.voces.dispose();
     this.eventTarget?.removeEventListener('dog-bark', this._dogBark);
     this.eventTarget?.removeEventListener('npc-yelp', this._npcYelp);
     this.eventTarget?.removeEventListener('car-honk', this._carHonk);

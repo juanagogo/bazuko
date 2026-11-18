@@ -354,7 +354,9 @@ export class StealSystem {
       this._robbed(npc, false);
     } else {
       const bonus = this.game?.dog?.distractionBonus?.(this.game.player?.position) ?? 0;
-      const noticeChance = Math.max(0.2, (npc?.alerta ?? 0.5) - bonus);
+      // «Mano suave» disimula mejor el fallo; aun así, uno de cada cinco se nota.
+      const caughtMult = this.game?.talents?.getEffect?.('stealCaughtMult', 1) ?? 1;
+      const noticeChance = Math.max(0.2, ((npc?.alerta ?? 0.5) - bonus) * caughtMult);
       if (Math.random() < noticeChance) {
         npc?.alarmedByTheft?.(this.game.player.position);
         const isHabitante = npc?.arquetipo === 'habitante' || npc?.person?.arquetipo === 'habitante';
@@ -367,6 +369,7 @@ export class StealSystem {
           this._toast('¡Me pillaron con las manos en la masa! El peatón gritó.', 'death');
         }
         this._robbed(npc, true);
+        this.game.witnesses?.report?.('robo', npc);
         // De último: los avisos caen uno encima del otro y este es el que hay que alcanzar a leer.
         this._alertPolice();
       } else {
@@ -383,20 +386,26 @@ export class StealSystem {
     this.buscado = Math.min(3, this.buscado + 1);
     this._giveLoot(CONFIG.lootMoneyDirect, false, npc);
     this._robbed(npc, true);
+    this.game.witnesses?.report?.('robo', npc);
     // Quien está en el piso o en la banca no alcanza a defenderse: bastante hace con pararse.
     const down = LOW_STANCES.has(npc.stance);
     npc.alarmedByTheft?.(this.game.player?.position);
     const isHabitante = npc?.arquetipo === 'habitante' || npc?.person?.arquetipo === 'habitante';
     if (isHabitante && !down && this.game.stats) {
-      const stabDmg = Math.floor(15 + Math.random() * 11);
+      // De noche y de madrugada quien se deja robar se defiende con más rabia (JornadaSystem).
+      const stabDmg = Math.floor((15 + Math.random() * 11) * (this.game?.jornada?.franja?.golpe ?? 1));
       this.game.stats.salud = Math.max(0, this.game.stats.salud - stabDmg);
+      this.game.stats.danoPor = 'pelea';
       this.game.audio?.play?.('thud');
       this._toast(`¡El habitante de calle se defendió con un chuzo! −${stabDmg} salud.`, 'death');
     } else {
       const isStrong = !down && (npc.look?.real?.edad === 'adulto' || Math.random() < 0.45);
       if (isStrong && this.game.stats) {
-        const dmg = Math.floor(CONFIG.directDamageMin + Math.random() * (CONFIG.directDamageMax - CONFIG.directDamageMin));
+        // De noche y de madrugada quien se deja robar se defiende con más rabia (JornadaSystem).
+        const dmg = Math.floor((CONFIG.directDamageMin + Math.random() * (CONFIG.directDamageMax - CONFIG.directDamageMin))
+          * (this.game?.jornada?.franja?.golpe ?? 1));
         this.game.stats.salud = Math.max(0, this.game.stats.salud - dmg);
+        this.game.stats.danoPor = 'pelea';
         this._toast(`¡El peatón se defendió! −${dmg} de salud.`, 'death');
       } else {
         this._toast('¡Raponazo! El peatón se asustó.', 'warn');
@@ -427,7 +436,9 @@ export class StealSystem {
     const range = isHabitante
       ? (moneyRange === CONFIG.lootMoneyDirect ? CONFIG.lootMoneyDirectHabitante : CONFIG.lootMoneyCosquilleoHabitante)
       : moneyRange;
-    const money = Math.round((range[0] + Math.random() * (range[1] - range[0])) / 100) * 100;
+    // De noche y de madrugada la gente que queda en la calle carga más plata (JornadaSystem).
+    const botin = this.game?.jornada?.franja?.botin ?? 1;
+    const money = Math.round((range[0] + Math.random() * (range[1] - range[0])) * botin / 100) * 100;
     if (this.game.stats) this.game.stats.dinero += money;
     this._toast(`+${cop(money)}`, 'sell');
 

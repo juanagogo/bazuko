@@ -58,6 +58,7 @@ Cada archivo de `src/ui/item-art/` (salvo esos dos) se adaptó de la misma forma
 - `polvoLadrillo`: la colección no tiene un icono de polvo o raspado que se distinga de la arena o la harina. Usa el dibujo de frasco de la letra del juego, como las demás sustancias.
 - `empanada`, `morcilla`, `papaCriolla` y `aguapanela`: la comida callejera bogotana no tiene equivalentes legibles en la colección. Usan sus dibujos de la letra del juego.
 - `ropaLimpia`: usa el dibujo de camisa de la letra del juego.
+- `malabares`: las pelotas del rebusque usan, mientras no haya un icono propio, el dibujo del dado de la letra del juego.
 
 El retrovisor y la radio de carro usan los iconos más cercanos que hay (un espejo de mano y una grabadora): la colección no tiene espejos laterales ni radios de tablero.
 

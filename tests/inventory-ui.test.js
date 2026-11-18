@@ -2,7 +2,8 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { ITEMS } from '../src/data/items.js';
 import { InventorySystem } from '../src/systems/InventorySystem.js';
-import { InventoryUI, useVerb } from '../src/ui/InventoryUI.js';
+import { InventoryUI, useVerb, slotLife } from '../src/ui/InventoryUI.js';
+import { FreshnessSystem } from '../src/systems/Freshness.js';
 
 // Elementos mínimos: cuentan escrituras de innerHTML para comprobar que no se reescribe el DOM.
 class FakeEl {
@@ -171,4 +172,19 @@ test('el verbo del botón principal sigue la lógica de uso', () => {
   assert.equal(useVerb(ITEMS.vendaje), 'Aplicar');
   assert.equal(useVerb(ITEMS.radioTransistor), 'Sintonizar');
   assert.equal(useVerb(ITEMS.pilas), 'Cambiar pilas');
+});
+
+test('la casilla se pone roja cuando sale el aviso de comerme pronto, ni antes ni después', () => {
+  for (const id of Object.keys(ITEMS).filter((k) => ITEMS[k].perece)) {
+    const hour = { value: 0 };
+    const inv = new InventorySystem();
+    inv.now = () => hour.value;
+    inv.add(ITEMS[id], 1);
+    const fresh = new FreshnessSystem({ inventory: inv, now: () => hour.value });
+    for (const h of [ITEMS[id].perece * .75 - .1, ITEMS[id].perece * .75 + .1]) {
+      hour.value = h;
+      const avisa = fresh.check().soon.length > 0;
+      assert.equal(slotLife(inv.items[0], h).bajo, avisa, `${id} a las ${h.toFixed(1)} h`);
+    }
+  }
 });

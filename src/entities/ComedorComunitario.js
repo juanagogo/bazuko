@@ -1,5 +1,5 @@
 // src/entities/ComedorComunitario.js
-// Comedor Comunitario: Almuerzo caliente gratuito cada 24 horas.
+// Comedor Comunitario: Almuerzo caliente gratuito cada 5 minutos.
 import * as THREE from 'three';
 import { signMesh } from '../utils/signs.js';
 

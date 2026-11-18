@@ -14,6 +14,8 @@ import { InteractionSystem } from '../src/systems/InteractionSystem.js';
 import { StatsSystem } from '../src/systems/StatsSystem.js';
 import { ITEMS } from '../src/data/items.js';
 import { Game } from '../src/core/game.js';
+import { SLEEP } from '../src/data/cambuche.js';
+import { Clock } from '../src/core/Clock.js';
 
 beforeEach(() => {
   globalThis.window = new EventTarget();
@@ -155,25 +157,109 @@ test('inventario y paneles existentes pausan la simulación y los POI usan la ub
   assert.equal(game._getPOIs()[0].z, 94.64);
 });
 
-test('dormir con El Chato suma quince de ánimo y lo despierta al terminar la siesta', () => {
+test('dormir con El Chato suma su ánimo como el resto del sueño: quince la noche entera, menos en la siesta', () => {
   mock.timers.enable({ apis: ['setTimeout'] });
   try {
-    const run = friend => {
+    const run = (friend, clock) => {
       const dog = new Dog(new THREE.Scene()); if (friend) dog.befriend();
-      const stats = new StatsSystem(); stats.saludMental = 20;
+      const stats = new StatsSystem(); stats.saludMental = 20; stats.energia = 50; // llega cansado
       const game = Object.assign(Object.create(Game.prototype), {
-        built: { base: true }, clock: { hour: 12, day: 1, isNight: false }, stats,
+        built: { base: true, paredes: true }, clock, stats,
         player: { position: new THREE.Vector3(), playAction() {} }, dog, _save() {}, inventory: new InventorySystem()
       });
       game.sleep(); return game;
     };
-    const alone = run(false), accompanied = run(true);
-    assert.equal(accompanied.stats.saludMental - alone.stats.saludMental, 15);
+    const siesta = () => ({ hour: 12, day: 1, isNight: false });
+    const noche = () => ({ hour: 22, day: 1, isNight: true }); // hasta las 6:00: ocho horas
+    const alone = run(false, siesta()), accompanied = run(true, siesta());
+    assert.equal(accompanied.stats.saludMental - alone.stats.saludMental, 15 * 3 / 8, 'la siesta de 3 h rinde 3/8');
+    const nightAlone = run(false, noche()), nightAccompanied = run(true, noche());
+    assert.equal(nightAccompanied.stats.saludMental - nightAlone.stats.saludMental, 15);
     assert.equal(accompanied.dog.sleeping, true);
     mock.timers.tick(1200);
     assert.equal(accompanied.dog.sleeping, false); assert.equal(accompanied.isSleeping, false);
-    alone.dog.destroy(); accompanied.dog.destroy();
+    for (const g of [alone, accompanied, nightAlone, nightAccompanied]) g.dog.destroy();
   } finally { mock.timers.reset(); }
+});
+
+test('la vela calma el vicio como el resto del sueño: una siesta no la paga entera', () => {
+  mock.timers.enable({ apis: ['setTimeout'] });
+  try {
+    const vicio = (clock) => {
+      const stats = new StatsSystem(); stats.vicio = 10; stats.energia = 50;
+      const game = Object.assign(Object.create(Game.prototype), {
+        built: { base: true, paredes: true, vela: true }, clock, stats, dog: null,
+        player: { position: new THREE.Vector3(), playAction() {} }, _save() {}, inventory: new InventorySystem()
+      });
+      game.sleep();
+      return stats.vicio;
+    };
+    assert.equal(vicio({ hour: 12, day: 1, isNight: false }), 10 + SLEEP.vicioVela * 3 / 8);
+    assert.equal(vicio({ hour: 22, day: 1, isNight: true }), 10 + SLEEP.vicioVela);
+  } finally { mock.timers.reset(); }
+});
+
+test('la siesta pide cansancio y seis horas despierto desde la anterior; dormir de noche no tiene ese límite', () => {
+  mock.timers.enable({ apis: ['setTimeout'] });
+  try {
+    const fallos = [];
+    window.addEventListener('sleep-fail', (e) => fallos.push(e.detail));
+    const stats = new StatsSystem();
+    const clock = new Clock({ hour: 8 });
+    const game = Object.assign(Object.create(Game.prototype), {
+      built: { base: true, paredes: true }, clock, stats, dog: null, ultimaSiesta: null, isSleeping: false,
+      player: { position: new THREE.Vector3(), playAction() {} }, _save() {}, inventory: new InventorySystem()
+    });
+    const dormir = () => { game.sleep(); const durmio = game.isSleeping; mock.timers.tick(1200); return durmio; };
+
+    assert.equal(dormir(), false, 'con la energía en 100 no hay sueño');
+    assert.deepEqual(fallos.at(-1), { reason: 'descansado' });
+    assert.equal(clock.hour, 8, 'el reloj no se mueve');
+
+    stats.energia = SLEEP.siestaEnergiaMax;
+    assert.equal(dormir(), true);
+    assert.equal(clock.hour, 11);
+    assert.equal(game.ultimaSiesta, 11, 'se anota al despertar');
+
+    stats.energia = 20;
+    clock.hour = 16.5; // 5 h 30 min despierto
+    assert.equal(dormir(), false, 'aunque esté rendido, la siguiente espera');
+    assert.deepEqual(fallos.at(-1), { reason: 'descansado', horas: 1 });
+    clock.hour = 17;
+    assert.equal(dormir(), true, 'a las seis horas, sí');
+
+    // De noche se duerme hasta las 6:00, con energía y recién levantado de una siesta.
+    stats.energia = 100;
+    clock.hour = 21;
+    assert.equal(dormir(), true);
+    assert.equal(clock.hour, 6);
+  } finally { mock.timers.reset(); }
+});
+
+test('la hora de la última siesta se guarda: recargar no reinicia la espera, y una partida vieja carga sin ella', () => {
+  let saved = null;
+  const serializable = () => ({ serialize: () => ({}) });
+  const guardando = Object.assign(Object.create(Game.prototype), {
+    stats: serializable(), clock: serializable(), inventory: serializable(), talents: serializable(), diseases: serializable(),
+    player: { position: new THREE.Vector3() }, world: {}, save: { save: data => { saved = data; } }, ultimaSiesta: 11
+  });
+  guardando._save();
+  assert.equal(saved.ultimaSiesta, 11);
+
+  const cargar = (data) => {
+    const game = Object.assign(Object.create(Game.prototype), {
+      stats: new StatsSystem(), clock: new Clock(), inventory: new InventorySystem(), world: {}, ultimaSiesta: null,
+      talents: { deserialize() {} }, diseases: { deserialize() {} }
+    });
+    game._aplicarPartida(data);
+    game.stats.energia = 20;
+    return game;
+  };
+  const recargada = cargar({ clock: { day: 1, hour: 13 }, ultimaSiesta: 11 });
+  assert.deepEqual(recargada.motivoSinSiesta(), { reason: 'descansado', horas: 4 });
+  const vieja = cargar({ clock: { day: 1, hour: 13 } });
+  assert.equal(vieja.ultimaSiesta, null);
+  assert.equal(vieja.motivoSinSiesta(), null);
 });
 
 test('dormir acuesta el cuerpo con la simulación quieta, le quita lo que tenía en las manos y al despertar queda de pie', () => {
@@ -182,6 +268,7 @@ test('dormir acuesta el cuerpo con la simulación quieta, le quita lo que tenía
     const scene = new THREE.Scene();
     const input = { axis: { x: 0, z: 0 }, isRunning: false, consumePress: () => false, isDown: () => false };
     const stats = new StatsSystem();
+    stats.energia = 60; // cansado para la siesta; la postura solo se encorva por debajo de 45
     const player = new Player(scene, input, stats, null);
     const game = Object.assign(Object.create(Game.prototype), {
       built: { base: true, paredes: true }, clock: { hour: 12, day: 1, isNight: false }, stats,
@@ -222,6 +309,7 @@ test('quien se acuesta corriendo se endereza y al despertar no resbala', () => {
     const scene = new THREE.Scene();
     const input = { axis: { x: 0, z: -1 }, isRunning: true, consumePress: () => false, isDown: () => false };
     const stats = new StatsSystem();
+    stats.energia = 60; // cansado para la siesta; la postura solo se encorva por debajo de 45
     const player = new Player(scene, input, stats, null);
     const game = Object.assign(Object.create(Game.prototype), {
       built: { base: true, paredes: true }, clock: { hour: 12, day: 1, isNight: false }, stats,
@@ -292,5 +380,127 @@ test('el ladrón de la noche se lleva el material, no el arma que está en la ma
     });
     game.sleep();
     assert.deepEqual(['arma', 'cuchillo', 'lata'].map(id => inventory.count(id)), [1, 0, 0]);
+  } finally { random.mock.restore(); mock.timers.reset(); }
+});
+
+test('con E junto al cambuche El Chato se queda cuidando y con otra E vuelve a seguirme; cuidar va en la partida', () => {
+  const dog = new Dog(new THREE.Scene(), new THREE.Vector3(1, 0, 0)), inventory = new InventorySystem(), stats = new StatsSystem();
+  const interaction = new InteractionSystem({}, inventory, stats);
+  const toasts = [], atendido = [];
+  window.addEventListener('toast', e => toasts.push(e.detail.text));
+  window.addEventListener('dog-interacted', e => atendido.push(e.detail.action));
+  // Sin ser amigo, junto al cambuche solo se deja acariciar.
+  dog.cambucheCerca = true;
+  interaction._interactDog(dog);
+  assert.equal(dog.guarding, null);
+  dog.befriend();
+  // Lejos del cambuche, la E sigue siendo la caricia.
+  dog.cambucheCerca = false; dog._petCooldown = 0; stats.saludMental = 40;
+  interaction._interactDog(dog);
+  assert.equal(dog.guarding, null); assert.equal(stats.saludMental, 45);
+  // Junto al cambuche se queda cuidando, en su rincón de siempre; no da ánimo ni depende del enfriamiento de la caricia.
+  dog.cambucheCerca = true;
+  interaction._interactDog(dog);
+  assert.deepEqual(dog.guarding.toArray(), dog.home.toArray());
+  assert.notEqual(dog.guarding, dog.home, 'guarda una copia del sitio');
+  assert.equal(stats.saludMental, 45);
+  assert.equal(toasts.at(-1), 'Le pedí a El Chato que cuidara el cambuche. De noche espanta a los ladrones.');
+  const serializable = () => ({ serialize: () => ({}) }); let saved;
+  const game = Object.assign(Object.create(Game.prototype), {
+    stats: serializable(), clock: serializable(), inventory: serializable(), talents: serializable(), diseases: serializable(),
+    player: { position: new THREE.Vector3() }, world: {}, dog, save: { save: data => { saved = data; } }
+  });
+  game._save(); assert.equal(saved.dog.cuida, true);
+  // Otra E lo llama, esté yo junto al cambuche o no.
+  interaction._interactDog(dog);
+  assert.equal(dog.guarding, null);
+  assert.equal(toasts.at(-1), 'Llamé a El Chato y ya me acompaña otra vez.');
+  game._save(); assert.equal(saved.dog.cuida, false);
+  assert.deepEqual(atendido, ['pet', 'pet', 'guard', 'call'], 'dejarlo cuidando y llamarlo también cuentan como atenderlo');
+  dog.destroy();
+});
+
+test('al cargar la partida El Chato vuelve a cuidar solo si sigue habiendo cambuche', () => {
+  const sinDatos = () => ({ deserialize() {} });
+  const cargar = (perro, built) => {
+    const dog = new Dog(new THREE.Scene(), new THREE.Vector3(1, 0, 0));
+    const game = Object.assign(Object.create(Game.prototype), {
+      stats: sinDatos(), clock: sinDatos(), inventory: { deserialize() {}, count: () => 0 }, talents: sinDatos(), diseases: sinDatos(),
+      player: { position: new THREE.Vector3() }, world: {}, dog
+    });
+    game._aplicarPartida({ built, dog: perro });
+    const estado = { amigo: dog.isFriend, cuida: !!dog.guarding };
+    dog.destroy();
+    return estado;
+  };
+  assert.deepEqual(cargar({ isFriend: true, cuida: true }, { base: true }), { amigo: true, cuida: true });
+  assert.deepEqual(cargar({ isFriend: true, cuida: false }, { base: true }), { amigo: true, cuida: false });
+  assert.deepEqual(cargar({ isFriend: true }, { base: true }), { amigo: true, cuida: false }, 'una partida de antes no lo deja cuidando');
+  assert.deepEqual(cargar({ isFriend: true, cuida: true }, {}), { amigo: true, cuida: false }, 'sin cambuche no hay qué cuidar');
+  assert.deepEqual(cargar({ isFriend: false, cuida: true }, { base: true }), { amigo: false, cuida: false });
+});
+
+test('El Chato cuidando o durmiendo al lado espanta al ladrón de la noche: ni plata, ni material, ni caleta', async () => {
+  const { Caleta } = await import('../src/systems/Caleta.js');
+  mock.timers.enable({ apis: ['setTimeout'] });
+  let azar = 0;
+  const random = mock.method(Math, 'random', () => azar);
+  try {
+    const noche = ({ perro, hora = 22, paredes = false, lejos = 40, energia = null } = {}) => {
+      const stats = new StatsSystem(); stats.dinero = 1000;
+      if (energia !== null) stats.energia = energia;
+      const antes = stats.energia;
+      const inventory = new InventorySystem(); inventory.add(ITEMS.lata, 4);
+      const caleta = new Caleta(); caleta.items.push({ id: 'carton', qty: 4 });
+      const dog = perro ? new Dog(new THREE.Scene(), new THREE.Vector3(lejos, 0, 0)) : null;
+      if (perro && perro !== 'ajeno') dog.befriend();
+      if (perro === 'cuida') dog.guard(dog.position);
+      const toasts = []; const oir = e => toasts.push(e.detail.text);
+      window.addEventListener('toast', oir);
+      const game = Object.assign(Object.create(Game.prototype), {
+        built: { base: true, paredes }, clock: { hour: hora, day: 1, isNight: hora >= 19 || hora < 6 }, stats,
+        player: { position: new THREE.Vector3(), playAction() {} }, dog, _save() {}, inventory, street: { caleta }
+      });
+      game.sleep();
+      mock.timers.tick(1200);
+      window.removeEventListener('toast', oir);
+      dog?.destroy();
+      return { dinero: stats.dinero, latas: inventory.count('lata'), caleta: caleta.count('carton'), toasts, dog, durmio: stats.energia > antes };
+    };
+    const robado = { dinero: 600, latas: 2, caleta: 2 }, intacto = { dinero: 1000, latas: 4, caleta: 4 };
+    const pierde = ({ dinero, latas, caleta }) => ({ dinero, latas, caleta });
+
+    // Sin perro, lo de siempre: 40 % de la plata, la mitad del material y la mitad de la caleta.
+    const solo = noche();
+    assert.deepEqual(pierde(solo), robado);
+    assert.deepEqual(solo.toasts, ['Me robaron mientras dormía ($ 400 y material). Unas paredes ayudarían.',
+      'También encontraron la caleta: se llevaron Cartón ×2.']);
+    // El Chato sin ser amigo no cuida nada, ni rondando a dos pasos de la cama.
+    assert.deepEqual(pierde(noche({ perro: 'ajeno' })), robado);
+    assert.deepEqual(pierde(noche({ perro: 'ajeno', lejos: 2 })), robado);
+
+    // Cuidando el cambuche, aunque yo esté lejos de él: no se pierde nada y avisa.
+    const cuidando = noche({ perro: 'cuida' });
+    assert.deepEqual(pierde(cuidando), intacto);
+    assert.deepEqual(cuidando.toasts, ['El Chato espantó a un ladrón mientras dormía.']);
+    assert.equal(cuidando.dog.sleeping, false, 'el que cuida no se echa a dormir');
+    assert.equal(cuidando.dog.position.x, 40, 'ni lo traen a mi lado');
+    // De amigo y sin cuidar, duerme a mi lado y también lo espanta.
+    const alLado = noche({ perro: 'amigo' });
+    assert.deepEqual(pierde(alLado), intacto);
+    assert.deepEqual(alLado.toasts, ['El Chato espantó a un ladrón mientras dormía.']);
+
+    // Si esa noche no venía nadie, no hay aviso; y en la siesta de día nunca hay ladrón.
+    azar = .99;
+    assert.deepEqual(noche({ perro: 'cuida' }).toasts, []);
+    assert.deepEqual(pierde(noche()), intacto);
+    // Cansado, para que la siesta de mediodía sí ocurra: descansado no se duerme de día.
+    azar = 0;
+    const siesta = noche({ perro: 'cuida', hora: 12, energia: 20 }), siestaSolo = noche({ hora: 12, energia: 20 });
+    assert.ok(siesta.durmio && siestaSolo.durmio, 'la siesta ocurrió');
+    assert.deepEqual(siesta.toasts, []);
+    assert.deepEqual(pierde(siestaSolo), intacto);
+    // Con paredes no entra nadie: El Chato no tiene a quién espantar.
+    assert.deepEqual(noche({ perro: 'cuida', paredes: true }).toasts, []);
   } finally { random.mock.restore(); mock.timers.reset(); }
 });

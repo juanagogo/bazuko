@@ -221,3 +221,71 @@ test('las consultas de persecución no cambian velocidades ni rutas del patrulla
   assert.ok(a.vehicle.car.position.equals(b.vehicle.car.position));
   a.traffic.dispose(); b.traffic.dispose();
 });
+
+test('la llamada de un testigo manda la patrulla libre más cercana al sitio y, si no lo encuentra, desiste', () => {
+  const state = setup();
+  const { traffic, vehicle, collisions } = state;
+  wall(collisions, [-30, 0, 9.6], [30, 4, 10]);
+  assert.equal(traffic.dispatchTo(new THREE.Vector3(15, 0, 0)), true);
+  assert.equal(vehicle.state, 'chase');
+  assert.equal(traffic.dispatchTo(new THREE.Vector3(15, 0, 0)), false, 'no manda otra mientras ya persigue');
+  const player = new THREE.Vector3(15, 0, 14); // ya se fue detrás del muro
+  for (let i = 0; i < 600 && traffic.inPursuit; i++) traffic.update(.1, { player });
+  assert.equal(state.arrests, 0);
+  assert.equal(traffic.inPursuit, false, 'desistió');
+  assert.equal(state.escapes, 1);
+  traffic.dispose();
+});
+
+test('una llamada lejos de toda patrulla no manda a nadie', () => {
+  const { traffic, vehicle } = setup();
+  assert.equal(traffic.dispatchTo(new THREE.Vector3(500, 0, 500)), false);
+  assert.equal(vehicle.state, 'patrol');
+  traffic.dispose();
+});
+
+test('la llamada alcanza hasta 55 m, salta a la patrulla que está parada y escoge la más cercana', () => {
+  const traffic = new TrafficSystem(new THREE.Scene(), [new TrafficRoute(0, 40, 0, 40)],
+    { carsPerRoute: 0, policeCount: 2, random: () => .2 });
+  traffic.setEnvironment({ collisions: new CollisionSystem(), getGroundHeight: (_x, _z, y) => y });
+  const [cerca, lejos] = traffic.vehicles;
+  cerca.car.position.set(10, 0, 0);
+  lejos.car.position.set(30, 0, 0);
+  assert.equal(traffic.dispatchTo(new THREE.Vector3(85, 0, 0)), false, 'a 55 m o más no llega');
+  assert.equal(traffic.dispatchTo(new THREE.Vector3(84, 0, 0)), true, 'a 54 m sí');
+  assert.equal(lejos.state, 'chase');
+  assert.equal(cerca.state, 'patrol', 'sale una sola');
+  traffic.endPursuit();
+  for (const v of traffic.vehicles) { v.state = 'patrol'; v.rejoinTarget = null; }
+  cerca.hold = true; // un conductor bravo la tiene parada
+  assert.equal(traffic.dispatchTo(new THREE.Vector3(0, 0, 0)), true);
+  assert.equal(cerca.state, 'patrol', 'la que está quieta no sale');
+  assert.equal(lejos.state, 'chase');
+  traffic.endPursuit();
+  for (const v of traffic.vehicles) { v.state = 'patrol'; v.rejoinTarget = null; }
+  cerca.hold = false;
+  assert.equal(traffic.dispatchTo(new THREE.Vector3(0, 0, 0)), true);
+  assert.equal(cerca.state, 'chase', 'libres las dos, la más cercana');
+  assert.equal(lejos.state, 'patrol');
+  traffic.dispose();
+});
+
+test('la llamada no manda una segunda patrulla mientras otra persigue, ni una que el jugador ya dejó atrás', () => {
+  const traffic = new TrafficSystem(new THREE.Scene(), [new TrafficRoute(0, 40, 0, 40)],
+    { carsPerRoute: 0, policeCount: 2, random: () => .2 });
+  traffic.setEnvironment({ collisions: new CollisionSystem(), getGroundHeight: (_x, _z, y) => y });
+  const [una, otra] = traffic.vehicles;
+  una.car.position.set(10, 0, 0);
+  otra.car.position.set(30, 0, 0);
+  let escapes = 0;
+  window.addEventListener('police-escaped', () => escapes++);
+  // El jugador ya corrió 80 m desde el sitio de la llamada: ninguna patrulla alcanzaría a perseguirlo.
+  assert.equal(traffic.dispatchTo(new THREE.Vector3(0, 0, 0), new THREE.Vector3(-80, 0, 0)), false);
+  for (let i = 0; i < 20; i++) traffic.update(.1, { player: new THREE.Vector3(-80, 0, 0) });
+  assert.equal(escapes, 0, 'ningún «los despisté» por una persecución que no hubo');
+  assert.equal(traffic.dispatchTo(new THREE.Vector3(0, 0, 0)), true);
+  assert.equal(una.state, 'chase');
+  assert.equal(traffic.dispatchTo(new THREE.Vector3(30, 0, 0)), false, 'ya lo están buscando');
+  assert.equal(otra.state, 'patrol');
+  traffic.dispose();
+});

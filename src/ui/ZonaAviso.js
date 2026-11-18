@@ -62,6 +62,8 @@ export class ZonaAviso {
       const nombre = ZONA_NOMBRES[zona];
       if (nombre) {
         this.cartelEl.textContent = nombre;
+        // «Parque Tercer Milenio», el metro y el lago van con letra más chica (momentos.css).
+        this.cartelEl.classList?.toggle('zona-cartel--largo', nombre.length > 14);
         this.cartelEl.hidden = false;
         this._restante = DURACION_S;
       }

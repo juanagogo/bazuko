@@ -149,8 +149,8 @@ export class CheatMode {
     this.comerOtraVez();
     return true;
   }
-  /** Borra la espera de 24 horas del comedor. */
-  comerOtraVez() { this.game.lastComedorHour = null; }
+  /** Borra la espera del comedor. */
+  comerOtraVez() { this.game.lastComedorHour = null; this.game.lastComedorTimestamp = null; }
 
   // ===== Eventos de la calle =====
   /** Hace chocar por detrás al par de carros en fila más cercano al jugador. */
