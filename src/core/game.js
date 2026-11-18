@@ -282,6 +282,17 @@ export class Game {
     this.shop = null;
     this.comedor = null;
     this.lastComedorHour = null;
+    this.lastComedorTimestamp = null;
+    this.bicycles = [];
+    this.bikeFence = null;
+    this.randomHallucinations = new RandomHallucinationSystem(
+      this.sceneMgr.scene,
+      this.player,
+      this.stats,
+      this.audio,
+      this.world
+    );
+    this.ultimaSiesta = null; // hora de juego (totalGameHours) en que terminó la última siesta
     this.dailyMissions = new DailyMissionSystem(this);
     this._missionsModalOpen = false;
     this.cars = [];
@@ -1000,6 +1011,8 @@ export class Game {
       }
       if (data.gps && this.gps) this.setGpsWaypoint({ ...data.gps, name: RENAMED_PLACES[data.gps.name] ?? data.gps.name }, { silent: true });
       if (data.lastComedorHour !== undefined) this.lastComedorHour = data.lastComedorHour;
+      if (data.lastComedorTimestamp !== undefined) this.lastComedorTimestamp = data.lastComedorTimestamp;
+      this.ultimaSiesta = Number.isFinite(data.ultimaSiesta) ? data.ultimaSiesta : null; // las partidas viejas no lo traen
       this.street?.deserialize(data.street);
       if (data.dailyMissions) this.dailyMissions?.deserialize(data.dailyMissions);
       else this.dailyMissions?.init(this.clock?.day ?? 1);
@@ -1026,6 +1039,9 @@ export class Game {
       cart: this.cart ? this.cart.saveState() : null,
       gps: this.gps?.serialize() ?? null,
       lastComedorHour: this.lastComedorHour,
+      lastComedorTimestamp: this.lastComedorTimestamp,
+      ultimaSiesta: this.ultimaSiesta,
+      castigo: this._castigoPendiente ?? null,
       dailyMissions: this.dailyMissions?.serialize(),
       street: this.street?.serialize()
     });
@@ -1243,6 +1259,7 @@ export class Game {
   _policeArrest() {
     if (this._arrestPending || this._deathPending || this.stats.salud <= 0) return;
     this._arrestPending = true;
+    this.carjack?.reset({ perdido: true });
     this.rebusque?.cancelar();
     if (this.steal?.minigameActive) this.steal._endMinigame(false, 'cancel');
     this.input.keys = {};
@@ -1548,8 +1565,11 @@ export class Game {
       if (this.player.isSwimming) this.interaction.currentTarget = this.interaction.currentTargetType = null;
     }
     this.street?.update(dt);
+    this.rebusque?.update(dt);
+    this.interaction.rebusquePrompt = this.rebusque?.prompt ?? null;
+    this.rebusqueVisual?.update();
     this.witnesses?.update(dt);
-    if (!this.player.isSwimming) this.steal?.update(dt);
+    if (!this.player.isSwimming && !driving) this.steal?.update(dt);
     else if (this.steal?.minigameActive) this.steal._endMinigame(false, 'cancel');
     this.interaction.carjackPrompt = driving ? null : this.carjack?.prompt ?? null;
     // Al volante no queda ningún aviso de a pie (el retrovisor, el bolsillo) colgando de antes de subirse.

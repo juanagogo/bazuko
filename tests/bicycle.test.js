@@ -180,3 +180,18 @@ test('BikeFence: no compra bicicletas que no sean robadas', () => {
   bike.dispose();
   fence.dispose();
 });
+
+test('montado en la bicicleta Espacio no salta', () => {
+  const scene = new THREE.Scene();
+  const input = { axis: { x: 0, z: 0 }, isRunning: false, presses: new Set(['Space']), consumePress(key) { return this.presses.delete(key); }, isDown: () => false };
+  const player = new Player(scene, input);
+  const bike = new Bicycle(scene, new THREE.Vector3(0, 0, 0), 0, { locked: false });
+  bike.mount(player);
+  player.update(1 / 60, null, null, () => 0);
+  assert.equal(player.ridingBike, bike);
+  assert.equal(player.isGrounded, true, 'sigue en el piso');
+  assert.ok(!(player.jumpVelocity > 0), 'sin impulso de salto');
+
+  player.dispose();
+  bike.dispose();
+});
