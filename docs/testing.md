@@ -30,6 +30,8 @@ Las regresiones de jugabilidad comprueban el salto y el recorrido de ambas rampa
 
 `input.test.js` comprueba que una tecla sostenida cuente como una sola pulsación: con Espacio sostenido se salta una vez aunque el sistema repita la tecla, y sostener E no vuelve a interactuar, tampoco al volver a la ventana con la tecla oprimida.
 
+`arranque.test.js` corre la carga de verdad sin navegador: el constructor de `Game` entero, con dobles en lugar de lo que pide DOM o WebGL, y `_initialize` hasta construir la ciudad. Así comprueba que el constructor crea todo lo que `_spawnEntities` vacía al empezar (lo que se recoge, los carros y las bicicletas); `startup.test.js` no lo ve porque cambia `_spawnEntities` por una función vacía.
+
 En C++, `bazuko_playerstate_test` comprueba que la carga conserve los objetos permitidos por el costal grande y los talentos, y que la regeneración no reviva al jugador durante una caída mortal. Se ejecuta con `ctest --test-dir cpp/build --output-on-failure` después de configurar y compilar los objetivos nativos. Estas pruebas de lógica no requieren abrir la ventana del juego.
 
 ## Sala de pruebas

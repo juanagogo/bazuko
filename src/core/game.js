@@ -282,6 +282,7 @@ export class Game {
     this.shop = null;
     this.comedor = null;
     this.lastComedorHour = null;
+    this.bicycles = [];
     this.dailyMissions = new DailyMissionSystem(this);
     this._missionsModalOpen = false;
     this.cars = [];
