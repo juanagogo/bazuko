@@ -135,7 +135,7 @@ test('las posturas bajas descansan en el piso sin atravesarlo; en la banca los p
     const { root, bones, hold } = standing(baked);
     const support = createSkinSupport(root);
     const hips = [...bones.values()].find(bone => /Hips$/.test(bone.name));
-    for (const [stance, min, max] of [['sentado', -.01, .03], ['acurrucado', -.01, .03], ['pedir', -.01, .04], ['dormido', -.05, .03], ['banca', -.01, .03]]) {
+    for (const [stance, min, max] of [['sentado', -.01, .03], ['acurrucado', -.01, .03], ['pedir', -.01, .04], ['dormido', -.05, .03], ['banca', -.01, .03], ['dormir-banca', -.01, .03]]) {
       hold(stance);
       const low = support.minimumY();
       assert.ok(low > min && low < max, `${id}/${stance}: lo más bajo a ${low.toFixed(3)} m`);
@@ -143,6 +143,29 @@ test('las posturas bajas descansan en el piso sin atravesarlo; en la banca los p
     hold('banca');
     const pelvis = hips.getWorldPosition(new THREE.Vector3()).y * 1.08;
     assert.ok(pelvis > .5 && pelvis < .72, `${id}/banca: pelvis a ${pelvis.toFixed(3)} m`);
+  }
+});
+
+test('dormir en la banca conserva asiento y pies; cabeza baja y manos descansan en el regazo', async () => {
+  for (const id of BODIES) {
+    const { root, bones, hold } = standing(await library(id));
+    const position = end => [...bones.values()].find(b => b.name.endsWith(end)).getWorldPosition(new THREE.Vector3());
+    hold('banca');
+    const hips = position('Hips'), left = position('LeftFoot'), right = position('RightFoot'), head = position('Head');
+    const headBone = [...bones.values()].find(b => b.name.endsWith('Head'));
+    const headDirection = headBone.getWorldQuaternion(new THREE.Quaternion());
+    hold('dormir-banca');
+    assert.ok(position('Hips').distanceTo(hips) < .00001, id);
+    assert.ok(position('LeftFoot').distanceTo(left) < .00001, id);
+    assert.ok(position('RightFoot').distanceTo(right) < .00001, id);
+    assert.ok(position('Head').y < head.y - .015, `${id}: recoge la cabeza`);
+    assert.ok(headBone.getWorldQuaternion(new THREE.Quaternion()).angleTo(headDirection) > .3, `${id}: mira hacia el regazo`);
+    for (const side of ['Left', 'Right']) {
+      const hand = position(`${side}Hand`), knee = position(`${side}Leg`);
+      assert.ok(Math.abs(hand.x) < .13, `${id}: mano en el regazo`);
+      assert.ok(hand.y > knee.y && hand.y < hips.y + .25, `${id}: altura de mano ${hand.y}`);
+    }
+    assert.deepEqual(root.position.toArray(), [0, 0, 0]);
   }
 });
 

@@ -18,6 +18,8 @@ import { cierreHTML } from './cierre.js';
 import { cuentaAtras, hora, porcentaje } from './formato.js';
 import { tabDaLaVuelta } from './dom.js';
 import { CAMBUCHE } from '../data/cambuche.js';
+import { BICYCLE } from '../data/bicycle.js';
+import { RESIDENCIA } from '../systems/Rest.js';
 
 /** Las cuatro filas de siempre, siempre en este orden y en el mismo sitio. */
 const FILAS = ['salud', 'hambre', 'sed', 'energia'];
@@ -75,6 +77,14 @@ export function textoDelPrompt(interaction, inventory) {
     const car = interaction.currentTarget;
     const canSteal = car?.stealable !== false;
     const canClean = !!car?.cleanable;
+    // Al parqueado no se le limpia el vidrio: se le cuida hasta que vuelve el dueño.
+    const guard = interaction.street?.guard;
+    if (!car?.traffic && guard) {
+      const robar = canSteal ? '[E] Robar retrovisor del carro' : '';
+      const cuidar = guard.car === car ? 'Lo estoy cuidando: no me alejo'
+        : guard.active ? '' : guard.canGuard(car) ? '[Q] Cuidarlo (propina del dueño)' : '';
+      return [robar, cuidar].filter(Boolean).join(' · ');
+    }
     if (canSteal && canClean) {
       return car?.traffic
         ? '[E] Robar retrovisor del carro en circulación · [Q] Limpiar parabrisas'
@@ -85,9 +95,25 @@ export function textoDelPrompt(interaction, inventory) {
     }
     return car?.traffic ? '[E] Robar retrovisor del carro en circulación' : '[E] Robar retrovisor del carro';
   }
-  if (type === 'fireBarrel') return '[E] Calentarme en la fogata';
+  if (type === 'fireBarrel') {
+    const comida = inventory?.items?.some((i) => i.qty > 0 && ITEMS[i.id]?.consumable === 'hambre' && i.id !== 'comidaDanada');
+    return comida ? '[E] Calentarme en la fogata · [Q] Compartir comida' : '[E] Calentarme en la fogata · Compartir comida aquí da confianza';
+  }
+  if (type === 'pila') {
+    return inventory?.count?.('botella') > 0 ? '[E] Lavarme en la pila · [Q] Llenar la botella' : '[E] Lavarme en la pila · Con una botella vacía, aquí la lleno';
+  }
+  if (type === 'hogar') return '[E] Hogar de paso: dormir bajo techo';
+  if (type === 'residencia') return `[E] Residencia: dormir ${RESIDENCIA.horas} h (${cop(RESIDENCIA.precio)})`;
+  if (type === 'transit') return `[E] ${interaction.currentTarget?.stop?.name ?? 'Estación'}: viajar`;
   if (type === 'sell') return '[E] Vender material en la recicladora';
   if (type === 'shop') return `[E] Comprar en ${interaction.currentTarget.title ?? 'Tienda La Esquinita'}`;
+  if (type === 'comedor') {
+    const game = typeof window !== 'undefined' ? window.__game : (typeof globalThis !== 'undefined' ? globalThis.__game : null);
+    const isAvail = game?.isComedorAvailable ? game.isComedorAvailable() : true;
+    return isAvail
+      ? '[E] Almorzar en el Comedor Comunitario (Gratis)'
+      : `[E] Comedor Comunitario (Próximo servicio en ${game?.getComedorRemainingHours?.() ?? 0} h)`;
+  }
   if (type === 'dog') {
     const hasFood = inventory?.items?.some(item => item.qty > 0 && ['pan', 'lataComida', 'carne', 'hueso'].includes(item.id));
     if (interaction.currentTarget?.isFriend) return '[E] Acariciar a El Chato';
@@ -95,6 +121,25 @@ export function textoDelPrompt(interaction, inventory) {
   }
   if (type === 'cambuche') return '[E] Mi cambuche: armar o dormir';
   if (type === 'mesa') return '[E] Fabricar';
+  if (type === 'bench') return `${interaction.currentTarget?.playerSeated ? '[E] Levantarme de la banca' : '[E] Sentarme en la banca'} · [Q] Dormir gratis`;
+  if (type === 'bicycle') {
+    if (interaction.player?.bicycle === interaction.currentTarget) {
+      const bike = interaction.currentTarget;
+      const station = interaction.player.game?.bikeStations?.find(item => item.interactDistance(interaction.player.position) < 1.8 && item.bikes.length < item.capacity);
+      const reward = station && bike.rentalPaid && bike.rentalOrigin === station.id && bike.status !== 'stolen';
+      const exit = station ? `Devolver${reward ? ` (+${cop(BICYCLE.honestReturnReward)})` : ''}` : 'Bajarme';
+      return `[W] Pedalear · [Shift] Más rápido · [S] Freno / reversa · [A/D] Girar · [Espacio] Saltar · [E] ${exit}`;
+    }
+    return ['parked', 'stolen'].includes(interaction.currentTarget?.status)
+      ? '[E] Volver a montar bicicleta'
+      : `[E] Alquilar bicicleta (${cop(BICYCLE.rentalCost)}) · [Q] Robarla`;
+  }
+  if (type === 'bicycle-station') {
+    if (interaction.player?.bicycle) return '[E] Devolver bicicleta';
+    return interaction.currentTarget?.availableBike?.()
+      ? `[E] Alquilar (${cop(BICYCLE.rentalCost)}) · Devolver aquí da ${cop(BICYCLE.honestReturnReward)} · [Q] Robar bicicleta`
+      : 'Estación sin bicicletas';
+  }
   if (type === 'dealer') return '[Q / E] El jíbaro: comprar o vender';
   if (type === 'cart') return interaction.currentTarget?.isAttached ? '[E] Soltar la carreta' : '[E] Agarrar la carreta (+120 kg)';
   return interaction.stealPrompt ?? '';
@@ -107,7 +152,19 @@ const VERBO_CORTO = [
   [/^Darle pan o atún/, 'Darle comida'],
   [/^Acariciar a El Chato/, 'Acariciar'],
   [/^Calentarme/, 'Calentarme'],
+  [/^Compartir comida/, 'Compartir'],
+  [/^Cuidarlo/, 'Cuidar carro'],
+  [/^Lavarme/, 'Lavarme'],
+  [/^Llenar la botella/, 'Llenar botella'],
+  [/^Hogar de paso/, 'Hogar de paso'],
+  [/^Residencia:/, 'Residencia'],
+  [/^Sentarme en la banca/, 'Sentarme'],
+  [/^Levantarme de la banca/, 'Levantarme'],
+  [/^Dormir gratis/, 'Dormir gratis'],
+  [/: viajar$/, 'Viajar'],
   [/^Vender material/, 'Vender material'],
+  [/^Almorzar en el Comedor/, 'Almorzar'],
+  [/^Comedor Comunitario/, 'Comedor'],
   [/^Comprar en /, 'Comprar'],
   [/^Mi cambuche/, 'Mi cambuche'],
   [/^El jíbaro/, 'El jíbaro'],
@@ -178,6 +235,12 @@ export class HUD {
     this.wantedBarra = this.wantedEl?.querySelector?.('.wanted__barra .masa');
     this.wantedVoz = this.wantedEl?.querySelector?.('.wanted__voz');
     this.misionEl = document.getElementById('mision');
+    if (this.misionEl) {
+      this.misionEl.setAttribute('title', 'Misiones del día (J)');
+      this.misionEl.addEventListener('click', () => {
+        window.dispatchEvent(new CustomEvent('open-missions'));
+      });
+    }
     this.cartEl = document.getElementById('cart-indicator');
     this.boostEl = document.getElementById('boost-indicator');
     this.boostTimeEl = document.getElementById('boost-time');
@@ -248,6 +311,10 @@ export class HUD {
     this.dealerPanel = document.getElementById('dealer-panel');
     this.promptEl = document.getElementById('interaction-prompt');
     this.poopAmmoEl = document.getElementById('poop-hud-ammo');
+    this.tareaEl = document.getElementById('tarea');
+    this.tareaLabel = this.tareaEl?.querySelector?.('.tarea__label');
+    this.tareaHint = this.tareaEl?.querySelector?.('.tarea__pista');
+    this.tareaMasa = this.tareaEl?.querySelector?.('.tarea__barra .masa');
 
     // Estado de paneles
     this._talentOpen = false;
@@ -595,6 +662,8 @@ export class HUD {
     // La tecla de contexto
     this._pintarPrompt(window.__game?.paused ? '' : textoDelPrompt(interaction, inventory), interaction);
 
+    this._pintarTarea(window.__game?.street?.task ?? null);
+
     if (this._misionS > 0 && (this._misionS -= dt) <= 0 && this.misionEl) this.misionEl.hidden = true;
 
     // Lo demás se revisa a 10 Hz; movimiento, filas y tecla de contexto siguen cada cuadro.
@@ -623,6 +692,19 @@ export class HUD {
     if (this._dealerOpen) {
       this.renderDealer();
     }
+  }
+
+  /** Lo que estoy haciendo y toma tiempo (cuidar un carro): nombre, barra y qué hacer. */
+  _pintarTarea(tarea) {
+    if (!this.tareaEl) return;
+    const visible = !!tarea;
+    if (this.tareaEl.hidden === visible) this.tareaEl.hidden = !visible;
+    if (!tarea) return;
+    this._setText(this.tareaLabel, tarea.label);
+    this._setText(this.tareaHint, tarea.hint ?? '');
+    if (this.tareaMasa) this._setWidth(this.tareaMasa, Math.round(tarea.progress * 100));
+    const estado = tarea.warn ? 'aviso' : 'ok';
+    if (this.tareaEl.dataset.estado !== estado) this.tareaEl.dataset.estado = estado;
   }
 
   /** Una fila: relleno, nivel y número. La página se toca solo si cambió lo que se ve. */
@@ -719,7 +801,10 @@ export class HUD {
       return;
     }
     const storyText = game?.story?.currentMissionText?.();
-    const texto = storyText || textoDeMision(game?.built, inventory);
+    let texto = storyText || textoDeMision(game?.built, inventory);
+    if (!texto && game?.dailyMissions?.activeMissionText) {
+      texto = game.dailyMissions.activeMissionText;
+    }
     // Cada cartón baja la cuenta, pero no es una misión nueva: no vuelve a salir por eso.
     const clave = texto?.replace(/\d+ CART\S+/, 'CARTONES') ?? null;
     if (clave === this._misionTexto) return;
@@ -837,6 +922,21 @@ export class HUD {
       window.dispatchEvent(new CustomEvent('open-radio-modal'));
       return;
     }
+    if (itemId === 'ropaLimpia') {
+      game.inventoryUI?.close();
+      inv.remove('ropaLimpia', 1);
+      const def = ITEMS[itemId] ?? item;
+      game.stats.higiene = Math.min(100, (game.stats.higiene || 0) + (def.amount || 30));
+      game.stats.animo = Math.min(100, (game.stats.animo || 0) + (def.animo || 15));
+      game.audio?.play('pickup');
+      this._toast('Te pusiste ropa limpia (+30 higiene, +15 ánimo)', 'info');
+      game.openWardrobe?.();
+      return;
+    }
+    if (itemId === 'botella') {
+      if (game.street?.useBottle()) game.inventoryUI?.close();
+      return;
+    }
     if (itemId === 'pilas') {
       if (game.radio) {
         if (game.radio.battery >= 100) {
@@ -883,6 +983,9 @@ export class HUD {
       inv.remove(itemId, 1);
       // Lo que alimenta y además cura (la aguapanela con la gripe) también quita la enfermedad.
       const cured = !!item.cure && !!game.diseases?.cure?.(item.cure);
+      // El agua de la calle y la comida dañada a veces caen mal.
+      const def = ITEMS[itemId] ?? item;
+      if (def.riesgo) game.diseases?.tryContract?.(def.riesgo.enfermedad, def.riesgo.prob, game.interaction?.diseaseResistance?.() ?? 1);
       game.audio?.play('pickup');
       const isDrink = item.consumable === 'sed' || item.id === 'cafe' || item.id === 'refresco' || item.id === 'aguapanela';
       const verb = isDrink ? 'Bebí' : item.substance ? 'Consumí' : item.consumable === 'salud' ? 'Me apliqué' : 'Comí';

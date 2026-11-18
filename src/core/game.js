@@ -25,6 +25,8 @@ import { TrashContainer } from '../entities/TrashContainer.js';
 import { SellPoint } from '../entities/SellPoint.js';
 import { Cambuche } from '../entities/Cambuche.js';
 import { Shop } from '../entities/Shop.js';
+import { ComedorComunitario } from '../entities/ComedorComunitario.js';
+import { DailyMissionSystem } from '../systems/DailyMissionSystem.js';
 import { Car } from '../entities/Car.js';
 import { parkCar } from '../world/bogota/parkedCars.js';
 import { DrugDealer } from '../entities/DrugDealer.js';
@@ -63,6 +65,12 @@ import { LimpiezaSocialSystem } from '../systems/LimpiezaSocialSystem.js';
 import { SubstanceEffects } from '../systems/SubstanceEffects.js';
 import { SUBSTANCE_EFFECTS } from '../data/substanceEffects.js';
 import { StealSystem } from '../features/steal.js';
+import { StreetLife } from '../systems/StreetLife.js';
+import { PilaPublica, HogarDePaso, Residencia, TransitStop } from '../entities/StreetLifeProps.js';
+import { RESIDENCIA, BANCA, restEffects, benchTheft, restMapInfo } from '../systems/Rest.js';
+import { Bicycle, BicycleStation } from '../entities/Bicycle.js';
+import { BICYCLE } from '../data/bicycle.js';
+import { streetLifePlaces } from '../world/bogota/streetLifePlaces.js';
 import { openRadioModal } from '../ui/RadioModal.js';
 import { LosReyesStory } from '../story/LosReyesStory.js';
 
@@ -82,7 +90,9 @@ import { paintLoadingFrame } from '../ui/LoadingScreen.js';
 import { el } from '../ui/dom.js';
 import { Menu } from '../ui/Menu.js';
 import { createCreator } from '../ui/Creator.js';
-import { openRecycler, openShop, openCambuche } from '../ui/placeMenus.js';
+import { openRecycler, openShop, openCambuche, openComedor } from '../ui/placeMenus.js';
+import { openTransit, openHogar, openResidence, openBenchRest } from '../ui/streetMenus.js';
+import { openMissionsModal } from '../ui/MissionsModal.js';
 import { DEFAULT_LOOK, normalizeLook } from '../character/look.js';
 import { streetWetness } from '../character/streetMaterials.js';
 import { ITEMS, COSTAL_BONUS, isForSale } from '../data/items.js';
@@ -155,6 +165,13 @@ export class Game {
     // De noche, a veces, llega la camioneta negra de la «limpieza social»
     this.limpieza = new LimpiezaSocialSystem(this.sceneMgr.scene, { player: this.player, stats: this.stats, audio: this.audio });
     this.limpieza.onPlayerHurt = () => { if (this.stats.salud <= 0) this._deathCause = 'limpieza'; };
+    // Con buena fama entre los parceros, alguien avisa cuando arranca la camioneta.
+    const llegaLaCamioneta = this.limpieza.trigger.bind(this.limpieza);
+    this.limpieza.trigger = () => {
+      const viene = llegaLaCamioneta();
+      if (viene) this.street?.onLimpiezaComing();
+      return viene;
+    };
     // Imagen y sonido al consumir pegante, pastilla o hierba
     this.substanceEffects = new SubstanceEffects({ canvas, audio: this.audio });
     // el basuco además trae paranoia: sombras, susurros y mirar a los lados
@@ -168,6 +185,9 @@ export class Game {
       this.diseases, this.talents, this.crafting
     );
     this.interaction.getTraffic = () => this.traffic;
+    // Caleta, fama, cuidar carros, comida que se daña, armas que se gastan, pila, transporte y hogar de paso.
+    this.street = new StreetLife(this);
+    this.interaction.street = this.street;
 
     this.steal = new StealSystem(this);
     this.interaction.personCloserThan = (distance) => this.steal.personCloserThan(distance);
@@ -211,10 +231,20 @@ export class Game {
     window.addEventListener('open-recycler', () => openRecycler(this));
     window.addEventListener('open-shop', (e) => openShop(this, e.detail?.target));
     window.addEventListener('open-cambuche', () => openCambuche(this));
+    window.addEventListener('open-comedor', () => openComedor(this));
+    window.addEventListener('open-transit', (e) => openTransit(this, e.detail?.target));
+    window.addEventListener('open-hogar', () => openHogar(this));
+    window.addEventListener('open-residencia', (e) => openResidence(this, e.detail?.target));
+    window.addEventListener('open-bench-rest', (e) => openBenchRest(this, e.detail?.target));
+    window.addEventListener('open-wardrobe', () => this.openWardrobe());
     window.addEventListener('open-mesa', () => { if (!this.hud?._craftOpen) this.hud?.toggleCraftPanel(); });
     window.addEventListener('metro-action', (e) => this._handleMetroAction(e.detail));
     window.addEventListener('police-arrest', () => this._policeArrest());
     window.addEventListener('open-radio-modal', () => openRadioModal(this));
+    window.addEventListener('open-missions', () => {
+      if (this._missionsModalOpen) this.menu.close();
+      else if (!this.paused) openMissionsModal(this);
+    });
     window.addEventListener('keydown', (e) => {
       if (e.repeat || e.target?.closest?.('input, textarea, select, [contenteditable="true"]')) return;
       if (e.code === 'KeyN' && !this.paused) this.minimap.toggle();
@@ -232,6 +262,10 @@ export class Game {
         if (this._radioModalOpen) this.menu.close();
         else if (!this.paused) openRadioModal(this);
       }
+      if (e.code === 'KeyJ' || e.code === 'KeyO') {
+        if (this._missionsModalOpen) this.menu.close();
+        else if (!this.paused) openMissionsModal(this);
+      }
     });
 
     // Entidades
@@ -239,6 +273,10 @@ export class Game {
     this.sellPoint = null;
     this.cambuche = null;
     this.shop = null;
+    this.comedor = null;
+    this.lastComedorHour = null;
+    this.dailyMissions = new DailyMissionSystem(this);
+    this._missionsModalOpen = false;
     this.cars = [];
     this.traffic = null;
     this._onVehicleImpact = this._onVehicleImpact.bind(this);
@@ -246,6 +284,8 @@ export class Game {
     this.craftingStation = null;
     this.dog = null;
     this.cart = null;
+    this.bicycles = [];
+    this.bikeStations = [];
     this.overlays = new CinematicOverlays();
     this.momentos = new Momentos();
     this.story = new LosReyesStory(this);
@@ -408,7 +448,53 @@ export class Game {
     this.look = normalizeLook({ ...look, v: 2 });
     const ready = this.player.setLook(this.look);
     this.interaction.originId = this.look.origen;
+    window.dispatchEvent(new CustomEvent('look-changed', { detail: { look: this.look } }));
     return ready;
+  }
+
+  /** Cambio de ropa: abre directamente la sección de ropa */
+  async openWardrobe() {
+    const look = await this.creator.open(this.look, { initialTab: 'ropa', doneLabel: 'Vestirme' });
+    if (look) {
+      await this._applyLook(look);
+      this._save();
+      window.dispatchEvent(new CustomEvent('toast', { detail: { text: 'Te cambiaste de ropa', type: 'info' } }));
+      this.audio?.play?.('pickup');
+    }
+  }
+
+  get totalGameHours() {
+    return ((this.clock?.day ?? 1) - 1) * 24 + (this.clock?.hour ?? 0);
+  }
+
+  isComedorAvailable() {
+    if (this.lastComedorHour === undefined || this.lastComedorHour === null) return true;
+    return (this.totalGameHours - this.lastComedorHour) >= 24;
+  }
+
+  getComedorRemainingHours() {
+    if (this.isComedorAvailable()) return 0;
+    const diff = this.totalGameHours - this.lastComedorHour;
+    return Math.max(0, Math.ceil(24 - diff));
+  }
+
+  serveComedor() {
+    if (!this.isComedorAvailable()) return false;
+    this.lastComedorHour = this.totalGameHours;
+    if (this.stats) {
+      this.stats.hambre = Math.min(100, (this.stats.hambre || 0) + 80);
+      this.stats.sed = Math.min(100, (this.stats.sed || 0) + 60);
+      this.stats.animo = Math.min(100, (this.stats.animo || 0) + 25);
+      this.stats.energia = Math.min(100, (this.stats.energia || 0) + 25);
+      this.stats.calor = Math.min(300, (this.stats.calor || 0) + 180);
+      this.stats.addXP?.(30, this.talents);
+    }
+    this.audio?.play?.('treasure');
+    window.dispatchEvent(new CustomEvent('comedor-served', {
+      detail: { hour: this.clock?.hour, day: this.clock?.day }
+    }));
+    this._save();
+    return true;
   }
 
   /** GPS a pie, plano del radar y haz del destino; solo para distritos con grilla de navegación. */
@@ -439,6 +525,27 @@ export class Game {
   clearGpsWaypoint() {
     this.gps?.clear();
     this._syncGpsBeacon();
+  }
+
+  _bicycleStationPoi(station) {
+    const origin = this.bicycles?.some(bike => bike.rentalPaid && bike.rentalOrigin === station.id && bike.status !== 'stolen');
+    return { name: origin ? `Origen del alquiler: ${station.title} (+${cop(BICYCLE.honestReturnReward)})` : station.title,
+      icon: '📍', color: origin ? '#ffd166' : '#3b8990', x: station.position.x, z: station.position.z,
+      fijo: true, rentalOrigin: origin ? station.id : null };
+  }
+
+  markBicycleRentalOrigin(bike) {
+    this._poiCache = null;
+    const station = this.bikeStations?.find(item => item.id === bike.rentalOrigin);
+    if (station && bike.rentalPaid) this.setGpsWaypoint(this._bicycleStationPoi(station), { silent: true });
+  }
+
+  refreshBicycleRentalMap(originId) {
+    this._poiCache = null;
+    const station = this.bikeStations?.find(item => item.id === originId);
+    if (!station || this.bicycles?.some(bike => bike.rentalPaid && bike.rentalOrigin === originId && bike.status !== 'stolen')) return;
+    const oldName = `Origen del alquiler: ${station.title} (+${cop(BICYCLE.honestReturnReward)})`;
+    if (this.gps?.waypoint?.name === oldName) this.clearGpsWaypoint();
   }
 
   setGpsBeaconVisible(visible) {
@@ -477,7 +584,7 @@ export class Game {
 
   /** El mundo se congela mientras hay un menú o el creador abierto */
   get paused() {
-    return this._loading || this._deathPending || this._arrestPending || !!this.photoMode?.active || this.menu.isOpen || this.creator.isOpen || !!this.inventoryUI?.isOpen || !!this.hud?._talentOpen || !!this.hud?._craftOpen || !!this.hud?._dealerOpen;
+    return this._loading || this._traveling || this._deathPending || this._arrestPending || !!this.photoMode?.active || this.menu.isOpen || this.creator.isOpen || !!this.inventoryUI?.isOpen || !!this.hud?._talentOpen || !!this.hud?._craftOpen || !!this.hud?._dealerOpen;
   }
 
   _spawnEntities() {
@@ -710,6 +817,22 @@ export class Game {
     );
     this.interaction.register(this.shop);
 
+    // Las bancas son puntos interactivos: no tienen una colisión de movimiento
+    // porque el asiento debe poder alcanzarse, pero sí conservan su orientación
+    // y altura para colocar la postura sentada.
+    const player = this.player;
+    this.benches = (district.benchSpots ?? []).map((spot) => {
+      const bench = {
+        kind: 'bench',
+        position: new THREE.Vector3(spot.x, spot.y, spot.z),
+        spot,
+        interactDistance: (point) => Math.hypot(point.x - spot.x, point.z - spot.z),
+        get playerSeated() { return this === player.benchSeat?.target; }
+      };
+      this.interaction.register(bench);
+      return bench;
+    });
+
     // ===== Vendedores ambulantes del distrito (chazas, fritanga), fogatas y estaciones del Metro =====
     for (const v of district.vendors ?? []) this.interaction.register(v);
     for (const fb of district.fireBarrels ?? []) this.interaction.register(fb);
@@ -719,6 +842,107 @@ export class Game {
       new THREE.Vector3(2.4, 2, 1.5),
       new THREE.Vector3(0, 1, -0.7)
     );
+
+    // ===== Comedor Comunitario =====
+    if (district.reserved?.comedor) {
+      const comPos = district.reserved.comedor;
+      this.comedor = new ComedorComunitario(
+        this.sceneMgr.scene,
+        new THREE.Vector3(comPos.x, 0, comPos.z)
+      );
+      this.comedor.group.position.y = district.getGroundHeightUnder?.(this.comedor.group)
+        ?? district.getGroundHeight?.(comPos.x, comPos.z) ?? 0;
+      this.interaction.register(this.comedor);
+      this.collisions.add(
+        this.comedor.group,
+        new THREE.Vector3(3.2, 2.2, 2.2),
+        new THREE.Vector3(0, 1.1, 0)
+      );
+    }
+    this._spawnStreetLife(district);
+  }
+
+  /** Pilas públicas, hogar de paso y entradas al transporte: siempre en los mismos sitios. */
+  _spawnStreetLife(district) {
+    for (const prop of this._streetProps ?? []) prop.dispose();
+    this.player.dismountBicycle();
+    for (const bike of this.bicycles ?? []) bike.dispose();
+    for (const station of this.bikeStations ?? []) station.dispose();
+    this._streetProps = [];
+    this.bicycles = [];
+    this.bikeStations = [];
+    const street = this.street;
+    if (!street || !district?.tileTypeAt) return;
+    const parks = (district.pigeonFlocks ?? []).map((flock) => flock.bounds).filter(Boolean);
+    const places = streetLifePlaces(district, this.collisions, { parks });
+    const ground = (x, z) => district.getGroundHeight?.(x, z) ?? 0;
+    const add = (prop) => { this._streetProps.push(prop); this.interaction.register(prop); return prop; };
+    street.pilas = places.pilas.map(({ x, z }) => {
+      const pila = add(new PilaPublica(this.sceneMgr.scene, new THREE.Vector3(x, ground(x, z), z)));
+      this.collisions.add(pila.group, pila.collider.size, pila.collider.offset);
+      return pila;
+    });
+    street.hogar = places.hogar
+      ? add(new HogarDePaso(this.sceneMgr.scene, new THREE.Vector3(places.hogar.x, ground(places.hogar.x, places.hogar.z), places.hogar.z), places.hogar.rot))
+      : null;
+    street.residencia = places.residencia
+      ? add(new Residencia(this.sceneMgr.scene, new THREE.Vector3(places.residencia.x, ground(places.residencia.x, places.residencia.z), places.residencia.z), places.residencia.rot))
+      : null;
+    street.stops = places.transit.map((stop) => add(new TransitStop(this.sceneMgr.scene, new THREE.Vector3(stop.x, ground(stop.x, stop.z), stop.z), stop)));
+    street.bikeStations = places.bikeStations.map((spot) => {
+      const station = new BicycleStation(this.sceneMgr.scene, spot);
+      this.bikeStations.push(station);
+      this.interaction.register(station);
+      for (let i = 0; i < Math.min(4, station.capacity); i++) {
+        const bike = new Bicycle(this.sceneMgr.scene,
+          station.dockPosition(i),
+          spot.rot, { id: `${spot.id}-${i + 1}`, stationId: spot.id });
+        station.addBike(bike);
+        bike.dockSlot = i;
+        this.bicycles.push(bike);
+        this.interaction.register(bike);
+      }
+      return station;
+    });
+    this._poiCache = null;
+  }
+
+  /**
+   * Lleva al jugador a otro sitio de la ciudad (el transporte): fundido a negro, reloj adelantado y El Chato
+   * detrás. `to` trae x y z en metros.
+   */
+  relocatePlayer(to, { minutes = 0, fade = true } = {}) {
+    const district = this.world.active;
+    const mover = () => {
+      const y = district?.getMovementGroundHeight?.(to.x, to.z, 0) ?? district?.getGroundHeight?.(to.x, to.z) ?? 0;
+      this.player.position.set(to.x, y, to.z);
+      this.player.root.position.copy(this.player.position);
+      this.player.clearVehicleImpact?.();
+      this.player.resetGrounding?.();
+      if (minutes > 0) {
+        this.clock.hour += minutes / 60;
+        while (this.clock.hour >= 24) { this.clock.hour -= 24; this.clock.day += 1; }
+      }
+      if (this.dog?.isFriend) this.dog.resetNear(this.player.position);
+      this.cameraRig._snap = true;
+      this.cameraRig.follow(this.player.position, 0, this.collisions);
+      this.interaction.currentTarget = null;
+      this.interaction.currentTargetType = null;
+      this.input.keys = {};
+      this.input.endFrame();
+      if (this.gps?.waypoint) this.setGpsWaypoint(this.gps.waypoint, { silent: true });
+    };
+    const veil = fade && typeof document !== 'undefined' ? document.getElementById('viaje-fundido') : null;
+    if (!veil) { mover(); return; }
+    veil.hidden = false;
+    // Un cuadro después: de oculto a visible no hay transición.
+    requestAnimationFrame(() => veil.classList.add('is-on'));
+    this._traveling = true;
+    setTimeout(() => {
+      mover();
+      veil.classList.remove('is-on');
+      setTimeout(() => { veil.hidden = true; this._traveling = false; }, 500);
+    }, 650);
   }
 
   /** Una partida que no se deja leer no detiene la carga: se aparta sin borrarla y se juega sin ella. */
@@ -767,8 +991,29 @@ export class Game {
       if (data.cart && this.cart) {
         this.cart.loadState(data.cart, this.player, this.inventory);
       }
+      for (const state of data.bicycles ?? []) this.bicycles.find((bike) => bike.id === state.id)?.loadState(state);
+      for (const station of this.bikeStations) station.bikes = [];
+      for (const bike of this.bicycles) {
+        const station = this.bikeStations.find((item) => item.id === bike.stationId);
+        if (station && bike.status === 'available') station.returnBike(bike);
+      }
+      const savedBike = this.bicycles.find((bike) => bike.id === data.player?.bicycleId);
+      if (savedBike && savedBike.status !== 'available') {
+        const stolen = savedBike.status === 'stolen';
+        // mount() solo acepta bicicletas disponibles; al restaurar una partida
+        // convertimos temporalmente el estado guardado en una bicicleta montable.
+        savedBike.status = 'available';
+        savedBike.mount(this.player, stolen);
+      }
       if (data.gps && this.gps) this.setGpsWaypoint({ ...data.gps, name: RENAMED_PLACES[data.gps.name] ?? data.gps.name }, { silent: true });
       if (data.story && this.story) this.story.deserialize(data.story);
+      this._poiCache = null;
+      if (data.lastComedorHour !== undefined) this.lastComedorHour = data.lastComedorHour;
+      this.street?.deserialize(data.street);
+      if (data.dailyMissions) this.dailyMissions?.deserialize(data.dailyMissions);
+      else this.dailyMissions?.init(this.clock?.day ?? 1);
+    } else {
+      this.dailyMissions?.init(this.clock?.day ?? 1);
     }
   }
 
@@ -785,7 +1030,7 @@ export class Game {
       inventory: this.inventory.serialize(),
       talents: this.talents.serialize(),
       diseases: this.diseases.serialize(),
-      player: { pos: this.player.position.toArray() },
+      player: { pos: this.player.position.toArray(), bicycleId: this.player.bicycle?.id ?? null },
       worldLayoutVersion: this.world.active?.layoutVersion ?? 0,
       look: this.look,
       built: this.built,
@@ -794,8 +1039,12 @@ export class Game {
       radio: this.radio ? { isOn: this.radio.isOn, freq: this.radio.frequency, battery: this.radio.battery } : null,
       dog: { isFriend: !!this.dog?.isFriend, look: this.dog?.look ?? null },
       cart: this.cart ? this.cart.saveState() : null,
+      bicycles: this.bicycles.map((bike) => bike.saveState()),
       gps: this.gps?.serialize() ?? null,
-      story: this.story ? this.story.serialize() : null
+      story: this.story ? this.story.serialize() : null,
+      lastComedorHour: this.lastComedorHour,
+      dailyMissions: this.dailyMissions?.serialize(),
+      street: this.street?.serialize()
     };
   }
 
@@ -866,22 +1115,68 @@ export class Game {
     if (this._save()) this._avisar('Partida importada', 'info');
   }
 
-  /** Dormir en el cambuche (requiere la base). De noche hasta las 6:00; de día, siesta de 3 h. */
-  sleep() {
-    if (this.isSleeping) return;
-    if (!this.built.base) {
+  /** Motivo visible de bloqueo para un descanso fuera del cambuche. */
+  restBlocked({ residencia = null, banca = null } = {}) {
+    const p = this.player;
+    if (this.isSleeping) return 'Ya estoy descansando';
+    if (this._deathPending || this._arrestPending || this.stats.salud <= 0) return 'Ahora no puedo descansar';
+    if (p.isSwimming || p.isGrounded === false || p.isStunned || p.sorting) return 'Necesito estar a salvo y en tierra';
+    if (p.bicycle || p.hasCart) return 'Primero me bajo de la bicicleta o suelto la carreta';
+    const target = residencia ?? banca;
+    if (!target || residencia && banca) return 'No hay un lugar de descanso';
+    if (residencia && residencia !== this.street?.residencia || banca && !this.benches?.includes(banca)) return 'Este lugar no está disponible';
+    if (p.position.distanceTo(target.position) >= 1.8) return 'Necesito acercarme';
+    if (banca && (this.world?.active?.npcs ?? []).some(npc => npc.position && npc.position.distanceTo(banca.position) < .85)) return 'La banca está ocupada';
+    if (residencia && (!Number.isFinite(this.stats.dinero) || this.stats.dinero < RESIDENCIA.precio)) return `Necesito ${cop(RESIDENCIA.precio)}`;
+    return null;
+  }
+
+  /** Despierta sin conservar impulsos ni una acción de sueño; guarda también la misión. */
+  _finishSleep(hours, detail = {}) {
+    this.isSleeping = false;
+    if (this.player.root) this.player.root.visible = true;
+    this.player.sleepingOnBench = false;
+    if (this.player.action === 'dormir') {
+      this.player.action = null;
+      this.player.actionTimer = this.player.actionProgress = 0;
+    }
+    this.dog?.wake();
+    window.dispatchEvent(new CustomEvent('sleep-end', { detail: { hours: Math.round(hours), ...detail } }));
+    this.dailyMissions?.update(0, this.clock);
+    this._save();
+  }
+
+  /**
+   * Dormir en el cambuche (requiere la base). De noche hasta las 6:00; de día, siesta de 3 h.
+   * Con `hogar` se duerme en el hogar de paso: hasta las 6:00, sin robos y con lo que da una noche bajo techo.
+   */
+  sleep({ hogar = null, residencia = null, banca = null } = {}) {
+    if (this.isSleeping) return false;
+    if (residencia || banca) {
+      const reason = this.restBlocked({ residencia, banca });
+      if (reason) {
+        window.dispatchEvent(new CustomEvent('toast', { detail: { text: reason, type: 'info' } }));
+        return false;
+      }
+      if (banca && !this.player.sitOnBench(banca)) return false;
+      if (residencia) this.stats.dinero -= RESIDENCIA.precio;
+    } else if (!hogar && !this.built.base) {
       window.dispatchEvent(new CustomEvent('sleep-fail', { detail: { reason: 'nobase' } }));
-      return;
+      return false;
     }
 
+    if (!banca) this.player.standFromBench?.();
+    this.player.sleepingOnBench = !!banca;
     this.isSleeping = true;
     if (this.steal?.minigameActive) this.steal._endMinigame(false, 'cancel');
     this.substanceEffects?.end();
     this.psychosis?.clearInduced?.();
-    const night = this.clock.isNight;
-    const hours = night
+    const night = this.clock.isNight || !!hogar;
+    const hours = residencia ? RESIDENCIA.horas : banca ? BANCA.horas : night
       ? (this.clock.hour >= 6 ? 24 - this.clock.hour + 6 : 6 - this.clock.hour)
       : 3;
+    // En el hogar se duerme adentro: afuera, frente a la puerta, no queda nadie acostado.
+    if (hogar || residencia) this.player.root.visible = false;
     window.dispatchEvent(new CustomEvent('sleep-start', { detail: { despierta: this.clock.hour + hours } }));
     this.dog?.restAt(this.player.position);
     this.player.stopSmoking?.();
@@ -895,6 +1190,27 @@ export class Game {
 
     const b = this.built;
     const st = this.stats;
+    if (residencia || banca) {
+      restEffects(st, residencia ? RESIDENCIA : BANCA);
+      const robbed = banca ? benchTheft(st) : null;
+      this._save();
+      setTimeout(() => {
+        this._finishSleep(hours, { residencia: !!residencia, banca: !!banca });
+        const text = residencia ? 'Descansé en la residencia, bajo techo y con ducha.'
+          : robbed !== null ? `Descansé en la banca, pero me robaron ${cop(robbed)}.`
+            : 'Descansé en la banca. Recuperé algo de energía.';
+        window.dispatchEvent(new CustomEvent('toast', { detail: { text, type: robbed !== null ? 'warn' : 'info' } }));
+      }, 1200);
+      return true;
+    }
+    if (hogar) {
+      this.street?.wakeAtHogar();
+      this._save();
+      setTimeout(() => {
+        this._finishSleep(hours, { hogar: true });
+      }, 1200);
+      return true;
+    }
     st.energia = Math.min(100, st.energia + (SLEEP.energia + (b.cama ? SLEEP.energiaCama : 0)) * factor);
     st.salud = Math.min(100, st.salud + (SLEEP.salud + (b.techo ? SLEEP.saludTecho : 0)) * factor);
     st.saludMental = Math.min(100, st.saludMental + (MENTAL_RESTORE_SLEEP + (b.fogon ? SLEEP.animoFogon : 0)) * factor);
@@ -905,7 +1221,7 @@ export class Game {
     if (!b.fogon) st.hambre = Math.max(0, st.hambre - SLEEP.hambreFogon * factor);
 
     // Sin paredes te pueden robar si duermes de noche
-    let robbed = null;
+    let robbed = null, caletaRobada = [];
     if (night && !b.paredes && Math.random() < SLEEP.roboProb) {
       const lost = Math.floor(st.dinero * SLEEP.roboDinero);
       st.dinero -= lost;
@@ -913,6 +1229,8 @@ export class Game {
         if (isForSale(ITEMS[it.id] ?? it, this.player.equippedWeapon)) this.inventory.remove(it.id, Math.ceil(it.qty * SLEEP.roboMaterial));
       }
       robbed = lost;
+      // Sin paredes, a veces también dan con la caleta.
+      caletaRobada = this.street?.caleta.robOnSleep() ?? [];
     }
 
     // Dormir sucio en un colchón de la calle puede pegar sarna.
@@ -921,17 +1239,13 @@ export class Game {
     this._save();
 
     setTimeout(() => {
-      this.isSleeping = false;
-      // Despierta y se levanta: lo que quedaba de la acción no debe tenerlo acostado con el juego en marcha.
-      if (this.player.action === 'dormir') {
-        this.player.action = null;
-        this.player.actionTimer = this.player.actionProgress = 0;
-      }
-      this.dog?.wake();
-      window.dispatchEvent(new CustomEvent('sleep-end', { detail: { hours: Math.round(hours) } }));
+      this._finishSleep(hours);
       if (robbed !== null) {
         window.dispatchEvent(new CustomEvent('toast', {
           detail: { text: `Me robaron mientras dormía (${cop(robbed)} y material). Unas paredes ayudarían.`, type: 'death' }
+        }));
+        if (caletaRobada.length) window.dispatchEvent(new CustomEvent('toast', {
+          detail: { text: `También encontraron la caleta: se llevaron ${caletaRobada.map((l) => `${ITEMS[l.id]?.name ?? l.id} ×${l.qty}`).join(', ')}.`, type: 'death' }
         }));
       }
       if (sarna) {
@@ -940,6 +1254,7 @@ export class Game {
         }));
       }
     }, 1200);
+    return true;
   }
 
   /** ¿Está el jugador a menos de `radius` m del cambuche? */
@@ -1072,6 +1387,7 @@ export class Game {
     this.roadRage?.reset();
     this.limpieza?.reset();
     this.momentos?.reset();
+    this.street?.reset();
     this.substanceEffects?.end();
     this.psychosis?.clearInduced?.();
     if (this.steal) {
@@ -1144,6 +1460,7 @@ export class Game {
     const cars = [...(this.cars ?? [])];
     for (const vehicle of this.traffic?.vehicles ?? []) cars.push(vehicle.car);
     this.collisions.setVehicles(cars, this.world.active?.busServices ?? this.world.active?.busService);
+    this.collisions.setBicycles?.(this.bicycles ?? [], this.player?.bicycle);
   }
 
   _loop = (stamp) => {
@@ -1214,6 +1531,7 @@ export class Game {
     this._vehicleImpactCooldown = Math.max(0, (this._vehicleImpactCooldown ?? 0) - dt);
     this.clock.update(dt);
     this.time.update(dt, this.clock);
+    this.dailyMissions?.update(dt, this.clock);
 
     // 2. Día/noche: sol, luna, nubes y clima de Bogotá; la luz sigue al jugador (sombras nítidas)
     this.sceneMgr.setTimeOfDay(this.clock.hour, this.weather, this.clock.day);
@@ -1246,6 +1564,7 @@ export class Game {
     const previousX = this.player.position.x, previousZ = this.player.position.z;
     this._syncVehicleColliders?.();
     this._updatePlayerMovement(dt);
+    for (const bike of this.bicycles) bike.update(dt, this.player);
     this.waterEffects?.update(dt, this.player);
     if (this.player.waterFrame?.entered) this.audio.playWaterSplash?.(this.player.waterFrame.entryIntensity);
     this._swimSoundTimer = Math.max(0, (this._swimSoundTimer ?? 0) - dt);
@@ -1285,6 +1604,7 @@ export class Game {
       this.interaction.update(dt, controls, this.clock);
       if (this.player.isSwimming) this.interaction.currentTarget = this.interaction.currentTargetType = null;
     }
+    this.street?.update(dt);
     if (!this.player.isSwimming) this.steal?.update(dt);
     else if (this.steal?.minigameActive) this.steal._endMinigame(false, 'cancel');
     if (this._handleDeath()) return;
@@ -1350,7 +1670,7 @@ export class Game {
     this.audio.setRaining?.(isRaining);
     // Las pisadas siguen la distancia recorrida en el suelo; en el aire no suenan.
     const travelled = this.player.isGrounded === false || this.player.inWater ? 0 : Math.hypot(this.player.position.x - previousX, this.player.position.z - previousZ);
-    this.audio.updateSteps(moving, this.input.isRunning, groundType, isRaining, travelled, dt);
+    this.audio.updateSteps(moving && !this.player.bicycle, this.input.isRunning, groundType, isRaining, travelled, dt);
     this.audio.updateBoost(this.interaction.boostActive);
     this.overlays?.update?.(dt, this.weather, this.stats, this.psychosis);
     this.profiler?.mark?.('entidadesClimaAudio');
@@ -1443,11 +1763,13 @@ export class Game {
     if (!this._poiCache || now - this._poiCacheTime >= 350 || this._poiDogFriend !== friend) {
       const district = this.world?.active;
       const reserved = district?.reserved ?? {};
+      const restInfo = type => restMapInfo(type, { built: this.built, hour: this.clock?.hour, day: this.clock?.day });
       // Puestos y fogatas van primero para que los lugares fijos queden encima.
       const services = district?.vendors ? (this._services ??= servicePlaces(district)) : [];
-      this._poiCache = [...services, ...[[this.cambuche, reserved.bed, 'Cambuche', '⛺', '#ffd166'],
+      this._poiCache = [...services, ...[[this.cambuche, reserved.bed, 'Cambuche', '⛺', '#ffd166', { rest: restInfo('cambuche') }],
         [this.sellPoint, reserved.sell, 'Recicladora El Progreso', '♻️', '#2ab7ca', { prices: { vender: 0 } }],
         [this.shop, reserved.shop, 'Tienda La Esquinita', '🏪', '#2ecc71', { prices: SHOP_PRICES, offers: SHOP_OFFERS }],
+        [this.comedor, reserved.comedor, 'Comedor Comunitario', '🍲', '#27ae60', { prices: { comida: 0, agua: 0 } }],
         [this.craftingStation, reserved.craft, 'Crafteo', '🔨', '#e67e22'],
         [this.dealer, reserved.dealer, 'Dealer', '💀', '#9b59b6', { dealer: true }]]
         .flatMap(([entity, fallback, name, icon, color, extra]) => {
@@ -1455,6 +1777,11 @@ export class Game {
           return pos ? [{ name, icon, color, x: pos.x, z: pos.z, fijo: true, ...extra }] : [];
         })];
       if (this.world?.active?.tileTypeAt) this._poiCache.push(...(this._landmarks ??= cityLandmarks()));
+      for (const pila of this.street?.pilas ?? []) this._poiCache.push({ name: 'Pila pública', icon: '💧', color: '#5dade2', x: pila.position.x, z: pila.position.z, fijo: true });
+      if (this.street?.hogar) this._poiCache.push({ name: 'Hogar de paso (gratis)', icon: '🛏', color: '#3b6ea5', x: this.street.hogar.position.x, z: this.street.hogar.position.z, fijo: true, rest: restInfo('refugio') });
+      if (this.street?.residencia) this._poiCache.push({ name: `Residencia El Descanso (${cop(RESIDENCIA.precio)} / ${RESIDENCIA.horas} h)`, icon: '💰', color: '#b77927', x: this.street.residencia.position.x, z: this.street.residencia.position.z, fijo: true, rest: restInfo('residencia') });
+      for (const stop of this.street?.stops ?? []) this._poiCache.push({ name: stop.stop.name, icon: '🚏', color: stop.stop.sistema === 'Metro' ? '#2f7d4a' : '#b3261e', x: stop.position.x, z: stop.position.z, fijo: true });
+      for (const station of this.bikeStations ?? []) this._poiCache.push(this._bicycleStationPoi(station));
       if (this.cart) this._poiCache.push({ name: 'Carreta', icon: '🛒', x: this.cart.position.x, z: this.cart.position.z, color: '#f39c12' });
       this._dogPOI = friend ? { name: 'El Chato', icon: '🐕', color: '#e6b566' } : null;
       if (this._dogPOI) this._poiCache.push(this._dogPOI);
@@ -1659,7 +1986,8 @@ export class Game {
       this.limpieza?.suv].filter(Boolean);
     this.renderer.dynamicWorldRoots = [
       ...(district?.animated ?? []),
-      ...(district?.busServices ?? [district?.busService].filter(Boolean)).map(bus => bus.group)
+      ...(district?.busServices ?? [district?.busService].filter(Boolean)).map(bus => bus.group),
+      ...this.bicycles.map(bike => bike.group)
     ];
     culling.clear();
     if (this.dog) culling.register(this.dog.group, { dynamic: true, margin: 1 });
@@ -1671,12 +1999,16 @@ export class Game {
     for (const bus of district?.busServices ?? [district?.busService].filter(Boolean)) culling.register(bus.group, { dynamic: true, margin: .5 });
     for (const car of this.cars) culling.register(car.group, { dynamic: true, margin: .5 });
     for (const { car } of this.traffic?.vehicles ?? []) culling.register(car.group, { dynamic: true, margin: .5 });
+    for (const bike of this.bicycles) culling.register(bike.group, { dynamic: true, margin: 1 });
     for (const motos of this.parkedMotos?.children ?? []) culling.register(motos);
   }
 
   stop() {
     this._running = false;
     this._soltarAutoguardado?.();
+    this.player.dismountBicycle();
+    for (const bike of this.bicycles) bike.dispose();
+    for (const station of this.bikeStations) station.dispose();
     this.waterEffects?.dispose();
     this.contactShadows?.dispose();
     this.gpsBeacon?.dispose();

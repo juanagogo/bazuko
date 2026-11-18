@@ -17,12 +17,12 @@
   },
   "dependencies": {
     "cannon-es": "^0.20.0",
-    "hls.js": "^1.7.3",
+    "hls.js": "^1.7.4",
     "howler": "^2.2.4",
     "three": "0.186.1"
   },
   "devDependencies": {
     "@playwright/test": "^1.64.1",
-    "vite": "8.3.2"
+    "vite": "^8.3.8"
   }
 }

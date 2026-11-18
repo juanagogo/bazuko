@@ -21,5 +21,13 @@ export function startControlsHelp() {
     toggle.setAttribute('aria-label', 'Ocultar controles');
   };
   toggle.addEventListener('click', () => root.classList.contains('is-collapsed') ? expand() : collapse());
+  window.addEventListener('keydown', (event) => {
+    // En teclado español la tecla Ñ puede llegar como `ñ`/`Ñ`; Semicolon es
+    // el código físico de esa tecla en muchos navegadores.
+    const esEne = event.key === 'ñ' || event.key === 'Ñ' || (event.code === 'Semicolon' && event.key !== ';');
+    if (!esEne || event.repeat || event.target?.closest?.('input, textarea, select, [contenteditable="true"]')) return;
+    event.preventDefault();
+    toggle.click();
+  });
   collapse();
 }

@@ -138,7 +138,7 @@ test('el olfato ignora bolsas y canecas vacías y la amistad se incluye en el gu
   const serializable = () => ({ serialize: () => ({}) }); let saved;
   const game = Object.assign(Object.create(Game.prototype), {
     stats: serializable(), clock: serializable(), inventory: serializable(), talents: serializable(), diseases: serializable(),
-    player: { position: new THREE.Vector3() }, world: {}, dog, save: { save: data => { saved = data; } }
+    player: { position: new THREE.Vector3() }, world: {}, bicycles: [], dog, save: { save: data => { saved = data; } }
   });
   game._save(); assert.equal(saved.dog.isFriend, true); assert.deepEqual(saved.dog.look, dog.look); dog.destroy();
 });

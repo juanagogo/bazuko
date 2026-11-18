@@ -2,8 +2,16 @@
 // De la necesidad al lugar: puestos, fogatas y precios para el radar y el mapa. Sin DOM ni THREE.
 import { ITEMS, SHOP_ITEMS, dealerOffer, isForSale } from '../data/items.js';
 import { cop } from '../utils/money.js';
+import { hora } from './formato.js';
 
-export const FILTERS = [['todo', 'Todo'], ['comida', 'Comida'], ['agua', 'Agua'], ['calor', 'Calor'], ['vender', 'Vender']];
+export const REST_FILTERS = {
+  cambuche: { label: 'Cambuche', cta: 'Ir a mi cambuche' },
+  residencia: { label: 'Residencias', cta: 'Ir a la residencia más cercana' },
+  refugio: { label: 'Refugios', cta: 'Ir al refugio gratuito más cercano' },
+};
+export const isRestFilter = tag => Object.hasOwn(REST_FILTERS, tag);
+export const FILTERS = [['todo', 'Todo'], ['comida', 'Comida'], ['agua', 'Agua'], ['calor', 'Calor'], ['vender', 'Vender'],
+  ...Object.entries(REST_FILTERS).map(([id, copy]) => [id, copy.label])];
 
 export const NEED_COPY = {
   comida: { label: 'Comida', alert: '🍲 Tengo mucha hambre', cta: 'Ir a la comida más cercana' },
@@ -95,7 +103,8 @@ export function needContext({ stats, inventory, load = 0, night = false, sellMul
 }
 
 /** El Dealer no compra reciclaje: aparece en «Vender» por `dealer`, no por un precio. */
-export const hasTag = (poi, tag) => poi.prices?.[tag] !== undefined || (tag === 'vender' && !!poi.dealer);
+export const hasTag = (poi, tag) => isRestFilter(tag) ? poi.rest?.type === tag
+  : poi.prices?.[tag] !== undefined || (tag === 'vender' && !!poi.dealer);
 
 /** Lo más barato de `tag` que se puede pagar y que cabe en el costal, con la misma cuenta de openShop; Infinity si no hay nada. */
 function cheapestFit(poi, tag, { money = 0, kg = 0, maxKg = Infinity } = {}) {
@@ -188,6 +197,7 @@ export function masCercanoQueVende(pois, from, tag) {
 
 export function isUsable(poi, tag, needs = {}) {
   if (!tag) return true;
+  if (isRestFilter(tag)) return poi.rest?.type === tag && poi.rest.status === 'ready' && poi.rest.price <= (needs.money ?? 0);
   const { carriesRecyclables = false, carriesSubstances = false, night = false } = needs;
   if (tag === 'vender') return poi.dealer ? night && carriesSubstances : carriesRecyclables;
   return cheapestFit(poi, tag, needs) !== Infinity;
@@ -219,7 +229,15 @@ export function rankPlaces(pois, { tag = null, walk, needs = {}, from = null } =
 /** Segunda línea de cada fila: qué ofrece el lugar y desde qué precio. */
 export function placeMeta(poi, tag = null, needs = {}) {
   const { money = 0, night = false } = needs;
+  if (poi.rest) {
+    const rest = poi.rest;
+    if (rest.type === 'cambuche') return rest.status === 'build' ? 'Gratis, primero arma la base de cartón' : 'Gratis, tu refugio para descansar';
+    if (rest.type === 'residencia') return `${cop(rest.price)} por ${rest.hours} h, abierto las 24 h${rest.price > money ? ', sin plata' : ''}`;
+    const status = rest.status === 'closed' ? ', cerrado ahora' : rest.status === 'full' ? ', sin cupo esta noche' : ', hay cupo';
+    return `Gratis, ingreso de ${hora(rest.opens)} a ${hora(rest.closes)}${status}`;
+  }
   if (poi.service === 'fogata') return 'Calor gratis, El Cartucho';
+  if (poi.name === 'Comedor Comunitario' || poi.service === 'comedor') return 'Almuerzo caliente gratis cada 24 horas';
   if (poi.name === 'Crafteo') return 'Se abre con C, desde cualquier sitio';
   if (poi.dealer) return `Vende siempre. Compra ${night ? 'hasta las 6:00' : 'desde las 20:00'}`;
   if (poi.prices?.vender === 0) return 'Compra reciclaje';
@@ -237,6 +255,15 @@ export function placeMeta(poi, tag = null, needs = {}) {
 
 /** Por qué ninguna fila se puede usar. `seller` es el lugar al que manda «Ir a vender»: el texto dice lo que se vende allá. */
 export function noOptionText(tag, rows, { money = 0, carriesRecyclables = false, carriesSubstances = false, night = false } = {}, seller = null) {
+  if (isRestFilter(tag)) {
+    if (!rows.length) return `No hay lugares en este filtro: ${REST_FILTERS[tag].label.toLowerCase()}.`;
+    const ready = rows.filter(row => row.poi.rest.status === 'ready');
+    if (ready.length) {
+      const price = Math.min(...ready.map(row => row.poi.rest.price));
+      return price > money ? `Necesito ${cop(price)} para pagar la residencia.` : null;
+    }
+    return placeMeta(rows[0].poi, tag, { money });
+  }
   if (!rows.length) return null;
   if (tag === 'vender') return carriesSubstances && !night ? 'El jíbaro solo compra de noche, desde las 20:00.' : 'No llevo nada que me compren.';
   const cheapest = Math.min(...rows.map(row => row.poi.prices[tag]));

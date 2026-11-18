@@ -79,6 +79,7 @@ export const EN_MAS = [
 export const CONTROLES_CON_EL_DEDO = [
   ['Moverse', [['Palanca', 'Caminar: entre más lejos del centro, más rápido'], ['Correr', 'Un toque lo deja puesto; sostenido dura lo que dure el dedo'], ['Brincar', 'Saltar'], ['Lo demás', 'Arrastre el dedo para mirar']]],
   ['Hacer', [['La cinta', 'Sale cuando hay algo que hacer: tóquela o sosténgala'], ['Pegar', 'Golpear'], ['Más', 'Pedir, Envión, Lanzar, Popó, Robo directo, Mantener, Detener']]],
+  ['Descansar', [['Sentarme / Levantarme', 'Toque la cinta junto a la banca'], ['Dormir gratis', 'En la banca: ver y confirmar el descanso de 3 h'], ['Residencia / Hogar de paso', 'Toque la cinta junto a la puerta para ver precio y condiciones']]],
   ['Paneles', [['Costal', 'Lo que lleva'], ['Fabricar', 'La mesa'], ['Radar', 'Tóquelo para acercar, alejar u ocultar'], ['Más', 'Mañas, Cámara, Foto, Radio, Sonido y esta Ayuda']]],
 ];
 

@@ -4,6 +4,29 @@
 // lo que cambia (onChange del InventorySystem) y la selección y el foco sobreviven al redibujado.
 import { ITEMS, isUsable, isRecyclable, describeEffects, itemRarityLabel } from '../data/items.js';
 import { itemArtHTML, itemCategory, itemEffectLine } from './itemArt.js';
+import { freshness, freshnessLabel } from '../systems/Freshness.js';
+import { usesLeft, wearFraction, WEAR_WARN } from '../systems/WeaponWear.js';
+
+/**
+ * Lo que le queda a una fila: la frescura de la comida o los golpes del arma. null si no se gasta.
+ * `paso` agrupa en décimos para no repintar la casilla en cada cuadro.
+ */
+export function slotLife(entry, now) {
+  const def = ITEMS[entry?.id];
+  if (!def) return null;
+  if (def.durabilidad) {
+    const f = wearFraction(entry);
+    return { f, paso: Math.ceil(f * 10), bajo: f <= WEAR_WARN, texto: `le quedan ${usesLeft(entry)} golpes` };
+  }
+  if (def.perece && entry.vence?.length && typeof now === 'number') {
+    const f = freshness(entry, now);
+    return { f, paso: Math.ceil(f * 10), bajo: f <= .25, texto: freshnessLabel(entry, now)?.toLowerCase() };
+  }
+  return null;
+}
+const vidaHTML = (vida) => vida
+  ? `<span class="inv-slot-vida${vida.bajo ? ' is-bajo' : ''}" aria-hidden="true"><i class="masa" style="width:${Math.round(vida.f * 100)}%"></i></span>`
+  : '';
 import { cop } from '../utils/money.js';
 import { sinTeclas, teclaVisible } from '../core/modoEntrada.js';
 import { cierreHTML } from './cierre.js';
@@ -392,7 +415,8 @@ export class InventoryUI {
       const s = inv.slots[i];
       const el = this.slotEls[i].el;
       const hk = s ? inv.hotbar.indexOf(s.id) : -1;
-      const key = s ? `${s.id}:${s.qty}:${hk}` : (i < inv.slotCount ? '' : '-');
+      const vida = s ? slotLife(s, this.game?.totalGameHours) : null;
+      const key = s ? `${s.id}:${s.qty}:${hk}:${vida?.paso ?? ''}` : (i < inv.slotCount ? '' : '-');
       if (c[i] !== key) {
         c[i] = key;
         el.hidden = key === '-'; // casillas sobrantes tras vaciar una partida grande
@@ -405,8 +429,10 @@ export class InventoryUI {
             + `<span class="inv-slot-nom">${escapar(def.name)}</span>`
             + (s.qty > 1 ? `<span class="inv-slot-qty">×${s.qty}</span>` : '')
             + (hk >= 0 ? `<span class="inv-slot-key" title="Tecla ${hk + 1}">${hk + 1}</span>` : '')
-            + (rare ? `<span class="inv-slot-rare" title="${rarityText(s.id)}">★</span>` : '');
-          const extra = [isUsable(def) ? 'usable' : '', rare ? rarityText(s.id).toLowerCase() : '', hk >= 0 ? `tecla ${hk + 1}` : ''];
+            + (rare ? `<span class="inv-slot-rare" title="${rarityText(s.id)}">★</span>` : '')
+            + vidaHTML(vida);
+          if (vida?.bajo) el.classList.add('vida-baja');
+          const extra = [isUsable(def) ? 'usable' : '', rare ? rarityText(s.id).toLowerCase() : '', hk >= 0 ? `tecla ${hk + 1}` : '', vida?.texto ?? ''];
           el.setAttribute('aria-label', [`${def.name} ×${s.qty}`, ...extra].filter(Boolean).join(', '));
         } else {
           el.className = 'item-slot inv-slot is-empty';
@@ -440,7 +466,8 @@ export class InventoryUI {
     const inv = this.inv;
     const s = inv.slots[this.selected];
     const hk = s ? inv.hotbar.indexOf(s.id) : -1;
-    const key = s ? `${s.id}:${s.qty}:${inv.hotbar.join(',')}` : '';
+    const vida = s ? slotLife(s, this.game?.totalGameHours) : null;
+    const key = s ? `${s.id}:${s.qty}:${inv.hotbar.join(',')}:${vida?.texto ?? ''}` : '';
     if (key === this._cache.detail) return;
     const sameItem = (this._cache.detail ?? '').split(':')[0] === (s?.id ?? '');
     this._cache.detail = key;
@@ -461,7 +488,7 @@ export class InventoryUI {
     this.dEffect.textContent = def ? itemEffectLine(def, { weight: false, fallback: false }) : '';
     this.dNote.textContent = def ? itemNote(def) : 'Elija un objeto del costal.';
     this.dMeta.textContent = def
-      ? `${kilos(def.weight)} kg, ${cop(def.value)}${s.qty > 1 ? `, en total ${cop(def.value * s.qty)}` : ''}`
+      ? `${kilos(def.weight)} kg, ${cop(def.value)}${s.qty > 1 ? `, en total ${cop(def.value * s.qty)}` : ''}${vida?.texto ? `. ${vida.texto[0].toUpperCase()}${vida.texto.slice(1)}` : ''}`
       : '';
     this.dReason.textContent = !def ? '' : usable ? '' : idleReason(def);
 
@@ -498,7 +525,8 @@ export class InventoryUI {
       const id = inv.hotbar[i];
       any = any || !!id;
       const n = id ? inv.count(id) : 0;
-      const key = id ? id + ':' + n : '';
+      const vida = id ? slotLife(inv.items.find((e) => e.id === id), this.game?.totalGameHours) : null;
+      const key = id ? id + ':' + n + ':' + (vida?.paso ?? '') : '';
       if (c[i] === key) continue;
       const q = this.quickEls[i];
       if ((c[i] ?? '').split(':')[0] !== (id ?? '')) {
@@ -508,7 +536,10 @@ export class InventoryUI {
       c[i] = key;
       q.qty.textContent = id ? n : '';
       q.el.classList.toggle('is-empty', !id || n === 0);
-      q.el.title = id ? `${ITEMS[id].name}, tecla ${i + 1}` : `Tecla ${i + 1}: libre`;
+      q.el.title = id ? `${ITEMS[id].name}${vida?.texto ? `, ${vida.texto}` : ''}, tecla ${i + 1}` : `Tecla ${i + 1}: libre`;
+      q.el.classList.toggle('vida-baja', !!vida?.bajo);
+      q.el.style?.setProperty?.('--vida', vida ? String(Math.round(vida.f * 100) / 100) : '1');
+      q.el.classList.toggle('con-vida', !!vida);
     }
     this.quickEl.classList.toggle('visible', any);
   }

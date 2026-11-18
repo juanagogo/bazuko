@@ -130,6 +130,24 @@ test('hasTag: el Dealer aparece en «Vender» aunque no tenga precio; lo decorat
   for (const [id] of FILTERS.slice(1)) assert.equal(hasTag(gasolinera, id), false);
 });
 
+test('descansar se filtra por categoría y no requiere espacio en el costal', () => {
+  const paid = { name: 'Habitación', rest: { type: 'residencia', price: 8000, hours: 8, status: 'ready' } };
+  const free = { name: 'Hogar', rest: { type: 'refugio', price: 0, opens: 18, closes: 23, status: 'ready' } };
+  assert.equal(hasTag(paid, 'residencia'), true); assert.equal(hasTag(paid, 'refugio'), false);
+  assert.equal(hasTag(free, 'refugio'), true); assert.equal(hasTag(free, 'comida'), false);
+  assert.equal(isUsable(paid, 'residencia', { money: 7999 }), false);
+  assert.equal(isUsable(paid, 'residencia', { money: 8000, kg: 100, maxKg: 1 }), true);
+  assert.equal(isUsable(free, 'refugio', { money: 0 }), true);
+  assert.match(placeMeta(paid, 'residencia', { money: 0 }), /8\.000 por 8 h.*sin plata/);
+  assert.match(placeMeta(free), /Gratis.*18:00.*23:00.*hay cupo/);
+  for (const status of ['closed', 'full']) {
+    const unavailable = { ...free, rest: { ...free.rest, status } };
+    assert.equal(isUsable(unavailable, 'refugio', { money: 10000 }), false);
+    assert.match(noOptionText('refugio', [{ poi: unavailable }]), status === 'closed' ? /cerrado/ : /sin cupo/);
+  }
+  assert.match(noOptionText('residencia', []), /No hay lugares/);
+});
+
 test('el radar sugiere lo más cercano que se puede pagar', () => {
   const pois = [fogata(75), fogata(90), dulces, mona, callejon, tienda, recicladora, dealer, gasolinera, colpatria];
   const place = (needs) => suggestPlace(pois, HERE, needs);

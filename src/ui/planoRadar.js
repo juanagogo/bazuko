@@ -228,7 +228,6 @@ export function trazarPlano(ctx, plano, k) {
     ctx.lineWidth = plano.anchoTablero;
     ctx.stroke(plano.tablero);
   }
-
   // 6. Viaducto elevado del Metro de Bogotá (Línea 1 PLMB)
   if (plano.tableroMetro) {
     ctx.save();

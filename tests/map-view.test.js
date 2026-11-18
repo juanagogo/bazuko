@@ -93,7 +93,44 @@ test('los filtros forman un grupo con nombre para el lector de pantalla', () => 
   const group = byClass(view().sidebar, 'map-view__filters')[0];
   assert.equal(group.attributes.role, 'group');
   assert.equal(group.attributes['aria-label'], 'Filtrar lugares');
-  assert.deepEqual(group.children.map(text), ['Todo', 'Comida', 'Agua', 'Calor', 'Vender']);
+  assert.deepEqual(group.children.map(text), ['Todo', 'Comida', 'Agua', 'Calor', 'Vender', 'Cambuche', 'Residencias', 'Refugios']);
+});
+
+const REST_POIS = [
+  { name: 'Mi cambuche', icon: '⛺', x: 12, z: 0, rest: { type: 'cambuche', price: 0, status: 'ready' } },
+  { name: 'Residencia de pago', icon: '💰', x: 20, z: 0, rest: { type: 'residencia', price: 8000, hours: 8, status: 'ready' } },
+  { name: 'Hogar gratuito', icon: '🛏', x: 30, z: 0, rest: { type: 'refugio', price: 0, opens: 18, closes: 23, status: 'ready' } },
+];
+
+test('los tres filtros de descanso dejan solo su categoría y permiten marcar su ruta', () => {
+  for (const [i, id] of ['cambuche', 'residencia', 'refugio'].entries()) {
+    const map = view({ pois: [...POIS, ...REST_POIS], needs: { money: 10000 } });
+    click(filter(map, id));
+    assert.deepEqual(rowNames(map), [REST_POIS[i].name]);
+    assert.equal(filter(map, id).attributes['aria-pressed'], 'true');
+    assert.ok(cta(map));
+    click(cta(map));
+    assert.equal(map.game.marked[0].name, REST_POIS[i].name);
+  }
+});
+
+test('un alojamiento sin plata, cerrado o sin construir sigue visible y explica el bloqueo', () => {
+  const map = view({ pois: REST_POIS, needs: { money: 0, carriesRecyclables: true, recycleValue: 20000 } });
+  click(filter(map, 'residencia'));
+  assert.equal(cta(map), undefined, 'el filtro de descanso no ofrece vender comida ni reciclaje');
+  assert.match(text(noOption(map)), /8\.000/);
+  assert.match(text(byClass(map.sidebar, 'map-view__place-meta')[0]), /sin plata/);
+  const closed = { ...REST_POIS[2], rest: { ...REST_POIS[2].rest, status: 'closed' } };
+  const shelter = view({ pois: [closed], needs: { money: 10000 } });
+  click(filter(shelter, 'refugio'));
+  assert.match(text(noOption(shelter)), /18:00.*23:00.*cerrado/);
+  assert.deepEqual(rowNames(shelter), [closed.name]);
+  assert.equal(cta(shelter), undefined);
+  const build = { ...REST_POIS[0], rest: { ...REST_POIS[0].rest, status: 'build' } };
+  const home = view({ pois: [build] }); click(filter(home, 'cambuche'));
+  assert.match(text(noOption(home)), /base de cartón/);
+  click(byClass(home.sidebar, 'map-view__place')[0]);
+  assert.equal(home.game.marked[0].name, build.name, 'puede ir a construir aunque aún no pueda dormir');
 });
 
 test('con frío y sin plata, el botón marca la fogata de menor recorrido a pie', () => {

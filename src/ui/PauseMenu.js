@@ -12,6 +12,7 @@ import { formatDistance, RADAR_ZOOM_MIN, RADAR_ZOOM_MAX, RADAR_SIZES } from './M
 import { NEED_META, needLevel } from './needsMeta.js';
 import { describeWeather } from '../world/Climate.js';
 import { icon } from './icons.js';
+import { famaSection } from './streetMenus.js';
 import { pasarTexto } from './pictos.js';
 import { DOG_ACCESSORIES, DOG_COATS } from '../entities/Dog.js';
 import { DEFAULT_TRAFFIC_DENSITY, TRAFFIC_DENSITY_LEVELS } from '../systems/trafficDensity.js';
@@ -23,10 +24,12 @@ export const PAUSE_TABS = [
   { id: 'controles', label: 'Controles' },
 ];
 
-const CONTROL_GROUPS = [
+export const CONTROL_GROUPS = [
   ['Movimiento', [['WASD', 'Caminar'], ['Shift', 'Correr'], ['Espacio', 'Brincar'], ['Mouse', 'Clic fija la cámara, la rueda acerca'], ['V', 'Vista tercera persona / isométrica']]],
-  ['Acciones', [['E', 'Hacer lo que dice: basura, tiendas, cambuche, carros'], ['Q', 'Mantener para seleccionar basura. También abre al jíbaro'], ['E / Q', 'Junto a una persona: cosquilleo o robo directo'], ['B / L', 'Pedir limosna'], ['F', 'Envión'], ['G / Clic', 'Pegar'], ['X', 'Lanzar / recoger'], ['Z', 'Popó']]],
-  ['Paneles', [['I / Tab', 'El costal. 1 a 5: acceso rápido'], ['H', 'Estado y necesidades'], ['T', 'Mañas'], ['C', 'Fabricar'], ['P', 'Editar personaje'], ['R', 'Radio'], ['K', 'Personaje realista / liviano'], ['F2', 'Foto'], ['F3', 'Panel de rendimiento'], ['Esc', 'Pausa o cerrar panel']]],
+  ['Acciones', [['E', 'Hacer lo que dice: basura, tiendas, cambuche, carros, pila, estaciones, hogar de paso'], ['Q', 'Mantener para seleccionar basura. También: el jíbaro, cuidar un carro parqueado, compartir comida en la fogata y llenar la botella en la pila'], ['E / Q', 'Junto a una persona: cosquilleo o robo directo'], ['B / L', 'Pedir limosna'], ['F', 'Envión'], ['G / Clic', 'Pegar'], ['X', 'Lanzar / recoger'], ['Z', 'Popó']]],
+  ['Descansar', [['E en banca', 'Sentarme o levantarme; caminar también me levanta'], ['Q en banca', 'Consultar y confirmar dormir 3 h gratis'], ['E en alojamiento', 'Hogar de paso gratis o residencia de pago: ver reglas y precio antes de dormir'], ['M', 'Cama: hogar gratis. Moneda: residencia con precio']]],
+  ['Bicicleta', [['E', 'Alquilar, volver a montar, bajarme o devolver en una estación'], ['Q en estación', 'Robar una bicicleta'], ['W / Shift', 'Pedalear / pedalear más rápido'], ['S', 'Frenar; mantener para retroceder mirando atrás'], ['A / D', 'Dirigir a la izquierda / derecha del ciclista'], ['Espacio', 'Saltar conservando el impulso']]],
+  ['Paneles', [['I / Tab', 'El costal. 1 a 5: acceso rápido'], ['H', 'Estado y necesidades'], ['J', 'Misiones del día'], ['Ñ', 'Mostrar / ocultar la ayuda de controles'], ['T', 'Mañas'], ['C', 'Fabricar'], ['P', 'Editar personaje'], ['R', 'Radio'], ['K', 'Personaje realista / liviano'], ['F2', 'Foto'], ['F3', 'Panel de rendimiento'], ['Esc', 'Pausa o cerrar panel']]],
   ['Mapa y GPS', [['M', 'Abrir / cerrar el mapa'], ['M, Enter', 'Ruta a lo que más necesito'], ['N', 'Mostrar / ocultar radar'], ['+ / −', 'Acercar o alejar el radar'], ['Clic', 'Marcar destino en el mapa'], ['Clic der. / Supr', 'Quitar destino'], ['Q / E', 'Cambiar de pestaña en la pausa']]],
 ];
 
@@ -188,6 +191,9 @@ function statePanel(game) {
         button([`Mañas${puntos ? ` (${puntos})` : ''}`, el('kbd', { text: 'T', 'aria-hidden': 'true' })], {
           onClick: () => { game.menu.close(); game.hud?.toggleTalentPanel?.(); }
         }),
+        button('Cambiar ropa', {
+          onClick: () => { game.menu.close(); game.openWardrobe?.(); }
+        }),
         button('Guardar partida', {
           onClick: () => {
             game._save?.();
@@ -208,7 +214,30 @@ function statePanel(game) {
           el('div', { class: 'pause-meter' }, el('div', { class: 'pause-meter__fill masa', style: `width:${value}%` })),
           el('span', { class: 'pause-need__value cifra', text: `${value}` }));
       })),
-      dogSection(game)));
+      dogSection(game),
+      famaSection(game, sectionTitle),
+      missionsSection(game)));
+}
+
+function missionsSection(game) {
+  const missions = game?.dailyMissions?.missions ?? [];
+  if (!missions.length) return null;
+  return el('div', { class: 'pause-section pause-section--missions' },
+    sectionTitle('pin', `Misiones del día (Día ${game.clock?.day ?? 1})`),
+    el('ul', { class: 'pause-missions-list' }, missions.map((m) => {
+      const pct = Math.round(Math.min(1, m.progress / m.target) * 100);
+      const isDone = m.completed;
+      return el('li', { class: `pause-mission-item${isDone ? ' is-done' : ''}` },
+        el('div', { class: 'pause-mission-head' },
+          el('strong', { class: 'pause-mission-title', text: m.title }),
+          el('span', { class: 'pause-mission-reward', text: `+${cop(m.reward.dinero)} · +${m.reward.xp} XP` })),
+        el('p', { class: 'pause-mission-desc', text: m.desc }),
+        el('div', { class: 'pause-meter' },
+          el('div', { class: 'pause-meter__fill masa', style: `width:${pct}%` })),
+        el('div', { class: 'pause-mission-foot' },
+          el('span', { class: 'pause-mission-prog cifra', text: `${m.progress} de ${m.target}` }),
+          el('span', { class: `pause-mission-status${isDone ? ' chulo' : ''}`, text: isDone ? 'Completada' : 'En curso' })));
+    })));
 }
 
 function settingsPanel(game) {

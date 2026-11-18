@@ -194,7 +194,7 @@ test('el bus por código cabe en su presupuesto, abre por la izquierda y recuper
   setArticulatedBusAssets(null);
 });
 
-test('el cambuche permanece oculto hasta construir base y techo y conserva las mejoras', async () => {
+test('el modelo del cambuche sale solo con la estructura completa: antes, cada pieza armada se ve sola', async () => {
   const shelter = new Cambuche(new THREE.Scene(), new THREE.Vector3());
   shelter.setBuilt({});
   await shelter.preloadModel();
@@ -206,13 +206,24 @@ test('el cambuche permanece oculto hasta construir base y techo y conserva las m
   assert.equal(shelter.markerPile.visible, false);
   assert.equal(shelter.model.visible, false);
   assert.equal(shelter.pieces.base.visible, true);
+  // Base y techo todavía no son el cambuche entero: se ve la lona sobre el cartón, sin paredes ni colchón.
   shelter.setBuilt({ base: true, techo: true, fogon: true });
-  assert.equal(shelter.model.visible, true);
-  assert.equal(shelter.pieces.techo.visible, false);
-  assert.equal(shelter.pieces.base.visible, false);
+  assert.equal(shelter.model.visible, false);
+  assert.equal(shelter.pieces.techo.visible, true);
+  assert.equal(shelter.pieces.base.visible, true);
+  assert.equal(shelter.pieces.paredes.visible, false);
   assert.equal(shelter.pieces.fogon.visible, true);
   assert.equal(shelter.built.paredes, undefined);
   assert.equal(shelter.built.cama, undefined);
+  // Paredes y colchón sin techo: siguen siendo piezas sueltas, y ninguna se esconde.
+  shelter.setBuilt({ base: true, paredes: true, cama: true });
+  assert.equal(shelter.model.visible, false);
+  assert.equal(shelter.pieces.paredes.visible, true);
+  assert.equal(shelter.pieces.cama.visible, true);
+  shelter.setBuilt({ base: true, techo: true, paredes: true, cama: true, fogon: true });
+  assert.equal(shelter.model.visible, true);
+  for (const id of ['base', 'techo', 'paredes', 'cama']) assert.equal(shelter.pieces[id].visible, false, id);
+  assert.equal(shelter.pieces.fogon.visible, true);
   shelter.setBuilt({ base: true, cama: true });
   assert.equal(shelter.model.visible, false);
   assert.equal(shelter.pieces.cama.visible, true);

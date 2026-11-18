@@ -258,7 +258,6 @@ export class Bogota {
     if (metro.userData.colliders) {
       for (const entry of metro.userData.colliders) collisions?.colliders.push(entry);
     }
-
     // Sectores del Norte: Zona T, Zona G y Parque de la 93
     const northZones = buildNorthZones();
     this.group.add(northZones);
@@ -312,7 +311,8 @@ export class Bogota {
       bed:    { ...SHELTER_LOCATION },
       dealer: { x: WX(14.5), z: WZ(21.5) },   // la olla de El Cartucho
       craft:  { x: WX(16.5), z: WZ(24.5) },
-      shop:   { x: WX(34), z: WZ(29) }        // andén de la Calle 9, de espaldas a la manzana
+      shop:   { x: WX(34), z: WZ(29) },        // andén de la Calle 9, de espaldas a la manzana
+      comedor: { x: WX(30), z: WZ(33) }       // comedor comunitario junto al parque
     };
     this.isNearReserved = (x, z, dist = 6) =>
       Object.values(this.reserved).some((r) => Math.hypot(x - r.x, z - r.z) < dist);
@@ -587,6 +587,11 @@ export class Bogota {
     for (const [t, list] of Object.entries(quads)) {
       this.group.add(mergeByChunk(list, mats[t], { receiveShadow: true }));
     }
+  }
+
+  /** Lluvia que está cayendo (0 sin lluvia, ~.3 llovizna, ~.7 aguacero, 1 tormenta): la que ven los peatones. */
+  setRain(intensity = 0) {
+    this.rainNow = Math.max(0, intensity);
   }
 
   /** Cebras en los cruces, líneas amarillas y separadores de la troncal */
@@ -1581,6 +1586,8 @@ export class Bogota {
         const other = this.npcs.at(-2);
         npc.fijo.pareja = other;
         other.fijo.pareja = npc;
+        // Empiezan por turnos: uno habla y el otro escucha.
+        npc.stance = npc._pairTurn(npc.stance);
       }
     }
     // Mantiene la densidad del centro y distribuye peatones por los barrios nuevos.
@@ -1704,7 +1711,9 @@ export class Bogota {
     const chasers = this._chasers ??= [];
     chasers.length = 0;
     for (const vehicle of trafficVehicles) if (vehicle.state === 'chase' || vehicle.rejoinTarget) chasers.push(vehicle);
-    const ctx = { player: playerPos, frustum, camera, isRaining: (this.wetness ?? 0) > 0.05, animationBudget: this.animationBudget ?? 1,
+    // Con el clima conectado cuenta la lluvia que cae; sin él (pruebas, sala), el piso mojado como antes.
+    const raining = this.rainNow !== undefined ? this.rainNow > 0 : (this.wetness ?? 0) > 0.05;
+    const ctx = { player: playerPos, frustum, camera, isRaining: raining, rain: this.rainNow, animationBudget: this.animationBudget ?? 1,
       drawDistance: this.farDetailDistance, skipHiddenMatrices: true, hygiene: this.playerHygiene ?? 100, chasers };
     for (const n of this.npcs) n.update(dt, ctx);
     for (const flock of this.pigeonFlocks ?? []) flock.update(dt, playerPos, this.npcs, camera);
