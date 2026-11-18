@@ -18,8 +18,11 @@ export class Input {
         if (e.target?.closest?.('input, textarea, select, [contenteditable="true"]')) return;
         if (e.code?.startsWith?.('Arrow') || e.code === 'Space') e.preventDefault?.();
         const keys = e.gamepadInput ? this._gamepadKeys : this.keys;
-        if (!this.isDown(e.code)) this.pressedThisFrame.add(e.code);
-        if (e.code === 'Space') this.pressedThisFrame.add('KeySpace');
+        // La repetición automática de una tecla sostenida no es otra pulsación: ni vuelve a saltar ni a interactuar.
+        if (!e.repeat) {
+          if (!this.isDown(e.code)) this.pressedThisFrame.add(e.code);
+          if (e.code === 'Space') this.pressedThisFrame.add('KeySpace');
+        }
         keys[e.code] = true;
       });
 

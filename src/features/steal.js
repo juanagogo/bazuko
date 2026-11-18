@@ -375,6 +375,7 @@ export class StealSystem {
         npc?.alarmedByTheft?.(this.game.player.position);
         this._toast('¡Me pillaron con las manos en la masa! El peatón gritó.', 'death');
         this._robbed(npc, true);
+        this.game.witnesses?.report?.('robo', npc);
         // De último: los avisos caen uno encima del otro y este es el que hay que alcanzar a leer.
         this._alertPolice();
       } else {
@@ -391,13 +392,17 @@ export class StealSystem {
     this.buscado = Math.min(3, this.buscado + 1);
     this._giveLoot(this._rango(CONFIG.lootMoneyDirect, botinDe(npc).plata), false);
     this._robbed(npc, true);
+    this.game.witnesses?.report?.('robo', npc);
     // Quien está en el piso o en la banca no alcanza a defenderse: bastante hace con pararse.
     const down = LOW_STANCES.has(npc.stance);
     npc.alarmedByTheft?.(this.game.player.position);
     const isStrong = !down && (npc.look?.real?.edad === 'adulto' || Math.random() < 0.45);
     if (isStrong && this.game.stats) {
-      const dmg = Math.floor(CONFIG.directDamageMin + Math.random() * (CONFIG.directDamageMax - CONFIG.directDamageMin));
+      // De noche y de madrugada quien se deja robar se defiende con más rabia (JornadaSystem).
+      const dmg = Math.floor((CONFIG.directDamageMin + Math.random() * (CONFIG.directDamageMax - CONFIG.directDamageMin))
+        * (this.game?.jornada?.franja?.golpe ?? 1));
       this.game.stats.salud = Math.max(0, this.game.stats.salud - dmg);
+      this.game.stats.danoPor = 'pelea';
       this._toast(`¡El peatón se defendió! −${dmg} de salud.`, 'death');
     } else {
       this._toast('¡Raponazo! El peatón se asustó.', 'warn');
@@ -437,7 +442,9 @@ export class StealSystem {
 
   // Otorga botín aleatorio entre dinero e ítems al inventario del jugador.
   _giveLoot(moneyRange, includeItemChance, itemPool = CONFIG.lootItems) {
-    const money = Math.round((moneyRange[0] + Math.random() * (moneyRange[1] - moneyRange[0])) / 100) * 100;
+    // De noche y de madrugada la gente que queda en la calle carga más plata (JornadaSystem).
+    const botin = this.game?.jornada?.franja?.botin ?? 1;
+    const money = Math.round((moneyRange[0] + Math.random() * (moneyRange[1] - moneyRange[0])) * botin / 100) * 100;
     if (this.game.stats) this.game.stats.dinero += money;
     this._toast(`+${cop(money)}`, 'sell');
     if (includeItemChance && Math.random() < 0.4 && this.game.inventory) {

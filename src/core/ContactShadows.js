@@ -151,7 +151,9 @@ export class ContactShadows {
     const sampleY = airborne && Number.isFinite(support?.height) ? support.height : y;
     const floor = groundHeight ? heightOf(groundHeight(x, z, sampleY)) : 0;
     if (!Number.isFinite(floor)) return;
-    const above = y - floor;
+    // En el aire la sombra sigue al cuerpo que se ve: al despegar la cadera visible va por debajo de la raíz.
+    const lag = airborne ? Math.min(Math.max(0, y - floor), Math.max(0, finite(source.bodyDrop, 0))) : 0;
+    const above = y - floor - lag;
     // Una consulta a otra planta nunca debe dejar una mancha flotante o en el techo.
     const maxHeight = type === 2 ? 1 : 1.8;
     if (above < -.18 || above >= maxHeight) return;

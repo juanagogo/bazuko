@@ -43,10 +43,11 @@ export class InventorySystem {
   /**
    * `vence`: horas de juego en que se dañan las unidades que entran, si ya las traen (de la caleta).
    * Sin eso, lo perecible recibe su vencimiento con la hora de ahora (`now`, que pone el juego).
+   * `force`: entra aunque no quepa, para lo que reemplaza algo que ya iba en el costal (la comida que se daña).
    */
-  add(item, qty = 1, { vence = null } = {}) {
+  add(item, qty = 1, { vence = null, force = false } = {}) {
     if (!item) return false;
-    if (this.totalWeight + item.weight * qty > this.maxWeight) return false;
+    if (!force && this.totalWeight + item.weight * qty > this.maxWeight) return false;
 
     let existing = this.items.find((i) => i.id === item.id);
     if (existing) {

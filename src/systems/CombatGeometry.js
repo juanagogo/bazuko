@@ -27,8 +27,16 @@ function crossesBox(from, to, min, max) {
   return far > EPSILON && near < 1 - EPSILON;
 }
 
+// Quien maneja el carro robado se ve por los vidrios: la caja del carro que maneja (`driven`) no lo tapa. Para cualquier
+// otro que esté detrás, o para una puerta que da contra un parqueado, las cajas siguen tapando.
+function inside(box, point) {
+  return point.x > box.min.x && point.x < box.max.x && point.z > box.min.z && point.z < box.max.z
+    && point.y > box.min.y && point.y < box.max.y;
+}
+
 function blocksLine(entry, from, to, ignoreVehicle) {
   if (ignoreVehicle && (entry.vehicle === ignoreVehicle || entry.vehicle?.car === ignoreVehicle || entry.mesh === ignoreVehicle)) return false;
+  if (entry.vehicle?.driven && entry.box?.min && inside(entry.box, to)) return false;
   const { obb } = entry;
   if (obb) {
     const inverse = obb.inverse ?? _inverse.copy(obb.quaternion).invert();
