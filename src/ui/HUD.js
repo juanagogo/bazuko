@@ -61,8 +61,17 @@ export function piezasDelPrompt(texto) {
 
 /** Lo que dice la tecla de contexto ahora mismo. Cadena vacía si no hay nada que hacer. */
 export function textoDelPrompt(interaction, inventory) {
+  if (globalThis.__game?.ridingMetro) {
+    return '[E] Bajarme en estación o viaducto · [Q] Bajar a la calle';
+  }
   if (!interaction?.currentTarget && !interaction?.stealPrompt) return '';
   const type = interaction.currentTargetType;
+  if (type === 'metro') {
+    const elevated = (interaction.player?.position?.y ?? 0) >= 11;
+    return elevated
+      ? '[E] Subirme al tren del Metro · [Q] Bajar a la calle'
+      : '[E] Subir a la estación y viaducto · [Q] Subirme al tren del Metro';
+  }
   if (type === 'pickup') return '[E] Recoger basura · [Mantener Q] Seleccionar';
   if (type === 'car') {
     const car = interaction.currentTarget;
@@ -159,6 +168,9 @@ const VERBO_CORTO = [
   [/^Comprar en /, 'Comprar'],
   [/^Mi cambuche/, 'Mi cambuche'],
   [/^El jíbaro/, 'El jíbaro'],
+  [/^Subir a la estación/, 'Subir al Metro'],
+  [/^Subirme al tren/, 'Subirme al tren'],
+  [/^Bajarme en estación/, 'Bajarme'],
   [/^Agarrar la carreta/, 'Agarrar carreta'],
   [/^Soltar la carreta/, 'Soltar carreta'],
   [/^Cosquilleo/, 'Cosquilleo'],
@@ -779,7 +791,7 @@ export class HUD {
     }
   }
 
-  /** Lo que toca hacer con el cambuche, unos segundos cada vez que cambia. Nunca durante una persecución. */
+  /** Lo que toca hacer con el cambuche o la historia, unos segundos cada vez que cambia. Nunca durante una persecución. */
   _pintarMision(inventory) {
     if (!this.misionEl) return;
     const game = window.__game;
@@ -788,7 +800,8 @@ export class HUD {
       this._misionS = 0;
       return;
     }
-    let texto = textoDeMision(game?.built, inventory);
+    const storyText = game?.story?.currentMissionText?.();
+    let texto = storyText || textoDeMision(game?.built, inventory);
     if (!texto && game?.dailyMissions?.activeMissionText) {
       texto = game.dailyMissions.activeMissionText;
     }
@@ -799,7 +812,7 @@ export class HUD {
     if (!texto) { this.misionEl.hidden = true; this._misionS = 0; return; }
     this._setText(this.misionEl, texto);
     this.misionEl.hidden = false;
-    this._misionS = MISION_S;
+    this._misionS = storyText ? 15 : MISION_S;
   }
 
   /** En la barra rápida, el círculo va en el arma que tengo en la mano. */

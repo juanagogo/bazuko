@@ -119,6 +119,12 @@ Cielo (`src/world/SkyDome.hpp`, `assets/shaders/sky.vert` y `sky.frag`): una bov
 
 Verificacion visual sin pulsar teclas: `BAZUKO_SHOT=captura.png` guarda una captura a los 6 s y cierra el juego (`BAZUKO_SHOT_DELAY`, `BAZUKO_YAW`, `BAZUKO_PITCH` y `BAZUKO_DIST` ajustan el retardo y la camara; la posicion sale del guardado).
 
+### Super-Resolución y Afilado Inteligente (AMD FidelityFX FSR 1.0 & CAS)
+
+El shader final de presentación (`assets/shaders/present.frag`) integra los algoritmos de **AMD FidelityFX FSR 1.0 (EASU + RCAS)** y **AMD CAS (Contrast Adaptive Sharpening)**. Al correr a resolución reducida (0,75× en calidad baja o por resolución adaptativa bajo carga), el filtro de reconstrucción direccional de 12 muestras de EASU preserva bordes limpios sin aliasing y RCAS restaura microdetalles respetando el contraste local, logrando una tasa de cuadros significativamente mayor en gráficos integrados sin la pérdida de nitidez del escalado bilineal convencional.
+- `BAZUKO_FSR_MODE=<0-2>`: fuerza el método de escalado (0 = bilineal simple, 1 = AMD CAS, 2 = AMD FSR 1.0 por defecto).
+- `BAZUKO_SHARPEN=<0.0-1.0>`: ajusta la fuerza del afilado adaptativo (por defecto 0.5).
+
 ### Radio transistor
 
 `R` o el botón de radio abren el sintonizador: encender/apagar, batería (100 % dura unos 40 min; las pilas AA suman 50 %),

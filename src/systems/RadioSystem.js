@@ -1,7 +1,7 @@
 // src/systems/RadioSystem.js
 // Sistema de Radio Transistor AM/FM portátil con síntesis de sonido Lo-Fi bogotano.
 // Las emisoras de `kind: 'stream'` sintonizan su señal oficial en vivo; las demás son síntesis.
-import { bulletinsFor } from '../data/radioBulletins.js';
+import { bulletinsFor, BULLETINS } from '../data/radioBulletins.js';
 
 // Segundos de escucha continua en 890 AM entre boletines generales de la ciudad.
 export const CITY_BULLETIN_INTERVAL = 90;
@@ -240,11 +240,11 @@ export class RadioSystem {
     this._step = 0;
     this._lastMentalTick = 0;
 
-    // Boletines de 890 AM: como máximo uno por cada cambio de clima.
+    // Boletines de 890 AM: como máximo uno por cada cambio de clima o evento de historia.
     this.lastBulletin = null;
     this.bulletinLog = [];
     this._pendingWeather = null;
-    this._bulletinIndex = { lluvia: 0, despeje: 0, ciudad: 0 };
+    this._bulletinIndex = { lluvia: 0, despeje: 0, ciudad: 0, reyes: 0 };
     this._cityTimer = 0;
 
     // Sintonía: `stationId` es la emisora elegida a mano, que desempata las frecuencias repetidas.
@@ -753,6 +753,23 @@ export class RadioSystem {
     this.lastBulletin = bulletin;
     this.bulletinLog = [bulletin, ...this.bulletinLog].slice(0, 5);
     emitToast(`890 AM: ${bulletin.titular}. ${bulletin.objetivo}`, trigger === 'lluvia' ? 'warn' : 'info');
+    if (typeof window !== 'undefined' && typeof CustomEvent !== 'undefined' && window.dispatchEvent) {
+      try {
+        window.dispatchEvent(new CustomEvent('radio-bulletin', { detail: bulletin }));
+      } catch { /* ignorar en entornos sin DOM completo */ }
+    }
+    return bulletin;
+  }
+
+  /**
+   * Fuerza la emisión de un boletín específico de la historia (ej. sucesos de Los Reyes).
+   */
+  forceBulletin(bulletinId) {
+    const bulletin = BULLETINS.find((b) => b.id === bulletinId);
+    if (!bulletin) return null;
+    this.lastBulletin = bulletin;
+    this.bulletinLog = [bulletin, ...this.bulletinLog].slice(0, 5);
+    emitToast(`890 AM: ${bulletin.titular}. ${bulletin.objetivo}`, 'info');
     if (typeof window !== 'undefined' && typeof CustomEvent !== 'undefined' && window.dispatchEvent) {
       try {
         window.dispatchEvent(new CustomEvent('radio-bulletin', { detail: bulletin }));

@@ -2,7 +2,8 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import * as THREE from 'three';
 import { Game } from '../src/core/game.js';
-import { Renderer } from '../src/core/Renderer.js';
+import { Renderer, GraphicsError, gpuWaitBudget, GPU_WAIT_MS, SOFTWARE_GPU_WAIT_MS } from '../src/core/Renderer.js';
+import { loadingErrorText } from '../src/ui/LoadingScreen.js';
 import { FrameMetrics } from '../src/core/FrameMetrics.js';
 import { loadInBatches, loadTaskGroups, withLoadTimeout } from '../src/core/Startup.js';
 import { Clock } from '../src/core/Clock.js';
@@ -245,8 +246,43 @@ test('la espera GPU comprueba la señal sin bloquear el hilo y libera el fence',
   assert.equal(polls, 3);
   assert.deepEqual(calls, ['flush', 'fence']);
   gl.clientWaitSync = () => gl.WAIT_FAILED;
-  await assert.rejects(renderer.waitForGPU(), /preparación gráfica/);
+  await assert.rejects(renderer.waitForGPU(), { name: 'GraphicsError', message: /preparación gráfica/ });
   assert.deepEqual(calls, ['flush', 'fence', 'flush', 'fence']);
+});
+
+test('el plazo de la GPU se alarga con render por software y no falla sin nombre de renderizador', () => {
+  const glCon = name => ({
+    RENDERER: 7937,
+    getExtension: id => id === 'WEBGL_debug_renderer_info' ? { UNMASKED_RENDERER_WEBGL: 37446 } : null,
+    getParameter: p => p === 37446 ? name : 'WebKit WebGL'
+  });
+  assert.equal(gpuWaitBudget(glCon('ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (Subzero)), SwiftShader driver)')), SOFTWARE_GPU_WAIT_MS);
+  assert.equal(gpuWaitBudget(glCon('llvmpipe (LLVM 17.0.6, 256 bits)')), SOFTWARE_GPU_WAIT_MS);
+  assert.equal(gpuWaitBudget(glCon('ANGLE (NVIDIA, NVIDIA GeForce RTX 3060 Direct3D11 vs_5_0 ps_5_0, D3D11)')), GPU_WAIT_MS);
+  assert.equal(gpuWaitBudget(glCon('Mali-G57 MC2')), GPU_WAIT_MS);
+  assert.equal(gpuWaitBudget({}), GPU_WAIT_MS);
+  assert.ok(GPU_WAIT_MS > 30_000 && SOFTWARE_GPU_WAIT_MS > GPU_WAIT_MS);
+});
+
+test('la espera GPU respeta el plazo y lo reporta como fallo gráfico', async t => {
+  let time = 0;
+  t.mock.method(performance, 'now', () => time);
+  t.mock.method(globalThis, 'requestAnimationFrame', cb => { time += 10_000; queueMicrotask(cb); });
+  const gl = {
+    SYNC_GPU_COMMANDS_COMPLETE: 1, ALREADY_SIGNALED: 2, CONDITION_SATISFIED: 3, WAIT_FAILED: 4,
+    isContextLost: () => false, fenceSync: () => 'fence', flush() {}, deleteSync() {},
+    clientWaitSync: () => 0
+  };
+  const renderer = Object.assign(Object.create(Renderer.prototype), { instance: { getContext: () => gl } });
+  await assert.rejects(renderer.waitForGPU(), { name: 'GraphicsError' });
+  assert.ok(time > GPU_WAIT_MS && time <= GPU_WAIT_MS + 30_000, `cortó a los ${time} ms`);
+});
+
+test('la carga distingue el fallo gráfico del de conexión', () => {
+  assert.match(loadingErrorText(new GraphicsError('x')), /gráfica/);
+  assert.doesNotMatch(loadingErrorText(new GraphicsError('x')), /conexión/);
+  assert.match(loadingErrorText(new TypeError('Failed to fetch dynamically imported module')), /^No se pudo cargar\. Revise la conexión/);
+  assert.match(loadingErrorText(undefined), /conexión/);
 });
 
 test('subir texturas cede por tiempo consumido y no por cantidad de archivos', async t => {

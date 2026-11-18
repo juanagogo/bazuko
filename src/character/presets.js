@@ -1,8 +1,130 @@
 // src/character/presets.js
-// Estilos de calle listos para elegir en el creador: combinaciones curadas de piezas realistas,
-// colores y desgaste inspiradas en habitantes de calle reales. Solo usan piezas del catálogo exportado.
+// Estilos de calle y personajes listos para elegir en el creador: combinaciones curadas de piezas
+// realistas, colores y desgaste. Tributo a Los Reyes y personajes de la ciudad. Solo usan piezas del catálogo exportado.
 
 export const STREET_PRESETS = [
+  {
+    id: 'beto',
+    label: 'Beto Reyes (El Presidente)',
+    desc: 'Traje de paño azul marino impecable, camisa de cuello blanco, corbata roja y zapatos de charol. El presidente del Grupo GER.',
+    look: {
+      nombre: 'Beto Reyes',
+      origen: 'beto',
+      piel: 2,
+      peloColor: 0,
+      ojos: 0,
+      cejas: 'gruesas',
+      contextura: 'robusto',
+      desgaste: 0,
+      arribaColor: 10,
+      abajoColor: 10,
+      zapatoColor: 0,
+      cabezaColor: 0,
+      accesorios: [],
+      real: {
+        sexo: 'hombre',
+        edad: 'adulto',
+        pelo: 'corto',
+        barba: 'ninguna',
+        ropa: 'chaqueta',
+        calzado: 'zapatos',
+        cabeza: 'sin-sombrero',
+        talla: { ancho: 1.08, alto: 1.02 },
+        tonos: {
+          arriba: '#1d2b45',
+          abajo: '#131b28',
+          calzado: '#111111'
+        }
+      }
+    }
+  },
+  {
+    id: 'leo',
+    label: 'Leo Reyes (El Mecánico)',
+    desc: 'Camisa de jean de trabajo, contextura ágil y botas. El galán mecánico de La Fraguita.',
+    look: {
+      nombre: 'Leo Reyes',
+      origen: 'leo',
+      piel: 2,
+      peloColor: 0,
+      ojos: 0,
+      cejas: 'gruesas',
+      contextura: 'normal',
+      desgaste: 1,
+      arribaColor: 10,
+      abajoColor: 6,
+      zapatoColor: 0,
+      cabezaColor: 0,
+      accesorios: [],
+      real: {
+        sexo: 'hombre',
+        edad: 'joven',
+        pelo: 'desordenado',
+        barba: 'bigote',
+        ropa: 'camisa',
+        calzado: 'botas',
+        cabeza: 'sin-sombrero'
+      }
+    }
+  },
+  {
+    id: 'hilda',
+    label: 'Hilda Reyes (La Gata Montesa)',
+    desc: 'Camiseta colorida, cabello largo y botas. Toda la alegría y fuerza de la tecnocarrilera.',
+    look: {
+      nombre: 'Hilda Reyes',
+      origen: 'hilda',
+      piel: 2,
+      peloColor: 0,
+      ojos: 0,
+      cejas: 'delgadas',
+      contextura: 'normal',
+      desgaste: 0,
+      arribaColor: 0,
+      abajoColor: 10,
+      zapatoColor: 0,
+      cabezaColor: 0,
+      accesorios: [],
+      real: {
+        sexo: 'mujer',
+        edad: 'adulta',
+        pelo: 'largo',
+        barba: 'ninguna',
+        ropa: 'blusa',
+        calzado: 'botas',
+        cabeza: 'sin-sombrero'
+      }
+    }
+  },
+  {
+    id: 'laisa',
+    label: 'Laisa Reyes (La Diva de Rosales)',
+    desc: 'Melena exuberante, elegancia deslumbrante y zapatos finos. Conquista Rosales y a Emilio Iriarte.',
+    look: {
+      nombre: 'Laisa Reyes',
+      origen: 'laisa',
+      piel: 1,
+      peloColor: 0,
+      ojos: 0,
+      cejas: 'delgadas',
+      contextura: 'normal',
+      desgaste: 0,
+      arribaColor: 9,
+      abajoColor: 6,
+      zapatoColor: 0,
+      cabezaColor: 0,
+      accesorios: [],
+      real: {
+        sexo: 'mujer',
+        edad: 'adulta',
+        pelo: 'melena',
+        barba: 'ninguna',
+        ropa: 'blusa',
+        calzado: 'zapatos',
+        cabeza: 'sin-sombrero'
+      }
+    }
+  },
   {
     id: 'sabio',
     label: 'El Sabio',
@@ -41,7 +163,16 @@ export const STREET_PRESETS = [
   }
 ];
 
-/** Aplica un estilo de calle sin tocar la identidad (nombre y origen). */
+/** Aplica un estilo de calle sin tocar la identidad (nombre y origen) a menos que el preset los defina explícitamente. */
 export function applyStreetPreset(look, preset) {
-  return { ...look, ...preset.look, real: { ...preset.look.real }, accesorios: [...(preset.look.accesorios ?? [])], v: 2 };
+  const pLook = preset.look;
+  return {
+    ...look,
+    ...pLook,
+    nombre: pLook.nombre ?? look.nombre,
+    origen: pLook.origen ?? look.origen,
+    real: { ...pLook.real },
+    accesorios: [...(pLook.accesorios ?? [])],
+    v: 2
+  };
 }

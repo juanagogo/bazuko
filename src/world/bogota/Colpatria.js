@@ -1,8 +1,18 @@
 import * as THREE from 'three';
 
-export const COLPATRIA = Object.freeze({ x: 81, z: 168, width: 24, depth: 26, height: 112 });
-export const COLPATRIA_ANNEX = Object.freeze({ x: 98, z: 168, width: 10, depth: 18, height: 22 });
+// Torre Colpatria en la manzana de Centro Internacional al oriente de la Carrera 7 (tiles 114..125 × 80..91),
+// alineada con el rascacielos rojo del Plano Urbano de Bogotá. La torre y su anexo ocupan esa manzana completa.
+export const COLPATRIA = Object.freeze({ x: 235, z: 171, width: 16, depth: 24, height: 112 });
+export const COLPATRIA_ANNEX = Object.freeze({ x: 247, z: 171, width: 8, depth: 24, height: 22 });
 export const BUS_DETOUR = Object.freeze({ z0: 80, z1: 260, offset: 44 });
+
+/** Tiles (de 2 m) cuyo centro cae dentro de la huella: los mismos que pinta el mapa y usa la colisión. */
+function footprintTiles({ x, z, width, depth }, T = 2) {
+  const tiles = [];
+  for (let tz = Math.ceil((z - depth / 2 + 1) / T); tz * T <= z + depth / 2 - 1; tz++)
+    for (let tx = Math.ceil((x - width / 2 + 1) / T); tx * T <= x + width / 2 - 1; tx++) tiles.push([tx, tz]);
+  return tiles;
+}
 
 export function bridgeCenter(z) {
   const {z0,z1,offset}=BUS_DETOUR;
@@ -45,8 +55,13 @@ export function paintColpatria(map) {
       if (map[tz][tx] !== 'road') map[tz][tx] = 'busway';
     }
   }
-  for (let z = 78; z <= 90; z++) for (let x = 35; x <= 46; x++) map[z][x] = 'colpatria';
-  for (let z = 80; z <= 88; z++) for (let x = 47; x <= 51; x++) map[z][x] = 'colpatriaAnnex';
+}
+
+/** La torre queda al oriente de la Carrera 7: se pinta cuando el mapa ya incluye los barrios del oriente. */
+export function paintColpatriaTower(map) {
+  for (const [tx, tz] of footprintTiles(COLPATRIA)) if (map[tz]?.[tx] !== undefined) map[tz][tx] = 'colpatria';
+  for (const [tx, tz] of footprintTiles(COLPATRIA_ANNEX)) if (map[tz]?.[tx] !== undefined) map[tz][tx] = 'colpatriaAnnex';
+  return map;
 }
 
 /** Conjunto estilizado: torre ancha, zócalo acristalado y volumen comercial gris. */
@@ -64,6 +79,25 @@ export function buildColpatria({ createSign = null } = {}) {
   const { x, z, width: w, depth: d, height } = COLPATRIA;
   box(w, height - 2, d, x, (height - 2) / 2, z, glass, 'Cuerpo de la torre');
   box(w - 1.5, 2, d - 1.5, x, height - 1, z, stone, 'Coronación');
+
+  // Helipuerto circular oficial en la azotea con baliza y letra 'H' (como en el Plano Urbano de Bogotá)
+  const heliPad = new THREE.Mesh(new THREE.CylinderGeometry(5.2, 5.2, 0.08, 24), stone);
+  heliPad.position.set(x, height - 0.04, z);
+  heliPad.name = 'Helipuerto Colpatria';
+  group.add(heliPad);
+  const heliRing = new THREE.Mesh(new THREE.RingGeometry(3.6, 4.2, 24), new THREE.MeshBasicMaterial({ color: 0xffffff, side: THREE.DoubleSide }));
+  heliRing.rotation.x = -Math.PI / 2;
+  heliRing.position.set(x, height - 0.01, z);
+  group.add(heliRing);
+  const heliH = new THREE.Mesh(new THREE.BoxGeometry(0.65, 0.02, 3.2), new THREE.MeshBasicMaterial({ color: 0xffffff }));
+  heliH.position.set(x - 1.1, height - 0.01, z);
+  group.add(heliH);
+  const heliH2 = heliH.clone();
+  heliH2.position.set(x + 1.1, height - 0.01, z);
+  group.add(heliH2);
+  const heliHBar = new THREE.Mesh(new THREE.BoxGeometry(2.2, 0.02, 0.65), new THREE.MeshBasicMaterial({ color: 0xffffff }));
+  heliHBar.position.set(x, height - 0.01, z);
+  group.add(heliHBar);
   const lights = ['#e52a32', '#134bff', '#ffcc32'].map(color => new THREE.MeshStandardMaterial({
     color, emissive: color, emissiveIntensity: 1.8, roughness: .5
   }));
@@ -91,15 +125,16 @@ export function buildColpatria({ createSign = null } = {}) {
   for (const offset of [-2, 0, 2]) box(.09, 3.8, .08, x + offset, 1.9, z - d / 2 - .08, frame);
   const a = COLPATRIA_ANNEX;
   box(a.width, a.height, a.depth, a.x, a.height / 2, a.z, glass, 'Edificio anexo gris');
-  // El bloque ciego superior deja una planta comercial acristalada bajo columnas.
+  // El bloque ciego superior deja una planta comercial acristalada bajo columnas, sobre la cara oriental del anexo.
   box(a.width + .1, 17, a.depth + .1, a.x, 13.5, a.z, grey, 'Paneles grises del anexo');
   box(a.width + .25, .4, a.depth + .25, a.x, 22, a.z, stone);
-  for (const fz of [160, 164, 168, 172, 176]) {
-    box(.6, 5, .6, 103.15, 2.5, fz, stone, 'Columna del anexo');
-    box(.06, 16.5, .08, 103.08, 13.4, fz, frame, 'Junta vertical');
+  const east = a.x + a.width / 2;
+  for (let i = 0; i < 5; i++) {
+    const fz = a.z - a.depth / 2 + 1 + i * (a.depth - 2) / 4;
+    box(.6, 5, .6, east + .15, 2.5, fz, stone, 'Columna del anexo');
+    box(.06, 16.5, .08, east + .08, 13.4, fz, frame, 'Junta vertical');
   }
-  for (const fx of [94, 98, 102]) box(.6, 5, .6, fx, 2.5, 158.85, stone, 'Columna del anexo');
-  box(.15, .3, 18.4, 103.18, 3.55, a.z, stone);
+  box(.15, .3, a.depth + .4, east + .18, 3.55, a.z, stone);
   if (createSign) {
     const sign = (title, sub, x, y, z, yaw, width) => {
       const mesh = new THREE.Mesh(new THREE.PlaneGeometry(width, width / 4), new THREE.MeshBasicMaterial({
@@ -107,9 +142,9 @@ export function buildColpatria({ createSign = null } = {}) {
       }));
       mesh.position.set(x, y, z); mesh.rotation.y = yaw; group.add(mesh);
     };
-    sign('TORRE COLPATRIA', 'ACCESO PRINCIPAL', 81, 4.8, 154.91, Math.PI, 8);
-    sign('TORRE COLPATRIA', 'EDIFICIO ANEXO', 103.16, 6.5, 173, Math.PI / 2, 7);
-    sign('LOCALES', 'CAFÉ · SERVICIOS', 103.19, 3.9, 165, Math.PI / 2, 6);
+    sign('TORRE COLPATRIA', 'ACCESO PRINCIPAL', x, 4.8, z - d / 2 - .09, Math.PI, 8);
+    sign('TORRE COLPATRIA', 'EDIFICIO ANEXO', east + .16, 6.5, a.z + 4, Math.PI / 2, 7);
+    sign('LOCALES', 'CAFÉ · SERVICIOS', east + .19, 3.9, a.z - 4, Math.PI / 2, 6);
   }
   group.userData.lightMaterials = lights;
   return group;

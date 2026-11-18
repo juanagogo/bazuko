@@ -10,5 +10,7 @@
 - Limpieza: eliminados `test_diag`, `test_*.cpp`, `CMakeLists-win64.txt` y `win64-deps/` (binarios y glm copiados a mano); archivos normalizados a UTF-8 sin BOM y saltos LF.
 
 **Nuevo**
+- Super-resolución y afilado inteligente con AMD FidelityFX FSR 1.0 (EASU + RCAS) y AMD CAS en la pasada final (`assets/shaders/present.frag`). Reconstrucción direccional de 12 muestras que preserva bordes y texturas al correr en calidad baja (0,75×) o resolución adaptativa, logrando mayor fluidez en GPUs integradas con nitidez cercana a resolución nativa.
+- Variables de entorno `BAZUKO_FSR_MODE` (0 = bilineal, 1 = CAS, 2 = FSR 1.0) y `BAZUKO_SHARPEN` (0.0–1.0) para ajustar y comparar en vivo.
 - Rótulos legibles en las fachadas (`world/SignAtlas`, `world/TextRaster`): 16 nombres de local del original (DROGUERÍA, PANADERÍA, MISCELÁNEA...), 8 grafitis en las persianas y 8 avisos de cartulina (SE ARRIENDA, RECARGAS...). El texto se dibuja con Roboto Medium usando stb_truetype de ImGui; no añade dependencias.
 - Texturas con mipmaps y filtrado anisotrópico (los rótulos y el ladrillo ya no parpadean a distancia).

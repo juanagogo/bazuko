@@ -46,6 +46,7 @@ import {
 import { StatsSystem, NEEDS } from '../systems/StatsSystem.js';
 import { TimeSystem } from '../systems/TimeSystem.js';
 import { SaveSystem } from '../systems/SaveSystem.js';
+import { AutoSave } from '../systems/AutoSave.js';
 import { CollisionSystem } from '../systems/CollisionSystem.js';
 import { TrafficSystem } from '../systems/TrafficSystem.js';
 import { DEFAULT_TRAFFIC_DENSITY, trafficDensityId, trafficDensityLabel } from '../systems/trafficDensity.js';
@@ -71,6 +72,7 @@ import { Bicycle, BicycleStation } from '../entities/Bicycle.js';
 import { BICYCLE } from '../data/bicycle.js';
 import { streetLifePlaces } from '../world/bogota/streetLifePlaces.js';
 import { openRadioModal } from '../ui/RadioModal.js';
+import { LosReyesStory } from '../story/LosReyesStory.js';
 
 
 import { HUD } from '../ui/HUD.js';
@@ -97,6 +99,7 @@ import { ITEMS, COSTAL_BONUS, isForSale } from '../data/items.js';
 import { SLEEP } from '../data/cambuche.js';
 import { cop } from '../utils/money.js';
 import { makeParkedMotos, MOTO_SIZE } from '../world/bogota/motos.js';
+import { METRO, METRO_STATIONS } from '../world/bogota/MetroBogota.js';
 
 import {
   MENTAL_RESTORE_SLEEP, MENTAL_LOW_THRESHOLD,
@@ -124,6 +127,9 @@ export class Game {
     this.stats = new StatsSystem();
     this.time = new TimeSystem();
     this.save = new SaveSystem();
+    // El autoguardado se engancha a la pestaña: esconderse o cerrarla es el último momento para guardar.
+    this.autoSave = new AutoSave({ guardar: () => this._save(), puede: () => this._puedeAutoguardar() });
+    this._soltarAutoguardado = this.autoSave.enganchar();
     this.diseases = new DiseaseSystem();
     this.talents = new TalentSystem();
     this.crafting = new CraftingSystem();
@@ -232,6 +238,7 @@ export class Game {
     window.addEventListener('open-bench-rest', (e) => openBenchRest(this, e.detail?.target));
     window.addEventListener('open-wardrobe', () => this.openWardrobe());
     window.addEventListener('open-mesa', () => { if (!this.hud?._craftOpen) this.hud?.toggleCraftPanel(); });
+    window.addEventListener('metro-action', (e) => this._handleMetroAction(e.detail));
     window.addEventListener('police-arrest', () => this._policeArrest());
     window.addEventListener('open-radio-modal', () => openRadioModal(this));
     window.addEventListener('open-missions', () => {
@@ -247,6 +254,7 @@ export class Game {
       // La pausa ya abierta atiende M con su propio listener; la marca evita cerrarla en la misma pulsación.
       if (e.code === 'KeyM' && !this.paused && !this.isSleeping) { e._pauseOpened = true; openPauseMenu(this, 'mapa'); }
       if (e.code === 'KeyK' && !this.paused) this._toggleModel();
+      if (e.code === 'KeyJ' && !this.paused && !this.isSleeping) this.cycleMetroExperience();
       if (e.code === 'F3') { e.preventDefault(); this.performanceHUD.toggle(); }
       if ((e.code === 'Equal' || e.code === 'NumpadAdd' || e.key === '+') && !this.paused) this.minimap.zoomStep(1);
       if ((e.code === 'Minus' || e.code === 'NumpadSubtract' || e.key === '-') && !this.paused) this.minimap.zoomStep(-1);
@@ -280,6 +288,7 @@ export class Game {
     this.bikeStations = [];
     this.overlays = new CinematicOverlays();
     this.momentos = new Momentos();
+    this.story = new LosReyesStory(this);
 
     // Estado
     this.look = null;       // apariencia + nombre + origen (creador)
@@ -312,7 +321,7 @@ export class Game {
 
     const district = this.world.active;
     const hasSave = this._loadIfSave();
-    // Al iniciar una partida nueva, comenzamos al amanecer (6:00 AM) para apreciar la luz matutina de Bogotá
+    // En Los Reyes comenzamos al amanecer (6:00 AM) para apreciar la luz matutina de Bogotá
     if (!hasSave) {
       this.clock.hour = 6;
       if (this.weather) {
@@ -824,9 +833,10 @@ export class Game {
       return bench;
     });
 
-    // ===== Vendedores ambulantes del distrito (chazas, fritanga) y fogatas de El Cartucho =====
+    // ===== Vendedores ambulantes del distrito (chazas, fritanga), fogatas y estaciones del Metro =====
     for (const v of district.vendors ?? []) this.interaction.register(v);
     for (const fb of district.fireBarrels ?? []) this.interaction.register(fb);
+    for (const st of district.metroStations ?? []) this.interaction.register(st);
     this.collisions.add(
       this.shop.group,
       new THREE.Vector3(2.4, 2, 1.5),
@@ -996,6 +1006,7 @@ export class Game {
         savedBike.mount(this.player, stolen);
       }
       if (data.gps && this.gps) this.setGpsWaypoint({ ...data.gps, name: RENAMED_PLACES[data.gps.name] ?? data.gps.name }, { silent: true });
+      if (data.story && this.story) this.story.deserialize(data.story);
       this._poiCache = null;
       if (data.lastComedorHour !== undefined) this.lastComedorHour = data.lastComedorHour;
       this.street?.deserialize(data.street);
@@ -1006,8 +1017,14 @@ export class Game {
     }
   }
 
-  _save() {
-    this.save.save({
+  /** ¿Es un momento firme para guardar solo? Ni cargando, ni en el creador, ni muerto, ni preso, ni dormido. */
+  _puedeAutoguardar() {
+    return !this._loading && !this._deathPending && !this._arrestPending && this.stats.salud > 0 && !this.isSleeping && !this.creator?.isOpen;
+  }
+
+  /** Lo que se guarda de la partida en curso. */
+  _estado() {
+    return {
       stats: this.stats.serialize(),
       clock: this.clock.serialize(),
       inventory: this.inventory.serialize(),
@@ -1024,10 +1041,78 @@ export class Game {
       cart: this.cart ? this.cart.saveState() : null,
       bicycles: this.bicycles.map((bike) => bike.saveState()),
       gps: this.gps?.serialize() ?? null,
+      story: this.story ? this.story.serialize() : null,
       lastComedorHour: this.lastComedorHour,
       dailyMissions: this.dailyMissions?.serialize(),
       street: this.street?.serialize()
+    };
+  }
+
+  _save() {
+    const ok = this.save.save(this._estado());
+    if (ok) this._saveFallo = false;
+    else if (!this._saveFallo) {
+      // El aviso sale una sola vez: repetirlo cada minuto es ruido.
+      this._saveFallo = true;
+      this._avisar('No se pudo guardar: el navegador no deja escribir la partida.');
+    }
+    return ok;
+  }
+
+  /** Un aviso corto, por donde pasan los de la partida guardada. */
+  _avisar(texto, tipo = 'warn') {
+    globalThis.window?.dispatchEvent?.(new CustomEvent('toast', { detail: { text: texto, type: tipo } }));
+  }
+
+  /** Copia la partida a un archivo, para no perderla con el almacenamiento del navegador. */
+  exportarPartida() {
+    const url = URL.createObjectURL(new Blob([this.save.comoTexto(this._estado())], { type: 'application/json' }));
+    const link = el('a', { href: url, download: `Bazuko-partida-${new Date().toISOString().slice(0, 10)}.json` });
+    document.body.append(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 5000);
+    this._avisar('Partida copiada a un archivo', 'info');
+  }
+
+  /** Pide un archivo y cambia la partida en curso por la que traiga, si es de este juego. */
+  importarPartida() {
+    this._inputPartida?.remove();
+    const input = el('input', { type: 'file', accept: '.json,application/json', style: 'display:none' });
+    this._inputPartida = input;
+    input.addEventListener('change', async () => {
+      const file = input.files?.[0];
+      input.remove();
+      if (file) this._importarTexto(await file.text());
     });
+    input.addEventListener('cancel', () => input.remove());
+    document.body.append(input);
+    input.click();
+  }
+
+  /** Aplica la partida que trae un texto. Si no es de este juego no se escribe nada. */
+  _importarTexto(texto) {
+    const data = this.save.leerArchivo(texto);
+    if (!data) {
+      this._avisar('Ese archivo no es una partida de Bazuko.');
+      return;
+    }
+    const respaldo = this._estado();
+    try {
+      this._aplicarPartida(data);
+    } catch (error) {
+      // La partida del navegador sigue intacta: lo que falló fue el archivo, y se vuelve a la que había.
+      console.warn('[Partida] El archivo no se pudo aplicar.', error);
+      try { this._aplicarPartida(respaldo); } catch { /* se queda como estaba */ }
+      this._avisar('Ese archivo no se pudo aplicar.');
+      return;
+    }
+    // El cuerpo, la cámara y el vecindario, como al recuperarse de un atropello.
+    this.player.root.position.copy(this.player.position);
+    this._resetAfterRelocation();
+    this.cameraRig._snap = true;
+    this.menu?.refresh?.();
+    if (this._save()) this._avisar('Partida importada', 'info');
   }
 
   /** Motivo visible de bloqueo para un descanso fuera del cambuche. */
@@ -1383,6 +1468,8 @@ export class Game {
     requestAnimationFrame(this._loop);
 
     const now = performance.now();
+    // El reloj de la pestaña decide el autoguardado, aunque el juego esté en pausa.
+    this.autoSave?.update(now);
     // El intervalo entre cuadros se mide con el sello de rAF: el reloj al entrar aquí oscila y cuenta como lentitud lo que no lo es.
     this._frameStamp = stamp ?? now;
     const dt = Math.min((now - this._lastTime) / 1000, 0.1);
@@ -1597,6 +1684,7 @@ export class Game {
       const { name } = this.gps.lastArrival;
       window.dispatchEvent(new CustomEvent('toast', { detail: { text: `Llegué a ${nombreALaVista(name)}`, type: 'info' } }));
     }
+    this.story?.update(dt, this.player.position);
     this.gpsBeacon?.update(dt, this.player.position);
     this.minimap?.update(this.player.position, this._cameraYaw(), this._getPOIs(now), now,
       { gps: this.gps, needs: this._needs, running: this.input.isRunning && (this.input.axis.x !== 0 || this.input.axis.z !== 0) });
@@ -1751,8 +1839,137 @@ export class Game {
     if (notify) window.dispatchEvent(new CustomEvent('toast', { detail: { text: 'Calidad gráfica: ' + quality, type: 'info' } }));
   }
 
+  _handleMetroAction(detail = {}) {
+    const { target, action } = detail;
+    if (this.ridingMetro) {
+      if (action === 'secondary') this.exitMetroToStreet();
+      else this.walkOnMetroViaduct(this.player.position.z);
+      return;
+    }
+    const elevated = this.player.position.y >= 11;
+    if (action === 'secondary') {
+      if (elevated) this.exitMetroToStreet();
+      else this.boardMetroTrain(target);
+      return;
+    }
+    if (elevated) {
+      this.boardMetroTrain(target);
+    } else {
+      this.boardMetroStation(target);
+    }
+  }
+
+  /** Subir al andén elevado de una estación del Metro de Bogotá (Y = 12,85 m). */
+  boardMetroStation(stationTarget = null) {
+    const st = stationTarget ?? METRO_STATIONS[0];
+    const z = st.stationZ ?? st.z ?? 95;
+    this.ridingMetro = false;
+    this.player.position.set(METRO.x + 5.2, METRO.platSurfaceY, z);
+    this.player.root.position.copy(this.player.position);
+    this.player.resetGrounding?.();
+    this.player.groundSurface = { height: METRO.platSurfaceY, layer: 'metro' };
+    this.cameraRig.follow(this.player.position, 0, this.collisions);
+    globalThis.window?.dispatchEvent?.(new CustomEvent('toast', {
+      detail: { text: `Estoy en el andén de ${st.title ?? 'la Estación del Metro'}. Puedo caminar al viaducto o abordar el tren con [E].`, type: 'info' }
+    }));
+  }
+
+  /** Caminar directamente sobre el viaducto elevado del Metro sobre la Av. Caracas (Y = 12,65 m). */
+  walkOnMetroViaduct(targetZ = null) {
+    const z = THREE.MathUtils.clamp(targetZ ?? this.player.position.z ?? 95, METRO.zStart + 4, METRO.zEnd - 4);
+    this.ridingMetro = false;
+    this.player.position.set(METRO.x, METRO.deckSurfaceY, z);
+    this.player.root.position.copy(this.player.position);
+    this.player.resetGrounding?.();
+    this.player.groundSurface = { height: METRO.deckSurfaceY, layer: 'metro' };
+    this.cameraRig.follow(this.player.position, 0, this.collisions);
+    globalThis.window?.dispatchEvent?.(new CustomEvent('toast', {
+      detail: { text: 'Caminando por el viaducto elevado del Metro (+12,6 m) sobre la Av. Caracas.', type: 'info' }
+    }));
+  }
+
+  /** Abordar el tren del Metro de Bogotá en movimiento por la Línea 1. */
+  boardMetroTrain(stationTarget = null) {
+    const district = this.world?.active;
+    const train = district?.metroTrain;
+    if (!train) return;
+    if (stationTarget && Math.abs(train.z - (stationTarget.stationZ ?? stationTarget.z ?? 95)) > 24) {
+      train.setAtStation(stationTarget.stationZ ?? stationTarget.z ?? 95);
+      train.dwell = 1.2;
+    }
+    this.ridingMetro = true;
+    this._lastMetroTrainZ = train.z;
+    this.player.position.set(train.x, METRO.trackHeight + 0.65, train.z);
+    this.player.root.position.copy(this.player.position);
+    this.player.resetGrounding?.();
+    this.cameraRig.follow(this.player.position, 0, this.collisions);
+    globalThis.window?.dispatchEvent?.(new CustomEvent('toast', {
+      detail: { text: 'Me subí al tren del Metro de Bogotá (Línea 1). Con [E] bajo al viaducto o estación; con [Q] bajo a la calle.', type: 'rare' }
+    }));
+  }
+
+  /** Bajar del viaducto o del tren a la Av. Caracas. */
+  exitMetroToStreet() {
+    const district = this.world?.active;
+    const z = THREE.MathUtils.clamp(this.player.position.z, 20, 300);
+    const x = 84;
+    const y = district?.getGroundHeight?.(x, z) ?? 0.12;
+    this.ridingMetro = false;
+    this.player.position.set(x, y, z);
+    this.player.root.position.copy(this.player.position);
+    this.player.resetGrounding?.();
+    this.cameraRig.follow(this.player.position, 0, this.collisions);
+    globalThis.window?.dispatchEvent?.(new CustomEvent('toast', {
+      detail: { text: 'Bajé del Metro a la Av. Caracas.', type: 'info' }
+    }));
+  }
+
+  /** Tecla J: alterna rápido entre Estación, Viaducto, Tren del Metro en marcha y Calle. */
+  cycleMetroExperience() {
+    if (this.ridingMetro) {
+      this.walkOnMetroViaduct(this.player.position.z);
+    } else if (this.player.position.y >= 11 && Math.abs(this.player.position.x - METRO.x) <= 3.3) {
+      this.boardMetroTrain();
+    } else if (this.player.position.y >= 11) {
+      this.walkOnMetroViaduct(this.player.position.z);
+    } else {
+      this.boardMetroStation(METRO_STATIONS[0]);
+    }
+  }
+
   _updatePlayerMovement(dt) {
     const district = this.world.active;
+    if (this.ridingMetro && district?.metroTrain) {
+      const train = district.metroTrain;
+      if (this.input.consumePress('KeyE')) {
+        const nearSt = METRO_STATIONS.find(s => Math.abs(s.z - train.z) <= 18);
+        if (nearSt) this.boardMetroStation(nearSt);
+        else this.walkOnMetroViaduct(train.z);
+        return;
+      }
+      if (this.input.consumePress('KeyQ')) {
+        this.exitMetroToStreet();
+        return;
+      }
+      const dz = train.z - (this._lastMetroTrainZ ?? train.z);
+      this._lastMetroTrainZ = train.z;
+      this.player.position.z += dz;
+      // Permite caminar por el interior de los tres vagones mientras el tren avanza
+      const walkSpeed = 3.2;
+      if (this.input.axis.x !== 0 || this.input.axis.z !== 0) {
+        this.player.position.x += this.input.axis.x * walkSpeed * dt;
+        this.player.position.z += this.input.axis.z * walkSpeed * dt;
+      }
+      this.player.position.x = THREE.MathUtils.clamp(this.player.position.x, train.x - 1.05, train.x + 1.05);
+      this.player.position.z = THREE.MathUtils.clamp(this.player.position.z, train.z - 22, train.z + 22);
+      this.player.position.y = METRO.trackHeight + 0.65;
+      this.player.root.position.copy(this.player.position);
+      this.player.isGrounded = true;
+      this.player.speed = Math.abs(train.speed);
+      this.stats.calor = Math.min(300, (this.stats.calor || 0) + 12 * dt);
+      this.stats.animo = Math.min(100, (this.stats.animo || 0) + 1.5 * dt);
+      return;
+    }
     this.player.update(dt, this.cameraRig.camera, this.collisions, (x, z, context) =>
       district?.getPlayerGroundSurface?.(x, z, context)
         ?? district?.getMovementGroundHeight?.(x, z, context.from.y)
@@ -1788,6 +2005,7 @@ export class Game {
 
   stop() {
     this._running = false;
+    this._soltarAutoguardado?.();
     this.player.dismountBicycle();
     for (const bike of this.bicycles) bike.dispose();
     for (const station of this.bikeStations) station.dispose();

@@ -66,6 +66,18 @@ export class Minimap {
     this.container?.classList.toggle('hidden', !this.visible);
     this.raster = null;
     this.plano = null;
+    this.showOfficialCartography = true;
+    this.officialMapImg = null;
+    if (typeof Image !== 'undefined') {
+      const existing = globalThis.window?.__game?.mapView?._officialMapImg;
+      if (existing && existing.complete) {
+        this.officialMapImg = existing;
+      } else {
+        const img = new Image();
+        img.onload = () => { this.officialMapImg = img; };
+        img.src = '/metro-assets/plano-urbano-bogota-bazuko.jpg';
+      }
+    }
     this.setSize(this.size, false);
     this._bindControls();
 
@@ -150,6 +162,13 @@ export class Minimap {
   setRaster(raster) {
     this.raster = raster;
     this.plano = hornearPlano(raster?.tiles?.());
+    if (raster?.officialMapImg) {
+      this.officialMapImg = raster.officialMapImg;
+    }
+  }
+
+  setOfficialMapImage(img) {
+    this.officialMapImg = img;
   }
 
   toggle() {
@@ -212,8 +231,12 @@ export class Minimap {
     const w = this.canvas.width;
     const h = this.canvas.height;
     const dpr = Math.min(2, globalThis.devicePixelRatio || 1);
-    const cx = w / 2;
-    const cy = h * .6; // el jugador va algo abajo para ver más hacia el frente
+    const game = globalThis.window?.__game;
+    const isParanoid = (game?.stats?.energy === 0) || (game?.paranoia > 0);
+    const jx = isParanoid ? (Math.sin(now * 0.035) * 1.5 * dpr) : 0;
+    const jy = isParanoid ? (Math.cos(now * 0.042) * 1.5 * dpr) : 0;
+    const cx = w / 2 + jx;
+    const cy = h * .6 + jy; // el jugador va algo abajo para ver más hacia el frente
     const scale = (h * .5) / this.range;
     const sin = Math.sin(cameraYaw), cos = Math.cos(cameraYaw);
     const pad = 11 * dpr;
@@ -235,16 +258,108 @@ export class Minimap {
     ctx.setTransform?.(1, 0, 0, 1, 0, 0);
     ctx.fillStyle = cara;
     ctx.fillRect?.(0, 0, w, h);
+
+    // Efecto de lluvia / manchas translúcidas en el cartón
+    const isMojado = globalThis.document?.body?.classList?.contains?.('mojado') || (game?.climate?.rain > 0);
+    if (isMojado && ctx.fill) {
+      ctx.save();
+      ctx.fillStyle = 'rgba(75, 52, 28, 0.07)';
+      const tSeed = Math.floor(now / 900);
+      for (let i = 0; i < 6; i++) {
+        const rx = ((tSeed * 59 + i * 71) % w), ry = ((tSeed * 43 + i * 83) % h);
+        ctx.beginPath();
+        ctx.arc(rx, ry, (7 + (i % 5) * 2) * dpr, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.restore();
+    }
+
     ctx.save();
     ctx.translate(cx, cy);
     ctx.rotate(cameraYaw);
     ctx.scale?.(scale, scale);
     ctx.translate(-px, -pz);
-    const plano = this.plano;
-    if (plano) ctx.drawImage?.(plano.canvas, plano.originX, plano.originZ, plano.worldWidth, plano.worldHeight);
+    if (this.showOfficialCartography && this.officialMapImg) {
+      // Plano oficial artístico de Bogotá en coordenadas métricas del mundo (-85 a 495 en X, -15 a 310 en Z)
+      ctx.drawImage?.(this.officialMapImg, -85, -15, 580, 325);
+    } else {
+      const plano = this.plano;
+      if (plano) ctx.drawImage?.(plano.canvas, plano.originX, plano.originZ, plano.worldWidth, plano.worldHeight);
+    }
     const route = gps?.waypoint ? gps.remainingRoute(playerPos) : [];
     rutaRoja(ctx, route, scale / dpr);
     ctx.restore();
+
+    // Sentido olfativo de El Chato: ondas doradas expandiéndose
+    const dog = game?.dog;
+    if (dog && Math.hypot(dog.position.x - px, dog.position.z - pz) < 25 && ctx.stroke) {
+      const dogX = projectX(dog.position.x, dog.position.z);
+      const dogY = projectY(dog.position.x, dog.position.z);
+      const pulse = ((now / 1100) % 1);
+      ctx.save();
+      ctx.beginPath();
+      ctx.arc(dogX, dogY, (9 + pulse * 24) * dpr, 0, Math.PI * 2);
+      ctx.strokeStyle = `rgba(230, 181, 102, ${0.75 * (1 - pulse)})`;
+      ctx.lineWidth = 2 * dpr;
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    // Auras térmicas nocturnas en fogatas y canecas con fuego
+    const isNight = game?.clock?.isNight || globalThis.document?.body?.classList?.contains?.('noche');
+    if (isNight && ctx.createRadialGradient) {
+      for (const poi of pois) {
+        if (poi.kind === 'fireBarrel' || poi.name?.includes('Fogata') || poi.title?.includes('Fogata')) {
+          const fx = projectX(poi.x, poi.z), fy = projectY(poi.x, poi.z);
+          if (fx >= -20 && fx <= w + 20 && fy >= -20 && fy <= h + 20) {
+            const hPulse = Math.sin(now * 0.005 + poi.x) * 0.15 + 0.85;
+            ctx.save();
+            const grad = ctx.createRadialGradient(fx, fy, 2 * dpr, fx, fy, 16 * dpr * hPulse);
+            grad.addColorStop(0, 'rgba(255, 115, 25, 0.42)');
+            grad.addColorStop(1, 'rgba(255, 60, 0, 0)');
+            ctx.fillStyle = grad;
+            ctx.beginPath();
+            ctx.arc(fx, fy, 16 * dpr * hPulse, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.restore();
+          }
+        }
+      }
+    }
+
+    // Transporte en tiempo real: Tren del Metro L1 y buses articulados de TransMilenio
+    const metroTrain = game?.world?.active?.group?.userData?.train;
+    if (metroTrain && ctx.arc) {
+      const trainX = metroTrain.position?.x ?? metroTrain.x ?? 75;
+      const trainZ = metroTrain.position?.z ?? metroTrain.z ?? 155;
+      const tx = projectX(trainX, trainZ), ty = projectY(trainX, trainZ);
+      if (tx >= -10 && tx <= w + 10 && ty >= -10 && ty <= h + 10) {
+        ctx.save();
+        ctx.fillStyle = '#1e7e48';
+        ctx.beginPath();
+        ctx.arc(tx, ty, 6 * dpr, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = '#ffffff';
+        ctx.lineWidth = 1.5 * dpr;
+        ctx.stroke();
+        ctx.restore();
+      }
+    }
+    const busServices = game?.world?.active?.busServices ?? [];
+    for (const bs of busServices) {
+      if (bs.position && ctx.fillRect) {
+        const bx = projectX(bs.position.x, bs.position.z), by = projectY(bs.position.x, bs.position.z);
+        if (bx >= -10 && bx <= w + 10 && by >= -10 && by <= h + 10) {
+          ctx.save();
+          ctx.fillStyle = '#b3261e';
+          ctx.fillRect(bx - 3.5 * dpr, by - 3.5 * dpr, 7 * dpr, 7 * dpr);
+          ctx.strokeStyle = '#ffffff';
+          ctx.lineWidth = 1.2 * dpr;
+          ctx.strokeRect(bx - 3.5 * dpr, by - 3.5 * dpr, 7 * dpr, 7 * dpr);
+          ctx.restore();
+        }
+      }
+    }
 
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
@@ -353,7 +468,8 @@ export class Minimap {
       }
     }
 
-    // El norte en el borde, siempre visible.
+    // El norte y los Cerros Orientales (la brújula bogotana: los cerros siempre quedan al oriente)
+    const [ex, ey] = clamp(projectX(px + 100000, pz), projectY(px + 100000, pz));
     if (letra) {
       ctx.font = `800 ${13 * dpr}px ${LETRA}`;
       ctx.strokeStyle = cara;
@@ -361,6 +477,14 @@ export class Minimap {
       ctx.strokeText('N', nx, ny);
       ctx.fillStyle = MARCADOR;
       ctx.fillText('N', nx, ny);
+
+      // Cerros al oriente (Monserrate / Guadalupe)
+      ctx.font = `800 ${9.5 * dpr}px ${LETRA}`;
+      ctx.strokeStyle = cara;
+      ctx.lineWidth = 3.5 * dpr;
+      ctx.strokeText('⛰️ E', ex, ey);
+      ctx.fillStyle = '#225528';
+      ctx.fillText('⛰️ E', ex, ey);
     }
 
     // Lugar sugerido: aro rojo con su dibujo, encima de los demás y anclado al borde si está lejos.

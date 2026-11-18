@@ -6,6 +6,29 @@ import { paintLoadingFrame } from '../ui/LoadingScreen.js';
 import { AutoQuality, GRAPHICS_PROFILES, antialiasFor, effectiveQuality } from './GraphicsQuality.js';
 import { sunFieldUniforms } from '../world/bogota/SunField.js';
 
+/** Error de la preparación gráfica: la pantalla de carga no lo confunde con un fallo de red. */
+export class GraphicsError extends Error {
+  constructor(message) { super(message); this.name = 'GraphicsError'; }
+}
+
+/**
+ * Plazo para que la GPU termine de subir texturas y compilar programas. Un celular de gama baja
+ * pasa de los 30 s de antes; el render por software (SwiftShader, llvmpipe) tarda minutos.
+ * Perder el contexto o WAIT_FAILED siguen fallando al instante.
+ */
+export const GPU_WAIT_MS = 120_000;
+export const SOFTWARE_GPU_WAIT_MS = 900_000;
+const SOFTWARE_RENDERER = /swiftshader|llvmpipe|softpipe|software|basic render/i;
+
+export function gpuWaitBudget(gl) {
+  let name = '';
+  try {
+    const info = gl.getExtension?.('WEBGL_debug_renderer_info');
+    name = String(gl.getParameter(info ? info.UNMASKED_RENDERER_WEBGL : gl.RENDERER) ?? '');
+  } catch { /* sin nombre de renderizador: plazo normal */ }
+  return SOFTWARE_RENDERER.test(name) ? SOFTWARE_GPU_WAIT_MS : GPU_WAIT_MS;
+}
+
 // Bandas verticales del cielo que se refleja: el esmalte necesita un horizonte claro entre un cenit
 // más oscuro y una calle negra; un cielo uniforme lo hace ver como plástico mate.
 const REFLECTION_SKIES = {
@@ -348,17 +371,18 @@ export class Renderer {
 
   async waitForGPU() {
     const gl = this.instance.getContext();
-    if (gl.isContextLost()) throw new Error('Se perdió el contexto gráfico.');
+    if (gl.isContextLost()) throw new GraphicsError('Se perdió el contexto gráfico.');
     const fence = gl.fenceSync(gl.SYNC_GPU_COMMANDS_COMPLETE, 0);
-    if (!fence) throw new Error('No se pudo comprobar la preparación gráfica.');
+    if (!fence) throw new GraphicsError('No se pudo comprobar la preparación gráfica.');
     gl.flush();
-    const deadline = performance.now() + 30000;
+    // La espera no bloquea el hilo: la pantalla de carga sigue viva mientras la GPU termina.
+    const deadline = performance.now() + gpuWaitBudget(gl);
     try {
       while (true) {
         const result = gl.clientWaitSync(fence, 0, 0);
         if (result === gl.ALREADY_SIGNALED || result === gl.CONDITION_SATISFIED) return;
         if (result === gl.WAIT_FAILED || gl.isContextLost() || performance.now() > deadline) {
-          throw new Error('No se pudo completar la preparación gráfica.');
+          throw new GraphicsError('No se pudo completar la preparación gráfica.');
         }
         await paintLoadingFrame();
       }

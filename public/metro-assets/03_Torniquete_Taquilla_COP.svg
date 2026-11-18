@@ -1,0 +1,61 @@
+<svg width="1920" height="1080" viewBox="0 0 1920 1080" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- Marco Principal -->
+  <rect width="1920" height="1080" rx="16" fill="#1A1714" stroke="#F4EFE6" stroke-width="6"/>
+
+  <!-- Header -->
+  <rect x="48" y="42" width="1824" height="120" rx="8" fill="#2A241E" stroke="#F4EFE6" stroke-width="4"/>
+  <text x="84" y="98" fill="#F4EFE6" font-family="Impact, Arial Black, sans-serif" font-size="42" letter-spacing="2">03 // TAQUILLA AUTOMÁTICA &amp; CONTROL DE TORNIQUETES</text>
+  <text x="84" y="136" fill="#D89A3C" font-family="Consolas, monospace" font-size="20">ACCESO VESTÍBULO ELEVADO (+5.5M) · BARRERAS DE ACERO INOXIDABLE</text>
+
+  <rect x="1390" y="60" width="450" height="84" rx="6" fill="#14110F" stroke="#F4EFE6" stroke-width="3"/>
+  <text x="1420" y="112" fill="#F2A900" font-family="Consolas, monospace" font-size="26" font-weight="900">BOLSILLO: $14.800 COP</text>
+
+  <!-- Columna Izquierda: Tarjeta Metro y Saldo -->
+  <rect x="48" y="196" width="760" height="832" rx="10" fill="#2A241E" stroke="#F4EFE6" stroke-width="4"/>
+  
+  <!-- Tarjeta Metro Bogotá -->
+  <rect x="88" y="236" width="680" height="330" rx="18" fill="#D9232A" stroke="#F4EFE6" stroke-width="4"/>
+  <rect x="88" y="486" width="680" height="28" fill="#F2A900"/>
+  <text x="128" y="304" fill="#F4EFE6" font-family="Impact, Arial Black, sans-serif" font-size="38" letter-spacing="2">TARJETA METRO BOGOTÁ</text>
+  <text x="530" y="298" fill="#F4EFE6" font-family="Consolas, monospace" font-size="18">SITP / LÍNEA 1</text>
+  <text x="128" y="405" fill="#F4EFE6" font-family="Consolas, monospace" font-size="34" letter-spacing="6">••••  ••••  4821  0914</text>
+  <text x="128" y="464" fill="#F4EFE6" font-family="Consolas, monospace" font-size="18">PORTADOR: ANÓNIMO (CALLE) · NFC ACTIVO</text>
+
+  <!-- Pantalla de Saldo -->
+  <rect x="88" y="604" width="680" height="240" rx="10" fill="#0F1711" stroke="#4E8C52" stroke-width="4"/>
+  <text x="124" y="656" fill="#6DFF86" font-family="Consolas, monospace" font-size="20">SALDO DISPONIBLE EN TARJETA:</text>
+  <text x="124" y="742" fill="#6DFF86" font-family="Consolas, monospace" font-size="64" font-weight="900">$ 1.200 COP</text>
+  <text x="124" y="806" fill="#FF8E72" font-family="Consolas, monospace" font-size="20">▲ SALDO INSUFICIENTE PARA 1 PASAJE ($3.100 COP)</text>
+
+  <text x="88" y="916" fill="#B7ADA1" font-family="Consolas, monospace" font-size="18">VOZ DEL PAPEL: "Valide su tarjeta en el lector verde del</text>
+  <text x="88" y="948" fill="#B7ADA1" font-family="Consolas, monospace" font-size="18">torniquete metálico antes de cruzar hacia el andén."</text>
+
+  <!-- Columna Derecha: Opciones de Gameplay -->
+  <!-- Opción 1 -->
+  <rect x="844" y="196" width="1028" height="210" rx="10" fill="#332E2A" stroke="#F4EFE6" stroke-width="4"/>
+  <text x="884" y="264" fill="#F4EFE6" font-family="Impact, Arial Black, sans-serif" font-size="34">[1] COMPRAR PASAJE ÚNICO (QR EN PAPEL)</text>
+  <text x="884" y="314" fill="#B7ADA1" font-family="Consolas, monospace" font-size="20">Descuenta $3.100 COP de tu efectivo y abre el torniquete</text>
+  <text x="884" y="346" fill="#B7ADA1" font-family="Consolas, monospace" font-size="20">legalmente sin alertar a los guardas de la estación.</text>
+  <rect x="1520" y="246" width="312" height="110" rx="8" fill="#4E8C52" stroke="#F4EFE6" stroke-width="4"/>
+  <text x="1568" y="314" fill="#F4EFE6" font-family="Impact, Arial Black, sans-serif" font-size="32">PAGAR $3.100</text>
+
+  <!-- Opción 2 -->
+  <rect x="844" y="436" width="1028" height="210" rx="10" fill="#332E2A" stroke="#F4EFE6" stroke-width="4"/>
+  <text x="884" y="504" fill="#F2A900" font-family="Impact, Arial Black, sans-serif" font-size="34">[2] RECARGAR TARJETA COMPLETA (+$6.200 COP)</text>
+  <text x="884" y="554" fill="#B7ADA1" font-family="Consolas, monospace" font-size="20">Carga 2 viajes adicionales para moverte rápido entre el Sur</text>
+  <text x="884" y="586" fill="#B7ADA1" font-family="Consolas, monospace" font-size="20">y el Centro sin detenerte en la taquilla.</text>
+  <rect x="1520" y="486" width="312" height="110" rx="8" fill="#D89A3C" stroke="#F4EFE6" stroke-width="4"/>
+  <text x="1548" y="554" fill="#1A1714" font-family="Impact, Arial Black, sans-serif" font-size="30">RECARGAR $6.200</text>
+
+  <!-- Opción 3: Colarse -->
+  <rect x="844" y="676" width="1028" height="210" rx="10" fill="#2B1B18" stroke="#C84B31" stroke-width="4"/>
+  <text x="884" y="744" fill="#FF9E8A" font-family="Impact, Arial Black, sans-serif" font-size="34">[3] SALTAR EL TORNIQUETE (COLARSE AL ANDÉN)</text>
+  <text x="884" y="794" fill="#E0B4AA" font-family="Consolas, monospace" font-size="20">Costo: $0 COP · Gasta 12% de energía · Probabilidad de alerta</text>
+  <text x="884" y="826" fill="#F2A900" font-family="Consolas, monospace" font-size="20" font-weight="900">policial: 65% (1 tombo patrullando a 9 metros).</text>
+  <rect x="1520" y="726" width="312" height="110" rx="8" fill="#C84B31" stroke="#F4EFE6" stroke-width="4"/>
+  <text x="1548" y="794" fill="#F4EFE6" font-family="Impact, Arial Black, sans-serif" font-size="30">[ESPACIO] COLARSE</text>
+
+  <!-- Barra de Talento Activo -->
+  <rect x="844" y="916" width="1028" height="112" rx="10" fill="#2A241E" stroke="#F4EFE6" stroke-width="4"/>
+  <text x="884" y="980" fill="#F4EFE6" font-family="Consolas, monospace" font-size="21">TALENTO ACTIVO: "Pies Ligeros Nv. 2" (-15% ruido) · [ESC] Salir</text>
+</svg>

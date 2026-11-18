@@ -1,9 +1,10 @@
 import { paintSmallBuilding } from './SmallBuilding.js';
+import { metroTrackX } from './MetroBogota.js';
 import { CARRERAS, CALLES, CARACAS, STREET_X, STREET_Z, SIDEWALK_TILES } from './StreetLayout.js';
 import { paintLakePark } from './LakePark.js';
 import { paintGasStation } from './GasStation.js';
 import { paintD69Store } from './D69Store.js';
-import { paintColpatria } from './Colpatria.js';
+import { paintColpatria, paintColpatriaTower } from './Colpatria.js';
 import { paintViaductClearance, paintViaductGardens } from './ColpatriaViaduct.js';
 import { paintTerminalEntrance } from './TransitTerminal.js';
 import { BASE_CITY_WIDTH, CARRERA_5, EAST_CITY_WIDTH, paintEastCity } from './EastZones.js';
@@ -13,18 +14,57 @@ export const ORIGINAL_CITY_HEIGHT = STREET_Z.size;
 export const CITY_WIDTH = EAST_CITY_WIDTH;
 export const CITY_HEIGHT = 161;
 export const CITY_AREA_MULTIPLIER = CITY_WIDTH * CITY_HEIGHT / (ORIGINAL_CITY_WIDTH * ORIGINAL_CITY_HEIGHT);
-const BASE_CARRERAS = [...CARRERAS, [84, 89, 'Carrera 8'], [106, 111, 'Carrera 6']];
+const BASE_CARRERAS = [...CARRERAS, [84, 89, 'Carrera 8'], [106, 111, 'Carrera 7']];
 // La Carrera 5 es la única nueva con semáforos: las angostas de EastZones no los necesitan.
 export const CITY_CARRERAS = [...BASE_CARRERAS, CARRERA_5];
-export const CITY_CALLES = [...CALLES, [72, 77, 'Calle 8'], [94, 99, 'Calle 7']];
+export const CITY_CALLES = [...CALLES, [72, 77, 'Calle 72'], [94, 99, 'Av. Calle 26']];
 export const EXTENSION_PARKS = [
   { x0: 92, x1: 103, z0: 21, z1: 34, name: 'Parque de la Estación' },
-  { x0: 69, x1: 81, z0: 80, z1: 91, name: 'Parque del Sur' }
+  { x0: 69, x1: 81, z0: 80, z1: 91, name: 'Parque de Teusaquillo' }
 ];
+
+export const PARQUE_93 = Object.freeze({
+  x0: 55,
+  x1: 104,
+  z0: 16,
+  z1: 34,
+  name: 'Parque de la 93'
+});
 
 /** Añade barrios al oriente y al sur sin desplazar el centro existente. */
 export function expandCity(center) {
-  return paintEastCity(expandBaseCity(center));
+  return paintColpatriaTower(paintEastCity(expandBaseCity(center)));
+}
+
+export function paintParque93(map) {
+  const p = PARQUE_93;
+  const pathX = Math.round((p.x0 + p.x1) / 2);
+  const pathZ = Math.round((p.z0 + p.z1) / 2);
+  for (let z = p.z0; z <= p.z1; z++) {
+    for (let x = p.x0; x <= p.x1; x++) {
+      if (x === p.x0 || x === p.x1 || z === p.z0 || z === p.z1) {
+        map[z][x] = 'sidewalk';
+      } else if (x === pathX || z === pathZ || (Math.abs(x - pathX) <= 2 && Math.abs(z - pathZ) <= 2)) {
+        map[z][x] = 'plaza';
+      } else {
+        map[z][x] = 'grass';
+      }
+    }
+  }
+}
+
+export function paintMetroCorridor(map) {
+  for (let z = 10; z <= 310; z += 1) {
+    const mx = metroTrackX(z);
+    const tz = Math.round(z / 2);
+    if (!map[tz]) continue;
+    for (let dx = -6; dx <= 6; dx++) {
+      const tx = Math.round((mx + dx) / 2);
+      if (map[tz][tx] === 'building' || map[tz][tx] === 'ruin') {
+        map[tz][tx] = Math.abs(dx) <= 2 ? 'busway' : Math.abs(dx) <= 5 ? 'road' : 'sidewalk';
+      }
+    }
+  }
 }
 
 // El mapa de antes de la Candelaria se calcula igual que siempre: así cada tile con X menor
@@ -69,6 +109,8 @@ function expandBaseCity(center) {
   paintViaductClearance(map);
   paintSmallBuilding(map);
   paintViaductGardens(map);
+  paintMetroCorridor(map);
+  paintParque93(map);
   for(let x=0;x<BASE_CITY_WIDTH;x++) map[0][x]=map[CITY_HEIGHT-1][x]='wall';
   for(let z=0;z<CITY_HEIGHT;z++) map[z][0]=map[z][BASE_CITY_WIDTH-1]='wall';
   paintTerminalEntrance(map);

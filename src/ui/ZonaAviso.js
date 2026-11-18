@@ -17,8 +17,11 @@ export const ZONA_NOMBRES = {
   candelaria: 'La Candelaria',
   chapinero: 'Chapinero',
   andenes: 'El centro',
-  barrio: 'Los barrios',
+  barrio: 'Los Barrios',
   lago: LAKE_PARK.name,
+  zonaT: 'Zona T (Calle 82 / Zona Rosa)',
+  zonaG: 'Zona G (Rosales / Gourmet)',
+  parque93: 'Parque de la 93 (Chicó)',
   metro: 'Metro de Bogotá (Línea 1 PLMB)'
 };
 
@@ -71,9 +74,11 @@ export class ZonaAviso {
       ? (px, pz) => district.tileTypeAt(Math.round(px / TILE_SIZE), Math.round(pz / TILE_SIZE)) === 'road'
       : null;
     const calle = calleCercana(x, z, this._vias, esCalzada);
-    if (calle !== this._calle) {
-      this._calle = calle;
-      this.calleEl.textContent = calle;
+    const viaCercana = (this._vias ?? []).find(v => v.name && calle.toLowerCase().includes(v.name.toLowerCase().replace(/^av\.\s*/, '')));
+    const textoCompleto = viaCercana?.popular ? `${calle} · ${viaCercana.popular}` : calle;
+    if (textoCompleto !== this._calle) {
+      this._calle = textoCompleto;
+      this.calleEl.textContent = textoCompleto;
     }
   }
 }

@@ -30,8 +30,8 @@ test('la ciudad añade el parque del lago a la ampliación de tres veces la supe
   assert.equal(CITY_AREA_MULTIPLIER, CITY_WIDTH * CITY_HEIGHT / (ORIGINAL_CITY_WIDTH * ORIGINAL_CITY_HEIGHT));
   assert.ok(CITY_AREA_MULTIPLIER > 3);
   for(let z=1;z<ORIGINAL_CITY_HEIGHT-1;z++) for(let x=1;x<ORIGINAL_CITY_WIDTH-1;x++) {
-    // La nueva curva del viaducto puede reservar suelo junto al extremo sur de la troncal.
-    if ((z >= 35 && x >= 33 && x <= 66) || (z <= 7 && x >= 27 && x <= 48)) continue;
+    // La nueva curva del viaducto y el Parque de la 93 pueden reservar suelo en la zona norte y sur.
+    if ((z >= 35 && x >= 33 && x <= 66) || (z <= 7 && x >= 27 && x <= 48) || (z >= 16 && z <= 34 && x >= 55 && x <= 104)) continue;
     assert.equal(map[z][x],center[z][x]);
   }
   for(const version of [2,3]) {
@@ -75,8 +75,8 @@ test('el distrito completo construye y actualiza barrios, vendedores, peatones y
   assert.equal(city.busServices.length, 2);
   try {
     await Promise.all(city.npcs.map(npc=>npc.ready));
-    assert.equal(city.npcs.length,88); // 66 peatones del centro, 14 del oriente y 8 vendedores.
-    assert.equal(city.vendors.length,8);
+    assert.equal(city.npcs.length, 90); // 66 peatones del centro, 14 del oriente y 10 vendedores (incluye carritos de tinto).
+    assert.equal(city.vendors.length, 10);
     const places=servicePlaces(city),gps=city.createGpsNavigation();
     assert.deepEqual(['chaza','fritanga','fogata'].map(kind=>places.filter(place=>place.service===kind).length),[5,3,4]);
     for(const place of places) {

@@ -1,10 +1,10 @@
 import * as THREE from 'three';
 import { BRICK_TILE } from './textures.js';
 
-export const SMALL_BUILDING = Object.freeze({ x: 75, z: 125, width: 12, depth: 12, floors: 5, height: 16.6 });
+export const SMALL_BUILDING = Object.freeze({ x: 45, z: 125, width: 12, depth: 12, floors: 5, height: 16.6 });
 
 export function paintSmallBuilding(map) {
-  for(let z=60;z<=65;z++) for(let x=35;x<=40;x++) map[z][x]='smallBuilding';
+  for(let z=60;z<=65;z++) for(let x=20;x<=25;x++) map[z][x]='smallBuilding';
 }
 
 /** Edificio de cinco pisos, con zócalo, ventanales y azotea rematada. */
