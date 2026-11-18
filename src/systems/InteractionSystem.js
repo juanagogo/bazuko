@@ -16,6 +16,7 @@ import {
   SUBSTANCE_RISK_CHANCE
 } from '../utils/constants.js';
 import { cop } from '../utils/money.js';
+import { allRefuseAlms } from '../entities/npc/memory.js';
 import { originEffect } from '../data/origins.js';
 
 export class InteractionSystem {
@@ -90,10 +91,13 @@ export class InteractionSystem {
     let nearest = null;
     let nearestType = null;
     let nearestDist = INTERACT_RANGE;
+    // Con un rebusque en curso, los carros no dan aviso ni toman E o Q: primero se corta el trabajo.
+    const rebuscando = !!this.rebusque?.activo;
 
     for (const t of this.targets) {
       // Un carro sin nada que robar ni limpiar no da aviso ni le quita el turno a lo que tenga al lado.
       if (t.stealable === false && !t.cleanable) continue;
+      if (rebuscando && (typeof t.steal === 'function' || typeof t.cleanWindshield === 'function')) continue;
       // Un carro se alcanza también desde sus espejos; lo demás, desde su centro.
       const d = t.interactDistance?.(this.player.position) ?? t.position.distanceTo(this.player.position);
       if (d < nearestDist) {
@@ -105,6 +109,8 @@ export class InteractionSystem {
         else if (t.kind === 'cambuche') nearestType = 'cambuche';
         else if (t.kind === 'dog') nearestType = 'dog';
         else if (t.kind === 'cart') nearestType = 'cart';
+        else if (t.kind === 'bicycle') nearestType = 'bicycle';
+        else if (t.kind === 'bikeFence') nearestType = 'bikeFence';
         else if (t.kind === 'fireBarrel') nearestType = 'fireBarrel';
         else if (t.kind === 'recycler') nearestType = 'sell';
         else if (t.kind === 'mesa') nearestType = 'mesa';
@@ -194,6 +200,16 @@ export class InteractionSystem {
         case 'cart':
           nearest.toggleGrab(this.player, this.inventory);
           break;
+        case 'bicycle':
+          if (nearest.isLocked) {
+            nearest.steal(this.player, this.game);
+          } else {
+            nearest.mount(this.player);
+          }
+          break;
+        case 'bikeFence':
+          nearest.sellStolenBike(this.game);
+          break;
         case 'car':
           if (nearest.stealable) {
             this._stealCar(nearest);
@@ -224,7 +240,10 @@ export class InteractionSystem {
     }
 
     // === Pedir limosna (B o L) ===
-    if (input.consumePress('KeyB') || input.consumePress('KeyL')) {
+    // Con pelotas y frente a la cola de un semáforo en rojo, B es del rebusque (RebusqueSystem); L siempre pide.
+    if (input.consumePress('KeyB')) {
+      if (!this.rebusque?.intentar()) this._beg();
+    } else if (input.consumePress('KeyL')) {
       this._beg();
     }
 
@@ -246,6 +265,18 @@ export class InteractionSystem {
       window.dispatchEvent(new CustomEvent('dog-interacted', { detail: { action: 'feed' } }));
       window.dispatchEvent(new CustomEvent('toast', {
         detail: { text: `Le di ${ITEMS[foodItem.id]?.name ?? 'comida'} a El Chato. Ahora me acompaña.`, type: 'rare' }
+      }));
+    } else if (dog.isFriend && dog.guarding) {
+      dog.stopGuarding();
+      dog.pet();
+      window.dispatchEvent(new CustomEvent('dog-interacted', { detail: { action: 'call' } }));
+      window.dispatchEvent(new CustomEvent('toast', { detail: { text: 'Llamé a El Chato y ya me acompaña otra vez.', type: 'info' } }));
+    } else if (dog.isFriend && dog.cambucheCerca) {
+      dog.guard();
+      dog.pet();
+      window.dispatchEvent(new CustomEvent('dog-interacted', { detail: { action: 'guard' } }));
+      window.dispatchEvent(new CustomEvent('toast', {
+        detail: { text: 'Le pedí a El Chato que cuidara el cambuche. De noche espanta a los ladrones.', type: 'info' }
       }));
     } else {
       if (!dog.pet()) return;
@@ -384,6 +415,7 @@ export class InteractionSystem {
 
     if (result.caught) {
       this.stats.salud = Math.max(0, this.stats.salud - STEAL_CAUGHT_PENALTY);
+      this.stats.danoPor = 'pelea';
       this.stats.dinero = Math.max(0, this.stats.dinero - STEAL_CAUGHT_MONEY);
       window.dispatchEvent(new CustomEvent('steal-caught', {}));
     } else {
@@ -589,6 +621,14 @@ export class InteractionSystem {
       return;
     }
 
+    // Quien lo vio robar, pegar o tirar popó hace poco no le da nada (entities/npc/memory.js).
+    if (allRefuseAlms(nearbyPedestrians)) {
+      this.stats.animo = Math.max(0, this.stats.animo - 2);
+      this.audio?.play('empty');
+      window.dispatchEvent(new CustomEvent('beg-result', { detail: { success: false, reason: 'memoria', message: 'Aquí ya me conocen: nadie me quiere dar nada.' } }));
+      return;
+    }
+
     // 20% probabilidad de ser ignorado
     if (Math.random() < 0.20) {
       this.stats.animo = Math.max(0, this.stats.animo - 1);
@@ -622,11 +662,12 @@ export class InteractionSystem {
       return;
     }
 
-    // Dinero recibido: monedas ($200 a $1.500) o billete raro ($5.000 a $10.000)
+    // Dinero recibido: monedas ($200 a $1.500, más o menos según el origen y la franja del día)
+    // o billete raro ($5.000 o $10.000, igual a cualquier hora)
     const isRare = Math.random() < 0.08;
     const amount = isRare
       ? (Math.random() < 0.5 ? 5000 : 10000)
-      : Math.round((2 + Math.random() * 13) * this._origin('begMult')) * 100;
+      : Math.round((2 + Math.random() * 13) * this._origin('begMult') * (this.jornada?.franja?.limosna ?? 1)) * 100;
 
     this.stats.dinero += amount;
     this.stats.animo = Math.min(100, this.stats.animo + (isRare ? 6 : 2));

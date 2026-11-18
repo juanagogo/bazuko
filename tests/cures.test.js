@@ -126,6 +126,7 @@ test('dormir en el cambuche con la higiene baja revisa la sarna antes de guardar
   const sleep = (higiene) => {
     const stats = new StatsSystem();
     stats.higiene = higiene;
+    stats.energia = 60; // cansado: con la energía alta no hay siesta
     let saved = null;
     const game = Object.assign(Object.create(Game.prototype), {
       isSleeping: false, built: { base: true }, dog: null,
