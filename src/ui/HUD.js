@@ -551,6 +551,7 @@ export class HUD {
     window.addEventListener('sleep-end', (e) => this._toast(`Dormí ${e.detail?.hours ?? ''} h. Partida guardada`, 'info'));
     window.addEventListener('sleep-fail', (e) => this._toast(
       e.detail.reason === 'nobase' ? 'Primero toca armar el cambuche (8 cartones)'
+        : e.detail.reason === 'persecucion' ? 'Con la tomba encima no puedo dormir'
         : e.detail.reason === 'descansado' ? textoSinSiesta(e.detail) : 'Aquí no puedo dormir',
       'warn'
     ));
@@ -785,7 +786,7 @@ export class HUD {
     }
     if (info) {
       const d = info.distance < 30 ? Math.round(info.distance) : Math.round(info.distance / 5) * 5;
-      this._setText(this.wantedDato, `Patrulla a ${d} m`);
+      this._setText(this.wantedDato, `${info.onFoot ? 'Agente' : 'Patrulla'} a ${d} m`);
       if (this.wantedBarra) this._setWidth(this.wantedBarra, Math.round(info.closeness * 100));
     }
   }

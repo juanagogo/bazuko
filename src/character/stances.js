@@ -558,6 +558,50 @@ const mirar = yaw => rig => {
   rig.turn('spine2', 0, yaw * .1, 0).turn('neck', 0, yaw * .32, 0).turn('head', -.02, yaw * .56, 0);
 };
 
+/**
+ * Sin aire después de correr: la cadera atrás, el tronco doblado desde la cadera (unos 54°), las manos apoyadas encima
+ * de los muslos, más cerca de la rodilla que de la cadera, con los brazos casi estirados y los codos algo abiertos, las
+ * rodillas dobladas unos 14° y la cabeza colgando. La alternativa es tomar aire: el tronco sube unos 3° y los hombros
+ * unos 2 cm, con las manos en el mismo sitio.
+ */
+function sinAire(rig, m, alt) {
+  const breath = alt ? 1 : 0;
+  setHips(rig, m.hipBone - .07, -.14, .64 - breath * .02);
+  bendSpine(rig, [.86 - breath * .04, 1.04 - breath * .06, 1.1 - breath * .07], 1.2 - breath * .04, 1.36 - breath * .03);
+  plantFoot(rig, 'left', m.hip.x + .04, .05, .18, [.15, 0, 1]);
+  plantFoot(rig, 'right', m.hip.x + .035, .05, .2, [.15, 0, 1]);
+  // Los hombros se van adelante y abajo, colgados de los brazos; al tomar aire suben.
+  rig.turn('leftShoulder', 0, -.2, breath * .1 - .12).turn('rightShoulder', 0, .2, .12 - breath * .1);
+  for (const side of SIDES) {
+    const sign = SIGN[side], knee = rig.where(`${side}Leg`), hip = rig.where(`${side}UpLeg`);
+    const on = hip.clone().lerp(knee, .72);
+    rig.reachArm(side, V(on.x + sign * .012, on.y + .075, on.z + .06), V(sign * .9, .15, -.4));
+    rig.hand(side, V(-sign * .18, -.72, .66), V(0, -.65, -.75));
+    rig.curl(side, .3);
+  }
+}
+
+/** Habla por el radio de la solapa: la mano izquierda lo aprieta junto al hombro, la cabeza ladeada hacia ella y la derecha en la cintura. */
+function radioSolapa(rig, m) {
+  rig.turn('neck', .05, .08, -.1).turn('head', .06, .1, -.12);
+  const shoulder = rig.where('leftArm', V(0, 0, 0));
+  rig.reachArm('left', V(shoulder.x - .075, shoulder.y - .045, m.front + .015), V(.85, -.7, -.1));
+  rig.hand('left', V(-.35, .85, .2), V(-.25, -.1, -.95));
+  rig.curl('left', .45, .3);
+  const hip = rig.where('rightUpLeg', V(0, 0, 0));
+  rig.reachArm('right', V(hip.x - .085, hip.y + .13, hip.z + .02), V(-1, .1, -.5));
+  rig.hand('right', V(.25, -.9, .2), V(.95, 0, .1));
+  rig.curl('right', .35);
+}
+
+/** El agarrón que no alcanzó: el brazo izquierdo sigue de largo hacia adelante y abajo, cruzando un poco el cuerpo, y el tronco gira tras él. */
+function manotazo(rig, m) {
+  rig.turn('spine', .03, -.08, 0).turn('spine1', .04, -.12, 0).turn('spine2', .04, -.14, 0);
+  rig.reachArm('left', V(-.08, m.hip.y + .02, m.front + .3), V(.6, -.6, -.5));
+  rig.hand('left', V(-.4, -.6, .7), V(-.6, -.4, -.3));
+  rig.curl('left', .35);
+}
+
 // ---------- catálogo ----------
 
 // `walk`: se conserva andando. `hip`: mueve la cadera. `transition`: segundos de entrada. `motion`:
@@ -596,7 +640,10 @@ const CATALOG = {
   encogido: { pose: encogido, walk: true, transition: .6 },
   'cambiar-peso': { pose: cambiarPeso, walk: false, hip: true, transition: .9 },
   'mirar-izquierda': { pose: mirar(1), walk: false, transition: .6 },
-  'mirar-derecha': { pose: mirar(-1), walk: false, transition: .6 }
+  'mirar-derecha': { pose: mirar(-1), walk: false, transition: .6 },
+  'sin-aire': { pose: sinAire, walk: false, hip: true, alt: true, motion: { rate: 1.1 }, transition: .45 },
+  'radio-solapa': { pose: radioSolapa, walk: false, transition: .4 },
+  manotazo: { pose: manotazo, walk: true, transition: .1 }
 };
 
 /** Dónde toca el piso la mano derecha al levantarse: lo que se le cayó queda a su alcance. */
