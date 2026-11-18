@@ -283,6 +283,7 @@ export class Game {
     this.comedor = null;
     this.lastComedorHour = null;
     this.bicycles = [];
+    this.ultimaSiesta = null; // hora de juego (totalGameHours) en que terminó la última siesta
     this.dailyMissions = new DailyMissionSystem(this);
     this._missionsModalOpen = false;
     this.cars = [];
@@ -1001,6 +1002,7 @@ export class Game {
       }
       if (data.gps && this.gps) this.setGpsWaypoint({ ...data.gps, name: RENAMED_PLACES[data.gps.name] ?? data.gps.name }, { silent: true });
       if (data.lastComedorHour !== undefined) this.lastComedorHour = data.lastComedorHour;
+      this.ultimaSiesta = Number.isFinite(data.ultimaSiesta) ? data.ultimaSiesta : null; // las partidas viejas no lo traen
       this.street?.deserialize(data.street);
       if (data.dailyMissions) this.dailyMissions?.deserialize(data.dailyMissions);
       else this.dailyMissions?.init(this.clock?.day ?? 1);
@@ -1027,6 +1029,8 @@ export class Game {
       cart: this.cart ? this.cart.saveState() : null,
       gps: this.gps?.serialize() ?? null,
       lastComedorHour: this.lastComedorHour,
+      ultimaSiesta: this.ultimaSiesta,
+      castigo: this._castigoPendiente ?? null,
       dailyMissions: this.dailyMissions?.serialize(),
       street: this.street?.serialize()
     });
