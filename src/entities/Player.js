@@ -647,9 +647,19 @@ export class Player {
 
     const wasGrounded = this.isGrounded ?? true;
     // Salto y combate cuerpo a cuerpo estilo GTA
-    const wantsJump = typeof this.input?.consumePress === 'function' && (this.input.consumePress('Space') || this.input.consumePress('KeySpace'));
-    if (wantsJump && this.isGrounded && !this.isSwimming && !this.melee.active && !this.isStunned && !this.hasCart && !this.sorting) {
-      this.jumpVelocity = 5.2;
+    const pressedJump = typeof this.input?.consumePress === 'function' && (this.input.consumePress('Space') || this.input.consumePress('KeySpace'));
+    // Recién salido de un borde todavía se puede saltar (coyote); un salto pedido justo antes de tocar el
+    // suelo se recuerda y sale al apoyar (búfer). Un salto ya dado no deja coyote, y mientras algo impide
+    // saltar (nadar, pegar, aturdido, la zorra, buscar) no se guarda nada que salga después.
+    const jumpBlocked = this.isSwimming || this.melee.active || this.isStunned || this.hasCart || this.sorting;
+    this._coyote = jumpBlocked ? 0 : wasGrounded ? JUMP.coyoteTime : Math.max(0, this._coyote - dt);
+    this._jumpBuffer = jumpBlocked ? 0 : Math.max(0, this._jumpBuffer - dt);
+    const onFoot = this.isGrounded || this._coyote > 0;
+    if (pressedJump && !onFoot && !jumpBlocked) this._jumpBuffer = JUMP.bufferTime;
+    const wantsJump = pressedJump || (this.isGrounded && this._jumpBuffer > 0);
+    if (wantsJump && onFoot && !jumpBlocked) {
+      // El impulso es inmediato: la pose muestra el empuje sin retrasar el mando.
+      this.jumpVelocity = this._launchSpeed = JUMP.launchSpeed;
       this.isGrounded = false;
       this._coyote = this._jumpBuffer = 0;
       this._jumpCut = false;
