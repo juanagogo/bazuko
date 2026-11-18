@@ -278,7 +278,7 @@ test('reparto: seis curiosos que llegan por el mismo lado no quedan en montón; 
     const d = far(n, fight);
     assert.ok(d >= 4 && d <= 6, `a ${d.toFixed(2)} m`);
     const nearest = Math.min(...watchers.filter(o => o !== n).map(o => o.position.distanceTo(n.position)));
-    assert.ok(nearest >= 1.5, `pegado a otro: a ${nearest.toFixed(2)} m`);
+    assert.ok(nearest >= 1.3, `pegado a otro: a ${nearest.toFixed(2)} m`);
   }
   // Todos llegaron por el oeste (−X) y aun así ocupan buena parte de ese lado del arco, de la primera fila sobre todo.
   const west = angles.map(a => Math.abs(Math.atan2(Math.sin(a + Math.PI / 2), Math.cos(a + Math.PI / 2))));

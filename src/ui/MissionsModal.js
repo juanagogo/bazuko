@@ -44,7 +44,7 @@ export function openMissionsModal(game) {
 
           const foot = el('div', { class: 'missions-card-foot' },
             el('span', { class: 'missions-card-prog cifra', text: `${m.progress} de ${m.target} (${pct} %)` }),
-            el('span', { class: 'missions-card-reward', text: `+${cop(m.reward?.dinero ?? 0)} · +${m.reward?.xp ?? 0} XP · +${m.reward?.animo ?? 0} Ánimo` })
+            el('span', { class: 'missions-card-reward', text: `+${cop(m.reward?.dinero ?? 0)} y +${m.reward?.animo ?? 0} de ánimo` })
           );
 
           return el('div', { class: `missions-card${isDone ? ' is-done' : ''}` }, head, desc, bar, foot);

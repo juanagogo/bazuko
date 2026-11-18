@@ -100,7 +100,7 @@ public:
         std::vector<std::string> carrerasNames, callesNames;
         Band caracasBusway{35, 40};
         std::vector<VendorSite> vendors;
-        glm::vec2 spawn{112.98f, 97.84f}, bed{112.98f, 94.64f}, sell, dealer, craft, shop;
+        glm::vec2 spawn{112.98f, 97.84f}, bed{112.98f, 94.64f}, sell, dealer, craft, shop, comedor{100.0f, 90.0f};   // comedor: Comedor Comunitario, junto al parque
         std::vector<glm::vec4> parks;   // x0, x1, z0, z1 de los parques con palomas (metros)
         std::vector<ParkSign> parkSigns;
     };

@@ -90,7 +90,7 @@ test('«Escoger con calma» da tiradas enteras de más: cuatro pasan a seis, y l
   const tiradas = (efectos, suerte, boost = false) => {
     t.mock.method(Math, 'random', () => suerte);
     bolsa.used = false; bolsa.cooldown = 0;
-    const n = bolsa.harvest(boost, true, efectos).items.length;
+    const n = bolsa.harvest(boost, true, efectos).items.filter(id => id !== 'sobrados').length; // los sobrados de comida no cuentan como tirada
     t.mock.restoreAll();
     return n;
   };

@@ -30,7 +30,7 @@ export class World {
     this.activeName = name;
   }
 
-  update(dt, playerPos, camera, trafficVehicles = []) {
-    this.active?.update(dt, playerPos, camera, trafficVehicles);
+  update(dt, playerPos, camera, trafficVehicles = [], hour = null) {
+    this.active?.update(dt, playerPos, camera, trafficVehicles, hour);
   }
 }

@@ -8,7 +8,7 @@ const W = 1024, H = 512;
 // Juntas finas y de poco contraste: las de 7 mm casi negras parecían cortes hechos a la lámina.
 const GAP = 'rgba(14,14,16,.5)', SOFT = 'rgba(14,14,16,.08)';
 
-function draw(ctx, spec, body) {
+function draw(ctx, spec, body, livery) {
   const { L, axleF, axleR, archR, archY, gaps = {} } = spec, xTail = body.xTail;
   const sx = x => (x - xTail) / L * W;
   const sy = y => H - SIDE_V * y / body.chartH * H;
@@ -106,13 +106,14 @@ function draw(ctx, spec, body) {
     for (let i = 1; i <= 8; i++) { const x = x0 + (x1 - x0) * i / 8; ctx.lineTo(tx(x), ty(body.edgeZ(x) * .9)); }
     stroke(SOFT, 3);
   }
-  if (spec.detail) spec.detail(ctx, { sx, sy, tx, ty, pxX, pxY, W, H, body, seam, stroke });
+  if (spec.detail) spec.detail(ctx, { sx, sy, tx, ty, pxX, pxY, W, H, body, seam, stroke, livery });
 }
 
 const maps = new Map();
-/** Textura por modelo, dibujada una sola vez y compartida entre todos los carros de ese modelo. */
-export function getDetailMap(spec, body) {
-  let texture = maps.get(spec.id);
+/** Textura por modelo y librea, dibujada una sola vez y compartida entre todos los carros de ese modelo y librea. */
+export function getDetailMap(spec, body, livery = null) {
+  const key = livery ? `${spec.id}:${livery.key}` : spec.id;
+  let texture = maps.get(key);
   if (texture) return texture;
   if (typeof document === 'undefined') {
     texture = new THREE.Texture();
@@ -120,13 +121,13 @@ export function getDetailMap(spec, body) {
     const canvas = document.createElement('canvas');
     canvas.width = W; canvas.height = H;
     const ctx = canvas.getContext('2d');
-    if (ctx) draw(ctx, spec, body);
+    if (ctx) draw(ctx, spec, body, livery);
     texture = new THREE.CanvasTexture(canvas);
     texture.anisotropy = 4;
     texture.generateMipmaps = true;
   }
   texture.colorSpace = THREE.SRGBColorSpace;
-  texture.name = `Detalle ${spec.id}`;
-  maps.set(spec.id, texture);
+  texture.name = `Detalle ${key}`;
+  maps.set(key, texture);
   return texture;
 }

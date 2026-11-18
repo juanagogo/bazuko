@@ -6,15 +6,12 @@ import * as THREE from 'three';
 import { Npc } from './Npc.js';
 import { DEFAULT_LOOK } from '../character/look.js';
 import { canReachCombatTarget, resolveCombatWalk } from '../systems/CombatGeometry.js';
+import { MELEE, stepMelee } from '../systems/MeleeChase.js';
 
 export const SQUAD = {
   chaseSpeed: 5.2,      // más rápido que caminar (3 m/s), algo más lento que correr (6 m/s)
   walkSpeed: 1.8,       // al volver a la camioneta
-  attackRange: 1.4,
-  windup: .4,           // levanta la pistola antes del cachazo: tiempo para zafarse
-  strikeTime: .16,
-  recover: .3,
-  cooldown: .75,
+  ...MELEE,
   damage: [20, 30],     // dos matones juntos tumban a cualquiera en pocos golpes
   giveUpTime: 22,
   giveUpDistance: 32,
@@ -199,36 +196,19 @@ export class SquadMember extends Npc {
     if (this.staggerTimer > 0) return null;
 
     this._face(player.x, player.z, dt);
-    if (this.state === 'windup' || this.state === 'strike' || this.state === 'recover') {
-      this.stateTimer -= dt;
-      if (this.state === 'windup') {
-        this._setAttack('windup', SQUAD.windup);
-        if (this.stateTimer <= 0) { this.state = 'strike'; this.stateTimer = SQUAD.strikeTime; }
-        return null;
-      }
-      if (this.state === 'strike') {
-        this._setAttack('active', SQUAD.strikeTime);
-        if (this.stateTimer > 0) return null;
-        this.state = 'recover';
-        this.stateTimer = SQUAD.recover;
-        this.attackTimer = SQUAD.cooldown;
-        // solo conecta si el jugador sigue al alcance al bajar la pistola
-        return this.canReach(player, SQUAD.attackRange + .4) ? 'hit' : 'miss';
-      }
-      this._setAttack('recover', SQUAD.recover);
-      if (this.stateTimer <= 0) { this.state = 'chase'; this.poseParams = {}; }
-      return null;
+    if (this.state === 'chase') {
+      this.walkSpeed = SQUAD.chaseSpeed;
+      this._shout(dt, THUG_INSULTS);
     }
-    this.walkSpeed = SQUAD.chaseSpeed;
-    this._shout(dt, THUG_INSULTS);
-    if (this.attackTimer <= 0 && this.canReach(player)) {
-      this.state = 'windup';
-      this.stateTimer = SQUAD.windup;
-      this._setAttack('windup', SQUAD.windup);
-      return 'swing';
-    }
-    this._moveTowards(player, SQUAD.chaseSpeed, dt, SQUAD.attackRange * .75);
-    return null;
+    return stepMelee(this, dt, player, {
+      speed: SQUAD.chaseSpeed,
+      reach: (target, range) => this.canReach(target, range),
+      move: (target, speed, step, stop) => this._moveTowards(target, speed, step, stop),
+      pose: (phase, length) => {
+        if (phase) this._setAttack(phase, length);
+        else this.poseParams = {};
+      }
+    });
   }
 
   _goHome(dt) {

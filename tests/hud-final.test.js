@@ -50,7 +50,7 @@ test('la mesa da su aviso, como cualquier otro lugar', () => {
 test('con el dedo la tecla de contexto va en corto, dos piezas como mucho y sin la nota de al lado', () => {
   const corto = (tipo, target = {}) => piezasParaElDedo(piezasDelPrompt(textoDelPrompt({ currentTarget: target, currentTargetType: tipo }))).map((p) => p.verbo);
   assert.deepEqual(corto('car', { traffic: true }), ['Robar retrovisor']);
-  assert.deepEqual(corto('pickup'), ['Recoger basura', 'Seleccionar']);
+  assert.deepEqual(corto('pickup'), ['Reciclar / Comer', 'Hurgar comida']);
   assert.deepEqual(corto('dog'), ['Acariciar'], 'la nota sobre el pan se queda por fuera');
   assert.deepEqual(corto('shop', { title: 'Tienda La Esquinita' }), ['Comprar']);
   for (const v of ['car', 'fireBarrel', 'sell', 'cambuche', 'dealer', 'cart', 'mesa'].flatMap((t) => corto(t))) assert.ok(v.length <= 18, v);

@@ -811,6 +811,24 @@
       "cure": "",
       "desc": "Vidrio roto con buen alcance. Usar: sacar o guardar.",
       "weapon": "botella_picada"
+    },
+    {
+      "id": "ropaLimpia",
+      "name": "Ropa limpia",
+      "weight": 0.8,
+      "value": 2500,
+      "rarity": "",
+      "rarityLabel": "",
+      "recyclable": false,
+      "usable": true,
+      "build": false,
+      "substance": false,
+      "cure": "",
+      "desc": "Muda de ropa limpia donada. Usar: cambiarse de ropa para ganar higiene y ánimo.",
+      "consumable": {
+        "stat": "higiene",
+        "amount": 30
+      }
     }
   ],
   "shop": [
@@ -1013,6 +1031,14 @@
       "qty": 1,
       "label": "",
       "desc": "Aguapanela caliente con limón: cura la gripe."
+    },
+    {
+      "item": "ropaLimpia",
+      "upgrade": "",
+      "price": 3500,
+      "qty": 1,
+      "label": "",
+      "desc": "Muda de ropa limpia: cambiarse de ropa, sube higiene y ánimo."
     }
   ],
   "lootCommon": [
@@ -1087,6 +1113,10 @@
     {
       "item": "pastilla",
       "weight": 0.3
+    },
+    {
+      "item": "ropaLimpia",
+      "weight": 1.2
     }
   ],
   "lootRare": [

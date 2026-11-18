@@ -244,6 +244,28 @@ test('el estilo dobla espalda y cabeza, en los dos modelos, y mecerse y cojear s
   }
 });
 
+test('el contoneo gira y ladea la cadera al andar, el torso le lleva la contraria y sin él no se mueve nada', async () => {
+  const { gltf, library } = await bodyLibrary;
+  const light = await parseAsset('/models/personaje/hombre-adulto/lod/cuerpo.gltf');
+  for (const [source, options] of [[gltf, {}], [light, { lod: true }]]) {
+    const { layer, bones } = instance(source, library, options);
+    const rest = new Map([...bones].map(([name, bone]) => [name, bone.quaternion.clone()]));
+    const moved = name => bones.get(name).quaternion.angleTo(rest.get(name));
+    layer.gaitWeight = 1;
+    layer.apply(1, { style: { sway: 0 }, speed: 1, phase: .25 });
+    assert.ok(moved('mixamorigHips') < .001, 'sin contoneo la cadera no se mueve');
+    layer.restore();
+    layer.apply(1, { style: { caderas: 1.5 }, speed: 1, phase: .25 });
+    assert.ok(moved('mixamorigHips') > .3, `la cadera gira: ${moved('mixamorigHips')}`);
+    assert.ok(moved('mixamorigSpine1') > .05, 'el torso le lleva la contraria');
+    assert.ok(moved('mixamorigHips') < 1, 'sin romperse la cintura');
+    layer.restore();
+    layer.apply(1, { style: { caderas: 1.5 }, speed: 0, phase: .25 });
+    assert.ok(moved('mixamorigHips') < .001, 'quieta no contonea');
+    layer.restore();
+  }
+});
+
 test('el estilo entra igual a 30 y a 144 FPS, también mientras está entrando', async () => {
   const { gltf, library } = await bodyLibrary;
   const at = (fps, seconds) => {

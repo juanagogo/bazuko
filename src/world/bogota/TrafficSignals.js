@@ -75,11 +75,11 @@ export class TrafficSignals {
     this.lensStates.value.set(states[0], states[1]);
   }
 
-  blocks(point, direction, current, length = 0, vehicle = null) {
+  blocks(point, direction, current, length = 0, vehicle = null, nodes = this.nodes, held = null, setback = 0) {
     const axis = Math.abs(direction.x) >= Math.abs(direction.z) ? 0 : 1;
     const red = signalState(this.time, axis) !== 0;
     if (!red && !vehicle) return false;
-    for (const node of this.nodes) {
+    for (const node of nodes) {
       const claim = this.reservations.get(node);
       if (vehicle && claim?.owners.get(vehicle)?.entered) continue;
       // Quien ya está en el cruce lo despeja aunque cambie la luz.
@@ -93,7 +93,12 @@ export class TrafficSignals {
       const padX = axis === 0 ? length / 2 + .8 : 0;
       const padZ = axis === 1 ? length / 2 + .8 : 0;
       if (point.x >= node.x0 - padX && point.x <= node.x1 + padX && point.z >= node.z0 - padZ && point.z <= node.z1 + padZ) {
-        if (red || (vehicle && claim && !claim.owners.has(vehicle))) return true;
+        if (red || node === held || (vehicle && claim && !claim.owners.has(vehicle))) return true;
+      } else if (red && setback > 0) {
+        // Un tramo más atrás solo frena el rojo: ahí queda la caja de las motos. Quien ya pasó esa marca sigue hasta la línea.
+        const deepX = axis === 0 ? padX + setback : 0, deepZ = axis === 1 ? padZ + setback : 0;
+        const inside = (x, z, ex, ez) => x >= node.x0 - ex && x <= node.x1 + ex && z >= node.z0 - ez && z <= node.z1 + ez;
+        if (inside(point.x, point.z, deepX, deepZ) && !inside(current.x, current.z, Math.max(0, deepX - 1), Math.max(0, deepZ - 1))) return true;
       }
     }
     return false;

@@ -1,15 +1,75 @@
 #include "Shader.hpp"
+#include "GLCompat.hpp"
 #include "../core/Log.hpp"
 #include <fstream>
+#include <regex>
 #include <sstream>
 #include <vector>
 #include <utility>
 
 namespace Bazuko {
 
+namespace {
+
+struct ShaderBinding { std::string name; int binding; bool block; };
+
+// Modo OpenGL 4.1: GLSL 4.10 no admite layout(binding = N). Se baja la version, se define BAZUKO_GL41 (los shaders eligen ahi lo que cambia,
+// como las luces por cluster) y se quita cada binding= anotando a que sampler o bloque pertenecia, para asignarlo despues de enlazar el programa.
+std::string PrepareLegacySource(const std::string& source, std::vector<ShaderBinding>& bindings) {
+    static const std::regex version(R"(#version\s+\d+(\s+core)?)");
+    static const std::regex layoutUniform(R"(^(\s*)layout\s*\(([^)]*)\)\s*uniform\s+(.*)$)");
+    static const std::regex bindingQualifier(R"(^\s*binding\s*=\s*(\d+)\s*$)");
+    static const std::regex blockName(R"(^(\w+)\s*(\{.*)?$)");
+    static const std::regex variableName(R"(^\w+\s+(\w+))");
+
+    std::string text = std::regex_replace(source, version, "#version 410 core\n#define BAZUKO_GL41 1\n#line 2", std::regex_constants::format_first_only);
+    std::istringstream in(text);
+    std::string out, line;
+    while (std::getline(in, line)) {
+        if (!line.empty() && line.back() == '\r') line.pop_back();
+        // GLSL 4.10 exige que un const local se inicialice con una expresion constante (4.20 lo relajo). Dentro de las funciones (lineas con
+        // sangria) const solo marca que no se reasigna, asi que se quita; los const globales siguen igual porque dan tamanos de arreglos.
+        static const std::regex localConst(R"(\bconst\s+)");
+        if (!line.empty() && (line[0] == ' ' || line[0] == '\t') && line.find("const") != std::string::npos)
+            line = std::regex_replace(line, localConst, "");
+        std::smatch match;
+        if (line.find("binding") != std::string::npos && std::regex_match(line, match, layoutUniform)) {
+            const std::string indent = match[1], rest = match[3];
+            std::string kept;
+            int binding = -1;
+            std::stringstream qualifiers(match[2].str());
+            std::string qualifier;
+            while (std::getline(qualifiers, qualifier, ',')) {
+                std::smatch number;
+                if (std::regex_match(qualifier, number, bindingQualifier)) { binding = std::stoi(number[1]); continue; }
+                const size_t first = qualifier.find_first_not_of(" \t");
+                if (first == std::string::npos) continue;
+                if (!kept.empty()) kept += ", ";
+                kept += qualifier.substr(first, qualifier.find_last_not_of(" \t") - first + 1);
+            }
+            if (binding >= 0) {
+                std::smatch name;
+                if (std::regex_match(rest, name, blockName)) bindings.push_back({name[1], binding, true});
+                else if (std::regex_search(rest, name, variableName)) bindings.push_back({name[1], binding, false});
+            }
+            line = indent + (kept.empty() ? "" : "layout(" + kept + ") ") + "uniform " + rest;
+        }
+        out += line;
+        out += '\n';
+    }
+    return out;
+}
+
+} // namespace
+
 Shader::Shader(const std::string& vertexPath, const std::string& fragmentPath) {
     std::string vertSrc = ReadFile(vertexPath);
     std::string fragSrc = ReadFile(fragmentPath);
+    std::vector<ShaderBinding> bindings;
+    if (GLCompat::Legacy()) {
+        vertSrc = PrepareLegacySource(vertSrc, bindings);
+        fragSrc = PrepareLegacySource(fragSrc, bindings);
+    }
 
     GLuint vertID = CompileShader(GL_VERTEX_SHADER, vertSrc, vertexPath);
     GLuint fragID = CompileShader(GL_FRAGMENT_SHADER, fragSrc, fragmentPath);
@@ -27,6 +87,16 @@ Shader::Shader(const std::string& vertexPath, const std::string& fragmentPath) {
         std::vector<char> log(logLen);
         glGetProgramInfoLog(m_ProgramID, logLen, nullptr, log.data());
         LogError("Error al linkear programa de shader: {}", log.data());
+    }
+
+    for (const ShaderBinding& b : bindings) {   // solo en modo 4.1: lo que decian los layout(binding = N)
+        if (b.block) {
+            const GLuint index = glGetUniformBlockIndex(m_ProgramID, b.name.c_str());
+            if (index != GL_INVALID_INDEX) glUniformBlockBinding(m_ProgramID, index, static_cast<GLuint>(b.binding));
+        } else {
+            const GLint location = glGetUniformLocation(m_ProgramID, b.name.c_str());
+            if (location != -1) glProgramUniform1i(m_ProgramID, location, b.binding);
+        }
     }
 
     glDetachShader(m_ProgramID, vertID);

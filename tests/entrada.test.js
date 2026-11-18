@@ -4,7 +4,8 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { MARCA } from '../src/ui/marcaBazuko.js';
 import { moduloDeMarca } from '../tools/fuente/marca.mjs';
-import { escritura, marcaPorEscribir, marcaQuieta } from '../src/ui/LoadingScreen.js';
+import { marcaPorEscribir, marcaQuieta, soportaOffscreen } from '../src/ui/LoadingScreen.js';
+import { DURACION, GROSOR, avanceDeTiempo, escritura } from '../src/ui/cargaEscritura.js';
 import { caber, cubrir, radioDePunto, reservado, tono } from '../src/ui/impresion.js';
 import { celdaPara, encuadre } from '../src/ui/LoadingArtwork.js';
 import { letraParaNombre } from '../src/ui/Creator.js';
@@ -42,6 +43,29 @@ test('se escribe en orden: un trazo no empieza hasta acabar el anterior, y al fi
     });
     antes = hoy;
   }
+});
+
+test('la mano va por reloj, no por etapas: avanza sola y se detiene escrita', () => {
+  assert.equal(avanceDeTiempo(0), 0);
+  assert.equal(avanceDeTiempo(DURACION), 1);
+  assert.equal(avanceDeTiempo(DURACION * 4), 1);
+  assert.equal(avanceDeTiempo(-50), 0);
+  let antes = -1;
+  for (let ms = 0; ms <= DURACION * 1.5; ms += 25) {
+    const p = avanceDeTiempo(ms);
+    assert.ok(p >= antes, 'la tinta no se devuelve');
+    antes = p;
+  }
+  const medio = avanceDeTiempo(DURACION / 2);
+  assert.ok(medio > .4 && medio < .6, 'a mitad del reloj va algo escrito');
+});
+
+test('sin lienzo transferible o sin módulos queda la palabra en SVG', () => {
+  assert.equal(soportaOffscreen({}), false);
+  assert.equal(soportaOffscreen({ Worker() {}, OffscreenCanvas() {} }), false);
+  assert.equal(soportaOffscreen({ Worker() {}, OffscreenCanvas() {}, HTMLCanvasElement: { prototype: {} } }), false);
+  assert.equal(soportaOffscreen({ Worker() {}, OffscreenCanvas() {}, HTMLCanvasElement: { prototype: { transferControlToOffscreen() {} } } }), true);
+  assert.match(marcaPorEscribir(), new RegExp(`stroke-width="${GROSOR}"`), 'el lomo del respaldo usa el mismo grosor');
 });
 
 test('el semitono: más oscuro, punto más grande; claro de sobra, sin punto', () => {

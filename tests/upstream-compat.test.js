@@ -26,7 +26,7 @@ test('inventario permite usar los nuevos objetos y conserva sus iconos', () => {
     assert.equal(isUsable(ITEMS[id]), true);
     assert.notEqual(ITEMS[id].emoji, '📦');
   }
-  assert.equal(isUsable(ITEMS.carton), false);
+  assert.equal(isUsable(ITEMS.lata), false);
 });
 
 test('radar reutiliza el caché sin congelar la posición del perro ni duplicar el cambuche', () => {

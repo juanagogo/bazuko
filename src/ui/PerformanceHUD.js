@@ -55,7 +55,7 @@ export class PerformanceHUD {
       `1 % bajos ${conComa(recent.low1Percent, 1)} FPS, tirones de más de 100 ms ${recent.over100ms}`,
       `X ${conComa(position.x, 2)}  Y ${conComa(position.y, 2)}  Z ${conComa(position.z, 2)}`,
       `Dibujo ${info.calls}, triángulos ${info.triangles.toLocaleString('es-CO')}`,
-      `Resolución ${conComa(renderer.instance.getPixelRatio(), 2)}×`,
+      `Resolución ${conComa(renderer.instance.getPixelRatio(), 2)}× (AMD FidelityFX FSR / CAS)`,
       ...(renderer.effectiveQuality ? [`Calidad efectiva ${renderer.effectiveQuality}`] : []),
       ...(renderer.culling ? [`Grupos en cámara ${renderer.culling.stats.visible}/${renderer.culling.stats.total}, descartados ${renderer.culling.stats.culled}`] : []),
       ...(lighting ? [`Luces dinámicas ${lighting.enabled ? lighting.pool.length : 0}, halos ${lighting.halos.mesh.count}`] : [])

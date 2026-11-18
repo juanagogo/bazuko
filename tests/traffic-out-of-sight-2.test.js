@@ -14,6 +14,7 @@ for (const seed of [22, 29]) {
     assert.ok(Math.abs(vehicles - target) <= 3, `${vehicles} vehículos, objetivo ${target}`);
     // Si la cifra se dispara, el trancón se está comiendo la flota lejana. Cero también vale: hay semillas en que nadie
     // pasa 45 s trabado lejos de la vista (que sí lo retira lo mira «el carro trabado lejos de la vista se retira»).
-    assert.ok(removals <= 20, `${removals} retirados`);
+    // La flota diaria también retira los carros que salen de la hora pico: sobra con que no se la coma entera.
+    assert.ok(removals <= 150, `${removals} retirados`);
   });
 }

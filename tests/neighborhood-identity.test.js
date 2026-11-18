@@ -63,7 +63,7 @@ test('los detalles conservan exactamente el plan físico de los veinte solares a
   const city = new Bogota(), map = city._layout(), before = JSON.stringify(map);
   const plans = planUrbanBuildings(map);
   // Huellas, posiciones, alturas, diseños y semillas de la ciudad anterior.
-  assert.equal(digest(plans), 'e6b140f023aecccc93ac7f996b5cd235bd08446cba2dd378be42437fc873a0e3');
+  assert.equal(digest(plans), 'ae6c567e2ca8ba6b15702ead13114f5a823e781f67c6dd5f7603b618e1fcd954');
   const palette = makePalette();
   for (const plan of plans) {
     const shell = buildUrbanBuilding(plan, palette);

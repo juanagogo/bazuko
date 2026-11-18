@@ -1,0 +1,81 @@
+{
+  "id": "zonaG",
+  "metadata": {
+    "nombre": "Zona G (Distrito Gourmet, Rosales)",
+    "bbox": [
+      4.6515,
+      -74.0585,
+      4.656,
+      -74.0535
+    ],
+    "hitos": [
+      "Calle 69 Gourmet",
+      "Casas de Conservación",
+      "Carrera 5",
+      "Mansión Reyes"
+    ],
+    "tipo": "gastronomico_patrimonial"
+  },
+  "dimensionesMetros": {
+    "ancho": 554,
+    "alto": 500
+  },
+  "origenGPS": {
+    "lat": 4.6537500000000005,
+    "lon": -74.056
+  },
+  "layout": {
+    "callePrincipal": {
+      "nombre": "Calle 69A Gourmet",
+      "ancho": 10,
+      "orientacion": "este_oeste"
+    },
+    "carreraCruce": {
+      "nombre": "Carrera 5 Rosales",
+      "ancho": 11,
+      "orientacion": "norte_sur"
+    },
+    "materialSuelo": "asfalto_arbolado_adoquin",
+    "iluminacion": "farolas_calidas_ambar",
+    "seguridad": "vigilancia_residencial",
+    "reciclajeBonus": "sobras_gourmet_limpias",
+    "manzanas": [
+      {
+        "nombre": "Casas Inglesas Gastronómicas",
+        "niveles": 2,
+        "tipo": "ladrillo_ingles",
+        "x": -35,
+        "z": -30,
+        "ancho": 55,
+        "largo": 50
+      },
+      {
+        "nombre": "Restaurantes Alta Cocina",
+        "niveles": 3,
+        "tipo": "patrimonio_conservacion",
+        "x": 35,
+        "z": -30,
+        "ancho": 55,
+        "largo": 50
+      },
+      {
+        "nombre": "Residencial Rosales",
+        "niveles": 4,
+        "tipo": "residencial_lujo",
+        "x": -35,
+        "z": 35,
+        "ancho": 55,
+        "largo": 50
+      },
+      {
+        "nombre": "Bistró y Cafés Especialidad",
+        "niveles": 2,
+        "tipo": "ladrillo_chimenea",
+        "x": 35,
+        "z": 35,
+        "ancho": 55,
+        "largo": 50
+      }
+    ]
+  }
+}

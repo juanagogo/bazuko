@@ -4,6 +4,7 @@
 // Los botones inyectan las mismas teclas que el mando, de modo que el juego no tiene una lógica aparte para el dedo.
 import { BUTTON_KEYS, getGamepadContext, emitirTecla } from './Gamepad.js';
 import { modoEntrada, ponerModo } from './modoEntrada.js';
+import { enPantallaCompleta, puedePantallaCompleta } from './PantallaCompleta.js';
 
 const ZONA_MUERTA = .14;
 const TOPE = .86;              // el dedo no tiene que llegar hasta el aro para ir a toda
@@ -72,6 +73,7 @@ export const EN_MAS = [
   { id: 'foto', texto: 'Foto', tecla: 'F2', alSoltar: true },
   { id: 'radio', texto: 'Radio', tecla: tecla(12), alSoltar: true },
   { id: 'sonido', texto: 'Sonido', evento: 'audio-toggle' },
+  { id: 'pantalla', texto: 'Pantalla completa', evento: 'fullscreen-toggle', puede: () => puedePantallaCompleta() },
   { id: 'ayuda', texto: 'Ayuda', evento: 'open-pause-menu', detalle: { tab: 'controles' } },
 ];
 
@@ -522,6 +524,14 @@ export class TouchControls {
     if (sonido && silencio !== this._silencio) {
       this._silencio = silencio;
       sonido.textContent = silencio ? 'Con sonido' : 'Sin sonido';
+    }
+    const pantalla = this.botones.pantalla;
+    if (pantalla) {
+      const llena = enPantallaCompleta(this.doc);
+      if (llena !== this._pantalla) {
+        this._pantalla = llena;
+        pantalla.textContent = llena ? 'Salir de pantalla completa' : 'Pantalla completa';
+      }
     }
   }
 }

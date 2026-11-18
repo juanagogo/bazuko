@@ -25,6 +25,7 @@ public:
     void SetSignal(float signal) { m_Signal.store(signal); }   // 0 = solo estatica, 1 = sintonia perfecta
     void SetVolume(float volume) { m_Volume.store(volume); }   // volumen propio de la radio (0..1)
     bool IsOn() const { return m_On.load(); }
+    float Volume() const { return m_Volume.load(); }
 
     // Genera `frames` muestras mono. Con la radio apagada escribe silencio.
     void Render(float* out, size_t frames);

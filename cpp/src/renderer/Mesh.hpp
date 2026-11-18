@@ -38,6 +38,8 @@ public:
     static std::shared_ptr<Mesh> CreateCube(const glm::vec3& size = glm::vec3(1.0f), const glm::vec4& color = glm::vec4(1.0f));
     static std::shared_ptr<Mesh> CreateRoundedBox(const glm::vec3& size, float radius, uint32_t segments, const glm::vec4& color = glm::vec4(1.0f));
     static std::shared_ptr<Mesh> CreateCylinder(float radius, float depth, uint32_t radialSegments, const glm::vec4& color = glm::vec4(1.0f));
+    static std::shared_ptr<Mesh> CreateSphere(float radius, uint32_t segments, uint32_t rings, const glm::vec4& color = glm::vec4(1.0f));   // esfera centrada en el origen
+    static std::shared_ptr<Mesh> CreateCone(float radius, float height, uint32_t radialSegments, const glm::vec4& color = glm::vec4(1.0f));   // cono sobre el eje Y, centrado, con la punta arriba
     static std::shared_ptr<Mesh> CreatePlane(float width, float depth, const glm::vec4& color = glm::vec4(1.0f), float uvScale = 1.0f);
 
 private:

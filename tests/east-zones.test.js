@@ -126,8 +126,9 @@ test('basura y peatones también llegan al oriente, sin caer sobre la fuente ni 
     assert.ok(TOWERS.every(tower => !insideTower(tower, point.x, point.z)));
     assert.ok(city.isWalkableAt(point.x, point.z));
   }
-  const walkers = city.npcs.filter(npc => npc.position?.x > 240 || npc.home?.x > 240);
-  assert.ok(walkers.length >= 10, `peatones en el oriente: ${walkers.length}`);
+  // La gente sale con el reloj y rodea al jugador: el oriente tiene andenes donde nacer.
+  const eastSpots = city.crowd.streets.filter(node => node.x > 240);
+  assert.ok(eastSpots.length >= 50, `andenes del oriente: ${eastSpots.length}`);
   assert.equal(city.pigeonFlocks.length, 4);
   assert.ok(city.pigeonFlocks.some(flock => flock.birds[0].position.x > 240));
   assert.ok(city.getParkingSpots().some(spot => spot.x > 240));

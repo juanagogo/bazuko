@@ -79,6 +79,14 @@ function brazosCruzados(rig, m) {
   rig.curl('left', .62, .35);
 }
 
+/** De pie en un bus lleno: una mano arriba en el tubo, con los dedos cerrados, y el cuerpo ladeado por la marcha. */
+function agarrado(rig, m) {
+  rig.turn('head', 0, -.05, 0);
+  rig.reachArm('right', V(-.2, m.chest.y + .5, m.chest.z + .05), V(-.9, -.4, -.6));
+  rig.hand('right', V(.3, .4, .88), V(.1, .92, -.4));
+  rig.curl('right', .8, .75);
+}
+
 function telefono(rig, m) {
   rig.turn('neck', 0, 0, .05).turn('head', 0, 0, .06);
   const head = rig.where('head', V(0, 0, 0));
@@ -567,11 +575,35 @@ const mirar = yaw => rig => {
 // `arms`: peso sobre brazos y manos, para que el clip de debajo se siga notando. `anchored`: las manos
 // van con la cadera, no con el pecho, y al andar los brazos compensan lo que se inclina el tronco.
 // `steady`: la mano va delante de la cara o sostiene algo, y al andar el pecho gira menos para que no baile.
+/** Los pulgares en la pretina, a los lados de la cadera, listos para bajar o subir el pantalón. */
+function pretina(rig, m) {
+  for (const side of SIDES) {
+    const sign = SIGN[side];
+    rig.reachArm(side, V(sign * (m.hip.x + m.pocket + .015), m.pelvis.y + .035, m.hip.z + .02), V(sign * .9, -.05, -.45));
+    rig.hand(side, V(-sign * .1, -.98, -.1), V(-sign * .9, .05, .4));
+    rig.curl(side, .8, .6);
+  }
+}
+
+/** Inclinado, con las manos en las rodillas: el pantalón ya llegó abajo. */
+function pantalonRodillas(rig, m) {
+  // Se dobla desde la pose de pie (no desde la de atadura, que ya viene inclinada) y mira al frente.
+  lean(rig, 1.2).turn('neck', -.3, 0, 0).turn('head', -.2, 0, 0);
+  for (const side of SIDES) {
+    const sign = SIGN[side];
+    const knee = rig.where(`${side}Leg`, V(0, 0, 0));
+    rig.reachArm(side, V(knee.x + sign * .06, knee.y + .04, knee.z + .07), V(sign * .8, -.3, -.5));
+    rig.hand(side, V(-sign * .1, -.98, -.1), V(-sign * .9, .05, .4));
+    rig.curl(side, .8, .6);
+  }
+}
+
 const CATALOG = {
   // Lo que pide el diseño
   bolsillos: { pose: bolsillos, walk: true, anchored: true },
   'brazos-cruzados': { pose: brazosCruzados, walk: false },
   telefono: { pose: telefono, walk: true, steady: true },
+  agarrado: { pose: agarrado, walk: false, steady: true },
   celular: { pose: celular, walk: true, steady: true, alt: true, motion: { rate: .13 } },
   'manos-atras': { pose: manosAtras, walk: true, anchored: true },
   hablar: { pose: hablar, walk: false, alt: true, motion: { rate: .31 } },
@@ -596,7 +628,10 @@ const CATALOG = {
   encogido: { pose: encogido, walk: true, transition: .6 },
   'cambiar-peso': { pose: cambiarPeso, walk: false, hip: true, transition: .9 },
   'mirar-izquierda': { pose: mirar(1), walk: false, transition: .6 },
-  'mirar-derecha': { pose: mirar(-1), walk: false, transition: .6 }
+  'mirar-derecha': { pose: mirar(-1), walk: false, transition: .6 },
+  // Bajarse y subirse el pantalón para hacer popó (solo el jugador)
+  pretina: { pose: pretina, walk: false, transition: .3 },
+  'pantalon-rodillas': { pose: pantalonRodillas, walk: false, transition: .6 }
 };
 
 /** Dónde toca el piso la mano derecha al levantarse: lo que se le cayó queda a su alcance. */
@@ -764,6 +799,7 @@ function bakeStyle(rig) {
   };
   const forward = (key, share) => ({ ...axisOf(key, 1, 0, 0), share });
   const side = (key, share) => ({ ...axisOf(key, 0, 0, 1), share });
+  const twist = (key, share) => ({ ...axisOf(key, 0, 1, 0), share });
   const down = key => ({ boneName: rig.joints[key].name, quaternion: rig.joints[key].quaternion.clone() });
   const inShoulder = (arm, shoulder) => ({
     boneName: rig.joints[arm].name,
@@ -773,6 +809,8 @@ function bakeStyle(rig) {
     stoop: [forward('spine', .24), forward('spine1', .36), forward('spine2', .4), forward('neck', -.2), forward('head', -.12)],
     head: [forward('neck', .45), forward('head', .55)],
     sway: [side('spine', .5), side('spine1', .5), side('neck', -.35), side('head', -.25)],
+    hipYaw: [twist('hips', 1), twist('spine', -.5), twist('spine1', -.3), twist('spine2', -.2)],
+    hipRoll: [side('hips', 1), side('spine', -.5), side('spine1', -.3), side('spine2', -.2)],
     arms: ['leftArm', 'leftForeArm', 'rightArm', 'rightForeArm'].map(down),
     knee: down('rightLeg'),
     leanBack: [inShoulder('leftArm', 'leftShoulder'), inShoulder('rightArm', 'rightShoulder')]

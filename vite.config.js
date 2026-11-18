@@ -21,7 +21,11 @@ const distLigero = {
 
 export default defineConfig({
   server: { port: 5173, open: true },
-  build: { target: 'esnext', outDir: 'dist' },
+  build: {
+    target: 'esnext',
+    outDir: 'dist',
+    rollupOptions: { input: ['index.html', 'bolirana/index.html'] }
+  },
   assetsInclude: ['**/*.glb', '**/*.gltf', '**/*.ogg'],
   plugins: [distLigero]
 });

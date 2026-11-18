@@ -6,17 +6,19 @@ import { Bogota } from '../src/world/districts/Bogota.js';
 import { BusService } from '../src/world/bogota/BusService.js';
 import { CollisionSystem } from '../src/systems/CollisionSystem.js';
 
-test('la torre es alta, tiene tres franjas emisivas y bloquea el antiguo carril', () => {
+test('la torre es alta, tiene tres franjas emisivas y bloquea su manzana de Centro Internacional', () => {
   const tower = buildColpatria();
   assert.equal(new THREE.Box3().setFromObject(tower).max.y, COLPATRIA.height);
   assert.equal(tower.userData.lightMaterials.length, 3);
   assert.ok(tower.userData.lightMaterials.every(m => m.emissiveIntensity > 1));
   assert.ok(!tower.children.some(o => o.isLight));
   const city = new Bogota(); city.map = city._layout();
-  assert.equal(city.map[84][37], 'colpatria');
-  assert.equal(city.map[84][33], 'road');
+  const tx = Math.round(COLPATRIA.x / 2), tz = Math.round(COLPATRIA.z / 2);
+  assert.equal(city.map[tz][tx], 'colpatria');
+  assert.equal(city.map[tz][Math.round((COLPATRIA.x - COLPATRIA.width / 2) / 2) - 1], 'sidewalk', 'al occidente queda el andén de la Carrera 7');
+  assert.equal(city.map[tz][Math.round((COLPATRIA.x - COLPATRIA.width / 2) / 2) - 3], 'road', 'y luego la calzada de la Carrera 7');
   const collisions = new CollisionSystem(); city._buildCollisions(city.map, collisions);
-  assert.ok(collisions.colliders.some(({ box }) => box.containsPoint(new THREE.Vector3(75, 100, 168))));
+  assert.ok(collisions.colliders.some(({ box }) => box.containsPoint(new THREE.Vector3(COLPATRIA.x, 100, COLPATRIA.z))));
 });
 
 test('el conjunto tiene una torre ancha, acceso acristalado y anexo gris con colisión propia', () => {
@@ -24,17 +26,17 @@ test('el conjunto tiene una torre ancha, acceso acristalado y anexo gris con col
   const tower = buildColpatria({ createSign: options => { signs.push(options); return new THREE.Texture(); } });
   const body = tower.getObjectByName('Cuerpo de la torre');
   const size = new THREE.Box3().setFromObject(body).getSize(new THREE.Vector3());
-  assert.equal(size.x, 24); assert.equal(size.z, 26);
+  assert.equal(size.x, COLPATRIA.width); assert.equal(size.z, COLPATRIA.depth);
   assert.ok(tower.getObjectByName('Marquesina de acceso'));
   assert.ok(tower.getObjectByName('Columna del anexo'));
   const annex = tower.getObjectByName('Edificio anexo gris');
   assert.equal(new THREE.Box3().setFromObject(annex).max.y, COLPATRIA_ANNEX.height);
   assert.ok(signs.some(s => s.sub === 'EDIFICIO ANEXO'));
   const city = new Bogota(); city.map = city._layout();
-  assert.equal(city.map[84][49], 'colpatriaAnnex');
+  assert.equal(city.map[Math.round(COLPATRIA_ANNEX.z / 2)][Math.round(COLPATRIA_ANNEX.x / 2)], 'colpatriaAnnex');
   const collisions = new CollisionSystem(); city._buildCollisions(city.map, collisions);
-  assert.ok(collisions.colliders.some(({ box }) => box.containsPoint(new THREE.Vector3(98, 20, 168))));
-  assert.ok(!collisions.colliders.some(({ box }) => box.containsPoint(new THREE.Vector3(98, 30, 168))));
+  assert.ok(collisions.colliders.some(({ box }) => box.containsPoint(new THREE.Vector3(COLPATRIA_ANNEX.x, 20, COLPATRIA_ANNEX.z))));
+  assert.ok(!collisions.colliders.some(({ box }) => box.containsPoint(new THREE.Vector3(COLPATRIA_ANNEX.x, 30, COLPATRIA_ANNEX.z))));
 });
 
 test('el bus rodea la torre, gira sin saltos y evita los sólidos con toda su carrocería', () => {

@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import { beforeEach, test } from 'node:test';
 import * as THREE from 'three';
-import { StealSystem } from '../src/features/steal.js';
+import { MIRROR_RETRY_SECONDS, StealSystem } from '../src/features/steal.js';
 import { Car } from '../src/entities/Car.js';
 
 beforeEach(() => {
@@ -119,5 +119,37 @@ test('Alejarse del carro cancela el minijuego de retrovisor', () => {
   assert.equal(steal.minigameActive, false, 'Cancelado por distancia');
   assert.equal(car.used, false, 'No se robó el retrovisor');
 
+  car.dispose();
+});
+
+test('Fallar dos veces deja el carro sin poder intentarse enseguida', () => {
+  const car = fakeCar();
+  const game = { player: { position: new THREE.Vector3(0, 0, 1.2) }, paused: false };
+  const steal = new StealSystem(game);
+  steal.startMirrorTheft(car);
+  steal._handleMirrorKey(false);
+  steal._handleMirrorKey(false);
+
+  assert.equal(steal.minigameActive, false);
+  assert.equal(car.stealable, false, 'ya lo vieron: no hay segundo intento inmediato');
+  assert.equal(car.used, false, 'no se robó nada');
+  steal.startMirrorTheft(car);
+  assert.equal(steal.minigameActive, false, 'E sobre ese carro no abre otra barra');
+
+  car.update(MIRROR_RETRY_SECONDS + 1);
+  assert.equal(car.stealable, true, 'pasado el rato se puede volver a intentar');
+  car.dispose();
+});
+
+test('Junto a un carro al que se le limpia el vidrio, la Q no es del robo directo', () => {
+  const car = fakeCar({ traffic: true });
+  const game = { player: { position: new THREE.Vector3(0, 0, 1.2) }, paused: false,
+    interaction: { currentTargetType: 'car', currentTarget: car } };
+  const steal = new StealSystem(game);
+  assert.equal(steal._qOcupada(), true);
+  game.interaction.currentTarget = fakeCar({ traffic: false });
+  assert.equal(steal._qOcupada(), false, 'un parqueado no ocupa la Q');
+  game.interaction.currentTargetType = 'pickup';
+  assert.equal(steal._qOcupada(), true);
   car.dispose();
 });

@@ -12,7 +12,11 @@ export const STREET_VOICES = [
   { key: 'pirobito', file: 'calle_pirobito.mp3', text: 'Pirobito.', sexo: 'mujer', lufs: -15.3 },
   { key: 'enano', file: 'calle_enano_gonorrea.mp3', text: 'Enano gonorrea.', sexo: 'mujer', lufs: -12.9 },
   { key: 'medallo', file: 'calle_medallo.mp3', text: 'Medallo.', sexo: 'hombre', lufs: -11 },
-  { key: 'nacional', file: 'calle_un3snacional.mp3', text: 'Un 3 nacional.', sexo: 'hombre', lufs: -7.5 }
+  { key: 'nacional', file: 'calle_un3snacional.mp3', text: 'Un 3 nacional.', sexo: 'hombre', lufs: -7.5 },
+  { key: 'mamacita', file: 'calle_mamacita.mp3', text: 'Mamacita, todas somos perras porque a todas nos gusta que nos den por el mismo hueco. No se azare por eso, mi amor.', sexo: 'mujer', lufs: -14.2 },
+  { key: 'envidia', file: 'calle_mucha_envidia.mp3', text: '¿Mucha envidia o qué, perra?', sexo: 'mujer', lufs: -13.6 },
+  { key: 'besitos', file: 'calle_besitos.mp3', text: 'Besitos hasta donde no llega el sol, y cuando quiera, carechimba.', sexo: 'mujer', lufs: -13.9 },
+  { key: 'papasito', file: 'calle_papasito.mp3', text: 'Papasito.', sexo: 'mujer', lufs: -14.1 }
 ];
 
 /** Todas las voces del juego quedan a esta sonoridad: la de los conductores y el reclamo por robo (≈ -17,5). */

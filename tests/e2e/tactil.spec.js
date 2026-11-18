@@ -139,10 +139,11 @@ test.describe('con el dedo', () => {
     await readyGame(page, 'tap');
     const correr = page.locator('[data-accion="correr"]');
     await expect(correr).toHaveText('Correr');
-    await page.evaluate(() => { const r = window.__game.roadRage; r.update = () => {}; r.state = 'out'; });
+    // La furia vial expone `state` como getter: se ensombrece con una propiedad propia y se borra al final.
+    await page.evaluate(() => { Object.defineProperty(window.__game.roadRage, 'state', { value: 'out', configurable: true }); });
     await expect(correr).toHaveText('Corra');
     await expect(correr).toHaveClass(/tactil-boton--pilas/);
-    await page.evaluate(() => { const r = window.__game.roadRage; r.state = 'idle'; delete r.update; });
+    await page.evaluate(() => { delete window.__game.roadRage.state; });
     await expect(correr).toHaveText('Correr');
   });
 });

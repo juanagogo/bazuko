@@ -20,6 +20,16 @@ export class TrafficRoute {
     this.length = this.segments.reduce((sum, segment) => sum + segment.length, 0);
   }
 
+  /** Reparto de las dos filas del tramo en que va esa distancia (solo las vías de un carril lo traen). */
+  layoutAt(distance) {
+    let remaining = ((distance % this.length) + this.length) % this.length;
+    for (const segment of this.segments) {
+      if (remaining > segment.length) { remaining -= segment.length; continue; }
+      return segment.layout ?? null;
+    }
+    return this.segments.at(-1).layout ?? null;
+  }
+
   sample(distance, position, direction) {
     let remaining = ((distance % this.length) + this.length) % this.length;
     for (const segment of this.segments) {

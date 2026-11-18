@@ -5,7 +5,7 @@ import test, { mock } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
-import { ARCHETYPES, SHOE_TONES, SKIN_CLEARANCE, UNCOVERED_GARMENTS, garmentAllowed, rollPerson, skinDistance } from '../src/character/archetypes.js';
+import { ARCHETYPES, SHOE_TONES, SKIN_CLEARANCE, UNCOVERED_GARMENTS, garmentAllowed, hairSuitsSkin, rollPerson, skinDistance } from '../src/character/archetypes.js';
 import { SKIN_ALBEDO } from '../src/character/look.js';
 import { FAR_ACCESSORIES, attachStreetProps, swayStreetProps } from '../src/character/props.js';
 import { createRealisticCharacter, normalizeReal, optionsFor, randomReal } from '../src/character/RealisticCharacter.js';
@@ -150,15 +150,17 @@ test('el zapato de cuero sale negro, café oscuro o gris, y solo ese zapato llev
 test('el pelo rubio solo sale en piel clara y el cobrizo nunca en la más oscura', () => {
   const RUBIO = 4, COBRIZO = 3;
   for (const { piel, peloColor, arquetipo } of people) {
-    assert.ok(peloColor !== RUBIO || piel < 3, `${arquetipo}: rubio con piel ${piel}`);
-    assert.ok(peloColor !== COBRIZO || piel < 5, `${arquetipo}: cobrizo con piel ${piel}`);
+    assert.ok(hairSuitsSkin(peloColor, piel), `${arquetipo}: pelo ${peloColor} con piel ${piel}`);
+    assert.ok(peloColor !== RUBIO || [0, 1, 2, 6].includes(piel), `${arquetipo}: rubio con piel ${piel}`);
+    assert.ok(peloColor !== COBRIZO || ![5, 10, 11].includes(piel), `${arquetipo}: cobrizo con piel ${piel}`);
   }
 });
 
 test('las pieles oscuras reciben luz suficiente para que se les vea la cara, y siguen en orden de clara a oscura', () => {
   const light = ([r, g, b]) => .2126 * r + .7152 * g + .0722 * b;
   const shades = SKIN_ALBEDO.map(light);
-  shades.reduce((previous, shade) => { assert.ok(shade < previous, `${shades}`); return shade; });
+  shades.slice(0, 6).reduce((previous, shade) => { assert.ok(shade < previous, `${shades}`); return shade; });
+  for (const tone of [10, 11]) assert.ok(shades[tone] >= .07, `piel ${tone}: ${shades[tone]}`);
   assert.ok(shades[4] >= .1, `piel 4: ${shades[4]}`);
   assert.ok(shades[5] >= .07, `piel 5: ${shades[5]}`);
   assert.ok(shades[4] - shades[5] > .02, 'no son la misma piel');

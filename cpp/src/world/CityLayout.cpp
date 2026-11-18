@@ -218,6 +218,7 @@ void CityLayout::GenerateCityMap() {
     m_Data.dealer = point("dealer");
     m_Data.craft = point("craft");
     m_Data.shop = point("shop");
+    if (reserved.contains("comedor")) m_Data.comedor = point("comedor");
     for (const auto& vendor : json.at("vendors")) {
         m_Data.vendors.push_back({vendor.at("name").get<std::string>(), vendor.at("kind").get<std::string>(), vendor.at("x").get<float>(),
                                   vendor.at("z").get<float>(), vendor.at("rot").get<float>(), vendor.at("items").get<std::vector<std::string>>()});

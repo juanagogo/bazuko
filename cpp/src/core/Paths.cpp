@@ -9,6 +9,9 @@
   #include <windows.h>
 #elif defined(__linux__)
   #include <unistd.h>
+#elif defined(__APPLE__)
+  #include <mach-o/dyld.h>
+  #include <cstdint>
 #endif
 
 namespace fs = std::filesystem;
@@ -29,6 +32,14 @@ fs::path ExecutableDir(const char* argv0) {
     std::error_code ec;
     const fs::path p = fs::read_symlink("/proc/self/exe", ec);
     if (!ec) return p.parent_path();
+#elif defined(__APPLE__)
+    char buf[4096];
+    uint32_t size = sizeof(buf);
+    if (_NSGetExecutablePath(buf, &size) == 0) {
+        std::error_code ec;
+        const fs::path p = fs::weakly_canonical(fs::path(buf), ec);
+        if (!ec) return p.parent_path();
+    }
 #endif
     std::error_code ec2;
     if (argv0 && *argv0) return fs::weakly_canonical(fs::path(argv0), ec2).parent_path();
@@ -66,6 +77,10 @@ std::string Find(const std::string& relative) {
         if (parent == up) break;
         up = parent;
     }
+#if defined(__APPLE__)
+    // Bazuko.app: el ejecutable va en Contents/MacOS y assets/ y public/ en Contents/Resources
+    candidates.push_back(g_ExeDir.parent_path() / "Resources" / relative);
+#endif
     candidates.push_back(fs::current_path() / relative);
 #ifdef BAZUKO_SOURCE_DIR
     candidates.push_back(fs::path(BAZUKO_SOURCE_DIR) / relative);

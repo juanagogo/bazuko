@@ -1,5 +1,6 @@
 #include "Window.hpp"
 #include "../renderer/GL.hpp"
+#include "../renderer/GLCompat.hpp"
 #include "../core/Log.hpp"
 #include <GLFW/glfw3.h>
 #include <stdexcept>
@@ -14,9 +15,15 @@ Window::Window(const WindowConfig& config)
         throw std::runtime_error("Fallo al inicializar GLFW");
     }
 
-    // Configurar OpenGL 4.5 Core Profile
+    // OpenGL 4.5 Core; macOS se quedo en 4.1 Core y el renderer corre ahi por el camino de GLCompat (sin DSA ni SSBO)
+#if defined(__APPLE__)
+    glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
+    glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 1);   // solo contextos Core "forward compatible" (el hint de abajo); en Retina el framebuffer
+                                                     // es mas grande que la ventana, y el viewport ya usa glfwGetFramebufferSize
+#else
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 5);
+#endif
     glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
     glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GLFW_TRUE);
     glfwWindowHint(GLFW_SAMPLES, 4);   // suavizado de bordes (MSAA 4x)
@@ -30,7 +37,7 @@ Window::Window(const WindowConfig& config)
     m_Window = glfwCreateWindow(m_Width, m_Height, config.title.c_str(), nullptr, nullptr);
     if (!m_Window) {
         glfwTerminate();
-        throw std::runtime_error("Fallo al crear la ventana GLFW para OpenGL 4.5 Core");
+        throw std::runtime_error("Fallo al crear la ventana GLFW para OpenGL Core");
     }
 
     // Permitir redimensionar sin límite superior (pero con mínimo de 640x480)
@@ -47,18 +54,19 @@ Window::Window(const WindowConfig& config)
     glfwMakeContextCurrent(m_Window);
     glfwSwapInterval(config.vsync ? 1 : 0);
 
-    // Cargar funciones de OpenGL 4.5 con GLAD2
+    // Cargar funciones de OpenGL con GLAD2
     int version = gladLoadGL(glfwGetProcAddress);
     if (version == 0) {
         glfwDestroyWindow(m_Window);
         glfwTerminate();
-        throw std::runtime_error("Fallo al inicializar GLAD para OpenGL 4.5");
+        throw std::runtime_error("Fallo al inicializar GLAD");
     }
 
     LogInfo("OpenGL Context inicializado exitosamente: {}.{}", 
             GLAD_VERSION_MAJOR(version), GLAD_VERSION_MINOR(version));
     LogInfo("GPU: {}", reinterpret_cast<const char*>(glGetString(GL_RENDERER)));
 
+    GLCompat::Install();   // sin 4.5 (o con BAZUKO_GL41=1) las llamadas DSA pasan a sus equivalentes de 4.1
     EnableOpenGLDebug();
 
     glfwSetWindowUserPointer(m_Window, this);

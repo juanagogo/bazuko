@@ -65,7 +65,7 @@ test('el fogón del cambuche también baja de día, y el juego le avisa', () => 
   assert.ok(light.intensity > 2.5, `de noche ${light.intensity}`);
   shelter.dispose?.();
   const game = readFileSync(new URL('../src/core/game.js', import.meta.url), 'utf8');
-  assert.equal(game.match(/this\.cambuche\?\.setNight\(/g).length, 2, 'al entrar y al cambiar la hora');
+  assert.equal(game.match(/this\.cambuche\?\.setNight\(/g).length, 3, 'al entrar, al cambiar la hora y al despertar en la residencia');
 });
 
 test('nada del fogón del cambuche respira más rápido que medio ciclo por segundo', () => {

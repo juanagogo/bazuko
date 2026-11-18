@@ -163,8 +163,19 @@ inline const std::vector<CatalogPiece> ShoeOptions = {
     {"tenis", "Tenis", ""},
     {"tenis-rotos", "Tenis viejos", ""},
     {"zapatos", "Zapatos", ""},
-    {"botas", "Botas", ""}
+    {"botas", "Botas", ""},
+    {"descalzo", "Descalzo", ""}   // sin archivo: se ven los pies del cuerpo
 };
+
+// Lo que lleva en la cabeza (catalogo del personaje: cabeza)
+inline const std::vector<CatalogPiece> HeadOptions = {
+    {"sin-sombrero", "Nada", ""},
+    {"boina", "Boina", ""},
+    {"gorro-lana", "Gorro de lana", ""}
+};
+
+// Prendas que dejan al aire el torso o las piernas: ningun cuerpo joven las lleva (UNCOVERED_GARMENTS del original). No se negocia.
+inline bool GarmentUncovered(const std::string& ropa) { return ropa == "short" || ropa == "sudadera" || ropa == "rota"; }
 
 struct CharacterLook {
     std::string nombre = "Jairo";
@@ -175,10 +186,13 @@ struct CharacterLook {
     std::string barba = "candado";
     std::string ropa = "chaqueta";
     std::string calzado = "tenis-rotos";
+    std::string cabeza = "sin-sombrero";   // boina o gorro de lana
     int pielIdx = 2;        // 0..5 (Trigueña por defecto)
     int peloColorIdx = 0;   // 0..8 (Negro por defecto)
     int ropaColorIdx = 0;   // 0..12
     int calzadoColorIdx = 1;// 0..4 (Blanco sucio / gris)
+    bool baston = false;    // accesorios del creador (look.js ACCESSORIES): baston en la mano derecha
+    bool mochila = false;   // y mochila de viaje en la espalda
 };
 
 inline std::string CleanName(const std::string& raw) {
@@ -246,6 +260,7 @@ inline void NormalizeLook(CharacterLook& look) {
     if (!validClothes) {
         look.ropa = (look.sexo == "mujer") ? "blusa" : "chaqueta";
     }
+    if (look.edad == "joven" && GarmentUncovered(look.ropa)) look.ropa = (look.sexo == "mujer") ? "blusa" : "buzo";
 
     // Validar calzado
     bool validShoes = false;
@@ -253,6 +268,9 @@ inline void NormalizeLook(CharacterLook& look) {
         if (s.id == look.calzado) { validShoes = true; break; }
     }
     if (!validShoes) look.calzado = "tenis-rotos";
+    bool validHead = false;
+    for (const auto& h : HeadOptions) validHead = validHead || h.id == look.cabeza;
+    if (!validHead) look.cabeza = "sin-sombrero";
 
     // Clamps de paletas
     look.pielIdx = std::clamp(look.pielIdx, 0, static_cast<int>(SkinPalettes.size()) - 1);
@@ -295,6 +313,9 @@ inline CharacterLook RandomLook(std::mt19937& rng) {
 
     std::uniform_int_distribution<size_t> distShoes(0, ShoeOptions.size() - 1);
     look.calzado = ShoeOptions[distShoes(rng)].id;
+    std::uniform_int_distribution<int> distHat(0, 9);
+    const int hatRoll = distHat(rng);
+    look.cabeza = hatRoll < 6 ? "sin-sombrero" : hatRoll < 8 ? "boina" : "gorro-lana";
 
     std::uniform_int_distribution<int> distPiel(0, static_cast<int>(SkinPalettes.size()) - 1);
     look.pielIdx = distPiel(rng);
@@ -312,6 +333,52 @@ inline CharacterLook RandomLook(std::mt19937& rng) {
     return look;
 }
 
+// Estilos de calle listos para elegir en el creador (character/presets.js del original): combinaciones de piezas, colores y lo que
+// carga inspiradas en habitantes de calle reales. Cambian la apariencia sin tocar el nombre ni el origen.
+struct StreetPreset {
+    const char* id;
+    const char* label;
+    const char* desc;
+    int piel, peloColor;
+    const char *sexo, *edad, *pelo, *barba, *ropa, *calzado, *cabeza;
+    bool baston, mochila;
+};
+
+inline const std::array<StreetPreset, 6> StreetPresets = {{
+    {"sabio", "El Sabio", "Melena y barba largas, canosas. Chaqueta oscura curtida por los años de calle.",
+     2, 5, "hombre", "mayor", "largo", "larga", "chaqueta", "zapatos", "sin-sombrero", false, false},
+    {"banca", "Don de la banca", "Gorro de lana, barba blanca de varios días, chaqueta gruesa, botas y bastón.",
+     3, 6, "hombre", "mayor", "rapado", "descuidada", "chaqueta", "botas", "gorro-lana", true, false},
+    {"caminante", "El Caminante", "Pelo revuelto entrecano, bigote, descalzo, con bastón y mochila. Recorre la ciudad de punta a punta.",
+     4, 5, "hombre", "mayor", "desordenado", "bigote", "camisa", "descalzo", "sin-sombrero", true, true},
+    {"reciclador", "El Reciclador", "Camiseta rota, cargo lleno de bolsillos y tenis que ya no dan más.",
+     3, 0, "hombre", "adulto", "desordenado", "descuidada", "rota", "tenis-rotos", "sin-sombrero", false, false},
+    {"dona", "La Doña", "Pelo largo canoso y saco de lana para aguantar las noches bogotanas.",
+     2, 5, "mujer", "mayor", "largo", "ninguna", "saco", "botas", "sin-sombrero", false, false},
+    {"pelao", "El Pelao", "Joven, crespo, con el buzo de siempre. Lleva poco en la calle, pero ya se le nota.",
+     4, 0, "hombre", "joven", "crespo", "ninguna", "buzo", "tenis", "sin-sombrero", false, false},
+}};
+
+// Aplica un estilo de calle sin tocar la identidad (nombre y origen) ni los colores de ropa y calzado.
+inline void ApplyStreetPreset(CharacterLook& look, const StreetPreset& preset) {
+    look.sexo = preset.sexo; look.edad = preset.edad; look.pelo = preset.pelo; look.barba = preset.barba;
+    look.ropa = preset.ropa; look.calzado = preset.calzado; look.cabeza = preset.cabeza;
+    look.pielIdx = preset.piel; look.peloColorIdx = preset.peloColor;
+    look.baston = preset.baston; look.mochila = preset.mochila;
+    NormalizeLook(look);
+}
+
+// El estilo que coincide con la apariencia, o -1
+inline int MatchingStreetPreset(const CharacterLook& look) {
+    for (size_t i = 0; i < StreetPresets.size(); ++i) {
+        const StreetPreset& p = StreetPresets[i];
+        if (look.sexo == p.sexo && look.edad == p.edad && look.pelo == p.pelo && look.barba == p.barba && look.ropa == p.ropa && look.calzado == p.calzado
+            && look.cabeza == p.cabeza && look.pielIdx == p.piel && look.peloColorIdx == p.peloColor && look.baston == p.baston && look.mochila == p.mochila)
+            return static_cast<int>(i);
+    }
+    return -1;
+}
+
 inline void to_json(nlohmann::json& j, const CharacterLook& l) {
     j = nlohmann::json{
         {"nombre", l.nombre},
@@ -322,10 +389,13 @@ inline void to_json(nlohmann::json& j, const CharacterLook& l) {
         {"barba", l.barba},
         {"ropa", l.ropa},
         {"calzado", l.calzado},
+        {"cabeza", l.cabeza},
         {"pielIdx", l.pielIdx},
         {"peloColorIdx", l.peloColorIdx},
         {"ropaColorIdx", l.ropaColorIdx},
-        {"calzadoColorIdx", l.calzadoColorIdx}
+        {"calzadoColorIdx", l.calzadoColorIdx},
+        {"baston", l.baston},
+        {"mochila", l.mochila}
     };
 }
 
@@ -338,11 +408,42 @@ inline void from_json(const nlohmann::json& j, CharacterLook& l) {
     l.barba = j.value("barba", "candado");
     l.ropa = j.value("ropa", "chaqueta");
     l.calzado = j.value("calzado", "tenis-rotos");
+    l.cabeza = j.value("cabeza", "sin-sombrero");
     l.pielIdx = j.value("pielIdx", 2);
     l.peloColorIdx = j.value("peloColorIdx", 0);
     l.ropaColorIdx = j.value("ropaColorIdx", 0);
     l.calzadoColorIdx = j.value("calzadoColorIdx", 1);
+    l.baston = j.value("baston", false);
+    l.mochila = j.value("mochila", false);
     NormalizeLook(l);
+}
+
+// Apariencia en una linea corta (13 campos separados por |; los de antes mandan 12, sin sombrero) para mandarla a los demas jugadores; cabe de sobra en los 200 bytes de la red.
+inline std::string EncodeLook(const CharacterLook& look) {
+    const auto clean = [](std::string text) { for (char& c : text) if (c == '|') c = ' '; return text; };
+    return clean(look.nombre) + "|" + clean(look.origen) + "|" + clean(look.sexo) + "|" + clean(look.edad) + "|" + clean(look.pelo) + "|" + clean(look.barba) + "|" + clean(look.ropa) + "|" + clean(look.calzado)
+        + "|" + std::to_string(look.pielIdx) + "|" + std::to_string(look.peloColorIdx) + "|" + std::to_string(look.ropaColorIdx) + "|" + std::to_string(look.calzadoColorIdx) + "|" + clean(look.cabeza);
+}
+// Lee lo que llega de otro jugador: nunca se confia (se normaliza contra las opciones validas, igual que el guardado). false si no tiene la forma esperada.
+inline bool DecodeLook(const std::string& text, CharacterLook& look) {
+    std::vector<std::string> fields;
+    size_t start = 0;
+    for (;;) {
+        const size_t bar = text.find('|', start);
+        fields.push_back(text.substr(start, bar == std::string::npos ? std::string::npos : bar - start));
+        if (bar == std::string::npos) break;
+        start = bar + 1;
+    }
+    if (fields.size() != 12 && fields.size() != 13) return false;
+    CharacterLook decoded;
+    decoded.nombre = fields[0]; decoded.origen = fields[1]; decoded.sexo = fields[2]; decoded.edad = fields[3];
+    decoded.pelo = fields[4]; decoded.barba = fields[5]; decoded.ropa = fields[6]; decoded.calzado = fields[7];
+    const auto number = [](const std::string& value, int fallback) { try { return std::stoi(value); } catch (...) { return fallback; } };
+    decoded.pielIdx = number(fields[8], 2); decoded.peloColorIdx = number(fields[9], 0); decoded.ropaColorIdx = number(fields[10], 0); decoded.calzadoColorIdx = number(fields[11], 1);
+    if (fields.size() == 13) decoded.cabeza = fields[12];
+    NormalizeLook(decoded);
+    look = decoded;
+    return true;
 }
 
 } // namespace Bazuko

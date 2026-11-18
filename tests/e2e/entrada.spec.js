@@ -11,6 +11,30 @@ test('la carga se imprime en una tinta, escribe BAZUKO y no tiene barra ni porce
   await limpio(page);
   await page.route('**/src/core/game.js*', async route => { await new Promise(r => setTimeout(r, 2500)); await route.continue(); });
   await page.goto('/', { waitUntil: 'commit' });
+  const barra = page.locator('#loading-progress');
+  // La palabra va por reloj: avanza entre dos fotogramas sin que ninguna etapa haya terminado.
+  const avance = async () => Number(await barra.getAttribute('aria-valuenow'));
+  await page.locator('.carga__marca canvas, .carga__marca svg').first().waitFor({ timeout: 60_000 });
+  const primero = await avance();
+  await page.waitForTimeout(600);
+  expect(await avance()).toBeGreaterThan(primero);
+  // El trabajador releva al SVG: la tinta está en el lienzo y sigue creciendo sola.
+  await expect(page.locator('.carga__marca canvas:not([hidden])')).toHaveCount(1, { timeout: 60_000 });
+  const tinta = () => page.evaluate(() => {
+    const lienzo = document.querySelector('.carga__marca canvas');
+    const copia = document.createElement('canvas');
+    copia.width = lienzo.width; copia.height = lienzo.height;
+    const ctx = copia.getContext('2d');
+    ctx.drawImage(lienzo, 0, 0);
+    const datos = ctx.getImageData(0, 0, copia.width, copia.height).data;
+    let puntos = 0;
+    for (let i = 3; i < datos.length; i += 4) if (datos[i] > 8) puntos++;
+    return puntos;
+  });
+  const puntos = await tinta();
+  await page.waitForTimeout(400);
+  expect(puntos).toBeGreaterThan(0);
+  expect(await tinta()).toBeGreaterThan(puntos);
   await page.locator('.carga__arte').waitFor({ timeout: 60_000 });
   await expect(page.locator('#loading-status')).toHaveText('Un momentico');
   await expect(page.locator('#loading-screen progress, #loading-percent')).toHaveCount(0);
@@ -24,24 +48,18 @@ test('la carga se imprime en una tinta, escribe BAZUKO y no tiene barra ni porce
       puntos++;
       tintas.add(`${datos[i]},${datos[i + 1]},${datos[i + 2]}`);
     }
-    const lomos = [...document.querySelectorAll('.carga__lomo')];
-    return { tintas: [...tintas], puntos, total: datos.length / 4, escritos: lomos.filter(l => l.getAttribute('visibility') === 'visible').length, lomos: lomos.length };
+    return { tintas: [...tintas], puntos, total: datos.length / 4 };
   });
   expect(hoja.tintas).toEqual(['20,17,12']);
   expect(hoja.puntos / hoja.total).toBeGreaterThan(.05);
-  expect(hoja.escritos).toBeGreaterThan(0);
-  expect(hoja.escritos).toBeLessThan(hoja.lomos);
-  const barra = page.locator('#loading-progress');
   await expect(barra).toHaveRole('progressbar');
   await expect(page.locator('#creator-modal')).toBeVisible({ timeout: 120_000 });
   await expect(page.locator('#loading-screen')).toBeHidden();
-  const antes = Number(await barra.getAttribute('aria-valuenow'));
   await page.locator('#cr-name').fill('Luz Dary');
   await page.locator('#creator-done').click();
   await expect(page.locator('#loading-screen')).toBeHidden({ timeout: 120_000 });
   await expect(page.locator('#loading-screen .carga__arte')).toHaveCount(0);
-  expect(Number(await barra.getAttribute('aria-valuenow'))).toBeGreaterThan(antes);
-  expect(await page.locator('.carga__lomo[visibility="hidden"]').count()).toBe(0);
+  expect(Number(await barra.getAttribute('aria-valuenow'))).toBe(100);
 });
 
 test('si la carga falla lo dice corto y deja reintentar', async ({ page }) => {

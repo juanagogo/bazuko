@@ -1,0 +1,87 @@
+{
+  "id": "parque93",
+  "metadata": {
+    "nombre": "Parque de la 93 (Chicó)",
+    "bbox": [
+      4.6745,
+      -74.0535,
+      4.6785,
+      -74.0485
+    ],
+    "hitos": [
+      "Parque Central de la 93",
+      "Pérgolas y Escultura",
+      "Edificios Corporativos"
+    ],
+    "tipo": "parque_corporativo"
+  },
+  "dimensionesMetros": {
+    "ancho": 554,
+    "alto": 445
+  },
+  "origenGPS": {
+    "lat": 4.6765,
+    "lon": -74.051
+  },
+  "layout": {
+    "parqueCentral": {
+      "nombre": "Parque de la 93",
+      "x": 0,
+      "z": 0,
+      "ancho": 80,
+      "largo": 110,
+      "elementos": [
+        "escultura_metalica",
+        "fuente_iluminada",
+        "pergolas_modernas",
+        "urapanes_centenarios"
+      ]
+    },
+    "callePerimetro": {
+      "nombre": "Carrera 11A / Calle 93A",
+      "ancho": 12
+    },
+    "materialSuelo": "senderos_adoquin_y_pasto",
+    "iluminacion": "postes_modernos_led",
+    "seguridad": "patrullaje_frecuente",
+    "reciclajeBonus": "carton_embalaje_oficinas",
+    "manzanas": [
+      {
+        "nombre": "Torre Corporativa Vidrio Norte",
+        "niveles": 12,
+        "tipo": "curtain_wall_espejado",
+        "x": -55,
+        "z": -75,
+        "ancho": 70,
+        "largo": 35
+      },
+      {
+        "nombre": "Franja Gastronómica Norte",
+        "niveles": 3,
+        "tipo": "terrazas_juanvaldez",
+        "x": 30,
+        "z": -75,
+        "ancho": 60,
+        "largo": 35
+      },
+      {
+        "nombre": "Edificio Empresarial Sur",
+        "niveles": 14,
+        "tipo": "vidrio_acero",
+        "x": -55,
+        "z": 75,
+        "ancho": 70,
+        "largo": 35
+      },
+      {
+        "nombre": "Cafés y Bares Perímetro Sur",
+        "niveles": 3,
+        "tipo": "restaurantes_plaza",
+        "x": 30,
+        "z": 75,
+        "ancho": 60,
+        "largo": 35
+      }
+    ]
+  }
+}

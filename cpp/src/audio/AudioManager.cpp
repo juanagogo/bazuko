@@ -3,10 +3,15 @@
 #include <opusfile.h>
 
 #include "AudioManager.hpp"
+
+#include "StreetVoices.hpp"
+#include "SubstanceSynth.hpp"
 #include "../world/Simulation.hpp"
 
 #include <array>
 #include <algorithm>
+#include <map>
+#include <chrono>
 #include <cmath>
 #include <cstdlib>
 #include <ctime>
@@ -61,6 +66,8 @@ namespace {
 struct RadioSource {
     ma_data_source_base base;
     RadioSynth* synth = nullptr;
+    LiveStream* stream = nullptr;     // emisora en vivo (mono ya decodificada)
+    std::atomic<bool> live{false};    // true cuando suena la senal en vivo en vez de la sintesis
     ma_uint32 sampleRate = 48000;
     std::vector<float> mono;
 };
@@ -69,7 +76,14 @@ ma_result RadioRead(ma_data_source* source, void* out, ma_uint64 frameCount, ma_
     auto* radio = reinterpret_cast<RadioSource*>(source);
     auto* samples = static_cast<float*>(out);
     radio->mono.resize(static_cast<size_t>(frameCount));
-    radio->synth->Render(radio->mono.data(), static_cast<size_t>(frameCount));
+    if (radio->live.load() && radio->stream) {
+        // senal en vivo: lo que llego del flujo (si el buffer se queda corto, ese tramo va en silencio); apagada, calla
+        const size_t got = radio->stream->Read(radio->mono.data(), static_cast<size_t>(frameCount));
+        const float gain = radio->synth->IsOn() ? 0.9f * radio->synth->Volume() : 0.0f;
+        for (size_t frame = 0; frame < static_cast<size_t>(frameCount); ++frame) radio->mono[frame] = frame < got ? radio->mono[frame] * gain : 0.0f;
+    } else {
+        radio->synth->Render(radio->mono.data(), static_cast<size_t>(frameCount));
+    }
     for (ma_uint64 frame = 0; frame < frameCount; ++frame) {
         samples[frame * 2] = radio->mono[static_cast<size_t>(frame)];
         samples[frame * 2 + 1] = radio->mono[static_cast<size_t>(frame)];
@@ -89,6 +103,33 @@ ma_result RadioFormat(ma_data_source* source, ma_format* format, ma_uint32* chan
 }
 
 ma_data_source_vtable g_radioVtable = {RadioRead, nullptr, RadioFormat, nullptr, nullptr, nullptr, 0};
+
+// Fuente de datos de la capa sostenida de un efecto de consumo: pide muestras a SubstanceSustain (hilo de audio)
+struct SustainSource {
+    ma_data_source_base base;
+    SubstanceSustain* synth = nullptr;
+    ma_uint32 sampleRate = 48000;
+    std::vector<float> mono;
+};
+ma_result SustainRead(ma_data_source* source, void* out, ma_uint64 frameCount, ma_uint64* framesRead) {
+    auto* sustain = reinterpret_cast<SustainSource*>(source);
+    auto* samples = static_cast<float*>(out);
+    sustain->mono.resize(static_cast<size_t>(frameCount));
+    sustain->synth->Render(sustain->mono.data(), static_cast<size_t>(frameCount));
+    for (ma_uint64 frame = 0; frame < frameCount; ++frame) {
+        samples[frame * 2] = sustain->mono[static_cast<size_t>(frame)];
+        samples[frame * 2 + 1] = sustain->mono[static_cast<size_t>(frame)];
+    }
+    if (framesRead) *framesRead = frameCount;
+    return MA_SUCCESS;
+}
+ma_result SustainFormat(ma_data_source* source, ma_format* format, ma_uint32* channels, ma_uint32* sampleRate, ma_channel* channelMap, size_t channelMapCap) {
+    auto* sustain = reinterpret_cast<SustainSource*>(source);
+    *format = ma_format_f32; *channels = 2; *sampleRate = sustain->sampleRate;
+    if (channelMap) ma_channel_map_init_standard(ma_standard_channel_map_default, channelMap, channelMapCap, 2);
+    return MA_SUCCESS;
+}
+ma_data_source_vtable g_sustainVtable = {SustainRead, nullptr, SustainFormat, nullptr, nullptr, nullptr, 0};
 
 } // namespace
 
@@ -134,11 +175,17 @@ struct AudioManager::Impl {
         const float base = mix[static_cast<size_t>(category)];
         return (category == MixCategory::Traffic || category == MixCategory::Ambient) ? base * duck : base;
     }
-    bool AnyVoicePlaying() const {
+    bool AnyNonStreetVoicePlaying() const {
         for (const Sound& voice : driverVoices) if (voice.initialized && ma_sound_is_playing(&voice.value)) return true;
         for (const Sound& voice : theftVoices) if (voice.initialized && ma_sound_is_playing(&voice.value)) return true;
         return false;
     }
+    bool StreetPlaying() const { return streetIndex >= 0 && streetVoices[static_cast<size_t>(streetIndex)].initialized && ma_sound_is_playing(&streetVoices[static_cast<size_t>(streetIndex)].value); }
+    void StopStreet() {
+        if (streetIndex >= 0 && streetVoices[static_cast<size_t>(streetIndex)].initialized) ma_sound_stop(&streetVoices[static_cast<size_t>(streetIndex)].value);
+        streetIndex = -1;
+    }
+    bool AnyVoicePlaying() const { return AnyNonStreetVoicePlaying() || StreetPlaying(); }   // tambien las frases de la calle bajan el trafico y el ambiente
     int HornsPlaying() const {
         int count = 0;
         for (const Sound& horn : horns) if (horn.initialized && ma_sound_is_playing(&horn.value)) ++count;
@@ -146,7 +193,9 @@ struct AudioManager::Impl {
     }
     // Una sola voz a la vez: si ya suena otra frase, esta no entra
     bool PlayVoice(Sound& voice, float volume) {
-        if (!voice.initialized || AnyVoicePlaying()) return false;
+        if (!voice.initialized) return false;
+        StopStreet();   // un robo o un conductor hablan mas fuerte que la frase de la calle: la reclaman
+        if (AnyVoicePlaying()) return false;
         ma_sound_set_volume(&voice.value, volume * Level(MixCategory::Voices));
         ma_sound_seek_to_pcm_frame(&voice.value, 0);
         ma_sound_start(&voice.value);
@@ -163,11 +212,43 @@ struct AudioManager::Impl {
     Sound policeRadio;
     Sound heartbeat;
     std::unique_ptr<RadioSynth> radioSynth;
+    std::unique_ptr<LiveStream> liveStream;
+    std::string streamUrl, streamFailedUrl;
     RadioSource radioSource{};
     ma_sound radioSound{};
     bool radioReady = false;
     std::array<Sound, 12> driverVoices{};
     std::array<Sound, 5> theftVoices{};
+    std::array<Sound, 5> streetVoices{};   // frases de la calle (StreetVoices.hpp)
+    int streetIndex = -1;                  // cual suena ahora
+    // Efectos de consumo: los sonidos de consumir (un pequeno conjunto reutilizable), la capa sostenida y el filtro de agudos de todo lo demas
+    struct OnsetVoice { std::vector<float> samples; ma_audio_buffer buffer{}; ma_sound sound{}; bool initialized = false; std::string id; };
+    std::array<OnsetVoice, 4> onsetVoices{};
+    size_t nextOnset = 0;
+    std::map<std::string, double> lastOnsetAt;
+    std::unique_ptr<SubstanceSustain> sustain;
+    SustainSource sustainSource{};
+    ma_sound sustainSound{};
+    bool sustainReady = false, sustainMuffle = false;
+    ma_sound_group masterGroup{};
+    ma_lpf_node muffleNode{};
+    bool masterGroupReady = false, muffleReady = false;
+    float muffleHz = kMuffleOpenHz;
+    ma_sound_group* GroupPtr() { return masterGroupReady ? &masterGroup : nullptr; }   // todo suena por aqui menos los efectos de consumo
+    void StopSustainSound() {
+        if (!sustainReady) return;
+        ma_sound_stop(&sustainSound);
+        ma_sound_uninit(&sustainSound);
+        ma_data_source_uninit(&sustainSource.base);
+        sustain.reset(); sustainReady = false; sustainMuffle = false;
+        SetMuffle(kMuffleOpenHz);
+    }
+    void SetMuffle(float hz) {
+        if (!muffleReady || std::abs(hz - muffleHz) < 1.0f) return;
+        muffleHz = hz;
+        ma_lpf_node_config config = ma_lpf_node_config_init(ma_engine_get_channels(&engine), ma_engine_get_sample_rate(&engine), hz, 2);
+        ma_lpf_node_reinit(&config.lpf, &muffleNode);
+    }
     std::mt19937 random{std::random_device{}()};
 
     Impl() {
@@ -178,6 +259,19 @@ struct AudioManager::Impl {
         }
         ready = true;
         ma_engine_set_volume(&engine, masterVolume);
+        {   // todo el juego pasa por un grupo y un filtro pasa-bajos (abierto salvo con el pegante); los sonidos de los efectos de consumo van directo a los parlantes
+            if (ma_sound_group_init(&engine, 0, nullptr, &masterGroup) == MA_SUCCESS) {
+                masterGroupReady = true;
+                ma_lpf_node_config filter = ma_lpf_node_config_init(ma_engine_get_channels(&engine), ma_engine_get_sample_rate(&engine), kMuffleOpenHz, 2);
+                if (ma_lpf_node_init(ma_engine_get_node_graph(&engine), &filter, nullptr, &muffleNode) == MA_SUCCESS
+                    && ma_node_attach_output_bus(&masterGroup, 0, &muffleNode, 0) == MA_SUCCESS
+                    && ma_node_attach_output_bus(&muffleNode, 0, ma_engine_get_endpoint(&engine), 0) == MA_SUCCESS) {
+                    muffleReady = true;
+                } else if (!muffleReady) {   // si el filtro no se pudo armar, el grupo vuelve a salir directo
+                    ma_node_attach_output_bus(&masterGroup, 0, ma_engine_get_endpoint(&engine), 0);
+                }
+            }
+        }
         {
             // La radio suena siempre (en silencio si esta apagada): evita latencia al encenderla
             const ma_uint32 engineRate = ma_engine_get_sample_rate(&engine);
@@ -185,9 +279,11 @@ struct AudioManager::Impl {
             ma_data_source_config sourceConfig = ma_data_source_config_init();
             sourceConfig.vtable = &g_radioVtable;
             radioSource.synth = radioSynth.get();
+            liveStream = std::make_unique<LiveStream>(engineRate);
+            radioSource.stream = liveStream.get();
             radioSource.sampleRate = engineRate;
             if (ma_data_source_init(&sourceConfig, &radioSource.base) == MA_SUCCESS
-                && ma_sound_init_from_data_source(&engine, &radioSource.base, 0, nullptr, &radioSound) == MA_SUCCESS) {
+                && ma_sound_init_from_data_source(&engine, &radioSource.base, 0, GroupPtr(), &radioSound) == MA_SUCCESS) {
                 ma_sound_start(&radioSound);
                 radioReady = true;
             }
@@ -234,7 +330,7 @@ struct AudioManager::Impl {
                 continue;
             }
             Sound& sound = sounds[static_cast<size_t>(slot)];
-            const ma_result loadResult = ma_sound_init_from_file(&engine, path.c_str(), MA_SOUND_FLAG_DECODE, nullptr, nullptr, &sound.value);
+            const ma_result loadResult = ma_sound_init_from_file(&engine, path.c_str(), MA_SOUND_FLAG_DECODE, GroupPtr(), nullptr, &sound.value);
             if (loadResult != MA_SUCCESS) {
                 std::cerr << "Audio: no se pudo cargar " << path << ": " << ma_result_description(loadResult) << '\n';
                 continue;
@@ -293,6 +389,21 @@ struct AudioManager::Impl {
             const std::string filename = "roberto_robo_espejo_n" + std::to_string(i + 1) + ".mp3";
             LoadOptionalSound(theftVoices[i], filename.c_str());
         }
+        for (size_t i = 0; i < streetVoices.size(); ++i) LoadOptionalSound(streetVoices[i], StreetVoiceClips()[i].file);
+        if (std::getenv("BAZUKO_LOG_AUDIO")) {   // diagnostico: formato y nivel de cada frase de la calle (si el archivo estuviera mudo o mal decodificado)
+            for (size_t i = 0; i < streetVoices.size(); ++i) {
+                if (!streetVoices[i].initialized) { std::cerr << "Audio: frase de la calle " << i << " NO cargada\n"; continue; }
+                ma_format format; ma_uint32 channels = 0, rate = 0;
+                ma_sound_get_data_format(&streetVoices[i].value, &format, &channels, &rate, nullptr, 0);
+                ma_uint64 length = 0; ma_sound_get_length_in_pcm_frames(&streetVoices[i].value, &length);
+                std::vector<float> samples(static_cast<size_t>(std::min<ma_uint64>(length, 480000)) * std::max<ma_uint32>(channels, 1));
+                ma_uint64 read = 0;
+                if (format == ma_format_f32) ma_data_source_read_pcm_frames(ma_sound_get_data_source(&streetVoices[i].value), samples.data(), samples.size() / std::max<ma_uint32>(channels, 1), &read);
+                float peak = 0.0f; for (float s : samples) peak = std::max(peak, std::abs(s));
+                ma_sound_seek_to_pcm_frame(&streetVoices[i].value, 0);
+                std::cerr << "Audio: frase " << i << " formato " << format << " canales " << channels << " " << rate << " Hz, " << length << " cuadros, leidos " << read << ", pico " << peak << '\n';
+            }
+        }
         for (size_t i = 0; i < vehicleChannels.size(); ++i) {
             const bool bus = i >= MaxTrafficAudio;
             const char* idleFile = bus ? "car_idling_at_a_traf_bus.opus" : "car_idling_at_a_traf.opus";
@@ -319,7 +430,7 @@ struct AudioManager::Impl {
             return;
         }
         const ma_result result = ma_sound_init_from_file(&engine, path.c_str(), MA_SOUND_FLAG_DECODE,
-                                                          nullptr, nullptr, &sound.value);
+                                                          GroupPtr(), nullptr, &sound.value);
         if (result != MA_SUCCESS) {
             std::cerr << "Audio: no se pudo cargar " << path << ": " << ma_result_description(result) << '\n';
             return;
@@ -401,7 +512,7 @@ struct AudioManager::Impl {
         }
         sound.bufferInitialized = true;
         result = ma_sound_init_from_data_source(&engine, reinterpret_cast<ma_data_source*>(&sound.buffer),
-                                                0, nullptr, &sound.value);
+                                                0, GroupPtr(), &sound.value);
         if (result != MA_SUCCESS) {
             std::cerr << "Audio: no se pudo iniciar un buffer Opus: " << ma_result_description(result) << '\n';
             ma_audio_buffer_uninit(&sound.buffer);
@@ -463,7 +574,7 @@ struct AudioManager::Impl {
         }
         sound.bufferInitialized = true;
         result = ma_sound_init_from_data_source(&engine, reinterpret_cast<ma_data_source*>(&sound.buffer),
-                                                0, nullptr, &sound.value);
+                                                0, GroupPtr(), &sound.value);
         if (result != MA_SUCCESS) {
             std::cerr << "Audio: no se pudo iniciar un sonido vehicular: " << ma_result_description(result) << '\n';
             ma_audio_buffer_uninit(&sound.buffer);
@@ -534,6 +645,11 @@ struct AudioManager::Impl {
             if (carAlarm.bufferInitialized) ma_audio_buffer_uninit(&carAlarm.buffer);
             for (Sound& sound : driverVoices) if (sound.initialized) ma_sound_uninit(&sound.value);
             for (Sound& sound : theftVoices) if (sound.initialized) ma_sound_uninit(&sound.value);
+            for (Sound& sound : streetVoices) if (sound.initialized) ma_sound_uninit(&sound.value);
+            StopSustainSound();
+            for (OnsetVoice& voice : onsetVoices) if (voice.initialized) { ma_sound_uninit(&voice.sound); ma_audio_buffer_uninit(&voice.buffer); }
+            if (muffleReady) ma_lpf_node_uninit(&muffleNode, nullptr);
+            if (masterGroupReady) ma_sound_group_uninit(&masterGroup);
             ma_engine_uninit(&engine);
         }
     }
@@ -611,6 +727,39 @@ void AudioManager::UpdateRadio(bool on, RadioProgram program, float signal, floa
     m_Impl->radioSynth->SetVolume(volume);
 }
 
+size_t AudioManager::RadioStreamBuffered() const { return m_Impl && m_Impl->liveStream ? m_Impl->liveStream->BufferedFrames() : 0; }
+
+AudioManager::RadioStreamStatus AudioManager::UpdateRadioStream(const std::string& url, bool wanted, std::string* error) {
+    if (!m_Impl || !m_Impl->ready || !m_Impl->radioReady || !m_Impl->liveStream) return RadioStreamStatus::None;
+    Impl& impl = *m_Impl;
+    if (!wanted || url.empty()) {   // apagada la radio o una emisora sintetizada: la senal se suelta y la proxima vez se reintenta
+        if (!impl.streamUrl.empty()) { impl.radioSource.live = false; impl.liveStream->Stop(); impl.streamUrl.clear(); }
+        impl.streamFailedUrl.clear();
+        return RadioStreamStatus::None;
+    }
+    if (url != impl.streamUrl) {
+        impl.radioSource.live = false;
+        impl.liveStream->Stop();
+        impl.streamUrl = url;
+        if (url == impl.streamFailedUrl) return RadioStreamStatus::Failed;
+        impl.streamFailedUrl.clear();
+        impl.liveStream->Start(url);
+        return RadioStreamStatus::Connecting;
+    }
+    if (url == impl.streamFailedUrl) return RadioStreamStatus::Failed;
+    constexpr double kDeadlineSeconds = 15.0;   // el original da 15 s a una emisora en vivo para sonar
+    const LiveStream::State state = impl.liveStream->GetState();
+    if (state == LiveStream::State::Failed || (state == LiveStream::State::Connecting && impl.liveStream->SecondsSinceStart() > kDeadlineSeconds)) {
+        if (error) *error = state == LiveStream::State::Failed ? impl.liveStream->Error() : "sin senal a tiempo";
+        impl.radioSource.live = false;
+        impl.liveStream->Stop();
+        impl.streamFailedUrl = url;
+        return RadioStreamStatus::Failed;
+    }
+    if (state == LiveStream::State::Playing) { impl.radioSource.live = true; return RadioStreamStatus::Live; }
+    return RadioStreamStatus::Connecting;
+}
+
 void AudioManager::PlayHeartbeat(float intensity) {
     if (!m_Impl || !m_Impl->ready || m_Impl->muted || !m_Impl->heartbeat.initialized) return;
     ma_sound_set_volume(&m_Impl->heartbeat.value, std::clamp(0.4f + 0.6f * intensity, 0.0f, 1.0f) * m_Impl->Level(MixCategory::Effects));
@@ -630,6 +779,80 @@ void AudioManager::PlayTheftRemark(float distance) {
     }
 }
 
+void AudioManager::PlaySubstanceOnset(const std::string& id) {
+    if (!m_Impl || !m_Impl->ready || m_Impl->muted || !SubstanceHasSound(id)) return;
+    using Clock = std::chrono::steady_clock;
+    const double now = std::chrono::duration<double>(Clock::now().time_since_epoch()).count();
+    const auto last = m_Impl->lastOnsetAt.find(id);
+    if (last != m_Impl->lastOnsetAt.end() && now - last->second < kSubstanceOnsetGap) return;   // consumir varias veces seguidas no apila el sonido
+    m_Impl->lastOnsetAt[id] = now;
+    Impl::OnsetVoice& voice = m_Impl->onsetVoices[m_Impl->nextOnset];
+    m_Impl->nextOnset = (m_Impl->nextOnset + 1) % m_Impl->onsetVoices.size();
+    if (voice.initialized) { ma_sound_uninit(&voice.sound); ma_audio_buffer_uninit(&voice.buffer); voice.initialized = false; }
+    const ma_uint32 rate = ma_engine_get_sample_rate(&m_Impl->engine);
+    voice.samples = RenderSubstanceOnset(id, static_cast<float>(rate), static_cast<uint32_t>(now * 1000.0));
+    if (voice.samples.empty()) return;
+    ma_audio_buffer_config config = ma_audio_buffer_config_init(ma_format_f32, 1, voice.samples.size(), voice.samples.data(), nullptr);
+    config.sampleRate = rate;
+    if (ma_audio_buffer_init(&config, &voice.buffer) != MA_SUCCESS) return;
+    if (ma_sound_init_from_data_source(&m_Impl->engine, reinterpret_cast<ma_data_source*>(&voice.buffer), 0, nullptr, &voice.sound) != MA_SUCCESS) { ma_audio_buffer_uninit(&voice.buffer); return; }
+    voice.initialized = true; voice.id = id;
+    ma_sound_set_volume(&voice.sound, m_Impl->Level(MixCategory::Effects));
+    ma_sound_start(&voice.sound);
+}
+
+void AudioManager::StartSubstanceSustain(const std::string& id) {
+    if (!m_Impl || !m_Impl->ready || !SubstanceHasSound(id)) return;
+    m_Impl->StopSustainSound();
+    const ma_uint32 rate = ma_engine_get_sample_rate(&m_Impl->engine);
+    m_Impl->sustain = std::make_unique<SubstanceSustain>(id, static_cast<float>(rate), static_cast<uint32_t>(std::random_device{}()));
+    if (!m_Impl->sustain->Valid()) { m_Impl->sustain.reset(); return; }
+    ma_data_source_config sourceConfig = ma_data_source_config_init();
+    sourceConfig.vtable = &g_sustainVtable;
+    m_Impl->sustainSource.synth = m_Impl->sustain.get();
+    m_Impl->sustainSource.sampleRate = rate;
+    if (ma_data_source_init(&sourceConfig, &m_Impl->sustainSource.base) != MA_SUCCESS) { m_Impl->sustain.reset(); return; }
+    if (ma_sound_init_from_data_source(&m_Impl->engine, &m_Impl->sustainSource.base, 0, nullptr, &m_Impl->sustainSound) != MA_SUCCESS) {   // sin grupo: el filtro de agudos no la ahoga
+        ma_data_source_uninit(&m_Impl->sustainSource.base); m_Impl->sustain.reset(); return;
+    }
+    ma_sound_set_volume(&m_Impl->sustainSound, 0.0f);
+    ma_sound_start(&m_Impl->sustainSound);
+    m_Impl->sustainReady = true;
+    m_Impl->sustainMuffle = m_Impl->sustain->WantsMuffle();
+}
+
+void AudioManager::StopSubstanceSustain() { if (m_Impl) m_Impl->StopSustainSound(); }
+
+void AudioManager::UpdateSubstance(float intensity, bool paused) {
+    if (!m_Impl || !m_Impl->ready || !m_Impl->sustainReady) return;
+    const float volume = (paused || m_Impl->muted) ? 0.0f : intensity * m_Impl->Level(MixCategory::Effects);
+    ma_sound_set_volume(&m_Impl->sustainSound, volume);
+    m_Impl->SetMuffle(m_Impl->sustainMuffle ? SubstanceMuffleHz(intensity) : kMuffleOpenHz);
+}
+
+float AudioManager::PlayStreetVoice(size_t clip, float distanceVolume) {
+    if (!m_Impl || !m_Impl->ready || m_Impl->muted || clip >= m_Impl->streetVoices.size()) return 0.0f;
+    Impl::Sound& voice = m_Impl->streetVoices[clip];
+    if (!voice.initialized || m_Impl->AnyVoicePlaying()) return 0.0f;
+    ma_sound_set_volume(&voice.value, distanceVolume * m_Impl->Level(MixCategory::Voices));
+    ma_sound_seek_to_pcm_frame(&voice.value, 0);
+    ma_sound_start(&voice.value);
+    m_Impl->streetIndex = static_cast<int>(clip);
+    if (std::getenv("BAZUKO_LOG_AUDIO")) std::cerr << "Audio: frase " << clip << " sonando=" << ma_sound_is_playing(&voice.value) << " volumen " << ma_sound_get_volume(&voice.value) << " (distancia " << distanceVolume << ", mezcla " << m_Impl->Level(MixCategory::Voices) << ", general " << ma_engine_get_volume(&m_Impl->engine) << ")\n";
+    float seconds = 0.0f;
+    ma_sound_get_length_in_seconds(&voice.value, &seconds);
+    return std::max(seconds, 0.1f);
+}
+
+void AudioManager::SetStreetVoiceVolume(float distanceVolume) {
+    if (!m_Impl || m_Impl->streetIndex < 0) return;
+    ma_sound_set_volume(&m_Impl->streetVoices[static_cast<size_t>(m_Impl->streetIndex)].value, distanceVolume * m_Impl->Level(MixCategory::Voices));
+}
+
+void AudioManager::StopStreetVoice() { if (m_Impl) m_Impl->StopStreet(); }
+bool AudioManager::StreetVoicePlaying() const { return m_Impl && m_Impl->StreetPlaying(); }
+bool AudioManager::OtherVoicePlaying() const { return m_Impl && m_Impl->AnyNonStreetVoicePlaying(); }
+
 void AudioManager::PlayCarAlarm(float distance) {
     if (!m_Impl || !m_Impl->ready || m_Impl->muted || !m_Impl->carAlarm.initialized) return;
     ma_sound_stop(&m_Impl->carAlarm.value);
@@ -643,7 +866,7 @@ void AudioManager::UpdatePolice(const glm::vec3& listenerPosition, const std::ve
                                 const std::vector<PoliceSound>& events, bool paused) {
     if (!m_Impl || !m_Impl->ready) return;
     // Volumen segun la distancia: cae con el cuadrado hasta cero en el alcance de cada sonido (la sirena se oye lejos; la radio de un policia, solo cerca)
-    constexpr float kSirenRange = 110.0f, kStopRange = 90.0f, kRadioRange = 28.0f;
+    constexpr float kStopRange = 55.0f, kRadioRange = 28.0f;   // la sirena sigue la curva del original (SirenGain); su parada, el mismo alcance
     const auto reach = [](float distance, float range) {
         const float t = std::clamp(1.0f - distance / range, 0.0f, 1.0f);
         return t * t;
@@ -655,7 +878,7 @@ void AudioManager::UpdatePolice(const glm::vec3& listenerPosition, const std::ve
     for (size_t i = 0; i < m_Impl->sirens.size(); ++i) {
         auto& siren = m_Impl->sirens[i];
         if (!siren.initialized) continue;
-        const float volume = (!paused && !m_Impl->muted && i < distances.size()) ? 0.8f * reach(distances[i], kSirenRange) * m_Impl->Level(MixCategory::Traffic) : 0.0f;
+        const float volume = (!paused && !m_Impl->muted && i < distances.size()) ? 0.8f * SirenGain(distances[i]) * m_Impl->Level(MixCategory::Traffic) : 0.0f;
         if (volume <= 0.0005f) {
             if (ma_sound_is_playing(&siren.value)) ma_sound_stop(&siren.value);
             continue;
@@ -676,7 +899,7 @@ void AudioManager::UpdatePolice(const glm::vec3& listenerPosition, const std::ve
         const float distance = glm::distance(listenerPosition, event.position);
         const bool stop = event.kind == PoliceSound::Kind::Stop;
         auto& sound = stop ? m_Impl->sirenStop : m_Impl->policeRadio;
-        const float volume = stop ? 0.8f * reach(distance, kStopRange) * m_Impl->Level(MixCategory::Traffic)
+        const float volume = stop ? 0.8f * SirenGain(distance) * m_Impl->Level(MixCategory::Traffic)
                                   : 0.6f * reach(distance, kRadioRange) * m_Impl->Level(MixCategory::Effects);
         if (logAudio) std::cerr << "Audio: " << (stop ? "parada de sirena" : "radio policia") << " a " << distance << " m, volumen " << volume << '\n';
         if (!sound.initialized || volume <= 0.0005f) continue;
@@ -703,6 +926,7 @@ void AudioManager::UpdateVehicleAudio(float dt, const glm::vec3& listenerPositio
         if (m_Impl->carAlarm.initialized) ma_sound_stop(&m_Impl->carAlarm.value);
         for (auto& voice : m_Impl->driverVoices) if (voice.initialized) ma_sound_stop(&voice.value);
         for (auto& voice : m_Impl->theftVoices) if (voice.initialized) ma_sound_stop(&voice.value);
+        m_Impl->StopStreet();
         return;
     }
 

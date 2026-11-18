@@ -53,6 +53,12 @@ struct BirdFlockSettings {
     size_t onPoles = 16;
 };
 
+// Un jugador visto por las aves: `id` distingue su velocidad suavizada entre cuadros
+struct BirdPlayer {
+    uint32_t id = 0;
+    glm::vec3 position{0.0f};
+};
+
 // Bandada repartida por todo el mapa: se posa en el suelo, en arboles y en postes, vuela alto
 // de un sitio a otro y sale volando si el jugador (sobre todo corriendo) o un peaton se acerca.
 class BirdFlock {
@@ -64,6 +70,9 @@ public:
 
     // `disturbances`: posiciones XZ de peatones u otras amenazas que asustan a las aves del suelo.
     void Update(float dt, const glm::vec3& playerPosition, const std::vector<glm::vec2>& disturbances);
+    // Varios jugadores: cada uno asusta segun su propia velocidad (parado, caminando o corriendo) y las aves huyen del mas cercano.
+    // Con un solo jugador es identico a la sobrecarga de arriba.
+    void Update(float dt, const std::vector<BirdPlayer>& players, const std::vector<glm::vec2>& disturbances);
 
     const std::vector<Bird>& Birds() const { return m_Birds; }
     const std::vector<BirdSpot>& Spots() const { return m_Spots; }
@@ -82,9 +91,13 @@ private:
     std::vector<size_t> m_ElevatedSpots;  // indices de ramas y postes
     std::vector<Bird> m_Birds;
     std::vector<uint8_t> m_Flush;
-    glm::vec3 m_PreviousPlayer{0.0f};
-    float m_PlayerSpeed = 0.0f;
-    bool m_HasPreviousPlayer = false;
+    struct PlayerTrack {   // velocidad suavizada de cada jugador (distingue caminar de correr)
+        uint32_t id = 0;
+        glm::vec3 previous{0.0f};
+        float speed = 0.0f;
+    };
+    std::vector<PlayerTrack> m_Tracks;
+    float m_PlayerSpeed = 0.0f;   // la del primer jugador: lo que consulta PlayerSpeed()
 };
 
 } // namespace Bazuko

@@ -68,6 +68,8 @@ const porHambre = (causa, stats) => causa === 'hambre' || (!causa && stats?.hamb
 export function tituloDeMuerte(causa, stats) {
   if (causa === 'atropello') return 'Me atropellaron';
   if (causa === 'golpiza') return 'Te cascaron';
+  if (causa === 'tiro') return 'Me dieron un tiro';
+  if (causa === 'cuchillada') return 'Me pincharon';
   if (causa === 'limpieza') return 'Te mató la limpieza social';
   if (causa === 'pelea') return 'Me mataron a golpes';
   if (causa === 'enfermedad') return 'Me mató la enfermedad';
@@ -81,6 +83,7 @@ export function consejoDeMuerte(causa, stats) {
   if (causa === 'limpieza') return null;
   if (causa === 'atropello') return 'Mire a los dos lados antes de cruzar: un carro no frena de una.';
   if (causa === 'golpiza') return 'Si un conductor se baja con la varilla, córrale y no pare.';
+  if (causa === 'tiro' || causa === 'cuchillada') return 'Con un ladrón armado, entregue rápido y sin moverse: la plata se recupera, la salud no.';
   if (causa === 'pelea') return 'Con poca salud no se arriesgue: quien se defiende pega duro.';
   if (causa === 'enfermedad') return 'Busque un remedio antes de que el cuerpo no dé más.';
   if (porSed(causa, stats)) return 'Busque agua antes de que el cuerpo no dé más.';

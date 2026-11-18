@@ -1,0 +1,1247 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Metro de Bogotá × Bazuko — Tablero Entregable de Pantallas (Figma Spec)</title>
+  <style>
+    @font-face {
+      font-family: 'DiosLePague';
+      src: url('/fuente/DiosLePague.woff2') format('woff2');
+      font-weight: normal;
+      font-style: normal;
+    }
+
+    :root {
+      --bg-canvas: #12100e;
+      --bg-cardboard: #1A1714;
+      --bg-kraft: #2A241E;
+      --bg-slate: #332E2A;
+      --text-chalk: #F4EFE6;
+      --text-muted: #B7ADA1;
+      --metro-red: #D9232A;
+      --metro-gold: #F2A900;
+      --transit-amber: #D89A3C;
+      --alert-orange: #C84B31;
+      --active-green: #4E8C52;
+      --font-bazuko: 'DiosLePague', 'Impact', 'Arial Black', sans-serif;
+      --font-mono: 'Consolas', 'Courier New', monospace;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      background-color: var(--bg-canvas);
+      background-image: 
+        radial-gradient(rgba(244, 239, 230, 0.12) 1px, transparent 1px),
+        linear-gradient(to right, rgba(255, 255, 255, 0.025) 1px, transparent 1px),
+        linear-gradient(to bottom, rgba(255, 255, 255, 0.025) 1px, transparent 1px);
+      background-size: 24px 24px, 120px 120px, 120px 120px;
+      color: var(--text-chalk);
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      overflow-x: hidden;
+    }
+
+    /* Top Figma-like Toolbar */
+    .figma-topbar {
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      height: 54px;
+      background: #1e1b18;
+      border-bottom: 2px solid #3a332c;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 20px;
+      box-shadow: 0 6px 20px rgba(0, 0, 0, 0.5);
+    }
+
+    .topbar-left {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+    }
+
+    .metro-badge {
+      background: var(--metro-red);
+      color: #fff;
+      font-family: var(--font-bazuko);
+      font-weight: 900;
+      padding: 5px 12px;
+      border-radius: 4px;
+      border: 2px solid var(--text-chalk);
+      letter-spacing: 1px;
+      font-size: 14px;
+      text-transform: uppercase;
+    }
+
+    .file-title {
+      font-size: 15px;
+      font-weight: 700;
+      color: var(--text-chalk);
+    }
+
+    .file-subtitle {
+      font-size: 12px;
+      color: var(--transit-amber);
+      background: rgba(216, 154, 60, 0.14);
+      padding: 3px 8px;
+      border-radius: 4px;
+      border: 1px solid rgba(216, 154, 60, 0.4);
+    }
+
+    .topbar-nav {
+      display: flex;
+      gap: 8px;
+    }
+
+    .nav-pill {
+      background: var(--bg-kraft);
+      color: var(--text-chalk);
+      border: 1px solid #4a4037;
+      padding: 6px 12px;
+      border-radius: 6px;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.15s ease;
+      text-decoration: none;
+    }
+
+    .nav-pill:hover, .nav-pill.active {
+      background: var(--metro-red);
+      border-color: var(--text-chalk);
+      color: #fff;
+    }
+
+    /* Main Workspace Layout */
+    .workspace {
+      display: grid;
+      grid-template-columns: 270px 1fr;
+      min-height: calc(100vh - 54px);
+    }
+
+    /* Left Layers & Design Tokens Sidebar */
+    .sidebar {
+      background: #181512;
+      border-right: 2px solid #332E2A;
+      padding: 18px 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+    }
+
+    .sidebar-section h3 {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 1.4px;
+      color: var(--transit-amber);
+      margin-bottom: 10px;
+      border-bottom: 1px solid #2e2924;
+      padding-bottom: 6px;
+    }
+
+    .layer-list {
+      list-style: none;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .layer-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 7px 10px;
+      border-radius: 5px;
+      font-size: 12px;
+      color: var(--text-chalk);
+      background: rgba(255, 255, 255, 0.03);
+      border: 1px solid transparent;
+      cursor: pointer;
+    }
+
+    .layer-item:hover {
+      border-color: var(--transit-amber);
+      background: rgba(216, 154, 60, 0.08);
+    }
+
+    .layer-icon {
+      color: var(--metro-gold);
+      font-family: var(--font-mono);
+      font-weight: bold;
+    }
+
+    .swatch-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+    }
+
+    .swatch {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      background: #221e1a;
+      padding: 6px;
+      border-radius: 5px;
+      border: 1px solid #36302a;
+      font-size: 11px;
+    }
+
+    .swatch-color {
+      width: 20px;
+      height: 20px;
+      border-radius: 3px;
+      border: 1px solid rgba(255, 255, 255, 0.35);
+      flex-shrink: 0;
+    }
+
+    .swatch-info {
+      display: flex;
+      flex-direction: column;
+      line-height: 1.15;
+    }
+
+    .swatch-hex {
+      font-family: var(--font-mono);
+      font-size: 10px;
+      color: var(--text-muted);
+    }
+
+    /* Artboards Canvas Container */
+    .canvas-area {
+      padding: 32px;
+      display: flex;
+      flex-direction: column;
+      gap: 44px;
+    }
+
+    /* Artboard Wrapper */
+    .artboard-wrapper {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .artboard-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .artboard-label {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-family: var(--font-mono);
+      font-size: 13px;
+      color: var(--metro-gold);
+      font-weight: 700;
+    }
+
+    .artboard-dim {
+      font-size: 11px;
+      color: var(--text-muted);
+      background: #231f1b;
+      padding: 2px 8px;
+      border-radius: 4px;
+      border: 1px solid #3b342d;
+    }
+
+    /* Frame Base ("Cartón y Marcador" aesthetic) */
+    .artboard-frame {
+      width: 100%;
+      max-width: 1280px;
+      min-height: 680px;
+      background: var(--bg-cardboard);
+      border: 3px solid var(--text-chalk);
+      border-radius: 8px;
+      box-shadow: 
+        10px 10px 0px #090807,
+        inset 0 0 80px rgba(0, 0, 0, 0.65);
+      position: relative;
+      overflow: hidden;
+      padding: 28px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+    }
+
+    .cardboard-panel {
+      background: var(--bg-kraft);
+      border: 2px solid var(--text-chalk);
+      border-radius: 6px;
+      box-shadow: 5px 5px 0px rgba(0, 0, 0, 0.65);
+      padding: 18px;
+    }
+
+    .bazuko-title {
+      font-family: var(--font-bazuko);
+      letter-spacing: 1.5px;
+      text-transform: uppercase;
+    }
+
+    /* =====================================================
+       FRAME 01: MAPA INTERACTIVO LÍNEA 1 & SELECCIÓN ESTACIÓN
+       ===================================================== */
+    .f1-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      border-bottom: 3px solid var(--text-chalk);
+      padding-bottom: 16px;
+      position: relative;
+      z-index: 2;
+    }
+
+    .f1-brand {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+
+    .f1-logo-box {
+      width: 58px;
+      height: 58px;
+      background: var(--metro-red);
+      border: 3px solid var(--text-chalk);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-family: var(--font-bazuko);
+      font-size: 32px;
+      font-weight: 900;
+      box-shadow: 4px 4px 0 #000;
+    }
+
+    .line-map-container {
+      margin: 22px 0;
+      background: #14110f;
+      border: 2px solid var(--text-chalk);
+      border-radius: 8px;
+      padding: 32px 28px;
+      position: relative;
+      z-index: 2;
+    }
+
+    .route-track {
+      position: relative;
+      height: 14px;
+      background: linear-gradient(90deg, var(--metro-red) 0%, var(--metro-red) 70%, #4d433b 70%, #4d433b 100%);
+      border: 2px solid var(--text-chalk);
+      border-radius: 99px;
+      margin: 55px 20px;
+    }
+
+    .stations-row {
+      position: absolute;
+      top: -18px;
+      left: 0;
+      right: 0;
+      display: flex;
+      justify-content: space-between;
+    }
+
+    .station-node {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      cursor: pointer;
+      width: 130px;
+      text-align: center;
+    }
+
+    .station-dot {
+      width: 34px;
+      height: 34px;
+      border-radius: 50%;
+      background: var(--bg-cardboard);
+      border: 4px solid var(--text-chalk);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 900;
+      font-size: 13px;
+      transition: transform 0.15s ease;
+      box-shadow: 0 4px 10px rgba(0,0,0,0.8);
+    }
+
+    .station-node.completed .station-dot {
+      background: var(--metro-red);
+    }
+
+    .station-node.current .station-dot {
+      background: var(--metro-gold);
+      color: #1A1714;
+      transform: scale(1.25);
+      box-shadow: 0 0 0 6px rgba(242, 169, 0, 0.28);
+    }
+
+    .station-name {
+      margin-top: 12px;
+      font-family: var(--font-bazuko);
+      font-size: 15px;
+      color: var(--text-chalk);
+    }
+
+    .station-sub {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: var(--transit-amber);
+      margin-top: 3px;
+    }
+
+    .f1-bottom-grid {
+      display: grid;
+      grid-template-columns: 1.45fr 1fr 1fr;
+      gap: 18px;
+      position: relative;
+      z-index: 2;
+    }
+
+    .btn-action {
+      background: var(--active-green);
+      color: var(--text-chalk);
+      border: 3px solid var(--text-chalk);
+      padding: 14px 20px;
+      font-family: var(--font-bazuko);
+      font-size: 20px;
+      cursor: pointer;
+      box-shadow: 5px 5px 0 #000;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      text-transform: uppercase;
+    }
+
+    .btn-action.danger {
+      background: var(--alert-orange);
+    }
+
+    .btn-action.amber {
+      background: var(--transit-amber);
+      color: #1A1714;
+    }
+
+    /* =====================================================
+       FRAME 02: PANTALLA LED DE ANDÉN (PID OVERHEAD DISPLAY)
+       ===================================================== */
+    .pid-frame-bg {
+      background-image: linear-gradient(rgba(18, 16, 14, 0.78), rgba(18, 16, 14, 0.88)), url('/metro-assets/metro_station_interior.jpg');
+      background-size: cover;
+      background-position: center;
+    }
+
+    .pid-housing {
+      background: rgba(16, 14, 13, 0.96);
+      border: 4px solid #756a5f;
+      border-radius: 10px;
+      padding: 22px;
+      box-shadow: inset 0 0 30px #000, 0 14px 28px rgba(0,0,0,0.85);
+    }
+
+    .pid-led-matrix {
+      background: #0b0a09;
+      border: 2px solid #2e2924;
+      padding: 24px;
+      font-family: var(--font-mono);
+      background-image: radial-gradient(rgba(242, 169, 0, 0.08) 1px, transparent 0);
+      background-size: 4px 4px;
+    }
+
+    .pid-top-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      border-bottom: 2px dashed #3a332c;
+      padding-bottom: 18px;
+      margin-bottom: 20px;
+    }
+
+    .pid-dest {
+      font-size: 36px;
+      font-weight: 900;
+      color: var(--metro-gold);
+      text-shadow: 0 0 12px rgba(242, 169, 0, 0.55);
+      letter-spacing: 2px;
+    }
+
+    .pid-timer-box {
+      background: #1c160e;
+      border: 2px solid var(--metro-gold);
+      padding: 10px 22px;
+      text-align: right;
+    }
+
+    .pid-timer {
+      font-size: 42px;
+      font-weight: 900;
+      color: #4eff6b;
+      text-shadow: 0 0 12px rgba(78, 255, 107, 0.5);
+    }
+
+    .wagons-occupancy {
+      display: grid;
+      grid-template-columns: repeat(6, 1fr);
+      gap: 10px;
+      margin: 22px 0;
+    }
+
+    .wagon-box {
+      background: #1b1815;
+      border: 2px solid var(--text-chalk);
+      border-top: 6px solid var(--metro-red);
+      padding: 12px;
+      text-align: center;
+      border-radius: 4px;
+    }
+
+    .occ-bar {
+      height: 10px;
+      border-radius: 3px;
+      margin-top: 8px;
+    }
+
+    .ticker-tape {
+      background: var(--metro-red);
+      color: #fff;
+      padding: 10px 16px;
+      font-family: var(--font-mono);
+      font-weight: 700;
+      font-size: 15px;
+      border: 2px solid var(--text-chalk);
+      display: flex;
+      justify-content: space-between;
+    }
+
+    /* =====================================================
+       FRAME 03: MÁQUINA DE RECARGA / TORNIQUETE MODAL
+       ===================================================== */
+    .kiosk-frame-bg {
+      background-image: linear-gradient(rgba(22, 19, 16, 0.80), rgba(22, 19, 16, 0.88)), url('/metro-assets/metro_station_interior.jpg');
+      background-size: cover;
+      background-position: left bottom;
+    }
+
+    .kiosk-grid {
+      display: grid;
+      grid-template-columns: 1fr 1.25fr;
+      gap: 24px;
+      flex: 1;
+      margin-top: 18px;
+      position: relative;
+      z-index: 2;
+    }
+
+    .tullave-card {
+      background: linear-gradient(135deg, var(--metro-red) 0%, #8f1116 65%, var(--metro-gold) 100%);
+      border: 3px solid var(--text-chalk);
+      border-radius: 12px;
+      padding: 22px;
+      box-shadow: 6px 6px 0 #000;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      min-height: 210px;
+    }
+
+    .balance-screen {
+      background: #0f1711;
+      border: 3px solid #4E8C52;
+      padding: 18px;
+      font-family: var(--font-mono);
+      color: #6dff86;
+      border-radius: 6px;
+      margin-top: 14px;
+    }
+
+    .kiosk-options {
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+
+    .kiosk-option-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      background: rgba(51, 46, 42, 0.95);
+      border: 2px solid var(--text-chalk);
+      padding: 16px 20px;
+      border-radius: 6px;
+      box-shadow: 4px 4px 0 #000;
+    }
+
+    /* =====================================================
+       FRAME 04: HUD EN VIAJE (IN-TRANSIT GAMEPLAY OVERLAY)
+       ===================================================== */
+    .hud-viewport {
+      background-image: linear-gradient(180deg, rgba(15, 13, 12, 0.35) 0%, rgba(15, 13, 12, 0.08) 50%, rgba(15, 13, 12, 0.65) 100%), url('/metro-assets/metro_viaduct_caracas.jpg');
+      background-size: cover;
+      background-position: center;
+      position: relative;
+      min-height: 720px;
+    }
+
+    .hud-top-bar {
+      position: relative;
+      z-index: 2;
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+    }
+
+    .hud-bottom-bar {
+      position: relative;
+      z-index: 2;
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-end;
+    }
+
+    .speedometer-card {
+      background: rgba(26, 23, 20, 0.94);
+      border: 3px solid var(--text-chalk);
+      padding: 18px 24px;
+      border-radius: 8px;
+      box-shadow: 6px 6px 0 #000;
+      min-width: 340px;
+    }
+
+    .speed-val {
+      font-family: var(--font-bazuko);
+      font-size: 54px;
+      color: var(--metro-gold);
+      line-height: 1;
+    }
+
+    /* =====================================================
+       FRAME 05: BLUEPRINT ORTOGONAL Y MOCKUPS 3D
+       ===================================================== */
+    .blueprint-hero {
+      background: #141210;
+      border: 3px solid var(--text-chalk);
+      border-radius: 8px;
+      overflow: hidden;
+      margin: 18px 0;
+      box-shadow: 6px 6px 0 #000;
+    }
+
+    .blueprint-hero img {
+      width: 100%;
+      max-height: 540px;
+      object-fit: contain;
+      display: block;
+      background: #1a1817;
+    }
+
+    .renders-two-col {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 22px;
+      margin-top: 10px;
+    }
+
+    .render-card {
+      background: var(--bg-kraft);
+      border: 2px solid var(--text-chalk);
+      border-radius: 6px;
+      overflow: hidden;
+      box-shadow: 5px 5px 0 #000;
+    }
+
+    .render-card img {
+      width: 100%;
+      height: 340px;
+      object-fit: cover;
+      display: block;
+      border-bottom: 2px solid var(--text-chalk);
+      background: #14110f;
+    }
+
+    .render-card-body {
+      padding: 14px 16px;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- BARRA SUPERIOR ESTILO FIGMA -->
+  <header class="figma-topbar">
+    <div class="topbar-left">
+      <span class="metro-badge">METRO BOGOTÁ · L1</span>
+      <span class="file-title">Bazuko_Metro_Bogota_UI_Kit_&_Mockups.fig</span>
+      <span class="file-subtitle">Sistema "Cartón y Marcador" · 5 Artboards 1920×1080 + Renders Reales Integrados</span>
+    </div>
+    <nav class="topbar-nav">
+      <a href="#frame-1" class="nav-pill active">01 · Mapa Línea 1</a>
+      <a href="#frame-2" class="nav-pill">02 · Pantalla LED Andén</a>
+      <a href="#frame-3" class="nav-pill">03 · Torniquete / Taquilla</a>
+      <a href="#frame-4" class="nav-pill">04 · HUD en Viaje</a>
+      <a href="#frame-5" class="nav-pill">05 · Blueprint & Mockups</a>
+    </nav>
+  </header>
+
+  <div class="workspace">
+    <!-- PANEL IZQUIERDO DE CAPAS Y DESIGN TOKENS -->
+    <aside class="sidebar">
+      <div class="sidebar-section">
+        <h3>Páginas & Frames (Figma)</h3>
+        <ul class="layer-list">
+          <li class="layer-item" onclick="location.href='#frame-1'">
+            <span class="layer-icon">#</span> 01_Mapa_Linea1_Seleccion
+          </li>
+          <li class="layer-item" onclick="location.href='#frame-2'">
+            <span class="layer-icon">#</span> 02_PID_Pantalla_LED_Anden
+          </li>
+          <li class="layer-item" onclick="location.href='#frame-3'">
+            <span class="layer-icon">#</span> 03_Torniquete_Taquilla_COP
+          </li>
+          <li class="layer-item" onclick="location.href='#frame-4'">
+            <span class="layer-icon">#</span> 04_HUD_Viaje_Viaducto
+          </li>
+          <li class="layer-item" onclick="location.href='#frame-5'">
+            <span class="layer-icon">❖</span> 05_Blueprint_&_Mockups_3D
+          </li>
+        </ul>
+      </div>
+
+      <div class="sidebar-section">
+        <h3>Design Tokens (Colores)</h3>
+        <div class="swatch-grid">
+          <div class="swatch">
+            <span class="swatch-color" style="background:#D9232A"></span>
+            <div class="swatch-info">
+              <strong>Rojo Metro</strong>
+              <span class="swatch-hex">#D9232A</span>
+            </div>
+          </div>
+          <div class="swatch">
+            <span class="swatch-color" style="background:#F2A900"></span>
+            <div class="swatch-info">
+              <strong>Oro Bogotá</strong>
+              <span class="swatch-hex">#F2A900</span>
+            </div>
+          </div>
+          <div class="swatch">
+            <span class="swatch-color" style="background:#1A1714"></span>
+            <div class="swatch-info">
+              <strong>Cartón Oscuro</strong>
+              <span class="swatch-hex">#1A1714</span>
+            </div>
+          </div>
+          <div class="swatch">
+            <span class="swatch-color" style="background:#2A241E"></span>
+            <div class="swatch-info">
+              <strong>Panel Kraft</strong>
+              <span class="swatch-hex">#2A241E</span>
+            </div>
+          </div>
+          <div class="swatch">
+            <span class="swatch-color" style="background:#F4EFE6"></span>
+            <div class="swatch-info">
+              <strong>Tiza Crema</strong>
+              <span class="swatch-hex">#F4EFE6</span>
+            </div>
+          </div>
+          <div class="swatch">
+            <span class="swatch-color" style="background:#4E8C52"></span>
+            <div class="swatch-info">
+              <strong>Verde Vía</strong>
+              <span class="swatch-hex">#4E8C52</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="sidebar-section">
+        <h3>Activos Integrados (.jpg)</h3>
+        <ul class="layer-list">
+          <li class="layer-item" onclick="location.href='#frame-5'">
+            <span class="layer-icon">🖼</span> <code>metro_turnaround.jpg</code>
+          </li>
+          <li class="layer-item" onclick="location.href='#frame-4'">
+            <span class="layer-icon">🖼</span> <code>metro_viaduct_caracas.jpg</code>
+          </li>
+          <li class="layer-item" onclick="location.href='#frame-3'">
+            <span class="layer-icon">🖼</span> <code>metro_station_interior.jpg</code>
+          </li>
+        </ul>
+      </div>
+
+      <div class="sidebar-section">
+        <h3>Tipografía & Las 3 Voces</h3>
+        <ul class="layer-list">
+          <li class="layer-item">
+            <span class="layer-icon">Aa</span> <strong>Dios Le Pague</strong> (Títulos)
+          </li>
+          <li class="layer-item">
+            <span class="layer-icon">01</span> <strong>Tabular Mono</strong> (Reloj / COP)
+          </li>
+          <li class="layer-item">
+            <span class="layer-icon">✦</span> <strong>3 Voces:</strong> La Calle, El Cuerpo, El Papel
+          </li>
+        </ul>
+      </div>
+    </aside>
+
+    <!-- ÁREA DE LIENZO CON LOS 5 FRAMES ENTREGABLES -->
+    <main class="canvas-area">
+
+      <!-- =================================================================
+           FRAME 01: MAPA DE LÍNEA 1 & SELECCIÓN DE ESTACIÓN
+           ================================================================= -->
+      <section id="frame-1" class="artboard-wrapper">
+        <div class="artboard-header">
+          <div class="artboard-label">
+            <span>FRAME 01 // Mapa de Línea 1 & Selección de Estación</span>
+            <span class="artboard-dim">1920 × 1080 px · Modal Interactivo Estación</span>
+          </div>
+        </div>
+
+        <div class="artboard-frame">
+          <div class="f1-header">
+            <div class="f1-brand">
+              <div class="f1-logo-box">M</div>
+              <div>
+                <h1 class="bazuko-title" style="font-size: 30px; color: var(--text-chalk);">
+                  LÍNEA 1 · VIADUCTO AVENIDA CARACAS
+                </h1>
+                <p style="color: var(--transit-amber); font-family: var(--font-mono); font-size: 13px;">
+                  SENTIDO SUR → NORTE · ESTACIÓN ACTUAL: SAN VICTORINO (CENTRO)
+                </p>
+              </div>
+            </div>
+            <div class="cardboard-panel" style="padding: 10px 18px; text-align: right;">
+              <div style="font-size: 11px; color: var(--text-muted); font-family: var(--font-mono);">FRECUENCIA DE PASO</div>
+              <div style="font-size: 20px; font-weight: 900; color: var(--active-green); font-family: var(--font-mono);">CADA 02:30 MIN</div>
+            </div>
+          </div>
+
+          <!-- ESQUEMA DE LÍNEA HORIZONTAL -->
+          <div class="line-map-container">
+            <div style="display:flex; justify-content:space-between; font-family:var(--font-mono); font-size:12px; color:var(--text-muted); margin-bottom:14px;">
+              <span>◄ SUR / BOSA (PORTAL)</span>
+              <span>VIADUCTO ELEVADO · COTA +11.5m</span>
+              <span>NORTE / CHAPINERO ►</span>
+            </div>
+
+            <div class="route-track">
+              <div class="stations-row">
+                <div class="station-node completed">
+                  <div class="station-dot">01</div>
+                  <div class="station-name">PORTAL SUR</div>
+                  <div class="station-sub">Talleres · 04:20</div>
+                </div>
+                <div class="station-node completed">
+                  <div class="station-dot">02</div>
+                  <div class="station-name">PRIMERO DE MAYO</div>
+                  <div class="station-sub">Zona Sur · 02:50</div>
+                </div>
+                <div class="station-node completed">
+                  <div class="station-dot">03</div>
+                  <div class="station-name">HOSPITALES</div>
+                  <div class="station-sub">Av. Caracas · 01:15</div>
+                </div>
+                <div class="station-node current">
+                  <div class="station-dot">★</div>
+                  <div class="station-name" style="color:var(--metro-gold);">SAN VICTORINO</div>
+                  <div class="station-sub">ESTÁS AQUÍ</div>
+                </div>
+                <div class="station-node">
+                  <div class="station-dot">05</div>
+                  <div class="station-name">CALLE 26</div>
+                  <div class="station-sub">Torre Colpatria · +45s</div>
+                </div>
+                <div class="station-node">
+                  <div class="station-dot">06</div>
+                  <div class="station-name">CALLE 72</div>
+                  <div class="station-sub">Terminal Norte · +02:10</div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- DETALLES DE LA ESTACIÓN SELECCIONADA CON VISTA PREVIA REAL Y BOTONES -->
+          <div class="f1-bottom-grid">
+            <div class="cardboard-panel" style="display:grid; grid-template-columns: 165px 1fr; gap:14px; align-items:center;">
+              <img src="/metro-assets/metro_station_interior.jpg" alt="Vista Andén Estación" style="width:165px; height:125px; object-fit:cover; border:2px solid var(--text-chalk); border-radius:4px;" />
+              <div>
+                <div style="font-size:11px; color:var(--transit-amber); font-family:var(--font-mono); margin-bottom:4px;">
+                  VOZ DE LA CALLE · ENTORNO DE ESTACIÓN
+                </div>
+                <h3 class="bazuko-title" style="font-size:20px; margin-bottom:6px;">
+                  ESTACIÓN 05: CALLE 26 — CENTRO
+                </h3>
+                <p style="font-size:13px; color:var(--text-muted); line-height:1.4;">
+                  Andén elevado con puertas de cristal y conexión a la Caracas. Vigilancia policial media en los torniquetes; comercio de chaza activo bajo las columnas en Y.
+                </p>
+              </div>
+            </div>
+
+            <div class="cardboard-panel" style="display:flex; flex-direction:column; justify-content:space-between;">
+              <div>
+                <div style="font-size:12px; color:var(--text-muted); font-family:var(--font-mono);">DATOS DEL TRAYECTO</div>
+                <div style="margin-top:8px; font-family:var(--font-mono); font-size:13px; line-height:1.75;">
+                  <div>• DISTANCIA: <strong>1.4 KM (Viaducto)</strong></div>
+                  <div>• TIEMPO EN TREN: <strong>00:45 SEG</strong></div>
+                  <div>• RIESGO DE TOMBOS: <strong style="color:var(--metro-gold);">MODERADO</strong></div>
+                </div>
+              </div>
+              <div style="font-size:12px; color:var(--active-green); font-family:var(--font-mono);">
+                ● TREN EN ANDÉN — PUERTAS ABIERTAS
+              </div>
+            </div>
+
+            <div style="display:flex; flex-direction:column; gap:12px; justify-content:center;">
+              <button class="btn-action">
+                [E] SUBIR AL TREN ($3.100)
+              </button>
+              <button class="btn-action amber">
+                [ESPACIO] CAMINAR POR EL VIADUCTO
+              </button>
+              <button class="btn-action danger" style="font-size:15px; padding:10px;">
+                [ESC] VOLVER AL ANDÉN
+              </button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- =================================================================
+           FRAME 02: PANTALLA LED DE ANDÉN (PID)
+           ================================================================= -->
+      <section id="frame-2" class="artboard-wrapper">
+        <div class="artboard-header">
+          <div class="artboard-label">
+            <span>FRAME 02 // Pantalla LED de Andén (PID Overhead Display)</span>
+            <span class="artboard-dim">1920 × 1080 px · Textura Dinámica para Station.hpp & SignAtlas.cpp</span>
+          </div>
+        </div>
+
+        <div class="artboard-frame pid-frame-bg" style="justify-content:center; gap:26px;">
+          <div class="pid-housing">
+            <div class="pid-led-matrix">
+              <div class="pid-top-row">
+                <div>
+                  <div style="color:var(--metro-red); font-weight:900; font-size:16px; letter-spacing:2px;">
+                    ● LÍNEA 1 · DIRECCIÓN SUR / CENTRO
+                  </div>
+                  <div class="pid-dest">DESTINO: PORTAL - CENTRO</div>
+                </div>
+                <div class="pid-timer-box">
+                  <div style="font-size:12px; color:var(--metro-gold);">PRÓXIMO TREN EN</div>
+                  <div class="pid-timer">01:45 MIN</div>
+                </div>
+              </div>
+
+              <div style="font-size:13px; color:var(--text-muted); margin-bottom:8px;">
+                OCUPACIÓN EN TIEMPO REAL POR VAGÓN (TREN #104 — 6 VAGONES ARTICULADOS):
+              </div>
+
+              <div class="wagons-occupancy">
+                <div class="wagon-box">
+                  <div style="font-weight:bold; color:var(--text-chalk);">VAGÓN 01 (CABINA)</div>
+                  <div style="font-size:12px; color:#4eff6b; margin-top:4px;">BAJA (32%)</div>
+                  <div class="occ-bar" style="background:#4eff6b; width:32%;"></div>
+                </div>
+                <div class="wagon-box">
+                  <div style="font-weight:bold; color:var(--text-chalk);">VAGÓN 02</div>
+                  <div style="font-size:12px; color:#4eff6b; margin-top:4px;">BAJA (40%)</div>
+                  <div class="occ-bar" style="background:#4eff6b; width:40%;"></div>
+                </div>
+                <div class="wagon-box">
+                  <div style="font-weight:bold; color:var(--text-chalk);">VAGÓN 03</div>
+                  <div style="font-size:12px; color:var(--metro-gold); margin-top:4px;">MEDIA (68%)</div>
+                  <div class="occ-bar" style="background:var(--metro-gold); width:68%;"></div>
+                </div>
+                <div class="wagon-box">
+                  <div style="font-weight:bold; color:var(--text-chalk);">VAGÓN 04</div>
+                  <div style="font-size:12px; color:#ff5252; margin-top:4px;">ALTA (89%)</div>
+                  <div class="occ-bar" style="background:#ff5252; width:89%;"></div>
+                </div>
+                <div class="wagon-box">
+                  <div style="font-weight:bold; color:var(--text-chalk);">VAGÓN 05</div>
+                  <div style="font-size:12px; color:var(--metro-gold); margin-top:4px;">MEDIA (61%)</div>
+                  <div class="occ-bar" style="background:var(--metro-gold); width:61%;"></div>
+                </div>
+                <div class="wagon-box">
+                  <div style="font-weight:bold; color:var(--text-chalk);">VAGÓN 06 (COLA)</div>
+                  <div style="font-size:12px; color:#4eff6b; margin-top:4px;">BAJA (25%)</div>
+                  <div class="occ-bar" style="background:#4eff6b; width:25%;"></div>
+                </div>
+              </div>
+
+              <div class="ticker-tape">
+                <span>⚠ AVISO DE ESTACIÓN: NO CRUCE LA LÍNEA AMARILLA PODOTÁCTIL · CUIDE SUS OBJETOS EN HORA PICO</span>
+                <span>HORA: 18:42 · LLUVIA EN LA AV. CARACAS</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="cardboard-panel" style="display:flex; justify-content:space-between; align-items:center; background:rgba(42,36,30,0.95);">
+            <div>
+              <strong class="bazuko-title" style="font-size:18px; color:var(--metro-gold);">
+                ESPECIFICACIÓN TÉCNICA PARA EL MOTOR C++ / WEB (SignAtlas & Station)
+              </strong>
+              <p style="font-size:13px; color:var(--text-muted); margin-top:4px;">
+                Inspirado directamente en el letrero suspendido <code>"LÍNEA 1 - DIRECCIÓN SUR / CENTRO"</code> del mockup interior de estación.
+              </p>
+            </div>
+            <div style="font-family:var(--font-mono); font-size:12px; color:var(--text-chalk); background:#14110f; padding:10px 14px; border:1px solid var(--text-chalk);">
+              UV Atlas Slot: <code>SIGN_METRO_PID_01</code> · Emissive: <code>1.85</code>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- =================================================================
+           FRAME 03: MÁQUINA DE RECARGA / TORNIQUETE MODAL
+           ================================================================= -->
+      <section id="frame-3" class="artboard-wrapper">
+        <div class="artboard-header">
+          <div class="artboard-label">
+            <span>FRAME 03 // Máquina de Recarga & Torniquete de Acceso</span>
+            <span class="artboard-dim">1920 × 1080 px · Interacción de Economía & Riesgo Policial</span>
+          </div>
+        </div>
+
+        <div class="artboard-frame kiosk-frame-bg">
+          <div class="f1-header">
+            <div>
+              <h2 class="bazuko-title" style="font-size:28px;">
+                TAQUILLA AUTOMÁTICA & CONTROL DE TORNIQUETES
+              </h2>
+              <p style="font-family:var(--font-mono); font-size:13px; color:var(--transit-amber);">
+                ACCESO VESTÍBULO ELEVADO · BARRERAS DE ACERO INOXIDABLE (+5.5m)
+              </p>
+            </div>
+            <div style="font-family:var(--font-mono); font-size:16px; background:#14110f; padding:10px 16px; border:2px solid var(--text-chalk);">
+              EFECTIVO EN BOLSILLO: <strong style="color:var(--metro-gold);">$14.800 COP</strong>
+            </div>
+          </div>
+
+          <div class="kiosk-grid">
+            <!-- TARJETA Y SALDO -->
+            <div class="cardboard-panel" style="display:flex; flex-direction:column; justify-content:space-between; background:rgba(42,36,30,0.95);">
+              <div>
+                <div class="tullave-card">
+                  <div style="display:flex; justify-content:space-between; align-items:center;">
+                    <span class="bazuko-title" style="font-size:22px;">TARJETA METRO BOGOTÁ</span>
+                    <span style="font-family:var(--font-mono); font-size:12px; background:rgba(0,0,0,0.45); padding:4px 8px; border-radius:4px;">
+                      INTEGRADA SITP / L1
+                    </span>
+                  </div>
+                  <div style="font-family:var(--font-mono); font-size:18px; letter-spacing:3px; margin:20px 0;">
+                    ••••  ••••  4821  0914
+                  </div>
+                  <div style="display:flex; justify-content:space-between; font-size:12px; font-family:var(--font-mono);">
+                    <span>PORTADOR: ANÓNIMO (CALLE)</span>
+                    <span>LECTOR NFC: ACTIVO</span>
+                  </div>
+                </div>
+
+                <div class="balance-screen">
+                  <div style="font-size:12px; opacity:0.8;">SALDO DISPONIBLE EN TARJETA:</div>
+                  <div style="font-size:38px; font-weight:900; margin-top:4px;">$ 1.200 COP</div>
+                  <div style="font-size:12px; color:#ff8e72; margin-top:6px;">
+                    ▲ SALDO INSUFICIENTE PARA 1 PASAJE ($3.100 COP)
+                  </div>
+                </div>
+              </div>
+
+              <div style="font-size:12px; color:var(--text-muted); font-family:var(--font-mono);">
+                VOZ DEL PAPEL: "Valide su tarjeta en el lector verde del torniquete metálico antes de cruzar hacia la línea amarilla."
+              </div>
+            </div>
+
+            <!-- OPCIONES DE INTERACCIÓN -->
+            <div class="kiosk-options">
+              <div class="kiosk-option-row">
+                <div>
+                  <div class="bazuko-title" style="font-size:20px; color:var(--text-chalk);">
+                    [1] COMPRAR PASAJE ÚNICO (QR EN PAPEL)
+                  </div>
+                  <div style="font-size:13px; color:var(--text-muted); margin-top:4px;">
+                    Descuenta $3.100 COP de tu efectivo y abre las puertas de vidrio del torniquete legalmente.
+                  </div>
+                </div>
+                <button class="btn-action" style="font-size:16px; min-width:190px;">
+                  PAGAR $3.100
+                </button>
+              </div>
+
+              <div class="kiosk-option-row">
+                <div>
+                  <div class="bazuko-title" style="font-size:20px; color:var(--metro-gold);">
+                    [2] RECARGAR TARJETA COMPLETA (+$6.200 COP)
+                  </div>
+                  <div style="font-size:13px; color:var(--text-muted); margin-top:4px;">
+                    Carga 2 viajes adicionales para moverte rápido entre el Sur y el Centro sin pasar por taquilla.
+                  </div>
+                </div>
+                <button class="btn-action amber" style="font-size:16px; min-width:190px;">
+                  RECARGAR $6.200
+                </button>
+              </div>
+
+              <div class="kiosk-option-row" style="border-color:var(--alert-orange); background:rgba(43, 27, 24, 0.96);">
+                <div>
+                  <div class="bazuko-title" style="font-size:20px; color:#ff9e8a;">
+                    [3] SALTAR EL TORNIQUETE (COLARSE AL ANDÉN)
+                  </div>
+                  <div style="font-size:13px; color:#e0b4aa; margin-top:4px;">
+                    Costo: $0 COP · Gasta 12% de energía · <strong>Probabilidad de alerta policial: 65%</strong> (1 tombo patrullando el andén).
+                  </div>
+                </div>
+                <button class="btn-action danger" style="font-size:16px; min-width:190px;">
+                  [ESPACIO] COLARSE
+                </button>
+              </div>
+
+              <div class="cardboard-panel" style="margin-top:auto; display:flex; justify-content:space-between; align-items:center; background:rgba(42,36,30,0.95);">
+                <span style="font-family:var(--font-mono); font-size:13px; color:var(--text-muted);">
+                  TALENTO CALLEJERO ACTIVO: <strong>"Pies Ligeros Nv. 2"</strong> (-15% ruido al saltar barrera)
+                </span>
+                <span style="font-family:var(--font-mono); font-size:13px; color:var(--text-chalk);">
+                  [ESC] Salir de Taquilla
+                </span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- =================================================================
+           FRAME 04: HUD EN VIAJE SOBRE EL VIADUCTO REAL (AV. CARACAS)
+           ================================================================= -->
+      <section id="frame-4" class="artboard-wrapper">
+        <div class="artboard-header">
+          <div class="artboard-label">
+            <span>FRAME 04 // HUD en Viaje sobre el Viaducto (In-Transit Gameplay Mockup)</span>
+            <span class="artboard-dim">1920 × 1080 px · Render Exterior Av. Caracas + HUD Bazuko</span>
+          </div>
+        </div>
+
+        <div class="artboard-frame hud-viewport">
+          <!-- HUD SUPERIOR -->
+          <div class="hud-top-bar">
+            <div class="cardboard-panel" style="background:rgba(26,23,20,0.92);">
+              <div style="font-family:var(--font-mono); font-size:11px; color:var(--transit-amber);">
+                CÁMARA EXTERIOR DE TREN · VIADUCTO AVENIDA CARACAS (LLUVIA NOCTURNA)
+              </div>
+              <div class="bazuko-title" style="font-size:22px; margin-top:4px;">
+                TRAMO: SAN VICTORINO ➔ CALLE 26 (CERROS ORIENTALES)
+              </div>
+            </div>
+
+            <div class="cardboard-panel" style="background:rgba(26,23,20,0.92); font-family:var(--font-mono); font-size:13px;">
+              <span style="color:#4eff6b;">● 60 FPS</span> · <span>Escala: <strong>FSR 1.0 + CAS</strong></span> · <span>Cota Viaducto: <strong>+11.5m</strong></span>
+            </div>
+          </div>
+
+          <!-- HUD INFERIOR -->
+          <div class="hud-bottom-bar">
+            <div class="cardboard-panel" style="background:rgba(26,23,20,0.92); max-width:460px;">
+              <div style="font-size:12px; color:var(--metro-gold); font-family:var(--font-mono);">
+                VOZ DEL CUERPO · ESTADO EN VAGÓN
+              </div>
+              <p style="font-size:14px; color:var(--text-chalk); margin-top:6px;">
+                "El vaivén del vagón calienta las manos del frío de la Caracas. Abajo brillan los taxis amarillos, los articulados rojos y los avisos de panadería sobre el asfalto mojado."
+              </p>
+              <div style="margin-top:10px; font-family:var(--font-mono); font-size:12px; color:var(--active-green);">
+                +4% Descanso por segundo · Nivel de búsqueda policial congelado en tránsito
+              </div>
+            </div>
+
+            <div class="speedometer-card">
+              <div style="display:flex; justify-content:space-between; align-items:baseline;">
+                <div>
+                  <div style="font-family:var(--font-mono); font-size:11px; color:var(--text-muted);">VELOCIDAD DEL TREN</div>
+                  <div class="speed-val">68 <span style="font-size:22px; color:var(--text-chalk);">KM/H</span></div>
+                </div>
+                <div style="text-align:right; font-family:var(--font-mono);">
+                  <div style="font-size:11px; color:var(--text-muted);">PRÓXIMA PARADA EN</div>
+                  <div style="font-size:26px; font-weight:900; color:var(--active-green);">00:19s</div>
+                </div>
+              </div>
+
+              <div style="margin-top:14px; padding-top:12px; border-top:1px solid #3f3831; display:flex; justify-content:space-between; font-family:var(--font-mono); font-size:12px;">
+                <span><strong>[V]</strong> Cambiar Cámara (Interior/Viaducto)</span>
+                <span style="color:var(--metro-gold);"><strong>[F]</strong> Bajar en Estación</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- =================================================================
+           FRAME 05: BLUEPRINT ORTOGONAL Y MOCKUPS ENTREGABLES
+           ================================================================= -->
+      <section id="frame-5" class="artboard-wrapper">
+        <div class="artboard-header">
+          <div class="artboard-label">
+            <span>FRAME 05 // Lámina Ortogonal de Modelado 3D & Mockups Entregables</span>
+            <span class="artboard-dim">1920 × 1080 px · Especificación Técnica del Vagón + Entorno</span>
+          </div>
+        </div>
+
+        <div class="artboard-frame" style="min-height:auto;">
+          <div style="display:flex; justify-content:space-between; align-items:center;">
+            <div>
+              <h2 class="bazuko-title" style="font-size:26px;">
+                ESPECIFICACIÓN ORTOGONAL DEL TREN (PERFIL LATERAL, FRONTAL, TRASERA Y SUPERIOR)
+              </h2>
+              <p style="font-size:14px; color:var(--text-muted); margin-top:4px;">
+                Plano técnico de 4 vistas con cotas métricas listo para modelado `.glb` y mapeo de texturas PBR en Blender / Motor C++ de Bazuko.
+              </p>
+            </div>
+            <div style="font-family:var(--font-mono); font-size:12px; background:#14110f; padding:10px 14px; border:2px solid var(--metro-gold); color:var(--metro-gold);">
+              ARCHIVO: <code>public/metro-assets/metro_turnaround.jpg</code>
+            </div>
+          </div>
+
+          <div class="blueprint-hero">
+            <img src="/metro-assets/metro_turnaround.jpg" alt="Turnaround Ortogonal del Tren del Metro de Bogotá" />
+          </div>
+
+          <div class="renders-two-col">
+            <div class="render-card">
+              <img src="/metro-assets/metro_viaduct_caracas.jpg" alt="Mockup Exterior Viaducto Avenida Caracas" />
+              <div class="render-card-body">
+                <strong class="bazuko-title" style="font-size:19px; color:var(--metro-gold);">
+                  ENTREGABLE EXTERIOR · VIADUCTO AVENIDA CARACAS Y TRÁFICO BOGOTANO
+                </strong>
+                <p style="font-size:13px; color:var(--text-muted); margin-top:4px;">
+                  Columnas en Y de concreto con grafitis en la base, casas de ladrillo con letreros de Panadería, taxis y articulados bajo la lluvia con los Cerros Orientales al fondo.
+                </p>
+              </div>
+            </div>
+
+            <div class="render-card">
+              <img src="/metro-assets/metro_station_interior.jpg" alt="Mockup Interior Estación Elevada y Torniquetes" />
+              <div class="render-card-body">
+                <strong class="bazuko-title" style="font-size:19px; color:var(--metro-gold);">
+                  ENTREGABLE INTERIOR · ESTACIÓN ELEVADA, TORNIQUETES Y SEÑALÉTICA
+                </strong>
+                <p style="font-size:13px; color:var(--text-muted); margin-top:4px;">
+                  Andén con puertas de vidrio (PSD), franja podotáctil amarilla, torniquetes de acero inoxidable y pantallas colgantes "LÍNEA 1 - DIRECCIÓN SUR / CENTRO".
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+    </main>
+  </div>
+
+</body>
+</html>

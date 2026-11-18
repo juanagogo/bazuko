@@ -1,0 +1,23 @@
+/* Modo trucos: la marca que avisa que la partida no es la normal. */
+.trucos-marca {
+  position: fixed;
+  top: 0;
+  left: 50%;
+  z-index: 60;
+  translate: -50% 0;
+  padding: 3px 18px 5px;
+  rotate: -1.4deg;
+  border-bottom: 2px solid var(--marcador);
+  background: var(--rojo);
+  color: var(--cinta);
+  font-size: 15px;
+  font-weight: 800;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  pointer-events: none;
+}
+
+/* La pestaña: filas compactas, botones juntos y una línea de explicación debajo. */
+.trucos .pause-row { align-items: center; padding-bottom: 8px; }
+.trucos .trucos-botones { margin: 0; gap: 6px 8px; }
+.trucos .trucos-nota { flex: 1 0 100%; margin: 0; font-size: 14px; line-height: 1.2; opacity: .75; }

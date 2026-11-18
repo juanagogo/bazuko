@@ -1,0 +1,81 @@
+{
+  "id": "zonaT",
+  "metadata": {
+    "nombre": "Zona T (Zona Rosa, Calle 82)",
+    "bbox": [
+      4.6645,
+      -74.0565,
+      4.6685,
+      -74.0515
+    ],
+    "hitos": [
+      "Centro Andino",
+      "Calle Peatonal T",
+      "El Retiro",
+      "Atlantis"
+    ],
+    "tipo": "comercial_peatonal"
+  },
+  "dimensionesMetros": {
+    "ancho": 554,
+    "alto": 445
+  },
+  "origenGPS": {
+    "lat": 4.6665,
+    "lon": -74.054
+  },
+  "layout": {
+    "callePrincipal": {
+      "nombre": "Calle 82 (Eje Peatonal)",
+      "ancho": 14,
+      "orientacion": "este_oeste"
+    },
+    "carreraCruce": {
+      "nombre": "Carrera 12A (La T)",
+      "ancho": 12,
+      "orientacion": "norte_sur"
+    },
+    "materialSuelo": "adoquin_peatonal",
+    "iluminacion": "marquesinas_y_neon",
+    "seguridad": "alta_privada",
+    "reciclajeBonus": "botellas_vidrio_licor_premium",
+    "manzanas": [
+      {
+        "nombre": "Manzana Centro Andino",
+        "niveles": 5,
+        "tipo": "mall_lujo",
+        "x": -40,
+        "z": -35,
+        "ancho": 70,
+        "largo": 65
+      },
+      {
+        "nombre": "Manzana Bares y Pubs T",
+        "niveles": 3,
+        "tipo": "restaurante_terraza",
+        "x": 45,
+        "z": -35,
+        "ancho": 60,
+        "largo": 55
+      },
+      {
+        "nombre": "Manzana El Retiro",
+        "niveles": 6,
+        "tipo": "boutiques",
+        "x": -40,
+        "z": 45,
+        "ancho": 70,
+        "largo": 60
+      },
+      {
+        "nombre": "Manzana Atlantis / Cine",
+        "niveles": 4,
+        "tipo": "comercial",
+        "x": 45,
+        "z": 45,
+        "ancho": 60,
+        "largo": 60
+      }
+    ]
+  }
+}
