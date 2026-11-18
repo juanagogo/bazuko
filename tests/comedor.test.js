@@ -43,7 +43,7 @@ test('ComedorComunitario se crea como entidad con kind comedor, letrero y grupo'
   assert.equal(comedor.group.children.length, 0);
 });
 
-test('comedor comunitario: disponibilidad cada 24 horas y efectos del almuerzo', () => {
+test('comedor comunitario: disponibilidad cada 5 minutos y efectos del almuerzo', () => {
   const stats = { hambre: 10, sed: 15, animo: 40, energia: 30, calor: 0, dinero: 1000, xp: 0, addXP(amount) { this.xp += amount; } };
   const clock = { day: 1, hour: 12 };
   let saved = false;
@@ -52,23 +52,37 @@ test('comedor comunitario: disponibilidad cada 24 horas y efectos del almuerzo',
     stats,
     clock,
     lastComedorHour: null,
+    lastComedorTimestamp: null,
     audio: { play() {} },
     _save() { saved = true; },
     get totalGameHours() {
       return ((this.clock?.day ?? 1) - 1) * 24 + (this.clock?.hour ?? 0);
     },
     isComedorAvailable() {
+      if (this.lastComedorTimestamp) {
+        return (Date.now() - this.lastComedorTimestamp) >= 5 * 60 * 1000;
+      }
       if (this.lastComedorHour === undefined || this.lastComedorHour === null) return true;
-      return (this.totalGameHours - this.lastComedorHour) >= 24;
+      return (this.totalGameHours - this.lastComedorHour) >= 2;
+    },
+    getComedorRemainingMinutes() {
+      if (this.isComedorAvailable()) return 0;
+      if (this.lastComedorTimestamp) {
+        const elapsed = (Date.now() - this.lastComedorTimestamp) / 1000;
+        return Math.max(0, Math.ceil((300 - elapsed) / 60));
+      }
+      const diff = this.totalGameHours - this.lastComedorHour;
+      return Math.max(0, Math.ceil((2 - diff) * 2.5));
     },
     getComedorRemainingHours() {
       if (this.isComedorAvailable()) return 0;
-      const diff = this.totalGameHours - this.lastComedorHour;
-      return Math.max(0, Math.ceil(24 - diff));
+      const min = this.getComedorRemainingMinutes();
+      return Math.max(0, Math.ceil(min / 60));
     },
     serveComedor() {
       if (!this.isComedorAvailable()) return false;
       this.lastComedorHour = this.totalGameHours;
+      this.lastComedorTimestamp = Date.now();
       this.stats.hambre = Math.min(100, (this.stats.hambre || 0) + 80);
       this.stats.sed = Math.min(100, (this.stats.sed || 0) + 60);
       this.stats.animo = Math.min(100, (this.stats.animo || 0) + 25);
@@ -82,7 +96,7 @@ test('comedor comunitario: disponibilidad cada 24 horas y efectos del almuerzo',
 
   // 1. Inicialmente disponible
   assert.equal(game.isComedorAvailable(), true);
-  assert.equal(game.getComedorRemainingHours(), 0);
+  assert.equal(game.getComedorRemainingMinutes(), 0);
 
   // 2. Almorzar gratis
   const ok = game.serveComedor();
@@ -98,19 +112,12 @@ test('comedor comunitario: disponibilidad cada 24 horas y efectos del almuerzo',
 
   // 3. Ya no está disponible de inmediato
   assert.equal(game.isComedorAvailable(), false);
-  assert.equal(game.getComedorRemainingHours(), 24);
   assert.equal(game.serveComedor(), false, 'no puede almorzar dos veces en el mismo turno');
 
-  // 4. Tras avanzar 10 horas
-  clock.hour = 22;
-  assert.equal(game.isComedorAvailable(), false);
-  assert.equal(game.getComedorRemainingHours(), 14);
-
-  // 5. Al siguiente día tras pasar 24 horas (Día 2, hora 12)
-  clock.day = 2;
-  clock.hour = 12;
+  // 4. Tras avanzar 5 minutos en el timestamp
+  game.lastComedorTimestamp = Date.now() - 301000;
   assert.equal(game.isComedorAvailable(), true);
-  assert.equal(game.getComedorRemainingHours(), 0);
+  assert.equal(game.getComedorRemainingMinutes(), 0);
   assert.equal(game.serveComedor(), true);
 });
 
@@ -198,5 +205,5 @@ test('Comedor Comunitario figura en _getPOIs y en los servicios del mapa como lu
 
   assert.equal(hasTag(comedorPoi, 'comida'), true);
   assert.equal(hasTag(comedorPoi, 'agua'), true);
-  assert.match(placeMeta(comedorPoi), /Almuerzo caliente gratis cada 24 horas/);
+  assert.match(placeMeta(comedorPoi), /Almuerzo caliente gratis cada 5 minutos/);
 });

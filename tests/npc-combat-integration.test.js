@@ -135,6 +135,17 @@ test('la defensa anuncia el golpe antes del daño y no se repite tras otro conta
   npc.dispose();
 });
 
+test('si la defensa del peatón me mata, queda anotado que fue a golpes', async () => {
+  const { npc, attacker } = await fixture({ look: { real: { edad: 'adulto' } } });
+  attacker.stats = { salud: 5, danoPor: 'sed' };
+  npc.takeHit({ damage: 1, attacker, attackId: 1 });
+  npc.update(NPC_HIT_REACTION_DURATION);
+  tick(npc, NPC_COMBAT.counterWindup + .01);
+  assert.equal(attacker.stats.salud, 0);
+  assert.equal(attacker.stats.danoPor, 'pelea');
+  npc.dispose();
+});
+
 test('el empuje conserva la capa elevada y no lleva al peatón desde la orilla al agua', async () => {
   const bridge = await fixture();
   bridge.npc.position.y = 7.82;

@@ -79,6 +79,43 @@ test('openCambuche incluye la opción de Cambiar ropa', () => {
   assert.equal(wardrobeOpened, true, 'abrió el ropero');
 });
 
+test('el botón de la siesta queda apagado con su motivo a la vista; de noche no lo pide', () => {
+  const pie = (motivo, isNight = false) => {
+    let config = null;
+    openCambuche({
+      menu: { isOpen: false, open(cfg) { config = cfg; this.isOpen = true; }, close() {}, refresh() {} },
+      built: { base: true }, inventory: { count: () => 10, items: [] }, clock: { isNight },
+      motivoSinSiesta: () => motivo, sleep() {}, openWardrobe() {}
+    });
+    const foot = config.render().foot;
+    const dormir = foot.find(n => n.tag === 'button' && /siesta|Dormir hasta/.test(n.textContent));
+    return { nota: foot[0].textContent, apagado: 'disabled' in dormir.attributes };
+  };
+  assert.deepEqual(pie(null), { nota: 'Dormir guarda la partida.', apagado: false });
+  assert.deepEqual(pie({ reason: 'descansado', horas: 4 }), { nota: 'Ya eché una siesta: puedo echar otra en 4 h.', apagado: true });
+  assert.deepEqual(pie({ reason: 'descansado' }), { nota: 'Todavía no tengo sueño para una siesta.', apagado: true });
+  assert.deepEqual(pie({ reason: 'descansado' }, true), { nota: 'Dormir guarda la partida.', apagado: false });
+});
+
+test('si el juego se niega a la siesta, el aviso dice el motivo', () => {
+  const antes = globalThis.window;
+  globalThis.window = new EventTarget(); // los oyentes del HUD no se quedan para las demás pruebas
+  try {
+    const avisos = [];
+    const hud = Object.assign(Object.create(HUD.prototype), { _toast: (text, kind) => avisos.push([text, kind]) });
+    hud._bindEvents();
+    const falla = detail => window.dispatchEvent(new CustomEvent('sleep-fail', { detail }));
+    falla({ reason: 'descansado', horas: 2 });
+    falla({ reason: 'descansado' });
+    falla({ reason: 'nobase' });
+    assert.deepEqual(avisos, [
+      ['Ya eché una siesta: puedo echar otra en 2 h.', 'warn'],
+      ['Todavía no tengo sueño para una siesta.', 'warn'],
+      ['Primero toca armar el cambuche (8 cartones)', 'warn']
+    ]);
+  } finally { globalThis.window = antes; }
+});
+
 test('usar ropaLimpia desde el inventario aplica higiene, ánimo y abre el ropero', () => {
   let wardrobeOpened = false;
   const game = {

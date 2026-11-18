@@ -10,7 +10,7 @@ const CURB_GAP = .1;
 // correrlo más frena para siempre a la buseta y detrás de ella se atasca la red.
 const LANE_ALLOWANCE = 1.05;
 /** El andén queda a esta altura sobre la calzada (`HEIGHTS` de `StreetDetails.js`). */
-const CURB_HEIGHT = .12;
+export const CURB_HEIGHT = .12;
 
 /** Metros que se aparta del andén un carro de ese ancho, sin invadir lo que necesita la buseta del carril. */
 export function parkedCarShift(width) {

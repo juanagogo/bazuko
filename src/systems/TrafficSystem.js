@@ -320,9 +320,10 @@ export class TrafficSystem {
     }
   }
 
-  /** Metros a los que una patrulla alcanza a ver un robo: cada nivel de fichado los alarga. */
+  /** Metros a los que una patrulla alcanza a ver un robo: cada nivel de fichado los alarga y de noche ve menos. */
   get sightRange() {
-    return POLICE_SIGHT_RANGE * (1 + POLICE_SIGHT_PER_WANTED * this.wantedLevel);
+    // La jornada la pone el juego (JornadaSystem); sin ella, la vista de siempre.
+    return POLICE_SIGHT_RANGE * (1 + POLICE_SIGHT_PER_WANTED * this.wantedLevel) * (this.jornada?.franja?.policiaVista ?? 1);
   }
 
   _canWitness(vehicle, playerPosition) {
@@ -593,6 +594,27 @@ export class TrafficSystem {
     const vehicle = this.vehicles.find(v => v.car === car) ?? null;
     if (vehicle) vehicle.hold = held;
     return vehicle;
+  }
+
+  /**
+   * Carros quietos frente a un semáforo en rojo a menos de `radius` metros de `position`, del más cercano al más
+   * lejano. Sin patrullas ni carros sostenidos: el rebusque solo se le hace a quien espera la luz. Solo lee.
+   */
+  stoppedAtRed(position, radius = 6) {
+    const found = [];
+    if (!this.signals?.redAhead) return found;
+    for (const vehicle of this.vehicles) {
+      // `stopped`: ya frenó del todo; uno que apenas se arrima a la línea o que arranca no cuenta.
+      if (vehicle.police || vehicle.hold || !vehicle.stopped || vehicle.speed > .1) continue;
+      const car = vehicle.car;
+      const dx = car.position.x - position.x, dz = car.position.z - position.z;
+      const distance = Math.hypot(dx, dz);
+      if (distance > radius || Math.abs(car.position.y - (position.y ?? 0)) > 1.5) continue;
+      const yaw = car.group.rotation.y;
+      if (!this.signals.redAhead(car.position, { x: Math.cos(yaw), z: -Math.sin(yaw) })) continue;
+      found.push({ vehicle, car, distance });
+    }
+    return found.sort((a, b) => a.distance - b.distance);
   }
 
   _chooseRoute(vehicle) {
