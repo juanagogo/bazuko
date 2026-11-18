@@ -6,6 +6,15 @@ import { StatsSystem, NEEDS } from '../src/systems/StatsSystem.js';
 import { InventorySystem } from '../src/systems/InventorySystem.js';
 import { Menu } from '../src/ui/Menu.js';
 import { Player } from '../src/entities/Player.js';
+import { StealSystem } from '../src/features/steal.js';
+import { InteractionSystem } from '../src/systems/InteractionSystem.js';
+import { consejoDeMuerte } from '../src/ui/momentosTextos.js';
+import { SaveSystem } from '../src/systems/SaveSystem.js';
+import { DiseaseSystem } from '../src/systems/DiseaseSystem.js';
+import { Clock } from '../src/core/Clock.js';
+import { ITEMS } from '../src/data/items.js';
+import { HUD } from '../src/ui/HUD.js';
+import { InventoryUI } from '../src/ui/InventoryUI.js';
 
 beforeEach(() => { globalThis.window = new EventTarget(); });
 
@@ -25,7 +34,7 @@ function fixture() {
     diseases: { hasAny: false, cureAll() { this.hasAny = false; } },
     inventory: new InventorySystem(),
     cameraRig: { follow(position) { this.target = position.clone(); } },
-    collisions: null,
+    collisions: null, _save() {},
   });
   game.inventory.items = [{ id: 'papel', qty: 2 }, { id: 'carton', qty: 3 }];
   return game;
@@ -212,4 +221,253 @@ test('una muerte pendiente tiene prioridad sobre un aviso policial', () => {
   assert.equal(game._arrestPending, false);
   assert.equal(game._handleDeath(), true);
   assert.equal(game._deathPending, true);
+});
+
+// ---------- de qué murió ----------
+const sinEnfermedad = { getAggregatedEffects: () => ({ healthDrain: 0, mentalDrain: 0, speedMultiplier: 1, hungerDrainMultiplier: 1, energyDrainMultiplier: 1, hygieneDrain: 0, canEat: true }) };
+const enfermo = { getAggregatedEffects: () => ({ ...sinEnfermedad.getAggregatedEffects(), healthDrain: .5 }) };
+/** Deja correr las necesidades hasta morir, como el bucle: un cuadro de 0,1 s tras otro. */
+function hastaMorir(game, { diseases = sinEnfermedad, clock = { isNight: false }, weather = { isRaining: false } } = {}) {
+  for (let t = 0; t < 3600 && game.stats.salud > 0; t += .1) game.stats.update(.1, null, diseases, clock, null, weather);
+  assert.equal(game.stats.salud, 0);
+  assert.equal(game._handleDeath(), true);
+  return { titulo: game.menu.options.title, consejo: consejoDeMuerte(game.stats.danoPor, game.stats) };
+}
+
+test('si me mata la sed una noche de lluvia sin calor, el cartón culpa a la sed y no al frío', () => {
+  const game = fixture();
+  Object.assign(game.stats, { sed: 0, calor: 0, salud: 20 });
+  const { titulo, consejo } = hastaMorir(game, { clock: { isNight: true }, weather: { isRaining: true } });
+  assert.equal(game.stats.isFreezing, true, 'murió con frío');
+  assert.equal(titulo, 'Me mató la sed');
+  assert.match(consejo, /agua/);
+});
+
+test('si me mata una enfermedad con la energía en 0, el cartón culpa a la enfermedad y no al cansancio', () => {
+  const game = fixture();
+  Object.assign(game.stats, { energia: 0, salud: 20 });
+  const { titulo, consejo } = hastaMorir(game, { diseases: enfermo });
+  assert.equal(game.stats.energia, 0);
+  assert.equal(titulo, 'Me mató la enfermedad');
+  assert.match(consejo, /remedio/);
+});
+
+test('el hambre que ya pasó no se lleva la culpa de lo que mató después', () => {
+  const game = fixture();
+  Object.assign(game.stats, { hambre: 0, salud: 30 });
+  for (let i = 0; i < 100; i++) game.stats.update(.1, null, sinEnfermedad, { isNight: false }, null, { isRaining: false });
+  assert.equal(game.stats.danoPor, 'hambre');
+  game.stats.hambre = 80; // comió
+  const { titulo } = hastaMorir(game, { diseases: enfermo });
+  assert.equal(titulo, 'Me mató la enfermedad');
+});
+
+test('si me matan a golpes al robar, el cartón lo dice: el raponazo que se defiende y el retrovisor pillado', () => {
+  const raponazo = fixture();
+  raponazo.stats.salud = 5;
+  const robo = Object.assign(Object.create(StealSystem.prototype), { game: raponazo, buscado: 0, cooldown: 0, _calma: 0 });
+  robo.game.player.position = new THREE.Vector3();
+  robo._toast = () => {};
+  robo.executeRoboDirecto({ look: { real: { edad: 'adulto' } }, stance: null, alarmedByTheft() {} });
+  assert.equal(raponazo._handleDeath(), true);
+  assert.equal(raponazo.menu.options.title, 'Me mataron a golpes');
+
+  const retrovisor = fixture();
+  Object.assign(retrovisor.stats, { salud: 10, sed: 0 }); // con sed, para que no se la culpe de lo que no fue
+  const ix = Object.assign(Object.create(InteractionSystem.prototype), {
+    talents: retrovisor.talents, stats: retrovisor.stats, inventory: retrovisor.inventory, player: retrovisor.player, audio: null,
+  });
+  ix._executeCarTheft({ steal: () => ({ items: [], caught: true }) });
+  assert.equal(retrovisor._handleDeath(), true);
+  assert.equal(retrovisor.menu.options.title, 'Me mataron a golpes');
+});
+
+/** Unos cuadros de necesidades sin nada que quite salud. */
+const sinDano = (game, cuadros = 10) => {
+  for (let i = 0; i < cuadros; i++) game.stats.update(.1, null, sinEnfermedad, { isNight: false }, null, { isRaining: false });
+};
+
+test('la sed que ya pasó no se lleva la culpa si después me mata lo que me metí', () => {
+  const game = fixture();
+  Object.assign(game.stats, { sed: 0, salud: 30 });
+  sinDano(game, 100);
+  assert.equal(game.stats.danoPor, 'sed');
+  game.stats.sed = 100; // bebió
+  sinDano(game);
+  assert.equal(game.stats.danoPor, null, 'ya nada quita salud: la sed deja de ser la causa');
+  game.stats.salud = Math.max(0, 4 - 6); // la pipa de basuco con la salud en 4, que no pasa por las necesidades
+  assert.equal(game._handleDeath(), true);
+  assert.equal(game.menu.options.title, 'Me quedé sin salud');
+  assert.notEqual(consejoDeMuerte(game.stats.danoPor, game.stats), consejoDeMuerte('sed', game.stats));
+});
+
+test('sobrevivir a un peatón que se defiende no deja «a golpes» para lo que mate después', () => {
+  const game = fixture();
+  game.stats.salud = 40;
+  const robo = Object.assign(Object.create(StealSystem.prototype), { game, buscado: 0, cooldown: 0, _calma: 0, _toast() {} });
+  robo.executeRoboDirecto({ look: { real: { edad: 'adulto' } }, stance: null, alarmedByTheft() {} });
+  assert.equal(game.stats.danoPor, 'pelea');
+  assert.ok(game.stats.salud > 0);
+  sinDano(game);
+  assert.equal(game.stats.danoPor, null);
+  game.stats.salud = 0;
+  assert.equal(game._handleDeath(), true);
+  assert.notEqual(game.menu.options.title, 'Me mataron a golpes');
+});
+
+test('en el cuadro de la muerte la causa no se borra aunque las necesidades ya no quiten salud', () => {
+  const game = fixture();
+  Object.assign(game.stats, { salud: 5, hambre: 40 }); // con hambre, pero sin que quite salud ni deje reponerla
+  const robo = Object.assign(Object.create(StealSystem.prototype), { game, buscado: 0, cooldown: 0, _calma: 0, _toast() {} });
+  robo.executeRoboDirecto({ look: { real: { edad: 'adulto' } }, stance: null, alarmedByTheft() {} });
+  assert.equal(game.stats.salud, 0);
+  sinDano(game, 1); // si las necesidades corren otra vez antes de abrir el cartón, la causa sigue
+  assert.equal(game.stats.danoPor, 'pelea');
+  assert.equal(game._handleDeath(), true);
+  assert.equal(game.menu.options.title, 'Me mataron a golpes');
+});
+
+test('la causa no pasa a la vida siguiente', () => {
+  const game = fixture();
+  Object.assign(game.stats, { sed: 0, salud: 1 });
+  hastaMorir(game);
+  assert.equal(game.stats.danoPor, 'sed');
+  game._respawn();
+  assert.equal(game.stats.danoPor, null);
+});
+
+// ---------- recargar la página con el cartón abierto ----------
+/** El juego de la prueba con su partida de verdad (SaveSystem sobre un localStorage en memoria). */
+function conPartida(game) {
+  const disco = new Map();
+  globalThis.localStorage = { getItem: k => disco.get(k) ?? null, setItem: (k, v) => disco.set(k, String(v)), removeItem: k => disco.delete(k) };
+  delete game._save;
+  Object.assign(game, {
+    save: new SaveSystem(), clock: new Clock({ hour: 15 }), diseases: new DiseaseSystem(), inventory: new InventorySystem(),
+    talents: { ...game.talents, serialize: () => ({}), deserialize() {} },
+  });
+  for (const [id, qty] of [['carton', 2], ['lata', 3], ['pilas', 1], ['cable', 1]]) assert.ok(game.inventory.add(ITEMS[id], qty));
+  game.stats.dinero = 12000;
+  game._save(); // la última vez que se guardó: durmió, comió en el comedor o guardó en la pausa
+  return game;
+}
+/** F5: un juego nuevo que lee la partida guardada, como al abrir la página. */
+function recargar() {
+  const game = Object.assign(Object.create(Game.prototype), {
+    stats: new StatsSystem(), clock: new Clock(), inventory: new InventorySystem(), diseases: new DiseaseSystem(),
+    talents: { deserialize() {} }, world: {}, player: { position: new THREE.Vector3() }, save: new SaveSystem(),
+  });
+  assert.equal(game._loadIfSave(), true);
+  return game;
+}
+const filas = game => game.inventory.items.map(it => it.id);
+
+test('recargar con la plana del arresto abierta no devuelve la plata ni el costal, y seguir no cobra dos veces', () => {
+  const game = conPartida(fixture());
+  game._policeArrest();
+  assert.equal(game.stats.dinero, 12000, 'mientras se lee la plana, nada ha cambiado');
+  for (let vez = 0; vez < 2; vez++) {
+    const recargada = recargar();
+    assert.equal(recargada.stats.dinero, 0);
+    assert.deepEqual(filas(recargada), []);
+  }
+
+  game._finishArrest();
+  assert.equal(game.stats.dinero, 0);
+  assert.equal(JSON.parse(localStorage.getItem('habitante-de-calle-save-v1')).castigo, null, 'pagado: la partida ya no lo debe');
+  const despues = recargar();
+  assert.equal(despues.stats.dinero, 0);
+  assert.deepEqual(filas(despues), []);
+});
+
+test('recargar con el cartón de la muerte abierto se lleva la mitad del costal una sola vez y no vuelve a matar', () => {
+  const game = conPartida(fixture());
+  Object.assign(game.stats, { salud: 0, sed: 0 });
+  game.diseases.active = { gripe: { t: 0 } };
+  assert.equal(game._handleDeath(), true);
+  assert.deepEqual(filas(game), ['carton', 'lata', 'pilas', 'cable'], 'mientras se lee el cartón, nada ha cambiado');
+  for (let vez = 0; vez < 2; vez++) {
+    const recargada = recargar();
+    assert.deepEqual(filas(recargada), ['pilas', 'cable']);
+    assert.equal(recargada.stats.salud, 60, 'vuelve como del cambuche: no se muere otra vez al cargar');
+    assert.equal(recargada.stats.sed, 60);
+    assert.equal(recargada.diseases.hasAny, false);
+    assert.equal(recargada.stats.dinero, 12000, 'morir no quita la plata');
+  }
+
+  game._respawn();
+  assert.deepEqual(filas(game), ['pilas', 'cable']);
+  const despues = recargar();
+  assert.deepEqual(filas(despues), ['pilas', 'cable'], 'la mitad de la mitad sería cobrar dos veces');
+  assert.equal(despues.stats.salud, 60);
+});
+
+test('recargar con el cuerpo aún en el aire tras un atropello mortal también paga la muerte', () => {
+  const game = conPartida(fixture());
+  game._onVehicleImpact({ speed: 12, direction: new THREE.Vector3(1, 0, 0) });
+  game.player.isRagdollActive = true; // el carro lo lanzó: el cartón espera de 2 a 5 s a que caiga
+  assert.equal(game.stats.salud, 0);
+  assert.equal(game._handleDeath(), false);
+  assert.equal(game.menu.isOpen, false);
+  for (let vez = 0; vez < 2; vez++) {
+    const recargada = recargar();
+    assert.deepEqual(filas(recargada), ['pilas', 'cable'], 'F5 en pleno vuelo no devuelve la partida de antes del golpe');
+    assert.equal(recargada.stats.salud, 60);
+    assert.equal(recargada.stats.dinero, 12000);
+  }
+
+  game.player.isRagdollActive = false; // cayó: ahora sí, el cartón
+  assert.equal(game._handleDeath(), true);
+  assert.equal(game.menu.options.title, 'Me atropellaron');
+  game._respawn();
+  assert.deepEqual(filas(recargar()), ['pilas', 'cable'], 'seguir desde el cartón no cobra otra vez');
+});
+
+/** Usa una cosa del costal como la tecla o el panel: los mismos efectos del juego. */
+function usar(game, id) {
+  window.__game = game;
+  game.audio.play = () => {};
+  Object.assign(Object.create(HUD.prototype), { _toast() {} })._useItem(id, game.inventory);
+}
+
+test('si un vendaje lo levanta antes de caer, la partida deja de deber la muerte', () => {
+  const game = conPartida(fixture());
+  assert.ok(game.inventory.add(ITEMS.vendaje, 1));
+  game._onVehicleImpact({ speed: 12, direction: new THREE.Vector3(1, 0, 0) });
+  game.player.isRagdollActive = true;
+  assert.equal(game._handleDeath(), false);
+  usar(game, 'vendaje'); // con la tecla del vendaje, en pleno vuelo
+  assert.equal(game.stats.salud, 30);
+  assert.equal(game._handleDeath(), false);
+  const recargada = recargar();
+  assert.deepEqual(filas(recargada), ['carton', 'lata', 'pilas', 'cable'], 'sigue vivo: no se cobra una muerte que no hubo');
+  assert.equal(recargada.stats.salud, 30);
+});
+
+test('morir con el costal abierto queda marcado aunque el cartón espere a que se cierre', () => {
+  const game = conPartida(fixture());
+  assert.ok(game.inventory.add(ITEMS.pegante, 1));
+  game.stats.salud = 3;
+  window.__game = game;
+  game.audio.play = () => {};
+  game.hud = Object.assign(Object.create(HUD.prototype), { _toast() {} });
+  // El costal abierto pone el mundo en pausa: el bucle no mira la muerte hasta cerrarlo.
+  const costal = Object.assign(Object.create(InventoryUI.prototype), { game, inv: game.inventory, isOpen: true, _feedback() {} });
+  game.inventoryUI = costal;
+  assert.equal(game.paused, true);
+  costal._useItem('pegante');
+  assert.equal(game.stats.salud, 0);
+  assert.equal(game.menu.isOpen, false, 'el cartón sale al cerrar el costal');
+  assert.deepEqual(filas(recargar()), ['pilas', 'cable'], 'F5 con el costal abierto no deshace la muerte');
+});
+
+test('una partida vieja, sin la marca del castigo, carga tal cual', () => {
+  const game = conPartida(fixture());
+  const vieja = JSON.parse(localStorage.getItem('habitante-de-calle-save-v1'));
+  delete vieja.castigo;
+  localStorage.setItem('habitante-de-calle-save-v1', JSON.stringify(vieja));
+  const cargada = recargar();
+  assert.equal(cargada.stats.dinero, 12000);
+  assert.deepEqual(filas(cargada), filas(game));
+  assert.equal(cargada.stats.salud, game.stats.salud);
 });

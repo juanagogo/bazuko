@@ -510,6 +510,7 @@ test('con las animaciones Mixamo, el arma casera golpea y al dormir se acuesta, 
     const game = window.__game;
     Object.assign(game.built, { base: true, paredes: true });
     game.stats.higiene = 90;
+    game.stats.energia = 60; // de día es siesta, y la siesta pide cansancio
     game.sleep();
   });
   expect(await page.evaluate(() => window.__game.player.action)).toBe('dormir');
@@ -719,6 +720,8 @@ test('quien se acuesta corriendo no resbala al despertar y se levanta de a poco,
     const game = window.__game;
     Object.assign(game.built, { base: true, paredes: true });
     game.stats.higiene = 90;
+    game.stats.energia = 60; // de día es siesta: pide cansancio y no cuenta la siesta de hace un rato
+    game.ultimaSiesta = null;
     game.player.velocity.set(0, 0, 6); // Llegó corriendo y pulsó E sin frenar.
     game.sleep();
   });
@@ -738,6 +741,43 @@ test('quien se acuesta corriendo no resbala al despertar y se levanta de a poco,
   expect(errors).toEqual([]);
 });
 
+test('la siesta del cambuche: con energía no hay, el botón dice por qué, y después de una toca esperar', async ({ page }) => {
+  const errors = collectErrors(page);
+  await start(page);
+  const abrir = (hora = null) => page.evaluate(async (hora) => {
+    const game = window.__game;
+    if (hora !== null) game.clock.hour = hora; // de día: lo que ofrece es la siesta
+    (await import('/src/ui/placeMenus.js')).openCambuche(game);
+  }, hora);
+  const siesta = page.locator('#menu .menu__foot button', { hasText: 'Echar una siesta' });
+  const nota = page.locator('#menu .menu__foot .menu__money');
+  await page.evaluate(() => {
+    const game = window.__game;
+    Object.assign(game.built, { base: true, paredes: true });
+    game.stats.energia = 95;
+  });
+
+  await abrir(10);
+  await expect(nota).toHaveText('Todavía no tengo sueño para una siesta.');
+  await expect(siesta).toBeDisabled();
+  await page.keyboard.press('Escape');
+
+  await page.evaluate(() => { window.__game.stats.energia = 40; });
+  await abrir(10);
+  await expect(nota).toHaveText('Dormir guarda la partida.');
+  await siesta.click();
+  await expect(page.locator('#cerrado')).toBeHidden({ timeout: 25_000 });
+  await expect.poll(() => page.evaluate(() => window.__game.isSleeping)).toBe(false);
+  const guardada = await page.evaluate(() => JSON.parse(localStorage.getItem('habitante-de-calle-save-v1')).ultimaSiesta);
+  expect(guardada, 'la hora de la siesta queda guardada').toBeCloseTo(13, 0);
+
+  await abrir();
+  await expect(nota).toHaveText(/^Ya eché una siesta: puedo echar otra en [56] h\.$/);
+  await expect(siesta).toBeDisabled();
+  await page.keyboard.press('Escape');
+  expect(errors).toEqual([]);
+});
+
 test('dormir sucio en la pose nueva puede pegar sarna y la pomada la cura; sin la enfermedad no se gasta', async ({ page }) => {
   const errors = collectErrors(page);
   await start(page);
@@ -748,6 +788,7 @@ test('dormir sucio en la pose nueva puede pegar sarna y la pomada la cura; sin l
     game.inventory.add(ITEMS.pomada, 1);
     Object.assign(game.built, { base: true, paredes: true });
     game.stats.higiene = 10;
+    game.stats.energia = 60; // de día es siesta, y la siesta pide cansancio
   });
   const toastShown = await recordToasts(page);
   const usePomada = async () => {

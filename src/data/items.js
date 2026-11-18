@@ -28,22 +28,28 @@ export const ITEMS = {
   retrovisor: { id: 'retrovisor', name: 'Retrovisor',   weight: 0.8, value: 15000 },
   radio:      { id: 'radio',      name: 'Radio de carro',   weight: 1.5, value: 35000 },
 
+  // ===== REBUSQUE EN EL SEMÁFORO (ver data/rebusque.js) =====
+  malabares: {
+    id: 'malabares', name: 'Pelotas de malabares', weight: 0.3, value: 1500, tool: true,
+    desc: 'Tres pelotas de trapo para hacer malabares frente a los carros en rojo.'
+  },
+
   // ===== CONSUMIBLES =====
   pan: {
     id: 'pan', name: 'Pan duro', weight: 0.3, value: 1000,
-    consumable: 'hambre', amount: 25, animo: 5, perece: 36
+    consumable: 'hambre', amount: 25, animo: 5, perece: 72
   },
   empanada: {
     id: 'empanada', name: 'Empanada con ají', weight: 0.2, value: 1200,
-    consumable: 'hambre', amount: 35, animo: 15, calor: 120, perece: 8, desc: 'Empanada de carne y papa con ají casero.'
+    consumable: 'hambre', amount: 35, animo: 15, calor: 120, perece: 24, desc: 'Empanada de carne y papa con ají casero.'
   },
   morcilla: {
     id: 'morcilla', name: 'Morcilla criolla', weight: 0.35, value: 2500,
-    consumable: 'hambre', amount: 60, energia: 20, animo: 10, calor: 180, perece: 8, desc: 'Rellena de la Mona: contundente y calórica.'
+    consumable: 'hambre', amount: 60, energia: 20, animo: 10, calor: 180, perece: 24, desc: 'Rellena de la Mona: contundente y calórica.'
   },
   papaCriolla: {
     id: 'papaCriolla', name: 'Papa criolla', weight: 0.25, value: 1000,
-    consumable: 'hambre', amount: 25, animo: 10, calor: 90, perece: 8, desc: 'Porción de papa criolla doradita con sal.'
+    consumable: 'hambre', amount: 25, animo: 10, calor: 90, perece: 24, desc: 'Porción de papa criolla doradita con sal.'
   },
   lataComida: {
     id: 'lataComida', name: 'Lata de atún', weight: 0.4, value: 4500,
@@ -55,7 +61,7 @@ export const ITEMS = {
   },
   aguapanela: {
     id: 'aguapanela', name: 'Aguapanela caliente', weight: 0.35, value: 1200,
-    consumable: 'sed', amount: 40, energia: 25, animo: 15, calor: 180, cure: 'gripe', perece: 6, desc: 'Aguapanela con limón: revive y cura la gripe.'
+    consumable: 'sed', amount: 40, energia: 25, animo: 15, calor: 180, cure: 'gripe', perece: 12, desc: 'Aguapanela con limón: revive y cura la gripe.'
   },
   // Agua de lluvia o de pila: quita la sed, pero no es potable y a veces cae mal.
   aguaCalle: {
@@ -69,7 +75,7 @@ export const ITEMS = {
   },
   cafe: {
     id: 'cafe', name: 'Café caliente', weight: 0.3, value: 1500,
-    consumable: 'energia', amount: 40, animo: 15, perece: 6
+    consumable: 'energia', amount: 40, animo: 15, perece: 12
   },
   // Lo que se dañó en el costal: llena poco y la mitad de las veces cae mal.
   comidaDanada: {
@@ -209,7 +215,7 @@ for (const item of Object.values(ITEMS)) {
 export const isUsable = item => !!(item?.consumable || item?.cure || item?.usable);
 export function describeEffects(item) {
   const lines = [];
-  if (item.id === 'ropaLimpia') lines.push('Usar: cambiarte de ropa, sube higiene y ánimo.');
+  if (item.id === 'ropaLimpia') lines.push('Usar: cambiarse de ropa, sube higiene y ánimo.');
   if (item.id === 'radioTransistor') lines.push('Usar: abrir el sintonizador. También con R.');
   if (item.id === 'pilas') lines.push('Usar: 50 % más de pilas en el radio.');
   if (item.id === 'popo') lines.push('Usar o X en la calle: lanzar a un peatón.');
@@ -231,7 +237,7 @@ export function describeEffects(item) {
 
 /** La recicladora compra todo lo que no se come, no cura, no es sustancia ni sirve para construir */
 export const isRecyclable = (item) =>
-  !!item && !item.consumable && !item.cure && !item.substance && !item.build && item.id !== 'popo' && item.id !== 'radioTransistor' && item.id !== 'pilas';
+  !!item && !item.consumable && !item.cure && !item.substance && !item.build && !item.tool && item.id !== 'popo' && item.id !== 'radioTransistor' && item.id !== 'pilas';
 
 /** Lo que la recicladora o un ladrón se llevan del costal: todo lo reciclable menos el arma que el jugador tiene en la mano. */
 export const isForSale = (item, equippedWeapon = null) => isRecyclable(item) && !(item.weapon && item.weapon === equippedWeapon);
@@ -239,7 +245,8 @@ export const isForSale = (item, equippedWeapon = null) => isRecyclable(item) && 
 // El dibujo de cada objeto cuyo nombre no coincide con el de su dibujo (ver src/ui/icons.js)
 const ICONS = {
   radioTransistor: 'radio', papaCriolla: 'papa', aguapanela: 'pocillo', agua: 'botellaAgua', aguaCalle: 'botellaAgua', comidaDanada: 'pan', cafe: 'pocillo', tintico: 'pocillo',
-  basuco: 'papeleta', botella_picada: 'botellaPicada', antibiotico: 'pastilla', antiparasitario: 'pastilla', ropaLimpia: 'shirt'
+  basuco: 'papeleta', botella_picada: 'botellaPicada', antibiotico: 'pastilla', antiparasitario: 'pastilla', ropaLimpia: 'shirt',
+  malabares: 'dado'
 };
 export const itemIcon = (id) => ICONS[id] ?? id;
 
@@ -307,6 +314,7 @@ export const SHOP_ITEMS = [
   { item: 'vela',       price: 1000, desc: 'Ilumina el cambuche: duermo más tranquilo.' },
   { item: 'lona',       price: 9000, desc: 'Para el techo del cambuche.' },
   { item: 'madera',     price: 6000, qty: 3, label: 'Tablas ×3', desc: 'Para las paredes del cambuche.' },
+  { item: 'malabares',  price: 3000, desc: 'Para rebuscarme con B frente a los carros en rojo.' },
   { item: 'pilas',           price: 2000,  desc: 'Pilas AA: recargan la radio transistor.' },
   { item: 'radioTransistor', price: 18000, desc: 'Radio transistor: sintoniza emisoras y calma la mente.' },
   { upgrade: 'costal',  price: 12000, label: 'Costal grande', icon: 'backpack', desc: 'Cargo 20 kg más.' }

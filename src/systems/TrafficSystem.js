@@ -273,18 +273,41 @@ export class TrafficSystem {
 
   /**
    * Un carro parado mucho rato fuera de la vista se retira y la flota manda otro a un tramo libre. Los trancones que el
-   * jugador ve se quedan, como el tráfico de verdad, y se despejan cuando deja de mirar.
+   * jugador ve se quedan, como el tráfico de verdad, y se despejan cuando deja de mirar. La patrulla de ronda no tiene
+   * repuesto: en vez de retirarse, se pasa a un tramo libre de su ruta, también fuera de la vista.
    */
   _clearStuck(dt) {
     const view = this._viewPosition, safeSq = this._resizeDistance() ** 2;
     for (const vehicle of this.vehicles) {
       vehicle.stoppedFor = vehicle.speed < .05 ? (vehicle.stoppedFor ?? 0) + dt : 0;
-      if (vehicle.stoppedFor < STUCK_LIMIT || !this._canRetire(vehicle)) continue;
+      if (vehicle.stoppedFor < STUCK_LIMIT) continue;
+      const patrol = vehicle.police && vehicle.state === 'patrol' && !vehicle.rejoinTarget && !vehicle.hold;
+      if (!patrol && !this._canRetire(vehicle)) continue;
       const dx = vehicle.car.position.x - view.x, dz = vehicle.car.position.z - view.z;
       if (dx * dx + dz * dz < safeSq) continue;
+      if (patrol) {
+        if (this._moveToFreeStretch(vehicle)) return;
+        continue;
+      }
       this._retire(vehicle);
       return; // uno por cuadro, para que la retirada se note como el resto del montaje
     }
+  }
+
+  /** Lleva un vehículo parado a un tramo libre de su ruta, lejos de la vista, como si entrara de nuevo. */
+  _moveToFreeStretch(vehicle) {
+    const distance = this._freeDistance(vehicle.route);
+    if (distance === null) return false;
+    this._releaseReservations(vehicle);
+    vehicle.route.sample(distance, this._position, this._direction);
+    vehicle.distance = vehicle.nextDistance = distance;
+    vehicle.car.position.copy(this._position);
+    vehicle.car.group.rotation.y = Math.atan2(-this._direction.z, this._direction.x);
+    vehicle.speed = vehicle.nextSpeed = vehicle.acceleration = 0;
+    vehicle.stopped = false;
+    vehicle.resumeDelay = 0;
+    vehicle.stoppedFor = 0;
+    return true;
   }
 
   /** Saca al vehículo de las colas, los planes y los dueños de todos los cruces. */
@@ -297,9 +320,10 @@ export class TrafficSystem {
     }
   }
 
-  /** Metros a los que una patrulla alcanza a ver un robo: cada nivel de fichado los alarga. */
+  /** Metros a los que una patrulla alcanza a ver un robo: cada nivel de fichado los alarga y de noche ve menos. */
   get sightRange() {
-    return POLICE_SIGHT_RANGE * (1 + POLICE_SIGHT_PER_WANTED * this.wantedLevel);
+    // La jornada la pone el juego (JornadaSystem); sin ella, la vista de siempre.
+    return POLICE_SIGHT_RANGE * (1 + POLICE_SIGHT_PER_WANTED * this.wantedLevel) * (this.jornada?.franja?.policiaVista ?? 1);
   }
 
   _canWitness(vehicle, playerPosition) {
@@ -334,6 +358,27 @@ export class TrafficSystem {
       alerted = true;
     }
     return alerted;
+  }
+
+  /**
+   * Un testigo llamó: la patrulla libre más cercana al sitio de la llamada sale a perseguir sin haberlo visto. Solo
+   * las que están a menos de lo que una persecución aguanta del sitio y también del jugador (`player`, donde está
+   * ahora): si no, desistiría al cuadro siguiente por una persecución que nunca empezó. Con una persecución en curso
+   * no cambia nada: ya lo están buscando.
+   */
+  dispatchTo(position, player = position) {
+    if (!position || this.inPursuit) return false;
+    const rangeSq = POLICE_GIVE_UP_RANGE * POLICE_GIVE_UP_RANGE;
+    const sq = (a, b) => (a.x - b.x) ** 2 + (a.z - b.z) ** 2;
+    let best = null, bestSq = rangeSq;
+    for (const vehicle of this.vehicles) {
+      if (!vehicle.police || vehicle.state !== 'patrol' || vehicle.rejoinTarget || vehicle.hold) continue;
+      const distSq = sq(vehicle.car.position, position);
+      if (distSq < bestSq && sq(vehicle.car.position, player ?? position) < rangeSq) { bestSq = distSq; best = vehicle; }
+    }
+    if (!best) return false;
+    this._startChase(best);
+    return true;
   }
 
   _startChase(vehicle) {
@@ -549,6 +594,27 @@ export class TrafficSystem {
     const vehicle = this.vehicles.find(v => v.car === car) ?? null;
     if (vehicle) vehicle.hold = held;
     return vehicle;
+  }
+
+  /**
+   * Carros quietos frente a un semáforo en rojo a menos de `radius` metros de `position`, del más cercano al más
+   * lejano. Sin patrullas ni carros sostenidos: el rebusque solo se le hace a quien espera la luz. Solo lee.
+   */
+  stoppedAtRed(position, radius = 6) {
+    const found = [];
+    if (!this.signals?.redAhead) return found;
+    for (const vehicle of this.vehicles) {
+      // `stopped`: ya frenó del todo; uno que apenas se arrima a la línea o que arranca no cuenta.
+      if (vehicle.police || vehicle.hold || !vehicle.stopped || vehicle.speed > .1) continue;
+      const car = vehicle.car;
+      const dx = car.position.x - position.x, dz = car.position.z - position.z;
+      const distance = Math.hypot(dx, dz);
+      if (distance > radius || Math.abs(car.position.y - (position.y ?? 0)) > 1.5) continue;
+      const yaw = car.group.rotation.y;
+      if (!this.signals.redAhead(car.position, { x: Math.cos(yaw), z: -Math.sin(yaw) })) continue;
+      found.push({ vehicle, car, distance });
+    }
+    return found.sort((a, b) => a.distance - b.distance);
   }
 
   _chooseRoute(vehicle) {

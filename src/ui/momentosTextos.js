@@ -59,15 +59,20 @@ export function perdidoAlMorir(items, nombres, max = 3) {
 
 // ---------- las muertes ----------
 
+// La causa es lo que quitó la salud (`Game._deathCause` o `stats.danoPor`). Sin causa anotada se mira la sed y el
+// hambre. El frío y el cansancio debilitan, pero no quitan salud: el cartón no los culpa.
+const porSed = (causa, stats) => causa === 'sed' || (!causa && stats?.sed <= 0);
+const porHambre = (causa, stats) => causa === 'hambre' || (!causa && stats?.hambre <= 0);
+
 /** El título, en marcador y sin exclamación. */
 export function tituloDeMuerte(causa, stats) {
   if (causa === 'atropello') return 'Me atropellaron';
   if (causa === 'golpiza') return 'Te cascaron';
   if (causa === 'limpieza') return 'Te mató la limpieza social';
-  if (stats?.isFreezing) return 'Me mató el frío';
-  if (stats?.sed <= 0) return 'Me mató la sed';
-  if (stats?.hambre <= 0) return 'Me mató el hambre';
-  if (stats?.energia <= 0) return 'No di más';
+  if (causa === 'pelea') return 'Me mataron a golpes';
+  if (causa === 'enfermedad') return 'Me mató la enfermedad';
+  if (porSed(causa, stats)) return 'Me mató la sed';
+  if (porHambre(causa, stats)) return 'Me mató el hambre';
   return 'Me quedé sin salud';
 }
 
@@ -76,9 +81,10 @@ export function consejoDeMuerte(causa, stats) {
   if (causa === 'limpieza') return null;
   if (causa === 'atropello') return 'Mire a los dos lados antes de cruzar: un carro no frena de una.';
   if (causa === 'golpiza') return 'Si un conductor se baja con la varilla, córrale y no pare.';
-  if (stats?.isFreezing) return 'Con lluvia de noche, busque candela o techo.';
-  if (stats?.sed <= 0) return 'Busque agua antes de que el cuerpo no dé más.';
-  if (stats?.hambre <= 0) return 'Busque comida antes de que el cuerpo no dé más.';
+  if (causa === 'pelea') return 'Con poca salud no se arriesgue: quien se defiende pega duro.';
+  if (causa === 'enfermedad') return 'Busque un remedio antes de que el cuerpo no dé más.';
+  if (porSed(causa, stats)) return 'Busque agua antes de que el cuerpo no dé más.';
+  if (porHambre(causa, stats)) return 'Busque comida antes de que el cuerpo no dé más.';
   return 'Coma, beba agua y descanse antes de que el cuerpo no dé más.';
 }
 

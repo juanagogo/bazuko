@@ -22,6 +22,34 @@ test('el índice incluye cajas extensas, bordes y coordenadas negativas sin dupl
   assert.equal(grid.query(-100, -100, 100, 100).length, 0);
 });
 
+test('cada celda tiene su propia llave numérica, también lejos del origen y en negativo', () => {
+  const size = 8, grid = new SpatialGrid(size), range = 16384;
+  // Bordes del rango exacto, alrededor del origen y celdas que una llave de rango más corto confundía, como (0, 4096) y (1, -4096).
+  const edges = [-range, -range + 1, -4097, -4096, -1, 0, 1, 4095, 4096, range - 1];
+  const cells = edges.flatMap(x => edges.map(z => ({ x, z })));
+  let seed = 33;
+  const random = () => { seed = Math.imul(seed, 1664525) + 1013904223 | 0; return (seed >>> 0) / 4294967296; };
+  for (let i = 0; i < 2000; i++) cells.push({ x: Math.floor(random() * 2 * range) - range, z: Math.floor(random() * 2 * range) - range });
+  for (const cell of cells) grid.insert(cell, cell.x * size + size / 2, cell.z * size + size / 2);
+  // `cells` es interno, pero es la única forma de ver las llaves: una por celda, sin repetirse, y cada una un entero pequeño,
+  // de los que V8 guarda sin crear un objeto (con compresión de punteros, como en Chrome, de −2³⁰ a 2³⁰ − 1).
+  assert.equal(grid.cells.size, new Set(cells.map(({ x, z }) => `${x},${z}`)).size, 'dos celdas compartieron llave');
+  const smallInteger = key => Number.isInteger(key) && key >= -(2 ** 30) && key < 2 ** 30;
+  for (const key of grid.cells.keys()) assert.ok(smallInteger(key), `llave ${key}: no es un entero de −2³⁰ a 2³⁰ − 1, de los que V8 guarda sin objeto`);
+  for (const cell of cells.slice(0, edges.length ** 2)) {
+    assert.deepEqual(grid.query(cell.x * size + 1, cell.z * size + 1, (cell.x + 1) * size - 1, (cell.z + 1) * size - 1), [cell]);
+  }
+});
+
+test('una coordenada NaN no ocupa ni consulta celdas', () => {
+  const grid = new SpatialGrid(), item = {};
+  grid.insert(item, NaN, 0); grid.insert(item, 0, NaN, 10, 10);
+  assert.equal(grid.cells.size, 0);
+  grid.insert(item, 5, 5);
+  assert.deepEqual(grid.query(NaN, 0, 10, 10), []);
+  assert.deepEqual(grid.query(0, 0, 10, 10), [item]);
+});
+
 test('el barrido indexado conserva la resolución exhaustiva en movimientos largos y callejones', () => {
   const indexed = new CollisionSystem(), exhaustive = new CollisionSystem();
   let seed = 21;
