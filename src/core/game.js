@@ -1001,7 +1001,7 @@ export class Game {
       if (data.gps && this.gps) this.setGpsWaypoint({ ...data.gps, name: RENAMED_PLACES[data.gps.name] ?? data.gps.name }, { silent: true });
       if (data.lastComedorHour !== undefined) this.lastComedorHour = data.lastComedorHour;
       this.street?.deserialize(data.street);
-      this.steal?.deserialize(data.robo); // la mano del robo; una partida vieja empieza de cero
+      this.steal?.deserialize?.(data.robo); // la mano del robo; una partida vieja empieza de cero
       if (data.dailyMissions) this.dailyMissions?.deserialize(data.dailyMissions);
       else this.dailyMissions?.init(this.clock?.day ?? 1);
     } else {
@@ -1029,7 +1029,7 @@ export class Game {
       lastComedorHour: this.lastComedorHour,
       dailyMissions: this.dailyMissions?.serialize(),
       street: this.street?.serialize(),
-      robo: this.steal?.serialize()
+      robo: this.steal?.serialize?.()
     });
   }
 
