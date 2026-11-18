@@ -657,7 +657,7 @@ export class Player {
     const onFoot = this.isGrounded || this._coyote > 0;
     if (pressedJump && !onFoot && !jumpBlocked) this._jumpBuffer = JUMP.bufferTime;
     const wantsJump = pressedJump || (this.isGrounded && this._jumpBuffer > 0);
-    if (wantsJump && onFoot && !jumpBlocked) {
+    if (wantsJump && !this.ridingBike && onFoot && !jumpBlocked) {
       // El impulso es inmediato: la pose muestra el empuje sin retrasar el mando.
       this.jumpVelocity = this._launchSpeed = JUMP.launchSpeed;
       this.isGrounded = false;

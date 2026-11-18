@@ -36,6 +36,8 @@ Las regresiones de jugabilidad comprueban el salto y el recorrido de ambas rampa
 
 `rebusque-tecla.test.js` comprueba también que el bucle del juego avance el show del semáforo, le pase su aviso a la tecla de contexto y mueva las pelotas: sin eso, B empieza el show y nunca termina ni paga.
 
+`arranque.test.js` comprueba también que el constructor arme las alucinaciones al azar y deje en blanco la hora real del comedor y el puesto de las bicicletas; `comedor.test.js`, que la hora real del último almuerzo vaya en la partida y recargar no reinicie la espera de 5 minutos, y `bicycle.test.js`, que montado en la bicicleta Espacio no salte.
+
 En C++, `bazuko_playerstate_test` comprueba que la carga conserve los objetos permitidos por el costal grande y los talentos, y que la regeneración no reviva al jugador durante una caída mortal. Se ejecuta con `ctest --test-dir cpp/build --output-on-failure` después de configurar y compilar los objetivos nativos. Estas pruebas de lógica no requieren abrir la ventana del juego.
 
 ## Sala de pruebas
