@@ -30,7 +30,7 @@ export const MISSION_TEMPLATES = [
   {
     type: 'perro',
     title: 'Compañero fiel',
-    desc: 'Atienda a El Chato (dele comida o acarícielo).',
+    desc: 'Atiende a El Chato (dale comida o acarícialo).',
     target: 1,
     icon: 'dog',
     reward: { dinero: 1000, xp: 25, animo: 20 }
@@ -38,7 +38,7 @@ export const MISSION_TEMPLATES = [
   {
     type: 'ropa',
     title: 'Cambio de pinta',
-    desc: 'Cámbiese de ropa para protegerse del clima frío.',
+    desc: 'Cámbiate de ropa para protegerte del clima frío.',
     target: 1,
     icon: 'shirt',
     reward: { dinero: 1500, xp: 20, animo: 15 }
@@ -46,7 +46,7 @@ export const MISSION_TEMPLATES = [
   {
     type: 'fogata',
     title: 'Al calor de la candela',
-    desc: 'Caliéntese las manos en una fogata de El Cartucho.',
+    desc: 'Caliéntate las manos en una fogata de El Cartucho.',
     target: 1,
     icon: 'flame',
     reward: { dinero: 1200, xp: 20, animo: 15 }
@@ -54,7 +54,7 @@ export const MISSION_TEMPLATES = [
   {
     type: 'limosna',
     title: 'La moneda de la suerte',
-    desc: 'Pida limosna exitosamente 2 veces.',
+    desc: 'Pide limosna exitosamente 2 veces.',
     target: 2,
     icon: 'hand',
     reward: { dinero: 2000, xp: 25, animo: 15 }
@@ -62,7 +62,7 @@ export const MISSION_TEMPLATES = [
   {
     type: 'crafteo',
     title: 'Artesano de la calle',
-    desc: 'Fabrique un objeto útil en la mesa de trabajo.',
+    desc: 'Fabrica un objeto útil en la mesa de trabajo.',
     target: 1,
     icon: 'hammer',
     reward: { dinero: 2500, xp: 35, animo: 10 }
@@ -70,7 +70,7 @@ export const MISSION_TEMPLATES = [
   {
     type: 'noche',
     title: 'Pasar la noche',
-    desc: 'Sobreviva la noche o descanse en el cambuche.',
+    desc: 'Sobrevive la noche o descansa en el cambuche.',
     target: 1,
     icon: 'tent',
     reward: { dinero: 2500, xp: 30, animo: 20 }
@@ -205,6 +205,7 @@ export class DailyMissionSystem {
 
     if (typeof window !== 'undefined') {
       const rewardText = reward.dinero ? ` +${cop(reward.dinero)}` : '';
+      const xpText = reward.xp ? ` +${reward.xp} XP` : '';
       window.dispatchEvent(new CustomEvent('toast', {
         detail: {
           text: `¡Misión cumplida: ${mission.title}! Recompensa:${rewardText}`,
@@ -246,7 +247,7 @@ export class DailyMissionSystem {
     const pending = this.missions.find(m => !m.completed);
     if (pending) {
       const prog = pending.target > 1 ? ` (${pending.progress}/${pending.target})` : '';
-      return `MISIÓN: ${pending.title.toUpperCase()}${prog}, ${cop(pending.reward.dinero)}`;
+      return `MISIÓN: ${pending.title.toUpperCase()}${prog} · ${cop(pending.reward.dinero)}`;
     }
     return 'MISIONES DEL DÍA COMPLETADAS';
   }

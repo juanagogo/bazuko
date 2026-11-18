@@ -1,14 +1,20 @@
 // src/entities/Cambuche.js
 // Refugio que se arma por piezas (base, techo, paredes, colchón, fogón, vela).
-// Geometría portada de rebusque; medidas en metros, escaladas al mundo.
+// Cada pieza es una maqueta de caras planas unida en una sola malla (`cambuche/piezas.js`); alrededor crece el
+// patio y, con la estructura completa, el modelo importado recibe encima las capas del techo (`cambuche/patio.js`).
 import * as THREE from 'three';
 import { CHARACTER_SCALE } from '../utils/constants.js';
 import { createImportedModel, disposeImportedInstance } from '../utils/ImportedModels.js';
 import { createFlame, fireGlow, stepFlames } from '../world/bogota/flame.js';
-import { cardboard } from '../world/bogota/textures.js';
+import { Maqueta, PALETA, materialDeMaqueta } from './cambuche/maqueta.js';
+import * as piezas from './cambuche/piezas.js';
+import { PATIO, TABLA, alturasDelModelo, cubierta, reciclaje, rendijas, resplandor, rincon, tendedero } from './cambuche/patio.js';
+import { crearTinta, rotulos } from './cambuche/letreros.js';
 
 /** Las piezas que trae el modelo completo: con las cuatro armadas, el modelo las reemplaza. */
 export const STRUCTURE = ['base', 'techo', 'paredes', 'cama'];
+const PIEZAS = [...STRUCTURE, 'fogon', 'vela'];
+const LLAMA = .44;
 
 export class Cambuche {
   constructor(scene, position) {
@@ -25,92 +31,70 @@ export class Cambuche {
     root.scale.setScalar(CHARACTER_SCALE);
     this.group.add(root);
 
-    this._cardMap = cardboard(21).map;
-    const cardMat = new THREE.MeshStandardMaterial({ map: this._cardMap, roughness: 0.92 });
+    // Los materiales de todo lo armado a mano: el de las maquetas (de dos caras y liso donde hay tela, plástico o
+    // lata), el de las brasas y el de la luz de noche.
+    this._material = materialDeMaqueta();
+    this._tela = materialDeMaqueta(THREE.DoubleSide, true);
+    this._brasas = new THREE.MeshBasicMaterial({ vertexColors: true, toneMapped: false });
+    this._luz = new THREE.MeshBasicMaterial({ vertexColors: true, blending: THREE.AdditiveBlending, transparent: true,
+      depthWrite: false, toneMapped: false, fog: false, side: THREE.DoubleSide });
+    this._luz.color.setScalar(0);
+    this._tinta = crearTinta();
+    const malla = (maqueta, sombra = true, tela = false) => {
+      const mesh = new THREE.Mesh(maqueta.geometria(), tela ? this._tela : this._material);
+      mesh.castShadow = sombra;
+      mesh.receiveShadow = true;
+      return mesh;
+    };
+    const deNoche = maqueta => {
+      const mesh = new THREE.Mesh(maqueta.geometria(), this._luz);
+      mesh.visible = false;
+      mesh.renderOrder = 3;
+      mesh.userData.soloDeNoche = true;
+      return mesh;
+    };
+    const pintado = lista => {
+      const mesh = new THREE.Mesh(rotulos(lista), this._tinta.material);
+      mesh.receiveShadow = true;
+      return mesh;
+    };
+    this._malla = malla; this._pintado = pintado;
     const pieces = {};
 
     // Cartones sueltos que marcan el sitio antes de armar
-    const marker = new THREE.Group();
+    const sueltos = new Maqueta(7);
     for (let i = 0; i < 4; i++) {
-      const m = new THREE.Mesh(new THREE.BoxGeometry(0.6 + Math.random() * 0.4, 0.03, 0.5), cardMat);
-      m.position.set((Math.random() - 0.5) * 1.4, 0.02 + i * 0.01, (Math.random() - 0.5) * 1);
-      m.rotation.y = Math.random() * 3;
-      marker.add(m);
+      sueltos.caja(0.6 + sueltos.r() * 0.4, 0.03, 0.5, i % 2 ? PALETA.cartonViejo : PALETA.carton,
+        { en: [(sueltos.r() - 0.5) * 1.4, 0.02 + i * 0.012, (sueltos.r() - 0.5) * 1], giro: [0, sueltos.r() * 3, 0] });
     }
+    const marker = malla(sueltos, false);
     root.add(marker);
 
     // Base de cartón aplanado
-    const base = new THREE.Group();
-    for (let i = 0; i < 3; i++) {
-      const m = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.05, 2.1), cardMat);
-      // Las hojas se solapan: cada una queda ligeramente encima de la anterior.
-      m.position.set(-0.9 + i * 0.88, 0.03 + i * 0.008, 0);
-      m.rotation.y = (Math.random() - 0.5) * 0.08;
-      m.receiveShadow = true;
-      base.add(m);
-    }
-    pieces.base = base;
+    pieces.base = malla(piezas.base(), false);
 
-    // Techo de lona azul sobre palos
-    const techo = new THREE.Group();
-    const stickMat = new THREE.MeshStandardMaterial({ color: '#4a3a28', roughness: 0.9 });
-    for (const [x, z, h] of [[-1.5, -1.2, 1.7], [1.5, -1.2, 1.7], [-1.5, 1.2, 1.1], [1.5, 1.2, 1.1]]) {
-      const s = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.04, h, 6), stickMat);
-      s.position.set(x, h / 2, z);
-      s.castShadow = true;
-      techo.add(s);
-    }
-    const tarpGeo = new THREE.PlaneGeometry(3.4, 2.8, 12, 10);
-    const tp = tarpGeo.attributes.position;
-    for (let i = 0; i < tp.count; i++) {
-      const x = tp.getX(i), y = tp.getY(i);
-      tp.setZ(i, -Math.cos((x / 1.7) * Math.PI) * 0.05 - (1 - Math.abs(y) / 1.4) * 0.12);
-    }
-    tarpGeo.computeVertexNormals();
-    const tarp = new THREE.Mesh(tarpGeo, new THREE.MeshStandardMaterial({ color: '#1f5fbf', roughness: 0.45, side: THREE.DoubleSide }));
-    tarp.rotation.x = -Math.PI / 2 + 0.22;
-    tarp.position.y = 1.45;
-    tarp.castShadow = true;
-    techo.add(tarp);
-    pieces.techo = techo;
+    // Techo en capas, alto atrás y bajo adelante: plástico negro, lona azul remendada, piedras, una llanta y cuerdas
+    pieces.techo = malla(piezas.techo(), true, true);
 
-    // Paredes de tablas
+    // Paredes de tablas y cartón, con la cobija de cortina; de noche la luz se cuela por las rendijas
     const paredes = new THREE.Group();
-    const woodMat = new THREE.MeshStandardMaterial({ color: '#6b4a2e', roughness: 0.85 });
-    for (let i = 0; i < 7; i++) {
-      const p = new THREE.Mesh(new THREE.BoxGeometry(0.42, 1.2 + Math.random() * 0.3, 0.05), woodMat);
-      p.position.set(-1.35 + i * 0.45, 0.62, -1.25);
-      p.rotation.z = (Math.random() - 0.5) * 0.06;
-      p.castShadow = true;
-      paredes.add(p);
-    }
-    for (const x of [-1.55, 1.55]) {
-      for (let i = 0; i < 4; i++) {
-        const p = new THREE.Mesh(new THREE.BoxGeometry(0.05, 1.05 + Math.random() * 0.2, 0.5), woodMat);
-        p.position.set(x, 0.55, -0.95 + i * 0.52);
-        p.castShadow = true;
-        paredes.add(p);
-      }
-    }
+    this.rendijas = deNoche(rendijas());
+    paredes.add(malla(piezas.paredes(), true, true), pintado([
+      { tinta: 'panela', ancho: .56, alto: .56, en: [-1.18, .58, .806] },
+      { tinta: 'galletas', ancho: .38, alto: .38, en: [-1.626, .5, -.2], giro: [0, -Math.PI / 2, 0] },
+      { tinta: 'galletas', ancho: .6, alto: .6, en: [-.66, .58, -1.176] },
+      { tinta: 'panela', ancho: .56, alto: .56, en: [.65, .6, -1.206], giro: [0, Math.PI, 0] },
+    ]), this.rendijas);
     pieces.paredes = paredes;
 
-    // Colchón manchado
-    const cama = new THREE.Mesh(new THREE.BoxGeometry(0.95, 0.18, 1.9), new THREE.MeshStandardMaterial({ color: '#9d9a86', roughness: 0.95 }));
-    cama.position.set(-0.4, 0.13, 0);
-    cama.castShadow = true;
-    pieces.cama = cama;
+    // Colchón sobre una estiba, con almohada y cobija
+    pieces.cama = malla(piezas.cama());
 
-    // Fogón de latas con fuego
+    // Fogón de tres piedras con la olla tiznada, las latas y el fuego
     const fogon = new THREE.Group();
-    const canMat = new THREE.MeshStandardMaterial({ color: '#9aa0a6', metalness: 0.85, roughness: 0.35 });
-    for (let i = 0; i < 5; i++) {
-      const c = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 0.12, 10), canMat);
-      const a = (i / 5) * Math.PI * 2;
-      c.position.set(Math.cos(a) * 0.18, 0.06, Math.sin(a) * 0.18);
-      fogon.add(c);
-    }
-    this.fire = createFlame(0.46, 0.66);
-    this.fire.position.y = 0.04;
+    fogon.add(malla(piezas.fogon(), false), new THREE.Mesh(piezas.brasas().geometria(), this._brasas));
+    this.fire = createFlame(0.34, LLAMA);
+    this.fire.position.y = 0.03;
     fogon.add(this.fire);
     this.fireLight = new THREE.PointLight(0xff8a2a, 2.5, 5);
     this.fireLight.position.y = 0.4;
@@ -119,17 +103,13 @@ export class Cambuche {
     fogon.position.set(1.0, 0, 1.3);
     pieces.fogon = fogon;
 
-    // Vela y foto
+    // Vela y estampa en su cajón, con una matica al lado: adentro, a la vista desde la entrada
     const vela = new THREE.Group();
-    const candle = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.025, 0.12, 8), new THREE.MeshStandardMaterial({ color: '#f2eee0' }));
-    candle.position.y = 0.06;
     this.flame = new THREE.Mesh(new THREE.SphereGeometry(0.02, 6, 6), new THREE.MeshBasicMaterial({ color: new THREE.Color('#ffc46b').multiplyScalar(5) }));
-    this.flame.position.y = 0.15;
-    const photo = new THREE.Mesh(new THREE.PlaneGeometry(0.16, 0.2), new THREE.MeshStandardMaterial({ color: '#d8c7a5', emissive: '#3a2a15', emissiveIntensity: 0.3 }));
-    photo.position.set(0.12, 0.12, -0.02);
-    photo.rotation.y = -0.4;
-    vela.add(candle, this.flame, photo);
-    vela.position.set(0.6, 0.06, -0.9);
+    this.flame.position.set(...piezas.LLAMA_VELA);
+    vela.add(malla(piezas.vela(), false), this.flame);
+    vela.position.set(0.6, 0, 0.3);
+    vela.rotation.y = -0.12;
     pieces.vela = vela;
 
     Object.values(pieces).forEach((p) => {
@@ -146,9 +126,20 @@ export class Cambuche {
     this.marker.position.y = 0.03;
     this.group.add(this.marker);
 
+    // El patio se va poblando a medida que se arma; lo de encima del modelo llega con él.
+    this.patio = { rincon: malla(rincon()), tendedero: malla(tendedero(), true, true), reciclaje: malla(reciclaje()) };
+    this.resplandor = deNoche(resplandor());
+    this.encima = new THREE.Group();
+    this.encima.visible = false;
+    for (const part of Object.values(this.patio)) part.visible = false;
+    this.group.add(...Object.values(this.patio), this.resplandor, this.encima);
+
     this.pieces = pieces;
     this.markerPile = marker;
     this.built = {};
+    this._noche = null;
+    this._esNoche = false;
+    this._conLuz = false;
   }
 
   get position() { return this.group.position; }
@@ -160,35 +151,60 @@ export class Cambuche {
       // Ligera separación del suelo para evitar planos superpuestos.
       model.position.y = 0.025;
       this.group.add(model);
+      // Las capas del techo se apoyan en las alturas del propio modelo.
+      this.encima.add(this._malla(cubierta(alturasDelModelo(model, this.group)), true, true), this._pintado([
+        { tinta: 'nombre', ancho: TABLA.ancho * .92, alto: TABLA.alto * .9, en: [TABLA.en[0], TABLA.en[1], TABLA.en[2] + .014], giro: [0, 0, TABLA.caida] },
+      ]));
       this.setBuilt(this.built);
     });
+  }
+
+  /**
+   * Qué se ve con esas piezas armadas, como pares [objeto, visible]. Lo usan el cambuche y su vista previa,
+   * así las dos muestran lo mismo.
+   */
+  visibles(built, withModel = !!this.model) {
+    // El modelo completo trae techo, paredes y colchón: sale solo cuando las cuatro piezas de la estructura están
+    // armadas. Antes se ve cada pieza por separado, así que cada una que se arma cambia lo que se ve.
+    const assembled = withModel && STRUCTURE.every((id) => built[id]);
+    const count = PIEZAS.filter((id) => built[id]).length;
+    const list = Object.entries(this.pieces).map(([id, obj]) => [obj, !!built[id] && !(assembled && STRUCTURE.includes(id))]);
+    list.push([this.markerPile, !built.base], [this.encima, assembled]);
+    for (const [id, obj] of Object.entries(this.patio)) list.push([obj, count >= PATIO[id]]);
+    if (this.model) list.push([this.model, assembled]);
+    return list;
   }
 
   /** Muestra las piezas construidas: { base: true, techo: true, ... } */
   setBuilt(built) {
     this.built = { ...built };
-    for (const [id, obj] of Object.entries(this.pieces)) obj.visible = !!built[id];
-    this.markerPile.visible = !built.base;
-    if (this.model) {
-      // El modelo completo trae techo, paredes y colchón: sale solo cuando las cuatro piezas de la estructura están
-      // armadas. Antes se ve cada pieza por separado, así que cada una que se arma cambia lo que se ve.
-      const assembled = STRUCTURE.every((id) => built[id]);
-      this.model.visible = assembled;
-      if (assembled) for (const id of STRUCTURE) this.pieces[id].visible = false;
-    }
+    for (const [obj, visible] of this.visibles(this.built)) obj.visible = visible;
+    // La luz de adentro es la de la vela, y solo se nota si hay paredes que la encierren.
+    const assembled = !!this.model && STRUCTURE.every((id) => built[id]);
+    this._conLuz = !!built.vela && (assembled || !!built.paredes);
   }
 
   update(dt) {
     this.t += dt;
     const t = this.t;
     stepFlames(t);
-    this.fire.scale.y = 0.66 * (1 + Math.sin(t * 1.9) * 0.05);
+    this.fire.scale.y = LLAMA * (1 + Math.sin(t * 1.9) * 0.05);
     this.fireLight.intensity = (2.85 + Math.sin(t * 2.4) * 0.2) * this.fireGlow.step(dt);
     this.flame.scale.setScalar(0.9 + Math.sin(t * 2.7) * 0.1);
     this.marker.material.opacity = 0.35 + Math.sin(t * 2) * 0.15;
+    this._brasas.color.setScalar(1.7 + Math.sin(t * 1.3) * 0.4);
+    // De noche sale luz cálida por la entrada y las rendijas; sube y baja de a poco, como el fuego.
+    this._noche ??= this._esNoche ? 1 : 0;
+    this._noche += ((this._esNoche ? 1 : 0) - this._noche) * Math.min(1, dt * 0.8);
+    const luz = this._conLuz ? this._noche * (1 + Math.sin(t * 1.1) * 0.06) : 0;
+    this._luz.color.setScalar(luz);
+    this.resplandor.visible = this.rendijas.visible = luz > 0.02;
   }
 
-  setNight(isNight) { this.fireGlow.setNight(isNight); }
+  setNight(isNight) {
+    this.fireGlow.setNight(isNight);
+    this._esNoche = !!isNight;
+  }
 
   dispose() {
     this._disposed = true;
@@ -198,6 +214,6 @@ export class Cambuche {
       o.geometry?.dispose?.();
       o.material?.dispose?.();
     });
-    this._cardMap?.dispose?.();
+    this._tinta.texture.dispose();
   }
 }

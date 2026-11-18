@@ -1,8 +1,9 @@
 export const GRAPHICS_PROFILES = Object.freeze({
   // farDetailFog: en qué punto de la niebla (0 empieza, 1 tapa todo) dejan de dibujarse peatones y bolsas lejanos.
+  // shadowEvery: cada cuántas imágenes se vuelve a pintar la sombra del sol. Baja no tiene sombras.
   baja: { pixelRatio: .85, shadowSize: 0, silhouette: false, animationBudget: 3, far: 180, farDetailFog: .7 },
-  media: { pixelRatio: 1.25, shadowSize: 1024, silhouette: true, animationBudget: 2, far: 220 },
-  alta: { pixelRatio: 1.5, shadowSize: 2048, silhouette: true, animationBudget: 1, far: 300 }
+  media: { pixelRatio: 1.25, shadowSize: 1024, shadowEvery: 2, silhouette: true, animationBudget: 2, far: 220 },
+  alta: { pixelRatio: 1.5, shadowSize: 2048, shadowEvery: 1, silhouette: true, animationBudget: 1, far: 300 }
 });
 
 // El contexto no se puede cambiar después: quien ya eligió baja se queda sin MSAA.
