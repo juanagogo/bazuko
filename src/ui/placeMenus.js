@@ -1,7 +1,7 @@
 // src/ui/placeMenus.js
 // Menús de los lugares: Recicladora El Progreso, Tienda La Esquinita y el cambuche.
 import { ITEMS, SHOP_ITEMS, isForSale, itemIcon, itemRarityLabel } from '../data/items.js';
-import { CAMBUCHE } from '../data/cambuche.js';
+import { CAMBUCHE, textoSinSiesta } from '../data/cambuche.js';
 import { hora } from './formato.js';
 import { diseaseName } from '../data/diseases.js';
 import { originEffect } from '../data/origins.js';
@@ -74,7 +74,7 @@ export function openShop(game, target = null) {
       const it = s.upgrade ? null : ITEMS[s.item];
       const qty = s.qty ?? 1;
       const price = priceOf(s);
-      const owned = s.upgrade && game.costal;
+      const owned = s.upgrade ? game.costal : !!it?.tool && inventory.count(it.id) > 0;
       const heavy = it && inventory.totalWeight + it.weight * qty > inventory.maxWeight;
       const short = stats.dinero < price;
       const fiado = !!fama && short && !owned && !heavy && fama.canCredit(price);
@@ -92,7 +92,8 @@ export function openShop(game, target = null) {
             if (s.upgrade) game.costal = true;
             else inventory.add(it, qty);
             game.audio.play('pickup');
-            if (fama) for (const cambio of fama.apply('comprarChaza')) toast(avisoDeFama(cambio), 'rare');
+            // Lo fiado no cuenta como comprarles: la fama sube cuando lo pago (`pagarFiado`).
+            if (fama && !fiado) for (const cambio of fama.apply('comprarChaza')) toast(avisoDeFama(cambio), 'rare');
             toast(fiado ? `Me fiaron ${s.label ?? it.name}. Debo ${cop(fama.deuda)}: lo pago la próxima vez que compre.` : `Compré ${s.label ?? it.name}`);
             game.menu.refresh();
           }
@@ -162,8 +163,11 @@ export function openCambuche(game, tab = 'armar') {
     }));
     const body = el('div', { class: 'shelter-menu' }, shelterPreview(game), rows);
     const night = game.clock.isNight;
+    // La siesta pide cansancio y unas horas desde la anterior: el botón dice por qué no.
+    const sinSiesta = game.built.base && !night ? game.motivoSinSiesta?.() : null;
+    const nota = !game.built.base ? 'Sin base no se puede dormir.' : sinSiesta ? textoSinSiesta(sinSiesta) : 'Dormir guarda la partida.';
     const foot = [
-      el('span', { class: 'menu__money', text: game.built.base ? 'Dormir guarda la partida.' : 'Sin base no se puede dormir.' }),
+      el('span', { class: 'menu__money', text: nota }),
       button('Cambiar ropa', {
         onClick: () => {
           game.menu.close();
@@ -172,7 +176,7 @@ export function openCambuche(game, tab = 'armar') {
       }),
       button(night ? `Dormir hasta las ${hora(6)}` : 'Echar una siesta (3 h)', {
         primary: true,
-        disabled: !game.built.base,
+        disabled: !game.built.base || !!sinSiesta,
         onClick: () => { game.menu.close(); game.sleep(); }
       })
     ];
@@ -184,10 +188,10 @@ export function openCambuche(game, tab = 'armar') {
 export function openComedor(game) {
   const render = () => {
     const available = game?.isComedorAvailable ? game.isComedorAvailable() : true;
-    const rem = game?.getComedorRemainingHours ? game.getComedorRemainingHours() : 0;
+    const remMin = game?.getComedorRemainingMinutes ? game.getComedorRemainingMinutes() : (game?.getComedorRemainingHours ? game.getComedorRemainingHours() * 60 : 0);
     const descP = el('p', {
       class: 'menu__desc',
-      text: 'La Secretaría de Integración Social ofrece un plato de comida caliente y sustanciosa cada 24 horas para habitantes de calle y personas en situación de vulnerabilidad.'
+      text: 'La Secretaría de Integración Social ofrece un plato de comida caliente y sustanciosa cada 5 minutos para personas en situación de vulnerabilidad.'
     });
 
     const platoEl = available
@@ -198,22 +202,23 @@ export function openComedor(game) {
             el('li', { text: '+80 Hambre (satisface el apetito)' }),
             el('li', { text: '+60 Sed (hidratación completa)' }),
             el('li', { text: '+25 Ánimo y +25 Energía' }),
-            el('li', { text: '+3 min de Calor corporal contra el frío' })
+            el('li', { text: '+3 min de Calor corporal contra el frío' }),
+            el('li', { text: '+30 XP' })
           ))
       : el('div', { class: 'comedor-box is-waiting' },
-          el('h4', { class: 'comedor-box__title', text: 'Ración de hoy ya entregada' }),
-          el('p', { class: 'comedor-box__sub', text: `El servicio es una vez cada 24 horas por persona. Próximo turno en aproximadamente ${rem} ${rem === 1 ? 'hora' : 'horas'}.` })
+          el('h4', { class: 'comedor-box__title', text: 'Ración reciente ya entregada' }),
+          el('p', { class: 'comedor-box__sub', text: `El servicio es cada 5 minutos por persona. Próximo turno en aproximadamente ${remMin} ${remMin === 1 ? 'minuto' : 'minutos'}.` })
         );
 
     const body = el('div', { class: 'comedor-menu' }, descP, platoEl);
     const foot = [
-      el('span', { class: 'menu__money', text: available ? 'Servicio gratuito' : `Espera: ${rem} h` }),
-      button(available ? 'Recibir almuerzo' : `Vuelva en ${rem} h`, {
+      el('span', { class: 'menu__money', text: available ? 'Servicio gratuito' : `Espera: ${remMin} min` }),
+      button(available ? 'Recibir almuerzo' : `Vuelva en ${remMin} min`, {
         primary: true,
         disabled: !available,
         onClick: () => {
           if (game?.serveComedor?.()) {
-            toast('Almorzaste en el Comedor Comunitario. ¡Dios le pague!', 'rare');
+            toast('Almorcé en el Comedor Comunitario. ¡Dios le pague!', 'rare');
             game.menu.refresh();
           }
         }
@@ -224,7 +229,7 @@ export function openComedor(game) {
 
   game.menu.open({
     title: 'Comedor Comunitario',
-    sub: 'Alcaldía Mayor de Bogotá, Integración Social. Ración caliente cada 24 horas.',
+    sub: 'Alcaldía Mayor de Bogotá · Integración Social. Ración caliente cada 24 horas.',
     ic: 'food',
     render
   });

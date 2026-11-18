@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import * as THREE from 'three';
-import { BuildingVisibility, createBuildingShell } from '../src/world/bogota/BuildingVisibility.js';
+import { BuildingVisibility, createBuildingShell, LOOSE_MARGIN_IN, LOOSE_MARGIN_OUT } from '../src/world/bogota/BuildingVisibility.js';
 import { PlayerSilhouette } from '../src/core/PlayerSilhouette.js';
 
 function fixture() {
@@ -94,15 +94,215 @@ test('la versión agrupada conserva triángulos y alterna sin duplicar edificios
   f.advance(1);
   assert.equal(batch.visible, true);
   assert.ok(parts.every(p => !p.visible));
+  assert.equal(drawnIndices(f.visibility), indices);
   f.camera.userData.cameraMode = 'isometric';
   f.advance();
-  assert.equal(batch.visible, false);
+  assert.equal(batch.visible, true, 'en isométrica los lotes siguen para lo que no tapa al jugador');
   assert.equal(f.building.roofPart.opacity, 0);
+  assert.equal(f.building.loose, true);
+  assert.equal(f.other.loose, false);
+  assert.ok(f.other.parts.every(part => !part.object.visible), 'la casa lejana va en su lote, no suelta');
   f.camera.userData.cameraMode = 'third-person';
   f.advance(1);
   assert.ok(parts.every(p => !p.visible));
   assert.equal(batch.visible, true);
+  assert.equal(drawnIndices(f.visibility), indices);
   batch.traverse(o => { if (o.isMesh) assert.equal(o.material.opacity, 1); });
+});
+
+/** Índices que se dibujan: tramos de los lotes visibles más las piezas sueltas visibles. */
+function drawnIndices(visibility) {
+  let total = 0;
+  visibility.closedView.traverse(o => {
+    if (!o.isMesh || !o.visible) return;
+    const { groups, index } = o.geometry;
+    total += groups.length ? groups.reduce((sum, group) => sum + group.count, 0) : index.count;
+  });
+  for (const building of visibility.buildings) for (const part of building.parts) {
+    if (part.object.visible) part.object.traverse(o => { if (o.isMesh && o.visible) total += o.geometry.index.count; });
+  }
+  return total;
+}
+
+test('isométrica: suelto solo el edificio de la línea de vista; cada triángulo una sola vez', () => {
+  const f = fixture();
+  const batch = f.visibility.buildClosedView();
+  const total = drawnIndices(f.visibility);
+  f.advance(1);
+  assert.equal(f.building.loose, true);
+  assert.equal(f.other.loose, false);
+  // Cada lote deja de dibujar el tramo de la casa suelta: se oculta si solo tenía ese, o se parte en grupos.
+  let split = 0, hidden = 0;
+  for (const { mesh, ranges } of f.visibility._batches) {
+    const own = ranges.filter(range => range.building === f.building), rest = ranges.length - own.length;
+    if (!own.length) { assert.ok(mesh.visible && !mesh.geometry.groups.length && !Array.isArray(mesh.material)); continue; }
+    if (!rest) { assert.equal(mesh.visible, false); hidden++; continue; }
+    assert.ok(mesh.visible);
+    assert.ok(Array.isArray(mesh.material) && mesh.material[0].opacity === 1);
+    assert.equal(mesh.geometry.groups.reduce((sum, group) => sum + group.count, 0), ranges.filter(range => range.building !== f.building).reduce((sum, range) => sum + range.count, 0));
+    split++;
+  }
+  assert.ok(split > 0, 'las dos casas comparten algún lote');
+  assert.ok(f.building.parts.every(part => part.object.visible), 'antes de atenuarse, la casa suelta se ve entera');
+  assert.equal(drawnIndices(f.visibility), total, 'nada duplicado ni perdido al soltar la casa');
+  assert.deepEqual(f.visibility.isoStats, { sueltos: 1, lotesPartidos: split, lotesOcultos: hidden });
+  // La atenuación sigue: el techo y las paredes que tapan se van; las otras quedan.
+  f.advance();
+  assert.equal(f.building.roofPart.opacity, 0);
+  assert.equal(f.building.walls.get(4).visible, false);
+  assert.equal(f.building.walls.get(0).visible, true);
+  assert.ok(f.other.parts.every(part => part.opacity === 1));
+});
+
+test('isométrica: el margen de entrada y de salida evita alternar en el borde', () => {
+  const f = fixture();
+  f.visibility.buildClosedView();
+  // Cámara alta mirando hacia abajo: la línea pasa al lado de la casa vecina, a una distancia que se controla.
+  const at = gap => {
+    // La caja de la otra casa llega hasta x 17 + 0,6; la línea vertical en x = 17,6 + gap no la toca.
+    f.player.set(17.6 + gap, 0, 0);
+    f.camera.position.set(17.6 + gap, 30, .01);
+    f.camera.lookAt(f.player);
+    f.camera.updateMatrixWorld(true);
+    f.advance(1);
+    return f.other.loose;
+  };
+  assert.equal(at(5), false);
+  assert.equal(at(2), false, 'a 2 m todavía no entra');
+  assert.equal(at(1), true, 'a menos de 1,5 m se suelta');
+  assert.equal(at(2.5), true, 'entre los dos márgenes conserva lo que tenía');
+  assert.equal(at(3.5), false, 'a más de 3 m vuelve al lote');
+  assert.equal(at(2.5), false);
+});
+
+test('isométrica: la caja de las líneas descarta edificios lejanos sin cambiar cuáles se sueltan', () => {
+  const visibility = new BuildingVisibility();
+  const material = new THREE.MeshStandardMaterial();
+  // Manzana de 5 × 5 casas; el jugador salta a sitios al azar con la cámara isométrica del juego.
+  for (let i = 0; i < 25; i++) {
+    visibility.register(createBuildingShell(new THREE.BoxGeometry(4, 8, 4), Array(6).fill(material), {
+      x: (i % 5) * 7 - 14, z: Math.floor(i / 5) * 7 - 14, height: 8, interiorMaterial: material
+    }));
+  }
+  visibility.buildClosedView();
+  const camera = new THREE.PerspectiveCamera(55, 1, .1, 200);
+  camera.userData.cameraMode = 'isometric';
+  const player = new THREE.Vector3(), offset = new THREE.Vector3(12, 16, 12);
+  let seed = 7;
+  const random = () => ((seed = Math.imul(seed, 1664525) + 1013904223 | 0) >>> 0) / 4294967296;
+  const nearSight = visibility._nearSight.bind(visibility);
+  let measured = 0, loose = 0, faded = 0;
+  visibility._nearSight = (bounds, margin) => { measured++; return nearSight(bounds, margin); };
+  for (let frame = 0; frame < 400; frame++) {
+    // Pasos cortos y algún salto: hay casas que entran, que se atenúan y que vuelven al lote.
+    if (frame % 40 === 0) player.set(random() * 36 - 18, 0, random() * 36 - 18);
+    else player.x += .25;
+    camera.position.copy(player).add(offset);
+    camera.lookAt(player);
+    camera.updateMatrixWorld(true);
+    const before = visibility.buildings.map(b => ({ loose: b.loose, fading: b.parts.some(part => part.opacity < 1) }));
+    visibility.update(1 / 30, player, camera);
+    visibility.buildings.forEach((b, i) => {
+      // Sin la caja: lo que decidiría la prueba de cada línea contra cada casa.
+      const near = nearSight(b.bounds, before[i].loose ? LOOSE_MARGIN_OUT : LOOSE_MARGIN_IN);
+      assert.equal(b.loose, near || (before[i].loose && before[i].fading), `cuadro ${frame}, casa ${i}`);
+      if (b.loose) loose++;
+      if (b.parts.some(part => part.opacity < 1)) faded++;
+    });
+  }
+  assert.ok(loose > 0 && faded > 0, 'el recorrido suelta y atenúa casas');
+  assert.ok(measured < 400 * 25 / 3, `solo se miden las casas cerca de las líneas (${measured})`);
+});
+
+test('isométrica: una casa que deja de tapar vuelve a su lote solo después de recuperar la opacidad', () => {
+  const f = fixture();
+  f.visibility.buildClosedView();
+  f.advance();
+  assert.equal(f.building.roofPart.opacity, 0);
+  // El jugador se aleja: la línea de vista pasa a más de 3 m de la casa.
+  f.player.set(0, 0, -10);
+  f.camera.position.set(40, 6, -6);
+  f.camera.lookAt(f.player);
+  f.camera.updateMatrixWorld(true);
+  f.advance(1);
+  assert.equal(f.building.loose, true, 'el fundido de regreso se ve suelto');
+  f.advance(13);
+  assert.ok(f.building.roofPart.opacity > 0 && f.building.roofPart.opacity < 1);
+  assert.equal(f.building.loose, true);
+  f.advance();
+  assert.ok(f.building.parts.every(part => part.opacity === 1));
+  assert.equal(f.building.loose, false);
+  assert.ok(f.building.parts.every(part => !part.object.visible));
+  f.visibility.closedView.traverse(o => { if (o.isMesh) assert.equal(o.geometry.groups.length, 0); });
+});
+
+test('isométrica: lo transparente de los edificios en lotes sigue suelto, para ordenarse con las paredes atenuadas', () => {
+  const f = fixture();
+  // Como una mancha de humedad en la casa lejana: transparente, sin escribir profundidad.
+  const stain = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshStandardMaterial({ transparent: true, depthWrite: false, opacity: .8 }));
+  stain.position.set(17.1, 3, 0);
+  stain.rotation.y = Math.PI / 2;
+  const wall = f.other.walls.get(0);
+  f.other.root.remove(wall);
+  wall.add(stain);
+  f.other.root.add(wall);
+  f.visibility.buildings.length = 0;
+  const other = f.visibility.register({ ...f.other, walls: f.other.walls });
+  const building = f.visibility.register(f.building);
+  const batch = f.visibility.buildClosedView();
+  const stainBatch = f.visibility._batches.find(b => b.transparent);
+  assert.ok(stainBatch, 'la mancha tiene su propio lote');
+  const wallPart = other.wallParts.find(part => part.object === wall);
+  f.camera.userData.cameraMode = 'third-person';
+  f.advance(1);
+  assert.equal(stainBatch.mesh.visible, true);
+  assert.equal(wallPart.object.visible, false);
+  f.camera.userData.cameraMode = 'isometric';
+  f.advance(1);
+  const total = (() => { let t = 0; batch.traverse(o => { if (o.isMesh) t += o.geometry.index.count; }); return t; })();
+  assert.equal(drawnIndices(f.visibility), total, 'la mancha se dibuja una vez, suelta');
+  f.advance();
+  assert.equal(building.loose, true);
+  assert.equal(other.loose, false);
+  assert.equal(stainBatch.mesh.visible, false, 'en isométrica la mancha no va en el lote');
+  assert.equal(wallPart.object.visible, true);
+  assert.equal(stain.visible, true);
+  assert.ok(wall.children.filter(o => o !== stain).every(o => !o.visible), 'la pared opaca sigue en su lote');
+  f.camera.userData.cameraMode = 'third-person';
+  f.advance(1);
+  assert.equal(stainBatch.mesh.visible, true);
+  assert.equal(wallPart.object.visible, false);
+});
+
+test('isométrica: una malla con varios materiales, que ningún lote incluye, sigue viéndose suelta', () => {
+  const f = fixture();
+  const sign = new THREE.Mesh(new THREE.BoxGeometry(1, 1, .1), Array.from({ length: 6 }, () => new THREE.MeshStandardMaterial()));
+  sign.position.set(2.2, 3, 0);
+  const wall = f.other.walls.get(0);
+  wall.add(sign);
+  f.visibility.buildings.length = 0;
+  const other = f.visibility.register(f.other);
+  f.visibility.register(f.building);
+  f.visibility.buildClosedView();
+  f.advance();
+  assert.equal(other.loose, false);
+  assert.ok(wall.visible && sign.visible, 'el aviso se dibuja aunque su casa vaya en lotes');
+  assert.ok(wall.children.filter(o => o !== sign).every(o => !o.visible), 'la pared sigue en su lote');
+});
+
+test('sin lotes en isométrica (isoBatches = false) todo vuelve a verse suelto, como antes', () => {
+  const f = fixture();
+  const batch = f.visibility.buildClosedView();
+  f.visibility.isoBatches = false;
+  f.advance();
+  assert.equal(batch.visible, false);
+  assert.ok(f.other.parts.every(part => part.object.visible));
+  assert.equal(f.building.roofPart.opacity, 0);
+  f.visibility.isoBatches = true;
+  f.advance(1);
+  assert.equal(batch.visible, true);
+  assert.equal(f.other.loose, false);
+  assert.equal(f.building.loose, true);
 });
 
 test('el techo y las paredes separadas conservan altura, normales y un piso interior cerrado', () => {

@@ -33,6 +33,7 @@ import { buildGroundWear, dressGrass, dressPaving } from '../bogota/GroundDressi
 import * as TX from '../bogota/textures.js';
 import * as P from '../bogota/props.js';
 import { Npc } from '../../entities/Npc.js';
+import { thinkStreet } from '../../entities/npc/mind.js';
 import { BuildingVisibility, CLOSED_CHUNK_SIZE, createBuildingShell } from '../bogota/BuildingVisibility.js';
 import { PedestrianNavigation } from '../bogota/PedestrianNavigation.js';
 import { GpsNavigation } from '../../systems/GpsNavigation.js';
@@ -295,7 +296,8 @@ export class Bogota {
       dealer: { x: WX(14.5), z: WZ(21.5) },   // la olla de El Cartucho
       craft:  { x: WX(16.5), z: WZ(24.5) },
       shop:   { x: WX(34), z: WZ(29) },        // andén de la Calle 9, de espaldas a la manzana
-      comedor: { x: WX(30), z: WZ(33) }       // comedor comunitario junto al parque
+      comedor: { x: WX(30), z: WZ(33) },       // comedor comunitario junto al parque
+      bikeFence: { x: WX(16.5), z: WZ(21) }    // compra de bicicletas robadas en El Cartucho
     };
     this.isNearReserved = (x, z, dist = 6) =>
       Object.values(this.reserved).some((r) => Math.hypot(x - r.x, z - r.z) < dist);
@@ -1232,7 +1234,7 @@ export class Bogota {
 
   /** Vendedor ambulante: puesto + persona; se le puede comprar (lo atiende la tienda con otro catálogo) */
   _vendor(x, z, rotY, kind, title, items) {
-    const stall = kind === 'fritanga' ? P.fritanga() : P.chaza();
+    const stall = kind === 'fritanga' ? P.fritanga({ title, items }) : P.chaza({ title, items });
     this._takesRoom(this._add(stall, x, z, rotY));
     if (stall.userData.setNight) this.props.push({ instance: { setNight: stall.userData.setNight } });
     const back = new THREE.Vector3(Math.sin(rotY), 0, Math.cos(rotY)).multiplyScalar(-0.9);
@@ -1675,6 +1677,8 @@ export class Bogota {
     // La niebla cambia con la hora y el clima: el límite de lo chico la sigue. Media y alta no lo usan.
     const fog = this.scene?.fog;
     this.farDetailDistance = this.farDetailFog && fog ? fog.near + (fog.far - fog.near) * this.farDetailFog : Infinity;
+    // Quién está cerca de quién, lo que oyen y lo que ven los peatones: entities/npc/mind.js.
+    thinkStreet(this, dt, playerPos, trafficVehicles);
     // Patrullas en persecución o de regreso: las únicas que no frenan por nadie, y la gente fija las esquiva.
     const chasers = this._chasers ??= [];
     chasers.length = 0;
@@ -1728,6 +1732,7 @@ export class Bogota {
       for (const material of meshMaterials(object)) rememberTextures(material);
     });
     for (const flock of this.pigeonFlocks ?? []) flock.dispose();
+    this.minds?.dispose();
     this.signals?.dispose();
     this.stationGroup?.userData.dispose?.();
     this.stationGroup?.clear();
