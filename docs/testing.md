@@ -32,6 +32,8 @@ Las regresiones de jugabilidad comprueban el salto y el recorrido de ambas rampa
 
 `arranque.test.js` corre la carga de verdad sin navegador: el constructor de `Game` entero, con dobles en lugar de lo que pide DOM o WebGL, y `_initialize` hasta construir la ciudad. Así comprueba que el constructor crea todo lo que `_spawnEntities` vacía al empezar (lo que se recoge, los carros y las bicicletas); `startup.test.js` no lo ve porque cambia `_spawnEntities` por una función vacía.
 
+`pause-menu.test.js` comprueba que la tecla Y del robo de carros salga en Pausa › Controles, al final de «Acciones», y `rebusque-tecla.test.js`, que junto a un carro parqueado y frente a la cola en rojo salgan juntos el aviso de la Y y el del rebusque, y ninguno con la pausa abierta.
+
 En C++, `bazuko_playerstate_test` comprueba que la carga conserve los objetos permitidos por el costal grande y los talentos, y que la regeneración no reviva al jugador durante una caída mortal. Se ejecuta con `ctest --test-dir cpp/build --output-on-failure` después de configurar y compilar los objetivos nativos. Estas pruebas de lógica no requieren abrir la ventana del juego.
 
 ## Sala de pruebas
