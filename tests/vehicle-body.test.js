@@ -17,7 +17,7 @@ const physicalBounds = vehicle => {
   return bounds;
 };
 const FLEET = Object.freeze({
-  // [largo, ancho, alto, batalla, radio de rueda]: cada modelo conserva las proporciones de lo que imita.
+  // [largo, ancho, alto, batalla, radio de rueda] de las cajas y ejes que usa el juego.
   citadino:[3.64,1.60,1.52,2.38,.29], sedanPopular:[4.35,1.73,1.52,2.63,.30], hatchPopular:[4.06,1.73,1.55,2.59,.31],
   sedanDeportivo:[4.46,1.79,1.44,2.70,.32], suv:[4.34,1.82,1.68,2.67,.34], pickup:[5.30,1.85,1.80,3.08,.39],
   cajaSetentera:[3.67,1.51,1.55,2.44,.29], sedanNoventero:[4.20,1.65,1.40,2.47,.29], furgon:[4.05,1.60,1.90,2.70,.30], buseta:[7.6,2.3,3.0,4.0,.46],
@@ -102,7 +102,9 @@ test('cada vehículo completo, con conductor y espejos, cabe en el presupuesto d
       for(const attr of Object.values(o.geometry.attributes))assert.ok(attr.array.every(Number.isFinite),`${model}: valor no finito en ${o.name}`);
     });
     assert.ok(calls<=14,`${kind}/${v.model}: ${calls} llamadas`);
-    assert.ok(triangles<=7000,`${kind}/${v.model}: ${triangles} triángulos`);
+    // Las ópticas altas y la defensa envolvente del citadino necesitan más secciones cerca de cámara.
+    const budget = v.model === 'citadino' ? 7400 : 7000;
+    assert.ok(triangles<=budget,`${kind}/${v.model}: ${triangles} triángulos`);
     car.dispose();
   }
 });
@@ -133,7 +135,9 @@ test('la mezcla de particulares y los colores siguen lo que se ve en la calle', 
     assert.ok(Math.abs(count[id]/20-share)<4,`${id}: ${(count[id]/20).toFixed(1)} %`);
   const neutral=['cdd0d0','b6bbc0','7e8388','1b1d20'].reduce((sum,hex)=>sum+(colors[new THREE.Color(`#${hex}`).getHexString()]??0),0);
   assert.ok(neutral/2000>.5,'dominan blanco, plata, gris y negro');
-  assert.equal(makeVehicle('taxi',4,{beams:false}).wetMaterials[0].color.getHexString(),new THREE.Color('#e8b321').getHexString());
+  const amarillos=new Set();
+  for(let seed=0;seed<300;seed++){const taxi=makeVehicle('taxi',seed,{beams:false});amarillos.add(taxi.wetMaterials[0].color.getHexString());taxi.dispose();}
+  assert.deepEqual([...amarillos].sort(),['#e8b321','#d9ab35','#e9a312'].map(hex=>new THREE.Color(hex).getHexString()).sort(),'los taxis llevan solo los tres amarillos: nuevo, asoleado y anaranjado viejo');
   assert.ok(['citadino','sedanPopular'].includes(makeVehicle('taxi',4,{beams:false}).model));
   assert.ok(['sedanPopular','suv'].includes(makeVehicle('police',5,{beams:false}).model));
 });
@@ -191,4 +195,35 @@ test('la camioneta de limpieza lleva sus propios materiales y no repinta la flot
   assert.equal(after.wetMaterials[0], paint);
   assert.equal(after.wetMaterials[1], glass);
   suv.dispose(); after.dispose();
+});
+
+test('los asientos y la parrilla clásica usan sus celdas del atlas en los vehículos del juego', () => {
+  const fleet = [
+    ['taxi', 'citadino', RECT.seatVinilo],
+    ['carro', 'sedanPopular', RECT.seat],
+    ['carro', 'hatchPopular', RECT.seatPopular],
+    ['carro', 'cajaSetentera', RECT.seatClasico],
+  ];
+  for (const [kind, model, seat] of fleet) {
+    for (const parked of [false, true]) {
+      const v = makeVehicle(kind, 3, { model, beams: false, parked });
+      const trim = v.bodyVisual.children.find(mesh => mesh.name === 'Molduras e interior');
+      const uv = trim.geometry.attributes.uv;
+      const samples = ([x, y, w, h]) => {
+        let count = 0;
+        for (let i = 0; i < uv.count; i++) {
+          const uPixel = uv.getX(i) * ATLAS_SIZE, vPixel = (1 - uv.getY(i)) * ATLAS_HEIGHT;
+          if (x < uPixel && uPixel < x + w && y < vPixel && vPixel < y + h) count++;
+        }
+        return count;
+      };
+      try {
+        assert.equal(trim.material.map, getCarAtlas());
+        assert.ok(samples(seat) >= 24, `${model}: falta la tapicería en la malla`);
+        if (model === 'cajaSetentera') assert.ok(samples(RECT.grilleClasica) >= 4, `${model}: falta la rejilla de aluminio`);
+      } finally {
+        v.dispose();
+      }
+    }
+  }
 });

@@ -4,6 +4,8 @@
 // Ninguna celda lleva logos ni emblemas: las placas colombianas son inventadas y las rutas también.
 import * as THREE from 'three';
 import { drawOptics } from './carLamps.js';
+import { drawUpholstery } from './carUpholstery.js';
+import { TAXI_EMPRESAS, drawTaxiCompany, drawTaxiDoor, drawTaxiRoof, drawTaxiSign } from './carLibreas.js';
 
 // Azul de la franja de las busetas: el letrero y la textura de detalle deben dar el mismo tono.
 export const BUS_BLUE = '#1b4a8c';
@@ -25,6 +27,11 @@ export const PUBLIC_PLATES = [
   { code: 'WDA 940', city: 'BOGOTÁ D.C.' },
   { code: 'UPB 628', city: 'ENVIGADO' },
   { code: 'VEE 175', city: 'BOGOTÁ D.C.' },
+  { code: 'SJX 563', city: 'BOGOTÁ D.C.' },
+  { code: 'WFL 837', city: 'BOGOTÁ D.C.' },
+  { code: 'TMZ 286', city: 'SOACHA' },
+  { code: 'VKD 619', city: 'BOGOTÁ D.C.' },
+  { code: 'SXR 470', city: 'CHÍA' },
 ];
 
 export const PRIVATE_PLATES = [
@@ -38,22 +45,61 @@ export const PRIVATE_PLATES = [
   { code: 'HWK 345', city: 'BOGOTÁ D.C.' },
   { code: 'MHO 962', city: 'MEDELLÍN' },
   { code: 'NCX 803', city: 'BOGOTÁ D.C.' },
+  { code: 'JRT 256', city: 'BOGOTÁ D.C.' },
+  { code: 'GXV 731', city: 'BOGOTÁ D.C.' },
+  { code: 'EZK 149', city: 'BOGOTÁ D.C.' },
+  { code: 'LPW 584', city: 'CHÍA' },
+  { code: 'QHN 327', city: 'BOGOTÁ D.C.' },
+  { code: 'BTF 690', city: 'BOGOTÁ D.C.' },
+  { code: 'YKM 412', city: 'BOGOTÁ D.C.' },
+  { code: 'DVZ 873', city: 'SOACHA' },
+  { code: 'ICR 205', city: 'BOGOTÁ D.C.' },
+  { code: 'HNJ 968', city: 'BOGOTÁ D.C.' },
+  { code: 'AQL 137', city: 'MEDELLÍN' },
+  { code: 'RFD 546', city: 'BOGOTÁ D.C.' },
+  { code: 'CWQ 781', city: 'BOGOTÁ D.C.' },
+  { code: 'KZB 604', city: 'BOGOTÁ D.C.' },
+  { code: 'NGT 352', city: 'ENVIGADO' },
+  { code: 'ODX 924', city: 'BOGOTÁ D.C.' },
+  { code: 'MJL 163', city: 'BOGOTÁ D.C.' },
+  { code: 'FVR 478', city: 'CHÍA' },
+  { code: 'PBK 806', city: 'BOGOTÁ D.C.' },
+  { code: 'ZRJ 239', city: 'BOGOTÁ D.C.' },
+  { code: 'GLD 657', city: 'BOGOTÁ D.C.' },
+  { code: 'XNE 391', city: 'SOACHA' },
+  { code: 'BJZ 742', city: 'BOGOTÁ D.C.' },
+  { code: 'EQT 518', city: 'BOGOTÁ D.C.' },
+  { code: 'LDY 284', city: 'BOGOTÁ D.C.' },
+  { code: 'RKP 935', city: 'CHÍA' },
+  { code: 'CJV 176', city: 'BOGOTÁ D.C.' },
+  { code: 'JWD 603', city: 'BOGOTÁ D.C.' },
+  { code: 'KFX 836', city: 'BOGOTÁ D.C.' },
+  { code: 'YTB 449', city: 'ENVIGADO' },
+  { code: 'DMR 571', city: 'BOGOTÁ D.C.' },
+  { code: 'NZQ 768', city: 'BOGOTÁ D.C.' },
+  { code: 'HBE 125', city: 'BOGOTÁ D.C.' },
+  { code: 'ACW 896', city: 'BOGOTÁ D.C.' },
+  { code: 'GTN 330', city: 'MEDELLÍN' },
+  { code: 'PXF 457', city: 'BOGOTÁ D.C.' },
+  { code: 'MRZ 681', city: 'BOGOTÁ D.C.' },
+  { code: 'OLG 219', city: 'CHÍA' },
 ];
 
-// Celdas de placa: 8 columnas × 3 filas de 128×64. Públicas primero: la calcomanía de puerta y la placa del
-// techo de los taxis son rejillas paralelas, así el mismo desplazamiento sirve para las tres.
-const CELL_W = 128, CELL_H = 64;
+// Celdas de placa: 16 columnas × 4 filas de 64×32. Las públicas van en las columnas y filas pares, a 128×64 entre sí:
+// la calcomanía de puerta y la placa del techo de los taxis son rejillas paralelas de 128×64, así el mismo
+// desplazamiento sirve para las tres. Las particulares llenan las demás celdas.
+const CELL_W = 64, CELL_H = 32, STEP_W = 128, STEP_H = 64;
 const DOOR_Y = 192, ROOF_Y = 256 + 64; // dos filas por rejilla paralela
-export const plateCell = (kind, index) => {
-  const n = kind === 'carro' ? PUBLIC_PLATES.length + index % PRIVATE_PLATES.length : index % PUBLIC_PLATES.length;
-  return [(n % 8) * CELL_W, Math.floor(n / 8) * CELL_H];
-};
+const PUBLIC_CELLS = PUBLIC_PLATES.map((_, i) => [(i % 8) * STEP_W, Math.floor(i / 8) * STEP_H]);
+const PRIVATE_CELLS = [];
+for (let row = 0; row < 4; row++) for (let col = 0; col < 16; col++) if (col % 2 || row % 2) PRIVATE_CELLS.push([col * CELL_W, row * CELL_H]);
+export const plateCell = (kind, index) => kind === 'carro' ? PRIVATE_CELLS[index % PRIVATE_CELLS.length] : PUBLIC_CELLS[index % PUBLIC_CELLS.length];
 
 // Rectángulos del atlas en píxeles, desde arriba a la izquierda. Son datos puros: la geometría los usa también en Node.
 export const RECT = Object.freeze({
   plate: [0, 0, CELL_W, CELL_H],
-  door: [0, DOOR_Y, CELL_W, CELL_H],
-  roof: [0, ROOF_Y, CELL_W, CELL_H],
+  door: [0, DOOR_Y, STEP_W, STEP_H],
+  roof: [0, ROOF_Y, STEP_W, STEP_H],
   sign: [0, 448, 128, 64],
   police: [128, 448, 512, 128],
   white: [644, 452, 24, 24],
@@ -85,8 +131,14 @@ export const RECT = Object.freeze({
   route3: [640, 960, 256, 64],
   sticker: [896, 768, 128, 128],
   seat: [0, 896, 64, 64],
-  taxiStripe: [64, 896, 256, 8],
   busName: [64, 904, 256, 56],
+  // Entre la rejilla de placas y la de puertas de los taxis.
+  taxiEmpresa0: [0, 128, 256, 64],
+  taxiEmpresa1: [256, 128, 256, 64],
+  grilleClasica: [520, 132, 112, 56],
+  seatVinilo: [840, 132, 80, 56],
+  seatPopular: [932, 132, 84, 56],
+  seatClasico: [676, 454, 84, 116],
 });
 
 // Dibujo de día de los faros de carLamps.js que no salen de una óptica: a la misma X que su celda, para que baste bajar la V.
@@ -108,35 +160,105 @@ export function rectUv(rect, u, v) {
 
 function drawPlate(ctx, x, y, plate, isPublic) {
   const w = CELL_W, h = CELL_H;
-  ctx.fillStyle = isPublic ? '#f2f2ef' : '#f3b915';
+  const film = ctx.createLinearGradient(0, y, 0, y + h);
+  film.addColorStop(0, isPublic ? '#bec1bc' : '#c9921b');
+  film.addColorStop(.24, isPublic ? '#f8f9f1' : '#f8c834');
+  film.addColorStop(.74, isPublic ? '#eeeee8' : '#ecc031');
+  film.addColorStop(1, isPublic ? '#aaada6' : '#a87c21');
+  ctx.fillStyle = film;
   ctx.fillRect(x, y, w, h);
-  ctx.strokeStyle = '#1a1a1a'; ctx.lineWidth = 3;
-  ctx.strokeRect(x + 3.5, y + 3.5, w - 7, h - 7);
-  ctx.fillStyle = '#111';
+  ctx.beginPath(); ctx.roundRect(x + 2, y + 2, w - 4, h - 4, 2);
+  ctx.strokeStyle = '#25231c'; ctx.lineWidth = 1.4; ctx.stroke();
+  // Cabezas de los tornillos y un canto metálico de la placa estampada.
+  ctx.fillStyle = '#555148';
+  for (const u of [w * .23, w * .77]) {
+    ctx.fillRect(x + u - 1.25, y + 4, 2.5, 1.5);
+    ctx.fillRect(x + u - 1.25, y + h - 5.5, 2.5, 1.5);
+  }
   ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-  ctx.font = '900 29px "Arial Black", Impact, sans-serif';
-  // Tope de ancho: con siete caracteres la letra gruesa se salía del marco.
-  ctx.fillText(plate.code.replace(' ', '·'), x + w / 2, y + 27, w - 18);
-  ctx.font = '800 10px "Arial Black", sans-serif';
-  ctx.fillText(plate.city, x + w / 2, y + 52);
+  ctx.font = '900 17px "Arial Narrow", "Arial Black", Impact, sans-serif';
+  const code = plate.code.replace(' ', '·');
+  ctx.fillStyle = 'rgba(255,250,225,.52)'; ctx.fillText(code, x + w / 2 + .45, y + 15.1, w - 8);
+  ctx.fillStyle = '#15140f'; ctx.fillText(code, x + w / 2, y + 14.5, w - 8);
+  ctx.font = '900 5.5px Arial, sans-serif';
+  ctx.fillText(plate.city, x + w / 2, y + 26);
 }
 
-function drawDoorDecal(ctx, x, y, plate) {
-  ctx.fillStyle = '#f4f4f0'; ctx.fillRect(x, y, CELL_W, CELL_H);
-  ctx.strokeStyle = '#111'; ctx.lineWidth = 3; ctx.strokeRect(x + 2, y + 2, CELL_W - 4, CELL_H - 4);
-  ctx.fillStyle = '#111'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-  ctx.font = '800 10px sans-serif'; ctx.fillText(plate.city, x + 64, y + 12);
-  ctx.font = '900 25px "Arial Black", sans-serif'; ctx.fillText(plate.code, x + 64, y + 32, CELL_W - 14);
-  ctx.font = '700 9px sans-serif'; ctx.fillText('SERVICIO PÚBLICO', x + 64, y + 53);
+/** Farola de vidrio prensado y cerco de acero, compartida por las UV planas y circulares. */
+function drawRoundHead(ctx, [x, y, w, h], lit) {
+  const cx = x + w / 2, cy = y + h / 2, r = Math.min(w, h) * .46, glass = r * .84;
+  const circle = radius => { ctx.beginPath(); ctx.arc(cx, cy, radius, 0, Math.PI * 2); };
+  const gradient = (radius, stops) => {
+    const g = ctx.createLinearGradient(0, cy - radius, 0, cy + radius);
+    for (const [at, color] of stops) g.addColorStop(at, color);
+    return g;
+  };
+  ctx.save();
+  ctx.fillStyle = '#1d1f20'; ctx.fillRect(x, y, w, h);
+  const steel = gradient(r, [[0, '#62686c'], [.13, '#cdd2d1'], [.45, '#656b6d'], [.64, '#343738'], [1, '#9d9d93']]);
+  circle(r); ctx.fillStyle = steel; ctx.fill();
+  circle(r * .9); ctx.fillStyle = '#333534'; ctx.fill();
+  circle(glass); ctx.clip();
+  const bowl = ctx.createRadialGradient(cx - r * .15, cy + r * .11, 0, cx, cy, glass);
+  bowl.addColorStop(0, lit ? '#fffcf0' : '#b6b9af');
+  bowl.addColorStop(.47, lit ? '#e5e0c8' : '#878b84');
+  bowl.addColorStop(.8, lit ? '#a2a093' : '#535957');
+  bowl.addColorStop(1, '#363837');
+  ctx.fillStyle = bowl; ctx.fillRect(cx - glass, cy - glass, glass * 2, glass * 2);
+  // Nervaduras del vidrio y dos bandas más anchas donde cambia el tallado del prisma.
+  ctx.strokeStyle = lit ? 'rgba(71,69,54,.24)' : 'rgba(23,27,25,.18)';
+  ctx.lineWidth = 1.4; ctx.beginPath();
+  for (let k = -4; k <= 4; k++) {
+    const u = cx + k * glass * .22;
+    ctx.moveTo(u, cy - glass); ctx.lineTo(u, cy + glass);
+  }
+  for (const v of [-.47, -.12, .15, .55]) {
+    ctx.moveTo(cx - glass, cy + v * glass); ctx.lineTo(cx + glass, cy + v * glass);
+  }
+  ctx.stroke();
+  const dust = gradient(glass, [[0, 'rgba(111,93,65,0)'], [.65, 'rgba(111,93,65,0)'], [1, 'rgba(111,93,65,.38)']]);
+  ctx.fillStyle = dust; ctx.fillRect(cx - glass, cy - glass, glass * 2, glass * 2);
+  ctx.lineCap = 'round'; ctx.lineWidth = Math.max(1, r * .055);
+  ctx.strokeStyle = 'rgba(255,255,255,.93)'; ctx.beginPath();
+  ctx.moveTo(cx - r * .55, cy - r * .39);
+  ctx.quadraticCurveTo(cx - r * .34, cy - r * .5, cx + r * .03, cy - r * .52);
+  ctx.stroke();
+  ctx.restore();
 }
 
-function drawRoofPlate(ctx, x, y, plate) {
-  ctx.fillStyle = '#e4ad12'; ctx.fillRect(x, y, CELL_W, CELL_H);
-  ctx.fillStyle = '#111'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-  ctx.font = '900 30px "Arial Black", sans-serif'; ctx.fillText(plate.code, x + 64, y + 33, CELL_W - 10);
+/** Salida del reflector rectangular encendido, en sRGB de la celda. El cerco queda a oscuras y el filamento alcanza blanco. */
+export function rectHeadLevel(u, v) {
+  const rim = Math.max(0, Math.min(1, (u - .035) / .035, (.965 - u) / .035, (v - .075) / .075, (.925 - v) / .075));
+  const core = Math.exp(-(((u - .44) / .26) ** 2 + ((v - .53) / .29) ** 2));
+  const lower = Math.exp(-(((u - .52) / .42) ** 2 + ((v - .74) / .09) ** 2));
+  const bowl = Math.min(1, .25 + .85 * core + .18 * lower);
+  return .055 + (bowl - .055) * rim;
+}
+
+function drawRectHeadOn(ctx, x, y, w, h) {
+  const flutes = 24;
+  ctx.save();
+  for (let i = 0; i < flutes; i++) {
+    const u = (i + .5) / flutes, prism = i % 3 === 0 ? .88 : 1;
+    const pane = ctx.createLinearGradient(0, y, 0, y + h);
+    for (const v of [0, .075, .15, .3, .44, .53, .64, .74, .85, .925, 1]) {
+      const light = rectHeadLevel(u, v) * prism, value = Math.round(light * 255);
+      pane.addColorStop(v, `rgb(${value},${Math.round(value * .99)},${Math.round(value * .95)})`);
+    }
+    const x0 = Math.round(i * w / flutes), x1 = Math.round((i + 1) * w / flutes);
+    ctx.fillStyle = pane; ctx.fillRect(x + x0, y, x1 - x0, h);
+  }
+  // Dos cambios de talla del vidrio en la mitad exterior. El ámbar tiene su propia pieza y su propio canal.
+  ctx.strokeStyle = 'rgba(40,43,46,.38)'; ctx.lineWidth = Math.max(1, h * .024);
+  for (const v of [.34, .70]) {
+    ctx.beginPath(); ctx.moveTo(x + w * .61, y + h * v); ctx.lineTo(x + w * .93, y + h * v); ctx.stroke();
+  }
+  ctx.restore();
 }
 
 function drawHead(ctx, [x, y, w, h], style) {
+  if (style === 'redondo') { drawRoundHead(ctx, [x, y, w, h], true); return; }
+  if (style === 'rect') { drawRectHeadOn(ctx, x, y, w, h); return; }
   ctx.save(); ctx.translate(x, y); ctx.beginPath(); ctx.rect(0, 0, w, h); ctx.clip();
   // Carcasa oscura: el vidrio del faro deja ver el fondo, no una pieza pintada de blanco.
   const back = ctx.createLinearGradient(0, 0, 0, h);
@@ -173,27 +295,6 @@ function drawHead(ctx, [x, y, w, h], style) {
     const led = ctx.createLinearGradient(0, 0, w, 0);
     led.addColorStop(0, '#f6f8ff'); led.addColorStop(1, '#bfc6cf');
     ctx.fillStyle = led; ctx.fillRect(w * .04, h * .1, w * .94, h * .12);
-  } else if (style === 'rect') {
-    // Todo el rectángulo es faro: el ámbar va en su propia pieza (direccional de la esquina), que sí parpadea y no brilla con los faros.
-    ctx.fillStyle = '#d8dce0'; ctx.fillRect(w * .03, h * .08, w * .94, h * .84);
-    for (let i = 0; i < 19; i++) { ctx.fillStyle = i % 2 ? 'rgba(255,255,255,.55)' : 'rgba(95,105,115,.45)'; ctx.fillRect(w * (.04 + i * .048), h * .08, w * .026, h * .84); }
-    for (let i = 0; i < 5; i++) { ctx.fillStyle = 'rgba(70,78,88,.35)'; ctx.fillRect(w * .03, h * (.2 + i * .15), w * .94, h * .025); }
-    const g = ctx.createRadialGradient(w * .42, h * .5, 2, w * .42, h * .5, w * .3);
-    g.addColorStop(0, 'rgba(255,255,255,.95)'); g.addColorStop(1, 'rgba(255,255,255,0)');
-    ctx.fillStyle = g; ctx.fillRect(0, 0, w, h);
-  } else if (style === 'redondo') {
-    // Faro redondo sobre la lámina oscura de la parrilla, no sobre un cuadro claro.
-    ctx.fillStyle = '#202326'; ctx.fillRect(0, 0, w, h);
-    const r = w * .46;
-    const ring = ctx.createLinearGradient(0, 0, w, h);
-    ring.addColorStop(0, '#f2f4f6'); ring.addColorStop(.5, '#8b9198'); ring.addColorStop(1, '#e6e8ea');
-    ctx.fillStyle = ring; ctx.beginPath(); ctx.arc(w / 2, h / 2, r, 0, Math.PI * 2); ctx.fill();
-    const g = ctx.createRadialGradient(w / 2, h / 2, 1, w / 2, h / 2, r * .88);
-    g.addColorStop(0, '#ffffff'); g.addColorStop(.35, '#f6f1df'); g.addColorStop(.8, '#b9b6a8'); g.addColorStop(1, '#7c7b72');
-    ctx.fillStyle = g; ctx.beginPath(); ctx.arc(w / 2, h / 2, r * .88, 0, Math.PI * 2); ctx.fill();
-    ctx.strokeStyle = 'rgba(70,70,62,.28)'; ctx.lineWidth = 1.5;
-    for (let i = -3; i <= 3; i++) { ctx.beginPath(); ctx.moveTo(w / 2 + i * r * .25, h * .12); ctx.lineTo(w / 2 + i * r * .25, h * .88); ctx.stroke(); }
-    for (let i = -2; i <= 2; i++) { ctx.beginPath(); ctx.moveTo(w * .12, h / 2 + i * r * .3); ctx.lineTo(w * .88, h / 2 + i * r * .3); ctx.stroke(); }
   } else if (style === 'bloque') {
     // Una sola óptica grande y cuadrada, sin adornos: reflector plateado, un cuenco y direccional al final.
     const silver = ctx.createLinearGradient(0, h * .1, 0, h * .9);
@@ -240,12 +341,13 @@ function drawHead(ctx, [x, y, w, h], style) {
  * solo la luz. Únicamente las lentes viejas, en vidrio tallado (`rect` y `redondo`), dejan adivinar su cuadrícula.
  */
 export function drawHeadDay(ctx, [x, y, w, h], style) {
+  if (style === 'redondo') { drawRoundHead(ctx, [x, y, w, h], false); return; }
   ctx.save(); ctx.translate(x, y); ctx.beginPath(); ctx.rect(0, 0, w, h); ctx.clip();
   const back = ctx.createLinearGradient(0, 0, 0, h);
   back.addColorStop(0, '#0d0f11'); back.addColorStop(.45, '#24282c'); back.addColorStop(.85, '#3d4248'); back.addColorStop(1, '#17191c');
   ctx.fillStyle = back; ctx.fillRect(0, 0, w, h);
-  const carve = (x0, y0, x1, y1, columns, rows) => {
-    ctx.strokeStyle = 'rgba(214,224,234,.09)'; ctx.lineWidth = 1;
+  const carve = (x0, y0, x1, y1, columns, rows, ink = 'rgba(214,224,234,.09)') => {
+    ctx.strokeStyle = ink; ctx.lineWidth = 1;
     for (let i = 1; i < columns; i++) { const px = x0 + (x1 - x0) * i / columns; ctx.beginPath(); ctx.moveTo(px, y0); ctx.lineTo(px, y1); ctx.stroke(); }
     for (let i = 1; i < rows; i++) { const py = y0 + (y1 - y0) * i / rows; ctx.beginPath(); ctx.moveTo(x0, py); ctx.lineTo(x1, py); ctx.stroke(); }
   };
@@ -259,20 +361,20 @@ export function drawHeadDay(ctx, [x, y, w, h], style) {
     ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.stroke();
   };
   if (style === 'rect') {
-    bulb(w * .42, h * .55, w * .3);
-    carve(w * .03, h * .08, w * .97, h * .92, 12, 4);
+    // Reflector plateado en todo el rectángulo, como el del faro en bloque, con el cuenco y el vidrio tallado encima.
+    const silver = ctx.createLinearGradient(0, h * .08, 0, h * .92);
+    silver.addColorStop(0, '#8f969d'); silver.addColorStop(.45, '#dfe3e6'); silver.addColorStop(1, '#6f757b');
+    ctx.fillStyle = silver; ctx.fillRect(w * .03, h * .08, w * .94, h * .84);
+    const bowl = ctx.createRadialGradient(w * .42, h * .52, 2, w * .42, h * .52, w * .26);
+    bowl.addColorStop(0, '#eef0f1'); bowl.addColorStop(.35, '#aab0b6'); bowl.addColorStop(.8, '#61676e'); bowl.addColorStop(1, 'rgba(97,103,110,0)');
+    ctx.fillStyle = bowl; ctx.beginPath(); ctx.ellipse(w * .42, h * .52, w * .26, h * .4, 0, 0, Math.PI * 2); ctx.fill();
+    bulb(w * .42, h * .55, w * .08);
+    carve(w * .03, h * .08, w * .97, h * .92, 12, 4, 'rgba(52,58,64,.18)');
+    const grime = ctx.createLinearGradient(0, h * .55, 0, h * .92);
+    grime.addColorStop(0, 'rgba(72,64,52,0)'); grime.addColorStop(1, 'rgba(72,64,52,.3)');
+    ctx.fillStyle = grime; ctx.fillRect(w * .03, h * .55, w * .94, h * .37);
+    ctx.strokeStyle = '#1d2023'; ctx.lineWidth = 3; ctx.strokeRect(w * .03, h * .08, w * .94, h * .84);
     glint(w * .12, h * .26, w * .34, h * .2, 3.5);
-  } else if (style === 'redondo') {
-    ctx.fillStyle = '#17191c'; ctx.fillRect(0, 0, w, h);
-    const r = w * .46, ring = ctx.createLinearGradient(0, 0, w, h);
-    ring.addColorStop(0, '#c8ccd1'); ring.addColorStop(.5, '#585e65'); ring.addColorStop(1, '#a4a9af');
-    ctx.fillStyle = ring; ctx.beginPath(); ctx.arc(w / 2, h / 2, r, 0, Math.PI * 2); ctx.fill();
-    const glass = ctx.createRadialGradient(w / 2, h * .54, 1, w / 2, h / 2, r * .88);
-    glass.addColorStop(0, '#6f767d'); glass.addColorStop(.4, '#343a40'); glass.addColorStop(1, '#0f1113');
-    ctx.save(); ctx.fillStyle = glass; ctx.beginPath(); ctx.arc(w / 2, h / 2, r * .88, 0, Math.PI * 2); ctx.fill(); ctx.clip();
-    carve(w * .1, h * .1, w * .9, h * .9, 6, 5);
-    ctx.restore();
-    glint(w * .3, h * .3, w * .46, h * .22, 4);
   } else if (style === 'cuadrado') {
     bulb(w / 2, h * .55, w * .42);
     glint(w * .2, h * .22, w * .46, h * .16, 4);
@@ -309,6 +411,16 @@ function drawTail(ctx, [x, y, w, h], style) {
   ctx.restore();
 }
 
+/** Direccional en dos tonos dentro de su marco: arriba el ámbar claro del reflector, abajo el del vidrio. */
+function drawTurn(ctx, [x, y, w, h]) {
+  ctx.fillStyle = '#2b2622'; ctx.fillRect(x, y, w, h);
+  const amber = ctx.createLinearGradient(0, y + 4, 0, y + h - 4);
+  amber.addColorStop(0, '#f2a64a'); amber.addColorStop(.42, '#f2a64a'); amber.addColorStop(.58, '#d27a1c'); amber.addColorStop(1, '#d27a1c');
+  ctx.fillStyle = amber; ctx.fillRect(x + 4, y + 4, w - 8, h - 8);
+  ctx.fillStyle = 'rgba(140,70,10,.4)';
+  for (let i = 0; i < 3; i++) ctx.fillRect(x + 4, y + 4 + (h - 8) * (i + .5) / 3 - 1.5, w - 8, 3);
+}
+
 function drawRibbed(ctx, [x, y, w, h], light, dark) {
   ctx.fillStyle = light; ctx.fillRect(x, y, w, h);
   ctx.fillStyle = dark;
@@ -333,6 +445,28 @@ function drawGrille(ctx, [x, y, w, h], style) {
       ctx.moveTo(cx, cy - 3.2); ctx.lineTo(cx + 3.2, cy); ctx.lineTo(cx, cy + 3.2); ctx.lineTo(cx - 3.2, cy); ctx.closePath(); ctx.fill();
     }
   }
+}
+
+function drawClassicGrille(ctx, [x, y, w, h]) {
+  const metal = ctx.createLinearGradient(0, y, 0, y + h);
+  metal.addColorStop(0, '#515453'); metal.addColorStop(.08, '#d3d0bd');
+  metal.addColorStop(.43, '#929489'); metal.addColorStop(.67, '#b0af9b'); metal.addColorStop(1, '#4f524e');
+  ctx.fillStyle = metal; ctx.fillRect(x, y, w, h);
+  // Huecos en la lámina de aluminio. El borde inferior recibe cielo y el fondo queda oscuro.
+  for (let row = 0; row < 3; row++) {
+    const yy = y + 6 + row * 15;
+    const hole = ctx.createLinearGradient(0, yy, 0, yy + 12);
+    hole.addColorStop(0, '#141617'); hole.addColorStop(.71, '#252828'); hole.addColorStop(1, '#4b4d49');
+    for (let col = 0; col < 7; col++) {
+      const xx = x + 4 + col * 15;
+      ctx.fillStyle = '#b9b8a7';
+      ctx.fillRect(xx + 1, yy + 10, 12, 2);
+      ctx.fillStyle = hole;
+      ctx.beginPath(); ctx.roundRect(xx, yy, 13, 10.5, 1.7); ctx.fill();
+    }
+  }
+  ctx.strokeStyle = '#444644'; ctx.lineWidth = 1.2;
+  ctx.strokeRect(x + 1, y + 1, w - 2, h - 2);
 }
 
 function drawRim(ctx, [x, y, w, h], style) {
@@ -364,21 +498,34 @@ function drawRim(ctx, [x, y, w, h], style) {
     ctx.fillStyle = metal(0, R * .26); ctx.beginPath(); ctx.arc(cx, cy, R * .25, 0, Math.PI * 2); ctx.fill();
     ctx.fillStyle = '#26282b'; ctx.beginPath(); ctx.arc(cx, cy, R * .12, 0, Math.PI * 2); ctx.fill();
   } else if (style === 'tapa') {
-    // Tapacubos plástico: anillo plateado con ventanas radiales, centro liso sin emblema.
-    ctx.fillStyle = metal(R * .3, R); ctx.beginPath(); ctx.arc(cx, cy, R * .98, 0, Math.PI * 2); ctx.fill();
-    ctx.fillStyle = '#17191c';
-    const n = 12;
-    for (let i = 0; i < n; i++) {
-      const a = i * Math.PI * 2 / n;
+    // Tapa abombada de plástico plateado, con ocho huecos curvos que dejan entrever el rin de acero.
+    const silver = ctx.createRadialGradient(cx, cy, R * .07, cx, cy, R);
+    for (const [t, tone] of [[0, '#a9adae'], [.37, '#b9bcbb'], [.44, '#878d8e'], [.52, '#c3c7c7'], [.82, '#a9afb0'], [.88, '#757c7e'], [.95, '#c4c7c6'], [1, '#6e7375']]) silver.addColorStop(t, tone);
+    ctx.fillStyle = silver; ctx.beginPath(); ctx.arc(cx, cy, R * .99, 0, Math.PI * 2); ctx.fill();
+    for (let i = 0; i < 8; i++) {
+      const a = i * Math.PI / 4;
       ctx.save(); ctx.translate(cx, cy); ctx.rotate(a);
       ctx.beginPath();
-      ctx.moveTo(R * .44, -R * .055); ctx.lineTo(R * .82, -R * .09); ctx.lineTo(R * .82, R * .09); ctx.lineTo(R * .44, R * .055); ctx.closePath(); ctx.fill();
+      ctx.moveTo(R * .47, -R * .052);
+      ctx.quadraticCurveTo(R * .53, -R * .15, R * .77, -R * .16);
+      ctx.quadraticCurveTo(R * .86, -R * .135, R * .835, R * .115);
+      ctx.quadraticCurveTo(R * .81, R * .18, R * .73, R * .14);
+      ctx.quadraticCurveTo(R * .61, R * .07, R * .49, R * .07); ctx.closePath();
+      ctx.strokeStyle = '#777e80'; ctx.lineWidth = R * .056; ctx.stroke();
+      ctx.fillStyle = '#26292a'; ctx.fill();
+      ctx.strokeStyle = '#54595a'; ctx.lineWidth = R * .026;
+      ctx.beginPath(); ctx.moveTo(R * .55, -R * .095); ctx.quadraticCurveTo(R * .64, -R * .12, R * .77, -R * .12); ctx.stroke();
       ctx.restore();
     }
-    ctx.strokeStyle = 'rgba(70,74,80,.8)'; ctx.lineWidth = 1.2;
-    ctx.beginPath(); ctx.arc(cx, cy, R * .35, 0, Math.PI * 2); ctx.stroke();
-    ctx.beginPath(); ctx.arc(cx, cy, R * .9, 0, Math.PI * 2); ctx.stroke();
-    ctx.fillStyle = '#c4c8cc'; ctx.beginPath(); ctx.arc(cx, cy, R * .24, 0, Math.PI * 2); ctx.fill();
+    for (let i = 0; i < 4; i++) {
+      const a = (i + .5) * Math.PI / 2, bx = cx + R * .29 * Math.cos(a), by = cy + R * .29 * Math.sin(a);
+      ctx.fillStyle = '#606567'; ctx.beginPath(); ctx.arc(bx, by, R * .08, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#b6b9b8'; ctx.beginPath();
+      for (let k = 0; k < 6; k++) { const face = k * Math.PI / 3, px = bx + R * .052 * Math.cos(face), py = by + R * .052 * Math.sin(face); if (k) ctx.lineTo(px, py); else ctx.moveTo(px, py); }
+      ctx.closePath(); ctx.fill();
+    }
+    ctx.strokeStyle = '#777d7f'; ctx.lineWidth = 1.25;
+    ctx.beginPath(); ctx.arc(cx, cy, R * .17, 0, Math.PI * 2); ctx.stroke();
   } else if (style === 'acero') {
     // Copa de acero pintada, con perforaciones y copita central.
     const g = ctx.createRadialGradient(cx, cy, R * .1, cx, cy, R);
@@ -427,26 +574,19 @@ export function drawAtlas(ctx) {
   ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, ATLAS_SIZE, ATLAS_HEIGHT);
   // Faros de día sobre fondo oscuro: un fondo blanco se colaría en los mipmaps y los aclararía de lejos.
   ctx.fillStyle = '#16181b'; ctx.fillRect(0, DAY_FLOOR, ATLAS_SIZE, ATLAS_HEIGHT - DAY_FLOOR);
-  const publics = PUBLIC_PLATES.length;
-  for (let i = 0; i < publics + PRIVATE_PLATES.length; i++) {
-    const x = (i % 8) * CELL_W, y = Math.floor(i / 8) * CELL_H;
-    const plate = i < publics ? PUBLIC_PLATES[i] : PRIVATE_PLATES[i - publics];
-    drawPlate(ctx, x, y, plate, i < publics);
-    if (i < publics) {
-      drawDoorDecal(ctx, x, y + DOOR_Y, plate);
-      drawRoofPlate(ctx, x, y + ROOF_Y, plate);
-    }
-  }
-  // Capacete de taxi.
-  const [sx, sy, sw, sh] = RECT.sign;
-  const sign = ctx.createLinearGradient(0, sy, 0, sy + sh);
-  sign.addColorStop(0, '#fff17a'); sign.addColorStop(1, '#ffd21f');
-  ctx.fillStyle = sign; ctx.fillRect(sx, sy, sw, sh);
-  ctx.strokeStyle = '#222'; ctx.lineWidth = 4; ctx.strokeRect(sx + 3, sy + 3, sw - 6, sh - 6);
-  ctx.fillStyle = '#111'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-  ctx.font = '900 36px "Arial Black", sans-serif'; ctx.fillText('TAXI', sx + sw / 2, sy + sh / 2 + 2);
+  PUBLIC_PLATES.forEach((plate, i) => {
+    const [x, y] = PUBLIC_CELLS[i];
+    drawPlate(ctx, x, y, plate, true);
+    drawTaxiDoor(ctx, [x, y + DOOR_Y, STEP_W, STEP_H], plate, i);
+    drawTaxiRoof(ctx, [x, y + ROOF_Y, STEP_W, STEP_H], plate, i);
+  });
+  PRIVATE_PLATES.forEach((plate, i) => drawPlate(ctx, ...PRIVATE_CELLS[i], plate, false));
+  // Capacete de taxi y rótulos de empresa de las puertas.
+  drawTaxiSign(ctx, RECT.sign);
+  drawTaxiCompany(ctx, RECT.taxiEmpresa0, TAXI_EMPRESAS[0], 0); drawTaxiCompany(ctx, RECT.taxiEmpresa1, TAXI_EMPRESAS[1], 1);
   // Franja de patrulla.
   const [px, py, pw, ph] = RECT.police;
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
   ctx.fillStyle = '#0b5c2e'; ctx.fillRect(px, py, pw, ph);
   ctx.fillStyle = '#ffd100'; ctx.fillRect(px, py, pw, 6); ctx.fillRect(px, py + ph - 6, pw, 6);
   ctx.fillStyle = '#fff'; ctx.font = '900 46px "Arial Black", Arial, sans-serif';
@@ -462,7 +602,7 @@ export function drawAtlas(ctx) {
   drawHead(ctx, RECT.headBloque, 'bloque'); drawHead(ctx, RECT.headGota, 'gota'); drawHead(ctx, RECT.headPrisma, 'prisma');
   drawHeadDay(ctx, dayHeadRect(RECT.headRect), 'rect'); drawHeadDay(ctx, dayHeadRect(RECT.headFino), 'fino');
   drawHeadDay(ctx, dayHeadRect(RECT.headRedondo), 'redondo'); drawHeadDay(ctx, dayHeadRect(RECT.headCuadrado), 'cuadrado');
-  drawRibbed(ctx, RECT.amber, '#e0872a', 'rgba(140,70,10,.55)');
+  drawTurn(ctx, RECT.amber);
   drawRibbed(ctx, RECT.white2, '#e3e6e8', 'rgba(120,125,132,.5)');
   drawTail(ctx, RECT.tailRojo, 'rojo'); drawTail(ctx, RECT.tailBarras, 'barras'); drawTail(ctx, RECT.tailAro, 'aro');
   // Antiniebla: faro pequeño dentro de su hueco oscuro, nunca un cuadro blanco.
@@ -472,26 +612,17 @@ export function drawAtlas(ctx) {
   fogLens.addColorStop(0, '#c9ccce'); fogLens.addColorStop(.45, '#6d7175'); fogLens.addColorStop(1, '#232527');
   ctx.fillStyle = fogLens; ctx.beginPath(); ctx.arc(fgx + fgw / 2, fgy + fgh / 2, fgw * .27, 0, Math.PI * 2); ctx.fill();
   drawGrille(ctx, RECT.grilleLamas, 'lamas'); drawGrille(ctx, RECT.grilleMalla, 'malla');
+  drawClassicGrille(ctx, RECT.grilleClasica);
   drawRim(ctx, RECT.rimAleacion, 'aleacion'); drawRim(ctx, RECT.rimRadios, 'radios');
   drawRim(ctx, RECT.rimTapa, 'tapa'); drawRim(ctx, RECT.rimAcero, 'acero'); drawRim(ctx, RECT.rimBuseta, 'buseta');
-  drawRoute(ctx, RECT.route0, ROUTES[0]); drawRoute(ctx, RECT.route1, ROUTES[1]);
-  drawRoute(ctx, RECT.route2, ROUTES[2]); drawRoute(ctx, RECT.route3, ROUTES[3]);
-  // Calcomanía de taxi en el vidrio trasero y tela de asientos.
+  // Calcomanía de taxi en el vidrio trasero y tapicerías de los particulares.
   const [kx, ky, kw, kh] = RECT.sticker;
   ctx.fillStyle = '#f2c417'; ctx.fillRect(kx, ky, kw, kh);
   ctx.fillStyle = '#111';
   for (let i = 0; i < 6; i++) for (let j = 0; j < 6; j++) if ((i + j) % 2) ctx.fillRect(kx + i * kw / 6, ky + j * kh / 6, kw / 6, kh / 6);
-  const [tx, ty, tw, th] = RECT.seat;
-  ctx.fillStyle = '#9a9a9a'; ctx.fillRect(tx, ty, tw, th);
-  ctx.fillStyle = 'rgba(0,0,0,.25)';
-  for (let i = 0; i < tw; i += 4) ctx.fillRect(tx + i, ty, 1, th);
-  for (let i = 0; i < th; i += 4) ctx.fillRect(tx, ty + i, tw, 1);
-  // Franja damero de los taxis.
-  const [fx, fy, fw, fh] = RECT.taxiStripe;
-  for (let i = 0; i < fw; i += 4) for (let j = 0; j < fh; j += 4) {
-    ctx.fillStyle = ((i + j) / 4) % 2 ? '#111' : '#f4f4f0';
-    ctx.fillRect(fx + i, fy + j, 4, 4);
-  }
+  drawUpholstery(ctx, RECT);
+  drawRoute(ctx, RECT.route0, ROUTES[0]); drawRoute(ctx, RECT.route1, ROUTES[1]);
+  drawRoute(ctx, RECT.route2, ROUTES[2]); drawRoute(ctx, RECT.route3, ROUTES[3]);
   // Rótulo genérico de la buseta: nombre inventado, se lee como el de una cooperativa cualquiera.
   const [nx, ny, nw, nh] = RECT.busName;
   // Sobre la franja de la buseta: del mismo azul, para que solo se lea el letrero.
