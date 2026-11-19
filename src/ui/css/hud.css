@@ -6,6 +6,7 @@
   --safe-r: env(safe-area-inset-right, 0px);
   --safe-b: env(safe-area-inset-bottom, 0px);
   --safe-l: env(safe-area-inset-left, 0px);
+  --ancho-hud-escritorio: 340px;
   --fila: 28px;
   --fila-salud: 36px;
   --fila-letra: 19px;
@@ -20,7 +21,7 @@
 #hud-dock {
   position: fixed; z-index: 25;
   left: calc(20px + var(--safe-l)); bottom: calc(20px + var(--safe-b));
-  width: 340px; padding: 0;
+  width: var(--ancho-hud-escritorio); padding: 0;
   display: flex; flex-direction: column;
 }
 #hud { order: 2; padding: 5px 12px 9px; }
@@ -141,6 +142,10 @@
   width: min(56vw, 800px); padding: 8px 22px 12px;
 }
 #wanted[data-estado="encima"] .wanted__grito { grid-column: 1 / -1; font-size: 96px; line-height: .98; }
+/* El grito de un agente (el aviso del agarrón) sale en la placa misma, sin hacer cola: tres destellos. */
+#wanted[data-grito] { animation: wanted-destello .16s steps(1, end) 3; }
+@keyframes wanted-destello { 50% { opacity: .4; } }
+@media (prefers-reduced-motion: reduce) { #wanted[data-grito] { animation: none; } }
 
 /* ---------- arriba a la izquierda: una tira de cinta, solo dibujos ---------- */
 #game-settings {
@@ -332,6 +337,20 @@ body.is-loading :is(#performance-panel, #quickbar, #hud-dock, #panel-dock) { vis
   #boost-indicator { right: calc(240px + var(--safe-r)); bottom: calc(204px + var(--safe-b)); }
 }
 
+/* La cinta de la acción cabe entre el radar y el costal equipado. Si crece hasta la fila de
+   paneles, estos suben lo necesario para dejar 8 px entre el último botón y la cinta. */
+@media (min-width: 900px) and (min-height: 501px) {
+  body:not(.tactil) #interaction-prompt {
+    --medio-contexto: min(270px, 19vw);
+    left: max(calc(32px + var(--safe-l) + var(--ancho-hud-escritorio)), calc(50% - var(--medio-contexto)));
+    right: max(calc(32px + var(--safe-r) + var(--ancho-barra-rapida, 0px)), calc(50% - var(--medio-contexto)));
+    width: auto; max-width: none; transform: none;
+  }
+  body:not(.tactil) :is(#panel-dock, #camera-controls, #controls-help, #boost-indicator, #cart-indicator, #poop-hud-ammo) {
+    translate: 0 min(0px, calc(74px - var(--alto-contexto-cruzado, 0px)));
+  }
+}
+
 /* ==================== celular y ventanas angostas: lo común ==================== */
 @media (max-width: 899px), (max-height: 500px) and (orientation: landscape) {
   /* Nada que no sea botón agarra el dedo: lo que queda libre es para mirar. */
@@ -501,7 +520,9 @@ body.is-loading :is(#performance-panel, #quickbar, #hud-dock, #panel-dock) { vis
   .retazo__grito { font-size: 20px; }
   .retazo__orden { display: none; }
   #quickbar .qb-slot { width: 44px; }
-  #panel-dock { left: calc(228px + var(--safe-l)); gap: 2px; }
+  #panel-dock { left: auto; right: calc(4px + var(--safe-r)); gap: 2px; }
+  body:not(.tactil):has(#quickbar.visible) #panel-dock { bottom: calc(58px + var(--safe-b)); }
+  body:not(.tactil):has(#quickbar.visible) #interaction-prompt { bottom: calc(112px + var(--safe-b)); }
   /* Con la patrulla encima hay que ver la calle: el cartón se pliega a destino y cifras, sin radar ni barras. */
   body:has(#wanted[data-estado="encima"]) #hud-dock { display: block; padding-top: 44px; }
   body:has(#wanted[data-estado="encima"]) #minimap-container { padding: 0; }

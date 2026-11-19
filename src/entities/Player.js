@@ -40,11 +40,7 @@ const emit = (type, detail) => {
   if (typeof window !== 'undefined' && window.dispatchEvent) window.dispatchEvent(new CustomEvent(type, { detail }));
 };
 
-/** Por debajo de esta salud un golpe tumba; después hay un respiro, o una golpiza sería una sola caída sin fin. */
-export const GOLPE_TUMBA = { salud: 35, respiroS: 8, velocidad: 3 };
-
-/** ¿Este golpe deja tirado? */
-export const golpeTumba = (salud, respiro = 0) => salud > 0 && salud <= GOLPE_TUMBA.salud && !(respiro > 0);
+const HIT_RECOVERY = .18;
 
 export class Player {
   constructor(scene, input, stats=null, audio=null, { animaciones = 'default' } = {}) {
@@ -96,9 +92,9 @@ export class Player {
     this._before = new THREE.Vector3();
     this._impactVelocity = new THREE.Vector3();
     this._impactTime = 0;
-    this._impactHeavy = false; // atropello o golpe que tumba: el cuerpo se va de lado
+    this._impactHeavy = false; // respaldo de la caída por atropello
     this.hitLean = new HitLean();
-    this._respiroTumbo = 0;
+    this._punchBuffered = false;
     this.tiradoPor = null;
 
     // Contenedor raíz (posición + rumbo); el personaje va escalado adentro
@@ -115,6 +111,7 @@ export class Player {
     this.procedural = this.character;
     this.modelScale = CHARACTER_SCALE;
     this.modelKind = 'procedural';
+    this.pendingModel = null; // { kind, ready } mientras se cambia el cuerpo que sigue en escena.
     this.ragdoll = new PlayerRagdoll(this);
 
     this.time = 0;
@@ -155,6 +152,7 @@ export class Player {
     this._glanceTimer = 0;
     this._glanceSide = 1;
     this.ridingBike = null;
+    this.audio?.voces?.registrarJugador?.(this);
   }
 
   /** Humo en la escena (cigarrillo, porro y basuco); se crea la primera vez que hace falta */
@@ -320,6 +318,7 @@ export class Player {
   /** Equipa un arma de la tabla (o puños); false si no existe. */
   equipWeapon(id = DEFAULT_WEAPON) {
     if (!WEAPONS[id]) return false;
+    this._punchBuffered = false;
     this.equippedWeapon = id;
     this.melee.cancel();
     if (this.action === 'golpear') { this.action = null; this.actionTimer = 0; }
@@ -353,24 +352,34 @@ export class Player {
   }
 
   /** Cambia entre el personaje realista (MakeHuman, por defecto) y el procedural (liviano) */
-  async setModel(kind) {
+  setModel(kind) {
+    if (this.pendingModel?.kind === kind) return this.pendingModel.ready;
+    const change = this.pendingModel = { kind };
+    change.ready = this._applyModel(change).finally(() => {
+      if (this.pendingModel === change) this.pendingModel = null;
+    });
+    return change.ready;
+  }
+
+  async _applyModel(change) {
+    const { kind } = change;
     if (kind === this.modelKind) return;
     this.clearVehicleImpact();
-    const previousKind = this.modelKind;
-    this.modelKind = kind;
     if (kind === 'realista') {
-      this._realisticPromise ??= createRealisticCharacter(this.look ?? {}, {
-        animaciones: this.realisticAnimationProfile, andar: PLAYER_GAIT
+      const loading = this._realisticPromise ??= createRealisticCharacter(this.look ?? {}, {
+        animaciones: this.realisticAnimationProfile, andar: PLAYER_GAIT, acabadoCivil: true, costalJugador: true, poseBicicleta: true
       });
       try {
-        this._realistic = await this._realisticPromise;
+        this._realistic = await loading;
       } catch (error) {
-        this._realisticPromise = null;
-        if (this.modelKind === kind) this.modelKind = previousKind;
+        if (this._realisticPromise === loading) this._realisticPromise = null;
         throw error;
       }
-      if (this._realistic.look !== this.look && this.look) await this._realistic.setLook(this.look);
-      if (this.modelKind !== 'realista') return; // se cambió mientras cargaba
+      if (this.pendingModel !== change) return;
+      if (this.look && this._realistic.look !== this.look) {
+        await this._realistic.setLook(this.look);
+        if (this.pendingModel !== change) return;
+      }
       this.hitLean.remove(this.character.group); // la inclinación no se queda en el cuerpo que sale
       this.root.remove(this.character.group);
       this.character = this._realistic;
@@ -389,6 +398,7 @@ export class Player {
       this.procedural.setBasuco?.(!!this.basuco && !this.basuco.stowed);
     }
     this.root.add(this.character.group);
+    this.modelKind = kind;
   }
 
   /**
@@ -450,7 +460,7 @@ export class Player {
     this.speed = Math.max(0, speed);
     this.state = this.speed < .25 ? 'idle' : 'walk';
     Object.assign(this.movement, { grounded: true, verticalVelocity: 0, airTime: 0, landing: 0, swimming: false,
-      waterDepth: 0, turnRate: (this.root.rotation.y - previousYaw) / dt });
+      waterDepth: 0, footSupport: undefined, turnRate: (this.root.rotation.y - previousYaw) / dt });
     this.character.update(dt, {
       stance: this._updateBodyLanguage(dt, true), style: this.bodyStyle, speed: this.speed / this.modelScale, running: false,
       action, actionProgress, actionDuration: 1, movement: this.movement, attack: null, smoke: null, basuco: null,
@@ -464,7 +474,7 @@ export class Player {
 
   /** Anima una acción breve (segundos) */
   playAction(action, duration = 1) {
-    if (action !== 'golpear') this.melee?.cancel();
+    if (action !== 'golpear') { this._punchBuffered = false; this.melee?.cancel(); }
     this.action = action;
     this.actionTimer = duration;
     this.actionDuration = duration;
@@ -472,7 +482,8 @@ export class Player {
   }
 
   /** Dormir congela `update`: la inercia, el empujón de un golpe y el aterrizaje de ese instante volverían al despertar, resbalando y de pie de golpe. */
-  settleForSleep() {
+  settleForSleep(anchor = null) {
+    this._punchBuffered = false;
     this.velocity?.set(0, 0, 0);
     this._impactVelocity.set(0, 0, 0);
     this._impactTime = 0;
@@ -482,6 +493,18 @@ export class Player {
     this.landing = 0;
     this.landingTime = Infinity;
     this._jumpBuffer = this._coyote = 0;
+    this._shelterRest = anchor && { ...anchor, yawBefore: this.root.rotation.y, hipPosition: new THREE.Vector3(),
+      headPosition: new THREE.Vector3() };
+  }
+
+  /** Regresa al punto de interacción bajo el cartel de dormir. La posición física nunca se movió. */
+  finishShelterRest() {
+    const rest = this._shelterRest;
+    if (!rest) return;
+    this._shelterRest = null;
+    this.movement.restSurface = undefined;
+    this.root.position.copy(this.position);
+    this.root.rotation.y = rest.yawBefore;
   }
 
   /** Dormir congela la simulación, no el cuerpo: se acuesta y sigue así hasta que Game lo despierta. */
@@ -493,7 +516,11 @@ export class Player {
     // Se endereza como al quedarse quieto: acostado con la inclinación de correr, el cuerpo liviano cruzaría el piso.
     this.root.rotation.z = THREE.MathUtils.lerp(this.root.rotation.z, 0, 1 - Math.exp(-12 * dt));
     this.root.rotation.x = THREE.MathUtils.lerp(this.root.rotation.x, 0, 1 - Math.exp(-10 * dt));
+    const rest = this._shelterRest;
     Object.assign(this.movement, { landing: 0, turnRate: 0 });
+    if (rest) Object.assign(this.movement, {
+      grounded: true, swimming: false, airborne: false, footSupport: undefined, restSurface: rest.surface
+    });
     this.character.update(dt, {
       speed: 0,
       running: false,
@@ -508,6 +535,28 @@ export class Player {
       load: this.load,
       dirt: this.stats ? Math.max(0, (40 - this.stats.higiene) / 40) : 0
     });
+    if (!rest) return;
+    if (rest.character !== this.character) {
+      rest.character = this.character;
+      rest.hip = this.character.ragdollRig?.hips ?? this.character.group.getObjectByName('mixamorigHips');
+      rest.head = this.character.ragdollRig?.head ?? this.character.group.getObjectByName('mixamorigHead');
+    }
+    // Dentro del refugio primero se encoge, para que la cabeza no atraviese la cubierta.
+    const weight = this.character.sleepWeight;
+    const crouched = weight > (rest.covered ? .76 : .43) || this.actionProgress > .43;
+    if (!crouched || !rest.hip || !rest.head) return;
+    const hip = rest.hip.getWorldPosition(rest.hipPosition);
+    const axis = rest.head.getWorldPosition(rest.headPosition).sub(hip);
+    if (Math.hypot(axis.x, axis.z) < .10) return;
+    this.root.rotation.y += shortestTurn(rest.headYaw - Math.atan2(axis.x, axis.z));
+    rest.hip.getWorldPosition(hip);
+    const liviano = this.character === this.procedural;
+    const almohada = liviano && rest.surface === 'colchonCorto';
+    // La cabeza del liviano es más grande. En el colchón corto descansa más adentro de la almohada.
+    const margen = almohada ? .075 : 0;
+    this.root.position.x += rest.position.x - hip.x - margen * Math.sin(rest.headYaw);
+    this.root.position.z += rest.position.z - hip.z - margen * Math.cos(rest.headYaw);
+    this.root.position.y = rest.position.y + (almohada ? .006 : liviano ? -.022 : 0);
   }
 
 
@@ -521,8 +570,22 @@ export class Player {
     if (this.ridingBike || this.isSwimming || this.isStunned || !this.isGrounded || this.hasCart || this.sorting
       || (this.basuco && !this.basuco.stowed) || (this.action && this.action !== 'golpear')) return false;
     const started = this.melee.active ? this.melee.queue(this) : this.melee.start(this);
-    if (started) this.playAction('golpear', this.melee.duration);
+    if (started && !this.melee.enPausaDeImpacto) this.playAction('golpear', this.melee.duration);
     return started;
+  }
+
+  _leerGolpe() {
+    const anterior = this.attack;
+    const pressed = this.input?.consumePress?.('KeyG') || this.input?.consumePress?.('Mouse0');
+    if (this.isKnockedDown || this.ridingBike || this.atWheel || this.isSwimming || !this.isGrounded || this.stats?.salud <= 0) {
+      this._punchBuffered = false;
+    } else if (pressed && this._impactTime > 0) {
+      this._punchBuffered = true;
+    } else if (this._punchBuffered && !this.isStunned && this.melee.cooldownRemaining <= 1e-8) {
+      this._punchBuffered = false;
+      this.punch();
+    } else if (pressed) this.punch();
+    return !anterior && !!this.attack;
   }
 
   playBeg() {
@@ -530,6 +593,7 @@ export class Player {
   }
 
   receiveVehicleImpact(direction, speed, { collisions = this._lastCollisions } = {}) {
+    this._punchBuffered = false;
     if (this.ridingBike) {
       this.ridingBike.dismount();
     }
@@ -544,44 +608,30 @@ export class Player {
     this.root.rotation.z = .85;
   }
 
-  /**
-   * Golpe de un agresor: empujón y tambaleo breves. Con la salud ya baja, el golpe deja tirado de verdad,
-   * y se queda en el piso hasta poder levantarse (ver golpeTumba).
-   */
-  receiveHit(direction, strength = 2, { salud } = {}) {
+  /** La pelea interrumpe el ataque y ladea el tronco; la dirección elegida sigue respondiendo. */
+  receiveHit(direction, strength = 2, { salud = this.stats?.salud } = {}) {
     if (this.ragdoll?.active) return;
     this.melee.cancel();
+    if (salud <= 0) this._punchBuffered = false;
+    if (salud > 0 && strength > 0) this.audio?.voces?.quejaJugador?.(this);
     // Al volante (CarjackSystem) no lo tumban ni lo empujan: queda aturdido un momento y el carro sigue solo.
     if (this.atWheel) { this._impactTime = Math.max(this._impactTime, .3); return; }
     this._impactVelocity.copy(direction).setY(0);
     if (this._impactVelocity.lengthSq() < 1e-4) this._impactVelocity.set(0, 0, 1);
     this._impactVelocity.normalize().multiplyScalar(strength);
-    if (golpeTumba(salud, this._respiroTumbo)) {
-      if (this.ridingBike) {
-        this.ridingBike.dismount();
-      }
-      this.tiradoPor = 'golpe';
-      this._respiroTumbo = GOLPE_TUMBA.respiroS;
-      this.hitLean.remove(this.character.group);
-      this.hitLean.clear();
-      if (this.ragdoll?.start(this._impactVelocity.clone(), GOLPE_TUMBA.velocidad, this._lastCollisions)) return;
-      this._impactTime = 1;
-      this._impactHeavy = true;
-      this.root.rotation.z = .85;
-      return;
-    }
-    // Golpe que no tumba: el tronco cede hacia donde lo empujan (ver HitLean).
     if (!this._impactHeavy) this.hitLean.kick(this._impactVelocity, this.root.rotation.y, strength / 1.6);
-    this._impactTime = Math.max(this._impactTime, .3);
+    this._impactTime = Math.max(this._impactTime, HIT_RECOVERY);
   }
 
   /** Cuánto va la cadera visible por debajo de la raíz (el empuje del salto): la sombra de contacto sigue al cuerpo. */
   get bodyDrop() { return this.character?.jumpHipDrop ?? 0; }
 
   get isStunned() { return !!this.ragdoll?.active || this._impactTime > 0; }
+  get isKnockedDown() { return !!this.ragdoll?.active || (this._impactHeavy && this._impactTime > 0); }
   get isRagdollActive() { return !!this.ragdoll?.active; }
 
   clearVehicleImpact() {
+    this._punchBuffered = false;
     this.melee?.cancel();
     this.velocity?.set(0, 0, 0);
     this.ragdoll.clear();
@@ -594,9 +644,11 @@ export class Player {
   }
 
   resetGrounding() {
+    this._punchBuffered = false;
     this.jumpVelocity = 0;
     this.isGrounded = true;
     this.groundSurface = null;
+    this.movement.footSupport = undefined;
     this.waterMovement.reset();
     this.isSwimming = this.inWater = false;
     this.waterDepth = this.airTime = this.landing = 0;
@@ -616,11 +668,41 @@ export class Player {
     return input.isDown('Space') || input.isDown('KeySpace');
   }
 
+  _stepOffBicycle(yaw, collisions, groundHeight, waterInfo) {
+    if (!this.isGrounded || this.isSwimming || typeof groundHeight !== 'function' || !collisions) return;
+    const district = this.game?.world?.active;
+    const start = this._before.copy(this.position);
+    const step = this._right.set(-Math.cos(yaw) * .57, 0, Math.sin(yaw) * .57);
+    // La cicla queda ladeada hacia su izquierda. Primero se busca apoyo por la derecha.
+    for (let side = 0; side < 2; side++, step.negate()) {
+      const x = start.x + step.x, z = start.z + step.z;
+      if (district?.isWalkableAt?.(x, z) === false) continue;
+      const surface = groundHeight(x, z, { from: start, grounded: true, surface: this.groundSurface });
+      const y = typeof surface === 'number' ? surface : surface?.height;
+      if (!Number.isFinite(y) || Math.abs(y - start.y) > .23) continue;
+      if (surface?.layer && this.groundSurface?.layer && surface.layer !== this.groundSurface.layer) continue;
+      if ((waterInfo?.(x, z)?.surfaceY ?? -Infinity) > y + .08) continue;
+      const clear = collisions.resolveMove(start, step, this.radius, this._forward);
+      if (Math.hypot(clear.x - x, clear.z - z) > .025) continue;
+      // Se comprueba también el espacio a la cota del andén si el paso cambia de altura.
+      if (Math.abs(y - start.y) > .025) {
+        const raised = this._delta.copy(start).setY(y);
+        const raisedClear = collisions.resolveMove(raised, step, this.radius, this._forward);
+        if (Math.hypot(raisedClear.x - x, raisedClear.z - z) > .025) continue;
+      }
+      this.position.set(x, y, z);
+      return;
+    }
+  }
+
   update(dt, camera, collisions, groundHeight = null, npcs = [], waterInfo = null) {
+    if (this.melee.pasoDelCuerpo(dt, this) === 0 && this.melee.enPausaDeImpacto) {
+      this._leerGolpe();
+      return;
+    }
     this.time += dt;
     this.hitLean.remove(this.character.group);
     this._lastCollisions = collisions;
-    if (this._respiroTumbo > 0) this._respiroTumbo -= dt;
     if (this.ragdoll?.active) {
       // Tumbado no se puede saltar ni sigue el aterrizaje: no queda guardado nada que salga al levantarse.
       this._jumpBuffer = this._coyote = 0;
@@ -647,9 +729,19 @@ export class Player {
 
     const wasGrounded = this.isGrounded ?? true;
     // Salto y combate cuerpo a cuerpo estilo GTA
-    const wantsJump = typeof this.input?.consumePress === 'function' && (this.input.consumePress('Space') || this.input.consumePress('KeySpace'));
-    if (wantsJump && this.isGrounded && !this.isSwimming && !this.melee.active && !this.isStunned && !this.hasCart && !this.sorting) {
-      this.jumpVelocity = 5.2;
+    const pressedJump = typeof this.input?.consumePress === 'function' && (this.input.consumePress('Space') || this.input.consumePress('KeySpace'));
+    // Recién salido de un borde todavía se puede saltar (coyote); un salto pedido justo antes de tocar el
+    // suelo se recuerda y sale al apoyar (búfer). Un salto ya dado no deja coyote, y mientras algo impide
+    // saltar (nadar, pegar, aturdido, la zorra, pedalear, buscar) no se guarda nada que salga después.
+    const jumpBlocked = this.isSwimming || this.melee.active || this.isStunned || this.hasCart || this.sorting || !!this.ridingBike;
+    this._coyote = jumpBlocked ? 0 : wasGrounded ? JUMP.coyoteTime : Math.max(0, this._coyote - dt);
+    this._jumpBuffer = jumpBlocked ? 0 : Math.max(0, this._jumpBuffer - dt);
+    const onFoot = this.isGrounded || this._coyote > 0;
+    if (pressedJump && !onFoot && !jumpBlocked) this._jumpBuffer = JUMP.bufferTime;
+    const wantsJump = pressedJump || (this.isGrounded && this._jumpBuffer > 0);
+    if (wantsJump && onFoot && !jumpBlocked) {
+      // El impulso es inmediato: la pose muestra el empuje sin retrasar el mando.
+      this.jumpVelocity = this._launchSpeed = JUMP.launchSpeed;
       this.isGrounded = false;
       this._coyote = this._jumpBuffer = 0;
       this._jumpCut = false;
@@ -660,22 +752,18 @@ export class Player {
       this.audio?.playJump?.();
     }
 
-    const attackBeforeInput = this.attack;
-    const wantsPunch = typeof this.input?.consumePress === 'function' && (this.input.consumePress('KeyG') || this.input.consumePress('Mouse0'));
-    if (wantsPunch && !this.ridingBike && !this.isSwimming && !this.isStunned && (!this.action || this.attack) && !this.hasCart && !this.sorting) {
-      this.punch();
-    }
-    const beganAttackThisFrame = !attackBeforeInput && !!this.attack;
+    const beganAttackThisFrame = this._leerGolpe();
 
     // Desmontar de la bicicleta con E
     if (this.ridingBike && typeof this.input?.consumePress === 'function' && this.input.consumePress('KeyE')) {
       this.ridingBike.dismount();
+      this._stepOffBicycle(this.root.rotation.y, collisions, groundHeight, waterInfo);
     }
 
     // con la pipa en la boca se queda quieto
     const { x = 0, z = 0 } = this.basuco && !this.basuco.stowed ? {} : (this.input?.axis ?? {});
     const stunned = this._impactTime > 0;
-    const moving = !stunned && (x !== 0 || z !== 0);
+    const moving = !this._impactHeavy && (x !== 0 || z !== 0);
     const running = Boolean(this.input?.isRunning && moving);
     let speed = running ? this.speedRun : this.speedWalk;
     if (this.ridingBike) {
@@ -741,7 +829,7 @@ export class Player {
       this._impactTime = Math.max(0, this._impactTime - dt);
       if (this._impactTime === 0) this._impactHeavy = false;
     }
-    // Solo el golpe que tumba lo acuesta de lado; el leve lo inclina hitLean.
+    // Al fallar la caída articulada de un atropello se conserva el ladeo del cuerpo.
     this.root.rotation.z = this._impactHeavy ? .85 * this._impactTime : 0;
 
     const before = this._before.copy(this.position);
@@ -751,6 +839,14 @@ export class Player {
       );
     } else {
       this.position.add(delta);
+    }
+    const cart = this.hasCart && wasGrounded && !this.isSwimming && !stunned ? this.game?.cart : null;
+    let cartYaw = null;
+    if (cart?.isAttached) {
+      const yaw = this.root.rotation.y;
+      const target = moving ? Math.atan2(dir.x, dir.z) : this._faceYaw ?? yaw;
+      const upright = moving ? 1 - (this.character.sleepWeight ?? 0) : 1;
+      cartYaw = cart.limitPlayerMove(before, this.position, yaw, yaw + shortestTurn(target - yaw) * Math.min(1, (moving ? 14 : 9) * dt) * upright);
     }
     this.speed = dt > 0 ? before.distanceTo(this.position) / dt : 0;
     this.isGrounded ??= true;
@@ -898,19 +994,22 @@ export class Player {
       const diff = shortestTurn(Math.atan2(dir.x, dir.z) - this.root.rotation.y);
       // Al levantarse voltea solo lo que ya se enderezó: acostado barrería el piso como una aspa.
       const upright = 1 - (this.character.sleepWeight ?? 0);
-      this.root.rotation.y += diff * Math.min(1, 14 * dt) * upright;
+      const turnWeight = Math.min(1, 14 * dt) * upright;
+      this.root.rotation.y = cartYaw ?? previousYaw + diff * turnWeight;
 
       // Inclinación centrífuga (banking lateral en giros)
-      const targetBank = THREE.MathUtils.clamp(-diff * (this.isSwimming ? .08 : running ? 0.38 : 0.22), -0.22, 0.22) * upright;
+      const turn = cartYaw === null ? diff : shortestTurn(cartYaw - previousYaw) / Math.max(.001, turnWeight);
+      const targetBank = THREE.MathUtils.clamp(-turn * (this.isSwimming ? .08 : running ? 0.38 : 0.22), -0.22, 0.22) * upright;
       this.root.rotation.z = THREE.MathUtils.lerp(this.root.rotation.z, targetBank, 1 - Math.exp(-14 * dt));
       // Inclinación hacia adelante con la aceleración
       this.root.rotation.x = THREE.MathUtils.lerp(this.root.rotation.x, (this.isSwimming ? 0 : running ? 0.08 : 0.02) * upright, 1 - Math.exp(-10 * dt));
     } else {
       this.root.rotation.z = THREE.MathUtils.lerp(this.root.rotation.z, 0, 1 - Math.exp(-12 * dt));
       this.root.rotation.x = THREE.MathUtils.lerp(this.root.rotation.x, 0, 1 - Math.exp(-10 * dt));
+      if (cartYaw !== null) this.root.rotation.y = cartYaw;
       if (this._faceYaw != null) {
-        const diff = shortestTurn(this._faceYaw - this.root.rotation.y);
-        this.root.rotation.y += diff * Math.min(1, 9 * dt);
+        const diff = shortestTurn(this._faceYaw - previousYaw);
+        if (cartYaw === null) this.root.rotation.y += diff * Math.min(1, 9 * dt);
         if (Math.abs(diff) < .01) this._faceYaw = null;
       }
     }
@@ -926,14 +1025,19 @@ export class Player {
     this._updateBasuco(dt);
     this._smoke?.update(dt);
     this._updateGlance(dt);
-    if (this.ridingBike) this.ridingBike.update(dt, this, this.audio);
     // Una pulsación nueva muestra al menos un frame de anticipación, también a 10 FPS.
+    const ataque = this.attack;
     const hit = this.melee.update(beganAttackThisFrame ? 0 : dt, this, npcs);
     if (hit) {
       if (hit.reward > 0 && typeof this.stats?.dinero === 'number') this.stats.dinero += hit.reward;
-      if (typeof this.game?.steal?.buscado === 'number') this.game.steal.buscado = Math.min(3, this.game.steal.buscado + 1);
-      emit('street-fight', { attacker: this, hits: (hit.hits ?? [hit]).map((h) => h.target).filter(Boolean), weapon: this.equippedWeapon ?? null });
-      emit('camera-shake', { amount: .24 }); // ~0,25°, corto
+      const results = hit.hits ?? [hit];
+      if (results.some(result => !result.wasAggressor) && typeof this.game?.steal?.buscado === 'number') {
+        this.game.steal.buscado = Math.min(3, this.game.steal.buscado + 1);
+      }
+      emit('street-fight', { attacker: this, hits: results.map(result => result.target).filter(Boolean), results,
+        weapon: ataque?.weapon ?? this.equippedWeapon });
+      const pausa = ataque?.timing.pausaImpacto ?? WEAPONS.punos.pausaImpacto;
+      emit('camera-shake', { amount: .24 + 2 * (pausa - WEAPONS.punos.pausaImpacto) });
     }
     if (this.melee.active) {
       this.action = 'golpear';
@@ -949,6 +1053,9 @@ export class Player {
     m.landing = this.landing; m.swimming = this.isSwimming; m.waterDepth = this.waterDepth;
     m.surfaceY = this.waterFrame?.surfaceY;
     m.turnRate = dt > 0 ? (this.root.rotation.y - previousYaw) / dt : 0;
+    const yaw = this.root.rotation.y;
+    m.cartBacking = cartYaw !== null && (this.position.x - before.x) * Math.sin(yaw)
+      + (this.position.z - before.z) * Math.cos(yaw) < -.0006;
     m.launchSpeed = airborne ? this._launchSpeed : 0; m.groundGap = gap;
     m.groundRate = this._groundRate; m.groundSlope = this._groundSlope;
     m.timeToGround = airborne ? timeToGround(gap, this.jumpVelocity, this._launchSpeed > 0, this._groundRate) : 0;
@@ -957,24 +1064,34 @@ export class Player {
     // busca el suelo ni se prepara para un golpe.
     m.overWater = airborne && water?.surfaceY > groundY && water.depth >= WATER_MOVEMENT.swimEnterDepth;
     m.landingTime = this.landingTime; m.landingImpact = this.landingImpact; m.landingSpeed = this.landingSpeed;
+    m.footSupport = surface?.footSupport;
+    m.footSupportHeight = groundY;
     // Aturdido (un golpe, un carro) la pose suelta los pies clavados del aterrizaje.
     m.stunned = stunned;
 
-    const stance = this._updateBodyLanguage(dt, moving || this.speed >= .25 || stunned || !this.isGrounded || this.isSwimming
+    const riding = !!this.ridingBike;
+    const reacting = stunned && !this._impactHeavy && this.hitLean.active && this.isGrounded && !this.isSwimming && !riding && !this.atWheel;
+    const stance = this._updateBodyLanguage(dt, riding || moving || this.speed >= .25 || stunned || !this.isGrounded || this.isSwimming
       || !!this.action || this.sorting || !!this.attack || !!this.smoking || !!this.basuco);
+    // El impacto se dibuja incluso cuando un cuadro largo alcanza a entrar en la recuperación.
+    const ataqueVisible = hit && ataque ? { ...ataque, phase: 'active', t: 0, progress: 0 } : this.attack;
 
     // Animación del personaje (velocidad en metros del modelo, no del mundo)
     this.character.update(dt, {
       stance,
       style: this.bodyStyle,
-      speed: stunned ? 0 : this.speed / this.modelScale,
-      running,
-      action: stunned ? null : this.isSwimming ? null : !this.isGrounded ? 'saltar' : (this.sorting ? 'buscar' : this.action),
-      actionProgress: this.actionProgress,
+      speed: (stunned && !moving) || riding ? 0 : this.speed / this.modelScale,
+      running: running && !riding,
+      action: reacting ? 'recibirGolpe' : stunned || riding || this.isSwimming ? null
+        : !this.isGrounded ? 'saltar' : (this.sorting ? 'buscar' : this.action),
+      actionProgress: reacting ? 1 - Math.min(1, this._impactTime / HIT_RECOVERY) : this.actionProgress,
+      troncoDirigido: reacting,
       movement: this.movement,
-      attack: this.attack,
-      smoke: this._holdingCigarette && !this.attack ? this.smoking : null,
-      basuco: this.basuco && !this.basuco.stowed ? this.basuco.t : null,
+      attack: riding ? null : ataqueVisible,
+      combatGuard: !riding && !stunned && !this.isSwimming && this.isGrounded && !this.hasCart && !this.sorting
+        && !this.action && this.comboTimer > 0 && this.equippedWeapon === DEFAULT_WEAPON,
+      smoke: !riding && this._holdingCigarette && !this.attack ? this.smoking : null,
+      basuco: !riding && this.basuco && !this.basuco.stowed ? this.basuco.t : null,
       look: this._glance,
       t: this.time,
       load: this.load,
@@ -985,7 +1102,19 @@ export class Player {
     if (!this._impactHeavy) this.hitLean.apply(this.character.group);
   }
 
+  /** Se llama con la biela y la dirección del cuadro que se va a dibujar. */
+  updateBicyclePose() {
+    if (this.ridingBike && !this.ragdoll.active) this.character.fitBicycle?.(this.ridingBike);
+  }
+
+  updateCartPose(cart) {
+    if (!(cart?.gripWeight > .002) || !this.isGrounded || this.ridingBike || this.ragdoll.active || this.isStunned || this.isSwimming) return;
+    if (this.action || this.sorting || this._holdingCigarette || (this.basuco && !this.basuco.stowed)) return;
+    this.character.fitCart?.(cart);
+  }
+
   dispose() {
+    this.melee.cancel();
     this.ragdoll.clear();
     this._smoke?.dispose();
     this._realistic?.dispose?.();

@@ -1,7 +1,11 @@
 import assert from 'node:assert/strict';
 import { beforeEach, test } from 'node:test';
-import { openPauseMenu } from '../src/ui/PauseMenu.js';
+import * as THREE from 'three';
+import { Game } from '../src/core/game.js';
+import { Player } from '../src/entities/Player.js';
+import { CONTROL_GROUPS, openPauseMenu } from '../src/ui/PauseMenu.js';
 import { Menu } from '../src/ui/Menu.js';
+import { SangreGolpes } from '../src/systems/SangreGolpes.js';
 
 beforeEach(() => {
   globalThis.window = new EventTarget();
@@ -13,7 +17,8 @@ beforeEach(() => {
         textContent: '',
         children: [],
         attributes: {},
-        addEventListener() {},
+        listeners: {},
+        addEventListener(type, listener) { this.listeners[type] = listener; },
         setAttribute(k, v) { this.attributes[k] = v; },
         append(...nodes) { this.children.push(...nodes); },
         appendChild(node) { this.children.push(node); return node; }
@@ -44,6 +49,57 @@ test('openPauseMenu abre el menú con controles de audio, estado y opciones ráp
   assert.ok(rendered.body);
   assert.ok(rendered.foot);
   assert.equal(rendered.foot.length, 1);
+});
+
+test('Controles muestra Y después de Z para robar un carro parqueado y bajarse al volante', () => {
+  const [, acciones] = CONTROL_GROUPS.find(([grupo]) => grupo === 'Acciones');
+  assert.deepEqual(acciones.slice(-2), [
+    ['Z', 'Popó'],
+    ['Y', 'Junto a un carro parqueado: robarlo. Al volante: bajarme']
+  ]);
+});
+
+test('Ajustes conserva el botón de Sangre enfocado y solo guarda esa preferencia entre partidas', t => {
+  const anterior = Object.getOwnPropertyDescriptor(globalThis, 'localStorage');
+  const guardado = new Map([['bazuko.graphics_quality', 'alta'], ['bazuko.traffic_density', 'normal']]);
+  const almacenamiento = { getItem: id => guardado.get(id), setItem: (id, valor) => guardado.set(id, valor) };
+  Object.defineProperty(globalThis, 'localStorage', { configurable: true, value: almacenamiento });
+  t.after(() => {
+    if (anterior) Object.defineProperty(globalThis, 'localStorage', anterior);
+    else delete globalThis.localStorage;
+  });
+  const iniciar = () => {
+    const sangre = new SangreGolpes(new THREE.Scene(), {}, {}, null);
+    t.after(() => sangre.dispose());
+    return sangre;
+  };
+  const game = { sangre: iniciar(), menu: { open(cfg) { this.cfg = cfg; } } };
+  t.after(() => game.menu.cfg?.onLeave());
+  openPauseMenu(game, 'ajustes');
+  function buscarGrupo(nodo) {
+    if (nodo.attributes?.['aria-label'] === 'Sangre') return nodo;
+    for (const hijo of nodo.children ?? []) {
+      const grupo = buscarGrupo(hijo);
+      if (grupo) return grupo;
+    }
+  }
+  const botones = buscarGrupo(game.menu.cfg.render().body).children;
+  assert.deepEqual(botones.map(b => b.children[0].textContent), ['Desactivada', 'Discreta', 'Visible']);
+  const elegidos = () => botones.map(b => b.attributes['aria-pressed'] === 'true');
+  assert.deepEqual(elegidos(), [false, true, false]);
+  for (const [i, id] of [[2, 'visible'], [0, 'desactivada'], [1, 'discreta']]) {
+    botones[i].listeners.click();
+    assert.deepEqual(elegidos(), botones.map((_, j) => j === i));
+    assert.equal(botones[i].children[0].className, 'elegido');
+    assert.equal(iniciar().nivel, id);
+  }
+  assert.deepEqual([...guardado], [['bazuko.graphics_quality', 'alta'], ['bazuko.traffic_density', 'normal'], ['bazuko.sangre', 'discreta']]);
+  game.sangre.setNivel('visible', false);
+  assert.equal(iniciar().nivel, 'discreta', 'la sala puede probar un nivel sin guardarlo');
+  guardado.set('bazuko.sangre', 'invalida');
+  assert.equal(iniciar().nivel, 'discreta');
+  almacenamiento.getItem = almacenamiento.setItem = () => { throw new Error('Storage bloqueado'); };
+  assert.equal(iniciar().setNivel('visible'), 'visible', 'la elección también funciona para la sesión sin storage');
 });
 
 test('la pausa tiene pestañas, abre en la pedida y Q/E/M cambian de sección', () => {
@@ -78,6 +134,36 @@ test('la pausa tiene pestañas, abre en la pedida y Q/E/M cambian de sección', 
   assert.equal(closed, 1, 'M en la pestaña Mapa cierra la pausa');
   press('KeyE');
   assert.equal(game._pauseTab, 'mapa', 'el listener se retira al cerrar');
+});
+
+test('Ajustes muestra la carga iniciada con K y permite reintentar desde el mismo botón tras el fallo', async t => {
+  let cfg;
+  const player = new Player(new THREE.Scene(), {});
+  const game = Object.assign(Object.create(Game.prototype), {
+    player, menu: { open(config) { cfg = config; } }
+  });
+  t.after(() => { cfg?.onLeave?.(); player.dispose(); });
+  function botonModelo(node) {
+    if (node?.tag === 'button' && node.children.some(n => n?.textContent?.includes('personaje'))) return node;
+    return node?.children?.map(botonModelo).find(Boolean);
+  }
+  const fallo = Promise.withResolvers();
+  player._realisticPromise = fallo.promise;
+  const teclado = game._toggleModel();
+  openPauseMenu(game, 'ajustes');
+  const boton = botonModelo(cfg.render().body), etiqueta = boton.children.at(-1);
+  assert.match(etiqueta.textContent, /Cancelar carga/);
+  fallo.reject(new Error('Descarga interrumpida'));
+  await teclado;
+  assert.equal(etiqueta.textContent, 'Usar personaje realista (K)');
+
+  const carga = Promise.withResolvers();
+  player._realisticPromise = carga.promise;
+  boton.listeners.click();
+  assert.match(etiqueta.textContent, /Cancelar carga/);
+  carga.resolve({ group: new THREE.Group() });
+  await player.pendingModel.ready;
+  assert.equal(etiqueta.textContent, 'Usar personaje liviano (K)');
 });
 
 test('«+» no cambia de pestaña en teclado español, los atajos del navegador tampoco, y cada pestaña empieza arriba', () => {

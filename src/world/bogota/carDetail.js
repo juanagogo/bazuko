@@ -3,12 +3,14 @@
 // manijas y de los pasos de rueda. En textura y con mipmaps, las líneas se funden de lejos sin titilar.
 import * as THREE from 'three';
 import { SIDE_V, TOP_V } from './carLoft.js';
+import { edadDe, pintarUso } from './carUso.js';
+import { conAzarPropio } from './carLibreas.js';
 
 const W = 1024, H = 512;
 // Juntas finas y de poco contraste: las de 7 mm casi negras parecían cortes hechos a la lámina.
 const GAP = 'rgba(14,14,16,.5)', SOFT = 'rgba(14,14,16,.08)';
 
-function draw(ctx, spec, body) {
+function draw(ctx, spec, body, variante, edad) {
   const { L, axleF, axleR, archR, archY, gaps = {} } = spec, xTail = body.xTail;
   const sx = x => (x - xTail) / L * W;
   const sy = y => H - SIDE_V * y / body.chartH * H;
@@ -106,27 +108,49 @@ function draw(ctx, spec, body) {
     for (let i = 1; i <= 8; i++) { const x = x0 + (x1 - x0) * i / 8; ctx.lineTo(tx(x), ty(body.edgeZ(x) * .9)); }
     stroke(SOFT, 3);
   }
-  if (spec.detail) spec.detail(ctx, { sx, sy, tx, ty, pxX, pxY, W, H, body, seam, stroke });
+  if (spec.detail) spec.detail(ctx, { sx, sy, tx, ty, pxX, pxY, W, H, body, seam, stroke, variante });
+  // Al final, el uso: polvo, barro y rayones caen también sobre las franjas y las juntas.
+  pintarUso(ctx, spec, body, { sx, sy, tx, ty, pxX, pxY, W, H }, edad);
 }
 
-const maps = new Map();
-/** Textura por modelo, dibujada una sola vez y compartida entre todos los carros de ese modelo. */
-export function getDetailMap(spec, body) {
-  let texture = maps.get(spec.id);
-  if (texture) return texture;
-  if (typeof document === 'undefined') {
-    texture = new THREE.Texture();
-  } else {
-    const canvas = document.createElement('canvas');
-    canvas.width = W; canvas.height = H;
-    const ctx = canvas.getContext('2d');
-    if (ctx) draw(ctx, spec, body);
-    texture = new THREE.CanvasTexture(canvas);
-    texture.anisotropy = 4;
-    texture.generateMipmaps = true;
-  }
+const maps = new Map(), modelos = new Set();
+
+function crearMapa(spec, body, variante, edad, sinPintar = false) {
+  if (sinPintar || typeof document === 'undefined') return new THREE.Texture();
+  const canvas = document.createElement('canvas');
+  canvas.width = W; canvas.height = H;
+  // El uso lee el lienzo para pasar el polvo al alfa: mejor en memoria que en la GPU.
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
+  if (ctx) draw(ctx, spec, body, variante, edad);
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.anisotropy = 4;
+  texture.generateMipmaps = true;
+  return texture;
+}
+
+/**
+ * Textura por modelo, dibujada una sola vez y compartida entre todos los carros de ese modelo.
+ * Con `variante` (una librea, por ejemplo) el modelo gana un mapa más con esa clave; `spec.detail` la recibe
+ * para pintar lo suyo. Sin variante hay un solo mapa por modelo. Con una `edad` distinta de la del modelo (la del taxi o
+ * la de la patrulla) hay otro mapa más: el mismo dibujo con el polvo y el barro de esa edad.
+ * El primer mapa de un modelo nace con el azar del juego, como siempre; los de sus otras variantes, con azar propio.
+ */
+export function getDetailMap(spec, body, variante = '', edad = edadDe(spec.id), { sinPintar = false } = {}) {
+  const modelo = variante ? `${spec.id}:${variante}` : spec.id;
+  const clave = edad === edadDe(spec.id) ? modelo : `${modelo}@${edad}`;
+  let texture = maps.get(clave);
+  if (texture && (sinPintar || !texture.userData.sinPintar)) return texture;
+  const semilla = texture ? texture.userData.semilla : maps.size + 0xDE7A;
+  const primero = !texture && !modelos.has(spec.id);
+  modelos.add(spec.id);
+  // Un mapa que nadie va a mostrar (el del taxi con la edad del modelo) gasta lo mismo y no se pinta; si luego hace
+  // falta, se pinta entonces con azar propio.
+  const pintar = !sinPintar;
+  texture = primero ? crearMapa(spec, body, variante, edad, !pintar) : conAzarPropio(semilla, () => crearMapa(spec, body, variante, edad, !pintar));
   texture.colorSpace = THREE.SRGBColorSpace;
-  texture.name = `Detalle ${spec.id}`;
-  maps.set(spec.id, texture);
+  texture.name = `Detalle ${clave}`;
+  texture.userData.semilla = semilla;
+  if (!pintar) texture.userData.sinPintar = true;
+  maps.set(clave, texture);
   return texture;
 }

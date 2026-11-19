@@ -1,7 +1,6 @@
 import assert from 'node:assert/strict';
-import { beforeEach, test } from 'node:test';
+import { beforeEach, mock, test } from 'node:test';
 import * as THREE from 'three';
-import { Game } from '../src/core/game.js';
 import { StatsSystem, NEEDS } from '../src/systems/StatsSystem.js';
 import { InventorySystem } from '../src/systems/InventorySystem.js';
 import { Menu } from '../src/ui/Menu.js';
@@ -15,6 +14,14 @@ import { Clock } from '../src/core/Clock.js';
 import { ITEMS } from '../src/data/items.js';
 import { HUD } from '../src/ui/HUD.js';
 import { InventoryUI } from '../src/ui/InventoryUI.js';
+
+// El aviso, el daño y la muerte se ejercitan con la IA real sin cargar mallas de la GPU.
+const modelos = await import('../src/character/RealisticCharacter.js');
+mock.module('../src/character/RealisticCharacter.js', { namedExports: {
+  ...modelos, createRealisticCharacter: async () => ({ group: new THREE.Group(), update() {}, dispose() {} })
+} });
+const { Game } = await import('../src/core/game.js');
+const { Npc } = await import('../src/entities/Npc.js');
 
 beforeEach(() => { globalThis.window = new EventTarget(); });
 
@@ -262,13 +269,29 @@ test('el hambre que ya pasó no se lleva la culpa de lo que mató después', () 
   assert.equal(titulo, 'Me mató la enfermedad');
 });
 
-test('si me matan a golpes al robar, el cartón lo dice: el raponazo que se defiende y el retrovisor pillado', () => {
+async function recibirRespuestaAlRaponazo(game) {
+  game.player.stats = game.stats;
+  const posicion = game.player.position.clone();
+  posicion.z -= 1;
+  const npc = new Npc(new THREE.Scene(), posicion, { look: {}, facing: 0, carriesKnife: false, defenseResolve: 1 });
+  npc.say = () => {};
+  try {
+    await npc.ready;
+    const robo = Object.assign(Object.create(StealSystem.prototype), { game, buscado: 0, cooldown: 0, _calma: 0, _toast() {} });
+    const saludInicial = game.stats.salud;
+    robo.executeRoboDirecto(npc);
+    assert.equal(game.stats.salud, saludInicial, 'la respuesta da tiempo de apartarse');
+    for (let cuadro = 0; cuadro < 60 && game.stats.salud === saludInicial; cuadro++) npc.update(1 / 60);
+    assert.ok(game.stats.salud < saludInicial, 'el contacto alcanzó al jugador que se quedó delante');
+  } finally {
+    npc.dispose();
+  }
+}
+
+test('si me matan a golpes al robar, el cartón lo dice: el raponazo que se defiende y el retrovisor pillado', async () => {
   const raponazo = fixture();
   raponazo.stats.salud = 5;
-  const robo = Object.assign(Object.create(StealSystem.prototype), { game: raponazo, buscado: 0, cooldown: 0, _calma: 0 });
-  robo.game.player.position = new THREE.Vector3();
-  robo._toast = () => {};
-  robo.executeRoboDirecto({ look: { real: { edad: 'adulto' } }, stance: null, alarmedByTheft() {} });
+  await recibirRespuestaAlRaponazo(raponazo);
   assert.equal(raponazo._handleDeath(), true);
   assert.equal(raponazo.menu.options.title, 'Me mataron a golpes');
 
@@ -301,11 +324,10 @@ test('la sed que ya pasó no se lleva la culpa si después me mata lo que me met
   assert.notEqual(consejoDeMuerte(game.stats.danoPor, game.stats), consejoDeMuerte('sed', game.stats));
 });
 
-test('sobrevivir a un peatón que se defiende no deja «a golpes» para lo que mate después', () => {
+test('sobrevivir a un peatón que se defiende no deja «a golpes» para lo que mate después', async () => {
   const game = fixture();
   game.stats.salud = 40;
-  const robo = Object.assign(Object.create(StealSystem.prototype), { game, buscado: 0, cooldown: 0, _calma: 0, _toast() {} });
-  robo.executeRoboDirecto({ look: { real: { edad: 'adulto' } }, stance: null, alarmedByTheft() {} });
+  await recibirRespuestaAlRaponazo(game);
   assert.equal(game.stats.danoPor, 'pelea');
   assert.ok(game.stats.salud > 0);
   sinDano(game);
@@ -315,11 +337,10 @@ test('sobrevivir a un peatón que se defiende no deja «a golpes» para lo que m
   assert.notEqual(game.menu.options.title, 'Me mataron a golpes');
 });
 
-test('en el cuadro de la muerte la causa no se borra aunque las necesidades ya no quiten salud', () => {
+test('en el cuadro de la muerte la causa no se borra aunque las necesidades ya no quiten salud', async () => {
   const game = fixture();
   Object.assign(game.stats, { salud: 5, hambre: 40 }); // con hambre, pero sin que quite salud ni deje reponerla
-  const robo = Object.assign(Object.create(StealSystem.prototype), { game, buscado: 0, cooldown: 0, _calma: 0, _toast() {} });
-  robo.executeRoboDirecto({ look: { real: { edad: 'adulto' } }, stance: null, alarmedByTheft() {} });
+  await recibirRespuestaAlRaponazo(game);
   assert.equal(game.stats.salud, 0);
   sinDano(game, 1); // si las necesidades corren otra vez antes de abrir el cartón, la causa sigue
   assert.equal(game.stats.danoPor, 'pelea');
@@ -361,6 +382,40 @@ function recargar() {
   return game;
 }
 const filas = game => game.inventory.items.map(it => it.id);
+
+test('una muerte y el desenlace del mismo golpe se guardan juntos después de acreditar el resultado', async t => {
+  const eventos = globalThis.window;
+  const victima = {}, caidos = [], avisos = [], guardados = [];
+  const game = Object.assign(Object.create(Game.prototype), {
+    player: {},
+    world: { active: { recordNpcDeath(v) { caidos.push(v); } } },
+    traffic: { respondToEmergency(detalle) { avisos.push(detalle); } },
+    recompensa: 0,
+    _save() { guardados.push({ caidos: caidos.length, recompensa: this.recompensa }); }
+  });
+  game._escucharSucesosDeCombate();
+  t.after(() => game._eventosCombate.abort());
+  eventos.dispatchEvent(new CustomEvent('npc-death', { detail: { victim: victima } }));
+  eventos.dispatchEvent(new CustomEvent('limpieza-outcome', { detail: { outcome: 'victoria' } }));
+  game.recompensa = 1;
+  assert.deepEqual(guardados, []);
+  await Promise.resolve();
+  assert.deepEqual(caidos, [victima]);
+  assert.deepEqual(guardados, [{ caidos: 1, recompensa: 1 }]);
+  const detalle = { victim: victima, accusedPlayer: false };
+  eventos.dispatchEvent(new CustomEvent('npc-emergency-call', { detail: detalle }));
+  eventos.dispatchEvent(new CustomEvent('population-changed'));
+  await Promise.resolve();
+  assert.deepEqual(avisos, [detalle]);
+  assert.equal(guardados.length, 2);
+  eventos.dispatchEvent(new CustomEvent('street-fight', { detail: { attacker: game.player, results: [] } }));
+  await Promise.resolve();
+  assert.equal(guardados.length, 2, 'el golpe al aire no guardó');
+  eventos.dispatchEvent(new CustomEvent('street-fight', { detail: { attacker: game.player, results: [{ damage: 12 }] } }));
+  eventos.dispatchEvent(new CustomEvent('npc-player-hit', { detail: { victim: game.player, damage: 8, health: 32 } }));
+  await Promise.resolve();
+  assert.equal(guardados.length, 3, 'se conservan las heridas sin duplicar el guardado del cuadro');
+});
 
 test('recargar con la plana del arresto abierta no devuelve la plata ni el costal, y seguir no cobra dos veces', () => {
   const game = conPartida(fixture());
@@ -461,13 +516,58 @@ test('morir con el costal abierto queda marcado aunque el cartón espere a que s
   assert.deepEqual(filas(recargar()), ['pilas', 'cable'], 'F5 con el costal abierto no deshace la muerte');
 });
 
-test('una partida vieja, sin la marca del castigo, carga tal cual', () => {
+test('recargar conserva la espera real del comedor aunque hayan pasado horas dentro del juego', () => {
+  const game = conPartida(fixture());
+  assert.ok(game.serveComedor());
+  const comida = game.lastComedorTimestamp;
+  game.clock.hour += 3;
+  game._save();
+  const cargada = recargar();
+  assert.equal(cargada.lastComedorTimestamp, comida);
+  assert.equal(cargada.isComedorAvailable(), false);
+  assert.equal(cargada.serveComedor(), false);
+});
+
+test('una partida vieja carga su inventario y conserva el turno del comedor por la hora del juego', () => {
   const game = conPartida(fixture());
   const vieja = JSON.parse(localStorage.getItem('habitante-de-calle-save-v1'));
   delete vieja.castigo;
+  delete vieja.lastComedorTimestamp;
+  vieja.lastComedorHour = game.totalGameHours - 1;
   localStorage.setItem('habitante-de-calle-save-v1', JSON.stringify(vieja));
   const cargada = recargar();
   assert.equal(cargada.stats.dinero, 12000);
   assert.deepEqual(filas(cargada), filas(game));
   assert.equal(cargada.stats.salud, game.stats.salud);
+  assert.equal(cargada.lastComedorTimestamp, null);
+  assert.equal(cargada.isComedorAvailable(), false);
+  cargada.clock.hour += 1;
+  assert.equal(cargada.isComedorAvailable(), true);
+});
+
+test('al reaparecer, salir del calabozo o viajar, El Chato que cuida el cambuche se queda en su puesto', async () => {
+  const { Dog } = await import('../src/entities/Dog.js');
+  const puesto = new THREE.Vector3(91, 0, 83);
+  const traslados = {
+    'salir del calabozo': (game) => {
+      Object.assign(game.world.active, { isWalkableAt: () => true, width: 40, height: 40 });
+      game._arrestPending = true; game._finishArrest();
+    },
+    reaparecer: (game) => { game._deathPending = true; game._respawn(); },
+    viajar: (game) => game.relocatePlayer({ x: 10, z: 12 }, { fade: false }),
+  };
+  for (const [nombre, trasladar] of Object.entries(traslados)) {
+    for (const cuida of [false, true]) {
+      const game = fixture();
+      game.dog = new Dog(new THREE.Scene(), puesto);
+      game.dog.befriend();
+      if (cuida) game.dog.guard();
+      const antes = game.player.position.clone();
+      trasladar(game);
+      assert.ok(game.player.position.distanceTo(antes) > 1, `${nombre}: el jugador se movió`);
+      if (cuida) assert.deepEqual(game.dog.position.toArray(), puesto.toArray(), `${nombre}: el que cuida no se mueve`);
+      else assert.deepEqual(game.dog.position.toArray(), game.player.position.toArray(), `${nombre}: el que acompaña llega conmigo`);
+      game.dog.destroy();
+    }
+  }
 });

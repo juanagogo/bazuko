@@ -1,10 +1,15 @@
 // src/character/props.js
-// Accesorios rígidos del personaje realista (bastón, mochila, pasamontañas, gorra), lo que carga la gente
+// Accesorios rígidos del personaje realista (bastón, pasamontañas, gorra), lo que carga la gente
 // de la calle (maletín, bolsa de mercado, costal, casco…) y armas en mano (cuchillo, botella picada,
 // pistola). No son ropa de MakeHuman: se arman con geometría simple y se atan a un hueso del esqueleto
 // Mixamo, así siguen la animación.
 import * as THREE from 'three';
 import { mergeGeometries, mergeVertices } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
+import { scarfGeometry, scarfTexture } from './scarf.js';
+import { workHelmetGeometry, workHelmetMap } from './workwear.js';
+import { UMBRELLA_COLORS, umbrellaGeometry, umbrellaMaterial } from './umbrella.js';
+import { STREET_CANE_LENGTH, streetCaneGeometry, streetCaneMaterial } from './streetCane.js';
+import { brokenBottle, club, knife } from './meleePropModels.js';
 
 const CROOK = 0.055;
 const SHAFT = 0.9;
@@ -17,20 +22,9 @@ function geometries() {
   const handle = new THREE.TorusGeometry(CROOK, 0.014, 6, 12, Math.PI);
   handle.rotateY(-Math.PI / 2);
   handle.translate(0, 0, CROOK);
-  // costal blando: esfera aplastada contra la espalda, más ancha abajo
-  const bag = new THREE.SphereGeometry(1, 14, 10);
-  const pos = bag.attributes.position;
-  for (let i = 0; i < pos.count; i++) {
-    const y = pos.getY(i);
-    pos.setXYZ(i, pos.getX(i) * 0.15 * (1.05 - y * 0.15), y * 0.2, pos.getZ(i) * 0.08);
-  }
-  bag.computeVertexNormals();
   shared = {
     shaft: new THREE.CylinderGeometry(0.012, 0.015, SHAFT, 8),
-    handle,
-    bag,
-    knot: new THREE.SphereGeometry(0.045, 8, 6),
-    strap: new THREE.TorusGeometry(0.1, 0.012, 4, 10, Math.PI * 1.2),
+    handle
   };
   return shared;
 }
@@ -66,27 +60,6 @@ function cane(wear) {
       shaft.position.y = -length / 2;
     }
   };
-}
-
-function backpack(wear) {
-  const g = geometries();
-  const cloth = new THREE.MeshStandardMaterial({ color: tone('#3d4a3a', wear), roughness: 1 });
-  const strapMat = new THREE.MeshStandardMaterial({ color: tone('#222018', wear), roughness: 1 });
-  const group = new THREE.Group();
-  group.name = 'prop-mochila';
-  const bag = new THREE.Mesh(g.bag, cloth);
-  const knot = new THREE.Mesh(g.knot, cloth);
-  knot.position.set(0, 0.2, 0);
-  group.add(bag, knot);
-  for (const side of [-1, 1]) {
-    const strap = new THREE.Mesh(g.strap, strapMat);
-    strap.rotation.y = Math.PI / 2;
-    strap.position.set(side * 0.1, 0.1, 0.1);
-    group.add(strap);
-  }
-  // en el espacio del personaje (mira a +Z): detrás de la espalda, a la altura del pecho
-  group.position.set(0, -0.08, -0.2);
-  return { bone: 'Spine2', object: group, space: 'body' };
 }
 
 // ---------- pasamontañas y gorra ----------
@@ -152,9 +125,9 @@ function cap() {
   return { bone: 'Head', object: group, space: 'body' };
 }
 
-const BUILDERS = { baston: cane, mochila: backpack, pasamontanas: balaclava, gorra: cap };
+const BUILDERS = { baston: cane, pasamontanas: balaclava, gorra: cap };
 /** Accesorios baratos que también lleva el modelo lejano (se notan a distancia) */
-export const FAR_ACCESSORIES = new Set(['pasamontanas', 'gorra', 'maletin', 'bolsa', 'bolso', 'morral', 'costal', 'casco', 'baston-calle']);
+export const FAR_ACCESSORIES = new Set(['pasamontanas', 'gorra', 'maletin', 'bolsa', 'bolso', 'morral', 'costal', 'casco', 'baston-calle', 'bufanda']);
 
 /**
  * Ata los accesorios elegidos al esqueleto. Devuelve los objetos creados y `update`,
@@ -192,16 +165,16 @@ export function attachAccessories(root, bones, ids = [], wear = 0) {
 // ---------- lo que carga la gente de la calle ----------
 // Una sola malla por accesorio, una sola llamada de dibujo: la geometría es de módulo y el material se
 // comparte por color. Ese material lleva `userData.shared` para que liberar a una persona no lo destruya.
-// Sin vertexColors ni dos caras: así usan el mismo programa que cualquier objeto liso de la ciudad.
+// Sin vertexColors ni dos caras. El morral comparte una paleta para tela, correas y cierres.
 
 const sharedMaterials = new Map();
 
-/** Material liso compartido entre todos los que usen ese color y esa aspereza. */
-export function sharedPropMaterial(color, roughness = .85) {
-  const key = `${color}|${roughness}`;
+/** Material compartido entre todos los que usen ese color, aspereza y mapa. */
+export function sharedPropMaterial(color, roughness = .85, map = null) {
+  const key = `${color}|${roughness}|${map?.uuid ?? ''}`;
   let material = sharedMaterials.get(key);
   if (!material) {
-    material = new THREE.MeshStandardMaterial({ color, roughness });
+    material = new THREE.MeshStandardMaterial({ color, roughness, map });
     material.name = 'prop-compartido';
     material.userData.shared = true;
     sharedMaterials.set(key, material);
@@ -209,9 +182,9 @@ export function sharedPropMaterial(color, roughness = .85) {
   return material;
 }
 
-/** Junta piezas en una sola geometría; las primitivas pierden las UV, que un color liso no usa. */
-function fused(parts) {
-  for (const part of parts) if (part.attributes.uv) part.deleteAttribute('uv');
+/** Junta piezas en una sola geometría y quita las UV de las primitivas cuando son de un color liso. */
+function fused(parts, keepUv = false) {
+  if (!keepUv) for (const part of parts) part.deleteAttribute('uv');
   const out = mergeGeometries(parts);
   for (const part of parts) part.dispose();
   return out;
@@ -264,15 +237,13 @@ function bolsaGeometry() {
   ]);
 }
 
-/** Bastón de una pieza: a diferencia del `baston` del creador, no hace trabajo por cuadro. Su largo se ajusta a la mano. */
-const BASTON_LARGO = .8;
-// El palo se mide con la mano en reposo, y al andar la mano sube. Se pasa de largo hasta casi rozar el piso en lo más bajo.
-const BASTON_DE_MAS = .033;
-function bastonCalleGeometry() {
+// El largo del bastón se ajusta a la mano sin escalonarlo durante la marcha.
+const BASTON_DE_MAS = .060;
+function closedStickGeometry() {
   const crook = new THREE.TorusGeometry(CROOK * .85, .011, 4, 7, Math.PI);
   crook.rotateY(-Math.PI / 2);
   crook.translate(0, -.075, CROOK * .85);
-  return fused([crook, new THREE.CylinderGeometry(.011, .014, BASTON_LARGO - .075, 5).translate(0, -(BASTON_LARGO + .075) / 2, 0)]);
+  return fused([crook, new THREE.CylinderGeometry(.011, .014, .725, 5).translate(0, -.4375, 0)]);
 }
 
 // A la espalda o de lado: cuelgan de Spine2 en ejes del personaje, con el origen en el cuello, que es lo que menos
@@ -280,13 +251,51 @@ function bastonCalleGeometry() {
 
 // `forward`: cuánto se acerca a una espalda que, medida desde el cuello, queda más adelante (la de los cuerpos de mujer).
 
+const MORRAL_COLORS = new THREE.DataTexture(new Uint8Array([
+  255, 255, 255, 255, // cuerpo de tela
+  214, 219, 222, 255, // bolsillo algo más oscuro
+  133, 133, 138, 255, // cintas
+  81, 82, 85, 255 // cierres
+]), 4, 1, THREE.RGBAFormat);
+MORRAL_COLORS.needsUpdate = true;
+
 function morralGeometry(forward = 0) {
-  const pack = soft(new THREE.SphereGeometry(1, 10, 6), (v) => {
-    const flat = Math.sign(v.z) * Math.abs(v.z) ** .75;
-    v.set(Math.sign(v.x) * Math.abs(v.x) ** .7 * .15, -.23 + Math.sign(v.y) * Math.abs(v.y) ** .7 * .19, -.19 + forward + flat * .08);
+  const rounded = (value, curve) => Math.sign(value) * Math.abs(value) ** curve;
+  const pack = soft(new THREE.SphereGeometry(1, 14, 8), v => {
+    v.set(rounded(v.x, .68) * (.149 - .009 * v.y), -.23 + rounded(v.y, .7) * .19,
+      -.19 + forward + rounded(v.z, .75) * .081);
   });
-  const strap = (x) => cord([[x * .95, -.1, -.12 + forward], [x, -.03, -.09 + forward * .6], [x * 1.04, .012, -.02], [x * 1.1, -.03, .06], [x * 1.2, -.13, .118], [x * 1.55, -.25, .09]], .012, 8);
-  return fused([pack, strap(.095), strap(-.095)]);
+  const pocket = soft(new THREE.SphereGeometry(1, 10, 6), v => {
+    v.set(rounded(v.x, .59) * .107, -.302 + rounded(v.y, .65) * .086,
+      -.254 + forward + rounded(v.z, .66) * .048);
+  });
+  const onPack = points => points.map(([x, y, z]) => [x, y, z + forward]);
+  const zipper = cord(onPack([
+    [-.126, -.21, -.239], [-.111, -.134, -.244], [-.077, -.091, -.243], [0, -.058, -.228],
+    [.077, -.091, -.243], [.111, -.134, -.244], [.126, -.21, -.239]
+  ]), .005, 14);
+  const pocketZipper = cord(onPack([
+    [-.091, -.254, -.282], [-.066, -.234, -.297], [0, -.226, -.298], [.066, -.234, -.297], [.091, -.254, -.282]
+  ]), .004, 10);
+  const pull = block(.011, .022, .007, -.049, -.244, -.303 + forward);
+  const handle = cord(onPack([[-.032, -.064, -.19], [-.028, -.027, -.195], [0, -.016, -.196],
+    [.028, -.027, -.195], [.032, -.064, -.19]]), .006, 6);
+  const strap = (x) => cord([
+    [x * .95, -.10, -.12 + forward], [x, -.03, -.09 + forward * .6], [x * 1.04, .012, -.02],
+    [x * 1.1, -.03, .06], [x * 1.2, -.13, .118], [x * 1.53, -.244, .102],
+    [x * 1.62, -.303, .008 + forward * .3], [x * 1.26, -.372, -.141 + forward]
+  ], .014, 12);
+  const parts = [[pack, 0], [pocket, 1], [handle, 2], [strap(.095), 2], [strap(-.095), 2],
+    [zipper, 3], [pocketZipper, 3], [pull, 3]];
+  return fused(parts.map(([part, swatch]) => {
+    const uv = new Float32Array(part.attributes.position.count * 2);
+    for (let i = 0; i < uv.length; i += 2) {
+      uv[i] = (swatch + .5) / MORRAL_COLORS.image.width;
+      uv[i + 1] = .5;
+    }
+    part.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
+    return part;
+  }), true);
 }
 
 /** Bolso de hombro: la correa pasa por el hombro izquierdo y el bolso cae al lado de la cadera. */
@@ -321,34 +330,18 @@ function costalGeometry(forward = 0) {
   return fused([sack, knot, rope(.095), rope(-.095)]);
 }
 
-// En la cabeza: atados a Head. La frente va hasta +,13 en z y la coronilla llega a +,21, y son unos 2 cm menos en las mujeres.
-
-/** Casco de obra: copa ceñida, ala corta con visera y un lomo de refuerzo que sigue la copa. */
-function cascoGeometry() {
-  // Medido con el pelo corto y el rapado de los tres cuerpos de hombre: la copa los tapa a todos, también atrás.
-  const y = .106, z = .018;
-  const crown = new THREE.SphereGeometry(1, 16, 8, 0, Math.PI * 2, 0, Math.PI / 2);
-  crown.scale(.118, .128, .142).translate(0, y, z);
-  const brim = new THREE.CylinderGeometry(1, 1, .008, 20);
-  const pos = brim.attributes.position;
-  for (let i = 0; i < pos.count; i++) pos.setXYZ(i, pos.getX(i) * .124, y + pos.getY(i), z + pos.getZ(i) * (pos.getZ(i) > 0 ? .172 : .146));
-  brim.computeVertexNormals();
-  const ridge = new THREE.SphereGeometry(1, 8, 8, 0, Math.PI * 2, 0, Math.PI / 2);
-  ridge.scale(.016, .136, .15).translate(0, y, z);
-  return fused([crown, brim, ridge]);
-}
-
 // `hold`: postura cuyo marco de la mano usa. `bone`: hueso al que se ata, en ejes del personaje; `anchor`: de dónde se
 // mide si no es ese hueso. `mujer`: escala para las cabezas de mujer, algo más pequeñas. `forward`: lo que se acerca a la
 // espalda de un cuerpo de mujer, con su propia geometría de módulo. `sway`: balanceo con el paso, en radianes [de lado, de frente].
 const STREET_PROPS = {
   maletin: { build: maletinGeometry, hold: 'cargar-izquierda', roughness: .55 },
   bolsa: { build: bolsaGeometry, hold: 'cargar-izquierda', roughness: .62, sway: [.1, .12] },
-  'baston-calle': { build: bastonCalleGeometry, hold: 'cargar-derecha', roughness: .7, reach: BASTON_LARGO },
-  morral: { build: morralGeometry, bone: 'Spine2', anchor: 'Neck', roughness: .9, forward: .045 },
+  'baston-calle': { build: streetCaneGeometry, hold: 'cargar-derecha', material: streetCaneMaterial, reach: STREET_CANE_LENGTH },
+  morral: { build: morralGeometry, bone: 'Spine2', anchor: 'Neck', roughness: .9, forward: .045, map: MORRAL_COLORS },
   bolso: { build: bolsoGeometry, bone: 'Spine2', anchor: 'Neck', roughness: .6 },
   costal: { build: costalGeometry, bone: 'Spine2', anchor: 'Neck', roughness: 1, forward: .045, sway: [.05, .035] },
-  casco: { build: cascoGeometry, bone: 'Head', roughness: .4, mujer: [.96, .93, .94] }
+  casco: { build: workHelmetGeometry, bone: 'Head', roughness: .49, mujer: [.96, .93, .94], get map() { return workHelmetMap(); } },
+  bufanda: { build: scarfGeometry, bone: 'Spine2', anchor: 'Neck', roughness: .98, mujer: [.94, 1, .97], get map() { return scarfTexture(); } }
 };
 
 const streetGeometries = new Map();
@@ -384,7 +377,9 @@ export function attachStreetProps(root, bones, items = [], holds = null, sexo = 
     const hold = spec.hold ? holds?.[spec.hold] : null;
     const bone = hold ? bones.get(hold.boneName) : findBone(bones, spec.bone);
     if (!bone || (spec.hold && !hold)) continue;
-    const mesh = new THREE.Mesh(streetGeometry(id, sexo), sharedPropMaterial(color ?? '#3a3a3a', spec.roughness));
+    const pigment = color ?? '#3a3a3a';
+    const material = spec.material ? spec.material(pigment) : sharedPropMaterial(pigment, spec.roughness, spec.map);
+    const mesh = new THREE.Mesh(streetGeometry(id, sexo), material);
     mesh.name = `prop-${id}`;
     mesh.castShadow = true;
     mesh.receiveShadow = true;
@@ -406,7 +401,7 @@ export function attachStreetProps(root, bones, items = [], holds = null, sexo = 
 
 /** Bastón suelto, para cuando se le cae a alguien: el mismo que tiene en la mano, sin gastar otro material. */
 export function createCane(color) {
-  const mesh = new THREE.Mesh(streetGeometry('baston-calle'), sharedPropMaterial(color ?? '#3a3a3a', STREET_PROPS['baston-calle'].roughness));
+  const mesh = new THREE.Mesh(streetGeometry('baston-calle'), streetCaneMaterial(color ?? '#3a3a3a'));
   mesh.name = 'prop-baston-suelto';
   mesh.receiveShadow = true;
   return mesh;
@@ -429,56 +424,7 @@ export function swayStreetProps(props, phase, amount) {
 // ---------- paraguas y celular ----------
 // Los lleva `Npc`, que los muestra con la postura. Una malla por persona, con todo lo demás compartido.
 
-// Colores apagados, como casi todo lo que se ve bajo la lluvia de Bogotá.
-const UMBRELLA_COLORS = ['#181a20', '#27364d', '#5a2430', '#2f3f36', '#4a4a50'];
-
-/** Domo de varillas, por fuera y por dentro (sin DoubleSide, que pide otro programa), con su palo y su mango. */
-function umbrellaGeometry() {
-  const ribs = 8, radius = .62, rise = .21;
-  const ring = (fraction, drop) => {
-    const out = [];
-    for (let i = 0; i < ribs * 2; i++) {
-      const angle = i / (ribs * 2) * Math.PI * 2, mid = i % 2 ? 1 - .09 * fraction : 1;
-      out.push([Math.sin(angle) * radius * fraction * mid, rise * (1 - fraction ** 1.7) - (i % 2 ? drop : 0), Math.cos(angle) * radius * fraction * mid]);
-    }
-    return out;
-  };
-  const rings = [ring(.42, 0), ring(.76, .004), ring(1, .012)];
-  const sides = [];
-  for (const inside of [false, true]) {
-    const tri = [];
-    const face = (a, b, c) => { if (inside) tri.push(...a, ...b, ...c); else tri.push(...a, ...c, ...b); };
-    const n = ribs * 2;
-    for (let i = 0; i < n; i++) {
-      const next = (i + 1) % n;
-      face([0, rise, 0], rings[0][i], rings[0][next]);
-      for (let r = 0; r < rings.length - 1; r++) {
-        face(rings[r][i], rings[r + 1][i], rings[r + 1][next]);
-        face(rings[r][i], rings[r + 1][next], rings[r][next]);
-      }
-    }
-    const side = new THREE.BufferGeometry();
-    side.setAttribute('position', new THREE.Float32BufferAttribute(tri, 3));
-    const welded = mergeVertices(side, 1e-4);
-    side.dispose();
-    welded.computeVertexNormals();
-    sides.push(welded);
-  }
-  const canopy = mergeGeometries(sides);
-  for (const side of sides) side.dispose();
-  canopy.translate(0, .5, 0);
-  const shaft = new THREE.CylinderGeometry(.008, .008, .86, 5).translate(0, .3, 0);
-  shaft.deleteAttribute('uv');
-  const handle = new THREE.CylinderGeometry(.016, .016, .1, 5).translate(0, -.09, 0);
-  handle.deleteAttribute('uv');
-  const out = mergeGeometries([canopy, shaft, handle]);
-  canopy.dispose(); shaft.dispose(); handle.dispose();
-  // El palo sale del puño y se recuesta un poco hacia atrás, para que el domo quede sobre la cabeza.
-  out.rotateX(-.17).rotateZ(-.09).translate(.06, 0, .055);
-  return out;
-}
-
-let umbrellaShape = null;
+let umbrellaShape = null, closedStickShape = null;
 
 // Paraguas en el piso, con la escala del personaje: se recuesta en el borde del domo y en la punta del mango.
 export const UMBRELLA_REST = { tilt: .98, lift: .166 };
@@ -486,14 +432,15 @@ export const UMBRELLA_REST = { tilt: .98, lift: .166 };
 /** Paraguas de una persona: una malla con geometría y material compartidos. */
 export function createUmbrella(variant = 0) {
   umbrellaShape ??= umbrellaGeometry();
-  const mesh = new THREE.Mesh(umbrellaShape, sharedPropMaterial(UMBRELLA_COLORS[variant % UMBRELLA_COLORS.length] ?? UMBRELLA_COLORS[0], .62));
+  const mesh = new THREE.Mesh(umbrellaShape, umbrellaMaterial(UMBRELLA_COLORS[variant % UMBRELLA_COLORS.length] ?? UMBRELLA_COLORS[0]));
   mesh.name = 'prop-paraguas';
   return mesh;
 }
 
-/** El palo y el mango del paraguas cerrado: el bastón de la calle puesto de pie, con el color de la tela. */
+/** El palo y el mango del paraguas cerrado, del color de la tela. */
 export function createClosedStick(variant = 0) {
-  const mesh = new THREE.Mesh(streetGeometry('baston-calle'), sharedPropMaterial(UMBRELLA_COLORS[variant % UMBRELLA_COLORS.length] ?? UMBRELLA_COLORS[0], .62));
+  closedStickShape ??= closedStickGeometry();
+  const mesh = new THREE.Mesh(closedStickShape, sharedPropMaterial(UMBRELLA_COLORS[variant % UMBRELLA_COLORS.length] ?? UMBRELLA_COLORS[0], .62));
   mesh.name = 'prop-paraguas-cerrado';
   mesh.rotation.z = Math.PI;
   mesh.position.y = -.08;
@@ -511,62 +458,12 @@ export function createPhone() {
 }
 
 // ---------- armas en mano ----------
-// El origen del objeto es la muñeca y +Y va hacia donde apuntan los dedos; el mango queda dentro del puño.
-
-let weaponShared = null;
-function weaponGeometries() {
-  if (weaponShared) return weaponShared;
-  const blade = new THREE.BoxGeometry(0.022, 0.17, 0.005);
-  blade.translate(0, 0.075 + 0.085, 0); // sale del mango
-  // punta: se afina con un triángulo apilado sobre la hoja
-  const tip = new THREE.ConeGeometry(0.0125, 0.04, 3);
-  tip.rotateY(Math.PI / 2);
-  tip.scale(1, 1, 0.25);
-  tip.translate(0, 0.245 + 0.02, 0);
-  weaponShared = {
-    grip: new THREE.CylinderGeometry(0.014, 0.016, 0.11, 8).translate(0, 0.02, 0),
-    guard: new THREE.BoxGeometry(0.05, 0.012, 0.016).translate(0, 0.078, 0),
-    blade, tip,
-    neck: new THREE.CylinderGeometry(0.013, 0.017, 0.1, 8).translate(0, 0.01, 0),
-    shoulder: new THREE.CylinderGeometry(0.033, 0.017, 0.05, 8).translate(0, 0.085, 0),
-    body: new THREE.CylinderGeometry(0.033, 0.033, 0.1, 8).translate(0, 0.16, 0),
-    shard: new THREE.ConeGeometry(0.011, 0.045, 4).translate(0, 0.0225, 0)
-  };
-  return weaponShared;
-}
-
-function knife() {
-  const g = weaponGeometries();
-  const steel = new THREE.MeshStandardMaterial({ color: '#b9bec4', metalness: 0.85, roughness: 0.3 });
-  const wood = new THREE.MeshStandardMaterial({ color: '#4a3020', roughness: 0.85 });
-  const group = new THREE.Group();
-  group.name = 'weapon-cuchillo';
-  group.add(new THREE.Mesh(g.grip, wood), new THREE.Mesh(g.guard, steel), new THREE.Mesh(g.blade, steel), new THREE.Mesh(g.tip, steel));
-  return group;
-}
-
-function brokenBottle() {
-  const g = weaponGeometries();
-  const glass = new THREE.MeshStandardMaterial({ color: '#2f6b3a', transparent: true, opacity: 0.82, roughness: 0.15, metalness: 0.1 });
-  const group = new THREE.Group();
-  group.name = 'weapon-botella_picada';
-  group.add(new THREE.Mesh(g.neck, glass), new THREE.Mesh(g.shoulder, glass), new THREE.Mesh(g.body, glass));
-  // boca rota: picos de vidrio alrededor del borde
-  const rim = 0.21, n = 6;
-  for (let i = 0; i < n; i++) {
-    const a = (i / n) * Math.PI * 2;
-    const shard = new THREE.Mesh(g.shard, glass);
-    shard.position.set(Math.cos(a) * 0.026, rim, Math.sin(a) * 0.026);
-    shard.rotation.set(Math.sin(a) * 0.25, 0, -Math.cos(a) * 0.25);
-    shard.scale.y = i % 2 ? 1.4 : 0.8; // alternan para que el borde sea irregular
-    group.add(shard);
-  }
-  return group;
-}
+// El centro de agarre de los tres objetos va en el origen y su extremo visible sale por +Y.
+const pistolParts = {};
 
 /** Pistola corta empuñada: el cañón sale hacia los dedos (+Y) y la cacha baja por la palma */
 function pistol() {
-  const g = weaponGeometries();
+  const g = pistolParts;
   g.slide ??= new THREE.BoxGeometry(0.026, 0.17, 0.034).translate(0, 0.085, 0.045);
   g.butt ??= new THREE.BoxGeometry(0.024, 0.04, 0.1).rotateX(0.25).translate(0, 0.015, 0.0);
   g.guardRing ??= new THREE.TorusGeometry(0.018, 0.004, 4, 8, Math.PI).rotateY(Math.PI / 2).translate(0, 0.045, 0.02);
@@ -577,44 +474,8 @@ function pistol() {
   return group;
 }
 
-/** Arma casera: tabla con láminas de chatarra y puntillas, amarradas con cable de cobre */
-function club() {
-  const g = weaponGeometries();
-  g.plank ??= new THREE.BoxGeometry(0.05, 0.7, 0.024).translate(0, 0.29, 0);
-  g.wrap ??= new THREE.CylinderGeometry(0.031, 0.031, 0.15, 6).translate(0, 0.015, 0);
-  g.plate ??= new THREE.BoxGeometry(0.07, 0.15, 0.006);
-  g.nail ??= new THREE.CylinderGeometry(0.0035, 0.0035, 0.09, 4).rotateZ(Math.PI / 2);
-  g.wire ??= new THREE.TorusGeometry(0.04, 0.003, 4, 10).rotateX(Math.PI / 2).scale(1, 1, 0.7);
-  const wood = new THREE.MeshStandardMaterial({ color: '#6b4a2b', roughness: 0.9 });
-  const tape = new THREE.MeshStandardMaterial({ color: '#262626', roughness: 1 });
-  const rust = new THREE.MeshStandardMaterial({ color: '#7a4526', metalness: 0.55, roughness: 0.75 });
-  const steel = new THREE.MeshStandardMaterial({ color: '#8a8f94', metalness: 0.8, roughness: 0.4 });
-  const copper = new THREE.MeshStandardMaterial({ color: '#b8733a', metalness: 0.8, roughness: 0.35 });
-  const group = new THREE.Group();
-  group.name = 'weapon-arma';
-  group.add(new THREE.Mesh(g.plank, wood), new THREE.Mesh(g.wrap, tape));
-  // láminas a cada lado de la punta, torcidas como quedaron al amarrarlas
-  for (const [z, y, tilt] of [[0.015, 0.5, 0.12], [-0.015, 0.55, -0.18]]) {
-    const plate = new THREE.Mesh(g.plate, rust);
-    plate.position.set(0, y, z);
-    plate.rotation.z = tilt;
-    group.add(plate);
-  }
-  for (const [y, turn] of [[0.6, 0.1], [0.45, -0.15]]) {
-    const nail = new THREE.Mesh(g.nail, steel);
-    nail.position.y = y;
-    nail.rotation.y = turn;
-    group.add(nail);
-  }
-  for (const y of [0.42, 0.5, 0.62]) {
-    const wire = new THREE.Mesh(g.wire, copper);
-    wire.position.y = y;
-    group.add(wire);
-  }
-  return group;
-}
-
 const WEAPON_BUILDERS = { cuchillo: knife, botella_picada: brokenBottle, arma: club, pistola: pistol };
+const activeWeapons = new Map();
 
 const _wp = new THREE.Vector3();
 const _wq = new THREE.Quaternion();
@@ -622,7 +483,7 @@ const _wr = new THREE.Quaternion();
 
 /**
  * Pone un arma en la mano derecha. Devuelve { object, dispose } o null si no existe el arma o el hueso.
- * Las geometrías son compartidas; `dispose` solo libera los materiales de esta instancia.
+ * La geometría y los mapas se comparten. El último portador libera los materiales.
  */
 export function attachWeapon(root, bones, id) {
   const hand = findBone(bones, 'RightHand');
@@ -630,8 +491,7 @@ export function attachWeapon(root, bones, id) {
   const weapon = createWeapon(id);
   if (!weapon) return null;
   const { object } = weapon;
-  object.traverse((o) => { if (o.isMesh) { o.castShadow = true; o.frustumCulled = false; } });
-  // el objeto nace con los ejes de la mano, en el espacio de la raíz; attach() lo pasa al hueso sin mover nada
+  // Pasar de la raíz al hueso conserva el tamaño del objeto con los distintos esqueletos.
   root.updateMatrixWorld(true);
   root.worldToLocal(hand.getWorldPosition(_wp));
   root.getWorldQuaternion(_wr).invert();
@@ -639,22 +499,54 @@ export function attachWeapon(root, bones, id) {
   object.quaternion.copy(_wr.multiply(hand.getWorldQuaternion(_wq)));
   root.add(object);
   hand.attach(object);
+  if (id !== 'pistola') {
+    const middle = findBone(bones, 'RightHandMiddle1'), index = findBone(bones, 'RightHandIndex1');
+    const pinky = findBone(bones, 'RightHandPinky1');
+    if (middle && index && pinky) {
+      const fingers = middle.position.clone().normalize();
+      const axis = index.position.clone().sub(pinky.position);
+      const palmWidth = axis.length();
+      axis.addScaledVector(fingers, -axis.dot(fingers)).normalize();
+      const palm = new THREE.Vector3().crossVectors(axis, fingers).normalize();
+      object.position.copy(middle.position).multiplyScalar(.76).addScaledVector(palm, palmWidth * .27);
+      // El mango cruza la palma. Una leve inclinación sigue la línea de los nudillos.
+      axis.addScaledVector(fingers, .15).normalize();
+      const across = new THREE.Vector3().crossVectors(axis, palm).negate().normalize();
+      object.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(across, axis, palm.negate()));
+    }
+  }
   return weapon;
 }
 
-/** La misma arma para ambos rigs; sus geometrías permanecen compartidas. */
+/** Cada mano tiene su propia transformación y comparte el modelo con los demás portadores. */
 export function createWeapon(id) {
-  const build = WEAPON_BUILDERS[id];
-  if (!build) return null;
-  const object = build();
-  object.traverse(o => { if (o.isMesh) { o.castShadow = true; o.frustumCulled = false; } });
+  if (!Object.hasOwn(WEAPON_BUILDERS, id)) return null;
+  let active = activeWeapons.get(id);
+  if (!active) {
+    const model = WEAPON_BUILDERS[id](), materials = new Set();
+    model.name = `weapon-${id}`;
+    model.traverse(o => {
+      if (!o.isMesh) return;
+      o.castShadow = true;
+      o.frustumCulled = false;
+      materials.add(o.material);
+    });
+    active = { model, materials, users: 0 };
+    activeWeapons.set(id, active);
+  }
+  active.users++;
+  const object = active.model.clone();
+  let released = false;
   return {
     object,
     dispose() {
-      const materials = new Set();
-      object.traverse((o) => { if (o.isMesh) materials.add(o.material); });
-      for (const m of materials) m.dispose();
+      if (released) return;
+      released = true;
       object.removeFromParent();
+      if (--active.users === 0) {
+        for (const material of active.materials) material.dispose();
+        activeWeapons.delete(id);
+      }
     }
   };
 }

@@ -82,6 +82,12 @@ body.tactil.tactil--robando #interaction-prompt { display: none; }
   #tactil-mas { left: calc(128px + var(--safe-l)); width: min(496px, calc(100vw - 136px - var(--safe-l) - var(--safe-r))); }
   body.tactil #interaction-prompt { bottom: calc(110px + var(--safe-b)); }
 }
+/* En horizontal las dos columnas del cartón caben al costado de la vista del personaje. */
+@media (min-width: 620px) and (max-width: 899px) and (orientation: landscape), (min-width: 620px) and (max-height: 500px) and (orientation: landscape) {
+  body.tactil #hud-dock { width: min(350px, calc(45vw - var(--safe-l))); grid-template-columns: min(144px, 40%) minmax(0, 1fr); }
+  body.tactil #hud-dock .radar__destino { padding-right: 0; }
+  body.tactil #needs-details { left: auto; right: 0; width: min(224px, 100%); }
+}
 /* Con las barras del navegador abajo y arriba queda poco alto: palanca algo menor, y la cinta en lo suyo. */
 @media (max-height: 339px) and (orientation: landscape) {
   body.tactil #joystick { width: 104px; height: 104px; }
@@ -91,30 +97,33 @@ body.tactil.tactil--robando #interaction-prompt { display: none; }
 
 /* ==================== celular de pie ==================== */
 @media (max-width: 899px) and (orientation: portrait) {
+  body.tactil {
+    /* Cinco casillas y tres paneles de 44px caben entre las dos orillas desde 360px. */
+    --borde-tactil: clamp(3px, calc((100vw - 360px) / 5 + 3px), 6px);
+    --separacion-paneles: clamp(0px, calc((100vw - 360px) / 4), 6px);
+    --fila-extra-tactil: 0px; }
   body.tactil #joystick { left: calc(8px + var(--safe-l)); bottom: calc(60px + var(--safe-b)); width: 132px; height: 132px; }
-  body.tactil #acciones { display: grid; grid-template-columns: repeat(2, 1fr); gap: 6px; right: calc(8px + var(--safe-r)); bottom: calc(60px + var(--safe-b)); width: 156px; }
+  body.tactil #acciones { display: grid; grid-template-columns: repeat(2, 1fr); gap: 6px; right: calc(8px + var(--safe-r)); bottom: calc(60px + var(--safe-b) + var(--fila-extra-tactil)); width: 156px; }
   body.tactil #hud-dock { top: calc(var(--topbar-bottom, 40px) + 6px); }
-  body.tactil.tactil #quickbar { gap: 8px; }
-  body.tactil.tactil #panel-dock { left: calc(266px + var(--safe-l)); gap: 8px; }
-  #tactil-mas { left: calc(8px + var(--safe-l)); right: calc(8px + var(--safe-r)); bottom: calc(198px + var(--safe-b)); grid-template-columns: repeat(3, 1fr); }
-  body.tactil #steal-minigame { bottom: calc(200px + var(--safe-b)); }
+  body.tactil #quickbar { left: calc(var(--borde-tactil) + var(--safe-l)); }
+  body.tactil #panel-dock {
+    left: auto; right: calc(var(--borde-tactil) + var(--safe-r)); gap: var(--separacion-paneles);
+    bottom: calc(6px + var(--safe-b) + var(--fila-extra-tactil)); }
+  #tactil-mas { left: calc(8px + var(--safe-l)); right: calc(8px + var(--safe-r)); bottom: calc(198px + var(--safe-b) + var(--fila-extra-tactil, 0px)); grid-template-columns: repeat(3, 1fr); }
+  body.tactil #steal-minigame { bottom: calc(200px + var(--safe-b) + var(--fila-extra-tactil)); }
   /* Del 60 % del ancho para allá: el personaje va en el centro. Una pieza encima de la otra, dos líneas cada una como mucho. */
-  body.tactil #interaction-prompt { left: auto; right: calc(8px + var(--safe-r)); transform: none; bottom: calc(168px + var(--safe-b)); max-width: calc(40vw - 8px - var(--safe-r)); flex-direction: column; align-items: flex-end; }
+  body.tactil #interaction-prompt { left: auto; right: calc(8px + var(--safe-r)); transform: none; bottom: calc(168px + var(--safe-b) + var(--fila-extra-tactil)); max-width: calc(40vw - 8px - var(--safe-r)); flex-direction: column; align-items: flex-end; }
   body.tactil .cx.cinta--verbo { font-size: 20px; }
 }
-@media (max-width: 374px) and (orientation: portrait) {
-  body.tactil.tactil #quickbar { gap: 6px; }
-  body.tactil.tactil #panel-dock { left: calc(258px + var(--safe-l)); }
-}
 @media (max-width: 359px) and (orientation: portrait) {
-  /* A 320 no caben cinco casillas separadas: lo caro es no tocar el costal por una casilla, y esa distancia se conserva. */
-  body.tactil.tactil #quickbar { left: calc(2px + var(--safe-l)); gap: 0; }
-  body.tactil.tactil #panel-dock { left: calc(230px + var(--safe-l)); gap: 2px; }
+  body.tactil { --borde-tactil: 4px; --separacion-paneles: 2px; }
+  /* Solo con la barra equipada los paneles y los verbos del pulgar derecho suben una fila. */
+  body.tactil:has(#quickbar.visible) { --fila-extra-tactil: 52px; }
   body.tactil #joystick { left: calc(4px + var(--safe-l)); width: 112px; height: 112px; }
   body.tactil #acciones { right: calc(4px + var(--safe-r)); width: 144px; gap: 5px; }
   .tactil-boton { padding: 0 4px; font-size: 17px; }
-  #tactil-mas { left: calc(4px + var(--safe-l)); right: calc(4px + var(--safe-r)); bottom: calc(178px + var(--safe-b)); gap: 6px 4px; padding: 8px 6px 9px; }
-  body.tactil #interaction-prompt { right: calc(4px + var(--safe-r)); bottom: calc(166px + var(--safe-b)); max-width: calc(40vw - 4px - var(--safe-r)); }
+  #tactil-mas { left: calc(4px + var(--safe-l)); right: calc(4px + var(--safe-r)); bottom: calc(178px + var(--safe-b) + var(--fila-extra-tactil, 0px)); gap: 6px 4px; padding: 8px 6px 9px; }
+  body.tactil #interaction-prompt { right: calc(4px + var(--safe-r)); bottom: calc(166px + var(--safe-b) + var(--fila-extra-tactil)); max-width: calc(40vw - 4px - var(--safe-r)); }
   body.tactil .cx.cinta--verbo, body.tactil .cx.cinta { font-size: 18px; }
 }
 

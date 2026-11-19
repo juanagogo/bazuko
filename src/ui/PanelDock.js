@@ -45,17 +45,35 @@ export function createPanelDock(game) {
   // del mando o del teclado) va en --panel-dock-w y el de la cámara en --camera-w (hud.css).
   let mirar = null;
   const camara = document.getElementById('camera-controls');
-  if (typeof ResizeObserver !== 'undefined') {
-    const raiz = document.documentElement;
-    mirar = new ResizeObserver(() => {
-      if (nav.offsetWidth) raiz.style.setProperty('--panel-dock-w', `${Math.ceil(nav.getBoundingClientRect().width)}px`);
-      if (camara?.offsetWidth) raiz.style.setProperty('--camera-w', `${Math.ceil(camara.getBoundingClientRect().width)}px`);
+  const ayuda = document.getElementById('controls-help-toggle');
+  const contexto = document.getElementById('interaction-prompt');
+  const barra = document.getElementById('quickbar');
+  const controles = [nav, camara, ayuda].filter(Boolean);
+  const medir = () => {
+    const raiz = document.documentElement.style;
+    if (nav.offsetWidth) raiz.setProperty('--panel-dock-w', `${Math.ceil(nav.getBoundingClientRect().width)}px`);
+    if (camara?.offsetWidth) raiz.setProperty('--camera-w', `${Math.ceil(camara.getBoundingClientRect().width)}px`);
+    raiz.setProperty('--ancho-barra-rapida', `${barra?.offsetWidth ?? 0}px`);
+    const aviso = contexto?.getBoundingClientRect();
+    // El texto puede tener varias líneas. Solo aparta los botones si llega hasta su columna.
+    const cruza = aviso?.height && controles.some(control => {
+      const r = control.getBoundingClientRect();
+      return r.width && aviso.right + 6 > r.left && aviso.left - 6 < r.right;
     });
-    mirar.observe(nav);
-    if (camara) mirar.observe(camara);
+    raiz.setProperty('--alto-contexto-cruzado', `${cruza ? Math.ceil(aviso.height) : 0}px`);
+  };
+  if (typeof ResizeObserver !== 'undefined') {
+    mirar = new ResizeObserver(medir);
+    for (const el of [...controles, contexto, barra]) if (el) mirar.observe(el);
+    globalThis.addEventListener?.('resize', medir);
   }
   return {
     el: nav,
-    dispose() { mirar?.disconnect(); nav.removeEventListener('click', onClick); nav.remove(); }
+    dispose() {
+      mirar?.disconnect();
+      globalThis.removeEventListener?.('resize', medir);
+      nav.removeEventListener('click', onClick);
+      nav.remove();
+    }
   };
 }

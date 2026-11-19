@@ -40,7 +40,10 @@ test('el golpe anticipa, conecta al terminar windup y solo entrega un contacto d
   assert.equal(combat.phase, 'windup');
   assert.equal(npc.hits, 0, 'no hay daño antes de extender el brazo');
   const result = combat.update(.01, player, [npc]);
-  assert.deepEqual(result, { target: npc, reward: 300, hits: [{ target: npc, reward: 300 }] });
+  assert.equal(result.target, npc);
+  assert.equal(result.reward, 300);
+  assert.deepEqual(result.hits, [{ target: npc, attacker: player, reward: 300, previousHealth: null, health: null,
+    wasAggressor: false, attackId: combat.attack.id, weapon: 'punos', damage: 12, position: { x: 0, y: 0, z: 1 } }]);
   assert.equal(combat.phase, 'active');
   assert.equal(player.audio.hits, 1);
   assert.equal(player.stats.dinero, 1000, 'el controlador devuelve la recompensa y Player la acredita');

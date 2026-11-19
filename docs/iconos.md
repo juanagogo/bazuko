@@ -1,17 +1,15 @@
 # Iconos de objetos
 
-La mesa de fabricación, el inventario y la barra de acceso rápido muestran los objetos con iconos de [game-icons.net](https://game-icons.net), publicados bajo la licencia [Creative Commons BY 3.0](https://creativecommons.org/licenses/by/3.0/). Se tomaron del repositorio [game-icons/icons](https://github.com/game-icons/icons), commit `82d948812bfe3f269ef8f731dcdb07b08160edc4`.
+La mesa de fabricación, el inventario y la barra de acceso rápido comparten los iconos de los objetos. Las siluetas del cuchillo, la botella picada y la tabla se dibujaron para el proyecto a partir de sus modelos en mano.
 
-`cuchillo.svg` y `botella_picada.svg` son siluetas dibujadas para el proyecto, sin relación con game-icons.net.
-
-Cada archivo de `src/ui/item-art/` (salvo esos dos) se adaptó de la misma forma: se quitó el fondo negro cuadrado y el trazo pasó a `currentColor`, para que la interfaz lo tiña según la familia del objeto (material, comida, médico, sustancia, valor o equipo). El dibujo no se modificó.
+Los demás SVG provienen de [game-icons.net](https://game-icons.net) bajo la licencia [Creative Commons BY 3.0](https://creativecommons.org/licenses/by/3.0/). La adaptación quitó el fondo negro cuadrado y pasó el trazo a `currentColor` para que la interfaz lo tiña según la familia del objeto. [Repositorio de origen, revisión 82d9488](https://github.com/game-icons/icons/tree/82d948812bfe3f269ef8f731dcdb07b08160edc4)
 
 | Archivo | Objeto en el juego | Icono original | Autor |
 | --- | --- | --- | --- |
 | `radioTransistor.svg` | Radio transistor AM/FM | [Pocket radio](https://game-icons.net/1x1/delapouite/pocket-radio.html) | Delapouite |
 | `cuchillo.svg` | Cuchillo | Dibujo propio del proyecto (silueta de cuchillo) | Equipo del proyecto |
-| `botella_picada.svg` | Botella picada | Dibujo propio del proyecto (botella con la boca rota) | Equipo del proyecto |
-| `arma.svg` | Arma casera | [Spiked bat](https://game-icons.net/1x1/skoll/spiked-bat.html) | Skoll |
+| `botella_picada.svg` | Botella picada | Dibujo propio del proyecto (cuello intacto y rotura en el extremo ancho) | Equipo del proyecto |
+| `arma.svg` | Arma casera | Dibujo propio del proyecto (tabla de letrero) | Equipo del proyecto |
 | `curita.svg` | Curita | [Sticking plaster](https://game-icons.net/1x1/lorc/sticking-plaster.html) | Lorc |
 | `antibiotico.svg` | Antibiótico | [Medicine pills](https://game-icons.net/1x1/delapouite/medicine-pills.html) | Delapouite |
 | `rifa.svg` | Cartón de rifa | [Ticket](https://game-icons.net/1x1/delapouite/ticket.html) | Delapouite |

@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { beforeEach, mock, test } from 'node:test';
 import * as THREE from 'three';
+import { frasesDe } from '../src/data/vocesCalle.js';
 import { PedestrianNavigation } from '../src/world/bogota/PedestrianNavigation.js';
 
 // Las conductas son de Npc: el cuerpo solo se mira a través de lo que se le pide.
@@ -122,6 +123,18 @@ test('el recorrido prefiere volver a su zona cuando se alejó', async () => {
   npc.dispose();
 });
 
+test('al pasear y al huir sortea cada destino con el azar del propio peatón', async () => {
+  const routeRandom = () => .5;
+  const npc = await person('senora', { routeRandom });
+  const route = mock.method(npc.navigation, 'createRoute');
+  npc.home.set(400, 0, 0); // lejos de casa compara dos recorridos para el paseo
+  assert.ok(npc._chooseRoute().length);
+  assert.ok(npc._startFleeRoute());
+  assert.equal(route.mock.callCount(), 5);
+  assert.ok(route.mock.calls.every(call => call.arguments[1] === routeRandom));
+  npc.dispose();
+});
+
 test('un fijo no se mueve ni cambia de postura en toda la partida', async () => {
   const npc = await person('habitante', { fijo: { stance: 'dormido' }, facing: 1.2 });
   const start = npc.position.clone();
@@ -179,17 +192,16 @@ test('con el jugador encima no vuelve todavía', async () => {
   npc.dispose();
 });
 
-test('noqueado cae como cualquiera y al recuperarse también vuelve', async () => {
+test('un peatón fijo fallecido queda en su sitio y deja de hacer su actividad', async () => {
   const npc = await person('reciclador', { fijo: { stance: 'dormido' } });
   const home = npc.position.clone();
   npc.takeHit({ damage: 1000, attacker: { position: home.clone().add(new THREE.Vector3(1, 0, 0)) }, attackId: 1 });
   assert.equal(npc.koState, 'down');
-  run(npc, NPC_COMBAT.fall + NPC_COMBAT.downMin + NPC_COMBAT.downExtra + NPC_COMBAT.rise + .2);
-  assert.equal(npc.koState, null);
-  assert.equal(npc.health, npc.maxHealth);
   run(npc, 60);
+  assert.ok(npc.deathSettled);
+  assert.equal(npc.health, 0);
   assert.deepEqual(npc.position.toArray(), home.toArray());
-  assert.equal(npc.stance, 'dormido');
+  assert.equal(npc.state, 'dead');
   npc.dispose();
 });
 
@@ -390,6 +402,21 @@ test('el celular y el cigarrillo aparecen con la postura y solo de cerca', async
   npc._updateHeld(null);
   assert.equal(npc.fullChar.smoking, false);
   npc.dispose();
+});
+
+test('un saludo de proximidad espera a que termine la frase que se ve sobre el peatón', async t => {
+  const npc = await person('senora', { fijo: { stance: 'manos-atras' } });
+  t.after(() => npc.dispose());
+  const player = npc.position.clone();
+  npc.say(frasesDe('ambiente', 'senora')[0].text, 3);
+  const original = npc._bubbleEl;
+  npc._lastSpokenTime = -Infinity;
+  t.mock.method(Math, 'random', () => 0);
+  npc.update(.05, { player });
+  assert.equal(npc._bubbleEl, original);
+  npc.callar(original.textContent);
+  npc.update(.05, { player });
+  assert.ok(npc._bubbleEl, 'se puede volver a saludar después de la frase');
 });
 
 test('lejos, quieto y sin animar, toma la postura nueva de una y una sola vez', async () => {

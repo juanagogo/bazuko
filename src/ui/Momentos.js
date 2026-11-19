@@ -67,7 +67,7 @@ export class Momentos {
 
   _actualizarCascado(dt, player, stats) {
     // Una caída mortal no lleva «Ya me levanto»: la pantalla que sigue es la de la muerte.
-    const noqueado = !!player?.isStunned && (stats?.salud ?? 1) > 0;
+    const noqueado = (player?.isKnockedDown ?? player?.isStunned) && (stats?.salud ?? 1) > 0;
     this._aturdido = noqueado ? this._aturdido + dt : 0;
     if (!this._cascado) {
       if (this._aturdido >= NOQUEADO_S) this._ponerCascado(true, player?.tiradoPor);

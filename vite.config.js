@@ -20,6 +20,7 @@ const distLigero = {
 };
 
 export default defineConfig({
+  input: ['index.html', 'sala.html'],
   server: { port: 5173, open: true },
   build: { target: 'esnext', outDir: 'dist' },
   assetsInclude: ['**/*.glb', '**/*.gltf', '**/*.ogg'],

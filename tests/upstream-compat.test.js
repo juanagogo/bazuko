@@ -100,3 +100,23 @@ test('un destino guardado con el nombre anterior recupera el del letrero', () =>
   assert.equal(load({ name: 'Punto marcado', x: 1, z: 2 })[0][0].name, 'Punto marcado');
   assert.deepEqual(load(undefined), []);
 });
+
+test('al reanudar se corrige la ruta guardada de La Esquinita y se conserva una marca libre próxima', () => {
+  const stub = { deserialize() {} };
+  const counter = { x: 108, z: 72.45, access: { x: 108, z: 74 }, arrivalDistance: .27 };
+  const load = gps => {
+    const game = Object.assign(Object.create(Game.prototype), {
+      stats: stub, clock: stub, inventory: stub, talents: stub, diseases: stub, player: {},
+      shop: { position: { x: 108, z: 71 }, gpsWaypoint: counter },
+      gps: { setWaypoint(waypoint) { this.waypoint = waypoint; return true; } },
+      save: { load: () => ({ stats: {}, clock: {}, gps }) },
+    });
+    game._loadIfSave();
+    return game.gps.waypoint;
+  };
+  assert.deepEqual(load({ name: 'Tienda', icon: '🏪', x: 108, z: 70 }), { name: 'Tienda La Esquinita', icon: '🏪', ...counter });
+  const manual = { name: 'Punto marcado', icon: '📍', x: 108, z: 70 };
+  assert.deepEqual(load(manual), manual);
+  const other = { name: 'Tienda La Esquinita', icon: '🏪', x: 120, z: 70 };
+  assert.deepEqual(load(other), other);
+});

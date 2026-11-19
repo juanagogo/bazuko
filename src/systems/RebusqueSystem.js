@@ -7,11 +7,13 @@
 //  - Solo se empieza si al rojo le queda tiempo (systems/rebusque/semaforo.js) y el show se acorta para terminar
 //    antes del verde. El aviso lleva la cuenta del rojo.
 //  - Al terminar, cada conductor reacciona por su cuenta (systems/rebusque/reacciones.js); lo que pasa sale en el aviso.
+//    Uno de ellos, además, contesta con su voz grabada si la tiene lista (AudioSystem.voces): el que da, el que se
+//    excusa o, si cambió la luz a medio show, el que arranca. Sin voz lista no cambia nada: el aviso ya lo cuenta.
 //  - El carro que arranca no paga y alejarse corta el show. Morir, dormir o caer preso lo cancelan (core/game.js).
 //  - Mientras dura, el cuerpo hace los malabares (character/rebusquePose.js) y las pelotas vuelan entre las manos
 //    (rebusque/RebusqueVisual.js). Terminar o cortar el show suelta la pose.
 import { REBUSQUE, ESPERA_POR_CARRO } from '../data/rebusque.js';
-import { DICHOS, PROPINA } from '../data/rebusqueReacciones.js';
+import { DICHOS, ORDEN_VOZ, PROPINA, VOZ_REACCION } from '../data/rebusqueReacciones.js';
 import { ITEMS } from '../data/items.js';
 import { cop } from '../utils/money.js';
 import { segundosParaVerde, dentroDeCruce, cruceCercano, zonaDeCarro, localDe } from './rebusque/semaforo.js';
@@ -65,7 +67,8 @@ export class RebusqueSystem {
   _puedeTrabajar() {
     const p = this.game.player;
     if (!p?.position || p.isStunned || p.isSwimming || p.isRagdollActive || p.hasCart) return false;
-    return !this._robando();
+    const carjack = this.game.carjack;
+    return !this._robando() && !carjack?.driving && !carjack?.transition;
   }
 
   get _signals() { return this.game.traffic?.signals ?? null; }
@@ -74,7 +77,7 @@ export class RebusqueSystem {
   _semaforo(pos) {
     const traffic = this.game.traffic;
     if (!traffic?.stoppedAtRed) return [];
-    return traffic.stoppedAtRed(pos, REBUSQUE.malabares.alcance).filter(({ car }) => this._libre(car));
+    return traffic.stoppedAtRed(pos, REBUSQUE.malabares.alcance).filter(({ car }) => car.driverAvailable !== false && this._libre(car));
   }
 
   /** ¿Es el primero de su cola? Nadie quieto delante en su carril a menos de 9 m. */
@@ -167,6 +170,9 @@ export class RebusqueSystem {
     const nodo = this._signals ? cruceCercano(this._signals.nodes, pos, ESQUINA_M) : -1;
     if (nodo >= 0) this._esquinas.set(nodo, this._t);
     this.trabajo = { def, cars, desde: { x: pos.x, z: pos.z }, tiempo: 0, dur, nariz: !!nariz, gesto: 0 };
+    // Mientras dura el show se cargan las voces de quienes lo miran, para que contesten al terminar.
+    const voces = this._voces();
+    if (voces?.prepararConductor) for (const { car } of cars) voces.prepararConductor(car);
     this.game.player.faceTowards?.(this._centro(cars));
     this._pose();
     avisar(def.empezar, 'info');
@@ -219,7 +225,10 @@ export class RebusqueSystem {
       this.cancelar('Me fui antes de terminar y no me dieron nada.');
       return;
     }
+    const miraban = t.cars[0]?.car;
     if (!this._siguen(t)) {
+      // El primero de los que miraban arranca echándolo de la vía.
+      if (miraban) this._voces()?.decirConductor?.(miraban, 'semaforo_verde');
       this.cancelar('Cambió la luz y arrancaron sin pagarme.');
       return;
     }
@@ -252,7 +261,7 @@ export class RebusqueSystem {
   /** ¿Siguen ahí los carros? Los que arrancaron o salieron de la vía ya no pagan. */
   _siguen(t) {
     const enCirculacion = this.game.traffic?.vehicles ?? [];
-    t.cars = t.cars.filter(({ vehicle }) => enCirculacion.includes(vehicle) && vehicle.speed <= ARRANCA);
+    t.cars = t.cars.filter(({ vehicle }) => vehicle.car.driverAvailable !== false && enCirculacion.includes(vehicle) && vehicle.speed <= ARRANCA);
     return t.cars.length > 0;
   }
 
@@ -267,6 +276,17 @@ export class RebusqueSystem {
     let n = 0;
     for (const [, pesos] of this._ganado) n += pesos;
     return n;
+  }
+
+  _voces() { return this.game.audio?.voces ?? null; }
+
+  /** Una sola voz por show: contesta el conductor de la reacción que más pesa y que tenga su frase lista. */
+  _vozReaccion(reacciones) {
+    const voces = this._voces();
+    if (!voces?.decirConductor) return;
+    for (const tipo of ORDEN_VOZ) {
+      for (const r of reacciones) if (r.tipo === tipo && voces.decirConductor(r.car, VOZ_REACCION[tipo]) === true) return;
+    }
   }
 
   /** Cada conductor reacciona a su manera; lo que dan se suma y sale en el aviso. */
@@ -284,7 +304,7 @@ export class RebusqueSystem {
     const cupo = TECHO_MINUTO - this._ganadoMinuto();
     const contexto = { tipoCarro: 'carro', sucio, lluvia: !!game.weather?.isRaining };
     let pesos = 0, dieron = 0, insulto = false;
-    const extras = [];
+    const extras = [], reacciones = [];
     for (const { car } of cars) {
       contexto.tipoCarro = car?.kind === 'taxi' ? 'taxi' : 'carro';
       let r = elegirReaccion(contexto, def, this.random);
@@ -293,6 +313,7 @@ export class RebusqueSystem {
       const monto = r.pesos > 0 ? (billete ? r.pesos : Math.max(100, Math.round(r.pesos * fraccion / 100) * 100)) : 0;
       // El primero del minuto pasa entero: así todavía sale, muy de vez en cuando, el billete de $5.000.
       if (monto > 0 && pesos + monto > cupo && (pesos > 0 || cupo < TECHO_MINUTO)) r = { tipo: 'excusa', pesos: 0, item: null };
+      reacciones.push({ car, tipo: r.tipo });
       if (r.pesos > 0) {
         pesos += monto;
         dieron++;
@@ -325,5 +346,6 @@ export class RebusqueSystem {
       : sucio ? 'Nadie me recibe por el olor: tengo que bañarme.' : 'Nadie me dio nada. Toca esperar el próximo rojo.';
     if (extras.length) texto += ` ${extras.slice(0, 2).join(' ')}`;
     avisar(texto, pesos > 0 ? 'sell' : 'warn');
+    this._vozReaccion(reacciones);
   }
 }

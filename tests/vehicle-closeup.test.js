@@ -7,7 +7,7 @@ globalThis.window ??= new EventTarget();
 const { Car } = await import('../src/entities/Car.js');
 const { CAR_MODEL_IDS, LAMP } = await import('../src/world/bogota/carModels.js');
 const { getCarBody, getCarGeometry, getDriverGeometry } = await import('../src/world/bogota/VehicleBody.js');
-const { ATLAS_HEIGHT, ATLAS_SIZE, RECT, dayHeadRect, drawHeadDay } = await import('../src/world/bogota/carAtlas.js');
+const { ATLAS_HEIGHT, ATLAS_SIZE, RECT, dayHeadRect, drawHeadDay, rectHeadLevel } = await import('../src/world/bogota/carAtlas.js');
 const { OPTICS, drawOptic } = await import('../src/world/bogota/carLamps.js');
 const { ROW } = await import('../src/world/bogota/carLoft.js');
 
@@ -41,6 +41,56 @@ test('las dos mitades de la chapa tienen la misma normal a lo largo de todo el e
   }
 });
 
+test('el canal estampado tiene profundidad a ambos lados del capó y coincide con la superficie consultada', () => {
+  for (const id of ['sedanNoventero', 'sedanPopular', 'citadino', 'camionetaNegra']) {
+    const body = getCarBody(id), { windshield, gaps } = body.spec;
+    const si = body.st((windshield[1] + gaps.hood) / 2), x = body.X[si];
+    const yRidge = body.y(si, ROW.T3), yChannel = body.y(si, ROW.T2);
+    assert.ok(yRidge > yChannel + .015 && yRidge < yChannel + .045, `${id}: profundidad del pliegue`);
+    for (const row of [ROW.T2, ROW.T3, ROW.T4]) {
+      const z = body.z(si, row), height = body.y(si, row);
+      assert.ok(Math.abs(height - body.topY(x, z)) < .001 && Math.abs(height - body.topY(x, -z)) < .001, id);
+    }
+  }
+});
+
+test('en las cuatro ruedas del noventero las perforaciones llegan al disco y las tuercas sobresalen de la copa', () => {
+  const { spec, wheelLeft, wheelRight } = getCarGeometry('sedanNoventero');
+  const rim = spec.r * (spec.wheel.rimRatio ?? .66);
+  for (const [geometry, side] of [[wheelLeft, -1], [wheelRight, 1]]) {
+    const wheel = new THREE.Mesh(geometry);
+    const surface = (radius, angle) => {
+      const origin = new THREE.Vector3(rim * radius * Math.cos(angle), rim * radius * Math.sin(angle), side * .35);
+      const hit = new THREE.Raycaster(origin, new THREE.Vector3(0, 0, -side)).intersectObject(wheel)[0];
+      assert.ok(hit); return hit.point.z * side;
+    };
+    for (let i = 0; i < 8; i++) {
+      const a = i * Math.PI / 4;
+      assert.ok(surface(.7, a + Math.PI / 8) - surface(.7, a) > .020);
+      const edge = a + .30 * Math.PI / 4;
+      assert.ok(Math.abs(surface(.64, edge + .0001) - surface(.64, edge - .0001)) < .0002, 'la chapa cierra al terminar la abertura');
+    }
+    for (let i = 0; i < 4; i++) assert.ok(surface(.29, (i + .5) * Math.PI / 2) - surface(.25, 0) > .008);
+    wheel.material.dispose();
+  }
+});
+
+test('el tinte sube por el panorámico y la luneta desde su propio borde inferior', () => {
+  for (const id of MODELS) {
+    const { spec, glass } = getCarGeometry(id), { position, uv, lamp } = glass.attributes;
+    for (const direction of (spec.backlight ? [1, -1] : [1])) {
+      let bottom = -Infinity, top = Infinity;
+      for (let i = 0; i < uv.count; i++) {
+        if (lamp.getX(i) > .5 || Math.abs(uv.getX(i) - direction) > .001) continue;
+        assert.ok(position.getX(i) * direction > 0, `${id}: el paño está en el extremo equivocado`);
+        if (uv.getY(i) < .12) bottom = Math.max(bottom, position.getY(i));
+        if (uv.getY(i) > .88) top = Math.min(top, position.getY(i));
+      }
+      assert.ok(Number.isFinite(top) && Number.isFinite(bottom) && top > bottom + .025, `${id}: extremos del tinte en ${direction}`);
+    }
+  }
+});
+
 test('las piezas en espejo empatan en el eje: parrillas y franjas no se parten', () => {
   for (const [id, kind] of FLEET) {
     const { trim } = getCarGeometry(id, kind), color = trim.attributes.color;
@@ -64,6 +114,19 @@ test('el cierre de nariz y cola no abre rendija, y los parches siguen ubicándos
 });
 
 // ===== Faros apagados =====
+
+test('el faro rectangular concentra el blanco en el filamento y conserva el haz de noche', () => {
+  assert.equal(rectHeadLevel(.44, .53), 1, 'el núcleo conserva su intensidad máxima');
+  for (const [u, v] of [[.01, .5], [.98, .5], [.5, .03], [.5, .97]]) assert.ok(rectHeadLevel(u, v) < .07, 'el cerco queda oscuro');
+  let bright = 0;
+  for (let x = 0; x < 50; x++) for (let y = 0; y < 50; y++) if (rectHeadLevel((x + .5) / 50, (y + .5) / 50) > .9) bright++;
+  assert.ok(bright > 50 && bright < 375, 'el centro brillante ocupa entre el 2 y el 15 % de la lente');
+  const car = new Car(new THREE.Scene(), new THREE.Vector3(), 0, { model: 'sedanNoventero', traffic: true });
+  car.setNight(true, false);
+  assert.equal(car.vehicle.headlightMaterial.emissiveIntensity, 1.35);
+  assert.ok(car.vehicle.beam.visible);
+  car.dispose();
+});
 
 const dayCells = () => [...Object.values(OPTICS).map(o => o.day).filter(Boolean), ...OLD_HEADS.map(([rect]) => dayHeadRect(rect))];
 const overlaps = (a, b) => a[0] < b[0] + b[2] && b[0] < a[0] + a[2] && a[1] < b[1] + b[3] && b[1] < a[1] + a[3];
@@ -220,9 +283,11 @@ const trimOf = car => car.vehicle.bodyVisual.children.find(mesh => mesh.name ===
 test('un parqueado se dibuja con cinco mallas; el que circula conserva sus piezas sueltas', () => {
   for (const model of CAR_MODEL_IDS) {
     const [parked, traffic] = pair(model);
-    assert.equal(meshes(parked).length, 5, `${model} parqueado`);
-    assert.equal(new Set(meshes(parked).map(mesh => mesh.material)).size, 4, `${model}: esmalte, molduras, lámparas y vidrio`);
-    assert.equal(meshes(traffic).length, 12, `${model} en circulación`);
+    // La buseta lleva una malla más, con su material: sus pasajeros pintados.
+    const gente = model === 'buseta' ? 1 : 0;
+    assert.equal(meshes(parked).length, 5 + gente, `${model} parqueado`);
+    assert.equal(new Set(meshes(parked).map(mesh => mesh.material)).size, 4 + gente, `${model}: esmalte, molduras, lámparas y vidrio`);
+    assert.equal(meshes(traffic).length, 12 + gente, `${model} en circulación`);
     assert.equal(traffic.vehicle.wheels.length, 4);
     assert.equal(traffic.vehicle.frontWheelPivots.length, 2);
     assert.equal(traffic.vehicle.wipers.length, 2);

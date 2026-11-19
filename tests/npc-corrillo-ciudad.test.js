@@ -3,6 +3,7 @@ import { after, test } from 'node:test';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { buildCity, loadTree } from '../tools/peatones/montaje.mjs';
+import { sightClear, solidAt } from '../src/entities/npc/room.js';
 
 // El corrillo en la ciudad montada como el juego (Bogotá, sus NPC, el tráfico), con semilla fija: una pelea a puños del
 // jugador donde más gente anda junta mirones de verdad, sin poner a nadie a mano, y una en una calle sola sigue sola.
@@ -19,7 +20,7 @@ const DT = 1 / 60;
 
 /** La ciudad de `seed`, andando: `step(segundos, cadaCuadro)` corre cuadros como el juego, con el jugador en `player`. */
 async function cityOf(seed) {
-  const { city, traffic } = await buildCity(tree, seed);
+  const { city, traffic, collisions } = await buildCity(tree, seed);
   const player = new THREE.Vector3(112.98, 0, 97.84);
   const camera = new THREE.PerspectiveCamera(55, 1280 / 800, .1, 300);
   const step = (seconds, each = () => {}) => {
@@ -34,7 +35,7 @@ async function cityOf(seed) {
       traffic.update(DT, { player, pedestrians: city.trafficPedestrians, camera, hour: 15 });
     }
   };
-  return { city, player, step };
+  return { city, player, step, collisions };
 }
 
 /**
@@ -65,8 +66,32 @@ function fightBy({ city, player, step }, victim) {
 }
 
 const walkers = city => city.npcs.filter(n => n.mind && !n.fijo && !n.koState);
-const near = (city, n, from, to) => walkers(city).filter(o => o !== n && Math.hypot(o.position.x - n.position.x, o.position.z - n.position.z) > from
-  && Math.hypot(o.position.x - n.position.x, o.position.z - n.position.z) < to).length;
+
+/** Un claro en el andén con gente que va caminando y tiene vista al lugar de la pelea. */
+function busySidewalk({ city, collisions }) {
+  const nav = city.pedestrianNavigation, people = walkers(city);
+  const clear = (x, y, z) => {
+    const node = nav.nodes[nav.nodeAt(x, z)];
+    return node?.main && !node.crossing && !solidAt(collisions, x, y, z);
+  };
+  let best = null;
+  for (const victim of people) {
+    const { x, y, z } = victim.position, px = x - .8; // donde se para el jugador en fightBy
+    if (!clear(px, y, z)) continue;
+    let nearby = 0, visible = 0;
+    for (const other of people) {
+      if (other === victim) continue;
+      const p = other.position, d = Math.hypot(p.x - x, p.z - z);
+      if (d > 5 && d < 16) nearby++;
+      const fromPlayer = Math.hypot(p.x - px, p.z - z);
+      if (fromPlayer > 5 && fromPlayer < 16 && other.target && other.moving
+        && clear(p.x, p.y, p.z) && sightClear(collisions, p.y, p.x, p.z, px, z)) visible++;
+    }
+    if (nearby < 3) continue;
+    if (!best || visible > best.visible || (visible === best.visible && nearby > best.nearby)) best = { victim, visible, nearby };
+  }
+  return best;
+}
 
 test('en la ciudad, una pelea donde anda gente junta mirones sin que nadie los ponga: dos o más a la vez, ninguno parado en la calzada, y se van cuando se acaba', async () => {
   // Las dos ciudades se montan en este orden y en este proceso: así dan siempre lo mismo.
@@ -74,10 +99,14 @@ test('en la ciudad, una pelea donde anda gente junta mirones sin que nadie los p
   for (const seed of [14, 22]) {
     const world = await cityOf(seed);
     world.step(30);
-    // Junto al peatón que más gente tiene andando a 5-16 m.
-    const victim = walkers(world.city).reduce((best, n) => (near(world.city, n, 5, 16) > near(world.city, best, 5, 16) ? n : best));
-    assert.ok(near(world.city, victim, 5, 16) >= 3, `semilla ${seed}: andan ${near(world.city, victim, 5, 16)} cerca`);
-    const result = fightBy(world, victim);
+    // Hasta 90 s para que coincidan cuatro caminantes, o al menos tres en el último muestreo.
+    let site = busySidewalk(world);
+    for (let s = 30; s < 90 && !(site?.visible >= 4); s += 5) {
+      world.step(5);
+      site = busySidewalk(world);
+    }
+    assert.ok(site?.visible >= 3, `semilla ${seed}: andan ${site?.visible ?? 0} cerca y a la vista`);
+    const result = fightBy(world, site.victim);
     assert.ok(result.most >= 2, `semilla ${seed}: miraron ${result.most} a la vez (${result.watched.join(', ') || 'nadie'})`);
     total += result.watched.length;
     assert.equal(result.standingOnRoad, 0, `semilla ${seed}: nadie mira parado en la calzada`);

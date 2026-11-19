@@ -67,6 +67,16 @@ test('relieve y rugosidad del andén no cambian con el barrio', () => {
   }
 });
 
+test('la planta residencial comparte sus mapas físicos y de luz sin pintar avisos de tienda', () => {
+  const build = (district, groundFloor) => withRecording(() => facade({ district, groundFloor,
+    seed: 34, width: 8, floors: 3, pxPerM: 20 }));
+  const home = build('centro', 'residential'), other = build('comercio', 'residential');
+  const shop = build('centro', 'shop');
+  assert.ok(!home.map.image.log.some(([operation]) => operation === 'fillText'));
+  assert.notEqual(logOf(home.map), logOf(shop.map));
+  for (const kind of ['bumpMap', 'roughnessMap', 'emissiveMap']) assert.equal(logOf(home[kind]), logOf(other[kind]));
+});
+
 // Lienzo de mentira para armar la ciudad en Node: cada textura queda con su propia imagen.
 function canvasDocument() {
   return { createElement() {

@@ -5,6 +5,7 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { clone as cloneSkinned } from 'three/examples/jsm/utils/SkeletonUtils.js';
 import { mergeGeometries, toCreasedNormals } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
+import { DOG_LEGS, DogStride } from './dogStride.js';
 
 export const DOG_COATS = Object.freeze({
   canela: { label: 'Canela', color: '#a8652e' },
@@ -139,6 +140,7 @@ export class Dog {
         axes: [X, Y, Z].map(axis => axis.clone().applyQuaternion(toLocal))
       });
     });
+    this._stride = new DogStride(this.group, this._rig);
     this._applyLook();
   }
 
@@ -150,6 +152,7 @@ export class Dog {
 
   _applyLook() {
     this.group.scale.setScalar(this.look.tamano);
+    this._stride?.reset();
     this._coat?.color.set(DOG_COATS[this.look.pelaje]?.color ?? this.look.pelaje);
     if (!this._rig) return;
     if (this._accessory) {
@@ -400,22 +403,25 @@ export class Dog {
     const blend = gaitAt(speed);
     const omega = speed / (LEG * blend.swing);
     this._phase = (this._phase + omega * dt / (Math.PI * 2)) % 1;
-    const move = THREE.MathUtils.clamp(speed / .4, 0, 1) * (1 - p.lie) * (1 - p.sit);
-    const legs = [['brazo', 'antebrazo', 'mano', 'L', true], ['brazo', 'antebrazo', 'mano', 'R', true],
-      ['muslo', 'pierna', 'pie', 'L', false], ['muslo', 'pierna', 'pie', 'R', false]];
-    legs.forEach(([upper, lower, foot, side, front], i) => {
+    const { sit, lie } = p;
+    const move = THREE.MathUtils.clamp(speed / .4, 0, 1) * (1 - lie) * (1 - sit);
+    // En la transición las patas se pliegan antes de que termine de bajar el tronco.
+    const sitFold = sit * (1 - sit), lieFold = lie * (1 - lie);
+    const forelegReach = 1.24 * lie + .78 * lieFold;
+    const elbowFold = .18 * lie + .41 * lieFold;
+    const hockFold = 2.1 * sit + 1.13 * sitFold + 2.03 * lie + .72 * lieFold;
+    DOG_LEGS.forEach(([upper, lower, foot], i) => {
       const t = (this._phase + blend.offsets[i]) * Math.PI * 2;
       const swing = Math.sin(t) * blend.swing * move;
       const lift = Math.max(0, -Math.cos(t)) * move;
-      const sit = p.sit, lie = p.lie;
-      if (front) {
-        this._turn(`${upper}_${side}`, swing + sit * .55 - lie * 1.25);
-        this._turn(`${lower}_${side}`, lift * .9 - sit * .15 + lie * .15);
-        this._turn(`${foot}_${side}`, lift * .5 + lie * .9);
+      if (i < 2) {
+        this._turn(upper, swing + sit * .59 - forelegReach);
+        this._turn(lower, lift * .9 - sit * .12 - elbowFold);
+        this._turn(foot, lift * .5 + sit * .02 + lie * .9);
       } else {
-        this._turn(`${upper}_${side}`, swing - sit * .75 - lie * 1.1);
-        this._turn(`${lower}_${side}`, -lift * .7 + sit * 1.9 + lie * 2.1);
-        this._turn(`${foot}_${side}`, lift * .6 - sit * 1.2 - lie * 1.1);
+        this._turn(upper, swing - sit * .66 - lie * 1.1);
+        this._turn(lower, -lift * .7 + hockFold);
+        this._turn(foot, lift * .6 - sit * 1.22 - lie * 1.1);
       }
     });
 
@@ -425,10 +431,12 @@ export class Dog {
     const raiz = this._rig.get('raiz');
     const breath = Math.sin(this.time * (this.sleeping ? 1.6 : 3.2)) * .006;
     const hop = Math.sin(this._hop * Math.PI) * .16;
-    raiz.bone.position.y += -.012 * bounce - p.sit * .3 - p.lie * .29 + hop;
-    raiz.bone.position.z -= p.sit * .04;
-    this._turn('pelvis', -p.sit * .55 + Math.sin(this._phase * Math.PI * 2) * .09 * gallop, 0, 0);
-    this._turn('pecho', breath * 4 - Math.sin(this._phase * Math.PI * 2) * .08 * gallop);
+    raiz.bone.position.y += -.012 * bounce - sit * .277 - lie * .25 + .2 * lieFold * (1 - lie) + hop;
+    raiz.bone.position.z -= sit * .04;
+    this._turn('pelvis', -sit * .67 + Math.sin(this._phase * Math.PI * 2) * .09 * gallop, 0, 0);
+    this._turn('pecho', breath * (4 - 3 * lie) - Math.sin(this._phase * Math.PI * 2) * .08 * gallop);
+    // Una flexión del pecho deja recorrido a las manos al pisar, con la grupa a su altura de marcha.
+    this._rig.get('pecho').bone.position.addScaledVector(this._rig.get('pelvis').axes[1], -.032 * move);
 
     // Cabeza: mira a su objetivo, olfatea el suelo, apoya la cabeza al dormir.
     let yaw = 0, pitch = 0;
@@ -440,7 +448,7 @@ export class Dog {
     this._headYaw = smooth(this._headYaw ?? 0, yaw, 5, dt);
     this._headPitch = smooth(this._headPitch ?? 0, pitch, 5, dt);
     const nod = Math.sin(this._phase * Math.PI * 4) * .05 * move;
-    this._turn('cuello', p.sit * .5 + p.sniff * .75 + p.lie * (this.sleeping ? .55 : .2) + nod + this._headPitch * .5,
+    this._turn('cuello', p.sit * .62 + p.sniff * .75 + p.lie * (this.sleeping ? .55 : .2) + nod + this._headPitch * .5,
       this._headYaw * .6);
     this._turn('cabeza', p.sniff * .35 + (this.sleeping ? .25 : 0) * p.lie + this._headPitch * .5 - p.alert * .2,
       this._headYaw * .4, Math.sin(this.time * 1.3) * .06 * (1 - move) * (1 - p.lie));
@@ -456,6 +464,7 @@ export class Dog {
     this._turn('cola_1', -.25 * (1 - p.lie) + p.lie * .35, wag * .6 + p.lie * .35);
     this._turn('cola_2', .15 * p.lie, Math.sin(this.time * rate - .6) * mood * .7 * (1 - p.lie) + p.lie * .35);
     this._turn('cola_3', 0, Math.sin(this.time * rate - 1.2) * mood * .8 * (1 - p.lie) + p.lie * .3);
+    this._stride.apply(this._phase, blend.offsets, LEG * blend.swing, move, this.navigation?.district, this.state !== 'idle');
   }
 
   destroy() {
@@ -478,6 +487,7 @@ export class Dog {
     this.group.position.copy(this.position);
     this._route = []; this._routeTimer = 0;
     this.speed = 0;
+    this._stride?.reset();
   }
 
   restAt(position) {
@@ -485,6 +495,7 @@ export class Dog {
     if (!this.isFriend || this.guarding) return;
     this.resetNear(position.clone().add(new THREE.Vector3(1, 0, 0)));
     this.sleeping = true;
+    this._posture.sit = 0;
     this._posture.lie = 1;
     this._animate(0);
   }

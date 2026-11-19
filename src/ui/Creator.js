@@ -106,7 +106,7 @@ export function createCreator({ audio }) {
     scene.add(rim);
     scene.add(sombraDibujada());
     const lookInicial = look;
-    createRealisticCharacter(look).then((c) => {
+    createRealisticCharacter(look, { acabadoCivil: true }).then((c) => {
       char = c;
       char.group.scale.setScalar(1);
       scene.add(char.group);

@@ -36,9 +36,11 @@ Un hueco escondido en el cambuche. Sin base no hay caleta; cada pieza suma kilos
 Dos valores de 0 a 100 que empiezan en 50:
 
 - **Los parceros** (habitantes de calle). Compartir comida en la fogata (Q) sube; robarle o pegarle a un habitante baja. Desde 60, alguien avisa cuando arranca la camioneta de la limpieza social. Desde 80, a veces regalan pan o aguapanela en la candela. Por debajo de 25 no dejan arrimar a la fogata.
-- **Los de las chazas** (vendedores ambulantes). Comprarles y cuidar carros sube; robar o pelear a 20 m de un puesto baja, y pegarle a un vendedor baja mucho. Desde 60 fían hasta $ 6.000, que se pagan solos en la siguiente compra; lo fiado no sube la fama al comprarlo, sino al pagarlo. Si en 48 horas de juego (dos días) no se paga, la fama cae, y el aviso solo dice que ya no le creen si de verdad dejaron de fiarle. Desde 80 rebajan el 10 %; por debajo de 25 cobran el 20 % más.
+- **Los de las chazas** (vendedores ambulantes). Comprarles y cuidar carros sube; robar o golpear a un civil a menos de 20 m de un puesto baja la fama, y pegarle a un vendedor baja mucho. Desde 60 fían hasta $ 6.000, que se pagan solos en la siguiente compra; lo fiado no sube la fama al comprarlo, sino al pagarlo. Si en 48 horas de juego (dos días) no se paga, la fama cae, y el aviso solo dice que ya no le creen si de verdad dejaron de fiarle. Desde 80 rebajan el 10 %; por debajo de 25 cobran el 20 % más.
 
 Cada cambio de nivel sale como aviso y la pestaña Estado explica qué significa el nivel actual. La Tienda La Esquinita no usa esta fama: es un local, no una chaza.
+
+Golpear únicamente a los atacantes de la camioneta conserva la fama. Si el mismo golpe alcanza también a un civil, esa víctima cuenta para los parceros o las chazas según su identidad y el lugar. [Combate a pie](../README.md#combate-a-pie).
 
 ## Cuidar carros
 

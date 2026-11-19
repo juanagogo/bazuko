@@ -125,7 +125,11 @@ test('el update del personaje no pide matrices de mundo', async t => {
     };
     const spies = ['updateMatrixWorld', 'updateWorldMatrix', 'updateMatrix', 'getWorldPosition', 'getWorldQuaternion', 'getWorldScale', 'getWorldDirection', 'localToWorld', 'worldToLocal']
       .map(name => count(THREE.Object3D.prototype, name));
-    for (let i = 0; i < 30; i++) person.update(1 / 30, { speed: i < 15 ? 0 : 1.2, stance: 'bolsillos', style: { stoop: .4, headDown: .2, swing: .6 } });
+    for (let i = 0; i < 30; i++) {
+      const dt = 1 / 30, speed = i < 15 ? 0 : 1.2;
+      person.update(dt, { speed, stance: 'bolsillos', style: { stoop: .4, headDown: .2, swing: .6 },
+        pedestrianMotion: { distance: speed * dt, elapsed: dt, angle: .06, reset: false } });
+    }
     for (const spy of spies) spy.mock.restore();
     assert.equal(calls, 0, `${options.lod ? 'liviano' : 'completo'}: casi toda la gente pasa por aquí en cada cuadro`);
     person.dispose();
@@ -167,7 +171,7 @@ function instance(gltf, library, options = {}) {
 // ya no parece rascarse sino vibrar.
 const GESTURE_RATE_LIMIT = 1.1; // vueltas por segundo que puede pedir el catálogo
 const GESTURE_HZ_LIMIT = 1.5; // pico a pico más corto que se llega a ver, con la variación incluida
-const WITH_MOTION = ['celular', 'frotarse', 'fumar-quieto', 'hablar', 'rascarse'];
+const WITH_MOTION = ['celular', 'frotarse', 'fumar-quieto', 'hablar', 'rascarse', 'sin-aire'];
 
 /** Veces por segundo que el hueso que más se mueve vuelve a su extremo, a lo largo de un minuto. */
 function measureGesture({ gltf, library }, name, { fps = 60, seconds = 60, seed = 3 } = {}) {

@@ -85,6 +85,29 @@ test('Sin energía no se puede limpiar el parabrisas', () => {
   car.dispose();
 });
 
+test('un carro del que se bajó el conductor conserva sus espejos pero no golpea, habla ni paga propina', t => {
+  t.mock.method(Math, 'random', () => 0);
+  for (const died of [false, true]) {
+    const car = fakeCar({ traffic: true });
+    car.setDriverInside(false);
+    car.driverDead = died;
+    const stats = { salud: 100, energia: 50, dinero: 500, animo: 50, addXP() {} };
+    const voice = t.mock.fn();
+    const interaction = new InteractionSystem({ position: new THREE.Vector3() }, { add: () => true }, stats,
+      { play() {}, playMovingTheft: voice }, null, { getEffect: (_k, fallback) => fallback });
+    assert.equal(car.cleanable, false);
+    interaction._cleanWindshield(car);
+    assert.equal(stats.dinero, 500);
+    assert.equal(stats.energia, 50);
+    assert.equal(car.stealable, true);
+    interaction._executeCarTheft(car);
+    assert.equal(stats.salud, 100);
+    assert.equal(stats.dinero, 500);
+    assert.equal(voice.mock.callCount(), 0);
+    car.dispose();
+  }
+});
+
 test('El prompt de interacción ofrece robar retrovisor y limpiar parabrisas', () => {
   const car = fakeCar();
   const prompt = textoDelPrompt({ currentTarget: car, currentTargetType: 'car' });

@@ -169,7 +169,7 @@ function gameFixture() {
     inventory: new InventorySystem(),
     cameraRig: { mode: 'third-person', yaw: 0, pitch: .22, distance: 5.5, follow() {} },
     collisions: { queryStatic: () => [], dynamicColliders: [] },
-    cars: [car], traffic: { vehicles: [] }, steal: { buscado: 0 }, look: {},
+    cars: [car], traffic: { vehicles: [] }, steal: { buscado: 0, serialize: () => null }, look: {},
     _calleCercana: () => 'la Séptima', _randomWalkablePosition: () => new THREE.Vector3(50, 0, 50)
   });
   game.carjack = new CarjackSystem(game);
@@ -217,7 +217,7 @@ test('guardar al volante no guarda el carro, y cada partida empieza a pie frente
   assert.equal(JSON.stringify(saved).includes('carjack'), false);
   assert.equal(game.carjack.driving, true, 'guardar no lo baja');
   const source = readFileSync(new URL('../src/core/game.js', import.meta.url), 'utf8');
-  assert.match(source, /_loadIfSave\(\);[^]*?reserved\.spawn\.x/, 'al cargar, la posición guardada se cambia por el inicio');
+  assert.match(source, /_loadIfSave\(partida\);[^]*?reserved\.spawn\.x/, 'al cargar, la posición guardada se cambia por el inicio');
 });
 
 test('cambiar la calidad gráfica al volante no lo baja ni le cambia la cámara', () => {

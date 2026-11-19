@@ -29,6 +29,7 @@ test.after(() => mock.restoreAll());
 const { ComedorComunitario } = await import('../src/entities/ComedorComunitario.js');
 const { openComedor } = await import('../src/ui/placeMenus.js');
 const { textoDelPrompt } = await import('../src/ui/HUD.js');
+const { Game } = await import('../src/core/game.js');
 
 test('ComedorComunitario se crea como entidad con kind comedor, letrero y grupo', () => {
   const scene = new THREE.Scene();
@@ -38,61 +39,34 @@ test('ComedorComunitario se crea como entidad con kind comedor, letrero y grupo'
   assert.equal(comedor.position.x, 100);
   assert.equal(comedor.position.z, 90);
   assert.ok(comedor.group.children.length > 5, 'construye mostrador, toldo, olla y letrero');
+  comedor.group.updateMatrixWorld(true);
+  const counter = comedor.group.getObjectByName('Mesón de acero');
+  const down = (x, z) => new THREE.Raycaster(new THREE.Vector3(100 + x, 2, 90 + z), new THREE.Vector3(0, -1, 0));
+  for (const [name, x, z] of [['Olla de aluminio', -.72, .34], ['Bandeja de almuerzo', .61, .453]]) {
+    const piece = comedor.group.getObjectByName(name);
+    const bottom = new THREE.Box3().setFromObject(piece, true).min.y;
+    const [surface] = down(x, z).intersectObject(counter);
+    assert.ok(Math.abs(bottom - surface.point.y) < 1e-6, `${name} apoya sobre el mesón`);
+  }
 
   comedor.dispose();
   assert.equal(comedor.group.children.length, 0);
 });
 
-test('comedor comunitario: disponibilidad cada 5 minutos y efectos del almuerzo', () => {
+test('comedor comunitario: disponibilidad cada 5 minutos reales y efectos del almuerzo', t => {
   const stats = { hambre: 10, sed: 15, animo: 40, energia: 30, calor: 0, dinero: 1000, xp: 0, addXP(amount) { this.xp += amount; } };
   const clock = { day: 1, hour: 12 };
   let saved = false;
-
-  const game = {
+  let now = 1_000_000;
+  t.mock.method(Date, 'now', () => now);
+  const game = Object.assign(Object.create(Game.prototype), {
     stats,
     clock,
     lastComedorHour: null,
     lastComedorTimestamp: null,
     audio: { play() {} },
-    _save() { saved = true; },
-    get totalGameHours() {
-      return ((this.clock?.day ?? 1) - 1) * 24 + (this.clock?.hour ?? 0);
-    },
-    isComedorAvailable() {
-      if (this.lastComedorTimestamp) {
-        return (Date.now() - this.lastComedorTimestamp) >= 5 * 60 * 1000;
-      }
-      if (this.lastComedorHour === undefined || this.lastComedorHour === null) return true;
-      return (this.totalGameHours - this.lastComedorHour) >= 2;
-    },
-    getComedorRemainingMinutes() {
-      if (this.isComedorAvailable()) return 0;
-      if (this.lastComedorTimestamp) {
-        const elapsed = (Date.now() - this.lastComedorTimestamp) / 1000;
-        return Math.max(0, Math.ceil((300 - elapsed) / 60));
-      }
-      const diff = this.totalGameHours - this.lastComedorHour;
-      return Math.max(0, Math.ceil((2 - diff) * 2.5));
-    },
-    getComedorRemainingHours() {
-      if (this.isComedorAvailable()) return 0;
-      const min = this.getComedorRemainingMinutes();
-      return Math.max(0, Math.ceil(min / 60));
-    },
-    serveComedor() {
-      if (!this.isComedorAvailable()) return false;
-      this.lastComedorHour = this.totalGameHours;
-      this.lastComedorTimestamp = Date.now();
-      this.stats.hambre = Math.min(100, (this.stats.hambre || 0) + 80);
-      this.stats.sed = Math.min(100, (this.stats.sed || 0) + 60);
-      this.stats.animo = Math.min(100, (this.stats.animo || 0) + 25);
-      this.stats.energia = Math.min(100, (this.stats.energia || 0) + 25);
-      this.stats.calor = Math.min(300, (this.stats.calor || 0) + 180);
-      this.stats.addXP?.(30);
-      this._save();
-      return true;
-    }
-  };
+    _save() { saved = true; }
+  });
 
   // 1. Inicialmente disponible
   assert.equal(game.isComedorAvailable(), true);
@@ -114,8 +88,11 @@ test('comedor comunitario: disponibilidad cada 5 minutos y efectos del almuerzo'
   assert.equal(game.isComedorAvailable(), false);
   assert.equal(game.serveComedor(), false, 'no puede almorzar dos veces en el mismo turno');
 
-  // 4. Tras avanzar 5 minutos en el timestamp
-  game.lastComedorTimestamp = Date.now() - 301000;
+  clock.hour += 6;
+  now += 299_999;
+  assert.equal(game.isComedorAvailable(), false, 'Las horas dentro del juego no adelantan el turno');
+  assert.equal(game.getComedorRemainingMinutes(), 1);
+  now++;
   assert.equal(game.isComedorAvailable(), true);
   assert.equal(game.getComedorRemainingMinutes(), 0);
   assert.equal(game.serveComedor(), true);
@@ -140,6 +117,7 @@ test('openComedor abre el menú con título, opciones y sin emojis', () => {
   assert.ok(menuConfig, 'se llamó a game.menu.open');
   assert.equal(menuConfig.title, 'Comedor Comunitario');
   assert.equal(menuConfig.ic, 'food');
+  assert.match(menuConfig.sub, /5 minutos reales/);
 
   const rendered = menuConfig.render();
   assert.ok(rendered.body);
@@ -192,7 +170,6 @@ test('Comedor Comunitario figura en _getPOIs y en los servicios del mapa como lu
   };
 
   // Reutilizamos la lógica de _getPOIs
-  const { Game } = await import('../src/core/game.js');
   const pois = Game.prototype._getPOIs.call(game);
 
   const comedorPoi = pois.find(p => p.name === 'Comedor Comunitario');

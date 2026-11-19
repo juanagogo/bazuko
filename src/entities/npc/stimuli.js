@@ -37,6 +37,7 @@ export class StimulusBus {
     this.count = 0; // estímulos emitidos desde el principio: el número del siguiente
     this.kind = new Array(CAPACITY).fill(null);
     this.x = new Float32Array(CAPACITY);
+    this.y = new Float32Array(CAPACITY);
     this.z = new Float32Array(CAPACITY);
     this.radius = new Float32Array(CAPACITY);
     this.intensity = new Float32Array(CAPACITY);
@@ -55,12 +56,12 @@ export class StimulusBus {
    * Deja un estímulo. `radio`: hasta dónde llega (m; 0 = el de su tipo). `intensidad`: 0..1. `origen`: quién lo
    * causó (el agente del jugador, un NPC, un carro) o null. `time`: el reloj de las mentes.
    */
-  emit(tipo, x, z, radio, intensidad, origen, time) {
+  emit(tipo, x, z, radio, intensidad, origen, time, y = NaN) {
     const spec = STIMULI[tipo];
     if (!spec) return -1;
     const id = this.count++, i = id % CAPACITY;
     this.kind[i] = tipo;
-    this.x[i] = x; this.z[i] = z;
+    this.x[i] = x; this.y[i] = y; this.z[i] = z;
     this.radius[i] = radio || Math.max(spec.sound, 16);
     this.intensity[i] = intensidad;
     this.born[i] = time;
