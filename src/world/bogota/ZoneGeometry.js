@@ -195,9 +195,9 @@ export function createZoneMaterials() {
   });
   return {
     wall: material({ map: wallMaps.map, bumpMap: wallMaps.bumpMap, bumpScale: .03, roughness: .96 }),
-    brick: material({ map: brickMaps.map, bumpMap: brickMaps.bumpMap, bumpScale: .035, roughnessMap: brickMaps.roughnessMap, roughness: .96 }),
-    clay: material({ map: clayMaps.map, bumpMap: clayMaps.bumpMap, bumpScale: .05, roughness: .9, color: '#f4e8dc' }),
-    clayDark: material({ map: clayMaps.map, bumpMap: clayMaps.bumpMap, bumpScale: .05, roughness: .9, color: '#8d7a70' }),
+    brick: material({ map: brickMaps.map, bumpMap: brickMaps.bumpMap, bumpScale: .028, roughnessMap: brickMaps.roughnessMap, roughness: .97 }),
+    clay: material({ map: clayMaps.map, bumpMap: clayMaps.bumpMap, bumpScale: .024, roughness: .92, color: '#f4e8dc' }),
+    clayDark: material({ map: clayMaps.map, bumpMap: clayMaps.bumpMap, bumpScale: .038, roughness: .9, color: '#bba390' }),
     ashlar,
     mural: material({ map: mural.map, alphaTest: .4, roughness: .95 }),
     detail, tower,

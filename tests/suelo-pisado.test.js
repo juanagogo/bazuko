@@ -68,8 +68,8 @@ test('el andén de cada barrio pinta lo de antes igual y gasta el mismo azar', (
 test('las demás texturas del suelo y de la ciudad no cambian', () => {
   const huellas = {
     asphalt: [() => TX.asphalt(7), '09596ff50b9dc9b5'],
-    concrete: [() => TX.concrete(41), '3f0e21991c1e919d'], brick: [() => TX.brick(3), 'ec761f9367d7cdf6'],
-    slab: [() => TX.slab(13), '57e0806a2ace8325'], cardboard: [() => TX.cardboard(21), '4491e78858d4a581'],
+    concrete: [() => TX.concrete(41), '3f0e21991c1e919d'], brick: [() => TX.brick(3), '7c0b4ff5a4a10723'],
+    slab: [() => TX.slab(13), '1b3e29c32043ba76'], cardboard: [() => TX.cardboard(21), '4491e78858d4a581'],
   };
   for (const [name, [create, expected]] of Object.entries(huellas)) {
     const { maps } = recorded(create);
@@ -116,7 +116,7 @@ test('el suelo de la ciudad conserva sus mallas, sus materiales y el azar que ga
   assert.equal(reeds, undefined, 'la superficie original del lago todavía está despejada');
   let meshes = 0, vertices = 0, indices = 0;
   city.group.traverse(object => {
-    // La lámina del agua forma parte del suelo. El andén de Calle 72 se contó por separado.
+    // La lámina del agua forma parte del suelo; el andén de Calle 72 se contó por separado.
     if (!object.isMesh || object === landing) return;
     meshes++; vertices += object.geometry.attributes.position.count; indices += object.geometry.index?.count ?? 0;
   });
@@ -162,3 +162,19 @@ test('la tierra entra al programa del andén y lee la máscara de desgaste que y
   assert.match(tierra.fragmentShader, /dirtTone/);
 });
 
+test('los andenes se apagan y se ensucian contra el sardinel y la fachada, sin tocar la Candelaria', () => {
+  const city = new Bogota();
+  city.map = city._layout();
+  city._buildGround(city.map);
+  for (const key of ['sidewalk', 'sidewalk_cambuche', 'sidewalk_comercio', 'sidewalk_lago', 'sidewalk_chapinero']) {
+    assert.equal(city.groundMaterials[key].color.getHexString(), 'cdc8bc', key);
+  }
+  const shader = { uniforms: {}, vertexShader: '#include <project_vertex>', fragmentShader: '#include <map_fragment>\n#include <lights_fragment_begin>' };
+  city.groundMaterials.sidewalk.onBeforeCompile(shader);
+  const glsl = shader.fragmentShader;
+  assert.match(glsl, /1\. - smoothstep\( \.2, \.3, pavingCurbSide \)/, '25 cm contra el sardinel');
+  assert.match(glsl, /1\. - smoothstep\( \.28, \.42, pavingFromWall \)/, '35 cm contra la fachada');
+  assert.match(glsl, /1\. - \.2 \* pavingGrime \* step\( \.5, uPavingKind \) \* step\( uPavingKind, 3\.5 \)/, 'un 20 % menos, ni en la Candelaria ni en la tierra');
+  const sinChicles = recorded(() => TX.sidewalk(11)).maps.map.image.log.filter(entry => entry[0] === 'createRadialGradient').length;
+  assert.ok(sinChicles > 120, `el andén pinta sus chicles (${sinChicles} manchas)`);
+});

@@ -92,6 +92,7 @@ Partir de lo que se espera observar en el juego. Si un fallo puede venir de vari
 
 Repartir el rediseño 3D por zonas del mapa. Cada zona tiene un responsable de los cambios y un revisor distinto. Cuando el responsable entrega, el revisor compara el antes y el después desde la misma posición de juego. Si encuentra un retroceso, indica el puesto, la calle o el elemento donde se ve y devuelve el cambio al responsable. El revisor vuelve a comprobar ese punto tras la corrección. Si dos zonas comparten una calle, ambos equipos comprueban también el paso entre ellas.
 
+En un equipo compartido, hacer las capturas por turnos en una sola sesión de Chromium sin ventanas visibles. Coordinar las compilaciones para dejar CPU y memoria disponibles. Al terminar, cada agente cierra su navegador, sus servidores de prueba y los demás procesos que inició y retira sus archivos temporales cuando ya no hagan falta.
 
 ## Integración del original del 21 de octubre de 2026
 

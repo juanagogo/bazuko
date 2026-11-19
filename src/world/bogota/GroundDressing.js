@@ -118,6 +118,8 @@ float pavingPanelBlend = 0.;
   vec2 pavingAt = vSunFieldPos.xz;
   vec2 stains = pavingStains(pavingAt);
   float pavingStain = stains.x, pavingScuff = stains.y;
+  // Lo que no se pisa (muros, fachadas, agua, pasto) baja el desgaste en línea recta hasta 2,5 m de su borde: con la
+  // pendiente se sabe a cuánto queda el borde, sea un muro o un prado.
   float pavingWear = texture2D( uGroundWear, ( pavingAt + ${(TILE_SIZE / 2).toFixed(1)} ) * uGroundWearScale ).r;
   float pavingWearX = texture2D( uGroundWear, ( pavingAt + vec2( ${(TILE_SIZE / 2 + .5).toFixed(1)}, ${(TILE_SIZE / 2).toFixed(1)} ) ) * uGroundWearScale ).r;
   float pavingWearZ = texture2D( uGroundWear, ( pavingAt + vec2( ${(TILE_SIZE / 2).toFixed(1)}, ${(TILE_SIZE / 2 + .5).toFixed(1)} ) ) * uGroundWearScale ).r;
@@ -195,6 +197,7 @@ float pavingPanelBlend = 0.;
       pavingPanelBlend = ( 1. - pavingAge ) * ( 1. - max( max( pavingGuide, pavingField ), pavingClayStrip ) );
     }
   }
+  // Andén y plaza: un 20 % más oscuros en los 25 cm contra el sardinel y los 35 cm contra la fachada, donde no llega el paso.
   float pavingCurbSide = texture2D( uPavingBands, ( pavingAt + ${(TILE_SIZE / 2).toFixed(1)} ) * uPavingBandsScale ).r * 4.5 - .5 + ( pavingScuff - .5 ) * .08;
   float pavingGrime = max( 1. - smoothstep( .2, .3, pavingCurbSide ), 1. - smoothstep( .28, .42, pavingFromWall ) );
   diffuseColor.rgb *= 1. - .2 * pavingGrime * step( .5, uPavingKind ) * step( uPavingKind, 3.5 );

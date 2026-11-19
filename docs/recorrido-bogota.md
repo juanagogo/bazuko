@@ -32,7 +32,7 @@ En Teusaquillo, el sendero norte de adoquín conserva sus cuatro metros de ancho
 
 ## Edificios y vegetación
 
-`BuildingDetails.js` añade marcos, alféizares, rejas, bajantes y remates de azotea a las fachadas. El detalle cercano se concentra en los pisos bajos y se agrupa por material y pared; sigue la ocultación de edificios en vista isométrica. Los vidrios, las cortinas y algunas ventanas cálidas varían por edificio; el brillo de estas últimas se activa solo de noche, sin luces adicionales. Los locales conservan sus avisos y persianas. Las casas mantienen los balcones de madera y los tonos de ladrillo y revoque del centro.
+`BuildingDetails.js` añade marcos, alféizares, rejas, bajantes y remates de azotea a las fachadas. El detalle cercano se concentra en los pisos bajos y se agrupa por material y pared; sigue la ocultación de edificios en vista isométrica. Los vidrios, las cortinas y algunas ventanas cálidas varían por edificio; el brillo de estas últimas se activa solo de noche, sin luces adicionales. Las fachadas que dan a una vía pueden tener una vitrina o una persiana con un único aviso de oficio. Frente a patios y parques se ven puertas, rejas y ventanas de vivienda. En las esquinas del oriente, los murales y las ventanas laterales miran al espacio público.
 
 `UrbanTrees.js` sustituye las copas poliédricas por ramas y hojas recortadas con tres siluetas inspiradas en urapanes, eucaliptos y arrayanes. Son interpretaciones visuales, no modelos botánicos. Cada árbol usa dos mallas y comparte los materiales y dos texturas pequeñas con los demás; el viento mueve el follaje y su sombra con el mismo uniforme.
 
