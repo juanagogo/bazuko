@@ -5,6 +5,8 @@ import { signMesh, signTexture } from '../utils/signs.js';
 import { glowMaterial, followNight } from '../world/bogota/StoreGlow.js';
 import { buildShopGeometry } from './shopModel.js';
 
+export const SHOP_NAME = 'Tienda La Esquinita';
+
 // Letreros pintados a mano en los costados: crema, rojo y azul, como el resto de la caseta.
 const HAND_PAINTED = { bg: '#f1e6c8', fg: '#b3261e', accent: '#1d4f91', w: 512, h: 256 };
 
@@ -46,6 +48,12 @@ export class Shop {
   }
 
   get position() { return this.group.position; }
+
+  /** Punto de compra delante del mostrador (+Z), unido al siguiente nodo de la grilla. */
+  get gpsWaypoint() {
+    const { x, z } = this.position;
+    return { x, z: z + 1.45, access: { x, z: z + 3 }, arrivalDistance: .27 };
+  }
 
   update() {}
 

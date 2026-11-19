@@ -83,6 +83,7 @@ Para las pruebas de navegador, instalar Chromium con `npx playwright install chr
 Consultar la rama y los cambios locales antes de editar. Los experimentos se realizan en `pruebas-integracion` cuando se solicite; `main` recibe las integraciones indicadas. No asumir que crear un commit o fusionar implica publicar en el remoto.
 
 Para cambios de lógica, ejecutar las pruebas relacionadas y la compilación cuando corresponda. Para documentación, revisar enlaces y recursos locales. Mantener `dist/`, `node_modules/`, `work/` e informes de pruebas fuera de los commits. Actualizar documentación y capturas cuando cambie lo que describen; las capturas deben corresponder a imágenes reales compartidas o tomadas del juego.
+Repartir el rediseño 3D por zonas del mapa. Cada zona tiene un responsable de los cambios y un revisor distinto. Cuando el responsable entrega, el revisor compara el antes y el después desde la misma posición de juego. Si encuentra un retroceso, indica el puesto, la calle o el elemento donde se ve y devuelve el cambio al responsable. El revisor vuelve a comprobar ese punto tras la corrección. Si dos zonas comparten una calle, ambos equipos comprueban también el paso entre ellas.
 
 ## Integración del original del 21 de octubre de 2026
 

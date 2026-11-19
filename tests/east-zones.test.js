@@ -9,10 +9,12 @@ import { neighborhoodAt } from '../src/world/bogota/NeighborhoodIdentity.js';
 import { planUrbanBuildings } from '../src/world/bogota/UrbanBuildings.js';
 import { planEastLots } from '../src/world/bogota/EastBuildings.js';
 import { scanCityEdge } from '../src/world/bogota/CityEdge.js';
+import { towerSilhouette } from '../src/world/bogota/EastLandmarks.js';
+import { COLPATRIA } from '../src/world/bogota/Colpatria.js';
 import { cityLandmarks, streetLabels } from '../src/world/bogota/CityMapRaster.js';
 import { cobblestones, detailSheet, muralSheet, redBrick, towerFacade } from '../src/world/bogota/ZoneTextures.js';
 
-const textureSet = () => ({ map: new THREE.Texture(), bumpMap: new THREE.Texture(), emissiveMap: new THREE.Texture() });
+const textureSet = () => ({ map: new THREE.Texture(), bumpMap: new THREE.Texture(), roughnessMap: null, emissiveMap: new THREE.Texture() });
 const replacements = { ...textures };
 for (const name of ['asphalt', 'sidewalk', 'brick', 'facade', 'roofTiles', 'slab', 'cardboard', 'trashBag', 'dirt', 'concrete']) replacements[name] = textureSet;
 for (const name of ['radialSprite', 'lightbox', 'neon']) replacements[name] = () => new THREE.Texture();
@@ -40,6 +42,7 @@ city.build(scene, collisions);
 const map = city.map;
 const oldCity = map.map(row => [...row.slice(0, EAST_SEAM), 'wall']);
 after(() => city.dispose(scene));
+
 
 test('la ciudad crece hacia el oriente sin mover nada de la parte anterior', () => {
   assert.equal(map[0].length, CITY_WIDTH);
@@ -217,6 +220,33 @@ test('las torres curvas quedan dentro de su lote y la plaza libre de construccio
   for (let z = PLAZA.z0; z <= PLAZA.z1; z++) for (let x = PLAZA.x0; x <= PLAZA.x1; x++) {
     const churchTile = x >= CHURCH.x0 && x <= CHURCH.x1 && z >= CHURCH.z0 && z <= CHURCH.z1;
     if (!churchTile) assert.notEqual(map[z][x], 'building');
+  }
+});
+
+test('las torres conservan su cresta y su fachada en profundidad más allá del plano lejano', () => {
+  for (const tower of TOWERS) {
+    const buildings = city.buildingVisibility.buildings.filter(({ root }) => root.position.x === tower.cx && root.position.z === tower.cz);
+    const peaks = new Set(towerSilhouette(tower).map(entry => entry.h));
+    assert.ok(peaks.size >= 4, 'hay descansos entre los extremos y la cresta');
+    let highest = 0;
+    for (const building of buildings) {
+      const facade = building.wallParts[0].meshes.find(mesh => mesh.material.userData.pastFar);
+      assert.ok(facade && !facade.frustumCulled, 'el mismo balcón se dibuja antes y después del far');
+      const points = facade.geometry.attributes.position;
+      let band = false, recessed = false;
+      for (let i = 0; i < points.count; i++) {
+        const r = Math.hypot(points.getX(i), points.getZ(i)), y = points.getY(i);
+        assert.ok(r <= tower.radius + .001 && r >= tower.radius - tower.thickness - .001);
+        if (Math.abs(y - 3.96) < .001 && Math.abs(r - tower.radius) < .001) band = true;
+        if (Math.abs(y - 2.98) < .001 && Math.abs(r - (tower.radius - .84)) < .001) recessed = true;
+        highest = Math.max(highest, y);
+      }
+      assert.ok(band && recessed, 'el antepecho y el vidrio ocupan planos diferentes');
+      assert.ok(building.batches.some(batch => batch.material.userData.pastFar && !batch.mesh.frustumCulled));
+    }
+    const expectedPeak = Math.round(tower.floors / 2) * 2 * 3.1 + .5;
+    assert.ok(Math.abs(highest - expectedPeak) < .001);
+    assert.ok(highest < COLPATRIA.height);
   }
 });
 

@@ -2,6 +2,7 @@
 // Objetos de calle de Bogotá y de El Cartucho. Cada función devuelve un THREE.Group;
 // los que tienen `userData.update(dt, t)` se animan (fuego, toldos).
 import * as THREE from 'three';
+import { drawCivicPlate } from './CivicSign.js';
 import { signTexture } from '../../utils/signs.js';
 import { trashBag, cardboard, radialSprite } from './textures.js';
 import { createFlame, fireGlow, stepFlames } from './flame.js';
@@ -321,18 +322,20 @@ function getPlateAtlas() {
   return plateAtlas;
 }
 
-function plateSlot(text) {
+function plateSlot(text, kind) {
   const atlas = getPlateAtlas(), { cellWidth, cellHeight, columns, rows } = PLATE_ATLAS;
-  if (!atlas.slots.has(text)) {
+  const key = kind ? `${kind}/${text}` : text;
+  if (!atlas.slots.has(key)) {
     // Sin celdas libres la placa queda en blanco, nunca con el nombre de otra calle.
     const index = Math.min(atlas.slots.size, columns * rows - 1), column = index % columns, row = Math.floor(index / columns);
-    atlas.slots.set(text, { column, row });
+    atlas.slots.set(key, { column, row });
     if (atlas.ctx && atlas.slots.size < columns * rows) {
-      drawPlate(atlas.ctx, column * cellWidth, row * cellHeight, cellWidth, cellHeight, text);
+      const draw = kind ? drawCivicPlate : drawPlate;
+      draw(atlas.ctx, column * cellWidth, row * cellHeight, cellWidth, cellHeight, text, kind);
       atlas.map.needsUpdate = true;
     }
   }
-  const { column, row } = atlas.slots.get(text), width = cellWidth * columns, height = cellHeight * rows;
+  const { column, row } = atlas.slots.get(key), width = cellWidth * columns, height = cellHeight * rows;
   return {
     u0: (column * cellWidth + 1) / width, u1: ((column + 1) * cellWidth - 1) / width,
     v0: 1 - ((row + 1) * cellHeight - 1) / height, v1: 1 - (row * cellHeight + 1) / height
@@ -340,12 +343,29 @@ function plateSlot(text) {
 }
 
 /** Lámina con grosor: cada cara lee bien desde su lado, sin letras al revés. */
-function plateGeometry(text, width, height, thickness) {
-  const geometry = new THREE.BoxGeometry(width, height, thickness), uv = geometry.attributes.uv, slot = plateSlot(text);
+function plateGeometry(text, width, height, thickness, kind) {
+  const geometry = new THREE.BoxGeometry(width, height, thickness), uv = geometry.attributes.uv, slot = plateSlot(text, kind);
   for (let i = 0; i < uv.count; i++) {
     uv.setXY(i, slot.u0 + (slot.u1 - slot.u0) * uv.getX(i), slot.v0 + (slot.v1 - slot.v0) * uv.getY(i));
   }
   return geometry;
+}
+
+/** Panel a dos caras en el acceso de un espacio público. Comparte atlas con las placas de calle. */
+export function placeSign(name, kind) {
+  const group = new THREE.Group();
+  group.name = name;
+  const frame = std('#46534d', { roughness: .76, metalness: .28 });
+  const leg = new THREE.BoxGeometry(.06, 1.64, .085);
+  for (const x of [-.76, .76]) {
+    const post = new THREE.Mesh(leg, frame);
+    post.position.set(x, .82, 0);
+    group.add(post);
+  }
+  const board = new THREE.Mesh(plateGeometry(name, 2.12, .53, .065, kind), getPlateAtlas().material);
+  board.position.y = 1.89;
+  group.add(board);
+  return shadow(group);
 }
 
 export function streetSign(lines) {

@@ -8,6 +8,7 @@ La mejora conserva el trazado y las colisiones del juego original. Se concentra 
 
 Las semillas locales de las casas evitan que crear más geometrías o materiales cambie sus dimensiones. El plano físico y sus colisiones se conservan; las casas que antes dependían del azar global tienen ahora una apariencia estable por coordenadas.
 
+## Torre Colpatria
 ## Arbolado y jardines
 
 `UrbanTrees.js` construye troncos, ramas y hojas recortadas con tres siluetas inspiradas en urapanes, eucaliptos y arrayanes; son interpretaciones visuales, no modelos botánicos. Cada árbol usa dos mallas y menos de 900 triángulos antes de agrupar. Todos comparten un atlas de hojas de 256 × 256 y una textura de corteza de 64 × 128. El mismo viento mueve las hojas y sus sombras.

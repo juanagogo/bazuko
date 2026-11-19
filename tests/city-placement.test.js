@@ -7,7 +7,7 @@ import { CHURCH_STEPS, FOUNTAIN, PLAZA, TOWERS, insideTower, towerColliderBoxes 
 import { crossings } from '../src/world/bogota/StreetMarkings.js';
 import { TrafficSignals } from '../src/world/bogota/TrafficSignals.js';
 
-const textureSet = () => ({ map: new THREE.Texture(), bumpMap: new THREE.Texture(), emissiveMap: new THREE.Texture() });
+const textureSet = () => ({ map: new THREE.Texture(), bumpMap: new THREE.Texture(), roughnessMap: null, emissiveMap: new THREE.Texture() });
 const replacements = { ...textures };
 for (const name of ['asphalt', 'sidewalk', 'brick', 'facade', 'roofTiles', 'slab', 'cardboard', 'trashBag', 'dirt', 'concrete']) replacements[name] = textureSet;
 for (const name of ['radialSprite', 'lightbox', 'neon']) replacements[name] = () => new THREE.Texture();

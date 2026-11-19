@@ -11,7 +11,7 @@ import { World } from '../world/World.js';
 import { Dog, DOG_DEFAULT_LOOK, DOG_GUARD_RANGE, legacyPetLook } from '../entities/Dog.js';
 import { CompanionNavigation } from '../systems/CompanionNavigation.js';
 import { Minimap, nombreALaVista } from '../ui/Minimap.js';
-import { ZonaAviso } from '../ui/ZonaAviso.js';
+import { ZonaAviso, zonaDe } from '../ui/ZonaAviso.js';
 import { mojarCarton } from '../ui/mojado.js';
 import { servicePlaces, needContext, SHOP_PRICES, SHOP_OFFERS } from '../ui/mapServices.js';
 import { originEffect } from '../data/origins.js';
@@ -22,10 +22,10 @@ import { openPauseMenu } from '../ui/PauseMenu.js';
 import { Player } from '../entities/Player.js';
 import { Pickup } from '../entities/Pickup.js';
 import { TrashContainer } from '../entities/TrashContainer.js';
-import { SellPoint } from '../entities/SellPoint.js';
+import { SellPoint, RECYCLER_NAME } from '../entities/SellPoint.js';
 import { Cambuche } from '../entities/Cambuche.js';
-import { Shop } from '../entities/Shop.js';
-import { ComedorComunitario } from '../entities/ComedorComunitario.js';
+import { Shop, SHOP_NAME } from '../entities/Shop.js';
+import { ComedorComunitario, COMEDOR_NAME } from '../entities/ComedorComunitario.js';
 import { Bicycle } from '../entities/Bicycle.js';
 import { BikeFence } from '../entities/BikeFence.js';
 import { RandomHallucinationSystem } from '../systems/RandomHallucinationSystem.js';
@@ -74,7 +74,7 @@ import { StreetLife } from '../systems/StreetLife.js';
 import { RebusqueSystem } from '../systems/RebusqueSystem.js';
 import { RebusqueVisual } from '../systems/rebusque/RebusqueVisual.js';
 import { PilaPublica, HogarDePaso, TransitStop } from '../entities/StreetLifeProps.js';
-import { streetLifePlaces } from '../world/bogota/streetLifePlaces.js';
+import { streetLifePlaces, restorePilaWaypoint } from '../world/bogota/streetLifePlaces.js';
 import { openRadioModal } from '../ui/RadioModal.js';
 
 
@@ -111,7 +111,7 @@ import {
 } from '../utils/constants.js';
 
 // Destinos de partidas guardadas antes de que el mapa usara el nombre de cada letrero.
-const RENAMED_PLACES = { Recicladora: 'Recicladora El Progreso', Tienda: 'Tienda La Esquinita' };
+const RENAMED_PLACES = { Recicladora: RECYCLER_NAME, Tienda: SHOP_NAME };
 
 export class Game {
   constructor(canvas, { animaciones = 'default', modeloRealista = false } = {}) {
@@ -543,7 +543,19 @@ export class Game {
   /** Marca un destino y calcula la ruta desde el jugador. */
   setGpsWaypoint(waypoint, { silent = false } = {}) {
     if (!this.gps) return false;
-    const ok = this.gps.setWaypoint(waypoint, this.player.position);
+    // También resuelve las coordenadas viejas al retomar un destino guardado.
+    const services = { [SHOP_NAME]: this.shop, [RECYCLER_NAME]: this.sellPoint, [COMEDOR_NAME]: this.comedor };
+    const metroStop = this.street?.stops?.find(stop => stop.stop.id === 'metro72' && stop.title === waypoint?.name);
+    const service = services[waypoint?.name] ?? metroStop;
+    const counter = service?.gpsWaypoint;
+    // En La Esquinita la coordenada anterior podía quedar en la baldosa atrás de la caseta.
+    const oldShopZ = service && service === this.shop ? Math.floor(service.position.z / TILE_SIZE) * TILE_SIZE : null;
+    const namedCounter = counter && waypoint.x === counter.x && [counter.z, service.position.z, oldShopZ].includes(waypoint.z);
+    const target = namedCounter ? { ...waypoint, ...counter } : waypoint;
+    if (namedCounter && service.acceptsGpsArrival) {
+      target.acceptsArrival = position => service.acceptsGpsArrival(position, this.interaction?.currentTarget);
+    }
+    const ok = this.gps.setWaypoint(target, this.player.position);
     this._syncGpsBeacon();
     if (!silent) {
       const { name } = this.gps.waypoint ?? waypoint;
@@ -897,8 +909,9 @@ export class Game {
     const places = streetLifePlaces(district, this.collisions, { parks });
     const ground = (x, z) => district.getGroundHeight?.(x, z) ?? 0;
     const add = (prop) => { this._streetProps.push(prop); this.interaction.register(prop); return prop; };
-    street.pilas = places.pilas.map(({ x, z }) => {
+    street.pilas = places.pilas.map(({ x, z, previous }) => {
       const pila = add(new PilaPublica(this.sceneMgr.scene, new THREE.Vector3(x, ground(x, z), z)));
+      pila.previous = previous;
       this.collisions.add(pila.group, pila.collider.size, pila.collider.offset);
       return pila;
     });
@@ -998,7 +1011,10 @@ export class Game {
       if (data.cart && this.cart) {
         this.cart.loadState(data.cart, this.player, this.inventory);
       }
-      if (data.gps && this.gps) this.setGpsWaypoint({ ...data.gps, name: RENAMED_PLACES[data.gps.name] ?? data.gps.name }, { silent: true });
+      if (data.gps && this.gps) {
+        const waypoint = restorePilaWaypoint(data.gps, this.street?.pilas);
+        this.setGpsWaypoint({ ...waypoint, name: RENAMED_PLACES[waypoint.name] ?? waypoint.name }, { silent: true });
+      }
       if (data.lastComedorHour !== undefined) this.lastComedorHour = data.lastComedorHour;
       this.street?.deserialize(data.street);
       if (data.dailyMissions) this.dailyMissions?.deserialize(data.dailyMissions);
@@ -1739,7 +1755,7 @@ export class Game {
           return pos ? [{ name, icon, color, x: pos.x, z: pos.z, fijo: true, ...extra }] : [];
         })];
       if (this.world?.active?.tileTypeAt) this._poiCache.push(...(this._landmarks ??= cityLandmarks()));
-      for (const pila of this.street?.pilas ?? []) this._poiCache.push({ name: 'Pila pública', icon: '💧', color: '#5dade2', x: pila.position.x, z: pila.position.z, fijo: true });
+      for (const pila of this.street?.pilas ?? []) this._poiCache.push({ name: 'Pila pública', icon: '💧', color: '#5dade2', x: pila.approach.x, z: pila.approach.z, fijo: true });
       if (this.street?.hogar) this._poiCache.push({ name: 'Hogar de paso', icon: '🛏', color: '#3b6ea5', x: this.street.hogar.position.x, z: this.street.hogar.position.z, fijo: true });
       for (const stop of this.street?.stops ?? []) this._poiCache.push({ name: stop.stop.name, icon: '🚏', color: stop.stop.sistema === 'Metro' ? '#2f7d4a' : '#b3261e', x: stop.position.x, z: stop.position.z, fijo: true });
       if (this.cart) this._poiCache.push({ name: 'Carreta', icon: '🛒', x: this.cart.position.x, z: this.cart.position.z, color: '#f39c12' });

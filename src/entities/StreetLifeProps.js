@@ -6,6 +6,7 @@
 // Los materiales se comparten entre todas las copias; al cerrar el distrito cada objeto suelta su geometría.
 import * as THREE from 'three';
 import { signMesh } from '../utils/signs.js';
+import { INTERACT_RANGE } from '../utils/constants.js';
 
 let shared = null;
 function mats() {
@@ -113,4 +114,9 @@ export class TransitStop extends Prop {
     this.group.add(box(.12, .12, .12, color, -1.1, 2.3, 0));
   }
   get title() { return this.stop.name; }
+  get gpsWaypoint() {
+    if (this.stop.id !== 'metro72') return null;
+    return { x: this.position.x, z: this.position.z, arrivalDistance: INTERACT_RANGE };
+  }
+  acceptsGpsArrival(_position, target) { return target === this; }
 }
