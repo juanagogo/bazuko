@@ -102,7 +102,7 @@ test('huir pone el cuerpo asustado solo mientras corre, y después vuelve su pos
   npc.dispose();
 });
 
-test('el KO pasa su avance al cuerpo: sube al caer, llega a 1 tendido y baja al levantarse', async () => {
+test('la caída final pasa su avance al cuerpo y conserva la pose tendida', async () => {
   const npc = await npcFixture();
   npc.health = 8;
   const seen = [];
@@ -126,7 +126,7 @@ test('el KO pasa su avance al cuerpo: sube al caer, llega a 1 tendido y baja al 
 
 test('al entrar en pantalla o cambiar de modelo, la postura aparece puesta y el tendido se vuelve a posar', async () => {
   const npc = await npcFixture({ stance: 'sentado' });
-  npc._koBlend = 1; npc.koState = 'down'; npc.koTimer = 99;
+  npc._koBlend = 1; npc.koState = 'down';
   npc.update(.05, {});
   const first = lastParams(npc);
   assert.equal(first.ko, 1);

@@ -4,7 +4,7 @@
 import * as THREE from 'three';
 import { Npc } from './Npc.js';
 import { canReachCombatTarget, resolveCombatWalk } from '../systems/CombatGeometry.js';
-import { koHandDown, smooth } from '../character/BodyLanguage.js';
+import { smooth } from '../character/BodyLanguage.js';
 
 export const ROAD_RAGE = {
   chance: .35,          // probabilidad de bajarse al robarle un retrovisor en circulación
@@ -49,6 +49,7 @@ export class AngryDriver extends Npc {
   }
 
   get active() { return this.state !== 'idle'; }
+  get isAggressor() { return ['chase', 'windup', 'strike'].includes(this.state); }
 
   /** Varilla metálica sujeta a la mano derecha; su giro marca el aviso y el golpe. */
   _createBar() {
@@ -67,6 +68,7 @@ export class AngryDriver extends Npc {
 
   /** Se baja junto a la puerta de su carro y empieza a perseguir. */
   exitCar(car, door) {
+    if (this.isDead || this._disposed) return;
     this.car = car;
     this.position.copy(door);
     this.root.position.copy(door);
@@ -80,6 +82,8 @@ export class AngryDriver extends Npc {
 
   /** Vuelve a subir: desaparece de la calle. */
   enterCar() {
+    if (this.isDead) return;
+    this.limpiarImpacto();
     this.state = 'idle';
     this.action = null;
     this.moving = false;
@@ -115,26 +119,25 @@ export class AngryDriver extends Npc {
   }
 
   /** Se le cae la varilla: lo que traía en el aire se le suelta desde donde estaba. */
-  _startKnockout(bench) {
-    super._startKnockout(bench);
+  _startDeath(bench, pose) {
+    super._startDeath(bench, pose);
+    if (this.car) this.car.driverDead = true;
     this.bar.pose = 0;
     this._barFrom = { x: this.bar.pivot.position.x, y: this.bar.pivot.position.y, z: this.bar.pivot.position.z, tilt: this.bar.pivot.rotation.x };
   }
 
-  /** Noqueado no corre `_walk`: la varilla cae con él y la recoge cuando la mano llega al piso. */
+  /** La varilla termina de caer con su dueño. */
   _updateReaction(dt) {
     super._updateReaction(dt);
     if (!this._barFrom) return;
-    const pivot = this.bar.pivot, ko = smooth(this._koBlend);
-    const rising = this.koState === 'rising' || !this.koState;
-    const from = rising ? _barHanging : this._barFrom;
-    const k = this.koState ? smooth(Math.min(1, rising ? ko / (1 - koHandDown(this._koPlan)) : this._koBlend / BAR_FALLS_BY)) : 0;
+    const pivot = this.bar.pivot, from = this._barFrom;
+    const k = smooth(Math.min(1, this._koBlend / BAR_FALLS_BY));
     const tilt = from.tilt + (BAR_LIES.tilt - from.tilt) * k;
     // La punta de abajo se apoya en el piso mientras gira: el extremo de la mano es el que baja y sube.
     const y = Math.max(from.y + (BAR_LIES.y - from.y) * k, BAR_LIES.y + BAR_LENGTH * Math.cos(tilt));
     pivot.position.set(from.x + (BAR_LIES.x - from.x) * k, y, from.z + (BAR_LIES.z - from.z) * k);
     pivot.rotation.x = tilt;
-    if (!this.koState) this._barFrom = null;
+    if (k >= 1) this._barFrom = null;
   }
 
   /** La IA se resuelve en think(); aquí solo se anima la varilla. */
@@ -155,13 +158,10 @@ export class AngryDriver extends Npc {
    * @param {{ player: THREE.Vector3, door: THREE.Vector3, canChase: boolean }} ctx
    */
   think(dt, { player, door, canChase }) {
+    dt = this.tiempoTrasImpacto(dt);
+    if (dt <= 0) return null;
     this.moving = false;
-    if (!this.active || dt <= 0) return null;
-    if (this.koState) {
-      // Noqueado no piensa: ni corre el reloj, ni gira, ni termina el golpe que traía.
-      if (this.state === 'windup' || this.state === 'strike') { this.state = 'chase'; this.action = null; }
-      return null;
-    }
+    if (!this.active || this.isDead) return null;
     this.timer += dt;
     this.attackTimer = Math.max(0, this.attackTimer - dt);
     const toPlayer = Math.hypot(player.x - this.position.x, player.z - this.position.z);
@@ -206,6 +206,7 @@ export class AngryDriver extends Npc {
   }
 
   dispose() {
+    if (this._disposed) return;
     this.bar.geometry.dispose();
     this.bar.material.dispose();
     super.dispose();

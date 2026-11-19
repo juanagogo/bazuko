@@ -8,14 +8,17 @@
 // ve menos. Fuera de cámara no se dibuja ni se anima, y la animación se actualiza menos seguido a media distancia.
 import * as THREE from 'three';
 import { createRealisticCharacter, loadCatalog, normalizeReal, REALISTIC_SCALE } from '../character/RealisticCharacter.js';
-import { koHandDown, RISE_TIME, smooth } from '../character/BodyLanguage.js';
+import { KO_PLANS, RISE_TIME, smooth } from '../character/BodyLanguage.js';
+import { HitLean } from '../character/HitLean.js';
 import { LOW_STANCES, SEARCH_ACTION, personLook, pickArchetype, pickStop, pickWalk, rollPerson } from '../character/archetypes.js';
-import { UMBRELLA_REST, createClosedStick, createCane, createPhone, createUmbrella } from '../character/props.js';
+import { UMBRELLA_REST, createCane, createPhone, createUmbrella } from '../character/props.js';
 import { streetCaneContactY } from '../character/streetCane.js';
 import { BENCH_EXIT, benchPush, HAND_ON_FLOOR } from '../character/stances.js';
 import { WEAPONS } from '../data/weapons.js';
 import { canReachCombatTarget, resolveCombatWalk } from '../systems/CombatGeometry.js';
 import { acabarFrase, empezarFrase } from '../ui/frases.js';
+import { vocesDelJuego } from '../systems/voces/acceso.js';
+import { seededRandom } from './npc/mind.js';
 
 const any = (arr) => arr[Math.floor(Math.random() * arr.length)];
 
@@ -48,6 +51,8 @@ export const NPC_LOD = {
 };
 
 export const NPC_HIT_REACTION_DURATION = .48;
+const FUERZA_INCLINACION = 1 / 1.5;
+const RITMO_INCLINACION = 1.8;
 
 
 // Lo que dice cualquiera, además de lo de su arquetipo.
@@ -78,21 +83,25 @@ const _solids = [];
 const FLEE_BODY = .2; // m de radio del cuerpo al huir
 const CHANGED_UNSEEN = .3; // s sin animarse: lo que hizo mientras tanto nadie lo vio
 
-// Golpes: sin muerte ni desaparición. A 0 de salud el peatón cae, queda tendido y se levanta huyendo.
+// A cero la caída termina en una pose fija. Las acciones del personaje terminan al recibir el golpe.
 export const NPC_HEALTH = 100;
 export const NPC_COMBAT = {
   stagger: 0.28,   // s de sacudón tras cada golpe (no camina; el golpe lo empuja)
   flee: 5,         // s de huida veloz tras recibir un golpe
   fall: 0.7,       // s en caer: primero ceden las rodillas, después se va de espaldas
-  downMin: 6,      // s mínimos tendido
-  downExtra: 2,    // + hasta tantos s al azar
-  rise: 1.5,       // s en levantarse: sentado, una mano y una rodilla, piernas y por último el tronco
-  riseFlee: 6,     // s de huida al levantarse
   counterWindup: .35,
+  counterWarning: .18, // s de guardia visible antes del primer movimiento
+  knifeWarning: .35, // s adicionales con el cuchillo a la vista antes de preparar el golpe
   counterActive: .1,
-  counterRecovery: .22,
-  counterRange: 1.75
+  counterRecovery: .22
 };
+
+// Integral de la velocidad que baja linealmente a cero durante el aturdimiento.
+function avanceEmpujon(restante, dt = restante) {
+  const tiempo = Math.min(dt, restante);
+  return tiempo * (restante - tiempo / 2) / NPC_COMBAT.stagger;
+}
+
 const DEFENSE_PHRASES = [
   '¡A mí no me viene a montar la perseguidora, ñero!',
   '¡Tome pa\' que lleve, respete a la gente!',
@@ -138,17 +147,13 @@ const FALL = { length: 1.9, body: .42, trunk: .24, step: .32, floor: .3, curb: .
 // De menos a más giro: lo que menos se note. Más allá de esto se escurre donde está.
 const NO_TURN = [0];
 const FALL_TURNS = [0, Math.PI / 4, -Math.PI / 4, Math.PI / 2, -Math.PI / 2, 3 * Math.PI / 4, -3 * Math.PI / 4, Math.PI];
-// Lo que se le cae a quien queda noqueado, en metros desde sus pies: `x` hacia su izquierda y `z` hacia adelante. Queda
-// donde va a apoyar la mano derecha al levantarse. `from` es de dónde sale, `top` a qué altura está la mano y `far` hasta
-// dónde llega el resto del objeto en el piso, desde el agarre: eso también tiene que quedar libre y a la misma altura.
-const UMBRELLA_CLOSED = .13; // de ancho, frente al paraguas abierto
-const UMBRELLA_OPENS = .94;  // cuánto lleva de pararse cuando el domo ya pasa por encima de la cabeza
+// El objeto cae desde la mano y queda junto al cuerpo. Las distancias se miden desde los pies,
+// con x hacia su izquierda y z hacia adelante. La punta también necesita espacio en el mismo piso.
 const DROP_TIME = .35;
 const DROP_FLOOR = .25;  // m de diferencia con el piso del cuerpo: más ya es otro piso
 const DROP_REACH = .06;  // m de holgura contra un sólido
 const DROP_CANE = { x: HAND_ON_FLOOR.x - .06, z: HAND_ON_FLOOR.z - .1, from: [-.25, 0], top: .85, lift: .02, tilt: Math.PI / 2, spin: Math.PI / 2, far: [-.05, -.8], grip: 'prop-baston-calle' };
 const DROP_UMBRELLA = { x: HAND_ON_FLOOR.x - .12, z: HAND_ON_FLOOR.z - .12, from: [-.2, .2], top: 1.2, ...UMBRELLA_REST, spin: 0, far: [-.1, .9], grip: 'paraguas' };
-const PICK_TIME = .35;   // s en que lo recogido termina de acomodarse en la mano
 const DROP_SPOTS = [[1, 1], [.55, .55], [-1, 1], [-.55, .55]]; // de más a menos a mano: si el primero no cabe, el siguiente
 const DROP_TURNS = [0, Math.PI / 2, -Math.PI / 2, Math.PI]; // si en ninguno cabe como cayó, apuntando para otro lado
 const _q1 = new THREE.Quaternion(), _q2 = new THREE.Quaternion();
@@ -190,7 +195,7 @@ export class Npc {
   /**
    * @param {THREE.Scene} scene
    * @param {THREE.Vector3} position
-   * @param {{ wander?: number, facing?: number, isWalkable?: (x:number, z:number) => boolean, navigation?: object, groundHeight?: (x:number, z:number) => number, speed?: number, look?: object, gastada?: boolean, zona?: string, arquetipo?: string, fijo?: { stance: string, alternas?: string[], techo?: boolean, reach?: number } }} opts
+   * @param {{ wander?: number, facing?: number, isWalkable?: (x:number, z:number) => boolean, navigation?: object, routeRandom?: () => number, groundHeight?: (x:number, z:number) => number, speed?: number, look?: object, gastada?: boolean, zona?: string, arquetipo?: string, delantal?: 'tinto' | 'fritanga' | null, fijo?: { stance: string, alternas?: string[], techo?: boolean, reach?: number } }} opts
    */
   constructor(scene, position, opts = {}) {
     this.scene = scene;
@@ -254,14 +259,14 @@ export class Npc {
     this._playerDist = Infinity;
     this._noseTimer = 0;
     this._noseCooldown = Math.random() * 3;
-    this._dropped = [];        // lo que se le cayó al quedar noqueado, mientras está en el piso
+    this._dropped = [];        // accesorios que quedaron junto al cuerpo
     this._fallenCane = null;
     this._player = null;
     this._witness = null;      // testigo de un robo o una pelea: grabando o llamando (ver WitnessSystem)
     this._riseLeft = 0;        // s que le faltan para tener la cadera arriba después de un susto
     this._lowFrom = null;      // la postura baja que acaba de dejar
-    this._koPlan = 'espalda';  // cómo cae y cómo se para (ver KO_PLANS)
-    this._koFrom = null;       // la postura baja en la que lo noquearon
+    this._koPlan = 'espalda';  // postura de caída de KO_PLANS
+    this._koFrom = null;       // postura baja al recibir el último golpe
     this._koTurn = null;       // giro de la caída, si detrás no hay espacio
     this._koEnd = null;        // dónde va a terminar el empuje del golpe
     this._fleeAwayX = 0;       // hacia dónde queda alejarse del susto
@@ -271,7 +276,6 @@ export class Npc {
     this._blockZ = 0;
     this._fleeRouted = false;  // huye por la red: se topó dos veces seguidas
     this._cowering = false;    // huyendo sin salida: agachado, esperando a que se le pase
-    this._picking = [];        // lo que ya tiene en la mano y todavía se está acomodando
     this._standingUp = false;  // se está parando con calma: la cadera todavía no ha llegado arriba
     // Quien se queda en su sitio toda la partida: `out` mientras anda por ahí después de un susto.
     // `toRest`: va a donde esperar, no de vuelta. `reach`: m que puede salirse de la red al llegar.
@@ -290,22 +294,29 @@ export class Npc {
     this.action = null;
     this.actionProgress = 0;
     this._hitReactionRemaining = 0;
+    this.hitLean = new HitLean();
+    this._pausaImpacto = null;
+    this.root.addEventListener('removed', () => this.limpiarImpacto());
     this.hitBy = undefined;    // quién le dio el último golpe (null si nadie: un carro); undefined si nunca le pegaron
     this._punchFacing = this.root.rotation.y;
     this.maxHealth = NPC_HEALTH;
     this.health = NPC_HEALTH;
-    this.koState = null;       // null | 'down' (cayendo o tendido) | 'rising'
-    this.koTimer = 0;
+    this.koState = null;       // 'down' conserva la exclusión de interacción mientras cae y una vez en el suelo
+    this.bodyReleased = false;
     this._koBlend = 0;         // 0 de pie .. 1 tendido
     this.staggerTimer = 0;
     this._knockVel = new THREE.Vector3();
     this._lastHit = new THREE.Vector3(0, 0, 1);
-    this.looted = false;       // una recompensa por la vida del NPC, también después de un KO
+    this.looted = false;       // una recompensa por la vida del NPC
     this._acceptedAttacks = new WeakMap();
     this._anonymousAttacks = new Set();
     this._counter = null;
     this._counterPose = null;
     this._defenseUsed = false;
+    // El azar propio reutiliza una muestra individual anterior sin alterar los turnos del tráfico.
+    const personRandom = opts.personRandom ?? seededRandom(this._noseCooldown * 0x50000000);
+    this.carriesKnife = opts.carriesKnife ?? (!!this.person && personRandom() < .18);
+    this.defenseResolve = opts.defenseResolve ?? personRandom();
     this._combatCollisions = null;
     // Parte de los caminantes ya está en lo suyo cuando empieza la partida: la calle no arranca en fila.
     if (this.person && this.navigation && !this.fijo && Math.random() < CONDUCT.startStopped) {
@@ -368,14 +379,38 @@ export class Npc {
   }
 
   get isKnockedOut() { return !!this.koState; }
+  get isDead() { return this.koState === 'down'; }
+  get deathSettled() { return this.isDead && this._koBlend >= 1; }
+
+  get pausaImpacto() { return this._pausaImpacto?.restante ?? 0; }
+
+  pausarImpacto(pausa) { this._pausaImpacto = pausa; }
+
+  tiempoTrasImpacto(dt) { return this._pausaImpacto?.detenida ? 0 : dt; }
+
+  limpiarImpacto() {
+    this._enderezarGolpe();
+    this._pausaImpacto = null;
+  }
+
+  _enderezarGolpe() {
+    if (this.hitLean.applied) this.hitLean.remove(this.character.group);
+    this.hitLean.clear();
+  }
+
+  _inclinarGolpe(direccion, empujon) {
+    this.hitLean.orientar(this.root.rotation.y);
+    this.hitLean.kick(direccion, this.root.rotation.y, empujon * FUERZA_INCLINACION);
+  }
 
   _show(char) {
     if (this.character === char) return;
+    if (this.hitLean.applied) this.hitLean.remove(this.character.group);
     const motion = this.character?.motionState?.();
-    this._finishPicking();
     if (this.character) this.root.remove(this.character.group);
     this.character = char;
     this.root.add(char.group);
+    if (this._counter?.weapon === 'cuchillo' && this._counter.phase !== 'wait') char.setWeapon?.('cuchillo');
     if (motion) char.applyMotion?.(motion); // sigue en el mismo punto del paso y de lo que estaba haciendo: el cambio de detalle no se nota
     // Sin nada que heredar, o si llevaba rato sin animarse, la postura ya debe estar puesta cuando se vea.
     if (!motion || this.animAcc > CHANGED_UNSEEN) char.snapPose?.();
@@ -407,6 +442,7 @@ export class Npc {
   }
 
   hitByPoop(projectileOrigin = null) {
+    if (this._disposed || this.koState) return false;
     this.isSplatted = true;
     this.splatTimer = 12;
     this._fleeFrom(projectileOrigin);
@@ -424,18 +460,23 @@ export class Npc {
       this.root.add(this.splatMesh);
     }
 
-    this._scream(POOP_SCREAMS);
+    this._scream(POOP_SCREAMS, vocesDelJuego()?.decirPopo?.(this) === true);
+    return true;
   }
 
   /** Lo pillaron metiéndole la mano o le arrancaron algo: huye gritando, sin mancha. */
   alarmedByTheft(thiefPosition = null) {
+    if (this._disposed || this.isDead) return;
     this._fleeFrom(thiefPosition);
     this._scream(THEFT_SCREAMS);
   }
 
   // Dirección de huida: alejarse del origen del susto
   _fleeFrom(origin) {
-    if (!this.koState) this.fleeTimer = 8;
+    if (this._disposed || this.isDead) return;
+    this._clearCounterAttack();
+    this.talk?.leave?.();
+    this.fleeTimer = 8;
     this.target = null;
     this.route = [];
     this._blocks = 0;
@@ -459,10 +500,12 @@ export class Npc {
     this._fleeAwayZ = z;
   }
 
-  _scream(screams) {
-    const msg = any(screams);
+  /** El grito en el aviso y, a veces, las monedas que se le caen del susto. `callado`: ya gritó con su voz. */
+  _scream(screams, callado = false) {
+    const grito = any(screams); // se sortea siempre: con voz o sin ella, el azar que sigue es el mismo
+    const msg = callado ? null : grito;
     if (typeof window !== 'undefined' && typeof window.dispatchEvent === 'function') {
-      window.dispatchEvent(new CustomEvent('toast', { detail: { text: msg, type: 'warn' } }));
+      if (msg) window.dispatchEvent(new CustomEvent('toast', { detail: { text: msg, type: 'warn' } }));
       // 35% de probabilidad de soltar monedas del pánico
       if (Math.random() < 0.35) {
         const droppedMoney = 500 * (1 + Math.floor(Math.random() * 4));
@@ -480,6 +523,7 @@ export class Npc {
     // Si fue impactado por popó: huye despavorido a gran velocidad
     if (this.fleeTimer > 0) {
       this.fleeTimer = Math.max(0, this.fleeTimer - dt);
+      if (this.fleeTimer === 0) this._defenseUsed = false;
       if (this.isVendor) return; // no deja su puesto
       if (this.walkVisit) this.walkVisit.scared = true;
       if (this._cowering) {
@@ -500,7 +544,7 @@ export class Npc {
     if (this.talk) { this._converse(dt); return; }
 
     if (this.fijo && this._stayAtSpot(dt)) return;
-    if (!this.navigation && this.wander <= 0 && !this.fijo) return;
+    if (!this.navigation && this.wander <= 0 && !this.fijo && !(this.target && this.deathResponse === 'auxiliar')) return;
     if (!this.target) {
       if ((this.wait -= dt) > 0) {
         if (this._atVisit()) {
@@ -933,6 +977,7 @@ export class Npc {
 
   /** La postura de este momento: la nariz y la lluvia mandan sobre lo que estuviera haciendo de pie. */
   _stanceNow() {
+    if (this.isDead || (this._counter && this._counter.phase !== 'wait')) return null;
     const person = this.person;
     if (!person || LOW_STANCES.has(this.stance)) return this.stance;
     // Se tapa la nariz solo si tiene libre esa mano (el bastón, por ejemplo, la ocupa).
@@ -1058,9 +1103,20 @@ export class Npc {
    * @param {{ player?: THREE.Vector3, frustum?: THREE.Frustum }} ctx
    */
   update(dt, ctx = {}) {
+    if (this._disposed) return;
+    if (this._pausaImpacto) {
+      dt = this.tiempoTrasImpacto(dt);
+      if (!this.pausaImpacto && !this._pausaImpacto.detenida) this._pausaImpacto = null;
+      if (dt <= 0) {
+        this._measurePlayer(ctx);
+        if (this.character && this._actualizarVisibilidad(ctx) && !this.hitLean.applied) this.hitLean.apply(this.character.group);
+        return;
+      }
+    }
+    if (this.hitLean.applied) this.hitLean.remove(this.character.group);
     const beforeX = this.position.x, beforeZ = this.position.z, beforeYaw = this.root.rotation.y;
     if (this._riseLeft > 0) this._riseLeft = Math.max(0, this._riseLeft - dt);
-    if (this.person) this._updateConduct(dt, ctx);
+    if (this.person && !this.isDead) this._updateConduct(dt, ctx);
     else this._measurePlayer(ctx);
     const reactionTime = Math.min(dt, this._hitReactionRemaining);
     this._updateReaction(dt);
@@ -1072,7 +1128,7 @@ export class Npc {
       this.moving = false;
       if (this._riseLeft <= 0) this.root.rotation.y += wrapAngle(this._punchFacing - this.root.rotation.y) * Math.min(1, dt * 12);
     } else if (countering) {
-      this.action = 'golpear';
+      this.action = this._counterPose ? 'golpear' : null;
       this.moving = false;
       if (this._ownsLocomotionState) this.state = 'defend';
     } else {
@@ -1080,13 +1136,11 @@ export class Npc {
       if (!this.koState && dt > reactionTime && this._updateWitness(dt - reactionTime)) { /* quieto, grabando o llamando */ }
       else if (!this.koState && dt > reactionTime) this._walk(dt - reactionTime);
       else this.moving = false;
-      if (this._ownsLocomotionState) this.state = this.koState ?? (this.moving ? (this.fleeTimer > 0 ? 'flee' : 'walk') : 'idle');
+      if (this._ownsLocomotionState) this.state = this.isDead ? 'dead' : this.moving ? (this.fleeTimer > 0 ? 'flee' : 'walk') : 'idle';
     }
     this.root.position.copy(this.position);
     this._updateBenchPose();
     if (this._dropped.length) this._updateDropped(dt);
-    if (this._picking.length) this._updatePicking(dt);
-    if (this.koState === 'rising' && this.umbrella && this._holder.umbrella) this._foldUmbrella();
 
     if (this.splatTimer > 0) {
       this.splatTimer -= dt;
@@ -1102,14 +1156,29 @@ export class Npc {
     }
 
     this._tickBubble(dt);
+    if (this.hitLean.active) {
+      if (LOW_STANCES.has(this.poseParams?.stance ?? this.stance)) this.hitLean.clear();
+      else {
+        this.hitLean.update(dt * RITMO_INCLINACION);
+        this.hitLean.orientar(this.root.rotation.y);
+      }
+    }
+    // Las poblaciones civiles retiran sus cadáveres del padrón al alejarse. Los encuentros
+    // con vehículos usan la misma pose y piden soltar su modelo cuando ya no está a la vista.
+    if (ctx.releaseDeadBody && this.deathSettled && ctx.player && this._playerDist > NPC_LOD.animEvery) {
+      const hidden = ctx.frustum ? !this._actualizarVisibilidad(ctx) : this._playerDist > (ctx.drawDistance ?? NPC_LOD.animStop) + NPC_LOD.drawMargin;
+      if (hidden) { this.dispose(); return; }
+    }
     if (!this.character) return;
     this._actualizarModelo(dt, ctx, beforeX, beforeZ, beforeYaw);
+    if (this.root.visible) this.hitLean.apply(this.character.group);
   }
 
   _actualizarVisibilidad(ctx) {
     const dist = ctx.player ? this._playerDist : 0;
     // fuera de cámara: ni se dibuja ni se anima
-    _sphere.center.set(this.position.x, this.position.y + 0.9, this.position.z);
+    _sphere.center.set(this.position.x, this.position.y + (this.isDead ? .45 : .9), this.position.z);
+    _sphere.radius = this.isDead ? 2.2 : 1.4; // la cabeza tendida puede seguir en pantalla aunque los pies ya no
     const onScreen = !ctx.frustum || ctx.frustum.intersectsSphere(_sphere);
     // El límite solo apaga el dibujo: ruta, reservas y tráfico siguen arriba, con su posición.
     const drawn = onScreen && dist <= (ctx.drawDistance ?? Infinity) + (this.root.visible ? NPC_LOD.drawMargin : 0);
@@ -1139,7 +1208,7 @@ export class Npc {
     }
     if (!drawn) { this.animAcc += dt; return; }
     this._updateDetail(dist);
-    this._updateSpeech(dt, ctx);
+    if (!this.isDead) this._updateSpeech(dt, ctx);
     // Huir manda sobre la postura que tuviera, menos sobre el paraguas: sale corriendo con él en la mano. El testigo
     // tiene el celular en la oreja (llamando) o al frente (grabando).
     const witness = this._witness && (this._witness.mode === 'llamar' ? 'telefono' : 'celular');
@@ -1159,6 +1228,7 @@ export class Npc {
     const interval = dist > NPC_LOD.animEvery ? .1 * budget : budget > 1 ? budget / 60 : 0;
     // Recién cambiado de modelo se anima ya: un cuadro con el modelo nuevo en su pose de reposo se ve como un destello.
     if (interval && this.animAcc < interval && !this._poseStale) return;
+    const look = this.isDead ? 0 : this.poseParams?.look ?? (stance === 'mirar-surtido' ? 0 : this.mind?.gaze(stance) ?? this._glanceAt(ctx, stance));
     // La velocidad va en metros del modelo: con la talla cambia el largo del paso, no se patina.
     const scale = REALISTIC_SCALE * (this.look?.real?.talla?.alto ?? 1);
     this.character.update(Math.min(this.animAcc, 0.2), {
@@ -1170,14 +1240,15 @@ export class Npc {
       pedestrianMotion: measureStep ? sample : null,
       ...this.poseParams,
       state: this.state, action: this.action, actionProgress: this.actionProgress,
+      troncoDirigido: this.hitLean.active,
       attack: this._counterPose ?? this.poseParams?.attack,
-      look: this.poseParams?.look ?? (stance === 'mirar-surtido' ? 0 : this.mind?.gaze(stance) ?? this._glanceAt(ctx, stance)), // mira lo que le llama la atención
+      combatGuard: this._counter?.phase === 'warning' || this._counter?.phase === 'wait' || !!this.poseParams?.combatGuard,
+      look,
       // Caer sigue a la misma mezcla que acuesta el cuerpo.
       stance,
       style: this.poseParams?.style ?? this.style,
       rising: this._riseLeft > 0,
       ko: smooth(this._koBlend),
-      koRising: this.koState === 'rising',
       koPlan: this._koPlan,
       koFrom: this._koFrom
     });
@@ -1209,15 +1280,28 @@ export class Npc {
   }
 
   /** La defensa se anuncia y conecta después; alejarse o ponerse tras una pared la evita. */
-  _counterAttack(attacker) {
-    if (this._defenseUsed || this.koState || typeof attacker?.stats?.salud !== 'number') return;
+  _counterAttack(attacker, unarmedDamage = null, damageFactor = 1) {
+    if (this._defenseUsed || !this._ownsLocomotionState || this.isVendor || this.isDead || LOW_STANCES.has(this.stance)
+      || typeof attacker?.stats?.salud !== 'number') return false;
     this._defenseUsed = true;
-    if (this.look?.real?.edad !== 'adulto' && Math.random() >= .35) return;
-    this._counter = { attacker, phase: 'wait', elapsed: 0, struck: false, damage: Math.floor(10 + Math.random() * 7) };
-    this._counterPose = null;
+    if (this.health < this.maxHealth * .3 || this.defenseResolve + .15 * (this.mind?.temper?.stand ?? 0) < .6) return false;
+    if (this.person?.real?.accesorios?.some(item => item.id === 'baston-calle') || this.person?.style?.carry) return false;
+    const weapon = this.carriesKnife ? 'cuchillo' : 'punos';
+    const damage = (this.carriesKnife ? WEAPONS.cuchillo.damage : (unarmedDamage ?? 10 + Math.random() * 7)) * damageFactor;
+    this._counter = { attacker, weapon, phase: 'wait', elapsed: 0, damage: Math.floor(damage) };
+    return true;
+  }
+
+  /** Un raponazo puede provocar la misma respuesta anunciada que una agresión de frente. */
+  defendAgainstTheft(attacker, unarmedDamage, damageFactor) {
+    return this._counterAttack(attacker, unarmedDamage, damageFactor);
   }
 
   _clearCounterAttack() {
+    if (this._counter?.weapon === 'cuchillo' && this._counter.phase !== 'wait') {
+      this.lodChar?.setWeapon?.(null);
+      if (this.fullChar !== this.lodChar) this.fullChar?.setWeapon?.(null);
+    }
     if (this._counterPose && this.action === 'golpear') this.action = null;
     this._counter = null;
     this._counterPose = null;
@@ -1227,39 +1311,35 @@ export class Npc {
     const counter = this._counter;
     if (!counter) return false;
     const attacker = counter.attacker;
-    if (this._disposed || this.koState || !attacker?.position || attacker._disposed || attacker.stats?.salud <= 0) {
+    if (this._disposed || this.isDead || !attacker?.position || attacker._disposed || attacker.stats?.salud <= 0 ||
+      attacker.isSwimming || attacker.inWater || attacker.atWheel || attacker.state === 'sleeping') {
       this._clearCounterAttack(); return false;
     }
-    // Cada nuevo golpe interrumpe la preparación; nunca devuelve daño durante el sacudón.
-    if (this._hitReactionRemaining > 0) {
-      if (counter.struck) { this._clearCounterAttack(); return false; }
-      counter.phase = 'wait'; counter.elapsed = 0; this._counterPose = null;
-      return false;
-    }
+    if (this._hitReactionRemaining > 0) return false;
     if (counter.phase === 'wait') {
-      counter.phase = 'windup'; counter.elapsed = 0;
-      this.say(DEFENSE_PHRASES[Math.floor(Math.random() * DEFENSE_PHRASES.length)], 4);
-      this._counterPose = { weapon: 'punos', step: 0, phase: 'windup', progress: 0,
+      if (counter.weapon === 'cuchillo' && !this.character) return true;
+      counter.phase = 'warning';
+      if (counter.weapon === 'cuchillo') this.character?.setWeapon?.('cuchillo');
+      this.say(counter.weapon === 'cuchillo' ? '¡Atrás, tengo cuchillo!' : any(DEFENSE_PHRASES), 2);
+      // El aviso se dibuja al menos un cuadro, también si el golpe entró en un cuadro largo.
+      return true;
+    }
+    if (counter.phase === 'warning' || (counter.phase === 'windup' && counter.elapsed < NPC_COMBAT.counterWindup * .6)) {
+      const yaw = Math.atan2(attacker.position.x - this.position.x, attacker.position.z - this.position.z);
+      this.root.rotation.y += wrapAngle(yaw - this.root.rotation.y) * Math.min(1, dt * 12);
+    }
+    counter.elapsed += dt;
+    if (counter.phase === 'warning') {
+      const duration = counter.weapon === 'cuchillo' ? NPC_COMBAT.knifeWarning : NPC_COMBAT.counterWarning;
+      if (counter.elapsed < duration) return true;
+      counter.elapsed -= duration;
+      counter.phase = 'windup';
+      this._counterPose = { weapon: counter.weapon, step: 0, phase: 'windup', progress: 0,
         timing: { windup: NPC_COMBAT.counterWindup, active: NPC_COMBAT.counterActive, recovery: NPC_COMBAT.counterRecovery } };
     }
-    this.root.rotation.y += wrapAngle(Math.atan2(attacker.position.x - this.position.x, attacker.position.z - this.position.z) - this.root.rotation.y) * Math.min(1, dt * 12);
-    counter.elapsed += dt;
     if (counter.phase === 'windup' && counter.elapsed >= NPC_COMBAT.counterWindup) {
       counter.phase = 'active'; counter.elapsed -= NPC_COMBAT.counterWindup;
-      counter.struck = true;
-      if (canReachCombatTarget({ from: this.position, to: attacker.position,
-        collisions: this.collisions ?? attacker._lastCollisions, getWaterInfo: this.getWaterInfo,
-        maxDistance: NPC_COMBAT.counterRange,
-        fromInWater: false, toInWater: !!attacker.inWater })) {
-        attacker.stats.salud = Math.max(0, attacker.stats.salud - counter.damage);
-        attacker.stats.danoPor = 'pelea';
-        attacker.audio?.playPunchHit?.();
-        if (typeof window !== 'undefined' && window.dispatchEvent) {
-          window.dispatchEvent(new CustomEvent('toast', {
-            detail: { text: `¡Se me defendió! −${counter.damage} de salud.`, type: 'warn' }
-          }));
-        }
-      }
+      this._counterContact(counter);
     }
     if (counter.phase === 'active' && counter.elapsed >= NPC_COMBAT.counterActive) {
       counter.phase = 'recovery'; counter.elapsed -= NPC_COMBAT.counterActive;
@@ -1274,14 +1354,40 @@ export class Npc {
     return true;
   }
 
+  _counterContact({ attacker: player, weapon, damage }) {
+    const dx = player.position.x - this.position.x, dz = player.position.z - this.position.z;
+    const distance = Math.hypot(dx, dz), yaw = this.root.rotation.y;
+    if (distance > 1e-6 && (dx * Math.sin(yaw) + dz * Math.cos(yaw)) / distance < WEAPONS[weapon].arc) return;
+    if (!canReachCombatTarget({ from: this.position, to: player.position,
+      collisions: this.collisions ?? player._lastCollisions, getWaterInfo: this.getWaterInfo,
+      maxDistance: WEAPONS[weapon].range, toInWater: !!player.isSwimming || !!player.inWater })) return;
+    const previousHealth = player.stats.salud;
+    const health = player.stats.salud = Math.max(0, previousHealth - damage);
+    player.stats.danoPor = 'pelea';
+    player.receiveHit?.(this._direction.set(dx, 0, dz), 1.6, { salud: health });
+    player.audio?.playPunchHit?.(weapon);
+    if (globalThis.window?.dispatchEvent) {
+      window.dispatchEvent(new CustomEvent('npc-player-hit', { detail: { attacker: this, victim: player, weapon,
+        damage: previousHealth - health, previousHealth, health, position: player.position.clone() } }));
+      window.dispatchEvent(new CustomEvent('toast', {
+        detail: { text: `¡Se me defendió! −${previousHealth - health} de salud.`, type: 'warn' }
+      }));
+    }
+  }
+
   /**
    * false rechaza el contacto; un número >=0 lo acepta y es su recompensa.
    * Los IDs se deduplican por atacante, sin bloquear pasos legítimos del combo.
    */
   takeHit({ damage = 10, dir = null, knockback = 0, attacker = null, weapon = 'punos', attackId = null, id = null } = {}) {
-    this._witness = null; // un golpe o un carro le hacen soltar el celular
-    if (this._disposed || this.koState || !Number.isFinite(damage) || damage <= 0) return false;
+    if (this._disposed || this.koState || !(this.health > 0) || !Number.isFinite(damage) || damage <= 0) return false;
     if (!this._acceptAttackId(attacker, attackId ?? id)) return false;
+    const previousHealth = this.health;
+    this._witness = null;
+    this._witnessFinished = false;
+    this.mind?.leaveTalk?.();
+    this.talk?.leave?.();
+    this._clearCounterAttack();
     this.hitBy = attacker; // la mente culpa a quien le pegó (entities/npc/awareness.js); null: un carro, nadie
     let dx = dir?.x ?? 0, dz = dir?.z ?? 0;
     if (!dir && attacker?.position) { dx = this.position.x - attacker.position.x; dz = this.position.z - attacker.position.z; }
@@ -1304,17 +1410,20 @@ export class Npc {
     if (this._ownsLocomotionState) this.state = 'recibirGolpe';
     // Quien está en el piso no sale rodando con el golpe: primero tiene que pararse.
     this._knockVel.copy(this._lastHit).multiplyScalar(low || !Number.isFinite(knockback) ? 0 : Math.max(0, knockback) * 2 / NPC_COMBAT.stagger);
-    if (this.health <= 0) this._startKnockout(bench);
+    if (this.health <= 0) this._dieFromHit({ attacker, weapon, attackId: attackId ?? id, previousHealth,
+      wasAggressor: this.isAggressor === true }, bench);
     else {
+      if (!low && this._riseLeft <= 0) this._inclinarGolpe(this._lastHit, knockback);
+      else this._enderezarGolpe();
       this._setFleeAway(this._lastHit.x, this._lastHit.z);
       this.fleeDir.copy(this._lastHit);
       this.fleeTimer = Math.max(this.fleeTimer, NPC_COMBAT.flee);
       this.panicTimer = NPC_COMBAT.flee;
       if (this._bubbleTimer <= 0) this.say(HIT_PHRASES[Math.floor(Math.random() * HIT_PHRASES.length)], 4);
+      if (!low) this._counterAttack(attacker);
     }
     if (this.looted) return 0;
     this.looted = true;
-    if (!low) this._counterAttack(attacker); // desde el piso nadie devuelve el golpe
     const dropMoney = 200 + Math.floor(Math.random() * 400);
     if (typeof window !== 'undefined' && window.dispatchEvent) {
       const verb = WEAPONS[weapon]?.hitVerb ?? 'Golpe';
@@ -1326,32 +1435,92 @@ export class Npc {
     return dropMoney;
   }
 
-  _startKnockout(bench = false) {
+  /** El cruce a cero queda consumido antes de notificar: un oyente puede guardar o intentar otro golpe. */
+  _dieFromHit({ attacker = null, weapon = 'punos', attackId = null, previousHealth, wasAggressor = false }, bench = false) {
+    if (this._disposed || this.isDead || !(previousHealth > 0) || this.health !== 0) return false;
+    this._startDeath(bench);
+    globalThis.window?.dispatchEvent?.(new CustomEvent('npc-death', { detail: {
+      victim: this, attacker, position: this.position.clone(), previousHealth, health: 0, weapon, attackId, wasAggressor
+    } }));
+    return true;
+  }
+
+  _startDeath(bench, pose = null) {
+    this.koState = 'down';
+    this.state = 'dead';
+    this.limpiarImpacto();
     this._clearCounterAttack();
+    this.mind?.reset?.();
+    this.talk?.leave?.();
+    this.talk = null;
+    this._witness = null;
+    this._witnessFinished = false;
+    this.walkVisit = null;
+    this.target = null;
+    this.route.length = 0;
+    this.routeIndex = 0;
+    this.wait = 0;
     this._hitReactionRemaining = 0;
     this.action = null;
     this.actionProgress = 0;
-    this.koState = 'down';
-    this.koTimer = NPC_COMBAT.downMin + Math.random() * NPC_COMBAT.downExtra;
+    this.poseParams = null;
+    this.moving = false;
     this.fleeTimer = 0;
-    this._koEnd = null; // el de una caída anterior ya no dice nada
     this.panicTimer = 0;
-    this._planFall(bench);
+    if (pose && Object.hasOwn(KO_PLANS, pose.plan)) {
+      this._koPlan = pose.plan;
+      this._koFrom = LOW_STANCES.has(pose.from) ? pose.from : null;
+      this._koTurn = null;
+    } else this._planFall(bench);
+    this._riseLeft = 0;
+    this._standingUp = false;
+    this.stance = null;
     this._dropHeld();
+    if (this.phone) this.phone.visible = false;
+    this._smokingChar?.setSmoking?.(false);
+    this._smokingChar = null;
     if (this._bubbleEl) { this._bubbleEl.remove(); this._bubbleEl = null; acabarFrase(this); }
     this._bubbleTimer = 0;
   }
 
-  /** Sacudón, caída, tendido y levantada; corre aunque el peatón esté fuera de cámara. */
+  /** Rehidrata un fallecido en la posición asignada por el guardado, sin representar otro incidente. */
+  restoreDeath({ facing, plan, from } = {}) {
+    if (this._disposed) return;
+    const bench = this.stance === 'banca';
+    this.health = 0;
+    this.looted = true;
+    this.staggerTimer = 0;
+    this._knockVel.set(0, 0, 0);
+    if (Number.isFinite(facing)) this.root.rotation.y = facing;
+    if (!this.isDead) {
+      if (LOW_STANCES.has(this.stance)) { this._lowFrom = this.stance; this._riseLeft = CONDUCT.riseFast; }
+      this._startDeath(bench, { plan, from });
+    } else if (Object.hasOwn(KO_PLANS, plan)) {
+      this._koPlan = plan;
+      this._koFrom = LOW_STANCES.has(from) ? from : null;
+    }
+    this.root.rotation.y = Number.isFinite(facing) ? facing : this._fallYaw;
+    this._koTurn = null;
+    this._koEnd?.copy(this.position);
+    for (const drop of this._dropped) {
+      drop.yaw = this.root.rotation.y;
+      this._restDrop(drop, this.position);
+    }
+    this._koBlend = 1;
+    this._poseStale = true;
+    this.root.position.copy(this.position);
+    this._updateReaction(0);
+    this._updateDropped(DROP_TIME);
+    if (this.character) this._actualizarModelo(0, {}, this.position.x, this.position.z, this.root.rotation.y);
+  }
+
+  /** Sacudón y caída; corre también fuera de cámara. Una vez en el suelo conserva la última pose. */
   _updateReaction(dt) {
     this._hitReactionRemaining = Math.max(0, this._hitReactionRemaining - dt);
     if (this.panicTimer > 0) this.panicTimer = Math.max(0, this.panicTimer - dt);
     if (this.staggerTimer > 0) {
-      const elapsed = Math.min(dt, this.staggerTimer);
-      // Integral exacta del empuje lineal: no recorre más a 10 FPS que a 60 FPS.
-      const step = elapsed * (this.staggerTimer - elapsed / 2) / NPC_COMBAT.stagger;
       if (this._knockVel.x || this._knockVel.z) {
-        this._nextPosition.copy(this.position).addScaledVector(this._knockVel, step);
+        this._nextPosition.copy(this.position).addScaledVector(this._knockVel, avanceEmpujon(this.staggerTimer, dt));
         resolveCombatWalk({ from: this.position, to: this._nextPosition,
           groundHeight: this.groundHeight, isWalkable: this.isWalkable,
           getWaterInfo: this.getWaterInfo,
@@ -1360,15 +1529,10 @@ export class Npc {
       this.staggerTimer = Math.max(0, this.staggerTimer - dt);
     }
 
-    if (this.koState === 'down') {
-      if (this._koBlend < 1) {
-        this._koBlend = Math.min(1, this._koBlend + dt / NPC_COMBAT.fall);
-        this._turnWhileFalling();
-        if (this._koBlend >= 1) this._poseStale = true; // el cuadro que llega a tendido todavía se anima
-      } else if ((this.koTimer -= dt) <= 0) this.koState = 'rising';
-    } else if (this.koState === 'rising') {
-      this._koBlend = Math.max(0, this._koBlend - dt / NPC_COMBAT.rise);
-      if (this._koBlend <= 0) this._recover();
+    if (this.isDead && this._koBlend < 1) {
+      this._koBlend = Math.min(1, this._koBlend + dt / NPC_COMBAT.fall);
+      this._turnWhileFalling();
+      if (this._koBlend >= 1) this._poseStale = true;
     }
   }
 
@@ -1377,7 +1541,7 @@ export class Npc {
     const end = this._koEnd ??= new THREE.Vector3();
     end.copy(this.position);
     if (!this._knockVel.x && !this._knockVel.z) return end;
-    this._nextPosition.copy(this.position).addScaledVector(this._knockVel, this.staggerTimer / 2);
+    this._nextPosition.copy(this.position).addScaledVector(this._knockVel, avanceEmpujon(this.staggerTimer));
     return resolveCombatWalk({ from: this.position, to: this._nextPosition,
       groundHeight: this.groundHeight, isWalkable: this.isWalkable, getWaterInfo: this.getWaterInfo,
       collisions: this.collisions ?? this._combatCollisions }, end);
@@ -1405,7 +1569,7 @@ export class Npc {
     let last = at.y;
     for (let d = 0; d <= length; d += step) {
       const x = at.x + backX * d, z = at.z + backZ * d;
-      const ground = this.groundHeight(x, z);
+      const ground = this.groundHeight(x, z, at.y);
       if (!Number.isFinite(ground) || Math.abs(ground - at.y) > floor || (d > 0 && Math.abs(ground - last) > curb)) return false;
       last = ground;
       // Los pies ya están donde está: lo que tenga pegado solo estorba si el cuerpo va hacia allá.
@@ -1439,7 +1603,7 @@ export class Npc {
 
   /** El empuje no lleva el cuerpo a meterse en lo que no detiene a nadie (a lo sólido ya no entra): se queda antes. */
   _stopKnockShort() {
-    const reach = this.staggerTimer / 2, dist = Math.hypot(this._knockVel.x, this._knockVel.z) * reach;
+    const reach = avanceEmpujon(this.staggerTimer), dist = Math.hypot(this._knockVel.x, this._knockVel.z) * reach;
     const collisions = this.collisions ?? this._combatCollisions;
     if (!(dist > 0) || !collisions?.queryFallObstacles) return;
     const { x, y, z } = this.position, room = dist + FALL.trunk;
@@ -1492,7 +1656,7 @@ export class Npc {
   /** Cómo va a quedar mirando al terminar de caer: de ahí sale dónde queda lo que se le cae. */
   get _fallYaw() { return this._koTurn ? this._koTurn.from + this._koTurn.by : this.root.rotation.y; }
 
-  /** Queda noqueado: lo que tenía en la mano cae al piso a su lado, y lo recoge cuando la mano llega a él. */
+  /** Lo que llevaba cae junto al cuerpo. El LOD nunca vuelve a ponérselo en la mano. */
   _dropHeld() {
     const umbrella = this.umbrella;
     if (umbrella?.visible && this._holder.umbrella) {
@@ -1558,7 +1722,7 @@ export class Npc {
   _dropFits(at, x, z, farX, farZ) {
     for (let k = 0; k <= 1; k += .5) {
       const px = x + (farX - x) * k, pz = z + (farZ - z) * k;
-      const ground = this.groundHeight(px, pz);
+      const ground = this.groundHeight(px, pz, at.y);
       if (!Number.isFinite(ground) || Math.abs(ground - at.y) > DROP_FLOOR) return false;
       const r = DROP_REACH;
       const list = this._fallRoom(px - r, pz - r, px + r, pz + r);
@@ -1570,7 +1734,7 @@ export class Npc {
     return true;
   }
 
-  /** Junto al cuerpo, donde va a apoyar la mano; si ahí no cabe, más cerca, al otro lado o apuntando para otra parte; en el peor caso, a sus pies. */
+  /** Busca un lugar libre junto al cuerpo, manteniendo la altura del piso que pisaba. */
   _restDrop(drop, at) {
     const { how, yaw } = drop;
     let dx = 0, dz = 0, y = at.y, turn = 0;
@@ -1582,112 +1746,40 @@ export class Npc {
         const x = at.x + lx * baseCos + lz * baseSin, z = at.z - lx * baseSin + lz * baseCos;
         if (!this._dropFits(at, x, z, x + how.far[0] * cos + how.far[1] * sin, z - how.far[0] * sin + how.far[1] * cos)) continue;
         dx = x - at.x; dz = z - at.z;
-        y = this.groundHeight(x, z);
+        y = this.groundHeight(x, z, at.y);
         turn = tryTurn;
         break search;
       }
     }
+    drop.fall = 0;
     drop.x = dx; drop.z = dz;
     drop.floor = y + how.lift;
     drop.standing.setFromAxisAngle(_yAxis, yaw + turn);
     drop.lying.copy(drop.standing).multiply(_q1.setFromAxisAngle(_xAxis, how.tilt)).multiply(_q2.setFromAxisAngle(_yAxis, how.spin));
   }
 
-  /** Cae hasta el piso y ahí se queda: no sube solo. Empieza a irse cuando la mano ya llegó. */
+  /** Los accesorios se apoyan en el piso, a la misma altura que el cuerpo. */
   _updateDropped(dt) {
-    const rising = this.koState === 'rising';
-    for (let i = this._dropped.length - 1; i >= 0; i--) {
-      const drop = this._dropped[i], mesh = drop.mesh, how = drop.how;
-      if (rising && 1 - smooth(this._koBlend) >= koHandDown(this._koPlan) && this.root.visible && this.character) {
-        this._dropped.splice(i, 1);
-        this._startPicking(drop);
-        continue;
-      }
+    for (const drop of this._dropped) {
+      if (drop.fall >= 1) continue;
+      const { mesh, how } = drop;
       drop.fall = Math.min(1, drop.fall + dt / DROP_TIME);
       const k = drop.fall * drop.fall;
       const px = this.position.x, pz = this.position.z, cos = Math.cos(drop.yaw), sin = Math.sin(drop.yaw);
       const fromX = how.from[0] * cos + how.from[1] * sin, fromZ = -how.from[0] * sin + how.from[1] * cos;
-      mesh.position.set(px + fromX + (drop.x - fromX) * drop.fall, drop.top + (drop.floor - drop.top) * k, pz + fromZ + (drop.z - fromZ) * drop.fall);
+      const x = px + fromX + (drop.x - fromX) * drop.fall, z = pz + fromZ + (drop.z - fromZ) * drop.fall;
+      mesh.position.set(x, drop.top + (drop.floor - drop.top) * k, z);
       mesh.quaternion.slerpQuaternions(drop.standing, drop.lying, k);
+      if (how === DROP_CANE) {
+        const floorAt = drop.floorAt ??= (px, pz) => this.groundHeight(px, pz, this.position.y);
+        mesh.position.y = Math.max(mesh.position.y, streetCaneContactY(mesh, floorAt));
+      }
       mesh.visible = this.root.visible;
     }
   }
 
-  /** La mano llegó: desde aquí el objeto va con ella, y en un momento queda como se lleva. */
-  _startPicking(drop) {
-    const mesh = drop.mesh, cane = mesh === this._fallenCane;
-    const motion = this.character.grab?.(mesh, drop.how.grip);
-    if (!motion) { this._leaveFloor(mesh); return; }
-    mesh.position.copy(motion.from.position);
-    mesh.quaternion.copy(motion.from.quaternion);
-    mesh.scale.copy(motion.from.scale);
-    mesh.visible = true;
-    if (!cane) this._holder.umbrella = this.character;
-    this._picking.push({ mesh, cane, t: 0, ...motion });
-  }
-
-  _updatePicking(dt) {
-    for (let i = this._picking.length - 1; i >= 0; i--) {
-      const pick = this._picking[i];
-      pick.t = Math.min(1, pick.t + dt / PICK_TIME);
-      const k = smooth(pick.t), mesh = pick.mesh;
-      mesh.position.lerpVectors(pick.from.position, pick.to.position, k);
-      mesh.quaternion.slerpQuaternions(pick.from.quaternion, pick.to.quaternion, k);
-      mesh.scale.lerpVectors(pick.from.scale, pick.to.scale, k);
-      if (pick.t >= 1 && pick.cane) this._caneBackInHand(mesh);
-      if (pick.t >= 1) this._picking.splice(i, 1);
-    }
-  }
-
-  /** El bastón suelto se cambia por el que siempre lleva en la mano: están en el mismo sitio. */
-  _caneBackInHand(mesh) {
-    mesh.removeFromParent();
-    mesh.visible = false;
-    this._setCaneInHand(true);
-  }
-
-  /** Cambió de modelo con algo a medio acomodar: queda puesto de una, en la mano del que entra. */
-  _finishPicking() {
-    for (const pick of this._picking.splice(0)) {
-      if (pick.cane) this._caneBackInHand(pick.mesh);
-      else {
-        // Queda en la mano; si es otro modelo el que sigue, `_updateUmbrella` lo pasa a él.
-        pick.mesh.position.copy(pick.to.position);
-        pick.mesh.quaternion.copy(pick.to.quaternion);
-        pick.mesh.scale.copy(pick.to.scale);
-      }
-    }
-  }
-
-  _leaveFloor(mesh) {
-    mesh.removeFromParent();
-    mesh.visible = false;
-    if (mesh === this._fallenCane) this._setCaneInHand(true);
-  }
-
-  _pickUpDropped() {
-    for (const { mesh } of this._dropped) this._leaveFloor(mesh);
-    this._dropped.length = 0;
-    this._finishPicking();
-    if (this._fallenCane && !this._fallenCane.parent) this._setCaneInHand(true);
-  }
-
-  _recover() {
-    this.koState = null;
-    this.health = this.maxHealth;
-    this._koFrom = null;
-    this._koPlan = 'espalda';
-    this._pickUpDropped();
-    this._openUmbrella();
-    // Recuperarse no crea otra recompensa ni otro intento de defensa.
-    this._setFleeAway(this._lastHit.x, this._lastHit.z);
-    this.fleeDir.copy(this._lastHit);
-    this.fleeTimer = NPC_COMBAT.riseFlee;
-    this.panicTimer = NPC_COMBAT.riseFlee;
-  }
-
   say(text, duration = 3.5) {
-    if (typeof document === 'undefined') return;
+    if (this._disposed || this.isDead || typeof document === 'undefined') return;
     const container = document.getElementById('npc-bubbles-container') ?? document.body;
     if (!container) return;
 
@@ -1737,42 +1829,21 @@ export class Npc {
   _updateUmbrella(open) {
     if (open) this.umbrella ??= createUmbrella(this.person?.paraguas ?? 0);
     const umbrella = this.umbrella;
-    if (!umbrella || this._dropped.some(drop => drop.mesh === umbrella) || this._picking.some(pick => pick.mesh === umbrella)) return;
-    const carrying = this.koState === 'rising' && !!this._holder.umbrella; // ya lo recogió y se está parando con él
-    umbrella.visible = open || carrying;
+    if (!umbrella || this._dropped.some(drop => drop.mesh === umbrella)) return;
+    umbrella.visible = open;
     if (!umbrella.visible || !this.character || this._holder.umbrella === this.character) return;
     if (!this.character.hold?.(umbrella, 'paraguas')) this.root.add(umbrella);
-    umbrella.castShadow = this.character === this.fullChar; // lejos: sin sombra propia, como el cuerpo
+    umbrella.castShadow = this.character === this.fullChar;
     this._holder.umbrella = this.character;
-    if (carrying) this._foldUmbrella();
-  }
-
-  /**
-   * Mientras se para lo lleva cerrado: apretada a lo ancho, la tela se recoge sin geometría nueva, y el palo, que se
-   * volvería un hilo, lo pone el mismo bastón de quien lo lleva. Solo cuesta durante la subida; abre con el brazo ya arriba.
-   */
-  _foldUmbrella() {
-    const mesh = this.umbrella, pick = this._picking.find(item => item.mesh === mesh);
-    const grip = pick ? smooth(Math.min(1, pick.t * 4)) : 1;
-    const up = Math.min(1, Math.max(0, (1 - smooth(this._koBlend) - UMBRELLA_OPENS) / (1 - UMBRELLA_OPENS)));
-    const width = 1 - (1 - UMBRELLA_CLOSED) * grip * (1 - smooth(up));
-    mesh.scale.set(mesh.scale.y * width, mesh.scale.y, mesh.scale.y * width);
-    const stick = this._closedStick ??= createClosedStick(this.person?.paraguas ?? 0);
-    if (stick.parent !== mesh) mesh.add(stick);
-    stick.visible = width < .5;
-    stick.scale.set(1 / width, 1, 1 / width);
-  }
-
-  _openUmbrella() {
-    const mesh = this.umbrella;
-    if (!mesh) return;
-    mesh.scale.setScalar(mesh.scale.y);
-    this._closedStick?.removeFromParent();
   }
 
   dispose() {
     if (this._disposed) return;
     this._disposed = true;
+    this.bodyReleased = this.isDead;
+    this.root.visible = false;
+    this.talk?.leave?.();
+    this.limpiarImpacto();
     this._clearCounterAttack();
     if (this._bubbleEl) {
       this._bubbleEl.remove();

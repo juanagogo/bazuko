@@ -13,6 +13,7 @@ import { Player } from '../src/entities/Player.js';
 import { Bicycle } from '../src/entities/Bicycle.js';
 import { CollisionSystem } from '../src/systems/CollisionSystem.js';
 import { StatsSystem } from '../src/systems/StatsSystem.js';
+import { SangreGolpes } from '../src/systems/SangreGolpes.js';
 import { CHARACTER_SCALE } from '../src/utils/constants.js';
 
 globalThis.ProgressEvent ??= class { constructor(type, values) { Object.assign(this, { type }, values); } };
@@ -86,6 +87,7 @@ function handSurfaces(character, side) {
   assert.ok(patches.length, `superficie de la mano ${side}`);
   return patches;
 }
+
 function gripDistance(grip, patches) {
   const { radiusTop, height } = grip.geometry.parameters;
   const samples = [-.45, -.2, 0, .2, .45].flatMap(t => [0, 1, 2, 3, 4, 5].map(i => {
@@ -104,6 +106,7 @@ function gripDistance(grip, patches) {
   }
   return Math.sqrt(gap);
 }
+
 test('los dos cuerpos agarran la dirección final de la bicicleta y giran con los pedales', async () => {
   const scene = new THREE.Scene();
   const input = { axis: { x: 0, z: 0 }, isRunning: false, consumePress: () => false, isDown: () => false };
@@ -361,6 +364,189 @@ test('salto y puñetazo se componen sobre el cuerpo vestido también con velocid
   character.dispose();
 });
 
+test('el gancho izquierdo barre desde fuera y llega al frente con el codo abierto hacia su lado', async () => {
+  for (const [sexo, edad, lod] of [['hombre', 'adulto', false], ['mujer', 'mayor', true]]) {
+    const character = await createRealisticCharacter({ real: { sexo, edad } }, { andar: 'trote', lod });
+    try {
+      const dt = 1 / 60, { group } = character;
+      const point = name => group.worldToLocal(joint(group, name).getWorldPosition(new THREE.Vector3()));
+      const pose = (phase, progress) => {
+        character.update(dt, { action: 'golpear', attack: { weapon: 'punos', step: 2, phase, progress }, movement: { grounded: true } });
+        return point('LeftHandMiddle1').sub(point('Neck'));
+      };
+      for (let i = 0; i < 60; i++) character.update(dt, {});
+      const load = pose('windup', .6);
+      const hit = pose('active', 0);
+      const elbow = point('LeftForeArm');
+      const upper = point('LeftArm').sub(elbow), forearm = point('LeftHand').sub(elbow);
+      const length = upper.length() + forearm.length();
+      assert.ok(load.x - hit.x > length * .5, 'la mano parte desde el costado izquierdo');
+      assert.ok(Math.abs(hit.x) < .16 * length && hit.z > .85 * length, 'los nudillos llegan delante del pecho');
+      assert.ok(elbow.x - point('Neck').x > .35 * length, 'el codo queda fuera de la silueta del tronco');
+      const angle = THREE.MathUtils.radToDeg(upper.angleTo(forearm));
+      assert.ok(angle > 70 && angle < 110, `el arco conserva la flexión del codo: ${angle}°`);
+    } finally { character.dispose(); }
+  }
+});
+
+test('a 0,25× el trazo de cada golpe nace con la mano visible de los dos modelos y se queda en ese punto', async t => {
+  const escena = new THREE.Scene(), dt = .25 / 60;
+  const camara = new THREE.PerspectiveCamera(45, 16 / 10, .05, 50);
+  camara.position.set(-3.2, 1.4, .6);
+  camara.lookAt(0, 1, .5); camara.updateMatrixWorld();
+  const input = { axis: { x: 0, z: 0 }, consumePress: () => false, isDown: () => false };
+  const jugador = new Player(escena, input);
+  const sangre = new SangreGolpes(escena, {}, jugador, null);
+  t.after(() => { sangre.dispose(); jugador.dispose(); });
+  sangre.setNivel('discreta', false);
+  jugador.position.set(0, 0, 0);
+  jugador.root.position.copy(jugador.position);
+  jugador.root.rotation.y = 0;
+  const victima = { position: new THREE.Vector3(0, 0, .82) };
+  for (const modelo of ['realista', 'procedural']) {
+    await jugador.setModel(modelo);
+    const cuerpo = jugador.character;
+    for (const [paso, lado] of [[0, 'Left'], [1, 'Right'], [2, 'Left']]) {
+      sangre.limpiar();
+      const ataque = { id: 10 + paso, step: paso, weapon: 'punos', phase: 'windup', progress: 0 };
+      const pose = () => cuerpo.update(dt, { attack: ataque, action: 'golpear', movement: { grounded: true } });
+      for (let cuadro = 0; cuadro <= 20; cuadro++) { ataque.progress = cuadro / 24; pose(); }
+      const atacante = { root: jugador.root, position: jugador.position, character: cuerpo, attack: ataque };
+      sangre.contacto(atacante, victima, 'punos', 12, ataque.id);
+      const marca = sangre.contactos.children[0];
+      const ancla = modelo === 'realista' ? joint(cuerpo.group, lado + 'HandMiddle1')
+        : cuerpo.group.getObjectByName(lado.toLowerCase() + 'Hand');
+      const anterior = ancla.getWorldPosition(new THREE.Vector3());
+      ataque.phase = 'active'; ataque.progress = 0; pose();
+      const contacto = ancla.getWorldPosition(new THREE.Vector3());
+      assert.ok(anterior.distanceTo(contacto) > .012);
+      marca.onBeforeRender(null, escena, camara);
+      const pixelY = p => p.clone().project(camara).y * 400; // mitad de una ventana de 800 px de alto
+      assert.ok(Math.abs(pixelY(marca.position) - pixelY(contacto)) < 3, `${modelo}, altura del golpe ${paso + 1}`);
+      assert.ok(marca.position.distanceTo(contacto) < .13);
+      assert.ok(camara.position.distanceTo(marca.position) < camara.position.distanceTo(contacto), 'sale a la superficie visible de la mano');
+      assert.equal(marca.material.depthTest, true);
+      const fijada = marca.position.clone();
+      ataque.phase = 'recovery'; ataque.progress = 1; pose();
+      marca.onBeforeRender(null, escena, camara);
+      assert.deepEqual(marca.position, fijada);
+    }
+  }
+});
+
+test('el cruzado coincide con el contacto a 30, 60 y 144 FPS y transfiere la guardia al cambiar de LOD', async t => {
+  const look = { real: { sexo: 'mujer', edad: 'mayor', ropa: 'saco' } };
+  const close = await createRealisticCharacter(look, { andar: 'trote' });
+  const far = await createRealisticCharacter(look, { andar: 'trote', lod: true });
+  t.after(() => { close.dispose(); far.dispose(); });
+  const movement = { grounded: true };
+  const punch = (id, phase, progress) => ({ action: 'golpear', attack: { id, weapon: 'punos', step: 1, phase, progress }, movement });
+  const points = ['Spine2', 'RightArm', 'RightForeArm', 'RightHand', 'LeftForeArm'];
+  const upper = figure => points.map(name => joint(figure.group, name).quaternion.clone().normalize());
+  const same = (first, second) => first.every((q, i) => q.angleTo(second[i]) < .0001);
+  const world = (figure, name) => joint(figure.group, name).getWorldPosition(new THREE.Vector3());
+  const arm = (figure, side) => world(figure, side + 'HandMiddle1').sub(world(figure, 'Neck'));
+  let reference;
+  for (const fps of [30, 60, 144]) {
+    for (let i = 0; i / fps < .12; i++) close.update(1 / fps, punch(fps, 'windup', i / fps / .12));
+    close.update(0, punch(fps, 'windup', 1));
+    const end = upper(close), feet = ['LeftToeBase', 'RightToeBase'].map(name => world(close, name));
+    close.update(0, punch(fps, 'active', 0));
+    const contact = upper(close);
+    reference ??= contact;
+    assert.ok(same(contact, reference) && same(contact, end), 'el contacto siempre muestrea el mismo cuadro del clip');
+    assert.ok(arm(close, 'Right').z > .50 && arm(close, 'Right').y > -.03, 'los nudillos llegan al frente a la altura del cuello');
+    for (let i = 0; i < 5; i++) close.update(0, punch(fps, 'active', 0));
+    assert.ok(same(upper(close), contact), 'durante la pausa se mantiene la extensión');
+    assert.ok(['LeftToeBase', 'RightToeBase'].every((name, i) => feet[i].distanceTo(world(close, name)) < 1e-7));
+    close.update(0, punch(fps, 'recovery', 1));
+    close.update(.25, { combatGuard: true, movement });
+    for (const side of ['Left', 'Right']) assert.ok(arm(close, side).y > -.16, 'ambas manos siguen delante del pecho');
+    far.applyMotion(close.motionState());
+    far.update(0, { combatGuard: true, movement });
+    assert.ok(same(upper(far), upper(close)), 'el modelo lejano sigue en la misma fase de la guardia');
+    for (let i = 0; i < fps / 3; i++) close.update(1 / fps, { movement });
+    for (const side of ['Left', 'Right']) assert.ok(arm(close, side).y < -.40, 'al terminar la ventana las manos vuelven al andar');
+  }
+});
+
+test('solo la mano que golpea sin arma recoge los dedos y el pulgar hasta el contacto', async () => {
+  const character = await createRealisticCharacter({ real: { sexo: 'mujer', edad: 'joven' } }, { andar: 'trote' });
+  try {
+    const dt = 1 / 60;
+    for (let i = 0; i < 60; i++) character.update(dt, {});
+    const pose = (step, phase, progress, weapon = 'punos') => {
+      character.update(dt, { action: 'golpear', attack: { weapon, step, phase, progress }, movement: { grounded: true } });
+    };
+    for (const [side, other, step] of [['Left', 'Right', 0], ['Right', 'Left', 1], ['Left', 'Right', 2]]) {
+      const jointOf = name => joint(character.group, name);
+      const hand = jointOf(side + 'Hand'), knuckle = jointOf(side + 'HandMiddle1').position;
+      const forward = knuckle.clone().normalize();
+      const width = jointOf(side + 'HandIndex1').position.distanceTo(jointOf(side + 'HandPinky1').position);
+      const digits = ['Index', 'Middle', 'Ring', 'Pinky', 'Thumb'];
+      const rotations = owner => digits.flatMap(digit => [1, 2, 3].map(i => jointOf(owner + 'Hand' + digit + i).quaternion.clone()));
+      const match = (actual, expected) => actual.every((q, i) => Math.abs(q.dot(expected[i])) > .999999);
+      pose(step, 'windup', 0);
+      const open = rotations(side), guard = rotations(other);
+      pose(step, 'windup', .6);
+      const loaded = rotations(side);
+      pose(step, 'active', 0);
+      assert.ok(match(rotations(side), loaded), 'el puño ya se cerró antes de tocar');
+      assert.ok(match(rotations(other), guard), 'la mano libre conserva el gesto del clip');
+      for (const digit of digits) {
+        const end = jointOf(side + 'Hand' + digit + '3');
+        const tip = hand.worldToLocal(end.localToWorld(new THREE.Vector3(0, end.position.length() * .7, 0)));
+        assert.ok(tip.clone().sub(knuckle).dot(forward) < 0, side + digit + ' queda detrás de los nudillos');
+        assert.ok(tip.distanceTo(knuckle.clone().multiplyScalar(.6)) < width * (digit === 'Thumb' ? .95 : .70),
+          side + digit + ' queda junto a la palma');
+      }
+      pose(step, 'recovery', 1);
+      assert.ok(match(rotations(side), open), 'suelta la mano al terminar la recuperación');
+      pose(step, 'active', 0);
+      pose(0, 'active', 0, 'cuchillo');
+      assert.ok(match(rotations(side), open), 'al cambiar de arma el agarre vuelve al del clip');
+    }
+  } finally { character.dispose(); }
+});
+
+test('las cinco yemas envuelven cada objeto en reposo y al contactar, y sueltan los dedos al desequiparlo', async t => {
+  for (const [sexo, edad, lod] of [['hombre', 'adulto', false], ['mujer', 'mayor', true]]) {
+    const character = await createRealisticCharacter({ real: { sexo, edad } }, { lod });
+    t.after(() => character.dispose());
+    const movement = { grounded: true };
+    character.update(0, { movement });
+    const digits = ['Thumb', 'Index', 'Middle', 'Ring', 'Pinky'];
+    const fingers = digits.map(digit => [1, 2, 3].map(i => joint(character.group, 'RightHand' + digit + i)));
+    const neutral = fingers.flat().map(bone => bone.quaternion.clone().normalize());
+    for (const weapon of ['cuchillo', 'botella_picada', 'arma']) {
+      character.setWeapon(weapon);
+      const item = character.group.getObjectByName('weapon-' + weapon);
+      const mesh = item.children[0], { index, attributes } = mesh.geometry;
+      const triangle = new THREE.Triangle(), closest = new THREE.Vector3();
+      for (const attack of [null, { weapon, step: 0, phase: 'active', progress: 0 }]) {
+        character.update(0, { attack, movement });
+        for (const chain of fingers) {
+          const last = chain[2];
+          const tip = mesh.worldToLocal(last.localToWorld(new THREE.Vector3(0, last.position.length() * .7, 0)));
+          let gap = Infinity;
+          for (let i = 0; i < (index?.count ?? attributes.position.count); i += 3) {
+            triangle.a.fromBufferAttribute(attributes.position, index?.getX(i) ?? i);
+            triangle.b.fromBufferAttribute(attributes.position, index?.getX(i + 1) ?? i + 1);
+            triangle.c.fromBufferAttribute(attributes.position, index?.getX(i + 2) ?? i + 2);
+            gap = Math.min(gap, triangle.closestPointToPoint(tip, closest).distanceTo(tip));
+          }
+          assert.ok(gap < .008, `${weapon} en ${sexo}, ${last.name}: yema a ${gap} m`);
+        }
+      }
+      character.setWeapon(null);
+      character.update(0, { movement });
+      fingers.flat().forEach((bone, i) => {
+        assert.ok(bone.quaternion.clone().normalize().angleTo(neutral[i]) < .0001, 'devuelve cada falange a su clip');
+      });
+    }
+  }
+});
+
 test('las suelas vestidas conservan el piso al arrancar, correr y frenar en distintas fases', async () => {
   for (const [sexo, edad, calzado, lod, fps] of [['hombre', 'adulto', 'tenis', false, 60], ['mujer', 'mayor', 'botas', true, 30]]) {
     const character = await createRealisticCharacter({ real: { sexo, edad, calzado } }, { andar: 'trote', lod });
@@ -408,6 +594,85 @@ test('nadar deja de caminar, vuelve a tierra y los NPC LOD muestran el golpe rec
   assert.ok(chest.quaternion.angleTo(before) > .2, 'la reacción funciona también en el modelo liviano');
   character.dispose(); npc.dispose();
 });
+
+test('en el esqueleto del peatón el cuello se aparta en el sentido del golpe mientras los brazos se protegen', async () => {
+  const direcciones = [new THREE.Vector3(0, 0, -1), new THREE.Vector3(1, 0, 0), new THREE.Vector3(0, 0, 1)];
+  for (const completo of [false, true]) for (const dir of direcciones) {
+    const npc = new Npc(new THREE.Scene(), new THREE.Vector3(), { look: {}, facing: 0 });
+    await npc.ready;
+    assert.ifError(npc.loadError);
+    if (completo) await npc.preload();
+    else npc.fullChar = npc.lodChar;
+    npc.update(1 / 60);
+    const cadera = joint(npc.character.group, 'Hips'), cuello = joint(npc.character.group, 'Neck');
+    const brazo = joint(npc.character.group, 'RightArm'), guardia = brazo.quaternion.clone();
+    const eje = () => cuello.getWorldPosition(new THREE.Vector3()).sub(cadera.getWorldPosition(new THREE.Vector3())).normalize();
+    const recto = eje();
+    npc.takeHit({ damage: 1, dir, knockback: 1.6 });
+    for (let i = 0; i < 5; i++) npc.update(1 / 60);
+    const cambio = eje().sub(recto.applyQuaternion(npc.root.quaternion)).setY(0);
+    assert.ok(cambio.dot(dir) > .06 && cambio.normalize().dot(dir) > .9, `dirección ${dir.toArray()}, torso ${cambio.toArray()}`);
+    assert.ok(brazo.quaternion.angleTo(guardia) > .15, 'el brazo conserva el gesto de protegerse');
+    npc.dispose();
+  }
+});
+
+// Picos en grados durante la reacción al golpe. El peatón de pie recibe el muelle en el grupo entero.
+for (const [postura, ejeEsperado, columnaEsperada, cabezaEsperada, cuerpoEsperado] of [
+  ['sentado',      12.49, 13.34, 18.90, 0],
+  ['acurrucado',   38.49, 28.03, 15.16, 0],
+  ['pedir',        28.19,  5.82, 13.10, 0],
+  ['banca',        12.12,  6.14, 11.13, 0],
+  ['dormido',      89.71, 13.03,  7.40, 0],
+  ['levantándose', 30.29, 22.09, 13.09, 0],
+  [null,             .07,   .17,   .84, 4.31]
+]) {
+  test(`retroceso del peatón al recibir un golpe de frente, ${postura ?? 'de pie'}`, async t => {
+    const paso = 1 / 60;
+    const inicial = postura === 'levantándose' ? 'acurrucado' : postura;
+    const npc = new Npc(new THREE.Scene(), new THREE.Vector3(), { look: {}, facing: 0, stance: inicial });
+    t.after(() => npc.dispose());
+    await npc.ready;
+    assert.ifError(npc.loadError);
+    npc.fullChar = npc.lodChar;
+    // El juego arranca cada peatón en una fase distinta. Aquí todos parten del mismo reposo.
+    const movimiento = npc.character.motionState();
+    npc.character.applyMotion({ ...movimiento, phase: 0, poseTime: 0, times: { idle: 0 } });
+    for (let cuadro = 0; cuadro < 90; cuadro++) npc.update(paso);
+    if (postura === 'levantándose') {
+      npc._stopCowering();
+      for (let cuadro = 0; cuadro < 6; cuadro++) npc.update(paso);
+      assert.equal(npc.stance, null);
+      assert.ok(npc._riseLeft > 0, 'ya dejó la postura y sigue subiendo');
+    }
+
+    const grupo = npc.character.group;
+    const cadera = joint(grupo, 'Hips'), cuello = joint(grupo, 'Neck');
+    const columna = joint(grupo, 'Spine'), cabeza = joint(grupo, 'Head');
+    const ejeDelTronco = () => {
+      const base = grupo.worldToLocal(cadera.getWorldPosition(new THREE.Vector3()));
+      return grupo.worldToLocal(cuello.getWorldPosition(new THREE.Vector3())).sub(base).normalize();
+    };
+    const medidas = [
+      ['eje cadera-cuello', ejeDelTronco, ejeEsperado],
+      ['columna', () => columna.quaternion, columnaEsperada],
+      ['cabeza', () => cabeza.quaternion, cabezaEsperada],
+      ['cuerpo entero', () => grupo.quaternion, cuerpoEsperado]
+    ].map(([nombre, leer, esperado]) => ({ nombre, leer, esperado, reposo: leer().clone(), maximo: 0 }));
+
+    npc.takeHit({ damage: 1, dir: { x: 0, z: -1 }, knockback: .9 });
+    for (let cuadro = 0; cuadro < 28; cuadro++) {
+      npc.update(paso);
+      for (const medida of medidas) {
+        const grados = THREE.MathUtils.radToDeg(medida.leer().angleTo(medida.reposo));
+        medida.maximo = Math.max(medida.maximo, grados);
+      }
+    }
+    for (const { nombre, maximo, esperado } of medidas) {
+      assert.ok(Math.abs(maximo - esperado) < .1, `${nombre} llegó a ${maximo.toFixed(2)}°, se esperaban ${esperado}°`);
+    }
+  });
+}
 
 test('el personaje procedural recibe salto y nado con el mismo contrato de movimiento', () => {
   const character = createCharacter();

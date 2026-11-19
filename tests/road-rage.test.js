@@ -27,9 +27,9 @@ beforeEach(() => {
   window.addEventListener('toast', e => toasts.push(e.detail.text));
 });
 
-function setup({ random = () => 0 } = {}) {
+function setup({ random = () => 0, carsPerRoute = 1 } = {}) {
   const scene = new THREE.Scene();
-  const traffic = new TrafficSystem(scene, [new TrafficRoute(0, 200, 0, 200, 3.2)], { carsPerRoute: 1, random: () => .5 });
+  const traffic = new TrafficSystem(scene, [new TrafficRoute(0, 200, 0, 200, 3.2)], { carsPerRoute, random: () => .5 });
   const vehicle = traffic.vehicles[0];
   const player = {
     position: new THREE.Vector3(), isStunned: false, hits: 0,
@@ -63,6 +63,35 @@ function triggerAndExit(system, traffic, vehicle, player) {
     system.update(1 / 30);
   }
 }
+
+test('un conductor muerto queda a la vista, cierra la persecución y otro vehículo conserva su propio conductor', () => {
+  const { system, traffic, vehicle, player, people } = setup({ carsPerRoute: 2 });
+  triggerAndExit(system, traffic, vehicle, player);
+  const driver = system.driver, incidents = [];
+  window.addEventListener('npc-death', e => incidents.push(e.detail));
+  driver.takeHit({ damage: 200, attacker: player, attackId: 22 });
+  assert.equal(incidents.length, 1);
+  assert.equal(incidents[0].wasAggressor, true);
+  run(system, traffic, player, 2);
+  assert.ok(driver.deathSettled && !driver.bodyReleased);
+  assert.equal(system.active, false);
+  assert.equal(vehicle.car.driverInside, false);
+  assert.equal(vehicle.car.driverDead, true);
+  assert.equal(people.includes(driver), false);
+  assert.equal(system.trigger(vehicle.car), false);
+  const other = traffic.vehicles[1];
+  assert.equal(system.trigger(other.car), true);
+  assert.notEqual(system.driver.stableId, driver.stableId);
+  assert.equal(system.driver.health, system.driver.maxHealth);
+  player.position.copy(driver.position).add(new THREE.Vector3(60, 0, 0));
+  system.update(.1);
+  assert.equal(driver.bodyReleased, true);
+  assert.equal(vehicle.hold, false);
+  assert.equal(vehicle.car.driverInside, true);
+  assert.equal(vehicle.car.driverId, `${driver.stableId}:relevo`);
+  system.dispose(); traffic.dispose();
+});
+
 
 /** Carro detenido por el robo, aún con el conductor adentro, y sus dos puertas libres de obstáculos. */
 function stoppedWithCollisions() {

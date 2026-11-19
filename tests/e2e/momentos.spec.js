@@ -133,12 +133,33 @@ test('la limpieza social de punta a punta: aviso, golpes, recorte, cambuche y co
   test.setTimeout(240_000);
   await page.setViewportSize({ width: 1280, height: 800 });
   await readyGame(page);
-  await page.evaluate(() => {
+  const avisoLlegada = 'Una camioneta negra frenó en seco: limpieza social. Córrale y no se deje alcanzar.';
+  await page.evaluate(async avisoLlegada => {
     const g = window.__game;
-    g.clock.hour = 23;
+    const { SQUAD } = await import('/src/entities/SquadMember.js');
     window.__avisos = [];
-    new MutationObserver((ms) => { for (const m of ms) for (const n of m.addedNodes) if (n.classList?.contains('loot-toast')) window.__avisos.push({ t: n.textContent, c: n.className }); }).observe(document.body, { childList: true });
-  });
+    const encuentro = window.__encuentro = { avisosEmitidos: 0, avisoEnPantalla: false, golpes: [], desenlaces: [],
+      intervalo: SQUAD.groupInterval };
+    window.addEventListener('toast', ({ detail }) => {
+      if (detail.text === avisoLlegada && detail.type === 'warn') encuentro.avisosEmitidos++;
+    });
+    new MutationObserver(cambios => {
+      for (const cambio of cambios) for (const n of cambio.addedNodes) {
+        if (!n.classList?.contains('loot-toast') || !n.isConnected || !n.getClientRects().length) continue;
+        window.__avisos.push(n.textContent);
+        if (n.textContent === avisoLlegada && n.classList.contains('warn')) encuentro.avisoEnPantalla = true;
+      }
+    }).observe(document.body, { childList: true });
+    window.addEventListener('npc-player-hit', ({ detail }) => {
+      if (detail.victim !== g.player || !g.limpieza.thugs.includes(detail.attacker)) return;
+      encuentro.golpes.push({ tiempo: g.world.active.minds.time, avisoPrevio: encuentro.avisoEnPantalla,
+        antes: detail.previousHealth, despues: detail.health, dano: detail.damage });
+    });
+    window.addEventListener('limpieza-outcome', ({ detail }) => {
+      if (detail.system === g.limpieza) encuentro.desenlaces.push(detail.outcome);
+    });
+    g.clock.hour = 23;
+  }, avisoLlegada);
   // La camioneta necesita un carril a menos de 20 m: se para en la Caracas si donde arrancó no hay.
   const viene = await page.evaluate(() => {
     const g = window.__game;
@@ -150,20 +171,32 @@ test('la limpieza social de punta a punta: aviso, golpes, recorte, cambuche y co
   });
   expect(viene).toBe(true);
   await expect.poll(() => page.evaluate(() => window.__game.limpieza.state), { timeout: 40_000 }).toBe('out');
-  await expect.poll(() => page.evaluate(() => window.__avisos[0]?.t)).toBe('Una camioneta negra frenó en seco: limpieza social. Córrale y no se deje alcanzar.');
-  expect(await page.evaluate(() => window.__avisos[0].c)).toContain('warn');
+  await expect(page.getByText(avisoLlegada, { exact: true })).toBeVisible();
   await expect(page.locator('#menu')).toBeVisible({ timeout: 120_000 });
   await expect(page.locator('#menu-title')).toHaveText('Te mató la limpieza social');
+  await expect(page.locator('#menu')).toHaveAttribute('data-momento', 'recorte');
   await expect(page.locator('.recorte')).toContainText('Nadie vio nada.');
-  const avisos = await page.evaluate(() => window.__avisos.map((a) => a.t));
-  expect(avisos.some((t) => t.startsWith('Me dieron un cachazo: −'))).toBe(true);
+  const { avisosEmitidos, golpes, desenlaces, intervalo } = await page.evaluate(() => window.__encuentro);
+  expect(avisosEmitidos).toBe(1);
+  expect(golpes.length).toBeGreaterThan(1);
+  expect(golpes[0].avisoPrevio, 'el aviso ya se veía al recibir el primer golpe').toBe(true);
+  for (const [i, golpe] of golpes.entries()) {
+    expect(golpe.dano).toBeGreaterThan(0);
+    expect(golpe.antes - golpe.despues).toBeCloseTo(golpe.dano);
+    // Preparación y contacto terminan cada uno en un cuadro de hasta 0,1 s; el intervalo se cuenta desde la preparación.
+    if (i > 0) expect(golpe.tiempo - golpes[i - 1].tiempo + 1e-6).toBeGreaterThanOrEqual(intervalo - 2 * .1);
+  }
+  expect(golpes.at(-1).despues).toBe(0);
+  expect(desenlaces).toEqual(['derrota']);
+  const avisos = await page.evaluate(() => window.__avisos);
+  expect(avisos).toContain(`Me dieron un cachazo: −${golpes[0].dano} de salud.`);
   await page.getByRole('button', { name: 'Volver al cambuche', exact: true }).click();
   await expect(page.locator('#menu')).toBeHidden();
   expect(await page.evaluate(() => window.__game.limpieza.active)).toBe(false);
   await page.evaluate(() => { const g = window.__game; g.limpieza.cooldown = 9999; window.__avisos = []; g.clock.hour = 12; });
-  await page.waitForTimeout(400);
+  await expect.poll(() => page.evaluate(() => window.__game.clock.hour)).toBeGreaterThan(12);
   await page.evaluate(() => { window.__game.clock.hour = 20.5; });
-  await expect.poll(() => page.evaluate(() => window.__avisos.map((a) => a.t))).toContain('Si vuelve la camioneta, córrale y no pare');
+  await expect.poll(() => page.evaluate(() => window.__avisos)).toContain('Si vuelve la camioneta, córrale y no pare');
 });
 
 test('te cascaron no pausa ni tapa las cifras, y CERRADO dice la hora real', async ({ page }) => {

@@ -154,11 +154,12 @@ export function createSmokeOverlay(bones, frame) {
 
 const MAX_PUFFS = 90;
 let smokeTexture = null;
-function texture() {
-  if (smokeTexture || typeof document === 'undefined') return smokeTexture;
+export function texturaHumo() {
+  if (smokeTexture || !globalThis.document?.createElement) return smokeTexture;
   const c = document.createElement('canvas');
   c.width = c.height = 64;
-  const x = c.getContext('2d');
+  const x = c.getContext?.('2d');
+  if (!x?.createRadialGradient) return null;
   const g = x.createRadialGradient(32, 32, 0, 32, 32, 32);
   g.addColorStop(0, 'rgba(230,230,230,0.9)');
   g.addColorStop(0.45, 'rgba(210,210,210,0.35)');
@@ -180,7 +181,7 @@ export class SmokePuffs {
     scene.add(this.group);
     this.puffs = [];
     this._next = 0;
-    const map = texture();
+    const map = texturaHumo();
     for (let i = 0; i < MAX_PUFFS; i++) {
       const material = new THREE.SpriteMaterial({ map, color: '#d8d8d8', transparent: true, depthWrite: false, opacity: 0 });
       const sprite = new THREE.Sprite(material);

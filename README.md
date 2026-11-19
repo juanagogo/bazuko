@@ -99,6 +99,8 @@ Abre la dirección que indique Vite en la terminal, normalmente **http://localho
 
 En la primera partida se abre el creador de personaje. El juego se sirve con Vite; para ejecutarlo utiliza el servidor de desarrollo en lugar de abrir `index.html` directamente.
 
+Para probar la suspensión, el derrape y los choques con Rapier en la ciudad, añade `/?carro=fisica&aspecto=realista` a la dirección de Vite. Acércate a la puerta de un carro estacionado y pulsa `Y`. Acelera con `W`, gira con `A` y `D` y usa `Espacio` para el freno de mano. Una vez detenido, baja con `Y`. A pie, pulsa `G` y vuelve a pulsarla al final de cada golpe para encadenar hasta tres. Para comparar la conducción habitual en la misma ciudad, abre `/?aspecto=realista`.
+
 En PowerShell, si una política de ejecución impide usar `npm`, ejecuta los mismos comandos con `npm.cmd`.
 
 ### Sala de pruebas
@@ -127,7 +129,7 @@ Con `npm run dev` activo, abre **/sala.html** (por ejemplo http://localhost:5173
 | `Q` o `E` junto al jíbaro | Abrir o cerrar su tienda: comprar y, de noche, elegir qué venderle. |
 | `B` | Pedir limosna. Con pelotas de malabares, frente a la cola de un semáforo en rojo, hace el show. |
 | `L` | Pedir limosna. |
-| Clic izquierdo o `G` en la calle | Atacar con los puños o con el arma equipada; pulsar de nuevo al final del golpe encadena el combo. |
+| Clic izquierdo o `G` a pie | Atacar con los puños o con el arma equipada. Otra pulsación encadena el siguiente golpe. |
 | Usar un cuchillo, una botella picada o el arma casera del costal | Equiparla en la mano; usarla otra vez la guarda y vuelves a los puños. El arma equipada se conserva al guardar, y ni la recicladora ni quien te robe mientras duermes se llevan la que tienes en la mano. |
 | `F` | Activar o desactivar el boost, que consume energía y salud. |
 | `T` | Abrir las mañas. |
@@ -183,23 +185,35 @@ La partida guarda datos localmente en el navegador al crear o editar el personaj
 
 Al cruzar delante de un carro, este intenta frenar progresivamente. Si te atraviesas demasiado cerca, puede atropellarte: el daño depende de la velocidad y puede ser mortal. El golpe activa un ragdoll articulado y lanza al personaje hacia arriba y hacia delante según la velocidad. Si sobrevive, se levanta después de caer; si muere, la pantalla de recuperación espera a que termine la caída. El conductor sigue frenando hasta detenerse y espera brevemente antes de continuar. Los vehículos en movimiento y estacionados tienen colisiones mediante cajas invisibles simples, sin calcular los triángulos de sus modelos.
 
+### Combate a pie
+
+Con **G** o **clic izquierdo** atacas a quien tengas de frente y a tu alcance. Cada puñetazo aceptado cuesta **4 de energía**, incluso si lo dejaste en cola o el rival se aparta. El combo de tres puños cuesta **12 de energía** y hace **42 de daño** si conectan los tres. Cada golpe con un arma gasta **8 de energía**. Los puños y el cuchillo encadenan hasta tres golpes. La botella picada y el arma casera encadenan dos y tienen mayor alcance. Una pared o un vehículo entre ambos puede impedir el contacto.
+
+Un peatón que decide defenderse te avisa antes de devolver el golpe. Si llevaba cuchillo, lo muestra durante la preparación y tienes tiempo de apartarte. Un peatón común suelta entre **$200 y $599** la primera vez que lo alcanzas. El juego recuerda ese pago al guardar y volver. Los golpes que conectan con los ocupantes de la camioneta o la Policía dan **$0**.
+
+Si recibes un golpe y aún tienes salud, el cuerpo se ladea y puedes seguir moviéndote. Pulsa una vez durante esa reacción para atacar al recuperarte. A cero de salud debes pulsar **Volver al cambuche** en la pantalla de derrota. Un peatón que llega a cero muere. Quien ve la caída puede buscar refugio y llamar al 123. Alguien que descubre el cuerpo más tarde puede pedir ayuda aunque desconozca quién lo atacó. [Animación de combate](docs/animaciones-actionforge.md#combate-cuerpo-a-cuerpo) · [Testigos y auxilio](docs/peatones-inteligencia.md#testigos-de-una-caída).
+
+En **Pausa → Ajustes → Sangre** puedes elegir **Desactivada**, **Discreta** o **Visible**. La opción inicial, Discreta, muestra un rastro breve sobre la ropa del personaje que recibió daño. Visible añade una pequeña mancha al suelo cuando termina la caída mortal. Con movimiento reducido se omite el rastro pasajero. El navegador recuerda tu elección.
+
+### El conductor de la varilla
+
 Al robar el retrovisor de un carro en circulación, el conductor se baja con una varilla en un 35 % de los casos:
 
 - El carro frena de forma gradual hasta detenerse en su carril, y entonces el conductor sale por su puerta, o por el otro lado si algo la tapa. Si frenó tan lejos que ya no te alcanzaría, no se baja y el carro sigue.
 - Te persigue a 4,4 m/s: alcanza a quien camina, pero no a quien corre con **Shift**.
 - Antes de cada golpe levanta la varilla, así que apartarse a tiempo evita el daño. Cada golpe quita entre 10 y 16 de salud.
 - Si te alejas más de 28 metros o pasan 18 segundos, se rinde, vuelve a su carro y el tráfico sigue.
-- Solo hay un conductor fuera a la vez. Si te mata, la pantalla de recuperación lo indica, y al volver al cambuche ya está otra vez en su carro.
+- Si el conductor llega a cero, cae con la varilla, se termina la persecución y el carro queda vacío mientras lo ves. Si tú llegas a cero, la pantalla de recuperación indica la causa.
 
-De noche, de vez en cuando, llega la **limpieza social**: una camioneta 4x4 negra de lujo (vidrios polarizados, parrilla y rines cromados) que viene por la calle más cercana y frena en seco junto al jugador. Se bajan tres hombres todo de negro, con buzo, botas, pasamontañas y pistola corta:
+### La camioneta negra
+
+De noche, de vez en cuando, llega la **limpieza social** en una camioneta 4x4 negra de vidrios polarizados, parrilla y rines cromados. En la primera visita se detiene junto al jugador y bajan tres hombres vestidos de negro, con pasamontañas y pistola corta.
 
 - El jefe, con gorra, se queda junto a la camioneta, de pie con el brazo estirado señalando al jugador, y da la orden a gritos («¡Denle a ese chirrete hijueputa!»).
 - Los otros dos lo persiguen insultándolo a 5,2 m/s: alcanzan a quien camina, no a quien corre con **Shift** sin parar.
-- Antes de cada cachazo levantan la pistola. Cada golpe quita entre 20 y 30 de salud y, a diferencia del conductor de la varilla, siguen pegando aunque el jugador esté tambaleando: si lo alcanzan, casi siempre lo matan.
-- A los 22 segundos, o si se aleja más de 32 metros, se rinden y vuelven; cuando los dos están arriba, el jefe se sube y la camioneta se va.
-- Hay como mucho una visita cada cinco minutos de juego, solo de noche, y nunca a menos de 15 metros del cambuche ni mientras duerme. Golpearlos no sirve de nada.
-
-Si la salud llega a cero, el juego se pausa y muestra una pantalla de recuperación. El regreso al cambuche ocurre al pulsar **Volver al cambuche**.
+- Los perseguidores se turnan. Uno se queda a distancia mientras el otro levanta la pistola para dar un cachazo. Si te alcanza, el golpe quita entre 20 y 30 de salud. Puedes apartarte o responder con los puños o con un arma del costal.
+- Vences si cae el jefe, si caen los dos perseguidores o si, después de caer uno, el otro se retira. Los sobrevivientes dejan de atacar y vuelven hacia la camioneta. Defenderte de los atacantes deja tu fama y tu nivel de fichado como estaban. Si en ese mismo golpe alcanzas a un civil, cuenta la agresión a esa persona.
+- También puedes escapar. Los perseguidores abandonan si pasan 22 segundos o te alejas más de 32 metros. Una huida permite otra visita después de cinco minutos de juego. Si vences, ese grupo deja de volver. La camioneta solo aparece de noche, fuera del radio de 15 metros del cambuche y con el jugador despierto.
 
 ## Vida de calle
 
@@ -333,7 +347,7 @@ Integra los cambios de `juanagogo/bazuko` hasta `77f66bd`: radio AM/FM sintetiza
 
 ### Animaciones del personaje
 
-El personaje realista usa movimientos de Quaternius exportados con ActionForge para buscar, pedir, consumir, agacharse y lanzar. Andar, correr y estar de pie se hornean una vez por cuerpo mezclando un andar erguido con Sad Walk y Running de Mixamo, en varias familias de paso. Encima va una capa de postura y forma de llevar el cuerpo, en el modelo completo y en el liviano: manos en los bolsillos, sentarse, hablar por teléfono, una caída con brazos y piernas. Quien no la usa no paga nada. La mezcla caminar/correr mantiene una fase compartida y ajusta la cadencia a la zancada real, con movimiento secundario de torso y peso. Salto, aterrizaje, puñetazo, reacción y natación se articulan sobre cada esqueleto sin modificar los clips compartidos. El salto sigue el vuelo físico, incluso mientras se corre: parado se agacha antes de subir, corriendo la zancada sigue en el aire hasta la próxima pisada, y el aterrizaje es más hondo cuanto más alto se cae; desde unos 2,3 m de caída (del todo desde unos 3 m) es un golpe fuerte que frena la marcha y deja al personaje un instante en sentadilla, con una mano hacia el piso. La cámara acompaña el salto y la caída con resortes, y el arco y el golpe son los mismos a cualquier FPS. Ver [salto, caída y aterrizaje](docs/animacion-salto.md). Cada arma y paso del combo define su preparación, impacto y recuperación; el contacto respeta distancia, orientación, altura y obstáculos. El NPC reacciona, huye o cae temporalmente al quedarse sin salud. Se conserva la personalización, el modelo liviano y el ragdoll. El banco optimizado contiene ocho clips sin duplicar texturas; consulta [procedencia y adaptación](docs/animaciones-actionforge.md).
+El personaje realista usa movimientos de Quaternius exportados con ActionForge para buscar, pedir, consumir, agacharse y lanzar. Andar, correr y estar de pie se hornean una vez por cuerpo mezclando un andar erguido con Sad Walk y Running de Mixamo, en varias familias de paso. Encima va una capa de postura y forma de llevar el cuerpo, en el modelo completo y en el liviano: manos en los bolsillos, sentarse, hablar por teléfono, una caída con brazos y piernas. Quien no la usa no paga nada. La mezcla caminar/correr mantiene una fase compartida y ajusta la cadencia a la zancada real, con movimiento secundario de torso y peso. Salto, aterrizaje, puñetazo, reacción y natación se articulan sobre cada esqueleto sin modificar los clips compartidos. El salto sigue el vuelo físico, incluso mientras se corre: parado se agacha antes de subir, corriendo la zancada sigue en el aire hasta la próxima pisada, y el aterrizaje es más hondo cuanto más alto se cae; desde unos 2,3 m de caída (del todo desde unos 3 m) es un golpe fuerte que frena la marcha y deja al personaje un instante en sentadilla, con una mano hacia el piso. La cámara acompaña el salto y la caída con resortes, y el arco y el golpe son los mismos a cualquier FPS. Ver [salto, caída y aterrizaje](docs/animacion-salto.md). Cada arma y paso del combo define su preparación, impacto y recuperación; el contacto respeta distancia, orientación, altura y obstáculos. Un peatón puede devolver el golpe o huir mientras le quede salud. A cero, su caída termina en una pose que también conserva el modelo lejano. El banco base de gestos tiene ocho clips. Un segundo banco aporta la guardia, el cruzado y la reacción del torso. [Procedencia y adaptación](docs/animaciones-actionforge.md).
 
 La sala tiene un banco de revisión independiente con nueve clips de **Mixamo preparados en Blender**, incluidos Old Man Idle y Sad Walk para una postura cansada y contenida. Se abre con `sala.html?prueba=personaje&animaciones=mixamo-preview` o con el selector **Mixamo + Blender**. Conserva las duraciones originales de los gestos y permite comparar con el banco actual. Para probarlos en la ciudad, abrir `/?animaciones=mixamo-preview`; comer y agacharse se complementan con ActionForge. La entrada habitual del juego usa solo tres de esos clips, recortados. Consulta la [selección de clips, dónde se usa Mixamo y el proceso de Blender](tools/personaje/MIXAMO.md).
 

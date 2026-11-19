@@ -48,10 +48,12 @@ test('Cosquilleo exitoso dentro de la zona verde otorga botín y activa cooldown
   assert.equal(npc._robadoTimer, CONFIG.npcCooldown);
 });
 
-test('Robo directo otorga botín mayor, sube buscado y daña al jugador si el NPC es fuerte', () => {
+test('el robo directo da botín, sube buscado y entrega el intento de defensa al peatón', () => {
   const npc = { position: new THREE.Vector3(1, 0, 1), _robadoTimer: 0, look: { real: { edad: 'adulto' } } };
   let splatted = false;
+  let defense;
   npc.alarmedByTheft = () => { splatted = true; };
+  npc.defendAgainstTheft = (...args) => { defense = args; return true; };
 
   const game = {
     player: { position: new THREE.Vector3(0, 0, 0) },
@@ -68,8 +70,23 @@ test('Robo directo otorga botín mayor, sube buscado y daña al jugador si el NP
   assert.ok(game.stats.dinero >= 500 + CONFIG.lootMoneyDirect[0]);
   assert.equal(steal.buscado, 1);
   assert.equal(splatted, true);
-  assert.ok(game.stats.salud < 100);
+  assert.equal(game.stats.salud, 100);
+  assert.equal(defense[0], game.player);
+  assert.ok(defense[1] >= CONFIG.directDamageMin && defense[1] <= CONFIG.directDamageMax);
   assert.equal(steal.cooldown, CONFIG.globalCooldown);
+});
+
+test('el cosquilleo en marcha se cierra sin premio si la víctima muere antes de cobrar', () => {
+  for (const inputFirst of [false, true]) {
+    const { steal, game, npc } = minigame();
+    npc.isDead = true;
+    if (inputFirst) steal._endMinigame(true, 'play');
+    else steal.update(.016);
+    assert.equal(steal.minigameActive, false);
+    assert.equal(steal.targetNpc, null);
+    assert.equal(game.stats.dinero, 1000);
+    assert.equal(steal.buscado, 0);
+  }
 });
 
 // Barra en marcha con la entrada real. La barra escucha antes que `Input`, como en el navegador, donde lo hace en captura.

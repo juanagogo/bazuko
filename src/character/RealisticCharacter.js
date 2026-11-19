@@ -27,6 +27,8 @@ import { attachBasucoProps } from './pipe.js';
 import { addHatClip, hatEdgeProfile } from './hatFit.js';
 import { animationDamping, SecondaryMotion } from './SecondaryMotion.js';
 import { ActionPose } from './ActionPose.js';
+import { buildCombatClips, CombatPose } from './CombatClips.js';
+import { createWeaponGrip } from './WeaponGrip.js';
 import { ConversationGaze } from './ConversationGaze.js';
 import { BicyclePose, bicycleGrips } from './bicyclePose.js';
 import { airborneStrideRate, nextFootfall } from './jumpMotion.js';
@@ -46,6 +48,7 @@ const ANIM_URLS = ['animaciones.glb', 'animaciones-prueba.glb'].map(file => MODE
 export const REALISTIC_SCALE = 1.08;
 
 const ACTIONFORGE_URL = `${MODEL_BASE}animaciones-actionforge.glb`;
+const COMBAT_URL = `${MODEL_BASE}combate.glb`;
 // Bancos del andar y el reposo: un paso erguido y Sad Walk, Running y Talking de Mixamo.
 const GAIT_BANK_URLS = [`${MODEL_BASE}andar-erguido.glb`, `${MODEL_BASE}andar-cansado.glb`];
 
@@ -163,6 +166,22 @@ let mixamoPreviewPromise;
 let gaitBanksPromise;
 const gaitSourceCache = new Map();
 const stanceCache = new Map();
+const combatCache = new Map();
+let combatBank;
+
+function combatClipsForBody(id, body) {
+  if (!combatCache.has(id)) {
+    combatBank ??= load(COMBAT_URL).catch(error => {
+      console.warn('No se pudo cargar el banco de pelea. Se usarán las poses procedurales.', error);
+      return null;
+    });
+    combatCache.set(id, combatBank.then(bank => buildCombatClips(body, bank)).catch(error => {
+      console.warn(`No se pudieron adaptar los gestos de pelea a ${id}.`, error);
+      return null;
+    }));
+  }
+  return combatCache.get(id);
+}
 
 /** Posturas de un cuerpo, horneadas una sola vez; el liviano y el completo las comparten. */
 function stancesForBody(bodyId, bodyGltf) {
@@ -343,9 +362,10 @@ async function buildInstance(catalog, look, lod, profile, gait, acabadoCivil, co
     .filter((p) => p.info?.file);
   // Las prendas no dependen de descargar el cuerpo: iniciar todo en paralelo.
   const bodyPromise = load(folder + (useLod ? 'lod/cuerpo.gltf' : 'cuerpo.gltf'));
-  const [bodyGltf, sourceClips, ...partGltfs] = await Promise.all([
+  const [bodyGltf, sourceClips, combatClips, ...partGltfs] = await Promise.all([
     bodyPromise,
     bodyPromise.then(gltf => clipsForBody(isMixamoProfile(profile.id) ? body.id + (useLod ? ':lod' : '') : body.id, gltf, profile, gait)),
+    profile.id === 'mixamo-preview' ? null : bodyPromise.then(gltf => combatClipsForBody(body.id, gltf)),
     ...parts.map((p) => load(folder + (useLod && p.info.lod ? p.info.lod : p.info.file)))
   ]);
   const detailTexture = await detailPromise;
@@ -492,7 +512,7 @@ async function buildInstance(catalog, look, lod, profile, gait, acabadoCivil, co
   if (lod) root.traverse((o) => { if (o.isMesh && o.material.transparent) o.material.forceSinglePass = true; });
   // Los NPC lejanos conservan su ruta liviana, incluso si el catálogo carece de proxy.
   const secondaryMotion = lod ? null : new SecondaryMotion(bones, seed);
-  const actionPose = new ActionPose(bones, { lod, frame: root });
+  const actionPose = new ActionPose(bones, { lod, frame: root, fists: stanceLibrary?.fists });
   const { head, neck } = actionPose.joints;
   const { eyes, worldToNormalized } = streetOptions.frame;
   const conversationGaze = head && new ConversationGaze(root, head, neck,
@@ -505,7 +525,7 @@ async function buildInstance(catalog, look, lod, profile, gait, acabadoCivil, co
     : hipBone && clips.walk?.userData.gait ? createGaitGroundContact(root, hipBone, soles) : null;
   const bodyLanguage = stanceLibrary ? new BodyLanguage(bones, stanceLibrary, { lod, seed, lean: clips.walk?.userData.lean ?? 0 }) : null;
   // Cada uno empieza en otro punto del paso: dos que salen juntos no marchan al compás. El banco de revisión empieza siempre en su primer cuadro.
-  return { root, bones, mixer, actions, real, holds: stanceLibrary?.holds ?? null, streetProps, cane, accessories, carrySack, secondaryMotion, actionPose, conversationGaze, bicyclePose, groundContact, hipBlend, bodyLanguage, swaying: streetProps.filter((mesh) => mesh.userData.sway), playback: {}, phase: mixamoPreview ? 0 : seed % 1, runShare: 0, ownedGeometries: bodyMesh ? [bodyMesh.geometry] : [] };
+  return { root, bones, mixer, actions, real, bodySource: bodyGltf.scene, holds: stanceLibrary?.holds ?? null, streetProps, cane, accessories, carrySack, secondaryMotion, actionPose, combatClips, conversationGaze, bicyclePose, groundContact, hipBlend, bodyLanguage, swaying: streetProps.filter((mesh) => mesh.userData.sway), playback: {}, phase: mixamoPreview ? 0 : seed % 1, runShare: 0, ownedGeometries: bodyMesh ? [bodyMesh.geometry] : [] };
 }
 
 /** Bastón en la mano: al andar apoya en el piso y al correr se agarra por la mitad; el peso cambia sin saltos. */
@@ -523,7 +543,7 @@ export function readMotion(inst, weights) {
   const gaze = inst.conversationGaze;
   return { phase: inst.phase, runShare: inst.runShare, weights: { ...weights }, times, poseTime: inst.bodyLanguage?.time ?? 0,
     pose: inst.bodyLanguage?.state() ?? null, cane: inst.cane?.state() ?? null, gaze: gaze && { yaw: gaze.yaw, pitch: gaze.pitch },
-    pedestrian: inst.pedestrianPlayback?.state() ?? null };
+    pedestrian: inst.pedestrianPlayback?.state() ?? null, combat: inst.combatPose?.state() ?? null };
 }
 
 export function writeMotion(inst, weights, state) {
@@ -536,6 +556,9 @@ export function writeMotion(inst, weights, state) {
     if (state.pose) inst.bodyLanguage.setState(state.pose);
   }
   if (state.cane) inst.cane?.applyState(state.cane);
+  if (state.combat && inst.combatClips) {
+    (inst.combatPose ??= new CombatPose(inst.bones, inst.combatClips)).setState(state.combat);
+  } else inst.combatPose?.reset();
   if (state.pedestrian) {
     inst.pedestrianPlayback ??= new PedestrianPlayback();
     inst.pedestrianPlayback.applyState(state.pedestrian);
@@ -549,7 +572,9 @@ export function writeMotion(inst, weights, state) {
 export function disposeRealisticInstance(instance) {
   if (!instance || instance.disposed) return;
   instance.disposed = true;
+  instance.weaponGrip?.restore();
   instance.groundContact?.restore();
+  instance.combatPose?.restore();
   instance.actionPose?.restore();
   instance.secondaryMotion?.restore();
   instance.bodyLanguage?.restore();
@@ -596,8 +621,12 @@ export async function createRealisticCharacter(look = {}, {
 
   function syncWeapon() {
     if (!inst || inst.weaponId === weaponId) return;
+    inst.combatPose?.reset();
+    inst.weaponGrip?.restore();
     inst.weapon?.dispose();
     inst.weapon = weaponId ? attachWeapon(inst.root, inst.bones, weaponId) : null;
+    inst.weaponGrip = createWeaponGrip(inst.bones, inst.bodySource, inst.actionPose.fists, inst.weapon?.object, weaponId);
+    inst.weaponGrip?.apply();
     inst.weaponId = weaponId;
   }
 
@@ -696,6 +725,12 @@ export async function createRealisticCharacter(look = {}, {
     mouth(target) { return inst?.actionPose.mouth(target) ?? null; },
     /** Centro de los ojos en la pose visible, sin recorrer la malla. */
     eyePosition(target) { return inst?.conversationGaze?.eyePosition(target) ?? null; },
+    anclaGolpe(lado, arma) {
+      if (arma === weaponId && inst?.weapon?.object.visible) return inst.weapon.object;
+      const mano = inst?.actionPose.joints[lado === 'L' ? 'leftHand' : 'rightHand'];
+      return mano && (inst.bones.get(mano.name + 'Middle1') ?? mano);
+    },
+    pecho(destino) { return inst?.actionPose.joints.spine?.getWorldPosition(destino) ?? null; },
     /** Cuánto sigue acostado, de 0 (de pie) a 1 */
     get sleepWeight() { return inst?.actionPose.sleep?.weight ?? 0; },
     /** Cuánto baja la cadera visible respecto a la raíz por el salto (m) */
@@ -712,6 +747,7 @@ export async function createRealisticCharacter(look = {}, {
     snapPose() { inst?.bodyLanguage?.snap(); },
     fitBicycle(bike) {
       if (!inst?.bicyclePose) return;
+      inst.weaponGrip?.restore();
       inst.bicyclePose.fit(bike);
       if (inst.weapon) inst.weapon.object.visible = false;
       if (inst.cigarette) inst.cigarette.object.visible = false;
@@ -719,10 +755,11 @@ export async function createRealisticCharacter(look = {}, {
     },
     fitCart(cart) {
       if (!inst?.bicyclePose) return;
+      inst.weaponGrip?.restore();
       inst.bicyclePose.fitCart(cart);
       if (inst.weapon) inst.weapon.object.visible = false;
     },
-    update(dt, { speed = 0, running = false, action = null, load = 0, movement = {}, actionProgress, attack = null, smoke = null, basuco: pipeT = null, look: glance = 0, point = 0, stance = null, style = null, stanceWeight = 1, ko = 0, koRising = false, koPlan = 'espalda', koFrom = null, rising = false, poses = null, caneGround = null, caneYaw = 0, conversationEye = null, conversationNod = 0, bench = null, pedestrianMotion = null } = {}) {
+    update(dt, { speed = 0, running = false, action = null, load = 0, movement = {}, actionProgress, troncoDirigido = false, attack = null, combatGuard = false, smoke = null, basuco: pipeT = null, look: glance = 0, point = 0, stance = null, style = null, stanceWeight = 1, ko = 0, koRising = false, koPlan = 'espalda', koFrom = null, rising = false, poses = null, caneGround = null, caneYaw = 0, conversationEye = null, conversationNod = 0, bench = null, pedestrianMotion = null } = {}) {
       if (!inst) return;
       const a = inst.actions;
       const sourceCadence = isMixamoProfile(profile.id) && movement.previewCadence === 'source';
@@ -742,6 +779,12 @@ export async function createRealisticCharacter(look = {}, {
       const handsBlocked = detached || movement.landing > 0 || action === 'recibirGolpe' || action === 'dormir';
       const pipeAllowed = !handsBlocked && !attack && action !== 'golpear' && speed < .15 && pipeT != null;
       const smokeAllowed = !handsBlocked && !attack && action !== 'golpear' && !pipeAllowed;
+      const fightAllowed = !detached && !movement.landing && !movement.stunned && !ko && !koRising && !rising && !bench && !point && !pipeAllowed && !(smokeAllowed && smoke);
+      const fists = fightAllowed && attack?.weapon === 'punos';
+      const guardAllowed = fightAllowed && !action && !attack && !weaponId;
+      const guarding = guardAllowed && combatGuard;
+      const poseHit = action === 'recibirGolpe' && !detached && !ko && !koRising && !rising && !bench;
+      if (inst.combatClips && (fists || guarding || poseHit)) inst.combatPose ??= new CombatPose(inst.bones, inst.combatClips);
       if (inst.weapon) inst.weapon.object.visible = !detached && !pipeAllowed && action !== 'dormir';
       if (inst.cigarette) inst.cigarette.object.visible = smokeAllowed;
       if (inst.basucoProps) {
@@ -819,7 +862,9 @@ export async function createRealisticCharacter(look = {}, {
       inst.conversationGaze?.restore();
       inst.cane?.restore();
       inst.bicyclePose?.restore();
+      inst.weaponGrip?.restore();
       inst.groundContact?.restore();
+      inst.combatPose?.restore();
       inst.actionPose.restore();
       inst.secondaryMotion?.restore();
       inst.bodyLanguage?.restore();
@@ -836,22 +881,30 @@ export async function createRealisticCharacter(look = {}, {
         style, stanceWeight, ko, koRising, koPlan, rising, poses, speed: gaitSpeed, phase: inst.phase,
         benchRise: bench?.rise, benchSupport: portalBench || 'parque',
         blocked: handsBlocked || target === action || poseAction,
-        handsBusy: !!attack || action === 'golpear' || pipeAllowed || !!point || (smokeAllowed && !!smoke)
+        handsBusy: !!attack || guarding || action === 'golpear' || pipeAllowed || !!point || (smokeAllowed && !!smoke)
       });
       inst.secondaryMotion?.apply(dt, {
         speed: gaitSpeed, load, phase: inst.phase, turnRate: pedestrian ? pedestrian.angle / gaitDt : movement.turnRate,
         turnInPlace: !!pedestrian && !(inst.bodyLanguage?.hipWeight > .25),
-        action: handsBlocked || attack || smoke || pipeAllowed || point ? 'gesture' : action
+        action: handsBlocked || attack || guarding || smoke || pipeAllowed || point ? 'gesture' : action
       });
       // Un saludo o descanso horneado es dueño de la pose; no sumar encima el
       // gesto procedural. Las acciones sin clip conservan su capa identificable.
       const overlayAction = previewClip && target === action ? 'clip' : action;
       const hipLow = inst.bodyLanguage?.hipWeight ?? 0;
-      const stepSupport = inst.actionPose.apply(dt, { speed, running, action: overlayAction, actionProgress, movement, attack, smoke: smokeAllowed ? smoke : null, basuco: pipeAllowed ? pipeT : null, look: glance, point, hipLow, step: stepFoot });
+      const clipHit = !!inst.combatPose && poseHit && hipLow < .05;
+      const clipPunch = !!inst.combatPose && fists && attack.step === 1;
+      const stepSupport = inst.actionPose.apply(dt, { speed, running, action: overlayAction, actionProgress, troncoDirigido, movement, attack, clipPunch, clipHit, combatGuard: guarding && !inst.combatPose, smoke: smokeAllowed ? smoke : null, basuco: pipeAllowed ? pipeT : null, look: glance, point, hipLow, step: stepFoot });
+      if (inst.combatPose) {
+        if (clipHit) inst.combatPose.hit(actionProgress ?? 0);
+        else if (fists || guarding || (guardAllowed && inst.combatPose.guardWeight)) inst.combatPose.fight(dt, fists ? attack : null, guarding);
+        else inst.combatPose.reset();
+      }
       const onFoot = (!action || action === 'golpear') && !handsBlocked && !hipLow && !ko && !koRising && !bench && !rising && !inst.actionPose.sleep?.weight
         && weights.idle + weights[LOCOMOTION] >= 1 - 1e-7;
       inst.groundContact?.apply(!detached && (isMixamoProfile(profile.id) || onFoot));
       if (stepSupport) inst.actionPose.fitFeetToSteps(movement.footSupport, movement.footSupportHeight);
+      if (inst.weapon?.object.visible) inst.weaponGrip?.apply();
       inst.conversationGaze?.update(dt, conversationEye, !(ko || rising || running || attack || smoke || pipeAllowed || point || action || handsBlocked), conversationNod);
       inst.cigarette?.setGlow(emberGlow(smokeAllowed ? smoke?.puff : null));
       if (pipeAllowed) inst.basucoProps?.update(pipeT);
