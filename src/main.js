@@ -14,8 +14,9 @@ try {
     ? 'mixamo-game-preview' : 'default';
   // Los materiales de calle ya son los de todos: ?aspecto=realista queda para no caer en el modelo liviano guardado.
   const modeloRealista = opciones.get('aspecto') === 'realista';
+  const carroFisico = opciones.get('carro') === 'fisica';
   const game = new Game(document.getElementById('game-canvas'), {
-    animaciones, modeloRealista, calidad: opciones.get('calidad')
+    animaciones, modeloRealista, carroFisico, calidad: opciones.get('calidad')
   });
   await game.start(loading);
   startControlsHelp();

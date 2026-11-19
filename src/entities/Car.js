@@ -66,7 +66,7 @@ export class Car {
     const resolvedKind = kind ?? (Math.random() < 0.3 ? 'taxi' : 'carro');
     this.kind = resolvedKind;
     this.modelKind = resolvedKind === 'taxi' ? 'car2' : 'car1';
-    // El haz de un parqueado se crea al conducirlo. Sus ruedas y plumillas van unidas a las molduras.
+    // Hasta que alguien lo conduce, un parqueado no necesita haz ni ruedas y plumillas separadas.
     const v = makeVehicle(resolvedKind, Number.isFinite(variant) ? Math.trunc(variant) : Math.floor(Math.random() * 10000), { beams: traffic, model, parked: !traffic });
     this.vehicle = v;
     this.length = v.length;
@@ -278,6 +278,13 @@ export class Car {
       this._playerDriver = seat;
     }
     if (this._playerDriver) this._playerDriver.visible = !!on && !this.driverHidden;
+    v.separarRuedas?.(on);
+    this._applyDetail();
+    if (!on) {
+      this._previousSpeed = null;
+      this._steering = this._motionWeight = 0;
+      this.usarSuspensionFisica(false);
+    }
   }
 
   /**
@@ -365,11 +372,12 @@ export class Car {
       : this._previousSpeed === null ? 0 : (velocity - this._previousSpeed) / step;
     this._previousSpeed = velocity;
     const damp = -Math.expm1(-9 * step);
-    const targetSteering = Number.isFinite(steering) ? THREE.MathUtils.clamp(steering, -.34, .34) : 0;
-    this._steering += (targetSteering - this._steering) * damp;
+    const giro = Number.isFinite(steering) ? steering : 0;
+    if (this._suspensionFisica) this._steering = giro;
+    else this._steering += (THREE.MathUtils.clamp(giro, -.34, .34) - this._steering) * damp;
     for (const pivot of v.frontWheelPivots ?? []) pivot.rotation.y = this._steering;
     this._motionWeight += (Math.min(Math.abs(velocity) / 5, 1) - this._motionWeight) * damp;
-    if (v.bodyVisual) {
+    if (v.bodyVisual && !this._suspensionFisica) {
       const body = v.bodyVisual;
       const pitch = THREE.MathUtils.clamp(accel * .007, -.035, .028);
       const lateral = velocity * velocity * Math.tan(this._steering) / (v.wheelbase ?? this.length * .58);
@@ -405,6 +413,16 @@ export class Car {
       // Con más brillo el tono de pantalla lavaba el rojo a durazno y el azul a lila.
       lights.blue.color.set(on ? '#1a6cff' : '#061028').multiplyScalar(on ? 1.8 : 0.35);
       lights.red.color.set(on ? '#061028' : '#ff1a2a').multiplyScalar(on ? 0.35 : 1.8);
+    }
+  }
+
+  usarSuspensionFisica(activa) {
+    this._suspensionFisica = activa;
+    this._roadBob = this._settleY = this._settleV = 0;
+    const cuerpo = this.vehicle.bodyVisual;
+    if (cuerpo) {
+      cuerpo.position.y = this._bodyRestY;
+      cuerpo.rotation.x = cuerpo.rotation.z = 0;
     }
   }
 
