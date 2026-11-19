@@ -29,12 +29,13 @@ export class Sala {
   constructor(canvas, { animaciones = 'default' } = {}) {
     this.canvas = canvas;
     this.animationProfile = animaciones;
-    this.renderer = new Renderer(canvas);
+    this.renderer = new Renderer(canvas, 'alta');
     this.sceneMgr = new SceneManager();
     this.scene = this.sceneMgr.scene;
     this.scene.environment = this.renderer.createEnvironment();
     this.cameraRig = new CameraRig(this.scene, canvas);
     this.cameraRig.mode = 'third-person';
+    this.cameraRig.camera.userData.cameraMode = this.cameraRig.mode;
     this._lastTime = 0;
     this.input = new Input();
     this.audio = silentAudio;
@@ -162,7 +163,7 @@ export class Sala {
     const camera = this.cameraRig.camera;
     for (const fn of this.beforeRender) fn(camera);
     this.effects.beforeRender(camera);
-    this.renderer.render(this.scene, camera, this.player.root, [this.sceneMgr.sun]);
+    this.renderer.render(this.scene, camera, this.player.root, [this.sceneMgr.sun], this.silhouetteTest?.(camera) ?? true);
     this.effects.afterRender(camera);
     for (const fn of this.afterRender) fn(camera);
   };

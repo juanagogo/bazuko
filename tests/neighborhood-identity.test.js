@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { test } from 'node:test';
 import * as THREE from 'three';
-import { NEIGHBORHOODS, neighborhoodAt } from '../src/world/bogota/NeighborhoodIdentity.js';
+import { NEIGHBORHOODS, neighborhoodAt, isShopFront } from '../src/world/bogota/NeighborhoodIdentity.js';
 import { URBAN_DESIGNS, buildUrbanBuilding, planUrbanBuildings } from '../src/world/bogota/UrbanBuildings.js';
 import { Bogota } from '../src/world/districts/Bogota.js';
 
@@ -15,6 +15,19 @@ const makePalette = () => ({
 });
 const planAt = (x, z) => ({ x, z, width: 12, depth: 12, height: 16, floors: 5,
   design: 'ladrillo-balcones', seed: 42, tileX: 0, tileZ: 0, tiles: 6 });
+
+test('los locales miran a una vía y se concentran en Comercio; los patios conservan viviendas', () => {
+  const block = [
+    ['road', 'sidewalk', 'building', 'sidewalk', 'grass'],
+    ['road', 'sidewalk', 'building', 'sidewalk', 'grass'],
+    ['road', 'sidewalk', 'building', 'sidewalk', 'grass']
+  ];
+  const lot = [2, 1];
+  assert.ok(isShopFront(block, lot, -1, 0, NEIGHBORHOODS.comercio, .7));
+  assert.equal(isShopFront(block, lot, -1, 0, NEIGHBORHOODS.cambuche, .7), false);
+  assert.equal(isShopFront(block, lot, 1, 0, NEIGHBORHOODS.comercio, 0), false);
+  assert.equal(isShopFront(block, lot, 0, -1, NEIGHBORHOODS.comercio, 0), false);
+});
 
 test('el recorrido usa perfiles visuales estables y el exterior mantiene el centro neutro', () => {
   assert.equal(neighborhoodAt(112.98, 97.84), NEIGHBORHOODS.cambuche);

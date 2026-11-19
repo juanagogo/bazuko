@@ -9,11 +9,15 @@ try {
   // Nada que dependa de la letra se crea antes de tenerla: ni el radar ni sus dibujos.
   await letraLista();
   const { Game } = await import('./core/game.js');
-  const animaciones = new URLSearchParams(location.search).get('animaciones') === 'mixamo-preview'
+  const opciones = new URLSearchParams(location.search);
+  const animaciones = opciones.get('animaciones') === 'mixamo-preview'
     ? 'mixamo-game-preview' : 'default';
   // Los materiales de calle ya son los de todos: ?aspecto=realista queda para no caer en el modelo liviano guardado.
-  const modeloRealista = new URLSearchParams(location.search).get('aspecto') === 'realista';
-  const game = new Game(document.getElementById('game-canvas'), { animaciones, modeloRealista });
+  const modeloRealista = opciones.get('aspecto') === 'realista';
+  const carroFisico = opciones.get('carro') === 'fisica';
+  const game = new Game(document.getElementById('game-canvas'), {
+    animaciones, modeloRealista, carroFisico, calidad: opciones.get('calidad')
+  });
   await game.start(loading);
   startControlsHelp();
   openDeveloperNote(game);

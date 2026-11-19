@@ -1,5 +1,7 @@
 import * as THREE from 'three';
 import { MeshKit, rgb, shade, canvasTexture, drawLedText, ledTextColumns } from './MeshKit.js';
+import { MUGRE_ANCHO, MUGRE_ALTO, ESCAPE, DEFENSA, pintarMugreArticulado, uvCostado, uvTecho, uvExtremo } from './mugreArticulado.js';
+import { cabezaDePasajero, dibujaPasajero } from './pasajerosArticulado.js';
 
 /**
  * Carrocería del articulado, armada por código sobre las medidas de bus.json. Coordenadas del modelo:
@@ -26,13 +28,13 @@ const LAYOUT = [
 ];
 
 const C = {
-  red: rgb('#ad0f18'), redLow: rgb('#7c0b13'), black: rgb('#0a0b0d'), gloss: rgb('#08090b'), rubber: rgb('#101114'),
-  yellow: rgb('#efb414'), white: rgb('#ecece6'), roof: rgb('#c6c8c4'), seam: rgb('#3c060a'), bumper: rgb('#3a3c40'),
+  red: rgb('#ad272e'), redLow: rgb('#7c1c23'), black: rgb('#0a0b0d'), gloss: rgb('#08090b'), rubber: rgb('#101114'),
+  yellow: rgb('#efb414'), worn: rgb('#b99a46'), white: rgb('#ecece6'), roof: rgb('#b3b2aa'), seam: rgb('#3c060a'), bumper: rgb('#3a3c40'),
   steel: rgb('#5a5e62'), steelDark: rgb('#26282b'), grey: rgb('#8b8e90'), chrome: rgb('#b6babd'),
   floor: rgb('#34373a'), wall: rgb('#5b5f62'), pillar: rgb('#3a3d40'), ceiling: rgb('#c9c7bb'), pole: rgb('#e6b410'),
   seatBlue: rgb('#24405f'), seatRed: rgb('#70242a'), frameSeat: rgb('#3c3f42'),
-  lens: rgb('#fff2d0'), drl: rgb('#f2f5ff'), amber: rgb('#ff9a1c'), tail: rgb('#ff1a12'), reverse: rgb('#f2f2ea'), strip: rgb('#ffe9c2'),
-  tire: rgb('#141416'), side: rgb('#1d1d20'), rim: rgb('#3b3f44'), rimDark: rgb('#1f2124'), hub: rgb('#54585c'), lug: rgb('#9a9da0')
+  lens: rgb('#fff2d0'), drl: rgb('#f2f5ff'), amber: rgb('#ff9a1c'), tail: rgb('#ff1a12'), reverse: rgb('#f2f2ea'), strip: rgb('#ffe9c2'), cold: rgb('#e2eeff'),
+  tire: rgb('#171615'), side: rgb('#2f2c28'), rim: rgb('#4b4741'), rimDark: rgb('#211f1c'), hub: rgb('#5b544a'), lug: rgb('#8a857c')
 };
 
 /** Brillo de cada lámpara de día y de noche; va en la UV y lo mezcla el material sin luces reales. */
@@ -238,7 +240,7 @@ function buildSide(kits, layout, s) {
     [BOTTOM, .5, C.redLow], [.5, .7, C.redLow], [.7, .712, C.seam], [.712, .772, C.yellow], [.772, .798, C.red], [.798, .826, C.white],
     [.826, SILL, C.red], [SILL, 1.1, C.red], [1.1, 1.112, C.seam], [1.112, 1.48, C.red]
   ];
-  paint.uvOf = p => [(p[2] + p[0] * .3) / 8, clamp((p[1] - .4) / 3.1, 0, 1)];
+  paint.uvOf = p => uvCostado(p, s);
   for (const [y0, y1, color] of rows) for (let i = 0; i + 1 < columns.length; i++) {
     const zA = columns[i], zB = columns[i + 1], mid = (zA + zB) / 2;
     if (y0 >= SILL - 1e-4 && inDoor(mid)) continue;
@@ -299,7 +301,7 @@ function buildSide(kits, layout, s) {
     const bow = (z, center, half) => (z - center) / half * .018;
     const mid = (inner[0] + inner[1]) / 2, half = (inner[1] - inner[0]) / 2;
     const n = (z, tilt) => { const v = [s, tilt, bow(z, mid, half) + tiltA]; const l = Math.hypot(...v); return [v[0] / l, v[1] / l, v[2] / l]; };
-    const tint = [...rgb('#141d21'), .74];
+    const tint = [...rgb('#1a252b'), .64];
     glass.slideValue = 0;
     glass.quad([X0(inner[2]), inner[2], inner[0]], [X0(inner[2]), inner[2], inner[1]], [X0(split), split, inner[1]], [X0(split), split, inner[0]], tint,
       { normal: [n(inner[0], tiltA), n(inner[1], tiltA), n(inner[1], tiltA), n(inner[0], tiltA)], facing });
@@ -308,9 +310,9 @@ function buildSide(kits, layout, s) {
     // Junta de la ventila, un poco por fuera del vidrio para que se lea desde lejos.
     matte.quad([X0(split) + s * .012, split, inner[0]], [X0(split) + s * .012, split, inner[1]], [X0(split) + s * .012, split + .022, inner[1]], [X0(split) + s * .012, split + .022, inner[0]], C.rubber, { facing });
     interior.quad([s * 1.33, 2.93, a], [s * 1.33, 2.93, b], [s * 1.33, 3.12, b], [s * 1.33, 3.12, a], C.wall, { facing: [-s, 0, 0] });
-    // Luz cálida en la cornisa interior: de noche es lo que se ve desde la calle.
+    // Tira fría en la cornisa interior: de noche es lo que se ve desde la calle.
     lamps.uvOf = () => TONE.cove;
-    lamps.quad([s * 1.31, 2.965, a + .1], [s * 1.31, 2.965, b - .1], [s * 1.27, 3.02, b - .1], [s * 1.27, 3.02, a + .1], C.strip, { facing: [-s, -1, 0] });
+    lamps.quad([s * 1.31, 2.965, a + .1], [s * 1.31, 2.965, b - .1], [s * 1.27, 3.02, b - .1], [s * 1.27, 3.02, a + .1], C.cold, { facing: [-s, -1, 0] });
   });
 
   // Pared interior bajo el cinturón, que tapa la cara trasera de la pintura.
@@ -359,9 +361,9 @@ function buildDoor(kits, a, b, s) {
   matte.quad([s * (HALF + .008), SILL, a - .035], [s * (HALF + .008), SILL, a + .012], [s * (HALF + .008), top + .03, a + .012], [s * (HALF + .008), top + .03, a - .035], C.rubber, { facing: [s, 0, 0] });
   matte.quad([s * (HALF + .008), SILL, b - .012], [s * (HALF + .008), SILL, b + .035], [s * (HALF + .008), top + .03, b + .035], [s * (HALF + .008), top + .03, b - .012], C.rubber, { facing: [s, 0, 0] });
   matte.quad([s * (widthAt(top) + .008), top - .012, a], [s * (widthAt(top) + .008), top - .012, b], [s * (widthAt(top) + .008), top + .03, b], [s * (widthAt(top) + .008), top + .03, a], C.rubber, { facing: [s, 0, 0] });
-  // Umbral amarillo a la altura del piso, el mismo de la plataforma.
-  paint.quad([outer, FLOOR, a], [outer, FLOOR, b], [x, FLOOR, b], [x, FLOOR, a], C.yellow, { facing: [0, 1, 0] });
-  paint.quad([outer, SILL, a], [outer, SILL, b], [outer, FLOOR, b], [outer, FLOOR, a], shade(C.yellow, .7), { facing: [s, 0, 0] });
+  // Umbral a la altura del piso: el amarillo de la plataforma, gastado por las pisadas.
+  paint.quad([outer, FLOOR, a], [outer, FLOOR, b], [x, FLOOR, b], [x, FLOOR, a], C.worn, { facing: [0, 1, 0] });
+  paint.quad([outer, SILL, a], [outer, SILL, b], [outer, FLOOR, b], [outer, FLOOR, a], shade(C.worn, .7), { facing: [s, 0, 0] });
   // Piloto de puerta sobre el dintel.
   lamps.uvOf = () => TONE.marker;
   lamps.box(s * (HALF + .012), top + .075, center, .012, .03, .16, C.amber);
@@ -432,7 +434,7 @@ function buildInterior(kits, layout, index) {
     interior.quad([xa, ya, near], [xb, yb, near], [xb, yb, far], [xa, ya, far], i === 1 ? C.ceiling : shade(C.ceiling, .72), { facing: [0, -1, 0] });
   }
   lamps.uvOf = () => TONE.cove;
-  for (const x of [-.62, .62]) lamps.quad([x - .07, 3.112, zA + .3], [x + .07, 3.112, zA + .3], [x + .07, 3.112, zB - .3], [x - .07, 3.112, zB - .3], C.strip, { facing: [0, -1, 0] });
+  for (const x of [-.62, .62]) lamps.quad([x - .07, 3.112, zA + .3], [x + .07, 3.112, zA + .3], [x + .07, 3.112, zB - .3], [x - .07, 3.112, zB - .3], C.cold, { facing: [0, -1, 0] });
 
   // Cajones de rueda: solo las caras que quedan por fuera del cuenco; las de adentro se verían desde la calle.
   for (const c of layout.arches) for (const s of [-1, 1]) {
@@ -444,33 +446,6 @@ function buildInterior(kits, layout, index) {
     interior.box(x, FLOOR + .78, z - .2, .43, .62, .06, color, { bottom: .75, top: 1.15, rotation: [-.1, 0, 0], skip: 'ny' });
     interior.box(x, FLOOR + .22, z, .05, .42, .05, C.frameSeat, { skip: 'nypy' });
   };
-  const person = (x, z, seed, standing = false) => {
-    const shirts = ['#2a333c', '#3b2c26', '#31423a', '#4b4b52', '#59302f', '#232d44', '#6b6f75', '#2f4a63', '#7a3b2e'], skins = ['#a57a59', '#855e44', '#bd9677', '#6d4c36'];
-    const hairs = ['#17120f', '#2a1c12', '#0e0c0b', '#4a4744'], legsList = ['#1b1e25', '#23304a', '#2a2622', '#3a3a3e'];
-    const body = rgb(shirts[seed % shirts.length]), skin = rgb(skins[seed % skins.length]), hair = rgb(hairs[(seed >> 1) % hairs.length]), legs = rgb(legsList[(seed >> 2) % legsList.length]);
-    // Nadie va igual: altura, ancho y hacia dónde se inclina la cabeza salen de la misma semilla, siempre iguales entre partidas.
-    const tall = 1 + ((seed * 7) % 5 - 2) * .025, wide = 1 + ((seed * 11) % 3 - 1) * .08, tilt = ((seed * 13) % 3 - 1) * .018;
-    const hip = (standing ? FLOOR + .86 : FLOOR + .52) * tall + (standing ? 0 : FLOOR * (1 - tall));
-    if (standing) {
-      // Piernas rectas con zapato: un huevo alargado terminaba en punta y parecía flotar.
-      for (const dx of [-.085, .085]) {
-        interior.tube([[x + dx, hip + .02, z], [x + dx, FLOOR + .05, z]], .072, 6, legs, { caps: false });
-        interior.box(x + dx, FLOOR + .035, z + .03, .1, .07, .24, rgb('#121214'));
-      }
-      // De pie se agarra del tubo: un brazo levantado es lo que se reconoce desde afuera.
-      const side = seed % 2 ? 1 : -1;
-      interior.tube([[x + side * .19, hip + .52, z], [x + side * .25, hip + .78, z + .02], [x + side * .16, hip + 1.02, z]], .036, 4, body, { caps: false });
-    } else {
-      // Sentado: las piernas salen hacia adelante, sobre el asiento.
-      interior.box(x, FLOOR + .54, z + .2, .34, .1, .34, legs, { bottom: .6, skip: 'ny' });
-    }
-    interior.ellipsoid([x, hip + .27, z], [.19 * wide, .33, .125], v => shade(body, lerp(.55, 1.15, v)), { rows: 4, cols: 7 });
-    // Hombros y cuello: sin ellos el cuerpo es un huevo con una bola encima.
-    interior.ellipsoid([x, hip + .52, z], [.21 * wide, .075, .115], shade(body, 1.12), { rows: 2, cols: 6 });
-    interior.tube([[x, hip + .56, z], [x + tilt, hip + .64, z + .01]], .046, 4, skin, { caps: false });
-    interior.ellipsoid([x + tilt, hip + .73, z + .012], [.092, .118, .102], v => v > .6 ? hair : shade(skin, lerp(.7, 1.05, v)), { rows: 5, cols: 7 });
-  };
-
   const left = layout.left, seats = [];
   const blocked = (s, z) => {
     if (layout.arches.some(c => Math.abs(z - c) < ARCH_RADIUS + .24)) return true;
@@ -485,14 +460,18 @@ function buildInterior(kits, layout, index) {
       seats.push([x, z]);
     }
   }
-  seats.forEach(([x, z], i) => { if ((i * 7 + index * 3) % 5 < 2) person(x, z, i + index * 2); });
+  seats.forEach(([x, z], i) => {
+    if ((i * 7 + index * 3) % 5 < 2) dibujaPasajero(interior, x, z, { floor: FLOOR, seed: i + index * 2 });
+  });
 
   // Tubos del pasillo y barra del techo.
-  for (let z = first - .1; z <= last + .4; z += 1.64) for (const x of [-.34, .34]) interior.tube([[x, FLOOR, z], [x, 2.78, z]], .018, 5, C.pole, { caps: false });
-  for (const x of [-.34, .34]) interior.tube([[x, 2.78, first - .3], [x, 2.78, last + .5]], .016, 5, C.pole, { caps: false });
+  const railX = .34, railY = 2.78;
+  for (let z = first - .1; z <= last + .4; z += 1.64) for (const x of [-railX, railX]) interior.tube([[x, FLOOR, z], [x, railY, z]], .018, 5, C.pole, { caps: false });
+  for (const x of [-railX, railX]) interior.tube([[x, railY, first - .3], [x, railY, last + .5]], .016, 5, C.pole, { caps: false });
   for (const c of left.doors) for (const dz of [-.72, .72]) interior.tube([[1.18, FLOOR, c + dz], [1.18, 2.8, c + dz]], .018, 5, C.pole, { caps: false });
   // Gente de pie cerca de las puertas.
-  [[-.05, left.doors[0] + .4], [.15, left.doors[1] - .6], [.1, (left.doors[0] + left.doors[1]) / 2]].forEach(([x, z], i) => person(x, z, i + 3 + index, true));
+  [[-.05, left.doors[0] + .4], [.15, left.doors[1] - .6], [.1, (left.doors[0] + left.doors[1]) / 2]].forEach(([x, z], i) =>
+    dibujaPasajero(interior, x, z, { floor: FLOOR, seed: i + 3 + index, rail: { x: Math.sign(x) * railX, y: railY } }));
 }
 
 function buildRoof(kits, layout, index) {
@@ -501,7 +480,7 @@ function buildRoof(kits, layout, index) {
   const cuts = [zA];
   for (let z = zA + 1.18; z < zB - .1; z += 1.18) cuts.push(z, z + .018);
   cuts.push(zB);
-  paint.uvOf = p => [p[2] / 8, .3 + p[0] * .04];
+  paint.uvOf = uvTecho;
   for (let i = 0; i + 1 < cuts.length; i++) {
     const a = cuts[i], b = cuts[i + 1], rib = i % 2 === 1;
     for (let k = 0; k + 1 < ROOF.length; k++) {
@@ -515,9 +494,10 @@ function buildRoof(kits, layout, index) {
 
   // Equipo de aire: carcasa baja con dos rejillas largas y ventiladores discretos, no fogones.
   const ac = index === 0 ? 6 : -5.2;
-  const base = 3.4, top = 3.72, shell = shade(C.roof, .92);
-  paint.frustum(0, ac, base, top - .07, 2.08, 2.8, 2.04, 2.76, shell, { bottom: .62, skipTop: true });
-  paint.frustum(0, ac, top - .07, top, 2.04, 2.76, 1.9, 2.62, shade(C.roof, 1.02), {});
+  // La carcasa junta más mugre que el techo: va un punto más oscura y con el pie negro de grasa y polvo.
+  const base = 3.4, top = 3.72, shell = shade(C.roof, .8);
+  paint.frustum(0, ac, base, top - .07, 2.08, 2.8, 2.04, 2.76, shell, { bottom: .45, skipTop: true });
+  paint.frustum(0, ac, top - .07, top, 2.04, 2.76, 1.9, 2.62, shade(C.roof, .86), {});
   matte.slideValue = 0;
   for (const x of [-.52, .52]) {
     matte.box(x, top + .003, ac, .74, .006, 2.2, shade(C.steelDark, 1.1), { skip: 'ny' });
@@ -531,7 +511,7 @@ function buildRoof(kits, layout, index) {
   }
   // Escotillas de emergencia, con bisagras y bordes bajos.
   for (const z of index === 0 ? [2.3, 9.3] : [-2.3, -8.9]) {
-    paint.frustum(0, z, 3.46, 3.53, .88, .88, .8, .8, shade(C.roof, .84), { bottom: .62 });
+    paint.frustum(0, z, 3.46, 3.53, .88, .88, .8, .8, shade(C.roof, .76), { bottom: .5 });
     for (const x of [-.26, .26]) matte.box(x, 3.535, z - .36, .08, .012, .05, C.steelDark, { skip: 'ny' });
   }
   if (index === 0) matte.tube([[.3, 3.48, 8.2], [.3, 3.74, 8.12]], .008, 5, C.black, { caps: false });
@@ -549,7 +529,7 @@ function roofNormal(k) {
 function buildBrow(kit, cap, edge, sign) {
   const us = [-1, ...U_LIST.filter(u => u > -1 && u < 1), 1];
   const stops = [0, .3, .58, .76, .79, 1];
-  kit.uvOf = p => [p[0] / 8, .34];
+  kit.uvOf = p => uvExtremo(p, sign < 0);
   const point = (u, t) => {
     const low = cap.point(u, EAVE), x = low[0];
     // La altura del techo en esa X: interpolada del mismo perfil.
@@ -581,7 +561,8 @@ function buildBrow(kit, cap, edge, sign) {
 /** Parachoques liso de dos tonos y las franjas de la flota, que siguen de largo desde el costado sin escalón. */
 function buildLowerCap({ paint, matte }, cap, extra) {
   const edge = .985, fade = y => lerp(.68, 1, smooth(y, BOTTOM, .82));
-  shape(paint, cap, -edge, edge, () => BOTTOM, () => .572, (u, y) => shade(C.bumper, lerp(.5, 1.1, smooth(y, BOTTOM, .56))), { rows: 2, extra });
+  // Clara de base: el mapa de mugre la oscurece y deja ver los raspones.
+  shape(paint, cap, -edge, edge, () => BOTTOM, () => DEFENSA, (u, y) => shade(C.bumper, 2.2 * lerp(.5, 1.1, smooth(y, BOTTOM, .56))), { rows: 2, extra });
   // Una línea de sombra hundida separa los dos tonos.
   shape(matte, cap, -edge, edge, () => .572, () => .588, shade(C.black, .5), { off: -.004, extra });
   shape(paint, cap, -edge, edge, () => .588, () => .7, (u, y) => shade(C.redLow, lerp(1, 1.22, smooth(y, .59, .7))), { extra });
@@ -670,7 +651,7 @@ const FRONT_CUTS = [.45, .48, .51, .54, .565, .84, .86, .9, .93, .955].flatMap(u
 function buildFront(kits) {
   const { paint, matte, glass, lamps, decals, sign, flares, interior } = kits;
   const cap = FRONT, extra = FRONT_CUTS;
-  paint.uvOf = p => [(p[0] + p[2]) / 8, clamp((p[1] - .4) / 3.1, 0, 1)];
+  paint.uvOf = p => uvExtremo(p, false);
   matte.slideValue = 0; glass.slideValue = 0;
 
   buildLowerCap(kits, cap, extra);
@@ -760,7 +741,7 @@ function buildFront(kits) {
   const uniform = rgb('#27364e'), skin = rgb('#a57a59');
   interior.ellipsoid([.78, 1.84, 9.6], [.21, .36, .14], v => shade(uniform, lerp(.55, 1.15, v)), { rows: 4, cols: 6 });
   interior.ellipsoid([.78, 2.14, 9.6], [.23, .07, .12], shade(uniform, 1.1), { rows: 3, cols: 6 });
-  interior.ellipsoid([.78, 2.34, 9.64], [.095, .12, .105], v => v > .62 ? rgb('#17120f') : shade(skin, lerp(.7, 1.05, v)), { rows: 5, cols: 8 });
+  cabezaDePasajero(interior, .78, 1.61, 9.64, skin, rgb('#17120f'));
   for (const s of [-1, 1]) {
     interior.tube([[.78 + s * .2, 2.12, 9.62], [.78 + s * .22, 1.82, 9.82], [.78 + s * .13, 1.6, 10.12]], .04, 4, uniform, { caps: false });
     interior.ellipsoid([.78 + s * .13, 1.58, 10.16], [.04, .035, .05], skin, { rows: 2, cols: 4 });
@@ -790,10 +771,12 @@ const REAR_CUTS = [.62, .65, .68, .71, .9, .95].flatMap(u => [u, -u]);
 function buildRear(kits) {
   const { paint, matte, glass, lamps, decals, sign, stops, flares, interior } = kits;
   const cap = REAR, extra = REAR_CUTS;
-  paint.uvOf = p => [(p[0] + p[2]) / 8, clamp((p[1] - .4) / 3.1, 0, 1)];
+  paint.uvOf = p => uvExtremo(p, true);
   matte.slideValue = 0; glass.slideValue = 0;
 
   buildLowerCap(kits, cap, extra);
+  // Escape bajo el voladizo, del lado libre: de ahí sale el hollín de la cola.
+  matte.tube([[ESCAPE.x, ESCAPE.y + .02, ESCAPE.z + .7], [ESCAPE.x, ESCAPE.y, ESCAPE.z]], .045, 8, shade(C.steelDark, .7));
   shape(paint, cap, -1, 1, () => .826, rearMaskLow, (u, y) => shade(C.red, lerp(.9, 1, smooth(y, .826, 1.2))), { extra });
   const rearWindow = rounded(-.6, .6, 2.04, 2.86, .07, .12);
   around(paint, cap, -1, 1, rearMaskLow, rearMaskHigh, rearWindow, C.gloss, { extra });
@@ -943,35 +926,6 @@ function drawDecals(ctx) {
   });
 }
 
-/** Mapa de suciedad: multiplica la pintura, así que el blanco deja el color intacto. Barro abajo y chorreones que bajan del techo. */
-function drawGrime(ctx, w, h) {
-  ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, w, h);
-  let seed = 1234;
-  const random = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
-  // Las franjas empiezan a un 10 % de la altura: el barro se queda abajo para no ensuciarles el color.
-  const mud = ctx.createLinearGradient(0, h, 0, h * .78);
-  mud.addColorStop(0, 'rgba(92,72,54,.62)'); mud.addColorStop(.32, 'rgba(100,84,68,.2)'); mud.addColorStop(.6, 'rgba(110,95,80,.07)'); mud.addColorStop(1, 'rgba(120,105,90,0)');
-  ctx.fillStyle = mud; ctx.fillRect(0, h * .78, w, h * .22);
-  for (let i = 0; i < 700; i++) {
-    const x = random() * w, y = h - Math.pow(random(), 2.6) * h * .2;
-    ctx.fillStyle = `rgba(70,56,44,${.05 + random() * .12})`;
-    ctx.fillRect(x, y, 1 + random() * 3, 1 + random() * 2);
-  }
-  for (let i = 0; i < 70; i++) {
-    const x = random() * w, length = 20 + random() * h * .4;
-    const g = ctx.createLinearGradient(0, 0, 0, length);
-    g.addColorStop(0, `rgba(40,36,34,${.05 + random() * .1})`); g.addColorStop(1, 'rgba(40,36,34,0)');
-    ctx.fillStyle = g; ctx.save(); ctx.translate(x, random() * h * .12); ctx.fillRect(0, 0, 1 + random() * 2, length); ctx.restore();
-  }
-  // Polvo muy suave en parches: rompe la igualdad del color a media altura.
-  for (let i = 0; i < 40; i++) {
-    const x = random() * w, y = random() * h, r = 14 + random() * 42;
-    const g = ctx.createRadialGradient(x, y, 0, x, y, r);
-    g.addColorStop(0, `rgba(96,88,80,${.03 + random() * .05})`); g.addColorStop(1, 'rgba(96,88,80,0)');
-    ctx.fillStyle = g; ctx.fillRect(x - r, y - r, r * 2, r * 2);
-  }
-}
-
 function drawFlare(ctx, w, h) {
   const g = ctx.createRadialGradient(w / 2, h / 2, 0, w / 2, h / 2, w / 2);
   g.addColorStop(0, 'rgba(255,255,255,1)'); g.addColorStop(.18, 'rgba(255,255,255,.55)'); g.addColorStop(.5, 'rgba(255,255,255,.12)'); g.addColorStop(1, 'rgba(255,255,255,0)');
@@ -999,17 +953,21 @@ function ledTexture(pages) {
   return texture;
 }
 
+const MUGRE_DEL_BUS = {
+  ventanas: { izquierda: LAYOUT.flatMap(l => l.left.windows), derecha: LAYOUT.flatMap(l => l.right.windows) },
+  ruedas: LAYOUT.flatMap(l => l.arches), aire: [6, -5.2], escotillas: [2.3, 9.3, -2.3, -8.9]
+};
+
 let shared = null;
 /** Texturas compartidas por todos los buses: una sola copia en la GPU. */
 export function busTextures() {
   shared ??= {
-    grime: canvasTexture(512, 256, drawGrime),
+    grime: canvasTexture(MUGRE_ANCHO, MUGRE_ALTO, (ctx, w, h) => pintarMugreArticulado(ctx, w, h, MUGRE_DEL_BUS)),
     decals: canvasTexture(ATLAS.width, ATLAS.height, drawDecals, { anisotropy: 8 }),
     flare: canvasTexture(64, 64, drawFlare, { anisotropy: 1 }),
     ledNorth: ledTexture(LED_ROUTES.north),
     ledSouth: ledTexture(LED_ROUTES.south)
   };
-  if (shared.grime.wrapS !== THREE.RepeatWrapping) shared.grime.wrapS = THREE.RepeatWrapping;
   return shared;
 }
 
@@ -1056,13 +1014,20 @@ function buildBellows(accordion) {
     const z = lerp(zFront, zRear, t);
     const phase = t * folds * 2;
     const ridge = Math.round(phase) % 2 === 0;
-    return { z, offset: ridge ? .04 : -.03, ridge };
+    return { z, offset: ridge ? .052 : -.042, ridge, fold: Math.floor(phase) };
   };
   const weights = z => {
     if (z >= midZ) { const k = (zFront - z) / (zFront - midZ); return [0, 1, 1 - k, k]; }
     const k = (midZ - z) / (midZ - zRear); return [1, 2, 1 - k, k];
   };
-  const rubber = rgb('#2b2d30'), rubberLow = rgb('#08080a');
+  // Caucho gris percudido: polvo de la calle abajo, hollín arriba y cada pliegue un poco distinto, para que se lea el acordeón.
+  const rubber = rgb('#4b4945'), rubberLow = rgb('#171614'), dust = rgb('#6f675c'), soot = rgb('#262523');
+  const mezcla = (a, b, t) => a.map((v, k) => lerp(v, b[k], t));
+  const colorOf = (r, p) => {
+    const base = shade(r.ridge ? rubber : rubberLow, 1 + ((r.fold * 37) % 7 - 3) * .03);
+    const dusty = mezcla(base, dust, (1 - smooth(p[1], .55, 1.4)) * (r.ridge ? .45 : .25));
+    return mezcla(dusty, soot, smooth(p[1], 2.8, 3.45) * (r.ridge ? .45 : .2));
+  };
   const pushVertex = (p, n, c, z) => {
     positions.push(...p); normals.push(...n); colors.push(...c);
     const [a, b, wa, wb] = weights(z);
@@ -1081,8 +1046,7 @@ function buildBellows(accordion) {
       if (n[0] * midX + n[1] * (midY - center[1]) < 0) n = n.map(x => -x);
       const l = Math.hypot(...n) || 1; n = n.map(x => x / l);
       const base = positions.length / 3;
-      const colorOf = r => r.ridge ? rubber : rubberLow;
-      pushVertex(a, n, colorOf(A), A.z); pushVertex(b, n, colorOf(A), A.z); pushVertex(c, n, colorOf(B), B.z); pushVertex(d, n, colorOf(B), B.z);
+      pushVertex(a, n, colorOf(A, a), A.z); pushVertex(b, n, colorOf(A, b), A.z); pushVertex(c, n, colorOf(B, c), B.z); pushVertex(d, n, colorOf(B, d), B.z);
       const flat = [(b[1] - a[1]) * (c[2] - a[2]) - (b[2] - a[2]) * (c[1] - a[1]), (b[2] - a[2]) * (c[0] - a[0]) - (b[0] - a[0]) * (c[2] - a[2]), (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0])];
       if (flat[0] * n[0] + flat[1] * n[1] + flat[2] * n[2] < 0) indices.push(base, base + 2, base + 1, base, base + 3, base + 2);
       else indices.push(base, base + 1, base + 2, base, base + 2, base + 3);

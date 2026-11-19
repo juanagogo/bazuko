@@ -7,6 +7,8 @@ import { fileURLToPath } from 'node:url';
 import { prepararPlano, hornearPlano } from '../src/ui/planoRadar.js';
 import { nombreALaVista } from '../src/ui/Minimap.js';
 import { cityMapPlan } from '../src/world/bogota/CityMapRaster.js';
+import { METRO, METRO_SPANS } from '../src/world/bogota/MetroBogota.js';
+import { LAKE_PARK } from '../src/world/bogota/LakePark.js';
 import { Cart } from '../src/entities/Cart.js';
 import { BRANCHES, TALENTS } from '../src/data/talents.js';
 import { HUD } from '../src/ui/HUD.js';
@@ -42,6 +44,40 @@ test('fuera del navegador no hay plano, y nadie se cae por eso', () => {
   assert.equal(prepararPlano({ ancho: 1, desdeZ: 0, hastaZ: 0, T: 2, tipo: () => 'road', originX: 0, originZ: 0 }), null);
   assert.equal(hornearPlano(null), null);
   assert.ok(plano.worldWidth > 0);
+});
+
+test('la cartografía usa el ancho del viaducto y conserva el agua entre sus dos orillas bajo el puente', (t) => {
+  class Path {
+    rects = [];
+    points = [];
+    starts = [];
+    children = [];
+    rect(...r) { this.rects.push(r); }
+    closePath() {}
+    addPath(path) { this.children.push(path); }
+    moveTo(x, z) { this.starts.push([x, z]); this.points.push([x, z]); }
+    lineTo(x, z) { this.points.push([x, z]); }
+    quadraticCurveTo(x, z, endX, endZ) { this.points.push([x, z], [endX, endZ]); }
+  }
+  globalThis.Path2D = Path;
+  t.after(() => { delete globalThis.Path2D; });
+  const tiles = cityMapPlan({ map: [['grass', 'plaza', 'road']] }).tiles();
+  assert.equal(tiles.metro.ancho, METRO.deckWidth);
+  assert.deepEqual(tiles.metro.tramos, METRO_SPANS.map(span => span.map(z => [METRO.x, z])));
+  const plano = prepararPlano({ ...tiles, desdeZ: 0, hastaZ: 0, ancho: 5,
+    originX: LAKE_PARK.lakeX - 5, originZ: LAKE_PARK.lakeZ - 1,
+    tipo: x => ['grass', 'water', 'busway', 'water', 'plaza'][x] });
+  assert.deepEqual(plano.tableroMetro.starts, tiles.metro.tramos.map(tramo => tramo[0]), 'el plano deja libre el vano entre las obras');
+  assert.equal(plano.agua.children.length, 1);
+  assert.equal(plano.agua.children[0], plano.orilla);
+  assert.equal(plano.agua.rects.length, 0, 'los dos lados del puente quedan en la misma lámina');
+  for (const [eje, centro, radio] of [[0, LAKE_PARK.lakeX, LAKE_PARK.radiusX], [1, LAKE_PARK.lakeZ, LAKE_PARK.radiusZ]]) {
+    const extremos = plano.orilla.points.map(p => p[eje]);
+    assert.ok(Math.abs(Math.min(...extremos) - (centro - radio)) < 1);
+    assert.ok(Math.abs(Math.max(...extremos) - (centro + radio)) < 1);
+  }
+  assert.equal(plano.prado.rects.length, 1);
+  assert.equal(plano.plaza.rects.length, 1);
 });
 
 test('el mapa grande ya no tiene su propio raster ni sus colores', () => {

@@ -98,6 +98,41 @@ test('el agua profunda y actores inactivos no dejan manchas, pero el puente sobr
   shadows.dispose();
 });
 
+test('cada suela sigue su cota, pierde sombra al levantarse y respeta el límite de un escalón', () => {
+  const shadows = new ContactShadows(new THREE.Scene());
+  const player = person(0, .30, .35);
+  const feet = [new THREE.Vector3(-.13, .304, .42), new THREE.Vector3(.16, .305, .42)];
+  player.character = { sampleSoleContacts(contacts) {
+    for (let i = 0; i < feet.length; i++) {
+      contacts[i].center.copy(feet[i]);
+      Object.assign(contacts[i], { valid: true, width: .105, length: .16, yaw: 0 });
+    }
+  } };
+  const step = (_x, z) => z >= 0 ? .30 : .12;
+  const frame = { player, groundHeight: step, camera, quality: 'alta' };
+  shadows.update(frame);
+  assert.equal(shadows.count, 3);
+  const left = matrix(shadows.actors, 1).elements;
+  assert.ok(Math.abs(left[12] + .13) < 1e-6 && Math.abs(left[13] - .306) < 1e-6);
+  const onGround = alpha(shadows.actors, 2);
+  feet[1].y = .384;
+  shadows.update(frame);
+  assert.ok(alpha(shadows.actors, 2) < onGround * .4);
+  feet[1].set(.16, .123, -.025);
+  shadows.update(frame);
+  assert.equal(shadows.count, 2, 'el plano que cruzaría el borde inferior se descarta');
+  player.isGrounded = false;
+  shadows.update(frame);
+  assert.equal(shadows.count, 1, 'en el salto queda solo la penumbra del cuerpo');
+  player.isGrounded = true; player.ridingBike = {};
+  shadows.update(frame);
+  assert.equal(shadows.count, 1, 'sin contacto de zapatos mientras pedalea');
+  player.isSwimming = true;
+  shadows.update(frame);
+  assert.equal(shadows.count, 0);
+  shadows.dispose();
+});
+
 test('el presupuesto global elige vecinos cercanos y mantiene al jugador y perro', () => {
   const shadows = new ContactShadows(new THREE.Scene(), { capacity: 4 });
   const player = person(), dog = person(1);

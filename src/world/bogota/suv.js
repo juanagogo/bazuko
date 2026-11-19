@@ -14,8 +14,9 @@ export function makeSuv() {
   const v = makeVehicle('carro', 0, { beams: false, model: 'camionetaNegra', ownMaterials: true });
   const [paint, glass] = v.wetMaterials;
   paint.color.set('#07080a');
-  paint.metalness = .6; paint.roughness = .22; paint.clearcoat = 1; paint.clearcoatRoughness = .03;
-  glass.color.set('#050709'); glass.opacity = .9;
+  paint.metalness = .22; paint.roughness = .28; paint.clearcoat = 1; paint.clearcoatRoughness = .12;
+  paint.userData.dryRoughness = paint.roughness;
+  glass.color.set('#050709'); glass.opacity = .9; glass.userData.opacidadBase = glass.opacity;
   v.group.name = 'camioneta-negra';
   // makeVehicle no trae los espejos: los pone Car, y esta camioneta no pasa por Car. Su geometría ya está en coordenadas de la carrocería.
   const mirrors = new THREE.Mesh(v.mirrorGeometry, v.trimMaterial);

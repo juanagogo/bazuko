@@ -6,6 +6,8 @@ import { el, button } from './dom.js';
 import { LETRA } from './letra.js';
 import { pasarTexto } from './pictos.js';
 import { streetLabels } from '../world/bogota/CityMapRaster.js';
+import { inTerminal } from '../world/bogota/TransitTerminal.js';
+import { ZONA_NOMBRES, zonaDe } from './ZonaAviso.js';
 import { formatDistance, nombreALaVista } from './Minimap.js';
 import { CARTON, CARTON_MOJADO, MARCADOR, flechaJugador, prepararPlano, rutaRoja, trazarPlano, xRoja } from './planoRadar.js';
 import { FILTERS, NEED_COPY, hasTag, noOptionText, placeMeta, rankPlaces, sellFirstPlaces } from './mapServices.js';
@@ -15,18 +17,17 @@ const PAN_STEP = 24;
 const HIT_RADIUS = 14;
 const SERVICE_MIN_ZOOM = 1.6; // por debajo, «Ver toda la ciudad» se saturaría de puestos
 const NAME_MIN_ZOOM = 1.1;    // por debajo, solo los dibujos
+const OVERVIEW_ICON = 17;     // un dibujo por sitio visible en la vista general
+const STREET_MIN_ZOOM = 2.1;  // primero se leen los lugares; al acercarse aparecen las vías
 const FRAME_MARGIN = 60;
 const SAME_PLACE_METERS = 4; // el destino puede moverse a la acera más cercana al lugar
-const LEGEND = [['Andén', 'anden'], ['Calle', 'calle'], ['Parque', 'parque'], ['Agua', 'agua'], ['Edificio', 'edificio'], ['Ruta', 'ruta']];
+const LEGEND = [['Andén', 'anden'], ['Calle', 'calle'], ['Plaza', 'plaza'], ['Parque', 'parque'], ['Árbol', 'arbol'], ['Agua', 'agua'], ['Edificio', 'edificio'], ['Metro', 'metro'], ['Ruta', 'ruta']];
 
 const HORNO_LADO = 2048;   // píxeles del lado del plano horneado; la vista cabe de sobra y arrastrar no vuelve a hornear
 const HORNO_ESPERA = 110;  // al acercar, se estira el plano horneado y se vuelve a hornear al quedarse quieto
 const BORDE_VACIO = 24;
 const CALLE_CADA = 130;    // metros entre dos nombres de la misma vía
 const MAR = 6;             // aire de un dibujo o un nombre dentro de su imagen
-
-/** Solo donde hay calle: un nombre de vía encima de una manzana no dice nada. */
-const NO_ES_MANZANA = new Set(['road', 'busway', 'sidewalk', 'floor', 'plaza', 'dirt']);
 
 export class MapView {
   constructor(game) {
@@ -54,15 +55,20 @@ export class MapView {
     });
     this.ctx = this.canvas.getContext?.('2d');
     this.sidebar = el('aside', { class: 'map-view__side' });
+    this.sector = el('strong', { class: 'map-view__sector', title: 'Sector en el centro del plano' });
+    this.escala = el('span', { class: 'map-view__escala', title: 'Distancia en el plano' });
     const tool = (text, label, onclick) => el('button', { type: 'button', class: 'map-view__tool cinta', title: label, 'aria-label': label, onclick, text });
     this.root = el('div', { class: 'map-view' },
       el('div', { class: 'map-view__stage' },
-        el('div', { class: 'map-view__papel' }, this.canvas,
+        el('div', { class: 'map-view__orientacion' },
+          el('span', { class: 'map-view__norte', 'aria-label': 'Norte arriba', text: 'N' }),
+          this.sector, this.escala,
           el('div', { class: 'map-view__tools' },
             tool('+', 'Acercar', () => this._zoomAt(this.cssWidth / 2, this.cssHeight / 2, 1.3)),
             tool('−', 'Alejar', () => this._zoomAt(this.cssWidth / 2, this.cssHeight / 2, 1 / 1.3)),
             tool(pasarTexto('◎'), 'Centrar en mí', () => this.centerOnPlayer()),
             tool(pasarTexto('⤢'), 'Ver toda la ciudad', () => this.fitCity()))),
+        el('div', { class: 'map-view__papel' }, this.canvas),
         el('div', { class: 'map-view__pie' },
           el('ul', { class: 'map-view__legend', 'aria-label': 'Leyenda' },
             LEGEND.map(([name, key]) => el('li', { class: `ley ley--${key}` }, el('i', { 'aria-hidden': 'true' }), name))),
@@ -111,6 +117,7 @@ export class MapView {
     this.centerZ = r.originZ + r.worldHeight / 2;
     this.zoom = this._clampZoom(0);
     this._panned = false;
+    if (this._horno && this._horno.zoom !== this.zoom) this._hornear();
     this.draw();
   }
 
@@ -130,13 +137,41 @@ export class MapView {
     return [(x - this.centerX) * this.zoom + this.cssWidth / 2, (z - this.centerZ) * this.zoom + this.cssHeight / 2];
   }
 
+  _orientacion() {
+    const plan = this.game.mapPlan;
+    if (!plan) return;
+    const entera = this.cssWidth >= plan.worldWidth * this.zoom && this.cssHeight >= plan.worldHeight * this.zoom;
+    const x = this.centerX, z = this.centerZ;
+    let sector = 'Bogotá';
+    if (!entera) {
+      if (inTerminal(x, z)) sector = 'Portal del Centro';
+      else sector = z < 0 ? '' : ZONA_NOMBRES[zonaDe(this.game.world?.active, x, z)] ?? '';
+    }
+    if (this.sector.textContent !== sector) this.sector.textContent = sector;
+    // La regla mide en píxeles CSS. Al hacer zoom cambia de longitud con los metros del mundo.
+    const metros = [200, 100, 50, 20, 10, 5].find(m => m * this.zoom <= 86) ?? 5;
+    const rotulo = metros + ' m';
+    if (this.escala.textContent !== rotulo) this.escala.textContent = rotulo;
+    const ancho = `${metros * this.zoom}px`;
+    if (this.escala.style.width !== ancho) this.escala.style.width = ancho;
+  }
+
   _pois() { return this.game._getPOIs?.() ?? []; }
 
   /** Lo que el lienzo dibuja y deja marcar, de abajo arriba: con filtro, lo que coincide queda encima. */
   _visiblePois() {
     const pois = this._pois();
-    if (this.filter === 'todo') return this.zoom >= SERVICE_MIN_ZOOM ? pois : pois.filter(poi => !poi.service);
-    return [...pois.filter(poi => !hasTag(poi, this.filter)), ...pois.filter(poi => hasTag(poi, this.filter))];
+    if (this.filter !== 'todo') return [...pois.filter(poi => !hasTag(poi, this.filter)), ...pois.filter(poi => hasTag(poi, this.filter))];
+    if (this.zoom >= SERVICE_MIN_ZOOM) return pois;
+    const fijos = pois.filter(poi => !poi.service);
+    // Al ver toda Bogotá se leen primero sus hitos. Se sigue pudiendo elegir cualquier otro en la lista.
+    fijos.sort((a, b) => Number(!!b.hito) - Number(!!a.hito));
+    const visibles = [];
+    const distancia = OVERVIEW_ICON / this.zoom;
+    for (const poi of fijos) {
+      if (visibles.every(otro => Math.hypot(poi.x - otro.x, poi.z - otro.z) >= distancia)) visibles.push(poi);
+    }
+    return visibles;
   }
 
   _hit(sx, sy) {
@@ -440,7 +475,7 @@ export class MapView {
     const ctx = canvas.getContext('2d');
     ctx.setTransform(k, 0, 0, k, -x0 * k, -z0 * k);
     trazarPlano(ctx, this._plano, zoom);
-    if (zoom > NAME_MIN_ZOOM) this._nombresDeVias(ctx, { x0, z0, w, h, k });
+    if (zoom >= STREET_MIN_ZOOM) this._nombresDeVias(ctx, { x0, z0, w, h, k });
     this._horno = { canvas, x0, z0, w, h, zoom, cara: this._cara(), entera: w >= plan.worldWidth && h >= plan.worldHeight };
     this._rotulos = null;
   }
@@ -448,7 +483,10 @@ export class MapView {
   /** Los nombres de las vías van en el plano horneado, repartidos a lo largo de cada una y solo sobre calle. */
   _nombresDeVias(ctx, { x0, z0, w, h, k }) {
     const tiles = this.game.mapPlan.tiles();
-    const tipo = (x, z) => tiles.tipo(Math.round(x / tiles.T), Math.round(z / tiles.T));
+    const calzada = (x, z) => {
+      const tipo = tiles.tipo(Math.round(x / tiles.T), Math.round(z / tiles.T));
+      return tipo === 'road' || tipo === 'busway';
+    };
     const px = this.dpr;
     ctx.font = `400 ${15 * px}px ${LETRA}`;
     ctx.textAlign = 'center';
@@ -458,7 +496,12 @@ export class MapView {
     ctx.strokeStyle = this._cara();
     ctx.fillStyle = MARCADOR;
     const poner = (name, x, z, giro) => {
-      if (x < x0 || z < z0 || x > x0 + w || z > z0 + h || !NO_ES_MANZANA.has(tipo(x, z))) return;
+      if (x < x0 || z < z0 || x > x0 + w || z > z0 + h || !calzada(x, z)) return;
+      // Verificar toda la palabra evita extender una calle por el parque o una cuadra ya terminada.
+      const mitad = ctx.measureText(name).width / (2 * k);
+      for (let d = -mitad; d <= mitad; d += tiles.T) {
+        if (!calzada(x + (giro ? 0 : d), z + (giro ? d : 0))) return;
+      }
       ctx.setTransform(1, 0, 0, 1, (x - x0) * k, (z - z0) * k);
       if (giro) ctx.rotate(-Math.PI / 2);
       ctx.strokeText(name, 0, 0);
@@ -467,7 +510,7 @@ export class MapView {
     const plan = this.game.mapPlan;
     for (const label of this._labels) {
       if (label.vertical) {
-        for (let z = plan.originZ + CALLE_CADA / 2; z < plan.originZ + plan.worldHeight; z += CALLE_CADA) poner(label.name, label.x, z, true);
+        for (let z = plan.originZ + CALLE_CADA / 2; z < plan.originZ + plan.worldHeight; z += CALLE_CADA) poner(label.name, label.calzadaX ?? label.x, z, true);
       } else {
         const desde = Math.max(plan.originX, label.minX ?? -Infinity);
         for (let x = desde + CALLE_CADA / 2; x < plan.originX + plan.worldWidth; x += CALLE_CADA) poner(label.name, x, label.z, false);
@@ -528,17 +571,30 @@ export class MapView {
     const pois = this._visiblePois();
     const filter = this.filter !== 'todo' ? this.filter : null;
     const zoom = this.zoom;
-    const quiere = pois.filter(poi => (filter ? hasTag(poi, filter) : !poi.service))
-      .sort((a, b) => Number(!!a.service) - Number(!!b.service));
-    const puestos = [];
+    const destino = this.game.gps?.waypoint;
+    const esDestino = p => destino?.name === p.name && (!p.service || Math.hypot(p.x - destino.x, p.z - destino.z) < SAME_PLACE_METERS);
+    const prioridad = p => p === this.hover ? 3 : esDestino(p) ? 2 : Number(!!p.hito);
+    const quiere = pois.filter(poi => poi === this.hover || esDestino(poi) ||
+      (filter ? hasTag(poi, filter) : !poi.service && (zoom >= SERVICE_MIN_ZOOM || poi.hito)))
+      .sort((a, b) => prioridad(b) - prioridad(a));
+    // Reservar todos los pictogramas antes de escribir. Un nombre largo no debe tapar el lugar vecino.
+    const puestos = pois.map(poi => {
+      const x = poi.x * zoom, y = poi.z * zoom;
+      const radio = poi.service && !(filter && hasTag(poi, filter)) ? 9 : 12;
+      return [x - radio, y - radio, x + radio, y + radio];
+    });
     const rotulos = [];
     if (zoom <= NAME_MIN_ZOOM) return rotulos;
     for (const poi of quiere) {
       const img = this._nombre(nombreALaVista(poi.name));
-      const x = poi.x * zoom - img.w / 2, y = poi.z * zoom + 10, r = [x, y, x + img.w, y + img.h];
-      if (puestos.some(o => r[0] < o[2] && r[2] > o[0] && r[1] < o[3] && r[3] > o[1])) continue;
-      puestos.push(r);
-      rotulos.push({ poi, img });
+      const x = poi.x * zoom - img.w / 2;
+      for (const dy of [14, -14 - img.h]) {
+        const y = poi.z * zoom + dy, r = [x, y, x + img.w, y + img.h];
+        if (puestos.some(o => r[0] < o[2] && r[2] > o[0] && r[1] < o[3] && r[3] > o[1])) continue;
+        puestos.push(r);
+        rotulos.push({ poi, img, dy });
+        break;
+      }
     }
     return rotulos;
   }
@@ -584,6 +640,7 @@ export class MapView {
     if (!ctx || !this.cssWidth) return;
     const dpr = this.dpr, w = this.cssWidth, h = this.cssHeight;
     this._alCentroDeLaCiudad();
+    this._orientacion();
     this._hornoAlDia();
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, w, h);
@@ -616,17 +673,23 @@ export class MapView {
       const [sx, sy] = this._toScreen(poi.x, poi.z);
       if (sx < -24 || sy < -24 || sx > w + 24 || sy > h + 24) continue;
       const match = !filter || hasTag(poi, filter), big = poi === this.hover;
-      const size = (poi.service && !(filter && match) ? 18 : 24) + (big ? 6 : 0);
+      const normal = this.zoom < SERVICE_MIN_ZOOM && !filter ? OVERVIEW_ICON : 24;
+      const size = (poi.service && !(filter && match) ? 18 : normal) + (big ? 6 : 0);
       const img = this._dibujo(pasarTexto(poi.icon), size);
       ctx.globalAlpha = match ? 1 : .35;
       ctx.drawImage(img.canvas, sx - img.w / 2, sy - img.h / 2, img.w, img.h);
       ctx.globalAlpha = 1;
     }
-    this._rotulos ??= this._reparto();
-    for (const { poi, img } of this._rotulos) {
+    if (!this._rotulos || this._zoomRotulos !== this.zoom || this._hoverRotulos !== this.hover || this._destinoRotulos !== gps?.waypoint) {
+      this._rotulos = this._reparto();
+      this._zoomRotulos = this.zoom;
+      this._hoverRotulos = this.hover;
+      this._destinoRotulos = gps?.waypoint;
+    }
+    for (const { poi, img, dy } of this._rotulos) {
       const [sx, sy] = this._toScreen(poi.x, poi.z);
       if (sx < -img.w || sy < -img.h || sx > w + img.w || sy > h + img.h) continue;
-      ctx.drawImage(img.canvas, sx - img.w / 2, sy + 10, img.w, img.h);
+      ctx.drawImage(img.canvas, sx - img.w / 2, sy + dy, img.w, img.h);
     }
     if (this.hover && !this._rotulos.some(r => r.poi === this.hover)) {
       const img = this._nombre(nombreALaVista(this.hover.name));
