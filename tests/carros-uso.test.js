@@ -145,6 +145,7 @@ test('dos carros del mismo modelo y color pueden ir uno más limpio y otro más 
 });
 
 test('la variante es un gancho: sin ella no cambia nada y con ella hay un mapa y un esmalte aparte', () => {
+  // Con un furgón: el taxi y la buseta ya traen su librea como variante.
   const spec = CAR_MODELS.furgon, body = getCarBody('furgon');
   const base = makeVehicle('carro', 12, { beams: false, model: 'furgon' }), otra = makeVehicle('carro', 12, { beams: false, model: 'furgon', variante: '' });
   assert.equal(base.wetMaterials[0], otra.wetMaterials[0]);
@@ -219,7 +220,9 @@ test('cada particular lleva su matiz y algunos populares rin de acero: el tono o
   assert.equal(pareja[0].clearcoat, pareja[1].clearcoat);
   assert.equal(pareja[0].customProgramCacheKey(), pareja[1].customProgramCacheKey());
   assert.deepEqual([valor(pareja[0]), valor(pareja[1])], [pareja[0].userData.matiz, pareja[1].userData.matiz]);
+  // Taxi, patrulla y buseta van sin matiz; los cuidados no pierden la aleación y los viejos nunca la llevan.
   for (let seed = 0; seed < 60; seed++) {
+    for (const kind of ['taxi', 'police', 'buseta']) assert.equal(makeVehicle(kind, seed, { beams: false }).wetMaterials[0].userData.matiz, SIN_MATIZ);
     const cuidado = makeVehicle('carro', seed, { model: 'suv', beams: false }), viejo = makeVehicle('carro', seed, { model: 'sedanNoventero', beams: false });
     assert.notEqual(cuidado.trimMaterial, viejo.trimMaterial);
     assert.equal(cuidado.trimMaterial, makeVehicle('carro', 0, { model: 'sedanDeportivo', beams: false }).trimMaterial);
