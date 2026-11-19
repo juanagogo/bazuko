@@ -4,13 +4,17 @@
 // Coordenadas en metros desde el centro de la huella: X hacia el frente, Y arriba.
 import * as THREE from 'three';
 import { lerp } from './carLoft.js';
-import { BUS_BLUE, RECT, rectUv, dayDrop, dayHeadRect } from './carAtlas.js';
+import { RECT, rectUv, dayDrop, dayHeadRect } from './carAtlas.js';
+import { BUS_ESCAPE, BUS_NUMERO, BUS_PAINTS, DAMERO_ALTO, TAXI_YELLOWS, conAzarPropio, esTaxi, pintarDamero, pintarLibreaBuseta, pintarMugreBuseta, pintarPanelesBuseta, rutaDe } from './carLibreas.js';
 import { COLOR, PATCH_FLAG, patchAround, patchOutline, patchSide, patchTop, seamLine, box, bar, tube, addGrid } from './carParts.js';
 import { OPTICS } from './carLamps.js';
+import { TECHO, TUBOS, TUBO_LARGO } from './pasajerosBuseta.js';
+import { addBusetaInterior } from './BusetaInterior.js';
 
 // Canales de lámpara del material de luces.
 // PLATE (10) desplaza la UV a la celda de placa del carro; ROUTE (27) al tablero de su ruta y se enciende como SIGN.
-export const LAMP = Object.freeze({ OFF: 0, HEAD: 1, TAIL: 2, LEFT: 3, RIGHT: 4, BLUE: 5, RED: 6, SIGN: 7, PLATE: 10, ROUTE: 27 });
+// LIVERY (20) baja a la fila de la ruta como ROUTE, pero no enciende: es pintura, no un letrero.
+export const LAMP = Object.freeze({ OFF: 0, HEAD: 1, TAIL: 2, LEFT: 3, RIGHT: 4, BLUE: 5, RED: 6, SIGN: 7, PLATE: 10, LIVERY: 20, ROUTE: 27 });
 const signal = side => side < 0 ? LAMP.LEFT : LAMP.RIGHT;
 
 /** Ayudas para que cada modelo describa sus piezas en pocas líneas. */
@@ -732,50 +736,93 @@ export const CAR_MODELS = {
     wheel: { rim: 'rimBuseta', width: .25, depth: .03, spokes: 0, rimRatio: .58 },
     mirror: { x: 3.42, y: 2.22, big: true }, wiper: 2.1, frame: 'trim', pillar: 'trim',
     gaps: { fuel: null },
-    // Franjas de la empresa: dan la vuelta completa porque la cola y la cara usan la misma carta lateral.
-    detail(ctx, { sy, W }) {
+    // El zócalo, más oscuro y sucio que el resto del esmalte, con su filete, y encima las franjas de la empresa, que
+    // cambian con la ruta (la variante del mapa: «ruta0» a «ruta3»).
+    detail(ctx, carta) {
+      const { sy, W, variante = '' } = carta;
       const band = (y0, y1, color) => { ctx.fillStyle = color; ctx.fillRect(0, sy(y1), W, sy(y0) - sy(y1)); };
-      band(1.02, 1.30, BUS_BLUE);
-      band(.93, .985, '#c4202a');
-      band(1.335, 1.385, '#c4202a');
-      band(2.78, 2.9, BUS_BLUE);
+      band(.40, .9, 'rgba(88,78,64,.19)');
+      band(.888, .91, 'rgba(50,44,36,.25)');
+      pintarLibreaBuseta(ctx, carta, rutaDe(variante));
+      pintarPanelesBuseta(ctx, carta);
+      pintarMugreBuseta(ctx, carta, this.windows.map(([x0]) => x0 - .03), -this.L / 2, 2.95, BUS_ESCAPE);
     },
     interior: { dash: 3.34, seat: 2.72, rear: null, floor: .92, belt: 1.60, hw: 1.0, height: .65, wheelZ: .55, front: 3.58 },
     // Su única puerta va adelante, del lado de la acera (ver parts): por ahí se baja el conductor.
     driver: { x: 2.74, z: -.55, h: 2.15, door: { x: 3.34, side: 1 } },
     parts(k) {
       const { body, b } = k;
-      // Tablero de ruta tras el parabrisas: lo primero que se busca de lejos en una buseta.
-      const y0 = 2.40, y1 = 2.72, x = body.xNose - .10;
-      addGrid(b.lamp, 2, 1, (i, j) => [x + .0, y0 + (y1 - y0) * j, (i - 1) * .78], { uv: (u, v) => rectUv(RECT.route0, 1 - u, 1 - v), mirror: false, lamp: LAMP.ROUTE, out: [1, 0, 0], color: [1, 1, 1] });
+      // El tablero alto se inclina con el panorámico y deja libres el marco y la vista del conductor.
+      addGrid(b.lamp, 2, 1, (i, j) => {
+        const y = lerp(2.30, 2.75, j);
+        return [body.around('nose', .89, y, -.009)[0], y, (i - 1) * .835];
+      }, { uv: (u, v) => rectUv(RECT.route0, 1 - u, 1 - v), mirror: false, lamp: LAMP.ROUTE, out: [1, 0, 0], color: [1, 1, 1] });
       // Los mismos cuadros bajos de todas las busetas: faros cuadrados y gran defensa.
       k.head({ a0: .62, a1: .95, rows: 1, rect: RECT.headCuadrado, top: 1.20, bot: .95, bulge: 0, off: .012 });
       k.head({ a0: .30, a1: .60, rows: 1, rect: RECT.headCuadrado, top: 1.20, bot: .95, bulge: 0, off: .012 });
       k.frontTurn({ a0: .95, a1: 1.08, top: 1.20, bot: .95, off: .012 });
       k.grille({ a0: -.29, a1: .29, top: 1.22, bot: .96, rect: RECT.grilleLamas });
-      k.nose({ a0: -1.12, a1: 1.12, top: .80, bot: .50, off: .03, color: COLOR.plastic, rows: 1 });
-      k.plateFront(.62);
+      // Defensas de plástico negro con uso: barro seco que sube desde abajo y raspones grises en las esquinas.
+      const usada = semilla => (u, v) => {
+        const ruido = n => { const t = Math.sin(u * 127.1 + v * 311.7 + (semilla + n) * 74.7) * 43758.5453; return t - Math.floor(t); };
+        const barro = Math.pow(1 - v, 1.4) * (.25 + .6 * ruido(1)), raspon = v > .4 && Math.abs(u - .5) > .3 && ruido(2) > .55 ? .5 : ruido(3) * .12;
+        return COLOR.plastic.map((c, i) => c + ([.15, .105, .062][i] - c) * barro + ([.1, .1, .095][i] - c) * raspon * (1 - barro));
+      };
+      k.nose({ a0: -1.12, a1: 1.12, top: .80, bot: .50, off: .03, color: usada(1), rows: 2, maxStep: .17 });
+      k.plateFront(.816, .138, .34);
       k.stop({ a0: .78, a1: 1.05, rows: 2, rect: RECT.tailRojo, flipU: true, top: 1.46, bot: 1.16 });
       k.rearTurn({ a0: .78, a1: 1.05, top: 1.15, bot: 1.04 });
-      k.tail({ a0: -1.12, a1: 1.12, top: .84, bot: .58, off: .03, color: COLOR.plastic, rows: 1 });
+      k.tail({ a0: -1.12, a1: 1.12, top: .84, bot: .58, off: .03, color: usada(2), rows: 2, maxStep: .17 });
       k.plateRear(.92);
       k.skirt(-2.8, 1.3, .08);
-      k.exhaust(-3.7, .58, -.82);
-      // Nombre de la empresa sobre la franja, a ambos lados.
-      patchSide(b.lamp, body, { x0: -1.46, x1: -.31, bot: 1.035, top: 1.285, rect: RECT.busName, lamp: LAMP.OFF, off: .004, cols: 3, rows: 1, color: [1, 1, 1] });
-      // Puerta de dos hojas adelante del eje, solo al lado de la acera (+Z): se sube junto al conductor.
-      for (const [x0, x1] of [[3.09, 3.335], [3.345, 3.59]]) {
-        patchSide(b.trim, body, { x0, x1, bot: .56, top: 2.60, cols: 1, rows: 1, off: .008, color: COLOR.dark, mirror: false });
-        patchSide(b.trim, body, { x0: x0 + .035, x1: x1 - .035, bot: .98, top: 2.54, cols: 1, rows: 1, off: .012, color: [.05, .065, .075], metal: .35, mirror: false });
+      // Tubo de escape: asoma bajo la defensa, a la izquierda de la cola, con la boca negra.
+      tube(b.trim, [-3.56, BUS_ESCAPE.y, -BUS_ESCAPE.z], [-3.81, BUS_ESCAPE.y, -BUS_ESCAPE.z], .045, 8, { color: [.045, .04, .036], metal: .35 });
+      conAzarPropio(0xB05E7E, () => tube(b.trim, [-3.8, BUS_ESCAPE.y, -BUS_ESCAPE.z], [-3.814, BUS_ESCAPE.y, -BUS_ESCAPE.z], .034, 8, { color: COLOR.liner }));
+      // Nombre de la empresa de la ruta, entre los ejes: solo las letras, recortadas sobre la franja pintada en la chapa.
+      patchSide(b.lamp, body, { x0: -1.9, x1: 1.3, bot: 1.0, top: 1.40, rect: RECT.busLibrea, lamp: LAMP.LIVERY, off: .004, cols: 5, rows: 1, color: [1, 1, 1], flipU: false });
+      // Los cartones quedan dentro del campo de vidrio, del lado de la acera.
+      patchAround(b.lamp, body, 'nose', { a0: .015, a1: .437, top: 2.20, bot: 1.91, rows: 1, off: .009, rect: RECT.busCarton0, lamp: LAMP.LIVERY, color: [1, 1, 1], flipU: true, mirror: false });
+      patchAround(b.lamp, body, 'nose', { a0: .458, a1: .797, top: 2.135, bot: 1.91, rows: 1, off: .009, rect: RECT.busCarton1, lamp: LAMP.LIVERY, color: [1, 1, 1], flipU: true, mirror: false });
+      // Las dos hojas, sus bisagras y el peldaño usan una sola superficie del lado de la acera (+Z).
+      patchSide(b.trim, body, { x0: 3.08, x1: 3.60, bot: .56, top: 2.67, cols: 2, rows: 2, off: .011,
+        color: [1, 1, 1], uv: (u, v) => rectUv(RECT.busDoor, v, u), mirror: false });
+      conAzarPropio(0xB05E7A, () => {
+        // Techo, que es lo que más se ve desde arriba: dos claraboyas grises con su marco y las cornetas del pito adelante.
+        for (const x of [1.25, -1.7]) {
+          const y = body.topY(x, 0);
+          box(b.trim, [.74, .02, .74], [x, y + .008, 0], { color: COLOR.rubber });
+          box(b.trim, [.6, .05, .6], [x, y + .035, 0], { color: (_, yp) => yp > y + .036 ? [.45, .48, .45] : [.23, .25, .23], metal: .14 });
+        }
+        const hornY = body.topY(2.9, .26) + .05;
+        tube(b.trim, [2.62, hornY, .26], [3.02, hornY, .26], .032, 6, { color: COLOR.chrome, metal: 1, mirror: true });
+        tube(b.trim, [3.02, hornY, .26], [3.12, hornY, .26], .06, 6, { color: COLOR.chrome, metal: 1, mirror: true });
+      });
+      // Ventanas corredizas: el travesaño de aluminio que parte cada vidrio y la hoja de arriba, que es la que se abre.
+      const aluminio = (_, v) => v ? [.39, .42, .42] : [.16, .18, .18];
+      for (const [x0, x1] of k.spec.windows.slice(0, 5)) {
+        patchSide(b.trim, body, { x0: x0 + .03, x1: x1 - .03, bot: 2.275, top: 2.315, cols: 1, rows: 1, off: .009, color: aluminio, metal: .34 });
+        patchSide(b.trim, body, { x0: (x0 + x1) / 2 - .018, x1: (x0 + x1) / 2 + .018, bot: 2.315, top: 2.80, cols: 1, rows: 1, off: .009, color: aluminio, metal: .34 });
       }
+      // Calcomanía de «¿Cómo conduzco?» entre la franja y la ventana de atrás, corrida a un lado.
+      patchAround(b.lamp, body, 'tail', { a0: -.82, a1: -.22, top: 1.66, bot: 1.46, rows: 1, off: .006, rect: RECT.busConduzco, lamp: LAMP.OFF, color: [1, 1, 1], mirror: false });
+      // Número interno y placa, a brocha: en el recuadro que la franja deja libre en el voladizo trasero y en la cola,
+      // al otro lado de la calcomanía. Cada buseta lleva el de su placa.
+      patchSide(b.lamp, body, { x0: BUS_NUMERO.x0 + .02, x1: BUS_NUMERO.x1 - .02, bot: BUS_NUMERO.y0 + .01, top: BUS_NUMERO.y1 - .01, rect: RECT.door, lamp: LAMP.PLATE, off: .004, cols: 2, rows: 1, color: [1, 1, 1], flipU: false });
+      patchAround(b.lamp, body, 'tail', { a0: .2, a1: .7, top: 1.69, bot: 1.44, rows: 1, off: .006, rect: RECT.door, lamp: LAMP.PLATE, color: [1, 1, 1], mirror: false });
       // Ventana de atrás, grande, con su marco de caucho.
       k.tail({ a0: -.93, a1: .93, top: 2.66, bot: 1.70, off: .006, color: COLOR.dark, rows: 1 });
       k.tail({ a0: -.88, a1: .88, top: 2.62, bot: 1.75, off: .01, color: [.045, .06, .07], metal: .4, rows: 1 });
-      // Filas de asientos: se alcanzan a ver por las ventanas.
-      for (let i = 0; i < 6; i++) {
-        const x = -2.95 + i * .96;
-        box(b.trim, [.09, .82, 1.9], [x, 1.46, 0], { color: [.1, .12, .17] });
-      }
+      // Rutero de atrás, pegado por dentro al vidrio: el mismo tablero de la ruta, que de noche se enciende con el de adelante.
+      patchAround(b.lamp, body, 'tail', { a0: -.46, a1: .46, top: 2.60, bot: 2.31, rows: 1, off: .014, rect: RECT.route0, lamp: LAMP.ROUTE, color: [1, 1, 1] });
+      // Y abajo, la frase que el dueño mandó pintar: solo las letras, sobre el vidrio oscuro.
+      patchAround(b.lamp, body, 'tail', { a0: -.4, a1: .4, top: 2.16, bot: 1.84, rows: 1, off: .014, rect: RECT.busFrase, lamp: LAMP.LIVERY, color: [1, 1, 1] });
+      addBusetaInterior(b, k.spec.interior.floor, LAMP.SIGN);
+      // Y el cielo raso, que es lo que se ve encendido desde la calle, a la altura de un peatón. De cerca lo tapa el
+      // pintado, con su mugre (pasajerosBuseta.js); los cuatro tubos cuelgan debajo y son lo más claro de la buseta.
+      addGrid(b.lamp, 4, 1, (i, j) => [lerp(-3.52, 3.3, i / 4), 2.86, j ? -.9 : .9], { color: [.3, .37, .52], lamp: LAMP.SIGN, mirror: false, out: [0, -1, 0] });
+      conAzarPropio(0xB05E7B, () => {
+        for (const x of TUBOS) box(b.lamp, [TUBO_LARGO, .04, .07], [x, TECHO.y - .026, 0], { color: [1.5, 1.72, 3.9], lamp: LAMP.SIGN });
+      });
     },
   }),
   // Camioneta grande y negra de la limpieza social: no circula con la flota, solo llega por el jugador.
@@ -843,7 +890,7 @@ export const MODEL_PAINTS = {
   cajaSetentera: ['#d5cdb3', '#507889', '#904b39', '#52644b', '#bd9a58', '#e0ddd0', '#c6702b', '#36507a'],
   sedanNoventero: ['#b6bbc0', '#7e8388', '#7e6a55', '#2e3a4f', '#5e1218', '#d2d2c8', '#2d4a3a', '#1b1d20'],
   furgon: ['#d0d3d3', '#d0d3d3', '#d0d3d3', '#d0d3d3', '#d0d3d3', '#b6bbc0'],
-  buseta: ['#f4f2ea', '#efeee0', '#e6ebea'],
+  buseta: BUS_PAINTS,
   camionetaNegra: ['#07080a'],
 };
 export const TAXI_COLOR = taxiYellow[0];

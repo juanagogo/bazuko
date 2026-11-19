@@ -3,6 +3,7 @@ import * as THREE from 'three';
 import { CAR_COOLDOWN, INTERACT_RANGE } from '../utils/constants.js';
 import { makeVehicle } from '../world/bogota/vehicles.js';
 import { getDriverGeometry } from '../world/bogota/VehicleBody.js';
+import { ponerPasajeros } from '../world/bogota/pasajerosBuseta.js';
 import { markerGeometry, markerMaterial } from '../world/bogota/carMarker.js';
 import { createImportedModel, disposeImportedInstance } from '../utils/ImportedModels.js';
 
@@ -79,6 +80,7 @@ export class Car {
     this._wetMaterials = (v.wetMaterials ?? []);
     this._details = v.details ?? [];
     this._simple = false;
+    if (v.model === 'buseta') ponerPasajeros(v, variant);
 
     // Retrovisores (lo que se roba): dos soportes y una sola malla con ambos, que siempre se roban y vuelven juntos.
     this.mirrors = [];

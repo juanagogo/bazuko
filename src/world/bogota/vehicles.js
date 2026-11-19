@@ -50,6 +50,8 @@ const neutralReflection = material => {
   material.customProgramCacheKey = () => 'reflejo-neutro';
   return chainSunField(material);
 };
+// La buseta va con vidrio claro: de día se ven los pasajeros y de noche los tubos del techo.
+const VIDRIO_BUSETA = { color: '#2e3c44', opacity: .48 };
 /** El vidrio lleva también la sombra de contacto: negra, con su opacidad en el vértice y atenta a la niebla. */
 const glassWithShadow = material => {
   material.onBeforeCompile = shader => {
@@ -83,15 +85,17 @@ function sharedPaint(modelId, color, spec, body) {
   return paint;
 }
 
-let GLASS = null;
+let GLASS = null, BUS_GLASS = null;
 function createGlass() {
   const glass = new THREE.MeshPhysicalMaterial({ color: '#1d282c', metalness: .05, roughness: .1, envMapIntensity: .75,
     transparent: true, opacity: .66, depthWrite: false });
-  glass.name = 'Vidrio ahumado';
+  glass.name = opacity === GLASS_OPACITY ? 'Vidrio ahumado' : 'Vidrio de buseta';
   glass.userData.dryRoughness = glass.roughness;
   return glassWithShadow(glass);
 }
 function sharedGlass() { return GLASS ??= createGlass(); }
+// El de la buseta nace con azar propio: el juego gasta lo mismo que cuando toda la flota llevaba un solo vidrio.
+function sharedBusGlass() { return BUS_GLASS ??= sinGastarAzar(() => createGlass(VIDRIO_BUSETA)); }
 
 const SHARED = {};
 function shared() {
@@ -210,13 +214,24 @@ function pickModel(kind, seed, h) {
 export function makeVehicle(kind = 'carro', seedColor = 0, { beams = true, model = null, parked = false, ownMaterials = false } = {}) {
   const seed = Number.isFinite(seedColor) ? Math.abs(Math.trunc(seedColor)) : 0, h = mix(seed), s = shared();
   const modelId = model && CAR_MODELS[model] ? model : pickModel(kind, seed, h);
+  const buseta = modelId === 'buseta';
+  // Al elegir la buseta por modelo, sus franjas también tienen que seguir el tablero.
+  variante = libreaDe(buseta ? 'buseta' : kind, h, variante);
   const geo = getCarGeometry(modelId, kind), spec = geo.spec, body = getCarBody(modelId);
   const { L, W } = spec, isPolice = kind === 'police', isTaxi = kind === 'taxi';
   const paints = MODEL_PAINTS[modelId], color = isTaxi ? TAXI_COLOR : isPolice ? POLICE_COLOR : paints[(h >>> 7) % paints.length];
 
   // Quien pinta su carrocería a su manera (la camioneta de limpieza) lleva materiales propios: si no, cambiaría los de toda la flota.
-  const paint = ownMaterials ? createPaint(modelId, color, spec, body) : sharedPaint(modelId, color, spec, body);
-  const glass = ownMaterials ? createGlass() : sharedGlass();
+  // El taxi y la patrulla tienen tono propio: su edad no se cruza con la de un particular del mismo modelo.
+  const edad = edadDe(modelId, kind), particular = kind === 'carro' && !ownMaterials;
+  const acero = edad >= EDAD_RIN_DE_ACERO || (particular && edad >= .3 && conRinDeAcero(h));
+  const trim = ownMaterials || !acero ? s.trim : s.oldTrim;
+  // No todos pasan por el lavadero el mismo día: de dos carros iguales, uno va más limpio y otro más sucio.
+  const mugre = ownMaterials || isPolice ? 1 : mugreDe(h);
+  const paint = ownMaterials ? createPaint(modelId, color, spec, body, edad, variante) : sharedPaint(modelId, color, spec, body, edad, variante, mugre, isTaxi ? TAXI_COLOR : color, particular ? matizDe(h) : SIN_MATIZ);
+  // El ahumado nace con el primer vehículo, sea cual sea, como cuando era el único vidrio.
+  const ahumado = ownMaterials ? null : sharedGlass();
+  const glass = ownMaterials ? createGlass(buseta ? VIDRIO_BUSETA : undefined) : buseta ? sharedBusGlass() : ahumado;
 
   // Direccionales, stops y patrulla: valores de este carro; nunca se enciende el vecino.
   const signalMaterials = { left: new LampChannel('Direccional left', '#ff8a24', .12), right: new LampChannel('Direccional right', '#ff8a24', .12) };

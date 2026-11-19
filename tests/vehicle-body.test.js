@@ -101,7 +101,8 @@ test('cada vehículo completo, con conductor y espejos, cabe en el presupuesto d
       triangles+=(o.geometry.index?.count??o.geometry.attributes.position.count)/3;
       for(const attr of Object.values(o.geometry.attributes))assert.ok(attr.array.every(Number.isFinite),`${model}: valor no finito en ${o.name}`);
     });
-    assert.ok(calls<=14,`${kind}/${v.model}: ${calls} llamadas`);
+    // La buseta lleva una malla más: sus pasajeros pintados.
+    assert.ok(calls<=(v.model==='buseta'?15:14),`${kind}/${v.model}: ${calls} llamadas`);
     assert.ok(triangles<=7000,`${kind}/${v.model}: ${triangles} triángulos`);
     car.dispose();
   }

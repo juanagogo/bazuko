@@ -220,9 +220,11 @@ const trimOf = car => car.vehicle.bodyVisual.children.find(mesh => mesh.name ===
 test('un parqueado se dibuja con cinco mallas; el que circula conserva sus piezas sueltas', () => {
   for (const model of CAR_MODEL_IDS) {
     const [parked, traffic] = pair(model);
-    assert.equal(meshes(parked).length, 5, `${model} parqueado`);
-    assert.equal(new Set(meshes(parked).map(mesh => mesh.material)).size, 4, `${model}: esmalte, molduras, lámparas y vidrio`);
-    assert.equal(meshes(traffic).length, 12, `${model} en circulación`);
+    // La buseta lleva una malla más, con su material: sus pasajeros pintados.
+    const gente = model === 'buseta' ? 1 : 0;
+    assert.equal(meshes(parked).length, 5 + gente, `${model} parqueado`);
+    assert.equal(new Set(meshes(parked).map(mesh => mesh.material)).size, 4 + gente, `${model}: esmalte, molduras, lámparas y vidrio`);
+    assert.equal(meshes(traffic).length, 12 + gente, `${model} en circulación`);
     assert.equal(traffic.vehicle.wheels.length, 4);
     assert.equal(traffic.vehicle.frontWheelPivots.length, 2);
     assert.equal(traffic.vehicle.wipers.length, 2);
