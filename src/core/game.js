@@ -296,19 +296,15 @@ export class Game {
     this.comedor = null;
     this.lastComedorHour = null;
     this.lastComedorTimestamp = null;
-    this.bicycles = [];
-    this.bikeFence = null;
-    this.randomHallucinations = new RandomHallucinationSystem(
-      this.sceneMgr.scene,
-      this.player,
-      this.stats,
-      this.audio,
-      this.world
-    );
     this.ultimaSiesta = null; // hora de juego (totalGameHours) en que terminó la última siesta
     this.dailyMissions = new DailyMissionSystem(this);
     this._missionsModalOpen = false;
     this.cars = [];
+    this.bicycles = [];
+    this.bikeFence = null;
+    this.randomHallucinations = new RandomHallucinationSystem(
+      this.sceneMgr.scene, this.player, this.stats, this.audio, this.world
+    );
     this.traffic = null;
     this._onVehicleImpact = this._onVehicleImpact.bind(this);
     this.dealer = null;
@@ -699,6 +695,7 @@ export class Game {
     }
     const desired = Math.round(14 * (district.populationScale ?? 1));
     const spawnPositions = spreadPickupPositions(grid, (district.width ?? district.size ?? 32) * 2, (district.height ?? district.size ?? 32) * 2);
+    const pickupGround = district.getMovementGroundHeight?.bind(district) ?? district.getGroundHeight?.bind(district);
     const usedPositions = [];
     for (let i = 0; i < desired; i++) {
       let pos;
@@ -708,7 +705,7 @@ export class Game {
       } else {
         pos = findValidSpawn();
       }
-      const p = new Pickup(this.sceneMgr.scene, pos);
+      const p = new Pickup(this.sceneMgr.scene, pos, { groundHeight: pickupGround });
       p.onRespawn = (pickup) => {
         // Reutilizar zonas de basura transitables; evita interiores de edificios.
         const available = grid.filter(point => [...this.pickups, ...this.cars].every(other =>
@@ -1066,7 +1063,7 @@ export class Game {
         this.setGpsWaypoint({ ...waypoint, name: RENAMED_PLACES[waypoint.name] ?? waypoint.name }, { silent: true });
       }
       if (data.lastComedorHour !== undefined) this.lastComedorHour = data.lastComedorHour;
-      if (data.lastComedorTimestamp !== undefined) this.lastComedorTimestamp = data.lastComedorTimestamp;
+      this.lastComedorTimestamp = Number.isFinite(data.lastComedorTimestamp) ? data.lastComedorTimestamp : null;
       this.ultimaSiesta = Number.isFinite(data.ultimaSiesta) ? data.ultimaSiesta : null; // las partidas viejas no lo traen
       this.street?.deserialize(data.street);
       this.limpieza?.loadSaveData?.(data.limpieza);
@@ -1385,9 +1382,9 @@ export class Game {
     this._releaseGrab();
     if (this._arrestPending || this._deathPending || this.stats.salud <= 0) return;
     this._arrestPending = true;
-    this.carjack?.reset({ perdido: true });
     this.player?.melee?.cancel();
     this.rebusque?.cancelar();
+    this.carjack?.reset({ perdido: true });
     if (this.steal?.minigameActive) this.steal._endMinigame(false, 'cancel');
     this.input.keys = {};
     this.input.endFrame();
@@ -1740,7 +1737,8 @@ export class Game {
     this.street?.update(dt);
     this.witnesses?.update(dt);
     this.rebusque?.update(dt);
-    this.interaction.rebusquePrompt = this.rebusque?.prompt ?? null;
+    // Al volante no sale el aviso del rebusque, como ningún otro aviso de a pie.
+    this.interaction.rebusquePrompt = driving ? null : this.rebusque?.prompt ?? null;
     this.rebusqueVisual?.update();
     if (!this.player.isSwimming && !driving) this.steal?.update(dt);
     else if (this.steal?.minigameActive) this.steal._endMinigame(false, 'cancel');

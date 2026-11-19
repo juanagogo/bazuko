@@ -163,12 +163,19 @@ export class Avisos {
   /** Coloca la pila por la altura real de cada aviso. Devuelve false si el último se sale de la franja. */
   acomodar() {
     const doc = globalThis.document;
+    const cabecera = doc?.getElementById?.('menu-tabs');
     if (!this.visibles.length) {
       if (doc?.body?.classList?.contains(SIN_RETAZO)) doc.body.classList.remove(SIN_RETAZO);
+      cabecera?.style?.removeProperty('--alto-avisos');
       return true;
     }
     const ancho = globalThis.innerWidth ?? 1440, alto = globalThis.innerHeight ?? 900;
-    let zona = zonaDeAvisos(doc, ancho, alto);
+    // En la pausa de escritorio las solapas dejan debajo una franja del alto real de los avisos.
+    const solapas = ancho >= ANCHO_ESCRITORIO && alto > 520 && doc.getElementById('menu')?.hidden === false
+      ? cabecera?.querySelector?.('.pause-tabs')?.getBoundingClientRect() : null;
+    let zona = solapas?.height
+      ? { arriba: Math.ceil(solapas.bottom) + AIRE, abajo: alto }
+      : zonaDeAvisos(doc, ancho, alto);
     let desde = zona.arriba;
     let sinRetazo = false;
     if (zona.techo !== undefined && this._pisaAlPersonaje(desde, ancho, alto)) {
@@ -193,6 +200,7 @@ export class Avisos {
       el.style.setProperty?.('--pila', `${Math.round(y - desde)}px`); // con un menú abierto manda la hoja de estilos
       y += (el.offsetHeight ?? 0) + SEPARACION;
     }
+    if (solapas?.height) cabecera.style.setProperty('--alto-avisos', `${y - zona.arriba + 2 * AIRE - SEPARACION}px`);
     return y - SEPARACION <= zona.abajo;
   }
 

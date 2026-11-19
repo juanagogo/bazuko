@@ -27,6 +27,7 @@ Las casas genéricas usan ahora semillas locales por coordenadas. Su distribuci�
 
 En la Carrera 6, la vitrina abierta de Pan de las Cinco tiene un mostrador detrás del vidrio. Seis bandejas sostienen pan aliñado, mogollas y panes de queso. El tubo ilumina la repisa y la corteza de los panes y deja la pared del fondo en sombra. La persiana contigua conserva su posición.
 
+En Mercado Doña Inés, el vidrio del frente oriental deja ver tres repisas de abarrotes detrás de los avisos de ofertas. Los cinco carritos quedan anidados en el nicho junto al andén. En el patio de El Progreso, las pacas de cartón y los guacales de vidrio quedan a los lados de la báscula. Desde el andén lateral se ven la caneca, las láminas y los tubos.
 
 En Teusaquillo, el sendero norte de adoquín conserva sus cuatro metros de ancho. A los lados hay cuatro jardines bajos con borde de ladrillo y dos superficies de concreto que llegan a las bancas. En la Caracas, el recorrido peatonal a la estación Calle 72 conecta la cebra con el lector por el separador.
 

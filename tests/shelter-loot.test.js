@@ -65,6 +65,39 @@ test('el botín que no cabe sigue en la bolsa y no se vuelve a sortear ni se mul
   pickup.dispose();
 });
 
+test('la bolsa y los materiales apoyan en el suelo al recoger y reaparecer', t => {
+  t.mock.method(Math, 'random', () => .99);
+  const floor = x => x >= 4 ? .3 : .12;
+  const pickup = new Pickup(new THREE.Scene(), new THREE.Vector3(2, 0, 4), { groundHeight: floor });
+  const minimumY = model => new THREE.Box3().setFromObject(model, true).min.y;
+  const assertAt = (model, height) => assert.ok(Math.abs(minimumY(model) - height) < 1e-6);
+  assertAt(pickup.mesh, .12);
+  assert.ok(Math.abs(pickup.marker.position.y - .14) < 1e-6);
+  pickup.guaranteedLoot = ['carton', 'lata'];
+  pickup.relocate(new THREE.Vector3(5, 0, 4));
+  assertAt(pickup.mesh, .3);
+  assertAt(pickup.looseMaterial, .3);
+  assert.equal(pickup.looseMaterial.name, 'carton');
+  assert.equal(pickup.position.y, 0); // El objetivo y la reserva mantienen sus coordenadas de juego.
+
+  pickup.harvest();
+  assert.equal(pickup.looseMaterial.visible, false);
+  pickup.returnUncollected(['lata'], true);
+  assert.equal(pickup.looseMaterial.name, 'lata');
+  assertAt(pickup.looseMaterial, .3);
+  assert.deepEqual(pickup.harvest().items, ['lata']);
+  pickup.onRespawn = p => p.relocate(new THREE.Vector3(2, 0, 5));
+  pickup.update(pickup.refillSeconds + .1);
+  assert.equal(pickup.looseMaterial.name, 'carton');
+  assert.ok(pickup.mesh.visible && pickup.looseMaterial.visible);
+  assertAt(pickup.mesh, .12);
+  assertAt(pickup.looseMaterial, .12);
+  pickup.returnUncollected(['madera'], true);
+  assert.equal(pickup.looseMaterial.name, 'madera');
+  assertAt(pickup.looseMaterial, .12);
+  pickup.dispose();
+});
+
 test('costal lleno conserva el colchón y entrega su recompensa rara solo cuando realmente entra', t => {
   globalThis.window = new EventTarget();
   t.mock.method(Math, 'random', () => .99);

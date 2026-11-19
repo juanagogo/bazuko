@@ -205,7 +205,7 @@ export function openComedor(game) {
             el('li', { text: '+60 Sed (hidratación completa)' }),
             el('li', { text: '+25 Ánimo y +25 Energía' }),
             el('li', { text: '+3 min de Calor corporal contra el frío' }),
-            el('li', { text: '+30 de maña' })
+            el('li', { text: 'Suma práctica para la próxima maña' })
           ))
       : el('div', { class: 'comedor-box is-waiting' },
           el('h4', { class: 'comedor-box__title', text: 'Ración reciente ya entregada' }),

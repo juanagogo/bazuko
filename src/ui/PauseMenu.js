@@ -114,8 +114,13 @@ export function openPauseMenu(game, tab = 'estado') {
     wide: true,
     render,
     // Si otra ventana (la radio) reemplaza a la pausa, tampoco se queda escuchando.
-    onLeave: () => window.removeEventListener('keydown', onKey),
+    onLeave: () => {
+      window.removeEventListener('keydown', onKey);
+      // Si otra ventana reemplaza la pausa, su geometría ya estará aplicada al terminar esta llamada.
+      queueMicrotask(() => game.hud?.avisos?.acomodar());
+    },
   });
+  game.hud?.avisos?.acomodar();
 }
 
 function mapPanel(game) {
@@ -230,7 +235,7 @@ function missionsSection(game) {
       return el('li', { class: `pause-mission-item${isDone ? ' is-done' : ''}` },
         el('div', { class: 'pause-mission-head' },
           el('strong', { class: 'pause-mission-title', text: m.title }),
-          el('span', { class: 'pause-mission-reward', text: `+${cop(m.reward.dinero)}, +${m.reward.xp} maña` })),
+          el('span', { class: 'pause-mission-reward', text: `+${cop(m.reward.dinero)}${m.reward.xp > 0 ? ', práctica para la próxima maña' : ''}` })),
         el('p', { class: 'pause-mission-desc', text: m.desc }),
         el('div', { class: 'pause-meter' },
           el('div', { class: 'pause-meter__fill masa', style: `width:${pct}%` })),

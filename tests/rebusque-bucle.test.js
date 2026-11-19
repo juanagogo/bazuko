@@ -45,9 +45,9 @@ const PISTA = 'Con unas pelotas de malabares de la tienda podría rebuscarme en 
 
 /**
  * Una partida con la calle de rebusque-tecla.test.js: una cola de dos carros quieta en rojo antes del primer cruce y el
- * jugador frente a la trompa del primero.
+ * jugador frente a la trompa del primero. `carjack`, si se da, reemplaza al robo de carros de verdad por su estado.
  */
-function partida({ malabares = true } = {}) {
+function partida({ malabares = true, carjack = null } = {}) {
   avisos.length = 0;
   const signals = new TrafficSignals();
   let t = 0;
@@ -74,7 +74,7 @@ function partida({ malabares = true } = {}) {
     isSleeping: false, steal: null, cars: [],
     player, stats, inventory,
     traffic: Object.assign(Object.create(TrafficSystem.prototype), { signals, vehicles, update() {} }),
-    // Como Input: una tecla oprimida vale solo en su cuadro; el eje es el de W, A, S, D.
+    // Como Input: una tecla oprimida vale solo en su cuadro.
     input: { axis: { x: 0, z: 0 }, keys: {}, isRunning: false, consumePress: k => pendientes.delete(k), isDown: () => false, endFrame: () => pendientes.clear() },
     hud: { setMovementState() {}, update: (_stats, _clock, interaction, inv) => hud._pintarContexto(interaction, inv) }
   });
@@ -82,10 +82,9 @@ function partida({ malabares = true } = {}) {
   game.rebusque = new RebusqueSystem(game, { random: () => 0 });
   game.interaction.rebusque = game.rebusque;
   game.rebusqueVisual = new RebusqueVisual(new THREE.Scene(), game);
-  // El robo de carros de verdad; solo la geometría del mundo es de mentira: hay por dónde bajarse y el suelo está a 0.
-  game.carjack = new CarjackSystem(game);
-  game.carjack._pointBlocked = () => false;
-  game.carjack._ground = () => 0;
+  // Como CarjackSystem: maneja si tiene carro, y update dice si el cuerpo es del carro (al volante, subiendo o bajando).
+  game.carjack = carjack ? Object.assign({ prompt: null, get driving() { return !!this.car; }, update() { return !!(this.car || this.transition); } }, carjack)
+    : new CarjackSystem(game);
   /** Un cuadro de 0,1 s del bucle, con las teclas que se oprimen en él. */
   const paso = (...teclas) => {
     for (const k of teclas) pendientes.add(k);
@@ -120,47 +119,72 @@ test('un cuadro del bucle de verdad avanza el show, le pasa su aviso a la tecla 
   assert.notEqual(game.player.action, 'malabares', 'los brazos bajan');
 });
 
-test('subiendo a un carro robado, manejándolo hasta la cola en rojo y bajándose frente a ella, el bucle no ofrece B, no empieza el show ni gasta la pista de la tienda; a pie, sí', () => {
+test('al volante, subiendo o bajando del carro frente a la cola en rojo, el bucle no le pasa a la tecla de contexto el aviso de B ni gasta la pista de la tienda; a pie, sí', () => {
+  ponerModo('teclado');
+  const estados = { 'al volante': { car: {}, transition: null }, subiendo: { car: {}, transition: { kind: 'enter' } }, bajando: { car: null, transition: { kind: 'exit' } } };
+  for (const [caso, estado] of Object.entries(estados)) {
+    const conPelotas = partida({ carjack: { ...estado } });
+    conPelotas.paso('KeyB');
+    assert.equal(conPelotas.game.interaction.rebusquePrompt, null, `${caso}: sin aviso de B`);
+    assert.equal(conPelotas.tecla.visible, false, `${caso}: la tecla de contexto no ofrece nada`);
+    assert.ok(!conPelotas.game.rebusque.activo, `${caso}: B no empieza ningún show`);
+    Object.assign(conPelotas.game.carjack, { car: null, transition: null });
+    conPelotas.paso();
+    assert.equal(conPelotas.game.interaction.rebusquePrompt, '[B] Hacer malabares frente a los carros', `${caso}: a pie vuelve el aviso de B`);
+
+    const sinPelotas = partida({ malabares: false, carjack: { ...estado } });
+    sinPelotas.paso();
+    sinPelotas.paso();
+    assert.deepEqual(avisos, [], `${caso}: la pista no sale`);
+    Object.assign(sinPelotas.game.carjack, { car: null, transition: null });
+    sinPelotas.paso();
+    sinPelotas.paso();
+    assert.deepEqual(avisos, [PISTA], `${caso}: a pie, la pista sale una vez`);
+  }
+});
+
+test('Y permite conducir hasta el semáforo y bajarse allí sin activar B ni gastar la pista de la tienda en el trayecto', () => {
   ponerModo('teclado');
   for (const malabares of [true, false]) {
     const { game, tecla, paso, x0, z } = partida({ malabares });
     const carjack = game.carjack;
-    // Un parqueado junto al andén, detrás de la cola, y el jugador al lado de su puerta.
-    game.cars = [{ position: new THREE.Vector3(x0 - 12, 0, z + 2.1), group: { rotation: { y: 0 } }, length: 4.2, width: 1.8, update() {} }];
+    game.world = { active: { getMovementGroundHeight: () => 0 }, update() {} };
+    game.collisions = {};
+    const carro = { position: new THREE.Vector3(x0 - 12, 0, z + 2.1), group: { rotation: { y: 0 } }, length: 4.2, width: 1.8, update() {} };
+    game.cars = [carro];
     game.player.position.set(x0 - 12, 0, z + .2);
-    const pasados = [];
-    /** Un cuadro con B oprimida. Si al terminar el cuadro el cuerpo es del carro, el rebusque no hace nada. */
+    const estados = new Set();
     const cuadro = (...teclas) => {
       paso('KeyB', ...teclas);
-      const estado = carjack.transition ? (carjack.transition.kind === 'enter' ? 'subiendo' : 'bajando') : carjack.driving ? 'al volante' : 'a pie';
-      if (estado === 'a pie') return;
-      if (pasados.at(-1) !== estado) pasados.push(estado);
-      const caso = `${malabares ? 'con' : 'sin'} pelotas, ${estado}`;
-      assert.ok(!game.rebusque.activo, `${caso}: B no empieza ningún show`);
-      assert.equal(game.interaction.rebusquePrompt, null, `${caso}: sin aviso de B`);
-      assert.equal(tecla.visible, false, `${caso}: la tecla de contexto no ofrece nada`);
-      assert.ok(!avisos.includes(PISTA), `${caso}: la pista no sale`);
+      if (!carjack.driving && !carjack.transition) return;
+      estados.add(carjack.transition?.kind ?? 'volante');
+      assert.equal(game.rebusque.activo, false);
+      assert.equal(game.interaction.rebusquePrompt, null);
+      assert.equal(tecla.visible, false);
+      assert.ok(!avisos.includes(PISTA));
     };
-    // La Y junto al parqueado sube al carro (CarjackSystem.enter), con su paso de subir.
+    const avanzarHasta = (condicion, avanzar, motivo) => {
+      for (let i = 0; i < 160 && !condicion(); i++) avanzar();
+      assert.ok(condicion(), motivo);
+    };
     cuadro('KeyY');
-    while (carjack.transition) cuadro();
-    // Al volante, por el lado de la cola, hasta la trompa del primero; ahí suelta el acelerador y el carro se detiene.
-    while (carjack.car.position.x < x0 + 1.8) {
+    avanzarHasta(() => !carjack.transition, cuadro, 'termina de subir');
+    assert.equal(carjack.car, carro);
+    avanzarHasta(() => carro.position.x >= x0 + 1.8, () => {
       game.input.axis.z = carjack.speed < 2 ? -1 : 0;
       cuadro();
-    }
+    }, 'llega por el costado de la cola');
     game.input.axis.z = 0;
-    while (carjack.speed > 0) cuadro();
-    // La Y lo baja (CarjackSystem.exit). En ese cuadro el bucle sí atiende B: es el único de los del carro.
+    avanzarHasta(() => carjack.speed === 0, cuadro, 'se detiene');
     cuadro('KeyY');
-    while (carjack.transition) cuadro();
-    assert.deepEqual(pasados, ['subiendo', 'al volante', 'bajando']);
-    assert.ok(!carjack.driving && game.player.position.distanceTo(new THREE.Vector3(x0 + 3.2, 0, z)) < 1.5, 'quedó a pie, frente a la trompa del primero');
-    // A pie, después: vuelve el aviso de B, o la pista sale una vez.
+    avanzarHasta(() => !carjack.transition, cuadro, 'termina de bajar');
+    assert.deepEqual([...estados], ['enter', 'volante', 'exit']);
+    assert.equal(carjack.driving, false);
+    assert.ok(game.player.position.distanceTo(new THREE.Vector3(x0 + 3.2, 0, z)) < 1.5);
     paso();
     paso();
-    if (malabares) assert.equal(game.interaction.rebusquePrompt, '[B] Hacer malabares frente a los carros', 'a pie vuelve el aviso de B');
-    else assert.deepEqual(avisos.filter(a => a === PISTA), [PISTA], 'a pie, la pista sale una vez');
+    if (malabares) assert.equal(game.interaction.rebusquePrompt, '[B] Hacer malabares frente a los carros');
+    else assert.deepEqual(avisos.filter(aviso => aviso === PISTA), [PISTA]);
   }
 });
 

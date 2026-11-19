@@ -218,7 +218,7 @@ Compilar antes acorta la congelación, no la quita. Sin programas en caché, pas
 
 ## Costo en calidad baja
 
-Las primeras partidas van en baja y un equipo lento se queda ahí. Un cuadro de esa calidad gasta menos sin cambiar lo que se ve a distancia de juego. Llamadas y triángulos de un cuadro al mediodía despejado, a 1280 × 720, contados en el renderer:
+En la versión de referencia de esta medición, la primera partida arrancaba en baja. Un cuadro de esa calidad gasta menos sin cambiar lo que se ve a distancia de juego. Llamadas y triángulos de un cuadro al mediodía despejado, a 1280 × 720, contados en el renderer:
 
 | Vista | Llamadas, antes | Llamadas, ahora | Triángulos, antes | Triángulos, ahora |
 | --- | --- | --- | --- | --- |

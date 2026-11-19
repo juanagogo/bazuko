@@ -73,6 +73,7 @@ Cada muerte abre un incidente para esa víctima. Un testigo puede ver la caída 
 
 El miedoso puede salir por los andenes. Un avisador se aparta del peligro antes de llamar al 123 y otro puede relevarlo si lo interrumpen. Un curioso o un bravo puede acercarse al cuerpo cuando la pelea se calma y encuentra una ruta hasta su lado. Si el mismo golpe derriba a dos personas cercanas, cada una conserva sus testigos y ambas pueden compartir la llamada. Con una patrulla disponible, el aviso permite que se acerque al sitio por su ruta. [Respuesta de la patrulla](policia-a-pie.md#llamadas-al-123) · [Incidentes y auxilio](../src/systems/DeathWitnesses.js) · [Llamadas](../src/systems/WitnessSystem.js).
 
+## Qué recuerda la partida
 
 Cada habitante de Bogotá conserva al cargar su identidad, aspecto y temperamento. El guardado registra las heridas y si la persona ya soltó dinero. También recuerda qué llamadas de auxilio y atenciones al cuerpo se completaron. Un peatón que murió permanece fuera de sus actividades. El cuerpo civil queda en la escena hasta completar la caída y estar a más de 36 m del jugador y fuera de vista. Si recargas antes de que se retire, sigue en el sitio guardado. Para un vendedor se aplica la misma regla al puesto y al cuerpo antes de que llegue un relevo con otra identidad. Al abrir una partida antigua sin datos de población, los habitantes empiezan vivos. [Población del distrito](../src/world/bogota/DistrictPopulation.js).
 

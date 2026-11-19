@@ -500,4 +500,9 @@ test('la partida guarda la mano como `robo` y una partida vieja sin `robo` carga
   despues.steal.historial.limpios = 9;
   assert.equal(despues._loadIfSave(), true, 'la partida vieja carga');
   assert.equal(despues.steal.historial.limpios, 0);
+  const sinHistorial = armar();
+  sinHistorial.steal = { buscado: 0 };
+  assert.equal(sinHistorial._loadIfSave(), true, 'una partida válida carga aunque el robo no pueda leer la mano');
+  sinHistorial._save();
+  assert.equal(data.robo, undefined, 'el resto de la partida se guarda aunque el robo no sepa escribir su historial');
 });

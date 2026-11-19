@@ -79,6 +79,9 @@ body.mojado :is(#menu, #inv-overlay, #craft-panel, #talent-panel, #dealer-panel)
   background: var(--flauta), var(--cara);
 }
 :where(#menu) .sign--wide .menu__tabs { grid-area: tabs; }
+@media (min-width: 900px) and (min-height: 521px) {
+  :where(#menu) .sign--wide .menu__tabs { padding-bottom: var(--alto-avisos, 0px); }
+}
 :where(#menu) .sign--wide .menu__head { grid-area: head; display: block; min-width: 0; padding: 12px 8px 6px 24px; background: none; }
 :where(#menu) .sign--wide .menu__head > div { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 2px 22px; }
 :where(#menu) .sign--wide .menu__icon, :where(#menu) .sign--wide .menu__close { display: none; }
