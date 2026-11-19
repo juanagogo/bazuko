@@ -2,6 +2,11 @@ import assert from 'node:assert/strict';
 import { mock, test } from 'node:test';
 import * as THREE from 'three';
 import { GpsNavigation } from '../src/systems/GpsNavigation.js';
+import { CollisionSystem } from '../src/systems/CollisionSystem.js';
+import { Shop, SHOP_NAME } from '../src/entities/Shop.js';
+import { SellPoint, RECYCLER_NAME } from '../src/entities/SellPoint.js';
+import { ComedorComunitario, COMEDOR_NAME } from '../src/entities/ComedorComunitario.js';
+import { INTERACT_RANGE, PLAYER_RADIUS } from '../src/utils/constants.js';
 import { STREET_X, STREET_Z } from '../src/world/bogota/StreetLayout.js';
 
 mock.module('../src/character/RealisticCharacter.js', { namedExports: {
@@ -12,6 +17,9 @@ mock.module('../src/character/RealisticCharacter.js', { namedExports: {
 } });
 const { Bogota } = await import('../src/world/districts/Bogota.js');
 const { cityLandmarks } = await import('../src/world/bogota/CityMapRaster.js');
+const { buildMetroBogota } = await import('../src/world/bogota/MetroBogota.js');
+const { buildColpatriaViaduct } = await import('../src/world/bogota/ColpatriaViaduct.js');
+const { pedestrianCrossings } = await import('../src/world/bogota/StreetCrossings.js');
 
 const city = new Bogota();
 city.map = city._layout();
@@ -40,6 +48,107 @@ test('el GPS une el cambuche con la recicladora sin atravesar edificios ni agua'
   const end = gps.route.at(-1);
   assert.ok(Math.hypot(end.x - city.reserved.sell.x, end.z - city.reserved.sell.z) < 3);
   assert.ok(gps.routeLength >= Math.hypot(START.x - city.reserved.sell.x, START.z - city.reserved.sell.z));
+});
+
+test('el GPS llega al mostrador de La Esquinita desde el lado que permite comprar', () => {
+  const nav = city.createGpsNavigation();
+  const { x, z } = city.reserved.shop;
+  const shop = new Shop(new THREE.Scene(), new THREE.Vector3(x, 0, z));
+  const waypoint = { name: SHOP_NAME, icon: '🏪', ...shop.gpsWaypoint };
+  const { access } = waypoint;
+  assert.equal(nav.isRoutable(waypoint.x, waypoint.z), false, 'el mostrador comparte tile con la caseta');
+  assert.ok(nav.isRoutable(access.x, access.z));
+  assert.ok(nav.setWaypoint(waypoint, START, 0));
+  assert.deepEqual(nav.route.slice(-2), [access, { x: waypoint.x, z: waypoint.z }]);
+  assert.equal(nav.update({ x, z: 70 }, 100), null);
+  assert.equal(nav.update(access, 200), null);
+  const point = new THREE.Vector3(waypoint.x, .12, waypoint.z);
+  assert.ok(point.distanceTo(shop.position) < INTERACT_RANGE);
+  const collisions = new CollisionSystem(), before = new THREE.Vector3(access.x, 0, access.z);
+  collisions.add(shop.group, new THREE.Vector3(2.4, 2, 1.5));
+  assert.equal(collisions.resolveMove(before, point.clone().sub(before), PLAYER_RADIUS).z, point.z);
+  assert.deepEqual(nav.serialize(), { name: SHOP_NAME, icon: '🏪', x: point.x, z: point.z });
+  assert.equal(nav.update(point, 300), 'arrived');
+  shop.dispose();
+});
+
+test('El Progreso anuncia la llegada dentro del alcance de la báscula', () => {
+  const nav = city.createGpsNavigation();
+  const { x, z } = city.reserved.sell;
+  const sellPoint = new SellPoint(new THREE.Scene(), new THREE.Vector3(x, 0, z));
+  const waypoint = { name: RECYCLER_NAME, icon: '♻️', ...sellPoint.gpsWaypoint };
+  assert.ok(nav.setWaypoint(waypoint, START, 0));
+  assert.equal(nav.update({ x: 43.37, z: 89.60 }, 100), null, 'todavía está cerca de la bicicleta');
+  const point = new THREE.Vector3(x + 1.6, .12, z - .15);
+  assert.ok(point.distanceTo(sellPoint.position) < INTERACT_RANGE);
+  assert.deepEqual(nav.serialize(), { name: RECYCLER_NAME, icon: '♻️', x, z });
+  assert.equal(nav.update(point, 200), 'arrived');
+  sellPoint.dispose();
+});
+
+test('el aviso del Comedor Comunitario espera a que se pueda pedir el almuerzo', () => {
+  const nav = city.createGpsNavigation();
+  const comedor = new ComedorComunitario(new THREE.Scene(), new THREE.Vector3(100, .12, 90));
+  let interactionTarget = null;
+  const waypoint = { name: COMEDOR_NAME, icon: '🍲', ...comedor.gpsWaypoint,
+    acceptsArrival: position => comedor.acceptsGpsArrival(position, interactionTarget) };
+  assert.ok(nav.setWaypoint(waypoint, START, 0));
+  assert.equal(nav.update({ x: 102.65, z: 93.03 }, 100), null);
+  assert.equal(nav.update(waypoint.access, 200), null);
+  for (const x of [99.35, 100.65]) {
+    interactionTarget = null;
+    assert.ok(nav.setWaypoint(waypoint, START, 0));
+    const point = new THREE.Vector3(x, .06, 91.6);
+    assert.ok(point.distanceTo(comedor.position) < INTERACT_RANGE);
+    assert.equal(nav.update(point, 300), null);
+    interactionTarget = comedor;
+    assert.equal(nav.update(point, 400), 'arrived');
+  }
+  comedor.dispose();
+});
+
+test('el GPS cruza la Caracas por las cebras y evita las pilas bajo el viaducto', () => {
+  const district = new Bogota();
+  district.map = city.map;
+  district.reserved = city.reserved;
+  const collisions = new CollisionSystem();
+  const metro = buildMetroBogota();
+  const viaduct = buildColpatriaViaduct(district.map);
+  collisions.colliders.push(...metro.userData.colliders, ...viaduct.userData.colliders.map(box => ({ box, layered: true })));
+  const comedor = new THREE.Object3D();
+  comedor.position.set(100, .12, 90);
+  collisions.add(comedor, new THREE.Vector3(3.2, 2.2, 2.2));
+  district._navigationCollisions = collisions;
+  const crossings = pedestrianCrossings(district.map);
+  for (const from of [START, { x: 98, z: 88.02 }]) {
+    const nav = district.createGpsNavigation();
+    assert.ok(nav.setWaypoint(city.reserved.sell, from, 0));
+    const position = new THREE.Vector3(from.x, .12, from.z), direction = new THREE.Vector3();
+    const route = nav.remainingRoute(from);
+    const crossesAt = x => {
+      const i = route.findIndex((point, j) => j > 0 && point.x < x && route[j - 1].x >= x);
+      assert.ok(i > 0);
+      const a = route[i - 1], b = route[i];
+      return a.z + (b.z - a.z) * (x - a.x) / (b.x - a.x);
+    };
+    for (const x of [63, 87]) {
+      const z = crossesAt(x);
+      assert.ok(crossings.some(crossing => crossing.dx && x >= crossing.x && x <= crossing.x + crossing.length
+        && Math.abs(z - crossing.z) <= crossing.width / 2), `cruza fuera de la cebra en ${x},${z}`);
+    }
+    for (const end of route.slice(1)) {
+      const steps = Math.ceil(Math.hypot(end.x - position.x, end.z - position.z) / .15);
+      if (!steps) continue;
+      direction.set((end.x - position.x) / steps, 0, (end.z - position.z) / steps);
+      for (let step = 0; step < steps; step++) {
+        const next = collisions.resolveMove(position, direction, PLAYER_RADIUS);
+        assert.ok(next.distanceTo(position.add(direction)) < 1e-6, `la ruta toca un sólido en ${position.x},${position.z}`);
+      }
+    }
+  }
+  const station = { x: 75, z: 115 };
+  assert.deepEqual(district.createGpsNavigation().findPath(START, station), gps.findPath(START, station),
+    'el ajuste local conserva el acercamiento a la estación Calle 72');
 });
 
 test('el GPS llega a la isla del Portal del Centro por la extensión norte', () => {
