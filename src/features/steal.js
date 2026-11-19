@@ -1,7 +1,7 @@
 // src/features/steal.js
 import { ITEMS } from '../data/items.js';
 import { cop } from '../utils/money.js';
-import { LOW_STANCES } from '../character/archetypes.js';
+import { canReachCombatTarget } from '../systems/CombatGeometry.js';
 import { modoEntrada, teclaVisible } from '../core/modoEntrada.js';
 
 export const CONFIG = {
@@ -83,7 +83,7 @@ export class StealSystem {
     }
     if (this.minigameActive) {
       // Tirado por un carro no se le mete la mano a nadie.
-      if (this.game.player?.isStunned) this._endMinigame(false, 'cancel');
+      if (this.game.player?.isStunned || this.targetNpc?.isDead || this.targetNpc?._disposed) this._endMinigame(false, 'cancel');
       else this._updateMinigame(dt);
       return;
     }
@@ -115,7 +115,7 @@ export class StealSystem {
       // Ni al desmayado ni a quien atiende un puesto: su aviso es la tienda.
       if (!n?.position || (n._robadoTimer ?? 0) > 0 || n.koState || n.isVendor) continue;
       const d = playerPos.distanceTo(n.position);
-      if (d < minD) {
+      if (d < minD && this._canReach(n)) {
         minD = d;
         nearest = n;
       }
@@ -130,14 +130,22 @@ export class StealSystem {
     else if (!QUIET_Q_TARGETS.has(this.game.interaction?.currentTargetType) && this.game.input.consumePress('KeyQ')) this.executeRoboDirecto(nearest);
   }
 
+  _canReach(npc) {
+    const player = this.game.player;
+    return !!npc?.position && !npc.isDead && !npc._disposed && canReachCombatTarget({ from: player.position, to: npc.position,
+      maxDistance: CONFIG.stealDistance, collisions: this.game.collisions ?? player._lastCollisions,
+      fromInWater: !!player.isSwimming });
+  }
+
   // Dice si hay a quién hacerle cosquilleo a menos de esa distancia: un carro más lejano le cede el aviso y la tecla.
   personCloserThan(distance) {
-    if (!this.targetNpc || this.cooldown > 0) return false;
+    if (!this.targetNpc || this.targetNpc.isDead || this.targetNpc._disposed || this.cooldown > 0) return false;
     return this.game.player.position.distanceTo(this.targetNpc.position) < distance;
   }
 
   // Inicia el minijuego de timing para el cosquilleo.
   startCosquilleo(npc) {
+    if (npc?.isDead || npc?._disposed) return;
     this.minigameActive = true;
     this.theftType = 'cosquilleo';
     this.targetNpc = npc;
@@ -325,8 +333,9 @@ export class StealSystem {
       return;
     }
 
-    if (reason === 'cancel') return;
     const npc = this.targetNpc;
+    if (npc?.isDead || npc?._disposed) { this.targetNpc = null; return; }
+    if (reason === 'cancel') return;
     this.cooldown = CONFIG.globalCooldown;
     this._calma = 0;
     if (npc) npc._robadoTimer = CONFIG.npcCooldown;
@@ -354,6 +363,7 @@ export class StealSystem {
 
   // Ejecuta un robo directo agresivo con mayor botín y consecuencias.
   executeRoboDirecto(npc) {
+    if (!this._canReach(npc)) return;
     this.cooldown = CONFIG.globalCooldown;
     npc._robadoTimer = CONFIG.npcCooldown;
     this._calma = 0;
@@ -361,20 +371,10 @@ export class StealSystem {
     this._giveLoot(CONFIG.lootMoneyDirect, false);
     this._robbed(npc, true);
     this.game.witnesses?.report?.('robo', npc);
-    // Quien está en el piso o en la banca no alcanza a defenderse: bastante hace con pararse.
-    const down = LOW_STANCES.has(npc.stance);
-    npc.alarmedByTheft?.(this.game.player.position);
-    const isStrong = !down && (npc.look?.real?.edad === 'adulto' || Math.random() < 0.45);
-    if (isStrong && this.game.stats) {
-      // De noche y de madrugada quien se deja robar se defiende con más rabia (JornadaSystem).
-      const dmg = Math.floor((CONFIG.directDamageMin + Math.random() * (CONFIG.directDamageMax - CONFIG.directDamageMin))
-        * (this.game?.jornada?.franja?.golpe ?? 1));
-      this.game.stats.salud = Math.max(0, this.game.stats.salud - dmg);
-      this.game.stats.danoPor = 'pelea';
-      this._toast(`¡El peatón se defendió! −${dmg} de salud.`, 'death');
-    } else {
+    this._alarmar(npc, tipoDeRaponazo(npc));
+    const damage = CONFIG.directDamageMin + Math.random() * (CONFIG.directDamageMax - CONFIG.directDamageMin);
+    if (!npc.defendAgainstTheft?.(this.game.player, damage, this.game.jornada?.franja?.golpe ?? 1))
       this._toast('¡Raponazo! El peatón se asustó.', 'warn');
-    }
     this._alertPolice();
   }
 

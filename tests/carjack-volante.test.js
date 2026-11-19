@@ -357,5 +357,5 @@ test('al volante no quedan avisos de a pie, X no lanza popó y el HUD pinta el a
   assert.match(loop, /if \(!this\.player\.isStunned && !this\.player\.isSwimming && !driving && this\.input\.consumePress\('KeyX'\)\)/);
   assert.match(loop, /this\.interaction\.carjackPrompt = driving \? null : this\.carjack\?\.prompt \?\? null;/);
   const hud = readFileSync(new URL('../src/ui/HUD.js', import.meta.url), 'utf8');
-  assert.match(hud, /const carro = [^\n]*interaction\?\.carjackPrompt;\s*this\._pintarPrompt\(\[base, carro\]\.filter\(Boolean\)\.join\(' · '\), interaction\);/);
+  assert.match(hud, /const texto = \[textoDelPrompt\(interaction, inventory\), interaction\?\.carjackPrompt\]\.filter\(Boolean\)\.join\(' · '\);\s*this\._pintarPrompt\(texto, interaction, interaction\?\.rebusquePrompt \?\? ''\);/);
 });

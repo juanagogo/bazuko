@@ -7,6 +7,7 @@
 //  - Solo se empieza si al rojo le queda tiempo (systems/rebusque/semaforo.js) y el show se acorta para terminar
 //    antes del verde. El aviso lleva la cuenta del rojo.
 //  - Al terminar, cada conductor reacciona por su cuenta (systems/rebusque/reacciones.js); lo que pasa sale en el aviso.
+//    excusa o, si cambió la luz a medio show, el que arranca. Sin voz lista no cambia nada: el aviso ya lo cuenta.
 //  - El carro que arranca no paga y alejarse corta el show. Morir, dormir o caer preso lo cancelan (core/game.js).
 //  - Mientras dura, el cuerpo hace los malabares (character/rebusquePose.js) y las pelotas vuelan entre las manos
 //    (rebusque/RebusqueVisual.js). Terminar o cortar el show suelta la pose.
@@ -65,7 +66,8 @@ export class RebusqueSystem {
   _puedeTrabajar() {
     const p = this.game.player;
     if (!p?.position || p.isStunned || p.isSwimming || p.isRagdollActive || p.hasCart) return false;
-    return !this._robando();
+    const carjack = this.game.carjack;
+    return !this._robando() && !carjack?.driving && !carjack?.transition;
   }
 
   get _signals() { return this.game.traffic?.signals ?? null; }
@@ -74,7 +76,7 @@ export class RebusqueSystem {
   _semaforo(pos) {
     const traffic = this.game.traffic;
     if (!traffic?.stoppedAtRed) return [];
-    return traffic.stoppedAtRed(pos, REBUSQUE.malabares.alcance).filter(({ car }) => this._libre(car));
+    return traffic.stoppedAtRed(pos, REBUSQUE.malabares.alcance).filter(({ car }) => car.driverAvailable !== false && this._libre(car));
   }
 
   /** ¿Es el primero de su cola? Nadie quieto delante en su carril a menos de 9 m. */
@@ -167,6 +169,9 @@ export class RebusqueSystem {
     const nodo = this._signals ? cruceCercano(this._signals.nodes, pos, ESQUINA_M) : -1;
     if (nodo >= 0) this._esquinas.set(nodo, this._t);
     this.trabajo = { def, cars, desde: { x: pos.x, z: pos.z }, tiempo: 0, dur, nariz: !!nariz, gesto: 0 };
+    // Mientras dura el show se cargan las voces de quienes lo miran, para que contesten al terminar.
+    const voces = this._voces();
+    if (voces?.prepararConductor) for (const { car } of cars) voces.prepararConductor(car);
     this.game.player.faceTowards?.(this._centro(cars));
     this._pose();
     avisar(def.empezar, 'info');
@@ -252,7 +257,7 @@ export class RebusqueSystem {
   /** ¿Siguen ahí los carros? Los que arrancaron o salieron de la vía ya no pagan. */
   _siguen(t) {
     const enCirculacion = this.game.traffic?.vehicles ?? [];
-    t.cars = t.cars.filter(({ vehicle }) => enCirculacion.includes(vehicle) && vehicle.speed <= ARRANCA);
+    t.cars = t.cars.filter(({ vehicle }) => vehicle.car.driverAvailable !== false && enCirculacion.includes(vehicle) && vehicle.speed <= ARRANCA);
     return t.cars.length > 0;
   }
 

@@ -205,7 +205,6 @@ export class DailyMissionSystem {
 
     if (typeof window !== 'undefined') {
       const rewardText = reward.dinero ? ` +${cop(reward.dinero)}` : '';
-      const xpText = reward.xp ? ` +${reward.xp} XP` : '';
       window.dispatchEvent(new CustomEvent('toast', {
         detail: {
           text: `¡Misión cumplida: ${mission.title}! Recompensa:${rewardText}`,

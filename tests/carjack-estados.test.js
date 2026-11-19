@@ -169,7 +169,7 @@ function gameFixture() {
     inventory: new InventorySystem(),
     cameraRig: { mode: 'third-person', yaw: 0, pitch: .22, distance: 5.5, follow() {} },
     collisions: { queryStatic: () => [], dynamicColliders: [] },
-    cars: [car], traffic: { vehicles: [] }, steal: { buscado: 0 }, look: {},
+    cars: [car], traffic: { vehicles: [] }, steal: { buscado: 0, serialize: () => null }, look: {},
     _calleCercana: () => 'la Séptima', _randomWalkablePosition: () => new THREE.Vector3(50, 0, 50)
   });
   game.carjack = new CarjackSystem(game);
