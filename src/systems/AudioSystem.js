@@ -23,6 +23,26 @@ const STEP_SURFACES = {
   road: { volume: .46, rate: 1 }, busway: { volume: .46, rate: 1 },
   sidewalk: { volume: .5, rate: 1 }, floor: { volume: .5, rate: 1 }, plaza: { volume: .5, rate: 1 }
 };
+const TIMBRES_GOLPE = {
+  punos: [
+    { onda: 'sine', inicio: 150, fin: 48, duracion: .09, nivel: .45 },
+    { onda: 'triangle', inicio: 320, fin: 105, duracion: .025, nivel: .14 }
+  ],
+  cuchillo: [
+    { onda: 'sine', inicio: 155, fin: 60, duracion: .07, nivel: .34 },
+    { onda: 'triangle', inicio: 1430, fin: 1320, duracion: .10, nivel: .13 },
+    { onda: 'sine', inicio: 2380, fin: 2240, duracion: .065, nivel: .06 }
+  ],
+  botella_picada: [
+    { onda: 'sine', inicio: 165, fin: 55, duracion: .09, nivel: .36 },
+    { onda: 'sine', inicio: 930, fin: 890, duracion: .145, nivel: .18 },
+    { onda: 'sine', inicio: 2120, fin: 2030, duracion: .085, nivel: .09 }
+  ],
+  arma: [
+    { onda: 'sine', inicio: 98, fin: 32, duracion: .15, nivel: .49 },
+    { onda: 'triangle', inicio: 230, fin: 75, duracion: .055, nivel: .16 }
+  ]
+};
 
 export class AudioSystem {
   constructor({ HowlClass = Howl, howler = Howler, eventTarget = globalThis.window } = {}) {
@@ -137,6 +157,7 @@ export class AudioSystem {
     })));
 
     this._stepsPlaying = false;
+    this._golpesSonoros = 0;
     this._stepDistance = 0;
     this._lastStep = -1;
     this._boostPlaying = false;
@@ -735,7 +756,35 @@ export class AudioSystem {
     } catch {}
   }
 
-  playPunchHit() {
+  playPunchHit(arma, remate = false) {
+    if (arma === undefined) return this._golpeRecibido();
+    const fx = this._fx();
+    if (!fx) return;
+    try {
+      const { ctx, out } = fx;
+      const t = ctx.currentTime;
+      // Dos ciclos distintos varían el sonido sin consumir el azar de la partida.
+      const golpe = this._golpesSonoros++;
+      const tono = (1 + .035 * Math.sin(golpe * 2.4)) * (remate ? .82 : 1);
+      const volumen = (1 + .045 * Math.cos(golpe * 1.7)) * (remate ? 1.24 : 1);
+      for (const { onda, inicio, fin, duracion, nivel } of TIMBRES_GOLPE[arma] ?? TIMBRES_GOLPE.punos) {
+        const oscilador = ctx.createOscillator(), envolvente = ctx.createGain();
+        oscilador.type = onda;
+        oscilador.frequency.setValueAtTime(inicio * tono, t);
+        oscilador.frequency.exponentialRampToValueAtTime(fin * tono, t + duracion);
+        envolvente.gain.setValueAtTime(.0001, t);
+        envolvente.gain.linearRampToValueAtTime(nivel * volumen, t + .002);
+        envolvente.gain.exponentialRampToValueAtTime(.0001, t + duracion);
+        oscilador.connect(envolvente);
+        envolvente.connect(out);
+        oscilador.onended = () => { oscilador.disconnect(); envolvente.disconnect(); };
+        oscilador.start(t);
+        oscilador.stop(t + duracion);
+      }
+    } catch {}
+  }
+
+  _golpeRecibido() {
     const fx = this._fx();
     if (!fx) return;
     try {

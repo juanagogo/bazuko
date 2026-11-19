@@ -5,6 +5,7 @@
 // Mixamo, así siguen la animación.
 import * as THREE from 'three';
 import { mergeGeometries, mergeVertices } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
+import { brokenBottle, club, knife } from './meleePropModels.js';
 
 const CROOK = 0.055;
 const SHAFT = 0.9;
@@ -511,62 +512,12 @@ export function createPhone() {
 }
 
 // ---------- armas en mano ----------
-// El origen del objeto es la muñeca y +Y va hacia donde apuntan los dedos; el mango queda dentro del puño.
-
-let weaponShared = null;
-function weaponGeometries() {
-  if (weaponShared) return weaponShared;
-  const blade = new THREE.BoxGeometry(0.022, 0.17, 0.005);
-  blade.translate(0, 0.075 + 0.085, 0); // sale del mango
-  // punta: se afina con un triángulo apilado sobre la hoja
-  const tip = new THREE.ConeGeometry(0.0125, 0.04, 3);
-  tip.rotateY(Math.PI / 2);
-  tip.scale(1, 1, 0.25);
-  tip.translate(0, 0.245 + 0.02, 0);
-  weaponShared = {
-    grip: new THREE.CylinderGeometry(0.014, 0.016, 0.11, 8).translate(0, 0.02, 0),
-    guard: new THREE.BoxGeometry(0.05, 0.012, 0.016).translate(0, 0.078, 0),
-    blade, tip,
-    neck: new THREE.CylinderGeometry(0.013, 0.017, 0.1, 8).translate(0, 0.01, 0),
-    shoulder: new THREE.CylinderGeometry(0.033, 0.017, 0.05, 8).translate(0, 0.085, 0),
-    body: new THREE.CylinderGeometry(0.033, 0.033, 0.1, 8).translate(0, 0.16, 0),
-    shard: new THREE.ConeGeometry(0.011, 0.045, 4).translate(0, 0.0225, 0)
-  };
-  return weaponShared;
-}
-
-function knife() {
-  const g = weaponGeometries();
-  const steel = new THREE.MeshStandardMaterial({ color: '#b9bec4', metalness: 0.85, roughness: 0.3 });
-  const wood = new THREE.MeshStandardMaterial({ color: '#4a3020', roughness: 0.85 });
-  const group = new THREE.Group();
-  group.name = 'weapon-cuchillo';
-  group.add(new THREE.Mesh(g.grip, wood), new THREE.Mesh(g.guard, steel), new THREE.Mesh(g.blade, steel), new THREE.Mesh(g.tip, steel));
-  return group;
-}
-
-function brokenBottle() {
-  const g = weaponGeometries();
-  const glass = new THREE.MeshStandardMaterial({ color: '#2f6b3a', transparent: true, opacity: 0.82, roughness: 0.15, metalness: 0.1 });
-  const group = new THREE.Group();
-  group.name = 'weapon-botella_picada';
-  group.add(new THREE.Mesh(g.neck, glass), new THREE.Mesh(g.shoulder, glass), new THREE.Mesh(g.body, glass));
-  // boca rota: picos de vidrio alrededor del borde
-  const rim = 0.21, n = 6;
-  for (let i = 0; i < n; i++) {
-    const a = (i / n) * Math.PI * 2;
-    const shard = new THREE.Mesh(g.shard, glass);
-    shard.position.set(Math.cos(a) * 0.026, rim, Math.sin(a) * 0.026);
-    shard.rotation.set(Math.sin(a) * 0.25, 0, -Math.cos(a) * 0.25);
-    shard.scale.y = i % 2 ? 1.4 : 0.8; // alternan para que el borde sea irregular
-    group.add(shard);
-  }
-  return group;
-}
+// El centro de agarre de los tres objetos va en el origen y su extremo visible sale por +Y.
+const pistolParts = {};
 
 /** Pistola corta empuñada: el cañón sale hacia los dedos (+Y) y la cacha baja por la palma */
 function pistol() {
-  const g = weaponGeometries();
+  const g = pistolParts;
   g.slide ??= new THREE.BoxGeometry(0.026, 0.17, 0.034).translate(0, 0.085, 0.045);
   g.butt ??= new THREE.BoxGeometry(0.024, 0.04, 0.1).rotateX(0.25).translate(0, 0.015, 0.0);
   g.guardRing ??= new THREE.TorusGeometry(0.018, 0.004, 4, 8, Math.PI).rotateY(Math.PI / 2).translate(0, 0.045, 0.02);
@@ -577,44 +528,8 @@ function pistol() {
   return group;
 }
 
-/** Arma casera: tabla con láminas de chatarra y puntillas, amarradas con cable de cobre */
-function club() {
-  const g = weaponGeometries();
-  g.plank ??= new THREE.BoxGeometry(0.05, 0.7, 0.024).translate(0, 0.29, 0);
-  g.wrap ??= new THREE.CylinderGeometry(0.031, 0.031, 0.15, 6).translate(0, 0.015, 0);
-  g.plate ??= new THREE.BoxGeometry(0.07, 0.15, 0.006);
-  g.nail ??= new THREE.CylinderGeometry(0.0035, 0.0035, 0.09, 4).rotateZ(Math.PI / 2);
-  g.wire ??= new THREE.TorusGeometry(0.04, 0.003, 4, 10).rotateX(Math.PI / 2).scale(1, 1, 0.7);
-  const wood = new THREE.MeshStandardMaterial({ color: '#6b4a2b', roughness: 0.9 });
-  const tape = new THREE.MeshStandardMaterial({ color: '#262626', roughness: 1 });
-  const rust = new THREE.MeshStandardMaterial({ color: '#7a4526', metalness: 0.55, roughness: 0.75 });
-  const steel = new THREE.MeshStandardMaterial({ color: '#8a8f94', metalness: 0.8, roughness: 0.4 });
-  const copper = new THREE.MeshStandardMaterial({ color: '#b8733a', metalness: 0.8, roughness: 0.35 });
-  const group = new THREE.Group();
-  group.name = 'weapon-arma';
-  group.add(new THREE.Mesh(g.plank, wood), new THREE.Mesh(g.wrap, tape));
-  // láminas a cada lado de la punta, torcidas como quedaron al amarrarlas
-  for (const [z, y, tilt] of [[0.015, 0.5, 0.12], [-0.015, 0.55, -0.18]]) {
-    const plate = new THREE.Mesh(g.plate, rust);
-    plate.position.set(0, y, z);
-    plate.rotation.z = tilt;
-    group.add(plate);
-  }
-  for (const [y, turn] of [[0.6, 0.1], [0.45, -0.15]]) {
-    const nail = new THREE.Mesh(g.nail, steel);
-    nail.position.y = y;
-    nail.rotation.y = turn;
-    group.add(nail);
-  }
-  for (const y of [0.42, 0.5, 0.62]) {
-    const wire = new THREE.Mesh(g.wire, copper);
-    wire.position.y = y;
-    group.add(wire);
-  }
-  return group;
-}
-
 const WEAPON_BUILDERS = { cuchillo: knife, botella_picada: brokenBottle, arma: club, pistola: pistol };
+const activeWeapons = new Map();
 
 const _wp = new THREE.Vector3();
 const _wq = new THREE.Quaternion();
@@ -622,7 +537,7 @@ const _wr = new THREE.Quaternion();
 
 /**
  * Pone un arma en la mano derecha. Devuelve { object, dispose } o null si no existe el arma o el hueso.
- * Las geometrías son compartidas; `dispose` solo libera los materiales de esta instancia.
+ * La geometría y los mapas se comparten. El último portador libera los materiales.
  */
 export function attachWeapon(root, bones, id) {
   const hand = findBone(bones, 'RightHand');
@@ -630,8 +545,7 @@ export function attachWeapon(root, bones, id) {
   const weapon = createWeapon(id);
   if (!weapon) return null;
   const { object } = weapon;
-  object.traverse((o) => { if (o.isMesh) { o.castShadow = true; o.frustumCulled = false; } });
-  // el objeto nace con los ejes de la mano, en el espacio de la raíz; attach() lo pasa al hueso sin mover nada
+  // Pasar de la raíz al hueso conserva el tamaño del objeto con los distintos esqueletos.
   root.updateMatrixWorld(true);
   root.worldToLocal(hand.getWorldPosition(_wp));
   root.getWorldQuaternion(_wr).invert();
@@ -639,22 +553,54 @@ export function attachWeapon(root, bones, id) {
   object.quaternion.copy(_wr.multiply(hand.getWorldQuaternion(_wq)));
   root.add(object);
   hand.attach(object);
+  if (id !== 'pistola') {
+    const middle = findBone(bones, 'RightHandMiddle1'), index = findBone(bones, 'RightHandIndex1');
+    const pinky = findBone(bones, 'RightHandPinky1');
+    if (middle && index && pinky) {
+      const fingers = middle.position.clone().normalize();
+      const axis = index.position.clone().sub(pinky.position);
+      const palmWidth = axis.length();
+      axis.addScaledVector(fingers, -axis.dot(fingers)).normalize();
+      const palm = new THREE.Vector3().crossVectors(axis, fingers).normalize();
+      object.position.copy(middle.position).multiplyScalar(.76).addScaledVector(palm, palmWidth * .27);
+      // El mango cruza la palma. Una leve inclinación sigue la línea de los nudillos.
+      axis.addScaledVector(fingers, .15).normalize();
+      const across = new THREE.Vector3().crossVectors(axis, palm).negate().normalize();
+      object.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(across, axis, palm.negate()));
+    }
+  }
   return weapon;
 }
 
-/** La misma arma para ambos rigs; sus geometrías permanecen compartidas. */
+/** Cada mano tiene su propia transformación y comparte el modelo con los demás portadores. */
 export function createWeapon(id) {
-  const build = WEAPON_BUILDERS[id];
-  if (!build) return null;
-  const object = build();
-  object.traverse(o => { if (o.isMesh) { o.castShadow = true; o.frustumCulled = false; } });
+  if (!Object.hasOwn(WEAPON_BUILDERS, id)) return null;
+  let active = activeWeapons.get(id);
+  if (!active) {
+    const model = WEAPON_BUILDERS[id](), materials = new Set();
+    model.name = `weapon-${id}`;
+    model.traverse(o => {
+      if (!o.isMesh) return;
+      o.castShadow = true;
+      o.frustumCulled = false;
+      materials.add(o.material);
+    });
+    active = { model, materials, users: 0 };
+    activeWeapons.set(id, active);
+  }
+  active.users++;
+  const object = active.model.clone();
+  let released = false;
   return {
     object,
     dispose() {
-      const materials = new Set();
-      object.traverse((o) => { if (o.isMesh) materials.add(o.material); });
-      for (const m of materials) m.dispose();
+      if (released) return;
+      released = true;
       object.removeFromParent();
+      if (--active.users === 0) {
+        for (const material of active.materials) material.dispose();
+        activeWeapons.delete(id);
+      }
     }
   };
 }
