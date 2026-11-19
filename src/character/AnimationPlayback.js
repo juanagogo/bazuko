@@ -1,5 +1,6 @@
 import { LoopOnce, LoopRepeat } from 'three';
 import { animationDamping } from './SecondaryMotion.js';
+import { criticalSpring, snapSpring, spring } from './springs.js';
 
 const ONE_SHOT = new Set(['comer', 'beber', 'lanzar', 'saludo']);
 const CROUCHED = new Set(['buscar', 'cagar']);
@@ -52,6 +53,48 @@ export function blendAnimationWeights(weights, target, dt, rate = 10) {
   }
   // Evita introducir la pose de enlace al retirar los restos de otro clip.
   if (total > 0) for (const key of Object.keys(weights)) weights[key] /= total;
+}
+
+/** Mezcla de paso y reposo para peatones: conserva la velocidad de la transición al invertirla. */
+export class PedestrianPlayback {
+  constructor(weight = 0) {
+    this.weight = spring(weight);
+    this.cadence = 0;
+  }
+
+  reset(weight) {
+    this.cadence = 0;
+    return snapSpring(this.weight, weight);
+  }
+
+  toward(dt, walking, reset) {
+    const target = walking ? 1 : 0;
+    if (reset) return this.reset(target);
+    if (Math.abs(this.weight.x - target) < .0001 && Math.abs(this.weight.v) < .003) return snapSpring(this.weight, target);
+    return criticalSpring(this.weight, target, 25, dt);
+  }
+
+  advance(dt, cadence, walking) {
+    if (walking) {
+      this.cadence = cadence;
+      return cadence * dt;
+    }
+    // El pie que iba en el aire sigue un trecho corto del arco mientras el reposo toma el apoyo.
+    // Es solo la cola del paso: al terminar de transferir el peso el clip deja de avanzar.
+    const release = animationDamping(dt, 19);
+    const carry = Math.max(0, this.cadence - cadence);
+    this.cadence = cadence + carry * (1 - release);
+    if (this.cadence < .001) this.cadence = 0;
+    return cadence * dt + carry * release / 19;
+  }
+
+  state() { return { x: this.weight.x, v: this.weight.v, cadence: this.cadence }; }
+
+  applyState({ x, v, cadence }) {
+    this.weight.x = x;
+    this.weight.v = v;
+    this.cadence = cadence;
+  }
 }
 
 /**

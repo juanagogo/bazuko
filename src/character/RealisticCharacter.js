@@ -8,24 +8,33 @@ import { clone as cloneSkinned } from 'three/examples/jsm/utils/SkeletonUtils.js
 import { ACTIONFORGE_CLIPS, buildCharacterClips } from './actionforge.js';
 import { buildMixamoPreviewClips, buildMixamoGameComplements, isMixamoProfile, resolveAnimationProfile } from './animationProfiles.js';
 import { groundLocomotion, groundMixamoClips, MixamoGroundContact } from './mixamoGrounding.js';
+import { createGaitGroundContact } from './gaitSoleSupport.js';
 import { gaitStage, locomotionBlend, locomotionRate, measureLocomotion, stageRate } from './locomotion.js';
 import { bakeGaitFamily, buildGaitSources, resolveGait } from './gaitFamilies.js';
 import { DEFAULT_LOOK, PALETTES } from './look.js';
 import { addHairTone } from './weathering.js';
 import { applyStreetMaterial, createStreetFrame, curlsWithoutCards, GARMENTS, normalizeTonos, shoesWithoutSocks, streetFaceTint, streetMaterialSeed, streetSkinColor } from './streetMaterials.js';
-import { attachAccessories, attachStreetProps, attachWeapon, FAR_ACCESSORIES, isStreetProp, placeInHold, swayStreetProps } from './props.js';
+import { CIVIL_SHOE_PROFILES, CIVIL_TEXTILES } from './civilianFinish.js';
+import { curlVolume } from './curls.js';
+import { workwearStyle } from './workwear.js';
+import { RECYCLER_VEST_PROFILE } from './recyclerVest.js';
+import { createCarrySack } from './carrySack.js';
+import { CaneMotion } from './CaneMotion.js';
+import { attachAccessories, attachStreetProps, attachWeapon, FAR_ACCESSORIES, findBone, isStreetProp, placeInHold, swayStreetProps } from './props.js';
 import { garmentAllowed, normalizeTalla } from './archetypes.js';
 import { attachCigaretteToHand, emberGlow } from './smoking.js';
 import { attachBasucoProps } from './pipe.js';
 import { addHatClip, hatEdgeProfile } from './hatFit.js';
 import { animationDamping, SecondaryMotion } from './SecondaryMotion.js';
 import { ActionPose } from './ActionPose.js';
+import { ConversationGaze } from './ConversationGaze.js';
 import { airborneStrideRate, nextFootfall } from './jumpMotion.js';
 import { BodyLanguage } from './BodyLanguage.js';
 import { bakeStances } from './stances.js';
-import { preparePlayback, blendAnimationWeights, HipBlend } from './AnimationPlayback.js';
+import { preparePlayback, blendAnimationWeights, HipBlend, PedestrianPlayback } from './AnimationPlayback.js';
 import { shareImages } from './sharedImages.js';
 import { shareSkeletons } from './sharedSkeleton.js';
+import { dressVendorApron } from './vendorApron.js';
 
 const MODEL_BASE = `${import.meta.env?.BASE_URL ?? '/'}models/`;
 const BASE = `${MODEL_BASE}personaje/`;
@@ -41,7 +50,6 @@ const GAIT_BANK_URLS = [`${MODEL_BASE}andar-erguido.glb`, `${MODEL_BASE}andar-ca
 
 // Peso compartido de caminar y correr; su reparto lo decide la velocidad.
 const LOCOMOTION = 'locomocion';
-const CANE_GRIP_TIME = .2; // s en cambiar de agarre el bastón al echar a correr o al frenar
 // Acciones sin clip propio: clip sustituto y velocidad de reproducción.
 const ACTION_FALLBACKS = {
   cagar: ['buscar'], lanzar: ['pedir'], saludo: ['pedir']
@@ -69,14 +77,25 @@ function loadStreetSkinDetail() {
 loader.register(shareImages);
 const cache = new Map();
 const load = (url) => {
-  if (!cache.has(url)) cache.set(url, loader.loadAsync(url));
+  if (!cache.has(url)) {
+    cache.set(url, loader.loadAsync(url).catch(error => {
+      cache.delete(url);
+      throw error;
+    }));
+  }
   return cache.get(url);
 };
 
 let catalogPromise = null;
 /** Catálogo exportado: cuerpos (sexo × edad) y piezas con sus etiquetas. */
 export function loadCatalog() {
-  catalogPromise ??= fetch(BASE + 'catalogo.json').then((r) => r.json());
+  catalogPromise ??= fetch(BASE + 'catalogo.json').then(response => {
+    if (!response.ok) throw new Error(`No se pudo cargar el catálogo de personajes (HTTP ${response.status}).`);
+    return response.json();
+  }).catch(error => {
+    catalogPromise = null;
+    throw error;
+  });
   return catalogPromise;
 }
 
@@ -130,6 +149,7 @@ function loadAnimations() {
     for (const url of ANIM_URLS) {
       try { return await loader.loadAsync(url); } catch { /* probar la siguiente */ }
     }
+    animsPromise = null;
     throw new Error('No hay animaciones del personaje');
   })();
   return animsPromise;
@@ -181,6 +201,9 @@ function gestureClips(bodyId, bodyGltf, banks) {
       if (clips.walk) clips.walk.userData.locomotion = measureLocomotion(bodyGltf.scene, clips.walk, clips.run);
       return clips;
     })().catch(error => {
+      // También se agotó el respaldo. En el próximo intento pueden estar disponibles los bancos principales.
+      actionforgePromise = null;
+      gaitBanksPromise = null;
       clipCache.delete(key);
       throw error;
     }));
@@ -306,7 +329,7 @@ function hideCovered(bodyMesh, baseIndex, hidden, light = false) {
 
 // ---------- instancia ----------
 
-async function buildInstance(catalog, look, lod = false, profile = resolveAnimationProfile(), gait = resolveGait()) {
+async function buildInstance(catalog, look, lod, profile, gait, acabadoCivil, costalJugador, poseBicicleta) {
   // Los poros son del modelo completo: de lejos no se ven y el liviano se ahorra una variante del programa.
   const detailPromise = lod ? Promise.resolve(null) : loadStreetSkinDetail();
   const real = normalizeReal(catalog, look.real);
@@ -341,7 +364,12 @@ async function buildInstance(catalog, look, lod = false, profile = resolveAnimat
   const hairTone = new THREE.Color(PALETTES.pelo[look.peloColor] ?? PALETTES.pelo[0]).lerp(new THREE.Color(1, 1, 1), .012);
   const wear = look.real?.desgaste ?? look.desgaste ?? DEFAULT_LOOK.desgaste;
   const seed = Math.random() * 100;
-  const streetOptions = { frame: createStreetFrame(root, bones, bodyMesh), wear, seed: streetMaterialSeed(look), detailTexture };
+  const civilian = (acabadoCivil || look.acabadoCivil === true) && !look.uniforme;
+  const curls = real.pelo === 'crespo';
+  const curlRelief = curls && civilian && !parts.some(part => part.cat === 'cabeza') &&
+    !real.accesorios?.some(item => item.id === 'casco') &&
+    !look.accesorios?.some(id => id === 'gorra' || id === 'pasamontanas');
+  const streetOptions = { frame: createStreetFrame(root, bones, bodyMesh), wear, seed: streetMaterialSeed(look), detailTexture, civilian };
   if (bodyMesh) {
     streetSkinColor(look.piel, body.id, bodyMesh.material.color);
     applyStreetMaterial(bodyMesh.material, bodyMesh, {
@@ -353,13 +381,18 @@ async function buildInstance(catalog, look, lod = false, profile = resolveAnimat
   }
 
   const hidden = new Set();
-  const hair = [], hatPositions = [];
+  const hair = [], hatPositions = [], soles = bodyMesh ? [bodyMesh] : [];
   const uniform = look.uniforme ? new THREE.Color(look.uniforme) : null;
+  const workwear = look.ropaDeObra && !uniform ? workwearStyle(real.ropa, real.accesorios?.find(item => item.id === 'casco')) : 0;
+  const vest = look.chalecoReciclador;
+  const recyclerVest = civilian && !look.delantal && Object.hasOwn(RECYCLER_VEST_PROFILE, vest)
+    && real.accesorios?.some(item => item.id === 'costal') ? RECYCLER_VEST_PROFILE[vest] : 0;
   parts.forEach((p, i) => {
     for (const v of (useLod ? p.info.ocultaLod : p.info.oculta) ?? []) hidden.add(v);
     partGltfs[i].scene.traverse((o) => {
       if (!o.isSkinnedMesh) return;
       const mesh = attachPart(o, bones, bodyMesh?.parent ?? root, p.cat);
+      if (p.cat === 'calzado') soles.push(mesh);
       if (p.cat === 'pelo' || p.cat === 'barba') {
         mesh.material.color.copy(hairTone);
         addHairTone(mesh.material, p.cat === 'pelo' && real.pelo === 'rapado' ? .4 : 1);
@@ -371,13 +404,24 @@ async function buildInstance(catalog, look, lod = false, profile = resolveAnimat
       applyStreetMaterial(mesh.material, mesh, {
         ...streetOptions,
         kind: p.cat === 'pelo' ? 'hair' : p.cat === 'barba' ? 'beard' : p.cat === 'calzado' ? 'shoes' : 'fabric',
-        ...(p.cat === 'ropa' ? { tonos: uniform ? null : real.tonos, garment: GARMENTS[real.ropa] } : null),
-        ...(p.cat === 'calzado' && !uniform ? { leather: real.calzado === 'zapatos', shoeTone: real.tonos?.calzado } : null),
-        ...(p.cat === 'pelo' && real.pelo === 'crespo' ? { curl: 1 } : null)
+        ...(p.cat === 'ropa' ? {
+          tonos: uniform ? null : real.tonos, garment: GARMENTS[real.ropa], clothUniform: !!uniform,
+          textiles: civilian ? CIVIL_TEXTILES[real.ropa] : null, workwear, recyclerVest
+        } : null),
+        ...(p.cat === 'calzado' && !uniform ? {
+          leather: real.calzado === 'zapatos', shoeTone: real.tonos?.calzado,
+          shoeFinish: civilian ? CIVIL_SHOE_PROFILES[real.calzado] : null
+        } : null),
+        ...(p.cat === 'pelo' && curls ? { curl: 1, curlRelief: curlRelief ? 1 : 0 } : null)
       });
-      const trim = p.cat === 'pelo' && real.pelo === 'crespo' ? curlsWithoutCards
+      if (p.cat === 'ropa' && look.delantal) dressVendorApron(mesh.material, look.delantal, streetOptions.frame.arm);
+      const trim = p.cat === 'pelo' && curls ? curlsWithoutCards
         : p.cat === 'calzado' && !GARMENTS[real.ropa]?.piernasAlAire ? shoesWithoutSocks : null;
-      if (trim) mesh.geometry = trim(mesh.geometry, streetOptions.frame.worldToNormalized.clone().multiply(mesh.matrixWorld));
+      if (trim) {
+        const rest = streetOptions.frame.worldToNormalized.clone().multiply(mesh.matrixWorld);
+        mesh.geometry = trim(mesh.geometry, rest);
+        if (p.cat === 'pelo' && curlRelief) mesh.geometry = curlVolume(mesh.geometry, rest);
+      }
       if (p.cat === 'cabeza') for (const v of mesh.geometry.attributes.position.array) hatPositions.push(v);
     });
   });
@@ -398,8 +442,19 @@ async function buildInstance(catalog, look, lod = false, profile = resolveAnimat
       applyStreetMaterial(mesh.material, mesh, { ...streetOptions, kind: 'eyes' });
     }
   });
-  const worn = (look.accesorios ?? []).filter((id) => !useLod || FAR_ACCESSORIES.has(id));
+  const mochila = !useLod && !!look.accesorios?.includes('mochila');
+  const worn = (look.accesorios ?? []).filter(id => id !== 'mochila' && (!useLod || FAR_ACCESSORIES.has(id)));
   const accessories = worn.length ? attachAccessories(root, bones, worn, wear) : null;
+  const chest = (costalJugador || mochila) ? findBone(bones, 'Spine2') : null;
+  let carrySack = null;
+  if (chest) {
+    carrySack = createCarrySack(real.sexo);
+    carrySack.dress({ mochila, wear });
+    const anchor = (findBone(bones, 'Neck') ?? chest).getWorldPosition(carrySack.mesh.position);
+    root.worldToLocal(anchor);
+    root.add(carrySack.mesh);
+    chest.attach(carrySack.mesh);
+  }
   const stanceLibrary = stancesForBody(body.id, bodyGltf);
   // Lo que carga la gente de la calle: de lejos solo lo que se nota.
   const streetProps = attachStreetProps(root, bones, (real.accesorios ?? []).filter((item) => !useLod || FAR_ACCESSORIES.has(item.id)), stanceLibrary?.holds, real.sexo);
@@ -437,29 +492,26 @@ async function buildInstance(catalog, look, lod = false, profile = resolveAnimat
   // Los NPC lejanos conservan su ruta liviana, incluso si el catálogo carece de proxy.
   const secondaryMotion = lod ? null : new SecondaryMotion(bones, seed);
   const actionPose = new ActionPose(bones, { lod, frame: root });
-  const groundContact = isMixamoProfile(profile.id) ? new MixamoGroundContact(root) : null;
+  const { head, neck } = actionPose.joints;
+  const { eyes, worldToNormalized } = streetOptions.frame;
+  const conversationGaze = head && new ConversationGaze(root, head, neck,
+    new THREE.Vector3(eyes.x, eyes.y, eyes.z).applyMatrix4(worldToNormalized.clone().invert()));
+  const bicyclePose = poseBicicleta ? new BicyclePose(actionPose, { grips: bicycleGrips(body.id, bodyGltf.scene), bones }) : null;
+  const mixamoPreview = isMixamoProfile(profile.id);
   const hipBone = [...bones.values()].find(bone => /hips$/i.test(bone.name));
-  const hipBlend = groundContact || !hipBone ? null : new HipBlend(actions, hipBone);
+  const hipBlend = mixamoPreview || !hipBone ? null : new HipBlend(actions, hipBone);
+  const groundContact = mixamoPreview ? new MixamoGroundContact(root)
+    : hipBone && clips.walk?.userData.gait ? createGaitGroundContact(root, hipBone, soles) : null;
   const bodyLanguage = stanceLibrary ? new BodyLanguage(bones, stanceLibrary, { lod, seed, lean: clips.walk?.userData.lean ?? 0 }) : null;
   // Cada uno empieza en otro punto del paso: dos que salen juntos no marchan al compás. El banco de revisión empieza siempre en su primer cuadro.
-  return { root, bones, mixer, actions, real, holds: stanceLibrary?.holds ?? null, streetProps, cane, accessories, secondaryMotion, actionPose, groundContact, hipBlend, bodyLanguage, swaying: streetProps.filter((mesh) => mesh.userData.sway), playback: {}, phase: isMixamoProfile(profile.id) ? 0 : seed % 1, runShare: 0, ownedGeometries: bodyMesh ? [bodyMesh.geometry] : [] };
+  return { root, bones, mixer, actions, real, holds: stanceLibrary?.holds ?? null, streetProps, cane, accessories, carrySack, secondaryMotion, actionPose, conversationGaze, bicyclePose, groundContact, hipBlend, bodyLanguage, swaying: streetProps.filter((mesh) => mesh.userData.sway), playback: {}, phase: mixamoPreview ? 0 : seed % 1, runShare: 0, ownedGeometries: bodyMesh ? [bodyMesh.geometry] : [] };
 }
 
 /** Bastón en la mano: al andar apoya en el piso y al correr se agarra por la mitad; el peso cambia sin saltos. */
 function caneGrip(props, holds) {
   const mesh = props.find(prop => prop.name === 'prop-baston-calle');
   const walk = holds?.['cargar-derecha'], run = holds?.['baston-correr'];
-  if (!mesh || !walk || !run) return null;
-  let weight = 0;
-  return {
-    get weight() { return weight; },
-    update(goal, dt) {
-      if (weight === goal) return;
-      weight = goal > weight ? Math.min(goal, weight + dt / CANE_GRIP_TIME) : Math.max(goal, weight - dt / CANE_GRIP_TIME);
-      mesh.position.lerpVectors(walk.position, run.position, weight);
-      mesh.quaternion.slerpQuaternions(walk.quaternion, run.quaternion, weight);
-    }
-  };
+  return mesh && walk && run ? new CaneMotion(mesh, walk, run) : null;
 }
 
 /** Solo recursos de instancia; los modelos y texturas del banco siguen compartidos. */
@@ -467,7 +519,10 @@ function caneGrip(props, holds) {
 export function readMotion(inst, weights) {
   const times = {};
   for (const name of Object.keys(inst.actions)) times[name] = inst.actions[name].time;
-  return { phase: inst.phase, runShare: inst.runShare, weights: { ...weights }, times, poseTime: inst.bodyLanguage?.time ?? 0, pose: inst.bodyLanguage?.state() ?? null };
+  const gaze = inst.conversationGaze;
+  return { phase: inst.phase, runShare: inst.runShare, weights: { ...weights }, times, poseTime: inst.bodyLanguage?.time ?? 0,
+    pose: inst.bodyLanguage?.state() ?? null, cane: inst.cane?.state() ?? null, gaze: gaze && { yaw: gaze.yaw, pitch: gaze.pitch },
+    pedestrian: inst.pedestrianPlayback?.state() ?? null };
 }
 
 export function writeMotion(inst, weights, state) {
@@ -478,6 +533,15 @@ export function writeMotion(inst, weights, state) {
   if (inst.bodyLanguage) {
     inst.bodyLanguage.time = state.poseTime;
     if (state.pose) inst.bodyLanguage.setState(state.pose);
+  }
+  if (state.cane) inst.cane?.applyState(state.cane);
+  if (state.pedestrian) {
+    inst.pedestrianPlayback ??= new PedestrianPlayback();
+    inst.pedestrianPlayback.applyState(state.pedestrian);
+  } else inst.pedestrianPlayback?.reset(weights[LOCOMOTION]);
+  if (inst.conversationGaze) {
+    inst.conversationGaze.yaw = state.gaze?.yaw ?? 0;
+    inst.conversationGaze.pitch = state.gaze?.pitch ?? 0;
   }
 }
 
@@ -509,9 +573,12 @@ export function disposeRealisticInstance(instance) {
 
 /**
  * Crea el personaje. `look` es la apariencia compartida con el procedural (nombre, piel, peloColor…)
- * más `look.real` con las piezas realistas.
+ * más `look.real` con las piezas realistas. Los peatones de calle traen su acabado en la apariencia.
+ * El jugador y el creador lo eligen para toda la instancia, aunque cambie la ropa.
  */
-export async function createRealisticCharacter(look = {}, { lod = false, animaciones = 'default', andar = null } = {}) {
+export async function createRealisticCharacter(look = {}, {
+  lod = false, animaciones = 'default', andar = null, acabadoCivil = false, costalJugador = false, poseBicicleta = false
+} = {}) {
   const profile = resolveAnimationProfile(animaciones, MODEL_BASE);
   const gait = resolveGait(andar);
   const catalog = await loadCatalog();
@@ -524,6 +591,7 @@ export async function createRealisticCharacter(look = {}, { lod = false, animaci
   let weaponId = null; // arma en mano (cuchillo, botella_picada) o null
   let smoking = null;   // qué se fuma en la mano izquierda ('cigarrillo', 'hierba') o null
   let basuco = false;   // pipa en la izquierda y encendedor en la derecha
+  let carryLoad = 0;
 
   function syncWeapon() {
     if (!inst || inst.weaponId === weaponId) return;
@@ -548,11 +616,13 @@ export async function createRealisticCharacter(look = {}, { lod = false, animaci
   async function setLook(l) {
     if (disposed) return;
     const my = ++token;
-    const next = await buildInstance(catalog, l, lod, profile, gait);
+    const next = await buildInstance(catalog, l, lod, profile, gait, acabadoCivil, costalJugador, poseBicicleta);
     if (my !== token || disposed) { disposeRealisticInstance(next); return; }
     disposeRealisticInstance(inst);
     inst = next;
+    look = l;
     group.add(inst.root);
+    inst.carrySack?.update(0, carryLoad);
     // Talla por persona; sin `look.real.talla` (el jugador) queda la escala de siempre.
     const talla = inst.real.talla;
     group.scale.set(REALISTIC_SCALE * (talla?.ancho ?? 1), REALISTIC_SCALE * (talla?.alto ?? 1), REALISTIC_SCALE * (talla?.ancho ?? 1));
@@ -578,7 +648,7 @@ export async function createRealisticCharacter(look = {}, { lod = false, animaci
       };
     },
     get look() { return look; },
-    setLook(l) { look = l; return setLook(l); },
+    setLook,
     /** Arma visible en la mano derecha; null para ir con las manos vacías */
     setWeapon(id) { weaponId = id || null; syncWeapon(); },
     /** Cigarrillo (o porro, con kind = 'hierba') en la mano izquierda */
@@ -614,6 +684,7 @@ export async function createRealisticCharacter(look = {}, { lod = false, animaci
     setPropVisible(id, on) {
       for (const prop of inst?.streetProps ?? []) if (prop.name === `prop-${id}`) prop.visible = on;
     },
+    clearCanePickup(mesh, groundHeight, yaw) { inst?.cane?.clearGround(mesh, groundHeight, yaw); },
     /** Por dónde va el movimiento: el otro modelo de la misma persona sigue desde ahí. */
     motionState() { return inst ? readMotion(inst, weights) : null; },
     applyMotion(state) { if (inst && state) writeMotion(inst, weights, state); },
@@ -621,6 +692,8 @@ export async function createRealisticCharacter(look = {}, { lod = false, animaci
     pipeBowl(target) { return inst?.basucoProps ? inst.basucoProps.pipe.top.getWorldPosition(target) : null; },
     /** Boca en el mundo, para el humo de la calada */
     mouth(target) { return inst?.actionPose.mouth(target) ?? null; },
+    /** Centro de los ojos en la pose visible, sin recorrer la malla. */
+    eyePosition(target) { return inst?.conversationGaze?.eyePosition(target) ?? null; },
     /** Cuánto sigue acostado, de 0 (de pie) a 1 */
     get sleepWeight() { return inst?.actionPose.sleep?.weight ?? 0; },
     /** Cuánto baja la cadera visible respecto a la raíz por el salto (m) */
@@ -635,16 +708,35 @@ export async function createRealisticCharacter(look = {}, { lod = false, animaci
     },
     /** Al cambiar de modelo, la postura que se esté pidiendo entra sin transición. */
     snapPose() { inst?.bodyLanguage?.snap(); },
-    update(dt, { speed = 0, running = false, action = null, load = 0, movement = {}, actionProgress, attack = null, smoke = null, basuco: pipeT = null, look: glance = 0, point = 0, stance = null, style = null, stanceWeight = 1, ko = 0, koRising = false, koPlan = 'espalda', koFrom = null, rising = false } = {}) {
+    fitBicycle(bike) {
+      if (!inst?.bicyclePose) return;
+      inst.bicyclePose.fit(bike);
+      if (inst.weapon) inst.weapon.object.visible = false;
+      if (inst.cigarette) inst.cigarette.object.visible = false;
+      if (inst.basucoProps) inst.basucoProps.pipe.object.visible = inst.basucoProps.lighter.object.visible = false;
+    },
+    fitCart(cart) {
+      if (!inst?.bicyclePose) return;
+      inst.bicyclePose.fitCart(cart);
+      if (inst.weapon) inst.weapon.object.visible = false;
+    },
+    update(dt, { speed = 0, running = false, action = null, load = 0, movement = {}, actionProgress, attack = null, smoke = null, basuco: pipeT = null, look: glance = 0, point = 0, stance = null, style = null, stanceWeight = 1, ko = 0, koRising = false, koPlan = 'espalda', koFrom = null, rising = false, poses = null, caneGround = null, caneYaw = 0, conversationEye = null, conversationNod = 0, bench = null, pedestrianMotion = null } = {}) {
       if (!inst) return;
       const a = inst.actions;
       const sourceCadence = isMixamoProfile(profile.id) && movement.previewCadence === 'source';
       const detached = movement.swimming || movement.grounded === false;
       const airborne = movement.grounded === false && !movement.swimming;
-      const previewClip = isMixamoProfile(profile.id) && !!a[action];
+      const restingOnBed = action === 'dormir' && !!movement.restSurface;
+      const previewClip = !restingOnBed && isMixamoProfile(profile.id) && !!a[action];
       const poseAction = action === 'saltar' || action === 'golpear' || action === 'recibirGolpe' || (action === 'saludo' && !previewClip);
+      const gaitClip = a.walk?.getClip();
+      const locomotion = gaitClip?.userData.locomotion;
+      const pedestrian = locomotion && gaitClip.userData.gait && pedestrianMotion?.elapsed > 0
+        && !detached && !ko && !koRising && !rising && !running && !action && !attack && !point && !poses && !bench
+        ? pedestrianMotion : null;
+      const gaitDt = pedestrian?.elapsed ?? dt;
       // En el aire la zancada no se pierde: saltar corriendo sigue en el paso (ver la fase más abajo).
-      const gaitSpeed = movement.swimming ? 0 : speed;
+      const gaitSpeed = movement.swimming ? 0 : pedestrian ? pedestrian.distance / (gaitDt * group.scale.z) : speed;
       const handsBlocked = detached || movement.landing > 0 || action === 'recibirGolpe' || action === 'dormir';
       const pipeAllowed = !handsBlocked && !attack && action !== 'golpear' && speed < .15 && pipeT != null;
       const smokeAllowed = !handsBlocked && !attack && action !== 'golpear' && !pipeAllowed;
@@ -657,20 +749,33 @@ export async function createRealisticCharacter(look = {}, { lod = false, animaci
       // destino: acción especial si existe el clip (o su sustituto); si no, reposo o locomoción
       let target = gaitSpeed < 0.15 ? 'idle' : a.walk ? LOCOMOTION : 'idle';
       let scale = 1;
-      if (action && !poseAction && !detached && speed < 0.15) {
+      if (action && !poseAction && !restingOnBed && !detached && speed < 0.15) {
         const [clip, clipScale = 1] = a[action] ? [action] : profile.id === 'default' ? ACTION_FALLBACKS[action] ?? [] : [];
         if (a[clip]) { target = clip; scale = clipScale; }
       }
       if (inst?.root) {
         const targetY = action === 'cagar' && !a.cagar ? -0.3 : 0;
         inst.root.position.y += (targetY - inst.root.position.y) * animationDamping(dt, 10);
+        if (bench) {
+          const angle = bench.yaw - caneYaw;
+          inst.root.position.x = bench.advance * Math.sin(angle) / group.scale.x;
+          inst.root.position.z = bench.advance * Math.cos(angle) / group.scale.z;
+        }
       }
       preparePlayback(a, inst.playback, { target, action, progress: actionProgress, scale,
         loop: isMixamoProfile(profile.id) ? a[target]?.getClip().userData.loop : undefined });
-      blendAnimationWeights(weights, target, dt, inst.playback.rate);
-      const k = animationDamping(dt, 8);
+      const walking = target === LOCOMOTION;
+      const streetGait = pedestrian && weights.idle + weights[LOCOMOTION] >= 1 - 1e-7;
+      if (streetGait) {
+        inst.pedestrianPlayback ??= new PedestrianPlayback(weights[LOCOMOTION]);
+        weights[LOCOMOTION] = inst.pedestrianPlayback.toward(gaitDt, walking, pedestrian.reset);
+        weights.idle = 1 - weights[LOCOMOTION];
+      } else {
+        blendAnimationWeights(weights, target, dt, inst.playback.rate);
+        inst.pedestrianPlayback?.reset(weights[LOCOMOTION]);
+      }
+      const k = animationDamping(gaitDt, 8);
       // Caminar y correr comparten fase; su mezcla depende de la velocidad para que los pies no deslicen.
-      const locomotion = a.walk?.getClip().userData.locomotion;
       // Con tres pasos (el del jugador) `runShare` va de 0 a 2: andar, trote y correr.
       const trot = a.trote?.getClip().userData.locomotion;
       let stepFoot = 0;
@@ -687,7 +792,8 @@ export async function createRealisticCharacter(look = {}, { lod = false, animaci
           rate = airborneStrideRate(rate, inst.phase, movement.timeToGround, dt, aligned, movement.verticalVelocity, movement.launchSpeed > 0);
           if (aligned) stepFoot = nextFootfall(inst.phase);
         }
-        inst.phase = (inst.phase + rate * dt) % 1;
+        const advance = streetGait ? inst.pedestrianPlayback.advance(gaitDt, rate, walking) : rate * gaitDt;
+        inst.phase = movement.cartBacking ? THREE.MathUtils.euclideanModulo(inst.phase - advance, 1) : (inst.phase + advance) % 1;
         a.walk.time = inst.phase * locomotion.walkDuration;
         if (trot) {
           a.trote.time = inst.phase * trot.walkDuration;
@@ -707,6 +813,9 @@ export async function createRealisticCharacter(look = {}, { lod = false, animaci
       }
       // Las capas se retiran en orden inverso al de composición; ningún frame deja
       // offsets sobre la base que evaluará el mezclador o leerá un futuro ragdoll.
+      inst.conversationGaze?.restore();
+      inst.cane?.restore();
+      inst.bicyclePose?.restore();
       inst.groundContact?.restore();
       inst.actionPose.restore();
       inst.secondaryMotion?.restore();
@@ -716,24 +825,44 @@ export async function createRealisticCharacter(look = {}, { lod = false, animaci
       inst.hipBlend?.apply(weights);
       // Lo que no es un paso ni un reposo es dueño del cuerpo o de las manos: la capa se retira.
       if (!inst.bodyLanguage) group.rotation.x = -ko * Math.PI / 2; // sin posturas horneadas, al menos se acuesta
+      const portalBench = bench?.portal && (inst.real.calzado === 'zapatos' ? 'portal-cuero' : 'portal');
+      const benchStance = portalBench ? `banca-${portalBench}` : 'banca';
       inst.bodyLanguage?.apply(dt, {
-        stance, style, stanceWeight, ko, koRising, koPlan, koFrom, rising, speed: gaitSpeed, phase: inst.phase,
+        stance: stance === 'banca' ? benchStance : stance,
+        koFrom: koFrom === 'banca' ? benchStance : koFrom,
+        style, stanceWeight, ko, koRising, koPlan, rising, speed: gaitSpeed, phase: inst.phase,
+        benchRise: bench?.rise, benchSupport: portalBench || 'parque',
         blocked: handsBlocked || target === action || poseAction,
         handsBusy: !!attack || action === 'golpear' || pipeAllowed || !!point || (smokeAllowed && !!smoke)
       });
       inst.secondaryMotion?.apply(dt, {
-        speed: gaitSpeed, load, phase: inst.phase, turnRate: movement.turnRate,
+        speed: gaitSpeed, load, phase: inst.phase, turnRate: pedestrian ? pedestrian.angle / gaitDt : movement.turnRate,
+        turnInPlace: !!pedestrian && !(inst.bodyLanguage?.hipWeight > .25),
         action: handsBlocked || attack || smoke || pipeAllowed || point ? 'gesture' : action
       });
       // Un saludo o descanso horneado es dueño de la pose; no sumar encima el
       // gesto procedural. Las acciones sin clip conservan su capa identificable.
       const overlayAction = previewClip && target === action ? 'clip' : action;
-      inst.actionPose.apply(dt, { speed, running, action: overlayAction, actionProgress, movement, attack, smoke: smokeAllowed ? smoke : null, basuco: pipeAllowed ? pipeT : null, look: glance, point, hipLow: inst.bodyLanguage?.hipWeight ?? 0, step: stepFoot });
-      inst.groundContact?.apply(!detached);
+      const hipLow = inst.bodyLanguage?.hipWeight ?? 0;
+      const stepSupport = inst.actionPose.apply(dt, { speed, running, action: overlayAction, actionProgress, movement, attack, smoke: smokeAllowed ? smoke : null, basuco: pipeAllowed ? pipeT : null, look: glance, point, hipLow, step: stepFoot });
+      const onFoot = (!action || action === 'golpear') && !handsBlocked && !hipLow && !ko && !koRising && !bench && !rising && !inst.actionPose.sleep?.weight
+        && weights.idle + weights[LOCOMOTION] >= 1 - 1e-7;
+      inst.groundContact?.apply(!detached && (isMixamoProfile(profile.id) || onFoot));
+      if (stepSupport) inst.actionPose.fitFeetToSteps(movement.footSupport, movement.footSupportHeight);
+      inst.conversationGaze?.update(dt, conversationEye, !(ko || rising || running || attack || smoke || pipeAllowed || point || action || handsBlocked), conversationNod);
       inst.cigarette?.setGlow(emberGlow(smokeAllowed ? smoke?.puff : null));
       if (pipeAllowed) inst.basucoProps?.update(pipeT);
       inst.accessories?.update();
-      if (inst.cane) inst.cane.update(running ? 1 : 0, dt);
+      if (inst.carrySack) {
+        carryLoad = load;
+        inst.carrySack.update(dt, carryLoad);
+      }
+      if (inst.cane) {
+        const handFree = !handsBlocked && !poseAction && !attack && !point
+          && (!stance || stance.startsWith('mirar-') || stance === 'cambiar-peso');
+        inst.cane.update(dt, { phase: inst.phase, speed: gaitSpeed, running, active: koRising || !ko && handFree,
+          rising: koRising || rising, groundHeight: caneGround, yaw: caneYaw });
+      }
       if (inst.swaying.length) swayStreetProps(inst.swaying, inst.phase, (weights[LOCOMOTION] ?? 0) * (1 + Math.min(stage, 1) * .5));
     }
   };

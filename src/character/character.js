@@ -5,6 +5,7 @@ import { ActionPose } from './ActionPose.js';
 import { airborneStride, hardLanding } from './jumpMotion.js';
 import { criticalSpring, spring } from './springs.js';
 import { createWeapon } from './props.js';
+import { createCarrySack } from './carrySack.js';
 import { createCigarette, puffReach, emberGlow } from './smoking.js';
 import { createPipe, createLighter, basucoReach, isLit, BASUCO } from './pipe.js';
 
@@ -86,7 +87,6 @@ export function createCharacter(initial = DEFAULT_LOOK) {
     shoe: lam('#1c1c1c'),
     sole: lam('#eeeeee'),
     hat: lam('#c0392b'),
-    sack: lam('#9b8a62'),
     white: new THREE.MeshBasicMaterial({ color: '#ffffff' }),
     iris: new THREE.MeshBasicMaterial({ color: '#3b2416' }),
     pupil: new THREE.MeshBasicMaterial({ color: '#0b0b0b' }),
@@ -127,8 +127,10 @@ export function createCharacter(initial = DEFAULT_LOOK) {
     eyes.push(g);
   }
 
-  const sack = mesh(new THREE.SphereGeometry(0.22, 14, 10), M.sack, 0, 0.28, -0.27);
-  torso.add(sack);
+  const sack = createCarrySack('procedural');
+  sack.mesh.position.y = .59;
+  torso.add(sack.mesh);
+  let carryLoad = 0;
 
   // esqueleto de brazos y piernas
   function armRig(side) {
@@ -198,6 +200,9 @@ export function createCharacter(initial = DEFAULT_LOOK) {
     bulk = L.contextura === 'delgado' ? 0.86 : L.contextura === 'robusto' ? 1.2 : 1;
     const typeB = L.cuerpo === 'b';
     root.scale.setScalar(L.estatura);
+    sack.mesh.scale.set(bulk, 1, Math.sqrt(bulk));
+    sack.dress({ mochila: L.accesorios.includes('mochila'), wear: L.desgaste });
+    sack.update(0, carryLoad);
 
     // ---- torso ----
     clear(slots.torso);
@@ -596,8 +601,17 @@ export function createCharacter(initial = DEFAULT_LOOK) {
       case 'dormir':
         target.lie = 1;
         target.lean = target.twist = target.sway = 0;
-        target.legL = -.18; target.legR = -.28;
-        target.kneeL = .25; target.kneeR = .48;
+        if (movement.restSurface === 'colchonCorto') {
+          target.legL = -.47; target.legR = -.55;
+          target.kneeL = 1.82; target.kneeR = 1.72;
+        } else if (movement.restSurface) {
+          const cobija = movement.restSurface === 'colchon' ? .05 : 0;
+          target.legL = .30 - cobija; target.legR = .27 - cobija;
+          target.kneeL = .05; target.kneeR = .07;
+        } else {
+          target.legL = -.18; target.legR = -.28;
+          target.kneeL = .25; target.kneeR = .48;
+        }
         target.armLx = -.18; target.armRx = -.25;
         target.armLz = -.08; target.armRz = .08;
         target.elbL = -1.05; target.elbR = -.9;
@@ -658,7 +672,8 @@ export function createCharacter(initial = DEFAULT_LOOK) {
     body.rotation.x = -pose.lie * Math.PI / 2;
     body.position.y = pose.lie * 0.3;
     body.position.z = -pose.lie * 0.55;
-    actionPose.apply(dt, { speed, running, action, actionProgress, movement, attack, point, step: stepFoot });
+    const stepSupport = actionPose.apply(dt, { speed, running, action, actionProgress, movement, attack, point, step: stepFoot });
+    if (stepSupport) actionPose.fitFeetToSteps(movement.footSupport, movement.footSupportHeight);
 
     // parpadeo
     blink -= dt;
@@ -666,9 +681,8 @@ export function createCharacter(initial = DEFAULT_LOOK) {
     if (blink < 0) blink = 2 + Math.random() * 3;
     for (const e of eyes) e.scale.y = closed ? 0.12 : 1;
 
-    const s = 0.7 + Math.min(1, load) * 0.7;
-    sack.scale.set(s, s * 1.15, s * 0.85);
-    sack.visible = load > 0.02;
+    carryLoad = load;
+    sack.update(dt, carryLoad);
     M.top.color.set(PALETTES.ropa[look.arribaColor]).multiplyScalar(1 - dirt * 0.35 - wet * 0.15);
   }
 
@@ -695,7 +709,7 @@ export function createCharacter(initial = DEFAULT_LOOK) {
       basucoProps?.pipe.dispose(); basucoProps?.lighter.dispose();
       const geometries = new Set(), materials = new Set();
       root.traverse(object => {
-        if (object.geometry) geometries.add(object.geometry);
+        if (object.geometry && object !== sack.mesh) geometries.add(object.geometry);
         for (const material of [object.material].flat()) if (material) materials.add(material);
       });
       for (const geometry of geometries) geometry.dispose();

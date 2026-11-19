@@ -1,0 +1,4 @@
+# Policía a pie
+
+- `src/entities/patrolCar.js` monta las puertas delanteras y las figuras sentadas. Cada agente lleva el chaleco que le corresponde según `PATROL_COLORS` y conserva su tono de piel. `seatLift` saca de la carrocería a qué altura se sienta cada uno para que la cabeza quede bajo el techo.
+- `src/character/patrolUniform.js` ajusta el chaleco con cintas sobre la camisa oliva en ambos niveles de detalle y modela la gorra con visera. El acompañante lleva el radio en la solapa izquierda. El conductor lleva allí un micrófono y en el cinturón una funda. Los dos rótulos dicen «POLICÍA», igual que la carrocería. El corte toma como referencia el chaleco de servicio urbano de la [Policía Nacional de Colombia, p. 23](https://oas.policia.gov.co/sites/default/files/descargables/5.%20Sistema%20de%20Prevenci%C3%B3n%2C%20%20Convivencia%20y%20Seguridad%20Ciudadana.pdf#page=23).

@@ -144,6 +144,22 @@ export class Cambuche {
 
   get position() { return this.group.position; }
 
+  /** Apoyo bajo la cadera y sentido de la cabeza. El colchón escaneado va atravesado en el fondo. */
+  sleepAnchor() {
+    const imported = !!this.model?.visible;
+    const mattress = this.pieces.cama.visible;
+    const point = new THREE.Vector3();
+    if (imported) point.set(-.20, .314, -.48);
+    else if (mattress) point.set(-.5, .315, -.2).multiplyScalar(CHARACTER_SCALE);
+    else point.set(-.02, .054, .04).multiplyScalar(CHARACTER_SCALE);
+    return {
+      position: this.group.localToWorld(point),
+      headYaw: this.group.rotation.y + (imported ? -Math.PI / 2 : Math.PI),
+      covered: imported || this.pieces.techo.visible,
+      surface: imported ? 'colchonCorto' : mattress ? 'colchon' : 'carton'
+    };
+  }
+
   preloadModel() {
     return this._modelPromise ??= createImportedModel('cambuche').then(model => {
       if (this._disposed) { disposeImportedInstance(model); return; }

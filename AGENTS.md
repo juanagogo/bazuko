@@ -42,7 +42,7 @@ Para las pruebas de navegador, instalar Chromium con `npx playwright install chr
 - `src/systems/TrafficSystem.js`: rutas, prioridades, frenado y atropellos.
 - `src/systems/CollisionSystem.js` y `PlayerRagdoll.js`: cajas de vehículos y caída articulada.
 - `src/systems/AudioSystem.js` y `VehicleAudio.js`: bancos compartidos, voces y alcance.
-- `src/character/streetMaterials.js`: material de todos los personajes. Los programas se comparten entre personas: son 13 variantes para cinco tipos de superficie, y vestir a alguien no añade ninguna. Lo de cada persona va en uniformes: `look.real.tonos` pinta la ropa y el zapato de cuero, `GARMENTS` lleva una fila por prenda y `streetWetness` es la lluvia, un solo valor compartido.
+- `src/character/streetMaterials.js` aplica los materiales de los personajes y comparte los programas por superficie y mapas. La chaqueta y el buzo comparten una variante con relieve, rugosidad y oclusión. `GARMENTS` registra la luminancia de cada prenda, `look.real.tonos` colorea ropa y zapatos de cuero y `streetWetness` controla la lluvia.
 - `src/character/sharedImages.js`: cada imagen de personaje se descarga, se decodifica y se sube a la GPU una sola vez, aunque la usen muchos glTF. Cada glTF conserva su textura con sus ajustes; lo compartido es la imagen, y desechar a alguien no la libera.
 - `src/entities/PigeonFlock.js`: bandadas instanciadas y reacción a personas.
 - `src/world/bogota/EastZones.js`, `EastBuildings.js`, `EastLandmarks.js`, `ZoneGeometry.js` y `ZoneTextures.js`: trazado y arquitectura de La Candelaria y Chapinero.

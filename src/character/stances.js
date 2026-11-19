@@ -4,7 +4,7 @@
 // las manos y los pies los puntos del propio cuerpo, y se guarda como rotaciones locales. Por cuadro
 // `BodyLanguage` solo hace `slerp` hacia ellas. El cuerpo liviano y el completo comparten esqueleto,
 // así que comparten también la biblioteca. Ninguna postura toca la raíz física: la cadera, como mucho.
-import { Matrix4, Quaternion, Vector3 } from 'three';
+import { MathUtils, Matrix4, Quaternion, Vector3 } from 'three';
 import { GAIT_FAMILIES, standAt, standingFrozen } from './gaitFamilies.js';
 import { PoseRig } from './poseRig.js';
 
@@ -13,8 +13,16 @@ const SIGN = { left: 1, right: -1 };
 const SIDES = ['left', 'right'];
 const OTHER = { left: 'right', right: 'left' };
 
-// Las bancas miden 45 cm en el mundo y el cuerpo se dibuja a 1,08.
+// Centro del listón en metros del modelo; su cara visible está a 46,9 cm en el mundo.
 const SEAT_HEIGHT = .45 / 1.08;
+const SEAT_FACE = .469 / 1.08;
+// Los nervios del acero están a 49,3 cm. El margen hasta la pelvis vestida se mide
+// sobre la chapa continua y es el mismo para ambos niveles de detalle del cuerpo.
+const PORTAL_SEAT_HEIGHT = (.493 + .025) / 1.08;
+/** Al ponerse de pie, el cuerpo pasa de la madera al apoyo por delante. */
+export const BENCH_EXIT = .36;
+export const benchPush = phase => MathUtils.smoothstep(phase, .12, .91);
+const BENCH_STEPS = 12;
 const LIE_LIFT = .1 / 1.08; // cuánto sobre el piso queda la espalda de quien está tendido
 // Dónde apoya la muñeca derecha al levantarse, en ejes del personaje. Lo que se le cayó queda ahí mismo (ver `HAND_ON_FLOOR`).
 const HAND_PLANT = V(-.3, .1, .1);
@@ -38,9 +46,9 @@ function bendSpine(rig, [low, mid, high], neck, head, yaw = 0) {
 }
 
 /** Pie plano, en el piso, con la rodilla hacia `pole`. */
-function plantFoot(rig, side, x, z, out, pole) {
+function plantFoot(rig, side, x, z, out, pole, lift = 0) {
   const sign = SIGN[side];
-  rig.reachLeg(side, V(sign * x, rig.marks.ankleY, z), V(sign * pole[0], pole[1], pole[2]));
+  rig.reachLeg(side, V(sign * x, rig.marks.ankleY + lift, z), V(sign * pole[0], pole[1], pole[2]));
   rig.flatFoot(side, out);
 }
 
@@ -164,10 +172,18 @@ function acurrucado(rig, m) {
 }
 
 function banca(rig, m) {
-  setHips(rig, m.seat, -.09, -.08);
+  sitOnBench(rig, m.benches.parque);
+}
+
+function sitOnBench(rig, support) {
+  setHips(rig, support.height, support.hipZ, -.08);
   bendSpine(rig, [-.08, -.03, .03], .04, .02);
-  plantFoot(rig, 'left', .135, .32, .18, [.1, .6, 1]);
-  plantFoot(rig, 'right', .125, .36, .14, [.1, .6, 1]);
+  plantFoot(rig, 'left', .135, .32 - support.footSetback, .18, [.1, .6, 1], support.ankleLift);
+  plantFoot(rig, 'right', .125, .36 - support.footSetback, .14, [.1, .6, 1], support.ankleLift);
+  benchHands(rig);
+}
+
+function benchHands(rig) {
   // Manos sobre los muslos, cerca de la rodilla.
   for (const side of SIDES) {
     const sign = SIGN[side], knee = rig.where(`${side}Leg`), hip = rig.where(`${side}UpLeg`);
@@ -176,6 +192,28 @@ function banca(rig, m) {
     rig.hand(side, V(-sign * .12, -.5, .86), V(-sign * .1, -.86, -.5));
     rig.curl(side, .25);
   }
+}
+
+function riseFromBench(rig, m, t, support) {
+  const extend = MathUtils.smoothstep(t, .16, .99);
+  const lean = MathUtils.smoothstep(t, 0, .36) * (1 - MathUtils.smoothstep(t, .43, .93));
+  const move = benchPush(t) * BENCH_EXIT / 1.08;
+  const finish = MathUtils.smoothstep(t, .57, 1);
+  setHips(rig, MathUtils.lerp(support.height, rig.referenceHip.y, extend) - .012 * lean,
+    MathUtils.lerp(support.hipZ, rig.referenceHip.z, extend), -.08 * (1 - extend) + .19 * lean);
+  bendSpine(rig, [-.08 * (1 - extend) + .24 * lean, -.03 * (1 - extend) + .13 * lean,
+    .03 * (1 - extend) + .07 * lean], .04 * (1 - extend) - .12 * lean, .02 * (1 - extend) - .07 * lean);
+
+  // El giro del muslo cambia mientras se levanta. La suela se apoya donde ya estaba.
+  const lift = support.ankleLift * (1 - finish) + .022 * MathUtils.smoothstep(t, .25, .54) * (1 - MathUtils.smoothstep(t, .73, .96));
+  for (const [side, x, z, turn] of [['left', .135, .32, .18], ['right', .125, .36, .14]]) {
+    const end = m.benchFeet[side];
+    const footX = MathUtils.lerp(x, Math.abs(end.x), finish);
+    const footZ = MathUtils.lerp(z - support.footSetback, end.z + BENCH_EXIT / 1.08, finish) - move;
+    plantFoot(rig, side, footX, footZ, turn * (1 - finish), [.1, .6, 1], lift);
+  }
+  benchHands(rig);
+  if (finish > 0) for (const [bone, before] of rig.reference) if (ARM.test(bone.name)) bone.quaternion.slerp(before, finish);
 }
 
 function pedir(rig, m) {
@@ -337,7 +375,7 @@ function empuje(rig, m) {
 
 /** Noqueado en la banca: sigue sentado, con el tronco vencido hacia adelante y los brazos caídos. */
 function desplomado(rig, m) {
-  setHips(rig, m.seat - .015, -.05, -.03);
+  setHips(rig, m.benches.parque.height - .015, -.05, -.03);
   bendSpine(rig, [.1, .38, .6], .78, .66, .2);
   rig.turn('head', 0, 0, .24);
   plantFoot(rig, 'left', .17, .38, .26, [.2, .6, 1]);
@@ -579,6 +617,8 @@ const CATALOG = {
   sentado: { pose: sentado, walk: false, hip: true, transition: .8 },
   acurrucado: { pose: acurrucado, walk: false, hip: true, transition: .9 },
   banca: { pose: banca, walk: false, hip: true, transition: .7 },
+  'banca-portal': { pose: (rig, m) => sitOnBench(rig, m.benches.portal), walk: false, hip: true, transition: .7 },
+  'banca-portal-cuero': { pose: (rig, m) => sitOnBench(rig, m.benches['portal-cuero']), walk: false, hip: true, transition: .7 },
   pedir: { pose: pedir, walk: false, hip: true, transition: .9 },
   paraguas: { pose: paraguas, walk: true, steady: true },
   cubrirse: { pose: cubrirse, walk: true },
@@ -618,6 +658,8 @@ function measure(rig) {
   const pelvis = rig.where('hips', V(0, 0, 0));
   const height = head.y / 1.484;
   const woman = hip.x < .1;
+  const hipAboveSeat = .105 + (rig.hips.position.y - hip.y);
+  const portalHeight = PORTAL_SEAT_HEIGHT + hipAboveSeat;
   return {
     hip, chest, head, shoulder, pelvis,
     // Medidas del torso y la cabeza, por encima de lo que ocupan los huesos.
@@ -628,11 +670,37 @@ function measure(rig) {
     ear: .085 * height, crown: .19 * height, nose: .1 * height,
     hipBone: rig.hips.position.y, over: rig.hips.position.y - hip.y,
     sit: .115 * (woman ? 1.04 : 1) + (rig.hips.position.y - hip.y),
-    seat: SEAT_HEIGHT + .105 + (rig.hips.position.y - hip.y),
+    benches: {
+      parque: { height: SEAT_HEIGHT + hipAboveSeat, hipZ: -.09, footSetback: 0, ankleLift: 0 },
+      portal: { height: portalHeight, hipZ: -.09, footSetback: .09, ankleLift: .006 },
+      // La suela del zapato de cuero queda unos 15 mm más cerca del tobillo. Acercar la
+      // cadera al borde deja que baje el talón sin que el pantalón atraviese la chapa.
+      'portal-cuero': { height: portalHeight, hipZ: -.035, footSetback: .045, ankleLift: -.0075 }
+    },
+    benchFeet: { left: rig.where('leftFoot'), right: rig.where('rightFoot') },
     kneeHeight: woman ? .04 : .05,
     kneel: .315 * height + (rig.hips.position.y - hip.y),
     sleepHeight: .18
   };
+}
+
+/** Contra el tablón apoya el tejido sobre la parte baja de la pelvis, no el centro del hueso. */
+function fitBenchSeat(rig, m) {
+  banca(rig, m);
+  const point = new Vector3();
+  let contact = Infinity;
+  rig.root.traverse(mesh => {
+    const positions = mesh.geometry?.attributes.position;
+    if (!mesh.isSkinnedMesh || !positions || !/body/i.test(mesh.name)) return;
+    mesh.skeleton.update();
+    for (let i = 0; i < positions.count; i++) {
+      mesh.getVertexPosition(i, point).applyMatrix4(mesh.matrixWorld);
+      if (Math.abs(point.x) > .22 || point.z < -.245 || point.z > .115 || point.y < SEAT_FACE - .07 || point.y > SEAT_FACE + .07) continue;
+      contact = Math.min(contact, point.y);
+    }
+  });
+  if (Number.isFinite(contact)) m.benches.parque.height += MathUtils.clamp(SEAT_FACE + .011 - contact, 0, .036);
+  rig.reset();
 }
 
 /** Lo que `pose` dejó distinto de la referencia, como rotaciones locales. */
@@ -670,6 +738,7 @@ export function bakeStances(scene, standing = null) {
   standAt(rig, frozen, GAIT_FAMILIES.normal, 0);
   rig.remember();
   const m = measure(rig);
+  fitBenchSeat(rig, m);
   const hipStanding = rig.hips.position.clone();
   const stances = new Map();
   for (const [name, entry] of Object.entries(CATALOG)) {
@@ -705,6 +774,19 @@ function bakeKnockout(rig, m) {
     pose(rig, m, false);
     return [name, all.map(bone => bone.quaternion.clone()), rig.hips.position.clone()];
   });
+  const benchExit = {};
+  for (const [type, support] of Object.entries(m.benches)) {
+    const path = [];
+    for (let step = 0; step < BENCH_STEPS; step++) {
+      const name = `banca-${type}-levantarse-${step}`, at = step / BENCH_STEPS;
+      rig.reset();
+      if (step === 0) sitOnBench(rig, support); else riseFromBench(rig, m, at, support);
+      poses.push([name, all.map(bone => bone.quaternion.clone()), rig.hips.position.clone()]);
+      path.push([name, at]);
+    }
+    path.push([null, 1]);
+    benchExit[type] = path;
+  }
   for (const [name, { between: [a, b], at = .5, legs }] of Object.entries(KO_STEPS)) {
     const from = poses.find(pose => pose[0] === a), to = poses.find(pose => pose[0] === b);
     all.forEach((bone, i) => bone.quaternion.slerpQuaternions(from[1][i], to[1][i], at));
@@ -717,7 +799,7 @@ function bakeKnockout(rig, m) {
   const pick = q => q.filter((_, i) => moved[i]);
   const keys = {};
   for (const [name, q, hip] of poses) keys[name] = { q: pick(q), hip };
-  return { bones: all.filter((_, i) => moved[i]).map(bone => ({ boneName: bone.name, dedo: FINGER.test(bone.name) })), keys };
+  return { bones: all.filter((_, i) => moved[i]).map(bone => ({ boneName: bone.name, dedo: FINGER.test(bone.name) })), keys, benchExit };
 }
 
 const CANE_RUN_GRIP = .4; // m del extremo del bastón a donde lo agarra al correr
