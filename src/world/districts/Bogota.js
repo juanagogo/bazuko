@@ -1,5 +1,5 @@
 import { planUrbanBuildings, buildUrbanBuilding, URBAN_DESIGNS } from '../bogota/UrbanBuildings.js';
-import { neighborhoodAt } from '../bogota/NeighborhoodIdentity.js';
+import { neighborhoodAt, isShopFront } from '../bogota/NeighborhoodIdentity.js';
 import { addBuildingDetails } from '../bogota/BuildingDetails.js';
 import { addStreetDetails } from '../bogota/StreetDetails.js';
 import { buildStreetMarkings } from '../bogota/StreetMarkings.js';
@@ -31,6 +31,7 @@ import { Banca } from '../props/Banca.js';
 import { buildGroundWear, dressGrass, dressPaving } from '../bogota/GroundDressing.js';
 import * as TX from '../bogota/textures.js';
 import * as P from '../bogota/props.js';
+import { varianteDeVenta } from '../bogota/ventasCalle.js';
 import { Npc } from '../../entities/Npc.js';
 import { thinkStreet } from '../../entities/npc/mind.js';
 import { BuildingVisibility, CLOSED_CHUNK_SIZE, createBuildingShell } from '../bogota/BuildingVisibility.js';
@@ -859,7 +860,7 @@ export class Bogota {
     this.backdrop = this.cerros;
   }
 
-  /** Texto de todos los avisos de local en un atlas: 16 nombres con letra oscura o clara. */
+  /** Comparte un atlas entre los rótulos de oficio de los locales. */
   _shopSignAtlas() {
     if (this._shopSigns !== undefined) return this._shopSigns;
     if (typeof document === 'undefined' || typeof document.createElement !== 'function') return (this._shopSigns = null);
@@ -893,7 +894,11 @@ export class Bogota {
     const style = ruin ? 'ruina' : random() < 0.55 ? 'ladrillo' : 'pintada';
     // el ladrillo necesita más resolución para que cada ladrillo (36 × 12 cm) se distinga
     // Variantes compartidas: ampliar el barrio no triplica las texturas de fachada en la GPU.
-    const variant = Math.floor(random() * 2);
+    const frontageRoll = random();
+    const commercial = !ruin && isShopFront(map, tiles[Math.floor(tiles.length / 2)], dx, dz, neighborhood, frontageRoll);
+    const residential = !ruin && !commercial;
+    // Reutilizar las dos variantes de la caché para vivienda y comercio.
+    const variant = ruin ? Math.floor(frontageRoll * 2) : Number(residential);
     const baseTextureKey = `${widthM}:${floors}:${style}:${variant}`;
     // La semilla de la textura depende de su clave, no del orden de llenado de la caché.
     if (!this._facadeSeeds.has(baseTextureKey)) {
@@ -904,7 +909,8 @@ export class Bogota {
     const textureKey = `${baseTextureKey}:${neighborhood.id}`;
     let tex = this._facadeTextures.get(textureKey);
     if (!tex) {
-      tex = TX.facade({ seed: this._facadeSeeds.get(baseTextureKey), width: widthM, floors, pxPerM: style === 'pintada' ? 36 : 48, shopFront: true, style, district: neighborhood.id });
+      tex = TX.facade({ seed: this._facadeSeeds.get(baseTextureKey), width: widthM, floors, pxPerM: style === 'pintada' ? 36 : 48,
+        groundFloor: residential ? 'residential' : 'shop', style, district: neighborhood.id });
       // El barrio solo cambia los colores: ventanas encendidas, relieve y rugosidad salen iguales
       // (tests/shared-surface-maps.test.js). Se comparte la imagen y la GPU guarda una copia.
       const shared = this._facadeShared.get(baseTextureKey);
@@ -951,15 +957,13 @@ export class Bogota {
     const fz = (W(z0) + W(z1)) / 2 + dz * T / 2;
     const yaw = Math.atan2(dx, dz);
 
-    // aviso de local en el primer piso
-    if (!ruin && random() < 0.55) {
-      const shopName = choose(SHOP_NAMES);
-      const [title, sub] = shopName;
-      const signColor = new THREE.Color(choose(['#0b4fa3', '#c0392b', '#1f6b3a', '#f2c600', '#ffffff', '#6a1b9a']));
-      signColor.lerp(new THREE.Color(neighborhood.palette.signBackground), .18);
-      const luminance = .2126 * signColor.r + .7152 * signColor.g + .0722 * signColor.b;
-      const fg = luminance > .4 ? 0 : 1;
-      const bg = `#${signColor.getHexString()}`, signW = Math.min(widthM * 0.85, 3.6);
+    // aviso de local en el primer piso: el oficio sale del solar, no del sorteo
+    const local = commercial ? localDelSolar({ seed: houseSeed, paso: alongX ? x0 : z0, x: cx, z: cz }) : null;
+    if (local) local.conAviso = random() < .75;
+    if (local?.conAviso) {
+      // Los dos sorteos del nombre y el color de antes se siguen gastando: balcones y tejados no se mueven.
+      random(); random();
+      const signW = Math.min(widthM * 0.85, 3.6);
       // El texto sale del atlas compartido y el fondo va en los vértices del plano. Sin lienzo (las
       // pruebas en Node) o sin sitio en el atlas, el aviso lleva su propia textura.
       const atlas = this._shopSignAtlas();
@@ -995,7 +999,8 @@ export class Bogota {
       shell.walls.get(face).add(bal);
     }
     addBuildingDetails({ shell, width: sx, depth: sz, height: h, floors, face,
-      seed: houseSeed, neighborhood: neighborhood.id, ruin, balconies: false });
+      seed: houseSeed, neighborhood: neighborhood.id, ruin, balconies: false, residential, paintedSign: false, local });
+    if (shell.root.userData.local?.armado && local.estado !== 'cerrada') (this.vitrinas ??= []).push({ x: fx, z: fz, dx, dz, ancho: Math.min(widthM * .6, 3.4), estado: local.estado, interior: local.interior });
     const building = this.buildingVisibility.register(shell);
     for (const part of building.parts) for (const material of part.materials) {
       if (material.emissiveMap || material.userData.windowGlow) this.facadeMats.push(material);
@@ -1208,16 +1213,18 @@ export class Bogota {
     }
     // cerca de la estación: vendedor de tinto y una chaza
     this.vendors = [];
-    this._vendor(WX(21), WZ(18.5), Math.PI / 2, 'chaza', 'Chaza de don Efraín', ['cigarrillo', 'cafe', 'pan', 'agua', 'empanada']);
-    this._vendor(WX(28), WZ(29), 0, 'fritanga', 'Fritanga La Mona', ['empanada', 'morcilla', 'papaCriolla', 'aguapanela', 'refresco']);
-    this._vendor(WX(39), WZ(36), -Math.PI / 2, 'chaza', 'Dulces y minutos', ['cigarrillo', 'refresco', 'agua', 'empanada']);
+    this._vendor(WX(21), WZ(18.5), Math.PI / 2, 'chaza', 'Chaza de don Efraín', ['cigarrillo', 'cafe', 'pan', 'agua', 'empanada'], 'efrain');
+    this._vendor(WX(28), WZ(29), 0, 'fritanga', 'Fritanga La Mona', ['empanada', 'morcilla', 'papaCriolla', 'aguapanela', 'refresco'], 'mona');
+    this._vendor(WX(39), WZ(36), -Math.PI / 2, 'chaza', 'Dulces y minutos', ['cigarrillo', 'refresco', 'agua', 'empanada'], 'minutos');
   }
 
   /** Vendedor ambulante: puesto + persona; se le puede comprar (lo atiende la tienda con otro catálogo) */
-  _vendor(x, z, rotY, kind, title, items) {
+  _vendor(x, z, rotY, kind, title, items, slot = title) {
     const stall = kind === 'fritanga' ? P.fritanga({ title, items }) : P.chaza({ title, items });
     this._takesRoom(this._add(stall, x, z, rotY));
     if (stall.userData.setNight) this.props.push({ instance: { setNight: stall.userData.setNight } });
+    (this.puestos ??= []).push({ x, z, kind });
+    const oficio = varianteDeVenta(kind, { title, items });
     const back = new THREE.Vector3(Math.sin(rotY), 0, Math.cos(rotY)).multiplyScalar(-0.9);
     const seller = new Npc(this.scene, new THREE.Vector3(x + back.x, this.getGroundHeight(x, z), z + back.z), {
       facing: rotY, isWalkable: () => false,
@@ -1256,7 +1263,7 @@ export class Bogota {
       this._add(line, cx(x), cz(21.5));
     }
     // chaza dentro del callejón
-    this._vendor(cx(18.5), cz(21.5), 0, 'chaza', 'Chaza del callejón', ['cigarrillo', 'pan', 'agua']);
+    this._vendor(cx(18.5), cz(21.5), 0, 'chaza', 'Chaza del callejón', ['cigarrillo', 'pan', 'agua'], 'callejon');
   }
 
   /** Banca de la ciudad; queda anotada para quien se siente en ella. Su frente mira a (sin r, cos r). */
@@ -1304,11 +1311,11 @@ export class Bogota {
       }
       this._add(P.streetSign([park.name, 'Bogotá']), W(park.x0), W(pathZ));
     }
-    this._vendor(W(CARRERAS[2][0]-1.5), W(55), Math.PI/2, 'chaza', 'Chaza de la Carrera 8', ['agua','pan','cafe','empanada']);
-    this._vendor(W(52), W(CALLES[2][0]-1.5), 0, 'fritanga', 'Fritanga del Sur', ['empanada', 'morcilla', 'papaCriolla', 'aguapanela', 'refresco']);
+    this._vendor(W(CARRERAS[2][0]-1.5), W(55), Math.PI/2, 'chaza', 'Chaza de la Carrera 8', ['agua','pan','cafe','empanada'], 'carrera-8');
+    this._vendor(W(52), W(CALLES[2][0]-1.5), 0, 'fritanga', 'Fritanga del Sur', ['empanada', 'morcilla', 'papaCriolla', 'aguapanela', 'refresco'], 'sur');
     // Oriente: tinto en la plaza y fritanga en la calle comercial.
-    this._vendor(FOUNTAIN.x - 14, FOUNTAIN.z + 18, Math.PI, 'chaza', 'Tinto de la plaza', ['cafe', 'pan', 'agua', 'cigarrillo']);
-    this._vendor(W(144), W(COMMERCIAL_STREET.z0 - 1.5), 0, 'fritanga', 'Fritanga de la Calle 7', ['empanada', 'morcilla', 'papaCriolla', 'aguapanela', 'refresco']);
+    this._vendor(FOUNTAIN.x - 14, FOUNTAIN.z + 18, Math.PI, 'chaza', 'Tinto de la plaza', ['cafe', 'pan', 'agua', 'cigarrillo'], 'plaza');
+    this._vendor(W(144), W(COMMERCIAL_STREET.z0 - 1.5), 0, 'fritanga', 'Fritanga de la Calle 7', ['empanada', 'morcilla', 'papaCriolla', 'aguapanela', 'refresco'], 'calle-7');
   }
 
   _buildLakePark() {

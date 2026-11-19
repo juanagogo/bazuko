@@ -259,6 +259,39 @@ test('el fondo, el nombre y el color de letra de cada aviso son los de develop',
     '40edc51c7a9280df4921fa3350a42761f616ab90dff2a94674f8f2dbcbd14938', 'la lista entera de develop');
 });
 
+test('el fondo, el nombre y el color de letra de cada aviso son los del oficio de cada local', () => {
+  const { city, signs } = buildBlocks(canvasDocument());
+  const calls = city._shopSigns.material.map.image.calls, titles = [];
+  calls.forEach((call, i) => { if (call[0] === 'translate') titles.push([calls[i + 1][1], calls[i + 2]?.[0] === 'fillText' ? calls[i + 2][1] : '']); });
+  const cells = city._shopSigns.cells;
+  const list = signs.map(s => {
+    const index = cells.findIndex(cell => cell && uvOf(s.object).every((v, k) => Math.abs(v - cell[k]) < 1e-6));
+    // Una entrada por oficio y nombre, con la letra de su oficio.
+    return [...titles[index], backOf(s.object), AVISOS_GRANDES[index].oficio.tinta];
+  });
+  // Los primeros doce locales conservan el oficio, el nombre y la paleta de su solar.
+  assert.deepEqual(list.slice(0, 12), [
+    ['CHANCE', 'EL PÁLPITO', '#3f7a4a', '#f3ecc8'], ['PAPELERÍA', 'EL TAJALÁPIZ', '#d8cf9e', '#273f73'],
+    ['PAPELERÍA', 'FOTOCOPIAS', '#d8cf9e', '#273f73'], ['PANADERÍA', 'EL TRIGAL', '#c79a4a', '#5a2a16'],
+    ['CIGARRERÍA', 'EL PORTAL', '#8a3b2e', '#efe2c2'], ['CAFETERÍA', 'EL PERICO', '#6f4630', '#f0dfb8'],
+    ['LAVANDERÍA', 'AL INSTANTE', '#4f8ea3', '#f1ead6'], ['LAVANDERÍA', 'AL INSTANTE', '#4f8ea3', '#f1ead6'],
+    ['RESTAURANTE', 'EL CORRIENTAZO', '#a8452f', '#f0e3c4'], ['TRÁMITES', 'CONTADOR Y ABOGADO', '#56605c', '#eae3cf'],
+    ['MODISTERÍA', 'ARREGLOS', '#b77f95', '#3a1f33'], ['LICORERA', 'LA ÚLTIMA', '#3a3f6a', '#ecd98a']
+  ]);
+  // Son los mismos frentes comerciales del mapa. Los rótulos deben seguir fuera de las
+  // viviendas y patios aunque cambien los nombres, vitrinas y colores de los negocios.
+  assert.equal(list.length, 73);
+  assert.equal(createHash('sha256').update(JSON.stringify(signs.map(s => s.at))).digest('hex'),
+    '061c8785e17a2c1eed1bcc8060671f0d67d4df4f03d132addb4a60ed5a83571e', 'posición y orientación de los 73 avisos');
+  for (const [title, sub, bg, fg] of list) {
+    const entry = AVISOS_GRANDES.find(e => e.oficio.titulo === title && e.nombre === sub);
+    assert.ok(entry, `${title} ${sub} es un aviso grande`);
+    assert.deepEqual([bg, fg], [entry.oficio.fondo, entry.oficio.tinta], `${title} ${sub}: fondo y letra de su oficio`);
+  }
+  assert.equal(createHash('sha256').update(JSON.stringify(list)).digest('hex'),
+    '80973308af826857675073e9a38b75063ab3aaa02eeb8430c55e756bf14b17b9', 'la lista entera');
+});
+
 test('el aviso es opaco y sus copias de cada casa se atenúan en isométrica como un aviso con textura propia', async () => {
   const { SignTextMaterial } = await atlasModule();
   const { city, signs } = buildBlocks(canvasDocument());
