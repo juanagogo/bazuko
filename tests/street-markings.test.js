@@ -85,6 +85,8 @@ test('los nuevos pasos del oriente tienen dos salidas y la red reconoce el traye
   assert.ok(paths.some(p => p.x === 95 && p.z === 187), 'la franja verde bajo el viaducto deja pasar la cebra de Calle 7');
   assert.ok(paths.some(p => p.x === 119 && p.z === 187), 'un parque también puede recibir el paso sin necesitar sardinel');
   assert.ok(paths.some(p => p.x >= 345 && p.z < 100 && p.width < 2), 'andén angosto de la Candelaria');
+  assert.ok(!streetIntersections(city.map).some(c => c.calle === 'Calle 5' && c.carrera === 'Carrera 3'), 'el parque y las torres cortan esta calle');
+  assert.ok(!paths.some(p => p.x === 57 && (p.z === 158 || p.z === 178)), 'la cebra no termina contra el muro de Colpatria');
   const rules = city._pedestrianRules();
   for (const { x, z, dx, dz, length } of paths) {
     assert.ok(walkable.has(tile(x - dx, z - dz)) && walkable.has(tile(x + dx * (length + 1), z + dz * (length + 1))));

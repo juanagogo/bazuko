@@ -16,7 +16,7 @@ Ladrillo rojo, casas de estilo inglés con hastiales y ventanas en saliente, ant
 
 - **Calle 7 comercial.** Locales con cortina metálica, toldo y avisos inventados, y un puesto de fritanga.
 - **Plaza de mercado.** Seis puestos con toldos de lona o a franjas, canastas de fruta y verdura, y costales. Bloquea el paso solo por donde hay mesas.
-- **Parque de Teusaquillo y torres de ladrillo.** Tres arcos curvos de ladrillo, escalonados, inspirados en los conjuntos de ladrillo bogotanos. Sólidos en su curva real: la colisión son tiras de medio metro que siguen la planta (`towerColliderBoxes`). Se ven desde todo el barrio: su bruma tiene tope y ni la cámara ni el descarte las cortan en el plano lejano. Cerca del horizonte, torres, cerros y ciudad de fondo se hunden en una bruma que depende del ángulo de la mirada: con neblina, lluvia, al atardecer o de noche sube más y con el día despejado queda abajo, para que la ciudad real, que a esa distancia ya es solo niebla, no se recorte contra ellos.
+- **Parque de Teusaquillo y torres de ladrillo.** Tres arcos curvos de ladrillo, escalonados, inspirados en los conjuntos de ladrillo bogotanos. Sólidos en su curva real: la colisión son tiras de medio metro que siguen la planta (`towerColliderBoxes`). Se ven desde todo el barrio: su bruma tiene tope y ni la cámara ni el descarte las cortan en el plano lejano. Las torres, los cerros y las manzanas del fondo comparten una bruma que depende de la distancia, la altura y el clima. Con neblina o lluvia se acumula en el valle y se atenúa hacia las azoteas y cumbres.
 
 ## Paseos de los parques
 
@@ -36,7 +36,7 @@ El carril del bus queda sin barreras, conos ni franja: el articulado arranca con
 Detrás de todo está `CityBackdrop.js`: **de cuatro a ocho llamadas de dibujo** por vista, sin colisiones y excluidas de los sectores. El cerro siempre se dibuja; de los bloques, solo los costados que caben en cuadro.
 
 - **Suelo y cerros.** Una sola malla en anillo, con las calles que siguen detrás de los cierres.
-- **Bloques.** Unos 3.000 ejemplares de una caja de cinco caras, entre edificios, cuartos de azotea y casitas. Pisos, ventanas, alféizares y luces de noche salen del sombreador, según la escala de cada ejemplar, sin texturas.
+- **Bloques.** Unos 3.000 ejemplares de una caja de cinco caras, entre edificios, cuartos de azotea y casitas. Pisos, ventanas, alféizares y luces de noche salen del sombreador, según la escala de cada ejemplar, sin texturas. Vistas desde lo alto, sus azoteas llevan pretil, sombra por dentro, manchas de agua y parches de manto, y de lejos vuelven al tono parejo.
 - **Más allá de la Candelaria,** hacia +X, un cerro alto con iglesia blanca en la cumbre, torres de teleférico y cabinas.
 - **Al sur,** las casas de ladrillo y pañete se escalonan junto a calles que siguen la pendiente, con pasos peatonales entre niveles y claros verdes entre grupos. Los cimientos apoyan en la malla del cerro. Las vías van en el mismo lote del terreno y las luces de las casas siguen la hora del cielo.
 

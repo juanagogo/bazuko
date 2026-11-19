@@ -323,6 +323,8 @@ DETAIL_RECTS.tactile = [8, 32, 48, 24];
 // Los portales ocupan cuatro celdas: son lo que el jugador tiene más cerca en cada cuadra.
 ['door', 'door2', 'door3', 'door4'].forEach((name, i) => { DETAIL_RECTS[name] = [i * CELL * 2, CELL * 6, CELL * 2, CELL * 2]; });
 Object.assign(DETAIL_RECTS, localRects(DETAIL_BASE_W));
+// Lata de zinc de las azoteas, en el hueco que queda a la derecha de los rótulos: es larga, como una lata.
+DETAIL_RECTS.lata = [896, 368, 128, 32];
 export const DETAIL_UV = Object.fromEntries(Object.entries(DETAIL_RECTS).map(([k, v]) => {
   // Un texel de margen: el mipmap no trae el color de la celda vecina.
   const [x, y, w, h] = v;
@@ -475,11 +477,9 @@ export function detailAtlas() {
     fill('sack', '#c9bc9a');
     { const [x, y] = R.sack; ctx.strokeStyle = 'rgba(90,76,50,.4)'; ctx.lineWidth = 1;
       for (let i = 0; i < 22; i++) { ctx.beginPath(); ctx.moveTo(x, y + i * 3); ctx.lineTo(x + 64, y + i * 3); ctx.stroke(); ctx.beginPath(); ctx.moveTo(x + i * 3, y); ctx.lineTo(x + i * 3, y + 64); ctx.stroke(); } }
-    fill('canvas', '#8a8d84');
-    grain(ctx, R.canvas, r, 240, ['rgba(40,40,36,.2)', 'rgba(230,230,220,.16)'], 3);
-    fill('tank', '#1a1c1e');
-    { const [x, y] = R.tank; ctx.fillStyle = 'rgba(255,255,255,.07)'; for (let i = 0; i < 5; i++) ctx.fillRect(x, y + 6 + i * 13, 64, 4);
-      ctx.fillStyle = 'rgba(40,40,44,.8)'; ctx.fillRect(x, y + 58, 64, 6); }
+    fill('canvas', '#847f74');
+    grain(ctx, R.canvas, r, 240, ['rgba(40,40,36,.13)', 'rgba(210,206,194,.1)'], 1.8);
+    fill('tank', '#262522');
     fill('rebar', '#5a4336');
     grain(ctx, R.rebar, r, 240, ['rgba(120,64,30,.7)', 'rgba(36,26,20,.7)'], 3);
     // Lonas de fachada, viejas. Sobre un tejadillo la celda se estira catorce veces a lo ancho: las manchas van
@@ -587,6 +587,70 @@ export function detailAtlas() {
     fill('wood', '#6d4f33');
     { const [x, y] = R.wood; ctx.fillStyle = 'rgba(30,20,10,.3)'; for (let i = 0; i < 6; i++) ctx.fillRect(x, y + 4 + i * 11, 64, 2); }
     drawLocales(ctx, R, r);
+    // Lo de las azoteas se ensucia al final y con azar propio: las celdas de antes gastan el de siempre.
+    const q = rng(0x5a207ea);
+    { // Concreto viejo: manchas, chorreones que bajan y la sombra de contacto abajo.
+      const [x, y, w, h] = R.canvas;
+      const mancha = (cx, cy, radio, tinta) => {
+        const g = ctx.createRadialGradient(cx, cy, radio * .15, cx, cy, radio);
+        g.addColorStop(0, tinta); g.addColorStop(1, tinta.replace(/,[^,]+\)$/, ',0)'));
+        const x0 = Math.max(x, cx - radio), y0 = Math.max(y, cy - radio);
+        ctx.fillStyle = g; ctx.fillRect(x0, y0, Math.min(x + w, cx + radio) - x0, Math.min(y + h, cy + radio) - y0);
+      };
+      for (let i = 0; i < 8; i++) mancha(x + q() * w, y + q() * h, 7 + q() * 13, i % 3 ? 'rgba(50,46,38,.24)' : 'rgba(176,170,156,.2)');
+      for (let i = 0; i < 7; i++) {
+        const sx = x + 2 + q() * (w - 8), largo = 14 + q() * 34, g = ctx.createLinearGradient(0, y, 0, y + largo);
+        g.addColorStop(0, 'rgba(40,36,30,.26)'); g.addColorStop(1, 'rgba(40,36,30,0)');
+        ctx.fillStyle = g; ctx.fillRect(sx, y, 1.2 + q() * 3.5, largo);
+      }
+      const pie = ctx.createLinearGradient(0, y + h - 9, 0, y + h);
+      pie.addColorStop(0, 'rgba(34,31,27,0)'); pie.addColorStop(1, 'rgba(34,31,27,.5)');
+      ctx.fillStyle = pie; ctx.fillRect(x, y + h - 9, w, 9);
+    }
+    { // Tanque negro mate: polvo que aclara arriba, costillas apenas marcadas y barro salpicado al pie.
+      const [x, y, w, h] = R.tank;
+      const polvo = ctx.createLinearGradient(0, y, 0, y + 20);
+      polvo.addColorStop(0, 'rgba(74,70,63,.95)'); polvo.addColorStop(.5, 'rgba(74,70,63,.6)'); polvo.addColorStop(1, 'rgba(74,70,63,0)');
+      ctx.fillStyle = polvo; ctx.fillRect(x, y, w, 20);
+      for (const fila of [24, 35, 46, 55]) {
+        ctx.fillStyle = 'rgba(255,255,255,.02)'; ctx.fillRect(x, y + fila, w, 1.5);
+        ctx.fillStyle = 'rgba(0,0,0,.16)'; ctx.fillRect(x, y + fila + 1.5, w, 1.5);
+      }
+      for (let i = 0; i < 10; i++) {
+        const sx = x + 1 + q() * (w - 6), largo = 16 + q() * 30, g = ctx.createLinearGradient(0, y + 6, 0, y + 6 + largo);
+        g.addColorStop(0, 'rgba(96,90,79,.26)'); g.addColorStop(1, 'rgba(96,90,79,0)');
+        ctx.fillStyle = g; ctx.fillRect(sx, y + 6, 1 + q() * 3, largo);
+      }
+      grain(ctx, [x, y, w - 2, h - 2], q, 260, ['rgba(120,112,98,.09)', 'rgba(10,10,9,.14)'], 1.6);
+      const pie = ctx.createLinearGradient(0, y + h - 10, 0, y + h);
+      pie.addColorStop(0, 'rgba(84,76,63,0)'); pie.addColorStop(1, 'rgba(84,76,63,.5)');
+      ctx.fillStyle = pie; ctx.fillRect(x, y + h - 10, w, 10);
+    }
+    { // Lata de zinc: galvanizado apagado, la onda a lo largo y el óxido que baja desde el traslapo.
+      const [x, y, w, h] = R.lata;
+      ctx.fillStyle = '#7b7c74'; ctx.fillRect(x, y, w, h);
+      for (let i = 0; i < 12; i++) {
+        const px = x + q() * w, ancho = 10 + q() * 30, x0 = Math.max(x, px - ancho / 2);
+        ctx.fillStyle = i % 2 ? 'rgba(98,99,92,.3)' : 'rgba(146,146,136,.24)';
+        ctx.fillRect(x0, y, Math.min(x + w, px + ancho / 2) - x0, h);
+      }
+      for (let i = 0; i < 10; i++) {
+        ctx.fillStyle = 'rgba(176,176,166,.2)'; ctx.fillRect(x, y + i * 3.2 + .3, w, 1);
+        ctx.fillStyle = 'rgba(30,30,27,.34)'; ctx.fillRect(x, y + i * 3.2 + 1.9, w, 1.1);
+      }
+      const oxido = ctx.createLinearGradient(x, 0, x + 34, 0);
+      oxido.addColorStop(0, 'rgba(104,82,68,.85)'); oxido.addColorStop(.45, 'rgba(104,82,68,.5)'); oxido.addColorStop(1, 'rgba(104,82,68,0)');
+      ctx.fillStyle = oxido; ctx.fillRect(x, y, 34, h);
+      for (let i = 0; i < 9; i++) {
+        const sy = y + q() * (h - 3), largo = 30 + q() * 70, g = ctx.createLinearGradient(x, 0, x + largo, 0);
+        g.addColorStop(0, 'rgba(112,88,74,.7)'); g.addColorStop(1, 'rgba(112,88,74,0)');
+        ctx.fillStyle = g; ctx.fillRect(x, sy, largo, 1.4 + q() * 2.8);
+      }
+      grain(ctx, [x, y, w - 3, h - 3], q, 220, ['rgba(60,58,52,.16)', 'rgba(168,168,158,.1)', 'rgba(104,84,70,.2)'], 2.4);
+      const borde = ctx.createLinearGradient(x + w - 7, 0, x + w, 0);
+      borde.addColorStop(0, 'rgba(46,42,38,0)'); borde.addColorStop(1, 'rgba(46,42,38,.5)');
+      ctx.fillStyle = borde; ctx.fillRect(x + w - 7, y, 7, h);
+    }
   }
   detailCache = { texture: finishTexture(surface), uv: DETAIL_UV };
   detailCache.texture.name = 'Atlas de mobiliario urbano';

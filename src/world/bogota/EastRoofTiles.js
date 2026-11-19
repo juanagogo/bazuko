@@ -1,4 +1,31 @@
-import { detailRect } from './ZoneTextures.js';
+import { CLAY_PROFILE, CLAY_ROOF, detailRect } from './ZoneTextures.js';
+
+/** Una sección de canal y cobija sigue visible en el borde y la silueta de cada agua. */
+export function claySlope(f, material, { left, right, n, y, ridgeN, ridgeY, phase }) {
+  const unit = CLAY_ROOF.meters, tile = unit / CLAY_ROOF.columns;
+  const length = Math.hypot(ridgeN - n, ridgeY - y) / unit;
+  const offsetU = (phase % CLAY_ROOF.columns) / CLAY_ROOF.columns;
+  const offsetV = ((phase >>> 4) % CLAY_ROOF.courses) / CLAY_ROOF.courses;
+  const front = n > ridgeN;
+  for (let col = Math.floor(left / tile); col * tile < right; col++) {
+    for (let edge = 1; edge < CLAY_PROFILE.length; edge++) {
+      const [x0, h0] = CLAY_PROFILE[edge - 1], [x1, h1] = CLAY_PROFILE[edge];
+      const start = (col + x0) * tile, end = (col + x1) * tile;
+      const a = Math.max(left, start), b = Math.min(right, end);
+      if (a >= b) continue;
+      const ha = h0 + (h1 - h0) * (a - start) / (end - start);
+      const hb = h0 + (h1 - h0) * (b - start) / (end - start);
+      const [u0, u1, r0, r1] = front ? [a, b, ha, hb] : [b, a, hb, ha];
+      const s0 = offsetU + u0 / unit, s1 = offsetU + u1 / unit;
+      f.quadUV(material, [u0, y + r0, n], [u1, y + r1, n], [u1, ridgeY + r1, ridgeN], [u0, ridgeY + r0, ridgeN],
+        [s0, offsetV, s1, offsetV, s1, offsetV + length, s0, offsetV + length]);
+      // El barro termina en un canto, sobre la tabla que cierra los canes de madera.
+      f.quadUV(material, [u0, y - .033, n], [u1, y - .033, n], [u1, y + r1, n], [u0, y + r0, n],
+        [s0, offsetV, s1, offsetV, s1, offsetV + .075, s0, offsetV + .075]);
+    }
+  }
+}
+
 /** Caballetes semicilíndricos solapados. El ala de Chapinero lleva la cumbrera perpendicular. */
 export function clayRidge(f, detail, start, end, across, height, { perpendicular = false, width = .4 } = {}) {
   const radius = width / 2, count = Math.max(1, Math.round((end - start) / .38));

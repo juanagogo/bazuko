@@ -317,6 +317,7 @@ test('detrás de cada rampa la arcilla se corta y va la loseta de botones, y la 
   assert.match(shader.fragmentShader, /pavingClayStrip = \( 1\. - smoothstep\( \.6 [^;]*\* \( 1\. - pavingRamp \)/, 'la arcilla se corta en la rampa');
   assert.match(shader.fragmentShader, /pavingNew = mix\( pavingNew, pavingBrick, pavingClayStrip \)/);
   assert.match(shader.fragmentShader, /pavingButtons/, 'loseta de botones');
+  // Un alcorque pegado a la guía la corre 40 cm: hacia la calle si está del lado de la fachada, hacia adentro si
   // está del lado de la calle. También el que le pasa a 34 cm, como el pie de Teusaquillo. Uno lejos no la toca.
   // La calzada de `street` acaba en x = 11.
   const lane = street();
