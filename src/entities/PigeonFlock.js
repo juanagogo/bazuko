@@ -1,37 +1,16 @@
 import * as THREE from 'three';
-import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
-
-function part(geometry, color, position, scale = [1, 1, 1], rotation = [0, 0, 0]) {
-  const matrix = new THREE.Matrix4().compose(new THREE.Vector3(...position),
-    new THREE.Quaternion().setFromEuler(new THREE.Euler(...rotation)), new THREE.Vector3(...scale));
-  geometry.applyMatrix4(matrix);
-  const rgb = new THREE.Color(color), colors = new Float32Array(geometry.attributes.position.count * 3);
-  for (let i = 0; i < colors.length; i += 3) { colors[i] = rgb.r; colors[i + 1] = rgb.g; colors[i + 2] = rgb.b; }
-  geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
-  return geometry;
-}
-
-function bodyGeometry() {
-  const parts = [
-    part(new THREE.SphereGeometry(1, 8, 6), '#87919e', [0, .21, 0], [.105, .14, .19]),
-    part(new THREE.SphereGeometry(1, 8, 5), '#526c70', [0, .31, .08], [.065, .1, .065]),
-    part(new THREE.SphereGeometry(1, 8, 5), '#697889', [0, .39, .105], [.07, .065, .075]),
-    part(new THREE.ConeGeometry(.023, .075, 5), '#c6b9a2', [0, .39, .195], [1, 1, 1], [Math.PI / 2, 0, 0]),
-    part(new THREE.BoxGeometry(.11, .025, .16), '#424b58', [0, .17, -.22], [1, 1, 1], [-.15, 0, 0]),
-    ...[-1, 1].map(side => part(new THREE.SphereGeometry(.013, 5, 4), '#17191b', [side * .063, .408, .135]))
-  ];
-  const geometry = mergeGeometries(parts); parts.forEach(piece => piece.dispose());
-  return geometry;
-}
+import { pigeonBody, pigeonFoot, pigeonWing, posePigeonMaterial } from './PigeonModel.js';
+import { withVisualRandom } from '../world/bogota/VisualRandom.js';
 
 // Una paloma es tan simple que pegada a la cámara se ve como una mole: tan cerca, no se dibuja.
 const CAMERA_CLEARANCE = 1.2;
 
-/** Diez aves por parque, cinco llamadas de dibujo y ninguna simulación física. */
+/** Diez aves por parque, cinco lotes instanciados y ninguna simulación física. */
 export class PigeonFlock {
-  constructor(scene, bounds, { count = 10, random = Math.random, isGround = () => true, groundHeight = () => 0 } = {}) {
+  constructor(scene, bounds, { count = 10, random = Math.random, isGround = () => true, groundHeight = () => 0,
+    groundCutout = null } = {}) {
     this.scene = scene; this.bounds = bounds; this.random = random;
-    this.isGround = isGround; this.groundHeight = groundHeight;
+    this.isGround = isGround; this.groundHeight = groundHeight; this.groundCutout = groundCutout;
     this.group = new THREE.Group(); this.group.name = 'Palomas del parque';
     this.group.position.set((bounds.x0 + bounds.x1) / 2, 0, (bounds.z0 + bounds.z1) / 2);
     this._dummy = new THREE.Object3D(); this._local = new THREE.Object3D(); this._matrix = new THREE.Matrix4();
@@ -45,26 +24,64 @@ export class PigeonFlock {
         phase: random() * Math.PI * 2, state: 'idle', timer: .5 + random() * 3, scale: .9 + random() * .2,
         threat: new THREE.Vector3() });
     }
-    const material = new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true });
-    const body = bodyGeometry();
-    const leftWing = part(new THREE.BoxGeometry(.23, .028, .27), '#727e8e', [-.105, 0, -.035]);
-    const rightWing = part(new THREE.BoxGeometry(.23, .028, .27), '#727e8e', [.105, 0, -.035]);
-    const leg = part(new THREE.CylinderGeometry(.011, .009, .1, 5), '#ad7774', [0, -.05, 0]);
+    const material = posePigeonMaterial(new THREE.MeshStandardMaterial({ vertexColors: true, side: THREE.DoubleSide, roughness: .78 }));
+    const body = pigeonBody(), leftWing = pigeonWing(-1), rightWing = pigeonWing(1), leg = pigeonFoot();
+    const pose = new THREE.InstancedBufferAttribute(new Float32Array(this.birds.length), 1);
+    this._dip = new THREE.InstancedBufferAttribute(new Float32Array(this.birds.length), 1).setUsage(THREE.DynamicDrawUsage);
+    body.setAttribute('pigeonDip', this._dip);
+    for (const geometry of [leftWing, rightWing, leg]) {
+      geometry.setAttribute('pigeonDip', pose);
+      geometry.setAttribute('pigeonDippedPosition', geometry.attributes.position);
+      geometry.setAttribute('pigeonDippedNormal', geometry.attributes.normal);
+    }
     const box = new THREE.Box3(new THREE.Vector3(bounds.x0 - this.group.position.x - 1, -.1, bounds.z0 - this.group.position.z - 1),
       new THREE.Vector3(bounds.x1 - this.group.position.x + 1, 7, bounds.z1 - this.group.position.z + 1));
-    this.meshes = [body, leftWing, rightWing, leg, leg].map(geometry => {
+    this.meshes = [body, leftWing, rightWing, leg, leg].map((geometry, index) => {
       const mesh = new THREE.InstancedMesh(geometry, material, this.birds.length);
       mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
       mesh.boundingBox = box.clone(); mesh.boundingSphere = box.getBoundingSphere(new THREE.Sphere());
+      mesh.castShadow = index < 3;
+      mesh.receiveShadow = true;
       this.group.add(mesh); return mesh;
+    });
+    this.meshes[0].customDepthMaterial = withVisualRandom(() => posePigeonMaterial(new THREE.MeshDepthMaterial({
+      side: THREE.DoubleSide, depthPacking: THREE.RGBADepthPacking
+    })));
+    const tint = new THREE.Color();
+    this.birds.forEach((bird, i) => {
+      // La fase inicial ya identifica al individuo, sin volver a sortear su aspecto.
+      const mark = (bird.phase + bird.yaw * .37) / (Math.PI * 2) % 1;
+      const gray = mark < .16 ? .62 : mark > .86 ? 1.31 : .82 + .3 * mark;
+      tint.setRGB(gray * (1.02 + .16 * mark), gray, gray * (1.04 - .14 * mark));
+      for (let j = 0; j < 3; j++) this.meshes[j].setColorAt(i, tint);
     });
     scene.add(this.group);
     this._paint();
   }
 
-  _inside(x, z) {
+  _groundInPark(x, z) {
     const b = this.bounds;
     return x >= b.x0 && x <= b.x1 && z >= b.z0 && z <= b.z1 && this.isGround(x, z);
+  }
+
+  _inside(x, z) {
+    const cutout = this.groundCutout;
+    return this._groundInPark(x, z) && (!cutout || Math.hypot(x - cutout.x, z - cutout.z) >= cutout.radius);
+  }
+
+  _groundPosition(x, z) {
+    const cutout = this.groundCutout;
+    if (cutout) {
+      const dx = x - cutout.x, dz = z - cutout.z, distance = Math.hypot(dx, dz);
+      if (distance < cutout.radius) {
+        // Una elección dentro de la pila usa el pavimento del borde, con la misma tirada.
+        const angle = Math.atan2(dz, dx), rim = cutout.radius + .015;
+        x = cutout.x + Math.cos(angle) * rim;
+        z = cutout.z + Math.sin(angle) * rim;
+        if (!this._groundInPark(x, z)) return null;
+      }
+    }
+    return new THREE.Vector3(x, this.groundHeight(x, z), z);
   }
 
   _point(away = null) {
@@ -72,9 +89,13 @@ export class PigeonFlock {
     for (let i = 0; i < 32; i++) {
       const x = this.bounds.x0 + this.random() * (this.bounds.x1 - this.bounds.x0);
       const z = this.bounds.z0 + this.random() * (this.bounds.z1 - this.bounds.z0);
-      if (!this._inside(x, z)) continue;
+      if (!this._groundInPark(x, z)) continue;
       const distance = away ? Math.hypot(x - away.x, z - away.z) : 0;
-      if (distance > score) { best = new THREE.Vector3(x, this.groundHeight(x, z), z); score = distance; }
+      if (distance > score) {
+        const point = this._groundPosition(x, z);
+        if (!point) continue;
+        best = point; score = distance;
+      }
       if (!away || score > 8) break;
     }
     return best;
@@ -152,18 +173,22 @@ export class PigeonFlock {
   }
 
   _paint() {
+    const body = this.meshes[0];
     this.birds.forEach((bird, i) => {
       const flying = bird.state === 'flying', walking = bird.state === 'walking';
+      const dip = bird.state === 'idle' ? Math.max(0, Math.sin(bird.phase * .52 - .75)) ** 6 : 0;
+      this._dip.setX(i, dip + (walking ? .02 * (1 + Math.sin(bird.phase)) : 0));
       this._dummy.position.copy(bird.position).sub(this.group.position);
       if (walking) this._dummy.position.y += Math.abs(Math.sin(bird.phase)) * .012;
-      this._dummy.rotation.set(flying ? -.12 : bird.state === 'idle' ? Math.sin(bird.phase * .4) * .08 : 0, bird.yaw, 0);
+      this._dummy.rotation.set(flying ? -.12 : dip * .07, bird.yaw, 0, 'YXZ');
       const close = this._camera && this._camera.position.distanceToSquared(bird.position) < CAMERA_CLEARANCE ** 2;
       this._dummy.scale.setScalar(close ? 0 : bird.scale); this._dummy.updateMatrix();
-      this.meshes[0].setMatrixAt(i, this._dummy.matrix);
+      body.setMatrixAt(i, this._dummy.matrix);
       for (let side = 0; side < 2; side++) {
         const sign = side ? 1 : -1;
-        this._local.position.set(sign * .075, .25, 0);
-        this._local.rotation.set(0, 0, sign * (flying ? Math.sin(bird.phase) * .85 : -1.15));
+        this._local.position.set(sign * .075, .252, .014);
+        this._local.rotation.set(0, sign * (flying ? .08 + Math.cos(bird.phase) * .1 : .84),
+          sign * (flying ? Math.sin(bird.phase) * .85 : -.58), 'YXZ');
         this._local.updateMatrix(); this._matrix.multiplyMatrices(this._dummy.matrix, this._local.matrix);
         this.meshes[side + 1].setMatrixAt(i, this._matrix);
         this._local.position.set(sign * .045, .1, .01);
@@ -172,6 +197,7 @@ export class PigeonFlock {
         this.meshes[side + 3].setMatrixAt(i, this._matrix);
       }
     });
+    this._dip.needsUpdate = true;
     this.meshes.forEach(mesh => { mesh.instanceMatrix.needsUpdate = true; });
   }
 
@@ -181,6 +207,7 @@ export class PigeonFlock {
     const geometries = new Set(this.meshes.map(mesh => mesh.geometry));
     for (const geometry of geometries) geometry.dispose();
     this.meshes[0].material.dispose();
+    this.meshes[0].customDepthMaterial.dispose();
     for (const mesh of this.meshes) mesh.dispose();
   }
 }
