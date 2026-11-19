@@ -1800,9 +1800,9 @@ export class Game {
       // Puestos y fogatas van primero para que los lugares fijos queden encima.
       const services = district?.vendors ? (this._services ??= servicePlaces(district)) : [];
       this._poiCache = [...services, ...[[this.cambuche, reserved.bed, 'Cambuche', '⛺', '#ffd166'],
-        [this.sellPoint, reserved.sell, 'Recicladora El Progreso', '♻️', '#2ab7ca', { prices: { vender: 0 } }],
+        [this.sellPoint, reserved.sell, RECYCLER_NAME, '♻️', '#2ab7ca', { prices: { vender: 0 }, ...this.sellPoint?.gpsWaypoint }],
         [this.shop, reserved.shop, SHOP_NAME, '🏪', '#2ecc71', { prices: SHOP_PRICES, offers: SHOP_OFFERS, ...this.shop?.gpsWaypoint }],
-        [this.comedor, reserved.comedor, 'Comedor Comunitario', '🍲', '#27ae60', { prices: { comida: 0, agua: 0 } }],
+        [this.comedor, reserved.comedor, COMEDOR_NAME, '🍲', '#27ae60', { prices: { comida: 0, agua: 0 }, ...this.comedor?.gpsWaypoint }],
         [this.craftingStation, reserved.craft, 'Crafteo', '🔨', '#e67e22'],
         [this.dealer, reserved.dealer, 'Dealer', '💀', '#9b59b6', { dealer: true }]]
         .flatMap(([entity, fallback, name, icon, color, extra]) => {

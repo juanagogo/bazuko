@@ -231,7 +231,7 @@ export function openComedor(game) {
 
   game.menu.open({
     title: 'Comedor Comunitario',
-    sub: 'Alcaldía Mayor de Bogotá, Integración Social. Ración caliente cada 5 minutos.',
+    sub: 'Alcaldía Mayor de Bogotá, Integración Social. Una ración cada 5 minutos reales.',
     ic: 'food',
     render
   });

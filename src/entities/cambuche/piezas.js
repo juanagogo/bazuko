@@ -1,5 +1,5 @@
 // src/entities/cambuche/piezas.js
-// Las seis piezas que se arman una por una (base, techo, paredes, colchón, fogón, vela), cada una como una maqueta
+// El techo, las paredes, el colchón, el fogón y la vela, cada uno como una maqueta
 // de caras planas. Medidas del modelo de rebusque (el cambuche las lleva a la escala del mundo). La entrada mira
 // hacia +Z, que es donde aparece el jugador, y el techo baja hacia el frente (palos altos atrás, bajos adelante):
 // desde la cámara del juego se le ve la cara de arriba.
@@ -14,18 +14,6 @@ export const techoArmado = (x, z) => 1.44 + .05 * x - .2 * z;
 /** Giro que acuesta algo plano sobre una superficie de alturas (llanta, lámina). */
 export function acostado(h, x, z, d = .25) {
   return [Math.PI / 2 - Math.atan((h(x, z + d) - h(x, z - d)) / (2 * d)), 0, Math.atan((h(x + d, z) - h(x - d, z)) / (2 * d)), 'ZYX'];
-}
-
-export function base() {
-  const m = new Maqueta(11), r = m.r;
-  // Tres hojas de cartón solapadas: cada una queda un poco encima de la anterior.
-  for (let i = 0; i < 3; i++) {
-    m.caja(.94, .04, 2.36, i === 1 ? P.cartonViejo : P.carton, { en: [-.9 + i * .88, .03 + i * .012, .04], giro: [0, (r() - .5) * .08, 0] });
-  }
-  // Tapas de caja que sobran por el borde.
-  m.caja(.5, .03, .34, P.cartonViejo, { en: [1.42, .05, 1.02], giro: [0, .3, .1] });
-  m.caja(.42, .03, .3, P.carton, { en: [-1.48, .05, -.92], giro: [0, -.2, -.08] });
-  return m;
 }
 
 export function techo() {
