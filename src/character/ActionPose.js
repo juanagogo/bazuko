@@ -337,7 +337,7 @@ export class ActionPose {
       // Echar a andar no corta la pose: se levanta andando. Saltar, nadar, golpear o fumar sí necesitan el cuerpo de una vez.
       if (!sleeping && (action || airborne || swim || landing || attack || smoke || basuco != null || point)) this.sleep.reset();
       if (sleeping || this.sleep.weight > 0) {
-        this.sleep.apply(elapsed, sleeping);
+        this.sleep.apply(elapsed, sleeping, movement.restSurface);
         return;
       }
     }

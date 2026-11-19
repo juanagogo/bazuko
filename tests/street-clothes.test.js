@@ -6,7 +6,8 @@ import { fileURLToPath } from 'node:url';
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { createRealisticCharacter, loadCatalog, normalizeReal, optionsFor } from '../src/character/RealisticCharacter.js';
-import { GARMENTS } from '../src/character/streetMaterials.js';
+import { GARMENTS, streetWetness } from '../src/character/streetMaterials.js';
+import { personLook } from '../src/character/archetypes.js';
 
 // Con los cuerpos y las prendas reales del catálogo: es donde un plano de cintura o un filtro de medias fallaría.
 globalThis.ProgressEvent ??= class { constructor(type, values) { Object.assign(this, { type }, values); } };
@@ -61,6 +62,129 @@ const meshesOf = (character, surface) => {
 };
 const triangles = meshes => meshes.reduce((total, mesh) => total + mesh.geometry.index.count / 3, 0);
 
+test('el modelo liviano no descarga los poros, y el completo los trae', async () => {
+  const far = await createRealisticCharacter({ real: SIMPLE }, { lod: true });
+  assert.deepEqual(detailLoads, [], 'los poros solo son del modelo completo');
+  assert.equal(meshesOf(far, 'skin')[0].material.normalMap, null);
+  const near = await createRealisticCharacter({ real: SIMPLE });
+  assert.equal(meshesOf(near, 'skin')[0].material.normalMap, skinDetail);
+  far.dispose();
+  near.dispose();
+});
+
+test('la ropa de obra se ve en los dos modelos con casco, solo en las prendas que la llevan', async () => {
+  const cases = [
+    ['obrero', 'hombre', 'overol', '#e3e1da', 1],
+    ['obrero', 'hombre', 'chaqueta', '#d7a92c', 2],
+    ['obrero', 'mujer', 'saco', '#c8662a', 3],
+    ['obrero', 'mujer', 'saco', null, 0],
+    ['obrero', 'hombre', 'camiseta', '#d7a92c', 0],
+    ['oficinista', 'hombre', 'chaqueta', '#d7a92c', 0]
+  ];
+  const keys = new Set();
+  for (const [arquetipo, sexo, ropa, color, style] of cases) {
+    const look = personLook({ arquetipo, piel: 2, peloColor: 0, real: { ...SIMPLE, pelo: 'corto', sexo, edad: 'adulto', ropa,
+      accesorios: color ? [{ id: 'casco', color }] : [] } });
+    const full = await createRealisticCharacter(look);
+    const proxy = await createRealisticCharacter(look, { lod: true });
+    try {
+      const fullHelmet = full.group.getObjectByName('prop-casco');
+      const proxyHelmet = proxy.group.getObjectByName('prop-casco');
+      if (color) {
+        assert.equal(fullHelmet.geometry, proxyHelmet.geometry);
+        assert.equal(fullHelmet.material, proxyHelmet.material);
+      } else assert.ok(!fullHelmet && !proxyHelmet);
+      for (const character of [full, proxy]) for (const mesh of meshesOf(character, 'fabric')) {
+        assert.equal(compiled(mesh.material).uniforms.uStreetWorkwear.value, style, `${arquetipo}, ${ropa}`);
+        keys.add(mesh.material.customProgramCacheKey());
+      }
+    } finally { full.dispose(); proxy.dispose(); }
+  }
+  assert.equal(keys.size, 1, 'las cintas se activan en el programa de tela compartido');
+});
+
+test('el chaleco del reciclador usa la tela compartida y viaja con su único costal en ambas mallas', async () => {
+  const cases = [
+    ['reciclador', 'lona', 'hombre', 'overol', true, 1],
+    ['reciclador', 'acolchado', 'mujer', 'saco', true, 2],
+    ['reciclador', undefined, 'mujer', 'rota', true, 0],
+    ['reciclador', 'lona', 'hombre', 'camiseta', false, 0],
+    ['habitante', 'acolchado', 'mujer', 'saco', false, 0]
+  ];
+  const keys = new Set();
+  for (const [arquetipo, chalecoReciclador, sexo, ropa, carrying, variant] of cases) {
+    const look = personLook({ arquetipo, chalecoReciclador, piel: 3, peloColor: 0, real: { ...SIMPLE, pelo: 'corto', sexo, edad: 'adulto', ropa,
+      accesorios: carrying ? [{ id: 'costal', color: '#5f5a4a' }] : [] } });
+    for (const lod of [false, true]) {
+      const character = await createRealisticCharacter(look, { lod });
+      try {
+        const sacks = character.group.getObjectsByProperty('name', 'prop-costal');
+        assert.equal(sacks.length, Number(carrying));
+        if (carrying) assert.match(sacks[0].parent.name, /Spine2$/i);
+        for (const mesh of meshesOf(character, 'fabric')) {
+          const { uniforms } = compiled(mesh.material);
+          assert.equal(uniforms.uStreetRecyclerVest.value, variant);
+          assert.equal(uniforms.uStreetWet, streetWetness);
+          keys.add(mesh.material.customProgramCacheKey());
+        }
+        assert.ok(meshesOf(character, 'skin').every(mesh => compiled(mesh.material).uniforms.uStreetRecyclerVest.value === 0));
+      } finally { character.dispose(); }
+    }
+  }
+  assert.equal(keys.size, 1);
+});
+
+test('la carga realista va en un solo costal aun si se elige mochila al cambiar de ropa', async () => {
+  const look = { v: 2, real: { ...SIMPLE, sexo: 'hombre', edad: 'adulto', ropa: 'chaqueta' } };
+  const player = await createRealisticCharacter(look, { costalJugador: true });
+  const preview = await createRealisticCharacter(look);
+  const sack = (character, name) => character.group.getObjectByName(`prop-${name}`);
+  try {
+    const mesh = sack(player, 'costal-jugador');
+    assert.match(mesh.parent.name, /spine2$/i);
+    assert.equal(sack(preview, 'costal-jugador'), undefined);
+    assert.equal(mesh.visible, false);
+    player.update(0, { load: .02 });
+    assert.equal(mesh.visible, false);
+    const position = new THREE.Vector3();
+    const depth = load => {
+      player.update(0, { load });
+      let z = Infinity;
+      // La cuerda sobresale al estar plegado; comparar abajo, donde va la carga.
+      for (let i = 0; i < mesh.geometry.attributes.position.count; i++) {
+        mesh.getVertexPosition(i, position);
+        if (position.y < -.26) z = Math.min(z, position.z);
+      }
+      return z;
+    };
+    const light = depth(.025);
+    assert.equal(mesh.visible, true);
+    assert.ok(depth(.5) < light - .04);
+    assert.ok(depth(1) < light - .1);
+
+    const chosen = { ...look, accesorios: ['mochila'], real: { ...look.real, ropa: 'camisa' } };
+    await player.setLook(chosen);
+    await preview.setLook(chosen);
+    const carried = sack(player, 'mochila');
+    const empty = sack(preview, 'mochila');
+    assert.deepEqual(carried.morphTargetInfluences, [0, 1], 'cambiarse conserva la carga');
+    assert.ok(empty.visible && empty.morphTargetInfluences[1] === 0, 'la mochila elegida se ve vacía en el creador');
+    assert.equal(sack(player, 'costal-jugador'), undefined, 'la mochila se llena sin superponer un costal');
+    assert.equal(carried.geometry, empty.geometry);
+    assert.equal(carried.material.map, empty.material.map);
+
+    const dry = carried.material.color.r, dryRoughness = carried.material.roughness;
+    streetWetness.value = 1;
+    player.update(0, { load: .5 });
+    assert.ok(carried.material.color.r < dry);
+    assert.ok(carried.material.roughness < dryRoughness);
+  } finally {
+    streetWetness.value = 0;
+    player.dispose();
+    preview.dispose();
+  }
+});
+
 /** Altura media en reposo, por área y en fracción de la estatura, de cada zona: no depende de cuántos vértices tenga la malla. */
 function zoneHeights(meshes) {
   const zones = [{ y: 0, area: 0 }, { y: 0, area: 0 }], triangle = new THREE.Triangle();
@@ -80,16 +204,6 @@ function zoneHeights(meshes) {
   }
   return zones.map(({ y, area }) => area ? y / area : null);
 }
-
-test('el modelo liviano no descarga los poros, y el completo los trae', async () => {
-  const far = await createRealisticCharacter({ real: SIMPLE }, { lod: true });
-  assert.deepEqual(detailLoads, [], 'los poros solo son del modelo completo');
-  assert.equal(meshesOf(far, 'skin')[0].material.normalMap, null);
-  const near = await createRealisticCharacter({ real: SIMPLE });
-  assert.equal(meshesOf(near, 'skin')[0].material.normalMap, skinDetail);
-  far.dispose();
-  near.dispose();
-});
 
 test('la misma persona lleva los mismos colores en los dos modelos, y el liviano se pinta las cejas', async () => {
   const look = { piel: 3, peloColor: 2, desgaste: 2, real: { sexo: 'hombre', edad: 'mayor', pelo: 'corto', barba: 'ninguna', ropa: 'camisa', calzado: 'botas', tonos: TONOS } };
@@ -211,6 +325,43 @@ test('el pelo que lo pide lleva su ajuste, y los demás no', async () => {
   assert.equal((await uniformsOf('corto')).uHairContrast.value, 1);
 });
 
+test('los grupos del crespo conservan la implantación y las piezas se comparten en cada nivel', async () => {
+  const hair = character => meshesOf(character, 'hair').find(mesh => !/eyebrow/i.test(mesh.name));
+  for (const lod of [false, true]) for (const sexo of ['hombre', 'mujer']) for (const edad of ['joven', 'adulto', 'mayor']) {
+    const look = { real: { ...SIMPLE, sexo, edad, pelo: 'crespo' } };
+    const base = await createRealisticCharacter(look, { lod });
+    const styled = await createRealisticCharacter(look, { lod, acabadoCivil: true });
+    const repeat = await createRealisticCharacter(look, { lod, acabadoCivil: true });
+    try {
+      const source = hair(base).geometry, relief = hair(styled).geometry;
+      assert.equal(hair(repeat).geometry, relief);
+      assert.equal(source.index, relief.index);
+      for (const attribute of ['uv', 'skinIndex', 'skinWeight']) assert.equal(source.attributes[attribute], relief.attributes[attribute]);
+      const before = source.attributes.position, after = relief.attributes.position;
+      assert.equal(before.count, after.count);
+      let maxDisplacement = 0;
+      const used = new Set(source.index.array);
+      let minY = Infinity;
+      for (const i of used) minY = Math.min(minY, before.getY(i));
+      for (const i of used) {
+        const shift = Math.hypot(before.getX(i) - after.getX(i), before.getY(i) - after.getY(i), before.getZ(i) - after.getZ(i));
+        maxDisplacement = Math.max(maxDisplacement, shift);
+        if (before.getY(i) < minY + .017) assert.equal(shift, 0, 'implantación baja intacta');
+      }
+      assert.ok(maxDisplacement > .006 && maxDisplacement < .017, `${sexo} ${edad} ${lod}: ${maxDisplacement}`);
+      assert.equal(hair(styled).material.color.getHexString(), hair(base).material.color.getHexString());
+      assert.equal(compiled(hair(styled).material).uniforms.uStreetCurlRelief.value, 1);
+    } finally {
+      for (const character of [base, styled, repeat]) character.dispose();
+    }
+  }
+  const covered = await createRealisticCharacter({ real: { ...SIMPLE, pelo: 'crespo', cabeza: 'gorro-lana' } }, { acabadoCivil: true });
+  const straight = await createRealisticCharacter({ real: { ...SIMPLE, pelo: 'corto' } }, { acabadoCivil: true });
+  try {
+    for (const character of [covered, straight]) assert.equal(compiled(hair(character).material).uniforms.uStreetCurlRelief.value, 0);
+  } finally { covered.dispose(); straight.dispose(); }
+});
+
 test('el pantalón ancho queda debajo de la prenda y solo el saco le mete la pretina', async () => {
   const waists = async ropa => {
     const character = await createRealisticCharacter({ real: { ...SIMPLE, ropa } });
@@ -254,4 +405,62 @@ test('tonos: pasan por el catálogo, los rotos se quitan y el uniforme manda', a
   assert.equal(await tint({ real: { ...SIMPLE, ropa: 'camisa', tonos: TONOS } }), 1);
   assert.equal(await tint({ real: { ...SIMPLE, ropa: 'camisa' } }), 0, 'sin tonos queda la textura original');
   assert.equal(await tint({ uniforme: '#112233', real: { ...SIMPLE, ropa: 'camisa', tonos: TONOS } }), 0, 'el uniforme ya tiene su color');
+});
+
+test('chaqueta y buzo conservan el relieve UV y la oclusión con el color propio del uniforme', async () => {
+  for (const ropa of ['chaqueta', 'buzo']) for (const lod of [false, true]) {
+    const real = { ...SIMPLE, sexo: 'hombre', edad: 'adulto', ropa, tonos: TONOS };
+    const uniform = await createRealisticCharacter({ uniforme: '#161618', desgaste: 0, real }, { lod });
+    const civil = await createRealisticCharacter({ real }, { lod, acabadoCivil: true });
+    try {
+      const [material, other] = [uniform, civil].map(person => meshesOf(person, 'fabric')[0].material);
+      assert.equal(material.color.getHexString(), '161618');
+      assert.equal(compiled(material).uniforms.uStreetClothUniform.value, 1);
+      assert.equal(compiled(other).uniforms.uStreetClothUniform.value, 0);
+      assert.equal(compiled(material).uniforms.uStreetTint.value, 0);
+      assert.ok(material.normalMap?.isTexture && material.roughnessMap?.isTexture);
+      assert.notEqual(material.normalMap, material.roughnessMap);
+      assert.equal(material.normalMap, other.normalMap);
+      assert.equal(material.aoMap, material.roughnessMap);
+      assert.equal(material.aoMap, other.aoMap);
+      assert.equal(material.aoMap.channel, 0);
+      assert.equal(material.metalness, 0);
+    } finally {
+      uniform.dispose();
+      civil.dispose();
+    }
+  }
+});
+
+test('los acabados civiles siguen a la persona al cambiar de modelo y de ropa', async () => {
+  const real = { ...SIMPLE, ropa: 'saco', tonos: TONOS, desgaste: 0 };
+  const look = personLook({ piel: 4, peloColor: 1, real });
+  const explicitLook = { piel: 4, peloColor: 1, real };
+  const near = await createRealisticCharacter(look);
+  const far = await createRealisticCharacter(look, { lod: true });
+  const player = await createRealisticCharacter(explicitLook, { acabadoCivil: true });
+  const assigned = await createRealisticCharacter(explicitLook);
+  const uniform = await createRealisticCharacter({ ...look, uniforme: '#112233' }, { acabadoCivil: true });
+  const material = (character, kind) => meshesOf(character, kind)[0].material;
+  const uniforms = (character, kind) => compiled(material(character, kind)).uniforms;
+
+  try {
+    for (const kind of ['fabric', 'shoes', 'skin']) {
+      for (const character of [near, far, player]) assert.equal(uniforms(character, kind).uStreetCivil.value, 1);
+      for (const character of [assigned, uniform]) assert.equal(uniforms(character, kind).uStreetCivil.value, 0);
+      assert.equal(material(near, kind).customProgramCacheKey(), material(assigned, kind).customProgramCacheKey());
+    }
+    const cloth = uniforms(near, 'fabric');
+    assert.ok(cloth.uStreetUpperCloth.value.x > cloth.uStreetLowerCloth.value.x, 'lana y lona tienen asperezas distintas');
+    for (const name of ['uStreetUpperCloth', 'uStreetLowerCloth']) {
+      assert.deepEqual(cloth[name].value.toArray(), uniforms(far, 'fabric')[name].value.toArray());
+    }
+    const oldRubber = uniforms(player, 'shoes').uStreetRubber.value.getHexString();
+    await player.setLook({ ...explicitLook, real: { ...real, calzado: 'botas' } });
+    const boots = uniforms(player, 'shoes');
+    assert.equal(boots.uStreetCivil.value, 1);
+    assert.notEqual(boots.uStreetRubber.value.getHexString(), oldRubber);
+  } finally {
+    for (const character of [near, far, player, assigned, uniform]) character.dispose();
+  }
 });

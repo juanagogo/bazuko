@@ -125,7 +125,11 @@ test('el update del personaje no pide matrices de mundo', async t => {
     };
     const spies = ['updateMatrixWorld', 'updateWorldMatrix', 'updateMatrix', 'getWorldPosition', 'getWorldQuaternion', 'getWorldScale', 'getWorldDirection', 'localToWorld', 'worldToLocal']
       .map(name => count(THREE.Object3D.prototype, name));
-    for (let i = 0; i < 30; i++) person.update(1 / 30, { speed: i < 15 ? 0 : 1.2, stance: 'bolsillos', style: { stoop: .4, headDown: .2, swing: .6 } });
+    for (let i = 0; i < 30; i++) {
+      const dt = 1 / 30, speed = i < 15 ? 0 : 1.2;
+      person.update(dt, { speed, stance: 'bolsillos', style: { stoop: .4, headDown: .2, swing: .6 },
+        pedestrianMotion: { distance: speed * dt, elapsed: dt, angle: .06, reset: false } });
+    }
     for (const spy of spies) spy.mock.restore();
     assert.equal(calls, 0, `${options.lod ? 'liviano' : 'completo'}: casi toda la gente pasa por aquí en cada cuadro`);
     person.dispose();

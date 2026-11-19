@@ -148,7 +148,7 @@ export class PoseRig {
 
   /** Apunta un hueso (hacia su hijo) en una dirección, con el giro mínimo desde su pose actual. */
   point(key, x, y, z) {
-    const bone = this.joints[key];
+    const bone = typeof key === 'string' ? this.joints[key] : key;
     bone.getWorldQuaternion(_q);
     _a.copy(this.axes.get(bone)).applyQuaternion(_q).normalize();
     _b.set(x, y, z).normalize();
@@ -160,7 +160,8 @@ export class PoseRig {
     return this;
   }
 
-  _reach(upper, lower, end, target, pole) {
+  /** Resuelve dos huesos contiguos hacia un punto del mundo, con la articulación hacia `pole`. */
+  reach(upper, lower, end, target, pole) {
     const start = this.where(upper, new Vector3());
     const toTarget = _a.copy(target).sub(start);
     const first = this.where(lower, new Vector3()).distanceTo(start);
@@ -179,10 +180,10 @@ export class PoseRig {
   }
 
   /** Lleva la muñeca a `target`; el codo sale hacia `pole`. */
-  reachArm(side, target, pole) { return this._reach(`${side}Arm`, `${side}ForeArm`, `${side}Hand`, target, pole); }
+  reachArm(side, target, pole) { return this.reach(`${side}Arm`, `${side}ForeArm`, `${side}Hand`, target, pole); }
 
   /** Lleva el tobillo a `target`; la rodilla sale hacia `pole`. */
-  reachLeg(side, target, pole) { return this._reach(`${side}UpLeg`, `${side}Leg`, `${side}Foot`, target, pole); }
+  reachLeg(side, target, pole) { return this.reach(`${side}UpLeg`, `${side}Leg`, `${side}Foot`, target, pole); }
 
   /** Planta plana sobre el piso, con la punta girada `out` radianes hacia afuera. */
   flatFoot(side, out = 0, pitch = 0) {
@@ -257,5 +258,39 @@ export class PoseRig {
     }
     hand.updateMatrixWorld(true);
     return this;
+  }
+
+  /** Puño de contacto: junta las cuatro falanges proximales y recoge el pulgar sobre los dedos. */
+  fist(side) {
+    if (this.fingers[side].some(({ chain }) => chain.length < 3)) return [];
+    this.curl(side, 1, 0);
+    const digits = Object.fromEntries(this.fingers[side].map(({ finger, chain }) => [finger, chain]));
+    const { axis, palm } = this._handFrame(side);
+    const wrist = this.joints[`${side}Hand`].getWorldQuaternion(new Quaternion());
+    const forward = axis.clone().applyQuaternion(wrist);
+    const inward = palm.applyQuaternion(wrist);
+    const across = this.where(digits.Index[0]).sub(this.where(digits.Pinky[0]));
+    const width = across.length();
+    across.normalize().addScaledVector(forward, -across.dot(forward)).normalize();
+    const bend = [1.28, 2.84, 4.08]; // dirección de cada falange, hacia la palma
+    for (const [finger, gather] of [['Index', -.12], ['Middle', -.045], ['Ring', .05], ['Pinky', .14]]) {
+      digits[finger].forEach((bone, i) => {
+        const aim = forward.clone().multiplyScalar(Math.cos(bend[i])).addScaledVector(inward, Math.sin(bend[i]))
+          .addScaledVector(across, gather);
+        this.point(bone, aim.x, aim.y, aim.z);
+      });
+    }
+    const index = this.where(digits.Index[1]);
+    const middle = this.where(digits.Middle[1]);
+    const thumbTargets = [
+      index.clone().addScaledVector(across, .25 * width),
+      index.clone().addScaledVector(inward, .13 * width).addScaledVector(forward, -.12 * width),
+      middle.addScaledVector(inward, .19 * width).addScaledVector(forward, -.32 * width)
+    ];
+    digits.Thumb.forEach((bone, i) => {
+      const aim = thumbTargets[i].sub(this.where(bone));
+      this.point(bone, aim.x, aim.y, aim.z);
+    });
+    return this.fingers[side].flatMap(({ chain }) => chain.map(bone => ({ name: bone.name, rotation: bone.quaternion.clone() })));
   }
 }

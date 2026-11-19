@@ -12,6 +12,7 @@ Las semillas locales de las casas evitan que crear más geometrías o materiales
 
 ## Azoteas
 
+La losa (`slab()` en `textures.js`) es gris media, con agua estancada, chorreones que salen de las juntas, verdín pegado a ellas y remiendos de manto en manchas suaves. Bases de tanque, dados y cuarto de escalera son de concreto viejo (la celda `canvas`, con manchas, chorreones y sombra de contacto abajo), nunca de la celda casi blanca. Los tanques son de dieciséis caras con una normal por esquina, negros mates y con polvo en la tapa. El pretil de las casas lleva pañete por dentro, a 1,5 cm de la cara interior y por paños de unos 2,6 m, dentro de la malla «Azotea con vida», solo si la azotea ya la tiene. Las latas son zinc gris de onda con óxido en un extremo (la celda `lata`, en el último hueco libre del atlas de detalle: x 896, y 368, 128 × 32 del diseño; lo nuevo del atlas se pinta al final, con su propio azar); todas caen hacia un mismo borde del techo, de 8 a 14 cm, y cada una pisa a la siguiente de 12 a 20 cm. El canto del antepecho de ladrillo es una junta de mortero. Cada techo gasta su azar en el mismo orden que antes, así que tanques, varillas, pesos, ropa y latas salen donde salían.
 
 ## Torre Colpatria
 
