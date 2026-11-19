@@ -9,6 +9,7 @@ import { neighborhoodAt } from '../src/world/bogota/NeighborhoodIdentity.js';
 import { planUrbanBuildings } from '../src/world/bogota/UrbanBuildings.js';
 import { planEastLots } from '../src/world/bogota/EastBuildings.js';
 import { scanCityEdge } from '../src/world/bogota/CityEdge.js';
+import { buildTeusaquilloGarden, onTeusaquilloApron } from '../src/world/bogota/TeusaquilloGarden.js';
 import { cityLandmarks, streetLabels } from '../src/world/bogota/CityMapRaster.js';
 import { cobblestones, detailSheet, muralSheet, redBrick, towerFacade } from '../src/world/bogota/ZoneTextures.js';
 
@@ -40,6 +41,57 @@ city.build(scene, collisions);
 const map = city.map;
 const oldCity = map.map(row => [...row.slice(0, EAST_SEAM), 'wall']);
 after(() => city.dispose(scene));
+
+test('los jardines de Teusaquillo acompañan las bancas y dejan libres senderos, troncos y residuos', () => {
+  const ground = (x, z) => city.getGroundHeight(x, z);
+  const garden = buildTeusaquilloGarden({ detail: city.zoneMaterials.detail, brick: city.zoneMaterials.brick,
+    soil: city.groundMaterials.dirt }, ground);
+  assert.equal(city.group.getObjectByName(garden.name)?.children.length, 1, 'el follaje tiene su propio lote');
+  const trees = city.treePlan.filter(({ x, z }) => x > 321 && x < 341 && z > 253 && z < 270);
+  for (const mesh of garden.children) {
+    const pos = mesh.geometry.attributes.position;
+    const uv = mesh.geometry.getAttribute('uv');
+    assert.equal(uv.count, pos.count);
+    assert.ok(uv.array.every(Number.isFinite), mesh.name);
+    for (let i = 0; i < pos.count; i++) {
+      const x = pos.getX(i), z = pos.getZ(i);
+      assert.equal(city.tileTypeAt(Math.round(x / 2), Math.round(z / 2)), 'grass', `${x}, ${z}`);
+      assert.ok(trees.every(tree => Math.hypot(x - tree.x, z - tree.z) > .92), 'se conserva la tierra abierta al pie de los troncos');
+    }
+  }
+  assert.deepEqual(city.benchSpots.filter(({ x, z }) => x > 320 && x < 342 && z >= 253 && z <= 315)
+    .map(({ x, y, z }) => [x, y, z]), [[326, .06, 264], [336, .06, 264], [326, .06, 300], [336, .06, 300]]);
+  const ray = new THREE.Raycaster(new THREE.Vector3(), new THREE.Vector3(0, -1, 0), 0, 2);
+  for (const x of [326, 336]) for (const dz of [-.68, .68]) {
+    ray.ray.origin.set(x, 1.5, 264 + dz);
+    const hit = ray.intersectObject(garden, true)[0]?.point;
+    assert.ok(hit && hit.y > .06 && hit.y < .07, 'losetas a ras bajo los apoyos');
+  }
+  const trash = city.getSpawnGrid().filter(({ x, z }) => x >= 320 && x <= 342 && z >= 253 && z <= 268);
+  assert.ok(trash.length > 0);
+  for (const { x, z } of trash) for (let i = 0; i < 12; i++) {
+    const a = i * Math.PI / 6;
+    ray.ray.origin.set(x + Math.cos(a) * .63, 1.5, z + Math.sin(a) * .63);
+    assert.ok(ray.intersectObject(garden, true).every(({ point }) => point.y < ground(point.x, point.z) + .012), `residuo en ${x}, ${z}`);
+  }
+  for (const mesh of city.group.getObjectByName('Calle: cables y mobiliario').children) {
+    if (mesh.name !== 'Calle' || !mesh.geometry.boundingBox?.intersectsBox(
+      new THREE.Box3(new THREE.Vector3(325, 0, 262), new THREE.Vector3(337.2, .40, 266)))) continue;
+    const { index, attributes: { position } } = mesh.geometry;
+    for (let i = 0; i < index.count; i += 3) {
+      const vertices = [index.getX(i), index.getX(i + 1), index.getX(i + 2)];
+      const roots = vertices.filter(j => Math.abs(position.getY(j) - .06) < .001);
+      if (roots.length !== 2) continue;
+      const tip = vertices.find(j => !roots.includes(j)), height = position.getY(tip);
+      if (height > .11 && height < .38) assert.equal(onTeusaquilloApron(position.getX(tip), position.getZ(tip)), false,
+        'los penachos del césped dejan libres las dos losetas');
+    }
+  }
+  for (const mesh of garden.children) {
+    mesh.geometry.dispose();
+    if (mesh.name.startsWith('Herbáceas') || mesh.material.name === 'Loseta mate de las bancas') mesh.material.dispose();
+  }
+});
 
 test('la ciudad crece hacia el oriente sin mover nada de la parte anterior', () => {
   assert.equal(map[0].length, CITY_WIDTH);

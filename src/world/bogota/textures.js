@@ -699,43 +699,59 @@ export function dirt(seed = 31) {
   return surfaceMaps(maps);
 }
 
-/** Césped de clima frío, por matas: hojas oscuras, verdes y de paja sobre tierra que asoma entre ellas. */
+export const GRASS_TILE_METERS = 3.5;
+
+/** Césped corto de clima frío, con hojas finas y matas cruzadas sobre la tierra. */
 export function grass(seed = 61) {
   const r = rng(seed), s = 512;
-  const maps = surface(s, s, '#4d5a39', 236), { x, xb, xr } = maps;
+  const maps = surface(s, s, '#596447', 236), { x, xb, xr } = maps;
   // La hoja que cruza el borde se dibuja también al otro lado: la repetición no corta una mata.
-  const blade = (px, py, length, lean, width, color, height) => {
+  const blade = (px, py, length, angle, width, color, height) => {
     const margin = length + 8;
+    const dx = Math.cos(angle), dy = Math.sin(angle);
+    const tx = -dy * width, ty = dx * width;
+    const lean = (r() - .5) * length * .53;
     for (const ox of px < margin ? [0, s] : px > s - margin ? [0, -s] : [0]) {
       for (const oy of py < margin ? [0, s] : py > s - margin ? [0, -s] : [0]) {
-        for (const [ctx, stroke] of [[x, color], [xb, height]]) {
-          ctx.strokeStyle = stroke; ctx.lineWidth = width; ctx.beginPath();
-          ctx.moveTo(px + ox, py + oy); ctx.lineTo(px + ox + lean, py + oy - length); ctx.stroke();
+        const xx = px + ox, yy = py + oy;
+        for (const [ctx, fill] of [[x, color], [xb, height]]) {
+          ctx.fillStyle = fill;
+          ctx.beginPath();
+          ctx.moveTo(xx - tx / 2, yy - ty / 2);
+          ctx.lineTo(xx + tx / 2, yy + ty / 2);
+          ctx.lineTo(xx + dx * length * .53 + tx * .32, yy + dy * length * .53 + ty * .32);
+          ctx.lineTo(xx + dx * length - dy * lean, yy + dy * length + dx * lean);
+          ctx.fill();
         }
       }
     }
   };
-  for (let i = 0; i < 26; i++) {
-    const px = r() * s, py = r() * s, radius = 24 + r() * 70;
-    softPatch(x, s, s, px, py, radius, radius * .8, pick(r, ['rgba(42,58,31,.34)', 'rgba(108,116,66,.22)', 'rgba(82,75,48,.22)']));
+  for (let i = 0; i < 38; i++) {
+    const px = r() * s, py = r() * s, radius = 13 + r() * 42;
+    softPatch(x, s, s, px, py, radius, radius * .8, pick(r, ['rgba(51,66,45,.27)', 'rgba(108,119,76,.20)', 'rgba(85,77,53,.25)']));
     softPatch(xr, s, s, px, py, radius, radius * .8, 'rgba(204,204,204,.25)');
   }
-  // Tierra entre matas: de lejos no se ve cada una, pero el conjunto deja de ser una alfombra.
-  for (let i = 0; i < 230; i++) {
-    const px = r() * s, py = r() * s, radius = 2.5 + r() * 7;
-    softPatch(x, s, s, px, py, radius, radius * .75, 'rgba(50,43,30,.46)');
-    softPatch(xb, s, s, px, py, radius, radius * .75, 'rgba(96,96,96,.4)');
+  // Tierra entre hojas: claros pequeños, con contraste parecido al de un prado recién guadañado.
+  for (let i = 0; i < 265; i++) {
+    const px = r() * s, py = r() * s, radius = 2 + r() * 4.5;
+    softPatch(x, s, s, px, py, radius, radius * .75, 'rgba(63,51,38,.38)');
+    softPatch(xb, s, s, px, py, radius, radius * .75, 'rgba(106,106,106,.30)');
   }
-  for (let i = 0; i < 5000; i++) {
-    blade(r() * s, r() * s, 2 + r() * 4, (r() - .5) * 3, .7, pick(r, ['rgba(74,92,52,.6)', 'rgba(101,118,70,.5)', 'rgba(60,76,44,.6)']), gray(122 + Math.floor(r() * 16)));
+  const field = ['#4a5b3c', '#546745', '#63744b', '#738059', '#777c55'];
+  for (let i = 0; i < 17000; i++) {
+    blade(r() * s, r() * s, 2.6 + r() * 4, r() * Math.PI * 2, .85 + r() * .8,
+      pick(r, field), gray(125 + Math.floor(r() * 19)));
   }
-  // Matas de tamaños mezclados, cada una con su tono; todas repiten su trazo en el mapa de altura.
-  const tones = [['#3e5230', '#4c6238'], ['#4f6438', '#5f7541'], ['#5f7342', '#6f834b'], ['#74794a', '#838653']];
-  for (let i = 0; i < 960; i++) {
-    const cx = r() * s, cy = r() * s, spread = 2 + r() * 8, blades = 5 + Math.floor(r() * 9);
-    const pair = r(), [dark, light] = tones[pair < .3 ? 0 : pair < .68 ? 1 : pair < .94 ? 2 : 3];
+  // Matas de pocos centímetros, todas con el mismo trazo en color y en altura.
+  const tones = [['#4c623f', '#63774b'], ['#586c43', '#6a7e50'], ['#66764b', '#77845b'], ['#757a51', '#85865d']];
+  for (let i = 0; i < 1350; i++) {
+    const cx = r() * s, cy = r() * s, spread = 2 + r() * 5, blades = 4 + Math.floor(r() * 7);
+    const direction = r() * Math.PI * 2, pair = r();
+    const [dark, light] = tones[pair < .33 ? 0 : pair < .73 ? 1 : pair < .95 ? 2 : 3];
     for (let n = 0; n < blades; n++) {
-      blade(cx + (r() - .5) * spread, cy + (r() - .5) * spread, 3 + r() * 6, (r() - .5) * 6, .6 + r() * .7, r() < .55 ? dark : light, gray(134 + Math.floor(r() * 36)));
+      blade(cx + (r() - .5) * spread, cy + (r() - .5) * spread,
+        3.3 + r() * 5.2, direction + (r() - .5) * 4, .95 + r() * 1.12,
+        r() < .56 ? dark : light, gray(134 + Math.floor(r() * 23)));
     }
   }
   return surfaceMaps(maps);

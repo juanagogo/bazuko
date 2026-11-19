@@ -2,7 +2,7 @@
 // Constructor de lotes para los barrios del oriente: acumula cajas y cuadriláteros por material y
 // crea una sola malla por pared, sin un objeto Three por barrote, alero o baranda.
 import * as THREE from 'three';
-import { footHaze } from './CityBackdrop.js';
+import { patchBackdropMist } from './BackdropMist.js';
 import { patchSunFieldShader } from './SunFieldShader.js';
 import { colonialWallSheet, redBrick, clayTiles, detailSheet, muralSheet, towerFacade,
   detailRect, WALL_SHEET, RED_BRICK_METERS } from './ZoneTextures.js';
@@ -144,13 +144,15 @@ class HazyTowerMaterial extends THREE.MeshStandardMaterial {
   }
 
   onBeforeCompile(shader) {
+    patchBackdropMist(shader);
     shader.vertexShader = shader.vertexShader.replace('#include <project_vertex>', `#include <project_vertex>
       { float zn = gl_Position.z / gl_Position.w;
-        float zc = zn > 0.9998 ? 0.9998 + (zn - 0.9998) * 0.14 : zn;
+        float zc = zn > 0.9998 && gl_Position.w > 0. ? 0.9998 + (zn - 0.9998) * 0.14 : zn;
         gl_Position.z = zc * gl_Position.w; }`);
     shader.fragmentShader = shader.fragmentShader.replace('#include <fog_fragment>', `
       #ifdef USE_FOG
-        gl_FragColor.rgb = skyFogMix(gl_FragColor.rgb, ${footHaze('min(smoothstep(fogNear, fogFar, vFogDepth), .55)')});
+        float towerHazeCap = mix(.64, .33, smoothstep(130., 170., fogFar));
+        gl_FragColor.rgb = skyFogMix(gl_FragColor.rgb, backdropMist(min(smoothstep(fogNear, fogFar, vFogDepth), towerHazeCap)));
       #endif`);
     // El gancho de la clase tapa el del prototipo: sin esto la torre no recibe sombra en calidad baja.
     patchSunFieldShader(shader);

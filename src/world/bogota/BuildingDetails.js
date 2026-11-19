@@ -218,6 +218,71 @@ function addRooftopLife(shell, { baseY, width, depth, height, seed, ruin, tankSi
   return life.finish('Azotea con vida');
 }
 
+/** Lo que el local saca al andén. Todo queda a menos de 40 cm del muro: nadie lo atraviesa a la vista. */
+const ANDEN = {
+  canastas(life, UV, q, u, s) {
+    const cells = [UV.canastaRoja, UV.canastaAmarilla, UV.canastaAzul];
+    for (const [du, count] of [[0, 3 + Math.floor(q() * 2)], [s * .47, 2 + Math.floor(q() * 2)]]) {
+      for (let i = 0; i < count; i++) life.box(cells[Math.floor(q() * 3)], u + du + (q() - .5) * .04, i * .27, .2, .42, .27, .32);
+    }
+  },
+  nevera(life, UV, q, u) { life.box(UV.nevera, u, 0, .2, .78, .86, .38); },
+  tijera(life, UV, q, u) { life.slope(UV.tijera, u, .86, .16, 0, .38, .56); life.panel(UV.wood, u, .43, .14, .56, .86); },
+  almuerzo(life, UV, q, u) { life.slope(UV.almuerzo, u, .92, .16, 0, .38, .6); life.panel(UV.wood, u, .46, .14, .6, .92); },
+  sillas(life, UV, q, u, s) {
+    const cell = q() < .5 ? UV.sillaRoja : UV.chair;
+    for (const du of q() < .6 ? [0, s * .52] : [0]) {
+      life.box(cell, u + du, .4, .21, .4, .04, .36);
+      life.box(cell, u + du, .44, .05, .4, .4, .03);
+      for (const [a, c] of [[-.17, .06], [.17, .06], [-.17, .36], [.17, .36]]) life.box(cell, u + du + a, 0, c, .03, .4, .03);
+    }
+  },
+  llantas(life, UV, q, u) {
+    const count = 4 + Math.floor(q() * 3);
+    for (let i = 0; i < count; i++) life.cylinder(UV.tire, u + (q() - .5) * .03, i * .17, .2, .19, .19, .17, 8);
+    life.cylinder(UV.tire, u, count * .17, .2, .19, .08, .01, 8);
+  },
+  costales(life, UV, q, u) {
+    const count = 3 + Math.floor(q() * 2);
+    for (let i = 0; i < count; i++) life.box(UV.sack, u + (i % 2 ? .05 : -.03), i * .21, .2, .6 - i * .04, .21, .38 - i * .02);
+  },
+  cajas(life, UV, q, u, s) {
+    life.box(UV.box, u, 0, .2, .48, .38, .38);
+    life.box(UV.cardboard, u + .03, .38, .2, .42, .32, .36);
+    if (q() < .6) life.box(UV.box, u - .02, .7, .19, .34, .26, .32);
+    life.box(UV.box, u + s * .47, 0, .19, .38, .32, .36);
+  },
+  guacales(life, UV, q, u, s) {
+    for (const du of [0, s * .58]) {
+      // El primero va montado sobre un guacal vacío: la fruta queda a la altura de la mano.
+      const base = du ? 0 : .3;
+      if (base) life.box(UV.guacal, u, 0, .2, .54, base, .38);
+      life.box(UV.guacal, u + du, base, .2, .54, .3, .36);
+      life.box(UV.guacal, u + du, base + .3, .18, .54, .08, .32);
+      life.slope(UV.frutas, u + du, base + .56, .03, base + .38, .39, .54);
+    }
+  },
+  // Matera de barro con lengua de suegra: cuatro hojas en punta, de alto distinto. La mitad está vacía, con la tierra seca.
+  matera(life, UV, q, u) {
+    const suerte = q(), alto = .22 + suerte * .16, resto = n => suerte * n % 1;
+    life.cylinder(UV.matera, u, 0, .2, .13, .17, .32, 6);
+    life.cylinder(UV.wood, u, .29, .2, .135, 0, .025, 4);
+    if (resto(7) < .5) return;
+    for (let i = 0; i < 4; i++) {
+      const giro = resto(13) * 6.283 + i * 1.571, fuera = .035 + resto(31 + i * 7) * .045;
+      life.cylinder(UV.planta, u + Math.cos(giro) * fuera, .3, .2 + Math.sin(giro) * fuera, .028 + resto(17 + i * 5) * .014, 0, alto + .12 + resto(23 + i * 11) * .2, 3);
+    }
+  },
+  caneca(life, UV, q, u) { life.cylinder(UV.bin, u, 0, .2, .17, .19, .62, 8); life.cylinder(UV.bin, u, .62, .2, .19, .05, .02, 8); },
+  chatarra(life, UV, q, u) {
+    const alto = .5 + q() * .25;
+    life.box(UV.pila, u, 0, .2, .86, alto, .38);
+    life.box(UV.pila, u + .12, alto, .18, .46, .26, .3);
+    life.box(UV.rust, u - .3, 0, .33, .05, alto + .5, .05);
+  },
+  afiches(life, UV, q, u, s) { life.panel(UV.afiches, u - s * .2, 1.5 + q() * .25, .03, .52, .64); }
+};
+
 /** Primer piso: toldos, contadores, letreros a mano y humedad bajo los alféizares. */
 function addFacadeLife(wall, face, plane, { length, facadeHeight, floorHeight, centers, windowWidth, windowHeight, rows, seed, ruin, shopfront, tower }) {
   const UV = detailAtlas().uv, life = lifeBatch(wall, face, plane), damp = lifeBatch(wall, face, plane, sharedStainMaterial);
