@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import * as THREE from 'three';
+import { Bogota } from '../src/world/districts/Bogota.js';
 import { buildLakeTerrain, LAKE_TERRAIN, lakeTerrainHeight } from '../src/world/bogota/LakePark.js';
 import { createLakeShoreMaterial, createLakeShoreDetail, lakePavingBlend, LAKE_PAVING_EDGE } from '../src/world/bogota/LakeShoreMaterials.js';
 
@@ -29,12 +30,17 @@ test('el acabado de ribera no cambia vértices, índices, alturas ni la consulta
 test('la línea húmeda, la grava y el césped se separan sin romper el material del borde', () => {
   const groundTint = new THREE.Color('#c2c7ac'), plazaTint = new THREE.Color('#cac8bd');
   const terrain = buildLakeTerrain(() => .06, { groundMap: new THREE.Texture(), groundTint });
-  const layers = terrain.geometry.attributes.lakeLayers, colors = terrain.geometry.attributes.color;
+  const { lakeLayers: layers, color: colors, lakeSoil: soil } = terrain.geometry.attributes;
   const waterline = indexAt(125, 262), bank = indexAt(126, 262), edge = indexAt(129, 262);
   assert.ok(layers.getZ(waterline) > .95, 'lodo húmedo junto al agua');
   assert.ok(layers.getY(bank) > .1, 'grava en el talud exterior');
   assert.equal(layers.getX(edge), 1, 'césped en el borde del parque');
   assert.equal(layers.getZ(edge), 0);
+  for (let channel = 0; channel < 3; channel++) {
+    assert.equal(soil.array[waterline * 3 + channel], colors.array[waterline * 3 + channel]);
+    assert.equal(soil.array[edge * 3 + channel], 0);
+    assert.ok(soil.array[bank * 3 + channel] > 0 && soil.array[bank * 3 + channel] < colors.array[bank * 3 + channel]);
+  }
   for (const [component, value] of groundTint.toArray().entries()) assert.ok(Math.abs(colors.array[edge * 3 + component] - value) < 1e-6);
   const promenade = buildLakeTerrain(() => .14, { groundMap: new THREE.Texture(), groundTint, plazaMap: new THREE.Texture(), plazaTint });
   const pavedColors = promenade.geometry.attributes.color;
@@ -75,22 +81,55 @@ test('detalle y variación espacial son deterministas y comparten una sola pasad
   dispose(a); dispose(b); textureA.dispose(); textureB.dispose();
 });
 
-test('el shader conserva luces, niebla y salidas PBR; mezcla los mapas con cinco lecturas como máximo', () => {
+test('el shader aplica las sombras de la ciudad y mezcla los cinco mapas del material una sola vez', () => {
   const material = createLakeShoreMaterial({ groundMap: new THREE.Texture(), plazaMap: new THREE.Texture(),
     groundBumpMap: new THREE.Texture(), plazaBumpMap: new THREE.Texture() });
   const shader = { uniforms: {}, vertexShader: THREE.ShaderLib.standard.vertexShader,
     fragmentShader: THREE.ShaderLib.standard.fragmentShader };
   material.onBeforeCompile(shader);
-  for (const chunk of ['<lights_fragment_begin>', '<tonemapping_fragment>', '<colorspace_fragment>', '<fog_fragment>']) {
+  for (const chunk of ['<tonemapping_fragment>', '<colorspace_fragment>', '<fog_fragment>']) {
     assert.ok(shader.fragmentShader.includes(chunk));
   }
   assert.ok(shader.vertexShader.includes('vLakeXZ = position.xz;'));
   assert.equal(shader.vertexShader.includes('transformed.y +='), false);
   assert.ok(shader.fragmentShader.includes('perturbNormalArb'));
   assert.ok(shader.fragmentShader.includes('lakeDryRoughness'));
-  assert.equal((shader.fragmentShader.match(/texture2D\(/g) ?? []).length, 5);
+  assert.ok(shader.fragmentShader.includes('vLakeSoil * lakeSoilAlbedo + max(vColor.rgb - vLakeSoil, vec3(0.0)) * lakeGrassAlbedo'));
+  assert.ok(shader.uniforms.uSunField && shader.fragmentShader.includes('directLight.color *= sunFieldLit'));
+  const maps = [...shader.fragmentShader.matchAll(/texture2D\((lake\w+|map),/g)].map(match => match[1]).sort();
+  assert.deepEqual(maps, ['lakeGroundBump', 'lakePlazaBump', 'lakePlazaMap', 'lakeShoreDetail', 'map']);
   assert.deepEqual(shader.uniforms.lakeSurfaceScale.value.toArray(), [8, 6]);
   material.dispose();
+});
+
+test('el mismo adoquín conserva tinte, relieve y rugosidad al cruzar la ribera bajo lluvia', () => {
+  const city = new Bogota();
+  city.map = city._layout();
+  city._buildGround(city.map);
+  try {
+    const paving = city.groundMaterials.plaza_parque;
+    const { geometry, material } = city.lakeTerrain;
+    assert.equal(geometry.getAttribute('lakePlaza').getX(indexAt(21, 250)), 1);
+    assert.equal(city.getGroundTypeAt(20, 250), 'plaza');
+    const shader = { uniforms: {}, vertexShader: THREE.ShaderLib.standard.vertexShader,
+      fragmentShader: THREE.ShaderLib.standard.fragmentShader };
+    material.onBeforeCompile(shader);
+    const uniforms = shader.uniforms;
+    assert.ok(shader.fragmentShader.includes('min( 1.0, sunFieldTexel.r * 255.0 )'), 'un fondo bajo cero queda al sol donde el campo no contiene ningún obstáculo');
+    assert.equal(uniforms.lakePlazaMap.value, paving.map);
+    assert.equal(uniforms.lakePlazaBump.value, paving.bumpMap);
+    assert.equal(paving.bumpMap.source, paving.roughnessMap.source);
+    assert.equal(uniforms.lakePlazaBumpScale.value, paving.bumpScale);
+    assert.ok(shader.fragmentShader.includes('lakePavingRoughness *= lakePavingSurface.g'));
+    for (const quality of ['alta', 'baja']) {
+      city.graphicsQuality = quality;
+      for (const wetness of [0, .5, 1, .25, 0]) {
+        city.setWetness(wetness);
+        assert.deepEqual(uniforms.lakePlazaTint.value.toArray(), paving.color.toArray());
+        assert.equal(uniforms.lakePlazaRoughness.value, paving.roughness);
+      }
+    }
+  } finally { city.dispose(new THREE.Scene()); }
 });
 
 test('dispose libera el detalle propio una sola vez y conserva las texturas compartidas del parque', () => {

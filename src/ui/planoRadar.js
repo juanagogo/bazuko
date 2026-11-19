@@ -175,7 +175,7 @@ export function prepararPlano(tiles) {
     if (c === 'plaza') {
       juntas.moveTo(wx - .8, wz); juntas.lineTo(wx + .9, wz); juntas.lineTo(wx + .9, wz + .65);
     }
-    if (c === 'water' && x % 4 === 0 && radioLago(wx, wz) < .8) { olas.moveTo(wx - 2, wz); olas.quadraticCurveTo(wx - 1, wz - 1, wx, wz); olas.quadraticCurveTo(wx + 1, wz + 1, wx + 2, wz); }
+    if (c === 'water' && x % 4 === 0 && (radioLago(wx, wz) < .8 || radioLago(wx, wz) > 1.04)) { olas.moveTo(wx - 2, wz); olas.quadraticCurveTo(wx - 1, wz - 1, wx, wz); olas.quadraticCurveTo(wx + 1, wz + 1, wx + 2, wz); }
   }
   // Plazas y paseos: punteados, un punto sí y uno no para que no se vuelva una mancha.
   const rp = azar(1538);

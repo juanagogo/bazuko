@@ -94,7 +94,7 @@ test('el suelo de la ciudad conserva sus mallas, sus materiales y el azar que ga
     city._buildGround(city.map);
   } finally { Math.random = random; }
   // El paseo de los parques aporta su material, sus sectores y el borde contra el césped.
-  assert.equal(draws, 111608);
+  assert.equal(draws, 112316);
   const { sidewalk_calle72: landingMaterial, ...previousMaterials } = city.groundMaterials;
   assert.deepEqual(Object.keys(previousMaterials), ['road', 'busway', 'sidewalk', 'floor', 'dirt', 'grass', 'plaza', 'water',
     'sidewalk_cambuche', 'sidewalk_comercio', 'sidewalk_lago', 'plaza_parque', 'road_cobbles', 'sidewalk_candelaria', 'plaza_candelaria',
@@ -107,14 +107,14 @@ test('el suelo de la ciudad conserva sus mallas, sus materiales y el azar que ga
   assert.equal(landing.geometry.attributes.position.count, 728);
   assert.equal(landing.geometry.index.count, 1092);
   const reeds = city.lakeWater.children.find(object => object.isMesh && object.name === 'Juncos y eneas de la orilla del lago');
-  assert.equal(reeds, undefined, 'la superficie original del lago todavía está despejada');
+  assert.ok(reeds);
   let meshes = 0, vertices = 0, indices = 0;
   city.group.traverse(object => {
-    // La lámina del agua forma parte del suelo; el andén de Calle 72 se contó por separado.
-    if (!object.isMesh || object === landing) return;
+    // Se cuenta la lámina del agua. Los juncos que cuelgan de ella tienen su propia prueba de geometría.
+    if (!object.isMesh || object === reeds || object === landing) return;
     meshes++; vertices += object.geometry.attributes.position.count; indices += object.geometry.index?.count ?? 0;
   });
-  assert.deepEqual({ meshes, vertices, indices }, { meshes: 473, vertices: 121416, indices: 227538 });
+  assert.deepEqual({ meshes, vertices, indices }, { meshes: 476, vertices: 122100, indices: 228564 });
 });
 
 test('el sardinel pintado cambia de tono, no de geometría ni de choques', () => {
@@ -131,8 +131,11 @@ test('el sardinel pintado cambia de tono, no de geometría ni de choques', () =>
     if (!object.isMesh || object.name !== 'Calle') return;
     meshes++; vertices += object.geometry.attributes.position.count; indices += object.geometry.index?.count ?? 0;
   });
-  // El lote Calle incluye el borde de césped del parque, con el paseo original alrededor del lago.
-  assert.deepEqual({ meshes, vertices, indices }, { meshes: 34, vertices: 339956, indices: 553281 });
+  // El lote Calle incluye césped de borde. Las losetas de Teusaquillo cubren 5 matas (25 hojas) y
+  // el andén de Calle 72 cubre 12 (60 hojas). Cada hoja tiene dos caras, con seis vértices e índices.
+  const leavesCoveredByPaving = (25 + 60) * 6;
+  assert.deepEqual({ meshes, vertices, indices }, { meshes: 34,
+    vertices: 346382 - leavesCoveredByPaving, indices: 560055 - leavesCoveredByPaving });
   activateSunField(null);
 });
 

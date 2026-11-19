@@ -98,7 +98,7 @@ globalThis.document = { createElement: () => lienzo() };
 
 test('el montaje de Bogotá con parques, cruces y locales conserva su presupuesto de sorteos', () => {
   // Las 88 identidades toman aspecto y arquetipo de su propia semilla de partida.
-  assert.equal(sorteosDeLaCiudad, 384191);
+  assert.equal(sorteosDeLaCiudad, 384852);
 });
 
 test('la losa de azotea es gris media y sucia, no clara y limpia', () => {
