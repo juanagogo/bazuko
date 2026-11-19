@@ -2,6 +2,7 @@
 import * as THREE from 'three';
 import { CAR_COOLDOWN, INTERACT_RANGE } from '../utils/constants.js';
 import { makeVehicle } from '../world/bogota/vehicles.js';
+import { layCarLight } from '../world/bogota/carBeam.js';
 import { getDriverGeometry } from '../world/bogota/VehicleBody.js';
 import { markerGeometry, markerMaterial } from '../world/bogota/carMarker.js';
 import { createImportedModel, disposeImportedInstance } from '../utils/ImportedModels.js';
@@ -64,8 +65,7 @@ export class Car {
     const resolvedKind = kind ?? (Math.random() < 0.3 ? 'taxi' : 'carro');
     this.kind = resolvedKind;
     this.modelKind = resolvedKind === 'taxi' ? 'car2' : 'car1';
-    // El haz solo lo muestra quien circula: un parqueado no gasta un material en algo que nunca enciende.
-    // Solo el que circula anima ruedas y plumillas; el resto las lleva unidas a sus molduras y ahorra seis llamadas.
+    // El haz de un parqueado se crea al conducirlo. Sus ruedas y plumillas van unidas a las molduras.
     const v = makeVehicle(resolvedKind, Number.isFinite(variant) ? Math.trunc(variant) : Math.floor(Math.random() * 10000), { beams: traffic, model, parked: !traffic });
     this.vehicle = v;
     this.length = v.length;
@@ -328,9 +328,9 @@ export class Car {
     const reach = this._markerNear ? MARKER_HIDE : MARKER_SHOW;
     this._markerNear = !!player && this.stealable && this.interactDistance(player) < reach;
     const fade = Math.max(0, Math.min(1, this._markerFade + (this._markerNear ? dt : -dt) / MARKER_FADE));
+    this.marker.visible = fade > 0;
     if (fade === this._markerFade) return;
     this._markerFade = fade;
-    this.marker.visible = fade > 0;
     if (fade > 0) this.marker.material = markerMaterial(fade);
   }
 
@@ -416,14 +416,23 @@ export class Car {
     // De día los faros van apagados: se encienden con la noche, la lluvia o la neblina. Solo si hay conductor; un parqueado sigue apagado.
     const on = this.traffic && (isNight || isRaining || isFoggy);
     this._lightsOn = on;
+    if (!this.traffic) this._braking = false;
     if (this.vehicle.headlightMaterial) this.vehicle.headlightMaterial.emissiveIntensity = !on ? .02 : isNight ? 1.35 : .8;
     this._applyTail();
-    if (this.vehicle?.beam) {
-      this.vehicle.beam.visible = on && !this._simple;
-      this.vehicle.beam.material.opacity = isNight ? 0.38 : .28;
+    const beam = this.vehicle.beam ?? (on && this.driven ? this.vehicle.prepararHaz?.() : null);
+    if (beam) {
+      // La primera vez el haz se viste con el charco de los faros y el rojo de los stops sobre el piso.
+      if (on && !beam.userData.pavementLight) { layCarLight(beam, this.vehicle.length); beam.userData.pavementLight = true; }
+      beam.visible = on && !this._simple;
+      // El piso mojado devuelve más luz: con lluvia el charco y el rojo de atrás se marcan más.
+      beam.material.opacity = isNight ? (isRaining ? .62 : .5) : isRaining ? .34 : .28;
     }
     if (this.vehicle?.flares) {
-      for (const f of this.vehicle.flares) f.visible = on;
+      for (const f of this.vehicle.flares) {
+        f.visible = on;
+        // De noche el halo de faros y stops pesa más contra la calle oscura.
+        if (f.material?.uniforms?.uStrength) f.material.uniforms.uStrength.value = isNight ? .85 : .62;
+      }
     }
   }
 
