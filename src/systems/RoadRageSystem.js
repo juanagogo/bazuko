@@ -5,6 +5,7 @@
 import * as THREE from 'three';
 import { AngryDriver, ROAD_RAGE } from '../entities/AngryDriver.js';
 import { seededRandom } from '../entities/npc/mind.js';
+import { vozParaConductor, sexoDeConductor } from './voces/identidad.js';
 import { canReachCombatTarget, hasClearCombatLine } from './CombatGeometry.js';
 
 const toast = (text, type = 'info') => globalThis.window?.dispatchEvent?.(new CustomEvent('toast', { detail: { text, type } }));
@@ -58,9 +59,12 @@ export class RoadRageSystem {
     this.driver = this._createDriver(1);
   }
 
-  _createDriver(slot) {
-    const driver = new AngryDriver(this.scene, { ...this._driverOptions, personRandom: seededRandom(0x47110000 + slot) });
+  _createDriver(slot, car = this.traffic?.vehicles?.find(vehicle => vehicle.spawnOrdinal === slot)?.car) {
+    const voice = vozParaConductor(driverId(slot), car?.kind);
+    const sexo = sexoDeConductor(voice);
+    const driver = new AngryDriver(this.scene, { ...this._driverOptions, sexo, personRandom: seededRandom(0x47110000 + slot) });
     driver.stableId = driverId(slot);
+    driver._voz = voice;
     return driver;
   }
 
@@ -92,6 +96,7 @@ export class RoadRageSystem {
         this.driver.looted = saved.looted;
       }
     }
+    this.audio?.voces?.vincularConductor?.(this.driver, car, id);
     this.vehicle = vehicle;
     this.state = 'stopping';
     this.stopTimer = 0;

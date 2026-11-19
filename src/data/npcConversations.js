@@ -1,15 +1,18 @@
 // src/data/npcConversations.js
-// Generado por el lab de voces (4_llevar_al_juego.py): conversaciones entre dos peatones.
-// Cada hablante pide sexo y edad; el audio está en public/audio/conversaciones/.
+// Conversaciones entre dos peatones, con las condiciones de la escena y el reparto.
+// El audio está en public/audio/conversaciones/.
 export const NPC_CONVERSATIONS = [
   {
     "id": "bus",
+    "contexto": { "lugar": "paradero" },
     "hablantes": {
       "A": {
+        "voz": "charla_bus_A",
         "sexo": "hombre",
         "edad": "adulto"
       },
       "B": {
+        "voz": "charla_bus_B",
         "sexo": "hombre",
         "edad": "joven"
       }
@@ -41,10 +44,12 @@ export const NPC_CONVERSATIONS = [
     "id": "camioneta",
     "hablantes": {
       "A": {
+        "voz": "charla_camioneta_A",
         "sexo": "mujer",
         "edad": "adulto"
       },
       "B": {
+        "voz": "charla_camioneta_B",
         "sexo": "hombre",
         "edad": "adulto"
       }
@@ -73,13 +78,30 @@ export const NPC_CONVERSATIONS = [
     ]
   },
   {
+    "id": "carton",
+    "contexto": { "lugar": "parque", "parejaFija": true },
+    "hablantes": {
+      "A": { "voz": "vecina_parque", "sexo": "mujer", "edad": "adulto", "arquetipo": "senora" },
+      "B": { "voz": "vecino_parque", "sexo": "hombre", "edad": "mayor", "arquetipo": "abuelo" }
+    },
+    "lineas": [
+      { "hablante": "A", "texto": "Veci, ¿ese cartón está seco?", "file": "conv_carton_01.mp3" },
+      { "hablante": "B", "texto": "Sí, lo guardé debajo del toldo.", "file": "conv_carton_02.mp3" },
+      { "hablante": "A", "texto": "Déjeme la caja aquí, yo le pongo una pita.", "file": "conv_carton_03.mp3" },
+      { "hablante": "B", "texto": "Listo, veci. Ahora le traigo otra.", "file": "conv_carton_04.mp3" }
+    ]
+  },
+  {
     "id": "frio",
+    "contexto": { "noche": true },
     "hablantes": {
       "A": {
+        "voz": "charla_frio_A",
         "sexo": "hombre",
         "edad": "mayor"
       },
       "B": {
+        "voz": "charla_frio_B",
         "sexo": "mujer",
         "edad": "joven"
       }
@@ -111,10 +133,12 @@ export const NPC_CONVERSATIONS = [
     "id": "futbol",
     "hablantes": {
       "A": {
+        "voz": "charla_futbol_A",
         "sexo": "hombre",
         "edad": "joven"
       },
       "B": {
+        "voz": "charla_futbol_B",
         "sexo": "hombre",
         "edad": "adulto"
       }
@@ -144,12 +168,15 @@ export const NPC_CONVERSATIONS = [
   },
   {
     "id": "lluvia",
+    "contexto": { "lluvia": true },
     "hablantes": {
       "A": {
+        "voz": "charla_lluvia_A",
         "sexo": "mujer",
         "edad": "adulto"
       },
       "B": {
+        "voz": "charla_lluvia_B",
         "sexo": "hombre",
         "edad": "adulto"
       }
@@ -179,12 +206,15 @@ export const NPC_CONVERSATIONS = [
   },
   {
     "id": "olor",
+    "contexto": { "lluvia": true },
     "hablantes": {
       "A": {
+        "voz": "charla_olor_A",
         "sexo": "hombre",
         "edad": "adulto"
       },
       "B": {
+        "voz": "charla_olor_B",
         "sexo": "mujer",
         "edad": "adulto"
       }
@@ -214,12 +244,15 @@ export const NPC_CONVERSATIONS = [
   },
   {
     "id": "perro",
+    "contexto": { "lugar": "perro" },
     "hablantes": {
       "A": {
+        "voz": "charla_perro_A",
         "sexo": "mujer",
         "edad": "mayor"
       },
       "B": {
+        "voz": "charla_perro_B",
         "sexo": "hombre",
         "edad": "joven"
       }
@@ -251,10 +284,12 @@ export const NPC_CONVERSATIONS = [
     "id": "precios",
     "hablantes": {
       "A": {
+        "voz": "charla_precios_A",
         "sexo": "mujer",
         "edad": "mayor"
       },
       "B": {
+        "voz": "charla_precios_B",
         "sexo": "mujer",
         "edad": "adulto"
       }
@@ -286,10 +321,12 @@ export const NPC_CONVERSATIONS = [
     "id": "recuerdos",
     "hablantes": {
       "A": {
+        "voz": "charla_recuerdos_A",
         "sexo": "hombre",
         "edad": "mayor"
       },
       "B": {
+        "voz": "charla_recuerdos_B",
         "sexo": "mujer",
         "edad": "mayor"
       }
@@ -321,10 +358,12 @@ export const NPC_CONVERSATIONS = [
     "id": "trabajo",
     "hablantes": {
       "A": {
+        "voz": "charla_trabajo_A",
         "sexo": "mujer",
         "edad": "joven"
       },
       "B": {
+        "voz": "charla_trabajo_B",
         "sexo": "mujer",
         "edad": "adulto"
       }

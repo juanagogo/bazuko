@@ -63,6 +63,8 @@ body.tactil .cierre { padding: 0; }
 @media (hover: hover) { .talent-node.available:hover .talent-name { text-decoration: underline; text-underline-offset: 3px; } }
 
 /* ---------- El jíbaro ---------- */
+.dealer-dialogue { margin: 8px 0 12px; font-size: var(--letra-lectura, 16px); }
+.dealer-dialogue:empty { display: none; }
 .dealer-section { margin-top: 12px; font-weight: 800; font-size: 25px; line-height: 1; }
 .dealer-product { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 4px 14px; min-height: 58px; padding: 6px 0 9px; background: var(--m-regla) center bottom / 100% 5px no-repeat; }
 .dealer-prod-name { font-weight: 800; font-size: 19px; line-height: 1.05; }

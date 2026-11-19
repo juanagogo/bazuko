@@ -36,6 +36,7 @@ function fixture() {
   const howler = { volume() {}, pos(...value) { this.position = value; }, orientation(...value) { this.direction = value; } };
   const audio = new AudioSystem({ HowlClass: FakeHowl, howler });
   audio.vehicles.random = () => .5;
+  audio.voces.random = () => .95; // En estas pruebas de los bancos originales conduce Roberto.
   return { audio, howler, bank: audio.vehicleSounds };
 }
 
@@ -61,6 +62,7 @@ const origin = new THREE.Vector3();
 
 test('el robo en circulación selecciona inmediatamente cualquiera de las cinco frases exclusivas', () => {
   const { audio } = fixture(), vehicle = car(2); vehicle.car.traffic = true;
+  audio.voces.precargarCarros = () => {}; // aquí solo las cinco de siempre; las de voz propia, en voces-carros.test.js
   audio.updateWorld(.1, origin, null, [vehicle]);
   assert.equal(audio.playMovingTheft({ traffic: false }), false);
   for (let i = 0; i < 5; i++) {
@@ -106,21 +108,24 @@ test('la interacción distingue robo de tráfico y alarma de estacionado antes d
   }
 });
 
-test('cada pitada elige al azar entre las doce frases de Valentina y Roberto', () => {
-  const { audio } = fixture(), vehicle = car(2);
-  audio.updateWorld(.1, origin, null, [vehicle]);
-  const state = audio.vehicles.instances.get(vehicle.car);
-  vehicle.personBlocked = true; state.patience = 0;
-  const files = [1, 3, 4, 5, 6, 7].map(n => `valentina_n${n}.mp3`)
-    .concat(Array.from({ length: 6 }, (_, i) => `roberto_n${i + 1}.mp3`));
-  assert.equal(audio.driverSounds.length, 12);
-  for (let i = 0; i < files.length; i++) {
-    audio.vehicles.random = () => (i + .1) / files.length;
-    state.cooldown = 0; audio.vehicles._lastHornAt = -Infinity;
+test('Valentina y Roberto conservan su repertorio en las pitadas sucesivas', () => {
+  const { audio } = fixture();
+  for (const [id, files] of [
+    ['conductor:8', [1, 3, 4, 5, 6, 7].map(n => `valentina_n${n}.mp3`)],
+    ['conductor:11', Array.from({ length: 6 }, (_, i) => `roberto_n${i + 1}.mp3`)],
+  ]) {
+    const vehicle = car(2);
+    vehicle.car.driverId = id;
     audio.updateWorld(.1, origin, null, [vehicle]);
-    const file = files[i];
-    assert.equal(state.remark.sound.options.src[0], `/audio/${file}`);
-    assert.equal(state.remark.sound.voices.get(state.remark.id).volume, .7);
+    const state = audio.vehicles.instances.get(vehicle.car);
+    vehicle.personBlocked = true; state.patience = 0;
+    for (let i = 0; i < files.length; i++) {
+      audio.vehicles.random = () => (i + .1) / files.length;
+      state.cooldown = 0; audio.vehicles._lastHornAt = -Infinity;
+      audio.updateWorld(.1, origin, null, [vehicle]);
+      assert.equal(state.remark.sound.options.src[0], `/audio/${files[i]}`);
+      assert.equal(state.remark.sound.voices.get(state.remark.id).volume, .7);
+    }
   }
   assert.ok(audio.driverSounds.every(sound => sound.starts === 1));
   audio.dispose(); assert.ok(audio.driverSounds.every(sound => sound.unloaded));
@@ -334,6 +339,36 @@ test('los motores se atenúan con la distancia y quedan sin voz desde los 40 met
   assert.equal(audio.vehicles.instances.has(far.car), false);
   assert.equal(bank.carIdle.starts, 2);
   audio.dispose();
+});
+
+test('el motor suena mientras faltan metadatos y usa su fase cuando arranca con duración válida', (t) => {
+  for (const pending of [Infinity, NaN, 0]) {
+    const { audio, bank } = fixture(), vehicle = car(3);
+    const sound = bank.carIdle;
+    let duration = pending;
+    t.mock.method(sound, 'duration', () => duration);
+    const seek = t.mock.method(sound, 'seek');
+
+    audio.vehicles.update(.1, origin, [vehicle]);
+    const { id } = audio.vehicles.instances.get(vehicle.car).idle;
+    assert.equal(seek.mock.callCount(), 0, `Duración ${pending}`);
+    assert.ok(sound.playing(id) && sound.voices.get(id).volume > 0);
+
+    duration = 8;
+    audio.vehicles.update(.1, origin, [vehicle]);
+    assert.equal(audio.vehicles.instances.get(vehicle.car).idle.id, id);
+    assert.equal(seek.mock.callCount(), 0, 'La voz que ya suena sigue en el mismo punto');
+
+    audio.vehicles.update(.1, origin, []);
+    assert.equal(sound.playing(id), false);
+    audio.vehicles.update(.1, origin, [vehicle]);
+    audio.vehicles.update(.1, origin, [vehicle]);
+    const restarted = audio.vehicles.instances.get(vehicle.car).idle.id;
+    assert.notEqual(restarted, id);
+    assert.equal(sound.starts, 2);
+    assert.deepEqual(seek.mock.calls.map(call => call.arguments), [[4, restarted]]);
+    audio.dispose();
+  }
 });
 
 test('una fila de carros junto al jugador no suma volumen sin límite', () => {

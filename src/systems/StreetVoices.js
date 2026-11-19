@@ -1,19 +1,11 @@
 // src/systems/StreetVoices.js
 // Frases de la calle: suenan de quien está cerca, una a la vez y con enfriamiento por persona y por grabación.
 
-/**
- * Las cinco frases de la calle. `text` es lo que muestra la burbuja y `sexo` la voz de la grabación:
- * solo la dice alguien de ese sexo. Una grabación con voz de mujer se añade con `sexo: 'mujer'`.
- * `lufs` es la sonoridad medida del archivo (`ffmpeg -af ebur128`): vienen grabadas muy dispares, de -7,5 a -18,4,
- * y sin compensar «Un 3 nacional» sonaría más de tres veces más fuerte que «Las mejores». Una nueva se mide al añadirla.
- */
-export const STREET_VOICES = [
-  { key: 'carechimba', file: 'calle_las_mejores_carechimba.mp3', text: 'Las mejores, carechimba.', sexo: 'mujer', lufs: -18.4 },
-  { key: 'pirobito', file: 'calle_pirobito.mp3', text: 'Pirobito.', sexo: 'mujer', lufs: -15.3 },
-  { key: 'enano', file: 'calle_enano_gonorrea.mp3', text: 'Enano gonorrea.', sexo: 'mujer', lufs: -12.9 },
-  { key: 'medallo', file: 'calle_medallo.mp3', text: 'Medallo.', sexo: 'hombre', lufs: -11 },
-  { key: 'nacional', file: 'calle_un3snacional.mp3', text: 'Un 3 nacional.', sexo: 'hombre', lufs: -7.5 }
-];
+import { STREET_VOICES } from '../data/vocesDePaso.js';
+import { RepartoVocal, puedeHablar } from './voces/identidad.js';
+import { setPan, voicePan } from './voiceVariety.js';
+export { STREET_VOICES };
+export { npcSexo } from './voces/identidad.js';
 
 /** Todas las voces del juego quedan a esta sonoridad: la de los conductores y el reclamo por robo (≈ -17,5). */
 export const VOICE_LUFS = -18;
@@ -23,9 +15,10 @@ export function loudnessGain(lufs) {
   return Number.isFinite(lufs) ? Math.min(1.25, 10 ** ((VOICE_LUFS - lufs) / 20)) : 1;
 }
 
-/** Sexo de quien habla: el de su cuerpo; sin dato no se le asigna voz. */
-export function npcSexo(npc) {
-  return npc?.look?.real?.sexo ?? npc?.person?.sexo ?? null;
+/** Los saludos de paso esperan mientras la persona huye, combate, duerme o atiende a alguien. */
+export function canGreet(npc) {
+  return puedeHablar(npc) && npc.stance !== 'dormido' && !npc.deathResponse &&
+    !npc.talk && !npc.witnessing && !(npc.fleeTimer > 0 || npc.panicTimer > 0) && !npc._counter && npc.action !== 'recibirGolpe';
 }
 
 /**
@@ -48,9 +41,11 @@ const RETRY = 1000;                       // con nadie disponible, no vuelve a m
 const POOL = 4;                           // entre los más cercanos, cualquiera puede hablar
 
 export class StreetVoices {
-  constructor({ bank, random = Math.random } = {}) {
+  constructor({ bank, random = Math.random, reparto = new RepartoVocal() } = {}) {
     this.bank = bank;
     this.random = random;
+    this.reparto = reparto;
+    this.camera = null;
     this.levels = { voices: 1 };
     // Otra voz en curso (robo o frase de conductor) impide empezar la de la calle.
     this.externalVoiceActive = () => false;
@@ -68,20 +63,26 @@ export class StreetVoices {
     if (this.paused) return;
     if (this._voice) {
       if (!this._voice.sound.playing(this._voice.id)) this._voice = null;
+      else if (!canGreet(this._voice.npc) || this.externalVoiceActive()) this.cancel();
       else { this._setVolume(position); return; }
     }
     if (now < this._nextAt || this.externalVoiceActive()) return;
     const chosen = this._pick(position, pedestrians, now);
-    const sound = chosen && this.bank[chosen.clip.key];
-    if (!sound || sound.state() !== 'loaded') { this._nextAt = now + RETRY; return; }
-    const id = sound.play();
-    const gain = loudnessGain(chosen.clip.lufs);
-    sound.volume(this._volume(chosen.distance, gain), id);
-    this._voice = { sound, id, npc: chosen.npc, gain };
+    if (!chosen) { this._nextAt = now + RETRY; return; }
+    const sound = this.bank?.[chosen.clip.key];
+    let duration = 2.5;
+    if (sound?.state() === 'loaded') {
+      const id = sound.play(), gain = loudnessGain(chosen.clip.lufs);
+      sound.volume(this._volume(chosen.distance, gain), id);
+      setPan(sound, voicePan(position, this.camera, chosen.npc.position), id);
+      this.reparto.registrar(chosen.npc, chosen.clip.voz);
+      this._voice = { sound, id, npc: chosen.npc, gain, text: chosen.clip.text };
+      duration = Math.max(1.5, (sound.duration() || 2) + .5);
+    }
     this._npcAt.set(chosen.npc, now + NPC_COOLDOWN);
     this._clipAt.set(chosen.clip.key, now + CLIP_COOLDOWN);
     this._nextAt = now + GAP_MIN + this.random() * (GAP_MAX - GAP_MIN);
-    chosen.npc.say(chosen.clip.text, Math.max(1.5, (sound.duration() || 2) + .5));
+    chosen.npc.say(chosen.clip.text, duration);
   }
 
   /** Entre los más cercanos a la vista elige la persona y, entre las grabaciones libres, la frase. */
@@ -89,7 +90,7 @@ export class StreetVoices {
     const candidatos = [];
     for (const npc of pedestrians ?? []) {
       if ((this._npcAt.get(npc) ?? -Infinity) > now) continue;
-      if (npc._bubbleEl || npc.koState || npc.stance === 'dormido') continue;
+      if (!canGreet(npc) || npc._bubbleEl) continue;
       const p = npc.position;
       const distance = Math.hypot(p.x - position.x, p.y - position.y, p.z - position.z);
       if (distance > START_RANGE) continue;
@@ -98,11 +99,11 @@ export class StreetVoices {
     if (!candidatos.length) return null;
     candidatos.sort((a, b) => a.distance - b.distance);
     const libres = STREET_VOICES.filter(clip => (this._clipAt.get(clip.key) ?? -Infinity) <= now);
-    // Entre los más cercanos que tengan una grabación de su sexo: una mujer no dice la voz de un hombre.
     const aptos = [];
     for (const candidato of candidatos) {
-      const sexo = npcSexo(candidato.npc);
-      const clips = libres.filter(clip => clip.sexo === sexo);
+      const voz = this.reparto.vozDe(candidato.npc);
+      if (!this.reparto.disponible(candidato.npc, voz)) continue;
+      const clips = libres.filter(clip => clip.voz === voz);
       if (clips.length) aptos.push({ ...candidato, clips });
       if (aptos.length === POOL) break;
     }
@@ -118,6 +119,7 @@ export class StreetVoices {
     const distance = Math.hypot(p.x - position.x, p.y - position.y, p.z - position.z);
     if (distance > RANGE) { this._drop(); return; }
     this._voice.sound.volume(this._volume(distance, this._voice.gain), this._voice.id);
+    setPan(this._voice.sound, voicePan(position, this.camera, p), this._voice.id);
   }
 
   _drop() {
@@ -126,7 +128,11 @@ export class StreetVoices {
   }
 
   /** Cede el canal: la reclama quien habla más fuerte, sin soltar los enfriamientos. */
-  cancel() { this._drop(); }
+  cancel(npc = null) {
+    if (npc && this._voice?.npc !== npc) return;
+    if (this.active) this._voice.npc.callar?.(this._voice.text);
+    this._drop();
+  }
 
   setPaused(paused) { this.paused = paused; if (paused) this._drop(); }
 

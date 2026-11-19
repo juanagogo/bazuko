@@ -6,6 +6,7 @@
 
 /** Categoría → frases de vocesCalle.js que la dicen con la voz de quien las grabó. */
 export const REUSO = Object.freeze({
+  witnessBody: ['conductora_auxilio_1', 'conductor_auxilio_1'],
   // Más testigos con su propia voz (antes solo la burbuja): el grito de quien huye de un robo...
   witnessTheft: [
     'busetero_persecucion_1',    // «¡Agarren a ese man, que no se vuele!»
@@ -13,10 +14,12 @@ export const REUSO = Object.freeze({
     'nera_pelea_2',              // «¡Gonorrea, se le metió a la gente!»
     'nero_pelado_pelea_1',       // «¡Uy, qué boleta! ¡Cáigale!»
     'abuelo_testigo_pelea_1',    // «Ay, Dios, esta ciudad ya no es la misma.»
+    'reciclador_pelea_1',        // «¡Quieto, patrón, que eso no es así!»
   ],
   // ... el de quien huye de una pelea...
   witnessFight: [
     'nera_pelea_1',              // «¡Déjelo, déjelo, que lo mata!»
+    'reciclador_pelea_1',        // «¡Quieto, patrón, que eso no es así!»
     'nero_pelado_pelea_1',       // «¡Uy, qué boleta! ¡Cáigale!»
   ],
   // ... y lo que dice quien se queda grabando.

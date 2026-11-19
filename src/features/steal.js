@@ -5,6 +5,7 @@ import { canReachCombatTarget } from '../systems/CombatGeometry.js';
 import { modoEntrada, teclaVisible } from '../core/modoEntrada.js';
 import { XP_STEAL } from '../utils/constants.js';
 import { ROBO_ODDS, ventajaDeRobo, probabilidadDeAviso, avisoDeRobo, botinDe, zonaDeCosquilleo } from './stealOdds.js';
+import { tipoDeRaponazo } from '../systems/voces/robo.js';
 
 export const CONFIG = {
   stealDistance: 1.8,
@@ -135,6 +136,11 @@ export class StealSystem {
       }
     }
     this.targetNpc = nearest;
+    // Con alguien a tiro se pide lo que gritaría con su voz si le roban: una vez por persona, no cada cuadro.
+    if (nearest !== this._vozPedida) {
+      this._vozPedida = nearest;
+      if (nearest) this.game.audio?.voces?.prepararRobo?.(nearest);
+    }
     if (!nearest || this.cooldown > 0) return;
     if (this.game.interaction) {
       // El aviso dice cómo está la cosa: de espaldas, de frente o distraída.
@@ -381,7 +387,7 @@ export class StealSystem {
         talento: this.game?.talents?.getEffect?.('stealCaughtMult', 1) ?? 1, odds: this.ajustes
       });
       if (Math.random() < noticeChance) {
-        npc?.alarmedByTheft?.(this.game.player.position);
+        this._alarmar(npc, 'pillado');
         this._toast('¡Me pillaron con las manos en la masa! El peatón gritó.', 'death');
         this._robbed(npc, true);
         this.game.witnesses?.report?.('robo', npc);
@@ -403,11 +409,20 @@ export class StealSystem {
     this._giveLoot(this._rango(CONFIG.lootMoneyDirect, botinDe(npc).plata), false);
     this._robbed(npc, true);
     this.game.witnesses?.report?.('robo', npc);
-    npc.alarmedByTheft?.(this.game.player.position);
+    this._alarmar(npc, tipoDeRaponazo(npc));
     const damage = CONFIG.directDamageMin + Math.random() * (CONFIG.directDamageMax - CONFIG.directDamageMin);
     if (!npc.defendAgainstTheft?.(this.game.player, damage, this.game.jornada?.franja?.golpe ?? 1))
       this._toast('¡Raponazo! El peatón se asustó.', 'warn');
     this._alertPolice();
+  }
+
+  /**
+   * La víctima se entera y huye. Si tiene lista una frase grabada que cuadre con el robo ('pillado', 'raponazo' o
+   * 'raponazo-sin-bolso'), la grita con su voz y su burbuja (AudioSystem.voces); si no, su grito de siempre.
+   */
+  _alarmar(npc, tipo) {
+    const conVoz = !!npc && this.game.audio?.voces?.decirRobo?.(npc, tipo) === true;
+    npc?.alarmedByTheft?.(this.game.player.position, conVoz);
   }
 
   /** El rango de plata según lo que carga cada quien, en cientos. */

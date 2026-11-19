@@ -397,6 +397,9 @@ export class TrafficSystem {
     }
     if (!best) return false;
     this._startChase(best);
+    // Solo para que se oiga la radio de esa patrulla (voces/VocesDelMundo.js): no cambia nada de la persecución.
+    // `motivo` es por qué llamaron ('robo', 'pelea'), para que la operadora no anuncie un robo que no hubo.
+    emit('police-radio', { x: best.car.position.x, z: best.car.position.z, reason: 'llamada', motivo });
     return true;
   }
 

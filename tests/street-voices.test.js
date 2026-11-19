@@ -14,7 +14,7 @@ class FakeSound {
   lastVolume() { return [...this.volumes.values()].at(-1); }
 }
 
-const person = (x, z = 0, sexo = 'mujer') => ({ look: { real: { sexo } }, position: { x, y: 0, z }, say(text, duration) { this.dicho = { text, duration }; } });
+const person = (x, z = 0, sexo = 'mujer', voz = sexo === 'mujer' ? 'calle_carechimba' : 'calle_medallo') => ({ _voz: voz, look: { real: { sexo } }, position: { x, y: 0, z }, say(text, duration) { this.dicho = { text, duration }; } });
 const listener = { x: 0, y: 0, z: 0 };
 const finishAll = (bank) => { for (const sound of Object.values(bank)) sound.finish(); };
 const totalStarts = (bank) => Object.values(bank).reduce((sum, sound) => sum + sound.starts, 0);
@@ -44,7 +44,7 @@ test('solo habla quien está cerca y la frase sale de esa persona', () => {
   voices.update(listener, [medio], 9000);
   assert.equal(voices.active, false);
   // Quien se aleja a más de 15 m calla antes de terminar el audio.
-  voices.update(listener, [person(2)], 100000);
+  voices.update(listener, [person(2, 0, 'mujer', 'calle_pirobito')], 100000);
   const sonando = STREET_VOICES.find(clip => bank[clip.key].playingId)?.key;
   assert.ok(sonando);
   voices.update({ x: 0, y: 0, z: 60 }, [person(2)], 100000);
@@ -53,7 +53,7 @@ test('solo habla quien está cerca y la frase sale de esa persona', () => {
 
 test('una sola frase a la vez: la siguiente espera a que termine y al intervalo', () => {
   const { voices, bank } = fixture();
-  const a = person(3), b = person(-3);
+  const a = person(3), b = person(-3, 0, 'mujer', 'calle_pirobito');
   voices.update(listener, [a, b], 0);
   assert.equal(bank.carechimba.starts, 1);
   assert.ok(Math.abs(bank.carechimba.lastVolume() - .8 * loudnessGain(-18.4)) < 1e-9, 'de cerca suena plena, al nivel de una voz cercana');
@@ -65,9 +65,23 @@ test('una sola frase a la vez: la siguiente espera a que termine y al intervalo'
   assert.equal(b.dicho?.text, STREET_VOICES[1].text, 'la burbuja la pone la otra persona');
 });
 
+test('un testigo ocupado deja el turno a otro y quien cae se calla con su burbuja', () => {
+  const { voices } = fixture();
+  const testigo = Object.assign(person(1), { witnessing: 'grabar' });
+  const otro = person(3);
+  otro.callar = text => { if (otro.dicho?.text === text) otro.dicho = null; };
+  voices.update(listener, [testigo, otro], 0);
+  assert.equal(testigo.dicho, undefined);
+  assert.ok(otro.dicho);
+  otro.koState = 'down';
+  voices.update(listener, [testigo, otro], 100);
+  assert.equal(voices.active, false);
+  assert.equal(otro.dicho, null);
+});
+
 test('la misma persona y la misma grabación esperan su enfriamiento', () => {
   const { voices, bank } = fixture();
-  const a = person(2), b = person(-2);
+  const a = person(2), b = person(-2, 0, 'mujer', 'calle_pirobito');
   voices.update(listener, [a, b], 0);
   assert.equal(bank.carechimba.starts, 1);
   assert.ok(a.dicho);
@@ -81,8 +95,11 @@ test('la misma persona y la misma grabación esperan su enfriamiento', () => {
   finishAll(bank);
   a.dicho = null;
   voices.update(listener, [a, b], 130000);
-  assert.equal(bank.enano.starts, 1, 'la grabación anterior no se repite antes de su enfriamiento');
-  assert.equal(a.dicho?.text, STREET_VOICES[2].text);
+  assert.equal(a.dicho, null, 'su propia toma sigue en enfriamiento');
+  const tercera = person(3, 0, 'mujer', 'calle_enano');
+  voices.update(listener, [a, b, tercera], 131010);
+  assert.equal(bank.enano.starts, 1);
+  assert.equal(tercera.dicho?.text, STREET_VOICES[2].text);
 });
 
 test('la pausa y otra voz en curso callan la calle, y el robo cede el canal', () => {
