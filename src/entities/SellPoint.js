@@ -2,8 +2,9 @@
 // Recicladora El Progreso: compra el material al peso. Una bodega de barrio: báscula de plataforma, pacas de cartón,
 // lonas de botellas, chatarra, una carreta parqueada y el aviso pintado a mano.
 import * as THREE from 'three';
-import { COLORS } from '../utils/constants.js';
+import { COLORS, INTERACT_RANGE } from '../utils/constants.js';
 import { Piezas, materialDePuesto } from './puestoPiezas.js';
+export const RECYCLER_NAME = 'Recicladora El Progreso';
 
 // Cotas en metros desde el centro. La bodega abre hacia la calle, que queda en -z.
 const PISO = 0.12;
@@ -209,6 +210,12 @@ export class SellPoint {
   }
 
   get position() { return this.group.position; }
+
+  /** La llegada se anuncia cuando ya se alcanza la báscula. */
+  get gpsWaypoint() {
+    const { x, z } = this.position;
+    return { x, z, arrivalDistance: INTERACT_RANGE - .15 };
+  }
 
   sell(inventory, mult = 1) {
     return inventory.sellAll(mult);

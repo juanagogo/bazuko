@@ -310,9 +310,10 @@ const PINTURAS = ['#5d7c84', '#78895f', '#93574a', '#b3a47c', '#56678a', '#8a7f6
 const DULCES = ['#b5564b', '#c5a141', '#5d9566', '#4f7ca3', '#d5cfc1', '#c0783b', '#85608f', '#cf8b9c'];
 const TERMOS = ['#9c382f', '#2f5c88', '#d2cab8', '#3f7553', '#8c8c88'];
 // Las sombrillas de la calle se reconocen por el color: gajos rojo y amarillo, azul y blanco, verde y blanco, arcoíris.
+// Ninguna lona sale con el color de la tienda: son tintes de tela que ya pasó varios veranos a la intemperie.
 const LONAS = [
-  ['#c0392b', '#f2c600'], ['#2f6fb0', '#ecf0f1'], ['#2e7d32', '#ecf0f1'], ['#c0392b', '#ecf0f1'], ['#d9822b', '#2f6fb0'],
-  ['#c0392b', '#f2c600', '#2e7d32', '#2f6fb0']
+  ['#a8473a', '#c9a644'], ['#406382', '#d9d3c4'], ['#2f7a3c', '#d9d3c4'], ['#a8473a', '#d9d3c4'], ['#a66a42', '#406382'],
+  ['#a8473a', '#c9a644', '#2f7a3c', '#406382']
 ];
 const quemada = (color, cuanto) => new THREE.Color(color).lerp(new THREE.Color('#b3a996'), cuanto);
 const elige = (lista, azar) => lista[Math.floor(azar() * lista.length)];
@@ -322,13 +323,46 @@ export const lonaDe = (title) => elige(LONAS, azarDe(`la sombrilla de ${title}`)
 const RADIO = 1.2, ALERO = 2.085, COPA = 2.4, PUNTA = 2.475, FALDON = .06;
 
 /**
- * Sombrilla de vendedor: lona quemada por el sol, con comba entre varillas, un gajo remendado, faldón,
+ * Paño de tela entre filas que pueden tener distinto número de puntos (una punta, tres, cinco): sombreado suave y las
+ * dos caras. `color(franja, a lo ancho)` pinta cada triángulo y `mancha(fila, a lo ancho)` ensucia cada punto.
+ */
+function pano(k, filas, color, dentro, mancha = null) {
+  const puntos = filas.flat(), p = puntos.map(vec), suma = puntos.map(() => new THREE.Vector3());
+  const ancho = [], fila = [], inicio = [], caras = [], tintes = [], u = new THREE.Vector3(), w = new THREE.Vector3();
+  filas.forEach((puntosDeFila, f) => {
+    inicio.push(ancho.length);
+    puntosDeFila.forEach((_, j) => { ancho.push(puntosDeFila.length > 1 ? j / (puntosDeFila.length - 1) : .5); fila.push(f); });
+  });
+  for (let f = 0; f + 1 < filas.length; f++) {
+    const n = filas[f].length, m = filas[f + 1].length;
+    for (let i = 0, j = 0; i < n - 1 || j < m - 1;) {
+      // La costura avanza por la fila que va más atrás, para que los triángulos no se estiren.
+      const arriba = i < n - 1 && (j >= m - 1 || (i + 1) / (n - 1) <= (j + 1) / (m - 1));
+      const cara = arriba ? [inicio[f] + i, inicio[f] + i + 1, inicio[f + 1] + j] : [inicio[f] + i, inicio[f + 1] + j + 1, inicio[f + 1] + j];
+      if (arriba) i++; else j++;
+      const normal = u.subVectors(p[cara[1]], p[cara[0]]).cross(w.subVectors(p[cara[2]], p[cara[0]])).clone();
+      if (normal.y < 0) normal.negate();
+      for (const q of cara) suma[q].add(normal);
+      caras.push(cara);
+      tintes.push(new THREE.Color(typeof color === 'function' ? color(f, (ancho[cara[0]] + ancho[cara[1]] + ancho[cara[2]]) / 3) : color));
+    }
+  }
+  const sueltos = caras.flat(), indices = caras.map((_, t) => [t * 3, t * 3 + 1, t * 3 + 2]);
+  for (const [reves, tono] of [[false, 1], [true, dentro]]) {
+    k._emite(sueltos.map((q) => puntos[q]), sueltos.map((q) => suma[q].clone().normalize().toArray()), indices,
+      (i) => tintes[Math.floor(i / 3)].clone().multiplyScalar(tono * (mancha ? mancha(fila[sueltos[i]], ancho[sueltos[i]]) : 1)), null, null, reves);
+  }
+  return k;
+}
+
+/**
+ * Sombrilla de vendedor: lona quemada por el sol que cuelga en curva entre varillas, un remiendo, faldón raído,
  * balde de cemento al pie y la cuerda que la amarra al puesto. Ocupa lo mismo que el parasol de antes.
  */
 function sombrilla(k, colores, azar, amarre = null) {
   const gajos = 8, remiendo = Math.floor(azar() * gajos), parche = quemada(elige(['#6f7f8a', '#8a6f5a', '#5f7a62'], azar), .35).multiplyScalar(.8);
-  // Asoleada, no borrada: cada gajo pierde entre un 15 y un 30 % de su color.
-  const tonos = Array.from({ length: gajos }, (_, i) => quemada(colores[i % colores.length], .15 + azar() * .15));
+  // Asoleada, no borrada: cada gajo pierde entre un 16 y un 28 % de su color.
+  const tonos = Array.from({ length: gajos }, (_, i) => quemada(colores[i % colores.length], .16 + azar() * .12));
   // La mugre se junta en el alero y en el remiendo: arriba la lona queda limpia y hacia el borde se oscurece.
   const enVarilla = Array.from({ length: gajos }, () => [0, 1, 2, 3].map((f) => 1 - f * f * (.026 + azar() * .012)));
   const enMedio = Array.from({ length: gajos }, () => [0, 1, 2, 3].map((f) => 1 - f * f * (.03 + azar() * .016)));
@@ -336,20 +370,30 @@ function sombrilla(k, colores, azar, amarre = null) {
     const a = i / gajos * Math.PI * 2, r = RADIO * t;
     return [r * Math.sin(a), COPA - (COPA - ALERO) * Math.pow(t, 1.7), r * Math.cos(a)];
   };
+  // La tela cuelga entre varilla y varilla: hacia el medio del gajo queda más baja y metida, en curva y no en pico.
+  const entre = (i, t, ancho, cae = 0) => {
+    const a = varilla(i, t), b = varilla(i + 1, t), panza = Math.sin(Math.PI * ancho), mete = 1 - .035 * t * panza;
+    return [(a[0] + (b[0] - a[0]) * ancho) * mete, a[1] + (b[1] - a[1]) * ancho - .075 * t * t * panza - cae, (a[2] + (b[2] - a[2]) * ancho) * mete];
+  };
+  const CUARTOS = [0, .25, .5, .75, 1];
   for (let i = 0; i < gajos; i++) {
-    const filas = [];
-    for (let f = 0; f <= 3; f++) {
-      const t = f / 3, a = varilla(i, t), b = varilla(i + 1, t);
-      // La tela cuelga entre varilla y varilla: el medio queda más bajo y metido.
-      filas.push([a, [(a[0] + b[0]) / 2 * (1 - .035 * t), (a[1] + b[1]) / 2 - .075 * t * t, (a[2] + b[2]) / 2 * (1 - .035 * t)], b]);
-    }
-    k.lona(filas, (f) => (i === remiendo && f === 1 ? parche : tonos[i]), .62, (f, j) => (j === 1 ? enMedio[i][f] : enVarilla[(i + j / 2) % gajos][f]));
-    const a = varilla(i, 1), b = varilla(i + 1, 1), medio = filas[3][1], cae = FALDON * (.7 + azar() * .3);
-    k.lona([[a, medio, b], [[a[0], a[1] - FALDON, a[2]], [medio[0], medio[1] - cae, medio[2]], [b[0], b[1] - FALDON, b[2]]]],
-      tonos[(i + 1) % gajos].clone().multiplyScalar(.68), .7);
-    k.tramo(varilla(i, .06), varilla(i, .98).map((v, eje) => (eje === 1 ? v - .012 : v)), .014, HIERRO);
+    const filas = [[varilla(i, 0)], [0, .5, 1].map((ancho) => entre(i, 1 / 3, ancho)), CUARTOS.map((ancho) => entre(i, 2 / 3, ancho)), CUARTOS.map((ancho) => entre(i, 1, ancho))];
+    const mugre = (f, ancho) => {
+      const borde = enVarilla[(i + (ancho > .5 ? 1 : 0)) % gajos][f];
+      return borde + (enMedio[i][f] - borde) * Math.sin(Math.PI * ancho);
+    };
+    // El remiendo es un retazo cosido hacia el alero, no el gajo entero, y ya tomó parte del color de la lona.
+    const retazo = i === remiendo ? parche.clone().lerp(tonos[i], .45) : null;
+    pano(k, filas, (f, ancho) => (retazo && f === 2 && ancho > .26 && ancho < .74 ? retazo : tonos[i]), .62, mugre);
+    // El faldón se deshilacha: cuelga parejo en las varillas y más corto o más largo en cada cuarto.
+    const cae = FALDON * (.7 + azar() * .3), raido = [1, .55 + cae * 5, cae / FALDON, 1.35 - cae * 6, 1];
+    pano(k, [filas[3], CUARTOS.map((ancho, j) => entre(i, 1, ancho, FALDON * raido[j]))], tonos[(i + 1) % gajos].clone().multiplyScalar(.68), .7,
+      (f, ancho) => (f ? .86 : 1) * (1 - .1 * Math.sin(Math.PI * ancho)));
+    const desde = vec(varilla(i, .06)), hasta = vec(varilla(i, .98).map((v, eje) => (eje === 1 ? v - .012 : v)));
+    const e = new THREE.Euler().setFromQuaternion(new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), hasta.clone().sub(desde).normalize()));
+    k.tubo(.008, .008, desde.distanceTo(hasta), 3, HIERRO, desde.add(hasta).multiplyScalar(.5).toArray(), [e.x, e.y, e.z], false);
   }
-  k.tubo(.022, .022, COPA - .02, 6, '#8c8c86', [0, (COPA - .02) / 2 + .01, 0]);
+  k.tubo(.022, .022, COPA - .02, 6, '#8c8c86', [0, (COPA - .02) / 2 + .01, 0], [0, 0, 0], false);
   k.tubo(0, .03, PUNTA - COPA + .02, 6, HIERRO, [0, (PUNTA + COPA - .02) / 2, 0]);
   k.tubo(.05, .05, .05, 6, HIERRO, [0, 1.92, 0]);
   // Balde de cemento que la sostiene.
