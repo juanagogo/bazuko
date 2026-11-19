@@ -4,6 +4,7 @@ import { TILE_SIZE } from '../../utils/constants.js';
 import { STATIC_CHUNK_SIZE } from './StaticGeometry.js';
 import { StreetBatch, tint, unit } from './StreetBatch.js';
 import { inLakeTerrain, onLakeBridge } from './LakePark.js';
+import { asphaltPatches } from './StreetMarkings.js';
 
 const T = TILE_SIZE;
 const ROADS = new Set(['road', 'busway']);
@@ -58,6 +59,14 @@ export function planPuddles(map, runs, heightAt = () => 0) {
       const [x, z] = axis === 'x' ? [along, across] : [across, along];
       if (fits(ROADS, x, z, width / 2, depth / 2, axis)) out.push({ x, z, width, depth, axis });
     }
+  }
+  // El remiendo se hunde con el paso de los carros: en casi la mitad se queda el agua.
+  for (const patch of asphaltPatches(map)) {
+    if (unit(Math.round(patch.x * 7), Math.round(patch.z * 7), 82) > .45) continue;
+    const axis = Math.abs(Math.sin(patch.lane)) < .5 ? 'x' : 'z';
+    const width = patch.trench ? patch.length * .6 : Math.min(patch.length, patch.width) * .8;
+    const depth = patch.trench ? patch.width * .8 : width;
+    if (fits(ROADS, patch.x, patch.z, width / 2, depth / 2, axis)) out.push({ x: patch.x, z: patch.z, width, depth, axis, patch: true });
   }
   // Baches del carril y losas hundidas del andén, más escasos.
   map.forEach((row, j) => row.forEach((type, i) => {
