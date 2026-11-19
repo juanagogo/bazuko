@@ -9,7 +9,7 @@ import { SMALL_BUILDING } from './SmallBuilding.js';
 import { TERMINAL } from './TransitTerminal.js';
 import { AVENUE_OVERPASS } from './AvenueLandmarks.js';
 import { scanCityEdge } from './CityEdge.js';
-import { OPEN_SKY, SUN_FIELD_HEIGHT, SUN_FIELD_SIDEWAYS, sunFieldUniforms } from './SunFieldShader.js';
+import { CROWN_FADE, OPEN_SKY, SUN_FIELD_HEIGHT, SUN_FIELD_SIDEWAYS, sunFieldUniforms } from './SunFieldShader.js';
 
 export { SUN_FIELD_HEIGHT, chainSunField, fadeGlowInFog, patchSunFieldShader, sunFieldUniforms } from './SunFieldShader.js';
 
@@ -44,6 +44,7 @@ export function boxBlur(source, w, d, radius) {
 /**
  * Altura de los objetos que tapan el sol, con un texel por metro.
  * R: altura de la sombra en ese punto (cambia con el sol). G: cielo visible al nivel del suelo.
+ * B y A: tope y base de la sombra de las copas, que dejan pasar parte del sol.
  */
 export class SunField {
   constructor({ x0, z0, width, depth }) {
@@ -51,12 +52,22 @@ export class SunField {
     this.w = Math.ceil(width); this.d = Math.ceil(depth);
     const size = this.w * this.d;
     this.heights = new Float32Array(size);
+    this.solid = new Float32Array(size);
+    this.canopy = new Float32Array(size);
+    this.canopyBase = new Float32Array(size);
     this.overhead = new Float32Array(size);
     this.shade = new Float32Array(size);
-    this.data = new Uint8Array(size * 2);
+    this.canopyShade = new Float32Array(size);
+    this.baseShade = new Float32Array(size);
+    this.data = new Uint8Array(size * 4);
+    this.cells = null;
+    this.touched = new Int32Array(size);
+    this.touchedCount = 0;
+    const longest = Math.max(this.w, this.d);
+    this.sweepLines = [new Int32Array(longest), new Int32Array(longest), new Int32Array(longest)];
     this.light = null;
     this.sweeps = 0;
-    this.texture = new THREE.DataTexture(this.data, this.w, this.d, THREE.RGFormat);
+    this.texture = new THREE.DataTexture(this.data, this.w, this.d, THREE.RGBAFormat);
     this.texture.name = 'Campo de sol de la ciudad';
     this.texture.minFilter = this.texture.magFilter = THREE.LinearFilter;
     this.texture.wrapS = this.texture.wrapT = THREE.ClampToEdgeWrapping;
@@ -72,7 +83,21 @@ export class SunField {
     for (let z = c; z < e; z++) for (let x = a; x < b; x++) {
       const i = z * this.w + x;
       if (height > this.heights[i]) this.heights[i] = height;
+      if (height > this.solid[i]) this.solid[i] = height;
     }
+  }
+
+  /** Copa de árbol entre su base y su tope: da sombra a medias y debajo cabe el sol bajo. */
+  crown(x0, x1, z0, z1, top, base = 0) {
+    const a = Math.max(0, Math.round(x0 - this.x0)), b = Math.min(this.w, Math.round(x1 - this.x0));
+    const c = Math.max(0, Math.round(z0 - this.z0)), e = Math.min(this.d, Math.round(z1 - this.z0));
+    for (let z = c; z < e; z++) for (let x = a; x < b; x++) {
+      const i = z * this.w + x;
+      if (top > this.heights[i]) this.heights[i] = top;
+      if (!this.canopy[i] || base < this.canopyBase[i]) this.canopyBase[i] = base;
+      if (top > this.canopy[i]) this.canopy[i] = top;
+    }
+    this.cells = null;
   }
 
   /** Marca lo que tapa el cielo sin ser macizo debajo: tablero, cubiertas y copas de árbol. */
@@ -100,7 +125,7 @@ export class SunField {
     for (let i = 0; i < size; i++) {
       // Dentro de un edificio no se oscurece nada: esos píxeles son azoteas, no piso.
       const open = solid[i] ? 1 : (1 - Math.min(.72, near[i] * .95 + canyon[i] * .65)) * (1 - roof[i] * .5);
-      data[i * 2 + 1] = Math.round(open * 255);
+      data[i * 4 + 1] = Math.round(open * 255);
     }
     this.texture.needsUpdate = true;
   }
@@ -113,10 +138,13 @@ export class SunField {
     const previous = this.light;
     if (previous && Math.abs(previous.x - lx) + Math.abs(previous.y - ly) + Math.abs(previous.z - lz) < LIGHT_EPSILON) return false;
     this.light = { x: lx, y: ly, z: lz };
-    const { w, d, heights, shade, data } = this, size = w * d;
+    const { w, d, solid, shade, data } = this, size = w * d;
     const horizontal = Math.hypot(lx, lz);
-    if (horizontal < 1e-3) shade.set(heights);
-    else {
+    this._clearCanopyShade();
+    if (horizontal < 1e-3) {
+      shade.set(solid);
+      for (const at of this._crownCells()) { this.canopyShade[at] = this.canopy[at]; this.touched[this.touchedCount++] = at; }
+    } else {
       const alongX = Math.abs(lx) >= Math.abs(lz);
       const major = alongX ? lx : lz, minor = alongX ? lz : lx;
       const step = major > 0 ? 1 : -1, slope = minor / Math.abs(major);
@@ -128,7 +156,7 @@ export class SunField {
         const prev = i + step, line = i * majorStride, prevLine = prev * majorStride;
         const hasPrev = prev >= 0 && prev < majorCount;
         for (let j = 0; j < minorCount; j++) {
-          let height = heights[line + j * minorStride];
+          let height = solid[line + j * minorStride];
           if (hasPrev) {
             const a = j + offset, b = a + 1;
             const va = a >= 0 && a < minorCount ? shade[prevLine + a * minorStride] : 0;
@@ -139,15 +167,94 @@ export class SunField {
           shade[line + j * minorStride] = height;
         }
       }
+      this._sweepCanopy(alongX, step, offset, frac, drop);
     }
     const scale = 255 / SUN_FIELD_HEIGHT;
     for (let i = 0; i < size; i++) {
       const value = shade[i] * scale + .5;
-      data[i * 2] = value > 255 ? 255 : value;
+      data[i * 4] = value > 255 ? 255 : value;
+    }
+    const { touched, canopyShade, baseShade } = this;
+    for (let n = 0; n < this.touchedCount; n++) {
+      const at = touched[n];
+      data[at * 4 + 2] = canopyShade[at] * scale + .5;
+      data[at * 4 + 3] = baseShade[at] * scale + .5;
     }
     this.texture.needsUpdate = true;
     this.sweeps++;
     return true;
+  }
+
+  _clearCanopyShade() {
+    const { touched, canopyShade, baseShade, data } = this;
+    for (let n = 0; n < this.touchedCount; n++) {
+      const at = touched[n];
+      canopyShade[at] = baseShade[at] = data[at * 4 + 2] = data[at * 4 + 3] = 0;
+    }
+    this.touchedCount = 0;
+  }
+
+  _crownCells() {
+    if (!this.cells) {
+      this.cells = [];
+      for (let i = 0; i < this.canopy.length; i++) if (this.canopy[i] > 0) this.cells.push(i);
+      this.lines = {};
+    }
+    return this.cells;
+  }
+
+  /** Texeles con copa de cada línea del barrido, a lo largo de x o de z. */
+  _crownLines(alongX) {
+    const cells = this._crownCells(), key = alongX ? 'x' : 'z';
+    if (!this.lines[key]) {
+      const lines = this.lines[key] = [];
+      for (const at of cells) {
+        const x = at % this.w, z = (at - x) / this.w;
+        (lines[alongX ? x : z] ??= []).push(alongX ? z : x);
+      }
+    }
+    return this.lines[key];
+  }
+
+  /**
+   * El mismo barrido para las copas, pero solo por donde pasa su sombra: son pocas y dejan casi toda la ciudad sin tocar.
+   * La base baja con el rayo igual que el tope; donde un vecino no trae copa manda el otro.
+   */
+  _sweepCanopy(alongX, step, offset, frac, drop) {
+    const { w, d, canopy, canopyBase, canopyShade, baseShade, touched } = this;
+    const majorCount = alongX ? w : d, minorCount = alongX ? d : w;
+    const majorStride = alongX ? 1 : w, minorStride = alongX ? w : 1;
+    const lines = this._crownLines(alongX), seen = this.sweepLines[2].fill(-1);
+    let [active, next] = this.sweepLines, count = 0, filled = this.touchedCount;
+    for (let k = 0, i = step > 0 ? majorCount - 1 : 0; k < majorCount; k++, i -= step) {
+      const own = lines[i];
+      if (!count && !own) continue;
+      const line = i * majorStride, prevLine = (i + step) * majorStride;
+      let found = 0;
+      for (let n = 0, total = count * 2 + (own ? own.length : 0); n < total; n++) {
+        const j = n < count ? active[n] - offset : n < count * 2 ? active[n - count] - offset - 1 : own[n - count * 2];
+        if (j < 0 || j >= minorCount || seen[j] === k) continue;
+        seen[j] = k;
+        const at = line + j * minorStride;
+        let top = canopy[at], base = top > 0 ? canopyBase[at] : 0;
+        if (count) {
+          const a = j + offset, b = a + 1, ia = prevLine + a * minorStride, ib = ia + minorStride;
+          const ta = a >= 0 && a < minorCount ? canopyShade[ia] : 0, tb = b >= 0 && b < minorCount ? canopyShade[ib] : 0;
+          const crown = ta + (tb - ta) * frac - drop;
+          if (crown > CROWN_FADE) {
+            const ba = ta > 0 ? baseShade[ia] : baseShade[ib], bb = tb > 0 ? baseShade[ib] : ba;
+            let under = ba + (bb - ba) * frac - drop;
+            if (under < 0) under = 0;
+            if (!(top > 0) || under < base) base = under;
+            if (crown > top) top = crown;
+          }
+        }
+        if (top > 0) { canopyShade[at] = top; baseShade[at] = base; next[found++] = j; touched[filled++] = at; }
+      }
+      const spare = active;
+      active = next; next = spare; count = found;
+    }
+    this.touchedCount = filled;
   }
 
   /** Altura de sombra en un punto del mundo; útil para pruebas y para decidir sin GPU. */
@@ -157,10 +264,18 @@ export class SunField {
     return this.shade[k * this.w + i];
   }
 
+  /** Tramo de altura que la copa deja a media sombra en un punto: `[base, tope]`, o `null` si no llega ninguna. */
+  canopyShadowAt(x, z) {
+    const i = Math.floor(x - this.x0), k = Math.floor(z - this.z0);
+    if (i < 0 || k < 0 || i >= this.w || k >= this.d) return null;
+    const at = k * this.w + i;
+    return this.canopyShade[at] > 0 ? [this.baseShade[at], this.canopyShade[at]] : null;
+  }
+
   skyAt(x, z) {
     const i = Math.floor(x - this.x0), k = Math.floor(z - this.z0);
     if (i < 0 || k < 0 || i >= this.w || k >= this.d) return 1;
-    return this.data[(k * this.w + i) * 2 + 1] / 255;
+    return this.data[(k * this.w + i) * 4 + 1] / 255;
   }
 
   dispose() { this.texture.dispose(); }
@@ -244,11 +359,11 @@ export function buildSunField(district) {
   field.cover(145.25, 162.75, 92.5, 107.5, .85);
   field.fill(147.5, 160.5, 112, 116, 3.8);
   for (const tree of district.treePlan ?? []) {
-    const r = 2.4 * (tree.scale ?? 1), top = 6.5 * (tree.scale ?? 1);
+    const r = 2.4 * (tree.scale ?? 1), top = 6.5 * (tree.scale ?? 1), base = 2.3 * (tree.scale ?? 1);
     // Copa redondeada: sin esto la sombra del árbol sería un cuadrado.
     for (let dz = -r; dz <= r; dz++) {
       const half = Math.sqrt(Math.max(0, r * r - dz * dz));
-      field.fill(tree.x - half, tree.x + half, tree.z + dz, tree.z + dz + 1, top);
+      field.crown(tree.x - half, tree.x + half, tree.z + dz, tree.z + dz + 1, top, base);
       field.cover(tree.x - half, tree.x + half, tree.z + dz, tree.z + dz + 1, .55);
     }
   }

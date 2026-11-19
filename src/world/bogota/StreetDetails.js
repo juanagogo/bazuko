@@ -3,23 +3,31 @@
 import * as THREE from 'three';
 import { TILE_SIZE } from '../../utils/constants.js';
 import { buildSunField, chainSunField, fadeGlowInFog, registerNightGlow } from './SunField.js';
+import { addContactShade } from './sombraContacto.js';
 import { STATIC_CHUNK_SIZE, createRenderSectors, freezeStaticTransforms } from './StaticGeometry.js';
 import { StreetBatch, WireBatch, tint, unit } from './StreetBatch.js';
-import { crossings } from './StreetMarkings.js';
+import { pedestrianCrossings, streetIntersections } from './StreetCrossings.js';
+import { neighborhoodAt } from './NeighborhoodIdentity.js';
+import { addMobiliarioDenso } from './mobiliarioDenso.js';
 import { detailAtlas, glowTexture } from './textures-calle.js';
 import { addStreetPuddles } from './StreetPuddles.js';
+import { NIGHT_ROAD, lightOnAsphalt } from './AsphaltDressing.js';
 import { STREET_LAMP } from './StreetLampModel.js';
-import { CARACAS, SIDEWALK_TILES } from './StreetLayout.js';
+import { buildStreetLightMap } from './StreetLightMap.js';
+import { CARACAS } from './StreetLayout.js';
 import { CITY_CALLES as CALLES } from './CityLayout.js';
 import { LAKE_PARK, inLakeTerrain, onLakeBridge } from './LakePark.js';
+import { addTreeFeet } from './TreeFeet.js';
+import { onTeusaquilloApron } from './TeusaquilloGarden.js';
+import { onCalle72Landing } from './Calle72Landing.js';
 import { VIADUCT, viaductSurface } from './ColpatriaViaduct.js';
 import { inTerminal } from './TransitTerminal.js';
 import { inGasStation } from './GasStation.js';
 import { AVENUE_OVERPASS } from './AvenueLandmarks.js';
+import { addShopPools, encenderLocales } from './vitrinas.js';
 
 const T = TILE_SIZE;
 const W = tile => tile * T;
-const BAND = SIDEWALK_TILES * T;
 const ROADS = new Set(['road', 'busway']);
 const RAISED = new Set(['sidewalk', 'plaza', 'floor']);
 const HEIGHTS = { road: 0, busway: .02, dirt: .04, grass: .06, sidewalk: .12, plaza: .12, floor: .12 };
@@ -62,8 +70,9 @@ function addCurbs(street, map, UV) {
         const chip = .86 + unit(tx, tz, 42 + dx + dz * 2) * .2;
         const worn = unit(tx + dx, tz + dz, 43);
         const painted = paintPick < .1 ? CURB_YELLOW : paintPick < .135 ? CURB_RED : null;
-        const body = painted ? mix(painted, CONCRETE, worn * .5) : CONCRETE;
-        const dirty = scale(body, .34 * chip), face = scale(body, .92 * chip), crown = scale(body, 1.08 * chip);
+        // La pintura se gasta a tramos, más de la mitad, y la corona pisada no brilla más que la cara.
+        const body = painted ? mix(painted, CONCRETE, .45 + worn * .45) : CONCRETE;
+        const dirty = scale(body, .34 * chip), face = scale(body, .92 * chip), crown = scale(body, (painted ? 1 : 1.08) * chip);
         const y0 = low - .01, o1 = .026;
         street.quad(left(o1, y0), right(o1, y0), right(o1, .086), left(o1, .086), [dx, 0, dz], uv, [dirty, dirty, face, face]);
         const n = [dx * .6, .8, dz * .6];
@@ -79,23 +88,38 @@ function addCurbs(street, map, UV) {
 }
 
 /** Dónde hay rampa: al final de cada cebra, solo si va de andén a calzada. */
-function rampSpots(map) {
-  const spots = [], tile = (x, z) => map[Math.round(z / T)]?.[Math.round(x / T)], width = 1.9;
-  const ramp = (x, z, dx, dz) => {
-    if (!RAISED.has(tile(x - dx, z - dz)) || !ROADS.has(tile(x + dx, z + dz))) return;
-    if (!onLakeBridge(x, z) && !inLakeTerrain(x, z)) spots.push({ x, z, dx, dz, width });
-  };
-  for (const { x0, x1, z0, z1 } of crossings()) {
-    for (const z of [z0 - BAND / 2, z1 + BAND / 2]) { ramp(x0, z, 1, 0); ramp(x1, z, -1, 0); }
-    for (const x of [x0 - BAND / 2, x1 + BAND / 2]) { ramp(x, z0, 0, 1); ramp(x, z1, 0, -1); }
+export function rampSpots(map, paths = pedestrianCrossings(map)) {
+  const spots = [], tile = (x, z) => map[Math.round(z / T)]?.[Math.round(x / T)];
+  for (const { x, z, dx, dz, length, width } of paths) {
+    for (const end of [0, length]) {
+      const px = x + dx * end, pz = z + dz * end, sign = end === 0 ? 1 : -1;
+      if (!RAISED.has(tile(px - dx * sign, pz - dz * sign))) continue;
+      spots.push({ x: px, z: pz, dx: dx * sign, dz: dz * sign, width: Math.min(1.9, width) });
+    }
   }
   return spots;
 }
 
+// Dos hileras de lajas claras enmarcan el paso en la calle empedrada de La Candelaria.
+function addStoneCrossings(street, paths, UV) {
+  const stone = tint('#c4b99e');
+  for (const { x, z, dx, dz, width, length } of paths) {
+    if (!neighborhoodAt(x + dx * length / 2, z + dz * length / 2).streets?.cobbles) continue;
+    const count = Math.ceil(length / .8), pitch = length / count;
+    for (const side of [-1, 1]) for (let i = 0; i < count; i++) {
+      const along = (i + .5) * pitch, edge = side * (width / 2 - .12);
+      const px = x + dx * along + dz * edge, pz = z + dz * along + dx * edge;
+      const tone = scale(stone, .78 + .18 * unit(Math.round(px * 4), Math.round(pz * 4), 46));
+      street.decal(px, .016, pz, dx ? pitch - .035 : .24, dz ? pitch - .035 : .24, 0, UV.concrete, tone);
+    }
+  }
+}
+
 /** Rampa de concreto al final de cada cebra; solo se ve, la altura física no cambia. */
-function addRamps(street, map, UV) {
+function addRamps(street, spots, UV) {
   const uv = UV.concrete;
-  for (const { x, z, dx, dz, width } of rampSpots(map)) {
+  const amber = tint('#d9ae52'), ochre = tint('#c2a475');
+  for (const { x, z, dx, dz, width } of spots) {
     // Corta: una cuña larga sobre la cebra se lee como una losa suelta.
     const rx = dz, rz = -dx, hw = width / 2, depth = .58;
     const at = (a, o, y) => [x + rx * a + dx * o, y, z + rz * a + dz * o];
@@ -105,6 +129,13 @@ function addRamps(street, map, UV) {
     // Ribetes laterales: cierran la cuña para que no se vea hueca desde la calle.
     street.quad(at(hw, depth, .004), at(hw, -.05, .004), at(hw, -.05, .133), at(hw, depth, .014), [rx, 0, rz], uv, low);
     street.quad(at(-hw, -.05, .004), at(-hw, depth, .004), at(-hw, depth, .014), at(-hw, -.05, .133), [-rx, 0, -rz], uv, low);
+    // Tres baldosas abotonadas marcan la espera sin añadir un objeto por botón.
+    const stone = neighborhoodAt(x, z).streets?.cobbles ? ochre : amber;
+    const size = width / 3;
+    for (let i = -1; i <= 1; i++) {
+      const along = size * i, offset = -.24 - size / 2;
+      street.decal(x + rx * along + dx * offset, .134, z + rz * along + dz * offset, size, size, 0, UV.tactile, stone);
+    }
   }
 }
 
@@ -124,7 +155,7 @@ function addBuswaySeparators(street, UV, height) {
 // ---------- obstáculos y sitios libres ----------
 
 /** Rejilla de lo que ya ocupa el andén: nada de lo nuevo se monta encima ni tapa nada que sirva. */
-function createObstacles(district, collisions) {
+function createObstacles(district, collisions, ramps) {
   const cells = new Map(), SIZE = 6;
   const add = (x, z, radius) => {
     const key = `${Math.floor(x / SIZE)},${Math.floor(z / SIZE)}`;
@@ -141,7 +172,7 @@ function createObstacles(district, collisions) {
   for (const v of district.vendors ?? []) add(v.position.x, v.position.z, 2.6);
   for (const b of district.fireBarrels ?? []) add(b.position.x, b.position.z, 1.8);
   // Quien baja por la rampa no atraviesa nada: su paso sigue andén adentro, donde van los postes.
-  for (const { x, z, dx, dz } of rampSpots(district.map)) add(x - dx * .42, z - dz * .42, .6);
+  for (const { x, z, dx, dz } of ramps) add(x - dx * .42, z - dz * .42, .76);
   const near = (x, z, radius) => {
     const cx = Math.floor(x / SIZE), cz = Math.floor(z / SIZE);
     for (let i = -1; i <= 1; i++) for (let j = -1; j <= 1; j++) {
@@ -505,7 +536,8 @@ function addClutter(street, map, UV, obstacles) {
     }
   }
   // Bolardos en algunas esquinas, para que los carros no se suban a la rampa.
-  for (const { x0, x1, z0, z1 } of crossings()) {
+  for (const { x0, x1, z0, z1, band } of streetIntersections(map)) {
+    if (band < 4) continue;
     for (const [cx, cz, sx, sz] of [[x0, z0, -1, -1], [x1, z0, 1, -1], [x0, z1, -1, 1], [x1, z1, 1, 1]]) {
       const fx = Math.round(cx), fz = Math.round(cz);
       if (unit(fx, fz, 131) > .42) continue;
@@ -532,14 +564,39 @@ function addClutter(street, map, UV, obstacles) {
  * baja no tenga una luz real por poste. Es un lote por sector, sin luces nuevas; el halo es del poste.
  */
 function addLampGlow(glow, district) {
-  const uv = [0, 0, 1, 1], pool = tint('#ffb06a', .3);
+  const pool = tint('#ffb06a', NIGHT_ROAD.poolTint);
   for (const prop of district.props ?? []) {
     const group = prop.instance?.group;
     if (!group) continue;
     const angle = group.rotation.y, reach = STREET_LAMP.lens.x;
     const hx = group.position.x + Math.cos(angle) * reach, hz = group.position.z - Math.sin(angle) * reach;
-    const y = Math.max(group.position.y, 0) + .03, size = 7.8;
-    glow.quad([hx - size, y, hz + size], [hx + size, y, hz + size], [hx + size, y, hz - size], [hx - size, y, hz - size], [0, 1, 0], uv, pool);
+    const base = Math.max(group.position.y, 0), size = 7.8, T = TILE_SIZE, span = size * 2;
+    const cerrar = ({ x0, x1, z0, z1, y }) => glow.quad([x0, y, z1], [x1, y, z1], [x1, y, z0], [x0, y, z0], [0, 1, 0],
+      [(x0 - hx + size) / span, (hz + size - z1) / span, (x1 - hx + size) / span, (hz + size - z0) / span], pool);
+    // El charco va a la altura de cada tile: entero, a la altura del andén, flotaba un palmo sobre la calzada y teñía
+    // la parte baja de las ruedas y el pie de los postes. Los tiles vecinos a la misma altura van en un solo cuadro.
+    let abiertos = new Map();
+    for (let tz = Math.round((hz - size) / T); tz <= Math.round((hz + size) / T); tz++) {
+      const z0 = Math.max(tz * T - T / 2, hz - size), z1 = Math.min(tz * T + T / 2, hz + size);
+      if (z0 >= z1) continue;
+      const tramos = [], siguen = new Map();
+      for (let tx = Math.round((hx - size) / T); tx <= Math.round((hx + size) / T); tx++) {
+        const x0 = Math.max(tx * T - T / 2, hx - size), x1 = Math.min(tx * T + T / 2, hx + size);
+        if (x0 >= x1) continue;
+        const suelo = district.getGroundHeight?.(tx * T, tz * T);
+        const y = (Number.isFinite(suelo) && Math.abs(suelo - base) < .5 ? suelo : base) + .03;
+        if (tramos.at(-1)?.y === y) tramos.at(-1).x1 = x1;
+        else tramos.push({ x0, x1, y });
+      }
+      for (const tramo of tramos) {
+        const clave = `${tramo.x0} ${tramo.x1} ${tramo.y}`, previo = abiertos.get(clave);
+        abiertos.delete(clave);
+        siguen.set(clave, previo ? Object.assign(previo, { z1 }) : { ...tramo, z0, z1 });
+      }
+      abiertos.forEach(cerrar);
+      abiertos = siguen;
+    }
+    abiertos.forEach(cerrar);
   }
 }
 
@@ -561,6 +618,8 @@ function addEdgeTufts(street, map, UV) {
         if (unit(tx, tz, salt) > .52) continue;
         const along = (unit(tx, tz, salt + 1) - .5) * T * .94, inset = .24 + unit(tx, tz, salt + 2) * unit(tx, tz, salt + 3) * .85;
         const cx = W(tx) + dx * (T / 2 - inset) + dz * along, cz = W(tz) + dz * (T / 2 - inset) + dx * along;
+        // Las losetas de las bancas y el andén del Metro cubren el césped anterior.
+        if (onTeusaquilloApron(cx, cz, .21) || onCalle72Landing(cx, cz)) continue;
         const height = .13 + unit(tx, tz, salt + 4) * .17, blades = 4 + Math.floor(unit(tx, tz, salt + 5) * 3);
         for (let b = 0; b < blades; b++) {
           const turn = unit(tx, tz, salt + 6 + b) * Math.PI * 2, c = Math.cos(turn), s = Math.sin(turn);
@@ -611,6 +670,7 @@ function addLanternPools(glow, district) {
 
 export function addStreetDetails(district, collisions = null) {
   district.sunField = buildSunField(district);
+  if (district.scene?.userData) district.scene.userData.streetLightMap = buildStreetLightMap(district);
   // La ribera del lago tiene su propio shader: se encadena para que reciba la sombra del puente.
   if (district.lakeTerrain?.material) chainSunField(district.lakeTerrain.material);
 
@@ -622,12 +682,14 @@ export function addStreetDetails(district, collisions = null) {
   const street = new StreetBatch({ material, name: 'Calle', castShadow: true, chunkSize: STATIC_CHUNK_SIZE * 2 });
   const wires = new WireBatch(wireMaterial);
   const map = district.map;
+  const paths = pedestrianCrossings(map), ramps = rampSpots(map, paths);
 
   addCurbs(street, map, UV);
-  addRamps(street, map, UV);
+  addStoneCrossings(street, paths, UV);
+  addRamps(street, ramps, UV);
   addBuswaySeparators(street, UV, district.height);
 
-  const obstacles = createObstacles(district, collisions);
+  const obstacles = createObstacles(district, collisions, ramps);
   const poles = planPoles(map, obstacles.free);
   for (const pole of poles) {
     pole.topY = addPole(street, pole, UV).top;
@@ -636,15 +698,20 @@ export function addStreetDetails(district, collisions = null) {
   }
   addWires(wires, street, poles, map, UV);
   addClutter(street, map, UV, obstacles);
+  addMobiliarioDenso(street, district, UV, obstacles);
   addEdgeTufts(street, map, UV);
+  addTreeFeet(street, district, UV);
 
-  const glowMaterial = fadeGlowInFog(new THREE.MeshBasicMaterial({ map: glowTexture(), vertexColors: true, transparent: true, opacity: 0, visible: false,
-    depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide, forceSinglePass: true, polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -3 }));
+  const glowMaterial = lightOnAsphalt(fadeGlowInFog(new THREE.MeshBasicMaterial({ map: glowTexture(), vertexColors: true, transparent: true, opacity: 0, visible: false,
+    depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide, forceSinglePass: true, polygonOffset: true, polygonOffsetFactor: 0, polygonOffsetUnits: -4 })),
+  map, district.groundMaterials?.road);
   glowMaterial.name = 'Calle: luz de faroles';
   const glow = new StreetBatch({ material: glowMaterial, name: 'Luz de faroles', receiveShadow: false, renderOrder: -1, chunkSize: STATIC_CHUNK_SIZE * 4 });
   addLampGlow(glow, district);
   addLanternPools(glow, district);
+  addShopPools(glow, district);
   registerNightGlow(glowMaterial);
+  addContactShade(district, poles);
 
   const group = new THREE.Group();
   group.name = 'Calle: cables y mobiliario';
@@ -652,6 +719,7 @@ export function addStreetDetails(district, collisions = null) {
   street.finish(group);
   wires.finish(group);
   glow.finish(group);
+  encenderLocales(district, group);
   addStreetPuddles(group, district, curbRuns(map), glowMaterial);
   district.group.add(group);
   district.streetPoles = poles;

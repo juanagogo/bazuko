@@ -132,6 +132,7 @@ export class ActionPose {
     // no se arma ninguna cadena).
     this._legs = [[1, 'left'], [-1, 'right']].map(([side, name]) => ({
       side, name, foot: this.joints[`${name}Foot`], clip: new Vector3(),
+      toe: this.joints[`${name}Foot`]?.children.find(child => /ToeBase$/i.test(child.name)),
       upLeg: `${name}UpLeg`, lowLeg: `${name}Leg`, footKey: `${name}Foot`, arm: `${name}Arm`, foreArm: `${name}ForeArm`, handKey: `${name}Hand`,
       // Cuánto iba suelta la muñeca en el último cuadro en el aire (el aterrizaje la suelta de a poco) y adónde
       // vuelven brazo y antebrazo al aterrizar (los del clip con el tronco derecho).
@@ -159,6 +160,8 @@ export class ActionPose {
     this._hip = new Vector3();
     this._knee = new Vector3();
     this._ankle = new Vector3();
+    this._stepToe = new Vector3();
+    this._stepTip = new Vector3();
     this._goal = new Vector3();
     this._reach = new Vector3();
     this._pole = new Vector3();
@@ -276,6 +279,8 @@ export class ActionPose {
     const swim = movement.swimming === true;
     const airborne = movement.grounded === false && !swim;
     const landing = clamp(finite(movement.landing));
+    const footSupport = movement.grounded === true && !swim && !landing && !movement.stunned
+      && (!action || action === 'golpear') && !!movement.footSupport;
     if (movement.grounded === true && !swim) this._groundSpeed = Math.max(0, finite(speed));
     if (!airborne && !landing) this._carry.arms = this._carry.hips = this._carry.spine = this._carry.lower = this._carry.twist = this._carry.head = 0;
     if (swim || (!airborne && !landing)) {
@@ -340,7 +345,7 @@ export class ActionPose {
     if (handsBlocked) this.glance = 0;
     const gestures = attack || smoke || basuco != null || point > 0 || this.melee?.active || this.smoke?.active || this.pipe?.active || this.point?.active || Math.abs(this.glance) > .002 || this.rebusqueWeight > 0;
     // El LOD mantiene animación barata salvo una reacción de combate visible.
-    if (this.lod && !punch && !hit && !gestures && !this.greetWeight && !this.warmWeight) return;
+    if (this.lod && !punch && !hit && !gestures && !this.greetWeight && !this.warmWeight && !footSupport) return;
     const swimTarget = swim ? Math.min(3, Math.max(0, finite(speed))) : 0;
     const speedBlend = -Math.expm1(-12 * elapsed);
     // Integrar la velocidad suavizada analíticamente conserva la fase a distintos FPS.
@@ -348,7 +353,7 @@ export class ActionPose {
     this.swimSpeed += (swimTarget - this.swimSpeed) * speedBlend;
     this.swimWeight += ((swim ? 1 : 0) - this.swimWeight) * -Math.expm1(-14 * elapsed);
     if (!swim && this.swimWeight < .001) this.swimWeight = this.swimLift = 0;
-    if (!swim && !this.swimWeight && !airborne && !landing && !punch && !hit && !gestures && !this.greetWeight && !this.warmWeight && !this._settle) return;
+    if (!swim && !this.swimWeight && !airborne && !landing && !punch && !hit && !gestures && !this.greetWeight && !this.warmWeight && !this._settle && !footSupport) return;
     if (action && !punch && !hit && !swim && !gestures && action !== 'saltar' && action !== 'aterrizar' && !this.greetWeight && !this.warmWeight) return;
     this.time += swim || this.swimWeight ? .8 * elapsed + .25 * speedIntegral : elapsed;
     this.frame?.getWorldQuaternion(this._frameQ) ?? this._frameQ.identity();
@@ -384,6 +389,57 @@ export class ActionPose {
     if (this.greetWeight) this._greet(this.greetWeight);
     if (this.warmWeight) this._warm(this.warmWeight);
     if (this.rebusqueWeight) aplicarMalabares(this, this.rebusqueWeight, this.rebusqueTime);
+    return footSupport;
+  }
+
+  /** Centro y orientación de cada suela en la pose visible para la oclusión de contacto. */
+  sampleSoleContacts(contacts, shoes) {
+    if (!this.frame) return;
+    const scale = this.frame.getWorldScale(this._position);
+    const soleHeight = shoes === 'botas' ? -.0525 : shoes === 'chanclas' ? -.0425 : -.05;
+    for (let i = 0; i < this._legs.length; i++) {
+      const { foot, toe } = this._legs[i], contact = contacts[i];
+      if (!foot || (!toe && !this.procedural)) continue;
+      const center = contact.center;
+      let dx, dz;
+      if (this.procedural) {
+        const lengthOffset = shoes === 'botas' ? .012 : .017;
+        foot.localToWorld(center.set(0, soleHeight, lengthOffset));
+        const tip = foot.localToWorld(this._stepToe.set(0, soleHeight, lengthOffset + .12));
+        dx = tip.x - center.x; dz = tip.z - center.z;
+      } else {
+        const ankle = foot.getWorldPosition(this._ankle), tip = toe.getWorldPosition(this._stepToe);
+        center.lerpVectors(ankle, tip, .38);
+        center.y = Math.min(ankle.y - .068 * scale.y, tip.y - .028 * scale.y);
+        dx = tip.x - ankle.x; dz = tip.z - ankle.z;
+      }
+      if (dx * dx + dz * dz < .0001) continue;
+      contact.valid = true;
+      contact.yaw = Math.atan2(dx, dz);
+      contact.width = .104 * scale.x;
+      contact.length = .182 * scale.z;
+    }
+  }
+
+  /** Ajusta la zancada al escalón que tiene cada zapato debajo, después de componer el apoyo plano. */
+  fitFeetToSteps(sample, groundY) {
+    this._forward.set(0, 0, 1).applyQuaternion(this._frameQ);
+    for (const leg of this._legs) {
+      if (!leg.foot) continue;
+      const ankle = leg.foot.getWorldPosition(this._ankle);
+      const toe = leg.toe ? leg.toe.getWorldPosition(this._stepToe)
+        : leg.foot.localToWorld(this._stepToe.set(0, -.032, .139));
+      const tip = this._stepTip.subVectors(toe, ankle).setY(0).normalize().multiplyScalar(.045).add(toe);
+      const support = Math.max(sample(ankle.x, ankle.z), sample(toe.x, toe.z), sample(tip.x, tip.z));
+      const delta = support - groundY;
+      if (Math.abs(delta) < .01) continue;
+      const sole = Math.min(ankle.y - .061, toe.y - (leg.toe ? .03 : .014));
+      // Al subir, libra la nariz de la grada sin levantar más el pie si el paso ya venía alto.
+      // Al bajar, la pierna busca el peldaño inferior con su alcance real y conserva el vuelo del paso.
+      const lift = delta > 0 ? Math.max(0, Math.min(delta + .045, support + .006 - sole))
+        : Math.max(-.18, delta) * (1 - smooth(.025, .27, sole - groundY));
+      if (Math.abs(lift) > .005) this._legTo(leg, ankle.y + lift, 1);
+    }
   }
 
   /**

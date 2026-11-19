@@ -45,3 +45,32 @@ test('la misma regla para las demás teclas: sostener E no vuelve a interactuar,
   assert.equal(input.consumePress('KeyE'), false);
   assert.equal(input.isDown('KeyE'), true);
 });
+
+test('Espacio activa un botón enfocado sin enviar un salto al jugador', () => {
+  const input = new Input();
+  const evento = new Event('keydown', { cancelable: true });
+  Object.assign(evento, { code: 'Space' });
+  const boton = { closest: selector => selector.split(',').some(s => s.trim() === 'button') ? boton : null };
+  Object.defineProperty(evento, 'target', { value: boton });
+  window.dispatchEvent(evento);
+  assert.equal(evento.defaultPrevented, false);
+  assert.equal(input.isDown('Space'), false);
+  assert.equal(quiereSaltar(input), false);
+});
+
+test('ocultar la pestaña suelta el acelerador y descarta las pulsaciones pendientes aunque no llegue blur', t => {
+  const doc = new EventTarget();
+  globalThis.document = doc;
+  t.after(() => { delete globalThis.document; });
+  const input = new Input();
+  tecla('keydown', 'KeyW');
+  tecla('keydown', 'Space');
+  doc.hidden = true;
+  doc.dispatchEvent(new Event('visibilitychange'));
+  doc.hidden = false;
+  doc.dispatchEvent(new Event('visibilitychange'));
+  assert.equal(input.isDown('KeyW'), false);
+  assert.equal(quiereSaltar(input), false);
+  tecla('keydown', 'KeyW');
+  assert.equal(input.consumePress('KeyW'), true);
+});
