@@ -1,8 +1,8 @@
 // src/data/vocesCalle.js
-// Lo que dice la gente de la calle al pasar, grabado con ElevenLabs (eleven v4, voces de biblioteca, una toma por
-// frase). Cada papel tiene su voz y cada frase dice quién la dice y cómo se pidió (las etiquetas entre corchetes son
-// la dirección que recibió la voz; el texto de la burbuja va sin ellas). Los audios están a -16 LUFS, mono, con la
-// calle detrás, en public/audio/voces/<id>.mp3.
+// Lo que dice la gente de la calle al pasar y lo que gritan los testigos de un robo o una pelea, grabado con
+// ElevenLabs (eleven v4, voces de biblioteca, una toma por frase). Cada papel tiene su voz y cada frase dice quién la
+// dice y cómo se pidió (las etiquetas entre corchetes son la dirección que recibió la voz; el texto de la burbuja va
+// sin ellas). Los audios están a -16 LUFS, mono, con la calle detrás, en public/audio/voces/<id>.mp3.
 
 /** Papel → voz. `sexo` decide qué personas de la calle pueden decir sus frases. */
 export const REPARTO = Object.freeze({
@@ -35,7 +35,10 @@ const AMBIENTE_VENTA = [
   'Lleve, lleve, mi rey, que se acaba.',
 ];
 
-/** [papel, situación, lo que se le pidió a la voz]. El orden fija el número de cada archivo: no reordenar. */
+/**
+ * [papel, situación, lo que se le pidió a la voz, número si no sigue al anterior]. El orden fija el número de cada
+ * archivo: no reordenar.
+ */
 const LINEAS = [
   // Lo que dice la gente al pasar (y los vendedores en su puesto).
   ['nero_viejo', 'ambiente', '[raspy] ¿Qué hubo, mi so? ¿Me regala pa\'l pan?'],
@@ -63,6 +66,31 @@ const LINEAS = [
   ['busetero', 'ambiente', '[shouting] Pilas, que van a descargar material.'],
   ...AMBIENTE_VENTA.map(d => ['vendedor', 'ambiente', d]),
   ...AMBIENTE_VENTA.map(d => ['vendedora', 'ambiente', d]),
+
+  // Testigos: llaman a la Policía, graban, cuelgan asustados o gritan lo que vieron.
+  ['senora', 'testigo_llama', '[nervous] ¿Aló? ¿Policía? Aquí en la esquina están robando.'],
+  ['conductor', 'testigo_llama', '[nervous] Sí, señor, un man de chaqueta, vengan rápido.'],
+  ['conductora', 'testigo_llama', '[nervous] ¿Aló, Policía? Aquí hay un man robando, vengan rápido.'],
+  ['estudiante', 'testigo_llama', '[nervous] ¿Aló? Sí, aquí en la esquina están robando, vengan.'],
+  ['estudiante', 'testigo_graba', '[laughs] Esto va pa\' las redes, parce.'],
+  ['estudiante', 'testigo_graba', '[mischievously] Lo tengo grabado, ¿oyó? Grabado.'],
+  ['estudiante_h', 'testigo_graba', '[laughs] Esto va pa\' las redes, parce.'],
+  ['conductora', 'testigo_cuelga', '[nervous] ¡Ya, ya, ya colgué, tranquilo!'],
+  ['senora', 'testigo_cuelga', '[nervous] ¡Ya colgué, mijo, ya colgué!'],
+  ['conductor', 'testigo_cuelga', '[nervous] Tranquilo, tranquilo, no llamé a nadie.'],
+  ['conductora', 'testigo_robo', '[shouting] ¡Auxilio, un ladrón!'],
+  ['conductor', 'testigo_robo', '[shouting] ¡Cójanlo, que robó!'],
+  ['busetero', 'testigo_pelea', '[shouting] ¡Pelea, pelea! ¡Sepárenlos!'],
+  ['senora', 'testigo_pelea', '[shouting] ¡Lo van a matar, Dios mío!'],
+  ['abuelo', 'testigo_pelea', '[sighs] Ay, Dios, esta ciudad ya no es la misma.'],
+
+  // Grabadas para la turba y la persecución; aquí las dicen los testigos que huyen (data/vocesReuso.js). El cuarto
+  // dato fija el número cuando no vienen las anteriores de esa voz y situación: la 1 del ñero viejo es de la turba.
+  ['nero_viejo', 'pelea', '[shouting] ¡Denle, denle, que es rata!', 2],
+  ['nero_pelado', 'pelea', '[excited] ¡Uy, qué boleta! ¡Cáigale!'],
+  ['nera', 'pelea', '[shouting] ¡Déjelo, déjelo, que lo mata!'],
+  ['nera', 'pelea', '[angry] ¡Gonorrea, se le metió a la gente!'],
+  ['busetero', 'persecucion', '[shouting] ¡Agarren a ese man, que no se vuele!'],
 ];
 
 /** Texto de la burbuja: lo pedido sin las etiquetas de dirección. */
@@ -70,9 +98,9 @@ export const sinEtiquetas = dicho => dicho.replace(/\[[^\]]*\]\s*/g, '').replace
 
 function numerar(lineas) {
   const cuenta = {};
-  return lineas.map(([voz, situacion, dicho]) => {
+  return lineas.map(([voz, situacion, dicho, numero]) => {
     const clave = `${voz}_${situacion}`;
-    cuenta[clave] = (cuenta[clave] ?? 0) + 1;
+    cuenta[clave] = numero ?? (cuenta[clave] ?? 0) + 1;
     const id = `${clave}_${cuenta[clave]}`;
     return Object.freeze({
       id, voz, situacion, dicho,

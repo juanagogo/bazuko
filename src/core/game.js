@@ -65,6 +65,7 @@ import { PsychosisSystem } from '../systems/PsychosisSystem.js';
 import { RoadRageSystem } from '../systems/RoadRageSystem.js';
 import { CarjackSystem } from '../systems/CarjackSystem.js';
 import { LimpiezaSocialSystem } from '../systems/LimpiezaSocialSystem.js';
+import { PoliceFootSystem } from '../systems/PoliceFootSystem.js';
 import { SubstanceEffects } from '../systems/SubstanceEffects.js';
 import { SUBSTANCE_EFFECTS } from '../data/substanceEffects.js';
 import { StealSystem } from '../features/steal.js';
@@ -176,6 +177,8 @@ export class Game {
       if (viene) this.street?.onLimpiezaComing();
       return viene;
     };
+    // Los agentes de las patrullas se bajan y persiguen a pie
+    this.policeFoot = new PoliceFootSystem(this.sceneMgr.scene, { player: this.player, audio: this.audio });
     // Imagen y sonido al consumir pegante, pastilla o hierba
     this.substanceEffects = new SubstanceEffects({ canvas, audio: this.audio });
     // el basuco además trae paranoia: sombras, susurros y mirar a los lados
@@ -247,6 +250,7 @@ export class Game {
     window.addEventListener('open-hogar', () => openHogar(this));
     window.addEventListener('open-wardrobe', () => this.openWardrobe());
     window.addEventListener('open-mesa', () => { if (!this.hud?._craftOpen) this.hud?.toggleCraftPanel(); });
+    window.addEventListener('police-grab', () => this._policeGrab());
     window.addEventListener('police-arrest', () => this._policeArrest());
     window.addEventListener('open-radio-modal', () => openRadioModal(this));
     window.addEventListener('open-missions', () => {
@@ -379,7 +383,7 @@ export class Game {
     await withLoadTimeout(loadTaskGroups([
       [() => modelo !== 'procedural' ? this.player.setModel('realista') : Promise.resolve(),
         () => this.audio.ready],
-      [...(district?.npcs ?? []), ...(this.roadRage?.preloadables ?? []), ...(this.limpieza?.preloadables ?? [])].map(npc => () => npc.preload()),
+      [...(district?.npcs ?? []), ...(this.roadRage?.preloadables ?? []), ...(this.limpieza?.preloadables ?? []), ...(this.policeFoot?.preloadables ?? [])].map(npc => () => npc.preload()),
       importedEntities.map(entity => () => entity.preloadModel()),
       [() => district?.preloadDetails?.()]
     ], (done, total) => {
@@ -414,7 +418,7 @@ export class Game {
     this.world.update(0, this.player.position, this.cameraRig.camera);
     this.localLights.update(0, this.player.position, (x, z) => district?.getGroundHeight?.(x, z) ?? 0, this.cameraRig.camera);
     await loading.stage('Preparando texturas, luces y shaders…', 4);
-    const extraModels = [...(district?.npcs ?? []), ...(this.roadRage?.preloadables ?? []), ...(this.limpieza?.preloadables ?? [])].flatMap(npc => [npc.lodChar?.group, npc.fullChar?.group]).filter(Boolean);
+    const extraModels = [...(district?.npcs ?? []), ...(this.roadRage?.preloadables ?? []), ...(this.limpieza?.preloadables ?? []), ...(this.policeFoot?.preloadables ?? [])].flatMap(npc => [npc.lodChar?.group, npc.fullChar?.group]).filter(Boolean);
     const rain = this.weather?.rainParticles;
     if (rain) rain.visible = true;
     try {
@@ -859,6 +863,7 @@ export class Game {
     this.interaction.setPedestrians(district.npcs ?? []);
     if (this.traffic) this.roadRage?.setup(district, this.traffic, district.trafficPedestrians, { collisions: this.collisions });
     if (this.traffic) this.limpieza?.setup(district, this.traffic.routes, district.trafficPedestrians, { collisions: this.collisions });
+    if (this.traffic) this.policeFoot?.setup(district, this.traffic, district.trafficPedestrians, { collisions: this.collisions });
 
     // ===== Tienda La Esquinita =====
     this.shop = new Shop(
@@ -1014,6 +1019,7 @@ export class Game {
       if (data.lastComedorTimestamp !== undefined) this.lastComedorTimestamp = data.lastComedorTimestamp;
       this.ultimaSiesta = Number.isFinite(data.ultimaSiesta) ? data.ultimaSiesta : null; // las partidas viejas no lo traen
       this.street?.deserialize(data.street);
+      this.steal?.deserialize?.(data.robo); // la mano del robo; una partida vieja empieza de cero
       if (data.dailyMissions) this.dailyMissions?.deserialize(data.dailyMissions);
       else this.dailyMissions?.init(this.clock?.day ?? 1);
     } else {
@@ -1043,7 +1049,8 @@ export class Game {
       ultimaSiesta: this.ultimaSiesta,
       castigo: this._castigoPendiente ?? null,
       dailyMissions: this.dailyMissions?.serialize(),
-      street: this.street?.serialize()
+      street: this.street?.serialize(),
+      robo: this.steal?.serialize?.()
     });
   }
 
@@ -1053,6 +1060,11 @@ export class Game {
    */
   sleep({ hogar = null } = {}) {
     if (this.isSleeping) return;
+    // Con la tomba encima no se duerme, ni en el cambuche ni en el hogar: el menú lo dice con el botón apagado.
+    if (this.traffic?.inPursuit) {
+      window.dispatchEvent(new CustomEvent('sleep-fail', { detail: { reason: 'persecucion' } }));
+      return;
+    }
     if (!hogar && !this.built.base) {
       window.dispatchEvent(new CustomEvent('sleep-fail', { detail: { reason: 'nobase' } }));
       return;
@@ -1064,6 +1076,8 @@ export class Game {
     }
 
     this.isSleeping = true;
+    // Los que ya desistieron y vuelven caminando (o una patrulla que se devuelve) no quedan afuera: todos a su ronda.
+    if (this.traffic?.vehicles?.some(vehicle => vehicle.police && vehicle.state === 'chase') || this.policeFoot?.active) this.traffic.endPursuit();
     if (this.steal?.minigameActive) this.steal._endMinigame(false, 'cancel');
     this.witnesses?.reset();
     this.substanceEffects?.end();
@@ -1256,7 +1270,25 @@ export class Game {
     return true;
   }
 
+  /**
+   * Un agente lo agarró del hombro: el jugador deja de responder al teclado y frena con su inercia mientras el agente lo
+   * sostiene; el arresto llega enseguida. Por si no llega, se suelta solo.
+   */
+  _policeGrab() {
+    if (this._arrestPending || this._deathPending || this.input.locked) return;
+    this.input.locked = true;
+    this._grabLock = setTimeout(() => this._releaseGrab(), 1000);
+  }
+
+  _releaseGrab() {
+    if (!this._grabLock) return;
+    clearTimeout(this._grabLock);
+    this._grabLock = null;
+    this.input.locked = false;
+  }
+
   _policeArrest() {
+    this._releaseGrab();
     if (this._arrestPending || this._deathPending || this.stats.salud <= 0) return;
     this._arrestPending = true;
     this.carjack?.reset({ perdido: true });
@@ -1605,6 +1637,7 @@ export class Game {
     actualizarFrases(this.cameraRig.camera, this.player.position, now);
     this.profiler?.mark('mundoNPC');
     this.traffic?.update(dt, { player: this.player.position, pedestrians: this.world.active?.trafficPedestrians ?? this.world.active?.npcs ?? [], onPlayerHit: this._onVehicleImpact, camera: this.cameraRig.camera, hour: this.clock.hour });
+    this.policeFoot?.update(dt, { camera: this.cameraRig.camera });
     this.roadRage?.update(dt);
     this.limpieza?.update(dt, {
       isNight: this.clock.isNight,
@@ -1872,6 +1905,7 @@ export class Game {
     this.roadRage?.dispose?.();
     this.rebusque?.dispose();
     this.limpieza?.dispose?.();
+    this.policeFoot?.dispose?.();
     this.randomHallucinations?.dispose?.();
     this.bicycles?.forEach((b) => b.dispose?.());
     this.bikeFence?.dispose?.();
