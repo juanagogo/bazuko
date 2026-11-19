@@ -130,6 +130,33 @@ test('pedir limosna: si toda la gente de alrededor se acuerda de algo, nadie da 
   assert.ok(result && result.reason !== 'memoria', JSON.stringify(result));
 });
 
+test('quien duerme o cayó inconsciente no contesta a la limosna ni hace gastar energía', async t => {
+  const nav = plaza(), player = { position: new THREE.Vector3(3, 0, 3) };
+  const dormido = await walker([3, 0, 4], nav, 'habitante');
+  const caido = await walker([4, 0, 3], nav);
+  t.after(() => { dormido.dispose(); caido.dispose(); });
+  dormido.stance = 'dormido';
+  caido.takeHit({ damage: caido.maxHealth });
+  assert.equal(caido.koState, 'down');
+  const stats = new StatsSystem();
+  stats.energia = 50;
+  const interaccion = new InteractionSystem(player, { add: () => true }, stats, { play() {} });
+  interaccion.setPedestrians([caido, dormido]);
+  let respuesta;
+  window.addEventListener('beg-result', e => { respuesta = e.detail; });
+  for (const higiene of [100, 5]) {
+    stats.higiene = higiene;
+    interaccion._beg();
+    assert.equal(respuesta?.reason, 'no_pedestrians');
+    assert.equal(stats.energia, 50);
+    assert.ok(!caido._bubbleEl && !dormido._bubbleEl);
+  }
+  dormido.stance = null;
+  interaccion._beg();
+  assert.equal(respuesta.reason, 'higiene', 'cuando se despierta contesta al mismo intento');
+  assert.equal(stats.energia, 47);
+});
+
 test('al negar la limosna dice por qué: si fue su víctima, si lo vio o si se lo contaron, y qué hizo', async () => {
   const cases = [
     ['robo', { victim: true }, /usted fue el que me robó/], ['robo', {}, /lo vi robando/], ['robo', { heard: true }, /contaron que anda robando/],

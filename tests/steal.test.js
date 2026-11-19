@@ -48,10 +48,12 @@ test('Cosquilleo exitoso dentro de la zona verde otorga botín y activa cooldown
   assert.equal(npc._robadoTimer, CONFIG.npcCooldown);
 });
 
-test('Robo directo otorga botín mayor, sube buscado y daña al jugador si el NPC es fuerte', () => {
+test('el robo directo da botín, sube buscado y entrega el intento de defensa al peatón', () => {
   const npc = { position: new THREE.Vector3(1, 0, 1), _robadoTimer: 0, look: { real: { edad: 'adulto' } } };
   let splatted = false;
+  let defense;
   npc.alarmedByTheft = () => { splatted = true; };
+  npc.defendAgainstTheft = (...args) => { defense = args; return true; };
 
   const game = {
     player: { position: new THREE.Vector3(0, 0, 0) },
@@ -68,8 +70,23 @@ test('Robo directo otorga botín mayor, sube buscado y daña al jugador si el NP
   assert.ok(game.stats.dinero >= 500 + CONFIG.lootMoneyDirect[0]);
   assert.equal(steal.buscado, 1);
   assert.equal(splatted, true);
-  assert.ok(game.stats.salud < 100);
+  assert.equal(game.stats.salud, 100);
+  assert.equal(defense[0], game.player);
+  assert.ok(defense[1] >= CONFIG.directDamageMin && defense[1] <= CONFIG.directDamageMax);
   assert.equal(steal.cooldown, CONFIG.globalCooldown);
+});
+
+test('el cosquilleo en marcha se cierra sin premio si la víctima muere antes de cobrar', () => {
+  for (const inputFirst of [false, true]) {
+    const { steal, game, npc } = minigame();
+    npc.isDead = true;
+    if (inputFirst) steal._endMinigame(true, 'play');
+    else steal.update(.016);
+    assert.equal(steal.minigameActive, false);
+    assert.equal(steal.targetNpc, null);
+    assert.equal(game.stats.dinero, 1000);
+    assert.equal(steal.buscado, 0);
+  }
 });
 
 // Barra en marcha con la entrada real. La barra escucha antes que `Input`, como en el navegador, donde lo hace en captura.
@@ -290,4 +307,197 @@ test('el aviso de la patrulla sale de último: los avisos caen uno encima del ot
   order.length = 0;
   steal.executeRoboDirecto(npc);
   assert.equal(order.at(-1), 'patrulla');
+});
+
+// ——— El aviso y las cuentas del robo: por dónde se le llega, «Mano suave», el botín y la práctica que se guarda ———
+
+const stubRandom = (value, fn) => {
+  const random = Math.random;
+  Math.random = typeof value === 'function' ? value : () => value;
+  try { return fn(); } finally { Math.random = random; }
+};
+const toastsOf = () => { const list = []; window.addEventListener('toast', e => list.push(e.detail.text)); return list; };
+
+// La víctima mira hacia +Z desde el origen; el jugador le llega desde `z` (negativo: por la espalda).
+function llegandoDesde(z, extra = {}) {
+  const setup = caughtSetup();
+  Object.assign(setup.npc, { alerta: .5, root: { rotation: { y: 0 } } }, extra);
+  setup.npc.position.set(0, 0, 0);
+  setup.game.player.position.set(0, 0, z);
+  return setup;
+}
+
+test('el aviso dice si la víctima está de espaldas, de frente o va en lo suyo', () => {
+  const aviso = (z, extra) => {
+    const { game, steal } = llegandoDesde(z, extra);
+    steal.update(.016);
+    return game.interaction.stealPrompt;
+  };
+  assert.equal(aviso(-.9), '[E] Cosquilleo · de espaldas, ni me ve · [Q] Robo directo');
+  assert.equal(aviso(.9), '[E] Cosquilleo · de frente: me está viendo · [Q] Robo directo');
+  assert.equal(aviso(.9, { root: { rotation: { y: Math.PI / 2 } }, moving: true }), '[E] Cosquilleo · va en lo suyo · [Q] Robo directo');
+  assert.equal(aviso(.9, { root: { rotation: { y: Math.PI / 2 } } }), '[E] Cosquilleo · [Q] Robo directo');
+});
+
+test('de espaldas la zona es más grande y la barra más lenta que de frente', () => {
+  const barra = (z) => {
+    const { npc, steal } = llegandoDesde(z);
+    stubRandom(.5, () => steal.startCosquilleo(npc));
+    return { zona: steal.zoneSize, marcador: steal.markerSpeed };
+  };
+  const espalda = barra(-.9), frente = barra(.9), lado = barra(0);
+  assert.ok(espalda.zona > frente.zona * 1.5, `${espalda.zona} vs ${frente.zona}`);
+  assert.ok(Math.abs(espalda.zona / lado.zona - 1.35) < 1e-9, `de espaldas ×1,35: ${espalda.zona} vs ${lado.zona}`);
+  assert.ok(Math.abs(espalda.marcador / lado.marcador - .85) < 1e-9, `de espaldas ×0,85: ${espalda.marcador} vs ${lado.marcador}`);
+  assert.ok(frente.marcador > lado.marcador, 'de frente corre más');
+});
+
+test('a quien duerme o está acurrucado, el aviso nunca dice que me ve y la barra es la de espaldas', () => {
+  for (const stance of ['dormido', 'acurrucado']) {
+    const { game, steal, npc } = llegandoDesde(.9, { stance });
+    steal.update(.016);
+    assert.equal(game.interaction.stealPrompt, '[E] Cosquilleo · de espaldas, ni me ve · [Q] Robo directo', stance);
+    stubRandom(.5, () => steal.startCosquilleo(npc));
+    assert.ok(Math.abs(steal.zoneSize - .315 * 1.35) < 1e-9, `${stance}: ${steal.zoneSize}`);
+  }
+});
+
+test('a quien camina la zona es un 15 % más ancha y me nota menos; llegando a la carrera, un 25 % más angosta y me nota más', () => {
+  const caso = (extra, speed = 0) => {
+    const { npc, game, steal } = llegandoDesde(.9, { root: { rotation: { y: Math.PI / 2 } }, ...extra });
+    game.player.speed = speed;
+    stubRandom(.5, () => steal.startCosquilleo(npc));
+    const zona = steal.zoneSize;
+    let pillado = false;
+    npc.alarmedByTheft = () => { pillado = true; };
+    // Alerta 0,5: de lado y quieta, 0,5 exacto; andando 0,4; a la carrera 0,65.
+    stubRandom(.45, () => steal._endMinigame(false, 'play'));
+    return { zona, pillado };
+  };
+  const quieta = caso({}), andando = caso({ moving: true }), carrera = caso({}, 4);
+  assert.ok(Math.abs(quieta.zona - .315) < 1e-9, `${quieta.zona}`);
+  assert.ok(Math.abs(andando.zona - .315 * 1.15) < 1e-9, `${andando.zona}`);
+  assert.ok(Math.abs(carrera.zona - .315 * .75) < 1e-9, `${carrera.zona}`);
+  assert.deepEqual([quieta.pillado, andando.pillado, carrera.pillado], [true, false, true], 'con 0,45: quieta 0,5 sí, andando 0,4 no, a la carrera 0,65 sí');
+  const justo = (extra, speed, azar) => {
+    const { npc, game, steal } = llegandoDesde(.9, { root: { rotation: { y: Math.PI / 2 } }, ...extra });
+    game.player.speed = speed;
+    steal.startCosquilleo(npc);
+    let pillado = false;
+    npc.alarmedByTheft = () => { pillado = true; };
+    stubRandom(azar, () => steal._endMinigame(false, 'play'));
+    return pillado;
+  };
+  assert.equal(justo({}, 4, .64), true, 'a la carrera, 0,5 + 0,15');
+  assert.equal(justo({}, 4, .66), false, 'a la carrera, no más de 0,65');
+  assert.equal(justo({ moving: true }, 0, .39), true, 'andando, 0,5 − 0,1');
+});
+
+test('«Mano suave» salva un cosquilleo que antes me pillaba, y cuenta una sola vez', () => {
+  const caught = (talents, azar) => {
+    const { npc, game, steal } = caughtSetup();
+    npc.alerta = .7;
+    game.talents = talents;
+    let alarmed = false;
+    npc.alarmedByTheft = () => { alarmed = true; };
+    steal.startCosquilleo(npc);
+    stubRandom(azar, () => steal._endMinigame(false, 'play'));
+    return alarmed;
+  };
+  const manoSuave = { getEffect: (k, d) => (k === 'stealCaughtMult' ? .8 : d) };
+  assert.equal(caught(null, .6), true);
+  assert.equal(caught(manoSuave, .6), false, '0,7 × 0,8 = 0,56: con 0,6 ya no me ven');
+  assert.equal(caught(manoSuave, .55), true, 'con 0,55 sí: el talento no se aplica dos veces (0,7 × 0,8 × 0,8 = 0,448)');
+});
+
+test('un cosquilleo limpio suena, da experiencia, cuenta para la práctica y no cuenta como robar un espejo', () => {
+  const { npc, game, steal } = caughtSetup();
+  const played = [], xp = [], mirrors = [];
+  const toasts = toastsOf();
+  game.audio = { play: name => played.push(name) };
+  game.stats.addXP = (n) => xp.push(n);
+  window.addEventListener('steal', () => mirrors.push(1));
+  steal.startCosquilleo(npc);
+  stubRandom(.99, () => steal._endMinigame(true, 'play'));
+  assert.deepEqual(played, ['pickup']);
+  assert.deepEqual(xp, [8]);
+  assert.equal(mirrors.length, 0, 'el retrovisor tiene su propio evento');
+  assert.equal(steal.historial.limpios, 1);
+  assert.ok(toasts.includes('Cosquilleo limpio: nadie se dio cuenta.'), toasts.join(' | '));
+  const espalda = llegandoDesde(-.9);
+  const dichos = toastsOf();
+  espalda.steal.startCosquilleo(espalda.npc);
+  stubRandom(.99, () => espalda.steal._endMinigame(true, 'play'));
+  assert.ok(dichos.includes('Por la espalda, limpio: ni lo sintió.'), dichos.join(' | '));
+});
+
+test('cada quien carga distinto botín: el habitante de calle casi nada y lo suyo', () => {
+  const robo = (arquetipo, azar, directo = false) => {
+    const { npc, game, steal } = caughtSetup();
+    const robado = [];
+    npc.alarmedByTheft = () => {};
+    npc.person = { arquetipo };
+    game.inventory = { add: item => robado.push(item.id) };
+    steal.startCosquilleo(npc);
+    stubRandom(azar, () => (directo ? steal.executeRoboDirecto(npc) : steal._endMinigame(true, 'play')));
+    return { plata: game.stats.dinero, robado };
+  };
+  assert.equal(robo('oficinista', .999).plata, 4000);
+  assert.equal(robo('habitante', .999).plata, 1200, '4000 × 0,3');
+  assert.deepEqual(robo('habitante', .01).robado, ['cigarrillo'], 'de lo que carga, no del surtido general');
+  assert.deepEqual(robo('oficinista', .01).robado, ['tintico']);
+  assert.deepEqual(robo(undefined, .01).robado, ['pan'], 'sin arquetipo, lo de siempre');
+  assert.equal(robo('habitante', .999, true).plata, 13500, 'el robo directo también: 45000 × 0,3');
+});
+
+test('la mano se guarda en la partida; una vieja o dañada empieza de cero y la práctica tiene techo', () => {
+  const { steal, npc } = caughtSetup();
+  steal.historial = { limpios: 7 };
+  const copia = new StealSystem({ player: { position: new THREE.Vector3() } });
+  copia.deserialize(JSON.parse(JSON.stringify(steal.serialize())));
+  assert.deepEqual(copia.historial, { limpios: 7 });
+  assert.deepEqual(steal.serialize(), { historial: { limpios: 7 } }, 'solo lo que el juego lee');
+  copia.deserialize(undefined);
+  assert.deepEqual(copia.historial, { limpios: 0 }, 'partida sin robo');
+  for (const raro of ['x', '7', -2, NaN, 1.5, Infinity, 1e300, null, [], {}]) {
+    copia.historial = { limpios: 3 };
+    copia.deserialize({ historial: { limpios: raro } });
+    assert.deepEqual(copia.historial, { limpios: 0 }, String(raro));
+  }
+  copia.deserialize({ historial: 'basura' });
+  assert.deepEqual(copia.historial, { limpios: 0 });
+  const zone = (limpios) => {
+    steal.historial.limpios = limpios; npc.alerta = .5;
+    stubRandom(.5, () => steal.startCosquilleo(npc));
+    steal._endMinigame(false, 'cancel');
+    return steal.zoneSize;
+  };
+  assert.ok(Math.abs(zone(3) / zone(0) - 1.03) < 1e-9, '+1 % por cosquilleo limpio');
+  assert.ok(Math.abs(zone(50) / zone(0) - 1.12) < 1e-9);
+  assert.equal(zone(Number.MAX_SAFE_INTEGER), zone(12), 'una cuenta enorme no da más que el tope');
+});
+
+test('la partida guarda la mano como `robo` y una partida vieja sin `robo` carga y empieza de cero', async () => {
+  const { Game } = await import('../src/core/game.js');
+  const serializable = { deserialize() {}, serialize: () => ({}) };
+  let data;
+  const armar = () => {
+    const game = Object.assign(Object.create(Game.prototype), {
+      stats: serializable, clock: serializable, inventory: serializable, talents: serializable, diseases: serializable,
+      player: { position: new THREE.Vector3() }, world: {}, save: { load: () => data, save: d => { data = d; } }
+    });
+    game.steal = new StealSystem(game);
+    return game;
+  };
+  const antes = armar();
+  antes.steal.historial.limpios = 5;
+  antes._save();
+  assert.deepEqual(data.robo, { historial: { limpios: 5 } });
+  const despues = armar();
+  assert.equal(despues._loadIfSave(), true);
+  assert.equal(despues.steal.historial.limpios, 5);
+  delete data.robo;
+  despues.steal.historial.limpios = 9;
+  assert.equal(despues._loadIfSave(), true, 'la partida vieja carga');
+  assert.equal(despues.steal.historial.limpios, 0);
 });

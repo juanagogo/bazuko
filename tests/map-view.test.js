@@ -58,6 +58,56 @@ function view(options) {
 }
 
 const FREEZING = { need: 'calor', money: 0, carried: {} };
+
+test('la orientación identifica la zona que se está mirando y la regla mide metros a cualquier zoom', () => {
+  const map = view();
+  map.game.mapPlan = { originX: -1, originZ: -75, worldWidth: 400, worldHeight: 396 };
+  map.game.world = { active: { _zoneAt: (x, z) => x > 240 && z < 120 ? 'candelaria' : 'chapinero' } };
+  for (const [x, z, zoom, esperado] of [
+    [300, 55, 3, 'La Candelaria'], [300, 220, 6, 'Chapinero'],
+    [75, 255, 2, 'Parque del Lago'], [75, -28, 3, 'Portal del Centro'],
+    [160, -25, 3, ''], [180, 120, 1, 'Bogotá']
+  ]) {
+    Object.assign(map, { centerX: x, centerZ: z, zoom });
+    map._orientacion();
+    assert.equal(map.sector.textContent, esperado);
+    assert.equal(parseFloat(map.escala.style.width), parseInt(map.escala.textContent, 10) * zoom);
+    assert.ok(parseFloat(map.escala.style.width) <= 86);
+  }
+});
+
+test('un nombre que taparía el siguiente icono se escribe por encima de su propio lugar', () => {
+  const parque = { name: 'Parque', x: 10, z: 10 }, tienda = { name: 'Tienda', x: 10, z: 24 };
+  const map = view({ pois: [parque, tienda] });
+  map._nombre = () => ({ w: 70, h: 26 });
+  const rotulos = map._reparto();
+  assert.ok(rotulos.find(r => r.poi === parque).dy < 0);
+  assert.ok(rotulos.find(r => r.poi === tienda).dy > 0);
+});
+
+test('el plano general separa marcas vecinas sin perder esos lugares en la lista ni al acercarse', () => {
+  const portal = { name: 'Portal', x: 20, z: 80 }, parada = { name: 'Parada', x: 20, z: 95 };
+  const map = view({ pois: [portal, parada] });
+  map.zoom = .6;
+  assert.deepEqual(map._visiblePois(), [portal]);
+  assert.deepEqual(rowNames(map), ['Portal', 'Parada']);
+  map.zoom = 3;
+  assert.deepEqual(map._visiblePois(), [portal, parada]);
+  assert.equal(map._hit(...map._toScreen(parada.x, parada.z)), parada);
+});
+
+test('«Ver toda la ciudad» rehornea antes de dibujar y deja el hito visible entre dos marcas próximas', () => {
+  const puesto = { name: 'Puesto', x: 78, z: -27 }, portal = { name: 'Portal', hito: true, x: 75, z: -30 };
+  const map = view({ pois: [puesto, portal] }), orden = [];
+  map.game.mapPlan = { originX: -1, originZ: -75, worldWidth: 400, worldHeight: 396 };
+  map._horno = { zoom: map.zoom };
+  map._hornear = () => orden.push('plano');
+  map.draw = () => orden.push('vista');
+  map.fitCity();
+  assert.deepEqual(orden, ['plano', 'vista']);
+  assert.deepEqual(map._visiblePois(), [portal]);
+});
+
 const rowNames = (map) => byClass(map.sidebar, 'map-view__place-name').map(text);
 const cta = (map) => byClass(map.sidebar, 'map-view__nearest')[0];
 const noOption = (map) => byClass(map.sidebar, 'map-view__no-option')[0];

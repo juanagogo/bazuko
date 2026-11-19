@@ -92,7 +92,7 @@ export class PoopProjectile {
       const dy = Math.abs((npc.position.y + 0.9) - this.position.y);
 
       if (dist < 0.85 && dy < 1.1) {
-        npc.hitByPoop?.(this.startPos);
+        if (npc.hitByPoop?.(this.startPos) === false) continue;
         const hitResult = { hit: true, type: 'npc', npc, position: this.position.clone() };
         this.dispose();
         return hitResult;

@@ -4,12 +4,13 @@ import * as THREE from 'three';
 import { readFileSync } from 'node:fs';
 import { Player } from '../src/entities/Player.js';
 import { Npc } from '../src/entities/Npc.js';
+import { seededRandom } from '../src/entities/npc/mind.js';
 import { WEAPONS, comboStep, COMBO_WINDOW } from '../src/data/weapons.js';
 import { ITEMS, isUsable } from '../src/data/items.js';
 import { RECIPES } from '../src/data/recipes.js';
 import { InventorySystem } from '../src/systems/InventorySystem.js';
 import { attackExtension, attackSide, createMeleeOverlay } from '../src/character/melee.js';
-import { attachWeapon } from '../src/character/props.js';
+import { attachWeapon, createWeapon, findBone } from '../src/character/props.js';
 
 beforeEach(() => {
   globalThis.window = new EventTarget();
@@ -154,7 +155,7 @@ test('el combo se reinicia tras una pausa', () => {
   assert.equal(player.attack.step, 0);
 });
 
-test('puños golpean solo al más cercano; el cuchillo a todos los que alcance', () => {
+test('puños golpean solo al más cercano; el cuchillo a todos los que alcance', t => {
   const punos = arena();
   const a1 = punos.npc(10, 11), b1 = punos.npc(10.3, 11.2);
   punos.input.presses.add('KeyG');
@@ -164,6 +165,7 @@ test('puños golpean solo al más cercano; el cuchillo a todos los que alcance',
   assert.ok(a1.health < a1.maxHealth, 'el más cercano recibe el golpe');
 
   const knife = arena({ weapon: 'cuchillo' });
+  t.after(() => knife.player.dispose());
   const a2 = knife.npc(10, 11), b2 = knife.npc(10.3, 11.2), far = knife.npc(10, 14);
   knife.input.presses.add('KeyG');
   knife.tick(1, 0.01, [a2, b2, far]);
@@ -248,7 +250,7 @@ test('takePunch sigue funcionando como envoltorio', () => {
   assert.ok(n.panicTimer > 0);
 });
 
-test('a 0 de salud el peatón cae, queda tendido, se levanta con salud completa y huye; nunca desaparece', () => {
+test('a cero el peatón cae una vez y conserva la pose y posición mientras está en escena', () => {
   const { npc, scene } = arena();
   const n = npc(10, 11);
   n.takeHit({ damage: n.maxHealth, dir: { x: 0, z: 1 }, knockback: 0.5 });
@@ -264,11 +266,12 @@ test('a 0 de salud el peatón cae, queda tendido, se levanta con salud completa 
   assert.equal(n.takeHit({ damage: 50, dir: { x: 0, z: 1 } }), false);
   assert.equal(n.health, 0, 'los golpes a un noqueado se ignoran');
   assert.ok(scene.children.includes(n.root), 'sigue en la escena');
-  for (let i = 0; i < 100 && n.isKnockedOut; i++) n.update(0.1, {}); // espera a que se levante (<10 s)
-  assert.equal(n.isKnockedOut, false);
-  assert.equal(n.health, n.maxHealth);
-  assert.ok(n.fleeTimer > 0, 'se levanta huyendo');
-  assert.equal(n.takeHit({ damage: 1 }), 0, 'despertar no renueva el dinero del mismo peatón');
+  for (let i = 0; i < 150; i++) n.update(.1);
+  assert.ok(n.deathSettled);
+  assert.equal(n.health, 0);
+  assert.ok(n.position.equals(at));
+  assert.equal(n.fleeTimer, 0);
+  assert.equal(n.takeHit({ damage: 1 }), false);
   assert.ok(scene.children.includes(n.root));
 });
 
@@ -423,7 +426,7 @@ test('extensión del ataque: se encoge al preparar, llega al máximo en el impac
 
 // ---------- arma en mano ----------
 
-test('el arma se ata a la mano derecha, se cambia y libera sus materiales', () => {
+test('el arma se ata a la mano derecha y el último portador libera sus materiales', () => {
   const sk = skeleton();
   const knife = attachWeapon(sk.root, sk.bones, 'cuchillo');
   assert.ok(knife.object.parent === sk.rHand, 'cuelga de la mano');
@@ -435,8 +438,17 @@ test('el arma se ata a la mano derecha, se cambia y libera sus materiales', () =
   const geometry = knife.object.children.find((o) => o.isMesh).geometry;
   let geoDisposed = false;
   geometry.addEventListener('dispose', () => { geoDisposed = true; });
+  const other = skeleton();
+  const second = attachWeapon(other.root, other.bones, 'cuchillo');
+  assert.notEqual(second.object, knife.object);
+  assert.equal(second.object.children[0].geometry, geometry);
+  assert.equal(second.object.children[0].material, knife.object.children[0].material);
   knife.dispose();
   assert.equal(knife.object.parent, null);
+  assert.equal(disposed, 0, 'la otra mano sigue usando el acabado');
+  knife.dispose();
+  assert.equal(disposed, 0, 'liberar dos veces al mismo portador conserva al otro');
+  second.dispose();
   assert.equal(disposed, materials.size);
   assert.equal(geoDisposed, false, 'la geometría es compartida');
 
@@ -453,8 +465,22 @@ test('el arma se ata a la mano derecha, se cambia y libera sus materiales', () =
   club.dispose();
 });
 
-test('en el modelo liviano ningún arma atraviesa el piso, quieto, caminando ni corriendo', () => {
-  const box = new THREE.Box3();
+test('el modelo liviano despeja el suelo y muestra la cara del cuchillo y la tabla al moverse', t => {
+  t.mock.method(Math, 'random', seededRandom(1039));
+  const box = new THREE.Box3(), leg = new THREE.Box3(), held = new THREE.Box3(), piece = new THREE.Box3();
+  const inverse = new THREE.Matrix4(), relative = new THREE.Matrix4();
+  const boundsInCharacter = (object, target) => {
+    target.makeEmpty();
+    object.traverse(mesh => {
+      if (!mesh.isMesh) return;
+      if (!mesh.geometry.boundingBox) mesh.geometry.computeBoundingBox();
+      relative.multiplyMatrices(inverse, mesh.matrixWorld);
+      target.union(piece.copy(mesh.geometry.boundingBox).applyMatrix4(relative));
+    });
+    return target;
+  };
+  const normal = new THREE.Vector3(), actor = new THREE.Quaternion(), item = new THREE.Quaternion();
+  const views = [-2.45, -1.45].map(yaw => new THREE.Vector3(Math.sin(yaw) * Math.cos(.2), Math.sin(.2), Math.cos(yaw) * Math.cos(.2)));
   for (const id of ['cuchillo', 'botella_picada', 'arma']) {
     const scene = new THREE.Scene();
     const input = makeInput();
@@ -462,7 +488,8 @@ test('en el modelo liviano ningún arma atraviesa el piso, quieto, caminando ni 
     player.position.set(0, 0, 0);
     player.equipWeapon(id);
     const weapon = player.character.group.getObjectByName(`weapon-${id}`);
-    for (const [z, running] of [[0, false], [-1, false], [-1, true]]) {
+    for (const [x, z, running] of [[0, 0, false], [-.707, .707, false], [0, -1, false], [1, 0, true], [0, -1, true]]) {
+      input.axis.x = x;
       input.axis.z = z;
       input.isRunning = running;
       for (let frame = 0; frame < 120; frame++) {
@@ -470,8 +497,16 @@ test('en el modelo liviano ningún arma atraviesa el piso, quieto, caminando ni 
         scene.updateMatrixWorld(true);
         box.setFromObject(weapon, true);
         assert.ok(box.min.y >= 0, `${id} en z ${z}${running ? ' corriendo' : ''}: ${box.min.y.toFixed(3)} m`);
+        if (id === 'botella_picada') continue;
+        inverse.copy(player.character.group.matrixWorld).invert();
+        boundsInCharacter(player.character.ragdollRig.rightUpLeg, leg);
+        assert.ok(!boundsInCharacter(weapon, held).intersectsBox(leg), `${id} despeja la pierna y el zapato derechos`);
+        player.character.group.getWorldQuaternion(actor).invert();
+        normal.set(0, 0, 1).applyQuaternion(weapon.getWorldQuaternion(item)).applyQuaternion(actor);
+        for (const view of views) assert.ok(Math.abs(normal.dot(view)) > .52, `${id} muestra la cara ancha de costado y a tres cuartos`);
       }
     }
+    player.dispose();
   }
 });
 
@@ -492,6 +527,58 @@ function realCombatRig() {
   const base = nodes.map(b => b.quaternion.clone());
   return { root, bones, nodes, restore: () => nodes.forEach((b, i) => b.quaternion.copy(base[i])) };
 }
+
+test('la mano real sujeta los tres objetos en la palma y muestra su extremo por el lado del índice', () => {
+  const { root, bones } = realCombatRig(), hand = findBone(bones, 'RightHand');
+  const middle = findBone(bones, 'RightHandMiddle1'), index = findBone(bones, 'RightHandIndex1');
+  const pinky = findBone(bones, 'RightHandPinky1');
+  const towardIndex = index.position.clone().sub(pinky.position).normalize();
+  const wristToKnuckles = middle.position.length();
+  for (const id of ['cuchillo', 'botella_picada', 'arma']) {
+    const weapon = attachWeapon(root, bones, id), center = weapon.object.position;
+    const towardTip = new THREE.Vector3(0, 1, 0).applyQuaternion(weapon.object.quaternion);
+    assert.equal(weapon.object.parent, hand);
+    assert.ok(center.length() > wristToKnuckles * .55 && center.length() < wristToKnuckles);
+    assert.ok(center.distanceTo(middle.position) < wristToKnuckles * .48);
+    assert.ok(towardTip.dot(towardIndex) > .9);
+    weapon.dispose();
+  }
+});
+
+test('el vidrio tiene el cuello abierto y la rotura más ancha al otro extremo', () => {
+  const bottle = createWeapon('botella_picada');
+  const glass = bottle.object.getObjectByName('vidrio-verde');
+  const ray = new THREE.Raycaster(new THREE.Vector3(0, .5, 0), new THREE.Vector3(0, -1, 0));
+  assert.equal(ray.intersectObject(glass).length, 0, 'el eje pasa a través del vidrio hueco');
+  ray.ray.direction.set(-1, 0, 0);
+  const radiusAt = y => {
+    ray.ray.origin.set(.1, y, 0);
+    return ray.intersectObject(glass)[0].point.x;
+  };
+  assert.ok(radiusAt(.15) > 2.4 * radiusAt(0));
+  assert.ok(bottle.object.getObjectByName('papel-crema-y-ocre').material.map);
+  bottle.dispose();
+});
+
+test('los dos remaches se ven por ambas caras del mango y los huecos del letrero atraviesan la tabla', () => {
+  const knife = createWeapon('cuchillo'), board = createWeapon('arma');
+  const ray = new THREE.Raycaster();
+  for (const side of [-1, 1]) {
+    ray.ray.direction.set(0, 0, -side);
+    for (const y of [-.039, .025]) {
+      ray.ray.origin.set(0, y, .2 * side);
+      assert.equal(ray.intersectObject(knife.object)[0].object.name, 'acero-satinado');
+    }
+    for (const [x, y] of [[.031, .539], [-.012, -.04]]) {
+      ray.ray.origin.set(x, y, .2 * side);
+      assert.equal(ray.intersectObject(board.object).length, 0);
+    }
+    ray.ray.origin.set(0, .40, .2 * side);
+    assert.equal(ray.intersectObject(board.object)[0].object.name, 'tabla-de-letrero');
+  }
+  knife.dispose();
+  board.dispose();
+});
 
 test('cada arma enlaza preparación, contacto y recuperación sin saltos en el esqueleto real', () => {
   for (const weapon of Object.values(WEAPONS)) for (let step = 0; step < weapon.combo; step++) {

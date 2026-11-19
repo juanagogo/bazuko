@@ -71,6 +71,7 @@ export class BodyLanguage {
     this.gaitWeight = 0;
     this.stoopNow = 0; this.headNow = 0;
     this.snapNext = false;
+    this.posed = 0; this.posedHip = 0;
     this.koSlots = null;
     this.stoopSlots = null; this.headSlots = null; this.swaySlots = null;
     this.backSlots = null; this.armSlots = null; this.kneeSlot = null;
@@ -130,13 +131,13 @@ export class BodyLanguage {
   }
 
   /** ¿Hay algo que aplicar o que retirar? */
-  get active() { return this.layers.length > 0 || this.styleWeight > 0 || this.carryWeight > 0; }
+  get active() { return this.layers.length > 0 || this.styleWeight > 0 || this.carryWeight > 0 || this.posed > 0; }
 
   /** Cuánto pesa ahora una postura que mueve la cadera: 0 de pie, 1 del todo en ella. */
   get hipWeight() {
     let weight = 0;
     for (let i = 0; i < this.layers.length; i++) if (this.layers[i].stance.hipDrop > LOW_HIP_DROP) weight = Math.max(weight, smooth(this.layers[i].weight));
-    return weight;
+    return Math.max(weight, this.posedHip);
   }
 
   /** La siguiente vez entra en su postura de golpe: para quien cambió de postura sin que nadie lo viera. */
@@ -169,13 +170,20 @@ export class BodyLanguage {
    * @param {boolean} blocked     otra capa es dueña de todo el cuerpo: saltar, nadar, dormir, golpe recibido
    * @param {boolean} handsBusy   otra capa es dueña de las manos: pegar, fumar con pipa, señalar
    * @param {boolean} rising      se está parando del piso de afán: la postura baja se retira en RISE_TIME
+   * @param {number|null} benchRise tramo 0..1 de la salida de una banca, con el apoyo de las piernas horneado
+   * @param {string} benchSupport apoyo horneado para el asiento y el calzado
+   * @param {Array<[string, number]>|null} poses posturas con su peso ya decidido por quien las pide, en orden: van encima
+   *   de `stance` sin transición propia, para un movimiento que lleva su propio reloj (bajarse de un carro)
    */
-  apply(dt, { stance = null, stanceWeight = 1, style = null, ko = 0, koRising = false, koPlan = 'espalda', koFrom = null, speed = 0, phase = 0, blocked = false, handsBusy = false, rising = false } = {}) {
+  apply(dt, { stance = null, stanceWeight = 1, style = null, ko = 0, koRising = false, koPlan = 'espalda', koFrom = null, speed = 0, phase = 0, blocked = false, handsBusy = false, rising = false, poses = null, benchRise = null, benchSupport = 'parque' } = {}) {
     const hasStyle = !!style && !blocked;
     // Aunque no haya nada que hacer, la orden se gasta: si no, la próxima postura entraría de un cuadro.
     const snap = this.snapNext;
     this.snapNext = false;
-    if (!stance && !this.layers.length && !hasStyle && this.styleWeight === 0 && this.carryWeight === 0 && ko <= 0) return;
+    this.posed = this.posedHip = 0;
+    const posing = !blocked && ko <= 0 && poses?.length > 0;
+    const benchPath = benchRise != null && ko <= 0 && this.library.knockout?.benchExit?.[benchSupport];
+    if (!stance && !this.layers.length && !hasStyle && this.styleWeight === 0 && this.carryWeight === 0 && ko <= 0 && !posing && !benchPath) return;
     this.time += dt;
     const stepOf = seconds => (snap ? 1 : dt / seconds);
 
@@ -188,6 +196,8 @@ export class BodyLanguage {
     // Con lo que recogió ya en la mano, de subida el brazo va tomando su postura: no llega abajo con el paraguas de lado.
     const backUp = koRising && 1 - ko >= KO_HAND_DOWN && !!stance && !!this._resolve(stance)?.walk;
     this._applyStance(stance, stanceWeight, speed, blocked || handsBusy || (ko > 0 && !backUp), rising, ko, koRising ? null : koFrom, dt, stepOf);
+    if (posing) this._applyPoses(poses);
+    if (benchPath) this._applyPosePath(benchPath, benchRise);
     if (ko > 0) this._applyKnockout(ko, koRising, koPlan);
     if (styleWeight > 0) this._applyBodyStyle(style, styleWeight, phase, dt, snap);
     else if (this.stoopNow || this.headNow) { this.stoopNow = 0; this.headNow = 0; }
@@ -215,6 +225,17 @@ export class BodyLanguage {
     for (let i = 0; i < this.layers.length; i++) {
       const layer = this.layers[i];
       this._applyLayer(layer.stance, smooth(layer.weight) * clamp01(stanceWeight));
+    }
+  }
+
+  /** Posturas con peso dado, una sobre otra en el orden en que vienen. */
+  _applyPoses(poses) {
+    for (let i = 0; i < poses.length; i++) {
+      const stance = this._resolve(poses[i][0]), weight = clamp01(poses[i][1]);
+      if (!stance || weight <= 0) continue;
+      this._applyLayer(stance, weight);
+      this.posed++;
+      if (stance.hipDrop > LOW_HIP_DROP) this.posedHip = Math.max(this.posedHip, weight);
     }
   }
 
@@ -262,8 +283,12 @@ export class BodyLanguage {
 
   /** Por dónde va del camino de `KO_PLANS` y a qué pose se acerca: nada de esto guarda estado. */
   _applyKnockout(ko, rising, planName) {
-    const data = this.library.knockout, plan = KO_PLANS[planName] ?? KO_PLANS.espalda;
-    const path = rising ? plan.rise : plan.fall, t = rising ? 1 - ko : ko;
+    const plan = KO_PLANS[planName] ?? KO_PLANS.espalda;
+    this._applyPosePath(rising ? plan.rise : plan.fall, rising ? 1 - ko : ko);
+  }
+
+  _applyPosePath(path, t) {
+    const data = this.library.knockout;
     let i = 0;
     while (i < path.length - 2 && t >= path[i + 1][1]) i++;
     const raw = clamp01((t - path[i][1]) / (path[i + 1][1] - path[i][1]));

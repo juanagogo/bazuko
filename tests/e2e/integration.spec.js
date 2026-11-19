@@ -72,7 +72,7 @@ async function simulatedPad(page) {
   };
 }
 
-test('cuchillo encadena tres golpes, botella noquea y recuperar al NPC no renueva el dinero', async ({ page }) => {
+test('el cuchillo encadena tres golpes y la botella deja al peatón a cero con un solo premio', async ({ page }) => {
   const errors = collectErrors(page);
   await start(page);
   await page.evaluate(async () => {
@@ -86,16 +86,22 @@ test('cuchillo encadena tres golpes, botella noquea y recuperar al NPC no renuev
     player.position.set(112.98, game.world.active.getMovementGroundHeight(112.98, 97.84, 0), 97.84);
     player.root.position.copy(player.position); player.root.rotation.set(0, Math.PI, 0);
     player.velocity.set(0, 0, 0); player.resetGrounding(); player.action = null;
-    const npc = game.world.active.npcs.find(npc => npc.character && !npc._disposed);
+    const npc = game.world.active.npcs.find(n => n.character && n.person && !n.isVendor && !n.fijo
+      && !n._disposed && !n.isDead && n.health === 100 && !n.looted);
+    if (!npc) throw new Error('Hace falta un peatón con toda la salud para comprobar el combo');
     npc.position.set(112.98, player.position.y, 96.8); npc.root.position.copy(npc.position);
     // Un objetivo quieto permite observar todos los contactos del combo. Sigue
-    // recibiendo daño, animando el sacudón, cayendo y recuperándose normalmente.
+    // recibiendo daño, animando el sacudón y cayendo al agotarse su salud.
     npc.isWalkable = () => false; npc.walkSpeed = 0;
-    npc.health = npc.maxHealth; npc.looted = false;
-    window.__integrationCombat = { npc, money: game.stats.dinero, steps: [], hits: [], queued: [], complete: false };
-    window.addEventListener('street-fight', event => {
-      if (event.detail?.attacker !== player) return;
-      window.__integrationCombat.hits.push({ health: npc.health, money: game.stats.dinero });
+    const probe = window.__integrationCombat = { npc, money: game.stats.dinero, steps: [], hits: [], deaths: [], queued: [], complete: false };
+    window.addEventListener('street-fight', ({ detail }) => {
+      if (detail.attacker !== player || !detail.hits.includes(npc)) return;
+      probe.hits.push({ health: npc.health, money: game.stats.dinero });
+    });
+    window.addEventListener('npc-death', ({ detail }) => {
+      if (detail.victim !== npc) return;
+      probe.diedAt = game.world.active.minds.time;
+      probe.deaths.push({ byPlayer: detail.attacker === player, weapon: detail.weapon, from: detail.previousHealth, to: detail.health });
     });
   });
   await page.keyboard.press('i');
@@ -141,19 +147,24 @@ test('cuchillo encadena tres golpes, botella noquea y recuperar al NPC no renuev
   await page.keyboard.press('Escape');
   await expect.poll(() => page.evaluate(() => window.__game.player.melee.cooldownRemaining)).toBe(0);
   await page.keyboard.press('g');
-  await expect.poll(() => page.evaluate(() => window.__integrationCombat.npc.isKnockedOut)).toBe(true);
-  expect(await page.evaluate(() => window.__integrationCombat.npc.health)).toBe(0);
-  expect(await page.evaluate(() => window.__game.stats.dinero)).toBe(moneyAfterFirstHit);
+  await expect.poll(() => page.evaluate(() => window.__integrationCombat.npc.deathSettled)).toBe(true);
   if (process.env.UPGRADE_SHOTS) {
     await mkdir(process.env.UPGRADE_SHOTS, { recursive: true });
     await page.screenshot({ path: path.join(process.env.UPGRADE_SHOTS, 'combate-integrado.png') });
   }
-  await expect.poll(() => page.evaluate(() => window.__integrationCombat.npc.isKnockedOut), { timeout: 25_000 }).toBe(false);
-  expect(await page.evaluate(() => window.__integrationCombat.npc.health)).toBe(100);
-  expect(await page.evaluate(() => window.__integrationCombat.npc.looted)).toBe(true);
+  // Once segundos de simulación superan la antigua espera y toda la animación de levantarse.
+  await expect.poll(() => page.evaluate(() => window.__game.world.active.minds.time - window.__integrationCombat.diedAt),
+    { timeout: 60_000 }).toBeGreaterThan(11);
   await page.keyboard.press('g');
-  await expect.poll(() => page.evaluate(() => window.__integrationCombat.npc.health)).toBeLessThan(100);
-  expect(await page.evaluate(() => window.__game.stats.dinero)).toBe(moneyAfterFirstHit);
+  await expect.poll(() => page.evaluate(() => window.__game.player.melee.active)).toBe(true);
+  await expect.poll(() => page.evaluate(() => window.__game.player.melee.active)).toBe(false);
+  const final = await page.evaluate(() => {
+    const { npc, deaths, hits } = window.__integrationCombat;
+    return { dead: npc.isDead, settled: npc.deathSettled, present: !!npc.root.parent && !npc._disposed,
+      health: npc.health, looted: npc.looted, money: window.__game.stats.dinero, deaths, hits: hits.map(hit => hit.health) };
+  });
+  expect(final).toEqual({ dead: true, settled: true, present: true, health: 0, looted: true, money: moneyAfterFirstHit,
+    deaths: [{ byPlayer: true, weapon: 'botella_picada', from: 2, to: 0 }], hits: [72, 44, 2, 0] });
   expect(errors).toEqual([]);
 });
 

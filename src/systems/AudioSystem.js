@@ -6,6 +6,7 @@ import { PoliceSirenAudio } from './PoliceSirenAudio.js';
 import { NpcConversations } from './NpcConversations.js';
 import { NPC_CONVERSATIONS } from '../data/npcConversations.js';
 import { VoiceDirector } from './voces/VoiceDirector.js';
+import { PRIORIDAD_CANAL } from './voces/prioridad.js';
 
 export const MIX_CATEGORIES = ['ambient', 'traffic', 'voices', 'effects'];
 // El audio vive en public/audio: la ruta se arma con la base para que la demo de Pages funcione bajo su subcamino.
@@ -22,6 +23,26 @@ const STEP_SURFACES = {
   grass: { volume: .3, rate: .88 }, dirt: { volume: .34, rate: .9 },
   road: { volume: .46, rate: 1 }, busway: { volume: .46, rate: 1 },
   sidewalk: { volume: .5, rate: 1 }, floor: { volume: .5, rate: 1 }, plaza: { volume: .5, rate: 1 }
+};
+const TIMBRES_GOLPE = {
+  punos: [
+    { onda: 'sine', inicio: 150, fin: 48, duracion: .09, nivel: .45 },
+    { onda: 'triangle', inicio: 320, fin: 105, duracion: .025, nivel: .14 }
+  ],
+  cuchillo: [
+    { onda: 'sine', inicio: 155, fin: 60, duracion: .07, nivel: .34 },
+    { onda: 'triangle', inicio: 1430, fin: 1320, duracion: .10, nivel: .13 },
+    { onda: 'sine', inicio: 2380, fin: 2240, duracion: .065, nivel: .06 }
+  ],
+  botella_picada: [
+    { onda: 'sine', inicio: 165, fin: 55, duracion: .09, nivel: .36 },
+    { onda: 'sine', inicio: 930, fin: 890, duracion: .145, nivel: .18 },
+    { onda: 'sine', inicio: 2120, fin: 2030, duracion: .085, nivel: .09 }
+  ],
+  arma: [
+    { onda: 'sine', inicio: 98, fin: 32, duracion: .15, nivel: .49 },
+    { onda: 'triangle', inicio: 230, fin: 75, duracion: .055, nivel: .16 }
+  ]
 };
 
 export class AudioSystem {
@@ -120,6 +141,11 @@ export class AudioSystem {
     this.conversations.externalVoiceActive = () => this._theftVoiceActive() || this.vehicles.remarkPlaying() || this.streetVoices.active || this.voces.active;
     this.voces.otraVoz = () => this._theftVoiceActive() || this.vehicles.remarkPlaying() || this.streetVoices.active || this.conversations.busy;
     this.voces.audioListo = () => !this.howler.ctx || (this.howler.state === 'running' && this.howler.ctx.state === 'running');
+    // Un testigo espera al reclamo por robo y corta a la calle, las conversaciones y los conductores (voces/prioridad.js).
+    this.voces.pesoOtraVoz = () => this._theftVoiceActive() ? PRIORIDAD_CANAL.carro
+      : this.vehicles.remarkPlaying() ? PRIORIDAD_CANAL.reclamo
+        : this.streetVoices.active || this.conversations.busy ? PRIORIDAD_CANAL.calle : 0;
+    this.voces.callarOtras = () => { this.vehicles.stopRemarks(); this.streetVoices.cancel(); this.conversations.cancel(); };
     this._carAlarms = new Map();
 
     // El audio es opcional: un archivo ausente o bloqueado no impide jugar.
@@ -137,6 +163,7 @@ export class AudioSystem {
     })));
 
     this._stepsPlaying = false;
+    this._golpesSonoros = 0;
     this._stepDistance = 0;
     this._lastStep = -1;
     this._boostPlaying = false;
@@ -515,6 +542,40 @@ export class AudioSystem {
     } catch {}
   }
 
+  /**
+   * Pitazo de policía sintetizado: dos silbos cortos con el trino de la bolita. Es el aviso del agente que se va a
+   * echar encima (ver `POLICE_GRAB`). Comparte mezcla de efectos, maestro, silencio y pausa.
+   */
+  playWhistle() {
+    const fx = this._fx();
+    if (!fx) return;
+    try {
+      const { ctx, out } = fx;
+      const t = ctx.currentTime;
+      const tone = ctx.createOscillator(), trill = ctx.createOscillator(), depth = ctx.createGain(), gain = ctx.createGain();
+      tone.type = 'sine';
+      tone.frequency.setValueAtTime(2850, t);
+      trill.type = 'sine';
+      trill.frequency.setValueAtTime(38, t);
+      depth.gain.setValueAtTime(190, t);
+      gain.gain.setValueAtTime(0.001, t);
+      gain.gain.linearRampToValueAtTime(0.16, t + 0.02);
+      gain.gain.setValueAtTime(0.16, t + 0.16);
+      gain.gain.linearRampToValueAtTime(0.02, t + 0.2);
+      gain.gain.linearRampToValueAtTime(0.16, t + 0.23);
+      gain.gain.exponentialRampToValueAtTime(0.001, t + 0.42);
+      trill.connect(depth);
+      depth.connect(tone.frequency);
+      tone.connect(gain);
+      gain.connect(out);
+      tone.onended = () => { tone.disconnect(); trill.disconnect(); depth.disconnect(); gain.disconnect(); };
+      tone.start(t);
+      trill.start(t);
+      tone.stop(t + 0.44);
+      trill.stop(t + 0.44);
+    } catch {}
+  }
+
   playWhoosh() {
     const fx = this._fx();
     if (!fx) return;
@@ -735,7 +796,35 @@ export class AudioSystem {
     } catch {}
   }
 
-  playPunchHit() {
+  playPunchHit(arma, remate = false) {
+    if (arma === undefined) return this._golpeRecibido();
+    const fx = this._fx();
+    if (!fx) return;
+    try {
+      const { ctx, out } = fx;
+      const t = ctx.currentTime;
+      // Dos ciclos distintos varían el sonido sin consumir el azar de la partida.
+      const golpe = this._golpesSonoros++;
+      const tono = (1 + .035 * Math.sin(golpe * 2.4)) * (remate ? .82 : 1);
+      const volumen = (1 + .045 * Math.cos(golpe * 1.7)) * (remate ? 1.24 : 1);
+      for (const { onda, inicio, fin, duracion, nivel } of TIMBRES_GOLPE[arma] ?? TIMBRES_GOLPE.punos) {
+        const oscilador = ctx.createOscillator(), envolvente = ctx.createGain();
+        oscilador.type = onda;
+        oscilador.frequency.setValueAtTime(inicio * tono, t);
+        oscilador.frequency.exponentialRampToValueAtTime(fin * tono, t + duracion);
+        envolvente.gain.setValueAtTime(.0001, t);
+        envolvente.gain.linearRampToValueAtTime(nivel * volumen, t + .002);
+        envolvente.gain.exponentialRampToValueAtTime(.0001, t + duracion);
+        oscilador.connect(envolvente);
+        envolvente.connect(out);
+        oscilador.onended = () => { oscilador.disconnect(); envolvente.disconnect(); };
+        oscilador.start(t);
+        oscilador.stop(t + duracion);
+      }
+    } catch {}
+  }
+
+  _golpeRecibido() {
     const fx = this._fx();
     if (!fx) return;
     try {

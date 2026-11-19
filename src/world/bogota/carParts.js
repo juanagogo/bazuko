@@ -2,7 +2,7 @@
 // Piezas de los vehículos: lotes de vértices y parches proyectados sobre la rejilla de la carrocería.
 // Todo se acumula por material compartido; así un carro completo se dibuja en pocas llamadas.
 import * as THREE from 'three';
-import { CELL, ROW_COUNT, curve, lerp } from './carLoft.js';
+import { CELL, ROW, ROW_COUNT, curve, lerp } from './carLoft.js';
 import { RECT, rectUv } from './carAtlas.js';
 
 const WHITE = rectUv(RECT.white, .5, .5);
@@ -50,6 +50,24 @@ export const COLOR = Object.freeze({
   dash: srgb('#141516'), exhaust: srgb('#3a3c3e'), headliner: srgb('#5d5e5e'), pocket: srgb('#0c0d0e'),
 });
 
+// En el panorámico U recorre de +1 a +2, del centro al borde; en la luneta, de -1 a -2. Los costados llevan cero.
+// V sube del caucho inferior al superior, así el tinte y los hilos siguen cada vidrio incluso en los modelos más cuadrados.
+function glassUv(body, si, row, y, z) {
+  const { spec } = body, x = body.X[si];
+  if (row >= ROW.T2) {
+    const front = x >= spec.windshield[0] && x <= spec.windshield[1];
+    const limits = front ? spec.windshield : spec.backlight;
+    if (limits) {
+      const frit = front ? (spec.windshieldFrit ?? .03) : (spec.backlightFrit ?? .025);
+      const t = THREE.MathUtils.clamp((x - limits[0] - frit) / Math.max(.001, limits[1] - limits[0] - 2 * frit), 0, 1);
+      const width = Math.abs(z) / Math.max(.001, body.z(si, ROW.T2));
+      return [(front ? 1 : -1) * (1 + width), front ? 1 - t : t];
+    }
+  }
+  const base = body.y(si, ROW.GL), top = body.y(si, ROW.GH);
+  return [0, THREE.MathUtils.clamp((y - base) / Math.max(.001, top - base), 0, 1)];
+}
+
 /** Vuelca a los lotes las celdas de la carrocería, a ambos lados; los vértices comparten posición y normal. */
 export function emitBody(body, kinds, batches, ao) {
   const { ns } = body, NR = ROW_COUNT, P = body.P, N = body.N, UV = body.UV;
@@ -68,7 +86,8 @@ export function emitBody(body, kinds, batches, ao) {
         const a = ao(x, y, r);
         vertex = batches.paint.v(x, y, z, nx, ny, nz, UV[k], UV[k + 1], a[0], a[1], a[2]);
       } else if (kind === CELL.GLASS) {
-        vertex = batches.glass.v(x, y, z, nx, ny, nz);
+        const [u, v] = glassUv(body, si, r, y, z);
+        vertex = batches.glass.v(x, y, z, nx, ny, nz, u, v);
       } else {
         const c = kind === CELL.CHROME ? COLOR.chrome : kind === CELL.DARK ? COLOR.dark : COLOR.trim;
         vertex = batches.trim.v(x, y, z, nx, ny, nz, WHITE[0], WHITE[1], c[0], c[1], c[2], kind === CELL.CHROME ? 1 : 0);
@@ -307,11 +326,69 @@ export function addWheelWells(batch, body) {
 
 // ===== Ruedas =====
 
+/** Rin de chapa estampada. Las ocho ventanas dejan ver el disco metido en el barril; las cuatro tuercas salen de la copa central. */
+function steelWheelFace(batch, radius, floor, depth) {
+  const tau = Math.PI * 2, steel = srgb('#83898a'), rotor = srgb('#393631'), hub = srgb('#4d5254'), lug = srgb('#a4a5a0');
+  const put = (x, y, z, nx, ny, nz, color, metal) => batch.v(x, y, z, nx, ny, nz, WHITE[0], WHITE[1], ...color, metal);
+  const vertex = (f, angle, solid) => {
+    const c = Math.cos(angle), s = Math.sin(angle), span = f < .7 ? .3 : .29;
+    const bend = f < .7 ? .5 : .12, t = (f - .7) / span;
+    // El puente macizo tiene dos caras grandes. Su borde y el de la perforación comparten la misma recta en profundidad.
+    const height = solid ? .38 * (.99 - f) / .59 : bend * t * t - .12;
+    const rise = solid ? .38 / .59 : -2 * bend * t / span;
+    const z = floor + depth * height, slope = depth * rise / radius, norm = Math.hypot(slope, 1);
+    return put(f * radius * c, f * radius * s, z, slope * c / norm, slope * s / norm, 1 / norm, steel, .48);
+  };
+  // Cada par de columnas dibuja la chapa entre el cubo y la abertura, y entre la abertura y la pestaña.
+  const cuts = [[-.30, 0], [-.19, 1], [.19, 1], [.30, 0]];
+  let previous, previousOpening = 0;
+  for (let i = 0; i <= 8 * cuts.length; i++) {
+    const [position, opening] = cuts[i % cuts.length];
+    const angle = (Math.floor(i / cuts.length) + position) * tau / 8;
+    const column = [.4, .70 - .105 * opening, .70 + .108 * opening, .99].map(f => vertex(f, angle, !opening));
+    if (previous) {
+      if (opening || previousOpening) {
+        batch.quad(previous[0], previous[1], column[1], column[0]);
+        batch.quad(previous[2], previous[3], column[3], column[2]);
+      } else batch.quad(previous[0], previous[3], column[3], column[0]);
+    }
+    previous = column; previousOpening = opening;
+  }
+  const cap = (cx, cy, r, base, height, sides, color, metal) => {
+    const center = put(cx, cy, base + height, 0, 0, 1, color, metal);
+    let previous;
+    for (let k = 0; k <= sides; k++) {
+      const a = k * tau / sides, c = Math.cos(a), s = Math.sin(a);
+      const lower = put(cx + c * r, cy + s * r, base, c * .8, s * .8, .6, color, metal);
+      const upper = put(cx + c * r * .86, cy + s * r * .86, base + height, c * .3, s * .3, .954, color, metal);
+      if (previous) { batch.quad(previous[0], lower, upper, previous[1]); batch.tri(center, previous[1], upper); }
+      previous = [lower, upper];
+    }
+  };
+  const disk = (r, z, color, metal) => {
+    const center = put(0, 0, z, 0, 0, 1, color, metal);
+    for (let k = 0; k <= 16; k++) {
+      const a = k * tau / 16;
+      const p = put(r * Math.cos(a), r * Math.sin(a), z, 0, 0, 1, color, metal);
+      if (k) batch.tri(center, p - 1, p);
+    }
+  };
+  disk(radius * .89, floor - .021, rotor, .18);
+  const centerZ = floor + depth * .38;
+  // El disco cubre un poco el borde poligonal del anillo para que la copa cierre en los ocho sectores.
+  disk(radius * .412, centerZ - .0005, steel, .48);
+  cap(0, 0, radius * .155, centerZ, .010, 10, hub, .3);
+  for (let i = 0; i < 4; i++) {
+    const a = (i + .5) * tau / 4;
+    cap(radius * .29 * Math.cos(a), radius * .29 * Math.sin(a), radius * .064, centerZ, .010, 6, lug, .68);
+  }
+}
+
 /**
  * Rueda vista desde +Z: neumático con flanco y banda, rin hondo y disco con el diseño del atlas.
  * La cara interior es una tapa oscura: sin ella, la rueda del lado lejano se ve como una media luna bajo el carro.
  */
-export function makeWheelGeometry({ r, width, rim = 'rimTapa', depth = .022, spokes = 0, rimRatio = .66, tireColor = '#141517', outward = 1, segments = 22, rimSegments = 16 }) {
+export function makeWheelGeometry({ r, width, rim = 'rimTapa', depth = .022, spokes = 0, stamped = false, rimRatio = .66, tireColor = '#141517', outward = 1, segments = 22, rimSegments = 16 }) {
   const b = new Batch();
   const hw = width / 2, Rr = r * rimRatio, TAU = Math.PI * 2;
   const tire = srgb(tireColor), wall = srgb('#1b1c1e'), rimC = srgb('#b9bdc1'), dark = srgb('#060607');
@@ -321,21 +398,29 @@ export function makeWheelGeometry({ r, width, rim = 'rimTapa', depth = .022, spo
     [Rr + .004, hw - .012, wall, 0], [Rr + (r - Rr) * .5, hw + .002, wall, 0],
     [r - .012, hw - .022, tire, 0], [r, hw - .05, tire, 0], [r, -hw + .03, tire, 0],
   ];
-  const ring = (p0, p1, sides = segments) => {
+  const sidewallNormals = profile.map((_, i) => {
+    const before = profile[Math.max(0, i - 1)], after = profile[Math.min(profile.length - 1, i + 1)];
+    const dr = after[0] - before[0], dz = after[1] - before[1], length = Math.hypot(dr, dz);
+    return [-dz / length, dr / length];
+  });
+  const ring = (p0, p1, sides = segments, rubberIndex = -1) => {
     const base = b.count, dr = p1[0] - p0[0], dz = p1[1] - p0[1], len = Math.hypot(dr, dz) || 1;
-    // Normal del tramo del perfil: perpendicular, hacia afuera de la rueda.
-    const nr = -dz / len, nz = dr / len;
+    const points = [p0, p1], faceNormal = [-dz / len, dr / len];
     for (let i = 0; i <= sides; i++) {
       const a = TAU * i / sides, c = Math.cos(a), s = Math.sin(a);
-      b.v(p0[0] * c, p0[0] * s, p0[1], nr * c, nr * s, nz, WHITE[0], WHITE[1], p0[2][0], p0[2][1], p0[2][2], p0[3]);
-      b.v(p1[0] * c, p1[0] * s, p1[1], nr * c, nr * s, nz, WHITE[0], WHITE[1], p1[2][0], p1[2][1], p1[2][2], p1[3]);
+      for (let j = 0; j < 2; j++) {
+        const point = points[j], [nr, nz] = rubberIndex < 0 ? faceNormal : sidewallNormals[rubberIndex + j];
+        // El valor negativo lleva la altura sobre el talón del caucho, también al unir la rueda de un parqueado.
+        const mask = rubberIndex < 0 ? point[3] : -1 - (point[0] - Rr) / (r - Rr);
+        b.v(point[0] * c, point[0] * s, point[1], nr * c, nr * s, nz, WHITE[0], WHITE[1], ...point[2], mask);
+      }
     }
     for (let i = 0; i < sides; i++) {
       const a = base + i * 2;
       b.quad(a, a + 1, a + 3, a + 2);
     }
   };
-  for (let i = 0; i < profile.length - 1; i++) ring(profile[i], profile[i + 1]);
+  for (let i = 0; i < profile.length - 1; i++) ring(profile[i], profile[i + 1], segments, i);
   const cap = b.count;
   for (let i = 0; i < 12; i++) {
     const a = TAU * i / 12;
@@ -348,14 +433,17 @@ export function makeWheelGeometry({ r, width, rim = 'rimTapa', depth = .022, spo
   ring([Rr * 1.02, lipFront - .004, rimC, .85], [Rr + .006, lipFront, rimC, .85], rimSegments);
   // Disco con el dibujo del rin.
   const rect = RECT[rim] ?? RECT.rimTapa, RD = Rr * .99;
-  const base = b.count;
-  const centerUv = rectUv(rect, .5, .5);
-  b.v(0, 0, floor, 0, 0, 1, centerUv[0], centerUv[1], 1, 1, 1, .55);
-  for (let i = 0; i <= rimSegments; i++) {
-    const a = TAU * i / rimSegments, c = Math.cos(a), s = Math.sin(a), t = rectUv(rect, .5 + .5 * c, .5 - .5 * s);
-    b.v(RD * c, RD * s, floor, 0, 0, 1, t[0], t[1], 1, 1, 1, .55);
+  if (stamped) steelWheelFace(b, Rr, floor, depth);
+  else {
+    const base = b.count, centerUv = rectUv(rect, .5, .5);
+    const dome = rim === 'rimTapa' ? .22 : 0;
+    b.v(0, 0, floor + dome * depth * 1.8, 0, 0, 1, centerUv[0], centerUv[1], 1, 1, 1, .55);
+    for (let i = 0; i <= rimSegments; i++) {
+      const a = TAU * i / rimSegments, c = Math.cos(a), s = Math.sin(a), t = rectUv(rect, .5 + .5 * c, .5 - .5 * s);
+      b.v(RD * c, RD * s, floor, dome * c, dome * s, Math.sqrt(1 - dome * dome), t[0], t[1], 1, 1, 1, .55);
+    }
+    for (let i = 0; i < rimSegments; i++) b.tri(base, base + 1 + i, base + 2 + i);
   }
-  for (let i = 0; i < rimSegments; i++) b.tri(base, base + 1 + i, base + 2 + i);
   // Rayos en relieve: la luz del sol los separa del fondo.
   for (let k = 0; k < spokes; k++) {
     const a = k * TAU / spokes - Math.PI / 2, c = Math.cos(a), s = Math.sin(a), dirX = c, dirY = s, px = -s, py = c;
@@ -390,5 +478,8 @@ export function makeWheelGeometry({ r, width, rim = 'rimTapa', depth = .022, spo
     for (let i = 2; i < b.N.length; i += 3) b.N[i] = -b.N[i];
     for (let i = 0; i < b.I.length; i += 3) { const t = b.I[i + 1]; b.I[i + 1] = b.I[i + 2]; b.I[i + 2] = t; }
   }
-  return b.toGeometry(`Rueda ${rim}`);
+  const geometria = b.toGeometry(`Rueda ${rim}`);
+  // En un sardinel puede apoyar la banda o el hombro antes que el centro del neumático.
+  geometria.userData.perfilApoyo = profile.map(([radius, z]) => ({ z, despeje: r - radius }));
+  return geometria;
 }

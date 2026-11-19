@@ -42,6 +42,21 @@ export class HitLean {
     this.vRoll += (-side + (Math.abs(side) < .2 ? (along >= 0 ? .25 : -.25) : 0)) * v * .8;
   }
 
+  /** Cambia los ejes al girarse la víctima, conservando la dirección del empujón en el mundo. */
+  orientar(rumbo) {
+    if (this.active && this._rumbo !== undefined) {
+      const giro = rumbo - this._rumbo, cos = Math.cos(giro), sin = Math.sin(giro);
+      const { pitch, roll, vPitch, vRoll } = this;
+      const amplitud = Math.hypot(pitch, roll);
+      const escala = amplitud > HIT_LEAN.max ? HIT_LEAN.max / amplitud : 1;
+      this.pitch = (pitch * cos - roll * sin) * escala;
+      this.roll = (pitch * sin + roll * cos) * escala;
+      this.vPitch = vPitch * cos - vRoll * sin;
+      this.vRoll = vPitch * sin + vRoll * cos;
+    }
+    this._rumbo = rumbo;
+  }
+
   update(dt) {
     if (!(dt > 0) || !this.active) return;
     // Paso exacto del muelle amortiguado: el mismo recorrido a 30, 60 o 144 imágenes por segundo.

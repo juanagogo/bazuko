@@ -3,7 +3,13 @@
 // y la llamada termina sola, sube el fichaje y el testigo vuelve a caminar.
 import { test, expect } from '@playwright/test';
 
-test.beforeEach(async ({ page }) => { await page.addInitScript(() => localStorage.clear()); });
+test.beforeEach(async ({ page }) => {
+  await page.addInitScript(() => {
+    localStorage.clear();
+    let semilla = 89123;
+    Math.random = () => ((semilla = (Math.imul(semilla, 1664525) + 1013904223) >>> 0) / 4294967296);
+  });
+});
 
 test('un cosquilleo pillado delante de alguien: saca el celular, llama y al terminar vuelve a caminar', async ({ page }) => {
   test.setTimeout(300_000);
@@ -25,10 +31,23 @@ test('un cosquilleo pillado delante de alguien: saca el celular, llama y al term
     if (g.dog) { g.dog.home?.set?.(x + 25, 0, z + 25); g.dog.position.set(x + 25, 0, z + 25); g.dog._wanderTarget = null; }
     const libres = d.npcs.filter((n) => n.person && !n.isVendor && !n.fijo && !n.koState && !n._disposed
       && !['sentado', 'acurrucado', 'banca', 'pedir', 'dormido'].includes(n.stance));
-    const [v, t] = libres;
-    const poner = (n, px, pz) => { n.position.set(px, d.getGroundHeight(px, pz), pz); n.root.position.copy(n.position); n.target = null; n.route = []; n.fleeTimer = 0; };
+    // Este escenario prueba una llamada terminada. Una persona asustada puede dejar el celular legítimamente.
+    const t = libres.find(n => n.mind?.temper.tipo === 'indiferente');
+    const v = libres.find(n => n !== t);
+    if (!t || !v) throw new Error('Faltan la víctima o el testigo tranquilo en la población de prueba');
+    const poner = (n, px, pz) => {
+      n.position.set(px, d.getMovementGroundHeight(px, pz, 0), pz);
+      n.root.position.copy(n.position);
+      n.target = null; n.route = []; n.wait = 20; n.fleeTimer = 0;
+      n.mind?.reset();
+    };
+    for (const otro of libres) {
+      if (otro !== t && otro !== v && Math.hypot(otro.position.x - x, otro.position.z - z) < 17) {
+        poner(otro, otro.position.x + 36, otro.position.z);
+      }
+    }
     poner(v, x, z);
-    poner(t, x + 3, z + 2);
+    poner(t, x + 4, z + 2);
     const p = g.player;
     p.position.set(x, d.getGroundHeight(x, z - .9), z - .9); p.root.position.copy(p.position);
     const antes = g.steal.buscado;
@@ -40,10 +59,10 @@ test('un cosquilleo pillado delante de alguien: saca el celular, llama y al term
     try { g.steal.targetNpc = v; g.steal._endMinigame(false, 'play'); } finally { Math.random = azar; }
     const testigo = g.witnesses.calls[0]?.npc ?? null;
     window.__testigo = testigo;
-    return { antes, llama: testigo?.witnessing ?? null, esLaVictima: testigo === v };
+    return { antes, llama: testigo?.witnessing ?? null, esElTestigo: testigo === t };
   });
   expect(r.llama).toBe('llamar');
-  expect(r.esLaVictima).toBe(false);
+  expect(r.esElTestigo).toBe(true);
   await expect(page.locator('body')).toContainText('llamando a la Policía', { timeout: 5_000 });
   // Nadie le llega: la llamada termina sola, sube el fichaje y el testigo suelta el celular.
   await expect.poll(() => page.evaluate(() => window.__game.steal.buscado), { timeout: 20_000 }).toBeGreaterThan(r.antes);

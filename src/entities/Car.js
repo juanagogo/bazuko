@@ -2,7 +2,9 @@
 import * as THREE from 'three';
 import { CAR_COOLDOWN, INTERACT_RANGE } from '../utils/constants.js';
 import { makeVehicle } from '../world/bogota/vehicles.js';
+import { layCarLight } from '../world/bogota/carBeam.js';
 import { getDriverGeometry } from '../world/bogota/VehicleBody.js';
+import { ponerPasajeros } from '../world/bogota/pasajerosBuseta.js';
 import { markerGeometry, markerMaterial } from '../world/bogota/carMarker.js';
 import { createImportedModel, disposeImportedInstance } from '../utils/ImportedModels.js';
 
@@ -64,8 +66,7 @@ export class Car {
     const resolvedKind = kind ?? (Math.random() < 0.3 ? 'taxi' : 'carro');
     this.kind = resolvedKind;
     this.modelKind = resolvedKind === 'taxi' ? 'car2' : 'car1';
-    // El haz solo lo muestra quien circula: un parqueado no gasta un material en algo que nunca enciende.
-    // Solo el que circula anima ruedas y plumillas; el resto las lleva unidas a sus molduras y ahorra seis llamadas.
+    // Hasta que alguien lo conduce, un parqueado no necesita haz ni ruedas y plumillas separadas.
     const v = makeVehicle(resolvedKind, Number.isFinite(variant) ? Math.trunc(variant) : Math.floor(Math.random() * 10000), { beams: traffic, model, parked: !traffic });
     this.vehicle = v;
     this.length = v.length;
@@ -79,6 +80,7 @@ export class Car {
     this._wetMaterials = (v.wetMaterials ?? []);
     this._details = v.details ?? [];
     this._simple = false;
+    if (v.model === 'buseta') ponerPasajeros(v, variant);
 
     // Retrovisores (lo que se roba): dos soportes y una sola malla con ambos, que siempre se roban y vuelven juntos.
     this.mirrors = [];
@@ -178,12 +180,13 @@ export class Car {
   }
 
   get position() { return this.group.position; }
+  get driverAvailable() { return this.driverInside !== false && !this.driverDead; }
 
   /** Si `steal` daría algo: a una patrulla no se le roban los espejos y los ya robados tardan en volver. */
   get stealable() { return this.kind !== 'police' && !this.used && this.cooldown <= 0; }
 
   /** Si se le puede limpiar el parabrisas: carros particulares y taxis que no se hayan limpiado recientemente y no estén en alarma. */
-  get cleanable() { return this.kind !== 'police' && !this.used && (this.cleanCooldown ?? 0) <= 0; }
+  get cleanable() { return this.driverAvailable && this.kind !== 'police' && !this.used && (this.cleanCooldown ?? 0) <= 0; }
 
   /**
    * Distancia para el aviso de robar: al centro o, con un recargo, a un espejo. En un carro largo el espejo queda a varios metros
@@ -236,7 +239,7 @@ export class Car {
     if (!this.traffic && Math.random() < 0.2) items.push('radio');
 
     const caughtChance = 0.25 * caughtMult;
-    const caught = Math.random() < caughtChance;
+    const caught = this.driverAvailable && Math.random() < caughtChance;
 
     this.used = true;
     this.cooldown = CAR_COOLDOWN;
@@ -276,6 +279,13 @@ export class Car {
       this._playerDriver = seat;
     }
     if (this._playerDriver) this._playerDriver.visible = !!on && !this.driverHidden;
+    v.separarRuedas?.(on);
+    this._applyDetail();
+    if (!on) {
+      this._previousSpeed = null;
+      this._steering = this._motionWeight = 0;
+      this.usarSuspensionFisica(false);
+    }
   }
 
   /**
@@ -328,9 +338,9 @@ export class Car {
     const reach = this._markerNear ? MARKER_HIDE : MARKER_SHOW;
     this._markerNear = !!player && this.stealable && this.interactDistance(player) < reach;
     const fade = Math.max(0, Math.min(1, this._markerFade + (this._markerNear ? dt : -dt) / MARKER_FADE));
+    this.marker.visible = fade > 0;
     if (fade === this._markerFade) return;
     this._markerFade = fade;
-    this.marker.visible = fade > 0;
     if (fade > 0) this.marker.material = markerMaterial(fade);
   }
 
@@ -363,11 +373,12 @@ export class Car {
       : this._previousSpeed === null ? 0 : (velocity - this._previousSpeed) / step;
     this._previousSpeed = velocity;
     const damp = -Math.expm1(-9 * step);
-    const targetSteering = Number.isFinite(steering) ? THREE.MathUtils.clamp(steering, -.34, .34) : 0;
-    this._steering += (targetSteering - this._steering) * damp;
+    const giro = Number.isFinite(steering) ? steering : 0;
+    if (this._suspensionFisica) this._steering = giro;
+    else this._steering += (THREE.MathUtils.clamp(giro, -.34, .34) - this._steering) * damp;
     for (const pivot of v.frontWheelPivots ?? []) pivot.rotation.y = this._steering;
     this._motionWeight += (Math.min(Math.abs(velocity) / 5, 1) - this._motionWeight) * damp;
-    if (v.bodyVisual) {
+    if (v.bodyVisual && !this._suspensionFisica) {
       const body = v.bodyVisual;
       const pitch = THREE.MathUtils.clamp(accel * .007, -.035, .028);
       const lateral = velocity * velocity * Math.tan(this._steering) / (v.wheelbase ?? this.length * .58);
@@ -406,6 +417,16 @@ export class Car {
     }
   }
 
+  usarSuspensionFisica(activa) {
+    this._suspensionFisica = activa;
+    this._roadBob = this._settleY = this._settleV = 0;
+    const cuerpo = this.vehicle.bodyVisual;
+    if (cuerpo) {
+      cuerpo.position.y = this._bodyRestY;
+      cuerpo.rotation.x = cuerpo.rotation.z = 0;
+    }
+  }
+
   _applyTail() {
     const level = this._braking ? TAIL_BRAKE : this._lightsOn ? TAIL_NIGHT : TAIL_DAY;
     this.vehicle.tailMat?.color?.set('#ff120a').multiplyScalar(level);
@@ -416,14 +437,23 @@ export class Car {
     // De día los faros van apagados: se encienden con la noche, la lluvia o la neblina. Solo si hay conductor; un parqueado sigue apagado.
     const on = this.traffic && (isNight || isRaining || isFoggy);
     this._lightsOn = on;
+    if (!this.traffic) this._braking = false;
     if (this.vehicle.headlightMaterial) this.vehicle.headlightMaterial.emissiveIntensity = !on ? .02 : isNight ? 1.35 : .8;
     this._applyTail();
-    if (this.vehicle?.beam) {
-      this.vehicle.beam.visible = on && !this._simple;
-      this.vehicle.beam.material.opacity = isNight ? 0.38 : .28;
+    const beam = this.vehicle.beam ?? (on && this.driven ? this.vehicle.prepararHaz?.() : null);
+    if (beam) {
+      // La primera vez el haz se viste con el charco de los faros y el rojo de los stops sobre el piso.
+      if (on && !beam.userData.pavementLight) { layCarLight(beam, this.vehicle.length); beam.userData.pavementLight = true; }
+      beam.visible = on && !this._simple;
+      // El piso mojado devuelve más luz: con lluvia el charco y el rojo de atrás se marcan más.
+      beam.material.opacity = isNight ? (isRaining ? .62 : .5) : isRaining ? .34 : .28;
     }
     if (this.vehicle?.flares) {
-      for (const f of this.vehicle.flares) f.visible = on;
+      for (const f of this.vehicle.flares) {
+        f.visible = on;
+        // De noche el halo de faros y stops pesa más contra la calle oscura.
+        if (f.material?.uniforms?.uStrength) f.material.uniforms.uStrength.value = isNight ? .85 : .62;
+      }
     }
   }
 

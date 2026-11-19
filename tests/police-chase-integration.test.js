@@ -285,3 +285,147 @@ test('la llamada no manda una segunda patrulla mientras otra persigue, ni una qu
   assert.equal(otra.state, 'patrol');
   traffic.dispose();
 });
+
+function patrolsForEmergency(t, distances = [2]) {
+  const route = new TrafficRoute(0, 80, 0, 55, 3);
+  const traffic = new TrafficSystem(new THREE.Scene(), [route],
+    { carsPerRoute: 0, policeCount: distances.length, random: () => .2 });
+  t.after(() => traffic.dispose());
+  const collisions = new CollisionSystem();
+  traffic.setEnvironment({ collisions, getGroundHeight: (_x, _z, y) => y });
+  const direction = new THREE.Vector3();
+  for (const [i, patrol] of traffic.vehicles.entries()) {
+    patrol.distance = patrol.nextDistance = distances[i];
+    route.sample(distances[i], patrol.car.position, direction);
+    patrol.car.group.rotation.y = Math.atan2(-direction.z, direction.x);
+  }
+  const position = new THREE.Vector3(35, .12, 4);
+  return { traffic, collisions, call: { position, victim: { position: position.clone() }, accusedPlayer: false } };
+}
+
+test('el 123 sin acusación manda una sola patrulla por su carril, prende estacionarias al llegar y retoma la ronda', t => {
+  const { traffic, collisions, call } = patrolsForEmergency(t, [2, 100]);
+  const [patrol, other] = traffic.vehicles;
+  patrol.speed = 6;
+  traffic.wantedLevel = 2;
+  let arrests = 0, escapes = 0;
+  window.addEventListener('police-arrest', () => arrests++);
+  window.addEventListener('police-escaped', () => escapes++);
+  const context = { player: new THREE.Vector3(35, 0, 2.5) };
+  collisions.setVehicles(traffic.vehicles.map(v => v.car));
+  assert.equal(traffic.respondToEmergency(call), true);
+  const response = traffic.emergencyResponse;
+  assert.equal(response.vehicle, patrol);
+  assert.equal(traffic.respondToEmergency(call), false);
+  const sample = new THREE.Vector3(), direction = new THREE.Vector3();
+  for (let i = 0; i < 300 && !response.onScene; i++) {
+    const before = patrol.car.position.clone(), speed = patrol.speed;
+    traffic.update(.1, context);
+    collisions.setVehicles(traffic.vehicles.map(v => v.car));
+    patrol.route.sample(patrol.distance, sample, direction);
+    assert.ok(patrol.car.position.distanceTo(sample) < 1e-6);
+    assert.ok(patrol.car.position.distanceTo(before) <= patrol.cruiseSpeed * .1 + 1e-6);
+    assert.ok(speed - patrol.speed < .5, 'frena gradualmente');
+    assert.equal(traffic.pursuitInfo, null);
+  }
+  assert.equal(response.onScene, true);
+  assert.equal(patrol.speed, 0);
+  assert.ok(patrol.car.position.distanceTo(call.position) < 8);
+  assert.equal(patrol.car._turnSignal, 'hazard');
+  assert.equal(other.car.pursuit, false);
+  assert.equal(patrol.car.pursuit, false);
+  const stopped = patrol.car.position.clone();
+  const { left, right } = patrol.car.vehicle.signalMaterials, brightness = new Set();
+  for (let i = 0; i < 40; i++) {
+    traffic.update(.1, context);
+    assert.equal(left.emissiveIntensity, right.emissiveIntensity);
+    brightness.add(left.emissiveIntensity);
+  }
+  assert.equal(brightness.size, 2, 'las dos luces de parqueo se encienden y apagan juntas');
+  assert.ok(patrol.car.position.equals(stopped));
+  assert.equal(traffic.respondToEmergency(call), false, 'sigue atendiendo');
+  for (let i = 0; i < 55; i++) traffic.update(.1, context);
+  assert.equal(traffic.emergencyResponse, null);
+  assert.ok(patrol.car.position.distanceTo(stopped) > 1);
+  assert.notEqual(patrol.car._turnSignal, 'hazard');
+  assert.deepEqual([arrests, escapes, traffic.wantedLevel], [0, 0, 2]);
+});
+
+test('la patrulla atascada respeta el semáforo y no da el auxilio por atendido ni salta aunque esté fuera de vista', t => {
+  const { traffic, call } = patrolsForEmergency(t);
+  const [patrol] = traffic.vehicles, initial = patrol.car.position.clone();
+  traffic.signals = { blocks: () => true };
+  patrol.stoppedFor = 60;
+  assert.equal(traffic.respondToEmergency(call), true);
+  const response = traffic.emergencyResponse;
+  for (let i = 0; i < 84; i++) traffic.update(.5, { player: new THREE.Vector3(600, 0, 600) });
+  assert.ok(patrol.car.position.equals(initial));
+  assert.equal(response.onScene, false);
+  assert.equal(traffic.emergencyResponse, null);
+  assert.equal(traffic.inPursuit, false);
+});
+
+test('el aviso necesita paso por su ruta y visión del incidente desde la misma planta y fuera del cruce', t => {
+  const { traffic, collisions, call } = patrolsForEmergency(t);
+  wall(collisions, [0, 0, 2], [80, 4, 2.2]);
+  assert.equal(traffic.respondToEmergency(call), false, 'un muro separa el carril del incidente');
+  collisions.clear();
+  wall(collisions, [18, 0, -4], [18.1, 4, 4]);
+  assert.equal(traffic.respondToEmergency(call), false, 'un muro atraviesa el recorrido antes de la parada');
+  collisions.clear();
+  assert.equal(traffic.respondToEmergency({ ...call, position: new THREE.Vector3(35, 7.82, 4) }), false);
+  traffic.environment.getGroundHeight = x => x > 14 && x < 20 ? 7.82 : 0;
+  assert.equal(traffic.respondToEmergency(call), false, 'una cota inalcanzable en el trayecto');
+  traffic.environment.getGroundHeight = () => 0;
+  traffic.signals = { nodes: [{ x0: 22, x1: 48, z0: -3, z1: 3 }] };
+  assert.equal(traffic.respondToEmergency(call), false, 'los únicos puntos a la vista quedan dentro del cruce');
+  traffic.signals = null;
+  assert.equal(traffic.respondToEmergency(call), true);
+  call.victim.position.y = 7.82;
+  const response = traffic.emergencyResponse;
+  for (let i = 0; i < 100 && traffic.emergencyResponse; i++) traffic.update(.5);
+  assert.equal(response.onScene, false, 'comprueba que todavía ve a la víctima al llegar');
+});
+
+test('la llamada acusatoria queda para la denuncia y una persecución real tiene prioridad sobre el auxilio', t => {
+  const { traffic, call } = patrolsForEmergency(t, [2, 100]);
+  assert.equal(traffic.respondToEmergency({ ...call, accusedPlayer: true }), false);
+  assert.equal(traffic.respondToEmergency(call), true);
+  const [responding, other] = traffic.vehicles;
+  assert.equal(traffic.dispatchTo(other.car.position), true);
+  assert.equal(other.state, 'chase');
+  assert.equal(responding.state, 'patrol');
+  assert.equal(traffic.emergencyResponse, null);
+  assert.equal(traffic.respondToEmergency(call), false);
+});
+
+test('si la persona cayó en el carril la patrulla para antes del cuerpo y puede ver un robo desde allí', t => {
+  const { traffic, call } = patrolsForEmergency(t);
+  call.victim.position.z = call.position.z = 0;
+  const [patrol] = traffic.vehicles;
+  assert.equal(traffic.respondToEmergency(call), true);
+  const response = traffic.emergencyResponse;
+  for (let i = 0; i < 300 && !response.onScene; i++) traffic.update(.1, { pedestrians: [call.victim] });
+  assert.equal(response.onScene, true);
+  assert.ok(patrol.car.position.x + patrol.car.length / 2 < call.position.x - .8);
+  assert.equal(patrol.car._turnSignal, 'hazard');
+  assert.equal(traffic.alertForTheft(patrol.car.position.clone().add(new THREE.Vector3(3, 0, 2))), true);
+  assert.equal(traffic.inPursuit, true);
+  assert.equal(traffic.emergencyResponse, null);
+  assert.equal(patrol.car._turnSignal, null);
+});
+
+test('sin patrulla libre el aviso permanece civil, también cuando la unidad espera un conductor de relevo', t => {
+  const { traffic, call } = patrolsForEmergency(t);
+  const [patrol] = traffic.vehicles;
+  patrol.crew = { awaitingDriver: true };
+  assert.equal(traffic.respondToEmergency(call), false);
+  patrol.crew = null;
+  patrol.hold = true;
+  assert.equal(traffic.respondToEmergency(call), false);
+  patrol.hold = false;
+  patrol.rejoinTarget = new THREE.Vector3();
+  assert.equal(traffic.respondToEmergency(call), false);
+  const empty = patrolsForEmergency(t, []);
+  assert.equal(empty.traffic.respondToEmergency(empty.call), false);
+});

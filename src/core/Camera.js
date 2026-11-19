@@ -2,9 +2,13 @@ import * as THREE from 'three';
 import { GRAPHICS_PROFILES } from './GraphicsQuality.js';
 import { criticalSpring, followSpring, snapSpring, spring } from '../character/springs.js';
 import { hardDip, hardLanding, landingDepth, landingDrop, smoothstep } from '../character/jumpMotion.js';
+import { prefiereMovimientoReducido } from '../utils/movimientoReducido.js';
 
 // Brazo de cámara con el que el cuerpo tapa la vista; al salir pide más, para que no parpadee en el límite.
 const INSIDE_BODY_IN = .75, INSIDE_BODY_OUT = 1;
+// Distancia al cielo raso y franja exterior para recuperar la inclinación al dejar una cubierta.
+const CEILING_CLEARANCE = .22, CEILING_APPROACH = 1.75;
+const COVER_MARGIN = .14, COVER_MIN_ARM = INSIDE_BODY_OUT + .08;
 // Altura: subiendo sigue solo parte del salto y con algo de retardo; cayendo rápido, todo el cuerpo y como
 // mucho `maxFallLag` por encima; al aterrizar baja unos centímetros (de 6 a 8 en un golpe fuerte). Al caer al
 // agua frena `waterBrake` s con el resorte de las caídas.
@@ -15,9 +19,6 @@ export const CAMERA_HEIGHT = Object.freeze({
 });
 // Subpaso del resorte en el aire (s): el retraso no cambia con los FPS.
 const CAMERA_SUBSTEP = 1 / 240;
-// Una sola consulta (como PsychosisSystem): pedirla cada cuadro crearía un objeto por cuadro.
-let motionQuery;
-const reducedMotion = () => (motionQuery ??= globalThis.matchMedia?.('(prefers-reduced-motion: reduce)') ?? { matches: false }).matches;
 
 // Temblor por trauma: los golpes suman trauma (0–1) y el temblor crece con su cuadrado, así uno leve casi no se nota.
 const TRAUMA_DECAY = 1.3;                 // trauma que se pierde por segundo: un golpe fuerte dura ~0,35 s
@@ -25,9 +26,6 @@ const TRAUMA_DECAY = 1.3;                 // trauma que se pierde por segundo: u
 const SHAKE_MAX = { yaw: .095, pitch: .07125, roll: .095 }; // radianes con trauma 1
 // Ruido suave y determinista: suma de senos con frecuencias que no se repiten pronto.
 const shakeNoise = (t, seed) => (Math.sin(t * 1.0 + seed) + Math.sin(t * 2.31 + seed * 1.7) * .5 + Math.sin(t * 4.17 + seed * 2.9) * .25) / 1.75;
-// Movimiento reducido del sistema: una sola consulta, no una por golpe.
-let shakeMotionQuery;
-const prefersCalm = () => (shakeMotionQuery ??= globalThis.matchMedia?.('(prefers-reduced-motion: reduce)') ?? { matches: false }).matches;
 
 export class CameraRig {
   constructor(scene, canvas) {
@@ -93,7 +91,7 @@ export class CameraRig {
 
   /** Suma trauma (0–1). El temblor decae solo y no mueve la posición: no atraviesa paredes. */
   addTrauma(amount = 0) {
-    if (!this.shakeEnabled || (this.reducedMotion ?? prefersCalm()) || !Number.isFinite(amount) || amount <= 0) return this.trauma;
+    if (!this.shakeEnabled || (this.reducedMotion ?? prefiereMovimientoReducido()) || !Number.isFinite(amount) || amount <= 0) return this.trauma;
     this.trauma = Math.min(1, this.trauma + amount);
     return this.trauma;
   }
@@ -104,6 +102,7 @@ export class CameraRig {
    */
   _applyShake(dt) {
     if (this.trauma <= 0) return;
+    if (this.reducedMotion ?? prefiereMovimientoReducido()) { this.trauma = 0; return; }
     // Se resta antes de tomar el ruido: así el pico no depende de las imágenes por segundo.
     this.trauma = Math.max(0, this.trauma - TRAUMA_DECAY * dt);
     this._shakeTime += dt * 28;
@@ -278,7 +277,7 @@ export class CameraRig {
     const landed = !airborne && this._wasAirborne;
     const y0 = this._lastY;
     this._lastY = y;
-    const calm = this.reducedMotion ?? reducedMotion(); // la preferencia del sistema, salvo que se fije aquí
+    const calm = this.reducedMotion ?? prefiereMovimientoReducido(); // la preferencia del sistema, salvo que se fije aquí
     let height;
     if (!airborne && !landed && motion.swimming && this._brake > 0) {
       // Sigue frenando del chapuzón.
@@ -360,6 +359,60 @@ export class CameraRig {
     return dt > brake ? criticalSpring(h, y, CAMERA_HEIGHT.groundOmega, dt - brake) : h.x;
   }
 
+  _pitchBelowCeilings(target, ceilings) {
+    if (!ceilings?.size) return this.pitch;
+    let pitch = this.pitch;
+    for (const { min, max } of ceilings) {
+      if (target.y >= max.y) continue;
+      const outside = Math.max(min.x - target.x, target.x - max.x, min.z - target.z, target.z - max.z, 0);
+      if (outside >= CEILING_APPROACH) continue;
+      const rise = max.y - CEILING_CLEARANCE - this._look.y;
+      const limit = Math.asin(THREE.MathUtils.clamp(rise / this.distance, -1, 1));
+      const influence = 1 - smoothstep(0, CEILING_APPROACH, outside);
+      pitch = Math.min(pitch, THREE.MathUtils.lerp(this.pitch, limit, influence));
+    }
+    return pitch;
+  }
+
+  _cameraOcclusionAt(box, padding) {
+    const volume = this._box.copy(box).expandByScalar(COVER_MARGIN);
+    volume.min.x -= padding; volume.min.z -= padding;
+    volume.max.x += padding; volume.max.z += padding;
+    if (volume.containsPoint(this._look)) return Infinity;
+    const hit = this._ray.intersectBox(volume, this._hit);
+    return hit ? this._look.distanceTo(hit) : Infinity;
+  }
+
+  _distanceBeforeCovers(distance, covers) {
+    if (!covers?.size) return distance;
+    let visible = distance;
+    const { x, z } = this._look;
+    for (const { box, approach, minimumArm = COVER_MIN_ARM } of covers) {
+      const outside = Math.max(box.min.x - x, x - box.max.x, box.min.z - z, z - box.max.z, 0);
+      if (outside > distance + COVER_MARGIN + approach) continue;
+      // Cada pieza deja margen para mantener visible al jugador. Las paredes sólidas conservan su distancia.
+      const minimum = Math.min(distance, Math.max(minimumArm, INSIDE_BODY_IN));
+      const hit = this._cameraOcclusionAt(box, 0);
+      if (hit < distance) {
+        visible = Math.min(visible, Math.max(minimum, hit - .05));
+        continue;
+      }
+      let grazing = this._cameraOcclusionAt(box, approach);
+      if (grazing >= distance) continue;
+      // Al girar, empieza a recoger el brazo antes de alcanzar el borde de la lona.
+      // La distancia converge al punto de contacto al desaparecer la holgura lateral.
+      let low = 0, high = approach;
+      for (let i = 0; i < 6; i++) {
+        const middle = (low + high) / 2, next = this._cameraOcclusionAt(box, middle);
+        if (next >= distance) low = middle;
+        else { high = middle; grazing = next; }
+      }
+      const influence = 1 - smoothstep(0, approach, high);
+      visible = Math.min(visible, Math.max(minimum, THREE.MathUtils.lerp(distance, grazing - .05, influence)));
+    }
+    return visible;
+  }
+
   follow(targetPos, dt = 1 / 60, collisions = null, speed = 0, isRunning = false, motion = null) {
     // 1. FOV dinámico al correr
     if (this.mode === 'third-person' && dt > 0) {
@@ -388,11 +441,9 @@ export class CameraRig {
       if (this._snap) this.camera.position.copy(this._desired);
       else this.camera.position.lerp(this._desired, 1 - Math.exp(-this.lerpSpeed * dt));
     } else {
-      this._direction.set(
-        Math.sin(this.yaw) * Math.cos(this.pitch),
-        Math.sin(this.pitch),
-        Math.cos(this.yaw) * Math.cos(this.pitch)
-      );
+      const pitch = this._pitchBelowCeilings(targetPos, collisions?.cameraCeilings);
+      const horizontal = Math.cos(pitch);
+      this._direction.set(Math.sin(this.yaw) * horizontal, Math.sin(pitch), Math.cos(this.yaw) * horizontal);
       // Acorta el brazo de cámara antes de una pared; el margen protege el plano cercano.
       this._ray.set(this._look, this._direction);
       let distance = this.distance;
@@ -406,6 +457,7 @@ export class CameraRig {
           distance = Math.min(distance, Math.max(0, this._look.distanceTo(this._hit) - 0.05));
         }
       }
+      distance = this._distanceBeforeCovers(distance, collisions?.cameraOccluders);
       // Se acerca de inmediato ante obstáculos y vuelve suavemente al alejarse.
       if (this._snap || distance < this._armDistance) this._armDistance = distance;
       else this._armDistance = THREE.MathUtils.lerp(this._armDistance, distance, 1 - Math.exp(-8 * dt));

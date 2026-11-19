@@ -4,7 +4,7 @@
 // las manos y los pies los puntos del propio cuerpo, y se guarda como rotaciones locales. Por cuadro
 // `BodyLanguage` solo hace `slerp` hacia ellas. El cuerpo liviano y el completo comparten esqueleto,
 // así que comparten también la biblioteca. Ninguna postura toca la raíz física: la cadera, como mucho.
-import { Matrix4, Quaternion, Vector3 } from 'three';
+import { MathUtils, Matrix4, Quaternion, Vector3 } from 'three';
 import { GAIT_FAMILIES, standAt, standingFrozen } from './gaitFamilies.js';
 import { PoseRig } from './poseRig.js';
 
@@ -13,8 +13,16 @@ const SIGN = { left: 1, right: -1 };
 const SIDES = ['left', 'right'];
 const OTHER = { left: 'right', right: 'left' };
 
-// Las bancas miden 45 cm en el mundo y el cuerpo se dibuja a 1,08.
+// Centro del listón en metros del modelo; su cara visible está a 46,9 cm en el mundo.
 const SEAT_HEIGHT = .45 / 1.08;
+const SEAT_FACE = .469 / 1.08;
+// Los nervios del acero están a 49,3 cm. El margen hasta la pelvis vestida se mide
+// sobre la chapa continua y es el mismo para ambos niveles de detalle del cuerpo.
+const PORTAL_SEAT_HEIGHT = (.493 + .025) / 1.08;
+/** Al ponerse de pie, el cuerpo pasa de la madera al apoyo por delante. */
+export const BENCH_EXIT = .36;
+export const benchPush = phase => MathUtils.smoothstep(phase, .12, .91);
+const BENCH_STEPS = 12;
 const LIE_LIFT = .1 / 1.08; // cuánto sobre el piso queda la espalda de quien está tendido
 // Dónde apoya la muñeca derecha al levantarse, en ejes del personaje. Lo que se le cayó queda ahí mismo (ver `HAND_ON_FLOOR`).
 const HAND_PLANT = V(-.3, .1, .1);
@@ -38,9 +46,9 @@ function bendSpine(rig, [low, mid, high], neck, head, yaw = 0) {
 }
 
 /** Pie plano, en el piso, con la rodilla hacia `pole`. */
-function plantFoot(rig, side, x, z, out, pole) {
+function plantFoot(rig, side, x, z, out, pole, lift = 0) {
   const sign = SIGN[side];
-  rig.reachLeg(side, V(sign * x, rig.marks.ankleY, z), V(sign * pole[0], pole[1], pole[2]));
+  rig.reachLeg(side, V(sign * x, rig.marks.ankleY + lift, z), V(sign * pole[0], pole[1], pole[2]));
   rig.flatFoot(side, out);
 }
 
@@ -105,6 +113,12 @@ function manosAtras(rig, m) {
   rig.curl('right', .55, .35);
 }
 
+function mirarSurtido(rig, m) {
+  manosAtras(rig, m);
+  lean(rig, .075);
+  rig.turn('neck', .20, 0, 0).turn('head', .26, 0, 0);
+}
+
 function hablar(rig, m, alt) {
   rig.turn('head', alt ? .02 : -.015, alt ? -.06 : .05, 0);
   const lift = alt ? .075 : 0;
@@ -164,10 +178,18 @@ function acurrucado(rig, m) {
 }
 
 function banca(rig, m) {
-  setHips(rig, m.seat, -.09, -.08);
+  sitOnBench(rig, m.benches.parque);
+}
+
+function sitOnBench(rig, support) {
+  setHips(rig, support.height, support.hipZ, -.08);
   bendSpine(rig, [-.08, -.03, .03], .04, .02);
-  plantFoot(rig, 'left', .135, .32, .18, [.1, .6, 1]);
-  plantFoot(rig, 'right', .125, .36, .14, [.1, .6, 1]);
+  plantFoot(rig, 'left', .135, .32 - support.footSetback, .18, [.1, .6, 1], support.ankleLift);
+  plantFoot(rig, 'right', .125, .36 - support.footSetback, .14, [.1, .6, 1], support.ankleLift);
+  benchHands(rig);
+}
+
+function benchHands(rig) {
   // Manos sobre los muslos, cerca de la rodilla.
   for (const side of SIDES) {
     const sign = SIGN[side], knee = rig.where(`${side}Leg`), hip = rig.where(`${side}UpLeg`);
@@ -176,6 +198,28 @@ function banca(rig, m) {
     rig.hand(side, V(-sign * .12, -.5, .86), V(-sign * .1, -.86, -.5));
     rig.curl(side, .25);
   }
+}
+
+function riseFromBench(rig, m, t, support) {
+  const extend = MathUtils.smoothstep(t, .16, .99);
+  const lean = MathUtils.smoothstep(t, 0, .36) * (1 - MathUtils.smoothstep(t, .43, .93));
+  const move = benchPush(t) * BENCH_EXIT / 1.08;
+  const finish = MathUtils.smoothstep(t, .57, 1);
+  setHips(rig, MathUtils.lerp(support.height, rig.referenceHip.y, extend) - .012 * lean,
+    MathUtils.lerp(support.hipZ, rig.referenceHip.z, extend), -.08 * (1 - extend) + .19 * lean);
+  bendSpine(rig, [-.08 * (1 - extend) + .24 * lean, -.03 * (1 - extend) + .13 * lean,
+    .03 * (1 - extend) + .07 * lean], .04 * (1 - extend) - .12 * lean, .02 * (1 - extend) - .07 * lean);
+
+  // El giro del muslo cambia mientras se levanta. La suela se apoya donde ya estaba.
+  const lift = support.ankleLift * (1 - finish) + .022 * MathUtils.smoothstep(t, .25, .54) * (1 - MathUtils.smoothstep(t, .73, .96));
+  for (const [side, x, z, turn] of [['left', .135, .32, .18], ['right', .125, .36, .14]]) {
+    const end = m.benchFeet[side];
+    const footX = MathUtils.lerp(x, Math.abs(end.x), finish);
+    const footZ = MathUtils.lerp(z - support.footSetback, end.z + BENCH_EXIT / 1.08, finish) - move;
+    plantFoot(rig, side, footX, footZ, turn * (1 - finish), [.1, .6, 1], lift);
+  }
+  benchHands(rig);
+  if (finish > 0) for (const [bone, before] of rig.reference) if (ARM.test(bone.name)) bone.quaternion.slerp(before, finish);
 }
 
 function pedir(rig, m) {
@@ -337,7 +381,7 @@ function empuje(rig, m) {
 
 /** Noqueado en la banca: sigue sentado, con el tronco vencido hacia adelante y los brazos caídos. */
 function desplomado(rig, m) {
-  setHips(rig, m.seat - .015, -.05, -.03);
+  setHips(rig, m.benches.parque.height - .015, -.05, -.03);
   bendSpine(rig, [.1, .38, .6], .78, .66, .2);
   rig.turn('head', 0, 0, .24);
   plantFoot(rig, 'left', .17, .38, .26, [.2, .6, 1]);
@@ -558,6 +602,198 @@ const mirar = yaw => rig => {
   rig.turn('spine2', 0, yaw * .1, 0).turn('neck', 0, yaw * .32, 0).turn('head', -.02, yaw * .56, 0);
 };
 
+/**
+ * Sin aire después de correr: la cadera atrás, el tronco doblado desde la cadera (unos 54°), las manos apoyadas encima
+ * de los muslos, más cerca de la rodilla que de la cadera, con los brazos casi estirados y los codos algo abiertos, las
+ * rodillas dobladas unos 14° y la cabeza colgando. La alternativa es tomar aire: el tronco sube unos 3° y los hombros
+ * unos 2 cm, con las manos en el mismo sitio.
+ */
+function sinAire(rig, m, alt) {
+  const breath = alt ? 1 : 0;
+  setHips(rig, m.hipBone - .07, -.14, .64 - breath * .02);
+  bendSpine(rig, [.86 - breath * .04, 1.04 - breath * .06, 1.1 - breath * .07], 1.2 - breath * .04, 1.36 - breath * .03);
+  plantFoot(rig, 'left', m.hip.x + .04, .05, .18, [.15, 0, 1]);
+  plantFoot(rig, 'right', m.hip.x + .035, .05, .2, [.15, 0, 1]);
+  // Los hombros se van adelante y abajo, colgados de los brazos; al tomar aire suben.
+  rig.turn('leftShoulder', 0, -.2, breath * .1 - .12).turn('rightShoulder', 0, .2, .12 - breath * .1);
+  for (const side of SIDES) {
+    const sign = SIGN[side], knee = rig.where(`${side}Leg`), hip = rig.where(`${side}UpLeg`);
+    const on = hip.clone().lerp(knee, .72);
+    rig.reachArm(side, V(on.x + sign * .012, on.y + .075, on.z + .06), V(sign * .9, .15, -.4));
+    rig.hand(side, V(-sign * .18, -.72, .66), V(0, -.65, -.75));
+    rig.curl(side, .3);
+  }
+}
+
+/** Habla por el radio de la solapa: la mano izquierda lo aprieta junto al hombro, la cabeza ladeada hacia ella y la derecha en la cintura. */
+function radioSolapa(rig, m) {
+  rig.turn('neck', .05, .08, -.1).turn('head', .06, .1, -.12);
+  const shoulder = rig.where('leftArm', V(0, 0, 0));
+  rig.reachArm('left', V(shoulder.x - .075, shoulder.y - .045, m.front + .015), V(.85, -.7, -.1));
+  rig.hand('left', V(-.35, .85, .2), V(-.25, -.1, -.95));
+  rig.curl('left', .45, .3);
+  const hip = rig.where('rightUpLeg', V(0, 0, 0));
+  rig.reachArm('right', V(hip.x - .085, hip.y + .13, hip.z + .02), V(-1, .1, -.5));
+  rig.hand('right', V(.25, -.9, .2), V(.95, 0, .1));
+  rig.curl('right', .35);
+}
+
+// El agarrón de un agente, con la mano izquierda (en la derecha va la pistola con fichado 3): el aviso, el zarpazo, el
+// agarre y el traspié cuando no alcanza.
+
+/** La muñeca a `along` m por delante del hombro izquierdo con el codo doblado `elbow` radianes, a la altura `y`. */
+function grabReach(rig, elbow, y, inward = .08) {
+  const shoulder = rig.where('leftArm', V(0, 0, 0)), a = rig.length.arm, f = rig.length.forearm;
+  const reach = Math.sqrt(a * a + f * f + 2 * a * f * Math.cos(elbow));
+  const across = shoulder.x - inward, drop = y - shoulder.y;
+  const along = Math.sqrt(Math.max(0, reach * reach - inward * inward - drop * drop));
+  return V(across, y, shoulder.z + along);
+}
+
+/**
+ * El aviso: el tronco 11° adelante con la cabeza derecha, clavada en él; la mano izquierda estirada al frente a la altura
+ * del hombro, abierta, con el codo doblado unos 70°, y la derecha atrás.
+ */
+function aviso(rig, m) {
+  lean(rig, .33);
+  rig.turn('neck', -.12, 0, 0).turn('head', -.14, 0, 0);
+  const shoulder = rig.where('leftArm', V(0, 0, 0));
+  rig.reachArm('left', grabReach(rig, 70 * Math.PI / 180, shoulder.y - .02), V(.75, -.6, -.3));
+  rig.hand('left', V(-.15, .2, .97), V(-.25, -.35, .9));
+  rig.curl('left', .12, .1);
+  const hip = rig.where('rightUpLeg', V(0, 0, 0));
+  rig.reachArm('right', V(hip.x - .1, hip.y + .1, hip.z - .2), V(-.5, -.2, -.8));
+  looseHand(rig, 'right', V(0, -1, -.2), .35);
+}
+
+/**
+ * El zarpazo: el brazo izquierdo se va del todo, adelante y un poco abajo, con el tronco girado unos 20° tras él y más
+ * echado; la mano abierta y el brazo derecho atrás.
+ */
+function zarpazo(rig, m) {
+  lean(rig, .45);
+  rig.turn('spine', 0, -.08, 0).turn('spine1', 0, -.12, 0).turn('spine2', 0, -.15, 0).turn('neck', -.15, .1, 0).turn('head', -.17, .12, 0);
+  const shoulder = rig.where('leftArm', V(0, 0, 0));
+  rig.reachArm('left', V(shoulder.x - .1, shoulder.y - .12, shoulder.z + rig.length.arm + rig.length.forearm + .05), V(.8, -.6, -.1));
+  rig.hand('left', V(-.1, -.1, 1), V(-.2, -.6, .78));
+  rig.curl('left', .08, .05);
+  const hip = rig.where('rightUpLeg', V(0, 0, 0));
+  rig.reachArm('right', V(hip.x - .12, hip.y + .08, hip.z - .28), V(-.5, -.2, -.8));
+  looseHand(rig, 'right', V(0, -1, -.3), .4);
+}
+
+/**
+ * Cuando ya se le zafó dos veces no estira el brazo: se le tira encima. El tronco echado unos 30° con la cabeza arriba,
+ * clavada en él, y los dos brazos adelante y abiertos, a la altura del pecho, para abrazarlo por donde quiebre.
+ */
+function embestida(rig, m) {
+  lean(rig, .95);
+  rig.turn('neck', -.3, 0, 0).turn('head', -.35, 0, 0);
+  for (const side of ['left', 'right']) {
+    const sign = side === 'left' ? 1 : -1, shoulder = rig.where(`${side}Arm`, V(0, 0, 0));
+    const reach = (rig.length.arm + rig.length.forearm) * .88;
+    rig.reachArm(side, V(shoulder.x + sign * .16, shoulder.y - .12, shoulder.z + reach), V(sign * .8, -.6, -.2));
+    rig.hand(side, V(-sign * .25, .1, .96), V(-sign * .3, -.5, .8));
+    rig.curl(side, .15, .1);
+  }
+}
+
+/** El agarre: la mano izquierda cerrada sobre el hombro de él, el codo doblado, y el tronco ya echado atrás, frenando. */
+function agarre(rig, m) {
+  lean(rig, -.15);
+  rig.turn('neck', .06, 0, 0).turn('head', .07, 0, 0);
+  const shoulder = rig.where('leftArm', V(0, 0, 0));
+  rig.reachArm('left', grabReach(rig, 55 * Math.PI / 180, shoulder.y + .02), V(.7, -.7, -.2));
+  rig.hand('left', V(-.1, -.35, .93), V(-.15, -.9, .3));
+  rig.curl('left', .75, .5);
+  const hip = rig.where('rightUpLeg', V(0, 0, 0));
+  rig.reachArm('right', V(hip.x - .12, hip.y + .1, hip.z + .05), V(-.8, -.3, -.4));
+  looseHand(rig, 'right');
+}
+
+/**
+ * El zarpazo que no alcanzó: el brazo izquierdo barre de largo cruzándole el cuerpo, abajo; el tronco pasado unos 32° y
+ * echado unos 35°, la cabeza caída y el brazo derecho abierto para no irse de bruces.
+ */
+function traspie(rig, m) {
+  lean(rig, 1.15);
+  rig.turn('spine', 0, -.13, 0).turn('spine1', 0, -.2, 0).turn('spine2', 0, -.24, 0).turn('neck', .2, 0, 0).turn('head', .25, 0, 0);
+  rig.reachArm('left', V(-.12, m.hip.y + .08, m.front + .22), V(.6, -.5, -.6));
+  rig.hand('left', V(-.6, -.55, .58), V(-.5, -.3, -.8));
+  rig.curl('left', .3);
+  const shoulder = rig.where('rightArm', V(0, 0, 0));
+  rig.reachArm('right', V(shoulder.x - .42, shoulder.y - .22, shoulder.z + .08), V(-.3, -.9, -.3));
+  rig.hand('right', V(-.85, -.4, .3), V(0, -1, .1));
+  rig.curl('right', .25);
+}
+
+// Sentado en un carro, el piso del personaje es el piso del carro. Las dos alturas las usa `patrolCar.js` para poner la
+// raíz: de la articulación de la cadera al piso, sentado y ya en el borde del asiento con un pie en la calle.
+export const CAR_SEAT_HIP = .25;
+export const CAR_EDGE_HIP = .6;
+const CAR_KNEE = 95 * Math.PI / 180;
+
+/**
+ * Sentado en la patrulla: la cadera baja, las rodillas a unos 95°, el tronco recostado unos 12° contra el espaldar y la
+ * cabeza apenas adelantada. Las manos van sobre los muslos.
+ */
+function patrulla(rig, m) {
+  setHips(rig, CAR_SEAT_HIP / 1.08 + m.over, 0, -.2);
+  bendSpine(rig, [-.21, -.21, -.2], -.06, .04);
+  const { thigh, shin } = rig.length;
+  for (const side of SIDES) {
+    const hip = rig.where(`${side}UpLeg`, V(0, 0, 0));
+    const reach = Math.sqrt(thigh * thigh + shin * shin - 2 * thigh * shin * Math.cos(CAR_KNEE));
+    const ahead = Math.sqrt(Math.max(0, reach * reach - (hip.y - rig.marks.ankleY) ** 2));
+    plantFoot(rig, side, .13, hip.z + ahead, .1, [.08, 1, .5]);
+    const sign = SIGN[side], knee = rig.where(`${side}Leg`), on = rig.where(`${side}UpLeg`).clone().lerp(knee, .55);
+    rig.reachArm(side, V(on.x, on.y + .11, on.z), V(sign * .9, -.5, -.5));
+    rig.hand(side, V(-sign * .12, -.3, .94), V(-sign * .1, -.94, -.3));
+    rig.curl(side, .25);
+  }
+}
+
+/** Devuelve tronco, cuello y cabeza a como estaban: lo que una pose usó de ellos solo para ubicar los brazos. */
+function releaseTorso(rig) {
+  for (const key of ['spine', 'spine1', 'spine2', 'neck', 'head']) rig.joints[key].quaternion.copy(rig.reference.get(rig.joints[key]));
+  rig.root.updateMatrixWorld(true);
+}
+
+/**
+ * En el borde del asiento, ya girado hacia la puerta, con el pie de afuera (`lead`) plantado en la calle y el otro
+ * todavía adentro, recogido. La mano de ese lado empuja sobre la rodilla y la otra se apoya atrás, en el asiento. No toca
+ * tronco ni cabeza: esos van con `agachado` y `cabeza-baja`, que entran y salen a su propio tiempo.
+ */
+function baja(lead) {
+  const other = OTHER[lead], sign = SIGN[lead];
+  return (rig, m) => {
+    setHips(rig, CAR_EDGE_HIP / 1.08 + m.over, 0, .12, 0, sign * .12);
+    bendSpine(rig, [.44, .5, .52], .5, .5);
+    plantFoot(rig, lead, .17, .37, .16, [.25, .3, 1]);
+    rig.reachLeg(other, V(-sign * .12, rig.marks.ankleY + .2, -.04), V(-sign * .2, .4, 1));
+    rig.flatFoot(other, .05, .35);
+    const knee = rig.where(`${lead}Leg`);
+    rig.reachArm(lead, V(knee.x + sign * .02, knee.y + .09, knee.z - .03), V(sign * .9, -.2, -.5));
+    rig.hand(lead, V(-sign * .15, -.6, .78), V(0, -.75, -.65));
+    rig.curl(lead, .3);
+    const hip = rig.where(`${other}UpLeg`, V(0, 0, 0));
+    rig.reachArm(other, V(hip.x - sign * .16, hip.y - .02, hip.z - .2), V(-sign * .8, .1, -.6));
+    rig.hand(other, V(-sign * .2, -.55, -.8), V(0, -.85, .5));
+    rig.curl(other, .2);
+    releaseTorso(rig);
+  };
+}
+
+/** Doblado desde la cintura unos 28°, como para pasar bajo el marco de una puerta: solo el tronco. */
+function agachado(rig) {
+  rig.orient('spine', .44).orient('spine1', .5).orient('spine2', .52);
+}
+
+/** La cabeza agachada: solo cuello y cabeza. */
+function cabezaBaja(rig) {
+  rig.turn('neck', .16, 0, 0).turn('head', .24, 0, 0);
+}
+
 // ---------- catálogo ----------
 
 // `walk`: se conserva andando. `hip`: mueve la cadera. `transition`: segundos de entrada. `motion`:
@@ -579,6 +815,8 @@ const CATALOG = {
   sentado: { pose: sentado, walk: false, hip: true, transition: .8 },
   acurrucado: { pose: acurrucado, walk: false, hip: true, transition: .9 },
   banca: { pose: banca, walk: false, hip: true, transition: .7 },
+  'banca-portal': { pose: (rig, m) => sitOnBench(rig, m.benches.portal), walk: false, hip: true, transition: .7 },
+  'banca-portal-cuero': { pose: (rig, m) => sitOnBench(rig, m.benches['portal-cuero']), walk: false, hip: true, transition: .7 },
   pedir: { pose: pedir, walk: false, hip: true, transition: .9 },
   paraguas: { pose: paraguas, walk: true, steady: true },
   cubrirse: { pose: cubrirse, walk: true },
@@ -589,6 +827,7 @@ const CATALOG = {
   'cargar-izquierda': { pose: cargar('left'), walk: true, arms: .9 },
   // Lo que además hace falta
   atender: { pose: atender, walk: false },
+  'mirar-surtido': { pose: mirarSurtido, walk: false, transition: .65 },
   dormido: { pose: dormido, walk: false, hip: true, transition: 1.2 },
   barriga: { pose: barriga, walk: false, transition: .5 },
   frotarse: { pose: frotarse, walk: false, alt: true, motion: { rate: .62 }, transition: .5 },
@@ -596,7 +835,22 @@ const CATALOG = {
   encogido: { pose: encogido, walk: true, transition: .6 },
   'cambiar-peso': { pose: cambiarPeso, walk: false, hip: true, transition: .9 },
   'mirar-izquierda': { pose: mirar(1), walk: false, transition: .6 },
-  'mirar-derecha': { pose: mirar(-1), walk: false, transition: .6 }
+  'mirar-derecha': { pose: mirar(-1), walk: false, transition: .6 },
+  'sin-aire': { pose: sinAire, walk: false, hip: true, alt: true, motion: { rate: 1.1 }, transition: .45 },
+  'radio-solapa': { pose: radioSolapa, walk: false, transition: .4 },
+  // El agarrón: entra suave el aviso, el zarpazo en tres o cuatro cuadros, el agarre en lo que frenan (de 20° adelante
+  // a 5° atrás) y el traspié de una.
+  aviso: { pose: aviso, walk: true, transition: .2 },
+  zarpazo: { pose: zarpazo, walk: true, transition: .05 },
+  embestida: { pose: embestida, walk: true, transition: .15 },
+  agarre: { pose: agarre, walk: true, transition: .3 },
+  traspie: { pose: traspie, walk: true, transition: .08 },
+  // Los agentes en la patrulla y al bajarse (ver `PoliceOfficer._updateExit`)
+  patrulla: { pose: patrulla, walk: false, hip: true, transition: .5 },
+  'baja-izquierda': { pose: baja('left'), walk: false, hip: true, transition: .3 },
+  'baja-derecha': { pose: baja('right'), walk: false, hip: true, transition: .3 },
+  agachado: { pose: agachado, walk: true, transition: .2 },
+  'cabeza-baja': { pose: cabezaBaja, walk: true, transition: .2 }
 };
 
 /** Dónde toca el piso la mano derecha al levantarse: lo que se le cayó queda a su alcance. */
@@ -618,6 +872,8 @@ function measure(rig) {
   const pelvis = rig.where('hips', V(0, 0, 0));
   const height = head.y / 1.484;
   const woman = hip.x < .1;
+  const hipAboveSeat = .105 + (rig.hips.position.y - hip.y);
+  const portalHeight = PORTAL_SEAT_HEIGHT + hipAboveSeat;
   return {
     hip, chest, head, shoulder, pelvis,
     // Medidas del torso y la cabeza, por encima de lo que ocupan los huesos.
@@ -628,11 +884,37 @@ function measure(rig) {
     ear: .085 * height, crown: .19 * height, nose: .1 * height,
     hipBone: rig.hips.position.y, over: rig.hips.position.y - hip.y,
     sit: .115 * (woman ? 1.04 : 1) + (rig.hips.position.y - hip.y),
-    seat: SEAT_HEIGHT + .105 + (rig.hips.position.y - hip.y),
+    benches: {
+      parque: { height: SEAT_HEIGHT + hipAboveSeat, hipZ: -.09, footSetback: 0, ankleLift: 0 },
+      portal: { height: portalHeight, hipZ: -.09, footSetback: .09, ankleLift: .006 },
+      // La suela del zapato de cuero queda unos 15 mm más cerca del tobillo. Acercar la
+      // cadera al borde deja que baje el talón sin que el pantalón atraviese la chapa.
+      'portal-cuero': { height: portalHeight, hipZ: -.035, footSetback: .045, ankleLift: -.0075 }
+    },
+    benchFeet: { left: rig.where('leftFoot'), right: rig.where('rightFoot') },
     kneeHeight: woman ? .04 : .05,
     kneel: .315 * height + (rig.hips.position.y - hip.y),
     sleepHeight: .18
   };
+}
+
+/** Contra el tablón apoya el tejido sobre la parte baja de la pelvis, no el centro del hueso. */
+function fitBenchSeat(rig, m) {
+  banca(rig, m);
+  const point = new Vector3();
+  let contact = Infinity;
+  rig.root.traverse(mesh => {
+    const positions = mesh.geometry?.attributes.position;
+    if (!mesh.isSkinnedMesh || !positions || !/body/i.test(mesh.name)) return;
+    mesh.skeleton.update();
+    for (let i = 0; i < positions.count; i++) {
+      mesh.getVertexPosition(i, point).applyMatrix4(mesh.matrixWorld);
+      if (Math.abs(point.x) > .22 || point.z < -.245 || point.z > .115 || point.y < SEAT_FACE - .07 || point.y > SEAT_FACE + .07) continue;
+      contact = Math.min(contact, point.y);
+    }
+  });
+  if (Number.isFinite(contact)) m.benches.parque.height += MathUtils.clamp(SEAT_FACE + .011 - contact, 0, .036);
+  rig.reset();
 }
 
 /** Lo que `pose` dejó distinto de la referencia, como rotaciones locales. */
@@ -670,6 +952,7 @@ export function bakeStances(scene, standing = null) {
   standAt(rig, frozen, GAIT_FAMILIES.normal, 0);
   rig.remember();
   const m = measure(rig);
+  fitBenchSeat(rig, m);
   const hipStanding = rig.hips.position.clone();
   const stances = new Map();
   for (const [name, entry] of Object.entries(CATALOG)) {
@@ -691,7 +974,9 @@ export function bakeStances(scene, standing = null) {
   rig.reset();
   const holds = bakeHolds(rig, m);
   rig.reset();
-  return { stances, knockout, style: bakeStyle(rig), holds };
+  const fists = { L: rig.fist('left'), R: rig.fist('right') };
+  rig.reset();
+  return { stances, knockout, style: bakeStyle(rig), holds, fists };
 }
 
 /**
@@ -705,6 +990,19 @@ function bakeKnockout(rig, m) {
     pose(rig, m, false);
     return [name, all.map(bone => bone.quaternion.clone()), rig.hips.position.clone()];
   });
+  const benchExit = {};
+  for (const [type, support] of Object.entries(m.benches)) {
+    const path = [];
+    for (let step = 0; step < BENCH_STEPS; step++) {
+      const name = `banca-${type}-levantarse-${step}`, at = step / BENCH_STEPS;
+      rig.reset();
+      if (step === 0) sitOnBench(rig, support); else riseFromBench(rig, m, at, support);
+      poses.push([name, all.map(bone => bone.quaternion.clone()), rig.hips.position.clone()]);
+      path.push([name, at]);
+    }
+    path.push([null, 1]);
+    benchExit[type] = path;
+  }
   for (const [name, { between: [a, b], at = .5, legs }] of Object.entries(KO_STEPS)) {
     const from = poses.find(pose => pose[0] === a), to = poses.find(pose => pose[0] === b);
     all.forEach((bone, i) => bone.quaternion.slerpQuaternions(from[1][i], to[1][i], at));
@@ -717,7 +1015,7 @@ function bakeKnockout(rig, m) {
   const pick = q => q.filter((_, i) => moved[i]);
   const keys = {};
   for (const [name, q, hip] of poses) keys[name] = { q: pick(q), hip };
-  return { bones: all.filter((_, i) => moved[i]).map(bone => ({ boneName: bone.name, dedo: FINGER.test(bone.name) })), keys };
+  return { bones: all.filter((_, i) => moved[i]).map(bone => ({ boneName: bone.name, dedo: FINGER.test(bone.name) })), keys, benchExit };
 }
 
 const CANE_RUN_GRIP = .4; // m del extremo del bastón a donde lo agarra al correr

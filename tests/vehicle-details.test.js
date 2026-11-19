@@ -314,13 +314,34 @@ test('en la sala se elige el modelo y se ve el mismo carro por sus tres lados', 
   pulsar('Modelo anterior');
   assert.equal(camara.mira.x, cars[0].car.group.position.x);
   pulsar('Modelo anterior');
-  assert.equal(camara.mira.x, cars.at(-1).car.group.position.x, 'da la vuelta a la fila');
+  assert.ok(estado().includes('Yamaha MT-09 V2'), 'la moto cierra la fila');
+  pulsar('Modelo anterior');
+  assert.equal(camara.mira.x, cars.at(-1).car.group.position.x);
 
   // Con el botón de lluvia las plumillas barren aunque el carro no se mueva.
   const wiper = cars[0].car.vehicle.wipers[0], rest = wiper.rotation.z;
   pulsar('Lluvia');
   for (const update of sala.updaters) update(.3);
   assert.notEqual(wiper.rotation.z, rest);
+});
+
+test('la MT-09 se abre por enlace o botón y ofrece sus propias vistas en la sala', async () => {
+  const sala = salaDePrueba();
+  const { acciones, estado } = await PRUEBAS.find(p => p.id === 'vehiculos')
+    .montar(sala, new URLSearchParams('vehiculo=mt09'));
+  const { mt09, cars, camara } = window.__flota;
+  const pulsar = texto => acciones.find(a => a.texto === texto).hacer();
+  same(mt09.parent, sala.scene, 'la moto está montada en la sala');
+  assert.ok(camara.activa && estado().includes('Yamaha MT-09 V2'));
+  for (const [vista, signoX] of [['frente', 1], ['lado', 0], ['cola', -1]]) {
+    pulsar(vista);
+    assert.equal(Math.sign(camara.pos.x - mt09.position.x), signoX, vista);
+    assert.equal(camara.mira.z, mt09.position.z, vista);
+  }
+  pulsar('Modelo siguiente');
+  assert.equal(camara.mira.x, cars[0].car.group.position.x, 'vuelve al primer carro');
+  pulsar('MT-09 V2');
+  assert.ok(estado().includes('Yamaha MT-09 V2'));
 });
 
 test('en la sala, el botón de luces de la prueba de carros sigue encendiendo', async () => {

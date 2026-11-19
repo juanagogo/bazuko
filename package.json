@@ -16,6 +16,7 @@
     "test:report": "playwright show-report"
   },
   "dependencies": {
+    "@dimforge/rapier3d-compat": "0.21.0",
     "cannon-es": "^0.20.0",
     "hls.js": "^1.7.4",
     "howler": "^2.2.4",

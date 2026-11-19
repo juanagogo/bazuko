@@ -34,11 +34,13 @@ export const REFUSE_PHRASES = {
   },
   vio: {
     robo: 'Yo lo vi robando hace un rato. Ni un peso.', golpe: 'Yo lo vi pegándole a uno. A usted no le doy nada.',
-    popo: 'Yo vi lo de la popó. Siga derecho.', pelea: 'Yo lo vi peleando. A usted no le doy nada.'
+    popo: 'Yo vi lo de la popó. Siga derecho.', pelea: 'Yo lo vi peleando. A usted no le doy nada.',
+    muerte: 'Yo vi lo que le hizo a esa persona. Siga derecho.'
   },
   chisme: {
     robo: 'Me contaron que anda robando por aquí. No le doy nada.', golpe: 'Me dijeron que le pegó a alguien. Siga derecho.',
-    popo: 'Me contaron lo de la popó. Siga derecho.', pelea: 'Me dijeron que anda buscando pelea. No le doy nada.'
+    popo: 'Me contaron lo de la popó. Siga derecho.', pelea: 'Me dijeron que anda buscando pelea. No le doy nada.',
+    muerte: 'Me contaron lo que pasó en la esquina. Siga derecho.'
   }
 };
 const REFUSE_OTHER = 'Ni un peso, después de lo que hizo.';

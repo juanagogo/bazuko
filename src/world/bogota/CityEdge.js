@@ -111,18 +111,55 @@ function dressClosure(f, detail, side, start, end, plane, seed, keepClear = () =
     }
     t += length + .9 + hash(seed, i, 10) * 1.3;
   }
-  // Conos sueltos en la calzada: cuatro caras bastan a esta distancia.
-  const [c0, c1, c2, c3] = detailRect('orangeTarp'), coneUV = [c0, c1, c2, c1, (c0 + c2) / 2, c3];
+  // Conos sueltos en la calzada, sin caja de choque.
   for (let i = 0; i < Math.round((end - start) / 3.2); i++) {
     const t = start + .8 + hash(seed, i, 12) * (end - start - 1.6), n = planeN + 2.7 + hash(seed, i, 13) * .9;
     if (keepClear(t)) continue;
-    const u = toU(t), tip = [u, .72, n], s = .14;
-    const corner = (du, dn) => [u + du, .02, n + dn];
-    f.tri(detail, corner(-s, s), corner(s, s), tip, coneUV);
-    f.tri(detail, corner(s, s), corner(s, -s), tip, coneUV);
-    f.tri(detail, corner(s, -s), corner(-s, -s), tip, coneUV);
-    f.tri(detail, corner(-s, -s), corner(-s, s), tip, coneUV);
+    const fall = hash(seed, i, 14), fallen = fall < .09 && !keepClear(t - .9) && !keepClear(t + .9);
+    const tilt = fallen ? CONE_FALLEN : fall < .3 ? .03 + hash(seed, i, 16) * .07 : 0;
+    const toward = fallen ? (hash(seed, i, 17) < .5 ? 0 : Math.PI) + (hash(seed, i, 18) - .5) * .5 : hash(seed, i, 17) * Math.PI * 2;
+    // Ladeado, el cono gira con su base para apoyarse en un canto y no en una esquina.
+    dressCone(f, detail, toU(t), n, tilt ? toward : hash(seed, i, 15) * Math.PI / 2, tilt, toward, fallen, hash(seed, i, 19));
   }
+}
+
+const CONE_BASE = .18, CONE_PLATE = .035, CONE_TOP = .72, CONE_SIDES = 8;
+const CONE_BANDS = [[CONE_PLATE + .015, .4, 'orangeTarp'], [.4, .53, 'whiteTrim'], [.53, CONE_TOP, 'orangeTarp']];
+const coneRadius = y => .145 - (y - CONE_BANDS[0][0]) * (.145 - .026) / (CONE_TOP - CONE_BANDS[0][0]);
+// Caído, se apoya en el canto de la base y en la boca.
+const CONE_FALLEN = Math.PI - Math.atan2(CONE_TOP - CONE_PLATE, CONE_BASE - coneRadius(CONE_TOP));
+
+function dressCone(f, detail, u, n, spin, tilt, toward, fallen, shift) {
+  const cs = Math.cos(spin), sn = Math.sin(spin), ct = Math.cos(tilt), st = Math.sin(tilt);
+  const dx = Math.cos(toward), dz = Math.sin(toward), pivotY = fallen ? CONE_PLATE : 0;
+  const P = ([x, y, z]) => {
+    const rx = x * cs - z * sn, rz = x * sn + z * cs;
+    const along = rx * dx + rz * dz, across = -rx * dz + rz * dx;
+    const a = CONE_BASE + (along - CONE_BASE) * ct + (y - pivotY) * st, h = -(along - CONE_BASE) * st + (y - pivotY) * ct;
+    return [u + a * dx - across * dz, h + .018, n + a * dz + across * dx];
+  };
+  const quad = (a, b, c, d, rect) => f.quad(detail, P(a), P(b), P(c), P(d), rect);
+  const s = CONE_BASE, y1 = CONE_PLATE;
+  quad([-s, y1, s], [s, y1, s], [s, y1, -s], [-s, y1, -s], 'iron');
+  quad([-s, 0, s], [s, 0, s], [s, y1, s], [-s, y1, s], 'iron');
+  quad([s, 0, s], [s, 0, -s], [s, y1, -s], [s, y1, s], 'iron');
+  quad([s, 0, -s], [-s, 0, -s], [-s, y1, -s], [s, y1, -s], 'iron');
+  quad([-s, 0, -s], [-s, 0, s], [-s, y1, s], [-s, y1, -s], 'iron');
+  if (fallen) quad([-s, 0, -s], [s, 0, -s], [s, 0, s], [-s, 0, s], 'iron');
+  const ring = (y, k) => {
+    const angle = k / CONE_SIDES * Math.PI * 2, r = coneRadius(y);
+    return [Math.cos(angle) * r, y, Math.sin(angle) * r];
+  };
+  for (const [ya, yb, name] of CONE_BANDS) {
+    const [r0, r1, r2, r3] = detailRect(name), span = (r3 - r1) * .35, from = r1 + shift * (r3 - r1 - span);
+    const v = y => from + span * (y - CONE_BANDS[0][0]) / (CONE_TOP - CONE_BANDS[0][0]);
+    for (let k = 0; k < CONE_SIDES; k++) {
+      const ua = r0 + (r2 - r0) * k / CONE_SIDES, ub = r0 + (r2 - r0) * (k + 1) / CONE_SIDES;
+      f.quadUV(detail, P(ring(ya, k + 1)), P(ring(ya, k)), P(ring(yb, k)), P(ring(yb, k + 1)), [ub, v(ya), ua, v(ya), ua, v(yb), ub, v(yb)]);
+    }
+  }
+  const [m0, m1, m2, m3] = detailRect('iron'), mouth = [(m0 + m2) / 2, (m1 + m3) / 2];
+  for (let k = 0; k < CONE_SIDES; k++) f.tri(detail, P([0, CONE_TOP, 0]), P(ring(CONE_TOP, k + 1)), P(ring(CONE_TOP, k)), [...mouth, ...mouth, ...mouth]);
 }
 
 /** Reja a los costados de la terminal y cierre al final de la vía: lo que antes era una pared gris sin más. */

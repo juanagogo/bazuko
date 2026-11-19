@@ -286,7 +286,8 @@ function gameFixture() {
   const car = fakeCar(30, 30);
   const player = Object.assign(Object.create(Player.prototype), {
     position: new THREE.Vector3(30, 0, 31.5), root: new THREE.Group(), velocity: new THREE.Vector3(),
-    _impactTime: 0, _impactVelocity: new THREE.Vector3(), _respiroTumbo: 0, melee: { cancel() {} }, animateScripted() {},
+    _impactTime: 0, _impactHeavy: false, _impactVelocity: new THREE.Vector3(), melee: { cancel() {} }, animateScripted() {},
+    hitLean: { remove() {}, clear() {}, kick() {} }, character: { group: new THREE.Group() },
     ragdoll: { active: false, starts: 0, start() { this.starts++; this.active = true; return true; } }
   });
   const game = Object.assign(Object.create(Game.prototype), {
@@ -304,7 +305,7 @@ function gameFixture() {
 test('un golpe al volante (camioneta, conductor bravo) no lo baja ni lo tumba: el carro sigue solo y luego vuelve el mando', () => {
   const { game, car, player } = gameFixture();
   game.carjack.speed = 10;
-  game.stats.salud = 5; // con la salud baja el golpe a pie lo tumbaría
+  game.stats.salud = 5;
   player.receiveHit(new THREE.Vector3(1, 0, 0), 4, { salud: 5 });
   assert.equal(player.ragdoll.starts, 0, 'no arranca el cuerpo tirado');
   assert.equal(player.isStunned, true);
@@ -322,7 +323,7 @@ test('un golpe al volante (camioneta, conductor bravo) no lo baja ni lo tumba: e
   assert.equal(game.carjack.car, car);
 });
 
-test('a pie, después de bajarse o de soltar el carro a la fuerza, un golpe con la salud baja lo vuelve a tumbar', () => {
+test('a pie, después de bajarse o de soltar el carro a la fuerza, el golpe con salud baja conserva los pies en el suelo', () => {
   for (const soltar of ['bajarse', 'reset']) {
     const { game, player } = gameFixture();
     if (soltar === 'bajarse') {
@@ -331,7 +332,8 @@ test('a pie, después de bajarse o de soltar el carro a la fuerza, un golpe con 
       assert.equal(game.carjack.transition, null);
     } else game.carjack.reset();
     player.receiveHit(new THREE.Vector3(1, 0, 0), 4, { salud: 5 });
-    assert.equal(player.ragdoll.starts, 1, `tras ${soltar} el golpe tumba`);
+    assert.equal(player.ragdoll.starts, 0, `tras ${soltar} sigue de pie`);
+    assert.equal(player.isKnockedDown, false);
   }
 });
 
