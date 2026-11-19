@@ -285,6 +285,7 @@ export class Game {
     this.dailyMissions = new DailyMissionSystem(this);
     this._missionsModalOpen = false;
     this.cars = [];
+    this.bicycles = []; // las ciclas del taller: _spawnEntities las suelta y las vuelve a crear
     this.traffic = null;
     this._onVehicleImpact = this._onVehicleImpact.bind(this);
     this.dealer = null;
