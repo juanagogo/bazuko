@@ -20,6 +20,7 @@ Ladrillo rojo, casas de estilo inglés con hastiales y ventanas en saliente, ant
 
 ## Paseos de los parques
 
+El adoquín de barro en canasta identifica los caminos. En los parques de la Estación y del Sur las bancas quedan en ensanches a los lados del paseo. Allí y en el Tercer Milenio, el GPS lleva a la cara libre de cada pila pública para lavarse o llenar la botella. En el Parque del Lago, tres entradas desde la Carrera 5 conectan con el paseo y cinco bancas miran al agua.
 
 ## El borde
 
@@ -37,6 +38,7 @@ Detrás de todo está `CityBackdrop.js`: **de cuatro a ocho llamadas de dibujo**
 
 - **Suelo y cerros.** Una sola malla en anillo, con las calles que siguen detrás de los cierres.
 - **Bloques.** Unos 3.000 ejemplares de una caja de cinco caras, entre edificios, cuartos de azotea y casitas. Pisos, ventanas, alféizares y luces de noche salen del sombreador, según la escala de cada ejemplar, sin texturas. Vistas desde lo alto, sus azoteas llevan pretil, sombra por dentro, manchas de agua y parches de manto, y de lejos vuelven al tono parejo.
+- **Entre la ciudad y los cerros.** Frente al Lago, las manzanas de fondo reúnen viviendas de ladrillo y pañete con algunos locales y azoteas a distintas alturas. Las cabeceras sobre el parque tienen vanos salteados y cuerpos bajos de servicio. Detrás de La Candelaria aparecen frentes más estrechos, zócalos y cubiertas a dos aguas.
 - **Más allá de la Candelaria,** hacia +X, un cerro alto con iglesia blanca en la cumbre, torres de teleférico y cabinas.
 - **Al sur,** las casas de ladrillo y pañete se escalonan junto a calles que siguen la pendiente, con pasos peatonales entre niveles y claros verdes entre grupos. Los cimientos apoyan en la malla del cerro. Las vías van en el mismo lote del terreno y las luces de las casas siguen la hora del cielo.
 

@@ -5,6 +5,7 @@ import { Bogota } from '../src/world/districts/Bogota.js';
 import { addStreetDetails } from '../src/world/bogota/StreetDetails.js';
 import { buildGroundWear, dressGrass, dressPaving } from '../src/world/bogota/GroundDressing.js';
 import { sunFieldUniforms } from '../src/world/bogota/SunField.js';
+import { GRASS_TILE_METERS } from '../src/world/bogota/textures.js';
 import { DETAIL_UV } from '../src/world/bogota/textures-calle.js';
 import { BAND_INSIDE, BAND_REACH, OLD_PAVING_ZONES, PAVING_KINDS, buildPavingBands, pavingBandsOf } from '../src/world/bogota/PavingBands.js';
 import { MARKS_PER_METER, buildPavingMarks, curbRamps, markTreePits, pavingMarksOf } from '../src/world/bogota/PavingBands.js';
@@ -213,6 +214,39 @@ test('la ciudad viste cada andén con el acabado de su barrio', () => {
   for (const [x, z] of [[19, 55], [63, 55], [41, 31], [41, 79]]) assert.equal(old(x, z), 0, `y la acera de enfrente no: ${x}, ${z}`);
   assert.equal(old(197, 185), 0, 'la hilera de locales no');
   assert.equal(old(113, 98), 0, 'el barrio del cambuche lo es por su material, no por la máscara');
+});
+
+test('el prado y la ribera toman el mismo césped a escala métrica', () => {
+  const city = new Bogota();
+  const map = city._layout();
+  city.map = map;
+  city._buildGround(map);
+  const { grass } = city.groundMaterials;
+  const shore = city.lakeTerrain.material;
+  assert.equal(shore.map, grass.map);
+  assert.equal(shore.userData.uniforms.lakeGroundBump.value, grass.bumpMap);
+  assert.equal(shore.userData.uniforms.lakeSurfaceScale.value.x, GRASS_TILE_METERS);
+  assert.equal(grass.map.userData.scale, GRASS_TILE_METERS);
+  let grassMeshes = 0;
+  city.group.traverse(mesh => {
+    if (!mesh.isMesh || mesh.material !== grass) return;
+    grassMeshes++;
+    const { position, uv } = mesh.geometry.attributes;
+    for (let i = 0; i < 4; i++) {
+      assert.ok(Math.abs(uv.getX(i) - position.getX(i) / GRASS_TILE_METERS) < 1e-5);
+      assert.ok(Math.abs(uv.getY(i) - position.getZ(i) / GRASS_TILE_METERS) < 1e-5);
+    }
+  });
+  assert.ok(grassMeshes > 0);
+  const grassShader = fakeShader(), shoreShader = { ...fakeShader(), fragmentShader: THREE.ShaderLib.standard.fragmentShader };
+  grass.onBeforeCompile(grassShader);
+  shore.onBeforeCompile(shoreShader);
+  assert.equal(shoreShader.uniforms.uGroundWear.value, grassShader.uniforms.uGroundWear.value);
+  assert.match(shoreShader.fragmentShader, /grassFinish\( diffuseColor\.rgb, vLakeXZ \)/);
+  assert.match(shoreShader.fragmentShader, /vLakeLayers\.x > \.6 && lakePavingMix < 1\./);
+  assert.equal(grass.map.colorSpace, THREE.SRGBColorSpace);
+  assert.equal(grass.bumpMap.colorSpace, THREE.NoColorSpace);
+  assert.equal(grass.map.minFilter, THREE.LinearMipmapLinearFilter);
 });
 
 test('ningún suelo de la ciudad queda con coordenadas de textura rotas', () => {

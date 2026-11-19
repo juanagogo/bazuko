@@ -98,7 +98,7 @@ test('la arquitectura no cambia con el azar global ni con más creaciones de tex
   assert.equal(first.footprint, 'e7d8227e027300bd74365b2feb05cab85e16bb084cedb2a96b036873b57569cc');
   // El terreno de la porción anterior al oriente incorpora los paseos y ensanches de los
   // parques. Sus sólidos conservan la huella original.
-  assert.equal(first.oldMap, 'd455002b3933539c842155bae583893f920d422a7c2ecc1b7c7c005be80b75fb');
+  assert.equal(first.oldMap, '8d77d1697765620dbe3a043941b9d5d4b1e7f8d18fc3bac87cadcefa5f320b3c');
   assert.equal(first.oldColliders, '6b8d21ce0063a9a7ef0f4f4bfb43608e02335553ab98206151f237594ef3dd0d');
 });
 

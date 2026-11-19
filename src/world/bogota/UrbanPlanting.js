@@ -1,6 +1,6 @@
 import { EXTENSION_PARKS } from './CityLayout.js';
 import { STREET_X, STREET_Z } from './StreetLayout.js';
-import { LAKE_PARK, onLakeBridge } from './LakePark.js';
+import { LAKE_PARK, LAKE_LOOKOUTS, onLakeBridge } from './LakePark.js';
 import { viaductSurface } from './ColpatriaViaduct.js';
 
 export const URBAN_TREE_SPECIES = Object.freeze(['urapan', 'eucalipto', 'arrayan']);
@@ -46,6 +46,19 @@ function belowBridge(x, z) {
 
 // Una abertura entre copas encuadra el lago desde cada descanso. Detrás y a
 // ambos lados sigue habiendo árboles de sombra con el mismo presupuesto.
+const WATER_VIEWS = LAKE_LOOKOUTS.map(({ x, z }) => {
+  const dx = LAKE_PARK.lakeX - x, dz = LAKE_PARK.lakeZ - z, length = Math.hypot(dx, dz);
+  return { x, z, ux: dx / length, uz: dz / length };
+});
+
+function inWaterView(x, z) {
+  return WATER_VIEWS.some(view => {
+    const dx = x - view.x, dz = z - view.z;
+    const along = dx * view.ux + dz * view.uz;
+    const across = Math.abs(dx * view.uz - dz * view.ux);
+    return along > 0 && along < 16 && across < 2 + along * .22;
+  });
+}
 
 /** Plan visual puro. isReserved(x,z,padding) recibe el margen del tronco; no añade colisiones. */
 export function planUrbanTrees({ map, tileSize = 2, groundHeight = () => .06,
@@ -73,6 +86,7 @@ export function planUrbanTrees({ map, tileSize = 2, groundHeight = () => .06,
       const jitter = Math.min(.55, tileSize * .275);
       const x = tx * tileSize + (unit(hash(tx, tz, 101)) * 2 - 1) * jitter;
       const z = tz * tileSize + (unit(hash(tx, tz, 211)) * 2 - 1) * jitter;
+      if (region.lake && inWaterView(x, z)) continue;
       if (!grassFootprint(map, tileSize, x, z) || isReserved(x, z, URBAN_TREE_LIMITS.grassMargin) || belowBridge(x, z) || getWaterInfo(x, z)) continue;
       const y = groundHeight(x, z);
       if (!Number.isFinite(y) || y < -.1 || y > .6) continue;

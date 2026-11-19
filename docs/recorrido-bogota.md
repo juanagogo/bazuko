@@ -8,7 +8,7 @@ Asfalto gris azulado, concreto tibio, ladrillo tolete, metal pintado y vegetaci�
 
 - Cambuche: revoque remendado, tierra y andenes de acabado irregular; ocres y metal envejecido.
 - Comercio: paños de fachada más definidos, zócalos grises, persianas y letreros populares. Se conservan los colores azules, rojos, verdes y amarillos de los avisos existentes.
-- Lago: pavimento claro, césped oliva y una transición entre grava, lodo húmedo y el lecho. Los paseos y las salidas del agua conservan su geometría.
+- Lago: pavimento claro, césped oliva y una transición entre grava, lodo húmedo y el lecho. El paseo de adoquín une la Carrera 5 con los miradores y las bajadas a la orilla.
 - Centro: base neutra para enlazar las zonas sin cubrir toda la ciudad con un único acabado.
 
 ## Materiales compartidos
