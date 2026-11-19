@@ -181,6 +181,7 @@ export class WitnessSystem {
         && Math.hypot(npc.position.x - player.x, npc.position.z - player.z) <= WITNESS.interruptRange) {
         npc.stopWitness?.();
         npc._fleeFrom?.(player);
+        this._voces()?.cortarTestigo?.(npc, 'llamar');
         this._decir(npc, 'colgar');
         this.calls.splice(i, 1);
         this._toast('Le hice colgar', 'info');
@@ -204,14 +205,17 @@ export class WitnessSystem {
         const steal = this.game?.steal;
         if (steal) steal._calma = 0;
         this._toast('Me grabaron: ese video va a dar vueltas', 'warn');
-      }
+      } else this._voces()?.cortarTestigo?.(npc, 'grabar');
     }
   }
 
   /** Lo que dice el testigo: con su voz grabada y su burbuja si la tiene lista; si no, la burbuja de siempre. */
   _decir(npc, situacion) {
-    if (this._voces()?.decirTestigo?.(npc, situacion) === true) return;
-    npc.say?.(any(GRITOS[situacion]));
+    // El texto se sortea siempre: así el azar del juego es el mismo con voz o sin ella.
+    const texto = any(GRITOS[situacion]);
+    // Si queda esperando su turno detrás de la víctima y no le llega, pone ese texto: nunca se queda mudo.
+    if (this._voces()?.decirTestigo?.(npc, situacion, { trasLaVictima: !!this._trasLaVictima, sinTurno: () => npc.say?.(texto) }) === true) return;
+    npc.say?.(texto);
   }
 
   _voces() { return this.game?.audio?.voces ?? null; }
@@ -233,6 +237,7 @@ export class WitnessSystem {
     entry.left -= dt;
     if (!entry.npc._disposed && !entry.npc.isDead && entry.left > 0) return false;
     entry.npc.stopWitness?.();
+    this._voces()?.cortarTestigo?.(entry.npc, mode);
     return true;
   }
 
@@ -243,13 +248,15 @@ export class WitnessSystem {
       steal._calma = 0;
       if (this.game.traffic) this.game.traffic.wantedLevel = steal.buscado;
     }
+    // El motivo de la llamada (robo, pelea) solo le sirve a la radio para decir una frase que cuadre.
     this.game?.traffic?.dispatchTo?.(call.position, this.game?.player?.position, call.kind);
     this._toast('Un testigo llamó a la Policía', 'death');
   }
 
   /** Muerte, arresto, dormir, viajar o salir de la partida: nadie sigue llamando ni grabando. */
   reset() {
-    for (const { npc } of [...this.calls, ...this.films]) npc.stopWitness?.();
+    for (const call of this.calls) { call.npc.stopWitness?.(); this._voces()?.cortarTestigo?.(call.npc, call.job ? 'auxilio' : 'llamar'); }
+    for (const film of this.films) { film.npc.stopWitness?.(); this._voces()?.cortarTestigo?.(film.npc, 'grabar'); }
     this.deaths.reset();
     this.calls.length = 0;
     this.films.length = 0;

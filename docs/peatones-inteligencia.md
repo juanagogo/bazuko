@@ -95,13 +95,13 @@ Cada habitante de Bogotá conserva al cargar su identidad, aspecto y temperament
 | `src/entities/Npc.js` | huida sin ruta: `else if (!this.mind?.fleeSmart()) this._fleeStraight(dt);` |
 | `src/entities/Npc.js` | La pose usa el objetivo de la mente o el vistazo de paso. Si ambos ya llegaron a conversar, `ConversationGaze` dirige la cara hacia los ojos del interlocutor. |
 | `src/entities/Npc.js` | `takeHit`: `this.hitBy = attacker;` (quién le pegó: un golpe que no dio el jugador no es culpa suya) |
-| `src/systems/NpcConversations.js` | `canTalk`: `if (npc.mind?.busy()) return false;` (pendiente de otra cosa no conversa) |
+| `src/systems/NpcConversations.js` | Comprueba al inicio y durante la charla si ambos siguen libres (`mind.busy()`) y en la calle. |
 | `src/world/districts/Bogota.js` | `update`: `thinkStreet(this, dt, playerPos, trafficVehicles);` (arma `this.minds` la primera vez y le da su cuadro) y `this.minds?.dispose()` |
 | `src/systems/InteractionSystem.js` | `_beg`: `if (allRefuseAlms(nearbyPedestrians)) { … reason: 'memoria' … }` antes del 20 % de ignorar |
 
 ## Integraciones pendientes
 
-- **Aviso a la policía**: el avisador emite `window` `npc-police-report` con `detail: { npc, tipo, x, z }` (quién avisa, qué vio y dónde estaba el jugador). Nadie lo escucha todavía. Para que la policía se entere bastaría, en `TrafficSystem`, un `alertForReport(position, radius = 40)` que pase a persecución a las patrullas que no persiguen a nadie (`patrol`) a menos de `radius` del aviso, como `alertForTheft(position)` pero sin pedir que vean el robo, y devuelva `true` si alertó a alguna; `game.js` lo llamaría al oír `npc-police-report`. Al conectarlo: que no vuelva a lanzar `police-chase` si `steal.js` ya avisó por el mismo robo; que respete al jugador escondido (`isPlayerHidden`); y que junte en uno los avisos de varios testigos del mismo hecho (cada uno avisa cada 30 s como mucho, así que varios testigos dan varios avisos seguidos). Un atropello no es golpe del jugador (`hitBy`), así que no termina en aviso.
+- **Grito del avisador.** `npc-police-report` identifica a quien dio la voz de alerta, el tipo de suceso y sus coordenadas. La integración de ese grito ambiental con el despacho sigue pendiente. Las llamadas de celular ya completadas se atienden desde `WitnessSystem`. [Testigos de una caída](#testigos-de-una-caída).
 - **Reciclar y esconder peatones**: quien recicla a un peatón en otra calle (`relocate`) debería llamar `this.mind?.reset()`: suelta el corrillo, el susto, la huida a medias, el cruce y la charla, y conserva lo que recuerda. Quien lo esconde basta con sacarlo de `district.npcs`: su mente deja de pensar y suelta su puesto de corrillo hasta que vuelva.
 - **Choques**: el estímulo `choque` existe pero ningún evento lo emite. Haría falta que `game.js` emitiera `vehicle-impact` con `detail: { x, z, severity }` al chocar el jugador o un carro (`_onVehicleImpact`).
 

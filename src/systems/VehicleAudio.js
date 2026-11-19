@@ -1,3 +1,5 @@
+import { setPan, voicePan } from './voiceVariety.js';
+
 const MAX_NEARBY_VEHICLES = 6;
 // Atenuación por volumen, sin panners: pleno hasta NEAR y silencio en FAR.
 const ENGINE_NEAR = 6, CAR_ENGINE_FAR = 40, BUS_ENGINE_FAR = 55;
@@ -27,6 +29,8 @@ export class VehicleAudio {
     this.levels = { traffic: 1, voices: 1 };
     // Otra voz ajena a los conductores (p. ej. el reclamo por robo) que impide empezar frases.
     this.externalVoiceActive = () => false;
+    // Los bancos de frases y sus subtítulos corresponden a la persona que maneja.
+    this.vocesPito = null;
     this._hornClock = 0;
     this._lastHornAt = -Infinity;
     this._lastAmbientHornAt = -Infinity;
@@ -72,10 +76,18 @@ export class VehicleAudio {
     return false;
   }
 
+  _stopRemark(state) {
+    const remark = state?.remark;
+    if (!remark) return;
+    remark.sound.stop(remark.id);
+    this.vocesPito?.callar?.(remark.car);
+    state.remark = null;
+  }
+
+  stopRemark(car) { this._stopRemark(this.instances.get(car)); }
+
   stopRemarks() {
-    for (const state of this.instances.values()) {
-      if (state.remark) { state.remark.sound.stop(state.remark.id); state.remark = null; }
-    }
+    for (const state of this.instances.values()) this._stopRemark(state);
   }
 
   /** Pitada de tráfico entre carros: rara, cercana y sujeta al mismo presupuesto. */
@@ -94,7 +106,8 @@ export class VehicleAudio {
   }
 
   _stop(state) {
-    for (const key of ['idle', 'drive', 'horn', 'remark']) {
+    this._stopRemark(state);
+    for (const key of ['idle', 'drive', 'horn']) {
       if (state[key]) state[key].sound.stop(state[key].id);
       state[key] = null;
     }
@@ -118,7 +131,7 @@ export class VehicleAudio {
       }
       // Un claxon interrumpido por un menú no se repite al volver.
       if (paused && state.horn) { state.horn.sound.stop(state.horn.id); state.horn = null; }
-      if (paused && state.remark) { state.remark.sound.stop(state.remark.id); state.remark = null; }
+      if (paused) this._stopRemark(state);
     }
     if (paused) {
       for (const voice of this._ambientHorns) voice.sound.stop(voice.id);
@@ -131,7 +144,10 @@ export class VehicleAudio {
       const id = sound.play();
       state[key] = { sound, id };
       sound.volume(0, id);
-      sound.seek(state.phase * sound.duration(), id);
+      // Howler puede marcar HTML5 como listo antes de conocer su duración.
+      const duration = sound.duration();
+      const offset = state.phase * duration;
+      if (duration > 0 && Number.isFinite(offset)) sound.seek(offset, id);
     }
     return state[key];
   }
@@ -212,13 +228,18 @@ export class VehicleAudio {
         if (horn) {
           state.horn = horn;
           // Una sola voz a la vez: si otro conductor o el reclamo por robo ya hablan, solo pita.
-          if (!entry.bus && entry.voiceDistance < 8 && this.driverSounds.length
+          if (!entry.bus && !entry.source.police && entry.car.driverInside !== false && !entry.car.driverDead && entry.voiceDistance < 8
             && !this.remarkPlaying(state) && !this.externalVoiceActive()) {
-            const pick = Math.min(this.driverSounds.length - 1, Math.floor(this.random() * this.driverSounds.length));
-            const remark = this.driverSounds[pick];
-            if (remark.state() === 'loaded') {
-              if (state.remark) state.remark.sound.stop(state.remark.id);
-              state.remark = { sound: remark, id: remark.play() };
+            const originales = this.vocesPito?.banco?.(entry.car) ?? this.driverSounds;
+            const total = originales.length + (this.vocesPito?.listas(entry.car) ?? 0);
+            const pick = Math.min(total - 1, Math.floor(this.random() * total));
+            const remark = originales[pick];
+            if (pick >= originales.length) {
+              this.vocesPito?.decir(entry.car);
+            } else if (remark?.state() === 'loaded') {
+              this._stopRemark(state);
+              state.remark = { sound: remark, id: remark.play(), car: entry.car };
+              this.vocesPito?.subtitular?.(entry.car, remark);
             }
           }
           state.cooldown = 6 + this.random() * 5;
@@ -226,8 +247,11 @@ export class VehicleAudio {
       }
       if (state.remark) {
         const { sound, id } = state.remark;
-        if (!sound.playing(id)) state.remark = null;
-        else sound.volume(.7 * this.levels.voices * Math.max(0, Math.min(1, (8 - entry.voiceDistance) / 6)), id);
+        if (entry.car.driverDead || entry.car.driverInside === false || !sound.playing(id)) this._stopRemark(state);
+        else {
+          sound.volume(.7 * this.levels.voices * Math.max(0, Math.min(1, (8 - entry.voiceDistance) / 6)), id);
+          setPan(sound, voicePan(position, this.camera, entry.car.position), id);
+        }
       }
     }
   }

@@ -43,13 +43,23 @@ function director({ random = () => .5 } = {}) {
 
 const callar = cargados => cargados.forEach(h => h.stop());
 
+// Las situaciones de la lista: las que ya suenan y las que esperan a quien las dispare.
+const SITUACIONES = new RegExp(`^(${[
+  'ambiente', 'testigo_(llama|graba|cuelga|robo|pelea)', 'pelea', 'reto', 'persecucion', 'robado',
+  'semaforo_(si|no|bravo|verde)', 'pito', 'robo_espejo', 'popo', 'olor',
+  'grito', 'arresto', 'escape', 'radio', 'megafono', 'ofrece', 'voceador', 'saludo_cartucho', 'auxilio', 'hallazgo', 'herido',
+].join('|')})$`);
+
 test('cada frase tiene su mp3 mono en public/audio/voces y no hay mp3 sin frase', () => {
-  assert.equal(frasesDe('ambiente').length, 35);
+  assert.equal(FRASES.length, 164);
+  // Al pasar: 38, con las 3 del reciclador.
+  assert.equal(frasesDe('ambiente').length, 39);
+  assert.equal(frasesDe('ambiente', 'reciclador').length, 3);
   assert.equal(new Set(FRASES.map(frase => frase.id)).size, FRASES.length);
   const dir = new URL('../public/audio/voces/', import.meta.url);
   assert.deepEqual(readdirSync(dir).sort(), FRASES.map(frase => `${frase.id}.mp3`).sort());
   for (const frase of FRASES) {
-    assert.match(frase.situacion, /^(ambiente|testigo_(llama|graba|cuelga|robo|pelea)|pelea|persecucion)$/);
+    assert.match(frase.situacion, SITUACIONES);
     assert.equal(frase.audio, `/audio/voces/${frase.id}.mp3`);
     assert.ok(REPARTO[frase.voz], `${frase.id}: voz del reparto`);
     assert.equal(frase.gender, REPARTO[frase.voz].sexo);
@@ -83,7 +93,8 @@ test('cada persona habla con la voz de su arquetipo, su sexo y su edad, y siempr
   assert.equal(vozPara({ arquetipo: 'habitante', sexo: 'hombre', edad: 'adulto' }, () => .1), 'nero_pelado');
   assert.equal(vozPara({ arquetipo: 'habitante', sexo: 'hombre', edad: 'adulto' }, () => .9), 'nero_viejo');
   assert.equal(vozPara({ arquetipo: 'habitante', sexo: 'mujer' }), 'nera');
-  assert.equal(vozPara({ arquetipo: 'reciclador', sexo: 'hombre' }), 'nero_viejo');
+  assert.equal(vozPara({ arquetipo: 'reciclador', sexo: 'hombre' }), 'reciclador');
+  assert.equal(vozPara({ arquetipo: 'reciclador', sexo: 'mujer' }), 'nera');
   assert.equal(vozPara({ arquetipo: 'senora', sexo: 'hombre' }), 'abuelo');
   assert.equal(vozPara({ arquetipo: 'estudiante', sexo: 'hombre' }), 'estudiante_h');
   assert.equal(vozPara({ arquetipo: 'obrero', sexo: 'hombre' }), 'busetero');
@@ -106,7 +117,7 @@ test('cada persona habla con la voz de su arquetipo, su sexo y su edad, y siempr
 test('la primera frase al pasar sale a los 4 s y las siguientes cada 7 a 14 s', () => {
   for (const [r, espera] of [[0, 7000], [.999, 7000 + .999 * 7000]]) {
     const { d, cargados, avanzar, origen } = director({ random: () => r });
-    const gente = Array.from({ length: 6 }, (_, i) => persona({ at: [1 + i * .5, 0, 0] }));
+    const gente = Array.from({ length: 6 }, (_, i) => persona({ arquetipo: ['oficinista', 'senora', 'estudiante'][i % 3], at: [1 + i * .5, 0, 0] }));
     d.update(origen, gente);
     avanzar(3999);
     d.update(origen, gente);
@@ -123,6 +134,102 @@ test('la primera frase al pasar sale a los 4 s y las siguientes cada 7 a 14 s', 
     d.update(origen, gente);
     assert.notEqual(d.ultima, primera, `a los ${espera} ms habla otra persona`);
   }
+});
+
+test('la identidad de campaña conserva el timbre aunque cambien el reloj y el orden de aparición', () => {
+  const ids = Array.from({ length: 80 }, (_, i) => `campaña-42:peaton:${i}`);
+  const elencar = (orden, random) => {
+    const { d } = director({ random });
+    return new Map(orden.map(id => {
+      const npc = Object.assign(persona(), { stableId: id });
+      return [id, d.vozDe(npc)];
+    }));
+  };
+  const primera = elencar(ids, () => .1), recarga = elencar([...ids].reverse(), () => .9);
+  assert.ok(new Set(primera.values()).size > 3);
+  for (const id of ids) assert.equal(recarga.get(id), primera.get(id), id);
+
+  const { d, cargados, avanzar } = director();
+  const vecina = persona(), vendedora = Object.assign(persona(), { _voz: 'vendedora' });
+  assert.equal(d.decir(vecina), true);
+  callar(cargados);
+  assert.equal(d.decir(vendedora), false, 'Virginia ya se oye en boca de su vecina');
+  assert.equal(d.vozDe(vendedora), 'vendedora');
+  avanzar(13000);
+  assert.equal(d.decir(vendedora), true);
+  assert.equal(d.ultima.voz, 'vendedora');
+});
+
+test('el protagonista tiene una voz exclusiva y un personaje sin identificar no puede tomar prestada una grabación', () => {
+  const { d, avanzar } = director();
+  const player = { position: new THREE.Vector3(), stats: { salud: 60 } };
+  const falso = Object.assign(persona(), { voiceRole: 'protagonista' });
+  d.registrarJugador(player);
+  const quejas = frasesDe('herido', 'protagonista');
+  assert.equal(d.vozDe(player), 'protagonista');
+  assert.equal(d.vozDe(falso), null);
+  assert.equal(d.quejaJugador(falso), false);
+  assert.equal(d.decirDesde(falso, quejas, { prioridad: 50 }), false);
+  const sinIdentificar = { position: player.position.clone(), person: { arquetipo: 'senora' } };
+  assert.equal(d.decirDesde(sinIdentificar, frasesDe('ambiente', 'senora'), { prioridad: 20 }), false);
+  assert.equal(d.quejaJugador(player), true);
+  assert.equal(d.ultima.id, 'protagonista_herido_1');
+  assert.equal(d.quejaJugador(player), false);
+  d.cancel();
+  avanzar(8100);
+  player.stats.salud = 0;
+  assert.equal(d.quejaJugador(player), false);
+});
+
+test('la vecina saluda, conversa y pide ayuda con Marcia; la voz la sigue y se corta al morir', () => {
+  const eventos = new EventTarget();
+  const audio = new AudioSystem({ HowlClass: FakeHowl, howler: { volume() {} }, eventTarget: eventos });
+  const vecina = Object.assign(persona({ at: [2, 0, 0] }), { voiceRole: 'vecina_parque', stableId: '42:vecina' });
+  const vecino = Object.assign(persona({ arquetipo: 'abuelo', sexo: 'hombre', edad: 'mayor', at: [3.1, 0, 0] }), { voiceRole: 'vecino_parque' });
+  vecina.fijo = { pareja: vecino };
+  vecino.fijo = { pareja: vecina };
+  for (const npc of [vecina, vecino]) {
+    npc.sitioDeCharla = true;
+    npc.callar = function (texto) { if (this.dichos.at(-1)?.[0] === texto) this.dichos.pop(); };
+  }
+  const camara = new THREE.PerspectiveCamera();
+  camara.updateMatrixWorld();
+  audio.voces.camera = camara;
+  audio.conversations.camera = camara;
+  const oyente = new THREE.Vector3(), personas = [vecina, vecino], parque = { sitioCerca: s => s === 'parque' };
+  const charla = ms => audio.conversations.update(oyente, personas, ms, parque);
+  audio.voces.update(oyente, []);
+  assert.equal(audio.voces.decir(vecina), true);
+  assert.equal(audio.voces.ultima.id, 'vecina_parque_ambiente_1');
+  audio.voces._voz.sound.stop();
+  audio.voces.update(oyente, []);
+  charla(0); charla(10); charla(510);
+  const turnoUno = audio.conversations._current.playing;
+  assert.equal(turnoUno.npc, vecina);
+  assert.match(turnoUno.sound.options.src[0], /conv_carton_01\.mp3$/);
+  turnoUno.sound.stop(turnoUno.id);
+  charla(520); charla(1020);
+  const turnoDos = audio.conversations._current.playing;
+  assert.equal(turnoDos.npc, vecino);
+  assert.match(turnoDos.sound.options.src[0], /conv_carton_02\.mp3$/);
+  vecina.deathResponse = 'avisar';
+  assert.equal(audio.voces.decirTestigo(vecina, 'auxilio'), true);
+  assert.equal(turnoDos.sound.playing(turnoDos.id), false);
+  assert.equal(audio.conversations.busy, false);
+  const auxilio = audio.voces._voz;
+  assert.equal(auxilio.entry.id, 'vecina_parque_auxilio_1');
+  assert.equal(auxilio.source, vecina);
+  assert.equal(vecina.dichos.at(-1)[0], auxilio.entry.text);
+  assert.ok(auxilio.sound.pans.at(-1) > 0);
+  vecina.position.set(-2, 0, 0);
+  audio.voces.update(oyente, []);
+  assert.ok(auxilio.sound.pans.at(-1) < 0);
+  vecina.isDead = true;
+  eventos.dispatchEvent(Object.assign(new Event('npc-death'), { detail: { victim: vecina } }));
+  assert.equal(auxilio.sound.playing(auxilio.id), false);
+  assert.equal(vecina.dichos.some(([texto]) => texto === auxilio.entry.text), false);
+  assert.equal(audio.voces.decirTestigo(vecina, 'hallazgo'), false);
+  audio.dispose();
 });
 
 test('solo habla quien está a menos de 6 m, y la misma persona no repite enseguida', () => {
@@ -167,6 +274,30 @@ test('no hablan los dormidos, los noqueados, quien ya tiene burbuja ni quien ya 
   assert.equal(d.decir(Object.assign(persona(), { _disposed: true })), false);
 });
 
+test('el peatón que huye o está llamando no dice una frase al pasar', () => {
+  for (const estado of [{ fleeTimer: 5 }, { witnessing: 'llamar' }]) {
+    const { d, origen, avanzar } = director({ random: () => 0 });
+    const ocupado = Object.assign(persona(), estado);
+    const libre = persona({ at: [3, 0, 0] });
+    d.update(origen, [ocupado, libre]);
+    avanzar(DIRECTOR.ambiente.primera);
+    d.update(origen, [ocupado, libre]);
+    assert.equal(ocupado.dichos.length, 0);
+    assert.equal(libre.dichos.length, 1);
+  }
+});
+
+test('al caer noqueado se corta la voz aunque aún esté dentro de su alcance', () => {
+  const { d, origen } = director();
+  const npc = persona();
+  assert.equal(d.decir(npc), true);
+  const { sound, id } = d._voz;
+  npc.koState = 'down';
+  d.update(origen, [npc]);
+  assert.equal(sound.playing(id), false);
+  assert.equal(d.active, false);
+});
+
 test('habla una de las cuatro personas más cercanas', () => {
   // Con azar casi 1 le toca la última de las aptas: la cuarta más cercana, venga en el orden que venga.
   const { d, avanzar, origen } = director({ random: () => .999 });
@@ -175,6 +306,47 @@ test('habla una de las cuatro personas más cercanas', () => {
   avanzar(4000);
   d.update(origen, gente);
   assert.deepEqual(gente.map(n => n.dichos.length), [0, 0, 1, 0, 0, 0]);
+});
+
+test('en El Cartucho el vecino saluda al pasar y solo dice que espera si ya saludó y está quieto', () => {
+  const { d, cargados, avanzar, origen } = director({ random: () => 0 });
+  const vecino = persona({ arquetipo: 'habitante', sexo: 'hombre' });
+  const otro = persona({ arquetipo: 'habitante', sexo: 'hombre', at: [2, 0, 0] });
+  otro.voiceRole = 'nero_esquina';
+  const contexto = { jugador: true, sitioCerca: (lugar, { x }) => lugar === 'cartucho' && x < 3 };
+  const [saludo, espera] = frasesDe('saludo_cartucho', 'nero_esquina');
+
+  d.update(origen, [vecino], contexto);
+  assert.ok(cargados.every(sound => !sound.options.file.includes('saludo_cartucho')));
+  avanzar(DIRECTOR.ambiente.primera);
+  d.update(origen, [vecino], { ...contexto, jugador: false });
+  assert.notEqual(d.ultima.id, saludo.id, 'desde un vehículo sigue el ambiente normal');
+  callar(cargados);
+
+  avanzar(DIRECTOR.ambiente.min);
+  d.update(origen, [vecino, otro], contexto);
+  assert.equal(d.ultima.id, saludo.id);
+  assert.deepEqual(otro.dichos.at(-1), [saludo.text, 2.4]);
+  assert.equal(d._voz.source, otro, 'habla el vecino cuyo saludo aún cabe en el turno');
+  callar(cargados);
+
+  avanzar(DIRECTOR.ambiente.min);
+  d.update(origen, [persona({ arquetipo: 'habitante', sexo: 'hombre' })], contexto);
+  assert.notEqual(d.ultima.id, saludo.id, 'el saludo no se repite con otro vecino enseguida');
+  callar(cargados);
+
+  avanzar(DIRECTOR.saludoCartuchoCada - DIRECTOR.ambiente.min);
+  otro.moving = true;
+  d.update(origen, [otro], contexto);
+  assert.equal(d.ultima.id, saludo.id, 'caminando, vuelve a saludar');
+  callar(cargados);
+
+  avanzar(DIRECTOR.saludoCartuchoCada);
+  otro.moving = false;
+  otro.fijo = {};
+  d.update(origen, [otro], contexto);
+  assert.equal(d.ultima.id, espera.id);
+  assert.deepEqual(otro.dichos.at(-1), [espera.text, 2.4]);
 });
 
 test('la precarga solo pide las frases de quien está a menos de 6 m', () => {
@@ -190,8 +362,8 @@ test('las frases de una voz no se repiten hasta que hayan salido todas', () => {
   const { d, cargados } = director({ random: (() => { let s = 3; return () => (s = (s * 16807) % 2147483647) / 2147483647; })() });
   const propias = frasesDe('ambiente', 'senora').map(f => f.text);
   const dichas = [];
+  const senora = persona();
   for (let i = 0; i < propias.length * 3; i++) {
-    const senora = persona();
     assert.equal(d.decir(senora), true);
     dichas.push(d.ultima.text);
     callar(cargados);
@@ -234,19 +406,19 @@ test('comparte el canal: espera a las otras voces, las hace esperar y el reclamo
   assert.equal(audio._voiceActive(), true, 'tráfico y ambiente bajan');
   // El reclamo por robo de un espejo la corta.
   const sonido = audio.voces._voz.sound, id = audio.voces._voz.id;
-  assert.equal(audio.playMovingTheft({ traffic: true, position: new THREE.Vector3() }), true);
+  assert.equal(audio.playMovingTheft({ traffic: true, driverId: 'conductor:11', position: new THREE.Vector3() }), true);
   assert.equal(sonido.playing(id), false);
   assert.equal(audio.voces.active, false);
-  assert.equal(audio.voces.decir(persona()), false, 'mientras reclaman nadie la tapa');
+  assert.equal(audio.voces.decir(senora), false, 'mientras reclaman nadie la tapa');
   audio._theftVoices.clear();
   // Una conversación o un conductor hablando: la gente espera.
   Object.defineProperty(audio.conversations, 'busy', { value: true, configurable: true });
-  assert.equal(audio.voces.decir(persona()), false, 'espera a la conversación');
+  assert.equal(audio.voces.decir(senora), false, 'espera a la conversación');
   Object.defineProperty(audio.conversations, 'busy', { value: false, configurable: true });
   audio.vehicles.remarkPlaying = () => true;
-  assert.equal(audio.voces.decir(persona()), false, 'espera al conductor');
+  assert.equal(audio.voces.decir(senora), false, 'espera al conductor');
   audio.vehicles.remarkPlaying = () => false;
-  assert.equal(audio.voces.decir(persona()), true);
+  assert.equal(audio.voces.decir(senora), true);
   audio.dispose();
 });
 
@@ -349,15 +521,54 @@ test('se oye plena hasta 3 m, baja después y a más de 15 m se calla y suelta e
 });
 
 test('con el audio del navegador suspendido nadie habla, y si el navegador no deja arrancar la frase, se suelta', () => {
+  const senora = persona();
   const ctx = { state: 'suspended' };
   const audio = new AudioSystem({ HowlClass: FakeHowl, howler: { volume() {}, ctx, state: 'suspended' }, eventTarget: new EventTarget() });
-  assert.equal(audio.voces.decir(persona()), false);
+  assert.equal(audio.voces.decir(senora), false);
   ctx.state = 'running'; audio.howler.state = 'running';
-  assert.equal(audio.voces.decir(persona()), true);
+  assert.equal(audio.voces.decir(senora), true);
   const { sound, id } = audio.voces._voz;
   sound.options.onplayerror.call(sound, id);
   assert.equal(sound.playing(id), false, 'la frase bloqueada se suelta');
   assert.equal(audio.voces.active, false);
+  assert.equal(audio.voces.decir(senora), true);
+  ctx.state = 'suspended';
+  audio.updateWorld(.05, new THREE.Vector3(), null, [], null, []);
+  assert.equal(audio.voces.active, false, 'una suspensión durante la frase libera el canal');
+  audio.dispose();
+});
+
+test('la calle y las conversaciones también esperan al audio del navegador y sueltan el turno al suspenderse', () => {
+  for (const canal of ['calle', 'conversación']) {
+    const howler = { volume() {}, state: 'running', ctx: { state: 'suspended' } };
+    const audio = new AudioSystem({ HowlClass: FakeHowl, howler, eventTarget: new EventTarget() });
+    const gente = [persona({ at: [2, 0, 0] }), persona({ arquetipo: 'obrero', sexo: 'hombre', at: [3.1, 0, 0] })];
+    if (canal === 'conversación') {
+      audio.streetVoices._nextAt = Infinity;
+      gente[0]._voz = 'charla_camioneta_A'; gente[1]._voz = 'charla_camioneta_B';
+    } else gente[0]._voz = 'calle_carechimba';
+    const frame = dt => audio.updateWorld(dt, new THREE.Vector3(), null, [], null, gente);
+    frame(.05);
+    assert.equal(audio.streetVoices.active || audio.conversations.busy, false, canal);
+    assert.ok(gente.every(npc => !npc.dichos.length && !npc.talk));
+    howler.ctx.state = 'running';
+    frame(.05); frame(.05); frame(.5);
+    assert.ok(canal === 'calle' ? audio.streetVoices.active : audio.conversations.active, canal);
+    howler.ctx.state = 'suspended';
+    frame(.05);
+    assert.ok(!audio.streetVoices.active && !audio.conversations.busy, canal);
+    audio.dispose();
+  }
+});
+
+test('si el navegador rechaza una frase de calle, desbloquearlo después no reproduce un saludo viejo', () => {
+  const audio = new AudioSystem({ HowlClass: FakeHowl, howler: { volume() {} }, eventTarget: new EventTarget() });
+  audio.updateWorld(.05, new THREE.Vector3(), null, [], null, [Object.assign(persona(), { _voz: 'calle_carechimba' })]);
+  const { sound, id } = audio.streetVoices._voice;
+  sound.options.onplayerror.call(sound, id);
+  sound.emit('unlock');
+  assert.equal(sound.plays, 1);
+  assert.equal(sound.playing(id), false);
   audio.dispose();
 });
 

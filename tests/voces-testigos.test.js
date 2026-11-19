@@ -80,27 +80,25 @@ function audioSystem() {
   return new AudioSystem({ HowlClass: FakeHowl, howler: { volume() {} }, eventTarget: new EventTarget() });
 }
 
-test('trae las 15 frases de testigo y 5 de la turba, con los ids de las grabaciones, y solo de voces que hablan', () => {
-  const nuevas = FRASES.filter(f => f.situacion !== 'ambiente').map(f => f.id).sort();
-  assert.deepEqual(nuevas, [
+test('trae las frases de emergencia, de testigo y de la turba, con los ids de las grabaciones, y solo de voces que hablan', () => {
+  const deTestigos = [...new Set(Object.values(BANCO_TESTIGOS).flat().map(f => f.id))].filter(id => !/_ambiente_/.test(id)).sort();
+  assert.deepEqual(deTestigos, [
     'abuelo_testigo_pelea_1', 'busetero_persecucion_1', 'busetero_testigo_pelea_1',
-    'conductor_testigo_cuelga_1', 'conductor_testigo_llama_1', 'conductor_testigo_robo_1',
-    'conductora_testigo_cuelga_1', 'conductora_testigo_llama_1', 'conductora_testigo_robo_1',
+    'conductor_auxilio_1', 'conductor_testigo_cuelga_1', 'conductor_testigo_llama_1', 'conductor_testigo_robo_1',
+    'conductora_auxilio_1', 'conductora_testigo_cuelga_1', 'conductora_testigo_llama_1', 'conductora_testigo_robo_1',
     'estudiante_h_testigo_graba_1', 'estudiante_testigo_graba_1', 'estudiante_testigo_graba_2', 'estudiante_testigo_llama_1',
-    'nera_pelea_1', 'nera_pelea_2', 'nero_pelado_pelea_1', 'nero_viejo_pelea_2',
-    'senora_testigo_cuelga_1', 'senora_testigo_llama_1', 'senora_testigo_pelea_1',
+    'nera_pelea_1', 'nera_pelea_2', 'nero_pelado_pelea_1', 'nero_viejo_pelea_2', 'reciclador_pelea_1',
+    'senora_auxilio_1', 'senora_testigo_cuelga_1', 'senora_testigo_llama_1', 'senora_testigo_pelea_1', 'vecina_parque_auxilio_1', 'vecina_parque_hallazgo_1',
   ]);
-  assert.equal(FRASES.length, 55);
   const porId = new Map(FRASES.map(f => [f.id, f]));
   assert.equal(porId.get('nero_viejo_pelea_2').text, '¡Denle, denle, que es rata!', 'el número fijado');
   assert.equal(porId.get('estudiante_testigo_graba_2').text, 'Lo tengo grabado, ¿oyó? Grabado.');
   assert.equal(porId.get('busetero_persecucion_1').text, '¡Agarren a ese man, que no se vuele!');
-  // Cada frase reusada existe, y la turba y la persecución solo están porque se reusan.
+  // Cada frase reusada existe.
   const reusadas = new Set(Object.values(REUSO).flat());
   for (const id of reusadas) assert.ok(porId.has(id), id);
-  for (const f of FRASES) if (f.situacion === 'pelea' || f.situacion === 'persecucion') assert.ok(reusadas.has(f.id), f.id);
   // Toda frase de testigo es de una voz que alguien de la calle tiene.
-  const voces = new Set();
+  const voces = new Set(['vecina_parque']);
   for (const arquetipo of ['habitante', 'reciclador', 'senora', 'abuelo', 'oficinista', 'estudiante', 'obrero', 'vendedor', null]) {
     for (const sexo of ['hombre', 'mujer']) for (const edad of ['joven', 'adulto', 'mayor']) for (const r of [.1, .9]) {
       voces.add(vozPara({ arquetipo, sexo, edad }, () => r));
@@ -113,12 +111,15 @@ test('cada situación de los testigos tiene su categoría y sus frases por voz',
   assert.deepEqual(Object.keys(TESTIGO_A_CATEGORIA).sort(), Object.keys(GRITOS).sort(), 'las situaciones que existen');
   const tabla = Object.fromEntries(Object.entries(BANCO_TESTIGOS).map(([c, l]) => [c, l.map(f => f.id).sort()]));
   assert.deepEqual(tabla, {
+    witnessAid: ['conductor_auxilio_1', 'conductora_auxilio_1', 'senora_auxilio_1', 'vecina_parque_auxilio_1'],
+    witnessBody: ['conductor_auxilio_1', 'conductora_auxilio_1', 'vecina_parque_hallazgo_1'],
     witnessCall: ['conductor_testigo_llama_1', 'conductora_testigo_llama_1', 'estudiante_testigo_llama_1', 'senora_testigo_llama_1'],
     witnessFilm: ['estudiante_h_testigo_graba_1', 'estudiante_testigo_graba_1', 'estudiante_testigo_graba_2', 'nero_pelado_ambiente_3'],
     witnessHangUp: ['conductor_testigo_cuelga_1', 'conductora_testigo_cuelga_1', 'senora_testigo_cuelga_1'],
     witnessTheft: ['abuelo_testigo_pelea_1', 'busetero_persecucion_1', 'conductor_testigo_robo_1', 'conductora_testigo_robo_1',
-      'nera_pelea_2', 'nero_pelado_pelea_1', 'nero_viejo_pelea_2'],
-    witnessFight: ['abuelo_testigo_pelea_1', 'busetero_testigo_pelea_1', 'nera_pelea_1', 'nero_pelado_pelea_1', 'senora_testigo_pelea_1'],
+      'nera_pelea_2', 'nero_pelado_pelea_1', 'nero_viejo_pelea_2', 'reciclador_pelea_1'],
+    witnessFight: ['abuelo_testigo_pelea_1', 'busetero_testigo_pelea_1', 'nera_pelea_1', 'nero_pelado_pelea_1', 'reciclador_pelea_1',
+      'senora_testigo_pelea_1'],
   });
   assert.deepEqual(frasesDeTestigo('witnessCall', 'senora').map(f => f.id), ['senora_testigo_llama_1']);
   assert.deepEqual(frasesDeTestigo('witnessCall', 'nero_viejo'), []);
@@ -219,6 +220,42 @@ test('sin audio listo, el testigo pone el texto de siempre y no deja nada en col
   assert.equal(d2.ultima.id, 'conductora_testigo_robo_1');
 });
 
+test('con el canal ocupado, una llamada sin audio muestra su texto y conserva el turno de quien sí tiene grabación', () => {
+  for (const falla of [false, true]) {
+    const { d, cargados } = director({ cargado: false });
+    const graba = persona('estudiante');
+    d.prepararTestigo(graba);
+    const video = cargados.find(h => h.options.file === 'voces/estudiante_testigo_graba_1.mp3');
+    video.loaded = true;
+    d.pesoOtraVoz = () => PRIORIDAD_CANAL.carro;
+    assert.equal(d.decirTestigo(graba, 'grabar'), true);
+
+    const llama = peaton(new THREE.Scene(), 3, 0, 'senora');
+    d.prepararTestigo(llama);
+    const toma = cargados.find(h => h.options.file === 'voces/senora_testigo_llama_1.mp3');
+    if (falla) toma.emit('loaderror');
+    const sys = new WitnessSystem(juego([llama], d), { random: () => 0 });
+    sys.report('robo');
+    assert.equal(llama.witnessing, 'llamar');
+    assert.equal(llama.dichos.length, 1, 'la burbuja aparece en el mismo cuadro');
+    assert.ok(GRITOS.llamar.includes(llama.dichos[0][0]));
+    assert.equal(d._enEspera?.source, graba, 'la llamada pesa más, pero carece de audio');
+
+    if (!falla) toma.loaded = true;
+    d.pesoOtraVoz = () => 0;
+    d.update(sys.game.player.position);
+    assert.equal(d._voz?.source, graba);
+    assert.equal(video.plays, 1);
+    callar(cargados);
+    d.update(sys.game.player.position);
+    assert.equal(d._enEspera, null);
+    assert.equal(toma.plays, 0);
+    assert.equal(llama.dichos.length, 1, 'el texto se muestra una sola vez');
+    sys.dispose();
+    d.dispose();
+  }
+});
+
 test('quién corta a quién entre el testigo y la gente al pasar, y entre testigos', () => {
   // El testigo corta lo que dice la gente al pasar.
   const { d, cargados } = director();
@@ -244,7 +281,10 @@ test('quién corta a quién entre el testigo y la gente al pasar, y entre testig
   callar(cargados);
   assert.equal(d.decirTestigo(persona('estudiante'), 'grabar'), true);
   assert.equal(d.decirTestigo(persona('senora'), 'colgar'), false, 'colgar pesa igual que grabar');
-  assert.deepEqual(PRIORIDAD_VOZ, { witnessCall: 70, witnessTheft: 70, witnessFight: 65, witnessHangUp: 45, witnessFilm: 45, ambient: 20 });
+  // Los pesos de la gente de la calle no se mueven aunque la tabla gane renglones de otras voces.
+  const { robbed, witnessCall, witnessTheft, witnessFight, semaforo, witnessHangUp, witnessFilm, ambient } = PRIORIDAD_VOZ;
+  assert.deepEqual({ robbed, witnessCall, witnessTheft, witnessFight, semaforo, witnessHangUp, witnessFilm, ambient },
+    { robbed: 90, witnessCall: 70, witnessTheft: 70, witnessFight: 65, semaforo: 50, witnessHangUp: 45, witnessFilm: 45, ambient: 20 });
   assert.deepEqual(PRIORIDAD_CANAL, { carro: 90, reclamo: 30, calle: 30 });
 });
 
@@ -264,7 +304,7 @@ test('con las voces que ya había: el testigo corta la calle, las conversaciones
   assert.equal(audio._voiceActive(), true);
   // El reclamo por el espejo robado lo corta.
   const { sound, id } = audio.voces._voz;
-  assert.equal(audio.playMovingTheft({ traffic: true, position: new THREE.Vector3() }), true);
+  assert.equal(audio.playMovingTheft({ traffic: true, driverId: 'conductor:11', position: new THREE.Vector3() }), true);
   assert.equal(sound.playing(id), false);
   // Y mientras reclaman, el testigo no habla: texto de siempre.
   assert.equal(audio.voces.pesoOtraVoz(), PRIORIDAD_CANAL.carro);
@@ -306,7 +346,7 @@ test('los audios de testigos se piden con alguien a tiro de robo o al ver el rob
   // A tiro de robo: las de quien lo vería, no las de la víctima ni las del que está lejos.
   game.steal.targetNpc = victima;
   sys.update(.1);
-  const deSenora = ['senora_testigo_cuelga_1.mp3', 'senora_testigo_llama_1.mp3', 'senora_testigo_pelea_1.mp3'];
+  const deSenora = ['senora_auxilio_1.mp3', 'senora_testigo_cuelga_1.mp3', 'senora_testigo_llama_1.mp3', 'senora_testigo_pelea_1.mp3'];
   assert.deepEqual(voces(), deSenora);
   // Una vez por segundo como mucho.
   let llamadas = 0;
@@ -321,7 +361,7 @@ test('los audios de testigos se piden con alguien a tiro de robo o al ver el rob
   // Al ver el robo, las de cada testigo, también las del que huye callado.
   lejos.position.set(8, 0, 0);
   sys.report('robo', victima);
-  assert.deepEqual(voces(), [...deSenora, 'conductor_testigo_cuelga_1.mp3', 'conductor_testigo_llama_1.mp3', 'conductor_testigo_robo_1.mp3'].sort());
+  assert.deepEqual(voces(), [...deSenora, 'conductor_auxilio_1.mp3', 'conductor_testigo_cuelga_1.mp3', 'conductor_testigo_llama_1.mp3', 'conductor_testigo_robo_1.mp3'].sort());
   sys.dispose();
   audio.dispose();
 });

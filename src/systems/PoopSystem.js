@@ -3,6 +3,8 @@ import * as THREE from 'three';
 import { PoopProjectile } from '../entities/PoopProjectile.js';
 import { ITEMS } from '../data/items.js';
 
+const ALCANCE_VOZ = 14; // m: a quién se le pide la voz grabada al lanzar
+
 export class PoopSystem {
   /**
    * @param {THREE.Scene} scene
@@ -107,6 +109,11 @@ export class PoopSystem {
     startPos.addScaledVector(dir, 0.45);
 
     const npcs = this.world?.active?.npcs ?? [];
+    // Lo que gritaría con su voz quien esté cerca se pide ya, para que esté cargado cuando le caiga.
+    const voces = this.audio?.voces;
+    if (voces?.prepararPopo && player?.position) {
+      for (const npc of npcs) if (npc?.position && npc.position.distanceTo(player.position) < ALCANCE_VOZ) voces.prepararPopo(npc);
+    }
     const groundHeightFn = (x, z) => this.world?.active?.getGroundHeight?.(x, z) ?? 0;
 
     const projectile = new PoopProjectile(this.scene, startPos, dir, npcs, groundHeightFn);
