@@ -2,10 +2,12 @@
 // Tres lugares nuevos de la calle, hechos por código y sin luces propias:
 // - La pila pública: un lavadero de concreto con su llave, en los parques. Ahí me lavo y lleno la botella.
 // - El hogar de paso: una puerta con reja, letrero y timbre contra una fachada.
-// - La entrada al transporte: torniquete con su letrero, en el Portal del Centro y las estaciones del Metro.
+// - La entrada al transporte: lector junto a la rampa del Portal y puntos de pasajes del Metro.
 // Los materiales se comparten entre todas las copias; al cerrar el distrito cada objeto suelta su geometría.
 import * as THREE from 'three';
 import { signMesh } from '../utils/signs.js';
+import { MeshKit, canvasTexture, rgb } from '../world/bogota/MeshKit.js';
+import { addCalle72Access } from './Calle72Access.js';
 
 let shared = null;
 function mats() {
@@ -92,12 +94,51 @@ export class HogarDePaso extends Prop {
   }
 }
 
-/** Entrada al transporte: torniquete y letrero. */
+function addPortalFareReader(group) {
+  // El anclaje de uso queda en X 74. El mueble cabe entre la baranda y la guía táctil.
+  const x = -.58, y = 1.16, tilt = -.28, depth = .36;
+  const kit = new MeshKit();
+  kit.box(x, .016, 0, .34, .10, .40, rgb('#35393d'), { bottom: .6 });
+  kit.frustum(x, 0, .055, 1.05, .28, .28, .22, .22, rgb('#838d92'), { bottom: .69, skipTop: true });
+  kit.box(x, y, 0, .61, .32, depth, rgb('#a02531'), { bottom: .66, top: 1.12, rotation: [tilt, 0, 0] });
+  const housing = new THREE.Mesh(kit.geometry(), new THREE.MeshStandardMaterial({ vertexColors: true, roughness: .57, metalness: .24 }));
+  housing.name = 'Lector de pasajes';
+  housing.castShadow = housing.receiveShadow = true;
+
+  const screen = canvasTexture(256, 128, (ctx, w, h) => {
+    ctx.fillStyle = '#242e30'; ctx.fillRect(0, 0, w, h);
+    ctx.fillStyle = '#eeeee4'; ctx.font = 'bold 44px Arial'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText('PASAJES', w / 2, 40);
+    // Tarjeta y ondas junto al visor de lectura.
+    ctx.strokeStyle = '#a3d5cb'; ctx.lineWidth = 4;
+    ctx.strokeRect(44, 78, 42, 30);
+    for (const r of [9, 17]) {
+      ctx.beginPath(); ctx.arc(90, 93, r, -.78, .78); ctx.stroke();
+    }
+    ctx.fillStyle = '#476563'; ctx.fillRect(127, 75, 85, 36);
+    ctx.fillStyle = '#a3d5cb'; ctx.fillRect(139, 91, 59, 4);
+  });
+  const face = new THREE.Mesh(new THREE.PlaneGeometry(.55, .267), new THREE.MeshBasicMaterial({ map: screen, toneMapped: false }));
+  face.rotation.x = tilt;
+  const surface = depth / 2 + .002;
+  face.position.set(x, y - Math.sin(tilt) * surface, Math.cos(tilt) * surface);
+  group.add(housing, face);
+}
+
+/** Entrada al transporte. */
 export class TransitStop extends Prop {
   constructor(scene, position, stop) {
     super(scene, position, 'transit');
-    const m = mats();
     this.stop = stop;
+    if (stop.id === 'portal') {
+      addPortalFareReader(this.group);
+      return;
+    }
+    const m = mats();
+    if (stop.id === 'metro72') {
+      addCalle72Access(this.group, m.metal);
+      return;
+    }
     const color = stop.sistema === 'Metro' ? m.verde : m.rojo;
     this.group.add(box(.25, 1, .9, m.metal, -.6, .5, 0));
     this.group.add(box(.25, 1, .9, m.metal, .6, .5, 0));

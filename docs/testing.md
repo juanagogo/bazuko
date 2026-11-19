@@ -187,6 +187,14 @@ De Doña Inés, en el mismo archivo: las tres exportaciones de `D69Store.js`, un
 
 ## Ciudad, tráfico y luz
 
+`concreto-viaducto.test.js` arma el viaducto, el Metro y la torre con un lienzo falso y comprueba que sus texturas nacen sin gastar el azar de la ciudad, que armar cada pieza gasta lo mismo que antes de vestirla, que losa, pilar y barrera caen en su columna del lienzo sin materiales nuevos y que las oficinas de la torre se encienden con las franjas de luz.
+
+`maletines-metro.test.js` es el candado de los maletines viales de la obra del Metro (`MetroBogota.js`): son los mismos 30, en el mismo sitio, sin choque y sin gastar más azar al armar el Metro; cada uno es una barrera de plástico de 78 triángulos con las mismas piezas, dentro de la caja de antes; siguen con sus dos materiales Lambert, pintados en un solo lienzo pequeño, cada uno en su mitad, y uno de cada cuatro, más o menos, queda corrido entre 10 y 20° sobre su eje, siempre los mismos.
+
+`portal-conos.test.js` fija el azar de la estación (672 números la primera vez y 580 la segunda), del borde de la ciudad (408) y del borde de la terminal (28), y la huella de los 55 choques de la estación y de las 22 cajas del borde; comprueba que el cielo raso tiene su hoja de acabados, que sus paneles no caen en la esquina blanca y usan al menos ocho dibujos y que no queda un vértice del rojo de antes; que los conos tienen ocho caras con franja, alguno caído sin ser la mayoría, alguno ladeado y ninguno bajo el piso; que las columnas toman su tira de la hoja y hay un halo por luminaria (34), apagado de día, y que el canto del bordillo amarillo tiene al menos 20 tonos y ninguno es el amarillo limpio.
+
+Del Portal de noche: `city.test.js` comprueba que los charcos de luz del andén y del carril quedan en la ciudad armada, `portal-conos.test.js` que ninguna malla de la estación queda oculta y `transit-terminal.test.js` que los charcos se apagan de día por su material, no escondiendo la malla.
+
 `bus-path.test.js` comprueba que los dos carriles del bus por el rodeo de la Colpatria no se separen más de una milmillonésima de metro de una copia entera del cálculo anterior, en 2.000 puntos de cada uno, y que su búsqueda no llame a `Math.hypot`.
 
 `city-placement.test.js` comprueba lo que se colocó en la ciudad: ni vendedores ni objetos en la calzada, el vendedor de la plaza alcanzable, la portada y las gradas de la iglesia, el muro de las torres curvas, la fuente que frena antes de su borde y se rodea sin trabarse, el carril del bus libre hasta la lámina, el suelo junto a los estribos y bajo la rampa del puente del lago, sin rendijas, el GPS junto a los postes del separador, ningún poste ni mobiliario sobre una rampa, la rejilla de aparición fuera de las cajas y el semáforo a la vista del carril de la X 66.
