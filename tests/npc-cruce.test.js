@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { afterEach, beforeEach, mock, test } from 'node:test';
 import * as THREE from 'three';
 import { PedestrianNavigation } from '../src/world/bogota/PedestrianNavigation.js';
-import { CROSS, acceptGap, crossingTemper, firstArrival, signalAllows, signalFor, vehicleArrival } from '../src/entities/npc/crossing.js';
+import { CROSS, acceptGap, crossingTemper, firstArrival, segmentHitsStopped, signalAllows, signalFor, skirtStopped, vehicleArrival } from '../src/entities/npc/crossing.js';
 import { StreetMinds, seededRandom } from '../src/entities/npc/mind.js';
 import { NpcConversations } from '../src/systems/NpcConversations.js';
 import { npcSexo } from '../src/systems/StreetVoices.js';
@@ -96,6 +96,25 @@ test('cuándo llega un carro al paso de cebra: de frente, ya pasado, detenido, e
   assert.ok(Math.abs(firstArrival(span, [], [bus]) - (20 - 9 - 1) / 10) < 1e-9);
   bus.position.y = 6;
   assert.equal(firstArrival(span, [], [bus]), Infinity, 'el bus por el viaducto pasa por encima');
+});
+
+// Mismo piso que `street()`: andén en todas las columnas, calzada solo en las de la cebra.
+function zebraWalk(x, z) {
+  const col = Math.round(x / 2), row = Math.round(z / 2);
+  if (row < 0 || row > 10 || col < 0 || col >= 30) return false;
+  return row < 4 || row > 8 || col === 10 || col === 11;
+}
+
+test('un carro quieto con la carrocería sobre la línea se rodea; uno detenido antes, o en marcha, no aparta la línea', () => {
+  assert.equal(skirtStopped(SPAN, [car(5, LANE_Z, 0)], [], 0, zebraWalk, null), 0, 'detenido antes del paso');
+  assert.equal(skirtStopped(SPAN, [car(20, LANE_Z, 5)], [], 0, zebraWalk, null), 0, 'en marcha lo mira la llegada, no el rodeo');
+  const centered = skirtStopped(SPAN, [car(20, LANE_Z, 0)], [], 0, zebraWalk, null);
+  assert.ok(Math.abs(centered - (2.2 + CROSS.skirt)) < 1e-9, `centrado: ${centered}`);
+  assert.equal(segmentHitsStopped(20 + centered, LANE_Z, 20 + centered, LANE_Z, [car(20, LANE_Z, 0)], []), false);
+  // Trompa sobre la cebra: el centro está 1 m antes de la línea y el largo es 2,2 m, así que tapa 1,2 m de la línea.
+  const nose = skirtStopped(SPAN, [car(19, LANE_Z, 0)], [], 0, zebraWalk, null);
+  assert.ok(Math.abs(nose - (1.2 + CROSS.skirt)) < 1e-9, `trompa: ${nose}`);
+  assert.ok(segmentHitsStopped(20, 4, 20, 20, [car(20, LANE_Z, 0)], []), 'la recta del medio sí entra en el carro');
 });
 
 test('el hueco y la paciencia: el impaciente acepta menos margen y espera menos', () => {
@@ -194,6 +213,8 @@ test('nadie espera para siempre: con carros seguidos cruza en el primer hueco qu
   }
 });
 
+// El carro va a 1 m/s a lo largo de la franja: no está quieto. La paciencia sigue mandando, porque el que viene frena.
+// Uno quieto con la carrocería sobre la línea no entra por aquí: se rodea (prueba de más abajo).
 test('con un carro siempre encima de la franja no hay hueco que valga: cruza igual a los 2 s de acabarse su paciencia, nunca después de 20', async () => {
   for (const [arquetipo, seed] of [['estudiante', 1], ['abuelo', 2]]) {
     Math.random = seededRandom(seed);
@@ -215,6 +236,32 @@ test('con un carro siempre encima de la franja no hay hueco que valga: cruza igu
     assert.ok(waitedMax >= maxWait + CROSS.grace - .1, `${arquetipo}: esperó ${waitedMax.toFixed(1)} s de ${(maxWait + CROSS.grace).toFixed(1)}`);
     assert.ok(waitedMax <= 20 + .05, `${arquetipo}: esperó ${waitedMax.toFixed(1)} s, más de 20`);
     assert.ok(npc.position.z >= 19.9, `${arquetipo}: no cruzó`);
+  }
+});
+
+test('un carro quieto con la carrocería sobre la cebra no se atraviesa: lo rodea y cruza', async () => {
+  // El centro del peatón no puede quedar dentro de la caja (largo 4,4 m, ancho 1,9 m). Con la trompa encima pasa lo mismo.
+  const cases = [
+    ['en el medio', (x, z) => Math.abs(x - 20) < 2.2 && Math.abs(z - LANE_Z) < .95, car(20, LANE_Z, 0, 0)],
+    ['con la trompa', (x, z) => Math.abs(x - 19) < 2.2 && Math.abs(z - LANE_Z) < .95, car(19, LANE_Z, 0, 0)]
+  ];
+  for (const [lugar, insideBox, trafficCar] of cases) {
+    for (const [arquetipo, seed] of [['estudiante', 1], ['oficinista', 3], ['abuelo', 2]]) {
+      Math.random = seededRandom(seed);
+      const nav = street();
+      const npc = await walker([20, 0, 4], nav, arquetipo);
+      across(npc, 20, 4, 20);
+      const traffic = [trafficCar];
+      let inside = 0;
+      const t = run(scene([npc]), 60, { vehicles: traffic, onFrame: () => {
+        if (insideBox(npc.position.x, npc.position.z)) inside++;
+        return npc.position.z < 19.9;
+      } });
+      assert.equal(inside, 0, `${arquetipo} ${lugar}: ${inside} cuadros dentro del carro`);
+      assert.ok(npc.position.z >= 19.9, `${arquetipo} ${lugar}: no pasó al otro lado (${t.toFixed(1)} s, x ${npc.position.x.toFixed(2)})`);
+      // Rodear no es esperar la paciencia (12 s) y después cruzar: el otro andén llega bastante antes.
+      assert.ok(t < 20, `${arquetipo} ${lugar}: tardó ${t.toFixed(1)} s`);
+    }
   }
 });
 
