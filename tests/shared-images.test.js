@@ -38,7 +38,7 @@ test.before(() => {
   };
   mock.method(globalThis, 'fetch', (url, ...rest) => {
     if (url === '/models/personaje/catalogo.json') return Promise.resolve(new Response(readFileSync(path.join(models, 'personaje/catalogo.json'))));
-    if (typeof url === 'string' && url.endsWith('.webp')) {
+    if (typeof url === 'string' && /\.(webp|png)$/.test(url)) {
       downloads.push(url);
       return Promise.resolve(new Response(new Blob([url])));
     }

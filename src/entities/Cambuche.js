@@ -6,7 +6,9 @@ import * as THREE from 'three';
 import { CHARACTER_SCALE } from '../utils/constants.js';
 import { createImportedModel, disposeImportedInstance } from '../utils/ImportedModels.js';
 import { createFlame, fireGlow, stepFlames } from '../world/bogota/flame.js';
-import { Maqueta, PALETA, materialDeMaqueta } from './cambuche/maqueta.js';
+import { withVisualRandom } from '../world/bogota/VisualRandom.js';
+import { materialDeMaqueta } from './cambuche/maqueta.js';
+import { baseCarton, cartonesSueltos, materialCarton } from './cambuche/carton.js';
 import * as piezas from './cambuche/piezas.js';
 import { PATIO, TABLA, alturasDelModelo, cubierta, reciclaje, rendijas, resplandor, rincon, tendedero } from './cambuche/patio.js';
 import { crearTinta, rotulos } from './cambuche/letreros.js';
@@ -35,13 +37,14 @@ export class Cambuche {
     // lata), el de las brasas y el de la luz de noche.
     this._material = materialDeMaqueta();
     this._tela = materialDeMaqueta(THREE.DoubleSide, true);
+    this._carton = withVisualRandom(materialCarton);
     this._brasas = new THREE.MeshBasicMaterial({ vertexColors: true, toneMapped: false });
     this._luz = new THREE.MeshBasicMaterial({ vertexColors: true, blending: THREE.AdditiveBlending, transparent: true,
       depthWrite: false, toneMapped: false, fog: false, side: THREE.DoubleSide });
     this._luz.color.setScalar(0);
     this._tinta = crearTinta();
-    const malla = (maqueta, sombra = true, tela = false) => {
-      const mesh = new THREE.Mesh(maqueta.geometria(), tela ? this._tela : this._material);
+    const malla = (maqueta, sombra = true, material = this._material) => {
+      const mesh = new THREE.Mesh(maqueta.geometria(), material);
       mesh.castShadow = sombra;
       mesh.receiveShadow = true;
       return mesh;
@@ -62,24 +65,19 @@ export class Cambuche {
     const pieces = {};
 
     // Cartones sueltos que marcan el sitio antes de armar
-    const sueltos = new Maqueta(7);
-    for (let i = 0; i < 4; i++) {
-      sueltos.caja(0.6 + sueltos.r() * 0.4, 0.03, 0.5, i % 2 ? PALETA.cartonViejo : PALETA.carton,
-        { en: [(sueltos.r() - 0.5) * 1.4, 0.02 + i * 0.012, (sueltos.r() - 0.5) * 1], giro: [0, sueltos.r() * 3, 0] });
-    }
-    const marker = malla(sueltos, false);
+    const marker = malla(cartonesSueltos(), false, this._carton);
     root.add(marker);
 
     // Base de cartón aplanado
-    pieces.base = malla(piezas.base(), false);
+    pieces.base = malla(baseCarton(), false, this._carton);
 
     // Techo en capas, alto atrás y bajo adelante: plástico negro, lona azul remendada, piedras, una llanta y cuerdas
-    pieces.techo = malla(piezas.techo(), true, true);
+    pieces.techo = malla(piezas.techo(), true, this._tela);
 
     // Paredes de tablas y cartón, con la cobija de cortina; de noche la luz se cuela por las rendijas
     const paredes = new THREE.Group();
     this.rendijas = deNoche(rendijas());
-    paredes.add(malla(piezas.paredes(), true, true), pintado([
+    paredes.add(malla(piezas.paredes(), true, this._tela), pintado([
       { tinta: 'panela', ancho: .56, alto: .56, en: [-1.18, .58, .806] },
       { tinta: 'galletas', ancho: .38, alto: .38, en: [-1.626, .5, -.2], giro: [0, -Math.PI / 2, 0] },
       { tinta: 'galletas', ancho: .6, alto: .6, en: [-.66, .58, -1.176] },
@@ -127,7 +125,7 @@ export class Cambuche {
     this.group.add(this.marker);
 
     // El patio se va poblando a medida que se arma; lo de encima del modelo llega con él.
-    this.patio = { rincon: malla(rincon()), tendedero: malla(tendedero(), true, true), reciclaje: malla(reciclaje()) };
+    this.patio = { rincon: malla(rincon()), tendedero: malla(tendedero(), true, this._tela), reciclaje: malla(reciclaje()) };
     this.resplandor = deNoche(resplandor());
     this.encima = new THREE.Group();
     this.encima.visible = false;
@@ -144,6 +142,22 @@ export class Cambuche {
 
   get position() { return this.group.position; }
 
+  /** Apoyo bajo la cadera y sentido de la cabeza. El colchón escaneado va atravesado en el fondo. */
+  sleepAnchor() {
+    const imported = !!this.model?.visible;
+    const mattress = this.pieces.cama.visible;
+    const point = new THREE.Vector3();
+    if (imported) point.set(-.20, .314, -.48);
+    else if (mattress) point.set(-.5, .315, -.2).multiplyScalar(CHARACTER_SCALE);
+    else point.set(-.02, .054, .04).multiplyScalar(CHARACTER_SCALE);
+    return {
+      position: this.group.localToWorld(point),
+      headYaw: this.group.rotation.y + (imported ? -Math.PI / 2 : Math.PI),
+      covered: imported || this.pieces.techo.visible,
+      surface: imported ? 'colchonCorto' : mattress ? 'colchon' : 'carton'
+    };
+  }
+
   preloadModel() {
     return this._modelPromise ??= createImportedModel('cambuche').then(model => {
       if (this._disposed) { disposeImportedInstance(model); return; }
@@ -152,7 +166,7 @@ export class Cambuche {
       model.position.y = 0.025;
       this.group.add(model);
       // Las capas del techo se apoyan en las alturas del propio modelo.
-      this.encima.add(this._malla(cubierta(alturasDelModelo(model, this.group)), true, true), this._pintado([
+      this.encima.add(this._malla(cubierta(alturasDelModelo(model, this.group)), true, this._tela), this._pintado([
         { tinta: 'nombre', ancho: TABLA.ancho * .92, alto: TABLA.alto * .9, en: [TABLA.en[0], TABLA.en[1], TABLA.en[2] + .014], giro: [0, 0, TABLA.caida] },
       ]));
       this.setBuilt(this.built);
@@ -215,5 +229,6 @@ export class Cambuche {
       o.material?.dispose?.();
     });
     this._tinta.texture.dispose();
+    this._carton.map?.dispose();
   }
 }

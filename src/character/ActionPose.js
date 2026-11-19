@@ -82,7 +82,7 @@ const CHILD = { leftArm: 'leftForeArm', rightArm: 'rightForeArm', leftUpLeg: 'le
  * No cambia la raíz física, clips, materiales ni objetos de otros personajes.
  */
 export class ActionPose {
-  constructor(bones, { procedural = false, lod = false, frame = null } = {}) {
+  constructor(bones, { procedural = false, lod = false, frame = null, fists = null } = {}) {
     const values = bones instanceof Map ? [...bones.values()] : Object.values(bones ?? {});
     this.joints = {};
     for (const [key, aliases] of Object.entries(JOINTS)) {
@@ -103,6 +103,7 @@ export class ActionPose {
       this.slots.set(key, { bone, axis, quaternion: new Quaternion(), position: new Vector3() });
     }
     this.lod = lod;
+    this.fists = fists;
     this.procedural = procedural;
     this.sleep = procedural ? null : new SleepPose(bones, this.frame);
     this.active = false;
@@ -112,6 +113,7 @@ export class ActionPose {
     this.swimLift = 0;
     this.glance = 0;
     this.greetWeight = 0;
+    this.guardWeight = 0;
     this.greetTime = 0;
     this.warmWeight = 0;
     this.rebusqueWeight = 0;
@@ -132,6 +134,7 @@ export class ActionPose {
     // no se arma ninguna cadena).
     this._legs = [[1, 'left'], [-1, 'right']].map(([side, name]) => ({
       side, name, foot: this.joints[`${name}Foot`], clip: new Vector3(),
+      toe: this.joints[`${name}Foot`]?.children.find(child => /ToeBase$/i.test(child.name)),
       upLeg: `${name}UpLeg`, lowLeg: `${name}Leg`, footKey: `${name}Foot`, arm: `${name}Arm`, foreArm: `${name}ForeArm`, handKey: `${name}Hand`,
       // Cuánto iba suelta la muñeca en el último cuadro en el aire (el aterrizaje la suelta de a poco) y adónde
       // vuelven brazo y antebrazo al aterrizar (los del clip con el tronco derecho).
@@ -159,6 +162,8 @@ export class ActionPose {
     this._hip = new Vector3();
     this._knee = new Vector3();
     this._ankle = new Vector3();
+    this._stepToe = new Vector3();
+    this._stepTip = new Vector3();
     this._goal = new Vector3();
     this._reach = new Vector3();
     this._pole = new Vector3();
@@ -230,6 +235,7 @@ export class ActionPose {
 
   restore() {
     this.sleep?.restore();
+    this.melee?.restoreFingers();
     if (!this.active) return;
     for (const slot of this.slots.values()) {
       slot.bone.quaternion.copy(slot.quaternion);
@@ -270,12 +276,14 @@ export class ActionPose {
     return this.smoke.mouth(target);
   }
 
-  apply(dt, { speed = 0, action = null, actionProgress = 0, movement = {}, attack = null, smoke = null, basuco = null, point = 0, look = 0, hipLow = 0, step = 0 } = {}) {
+  apply(dt, { speed = 0, action = null, actionProgress = 0, troncoDirigido = false, movement = {}, attack = null, clipPunch = false, clipHit = false, combatGuard = false, smoke = null, basuco = null, point = 0, look = 0, hipLow = 0, step = 0 } = {}) {
     this.restore();
     const elapsed = Math.max(0, finite(dt));
     const swim = movement.swimming === true;
     const airborne = movement.grounded === false && !swim;
     const landing = clamp(finite(movement.landing));
+    const footSupport = movement.grounded === true && !swim && !landing && !movement.stunned
+      && (!action || action === 'golpear') && !!movement.footSupport;
     if (movement.grounded === true && !swim) this._groundSpeed = Math.max(0, finite(speed));
     if (!airborne && !landing) this._carry.arms = this._carry.hips = this._carry.spine = this._carry.lower = this._carry.twist = this._carry.head = 0;
     if (swim || (!airborne && !landing)) {
@@ -327,20 +335,23 @@ export class ActionPose {
       this.melee?.reset(); this.pipe?.reset(); this.point?.reset();
     }
     if (speed >= .15) { basuco = null; this.pipe?.reset(); }
+    // El personaje procedural y los equipos sin banco también mantienen las manos arriba entre golpes.
+    if (handsBlocked || attack || punch || smoke || basuco != null || point) this.guardWeight = 0;
+    else if (combatGuard || this.guardWeight) this.guardWeight = clamp(this.guardWeight + elapsed * (combatGuard ? 7 : -5));
     const sleeping = action === 'dormir' && !airborne && !swim && !landing && speed < .15;
     if (this.sleep) {
       // Echar a andar no corta la pose: se levanta andando. Saltar, nadar, golpear o fumar sí necesitan el cuerpo de una vez.
       if (!sleeping && (action || airborne || swim || landing || attack || smoke || basuco != null || point)) this.sleep.reset();
       if (sleeping || this.sleep.weight > 0) {
-        this.sleep.apply(elapsed, sleeping);
+        this.sleep.apply(elapsed, sleeping, movement.restSurface);
         return;
       }
     }
     this.glance += (finite(look) - this.glance) * -Math.expm1(-16 * elapsed);
     if (handsBlocked) this.glance = 0;
-    const gestures = attack || smoke || basuco != null || point > 0 || this.melee?.active || this.smoke?.active || this.pipe?.active || this.point?.active || Math.abs(this.glance) > .002 || this.rebusqueWeight > 0;
+    const gestures = attack || this.guardWeight || smoke || basuco != null || point > 0 || this.melee?.active || this.smoke?.active || this.pipe?.active || this.point?.active || Math.abs(this.glance) > .002 || this.rebusqueWeight > 0;
     // El LOD mantiene animación barata salvo una reacción de combate visible.
-    if (this.lod && !punch && !hit && !gestures && !this.greetWeight && !this.warmWeight) return;
+    if (this.lod && !punch && !hit && !gestures && !this.greetWeight && !this.warmWeight && !footSupport) return;
     const swimTarget = swim ? Math.min(3, Math.max(0, finite(speed))) : 0;
     const speedBlend = -Math.expm1(-12 * elapsed);
     // Integrar la velocidad suavizada analíticamente conserva la fase a distintos FPS.
@@ -348,7 +359,7 @@ export class ActionPose {
     this.swimSpeed += (swimTarget - this.swimSpeed) * speedBlend;
     this.swimWeight += ((swim ? 1 : 0) - this.swimWeight) * -Math.expm1(-14 * elapsed);
     if (!swim && this.swimWeight < .001) this.swimWeight = this.swimLift = 0;
-    if (!swim && !this.swimWeight && !airborne && !landing && !punch && !hit && !gestures && !this.greetWeight && !this.warmWeight && !this._settle) return;
+    if (!swim && !this.swimWeight && !airborne && !landing && !punch && !hit && !gestures && !this.greetWeight && !this.warmWeight && !this._settle && !footSupport) return;
     if (action && !punch && !hit && !swim && !gestures && action !== 'saltar' && action !== 'aterrizar' && !this.greetWeight && !this.warmWeight) return;
     this.time += swim || this.swimWeight ? .8 * elapsed + .25 * speedIntegral : elapsed;
     this.frame?.getWorldQuaternion(this._frameQ) ?? this._frameQ.identity();
@@ -367,8 +378,15 @@ export class ActionPose {
     if (!swim && (airborne || landing)) this._jump(movement, airborne, landing, speed, step, elapsed);
     else if (this._settle > 0) this._settleFeet(this._settle);
     if (!handsBlocked) {
-      if (attack || this.melee?.active) (this.melee ??= createMeleeOverlay(this.overlayBones, this.frame)).apply(elapsed, attack);
+      if (attack || this.melee?.active) (this.melee ??= createMeleeOverlay(this.overlayBones, this.frame, this.fists)).apply(elapsed, attack, clipPunch);
       else if (punch) this._punch(clamp(finite(actionProgress)));
+      if (this.guardWeight) {
+        const w = smooth(0, 1, this.guardWeight);
+        this._aim('leftArm', .22, -.55, .75, w);
+        this._aim('leftForeArm', -.30, .70, .65, w);
+        this._aim('rightArm', -.30, -.75, .42, w);
+        this._aim('rightForeArm', .20, .95, .28, w);
+      }
       if (smoke || this.smoke?.active) (this.smoke ??= createSmokeOverlay(this.overlayBones, this.frame)).apply(elapsed, smoke);
       if (basuco != null || this.pipe?.active) {
         (this.pipe ??= createBasucoOverlay(this.overlayBones, this.frame)).apply(elapsed, basuco);
@@ -380,10 +398,61 @@ export class ActionPose {
         if (this.joints.head) rotateInFrame(this.frame, this.joints.head, 0, this.glance * (this.joints.neck ? .6 : 1), 0);
       }
     }
-    if (hit) this._hit(clamp(finite(actionProgress)), clamp(finite(hipLow)));
+    if (hit) this._hit(clamp(finite(actionProgress)), clamp(finite(hipLow)), troncoDirigido, clipHit);
     if (this.greetWeight) this._greet(this.greetWeight);
     if (this.warmWeight) this._warm(this.warmWeight);
     if (this.rebusqueWeight) aplicarMalabares(this, this.rebusqueWeight, this.rebusqueTime);
+    return footSupport;
+  }
+
+  /** Centro y orientación de cada suela en la pose visible para la oclusión de contacto. */
+  sampleSoleContacts(contacts, shoes) {
+    if (!this.frame) return;
+    const scale = this.frame.getWorldScale(this._position);
+    const soleHeight = shoes === 'botas' ? -.0525 : shoes === 'chanclas' ? -.0425 : -.05;
+    for (let i = 0; i < this._legs.length; i++) {
+      const { foot, toe } = this._legs[i], contact = contacts[i];
+      if (!foot || (!toe && !this.procedural)) continue;
+      const center = contact.center;
+      let dx, dz;
+      if (this.procedural) {
+        const lengthOffset = shoes === 'botas' ? .012 : .017;
+        foot.localToWorld(center.set(0, soleHeight, lengthOffset));
+        const tip = foot.localToWorld(this._stepToe.set(0, soleHeight, lengthOffset + .12));
+        dx = tip.x - center.x; dz = tip.z - center.z;
+      } else {
+        const ankle = foot.getWorldPosition(this._ankle), tip = toe.getWorldPosition(this._stepToe);
+        center.lerpVectors(ankle, tip, .38);
+        center.y = Math.min(ankle.y - .068 * scale.y, tip.y - .028 * scale.y);
+        dx = tip.x - ankle.x; dz = tip.z - ankle.z;
+      }
+      if (dx * dx + dz * dz < .0001) continue;
+      contact.valid = true;
+      contact.yaw = Math.atan2(dx, dz);
+      contact.width = .104 * scale.x;
+      contact.length = .182 * scale.z;
+    }
+  }
+
+  /** Ajusta la zancada al escalón que tiene cada zapato debajo, después de componer el apoyo plano. */
+  fitFeetToSteps(sample, groundY) {
+    this._forward.set(0, 0, 1).applyQuaternion(this._frameQ);
+    for (const leg of this._legs) {
+      if (!leg.foot) continue;
+      const ankle = leg.foot.getWorldPosition(this._ankle);
+      const toe = leg.toe ? leg.toe.getWorldPosition(this._stepToe)
+        : leg.foot.localToWorld(this._stepToe.set(0, -.032, .139));
+      const tip = this._stepTip.subVectors(toe, ankle).setY(0).normalize().multiplyScalar(.045).add(toe);
+      const support = Math.max(sample(ankle.x, ankle.z), sample(toe.x, toe.z), sample(tip.x, tip.z));
+      const delta = support - groundY;
+      if (Math.abs(delta) < .01) continue;
+      const sole = Math.min(ankle.y - .061, toe.y - (leg.toe ? .03 : .014));
+      // Al subir, libra la nariz de la grada sin levantar más el pie si el paso ya venía alto.
+      // Al bajar, la pierna busca el peldaño inferior con su alcance real y conserva el vuelo del paso.
+      const lift = delta > 0 ? Math.max(0, Math.min(delta + .045, support + .006 - sole))
+        : Math.max(-.18, delta) * (1 - smooth(.025, .27, sole - groundY));
+      if (Math.abs(lift) > .005) this._legTo(leg, ankle.y + lift, 1);
+    }
   }
 
   /**
@@ -1311,23 +1380,27 @@ export class ActionPose {
     }
   }
 
-  _hit(progress, hipLow = 0) {
+  _hit(progress, hipLow, troncoDirigido, clipArms) {
     const recoil = smooth(0, .10, progress) * (1 - smooth(.22, 1, progress));
     // Con la cadera todavía abajo no hay rodillas que absorban nada: estirarlas subiría el cuerpo de un salto.
     const legs = recoil * .4 * Math.max(0, 1 - hipLow * 4);
-    const headLag = smooth(.03, .20, progress) * (1 - smooth(.3, 1, progress));
     const footY = this._lowestFoot();
-    // El impacto se reparte entre pelvis, columna y cabeza; las rodillas absorben
-    // parte del golpe sin arrastrar el controlador ni hundir los apoyos.
-    this._rotate('hips', -.04, -.05, .025, recoil);
-    this._rotate('lowerSpine', -.10, -.04, .02, recoil);
-    this._rotate('spine', -.21, -.08, .05, recoil);
-    this._rotate('head', .13, .10, -.08, headLag);
+    if (!troncoDirigido) {
+      // El impacto se reparte entre pelvis, columna y cabeza. Las rodillas absorben
+      // parte del golpe sin arrastrar el controlador ni hundir los apoyos.
+      const headLag = smooth(.03, .20, progress) * (1 - smooth(.3, 1, progress));
+      this._rotate('hips', -.04, -.05, .025, recoil);
+      this._rotate('lowerSpine', -.10, -.04, .02, recoil);
+      this._rotate('spine', -.21, -.08, .05, recoil);
+      this._rotate('head', .13, .10, -.08, headLag);
+    }
     for (const [side, name] of [[1, 'left'], [-1, 'right']]) {
       this._aim(`${name}UpLeg`, side * .10, -.92, .23, legs);
       this._aim(`${name}Leg`, 0, -.96, -.22, legs);
-      this._aim(`${name}Arm`, side * .42, -.28, .42, recoil);
-      this._aim(`${name}ForeArm`, -side * .07, .75, .58, recoil);
+      if (!clipArms) {
+        this._aim(`${name}Arm`, side * .42, -.28, .42, recoil);
+        this._aim(`${name}ForeArm`, -side * .07, .75, .58, recoil);
+      }
     }
     const after = this._lowestFoot();
     if (legs > 0 && footY !== null && after !== null) this._raiseHips(footY - after);

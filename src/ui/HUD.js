@@ -30,6 +30,7 @@ const CALOR_BAJO = 60;   // de aquí para abajo la fila de calor se sube
 const ENCIMA_M = 18;     // la patrulla está encima
 const ENCIMA_SUELTA_M = 21; // y deja de estarlo un poco más lejos, para que la placa no vaya y venga
 const MISION_S = 4;
+const GRITO_MS = 900;    // lo que dura el grito de un agente en la placa de la persecución
 /** Los segundos de calor como se leen en el cartón: 2:59. */
 export const calorALaVista = cuentaAtras;
 const PLATA_LARGA = 1_000_000;
@@ -342,10 +343,9 @@ export class HUD {
         if (this._talentOpen || this._craftOpen || this._dealerOpen) e._panelHandled = true;
         this.talentPanel?.classList.remove('open');
         this.craftPanel?.classList.remove('open');
-        this.dealerPanel?.classList.remove('open');
         this._talentOpen = false;
         this._craftOpen = false;
-        this._dealerOpen = false;
+        if (this._dealerOpen) this.toggleDealerPanel();
       }
     });
 
@@ -491,7 +491,11 @@ export class HUD {
   }
 
   _bindEvents() {
-    window.addEventListener('toast', (e) => this._toast(e.detail.text, e.detail.type ?? e.detail.kind));
+    window.addEventListener('toast', (e) => {
+      // Lo que no puede esperar su turno (el aviso del agarrón dura medio segundo) va en la placa de la persecución.
+      if (e.detail.placa && this._gritarEnPlaca(e.detail.placa, e.detail.text, GRITO_MS, e.detail)) return;
+      this._toast(e.detail.text, e.detail.type ?? e.detail.kind);
+    });
     window.addEventListener('resize', () => this.avisos?.acomodar());
     window.addEventListener('pickup', (e) => this._onPickup(e.detail));
     window.addEventListener('sell', (e) => this._onSell(e.detail));
@@ -551,6 +555,7 @@ export class HUD {
     window.addEventListener('sleep-end', (e) => this._toast(`Dormí ${e.detail?.hours ?? ''} h. Partida guardada`, 'info'));
     window.addEventListener('sleep-fail', (e) => this._toast(
       e.detail.reason === 'nobase' ? 'Primero toca armar el cambuche (8 cartones)'
+        : e.detail.reason === 'persecucion' ? 'Con la tomba encima no puedo dormir'
         : e.detail.reason === 'descansado' ? textoSinSiesta(e.detail) : 'Aquí no puedo dormir',
       'warn'
     ));
@@ -579,13 +584,18 @@ export class HUD {
   }
 
   toggleDealerPanel(dealer = null) {
-    window.__game?.cameraRig?.releaseControls?.();
+    const game = window.__game;
+    game?.cameraRig?.releaseControls?.();
     this._dealerOpen = !this._dealerOpen;
     this.dealerPanel?.classList.toggle('open', this._dealerOpen);
-    if (this._dealerOpen) {
-      this.renderDealer(dealer);
-      this.dealerPanel?.querySelector?.('.dealer-buy-btn:not([disabled]), .dealer-close')?.focus({ preventScroll: true });
+    if (!this._dealerOpen) {
+      game?.audio?.cerrarJibaro?.();
+      this._dealerDialogue = '';
+      return;
     }
+    this._dealerDialogue = game?.audio?.saludarJibaro?.(dealer ?? game?.dealer, game?.clock?.isNight, game?.player?.position) ?? '';
+    this.renderDealer(dealer);
+    this.dealerPanel?.querySelector?.('.dealer-buy-btn:not([disabled]), .dealer-close')?.focus({ preventScroll: true });
   }
 
   update(stats, clock, interaction, inventory, diseaseSystem, talentSystem, craftingSystem, dt = 0.1) {
@@ -775,9 +785,22 @@ export class HUD {
       this.wantedEl.className = estado === 'fichado' ? 'carton corte-d' : estado === 'encima' ? 'placa corte-c' : 'placa corte-b';
       this.wantedEl.dataset.estado = estado;
       document.getElementById('topbar')?.setAttribute('data-estado', estado);
-      this._setText(this.wantedGrito, estado === 'fichado' ? 'Te tienen fichado' : estado === 'encima' ? '¡CÓRRALE!' : '¡PILAS!');
+      this._wantedBase = estado === 'fichado' ? 'Te tienen fichado' : estado === 'encima' ? '¡CÓRRALE!' : '¡PILAS!';
+      this._gritoPuesto = null;
+      // Sin placa de persecución no hay grito que valga: se va con ella, y su destello también (si quedara puesto,
+      // volvería a destellar cuando la placa o el cartón salieran otra vez).
+      if (estado !== 'encima' && estado !== 'detras') { this._grito = null; delete this.wantedEl.dataset.grito; }
+      this._setText(this.wantedGrito, this._wantedBase);
       this._setText(this.wantedVoz, { nada: '', fichado: 'Te tienen fichado', detras: '¡Pilas! Una patrulla viene detrás', encima: '¡Córrale! La patrulla está encima' }[estado]);
       this.avisos?.acomodar();
+    }
+    // El grito de un agente ocupa el sitio de «¡CÓRRALE!» mientras dura, y la placa destella.
+    const grito = this._grito && performance.now() < this._grito.hasta && (estado === 'encima' || estado === 'detras') ? this._grito.texto : null;
+    if (grito !== (this._gritoPuesto ?? null)) {
+      this._gritoPuesto = grito;
+      this._setText(this.wantedGrito, grito ?? this._wantedBase ?? '');
+      if (grito) this.wantedEl.dataset.grito = '1';
+      else { delete this.wantedEl.dataset.grito; this._grito = null; }
     }
     if (estado === 'fichado' && this.wantedRayas && this._wantedNivel !== nivel) {
       this._wantedNivel = nivel;
@@ -785,9 +808,30 @@ export class HUD {
     }
     if (info) {
       const d = info.distance < 30 ? Math.round(info.distance) : Math.round(info.distance / 5) * 5;
-      this._setText(this.wantedDato, `Patrulla a ${d} m`);
+      this._setText(this.wantedDato, `${info.onFoot ? 'Agente' : 'Patrulla'} a ${d} m`);
       if (this.wantedBarra) this._setWidth(this.wantedBarra, Math.round(info.closeness * 100));
     }
+  }
+
+  /**
+   * Pone `texto` en la placa de la persecución en este mismo cuadro, en vez de «¡CÓRRALE!», durante `ms`. Devuelve false
+   * si la placa no está a la vista: entonces sale como un aviso cualquiera. El grito que pide reaccionar (`manda`) no se
+   * deja tapar, mientras dura, por el que solo informa de otro agente (`de`): con dos agentes, el «¡SE ZAFÓ!» de uno
+   * no borra el «¡QUIETO!» del otro.
+   */
+  _gritarEnPlaca(texto, voz = texto, ms = GRITO_MS, { de = null, manda = false } = {}) {
+    if (!this.wantedEl || (this._wantedEstado !== 'encima' && this._wantedEstado !== 'detras')) return false;
+    const ahora = performance.now();
+    if (!manda && this._grito?.manda && this._grito.de !== de && ahora < this._grito.hasta) return true;
+    this._grito = { texto, hasta: ahora + ms, de, manda };
+    this._gritoPuesto = texto;
+    this._setText(this.wantedGrito, texto);
+    this._setText(this.wantedVoz, voz);
+    // El destello arranca de nuevo con cada grito.
+    delete this.wantedEl.dataset.grito;
+    void this.wantedEl.offsetWidth;
+    this.wantedEl.dataset.grito = '1';
+    return true;
   }
 
   /** Lo que toca hacer con el cambuche, unos segundos cada vez que cambia. Nunca durante una persecución. */
@@ -855,12 +899,14 @@ export class HUD {
 
   /** La tecla de contexto y, después, el aviso del rebusque del semáforo. Con la pausa abierta, nada. */
   _pintarContexto(interaction, inventory) {
-    if (window.__game?.paused) { this._pintarPrompt('', interaction); return; }
-    this._pintarPrompt(textoDelPrompt(interaction, inventory), interaction, interaction?.rebusquePrompt ?? '');
+    const base = window.__game?.paused ? '' : textoDelPrompt(interaction, inventory);
+    // El robo de carros pone su tecla al lado de la de contexto.
+    const carro = window.__game?.paused ? null : interaction?.carjackPrompt;
+    this._pintarPrompt([base, carro].filter(Boolean).join(' · '), interaction);
   }
 
   /** La tecla de contexto se reescribe solo si cambia el texto; mantener Q muestra su progreso de verdad. */
-  _pintarPrompt(texto, interaction, rebusque = '') {
+  _pintarPrompt(texto, interaction, rebusque = window.__game?.paused ? '' : interaction?.rebusquePrompt ?? '') {
     if (!this.promptEl) return;
     const todo = [texto, rebusque].filter(Boolean).join(' · ');
     const clave = rebusque ? `${texto}|${rebusque}` : texto;
@@ -1275,12 +1321,13 @@ export class HUD {
           `;
         }).join('');
 
-    if (!this._setHTML(this.dealerPanel, `
+    const actualizado = this._setHTML(this.dealerPanel, `
       <header class="dealer-header cabecera">
         <h2>El jíbaro</h2>
         <span class="dealer-money">Plata: ${cop(stats?.dinero)}</span>
         ${cierreHTML('Esc', 'Cerrar', 'dealer-close')}
       </header>
+      <p class="dealer-dialogue" aria-live="polite"></p>
       <div class="dealer-section">Comprar</div>
       <div class="dealer-products">${itemsHtml}</div>
       <div class="dealer-section">Vender</div>
@@ -1289,8 +1336,12 @@ export class HUD {
         De noche paga ${dealerSellMult(priceMult)}× el valor de lo que se le traiga, pero en cada venta
         hay un ${porcentaje(SUBSTANCE_RISK_CHANCE * 100)} de que caiga la policía y se lleve la mercancía.
       </div>
-    `)) return;
+    `);
 
+    const dialogue = this.dealerPanel.querySelector?.('.dealer-dialogue');
+    const texto = this._dealerDialogue ? `«${this._dealerDialogue}»` : '';
+    if (dialogue && dialogue.textContent !== texto) dialogue.textContent = texto;
+    if (!actualizado) return;
     this.dealerPanel.querySelector?.('.dealer-close')?.addEventListener('click', () => this.toggleDealerPanel());
 
     // El mando pulsa con click() (detail 0) y reescribir el panel le borra el foco: sigue en la misma fila o en la última

@@ -27,9 +27,8 @@ mock.module('../src/character/RealisticCharacter.js', { namedExports: {
   normalizeReal: (_catalog, look) => look, optionsFor: () => [], REALISTIC_SCALE: 1.08
 } });
 const { Npc, NPC_COMBAT, NPC_LOD } = await import('../src/entities/Npc.js');
-const { KO_HAND_DOWN } = await import('../src/character/BodyLanguage.js');
 const { LOW_STANCES } = await import('../src/character/archetypes.js');
-const { RISE_TIME, smooth } = await import('../src/character/BodyLanguage.js');
+const { RISE_TIME } = await import('../src/character/BodyLanguage.js');
 const { Player, pickGesture } = await import('../src/entities/Player.js');
 const { AngryDriver } = await import('../src/entities/AngryDriver.js');
 const { StealSystem } = await import('../src/features/steal.js');
@@ -218,6 +217,7 @@ test('un golpe en el piso no lo empuja, no lo hace girar de un tirón y no devue
   const up = await person('oficinista', { fijo: { stance: 'brazos-cruzados' } });
   up.look = { real: { edad: 'adulto' } };
   const from = up.position.clone();
+  up.defenseResolve = 1;
   hurt(up);
   assert.ok(up._counter, 'de pie sí se defiende');
   run(up, NPC_COMBAT.stagger);
@@ -275,15 +275,18 @@ test('huyendo bajo la lluvia sigue con el paraguas en la mano', async () => {
 });
 
 /** Punto más bajo de la malla en coordenadas de mundo. */
-function lowest(mesh) {
+function lowest(mesh, groundHeight = null) {
   mesh.updateWorldMatrix(true, false);
   const pos = mesh.geometry.attributes.position, v = new THREE.Vector3();
   let min = Infinity;
-  for (let i = 0; i < pos.count; i++) min = Math.min(min, v.fromBufferAttribute(pos, i).applyMatrix4(mesh.matrixWorld).y);
+  for (let i = 0; i < pos.count; i++) {
+    v.fromBufferAttribute(pos, i).applyMatrix4(mesh.matrixWorld);
+    min = Math.min(min, v.y - (groundHeight ? groundHeight(v.x, v.z) : 0));
+  }
   return min;
 }
 
-test('al caer noqueado el paraguas cae al piso sin atravesarlo, y al levantarse vuelve a la mano', async () => {
+test('el paraguas se apoya en el piso durante la caída final y sigue al lado de su dueño', async () => {
   const npc = await person('oficinista', { fijo: null, groundHeight: () => .15 });
   npc.position.y = .15;
   npc.person.paraguas = 2;
@@ -303,15 +306,16 @@ test('al caer noqueado el paraguas cae al piso sin atravesarlo, y al levantarse 
   assert.ok(Math.hypot(umbrella.position.x - npc.position.x, umbrella.position.z - npc.position.z) < 1.3, 'queda a su lado');
   assert.equal(umbrella.material, material, 'sin material nuevo');
   assert.equal(umbrella.geometry, geometry, 'sin geometría nueva');
-  run(npc, NPC_COMBAT.fall + NPC_COMBAT.downMin + NPC_COMBAT.downExtra + NPC_COMBAT.rise + .2, { isRaining: true });
-  assert.equal(npc.koState, null);
-  assert.notEqual(umbrella.parent, npc.scene, 'lo recogió');
+  run(npc, 15, { isRaining: true });
+  assert.ok(npc.deathSettled);
+  assert.equal(umbrella.parent, npc.scene);
   assert.equal(umbrella.visible, true);
-  assert.equal(npc.character.last.stance, 'paraguas');
-  assert.equal(npc._dropped.length, 0);
+  assert.equal(npc._dropped.length, 1);
+  npc.dispose();
+  assert.equal(umbrella.parent, null);
 });
 
-test('el bastón cae al piso al noquearlo, sale de la mano en los dos modelos y lo recupera al levantarse', async () => {
+test('el bastón cae una sola vez y sigue en el piso al cambiar de modelo', async () => {
   const npc = await person('oficinista', { fijo: null });
   npc.person.real = { accesorios: [{ id: 'baston-calle', color: '#3a2a1a' }] };
   const other = await person('oficinista', { fijo: null });
@@ -332,11 +336,11 @@ test('el bastón cae al piso al noquearlo, sale de la mano en los dos modelos y 
   npc.fullChar = null;
   await npc._loadFull();
   assert.equal(npc.fullChar.props.get('baston-calle'), false);
-  run(npc, NPC_COMBAT.fall + NPC_COMBAT.downMin + NPC_COMBAT.downExtra + NPC_COMBAT.rise + .2);
-  assert.equal(npc.koState, null);
-  assert.equal(cane.parent, null, 'lo recogió');
-  assert.equal(npc.lodChar.props.get('baston-calle'), true);
-  assert.equal(npc.fullChar.props.get('baston-calle'), true);
+  run(npc, 15);
+  assert.ok(npc.deathSettled);
+  assert.equal(cane.parent, npc.scene);
+  assert.equal(npc.lodChar.props.get('baston-calle'), false);
+  assert.equal(npc.fullChar.props.get('baston-calle'), false);
   npc.dispose();
   assert.equal(npc._fallenCane, null);
 });
@@ -378,7 +382,64 @@ const toBody = (npc, mesh) => {
 };
 const KO = { damage: 999 };
 
-for (const what of ['paraguas', 'baston']) test(`${what}: con cualquier empuje queda junto al cuerpo, en el piso, y ahí se queda hasta que llega la mano`, async () => {
+test('en un puente la caída y el bastón conservan el piso del cuerpo aunque haya calle debajo', async () => {
+  const groundHeight = (_x, _z, currentY) => currentY > 4 ? 7.8 : .1;
+  const npc = await carrier('baston', { at: [30, 7.8, 2], groundHeight });
+  try {
+    npc.takeHit({ ...KO, knockback: .6, dir: { x: 1, z: 0 } });
+    run(npc, 1);
+    assert.equal(npc._koPlan, 'espalda');
+    assert.equal(npc.position.y, 7.8);
+    assert.ok(Math.abs(lowest(npc._fallenCane) - 7.8) < .01);
+  } finally {
+    npc.dispose();
+  }
+});
+
+test('el bastón toca el suelo al volcar, en tres direcciones de empuje y sobre dos niveles de piso', async () => {
+  const flat = () => .12;
+  const curb = x => x < 30.35 ? .06 : .12;
+  const slope = (x, z) => .12 + (x - 30) * .041 + (z - 2) * .025;
+  for (const [facing, dir, groundHeight, label] of [
+    [0, { x: 0, z: -1 }, flat, 'de frente'],
+    [Math.PI / 3, { x: 1, z: 0 }, curb, 'entre césped y andén'],
+    [-Math.PI / 2, { x: -Math.SQRT1_2, z: Math.SQRT1_2 }, slope, 'en diagonal sobre la pendiente']
+  ]) {
+    const npc = await carrier('baston', { at: [30, groundHeight(30, 2), 2], facing, groundHeight });
+    npc.takeHit({ ...KO, knockback: 1.35, dir });
+    const cane = npc._fallenCane, drop = npc._dropped[0], step = 1 / 120;
+    let minimum = Infinity, lastY = cane.position.y, rise = 0;
+    const samples = new Set();
+    for (let i = 0; i <= 44; i++) {
+      minimum = Math.min(minimum, lowest(cane, (x, z) => {
+        const y = groundHeight(x, z);
+        samples.add(y);
+        return y;
+      }));
+      rise = Math.max(rise, cane.position.y - lastY);
+      lastY = cane.position.y;
+      assert.equal(npc._dropped.length, 1);
+      assert.equal(cane.parent, npc.scene);
+      assert.equal(npc.lodChar.props.get('baston-calle'), false);
+      assert.equal(npc.fullChar.props.get('baston-calle'), false);
+      npc.update(step, { player: far() });
+    }
+    assert.ok(minimum > -.0001 && minimum < .004, `${label}: tocó sin hundirse (${minimum} m)`);
+    assert.ok(rise <= (groundHeight === curb ? .061 : .004), `${label}: subió ${rise} m en un cuadro`);
+    if (groundHeight === curb) assert.equal(samples.size, 2, 'durante la caída la malla alcanza ambas alturas');
+    assert.equal(drop.fall, 1, 'frenó en el tiempo de siempre');
+    const rest = cane.position.clone();
+    run(npc, .15, {}, 1 / 60);
+    assert.ok(cane.position.distanceTo(rest) < 1e-6, 'se queda apoyado');
+    run(npc, 15, {}, 1 / 60);
+    assert.equal(npc._dropped.length, 1);
+    assert.equal(cane.parent, npc.scene);
+    assert.equal(npc.character.props.get('baston-calle'), false);
+    npc.dispose();
+  }
+});
+
+for (const what of ['paraguas', 'baston']) test(`${what}: con cualquier empuje queda junto al cuerpo, en el piso, y conserva su sitio al terminar la caída`, async () => {
   for (const knockback of [0, .9, 1.62, 2.88]) {
     const npc = await carrier(what);
     npc.takeHit({ ...KO, knockback, dir: { x: 1, z: 0 }, attacker: { position: new THREE.Vector3(29, 0, 2) } });
@@ -390,29 +451,10 @@ for (const what of ['paraguas', 'baston']) test(`${what}: con cualquier empuje q
     assert.ok(toBody(npc, mesh) < .55, `empuje ${knockback}: a ${toBody(npc, mesh).toFixed(2)} m del cuerpo`);
     assert.ok(Math.hypot(rest.x - npc.position.x, rest.z - npc.position.z) < .7, `al alcance: ${rest.toArray()}`);
     assert.equal(mesh.parent, npc.scene);
-    // Tendido y a media subida sigue quieto en el piso: no sube solo.
-    npc.koTimer = .01;
-    for (let i = 0; i < 400 && (1 - smooth(npc._koBlend)) < KO_HAND_DOWN - .02; i++) {
-      npc.update(1 / 60, { player: far(), isRaining: what === 'paraguas' });
-      assert.ok(mesh.position.distanceTo(rest) < 1e-6, `se movió solo a ${mesh.position.toArray()}, subida ${npc._koBlend}`);
-    }
-    assert.equal(npc.koState, 'rising');
-    // Llega la mano: cuelga de ella sin moverse de donde estaba, y en un momento queda como se lleva.
-    const world = mesh.position.clone();
-    npc.update(1 / 60, { player: far(), isRaining: what === 'paraguas' });
-    npc.update(1 / 60, { player: far(), isRaining: what === 'paraguas' });
-    assert.equal(mesh.parent, npc.character.holder, 'ya va en la mano');
-    assert.equal(npc.character.grabbed, what === 'paraguas' ? 'paraguas' : 'prop-baston-calle');
-    assert.ok(mesh.position.distanceTo(world) < .05, 'sin saltos al agarrarlo');
-    for (let i = 0; i < 120; i++) {
-      npc.update(1 / 60, { player: far(), isRaining: what === 'paraguas' });
-      if (what === 'paraguas') assert.equal(mesh.visible, true, 'ya recogido no desaparece mientras se para');
-    }
-    assert.equal(npc.koState, null);
-    assert.equal(npc._dropped.length + npc._picking.length, 0);
-    if (what === 'paraguas') assert.equal(mesh.visible, true, 'sigue con él');
-    else assert.equal(npc.fullChar.props.get('baston-calle'), true);
-    assert.equal(mesh.parent === npc.scene, false);
+    run(npc, 15, { isRaining: what === 'paraguas' }, 1 / 60);
+    assert.ok(npc.deathSettled);
+    assert.ok(mesh.position.equals(rest));
+    assert.equal(mesh.parent, npc.scene);
     npc.dispose();
   }
 });
@@ -630,18 +672,16 @@ test('ni el bastón ni el paraguas quedan dentro de lo que ocupa sitio', async (
   assert.equal(npc._dropFits(npc.position, 33, 2, 33, 2.5), true, 'al lado cabe');
 });
 
-test('un segundo KO no hereda dónde terminó el primero', async () => {
+test('un golpe posterior no vuelve a orientar un cuerpo caído', async () => {
   const npc = await person('oficinista', { fijo: null, navigation: null, isWalkable: open, facing: 0 });
-  npc.takeHit({ ...KO, knockback: 2, dir: { x: 1, z: 0 }, attacker: { position: new THREE.Vector3(29, 0, 2) } });
-  assert.ok(npc._koEnd, 'miró dónde iba a terminar');
-  npc._koEnd.set(999, 999, 999);
-  npc.koState = null;
-  npc.health = 0;
-  npc._riseLeft = 1;
-  npc._lowFrom = 'dormido';
-  npc._startKnockout(false);
-  assert.equal(npc._koPlan, 'dormido');
-  assert.equal(npc._koEnd, null, 'dormido no vuelve a mirar: no le queda el dato viejo');
+  npc.takeHit({ ...KO, knockback: 2, dir: { x: 1, z: 0 } });
+  run(npc, 1);
+  const at = npc.position.clone(), yaw = npc.root.rotation.y;
+  assert.equal(npc.takeHit({ ...KO, knockback: 2, dir: { x: -1, z: 0 } }), false);
+  run(npc, 2);
+  assert.deepEqual(npc.position.toArray(), at.toArray());
+  assert.equal(npc.root.rotation.y, yaw);
+  npc.dispose();
 });
 
 test('quien se paraba de una banca sigue en ella si lo noquean', async () => {
@@ -655,67 +695,22 @@ test('quien se paraba de una banca sigue en ella si lo noquean', async () => {
   assert.equal(npc.position.x, x, 'el golpe no lo saca de la banca');
 });
 
-// ---------- paraguas al recogerlo ----------
-
-test('el paraguas va cerrado en la mano hasta que el brazo sube, y al terminar queda como estaba', async () => {
+test('la mano del otro modelo no recupera el paraguas junto al cuerpo', async () => {
   const npc = await carrier('paraguas');
+  const near = npc.position.clone().add(new THREE.Vector3(2, 0, 0));
   npc.update(1 / 60, { player: far(), isRaining: true });
-  const umbrella = npc.umbrella, open = umbrella.scale.x;
-  assert.equal(umbrella.scale.x, umbrella.scale.y);
-  npc.takeHit({ ...KO, attacker: { position: new THREE.Vector3(30, 0, 4) } });
-  run(npc, NPC_COMBAT.fall + .1, { isRaining: true }, 1 / 60);
-  assert.ok(Math.abs(umbrella.scale.x / umbrella.scale.y - 1) < 1e-6, 'en el piso sigue abierto');
-  npc.koTimer = 0;
-  let narrowest = 1, wideLow = 0, sawStick = false;
-  while (npc.koState) {
-    npc.update(1 / 60, { player: far(), isRaining: true });
-    if (umbrella.parent === npc.scene) continue;
-    const width = umbrella.scale.x / umbrella.scale.y, up = 1 - smooth(npc._koBlend);
-    narrowest = Math.min(narrowest, width);
-    sawStick ||= umbrella.children.some(child => child.visible && Math.abs(child.scale.x * width - 1) < 1e-6);
-    if (up > .72 && up < .92) wideLow = Math.max(wideLow, width);
-  }
-  assert.ok(narrowest < .2, `se cierra: ${narrowest}`);
-  assert.ok(sawStick, 'cerrado se le ve el palo');
-  assert.ok(wideLow < .2, `con el brazo abajo sigue cerrado: ${wideLow}`);
-  npc.update(1 / 60, { player: far(), isRaining: true });
-  assert.ok(Math.abs(umbrella.scale.x / umbrella.scale.y - 1) < 1e-6, 'de pie, abierto');
-  assert.equal(umbrella.children.length, 0, 'de pie, sin el palo');
-  assert.equal(umbrella.visible, true);
-});
-
-for (const when of ['mientras lo agarra', 'ya en la mano']) test(`si cambia de modelo ${when} el paraguas no desaparece`, async () => {
-  const npc = await carrier('paraguas');
-  npc.update(1 / 60, { player: far(), isRaining: true });
-  const umbrella = npc.umbrella, near = npc.position.clone().add(new THREE.Vector3(2, 0, 0));
+  const umbrella = npc.umbrella;
   await npc._loadFull();
-  npc.takeHit({ ...KO, attacker: { position: new THREE.Vector3(30, 0, 4) } });
-  run(npc, NPC_COMBAT.fall + .1, { isRaining: true, player: near }, 1 / 60);
-  npc.koTimer = 0;
-  while (!npc._picking.length) npc.update(1 / 60, { player: near, isRaining: true });
-  if (when === 'ya en la mano') while (npc._picking.length) npc.update(1 / 60, { player: near, isRaining: true });
-  const before = npc.character;
-  const other = before === npc.fullChar ? npc.lodChar : npc.fullChar;
-  npc._show(other);
-  assert.equal(npc._picking.length, 0);
-  npc.update(1 / 60, { player: before === npc.fullChar ? far() : near, isRaining: true });
-  npc._show(other);
-  npc.update(1 / 60, { player: far(), isRaining: true });
-  assert.equal(umbrella.visible, true, 'sigue en la mano');
-  assert.notEqual(umbrella.parent, npc.scene);
-  assert.ok(npc.character.holder.children.includes(umbrella), 'en la mano del modelo que se ve');
-  assert.ok(umbrella.scale.x / umbrella.scale.y < .2, 'y sigue cerrado');
-});
-
-test('contra un muro la mano recoge lo caído al empezar a pararse, cuando está en el piso', async () => {
-  const collisions = solids([28, 1.2, 28.9, 2.8], [31.1, 1.2, 32, 2.8], [28, .8, 32, 1.2], [28, 2.8, 32, 3.2]);
-  const npc = await carrier('baston', { collisions });
-  npc.takeHit({ ...KO, attacker: { position: new THREE.Vector3(30, 0, 4) } });
-  run(npc, NPC_COMBAT.fall + .2, {}, 1 / 60);
-  assert.equal(npc._koPlan, 'muro');
-  npc.koTimer = 0;
-  while (npc.koState && !npc._picking.length) npc.update(1 / 60, { player: far() });
-  assert.ok(1 - smooth(npc._koBlend) < .1, `lleva ${1 - smooth(npc._koBlend)} de la subida`);
+  npc.takeHit({ ...KO });
+  run(npc, NPC_COMBAT.fall + .1, { player: near }, 1 / 60);
+  assert.equal(npc.character, npc.fullChar);
+  const rest = umbrella.position.clone();
+  npc.update(.1, { player: far(), isRaining: true });
+  assert.equal(npc.character, npc.lodChar);
+  assert.equal(umbrella.parent, npc.scene);
+  assert.ok(umbrella.position.equals(rest) && umbrella.visible);
+  assert.equal(npc.character.last.ko, 1);
+  npc.dispose();
 });
 
 // ---------- agua ----------
@@ -741,8 +736,8 @@ test('noqueado en la banca sigue en ella, y dormido se queda dormido', async () 
   const yaw = bench.root.rotation.y;
   run(bench, NPC_COMBAT.fall + .1);
   assert.equal(bench.root.rotation.y, yaw, 'tampoco gira para caer');
-  run(bench, NPC_COMBAT.downMin + NPC_COMBAT.downExtra + NPC_COMBAT.rise + .2);
-  assert.equal(bench.koState, null);
+  run(bench, 15);
+  assert.ok(bench.deathSettled);
   const asleep = await person('habitante', { fijo: { stance: 'dormido' }, facing: 0 });
   asleep.takeHit({ ...KO, attacker: { position: new THREE.Vector3(30, 0, 4) } });
   assert.equal(asleep._koPlan, 'dormido');
@@ -1026,16 +1021,37 @@ test('con arma no se encoge, y sacarla corta el gesto que tenga las manos ocupad
   assert.equal(player._updateBodyLanguage(.1, false), 'mirar-derecha', 'mirar no estorba');
 });
 
-test('robarle a quien está en el piso no le deja defenderse; de pie, el adulto sí', () => {
+test('al raponazo se responde tras un aviso, en alcance, sin paredes y solo desde una postura de pie', async () => {
   const stats = { salud: 100, dinero: 0 };
-  const game = { player: { position: new THREE.Vector3() }, stats, world: { active: { npcs: [] } }, input: { consumePress: () => false }, interaction: {}, paused: false };
+  const player = { position: new THREE.Vector3(30, 0, 3), stats };
+  const game = { player, stats, input: { consumePress: key => key === 'KeyQ' }, interaction: {}, world: { active: { npcs: [] } } };
   const steal = new StealSystem(game);
   for (const stance of LOW_STANCES) {
-    steal.executeRoboDirecto({ position: new THREE.Vector3(1, 0, 0), stance, look: { real: { edad: 'adulto' } } });
-    assert.equal(stats.salud, 100, `${stance} no se defiende`);
+    const npc = await person('oficinista', { fijo: { stance }, defenseResolve: 1 });
+    steal.executeRoboDirecto(npc);
+    assert.equal(npc._counter, null, stance);
+    assert.equal(stats.salud, 100);
+    npc.dispose();
   }
-  steal.executeRoboDirecto({ position: new THREE.Vector3(1, 0, 0), stance: null, look: { real: { edad: 'adulto' } } });
+  const npc = await person('oficinista', { fijo: { stance: 'brazos-cruzados' }, facing: 0, defenseResolve: 1, carriesKnife: false });
+  game.world.active.npcs.push(npc);
+  game.collisions = solids([29, 2.3, 31, 2.6]);
+  npc.collisions = game.collisions;
+  steal.cooldown = 0;
+  const money = stats.dinero;
+  steal.update(.016);
+  assert.equal(steal.targetNpc, null);
+  assert.equal(stats.dinero, money);
+  assert.equal(npc._counter, null);
+  npc.collisions = game.collisions = null;
+  steal.update(.016);
+  assert.ok(npc._counter);
+  assert.equal(stats.salud, 100);
+  npc.update(.4); // incluso con un cuadro largo el aviso se ve antes del daño
+  assert.equal(stats.salud, 100);
+  run(npc, NPC_COMBAT.counterWarning + NPC_COMBAT.counterWindup + .1);
   assert.ok(stats.salud < 100);
+  npc.dispose();
 });
 
 async function driver() {
@@ -1049,12 +1065,11 @@ async function driver() {
 }
 const door = new THREE.Vector3(-10, 0, 0);
 
-test('al conductor noqueado se le cae la varilla al piso, y la recoge cuando la mano llega', async () => {
+test('al conductor fallecido se le cae la varilla al piso y permanece allí', async () => {
   const npc = await driver();
   const pivot = npc.bar.pivot, rod = pivot.children[0];
   rod.geometry.computeBoundingBox();
   npc._walk(.01);
-  const hanging = { position: pivot.position.clone(), tilt: pivot.rotation.x };
   const lowest = () => {
     npc.root.updateMatrixWorld(true);
     const { min, max } = rod.geometry.boundingBox;
@@ -1078,13 +1093,9 @@ test('al conductor noqueado se le cae la varilla al piso, y la recoge cuando la 
   }
   assert.ok(jump < .12, `baja sin saltos: ${jump}`);
   assert.ok(highest() < .1, `tendido, la varilla está en el piso: ${highest()}`);
-  npc.koTimer = 0;
-  npc.update(1 / 60, { player: far() });
-  while (1 - smooth(npc._koBlend) < .5) { npc.update(1 / 60, { player: far() }); assert.ok(highest() < .1, 'espera a la mano'); }
-  while (npc.koState) { npc.update(1 / 60, { player: far() }); assert.ok(lowest() > -.03); }
-  npc.update(1 / 60, { player: far() });
-  assert.ok(pivot.position.distanceTo(hanging.position) < 1e-6, 'vuelve a colgar de su sitio');
-  assert.ok(Math.abs(pivot.rotation.x - hanging.tilt) < 1e-6);
+  run(npc, 15);
+  assert.ok(npc.deathSettled && highest() < .1);
+  npc.dispose();
 });
 
 test('el conductor noqueado no piensa: ni corre, ni gira, ni termina el golpe que traía', async () => {
@@ -1099,7 +1110,7 @@ test('el conductor noqueado no piensa: ni corre, ni gira, ni termina el golpe qu
   const results = [];
   for (let i = 0; i < 40; i++) results.push(npc.think(.05, { player: player.clone().add(new THREE.Vector3(0, 0, 3)), door, canChase: true }));
   assert.deepEqual(new Set(results), new Set([null]), 'tendido no pega');
-  assert.equal(npc.state, 'chase', 'el golpe que traía se le cayó');
+  assert.equal(npc.state, 'dead', 'queda interrumpido el ataque que traía');
   assert.equal(npc.action, null);
   assert.deepEqual(npc.position.toArray(), position.toArray());
   assert.equal(npc.root.rotation.y, yaw);

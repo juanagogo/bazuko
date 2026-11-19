@@ -37,7 +37,7 @@ test('los tres golpes del combo tienen IDs distintos, consumen energía y cobran
   }
   assert.deepEqual(npc.hits.map(hit => hit.damage), [12, 12, 18]);
   assert.equal(new Set(npc.hits.map(hit => hit.attackId)).size, 3);
-  assert.equal(stats.energia, 76);
+  assert.equal(stats.energia, 88);
   assert.equal(stats.dinero, 300);
   assert.equal(audio.hits, 3);
   assert.equal(fights, 3);
@@ -68,6 +68,50 @@ test('los impactos rechazados no producen botín, audio ni búsqueda', () => {
   player.punch(); player.update(.13, null, null, () => 0, [npc]);
   assert.equal(stats.dinero, 0); assert.equal(audio.hits, 0);
   assert.equal(player.game.steal.buscado, 0); assert.equal(fights, 0);
+});
+
+test('el mismo barrido conserva la responsabilidad y la salud de cada blanco', () => {
+  const { player, stats } = arena();
+  player.equipWeapon('cuchillo');
+  const maton = target(.2), civil = target(-.2);
+  maton.isAggressor = true;
+  for (const npc of [maton, civil]) {
+    npc.health = 20;
+    npc.takeHit = ({ damage }) => { npc.health = Math.max(0, npc.health - damage); return 0; };
+  }
+  const fights = [];
+  window.addEventListener('street-fight', ({ detail }) => fights.push(detail));
+  player.punch();
+  player.update(.12, null, null, () => 0, [maton, civil]);
+  assert.equal(stats.energia, 92);
+  assert.equal(player.game.steal.buscado, 1);
+  assert.equal(fights.length, 1);
+  assert.deepEqual(fights[0].hits, [maton, civil]);
+  const hits = fights[0].results;
+  assert.deepEqual(hits.map(h => [h.wasAggressor, h.previousHealth, h.health, h.damage]), [
+    [true, 20, 0, 20], [false, 20, 0, 20]
+  ]);
+  assert.equal(hits[0].attackId, hits[1].attackId);
+  assert.equal(hits[0].attacker, player);
+  assert.equal(hits[1].weapon, 'cuchillo');
+  civil.position.z += 4;
+  assert.equal(hits[1].position.z, 1, 'la posición guardada es la del golpe');
+});
+
+test('G o clic durante el tambaleo conservan una sola entrada hasta que se puede atacar', () => {
+  for (const button of ['KeyG', 'Mouse0']) {
+    const { player, stats, input } = arena(), npc = target();
+    player.stats.salud = 1;
+    player.receiveHit(new THREE.Vector3(1, 0, 0), .2, { salud: 1 });
+    for (let i = 0; i < 60; i++) {
+      input.consumePress = key => i < 4 && key === button;
+      player.update(1 / 60, null, null, () => 0, [npc]);
+      if (i < 4) assert.equal(stats.energia, 100, 'la petición todavía no arrancó');
+    }
+    assert.equal(npc.hits.length, 1);
+    assert.equal(stats.energia, 96);
+    assert.equal(player.isKnockedDown, false);
+  }
 });
 
 test('un ataque de teclado muestra anticipación aun cuando el frame supera el windup del cuchillo', () => {
@@ -104,7 +148,7 @@ test('cambiar arma cancela el golpe y la cola sin saltarse la recuperación', ()
   player.equipWeapon('cuchillo');
   assert.equal(player.attack, null); assert.equal(player.action, null);
   assert.equal(player.punch(), false);
-  assert.equal(stats.energia, 84, 'un intento bloqueado no consume más energía');
+  assert.equal(stats.energia, 92, 'un intento bloqueado no consume más energía');
   player.update(.8, null, null, () => 0, [npc]);
   assert.equal(npc.hits.length, 0);
   assert.equal(player.punch(), true);

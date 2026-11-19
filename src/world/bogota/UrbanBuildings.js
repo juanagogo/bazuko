@@ -3,11 +3,14 @@ import { createBuildingShell } from './BuildingVisibility.js';
 import { neighborhoodAt } from './NeighborhoodIdentity.js';
 import { addBuildingDetails } from './BuildingDetails.js';
 import { BASE_CITY_WIDTH } from './EastZones.js';
+import { uvDeTorre } from './fachadaTorres.js';
 
 const hash=(x,z)=>((Math.imul(x+17,73856093)^Math.imul(z+31,19349663))>>>0);
 const FLOOR_SEQUENCE=[3,5,8,12,4,18,6,24,10,30,7,16];
 export const URBAN_DESIGNS=['ladrillo-balcones','concreto-bandas','marcos-verticales','torre-retranqueada','esquina-acristalada'];
 const neighborhoodPalettes = new WeakMap();
+// Un vidrio de metal oscuro refleja oscuro: el de la entrada y los vanos lisos parte de un gris azulado claro.
+const VIDRIO = new THREE.Color('#8d9ea3');
 
 // Una variante por barrio y paleta de ciudad, nunca una por edificio. Las
 // texturas siguen compartidas; BuildingVisibility conserva su propio fundido.
@@ -31,7 +34,7 @@ function paletteForNeighborhood(base, profile) {
     trim: override.trim ?? tinted(base.trim, colors.trim, 'cornisas'),
     accent: override.accent ?? tinted(base.trim, colors.facadeAccent, 'dintel'),
     rail: override.rail ?? tinted(base.rail, colors.metal, 'metal'),
-    glass: override.glass ?? tinted(base.glass, colors.metal, 'entrada')
+    glass: override.glass ?? tinted(base.glass, VIDRIO.clone().lerp(new THREE.Color(colors.metal), .3), 'entrada')
   };
   variants.set(profile.id, palette);
   return palette;
@@ -62,13 +65,13 @@ export function planUrbanBuildings(map) {
   return lots;
 }
 
-function tiledBox(w,h,d,unitW=6,unitH=9.6) {
+function tiledBox(w,h,d,seed=0,unitW=6,unitH=9.6) {
   const geometry=new THREE.BoxGeometry(w,h,d),uv=geometry.attributes.uv;
   for(let i=0;i<uv.count;i++) {
     const face=Math.floor(i/4);
-    uv.setXY(i,uv.getX(i)*(face<2?d:w)/unitW,uv.getY(i)*(face===2||face===3?d:h)/unitH);
+    if(face===2||face===3)uv.setXY(i,uv.getX(i)*w/unitW,uv.getY(i)*d/unitH);
   }
-  return geometry;
+  return uvDeTorre(geometry,w,h,d,seed);
 }
 
 /** Fachadas y detalles comparten materiales y se ocultan junto a cada pared. */
@@ -79,7 +82,7 @@ export function buildUrbanBuilding(plan,palette) {
   const material=palette.facades[URBAN_DESIGNS.indexOf(design)];
   const setback=design==='torre-retranqueada'&&plan.floors>=8;
   const bodyHeight=setback?h-6.4:h;
-  const shell=createBuildingShell(tiledBox(w,bodyHeight,d),[material,material,palette.roof,palette.roof,material,material],{
+  const shell=createBuildingShell(tiledBox(w,bodyHeight,d,plan.seed),[material,material,palette.roof,palette.roof,material,material],{
     x,z,height:bodyHeight,interiorMaterial:palette.interior
   });
   shell.root.name=`Edificio ${plan.floors} pisos · ${design}`;
@@ -114,7 +117,7 @@ export function buildUrbanBuilding(plan,palette) {
     detail(0,1.4,Math.min(2.6,length*.32),2.4,.2,palette.glass,'Entrada');
   }
   if(setback) {
-    const top=new THREE.Mesh(tiledBox(w*.76,6.4,d*.76),material);
+    const top=new THREE.Mesh(tiledBox(w*.76,6.4,d*.76,plan.seed+(Math.round(bodyHeight/3.2)<<3)),material);
     top.position.set(0,bodyHeight+3.2,0);top.castShadow=top.receiveShadow=true;shell.roof.add(top);
     add(shell.roof,w*.8,.2,d*.8,0,h-.1,0,palette.trim,'Cornisa de coronación');
   } else add(shell.roof,w-.2,.3,d-.2,0,h-.15,0,palette.trim,'Remate de azotea');

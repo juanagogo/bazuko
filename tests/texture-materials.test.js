@@ -17,6 +17,14 @@ function verifySurface(maps) {
   for (const texture of Object.values(maps)) texture.dispose();
 }
 
+test('la textura de las bolsas del basural también se construye sin Canvas', () => {
+  const { map } = TX.trashBag();
+  assert.ok(map.isTexture);
+  assert.equal(map.colorSpace, THREE.SRGBColorSpace);
+  assert.deepEqual([map.image.width, map.image.height], [128, 128]);
+  map.dispose();
+});
+
 test('los materiales de calle entregan albedo sRGB y relieve/rugosidad independientes en espacio lineal', () => {
   for (const create of [TX.asphalt, TX.sidewalk, TX.brick, TX.concrete, TX.dirt, TX.grass, TX.roofTiles, TX.slab]) {
     verifySurface(create());

@@ -63,10 +63,10 @@ function standing({ gltf, library: lib, rest }, options = {}) {
   const mixer = new THREE.AnimationMixer(item.root);
   mixer.clipAction(rest).play();
   mixer.update(0);
-  const hold = (stance, params = {}) => {
+  const hold = (stance, params = {}, dt = 5) => {
     item.layer.restore();
     mixer.setTime(0);
-    item.layer.apply(5, { stance, speed: 0, ...params });
+    item.layer.apply(dt, { stance, speed: 0, ...params });
     item.root.updateMatrixWorld(true);
   };
   return { ...item, hold };
@@ -135,7 +135,7 @@ test('las posturas bajas descansan en el piso sin atravesarlo; en la banca los p
     const { root, bones, hold } = standing(baked);
     const support = createSkinSupport(root);
     const hips = [...bones.values()].find(bone => /Hips$/.test(bone.name));
-    for (const [stance, min, max] of [['sentado', -.01, .03], ['acurrucado', -.01, .03], ['pedir', -.01, .04], ['dormido', -.05, .03], ['banca', -.01, .03]]) {
+    for (const [stance, min, max] of [['sentado', -.01, .03], ['acurrucado', -.01, .03], ['pedir', -.01, .04], ['dormido', -.05, .03], ['banca', -.01, .03], ['sin-aire', -.01, .03]]) {
       hold(stance);
       const low = support.minimumY();
       assert.ok(low > min && low < max, `${id}/${stance}: lo más bajo a ${low.toFixed(3)} m`);
@@ -174,6 +174,110 @@ test('las manos llegan: bolsillo, oído, nariz, cabeza y espalda, en todos los c
     assert.ok(at(right).x > -.03 && at(left).x < .03, `${id}: los brazos no se cruzan`);
     hold('paraguas');
     assert.ok(at(right).z > at(hips).z + .2 && at(right).y > at(hips).y + .25, `${id}: la mano del paraguas no queda arriba y al frente`);
+    hold(null);
+  }
+});
+
+test('el agente que desiste: sin aire y radio en la solapa', async () => {
+  for (const name of ['sin-aire', 'radio-solapa']) assert.ok(STANCE_NAMES.includes(name), name);
+  for (const id of BODIES) {
+    const { bones, hold } = standing(await library(id));
+    const find = suffix => [...bones.values()].find(bone => bone.name.endsWith(suffix));
+    const at = bone => bone.getWorldPosition(new THREE.Vector3());
+    const degrees = radians => radians * 180 / Math.PI;
+    // Sin aire, a lo largo de dos respiraciones: las manos apoyadas encima de los muslos, de la mitad hacia la rodilla
+    // (ni atravesándolos ni flotando), las rodillas algo dobladas y el tronco doblado desde la cadera, que sube al tomar aire.
+    hold('sin-aire');
+    const torso = [], shoulder = [];
+    for (let i = 0; i < 120; i++) {
+      hold('sin-aire', {}, 1 / 60);
+      const label = `${id}/sin-aire en ${i}/60 s`;
+      const spine = at(find('Neck')).sub(at(find('Hips')));
+      torso.push(degrees(Math.acos(spine.y / spine.length())));
+      shoulder.push(at(find('LeftArm')).y);
+      for (const side of ['Left', 'Right']) {
+        const hip = at(find(`${side}UpLeg`)), knee = at(find(`${side}Leg`)), foot = at(find(`${side}Foot`)), hand = at(find(`${side}Hand`));
+        const thigh = knee.clone().sub(hip), length = thigh.length();
+        thigh.normalize();
+        const along = hand.clone().sub(hip).dot(thigh), closest = hip.clone().addScaledVector(thigh, along);
+        assert.ok(along / length > .5 && along / length < .72, `${label}: la mano ${side} va al ${(along / length * 100).toFixed(0)} % del muslo`);
+        const off = hand.distanceTo(closest), above = hand.y - closest.y;
+        assert.ok(off > .06 && off < .14 && above > .02 && above < .08, `${label}: la mano ${side} a ${off.toFixed(3)} m del eje del muslo, ${above.toFixed(3)} m por encima`);
+        const bend = degrees(thigh.angleTo(foot.clone().sub(knee)));
+        assert.ok(bend > 10 && bend < 22, `${label}: la rodilla ${side} doblada ${bend.toFixed(1)}°`);
+      }
+    }
+    const range = list => Math.max(...list) - Math.min(...list);
+    assert.ok(Math.min(...torso) > 45 && Math.max(...torso) < 58, `${id}: el tronco va de ${Math.min(...torso).toFixed(1)}° a ${Math.max(...torso).toFixed(1)}°`);
+    assert.ok(range(torso) > 2 && range(torso) < 5, `${id}: al respirar el tronco se mueve ${range(torso).toFixed(1)}°`);
+    assert.ok(range(shoulder) > .01 && range(shoulder) < .04, `${id}: al respirar los hombros suben ${(range(shoulder) * 100).toFixed(1)} cm`);
+    // El radio: la mano izquierda en la solapa, junto al hombro y delante del pecho; la derecha en la cintura, por fuera.
+    hold('radio-solapa');
+    const left = at(find('LeftHand')), right = at(find('RightHand')), rightHip = at(find('RightUpLeg'));
+    assert.ok(left.distanceTo(at(find('LeftArm'))) < .23, `${id}: la mano del radio a ${left.distanceTo(at(find('LeftArm'))).toFixed(3)} m del hombro`);
+    assert.ok(left.z > at(find('Spine2')).z + .15, `${id}: la mano del radio no queda delante del pecho`);
+    assert.ok(right.distanceTo(rightHip) < .2 && right.x < rightHip.x && right.y > rightHip.y + .08, `${id}: la mano derecha no queda en la cintura`);
+    hold(null);
+  }
+});
+
+test('el agarrón de un agente: aviso, zarpazo, embestida, agarre y el traspié cuando no alcanza', async () => {
+  for (const name of ['aviso', 'zarpazo', 'embestida', 'agarre', 'traspie']) assert.ok(STANCE_NAMES.includes(name), name);
+  for (const id of BODIES) {
+    const { bones, hold } = standing(await library(id));
+    const find = suffix => [...bones.values()].find(bone => bone.name.endsWith(suffix));
+    const at = bone => bone.getWorldPosition(new THREE.Vector3());
+    const degrees = radians => radians * 180 / Math.PI;
+    // El tronco: de la cadera al cuello, adelante (+) o atrás (-) de como está de pie; el giro, la línea de los hombros
+    // (+ es el hombro izquierdo adelante); el codo, lo que se dobla el antebrazo respecto del brazo.
+    const upright = () => { const spine = at(find('Neck')).sub(at(find('Hips'))); return degrees(Math.atan2(spine.z, spine.y)); };
+    const across = () => { const line = at(find('LeftArm')).sub(at(find('RightArm'))); return degrees(Math.atan2(line.z, line.x)); };
+    hold(null);
+    const standingPitch = upright(), standingTurn = across();
+    const pitch = () => upright() - standingPitch, turn = () => across() - standingTurn;
+    const elbow = side => {
+      const shoulder = at(find(`${side}Arm`)), joint = at(find(`${side}ForeArm`)), wrist = at(find(`${side}Hand`));
+      return degrees(joint.clone().sub(shoulder).angleTo(wrist.clone().sub(joint)));
+    };
+    const report = name => `${id}/${name}: tronco ${pitch().toFixed(1)}°, giro ${turn().toFixed(1)}°, codo ${elbow('Left').toFixed(0)}°`;
+    // El aviso: la mano izquierda al frente a la altura del hombro, abierta, con el codo doblado unos 70°; el tronco
+    // 10 a 12° adelante y la derecha atrás.
+    hold('aviso');
+    let hand = at(find('LeftHand')), shoulder = at(find('LeftArm')), hips = at(find('Hips'));
+    assert.ok(Math.abs(hand.y - shoulder.y) < .07 && hand.z > shoulder.z + .3, `${report('aviso')}: la mano en (${hand.x.toFixed(2)}, ${hand.y.toFixed(2)}, ${hand.z.toFixed(2)}), el hombro a ${shoulder.y.toFixed(2)}`);
+    assert.ok(elbow('Left') > 60 && elbow('Left') < 80, report('aviso'));
+    assert.ok(pitch() > 9 && pitch() < 13.5, report('aviso'));
+    assert.ok(at(find('RightHand')).z < hips.z, `${id}/aviso: la derecha no queda atrás`);
+    // El zarpazo: el brazo del todo, adelante y un poco abajo; el tronco girado unos 20° tras él y más echado.
+    hold('zarpazo');
+    hand = at(find('LeftHand')); shoulder = at(find('LeftArm'));
+    assert.ok(hand.z > shoulder.z + .38 && hand.y < shoulder.y && hand.y > shoulder.y - .25, `${report('zarpazo')}: la mano en (${hand.x.toFixed(2)}, ${hand.y.toFixed(2)}, ${hand.z.toFixed(2)})`);
+    assert.ok(elbow('Left') < 20, report('zarpazo'));
+    assert.ok(turn() > 15 && turn() < 25 && pitch() > 12, report('zarpazo'));
+    // La embestida: los dos brazos adelante y abiertos, más separados que los hombros, por debajo de ellos; el tronco
+    // echado de 20 a 40° y sin girar.
+    hold('embestida');
+    hand = at(find('LeftHand')); shoulder = at(find('LeftArm'));
+    {
+      const other = at(find('RightHand')), otherShoulder = at(find('RightArm'));
+      assert.ok(hand.z > shoulder.z + .3 && other.z > otherShoulder.z + .3, `${report('embestida')}: las manos en z ${hand.z.toFixed(2)} y ${other.z.toFixed(2)}`);
+      assert.ok(hand.y < shoulder.y && other.y < otherShoulder.y, `${report('embestida')}: las manos por debajo de los hombros`);
+      assert.ok(hand.x - other.x > shoulder.x - otherShoulder.x, `${report('embestida')}: los brazos abiertos (${(hand.x - other.x).toFixed(2)} m entre las manos)`);
+      assert.ok(pitch() > 20 && pitch() < 40 && Math.abs(turn()) < 6, report('embestida'));
+    }
+    // El agarre: la mano cerrada a la altura del hombro de él y el tronco ya echado atrás unos 5°.
+    hold('agarre');
+    hand = at(find('LeftHand')); shoulder = at(find('LeftArm'));
+    assert.ok(Math.abs(hand.y - shoulder.y) < .08 && hand.z > shoulder.z + .25, `${report('agarre')}: la mano en (${hand.x.toFixed(2)}, ${hand.y.toFixed(2)}, ${hand.z.toFixed(2)})`);
+    assert.ok(pitch() > -8 && pitch() < -2, report('agarre'));
+    // El traspié: el brazo izquierdo barre cruzándole el cuerpo, abajo; el tronco pasado 30 a 35° y echado unos 35°, y
+    // el brazo derecho abierto.
+    hold('traspie');
+    hand = at(find('LeftHand')); hips = at(find('Hips'));
+    const right = at(find('RightHand')), rightShoulder = at(find('RightArm'));
+    assert.ok(hand.x < -.03 && hand.y < hips.y + .3, `${report('traspie')}: la mano en (${hand.x.toFixed(2)}, ${hand.y.toFixed(2)}, ${hand.z.toFixed(2)})`);
+    assert.ok(turn() > 29 && turn() < 37 && pitch() > 30 && pitch() < 40, report('traspie'));
+    assert.ok(right.x < rightShoulder.x - .25, `${id}/traspie: el brazo derecho no se abre (${right.x.toFixed(2)} vs ${rightShoulder.x.toFixed(2)})`);
     hold(null);
   }
 });
@@ -421,4 +525,33 @@ test('el saco y la camiseta rota también ocultan la piel en el cuerpo completo'
       assert.deepEqual(piece.oculta, [...new Set(piece.oculta)].sort((a, b) => a - b), `${body.id}/${id}: lista ordenada y sin repetir`);
     }
   }
+});
+
+test('las posturas con peso propio entran sin transición, una sobre otra, y se retiran con restore', async () => {
+  const baked = await library('hombre-adulto');
+  const { layer, bones, root } = standing(baked);
+  const before = snapshot(bones);
+  const hips = [...bones.values()].find(bone => /hips$/i.test(bone.name));
+  const standingHip = hips.position.y;
+  // Un solo cuadro corto: ya está sentado del todo, sin esperar los segundos de `transition`.
+  layer.apply(1 / 60, { speed: 0, poses: [['patrulla', 1]] });
+  const seated = hips.position.y;
+  assert.ok(standingHip - seated > .5, `la cadera baja ${(standingHip - seated).toFixed(2)} m de una`);
+  assert.ok(layer.active && layer.hipWeight === 1);
+  layer.restore();
+  assert.deepEqual(snapshot(bones), before, 'restore la deja como estaba');
+  // A medio peso queda a medio camino, y la de encima manda sobre los huesos que comparten.
+  layer.apply(1 / 60, { speed: 0, poses: [['patrulla', 1], ['baja-derecha', .5]] });
+  const half = hips.position.y;
+  layer.restore();
+  layer.apply(1 / 60, { speed: 0, poses: [['patrulla', 1], ['baja-derecha', 1]] });
+  const edge = hips.position.y;
+  layer.restore();
+  assert.ok(half > seated + .05 && half < edge - .05, `sentado ${seated.toFixed(2)}, a medias ${half.toFixed(2)}, en el borde ${edge.toFixed(2)}`);
+  // Otra capa dueña del cuerpo las calla, y sin ellas la capa no queda trabajando.
+  layer.apply(1 / 60, { speed: 0, poses: [['patrulla', 1]], blocked: true });
+  root.updateMatrixWorld(true);
+  assert.deepEqual(snapshot(bones), before);
+  layer.apply(1 / 60, { speed: 0 });
+  assert.equal(layer.active, false);
 });

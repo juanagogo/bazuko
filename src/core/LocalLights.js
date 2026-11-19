@@ -68,6 +68,8 @@ export class LocalLights {
     for (const entry of this.sources.values()) {
       const light = entry.light;
       if (light.intensity <= 0) continue;
+      // En alta estos postes ya iluminan cada superficie desde su posición en la tabla de la ciudad.
+      if (light.userData.streetFixture && this.scene.userData.mappedStreetLights) continue;
       let visible = true;
       for (let node = light; node; node = node.parent) if (!node.visible) { visible = false; break; }
       if (!visible) continue;

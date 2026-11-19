@@ -35,7 +35,7 @@ export class SecondaryMotion {
     this.active = false;
   }
 
-  apply(dt, { speed = 0, load = 0, action = null, phase = 0, turnRate = 0 } = {}) {
+  apply(dt, { speed = 0, load = 0, action = null, phase = 0, turnRate = 0, turnInPlace = false } = {}) {
     this.restore();
     this.time += dt;
     const k = animationDamping(dt, 6);
@@ -43,11 +43,11 @@ export class SecondaryMotion {
     this.motion = dampedSpring(this._motion, desiredMotion, 9, .75, dt);
     const transfer = desiredMotion - this.motion;
     this.load += (Math.min(1, Math.max(0, load)) - this.load) * k;
-    // Un giro rápido produce una torsión breve y limitada; se desvanece al enderezarse.
-    // A velocidades bajas se reduce para no desplazar los pies de la pose de reposo.
+    // El pecho compensa un giro y la cabeza se adelanta, también al volverse hacia alguien de pie.
     const turn = Number.isFinite(turnRate) ? Math.min(1, Math.max(-1, turnRate / 5)) : 0;
-    this.turn = dampedSpring(this._turn, turn * desiredMotion, 16, .7, dt);
-    const lead = criticalSpring(this._lead, turn * desiredMotion, 30, dt);
+    const turning = turn * Math.max(desiredMotion, turnInPlace ? .32 : 0);
+    this.turn = dampedSpring(this._turn, turning, 16, .7, dt);
+    const lead = criticalSpring(this._lead, turning, 30, dt);
     // Los gestos, las acciones de cuerpo entero y su altura original tienen prioridad.
     if (action) return;
 

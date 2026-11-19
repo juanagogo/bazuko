@@ -2,11 +2,13 @@
 // Las frases de la gente. Nadie reparte el espacio si cada quien pone la suya: aquí se eligen las de los más cercanos,
 // máximo dos o tres, y se apartan para que no se pisen entre ellas ni con el cartón. Sin nadie hablando no cuesta nada.
 
-const OCUPADO = '#hud-dock, #topbar, #interaction-prompt, #retazo, #mision';
+const OCUPADO = '#hud-dock, #topbar, #interaction-prompt, #retazo, #mision, #zona-cartel';
 const MEDIR_CADA_MS = 250;
 const SEPARACION = 4;
 const MARGEN = 6;
 const LEJOS_M = 28;        // de ahí para allá la frase ya no se alcanza a oír
+/** Metros sobre el piso a los que sale la frase de una persona; quien es más alto trae la suya en `_fraseAlto`. */
+export const ALTO_FRASE = 2.05;
 const APARTA_MAX_PX = 150; // apartada más que esto, ya no se sabe quién la dijo
 
 /** Dos en el celular, tres con pantalla grande. */
@@ -47,16 +49,23 @@ const lista = [];
 export const empezarFrase = (npc) => { vivas.add(npc); };
 export const acabarFrase = (npc) => { vivas.delete(npc); };
 
-let _ocupado = [], _medido = -Infinity;
+let _ocupado = [], _medido = -Infinity, _zonaMedida = null;
 
 function medirOcupado(doc, now) {
-  if (now - _medido < MEDIR_CADA_MS) return _ocupado;
+  const zona = doc.getElementById('zona-cartel');
+  const nombreZona = zona && !zona.hidden ? zona.textContent : null;
+  if (nombreZona === _zonaMedida && now - _medido < MEDIR_CADA_MS) return _ocupado;
+  _zonaMedida = nombreZona;
   _medido = now;
   _ocupado = [];
   for (const el of doc.querySelectorAll(OCUPADO)) {
     const r = el.getBoundingClientRect();
     const estilo = getComputedStyle(el);
-    if (r.width > 1 && r.height > 1 && estilo.visibility !== 'hidden' && +estilo.opacity > .05) _ocupado.push({ x: r.left, y: r.top, w: r.width, h: r.height });
+    const esZona = el === zona;
+    if (r.width <= 1 || r.height <= 1 || estilo.visibility === 'hidden' || (esZona ? zona.hidden : +estilo.opacity <= .05)) continue;
+    // El cartel baja al entrar. Reserva el espacio entre su posición actual y la que tendrá al asentarse.
+    const destino = esZona ? el.offsetTop : r.top;
+    _ocupado.push({ x: r.left, y: Math.min(r.top, destino), w: r.width, h: r.height + Math.abs(destino - r.top) });
   }
   return _ocupado;
 }
@@ -81,9 +90,12 @@ export function actualizarFrases(camara, desde, now = performance.now()) {
     if (!npc._bubbleEl) { vivas.delete(npc); continue; }
     const dist = npc.position.distanceTo(desde);
     if (dist > LEJOS_M) { escribir(npc, null); continue; }
-    const p = npc._projPos.set(npc.position.x, npc.position.y + 2.05, npc.position.z).project(camara);
+    const p = npc._projPos.set(npc.position.x, npc.position.y + (npc._fraseAlto ?? ALTO_FRASE), npc.position.z).project(camara);
     if (!(p.z < 1)) { escribir(npc, null); continue; }
-    lista.push({ npc, dist, x: (p.x * .5 + .5) * ancho, y: (-p.y * .5 + .5) * alto, w: npc._fraseW, h: npc._fraseH });
+    // De cerca, el techo de una buseta o de un bus se sale de la pantalla por arriba: su frase se queda en el borde.
+    const cabeza = (-p.y * .5 + .5) * alto;
+    const y = npc._fraseAlto > ALTO_FRASE ? Math.max(cabeza, MARGEN + npc._fraseH) : cabeza;
+    lista.push({ npc, dist, x: (p.x * .5 + .5) * ancho, y, w: npc._fraseW, h: npc._fraseH });
   }
   lista.sort((a, b) => a.dist - b.dist);
   const cajas = repartirFrases(lista, { ancho, alto, ocupado: medirOcupado(doc, now), maximo: frasesALaVista(ancho, alto) });

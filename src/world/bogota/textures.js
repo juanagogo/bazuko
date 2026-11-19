@@ -21,8 +21,8 @@ function canvas(w, h) {
     { width: w, height: h, getContext: () => null },
     {
       fillStyle: '', strokeStyle: '', lineWidth: 1, globalAlpha: 1,
-      fillRect() {}, strokeRect() {}, clearRect() {},
-      beginPath() {}, moveTo() {}, lineTo() {}, stroke() {}, fill() {},
+      fillRect() {}, strokeRect() {}, clearRect() {}, drawImage() {},
+      beginPath() {}, moveTo() {}, lineTo() {}, bezierCurveTo() {}, stroke() {}, fill() {},
       arc() {}, save() {}, restore() {}, translate() {}, rotate() {},
       scale() {}, fillText() {}, strokeText() {}, measureText: () => ({ width: 0 }),
       createRadialGradient: () => ({ addColorStop() {} }),
@@ -105,6 +105,37 @@ function speckle(ctx, w, h, r, count, colors, maxSize = 2) {
     const s = 0.5 + r() * maxSize;
     ctx.fillRect(r() * w, r() * h, s, s);
   }
+}
+
+/** Baldosas de arcilla de 24 × 12 cm. Las parejas cambian de dirección en cada cuadro. */
+export const PARK_PAVER_METERS = 2.88;
+
+export function parkPavers() {
+  const size = 384, block = 32;
+  const s = surface(size, size, '#665d50', 224), r = rng(42413);
+  const clay = ['#ab7357', '#ab765b', '#a26d55', '#a6745b', '#a37962', '#ae8068'];
+  for (let row = 0; row < size / block; row++) for (let col = 0; col < size / block; col++) {
+    const alongX = (row + col) % 2 === 0;
+    const w = alongX ? block : block / 2, h = alongX ? block / 2 : block;
+    for (let pair = 0; pair < 2; pair++) {
+      const x = col * block + (alongX ? 0 : pair * w), y = row * block + (alongX ? pair * h : 0);
+      s.x.fillStyle = pick(r, clay); s.x.fillRect(x + .7, y + .7, w - 1.4, h - 1.4);
+      s.x.fillStyle = 'rgba(244,212,173,.16)'; s.x.fillRect(x + 1, y + 1, w - 2, .8);
+      s.xb.fillStyle = gray(153 + Math.floor(r() * 9)); s.xb.fillRect(x + .8, y + .8, w - 1.6, h - 1.6);
+      s.xr.fillStyle = gray(188 + Math.floor(r() * 20)); s.xr.fillRect(x + 1, y + 1, w - 2, h - 2);
+    }
+  }
+  aggregate(s, r, 4200, ['rgba(77,54,42,.12)', 'rgba(220,201,172,.12)'], 1);
+  // Three lee el relieve en R y la rugosidad en G. Una imagen sirve a ambos lados del
+  // sendero del lago y el shader de la ribera lee los dos canales en una sola muestra.
+  s.xb.globalCompositeOperation = s.xr.globalCompositeOperation = 'multiply';
+  s.xb.fillStyle = '#ff0000'; s.xb.fillRect(0, 0, size, size);
+  s.xr.fillStyle = '#00ff00'; s.xr.fillRect(0, 0, size, size);
+  s.xb.globalCompositeOperation = 'screen';
+  s.xb.drawImage(s.cr, 0, 0);
+  const maps = surfaceMaps(s);
+  maps.roughnessMap.source = maps.bumpMap.source;
+  return maps;
 }
 
 /** Asfalto mineral: árido, reparaciones y humedad; el acabado mojado lo mezcla el material. */
@@ -198,12 +229,20 @@ export function sidewalk(seed = 11, { district = 'centro' } = {}) {
     const px = r() * s, py = r() * s, pr = 1.6 + r() * 2.6;
     softPatch(x, s, s, px, py, pr, pr * (.7 + r() * .3), 'rgba(38,36,32,.5)');
   }
+  // Hasta 120 con su propia semilla, para que lo de antes salga igual: los recientes negros, los viejos ya grises.
+  const u = rng((seed ^ 0x3c9d41) >>> 0);
+  for (let i = 26; i < 120; i++) {
+    const px = u() * s, py = u() * s, pr = 1.4 + u() * 2.4;
+    softPatch(x, s, s, px, py, pr, pr * (.7 + u() * .3), u() < .6 ? 'rgba(38,36,32,.5)' : 'rgba(84,81,74,.42)');
+  }
   return surfaceMaps(maps);
 }
 
 /** Ladrillo a la vista, como las culatas de las casas de barrio. */
 /** Ladrillo para muros laterales. La textura cubre BRICK_TILE metros (8 × 21,3 ladrillos). */
 export const BRICK_TILE = { w: 8 * 0.36, h: 24 * 0.12 };
+/** Tinte del ladrillo de costados, culatas y antepechos: vive con el ladrillo para que case con el de las fachadas. */
+export const TINTE_COSTADO = '#e3cfc0';
 
 export function brick(seed = 3) {
   const r = rng(seed);
@@ -212,11 +251,27 @@ export function brick(seed = 3) {
   brickWall(maps.x, r, 0, 0, w, h, w / BRICK_TILE.w, maps.xb, maps.xr);
   speckle(maps.x, w, h, r, 12000, ['rgba(82,54,37,.12)', 'rgba(241,212,176,.12)'], 1.3);
   for (let i = 0; i < 5; i++) softPatch(maps.x, w, h, r() * w, r() * h, 40 + r() * 70, 22 + r() * 45, 'rgba(208,200,174,.13)');
+  // Hollín y toletes requemados, con azar propio para no correr el dibujo de siempre.
+  const u = rng((seed ^ 0x51a7e0d) >>> 0);
+  for (let i = 0; i < 7; i++) softPatch(maps.x, w, h, u() * w, u() * h, 50 + u() * 90, 40 + u() * 110, 'rgba(52,35,27,.17)');
   return surfaceMaps(maps);
 }
 
-const WALLS = ['#c9a46a', '#b8695a', '#7f9aa8', '#d8c9a3', '#8fa37a', '#c27f4a', '#a7a29a', '#b58fa8', '#d2b48c', '#6d8c9e'];
-const SMALL_SIGNS = ['SE ARRIENDA', 'SE VENDE', 'MINUTOS', 'RECARGAS', 'CERRAJERÍA', 'MODISTERÍA', 'SE HACEN UÑAS', 'FOTOCOPIAS'];
+// Pañetes de barrio lavados por la lluvia: ocre, salmón, añil, crema, menta, terracota, gris, rosa viejo, amarillo y celeste.
+const WALLS = ['#c59d62', '#c88c73', '#6f879c', '#d9caa2', '#9db79a', '#b26d4b', '#a8a297', '#bd959d', '#d1b168', '#8ca9b5'];
+// Cada barrio pinta con su mezcla (índices de WALLS); la base y el acento del barrio van aparte.
+// El orden está escogido para que las casas pintadas de hoy se repartan entre todos los tonos.
+const WALL_MIX = {
+  cambuche: [1, 3, 6, 0, 5, 4],
+  comercio: [9, 1, 1, 8, 3, 0, 9, 7, 4, 2, 8],
+  lago: [4, 4, 9, 2, 3, 8],
+  centro: [7, 4, 7, 3, 9, 0, 1, 8, 3, 2, 9, 1, 4, 2, 5],
+  candelaria: [3, 8, 0, 2, 1],
+  chapinero: [5, 3, 0, 6]
+};
+const wallMix = district => (WALL_MIX[district] ?? WALL_MIX.centro).map(i => WALLS[i]);
+// Avisos que valen para cualquier local: el oficio lo dice su rótulo, no la persiana.
+const SHUTTERS = ['#868a82', '#5f7d64', '#58748c', '#8f5345', '#a8925a', '#7d8078', '#6f7f86'];
 const TAGS = ['LUZ', 'ZONA 7', 'RBQ', 'LA 33', 'PARCE', 'ÑERO', 'CALLE'];
 
 /**
@@ -228,7 +283,7 @@ export const BRICK_M = { w: 0.36, h: 0.12 };
 
 /** Dibuja ladrillo tolete a la vista en un rectángulo del canvas (pxPerM = píxeles por metro). */
 function brickWall(x, r, x0, y0, w, h, pxPerM = 36, xb = null, xr = null) {
-  x.fillStyle = '#aaa28d';
+  x.fillStyle = '#9a9488';
   x.fillRect(x0, y0, w, h);
   if (xb) {
     xb.fillStyle = '#747474';
@@ -244,9 +299,9 @@ function brickWall(x, r, x0, y0, w, h, pxPerM = 36, xb = null, xr = null) {
       const rw = Math.min(x0 + w, bx + off + bw - joint) - left;
       const rh = Math.min(y0 + h, y + bh - joint) - top;
       if (rw <= 0 || rh <= 0) continue;
-      x.fillStyle = pick(r, ['#ac7352', '#b77d59', '#9c684c', '#bb825c', '#a36d51', '#b47a58']);
+      x.fillStyle = pick(r, ['#ad6142', '#b76a47', '#9f573c', '#bb714d', '#8f4f3a', '#b16646']);
       x.fillRect(left, top, rw, rh);
-      x.fillStyle = 'rgba(233,193,150,.18)'; x.fillRect(left, top, rw, Math.min(.8, rh * .18));
+      x.fillStyle = 'rgba(236,186,144,.16)'; x.fillRect(left, top, rw, Math.min(.8, rh * .18));
       if (xb) {
         xb.fillStyle = gray(130 + Math.floor(r() * 8)); xb.fillRect(left, top, rw, rh);
       }
@@ -255,7 +310,129 @@ function brickWall(x, r, x0, y0, w, h, pxPerM = 36, xb = null, xr = null) {
   }
 }
 
-export function facade({ seed, width = 6, floors = 3, pxPerM = 28, shopFront = true, style = 'pintada', wallColor = null, district = 'centro' }) {
+// Ventanas del primer piso. El vidrio comparte el mismo hueco en albedo,
+// emisión y mapas físicos, incluso si el barrio cambia los colores de la casa.
+function streetWindow(x, xe, xr, xb, r, palette, left, top, w, h, display) {
+  const frame = Math.max(1, h * .045);
+  x.fillStyle = palette.trim;
+  x.fillRect(left - frame, top - frame, w + frame * 2, h + frame * 2);
+  xb.fillStyle = '#999'; xb.fillRect(left - frame, top - frame, w + frame * 2, h + frame * 2);
+  xb.fillStyle = '#777'; xb.fillRect(left, top, w, h);
+  xr.fillStyle = '#686868'; xr.fillRect(left, top, w, h);
+  const lit = r() < (display ? .65 : .33);
+  const light = x.createLinearGradient(0, top, 0, top + h);
+  light.addColorStop(0, lit ? '#927d64' : '#60777a');
+  light.addColorStop(1, lit ? '#4f4035' : '#25363c');
+  x.fillStyle = light; x.fillRect(left, top, w, h);
+  if (lit) { xe.fillStyle = display ? '#b68e64' : '#ae896c'; xe.fillRect(left, top, w, h); }
+  if (display) {
+    // Dos repisas, canecas y empaques vistos detrás de la vitrina.
+    for (const level of [.47, .84]) {
+      const shelfY = top + h * level;
+      for (let i = 0; i < 6; i++) {
+        const boxH = (.07 + r() * .13) * h, boxW = (.07 + r() * .05) * w;
+        const boxX = left + (.035 + i * .154) * w;
+        x.fillStyle = pick(r, ['#998263', '#9f5d43', '#596e57', '#b9aa80']);
+        x.fillRect(boxX, shelfY - boxH, boxW, boxH);
+        xe.fillStyle = '#241e18'; xe.fillRect(boxX, shelfY - boxH, boxW, boxH);
+      }
+      x.fillStyle = '#372e29'; x.fillRect(left, shelfY, w, frame * .65);
+      xe.fillStyle = '#101010'; xe.fillRect(left, shelfY, w, frame * .65);
+    }
+  } else {
+    const curtain = w * (.22 + r() * .22);
+    x.fillStyle = pick(r, ['#c3b8a0', '#a69e8b', '#87766b']);
+    x.fillRect(left, top, curtain, h);
+    xe.fillStyle = '#302821'; xe.fillRect(left, top, curtain, h);
+  }
+  x.fillStyle = palette.metal; x.fillRect(left + w * .5, top, frame, h);
+  xe.fillStyle = '#090909'; xe.fillRect(left + w * .5, top, frame, h);
+}
+
+/** Pañete lavado y ladrillo requemado. Las manchas son periódicas: la textura puede repetirse en una torre. */
+function weatherWall(x, u, w, h, m, { style, floors, width, shopFront }) {
+  if (style === 'ruina') return;
+  const brick = style === 'ladrillo';
+  for (let i = 0, n = 4 + floors * 2; i < n; i++) {
+    const dark = u() < .55;
+    softPatch(x, w, h, u() * w, u() * h, (.5 + u() * 1.5) * m, (.6 + u() * 2.2) * m,
+      brick ? (dark ? 'rgba(52,35,27,.2)' : 'rgba(232,176,132,.14)') : (dark ? 'rgba(74,62,44,.14)' : 'rgba(255,249,230,.17)'));
+  }
+  if (brick || !shopFront) return;
+  // La lluvia destiñe el color por franjas, más arriba que abajo.
+  for (let i = 0, n = 3 + Math.round(width * .8); i < n; i++) {
+    const bx = u() * w, bw = (.25 + u() * 1.3) * m, reach = h * (.45 + u() * .55), light = u() < .6;
+    const tone = light ? '255,248,228' : '66,56,40', g = x.createLinearGradient(0, 0, 0, reach);
+    g.addColorStop(0, `rgba(${tone},${(light ? .12 + u() * .15 : .08 + u() * .13).toFixed(2)})`);
+    g.addColorStop(1, `rgba(${tone},0)`);
+    x.fillStyle = g; x.fillRect(bx, 0, bw, reach);
+  }
+  // Parches de repinte que nunca dan con el tono.
+  for (let i = 0, n = 1 + Math.floor(u() * 3); i < n; i++) {
+    const pw = (.7 + u() * 1.6) * m, ph = (.5 + u() * 1.2) * m;
+    x.fillStyle = u() < .5 ? 'rgba(255,250,236,.1)' : 'rgba(58,48,36,.08)';
+    x.fillRect(u() * (w - pw), u() * (h - ph), pw, ph);
+  }
+}
+
+/** Viga de amarre de concreto a la vista en cada entrepiso y en el remate, con su chorreón. */
+function concreteBeams(x, xb, xr, u, w, h, fh, floors, m, tiled) {
+  const bh = Math.max(2, m * .2);
+  for (let f = 1; f <= floors; f++) {
+    // En una torre la textura se repite hacia arriba: la viga del remate va al pie para que el paso sea parejo.
+    const y = f < floors ? h - f * fh - bh : tiled ? h - bh : 0;
+    x.fillStyle = '#a19c91'; x.fillRect(0, y, w, bh);
+    x.fillStyle = 'rgba(255,252,240,.14)'; x.fillRect(0, y, w, Math.max(1, bh * .18));
+    x.fillStyle = 'rgba(36,30,24,.34)'; x.fillRect(0, y + bh, w, Math.max(1, m * .035));
+    xb.fillStyle = '#8c8c8c'; xb.fillRect(0, y, w, bh);
+    xr.fillStyle = '#d4d4d4'; xr.fillRect(0, y, w, bh);
+    for (let i = 0, n = Math.round(w / m * 1.4); i < n; i++) {
+      const sx = u() * w, sl = (.2 + u() * u() * 1.1) * m, g = x.createLinearGradient(0, y, 0, y + bh + sl);
+      g.addColorStop(0, 'rgba(60,54,44,0)'); g.addColorStop(.25, `rgba(60,54,44,${(.12 + u() * .16).toFixed(2)})`);
+      g.addColorStop(1, 'rgba(60,54,44,0)');
+      x.fillStyle = g; x.fillRect(sx, y, Math.max(1, (.03 + u() * .09) * m), bh + sl);
+    }
+  }
+}
+
+/** Sombra bajo el remate y chorreones de hollín que bajan desde arriba. */
+function corniceGrime(x, u, w, width, m) {
+  const band = x.createLinearGradient(0, 0, 0, m * .7);
+  band.addColorStop(0, 'rgba(38,32,25,.44)'); band.addColorStop(1, 'rgba(38,32,25,0)');
+  x.fillStyle = band; x.fillRect(0, 0, w, m * .7);
+  for (let i = 0, n = Math.round(width * 2.2); i < n; i++) {
+    const sx = u() * w, sl = (.4 + u() * u() * 2.8) * m, g = x.createLinearGradient(0, 0, 0, sl);
+    g.addColorStop(0, `rgba(46,40,30,${(.18 + u() * .24).toFixed(2)})`); g.addColorStop(1, 'rgba(46,40,30,0)');
+    x.fillStyle = g; x.fillRect(sx, 0, Math.max(1, (.04 + u() * .14) * m), sl);
+  }
+}
+
+/** Hilos de mugre bajo el alféizar: los más largos salen de las dos puntas, por donde escurre el agua. */
+function sillStreaks(x, u, wx, y, ww, fh, m, brick) {
+  for (let i = 0; i < 7; i++) {
+    const end = i < 2, sx = end ? wx - 2 + i * ww : wx + u() * ww;
+    const sl = fh * (end ? .24 + u() * .24 : .08 + u() * .22), g = x.createLinearGradient(0, y, 0, y + sl);
+    const tone = brick && !end && i % 2 ? '226,214,196' : '48,41,30';
+    g.addColorStop(0, `rgba(${tone},${end ? .46 : .32})`); g.addColorStop(1, `rgba(${tone},0)`);
+    x.fillStyle = g; x.fillRect(sx, y, Math.max(1, (end ? .06 : .03 + u() * .05) * m), sl);
+  }
+}
+
+/** Zócalo sucio: lo que salpica la calle de 0 a 0,65 m, más cargado contra el andén; salitre en el ladrillo. */
+function plinthSplash(x, u, w, h, width, m, brick) {
+  const zh = .65 * m, g = x.createLinearGradient(0, h - zh, 0, h);
+  g.addColorStop(0, 'rgba(50,43,33,0)'); g.addColorStop(1, 'rgba(50,43,33,.42)');
+  x.fillStyle = g; x.fillRect(0, h - zh, w, zh);
+  for (let i = 0, n = Math.round(width * 24); i < n; i++) {
+    const k = u() * u();
+    x.fillStyle = u() < .7 ? 'rgba(46,39,30,.34)' : brick ? 'rgba(228,222,206,.3)' : 'rgba(150,140,120,.3)';
+    x.fillRect(u() * w, h - k * zh - 1, 1 + u() * m * .08, 1 + u() * m * .06);
+  }
+  x.fillStyle = 'rgba(30,26,20,.36)'; x.fillRect(0, h - Math.max(1, m * .04), w, Math.max(1, m * .04));
+}
+
+export function facade({ seed, width = 6, floors = 3, pxPerM = 28, shopFront = true,
+  groundFloor = shopFront ? 'shop' : 'windows', style = 'pintada', wallColor = null, district = 'centro' }) {
   const r = rng(seed);
   width = Math.max(1, Number.isFinite(width) ? width : 6);
   floors = Math.max(1, Math.round(Number.isFinite(floors) ? floors : 3));
@@ -275,8 +452,13 @@ export function facade({ seed, width = 6, floors = 3, pxPerM = 28, shopFront = t
   xb.fillStyle = '#808080'; // Relieve neutro
   xb.fillRect(0, 0, w, h);
 
-  const wall = wallColor ?? pick(r, [palette.facadeBase, palette.facadeBase, palette.facadeAccent, ...WALLS.slice(3, 5)]);
+  const mix = wallMix(district);
+  const wall = wallColor ?? pick(r, [palette.facadeBase, palette.facadeAccent, ...mix]);
   const ruin = style === 'ruina';
+  // Azar propio del desgaste: no corre la secuencia de la fachada ni cambia con el barrio.
+  const u = rng((seed ^ 0x51a7e0d) >>> 0);
+  // Y el del brillo de los vidrios, por lo mismo.
+  const v = rng((seed ^ 0x6c1a55) >>> 0);
   if (style === 'ladrillo') {
     brickWall(x, r, 0, 0, w, h, pxPerM, xb, xr);
   } else {
@@ -291,6 +473,7 @@ export function facade({ seed, width = 6, floors = 3, pxPerM = 28, shopFront = t
       }
     }
   }
+  weatherWall(x, u, w, h, pxPerM, { style, floors, width, shopFront });
   speckle(x, w, h, r, Math.min(50000, w * h * .035), ['rgba(56,47,37,.08)', 'rgba(255,246,218,.08)'], 1.3);
   // El revoque tiene grano propio: la pintura, las manchas y los avisos no afectan el relieve.
   if (style !== 'ladrillo') speckle(xb, w, h, rng(seed + 719), Math.min(24000, w * h * .025), ['#7e7e7e', '#828282'], 1.1);
@@ -298,7 +481,7 @@ export function facade({ seed, width = 6, floors = 3, pxPerM = 28, shopFront = t
   // pintura vieja por pisos (cada piso lo pintó otro dueño)
   for (let f = 1; f < floors; f++) {
     if (style === 'pintada' && r() < 0.45) {
-      x.fillStyle = pick(r, [palette.facadeAccent, palette.facadeBase, ...WALLS.slice(3, 5)]);
+      x.fillStyle = pick(r, [palette.facadeAccent, palette.facadeBase, ...mix]);
       x.globalAlpha = 0.6;
       x.fillRect(0, h - (f + 1) * fh, w, fh);
       x.globalAlpha = 1;
@@ -307,9 +490,12 @@ export function facade({ seed, width = 6, floors = 3, pxPerM = 28, shopFront = t
     x.fillStyle = palette.trim; x.globalAlpha = .45; x.fillRect(0, h - f * fh, w, 2); x.globalAlpha = 1;
   }
 
+  if (style === 'ladrillo') concreteBeams(x, xb, xr, u, w, h, fh, floors, pxPerM, !shopFront);
+  if (shopFront) corniceGrime(x, u, w, width, pxPerM);
+
   const cols = Math.max(1, Math.round(width / 3.2));
   const cw = w / cols;
-  for (let f = shopFront ? 1 : 0; f < floors; f++) {
+  for (let f = groundFloor === 'windows' ? 0 : 1; f < floors; f++) {
     const y0 = h - (f + 1) * fh;
     for (let k = 0; k < cols; k++) {
       if (r() < 0.12) continue;
@@ -339,8 +525,22 @@ export function facade({ seed, width = 6, floors = 3, pxPerM = 28, shopFront = t
       else if (lit < 0.36) { glass = '#dde4d9'; emis = '#d8ddc6'; }
       x.fillStyle = style === 'ladrillo' ? palette.trim : '#585a55';
       x.fillRect(wx - 3, wy - 3, ww + 6, wh + 6);
-      x.fillStyle = glass;
-      x.fillRect(wx, wy, ww, wh);
+      if (emis) {
+        x.fillStyle = glass;
+        x.fillRect(wx, wy, ww, wh);
+      } else {
+        // Vidrio apagado: devuelve el cielo arriba y oscurece hacia el alféizar; uno de cada tres lleva un brillo en diagonal.
+        const sky = x.createLinearGradient(0, wy, 0, wy + wh);
+        sky.addColorStop(0, '#4f6168'); sky.addColorStop(1, '#2d3a3f');
+        x.fillStyle = sky;
+        x.fillRect(wx, wy, ww, wh);
+        if (v() < 1 / 3) {
+          const bx = wx + ww * (.2 + v() * .4), bw = ww * .22, lean = wh * .45;
+          x.fillStyle = 'rgba(255,255,255,.08)';
+          x.beginPath(); x.moveTo(bx, wy); x.lineTo(bx + bw, wy);
+          x.lineTo(Math.max(wx, bx + bw - lean), wy + wh); x.lineTo(Math.max(wx, bx - lean), wy + wh); x.fill();
+        }
+      }
 
       // Vidrio satinado; el marco y el alféizar tienen altura propia.
       xr.fillStyle = '#6a6a6a';
@@ -387,13 +587,36 @@ export function facade({ seed, width = 6, floors = 3, pxPerM = 28, shopFront = t
       g.addColorStop(1, 'rgba(56,48,35,0)');
       x.fillStyle = g;
       x.fillRect(wx, wy + wh + 3, ww, fh * 0.6);
+      sillStreaks(x, u, wx, wy + wh + 3, ww, fh, pxPerM, style === 'ladrillo');
     }
   }
 
-  if (shopFront) {
-    // Zócalo protector, persianas enrollables y avisos de los oficios del barrio.
+  if (groundFloor === 'residential') {
+    // Cerámica en el zócalo y ventanas a cada lado de la puerta de la casa.
+    const tile = Math.max(3, pxPerM * .29);
+    x.fillStyle = palette.plinth; x.fillRect(0, h - tile * 3, w, tile * 3);
+    x.fillStyle = 'rgba(230,220,196,.38)';
+    for (let y = h - tile * 3; y < h; y += tile) x.fillRect(0, y, w, 1);
+    for (let col = tile; col < w; col += tile) x.fillRect(col, h - tile * 3, 1, tile * 3);
+    if (width >= 3.5) {
+      const windowW = Math.min(1.55 * pxPerM, w * .23);
+      for (const center of [.16, .84]) {
+        streetWindow(x, xe, xr, xb, r, palette, w * center - windowW / 2, h - 2.05 * pxPerM, windowW, 1.05 * pxPerM, false);
+      }
+    }
+  }
+
+  if (groundFloor === 'shop') {
+    // Zócalo pintado hasta la cintura, vitrinas y persianas con óxido.
     const y0 = h - fh;
-    x.fillStyle = palette.plinth; x.fillRect(0, h - fh * .16, w, fh * .16);
+    x.fillStyle = palette.plinth; x.fillRect(0, h - fh * .3, w, fh * .3);
+    x.fillStyle = 'rgba(0,0,0,.2)'; x.fillRect(0, h - fh * .3, w, Math.max(1, pxPerM * .03));
+    // Pintura caída en el borde del zócalo y abajo, donde salpica la calle.
+    for (let i = 0; i < w / 5; i++) {
+      x.fillStyle = r() < .5 ? 'rgba(176,168,150,.7)' : 'rgba(96,88,74,.55)';
+      const high = r() < .45;
+      x.fillRect(r() * w, high ? h - fh * .3 - 2 + r() * 5 : h - r() * fh * .12, 1 + r() * pxPerM * .12, 1 + r() * pxPerM * .07);
+    }
     const doors = Math.max(1, Math.round(width / 4.2));
     const dw = w / doors;
     for (let d = 0; d < doors; d++) {
@@ -401,31 +624,76 @@ export function facade({ seed, width = 6, floors = 3, pxPerM = 28, shopFront = t
       const ddw = dw * 0.84;
       const dy = y0 + fh * 0.18;
       const dh = fh * 0.82;
+      if (!ruin && width / doors >= 2.8 && r() < .6) {
+        // Detrás de una vitrina sigue haciendo falta una entrada desde el andén.
+        const doorWidth = Math.min(pxPerM * 1.1, ddw * .29);
+        const inset = Math.max(2, pxPerM * .09);
+        x.fillStyle = palette.plinth; x.fillRect(dx, dy, ddw, dh);
+        streetWindow(x, xe, xr, xb, r, palette, dx + doorWidth + inset, dy, ddw - doorWidth - 2 * inset, dh * .75, true);
+        const door = dx + doorWidth * .14;
+        x.fillStyle = palette.metal; x.fillRect(dx, dy, doorWidth, dh);
+        x.fillStyle = '#394b4d'; x.fillRect(door, dy + inset, doorWidth * .73, dh * .66);
+        xr.fillStyle = '#686868'; xr.fillRect(door, dy + inset, doorWidth * .73, dh * .66);
+        x.fillStyle = palette.trim; x.fillRect(door + doorWidth * .54, dy + dh * .55, inset * .52, dh * .16);
+        continue;
+      }
       x.fillStyle = palette.trim; x.fillRect(dx - 2, dy - 2, ddw + 4, dh + 2);
-      x.fillStyle = pick(r, [palette.metal, '#858981', '#888073', '#727b72']);
-      x.fillRect(dx, dy, ddw, dh);
-      const slat = Math.max(3, pxPerM * .16);
-      for (let l = dy; l < dy + dh; l += slat) {
-        x.fillStyle = 'rgba(44,47,43,.25)'; x.fillRect(dx, l, ddw, 1);
-        x.fillStyle = 'rgba(223,218,199,.17)'; x.fillRect(dx, l + 1, ddw, 1);
+      const walled = ruin && r() < .3;
+      if (walled) {
+        // Local tapiado: en El Cartucho muchos ya no abren.
+        brickWall(x, r, dx, dy, ddw, dh, pxPerM, xb, xr);
+        x.fillStyle = 'rgba(120,116,104,.35)'; x.fillRect(dx, dy, ddw, dh);
+      } else {
+        x.fillStyle = pick(r, ruin ? [palette.metal, '#7d7468', '#77604f', '#6c7068'] : [palette.metal, ...SHUTTERS]);
+        x.fillRect(dx, dy, ddw, dh);
+        const slat = Math.max(3, pxPerM * .16);
+        for (let l = dy; l < dy + dh; l += slat) {
+          x.fillStyle = 'rgba(44,47,43,.25)'; x.fillRect(dx, l, ddw, 1);
+          x.fillStyle = 'rgba(223,218,199,.17)'; x.fillRect(dx, l + 1, ddw, 1);
+          // Canal de la lama: el lomo coge la luz y el pliegue de abajo queda en sombra.
+          x.fillStyle = 'rgba(255,250,235,.1)'; x.fillRect(dx, l + 1, ddw, slat * .36);
+          x.fillStyle = 'rgba(18,20,18,.22)'; x.fillRect(dx, l + slat * .62, ddw, slat * .38);
+          // Lamas cambiadas o abolladas: ninguna persiana vieja es de un solo tono.
+          if (r() < .1) { x.fillStyle = r() < .5 ? 'rgba(255,250,235,.1)' : 'rgba(0,0,0,.12)'; x.fillRect(dx, l, ddw, slat); }
+        }
+        const rust = x.createLinearGradient(0, dy + dh * .5, 0, dy + dh);
+        rust.addColorStop(0, 'rgba(110,66,36,0)'); rust.addColorStop(1, ruin ? 'rgba(110,66,36,.75)' : 'rgba(110,66,36,.45)');
+        x.fillStyle = rust; x.fillRect(dx, dy + dh * .5, ddw, dh * .5);
+        for (let i = 0; i < (ruin ? 60 : 26); i++) {
+          x.fillStyle = 'rgba(112,64,34,.4)';
+          x.fillRect(dx + r() * ddw, dy + dh * (.35 + r() * .65), 1 + r() * pxPerM * .06, 1 + r() * pxPerM * .1);
+        }
+        x.fillStyle = 'rgba(28,28,26,.5)'; x.fillRect(dx, dy + dh - pxPerM * .12, ddw, pxPerM * .12);
+        x.fillRect(dx, dy, Math.max(1, pxPerM * .05), dh); x.fillRect(dx + ddw - Math.max(1, pxPerM * .05), dy, Math.max(1, pxPerM * .05), dh);
+        x.fillStyle = '#b9a45a'; x.fillRect(dx + ddw / 2 - pxPerM * .04, dy + dh - pxPerM * .2, pxPerM * .08, pxPerM * .1);
+
+        // Persianas metálicas comerciales: satinadas con relieve horizontal
+        xr.fillStyle = '#a8a8a8';
+        xr.fillRect(dx, dy, ddw, dh);
+        xb.fillStyle = '#888888';
+        xb.fillRect(dx, dy, ddw, dh);
+        for (let l = dy; l < dy + dh; l += slat) {
+          xb.fillStyle = '#939393'; xb.fillRect(dx, l + 1, ddw, slat * .36);
+          xb.fillStyle = '#787878'; xb.fillRect(dx, l + slat * .62, ddw, slat * .38);
+          xb.fillStyle = '#6c6c6c'; xb.fillRect(dx, l, ddw, 1);
+        }
+        // Óxido que sube desde el piso por los rieles y la última lama.
+        const base = x.createLinearGradient(0, dy + dh * .82, 0, dy + dh);
+        base.addColorStop(0, 'rgba(96,54,30,0)'); base.addColorStop(1, 'rgba(96,54,30,.5)');
+        x.fillStyle = base; x.fillRect(dx, dy + dh * .82, ddw, dh * .18);
+        for (let i = 0; i < 10; i++) {
+          const sx = dx + (u() < .4 ? (u() < .5 ? 0 : ddw - pxPerM * .12) + u() * pxPerM * .12 : u() * ddw), sl = dh * (.08 + u() * .3);
+          x.fillStyle = `rgba(104,58,32,${(.18 + u() * .22).toFixed(2)})`;
+          x.fillRect(sx, dy + dh - sl, Math.max(1, pxPerM * (.02 + u() * .04)), sl);
+        }
       }
 
-      // Persianas metálicas comerciales: satinadas con relieve horizontal
-      xr.fillStyle = '#a8a8a8';
-      xr.fillRect(dx, dy, ddw, dh);
-      xb.fillStyle = '#888888';
-      xb.fillRect(dx, dy, ddw, dh);
-      for (let l = dy; l < dy + dh; l += slat) {
-        xb.fillStyle = '#7b7b7b'; xb.fillRect(dx, l, ddw, 1);
-      }
-
-      x.fillStyle = palette.signBackground; x.fillRect(dx, y0 + fh * .035, ddw, fh * .115);
-      x.fillStyle = palette.signText; x.font = `700 ${Math.max(6, Math.round(fh * .085))}px Arial, sans-serif`;
-      x.textAlign = 'center'; x.textBaseline = 'middle';
-      x.fillText(pick(r, SMALL_SIGNS), dx + ddw / 2, y0 + fh * .095, ddw * .9);
-      // Las letras solo pertenecen al albedo; el soporte del aviso es casi plano.
-      xb.fillStyle = '#888888'; xb.fillRect(dx, y0 + fh * .035, ddw, fh * .115);
-      xr.fillStyle = '#c4c4c4'; xr.fillRect(dx, y0 + fh * .035, ddw, fh * .115);
+      // El cajón superior recoge la persiana. El oficio lo anuncia el rótulo de la fachada.
+      const rollerY = dy - fh * .105;
+      x.fillStyle = palette.metal; x.fillRect(dx - 1, rollerY, ddw + 2, fh * .105);
+      x.fillStyle = 'rgba(25,28,27,.45)'; x.fillRect(dx, dy - 2, ddw, 2);
+      xb.fillStyle = '#999'; xb.fillRect(dx - 1, rollerY, ddw + 2, fh * .105);
+      xr.fillStyle = '#aaa'; xr.fillRect(dx - 1, rollerY, ddw + 2, fh * .105);
 
       if (r() < (ruin ? .8 : .35)) {
         x.save();
@@ -437,14 +705,15 @@ export function facade({ seed, width = 6, floors = 3, pxPerM = 28, shopFront = t
         x.rotate((r() - 0.5) * 0.3);
         x.textAlign = 'center';
         const tag = pick(r, TAGS);
+        x.globalAlpha = .8;
         x.strokeText(tag, 0, 0);
         x.fillText(tag, 0, 0);
         x.restore();
       }
     }
     // avisito de cartulina
-    if (r() < 0.7) {
-      const txt = pick(r, SMALL_SIGNS);
+    if (ruin && r() < .7) {
+      const txt = pick(r, ['SE ARRIENDA', 'SE VENDE']);
       const sw = Math.min(w * 0.4, 140), sh = fh * 0.16;
       const sx = r() * (w - sw), sy = h - fh * 1.15;
       x.fillStyle = pick(r, ['#e9e2c9', '#d4bd76', '#c9b69b']);
@@ -471,6 +740,7 @@ export function facade({ seed, width = 6, floors = 3, pxPerM = 28, shopFront = t
     x.fillStyle = sg;
     x.fillRect(sx, 0, 2 + r() * 6, h * 0.5);
   }
+  if (shopFront) plinthSplash(x, u, w, h, width, pxPerM, style === 'ladrillo');
 
   return {
     map: toTexture(c),
@@ -507,18 +777,50 @@ export function roofTiles(seed = 9) {
   return surfaceMaps(maps);
 }
 
-/** Placa de concreto de terraza con manchas de agua. Cubre 4 × 4 m. */
+/** Placa de concreto de terraza, vieja y sucia: agua estancada, chorreones, verdín y remiendos de manto. Cubre 4 × 4 m. */
 export function slab(seed = 13) {
   const r = rng(seed);
   const s = 256;
-  const maps = surface(s, s, '#a09a8e', 223), { x, xb, xr } = maps;
-  aggregate(maps, r, 7000, ['#a9a293', '#928e81', '#b6ae9e', '#888577'], 1.3);
+  const maps = surface(s, s, '#7a756b', 223), { x, xb, xr } = maps;
+  aggregate(maps, r, 7000, ['#857f72', '#706c62', '#8f887b', '#67645b'], 1.3);
   for (let i = 0; i < 7; i++) {
     const px = r() * s, py = r() * s, pr = 20 + r() * 60;
     softPatch(x, s, s, px, py, pr, pr * .7, 'rgba(72,70,55,.17)');
     softPatch(xr, s, s, px, py, pr, pr * .7, 'rgba(185,185,185,.38)');
   }
-  for (const position of [0, 128]) for (const [ctx, color] of [[x, '#7d7b6e'], [xb, '#787878']]) {
+  // Remiendos de manto asfáltico: manchas oscuras y ásperas de borde deshecho, sin forma que se reconozca al repetirse.
+  for (let i = 0, n = 1 + Math.floor(r() * 2); i < n; i++) {
+    const px = r() * s, py = r() * s, lado = 22 + r() * 18;
+    for (let k = 0; k < 9; k++) {
+      const giro = r() * Math.PI * 2, lejos = lado * r() * .5, rx = lado * (.18 + r() * .3), ry = rx * (.5 + r() * .5);
+      const qx = px + Math.cos(giro) * lejos, qy = py + Math.sin(giro) * lejos;
+      softPatch(x, s, s, qx, qy, rx, ry, 'rgba(59,58,55,.2)');
+      softPatch(xr, s, s, qx, qy, rx, ry, 'rgba(240,240,240,.3)');
+    }
+    speckle(xb, s, s, r, 60, ['rgba(150,150,150,.5)', 'rgba(104,104,104,.5)'], 1.6);
+  }
+  // Agua estancada: el concreto queda más oscuro y más liso donde se empoza.
+  for (let i = 0, n = 6 + Math.floor(r() * 4); i < n; i++) {
+    const px = r() * s, py = r() * s, pr = 14 + r() * 30, ry = pr * (.45 + r() * .4);
+    softPatch(x, s, s, px, py, pr, ry, 'rgba(48,46,40,.3)');
+    softPatch(xr, s, s, px, py, pr * .8, ry * .8, 'rgba(150,150,150,.45)');
+  }
+  // Chorreones que nacen en las juntas y verdín pegado a ellas.
+  for (let i = 0, n = 3 + Math.floor(r() * 3); i < n; i++) {
+    const junta = r() < .5 ? 0 : 128, ancho = 3 + r() * 5, largo = 40 + r() * 80, a = r() * s, porX = r() < .5;
+    for (const d of [-s, 0, s]) {
+      const g = porX ? x.createLinearGradient(junta, 0, junta + largo, 0) : x.createLinearGradient(0, junta, 0, junta + largo);
+      g.addColorStop(0, 'rgba(30,28,24,.22)'); g.addColorStop(1, 'rgba(30,28,24,0)');
+      x.fillStyle = g;
+      if (porX) x.fillRect(junta, a + d, largo, ancho); else x.fillRect(a + d, junta, ancho, largo);
+    }
+  }
+  for (let i = 0; i < 46; i++) {
+    const junta = r() < .5 ? 0 : 128, a = r() * s, largo = 6 + r() * 22, ancho = 2 + r() * 5, lado = r() < .5 ? -ancho : 1;
+    x.fillStyle = 'rgba(78,92,52,.18)';
+    if (r() < .5) x.fillRect(a, junta + lado, largo, ancho); else x.fillRect(junta + lado, a, ancho, largo);
+  }
+  for (const position of [0, 128]) for (const [ctx, color] of [[x, '#5f5d53'], [xb, '#787878']]) {
     ctx.fillStyle = color; ctx.fillRect(position, 0, 1, s); ctx.fillRect(0, position, s, 1);
   }
   return surfaceMaps(maps);
@@ -678,12 +980,14 @@ export function radialSprite(size = 128, inner = 'rgba(255,255,255,1)', outer = 
   }
 }
 
-/** Tierra/barro para el lote bajo el viaducto. */
+/** Tierra/barro para el lote bajo el viaducto y El Cartucho: charcos, huellas de zorra y basura menuda. */
 export function dirt(seed = 31) {
   const r = rng(seed);
   const s = 512;
   const maps = surface(s, s, '#786b54', 230), { x, xr, xb } = maps;
-  aggregate(maps, r, 19000, ['#72624c', '#85765d', '#958568', '#645943', '#a1957b'], 2.6);
+  // Quince tonos con la misma tirada de cinco: cada grano cae donde caía. Sin el grano claro, y el arena en un tercio.
+  aggregate(maps, r, 19000, ['#72624c', '#72624c', '#72624c', '#85765d', '#85765d', '#85765d', '#958568', '#7d6e55', '#7d6e55',
+    '#645943', '#645943', '#645943', '#6b5c46', '#6b5c46', '#6b5c46'], 2.6);
   for (let i = 0; i < 15; i++) {
     const px = r() * s, py = r() * s, radius = 20 + r() * 70;
     softPatch(x, s, s, px, py, radius, radius * .75, 'rgba(78,65,46,.22)');
@@ -696,46 +1000,108 @@ export function dirt(seed = 31) {
       ctx.fillStyle = color; ctx.beginPath(); ctx.arc(px, py, radius, 0, Math.PI * 2); ctx.fill();
     }
   }
+  // Lo de encima va con su propia semilla: lo de antes sale igual.
+  const u = rng((seed ^ 0x2f1e7a) >>> 0);
+  // Charcos de barro: lisos, sin grano en el relieve y menos ásperos.
+  const puddles = 6 + Math.floor(u() * 5);
+  for (let i = 0; i < puddles; i++) {
+    const px = u() * s, py = u() * s, radius = 40 + u() * 80, squash = .55 + u() * .35;
+    for (let lobe = 0; lobe < 3; lobe++) {
+      const angle = u() * Math.PI * 2, reach = lobe ? radius * (.35 + u() * .3) : 0, size = lobe ? radius * (.45 + u() * .25) : radius;
+      const lx = px + Math.cos(angle) * reach, ly = py + Math.sin(angle) * reach * squash;
+      softPatch(x, s, s, lx, ly, size, size * squash, 'rgba(38,30,20,.38)');
+      softPatch(xb, s, s, lx, ly, size, size * squash, 'rgba(128,128,128,.85)');
+      softPatch(xr, s, s, lx, ly, size, size * squash, 'rgba(140,140,140,.95)');
+    }
+  }
+  // Dos huellas de zorra: ruedas de 10 cm a 70 cm entre sí (64 px por metro), que se desvanecen en las puntas.
+  const wheel = 6.4, axle = 44.8;
+  for (let track = 0; track < 2; track++) {
+    let px = u() * s, py = u() * s, angle = u() * Math.PI;
+    const turn = (u() - .5) * .0024, steps = 26 + Math.floor(u() * 10), points = [];
+    for (let k = 0; k <= steps; k++) {
+      points.push([px, py, angle]);
+      px += Math.cos(angle) * 12; py += Math.sin(angle) * 12; angle += turn * 12;
+    }
+    for (const side of [-axle / 2, axle / 2]) {
+      const rut = points.map(([qx, qy, a]) => [qx - Math.sin(a) * side, qy + Math.cos(a) * side]);
+      for (const [ctx, color, alpha] of [[x, 'rgb(46,37,25)', .34], [xb, '#6a6a6a', .7], [xr, '#a8a8a8', .5]]) {
+        ctx.strokeStyle = color; ctx.lineWidth = wheel;
+        for (let k = 1; k < rut.length; k++) {
+          ctx.globalAlpha = alpha * Math.sin(Math.PI * k / rut.length);
+          for (const dx of [-s, 0, s]) for (const dy of [-s, 0, s]) {
+            ctx.beginPath(); ctx.moveTo(rut[k - 1][0] + dx, rut[k - 1][1] + dy); ctx.lineTo(rut[k][0] + dx, rut[k][1] + dy); ctx.stroke();
+          }
+        }
+        ctx.globalAlpha = 1;
+      }
+    }
+  }
+  // Papelitos y plásticos aplastados, de 5 a 12 cm, a medio tapar por la tierra.
+  for (let i = 0; i < 40; i++) {
+    const px = u() * s, py = u() * s, w = 3 + u() * 5, h = 3 + u() * 5, angle = u() * Math.PI, plastic = u() < .4;
+    for (const [ctx, color] of [[x, plastic ? '#4d6a86' : '#cfc8b5'], [xb, '#8c8c8c'], [xr, plastic ? '#7a7a7a' : '#dcdcdc']]) {
+      ctx.save(); ctx.translate(px, py); ctx.rotate(angle); ctx.globalAlpha = .5;
+      ctx.fillStyle = color; ctx.fillRect(-w / 2, -h / 2, w, h);
+      ctx.restore();
+    }
+  }
   return surfaceMaps(maps);
 }
 
-/** Césped de clima frío, por matas: hojas oscuras, verdes y de paja sobre tierra que asoma entre ellas. */
+export const GRASS_TILE_METERS = 3.5;
+
+/** Césped corto de clima frío, con hojas finas y matas cruzadas sobre la tierra. */
 export function grass(seed = 61) {
   const r = rng(seed), s = 512;
-  const maps = surface(s, s, '#4d5a39', 236), { x, xb, xr } = maps;
+  const maps = surface(s, s, '#596447', 236), { x, xb, xr } = maps;
   // La hoja que cruza el borde se dibuja también al otro lado: la repetición no corta una mata.
-  const blade = (px, py, length, lean, width, color, height) => {
+  const blade = (px, py, length, angle, width, color, height) => {
     const margin = length + 8;
+    const dx = Math.cos(angle), dy = Math.sin(angle);
+    const tx = -dy * width, ty = dx * width;
+    const lean = (r() - .5) * length * .53;
     for (const ox of px < margin ? [0, s] : px > s - margin ? [0, -s] : [0]) {
       for (const oy of py < margin ? [0, s] : py > s - margin ? [0, -s] : [0]) {
-        for (const [ctx, stroke] of [[x, color], [xb, height]]) {
-          ctx.strokeStyle = stroke; ctx.lineWidth = width; ctx.beginPath();
-          ctx.moveTo(px + ox, py + oy); ctx.lineTo(px + ox + lean, py + oy - length); ctx.stroke();
+        const xx = px + ox, yy = py + oy;
+        for (const [ctx, fill] of [[x, color], [xb, height]]) {
+          ctx.fillStyle = fill;
+          ctx.beginPath();
+          ctx.moveTo(xx - tx / 2, yy - ty / 2);
+          ctx.lineTo(xx + tx / 2, yy + ty / 2);
+          ctx.lineTo(xx + dx * length * .53 + tx * .32, yy + dy * length * .53 + ty * .32);
+          ctx.lineTo(xx + dx * length - dy * lean, yy + dy * length + dx * lean);
+          ctx.fill();
         }
       }
     }
   };
-  for (let i = 0; i < 26; i++) {
-    const px = r() * s, py = r() * s, radius = 24 + r() * 70;
-    softPatch(x, s, s, px, py, radius, radius * .8, pick(r, ['rgba(42,58,31,.34)', 'rgba(108,116,66,.22)', 'rgba(82,75,48,.22)']));
+  for (let i = 0; i < 38; i++) {
+    const px = r() * s, py = r() * s, radius = 13 + r() * 42;
+    softPatch(x, s, s, px, py, radius, radius * .8, pick(r, ['rgba(51,66,45,.27)', 'rgba(108,119,76,.20)', 'rgba(85,77,53,.25)']));
     softPatch(xr, s, s, px, py, radius, radius * .8, 'rgba(204,204,204,.25)');
   }
-  // Tierra entre matas: de lejos no se ve cada una, pero el conjunto deja de ser una alfombra.
-  for (let i = 0; i < 230; i++) {
-    const px = r() * s, py = r() * s, radius = 2.5 + r() * 7;
-    softPatch(x, s, s, px, py, radius, radius * .75, 'rgba(50,43,30,.46)');
-    softPatch(xb, s, s, px, py, radius, radius * .75, 'rgba(96,96,96,.4)');
+  // Tierra entre hojas: claros pequeños, con contraste parecido al de un prado recién guadañado.
+  for (let i = 0; i < 265; i++) {
+    const px = r() * s, py = r() * s, radius = 2 + r() * 4.5;
+    softPatch(x, s, s, px, py, radius, radius * .75, 'rgba(63,51,38,.38)');
+    softPatch(xb, s, s, px, py, radius, radius * .75, 'rgba(106,106,106,.30)');
   }
-  for (let i = 0; i < 5000; i++) {
-    blade(r() * s, r() * s, 2 + r() * 4, (r() - .5) * 3, .7, pick(r, ['rgba(74,92,52,.6)', 'rgba(101,118,70,.5)', 'rgba(60,76,44,.6)']), gray(122 + Math.floor(r() * 16)));
+  const field = ['#4a5b3c', '#546745', '#63744b', '#738059', '#777c55'];
+  for (let i = 0; i < 17000; i++) {
+    blade(r() * s, r() * s, 2.6 + r() * 4, r() * Math.PI * 2, .85 + r() * .8,
+      pick(r, field), gray(125 + Math.floor(r() * 19)));
   }
-  // Matas de tamaños mezclados, cada una con su tono; todas repiten su trazo en el mapa de altura.
-  const tones = [['#3e5230', '#4c6238'], ['#4f6438', '#5f7541'], ['#5f7342', '#6f834b'], ['#74794a', '#838653']];
-  for (let i = 0; i < 960; i++) {
-    const cx = r() * s, cy = r() * s, spread = 2 + r() * 8, blades = 5 + Math.floor(r() * 9);
-    const pair = r(), [dark, light] = tones[pair < .3 ? 0 : pair < .68 ? 1 : pair < .94 ? 2 : 3];
+  // Matas de pocos centímetros, todas con el mismo trazo en color y en altura.
+  const tones = [['#4c623f', '#63774b'], ['#586c43', '#6a7e50'], ['#66764b', '#77845b'], ['#757a51', '#85865d']];
+  for (let i = 0; i < 1350; i++) {
+    const cx = r() * s, cy = r() * s, spread = 2 + r() * 5, blades = 4 + Math.floor(r() * 7);
+    const direction = r() * Math.PI * 2, pair = r();
+    const [dark, light] = tones[pair < .33 ? 0 : pair < .73 ? 1 : pair < .95 ? 2 : 3];
     for (let n = 0; n < blades; n++) {
-      blade(cx + (r() - .5) * spread, cy + (r() - .5) * spread, 3 + r() * 6, (r() - .5) * 6, .6 + r() * .7, r() < .55 ? dark : light, gray(134 + Math.floor(r() * 36)));
+      blade(cx + (r() - .5) * spread, cy + (r() - .5) * spread,
+        3.3 + r() * 5.2, direction + (r() - .5) * 4, .95 + r() * 1.12,
+        r() < .56 ? dark : light, gray(134 + Math.floor(r() * 23)));
     }
   }
   return surfaceMaps(maps);
