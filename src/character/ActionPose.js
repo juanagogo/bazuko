@@ -132,6 +132,7 @@ export class ActionPose {
     // no se arma ninguna cadena).
     this._legs = [[1, 'left'], [-1, 'right']].map(([side, name]) => ({
       side, name, foot: this.joints[`${name}Foot`], clip: new Vector3(),
+      toe: this.joints[`${name}Foot`]?.children.find(child => /ToeBase$/i.test(child.name)),
       upLeg: `${name}UpLeg`, lowLeg: `${name}Leg`, footKey: `${name}Foot`, arm: `${name}Arm`, foreArm: `${name}ForeArm`, handKey: `${name}Hand`,
       // Cuánto iba suelta la muñeca en el último cuadro en el aire (el aterrizaje la suelta de a poco) y adónde
       // vuelven brazo y antebrazo al aterrizar (los del clip con el tronco derecho).
@@ -159,6 +160,7 @@ export class ActionPose {
     this._hip = new Vector3();
     this._knee = new Vector3();
     this._ankle = new Vector3();
+    this._stepToe = new Vector3();
     this._goal = new Vector3();
     this._reach = new Vector3();
     this._pole = new Vector3();
@@ -384,6 +386,35 @@ export class ActionPose {
     if (this.greetWeight) this._greet(this.greetWeight);
     if (this.warmWeight) this._warm(this.warmWeight);
     if (this.rebusqueWeight) aplicarMalabares(this, this.rebusqueWeight, this.rebusqueTime);
+  }
+
+  /** Centro y orientación de cada suela en la pose visible para la oclusión de contacto. */
+  sampleSoleContacts(contacts, shoes) {
+    if (!this.frame) return;
+    const scale = this.frame.getWorldScale(this._position);
+    const soleHeight = shoes === 'botas' ? -.0525 : shoes === 'chanclas' ? -.0425 : -.05;
+    for (let i = 0; i < this._legs.length; i++) {
+      const { foot, toe } = this._legs[i], contact = contacts[i];
+      if (!foot || (!toe && !this.procedural)) continue;
+      const center = contact.center;
+      let dx, dz;
+      if (this.procedural) {
+        const lengthOffset = shoes === 'botas' ? .012 : .017;
+        foot.localToWorld(center.set(0, soleHeight, lengthOffset));
+        const tip = foot.localToWorld(this._stepToe.set(0, soleHeight, lengthOffset + .12));
+        dx = tip.x - center.x; dz = tip.z - center.z;
+      } else {
+        const ankle = foot.getWorldPosition(this._ankle), tip = toe.getWorldPosition(this._stepToe);
+        center.lerpVectors(ankle, tip, .38);
+        center.y = Math.min(ankle.y - .068 * scale.y, tip.y - .028 * scale.y);
+        dx = tip.x - ankle.x; dz = tip.z - ankle.z;
+      }
+      if (dx * dx + dz * dz < .0001) continue;
+      contact.valid = true;
+      contact.yaw = Math.atan2(dx, dz);
+      contact.width = .104 * scale.x;
+      contact.length = .182 * scale.z;
+    }
   }
 
   /**

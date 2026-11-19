@@ -22,13 +22,13 @@ const shadow = (o) => { o.traverse((m) => { if (m.isMesh) { m.castShadow = true;
 const rand = (a, b) => a + Math.random() * (b - a);
 
 let _bagTex = null, _cardTex = null;
-const bagMat = () => std('#ffffff', { map: (_bagTex ??= trashBag(5)).map ?? _bagTex, roughness: 0.4 });
+const bagMat = () => std('#ffffff', { map: (_bagTex ??= trashBag(5)).map ?? _bagTex, roughness: 0.62 });
 const cardMat = () => std('#ffffff', { map: (_cardTex ??= cardboard(21)).map ?? _cardTex });
 
 /** Caneca metálica con fuego (calentarse de noche) */
 export function fireBarrel() {
   const g = new THREE.Group();
-  const drum = new THREE.Mesh(new THREE.CylinderGeometry(0.32, 0.3, 0.9, 12, 1, true), std('#4a3a2c', { metalness: 0.6, side: THREE.DoubleSide }));
+  const drum = new THREE.Mesh(new THREE.CylinderGeometry(0.32, 0.3, 0.9, 24, 1, true), std('#6a4a35', { metalness: 0.15, roughness: 0.9, side: THREE.DoubleSide }));
   drum.position.y = 0.45;
   g.add(drum);
   const flame = createFlame(0.82, 1.18);
@@ -48,20 +48,89 @@ export function fireBarrel() {
   return shadow(g);
 }
 
-/** Bolsas y cartones amontonados */
-export function trashPile(n = 6) {
+// Perfil de la bolsa de abajo arriba, en partes del radio: [ancho, alto]. La que está en el piso se aplasta contra él;
+// la que va en la carga es redonda por debajo y llena la misma caja que la bola de antes.
+const BOLSA_APOYADA = [[.66, -.55], [.97, -.3], [1, .08], [.78, .47], [.17, .78], [.25, .94]];
+const BOLSA_EN_CARGA = [[.52, -.92], [.92, -.5], [1, 0], [.8, .46], [.19, .8], [.27, 1]];
+const BOLSA_LADOS = 12;
+
+/**
+ * Bolsa de basura amarrada: panza abollada, hombros caídos, el cuello recogido en pliegues y el nudo. Una sola
+ * geometría sin índice, como la bola que reemplaza. Las abolladuras salen del radio, no del azar del juego.
+ */
+function bolsa(r, apoyada) {
+  const perfil = apoyada ? BOLSA_APOYADA : BOLSA_EN_CARGA, filas = perfil.length, semilla = r * 9173.3;
+  const ruido = (i, j) => { const v = Math.sin(semilla + i * 127.1 + j * 311.7) * 43758.5453; return (v - Math.floor(v)) * 2 - 1; };
+  const puntos = [], fondo = perfil[0][1] - (apoyada ? 0 : .08), punta = perfil[filas - 1][1] - .07;
+  for (let f = 0; f < filas; f++) for (let i = 0; i < BOLSA_LADOS; i++) {
+    const a = i / BOLSA_LADOS * Math.PI * 2, cuello = f >= filas - 2;
+    // Abajo la bolsa se abolla; arriba el plástico se recoge en pliegues hacia el nudo.
+    const ancho = perfil[f][0] * (cuello ? 1 + (i % 2 ? .3 : -.22) : 1 + .07 * ruido(f, i));
+    const alto = perfil[f][1] + (f === 0 && apoyada ? 0 : .035 * ruido(f + 9, i));
+    puntos.push([Math.sin(a) * ancho, alto, Math.cos(a) * ancho]);
+  }
+  const abajo = puntos.length, arriba = abajo + 1, caras = [];
+  puntos.push([0, fondo, 0], [0, punta, 0]);
+  for (let i = 0; i < BOLSA_LADOS; i++) {
+    const j = (i + 1) % BOLSA_LADOS;
+    caras.push([abajo, j, i], [arriba, (filas - 1) * BOLSA_LADOS + i, (filas - 1) * BOLSA_LADOS + j]);
+    for (let f = 0; f + 1 < filas; f++) {
+      const p = f * BOLSA_LADOS + i, q = f * BOLSA_LADOS + j;
+      caras.push([p, q, q + BOLSA_LADOS], [p, q + BOLSA_LADOS, p + BOLSA_LADOS]);
+    }
+  }
+  if (!apoyada) {
+    // En la carga cada bolsa llega justo hasta donde llegaba la bola: la caja de caída de la zorra no cambia.
+    for (let eje = 0; eje < 3; eje++) {
+      const valores = puntos.map((punto) => punto[eje]), min = Math.min(...valores), max = Math.max(...valores);
+      for (const punto of puntos) punto[eje] = punto[eje] === min ? -1 : punto[eje] === max ? 1 : -1 + (punto[eje] - min) * 2 / (max - min);
+    }
+  }
+  const normales = puntos.map(() => new THREE.Vector3()), a = new THREE.Vector3(), b = new THREE.Vector3(), c = new THREE.Vector3();
+  for (const cara of caras) {
+    a.fromArray(puntos[cara[0]]); b.fromArray(puntos[cara[1]]).sub(a); c.fromArray(puntos[cara[2]]).sub(a);
+    b.cross(c);
+    for (const q of cara) normales[q].add(b);
+  }
+  const position = [], normal = [], uv = [];
+  for (const cara of caras) for (const q of cara) {
+    const n = normales[q].clone().normalize(), fila = q === abajo ? 0 : q === arriba ? 1 : (Math.floor(q / BOLSA_LADOS) + 1) / (filas + 1);
+    position.push(puntos[q][0] * r, puntos[q][1] * r, puntos[q][2] * r);
+    normal.push(n.x, n.y, n.z);
+    uv.push(q >= abajo ? .5 : (q % BOLSA_LADOS) / BOLSA_LADOS, fila);
+  }
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(position, 3));
+  geometry.setAttribute('normal', new THREE.Float32BufferAttribute(normal, 3));
+  geometry.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+  return geometry;
+}
+
+/** Bolsas y cartones amontonados. Con `carga` van como en la zorra: sueltas dentro del cajón, sin buscar el piso. */
+export function trashPile(n = 6, { carga = false } = {}) {
   const g = new THREE.Group();
-  const bm = bagMat(), cm = cardMat();
+  const bm = bagMat(), cm = cardMat(), punto = new THREE.Vector3();
   for (let i = 0; i < n; i++) {
-    const bag = new THREE.Mesh(new THREE.IcosahedronGeometry(rand(0.28, 0.42), 1), bm);
+    const r = rand(0.28, 0.42);
+    const bag = new THREE.Mesh(bolsa(r, !carga), bm);
     bag.scale.y = rand(0.7, 0.95);
     bag.position.set(rand(-0.7, 0.7), 0.25, rand(-0.6, 0.6));
-    bag.rotation.set(rand(0, 1), rand(0, 3), 0);
+    // En el piso la bolsa apenas se ladea: queda sobre su fondo, con el nudo arriba.
+    bag.rotation.set(rand(0, 1) * (carga ? 1 : .3), rand(0, 3), 0);
+    if (!carga) {
+      bag.position.y = 0;
+      bag.updateMatrix();
+      const p = bag.geometry.attributes.position;
+      let bajo = Infinity;
+      for (let k = 0; k < p.count; k++) bajo = Math.min(bajo, punto.fromBufferAttribute(p, k).applyMatrix4(bag.matrix).y);
+      bag.position.y = -bajo;
+    }
     g.add(bag);
   }
   for (let i = 0; i < n / 2; i++) {
-    const c = new THREE.Mesh(new THREE.BoxGeometry(rand(0.4, 0.8), rand(0.02, 0.3), rand(0.3, 0.6)), cm);
-    c.position.set(rand(-0.8, 0.8), 0.1, rand(-0.7, 0.7));
+    const ancho = rand(0.4, 0.8), alto = rand(0.02, 0.3), fondo = rand(0.3, 0.6);
+    const c = new THREE.Mesh(new THREE.BoxGeometry(ancho, alto, fondo), cm);
+    c.position.set(rand(-0.8, 0.8), carga ? 0.1 : alto / 2, rand(-0.7, 0.7));
     c.rotation.y = rand(0, 3);
     g.add(c);
   }
@@ -243,21 +312,63 @@ export function mattress() {
   return shadow(new THREE.Group().add(m));
 }
 
+// Ropa lavada muchas veces: ningún color sale vivo ni negro del todo.
+const ROPA = ['#96706a', '#5d6f85', '#b0aba0', '#6a7560', '#9c8a68', '#6f6478', '#45433f'];
+const PRENDAS = ['camisa', 'pantalon', 'toalla', 'sabana'];
+const PRENDA_PASOS = 6;
+const CAMISA_FILAS = [0, .15, .3, .345, .56, .78, 1];
+
+/**
+ * Le da silueta de prenda a un paño de 6 × 6: mueve sus puntos en el sitio, sin crear nada. La prenda cuelga de la
+ * cuerda (su borde de arriba queda a `cuelga` del centro) y hace pliegues que se abren hacia abajo.
+ */
+function prenda(geometry, clase, alto, cuelga, fase) {
+  const p = geometry.attributes.position, n = PRENDA_PASOS;
+  for (let fila = 0; fila <= n; fila++) for (let col = 0; col <= n; col++) {
+    const u = col / n * 2 - 1, v = fila / n, lado = Math.abs(u);
+    let x, baja = v, largo = alto;
+    if (clase === 'camisa') {
+      // Colgada de los hombros: las mangas caen un poco y, justo debajo de la sisa, el cuerpo se angosta.
+      const manga = fila <= 2, talle = CAMISA_FILAS[fila];
+      x = u * (manga ? .29 : .17 + .02 * v);
+      baja = (manga ? talle * (1 - .25 * lado * lado) + .09 * lado * lado : talle) + (fila === 0 ? .05 * Math.max(0, 1 - lado * 3) : 0);
+    } else if (clase === 'pantalon') {
+      // Colgado de la pretina: de la entrepierna para abajo las dos botas se separan.
+      const tiro = .42, abre = Math.max(0, (v - tiro) / (1 - tiro));
+      largo = alto * 1.35;
+      if (col === n / 2) { x = 0; baja = Math.min(v, tiro); }
+      else if (Math.abs(col - n / 2) === 1) x = Math.sign(u) * (.06 - .01 * abre);
+      else x = Math.sign(u) * ((lado > .9 ? .18 : .12) + .025 * abre * (lado > .9 ? 1 : .6));
+    } else {
+      // Toalla o sábana doblada sobre la cuerda: las puntas de abajo cuelgan más que el medio.
+      const ancho = clase === 'sabana' ? .29 : .22;
+      largo = alto * (clase === 'sabana' ? 1.3 : 1.1);
+      x = u * ancho * (1 - .05 * v * lado);
+      baja = v * (1 + (clase === 'sabana' ? .07 : .04) * lado * lado);
+    }
+    // El pliegue: nada arriba, donde la prenda va templada por las pinzas, y abierto en el ruedo.
+    const pliegue = (.006 + .028 * v) * Math.sin(u * (clase === 'sabana' ? 5.2 : 3.9) + fase + v * 1.3);
+    p.setXYZ(fila * (n + 1) + col, x, cuelga - largo * baja, pliegue);
+  }
+  geometry.computeVertexNormals();
+  return geometry;
+}
+
 /** Cuerda con ropa colgada entre dos puntos (locales del grupo) */
 export function clothesline(a, b, height = 2.4) {
   const g = new THREE.Group();
   const A = new THREE.Vector3(a.x, height, a.z), B = new THREE.Vector3(b.x, height, b.z);
   const len = A.distanceTo(B);
-  const rope = new THREE.Mesh(new THREE.CylinderGeometry(0.01, 0.01, len, 4), std('#dddddd'));
+  const rope = new THREE.Mesh(new THREE.CylinderGeometry(0.01, 0.01, len, 4), std('#b8b2a4'));
   rope.position.copy(A).lerp(B, 0.5);
   rope.lookAt(B);
   rope.rotateX(Math.PI / 2);
   g.add(rope);
   const n = Math.floor(len / 0.6);
-  const colors = ['#c0392b', '#2f6fb0', '#ecf0f1', '#3f7a3a', '#e0962b', '#7a4fa0', '#1f1f1f'];
   for (let i = 1; i < n; i++) {
     const p = A.clone().lerp(B, i / n);
-    const cloth = new THREE.Mesh(new THREE.PlaneGeometry(0.4, rand(0.4, 0.7)), std(colors[i % colors.length], { side: THREE.DoubleSide }));
+    const alto = rand(0.4, 0.7);
+    const cloth = new THREE.Mesh(prenda(new THREE.PlaneGeometry(0.4, alto, PRENDA_PASOS, PRENDA_PASOS), PRENDAS[(i * 3 + n) % PRENDAS.length], alto, 0.3, i * 2.1), std(ROPA[i % ROPA.length], { side: THREE.DoubleSide }));
     cloth.position.set(p.x, height - 0.3, p.z);
     cloth.lookAt(cloth.position.clone().add(new THREE.Vector3(-(B.z - A.z), 0, B.x - A.x)));
     g.add(cloth);

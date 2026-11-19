@@ -76,7 +76,7 @@ export class Farol {
     pole.castShadow = true;
     pole.receiveShadow = true;
     const halo = new THREE.Mesh(assets.haloGeometry, assets.haloMaterial);
-    halo.renderOrder = 12; // después de la ciudad de fondo (10) y los cerros (11), que no lo recorten
+    halo.renderOrder = 12; // después de la ciudad; todo el fondo (-999,5 y -999) ya se pintó antes que ella
     this.model.add(pole, halo);
     for (const child of [...this.group.children]) {
       if (child === this.light) continue;

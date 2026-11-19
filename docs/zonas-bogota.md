@@ -35,7 +35,7 @@ Detrás de todo está `CityBackdrop.js`: **de tres a siete llamadas de dibujo** 
 - **Suelo y cerros.** Una sola malla en anillo, con las calles que siguen detrás de los cierres.
 - **Bloques.** Unos 3.000 ejemplares de una caja de cinco caras, entre edificios, cuartos de azotea y casitas. Pisos, ventanas, alféizares y luces de noche salen del sombreador, según la escala de cada ejemplar, sin texturas.
 - **Más allá de la Candelaria,** hacia +X, un cerro alto con iglesia blanca en la cumbre, torres de teleférico y cabinas.
-- **Al sur,** un barrio de ladrillo trepando la ladera, con casitas que se encienden de noche.
+- **Al sur,** las casas de ladrillo y pañete se escalonan junto a calles que siguen la pendiente, con pasos peatonales entre niveles y claros verdes entre grupos. Los cimientos apoyan en la malla del cerro. Las vías van en el mismo lote del terreno y las luces de las casas siguen la hora del cielo.
 
 ## Tráfico, gente y mapa
 

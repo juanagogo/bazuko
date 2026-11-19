@@ -674,6 +674,7 @@ export function createCharacter(initial = DEFAULT_LOOK) {
 
   return {
     group: root,
+    sampleSoleContacts(contacts) { actionPose.sampleSoleContacts(contacts, look.zapatos); },
     ragdollRig,
     get look() { return look; },
     /** Cuánto sigue acostado, de 0 (de pie) a 1 */

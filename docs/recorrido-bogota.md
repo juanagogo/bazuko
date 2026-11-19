@@ -17,11 +17,13 @@ Asfalto gris azulado, concreto tibio, ladrillo tolete, metal pintado y vegetaci�
 
 `GroundDressing.js` viste el pasto y los andenes sin texturas por parque: una máscara de desgaste de un texel por metro sale del mapa de tiles, y el ruido que la cúpula ya tiene en memoria da manchas, matas y borde mordido. La ciudad detrás de la terminal arranca a unos 15 m de la reja, con retiros y calles entre bloques por donde se ven los de atrás.
 
+En los andenes renovados, las losetas prefabricadas de concreto miden 40 × 40 cm. Cada pieza tiene un tono ligeramente distinto, con grano fino y juntas biseladas que pierden detalle con la distancia. La guía de barras, los botones de los vados y la franja de arcilla conservan su dibujo. Las placas fundidas del centro viejo y el empedrado de La Candelaria mantienen su propio acabado.
 La humedad suaviza la rugosidad y oscurece ligeramente el suelo sin convertirlo en metal. En baja se conserva una respuesta más discreta a la lluvia. La ribera usa una sola malla, un material PBR y una textura de detalle pequeña, con mezcla por vértices; no modifica el fondo ni la profundidad física.
 
 `NeighborhoodIdentity.js` contiene perfiles y límites en coordenadas del mundo. `UrbanBuildings.js` aplica los perfiles a sus materiales conservando el plan físico y las alturas de los solares.
 
 Las casas genéricas usan ahora semillas locales por coordenadas. Su distribución y sus detalles permanecen estables aunque se creen más materiales. Antes dependían del azar global, por lo que no se reproduce necesariamente la misma fachada de una partida anterior; los tiles y las colisiones físicas sí conservan sus valores.
+En Teusaquillo, el sendero norte de adoquín conserva sus cuatro metros de ancho. A los lados hay cuatro jardines bajos con borde de ladrillo y dos superficies de concreto que llegan a las bancas. En la Caracas, el recorrido peatonal a la estación Calle 72 conecta la cebra con el lector por el separador.
 
 ## Edificios y vegetación
 

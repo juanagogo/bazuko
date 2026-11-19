@@ -4,7 +4,7 @@ import * as THREE from 'three';
 import * as textures from '../src/world/bogota/textures.js';
 import { CollisionSystem } from '../src/systems/CollisionSystem.js';
 import { CHURCH_STEPS, FOUNTAIN, PLAZA, TOWERS, insideTower, towerColliderBoxes } from '../src/world/bogota/EastZones.js';
-import { crossings } from '../src/world/bogota/StreetMarkings.js';
+import { rampSpots } from '../src/world/bogota/StreetDetails.js';
 import { TrafficSignals } from '../src/world/bogota/TrafficSignals.js';
 
 const textureSet = () => ({ map: new THREE.Texture(), bumpMap: new THREE.Texture(), emissiveMap: new THREE.Texture() });
@@ -251,19 +251,8 @@ test('quien está junto a un poste del separador de la terminal tiene ruta, y es
   }
 });
 
-function crossingRamps() {
-  const ramps = [];
-  const tile = tileAt, RAISED = new Set(['sidewalk', 'plaza', 'floor']), ROADS = new Set(['road', 'busway']);
-  const ramp = (x, z, dx, dz) => { if (RAISED.has(tile(x - dx, z - dz)) && ROADS.has(tile(x + dx, z + dz))) ramps.push({ x, z, dx, dz }); };
-  for (const { x0, x1, z0, z1 } of crossings()) {
-    for (const z of [z0 - 2, z1 + 2]) { ramp(x0, z, 1, 0); ramp(x1, z, -1, 0); }
-    for (const x of [x0 - 2, x1 + 2]) { ramp(x, z0, 0, 1); ramp(x, z1, 0, -1); }
-  }
-  return ramps;
-}
-
 test('ningún poste de la calle queda sobre la rampa de una cebra', () => {
-  const ramps = crossingRamps();
+  const ramps = rampSpots(city.map);
   assert.ok(ramps.length > 100);
   assert.ok(city.streetPoles.length > 200);
   for (const pole of city.streetPoles) for (const { x, z, dx, dz } of ramps) {
@@ -274,7 +263,7 @@ test('ningún poste de la calle queda sobre la rampa de una cebra', () => {
 
 test('nada del mobiliario de la calle asoma sobre la rampa de una cebra', () => {
   const near = new Map(), point = new THREE.Vector3();
-  for (const ramp of crossingRamps()) {
+  for (const ramp of rampSpots(city.map)) {
     const key = `${Math.round(ramp.x / 4)},${Math.round(ramp.z / 4)}`;
     near.set(key, [...near.get(key) ?? [], ramp]);
   }
