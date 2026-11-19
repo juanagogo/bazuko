@@ -6,13 +6,12 @@
 // Los materiales se comparten entre todas las copias; al cerrar el distrito cada objeto suelta su geometría.
 import * as THREE from 'three';
 import { signMesh } from '../utils/signs.js';
+import { addPublicBasin, createPilaSurfaceMaterials } from '../world/bogota/PilaPublicaModel.js';
 
 let shared = null;
 function mats() {
   shared ??= {
-    concreto: new THREE.MeshLambertMaterial({ color: 0x9a968c }),
-    concretoOscuro: new THREE.MeshLambertMaterial({ color: 0x6f6b63 }),
-    agua: new THREE.MeshLambertMaterial({ color: 0x4d7287, emissive: 0x0b1a22 }),
+    ...createPilaSurfaceMaterials(),
     metal: new THREE.MeshLambertMaterial({ color: 0x8c9196 }),
     reja: new THREE.MeshLambertMaterial({ color: 0x2b2f33 }),
     puerta: new THREE.MeshLambertMaterial({ color: 0x5b3a25 }),
@@ -56,16 +55,8 @@ export class PilaPublica extends Prop {
     super(scene, position, 'pila');
     const m = mats();
     this.group.rotation.y = rot;
-    this.group.add(box(1.4, .8, .8, m.concreto, 0, .4, 0));
-    this.group.add(box(1.2, .06, .6, m.agua, 0, .78, 0));
-    this.group.add(box(1.5, .1, .9, m.concretoOscuro, 0, .83, 0));
-    const post = new THREE.Mesh(new THREE.CylinderGeometry(.05, .05, .9, 8), m.metal);
-    post.position.set(0, 1.25, -.32);
-    this.group.add(post);
-    const spout = new THREE.Mesh(new THREE.CylinderGeometry(.03, .03, .3, 6), m.metal);
-    spout.rotation.x = Math.PI / 2;
-    spout.position.set(0, 1.62, -.2);
-    this.group.add(spout);
+    addPublicBasin(this.group, m);
+    this.approach = new THREE.Vector3(0, 0, 1.3).applyQuaternion(this.group.quaternion).add(position);
     this.collider = { size: new THREE.Vector3(1.5, 1, .9), offset: new THREE.Vector3(0, .5, 0) };
   }
 }

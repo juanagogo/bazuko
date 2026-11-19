@@ -60,6 +60,7 @@ import { cobblestones, flagstones, forgetZoneTextures } from '../bogota/ZoneText
 import { Batch, ALL_FACES, FACES, createZoneMaterials } from '../bogota/ZoneGeometry.js';
 import { planEastLots, buildColonialHouse, buildEnglishHouse, buildShopHouse } from '../bogota/EastBuildings.js';
 import { buildChurch, buildCurvedTower, towerSilhouette, buildFountain, buildMarket } from '../bogota/EastLandmarks.js';
+import { startMarketVisits } from '../bogota/MarketPeople.js';
 import { buildCityEdge, buildTerminalEdge } from '../bogota/CityEdge.js';
 import { buildCityBackdrop } from '../bogota/CityBackdrop.js';
 
@@ -329,7 +330,7 @@ export class Bogota {
 
     this._collisions = collisions;
     this._noteFallRoom(collisions);
-    this._spawnPeople();
+    this._marketArrival = { walkers: this._spawnPeople(), checkAt: 0, nearSince: null };
     addStreetDetails(this, collisions);
     if (collisions) this.pedestrianNavigation.cutSolidEdges(collisions, undefined, this.benchSpots.map(benchFootprint));
   }
@@ -789,6 +790,9 @@ export class Bogota {
     const market = buildMarket(m);
     this.group.add(market.group);
     market.colliders.forEach(addCollider);
+    this._releaseMarketCamera = market.cameraCovers.flatMap(({ ceiling, occluder }) => [
+      collisions?.addCameraCeiling?.(ceiling), collisions?.addCameraOccluder?.(occluder)
+    ]).concat(market.cameraDisplays.map(({ box, approach, minimumArm }) => collisions?.addCameraOccluder?.(box, approach, minimumArm))).filter(Boolean);
     // Faroles de poste alrededor de la fuente: misma pieza que los de pared, sobre una columna.
     const posts = new Batch(), f = posts.frame(4, 0);
     const lampSpots = [[-13, -13], [13, -13], [-13, 13], [13, 13], [-26, 0], [24, -15], [24, 15]];
@@ -1552,7 +1556,9 @@ export class Bogota {
     const count = Math.min(candidates.length, Math.max(0, TOTAL_PEDESTRIANS - (this.npcs.length - vendors) - eastCount));
     const place = node => walker(new THREE.Vector3(W(node.x), this.getGroundHeight(W(node.x),W(node.z)), W(node.z)));
     for (let i=0;i<count;i++) place(candidates[Math.floor((i+0.5)*candidates.length/count)]);
+    const eastStart = this.npcs.length;
     for (let i=0;i<eastCount;i++) place(east[Math.floor((i+0.5)*east.length/eastCount)]);
+    return this.npcs.slice(eastStart).filter(npc => !npc.isDead);
   }
 
   /**
@@ -1658,6 +1664,11 @@ export class Bogota {
     // La niebla cambia con la hora y el clima: el límite de lo chico la sigue. Media y alta no lo usan.
     const fog = this.scene?.fog;
     this.farDetailDistance = this.farDetailFog && fog ? fog.near + (fog.far - fog.near) * this.farDetailFog : Infinity;
+    const market = this._marketArrival;
+    if (market && playerPos && this.t >= market.checkAt) {
+      market.checkAt = this.t + 1;
+      if (startMarketVisits(this._eastMarket, this.pedestrianNavigation, market, playerPos, this.t)) this._marketArrival = null;
+    }
     // Quién está cerca de quién, lo que oyen y lo que ven los peatones: entities/npc/mind.js.
     thinkStreet(this, dt, playerPos, trafficVehicles);
     // Patrullas en persecución o de regreso: las únicas que no frenan por nadie, y la gente fija las esquiva.
@@ -1687,6 +1698,16 @@ export class Bogota {
   dispose(scene) {
     if (this._disposed) return;
     this._disposed = true;
+    if (scene.userData?.streetLightMap) {
+      scene.userData.streetLightMap.texture.dispose();
+      delete scene.userData.streetLightMap;
+      setStreetLightLevel(scene, false, 0);
+      setStreetLampTwilight(null);
+    }
+    this.rainCover?.dispose();
+    this.rainCover = null;
+    this._releaseStationCameraCeiling?.();
+    this._releaseMarketCamera?.forEach(release => release());
     const textures = new Set(), ownedTextures = new Set();
     const rememberTexture = value => {
       if (value?.isTexture) textures.add(value);

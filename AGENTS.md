@@ -56,7 +56,7 @@ Para las pruebas de navegador, instalar Chromium con `npx playwright install chr
 
 ## Decisiones que deben conservarse
 
-- La ciudad mide 400 × 322 metros, con el Parque del Lago al sur desde Z 222 y una extensión de avenida de 74 metros al norte. Hasta X 238 es la ciudad anterior, sin ningún tile movido; de X 240 a X 266 siguen la manzana del centro y la Carrera 5, y desde X 267 están La Candelaria y Chapinero-Teusaquillo (ver `docs/zonas-bogota.md`). Usar sus funciones de altura y navegación; no cambiar coordenadas sin considerar partidas guardadas. Cada entrada al juego empieza frente al cambuche, aunque la partida guardada conserve otra posición.
+- La ciudad mide 400 × 322 metros, con el Parque del Lago al sur desde Z 222 y una extensión de avenida de 74 metros al norte. Hasta X 238 se conservan los solares y las calles del centro. Los paseos de los parques ocupan parte de su antiguo césped. De X 240 a X 266 siguen la manzana del centro y la Carrera 5, y desde X 267 están La Candelaria y Chapinero-Teusaquillo (ver `docs/zonas-bogota.md`). Usar sus funciones de altura y navegación; no cambiar coordenadas sin considerar partidas guardadas. Cada entrada al juego empieza frente al cambuche, aunque la partida guardada conserve otra posición.
 - El cambuche está en X 112.98, Z 94.64. El inicio y la recuperación están en X 112.98, Z 97.84. Conservar la construcción progresiva y la reserva renovable de materiales en la basura.
 - El juego y la medición de FPS comienzan después de cargar modelos, materiales y GPU. Menús, inventario, creador y pestaña oculta suspenden la simulación correspondiente.
 - La muerte requiere recuperación explícita; no teletransportar automáticamente al jugador. Dejar terminar una caída mortal antes de mostrar su pantalla.
