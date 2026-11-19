@@ -163,6 +163,7 @@ const PAIR_REPLY = .8;
 const RAIN_REACTION = { heavy: .5, drizzleHunch: .3, heavyCover: .6 };
 // Quien está así no mira a nadie: duerme o tiene la vista en lo suyo.
 const NO_GLANCE = new Set(['dormido', 'acurrucado', 'celular', 'telefono']);
+const WITNESS_STANCE = { llamar: 'telefono', grabar: 'celular', auxiliar: 'agachado' };
 // De pie, mientras se le pasa el susto: nadie se queda tieso esperando a que el jugador se vaya.
 const WAIT_STANCES = ['mirar-izquierda', 'mirar-derecha', 'brazos-cruzados', 'cambiar-peso'];
 
@@ -193,6 +194,7 @@ export class Npc {
    */
   constructor(scene, position, opts = {}) {
     this.scene = scene;
+    this.routeRandom = opts.routeRandom;
     this.home = position.clone();
     this.position = position.clone();
     this.wander = opts.wander ?? 0;
@@ -1066,6 +1068,78 @@ export class Npc {
     this.animAcc = 0;
   }
 
+  _actualizarModelo(dt, ctx, beforeX, beforeZ, beforeYaw) {
+    const drawn = this._actualizarVisibilidad(ctx);
+    const dist = ctx.player ? this._playerDist : 0;
+    const sample = this._pedestrianMotion;
+    const measureStep = sample && drawn && dist <= NPC_LOD.animStop && !this.isVendor && !this.koState;
+    if (measureStep) {
+      // El paso visible toma metros recorridos, incluyendo los tramos cortos y los cuadros saltados por el LOD.
+      if (this.moving) {
+        const dx = this.position.x - beforeX, dz = this.position.z - beforeZ;
+        sample.distance += Math.sqrt(dx * dx + dz * dz);
+      }
+      sample.angle += wrapAngle(this.root.rotation.y - beforeYaw);
+      sample.elapsed += dt;
+    } else if (sample) {
+      sample.distance = sample.elapsed = sample.angle = 0;
+      sample.reset ||= dist > NPC_LOD.animStop || (!drawn && this.animAcc + dt > CHANGED_UNSEEN);
+    }
+    if (!drawn) { this.animAcc += dt; return; }
+    this._updateDetail(dist);
+    if (!this.isDead) this._updateSpeech(dt, ctx);
+    // Huir manda sobre la postura que tuviera, menos sobre el paraguas: sale corriendo con él en la mano. El testigo
+    // tiene el celular en la oreja (llamando) o al frente (grabando).
+    const witness = this._witness && WITNESS_STANCE[this._witness.mode];
+    const posture = this.poseParams?.stance ?? (witness || this._stanceNow());
+    const stance = this.fleeTimer > 0 && this.moving && posture !== 'paraguas' ? 'huir' : posture;
+    this._updateHeld(stance);
+
+    this.animAcc += dt;
+    this.frame++;
+    // Navegación activa, pose lejana congelada; si cambió de postura, esa sí la toma, de una, una sola vez.
+    if (dist > NPC_LOD.animStop && !this.koState) {
+      if (stance === this._posedStance) return;
+      this.character.snapPose?.();
+    }
+    if (this.koState === 'down' && this._koBlend >= 1 && !this._poseStale) return; // tendido: pose fija, sin animar
+    const budget = ctx.animationBudget ?? this.animationBudget;
+    const interval = dist > NPC_LOD.animEvery ? .1 * budget : budget > 1 ? budget / 60 : 0;
+    // Recién cambiado de modelo se anima ya: un cuadro con el modelo nuevo en su pose de reposo se ve como un destello.
+    if (interval && this.animAcc < interval && !this._poseStale) return;
+    const look = this.isDead ? 0 : this.poseParams?.look ?? (stance === 'mirar-surtido' ? 0 : this.mind?.gaze(stance) ?? this._glanceAt(ctx, stance));
+    // La velocidad va en metros del modelo: con la talla cambia el largo del paso, no se patina.
+    const scale = REALISTIC_SCALE * (this.look?.real?.talla?.alto ?? 1);
+    this.character.update(Math.min(this.animAcc, 0.2), {
+      speed: this.moving ? (this.fleeTimer > 0 ? this._fleeSpeed() : this._paceNow()) / scale : 0,
+      running: this.moving && this.fleeTimer > 0,
+      caneGround: this.groundHeight,
+      caneYaw: this.root.rotation.y,
+      bench: this._bench,
+      pedestrianMotion: measureStep ? sample : null,
+      ...this.poseParams,
+      state: this.state, action: this.action, actionProgress: this.actionProgress,
+      troncoDirigido: this.hitLean.active,
+      attack: this._counterPose ?? this.poseParams?.attack,
+      combatGuard: this._counter?.phase === 'warning' || this._counter?.phase === 'wait' || !!this.poseParams?.combatGuard,
+      look,
+      // Caer sigue a la misma mezcla que acuesta el cuerpo.
+      stance,
+      style: this.poseParams?.style ?? this.style,
+      rising: this._riseLeft > 0,
+      ko: smooth(this._koBlend),
+      koPlan: this._koPlan,
+      koFrom: this._koFrom
+    });
+    this._poseStale = false;
+    this._posedStance = stance;
+    this.animAcc = 0;
+    if (measureStep) {
+      sample.distance = sample.elapsed = sample.angle = 0;
+      sample.reset = false;
+    }
+  }
+
 
 
   /** Compatibilidad: cada llamada representa un contacto distinto, sin inmunidad global. */
@@ -1392,9 +1466,11 @@ export class Npc {
    * Testigo de un robo o una pelea: se queda quieto mirando al jugador con el celular, grabando o llamando a la
    * Policía, durante `seconds`. Un golpe, un susto o quedar noqueado lo interrumpen (ver WitnessSystem).
    */
-  witness(mode, seconds) {
-    if (this._disposed || this.koState || this.isVendor || this.fijo || this.fleeTimer > 0 || this._hitReactionRemaining > 0) return false;
-    this._witness = { mode, time: seconds };
+  witness(mode, seconds, focus = null) {
+    if (this._disposed || this.isDead || this.koState || this.isVendor || this.fijo || this.fleeTimer > 0 || this._hitReactionRemaining > 0) return false;
+    if (this.deathResponse ? !focus : this.mind?.busy()) return false;
+    this.mind?.leaveTalk();
+    this._witness = { mode, time: seconds, focus };
     this._witnessFinished = false;
     this.target = null;
     this.route = [];
@@ -1412,8 +1488,9 @@ export class Npc {
     if (this.koState || this.fleeTimer > 0) { this._witness = null; return false; }
     if ((w.time -= dt) <= 0) { this._witness = null; this._witnessFinished = true; return false; }
     this.moving = false;
-    if (this._player) {
-      const yaw = Math.atan2(this._player.x - this.position.x, this._player.z - this.position.z);
+    const focus = w.focus ?? this._player;
+    if (focus) {
+      const yaw = Math.atan2(focus.x - this.position.x, focus.z - this.position.z);
       this.root.rotation.y += wrapAngle(yaw - this.root.rotation.y) * Math.min(1, dt * 6);
     }
     return true;

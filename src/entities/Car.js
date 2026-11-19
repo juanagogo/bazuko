@@ -178,12 +178,13 @@ export class Car {
   }
 
   get position() { return this.group.position; }
+  get driverAvailable() { return this.driverInside !== false && !this.driverDead; }
 
   /** Si `steal` daría algo: a una patrulla no se le roban los espejos y los ya robados tardan en volver. */
   get stealable() { return this.kind !== 'police' && !this.used && this.cooldown <= 0; }
 
   /** Si se le puede limpiar el parabrisas: carros particulares y taxis que no se hayan limpiado recientemente y no estén en alarma. */
-  get cleanable() { return this.kind !== 'police' && !this.used && (this.cleanCooldown ?? 0) <= 0; }
+  get cleanable() { return this.driverAvailable && this.kind !== 'police' && !this.used && (this.cleanCooldown ?? 0) <= 0; }
 
   /**
    * Distancia para el aviso de robar: al centro o, con un recargo, a un espejo. En un carro largo el espejo queda a varios metros
@@ -236,7 +237,7 @@ export class Car {
     if (!this.traffic && Math.random() < 0.2) items.push('radio');
 
     const caughtChance = 0.25 * caughtMult;
-    const caught = Math.random() < caughtChance;
+    const caught = this.driverAvailable && Math.random() < caughtChance;
 
     this.used = true;
     this.cooldown = CAR_COOLDOWN;

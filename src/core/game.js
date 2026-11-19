@@ -202,6 +202,7 @@ export class Game {
     this.interaction.personCloserThan = (distance) => this.steal.personCloserThan(distance);
     // Quien ve un robo o una pelea llama a la Policía, graba o sale corriendo (ver WitnessSystem).
     this.witnesses = new WitnessSystem(this);
+    this._escucharSucesosDeCombate();
     this.interaction.onStartMirrorTheft = (car) => {
       this.steal.startMirrorTheft(car, (target) => {
         this.interaction._executeCarTheft(target);
@@ -321,12 +322,13 @@ export class Game {
 
   async _initialize(loading) {
     await loading.stage('Construyendo la ciudad…', 1);
-    this.world.loadDistrict('Bogota', this.collisions);
+    const partida = this._leerPartida();
+    this.world.loadDistrict('Bogota', this.collisions, partida?.population);
     this._spawnEntities();
     this._setupGps();
 
     const district = this.world.active;
-    const hasSave = this._loadIfSave();
+    const hasSave = this._loadIfSave(partida);
     // Al iniciar una partida nueva, comenzamos al amanecer (6:00 AM) para apreciar la luz matutina de Bogotá
     if (!hasSave) {
       this.clock.hour = 6;
@@ -948,10 +950,18 @@ export class Game {
     }, 650);
   }
 
-  /** Una partida que no se deja leer no detiene la carga: se aparta sin borrarla y se juega sin ella. */
-  _loadIfSave() {
+  _leerPartida() {
     try {
-      const data = this.save.load();
+      return this.save?.load() ?? null;
+    } catch (error) {
+      console.warn('[Partida] No se pudo acceder al guardado.', error);
+      return null;
+    }
+  }
+
+  /** La población y el inventario se reconstruyen desde la misma lectura. */
+  _loadIfSave(data = this._leerPartida()) {
+    try {
       this._aplicarPartida(data);
       return Boolean(data);
     } catch (error) {
@@ -1001,11 +1011,49 @@ export class Game {
       if (data.gps && this.gps) this.setGpsWaypoint({ ...data.gps, name: RENAMED_PLACES[data.gps.name] ?? data.gps.name }, { silent: true });
       if (data.lastComedorHour !== undefined) this.lastComedorHour = data.lastComedorHour;
       this.street?.deserialize(data.street);
+      this.limpieza?.loadSaveData?.(data.limpieza);
+      this.policeFoot?.restoreRoster?.(data.policeRoster);
+      this.roadRage?.restoreRoster?.(data.roadRageRoster);
+      this.steal?.deserialize?.(data.robo); // la mano del robo; una partida vieja empieza de cero
       if (data.dailyMissions) this.dailyMissions?.deserialize(data.dailyMissions);
       else this.dailyMissions?.init(this.clock?.day ?? 1);
     } else {
       this.dailyMissions?.init(this.clock?.day ?? 1);
     }
+  }
+
+  _escucharSucesosDeCombate() {
+    this._eventosCombate = new AbortController();
+    const opciones = { signal: this._eventosCombate.signal };
+    const guardar = () => this._guardarTrasCombate();
+    window.addEventListener('street-fight', ({ detail }) => {
+      if (detail?.attacker === this.player && detail.results?.some(hit => hit.damage > 0)) guardar();
+    }, opciones);
+    window.addEventListener('npc-player-hit', ({ detail }) => {
+      if (detail?.victim === this.player && detail.damage > 0 && detail.health > 0) guardar();
+    }, opciones);
+    window.addEventListener('npc-death', ({ detail }) => {
+      this.world.active?.recordNpcDeath?.(detail.victim);
+      guardar();
+    }, opciones);
+    window.addEventListener('npc-emergency-call', ({ detail }) => {
+      this.traffic?.respondToEmergency?.(detail);
+      guardar();
+    }, opciones);
+    window.addEventListener('limpieza-outcome', guardar, opciones);
+    window.addEventListener('population-changed', guardar, opciones);
+    window.addEventListener('police-release', () => this._releaseGrab(), opciones);
+  }
+
+  _guardarTrasCombate() {
+    if (this._loading || this._guardadoCombatePendiente) return;
+    this._guardadoCombatePendiente = true;
+    // El mismo impacto puede resolver una muerte, la reputación y el encuentro en llamadas sucesivas.
+    queueMicrotask(() => {
+      if (!this._guardadoCombatePendiente) return;
+      this._guardadoCombatePendiente = false;
+      this._save();
+    });
   }
 
   _save() {
@@ -1017,6 +1065,10 @@ export class Game {
       diseases: this.diseases.serialize(),
       player: { pos: this.player.position.toArray() },
       worldLayoutVersion: this.world.active?.layoutVersion ?? 0,
+      population: this.world.getPopulationSaveData?.() ?? this.world.active?.getPopulationSaveData?.(),
+      limpieza: this.limpieza?.getSaveData?.(),
+      policeRoster: this.policeFoot?.serializeRoster?.(),
+      roadRageRoster: this.roadRage?.serializeRoster?.(),
       look: this.look,
       built: this.built,
       costal: this.costal,
@@ -1549,7 +1601,10 @@ export class Game {
     }
     this.street?.update(dt);
     this.witnesses?.update(dt);
-    if (!this.player.isSwimming) this.steal?.update(dt);
+    this.rebusque?.update(dt);
+    this.interaction.rebusquePrompt = this.rebusque?.prompt ?? null;
+    this.rebusqueVisual?.update();
+    if (!this.player.isSwimming && !driving) this.steal?.update(dt);
     else if (this.steal?.minigameActive) this.steal._endMinigame(false, 'cancel');
     this.interaction.carjackPrompt = driving ? null : this.carjack?.prompt ?? null;
     // Al volante no queda ningún aviso de a pie (el retrovisor, el bolsillo) colgando de antes de subirse.
@@ -1585,7 +1640,7 @@ export class Game {
     actualizarFrases(this.cameraRig.camera, this.player.position, now);
     this.profiler?.mark('mundoNPC');
     this.traffic?.update(dt, { player: this.player.position, pedestrians: this.world.active?.trafficPedestrians ?? this.world.active?.npcs ?? [], onPlayerHit: this._onVehicleImpact, camera: this.cameraRig.camera, hour: this.clock.hour });
-    this.roadRage?.update(dt);
+    this.roadRage?.update(dt, { camera: this.cameraRig.camera });
     this.limpieza?.update(dt, {
       isNight: this.clock.isNight,
       canChase: !this.isSleeping,
@@ -1842,6 +1897,15 @@ export class Game {
 
   stop() {
     this._running = false;
+    this._eventosCombate?.abort();
+    if (this._guardadoCombatePendiente) {
+      this._guardadoCombatePendiente = false;
+      this._save();
+    }
+    if (this.carjack?.fisica && (this.carjack.driving || this.carjack.transition)) this.carjack.reset();
+    this.player?.melee?.cancel();
+    this.player?.polvoGolpes?.dispose();
+    this.sangre?.dispose();
     this.waterEffects?.dispose();
     this.contactShadows?.dispose();
     this.gpsBeacon?.dispose();
@@ -1855,6 +1919,7 @@ export class Game {
     this.randomHallucinations?.dispose?.();
     this.bicycles?.forEach((b) => b.dispose?.());
     this.bikeFence?.dispose?.();
+    this.policeFoot?.dispose?.();
     this.radio?.destroy?.();
     this.witnesses?.dispose();
   }
