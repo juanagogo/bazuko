@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { readFileSync, readdirSync } from 'node:fs';
 import { test } from 'node:test';
-import { ARCHETYPES, LOW_STANCES, SEARCH_ACTION, ZONE_WEIGHTS, normalizeTalla, personLook, pickArchetype, pickStop, pickWalk, rollPerson } from '../src/character/archetypes.js';
+import { ARCHETYPES, LOW_STANCES, SEARCH_ACTION, SKIN_CLEARANCE, ZONE_WEIGHTS, normalizeTalla, personLook, pickArchetype, pickStop, pickWalk, rollPerson, skinDistance } from '../src/character/archetypes.js';
 import { STANCE_NAMES } from '../src/character/stances.js';
 import { GAIT_FAMILIES } from '../src/character/gaitFamilies.js';
 import { isStreetProp } from '../src/character/props.js';
@@ -184,6 +184,52 @@ test('quien vive en la calle se ve gastado y el oficinista no', () => {
   const look = personLook(rollPerson('habitante', { random }));
   assert.equal(look.desgaste, 2);
   assert.equal(look.real.desgaste, 2);
+});
+
+test('entre recicladores con costal hay lona, acolchado y prendas de calle en las mismas tallas y tonos', () => {
+  const random = seeded(24), groups = new Map();
+  for (let i = 0; i < 1200; i++) {
+    const person = rollPerson('reciclador', { random });
+    const style = person.chalecoReciclador ?? 'sin chaleco';
+    const group = groups.get(style) ?? [];
+    group.push(person);
+    groups.set(style, group);
+    assert.ok(person.real.accesorios.some(item => item.id === 'costal'));
+    assert.equal(personLook(person).chalecoReciclador, person.chalecoReciclador);
+  }
+  assert.deepEqual([...groups.keys()].sort(), ['acolchado', 'lona', 'sin chaleco']);
+  for (const people of groups.values()) {
+    assert.ok(people.length > 300 && people.length < 500);
+    assert.equal(new Set(people.map(person => person.sexo)).size, 2);
+    assert.equal(new Set(people.map(person => person.real.edad)).size, 3);
+    assert.equal(new Set(people.map(person => person.piel)).size, 6);
+  }
+  for (let i = 0; i < 100; i++) {
+    const asleep = rollPerson('reciclador', { random, sinCarga: true });
+    assert.equal(asleep.chalecoReciclador, undefined);
+    assert.equal(asleep.real.accesorios.some(item => item.id === 'costal'), false);
+  }
+});
+
+test('algunos peatones llevan bufanda con prendas largas y tonos separados de la piel', () => {
+  const random = seeded(91);
+  const colors = new Set(), garments = new Set();
+  let withScarf = 0;
+  for (const id of ids) for (let i = 0; i < 80; i++) {
+    const person = rollPerson(id, { random });
+    const scarf = person.real.accesorios.find(item => item.id === 'bufanda');
+    if (!scarf) continue;
+    assert.ok(['saco', 'chaqueta', 'buzo', 'camisa'].includes(person.real.ropa), person.real.ropa);
+    assert.ok(skinDistance(scarf.color, person.piel) >= SKIN_CLEARANCE);
+    assert.notEqual(scarf.color, person.real.tonos.arriba);
+    assert.equal(scarf.mano, undefined);
+    colors.add(scarf.color);
+    garments.add(person.real.ropa);
+    withScarf++;
+  }
+  assert.ok(withScarf > 40 && withScarf < 180);
+  assert.equal(garments.size, 4);
+  assert.ok(colors.size > 4);
 });
 
 test('posturas, pasos y frases existen: nadie pide lo que el cuerpo no sabe hacer', () => {

@@ -1116,7 +1116,14 @@
 					"index":1
 				},
 				"metallicFactor":0,
-				"roughnessFactor":0.8500000238418579
+				"roughnessFactor":0.8500000238418579,
+				"metallicRoughnessTexture":{
+					"index":2
+				}
+			},
+			"occlusionTexture":{
+				"index":2,
+				"strength":0.76
 			}
 		}
 	],
@@ -1140,12 +1147,8 @@
 	],
 	"textures":[
 		{
-			"extensions":{
-				"EXT_texture_webp":{
-					"source":0
-				}
-			},
-			"sampler":0
+			"sampler":0,
+			"source":0
 		},
 		{
 			"extensions":{
@@ -1154,18 +1157,27 @@
 				}
 			},
 			"sampler":0
+		},
+		{
+			"sampler":0,
+			"source":2
 		}
 	],
 	"images":[
 		{
-			"mimeType":"image/webp",
-			"name":"male_casualsuit02_normal",
-			"uri":"../texturas/male_casualsuit02_normal.webp"
+			"mimeType":"image/png",
+			"name":"buzo-relieve",
+			"uri":"../texturas/buzo-relieve.png"
 		},
 		{
 			"mimeType":"image/webp",
 			"name":"male_casualsuit02_diffuse",
 			"uri":"../texturas/male_casualsuit02_diffuse.webp"
+		},
+		{
+			"mimeType":"image/png",
+			"name":"buzo-orm",
+			"uri":"../texturas/buzo-orm.png"
 		}
 	],
 	"skins":[
