@@ -5,7 +5,8 @@ import { LOW_STANCES } from '../character/archetypes.js';
  * Testigos de robos y peleas. Quien ve el delito desde cerca y sin nada en medio reacciona: uno saca el celular y
  * llama a la Policía, otro se queda grabando y los demás salen corriendo, alguno gritando. La llamada que termina sube
  * «te tienen fichado» y manda una patrulla al sitio; el jugador la corta si llega hasta quien llama, o si lo golpea.
- * El video que termina deja el fichado sin bajar un buen rato.
+ * El video que termina deja el fichado sin bajar un buen rato. Lo que dicen sale con su voz grabada si la tienen lista
+ * (AudioSystem.voces) y, si no, solo en la burbuja.
  */
 export const WITNESS = {
   radius: 16,          // metros a los que alguien alcanza a ver bien lo que pasó
@@ -18,9 +19,11 @@ export const WITNESS = {
   cooldown: 4,         // cada golpe de una pelea no arma una escena nueva
   heightTolerance: 1.2,
   slack: 1,            // s de más que se le da al peatón antes de soltarlo a la fuerza
+  prepararCada: 1,     // s entre una petición de voces y la siguiente mientras hay alguien a tiro de robo
 };
 
-// Lo que gritan los que huyen y lo que dicen los del celular, en la burbuja. Sin tuteo: en la calle se trata de usted.
+// Lo que gritan los que huyen y lo que dicen los del celular, en la burbuja, cuando no lo dicen con su voz grabada.
+// Sin tuteo: en la calle se trata de usted.
 export const GRITOS = {
   robo: ['¡Ladrón!', '¡Cójanlo, que robó!', '¡Auxilio, un ladrón!'],
   pelea: ['¡Pelea, pelea!', '¡Lo van a matar!', '¡Sepárenlos!'],
@@ -30,7 +33,6 @@ export const GRITOS = {
 };
 
 const any = (list) => list[Math.floor(Math.random() * list.length)];
-const decir = (npc, situacion) => npc.say?.(any(GRITOS[situacion]));
 
 export class WitnessSystem {
   constructor(game, { random = Math.random } = {}) {
@@ -39,6 +41,7 @@ export class WitnessSystem {
     this.calls = [];   // { npc, position, left }
     this.films = [];   // { npc, left }
     this._cooldown = 0;
+    this._prepararEn = 0;
     if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
       this._onFight = (e) => this.report('pelea', e?.detail?.hits);
       window.addEventListener('street-fight', this._onFight);
@@ -76,22 +79,24 @@ export class WitnessSystem {
     const witnesses = this._witnesses(playerPos, Array.isArray(victim) ? victim : [victim]);
     if (!witnesses.length) return 0;
     this._cooldown = WITNESS.cooldown;
+    // Los que no alcancen a tener su voz lista ahora la tendrán para colgar o para la próxima escena.
+    for (const npc of witnesses) this._voces()?.prepararTestigo?.(npc);
     let caller = false, filmer = false, screamed = false;
     for (const npc of witnesses) {
       if (!caller && !this.calls.length && this.random() < WITNESS.callChance && npc.witness?.('llamar', WITNESS.callSeconds)) {
         caller = true;
         this.calls.push({ npc, position: playerPos.clone?.() ?? { ...playerPos }, left: WITNESS.callSeconds + WITNESS.slack });
-        decir(npc, 'llamar');
+        this._decir(npc, 'llamar');
         continue;
       }
       if (!filmer && this.random() < WITNESS.filmChance && npc.witness?.('grabar', WITNESS.filmSeconds)) {
         filmer = true;
         this.films.push({ npc, left: WITNESS.filmSeconds + WITNESS.slack });
-        decir(npc, 'grabar');
+        this._decir(npc, 'grabar');
         continue;
       }
       npc._fleeFrom?.(playerPos);
-      if (!screamed) { screamed = true; decir(npc, kind); }
+      if (!screamed) { screamed = true; this._decir(npc, kind); }
     }
     if (caller) this._toast('Alguien está llamando a la Policía: tengo que llegarle antes de que cuelgue', 'warn');
     else if (filmer) this._toast('Me están grabando con el celular', 'warn');
@@ -104,6 +109,7 @@ export class WitnessSystem {
    */
   update(dt) {
     if (this._cooldown > 0) this._cooldown = Math.max(0, this._cooldown - dt);
+    this._prepararVoces(dt);
     const player = this.game?.player?.position;
     for (let i = this.calls.length - 1; i >= 0; i--) {
       const call = this.calls[i], npc = call.npc;
@@ -112,7 +118,7 @@ export class WitnessSystem {
         && Math.hypot(npc.position.x - player.x, npc.position.z - player.z) <= WITNESS.interruptRange) {
         npc.stopWitness?.();
         npc._fleeFrom?.(player);
-        decir(npc, 'colgar');
+        this._decir(npc, 'colgar');
         this.calls.splice(i, 1);
         this._toast('Le hice colgar', 'info');
         continue;
@@ -133,6 +139,26 @@ export class WitnessSystem {
         this._toast('Me grabaron: ese video va a dar vueltas', 'warn');
       }
     }
+  }
+
+  /** Lo que dice el testigo: con su voz grabada y su burbuja si la tiene lista; si no, la burbuja de siempre. */
+  _decir(npc, situacion) {
+    if (this._voces()?.decirTestigo?.(npc, situacion) === true) return;
+    npc.say?.(any(GRITOS[situacion]));
+  }
+
+  _voces() { return this.game?.audio?.voces ?? null; }
+
+  /**
+   * Antes del robo: mientras hay alguien a tiro (el aviso de E y Q a la vista), cada segundo se piden las voces de
+   * quienes lo verían, para que estén cargadas si sale mal. Al arrancar el juego no se pide ninguna.
+   */
+  _prepararVoces(dt) {
+    const voces = this._voces(), objetivo = this.game?.steal?.targetNpc, playerPos = this.game?.player?.position;
+    if (!voces?.prepararTestigo || !objetivo || !playerPos) { this._prepararEn = 0; return; }
+    if ((this._prepararEn -= dt) > 0) return;
+    this._prepararEn = WITNESS.prepararCada;
+    for (const npc of this._witnesses(playerPos, [objetivo])) voces.prepararTestigo(npc);
   }
 
   /** El peatón ya no está en el mundo, o se pasó de su tiempo sin terminar: se le suelta sin que cuente. */

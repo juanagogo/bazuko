@@ -50,6 +50,7 @@ export class StreetBatch {
       for (let j = 0; j < size; j++) chunk.c.push(value[j] ?? 1);
     }
     chunk.i.push(base, base + 1, base + 2, base, base + 2, base + 3);
+    return chunk;
   }
 
   /** Un solo triángulo, para lo que termina en punta: una hoja cuesta la mitad que un cuadrilátero. */
@@ -71,7 +72,7 @@ export class StreetBatch {
       return [px, heightAt ? heightAt(px, pz) : y, pz];
     };
     // uv: u crece con `width`, v crece con −`depth` para que el glifo se lea hacia −Z local.
-    this.quad(at(-hw, hd), at(hw, hd), at(hw, -hd), at(-hw, -hd), [0, 1, 0], uv, value);
+    return this.quad(at(-hw, hd), at(hw, hd), at(hw, -hd), at(-hw, -hd), [0, 1, 0], uv, value);
   }
 
   /** Caja girada en Y. `shade` oscurece la base: un poco de oclusión gratis en todos los objetos. */
@@ -126,7 +127,7 @@ export class StreetBatch {
   }
 
   /** Cierra los sectores en mallas hijas de `parent`; no pasan por _mergeStatic. */
-  finish(parent) {
+  finish(parent, decorateGeometry) {
     const meshes = [];
     for (const chunk of this.chunks.values()) {
       if (!chunk.i.length) continue;
@@ -137,6 +138,7 @@ export class StreetBatch {
       geometry.setAttribute('color', new THREE.Float32BufferAttribute(chunk.c, this.colorSize));
       const vertices = chunk.p.length / 3;
       geometry.setIndex(vertices > 65535 ? new THREE.Uint32BufferAttribute(chunk.i, 1) : new THREE.Uint16BufferAttribute(chunk.i, 1));
+      decorateGeometry?.(geometry, chunk);
       geometry.computeBoundingBox();
       geometry.computeBoundingSphere();
       const mesh = new THREE.Mesh(geometry, this.material);

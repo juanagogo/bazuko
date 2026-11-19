@@ -119,8 +119,7 @@ export function normalizeLook(raw = {}) {
 }
 
 /** Combinación al azar, curada: pelo casi siempre natural, ropa que contrasta. */
-export function randomLook(base = DEFAULT_LOOK) {
-  const r = Math.random;
+export function randomLook(base = DEFAULT_LOOK, r = Math.random) {
   const any = (arr) => arr[Math.floor(r() * arr.length)];
   const style = (k) => any(STYLES[k]).id;
   const top = Math.floor(r() * PALETTES.ropa.length);

@@ -77,7 +77,47 @@ test('cada etapa se dibuja con pocas mallas y sin luces nuevas', async () => {
   assert.ok(triangulos - 12 < 6000, `terminado: ${triangulos - 12} triángulos sin contar el modelo`);
   const materiales = new Set();
   shelter.group.traverse(node => { if (node.isMesh && node !== shelter.model) materiales.add(node.material); });
-  assert.ok(materiales.size <= 7, `${materiales.size} materiales`);
+  assert.ok(materiales.size <= 8, `${materiales.size} materiales con el atlas de cartón`);
+  assert.equal(shelter.markerPile.material, shelter.pieces.base.material, 'las dos etapas comparten el papel kraft');
+  shelter.dispose();
+});
+
+test('los cartones y la base conservan las huellas, con dobleces y cantos dentro del lote', () => {
+  const shelter = nuevo();
+  const dimensiones = malla => malla.geometry.boundingBox.getSize(new THREE.Vector3());
+  const sueltos = dimensiones(shelter.markerPile), base = dimensiones(shelter.pieces.base);
+  assert.ok(Math.abs(sueltos.x - 2.131) < .015 && Math.abs(sueltos.z - 1.540) < .05);
+  assert.ok(base.x > 3.2 && base.x < 3.5 && base.z > 2.4 && base.z < 2.6);
+  assert.ok(sueltos.y > .04 && sueltos.y < .11 && base.y < .12);
+  for (const malla of [shelter.markerPile, shelter.pieces.base]) {
+    const { position, uv } = malla.geometry.attributes;
+    assert.equal(uv.count, position.count, 'la cara y el canto miran a regiones del mismo atlas');
+    assert.ok(malla.geometry.boundingBox.min.y > 0, 'ninguna hoja queda bajo tierra');
+  }
+  shelter.dispose();
+});
+
+test('el apoyo pasa del cartón al colchón y se ajusta al modelo terminado', async () => {
+  const shelter = nuevo();
+  const local = () => {
+    const anchor = shelter.sleepAnchor();
+    return { ...anchor, position: shelter.group.worldToLocal(anchor.position) };
+  };
+  shelter.setBuilt({ base: true });
+  const cartones = local();
+  assert.ok(Math.abs(cartones.position.y - .062) < .003 && Math.abs(cartones.position.x) < .04);
+  assert.equal(cartones.headYaw, shelter.group.rotation.y + Math.PI);
+  assert.equal(cartones.covered, false);
+  shelter.setBuilt({ base: true, techo: true, cama: true });
+  const cama = local();
+  assert.ok(Math.abs(cama.position.y - .362) < .003 && Math.abs(cama.position.x + .575) < .003);
+  assert.equal(cama.headYaw, cartones.headYaw);
+  assert.equal(cama.covered, true);
+  (await conModelo(shelter)).setBuilt(TODO);
+  const terminado = local();
+  assert.ok(Math.abs(terminado.position.z + .48) < .003);
+  assert.equal(terminado.headYaw, shelter.group.rotation.y - Math.PI / 2);
+  assert.deepEqual(shelter.position.toArray(), SITIO.toArray());
   shelter.dispose();
 });
 

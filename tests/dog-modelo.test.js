@@ -48,17 +48,27 @@ function mallas(root) {
 }
 
 /** Vértices en reposo que se mueven sobre todo con un hueso. */
-function verticesDe(root, hueso) {
+function verticesDe(root, hueso, animados = false) {
   const puntos = [];
   for (const mesh of mallas(root)) {
     const { position, skinIndex, skinWeight } = mesh.geometry.attributes;
+    if (animados) mesh.skeleton.update();
     for (let i = 0; i < position.count; i++) {
       let mayor = 0;
       for (let k = 1; k < 4; k++) if (skinWeight.getComponent(i, k) > skinWeight.getComponent(i, mayor)) mayor = k;
-      if (mesh.skeleton.bones[skinIndex.getComponent(i, mayor)].name === hueso) puntos.push(new THREE.Vector3().fromBufferAttribute(position, i));
+      if (mesh.skeleton.bones[skinIndex.getComponent(i, mayor)].name !== hueso) continue;
+      const punto = new THREE.Vector3();
+      puntos.push(animados ? mesh.localToWorld(mesh.getVertexPosition(i, punto)) : punto.fromBufferAttribute(position, i));
     }
   }
   return puntos;
+}
+
+function plantar(dog, altura = () => dog.position.y) {
+  dog.group.updateMatrixWorld(true);
+  return ['mano_L', 'mano_R', 'pie_L', 'pie_R'].map(name =>
+    Math.min(...verticesDe(dog.model, name, true).map(p => p.y - altura(p.x, p.z)))
+  );
 }
 
 test('el archivo cabe en el presupuesto: una malla de dos materiales, pocos triángulos y poco peso', async () => {
@@ -92,6 +102,76 @@ test('trae el esqueleto que anima el juego, en su pose de reposo y con las patas
   for (const name of ['mano_L', 'mano_R', 'pie_L', 'pie_R']) {
     const suelo = Math.min(...verticesDe(dog.model, name).map(p => p.y));
     assert.ok(Math.abs(suelo) < .005, `${name} pisa en y = ${suelo}`);
+  }
+});
+
+test('las cuatro patas de El Chato apoyan en la postura sentada y echada', async () => {
+  for (const tamano of [.8, 1, 1.25]) {
+    const dog = await dogWithModel({ tamano });
+    dog.position.y = .12;
+    dog.befriend();
+    const player = new THREE.Vector3(.8, .12, 1.4);
+    const advance = frames => { for (let frame = 0; frame < frames; frame++) dog.update(1 / 60, player); };
+    const checkContact = posture => plantar(dog).forEach((bottom, i) =>
+      assert.ok(bottom >= -.015 && bottom < .02, `${posture}, escala ${tamano}, pata ${i}: ${bottom} m sobre el suelo`)
+    );
+
+    advance(270);
+    assert.ok(dog._posture.sit > .99);
+    checkContact('sentado');
+    dog.restAt(new THREE.Vector3(0, .12, 0));
+    assert.equal(dog._posture.sit, 0);
+    assert.equal(dog._posture.lie, 1);
+    checkContact('dormido tras sentarse');
+
+    dog.wake();
+    advance(990);
+    assert.ok(dog._posture.lie > .99);
+    checkContact('echado por espera');
+    dog.destroy();
+  }
+});
+
+test('al levantarse y caminar fija las patas de apoyo y despega las que avanzan', async () => {
+  for (const floor of [() => .12, (_, z) => .12 + .1 * z, (_, z) => z < 2 ? .02 : .14]) {
+    const dog = await dogWithModel();
+    dog.navigation = { district: { getGroundHeight: floor }, route: (_, target) => [target.clone()] };
+    dog.befriend();
+    const player = new THREE.Vector3(0, floor(0, 1.8), 1.8);
+    for (let i = 0; i < 230; i++) dog.update(1 / 60, player);
+    assert.ok(dog._posture.sit > .99);
+
+    const pelvis = dog._rig.get('pelvis').bone;
+    const paw = dog._stride.legs[0];
+    const lastSupport = new THREE.Vector3();
+    const wrist = new THREE.Vector3();
+    let supporting = false, movedWhilePlanted = 0, coveredWhilePlanted = 0, airborne = 0;
+    let previousHip = pelvis.getWorldPosition(new THREE.Vector3()).y - dog.position.y;
+    for (let i = 0; i < 230; i++) {
+      const z = 3.3 + (i + 1) * .025;
+      const previousZ = dog.position.z;
+      player.set(0, floor(0, z), z);
+      dog.update(1 / 60, player);
+      const heights = plantar(dog, floor);
+      assert.ok(Math.min(...heights) >= -.015, `pata bajo el suelo en cuadro ${i}: ${heights}`);
+      if (dog._posture.sit > .1) {
+        const currentHip = pelvis.getWorldPosition(new THREE.Vector3()).y - dog.position.y;
+        assert.ok(currentHip >= previousHip - .005, 'la grupa sube al levantarse');
+        previousHip = currentHip;
+      }
+      paw.paw.getWorldPosition(wrist);
+      const planted = i > 70 && paw.planted;
+      if (planted && supporting && z > 7) {
+        movedWhilePlanted += Math.hypot(wrist.x - lastSupport.x, wrist.z - lastSupport.z);
+        coveredWhilePlanted += dog.position.z - previousZ;
+      }
+      if (i > 70 && !planted && heights[0] > .045) airborne++;
+      lastSupport.copy(wrist);
+      supporting = planted;
+    }
+    assert.ok(coveredWhilePlanted > .2 && movedWhilePlanted / coveredWhilePlanted < .06, 'la planta no arrastra con el tronco');
+    assert.ok(airborne > 10, 'el ciclo conserva un arco de avance separado del apoyo');
+    dog.destroy();
   }
 });
 

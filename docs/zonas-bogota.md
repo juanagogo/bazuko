@@ -1,6 +1,6 @@
 # Zonas de Bogotá y borde de la ciudad
 
-La ciudad se amplió de 240 a 400 metros de ancho, solo hacia +X. Nada de lo anterior cambió de lugar: las partidas guardadas abren igual, delante del cambuche, y las pruebas comparan tile por tile que los lotes y las casas de la parte vieja dan lo mismo que antes. Las colisiones sí crecieron: los cierres del borde suman cajas también en esa parte, pero cada entrada al juego empieza frente al cambuche, así que nadie aparece dentro de una. La columna X 238, que era el muro del oriente, ahora es manzana o calle: las calles del centro siguen hasta la Carrera 5 (X 256–266), que recorre la ciudad de norte a sur y separa el centro de los barrios nuevos.
+La ciudad se amplió de 240 a 400 metros de ancho hacia +X. Los solares del centro conservan su posición y las partidas guardadas mantienen sus coordenadas. El rediseño de los parques convirtió en paseo parte del césped. `tests/architecture-determinism.test.js` comprueba que cada tile fuera de esos cambios de césped y pavimento conserva su tipo y que las colisiones del terreno del centro siguen en su sitio. La columna X 238, antiguo muro oriental, da paso a las calles que llegan a la Carrera 5 (X 256–266). Los cierres del borde tienen sus propias cajas de colisión.
 
 ## La Candelaria (X 267–400, Z 0–121)
 
@@ -16,7 +16,11 @@ Ladrillo rojo, casas de estilo inglés con hastiales y ventanas en saliente, ant
 
 - **Calle 7 comercial.** Locales con cortina metálica, toldo y avisos inventados, y un puesto de fritanga.
 - **Plaza de mercado.** Seis puestos con toldos de lona o a franjas, canastas de fruta y verdura, y costales. Bloquea el paso solo por donde hay mesas.
-- **Parque de Teusaquillo y torres de ladrillo.** Tres arcos curvos de ladrillo, escalonados, inspirados en los conjuntos de ladrillo bogotanos. Sólidos en su curva real: la colisión son tiras de medio metro que siguen la planta (`towerColliderBoxes`). Se ven desde todo el barrio: su bruma tiene tope y ni la cámara ni el descarte las cortan en el plano lejano. Cerca del horizonte, torres, cerros y ciudad de fondo se hunden en una bruma que depende del ángulo de la mirada: con neblina, lluvia, al atardecer o de noche sube más y con el día despejado queda abajo, para que la ciudad real, que a esa distancia ya es solo niebla, no se recorte contra ellos.
+- **Parque de Teusaquillo y torres de ladrillo.** Tres arcos curvos de ladrillo, escalonados, inspirados en los conjuntos de ladrillo bogotanos. Sólidos en su curva real: la colisión son tiras de medio metro que siguen la planta (`towerColliderBoxes`). Se ven desde todo el barrio: su bruma tiene tope y ni la cámara ni el descarte las cortan en el plano lejano. Las torres, los cerros y las manzanas del fondo comparten una bruma que depende de la distancia, la altura y el clima. Con neblina o lluvia se acumula en el valle y se atenúa hacia las azoteas y cumbres.
+
+## Paseos de los parques
+
+El adoquín de barro en canasta identifica los caminos. En los parques de la Estación y del Sur las bancas quedan en ensanches a los lados del paseo. Allí y en el Tercer Milenio, el GPS lleva a la cara libre de cada pila pública para lavarse o llenar la botella. En el Parque del Lago, tres entradas desde la Carrera 5 conectan con el paseo y cinco bancas miran al agua.
 
 ## El borde
 
@@ -30,17 +34,19 @@ El tile `wall` sigue sólido en las cuatro orillas, pero ya no se dibuja como mu
 
 El carril del bus queda sin barreras, conos ni franja: el articulado arranca con la cola junto al cierre, y a pie se llega hasta la lámina, que tiene una losa de asfalto al pie. Bajo la rampa del puente del lago y a lo largo de sus estribos sigue el piso de asfalto hasta esa losa. Los costados de la terminal llevan reja y su final de vía lleva cierre de obra; antes se veía la colisión invisible como una pared gris.
 
-Detrás de todo está `CityBackdrop.js`: **de tres a siete llamadas de dibujo** por vista, sin colisiones y excluidas de los sectores. El cerro siempre se dibuja; de los bloques, solo los costados que caben en cuadro.
+Detrás de todo está `CityBackdrop.js`: **de cuatro a ocho llamadas de dibujo** por vista, sin colisiones y excluidas de los sectores. El cerro siempre se dibuja; de los bloques, solo los costados que caben en cuadro.
 
 - **Suelo y cerros.** Una sola malla en anillo, con las calles que siguen detrás de los cierres.
-- **Bloques.** Unos 3.000 ejemplares de una caja de cinco caras, entre edificios, cuartos de azotea y casitas. Pisos, ventanas, alféizares y luces de noche salen del sombreador, según la escala de cada ejemplar, sin texturas.
+- **Bloques.** Unos 3.000 ejemplares de una caja de cinco caras, entre edificios, cuartos de azotea y casitas. Pisos, ventanas, alféizares y luces de noche salen del sombreador, según la escala de cada ejemplar, sin texturas. Vistas desde lo alto, sus azoteas llevan pretil, sombra por dentro, manchas de agua y parches de manto, y de lejos vuelven al tono parejo.
+- **Entre la ciudad y los cerros.** Frente al Lago, las manzanas de fondo reúnen viviendas de ladrillo y pañete con algunos locales y azoteas a distintas alturas. Las cabeceras sobre el parque tienen vanos salteados y cuerpos bajos de servicio. Detrás de La Candelaria aparecen frentes más estrechos, zócalos y cubiertas a dos aguas.
 - **Más allá de la Candelaria,** hacia +X, un cerro alto con iglesia blanca en la cumbre, torres de teleférico y cabinas.
-- **Al sur,** un barrio de ladrillo trepando la ladera, con casitas que se encienden de noche.
+- **Al sur,** las casas de ladrillo y pañete se escalonan junto a calles que siguen la pendiente, con pasos peatonales entre niveles y claros verdes entre grupos. Los cimientos apoyan en la malla del cerro. Las vías van en el mismo lote del terreno y las luces de las casas siguen la hora del cielo.
 
 ## Tráfico, gente y mapa
 
 - **Carros.** Dos circuitos más (ocho carros), siempre girando a la derecha, para que las calles de cuatro tiles nunca crucen el sentido contrario. Los carros del oriente y los del centro **no comparten carril**: si se mezclan, los cruces anchos de la Caracas reciben más de los que despachan. No parquean en las calles angostas.
 - **Semáforos.** Solo en los cruces de la Carrera 5 con las calles de la red de siempre; dentro de los barrios no hay.
+- **Cruces peatonales.** La señalización, los peatones y el GPS comparten los pasos de `StreetCrossings.js`. Cada tramo cruza una calzada real y desemboca en suelo peatonal. En la Caracas, el separador divide el cruce en etapas. Las flechas de giro apuntan a carriles de salida existentes.
 - **Peatones.** 14 más y dos vendedores, todos dentro del oriente. La población del centro sigue igual.
 - **Basura y parqueados.** `getSpawnGrid` incluye los andenes y las plazas nuevas, pero no la fuente, los puestos ni lo que queda detrás de un cierre; en toda la ciudad descarta además los puntos donde un cuerpo no cabe, pegados a una caja sólida. `populationScale` subió de 3 a 4,6 para que el centro conserve la densidad de bolsas y carros parqueados que tenía.
 - **Mapa.** Radar y mapa grande pintan las zonas desde los mismos tiles, sin deformarse. Nombran Plaza de la Candelaria, Parque de Teusaquillo, Torres de ladrillo y Plaza de mercado, y el GPS llega a pie.
@@ -53,4 +59,4 @@ Detrás de todo está `CityBackdrop.js`: **de tres a siete llamadas de dibujo** 
 - **Noche.** Sin luces por casa: las ventanas encendidas viven en el mapa emisivo; solo uno de cada varios faroles de pared lleva `PointLight`, que entra al grupo limitado de luces locales. Ese farol y los de la plaza dejan un charco pintado en el lote de luz de la calle, partido por tiles para seguir la altura del piso y no subirse a los muros; se ve aunque su luz real esté apagada por el límite.
 - **Sin navegador.** Toda textura de canvas se protege con `typeof document`: las pruebas corren en Node.
 - **Sin marcas.** Avisos, murales y rótulos son inventados.
-- **Costo a vigilar.** El fondo está partido en ocho costados y solo se dibujan los que caben en cuadro: unos 33 mil triángulos en total, de los que una vista a la altura de la calle gasta entre 9 y 26 mil en tres a siete llamadas. Más ejemplares no suman llamadas, pero sí triángulos.
+- **Costo a vigilar.** El fondo está partido en ocho costados y solo se dibujan los que caben en cuadro: unos 33 mil triángulos en total, de los que una vista a la altura de la calle gasta entre 9 y 26 mil en cuatro a ocho llamadas. Más ejemplares no suman llamadas, pero sí triángulos.

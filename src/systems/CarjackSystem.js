@@ -3,6 +3,8 @@
 import * as THREE from 'three';
 import { modoEntrada } from '../core/modoEntrada.js';
 import { CURB_HEIGHT } from '../world/bogota/parkedCars.js';
+import { proyectarHazJugador } from '../world/bogota/carBeam.js';
+import { apoyarCarroAlBajar, apoyarModelo, huellaRuedas, poseDeApoyo } from './apoyoCarro.js';
 
 export const CARJACK = {
   key: 'KeyY',
@@ -81,6 +83,8 @@ export class CarjackSystem {
     // Carros que dejó lejos de su puesto: vuelven a él cuando el jugador se aleja y no los ve.
     this._away = [];
     this._homeTimer = 0;
+    this._sueloCarro = (x, z, y) => this._ground(x, z, y);
+    this._poseApoyo = { rotacion: new THREE.Quaternion() };
     this._buildUI();
   }
 
@@ -181,18 +185,18 @@ export class CarjackSystem {
     this.stolen = car;
     this._owned.add(car);
     this._remove(car);
-    // Su puesto, para devolverlo si lo deja botado; y se endereza: ya no está montado en el sardinel.
+    // Guarda su puesto para devolverlo si lo deja botado. Sigue apoyado mientras el jugador camina hasta la puerta.
     const body = car.vehicle?.group;
     car._puesto ??= { x: car.position.x, y: car.position.y, z: car.position.z, h: car.group.rotation.y,
       tilt: body?.rotation.x ?? 0, lift: body?.position.y ?? 0, liftFlat: (body?.position.y ?? 0) - (body?.rotation.x ? CURB_HEIGHT / 2 : 0) };
-    if (body) { body.rotation.x = 0; body.position.y = car._puesto.liftFlat; }
+    this._ruedasApoyo = huellaRuedas(car);
     if (game.player) game.player.atWheel = true;
     car.robado = true; // ya no tiene dueño que lo parquee: nadie lo cuida por propina (CarGuarding)
     // La patrulla lo ve por los vidrios: la caja del carro que maneja no tapa su línea de vista (CombatGeometry).
     car.driven = true;
     car.traffic = true; // luces encendidas mientras se maneja
     if (car.marker) car.marker.visible = false;
-    car.setNight?.(game.clock?.isNight ?? false, game.weather?.isRaining ?? false);
+    this._actualizarLuces(car);
     game.player?.velocity?.set?.(0, 0, 0);
     this._startBoarding(car);
     const rig = game.cameraRig;
@@ -220,6 +224,7 @@ export class CarjackSystem {
       [fx * endOffset, fz * endOffset], [-fx * endOffset, -fz * endOffset]];
     const spot = options.find(([dx, dz]) => !this._pointBlocked(car.position.x + dx, car.position.z + dz, car.position.y));
     if (!spot) return false;
+    this._estacionar();
     const player = game.player;
     player.position.set(car.position.x + spot[0], car.position.y, car.position.z + spot[1]);
     const ground = this._ground(player.position.x, player.position.z, car.position.y);
@@ -239,13 +244,13 @@ export class CarjackSystem {
       player.root.visible = true;
     }
     player.position.copy(from);
-    car.settle?.(.8);
     player.atWheel = false;
     this._leave(car);
     car.driven = false;
     car.setPlayerDriver?.(false);
+    car.settle?.(.8);
     car.traffic = false; // queda estacionado: se le pueden robar los espejos
-    car.setNight?.(game.clock?.isNight ?? false, game.weather?.isRaining ?? false);
+    this._actualizarLuces(car);
     if (car.marker) car.marker.visible = !car.used;
     // La cámara no salta hacia el jugador: vuelve a su distancia mientras se baja.
     if (game.cameraRig && this._savedCameraDistance != null) {
@@ -265,6 +270,7 @@ export class CarjackSystem {
    */
   reset({ perdido = false } = {}) {
     const car = this.car;
+    this._estacionar();
     if (car && perdido) {
       this._owned.delete(car);
       if (this.stolen === car) this.stolen = null;
@@ -273,6 +279,8 @@ export class CarjackSystem {
       car.driven = false;
       car.traffic = false;
       car.setPlayerDriver?.(false);
+      this._actualizarLuces(car);
+      if (car.marker) car.marker.visible = !car.used;
       this._leave(car);
     }
     if (this.game.player) this.game.player.atWheel = false;
@@ -299,7 +307,8 @@ export class CarjackSystem {
     const body = car.vehicle?.group;
     const turn = Math.abs(Math.atan2(Math.sin(car.group.rotation.y - home.h), Math.cos(car.group.rotation.y - home.h)));
     const moved = Math.hypot(car.position.x - home.x, car.position.z - home.z) > CARJACK.homeAway || turn > CARJACK.homeTurn ||
-      (body && (Math.abs(body.rotation.x - home.tilt) > 1e-4 || Math.abs(body.position.y - home.lift) > 1e-3));
+      (body && (Math.abs(body.rotation.x - home.tilt) > 1e-4 || Math.abs(body.position.y - home.lift) > 1e-3 ||
+        Math.abs(body.rotation.z) > 1e-4));
     if (moved) this._away.push(car);
   }
 
@@ -330,7 +339,10 @@ export class CarjackSystem {
       car.position.set(home.x, home.y, home.z);
       car.group.rotation.y = home.h;
       const body = car.vehicle?.group;
-      if (body) { body.rotation.x = home.tilt; body.position.y = home.lift; }
+      if (body) {
+        body.rotation.set(home.tilt, 0, 0);
+        body.position.y = home.lift;
+      }
       this._away.splice(i, 1);
     }
   }
@@ -374,9 +386,16 @@ export class CarjackSystem {
     }
     this.car?.settle?.(1);
     this.car?.setPlayerDriver?.(true);
+    this._apoyarModelo();
     this.transition = null;
     this._syncPlayer();
     if (this._dom) this._dom.hud.hidden = false;
+  }
+
+  _estacionar() {
+    if (this.car && this.transition?.kind !== 'enter') {
+      apoyarCarroAlBajar(this.car, this._sueloCarro);
+    }
   }
 
   _animateTransition(dt) {
@@ -409,7 +428,8 @@ export class CarjackSystem {
           tr.door.z + (car.position.z - tr.door.z) * .3 * e);
         player.animateScripted?.(dt, { action: 'buscar', actionProgress: e * .5, yaw: faceCar + Math.PI / 2 * e });
         if (player.root) player.root.position.copy(player.position).setY(tr.door.y - BOARDING.duck * e);
-        if (k >= 1) { this._finishBoarding(); return; }
+        if (k >= 1) this._finishBoarding();
+        return;
       }
       if (player.root) player.root.position.copy(player.position);
       return;
@@ -441,6 +461,20 @@ export class CarjackSystem {
   _ground(x, z, y) {
     const district = this.game.world?.active;
     return district?.getMovementGroundHeight?.(x, z, y) ?? district?.getGroundHeight?.(x, z);
+  }
+
+  _actualizarLuces(carro) {
+    const { clock, weather } = this.game;
+    carro.setNight?.(clock?.lightsOn ?? clock?.isNight ?? false, weather?.isRaining ?? false, weather?.weather === 'niebla');
+    if (carro.driven) proyectarHazJugador(carro, this._sueloCarro, carro.position.y);
+  }
+
+  _apoyarModelo() {
+    const carro = this.car;
+    if (!carro?.vehicle?.group) return;
+    const giro = carro.vehicle.frontWheelPivots?.[0]?.rotation.y ?? 0;
+    const pose = poseDeApoyo(carro, this._sueloCarro, carro.position.y, this._ruedasApoyo, this._poseApoyo, giro);
+    apoyarModelo(carro, pose, this._ruedasApoyo);
   }
 
   _pointBlocked(x, z, y) {
@@ -546,7 +580,9 @@ export class CarjackSystem {
       car.group.rotation.y = h;
       car.position.set(nx, ny, nz);
       car.animateDrive?.(step, (throttle < 0 && this.speed > 0) || handbrake, { dt, speed: this.speed, steering: steer * .34 });
+      if (step || steer) this._apoyarModelo();
     }
+    proyectarHazJugador(car, this._sueloCarro, car.position.y);
     this._syncPlayer();
     if (this._dom) this._dom.speed.textContent = `${Math.round(Math.abs(this.speed) * 3.6)} km/h`;
 
