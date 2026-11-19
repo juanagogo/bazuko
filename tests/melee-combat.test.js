@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import { mock, test } from 'node:test';
 import * as THREE from 'three';
-import { MeleeCombat, MELEE_ATTACK } from '../src/systems/MeleeCombat.js';
+import { MeleeCombat, MELEE_ATTACK, DEFAULT_ATTACK_ENERGY } from '../src/systems/MeleeCombat.js';
+import { WEAPONS } from '../src/data/weapons.js';
 import { CollisionSystem } from '../src/systems/CollisionSystem.js';
 
 // Solo la carga GLB se sustituye: reaccion, desplazamiento y LOD del NPC son reales.
@@ -199,4 +200,78 @@ test('la reaccion termina fuera de camara y el peaton retoma su navegacion despu
   assert.equal(npc.root.visible, false);
   assert.ok(routes > 0, 'vuelve a pedir una ruta a la red peatonal');
   npc.dispose();
+});
+
+const SIN_FUERZA = 'No doy más para pelear. Tengo que descansar.';
+
+test('con 100 de energía caben exactamente 50 puñetazos y el 51 avisa sin descontar', () => {
+  const previous = globalThis.window;
+  const toasts = [];
+  globalThis.window = new EventTarget();
+  window.addEventListener('toast', (event) => toasts.push(event.detail));
+  try {
+    const player = attacker();
+    player.stats.energia = 100;
+    player.equippedWeapon = 'punos';
+    const combat = new MeleeCombat();
+    for (let i = 0; i < 50; i++) {
+      assert.equal(combat.start(player), true, `puñetazo ${i + 1}`);
+      assert.equal(player.stats.energia, 100 - (i + 1) * WEAPONS.punos.energy);
+      combat.update(1, player, []);
+    }
+    assert.equal(player.stats.energia, 0);
+    assert.equal(combat.start(player), false);
+    assert.equal(player.stats.energia, 0, 'el 51 no descuenta');
+    assert.equal(combat.active, false);
+    assert.equal(toasts.length, 1);
+    assert.equal(toasts[0].text, SIN_FUERZA);
+    assert.equal(toasts[0].type, 'warn');
+  } finally {
+    globalThis.window = previous;
+  }
+});
+
+test('cada arma descuenta su energy, el combo cobra el valor completo y fallar también', () => {
+  const costs = { punos: 2, cuchillo: 2, botella_picada: 3, arma: 4 };
+  for (const [id, cost] of Object.entries(costs)) {
+    assert.equal(WEAPONS[id].energy, cost, id);
+    const player = attacker();
+    player.equippedWeapon = id;
+    player.stats.energia = 20;
+    const missed = new MeleeCombat();
+    assert.equal(missed.start(player), true, id);
+    assert.equal(player.stats.energia, 20 - cost, `${id} cobra al salir el golpe`);
+    assert.equal(missed.update(1, player, []), null);
+    assert.equal(player.stats.energia, 20 - cost, `${id} fallar no devuelve energía`);
+
+    player.stats.energia = 20;
+    const chain = new MeleeCombat();
+    assert.equal(chain.start(player), true, id);
+    assert.equal(chain.queue(player), true, `${id} encola el siguiente`);
+    assert.equal(player.stats.energia, 20 - cost * 2, `${id} cada golpe del combo cuesta el valor completo`);
+  }
+});
+
+test('un arma sin energy cobra 2 y encolar sin fuerza avisa sin descontar', () => {
+  const saved = WEAPONS.punos.energy;
+  delete WEAPONS.punos.energy;
+  const previous = globalThis.window;
+  const toasts = [];
+  globalThis.window = new EventTarget();
+  window.addEventListener('toast', (event) => toasts.push(event.detail));
+  try {
+    const player = attacker();
+    player.equippedWeapon = 'punos';
+    player.stats.energia = DEFAULT_ATTACK_ENERGY;
+    const combat = new MeleeCombat();
+    assert.equal(combat.start(player), true);
+    assert.equal(player.stats.energia, 0, 'sin energy definido el golpe cuesta 2');
+    assert.equal(combat.queue(player), false);
+    assert.equal(player.stats.energia, 0);
+    assert.equal(toasts.length, 1);
+    assert.equal(toasts[0].text, SIN_FUERZA);
+  } finally {
+    WEAPONS.punos.energy = saved;
+    globalThis.window = previous;
+  }
 });

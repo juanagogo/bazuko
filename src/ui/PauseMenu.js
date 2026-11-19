@@ -26,7 +26,7 @@ export const PAUSE_TABS = [
 
 export const CONTROL_GROUPS = [
   ['Movimiento', [['WASD', 'Caminar'], ['Shift', 'Correr'], ['Espacio', 'Brincar'], ['Mouse', 'Clic fija la cámara, la rueda acerca'], ['V', 'Vista tercera persona / isométrica']]],
-  ['Acciones', [['E', 'Hacer lo que dice: basura, tiendas, cambuche, carros, pila, estaciones, hogar de paso'], ['Q', 'Mantener para seleccionar basura. También: el jíbaro, cuidar un carro parqueado, compartir comida en la fogata y llenar la botella en la pila'], ['E / Q', 'Junto a una persona: cosquilleo o robo directo'], ['B', 'Pedir limosna. Con pelotas de malabares, frente a la cola de un semáforo en rojo: hacer el show'], ['L', 'Pedir limosna'], ['F', 'Envión'], ['G / Clic', 'Pegar'], ['X', 'Lanzar / recoger'], ['Z', 'Popó']]],
+  ['Acciones', [['E', 'Hacer lo que dice: basura, tiendas, cambuche, carros, pila, estaciones, hogar de paso'], ['Q', 'Mantener para seleccionar basura. También: el jíbaro, cuidar un carro parqueado, compartir comida en la fogata y llenar la botella en la pila'], ['E / Q', 'Junto a una persona: cosquilleo o robo directo'], ['B', 'Pedir limosna. Con pelotas de malabares, frente a la cola de un semáforo en rojo: hacer el show'], ['L', 'Pedir limosna'], ['F', 'Envión'], ['G / Clic', 'Pegar'], ['X', 'Lanzar / recoger'], ['Z', 'Popó'], ['Y', 'Junto a un carro parqueado: robarlo. Al volante: bajarme']]],
   ['Paneles', [['I / Tab', 'El costal. 1 a 5: acceso rápido'], ['H', 'Estado y necesidades'], ['J', 'Misiones del día'], ['T', 'Mañas'], ['C', 'Fabricar'], ['P', 'Editar personaje'], ['R', 'Radio'], ['K', 'Personaje realista / liviano'], ['F2', 'Foto'], ['F3', 'Panel de rendimiento'], ['Esc', 'Pausa o cerrar panel']]],
   ['Mapa y GPS', [['M', 'Abrir / cerrar el mapa'], ['M, Enter', 'Ruta a lo que más necesito'], ['N', 'Mostrar / ocultar radar'], ['+ / −', 'Acercar o alejar el radar'], ['Clic', 'Marcar destino en el mapa'], ['Clic der. / Supr', 'Quitar destino'], ['Q / E', 'Cambiar de pestaña en la pausa']]],
 ];
@@ -228,7 +228,7 @@ function missionsSection(game) {
       return el('li', { class: `pause-mission-item${isDone ? ' is-done' : ''}` },
         el('div', { class: 'pause-mission-head' },
           el('strong', { class: 'pause-mission-title', text: m.title }),
-          el('span', { class: 'pause-mission-reward', text: `+${cop(m.reward.dinero)} · +${m.reward.xp} XP` })),
+          el('span', { class: 'pause-mission-reward', text: `+${cop(m.reward.dinero)}, +${m.reward.xp} maña` })),
         el('p', { class: 'pause-mission-desc', text: m.desc }),
         el('div', { class: 'pause-meter' },
           el('div', { class: 'pause-meter__fill masa', style: `width:${pct}%` })),

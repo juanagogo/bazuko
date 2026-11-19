@@ -24,26 +24,26 @@ function arena(stats) {
   return { scene, player, tick };
 }
 
-test('cada golpe cuesta 8 de energía, también los del combo', () => {
+test('cada golpe cuesta la energía del arma, también los del combo', () => {
   const stats = { dinero: 0, energia: 50, salud: 100 };
   const { player } = arena(stats);
   player.punch();
   assert.ok(player.attack, 'arranca el golpe');
-  assert.equal(stats.energia, 42);
+  assert.equal(stats.energia, 48);
   player.punch();
-  assert.equal(stats.energia, 34, 'el golpe encadenado también cuesta');
+  assert.equal(stats.energia, 46, 'el golpe encadenado también cuesta');
   player.punch();
-  assert.equal(stats.energia, 34, 'solo se encola un golpe a la vez');
+  assert.equal(stats.energia, 46, 'solo se encola un golpe a la vez');
 });
 
 test('exhausto no se puede pelear y avisa', () => {
-  const stats = { dinero: 0, energia: 4, salud: 100 };
+  const stats = { dinero: 0, energia: 1, salud: 100 };
   const { player } = arena(stats);
   let toast = null;
   window.addEventListener('toast', (e) => { toast = e.detail; });
   player.punch();
   assert.equal(player.attack, null);
-  assert.equal(stats.energia, 4);
+  assert.equal(stats.energia, 1);
   assert.match(toast?.text ?? '', /No doy más/);
 });
 

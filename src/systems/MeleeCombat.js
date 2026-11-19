@@ -6,7 +6,13 @@ export const MELEE_ATTACK = Object.freeze({
   duration: WEAPONS.punos.windup + WEAPONS.punos.active + WEAPONS.punos.recovery,
   cooldown: .78, range: WEAPONS.punos.range, maxHeightDifference: .85, minFacingDot: WEAPONS.punos.arc
 });
-export const ATTACK_ENERGY = 8;
+/** Si el arma no trae `energy`, cada golpe cuesta esto. */
+export const DEFAULT_ATTACK_ENERGY = 2;
+
+function attackEnergy(weapon) {
+  const cost = weapon?.energy;
+  return Number.isFinite(cost) ? cost : DEFAULT_ATTACK_ENERGY;
+}
 let nextAttackId = 1;
 
 const validPosition = (position) => position && ['x', 'y', 'z'].every(axis => Number.isFinite(position[axis]));
@@ -39,13 +45,16 @@ export class MeleeCombat {
 
   _spendEnergy(attacker) {
     if (typeof attacker.stats?.energia !== 'number') return true;
-    if (attacker.stats.energia < ATTACK_ENERGY) {
+    // Se cobra al empezar y al encolar: cada paso del combo paga el valor entero y el golpe que no conecta no se devuelve.
+    const weapon = WEAPONS[attacker?.equippedWeapon] ?? WEAPONS[DEFAULT_WEAPON];
+    const cost = attackEnergy(weapon);
+    if (attacker.stats.energia < cost) {
       if (typeof window !== 'undefined' && window.dispatchEvent) window.dispatchEvent(new CustomEvent('toast', {
         detail: { text: 'No doy más para pelear. Tengo que descansar.', type: 'warn' }
       }));
       return false;
     }
-    attacker.stats.energia -= ATTACK_ENERGY;
+    attacker.stats.energia -= cost;
     return true;
   }
 
