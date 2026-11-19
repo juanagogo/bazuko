@@ -35,6 +35,24 @@ const NR = 24;
 // Fracción del ancho del techo en las filas superiores (1 en el borde, 0 en el centro).
 const TOP_F = [1, .91, .86, .56, 0, 0];
 
+// El estampado del capó se extingue antes de la junta y del parabrisas. La arista se angosta hacia la nariz.
+function hoodSection(spec, x) {
+  if (!spec.hoodPress) return null;
+  const start = spec.windshield[1] + .025, end = spec.gaps.hood - .02;
+  if (x <= start || x >= end) return null;
+  const t = (x - start) / (end - start), { root, tip, depth } = spec.hoodPress;
+  return { ridge: lerp(root, tip, t), depth: depth * smooth(0, .16, t) * smooth(0, .17, 1 - t) };
+}
+
+function hoodOffset(section, f) {
+  if (!section) return 0;
+  const { ridge, depth } = section;
+  // Una meseta de chapa, un canto convexo y el canal que la devuelve a la altura del guardabarros.
+  const center = .5 * smooth(0, ridge - .065, f);
+  const fold = smooth(ridge, ridge + .068, f);
+  return depth * (center - fold + .5 * smooth(ridge + .068, .91, f));
+}
+
 export const CELL = Object.freeze({ SKIP: 0, PAINT: 1, GLASS: 2, TRIM: 3, CHROME: 4, DARK: 5 });
 
 // Estaciones de cierre de nariz y cola: muy juntas donde la planta cierra más rápido.
@@ -83,10 +101,10 @@ export class CarBody {
   }
 
   flare(x) {
-    const { axleF, axleR, archR, flare = 0 } = this.spec;
-    if (!flare) return 0;
+    const { axleF, axleR, archR, flare = 0, rearFlare = flare } = this.spec;
+    if (!flare && !rearFlare) return 0;
     const f = (x - axleF) / (archR * 1.25), r = (x - axleR) / (archR * 1.25);
-    return flare * Math.max(Math.exp(-f * f * f * f), Math.exp(-r * r * r * r));
+    return Math.max(flare * Math.exp(-f * f * f * f), rearFlare * Math.exp(-r * r * r * r));
   }
 
   _stations() {
@@ -168,9 +186,10 @@ export class CarBody {
       }
       yy = Math.min(Math.max(yy, s - .011), s);
       put(si, ROW.CU, x, yy, rowZ(.999) + fl * .4);
-      put(si, ROW.C, x, s, hw + crease * endF * clamp01(hw * 4));
+      const fender = fl * (spec.flareShoulder ?? 0);
+      put(si, ROW.C, x, s, hw + crease * endF * clamp01(hw * 4) + fender);
       const co = Math.min(s + .011, belt);
-      const zOver = u => lerp(rowZ(.992), zb, u * u);
+      const zOver = u => lerp(rowZ(.992) + fender, zb, u * u);
       const span = Math.max(belt - s, 1e-4);
       put(si, ROW.CO, x, co, Math.max(zOver((co - s) / span), ze));
       const bu = Math.max(co, belt - .011);
@@ -185,9 +204,11 @@ export class CarBody {
       put(si, ROW.GH, x, hi, zg((hi - belt) / gspan));
       put(si, ROW.EL, x, el, ze + (e - belt > .03 ? .002 : 0));
       put(si, ROW.E, x, e, ze);
-      for (let k = 0; k < TOP_F.length; k++) {
-        const f = TOP_F[k], xr = x + bow * (1 - f * f), tr = Math.max(this.top(xr), e);
-        put(si, ROW.E2 + k, xr, tr - (tr - e) * Math.pow(f, p), ze * f);
+      const press = hoodSection(spec, x);
+      const topRows = press ? [1, .91, press.ridge + .068, press.ridge, press.ridge - .065, 0] : TOP_F;
+      for (let k = 0; k < topRows.length; k++) {
+        const f = topRows[k], xr = x + bow * (1 - f * f), tr = Math.max(this.top(xr), e);
+        put(si, ROW.E2 + k, xr, tr - (tr - e) * Math.pow(f, p) + hoodOffset(press, f), ze * f);
       }
     }
     this._rake();
@@ -407,7 +428,7 @@ export class CarBody {
   /** Superficie superior analítica: techo, capó y baúl para piezas proyectadas desde arriba. */
   topY(x, z) {
     const f = clamp01(Math.abs(z) / Math.max(this.edgeZ(x), 1e-3)), t = this.top(x + this.bow(x) * (1 - f * f)), e = Math.min(this.edge(x), t);
-    return t - (t - e) * Math.pow(f, this.spec.crown ?? 2.4);
+    return t - (t - e) * Math.pow(f, this.spec.crown ?? 2.4) + hoodOffset(hoodSection(this.spec, x), f);
   }
 
   /** Clasificación de cada celda de la media rejilla en esmalte, vidrio o moldura. */
