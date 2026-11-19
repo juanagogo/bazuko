@@ -44,6 +44,9 @@ function belowBridge(x, z) {
   return false;
 }
 
+// Una abertura entre copas encuadra el lago desde cada descanso. Detrás y a
+// ambos lados sigue habiendo árboles de sombra con el mismo presupuesto.
+
 /** Plan visual puro. isReserved(x,z,padding) recibe el margen del tronco; no añade colisiones. */
 export function planUrbanTrees({ map, tileSize = 2, groundHeight = () => .06,
   getWaterInfo = () => null, isReserved = () => false } = {}) {

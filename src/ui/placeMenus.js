@@ -162,12 +162,14 @@ export function openCambuche(game, tab = 'armar') {
       );
     }));
     const body = el('div', { class: 'shelter-menu' }, shelterPreview(game), rows);
+    // Con la tomba encima no se duerme (ver Game.sleep): el botón queda apagado y la nota dice por qué.
+    const perseguido = !!game.traffic?.inPursuit;
     const night = game.clock.isNight;
     // La siesta pide cansancio y unas horas desde la anterior: el botón dice por qué no.
     const sinSiesta = game.built.base && !night ? game.motivoSinSiesta?.() : null;
     const nota = !game.built.base ? 'Sin base no se puede dormir.' : sinSiesta ? textoSinSiesta(sinSiesta) : 'Dormir guarda la partida.';
     const foot = [
-      el('span', { class: 'menu__money', text: nota }),
+      el('span', { class: 'menu__money', text: perseguido ? 'Con la tomba encima no puedo dormir.' : nota }),
       button('Cambiar ropa', {
         onClick: () => {
           game.menu.close();
@@ -176,7 +178,7 @@ export function openCambuche(game, tab = 'armar') {
       }),
       button(night ? `Dormir hasta las ${hora(6)}` : 'Echar una siesta (3 h)', {
         primary: true,
-        disabled: !game.built.base || !!sinSiesta,
+        disabled: !game.built.base || perseguido || !!sinSiesta,
         onClick: () => { game.menu.close(); game.sleep(); }
       })
     ];
@@ -203,7 +205,7 @@ export function openComedor(game) {
             el('li', { text: '+60 Sed (hidratación completa)' }),
             el('li', { text: '+25 Ánimo y +25 Energía' }),
             el('li', { text: '+3 min de Calor corporal contra el frío' }),
-            el('li', { text: '+30 XP' })
+            el('li', { text: '+30 de maña' })
           ))
       : el('div', { class: 'comedor-box is-waiting' },
           el('h4', { class: 'comedor-box__title', text: 'Ración reciente ya entregada' }),
@@ -229,7 +231,7 @@ export function openComedor(game) {
 
   game.menu.open({
     title: 'Comedor Comunitario',
-    sub: 'Alcaldía Mayor de Bogotá · Integración Social. Ración caliente cada 24 horas.',
+    sub: 'Alcaldía Mayor de Bogotá, Integración Social. Ración caliente cada 5 minutos.',
     ic: 'food',
     render
   });
