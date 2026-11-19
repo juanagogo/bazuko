@@ -299,6 +299,8 @@ export class StreetLife {
 
   /** Por qué no puedo entrar ahora, o null si puedo. */
   hogarBlocked() {
+    // Game.sleep lo negaría después de entregar en la portería: con la tomba encima ni se entra.
+    if (this.game.traffic?.inPursuit) return 'persecucion';
     const c = this.game.clock;
     if (!isOpen(c.hour)) return 'cerrado';
     if (!hasRoom(c.day)) return 'lleno';

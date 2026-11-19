@@ -287,7 +287,8 @@ function gameFixture() {
   const player = Object.assign(Object.create(Player.prototype), {
     position: new THREE.Vector3(30, 0, 31.5), root: new THREE.Group(), velocity: new THREE.Vector3(),
     _impactTime: 0, _impactVelocity: new THREE.Vector3(), _respiroTumbo: 0, melee: { cancel() {} }, animateScripted() {},
-    ragdoll: { active: false, starts: 0, start() { this.starts++; this.active = true; return true; } }
+    ragdoll: { active: false, starts: 0, start() { this.starts++; this.active = true; return true; } },
+    hitLean: { remove() {}, clear() {}, kick() {} }, character: { group: new THREE.Group() }
   });
   const game = Object.assign(Object.create(Game.prototype), {
     stats: new StatsSystem(), player, input: fakeInput(), _deathPending: false,

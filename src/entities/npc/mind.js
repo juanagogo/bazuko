@@ -70,7 +70,7 @@ export class NpcMind {
     this.npc = npc;
     this.id = id;
     this.system = system;
-    this.random = seededRandom(Math.imul(id + 1, 2654435761) ^ 0x5bd1e995);
+    this.random = seededRandom(npc.mindSeed ?? (Math.imul(id + 1, 2654435761) ^ 0x5bd1e995));
     // Esquiva: cuánto se corre de la línea de su ruta (+ derecha) y a qué ritmo anda (1 = su paso).
     this.side = 0;
     this.wantSide = 0;

@@ -4,6 +4,7 @@
 // por sector, en vez de una fachada por casa. Sin DOM (pruebas en Node) devuelven texturas vacías.
 import * as THREE from 'three';
 import { rng } from './textures.js';
+import { paintCobblestoneMaps } from './CobblestoneMaps.js';
 
 const hasCanvas = () => typeof document !== 'undefined' && typeof document.createElement === 'function';
 const cache = new Map();
@@ -51,77 +52,17 @@ function blot(ctx, w, cx, cy, rx, ry, color, x0 = 0) {
   }
 }
 
-// Canto irregular: polígono ruidoso que da la vuelta en ambos ejes.
-function stonePath(ctx, r, x, y, w, h, wobble) {
-  const points = [], n = 12;
-  for (let i = 0; i < n; i++) {
-    const a = i / n * Math.PI * 2;
-    const c = Math.cos(a), s = Math.sin(a);
-    // Superelipse: esquinas redondeadas pero sin llegar a círculo.
-    const px = Math.sign(c) * Math.pow(Math.abs(c), .55) * w / 2, py = Math.sign(s) * Math.pow(Math.abs(s), .55) * h / 2;
-    points.push([x + px + (r() - .5) * wobble, y + py + (r() - .5) * wobble]);
-  }
-  ctx.beginPath();
-  points.forEach(([px, py], i) => i ? ctx.lineTo(px, py) : ctx.moveTo(px, py));
-  ctx.closePath();
-}
-
-/** Adoquín de piedra: la textura cubre 4 × 4 m y repite sin costuras. */
+/** Adoquín de piedra. La textura cubre 2,6 × 2,6 m y repite en las UV de la calzada. */
 export function cobblestones() {
   return once('adoquin', () => {
-    const s = 1024, a = makeCanvas(s, s), b = makeCanvas(s, s), c = makeCanvas(s, s);
-    if (!a) return { map: asTexture(null), bumpMap: asTexture(null, { srgb: false }), roughnessMap: asTexture(null, { srgb: false }), metersPerTile: 4 };
-    const r = rng(7741);
-    a.ctx.fillStyle = '#2a2622'; a.ctx.fillRect(0, 0, s, s);
-    b.ctx.fillStyle = '#3c3c3c'; b.ctx.fillRect(0, 0, s, s);
-    c.ctx.fillStyle = '#f0f0f0'; c.ctx.fillRect(0, 0, s, s);
-    const rowH = 41, colors = ['#7d7468', '#6d665c', '#8b8071', '#5f5a52', '#74685a', '#857a6c', '#6a6157', '#92887a', '#5a5249'];
-    const rows = Math.round(s / rowH);
-    for (let row = 0; row < rows; row++) {
-      const y = (row + .5) * s / rows;
-      let x = row % 2 ? -20 : 0;
-      while (x < s) {
-        const w = 54 + r() * 34, h = s / rows - 4 - r() * 5;
-        const color = colors[Math.floor(r() * colors.length)];
-        const f = .9 + r() * .18, dry = 130 + Math.floor(r() * 50);
-        const cx = x + w / 2, cy = y + (r() - .5) * 3;
-        for (const dx of cx + w > s ? [0, -s] : cx - w < 0 ? [0, s] : [0]) {
-          for (const dy of cy + h > s ? [0, -s] : cy - h < 0 ? [0, s] : [0]) {
-            const seed = r() * 1e9 >>> 0;
-            const rr = rng(seed);
-            stonePath(a.ctx, rr, cx + dx, cy + dy, w - 4, h, 4);
-            a.ctx.fillStyle = shade(color, f); a.ctx.fill();
-            const rb = rng(seed);
-            stonePath(b.ctx, rb, cx + dx, cy + dy, w - 4, h, 4);
-            const dome = b.ctx.createRadialGradient(cx + dx, cy + dy, 2, cx + dx, cy + dy, Math.max(w, h) * .55);
-            dome.addColorStop(0, '#c8c8c8'); dome.addColorStop(.6, '#a2a2a2'); dome.addColorStop(1, '#646464');
-            b.ctx.fillStyle = dome; b.ctx.fill();
-            const rc = rng(seed);
-            stonePath(c.ctx, rc, cx + dx, cy + dy, w - 4, h, 4);
-            c.ctx.fillStyle = gray(dry); c.ctx.fill();
-            // Canto más claro arriba: desgastado por los zapatos y la lluvia.
-            a.ctx.save();
-            const rl = rng(seed);
-            stonePath(a.ctx, rl, cx + dx, cy + dy - 1.5, w - 12, h - 8, 3);
-            a.ctx.fillStyle = 'rgba(214,202,180,.06)'; a.ctx.fill();
-            a.ctx.restore();
-          }
-        }
-        x += w;
-      }
+    const size = 1024, surfaces = Array.from({ length: 3 }, () => makeCanvas(size, size));
+    const pixels = surfaces.map(surface => surface?.ctx.createImageData?.(size, size));
+    if (pixels.every(Boolean)) {
+      paintCobblestoneMaps(size, ...pixels.map(image => image.data));
+      surfaces.forEach(({ ctx }, index) => ctx.putImageData(pixels[index], 0, 0));
     }
-    // Grano mineral, huellas de grasa y tierra entre juntas, sin formar líneas rectas.
-    for (let i = 0; i < 26000; i++) {
-      const t = r();
-      a.ctx.fillStyle = t < .5 ? 'rgba(25,22,18,.13)' : 'rgba(225,215,195,.09)';
-      const d = .6 + r() * 1.6;
-      a.ctx.fillRect(r() * s, r() * s, d, d);
-    }
-    for (let i = 0; i < 16; i++) {
-      const x = r() * s, y = r() * s, rad = 50 + r() * 170;
-      blot(a.ctx, s, x, y, rad, rad * (.5 + r() * .6), r() < .55 ? 'rgba(28,25,20,.2)' : 'rgba(120,108,88,.14)');
-    }
-    return { map: asTexture(a), bumpMap: asTexture(b, { srgb: false }), roughnessMap: asTexture(c, { srgb: false }), metersPerTile: 4 };
+    const [color, height, roughness] = surfaces;
+    return { map: asTexture(color), bumpMap: asTexture(height, { srgb: false }), roughnessMap: asTexture(roughness, { srgb: false }), metersPerTile: 2.6 };
   });
 }
 
@@ -257,66 +198,107 @@ export function colonialWallSheet() {
 
 /** Ladrillo rojo bogotano: 2,88 m por lado, misma medida del ladrillo de la ciudad. */
 export const RED_BRICK_METERS = 2.88;
+
+function brickPath(ctx, seed, x, y, width, height) {
+  const r = rng(seed), l = x - width / 2, t = y - height / 2, right = l + width, bottom = t + height;
+  const corners = [1.2 + r() * 1.2, 1 + r() * 1.9, 1.3 + r() * 1.5, 1 + r() * 1.7];
+  ctx.beginPath();
+  ctx.moveTo(l + corners[0], t);
+  ctx.lineTo(x, t + r() * 1.1);
+  ctx.lineTo(right - corners[1], t);
+  ctx.lineTo(right, t + corners[1]);
+  ctx.lineTo(right, bottom - corners[2]);
+  ctx.lineTo(right - corners[2], bottom);
+  ctx.lineTo(x, bottom - r() * 1.1);
+  ctx.lineTo(l + corners[3], bottom);
+  ctx.lineTo(l, bottom - corners[3]);
+  ctx.lineTo(l, t + corners[0]);
+  ctx.closePath();
+}
+
 export function redBrick() {
   return once('ladrillo-rojo', () => {
     const s = 512, a = makeCanvas(s, s), b = makeCanvas(s, s), c = makeCanvas(s, s);
     if (!a) return { map: asTexture(null), bumpMap: asTexture(null, { srgb: false }), roughnessMap: asTexture(null, { srgb: false }) };
     const r = rng(7123);
-    const pm = s / RED_BRICK_METERS, bw = .36 * pm, bh = .12 * pm, joint = 1.4;
-    a.ctx.fillStyle = '#857a6b'; a.ctx.fillRect(0, 0, s, s);
-    b.ctx.fillStyle = '#6c6c6c'; b.ctx.fillRect(0, 0, s, s);
-    c.ctx.fillStyle = '#e4e4e4'; c.ctx.fillRect(0, 0, s, s);
-    const colors = ['#8f4c36', '#98573e', '#854632', '#9e5e43', '#8d4e39', '#783d2c', '#945138', '#a26444'];
-    let row = 0;
-    for (let y = 0; y < s - .5; y += bh, row++) {
-      for (let x = (row % 2 ? -bw / 2 : 0); x < s; x += bw) {
-        const color = colors[Math.floor(r() * colors.length)];
-        a.ctx.fillStyle = color; a.ctx.fillRect(x + joint, y + joint, bw - joint, bh - joint);
-        a.ctx.fillStyle = 'rgba(255,214,170,.1)'; a.ctx.fillRect(x + joint, y + joint, bw - joint, 1);
-        a.ctx.fillStyle = 'rgba(40,18,10,.16)'; a.ctx.fillRect(x + joint, y + bh - 1.5, bw - joint, 1.5);
-        b.ctx.fillStyle = gray(132 + Math.floor(r() * 14)); b.ctx.fillRect(x + joint, y + joint, bw - joint, bh - joint);
-        c.ctx.fillStyle = gray(190 + Math.floor(r() * 34)); c.ctx.fillRect(x + joint, y + joint, bw - joint, bh - joint);
+    const bw = s / 8, bh = s / 24, joint = 2;
+    const A = a.ctx, B = b.ctx, C = c.ctx;
+    A.fillStyle = '#8b7d6c'; A.fillRect(0, 0, s, s);
+    B.fillStyle = '#585858'; B.fillRect(0, 0, s, s);
+    C.fillStyle = '#efefef'; C.fillRect(0, 0, s, s);
+    const colors = ['#a55940', '#9e5039', '#a75d45', '#a9654a', '#9d5942', '#8b4634', '#b66c50', '#a35a42'];
+    for (let row = 0; row < 24; row++) {
+      for (let col = 0; col < 8; col++) {
+        const y = row * bh + bh / 2, x = (col + .5 + (row % 2) / 2) * bw;
+        const color = colors[Math.floor(r() * colors.length)], edgeSeed = r() * 4294967296 >>> 0;
+        const face = 154 + Math.round(r() * 23), dry = 181 + Math.round(r() * 36);
+        for (const cx of x + bw / 2 > s ? [x, x - s] : [x]) {
+          const grad = A.createLinearGradient(cx - bw / 2, y - bh / 2, cx + bw / 2, y + bh / 2);
+          grad.addColorStop(0, shade(color, 1.13)); grad.addColorStop(.37, color); grad.addColorStop(1, shade(color, .82));
+          brickPath(A, edgeSeed, cx, y, bw - joint, bh - joint);
+          A.fillStyle = grad; A.fill();
+          brickPath(B, edgeSeed, cx, y, bw - joint, bh - joint);
+          B.fillStyle = gray(115); B.fill();
+          brickPath(B, edgeSeed, cx, y, bw - joint - 3, bh - joint - 2.6);
+          B.fillStyle = gray(face); B.fill();
+          brickPath(C, edgeSeed, cx, y, bw - joint, bh - joint);
+          C.fillStyle = gray(dry); C.fill();
+        }
       }
     }
-    for (let i = 0; i < 9000; i++) {
-      a.ctx.fillStyle = r() < .5 ? 'rgba(30,14,8,.1)' : 'rgba(255,220,180,.07)';
-      a.ctx.fillRect(r() * s, r() * s, .8 + r() * 1.4, .8 + r());
+    for (let i = 0; i < 14000; i++) {
+      const x = r() * s, y = r() * s, d = .45 + r() * 1.8, dark = r() < .58;
+      A.fillStyle = dark ? 'rgba(35,17,10,.15)' : 'rgba(251,220,183,.13)'; A.fillRect(x, y, d, d);
+      B.fillStyle = dark ? 'rgba(25,25,25,.12)' : 'rgba(234,234,234,.12)'; B.fillRect(x, y, d, d);
     }
-    for (let i = 0; i < 8; i++) blot(a.ctx, s, r() * s, r() * s, 40 + r() * 80, 30 + r() * 80, 'rgba(36,26,20,.14)');
+    for (let i = 0; i < 18; i++) {
+      blot(A, s, r() * s, r() * s, 19 + r() * 47, 14 + r() * 57,
+        i % 4 ? 'rgba(43,24,17,.14)' : 'rgba(227,204,169,.15)');
+    }
     return { map: asTexture(a), bumpMap: asTexture(b, { srgb: false }), roughnessMap: asTexture(c, { srgb: false }) };
   });
 }
 
-/** Teja de barro del oriente: la textura cubre 2 × 2 m, con hiladas a lo largo del alero. */
+// Un canal y su cobija ocupan 25 cm. La sección se usa tanto en la cubierta como en su textura.
+export const CLAY_ROOF = Object.freeze({ meters: 2, columns: 8, courses: 8 });
+export const CLAY_PROFILE = Object.freeze([
+  [0, .027], [.18, .012], [.5, .074], [.82, .012], [1, .027]
+]);
+
+/** Teja de barro con canales continuos y juntas de hilada en la dirección de la caída. */
 export function clayTiles() {
   return once('teja-barro', () => {
     const s = 512, a = makeCanvas(s, s), b = makeCanvas(s, s);
     if (!a) return { map: asTexture(null), bumpMap: asTexture(null, { srgb: false }) };
-    const r = rng(4411), tw = 32, th = 42;
-    a.ctx.fillStyle = '#4a3226'; a.ctx.fillRect(0, 0, s, s);
-    b.ctx.fillStyle = '#505050'; b.ctx.fillRect(0, 0, s, s);
-    const colors = ['#a2613f', '#96573a', '#ad6c47', '#8b4f35', '#b5764f', '#7d4731', '#a0683f'];
-    for (let row = -1; row * th < s + th; row++) {
-      const off = row % 2 ? tw / 2 : 0;
-      for (let x = -tw; x < s + tw; x += tw) {
-        const base = colors[Math.floor(r() * colors.length)];
-        const y = row * th, px = x + off;
-        const g = a.ctx.createLinearGradient(px, 0, px + tw, 0);
-        g.addColorStop(0, shade(base, .55)); g.addColorStop(.28, base); g.addColorStop(.62, shade(base, 1.08)); g.addColorStop(1, shade(base, .5));
-        a.ctx.fillStyle = g; a.ctx.fillRect(px, y, tw - 1, th + 7);
-        const shadow = a.ctx.createLinearGradient(0, y, 0, y + 9);
-        shadow.addColorStop(0, 'rgba(16,8,4,.55)'); shadow.addColorStop(1, 'rgba(16,8,4,0)');
-        a.ctx.fillStyle = shadow; a.ctx.fillRect(px, y, tw - 1, 9);
-        const h = b.ctx.createLinearGradient(px, 0, px + tw, 0);
-        h.addColorStop(0, '#606060'); h.addColorStop(.5, '#bcbcbc'); h.addColorStop(1, '#606060');
-        b.ctx.fillStyle = h; b.ctx.fillRect(px, y, tw - 1, th + 7);
+    const r = rng(4411), tw = s / CLAY_ROOF.columns, th = s / CLAY_ROOF.courses;
+    const A = a.ctx, B = b.ctx;
+    const colors = ['#ad6347', '#a65b40', '#b26d50', '#9b543e', '#b77551', '#94513e', '#a26046'];
+    for (let row = 0; row < CLAY_ROOF.courses; row++) {
+      for (let col = 0; col < CLAY_ROOF.columns; col++) {
+        const x = col * tw, y = row * th;
+        const color = colors[Math.floor(r() * colors.length)];
+        const g = A.createLinearGradient(x, 0, x + tw, 0), h = B.createLinearGradient(x, 0, x + tw, 0);
+        for (const [u, raised] of CLAY_PROFILE) {
+          g.addColorStop(u, shade(color, .74 + raised * 4.5));
+          h.addColorStop(u, gray(Math.round(116 + raised * 590)));
+        }
+        A.fillStyle = g; A.fillRect(x, y, tw, th);
+        B.fillStyle = h; B.fillRect(x, y, tw, th);
+        const shadow = A.createLinearGradient(0, y, 0, y + 11);
+        shadow.addColorStop(0, 'rgba(33,17,12,.48)'); shadow.addColorStop(1, 'rgba(33,17,12,0)');
+        A.fillStyle = shadow; A.fillRect(x, y, tw, 11);
+        A.fillStyle = 'rgba(250,181,136,.15)'; A.fillRect(x + tw * .25, y + th - 3, tw * .5, 1.4);
+        B.fillStyle = 'rgba(26,26,26,.43)'; B.fillRect(x, y, tw, 2.2);
       }
     }
-    // Musgo y hollín: los techos de Bogotá nunca son color ladrillo limpio.
-    for (let i = 0; i < 24; i++) blot(a.ctx, s, r() * s, r() * s, 25 + r() * 90, 15 + r() * 70, r() < .5 ? 'rgba(66,74,42,.3)' : 'rgba(24,18,14,.3)');
-    for (let i = 0; i < 5000; i++) {
-      a.ctx.fillStyle = r() < .4 ? 'rgba(92,104,60,.2)' : 'rgba(20,14,10,.14)';
-      a.ctx.fillRect(r() * s, r() * s, 1 + r() * 2, 1 + r() * 2);
+    // Manchas de liquen y hollín siguiendo el agua de la cubierta.
+    for (let i = 0; i < 22; i++) {
+      blot(A, s, r() * s, r() * s, 9 + r() * 43, 21 + r() * 66,
+        r() < .37 ? 'rgba(120,119,77,.3)' : 'rgba(39,25,20,.26)');
+    }
+    for (let i = 0; i < 10000; i++) {
+      const x = r() * s, y = r() * s, d = .5 + r() * 2.2;
+      A.fillStyle = r() < .48 ? 'rgba(221,185,137,.13)' : 'rgba(27,19,15,.16)'; A.fillRect(x, y, d, d * .7);
     }
     return { map: asTexture(a), bumpMap: asTexture(b, { srgb: false }) };
   });
@@ -467,6 +449,47 @@ export function detailSheet() {
       X.moveTo(c.x + c.w * .96, c.y + c.h * .9); X.lineTo(c.x + c.w * .5, c.y + c.h * .15);
       X.stroke();
     }
+    // Desgaste de las lonas, con un azar propio de cada celda: nada de lo que se pinta después en la hoja se corre.
+    // Las manchas van más altas que anchas porque la celda se estira a lo ancho sobre un toldo.
+    const borron = (cx, cy, rx, ry, tinta) => {
+      X.save(); X.translate(cx, cy); X.scale(rx, ry);
+      const g = X.createRadialGradient(0, 0, .1, 0, 0, 1);
+      g.addColorStop(0, tinta); g.addColorStop(1, tinta.replace(/,[^,]+\)$/, ',0)'));
+      X.fillStyle = g; X.fillRect(-1, -1, 2, 2); X.restore();
+    };
+    const lonaVieja = (name, semilla, velo, pliegues, sombra) => {
+      const c = at(name), q = rng(semilla), fin = c.y + c.h;
+      const sol = X.createLinearGradient(0, c.y, 0, fin);
+      sol.addColorStop(0, `rgba(214,204,176,${velo})`); sol.addColorStop(1, `rgba(196,186,158,${(velo * .4).toFixed(2)})`);
+      X.fillStyle = sol; X.fillRect(c.x, c.y, c.w, c.h);
+      for (let i = 0; i < 7; i++) { const rx = 6 + q() * 11, ry = 14 + q() * 26; borron(c.x + rx + q() * (c.w - rx * 2), c.y + ry + q() * (c.h - 16 - ry * 2), rx, ry, 'rgba(236,228,206,.16)'); }
+      for (let i = 0; i < pliegues; i++) {
+        const px = c.x + (i + .25 + q() * .5) * c.w / pliegues, ancho = 5 + q() * 6, desde = Math.max(c.x, px - ancho), hasta = Math.min(c.x + c.w, px + ancho);
+        const onda = X.createLinearGradient(px - ancho, 0, px + ancho, 0);
+        onda.addColorStop(0, 'rgba(30,26,18,0)'); onda.addColorStop(.42, 'rgba(30,26,18,.16)'); onda.addColorStop(.5, 'rgba(30,26,18,.03)');
+        onda.addColorStop(.62, 'rgba(240,232,212,.13)'); onda.addColorStop(1, 'rgba(240,232,212,0)');
+        X.fillStyle = onda; X.fillRect(desde, c.y, hasta - desde, c.h);
+      }
+      for (let i = 0; i < 9; i++) {
+        const rx = 1.6 + q() * 3, ry = 5 + q() * 12, mx = c.x + rx + q() * (c.w - rx * 2), my = c.y + ry + q() * c.h * .55;
+        borron(mx, my, rx, ry, `rgba(58,52,38,${(.2 + q() * .22).toFixed(2)})`);
+        const chorro = X.createLinearGradient(0, my, 0, fin);
+        chorro.addColorStop(0, 'rgba(52,46,34,0)'); chorro.addColorStop(.12, 'rgba(52,46,34,.15)'); chorro.addColorStop(1, 'rgba(52,46,34,.02)');
+        const ancho = rx * (.5 + q() * .5);
+        X.fillStyle = chorro; X.fillRect(mx - ancho / 2, my, ancho, fin - my);
+      }
+      const dobladillo = X.createLinearGradient(0, fin - 20, 0, fin);
+      dobladillo.addColorStop(0, 'rgba(30,26,20,0)'); dobladillo.addColorStop(.25, `rgba(30,26,20,${(sombra * .55).toFixed(2)})`); dobladillo.addColorStop(1, `rgba(30,26,20,${sombra})`);
+      X.fillStyle = dobladillo; X.fillRect(c.x, fin - 20, c.w, 20);
+      X.fillStyle = 'rgba(34,28,20,.2)'; X.fillRect(c.x, fin - 16, c.w, 1);
+      X.fillStyle = 'rgba(232,224,204,.14)';
+      for (let bx = c.x + 1; bx < c.x + c.w - 2; bx += 3.6) X.fillRect(bx, fin - 14, 1.6, 1);
+      for (let bx = c.x; bx < c.x + c.w - 1;) {
+        const paso = 1 + q() * 3.2, arriba = fin - 1 - q() * 4.5;
+        X.fillStyle = q() < .5 ? 'rgba(28,24,18,.32)' : 'rgba(214,206,184,.24)'; X.fillRect(bx, arriba, Math.min(paso * .7, c.x + c.w - bx), fin - arriba);
+        bx += paso;
+      }
+    };
     const stripes = (name, colorA, colorB, width) => {
       const c = at(name);
       for (let x = c.x, i = 0; x < c.x + c.w; x += width, i++) {
@@ -477,7 +500,8 @@ export function detailSheet() {
       X.fillStyle = g; X.fillRect(c.x, c.y, c.w, c.h);
       noise(c.x, c.y, c.w, c.h, 70);
     };
-    stripes('redStripe', '#a72f2a', '#e2dbc8', 20); stripes('blueStripe', '#2a5a8e', '#e2dbc8', 20);
+    stripes('redStripe', '#94463a', '#d2c9b1', 20); stripes('blueStripe', '#425c78', '#d2c9b1', 20);
+    lonaVieja('redStripe', 2051, .34, 4, .12); lonaVieja('blueStripe', 2052, .1, 4, .12);
     // Lona gastada: pliegues y manchas de sol y de lluvia, nunca una lámina de un solo color.
     const tarp = (name, base, seedOffset) => {
       solid(name, base, 160, .1, .14);
@@ -488,11 +512,12 @@ export function detailSheet() {
         X.fillStyle = `rgba(255,255,255,${(.05 + wear() * .08).toFixed(3)})`; X.fillRect(c.x, y + 2, c.w, 1);
       }
       for (let i = 0; i < 5; i++) {
-        X.fillStyle = wear() < .5 ? 'rgba(245,235,205,.13)' : 'rgba(30,24,16,.15)';
-        X.beginPath(); X.ellipse(c.x + c.w * wear(), c.y + c.h * wear(), c.w * (.08 + wear() * .18), c.h * (.06 + wear() * .12), 0, 0, Math.PI * 2); X.fill();
+        const tinta = wear() < .5 ? 'rgba(245,235,205,.2)' : 'rgba(30,24,16,.22)', rx = c.w * (.08 + wear() * .18), ry = c.h * (.06 + wear() * .12);
+        borron(c.x + rx + (c.w - rx * 2) * wear(), c.y + ry + (c.h - ry * 2) * wear(), rx, ry, tinta);
       }
     };
-    tarp('greenTarp', '#3e6a4a', 1); tarp('orangeTarp', '#b5602e', 2); tarp('blueTarp', '#2c5f97', 3);
+    tarp('greenTarp', '#436b4c', 1); tarp('orangeTarp', '#a66a42', 2); tarp('blueTarp', '#3a5f88', 3);
+    lonaVieja('greenTarp', 2053, .2, 0, .22); lonaVieja('orangeTarp', 2054, .2, 0, .22); lonaVieja('blueTarp', 2055, .17, 0, .22);
     solid('burlap', '#a48e62', 900, .12, .18);
     solid('shopDark', '#2b2d2c', 120);
     {
@@ -656,35 +681,35 @@ export function muralSheet() {
   });
 }
 
-/** Fachada repetible de las torres de ladrillo: cuatro pisos por cuatro vanos, con ventanas encendidas. */
-export const TOWER_TILE = Object.freeze({ bays: 8, floors: 8, bayMeters: 3.2, floorMeters: 3.1 });
+/** Primera columna de ladrillo, siete fondos de balcón y ocho variaciones por columna. */
+export const TOWER_TILE = Object.freeze({ bays: 8, floors: 8, floorMeters: 3.1 });
 export function towerFacade() {
   return once('torres', () => {
     const s = 1024, a = makeCanvas(s, s), e = makeCanvas(s, s);
     if (!a) return { map: asTexture(null), emissiveMap: asTexture(null) };
     const r = rng(5519), X = a.ctx, E = e.ctx, bay = s / TOWER_TILE.bays, floor = s / TOWER_TILE.floors;
     E.fillStyle = '#000'; E.fillRect(0, 0, s, s);
-    // Ladrillo a la vista en hiladas finas: a 90 m de altura se lee como textura, no como bloque.
-    X.fillStyle = '#7d4a38'; X.fillRect(0, 0, s, s);
+    X.fillStyle = '#9b6750'; X.fillRect(0, 0, s, s);
     const rowH = 5;
+    const clay = ['#ac593d', '#9b4b33', '#b36646', '#99533a', '#a96043'];
     for (let y = 0, row = 0; y < s; y += rowH, row++) {
-      for (let x = row % 2 ? -7 : 0; x < s; x += 14) {
-        X.fillStyle = ['#84503c', '#7a4834', '#8c5942', '#744330', '#936149'][Math.floor(r() * 5)];
-        X.fillRect(x + .5, y + .5, 13.5, rowH - .8);
+      for (let x = row % 2 ? -5 : 0; x < s; x += 10) {
+        X.fillStyle = clay[Math.floor(r() * clay.length)];
+        X.fillRect(x + .65, y + .65, 9.4, rowH - .68);
       }
     }
     for (let f = 0; f < TOWER_TILE.floors; f++) {
-      // Losa de cada piso a la vista: la fachada se lee como pisos, no como paño de ventanas.
-      X.fillStyle = 'rgba(214,202,180,.26)'; X.fillRect(0, f * floor - 1.5, s, 3);
-      X.fillStyle = 'rgba(22,10,6,.3)'; X.fillRect(0, f * floor + 1.5, s, 2.5);
-      for (let b = 0; b < TOWER_TILE.bays; b++) {
-        const x = b * bay + bay * .24, w = bay * .52, y = f * floor + floor * .26, h = floor * .54;
-        X.fillStyle = 'rgba(26,12,8,.55)'; X.fillRect(x - 2, y - 2, w + 4, h + 4);
+      for (let b = 1; b < TOWER_TILE.bays; b++) {
+        const width = b % 3 === 1 ? .62 : .80;
+        const x = (b + (1 - width) / 2) * bay, w = bay * width, y = f * floor + floor * .14, h = floor * .56;
+        X.fillStyle = '#512d25'; X.fillRect(x - 3, y - 4, w + 6, h + 7);
         const lit = r(), level = .45 + r() * .55;
         const g = X.createLinearGradient(0, y, 0, y + h);
-        // El vidrio es oscuro de día; los encendidos solo se notan en el emisivo, de noche.
-        g.addColorStop(0, '#3b4c54'); g.addColorStop(1, '#161d21');
+        g.addColorStop(0, '#41494c'); g.addColorStop(.45, '#333d3e'); g.addColorStop(1, '#22282a');
         X.fillStyle = g; X.fillRect(x, y, w, h);
+        if ((b + f) % 4 === 0) {
+          X.fillStyle = '#746053'; X.fillRect(x + w * .03, y + h * .06, w * .27, h * .90);
+        }
         // De noche solo una ventana de cada cinco, cada una con su propia lámpara y su cortina.
         if (lit < .2) {
           const glow = E.createLinearGradient(0, y, 0, y + h);
@@ -695,8 +720,14 @@ export function towerFacade() {
           E.fillStyle = 'rgba(0,0,0,.62)';
           if (r() < .6) E.fillRect(x, y, w * (.2 + r() * .3), h);
         }
-        X.fillStyle = '#b9b09c'; X.fillRect(x + w / 2 - .75, y, 1.5, h);
-        X.fillStyle = '#a7967e'; X.fillRect(x - 3, y + h + 1.5, w + 6, 3);
+        const leaves = b % 3 === 1 ? 2 : 3;
+        X.fillStyle = '#7a6d5d';
+        for (let k = 1; k < leaves; k++) {
+          const mullion = x + w * k / leaves;
+          X.fillRect(mullion - .75, y, 1.5, h);
+          E.fillStyle = '#000'; E.fillRect(mullion - .75, y, 1.5, h);
+        }
+        X.fillStyle = '#885f48'; X.fillRect(x - 3, y + h + 1.5, w + 6, 3);
       }
     }
     return { map: asTexture(a), emissiveMap: asTexture(e) };

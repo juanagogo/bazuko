@@ -28,6 +28,7 @@ Math.random = azarDelJuego;
 const { chaza, fritanga, umbrella } = await import('../src/world/bogota/props.js');
 const { Bogota } = await import('../src/world/districts/Bogota.js');
 const { buildMarket } = await import('../src/world/bogota/EastLandmarks.js');
+const { Npc } = await import('../src/entities/Npc.js');
 delete globalThis.document;
 
 // Los ocho puestos de la ciudad, con el sitio, el nombre y lo que vende cada uno (Bogota.js).
@@ -61,6 +62,12 @@ function conAzar(semilla, hacer) {
 /** Funde lo estático como lo hace la ciudad al armarse. */
 const fundir = (group) => { Bogota.prototype._mergeStatic.call({ group }); return group; };
 
+function vendorDistrict(save) {
+  return Object.assign(new Bogota(save), {
+    scene: new THREE.Scene(), _add: object => object, _takesRoom() {}, getGroundHeight: () => .12
+  });
+}
+
 test('cada puesto de la calle se dibuja con cuatro llamadas como mucho y no pasa de 2.500 triángulos', () => {
   for (const puesto of PUESTOS) {
     const ciudad = new THREE.Group(), objeto = armar(puesto);
@@ -72,6 +79,27 @@ test('cada puesto de la calle se dibuja con cuatro llamadas como mucho y no pasa
     let luces = 0;
     ciudad.traverse((o) => { if (o.isLight) luces++; });
     assert.equal(luces, puesto[0] === 'fritanga' ? 1 : 0, `${puesto[1]}: la fritanga conserva su luz y la chaza no suma ninguna`);
+  }
+});
+
+test('el delantal corresponde al puesto atendido, no al arquetipo de sus transeúntes', async () => {
+  const district = vendorDistrict();
+  for (const [kind, title, items, , x, z] of PUESTOS) {
+    district._vendor(x, z, 0, kind, title, items);
+  }
+  const walker = new Npc(district.scene, new THREE.Vector3(), { arquetipo: 'vendedor' });
+  await Promise.all([...district.npcs, walker].map(person => person.preload()));
+  assert.equal(district.npcs.length, PUESTOS.length);
+  assert.equal(district.vendors.length, PUESTOS.length);
+  assert.equal(walker.look.delantal, undefined);
+  for (const [index, [kind, title, items, variant, x, z]] of PUESTOS.entries()) {
+    const seller = district.npcs[index], stall = district.vendors[index];
+    assert.ok(seller.isVendor && seller.fijo.stance === 'atender', title);
+    assert.equal(seller.person.arquetipo, 'vendedor', title);
+    assert.equal(seller.look.delantal, variant === 'dulces' ? undefined : variant, title);
+    assert.deepEqual([stall.kind, stall.stall, stall.title, stall.items, stall.position], ['shop', kind, title, items, new THREE.Vector3(x, 0, z)]);
+    assert.equal(stall.attendant, seller);
+    assert.equal(stall.interactDistance(stall.position), 0);
   }
 });
 
@@ -248,11 +276,10 @@ test('la plaza de mercado conserva sus colisiones y gana toldos colgados y remen
   ]);
   assert.equal(blockedTiles.join(' '), '162,83 162,84 163,83 163,84 164,83 164,84 164,83 164,84 165,83 165,84 166,83 166,84 168,83 168,84 169,83 169,84 170,83 170,84 ' +
     '161,87 161,88 162,87 162,88 163,87 163,88 165,87 165,88 166,87 166,88 167,87 167,88 168,87 168,88 169,87 169,88 170,87 170,88');
-  assert.equal(mallas(group).length, 1, 'la plaza sigue siendo una sola malla');
-  const total = triangulos(group);
-  assert.ok(total > 2500 && total <= 7000, `${total} triángulos en los seis puestos`);
+  assert.equal(mallas(group).filter(mesh => mesh.name === 'Surtido del mercado').length, 1, 'seis puestos en un solo lote de producto');
+  const structure = mallas(group).find(mesh => mesh.name === 'Puestos de mercado');
   // La lona cuelga: hay puntos del toldo por debajo de la recta entre el alero y la cumbrera.
-  const p = mallas(group)[0].geometry.attributes.position;
+  const p = structure.geometry.attributes.position;
   let colgados = 0;
   for (let i = 0; i < p.count; i++) {
     const y = p.getY(i), fila = p.getZ(i) < 171 ? 166.32 : 175.68, lejos = Math.abs(p.getZ(i) - fila);

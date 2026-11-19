@@ -6,6 +6,7 @@ import { PoliceSirenAudio } from './PoliceSirenAudio.js';
 import { NpcConversations } from './NpcConversations.js';
 import { NPC_CONVERSATIONS } from '../data/npcConversations.js';
 import { VoiceDirector } from './voces/VoiceDirector.js';
+import { PRIORIDAD_CANAL } from './voces/prioridad.js';
 
 export const MIX_CATEGORIES = ['ambient', 'traffic', 'voices', 'effects'];
 // El audio vive en public/audio: la ruta se arma con la base para que la demo de Pages funcione bajo su subcamino.
@@ -120,6 +121,11 @@ export class AudioSystem {
     this.conversations.externalVoiceActive = () => this._theftVoiceActive() || this.vehicles.remarkPlaying() || this.streetVoices.active || this.voces.active;
     this.voces.otraVoz = () => this._theftVoiceActive() || this.vehicles.remarkPlaying() || this.streetVoices.active || this.conversations.busy;
     this.voces.audioListo = () => !this.howler.ctx || (this.howler.state === 'running' && this.howler.ctx.state === 'running');
+    // Un testigo espera al reclamo por robo y corta a la calle, las conversaciones y los conductores (voces/prioridad.js).
+    this.voces.pesoOtraVoz = () => this._theftVoiceActive() ? PRIORIDAD_CANAL.carro
+      : this.vehicles.remarkPlaying() ? PRIORIDAD_CANAL.reclamo
+        : this.streetVoices.active || this.conversations.busy ? PRIORIDAD_CANAL.calle : 0;
+    this.voces.callarOtras = () => { this.vehicles.stopRemarks(); this.streetVoices.cancel(); this.conversations.cancel(); };
     this._carAlarms = new Map();
 
     // El audio es opcional: un archivo ausente o bloqueado no impide jugar.
@@ -512,6 +518,40 @@ export class AudioSystem {
       gain.connect(out);
       osc.start(t);
       osc.stop(t + 0.39);
+    } catch {}
+  }
+
+  /**
+   * Pitazo de policía sintetizado: dos silbos cortos con el trino de la bolita. Es el aviso del agente que se va a
+   * echar encima (ver `POLICE_GRAB`). Comparte mezcla de efectos, maestro, silencio y pausa.
+   */
+  playWhistle() {
+    const fx = this._fx();
+    if (!fx) return;
+    try {
+      const { ctx, out } = fx;
+      const t = ctx.currentTime;
+      const tone = ctx.createOscillator(), trill = ctx.createOscillator(), depth = ctx.createGain(), gain = ctx.createGain();
+      tone.type = 'sine';
+      tone.frequency.setValueAtTime(2850, t);
+      trill.type = 'sine';
+      trill.frequency.setValueAtTime(38, t);
+      depth.gain.setValueAtTime(190, t);
+      gain.gain.setValueAtTime(0.001, t);
+      gain.gain.linearRampToValueAtTime(0.16, t + 0.02);
+      gain.gain.setValueAtTime(0.16, t + 0.16);
+      gain.gain.linearRampToValueAtTime(0.02, t + 0.2);
+      gain.gain.linearRampToValueAtTime(0.16, t + 0.23);
+      gain.gain.exponentialRampToValueAtTime(0.001, t + 0.42);
+      trill.connect(depth);
+      depth.connect(tone.frequency);
+      tone.connect(gain);
+      gain.connect(out);
+      tone.onended = () => { tone.disconnect(); trill.disconnect(); depth.disconnect(); gain.disconnect(); };
+      tone.start(t);
+      trill.start(t);
+      tone.stop(t + 0.44);
+      trill.stop(t + 0.44);
     } catch {}
   }
 

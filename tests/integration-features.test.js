@@ -26,25 +26,33 @@ beforeEach(() => {
 
 test('los perfiles respetan su límite de resolución incluso después de la adaptación automática', () => {
   const renderer = Object.assign(Object.create(Renderer.prototype), {
-    resolution: new AdaptiveResolution(2), culling: { apply() {}, restore() {} }, silhouette: { render() {} },
+    resolution: new AdaptiveResolution(2), _screenDensity: 2, culling: { apply() {}, restore() {} }, silhouette: { render() {} },
     instance: { shadowMap: {}, info: { reset() {} }, render() {}, setPixelRatio(value) { this.ratio = value; } }
   });
   // El lienzo solo cambia de resolución al dibujar el cuadro siguiente.
   const drawnRatio = () => { renderer.render(new THREE.Scene(), new THREE.PerspectiveCamera()); return renderer.instance.ratio; };
-  for (const [quality, cap] of [['baja', 0.85], ['media', 1.25], ['alta', 1.5]]) {
+  for (const [quality, cap] of [['baja', 0.85], ['media', 1.25], ['alta', 2]]) {
     renderer.setQuality(quality);
     assert.equal(drawnRatio(), cap);
     for (let i = 0; i < 300; i++) renderer.adaptResolution(40);
-    assert.ok(drawnRatio() < cap);
+    if (quality === 'alta') {
+      assert.equal(drawnRatio(), cap, 'alta conserva la resolución nativa bajo carga');
+      assert.equal(renderer.effectiveQuality, 'alta');
+    } else assert.ok(drawnRatio() < cap);
     for (let i = 0; i < 4000; i++) renderer.adaptResolution(10);
     assert.ok(drawnRatio() <= cap);
     assert.equal(renderer.instance.shadowMap.enabled, quality !== 'baja');
     assert.equal(localStorage.getItem('bazuko.graphics_quality'), quality);
   }
+  window.devicePixelRatio = 1;
+  assert.equal(drawnRatio(), 1, 'al cambiar a un monitor 1× el siguiente dibujo usa su resolución');
+  window.devicePixelRatio = 2;
+  assert.equal(drawnRatio(), 2, 'al volver al monitor 2× recupera la nitidez aunque no haya resize');
 });
 
 test('el ciclo de iluminación mantiene la calidad elegida y libera el mapa de sombras al redimensionarlo', () => {
   const manager = new SceneManager(); let disposed = 0;
+  assert.equal(manager.sun.shadow.camera.projectionMatrix.elements[0], 2 / 90, 'la primera sombra ya usa el ancho de la zona iluminada');
   manager.sun.shadow.map = { dispose() { disposed++; } };
   manager.setQuality('media');
   assert.equal(disposed, 1);
@@ -58,7 +66,7 @@ test('el ciclo de iluminación mantiene la calidad elegida y libera el mapa de s
   assert.equal(manager.sun.castShadow, false);
   assert.ok(manager.scene.fog.far <= 130);
   manager.setQuality('alta');
-  assert.equal(manager.sun.shadow.mapSize.x, 2048);
+  assert.equal(manager.sun.shadow.mapSize.x, 4096);
   assert.equal(manager.sun.castShadow, true);
   assert.ok(manager.scene.fog.far > 160);
   assert.equal(manager.sun.shadow.normalBias, .035);
