@@ -1,5 +1,5 @@
 // src/ui/itemArt.js
-// Iconos de objetos (game-icons.net, CC BY 3.0, créditos en docs/iconos.md).
+// Iconos de objetos. Las tres armas siguen el modelo del juego; créditos de las demás en docs/iconos.md.
 // Son siluetas en currentColor que la hoja recorta con `mask-image`; Vite incrusta
 // los SVG pequeños en la compilación, así que no generan peticiones extra.
 // La mesa de fabricación y el inventario comparten iconos, familias y textos.

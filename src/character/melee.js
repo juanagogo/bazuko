@@ -1,11 +1,12 @@
 // src/character/melee.js
 // Animación procedural de golpes sobre el esqueleto Mixamo del personaje realista.
-// No hay clips de pelea: después de que el mixer pose el cuerpo (caminar, quieto…) se suma una rotación
-// por hueso según la fase del ataque. Los giros se definen en ejes del personaje (+X su izquierda,
+// Después de la locomoción se compone un giro por hueso para los ataques procedurales;
+// el cruzado con clip solo necesita aquí el cierre de los dedos. Los giros usan los ejes del personaje (+X su izquierda,
 // +Y arriba, +Z al frente) y se convierten al espacio del padre de cada hueso, así funcionan igual
 // con los brazos colgando o en movimiento. Cada personaje tiene su propio estado; no toca los clips.
 import * as THREE from 'three';
 import { findBone } from './props.js';
+import { CHAIN_AT } from '../data/weapons.js';
 
 // Fracción del `windup` que se usa en cargar el golpe; el resto es el latigazo hacia el impacto.
 const COCK = 0.6;
@@ -48,7 +49,8 @@ const POSES = {
   punos: [
     step('L', pose(-0.15, 0.05, [-0.75, 0.35, 0], [-1.45, 0.2, 0]), pose(0.2, 0.1, [-1.5, 0.3, 0], [-0.1, 0, 0])),
     step('R', pose(-0.35, 0.05, [-0.7, 0.25, 0], [-1.5, 0.2, 0]), pose(0.55, 0.15, [-1.45, 0.3, 0], [-0.1, 0, 0])),
-    step('L', pose(-0.5, 0, [-1.1, -0.7, 0], [-1.6, 0, 0]), pose(0.7, 0.1, [-1.3, 0.9, 0], [-1.5, 0, 0]))
+    // El codo abre el arco por la izquierda; el antebrazo cruza hacia el frente del pecho.
+    step('L', pose(-.5, .02, [-1.45, -1.2, 0], [-1.45, 1.45, 0]), pose(.6, .1, [-1.5, -.44, 0], [-.18, 1.38, 0]))
   ],
   // tajo horizontal, revés y estocada
   cuchillo: [
@@ -117,9 +119,9 @@ export function rotateInFrame(frame, bone, x, y, z) {
 
 /**
  * Superposición de ataque para un esqueleto. `frame` es el objeto cuyos ejes definen el espacio del
- * personaje (la raíz de la instancia). Llamar a `apply` cada cuadro después de `mixer.update`.
+ * personaje (la raíz de la instancia). Restaurar los dedos antes de evaluar el mezclador y aplicar el golpe después.
  */
-export function createMeleeOverlay(bones, frame) {
+export function createMeleeOverlay(bones, frame, fists = null) {
   const torso = TORSO.map(([name, share]) => ({ bone: findBone(bones, name), share })).filter((t) => t.bone);
   const torsoShare = torso.reduce((sum, part) => sum + part.share, 0);
   for (const part of torso) part.share /= torsoShare;
@@ -129,6 +131,12 @@ export function createMeleeOverlay(bones, frame) {
   const initial = new Float32Array(SIZE);
   const head = findBone(bones, 'Head');
   const neck = findBone(bones, 'Neck');
+  const fingers = {};
+  for (const [side, pose] of Object.entries(fists ?? {})) {
+    fingers[side] = pose.filter(joint => bones.has(joint.name))
+      .map(joint => ({ bone: bones.get(joint.name), closed: joint.rotation, saved: new THREE.Quaternion() }));
+  }
+  let curled = null;
   let attackKey = null;
 
   function target(attack) {
@@ -162,8 +170,12 @@ export function createMeleeOverlay(bones, frame) {
 
   const overlay = {
     active: false,
+    restoreFingers() {
+      if (curled) for (const joint of curled) joint.bone.quaternion.copy(joint.saved);
+      curled = null;
+    },
     reset() { cur.fill(0); goal.fill(0); initial.fill(0); attackKey = null; overlay.active = false; },
-    apply(dt, attack) {
+    apply(dt, attack, clipPunch = false) {
       target(attack);
       // La curva de fase ya suaviza el gesto. Filtrarla otra vez retrasaba el puño
       // y obligaba a saltar a la extensión al comenzar el intervalo de daño.
@@ -175,11 +187,25 @@ export function createMeleeOverlay(bones, frame) {
       }
       overlay.active = !!attack || energy > 0.002;
       if (!overlay.active) { cur.fill(0); return; }
-      for (const t of torso) rotate(t.bone, cur[TX] * t.share, cur[TY] * t.share, 0);
-      for (const a of arms) rotate(a.bone, cur[a.at], cur[a.at + 1], cur[a.at + 2]);
-      // Mantener la mirada en el objetivo mientras los hombros giran.
-      if (neck) rotate(neck, -cur[TX] * .2, -cur[TY] * .25, 0);
-      if (head) rotate(head, -cur[TX] * .35, -cur[TY] * (neck ? .4 : .65), 0);
+      if (!clipPunch) {
+        for (const t of torso) rotate(t.bone, cur[TX] * t.share, cur[TY] * t.share, 0);
+        for (const a of arms) rotate(a.bone, cur[a.at], cur[a.at + 1], cur[a.at + 2]);
+        // Mantener la mirada en el objetivo mientras los hombros giran.
+        if (neck) rotate(neck, -cur[TX] * .2, -cur[TY] * .25, 0);
+        if (head) rotate(head, -cur[TX] * .35, -cur[TY] * (neck ? .4 : .65), 0);
+      }
+      if (attack?.weapon === 'punos') {
+        const p = clamp01(attack.progress ?? 0);
+        const weight = attack.phase === 'windup' ? smooth(clamp01(p / COCK))
+          : attack.phase === 'active' ? 1 : 1 - smooth(clamp01(p / CHAIN_AT));
+        if (weight > 0) {
+          curled = fingers[attackSide(attack)];
+          if (curled) for (const joint of curled) {
+            joint.saved.copy(joint.bone.quaternion);
+            joint.bone.quaternion.slerp(joint.closed, weight);
+          }
+        }
+      }
     }
   };
   return overlay;

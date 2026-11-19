@@ -85,6 +85,8 @@ import { createPanelDock } from '../ui/PanelDock.js';
 import { PerformanceHUD } from '../ui/PerformanceHUD.js';
 import { PhotoMode } from '../ui/PhotoMode.js';
 import { WaterEffects } from '../systems/WaterEffects.js';
+import { PolvoGolpes } from '../systems/PolvoGolpes.js';
+import { SangreGolpes } from '../systems/SangreGolpes.js';
 import { LocalLights } from './LocalLights.js';
 import { ContactShadows } from './ContactShadows.js';
 import { GRAPHICS_PROFILES } from './GraphicsQuality.js';
@@ -148,6 +150,8 @@ export class Game {
     // Mundo + jugador
     this.world = new World(this.sceneMgr.scene);
     this.player = new Player(this.sceneMgr.scene, this.input, this.stats, this.audio, { animaciones });
+    this.player.polvoGolpes = new PolvoGolpes(this.sceneMgr.scene);
+    this.sangre = new SangreGolpes(this.sceneMgr.scene, this.world, this.player);
     this.waterEffects = new WaterEffects(this.sceneMgr.scene);
     this.contactShadows = new ContactShadows(this.sceneMgr.scene);
     this._contactShadowFrame = {
@@ -957,6 +961,9 @@ export class Game {
    */
   relocatePlayer(to, { minutes = 0, fade = true } = {}) {
     const district = this.world.active;
+    this.player.melee?.terminarPausaImpacto();
+    this.player.polvoGolpes?.limpiar();
+    this.sangre?.limpiar();
     this.witnesses?.reset(); // quien llamaba o grababa se queda atrás
     const mover = () => {
       const y = district?.getMovementGroundHeight?.(to.x, to.z, 0) ?? district?.getGroundHeight?.(to.x, to.z) ?? 0;
@@ -1262,6 +1269,7 @@ export class Game {
     if (this._deathPending || this._arrestPending) return true;
     this._marcarMuerte();
     if (this.stats.salud > 0) return false;
+    this.player.melee?.cancel();
     if (this.carjack?.fisica && this.carjack.driving) this.carjack.reset();
     if (this.player.isRagdollActive) return false;
 
@@ -1323,6 +1331,7 @@ export class Game {
     if (this._arrestPending || this._deathPending || this.stats.salud <= 0) return;
     this._arrestPending = true;
     this.carjack?.reset({ perdido: true });
+    this.player?.melee?.cancel();
     this.rebusque?.cancelar();
     if (this.steal?.minigameActive) this.steal._endMinigame(false, 'cancel');
     this.input.keys = {};
@@ -1383,6 +1392,8 @@ export class Game {
     if (this.hud?._dealerOpen) this.hud.toggleDealerPanel();
     this.player.stopSmoking?.();
     this.player.stopBasuco?.();
+    this.player.polvoGolpes?.limpiar();
+    this.sangre?.limpiar();
     this.player.clearVehicleImpact?.();
     this.player.resetGrounding?.();
     this.player.action = null;
@@ -1486,6 +1497,27 @@ export class Game {
     this.collisions.setVehicles(cars, this.world.active?.busServices ?? this.world.active?.busService);
   }
 
+  _pasoDeSimulacion(intervalo) {
+    const dt = Math.min(intervalo, .1);
+    const combate = this.player?.melee;
+    if (combate?.active && (this.isSleeping || globalThis.document?.hidden || this.paused)) {
+      combate.terminarPausaImpacto();
+    } else if (combate?.pausaImpacto > 0) {
+      const fueraDeSimulacion = intervalo - dt;
+      if (fueraDeSimulacion >= combate.pausaImpacto) combate.terminarPausaImpacto();
+      else if (fueraDeSimulacion > 0) combate.descontarPausa(fueraDeSimulacion, this.player);
+    }
+    return dt;
+  }
+
+  _actualizarZona(dt) {
+    const { position, polvoGolpes } = this.player;
+    if (this.zonaAviso?.update(dt, this.world.active, position.x, position.z)) {
+      polvoGolpes?.limpiar();
+    }
+    polvoGolpes?.update(dt);
+    this.sangre?.update(dt);
+  }
 
   _loop = (stamp) => {
     if (!this._running) return;
@@ -1494,7 +1526,7 @@ export class Game {
     const now = performance.now();
     // El intervalo entre cuadros se mide con el sello de rAF: el reloj al entrar aquí oscila y cuenta como lentitud lo que no lo es.
     this._frameStamp = stamp ?? now;
-    const dt = Math.min((now - this._lastTime) / 1000, 0.1);
+    const dt = this._pasoDeSimulacion((now - this._lastTime) / 1000);
     this._lastTime = now;
 
     this.radio?.setPaused(!!(this.isSleeping || globalThis.document?.hidden || (this.paused && !this._radioModalOpen)));
@@ -1530,7 +1562,7 @@ export class Game {
       return;
     }
     this.momentos?.update(dt, this.player, this.stats, this.clock);
-    this.zonaAviso?.update(dt, this.world.active, this.player.position.x, this.player.position.z);
+    this._actualizarZona(dt);
     // Deja ver el lanzamiento y la caída antes de abrir la recuperación fatal.
     if (this.stats.salud <= 0 && this.player.isRagdollActive) {
       if (this.steal?.minigameActive) this.steal._endMinigame(false, 'cancel');
@@ -1590,6 +1622,7 @@ export class Game {
     // Robo de carros: mientras maneja, el carro reemplaza el movimiento a pie.
     const driving = this._updateCarjack(dt);
     if (!driving) this._updatePlayerMovement(dt);
+    else if (this.player.melee?.active) this.player.melee.cancel();
     this.waterEffects?.update(dt, this.player);
     if (this.player.waterFrame?.entered) this.audio.playWaterSplash?.(this.player.waterFrame.entryIntensity);
     this._swimSoundTimer = Math.max(0, (this._swimSoundTimer ?? 0) - dt);
@@ -1932,6 +1965,9 @@ export class Game {
   stop() {
     this._running = false;
     if (this.carjack?.fisica && (this.carjack.driving || this.carjack.transition)) this.carjack.reset();
+    this.player?.melee?.cancel();
+    this.player?.polvoGolpes?.dispose();
+    this.sangre?.dispose();
     this.waterEffects?.dispose();
     this.contactShadows?.dispose();
     this.gpsBeacon?.dispose();

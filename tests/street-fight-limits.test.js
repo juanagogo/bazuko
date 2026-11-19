@@ -24,27 +24,33 @@ function arena(stats) {
   return { scene, player, tick };
 }
 
-test('cada golpe cuesta 8 de energía, también los del combo', () => {
-  const stats = { dinero: 0, energia: 50, salud: 100 };
-  const { player } = arena(stats);
-  player.punch();
-  assert.ok(player.attack, 'arranca el golpe');
-  assert.equal(stats.energia, 42);
-  player.punch();
-  assert.equal(stats.energia, 34, 'el golpe encadenado también cuesta');
-  player.punch();
-  assert.equal(stats.energia, 34, 'solo se encola un golpe a la vez');
+test('cada puño cuesta 4 y cada golpe con arma cuesta 8, también al fallar y encadenar', () => {
+  for (const [weapon, cost] of [['punos', 4], ['cuchillo', 8], ['botella_picada', 8], ['arma', 8]]) {
+    const stats = { dinero: 0, energia: 50, salud: 100 };
+    const { player, tick } = arena(stats);
+    player.equipWeapon(weapon);
+    assert.equal(player.punch(), true);
+    assert.equal(stats.energia, 50 - cost);
+    assert.equal(player.punch(), true);
+    assert.equal(stats.energia, 50 - 2 * cost);
+    assert.equal(player.punch(), false, 'solo se encola un golpe a la vez');
+    tick(120, 1 / 60, []);
+    assert.equal(stats.energia, 50 - 2 * cost, 'el fallo paga una sola vez');
+  }
 });
 
 test('exhausto no se puede pelear y avisa', () => {
-  const stats = { dinero: 0, energia: 4, salud: 100 };
+  const stats = { dinero: 0, energia: 3, salud: 100 };
   const { player } = arena(stats);
   let toast = null;
   window.addEventListener('toast', (e) => { toast = e.detail; });
   player.punch();
   assert.equal(player.attack, null);
-  assert.equal(stats.energia, 4);
+  assert.equal(stats.energia, 3);
   assert.match(toast?.text ?? '', /No doy más/);
+  stats.energia = 4;
+  assert.equal(player.punch(), true);
+  assert.equal(stats.energia, 0);
 });
 
 test('golpear a un peatón sube el nivel de búsqueda y avisa de la pelea', () => {
@@ -60,13 +66,13 @@ test('golpear a un peatón sube el nivel de búsqueda y avisa de la pelea', () =
   assert.equal(player.game.steal.buscado, 1);
 });
 
-test('un adulto se defiende la primera vez que lo golpean, y solo esa vez', () => {
+test('el civil decidido a defenderse con los puños contraataca una sola vez', () => {
   const scene = new THREE.Scene();
-  const npc = new Npc(scene, new THREE.Vector3(0, 0, 1), { look: { real: { edad: 'adulto' } } });
+  const npc = new Npc(scene, new THREE.Vector3(0, 0, 1), { look: { real: { edad: 'adulto' } }, defenseResolve: 1, carriesKnife: false });
   const attacker = { position: new THREE.Vector3(), stats: { salud: 100 }, audio: {} };
   npc.takeHit({ damage: 1, attacker, knockback: 0 });
   assert.equal(attacker.stats.salud, 100, 'hay reacción y anticipación antes de defenderse');
-  for (let i = 0; i < 20; i++) npc.update(.05, { player: attacker.position });
+  for (let i = 0; i < 30; i++) npc.update(.05, { player: attacker.position });
   assert.ok(attacker.stats.salud <= 90 && attacker.stats.salud >= 84, 'contraataque de 10 a 16');
   const after = attacker.stats.salud;
   npc.takeHit({ damage: 1, attacker });

@@ -179,17 +179,16 @@ test('con el jugador encima no vuelve todavía', async () => {
   npc.dispose();
 });
 
-test('noqueado cae como cualquiera y al recuperarse también vuelve', async () => {
+test('un peatón fijo fallecido queda en su sitio y deja de hacer su actividad', async () => {
   const npc = await person('reciclador', { fijo: { stance: 'dormido' } });
   const home = npc.position.clone();
   npc.takeHit({ damage: 1000, attacker: { position: home.clone().add(new THREE.Vector3(1, 0, 0)) }, attackId: 1 });
   assert.equal(npc.koState, 'down');
-  run(npc, NPC_COMBAT.fall + NPC_COMBAT.downMin + NPC_COMBAT.downExtra + NPC_COMBAT.rise + .2);
-  assert.equal(npc.koState, null);
-  assert.equal(npc.health, npc.maxHealth);
   run(npc, 60);
+  assert.ok(npc.deathSettled);
+  assert.equal(npc.health, 0);
   assert.deepEqual(npc.position.toArray(), home.toArray());
-  assert.equal(npc.stance, 'dormido');
+  assert.equal(npc.state, 'dead');
   npc.dispose();
 });
 

@@ -17,6 +17,7 @@ import { famaSection } from './streetMenus.js';
 import { pasarTexto } from './pictos.js';
 import { DOG_ACCESSORIES, DOG_COATS } from '../entities/Dog.js';
 import { DEFAULT_TRAFFIC_DENSITY, TRAFFIC_DENSITY_LEVELS } from '../systems/trafficDensity.js';
+import { NIVELES_SANGRE, SANGRE_INICIAL } from '../systems/SangreGolpes.js';
 
 export const PAUSE_TABS = [
   { id: 'mapa', label: 'Mapa' },
@@ -289,6 +290,15 @@ function settingsPanel(game) {
   const qualityNow = running && game.renderer.quality === curQuality && running !== curQuality
     ? ` Ahora corre en ${running}: ${qualityOrder.indexOf(running) > qualityOrder.indexOf(curQuality) ? 'subió' : 'bajó'} sola.` : '';
 
+  const sangre = NIVELES_SANGRE.map(({ id, label }) => choice(label, (game.sangre?.nivel ?? SANGRE_INICIAL) === id, () => {
+    game.sangre?.setNivel(id);
+    // El botón que recibió Espacio o Enter conserva el foco y el resto de Ajustes sigue en su sitio.
+    for (let i = 0; i < sangre.length; i++) {
+      const elegido = NIVELES_SANGRE[i].id === id;
+      sangre[i].setAttribute('aria-pressed', String(elegido));
+      sangre[i].children[0].className = elegido ? 'elegido' : '';
+    }
+  }));
   const minimap = game.minimap;
   const zoom = minimap?.zoomBase ?? 70;
   const zoomLabel = el('span', { class: 'pause-value', text: `${zoom} m` });
@@ -299,7 +309,11 @@ function settingsPanel(game) {
   });
 
   return el('div', { class: 'pause-settings' },
-    section('sound', 'Sonido', row('Volumen', volumeInput, volumeLabel), ...mixRows, row('Silencio', muteBtn)),
+    el('div', { class: 'pause-settings__col' },
+      section('sound', 'Sonido', row('Volumen', volumeInput, volumeLabel), ...mixRows, row('Silencio', muteBtn)),
+      section('droplet', 'Sangre',
+        el('div', { class: 'pause-segmented', role: 'group', 'aria-label': 'Sangre' }, sangre),
+        el('p', { class: 'pause-hint', text: 'Discreta señala el impacto. Visible añade una pequeña marca donde cae la persona.' }))),
     el('div', { class: 'pause-settings__col' },
       section('zap', 'Calidad gráfica',
         el('div', { class: 'pause-segmented', role: 'group', 'aria-label': 'Calidad gráfica', 'aria-describedby': 'calidad-grafica-ayuda' }, quality('baja', 'Baja'), quality('media', 'Media'), quality('alta', 'Alta')),

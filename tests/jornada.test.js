@@ -7,6 +7,7 @@ import { JornadaSystem, FRANJAS, franjaDe } from '../src/systems/JornadaSystem.j
 import { Clock, DAY_CYCLE_SECONDS } from '../src/core/Clock.js';
 import { Game } from '../src/core/game.js';
 import { StealSystem } from '../src/features/steal.js';
+import { Npc } from '../src/entities/Npc.js';
 import { TrafficSystem } from '../src/systems/TrafficSystem.js';
 import { InteractionSystem } from '../src/systems/InteractionSystem.js';
 import { StatsSystem } from '../src/systems/StatsSystem.js';
@@ -141,20 +142,23 @@ test('de noche el mismo robo saca más plata, siempre en billetes de $100', () =
   assert.equal(plata(FRANJAS.madrugada, 2300), 3500);
 });
 
-test('de noche el robado que se defiende pega más duro', () => {
-  const golpe = (franja) => {
-    const game = { stats: { salud: 100, dinero: 0 }, player: { position: new THREE.Vector3() },
+test('de noche el robado que se defiende pega más duro al conectar el golpe anunciado', async () => {
+  for (const [franja, damage] of [[null, 11], [FRANJAS.manana, 11], [FRANJAS.tarde, 11], [FRANJAS.noche, 14], [FRANJAS.madrugada, 16]]) {
+    const stats = { salud: 100, dinero: 0 };
+    const game = { stats, player: { position: new THREE.Vector3(), stats },
       jornada: franja ? { franja } : undefined };
     const robo = Object.assign(Object.create(StealSystem.prototype), { game, buscado: 0, _toast() {} });
-    const npc = { look: { real: { edad: 'adulto' } }, alarmedByTheft() {} };
-    conAzar(.5, () => robo.executeRoboDirecto(npc));
-    return 100 - game.stats.salud;
-  };
-  assert.equal(golpe(null), 11);
-  assert.equal(golpe(FRANJAS.manana), 11);
-  assert.equal(golpe(FRANJAS.tarde), 11);
-  assert.equal(golpe(FRANJAS.noche), 14);
-  assert.equal(golpe(FRANJAS.madrugada), 16);
+    const npc = new Npc(new THREE.Scene(), new THREE.Vector3(0, 0, -1), { look: {}, facing: 0, carriesKnife: false, defenseResolve: 1 });
+    try {
+      await npc.ready;
+      conAzar(.5, () => robo.executeRoboDirecto(npc));
+      assert.equal(stats.salud, 100);
+      for (let frame = 0; frame < 60 && stats.salud === 100; frame++) npc.update(1 / 60);
+      assert.equal(100 - stats.salud, damage, franja?.id ?? 'sin jornada');
+    } finally {
+      npc.dispose();
+    }
+  }
 });
 
 test('la patrulla ve más lejos de mañana y menos de noche y de madrugada', () => {

@@ -12,6 +12,8 @@ import { WEAPONS } from '../data/weapons.js';
 import { SUBSTANCE_EFFECTS } from '../data/substanceEffects.js';
 import { SMOKABLES } from '../character/smoking.js';
 import { LimpiezaSocialSystem, straightRoute } from '../systems/LimpiezaSocialSystem.js';
+import { PolvoGolpes } from '../systems/PolvoGolpes.js';
+import { SangreGolpes } from '../systems/SangreGolpes.js';
 import { createRealisticCharacter } from '../character/RealisticCharacter.js';
 import { STANCE_NAMES } from '../character/stances.js';
 import { ARCHETYPES } from '../character/archetypes.js';
@@ -26,7 +28,66 @@ function ringOfNpcs(sala, count, radius) {
     const npc = new Npc(sala.scene, new THREE.Vector3(Math.sin(a) * radius, 0, Math.cos(a) * radius), { gastada: true, wander: 0, facing: a + Math.PI });
     sala.npcs.push(npc);
   }
+  return Promise.all(sala.npcs.map(npc => npc.preload()));
 }
+
+function armasDePrueba(sala, ids = Object.keys(WEAPONS)) {
+  return ids.map(id => ({ texto: WEAPONS[id].name, hacer: () => sala.player.equipWeapon(id) }));
+}
+
+function prepararCombate(sala) {
+  const polvo = new PolvoGolpes(sala.scene);
+  const sangre = new SangreGolpes(sala.scene, sala.world, sala.player);
+  sala.player.polvoGolpes = polvo;
+  sala.sangre = sangre;
+  // El cruce de un brazo con otro personaje no debe pintarlo como si estuviera tras una pared.
+  sala.silhouetteTest = () => false;
+  window.addEventListener('pagehide', e => {
+    if (!e.persisted) { sangre.dispose(); polvo.dispose(); }
+  });
+}
+
+function iluminarCamioneta(sala, squad) {
+  // Un farol lateral enfría el borde del uniforme junto al carro. La luz cae antes del fondo de la sala.
+  const luz = new THREE.SpotLight(0xd9e3ef, 150, 15, Math.PI / 3, .85);
+  luz.name = 'luz-sala-camioneta';
+  const parada = new THREE.Vector3(7, 0, 0), rumbo = new THREE.Vector3();
+  sala.scene.add(luz, luz.target);
+  sala.beforeRender.add(() => {
+    if (squad.route) squad.route.sample(squad.stopAt, parada, rumbo);
+    luz.position.set(parada.x - 4.7, parada.y + 4.2, parada.z + 3.8);
+    luz.target.position.set(parada.x - 1.4, parada.y + 1.1, parada.z);
+    luz.intensity = 150 * (1 - sala.scene.userData.environmentDay);
+  });
+}
+
+function ocultaLaCamioneta(sala, suv) {
+  // Caja de la parte opaca del carro. Un ocupante entre la cámara y el jugador deja ver sus materiales reales.
+  const carro = new THREE.Box3(new THREE.Vector3(-suv.length / 2, .28, -suv.width / 2),
+    new THREE.Vector3(suv.length / 2, 1.42, suv.width / 2));
+  const caja = new THREE.Box3(), rayo = new THREE.Ray(), torso = new THREE.Vector3(), cruce = new THREE.Vector3();
+  return camera => {
+    if (!suv.group.visible) return false;
+    torso.copy(sala.player.position);
+    torso.y += 1.1;
+    rayo.origin.copy(camera.position);
+    rayo.direction.subVectors(torso, rayo.origin).normalize();
+    caja.copy(carro).applyMatrix4(suv.group.matrixWorld);
+    return rayo.intersectBox(caja, cruce) !== null && cruce.distanceToSquared(rayo.origin) < torso.distanceToSquared(rayo.origin);
+  };
+}
+
+function estadoJugador(sala) {
+  const { attack, weapon } = sala.player;
+  const estado = `${weapon.name} · Salud ${Math.round(sala.stats.salud)} · Energía ${Math.round(sala.stats.energia)}`;
+  if (!attack) return estado;
+  return `${estado}\nGolpe ${attack.step + 1} · ${FASES_GOLPE[attack.phase]}`;
+}
+
+const FASES_GOLPE = { windup: 'preparación', active: 'contacto', recovery: 'recuperación' };
+const ESTADO_CAMIONETA = { idle: 'en espera', arriving: 'llegando', stopped: 'detenida', out: 'ocupantes en la calle', leaving: 'alejándose' };
+const ESTADO_OCUPANTE = { idle: 'a bordo', order: 'dando órdenes', chase: 'persiguiendo', windup: 'preparando el golpe',
+  strike: 'golpeando', recover: 'recuperándose', return: 'volviendo', surrendered: 'rendido' };
 
 // Quienes se quedan en su sitio, con lo que hacen allí.
 const FIJOS = [
@@ -217,21 +278,27 @@ export const PRUEBAS = [
   {
     id: 'pelea',
     nombre: 'Pelea',
-    descripcion: 'Cinco peatones quietos para probar golpes, combos y armas (G o clic).',
-    montar(sala) {
-      ringOfNpcs(sala, 5, 3);
-      const p = sala.player;
+    descripcion: 'Acércate con W a los peatones y golpea con G o clic izquierdo. Puedes repetir el combo con otra arma.',
+    async montar(sala) {
+      prepararCombate(sala);
+      await ringOfNpcs(sala, 5, 3);
+      sala.cameraRig.yaw = Math.PI;
+      const ctx = { player: sala.player.position, camera: sala.cameraRig.camera };
+      sala.updaters.add(dt => { for (const npc of sala.npcs) npc.update(dt, ctx); });
       return {
         acciones: [
-          ...Object.entries(WEAPONS).map(([id, w]) => ({ texto: w.name, hacer: () => p.equipWeapon(id) })),
+          ...armasDePrueba(sala),
           { texto: '⚡ Energía llena', hacer: () => { sala.stats.energia = 100; } },
           { texto: 'Nuevos peatones', hacer: () => {
-            for (const npc of sala.npcs) npc.dispose?.() ?? npc.root?.removeFromParent();
+            for (const npc of sala.npcs) npc.dispose();
             sala.npcs.length = 0;
-            ringOfNpcs(sala, 5, 3);
+            sala.sangre.limpiar();
+            sala.player.polvoGolpes.limpiar();
+            return ringOfNpcs(sala, 5, 3);
           } }
         ],
-        estado: () => `arma: ${p.equippedWeapon}  energía: ${Math.round(sala.stats.energia)}\nbuscado: ${sala.steal.buscado}`
+        estado: () => [estadoJugador(sala), `Búsqueda · ${sala.steal.buscado}`,
+          ...sala.npcs.map((npc, i) => `Peatón ${i + 1} · ${Math.round(npc.health)} PV${npc.isDead ? ' · fallecido' : npc.isKnockedOut ? ' · inconsciente' : ''}`)].join('\n')
       };
     }
   },
@@ -342,22 +409,33 @@ export const PRUEBAS = [
   {
     id: 'limpieza',
     nombre: 'Limpieza social',
-    descripcion: 'La camioneta negra llega por la calle de la derecha (x = 7) y se bajan los tres. Corre con Shift.',
+    descripcion: 'Llama a la camioneta para ensayar el encuentro. G o clic izquierdo golpea, WASD mueve y Shift permite correr.',
     async montar(sala) {
+      prepararCombate(sala);
       sala.setHour(22);
+      sala.player.root.rotation.y = Math.PI / 2; // mira hacia el carril, en el sentido de W al entrar
       const squad = new LimpiezaSocialSystem(sala.scene, { player: sala.player, stats: sala.stats, audio: sala.audio });
-      squad.setup(null, [straightRoute(new THREE.Vector3(7, 0, -38), new THREE.Vector3(0, 0, 1), 76)]);
+      squad.setup(null, [straightRoute(new THREE.Vector3(7, 0, -38), new THREE.Vector3(0, 0, 1), 76)], sala.npcs);
+      iluminarCamioneta(sala, squad);
+      sala.silhouetteTest = ocultaLaCamioneta(sala, squad.suv);
       await Promise.all(squad.preloadables.map((m) => m.preload()));
       sala.updaters.add((dt) => squad.update(dt, { camera: sala.cameraRig.camera }));
       sala.limpieza = squad;
       return {
         acciones: [
-          { texto: '🚙 Que llegue', hacer: () => { if (!squad.trigger()) toast('Ya están aquí (o estás muy lejos de la calle)'); } },
+          { texto: '🚙 Que llegue', hacer: () => {
+            if (squad.trigger()) return;
+            if (squad.outcome === 'victoria') toast('El encuentro terminó. Puedes repetir la prueba.');
+            else toast(squad.active ? 'La camioneta ya está en la sala.' : 'Acércate a la calle para llamar a la camioneta.');
+          } },
+          ...armasDePrueba(sala, ['punos', 'cuchillo']),
           { texto: '❤️ Curar', hacer: () => { sala.stats.salud = 100; } },
-          { texto: '⏹ Que se vayan', hacer: () => squad.reset() }
+          { texto: '⏹ Que se vayan', hacer: () => squad.reset() },
+          { texto: 'Repetir prueba', hacer: () => window.location.reload() }
         ],
-        estado: () => `estado: ${squad.state}  salud: ${Math.round(sala.stats.salud)}\n` +
-          squad.members.map((m) => `${m.role}: ${m.state}`).join('\n')
+        estado: () => [estadoJugador(sala), `Camioneta · ${ESTADO_CAMIONETA[squad.state] ?? squad.state}`,
+          ...(squad.outcome ? [`Desenlace · ${squad.outcome}`] : []),
+          ...squad.members.map((m, i) => `${m.isLeader ? 'Jefe' : 'Matón ' + i} · ${Math.round(m.health)} PV · ${m.isDead ? 'fallecido' : ESTADO_OCUPANTE[m.state] ?? m.state}`)].join('\n')
       };
     }
   }

@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { afterEach, beforeEach, mock, test } from 'node:test';
 import * as THREE from 'three';
-import { Player, golpeTumba, GOLPE_TUMBA } from '../src/entities/Player.js';
+import { Player } from '../src/entities/Player.js';
 import { PsychosisSystem } from '../src/systems/PsychosisSystem.js';
 import { SaveSystem, KEY_DANADA } from '../src/systems/SaveSystem.js';
 import { CinematicOverlays } from '../src/ui/CinematicOverlays.js';
@@ -193,34 +193,31 @@ test('el cartón dice lo que lo dejó tirado', () => {
   assert.equal(tituloDeTirado('golpe'), 'TE CASCARON');
 });
 
-test('un golpe tumba solo con la salud baja, y deja un respiro antes del siguiente', () => {
-  assert.equal(golpeTumba(100), false);
-  assert.equal(golpeTumba(GOLPE_TUMBA.salud + 1), false);
-  assert.equal(golpeTumba(GOLPE_TUMBA.salud), true);
-  assert.equal(golpeTumba(0), false, 'el golpe que mata no lleva cartón');
-  assert.equal(golpeTumba(20, 3), false, 'todavía en el respiro');
-  assert.equal(golpeTumba(undefined), false);
-});
 
-test('los golpes de verdad dejan tirado y el carro dice que fue el carro', () => {
+test('los golpes conservan el rumbo y el control con salud 36, 35 y 1; a cero dejan paso a la derrota', () => {
   const nuevo = () => {
     const p = new Player(new THREE.Scene(), { axis: { x: 0, z: 0 }, isRunning: false }, { salud: 100 });
     p.position.set(0, 0, 0); p.root.position.copy(p.position);
     return p;
   };
-  const sano = nuevo();
-  sano.receiveHit(new THREE.Vector3(1, 0, 0), 2, { salud: 80 });
-  assert.equal(sano.isRagdollActive, false);
-  assert.equal(sano.tiradoPor, null);
-
-  const golpeado = nuevo();
-  golpeado.receiveHit(new THREE.Vector3(1, 0, 0), 2, { salud: 30 });
-  assert.equal(golpeado.tiradoPor, 'golpe');
-  assert.equal(golpeado.isStunned, true);
+  for (const salud of [36, 35, 1, 0]) {
+    const golpeado = nuevo();
+    golpeado.stats.salud = salud;
+    golpeado.receiveHit(new THREE.Vector3(1, 0, 0), 2, { salud });
+    assert.equal(golpeado.isKnockedDown, false);
+    assert.equal(golpeado.tiradoPor, null);
+    golpeado.input.axis.z = 1;
+    golpeado.update(.05, null, null, () => 0);
+    assert.equal(golpeado.root.rotation.y, 0);
+    if (salud > 0) assert.ok(golpeado.position.z > 0, 'avanza con la tecla durante la reacción');
+    else assert.equal(golpeado.punch(), false, 'el jugador a cero no inicia otra acción');
+    golpeado.dispose();
+  }
 
   const atropellado = nuevo();
   atropellado.receiveVehicleImpact(new THREE.Vector3(1, 0, 0), 8);
   assert.equal(atropellado.tiradoPor, 'carro');
+  assert.equal(atropellado.isKnockedDown, true);
 });
 
 // ---------- la plana ----------
