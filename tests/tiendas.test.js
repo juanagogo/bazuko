@@ -73,17 +73,18 @@ test('La Esquinita se enciende de noche y al cerrar lo libera todo', () => {
   assert.equal(freed.size, owned.size);
 });
 
-test('Doña Inés es una sola malla más sus dos avisos, sin luces y dentro de su lote', () => {
+test('Doña Inés agrupa el edificio y el vidrio, conserva dos avisos y queda dentro de su lote sin luces propias', () => {
   assert.deepEqual({ ...D69_STORE }, { x0: 43, x1: 53, z0: 159, z1: 173, height: 5, name: 'Doña Inés' });
   assert.equal(typeof paintD69Store, 'function');
   const signs = [];
   const model = buildD69Store({ createSign: options => { signs.push(options); return new THREE.Texture(); } });
   assert.equal(model.name, 'Tienda D69');
   assert.equal(signs.length, 2);
-  // Antes eran veinte cajas con cinco materiales.
+  // El interior y los carros se agrupan con el edificio. Las dos hojas transparentes comparten una malla.
   const meshes = meshesOf(model);
-  assert.equal(meshes.length, 3);
-  assert.ok(trianglesOf(model) <= 6000, `${trianglesOf(model)} triángulos`);
+  assert.equal(meshes.length, 4);
+  assert.equal(meshes.filter(mesh => mesh.castShadow).length, 1);
+  assert.ok(trianglesOf(model) <= 8500, `${trianglesOf(model)} triángulos`);
   assert.equal(lightsOf(model).length, 0);
   const building = meshes.find(mesh => mesh.material.emissive);
   // Fuera de la fusión de la ciudad: su material cambia con la hora.
@@ -100,14 +101,16 @@ test('Doña Inés es una sola malla más sus dos avisos, sin luces y dentro de s
   // El lote es sólido hasta x = 53. Carritos, fruta y bolardos quedan dentro, pegados a la fachada, y el vidrio
   // a medio metro del borde: lo que se ve coincide con donde uno choca. Solo el alero y la marquesina vuelan.
   const spot = building.geometry.attributes.position, glow = building.geometry.attributes.color;
-  let glassAt = 0, brightest = 0;
+  let brightest = 0;
   for (let i = 0; i < spot.count; i++) {
     brightest = Math.max(brightest, glow.getW(i));
     if (spot.getZ(i) < 159.5 || spot.getZ(i) > 172.5) continue;
     if (spot.getY(i) < 2.5) assert.ok(spot.getX(i) <= 53.1, `x ${spot.getX(i).toFixed(2)} a ${spot.getY(i).toFixed(2)} m`);
-    if (glow.getW(i) > 2) glassAt = Math.max(glassAt, spot.getX(i) < 53 && spot.getY(i) < 3 ? spot.getX(i) : 0);
   }
-  assert.ok(glassAt > 52.4 && glassAt < 52.9, `vidrio en x ${glassAt}`);
+  const pane = model.getObjectByName('Vidrio oriental de Doña Inés');
+  assert.ok(pane.material.transparent && !pane.material.depthWrite && !pane.castShadow);
+  const glassBounds = new THREE.Box3().setFromObject(pane);
+  assert.ok(glassBounds.min.x > 52.4 && glassBounds.max.x < 52.9);
   // De noche las vitrinas se ven encendidas, no quemadas.
   assert.ok(brightest <= 3, `brillo ${brightest}`);
   // Hay techo con equipos: algo sobresale de la losa, que queda hundida tras el antepecho.

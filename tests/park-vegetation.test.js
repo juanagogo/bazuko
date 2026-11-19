@@ -5,6 +5,10 @@ import { expandCity, ORIGINAL_CITY_WIDTH, ORIGINAL_CITY_HEIGHT } from '../src/wo
 import { LAKE_PARK, lakeRadius, lakeTerrainHeight, lakeWaterInfo, onLakeBridge } from '../src/world/bogota/LakePark.js';
 import { freezeStaticTransforms, createRenderSectors } from '../src/world/bogota/StaticGeometry.js';
 import { PARK_VEGETATION, planParkVegetation, buildParkVegetation } from '../src/world/bogota/ParkVegetation.js';
+import { Bogota, SHELTER_LOCATION, SHELTER_RESPAWN } from '../src/world/districts/Bogota.js';
+import { EAST_SEAM } from '../src/world/bogota/EastZones.js';
+import { onCalle72Landing } from '../src/world/bogota/Calle72Landing.js';
+import { planUrbanTrees } from '../src/world/bogota/UrbanPlanting.js';
 
 function parkMap() {
   // La ampliación real incluye los dos parques, la ribera y las reservas del viaducto.
@@ -47,6 +51,43 @@ test('la vegetación usa semilla propia, deja claros y reparte el presupuesto en
     Math.hypot(other.x - plant.x, other.z - plant.z) < 2.5)).length > plan.clusters.length * .8,
   'los ejemplares se agrupan en lugar de formar una cuadrícula dispersa');
   group.userData.dispose();
+});
+
+test('el andén de Calle 72 conserva su huella libre y el mismo arbolado y vegetación fuera de ella', () => {
+  const city = new Bogota();
+  city.map = city._layout();
+  const previousOptions = {
+    map: city.map.map(row => [...row.slice(0, EAST_SEAM), 'wall']),
+    groundHeight: city.getGroundHeight.bind(city),
+    getWaterInfo: city.getWaterInfo.bind(city),
+    isReserved: (x, z, radius = 0) => Math.hypot(x - SHELTER_LOCATION.x, z - SHELTER_LOCATION.z) < 7 + radius ||
+      Math.hypot(x - SHELTER_RESPAWN.x, z - SHELTER_RESPAWN.z) < 5 + radius,
+  };
+  const old = planParkVegetation(previousOptions), trees = planUrbanTrees(previousOptions);
+  const overlaps = ({ x, z, radius }) => onCalle72Landing(x, z, radius + PARK_VEGETATION.windBounds + PARK_VEGETATION.clearance);
+  const excluded = old.clusters.filter(overlaps);
+  assert.deepEqual(excluded.map(({ kind, seed }) => [kind, seed]), [['grass', 2628786118], ['shrub', 1420931679]]);
+  assert.equal(onCalle72Landing(78.9, 102), false);
+  assert.equal(onCalle72Landing(78.9, 102, .2), true, 'incluye la huella de una planta cuya raíz queda fuera');
+
+  city._buildGreenery();
+  assert.deepEqual(city.treePlan.slice(0, trees.length), trees);
+  assert.deepEqual(city.vegetationPlan.clusters, old.clusters.filter(cluster => !overlaps(cluster)));
+  assert.equal(city.vegetationPlan.metrics.sectors, old.metrics.sectors);
+  assert.equal(city.vegetationPlan.metrics.clusters, old.metrics.clusters - 2);
+
+  const originalMesh = buildParkVegetation({ clusters: excluded });
+  const actualMesh = city.group.children.filter(object => object.userData.vegetationSector === '2,3');
+  const ray = new THREE.Raycaster(new THREE.Vector3(), new THREE.Vector3(0, -1, 0));
+  let hitsBefore = 0;
+  for (let z = 101.1; z <= 103; z += .05) for (let x = 79.15; x <= 79.85; x += .05) {
+    ray.ray.origin.set(x, 1, z);
+    if (ray.intersectObjects(originalMesh.children, false).length) hitsBefore++;
+    assert.equal(ray.intersectObjects(actualMesh, false).length, 0);
+  }
+  assert.ok(hitsBefore > 0, 'el sondeo alcanza las hojas que había sobre las losas');
+  originalMesh.userData.dispose();
+  city.dispose(new THREE.Scene());
 });
 
 test('toda la huella, incluido el viento, respeta césped, agua, paseos y reserva del cambuche', () => {

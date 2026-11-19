@@ -238,3 +238,26 @@ test('con el dedo los demás avisos salen como antes, y la cinta de B se suma de
   const conB = piezasParaElDedo(piezasDelPrompt('[E] Cosquilleo · [Q] Robar retrovisor'), piezasDelPrompt('[B] Hacer malabares frente a los carros'));
   assert.deepEqual(conB.map(p => [p.tecla, p.verbo]), [['E', 'Cosquilleo'], ['Q', 'Robar retrovisor'], ['B', 'Malabares']]);
 });
+
+test('junto a un carro parqueado y frente a la cola en rojo salen juntos el aviso de la Y y el del rebusque, y ninguno con la pausa abierta', () => {
+  const prompt = { html: '', visible: false, set innerHTML(v) { this.html = v; }, classList: { toggle(_c, on) { prompt.visible = on; } }, querySelector: () => null };
+  const hud = Object.assign(Object.create(HUD.prototype), { _htmlCache: new WeakMap(), promptEl: prompt });
+  const interaction = { carjackPrompt: '[Y] Forzar la puerta y robarme el carro', rebusquePrompt: '[B] Hacer malabares frente a los carros' };
+  const pintar = (paused) => { window.__game = { paused }; hud._promptTexto = undefined; hud._pintarContexto(interaction, null); };
+  try {
+    ponerModo('teclado');
+    pintar(false);
+    assert.ok(prompt.visible);
+    assert.match(prompt.html, /Forzar la puerta y robarme el carro/);
+    assert.match(prompt.html, /Hacer malabares frente a los carros/);
+    pintar(true);
+    assert.equal(prompt.visible, false, 'con la pausa abierta no se ve ninguno');
+  } finally { delete window.__game; }
+});
+
+test('el bucle del juego avanza el show, le pasa su aviso a la tecla de contexto y mueve las pelotas', async () => {
+  const { readFileSync } = await import('node:fs');
+  const source = readFileSync(new URL('../src/core/game.js', import.meta.url), 'utf8');
+  const loop = source.slice(source.indexOf('_loop = (stamp) =>'));
+  assert.match(loop, /this\.rebusque\?\.update\(dt\);\s*this\.interaction\.rebusquePrompt = this\.rebusque\?\.prompt \?\? null;\s*this\.rebusqueVisual\?\.update\(\);/);
+});

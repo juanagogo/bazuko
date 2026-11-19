@@ -34,7 +34,7 @@ function appendBatch(target, source) {
 }
 
 const newBatches = () => ({
-  paint: new Batch({ colorSize: 3 }), glass: new Batch({ color: false, uv: false, lamp: true }),
+  paint: new Batch({ colorSize: 3 }), glass: new Batch({ color: false, lamp: true }),
   trim: new Batch(), lamp: new Batch({ lamp: true }),
 });
 
@@ -264,9 +264,9 @@ let driverCache = null;
  * Conductor sentado: tronco de una pieza que se angosta en los hombros, brazos hasta el volante, cabeza con mandíbula y pelo atrás.
  * Lo ven de cerca por el parabrisas, sin sombras en calidad baja: el color se oscurece hacia abajo, donde el techo y el tablero le quitan luz.
  */
-export function getDriverGeometry(shirt, skin, hair = '#17110d') {
+export function getDriverGeometry(shirt, skin, hair = '#17110d', vest = null) {
   driverCache ??= new Map();
-  const key = `${shirt}:${skin}`;
+  const key = `${shirt}:${skin}:${hair}:${vest?.color ?? ''}:${vest?.tape ?? ''}:${vest?.passenger ?? false}`;
   let g = driverCache.get(key);
   if (g) return g;
   const b = new Batch();
@@ -276,18 +276,30 @@ export function getDriverGeometry(shirt, skin, hair = '#17110d') {
   // La altura se mide desde la coronilla hacia abajo: el conductor se coloca con y = altura del modelo. X al frente.
   // Secciones del tronco, de la cadera al cuello: [y, centro en x, medio fondo, medio ancho]. Va recostado, con los hombros atrás.
   const trunk = [[-.86, .0, .115, .17], [-.72, -.02, .11, .17], [-.58, -.04, .115, .19], [-.49, -.05, .095, .195], [-.435, -.03, .06, .085]];
-  addGrid(b, 4, trunk.length - 1, (i, j) => {
-    const [y, cx, rx, rz] = trunk[j], a = Math.PI * i / 4;
+  const cols = vest ? 12 : 4;
+  if (vest) trunk.splice(4, 0, [-.459, -.039, .077, .135]);
+  const fabric = vest ? new THREE.Color(vest.color).toArray() : S;
+  const tape = vest ? new THREE.Color(vest.tape).toArray() : S;
+  addGrid(b, cols, trunk.length - 1, (i, j) => {
+    const [y, cx, rx, rz] = trunk[j], a = Math.PI * i / cols;
     return [cx - Math.cos(a) * rx, y, Math.sin(a) * rz];
-  }, { color: (u, v) => tone(S, lerp(.42, .86, v)), out: [0, 0, 1] });
+  }, { color: (u, v) => {
+    const shade = lerp(.42, .86, v);
+    if (!vest || v === 0 || v === 1) return tone(S, shade);
+    const armhole = Math.abs(u - .5) < .13 && v >= .6;
+    const stripe = Math.abs(Math.abs(u - .5) - .25) < .027 && v >= .4;
+    return tone(armhole ? S : stripe ? tape : fabric, shade);
+  }, out: [0, 0, 1] });
   // Hombro, brazo con manga y antebrazo hasta el volante, que queda unos 40 cm al frente y 46 bajo la coronilla en toda la flota.
   const shoulder = new THREE.SphereGeometry(.058, 4, 2);
   addGeo(b, shoulder, { position: [-.05, -.5, .185], color: tone(S, .8), mirror: true });
   tube(b, [-.05, -.5, .19], [.1, -.66, .215], .048, 4, { color: tone(S, .62), mirror: true, open: true });
-  tube(b, [.1, -.66, .215], [.33, -.5, .135], .036, 4, { color: tone(K, .68), mirror: true, open: true });
+  const wrist = vest?.passenger ? [.21, -.763, .12] : [.33, -.5, .135];
+  tube(b, [.1, -.66, .215], wrist, .036, 4, { color: tone(vest ? S : K, .68), mirror: true, open: true });
   const hand = new THREE.SphereGeometry(.04, 4, 2);
   hand.scale(1.25, .85, .85);
-  addGeo(b, hand, { position: [.36, -.48, .125], color: tone(K, .78), mirror: true });
+  const handPoint = vest?.passenger ? [.233, -.772, .106] : [.36, -.48, .125];
+  addGeo(b, hand, { position: handPoint, color: tone(K, .78), mirror: true });
   tube(b, [-.02, -.45, 0], [-.005, -.37, 0], .044, 4, { color: tone(K, .62), open: true });
   // Cabeza: se angosta hacia la mandíbula, con la sombra de las cuencas sobre la mitad de adelante.
   const head = new THREE.SphereGeometry(1, 8, 5), hp = head.attributes.position;
@@ -296,12 +308,16 @@ export function getDriverGeometry(shirt, skin, hair = '#17110d') {
     hp.setXYZ(i, hp.getX(i) * .098 * jaw, y * .116, hp.getZ(i) * .08 * jaw);
   }
   addGeo(b, head, { position: [.005, -.285, 0], color: (x, y) => tone(K, x > .03 && Math.abs(y + .27) < .03 ? .6 : y < -.33 ? .74 : .92) });
-  // Pelo: casquete corrido hacia la nuca, que deja la frente y la cara libres.
-  const cap = new THREE.SphereGeometry(1, 8, 3, 0, Math.PI * 2, 0, Math.PI * .56);
-  // Se gira antes de escalar: así queda sobre el mismo elipsoide de la cabeza, un poco más grande, y esta nunca lo atraviesa.
-  cap.rotateZ(.62); cap.scale(.105, .122, .087);
+  // El civil lleva pelo hacia la nuca. En patrulla se conserva la visera también al ver el carro por la ventana.
+  const cap = new THREE.SphereGeometry(1, vest ? 12 : 8, vest ? 4 : 3, 0, Math.PI * 2, 0, Math.PI * .56);
+  cap.rotateZ(vest ? .11 : .62);
+  cap.scale(.105, .122, .087);
   addGeo(b, cap, { position: [.005, -.28, 0], color: Hr });
-  g = b.toGeometry('Conductor');
+  if (vest) {
+    const visor = new THREE.SphereGeometry(1, 12, 4).scale(.074, .006, .081).rotateZ(-.12);
+    addGeo(b, visor, { position: [.107, -.295, 0], color: Hr });
+  }
+  g = b.toGeometry(vest?.passenger ? 'Acompañante sentado' : 'Conductor');
   driverCache.set(key, g);
   return g;
 }

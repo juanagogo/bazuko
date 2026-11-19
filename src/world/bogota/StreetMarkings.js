@@ -4,6 +4,7 @@ import * as THREE from 'three';
 import { TILE_SIZE } from '../../utils/constants.js';
 import { CITY_CALLES as CALLES, CITY_CARRERAS as CARRERAS } from './CityLayout.js';
 import { CARACAS, SIDEWALK_TILES } from './StreetLayout.js';
+import { pedestrianCrossings, streetIntersections } from './StreetCrossings.js';
 import { VIADUCT } from './ColpatriaViaduct.js';
 import { LAKE_PARK, bridgeHeight, inLakeTerrain, onLakeBridge } from './LakePark.js';
 import { inTerminal } from './TransitTerminal.js';
@@ -26,18 +27,115 @@ const YELLOW = tint('#d8a01c');
 const BUS_YELLOW = tint('#efc42f');
 const INK = [.012, .012, .014];
 
-/** Ruta común de las pruebas y del distrito: cruces con su banda de cebra. */
+/** Cruces semaforizados de la cuadrícula original. */
 export function crossings() {
-  const spans = [...CARRERAS, [CARACAS.lanes[0][0], CARACAS.lanes[1][1]]];
-  const list = [];
-  for (const [za, zb] of CALLES) for (const [xa, xb] of spans) {
-    list.push({ za, zb, xa, xb, x0: W(xa) - T / 2, x1: W(xb) + T / 2, z0: W(za) - T / 2, z1: W(zb) + T / 2, wide: xa === CARACAS.lanes[0][0] });
-  }
-  return list;
+  return streetIntersections().filter(c => c.signal);
 }
 
 // Un barrio puede tener las calles empedradas y sin pintura; si no lo declara se pinta como siempre.
 const paintedByNeighborhood = (x, z) => neighborhoodAt(x, z)?.streets?.paintedLines !== false;
+
+const nearCrossing = (list, x, z, margin) => list.some(c =>
+  x > c.x0 - BAND - margin && x < c.x1 + BAND + margin && z > c.z0 - BAND - margin && z < c.z1 + BAND + margin);
+
+// La reserva sigue el ancho real de cada paso, incluidos los de mitad de cuadra.
+function crossingFootprints(map) {
+  return pedestrianCrossings(map).map(({ x, z, dx, dz, length, width }) => ({
+    x0: x - dz * width / 2, x1: x + dx * length + dz * width / 2,
+    z0: z - dx * width / 2, z1: z + dz * length + dx * width / 2
+  }));
+}
+
+/**
+ * El remiendo de una baldosa de calzada, o null: borde roto, tamaño y giro propios, y la mitad son zanjas
+ * largas a lo largo del carril. Sale del hash de la baldosa, sin Math.random: los charcos encuentran los mismos.
+ */
+export function asphaltPatchAt(map, tx, tz, painted = paintedByNeighborhood, list = crossings(), footways = crossingFootprints(map)) {
+  const x = W(tx), z = W(tz);
+  if (map[tz]?.[tx] !== 'road' || inTerminal(x, z) || inLakeTerrain(x, z) || onLakeBridge(x, z)) return null;
+  const pick = unit(tx, tz, 21);
+  if (pick < .03 || pick >= .068 || !painted(x, z) || nearCrossing(list, x, z, 1)) return null;
+  const cx = x + (unit(tx, tz, 20) - .5) * 1.2, cz = z + (unit(tz, tx, 20) - .5) * 1.2;
+  const onRoad = (px, pz) => ROADS.has(map[Math.round(pz / T)]?.[Math.round(px / T)]) && !nearCrossing(list, px, pz, .2);
+  // Hacia dónde corre el carril: calle o carrera, y si no, el lado con más calzada seguida.
+  const inCalle = CALLES.some(([a, b]) => tz >= a && tz <= b);
+  const inCarrera = CARRERAS.some(([a, b]) => tx >= a && tx <= b) || (tx >= CARACAS.lanes[0][0] && tx <= CARACAS.lanes[1][1]);
+  const run = (dx, dz) => {
+    let n = 0;
+    for (let k = 1; k <= 6; k++) n += ROADS.has(map[tz + dz * k]?.[tx + dx * k]) + ROADS.has(map[tz - dz * k]?.[tx - dx * k]);
+    return n;
+  };
+  const alongX = inCalle !== inCarrera ? inCalle : run(1, 0) === run(0, 1) ? unit(tx, tz, 41) < .5 : run(1, 0) > run(0, 1);
+  const lane = alongX ? 0 : Math.PI / 2;
+  const trench = unit(tx, tz, 42) < .5;
+  let length = trench ? 2.6 + unit(tx, tz, 43) * 3 : 1.1 + unit(tx, tz, 43) * 1.8;
+  let width = trench ? .6 + unit(tz, tx, 43) * .4 : .8 + unit(tz, tx, 43) * Math.min(1.3, length - .5);
+  const turn = unit(tx, tz, 44) * (Math.PI - .48);
+  const angle = trench ? lane + (unit(tx, tz, 44) - .5) * .05 : lane + .12 + turn + (turn > Math.PI / 2 - .24 ? .24 : 0);
+  const rough = .15 + unit(tz, tx, 45) * .15;
+  const phase = [unit(tx, tz, 46), unit(tz, tx, 46), unit(tx, tz, 47)].map(v => v * 6.283);
+  const sides = trench ? 21 : 17, cos = Math.cos(angle), sin = Math.sin(angle);
+  const shape = () => {
+    const outline = [], normals = [];
+    for (let i = 0; i < sides; i++) {
+      const a = (i + (unit(i, tx * 131 + tz, 48) - .5) * .5) / sides * Math.PI * 2, c = Math.cos(a), s = Math.sin(a);
+      // Rectángulo de esquinas romas, roto por un ruido de 15 a 30 cm (la zanja, más recta en sus lados largos).
+      const hl = length / 2, hw = width / 2;
+      const lx = Math.sign(c) * Math.abs(c) ** (1 / 3) * hl, lz = Math.sign(s) * Math.abs(s) ** (1 / 3) * hw;
+      let nx = Math.sign(lx) * Math.abs(lx / hl) ** 5 / hl, nz = Math.sign(lz) * Math.abs(lz / hw) ** 5 / hw;
+      const nl = Math.hypot(nx, nz) || 1; nx /= nl; nz /= nl;
+      const wobble = Math.sin(a * 3 + phase[0]) * .45 + Math.sin(a * 7 + phase[1]) * .3 + Math.sin(a * 13 + phase[2]) * .1 + (unit(i, tz * 131 + tx, 49) - .5) * .3;
+      const off = wobble * rough / 2 * (trench && Math.abs(nz) > .7 ? .5 : 1);
+      const px = lx + nx * off, pz = lz + nz * off;
+      outline.push([cx + px * cos + pz * sin, cz - px * sin + pz * cos]);
+      normals.push([nx * cos + nz * sin, -nx * sin + nz * cos]);
+    }
+    return { outline, normals };
+  };
+  let built = shape();
+  for (let k = 0; k < 4 && !built.outline.every(([px, pz]) => onRoad(px, pz)); k++) {
+    length = Math.max(.9, length * .8); width = Math.max(.5, width * .82);
+    built = shape();
+  }
+  // La mitad exterior del sello puede sobresalir hasta 3 cm de su contorno.
+  const xs = built.outline.map(p => p[0]), zs = built.outline.map(p => p[1]);
+  const left = Math.min(...xs) - .03, right = Math.max(...xs) + .03;
+  const top = Math.min(...zs) - .03, bottom = Math.max(...zs) + .03;
+  if (footways.some(b => b.x0 < right && b.x1 > left && b.z0 < bottom && b.z1 > top)) return null;
+  // Recién echado es más oscuro; el viejo se blanquea con el sol y el polvo. Ninguno se aparta más de un 8 %.
+  const fresh = unit(tx, tz, 50) < .6;
+  const fill = fresh ? [.038, .039, .043, .19 + unit(tz, tx, 50) * .03] : [.15, .15, .142, .08 + unit(tz, tx, 50) * .04];
+  // El sello de la junta se echa a tramos y con ancho desigual; en uno de cada tres remiendos no se echó.
+  const gap = built.outline.map(() => unit(tx, tz, 60) < 1 / 3);
+  if (!gap[0]) {
+    const n = gap.length;
+    let need = Math.min(Math.floor(n * .45), Math.max(Math.ceil(n * .3), Math.round((.3 + unit(tz, tx, 53) * .15) * n)));
+    for (let i = Math.floor(unit(tx, tz, 54) * n), k = 0; need > 0; k++) {
+      let run = Math.min(need, 3 + Math.floor(unit(k, tx * 131 + tz, 55) * 3));
+      if (need - run > 0 && need - run < 3) run = need <= 5 ? need : need - 3;
+      for (let j = 0; j < run; j++) gap[(i + j) % n] = true;
+      need -= run;
+      i += run + 2 + Math.floor(unit(k, tz * 131 + tx, 55) * 3);
+    }
+  }
+  const seam = gap.map((_, i) => .015 + .045 * Math.min(1, Math.max(0, .62 + .3 * Math.sin(i * .8 + phase[1]) + .3 * (unit(i, tx * 131 + tz, 56) - .5))));
+  const seamAlpha = gap.map((open, i) => open ? 0 : .38 - unit(i, tz * 131 + tx, 56) ** 2 * .16);
+  return {
+    x: cx, z: cz, angle, lane, length, width, trench, rough, ...built, fill,
+    seam, seamColor: [.035, .035, .04], seamAlpha,
+    wear: [unit(tx, tz, 52), unit(tz, tx, 52)]
+  };
+}
+
+/** Todos los remiendos de la calzada pintada, en el orden de las baldosas. */
+export function asphaltPatches(map, painted = paintedByNeighborhood) {
+  const list = crossings(), footways = crossingFootprints(map), out = [];
+  for (let tz = 0; tz < map.length; tz++) for (let tx = 0; tx < map[tz].length; tx++) {
+    const patch = asphaltPatchAt(map, tx, tz, painted, list, footways);
+    if (patch) out.push(patch);
+  }
+  return out;
+}
 
 export function buildStreetMarkings(district, painted = paintedByNeighborhood) {
   const map = district.map;
@@ -89,12 +187,10 @@ export function buildStreetMarkings(district, painted = paintedByNeighborhood) {
   };
 
   // Cruces de la cuadrícula: la línea amarilla no atraviesa la intersección ni la cebra.
-  const crossingList = crossings();
-  const nearCrossingX = x => crossingList.some(c => x > c.x0 - BAND - .4 && x < c.x1 + BAND + .4);
-  const nearCrossingZ = z => crossingList.some(c => z > c.z0 - BAND - .4 && z < c.z1 + BAND + .4);
+  const crossingList = streetIntersections(map);
   // Nadie remienda encima de la cebra ni deja un sumidero en la mitad del paso de peatones.
   const inCrossing = (x, z, margin = 1) => crossingList.some(c =>
-    x > c.x0 - BAND - margin && x < c.x1 + BAND + margin && z > c.z0 - BAND - margin && z < c.z1 + BAND + margin);
+    x > c.x0 - c.band - margin && x < c.x1 + c.band + margin && z > c.z0 - c.band - margin && z < c.z1 + c.band + margin);
 
   // Letreros y numeración de la troncal, en el sentido de cada carril exclusivo.
   const busCenter = (W(CARACAS.busway[0]) + W(CARACAS.busway[1])) / 2;
@@ -110,20 +206,17 @@ export function buildStreetMarkings(district, painted = paintedByNeighborhood) {
     }
   }
 
-  // Dos pasos peatonales de la avenida sur, en los puntos de siempre.
-  for (const z of [158, 178]) for (let x = 56; x <= 114; x += .9) stripe(x, z, .5, 1.6, WHITE, 5, tyreWear(x, 56, 3.5));
-
   // Línea central amarilla de calles y carreras.
   for (const [a, b] of CALLES) {
     const zc = (W(a) + W(b)) / 2;
     for (let x = 2; x < W(district.width) - 2; x += 3) {
-      if (!nearCrossingX(x)) stripe(x, zc, 1.6, .13, YELLOW, 6);
+      if (!inCrossing(x, zc)) stripe(x, zc, 1.6, .13, YELLOW, 6);
     }
   }
   for (const [a, b] of CARRERAS) {
     const xc = (W(a) + W(b)) / 2;
     for (let z = 2; z < LAKE_PARK.z0; z += 3) {
-      if (!nearCrossingZ(z)) stripe(xc, z, .13, 1.6, YELLOW, 6);
+      if (!inCrossing(xc, z)) stripe(xc, z, .13, 1.6, YELLOW, 6);
     }
   }
 
@@ -131,25 +224,25 @@ export function buildStreetMarkings(district, painted = paintedByNeighborhood) {
   for (const [a, b] of CARACAS.lanes) {
     const xc = (W(a) + W(b)) / 2;
     if (W(b) - W(a) >= 6) for (let z = 2; z < LAKE_PARK.z0; z += 7) {
-      if (!nearCrossingZ(z)) stripe(xc, z, .12, 3, WHITE, 7);
+      if (!inCrossing(xc, z, 1.5)) stripe(xc, z, .12, 3, WHITE, 7);
     }
   }
 
   // Cebras a los cuatro lados de cada cruce, con su línea de pare y su flecha.
-  const stops = (x0, x1, zStop, headZ) => {
+  const stops = (x0, x1, zStop, headZ, crossing) => {
     const cx = (x0 + x1) / 2;
     if (!onRoad(cx, zStop) || !painted(cx, zStop)) return;
     stripe(cx, zStop, x1 - x0, .42, WHITE, 8, 0, .7, .25);
-    approach(cx, zStop, 0, headZ, x1 - x0);
+    approach(cx, zStop, 0, headZ, x1 - x0, crossing);
   };
-  const stopsX = (z0, z1, xStop, headX) => {
+  const stopsX = (z0, z1, xStop, headX, crossing) => {
     const cz = (z0 + z1) / 2;
     if (!onRoad(xStop, cz) || !painted(xStop, cz)) return;
     stripe(xStop, cz, .42, z1 - z0, WHITE, 8, 0, .7, .25);
-    approach(xStop, cz, headX, 0, z1 - z0);
+    approach(xStop, cz, headX, 0, z1 - z0, crossing);
   };
   // Lo que deja un semáforo: caucho pulido y aceite justo antes de la línea, PARE y flecha.
-  function approach(x, z, dx, dz, laneWidth) {
+  function approach(x, z, dx, dz, laneWidth, crossing) {
     const fx = Math.round(x), fz = Math.round(z);
     glyph(x - dx * 8, z - dz * 8, 2.4, 13, dx, dz, UV.tyre, [INK[0], INK[1], INK[2], .55 + unit(fx, fz, 9) * .3]);
     const oilX = x - dx * (2.2 + unit(fx, fz, 10) * 3), oilZ = z - dz * (2.2 + unit(fz, fx, 10) * 3);
@@ -160,29 +253,75 @@ export function buildStreetMarkings(district, painted = paintedByNeighborhood) {
     }
     const ax = x - dx * 7.2, az = z - dz * 7.2;
     if (!onRoad(ax, az)) return;
+    const { x0, x1, z0, z1, band } = crossing;
+    const hasExit = (hx, hz) => {
+      // Se prueba el carril de salida, al otro lado de la cebra. El centro de la Caracas lleva separador.
+      const px = hx ? (hx > 0 ? x1 : x0) + hx * (band + 1) : (x0 + x1) / 2 - hz * (x1 - x0) / 3;
+      const pz = hz ? (hz > 0 ? z1 : z0) + hz * (band + 1) : (z0 + z1) / 2 + hx * (z1 - z0) / 4;
+      return onRoad(px, pz);
+    };
+    // Los tres dibujos incluyen la flecha recta; en un remate en T queda la línea de pare.
+    if (!hasExit(dx, dz)) return;
     const pick = unit(fx, fz, 13);
-    const uv = pick < .62 ? UV.arrow : pick < .85 ? UV.arrowRight : UV.arrowLeft;
-    glyph(ax, az, pick < .62 ? 1.25 : 1.95, 3.2, dx, dz, uv, inked(WHITE, ax, az, 14, 0, .64, .28));
+    let uv = UV.arrow;
+    if (pick >= .62 && pick < .85 && hasExit(-dz, dx)) uv = UV.arrowRight;
+    if (pick >= .85 && hasExit(dz, -dx)) uv = UV.arrowLeft;
+    glyph(ax, az, uv === UV.arrow ? 1.25 : 1.95, 3.2, dx, dz, uv, inked(WHITE, ax, az, 14, 0, .64, .28));
+  }
+  for (const { x, z, dx, dz, length, width, laneWidth } of pedestrianCrossings(map, crossingList)) {
+    const count = Math.max(1, Math.round(length / .9)), pitch = length / count;
+    for (let i = 0; i < count; i++) {
+      const step = (i + .5) * pitch;
+      stripe(x + dx * step, z + dz * step, dx ? .5 : width, dz ? .5 : width, WHITE, 15, tyreWear(step, 0, laneWidth));
+    }
   }
   for (const c of crossingList) {
-    const { x0, x1, z0, z1 } = c, laneWidth = c.wide ? 3.5 : 6;
-    for (const zEdge of [z0 - BAND / 2, z1 + BAND / 2]) {
-      for (let x = x0 + .4; x < x1; x += .9) stripe(x, zEdge, .5, BAND - .4, WHITE, 15, tyreWear(x, x0, laneWidth));
-    }
-    for (const xEdge of [x0 - BAND / 2, x1 + BAND / 2]) {
-      for (let z = z0 + .4; z < z1; z += .9) stripe(xEdge, z, BAND - .4, .5, WHITE, 15, tyreWear(z, z0, 6));
-    }
+    if (!c.signal) continue;
+    const { x0, x1, z0, z1 } = c;
     // Mano derecha: la mitad −x de la carrera baja hacia +z; la mitad +z de la calle corre hacia +x.
     const zc = (z0 + z1) / 2, xc = (x0 + x1) / 2;
     const lanesA = c.wide ? [W(CARACAS.lanes[0][0]) - T / 2, W(CARACAS.lanes[0][1]) + T / 2] : [x0 + .3, xc - .25];
     const lanesB = c.wide ? [W(CARACAS.lanes[1][0]) - T / 2, W(CARACAS.lanes[1][1]) + T / 2] : [xc + .25, x1 - .3];
-    stops(lanesA[0], lanesA[1], z0 - BAND - .7, 1);
-    stops(lanesB[0], lanesB[1], z1 + BAND + .7, -1);
-    stopsX(zc + .25, z1 - .3, x0 - BAND - .7, 1);
-    stopsX(z0 + .3, zc - .25, x1 + BAND + .7, -1);
+    stops(lanesA[0], lanesA[1], z0 - BAND - .7, 1, c);
+    stops(lanesB[0], lanesB[1], z1 + BAND + .7, -1, c);
+    stopsX(zc + .25, z1 - .3, x0 - BAND - .7, 1, c);
+    stopsX(z0 + .3, zc - .25, x1 + BAND + .7, -1, c);
   }
 
-  // Remiendos del asfalto y mugre de los bordes, tile por tile y siempre igual para las mismas coordenadas.
+  // Un remiendo es un abanico con su propio borde: se lee por el tono del relleno, y el sello oscuro de la junta
+  // se desvanece hacia el asfalto viejo. Los UV siguen el carril, así los rayones de la banda gastada corren como las llantas.
+  const drawPatch = patch => {
+    const { x: cx, z: cz, outline, normals, lane, seam, fill, seamColor, seamAlpha, wear: [wa, wb] } = patch;
+    const along = [Math.cos(lane), -Math.sin(lane)], across = [Math.sin(lane), Math.cos(lane)];
+    const local = ([px, pz]) => [(px - cx) * along[0] + (pz - cz) * along[1], (px - cx) * across[0] + (pz - cz) * across[1]];
+    const spanA = Math.max(...outline.map(p => Math.abs(local(p)[0]))) + .1, spanB = Math.max(...outline.map(p => Math.abs(local(p)[1]))) + .1;
+    const [u0, v0, u1, v1] = wornUv(spanA * 2, spanB * 2, wa, wb);
+    const uvOf = p => { const [a, b] = local(p); return [u0 + (a / spanA + 1) / 2 * (u1 - u0), v0 + (b / spanB + 1) / 2 * (v1 - v0)]; };
+    // Sigue la calzada si baja o sube un poco, pero no se trepa al sardinel. 17 o 21 lados: múltiplos de cuatro vértices.
+    const y = baseY(cx, cz), chunk = batch._chunk(cx, cz);
+    const heightAt = (px, pz) => { const h = baseY(px, pz); return Math.abs(h - y) < .1 ? h : y; };
+    const vertex = (p, color) => {
+      chunk.p.push(p[0], bent(p[0], p[1], heightAt(p[0], p[1])), p[1]); chunk.n.push(0, 1, 0); chunk.u.push(...uvOf(p)); chunk.c.push(...color);
+      return chunk.p.length / 3 - 1;
+    };
+    const tri = (a, b, c) => {
+      const P = chunk.p, cross = (P[c * 3] - P[a * 3]) * (P[b * 3 + 2] - P[a * 3 + 2]) - (P[b * 3] - P[a * 3]) * (P[c * 3 + 2] - P[a * 3 + 2]);
+      chunk.i.push(...(cross >= 0 ? [a, b, c] : [a, c, b]));
+    };
+    const center = vertex([cx, cz], fill), ring = outline.map(p => vertex(p, fill));
+    ring.forEach((v, i) => tri(center, v, ring[(i + 1) % ring.length]));
+    const inner = outline.map(([px, pz], i) => vertex([px - normals[i][0] * seam[i] / 2, pz - normals[i][1] * seam[i] / 2], [...seamColor, seamAlpha[i]]));
+    const outer = outline.map(([px, pz], i) => vertex([px + normals[i][0] * seam[i] / 2, pz + normals[i][1] * seam[i] / 2], [...seamColor, 0]));
+    inner.forEach((v, i) => {
+      const j = (i + 1) % inner.length;
+      tri(v, outer[i], outer[j]); tri(v, outer[j], inner[j]);
+    });
+  };
+
+  // El agua de StreetPuddles y la pintura recorren exactamente los mismos remiendos.
+  for (const patch of asphaltPatches(map, painted)) drawPatch(patch);
+
+  // Mugre de los bordes, tile por tile y siempre igual para las mismas coordenadas.
   const height = map.length, width = map[0].length;
   const rotated = (tx, tz, salt) => unit(tx, tz, salt) < .5 ? 0 : Math.PI / 2;
   for (let tz = 0; tz < height; tz++) for (let tx = 0; tx < width; tx++) {
@@ -195,11 +334,7 @@ export function buildStreetMarkings(district, painted = paintedByNeighborhood) {
       const white = [1, 1, 1, 1];
       if (pick < .018) batch.decal(px, y, pz, 1.24, 1.24, unit(tx, tz, 22) * 6.28, unit(tx, tz, 23) < .7 ? UV.manhole : UV.manhole2, white);
       if (cobbled) continue;
-      if (pick >= .03 && pick < .068 && !inCrossing(x, z)) {
-        const big = unit(tx, tz, 24);
-        batch.decal(px, y, pz, 1.2 + big * 2.1, 1 + unit(tz, tx, 24) * 1.5, rotated(tx, tz, 25) + (unit(tx, tz, 26) - .5) * .08,
-          big < .62 ? UV.patch : UV.patch2, [1, 1, 1, 1]);
-      } else if (pick >= .068 && pick < .125) {
+      if (pick >= .068 && pick < .125) {
         batch.decal(px, y, pz, 2 + unit(tx, tz, 27) * 2.6, .46, unit(tx, tz, 28) * 3.14, unit(tx, tz, 29) < .5 ? UV.crack : UV.crack2, [1, 1, 1, .62]);
       } else if (pick >= .125 && pick < .18) {
         const s = .9 + unit(tx, tz, 30) * 1.1;
