@@ -342,10 +342,9 @@ export class HUD {
         if (this._talentOpen || this._craftOpen || this._dealerOpen) e._panelHandled = true;
         this.talentPanel?.classList.remove('open');
         this.craftPanel?.classList.remove('open');
-        this.dealerPanel?.classList.remove('open');
         this._talentOpen = false;
         this._craftOpen = false;
-        this._dealerOpen = false;
+        if (this._dealerOpen) this.toggleDealerPanel();
       }
     });
 
@@ -579,13 +578,18 @@ export class HUD {
   }
 
   toggleDealerPanel(dealer = null) {
-    window.__game?.cameraRig?.releaseControls?.();
+    const game = window.__game;
+    game?.cameraRig?.releaseControls?.();
     this._dealerOpen = !this._dealerOpen;
     this.dealerPanel?.classList.toggle('open', this._dealerOpen);
-    if (this._dealerOpen) {
-      this.renderDealer(dealer);
-      this.dealerPanel?.querySelector?.('.dealer-buy-btn:not([disabled]), .dealer-close')?.focus({ preventScroll: true });
+    if (!this._dealerOpen) {
+      game?.audio?.cerrarJibaro?.();
+      this._dealerDialogue = '';
+      return;
     }
+    this._dealerDialogue = game?.audio?.saludarJibaro?.(dealer ?? game?.dealer, game?.clock?.isNight, game?.player?.position) ?? '';
+    this.renderDealer(dealer);
+    this.dealerPanel?.querySelector?.('.dealer-buy-btn:not([disabled]), .dealer-close')?.focus({ preventScroll: true });
   }
 
   update(stats, clock, interaction, inventory, diseaseSystem, talentSystem, craftingSystem, dt = 0.1) {
@@ -1275,12 +1279,13 @@ export class HUD {
           `;
         }).join('');
 
-    if (!this._setHTML(this.dealerPanel, `
+    const actualizado = this._setHTML(this.dealerPanel, `
       <header class="dealer-header cabecera">
         <h2>El jíbaro</h2>
         <span class="dealer-money">Plata: ${cop(stats?.dinero)}</span>
         ${cierreHTML('Esc', 'Cerrar', 'dealer-close')}
       </header>
+      <p class="dealer-dialogue" aria-live="polite"></p>
       <div class="dealer-section">Comprar</div>
       <div class="dealer-products">${itemsHtml}</div>
       <div class="dealer-section">Vender</div>
@@ -1289,8 +1294,12 @@ export class HUD {
         De noche paga ${dealerSellMult(priceMult)}× el valor de lo que se le traiga, pero en cada venta
         hay un ${porcentaje(SUBSTANCE_RISK_CHANCE * 100)} de que caiga la policía y se lleve la mercancía.
       </div>
-    `)) return;
+    `);
 
+    const dialogue = this.dealerPanel.querySelector?.('.dealer-dialogue');
+    const texto = this._dealerDialogue ? `«${this._dealerDialogue}»` : '';
+    if (dialogue && dialogue.textContent !== texto) dialogue.textContent = texto;
+    if (!actualizado) return;
     this.dealerPanel.querySelector?.('.dealer-close')?.addEventListener('click', () => this.toggleDealerPanel());
 
     // El mando pulsa con click() (detail 0) y reescribir el panel le borra el foco: sigue en la misma fila o en la última
