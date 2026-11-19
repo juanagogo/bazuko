@@ -8,7 +8,7 @@
 // esperan, cruzan y piden ruta en otros momentos, y eso cambia cuándo frena cada carro.
 import { CrowdGrid } from './crowd.js';
 import { AVOID, approach, avoid, dropNeck, easeSide, runnerThreat, sideStepRoom } from './steering.js';
-import { CROSS, acceptGap, crossingTemper, firstArrival, signalAllows, signalFor } from './crossing.js';
+import { CROSS, acceptGap, crossingTemper, firstArrival, segmentHitsStopped, signalAllows, signalFor, skirtStopped } from './crossing.js';
 import { rollTemperament } from './temperament.js';
 import { StimulusBus } from './stimuli.js';
 import { sightRange } from './perception.js';
@@ -57,6 +57,7 @@ const TOUCH = .45;    // m: corrido de su línea, con algo sólido así de cerca
 const _escape = { x: 0, z: 0, need: 0 };
 const _lane = { x: 0, z: 0 }, _line = { x: 0, z: 0 };
 const _curb = new Int32Array(16), _at = { x: 0, z: 0 };
+const _block = { position: { x: 0, z: 0 } };
 
 /** Corta la frase que tenga en pantalla (la de la conversación): se acaba ya, como al cumplir su tiempo. */
 function hush(npc) {
@@ -122,7 +123,8 @@ export class NpcMind {
     // El paso de cebra que tiene por delante. `state`: 0 nada, 1 espera en el borde, 2 va cruzando.
     this.crossing = {
       state: 0, waited: 0, margin, maxWait, target: null, end: null, routeRef: null, hurry: false,
-      ax: 0, az: 0, ux: 1, uz: 0, length: 0, axis: -1, threat: null
+      ax: 0, az: 0, ux: 1, uz: 0, length: 0, axis: -1, threat: null,
+      skirt: 0, aroundAt: 0, stuckFor: 0 // rodear un carro quieto: lado, cuándo buscar otro camino, y si no puede correrse
     };
     this.thinking = false; // le toca pensar en este cuadro (lo decide StreetMinds.beginFrame)
     this.seenFrame = -1;   // último cuadro en que estaba en la calle (en `district.npcs`): escondido no piensa
@@ -196,6 +198,7 @@ export class NpcMind {
     this._legTarget = null; this._legRoute = null;
     const c = this.crossing;
     c.state = 0; c.waited = 0; c.target = null; c.end = null; c.routeRef = null; c.hurry = false; c.threat = null;
+    c.skirt = 0; c.aroundAt = 0; c.stuckFor = 0; this._skirtFrame = -1;
   }
 
   /** ¿Está parado en el borde del andén esperando para cruzar? */
@@ -252,13 +255,13 @@ export class NpcMind {
     let sx = target.x - (hasPrev ? npc.route[npc.routeIndex - 1].x : this._legX);
     let sz = target.z - (hasPrev ? npc.route[npc.routeIndex - 1].z : this._legZ), len = hypot(sx, sz);
     if (len < 1e-3) { sx = target.x - npc.position.x; sz = target.z - npc.position.z; len = hypot(sx, sz); }
-    if (len < 1e-3) return target;
+    if (len < 1e-3) return this._skirtAim(target);
     this._segX = sx / len; this._segZ = sz / len;
     // Lejos del jugador nadie lo ve: no se esquiva. Quien vuelve a su sitio llega derecho al último punto.
     const last = npc.fijo?.out && npc.routeIndex >= npc.route.length - 1;
     if (npc._playerDist > MIND.far || last || !sys.grid) {
-      this.side = 0; this.pace = 1;
-      return target;
+      this.side = 0; this.pace = 1; this.hardStop = false;
+      return this._skirtAim(target);
     }
     const blockedBefore = this.blockedFor;
     avoid(this, sys.grid, this._segX, this._segZ, npc.walkSpeed, sys.dt);
@@ -270,7 +273,7 @@ export class NpcMind {
       // Aquí no se corre de lado: frenado frente a alguien quieto cuenta como trabado aunque la esquiva viera un lado.
       this.blockedFor = this.hardStop && this.blockerStill ? blockedBefore + sys.dt : 0;
       if (this.blockedFor > AVOID.stuckYield) { this.reroute = true; this._rerouteFrom = this.sideLockAgent; }
-      return target;
+      return this._skirtAim(target);
     }
     // Al jugador que se le atraviesa lo mira al pasar.
     if (this.sideLockAgent?.isPlayer && sys.player && sys.time >= this.aware.gazeUntil) this.aware.lookAt(sys.player.x, sys.player.z, .8);
@@ -317,7 +320,7 @@ export class NpcMind {
     if (this.blockedFor > AVOID.deadEnd && this.blockerStill) {
       this.reroute = true; this._rerouteFrom = this.sideLockAgent; this._rerouteGroup = this.blockerGroup; this._rerouteStuck = true;
     }
-    if (Math.abs(this.side) < 1e-3) return target;
+    if (Math.abs(this.side) < 1e-3) return this._skirtAim(target);
     const aim = this._aim;
     aim.x = target.x - this._segZ * this.side;
     aim.y = target.y;
@@ -330,7 +333,92 @@ export class NpcMind {
         this.pace = approach(this.pace, 0, AVOID.stopBrake, sys.dt);
       }
     }
+    return this._skirtAim(aim);
+  }
+
+  /**
+   * Lado (m a la derecha de la línea del cruce) para no entrar en un carro quieto. Se calcula una vez por cuadro.
+   * NaN: la carrocería tapa el paso y no hay piso por donde rodearla.
+   */
+  _skirtNow() {
+    if (this._skirtFrame === this.system.frame) return this._skirtValue;
+    this._skirtFrame = this.system.frame;
+    const c = this.crossing;
+    if (c.state !== 2) { this._skirtValue = 0; return 0; }
+    const npc = this.npc, sys = this.system;
+    const d = skirtStopped(c, sys.vehicles, sys.buses, npc.position.y, npc.isWalkable, npc, c.skirt || 0);
+    c.skirt = Number.isFinite(d) ? d : 0;
+    this._skirtValue = d;
+    return d;
+  }
+
+  /**
+   * Apunta al objetivo corrido fuera de la carrocería quieta y, si hace falta, se corre de lado antes de seguir.
+   * Si el paso de este cuadro entraría en la caja, no avanza: se corre. Si no puede correrse, lo cuenta para cambiar
+   * de camino.
+   */
+  _skirtAim(point) {
+    const d = this._skirtNow();
+    if (!Number.isFinite(d) || d === 0) return point;
+    const npc = this.npc, c = this.crossing, sys = this.system;
+    const rx = c.uz, rz = -c.ux;
+    const lat = (npc.position.x - c.ax) * rx + (npc.position.z - c.az) * rz;
+    const need = d - lat;
+    const y = point.y;
+    if (Math.abs(need) > 1e-3) {
+      const step = Math.sign(need) * Math.min(Math.abs(need), CROSS.skirtRate * sys.dt);
+      const dx = rx * step, dz = rz * step;
+      let part = 1;
+      if (sys.grid) part = sideStepRoom(sys.grid, npc, dx, dz);
+      const mx = npc.position.x + dx * part, mz = npc.position.z + dz * part;
+      const slide = part > 0 && pathClear(npc, npc.position.x, npc.position.z, dx * part, dz * part) &&
+        !segmentHitsStopped(npc.position.x, npc.position.z, mx, mz, sys.vehicles, sys.buses, npc.position.y);
+      if (slide) { npc.position.x = mx; npc.position.z = mz; }
+    }
+    const along = (point.x - c.ax) * c.ux + (point.z - c.az) * c.uz;
+    let latAim = (point.x - c.ax) * rx + (point.z - c.az) * rz;
+    if (d > 0 && latAim < d) latAim = d;
+    else if (d < 0 && latAim > d) latAim = d;
+    const x = c.ax + c.ux * along + rx * latAim, z = c.az + c.uz * along + rz * latAim;
+    const dist = hypot(x - npc.position.x, z - npc.position.z);
+    const reach = Math.min(dist, npc.walkSpeed * CROSS.hurry * sys.dt + .05);
+    const tx = dist > 1e-4 ? npc.position.x + (x - npc.position.x) / dist * reach : x;
+    const tz = dist > 1e-4 ? npc.position.z + (z - npc.position.z) / dist * reach : z;
+    const hits = dist > 1e-4 && segmentHitsStopped(npc.position.x, npc.position.z, tx, tz, sys.vehicles, sys.buses, npc.position.y);
+    if (hits) {
+      this.hardStop = true; this.pace = 0; this._steerFrame = sys.frame;
+      if (Math.abs(d - ((npc.position.x - c.ax) * rx + (npc.position.z - c.az) * rz)) > .05) c.stuckFor += sys.dt;
+    } else c.stuckFor = 0;
+    const aim = this._aim;
+    aim.x = x; aim.y = y; aim.z = z;
     return aim;
+  }
+
+  /** La carrocería quieta no deja pasar y no hay por dónde: espera un momento y toma otro camino. */
+  _holdForBody() {
+    const c = this.crossing, sys = this.system;
+    if (c.aroundAt <= 0) c.aroundAt = sys.time + 1.2;
+    if (sys.time < c.aroundAt) return;
+    c.aroundAt = sys.time + 1.2;
+    c.stuckFor = 0;
+    this._leaveBlockedCrossing();
+  }
+
+  /** Suelta este cruce y pide una ruta que arranque para otro lado, lejos del medio del paso tapado. */
+  _leaveBlockedCrossing() {
+    const npc = this.npc, c = this.crossing;
+    _block.position.x = c.ax + c.ux * c.length * .5;
+    _block.position.z = c.az + c.uz * c.length * .5;
+    c.state = 0; c.waited = 0; c.hurry = false; c.target = null; c.end = null; c.skirt = 0; c.stuckFor = 0;
+    this._skirtFrame = -1;
+    if (!npc.navigation?.createRoute) return;
+    const route = this._routeAwayFrom(_block);
+    if (!route.length) return;
+    npc.route = route;
+    npc.routeIndex = route.length > 1 && hypot(route[0].x - npc.position.x, route[0].z - npc.position.z) < 1.1 ? 1 : 0;
+    npc.target = route[npc.routeIndex] ?? null;
+    npc.moving = false;
+    this.pace = 0; this._steerFrame = this.system.frame;
   }
 
   /** ¿Le toca pensar en este cuadro? Unas 4,5 veces por segundo de cerca y una de lejos, cada uno en su turno. */
@@ -457,17 +545,24 @@ export class NpcMind {
       c.waited += dt;
       // Lo movieron del borde (un empujón largo, una huida): vuelve a mirar desde donde quedó.
       if (Math.abs(npc.position.x - c.ax) + Math.abs(npc.position.z - c.az) > 1.5) { c.target = null; return false; }
-      if (thinks && this._mayCross()) { c.state = 2; c.waited = 0; return false; }
-      if (c.waited >= c.maxWait + CROSS.grace) { c.state = 2; c.waited = 0; return false; }
-      if (thinks) this._curbRoom();
-      this._faceStreet(dt);
-      return true;
+      if ((thinks && this._mayCross()) || c.waited >= c.maxWait + CROSS.grace) { c.state = 2; c.waited = 0; }
+      else {
+        if (thinks) this._curbRoom();
+        this._faceStreet(dt);
+        return true;
+      }
     }
-    if (c.state === 2 && thinks) {
-      // Lo que le falta por cruzar contra lo que tarda el primero en llegar.
-      const done = (npc.position.x - c.ax) * c.ux + (npc.position.z - c.az) * c.uz;
-      const left = Math.max(0, c.length - done) / Math.max(.5, npc.walkSpeed);
-      c.hurry = firstArrival(c, this.system.vehicles, this.system.buses, npc.position.y) < left + 1;
+    if (c.state === 2) {
+      const skirt = this._skirtNow();
+      // Carrocería quieta sobre la línea: se rodea al andar. Sin lado, o sin poder correrse, otro camino.
+      if (Number.isNaN(skirt) || c.stuckFor > 2) { this._holdForBody(); return true; }
+      c.aroundAt = 0;
+      if (thinks) {
+        // Lo que le falta por cruzar contra lo que tarda el primero en llegar.
+        const done = (npc.position.x - c.ax) * c.ux + (npc.position.z - c.az) * c.uz;
+        const left = Math.max(0, c.length - done) / Math.max(.5, npc.walkSpeed);
+        c.hurry = firstArrival(c, this.system.vehicles, this.system.buses, npc.position.y) < left + 1;
+      }
     }
     return false;
   }
@@ -537,7 +632,8 @@ export class NpcMind {
     if (length < .5) return;
     c.ax = npc.position.x; c.az = npc.position.z; c.ux = dx / length; c.uz = dz / length; c.length = length; c.end = end;
     c.axis = signalFor(this.system.signals, c).axis;
-    c.waited = 0;
+    c.waited = 0; c.skirt = 0; c.stuckFor = 0; c.aroundAt = 0;
+    this._skirtFrame = -1;
     // Mira antes de bajar: con la calle libre ni se detiene.
     c.state = this._mayCross() ? 2 : 1;
   }

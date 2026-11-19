@@ -35,9 +35,9 @@ Frena bajando el ritmo; ni con alguien encima se para en seco (llega a quieto en
 `crossing.js`. Al llegar al borde del andén con un paso de cebra por delante:
 
 - Calcula cuánto tarda en cruzar y cuánto tarda el primer carro o bus en meterse en el paso. Cruza si el carro tarda más que él más un margen: 1,5 s el paciente, 0,5 s el impaciente (la impaciencia sale del arquetipo y la edad).
-- Un carro detenido (en cola, en rojo, frenado por alguien) no cuenta, aunque tenga la trompa sobre la cebra.
+- Un carro detenido (en cola, en rojo, frenado por alguien) no cuenta como uno que viene, aunque tenga la trompa sobre la cebra: no hay que esperar a que arranque. Si la carrocería tapa la línea por donde va a cruzar, la rodea por el lado que sigue siendo piso (deja 35 cm por fuera de la caja) y no entra en ella. Si sigue quieto y no hay lado, al rato cambia de camino.
 - Donde hay semáforo (la cebra a menos de 4 m del cruce) espera su turno: que los carros que le cruzan el paso estén en rojo y que quede rojo suficiente para cruzar.
-- Nadie espera para siempre: pasada su paciencia (12 a 18 s) cruza en cuanto el primer carro tarde más de 0,8 s, y a los 2 s más cruza igual. Nadie pasa de 20 s en el borde; los carros ya frenan por la gente.
+- Nadie espera para siempre: pasada su paciencia (12 a 18 s) cruza en cuanto el primer carro que viene tarde más de 0,8 s, y a los 2 s más cruza igual. Nadie pasa de 20 s en el borde; los carros que vienen ya frenan por la gente. Eso no lo mete dentro de un carro quieto: a ese lo rodea.
 - Si ya va cruzando y se le acerca un carro, apura el paso (×1,5) y lo mira de a vistazos (0,8 s de cada 1,8 s, cada uno con su compás). En el borde lo mira mientras espera. Quien llega detrás de alguien que espera hace fila en vez de rodearlo. Y quien espera guarda su espacio como cualquier quieto: lejos del jugador (más de 40 m) nadie se esquiva y dos pueden llegar al mismo punto del borde; el que llegó después se corre 0,6 m a lo largo del borde (si no hay andén a los lados, un paso atrás), a 0,5 m/s.
 
 ## Capa 3: percepción y reacciones graduadas
@@ -117,4 +117,4 @@ Frena bajando el ritmo; ni con alguien encima se para en seco (llega a quieto en
 - Un curioso con miedo pero fuera de su alcance de miedo (3,5 m) solo mira: no se aleja.
 - No hay línea de visión: una pared no tapa lo que pasa detrás.
 - La huida no tiene en cuenta el sitio de siempre de cada peatón (no tienen casa).
-- Un carro detenido con la trompa sobre la cebra no cuenta como peligro; si arranca, el que va cruzando apura el paso.
+- Un carro detenido no es un carro que se le viene encima. Si la carrocería tapa el paso, lo rodea y no entra; si no hay lado, cambia de camino. Si arranca mientras va cruzando, apura el paso.
