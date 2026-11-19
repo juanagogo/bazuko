@@ -10,6 +10,7 @@ import { CarGuarding } from './CarGuarding.js';
 import { FreshnessSystem } from './Freshness.js';
 import { wearWeapon } from './WeaponWear.js';
 import { resolveTrip, travelMinutes, PASAJE } from './Transit.js';
+import { EFECTOS_RAP, avisoDelRap, esRepetido } from './rap/pago.js';
 import { HOGAR, checkIn, checkOut, hasRoom, isOpen, nightEffects } from './Shelter.js';
 import { isFreeSpot } from '../world/bogota/streetLifePlaces.js';
 
@@ -255,12 +256,19 @@ export class StreetLife {
 
   // ---------- transporte ----------
 
-  /** Hace el viaje elegido en la ventana de la estación. Devuelve el resultado de `resolveTrip`. */
-  travel(from, to, { modo, pedir = false }) {
+  /**
+   * Hace el viaje elegido en la ventana de la estación. Devuelve el resultado de `resolveTrip`.
+   * Con `rapear`, el viaje es el rap del vagón (`game.rapBus`): se llega cuando el jugador se baja.
+   */
+  travel(from, to, { modo, pedir = false, rapear = false }) {
     const g = this.game;
+    if (rapear && !this.canRap()) {
+      if (g.rapBus) toast('Estoy muy cansado para rapear: viajo callado.', 'warn');
+      rapear = false;
+    }
+    const malOlor = g.stats.tieneMalOlor?.() ?? g.stats.higiene < 30;
     const result = resolveTrip({
-      modo, pedir, dinero: g.stats.dinero, buscado: g.steal?.buscado ?? 0,
-      malOlor: g.stats.tieneMalOlor?.() ?? g.stats.higiene < 30,
+      modo, pedir: pedir && !rapear, dinero: g.stats.dinero, buscado: g.steal?.buscado ?? 0, malOlor,
     });
     if (!result.ok) {
       if (result.motivo === 'plata') toast(`No me alcanza para el pasaje (${cop(PASAJE)}).`, 'warn');
@@ -274,15 +282,55 @@ export class StreetLife {
       return result;
     }
     g.stats.dinero -= result.pagado;
-    g.stats.dinero += result.ganado;
     const minutos = travelMinutes(from, to);
     this.guard.cancel();
+    if (rapear) {
+      const antes = this._ultimoRap;
+      g.rapBus.empezar({
+        // Se sube en la estación de salida: del Portal sale en articulado, de la 72 en el Metro.
+        hacia: to, sistema: from.sistema ?? to.sistema, hora: g.clock?.hour ?? 12, malOlor,
+        // Si rapeé hace poco, el vagón se acuerda: dan menos, y no repito las mismas estrofas.
+        repetido: esRepetido(antes?.hora, g.totalGameHours), evitar: antes?.estrofas ?? [],
+        onTermina: (rap) => this._llegarRapeando(from, to, { modo, minutos, rap }),
+      });
+      return { ...result, rapeando: true };
+    }
+    g.stats.dinero += result.ganado;
     g.relocatePlayer?.(this.arrivalSpot(to), { minutes: minutos, fade: true });
     const partes = [`Llegué a ${to.name} en ${minutos} min.`];
     if (pedir) partes.push(result.ganado > 0 ? `Pidiendo en el vagón me dieron ${cop(result.ganado)}.` : 'Pedí en el vagón, pero nadie me dio nada.');
     toast(partes.join(' '), result.ganado > 0 ? 'sell' : 'info');
     window.dispatchEvent(new CustomEvent('transit-trip', { detail: { from: from.id, to: to.id, modo, ganado: result.ganado } }));
     return result;
+  }
+
+  /** Hay escena del vagón: sin página (pruebas, servidor) no se ofrece rapear. */
+  rapAvailable() { return !!this.game.rapBus; }
+
+  /** Se puede rapear si hay escena del vagón y me queda energía para la voz. */
+  canRap() {
+    return this.rapAvailable() && (this.game.stats?.energia ?? 0) >= EFECTOS_RAP.energiaMin;
+  }
+
+  /** Después del rap: lo que me dieron, lo que cuesta la voz y la llegada. Si me bajaron, llego a pie y más tarde. */
+  _llegarRapeando(from, to, { modo, minutos, rap }) {
+    const g = this.game, st = g.stats;
+    const total = rap?.total ?? 0;
+    const nivel = rap?.nivel ?? 'cancelado';
+    // Callarme no cuenta: nadie se acuerda de uno que no dijo nada.
+    if (nivel !== 'cancelado') this._ultimoRap = { hora: g.totalGameHours, estrofas: rap?.estrofas ?? [] };
+    st.dinero += total;
+    if (nivel !== 'cancelado') {
+      st.energia = Math.max(0, st.energia - EFECTOS_RAP.energia);
+      st.sed = Math.max(0, st.sed - EFECTOS_RAP.sed);
+    }
+    st.animo = Math.max(0, Math.min(100, (st.animo ?? 0) + (EFECTOS_RAP.animo[nivel] ?? 0)));
+    if (rap?.pagaron) st.addXP?.(EFECTOS_RAP.xpPorPasajero * rap.pagaron, g.talents);
+    const llegada = minutos + (nivel === 'bajado' ? EFECTOS_RAP.minutosBajado : 0);
+    g.relocatePlayer?.(this.arrivalSpot(to), { minutes: llegada, fade: true });
+    toast(avisoDelRap({ nivel, total, destino: to.name, minutos: llegada }), total > 0 ? 'sell' : 'info');
+    window.dispatchEvent(new CustomEvent('transit-trip', { detail: { from: from.id, to: to.id, modo, ganado: total, rap: nivel } }));
+    window.dispatchEvent(new CustomEvent('transit-rap', { detail: { nivel, flow: rap?.flow ?? 0, ganado: total, pagaron: rap?.pagaron ?? 0 } }));
   }
 
   /** Se llega al lado del torniquete, no encima: el primer sitio libre a metro y medio. */

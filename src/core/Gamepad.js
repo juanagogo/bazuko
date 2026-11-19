@@ -75,6 +75,8 @@ export function getGamepadContext(game = globalThis.window?.__game, doc = global
   for (const [flag, panel, toggle] of [['_craftOpen', 'craftPanel', 'toggleCraftPanel'], ['_talentOpen', 'talentPanel', 'toggleTalentPanel'], ['_dealerOpen', 'dealerPanel', 'toggleDealerPanel']]) {
     if (game.hud?.[flag]) return { kind: panel, root: game.hud[panel], close: () => game.hud[toggle]() };
   }
+  // El rap del vagón va con el juego quieto: A rima o sigue, B se calla o sigue.
+  if (game.rapBus?.activo) return { kind: 'rap', root: game.rapBus.root, action: (accion) => game.rapBus.mando(accion) };
   if (game.paused || game.isSleeping || game._loading || game._running === false) return { kind: 'blocked' };
   return { kind: 'gameplay' };
 }

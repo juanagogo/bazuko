@@ -46,9 +46,13 @@ export function openTransit(game, target) {
   const from = target?.stop;
   if (!street || !from) return;
   let modo = game.stats.dinero >= PASAJE ? 'pagar' : 'colarse';
+  // En el vagón: pedir o rapear, una de las dos o ninguna.
   let pedir = false;
+  let rapear = false;
 
+  let puedeRapear = false;
   const render = () => {
+    puedeRapear = street.canRap?.() ?? false;
     const riesgo = sneakRisk(game.steal?.buscado ?? 0);
     const alcanza = game.stats.dinero >= PASAJE;
     const opcion = (id, titulo, detalle, disabled = false) => el('button', {
@@ -67,7 +71,7 @@ export function openTransit(game, target) {
           disabled: modo === 'pagar' && !alcanza,
           onClick: () => {
             game.menu.close();
-            street.travel(from, s.stop, { modo, pedir });
+            street.travel(from, s.stop, { modo, pedir, rapear: rapear && puedeRapear });
           },
         }));
     });
@@ -79,9 +83,18 @@ export function openTransit(game, target) {
         opcion('colarse', 'Colarme por el torniquete', `Gratis. Me pillan ${pct(riesgo)} de las veces${(game.steal?.buscado ?? 0) > 0 ? ', más porque estoy fichado' : ''}: me sacan y quedo fichado.`)),
       el('button', {
         type: 'button', class: `viaje-pedir${pedir ? ' is-elegida' : ''}`, role: 'switch', 'aria-checked': String(pedir),
-        onclick: () => { pedir = !pedir; game.menu.refresh(); },
+        onclick: () => { pedir = !pedir; if (pedir) rapear = false; game.menu.refresh(); },
       }, el('span', { class: 'viaje-pedir__caja' }, pedir ? icon('check', { size: 18 }) : null),
         el('span', { text: 'Pedir plata en el vagón. Con mal olor nadie da.' })),
+      street.rapAvailable?.() ? el('button', {
+        type: 'button', class: `viaje-pedir viaje-rapear${rapear && puedeRapear ? ' is-elegida' : ''}`, role: 'switch',
+        'aria-checked': String(rapear && puedeRapear), disabled: !puedeRapear,
+        onclick: () => { rapear = !rapear; if (rapear) pedir = false; game.menu.refresh(); },
+      }, el('span', { class: 'viaje-pedir__caja' }, rapear && puedeRapear ? icon('check', { size: 18 }) : null),
+        el('span', {},
+          el('span', { class: puedeRapear ? '' : 'tachado', text: 'Rapear en el vagón.' }),
+          ' ',
+          el('span', { text: puedeRapear ? 'Dan según cómo rime. Cansa y da sed.' : 'Estoy muy cansado para rapear.' }))) : null,
       el('p', { class: 'viaje__titulo', text: '¿Para dónde?' }),
       destinos.length ? el('ul', { class: 'rows' }, destinos) : el('p', { class: 'empty', text: 'No hay otra estación abierta.' }));
     return { body, dato: [moneyFoot(game)] };
