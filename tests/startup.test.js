@@ -74,8 +74,15 @@ test('el inicio espera modelos, shaders y GPU antes de mostrar, medir o simular;
   f.game.weather = new WeatherSystem(f.game.sceneMgr.scene);
   f.game.world.active.reserved = { spawn: { x: 112.98, z: 97.84 } };
   f.game.world.active.getGroundHeight = () => .08;
+  const partida = { population: { seed: 73 } };
+  const lectura = t.mock.fn(() => partida);
+  f.game.save = { load: lectura };
+  const cargarDistrito = t.mock.method(f.game.world, 'loadDistrict');
+  f.game.cart = new Cart(f.game.sceneMgr.scene);
+  const inventory = { maxWeight: 20 };
   // Una partida guardada conserva su hora y su clima; solo una nueva empieza al amanecer.
-  f.game._loadIfSave = () => {
+  f.game._loadIfSave = dato => {
+    assert.equal(dato, partida);
     f.game.player.position.set(40, 0, 26);
     f.game.clock.deserialize({ day: 5, hour: 9 });
     f.game.weather.setWeather('llovizna', false);
@@ -84,6 +91,8 @@ test('el inicio espera modelos, shaders y GPU antes de mostrar, medir o simular;
   const start = f.game.start(f.loading);
   assert.equal(f.game.start(f.loading), start);
   await tick();
+  assert.equal(lectura.mock.callCount(), 1);
+  assert.equal(cargarDistrito.mock.calls[0].arguments[2], partida.population);
   assert.equal(f.game.paused, true);
   assert.equal(f.game._running, false);
   assert.ok(!f.events.includes('shaders'));

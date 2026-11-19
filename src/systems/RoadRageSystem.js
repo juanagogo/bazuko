@@ -7,6 +7,7 @@ import { AngryDriver, ROAD_RAGE } from '../entities/AngryDriver.js';
 import { canReachCombatTarget, hasClearCombatLine } from './CombatGeometry.js';
 
 const toast = (text, type = 'info') => globalThis.window?.dispatchEvent?.(new CustomEvent('toast', { detail: { text, type } }));
+const restoredPosition = record => Array.isArray(record?.position) && record.position.length === 3 && record.position.every(Number.isFinite);
 
 export class RoadRageSystem {
   /**
@@ -137,6 +138,53 @@ export class RoadRageSystem {
 
   /** Personajes para precargar junto con los demás NPC. */
   get preloadables() { return this.driver ? [this.driver] : []; }
+
+  serializeRoster() {
+    this._remember(this.driver);
+    for (const { driver } of this._fallen.values()) this._remember(driver);
+    return Object.fromEntries(this._roster);
+  }
+
+  restoreRoster(data) {
+    this.reset();
+    this._clearFallen();
+    for (const vehicle of this.traffic?.vehicles ?? []) {
+      const id = driverId(vehicle.spawnOrdinal);
+      if (vehicle.car.driverId === `${id}:relevo`) vehicle.car.driverId = id;
+    }
+    this._roster.clear();
+    if (!this._driverOptions) return;
+    if (this.driver?.isDead) { this.driver.dispose(); this.driver = this._createDriver(1); }
+    this.driver.health = this.driver.maxHealth;
+    this.driver.looted = false;
+    for (const [id, record] of Object.entries(data ?? {})) {
+      if (!/^conductor:[1-9]\d*$/.test(id) || !Number.isFinite(record?.health)) continue;
+      const health = Math.min(this.driver.maxHealth, Math.max(0, record.health));
+      const saved = { health, looted: health === 0 || !!record.looted };
+      if (record.emergencyReported === true) saved.emergencyReported = true;
+      if (record.emergencyAided === true) saved.emergencyAided = true;
+      this._roster.set(id, saved);
+      if (health) {
+        if (this.driver.stableId === id) {
+          this.driver.health = health;
+          this.driver.looted = saved.looted;
+        }
+        continue;
+      }
+      const slot = Number(id.slice(id.indexOf(':') + 1));
+      const car = this.traffic?.vehicles?.find(v => v.spawnOrdinal === slot)?.car;
+      // La flota empieza en sus posiciones de circulación al cargar. Allí ya conduce el relevo.
+      if (car) this._replaceDriver(car, id);
+      if (!restoredPosition(record)) continue;
+      const driver = this._createDriver(slot, car);
+      driver.emergencyReported = !!saved.emergencyReported;
+      driver.emergencyAided = !!saved.emergencyAided;
+      driver.position.fromArray(record.position);
+      driver.root.visible = true;
+      driver.restoreDeath({ facing: record.facing, plan: record.plan });
+      this._fallen.set(id, { driver, car: null });
+    }
+  }
 
   dispose() {
     this.reset();

@@ -31,8 +31,9 @@ import { Banca } from '../props/Banca.js';
 import { buildGroundWear, dressGrass, dressPaving } from '../bogota/GroundDressing.js';
 import * as TX from '../bogota/textures.js';
 import * as P from '../bogota/props.js';
-import { Npc } from '../../entities/Npc.js';
+import { Npc, NPC_LOD } from '../../entities/Npc.js';
 import { thinkStreet } from '../../entities/npc/mind.js';
+import { DistrictPopulation } from '../bogota/DistrictPopulation.js';
 import { BuildingVisibility, CLOSED_CHUNK_SIZE, createBuildingShell } from '../bogota/BuildingVisibility.js';
 import { PedestrianNavigation } from '../bogota/PedestrianNavigation.js';
 import { GpsNavigation } from '../../systems/GpsNavigation.js';
@@ -143,7 +144,11 @@ const pick = (arr) => arr[Math.floor(Math.random() * arr.length)];
 const W = (t) => t * T; // tile → metros (centro del tile)
 
 export class Bogota {
-  constructor() {
+  constructor(populationData) {
+    // Semillas de paseo de esta partida, antes de que la geometría y los vehículos gasten azar.
+    this.population = new DistrictPopulation(populationData);
+    this._walkerSeeds = TX.rng(this.population.seed);
+    this._retireResident = this._retireResident.bind(this);
     this.group = new THREE.Group();
     this.lakePark = LAKE_PARK;
     this.gasStation = GAS_STATION;
@@ -1219,13 +1224,20 @@ export class Bogota {
     this._takesRoom(this._add(stall, x, z, rotY));
     if (stall.userData.setNight) this.props.push({ instance: { setNight: stall.userData.setNight } });
     const back = new THREE.Vector3(Math.sin(rotY), 0, Math.cos(rotY)).multiplyScalar(-0.9);
-    const seller = new Npc(this.scene, new THREE.Vector3(x + back.x, this.getGroundHeight(x, z), z + back.z), {
-      facing: rotY, isWalkable: () => false,
-      arquetipo: 'vendedor', fijo: { stance: 'atender', alternas: VENDOR_POSES }
-    });
-    seller.isVendor = true;
-    this.npcs.push(seller);
-    this.vendors.push({ kind: 'shop', stall: kind, title, items, position: new THREE.Vector3(x, 0, z) });
+    const home = new THREE.Vector3(x + back.x, this.getGroundHeight(x, z), z + back.z);
+    const stand = { kind: 'shop', stall: kind, title, items, position: new THREE.Vector3(x, 0, z), attendant: null,
+      interactDistance(position) {
+        return this.attendant && !this.attendant.isDead ? this.position.distanceTo(position) : Infinity;
+      }
+    };
+    const staff = () => {
+      stand.attendant = this._resident(`puesto:${slot}`, home, {
+        facing: rotY, isWalkable: () => false, arquetipo: 'vendedor', delantal: oficio === 'dulces' ? null : oficio,
+        fijo: { stance: 'atender', alternas: VENDOR_POSES }
+      }, staff);
+    };
+    staff();
+    this.vendors.push(stand);
   }
 
   /** El Cartucho: humo, fuego, carretas, cambuches, ropa colgada y basura */
@@ -1465,13 +1477,13 @@ export class Bogota {
     const list = [
       // El Cartucho: dormidos y sentados junto a cambuches y canecas.
       { at: [36.7, 51.6], facing: Math.PI, stance: 'dormido', arquetipo: 'habitante' },
-      { at: [44.9, 50.3], facing: -2.4, stance: 'sentado', arquetipo: 'habitante' },
+      { at: [44.9, 50.3], facing: -2.4, stance: 'sentado', arquetipo: 'habitante', sexo: 'hombre', voiceRole: 'nero_esquina' },
       { at: [33.6, 53.7], facing: 2.2, stance: 'acurrucado', arquetipo: 'habitante' },
       { at: [40.3, 60.2], facing: 1.1, stance: 'sentado', arquetipo: 'habitante' },
       { at: [45.6, 57.6], facing: Math.PI / 2, stance: 'dormido', arquetipo: 'reciclador' },
       // Parque Tercer Milenio: dos vecinos conversando en el prado.
-      { at: [102.6, 94.2], facing: .9, stance: 'hablar', arquetipo: 'senora', alternas: TALK, pareja: 1 },
-      { at: [103.5, 95], facing: .9 + Math.PI, stance: 'hablar', arquetipo: 'abuelo', alternas: TALK, pareja: -1 },
+      { at: [102.6, 94.2], facing: .9, stance: 'hablar', arquetipo: 'senora', alternas: TALK, pareja: 1, sexo: 'mujer', voiceRole: 'vecina_parque' },
+      { at: [103.5, 95], facing: .9 + Math.PI, stance: 'hablar', arquetipo: 'abuelo', alternas: TALK, pareja: -1, sexo: 'hombre', voiceRole: 'vecino_parque' },
       // Entrada del Portal: quien pide contra el muro y dos que esperan en el andén de enfrente.
       { at: [54.6, 2.6], facing: Math.PI / 2, stance: 'pedir', arquetipo: 'habitante' },
       { at: [94.2, 3.2], facing: -.7, stance: 'hablar', arquetipo: 'oficinista', alternas: TALK, pareja: 1 },
@@ -1500,14 +1512,14 @@ export class Bogota {
   /** Peatones que recorren la ciudad y los que se quedan en su sitio; los vendedores conservan su puesto. */
   _spawnPeople() {
     const navigation = this.pedestrianNavigation = this._createPedestrianNavigation();
-    const vendors = this.npcs.length;
     const walk = (x, z) => navigation.isWalkableAt(x, z);
     const water = (x, z) => this.getWaterInfo(x, z);
     // Sin pisar el borde: el bus para si alguien queda a menos de medio metro de su costado.
     const onPlatform = (x, z) => x >= 73.5 && x <= 76.5 && z >= -57 && z <= -3;
-    const walker = (position) => this.npcs.push(new Npc(this.scene, position, {
-      navigation, groundHeight: navigation.groundHeight, isWalkable: walk, collisions: this._collisions, getWaterInfo: water, zona: this._zoneAt(position.x, position.z)
-    }));
+    const routeRandom = () => TX.rng(Math.floor(this._walkerSeeds() * 2 ** 32));
+    const walker = (slot, position) => this._resident(slot, position, {
+      navigation, routeRandom: routeRandom(), groundHeight: navigation.groundHeight, isWalkable: walk, collisions: this._collisions, getWaterInfo: water, zona: this._zoneAt(position.x, position.z)
+    });
     const spots = [
       // El Cartucho y parque.
       [13.5, 20], [13, 23], [16, 23.5], [18, 22.4], [12.5, 21], [19.8, 21.5],
@@ -1516,30 +1528,33 @@ export class Bogota {
       [18, 11], [21, 11], [21, 16], [28, 19], [39, 20], [8, 27],
       [5, 18], [30, 29], [37, 32], [8, 37]
     ];
+    let centerCount = 0;
     for (const [x, z] of spots) {
       const position = navigation.nearestPoint(WX(x), WZ(z));
-      if (position) walker(position);
+      if (position) {
+        centerCount++;
+        walker(`centro:${x},${z}`, position);
+      }
     }
     // Fijos: mismos cuerpos, menos caminantes en los barrios. Huyen por la red como cualquiera: solo el último
     // tramo de vuelta a su sitio puede salirse de ella.
     const fixed = this._fixedPeople();
+    let partner = null;
     for (const person of fixed) {
       const [x, z] = person.at;
       const home = new THREE.Vector3(x, this.getGroundHeight(x, z), z);
-      const npc = new Npc(this.scene, home, {
+      const npc = this._resident(person.slot ?? `fijo:${x},${z}`, home, {
         // La red no sube al andén: quien se asusta allá arriba se queda en él y vuelve en línea recta.
-        navigation: person.anden ? null : navigation, groundHeight: (px, pz) => person.anden ? this.getGroundHeight(px, pz) : navigation.groundHeight(px, pz), isWalkable: person.anden ? onPlatform : walk, collisions: this._collisions, getWaterInfo: water, facing: person.facing,
-        arquetipo: person.arquetipo, fijo: { stance: person.stance, alternas: person.alternas, techo: person.anden, reach: person.anden ? 0 : FIXED_REACH }
+        routeRandom: routeRandom(), navigation: person.anden ? null : navigation, groundHeight: (px, pz) => person.anden ? this.getGroundHeight(px, pz) : navigation.groundHeight(px, pz), isWalkable: person.anden ? onPlatform : walk, collisions: this._collisions, getWaterInfo: water, facing: person.facing,
+        arquetipo: person.arquetipo, sexo: person.sexo, fijo: { stance: person.stance, alternas: person.alternas, techo: person.anden, reach: person.anden ? 0 : FIXED_REACH }
       });
-      this.npcs.push(npc);
-      // Cada pareja son dos entradas seguidas: el que se asusta se lleva al otro.
-      if (person.pareja === -1) {
-        const other = this.npcs.at(-2);
-        npc.fijo.pareja = other;
-        other.fijo.pareja = npc;
-        // Empiezan por turnos: uno habla y el otro escucha.
+      if (npc && person.voiceRole) npc.voiceRole = person.voiceRole;
+      if (person.pareja === -1 && partner && npc && !npc.isDead) {
+        npc.fijo.pareja = partner;
+        partner.fijo.pareja = npc;
         npc.stance = npc._pairTurn(npc.stance);
       }
+      partner = person.pareja === 1 && npc && !npc.isDead ? npc : null;
     }
     // Mantiene la densidad del centro y distribuye peatones por los barrios nuevos.
     const candidates = navigation.nodes.filter(node => !node.crossing && node.x < EAST_SEAM &&
@@ -1548,12 +1563,45 @@ export class Bogota {
     const east = navigation.nodes.filter(node => !node.crossing && node.x >= EAST_SEAM);
     const eastFixed = fixed.filter(person => person.at[0] >= W(EAST_SEAM)).length;
     const eastCount = Math.min(east.length, Math.max(0, EAST_PEDESTRIANS - eastFixed));
-    // Siempre los mismos 80: quien se queda en su sitio no se suma, reemplaza a un caminante.
-    const count = Math.min(candidates.length, Math.max(0, TOTAL_PEDESTRIANS - (this.npcs.length - vendors) - eastCount));
-    const place = node => walker(new THREE.Vector3(W(node.x), this.getGroundHeight(W(node.x),W(node.z)), W(node.z)));
+    // Un domicilio vacío sigue ocupando su cupo: recargar después de una baja no crea otro caminante.
+    const count = Math.min(candidates.length, Math.max(0, TOTAL_PEDESTRIANS - centerCount - fixed.length - eastCount));
+    const place = node => walker(`barrio:${node.x},${node.z}`, new THREE.Vector3(W(node.x), this.getGroundHeight(W(node.x),W(node.z)), W(node.z)));
     for (let i=0;i<count;i++) place(candidates[Math.floor((i+0.5)*candidates.length/count)]);
     for (let i=0;i<eastCount;i++) place(east[Math.floor((i+0.5)*east.length/eastCount)]);
   }
+
+  _resident(slot, position, options, refill) {
+    const npc = this.population.spawn(slot, random => new Npc(this.scene, position, { ...options, personRandom: random }), refill);
+    if (npc && !this.npcs.includes(npc)) {
+      if (refill) npc.isVendor = true;
+      this.npcs.push(npc);
+      if (this.trafficPedestrians && this.trafficPedestrians !== this.npcs) this.trafficPedestrians.push(npc);
+    }
+    return npc;
+  }
+
+  recordNpcDeath(npc) {
+    if (!this.population.recordDeath(npc)) return false;
+    if (npc.fijo?.pareja) {
+      if (npc.fijo.pareja.fijo?.pareja === npc) npc.fijo.pareja.fijo.pareja = null;
+      npc.fijo.pareja = null;
+    }
+    this.minds?.forgetNpc(npc);
+    const walkers = this._marketArrival?.walkers;
+    const index = walkers?.indexOf(npc) ?? -1;
+    if (index >= 0) walkers.splice(index, 1);
+    return true;
+  }
+
+  _retireResident(npc) {
+    for (const list of [this.npcs, this.trafficPedestrians]) {
+      const index = list?.indexOf(npc) ?? -1;
+      if (index >= 0) list.splice(index, 1);
+    }
+    npc.dispose();
+  }
+
+  getPopulationSaveData() { return this.population.serialize(); }
 
   /**
    * Junta en una sola malla todo lo estático que comparte material (postes de balcón, dulces,
@@ -1658,6 +1706,12 @@ export class Bogota {
     // La niebla cambia con la hora y el clima: el límite de lo chico la sigue. Media y alta no lo usan.
     const fog = this.scene?.fog;
     this.farDetailDistance = this.farDetailFog && fog ? fog.near + (fog.far - fog.near) * this.farDetailFog : Infinity;
+    this.population?.sweep(this.t, playerPos, frustum, this.farDetailDistance + NPC_LOD.drawMargin, this._retireResident);
+    const market = this._marketArrival;
+    if (market && playerPos && this.t >= market.checkAt) {
+      market.checkAt = this.t + 1;
+      if (startMarketVisits(this._eastMarket, this.pedestrianNavigation, market, playerPos, this.t)) this._marketArrival = null;
+    }
     // Quién está cerca de quién, lo que oyen y lo que ven los peatones: entities/npc/mind.js.
     thinkStreet(this, dt, playerPos, trafficVehicles);
     // Patrullas en persecución o de regreso: las únicas que no frenan por nadie, y la gente fija las esquiva.
