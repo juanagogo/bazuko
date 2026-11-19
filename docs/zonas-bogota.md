@@ -33,7 +33,7 @@ El tile `wall` sigue sólido en las cuatro orillas, pero ya no se dibuja como mu
 
 El carril del bus queda sin barreras, conos ni franja: el articulado arranca con la cola junto al cierre, y a pie se llega hasta la lámina, que tiene una losa de asfalto al pie. Bajo la rampa del puente del lago y a lo largo de sus estribos sigue el piso de asfalto hasta esa losa. Los costados de la terminal llevan reja y su final de vía lleva cierre de obra; antes se veía la colisión invisible como una pared gris.
 
-Detrás de todo está `CityBackdrop.js`: **de tres a siete llamadas de dibujo** por vista, sin colisiones y excluidas de los sectores. El cerro siempre se dibuja; de los bloques, solo los costados que caben en cuadro.
+Detrás de todo está `CityBackdrop.js`: **de cuatro a ocho llamadas de dibujo** por vista, sin colisiones y excluidas de los sectores. El cerro siempre se dibuja; de los bloques, solo los costados que caben en cuadro.
 
 - **Suelo y cerros.** Una sola malla en anillo, con las calles que siguen detrás de los cierres.
 - **Bloques.** Unos 3.000 ejemplares de una caja de cinco caras, entre edificios, cuartos de azotea y casitas. Pisos, ventanas, alféizares y luces de noche salen del sombreador, según la escala de cada ejemplar, sin texturas.

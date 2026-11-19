@@ -280,11 +280,16 @@ const ANDEN = {
       life.slope(UV.frutas, u + du, base + .56, .03, base + .38, .39, .54);
     }
   },
+  // Matera de barro con lengua de suegra: cuatro hojas en punta, de alto distinto. La mitad está vacía, con la tierra seca.
   matera(life, UV, q, u) {
-    const alto = .22 + q() * .16;
+    const suerte = q(), alto = .22 + suerte * .16, resto = n => suerte * n % 1;
     life.cylinder(UV.matera, u, 0, .2, .13, .17, .32, 6);
-    life.cylinder(UV.planta, u, .3, .2, .15, .2, alto, 6);
-    life.cylinder(UV.planta, u, .3 + alto, .2, .2, .05, .16, 6);
+    life.cylinder(UV.wood, u, .29, .2, .135, 0, .025, 4);
+    if (resto(7) < .5) return;
+    for (let i = 0; i < 4; i++) {
+      const giro = resto(13) * 6.283 + i * 1.571, fuera = .035 + resto(31 + i * 7) * .045;
+      life.cylinder(UV.planta, u + Math.cos(giro) * fuera, .3, .2 + Math.sin(giro) * fuera, .028 + resto(17 + i * 5) * .014, 0, alto + .12 + resto(23 + i * 11) * .2, 3);
+    }
   },
   caneca(life, UV, q, u) { life.cylinder(UV.bin, u, 0, .2, .17, .19, .62, 8); life.cylinder(UV.bin, u, .62, .2, .19, .05, .02, 8); },
   chatarra(life, UV, q, u) {

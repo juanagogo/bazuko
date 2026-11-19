@@ -17,6 +17,8 @@ import { buildStreetLightMap } from './StreetLightMap.js';
 import { CARACAS } from './StreetLayout.js';
 import { CITY_CALLES as CALLES } from './CityLayout.js';
 import { LAKE_PARK, inLakeTerrain, onLakeBridge } from './LakePark.js';
+import { addTreeFeet } from './TreeFeet.js';
+import { onTeusaquilloApron } from './TeusaquilloGarden.js';
 import { onCalle72Landing } from './Calle72Landing.js';
 import { VIADUCT, viaductSurface } from './ColpatriaViaduct.js';
 import { inTerminal } from './TransitTerminal.js';
@@ -617,7 +619,7 @@ function addEdgeTufts(street, map, UV) {
         const along = (unit(tx, tz, salt + 1) - .5) * T * .94, inset = .24 + unit(tx, tz, salt + 2) * unit(tx, tz, salt + 3) * .85;
         const cx = W(tx) + dx * (T / 2 - inset) + dz * along, cz = W(tz) + dz * (T / 2 - inset) + dx * along;
         // Las losetas de las bancas y el andén del Metro cubren el césped anterior.
-        if (onCalle72Landing(cx, cz)) continue;
+        if (onTeusaquilloApron(cx, cz, .21) || onCalle72Landing(cx, cz)) continue;
         const height = .13 + unit(tx, tz, salt + 4) * .17, blades = 4 + Math.floor(unit(tx, tz, salt + 5) * 3);
         for (let b = 0; b < blades; b++) {
           const turn = unit(tx, tz, salt + 6 + b) * Math.PI * 2, c = Math.cos(turn), s = Math.sin(turn);
@@ -698,6 +700,7 @@ export function addStreetDetails(district, collisions = null) {
   addClutter(street, map, UV, obstacles);
   addMobiliarioDenso(street, district, UV, obstacles);
   addEdgeTufts(street, map, UV);
+  addTreeFeet(street, district, UV);
 
   const glowMaterial = lightOnAsphalt(fadeGlowInFog(new THREE.MeshBasicMaterial({ map: glowTexture(), vertexColors: true, transparent: true, opacity: 0, visible: false,
     depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide, forceSinglePass: true, polygonOffset: true, polygonOffsetFactor: 0, polygonOffsetUnits: -4 })),

@@ -4,6 +4,7 @@ import * as THREE from 'three';
 import { TILE_SIZE } from '../../utils/constants.js';
 import { boxBlur, chainSunField, sunFieldUniforms } from './SunField.js';
 import { PAVING_KINDS, pavingBandsOf, pavingMarksOf, releasePavingBands } from './PavingBands.js';
+import { grassWearUniforms, GRASS_FINISH_GLSL } from './GrassFinish.js';
 import { PAVING_STAIN_GLSL } from './PavingFinish.js';
 
 /** Lo que se pisa o se transita: junto a esto el pasto se gasta. Contra una pared casi no. */
@@ -72,25 +73,6 @@ export function buildGroundWear(map, { spots = [], trails = [] } = {}) {
 }
 
 const NOISE_DECLARATION = /* glsl */'uniform sampler2D uSunCloud;\n';
-
-// Tres escalas del mismo ruido: manchas de una docena de metros, matas y grano bajo el pie.
-const GRASS_FRAGMENT = /* glsl */`
-{
-  vec2 groundAt = vSunFieldPos.xz;
-  float groundPatch = texture2D( uSunCloud, groundAt * .021 ).r;
-  float groundClump = texture2D( uSunCloud, groundAt.yx * .025 + .37 ).g;
-  float groundFine = texture2D( uSunCloud, groundAt * .156 + .11 ).g;
-  // Verde hondo donde hay humedad y paja donde da más el sol: nunca un solo tono de tapete.
-  diffuseColor.rgb *= mix( vec3( .66, .84, .6 ), vec3( 1.42, 1.2, .78 ), smoothstep( .28, .72, groundPatch * .55 + groundClump * .45 ) );
-  // El ruido deshilacha el borde: la tierra entra a mordiscos, no en una franja recta.
-  float groundTrod = texture2D( uGroundWear, ( groundAt + ${(TILE_SIZE / 2).toFixed(1)} ) * uGroundWearScale ).r
-    + smoothstep( .76, .9, groundPatch ) * .14 + ( groundClump - .5 ) * .46 + ( groundFine - .5 ) * .3;
-  diffuseColor.rgb = mix( diffuseColor.rgb, diffuseColor.rgb * vec3( 1.26, 1.08, .7 ), smoothstep( .2, .42, groundTrod ) );
-  float groundGrit = texture2D( uSunCloud, groundAt * .61 + .5 ).g;
-  vec3 groundEarth = vec3( .118, .09, .06 ) * ( .5 + 1. * groundGrit ) * ( .78 + .44 * groundFine );
-  diffuseColor.rgb = mix( diffuseColor.rgb, groundEarth, smoothstep( .41, .54, groundTrod ) );
-}
-`;
 
 // Lo que el programa del andén declara: la máscara de franjas, el acabado del material y dos funciones.
 const PAVING_DECLARATIONS = /* glsl */`
@@ -235,10 +217,7 @@ function patchFragment(material, key, declarations, body, uniforms = {}) {
 
 /** Viste el pasto con la máscara. Solo sirve con mapa: el cuerpo lee su color para el grano de la tierra. */
 export function dressGrass(material, wearTexture) {
-  const { width, depth } = wearTexture.userData;
-  patchFragment(material, 'prado-gastado', 'uniform sampler2D uGroundWear;\nuniform vec2 uGroundWearScale;\n', GRASS_FRAGMENT, {
-    uGroundWear: { value: wearTexture }, uGroundWearScale: { value: new THREE.Vector2(1 / width, 1 / depth) },
-  });
+  patchFragment(material, 'prado-gastado', GRASS_FINISH_GLSL, 'diffuseColor.rgb = grassFinish( diffuseColor.rgb, vSunFieldPos.xz );', grassWearUniforms(wearTexture));
 }
 
 /**
