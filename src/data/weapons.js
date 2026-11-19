@@ -2,28 +2,29 @@
 // Armas cuerpo a cuerpo. Tiempos en segundos; `range` en metros; `arc` es el producto punto mínimo
 // entre el frente del jugador y la dirección al peatón (más bajo = arco más ancho).
 // El daño se aplica una sola vez, al terminar `windup` (momento del impacto).
+// `energy` es lo que cuesta cada golpe de esa arma, también los del combo y los que no conectan.
 
 export const WEAPONS = {
   punos: {
     id: 'punos', name: 'Puños', hitVerb: 'Puñetazo',
     damage: 12, range: 1.6, arc: 0.3, windup: 0.12, active: 0.08, recovery: 0.22,
-    combo: 3, knockback: 0.9, hitAll: false
+    combo: 3, knockback: 0.9, hitAll: false, energy: 2
   },
   cuchillo: {
     id: 'cuchillo', name: 'Cuchillo', hitVerb: 'Cuchillada',
     damage: 28, range: 1.7, arc: 0.2, windup: 0.09, active: 0.06, recovery: 0.2,
-    combo: 3, knockback: 0.7, hitAll: true
+    combo: 3, knockback: 0.7, hitAll: true, energy: 2
   },
   botella_picada: {
     id: 'botella_picada', name: 'Botella picada', hitVerb: 'Botellazo',
     damage: 20, range: 1.9, arc: 0.3, windup: 0.16, active: 0.08, recovery: 0.28,
-    combo: 2, knockback: 1.2, hitAll: true
+    combo: 2, knockback: 1.2, hitAll: true, energy: 3
   },
   // Tabla con chatarra: la más lenta, pero la que más pega, más alcanza y más empuja.
   arma: {
     id: 'arma', name: 'Arma casera', hitVerb: 'Garrotazo',
     damage: 34, range: 2.1, arc: 0.25, windup: 0.24, active: 0.1, recovery: 0.36,
-    combo: 2, knockback: 1.6, hitAll: true
+    combo: 2, knockback: 1.6, hitAll: true, energy: 4
   }
 };
 

@@ -37,7 +37,7 @@ test('los tres golpes del combo tienen IDs distintos, consumen energía y cobran
   }
   assert.deepEqual(npc.hits.map(hit => hit.damage), [12, 12, 18]);
   assert.equal(new Set(npc.hits.map(hit => hit.attackId)).size, 3);
-  assert.equal(stats.energia, 76);
+  assert.equal(stats.energia, 94);
   assert.equal(stats.dinero, 300);
   assert.equal(audio.hits, 3);
   assert.equal(fights, 3);
@@ -104,7 +104,7 @@ test('cambiar arma cancela el golpe y la cola sin saltarse la recuperación', ()
   player.equipWeapon('cuchillo');
   assert.equal(player.attack, null); assert.equal(player.action, null);
   assert.equal(player.punch(), false);
-  assert.equal(stats.energia, 84, 'un intento bloqueado no consume más energía');
+  assert.equal(stats.energia, 96, 'un intento bloqueado no consume más energía');
   player.update(.8, null, null, () => 0, [npc]);
   assert.equal(npc.hits.length, 0);
   assert.equal(player.punch(), true);
