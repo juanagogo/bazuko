@@ -35,7 +35,7 @@ Todo lo de esta sección se ve también en calidad baja, la de la primera partid
 
 **Fachadas y azoteas.** La lluvia baja de cada alféizar y deja humedad; las tiendas tienen toldos de lona, contadores de luz con su tubo y letreros pintados a mano. Los edificios altos tienen portal: aluminio y vidrio, reja negra con citófono, madera vieja o lámina pintada, con su placa de nomenclatura. Las casas tienen en la azotea tanques negros, cuarto de escalera, varillas de la obra sin terminar, antena y ropa colgada.
 
-**Noche.** Cada farol deja un pozo de luz cálida en el suelo y un halo suave en la cabeza, sin luces nuevas. El pozo se apaga del todo de día. Nada de esto parpadea.
+**Noche.** En calidad alta, los postes con LED proyectan luz blanca y los de sodio conservan el ámbar. Desde el andén se ve el tono cálido de la panadería y el más frío de la droguería sobre quien pasa frente al local. Una persiana a medio bajar deja escapar menos luz y más cerca del piso. Las lentes, las ventanas y la calle se iluminan gradualmente con la puesta del sol. En mojado, al mover la cámara, el reflejo de cada fuente se desplaza sobre el asfalto y los charcos según la rugosidad del material. En baja y media los faroles conservan su mancha cálida sobre el suelo.
 
 **Marcas.** Ninguna marca real aparte de las que el juego ya tenía: los avisos, los nombres de tienda y las placas son inventados.
 

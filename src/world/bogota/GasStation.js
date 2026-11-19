@@ -35,7 +35,8 @@ export function buildGasStation({ createSign = signTexture } = {}) {
     mesh.position.set(x, y, z); mesh.rotation.y = Math.PI; group.add(mesh); return mesh;
   };
   // Marquesina alta, con franja roja y cielo blanco; no bloquea la circulación bajo ella.
-  box(17.5, .5, 15, 154, 5.05, 100, red);
+  const canopy = box(17.5, .5, 15, 154, 5.05, 100, red);
+  canopy.userData.rainCover = true;
   box(17, .08, 14.5, 154, 4.76, 100, white);
   for (const x of [147, 161]) for (const z of [94, 106]) box(.38, 4.65, .38, x, 2.44, z, white);
   label('TEXACO', 'SERVICIO · COMBUSTIBLES', 8, .42, 154, 5.07, 92.48);

@@ -5,6 +5,7 @@
 Este archivo es una referencia flexible para entender el proyecto, no una camisa de fuerza ni un conjunto de reglas que deban seguirse al pie de la letra. Aplicar criterio según la tarea y adaptar sus recomendaciones cuando exista una solución más adecuada. Las indicaciones explícitas de quien solicita el trabajo tienen prioridad sobre esta guía. Si el código o las necesidades del proyecto cambian, actualizar el contexto en lugar de conservar instrucciones obsoletas.
 
 ## Proyecto y documentación
+En Alta, la prioridad es la calidad visual que se aprecia jugando. Para decidir cambios de luz, materiales o animación, comparar la misma escena desde la cámara del jugador, con la misma hora y clima. Medir también los FPS para documentar el coste. Media y Baja permiten que cada jugador ajuste el detalle a su equipo.
 
 Juego de supervivencia urbana en navegador, ambientado en el centro de Bogotá. Usa JavaScript con módulos ES, Three.js, Vite, Howler y cannon-es. No requiere servidor de aplicación: el guardado reside en el almacenamiento local del navegador.
 

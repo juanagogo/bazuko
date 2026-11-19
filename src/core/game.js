@@ -1504,6 +1504,7 @@ export class Game {
     // Actualiza el rumbo antes de calcular WASD en relación con la cámara.
     this.cameraRig.prepareMovement();
     const previousX = this.player.position.x, previousZ = this.player.position.z;
+    const wasOnFoot = this.player.isGrounded && !this.player.ridingBike && !this.player.inWater;
     this._syncVehicleColliders?.();
     // Robo de carros: mientras maneja, el carro reemplaza el movimiento a pie.
     const driving = this._updateCarjack(dt);
@@ -1597,6 +1598,7 @@ export class Game {
     if (this._handleDeath()) return;
 
     this.weather?.update(dt, this.player.position, this.world.active, this.clock);
+    this.world.active?.streetPuddles?.updateFootfalls(this.player, wasOnFoot && !driving);
     streetWetness.value = this.weather?.wetness ?? 0;
     mojarCarton(streetWetness.value);
     this.audio.setRainLevel?.(this.weather?.isRaining ? this.weather.rainIntensity : 0);

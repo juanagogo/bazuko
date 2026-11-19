@@ -46,9 +46,11 @@ Este proyecto es un fork de [juanagogo/bazuko](https://github.com/juanagogo/bazu
 
 ## Capturas
 
+Desde la orilla sur del Parque del Lago se reconocen los pilares del puente y las fachadas en el reflejo. Al caminar por Comercio de noche, la luz de las vitrinas alcanza la ropa y el andén mojado. Estas dos capturas se tomaron jugando en Chromium a 1920 × 1080 el 18 de noviembre de 2026.
 La [galería de cambios integrados](docs/cambios-integrados.md) reúne **12 capturas actuales, dos por cada uno de los seis temas principales**, de la interfaz, personajes, barrios, vehículos, combate y natación.
+![Vitrina de la licorera y andén de Comercio bajo la lluvia nocturna](docs/images/pc-alta-comercio.webp)
 
-Las imágenes siguientes conservan las vistas nocturnas compartidas durante el desarrollo; la galería anterior muestra la interfaz y los modelos actuales.
+Las imágenes siguientes conservan vistas nocturnas compartidas durante el desarrollo.
 
 ### Parque, palomas y El Chato
 
@@ -250,7 +252,7 @@ Al abrir el juego aparece una pantalla de carga por etapas. Espera el mapa, los 
 
 El panel de rendimiento está oculto por defecto; **F3** o **Ajustes → Rendimiento** lo muestran y la preferencia se guarda. Las mediciones y la resolución adaptativa funcionan igual aunque esté oculto. El panel inferior derecho muestra FPS actuales, mínimo y máximo por fotograma, promedio de la sesión, milisegundos por cuadro y coordenadas del jugador en metros. Incluye p95, p99, 1 % de FPS bajos y tirones superiores a 100 ms de los últimos 600 cuadros activos. El mínimo de sesión puede corresponder a un único tirón antiguo. **Reiniciar medición** inicia una nueva muestra. El promedio se calcula como cuadros / tiempo real; los menús y la pestaña en segundo plano quedan excluidos. El panel se refresca cuatro veces por segundo para evitar escrituras DOM innecesarias.
 
-En media y alta, la iluminación combina dos luces puntuales cercanas con halos decorativos suaves sobre el suelo para faroles y fogones; en baja quedan solo los halos y la calle pintada. Hasta 48 halos cercanos comparten una sola llamada de dibujo y no calculan iluminación ni sombras sobre los materiales. Las llamas y lámparas siguen visibles; las luces decorativas lejanas ya no iluminan paredes y personajes en tiempo real.
+En calidad alta, las vitrinas y los postes iluminan las fachadas, las personas y los vehículos que están a su alcance en cada calle. La luz blanca de los LED, el ámbar del sodio y el tono de cada comercio llegan al andén desde el emisor. La lluvia revela sus reflejos al mover la cámara. Los fogones conservan dos luces puntuales compartidas. En media, las dos luces siguen las fuentes más cercanas al jugador. En baja, los faroles conservan sus manchas de luz sobre el suelo. Hasta 48 halos decorativos cercanos comparten una llamada de dibujo.
 
 Los suelos y las marcas se agrupan por sectores de 32 metros; los edificios y el mobiliario, por sectores de 64; la pintura, los charcos y la luz de los faroles, por 128. En tercera persona, las paredes, techos y adornos que comparten material se dibujan juntos; al cambiar a isométrica se recuperan las piezas independientes para ocultar las que tapan al jugador. Las transformaciones de inmuebles se calculan una vez. Las pasadas de silueta solo recorren al jugador y las luces, y el tráfico descarta peatones lejanos antes de comprobar el frenado.
 
