@@ -728,8 +728,9 @@ export async function createRealisticCharacter(look = {}, { lod = false, animaci
       // Un saludo o descanso horneado es dueño de la pose; no sumar encima el
       // gesto procedural. Las acciones sin clip conservan su capa identificable.
       const overlayAction = previewClip && target === action ? 'clip' : action;
-      inst.actionPose.apply(dt, { speed, running, action: overlayAction, actionProgress, movement, attack, smoke: smokeAllowed ? smoke : null, basuco: pipeAllowed ? pipeT : null, look: glance, point, hipLow: inst.bodyLanguage?.hipWeight ?? 0, step: stepFoot });
+      const stepSupport = inst.actionPose.apply(dt, { speed, running, action: overlayAction, actionProgress, movement, attack, smoke: smokeAllowed ? smoke : null, basuco: pipeAllowed ? pipeT : null, look: glance, point, hipLow: inst.bodyLanguage?.hipWeight ?? 0, step: stepFoot });
       inst.groundContact?.apply(!detached);
+      if (stepSupport) inst.actionPose.fitFeetToSteps(movement.footSupport, movement.footSupportHeight);
       inst.cigarette?.setGlow(emberGlow(smokeAllowed ? smoke?.puff : null));
       if (pipeAllowed) inst.basucoProps?.update(pipeT);
       inst.accessories?.update();

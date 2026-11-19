@@ -6,6 +6,7 @@ export class CollisionSystem {
     this.colliders = []; // { box: THREE.Box3, mesh }
     this.dynamicColliders = [];
     this.cameraCeilings = new Set();
+    this.cameraOccluders = new Set();
     this._vehicles = new Map();
     this._staticGrid = new SpatialGrid();
     this._staticOrder = new Map();
@@ -31,6 +32,7 @@ export class CollisionSystem {
   clear() {
     this.colliders = []; this.dynamicColliders = []; this._vehicles.clear();
     this.cameraCeilings.clear();
+    this.cameraOccluders.clear();
     this.invalidateStaticIndex(); this._staticGrid.clear(); this._staticOrder.clear(); this._fallGrid.clear();
   }
 
@@ -38,6 +40,13 @@ export class CollisionSystem {
   addCameraCeiling(box) {
     this.cameraCeilings.add(box);
     return () => this.cameraCeilings.delete(box);
+  }
+
+  /** Volumen visual que acorta el brazo de cámara sin entrar en el índice de colisiones. */
+  addCameraOccluder(box, approach = .84, minimumArm) {
+    const cover = { box, approach, minimumArm };
+    this.cameraOccluders.add(cover);
+    return () => this.cameraOccluders.delete(cover);
   }
 
   /** Lo que ocupa sitio sin detener a nadie (una banca, un bolardo, una zorra). No cuenta para caminar ni para la cámara. */

@@ -22,7 +22,7 @@ function canvas(w, h) {
     {
       fillStyle: '', strokeStyle: '', lineWidth: 1, globalAlpha: 1,
       fillRect() {}, strokeRect() {}, clearRect() {},
-      beginPath() {}, moveTo() {}, lineTo() {}, stroke() {}, fill() {},
+      beginPath() {}, moveTo() {}, lineTo() {}, bezierCurveTo() {}, stroke() {}, fill() {},
       arc() {}, save() {}, restore() {}, translate() {}, rotate() {},
       scale() {}, fillText() {}, strokeText() {}, measureText: () => ({ width: 0 }),
       createRadialGradient: () => ({ addColorStop() {} }),

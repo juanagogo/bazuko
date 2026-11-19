@@ -89,6 +89,7 @@ Para cambios de lógica, ejecutar las pruebas relacionadas y la compilación cua
 Partir de lo que se espera observar en el juego. Si un fallo puede venir de varios sistemas, usar el mismo caso para distinguir las causas posibles y comprobar el arreglo.
 
 
+Repartir el rediseño 3D por zonas del mapa. Cada zona tiene un responsable de los cambios y un revisor distinto. Cuando el responsable entrega, el revisor compara el antes y el después desde la misma posición de juego. Si encuentra un retroceso, indica el puesto, la calle o el elemento donde se ve y devuelve el cambio al responsable. El revisor vuelve a comprobar ese punto tras la corrección. Si dos zonas comparten una calle, ambos equipos comprueban también el paso entre ellas.
 
 
 ## Integración del original del 21 de octubre de 2026

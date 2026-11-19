@@ -2,6 +2,7 @@ import { planUrbanBuildings, buildUrbanBuilding, URBAN_DESIGNS } from '../bogota
 import { neighborhoodAt } from '../bogota/NeighborhoodIdentity.js';
 import { addBuildingDetails } from '../bogota/BuildingDetails.js';
 import { addStreetDetails } from '../bogota/StreetDetails.js';
+import { streetIntersections, pedestrianCrossings, crossingTiles } from '../bogota/StreetCrossings.js';
 import { buildStreetMarkings } from '../bogota/StreetMarkings.js';
 import { planUrbanTrees } from '../bogota/UrbanPlanting.js';
 import { planParkVegetation, buildParkVegetation } from '../bogota/ParkVegetation.js';
@@ -36,6 +37,7 @@ import { Npc } from '../../entities/Npc.js';
 import { thinkStreet } from '../../entities/npc/mind.js';
 import { BuildingVisibility, CLOSED_CHUNK_SIZE, createBuildingShell } from '../bogota/BuildingVisibility.js';
 import { PedestrianNavigation } from '../bogota/PedestrianNavigation.js';
+import { caracasNavigation } from '../bogota/CaracasNavigation.js';
 import { GpsNavigation } from '../../systems/GpsNavigation.js';
 import { TrafficRoute } from '../bogota/TrafficRoute.js';
 import { BusService } from '../bogota/BusService.js';
@@ -53,12 +55,13 @@ import { PigeonFlock } from '../../entities/PigeonFlock.js';
 import { geometryChunk, mergeByChunk, freezeStaticTransforms, createRenderSectors, instanceStaticModels } from '../bogota/StaticGeometry.js';
 import { withVisualRandom } from '../bogota/VisualRandom.js';
 import { buildCalle72Landing, onCalle72Landing } from '../bogota/Calle72Landing.js';
+import { calle72DestinationBarrier } from '../bogota/Calle72Approach.js';
 import { updateFarStreetLamps } from '../bogota/StreetLampModel.js';
 import { CITY_WIDTH, CITY_HEIGHT, CITY_AREA_MULTIPLIER, CITY_CARRERAS as CARRERAS,
   CITY_CALLES as CALLES, ORIGINAL_CITY_WIDTH, ORIGINAL_CITY_HEIGHT, EXTENSION_PARKS,
-  expandCity } from '../bogota/CityLayout.js';
-import { EAST_SEAM, EAST_CITY_WIDTH, CARRERA_3, CARRERA_4, CALLE_6, CALLE_5, CANDELARIA_END_Z, COMMERCIAL_STREET,
-  CHURCH_FRONT_COLLIDER, FOUNTAIN, MARKET, NARROW_CALLES, PLAZA, TEUSAQUILLO_PARK, TOWERS, TOWERS_LOT, churchStepHeight, eastCrossing, inTowerLot, insideTower, towerColliderBoxes } from '../bogota/EastZones.js';
+  expandCity, inUrbanPark, parkBenchBays } from '../bogota/CityLayout.js';
+import { EAST_SEAM, EAST_CITY_WIDTH, CARRERA_3, CARRERA_4, CARRERA_5, CALLE_6, CALLE_5, CANDELARIA_END_Z, COMMERCIAL_STREET,
+  CHURCH_FRONT_COLLIDER, FOUNTAIN, MARKET, NARROW_CALLES, PLAZA, TEUSAQUILLO_PARK, TOWERS, TOWERS_LOT, churchFootSupport, churchStepHeight, eastCrossing, inTowerLot, insideTower, towerColliderBoxes } from '../bogota/EastZones.js';
 import { cobblestones, flagstones, forgetZoneTextures } from '../bogota/ZoneTextures.js';
 import { Batch, ALL_FACES, FACES, createZoneMaterials } from '../bogota/ZoneGeometry.js';
 import { planEastLots, buildColonialHouse, buildEnglishHouse, buildShopHouse } from '../bogota/EastBuildings.js';
@@ -219,6 +222,7 @@ export class Bogota {
 
   build(scene, collisions) {
     this.scene = scene;
+    this._navigationCollisions = collisions;
     const map = this.map = this._layout();
     this._buildGround(map);
     this._buildMarkings();
@@ -819,10 +823,10 @@ export class Bogota {
     for (const z of [132, 150]) for (const x of [park.x0 + 5, park.x1 - 5]) {
       this._placeBench(W(x), this.getGroundHeight(W(x), W(z)), W(z), x === park.x0 + 5 ? Math.PI / 2 : -Math.PI / 2);
     }
-    this._add(P.streetSign([PLAZA.name, 'Candelaria']), W(PLAZA.x0), W(PLAZA.z1), .4);
-    this._add(P.streetSign([park.name, 'Teusaquillo']), W(park.x0 + 2), W(park.z0 + 2), .4);
-    this._add(P.streetSign([TOWERS_LOT.name, 'Carrera 3']), W(TOWERS_LOT.x0 + 1), W(TOWERS_LOT.z0 + 1), .4);
-    this._add(P.streetSign([MARKET.name, COMMERCIAL_STREET.name]), W(MARKET.x0 - 1), W(MARKET.z1 + 1), .4);
+    this._add(P.placeSign(PLAZA.name, 'plaza'), W(PLAZA.x0 + 1), W(PLAZA.z1), 0);
+    this._add(P.placeSign(park.name, 'park'), W(park.x0 + 2), W(park.z0 + 2), 0);
+    this._add(P.placeSign(TOWERS_LOT.name, 'landmark'), W(TOWERS_LOT.x0 + 1), W(TOWERS_LOT.z0 + 1), Math.PI / 2);
+    this._add(P.placeSign(MARKET.name, 'market'), W(MARKET.x0 - 1), W(MARKET.z1 + 1), 0);
     this._eastMarket = market;
   }
 
@@ -1147,6 +1151,8 @@ export class Bogota {
         (deck <= feetY + 1e-7 || abovePreviousDeck);
       if (entersOnFoot || landsOnDeck) return { height: deck, layer: 'viaduct' };
     }
+    const footSupport = grounded ? churchFootSupport(x, z) : null;
+    if (footSupport) ground.footSupport = footSupport;
     return ground;
   }
 
@@ -1321,17 +1327,18 @@ export class Bogota {
       this._placeBench(WX(x), 0.06, WZ(z), r);
     }
     // cartel del parque
-    const sign = P.streetSign(['Parque', 'Tercer Milenio']);
+    const sign = P.placeSign('Parque Tercer Milenio', 'park');
     this._add(sign, WX(29), WZ(33), -0.6);
   }
 
   _buildExtensions() {
     for (const park of EXTENSION_PARKS) {
-      const pathZ=Math.floor((park.z0+park.z1)/2);
-      for (const x of [park.x0+2,park.x1-2]) {
-        this._placeBench(W(x), this.getGroundHeight(W(x),W(pathZ)), W(pathZ), 0);
+      for (const bench of parkBenchBays(park)) {
+        const x = W(bench.x), z = W(bench.z);
+        this._placeBench(x, this.getGroundHeight(x, z), z, bench.rotation);
       }
-      this._add(P.streetSign([park.name, 'Bogotá']), W(park.x0), W(pathZ));
+      const entranceZ = W(Math.floor((park.z0 + park.z1) / 2));
+      this._add(P.placeSign(park.name, 'park'), W(park.x0), entranceZ + 2, -Math.PI / 2);
     }
     this._vendor(W(CARRERAS[2][0]-1.5), W(55), Math.PI/2, 'chaza', 'Chaza de la Carrera 8', ['agua','pan','cafe','empanada']);
     this._vendor(W(52), W(CALLES[2][0]-1.5), 0, 'fritanga', 'Fritanga del Sur', ['empanada', 'morcilla', 'papaCriolla', 'aguapanela', 'refresco']);
@@ -1409,14 +1416,15 @@ export class Bogota {
   /** Cruces y bloqueos peatonales compartidos por los NPC y el GPS. */
   _pedestrianRules() {
     const carreras = [...CARRERAS, [CARACAS.lanes[0][0], CARACAS.lanes[1][1]]];
+    const marked = crossingTiles(this.map), cols = this.map[0].length;
     return {
       // Prolongación de los andenes en los cruces; no pasean por los carriles ni la estación.
-      isCrossing: (x, z) => x > 133 ? eastCrossing(x, z) : CALLES.some(([a, b]) =>
+      isCrossing: (x, z) => marked[z * cols + x] === 1 || (x > 133 ? eastCrossing(x, z) : CALLES.some(([a, b]) =>
         (z >= a - SIDEWALK_TILES && z < a) || (z > b && z <= b + SIDEWALK_TILES)) ||
         (z === 113 || z === 155 || z === 79 || z === 89) ||
         (viaductHeight(z * T) > 2 && Math.abs(x * T - busPathX(z * T)) < 16) ||
         carreras.some(([a, b]) =>
-          (x >= a - SIDEWALK_TILES && x < a) || (x > b && x <= b + SIDEWALK_TILES)),
+          (x >= a - SIDEWALK_TILES && x < a) || (x > b && x <= b + SIDEWALK_TILES))),
       isBlocked: (x, z) => (x === Math.round(this.reserved.shop.x / T) && z === Math.round(this.reserved.shop.z / T)) ||
         Math.hypot(x * T - FOUNTAIN.x, z * T - FOUNTAIN.z) < FOUNTAIN.radius + 1 ||
         this.edge?.blockedTiles.has(`${x},${z}`) || this._eastMarket?.blockedTiles.includes(`${x},${z}`) ||
@@ -1454,13 +1462,15 @@ export class Bogota {
     return x <= 59 || x >= 91 ? 'sidewalk' : 'road';
   }
 
-  /** GPS a pie: andenes y parques cuestan 1, cruces 1,3 y calzada 8; el tablero elevado queda fuera. */
+  /** GPS a pie: andenes y paseos cuestan 1, césped de parque 1,2, cruces 1,3 y calzada 8; el tablero elevado queda fuera. */
   createGpsNavigation() {
     const rules = this._pedestrianRules();
+    const caracas = this._navigationCollisions?.queryStatic && caracasNavigation(this.map, this._navigationCollisions);
     return new GpsNavigation({
       width: this.map[0].length, zMin: Math.ceil(TERMINAL.z0 / T), zMax: this.map.length - 1, tileSize: T,
+      destinationBarrier: calle72DestinationBarrier(this._navigationCollisions),
       // La isla de la estación solo se pisa por sus rampas: muros, barandas y postes no caben en la grilla.
-      barrier: crossesIslandEdge, aisleX: islandAisleX,
+      barrier: (ax, az, bx, bz) => crossesIslandEdge(ax, az, bx, bz) || !!caracas?.blocked(ax, az, bx, bz), aisleX: islandAisleX,
       cost: (tx, tz) => {
         const type = this.tileTypeAt(tx, tz);
         if (!type || !WALKABLE.has(type)) return Infinity;
@@ -1469,9 +1479,9 @@ export class Bogota {
           if (crowdsIslandPole(tx * T, tz * T)) return Infinity;
           return type !== 'road' ? 1 : tz === -29 || tz === -1 ? 1.3 : 8;
         }
-        if (rules.isBlocked(tx, tz) || this.getGroundHeight(tx * T, tz * T) > 1.2) return Infinity;
-        if (type === 'road' || type === 'busway') return rules.isCrossing(tx, tz) ? 1.3 : 8;
-        return 1;
+        if (rules.isBlocked(tx, tz) || caracas?.blocked(tx * T, tz * T) || this.getGroundHeight(tx * T, tz * T) > 1.2) return Infinity;
+        if (type === 'road' || type === 'busway') return (caracas?.marked(tx, tz) ?? rules.isCrossing(tx, tz)) ? 1.3 : 8;
+        return type === 'grass' && inUrbanPark(tx, tz) ? 1.2 : 1;
       }
     });
   }
@@ -1515,12 +1525,13 @@ export class Bogota {
       { at: [FOUNTAIN.x + 21.5, FOUNTAIN.z - 7], facing: -Math.PI / 2, stance: 'pedir', arquetipo: 'habitante' }
     ];
     // Sentados en bancas: el frente de la banca es (sin r, cos r) y la cadera cae sobre el asiento.
-    const seated = [[104, 98, 'abuelo'], [110, 106, 'senora'], [285, 39, 'abuelo'], [303, 71, 'senora'], [188, 54, 'estudiante']];
+    const [stationBench] = parkBenchBays(EXTENSION_PARKS[0]);
+    const seated = [[104, 98, 'abuelo'], [110, 106, 'senora'], [285, 39, 'abuelo'], [303, 71, 'senora'], [W(stationBench.x), W(stationBench.z), 'estudiante']];
     for (const [x, z, arquetipo] of seated) {
       const bench = this.benchSpots.find(spot => spot.x === x && spot.z === z);
       if (!bench) continue;
       const side = (list.length % 2 ? 1 : -1) * .36;
-      list.push({ at: [bench.x + Math.sin(bench.rot) * BENCH_FRONT + Math.cos(bench.rot) * side, bench.z + Math.cos(bench.rot) * BENCH_FRONT - Math.sin(bench.rot) * side],
+      list.push({ slot: `banca:${x},${z}`, at: [bench.x + Math.sin(bench.rot) * BENCH_FRONT + Math.cos(bench.rot) * side, bench.z + Math.cos(bench.rot) * BENCH_FRONT - Math.sin(bench.rot) * side],
         facing: bench.rot, stance: 'banca', arquetipo });
     }
     return list;

@@ -3,13 +3,13 @@ import { mock, test } from 'node:test';
 import * as THREE from 'three';
 import * as textures from '../src/world/bogota/textures.js';
 import { CITY_WIDTH, CITY_HEIGHT, ORIGINAL_CITY_WIDTH, ORIGINAL_CITY_HEIGHT,
-  CITY_AREA_MULTIPLIER, CITY_CARRERAS, CITY_CALLES, EXTENSION_PARKS, expandCity } from '../src/world/bogota/CityLayout.js';
+  CITY_AREA_MULTIPLIER, CITY_CARRERAS, CITY_CALLES, EXTENSION_PARKS, expandCity, parkBenchBays } from '../src/world/bogota/CityLayout.js';
 import { migrateStreetPosition } from '../src/world/bogota/StreetLayout.js';
 import { CollisionSystem } from '../src/systems/CollisionSystem.js';
 import { FrustumCulling } from '../src/core/FrustumCulling.js';
 
 // La construcción completa usa geometría real; solo Canvas y GLB se sustituyen.
-const textureSet=()=>({map:new THREE.Texture(),bumpMap:new THREE.Texture(),emissiveMap:new THREE.Texture()});
+const textureSet=()=>({map:new THREE.Texture(),bumpMap:new THREE.Texture(),roughnessMap:null,emissiveMap:new THREE.Texture()});
 const replacements={...textures};
 for(const name of ['asphalt','sidewalk','brick','facade','roofTiles','slab','cardboard','trashBag','dirt','concrete']) replacements[name]=textureSet;
 for(const name of ['radialSprite','lightbox','neon']) replacements[name]=()=>new THREE.Texture();
@@ -59,6 +59,15 @@ test('los barrios nuevos son accesibles a pie y los cruces conectan toda la red 
   }
   assert.ok(reached>1500);
   for(const park of EXTENSION_PARKS) assert.equal(city.map[park.z0+2][park.x0+2],'grass');
+  for (const park of EXTENSION_PARKS) {
+    const middle = Math.floor((park.z0 + park.z1) / 2);
+    for (const seat of parkBenchBays(park)) {
+      assert.equal(Math.abs(seat.z - middle), 1);
+      assert.equal(Math.sign(Math.cos(seat.rotation)), Math.sign(middle - seat.z));
+      for (const dx of [-1, 0, 1]) assert.equal(city.map[seat.z][seat.x + dx], 'plaza');
+      assert.equal(city.map[middle][seat.x], 'plaza');
+    }
+  }
   for(const [a,b] of CITY_CARRERAS) assert.equal(b-a+1,6);
   for(const [a,b] of CITY_CALLES) assert.equal(b-a+1,6);
   for(let x=0;x<CITY_WIDTH;x++) {

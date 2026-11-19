@@ -6,6 +6,7 @@
 // Los materiales se comparten entre todas las copias; al cerrar el distrito cada objeto suelta su geometría.
 import * as THREE from 'three';
 import { signMesh } from '../utils/signs.js';
+import { INTERACT_RANGE } from '../utils/constants.js';
 import { MeshKit, canvasTexture, rgb } from '../world/bogota/MeshKit.js';
 import { addCalle72Access } from './Calle72Access.js';
 
@@ -68,6 +69,7 @@ export class PilaPublica extends Prop {
     spout.rotation.x = Math.PI / 2;
     spout.position.set(0, 1.62, -.2);
     this.group.add(spout);
+    this.approach = new THREE.Vector3(0, 0, 1.3).applyQuaternion(this.group.quaternion).add(position);
     this.collider = { size: new THREE.Vector3(1.5, 1, .9), offset: new THREE.Vector3(0, .5, 0) };
   }
 }
@@ -154,4 +156,9 @@ export class TransitStop extends Prop {
     this.group.add(box(.12, .12, .12, color, -1.1, 2.3, 0));
   }
   get title() { return this.stop.name; }
+  get gpsWaypoint() {
+    if (this.stop.id !== 'metro72') return null;
+    return { x: this.position.x, z: this.position.z, arrivalDistance: INTERACT_RANGE };
+  }
+  acceptsGpsArrival(_position, target) { return target === this; }
 }

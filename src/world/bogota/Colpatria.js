@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { vestirVidrio, vestirFachada, vestirNervios, fachadaDeTorre } from './fachadaColpatria.js';
 
 export const COLPATRIA = Object.freeze({ x: 81, z: 168, width: 24, depth: 26, height: 112 });
 export const COLPATRIA_ANNEX = Object.freeze({ x: 98, z: 168, width: 10, depth: 18, height: 22 });
@@ -55,7 +56,7 @@ export function paintColpatria(map) {
 /** Conjunto estilizado: torre ancha, zócalo acristalado y volumen comercial gris. */
 export function buildColpatria({ createSign = null } = {}) {
   const group = new THREE.Group(); group.name = 'Torre Colpatria';
-  const stone = new THREE.MeshStandardMaterial({ color: '#c1beb0', roughness: .87 });
+  const stone = vestirNervios(new THREE.MeshStandardMaterial({ color: '#c1beb0', roughness: .87 }));
   const grey = new THREE.MeshStandardMaterial({ color: '#a9aaa5', roughness: .95 });
   const glass = new THREE.MeshStandardMaterial({ color: '#26353b', roughness: .32, metalness: .28 });
   const frame = new THREE.MeshStandardMaterial({ color: '#505b60', roughness: .65 });
@@ -65,11 +66,14 @@ export function buildColpatria({ createSign = null } = {}) {
     mesh.castShadow = mesh.receiveShadow = true; group.add(mesh); return mesh;
   };
   const { x, z, width: w, depth: d, height } = COLPATRIA;
-  box(w, height - 2, d, x, (height - 2) / 2, z, glass, 'Cuerpo de la torre');
+  // El cuerpo es de franjas verticales de concreto y vidrio: los vanos caen entre los nervios.
+  vestirFachada(box(w, height - 2, d, x, (height - 2) / 2, z, glass, 'Cuerpo de la torre').geometry, w, height - 2, d, { vanosX: 8, vanosZ: 9 });
   box(w - 1.5, 2, d - 1.5, x, height - 1, z, stone, 'Coronación');
+  // Las franjas de luz son grises de día y solo toman color al encenderse.
   const lights = ['#e52a32', '#134bff', '#ffcc32'].map(color => new THREE.MeshStandardMaterial({
-    color, emissive: color, emissiveIntensity: 1.8, roughness: .5
+    color: '#5c5f60', emissive: color, emissiveIntensity: 1.8, roughness: .5
   }));
+  vestirVidrio(glass, lights);
   for (const side of [-1, 1]) {
     for (let i = 0; i <= 8; i++) {
       const fx = x - w / 2 + .4 + i * (w - .8) / 8;
@@ -89,11 +93,26 @@ export function buildColpatria({ createSign = null } = {}) {
       box(.05, .16, d, x + side * (w / 2 + .03), y, z, frame);
     }
   }
-  // Acceso vidriado a escala peatonal y marquesina fina sobre la entrada norte.
-  box(7, .25, 1.1, x, 4.3, z - d / 2 - .3, stone, 'Marquesina de acceso');
-  for (const offset of [-2, 0, 2]) box(.09, 3.8, .08, x + offset, 1.9, z - d / 2 - .08, frame);
+  // Acceso norte: marquesina, vestíbulo de vidrio oscuro entre las costillas y una puerta en cada uno de los dos
+  // vanos del centro. El vestíbulo lee de la fachada una muestra propia: vidrio oscuro y, de noche, luz tibia tenue.
+  box(8, .3, 1.6, x, 4.3, z - d / 2 - .3, stone, 'Marquesina de acceso');
+  const vano = (w - .8) / 8 - .72, puerta = side => box(vano, .12, .1, x + side * (w - .8) / 16, 2.5, z - d / 2 - .14, frame, 'Dintel de puerta');
+  puerta(-1);
+  const vestibulo = box(w - .8, 4.9, .04, x, 2.45, z - d / 2 - .1, glass, 'Vestíbulo de acceso');
+  const muestra = fachadaDeTorre()?.vestibulo;
+  if (muestra) {
+    const { uv, position } = vestibulo.geometry.attributes;
+    for (let i = 0; i < uv.count; i++) uv.setXY(i, muestra.u, position.getY(i) < 0 ? muestra.pie : muestra.cabeza);
+  }
+  puerta(1);
   const a = COLPATRIA_ANNEX;
-  box(a.width, a.height, a.depth, a.x, a.height / 2, a.z, glass, 'Edificio anexo gris');
+  const anexo = box(a.width, a.height, a.depth, a.x, a.height / 2, a.z, glass, 'Edificio anexo gris');
+  vestirFachada(anexo.geometry, a.width, a.height, a.depth);
+  // Del vidrio del anexo solo se ve la planta comercial, bajo los paneles: lee la misma muestra que el vestíbulo.
+  if (muestra) {
+    const { uv, position } = anexo.geometry.attributes;
+    for (let i = 0; i < uv.count; i++) uv.setXY(i, muestra.u, muestra.pie + (position.getY(i) + a.height / 2) / 5 * (muestra.cabeza - muestra.pie));
+  }
   // El bloque ciego superior deja una planta comercial acristalada bajo columnas.
   box(a.width + .1, 17, a.depth + .1, a.x, 13.5, a.z, grey, 'Paneles grises del anexo');
   box(a.width + .25, .4, a.depth + .25, a.x, 22, a.z, stone);
@@ -104,15 +123,22 @@ export function buildColpatria({ createSign = null } = {}) {
   for (const fx of [94, 98, 102]) box(.6, 5, .6, fx, 2.5, 158.85, stone, 'Columna del anexo');
   box(.15, .3, 18.4, 103.18, 3.55, a.z, stone);
   if (createSign) {
+    // Los letreros reciben la luz de la escena; de noche se prenden tenues con las franjas.
     const sign = (title, sub, x, y, z, yaw, width) => {
-      const mesh = new THREE.Mesh(new THREE.PlaneGeometry(width, width / 4), new THREE.MeshBasicMaterial({
-        map: createSign({ title, sub, bg: '#a9aaa5', fg: '#273137', border: false, w: 768, h: 192 })
-      }));
-      mesh.position.set(x, y, z); mesh.rotation.y = yaw; group.add(mesh);
+      const geometry = new THREE.PlaneGeometry(width, width / 4);
+      const map = createSign({ title, sub, bg: '#a9aaa5', fg: '#273137', border: false, w: 768, h: 192 });
+      const material = new THREE.MeshStandardMaterial({ map, emissiveMap: map, emissive: '#ffffff', emissiveIntensity: 0, roughness: .8, metalness: 0 });
+      material.onBeforeRender = () => {
+        material.emissiveIntensity = THREE.MathUtils.clamp((lights[0].emissiveIntensity - .05) / 1.75, 0, 1) * .12;
+      };
+      const mesh = new THREE.Mesh(geometry, material);
+      mesh.position.set(x, y, z); mesh.rotation.y = yaw; mesh.receiveShadow = true; group.add(mesh);
     };
-    sign('TORRE COLPATRIA', 'ACCESO PRINCIPAL', 81, 4.8, 154.91, Math.PI, 8);
-    sign('TORRE COLPATRIA', 'EDIFICIO ANEXO', 103.16, 6.5, 173, Math.PI / 2, 7);
-    sign('LOCALES', 'CAFÉ · SERVICIOS', 103.19, 3.9, 165, Math.PI / 2, 6);
+    // Sobre la marquesina y por delante de costillas, franjas y columnas. Los del anexo van a su cara norte,
+    // la que da a la calle: la del oriente queda pegada a las casas de la manzana.
+    sign('TORRE COLPATRIA', 'ACCESO PRINCIPAL', 81, 5.55, 154.6, Math.PI, 8);
+    sign('TORRE COLPATRIA', 'EDIFICIO ANEXO', 98, 6.5, 158.9, Math.PI, 7);
+    sign('LOCALES', 'CAFÉ · SERVICIOS', 98, 4.3, 158.5, Math.PI, 6);
   }
   group.userData.lightMaterials = lights;
   return group;
