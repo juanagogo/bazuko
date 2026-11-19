@@ -1,213 +1,222 @@
 // src/world/bogota/MetroBogota.js
-// Recreación 3D de la Primera Línea del Metro de Bogotá (PLMB).
-// Viaducto elevado de concreto armado sobre la Av. Caracas, tren verde y blanco oficial,
-// estación intermodal elevada y cerramientos de obra en superficie (polisombra y maletines viales).
+// Viaducto de la Caracas en la ciudad del juego, con un tramo habilitado para rodaje de pruebas.
 
 import * as THREE from 'three';
+import { vestirDeConcreto, vestirCaja, vestirPilaRedonda, vestirBloque, cubiertaDeEstacion, polisombraDeObra } from './concretoViaducto.js';
+import { piezasDeMaletin, geometriaDeMaletin, pinturaDeMaletines, giroDeMaletin } from './maletinesObra.js';
+import { addMetroTrain } from './MetroTrain.js';
+import { metroTrainMaterials } from './MetroTrainTextures.js';
+import { metroBoxes, metroCivilMaterials, metroPortalSpan, metroStationEdges, metroTrackFurniture,
+  metroPierBearings } from './MetroCivilWorks.js';
+import { COLPATRIA } from './Colpatria.js';
+import { SMALL_BUILDING } from './SmallBuilding.js';
 
 export const METRO = Object.freeze({
   x: 75,                // Eje central sobre el separador de la Av. Caracas
-  zStart: 10,           // Extremo norte del viaducto en la ciudad
+  zStart: -74,          // Estribo sobre el límite norte del Portal
   zEnd: 310,            // Extremo sur del viaducto
-  trackHeight: 12.5,    // Cota de vía elevada (metros sobre el suelo)
+  trackHeight: 13.25,   // Cota del tablero (metros sobre el suelo)
   deckWidth: 8.4,       // Ancho del viaducto para doble vía
-  deckThickness: 1.4,   // Espesor de la viga en U
+  deckThickness: .60,   // Deja gálibo sobre el bus y sus climatizadores en el viaducto inferior
   pillarSpacing: 24,    // Distancia entre pilas de concreto
   pillarRadius: 1.1     // Radio de las columnas cilíndricas
 });
 
-export function buildMetroBogota({ pavement } = {}) {
+export const METRO_SPANS = Object.freeze([
+  Object.freeze([METRO.zStart, SMALL_BUILDING.z - SMALL_BUILDING.depth / 2 - 1]),
+  Object.freeze([COLPATRIA.z + COLPATRIA.depth / 2 + 2.5, METRO.zEnd])
+]);
+
+const STATIONS = [
+  { z: 115, name: 'EstacionMetroCalle72', platform: [58, 117], canopy: [64, 116.8], eastAccess: { width: 2.25, depth: 2, shift: 1.25 } },
+  { z: 193, name: 'EstacionMetroCalle26', platform: [188, 220], canopy: [188, 220] }
+];
+const FIRST_PIER = 16;
+
+export function buildMetroBogota({ pavement, waterBottomAt } = {}) {
   const group = new THREE.Group();
   group.name = 'MetroBogota';
   const colliders = [];
 
   // Materiales PBR
-  const concreteMat = new THREE.MeshLambertMaterial({ color: 0x9e9e9a, name: 'ConcretoMetro' });
-  const darkConcreteMat = new THREE.MeshLambertMaterial({ color: 0x5c5d5a, name: 'ConcretoDovelas' });
+  // El mismo concreto gastado del viaducto del bus; las dovelas, un tono más oscuras.
+  const concreteMat = vestirDeConcreto(new THREE.MeshLambertMaterial({ color: 0x9e9e9a, name: 'ConcretoMetro' }));
+  const darkConcreteMat = vestirDeConcreto(new THREE.MeshLambertMaterial({ color: 0x5c5d5a, name: 'ConcretoDovelas' }), '#9d9c96');
   const railMat = new THREE.MeshStandardMaterial({ color: 0xcccccc, metalness: 0.85, roughness: 0.25, name: 'RielAcero' });
   const ballastMat = new THREE.MeshLambertMaterial({ color: 0x3a3b3a, name: 'Balasto' });
-  const trainGreenMat = new THREE.MeshStandardMaterial({ color: 0x1e7e48, roughness: 0.35, metalness: 0.2, name: 'VerdeMetroBogota' });
-  const trainWhiteMat = new THREE.MeshStandardMaterial({ color: 0xf2f2f0, roughness: 0.25, metalness: 0.1, name: 'BlancoMetroBogota' });
-  const trainGlassMat = new THREE.MeshStandardMaterial({ color: 0x11161a, roughness: 0.1, metalness: 0.9, name: 'VidrioMetro' });
-  const lightGlowMat = new THREE.MeshBasicMaterial({ color: 0xfff6c2, name: 'FarosLedMetro' });
-  const polisombraMat = new THREE.MeshLambertMaterial({ color: 0x145a32, side: THREE.DoubleSide, name: 'PolisombraVerde' });
-  const maletinOrangeMat = new THREE.MeshLambertMaterial({ color: 0xe65100, name: 'MaletinNaranja' });
-  const maletinWhiteMat = new THREE.MeshLambertMaterial({ color: 0xf5f5f5, name: 'MaletinBlanco' });
+  const trainMaterials = metroTrainMaterials();
+  const steel = metroCivilMaterials();
+  const polisombraMat = new THREE.MeshLambertMaterial({ color: 0x1d5a3a, side: THREE.DoubleSide, name: 'PolisombraVerde' });
+  // Tela tejida que cuelga entre parales, con barro y rotos; los maletines, quemados por el sol.
+  const tela = polisombraDeObra();
+  if (tela) { polisombraMat.map = tela; polisombraMat.color.set('#ffffff'); polisombraMat.alphaTest = .5; }
+  const maletinOrangeMat = new THREE.MeshLambertMaterial({ color: 0xa85424, name: 'MaletinNaranja' });
+  const maletinWhiteMat = new THREE.MeshLambertMaterial({ color: 0xbdb9ac, name: 'MaletinBlanco' });
+  const pinturaMaletin = pinturaDeMaletines();
+  if (pinturaMaletin) {
+    maletinOrangeMat.map = pinturaMaletin.naranja; maletinOrangeMat.color.set('#ffffff');
+    maletinWhiteMat.map = pinturaMaletin.blanco; maletinWhiteMat.color.set('#ffffff');
+  }
 
   // 1. VIADUCTO ELEVADO Y PILAS DE CONCRETO
-  const length = METRO.zEnd - METRO.zStart;
   const centerZ = (METRO.zStart + METRO.zEnd) / 2;
+  const longitudinal = (segments, w, h) => segments.map(([a, b]) => [w, h, b - a, 0, 0, (a + b) / 2 - centerZ]);
 
-  // Tablero principal (viga cajón / dovelas)
-  const deckGeo = new THREE.BoxGeometry(METRO.deckWidth, METRO.deckThickness, length);
+  // El vano entre las dos obras deja libres el Edificio Cinco Pisos y la Torre Colpatria.
+  const deckGeo = metroBoxes(longitudinal(METRO_SPANS, METRO.deckWidth, METRO.deckThickness), { concrete: true, slab: true });
   const deck = new THREE.Mesh(deckGeo, darkConcreteMat);
+  deck.name = 'Tablero del Metro';
+  deck.userData.rainCover = true;
   deck.position.set(METRO.x, METRO.trackHeight - METRO.deckThickness / 2, centerZ);
   group.add(deck);
 
   // Barandas de protección lateral del viaducto
   const parapetHeight = 1.2;
   const parapetThickness = 0.35;
-  const parapetGeo = new THREE.BoxGeometry(parapetThickness, parapetHeight, length);
+  const [north, south] = METRO_SPANS;
+  const parapets = [[FIRST_PIER, STATIONS[0].platform[0]], [STATIONS[0].platform[1], north[1]],
+    [south[0], STATIONS[1].platform[0]], [STATIONS[1].platform[1], south[1]]];
+  const lowCurb = .34;
+  const lowered = [parapetThickness, lowCurb, FIRST_PIER - north[0], 0,
+    (lowCurb - parapetHeight) / 2, (FIRST_PIER + north[0]) / 2 - centerZ];
+  const parapetGeo = metroBoxes([...longitudinal(parapets, parapetThickness, parapetHeight), lowered], { concrete: true });
   const leftParapet = new THREE.Mesh(parapetGeo, concreteMat);
+  leftParapet.name = 'Pretil occidental del Metro';
   leftParapet.position.set(METRO.x - METRO.deckWidth / 2 + parapetThickness / 2, METRO.trackHeight + parapetHeight / 2, centerZ);
   group.add(leftParapet);
 
   const rightParapet = new THREE.Mesh(parapetGeo, concreteMat);
+  rightParapet.name = 'Pretil oriental del Metro';
   rightParapet.position.set(METRO.x + METRO.deckWidth / 2 - parapetThickness / 2, METRO.trackHeight + parapetHeight / 2, centerZ);
   group.add(rightParapet);
 
   // Lecho de vías (balasto) y rieles dobles
-  const ballastGeo = new THREE.BoxGeometry(METRO.deckWidth - 1.2, 0.15, length);
+  const ballastGeo = metroBoxes(longitudinal(METRO_SPANS, METRO.deckWidth - 1.2, .15));
   const ballast = new THREE.Mesh(ballastGeo, ballastMat);
+  ballast.name = 'Lecho de vías del Metro';
   ballast.position.set(METRO.x, METRO.trackHeight + 0.08, centerZ);
   group.add(ballast);
 
   // 4 Rieles de acero (vía norte y vía sur)
   const railPositionsX = [-2.6, -1.2, 1.2, 2.6];
   for (const rX of railPositionsX) {
-    const railGeo = new THREE.BoxGeometry(0.1, 0.18, length);
+    const railGeo = metroBoxes(longitudinal(METRO_SPANS, .10, .18));
     const rail = new THREE.Mesh(railGeo, railMat);
+    rail.name = 'Riel del Metro';
     rail.position.set(METRO.x + rX, METRO.trackHeight + 0.22, centerZ);
     group.add(rail);
   }
 
   // Columnas / Pilas monumentales en el separador
-  const pillarHeight = METRO.trackHeight - METRO.deckThickness;
+  const pillarHeight = METRO.trackHeight - METRO.deckThickness - .15;
   const pillarGeo = new THREE.CylinderGeometry(METRO.pillarRadius, METRO.pillarRadius * 1.15, pillarHeight, 16);
-  const capGeo = new THREE.BoxGeometry(METRO.deckWidth * 0.95, 1.2, 3.2);
+  const capHeight = .43, capGeo = new THREE.BoxGeometry(METRO.deckWidth * .95, capHeight, 3.2);
+  vestirPilaRedonda(pillarGeo, 16);
+  vestirCaja(capGeo, METRO.deckWidth * 0.95, 3.2);
+  const piers = [];
 
-  for (let z = METRO.zStart + 6; z <= METRO.zEnd - 6; z += METRO.pillarSpacing) {
+  for (let site = FIRST_PIER; site <= METRO.zEnd - 6; site += METRO.pillarSpacing) {
+    // Dos fustes sostienen los andenes en Z112. La pila que antes caía dentro de Colpatria sostiene el oriental.
+    const sharedPier = site === 112 || site === 160;
+    const z = sharedPier ? 112 : site;
+    const side = site === 112 ? -1 : 1;
+    const interrupted = z > north[1] && z < south[0];
+    const height = interrupted ? 3 : pillarHeight;
     // Columna cilíndrica
     const pillar = new THREE.Mesh(pillarGeo, concreteMat);
-    pillar.position.set(METRO.x, pillarHeight / 2, z);
+    const waterBottom = waterBottomAt?.(METRO.x, z);
+    const base = Number.isFinite(waterBottom) ? Math.min(0, waterBottom - .15) : 0;
+    pillar.name = interrupted ? 'Pila de la obra interrumpida' : 'Pila del Metro';
+    pillar.scale.set(sharedPier ? .55 : 1, (height - base) / pillarHeight, sharedPier ? .85 : 1);
+    pillar.position.set(METRO.x + (sharedPier ? side * .51 : 0), (height + base) / 2, z);
     group.add(pillar);
 
     // Capitel de apoyo en martillo
     const cap = new THREE.Mesh(capGeo, darkConcreteMat);
-    cap.position.set(METRO.x, pillarHeight + 0.6, z);
+    cap.name = 'Capitel del Metro';
+    cap.position.set(METRO.x + (sharedPier ? side * 1.99 : 0), height + capHeight / 2, z);
+    if (sharedPier) cap.scale.x = .5;
+    if (interrupted) cap.scale.set(.33, 1, .76);
     group.add(cap);
 
     // Colisión sólida del pilar en el suelo
+    if (site === 160) continue;
+    if (!interrupted) piers.push(z);
     colliders.push({
       box: new THREE.Box3(
         new THREE.Vector3(METRO.x - METRO.pillarRadius, 0, z - METRO.pillarRadius),
-        new THREE.Vector3(METRO.x + METRO.pillarRadius, METRO.trackHeight, z + METRO.pillarRadius)
+        new THREE.Vector3(METRO.x + METRO.pillarRadius, interrupted ? height + capHeight : height, z + METRO.pillarRadius)
       ),
       mesh: pillar
     });
   }
 
-  // 2. EL TREN DEL METRO DE BOGOTÁ (OFICIAL PLMB - VERDE Y BLANCO)
-  const trainZ = 95; // Posicionado sobre la vía oriental junto a la estación y cerca al spawn
-  const carLength = 18;
-  const carWidth = 3.1;
-  const carHeight = 3.4;
-  const trainY = METRO.trackHeight + 0.3 + carHeight / 2;
-  const numCars = 3;
-
-  for (let i = 0; i < numCars; i++) {
-    const cZ = trainZ - i * (carLength + 0.6);
-    const carGroup = new THREE.Group();
-
-    // Cuerpo principal blanco
-    const bodyGeo = new THREE.BoxGeometry(carWidth, carHeight, carLength);
-    const body = new THREE.Mesh(bodyGeo, trainWhiteMat);
-    carGroup.add(body);
-
-    // Franja verde inferior y techo verde esmeralda
-    const stripeGeo = new THREE.BoxGeometry(carWidth + 0.04, 0.85, carLength + 0.02);
-    const stripe = new THREE.Mesh(stripeGeo, trainGreenMat);
-    stripe.position.y = -carHeight * 0.28;
-    carGroup.add(stripe);
-
-    const roofGeo = new THREE.BoxGeometry(carWidth - 0.2, 0.4, carLength);
-    const roof = new THREE.Mesh(roofGeo, trainGreenMat);
-    roof.position.y = carHeight / 2 + 0.15;
-    carGroup.add(roof);
-
-    // Ventanas panorámicas laterales oscuras
-    const winGeo = new THREE.BoxGeometry(carWidth + 0.08, 1.1, carLength * 0.85);
-    const windows = new THREE.Mesh(winGeo, trainGlassMat);
-    windows.position.y = 0.2;
-    carGroup.add(windows);
-
-    // Fuelle de acople de goma negra si no es el último vagón
-    if (i < numCars - 1) {
-      const fuelleGeo = new THREE.BoxGeometry(carWidth * 0.9, carHeight * 0.9, 0.6);
-      const fuelle = new THREE.Mesh(fuelleGeo, ballastMat);
-      fuelle.position.set(0, 0, -carLength / 2 - 0.3);
-      carGroup.add(fuelle);
-    }
-
-    // Cabina frontal aerodinámica y faros LED en el primer vagón
-    if (i === 0) {
-      const cabinGeo = new THREE.ConeGeometry(carWidth * 0.75, 1.8, 4);
-      const cabin = new THREE.Mesh(cabinGeo, trainGreenMat);
-      cabin.rotation.x = Math.PI / 2;
-      cabin.rotation.y = Math.PI / 4;
-      cabin.position.set(0, -0.1, carLength / 2 + 0.7);
-      carGroup.add(cabin);
-
-      // Faros LED frontales
-      const headlightGeo = new THREE.SphereGeometry(0.22, 10, 8);
-      const leftHeadlight = new THREE.Mesh(headlightGeo, lightGlowMat);
-      leftHeadlight.position.set(-0.85, -0.6, carLength / 2 + 1.2);
-      carGroup.add(leftHeadlight);
-
-      const rightHeadlight = new THREE.Mesh(headlightGeo, lightGlowMat);
-      rightHeadlight.position.set(0.85, -0.6, carLength / 2 + 1.2);
-      carGroup.add(rightHeadlight);
-    }
-
-    carGroup.position.set(METRO.x + 1.9, trainY, cZ);
-    group.add(carGroup);
-  }
+  // 2. TREN DE PRUEBAS DE LA LÍNEA 1
+  group.userData.train = addMetroTrain(group, trainMaterials, ballastMat, METRO);
 
   // 3. ESTACIONES ELEVADAS INTERMODALES DEL METRO DE BOGOTÁ (LÍNEA 1)
   // - Estación Calle 72 (Terminal norte de la Línea 1, Caracas con Calle 72)
   // - Estación Central / Calle 26 (Intercambio multimodal con TransMilenio y Centro Internacional)
-  const buildStation = (stationZ, stationName) => {
+  const buildStation = station => {
     const stationWidth = 14;
-    const stationLength = 32;
+    const inner = 3.61, outer = 7.35, floor = METRO.trackHeight + .77, spring = METRO.trackHeight + 4.8;
+    const [from, to] = station.platform, [roofFrom, roofTo] = station.canopy;
     const stationGroup = new THREE.Group();
-    stationGroup.name = stationName;
+    stationGroup.name = station.name;
 
-    // Plataforma de abordaje elevada
-    const platGeo = new THREE.BoxGeometry(stationWidth, 0.4, stationLength);
+    // Los andenes quedan a los costados. El hueco del centro deja paso al perfil del convoy.
+    const platGeo = metroBoxes([-1, 1].map(side => [outer - inner, .87, to - from,
+      side * (inner + outer) / 2, floor - .435, (from + to) / 2 - station.z]), { concrete: true, slab: true });
     const plat = new THREE.Mesh(platGeo, concreteMat);
-    plat.position.set(0, METRO.trackHeight + 0.3, 0);
+    plat.name = 'Andenes laterales del Metro';
+    plat.userData.rainCover = true;
     stationGroup.add(plat);
 
-    // Cubierta abovedada translúcida verde y acero
-    const roofCurveGeo = new THREE.CylinderGeometry(stationWidth * 0.6, stationWidth * 0.6, stationLength, 16, 1, false, 0, Math.PI);
-    const stationRoof = new THREE.Mesh(roofCurveGeo, new THREE.MeshStandardMaterial({
-      color: 0x2e7d32, roughness: 0.2, metalness: 0.5, transparent: true, opacity: 0.85, side: THREE.DoubleSide
-    }));
+    // Cubierta abovedada de vidrio y acero
+    const roofCurveGeo = new THREE.CylinderGeometry(stationWidth * 0.6, stationWidth * 0.6, roofTo - roofFrom, 16, 1, false, 0, Math.PI);
+    // Cubierta de vidrio sucio sobre arcos y correas de acero, con cumbrera y canales de zinc.
+    const roofMat = new THREE.MeshStandardMaterial({
+      color: 0x7f8c8d, roughness: 0.38, metalness: 0.3, transparent: true, opacity: 0.6, side: THREE.DoubleSide
+    });
+    const roofMap = cubiertaDeEstacion();
+    if (roofMap) { roofMat.map = roofMap; roofMat.color.set('#ffffff'); roofMat.opacity = 1; }
+    const stationRoof = new THREE.Mesh(roofCurveGeo, roofMat);
+    stationRoof.name = 'Cubierta de la estación';
     stationRoof.rotation.z = Math.PI / 2;
     stationRoof.rotation.y = Math.PI / 2;
-    stationRoof.position.set(0, METRO.trackHeight + 4.8, 0);
+    stationRoof.position.set(0, spring, (roofFrom + roofTo) / 2 - station.z);
     stationGroup.add(stationRoof);
 
     // Pasarelas y escaleras de acceso peatonal desde la calle
-    const stairsGeo = new THREE.BoxGeometry(3.5, METRO.trackHeight, 4.5);
+    const stairsGeo = new THREE.BoxGeometry(3.5, floor, 4.5);
+    vestirBloque(stairsGeo);
     const stairsWest = new THREE.Mesh(stairsGeo, concreteMat);
-    stairsWest.position.set(-stationWidth / 2 - 1.8, METRO.trackHeight / 2, 0);
+    stairsWest.name = 'Acceso occidental del Metro';
+    stairsWest.position.set(-stationWidth / 2 - 1.8, floor / 2, 0);
     stationGroup.add(stairsWest);
 
     const stairsEast = new THREE.Mesh(stairsGeo, concreteMat);
-    stairsEast.position.set(stationWidth / 2 + 1.8, METRO.trackHeight / 2, 0);
+    stairsEast.name = 'Acceso oriental del Metro';
+    const { width, depth, shift } = station.eastAccess ?? { width: 3.5, depth: 4.5, shift: 0 };
+    stairsEast.scale.set(width / 3.5, 1, depth / 4.5);
+    // La curva del bus pasa por el costado oriental. El acceso se retrasa hasta que queda libre el borde de su tablero.
+    stairsEast.position.set(stationWidth / 2 + .05 + width / 2, floor / 2, shift);
     stationGroup.add(stairsEast);
 
-    stationGroup.position.set(METRO.x, 0, stationZ);
+    metroStationEdges(stationGroup, station, inner, outer, floor, spring, steel);
+    stationGroup.position.set(METRO.x, 0, station.z);
     return stationGroup;
   };
 
-  group.add(buildStation(115, 'EstacionMetroCalle72'));
-  group.add(buildStation(193, 'EstacionMetroCalle26'));
+  for (const station of STATIONS) group.add(buildStation(station));
+  metroPortalSpan(group, METRO, FIRST_PIER, concreteMat, steel);
+  metroPierBearings(group, METRO.x, piers, steel);
+  metroTrackFurniture(group, METRO, METRO_SPANS, steel);
 
   // 4. CERRAMIENTOS DE OBRA REAL DE BOGOTÁ EN SUPERFICIE
   // Polisombra verde y maletines naranjas de desvío a lo largo de la Av. Caracas
   const workZoneZ = [65, 95, 125, 160, 200];
+  const piezasMaletin = piezasDeMaletin();
   for (const wZ of workZoneZ) {
     // Tela polisombra verde
     const poliGeo = new THREE.PlaneGeometry(16, 2.2);
@@ -225,9 +234,10 @@ export function buildMetroBogota({ pavement } = {}) {
     for (let mz = -7; mz <= 7; mz += 2.4) {
       const isOrange = Math.abs(Math.round(mz)) % 2 === 0;
       const maletinMat = isOrange ? maletinOrangeMat : maletinWhiteMat;
-      const malGeo = new THREE.BoxGeometry(0.5, 0.75, 1.2);
+      const malGeo = geometriaDeMaletin(piezasMaletin);
       const maletin = new THREE.Mesh(malGeo, maletinMat);
       maletin.position.set(METRO.x - 3.4, 0.38, wZ + mz);
+      maletin.rotation.y = giroDeMaletin(maletin.position.x, maletin.position.z);
       group.add(maletin);
     }
   }

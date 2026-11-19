@@ -50,6 +50,7 @@ import { LAKE_BRIDGE, LAKE_PARK, onLakeBridge, bridgeHeight, buildLakeWater, bui
 import { createLakeWaterMaterial } from '../bogota/LakeWaterMaterial.js';
 import { PigeonFlock } from '../../entities/PigeonFlock.js';
 import { geometryChunk, mergeByChunk, freezeStaticTransforms, createRenderSectors, instanceStaticModels } from '../bogota/StaticGeometry.js';
+import { buildCalle72Landing, onCalle72Landing } from '../bogota/Calle72Landing.js';
 import { updateFarStreetLamps } from '../bogota/StreetLampModel.js';
 import { CITY_WIDTH, CITY_HEIGHT, CITY_AREA_MULTIPLIER, CITY_CARRERAS as CARRERAS,
   CITY_CALLES as CALLES, ORIGINAL_CITY_WIDTH, ORIGINAL_CITY_HEIGHT, EXTENSION_PARKS,
@@ -237,6 +238,7 @@ export class Bogota {
     this.stationGroup = buildTransitTerminal({ createSign: signTexture, asphalt: this.groundMaterials.road });
     this.group.add(this.stationGroup);
     for (const entry of this.stationGroup.userData.colliders) collisions?.colliders.push(entry);
+    this._releaseStationCameraCeiling = collisions?.addCameraCeiling?.(this.stationGroup.userData.cameraCeiling);
     // Los límites de la terminal son solo colisión: fusionados con lo demás se verían como una pared gris.
     for (const mesh of [...this.stationGroup.children]) if (!mesh.visible) this.stationGroup.remove(mesh);
     this._buildStreetProps(map);
@@ -253,8 +255,8 @@ export class Bogota {
     this.towerLights = tower.userData.lightMaterials;
     this.group.add(tower);
 
-    // Metro de Bogotá (Línea 1 PLMB - Viaducto elevado sobre la Caracas y tren oficial)
-    const metro = buildMetroBogota({ pavement: this.groundMaterials.road });
+    // Viaducto y tren de pruebas de la Caracas.
+    const metro = buildMetroBogota({ pavement: this.groundMaterials.road, waterBottomAt: (x, z) => this.getWaterInfo(x, z)?.bottomY });
     this.group.add(metro);
     if (metro.userData.colliders) {
       for (const entry of metro.userData.colliders) collisions?.colliders.push(entry);
@@ -271,6 +273,9 @@ export class Bogota {
     }));
 
     this._mergeStatic();
+    const metroTrain = metro.userData.train;
+    this.group.add(metroTrain);
+    this.animated.push(metroTrain);
     this.group.add(this.buildingVisibility.buildClosedView());
     // Las torres se ven desde todo el barrio: su material lo permite, y aquí tampoco las corta Three.
     this.group.traverse(mesh => { if (mesh.material?.userData?.pastFar) mesh.frustumCulled = false; });
@@ -583,6 +588,9 @@ export class Bogota {
     for (const [t, list] of Object.entries(quads)) {
       this.group.add(mergeByChunk(list, mats[t], { receiveShadow: true }));
     }
+    const calle72 = withVisualRandom(() => buildCalle72Landing(mats.floor));
+    mats.sidewalk_calle72 = calle72.material;
+    this.group.add(calle72);
   }
 
   /** Lluvia que está cayendo (0 sin lluvia, ~.3 llovizna, ~.7 aguacero, 1 tormenta): la que ven los peatones. */
@@ -1056,6 +1064,7 @@ export class Bogota {
 
   getGroundTypeAt(x, z) {
     if (!this.map) return 'sidewalk';
+    if (onCalle72Landing(x, z)) return 'sidewalk';
     const row = Math.round(z / T);
     const col = Math.round(x / T);
     return this.map[row]?.[col] ?? 'sidewalk';
@@ -1687,6 +1696,7 @@ export class Bogota {
   dispose(scene) {
     if (this._disposed) return;
     this._disposed = true;
+    this._releaseStationCameraCeiling?.();
     const textures = new Set(), ownedTextures = new Set();
     const rememberTexture = value => {
       if (value?.isTexture) textures.add(value);
