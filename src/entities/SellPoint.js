@@ -3,36 +3,41 @@
 // lonas de botellas, chatarra, una carreta parqueada y el aviso pintado a mano.
 import * as THREE from 'three';
 import { COLORS } from '../utils/constants.js';
+import { withVisualRandom } from '../world/bogota/VisualRandom.js';
 import { Piezas, materialDePuesto } from './puestoPiezas.js';
+import { buildCartContact, buildRecyclerYard, RECYCLER_CART } from './RecyclerYard.js';
 
 // Cotas en metros desde el centro. La bodega abre hacia la calle, que queda en -z.
 const PISO = 0.12;
-const CARTON = '#a17e52', CARTON_OSCURO = '#8b6c45', ZUNCHO = '#2b2824';
-const LONA = '#cfcabb', LONA_SOMBRA = '#b4af9f', BOTELLA = '#9fb5a6', BOTELLA_CLARA = '#c9d6d0', BOTELLA_VERDE = '#5f8f6f';
-const ACERO = '#70767c', ACERO_OSCURO = '#4a4f55', OXIDO = '#6b4630', ZINC = '#939c9f';
+const ZUNCHO = '#2b2824';
+const ACERO = '#70767c', ACERO_OSCURO = '#4a4f55', ZINC = '#939c9f';
 const VERDE = '#1f6b3a', AMARILLO = '#c9a227', MADERA = '#6b5238', MADERA_VIEJA = '#54402c', LLANTA = '#1d1d1f';
-const AVISO = { x: 0, y: PISO + 2.25, z: 1.0, ancho: 2.7, alto: 0.84 };
+const AVISO = { x: 0, y: PISO + 2.25, z: -0.46, ancho: 3.86, alto: 0.84 };
+const MARCO = '#406257', MARCO_SOMBRA = '#30473f', BORDE_ZINC = '#b3b6a7';
+// Las geometrías reemplazadas consumían este azar al generar UUID. El acopio nuevo se arma con azar visual.
+const ACOPIO_DRAWS = 752;
 
-/** Paca de cartón aplastado, amarrada con dos zunchos. */
-function paca(k, x, y, z, giro = 0, color = CARTON) {
-  k.en([x, PISO + y, z], [0, giro, 0], () => {
-    k.caja(0.95, 0.6, 0.7, color, [0, 0.3, 0]);
-    for (const h of [0.2, 0.4]) k.caja(0.97, 0.014, 0.72, CARTON_OSCURO, [0, h, 0]);
-    for (const dx of [-0.24, 0.24]) k.caja(0.045, 0.61, 0.73, ZUNCHO, [dx, 0.305, 0]);
-  });
-}
-
-/** Lona grande, de las de escombro, llena de botellas hasta arriba. */
-function lona(k, x, z, alto, giro) {
-  k.en([x, PISO, z], [0, giro, 0], () => {
-    k.tubo(0.56, 0.5, alto, 8, LONA, [0, alto / 2, 0], [0, 0, 0], true);
-    k.tubo(0.575, 0.565, 0.07, 8, LONA_SOMBRA, [0, alto - 0.06, 0], [0, 0, 0], true);
-    k.pieza(new THREE.SphereGeometry(0.52, 7, 3, 0, Math.PI * 2, 0, Math.PI / 2), BOTELLA, [0, alto - 0.1, 0], [0, 0, 0], [1, 0.42, 1]);
-    for (const [bx, bz, color, rot] of [[0.2, 0.1, BOTELLA_CLARA, [1.1, 0.3, 0]], [-0.22, -0.12, BOTELLA_VERDE, [1.3, 1.9, 0]], [0.02, -0.26, BOTELLA_VERDE, [0.9, 4, 0]], [-0.1, 0.28, BOTELLA_CLARA, [1.2, 5.2, 0]], [0.3, -0.2, BOTELLA_CLARA, [1.45, 2.6, 0]], [-0.3, 0.14, BOTELLA_VERDE, [1.5, 0.9, 0]]]) {
-      k.tubo(0.035, 0.05, 0.24, 6, color, [bx, alto + 0.08, bz], rot);
+/** Cubiertas de acopio contra las medianeras. Entre las dos queda abierta la entrada a la báscula. */
+function cubiertaAcopio(k) {
+  // La pendiente lleva el agua al muro. El borde interior queda alto para manipular carretas.
+  for (const { lado, vuelo, frente } of [{ lado: -1, vuelo: 1.72, frente: -.37 }, { lado: 1, vuelo: 2.42, frente: .44 }]) {
+    const xMuro = lado * 3.958, xLibre = lado * vuelo;
+    const yMuro = 2.81, yLibre = 3.12, fondo = 2.88;
+    const pliegue = Array.from({ length: 13 }, (_, i) => ({
+      z: frente + (fondo - frente) * i / 12,
+      y: i % 2 ? .027 : 0
+    }));
+    k.lamina([pliegue.map(p => [xMuro, yMuro + p.y, p.z]), pliegue.map(p => [xLibre, yLibre + p.y, p.z])], BORDE_ZINC);
+    k.tramo([xMuro, yMuro - .018, frente], [xLibre, yLibre - .018, frente], .064, .04, '#bdc1b5');
+    k.caja(.075, .10, fondo - frente, MARCO, [xLibre, yLibre - .04, (fondo + frente) / 2]);
+    k.caja(.062, .065, fondo - frente, ZINC, [xMuro + lado * .011, yMuro - .021, (fondo + frente) / 2]);
+    for (const z of [frente + .06, fondo - .12]) {
+      k.tramo([xMuro, yMuro - .30, z], [xLibre, yLibre - .06, z], .075, .054, MARCO_SOMBRA);
     }
-    for (const [ox, oz] of [[0.4, 0.4], [-0.4, 0.4], [0.4, -0.4], [-0.4, -0.4]]) k.caja(0.06, 0.2, 0.02, LONA_SOMBRA, [ox, alto + 0.02, oz], [0, Math.atan2(ox, oz), 0.5]);
-  });
+  }
+  for (const x of [-1.64, 1.64]) {
+    k.caja(.055, .14, .14, MARCO_SOMBRA, [x, 2.78, AVISO.z + .024]);
+  }
 }
 
 /** Báscula de plataforma: lámina con borde amarillo, columna y reloj. Mira a la calle. */
@@ -55,72 +60,50 @@ function bascula(k) {
   for (const [w, d, x, z] of [[0.9, 0.07, -0.45, -0.75], [0.55, 0.07, 0.6, -0.75], [0.07, 1.1, -1.0, -0.1], [0.07, 0.6, 1.0, 0.45], [0.07, 0.5, 1.0, -0.45]]) k.caja(w, 0.006, d, AMARILLO, [x, PISO + 0.004, z + 0.15]);
 }
 
-/** Carreta de mano parqueada contra el muro, cargada de cartón. */
+/** Carreta de mano parqueada contra el muro. */
 function carreta(k) {
-  k.en([-3.05, PISO, -0.7], [0, Math.PI / 2 - 0.12, 0], () => {
+  const { x, z, yaw, wheelX, track, footX } = RECYCLER_CART;
+  k.en([x, PISO, z], [0, yaw, 0], () => {
     k.caja(1.5, 0.05, 0.82, MADERA, [0, 0.52, 0]);
     for (const z of [-0.39, 0.39]) {
       k.caja(1.5, 0.22, 0.03, MADERA_VIEJA, [0, 0.65, z]);
       k.tramo([0.7, 0.56, z], [1.75, 0.92, z], 0.045, 0.045, MADERA_VIEJA);
-      k.pieza(new THREE.CylinderGeometry(0.3, 0.3, 0.09, 10), LLANTA, [-0.1, 0.3, z * 1.22], [Math.PI / 2, 0, 0]);
-      k.pieza(new THREE.CylinderGeometry(0.1, 0.1, 0.1, 6), ACERO, [-0.1, 0.3, z * 1.22], [Math.PI / 2, 0, 0]);
+      const center = [wheelX, .3, Math.sign(z) * track];
+      k.pieza(new THREE.CylinderGeometry(0.3, 0.3, 0.09, 10), LLANTA, center, [Math.PI / 2, 0, 0]);
+      k.pieza(new THREE.CylinderGeometry(0.1, 0.1, 0.1, 6), ACERO, center, [Math.PI / 2, 0, 0]);
     }
     k.caja(0.03, 0.22, 0.82, MADERA_VIEJA, [-0.74, 0.65, 0]);
-    k.caja(0.05, 0.5, 0.05, MADERA_VIEJA, [0.68, 0.25, 0]);
+    k.caja(0.05, 0.5, 0.05, MADERA_VIEJA, [footX, 0.25, 0]);
     k.caja(0.04, 0.04, 0.8, MADERA_VIEJA, [1.72, 0.91, 0]);
-    for (const [y, giro, color] of [[0.58, 0.05, CARTON], [0.63, -0.08, CARTON_OSCURO], [0.68, 0.12, CARTON], [0.73, -0.03, '#b08b5d']]) k.caja(1.25, 0.05, 0.7, color, [-0.05, y, 0], [0, giro, 0]);
-    k.caja(0.5, 0.3, 0.45, CARTON_OSCURO, [-0.3, 0.9, 0.05], [0, 0.4, 0]);
-    k.caja(0.52, 0.02, 0.05, ZUNCHO, [-0.3, 0.9, 0.05], [0, 0.4, 0]);
   });
-}
-
-/** Montón de chatarra: caneca acostada, tejas de zinc contra el muro, tubos y un rin. */
-function chatarra(k) {
-  k.tubo(0.29, 0.29, 0.85, 10, OXIDO, [2.75, PISO + 0.29, -1.35], [Math.PI / 2, 0, 0.5]);
-  const teja = (x0, giro) => {
-    const filas = [];
-    for (let i = 0; i <= 1; i++) {
-      const fila = [];
-      for (let j = 0; j <= 8; j++) fila.push([x0 + (j % 2 ? 0.035 : -0.035) + i * 0.55, PISO + i * 1.5, -1.9 + j * 0.11 + giro * i]);
-      filas.push(fila);
-    }
-    k.lamina(filas, ZINC);
-  };
-  teja(3.3, 0.1);
-  teja(3.15, -0.25);
-  for (const [a, b, r, color] of [[[2.2, 0.05, -0.4], [3.6, 0.3, -0.7], 0.035, ACERO], [[2.4, 0.05, -0.75], [3.7, 0.12, -0.3], 0.03, OXIDO], [[2.1, 0.04, -1.0], [3.3, 0.04, -0.2], 0.025, ACERO_OSCURO]]) {
-    k.tramo([a[0], PISO + a[1], a[2]], [b[0], PISO + b[1], b[2]], r * 2, r * 2, color);
-  }
-  k.pieza(new THREE.TorusGeometry(0.3, 0.035, 4, 10), ACERO, [2.25, PISO + 0.33, -1.75], [0, 0.5, 0.12]);
-  k.caja(0.5, 0.32, 0.36, VERDE, [1.75, PISO + 0.16, -1.2], [0, 0.3, 0]);
-  for (const [x, z] of [[-0.12, -0.08], [0.1, 0.05], [0.0, -0.02], [-0.1, 0.1], [0.14, -0.1]]) k.tubo(0.02, 0.04, 0.2, 5, '#3e5a46', [1.75 + x, PISO + 0.38, -1.2 + z]);
 }
 
 /** Aviso de tabla pintado a brocha. Sin lienzo (en las pruebas) queda la tabla verde. */
 function pintarAviso() {
   if (typeof document === 'undefined') return null;
   const c = document.createElement('canvas');
-  c.width = 1024; c.height = 320;
+  c.width = 1472; c.height = 320;
   const x = c.getContext('2d');
   if (!x) return null;
+  const medio = c.width / 2;
   let s = 7;
   const azar = () => ((s = Math.imul(s, 1664525) + 1013904223 | 0) >>> 0) / 4294967296;
-  x.fillStyle = VERDE; x.fillRect(0, 0, 1024, 320);
+  x.fillStyle = VERDE; x.fillRect(0, 0, c.width, c.height);
   // Brochazos y tablas.
   for (let i = 0; i < 70; i++) {
     x.fillStyle = `rgba(${azar() < 0.5 ? '255,255,255' : '0,0,0'},${0.03 + azar() * 0.05})`;
-    x.fillRect(azar() * 1024 - 100, azar() * 320, 120 + azar() * 380, 4 + azar() * 12);
+    x.fillRect(azar() * c.width - 100, azar() * c.height, 120 + azar() * 380, 4 + azar() * 12);
   }
   x.fillStyle = 'rgba(0,0,0,.28)';
-  for (const y of [104, 212]) x.fillRect(0, y, 1024, 3);
+  for (const y of [104, 218]) x.fillRect(0, y, c.width, 3);
   x.strokeStyle = '#efe6cc'; x.lineWidth = 9; x.lineJoin = 'round';
   x.beginPath();
-  x.moveTo(22, 26); x.lineTo(1000, 20); x.lineTo(1004, 298); x.lineTo(18, 302); x.closePath(); x.stroke();
+  x.moveTo(22, 26); x.lineTo(c.width - 24, 20); x.lineTo(c.width - 20, 298); x.lineTo(18, 302); x.closePath(); x.stroke();
   const letras = (texto, y, alto, color, ancho) => {
     x.font = `900 ${alto}px "Arial Narrow", "Helvetica Neue", system-ui, sans-serif`;
     x.textAlign = 'center'; x.textBaseline = 'middle'; x.fillStyle = color;
     const paso = Math.min(ancho / texto.length, alto * 0.72);
-    let px = 512 - paso * (texto.length - 1) / 2;
+    let px = medio - paso * (texto.length - 1) / 2;
     for (const letra of texto) {
       x.save();
       x.translate(px, y + (azar() - 0.5) * alto * 0.14);
@@ -131,14 +114,14 @@ function pintarAviso() {
       px += paso;
     }
   };
-  letras('RECICLADORA', 72, 64, '#efe6cc', 800);
-  letras('EL PROGRESO', 156, 108, '#f2c230', 900);
-  letras('CARTÓN · CHATARRA · BOTELLA · PAGAMOS AL PESO', 266, 36, '#efe6cc', 930);
+  letras('RECICLADORA', 73, 69, '#efe6cc', 1050);
+  letras('EL PROGRESO', 160, 117, '#f2c230', 1260);
+  letras('CARTÓN · CHATARRA · BOTELLA · PAGAMOS AL PESO', 267, 42, '#efe6cc', 1340);
   // Subrayado a pulso y chorreadas de pintura.
   x.strokeStyle = '#f2c230'; x.lineWidth = 7; x.lineCap = 'round';
-  x.beginPath(); x.moveTo(250, 222); x.quadraticCurveTo(500, 212, 790, 224); x.stroke();
+  x.beginPath(); x.moveTo(medio - 303, 225); x.quadraticCurveTo(medio - 12, 216, medio + 287, 227); x.stroke();
   x.fillStyle = '#f2c230';
-  for (const [px, largo] of [[322, 16], [540, 26], [731, 12]]) x.fillRect(px, 222, 5, largo);
+  for (const [px, largo] of [[medio - 198, 15], [medio + 38, 19], [medio + 226, 12]]) x.fillRect(px, 225, 5, largo);
   const t = new THREE.CanvasTexture(c);
   t.colorSpace = THREE.SRGBColorSpace;
   t.anisotropy = 8;
@@ -156,37 +139,24 @@ export class SellPoint {
 
     const k = new Piezas();
     bascula(k);
-    // Pacas de cartón al fondo, a la izquierda: dos pisos y una suelta.
-    paca(k, -3.35, 0, 2.45, 0.03);
-    paca(k, -2.3, 0, 2.4, -0.05, CARTON_OSCURO);
-    paca(k, -1.25, 0, 2.5, 0.06);
-    paca(k, -2.85, 0.61, 2.45, 0.08, CARTON_OSCURO);
-    paca(k, -1.8, 0.61, 2.45, -0.04);
-    paca(k, -3.3, 0, 1.45, 1.45);
-    // Lonas de botellas al fondo, a la derecha.
-    lona(k, 1.95, 2.3, 1.05, 0.2);
-    lona(k, 3.15, 2.15, 1.15, 0.9);
-    lona(k, 3.2, 0.95, 0.95, 0.5);
     carreta(k);
-    chatarra(k);
-    // Postes y tabla del aviso; la bombilla cuelga de la tabla.
-    for (const px of [-1.22, 1.22]) k.caja(0.08, AVISO.y + 0.3 - PISO, 0.08, MADERA_VIEJA, [px, (AVISO.y + 0.3 + PISO) / 2, AVISO.z + 0.07]);
+    // El tubo y su pletina se anclan entre las medianeras. La tabla y la bombilla cuelgan del frente.
+    k.caja(8, .16, .11, MARCO, [0, 2.86, AVISO.z + .045]);
+    k.caja(8, .022, .135, MARCO_SOMBRA, [0, 2.942, AVISO.z + .045]);
     k.caja(AVISO.ancho + 0.06, AVISO.alto + 0.06, 0.035, MADERA_VIEJA, [AVISO.x, AVISO.y, AVISO.z + 0.012]);
     k.tramo([0.9, AVISO.y - AVISO.alto / 2, AVISO.z - 0.02], [0.9, AVISO.y - 0.5, AVISO.z - 0.02], 0.014, 0.014, ZUNCHO);
     k.tubo(0.03, 0.04, 0.07, 6, ZUNCHO, [0.9, AVISO.y - 0.52, AVISO.z - 0.02]);
-    // Piso: cartones pisados, manchas de aceite y latas.
+    // Huellas de trabajo bajo el acopio, con el acceso a la báscula limpio.
     const y = PISO + 0.004;
-    k.caja(1.1, 0.012, 0.8, CARTON_OSCURO, [-1.7, PISO + 0.008, 0.9], [0, 0.4, 0]);
-    k.caja(0.7, 0.012, 0.5, CARTON, [1.4, PISO + 0.008, 1.3], [0, -0.3, 0]);
-    k.caja(0.6, 0.012, 0.45, CARTON, [-1.3, PISO + 0.014, 1.05], [0, 1.0, 0]);
     k.disco(0.5, 11, '#74726c', [2.5, y, -0.7], [1.5, 0.8], 0.4);
     k.disco(0.3, 9, '#66645f', [2.6, y + 0.002, -0.9], [1.2, 0.8], 1.0);
-    k.disco(0.35, 10, '#77756f', [-2.3, y, -1.2], [1.3, 0.8], 1.0);
-    for (const [lx, lz, giro] of [[0.9, -1.2, 0.4], [-0.8, 1.6, 1.9], [2.0, 0.4, 2.6]]) k.tubo(0.033, 0.033, 0.11, 6, '#9aa0a5', [lx, PISO + 0.035, lz], [Math.PI / 2, 0, giro]);
 
+    // Las mallas de zinc son decorativas y sus UUID no consumen azar de la partida.
+    withVisualRandom(() => cubiertaAcopio(k));
     this.bodega = k.malla(materialDePuesto());
     this.bodega.name = 'Recicladora';
-    this.group.add(this.bodega);
+    for (let i = 0; i < ACOPIO_DRAWS; i++) Math.random();
+    this.group.add(this.bodega, buildRecyclerYard(PISO), buildCartContact(PISO));
 
     // Aviso: mira a la calle y de noche se alcanza a leer.
     const pintura = pintarAviso();
@@ -216,10 +186,15 @@ export class SellPoint {
 
   dispose() {
     this.scene.remove(this.group);
+    const textures = new Set();
     this.group.traverse((o) => {
       o.geometry?.dispose?.();
-      o.material?.map?.dispose?.();
-      o.material?.dispose?.();
+      if (!o.material) return;
+      for (const key of ['map', 'roughnessMap', 'metalnessMap', 'bumpMap']) {
+        if (o.material[key]) textures.add(o.material[key]);
+      }
+      o.material.dispose();
     });
+    for (const texture of textures) texture.dispose();
   }
 }
