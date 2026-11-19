@@ -7,6 +7,7 @@ import { rng } from '../src/world/bogota/textures.js';
 import { CollisionSystem } from '../src/systems/CollisionSystem.js';
 import { TILE_SIZE } from '../src/utils/constants.js';
 import { EAST_SEAM } from '../src/world/bogota/EastZones.js';
+import { inUrbanPark } from '../src/world/bogota/CityLayout.js';
 
 const digest = value => createHash('sha256').update(JSON.stringify(value)).digest('hex');
 
@@ -74,8 +75,10 @@ function architecture(seed, churn) {
     const oldMap = city.map.map(row => [...row.slice(0, EAST_SEAM), 'wall']);
     const oldCollisions = new CollisionSystem();
     city._buildCollisions(oldMap, oldCollisions);
+    const footprint = city.map.map((row, z) => row.map((tile, x) =>
+      (tile === 'grass' || tile === 'plaza') && inUrbanPark(x, z) ? 'park' : tile));
     return {
-      map: before, oldMap: digest(oldMap), oldColliders: digest(oldCollisions.colliders.map(({ box }) => [box.min.toArray(), box.max.toArray()])),
+      map: before, footprint: digest(footprint), oldMap: digest(oldMap), oldColliders: digest(oldCollisions.colliders.map(({ box }) => [box.min.toArray(), box.max.toArray()])),
       geometry: geometry.digest('hex'), labels: digest(labels), occupancy: digest(occupancy),
       bounds: digest(city.buildingVisibility.buildings.map(building => [building.bounds.min.toArray(), building.bounds.max.toArray()])),
       colliders: digest(collisions.colliders.map(({ box }) => [box.min.toArray(), box.max.toArray()]))
@@ -90,9 +93,12 @@ function architecture(seed, churn) {
 test('la arquitectura no cambia con el azar global ni con más creaciones de texturas y materiales', () => {
   const first = architecture(89123, false);
   assert.deepEqual(architecture(17, true), first);
-  // Capturados antes de separar el azar arquitectónico: el mapa y sus sólidos siguen exactos.
-  // El oriente se añadió sin mover nada: recortado a la ciudad anterior, da los mismos valores.
-  assert.equal(first.oldMap, 'ad927fbac5cbcbb2fae2f8b8b0ae0f64a4beda7492b1c482c317d04b35ec8f9c');
+  // Huella de la ciudad completa en 3efc37e. Los parques admiten intercambiar prado y
+  // pavimento peatonal. Todos los demás terrenos deben conservar su tipo y posición.
+  assert.equal(first.footprint, 'e7d8227e027300bd74365b2feb05cab85e16bb084cedb2a96b036873b57569cc');
+  // El terreno de la porción anterior al oriente incorpora los paseos y ensanches de los
+  // parques. Sus sólidos conservan la huella original.
+  assert.equal(first.oldMap, 'd455002b3933539c842155bae583893f920d422a7c2ecc1b7c7c005be80b75fb');
   assert.equal(first.oldColliders, '6b8d21ce0063a9a7ef0f4f4bfb43608e02335553ab98206151f237594ef3dd0d');
 });
 

@@ -61,6 +61,7 @@ export class Farol {
     // Luz puntual (solo si no es de día — la controla el World)
     if (opts.addLight !== false) {
       this.light = new THREE.PointLight(0xffd29a, 0, 9);
+      this.light.userData.streetFixture = true;
       this.light.position.set(0.6, 3.8, 0);
       this.group.add(this.light);
     }

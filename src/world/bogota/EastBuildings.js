@@ -8,6 +8,7 @@ import { createBuildingShell } from './BuildingVisibility.js';
 import { Batch, ALL_FACES, NO_BACK, SKIN, FACES, shellBox, wallStripUV, brickUV } from './ZoneGeometry.js';
 import { CANDELARIA_END_Z, COMMERCIAL_STREET, eastBlocks, inChurch, inTowerLot } from './EastZones.js';
 import { WALL_STRIP_COUNT, WALL_SHEET, RED_BRICK_METERS, detailRect } from './ZoneTextures.js';
+import { addCalle7ShopRooms, calle7ShopRoom } from './ShopFrontRooms.js';
 
 const T = 2;
 const WALKABLE = new Set(['road', 'busway', 'sidewalk', 'dirt', 'grass', 'plaza', 'floor']);
@@ -524,21 +525,29 @@ export function buildShopHouse(lot, m) {
   const facade = new Batch(), f = facade.frame(lot.face, depth / 2);
   const shops = Math.max(1, Math.floor(width / 5));
   const shopWidth = width / shops;
+  const rooms = [];
   for (let i = 0; i < shops; i++) {
     const u = -width / 2 + shopWidth * (i + .5), w = shopWidth - .3;
     const roller = random() < .3;
-    f.box(m.detail, u, SIDEWALK_Y, .012, w + .16, 2.62, .024, 'shopDark', FACES.front);
-    if (roller) {
-      f.panel(m.detail, u, SIDEWALK_Y, .03, w - .1, 2.5, 'rollerDoor');
+    // El sorteo del vidrio se conserva para que el aviso, el toldo y el piso de arriba no cambien.
+    const glass = roller ? null : random() < .5 ? 'glassLit' : 'glassCold';
+    const sign = SHOP_SIGNS[Math.floor(random() * SHOP_SIGNS.length)];
+    const room = roller ? null : calle7ShopRoom(lot, cx - u, sign);
+    if (room) {
+      rooms.push({ u, w, kind: room });
     } else {
-      const doorW = Math.min(1.2, w * .3), glassW = w - doorW - .1;
-      f.panel(m.detail, u + doorW / 2, SIDEWALK_Y + .55, .03, glassW, 1.95, random() < .5 ? 'glassLit' : 'glassCold');
-      f.box(m.detail, u + doorW / 2, SIDEWALK_Y, .03, glassW, .55, .04, 'plasterCream', FACES.front | FACES.top);
-      f.panel(m.detail, u - w / 2 + doorW / 2, SIDEWALK_Y, .03, doorW, 2.5, 'glassLit');
-      f.panel(m.detail, u - w / 2 + doorW + .04, SIDEWALK_Y, .05, .08, 2.5, 'iron');
+      f.box(m.detail, u, SIDEWALK_Y, .012, w + .16, 2.62, .024, 'shopDark', FACES.front);
+      if (roller) {
+        f.panel(m.detail, u, SIDEWALK_Y, .03, w - .1, 2.5, 'rollerDoor');
+      } else {
+        const doorW = Math.min(1.2, w * .3), glassW = w - doorW - .1;
+        f.panel(m.detail, u + doorW / 2, SIDEWALK_Y + .55, .03, glassW, 1.95, glass);
+        f.box(m.detail, u + doorW / 2, SIDEWALK_Y, .03, glassW, .55, .04, 'plasterCream', FACES.front | FACES.top);
+        f.panel(m.detail, u - w / 2 + doorW / 2, SIDEWALK_Y, .03, doorW, 2.5, 'glassLit');
+        f.panel(m.detail, u - w / 2 + doorW + .04, SIDEWALK_Y, .05, .08, 2.5, 'iron');
+      }
     }
     // Aviso pintado y toldo de lona, cada local con su propio arreglo.
-    const sign = SHOP_SIGNS[Math.floor(random() * SHOP_SIGNS.length)];
     f.box(m.detail, u, 2.72, .08, Math.min(w, 3.8), .88, .1, sign, FACES.front);
     f.box(m.detail, u, 2.72, .05, Math.min(w, 3.8) + .1, .88, .08, 'woodDark', FACES.left | FACES.right | FACES.top | FACES.bottom);
     if (random() < .7) {
@@ -546,6 +555,16 @@ export function buildShopHouse(lot, m) {
       const aw = Math.min(w, 4);
       f.quad(m.detail, [u - aw / 2, 2.32, 1.2], [u + aw / 2, 2.32, 1.2], [u + aw / 2, 2.7, .05], [u - aw / 2, 2.7, .05], awning);
       f.panel(m.detail, u, 2.12, 1.2, aw, .2, awning);
+    }
+    // Lo que el local saca al andén, pegado al muro y con azar propio: guacales y bultos, o materas.
+    const outside = rng((lot.seed ^ Math.imul(i + 1, 0x51ab3)) >>> 0), open = ALL_FACES & ~FACES.bottom, pu = u + w / 2 - .34;
+    if (sign === 'signTinto' || sign === 'signChicha' || sign === 'signPan') {
+      f.box(m.detail, pu, SIDEWALK_Y, .2, .56, .3, .36, 'woodLight', open);
+      f.box(m.detail, pu, SIDEWALK_Y + .3, .2, .5, .05, .3, outside() < .5 ? 'fruit' : 'produce', open);
+      if (outside() < .6) f.box(m.detail, pu - .62, SIDEWALK_Y, .19, .5, .24, .34, 'burlap', open);
+    } else for (const du of outside() < .6 ? [0, -.5] : [0]) {
+      f.box(m.detail, pu + du, SIDEWALK_Y, .2, .32, .3, .32, 'terracotta', open);
+      f.box(m.detail, pu + du, SIDEWALK_Y + .3, .2, .36, .3 + outside() * .2, .36, 'hedge', open);
     }
   }
   const bays = Math.max(1, Math.floor(width / 2.4));
@@ -559,6 +578,7 @@ export function buildShopHouse(lot, m) {
   }
   // Cornisa de remate.
   f.box(m.detail, 0, height - .34, .08, width, .1, .16, 'stoneLight', NO_BACK);
+  if (rooms.length) addCalle7ShopRooms(shell, m, lot.face, width, depth, rooms, f);
   facade.finish(shell.walls.get(lot.face), { name: 'Local comercial' });
   const roof = new Batch(), rf = roof.frame(lot.face, depth / 2);
   const pitch = THREE.MathUtils.degToRad(21);

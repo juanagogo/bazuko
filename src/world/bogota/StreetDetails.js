@@ -3,12 +3,14 @@
 import * as THREE from 'three';
 import { TILE_SIZE } from '../../utils/constants.js';
 import { buildSunField, chainSunField, fadeGlowInFog, registerNightGlow } from './SunField.js';
+import { addContactShade } from './sombraContacto.js';
 import { STATIC_CHUNK_SIZE, createRenderSectors, freezeStaticTransforms } from './StaticGeometry.js';
 import { StreetBatch, WireBatch, tint, unit } from './StreetBatch.js';
 import { crossings } from './StreetMarkings.js';
 import { detailAtlas, glowTexture } from './textures-calle.js';
 import { addStreetPuddles } from './StreetPuddles.js';
 import { STREET_LAMP } from './StreetLampModel.js';
+import { buildStreetLightMap } from './StreetLightMap.js';
 import { CARACAS, SIDEWALK_TILES } from './StreetLayout.js';
 import { CITY_CALLES as CALLES } from './CityLayout.js';
 import { LAKE_PARK, inLakeTerrain, onLakeBridge } from './LakePark.js';
@@ -16,6 +18,7 @@ import { VIADUCT, viaductSurface } from './ColpatriaViaduct.js';
 import { inTerminal } from './TransitTerminal.js';
 import { inGasStation } from './GasStation.js';
 import { AVENUE_OVERPASS } from './AvenueLandmarks.js';
+import { addShopPools, encenderLocales } from './vitrinas.js';
 
 const T = TILE_SIZE;
 const W = tile => tile * T;
@@ -538,8 +541,33 @@ function addLampGlow(glow, district) {
     if (!group) continue;
     const angle = group.rotation.y, reach = STREET_LAMP.lens.x;
     const hx = group.position.x + Math.cos(angle) * reach, hz = group.position.z - Math.sin(angle) * reach;
-    const y = Math.max(group.position.y, 0) + .03, size = 7.8;
-    glow.quad([hx - size, y, hz + size], [hx + size, y, hz + size], [hx + size, y, hz - size], [hx - size, y, hz - size], [0, 1, 0], uv, pool);
+    const base = Math.max(group.position.y, 0), size = 7.8, T = TILE_SIZE, span = size * 2;
+    const cerrar = ({ x0, x1, z0, z1, y }) => glow.quad([x0, y, z1], [x1, y, z1], [x1, y, z0], [x0, y, z0], [0, 1, 0],
+      [(x0 - hx + size) / span, (hz + size - z1) / span, (x1 - hx + size) / span, (hz + size - z0) / span], pool);
+    // El charco va a la altura de cada tile: entero, a la altura del andén, flotaba un palmo sobre la calzada y teñía
+    // la parte baja de las ruedas y el pie de los postes. Los tiles vecinos a la misma altura van en un solo cuadro.
+    let abiertos = new Map();
+    for (let tz = Math.round((hz - size) / T); tz <= Math.round((hz + size) / T); tz++) {
+      const z0 = Math.max(tz * T - T / 2, hz - size), z1 = Math.min(tz * T + T / 2, hz + size);
+      if (z0 >= z1) continue;
+      const tramos = [], siguen = new Map();
+      for (let tx = Math.round((hx - size) / T); tx <= Math.round((hx + size) / T); tx++) {
+        const x0 = Math.max(tx * T - T / 2, hx - size), x1 = Math.min(tx * T + T / 2, hx + size);
+        if (x0 >= x1) continue;
+        const suelo = district.getGroundHeight?.(tx * T, tz * T);
+        const y = (Number.isFinite(suelo) && Math.abs(suelo - base) < .5 ? suelo : base) + .03;
+        if (tramos.at(-1)?.y === y) tramos.at(-1).x1 = x1;
+        else tramos.push({ x0, x1, y });
+      }
+      for (const tramo of tramos) {
+        const clave = `${tramo.x0} ${tramo.x1} ${tramo.y}`, previo = abiertos.get(clave);
+        abiertos.delete(clave);
+        siguen.set(clave, previo ? Object.assign(previo, { z1 }) : { ...tramo, z0, z1 });
+      }
+      abiertos.forEach(cerrar);
+      abiertos = siguen;
+    }
+    abiertos.forEach(cerrar);
   }
 }
 
@@ -611,6 +639,7 @@ function addLanternPools(glow, district) {
 
 export function addStreetDetails(district, collisions = null) {
   district.sunField = buildSunField(district);
+  if (district.scene?.userData) district.scene.userData.streetLightMap = buildStreetLightMap(district);
   // La ribera del lago tiene su propio shader: se encadena para que reciba la sombra del puente.
   if (district.lakeTerrain?.material) chainSunField(district.lakeTerrain.material);
 
@@ -644,7 +673,9 @@ export function addStreetDetails(district, collisions = null) {
   const glow = new StreetBatch({ material: glowMaterial, name: 'Luz de faroles', receiveShadow: false, renderOrder: -1, chunkSize: STATIC_CHUNK_SIZE * 4 });
   addLampGlow(glow, district);
   addLanternPools(glow, district);
+  addShopPools(glow, district);
   registerNightGlow(glowMaterial);
+  addContactShade(district, poles);
 
   const group = new THREE.Group();
   group.name = 'Calle: cables y mobiliario';
@@ -652,6 +683,7 @@ export function addStreetDetails(district, collisions = null) {
   street.finish(group);
   wires.finish(group);
   glow.finish(group);
+  encenderLocales(district, group);
   addStreetPuddles(group, district, curbRuns(map), glowMaterial);
   district.group.add(group);
   district.streetPoles = poles;

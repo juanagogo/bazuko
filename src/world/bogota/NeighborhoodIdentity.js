@@ -51,3 +51,18 @@ export function neighborhoodAt(x, z) {
   if (x >= 36 && x <= 184 && z >= 128 && z < 222) return NEIGHBORHOODS.comercio;
   return NEIGHBORHOODS.centro;
 }
+
+// Un local necesita frente a una calle. Una casa que mira al interior de un
+// parque o a un patio conserva la entrada de vivienda, incluso en Comercio.
+const SHOP_SHARE = { centro: .48, comercio: .84, cambuche: .24, lago: .18 };
+
+export function isShopFront(map, frontageTile, dx, dz, neighborhood, sample) {
+  if (sample >= (SHOP_SHARE[neighborhood.id] ?? .48)) return false;
+  const [x, z] = frontageTile;
+  for (let offset = 1; offset <= 5; offset++) {
+    const tile = map[z + dz * offset]?.[x + dx * offset];
+    if (tile === 'road' || tile === 'busway') return true;
+    if (tile !== 'sidewalk') return false;
+  }
+  return false;
+}

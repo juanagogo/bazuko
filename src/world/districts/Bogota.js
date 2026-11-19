@@ -1,8 +1,11 @@
 import { planUrbanBuildings, buildUrbanBuilding, URBAN_DESIGNS } from '../bogota/UrbanBuildings.js';
-import { neighborhoodAt } from '../bogota/NeighborhoodIdentity.js';
+import { neighborhoodAt, isShopFront } from '../bogota/NeighborhoodIdentity.js';
 import { addBuildingDetails } from '../bogota/BuildingDetails.js';
 import { addStreetDetails } from '../bogota/StreetDetails.js';
+import { setStreetLightLevel } from '../bogota/StreetLightShader.js';
+import { streetIntersections, pedestrianCrossings, crossingTiles } from '../bogota/StreetCrossings.js';
 import { buildStreetMarkings } from '../bogota/StreetMarkings.js';
+import { setFloorWetness, wetsWithRain } from '../bogota/StreetPuddles.js';
 import { planUrbanTrees } from '../bogota/UrbanPlanting.js';
 import { planParkVegetation, buildParkVegetation } from '../bogota/ParkVegetation.js';
 import { buildSmallBuilding, SMALL_BUILDING } from '../bogota/SmallBuilding.js';
@@ -21,20 +24,24 @@ import { buildSmallBuilding, SMALL_BUILDING } from '../bogota/SmallBuilding.js';
 // bodega de reciclaje (x 8-21, z 32-46), parque (x 28-39, z 32-46), lote baldío con el
 // cambuche (x 42-46, z 32-46) y la tienda (frente a la Calle 9, x 34).
 import * as THREE from 'three';
+import { buildRainCover } from '../RainCover.js';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { TILE_SIZE } from '../../utils/constants.js';
 import { Farol } from '../props/Farol.js';
 import { TrafficSignals } from '../bogota/TrafficSignals.js';
 import { signTexture } from '../../utils/signs.js';
 import { signTextAtlas, atlasPlane, SignTextMaterial } from '../../utils/signAtlas.js';
+import { localDelSolar, AVISOS_GRANDES } from '../bogota/Locales.js';
 import { Banca } from '../props/Banca.js';
 import { buildGroundWear, dressGrass, dressPaving } from '../bogota/GroundDressing.js';
 import * as TX from '../bogota/textures.js';
 import * as P from '../bogota/props.js';
+import { varianteDeVenta } from '../bogota/ventasCalle.js';
 import { Npc } from '../../entities/Npc.js';
 import { thinkStreet } from '../../entities/npc/mind.js';
 import { BuildingVisibility, CLOSED_CHUNK_SIZE, createBuildingShell } from '../bogota/BuildingVisibility.js';
 import { PedestrianNavigation } from '../bogota/PedestrianNavigation.js';
+import { caracasNavigation } from '../bogota/CaracasNavigation.js';
 import { GpsNavigation } from '../../systems/GpsNavigation.js';
 import { TrafficRoute } from '../bogota/TrafficRoute.js';
 import { BusService } from '../bogota/BusService.js';
@@ -50,12 +57,15 @@ import { LAKE_BRIDGE, LAKE_PARK, onLakeBridge, bridgeHeight, buildLakeWater, bui
 import { createLakeWaterMaterial } from '../bogota/LakeWaterMaterial.js';
 import { PigeonFlock } from '../../entities/PigeonFlock.js';
 import { geometryChunk, mergeByChunk, freezeStaticTransforms, createRenderSectors, instanceStaticModels } from '../bogota/StaticGeometry.js';
-import { updateFarStreetLamps } from '../bogota/StreetLampModel.js';
+import { withVisualRandom } from '../bogota/VisualRandom.js';
+import { buildCalle72Landing, onCalle72Landing } from '../bogota/Calle72Landing.js';
+import { calle72DestinationBarrier } from '../bogota/Calle72Approach.js';
+import { setStreetLampTwilight, updateFarStreetLamps } from '../bogota/StreetLampModel.js';
 import { CITY_WIDTH, CITY_HEIGHT, CITY_AREA_MULTIPLIER, CITY_CARRERAS as CARRERAS,
   CITY_CALLES as CALLES, ORIGINAL_CITY_WIDTH, ORIGINAL_CITY_HEIGHT, EXTENSION_PARKS,
-  expandCity } from '../bogota/CityLayout.js';
-import { EAST_SEAM, EAST_CITY_WIDTH, CARRERA_3, CARRERA_4, CALLE_6, CALLE_5, CANDELARIA_END_Z, COMMERCIAL_STREET,
-  CHURCH_FRONT_COLLIDER, FOUNTAIN, MARKET, NARROW_CALLES, PLAZA, TEUSAQUILLO_PARK, TOWERS, TOWERS_LOT, churchStepHeight, eastCrossing, inTowerLot, insideTower, towerColliderBoxes } from '../bogota/EastZones.js';
+  expandCity, inUrbanPark, parkBenchBays } from '../bogota/CityLayout.js';
+import { EAST_SEAM, EAST_CITY_WIDTH, CARRERA_3, CARRERA_4, CARRERA_5, CALLE_6, CALLE_5, CANDELARIA_END_Z, COMMERCIAL_STREET,
+  CHURCH_FRONT_COLLIDER, FOUNTAIN, MARKET, NARROW_CALLES, PLAZA, TEUSAQUILLO_PARK, TOWERS, TOWERS_LOT, churchFootSupport, churchStepHeight, eastCrossing, inTowerLot, insideTower, towerColliderBoxes } from '../bogota/EastZones.js';
 import { cobblestones, flagstones, forgetZoneTextures } from '../bogota/ZoneTextures.js';
 import { Batch, ALL_FACES, FACES, createZoneMaterials } from '../bogota/ZoneGeometry.js';
 import { planEastLots, buildColonialHouse, buildEnglishHouse, buildShopHouse } from '../bogota/EastBuildings.js';
@@ -92,13 +102,6 @@ export const SHELTER_RESPAWN = Object.freeze({ x: 112.98, z: 97.84 });
 const CARTUCHO = { x0: 8, x1: 21, z0: 14, z1: 29 };
 /** Mapas de fachada que no dependen del barrio. */
 const SHARED_FACADE_MAPS = ['emissiveMap', 'bumpMap', 'roughnessMap'];
-
-const SHOP_NAMES = [
-  ['DROGUERÍA', 'SALUD Y VIDA'], ['PANADERÍA', 'EL TRIGAL'], ['CIGARRERÍA', 'LA 10'], ['ASADERO', 'POLLO DORADO'],
-  ['MISCELÁNEA', 'TODO A MIL'], ['COMPRAVENTA', 'EL CENTAVO'], ['RESIDENCIAS', 'EL DORADO'], ['BILLARES', 'LA BOLA 8'],
-  ['TIENDA', 'DONDE PACHO'], ['FERRETERÍA', 'EL TORNILLO'], ['SASTRERÍA', 'ARREGLOS'], ['CAFETERÍA', 'TINTO Y PAN'],
-  ['CHATARRERÍA', 'COMPRAMOS'], ['MINUTOS', 'A TODO OPERADOR'], ['LAVANDERÍA', 'AL INSTANTE'], ['PAPELERÍA', 'FOTOCOPIAS']
-];
 
 // Del tablero del puente al piso, para que quepa una persona debajo: la losa mide .71 m.
 const DECK_HEADROOM = 2.8;
@@ -141,6 +144,18 @@ function worldUVs(geo, sx, sy, sz, units) {
 const repeatAll = (t) => { if (!t) return t; t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(1, 1); t.anisotropy = 8; t.needsUpdate = true; return t; };
 const pick = (arr) => arr[Math.floor(Math.random() * arr.length)];
 const W = (t) => t * T; // tile → metros (centro del tile)
+
+function lightFacades(district) {
+  const amount = district.scene?.userData?.streetLightMap?.windowLevel ?? (district._nightMode ? 1 : 0);
+  const level = Math.round(amount * 255) / 255;
+  if (level === district._facadeLightLevel) return;
+  district._facadeLightLevel = level;
+  for (const material of district.towerLights ?? []) material.emissiveIntensity = .05 + 1.75 * level;
+  for (const material of district.facadeMats ?? []) material.emissiveIntensity = level * (material.userData.windowGlow ?? 1.2);
+  for (const material of district.buildingVisibility?.closedMaterials?.values() ?? []) {
+    if (material.emissiveMap || material.userData.windowGlow) material.emissiveIntensity = level * (material.userData.windowGlow ?? 1.2);
+  }
+}
 
 export class Bogota {
   constructor() {
@@ -223,6 +238,7 @@ export class Bogota {
 
   build(scene, collisions) {
     this.scene = scene;
+    this._navigationCollisions = collisions;
     const map = this.map = this._layout();
     this._buildGround(map);
     this._buildMarkings();
@@ -237,6 +253,7 @@ export class Bogota {
     this.stationGroup = buildTransitTerminal({ createSign: signTexture, asphalt: this.groundMaterials.road });
     this.group.add(this.stationGroup);
     for (const entry of this.stationGroup.userData.colliders) collisions?.colliders.push(entry);
+    this._releaseStationCameraCeiling = collisions?.addCameraCeiling?.(this.stationGroup.userData.cameraCeiling);
     // Los límites de la terminal son solo colisión: fusionados con lo demás se verían como una pared gris.
     for (const mesh of [...this.stationGroup.children]) if (!mesh.visible) this.stationGroup.remove(mesh);
     this._buildStreetProps(map);
@@ -246,16 +263,18 @@ export class Bogota {
     this._buildLakePark();
     this._buildGreenery();
     this.group.add(buildAvenueOverpass());
-    this.group.add(buildGasStation({ createSign: signTexture }));
+    const gasStation = buildGasStation({ createSign: signTexture });
+    this.group.add(gasStation);
     this.group.add(buildD69Store({ createSign: signTexture }));
     this.group.add(buildSmallBuilding({ brickTextures: TX.brick(53) }));
     const tower = buildColpatria({ createSign: signTexture });
     this.towerLights = tower.userData.lightMaterials;
     this.group.add(tower);
 
-    // Metro de Bogotá (Línea 1 PLMB - Viaducto elevado sobre la Caracas y tren oficial)
-    const metro = buildMetroBogota({ pavement: this.groundMaterials.road });
+    // Viaducto y tren de pruebas de la Caracas.
+    const metro = buildMetroBogota({ pavement: this.groundMaterials.road, waterBottomAt: (x, z) => this.getWaterInfo(x, z)?.bottomY });
     this.group.add(metro);
+    this.rainCover = buildRainCover(viaduct, this.stationGroup, gasStation, metro);
     if (metro.userData.colliders) {
       for (const entry of metro.userData.colliders) collisions?.colliders.push(entry);
     }
@@ -270,7 +289,11 @@ export class Bogota {
         Math.hypot(x - SHELTER_LOCATION.x, z - SHELTER_LOCATION.z) > 6
     }));
 
+    if (collisions) this._quitarBanderasContraSolidos(collisions.colliders);
     this._mergeStatic();
+    const metroTrain = metro.userData.train;
+    this.group.add(metroTrain);
+    this.animated.push(metroTrain);
     this.group.add(this.buildingVisibility.buildClosedView());
     // Las torres se ven desde todo el barrio: su material lo permite, y aquí tampoco las corta Three.
     this.group.traverse(mesh => { if (mesh.material?.userData?.pastFar) mesh.frustumCulled = false; });
@@ -583,6 +606,9 @@ export class Bogota {
     for (const [t, list] of Object.entries(quads)) {
       this.group.add(mergeByChunk(list, mats[t], { receiveShadow: true }));
     }
+    const calle72 = withVisualRandom(() => buildCalle72Landing(mats.floor));
+    mats.sidewalk_calle72 = calle72.material;
+    this.group.add(calle72);
   }
 
   /** Lluvia que está cayendo (0 sin lluvia, ~.3 llovizna, ~.7 aguacero, 1 tormenta): la que ven los peatones. */
@@ -600,16 +626,17 @@ export class Bogota {
     this.isRaining = amount > 0.05;
     if (!this.groundMaterials) return;
     const wet = THREE.MathUtils.clamp(amount, 0, 1) * (this.graphicsQuality === 'baja' ? .65 : 1);
+    setFloorWetness(wet);
     this.stationGroup?.userData.setWetness?.(wet);
     if (this.groundMaterials.road) {
-      this.groundMaterials.road.roughness = THREE.MathUtils.lerp(0.82, 0.48, wet);
+      this.groundMaterials.road.roughness = THREE.MathUtils.lerp(0.82, 0.32, wet);
       this.groundMaterials.road.metalness = 0;
-      this.groundMaterials.road.envMapIntensity = THREE.MathUtils.lerp(0.3, 1.05, wet);
+      this.groundMaterials.road.envMapIntensity = THREE.MathUtils.lerp(0.3, 1.3, wet);
     }
     if (this.groundMaterials.busway) {
-      this.groundMaterials.busway.roughness = THREE.MathUtils.lerp(1.0, 0.6, wet);
+      this.groundMaterials.busway.roughness = THREE.MathUtils.lerp(1.0, 0.48, wet);
       this.groundMaterials.busway.metalness = 0;
-      this.groundMaterials.busway.envMapIntensity = THREE.MathUtils.lerp(0.25, .85, wet);
+      this.groundMaterials.busway.envMapIntensity = THREE.MathUtils.lerp(0.25, 1.0, wet);
     }
     for (const [name, material] of Object.entries(this.groundMaterials)) {
       const pavement = name.startsWith('sidewalk') || name.startsWith('plaza') || name === 'floor';
@@ -620,14 +647,15 @@ export class Bogota {
         material.envMapIntensity = THREE.MathUtils.lerp(.25, 1.1, wet);
       }
       if (pavement) {
-        material.roughness = THREE.MathUtils.lerp(.85, .63, wet);
+        material.roughness = THREE.MathUtils.lerp(.85, .42, wet);
         material.metalness = 0;
-        material.envMapIntensity = THREE.MathUtils.lerp(.2, .65, wet);
+        material.envMapIntensity = THREE.MathUtils.lerp(.2, .95, wet);
       }
-      if (pavement || name === 'road' || name === 'busway' || name === 'road_cobbles') {
+      if (wetsWithRain(name)) {
         // Conservar el acabado seco para que alternar lluvia no acumule oscurecimiento.
         material.userData.dryColor ??= material.color.clone();
-        material.color.copy(material.userData.dryColor).multiplyScalar(1 - wet * .09);
+        // El piso mojado se oscurece de verdad: casi un cuarto, la calzada un poco más que el andén.
+        material.color.copy(material.userData.dryColor).multiplyScalar(1 - wet * (pavement ? .24 : .26));
       }
     }
   }
@@ -765,6 +793,7 @@ export class Bogota {
   /** Luz del farol colonial: el mismo tipo de fuente que los faroles de calle, sin luces nuevas en la escena. */
   _addLanternLight(position) {
     const light = new THREE.PointLight(0xffd29a, 0, 9);
+    light.userData.streetFixture = true;
     light.position.copy(position);
     light.userData.noMerge = true;
     this.group.add(light);
@@ -815,10 +844,10 @@ export class Bogota {
     for (const z of [132, 150]) for (const x of [park.x0 + 5, park.x1 - 5]) {
       this._placeBench(W(x), this.getGroundHeight(W(x), W(z)), W(z), x === park.x0 + 5 ? Math.PI / 2 : -Math.PI / 2);
     }
-    this._add(P.streetSign([PLAZA.name, 'Candelaria']), W(PLAZA.x0), W(PLAZA.z1), .4);
-    this._add(P.streetSign([park.name, 'Teusaquillo']), W(park.x0 + 2), W(park.z0 + 2), .4);
-    this._add(P.streetSign([TOWERS_LOT.name, 'Carrera 3']), W(TOWERS_LOT.x0 + 1), W(TOWERS_LOT.z0 + 1), .4);
-    this._add(P.streetSign([MARKET.name, COMMERCIAL_STREET.name]), W(MARKET.x0 - 1), W(MARKET.z1 + 1), .4);
+    this._add(P.placeSign(PLAZA.name, 'plaza'), W(PLAZA.x0 + 1), W(PLAZA.z1), 0);
+    this._add(P.placeSign(park.name, 'park'), W(park.x0 + 2), W(park.z0 + 2), 0);
+    this._add(P.placeSign(TOWERS_LOT.name, 'landmark'), W(TOWERS_LOT.x0 + 1), W(TOWERS_LOT.z0 + 1), Math.PI / 2);
+    this._add(P.placeSign(MARKET.name, 'market'), W(MARKET.x0 - 1), W(MARKET.z1 + 1), 0);
     this._eastMarket = market;
   }
 
@@ -859,11 +888,11 @@ export class Bogota {
     this.backdrop = this.cerros;
   }
 
-  /** Texto de todos los avisos de local en un atlas: 16 nombres con letra oscura o clara. */
+  /** Comparte un atlas entre los rótulos de oficio de los locales. */
   _shopSignAtlas() {
     if (this._shopSigns !== undefined) return this._shopSigns;
     if (typeof document === 'undefined' || typeof document.createElement !== 'function') return (this._shopSigns = null);
-    const entries = SHOP_NAMES.flatMap(([title, sub]) => ['#26302e', '#fff3da'].map(fg => ({ title, sub, fg })));
+    const entries = AVISOS_GRANDES.map(({ oficio, nombre }) => ({ title: oficio.titulo, sub: nombre, fg: oficio.tinta, accent: oficio.acento }));
     const { texture, cells } = signTextAtlas(entries, { w: 768, h: 192 });
     return (this._shopSigns = { cells, material: new SignTextMaterial({ map: texture }) });
   }
@@ -887,13 +916,16 @@ export class Bogota {
     const houseSeed = (Math.imul(x0 + 17, 73856093) ^ Math.imul(z0 + 31, 19349663)
       ^ Math.imul(tiles.length, 83492791) ^ Math.imul(depth, 2654435761) ^ Math.imul(face + 1, 97531)) >>> 0;
     const random = TX.rng(houseSeed);
-    const choose = values => values[Math.floor(random() * values.length)];
     const floors = skylineFloors(x0, z0, ruin, random());
     const h = floors * 3;
     const style = ruin ? 'ruina' : random() < 0.55 ? 'ladrillo' : 'pintada';
     // el ladrillo necesita más resolución para que cada ladrillo (36 × 12 cm) se distinga
     // Variantes compartidas: ampliar el barrio no triplica las texturas de fachada en la GPU.
-    const variant = Math.floor(random() * 2);
+    const frontageRoll = random();
+    const commercial = !ruin && isShopFront(map, tiles[Math.floor(tiles.length / 2)], dx, dz, neighborhood, frontageRoll);
+    const residential = !ruin && !commercial;
+    // Reutilizar las dos variantes de la caché para vivienda y comercio.
+    const variant = ruin ? Math.floor(frontageRoll * 2) : Number(residential);
     const baseTextureKey = `${widthM}:${floors}:${style}:${variant}`;
     // La semilla de la textura depende de su clave, no del orden de llenado de la caché.
     if (!this._facadeSeeds.has(baseTextureKey)) {
@@ -904,7 +936,8 @@ export class Bogota {
     const textureKey = `${baseTextureKey}:${neighborhood.id}`;
     let tex = this._facadeTextures.get(textureKey);
     if (!tex) {
-      tex = TX.facade({ seed: this._facadeSeeds.get(baseTextureKey), width: widthM, floors, pxPerM: style === 'pintada' ? 36 : 48, shopFront: true, style, district: neighborhood.id });
+      tex = TX.facade({ seed: this._facadeSeeds.get(baseTextureKey), width: widthM, floors, pxPerM: style === 'pintada' ? 36 : 48,
+        groundFloor: residential ? 'residential' : 'shop', style, district: neighborhood.id });
       // El barrio solo cambia los colores: ventanas encendidas, relieve y rugosidad salen iguales
       // (tests/shared-surface-maps.test.js). Se comparte la imagen y la GPU guarda una copia.
       const shared = this._facadeShared.get(baseTextureKey);
@@ -951,23 +984,21 @@ export class Bogota {
     const fz = (W(z0) + W(z1)) / 2 + dz * T / 2;
     const yaw = Math.atan2(dx, dz);
 
-    // aviso de local en el primer piso
-    if (!ruin && random() < 0.55) {
-      const shopName = choose(SHOP_NAMES);
-      const [title, sub] = shopName;
-      const signColor = new THREE.Color(choose(['#0b4fa3', '#c0392b', '#1f6b3a', '#f2c600', '#ffffff', '#6a1b9a']));
-      signColor.lerp(new THREE.Color(neighborhood.palette.signBackground), .18);
-      const luminance = .2126 * signColor.r + .7152 * signColor.g + .0722 * signColor.b;
-      const fg = luminance > .4 ? 0 : 1;
-      const bg = `#${signColor.getHexString()}`, signW = Math.min(widthM * 0.85, 3.6);
+    // aviso de local en el primer piso: el oficio sale del solar, no del sorteo
+    const local = commercial ? localDelSolar({ seed: houseSeed, paso: alongX ? x0 : z0, x: cx, z: cz }) : null;
+    if (local) local.conAviso = random() < .75;
+    if (local?.conAviso) {
+      // Los dos sorteos del nombre y el color de antes se siguen gastando: balcones y tejados no se mueven.
+      random(); random();
+      const signW = Math.min(widthM * 0.85, 3.6);
       // El texto sale del atlas compartido y el fondo va en los vértices del plano. Sin lienzo (las
       // pruebas en Node) o sin sitio en el atlas, el aviso lleva su propia textura.
       const atlas = this._shopSignAtlas();
-      const cell = atlas?.cells[SHOP_NAMES.indexOf(shopName) * 2 + fg];
-      const map = cell ? null : signTexture({ title, sub, bg, fg: fg ? '#fff3da' : '#26302e', w: 768, h: 192 });
+      const cell = atlas?.cells[AVISOS_GRANDES.findIndex(e => e.oficio.id === local.id && e.nombre === local.nombre)];
+      const map = cell ? null : signTexture({ title: local.titulo, sub: local.nombre, bg: local.fondo, fg: local.tinta, accent: local.acento, w: 768, h: 192 });
       if (cell || map) {
         const sign = cell
-          ? new THREE.Mesh(atlasPlane(signW, signW / 4, cell, new THREE.Color(bg)), atlas.material)
+          ? new THREE.Mesh(atlasPlane(signW, signW / 4, cell, new THREE.Color(local.fondo)), atlas.material)
           : new THREE.Mesh(new THREE.PlaneGeometry(signW, signW / 4), new THREE.MeshBasicMaterial({ map }));
         sign.position.set(fx + dx * 0.06 - cx, 3.05, fz + dz * 0.06 - cz);
         sign.rotation.y = yaw;
@@ -995,11 +1026,39 @@ export class Bogota {
       shell.walls.get(face).add(bal);
     }
     addBuildingDetails({ shell, width: sx, depth: sz, height: h, floors, face,
-      seed: houseSeed, neighborhood: neighborhood.id, ruin, balconies: false });
+      seed: houseSeed, neighborhood: neighborhood.id, ruin, balconies: false, residential, paintedSign: false, local });
+    if (shell.root.userData.local?.armado && local.estado !== 'cerrada') (this.vitrinas ??= []).push({ x: fx, z: fz, dx, dz, ancho: Math.min(widthM * .6, 3.4), estado: local.estado, interior: local.interior });
     const building = this.buildingVisibility.register(shell);
     for (const part of building.parts) for (const material of part.materials) {
       if (material.emissiveMap || material.userData.windowGlow) this.facadeMats.push(material);
     }
+  }
+
+  /**
+   * Un aviso de bandera que toca un sólido de la ciudad no se cuelga. Los sólidos nacen después de las casas, así que
+   * se recoge al final: sus caras se pliegan en un punto y la malla de la fachada queda con los mismos vértices.
+   */
+  _quitarBanderasContraSolidos(colliders) {
+    const caja = new THREE.Box3(), punto = new THREE.Vector3();
+    let quitadas = 0;
+    for (const { root } of this.buildingVisibility.buildings) root.traverse(malla => {
+      const bandera = malla.userData.bandera;
+      if (!bandera) return;
+      malla.updateWorldMatrix(true, false);
+      const posicion = malla.geometry.attributes.position;
+      caja.makeEmpty();
+      for (let i = bandera.desde; i < bandera.hasta; i++) caja.expandByPoint(punto.fromBufferAttribute(posicion, i).applyMatrix4(malla.matrixWorld));
+      // La bandera nace al ras de la caja de su propia casa: rozarla no cuenta, meterse 3 cm en un sólido sí.
+      caja.expandByScalar(-.03);
+      if (!colliders.some(solido => solido.box.intersectsBox(caja))) return;
+      punto.fromBufferAttribute(posicion, bandera.desde);
+      for (let i = bandera.desde; i < bandera.hasta; i++) posicion.setXYZ(i, punto.x, punto.y, punto.z);
+      posicion.needsUpdate = true;
+      malla.geometry.computeBoundingBox(); malla.geometry.computeBoundingSphere();
+      delete malla.userData.bandera;
+      quitadas++;
+    });
+    return quitadas;
   }
 
   /** Colisiones: tramos horizontales de tiles sólidos unidos en una caja */
@@ -1056,6 +1115,7 @@ export class Bogota {
 
   getGroundTypeAt(x, z) {
     if (!this.map) return 'sidewalk';
+    if (onCalle72Landing(x, z)) return 'sidewalk';
     const row = Math.round(z / T);
     const col = Math.round(x / T);
     return this.map[row]?.[col] ?? 'sidewalk';
@@ -1118,6 +1178,8 @@ export class Bogota {
         (deck <= feetY + 1e-7 || abovePreviousDeck);
       if (entersOnFoot || landsOnDeck) return { height: deck, layer: 'viaduct' };
     }
+    const footSupport = grounded ? churchFootSupport(x, z) : null;
+    if (footSupport) ground.footSupport = footSupport;
     return ground;
   }
 
@@ -1208,24 +1270,32 @@ export class Bogota {
     }
     // cerca de la estación: vendedor de tinto y una chaza
     this.vendors = [];
-    this._vendor(WX(21), WZ(18.5), Math.PI / 2, 'chaza', 'Chaza de don Efraín', ['cigarrillo', 'cafe', 'pan', 'agua', 'empanada']);
-    this._vendor(WX(28), WZ(29), 0, 'fritanga', 'Fritanga La Mona', ['empanada', 'morcilla', 'papaCriolla', 'aguapanela', 'refresco']);
-    this._vendor(WX(39), WZ(36), -Math.PI / 2, 'chaza', 'Dulces y minutos', ['cigarrillo', 'refresco', 'agua', 'empanada']);
+    this._vendor(WX(21), WZ(18.5), Math.PI / 2, 'chaza', 'Chaza de don Efraín', ['cigarrillo', 'cafe', 'pan', 'agua', 'empanada'], 'efrain');
+    this._vendor(WX(28), WZ(29), 0, 'fritanga', 'Fritanga La Mona', ['empanada', 'morcilla', 'papaCriolla', 'aguapanela', 'refresco'], 'mona');
+    this._vendor(WX(39), WZ(36), -Math.PI / 2, 'chaza', 'Dulces y minutos', ['cigarrillo', 'refresco', 'agua', 'empanada'], 'minutos');
   }
 
   /** Vendedor ambulante: puesto + persona; se le puede comprar (lo atiende la tienda con otro catálogo) */
-  _vendor(x, z, rotY, kind, title, items) {
+  _vendor(x, z, rotY, kind, title, items, slot = title) {
     const stall = kind === 'fritanga' ? P.fritanga({ title, items }) : P.chaza({ title, items });
     this._takesRoom(this._add(stall, x, z, rotY));
     if (stall.userData.setNight) this.props.push({ instance: { setNight: stall.userData.setNight } });
+    (this.puestos ??= []).push({ x, z, kind });
+    const oficio = varianteDeVenta(kind, { title, items });
     const back = new THREE.Vector3(Math.sin(rotY), 0, Math.cos(rotY)).multiplyScalar(-0.9);
     const seller = new Npc(this.scene, new THREE.Vector3(x + back.x, this.getGroundHeight(x, z), z + back.z), {
       facing: rotY, isWalkable: () => false,
-      arquetipo: 'vendedor', fijo: { stance: 'atender', alternas: VENDOR_POSES }
+      arquetipo: 'vendedor', delantal: oficio === 'dulces' ? null : oficio,
+      fijo: { stance: 'atender', alternas: VENDOR_POSES }
     });
     seller.isVendor = true;
     this.npcs.push(seller);
-    this.vendors.push({ kind: 'shop', stall: kind, title, items, position: new THREE.Vector3(x, 0, z) });
+    this.vendors.push({
+      kind: 'shop', stall: kind, title, items, position: new THREE.Vector3(x, 0, z), attendant: seller,
+      interactDistance(position) {
+        return this.attendant && !this.attendant.isDead ? this.position.distanceTo(position) : Infinity;
+      }
+    });
   }
 
   /** El Cartucho: humo, fuego, carretas, cambuches, ropa colgada y basura */
@@ -1256,7 +1326,7 @@ export class Bogota {
       this._add(line, cx(x), cz(21.5));
     }
     // chaza dentro del callejón
-    this._vendor(cx(18.5), cz(21.5), 0, 'chaza', 'Chaza del callejón', ['cigarrillo', 'pan', 'agua']);
+    this._vendor(cx(18.5), cz(21.5), 0, 'chaza', 'Chaza del callejón', ['cigarrillo', 'pan', 'agua'], 'callejon');
   }
 
   /** Banca de la ciudad; queda anotada para quien se siente en ella. Su frente mira a (sin r, cos r). */
@@ -1292,23 +1362,24 @@ export class Bogota {
       this._placeBench(WX(x), 0.06, WZ(z), r);
     }
     // cartel del parque
-    const sign = P.streetSign(['Parque', 'Tercer Milenio']);
+    const sign = P.placeSign('Parque Tercer Milenio', 'park');
     this._add(sign, WX(29), WZ(33), -0.6);
   }
 
   _buildExtensions() {
     for (const park of EXTENSION_PARKS) {
-      const pathZ=Math.floor((park.z0+park.z1)/2);
-      for (const x of [park.x0+2,park.x1-2]) {
-        this._placeBench(W(x), this.getGroundHeight(W(x),W(pathZ)), W(pathZ), 0);
+      for (const bench of parkBenchBays(park)) {
+        const x = W(bench.x), z = W(bench.z);
+        this._placeBench(x, this.getGroundHeight(x, z), z, bench.rotation);
       }
-      this._add(P.streetSign([park.name, 'Bogotá']), W(park.x0), W(pathZ));
+      const entranceZ = W(Math.floor((park.z0 + park.z1) / 2));
+      this._add(P.placeSign(park.name, 'park'), W(park.x0), entranceZ + 2, -Math.PI / 2);
     }
-    this._vendor(W(CARRERAS[2][0]-1.5), W(55), Math.PI/2, 'chaza', 'Chaza de la Carrera 8', ['agua','pan','cafe','empanada']);
-    this._vendor(W(52), W(CALLES[2][0]-1.5), 0, 'fritanga', 'Fritanga del Sur', ['empanada', 'morcilla', 'papaCriolla', 'aguapanela', 'refresco']);
+    this._vendor(W(CARRERAS[2][0]-1.5), W(55), Math.PI/2, 'chaza', 'Chaza de la Carrera 8', ['agua','pan','cafe','empanada'], 'carrera-8');
+    this._vendor(W(52), W(CALLES[2][0]-1.5), 0, 'fritanga', 'Fritanga del Sur', ['empanada', 'morcilla', 'papaCriolla', 'aguapanela', 'refresco'], 'sur');
     // Oriente: tinto en la plaza y fritanga en la calle comercial.
-    this._vendor(FOUNTAIN.x - 14, FOUNTAIN.z + 18, Math.PI, 'chaza', 'Tinto de la plaza', ['cafe', 'pan', 'agua', 'cigarrillo']);
-    this._vendor(W(144), W(COMMERCIAL_STREET.z0 - 1.5), 0, 'fritanga', 'Fritanga de la Calle 7', ['empanada', 'morcilla', 'papaCriolla', 'aguapanela', 'refresco']);
+    this._vendor(FOUNTAIN.x - 14, FOUNTAIN.z + 18, Math.PI, 'chaza', 'Tinto de la plaza', ['cafe', 'pan', 'agua', 'cigarrillo'], 'plaza');
+    this._vendor(W(144), W(COMMERCIAL_STREET.z0 - 1.5), 0, 'fritanga', 'Fritanga de la Calle 7', ['empanada', 'morcilla', 'papaCriolla', 'aguapanela', 'refresco'], 'calle-7');
   }
 
   _buildLakePark() {
@@ -1380,14 +1451,15 @@ export class Bogota {
   /** Cruces y bloqueos peatonales compartidos por los NPC y el GPS. */
   _pedestrianRules() {
     const carreras = [...CARRERAS, [CARACAS.lanes[0][0], CARACAS.lanes[1][1]]];
+    const marked = crossingTiles(this.map), cols = this.map[0].length;
     return {
       // Prolongación de los andenes en los cruces; no pasean por los carriles ni la estación.
-      isCrossing: (x, z) => x > 133 ? eastCrossing(x, z) : CALLES.some(([a, b]) =>
+      isCrossing: (x, z) => marked[z * cols + x] === 1 || (x > 133 ? eastCrossing(x, z) : CALLES.some(([a, b]) =>
         (z >= a - SIDEWALK_TILES && z < a) || (z > b && z <= b + SIDEWALK_TILES)) ||
         (z === 113 || z === 155 || z === 79 || z === 89) ||
         (viaductHeight(z * T) > 2 && Math.abs(x * T - busPathX(z * T)) < 16) ||
         carreras.some(([a, b]) =>
-          (x >= a - SIDEWALK_TILES && x < a) || (x > b && x <= b + SIDEWALK_TILES)),
+          (x >= a - SIDEWALK_TILES && x < a) || (x > b && x <= b + SIDEWALK_TILES))),
       isBlocked: (x, z) => (x === Math.round(this.reserved.shop.x / T) && z === Math.round(this.reserved.shop.z / T)) ||
         Math.hypot(x * T - FOUNTAIN.x, z * T - FOUNTAIN.z) < FOUNTAIN.radius + 1 ||
         this.edge?.blockedTiles.has(`${x},${z}`) || this._eastMarket?.blockedTiles.includes(`${x},${z}`) ||
@@ -1425,13 +1497,15 @@ export class Bogota {
     return x <= 59 || x >= 91 ? 'sidewalk' : 'road';
   }
 
-  /** GPS a pie: andenes y parques cuestan 1, cruces 1,3 y calzada 8; el tablero elevado queda fuera. */
+  /** GPS a pie: andenes y paseos cuestan 1, césped de parque 1,2, cruces 1,3 y calzada 8; el tablero elevado queda fuera. */
   createGpsNavigation() {
     const rules = this._pedestrianRules();
+    const caracas = this._navigationCollisions?.queryStatic && caracasNavigation(this.map, this._navigationCollisions);
     return new GpsNavigation({
       width: this.map[0].length, zMin: Math.ceil(TERMINAL.z0 / T), zMax: this.map.length - 1, tileSize: T,
+      destinationBarrier: calle72DestinationBarrier(this._navigationCollisions),
       // La isla de la estación solo se pisa por sus rampas: muros, barandas y postes no caben en la grilla.
-      barrier: crossesIslandEdge, aisleX: islandAisleX,
+      barrier: (ax, az, bx, bz) => crossesIslandEdge(ax, az, bx, bz) || !!caracas?.blocked(ax, az, bx, bz), aisleX: islandAisleX,
       cost: (tx, tz) => {
         const type = this.tileTypeAt(tx, tz);
         if (!type || !WALKABLE.has(type)) return Infinity;
@@ -1440,9 +1514,9 @@ export class Bogota {
           if (crowdsIslandPole(tx * T, tz * T)) return Infinity;
           return type !== 'road' ? 1 : tz === -29 || tz === -1 ? 1.3 : 8;
         }
-        if (rules.isBlocked(tx, tz) || this.getGroundHeight(tx * T, tz * T) > 1.2) return Infinity;
-        if (type === 'road' || type === 'busway') return rules.isCrossing(tx, tz) ? 1.3 : 8;
-        return 1;
+        if (rules.isBlocked(tx, tz) || caracas?.blocked(tx * T, tz * T) || this.getGroundHeight(tx * T, tz * T) > 1.2) return Infinity;
+        if (type === 'road' || type === 'busway') return (caracas?.marked(tx, tz) ?? rules.isCrossing(tx, tz)) ? 1.3 : 8;
+        return type === 'grass' && inUrbanPark(tx, tz) ? 1.2 : 1;
       }
     });
   }
@@ -1486,12 +1560,13 @@ export class Bogota {
       { at: [FOUNTAIN.x + 21.5, FOUNTAIN.z - 7], facing: -Math.PI / 2, stance: 'pedir', arquetipo: 'habitante' }
     ];
     // Sentados en bancas: el frente de la banca es (sin r, cos r) y la cadera cae sobre el asiento.
-    const seated = [[104, 98, 'abuelo'], [110, 106, 'senora'], [285, 39, 'abuelo'], [303, 71, 'senora'], [188, 54, 'estudiante']];
+    const [stationBench] = parkBenchBays(EXTENSION_PARKS[0]);
+    const seated = [[104, 98, 'abuelo'], [110, 106, 'senora'], [285, 39, 'abuelo'], [303, 71, 'senora'], [W(stationBench.x), W(stationBench.z), 'estudiante']];
     for (const [x, z, arquetipo] of seated) {
       const bench = this.benchSpots.find(spot => spot.x === x && spot.z === z);
       if (!bench) continue;
       const side = (list.length % 2 ? 1 : -1) * .36;
-      list.push({ at: [bench.x + Math.sin(bench.rot) * BENCH_FRONT + Math.cos(bench.rot) * side, bench.z + Math.cos(bench.rot) * BENCH_FRONT - Math.sin(bench.rot) * side],
+      list.push({ slot: `banca:${x},${z}`, at: [bench.x + Math.sin(bench.rot) * BENCH_FRONT + Math.cos(bench.rot) * side, bench.z + Math.cos(bench.rot) * BENCH_FRONT - Math.sin(bench.rot) * side],
         facing: bench.rot, stance: 'banca', arquetipo });
     }
     return list;
@@ -1564,32 +1639,41 @@ export class Bogota {
     const buckets = new Map();
     const replacedGeometries = new Set();
     const replacedMaterials = new Set();
-    const visit = (o) => {
-      if (o.userData.update || o.userData.noMerge) return; // animados y faroles quedan aparte
+    const visit = (o, local = null) => {
+      if (o.userData.noMerge) return;
+      if (o.userData.update) {
+        if (!o.userData.mergeChildren) return;
+        // Una rama móvil con piezas rígidas puede fundirse en su propio sistema de coordenadas.
+        local = { root: o, inverse: o.matrixWorld.clone().invert() };
+      }
       if (o.isMesh && !Array.isArray(o.material) && !o.isSkinnedMesh && !o.isInstancedMesh) {
         if (!o.geometry.attributes.uv || !o.geometry.attributes.normal) return;
         // Conserva los índices: expandir cajas y planos duplicaba sus vértices.
-        const g = o.geometry.clone();
+        const clone = () => o.geometry.clone();
+        const g = o.userData.visualOnly ? withVisualRandom(clone) : clone();
         for (const name of Object.keys(g.attributes)) if (!['position', 'normal', 'uv', 'color', 'treeWind'].includes(name)) g.deleteAttribute(name);
         const attributes = Object.keys(g.attributes).sort().map(name => {
           const a = g.attributes[name];
           return `${name}:${a.itemSize}:${a.array.constructor.name}:${a.normalized}`;
         }).join(',');
         // Como los lotes cerrados, por trozos anchos: mobiliario y ladrillos pesan en llamadas, no en triángulos.
-        const key = `${o.material.userData.staticMergeKey ?? o.material.uuid}|${o.castShadow}|${o.receiveShadow}|${!!g.index}|${attributes}|${o.customDepthMaterial?.uuid ?? ''}|${geometryChunk(o.geometry, o.matrixWorld, CLOSED_CHUNK_SIZE * 2)}`;
+        const key = `${o.material.userData.staticMergeKey ?? o.material.uuid}|${o.castShadow}|${o.receiveShadow}|${!!g.index}|${attributes}|${o.customDepthMaterial?.uuid ?? ''}|${geometryChunk(o.geometry, o.matrixWorld, CLOSED_CHUNK_SIZE * 2)}|${local?.root.id ?? ''}`;
         g.applyMatrix4(o.matrixWorld);
-        const bucket = buckets.get(key) ?? { mat: o.material, cast: o.castShadow, recv: o.receiveShadow, list: [], sources: [] };
+        if (local) g.applyMatrix4(local.inverse);
+        const bucket = buckets.get(key) ?? { mat: o.material, cast: o.castShadow, recv: o.receiveShadow, list: [], sources: [], visualOnly: true, parent: local?.root ?? this.group };
         buckets.set(key, bucket);
+        bucket.visualOnly &&= o.userData.visualOnly === true;
         bucket.list.push(g);
         bucket.sources.push(o);
         return;
       }
       if (o.isMesh && !o.isSkinnedMesh) o.matrixAutoUpdate = false;
-      for (const c of o.children) visit(c);
+      for (const c of o.children) visit(c, local);
     };
     for (const c of this.group.children) visit(c);
-    for (const { mat, cast, recv, list, sources } of buckets.values()) {
-      const merged = mergeGeometries(list);
+    for (const { mat, cast, recv, list, sources, visualOnly, parent } of buckets.values()) {
+      const merge = () => mergeGeometries(list);
+      const merged = visualOnly ? withVisualRandom(merge) : merge();
       for (const geometry of list) geometry.dispose();
       if (!merged) continue;
       for (const source of sources) {
@@ -1597,7 +1681,9 @@ export class Bogota {
         replacedGeometries.add(source.geometry);
         replacedMaterials.add(source.material);
       }
-      const mesh = new THREE.Mesh(merged, mat);
+      const create = () => new THREE.Mesh(merged, mat);
+      const mesh = visualOnly ? withVisualRandom(create) : create();
+      if (visualOnly) mesh.userData.visualOnly = true;
       mesh.customDepthMaterial = sources[0].customDepthMaterial; // mismo material, misma sombra
       if (merged.hasAttribute('treeWind')) {
         // Después de geometryChunk: el recálculo de bounds no debe borrar el margen de viento.
@@ -1607,7 +1693,7 @@ export class Bogota {
       mesh.castShadow = cast;
       mesh.receiveShadow = recv;
       mesh.matrixAutoUpdate = false;
-      this.group.add(mesh);
+      parent.add(mesh);
     }
     // Una geometría compartida por objetos animados sigue en uso.
     this.group.traverse((o) => {
@@ -1641,6 +1727,7 @@ export class Bogota {
 
   update(dt, playerPos, camera, trafficVehicles = []) {
     this.t += dt;
+    lightFacades(this);
     P.foliageWind.value = this.t;
     this.signals?.update(this.t);
     if (camera) this.signals?.updateDetail(camera.position, !!this.farDetailFog);
@@ -1673,20 +1760,26 @@ export class Bogota {
   }
 
   setNightMode(isNight) {
-    for (const material of this.towerLights ?? []) material.emissiveIntensity = isNight ? 1.8 : .05;
+    this._nightMode = !!isNight;
+    lightFacades(this);
     for (const p of this.props) p.instance.setNight?.(isNight);
-    for (const m of this.facadeMats) m.emissiveIntensity = isNight ? (m.userData.windowGlow ?? 1.2) : 0;
     this.cerros?.userData?.setNight?.(isNight);
     for (const bus of this.busServices ?? []) bus.setNight?.(isNight);
     this.stationGroup?.userData.setNight?.(isNight);
-    for (const material of this.buildingVisibility.closedMaterials.values()) {
-      if (material.emissiveMap || material.userData.windowGlow) material.emissiveIntensity = isNight ? (material.userData.windowGlow ?? 1.2) : 0;
-    }
   }
 
   dispose(scene) {
     if (this._disposed) return;
     this._disposed = true;
+    if (scene.userData?.streetLightMap) {
+      scene.userData.streetLightMap.texture.dispose();
+      delete scene.userData.streetLightMap;
+      setStreetLightLevel(scene, false, 0);
+      setStreetLampTwilight(null);
+    }
+    this.rainCover?.dispose();
+    this.rainCover = null;
+    this._releaseStationCameraCeiling?.();
     const textures = new Set(), ownedTextures = new Set();
     const rememberTexture = value => {
       if (value?.isTexture) textures.add(value);
