@@ -104,6 +104,7 @@ import { ITEMS, COSTAL_BONUS, isForSale } from '../data/items.js';
 import { SLEEP } from '../data/cambuche.js';
 import { cop } from '../utils/money.js';
 import { makeParkedMotos, MOTO_SIZE } from '../world/bogota/motos.js';
+import { prepararDetalleMotos } from '../world/bogota/detalleMotos.js';
 
 import {
   MENTAL_RESTORE_SLEEP, MENTAL_LOW_THRESHOLD,
@@ -119,6 +120,8 @@ export class Game {
     this.canvas = canvas;
     this.renderer = new Renderer(canvas);
     this.sceneMgr = new SceneManager();
+    // Se ejecuta también en modo foto y capturas directas, antes de proyectar la escena y las sombras.
+    this.sceneMgr.scene.onBeforeRender = (_renderer, _scene, camara) => this._detalleMotos?.(camara);
     this.sceneMgr.scene.environment = this.renderer.createEnvironment();
     this.cameraRig = new CameraRig(this.sceneMgr.scene, canvas);
     this.clock = new Clock({ dayLengthSeconds: DAY_CYCLE_SECONDS });
@@ -741,6 +744,7 @@ export class Game {
       }
     }
     this.parkedMotos = motos.length ? makeParkedMotos(motos) : null;
+    this._detalleMotos = this.parkedMotos ? prepararDetalleMotos(this.parkedMotos) : null;
     if (this.parkedMotos) this.sceneMgr.scene.add(this.parkedMotos);
     if (district.getTrafficRoutes) {
       this.traffic = new TrafficSystem(this.sceneMgr.scene, district.getTrafficRoutes(), { policeCount: 2 });

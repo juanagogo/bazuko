@@ -278,6 +278,9 @@ export const PRUEBAS = [
         return { car, id, kind };
       });
       sala.scene.add(makeParkedMotos([0, 1, 2, 3].map(i => ({ x: -46 - i * 1.1, z: -8, rot: Math.PI / 2 + .22, seed: i * 3 }))));
+      const modelos = cars.map(({ car, id, kind }) => ({
+        posicion: car.group.position, titulo: `${id} · ${kind}`, distancia: Math.max(car.length * .92, 3.7), altura: .85
+      }));
       sala.setHour(11);
       // Piso de pavimento amplio: la fila entera se revisa sin la cuadrícula de la sala.
       sala.ground.scale.setScalar(6);
@@ -286,21 +289,26 @@ export const PRUEBAS = [
       if (sala.player?.root) sala.player.root.visible = false;
       // Con el HUD oculto la cámara queda en manos de la prueba: fijarla justo antes de dibujar evita pelear con la del jugador.
       const camara = { activa: false, pos: new THREE.Vector3(), mira: new THREE.Vector3() };
-      sala.beforeRender?.add?.((camera) => {
-        if (!camara.activa) return;
-        camera.position.copy(camara.pos); camera.up.set(0, 1, 0); camera.lookAt(camara.mira); camera.updateMatrixWorld(true);
-      });
+      let indiceEncuadrado = -1, vistaEncuadrada, aspectoEncuadrado;
       const ver = (indice, vista) => {
-        const { car } = cars[indice], p = car.group.position, L = car.length, h = 1.55;
-        const lejos = Math.max(L * .92, 3.7);
+        const { posicion: p, altura, distancia } = modelos[indice];
+        const aspecto = sala.cameraRig?.camera.aspect || 1;
+        indiceEncuadrado = indice; vistaEncuadrada = vista; aspectoEncuadrado = aspecto;
+        const lejos = distancia / Math.min(1, aspecto);
         const vistas = {
-          frente: [lejos * .92, h, lejos * .72], cola: [-lejos * .92, h, lejos * .72], lado: [0, 1.0, lejos * 1.35],
-          frenteRecto: [lejos * 1.2, 1.1, 0], colaRecta: [-lejos * 1.2, 1.1, 0], arriba: [lejos * .7, 6, lejos * .7], ladoIzq: [0, 1.0, -lejos * 1.35],
+          frente: [lejos * .92, 1.55, lejos * .72], cola: [-lejos * .92, 1.55, lejos * .72], lado: [0, 1, lejos * 1.35],
+          frenteRecto: [lejos * 1.2, 1.1, 0], colaRecta: [-lejos * 1.2, 1.1, 0], arriba: [lejos * .7, 6, lejos * .7], ladoIzq: [0, 1, -lejos * 1.35],
         };
         const [dx, dy, dz] = vistas[vista];
-        camara.pos.set(p.x + dx, dy, p.z + dz); camara.mira.set(p.x, .85, p.z); camara.activa = true;
+        camara.pos.set(p.x + dx, p.y + dy * (altura / .85), p.z + dz);
+        camara.mira.set(p.x, p.y + altura, p.z); camara.activa = true;
       };
-      const verMotos = (dx = 3, dz = 2.6) => { camara.pos.set(-47.6 + dx, 1.35, -8 + dz); camara.mira.set(-47.6, .6, -8); camara.activa = true; };
+      const verMotos = (dx = 3, dz = 2.6) => { indiceEncuadrado = -1; camara.pos.set(-47.6 + dx, 1.35, -8 + dz); camara.mira.set(-47.6, .6, -8); camara.activa = true; };
+      sala.beforeRender?.add?.((camera) => {
+        if (!camara.activa) return;
+        if (indiceEncuadrado >= 0 && camera.aspect !== aspectoEncuadrado) ver(indiceEncuadrado, vistaEncuadrada);
+        camera.position.copy(camara.pos); camera.up.set(0, 1, 0); camera.lookAt(camara.mira); camera.updateMatrixWorld(true);
+      });
       window.__flota = { cars, ver, verMotos, camara, filas };
       // Como un carro detenido del tráfico: barre si llueve, sin moverse del sitio.
       sala.updaters.add((dt) => { for (const { car } of cars) { car.update(dt); car.animateDrive(0, false, { dt, speed: 0 }); } });
@@ -311,11 +319,11 @@ export const PRUEBAS = [
         acciones: [
           { texto: '💡 Noche', hacer: () => { noche = !noche; clima(); } },
           { texto: '🌧 Lluvia', hacer: () => { lluvia = !lluvia; clima(); } },
-          { texto: 'Modelo anterior', hacer: () => { actual = (actual + cars.length - 1) % cars.length; mostrar(); } },
-          { texto: 'Modelo siguiente', hacer: () => { actual = (actual + 1) % cars.length; mostrar(); } },
+          { texto: 'Modelo anterior', hacer: () => { actual = (actual + modelos.length - 1) % modelos.length; mostrar(); } },
+          { texto: 'Modelo siguiente', hacer: () => { actual = (actual + 1) % modelos.length; mostrar(); } },
           ...['frente', 'cola', 'lado'].map(nombre => ({ texto: nombre, hacer: () => { vista = nombre; mostrar(); } })),
         ],
-        estado: () => `${filas[actual].id} · ${filas[actual].kind}\nvista: ${vista}`,
+        estado: () => `${modelos[actual].titulo}\nvista: ${vista}`,
       };
     }
   },
