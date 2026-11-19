@@ -21,7 +21,7 @@ function canvas(w, h) {
     { width: w, height: h, getContext: () => null },
     {
       fillStyle: '', strokeStyle: '', lineWidth: 1, globalAlpha: 1,
-      fillRect() {}, strokeRect() {}, clearRect() {},
+      fillRect() {}, strokeRect() {}, clearRect() {}, drawImage() {},
       beginPath() {}, moveTo() {}, lineTo() {}, bezierCurveTo() {}, stroke() {}, fill() {},
       arc() {}, save() {}, restore() {}, translate() {}, rotate() {},
       scale() {}, fillText() {}, strokeText() {}, measureText: () => ({ width: 0 }),
@@ -105,6 +105,37 @@ function speckle(ctx, w, h, r, count, colors, maxSize = 2) {
     const s = 0.5 + r() * maxSize;
     ctx.fillRect(r() * w, r() * h, s, s);
   }
+}
+
+/** Baldosas de arcilla de 24 × 12 cm. Las parejas cambian de dirección en cada cuadro. */
+export const PARK_PAVER_METERS = 2.88;
+
+export function parkPavers() {
+  const size = 384, block = 32;
+  const s = surface(size, size, '#665d50', 224), r = rng(42413);
+  const clay = ['#ab7357', '#ab765b', '#a26d55', '#a6745b', '#a37962', '#ae8068'];
+  for (let row = 0; row < size / block; row++) for (let col = 0; col < size / block; col++) {
+    const alongX = (row + col) % 2 === 0;
+    const w = alongX ? block : block / 2, h = alongX ? block / 2 : block;
+    for (let pair = 0; pair < 2; pair++) {
+      const x = col * block + (alongX ? 0 : pair * w), y = row * block + (alongX ? pair * h : 0);
+      s.x.fillStyle = pick(r, clay); s.x.fillRect(x + .7, y + .7, w - 1.4, h - 1.4);
+      s.x.fillStyle = 'rgba(244,212,173,.16)'; s.x.fillRect(x + 1, y + 1, w - 2, .8);
+      s.xb.fillStyle = gray(153 + Math.floor(r() * 9)); s.xb.fillRect(x + .8, y + .8, w - 1.6, h - 1.6);
+      s.xr.fillStyle = gray(188 + Math.floor(r() * 20)); s.xr.fillRect(x + 1, y + 1, w - 2, h - 2);
+    }
+  }
+  aggregate(s, r, 4200, ['rgba(77,54,42,.12)', 'rgba(220,201,172,.12)'], 1);
+  // Three lee el relieve en R y la rugosidad en G. Una imagen sirve a ambos lados del
+  // sendero del lago y el shader de la ribera lee los dos canales en una sola muestra.
+  s.xb.globalCompositeOperation = s.xr.globalCompositeOperation = 'multiply';
+  s.xb.fillStyle = '#ff0000'; s.xb.fillRect(0, 0, size, size);
+  s.xr.fillStyle = '#00ff00'; s.xr.fillRect(0, 0, size, size);
+  s.xb.globalCompositeOperation = 'screen';
+  s.xb.drawImage(s.cr, 0, 0);
+  const maps = surfaceMaps(s);
+  maps.roughnessMap.source = maps.bumpMap.source;
+  return maps;
 }
 
 /** Asfalto mineral: árido, reparaciones y humedad; el acabado mojado lo mezcla el material. */
@@ -197,6 +228,12 @@ export function sidewalk(seed = 11, { district = 'centro' } = {}) {
   for (let i = 0; i < 26; i++) {
     const px = r() * s, py = r() * s, pr = 1.6 + r() * 2.6;
     softPatch(x, s, s, px, py, pr, pr * (.7 + r() * .3), 'rgba(38,36,32,.5)');
+  }
+  // Hasta 120 con su propia semilla, para que lo de antes salga igual: los recientes negros, los viejos ya grises.
+  const u = rng((seed ^ 0x3c9d41) >>> 0);
+  for (let i = 26; i < 120; i++) {
+    const px = u() * s, py = u() * s, pr = 1.4 + u() * 2.4;
+    softPatch(x, s, s, px, py, pr, pr * (.7 + u() * .3), u() < .6 ? 'rgba(38,36,32,.5)' : 'rgba(84,81,74,.42)');
   }
   return surfaceMaps(maps);
 }
@@ -787,12 +824,14 @@ export function radialSprite(size = 128, inner = 'rgba(255,255,255,1)', outer = 
   }
 }
 
-/** Tierra/barro para el lote bajo el viaducto. */
+/** Tierra/barro para el lote bajo el viaducto y El Cartucho: charcos, huellas de zorra y basura menuda. */
 export function dirt(seed = 31) {
   const r = rng(seed);
   const s = 512;
   const maps = surface(s, s, '#786b54', 230), { x, xr, xb } = maps;
-  aggregate(maps, r, 19000, ['#72624c', '#85765d', '#958568', '#645943', '#a1957b'], 2.6);
+  // Quince tonos con la misma tirada de cinco: cada grano cae donde caía. Sin el grano claro, y el arena en un tercio.
+  aggregate(maps, r, 19000, ['#72624c', '#72624c', '#72624c', '#85765d', '#85765d', '#85765d', '#958568', '#7d6e55', '#7d6e55',
+    '#645943', '#645943', '#645943', '#6b5c46', '#6b5c46', '#6b5c46'], 2.6);
   for (let i = 0; i < 15; i++) {
     const px = r() * s, py = r() * s, radius = 20 + r() * 70;
     softPatch(x, s, s, px, py, radius, radius * .75, 'rgba(78,65,46,.22)');
@@ -803,6 +842,52 @@ export function dirt(seed = 31) {
     const px = r() * s, py = r() * s, radius = 1 + r() * 2;
     for (const [ctx, color] of [[x, pick(r, ['#aaa18a', '#8b8875', '#625e50'])], [xb, '#919191']]) {
       ctx.fillStyle = color; ctx.beginPath(); ctx.arc(px, py, radius, 0, Math.PI * 2); ctx.fill();
+    }
+  }
+  // Lo de encima va con su propia semilla: lo de antes sale igual.
+  const u = rng((seed ^ 0x2f1e7a) >>> 0);
+  // Charcos de barro: lisos, sin grano en el relieve y menos ásperos.
+  const puddles = 6 + Math.floor(u() * 5);
+  for (let i = 0; i < puddles; i++) {
+    const px = u() * s, py = u() * s, radius = 40 + u() * 80, squash = .55 + u() * .35;
+    for (let lobe = 0; lobe < 3; lobe++) {
+      const angle = u() * Math.PI * 2, reach = lobe ? radius * (.35 + u() * .3) : 0, size = lobe ? radius * (.45 + u() * .25) : radius;
+      const lx = px + Math.cos(angle) * reach, ly = py + Math.sin(angle) * reach * squash;
+      softPatch(x, s, s, lx, ly, size, size * squash, 'rgba(38,30,20,.38)');
+      softPatch(xb, s, s, lx, ly, size, size * squash, 'rgba(128,128,128,.85)');
+      softPatch(xr, s, s, lx, ly, size, size * squash, 'rgba(140,140,140,.95)');
+    }
+  }
+  // Dos huellas de zorra: ruedas de 10 cm a 70 cm entre sí (64 px por metro), que se desvanecen en las puntas.
+  const wheel = 6.4, axle = 44.8;
+  for (let track = 0; track < 2; track++) {
+    let px = u() * s, py = u() * s, angle = u() * Math.PI;
+    const turn = (u() - .5) * .0024, steps = 26 + Math.floor(u() * 10), points = [];
+    for (let k = 0; k <= steps; k++) {
+      points.push([px, py, angle]);
+      px += Math.cos(angle) * 12; py += Math.sin(angle) * 12; angle += turn * 12;
+    }
+    for (const side of [-axle / 2, axle / 2]) {
+      const rut = points.map(([qx, qy, a]) => [qx - Math.sin(a) * side, qy + Math.cos(a) * side]);
+      for (const [ctx, color, alpha] of [[x, 'rgb(46,37,25)', .34], [xb, '#6a6a6a', .7], [xr, '#a8a8a8', .5]]) {
+        ctx.strokeStyle = color; ctx.lineWidth = wheel;
+        for (let k = 1; k < rut.length; k++) {
+          ctx.globalAlpha = alpha * Math.sin(Math.PI * k / rut.length);
+          for (const dx of [-s, 0, s]) for (const dy of [-s, 0, s]) {
+            ctx.beginPath(); ctx.moveTo(rut[k - 1][0] + dx, rut[k - 1][1] + dy); ctx.lineTo(rut[k][0] + dx, rut[k][1] + dy); ctx.stroke();
+          }
+        }
+        ctx.globalAlpha = 1;
+      }
+    }
+  }
+  // Papelitos y plásticos aplastados, de 5 a 12 cm, a medio tapar por la tierra.
+  for (let i = 0; i < 40; i++) {
+    const px = u() * s, py = u() * s, w = 3 + u() * 5, h = 3 + u() * 5, angle = u() * Math.PI, plastic = u() < .4;
+    for (const [ctx, color] of [[x, plastic ? '#4d6a86' : '#cfc8b5'], [xb, '#8c8c8c'], [xr, plastic ? '#7a7a7a' : '#dcdcdc']]) {
+      ctx.save(); ctx.translate(px, py); ctx.rotate(angle); ctx.globalAlpha = .5;
+      ctx.fillStyle = color; ctx.fillRect(-w / 2, -h / 2, w, h);
+      ctx.restore();
     }
   }
   return surfaceMaps(maps);

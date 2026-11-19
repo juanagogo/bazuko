@@ -4,6 +4,7 @@ import { addBuildingDetails } from '../bogota/BuildingDetails.js';
 import { addStreetDetails } from '../bogota/StreetDetails.js';
 import { setStreetLightLevel } from '../bogota/StreetLightShader.js';
 import { streetIntersections, pedestrianCrossings, crossingTiles } from '../bogota/StreetCrossings.js';
+import { parkingExclusions, planStreetSigns } from '../bogota/StreetCorners.js';
 import { buildStreetMarkings } from '../bogota/StreetMarkings.js';
 import { setFloorWetness, wetsWithRain } from '../bogota/StreetPuddles.js';
 import { planUrbanTrees } from '../bogota/UrbanPlanting.js';
@@ -40,6 +41,7 @@ import { varianteDeVenta } from '../bogota/ventasCalle.js';
 import { Npc } from '../../entities/Npc.js';
 import { thinkStreet } from '../../entities/npc/mind.js';
 import { BuildingVisibility, CLOSED_CHUNK_SIZE, createBuildingShell } from '../bogota/BuildingVisibility.js';
+import { DistrictPopulation } from '../bogota/DistrictPopulation.js';
 import { PedestrianNavigation } from '../bogota/PedestrianNavigation.js';
 import { caracasNavigation } from '../bogota/CaracasNavigation.js';
 import { GpsNavigation } from '../../systems/GpsNavigation.js';
@@ -49,6 +51,7 @@ import { skylineFloors, buildAvenueOverpass, AVENUE_OVERPASS } from '../bogota/A
 import { GAS_STATION, GAS_OBSTACLES, inGasStation, underGasCanopy, buildGasStation } from '../bogota/GasStation.js';
 import { buildMetroBogota } from '../bogota/MetroBogota.js';
 import { buildD69Store } from '../bogota/D69Store.js';
+import { dressAsphalt, followAsphaltNight, setAsphaltWetness } from '../bogota/AsphaltDressing.js';
 import { buildColpatria, COLPATRIA, COLPATRIA_ANNEX, BUS_DETOUR, busPathX, southBusPathX } from '../bogota/Colpatria.js';
 import { VIADUCT, buildColpatriaViaduct, viaductHeight, viaductSurface } from '../bogota/ColpatriaViaduct.js';
 import { TERMINAL, inTerminal, terminalGroundHeight, buildTransitTerminal, crossesIslandEdge, crowdsIslandPole, islandAisleX, underTerminalRoof } from '../bogota/TransitTerminal.js';
@@ -160,6 +163,8 @@ function lightFacades(district) {
 export class Bogota {
   constructor() {
     this.group = new THREE.Group();
+    this.population = new DistrictPopulation();
+    this._walkerSeeds = TX.rng(this.population.seed);
     this.lakePark = LAKE_PARK;
     this.gasStation = GAS_STATION;
     this.colpatria = COLPATRIA;
@@ -354,6 +359,7 @@ export class Bogota {
     this._noteFallRoom(collisions);
     this._spawnPeople();
     addStreetDetails(this, collisions);
+    followAsphaltNight(this.groundMaterials?.road, this.groundMaterials?.busway);
     if (collisions) this.pedestrianNavigation.cutSolidEdges(collisions, undefined, this.benchSpots.map(benchFootprint));
   }
 
@@ -364,13 +370,13 @@ export class Bogota {
   getParkingSpots() {
     const m = this.map;
     const spots = [];
-    // La Calle 6 no está en CALLES, pero el enlace de Chapinero dobla en ella: un carro en esa esquina le corta la curva.
-    const nearCross = (x, z) => [...CALLES, CALLE_6].some(([a, b]) => z >= a - 2 && z <= b + 2) && [...CARRERAS, ...CARACAS.lanes.map(([a, b]) => [a, b])].some(([a, b]) => x >= a - 2 && x <= b + 2);
+    const intersections = streetIntersections(m);
+    const reserved = parkingExclusions(m, intersections, pedestrianCrossings(m, intersections));
     for (let z = 2; z < m.length - 2; z++) {
       // Los circuitos centrales quedan libres; se conserva el parqueo en los extremos.
       if (z >= CALLES[0][0] - 2 && z <= CALLES[1][1] + 2) continue;
       for (let x = 2; x < m[0].length - 2; x++) {
-        if (m[z][x] !== 'road' || nearCross(x, z) || this._noParking(x, z)) continue;
+        if (m[z][x] !== 'road' || reserved[z * m[0].length + x] || this._noParking(x, z)) continue;
         if (x >= CARACAS.lanes[0][0] && x <= CARACAS.lanes[1][1]) continue; // la Caracas no se parquea
         for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
           if (m[z + dz][x + dx] !== 'sidewalk') continue;
@@ -478,32 +484,32 @@ export class Bogota {
     };
     const mats = {
       // Relieve y rugosidad independientes del color: las reparaciones no son agujeros.
-      road: new THREE.MeshStandardMaterial({
+      road: dressAsphalt(new THREE.MeshStandardMaterial({
         map: tex(asphalt.map, 14),
         bumpMap: tex(asphalt.bumpMap, 14),
         roughnessMap: tex(asphalt.roughnessMap, 14),
         bumpScale: 0.025,
         roughness: 0.82,
         color: '#dededb'
-      }),
-      busway: new THREE.MeshStandardMaterial({
+      }), map),
+      busway: dressAsphalt(new THREE.MeshStandardMaterial({
         map: tex(asphalt.map, 14),
         bumpMap: tex(asphalt.bumpMap, 14),
         roughnessMap: tex(asphalt.roughnessMap, 14),
         bumpScale: 0.025,
         roughness: 1,
-        color: '#b9a29c'
-      }),
+        color: '#cdc8bc'
+      }), map, { slabs: true }),
       sidewalk: new THREE.MeshStandardMaterial({
         map: tex(walk.map, 6),
         bumpMap: tex(walk.bumpMap, 6),
         roughnessMap: tex(walk.roughnessMap, 6),
         bumpScale: 0.035,
         roughness: 0.75,
-        color: '#e2dfd5'
+        color: '#cdc8bc'
       }),
       floor: new THREE.MeshStandardMaterial({ map: tex(concrete.map, 6), bumpMap: tex(concrete.bumpMap, 6), bumpScale: .025, roughnessMap: concrete.roughnessMap, roughness: 0.95, color: '#dedbd2' }),
-      dirt: new THREE.MeshStandardMaterial({ map: tex(dirt.map, 8), bumpMap: tex(dirt.bumpMap, 8), bumpScale: .035, roughnessMap: dirt.roughnessMap, roughness: 1, color: '#d8cbb4' }),
+      dirt: dressPaving(new THREE.MeshStandardMaterial({ map: tex(dirt.map, 8), bumpMap: tex(dirt.bumpMap, 8), bumpScale: .035, roughnessMap: dirt.roughnessMap, roughness: 1, color: '#b3a690' }), { map, key: 'dirt' }),
       grass: new THREE.MeshStandardMaterial({ map: tex(grass.map, 8), bumpMap: tex(grass.bumpMap, 8), bumpScale: .05, roughnessMap: grass.roughnessMap, roughness: 1, color: '#c2c7ac' }),
       plaza: new THREE.MeshStandardMaterial({ map: tex(walk.map, 6), bumpMap: walk.bumpMap, bumpScale: .035, roughnessMap: walk.roughnessMap, roughness: 0.85, color: '#dfd6be' }),
       water: createLakeWaterMaterial()
@@ -513,7 +519,7 @@ export class Bogota {
       const paving = shareSidewalk(TX.sidewalk(11, { district: id }));
       const material = new THREE.MeshStandardMaterial({ map: tex(paving.map, 6),
         bumpMap: tex(paving.bumpMap, 6), bumpScale: .035, roughnessMap: paving.roughnessMap,
-        roughness: .85, color: '#e2dfd5' });
+        roughness: .85, color: '#cdc8bc' });
       material.name = `Andén · ${id}`;
       material.userData.surface = 'sidewalk';
       mats[`sidewalk_${id}`] = material;
@@ -526,19 +532,21 @@ export class Bogota {
       return material;
     };
     const cobbles = cobblestones(), slabs = flagstones(3381, { tint: '#8f8878' }), plazaSlabs = flagstones(5581, { tint: '#a39b8a', slabW: 170, slabH: 112 });
+    mats.plaza_parque = zoneMaterial('Paseo de adoquín en canasta', TX.parkPavers(), TX.PARK_PAVER_METERS,
+      { bumpScale: .015, roughness: .9, color: '#f4ebe0' });
     mats.road_cobbles = zoneMaterial('Adoquín', cobbles, 2.6, { bumpScale: .05, roughness: .95, color: '#d8d2c6' });
     mats.sidewalk_candelaria = zoneMaterial('Andén de la Candelaria', slabs, 6, { bumpScale: .035, roughness: .85, color: '#e9e4d8' });
     mats.sidewalk_candelaria.userData.surface = 'sidewalk';
     mats.plaza_candelaria = zoneMaterial('Plaza de la Candelaria', plazaSlabs, 6, { bumpScale: .03, roughness: .85, color: '#eee8dc' });
     const chapineroPaving = shareSidewalk(TX.sidewalk(11, { district: 'chapinero' }));
-    mats.sidewalk_chapinero = zoneMaterial('Andén de Chapinero', chapineroPaving, 6, { bumpScale: .035, roughness: .85, color: '#e2dfd5' });
+    mats.sidewalk_chapinero = zoneMaterial('Andén de Chapinero', chapineroPaving, 6, { bumpScale: .035, roughness: .85, color: '#cdc8bc' });
     mats.sidewalk_chapinero.userData.surface = 'sidewalk';
-    const scaleOf = { road: 14, busway: 14, sidewalk: 6, floor: 6, dirt: 8, grass: 8, plaza: 6, water: 16,
+    const scaleOf = { road: 14, busway: 14, sidewalk: 6, floor: 6, dirt: 8, grass: 8, plaza: 6, plaza_parque: TX.PARK_PAVER_METERS, water: 16,
       road_cobbles: 2.6, sidewalk_candelaria: 6, sidewalk_chapinero: 6, plaza_candelaria: 6,
       sidewalk_cambuche: 6, sidewalk_comercio: 6, sidewalk_lago: 6 };
     dressGrass(mats.grass, buildGroundWear(map, CAMP_WEAR));
-    for (const key of ['sidewalk', 'plaza', 'sidewalk_cambuche', 'sidewalk_comercio', 'sidewalk_lago',
-      'sidewalk_candelaria', 'sidewalk_chapinero', 'plaza_candelaria']) dressPaving(mats[key]);
+    for (const key of ['sidewalk', 'plaza', 'plaza_parque', 'sidewalk_cambuche', 'sidewalk_comercio', 'sidewalk_lago',
+      'sidewalk_candelaria', 'sidewalk_chapinero', 'plaza_candelaria']) dressPaving(mats[key], { map, key });
     const heightOf = GROUND_HEIGHTS;
     const quads = {};
     for (let z = 0; z < map.length; z++) {
@@ -559,7 +567,8 @@ export class Bogota {
           if (inLakeTerrain(pos.getX(i), pos.getZ(i))) pos.setY(i, this._lakeGroundHeight(pos.getX(i), pos.getZ(i)));
         }
         const neighborhood = neighborhoodAt(W(x), W(z));
-        const materialKey = neighborhood.id === 'candelaria' && t === 'road' ? 'road_cobbles'
+        const materialKey = t === 'plaza' && inUrbanPark(x, z) ? 'plaza_parque'
+          : neighborhood.id === 'candelaria' && t === 'road' ? 'road_cobbles'
           : neighborhood.id === 'candelaria' && t === 'plaza' ? 'plaza_candelaria'
             : t === 'sidewalk' && neighborhood.id !== 'centro' ? `sidewalk_${neighborhood.id}` : t;
         for (let i = 0; i < uv.count; i++) uv.setXY(i, pos.getX(i) / scaleOf[materialKey], pos.getZ(i) / scaleOf[materialKey]);
@@ -577,10 +586,12 @@ export class Bogota {
         if (heightOf[t] >= SIDEWALK_Y && !onLakeBridge(W(x), W(z))) {
           for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
             const n = map[z + dz]?.[x + dx];
-            if (n !== 'road' && n !== 'busway') continue;
-            const c = new THREE.PlaneGeometry(T, SIDEWALK_Y);
+            const lawnEdge = materialKey === 'plaza_parque' && n === 'grass';
+            if (n !== 'road' && n !== 'busway' && !lawnEdge) continue;
+            const baseY = lawnEdge ? heightOf.grass : 0;
+            const c = new THREE.PlaneGeometry(T, SIDEWALK_Y - baseY);
             c.rotateY(dx ? (dx > 0 ? Math.PI / 2 : -Math.PI / 2) : (dz > 0 ? 0 : Math.PI));
-            c.translate(W(x) + dx * T / 2, SIDEWALK_Y / 2, W(z) + dz * T / 2);
+            c.translate(W(x) + dx * T / 2, (SIDEWALK_Y + baseY) / 2, W(z) + dz * T / 2);
             (quads[neighborhood.id === 'candelaria' ? 'curb_stone' : 'curb'] ??= []).push(c);
           }
         }
@@ -627,6 +638,7 @@ export class Bogota {
     if (!this.groundMaterials) return;
     const wet = THREE.MathUtils.clamp(amount, 0, 1) * (this.graphicsQuality === 'baja' ? .65 : 1);
     setFloorWetness(wet);
+    setAsphaltWetness(wet);
     this.stationGroup?.userData.setWetness?.(wet);
     if (this.groundMaterials.road) {
       this.groundMaterials.road.roughness = THREE.MathUtils.lerp(0.82, 0.32, wet);
@@ -1239,11 +1251,10 @@ export class Bogota {
         this.props.push({ instance: farol });
       }
     }
-    // placas en las esquinas
-    for (const [za, zb, calle] of CALLES) {
-      for (const [xa, xb, carrera] of [...CARRERAS, [CARACAS.lanes[0][0], CARACAS.lanes[1][1], 'Av. Caracas']]) {
-        this._add(P.streetSign([calle, carrera]), W(xa - 1), W(za - 1));
-      }
+    const clearCorner = (x, z) => lampSpots.every(([lx, lz]) => Math.hypot(x - lx, z - lz) > 1.5) &&
+      signalPoles.every(pole => Math.hypot(x - pole.x, z - pole.z) > 1.5);
+    for (const { calle, carrera, x, z } of planStreetSigns(map, streetIntersections(map), clearCorner)) {
+      this._add(P.streetSign([calle, carrera]), x, z);
     }
     // Bus sin estación ni parada programada mientras se ajusta el puente.
     this.busService = new BusService(this.getBusRoute());
@@ -1283,13 +1294,12 @@ export class Bogota {
     (this.puestos ??= []).push({ x, z, kind });
     const oficio = varianteDeVenta(kind, { title, items });
     const back = new THREE.Vector3(Math.sin(rotY), 0, Math.cos(rotY)).multiplyScalar(-0.9);
-    const seller = new Npc(this.scene, new THREE.Vector3(x + back.x, this.getGroundHeight(x, z), z + back.z), {
+    const seller = this._resident(`puesto:${slot}`, new THREE.Vector3(x + back.x, this.getGroundHeight(x, z), z + back.z), {
       facing: rotY, isWalkable: () => false,
       arquetipo: 'vendedor', delantal: oficio === 'dulces' ? null : oficio,
       fijo: { stance: 'atender', alternas: VENDOR_POSES }
     });
     seller.isVendor = true;
-    this.npcs.push(seller);
     this.vendors.push({
       kind: 'shop', stall: kind, title, items, position: new THREE.Vector3(x, 0, z), attendant: seller,
       interactDistance(position) {
@@ -1580,9 +1590,10 @@ export class Bogota {
     const water = (x, z) => this.getWaterInfo(x, z);
     // Sin pisar el borde: el bus para si alguien queda a menos de medio metro de su costado.
     const onPlatform = (x, z) => x >= 73.5 && x <= 76.5 && z >= -57 && z <= -3;
-    const walker = (position) => this.npcs.push(new Npc(this.scene, position, {
-      navigation, groundHeight: navigation.groundHeight, isWalkable: walk, collisions: this._collisions, getWaterInfo: water, zona: this._zoneAt(position.x, position.z)
-    }));
+    const routeRandom = () => TX.rng(Math.floor(this._walkerSeeds() * 2 ** 32));
+    const walker = (slot, position) => this._resident(slot, position, {
+      navigation, routeRandom: routeRandom(), groundHeight: navigation.groundHeight, isWalkable: walk, collisions: this._collisions, getWaterInfo: water, zona: this._zoneAt(position.x, position.z)
+    });
     const spots = [
       // El Cartucho y parque.
       [13.5, 20], [13, 23], [16, 23.5], [18, 22.4], [12.5, 21], [19.8, 21.5],
@@ -1593,7 +1604,7 @@ export class Bogota {
     ];
     for (const [x, z] of spots) {
       const position = navigation.nearestPoint(WX(x), WZ(z));
-      if (position) walker(position);
+      if (position) walker(`centro:${x},${z}`, position);
     }
     // Fijos: mismos cuerpos, menos caminantes en los barrios. Huyen por la red como cualquiera: solo el último
     // tramo de vuelta a su sitio puede salirse de ella.
@@ -1601,12 +1612,11 @@ export class Bogota {
     for (const person of fixed) {
       const [x, z] = person.at;
       const home = new THREE.Vector3(x, this.getGroundHeight(x, z), z);
-      const npc = new Npc(this.scene, home, {
+      const npc = this._resident(person.slot ?? `fijo:${x},${z}`, home, {
         // La red no sube al andén: quien se asusta allá arriba se queda en él y vuelve en línea recta.
-        navigation: person.anden ? null : navigation, groundHeight: (px, pz) => person.anden ? this.getGroundHeight(px, pz) : navigation.groundHeight(px, pz), isWalkable: person.anden ? onPlatform : walk, collisions: this._collisions, getWaterInfo: water, facing: person.facing,
+        routeRandom: routeRandom(), navigation: person.anden ? null : navigation, groundHeight: (px, pz) => person.anden ? this.getGroundHeight(px, pz) : navigation.groundHeight(px, pz), isWalkable: person.anden ? onPlatform : walk, collisions: this._collisions, getWaterInfo: water, facing: person.facing,
         arquetipo: person.arquetipo, fijo: { stance: person.stance, alternas: person.alternas, techo: person.anden, reach: person.anden ? 0 : FIXED_REACH }
       });
-      this.npcs.push(npc);
       // Cada pareja son dos entradas seguidas: el que se asusta se lleva al otro.
       if (person.pareja === -1) {
         const other = this.npcs.at(-2);
@@ -1625,9 +1635,18 @@ export class Bogota {
     const eastCount = Math.min(east.length, Math.max(0, EAST_PEDESTRIANS - eastFixed));
     // Siempre los mismos 80: quien se queda en su sitio no se suma, reemplaza a un caminante.
     const count = Math.min(candidates.length, Math.max(0, TOTAL_PEDESTRIANS - (this.npcs.length - vendors) - eastCount));
-    const place = node => walker(new THREE.Vector3(W(node.x), this.getGroundHeight(W(node.x),W(node.z)), W(node.z)));
+    const place = node => walker(`barrio:${node.x},${node.z}`, new THREE.Vector3(W(node.x), this.getGroundHeight(W(node.x),W(node.z)), W(node.z)));
     for (let i=0;i<count;i++) place(candidates[Math.floor((i+0.5)*candidates.length/count)]);
     for (let i=0;i<eastCount;i++) place(east[Math.floor((i+0.5)*east.length/eastCount)]);
+  }
+
+  _resident(slot, position, options) {
+    const npc = this.population.spawn(slot, random => new Npc(this.scene, position, { ...options, personRandom: random }));
+    if (!this.npcs.includes(npc)) {
+      this.npcs.push(npc);
+      if (this.trafficPedestrians && this.trafficPedestrians !== this.npcs) this.trafficPedestrians.push(npc);
+    }
+    return npc;
   }
 
   /**

@@ -7,6 +7,7 @@ import { STATIC_CHUNK_SIZE, freezeStaticTransforms } from './StaticGeometry.js';
 import { StreetBatch, unit } from './StreetBatch.js';
 import { inLakeTerrain } from './LakePark.js';
 import { scanCityEdge } from './CityEdge.js';
+import { BENCH_SUPPORT } from '../props/Banca.js';
 
 const T = TILE_SIZE;
 const UP = [0, 1, 0];
@@ -136,6 +137,23 @@ function mancha(batch, district, cx, cz, hw, hd, fuerza) {
   }
 }
 
+/** Dos huellas bajo las platinas. La subdivisión corta sigue también los triángulos de la ribera. */
+function manchasDeBanca(batch, district, { x, z, y = district.getGroundHeight(x, z), rot = 0 }) {
+  const c = Math.cos(rot), s = Math.sin(rot);
+  const hw = BENCH_SUPPORT.width / 2 + .125, hd = BENCH_SUPPORT.length / 2 + .145;
+  const point = (baseX, u, v) => {
+    const bx = baseX + u * hw, bz = BENCH_SUPPORT.z + v * hd;
+    const px = x + bx * c + bz * s, pz = z - bx * s + bz * c;
+    const floor = district.getMovementGroundHeight?.(px, pz, y) ?? district.getGroundHeight(px, pz);
+    return [px, floor + .007, pz];
+  };
+  for (const baseX of [-BENCH_SUPPORT.x, BENCH_SUPPORT.x]) for (const u of [-1, 0]) for (let row = 0; row < 3; row++) {
+    const v = row * 2 / 3 - 1, next = v + 2 / 3;
+    const vertices = [point(baseX, u, next), point(baseX, u + 1, next), point(baseX, u + 1, v), point(baseX, u, v)];
+    if (vertices.some(p => !Number.isFinite(p[1]) || Math.abs(p[1] - y) > .052)) continue;
+    batch.quad(...vertices, UP, [u, next, u + 1, v], [1, 1, 1, .92]);
+  }
+}
 
 /** Lo clavado al piso: postes de cables, semáforos, faroles, bancas y puestos de venta. */
 function manchasDeMobiliario(batch, district, poles) {
@@ -149,6 +167,7 @@ function manchasDeMobiliario(batch, district, poles) {
     const { x, z, rot = 0 } = spot;
     const girada = Math.abs(Math.sin(rot)) > .7;
     mancha(batch, district, x, z, girada ? .85 : 1.4, girada ? 1.4 : .85, .24);
+    manchasDeBanca(batch, district, spot);
   }
   for (const { position } of district.vendors ?? []) if (position) mancha(batch, district, position.x, position.z, 1.7, 1.7, .9);
 }

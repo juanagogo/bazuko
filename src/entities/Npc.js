@@ -202,9 +202,9 @@ export class Npc {
     // Quién es: `gastada` es habitante de calle y, si no, lo decide la zona. Un `look` dado o un subtipo
     // (escuadrón, conductor bravo) no tienen arquetipo ni conductas: los lleva su propio sistema.
     const arquetipo = opts.look || this.constructor !== Npc ? null
-      : opts.arquetipo ?? (opts.gastada ? 'habitante' : pickArchetype(opts.zona));
+      : opts.arquetipo ?? (opts.gastada ? 'habitante' : pickArchetype(opts.zona, opts.personRandom));
     const low = LOW_STANCES.has(opts.fijo?.stance);
-    this.person = arquetipo ? rollPerson(arquetipo, { sinCarga: !!opts.fijo, tallaFija: opts.fijo?.stance === 'banca' }) : null;
+    this.person = arquetipo ? rollPerson(arquetipo, { random: opts.personRandom, sinCarga: !!opts.fijo, tallaFija: opts.fijo?.stance === 'banca' }) : null;
     this.walkSpeed = opts.speed ?? this.person?.speed ?? (0.85 + Math.random() * 0.45);
     this.route = [];
     this.routeIndex = 0;
@@ -339,7 +339,7 @@ export class Npc {
   /** Su arquetipo vestido con lo que de verdad hay en el catálogo; sin arquetipo, la apariencia de calle. */
   async _personLook(opts) {
     if (!this.person) return randomStreetLook({ gastada: opts.gastada });
-    const look = personLook(this.person);
+    const look = personLook(this.person, opts.personRandom);
     if (opts.delantal) look.delantal = opts.delantal;
     look.real = normalizeReal(await loadCatalog(), this.person.real);
     return look;
@@ -615,7 +615,7 @@ export class Npc {
     if (!navigation?.createRoute) return false;
     let best = null, score = -Infinity;
     for (let i = 0; i < 3; i++) {
-      const route = navigation.createRoute(this.position);
+      const route = navigation.createRoute(this.position, this.routeRandom);
       if (!route.length) continue;
       const end = route.at(-1), dx = end.x - this.position.x, dz = end.z - this.position.z;
       const value = Math.hypot(dx, dz) + (dx * this._fleeAwayX + dz * this._fleeAwayZ);
@@ -734,7 +734,7 @@ export class Npc {
     if (!this.person || !route.length) return route;
     const away = (list) => (list.at(-1).x - this.home.x) ** 2 + (list.at(-1).z - this.home.z) ** 2;
     if (away(route) < CONDUCT.rooted ** 2) return route;
-    const other = this.navigation.createRoute(this.position);
+    const other = this.navigation.createRoute(this.position, this.routeRandom);
     return other.length && away(other) < away(route) ? other : route;
   }
 

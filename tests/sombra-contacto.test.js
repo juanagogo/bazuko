@@ -83,6 +83,24 @@ test('postes, bancas y puestos dejan su mancha, y la penumbra se apaga hacia afu
   assert.ok(CONTACTO.noche < CONTACTO.dia && CONTACTO.dia <= .7, 'de noche pesa menos y de día no tapa el piso');
 });
 
+test('las dos platinas de una banca del Lago imprimen su apoyo sobre el adoquín real', () => {
+  const city = district();
+  const x = 118, z = 236, y = city.getGroundHeight(x, z);
+  city.benchSpots = [{ x, y, z, rot: Math.PI / 2 }];
+  const { group } = armar(city);
+  const sides = new Set();
+  for (const mesh of group.children) {
+    const positions = mesh.geometry.attributes.position;
+    for (let i = 0; i < positions.count; i++) {
+      const px = positions.getX(i), py = positions.getY(i), pz = positions.getZ(i);
+      if (Math.hypot(px - x, pz - z) > .95) continue;
+      assert.ok(Math.abs(py - city.getMovementGroundHeight(px, pz, y) - .007) < 1e-5);
+      sides.add(Math.sign(pz - z));
+    }
+  }
+  assert.deepEqual([...sides].sort(), [-1, 1], 'una huella por cada lado de la banca, aunque esté dentro de la ribera');
+});
+
 test('la opacidad sigue la hora de la escena', () => {
   const { group } = armar(district());
   const mesh = group.children[0];

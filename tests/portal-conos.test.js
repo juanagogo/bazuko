@@ -82,6 +82,33 @@ test('el cielo raso del andén lleva juntas, goteras y polvo pintados, y el rojo
   assert.deepEqual([...new Set(puro)], []);
 });
 
+test('los conos del cierre tienen base cuadrada negra, ocho caras y franja reflectiva, y ninguno se hunde', t => {
+  const dentro = (name, u, v) => { const [u0, v0, u1, v1] = detailRect(name); return u >= u0 - 1e-6 && u <= u1 + 1e-6 && v >= v0 - 1e-6 && v <= v1 + 1e-6; };
+  let franja = 0, naranja = 0, caidos = 0, ladeados = 0, hondo = Infinity;
+  for (const raiz of [borde.valor.group, terminal.valor]) raiz.traverse(mesh => {
+    if (!mesh.isMesh || !mesh.name.startsWith('Cierre')) return;
+    const { position, uv } = mesh.geometry.attributes, index = mesh.geometry.index.array;
+    for (let i = 0; i < index.length; i += 3) {
+      const [a, b, c] = [index[i], index[i + 1], index[i + 2]];
+      const u = (uv.getX(a) + uv.getX(b) + uv.getX(c)) / 3, v = (uv.getY(a) + uv.getY(b) + uv.getY(c)) / 3;
+      const ys = [a, b, c].map(k => position.getY(k));
+      if (dentro('whiteTrim', u, v)) {
+        franja++;
+        if (Math.max(...ys) < .3) caidos++;
+        else if (Math.min(Math.abs(ys[0] - ys[1]), Math.abs(ys[1] - ys[2]), Math.abs(ys[0] - ys[2])) > 1e-4) ladeados++;
+      }
+      if (dentro('orangeTarp', u, v)) { naranja++; hondo = Math.min(hondo, ...ys); }
+    }
+  });
+  const conos = franja / 16;
+  assert.ok(Number.isInteger(conos) && conos >= 20, `${franja} triángulos de franja: ${conos} conos de ocho caras`);
+  assert.equal(naranja, conos * 32, 'dos tramos naranja de ocho caras por cono');
+  assert.ok(caidos >= 16 && caidos <= franja / 4, `algún cono caído, no la mayoría (${caidos / 16})`);
+  assert.ok(ladeados > 0, 'alguno ladeado');
+  assert.ok(hondo > .01, `ningún cono se mete en el piso (${hondo})`);
+  t.diagnostic(`${conos} conos, ${caidos / 16} caídos, ${ladeados / 16 | 0} ladeados`);
+});
+
 test('las columnas llevan el zócalo sucio de la hoja y de noche cada luminaria aclara el cielo raso', () => {
   const { position, uv } = malla('inside').geometry.attributes;
   let columnas = 0;

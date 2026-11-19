@@ -6,6 +6,7 @@ import { Player } from '../src/entities/Player.js';
 import { curbRuns } from '../src/world/bogota/StreetDetails.js';
 import { activateSunField } from '../src/world/bogota/SunField.js';
 import { addStreetPuddles, gutterBands, planPuddles, setPuddles } from '../src/world/bogota/StreetPuddles.js';
+import { asphaltPatches } from '../src/world/bogota/StreetMarkings.js';
 
 const sorteos = run => {
   const original = Math.random;
@@ -127,6 +128,20 @@ test('el charco refleja el cielo nublado sin pasar de 1,3 veces el valor del asf
   activateSunField(null);
 });
 
+test('una banda de agua de 20 a 30 cm corre pegada al sardinel, y los remiendos guardan charcos', () => {
+  const row = type => Array.from({ length: 60 }, () => type);
+  const map = [row('sidewalk'), row('road'), row('road'), row('road'), row('sidewalk')];
+  const bands = gutterBands(map, curbRuns(map));
+  assert.ok(bands.length >= 200, `${bands.length} tramos`);
+  for (const band of bands) {
+    assert.ok([1, 7].some(border => Math.abs(band.curb - border) <= .05), 'la banda arranca en el sardinel');
+    for (const width of band.widths) assert.ok(width >= .2 && width <= .3, `banda de ${width} m`);
+  }
+  const city = ciudad();
+  const patches = asphaltPatches(city.map);
+  const onPatch = planPuddles(city.map, curbRuns(city.map)).filter(({ x, z }) => patches.some(p => Math.hypot(p.x - x, p.z - z) < .01));
+  assert.ok(onPatch.length >= patches.length * .25, `${onPatch.length} charcos en ${patches.length} remiendos`);
+});
 
 function calleParaPisar() {
   const row = type => Array.from({ length: 24 }, (_, i) => i > 1 && i < 23 ? type : 'wall');

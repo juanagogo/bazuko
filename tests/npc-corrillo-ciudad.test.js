@@ -3,8 +3,6 @@ import { after, test } from 'node:test';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { buildCity, loadTree } from '../tools/peatones/montaje.mjs';
-import { canSee, SENSES } from '../src/entities/npc/perception.js';
-import { sightClear, solidAt } from '../src/entities/npc/room.js';
 
 // El corrillo en la ciudad montada como el juego (Bogotá, sus NPC, el tráfico), con semilla fija: una pelea a puños del
 // jugador donde más gente anda junta mirones de verdad, sin poner a nadie a mano, y una en una calle sola sigue sola.
@@ -21,7 +19,7 @@ const DT = 1 / 60;
 
 /** La ciudad de `seed`, andando: `step(segundos, cadaCuadro)` corre cuadros como el juego, con el jugador en `player`. */
 async function cityOf(seed) {
-  const { city, traffic, collisions } = await buildCity(tree, seed);
+  const { city, traffic } = await buildCity(tree, seed);
   const player = new THREE.Vector3(112.98, 0, 97.84);
   const camera = new THREE.PerspectiveCamera(55, 1280 / 800, .1, 300);
   const step = (seconds, each = () => {}) => {
@@ -36,18 +34,18 @@ async function cityOf(seed) {
       traffic.update(DT, { player, pedestrians: city.trafficPedestrians, camera, hour: 15 });
     }
   };
-  return { city, player, step, collisions };
+  return { city, player, step };
 }
 
 /**
  * Una pelea del jugador junto a `victim`: ocho golpes, uno cada 1,5 s, y lo que dura la escena después (8 s). Devuelve
  * cuántos miraban a la vez como mucho, quiénes miraron y cuántos cuadros alguien miró parado en la calzada.
  */
-function fightBy({ city, player, step }, victim, stand = null) {
+function fightBy({ city, player, step }, victim) {
   const nav = city.pedestrianNavigation, spot = victim.position.clone();
   const people = city.npcs.filter(n => n.mind && n !== victim);
   const onRoad = n => !!nav.nodes[nav.nodeAt(n.position.x, n.position.z)]?.crossing;
-  player.set(stand?.x ?? (spot.x - .8), 0, stand?.z ?? spot.z);
+  player.set(spot.x - .8, 0, spot.z);
   const watched = new Map();
   let most = 0, standingOnRoad = 0, blows = 0, next = 0, t = 0, last = null;
   step(24, () => {
@@ -67,48 +65,8 @@ function fightBy({ city, player, step }, victim, stand = null) {
 }
 
 const walkers = city => city.npcs.filter(n => n.mind && !n.fijo && !n.koState);
-
-/** Un claro en el andén con gente que va caminando y tiene vista al lugar de la pelea. */
-function busySidewalk({ city, collisions }) {
-  const nav = city.pedestrianNavigation, people = walkers(city);
-  const clear = (x, y, z) => {
-    const node = nav.nodes[nav.nodeAt(x, z)];
-    return node?.main && !node.crossing && !solidAt(collisions, x, y, z);
-  };
-  // El juego permite acercarse desde cualquiera de los cuatro lados del peatón.
-  const offsets = [[-.8, 0], [.8, 0], [0, -.8], [0, .8]];
-  const sameSide = (ax, az, bx, bz) => {
-    const steps = Math.max(1, Math.ceil(Math.hypot(bx - ax, bz - az)));
-    for (let i = 0; i <= steps; i++) {
-      const t = i / steps, node = nav.nodes[nav.nodeAt(ax + (bx - ax) * t, az + (bz - az) * t)];
-      if (!node?.main || node.crossing) return false;
-    }
-    return true;
-  };
-  let best = null;
-  for (const victim of people) {
-    const v = victim.position;
-    for (const [dx, dz] of offsets) {
-      const x = v.x + dx, z = v.z + dz;
-      if (!clear(x, v.y, z)) continue;
-      let visible = 0, facing = 0, close = 0;
-      for (const other of people) {
-        if (other === victim || !other.moving || !other.target) continue;
-        const p = other.position, distance = Math.hypot(p.x - x, p.z - z);
-        if (distance <= 5 || distance >= SENSES.sight || !clear(p.x, p.y, p.z)
-          || !sightClear(collisions, p.y, p.x, p.z, x, z) || !sameSide(p.x, p.z, x, z)) continue;
-        visible++;
-        if (distance <= 12) close++;
-        if (canSee(p.x, p.z, other.root.rotation.y, x, z, SENSES.sight)) facing++;
-      }
-      if (!best || visible > best.visible || (visible === best.visible &&
-        (facing > best.facing || (facing === best.facing && close > best.close)))) {
-        best = { victim, stand: {x, z}, visible, facing, close };
-      }
-    }
-  }
-  return best;
-}
+const near = (city, n, from, to) => walkers(city).filter(o => o !== n && Math.hypot(o.position.x - n.position.x, o.position.z - n.position.z) > from
+  && Math.hypot(o.position.x - n.position.x, o.position.z - n.position.z) < to).length;
 
 test('en la ciudad, una pelea donde anda gente junta mirones sin que nadie los ponga: dos o más a la vez, ninguno parado en la calzada, y se van cuando se acaba', async () => {
   // Las dos ciudades se montan en este orden y en este proceso: así dan siempre lo mismo.
@@ -116,15 +74,10 @@ test('en la ciudad, una pelea donde anda gente junta mirones sin que nadie los p
   for (const seed of [14, 22]) {
     const world = await cityOf(seed);
     world.step(30);
-    // Espera a que haya un grupo natural en el mismo andén. Sólo se consulta
-    // su posición y orientación antes de que empiece la escena.
-    let site = busySidewalk(world);
-    for (let s = 30; s < 300 && !(site?.visible >= 5 && site.facing >= 2); s += 3) {
-      world.step(3);
-      site = busySidewalk(world);
-    }
-    assert.ok(site?.visible >= 3, `semilla ${seed}: andan ${site?.visible ?? 0} cerca y a la vista`);
-    const result = fightBy(world, site.victim, site.stand);
+    // Junto al peatón que más gente tiene andando a 5-16 m.
+    const victim = walkers(world.city).reduce((best, n) => (near(world.city, n, 5, 16) > near(world.city, best, 5, 16) ? n : best));
+    assert.ok(near(world.city, victim, 5, 16) >= 3, `semilla ${seed}: andan ${near(world.city, victim, 5, 16)} cerca`);
+    const result = fightBy(world, victim);
     assert.ok(result.most >= 2, `semilla ${seed}: miraron ${result.most} a la vez (${result.watched.join(', ') || 'nadie'})`);
     total += result.watched.length;
     assert.equal(result.standingOnRoad, 0, `semilla ${seed}: nadie mira parado en la calzada`);

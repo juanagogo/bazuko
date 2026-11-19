@@ -108,6 +108,14 @@ test('los charcos no gastan nada en seco y solo aparecen sobre suelo plano', () 
   setPuddles(1);
   assert.equal(material.visible, true);
   assert.ok(material.opacity > .8);
+  setPuddles(.2);
+  assert.equal(material.visible, true, 'un charco ya lleno aguanta mientras el asfalto seca');
+  setPuddles(.05);
+  assert.equal(material.visible, false, 'y al final se va');
+  const shader = { uniforms: {}, vertexShader: THREE.ShaderLib.physical.vertexShader, fragmentShader: THREE.ShaderLib.physical.fragmentShader };
+  material.onBeforeCompile(shader);
+  assert.ok(shader.fragmentShader.includes('puddleRing') && shader.fragmentShader.includes('sunFieldLit'), 'rizado y anillos de gota sin perder la sombra del campo de sol');
+  assert.ok(shader.uniforms.uPuddleRain && shader.vertexShader.includes('vPuddleXZ ='), 'la lluvia que cae llega al agua');
   setPuddles(0);
   const plan = planPuddles(city.map, curbRuns(city.map), (x, z) => city.getGroundHeight(x, z));
   assert.ok(plan.length > 60);

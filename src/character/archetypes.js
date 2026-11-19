@@ -401,8 +401,8 @@ export function pickWalk(person, random = Math.random) {
 }
 
 /** Apariencia lista para el personaje; `real` lo corrige después `normalizeReal` con el catálogo. */
-export function personLook(person) {
-  const look = randomLook(DEFAULT_LOOK);
+export function personLook(person, random = Math.random) {
+  const look = randomLook(DEFAULT_LOOK, random);
   look.piel = person.piel;
   look.peloColor = person.peloColor;
   look.desgaste = person.real.desgaste;

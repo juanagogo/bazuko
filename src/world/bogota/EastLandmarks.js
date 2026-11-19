@@ -228,12 +228,12 @@ export function buildMarket(m) {
    * Lona por paños entre cuatro esquinas, con la tela caída hacia el medio y las rayas seguidas. `rectAt(i, j)` dice de
    * qué tela es cada paño (remiendos) y `fall(s)` cuánto se descuelga el borde de abajo a lo largo.
    */
-  const cloth = (a, b, c, d, rectAt, sag, cols = 6, rows = 4, fall = null) => {
+  const cloth = (a, b, c, d, rectAt, sag, cols = 6, rows = 4, fall = null, fold = null) => {
     const at = (s, t) => [0, 1, 2].map(k => (a[k] * (1 - s) + b[k] * s) * (1 - t) + (d[k] * (1 - s) + c[k] * s) * t
-      - (k === 1 ? sag * Math.sin(Math.PI * t) * (.55 + .45 * Math.sin(Math.PI * s)) + (fall ? fall(s) * (1 - t) * (1 - t) : 0) : 0));
+      - (k === 1 ? sag * Math.sin(Math.PI * t) * (.55 + .45 * Math.sin(Math.PI * s)) + (fall ? fall(s) * (1 - t) * (1 - t) : 0) + (fold ? fold(s) * (1 - t) : 0) : 0));
     for (let i = 0; i < cols; i++) for (let j = 0; j < rows; j++) {
       const s0 = i / cols, s1 = (i + 1) / cols, t0 = j / rows, t1 = (j + 1) / rows;
-      const [u0, v0, u1, v1] = detailRect(typeof rectAt === 'function' ? rectAt(i, j) : rectAt);
+      const [u0, v0, u1, v1] = typeof rectAt === 'function' ? rectAt(i, j) : detailRect(rectAt);
       f.quadUV(m.detail, at(s0, t0), at(s1, t0), at(s1, t1), at(s0, t1),
         [u0 + (u1 - u0) * s0, v0 + (v1 - v0) * t0, u0 + (u1 - u0) * s1, v0 + (v1 - v0) * t0, u0 + (u1 - u0) * s1, v0 + (v1 - v0) * t1, u0 + (u1 - u0) * s0, v0 + (v1 - v0) * t1]);
     }
@@ -273,7 +273,7 @@ export function buildMarket(m) {
   const x0 = MARKET.x0 * T, x1 = MARKET.x1 * T, z0 = MARKET.z0 * T, z1 = MARKET.z1 * T;
   const colliders = [], blockedTiles = [];
   const tarps = ['redStripe', 'greenTarp', 'blueStripe', 'blueTarp', 'orangeTarp', 'redStripe'];
-  const patches = ['burlap', 'blueTarp', 'orangeTarp', 'greenTarp', 'stoneGray', 'plasterWhite'];
+  const patches = ['burlap', 'blueTarp', 'orangeTarp', 'greenTarp', 'burlap', 'greenTarp'];
   const goods = ['fruit', 'produce'];
   for (let row = 0; row < 2; row++) for (let col = 0; col < 3; col++) {
     const cx = x0 + (x1 - x0) * (col + .5) / 3 + (random() - .5) * .3, cz = z0 + (z1 - z0) * (row === 0 ? .24 : .76);
@@ -306,18 +306,27 @@ export function buildMarket(m) {
     for (const side of [1, -1]) {
       // Cada caída con su comba, su remiendo de otra tela, a veces un paño entero cambiado y una punta descolgada.
       const sag = .14 + extra() * .14, patchCol = Math.floor(extra() * 5), patchRow = 1 + Math.floor(extra() * 2), patch = pick(mended);
-      const spare = extra() < .5 ? (extra() < .5 ? 0 : 5) : -1, other = pick(mended.filter(name => name !== 'stoneGray' && name !== 'plasterWhite'));
+      const spare = extra() < .5 ? (extra() < .5 ? 0 : 5) : -1, other = pick(mended);
       const loose = extra() < .6 ? .14 + extra() * .2 : 0, corner = extra() < .5;
       const fall = s => loose * Math.pow(corner ? s : 1 - s, 3);
-      const rectAt = (i, j) => (i === spare ? other : (j === patchRow && (i === patchCol || i === patchCol + 1) ? patch : tarp));
+      // Ocho paños a lo ancho para que quepan los pliegues; las telas se siguen repartiendo en seis tramos.
+      const cols = 8, main = detailRect(tarp);
+      const replacement = detailRect(patch), spareCloth = detailRect(other);
+      const rectAt = (i, j) => {
+        const k = Math.floor(i * 6 / cols);
+        return k === spare ? spareCloth : (j === patchRow && (k === patchCol || k === patchCol + 1) ? replacement : main);
+      };
+      // Pliegues disparejos de hasta 4 cm: la lona va amarrada en las puntas y entre amarre y amarre hace bolsa o lomo.
+      const fold = s => { const i = Math.round(s * cols); return i % cols ? .04 * Math.sin(i * 2.4 + sag * 40) : 0; };
       const zv = cz + side * (d / 2 + .15), xa = cx - side * (w / 2 + .15), xb = cx + side * (w / 2 + .15);
-      cloth([xa, eave, zv], [xb, eave, zv], [xb, ridge, cz], [xa, ridge, cz], rectAt, sag, 6, 4, fall);
+      cloth([xa, eave, zv], [xb, eave, zv], [xb, ridge, cz], [xa, ridge, cz], rectAt, sag, cols, 4, fall, fold);
       // Faldón que cuelga del alero, más largo en unos tramos que en otros.
       const drops = Array.from({ length: 7 }, () => .1 + extra() * .24);
-      for (let i = 0; i < 6; i++) {
-        const s0 = i / 6, s1 = (i + 1) / 6, [u0, v0, u1, v1] = detailRect(rectAt(i, 0));
-        const px = s => xa + (xb - xa) * s;
-        f.quadUV(m.detail, [px(s0), eave - fall(s0) - drops[i], zv], [px(s1), eave - fall(s1) - drops[i + 1], zv], [px(s1), eave - fall(s1), zv], [px(s0), eave - fall(s0), zv],
+      const drop = s => { const k = Math.min(5, Math.floor(s * 6)); return drops[k] + (drops[k + 1] - drops[k]) * (s * 6 - k); };
+      for (let i = 0; i < cols; i++) {
+        const s0 = i / cols, s1 = (i + 1) / cols, [u0, v0, u1, v1] = rectAt(i, 0);
+        const px = s => xa + (xb - xa) * s, top = s => eave - fall(s) - fold(s);
+        f.quadUV(m.detail, [px(s0), top(s0) - drop(s0), zv], [px(s1), top(s1) - drop(s1), zv], [px(s1), top(s1), zv], [px(s0), top(s0), zv],
           [u0 + (u1 - u0) * s0, v0, u0 + (u1 - u0) * s1, v0, u0 + (u1 - u0) * s1, v0 + (v1 - v0) * .3, u0 + (u1 - u0) * s0, v0 + (v1 - v0) * .3]);
       }
     }
