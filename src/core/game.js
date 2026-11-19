@@ -114,7 +114,7 @@ import {
 const RENAMED_PLACES = { Recicladora: 'Recicladora El Progreso', Tienda: 'Tienda La Esquinita' };
 
 export class Game {
-  constructor(canvas, { animaciones = 'default', modeloRealista = false } = {}) {
+  constructor(canvas, { animaciones = 'default', modeloRealista = false, carroFisico = false, calidad = null } = {}) {
     this.modeloRealista = modeloRealista;
     this.canvas = canvas;
     this.renderer = new Renderer(canvas);
@@ -163,7 +163,7 @@ export class Game {
     );
     // Conductores que se bajan con una varilla al robarles el retrovisor
     this.roadRage = new RoadRageSystem(this.sceneMgr.scene, { player: this.player, stats: this.stats, audio: this.audio });
-    this.carjack = new CarjackSystem(this);
+    this.carjack = new CarjackSystem(this, { fisica: carroFisico });
     this.roadRage.onPlayerHurt = () => { if (this.stats.salud <= 0) this._deathCause = 'golpiza'; };
     window.addEventListener('mirror-stolen', (e) => this.roadRage?.trigger(e.detail?.car));
     // De noche, a veces, llega la camioneta negra de la «limpieza social»
@@ -1202,6 +1202,7 @@ export class Game {
     if (this._deathPending || this._arrestPending) return true;
     this._marcarMuerte();
     if (this.stats.salud > 0) return false;
+    if (this.carjack?.fisica && this.carjack.driving) this.carjack.reset();
     if (this.player.isRagdollActive) return false;
 
     this._deathPending = true;
@@ -1842,6 +1843,7 @@ export class Game {
 
   stop() {
     this._running = false;
+    if (this.carjack?.fisica && (this.carjack.driving || this.carjack.transition)) this.carjack.reset();
     this.waterEffects?.dispose();
     this.contactShadows?.dispose();
     this.gpsBeacon?.dispose();
