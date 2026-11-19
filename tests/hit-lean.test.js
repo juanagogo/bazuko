@@ -129,24 +129,25 @@ test('nunca pasa del tope, ni con el golpe más fuerte', async () => {
   }
 });
 
-test('el golpe que tumba y el carro siguen acostándolo de lado, sin inclinación encima', () => {
+test('el carro sigue acostándolo de lado y corta el tambaleo de un golpe anterior', () => {
   for (const ragdoll of [true, false]) {
-    // Inclinado por un golpe leve, el siguiente lo tumba (salud baja): solo queda la caída de siempre.
+    // El atropello interrumpe el empujón anterior incluso con la salud baja.
     const p = player();
     if (!ragdoll) p.ragdoll.start = () => false; // sin caída articulada, el ladeo de siempre
     p.receiveHit(new THREE.Vector3(0, 0, 1), 2.2, { salud: 90 });
     for (let i = 0; i < 6; i++) p.update(1 / 60, null, null, () => 0);
     assert.ok(headLean(p).x > .05);
-    p.receiveHit(new THREE.Vector3(0, 0, 1), 2.2, { salud: 30 });
+    p.stats.salud = 30;
+    p.receiveVehicleImpact(new THREE.Vector3(0, 0, 1), 8);
     assert.equal(p.ragdoll.active, ragdoll);
     assert.equal(p.hitLean.active, false);
     assert.equal(p.hitLean.applied, false);
     assert.deepEqual(p.character.group.rotation.toArray(), [0, 0, 0, 'XYZ']);
     if (ragdoll) continue;
-    // Igual, cuadro a cuadro, que uno al que solo le llegó el golpe que tumba.
+    // Igual, cuadro a cuadro, que uno al que solo le llegó el carro.
     const twin = player();
     twin.ragdoll.start = () => false;
-    twin.receiveHit(new THREE.Vector3(0, 0, 1), 2.2, { salud: 30 });
+    twin.receiveVehicleImpact(new THREE.Vector3(0, 0, 1), 8);
     for (let i = 0; i < 30; i++) {
       p.update(1 / 60, null, null, () => 0); twin.update(1 / 60, null, null, () => 0);
       assert.ok(p.root.rotation.z > .3 * (1 - i / 60));
