@@ -70,6 +70,8 @@ test('un conductor muerto queda a la vista, cierra la persecución y otro vehíc
   const driver = system.driver, incidents = [];
   window.addEventListener('npc-death', e => incidents.push(e.detail));
   driver.takeHit({ damage: 200, attacker: player, attackId: 22 });
+  const savedInHitFrame = system.serializeRoster();
+  assert.equal(savedInHitFrame[driver.stableId].health, 0);
   assert.equal(incidents.length, 1);
   assert.equal(incidents[0].wasAggressor, true);
   run(system, traffic, player, 2);
@@ -89,9 +91,45 @@ test('un conductor muerto queda a la vista, cierra la persecución y otro vehíc
   assert.equal(vehicle.hold, false);
   assert.equal(vehicle.car.driverInside, true);
   assert.equal(vehicle.car.driverId, `${driver.stableId}:relevo`);
+  assert.equal(system.serializeRoster()[driver.stableId].position, undefined, 'el cuerpo ya fue retirado');
+
+  system.restoreRoster(savedInHitFrame);
+  assert.equal(system.trigger(vehicle.car), false);
+  const restored = system._fallen.get(driver.stableId).driver;
+  assert.equal(system.fallenDrivers[0], restored);
+  assert.ok(restored.deathSettled);
+  assert.deepEqual(restored.position.toArray(), savedInHitFrame[driver.stableId].position);
+  assert.equal(restored.takeHit({ damage: 3 }), false);
+  assert.equal(incidents.length, 1, 'ni recargar ni liberar el carro repiten una muerte');
+  restored.emergencyReported = restored.emergencyAided = true;
+  system.restoreRoster(system.serializeRoster());
+  assert.ok(system.fallenDrivers[0].emergencyReported && system.fallenDrivers[0].emergencyAided);
+  system.restoreRoster(null);
+  assert.equal(vehicle.car.driverId, driver.stableId, 'una partida anterior al incidente también repone la identidad del asiento');
   system.dispose(); traffic.dispose();
 });
 
+test('volver al asiento conserva las heridas posteriores al último guardado', () => {
+  const { system, traffic, vehicle, player } = setup();
+  try {
+    triggerAndExit(system, traffic, vehicle, player);
+    const driver = system.driver;
+    assert.ok(driver.takeHit({ damage: 10, attacker: player, attackId: 1 }) > 0);
+    const saved = system.serializeRoster();
+    assert.equal(driver.takeHit({ damage: 20, attacker: player, attackId: 2 }), 0);
+    system.reset();
+    triggerAndExit(system, traffic, vehicle, player);
+    assert.equal(system.driver.health, driver.maxHealth - 30);
+    assert.ok(system.driver.looted);
+    system.restoreRoster(saved);
+    triggerAndExit(system, traffic, vehicle, player);
+    assert.equal(system.driver.health, driver.maxHealth - 10);
+    assert.equal(system.driver.takeHit({ damage: 5, attacker: player, attackId: 3 }), 0);
+  } finally {
+    system.dispose();
+    traffic.dispose();
+  }
+});
 
 /** Carro detenido por el robo, aún con el conductor adentro, y sus dos puertas libres de obstáculos. */
 function stoppedWithCollisions() {

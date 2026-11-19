@@ -70,6 +70,7 @@ export class NpcMind {
     this.npc = npc;
     this.id = id;
     this.system = system;
+    // El índice organiza turnos. En Bogotá el temperamento pertenece a la persona, aunque falte un vecino anterior.
     this.random = seededRandom(npc.mindSeed ?? (Math.imul(id + 1, 2654435761) ^ 0x5bd1e995));
     // Esquiva: cuánto se corre de la línea de su ruta (+ derecha) y a qué ritmo anda (1 = su paso).
     this.side = 0;
@@ -146,7 +147,7 @@ export class NpcMind {
    * ¿Anda pendiente de otra cosa (una pelea que mira o a la que va, un susto, salir de la calzada, esperar en el borde
    * para cruzar o ir cruzando)? No conversa.
    */
-  busy() { return this.aware.busy() || this.crossing.state !== 0; }
+  busy() { return !!this.npc.deathResponse || this.aware.busy() || this.crossing.state !== 0; }
 
   /** Qué parte de la velocidad de huida lleva (Npc la pide al huir): arranca andando y enseguida corre. */
   fleePace() { return this.aware.fleePace(); }
@@ -164,13 +165,12 @@ export class NpcMind {
   }
 
   /**
-   * Deja la conversación en que estaba (NpcConversations) para reaccionar a algo: la corta para los dos, así el otro
-   * no se queda hablando solo. El sistema de conversaciones la da por terminada en su cuadro y calla la voz; la frase
-   * que tenía en pantalla cualquiera de los dos se borra ya.
+   * Deja la conversación para reaccionar a algo. Suelta a la pareja y calla la voz y el texto de ese turno.
    */
   leaveTalk() {
     const npc = this.npc, talk = npc.talk;
     if (!talk) return;
+    if (talk.leave) { talk.leave(); return; }
     const partner = talk.partner?.talk?.partner === npc ? talk.partner : null;
     hush(npc);
     npc.talk = null;
@@ -360,7 +360,11 @@ export class NpcMind {
     const still = npc.fijo && !npc.fijo.out;
     if (!still) {
       const len = hypot(dx, dz) || 1, nx = npc.position.x + dx / len * MIND.pushBack, nz = npc.position.z + dz / len * MIND.pushBack;
-      if (npc.isWalkable(nx, nz) && !solidAt(npc.collisions, nx, npc.position.y, nz)) { npc.position.x = nx; npc.position.z = nz; }
+      _at.x = nx; _at.z = nz;
+      if (npc.isWalkable(nx, nz) && (!npc.talk || npc.navigation?.isSidewalkAt?.(_at) !== false)
+        && !solidAt(npc.collisions, nx, npc.position.y, nz)) {
+        npc.position.x = nx; npc.position.z = nz;
+      }
     }
     this.lookAtPlayer = 1.6; // se voltea a mirarlo
     if (this.random() < .7 && !(npc._bubbleTimer > 0)) npc.say(PUSH_PHRASES[Math.floor(this.random() * PUSH_PHRASES.length)]);
@@ -406,6 +410,8 @@ export class NpcMind {
     this._pushed(dt);
     const thinks = this.thinking;
     if (this.aware.hold(dt)) return true;
+    // La pareja se abre junta. El cruce conserva su prioridad y la ruta que dejó a medias sigue en su sitio.
+    if (npc.talk) return this._crossHold(dt, thinks);
     if ((this.asideLeft > 0 || thinks) && this._stepAside(dt)) return true;
     if (this.reroute) {
       this.reroute = false;
@@ -640,7 +646,7 @@ export class StreetMinds {
   }
 
   /** Deja un estímulo en el canal con el reloj de las mentes. */
-  emit(tipo, x, z, radio, intensidad, origen) { return this.bus.emit(tipo, x, z, radio, intensidad, origen, this.time); }
+  emit(tipo, x, z, radio, intensidad, origen, y) { return this.bus.emit(tipo, x, z, radio, intensidad, origen, this.time, y); }
 
   /** El planificador de huidas de la red `nav` (uno por distrito). */
   planner(nav) { return plannerFor(this._plannerCache, nav); }
@@ -656,7 +662,17 @@ export class StreetMinds {
     const on = (name, handler) => { target.addEventListener(name, handler); this._listeners.push([name, handler]); };
     const at = (fn) => () => { if (this.player) fn(this.player); };
     on('street-fight', event => {
-      const who = event.detail?.attacker, p = who?.position ?? this.player;
+      const { attacker: who, results, hits } = event.detail ?? {};
+      if (results) {
+        for (const hit of results) {
+          if (hit.health === 0 || hit.target?.isDead) continue; // la caída tiene su propia escena
+          const at = hit.position ?? hit.target?.position;
+          if (at) this.emit('pelea', at.x, at.z, 0, 1, hit.wasAggressor || !who ? null : this._agentFor(who), at.y);
+        }
+        return;
+      }
+      if (hits?.length && hits.every(n => n.isDead || n.isAggressor)) return;
+      const p = who?.position ?? this.player;
       if (p) this.emit('pelea', p.x, p.z, 0, 1, this._agentFor(who));
     });
     on('mirror-stolen', event => {
@@ -685,6 +701,15 @@ export class StreetMinds {
     this.minds.push(mind);
   }
 
+  forgetNpc(npc) {
+    const mind = npc.mind;
+    if (!mind) return;
+    mind.reset();
+    const index = this.minds.indexOf(mind);
+    if (index >= 0) this.minds.splice(index, 1);
+    npc.mind = null;
+  }
+
   /** Una vez por cuadro, antes de actualizar a los NPC. */
   beginFrame(dt, playerPos, vehicles = []) {
     this.frame++;
@@ -706,15 +731,16 @@ export class StreetMinds {
     // conductor bravo): los que tienen `mind` definido ya pasaron por la lista de arriba.
     for (let i = 0; i < npcs.length; i++) {
       const npc = npcs[i];
+      if (npc.isDead || npc._disposed) continue;
       if (npc.mind === undefined) this._attach(npc);
       if (npc.mind) npc.mind.seenFrame = frame;
-      if (npc.position && !npc._disposed) grid.add(npc, npc.position, dt);
+      if (npc.position) grid.add(npc, npc.position, dt);
     }
     const extra = this.district.trafficPedestrians;
     if (extra && extra !== npcs) {
       for (let i = 0; i < extra.length; i++) {
         const agent = extra[i];
-        if (!agent?.position || agent._disposed || agent.mind !== undefined) continue;
+        if (!agent?.position || agent.isDead || agent._disposed || agent.mind !== undefined) continue;
         grid.add(agent, agent.position, dt);
       }
     }

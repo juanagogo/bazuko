@@ -159,6 +159,7 @@ const DROP_TURNS = [0, Math.PI / 2, -Math.PI / 2, Math.PI]; // si en ninguno cab
 const _q1 = new THREE.Quaternion(), _q2 = new THREE.Quaternion();
 const _xAxis = new THREE.Vector3(1, 0, 0);
 const _yAxis = new THREE.Vector3(0, 1, 0);
+const _conversationEye = new THREE.Vector3();
 // Conversando: a qué distancia da por llegado a su sitio, qué tan rápido se voltea hacia el otro y hasta dónde gira
 // la cabeza para mirarlo (más que al jugador: a quien le hablan lo miran de frente).
 const TALK = { arrive: .08, turn: 4, lookMax: 1.25 };
@@ -169,6 +170,7 @@ const PAIR_REPLY = .8;
 const RAIN_REACTION = { heavy: .5, drizzleHunch: .3, heavyCover: .6 };
 // Quien está así no mira a nadie: duerme o tiene la vista en lo suyo.
 const NO_GLANCE = new Set(['dormido', 'acurrucado', 'celular', 'telefono']);
+const WITNESS_STANCE = { llamar: 'telefono', grabar: 'celular', auxiliar: 'agachado' };
 // De pie, mientras se le pasa el susto: nadie se queda tieso esperando a que el jugador se vaya.
 const WAIT_STANCES = ['mirar-izquierda', 'mirar-derecha', 'brazos-cruzados', 'cambiar-peso'];
 
@@ -199,7 +201,7 @@ export class Npc {
    */
   constructor(scene, position, opts = {}) {
     this.scene = scene;
-    this.routeRandom = opts.routeRandom ?? Math.random;
+    this.routeRandom = opts.routeRandom;
     this.home = position.clone();
     this.position = position.clone();
     this.wander = opts.wander ?? 0;
@@ -1211,7 +1213,7 @@ export class Npc {
     if (!this.isDead) this._updateSpeech(dt, ctx);
     // Huir manda sobre la postura que tuviera, menos sobre el paraguas: sale corriendo con él en la mano. El testigo
     // tiene el celular en la oreja (llamando) o al frente (grabando).
-    const witness = this._witness && (this._witness.mode === 'llamar' ? 'telefono' : 'celular');
+    const witness = this._witness && WITNESS_STANCE[this._witness.mode];
     const posture = this.poseParams?.stance ?? (witness || this._stanceNow());
     const stance = this.fleeTimer > 0 && this.moving && posture !== 'paraguas' ? 'huir' : posture;
     this._updateHeld(stance);
@@ -1228,6 +1230,16 @@ export class Npc {
     const interval = dist > NPC_LOD.animEvery ? .1 * budget : budget > 1 ? budget / 60 : 0;
     // Recién cambiado de modelo se anima ya: un cuadro con el modelo nuevo en su pose de reposo se ve como un destello.
     if (interval && this.animAcc < interval && !this._poseStale) return;
+    const talk = this.talk, partner = talk?.partner;
+    const canAttend = this.poseParams?.look == null && !this.koState && this.fleeTimer <= 0 && !this.action
+      && !NO_GLANCE.has(stance) && !LOW_STANCES.has(stance);
+    const attention = canAttend && talk?.attention;
+    const attending = canAttend && !talk?.yielding && talk?.ready && partner?.talk?.ready && partner.talk.partner === this;
+    let conversationEye = null;
+    if (attention) {
+      const { x, y, z } = attention.position;
+      conversationEye = attention.character?.eyePosition?.(_conversationEye) ?? _conversationEye.set(x, y + 1.55, z);
+    } else if (attending) conversationEye = partner.character?.eyePosition?.(_conversationEye) ?? null;
     const look = this.isDead ? 0 : this.poseParams?.look ?? (stance === 'mirar-surtido' ? 0 : this.mind?.gaze(stance) ?? this._glanceAt(ctx, stance));
     // La velocidad va en metros del modelo: con la talla cambia el largo del paso, no se patina.
     const scale = REALISTIC_SCALE * (this.look?.real?.talla?.alto ?? 1);
@@ -1243,7 +1255,9 @@ export class Npc {
       troncoDirigido: this.hitLean.active,
       attack: this._counterPose ?? this.poseParams?.attack,
       combatGuard: this._counter?.phase === 'warning' || this._counter?.phase === 'wait' || !!this.poseParams?.combatGuard,
-      look,
+      look: conversationEye ? 0 : look,
+      conversationEye,
+      conversationNod: attending ? talk.nod : 0,
       // Caer sigue a la misma mezcla que acuesta el cuerpo.
       stance,
       style: this.poseParams?.style ?? this.style,
@@ -1680,9 +1694,11 @@ export class Npc {
    * Testigo de un robo o una pelea: se queda quieto mirando al jugador con el celular, grabando o llamando a la
    * Policía, durante `seconds`. Un golpe, un susto o quedar noqueado lo interrumpen (ver WitnessSystem).
    */
-  witness(mode, seconds) {
-    if (this._disposed || this.koState || this.isVendor || this.fijo || this.fleeTimer > 0 || this._hitReactionRemaining > 0) return false;
-    this._witness = { mode, time: seconds };
+  witness(mode, seconds, focus = null) {
+    if (this._disposed || this.isDead || this.koState || this.isVendor || this.fijo || this.fleeTimer > 0 || this._hitReactionRemaining > 0) return false;
+    if (this.deathResponse ? !focus : this.mind?.busy()) return false;
+    this.mind?.leaveTalk();
+    this._witness = { mode, time: seconds, focus };
     this._witnessFinished = false;
     this.target = null;
     this.route = [];
@@ -1700,8 +1716,9 @@ export class Npc {
     if (this.koState || this.fleeTimer > 0) { this._witness = null; return false; }
     if ((w.time -= dt) <= 0) { this._witness = null; this._witnessFinished = true; return false; }
     this.moving = false;
-    if (this._player) {
-      const yaw = Math.atan2(this._player.x - this.position.x, this._player.z - this.position.z);
+    const focus = w.focus ?? this._player;
+    if (focus) {
+      const yaw = Math.atan2(focus.x - this.position.x, focus.z - this.position.z);
       this.root.rotation.y += wrapAngle(yaw - this.root.rotation.y) * Math.min(1, dt * 6);
     }
     return true;
@@ -1798,6 +1815,15 @@ export class Npc {
     empezarFrase(this);
   }
 
+  /** Se le quita la burbuja si todavía dice `text`: la voz grabada que la acompañaba se cortó. */
+  callar(text) {
+    if (!this._bubbleEl || this._bubbleEl.textContent !== text) return;
+    this._bubbleEl.remove();
+    this._bubbleEl = null;
+    this._bubbleTimer = 0;
+    acabarFrase(this);
+  }
+
   /** La burbuja se acaba a su tiempo aunque quien habló haya salido de cámara: si no, queda flotando para siempre. */
   _tickBubble(dt) {
     if (!(this._bubbleTimer > 0)) return;
@@ -1810,7 +1836,7 @@ export class Npc {
   }
 
   _updateSpeech(dt, ctx) {
-    if (!ctx.player || this.koState || this.action === 'recibirGolpe' || this._counter || this.panicTimer > 0) return;
+    if (!ctx.player || this._bubbleEl || this.koState || this.action === 'recibirGolpe' || this._counter || this.panicTimer > 0) return;
     if (this.stance === 'dormido' || this.talk) return; // conversando le habla al otro, no al jugador
     const now = performance.now();
 

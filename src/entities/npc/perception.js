@@ -3,6 +3,7 @@
 // quien tiene encima aunque esté a su espalda; oye lo que suena dentro de su radio. Lo que percibe sube su nivel de
 // alerta; el nivel baja solo con el tiempo. Pasar de un nivel a otro pide más que volver: así no titubea en el borde.
 import { STIMULI } from './stimuli.js';
+import { hasClearCombatLine } from '../../systems/CombatGeometry.js';
 
 export const SENSES = {
   fov: 115 * Math.PI / 180, // cono de visión
@@ -36,6 +37,17 @@ export function canSee(px, pz, yaw, tx, tz, range) {
   if (d2 > range * range) return false;
   if (d2 < SENSES.near * SENSES.near) return true;
   return (dx * Math.sin(yaw) + dz * Math.cos(yaw)) / Math.sqrt(d2) >= HALF_COS;
+}
+
+/** Reconocer a alguien exige verlo de frente, en su mismo nivel y sin un obstáculo que le tape el cuerpo. */
+export function seesPerson(npc, at, range, collisions = npc.collisions) {
+  const p = npc.position;
+  if (!at || Math.abs(p.y - at.y) > 1.2) return false;
+  const dx = at.x - p.x, dz = at.z - p.z, d2 = dx * dx + dz * dz;
+  if (d2 > range * range) return false;
+  const yaw = npc.root?.rotation.y ?? 0;
+  if (dx * Math.sin(yaw) + dz * Math.cos(yaw) < Math.sqrt(d2) * HALF_COS) return false;
+  return hasClearCombatLine({ from: p, to: at, collisions });
 }
 
 /**

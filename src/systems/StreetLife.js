@@ -71,17 +71,19 @@ export class StreetLife {
     return vendors.some((v) => Math.hypot(v.position.x - pos.x, v.position.z - pos.z) < radius);
   }
 
-  _onFight({ hits = [], weapon = null } = {}) {
+  _onFight({ attacker, hits = [], results, weapon = null } = {}) {
     const player = this.game.player;
+    if (attacker && attacker !== player) return;
     if (weapon && weapon !== 'punos') this._wear(weapon);
+    const civiles = results ? results.filter(resultado => !resultado.wasAggressor).map(resultado => resultado.target) : hits;
     let habitante = false, vendedor = false;
-    for (const npc of hits) {
+    for (const npc of civiles) {
       if (npc?.isVendor) vendedor = true;
       else if (npc?.person?.arquetipo === 'habitante') habitante = true;
     }
     if (habitante) this._fama('pegarHabitante');
     if (vendedor) this._fama('pegarVendedor');
-    else if (hits.length && player && this.nearVendor(player.position)) this._fama('pegarCercaChaza');
+    else if (civiles.length && player && this.nearVendor(player.position)) this._fama('pegarCercaChaza');
   }
 
   _onRobbed({ npc } = {}) {

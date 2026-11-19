@@ -382,6 +382,63 @@ const toBody = (npc, mesh) => {
 };
 const KO = { damage: 999 };
 
+test('en un puente la caída y el bastón conservan el piso del cuerpo aunque haya calle debajo', async () => {
+  const groundHeight = (_x, _z, currentY) => currentY > 4 ? 7.8 : .1;
+  const npc = await carrier('baston', { at: [30, 7.8, 2], groundHeight });
+  try {
+    npc.takeHit({ ...KO, knockback: .6, dir: { x: 1, z: 0 } });
+    run(npc, 1);
+    assert.equal(npc._koPlan, 'espalda');
+    assert.equal(npc.position.y, 7.8);
+    assert.ok(Math.abs(lowest(npc._fallenCane) - 7.8) < .01);
+  } finally {
+    npc.dispose();
+  }
+});
+
+test('el bastón toca el suelo al volcar, en tres direcciones de empuje y sobre dos niveles de piso', async () => {
+  const flat = () => .12;
+  const curb = x => x < 30.35 ? .06 : .12;
+  const slope = (x, z) => .12 + (x - 30) * .041 + (z - 2) * .025;
+  for (const [facing, dir, groundHeight, label] of [
+    [0, { x: 0, z: -1 }, flat, 'de frente'],
+    [Math.PI / 3, { x: 1, z: 0 }, curb, 'entre césped y andén'],
+    [-Math.PI / 2, { x: -Math.SQRT1_2, z: Math.SQRT1_2 }, slope, 'en diagonal sobre la pendiente']
+  ]) {
+    const npc = await carrier('baston', { at: [30, groundHeight(30, 2), 2], facing, groundHeight });
+    npc.takeHit({ ...KO, knockback: 1.35, dir });
+    const cane = npc._fallenCane, drop = npc._dropped[0], step = 1 / 120;
+    let minimum = Infinity, lastY = cane.position.y, rise = 0;
+    const samples = new Set();
+    for (let i = 0; i <= 44; i++) {
+      minimum = Math.min(minimum, lowest(cane, (x, z) => {
+        const y = groundHeight(x, z);
+        samples.add(y);
+        return y;
+      }));
+      rise = Math.max(rise, cane.position.y - lastY);
+      lastY = cane.position.y;
+      assert.equal(npc._dropped.length, 1);
+      assert.equal(cane.parent, npc.scene);
+      assert.equal(npc.lodChar.props.get('baston-calle'), false);
+      assert.equal(npc.fullChar.props.get('baston-calle'), false);
+      npc.update(step, { player: far() });
+    }
+    assert.ok(minimum > -.0001 && minimum < .004, `${label}: tocó sin hundirse (${minimum} m)`);
+    assert.ok(rise <= (groundHeight === curb ? .061 : .004), `${label}: subió ${rise} m en un cuadro`);
+    if (groundHeight === curb) assert.equal(samples.size, 2, 'durante la caída la malla alcanza ambas alturas');
+    assert.equal(drop.fall, 1, 'frenó en el tiempo de siempre');
+    const rest = cane.position.clone();
+    run(npc, .15, {}, 1 / 60);
+    assert.ok(cane.position.distanceTo(rest) < 1e-6, 'se queda apoyado');
+    run(npc, 15, {}, 1 / 60);
+    assert.equal(npc._dropped.length, 1);
+    assert.equal(cane.parent, npc.scene);
+    assert.equal(npc.character.props.get('baston-calle'), false);
+    npc.dispose();
+  }
+});
+
 for (const what of ['paraguas', 'baston']) test(`${what}: con cualquier empuje queda junto al cuerpo, en el piso, y conserva su sitio al terminar la caída`, async () => {
   for (const knockback of [0, .9, 1.62, 2.88]) {
     const npc = await carrier(what);

@@ -389,8 +389,9 @@ export class InteractionSystem {
     const result = target.steal(caughtMult);
     if (!result) return;
     if (result.items.includes('retrovisor')) {
-      if (target.traffic) this.audio?.playMovingTheft?.(target);
-      else this.audio?.playCarAlarm?.(target);
+      if (target.traffic) {
+        if (target.driverAvailable !== false) this.audio?.playMovingTheft?.(target);
+      } else this.audio?.playCarAlarm?.(target);
       // El juego decide si el conductor del carro en circulación se baja a perseguirte.
       window.dispatchEvent(new CustomEvent('mirror-stolen', { detail: { car: target } }));
     }
@@ -413,7 +414,8 @@ export class InteractionSystem {
       return;
     }
 
-    if (result.caught) {
+    const caught = result.caught && target.driverAvailable !== false;
+    if (caught) {
       this.stats.salud = Math.max(0, this.stats.salud - STEAL_CAUGHT_PENALTY);
       this.stats.danoPor = 'pelea';
       this.stats.dinero = Math.max(0, this.stats.dinero - STEAL_CAUGHT_MONEY);
@@ -424,7 +426,7 @@ export class InteractionSystem {
     }
 
     window.dispatchEvent(new CustomEvent('steal', {
-      detail: { added, caught: result.caught, police: false, chase: false }
+      detail: { added, caught, police: false, chase: false }
     }));
   }
 
@@ -570,8 +572,9 @@ export class InteractionSystem {
       return;
     }
 
-    // Verificar si hay peatones a menos de 7 metros
+    // Solo quien está despierto y consciente puede contestar.
     const nearbyPedestrians = (this.pedestrians ?? []).filter(npc => {
+      if (npc._disposed || npc.koState || npc.stance === 'dormido') return false;
       const pos = npc.position ?? npc.group?.position;
       return pos && pos.distanceTo(this.player.position) <= 7.0;
     });

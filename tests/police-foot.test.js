@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import { beforeEach, mock, test } from 'node:test';
 import * as THREE from 'three';
+import { SKIN_ALBEDO } from '../src/character/look.js';
+import { PATROL_COLORS } from '../src/character/patrolUniform.js';
 
 // El tráfico, los carros, las colisiones y lo que deciden los agentes son reales; solo se sustituye la carga de modelos GLB.
 // `animated` cuenta los cuadros en que algún personaje se animó (el LOD de los NPC congela la pose de lejos).
@@ -20,13 +22,14 @@ const { TrafficRoute } = await import('../src/world/bogota/TrafficRoute.js');
 const { CollisionSystem } = await import('../src/systems/CollisionSystem.js');
 const { Car } = await import('../src/entities/Car.js');
 const { seatLift } = await import('../src/entities/patrolCar.js');
+const { getDriverGeometry } = await import('../src/world/bogota/VehicleBody.js');
 
 const DT = 1 / 30;
 let events;
 beforeEach(() => {
   globalThis.window = new EventTarget();
   events = [];
-  for (const type of ['police-arrest', 'police-escaped', 'police-grab', 'toast']) window.addEventListener(type, e => events.push({ type, detail: e.detail }));
+  for (const type of ['police-arrest', 'police-escaped', 'police-grab', 'police-release', 'npc-death', 'population-changed', 'toast']) window.addEventListener(type, e => events.push({ type, detail: e.detail }));
 });
 const count = type => events.filter(event => event.type === type).length;
 
@@ -35,7 +38,7 @@ const count = type => events.filter(event => event.type === type).length;
  * Sin entorno de colisiones el carro de la persecución va derecho, como en las pruebas de TrafficSystem.
  */
 function setup({ level = 1, police = 1, player = [60, 0], collisions = null, walkable = () => true, playerVehicle = null,
-  second = [0, 60], district = {}, environment = null } = {}) {
+  second = [0, 60], district = {}, environment = null, roster = null } = {}) {
   const scene = new THREE.Scene();
   const traffic = new TrafficSystem(scene, [new TrafficRoute(0, 200, 0, 200, 3.2)], { carsPerRoute: 0, policeCount: police, random: () => .5 });
   traffic.vehicles.forEach((vehicle, index) => {
@@ -49,11 +52,32 @@ function setup({ level = 1, police = 1, player = [60, 0], collisions = null, wal
   const people = [];
   const playerObject = { position: new THREE.Vector3(player[0], 0, player[1]) };
   const system = new PoliceFootSystem(scene, { player: playerObject, random: () => .5, getPlayerVehicle: playerVehicle });
+  system.restoreRoster(roster);
   system.setup({ isWalkableAt: walkable, getGroundHeight: () => 0, ...district }, traffic, people, { collisions });
   const vehicle = traffic.vehicles[0];
   const unit = vehicle.crew;
   return { scene, traffic, system, vehicle, unit, player: playerObject, people };
 }
+
+test('cada figura sentada conserva el tono de piel y el chaleco del agente que sale por su puerta', async () => {
+  const { system } = setup({ police: 2 });
+  for (const { driver, partner, fit } of system.units) {
+    for (const [officer, seated, passenger] of [
+      [driver, fit.car.driver.children[0], false],
+      [partner, fit.passenger.children[0], true]
+    ]) {
+      await officer.ready;
+      const skin = new THREE.Color().setRGB(...SKIN_ALBEDO[officer.look.piel]);
+      const vest = {
+        color: passenger ? PATROL_COLORS.chaleco : PATROL_COLORS.chalecoConductor,
+        tape: PATROL_COLORS.cinta,
+        passenger
+      };
+      const matching = getDriverGeometry(PATROL_COLORS.uniforme, `#${skin.getHexString()}`, PATROL_COLORS.gorra, vest);
+      assert.equal(seated.geometry, matching, officer.role);
+    }
+  }
+});
 
 function step(world, dt = DT, extra = {}) {
   world.traffic.update(dt, { player: world.player.position });
@@ -248,7 +272,8 @@ test('el aviso de escape sale con la persecución ya apagada al menos un repinta
   runUntil(again, () => again.unit.partner.state === 'persecucion');
   again.unit._desist();
   step(again);
-  assert.equal(again.unit.partner.takeHit({ damage: 10, attackId: 7 }), 0, 'el golpe cuenta');
+  again.player.position.copy(again.unit.partner.position).x += .8;
+  assert.equal(again.unit.partner.takeHit({ damage: 10, attackId: 7, attacker: again.player }), 0, 'el golpe cuenta');
   for (let t = 0; t < 1; t += DT) step(again);
   assert.equal(count('police-escaped'), 0);
 });
@@ -449,10 +474,11 @@ test('golpear a un agente: aguanta, reacciona y su compañero se baja', () => {
   exitOf(world);
   const officer = world.unit.partner;
   runUntil(world, () => officer.state === 'persecucion');
-  const attacker = { position: officer.position.clone().add(new THREE.Vector3(.8, 0, 0)) };
+  const attacker = world.player;
+  attacker.position.copy(officer.position).x += .8;
   assert.equal(officer.takeHit({ damage: 30, attacker, attackId: 1 }), 0, 'acepta el golpe, sin plata');
   assert.equal(officer.takeHit({ damage: 30, attacker, attackId: 1 }), false, 'el mismo golpe no cuenta dos veces');
-  assert.ok(officer.health >= 40, 'no queda tendido');
+  assert.equal(officer.health, officer.maxHealth - 15, 'el uniforme amortigua la mitad del daño');
   assert.equal(officer.isKnockedOut, false);
   for (let t = 0; t < .2; t += DT) step(world);
   assert.equal(world.unit.driver.state, 'bajando', 'el compañero responde');
@@ -467,10 +493,205 @@ test('un golpe al que ya volvía lo devuelve a la persecución', () => {
   world.unit._desist();
   assert.equal(officer.state, 'regreso');
   assert.equal(world.traffic.inPursuit, false);
-  officer.takeHit({ damage: 10, attacker: { position: officer.position.clone().add(new THREE.Vector3(.5, 0, 0)) } });
+  world.player.position.copy(officer.position).x += .5;
+  officer.takeHit({ damage: 10, attacker: world.player });
   assert.equal(officer.state, 'persecucion');
   assert.equal(world.unit.mode, 'persigue');
   assert.equal(world.traffic.inPursuit, true);
+});
+
+test('el agente a cero suelta al jugador, conserva su identidad y sigue en el suelo al cerrar la persecución', async () => {
+  const world = setup();
+  const { unit, traffic, player, people } = world, officer = unit.partner;
+  await officer.ready;
+  traffic._startChase(world.vehicle);
+  assert.ok(Number.isFinite(runUntil(world, () => officer.onFoot)));
+  player.position.copy(officer.position).x += .5;
+  const first = { attacker: player, damage: 140, attackId: 11 };
+  assert.equal(officer.takeHit(first), 0);
+  assert.equal(officer.health, 30);
+  assert.equal(officer.takeHit(first), false);
+  officer._grab = { phase: 'agarre' };
+  const last = { attacker: player, damage: 65, attackId: 12, weapon: 'punos' };
+  assert.equal(officer.takeHit(last), 0);
+  assert.equal(officer.takeHit(last), false);
+  assert.equal(count('npc-death'), 1);
+  const death = events.find(event => event.type === 'npc-death').detail;
+  assert.equal(death.victim, officer);
+  assert.equal(death.attacker, player);
+  assert.deepEqual([death.previousHealth, death.health, death.weapon, death.attackId, death.wasAggressor], [30, 0, 'punos', 12, false]);
+  assert.ok(death.position.equals(officer.position));
+  assert.equal(count('police-release'), 1);
+  assert.equal(officer.grabbing, false);
+  assert.equal(people.includes(officer), false);
+  assert.equal(officer.canSee(player.position), false);
+  traffic.endPursuit();
+  officer.enterCar();
+  officer.startExit(unit.fit, 1, player.position);
+  officer.startBoard();
+  officer.startSearch(player.position);
+  officer.startReturn();
+  officer.resumeChase();
+  assert.equal(officer.think(1, {}), null);
+  assert.equal(unit.fit.passengerInside, false);
+  assert.equal(unit.driver.state, 'dentro');
+  const camera = new THREE.PerspectiveCamera(60, 1, .1, 200);
+  camera.position.copy(officer.position).add(new THREE.Vector3(0, 2, 8));
+  camera.lookAt(officer.position);
+  const point = officer.position.clone();
+  for (let i = 0; i < 60; i++) step(world, .5, { camera });
+  assert.equal(unit.partner, officer);
+  assert.deepEqual([officer.isDead, officer.deathSettled, officer.health, officer.state, officer.root.visible], [true, true, 0, 'dead', true]);
+  assert.ok(officer.position.equals(point));
+  assert.equal(count('police-arrest'), 0);
+  assert.equal(count('npc-death'), 1);
+});
+
+test('el último agente caído deja la patrulla inmóvil y vacía hasta el relevo fuera de la vista', async () => {
+  const world = setup({ level: 2 }), { unit, traffic, system, vehicle, player } = world;
+  traffic._startChase(vehicle);
+  unit._forceDriver = true;
+  assert.ok(Number.isFinite(runUntil(world, () => unit.partner.onFoot && unit.driver.onFoot, 20, () => {
+    if (unit.parked) unit._forceDriver = true;
+  })));
+  const [partner, driver] = unit.officers;
+  await Promise.all([partner.ready, driver.ready]);
+  for (const officer of [driver, partner]) officer._grab = { phase: 'agarre' };
+  assert.equal(driver.takeHit({ damage: 200 }), 0);
+  assert.equal(count('police-release'), 0, 'el acompañante todavía lo sostiene');
+  assert.equal(traffic.inPursuit, true, 'el acompañante conserva su turno');
+  assert.equal(partner.takeHit({ damage: 200 }), 0);
+  assert.equal(count('police-release'), 1);
+  assert.equal(traffic.inPursuit, false);
+  const carAt = vehicle.car.position.clone();
+  const camera = new THREE.PerspectiveCamera(60, 1, .1, 200);
+  player.position.copy(carAt).z += 30;
+  camera.position.copy(player.position).y += 3;
+  camera.lookAt(carAt);
+  for (let i = 0; i < 120; i++) step(world, .5, { camera });
+  traffic.endPursuit();
+  for (let i = 0; i < 10; i++) step(world, .5, { camera });
+  assert.equal(vehicle.state, 'uncrewed');
+  assert.ok(vehicle.car.position.equals(carAt));
+  assert.equal(unit.fit.passengerInside, false);
+  assert.equal(vehicle.car.driverInside, false);
+  assert.equal(traffic.witnessesTheft(carAt), false);
+  assert.equal(traffic.alertForTheft(carAt), false);
+  assert.equal(traffic.dispatchTo(carAt, carAt), false);
+  assert.equal(system.active, false);
+  assert.equal(world.people.length, 0);
+  assert.equal(count('police-arrest'), 0);
+  assert.equal(count('npc-death'), 2);
+  assert.equal(count('police-escaped'), 0, 'la baja de la tripulación no anuncia un escape ni enciende la radio');
+  camera.lookAt(camera.position.clone().add(new THREE.Vector3(0, 0, 20)));
+  step(world, DT, { camera });
+  assert.equal(partner.bodyReleased && driver.bodyReleased, true);
+  for (const [fresh, fallen] of [[unit.partner, partner], [unit.driver, driver]]) {
+    assert.notEqual(fresh, fallen);
+    assert.notEqual(fresh.stableId, fallen.stableId);
+    assert.equal(fresh.health, fresh.maxHealth);
+    assert.equal(fresh.state, 'dentro');
+    assert.equal(fallen.isDead, true);
+  }
+  assert.equal(vehicle.state, 'patrol');
+  assert.equal(unit.fit.passengerInside && vehicle.car.driverInside, true);
+  assert.equal(count('npc-death'), 2);
+  assert.equal(count('population-changed'), 1, 'el relevo completo queda listo para guardar en ese cuadro');
+  const relieved = setup({ roster: system.serializeRoster() }).unit;
+  assert.deepEqual(relieved.officers.map(o => o.stableId), unit.officers.map(o => o.stableId));
+  assert.deepEqual(relieved.officers.map(o => o._voz), unit.officers.map(o => o._voz));
+  assert.notEqual(relieved.partner._voz, relieved.driver._voz);
+  assert.ok(relieved.officers.every(o => !o.isDead));
+});
+
+test('un golpe ajeno no reabre la persecución; el guardado conserva al agente caído sin repetir el incidente', () => {
+  const world = setup(), { unit, player } = world, officer = unit.partner;
+  world.traffic._startChase(world.vehicle);
+  assert.ok(Number.isFinite(runUntil(world, () => officer.onFoot)));
+  unit._desist();
+  const stranger = { position: officer.position.clone() };
+  assert.equal(officer.takeHit({ damage: 150, attacker: stranger }), 0);
+  assert.equal(unit.mode, 'desiste');
+  assert.equal(officer.takeHit({ damage: 50, attacker: null }), 0);
+  assert.equal(unit.mode, 'desiste');
+  assert.equal(events.find(event => event.type === 'npc-death').detail.attacker, null);
+  assert.equal(count('npc-death'), 1);
+  officer.emergencyReported = true;
+  officer.emergencyAided = true;
+  const save = JSON.parse(JSON.stringify(world.system.serializeRoster()));
+  const loaded = setup(), originalDriver = loaded.unit.driver;
+  loaded.system.restoreRoster(save);
+  const fallen = loaded.unit.partner;
+  assert.deepEqual([fallen.stableId, fallen.health, fallen.state, fallen.deathSettled], [officer.stableId, 0, 'dead', true]);
+  assert.ok(fallen.position.equals(officer.position));
+  assert.equal(loaded.unit.fit.passengerInside, false);
+  assert.equal(loaded.unit.driver, originalDriver);
+  assert.deepEqual([fallen.emergencyReported, fallen.emergencyAided], [true, true]);
+  loaded.system.restoreRoster(save);
+  assert.equal(loaded.unit.partner, fallen);
+  assert.equal(count('npc-death'), 1);
+  // El distrito también reconstruye la flota al viajar.
+  loaded.system.setup({}, loaded.traffic, loaded.people);
+  const rebuilt = loaded.system.units[0];
+  assert.ok(rebuilt.partner.isDead);
+  assert.equal(rebuilt.partner.stableId, officer.stableId);
+  assert.ok(rebuilt.partner.emergencyReported && rebuilt.partner.emergencyAided);
+  assert.equal(count('npc-death'), 1);
+  assert.equal(fallen.takeHit({ damage: 50, attacker: player }), false);
+});
+
+test('el compañero vivo sí puede completar el arresto cuando cae un agente', () => {
+  const world = setup(), { unit, player } = world, victim = unit.partner;
+  world.traffic._startChase(world.vehicle);
+  assert.ok(Number.isFinite(runUntil(world, () => victim.onFoot)));
+  player.position.copy(victim.position).x += .5;
+  victim.takeHit({ attacker: player, damage: 200 });
+  assert.equal(unit.driver.state, 'bajando');
+  player.position.copy(unit.fit.doorPoint(-1)).z -= 2;
+  assert.ok(Number.isFinite(runUntil(world, () => count('police-arrest') === 1, 15)));
+  assert.equal(events.find(event => event.type === 'police-arrest').detail.reason, 'a-pie');
+  assert.equal(victim.isDead, true);
+  assert.equal(count('police-escaped'), 0);
+});
+
+test('un agente herido conserva la salud al subirse, al recargar y al salir otra vez de la patrulla', () => {
+  const world = setup(), officer = world.unit.partner;
+  world.traffic._startChase(world.vehicle);
+  assert.ok(Number.isFinite(runUntil(world, () => officer.onFoot)));
+  world.player.position.copy(officer.position).x += .5;
+  assert.equal(officer.takeHit({ attacker: world.player, damage: 12, attackId: 1 }), 0);
+  const roster = JSON.parse(JSON.stringify(world.system.serializeRoster()));
+  assert.equal(roster.slots[officer.slot].health, 94);
+  world.traffic.endPursuit();
+  assert.deepEqual([officer.state, officer.health], ['dentro', 94]);
+  for (const loaded of [setup({ roster }), setup()]) {
+    loaded.system.restoreRoster(roster);
+    const same = loaded.unit.partner;
+    assert.deepEqual([same.stableId, same.health, same.state], [officer.stableId, 94, 'dentro']);
+    loaded.traffic._startChase(loaded.vehicle);
+    assert.ok(Number.isFinite(runUntil(loaded, () => same.onFoot)));
+    assert.equal(same.health, 94);
+    assert.equal(same.takeHit({ damage: 188 }), 0);
+    assert.equal(same.isDead, true);
+    loaded.system.restoreRoster(roster);
+    assert.ok(same.isDead, 'un registro anterior a la baja no revive al mismo agente');
+  }
+});
+
+test('el relevo de un solo asiento conserva la voz del compañero y toma el otro timbre policial', () => {
+  const world = setup(), { unit, traffic, player } = world;
+  const voice = unit.driver._voz, first = unit.partner;
+  traffic._startChase(world.vehicle);
+  assert.ok(Number.isFinite(runUntil(world, () => first.onFoot)));
+  first.takeHit({ damage: 200 });
+  traffic.endPursuit();
+  player.position.x += 120;
+  for (let i = 0; i < 6; i++) step(world, .5);
+  assert.notEqual(unit.partner.stableId, first.stableId);
+  assert.equal(unit.driver._voz, voice);
+  assert.notEqual(unit.partner._voz, voice);
+  const loaded = setup({ roster: world.system.serializeRoster() }).unit;
+  assert.deepEqual(loaded.officers.map(o => o._voz), unit.officers.map(o => o._voz));
 });
 
 test('la distancia de la placa es la del agente más cercano, no la del carro parqueado', () => {
@@ -670,6 +891,20 @@ test('una patrulla sin tripulación se porta como siempre', () => {
   world.traffic._startChase(world.vehicle);
   const t = runUntil(world, () => count('police-arrest') > 0, 20);
   assert.ok(Number.isFinite(t), 'sin tripulación, el carro captura como siempre');
+});
+
+test('desmontar el sistema a pie conserva inmóvil una patrulla que perdió al conductor', () => {
+  const roster = { slots: [{ generation: 0, fallen: { position: [25, 0, 1], yaw: 0 } }] };
+  const world = setup({ roster }), { vehicle, system, traffic, player } = world;
+  const parked = vehicle.car.position.clone();
+  system.dispose();
+  traffic.endPursuit();
+  player.position.copy(parked);
+  assert.equal(traffic.alertForTheft(parked), false);
+  for (let i = 0; i < 10; i++) step(world, .5);
+  assert.equal(vehicle.state, 'uncrewed');
+  assert.ok(vehicle.car.position.equals(parked));
+  assert.equal(count('police-arrest'), 0);
 });
 
 // ---------- casos de borde: el arresto, la vista compartida, desistir, las puertas y los carriles ----------

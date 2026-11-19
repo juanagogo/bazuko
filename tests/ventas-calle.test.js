@@ -103,6 +103,98 @@ test('el delantal corresponde al puesto atendido, no al arquetipo de sus transe�
   }
 });
 
+test('el puesto cierra junto al fallecido y lo atiende otra persona después de que ambos salen de vista', async t => {
+  const browser = globalThis.window;
+  globalThis.window = new EventTarget();
+  t.after(() => { globalThis.window = browser; });
+  let deaths = 0, changes = 0;
+  const open = (save, move = 0) => {
+    const city = vendorDistrict(save);
+    const ids = ['efrain', 'mona'];
+    for (const [index, [kind, title, items, , x, z]] of PUESTOS.slice(0, 2).entries()) {
+      city._vendor(x + move, z, 0, kind, title, items, ids[index]);
+    }
+    city.trafficPedestrians = [...city.npcs];
+    return city;
+  };
+  let city = open({ seed: 4181 });
+  window.addEventListener('npc-death', event => { deaths++; city.recordNpcDeath(event.detail.victim); });
+  window.addEventListener('population-changed', () => { changes++; });
+  const stall = city.vendors[0], original = stall.attendant, nextDoorId = city.vendors[1].attendant.stableId;
+  await original.preload();
+  assert.ok(original.takeHit({ damage: original.health }) > 0);
+  assert.equal(stall.interactDistance(stall.position), Infinity);
+  assert.equal(deaths, 1);
+  const atDeath = JSON.parse(JSON.stringify(city.getPopulationSaveData()));
+  city.npcs.forEach(npc => npc.dispose());
+  city = open(atDeath);
+  const closed = city.vendors[0], body = closed.attendant;
+  await body.preload();
+  assert.equal(body.stableId, original.stableId);
+  assert.equal(body.deathSettled, true);
+  assert.equal(closed.interactDistance(closed.position), Infinity);
+  assert.equal(deaths, 1);
+  const gone = { intersectsSphere: () => false }, visible = { intersectsSphere: () => true };
+  const nearby = closed.position.clone(), far = nearby.clone().add(new THREE.Vector3(65, 0, 0));
+  city.population.sweep(1, nearby, gone, Infinity, city._retireResident);
+  city.population.sweep(2, far, visible, Infinity, city._retireResident);
+  assert.equal(closed.attendant, body);
+  assert.ok(!body._disposed);
+  assert.equal(changes, 0);
+  city.population.sweep(3, far, gone, Infinity, city._retireResident);
+  assert.equal(changes, 1, 'avisa para guardar el relevo');
+  assert.equal(city.npcs.includes(body), false);
+  assert.equal(city.trafficPedestrians.includes(body), false);
+  assert.equal(body._disposed, true);
+  const replacement = closed.attendant;
+  await replacement.preload();
+  assert.notEqual(replacement.stableId, body.stableId);
+  assert.notDeepEqual(replacement.person.real, body.person.real);
+  assert.ok(!replacement.isDead && !replacement.looted && replacement.health === replacement.maxHealth);
+  assert.equal(closed.interactDistance(closed.position), 0);
+  assert.ok(city.npcs.includes(replacement) && city.trafficPedestrians.includes(replacement));
+  assert.deepEqual(city.vendors[0].items, PUESTOS[0][2]);
+  assert.equal(city.vendors[1].attendant.stableId, nextDoorId);
+  const after = JSON.parse(JSON.stringify(city.getPopulationSaveData()));
+  assert.equal(Object.values(after.people).length, 1);
+  assert.equal(Object.values(after.people)[0].generation, 1);
+  city.npcs.forEach(npc => npc.dispose());
+  city = open(after, 2);
+  assert.equal(city.vendors[0].attendant.stableId, replacement.stableId);
+  assert.deepEqual(city.vendors[0].attendant.person.real, replacement.person.real);
+  assert.equal(city.vendors[0].attendant.isDead, false);
+  assert.equal(city.vendors[1].attendant.stableId, nextDoorId);
+  assert.equal(deaths, 1);
+  city.npcs.forEach(npc => npc.dispose());
+});
+
+test('los ocho puestos renuevan sus titulares fuera de vista y guardan todos los relevos en un solo barrido', async t => {
+  const browser = globalThis.window;
+  globalThis.window = new EventTarget();
+  t.after(() => { globalThis.window = browser; });
+  const city = vendorDistrict({ seed: 3528 });
+  for (const [kind, title, items, , x, z] of PUESTOS) city._vendor(x, z, 0, kind, title, items);
+  const staff = [...city.npcs], oldIds = new Set(staff.map(npc => npc.stableId));
+  city.trafficPedestrians = [...staff];
+  let changes = 0;
+  window.addEventListener('npc-death', event => city.recordNpcDeath(event.detail.victim));
+  window.addEventListener('population-changed', () => { changes++; });
+  await Promise.all(staff.map(npc => npc.ready));
+  for (const npc of staff) npc.takeHit({ damage: npc.health });
+  assert.ok(city.vendors.every(stall => stall.interactDistance(stall.position) === Infinity));
+  const away = new THREE.Vector3(900, 0, 500);
+  for (let i = 0; i < 24; i++) city.update(.1, away, null);
+  assert.equal(changes, 1);
+  assert.equal(city.npcs.length, 8);
+  assert.deepEqual(new Set(city.npcs), new Set(city.trafficPedestrians));
+  assert.deepEqual(new Set(city.npcs), new Set(city.vendors.map(stall => stall.attendant)));
+  assert.ok(staff.every(npc => npc._disposed));
+  assert.ok(city.npcs.every(npc => !npc.isDead && !oldIds.has(npc.stableId)));
+  assert.ok(city.vendors.every(stall => stall.interactDistance(stall.position) === 0));
+  city.minds?.dispose();
+  city.npcs.forEach(npc => npc.dispose());
+});
+
 test('los puestos y la sombrilla ocupan la misma caja que antes', () => {
   // Las cajas de antes: el parasol de 1,2 m de radio con la punta a 2,475 m; en la fritanga, además, la caneca a 1,25 m.
   const iguales = (objeto, min, max, nombre) => {
