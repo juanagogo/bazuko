@@ -658,7 +658,8 @@ export function createCharacter(initial = DEFAULT_LOOK) {
     body.rotation.x = -pose.lie * Math.PI / 2;
     body.position.y = pose.lie * 0.3;
     body.position.z = -pose.lie * 0.55;
-    actionPose.apply(dt, { speed, running, action, actionProgress, movement, attack, point, step: stepFoot });
+    const stepSupport = actionPose.apply(dt, { speed, running, action, actionProgress, movement, attack, point, step: stepFoot });
+    if (stepSupport) actionPose.fitFeetToSteps(movement.footSupport, movement.footSupportHeight);
 
     // parpadeo
     blink -= dt;

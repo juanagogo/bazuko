@@ -63,6 +63,9 @@ test('la resolución cambia justo antes de dibujar: el lienzo borrado nunca lleg
 
 test('bajar de calidad sola o elegir en Ajustes tampoco tocan el lienzo fuera del cuadro', () => {
   const { renderer, log, draw } = fakeRenderer();
+  renderer.setQuality('baja', false);
+  draw();
+  log.length = 0;
   renderer.resolution.ratio = .75;
   renderer._dropAutoQuality();
   assert.deepEqual(log, []);
@@ -335,7 +338,7 @@ test('Ajustes avisa cuando la calidad subió o bajó sola, no mientras se aplica
     openPauseMenu(game, 'ajustes');
     let text = null;
     const walk = node => {
-      if (typeof node?.textContent === 'string' && node.textContent.startsWith('Baja va más fluido')) text = node.textContent;
+      if (node?.attributes?.id === 'calidad-grafica-ayuda') text = node.textContent;
       for (const child of node?.children ?? []) walk(child);
     };
     walk(config.render().body);

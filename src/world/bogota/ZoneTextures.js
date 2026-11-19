@@ -656,35 +656,35 @@ export function muralSheet() {
   });
 }
 
-/** Fachada repetible de las torres de ladrillo: cuatro pisos por cuatro vanos, con ventanas encendidas. */
-export const TOWER_TILE = Object.freeze({ bays: 8, floors: 8, bayMeters: 3.2, floorMeters: 3.1 });
+/** Primera columna de ladrillo, siete fondos de balcón y ocho variaciones por columna. */
+export const TOWER_TILE = Object.freeze({ bays: 8, floors: 8, floorMeters: 3.1 });
 export function towerFacade() {
   return once('torres', () => {
     const s = 1024, a = makeCanvas(s, s), e = makeCanvas(s, s);
     if (!a) return { map: asTexture(null), emissiveMap: asTexture(null) };
     const r = rng(5519), X = a.ctx, E = e.ctx, bay = s / TOWER_TILE.bays, floor = s / TOWER_TILE.floors;
     E.fillStyle = '#000'; E.fillRect(0, 0, s, s);
-    // Ladrillo a la vista en hiladas finas: a 90 m de altura se lee como textura, no como bloque.
-    X.fillStyle = '#7d4a38'; X.fillRect(0, 0, s, s);
+    X.fillStyle = '#9b6750'; X.fillRect(0, 0, s, s);
     const rowH = 5;
+    const clay = ['#ac593d', '#9b4b33', '#b36646', '#99533a', '#a96043'];
     for (let y = 0, row = 0; y < s; y += rowH, row++) {
-      for (let x = row % 2 ? -7 : 0; x < s; x += 14) {
-        X.fillStyle = ['#84503c', '#7a4834', '#8c5942', '#744330', '#936149'][Math.floor(r() * 5)];
-        X.fillRect(x + .5, y + .5, 13.5, rowH - .8);
+      for (let x = row % 2 ? -5 : 0; x < s; x += 10) {
+        X.fillStyle = clay[Math.floor(r() * clay.length)];
+        X.fillRect(x + .65, y + .65, 9.4, rowH - .68);
       }
     }
     for (let f = 0; f < TOWER_TILE.floors; f++) {
-      // Losa de cada piso a la vista: la fachada se lee como pisos, no como paño de ventanas.
-      X.fillStyle = 'rgba(214,202,180,.26)'; X.fillRect(0, f * floor - 1.5, s, 3);
-      X.fillStyle = 'rgba(22,10,6,.3)'; X.fillRect(0, f * floor + 1.5, s, 2.5);
-      for (let b = 0; b < TOWER_TILE.bays; b++) {
-        const x = b * bay + bay * .24, w = bay * .52, y = f * floor + floor * .26, h = floor * .54;
-        X.fillStyle = 'rgba(26,12,8,.55)'; X.fillRect(x - 2, y - 2, w + 4, h + 4);
+      for (let b = 1; b < TOWER_TILE.bays; b++) {
+        const width = b % 3 === 1 ? .62 : .80;
+        const x = (b + (1 - width) / 2) * bay, w = bay * width, y = f * floor + floor * .14, h = floor * .56;
+        X.fillStyle = '#512d25'; X.fillRect(x - 3, y - 4, w + 6, h + 7);
         const lit = r(), level = .45 + r() * .55;
         const g = X.createLinearGradient(0, y, 0, y + h);
-        // El vidrio es oscuro de día; los encendidos solo se notan en el emisivo, de noche.
-        g.addColorStop(0, '#3b4c54'); g.addColorStop(1, '#161d21');
+        g.addColorStop(0, '#41494c'); g.addColorStop(.45, '#333d3e'); g.addColorStop(1, '#22282a');
         X.fillStyle = g; X.fillRect(x, y, w, h);
+        if ((b + f) % 4 === 0) {
+          X.fillStyle = '#746053'; X.fillRect(x + w * .03, y + h * .06, w * .27, h * .90);
+        }
         // De noche solo una ventana de cada cinco, cada una con su propia lámpara y su cortina.
         if (lit < .2) {
           const glow = E.createLinearGradient(0, y, 0, y + h);
@@ -695,8 +695,14 @@ export function towerFacade() {
           E.fillStyle = 'rgba(0,0,0,.62)';
           if (r() < .6) E.fillRect(x, y, w * (.2 + r() * .3), h);
         }
-        X.fillStyle = '#b9b09c'; X.fillRect(x + w / 2 - .75, y, 1.5, h);
-        X.fillStyle = '#a7967e'; X.fillRect(x - 3, y + h + 1.5, w + 6, 3);
+        const leaves = b % 3 === 1 ? 2 : 3;
+        X.fillStyle = '#7a6d5d';
+        for (let k = 1; k < leaves; k++) {
+          const mullion = x + w * k / leaves;
+          X.fillRect(mullion - .75, y, 1.5, h);
+          E.fillStyle = '#000'; E.fillRect(mullion - .75, y, 1.5, h);
+        }
+        X.fillStyle = '#885f48'; X.fillRect(x - 3, y + h + 1.5, w + 6, 3);
       }
     }
     return { map: asTexture(a), emissiveMap: asTexture(e) };

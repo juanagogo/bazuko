@@ -207,3 +207,32 @@ test('Comedor Comunitario figura en _getPOIs y en los servicios del mapa como lu
   assert.equal(hasTag(comedorPoi, 'agua'), true);
   assert.match(placeMeta(comedorPoi), /Almuerzo caliente gratis cada 5 minutos/);
 });
+
+test('la hora real del último almuerzo va en la partida: recargar no reinicia la espera de 5 minutos, y una partida vieja carga sin ella', async () => {
+  const { Game } = await import('../src/core/game.js');
+  const { StatsSystem } = await import('../src/systems/StatsSystem.js');
+  const { Clock } = await import('../src/core/Clock.js');
+  const { InventorySystem } = await import('../src/systems/InventorySystem.js');
+  let saved = null;
+  const serializable = () => ({ serialize: () => ({}) });
+  const guardando = Object.assign(Object.create(Game.prototype), {
+    stats: serializable(), clock: serializable(), inventory: serializable(), talents: serializable(), diseases: serializable(),
+    player: { position: new THREE.Vector3() }, world: {}, save: { save: data => { saved = data; } }, lastComedorTimestamp: 1234
+  });
+  guardando._save();
+  assert.equal(saved.lastComedorTimestamp, 1234);
+
+  const cargar = (data) => {
+    const game = Object.assign(Object.create(Game.prototype), {
+      stats: new StatsSystem(), clock: new Clock(), inventory: new InventorySystem(), world: {}, lastComedorTimestamp: null,
+      talents: { deserialize() {} }, diseases: { deserialize() {} }
+    });
+    game._aplicarPartida(data);
+    return game;
+  };
+  const ahora = Date.now();
+  const recargada = cargar({ clock: { day: 1, hour: 13 }, lastComedorTimestamp: ahora });
+  assert.equal(recargada.lastComedorTimestamp, ahora);
+  assert.equal(recargada.isComedorAvailable(), false, 'la espera de 5 minutos sigue después de recargar');
+  assert.equal(cargar({ clock: { day: 1, hour: 13 } }).lastComedorTimestamp, null, 'una partida vieja carga sin ella');
+});

@@ -148,3 +148,10 @@ test('pasar de la pausa a otra ventana no deja el teclado de la pausa escuchando
   }
   Object.assign(window, { addEventListener: original.add, removeEventListener: original.remove });
 });
+
+test('la tecla Y sale en Pausa › Controles, al final de «Acciones», después de Z', async () => {
+  const { CONTROL_GROUPS } = await import('../src/ui/PauseMenu.js');
+  const acciones = CONTROL_GROUPS.find(([title]) => title === 'Acciones')[1];
+  const z = acciones.findIndex(([tecla]) => tecla === 'Z');
+  assert.deepEqual(acciones.slice(z + 1), [['Y', 'Junto a un carro parqueado: robarlo. Al volante: bajarme']]);
+});
