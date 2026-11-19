@@ -2,6 +2,8 @@
 // Comedor Comunitario: Almuerzo caliente gratuito cada 5 minutos.
 import * as THREE from 'three';
 import { signMesh } from '../utils/signs.js';
+import { addComedorCounter } from './comedorMostrador.js';
+
 export const COMEDOR_NAME = 'Comedor Comunitario';
 
 export class ComedorComunitario {
@@ -21,60 +23,7 @@ export class ComedorComunitario {
     platform.receiveShadow = true;
     this.group.add(platform);
 
-    // Mostrador de atención y reparto
-    const counter = new THREE.Mesh(new THREE.BoxGeometry(2.6, 0.9, 0.7), lam(0x3a5a40));
-    counter.position.set(0, 0.52, 0.3);
-    counter.castShadow = counter.receiveShadow = true;
-    this.group.add(counter);
-
-    // Borde superior del mostrador (acero / madera clara)
-    const counterTop = new THREE.Mesh(new THREE.BoxGeometry(2.7, 0.08, 0.8), lam(0xdad7cd));
-    counterTop.position.set(0, 0.98, 0.3);
-    counterTop.castShadow = true;
-    this.group.add(counterTop);
-
-    // Gran olla comunitaria de sancocho (aluminio)
-    const pot = new THREE.Mesh(new THREE.CylinderGeometry(0.32, 0.28, 0.45, 12), lam(0xb0b0b0));
-    pot.position.set(-0.65, 1.22, 0.3);
-    pot.castShadow = true;
-    this.group.add(pot);
-
-    // Tapa / Caldo humeante en la olla
-    const soup = new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.28, 0.05, 12), lam(0xd4a373));
-    soup.position.set(-0.65, 1.42, 0.3);
-    this.group.add(soup);
-
-    // Cazo / Cucharón grande
-    const ladleHandle = new THREE.Mesh(new THREE.CylinderGeometry(0.015, 0.015, 0.5, 6), lam(0x555555));
-    ladleHandle.position.set(-0.55, 1.55, 0.3);
-    ladleHandle.rotation.z = 0.35;
-    this.group.add(ladleHandle);
-
-    // Bandejas de comida
-    for (let i = 0; i < 3; i++) {
-      const tray = new THREE.Mesh(new THREE.BoxGeometry(0.35, 0.04, 0.28), lam(0xd0d0d0));
-      tray.position.set(0.1 + i * 0.42, 1.04, 0.3);
-      this.group.add(tray);
-    }
-
-    // Estantería trasera con víveres (arroz, plátano, verduras)
-    const backShelf = new THREE.Mesh(new THREE.BoxGeometry(2.6, 1.8, 0.35), lam(0x582f0e));
-    backShelf.position.set(0, 0.95, -0.7);
-    backShelf.castShadow = true;
-    this.group.add(backShelf);
-
-    // Cajas de alimentos
-    const foodColors = [0xe76f51, 0xf4a261, 0xe9c46a, 0x2a9d8f, 0xa7c957];
-    for (let row = 0; row < 2; row++) {
-      for (let i = 0; i < 5; i++) {
-        const foodBox = new THREE.Mesh(
-          new THREE.BoxGeometry(0.35, 0.3, 0.25),
-          lam(foodColors[(i + row * 2) % foodColors.length])
-        );
-        foodBox.position.set(-0.9 + i * 0.45, 0.7 + row * 0.55, -0.6);
-        this.group.add(foodBox);
-      }
-    }
+    addComedorCounter(this.group);
 
     // Toldo institucional (franjas amarillo y rojo Bogotá)
     const awning = new THREE.Group();

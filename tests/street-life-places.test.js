@@ -63,6 +63,44 @@ test('la ruta a cada pila termina frente a la llave, fuera del sólido y al alca
   }
 });
 
+test('el cuenco de la pila deja el agua visible por debajo del borde', () => {
+  const pila = new PilaPublica(scene, new THREE.Vector3());
+  pila.group.updateMatrixWorld(true);
+  const down = new THREE.Vector3(0, -1, 0);
+  const hit = x => new THREE.Raycaster(new THREE.Vector3(x, 2, 0), down).intersectObject(pila.group)[0];
+  const water = hit(0), rim = hit(.68);
+  assert.ok(water.object.material.color.b > water.object.material.color.r);
+  assert.ok(water.point.y + .12 < rim.point.y);
+  assert.ok(water.object.material.transparent && !water.object.material.depthWrite);
+  const under = new THREE.Raycaster(new THREE.Vector3(.002, 2, .013), down).intersectObject(pila.group);
+  assert.equal(under[0].object, water.object);
+  const drain = under.find(item => item.object.name.endsWith('sumidero'));
+  assert.ok(drain && drain.point.y < water.point.y - .03 && drain.point.y > .598, 'rejilla bajo la lámina de agua');
+  const side = new THREE.Raycaster(new THREE.Vector3(.24, 2, .12), down).intersectObject(pila.group);
+  assert.equal(side[0].object, water.object);
+  assert.ok(side[1].point.y > drain.point.y, 'el fondo baja hacia la rejilla');
+  pila.dispose();
+});
+
+test('la pila conserva su huella, acceso y cinco mallas con acabados aislados', () => {
+  const parent = new THREE.Scene();
+  const pila = new PilaPublica(parent, new THREE.Vector3()), second = new PilaPublica(parent, new THREE.Vector3(4, 0, 0), Math.PI / 2);
+  const hogar = new HogarDePaso(parent, new THREE.Vector3());
+  const bounds = new THREE.Box3().setFromObject(pila.group);
+  assert.ok(Math.abs(bounds.min.x + .75) < .001 && Math.abs(bounds.max.x - .75) < .001);
+  assert.ok(Math.abs(bounds.min.z + .45) < .001 && Math.abs(bounds.max.z - .45) < .001);
+  assert.ok(Math.abs(bounds.max.y - 1.171) < .001);
+  assert.deepEqual(pila.collider.size.toArray(), [1.5, 1, .9]);
+  assert.deepEqual(pila.approach.toArray(), [0, 0, 1.3]);
+  assert.ok(second.approach.distanceTo(new THREE.Vector3(5.3, 0, 0)) < 1e-8);
+  assert.equal(pila.group.children.length, 5);
+  const materiales = pila.group.children.map(mesh => mesh.material);
+  assert.ok(materiales.every((m, i) => m === second.group.children[i].material));
+  assert.ok(materiales[0].bumpMap && materiales[1].map === materiales[0].map);
+  hogar.group.traverse(part => { if (part.isMesh) assert.ok(!materiales.includes(part.material)); });
+  for (const p of [pila, second, hogar]) p.dispose();
+});
+
 test('el hogar de paso queda en un andén, contra una fachada, a una caminada del cambuche', () => {
   const h = places.hogar;
   assert.ok(h, 'hay hogar de paso');
