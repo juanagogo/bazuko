@@ -47,7 +47,7 @@ test('la apariencia sale entera del catálogo: normalizeReal no tiene nada que c
   }
 });
 
-// Los nombres van cifrados para que este archivo tampoco los contenga.
+// El catálogo de marcas se conserva codificado.
 const uncode = (names) => names.map(name => Buffer.from(name, 'base64').toString('utf8'));
 const BRANDS = uncode([
   'YWRpZGFz', 'bmlrZQ==', 'cHVtYQ==', 'cmVlYm9r', 'bmV3IGJhbGFuY2U=', 'dmFucw==', 'dW1icm8=', 'a2FwcGE=',
@@ -76,8 +76,11 @@ const COMMON_WORDS = uncode([
   'cGF0YWdvbmlh', 'dmlzYQ==', 'Zm9yZA==', 'Ymlj', 'a2lh', 'YXBwbGU=', 'Z29vZ2xl', 'bW9iaWw=', 'YXJh', 'b21h',
   'Z2Vm', 'dmVsZXo='
 ]);
-// La estación de servicio viene de antes de la gente y se queda como está; en ningún otro lugar vale.
-const ALLOWED = new Map([['src/world/bogota/GasStation.js', uncode(['dGV4YWNv'])]]);
+// La estación histórica y la réplica de exposición tienen identidad propia. La flota y los arquetipos siguen siendo genéricos.
+const ALLOWED = new Map([
+  ['src/world/bogota/GasStation.js', uncode(['dGV4YWNv'])],
+  ['src/world/bogota/mt09Identidad.js', ['yamaha']]
+]);
 const TEXT_FILE = /\.(?:js|mjs|css|html|json|md|txt|glsl)$/;
 const ROOT = new URL('../', import.meta.url);
 
@@ -117,6 +120,8 @@ test('la prueba de marcas ve plurales, acentos y mayúsculas, y no se confunde c
   assert.deepEqual(brandsIn(`dos pares de ${second}s`), [second]);
   assert.deepEqual(brandsIn(`la ${common} del menú`), [], 'una palabra común sola no es marca');
   assert.deepEqual(brandsIn(`una gorra ${common}`), [common]);
+  assert.deepEqual(brandsIn('Yamaha', 'src/world/bogota/motos.js'), ['yamaha'], 'la flota genérica conserva la regla');
+  assert.deepEqual(brandsIn(first, 'src/world/bogota/mt09Identidad.js'), [first], 'la ficha solo admite su fabricante');
   assert.deepEqual(brandsIn(`un letrero ${excepted}`), [excepted], 'la excepción vale solo en su archivo');
   assert.deepEqual(brandsIn(`un letrero ${excepted}`, 'src/world/bogota/GasStation.js'), []);
 });
