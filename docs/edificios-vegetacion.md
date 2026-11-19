@@ -6,7 +6,17 @@ La mejora conserva el trazado y las colisiones del juego original. Se concentra 
 
 `BuildingDetails.js` agrupa marcos, alféizares, bajantes y rejas por material y pared. Las fachadas alternan vidrio y cortinas; algunas ventanas cálidas se encienden por la noche mediante materiales emisivos, sin añadir luces. Los detalles siguen la ocultación de paredes y techos en la vista isométrica. El detalle de ventanas se limita a los pisos inferiores; las torres conservan sus huellas y alturas.
 
+Las torres de barrio se visten en `fachadaTorres.js`: una fachada pintada por diseño, con vidrio que devuelve el cielo, cortinas y persianas sueltas, y de noche apartamentos salteados en tres tonos. El edificio de cinco pisos de la avenida (`SmallBuilding.js`) toma sus ventanas del atlas de ventanas de las casas. `TINTE_COSTADO`, en `textures.js`, es el único dueño del tinte del ladrillo de los costados de las casas.
+
 Las semillas locales de las casas evitan que crear más geometrías o materiales cambie sus dimensiones. El plano físico y sus colisiones se conservan; las casas que antes dependían del azar global tienen ahora una apariencia estable por coordenadas.
+
+## Azoteas
+
+La losa (`slab()` en `textures.js`) es gris media, con agua estancada, chorreones que salen de las juntas, verdín pegado a ellas y remiendos de manto en manchas suaves. Bases de tanque, dados y cuarto de escalera son de concreto viejo (la celda `canvas`, con manchas, chorreones y sombra de contacto abajo), nunca de la celda casi blanca. Los tanques son de dieciséis caras con una normal por esquina, negros mates y con polvo en la tapa. El pretil de las casas lleva pañete por dentro, a 1,5 cm de la cara interior y por paños de unos 2,6 m, dentro de la malla «Azotea con vida», solo si la azotea ya la tiene. Las latas son zinc gris de onda con óxido en un extremo (la celda `lata`, en el último hueco libre del atlas de detalle: x 896, y 368, 128 × 32 del diseño; lo nuevo del atlas se pinta al final, con su propio azar); todas caen hacia un mismo borde del techo, de 8 a 14 cm, y cada una pisa a la siguiente de 12 a 20 cm. El canto del antepecho de ladrillo es una junta de mortero. Cada techo gasta su azar en el mismo orden que antes, así que tanques, varillas, pesos, ropa y latas salen donde salían.
+
+## Torre Colpatria
+
+El acceso de la torre (`Colpatria.js`) lleva una marquesina de 8 × 0,3 × 1,6 m con el letrero «ACCESO PRINCIPAL» encima, un vestíbulo de vidrio oscuro entre las costillas, que hacen de jambas, y dos puertas con dintel de 2,18 m. El vestíbulo y la planta comercial del anexo leen una muestra escondida en un nervio de los lienzos de la fachada (`fachadaColpatria.js`): de día son vidrio oscuro y de noche dan una luz tibia que baja del cielo raso. Si cambian `FRANJAS` o el ancho de las costillas, la muestra tiene que seguir dentro de un nervio. Los letreros del anexo van en su cara norte, la que da a la calle (la oriental queda pegada a una casa), y los tres letreros reciben la luz de la escena y de noche se prenden tenues con las franjas de la torre.
 
 ## Arbolado y jardines
 

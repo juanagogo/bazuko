@@ -82,8 +82,8 @@ test('los nombres de más de 14 caracteres llevan la letra chica y los cortos la
   assert.equal(aviso.cartelEl.classList.contains('zona-cartel--largo'), false, 'tras un nombre largo, el corto vuelve a la letra de siempre');
 });
 
-// Lo justo para calcular las medidas de las hojas: px, vw, + - * /, calc, min, max, clamp y var() con su valor por omisión.
-function medida(expr, vw) {
+// Resuelve las medidas de las hojas y, si se conocen, sus propiedades personalizadas.
+function medida(expr, vw, propiedad) {
   const fichas = expr.match(/--[\w-]+|\d*\.?\d+(?:px|vw)?|[a-z]+|[()+\-*/,]/g);
   let i = 0;
   const ver = () => fichas[i], tomar = () => fichas[i++];
@@ -109,10 +109,12 @@ function medida(expr, vw) {
     if (/^\d|^\./.test(f)) return parseFloat(f) * (f.endsWith('vw') ? vw / 100 : 1);
     assert.equal(tomar(), '(', `después de ${f}`);
     if (f === 'var') {
-      tomar();
-      if (ver() === ',') { tomar(); return argumentos()[0]; }
-      tomar();
-      return 0;
+      const nombre = tomar();
+      let respaldo = 0;
+      if (ver() === ',') { tomar(); respaldo = argumentos()[0]; }
+      else assert.equal(tomar(), ')');
+      const valor = propiedad?.(nombre);
+      return valor === undefined ? respaldo : medida(valor, vw, propiedad);
     }
     const a = argumentos();
     if (f === 'calc') return a[0];
@@ -163,8 +165,9 @@ test('en escritorio, el cartel del lugar no pasa de la columna de avisos ni de l
   }
   // Con ventanas bajas, la regla vale solo desde el ancho en que el cartel ya empieza a la derecha del radar.
   const radar = reglas('src/ui/css/hud.css', null, '#hud-dock');
+  const propiedadHud = reglas('src/ui/css/hud.css', null, ':root');
   const bajo = Number(fs.readFileSync('src/ui/css/momentos.css', 'utf8').match(/\(min-width: (\d+)px\) and \(min-height: 501px\)/)?.[1]);
-  const radarTermina = medida(radar('left'), bajo) + medida(radar('width'), bajo);
+  const radarTermina = medida(radar('left'), bajo) + medida(radar('width'), bajo, propiedadHud);
   assert.ok((bajo - medida(cartel('max-width'), bajo)) / 2 >= radarTermina, `a ${bajo}px y poco alto, el cartel empieza a la derecha del radar (${radarTermina}px)`);
   assert.ok((bajo - 1 - medida(cartel('max-width'), bajo - 1)) / 2 < radarTermina, `${bajo}px es el primer ancho en que el cartel no llega sobre el radar`);
 });

@@ -2,9 +2,10 @@
 // Constructor de lotes para los barrios del oriente: acumula cajas y cuadriláteros por material y
 // crea una sola malla por pared, sin un objeto Three por barrote, alero o baranda.
 import * as THREE from 'three';
-import { footHaze } from './CityBackdrop.js';
+import { patchBackdropMist } from './BackdropMist.js';
 import { patchSunFieldShader } from './SunFieldShader.js';
-import { colonialWallSheet, redBrick, clayTiles, detailSheet, muralSheet, towerFacade,
+import { withVisualRandom } from './VisualRandom.js';
+import { colonialWallSheet, redBrick, clayTiles, detailSheet, muralSheet, towerFacade, flagstones,
   detailRect, WALL_SHEET, RED_BRICK_METERS } from './ZoneTextures.js';
 
 const FACE_BASIS = Object.freeze({ 0: [0, -1, 1, 0], 1: [0, 1, -1, 0], 4: [1, 0, 0, 1], 5: [-1, 0, 0, -1] });
@@ -60,6 +61,17 @@ export class Batch {
     out.index.push(base, base + 1, base + 2);
   }
 
+  /** Superficie indexada con normales propias para compartir el sombreado entre caras. */
+  indexed(material, positions, normals, uvs, indices) {
+    const out = this._bucket(material), base = out.position.length / 3;
+    for (let i = 0; i < positions.length; i++) {
+      out.position.push(...positions[i]);
+      out.normal.push(...normals[i]);
+      out.uv.push(...uvs[i]);
+    }
+    for (const index of indices) out.index.push(base + index);
+  }
+
   /** Marco de una pared: u a lo largo de la fachada, y hacia arriba, n hacia la calle. */
   frame(face, plane = 0) {
     const [ux, uz, nx, nz] = FACE_BASIS[face];
@@ -69,12 +81,15 @@ export class Batch {
       P,
       box(material, u, y, n, w, h, d, rect, faces = ALL_FACES) {
         const l = u - w / 2, r = u + w / 2, t = y + h, b = y, f = n + d / 2, k = n - d / 2;
-        if (faces & FACES.front) batch.quad(material, P(l, b, f), P(r, b, f), P(r, t, f), P(l, t, f), rect);
-        if (faces & FACES.back) batch.quad(material, P(r, b, k), P(l, b, k), P(l, t, k), P(r, t, k), rect);
-        if (faces & FACES.right) batch.quad(material, P(r, b, f), P(r, b, k), P(r, t, k), P(r, t, f), rect);
-        if (faces & FACES.left) batch.quad(material, P(l, b, k), P(l, b, f), P(l, t, f), P(l, t, k), rect);
-        if (faces & FACES.top) batch.quad(material, P(l, t, f), P(r, t, f), P(r, t, k), P(l, t, k), rect);
-        if (faces & FACES.bottom) batch.quad(material, P(l, b, k), P(r, b, k), P(r, b, f), P(l, b, f), rect);
+        let vertical = rect, sides = rect, horizontal = rect;
+        // Una textura repetible recibe las medidas de cada cara, además de las celdas de atlas habituales.
+        if (typeof rect === 'function') { vertical = rect(w, h); sides = rect(d, h); horizontal = rect(w, d); }
+        if (faces & FACES.front) batch.quad(material, P(l, b, f), P(r, b, f), P(r, t, f), P(l, t, f), vertical);
+        if (faces & FACES.back) batch.quad(material, P(r, b, k), P(l, b, k), P(l, t, k), P(r, t, k), vertical);
+        if (faces & FACES.right) batch.quad(material, P(r, b, f), P(r, b, k), P(r, t, k), P(r, t, f), sides);
+        if (faces & FACES.left) batch.quad(material, P(l, b, k), P(l, b, f), P(l, t, f), P(l, t, k), sides);
+        if (faces & FACES.top) batch.quad(material, P(l, t, f), P(r, t, f), P(r, t, k), P(l, t, k), horizontal);
+        if (faces & FACES.bottom) batch.quad(material, P(l, b, k), P(r, b, k), P(r, b, f), P(l, b, f), horizontal);
       },
       panel(material, u, y, n, w, h, rect) {
         const l = u - w / 2, r = u + w / 2;
@@ -88,17 +103,22 @@ export class Batch {
   }
 
   /** Crea una malla por material dentro de parent. */
-  finish(parent, { castShadow = true, receiveShadow = true, name = 'Detalle de barrio' } = {}) {
+  finish(parent, { castShadow = true, receiveShadow = true, name = 'Detalle de barrio', visualOnly = false } = {}) {
     let triangles = 0;
     for (const [material, data] of this.groups) {
-      const geometry = new THREE.BufferGeometry();
-      geometry.setAttribute('position', new THREE.Float32BufferAttribute(data.position, 3));
-      geometry.setAttribute('normal', new THREE.Float32BufferAttribute(data.normal, 3));
-      geometry.setAttribute('uv', new THREE.Float32BufferAttribute(data.uv, 2));
-      geometry.setIndex(data.index);
-      geometry.computeBoundingBox();
-      geometry.computeBoundingSphere();
-      const mesh = new THREE.Mesh(geometry, material);
+      const create = () => {
+        const geometry = new THREE.BufferGeometry();
+        geometry.setAttribute('position', new THREE.Float32BufferAttribute(data.position, 3));
+        geometry.setAttribute('normal', new THREE.Float32BufferAttribute(data.normal, 3));
+        geometry.setAttribute('uv', new THREE.Float32BufferAttribute(data.uv, 2));
+        geometry.setIndex(data.index);
+        geometry.computeBoundingBox();
+        geometry.computeBoundingSphere();
+        return new THREE.Mesh(geometry, material);
+      };
+      const visual = visualOnly === true || (visualOnly && visualOnly.includes(material));
+      const mesh = visual ? withVisualRandom(create) : create();
+      if (visual) mesh.userData.visualOnly = true;
       mesh.name = name;
       mesh.castShadow = castShadow;
       mesh.receiveShadow = receiveShadow;
@@ -144,13 +164,15 @@ class HazyTowerMaterial extends THREE.MeshStandardMaterial {
   }
 
   onBeforeCompile(shader) {
+    patchBackdropMist(shader);
     shader.vertexShader = shader.vertexShader.replace('#include <project_vertex>', `#include <project_vertex>
       { float zn = gl_Position.z / gl_Position.w;
-        float zc = zn > 0.9998 ? 0.9998 + (zn - 0.9998) * 0.14 : zn;
+        float zc = zn > 0.9998 && gl_Position.w > 0. ? 0.9998 + (zn - 0.9998) * 0.14 : zn;
         gl_Position.z = zc * gl_Position.w; }`);
     shader.fragmentShader = shader.fragmentShader.replace('#include <fog_fragment>', `
       #ifdef USE_FOG
-        gl_FragColor.rgb = skyFogMix(gl_FragColor.rgb, ${footHaze('min(smoothstep(fogNear, fogFar, vFogDepth), .55)')});
+        float towerHazeCap = mix(.64, .33, smoothstep(130., 170., fogFar));
+        gl_FragColor.rgb = skyFogMix(gl_FragColor.rgb, backdropMist(min(smoothstep(fogNear, fogFar, vFogDepth), towerHazeCap)));
       #endif`);
     // El gancho de la clase tapa el del prototipo: sin esto la torre no recibe sombra en calidad baja.
     patchSunFieldShader(shader);
@@ -167,11 +189,16 @@ export function createZoneMaterials() {
   detail.name = 'Detalles de barrio';
   const tower = new HazyTowerMaterial({ map: towerMaps.map, emissiveMap: towerMaps.emissiveMap, emissive: '#ffffff',
     emissiveIntensity: 0, roughness: .92 });
+  const ashlar = withVisualRandom(() => {
+    const maps = flagstones(7837, { tint: '#a99d84', slabW: 115, slabH: 76 });
+    return material({ name: 'Piedra labrada', map: maps.map, bumpMap: maps.bumpMap, bumpScale: .024, roughnessMap: maps.roughnessMap, roughness: .96 });
+  });
   return {
     wall: material({ map: wallMaps.map, bumpMap: wallMaps.bumpMap, bumpScale: .03, roughness: .96 }),
-    brick: material({ map: brickMaps.map, bumpMap: brickMaps.bumpMap, bumpScale: .035, roughnessMap: brickMaps.roughnessMap, roughness: .96 }),
-    clay: material({ map: clayMaps.map, bumpMap: clayMaps.bumpMap, bumpScale: .05, roughness: .9, color: '#f4e8dc' }),
-    clayDark: material({ map: clayMaps.map, bumpMap: clayMaps.bumpMap, bumpScale: .05, roughness: .9, color: '#8d7a70' }),
+    brick: material({ map: brickMaps.map, bumpMap: brickMaps.bumpMap, bumpScale: .028, roughnessMap: brickMaps.roughnessMap, roughness: .97 }),
+    clay: material({ map: clayMaps.map, bumpMap: clayMaps.bumpMap, bumpScale: .024, roughness: .92, color: '#f4e8dc' }),
+    clayDark: material({ map: clayMaps.map, bumpMap: clayMaps.bumpMap, bumpScale: .038, roughness: .9, color: '#bba390' }),
+    ashlar,
     mural: material({ map: mural.map, alphaTest: .4, roughness: .95 }),
     detail, tower,
     interior: material({ color: '#675e50', roughness: 1 })

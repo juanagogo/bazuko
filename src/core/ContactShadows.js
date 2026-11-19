@@ -2,6 +2,7 @@ import * as THREE from 'three';
 
 const UP = new THREE.Vector3(0, 1, 0);
 const STRIDE = 8, SCORE = 7;
+const SOLE_ACTORS = 12, SOLE_RANGE = 18;
 const vertexShader = `
   attribute float contactAlpha;
   varying vec2 vPoint;
@@ -52,7 +53,7 @@ const actorOf = source => source?.vehicle?.position ? source.vehicle : source;
 
 /**
  * Dos dibujos transparentes, sin shadow maps, texturas, luces ni pasos de render extra.
- * Actores: {position, root|group, isSwimming?, groundSurface?, isGrounded?}.
+ * Actores: {position, root|group, isSwimming?, groundSurface?, isGrounded?, character?}.
  * Vehículos: Car/{position,group,length,width} o {vehicle, position?,group?,length?,width?,forwardAxis?}.
  * El largo va por X local por defecto; envolver BusService con forwardAxis:'z'.
  * groundHeight(x,z,currentY) debe distinguir calle y tablero. Durante un salto se
@@ -67,7 +68,8 @@ export class ContactShadows {
     this.group.name = 'Sombras de contacto';
     this.group.visible = false;
     scene.add(this.group); // Raíz dinámica directa, fuera de los lotes estáticos.
-    this.actors = batch(this.capacity, 0);
+    this._soleCapacity = Math.min(SOLE_ACTORS, this.capacity);
+    this.actors = batch(this.capacity + this._soleCapacity * 2, 0);
     this.actors.name = 'Contacto de personas y perro';
     this.vehicles = batch(this.capacity, 1);
     this.vehicles.name = 'Contacto de vehículos';
@@ -87,6 +89,7 @@ export class ContactShadows {
     this._projection = new THREE.Matrix4();
     this._frustum = new THREE.Frustum();
     this._sphere = new THREE.Sphere();
+    this._soles = Array.from({ length: 2 }, () => ({ center: new THREE.Vector3(), valid: false }));
   }
 
   get count() { return this.actors.count + this.vehicles.count; }
@@ -180,17 +183,60 @@ export class ContactShadows {
     this._quaternion.multiply(this._yaw);
     const spread = 1 + Math.min(.35, Math.max(0, above) * .2);
     const rx = this._data[at + 3] * spread, rz = this._data[at + 4] * spread;
-    this._position.set(x, floor + .02, z);
+    const mesh = type === 2 ? this.vehicles : this.actors;
+    const bodyIndex = mesh.count;
+    this._stamp(mesh, x, floor + .02, z, rx, rz, alpha);
+    if (type === 0 && !airborne && !source.ridingBike && !source.koState && distance < SOLE_RANGE) {
+      const strength = this._drawSoles(source, groundHeight, floor, distance, submerged);
+      // La sombra difusa cede a la de las suelas para evitar oclusión doble bajo el cuerpo.
+      mesh.geometry.attributes.contactAlpha.setX(bodyIndex, alpha * (1 - this._soleHaloReduction * strength));
+    }
+  }
+
+  _drawSoles(actor, groundHeight, referenceY, distance, submerged) {
+    if (!groundHeight || !actor.character?.sampleSoleContacts || this._soleActors >= this._soleCapacity) return 0;
+    this._soleActors++;
+    for (const sole of this._soles) sole.valid = false;
+    actor.character.sampleSoleContacts(this._soles);
+    const rangeFade = 1 - THREE.MathUtils.smoothstep(distance, 9, SOLE_RANGE);
+    let strongest = 0;
+    for (const { center: { x, y, z }, width, length, yaw, valid } of this._soles) {
+      if (!valid) continue;
+      const floor = heightOf(groundHeight(x, z, referenceY));
+      const gap = y - floor;
+      if (!Number.isFinite(gap) || gap < -.045 || gap > .115) continue;
+      const strength = rangeFade * (1 - THREE.MathUtils.smoothstep(gap, .018, .115));
+      const alpha = this._soleOpacity * strength * (1 - submerged / .3);
+      if (alpha < .012) continue;
+      const c = Math.cos(yaw), s = Math.sin(yaw);
+      const right = heightOf(groundHeight(x + c * width, z - s * width, floor));
+      const left = heightOf(groundHeight(x - c * width, z + s * width, floor));
+      const front = heightOf(groundHeight(x + s * length, z + c * length, floor));
+      const back = heightOf(groundHeight(x - s * length, z - c * length, floor));
+      const difference = Math.max(Math.abs(right - floor), Math.abs(left - floor), Math.abs(front - floor), Math.abs(back - floor));
+      // Un solo plano sirve en una rampa suave. El borde de una grada pide su propio apoyo.
+      if (!Number.isFinite(difference) || difference > .046) continue;
+      const across = (right - left) / (2 * width), along = (front - back) / (2 * length);
+      this._normal.set(-across * c - along * s, 1, across * s - along * c).normalize();
+      this._quaternion.setFromUnitVectors(UP, this._normal);
+      this._quaternion.multiply(this._yaw.setFromAxisAngle(UP, yaw));
+      this._stamp(this.actors, x, floor + .006, z, width, length, alpha);
+      strongest = Math.max(strongest, strength);
+    }
+    return strongest;
+  }
+
+  _stamp(mesh, x, y, z, rx, rz, alpha) {
+    this._position.set(x, y, z);
     this._scale.set(rx, 1, rz);
     this._matrix.compose(this._position, this._quaternion, this._scale);
-    const mesh = type === 2 ? this.vehicles : this.actors;
     mesh.setMatrixAt(mesh.count, this._matrix);
     mesh.geometry.attributes.contactAlpha.setX(mesh.count++, alpha);
     // Bounds conservadores, actualizados con cada lote móvil, sin recorrer las matrices.
     const radius = Math.hypot(rx, rz);
-    this._position.set(x - radius, floor - radius, z - radius);
+    this._position.set(x - radius, y - radius - .02, z - radius);
     mesh.boundingBox.expandByPoint(this._position);
-    this._position.set(x + radius, floor + radius + .04, z + radius);
+    this._position.set(x + radius, y + radius + .02, z + radius);
     mesh.boundingBox.expandByPoint(this._position);
   }
 
@@ -198,6 +244,8 @@ export class ContactShadows {
     if (this._disposed) return;
     this._range = quality === 'alta' ? 45 : quality === 'media' ? 50 : 55;
     this._opacity = quality === 'alta' ? .13 : quality === 'media' ? .18 : .28;
+    this._soleOpacity = quality === 'alta' ? .30 : quality === 'media' ? .33 : .36;
+    this._soleHaloReduction = quality === 'alta' ? .24 : quality === 'media' ? .20 : .15;
     const view = camera?.camera ?? camera;
     if (view?.getWorldPosition) view.getWorldPosition(this._cameraPosition);
     else this._cameraPosition.copy(view?.position ?? player?.position ?? this.group.position);
@@ -208,7 +256,7 @@ export class ContactShadows {
       this._projection.multiplyMatrices(view.projectionMatrix, view.matrixWorldInverse);
       this._frustum.setFromProjectionMatrix(this._projection);
     }
-    this._queued = 0; this._refs.fill(null);
+    this._queued = 0; this._soleActors = 0; this._refs.fill(null);
     this.actors.count = this.vehicles.count = 0;
     this.actors.boundingBox.makeEmpty(); this.vehicles.boundingBox.makeEmpty();
     this._offer(player, 0, -2000);

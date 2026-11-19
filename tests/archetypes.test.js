@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { readFileSync, readdirSync } from 'node:fs';
 import { test } from 'node:test';
-import { ARCHETYPES, LOW_STANCES, SEARCH_ACTION, ZONE_WEIGHTS, normalizeTalla, personLook, pickArchetype, pickStop, pickWalk, rollPerson } from '../src/character/archetypes.js';
+import { ARCHETYPES, LOW_STANCES, SEARCH_ACTION, SKIN_CLEARANCE, ZONE_WEIGHTS, normalizeTalla, personLook, pickArchetype, pickStop, pickWalk, rollPerson, skinDistance } from '../src/character/archetypes.js';
 import { STANCE_NAMES } from '../src/character/stances.js';
 import { GAIT_FAMILIES } from '../src/character/gaitFamilies.js';
 import { isStreetProp } from '../src/character/props.js';
@@ -47,7 +47,7 @@ test('la apariencia sale entera del catálogo: normalizeReal no tiene nada que c
   }
 });
 
-// Los nombres van cifrados para que este archivo tampoco los contenga.
+// El catálogo de marcas se conserva codificado.
 const uncode = (names) => names.map(name => Buffer.from(name, 'base64').toString('utf8'));
 const BRANDS = uncode([
   'YWRpZGFz', 'bmlrZQ==', 'cHVtYQ==', 'cmVlYm9r', 'bmV3IGJhbGFuY2U=', 'dmFucw==', 'dW1icm8=', 'a2FwcGE=',
@@ -76,8 +76,11 @@ const COMMON_WORDS = uncode([
   'cGF0YWdvbmlh', 'dmlzYQ==', 'Zm9yZA==', 'Ymlj', 'a2lh', 'YXBwbGU=', 'Z29vZ2xl', 'bW9iaWw=', 'YXJh', 'b21h',
   'Z2Vm', 'dmVsZXo='
 ]);
-// La estación de servicio viene de antes de la gente y se queda como está; en ningún otro lugar vale.
-const ALLOWED = new Map([['src/world/bogota/GasStation.js', uncode(['dGV4YWNv'])]]);
+// La estación histórica y la réplica de exposición tienen identidad propia. La flota y los arquetipos siguen siendo genéricos.
+const ALLOWED = new Map([
+  ['src/world/bogota/GasStation.js', uncode(['dGV4YWNv'])],
+  ['src/world/bogota/mt09Identidad.js', ['yamaha']]
+]);
 const TEXT_FILE = /\.(?:js|mjs|css|html|json|md|txt|glsl)$/;
 const ROOT = new URL('../', import.meta.url);
 
@@ -117,6 +120,8 @@ test('la prueba de marcas ve plurales, acentos y mayúsculas, y no se confunde c
   assert.deepEqual(brandsIn(`dos pares de ${second}s`), [second]);
   assert.deepEqual(brandsIn(`la ${common} del menú`), [], 'una palabra común sola no es marca');
   assert.deepEqual(brandsIn(`una gorra ${common}`), [common]);
+  assert.deepEqual(brandsIn('Yamaha', 'src/world/bogota/motos.js'), ['yamaha'], 'la flota genérica conserva la regla');
+  assert.deepEqual(brandsIn(first, 'src/world/bogota/mt09Identidad.js'), [first], 'la ficha solo admite su fabricante');
   assert.deepEqual(brandsIn(`un letrero ${excepted}`), [excepted], 'la excepción vale solo en su archivo');
   assert.deepEqual(brandsIn(`un letrero ${excepted}`, 'src/world/bogota/GasStation.js'), []);
 });
@@ -184,6 +189,52 @@ test('quien vive en la calle se ve gastado y el oficinista no', () => {
   const look = personLook(rollPerson('habitante', { random }));
   assert.equal(look.desgaste, 2);
   assert.equal(look.real.desgaste, 2);
+});
+
+test('entre recicladores con costal hay lona, acolchado y prendas de calle en las mismas tallas y tonos', () => {
+  const random = seeded(24), groups = new Map();
+  for (let i = 0; i < 1200; i++) {
+    const person = rollPerson('reciclador', { random });
+    const style = person.chalecoReciclador ?? 'sin chaleco';
+    const group = groups.get(style) ?? [];
+    group.push(person);
+    groups.set(style, group);
+    assert.ok(person.real.accesorios.some(item => item.id === 'costal'));
+    assert.equal(personLook(person).chalecoReciclador, person.chalecoReciclador);
+  }
+  assert.deepEqual([...groups.keys()].sort(), ['acolchado', 'lona', 'sin chaleco']);
+  for (const people of groups.values()) {
+    assert.ok(people.length > 300 && people.length < 500);
+    assert.equal(new Set(people.map(person => person.sexo)).size, 2);
+    assert.equal(new Set(people.map(person => person.real.edad)).size, 3);
+    assert.equal(new Set(people.map(person => person.piel)).size, 6);
+  }
+  for (let i = 0; i < 100; i++) {
+    const asleep = rollPerson('reciclador', { random, sinCarga: true });
+    assert.equal(asleep.chalecoReciclador, undefined);
+    assert.equal(asleep.real.accesorios.some(item => item.id === 'costal'), false);
+  }
+});
+
+test('algunos peatones llevan bufanda con prendas largas y tonos separados de la piel', () => {
+  const random = seeded(91);
+  const colors = new Set(), garments = new Set();
+  let withScarf = 0;
+  for (const id of ids) for (let i = 0; i < 80; i++) {
+    const person = rollPerson(id, { random });
+    const scarf = person.real.accesorios.find(item => item.id === 'bufanda');
+    if (!scarf) continue;
+    assert.ok(['saco', 'chaqueta', 'buzo', 'camisa'].includes(person.real.ropa), person.real.ropa);
+    assert.ok(skinDistance(scarf.color, person.piel) >= SKIN_CLEARANCE);
+    assert.notEqual(scarf.color, person.real.tonos.arriba);
+    assert.equal(scarf.mano, undefined);
+    colors.add(scarf.color);
+    garments.add(person.real.ropa);
+    withScarf++;
+  }
+  assert.ok(withScarf > 40 && withScarf < 180);
+  assert.equal(garments.size, 4);
+  assert.ok(colors.size > 4);
 });
 
 test('posturas, pasos y frases existen: nadie pide lo que el cuerpo no sabe hacer', () => {

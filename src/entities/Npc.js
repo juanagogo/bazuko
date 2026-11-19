@@ -10,8 +10,9 @@ import * as THREE from 'three';
 import { createRealisticCharacter, loadCatalog, normalizeReal, REALISTIC_SCALE } from '../character/RealisticCharacter.js';
 import { koHandDown, RISE_TIME, smooth } from '../character/BodyLanguage.js';
 import { LOW_STANCES, SEARCH_ACTION, personLook, pickArchetype, pickStop, pickWalk, rollPerson } from '../character/archetypes.js';
-import { UMBRELLA_REST, createCane, createClosedStick, createPhone, createUmbrella } from '../character/props.js';
-import { HAND_ON_FLOOR } from '../character/stances.js';
+import { UMBRELLA_REST, createClosedStick, createCane, createPhone, createUmbrella } from '../character/props.js';
+import { streetCaneContactY } from '../character/streetCane.js';
+import { BENCH_EXIT, benchPush, HAND_ON_FLOOR } from '../character/stances.js';
 import { WEAPONS } from '../data/weapons.js';
 import { canReachCombatTarget, resolveCombatWalk } from '../systems/CombatGeometry.js';
 import { acabarFrase, empezarFrase } from '../ui/frases.js';
@@ -176,11 +177,11 @@ const wrapAngle = (angle) => {
  * Apariencia de la calle. `gastada` es un habitante de calle (El Cartucho); sin ella, cualquiera de los
  * que no viven en la calle, sin lo que cargaría (es para quien aparece de la nada: un conductor bravo).
  */
-export async function randomStreetLook({ gastada = false } = {}) {
+export async function randomStreetLook({ gastada = false, random = Math.random, sexo } = {}) {
   const catalog = await loadCatalog();
-  const person = rollPerson(gastada ? 'habitante' : pickArchetype('comun'));
+  const person = rollPerson(gastada ? 'habitante' : pickArchetype('comun', random), { random, sexo });
   person.real.accesorios = [];
-  const look = personLook(person);
+  const look = personLook(person, random);
   look.real = normalizeReal(catalog, person.real);
   return look;
 }
@@ -193,6 +194,7 @@ export class Npc {
    */
   constructor(scene, position, opts = {}) {
     this.scene = scene;
+    this.routeRandom = opts.routeRandom ?? Math.random;
     this.home = position.clone();
     this.position = position.clone();
     this.wander = opts.wander ?? 0;
@@ -201,9 +203,10 @@ export class Npc {
     // Quién es: `gastada` es habitante de calle y, si no, lo decide la zona. Un `look` dado o un subtipo
     // (escuadrón, conductor bravo) no tienen arquetipo ni conductas: los lleva su propio sistema.
     const arquetipo = opts.look || this.constructor !== Npc ? null
-      : opts.arquetipo ?? (opts.gastada ? 'habitante' : pickArchetype(opts.zona));
+      : opts.arquetipo ?? (opts.gastada ? 'habitante' : pickArchetype(opts.zona, opts.personRandom));
     const low = LOW_STANCES.has(opts.fijo?.stance);
-    this.person = arquetipo ? rollPerson(arquetipo, { sinCarga: !!opts.fijo, tallaFija: opts.fijo?.stance === 'banca' }) : null;
+    this.person = arquetipo ? rollPerson(arquetipo, { random: opts.personRandom, sexo: opts.sexo,
+      sinCarga: !!opts.fijo, tallaFija: opts.fijo?.stance === 'banca' }) : null;
     this.walkSpeed = opts.speed ?? this.person?.speed ?? (0.85 + Math.random() * 0.45);
     this.route = [];
     this.routeIndex = 0;
@@ -220,6 +223,7 @@ export class Npc {
     this.wait = this.navigation ? 0 : Math.random() * 6;
     this.moving = false;
     this.animAcc = 0;
+    this._pedestrianMotion = this.person ? { distance: 0, elapsed: 0, angle: 0, reset: false } : null;
     this.animationBudget = 1;
     this.frame = Math.floor(Math.random() * 3); // reparte los cuadros de animación entre NPC
     this.lodChar = null;   // liviano (siempre)
@@ -277,6 +281,8 @@ export class Npc {
       nextPose: CONDUCT.alternateMin + Math.random() * CONDUCT.alternateExtra
     } : null;
     if (this.fijo) this.stance = this.fijo.stance;
+    // En el andén cubierto, el asiento de acero queda un poco más alto que la madera del parque.
+    this._bench = this.stance === 'banca' ? { rise: null, advance: 0, yaw: this.root.rotation.y, leaving: false, portal: this.fijo?.techo ?? false } : null;
     this.panicTimer = 0;       // s restantes de pánico: sin charla espontánea mientras dura
     this.panicDir = null;
     this.state = 'idle';
@@ -314,15 +320,35 @@ export class Npc {
       this._show(this.lodChar);
       // arranca cada uno en otro punto de la animación para que no se muevan al unísono
       this._posedStance = this._stanceNow();
-      this.character.update(Math.random() * 3, { speed: 0, stance: this._posedStance, style: this.style, action: this.action });
+      this.character.update(Math.random() * 3, { speed: 0, stance: this._posedStance, style: this.style, action: this.action,
+        bench: this._bench, ko: smooth(this._koBlend), koPlan: this._koPlan, koFrom: this._koFrom });
+      if (this._fallenCane) this.character.setPropVisible?.('baston-calle', false);
     })().catch((e) => { this.loadError = e; console.warn('[Npc] no se pudo crear', e); });
+  }
+
+  /** Una visita puede empezar desde su ruta normal en el andén, si no está atendiendo otro suceso. */
+  canStartVisit() {
+    return this.person && !this.isVendor && !this.fijo && !this.walkVisit && !this.action && !this.talk && !this._witness &&
+      !this.koState && !this.fleeTimer && !this.staggerTimer && !this._riseLeft && !this._standingUp &&
+      !LOW_STANCES.has(this.stance) && !this.mind?.aware.busy();
+  }
+
+  startVisit(spot, route, { facing, stance, wait, entry, stops, safeStops = stops, alternas, sheltered = false }) {
+    if (this._disposed || this.isDead) return;
+    this.walkVisit = { spot, entry, stops, safeStops, facing, stance, wait, alternas, sheltered, scared: false };
+    this.route = route;
+    this.routeIndex = 0;
+    this.target = route[0];
+    this.wait = 0;
+    this.stance = pickWalk(this.person, this.routeRandom);
   }
 
   /** Su arquetipo vestido con lo que de verdad hay en el catálogo; sin arquetipo, la apariencia de calle. */
   async _personLook(opts) {
-    if (!this.person) return randomStreetLook({ gastada: opts.gastada });
-    const look = personLook(this.person);
+    if (!this.person) return randomStreetLook({ gastada: opts.gastada, random: opts.personRandom, sexo: opts.sexo });
+    const look = personLook(this.person, opts.personRandom);
     look.real = normalizeReal(await loadCatalog(), this.person.real);
+    if (opts.delantal) look.delantal = opts.delantal;
     return look;
   }
 
@@ -455,6 +481,7 @@ export class Npc {
     if (this.fleeTimer > 0) {
       this.fleeTimer = Math.max(0, this.fleeTimer - dt);
       if (this.isVendor) return; // no deja su puesto
+      if (this.walkVisit) this.walkVisit.scared = true;
       if (this._cowering) {
         if (this.fleeTimer <= 0) this._stopCowering();
         return;
@@ -475,7 +502,17 @@ export class Npc {
     if (this.fijo && this._stayAtSpot(dt)) return;
     if (!this.navigation && this.wander <= 0 && !this.fijo) return;
     if (!this.target) {
-      if ((this.wait -= dt) > 0) return;
+      if ((this.wait -= dt) > 0) {
+        if (this._atVisit()) {
+          const { facing, alternas, wait } = this.walkVisit;
+          this.root.rotation.y += wrapAngle(facing - this.root.rotation.y) * Math.min(1, dt * CONDUCT.turn);
+          if (alternas) {
+            const phase = Math.max(0, Math.min(alternas.length - 1, Math.floor((1 - this.wait / wait) * alternas.length)));
+            this.stance = alternas[phase];
+          }
+        }
+        return;
+      }
       if (this.person && this._standUp()) return;
       if (this.navigation) {
         this.route = this._chooseRoute();
@@ -585,7 +622,7 @@ export class Npc {
     if (!navigation?.createRoute) return false;
     let best = null, score = -Infinity;
     for (let i = 0; i < 3; i++) {
-      const route = navigation.createRoute(this.position);
+      const route = navigation.createRoute(this.position, this.routeRandom);
       if (!route.length) continue;
       const end = route.at(-1), dx = end.x - this.position.x, dz = end.z - this.position.z;
       const value = Math.hypot(dx, dz) + (dx * this._fleeAwayX + dz * this._fleeAwayZ);
@@ -689,11 +726,22 @@ export class Npc {
 
   /** El arraigo: lejos de su sitio prefiere volver, y así cada zona conserva a su gente. */
   _chooseRoute() {
-    const route = this.navigation.createRoute(this.position);
+    if (this.walkVisit) {
+      const visit = this.walkVisit, { spot, entry, stops } = visit, leaving = this._atVisit();
+      if (visit.scared && (!this._player || spot.distanceToSquared(this._player) >= CONDUCT.returnClear ** 2)) visit.scared = false;
+      const exits = visit.scared ? visit.safeStops : stops;
+      const goal = leaving || visit.scared ? exits[Math.floor(this.routeRandom() * exits.length)] : spot;
+      const visitRoute = this.navigation.routeTo(this.position, goal);
+      if (visitRoute.length) {
+        if (leaving && this.position.distanceToSquared(entry) > .01) visitRoute.unshift(entry);
+        return visitRoute;
+      }
+    }
+    const route = this.navigation.createRoute(this.position, this.routeRandom);
     if (!this.person || !route.length) return route;
     const away = (list) => (list.at(-1).x - this.home.x) ** 2 + (list.at(-1).z - this.home.z) ** 2;
     if (away(route) < CONDUCT.rooted ** 2) return route;
-    const other = this.navigation.createRoute(this.position);
+    const other = this.navigation.createRoute(this.position, this.routeRandom);
     return other.length && away(other) < away(route) ? other : route;
   }
 
@@ -703,6 +751,11 @@ export class Npc {
    */
   _takeStop() {
     this.stance = null;
+    if (this._atVisit()) {
+      this.stance = this.walkVisit.stance;
+      this.wait = this.walkVisit.wait;
+      return;
+    }
     const node = this.navigation.nodes?.[this.navigation.nodeAt?.(this.position.x, this.position.z)];
     const wet = this._raining && this.person.paraguas === null;
     if (!node || node.crossing || wet || Math.random() >= this.person.pausa) {
@@ -713,6 +766,10 @@ export class Npc {
     if (what === SEARCH_ACTION) this.action = what;
     else this.stance = what;
     this.wait = CONDUCT.stopMin + Math.random() * CONDUCT.stopExtra;
+  }
+
+  _atVisit() {
+    return !!this.walkVisit && this.position.distanceToSquared(this.walkVisit.spot) < .12 ** 2;
   }
 
   /** Quien está en el piso o agachado se para antes de andar. true: todavía no sale. */
@@ -759,6 +816,37 @@ export class Npc {
       if (this.isWalkable(next.x, next.z) && !this._entersSolid(next)) { dir.set(dx, 0, dz).normalize(); return; }
     }
     dir.set(fx, 0, fz); // tiene los dos lados tapados
+  }
+
+  /** El cuerpo visible pasa por delante del asiento; al caminar, la raíz alcanza a la pose. */
+  _updateBenchPose() {
+    const bench = this._bench;
+    if (!bench) return;
+    bench.rise = null;
+    if (!this.fijo?.out || this.koState) {
+      bench.leaving = false;
+      bench.advance = 0;
+      return;
+    }
+    const front = BENCH_EXIT * (this.look?.real?.talla?.ancho ?? 1);
+    if (this._lowFrom === 'banca' && this._riseLeft > 0) {
+      bench.leaving = true;
+      bench.rise = 1 - this._riseLeft / CONDUCT.riseFast;
+      bench.advance = front * benchPush(bench.rise);
+    } else if (bench.leaving) {
+      const dx = this.position.x - this.home.x, dz = this.position.z - this.home.z;
+      const distance = Math.hypot(dx, dz);
+      if (bench.portal) {
+        // El zapato trasero aún pasa a la altura de la chapa. La pelvis sigue el primer paso
+        // y devuelve el avance de la pose poco a poco a lo largo del primer metro de suelo.
+        bench.advance = front * (1 - THREE.MathUtils.smoothstep(distance, 0, CONDUCT.benchClear));
+      } else {
+        const forward = dx * Math.sin(bench.yaw) + dz * Math.cos(bench.yaw);
+        const clear = THREE.MathUtils.smoothstep(distance, .85, 1.35);
+        bench.advance = Math.max(0, front - Math.max(0, forward)) * (1 - clear);
+      }
+      if (bench.advance < .001) { bench.leaving = false; bench.advance = 0; }
+    }
   }
 
   /** En su sitio no camina; después de un susto espera a que se calme la cosa y vuelve. true: no anda. */
@@ -851,8 +939,9 @@ export class Npc {
     if (this._noseTimer > 0 && person.nariz) return 'nariz';
     // Conversando ya en su sitio: gesticula al hablar y escucha a su manera. Con paraguas bajo la lluvia, lo conserva.
     const talk = this.talk;
-    if (talk?.ready && talk.stance && !(this._raining && person.paraguas !== null)) return talk.stance;
-    if (this._raining && !this.isVendor && !(this.fijo?.techo && !this.fijo.out)) {
+    const sheltered = (this.fijo?.techo && !this.fijo.out) || (this.walkVisit?.sheltered && this._atVisit());
+    if (talk?.ready && !(this._raining && person.paraguas !== null && !sheltered)) return talk.stance ?? null;
+    if (this._raining && !this.isVendor && !sheltered) {
       if (person.paraguas !== null) return 'paraguas';
       if (this.moving || this.fijo) return this._rainReaction() ?? this.stance;
     }
@@ -911,7 +1000,9 @@ export class Npc {
     this._measurePlayer(ctx);
     if (this.fijo && ctx.chasers?.length) this._dodgeChasers(ctx.chasers);
     // Empezó a llover con él parado: sin paraguas se va pronto.
-    if (this._raining && this.person.paraguas === null && !this.target && !this.fijo && this.wait > 2) this.wait = .5 + Math.random() * 1.5;
+    if (this._raining && this.person.paraguas === null && !this.target && !this.fijo && this.wait > 2 && !(this.walkVisit?.sheltered && this._atVisit())) {
+      this.wait = .5 + Math.random() * 1.5;
+    }
     if (this._noseTimer > 0) this._noseTimer -= dt;
     if (this._noseCooldown > 0) this._noseCooldown -= dt;
     else if ((ctx.hygiene ?? 100) < CONDUCT.noseHygiene && this._playerDist < CONDUCT.noseRange
@@ -967,6 +1058,7 @@ export class Npc {
    * @param {{ player?: THREE.Vector3, frustum?: THREE.Frustum }} ctx
    */
   update(dt, ctx = {}) {
+    const beforeX = this.position.x, beforeZ = this.position.z, beforeYaw = this.root.rotation.y;
     if (this._riseLeft > 0) this._riseLeft = Math.max(0, this._riseLeft - dt);
     if (this.person) this._updateConduct(dt, ctx);
     else this._measurePlayer(ctx);
@@ -991,6 +1083,7 @@ export class Npc {
       if (this._ownsLocomotionState) this.state = this.koState ?? (this.moving ? (this.fleeTimer > 0 ? 'flee' : 'walk') : 'idle');
     }
     this.root.position.copy(this.position);
+    this._updateBenchPose();
     if (this._dropped.length) this._updateDropped(dt);
     if (this._picking.length) this._updatePicking(dt);
     if (this.koState === 'rising' && this.umbrella && this._holder.umbrella) this._foldUmbrella();
@@ -1010,7 +1103,10 @@ export class Npc {
 
     this._tickBubble(dt);
     if (!this.character) return;
+    this._actualizarModelo(dt, ctx, beforeX, beforeZ, beforeYaw);
+  }
 
+  _actualizarVisibilidad(ctx) {
     const dist = ctx.player ? this._playerDist : 0;
     // fuera de cámara: ni se dibuja ni se anima
     _sphere.center.set(this.position.x, this.position.y + 0.9, this.position.z);
@@ -1018,10 +1114,30 @@ export class Npc {
     // El límite solo apaga el dibujo: ruta, reservas y tráfico siguen arriba, con su posición.
     const drawn = onScreen && dist <= (ctx.drawDistance ?? Infinity) + (this.root.visible ? NPC_LOD.drawMargin : 0);
     this.root.visible = drawn;
+    for (const drop of this._dropped) drop.mesh.visible = drawn;
     // Sin dibujarse, nadie lee sus huesos: el render se ahorra recorrer sus matrices.
     if (ctx.skipHiddenMatrices) this.root.matrixWorldAutoUpdate = drawn;
-    if (!drawn) { this.animAcc += dt; return; }
+    return drawn;
+  }
 
+  _actualizarModelo(dt, ctx, beforeX, beforeZ, beforeYaw) {
+    const drawn = this._actualizarVisibilidad(ctx);
+    const dist = ctx.player ? this._playerDist : 0;
+    const sample = this._pedestrianMotion;
+    const measureStep = sample && drawn && dist <= NPC_LOD.animStop && !this.isVendor && !this.koState;
+    if (measureStep) {
+      // El paso visible toma metros recorridos, incluyendo los tramos cortos y los cuadros saltados por el LOD.
+      if (this.moving) {
+        const dx = this.position.x - beforeX, dz = this.position.z - beforeZ;
+        sample.distance += Math.sqrt(dx * dx + dz * dz);
+      }
+      sample.angle += wrapAngle(this.root.rotation.y - beforeYaw);
+      sample.elapsed += dt;
+    } else if (sample) {
+      sample.distance = sample.elapsed = sample.angle = 0;
+      sample.reset ||= dist > NPC_LOD.animStop || (!drawn && this.animAcc + dt > CHANGED_UNSEEN);
+    }
+    if (!drawn) { this.animAcc += dt; return; }
     this._updateDetail(dist);
     this._updateSpeech(dt, ctx);
     // Huir manda sobre la postura que tuviera, menos sobre el paraguas: sale corriendo con él en la mano. El testigo
@@ -1048,10 +1164,14 @@ export class Npc {
     this.character.update(Math.min(this.animAcc, 0.2), {
       speed: this.moving ? (this.fleeTimer > 0 ? this._fleeSpeed() : this._paceNow()) / scale : 0,
       running: this.moving && this.fleeTimer > 0,
+      caneGround: this.groundHeight,
+      caneYaw: this.root.rotation.y,
+      bench: this._bench,
+      pedestrianMotion: measureStep ? sample : null,
       ...this.poseParams,
       state: this.state, action: this.action, actionProgress: this.actionProgress,
       attack: this._counterPose ?? this.poseParams?.attack,
-      look: this.poseParams?.look ?? this.mind?.gaze(stance) ?? this._glanceAt(ctx, stance), // mira lo que le llama la atención
+      look: this.poseParams?.look ?? (stance === 'mirar-surtido' ? 0 : this.mind?.gaze(stance) ?? this._glanceAt(ctx, stance)), // mira lo que le llama la atención
       // Caer sigue a la misma mezcla que acuesta el cuerpo.
       stance,
       style: this.poseParams?.style ?? this.style,
@@ -1064,6 +1184,10 @@ export class Npc {
     this._poseStale = false;
     this._posedStance = stance;
     this.animAcc = 0;
+    if (measureStep) {
+      sample.distance = sample.elapsed = sample.angle = 0;
+      sample.reset = false;
+    }
   }
 
 

@@ -47,7 +47,7 @@ Son geometría simple en `src/character/props.js`, sin logotipos. Cada uno es un
 | Id | Cómo se lleva | Lejos |
 | --- | --- | --- |
 | `maletin`, `bolsa` | En la mano izquierda, con el marco que hornea `stances.js` (`holds`). La bolsa es de plástico floja, de unos 22 × 29 × 24 cm, recogida arriba con sus asas | Sí |
-| `baston-calle` | En la mano derecha. Es de una pieza: a diferencia del `baston` del creador no se recoloca en cada cuadro, y su largo se ajusta al alto de la mano | Sí |
+| `baston-calle` | Madera con contera de caucho en una malla compartida. Su largo fijo se ajusta al alto de la mano. La contera busca el apoyo del paso izquierdo y se eleva para la siguiente pisada. Al caer se apoya sobre el terreno a medida que gira, también si queda a ambos lados de un sardinel. | Sí |
 | `morral`, `bolso`, `costal` | Cuelgan de `Spine2`, medidos desde el cuello (`anchor`), desde donde el hombro queda casi a la misma altura en los seis cuerpos. Morral y costal tienen otra geometría de módulo para la espalda de las mujeres, 4,5 cm más adelante. El costal mide unos 36 × 50 × 27 cm, con pliegues que salen del nudo, y no pasa de la cabeza | Sí |
 | `casco` | En `Head`, algo menor en las mujeres | Sí |
 

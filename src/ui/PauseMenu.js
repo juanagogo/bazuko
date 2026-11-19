@@ -1,7 +1,8 @@
 // src/ui/PauseMenu.js
 // Menú de pausa por pestañas: Mapa (GPS), Estado, Ajustes y Controles.
 import { el, button } from './dom.js';
-import { modoEntrada } from '../core/modoEntrada.js';
+import { DEFAULT_GRAPHICS_QUALITY } from '../core/GraphicsQuality.js';
+import { modoEntrada, sinTeclas } from '../core/modoEntrada.js';
 import { CONTROLES_CON_EL_DEDO } from '../core/TouchControls.js';
 import { cop } from '../utils/money.js';
 import { XP_PER_LEVEL } from '../utils/constants.js';
@@ -26,7 +27,7 @@ export const PAUSE_TABS = [
 
 export const CONTROL_GROUPS = [
   ['Movimiento', [['WASD', 'Caminar'], ['Shift', 'Correr'], ['Espacio', 'Brincar'], ['Mouse', 'Clic fija la cámara, la rueda acerca'], ['V', 'Vista tercera persona / isométrica']]],
-  ['Acciones', [['E', 'Hacer lo que dice: basura, tiendas, cambuche, carros, pila, estaciones, hogar de paso'], ['Q', 'Mantener para seleccionar basura. También: el jíbaro, cuidar un carro parqueado, compartir comida en la fogata y llenar la botella en la pila'], ['E / Q', 'Junto a una persona: cosquilleo o robo directo'], ['B', 'Pedir limosna. Con pelotas de malabares, frente a la cola de un semáforo en rojo: hacer el show'], ['L', 'Pedir limosna'], ['F', 'Envión'], ['G / Clic', 'Pegar'], ['X', 'Lanzar / recoger'], ['Z', 'Popó']]],
+  ['Acciones', [['E', 'Hacer lo que dice: basura, tiendas, cambuche, carros, pila, estaciones, hogar de paso'], ['Q', 'Mantener para seleccionar basura. También: el jíbaro, cuidar un carro parqueado, compartir comida en la fogata y llenar la botella en la pila'], ['E / Q', 'Junto a una persona: cosquilleo o robo directo'], ['B', 'Pedir limosna. Con pelotas de malabares, frente a la cola de un semáforo en rojo: hacer el show'], ['L', 'Pedir limosna'], ['F', 'Envión'], ['G / Clic', 'Pegar'], ['X', 'Lanzar / recoger'], ['Z', 'Popó'], ['Y', 'Junto a un carro parqueado: robarlo. Al volante: bajarme']]],
   ['Paneles', [['I / Tab', 'El costal. 1 a 5: acceso rápido'], ['H', 'Estado y necesidades'], ['J', 'Misiones del día'], ['T', 'Mañas'], ['C', 'Fabricar'], ['P', 'Editar personaje'], ['R', 'Radio'], ['K', 'Personaje realista / liviano'], ['F2', 'Foto'], ['F3', 'Panel de rendimiento'], ['Esc', 'Pausa o cerrar panel']]],
   ['Mapa y GPS', [['M', 'Abrir / cerrar el mapa'], ['M, Enter', 'Ruta a lo que más necesito'], ['N', 'Mostrar / ocultar radar'], ['+ / −', 'Acercar o alejar el radar'], ['Clic', 'Marcar destino en el mapa'], ['Clic der. / Supr', 'Quitar destino'], ['Q / E', 'Cambiar de pestaña en la pausa']]],
 ];
@@ -228,7 +229,7 @@ function missionsSection(game) {
       return el('li', { class: `pause-mission-item${isDone ? ' is-done' : ''}` },
         el('div', { class: 'pause-mission-head' },
           el('strong', { class: 'pause-mission-title', text: m.title }),
-          el('span', { class: 'pause-mission-reward', text: `+${cop(m.reward.dinero)} · +${m.reward.xp} XP` })),
+          el('span', { class: 'pause-mission-reward', text: `+${cop(m.reward.dinero)}, +${m.reward.xp} maña` })),
         el('p', { class: 'pause-mission-desc', text: m.desc }),
         el('div', { class: 'pause-meter' },
           el('div', { class: 'pause-meter__fill masa', style: `width:${pct}%` })),
@@ -266,9 +267,20 @@ function settingsPanel(game) {
   const muteBtn = button(muteLabel(audio?.isMuted()), {
     onClick: () => muteBtn.replaceChildren(...muteLabel(audio?.toggleMute()))
   });
+  const modelLabel = el('span');
+  const showModel = () => {
+    const loading = game.player?.pendingModel?.kind === 'realista';
+    const label = game.player?.modelKind === 'realista' ? 'Usar personaje liviano (K)' : 'Usar personaje realista (K)';
+    modelLabel.textContent = sinTeclas(loading ? 'Cancelar carga del personaje realista (K)' : label);
+  };
+  const followModel = () => {
+    showModel();
+    game.player?.pendingModel?.ready.then(showModel, showModel);
+  };
+  followModel(); // También si se abrió Ajustes durante una carga iniciada con K.
 
   // Lo elegido, que puede tardar en aplicarse mientras compilan las sombras.
-  const curQuality = game.chosenQuality || game.renderer?.quality || 'alta';
+  const curQuality = game.chosenQuality ?? game.renderer?.quality ?? game.renderer?.initialQuality ?? DEFAULT_GRAPHICS_QUALITY;
   const quality = (id, label) => choice(label, curQuality === id, () => { game.setGraphicsQuality?.(id); game.menu?.refresh(); });
 
   // Si lo elegido ya está aplicado y aun así el juego corre en otra calidad, fue la calidad automática.
@@ -290,8 +302,8 @@ function settingsPanel(game) {
     section('sound', 'Sonido', row('Volumen', volumeInput, volumeLabel), ...mixRows, row('Silencio', muteBtn)),
     el('div', { class: 'pause-settings__col' },
       section('zap', 'Calidad gráfica',
-        el('div', { class: 'pause-segmented', role: 'group', 'aria-label': 'Calidad gráfica' }, quality('baja', 'Baja'), quality('media', 'Media'), quality('alta', 'Alta')),
-        el('p', { class: 'pause-hint', text: `Baja va más fluido. Si el equipo no da, baja sola sin cambiar lo elegido.${qualityNow}` }),
+        el('div', { class: 'pause-segmented', role: 'group', 'aria-label': 'Calidad gráfica', 'aria-describedby': 'calidad-grafica-ayuda' }, quality('baja', 'Baja'), quality('media', 'Media'), quality('alta', 'Alta')),
+        el('p', { id: 'calidad-grafica-ayuda', class: 'pause-hint', text: `Alta conserva la nitidez y las sombras. Media y Baja ajustan el detalle para ganar fluidez.${qualityNow}` }),
         row('Rendimiento', choice(game.performanceHUD?.visible ? 'Visible (F3)' : 'Oculto (F3)', !!game.performanceHUD?.visible,
           () => { game.performanceHUD?.toggle(); game.menu.refresh(); })),
         row('Densidad de tráfico', el('div', { class: 'pause-segmented', role: 'group', 'aria-label': 'Densidad de tráfico' },
@@ -299,8 +311,8 @@ function settingsPanel(game) {
             () => { game.setTrafficDensity?.(id); game.menu.refresh(); }))))),
       section('user', 'Personaje y radio',
         el('div', { class: 'pause-actions' },
-          button([icon('body', { size: 18 }), game.player?.modelKind === 'realista' ? 'Usar personaje liviano (K)' : 'Usar personaje realista (K)'], {
-            onClick: () => { game._toggleModel?.(); game.menu.refresh(); }
+          button([icon('body', { size: 18 }), modelLabel], {
+            onClick: () => { game._toggleModel?.(); followModel(); }
           }),
           button([icon('radio', { size: 18 }), game.radio?.isOn ? 'Sintonizar radio (R)' : 'Radio (R)'], {
             onClick: () => window.dispatchEvent(new CustomEvent('open-radio-modal'))

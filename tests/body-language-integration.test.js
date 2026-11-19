@@ -49,6 +49,33 @@ test('un peatón pide su postura y su estilo a su modelo, y puede cambiarlos en 
   npc.dispose();
 });
 
+test('el paso del peatón recibe la distancia real desde la última pose, incluso en el último tramo', async t => {
+  const npc = await npcFixture({ look: undefined, arquetipo: 'oficinista', facing: 0, speed: 1, wander: 4 });
+  t.after(() => npc.dispose());
+  const samples = [];
+  t.mock.method(npc.character, 'update', (_dt, { pedestrianMotion }) => samples.push({ ...pedestrianMotion }));
+  const ctx = { animationBudget: 3 };
+  npc.update(.05, ctx);
+  samples.length = 0;
+  npc.target = npc.position.clone().add(new THREE.Vector3(.018, 0, .006));
+  npc.update(.025, ctx);
+  assert.equal(samples.length, 0, 'presupuesto de animación: no evalúa el cuerpo en cada cuadro');
+  npc.update(.025, ctx);
+  assert.equal(samples.length, 1);
+  assert.ok(Math.abs(samples[0].distance - Math.hypot(.018, .006)) < 1e-9, 'la ruta terminó a media zancada');
+  assert.equal(samples[0].elapsed, .05);
+  assert.ok(Math.abs(samples[0].angle - npc.root.rotation.y) < 1e-9, 'el giro se midió con los mismos cuadros');
+
+  npc.target = npc.position.clone().add(new THREE.Vector3(0, 0, 3));
+  const hidden = { ...ctx, frustum: { intersectsSphere: () => false } };
+  for (let i = 0; i < 12; i++) npc.update(.04, hidden);
+  assert.equal(samples.length, 1, 'fuera de la vista la ruta sigue y la pose se suspende');
+  npc.update(.04, ctx);
+  assert.equal(samples.length, 2);
+  assert.ok(samples[1].reset && samples[1].elapsed === .04);
+  assert.ok(Math.abs(samples[1].distance - .04) < 1e-9, 'al reaparecer mide solo lo visible');
+});
+
 test('`poseParams` manda sobre la postura fija del peatón', async () => {
   const npc = await npcFixture({ stance: 'bolsillos' });
   npc.poseParams = { stance: 'hablar', style: { headDown: .5 } };

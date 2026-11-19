@@ -135,7 +135,7 @@ function updateAnimationStatus() {
 async function boot() {
   await sala.loadSavedLook();
   await sala.setModel(modelo);
-  const montada = await prueba.montar(sala) ?? {};
+  const montada = await prueba.montar(sala, params) ?? {};
   sala.start();
 
   const acciones = $('sala-acciones');

@@ -104,9 +104,9 @@ function dayBay(d, a0, v0, a1, v1, r, cap) {
   const { ctx } = d, ca = (a0 + a1) / 2, cv = (v0 + v1) / 2, ra = (a1 - a0) / 2, rv = (v1 - v0) / 2;
   ctx.save();
   d.rect(a0, v0, a1, v1, r); ctx.clip();
-  ctx.fillStyle = d.down(v1, v0, [[0, '#0d0f11'], [.4, '#262a2e'], [.82, '#4e545a'], [1, '#2e3236']]);
+  ctx.fillStyle = d.down(v1, v0, [[0, '#121416'], [.34, '#343a40'], [.8, '#858d95'], [1, '#454b52']]);
   ctx.fillRect(d.px(a0), d.py(v1), (a1 - a0) * d.sx, (v1 - v0) * d.sy);
-  d.fillRound(ca, cv, ra * 1.05, rv * 1.05, [[0, 'rgba(146,154,162,.62)'], [.5, 'rgba(92,99,106,.3)'], [1, 'rgba(20,22,25,0)']]);
+  d.fillRound(ca, cv, ra * 1.05, rv * 1.05, [[0, 'rgba(160,168,176,.66)'], [.5, 'rgba(104,111,118,.34)'], [1, 'rgba(20,22,25,0)']]);
   ctx.restore();
   if (cap) {
     const cr = Math.min(ra, rv) * .26;
@@ -133,10 +133,14 @@ function projector(d, a, v, r) {
 function amber(d, pts, { ribs = 6 } = {}) {
   const { ctx } = d, b = bboxOf(pts);
   ctx.save(); d.path(pts); ctx.clip();
-  ctx.fillStyle = d.down(b[3], b[2], [[0, '#a8743c'], [.5, '#dc9a4c'], [1, '#a06a34']]);
+  ctx.fillStyle = d.down(b[3], b[2], [[0, '#86562a'], [.26, '#d39a57'], [.55, '#c27e36'], [1, '#754720']]);
   ctx.fillRect(d.px(b[0]), d.py(b[3]), (b[1] - b[0]) * d.sx, (b[3] - b[2]) * d.sy);
-  ctx.strokeStyle = 'rgba(110,52,8,.42)'; ctx.lineWidth = 1.2;
-  for (let i = 1; i < ribs; i++) { const a = b[0] + (b[1] - b[0]) * i / ribs; ctx.beginPath(); ctx.moveTo(d.px(a), d.py(b[3])); ctx.lineTo(d.px(a), d.py(b[2])); ctx.stroke(); }
+  const width = (b[1] - b[0]) / ribs;
+  for (let i = 1; i < ribs; i++) {
+    const a = b[0] + width * i;
+    d.line([[a, b[3]], [a, b[2]]], 1.5, 'rgba(86,43,14,.44)', 'butt');
+    d.line([[a + width * .14, b[3]], [a + width * .14, b[2]]], 1, 'rgba(255,197,114,.3)', 'butt');
+  }
   ctx.restore();
 }
 
@@ -146,10 +150,25 @@ function lensFinish(d, o, { gloss = .24 } = {}) {
   const g = ctx.createLinearGradient(0, d.py(b[3]), 0, d.py(b[3] - (b[3] - b[2]) * .55));
   if (d.day) {
     // El cielo en el vidrio: una franja arriba que termina en un borde, no una neblina sobre todo el faro.
-    g.addColorStop(0, 'rgba(206,222,238,.2)'); g.addColorStop(.62, 'rgba(206,222,238,.1)'); g.addColorStop(.66, 'rgba(206,222,238,0)');
+    g.addColorStop(0, 'rgba(206,222,238,.3)'); g.addColorStop(.62, 'rgba(206,222,238,.14)'); g.addColorStop(.66, 'rgba(206,222,238,0)');
   } else {
     g.addColorStop(0, `rgba(255,255,255,${gloss})`); g.addColorStop(1, 'rgba(255,255,255,0)');
   }
+  ctx.fillStyle = g; ctx.fillRect(d.x, d.y, d.w, d.h);
+  if (o.end === 'tail') tailGlass(d, o);
+}
+
+/**
+ * Vidrio de un stop: el plástico se hunde hacia la junta y oscurece abajo, y el cielo queda cortado en una franja
+ * arriba. De noche el canal multiplica el dibujo: la franja queda como rojo más vivo, no como blanco.
+ */
+function tailGlass(d, o) {
+  const { ctx } = d, b = o.box, h = b[3] - b[2];
+  d.path(o.outline); ctx.strokeStyle = 'rgba(24,2,2,.42)'; ctx.lineWidth = 10; ctx.lineJoin = 'round'; ctx.stroke();
+  ctx.fillStyle = d.down(b[2] + h * .45, b[2], [[0, 'rgba(20,2,2,0)'], [1, 'rgba(20,2,2,.3)']]);
+  ctx.fillRect(d.x, d.py(b[2] + h * .45), d.w, h * .45 * d.sy);
+  const g = ctx.createLinearGradient(0, d.py(b[3]), 0, d.py(b[3] - h * .4));
+  g.addColorStop(0, 'rgba(232,240,248,.36)'); g.addColorStop(.8, 'rgba(232,240,248,.16)'); g.addColorStop(.86, 'rgba(232,240,248,0)');
   ctx.fillStyle = g; ctx.fillRect(d.x, d.y, d.w, d.h);
 }
 
@@ -166,6 +185,8 @@ function clipped(d, o, draw) {
 /** Rojo con profundidad: fondo hondo, estrías y celdas más claras por donde sale la luz. */
 function redBase(d, pts, { ribs = 11, horizontal = true, hi = '#a81a15', lo = '#5e0807' } = {}) {
   const { ctx } = d, b = bboxOf(pts);
+  // El fondo oscuro evita halos en los bordes del stop al generar los mipmaps.
+  ctx.fillStyle = '#231214'; ctx.fillRect(d.x, d.y, d.w, d.h);
   ctx.save(); d.path(pts); ctx.clip();
   ctx.fillStyle = d.down(b[3], b[2], [[0, lo], [.42, hi], [.62, hi], [1, lo]]);
   ctx.fillRect(d.px(b[0]), d.py(b[3]), (b[1] - b[0]) * d.sx, (b[3] - b[2]) * d.sy);
@@ -181,13 +202,16 @@ function redBase(d, pts, { ribs = 11, horizontal = true, hi = '#a81a15', lo = '#
 function redCell(d, a0, v0, a1, v1, r = .012) {
   const { ctx } = d;
   d.rect(a0, v0, a1, v1, r);
-  ctx.fillStyle = d.down(v1, v0, [[0, '#c5261d'], [.5, '#ff4a36'], [1, '#c02119']]); ctx.fill();
+  ctx.fillStyle = d.down(v1, v0, [[0, '#a01e17'], [.5, '#dc3a2b'], [1, '#941a13']]); ctx.fill();
   ctx.strokeStyle = 'rgba(40,0,0,.55)'; ctx.lineWidth = 1.2; ctx.stroke();
+  // El reflector del bombillo detrás de la lente: un punto más claro que le da fondo.
+  const rr = Math.min(a1 - a0, v1 - v0) * .42;
+  d.fillRound((a0 + a1) / 2, (v0 + v1) / 2, rr, rr, [[0, 'rgba(255,170,140,.5)'], [.45, 'rgba(255,90,60,.18)'], [1, 'rgba(255,90,60,0)']]);
 }
 function whiteLens(d, pts, { ribs = 6 } = {}) {
   const { ctx } = d, b = bboxOf(pts);
   ctx.save(); d.path(pts); ctx.clip();
-  ctx.fillStyle = d.down(b[3], b[2], [[0, '#b8bdc2'], [.5, '#eceef0'], [1, '#aeb3b8']]);
+  ctx.fillStyle = d.down(b[3], b[2], [[0, '#a4a9ae'], [.5, '#d9dcdf'], [1, '#989da2']]);
   ctx.fillRect(d.px(b[0]), d.py(b[3]), (b[1] - b[0]) * d.sx, (b[3] - b[2]) * d.sy);
   ctx.strokeStyle = 'rgba(70,76,84,.3)'; ctx.lineWidth = 1;
   for (let i = 1; i < ribs; i++) { const a = b[0] + (b[1] - b[0]) * i / ribs; ctx.beginPath(); ctx.moveTo(d.px(a), d.py(b[2])); ctx.lineTo(d.px(a), d.py(b[3])); ctx.stroke(); }
@@ -200,13 +224,21 @@ const divider = (d, pts, w = 2.6, c = '#0b0606') => d.line(pts, w, c, 'butt');
 function honeycomb(d, size, { light = '#2d3033', back = '#08090a', row = .85 } = {}) {
   const { ctx } = d;
   ctx.fillStyle = back; ctx.fillRect(d.x, d.y, d.w, d.h);
-  ctx.fillStyle = light;
-  const stepX = size, stepY = size * row;
-  for (let j = 0, y = d.y; y < d.y + d.h + stepY; j++, y += stepY) for (let x = d.x + (j % 2) * stepX / 2; x < d.x + d.w + stepX; x += stepX) {
-    const r = size * .37;
+  const stepY = size * row;
+  const hexagon = (x, y, radius, color) => {
+    ctx.fillStyle = color;
     ctx.beginPath();
-    for (let k = 0; k < 6; k++) { const t = k / 6 * Math.PI * 2 + Math.PI / 6, px = x + Math.cos(t) * r, py = y + Math.sin(t) * r; if (k) ctx.lineTo(px, py); else ctx.moveTo(px, py); }
+    for (let k = 0; k < 6; k++) {
+      const angle = k * Math.PI / 3 + Math.PI / 6, px = x + Math.cos(angle) * radius, py = y + Math.sin(angle) * radius;
+      if (k) ctx.lineTo(px, py); else ctx.moveTo(px, py);
+    }
     ctx.closePath(); ctx.fill();
+  };
+  for (let j = 0, y = d.y; y < d.y + d.h + stepY; j++, y += stepY) {
+    for (let x = d.x + (j % 2) * size / 2; x < d.x + d.w + size; x += size) {
+      hexagon(x, y, size * .54, light);
+      hexagon(x, y - size * .06, size * .36, back);
+    }
   }
 }
 function slats(d, box, n, { light = '#55595e', dark = '#121315', back = '#060708' } = {}) {
@@ -214,14 +246,18 @@ function slats(d, box, n, { light = '#55595e', dark = '#121315', back = '#060708
   ctx.fillStyle = back; ctx.fillRect(d.x, d.y, d.w, d.h);
   for (let i = 0; i < n; i++) {
     const top = y1 - i * h, bot = top - h * .68;
-    ctx.fillStyle = d.down(top, bot, [[0, light], [1, dark]]);
+    ctx.fillStyle = d.down(top, bot, [[0, light], [.16, light], [.6, dark], [1, dark]]);
     ctx.fillRect(d.x, d.py(top), d.w, h * .68 * d.sy);
   }
 }
 /** Marco negro brillante: una franja gruesa siguiendo el contorno, con filo claro arriba. */
 function frame(d, o, width, { color = '#0d0e10', edge = 'rgba(150,156,162,.5)' } = {}) {
-  d.path(o.outline); d.ctx.strokeStyle = color; d.ctx.lineWidth = width; d.ctx.lineJoin = 'round'; d.ctx.stroke();
-  d.path(o.outline); d.ctx.strokeStyle = edge; d.ctx.lineWidth = 1.6; d.ctx.stroke();
+  // Al espejar una parrilla, el eje del carro queda dentro de ella y no lleva marco.
+  const [first, second] = o.outline;
+  if (first[0] === 0 && second[0] === 0) d.open([...o.outline.slice(1), first]);
+  else d.path(o.outline);
+  d.ctx.strokeStyle = color; d.ctx.lineWidth = width; d.ctx.lineJoin = 'round'; d.ctx.stroke();
+  d.ctx.strokeStyle = edge; d.ctx.lineWidth = 1.6; d.ctx.stroke();
 }
 /** Hueco de exploradora: fondo oscuro, faro redondo pequeño y aro de plástico. */
 function fogPocket(d, o, a, v, r) {
@@ -244,10 +280,11 @@ const OPTIC_LIST = {
       base(d, o.box, CLEAR);
       clipped(d, o, () => {
         d.ctx.save(); d.path(o.outline); d.ctx.clip();
-        bay(d, .30, .625, .515, .742, { facets: 8 });
-        bay(d, .535, .648, .755, .768, { facets: 7, tone: .95 });
-        // Visera oscura de la carcasa, que sube con el borde alto.
-        d.line([[.2, .755], [.6, .785], [.9, .838], [1.2, .9]], 11, '#1a1c1f');
+        bay(d, .292, .619, .572, .747, { facets: 13, r: .035 });
+        bay(d, .59, .66, .785, .768, { facets: 8, tone: .9, r: .014, cap: false });
+        // El bisel separa dos reflectores de distinta forma. Su brillo termina al pasar a la direccional.
+        d.line([[.285, .733], [.552, .751], [.785, .781]], 4, d.day ? '#65717c' : '#d9e2e9', 'butt');
+        d.line([[.2, .755], [.6, .785], [.9, .838], [1.2, .9]], 9, '#1a1c1f');
         // La punta es lámina gris; la direccional solo ocupa su parte baja, como reflector detrás de la lente clara.
         amber(d, [[.80, .60], [.80, .715], [.98, .775], [1.2, .86], [1.2, .6]]);
         divider(d, [[.80, .6], [.80, .83]], 2.4, '#1d1f22');
@@ -265,8 +302,9 @@ const OPTIC_LIST = {
       base(d, o.box, CLEAR);
       clipped(d, o, () => {
         d.ctx.save(); d.path(o.outline); d.ctx.clip();
-        bay(d, .415, .742, .665, .858, { facets: 9 });
-        bay(d, .685, .752, .905, .858, { facets: 8, tone: .96 });
+        bay(d, .402, .738, .692, .853, { facets: 12, r: .018 });
+        bay(d, .71, .759, .909, .851, { facets: 6, tone: .91, r: .012, cap: false });
+        d.line([[.42, .856], [.74, .86], [.914, .851]], 4, d.day ? '#626c75' : '#e4e8ee', 'butt');
         amber(d, [[.93, .7], [.93, .9], [1.2, .9], [1.2, .7]]);
         divider(d, [[.93, .7], [.93, .9]], 2.6, '#26292c');
         lensFinish(d, o);
@@ -274,20 +312,22 @@ const OPTIC_LIST = {
       });
     },
   },
-  // Hatch familiar: faro más alto, con el borde interior subiendo hacia el capó y direccional abajo en la punta.
+  // Hatch compacto: reflector ancho bajo el capó y direccional ámbar en la esquina.
   hatchPopularHead: {
     end: 'nose', flare: true, bulge: .01,
-    outline: [[.38, .785], [.33, .905], [.60, .912], [.98, .895], [1.11, .868], [.98, .805], [.72, .748], [.47, .745]],
-    parts: [{ where: [['a', '<', .90]], lamp: 'HEAD' }, { where: [['a', '>', .90]], lamp: 'signal' }],
+    outline: [[.287, .652], [.270, .674], [.270, .762], [.290, .786], [.728, .786], [.812, .768], [.843, .732], [.81, .676], [.72, .652]],
+    parts: [{ where: [['a', '<', .665]], lamp: 'HEAD' }, { where: [['a', '>', .665]], lamp: 'signal' }],
     art(d, o) {
-      base(d, o.box, [[0, '#2a2d31'], [.2, '#7c838a'], [.55, '#b4bac0'], [1, '#71777e']]);
+      base(d, o.box, [[0, '#3d4143'], [.31, '#879098'], [.55, '#aeb4b7'], [1, '#595c5e']]);
       clipped(d, o, () => {
         d.ctx.save(); d.path(o.outline); d.ctx.clip();
-        bay(d, .40, .752, .655, .888, { facets: 8, r: .03 });
-        bay(d, .675, .778, .86, .886, { facets: 6, tone: .94, r: .026 });
-        d.line([[.3, .925], [.6, .93], [1.0, .91], [1.2, .885]], 9, '#17191c');
-        amber(d, [[.90, .7], [.90, .92], [1.2, .92], [1.2, .7]]);
-        divider(d, [[.90, .7], [.90, .92]], 2.4, '#1d1f22');
+        bay(d, .282, .66, .663, .778, { facets: 14, r: .014, cap: false });
+        // El vidrio prismático separa los campos del reflector y deja una nervadura horizontal baja.
+        const rib = d.day ? 'rgba(28,34,37,.23)' : 'rgba(72,82,84,.41)';
+        for (const a of [.322, .388, .459, .529, .599]) d.line([[a, .668], [a, .773]], 1.6, rib, 'butt');
+        d.line([[.29, .692], [.661, .692]], 2.1, rib, 'butt');
+        amber(d, [[.665, .64], [.665, .80], [.86, .80], [.86, .64]], { ribs: 8 });
+        divider(d, [[.665, .649], [.665, .79]], 3.5, '#191a1c');
         lensFinish(d, o);
         d.ctx.restore();
       });
@@ -412,20 +452,21 @@ const OPTIC_LIST = {
       });
     },
   },
-  // Hatch: grupo vertical corto en la esquina del portón; rojo envolviendo por fuera, ámbar y reversa por dentro.
+  // Hatch compacto: stop horizontal en esquina, con ámbar y reversa hacia el portón.
   hatchPopularTail: {
     end: 'tail', flare: true, bulge: .007,
-    outline: [[.58, .905], [.56, 1.05], [.62, 1.12], [.86, 1.135], [.96, 1.03], [.94, .905]],
-    parts: [{ where: [['a', '>', .74]], lamp: 'TAIL' }, { where: [['a', '<', .74], ['y', '>', 1.015]], lamp: 'TAIL' }, { where: [['a', '<', .74], ['y', '<', 1.015], ['y', '>', .96]], lamp: 'signal' }, { where: [['a', '<', .74], ['y', '<', .96]], lamp: 'OFF' }],
+    outline: [[.405, .721], [.382, .744], [.382, .847], [.411, .87], [.705, .87], [.78, .843], [.791, .76], [.755, .722]],
+    parts: [{ where: [['a', '>', .54]], lamp: 'TAIL' }, { where: [['a', '<', .54], ['y', '>', .796]], lamp: 'signal' }, { where: [['a', '<', .54], ['y', '<', .796]], lamp: 'OFF' }],
     art(d, o) {
-      redBase(d, o.outline, { ribs: 13 });
+      redBase(d, o.outline, { ribs: 10, hi: '#a71914', lo: '#660d08' });
       clipped(d, o, () => {
         d.ctx.save(); d.path(o.outline); d.ctx.clip();
-        redCell(d, .76, .925, .93, 1.10, .018);
-        redCell(d, .60, 1.03, .74, 1.105, .014);
-        amber(d, [[.5, .96], [.5, 1.015], [.74, 1.015], [.74, .96]], { ribs: 5 });
-        whiteLens(d, [[.5, .86], [.5, .96], [.74, .96], [.74, .86]]);
-        divider(d, [[.74, .86], [.74, 1.015]], 3); divider(d, [[.5, 1.015], [.74, 1.015]]); divider(d, [[.5, .96], [.74, .96]]);
+        redCell(d, .55, .801, .785, .871, .011);
+        redCell(d, .55, .721, .785, .79, .011);
+        amber(d, [[.37, .796], [.37, .88], [.54, .88], [.54, .796]]);
+        whiteLens(d, [[.37, .71], [.37, .796], [.54, .796], [.54, .71]]);
+        divider(d, [[.54, .71], [.54, .88]], 3.8);
+        divider(d, [[.37, .796], [.8, .796]], 3);
         lensFinish(d, o, { gloss: .14 });
         d.ctx.restore();
       });
@@ -533,14 +574,14 @@ const OPTIC_LIST = {
     outline: [[.57, .405], [.56, .485], [.74, .485], [.78, .435], [.72, .39]],
     art(d, o) { fogPocket(d, o, .655, .44, .033); },
   },
-  // Hatch: parrilla más alta y estrecha con su borde cromado abajo; toma baja en panal.
+  // Dos ranuras bajo el travesaño del capó. La defensa tiene su propia toma de plástico.
   hatchPopularGrille: { end: 'nose', trim: true, metal: .2,
-    outline: [[0, .76], [0, .885], [.31, .88], [.355, .815], [.27, .76]],
-    art(d, o) { honeycomb(d, 13, { light: '#3a3d41' }); frame(d, o, 6, { color: '#101113' }); },
+    outline: [[0, .655], [0, .741], [.207, .74], [.23, .72], [.215, .659]],
+    art(d, o) { slats(d, o.box, 2, { light: '#737778', dark: '#35383a' }); frame(d, o, 8, { color: '#161719' }); },
   },
   hatchPopularIntake: { end: 'nose', trim: true, metal: .1,
-    outline: [[0, .375], [0, .51], [.50, .51], [.585, .44], [.51, .38]],
-    art(d, o) { honeycomb(d, 14); frame(d, o, 6, { color: '#111214', edge: 'rgba(90,94,98,.45)' }); },
+    outline: [[0, .396], [0, .468], [.35, .468], [.405, .439], [.381, .403]],
+    art(d, o) { slats(d, o.box, 2, { light: '#464a4e', dark: '#141618' }); frame(d, o, 8, { color: '#25282b' }); },
   },
   hatchPopularFog: { end: 'nose', trim: true, metal: .1,
     outline: [[.60, .43], [.60, .50], [.68, .535], [.80, .50], [.80, .43], [.70, .405]],

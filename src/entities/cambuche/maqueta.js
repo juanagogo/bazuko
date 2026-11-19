@@ -40,13 +40,15 @@ export class Maqueta {
   }
 
   /** Suma una geometría pintada de un color; `tono` es cuánto cambia la luz de una cara a otra. */
-  pon(geometry, color, { en = [0, 0, 0], giro = [0, 0, 0], escala = 1, tono = .07, polvo = null } = {}) {
+  pon(geometry, color, { en = [0, 0, 0], giro = [0, 0, 0], escala = 1, tono = .07, polvo = null, conUV = false } = {}) {
     const part = geometry.index ? geometry.toNonIndexed() : geometry;
     if (part !== geometry) geometry.dispose();
     _scale.set(...(Array.isArray(escala) ? escala : [escala, escala, escala]));
     _matrix.compose(_position.set(...en), _quaternion.setFromEuler(_euler.set(...giro)), _scale);
     part.applyMatrix4(_matrix);
-    for (const name of Object.keys(part.attributes)) if (name !== 'position') part.deleteAttribute(name);
+    for (const name of Object.keys(part.attributes)) {
+      if (name !== 'position' && !(conUV && name === 'uv')) part.deleteAttribute(name);
+    }
     part.computeVertexNormals();
     const count = part.attributes.position.count, colors = new Float32Array(count * 3), normals = part.attributes.normal;
     for (let i = 0; i < count; i += 3) {
