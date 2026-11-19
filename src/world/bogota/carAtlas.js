@@ -4,14 +4,13 @@
 // Ninguna celda lleva logos ni emblemas: las placas colombianas son inventadas y las rutas también.
 import * as THREE from 'three';
 import { drawOptics } from './carLamps.js';
+import { BUS_LIBREAS, TAXI_EMPRESAS, drawBusConduzco, drawBusDoor, drawBusLivery, drawBusRoute, drawTaxiCompany, drawTaxiDoor, drawTaxiRoof, drawTaxiSign } from './carLibreas.js';
 
-// Azul de la franja de las busetas: el letrero y la textura de detalle deben dar el mismo tono.
-export const BUS_BLUE = '#1b4a8c';
 export const ATLAS_SIZE = 1024;
-// Tres pisos: arriba lo común a toda la flota, luego las ópticas y parrillas propias de cada modelo (carLamps.js) y abajo
-// el dibujo de día de los faros, que por la noche no se usa.
-export const ATLAS_HEIGHT = 2416;
-const DAY_FLOOR = 2048;
+// Cuatro pisos: arriba lo común a toda la flota, luego las ópticas y parrillas propias de cada modelo (carLamps.js), el
+// dibujo de día de los faros, que por la noche no se usa, y al final las libreas de buseta, una fila de 64 px por ruta.
+export const ATLAS_HEIGHT = 2672;
+const DAY_FLOOR = 2048, BUS_FLOOR = 2416;
 
 export const PUBLIC_PLATES = [
   { code: 'WDD 512', city: 'BOGOTÁ D.C.' },
@@ -85,8 +84,20 @@ export const RECT = Object.freeze({
   route3: [640, 960, 256, 64],
   sticker: [896, 768, 128, 128],
   seat: [0, 896, 64, 64],
-  taxiStripe: [64, 896, 256, 8],
-  busName: [64, 904, 256, 56],
+  busDoor: [64, 896, 256, 64],
+  // Entre la rejilla de placas y la de puertas de los taxis.
+  taxiEmpresa0: [0, 128, 256, 64],
+  taxiEmpresa1: [256, 128, 256, 64],
+  grilleClasica: [520, 132, 112, 56],
+  busConduzco: [640, 128, 192, 64],
+  seatVinilo: [840, 132, 80, 56],
+  seatPopular: [932, 132, 84, 56],
+  seatClasico: [676, 454, 84, 116],
+  // Piso de busetas: la fila de la ruta 0. El desplazamiento de ruta del material baja 64 px por ruta, como en los tableros.
+  busLibrea: [0, BUS_FLOOR, 512, 64],
+  busFrase: [520, BUS_FLOOR, 160, 64],
+  busCarton0: [688, BUS_FLOOR, 160, 64],
+  busCarton1: [864, BUS_FLOOR, 160, 64],
 });
 
 // Dibujo de día de los faros de carLamps.js que no salen de una óptica: a la misma X que su celda, para que baste bajar la V.
@@ -404,47 +415,20 @@ function drawRim(ctx, [x, y, w, h], style) {
   ctx.restore();
 }
 
-// Rutas inventadas: el tablero se lee como de buseta bogotana sin citar ninguna empresa real.
-const ROUTES = [
-  { num: '14-2', dest: 'CRA 10 · SOACHA', via: 'SAN MATEO · BOSA', bg: '#1b5e20', numBg: '#fbc02d' },
-  { num: '314', dest: 'CL 80 · ENGATIVÁ', via: 'VÍA CORINTO · MINUTO', bg: '#0d47a1', numBg: '#d32f2f' },
-  { num: 'E25', dest: 'SUBA · CENTRO', via: 'CALLE 100 · CRA 7MA', bg: '#b71c1c', numBg: '#ffffff' },
-  { num: '496', dest: 'FONTIBÓN · CL 26', via: 'SALITRE · GERMANIA', bg: '#e65100', numBg: '#81c784' },
-];
-
-function drawRoute(ctx, [x, y, w, h], r) {
-  ctx.fillStyle = '#111417'; ctx.fillRect(x, y, w, h);
-  ctx.fillStyle = r.numBg; ctx.fillRect(x + 3, y + 3, 54, h - 6);
-  ctx.fillStyle = '#111'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-  ctx.font = '900 21px sans-serif'; ctx.fillText(r.num, x + 30, y + h / 2);
-  ctx.fillStyle = r.bg; ctx.fillRect(x + 60, y + 3, w - 63, 30);
-  ctx.fillStyle = '#fff'; ctx.font = '900 16px sans-serif'; ctx.fillText(r.dest, x + 60 + (w - 63) / 2, y + 18);
-  ctx.fillStyle = '#f5f5f5'; ctx.fillRect(x + 60, y + 36, w - 63, h - 39);
-  ctx.fillStyle = '#1e1e1e'; ctx.font = '800 13px sans-serif'; ctx.fillText(r.via, x + 60 + (w - 63) / 2, y + 36 + (h - 39) / 2);
-}
-
 export function drawAtlas(ctx) {
   ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, ATLAS_SIZE, ATLAS_HEIGHT);
   // Faros de día sobre fondo oscuro: un fondo blanco se colaría en los mipmaps y los aclararía de lejos.
-  ctx.fillStyle = '#16181b'; ctx.fillRect(0, DAY_FLOOR, ATLAS_SIZE, ATLAS_HEIGHT - DAY_FLOOR);
-  const publics = PUBLIC_PLATES.length;
-  for (let i = 0; i < publics + PRIVATE_PLATES.length; i++) {
-    const x = (i % 8) * CELL_W, y = Math.floor(i / 8) * CELL_H;
-    const plate = i < publics ? PUBLIC_PLATES[i] : PRIVATE_PLATES[i - publics];
-    drawPlate(ctx, x, y, plate, i < publics);
-    if (i < publics) {
-      drawDoorDecal(ctx, x, y + DOOR_Y, plate);
-      drawRoofPlate(ctx, x, y + ROOF_Y, plate);
-    }
-  }
-  // Capacete de taxi.
-  const [sx, sy, sw, sh] = RECT.sign;
-  const sign = ctx.createLinearGradient(0, sy, 0, sy + sh);
-  sign.addColorStop(0, '#fff17a'); sign.addColorStop(1, '#ffd21f');
-  ctx.fillStyle = sign; ctx.fillRect(sx, sy, sw, sh);
-  ctx.strokeStyle = '#222'; ctx.lineWidth = 4; ctx.strokeRect(sx + 3, sy + 3, sw - 6, sh - 6);
-  ctx.fillStyle = '#111'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-  ctx.font = '900 36px "Arial Black", sans-serif'; ctx.fillText('TAXI', sx + sw / 2, sy + sh / 2 + 2);
+  ctx.fillStyle = '#16181b'; ctx.fillRect(0, DAY_FLOOR, ATLAS_SIZE, BUS_FLOOR - DAY_FLOOR);
+  PUBLIC_PLATES.forEach((plate, i) => {
+    const [x, y] = PUBLIC_CELLS[i];
+    drawPlate(ctx, x, y, plate, true);
+    drawTaxiDoor(ctx, [x, y + DOOR_Y, STEP_W, STEP_H], plate, i);
+    drawTaxiRoof(ctx, [x, y + ROOF_Y, STEP_W, STEP_H], plate, i);
+  });
+  PRIVATE_PLATES.forEach((plate, i) => drawPlate(ctx, ...PRIVATE_CELLS[i], plate, false));
+  // Capacete de taxi y rótulos de empresa de las puertas.
+  drawTaxiSign(ctx, RECT.sign);
+  drawTaxiCompany(ctx, RECT.taxiEmpresa0, TAXI_EMPRESAS[0], 0); drawTaxiCompany(ctx, RECT.taxiEmpresa1, TAXI_EMPRESAS[1], 1);
   // Franja de patrulla.
   const [px, py, pw, ph] = RECT.police;
   ctx.fillStyle = '#0b5c2e'; ctx.fillRect(px, py, pw, ph);
@@ -481,24 +465,14 @@ export function drawAtlas(ctx) {
   ctx.fillStyle = '#f2c417'; ctx.fillRect(kx, ky, kw, kh);
   ctx.fillStyle = '#111';
   for (let i = 0; i < 6; i++) for (let j = 0; j < 6; j++) if ((i + j) % 2) ctx.fillRect(kx + i * kw / 6, ky + j * kh / 6, kw / 6, kh / 6);
-  const [tx, ty, tw, th] = RECT.seat;
-  ctx.fillStyle = '#9a9a9a'; ctx.fillRect(tx, ty, tw, th);
-  ctx.fillStyle = 'rgba(0,0,0,.25)';
-  for (let i = 0; i < tw; i += 4) ctx.fillRect(tx + i, ty, 1, th);
-  for (let i = 0; i < th; i += 4) ctx.fillRect(tx, ty + i, tw, 1);
-  // Franja damero de los taxis.
-  const [fx, fy, fw, fh] = RECT.taxiStripe;
-  for (let i = 0; i < fw; i += 4) for (let j = 0; j < fh; j += 4) {
-    ctx.fillStyle = ((i + j) / 4) % 2 ? '#111' : '#f4f4f0';
-    ctx.fillRect(fx + i, fy + j, 4, 4);
+  drawUpholstery(ctx, RECT);
+  drawBusDoor(ctx, RECT.busDoor);
+  drawBusConduzco(ctx, RECT.busConduzco);
+  for (const [route, librea] of BUS_LIBREAS.entries()) {
+    const row = ([x, y, w, h]) => [x, y + route * 64, w, h];
+    drawBusRoute(ctx, row(RECT.route0), librea.tablero);
+    drawBusLivery(ctx, { librea: row(RECT.busLibrea), frase: row(RECT.busFrase), cartones: [row(RECT.busCarton0), row(RECT.busCarton1)] }, route);
   }
-  // Rótulo genérico de la buseta: nombre inventado, se lee como el de una cooperativa cualquiera.
-  const [nx, ny, nw, nh] = RECT.busName;
-  // Sobre la franja de la buseta: del mismo azul, para que solo se lea el letrero.
-  ctx.fillStyle = BUS_BLUE; ctx.fillRect(nx, ny, nw, nh);
-  ctx.fillStyle = '#f4f2ea'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-  ctx.font = '900 21px sans-serif'; ctx.fillText('RUTAS DE LA CAPITAL', nx + nw / 2, ny + 19);
-  ctx.font = '800 13px sans-serif'; ctx.fillText('SERVICIO URBANO · 19 PASAJEROS', nx + nw / 2, ny + 42);
   drawOptics(ctx);
 }
 

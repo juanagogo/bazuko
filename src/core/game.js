@@ -389,6 +389,8 @@ export class Game {
     this._registerRenderGroups();
 
     if (this.cameraRig.mode === 'third-person') this.player.root.rotation.y = this.cameraRig.yaw + Math.PI;
+    this.cart?.placeWithCarrier(this.player);
+    this.player.updateCartPose(this.cart);
     this.cameraRig.follow(this.player.position, 0, this.collisions);
     this.sceneMgr.setTimeOfDay(this.clock.hour, this.weather, this.clock.day);
     this.sceneMgr.followTarget(this.player.position);
@@ -814,17 +816,16 @@ export class Game {
       { x: 50, z: 62, r: 0.8 },
       { x: 76, z: 46, r: -Math.PI / 2 }
     ];
+    const vehicleGroundHeight = (x, z, y) => district.getMovementGroundHeight?.(x, z, y) ?? district.getGroundHeight?.(x, z);
     for (const b of bikeCoords) {
       const bPos = new THREE.Vector3(b.x, 0, b.z);
-      const bike = new Bicycle(this.sceneMgr.scene, bPos, b.r, { locked: true });
-      bike.group.position.y = district.getGroundHeightUnder?.(bike.group)
-        ?? district.getGroundHeight?.(bPos.x, bPos.z) ?? 0;
+      const bike = new Bicycle(this.sceneMgr.scene, bPos, b.r, { locked: true, groundHeight: vehicleGroundHeight });
       this.bicycles.push(bike);
       this.interaction.register(bike);
     }
 
     // ===== Carreta de balineras de reciclaje =====
-    this.cart = new Cart(this.sceneMgr.scene, new THREE.Vector3(25, 0, 31));
+    this.cart = new Cart(this.sceneMgr.scene, new THREE.Vector3(25, 0, 31), { groundHeight: vehicleGroundHeight, collisions: this.collisions });
     this.interaction.register(this.cart);
 
 
@@ -1605,6 +1606,7 @@ export class Game {
     this._updatePickups(dt);
     for (const c of this.cars) c.update(dt, this.player.position);
     for (const b of this.bicycles) b.update(dt, this.player, this.audio);
+    this.player.updateBicyclePose();
     for (const { car } of this.traffic?.vehicles ?? []) car.update(dt);
     this.cambuche?.update(dt);
     this.dealer?.update(dt);
@@ -1612,6 +1614,7 @@ export class Game {
     this.dog?.update(dt, this.player.position, this.pickups, this.world.active?.npcs ?? [],
       { patrols: this.traffic?.vehicles ?? [], wanted: this.steal?.buscado ?? 0 });
     this.cart?.update(dt, this.player, this.audio);
+    this.player.updateCartPose(this.cart);
 
     // 10. Audio
     const moving = !this.player.isStunned && !driving && (this.input.axis.x !== 0 || this.input.axis.z !== 0 || Math.hypot(this.player.position.x - previousX, this.player.position.z - previousZ) > .001);

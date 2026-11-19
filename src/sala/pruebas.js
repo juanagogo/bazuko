@@ -270,8 +270,8 @@ export const PRUEBAS = [
     id: 'vehiculos',
     nombre: 'Flota',
     descripcion: 'Todos los modelos en fila, de día, con la cámara a la altura de los ojos. Pasa de modelo y elige una vista.',
-    montar(sala) {
-      const filas = [...CAR_MODEL_IDS.map(id => ({ id, kind: 'carro' })), { id: 'citadino', kind: 'taxi' }, { id: 'sedanPopular', kind: 'taxi' }, { id: 'sedanPopular', kind: 'police' }, { id: 'suv', kind: 'police' }];
+    montar(sala, params) {
+      const filas = [...CAR_MODEL_IDS.map(id => ({ id, kind: id === 'buseta' ? 'buseta' : 'carro' })), { id: 'citadino', kind: 'taxi' }, { id: 'sedanPopular', kind: 'taxi' }, { id: 'sedanPopular', kind: 'police' }, { id: 'suv', kind: 'police' }];
       const cars = filas.map(({ id, kind }, i) => {
         const car = new Car(sala.scene, new THREE.Vector3(i * 9 - 40, 0, -8), 0, { kind, variant: 3 + i * 2, model: id, traffic: true });
         car.marker.visible = false;
@@ -306,6 +306,9 @@ export const PRUEBAS = [
       sala.updaters.add((dt) => { for (const { car } of cars) { car.update(dt); car.animateDrive(0, false, { dt, speed: 0 }); } });
       let noche = false, lluvia = false, actual = 0, vista = 'frente';
       const mostrar = () => ver(actual, vista);
+      const modeloPedido = params?.get('vehiculo'), tipoPedido = params?.get('tipo');
+      const inicial = filas.findIndex(({ id, kind }) => id === modeloPedido && (!tipoPedido || kind === tipoPedido));
+      if (inicial >= 0) { actual = inicial; mostrar(); }
       const clima = () => { sala.setHour(noche ? 22 : 11); for (const { car } of cars) car.setNight(noche, lluvia); };
       return {
         acciones: [

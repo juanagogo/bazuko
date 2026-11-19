@@ -68,10 +68,43 @@ export function trashPile(n = 6) {
   return shadow(g);
 }
 
+// Perfil de la llanta de la zorra, del centro de una cara al de la otra: [radio, ancho, color]. Rin de lámina oxidada,
+// pestaña, flanco con su panza y banda de rodar. Mide lo mismo que el cilindro de 14 lados que reemplaza.
+const LLANTA = [[0, .032, '#5c4a3a'], [.14, .032, '#3d352d'], [.17, .045, '#2e2c29'], [.25, .05, '#252422'], [.3, .032, '#1b1b1a'],
+  [.3, -.032, '#252422'], [.25, -.05, '#2e2c29'], [.17, -.045, '#3d352d'], [.14, -.032, '#5c4a3a'], [0, -.032]];
+const LLANTA_LADOS = 14;
+
+/** Llanta con banda y flanco en una sola geometría con índice; el color de cada franja va en los vértices. */
+function llanta() {
+  const position = [], uv = [], color = [], index = [], tinte = new THREE.Color();
+  for (let f = 0; f + 1 < LLANTA.length; f++) {
+    const base = position.length / 3;
+    tinte.set(LLANTA[f][2]);
+    for (const [radio, ancho] of [LLANTA[f], LLANTA[f + 1]]) for (let k = 0; k < LLANTA_LADOS; k++) {
+      const a = k / LLANTA_LADOS * Math.PI * 2;
+      position.push(radio * Math.sin(a), ancho, radio * Math.cos(a));
+      uv.push(k / LLANTA_LADOS, f / (LLANTA.length - 1));
+      color.push(tinte.r, tinte.g, tinte.b);
+    }
+    for (let k = 0; k < LLANTA_LADOS; k++) {
+      const j = (k + 1) % LLANTA_LADOS;
+      if (LLANTA[f + 1][0] > 0) index.push(base + k, base + LLANTA_LADOS + k, base + LLANTA_LADOS + j);
+      if (LLANTA[f][0] > 0) index.push(base + k, base + LLANTA_LADOS + j, base + j);
+    }
+  }
+  const geometry = new THREE.BufferGeometry();
+  geometry.setIndex(index);
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(position, 3));
+  geometry.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+  geometry.setAttribute('color', new THREE.Float32BufferAttribute(color, 3));
+  geometry.computeVertexNormals();
+  return geometry;
+}
+
 /** Zorra: carreta de madera de reciclador, cargada */
 export function zorra() {
   const g = new THREE.Group();
-  const wood = std('#6b4a2e');
+  const wood = std('#6f5a44');
   const bed = new THREE.Mesh(new THREE.BoxGeometry(1.1, 0.08, 1.9), wood);
   bed.position.y = 0.55;
   g.add(bed);
@@ -79,7 +112,7 @@ export function zorra() {
     const side = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.4, 1.9), wood);
     side.position.set(sx, 0.78, 0);
     g.add(side);
-    const wheel = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.3, 0.1, 14), std('#1c1c1c'));
+    const wheel = new THREE.Mesh(llanta(), std('#ffffff', { vertexColors: true }));
     wheel.rotation.z = Math.PI / 2;
     wheel.position.set(sx * 1.1, 0.3, 0.2);
     g.add(wheel);
@@ -90,7 +123,7 @@ export function zorra() {
     handle.position.set(sx, 0.75, -1.4);
     g.add(handle);
   }
-  const load = trashPile(5);
+  const load = trashPile(5, { carga: true });
   load.scale.setScalar(0.75);
   load.position.y = 0.6;
   g.add(load);
