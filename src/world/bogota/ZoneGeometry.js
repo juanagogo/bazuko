@@ -61,6 +61,17 @@ export class Batch {
     out.index.push(base, base + 1, base + 2);
   }
 
+  /** Superficie indexada con normales propias para compartir el sombreado entre caras. */
+  indexed(material, positions, normals, uvs, indices) {
+    const out = this._bucket(material), base = out.position.length / 3;
+    for (let i = 0; i < positions.length; i++) {
+      out.position.push(...positions[i]);
+      out.normal.push(...normals[i]);
+      out.uv.push(...uvs[i]);
+    }
+    for (const index of indices) out.index.push(base + index);
+  }
+
   /** Marco de una pared: u a lo largo de la fachada, y hacia arriba, n hacia la calle. */
   frame(face, plane = 0) {
     const [ux, uz, nx, nz] = FACE_BASIS[face];

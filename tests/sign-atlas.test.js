@@ -247,25 +247,27 @@ test('el fondo, el nombre y el color de letra de cada aviso son los del oficio d
     // Una entrada por oficio y nombre, con la letra de su oficio.
     return [...titles[index], backOf(s.object), AVISOS_GRANDES[index].oficio.tinta];
   });
-  // Los doce primeros avisos de la ciudad, con el oficio que el solar le da a cada local.
+  // Los primeros doce locales conservan el oficio, el nombre y la paleta de su solar.
   assert.deepEqual(list.slice(0, 12), [
-    ['CHATARRERÍA', 'EL COBRE', '#5a4a3c', '#e8d49a'], ['CHANCE', 'EL PÁLPITO', '#3f7a4a', '#f3ecc8'],
-    ['PAPELERÍA', 'EL TAJALÁPIZ', '#d8cf9e', '#273f73'], ['PANADERÍA', 'EL TRIGAL', '#c79a4a', '#5a2a16'],
-    ['BILLARES', 'EL TACO', '#2f5f48', '#ead9a0'], ['LICORERA', 'LA ÚLTIMA', '#3a3f6a', '#ecd98a'],
-    ['ASADERO', 'EL FOGÓN', '#c68a2a', '#6a1c14'], ['FRUVER', 'LA COSECHA', '#5f8a3e', '#f2e9c4'],
-    ['COMPRAVENTA', 'LA PRENDA', '#b3a03a', '#2a2a26'], ['MISCELÁNEA', 'LA CHUCHERÍA', '#4f7fa0', '#f3e7c0'],
-    ['MISCELÁNEA', 'DOÑA FLOR', '#4f7fa0', '#f3e7c0'], ['TALLER DE MOTOS', 'LA BIELA', '#2f3a36', '#e2863a']
+    ['CHANCE', 'EL PÁLPITO', '#3f7a4a', '#f3ecc8'], ['PAPELERÍA', 'EL TAJALÁPIZ', '#d8cf9e', '#273f73'],
+    ['PAPELERÍA', 'FOTOCOPIAS', '#d8cf9e', '#273f73'], ['PANADERÍA', 'EL TRIGAL', '#c79a4a', '#5a2a16'],
+    ['CIGARRERÍA', 'EL PORTAL', '#8a3b2e', '#efe2c2'], ['CAFETERÍA', 'EL PERICO', '#6f4630', '#f0dfb8'],
+    ['LAVANDERÍA', 'AL INSTANTE', '#4f8ea3', '#f1ead6'], ['LAVANDERÍA', 'AL INSTANTE', '#4f8ea3', '#f1ead6'],
+    ['RESTAURANTE', 'EL CORRIENTAZO', '#a8452f', '#f0e3c4'], ['TRÁMITES', 'CONTADOR Y ABOGADO', '#56605c', '#eae3cf'],
+    ['MODISTERÍA', 'ARREGLOS', '#b77f95', '#3a1f33'], ['LICORERA', 'LA ÚLTIMA', '#3a3f6a', '#ecd98a']
   ]);
-  // Los mismos 131 avisos de siempre (el sorteo de cuáles casas llevan aviso no cambió), cada uno con el fondo y la
-  // letra de su oficio y un texto de los avisos grandes, y la lista entera igual.
-  assert.equal(list.length, 131);
+  // Son los mismos frentes comerciales del mapa. Los rótulos deben seguir fuera de las
+  // viviendas y patios aunque cambien los nombres, vitrinas y colores de los negocios.
+  assert.equal(list.length, 73);
+  assert.equal(createHash('sha256').update(JSON.stringify(signs.map(s => s.at))).digest('hex'),
+    '061c8785e17a2c1eed1bcc8060671f0d67d4df4f03d132addb4a60ed5a83571e', 'posición y orientación de los 73 avisos');
   for (const [title, sub, bg, fg] of list) {
     const entry = AVISOS_GRANDES.find(e => e.oficio.titulo === title && e.nombre === sub);
     assert.ok(entry, `${title} ${sub} es un aviso grande`);
     assert.deepEqual([bg, fg], [entry.oficio.fondo, entry.oficio.tinta], `${title} ${sub}: fondo y letra de su oficio`);
   }
   assert.equal(createHash('sha256').update(JSON.stringify(list)).digest('hex'),
-    'c1cc1bbaf3e8733708026827dca07ceac0a9ee206d1a6bb6078a764c68809b8e', 'la lista entera');
+    '80973308af826857675073e9a38b75063ab3aaa02eeb8430c55e756bf14b17b9', 'la lista entera');
 });
 
 test('el aviso es opaco y sus copias de cada casa se atenúan en isométrica como un aviso con textura propia', async () => {

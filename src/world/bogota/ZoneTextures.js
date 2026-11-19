@@ -467,6 +467,47 @@ export function detailSheet() {
       X.moveTo(c.x + c.w * .96, c.y + c.h * .9); X.lineTo(c.x + c.w * .5, c.y + c.h * .15);
       X.stroke();
     }
+    // Desgaste de las lonas, con un azar propio de cada celda: nada de lo que se pinta después en la hoja se corre.
+    // Las manchas van más altas que anchas porque la celda se estira a lo ancho sobre un toldo.
+    const borron = (cx, cy, rx, ry, tinta) => {
+      X.save(); X.translate(cx, cy); X.scale(rx, ry);
+      const g = X.createRadialGradient(0, 0, .1, 0, 0, 1);
+      g.addColorStop(0, tinta); g.addColorStop(1, tinta.replace(/,[^,]+\)$/, ',0)'));
+      X.fillStyle = g; X.fillRect(-1, -1, 2, 2); X.restore();
+    };
+    const lonaVieja = (name, semilla, velo, pliegues, sombra) => {
+      const c = at(name), q = rng(semilla), fin = c.y + c.h;
+      const sol = X.createLinearGradient(0, c.y, 0, fin);
+      sol.addColorStop(0, `rgba(214,204,176,${velo})`); sol.addColorStop(1, `rgba(196,186,158,${(velo * .4).toFixed(2)})`);
+      X.fillStyle = sol; X.fillRect(c.x, c.y, c.w, c.h);
+      for (let i = 0; i < 7; i++) { const rx = 6 + q() * 11, ry = 14 + q() * 26; borron(c.x + rx + q() * (c.w - rx * 2), c.y + ry + q() * (c.h - 16 - ry * 2), rx, ry, 'rgba(236,228,206,.16)'); }
+      for (let i = 0; i < pliegues; i++) {
+        const px = c.x + (i + .25 + q() * .5) * c.w / pliegues, ancho = 5 + q() * 6, desde = Math.max(c.x, px - ancho), hasta = Math.min(c.x + c.w, px + ancho);
+        const onda = X.createLinearGradient(px - ancho, 0, px + ancho, 0);
+        onda.addColorStop(0, 'rgba(30,26,18,0)'); onda.addColorStop(.42, 'rgba(30,26,18,.16)'); onda.addColorStop(.5, 'rgba(30,26,18,.03)');
+        onda.addColorStop(.62, 'rgba(240,232,212,.13)'); onda.addColorStop(1, 'rgba(240,232,212,0)');
+        X.fillStyle = onda; X.fillRect(desde, c.y, hasta - desde, c.h);
+      }
+      for (let i = 0; i < 9; i++) {
+        const rx = 1.6 + q() * 3, ry = 5 + q() * 12, mx = c.x + rx + q() * (c.w - rx * 2), my = c.y + ry + q() * c.h * .55;
+        borron(mx, my, rx, ry, `rgba(58,52,38,${(.2 + q() * .22).toFixed(2)})`);
+        const chorro = X.createLinearGradient(0, my, 0, fin);
+        chorro.addColorStop(0, 'rgba(52,46,34,0)'); chorro.addColorStop(.12, 'rgba(52,46,34,.15)'); chorro.addColorStop(1, 'rgba(52,46,34,.02)');
+        const ancho = rx * (.5 + q() * .5);
+        X.fillStyle = chorro; X.fillRect(mx - ancho / 2, my, ancho, fin - my);
+      }
+      const dobladillo = X.createLinearGradient(0, fin - 20, 0, fin);
+      dobladillo.addColorStop(0, 'rgba(30,26,20,0)'); dobladillo.addColorStop(.25, `rgba(30,26,20,${(sombra * .55).toFixed(2)})`); dobladillo.addColorStop(1, `rgba(30,26,20,${sombra})`);
+      X.fillStyle = dobladillo; X.fillRect(c.x, fin - 20, c.w, 20);
+      X.fillStyle = 'rgba(34,28,20,.2)'; X.fillRect(c.x, fin - 16, c.w, 1);
+      X.fillStyle = 'rgba(232,224,204,.14)';
+      for (let bx = c.x + 1; bx < c.x + c.w - 2; bx += 3.6) X.fillRect(bx, fin - 14, 1.6, 1);
+      for (let bx = c.x; bx < c.x + c.w - 1;) {
+        const paso = 1 + q() * 3.2, arriba = fin - 1 - q() * 4.5;
+        X.fillStyle = q() < .5 ? 'rgba(28,24,18,.32)' : 'rgba(214,206,184,.24)'; X.fillRect(bx, arriba, Math.min(paso * .7, c.x + c.w - bx), fin - arriba);
+        bx += paso;
+      }
+    };
     const stripes = (name, colorA, colorB, width) => {
       const c = at(name);
       for (let x = c.x, i = 0; x < c.x + c.w; x += width, i++) {
@@ -477,7 +518,8 @@ export function detailSheet() {
       X.fillStyle = g; X.fillRect(c.x, c.y, c.w, c.h);
       noise(c.x, c.y, c.w, c.h, 70);
     };
-    stripes('redStripe', '#a72f2a', '#e2dbc8', 20); stripes('blueStripe', '#2a5a8e', '#e2dbc8', 20);
+    stripes('redStripe', '#94463a', '#d2c9b1', 20); stripes('blueStripe', '#425c78', '#d2c9b1', 20);
+    lonaVieja('redStripe', 2051, .34, 4, .12); lonaVieja('blueStripe', 2052, .1, 4, .12);
     // Lona gastada: pliegues y manchas de sol y de lluvia, nunca una lámina de un solo color.
     const tarp = (name, base, seedOffset) => {
       solid(name, base, 160, .1, .14);
@@ -488,11 +530,12 @@ export function detailSheet() {
         X.fillStyle = `rgba(255,255,255,${(.05 + wear() * .08).toFixed(3)})`; X.fillRect(c.x, y + 2, c.w, 1);
       }
       for (let i = 0; i < 5; i++) {
-        X.fillStyle = wear() < .5 ? 'rgba(245,235,205,.13)' : 'rgba(30,24,16,.15)';
-        X.beginPath(); X.ellipse(c.x + c.w * wear(), c.y + c.h * wear(), c.w * (.08 + wear() * .18), c.h * (.06 + wear() * .12), 0, 0, Math.PI * 2); X.fill();
+        const tinta = wear() < .5 ? 'rgba(245,235,205,.2)' : 'rgba(30,24,16,.22)', rx = c.w * (.08 + wear() * .18), ry = c.h * (.06 + wear() * .12);
+        borron(c.x + rx + (c.w - rx * 2) * wear(), c.y + ry + (c.h - ry * 2) * wear(), rx, ry, tinta);
       }
     };
-    tarp('greenTarp', '#3e6a4a', 1); tarp('orangeTarp', '#b5602e', 2); tarp('blueTarp', '#2c5f97', 3);
+    tarp('greenTarp', '#436b4c', 1); tarp('orangeTarp', '#a66a42', 2); tarp('blueTarp', '#3a5f88', 3);
+    lonaVieja('greenTarp', 2053, .2, 0, .22); lonaVieja('orangeTarp', 2054, .2, 0, .22); lonaVieja('blueTarp', 2055, .17, 0, .22);
     solid('burlap', '#a48e62', 900, .12, .18);
     solid('shopDark', '#2b2d2c', 120);
     {

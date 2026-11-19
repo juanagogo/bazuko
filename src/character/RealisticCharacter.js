@@ -12,6 +12,7 @@ import { gaitStage, locomotionBlend, locomotionRate, measureLocomotion, stageRat
 import { bakeGaitFamily, buildGaitSources, resolveGait } from './gaitFamilies.js';
 import { DEFAULT_LOOK, PALETTES } from './look.js';
 import { addHairTone } from './weathering.js';
+import { dressVendorApron } from './vendorApron.js';
 import { applyStreetMaterial, createStreetFrame, curlsWithoutCards, GARMENTS, normalizeTonos, shoesWithoutSocks, streetFaceTint, streetMaterialSeed, streetSkinColor } from './streetMaterials.js';
 import { attachAccessories, attachStreetProps, attachWeapon, FAR_ACCESSORIES, isStreetProp, placeInHold, swayStreetProps } from './props.js';
 import { garmentAllowed, normalizeTalla } from './archetypes.js';
@@ -375,6 +376,7 @@ async function buildInstance(catalog, look, lod = false, profile = resolveAnimat
         ...(p.cat === 'calzado' && !uniform ? { leather: real.calzado === 'zapatos', shoeTone: real.tonos?.calzado } : null),
         ...(p.cat === 'pelo' && real.pelo === 'crespo' ? { curl: 1 } : null)
       });
+      if (p.cat === 'ropa' && look.delantal) dressVendorApron(mesh.material, look.delantal, streetOptions.frame.arm);
       const trim = p.cat === 'pelo' && real.pelo === 'crespo' ? curlsWithoutCards
         : p.cat === 'calzado' && !GARMENTS[real.ropa]?.piernasAlAire ? shoesWithoutSocks : null;
       if (trim) mesh.geometry = trim(mesh.geometry, streetOptions.frame.worldToNormalized.clone().multiply(mesh.matrixWorld));

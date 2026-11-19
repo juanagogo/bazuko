@@ -105,6 +105,12 @@ function manosAtras(rig, m) {
   rig.curl('right', .55, .35);
 }
 
+function mirarSurtido(rig, m) {
+  manosAtras(rig, m);
+  lean(rig, .075);
+  rig.turn('neck', .20, 0, 0).turn('head', .26, 0, 0);
+}
+
 function hablar(rig, m, alt) {
   rig.turn('head', alt ? .02 : -.015, alt ? -.06 : .05, 0);
   const lift = alt ? .075 : 0;
@@ -781,6 +787,7 @@ const CATALOG = {
   'cargar-izquierda': { pose: cargar('left'), walk: true, arms: .9 },
   // Lo que además hace falta
   atender: { pose: atender, walk: false },
+  'mirar-surtido': { pose: mirarSurtido, walk: false, transition: .65 },
   dormido: { pose: dormido, walk: false, hip: true, transition: 1.2 },
   barriga: { pose: barriga, walk: false, transition: .5 },
   frotarse: { pose: frotarse, walk: false, alt: true, motion: { rate: .62 }, transition: .5 },

@@ -2,6 +2,7 @@
 // pintados a mano, lo que se ve tras la persiana abierta y lo que el local saca al andén.
 // Todo lleva polvo abajo, pintura caída y sol encima: nada sale limpio ni de color pleno.
 import { NOMBRES_DE_AVISO, OFICIOS } from './Locales.js';
+import { pintarBotellero } from './Botellero.js';
 
 export const MUROS = ['muroCrema', 'muroMenta', 'muroBaldosin', 'muroOcre', 'muroAzul', 'muroRosa'];
 export const PERSIANAS = ['persianaGris', 'persianaVerde', 'persianaAzul', 'persianaRoja', 'persianaOcre'];
@@ -464,6 +465,23 @@ function toldo(ctx, rect, r, a, b) {
     chorro.addColorStop(0, 'rgba(52,46,34,.24)'); chorro.addColorStop(1, 'rgba(52,46,34,.04)');
     ctx.fillStyle = chorro; ctx.fillRect(mx + r() * ancho * .6, my + alto, .8 + r() * 1.6, y + h - my - alto);
   }
+  // Pliegues: la lona hace ondas entre los tubos del armazón, cada una con su lado en sombra y su lomo claro. Salen de
+  // la celda y no del azar del lienzo, para no correr lo que se pinta después.
+  let paso = (x * 31 + y * 17 + 7) >>> 0;
+  const propio = () => { paso = (Math.imul(paso, 1664525) + 1013904223) >>> 0; return paso / 4294967296; };
+  for (let i = 0; i < 6; i++) {
+    const px = x + (i + .2 + propio() * .6) * w / 6, ancho = w * (.035 + propio() * .03);
+    const desde = Math.max(x, px - ancho), hasta = Math.min(x + w, px + ancho), onda = ctx.createLinearGradient(px - ancho, 0, px + ancho, 0);
+    onda.addColorStop(0, 'rgba(30,26,18,0)'); onda.addColorStop(.42, 'rgba(30,26,18,.2)'); onda.addColorStop(.5, 'rgba(30,26,18,.04)');
+    onda.addColorStop(.62, 'rgba(240,232,212,.16)'); onda.addColorStop(1, 'rgba(240,232,212,0)');
+    ctx.fillStyle = onda; ctx.fillRect(desde, y, hasta - desde, h);
+  }
+  // Costuras: donde se unen dos paños, de arriba abajo, y el dobladillo, con sus puntadas.
+  const union = x + w * (.3 + propio() * .4);
+  ctx.fillStyle = 'rgba(34,28,20,.28)'; ctx.fillRect(union, y, .8, h);
+  ctx.fillStyle = 'rgba(232,224,204,.45)';
+  for (let py = y + 1; py < y + h - 3; py += 3.2) ctx.fillRect(union + 1.2, py, .7, 1.6);
+  for (let bx = x + 1; bx < x + w - 2; bx += 3.4) ctx.fillRect(bx, y + h - 7.2, 1.8, .7);
   // El borde de afuera, raído: mordiscos oscuros, hilachas claras y una costura.
   ctx.fillStyle = 'rgba(40,34,26,.3)'; ctx.fillRect(x, y + h - 5.5, w, .7);
   for (let bx = x; bx < x + w - 1;) {
@@ -505,6 +523,7 @@ export function drawLocales(ctx, R, r) {
     dintel.addColorStop(0, 'rgba(8,8,6,.85)'); dintel.addColorStop(1, 'rgba(8,8,6,0)');
     ctx.fillStyle = dintel; ctx.fillRect(x, y, w, 9);
     ctx.fillStyle = 'rgba(14,13,11,.8)'; ctx.fillRect(x, y, 1.4, h); ctx.fillRect(x + w - 1.4, y, 1.4, h);
+    if (name === 'botellas') pintarBotellero(ctx, R[name]);
   });
 
   cartel(ctx, R.arrienda, r, '#1d1d1b', [['SE ARRIENDA', 10, '#e3c63a'], ['LOCAL', 8, '#e8e2d0'], ['INF. 555 0147', 6.5, '#c9503c']]);

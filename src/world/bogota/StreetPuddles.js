@@ -1,7 +1,8 @@
 // Charcos: el agua se queda junto al sardinel y en los baches del carril. En seco no dibujan nada.
 import * as THREE from 'three';
 import { TILE_SIZE } from '../../utils/constants.js';
-import { STATIC_CHUNK_SIZE } from './StaticGeometry.js';
+import { STATIC_CHUNK_SIZE, createRenderSectors, freezeStaticTransforms } from './StaticGeometry.js';
+import { withVisualRandom } from './VisualRandom.js';
 import { StreetBatch, tint, unit } from './StreetBatch.js';
 import { inLakeTerrain, onLakeBridge } from './LakePark.js';
 
@@ -100,6 +101,14 @@ export function addStreetPuddles(group, district, runs, glowMaterial = null) {
     const y = district.getGroundHeight(x, z) + LIFT;
     batch.decal(x, y, z, width, depth, axis === 'x' ? 0 : Math.PI / 2, variants[Math.floor(unit(Math.round(x), Math.round(z), 81) * 4)], color);
   }
-  batch.finish(group);
+  // Los charcos se apagan en seco y se recortan por sus propios sectores.
+  const holder = withVisualRandom(() => new THREE.Group());
+  holder.name = 'Calle: charcos';
+  holder.userData.noMerge = true;
+  batch.finish(holder);
+  district.group.add(holder);
+  const sectors = createRenderSectors(holder);
+  if (district.renderSectors) district.renderSectors.push(...sectors);
+  freezeStaticTransforms(holder);
   return plan.length;
 }

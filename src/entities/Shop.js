@@ -26,7 +26,7 @@ export class Shop {
     this.group.add(followNight(body, { day: .12 }));
 
     // Letrero sobre el techo
-    const sign = signMesh({ title: 'LA ESQUINITA', sub: 'TIENDA · MISCELÁNEA' }, 2.6);
+    const sign = signMesh({ title: 'LA ESQUINITA', sub: 'TIENDA · MISCELÁNEA', bg: '#742e29', fg: '#f5ead1', accent: '#efc66e' }, 2.6);
     sign.position.set(0, 3.14, -.04);
     this.group.add(sign);
 

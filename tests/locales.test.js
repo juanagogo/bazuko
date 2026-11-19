@@ -36,10 +36,14 @@ function cuadras(semilla, conLaCiudad = null) {
       const antes = this.group.children.length;
       casa.call(this, tiles, dx, dz, face, ...resto);
       const raiz = this.group.children[antes];
-      solares.push({ face, primero: tiles[0], ultimo: tiles[tiles.length - 1], raiz, local: raiz?.userData.local ?? null });
+      const [x, z] = tiles[Math.floor(tiles.length / 2)];
+      // Entre la puerta y la primera vía solo puede haber andén, hasta diez metros.
+      const frente = Array.from({ length: 5 }, (_, i) => this.map[z + dz * (i + 1)]?.[x + dx * (i + 1)]);
+      const exterior = frente.find(tile => tile !== 'sidewalk');
+      solares.push({ exterior, face, primero: tiles[0], ultimo: tiles[tiles.length - 1], raiz, local: raiz?.userData.local ?? null });
     };
     ciudad._buildBlocks(ciudad.map);
-    conLaCiudad?.(ciudad);
+    conLaCiudad?.(ciudad, solares);
     return { solares, textos };
   } finally {
     ciudad?.dispose(new THREE.Scene());
@@ -62,7 +66,10 @@ const seguidos = (a, b) => a.face === b.face && Math.abs(b.primero[0] - a.ultimo
 test('la ciudad reparte muchos oficios y nunca pone el mismo en dos solares seguidos', () => {
   const { solares } = cuadras(89123);
   const conLocal = solares.filter(solar => solar.local);
-  assert.ok(conLocal.length >= 200, `${conLocal.length} solares con local`);
+  assert.equal(conLocal.length, 110, 'los comercios ocupan las fachadas comerciales del rediseño');
+  for (const solar of conLocal) assert.ok(['road', 'busway'].includes(solar.exterior),
+    `el local de ${solar.primero} abre a ${solar.exterior}`);
+  assert.ok(solares.some(s => !s.local && s.exterior === 'grass'), 'hay viviendas frente al parque');
   const oficios = new Set(conLocal.map(solar => solar.local.id));
   assert.ok(oficios.size >= 20, `${oficios.size} oficios distintos`);
   let parejas = 0;
@@ -72,7 +79,7 @@ test('la ciudad reparte muchos oficios y nunca pone el mismo en dos solares segu
     parejas++;
     assert.notEqual(a.local.id, b.local.id, `${a.local.id} dos veces seguidas en ${a.ultimo} y ${b.primero}`);
   }
-  assert.ok(parejas >= 100, `${parejas} parejas de vecinos revisadas`);
+  assert.ok(parejas >= 30, `${parejas} parejas de vecinos revisadas`);
   // La mayoría se arma con muro, persiana y rótulo; el resto conserva la persiana pintada de su fachada.
   const armados = conLocal.filter(solar => solar.local.armado).length;
   assert.ok(armados >= conLocal.length * .8, `${armados} de ${conLocal.length} locales armados`);
@@ -83,6 +90,37 @@ test('cada solar conserva su local aunque cambie el azar del juego', () => {
   const primera = resumen(89123);
   assert.ok(primera.some(fila => fila[2]), 'hay locales que comparar');
   assert.deepEqual(resumen(17), primera);
+});
+
+test('desde el andén de La Última se ven los cuerpos curvos en tres repisas de ambos paños', () => {
+  const { solares } = cuadras(89123);
+  const local = solares.find(({ raiz }) => raiz?.position.x === 50 && raiz?.position.z === 121);
+  assert.equal(local.local.nombre, 'LA ÚLTIMA');
+  const { raiz } = local;
+  raiz.updateMatrixWorld(true);
+  const [u0, v0, u1, v1] = detailAtlas().uv.botellas;
+  const rayo = new THREE.Raycaster(new THREE.Vector3(), new THREE.Vector3(-1, 0, 0), 0, 1.3);
+  const materiales = new Set();
+  for (const [inicio, fin] of [[118.65, 121.3], [122, 124.45]]) for (const y of [.91, 1.35, 1.82]) {
+    let vistas = 0;
+    const profundidades = new Set();
+    for (let z = inicio; z < fin; z += .045) {
+      rayo.ray.origin.set(54, y, z);
+      const golpe = rayo.intersectObject(raiz, true)[0];
+      if (!golpe?.object.userData.streetLife) continue;
+      const { uv, point, object } = golpe;
+      // Las etiquetas ocupan el espacio que queda debajo de la trasera, la madera y el hierro.
+      if (uv.x < u0 || uv.x > u1 || uv.y < v0 || uv.y > v1 - (v1 - v0) * .17) continue;
+      materiales.add(object.material);
+      vistas++;
+      profundidades.add(Math.round(point.x * 1000));
+      // La chapa empieza en X 53,030. Todo el vidrio queda por detrás, incluso al bajar la persiana.
+      assert.ok(point.x > 52.91 && point.x < 53.03001);
+    }
+    assert.ok(vistas >= 9, `botellas visibles desde la acera en el paño ${inicio}, a ${y} m`);
+    assert.ok(profundidades.size >= 5, 'la superficie que recibe los rayos tiene curvatura');
+  }
+  assert.equal(materiales.size, 1, 'ambos paños pertenecen al mismo lote de la fachada');
 });
 
 test('el muro pintado termina 6 cm por debajo del aviso grande y no lo tapa', () => {
@@ -106,7 +144,9 @@ test('el muro pintado termina 6 cm por debajo del aviso grande y no lo tapa', ()
     revisados++;
     assert.ok(tope <= abajo - .06 + 1e-6, `el muro de ${local.id} sube a ${tope.toFixed(2)} m y el aviso empieza en ${abajo.toFixed(2)} m`);
   }
-  assert.ok(revisados >= 80, `${revisados} locales con aviso grande y muro pintado`);
+  const conMuroYAviso = solares.filter(solar => solar.local?.armado && solar.local.aviso);
+  assert.ok(conMuroYAviso.length > 0);
+  assert.equal(revisados, conMuroYAviso.length, 'se comprobó el muro de cada local armado con aviso');
 });
 
 /** Lo que dice un aviso colgado: lo pintado en su textura y, si es una celda de un atlas, cuál. */
@@ -118,7 +158,8 @@ function textoDe(aviso) {
 test('los avisos grandes colgados en la ciudad no pasan de 54 textos distintos, dos nombres por oficio', () => {
   const { solares } = cuadras(89123);
   const colgados = solares.flatMap(solar => solar.raiz ? avisosDe(solar.raiz).map(aviso => ({ local: solar.local, texto: textoDe(aviso) })) : []);
-  assert.ok(colgados.length >= 80, `${colgados.length} avisos grandes colgados`);
+  const conLocal = solares.filter(solar => solar.local);
+  assert.ok(colgados.length >= conLocal.length * .6, `${colgados.length} avisos entre ${conLocal.length} locales`);
   const textos = new Set(colgados.map(colgado => colgado.texto));
   assert.ok(textos.size <= 54, `${textos.size} textos distintos en los avisos grandes colgados`);
   const porOficio = new Map();
@@ -155,7 +196,7 @@ test('ningún local lleva el nombre de una marca real', async () => {
 
 test('un aviso de bandera que se mete en un sólido de la ciudad no se cuelga', async () => {
   const { CollisionSystem } = await import('../src/systems/CollisionSystem.js');
-  cuadras(89123, ciudad => {
+  cuadras(89123, (ciudad, solares) => {
     const banderas = () => {
       const lista = [];
       ciudad.group.traverse(malla => { if (malla.userData.bandera) lista.push(malla); });
@@ -169,7 +210,14 @@ test('un aviso de bandera que se mete en un sólido de la ciudad no se cuelga', 
       return caja;
     };
     const colgadas = banderas().length;
-    assert.ok(colgadas >= 40, `${colgadas} avisos de bandera colgados`);
+    const sinAvisoGrande = solares.filter(solar => solar.local?.armado && !solar.local.aviso);
+    assert.ok(sinAvisoGrande.length > 0);
+    assert.ok(colgadas >= sinAvisoGrande.length / 2, `${colgadas} banderas entre ${sinAvisoGrande.length} locales sin aviso grande`);
+    for (const { raiz, local } of solares) {
+      let cantidad = 0;
+      raiz.traverse(objeto => { if (objeto.userData.bandera) cantidad++; });
+      assert.ok(cantidad <= (local?.armado && !local.aviso ? 1 : 0), 'una bandera solo en un local sin aviso grande');
+    }
     // Las cajas de las casas, como las arma el juego: casi ninguna bandera las toca.
     const solidos = new CollisionSystem();
     ciudad._buildCollisions(ciudad.map, solidos);
@@ -209,6 +257,48 @@ function casa(opciones, local) {
   shell.root.traverse(objeto => { if (objeto.isMesh) { mallas.push(objeto); materiales.add(objeto.material); } });
   return { shell, resultado, sorteos, mallas, materiales };
 }
+
+test('la persiana tapa el surtido en las fachadas con relieve y en las planas', async () => {
+  const { OFICIOS } = await import('../src/world/bogota/Locales.js');
+  const licorera = OFICIOS.find(oficio => oficio.id === 'licorera');
+  const atlas = detailAtlas().uv, tinta = atlas.botellas;
+  const dentro = (uv, r) => uv.x >= r[0] - 1e-7 && uv.x <= r[2] + 1e-7 && uv.y >= r[1] - 1e-7 && uv.y <= r[3] + 1e-7;
+  const etiqueta = [tinta[0], tinta[1], tinta[2], tinta[3] - (tinta[3] - tinta[1]) * .17];
+  for (const [seed, tipo] of [[1, 'completo'], [11, 'plano']]) {
+    const cantidades = [];
+    for (const estado of ['abierta', 'media', 'cerrada']) {
+      const { shell, resultado } = casa({ width: 4, depth: 6, height: 9, floors: 3, face: 4, seed, roof: false },
+        { ...licorera, conAviso: true, estado });
+      assert.equal(resultado.local, tipo);
+      let envases = 0, chapa = Infinity, izquierda = Infinity, derecha = -Infinity;
+      const exterior = shell.walls.get(4);
+      const coord = new THREE.Vector2();
+      exterior.traverse(malla => {
+        if (!malla.userData.streetLife) return;
+        const { uv, position } = malla.geometry.attributes;
+        for (let i = 0; i < uv.count; i++) {
+          coord.fromBufferAttribute(uv, i);
+          if (dentro(coord, etiqueta)) {
+            envases++;
+            assert.ok(position.getZ(i) < 3.03);
+          }
+          if (!dentro(coord, atlas[licorera.persiana])) continue;
+          chapa = Math.min(chapa, position.getY(i));
+          izquierda = Math.min(izquierda, position.getX(i)); derecha = Math.max(derecha, position.getX(i));
+        }
+      });
+      shell.root.updateMatrixWorld(true);
+      const origen = new THREE.Vector3(10 + (izquierda + derecha) / 2, (chapa + 2.37) / 2, 23.45);
+      const rayo = new THREE.Raycaster(origen, new THREE.Vector3(0, 0, -1));
+      const impacto = rayo.intersectObject(exterior, true)[0];
+      assert.ok(dentro(impacto.uv, atlas[licorera.persiana]), 'la chapa recibe primero el rayo');
+      cantidades.push(envases);
+    }
+    const [abierta, media, cerrada] = cantidades;
+    assert.ok(abierta > media && media > 0);
+    assert.equal(cerrada, 0);
+  }
+});
 
 test('el tejadillo y la lona corta van altos y vuelan poco: no tapan a quien camina pegado a la pared', async () => {
   const { localDelSolar } = await import('../src/world/bogota/Locales.js');
