@@ -50,6 +50,8 @@ import { LAKE_BRIDGE, LAKE_PARK, onLakeBridge, bridgeHeight, buildLakeWater, bui
 import { createLakeWaterMaterial } from '../bogota/LakeWaterMaterial.js';
 import { PigeonFlock } from '../../entities/PigeonFlock.js';
 import { geometryChunk, mergeByChunk, freezeStaticTransforms, createRenderSectors, instanceStaticModels } from '../bogota/StaticGeometry.js';
+import { withVisualRandom } from '../bogota/VisualRandom.js';
+import { buildCalle72Landing, onCalle72Landing } from '../bogota/Calle72Landing.js';
 import { updateFarStreetLamps } from '../bogota/StreetLampModel.js';
 import { CITY_WIDTH, CITY_HEIGHT, CITY_AREA_MULTIPLIER, CITY_CARRERAS as CARRERAS,
   CITY_CALLES as CALLES, ORIGINAL_CITY_WIDTH, ORIGINAL_CITY_HEIGHT, EXTENSION_PARKS,
@@ -237,6 +239,7 @@ export class Bogota {
     this.stationGroup = buildTransitTerminal({ createSign: signTexture, asphalt: this.groundMaterials.road });
     this.group.add(this.stationGroup);
     for (const entry of this.stationGroup.userData.colliders) collisions?.colliders.push(entry);
+    this._releaseStationCameraCeiling = collisions?.addCameraCeiling?.(this.stationGroup.userData.cameraCeiling);
     // Los límites de la terminal son solo colisión: fusionados con lo demás se verían como una pared gris.
     for (const mesh of [...this.stationGroup.children]) if (!mesh.visible) this.stationGroup.remove(mesh);
     this._buildStreetProps(map);
@@ -253,8 +256,8 @@ export class Bogota {
     this.towerLights = tower.userData.lightMaterials;
     this.group.add(tower);
 
-    // Metro de Bogotá (Línea 1 PLMB - Viaducto elevado sobre la Caracas y tren oficial)
-    const metro = buildMetroBogota({ pavement: this.groundMaterials.road });
+    // Viaducto y tren de pruebas de la Caracas.
+    const metro = buildMetroBogota({ pavement: this.groundMaterials.road, waterBottomAt: (x, z) => this.getWaterInfo(x, z)?.bottomY });
     this.group.add(metro);
     if (metro.userData.colliders) {
       for (const entry of metro.userData.colliders) collisions?.colliders.push(entry);
@@ -271,6 +274,9 @@ export class Bogota {
     }));
 
     this._mergeStatic();
+    const metroTrain = metro.userData.train;
+    this.group.add(metroTrain);
+    this.animated.push(metroTrain);
     this.group.add(this.buildingVisibility.buildClosedView());
     // Las torres se ven desde todo el barrio: su material lo permite, y aquí tampoco las corta Three.
     this.group.traverse(mesh => { if (mesh.material?.userData?.pastFar) mesh.frustumCulled = false; });
@@ -583,6 +589,9 @@ export class Bogota {
     for (const [t, list] of Object.entries(quads)) {
       this.group.add(mergeByChunk(list, mats[t], { receiveShadow: true }));
     }
+    const calle72 = withVisualRandom(() => buildCalle72Landing(mats.floor));
+    mats.sidewalk_calle72 = calle72.material;
+    this.group.add(calle72);
   }
 
   /** Lluvia que está cayendo (0 sin lluvia, ~.3 llovizna, ~.7 aguacero, 1 tormenta): la que ven los peatones. */
@@ -1056,6 +1065,7 @@ export class Bogota {
 
   getGroundTypeAt(x, z) {
     if (!this.map) return 'sidewalk';
+    if (onCalle72Landing(x, z)) return 'sidewalk';
     const row = Math.round(z / T);
     const col = Math.round(x / T);
     return this.map[row]?.[col] ?? 'sidewalk';
@@ -1564,32 +1574,41 @@ export class Bogota {
     const buckets = new Map();
     const replacedGeometries = new Set();
     const replacedMaterials = new Set();
-    const visit = (o) => {
-      if (o.userData.update || o.userData.noMerge) return; // animados y faroles quedan aparte
+    const visit = (o, local = null) => {
+      if (o.userData.noMerge) return;
+      if (o.userData.update) {
+        if (!o.userData.mergeChildren) return;
+        // Una rama móvil con piezas rígidas puede fundirse en su propio sistema de coordenadas.
+        local = { root: o, inverse: o.matrixWorld.clone().invert() };
+      }
       if (o.isMesh && !Array.isArray(o.material) && !o.isSkinnedMesh && !o.isInstancedMesh) {
         if (!o.geometry.attributes.uv || !o.geometry.attributes.normal) return;
         // Conserva los índices: expandir cajas y planos duplicaba sus vértices.
-        const g = o.geometry.clone();
+        const clone = () => o.geometry.clone();
+        const g = o.userData.visualOnly ? withVisualRandom(clone) : clone();
         for (const name of Object.keys(g.attributes)) if (!['position', 'normal', 'uv', 'color', 'treeWind'].includes(name)) g.deleteAttribute(name);
         const attributes = Object.keys(g.attributes).sort().map(name => {
           const a = g.attributes[name];
           return `${name}:${a.itemSize}:${a.array.constructor.name}:${a.normalized}`;
         }).join(',');
         // Como los lotes cerrados, por trozos anchos: mobiliario y ladrillos pesan en llamadas, no en triángulos.
-        const key = `${o.material.userData.staticMergeKey ?? o.material.uuid}|${o.castShadow}|${o.receiveShadow}|${!!g.index}|${attributes}|${o.customDepthMaterial?.uuid ?? ''}|${geometryChunk(o.geometry, o.matrixWorld, CLOSED_CHUNK_SIZE * 2)}`;
+        const key = `${o.material.userData.staticMergeKey ?? o.material.uuid}|${o.castShadow}|${o.receiveShadow}|${!!g.index}|${attributes}|${o.customDepthMaterial?.uuid ?? ''}|${geometryChunk(o.geometry, o.matrixWorld, CLOSED_CHUNK_SIZE * 2)}|${local?.root.id ?? ''}`;
         g.applyMatrix4(o.matrixWorld);
-        const bucket = buckets.get(key) ?? { mat: o.material, cast: o.castShadow, recv: o.receiveShadow, list: [], sources: [] };
+        if (local) g.applyMatrix4(local.inverse);
+        const bucket = buckets.get(key) ?? { mat: o.material, cast: o.castShadow, recv: o.receiveShadow, list: [], sources: [], visualOnly: true, parent: local?.root ?? this.group };
         buckets.set(key, bucket);
+        bucket.visualOnly &&= o.userData.visualOnly === true;
         bucket.list.push(g);
         bucket.sources.push(o);
         return;
       }
       if (o.isMesh && !o.isSkinnedMesh) o.matrixAutoUpdate = false;
-      for (const c of o.children) visit(c);
+      for (const c of o.children) visit(c, local);
     };
     for (const c of this.group.children) visit(c);
-    for (const { mat, cast, recv, list, sources } of buckets.values()) {
-      const merged = mergeGeometries(list);
+    for (const { mat, cast, recv, list, sources, visualOnly, parent } of buckets.values()) {
+      const merge = () => mergeGeometries(list);
+      const merged = visualOnly ? withVisualRandom(merge) : merge();
       for (const geometry of list) geometry.dispose();
       if (!merged) continue;
       for (const source of sources) {
@@ -1597,7 +1616,9 @@ export class Bogota {
         replacedGeometries.add(source.geometry);
         replacedMaterials.add(source.material);
       }
-      const mesh = new THREE.Mesh(merged, mat);
+      const create = () => new THREE.Mesh(merged, mat);
+      const mesh = visualOnly ? withVisualRandom(create) : create();
+      if (visualOnly) mesh.userData.visualOnly = true;
       mesh.customDepthMaterial = sources[0].customDepthMaterial; // mismo material, misma sombra
       if (merged.hasAttribute('treeWind')) {
         // Después de geometryChunk: el recálculo de bounds no debe borrar el margen de viento.
@@ -1607,7 +1628,7 @@ export class Bogota {
       mesh.castShadow = cast;
       mesh.receiveShadow = recv;
       mesh.matrixAutoUpdate = false;
-      this.group.add(mesh);
+      parent.add(mesh);
     }
     // Una geometría compartida por objetos animados sigue en uso.
     this.group.traverse((o) => {
@@ -1687,6 +1708,7 @@ export class Bogota {
   dispose(scene) {
     if (this._disposed) return;
     this._disposed = true;
+    this._releaseStationCameraCeiling?.();
     const textures = new Set(), ownedTextures = new Set();
     const rememberTexture = value => {
       if (value?.isTexture) textures.add(value);

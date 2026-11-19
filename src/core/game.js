@@ -114,10 +114,10 @@ import {
 const RENAMED_PLACES = { Recicladora: 'Recicladora El Progreso', Tienda: 'Tienda La Esquinita' };
 
 export class Game {
-  constructor(canvas, { animaciones = 'default', modeloRealista = false } = {}) {
+  constructor(canvas, { animaciones = 'default', modeloRealista = false, calidad = null } = {}) {
     this.modeloRealista = modeloRealista;
     this.canvas = canvas;
-    this.renderer = new Renderer(canvas);
+    this.renderer = new Renderer(canvas, calidad);
     this.sceneMgr = new SceneManager();
     this.sceneMgr.scene.environment = this.renderer.createEnvironment();
     this.cameraRig = new CameraRig(this.sceneMgr.scene, canvas);
@@ -223,9 +223,8 @@ export class Game {
     this.weather = new WeatherSystem(this.sceneMgr.scene);
     this.hud.weather = this.weather;
     window.addEventListener('weather-lightning', ({ detail }) => this.audio.playThunder?.(detail?.distance));
-    let quality = 'baja';
-    try { quality = localStorage.getItem('bazuko.graphics_quality') || quality; } catch { /* sin almacenamiento */ }
-    this.setGraphicsQuality(quality, false);
+    this.chosenQuality = this.renderer.initialQuality;
+    this._applyGraphicsQuality(this.chosenQuality, false, false);
     this.trafficDensity = DEFAULT_TRAFFIC_DENSITY;
     try { this.trafficDensity = trafficDensityId(localStorage.getItem('bazuko.traffic_density')); } catch { /* sin almacenamiento */ }
     this.hud.setMuted(this.audio.isMuted());
@@ -282,6 +281,17 @@ export class Game {
     this.shop = null;
     this.comedor = null;
     this.lastComedorHour = null;
+    this.lastComedorTimestamp = null;
+    this.bicycles = [];
+    this.bikeFence = null;
+    this.randomHallucinations = new RandomHallucinationSystem(
+      this.sceneMgr.scene,
+      this.player,
+      this.stats,
+      this.audio,
+      this.world
+    );
+    this.ultimaSiesta = null; // hora de juego (totalGameHours) en que terminó la última siesta
     this.dailyMissions = new DailyMissionSystem(this);
     this._missionsModalOpen = false;
     this.cars = [];
@@ -1000,6 +1010,8 @@ export class Game {
       }
       if (data.gps && this.gps) this.setGpsWaypoint({ ...data.gps, name: RENAMED_PLACES[data.gps.name] ?? data.gps.name }, { silent: true });
       if (data.lastComedorHour !== undefined) this.lastComedorHour = data.lastComedorHour;
+      if (data.lastComedorTimestamp !== undefined) this.lastComedorTimestamp = data.lastComedorTimestamp;
+      this.ultimaSiesta = Number.isFinite(data.ultimaSiesta) ? data.ultimaSiesta : null; // las partidas viejas no lo traen
       this.street?.deserialize(data.street);
       if (data.dailyMissions) this.dailyMissions?.deserialize(data.dailyMissions);
       else this.dailyMissions?.init(this.clock?.day ?? 1);
@@ -1026,6 +1038,9 @@ export class Game {
       cart: this.cart ? this.cart.saveState() : null,
       gps: this.gps?.serialize() ?? null,
       lastComedorHour: this.lastComedorHour,
+      lastComedorTimestamp: this.lastComedorTimestamp,
+      ultimaSiesta: this.ultimaSiesta,
+      castigo: this._castigoPendiente ?? null,
       dailyMissions: this.dailyMissions?.serialize(),
       street: this.street?.serialize()
     });
@@ -1243,6 +1258,7 @@ export class Game {
   _policeArrest() {
     if (this._arrestPending || this._deathPending || this.stats.salud <= 0) return;
     this._arrestPending = true;
+    this.carjack?.reset({ perdido: true });
     this.rebusque?.cancelar();
     if (this.steal?.minigameActive) this.steal._endMinigame(false, 'cancel');
     this.input.keys = {};
@@ -1406,6 +1422,7 @@ export class Game {
     this.collisions.setVehicles(cars, this.world.active?.busServices ?? this.world.active?.busService);
   }
 
+
   _loop = (stamp) => {
     if (!this._running) return;
     requestAnimationFrame(this._loop);
@@ -1548,8 +1565,11 @@ export class Game {
       if (this.player.isSwimming) this.interaction.currentTarget = this.interaction.currentTargetType = null;
     }
     this.street?.update(dt);
+    this.rebusque?.update(dt);
+    this.interaction.rebusquePrompt = this.rebusque?.prompt ?? null;
+    this.rebusqueVisual?.update();
     this.witnesses?.update(dt);
-    if (!this.player.isSwimming) this.steal?.update(dt);
+    if (!this.player.isSwimming && !driving) this.steal?.update(dt);
     else if (this.steal?.minigameActive) this.steal._endMinigame(false, 'cancel');
     this.interaction.carjackPrompt = driving ? null : this.carjack?.prompt ?? null;
     // Al volante no queda ningún aviso de a pie (el retrovisor, el bolsillo) colgando de antes de subirse.
@@ -1789,8 +1809,8 @@ export class Game {
     this._applyGraphicsQuality(quality, notify);
   }
 
-  _applyGraphicsQuality(quality, notify) {
-    this.renderer.setQuality(quality);
+  _applyGraphicsQuality(quality, notify, remember = true) {
+    this.renderer.setQuality(quality, remember);
     this.sceneMgr.setQuality(quality);
     this.cameraRig.setQuality?.(quality);
     this._effectiveQuality = null;
@@ -1833,7 +1853,7 @@ export class Game {
     registerSectorChildren(culling, district?.renderSectors ?? []);
     if (district?.signals) culling.register(district.signals.group);
     for (const pickup of this.pickups) culling.register(pickup.group, { dynamic: true, margin: .2 });
-    for (const object of district?.animated ?? []) culling.register(object, { margin: 1 });
+    for (const object of district?.animated ?? []) culling.register(object, { dynamic: object.userData.dynamicBounds === true, margin: 1 });
     for (const bus of district?.busServices ?? [district?.busService].filter(Boolean)) culling.register(bus.group, { dynamic: true, margin: .5 });
     for (const car of this.cars) culling.register(car.group, { dynamic: true, margin: .5 });
     for (const { car } of this.traffic?.vehicles ?? []) culling.register(car.group, { dynamic: true, margin: .5 });

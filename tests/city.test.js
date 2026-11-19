@@ -72,6 +72,7 @@ test('el distrito completo construye y actualiza barrios, vendedores, peatones y
   const scene=new THREE.Scene(),city=new Bogota(),collisions=new CollisionSystem();
   city.build(scene,collisions);
   assert.equal(city.stationGroup.name, 'Estación Portal del Centro');
+  assert.ok(city.stationGroup.children.some(mesh => mesh.name === 'Estación: pools'), 'los charcos de luz del Portal quedan en la escena');
   assert.equal(city.busServices.length, 2);
   try {
     await Promise.all(city.npcs.map(npc=>npc.ready));

@@ -44,6 +44,7 @@ test('fuera del navegador no hay plano, y nadie se cae por eso', () => {
   assert.ok(plano.worldWidth > 0);
 });
 
+
 test('el mapa grande ya no tiene su propio raster ni sus colores', () => {
   const raster = leer('src/world/bogota/CityMapRaster.js'), vista = leer('src/ui/MapView.js');
   assert.doesNotMatch(raster, /MAP_COLORS|buildCityMapRaster/);

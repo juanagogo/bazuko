@@ -855,12 +855,14 @@ export class HUD {
 
   /** La tecla de contexto y, después, el aviso del rebusque del semáforo. Con la pausa abierta, nada. */
   _pintarContexto(interaction, inventory) {
-    if (window.__game?.paused) { this._pintarPrompt('', interaction); return; }
-    this._pintarPrompt(textoDelPrompt(interaction, inventory), interaction, interaction?.rebusquePrompt ?? '');
+    const base = window.__game?.paused ? '' : textoDelPrompt(interaction, inventory);
+    // El robo de carros pone su tecla al lado de la de contexto.
+    const carro = window.__game?.paused ? null : interaction?.carjackPrompt;
+    this._pintarPrompt([base, carro].filter(Boolean).join(' · '), interaction);
   }
 
   /** La tecla de contexto se reescribe solo si cambia el texto; mantener Q muestra su progreso de verdad. */
-  _pintarPrompt(texto, interaction, rebusque = '') {
+  _pintarPrompt(texto, interaction, rebusque = window.__game?.paused ? '' : interaction?.rebusquePrompt ?? '') {
     if (!this.promptEl) return;
     const todo = [texto, rebusque].filter(Boolean).join(' · ');
     const clave = rebusque ? `${texto}|${rebusque}` : texto;

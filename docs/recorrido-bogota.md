@@ -23,6 +23,7 @@ La humedad suaviza la rugosidad y oscurece ligeramente el suelo sin convertirlo 
 
 Las casas genéricas usan ahora semillas locales por coordenadas. Su distribución y sus detalles permanecen estables aunque se creen más materiales. Antes dependían del azar global, por lo que no se reproduce necesariamente la misma fachada de una partida anterior; los tiles y las colisiones físicas sí conservan sus valores.
 
+En la Carrera 6, la vitrina abierta de Pan de las Cinco tiene un mostrador detrás del vidrio. Seis bandejas sostienen pan aliñado, mogollas y panes de queso. El tubo ilumina la repisa y la corteza de los panes y deja la pared del fondo en sombra. La persiana contigua conserva su posición.
 ## Edificios y vegetación
 
 `BuildingDetails.js` añade marcos, alféizares, rejas, bajantes y remates de azotea a las fachadas. El detalle cercano se concentra en los pisos bajos y se agrupa por material y pared; sigue la ocultación de edificios en vista isométrica. Los vidrios, las cortinas y algunas ventanas cálidas varían por edificio; el brillo de estas últimas se activa solo de noche, sin luces adicionales. Los locales conservan sus avisos y persianas. Las casas mantienen los balcones de madera y los tonos de ladrillo y revoque del centro.

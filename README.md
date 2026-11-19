@@ -2,6 +2,8 @@
 
 Juego de supervivencia urbana en 3D para el navegador, ambientado en un barrio inspirado en el centro de Bogotá, Santa Inés y El Cartucho. Explora las calles, recoge y vende materiales, consigue comida y agua y mejora tu cambuche.
 
+**PC es la única plataforma objetivo.** Diseñamos el juego para navegadores de escritorio en computadores de mesa y portátiles, con teclado y ratón. En ese entorno probamos los controles, los gráficos, la interfaz y el rendimiento.
+
 Este proyecto es un fork de [juanagogo/bazuko](https://github.com/juanagogo/bazuko), con mejoras de cámara, visibilidad, circulación y equilibrio de supervivencia.
 
 ![Cruce nocturno en tercera persona con gasolinera, edificios altos, carros y viaducto](docs/images/ciudad-nocturna-tercera-persona.webp)
@@ -46,7 +48,15 @@ Este proyecto es un fork de [juanagogo/bazuko](https://github.com/juanagogo/bazu
 
 ## Capturas
 
-La [galería de cambios integrados](docs/cambios-integrados.md) reúne **12 capturas actuales, dos por cada uno de los seis temas principales**, de la interfaz, personajes, barrios, vehículos, combate y natación.
+### Bogotá en PC, calidad Alta
+
+
+![Reflejos del puente y de los edificios vistos desde la orilla sur del lago](docs/images/pc-alta-orilla.webp)
+
+
+### Archivo de versiones anteriores
+
+La galería reúne 12 capturas tomadas en Chromium el **1 de noviembre de 2026**. Incluye dos por tema de la interfaz, personajes, barrios, vehículos, combate y natación de esa versión. [Galería de cambios integrados](docs/cambios-integrados.md).
 
 Las imágenes siguientes conservan las vistas nocturnas compartidas durante el desarrollo; la galería anterior muestra la interfaz y los modelos actuales.
 
@@ -66,7 +76,7 @@ Las imágenes siguientes conservan las vistas nocturnas compartidas durante el d
 
 ![Buses articulados sobre el viaducto, junto a la Torre Colpatria y los edificios del barrio](docs/images/viaducto-y-colpatria.webp)
 
-Las cinco capturas están en [docs/images](docs/images), en formato WebP optimizado y con su resolución original.
+Las capturas están en [docs/images](docs/images), en formato WebP.
 
 ## Ejecutar en el navegador
 
@@ -244,7 +254,7 @@ Cada efecto entra en 3 segundos y se desvanece en los últimos 6. Repetir la mis
 
 ## Rendimiento
 
-**Pausa → Calidad** permite elegir Baja (sin sombras, sin luces de punto y sin silueta, hasta 0.85× de resolución), Media (sombras de 1024 px, hasta 1.25×) y Alta (sombras de 2048 px, hasta 1.5×). Lo elegido queda marcado y guardado al instante; si cambia las sombras, se aplica cuando terminan de prepararse, unos segundos la primera vez. La primera partida arranca en Baja y sube sola a Media si el equipo sostiene unos veinte segundos de cuadros holgados, sin guardarlo como preferencia; si después no aguanta, vuelve a Baja. Una preferencia ya guardada se respeta. La adaptación respeta el límite seleccionado y puede reducir temporalmente efectos y frecuencia de animación cuando bajar resolución no basta. La niebla y la distancia de cámara acompañan el perfil efectivo. La mejora de FPS depende del equipo y de la zona; no se garantiza una cantidad fija.
+**Pausa → Ajustes → Calidad gráfica** abre los tres perfiles de PC. La primera partida usa **Baja**. Si el equipo mantiene cuadros holgados durante unos veinte segundos y el jugador aún no ha elegido una calidad, el juego puede subir a Media durante esa sesión. **Alta** ofrece sombras de 4096 px en cada cuadro y resolución nativa hasta 2× en pantallas de alta densidad, incluso en una esquina concurrida. **Media** usa sombras de 1024 px y llega a 1,25×. **Baja** llega a 0,85× y apaga las sombras dinámicas y las luces puntuales. Media y Baja adaptan el detalle bajo carga. El juego recuerda la elección de cada jugador.
 
 Al abrir el juego aparece una pantalla de carga por etapas. Espera el mapa, los modelos de jugador y NPC (incluidas sus versiones de detalle), sube las texturas a la GPU y precompila los materiales. Prepara también las sombras y la silueta de la vista inicial antes de mostrar la partida. El creador de personaje sigue disponible en la primera partida. Durante la carga no avanzan el reloj ni las necesidades; la medición de FPS comienza desde cero al entrar a jugar. Si falla un recurso imprescindible, aparece **Reintentar**; los sonidos ausentes no bloquean el inicio. Esta preparación aumenta la espera inicial y el uso de memoria al adelantar la carga de los NPC completos.
 
