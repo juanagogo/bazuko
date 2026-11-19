@@ -114,10 +114,10 @@ import {
 const RENAMED_PLACES = { Recicladora: 'Recicladora El Progreso', Tienda: 'Tienda La Esquinita' };
 
 export class Game {
-  constructor(canvas, { animaciones = 'default', modeloRealista = false } = {}) {
+  constructor(canvas, { animaciones = 'default', modeloRealista = false, calidad = null } = {}) {
     this.modeloRealista = modeloRealista;
     this.canvas = canvas;
-    this.renderer = new Renderer(canvas);
+    this.renderer = new Renderer(canvas, calidad);
     this.sceneMgr = new SceneManager();
     this.sceneMgr.scene.environment = this.renderer.createEnvironment();
     this.cameraRig = new CameraRig(this.sceneMgr.scene, canvas);
@@ -223,9 +223,8 @@ export class Game {
     this.weather = new WeatherSystem(this.sceneMgr.scene);
     this.hud.weather = this.weather;
     window.addEventListener('weather-lightning', ({ detail }) => this.audio.playThunder?.(detail?.distance));
-    let quality = 'baja';
-    try { quality = localStorage.getItem('bazuko.graphics_quality') || quality; } catch { /* sin almacenamiento */ }
-    this.setGraphicsQuality(quality, false);
+    this.chosenQuality = this.renderer.initialQuality;
+    this._applyGraphicsQuality(this.chosenQuality, false, false);
     this.trafficDensity = DEFAULT_TRAFFIC_DENSITY;
     try { this.trafficDensity = trafficDensityId(localStorage.getItem('bazuko.traffic_density')); } catch { /* sin almacenamiento */ }
     this.hud.setMuted(this.audio.isMuted());
@@ -1406,6 +1405,7 @@ export class Game {
     this.collisions.setVehicles(cars, this.world.active?.busServices ?? this.world.active?.busService);
   }
 
+
   _loop = (stamp) => {
     if (!this._running) return;
     requestAnimationFrame(this._loop);
@@ -1789,8 +1789,8 @@ export class Game {
     this._applyGraphicsQuality(quality, notify);
   }
 
-  _applyGraphicsQuality(quality, notify) {
-    this.renderer.setQuality(quality);
+  _applyGraphicsQuality(quality, notify, remember = true) {
+    this.renderer.setQuality(quality, remember);
     this.sceneMgr.setQuality(quality);
     this.cameraRig.setQuality?.(quality);
     this._effectiveQuality = null;
@@ -1833,7 +1833,7 @@ export class Game {
     registerSectorChildren(culling, district?.renderSectors ?? []);
     if (district?.signals) culling.register(district.signals.group);
     for (const pickup of this.pickups) culling.register(pickup.group, { dynamic: true, margin: .2 });
-    for (const object of district?.animated ?? []) culling.register(object, { margin: 1 });
+    for (const object of district?.animated ?? []) culling.register(object, { dynamic: object.userData.dynamicBounds === true, margin: 1 });
     for (const bus of district?.busServices ?? [district?.busService].filter(Boolean)) culling.register(bus.group, { dynamic: true, margin: .5 });
     for (const car of this.cars) culling.register(car.group, { dynamic: true, margin: .5 });
     for (const { car } of this.traffic?.vehicles ?? []) culling.register(car.group, { dynamic: true, margin: .5 });

@@ -16,6 +16,8 @@ Las regresiones de jugabilidad comprueban el salto y el recorrido de ambas rampa
 
 `map-services.test.js` y `map-view.test.js` comprueban precios, espacio en el costal, prioridad de necesidades, sugerencias y filas del mapa.
 
+
+
 `cures.test.js` comprueba que cada remedio cure una enfermedad que existe y no se gaste sin ella, que la aguapanela cure la gripe y se tome aunque no la haya, que solo la basura con metal traiga tétanos y dormir sucio traiga sarna, y que las partidas viejas conserven la intoxicación. `dealer.test.js` verifica que comprarle al dealer para revenderle nunca deje ganancia, ni con Contactos; que `E` abra su tienda sin vender; que se venda solo la sustancia elegida, y que la requisa se lleve la mercancía sin pagar.
 
 `dog.test.js` comprueba el modelo y la marcha de El Chato, que siga al jugador y reaparezca si queda muy atrás, y sus avisos: le ladra a una patrulla cercana solo con el jugador fichado o perseguido, una vez por patrulla que se arrima y sin dos avisos pegados, y mientras ladra, con el jugador quieto, se queda parado y gira hacia ella. También que cuidando el cambuche vuelva a su puesto y no siga al jugador. `integration-features.test.js` cubre la E junto al cambuche (dejarlo cuidando, llamarlo, que cuente como atenderlo y que vaya en la partida) y el ladrón de la noche: sin El Chato se lleva la plata, el material y parte de la caleta; con él cuidando o durmiendo al lado no se pierde nada y sale el aviso. `hud.test.js` comprueba el texto de la tecla en cada caso, también en corto para el dedo, y `respawn.test.js` que al reaparecer, salir del calabozo o viajar el que cuida se quede en su puesto y el que acompaña llegue con el jugador. `tests/e2e/chato.spec.js` lo recorre en el juego: una noche sin El Chato en la que roban, la E que lo deja cuidando y la que lo llama, que no siga al jugador ni le quite la E al cambuche, la noche en que espanta al ladrón, que siga cuidando al recargar la página, y el aviso de la patrulla estando fichado, con El Chato mirando hacia ella.
@@ -33,6 +35,7 @@ Las regresiones de jugabilidad comprueban el salto y el recorrido de ambas rampa
 En C++, `bazuko_playerstate_test` comprueba que la carga conserve los objetos permitidos por el costal grande y los talentos, y que la regeneración no reviva al jugador durante una caída mortal. Se ejecuta con `ctest --test-dir cpp/build --output-on-failure` después de configurar y compilar los objetivos nativos. Estas pruebas de lógica no requieren abrir la ventana del juego.
 
 ## Sala de pruebas
+
 
 `sala.html` (solo en `npm run dev`) prueba piezas sueltas sin cargar la ciudad: el jugador sobre un piso plano con la misma cámara, controles y render del juego. Las pruebas viven en `src/sala/pruebas.js`; cada una es `{ id, nombre, descripcion, montar(sala) }` y `montar` devuelve sus botones (`acciones`) y, si quiere, un texto de `estado` que se refresca en el panel. Se abre una en concreto con `sala.html?prueba=<id>`. `sala.timeScale` acelera la simulación para lo que tarda (un cigarrillo dura 10 minutos) y `sala.updaters`, `beforeRender` y `afterRender` permiten colgar sistemas como los efectos de consumo. No reemplaza las pruebas de navegador ni comprueba la ciudad, el tráfico o el guardado.
 
@@ -119,7 +122,7 @@ Los E2E `actions.spec.js` recorren caminar/correr, congelan un salto y un impact
 
 `integration.spec.js` reúne doce escenarios en el bucle real de la ciudad:
 
-- Combo con cuchillo, KO con botella y recuperación del NPC sin renovar la recompensa.
+- Combo con cuchillo, caída mortal con botella y permanencia del cuerpo con el mismo dinero después de la caída.
 - Entrada al agua que cancela el contacto pendiente, el cigarrillo y la pipa.
 - Menús: T y C cierran su panel, cada ventana abre desde arriba, el costal con 34 tipos a cinco tamaños, el mapa grande sobre el cartón, el dial de la radio a 375, la carreta en su indicador y el recorrido sin ratón: Q y E en la pausa, flechas en el costal y foco visible en la mesa.
 - Modo foto que congela patrulla, agresores, sustancias y radio, y reanuda la simulación al salir.
@@ -159,7 +162,10 @@ El diseño, las constantes y las medidas están en [animacion-salto.md](animacio
 
 `tiendas.test.js` cuida las tiendas sin navegador. De La Esquinita: que siga siendo `kind: 'shop'` con la misma posición, `update` y `dispose`; que caseta, mercancía, toldo y bombillos sean una sola malla y solo los letreros vayan aparte (antes era una malla por cajita), con un tope de 6.000 triángulos; que conserve su única luz, la de siempre; que lo que se apoya en el andén quede dentro del sólido real del juego (x ±1,2 y z de −0,75 a 0,75 desde la tienda), para que nadie pueda pararse encima de canastas, silla o mesita; que lo que brilla se encienda de noche con la hora que publica la escena; y que `dispose` libere toda geometría, material y textura.
 
+
 De Doña Inés, en el mismo archivo: las tres exportaciones de `D69Store.js`, una sola malla para el edificio más sus dos avisos, ninguna luz, el edificio fuera de la fusión de la ciudad porque su material cambia con la hora, vitrinas apagadas de día y encendidas de noche, todo dentro del lote y por debajo del antepecho, que por debajo de 2,5 m nada pase del borde sólido del lote (solo el alero y la marquesina vuelan sobre el andén), el vidrio a medio metro de ese borde, ningún brillo por encima de 3 y que sobre la losa haya equipos.
+
+
 
 `street-materials.test.js` comprueba las marcas en reposo, aislamiento de materiales, normales y transparencia conservadas, semilla estable, los tonos y su ausencia, las zonas por islas, la misma clave de programa por tipo de superficie y la lluvia compartida. `street-clothes.test.js` usa los cuerpos y las prendas reales: arriba y abajo en cada prenda de cada cuerpo con los dos modelos, los mismos colores en ambos, poros y cejas pintadas según el modelo, medias bajo el pantalón largo y el crespo sin sus láminas sueltas. `shared-images.test.js` carga esos glTF por el camino real del cargador y comprueba que cada imagen se descargue y se decodifique una vez, que a cada material le llegue la que pide su archivo, con sus ajustes, y que desechar a alguien no libere ninguna textura. `body-language-guards.test.js` usa un cuerpo real y cuida lo que la capa de cuerpo promete: el liviano la lleva y se mueve igual que el completo, cada familia de paso se hornea una vez por cuerpo, el update del personaje no pide matrices de mundo, el liviano esconde la piel que su ropa tapa, el estilo se nota y entra igual a cualquier FPS, las posturas que oscilan se mueven de verdad y ninguna pasa del tope de frecuencia. La integración en `mixamo-preview.test.js` verifica que el desgaste explícito 0 siga respetándose. `PLAYWRIGHT_GPU=1 npx playwright test tests/e2e/street-appearance.spec.js` entra a la sala con `?aspecto=realista`, moja y seca al personaje sin cambiar su look ni sus clips, detecta errores de shaders y guarda capturas de rostro y cuerpo. Se revisan visualmente por separado; esta prueba no es una medición de FPS.
 
@@ -171,9 +177,35 @@ De Doña Inés, en el mismo archivo: las tres exportaciones de `D69Store.js`, un
 
 `shared-surface-maps.test.js` graba cada orden de dibujo de las fachadas y los andenes en todos los barrios y falla si el relieve, la rugosidad o las ventanas encendidas cambian con el barrio; arma la ciudad y comprueba que esas imágenes se guardan una vez por variante (cada barrio conserva su textura, con sus ajustes, y su color), y que soltar la ciudad libera cada textura una sola vez.
 
+
+
+
+
+
+
+
+
+`sombra-contacto.test.js` cuida la penumbra al pie de los muros y bajo postes, bancas y puestos (`sombraContacto.js`): no gasta el azar con que se arma la ciudad; va en su lote, sobre el suelo pintado y bajo las manchas de la gente, sin escribir profundidad; cada franja está pegada a un muro y cuesta poco; postes, bancas y puestos dejan su mancha y la penumbra se apaga hacia afuera; la opacidad sigue la hora de la escena, y la reja de la orilla no oscurece el piso.
+
+
+
+
+
+
+
+
+
+
+
 ## Ciudad, tráfico y luz
 
 `bus-path.test.js` comprueba que los dos carriles del bus por el rodeo de la Colpatria no se separen más de una milmillonésima de metro de una copia entera del cálculo anterior, en 2.000 puntos de cada uno, y que su búsqueda no llame a `Math.hypot`.
+
+
+
+
+
+
 
 `city-placement.test.js` comprueba lo que se colocó en la ciudad: ni vendedores ni objetos en la calzada, el vendedor de la plaza alcanzable, la portada y las gradas de la iglesia, el muro de las torres curvas, la fuente que frena antes de su borde y se rodea sin trabarse, el carril del bus libre hasta la lámina, el suelo junto a los estribos y bajo la rampa del puente del lago, sin rendijas, el GPS junto a los postes del separador, ningún poste ni mobiliario sobre una rampa, la rejilla de aparición fuera de las cajas y el semáforo a la vista del carril de la X 66.
 
@@ -185,9 +217,22 @@ La prueba larga de tráfico monta el tráfico como una partida: ciudad completa,
 
 `ventas-calle.test.js` cuida los puestos de la calle: cada uno, ya fundido como lo hace la ciudad, con cuatro llamadas de dibujo y 2.500 triángulos como mucho; la misma caja de antes para chaza, fritanga y sombrilla; el mismo puesto con cualquier azar del juego y distinto del vecino; que armar los ocho no escriba nada en `console.error`; que las sombrillas den al menos cuatro combinaciones de color y tres tonos vivos y ninguna repita la del puesto más cercano; la variante que corresponde a lo que vende; los mismos 321 y 238 sorteos al armarse, con el del paraguas donde estaba, lo mismo que antes al fundirse las cinco chazas en su sitio con cualquier semilla (808 u 824 según les toque uno o dos paraguas a las que comparten sector), y ninguno al cargar el archivo (de eso dependen las pruebas con semilla, también las de navegador); brasas, bombillo y linterna que suben de noche sin luces nuevas; que al quitar un puesto se libere lo suyo sin tocar lo compartido; que ningún aviso nombre una marca; y que la plaza de mercado conserve colisiones y baldosas cerradas, siga siendo una malla de 7.000 triángulos como mucho y tenga los toldos colgados.
 
+
 `sun-field.test.js` y `render-city.test.js` comprueban que el campo de sol llegue a cada material iluminado, también a los de shader propio, y el orden de dibujo: el suelo antes que las sombras de contacto y el halo del farol después de los cerros. `environment-mix.test.js` cubre el fundido de los mapas de entorno y `auto-quality.test.js` la calidad automática, también al volver de otra pestaña. `graphics-change.test.js` cubre los cambios de calidad y resolución: el lienzo solo se toca al dibujar, las sombras se compilan antes de cambiarlas, lo elegido vale desde el clic y un contexto recuperado vuelve a hornear los mapas. `moon-light.test.js` cubre la luz de la luna a ras del piso. `vehicle-details.test.js` cubre plumillas, espejos, direccionales y carros parqueados apagados; `vehicle-brands.test.js` falla si la flota nombra una marca real o lleva un emblema.
 
+
+
 `sector-culling.test.js` arma la ciudad real y comprueba, en cuatro lugares, con ocho giros de cámara y en isométrica, que el descarte por hijos de sector dibuje lo mismo que el de sectores, en la pasada principal y en la de sombras, y recorra menos nodos. `visibility.test.js` cubre también la isométrica con lotes: qué edificios se sueltan junto a la línea cámara-jugador, cuándo vuelven a su lote y que los índices dibujados sean los mismos con lotes y sin ellos. `render-breakdown.test.js` cubre `game.getPerformanceReport().breakdown` y `contar-llamadas-gl.test.js` el contador de llamadas WebGL de `tools/contar-llamadas-gl.mjs`. Ver [rendimiento-desglose.md](rendimiento-desglose.md).
+
+
+
+
+
+
+
+
+
+
 
 ## Gente de la calle
 
@@ -195,11 +240,13 @@ La prueba larga de tráfico monta el tráfico como una partida: ciudad completa,
 
 `fright-conduct.test.js` cubre lo que hace una persona cuando la asustan: salir del cruce aunque el jugador siga al lado y esperar de pie en el andén, esperar a un paso si le ocupan el sitio, pararse antes de andar, encajar un golpe abajo sin moverse ni responder, quitarse del camino de una patrulla, correr con el paraguas, soltar bastón y paraguas junto al cuerpo con cualquier empuje, sin subir solos y sin materiales nuevos, caer con un muro o un andén que se acaba detrás, dejar de rebotar en un rincón, cambiar de modelo a media subida, y los umbrales del modelo completo. También los gestos del jugador con un arma, encogerse bajo techo, el robo a quien está en el piso, el conductor bravo noqueado y que ningún peatón actualice matrices de mundo en su cuadro. `fright-city.test.js` arma la ciudad real: los fijos huyen por la red, no entran en nada sólido y vuelven desde ocho direcciones, ningún tramo de andén atraviesa un sólido, nadie queda en una isla y el sitio de espera queda lejos de los carriles. `fright-body.test.js` usa el cuerpo real: tiempo de pararse de afán, el golpe abajo sin salto de cadera, la caída desde el piso sin que la cadera suba, el camino de caer y pararse sin saltos, con la mano y la rodilla en el piso y el tronco de último, en los dos modelos, el agarre del bastón al correr, la altura de rodilla, tobillo y punta del pie en todo el camino de todos los planes con los seis cuerpos, y la mano en el piso cuando va a recoger lo caído. En `fright-conduct.test.js`, además: caer sin atravesar bancas, bolardos, zorras ni carros, un sardinel detrás, el empuje que se queda antes, el paraguas cerrado hasta tener el brazo arriba y en la mano al cambiar de modelo, la varilla del conductor en el piso, y huir sin entrar al agua. `fixed-people.test.js` mira que en la ciudad real todo eso esté anotado y que los objetos grandes se hayan medido antes de fundirse. `tests/e2e/shoe-sole.spec.js` mide la planta en la imagen, cuadro contra cuadro con y sin el oscurecido, en las dos calidades; `tests/e2e/ko-body.spec.js` comprueba que noqueado el grupo no gire en ninguno de los dos modelos.
 
+
 La mente de los peatones (`src/entities/npc/`) tiene seis archivos: `npc-esquiva.test.js` (esquivarse en el andén, ceder un paso angosto, rodear a los quietos y a los grupos), `npc-cruce.test.js` (cruzar la calzada mirando los carros y el semáforo), `npc-percepcion.test.js` (qué ven y oyen, temperamentos, huida y corrillo), `npc-memoria.test.js` (lo que recuerdan del jugador), `npc-corrillo.test.js` (quién se para a mirar una pelea y cómo) y `npc-corrillo-ciudad.test.js` (lo mismo con la ciudad entera montada, con semilla fija). `tools/peatones/` no son pruebas: son guiones para medirla y verla (tráfico por semillas, costo por cuadro, trazas y tiras de fotos). Ver `docs/peatones-inteligencia.md`.
 
 ## Mezcla de audio
 
 `audio-mix-integration.test.js` recorre el grafo de Web Audio del golpe seco: fuente, filtro, ganancia local, canal Efectos y maestro. Comprueba Efectos en cero, silencio maestro, pausa de una reproducción ya iniciada y cambio de mezcla durante pausa. El golpe usa `_fx()` igual que las salpicaduras y otros efectos; la prueba comparte el contexto simulado de audio y no confirma la calidad audible en parlantes. Las suites de audio existentes conservan sus comprobaciones de tráfico, voces, consumo y efectos de sustancias.
+
 
 `tests/voces-calle.test.js` cuida lo que dice la gente al pasar: cada frase de `src/data/vocesCalle.js` tiene su mp3 mono en `public/audio/voces/` y no hay mp3 sin frase; cada arquetipo y sexo (y la edad del habitante de calle) recibe una voz de su sexo con frases; la primera sale a los 4 s y las siguientes cada 7 a 14 s, de una de las cuatro personas más cercanas a menos de 6 m, nunca de un dormido, un noqueado, quien ya tiene burbuja o quien ya no está, y la misma persona no repite antes de 30 s; las frases de una voz no se repiten hasta agotarse; al arrancar no se pide ningún mp3 de voz y antes de hablar solo se piden los de quien está a menos de 6 m; una frase solo arranca con su audio cargado, sin dejar nada en la cola de Howler, y no arranca con el audio del navegador suspendido; comparte el canal en los dos sentidos con las frases de la calle, las conversaciones, los conductores y el reclamo por robo; se oye plena hasta 3 m y a más de 15 m se calla y suelta el canal; varía el tono y panea al hablar; respeta la pausa y el volumen de Voces y suena a -18 LUFS; un mp3 que no carga, al hablar o en la precarga, no se vuelve a pedir y su frase sale solo en la burbuja; y al cerrar la partida se sueltan y descargan las voces. `tests/voice-variety.test.js` cuida la bolsa barajada, la variación de cada toma y el paneo. `tests/e2e/voces.spec.js`, con la GPU, comprueba en el juego que la persona de al lado dice una frase con la voz de su papel, que su mp3 llega con 200, que sale su burbuja, que al cargar no se pidió ninguna voz y que la consola queda limpia.
 
@@ -225,6 +272,7 @@ La ejecución con renderizado por software sirve para verificar flujos; sus FPS 
 `tests/hud-estados.test.js` y `tests/e2e/hud.spec.js` comprueban el HUD: estados de búsqueda, retazo, avisos y, en los cinco anchos con el juego real, que ninguna letra quede sobre el relleno y que los avisos no entren en la zona del personaje. A 1280 px, «Ayuda» y el ojo de la cámara quedan enteros a la izquierda de la barra de paneles, también con las teclas del mando, que la ensanchan; a 1280 y a 1101 px, la pista de la cámara no pisa el radar, y a 1101 px el cartón de los controles abierto se lee sin frases cortadas y tampoco lo pisa. `tests/panel-dock.test.js` comprueba sin navegador que la barra pase su ancho real y el de la cámara a `--panel-dock-w` y `--camera-w`, que deje de mirarlos al cerrarse, que funcione sin `ResizeObserver` y que `hud.css` pare la cámara, la ayuda, el cartón y la pista con esas medidas.
 
 `tests/zona-aviso.test.js` y el caso *el cartel del lugar no toca la plata, los avisos ni la misión del día* de `tests/e2e/momentos.spec.js` cuidan el cartel con el nombre de la zona. Sin navegador: los nombres de más de 14 caracteres (con espacios) llevan `zona-cartel--largo`; con las medidas de `momentos.css`, `avisos.css` y `hud.css` calculadas en escritorio de 900 a 2560 px de ancho, el cartel centrado no pasa de la columna de avisos ni de la plata, el nombre largo va con letra más chica y, con poco alto, la regla solo vale desde el ancho en que el cartel empieza a la derecha del radar; y en el celular, con la misión a la vista, el cartel va debajo de ella. En el navegador pone el cartel llamando a `ZonaAviso.update` con la zona elegida, sin caminar hasta ella, y mide las cajas reales: a 1280 y a 1000 px, con tres avisos y la misión a la vista, cinco nombres no se montan en la plata, los avisos, la misión, los botones ni el radar; un nombre corto sigue con la letra de 5,2vw; de 900 a 1126 px de ancho y a 610 px de alto, con el radar mediano y el grande, el metro no toca el radar, y a 609 px el cartel queda como antes; y a 820 × 800 y a 390 × 844 el cartel no tapa la misión.
+
 
 `tests/celular.test.js` comprueba sin navegador la forma de la hora, la distancia y el porcentaje, el orden de las necesidades, el mismo cierre en todos los menús, los textos de todos los objetos con el dedo y con mando, y los acordes de LB. `tests/e2e/celular.spec.js` recorre el juego con dedos a doce tamaños: que nada pase por debajo de la hoja «Más», el costal con 34 objetos y casi lleno, poco alto, el pulgar en la palanca con otro dedo en los menús, soltar afuera y la interrupción, la isométrica, Brincar tras la barra, el pellizco del mapa, morir, caer preso, dormir, armar, comprar y vender; con ratón, los botones del HUD y Tab dentro de la mesa y las mañas; y con un mando simulado, Fabricar y las casillas.
 

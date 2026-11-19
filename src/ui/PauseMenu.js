@@ -1,6 +1,7 @@
 // src/ui/PauseMenu.js
 // Menú de pausa por pestañas: Mapa (GPS), Estado, Ajustes y Controles.
 import { el, button } from './dom.js';
+import { DEFAULT_GRAPHICS_QUALITY } from '../core/GraphicsQuality.js';
 import { modoEntrada } from '../core/modoEntrada.js';
 import { CONTROLES_CON_EL_DEDO } from '../core/TouchControls.js';
 import { cop } from '../utils/money.js';
@@ -268,7 +269,7 @@ function settingsPanel(game) {
   });
 
   // Lo elegido, que puede tardar en aplicarse mientras compilan las sombras.
-  const curQuality = game.chosenQuality || game.renderer?.quality || 'alta';
+  const curQuality = game.chosenQuality ?? game.renderer?.quality ?? game.renderer?.initialQuality ?? DEFAULT_GRAPHICS_QUALITY;
   const quality = (id, label) => choice(label, curQuality === id, () => { game.setGraphicsQuality?.(id); game.menu?.refresh(); });
 
   // Si lo elegido ya está aplicado y aun así el juego corre en otra calidad, fue la calidad automática.
@@ -290,8 +291,8 @@ function settingsPanel(game) {
     section('sound', 'Sonido', row('Volumen', volumeInput, volumeLabel), ...mixRows, row('Silencio', muteBtn)),
     el('div', { class: 'pause-settings__col' },
       section('zap', 'Calidad gráfica',
-        el('div', { class: 'pause-segmented', role: 'group', 'aria-label': 'Calidad gráfica' }, quality('baja', 'Baja'), quality('media', 'Media'), quality('alta', 'Alta')),
-        el('p', { class: 'pause-hint', text: `Baja va más fluido. Si el equipo no da, baja sola sin cambiar lo elegido.${qualityNow}` }),
+        el('div', { class: 'pause-segmented', role: 'group', 'aria-label': 'Calidad gráfica', 'aria-describedby': 'calidad-grafica-ayuda' }, quality('baja', 'Baja'), quality('media', 'Media'), quality('alta', 'Alta')),
+        el('p', { id: 'calidad-grafica-ayuda', class: 'pause-hint', text: `Alta conserva la nitidez y las sombras. Media y Baja ajustan el detalle para ganar fluidez.${qualityNow}` }),
         row('Rendimiento', choice(game.performanceHUD?.visible ? 'Visible (F3)' : 'Oculto (F3)', !!game.performanceHUD?.visible,
           () => { game.performanceHUD?.toggle(); game.menu.refresh(); })),
         row('Densidad de tráfico', el('div', { class: 'pause-segmented', role: 'group', 'aria-label': 'Densidad de tráfico' },

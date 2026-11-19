@@ -4,6 +4,7 @@
 import * as THREE from 'three';
 import { footHaze } from './CityBackdrop.js';
 import { patchSunFieldShader } from './SunFieldShader.js';
+import { withVisualRandom } from './VisualRandom.js';
 import { colonialWallSheet, redBrick, clayTiles, detailSheet, muralSheet, towerFacade,
   detailRect, WALL_SHEET, RED_BRICK_METERS } from './ZoneTextures.js';
 
@@ -88,17 +89,22 @@ export class Batch {
   }
 
   /** Crea una malla por material dentro de parent. */
-  finish(parent, { castShadow = true, receiveShadow = true, name = 'Detalle de barrio' } = {}) {
+  finish(parent, { castShadow = true, receiveShadow = true, name = 'Detalle de barrio', visualOnly = false } = {}) {
     let triangles = 0;
     for (const [material, data] of this.groups) {
-      const geometry = new THREE.BufferGeometry();
-      geometry.setAttribute('position', new THREE.Float32BufferAttribute(data.position, 3));
-      geometry.setAttribute('normal', new THREE.Float32BufferAttribute(data.normal, 3));
-      geometry.setAttribute('uv', new THREE.Float32BufferAttribute(data.uv, 2));
-      geometry.setIndex(data.index);
-      geometry.computeBoundingBox();
-      geometry.computeBoundingSphere();
-      const mesh = new THREE.Mesh(geometry, material);
+      const create = () => {
+        const geometry = new THREE.BufferGeometry();
+        geometry.setAttribute('position', new THREE.Float32BufferAttribute(data.position, 3));
+        geometry.setAttribute('normal', new THREE.Float32BufferAttribute(data.normal, 3));
+        geometry.setAttribute('uv', new THREE.Float32BufferAttribute(data.uv, 2));
+        geometry.setIndex(data.index);
+        geometry.computeBoundingBox();
+        geometry.computeBoundingSphere();
+        return new THREE.Mesh(geometry, material);
+      };
+      const visual = visualOnly === true || (visualOnly && visualOnly.includes(material));
+      const mesh = visual ? withVisualRandom(create) : create();
+      if (visual) mesh.userData.visualOnly = true;
       mesh.name = name;
       mesh.castShadow = castShadow;
       mesh.receiveShadow = receiveShadow;
