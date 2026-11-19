@@ -4,6 +4,7 @@
 // por sector, en vez de una fachada por casa. Sin DOM (pruebas en Node) devuelven texturas vacías.
 import * as THREE from 'three';
 import { rng } from './textures.js';
+import { paintCobblestoneMaps } from './CobblestoneMaps.js';
 
 const hasCanvas = () => typeof document !== 'undefined' && typeof document.createElement === 'function';
 const cache = new Map();
@@ -51,77 +52,17 @@ function blot(ctx, w, cx, cy, rx, ry, color, x0 = 0) {
   }
 }
 
-// Canto irregular: polígono ruidoso que da la vuelta en ambos ejes.
-function stonePath(ctx, r, x, y, w, h, wobble) {
-  const points = [], n = 12;
-  for (let i = 0; i < n; i++) {
-    const a = i / n * Math.PI * 2;
-    const c = Math.cos(a), s = Math.sin(a);
-    // Superelipse: esquinas redondeadas pero sin llegar a círculo.
-    const px = Math.sign(c) * Math.pow(Math.abs(c), .55) * w / 2, py = Math.sign(s) * Math.pow(Math.abs(s), .55) * h / 2;
-    points.push([x + px + (r() - .5) * wobble, y + py + (r() - .5) * wobble]);
-  }
-  ctx.beginPath();
-  points.forEach(([px, py], i) => i ? ctx.lineTo(px, py) : ctx.moveTo(px, py));
-  ctx.closePath();
-}
-
-/** Adoquín de piedra: la textura cubre 4 × 4 m y repite sin costuras. */
+/** Adoquín de piedra. La textura cubre 2,6 × 2,6 m y repite en las UV de la calzada. */
 export function cobblestones() {
   return once('adoquin', () => {
-    const s = 1024, a = makeCanvas(s, s), b = makeCanvas(s, s), c = makeCanvas(s, s);
-    if (!a) return { map: asTexture(null), bumpMap: asTexture(null, { srgb: false }), roughnessMap: asTexture(null, { srgb: false }), metersPerTile: 4 };
-    const r = rng(7741);
-    a.ctx.fillStyle = '#2a2622'; a.ctx.fillRect(0, 0, s, s);
-    b.ctx.fillStyle = '#3c3c3c'; b.ctx.fillRect(0, 0, s, s);
-    c.ctx.fillStyle = '#f0f0f0'; c.ctx.fillRect(0, 0, s, s);
-    const rowH = 41, colors = ['#7d7468', '#6d665c', '#8b8071', '#5f5a52', '#74685a', '#857a6c', '#6a6157', '#92887a', '#5a5249'];
-    const rows = Math.round(s / rowH);
-    for (let row = 0; row < rows; row++) {
-      const y = (row + .5) * s / rows;
-      let x = row % 2 ? -20 : 0;
-      while (x < s) {
-        const w = 54 + r() * 34, h = s / rows - 4 - r() * 5;
-        const color = colors[Math.floor(r() * colors.length)];
-        const f = .9 + r() * .18, dry = 130 + Math.floor(r() * 50);
-        const cx = x + w / 2, cy = y + (r() - .5) * 3;
-        for (const dx of cx + w > s ? [0, -s] : cx - w < 0 ? [0, s] : [0]) {
-          for (const dy of cy + h > s ? [0, -s] : cy - h < 0 ? [0, s] : [0]) {
-            const seed = r() * 1e9 >>> 0;
-            const rr = rng(seed);
-            stonePath(a.ctx, rr, cx + dx, cy + dy, w - 4, h, 4);
-            a.ctx.fillStyle = shade(color, f); a.ctx.fill();
-            const rb = rng(seed);
-            stonePath(b.ctx, rb, cx + dx, cy + dy, w - 4, h, 4);
-            const dome = b.ctx.createRadialGradient(cx + dx, cy + dy, 2, cx + dx, cy + dy, Math.max(w, h) * .55);
-            dome.addColorStop(0, '#c8c8c8'); dome.addColorStop(.6, '#a2a2a2'); dome.addColorStop(1, '#646464');
-            b.ctx.fillStyle = dome; b.ctx.fill();
-            const rc = rng(seed);
-            stonePath(c.ctx, rc, cx + dx, cy + dy, w - 4, h, 4);
-            c.ctx.fillStyle = gray(dry); c.ctx.fill();
-            // Canto más claro arriba: desgastado por los zapatos y la lluvia.
-            a.ctx.save();
-            const rl = rng(seed);
-            stonePath(a.ctx, rl, cx + dx, cy + dy - 1.5, w - 12, h - 8, 3);
-            a.ctx.fillStyle = 'rgba(214,202,180,.06)'; a.ctx.fill();
-            a.ctx.restore();
-          }
-        }
-        x += w;
-      }
+    const size = 1024, surfaces = Array.from({ length: 3 }, () => makeCanvas(size, size));
+    const pixels = surfaces.map(surface => surface?.ctx.createImageData?.(size, size));
+    if (pixels.every(Boolean)) {
+      paintCobblestoneMaps(size, ...pixels.map(image => image.data));
+      surfaces.forEach(({ ctx }, index) => ctx.putImageData(pixels[index], 0, 0));
     }
-    // Grano mineral, huellas de grasa y tierra entre juntas, sin formar líneas rectas.
-    for (let i = 0; i < 26000; i++) {
-      const t = r();
-      a.ctx.fillStyle = t < .5 ? 'rgba(25,22,18,.13)' : 'rgba(225,215,195,.09)';
-      const d = .6 + r() * 1.6;
-      a.ctx.fillRect(r() * s, r() * s, d, d);
-    }
-    for (let i = 0; i < 16; i++) {
-      const x = r() * s, y = r() * s, rad = 50 + r() * 170;
-      blot(a.ctx, s, x, y, rad, rad * (.5 + r() * .6), r() < .55 ? 'rgba(28,25,20,.2)' : 'rgba(120,108,88,.14)');
-    }
-    return { map: asTexture(a), bumpMap: asTexture(b, { srgb: false }), roughnessMap: asTexture(c, { srgb: false }), metersPerTile: 4 };
+    const [color, height, roughness] = surfaces;
+    return { map: asTexture(color), bumpMap: asTexture(height, { srgb: false }), roughnessMap: asTexture(roughness, { srgb: false }), metersPerTile: 2.6 };
   });
 }
 

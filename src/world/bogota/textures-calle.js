@@ -315,6 +315,9 @@ DETAIL_NAMES.forEach((name, i) => {
   // Avisos y letreros ocupan dos celdas de ancho: necesitan leerse.
   DETAIL_RECTS[name] = [(i % 8) * CELL, Math.floor(i / 8) * CELL, CELL, CELL];
 });
+// `plain` solo necesita blanco. Comparte la primera celda con la alerta, con 8 px de margen para el filtrado.
+DETAIL_RECTS.plain = [8, 8, 48, 16];
+DETAIL_RECTS.tactile = [8, 32, 48, 24];
 // Los portales ocupan cuatro celdas: son lo que el jugador tiene más cerca en cada cuadra.
 ['door', 'door2', 'door3', 'door4'].forEach((name, i) => { DETAIL_RECTS[name] = [i * CELL * 2, CELL * 6, CELL * 2, CELL * 2]; });
 export const DETAIL_UV = Object.fromEntries(Object.entries(DETAIL_RECTS).map(([k, v]) => {
@@ -437,6 +440,22 @@ export function detailAtlas() {
     // Casi blanca: el color lo ponen los vértices y no se multiplica dos veces.
     fill('concrete', '#ecebe5');
     grain(ctx, R.concrete, r, 900, ['rgba(70,70,66,.12)', 'rgba(255,255,250,.16)', 'rgba(50,46,40,.09)'], 1.2);
+    // Una losa de alerta con dieciséis botones, con relieve legible desde el andén.
+    // Se tiñe con el color local como el concreto y se repite tres veces al pie del paso.
+    {
+      const [x, y, w, h] = R.tactile;
+      ctx.save();
+      ctx.translate(x, y);
+      ctx.scale(w / CELL, h / CELL);
+      ctx.fillStyle = '#918b7c'; ctx.fillRect(0, 0, CELL, CELL);
+      ctx.fillStyle = '#e4dfcc'; ctx.fillRect(2, 2, CELL - 4, CELL - 4);
+      for (let j = 0; j < 4; j++) for (let i = 0; i < 4; i++) {
+        const cx = 9.5 + 15 * i, cy = 9.5 + 15 * j;
+        ctx.fillStyle = '#99917b'; ctx.beginPath(); ctx.arc(cx, cy + 1, 3.3, 0, 2 * Math.PI); ctx.fill();
+        ctx.fillStyle = '#f3efdc'; ctx.beginPath(); ctx.arc(cx - .6, cy - .7, 2.7, 0, 2 * Math.PI); ctx.fill();
+      }
+      ctx.restore();
+    }
     fill('rust', '#6e5a4a');
     grain(ctx, R.rust, r, 400, ['rgba(130,72,38,.6)', 'rgba(50,40,34,.6)', 'rgba(150,110,80,.35)'], 4);
     fill('crate', '#fff');
