@@ -83,6 +83,7 @@ Para las pruebas de navegador, instalar Chromium con `npx playwright install chr
 Consultar la rama y los cambios locales antes de editar. Los experimentos se realizan en `pruebas-integracion` cuando se solicite; `main` recibe las integraciones indicadas. No asumir que crear un commit o fusionar implica publicar en el remoto.
 
 Para cambios de lógica, ejecutar las pruebas relacionadas y la compilación cuando corresponda. Para documentación, revisar enlaces y recursos locales. Mantener `dist/`, `node_modules/`, `work/` e informes de pruebas fuera de los commits. Actualizar documentación y capturas cuando cambie lo que describen; las capturas deben corresponder a imágenes reales compartidas o tomadas del juego.
+En un equipo compartido, hacer las capturas por turnos en una sola sesión de Chromium sin ventanas visibles. Coordinar las compilaciones para dejar CPU y memoria disponibles. Al terminar, cada agente cierra su navegador, sus servidores de prueba y los demás procesos que inició y retira sus archivos temporales cuando ya no hagan falta.
 
 ## Integración del original del 21 de octubre de 2026
 

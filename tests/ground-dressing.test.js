@@ -132,3 +132,32 @@ test('las matas del borde son del lote de la calle y solo crecen pegadas a lo qu
   assert.ok(blades > 200, `hojas: ${blades}`);
   assert.ok(blades < 40000, `hojas: ${blades}`);
 });
+
+test('detrás de cada rampa la arcilla se corta y va la loseta de botones, y la guía se aparta del alcorque', () => {
+  const city = new Bogota(), map = city._layout(), ramps = curbRamps(map);
+  assert.ok(ramps.length > 100, `${ramps.length} rampas`);
+  const marks = buildPavingMarks(map), { width, data } = marks.image, k = MARKS_PER_METER;
+  const at = (x, z) => data[(Math.floor((z + T / 2) * k) * width + Math.floor((x + T / 2) * k)) * 2];
+  for (const { x, z, dx, dz } of ramps.slice(0, 40)) {
+    for (const into of [.2, .8, 1.3]) assert.equal(at(x - dx * into, z - dz * into), 255, `sin marca a ${into} m de la rampa`);
+    assert.equal(at(x - dx * 2.2, z - dz * 2.2), 0, 'la loseta de botones no pasa de la guía');
+    assert.equal(at(x - dx * .8 + dz * 1.4, z - dz * .8 + dx * 1.4), 0, 'a un lado de la rampa sigue la arcilla');
+  }
+  const material = new THREE.MeshStandardMaterial(), shader = fakeShader();
+  dressPaving(material, { map, key: 'sidewalk' });
+  material.onBeforeCompile(shader);
+  assert.match(shader.fragmentShader, /pavingClayStrip = \( 1\. - smoothstep\( \.6 [^;]*\* \( 1\. - pavingRamp \)/, 'la arcilla se corta en la rampa');
+  assert.match(shader.fragmentShader, /pavingNew = mix\( pavingNew, pavingBrick, pavingClayStrip \)/);
+  assert.match(shader.fragmentShader, /pavingButtons/, 'loseta de botones');
+  // Un alcorque pegado a la guía la corre 40 cm: hacia la calle si está del lado de la fachada, hacia adentro si
+  // está del lado de la calle. También el que le pasa a 34 cm, como el pie de Teusaquillo. Uno lejos no la toca.
+  // La calzada de `street` acaba en x = 11.
+  const lane = street();
+  const pits = [{ x: 13.5, z: 6, half: .7 }, { x: 12, z: 14, half: .5 }, { x: 14, z: 10, half: .76 }, { x: 20, z: 20, half: .5 }];
+  assert.equal(markTreePits(lane, pits), 3);
+  const lanes = pavingMarksOf(lane).image, shift = (x, z) => (lanes.data[(Math.floor((z + T / 2) * k) * lanes.width + Math.floor((x + T / 2) * k)) * 2 + 1] - 128) / 254;
+  assert.ok(shift(13.5, 6) <= -.39 && shift(13.5, 6) >= -.5, `se corre ${shift(13.5, 6).toFixed(2)} m`);
+  assert.ok(shift(12, 14) >= .39 && shift(12, 14) <= .5, `se corre ${shift(12, 14).toFixed(2)} m`);
+  assert.ok(shift(14, 10) <= -.39 && shift(14, 10) >= -.5, `se corre ${shift(14, 10).toFixed(2)} m`);
+  assert.equal(shift(20, 20), 0);
+});

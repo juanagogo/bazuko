@@ -257,66 +257,107 @@ export function colonialWallSheet() {
 
 /** Ladrillo rojo bogotano: 2,88 m por lado, misma medida del ladrillo de la ciudad. */
 export const RED_BRICK_METERS = 2.88;
+
+function brickPath(ctx, seed, x, y, width, height) {
+  const r = rng(seed), l = x - width / 2, t = y - height / 2, right = l + width, bottom = t + height;
+  const corners = [1.2 + r() * 1.2, 1 + r() * 1.9, 1.3 + r() * 1.5, 1 + r() * 1.7];
+  ctx.beginPath();
+  ctx.moveTo(l + corners[0], t);
+  ctx.lineTo(x, t + r() * 1.1);
+  ctx.lineTo(right - corners[1], t);
+  ctx.lineTo(right, t + corners[1]);
+  ctx.lineTo(right, bottom - corners[2]);
+  ctx.lineTo(right - corners[2], bottom);
+  ctx.lineTo(x, bottom - r() * 1.1);
+  ctx.lineTo(l + corners[3], bottom);
+  ctx.lineTo(l, bottom - corners[3]);
+  ctx.lineTo(l, t + corners[0]);
+  ctx.closePath();
+}
+
 export function redBrick() {
   return once('ladrillo-rojo', () => {
     const s = 512, a = makeCanvas(s, s), b = makeCanvas(s, s), c = makeCanvas(s, s);
     if (!a) return { map: asTexture(null), bumpMap: asTexture(null, { srgb: false }), roughnessMap: asTexture(null, { srgb: false }) };
     const r = rng(7123);
-    const pm = s / RED_BRICK_METERS, bw = .36 * pm, bh = .12 * pm, joint = 1.4;
-    a.ctx.fillStyle = '#857a6b'; a.ctx.fillRect(0, 0, s, s);
-    b.ctx.fillStyle = '#6c6c6c'; b.ctx.fillRect(0, 0, s, s);
-    c.ctx.fillStyle = '#e4e4e4'; c.ctx.fillRect(0, 0, s, s);
-    const colors = ['#8f4c36', '#98573e', '#854632', '#9e5e43', '#8d4e39', '#783d2c', '#945138', '#a26444'];
-    let row = 0;
-    for (let y = 0; y < s - .5; y += bh, row++) {
-      for (let x = (row % 2 ? -bw / 2 : 0); x < s; x += bw) {
-        const color = colors[Math.floor(r() * colors.length)];
-        a.ctx.fillStyle = color; a.ctx.fillRect(x + joint, y + joint, bw - joint, bh - joint);
-        a.ctx.fillStyle = 'rgba(255,214,170,.1)'; a.ctx.fillRect(x + joint, y + joint, bw - joint, 1);
-        a.ctx.fillStyle = 'rgba(40,18,10,.16)'; a.ctx.fillRect(x + joint, y + bh - 1.5, bw - joint, 1.5);
-        b.ctx.fillStyle = gray(132 + Math.floor(r() * 14)); b.ctx.fillRect(x + joint, y + joint, bw - joint, bh - joint);
-        c.ctx.fillStyle = gray(190 + Math.floor(r() * 34)); c.ctx.fillRect(x + joint, y + joint, bw - joint, bh - joint);
+    const bw = s / 8, bh = s / 24, joint = 2;
+    const A = a.ctx, B = b.ctx, C = c.ctx;
+    A.fillStyle = '#8b7d6c'; A.fillRect(0, 0, s, s);
+    B.fillStyle = '#585858'; B.fillRect(0, 0, s, s);
+    C.fillStyle = '#efefef'; C.fillRect(0, 0, s, s);
+    const colors = ['#a55940', '#9e5039', '#a75d45', '#a9654a', '#9d5942', '#8b4634', '#b66c50', '#a35a42'];
+    for (let row = 0; row < 24; row++) {
+      for (let col = 0; col < 8; col++) {
+        const y = row * bh + bh / 2, x = (col + .5 + (row % 2) / 2) * bw;
+        const color = colors[Math.floor(r() * colors.length)], edgeSeed = r() * 4294967296 >>> 0;
+        const face = 154 + Math.round(r() * 23), dry = 181 + Math.round(r() * 36);
+        for (const cx of x + bw / 2 > s ? [x, x - s] : [x]) {
+          const grad = A.createLinearGradient(cx - bw / 2, y - bh / 2, cx + bw / 2, y + bh / 2);
+          grad.addColorStop(0, shade(color, 1.13)); grad.addColorStop(.37, color); grad.addColorStop(1, shade(color, .82));
+          brickPath(A, edgeSeed, cx, y, bw - joint, bh - joint);
+          A.fillStyle = grad; A.fill();
+          brickPath(B, edgeSeed, cx, y, bw - joint, bh - joint);
+          B.fillStyle = gray(115); B.fill();
+          brickPath(B, edgeSeed, cx, y, bw - joint - 3, bh - joint - 2.6);
+          B.fillStyle = gray(face); B.fill();
+          brickPath(C, edgeSeed, cx, y, bw - joint, bh - joint);
+          C.fillStyle = gray(dry); C.fill();
+        }
       }
     }
-    for (let i = 0; i < 9000; i++) {
-      a.ctx.fillStyle = r() < .5 ? 'rgba(30,14,8,.1)' : 'rgba(255,220,180,.07)';
-      a.ctx.fillRect(r() * s, r() * s, .8 + r() * 1.4, .8 + r());
+    for (let i = 0; i < 14000; i++) {
+      const x = r() * s, y = r() * s, d = .45 + r() * 1.8, dark = r() < .58;
+      A.fillStyle = dark ? 'rgba(35,17,10,.15)' : 'rgba(251,220,183,.13)'; A.fillRect(x, y, d, d);
+      B.fillStyle = dark ? 'rgba(25,25,25,.12)' : 'rgba(234,234,234,.12)'; B.fillRect(x, y, d, d);
     }
-    for (let i = 0; i < 8; i++) blot(a.ctx, s, r() * s, r() * s, 40 + r() * 80, 30 + r() * 80, 'rgba(36,26,20,.14)');
+    for (let i = 0; i < 18; i++) {
+      blot(A, s, r() * s, r() * s, 19 + r() * 47, 14 + r() * 57,
+        i % 4 ? 'rgba(43,24,17,.14)' : 'rgba(227,204,169,.15)');
+    }
     return { map: asTexture(a), bumpMap: asTexture(b, { srgb: false }), roughnessMap: asTexture(c, { srgb: false }) };
   });
 }
 
-/** Teja de barro del oriente: la textura cubre 2 × 2 m, con hiladas a lo largo del alero. */
+// Un canal y su cobija ocupan 25 cm. La sección se usa tanto en la cubierta como en su textura.
+export const CLAY_ROOF = Object.freeze({ meters: 2, columns: 8, courses: 8 });
+export const CLAY_PROFILE = Object.freeze([
+  [0, .027], [.18, .012], [.5, .074], [.82, .012], [1, .027]
+]);
+
+/** Teja de barro con canales continuos y juntas de hilada en la dirección de la caída. */
 export function clayTiles() {
   return once('teja-barro', () => {
     const s = 512, a = makeCanvas(s, s), b = makeCanvas(s, s);
     if (!a) return { map: asTexture(null), bumpMap: asTexture(null, { srgb: false }) };
-    const r = rng(4411), tw = 32, th = 42;
-    a.ctx.fillStyle = '#4a3226'; a.ctx.fillRect(0, 0, s, s);
-    b.ctx.fillStyle = '#505050'; b.ctx.fillRect(0, 0, s, s);
-    const colors = ['#a2613f', '#96573a', '#ad6c47', '#8b4f35', '#b5764f', '#7d4731', '#a0683f'];
-    for (let row = -1; row * th < s + th; row++) {
-      const off = row % 2 ? tw / 2 : 0;
-      for (let x = -tw; x < s + tw; x += tw) {
-        const base = colors[Math.floor(r() * colors.length)];
-        const y = row * th, px = x + off;
-        const g = a.ctx.createLinearGradient(px, 0, px + tw, 0);
-        g.addColorStop(0, shade(base, .55)); g.addColorStop(.28, base); g.addColorStop(.62, shade(base, 1.08)); g.addColorStop(1, shade(base, .5));
-        a.ctx.fillStyle = g; a.ctx.fillRect(px, y, tw - 1, th + 7);
-        const shadow = a.ctx.createLinearGradient(0, y, 0, y + 9);
-        shadow.addColorStop(0, 'rgba(16,8,4,.55)'); shadow.addColorStop(1, 'rgba(16,8,4,0)');
-        a.ctx.fillStyle = shadow; a.ctx.fillRect(px, y, tw - 1, 9);
-        const h = b.ctx.createLinearGradient(px, 0, px + tw, 0);
-        h.addColorStop(0, '#606060'); h.addColorStop(.5, '#bcbcbc'); h.addColorStop(1, '#606060');
-        b.ctx.fillStyle = h; b.ctx.fillRect(px, y, tw - 1, th + 7);
+    const r = rng(4411), tw = s / CLAY_ROOF.columns, th = s / CLAY_ROOF.courses;
+    const A = a.ctx, B = b.ctx;
+    const colors = ['#ad6347', '#a65b40', '#b26d50', '#9b543e', '#b77551', '#94513e', '#a26046'];
+    for (let row = 0; row < CLAY_ROOF.courses; row++) {
+      for (let col = 0; col < CLAY_ROOF.columns; col++) {
+        const x = col * tw, y = row * th;
+        const color = colors[Math.floor(r() * colors.length)];
+        const g = A.createLinearGradient(x, 0, x + tw, 0), h = B.createLinearGradient(x, 0, x + tw, 0);
+        for (const [u, raised] of CLAY_PROFILE) {
+          g.addColorStop(u, shade(color, .74 + raised * 4.5));
+          h.addColorStop(u, gray(Math.round(116 + raised * 590)));
+        }
+        A.fillStyle = g; A.fillRect(x, y, tw, th);
+        B.fillStyle = h; B.fillRect(x, y, tw, th);
+        const shadow = A.createLinearGradient(0, y, 0, y + 11);
+        shadow.addColorStop(0, 'rgba(33,17,12,.48)'); shadow.addColorStop(1, 'rgba(33,17,12,0)');
+        A.fillStyle = shadow; A.fillRect(x, y, tw, 11);
+        A.fillStyle = 'rgba(250,181,136,.15)'; A.fillRect(x + tw * .25, y + th - 3, tw * .5, 1.4);
+        B.fillStyle = 'rgba(26,26,26,.43)'; B.fillRect(x, y, tw, 2.2);
       }
     }
-    // Musgo y hollín: los techos de Bogotá nunca son color ladrillo limpio.
-    for (let i = 0; i < 24; i++) blot(a.ctx, s, r() * s, r() * s, 25 + r() * 90, 15 + r() * 70, r() < .5 ? 'rgba(66,74,42,.3)' : 'rgba(24,18,14,.3)');
-    for (let i = 0; i < 5000; i++) {
-      a.ctx.fillStyle = r() < .4 ? 'rgba(92,104,60,.2)' : 'rgba(20,14,10,.14)';
-      a.ctx.fillRect(r() * s, r() * s, 1 + r() * 2, 1 + r() * 2);
+    // Manchas de liquen y hollín siguiendo el agua de la cubierta.
+    for (let i = 0; i < 22; i++) {
+      blot(A, s, r() * s, r() * s, 9 + r() * 43, 21 + r() * 66,
+        r() < .37 ? 'rgba(120,119,77,.3)' : 'rgba(39,25,20,.26)');
+    }
+    for (let i = 0; i < 10000; i++) {
+      const x = r() * s, y = r() * s, d = .5 + r() * 2.2;
+      A.fillStyle = r() < .48 ? 'rgba(221,185,137,.13)' : 'rgba(27,19,15,.16)'; A.fillRect(x, y, d, d * .7);
     }
     return { map: asTexture(a), bumpMap: asTexture(b, { srgb: false }) };
   });

@@ -1,6 +1,8 @@
 import { planUrbanBuildings, buildUrbanBuilding, URBAN_DESIGNS } from '../bogota/UrbanBuildings.js';
 import { neighborhoodAt } from '../bogota/NeighborhoodIdentity.js';
 import { addBuildingDetails } from '../bogota/BuildingDetails.js';
+import { sumarVolumen } from '../bogota/volumenFachada.js';
+import { vestirRelleno } from '../bogota/texturasAzotea.js';
 import { addStreetDetails } from '../bogota/StreetDetails.js';
 import { buildStreetMarkings } from '../bogota/StreetMarkings.js';
 import { planUrbanTrees } from '../bogota/UrbanPlanting.js';
@@ -41,8 +43,10 @@ import { BusService } from '../bogota/BusService.js';
 import { skylineFloors, buildAvenueOverpass, AVENUE_OVERPASS } from '../bogota/AvenueLandmarks.js';
 import { GAS_STATION, GAS_OBSTACLES, inGasStation, underGasCanopy, buildGasStation } from '../bogota/GasStation.js';
 import { buildMetroBogota } from '../bogota/MetroBogota.js';
+import { agregarCulatas } from '../bogota/Culatas.js';
 import { buildD69Store } from '../bogota/D69Store.js';
 import { buildColpatria, COLPATRIA, COLPATRIA_ANNEX, BUS_DETOUR, busPathX, southBusPathX } from '../bogota/Colpatria.js';
+import { vestirTorres } from '../bogota/fachadaTorres.js';
 import { VIADUCT, buildColpatriaViaduct, viaductHeight, viaductSurface } from '../bogota/ColpatriaViaduct.js';
 import { TERMINAL, inTerminal, terminalGroundHeight, buildTransitTerminal, crossesIslandEdge, crowdsIslandPole, islandAisleX, underTerminalRoof } from '../bogota/TransitTerminal.js';
 import { LAKE_BRIDGE, LAKE_PARK, onLakeBridge, bridgeHeight, buildLakeWater, buildLakeTerrain,
@@ -248,7 +252,9 @@ export class Bogota {
     this.group.add(buildAvenueOverpass());
     this.group.add(buildGasStation({ createSign: signTexture }));
     this.group.add(buildD69Store({ createSign: signTexture }));
-    this.group.add(buildSmallBuilding({ brickTextures: TX.brick(53) }));
+    const cincoPisos = buildSmallBuilding({ brickTextures: TX.brick(53) });
+    this.facadeMats.push(cincoPisos.userData.ventanas);
+    this.group.add(cincoPisos);
     const tower = buildColpatria({ createSign: signTexture });
     this.towerLights = tower.userData.lightMaterials;
     this.group.add(tower);
@@ -269,6 +275,7 @@ export class Bogota {
       isGround: (x, z) => ['grass', 'plaza'].includes(map[Math.round(z / T)]?.[Math.round(x / T)]) &&
         Math.hypot(x - SHELTER_LOCATION.x, z - SHELTER_LOCATION.z) > 6
     }));
+    agregarCulatas(this);
 
     this._mergeStatic();
     this.group.add(this.buildingVisibility.buildClosedView());
@@ -640,7 +647,7 @@ export class Bogota {
     // Lo viejo se reparte como si la columna X 119 siguiera siendo muro: nada cambia de solar.
     const walk = (x, z) => x < EAST_SEAM && WALKABLE.has(map[z]?.[x]);
     const brick = TX.brick(3);
-    const sideMat = new THREE.MeshStandardMaterial({ map: repeatAll(brick.map), bumpMap: repeatAll(brick.bumpMap), bumpScale: 0.045, roughnessMap: brick.roughnessMap, roughness: 0.95, color: '#e0d3c6' });
+    const sideMat = new THREE.MeshStandardMaterial({ map: repeatAll(brick.map), bumpMap: repeatAll(brick.bumpMap), bumpScale: 0.045, roughnessMap: brick.roughnessMap, roughness: 0.95, color: TX.TINTE_COSTADO });
     const slab = TX.slab(13), tiles = TX.roofTiles(9);
     const roofMat = new THREE.MeshStandardMaterial({ map: repeatAll(slab.map), bumpMap: repeatAll(slab.bumpMap),
       bumpScale: .025, roughnessMap: repeatAll(slab.roughnessMap), roughness: .95 });
@@ -660,8 +667,9 @@ export class Bogota {
       concrete:new THREE.MeshStandardMaterial({color:'#686962',roughness:.95}),
       trim:new THREE.MeshStandardMaterial({color:'#c6bda9',roughness:.8}),
       rail:new THREE.MeshStandardMaterial({color:'#4e5552',roughness:.75}),
-      glass:new THREE.MeshStandardMaterial({color:'#263a3e',roughness:.4,metalness:.2})
+      glass:new THREE.MeshStandardMaterial({color:'#8d9ea3',roughness:.18,metalness:.45})
     };
+    vestirTorres(urbanPalette.facades);
     for(const plan of this.urbanBuildings) {
       for(let dz=0;dz<plan.tiles;dz++)for(let dx=0;dx<plan.tiles;dx++)covered.add((plan.tileX+dx)+','+(plan.tileZ+dz));
       const shell=buildUrbanBuilding(plan,urbanPalette);
@@ -718,7 +726,7 @@ export class Bogota {
         x: W(x) + (width - 1) * T / 2, z: W(z) + (depth - 1) * T / 2, height: h, interiorMaterial: this._interiorMat
       });
       this.group.add(shell.root);
-      this.buildingVisibility.register(shell);
+      vestirRelleno({ shell, visibilidad: this.buildingVisibility, x, z, ancho: sx, fondo: sz, alto: h, ruina: type === 'ruin', ladrillo: sideMat, uv: this._uvUnits });
     }
     this._buildEastBlocks(map);
   }
@@ -996,6 +1004,7 @@ export class Bogota {
     }
     addBuildingDetails({ shell, width: sx, depth: sz, height: h, floors, face,
       seed: houseSeed, neighborhood: neighborhood.id, ruin, balconies: false });
+    sumarVolumen({ shell, width: sx, depth: sz, height: h, floors, face, seed: houseSeed, neighborhood: neighborhood.id, ruin });
     const building = this.buildingVisibility.register(shell);
     for (const part of building.parts) for (const material of part.materials) {
       if (material.emissiveMap || material.userData.windowGlow) this.facadeMats.push(material);
