@@ -270,7 +270,8 @@ export const PRUEBAS = [
     id: 'vehiculos',
     nombre: 'Flota',
     descripcion: 'Todos los modelos en fila, de día, con la cámara a la altura de los ojos. Pasa de modelo y elige una vista.',
-    montar(sala) {
+    async montar(sala) {
+      const { crearMT09 } = await import('../world/bogota/mt09.js');
       const filas = [...CAR_MODEL_IDS.map(id => ({ id, kind: 'carro' })), { id: 'citadino', kind: 'taxi' }, { id: 'sedanPopular', kind: 'taxi' }, { id: 'sedanPopular', kind: 'police' }, { id: 'suv', kind: 'police' }];
       const cars = filas.map(({ id, kind }, i) => {
         const car = new Car(sala.scene, new THREE.Vector3(i * 9 - 40, 0, -8), 0, { kind, variant: 3 + i * 2, model: id, traffic: true });
@@ -278,6 +279,14 @@ export const PRUEBAS = [
         return { car, id, kind };
       });
       sala.scene.add(makeParkedMotos([0, 1, 2, 3].map(i => ({ x: -46 - i * 1.1, z: -8, rot: Math.PI / 2 + .22, seed: i * 3 }))));
+      const mt09 = crearMT09();
+      mt09.position.set(0, 0, 6);
+      sala.scene.add(mt09);
+      const modelos = cars.map(({ car, id, kind }) => ({
+        posicion: car.group.position, titulo: `${id} · ${kind}`, distancia: Math.max(car.length * .92, 3.7), altura: .85
+      }));
+      const indiceMT09 = modelos.length;
+      modelos.push({ posicion: mt09.position, titulo: mt09.name, distancia: 2.05, altura: .61 });
       sala.setHour(11);
       // Piso de pavimento amplio: la fila entera se revisa sin la cuadrícula de la sala.
       sala.ground.scale.setScalar(6);
@@ -301,16 +310,22 @@ export const PRUEBAS = [
         camara.pos.set(p.x + dx, dy, p.z + dz); camara.mira.set(p.x, .85, p.z); camara.activa = true;
       };
       const verMotos = (dx = 3, dz = 2.6) => { camara.pos.set(-47.6 + dx, 1.35, -8 + dz); camara.mira.set(-47.6, .6, -8); camara.activa = true; };
-      window.__flota = { cars, ver, verMotos, camara, filas };
+      window.__flota = { cars, ver, verMotos, camara, filas, mt09 };
       // Como un carro detenido del tráfico: barre si llueve, sin moverse del sitio.
       sala.updaters.add((dt) => { for (const { car } of cars) { car.update(dt); car.animateDrive(0, false, { dt, speed: 0 }); } });
       let noche = false, lluvia = false, actual = 0, vista = 'frente';
       const mostrar = () => ver(actual, vista);
+      const verMT09 = () => { actual = indiceMT09; mostrar(); };
+      const modeloPedido = params?.get('vehiculo'), tipoPedido = params?.get('tipo');
+      const inicial = modeloPedido === 'mt09' ? indiceMT09
+        : filas.findIndex(({ id, kind }) => id === modeloPedido && (!tipoPedido || kind === tipoPedido));
+      if (inicial >= 0) { actual = inicial; mostrar(); }
       const clima = () => { sala.setHour(noche ? 22 : 11); for (const { car } of cars) car.setNight(noche, lluvia); };
       return {
         acciones: [
           { texto: '💡 Noche', hacer: () => { noche = !noche; clima(); } },
           { texto: '🌧 Lluvia', hacer: () => { lluvia = !lluvia; clima(); } },
+          { texto: 'MT-09 V2', hacer: verMT09 },
           { texto: 'Modelo anterior', hacer: () => { actual = (actual + cars.length - 1) % cars.length; mostrar(); } },
           { texto: 'Modelo siguiente', hacer: () => { actual = (actual + 1) % cars.length; mostrar(); } },
           ...['frente', 'cola', 'lado'].map(nombre => ({ texto: nombre, hacer: () => { vista = nombre; mostrar(); } })),
