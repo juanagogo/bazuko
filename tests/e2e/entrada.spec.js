@@ -118,7 +118,7 @@ test('el creador se maneja con teclado, sin perder el foco y sin salirse del di√
   await page.keyboard.press('Tab');
   const mujer = page.getByRole('button', { name: 'Mujer', exact: true });
   await mujer.focus();
-  await page.keyboard.press('Enter');
+  await page.keyboard.press('Space');
   await expect(page.getByRole('button', { name: 'Mujer', exact: true })).toBeFocused();
   await expect(page.getByRole('button', { name: 'Mujer', exact: true })).toHaveAttribute('aria-pressed', 'true');
   await expect(page.getByRole('button', { name: 'Mujer', exact: true })).toHaveClass(/elegido/);

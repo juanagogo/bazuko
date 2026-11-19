@@ -1,6 +1,10 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 
+export const CART_AXLE = Object.freeze({ halfTrack: .65, height: .32, radius: .32 });
+export const CART_HANDLE = Object.freeze({ x: .38, y: .94, z: -.92 });
+export const CART_STAND = Object.freeze({ length: .4, z: .72 });
+
 function surfaceTexture(kind) {
   if (!globalThis.document?.createElement) return null;
   const canvas = document.createElement('canvas');
@@ -180,7 +184,7 @@ export function createCartVisual(root) {
   function wheel(side) {
     const group = new THREE.Group(), wheelBatches = new Map();
     group.name = side < 0 ? 'rueda-izquierda' : 'rueda-derecha';
-    group.position.set(side * .65, .32, 0);
+    group.position.set(side * CART_AXLE.halfTrack, CART_AXLE.height, 0);
     part(new THREE.TorusGeometry(.245, .065, 8, 24), rubber, [0, 0, 0], [0, Math.PI / 2, 0], wheelBatches);
     part(new THREE.CylinderGeometry(.21, .21, .11, 20), rim, [0, 0, 0], [0, 0, Math.PI / 2], wheelBatches);
     part(new THREE.CylinderGeometry(.145, .145, .116, 16), dark, [0, 0, 0], [0, 0, Math.PI / 2], wheelBatches);
@@ -198,8 +202,8 @@ export function createCartVisual(root) {
     return group;
   }
   const leftWheel = wheel(-1), rightWheel = wheel(1);
-  const kickstand = new THREE.Mesh(new THREE.BoxGeometry(.065, .4, .065), iron);
-  kickstand.position.set(0, .20, .72);
+  const kickstand = new THREE.Mesh(new THREE.BoxGeometry(.065, CART_STAND.length, .065).translate(0, -CART_STAND.length / 2, 0), iron);
+  kickstand.position.set(0, CART_STAND.length, CART_STAND.z);
   kickstand.castShadow = true; root.add(kickstand);
   let disposed = false;
   return { leftWheel, rightWheel, kickstand, _disposeVisual() {

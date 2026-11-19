@@ -3,7 +3,8 @@
 // mismo plano de la ciudad y siempre da los mismos sitios, para que el jugador los aprenda.
 // Solo se usa suelo de peatón (andén, plaza, prado, tierra) sin cajas sólidas encima.
 
-const T = 2;
+import { TILE_SIZE as T } from '../../utils/constants.js';
+import { PARK_WASH_BAYS } from './CityLayout.js';
 const SUELO_PEATON = new Set(['sidewalk', 'plaza', 'grass', 'dirt', 'floor']);
 
 /** Paradas: el Portal del Centro y las dos estaciones del Metro, en el separador bajo el viaducto. */
@@ -41,17 +42,19 @@ export function freeSpotNear(district, collisions, x, z, { maxR = 8, radius = .7
 }
 
 /**
- * Los sitios de la vida de calle: tres pilas (una por parque, en los primeros que tengan sitio), el hogar
+ * Los sitios de la vida de calle: tres pilas (una por bahía de parque), el hogar
  * de paso (un andén contra una fachada, lejos del cambuche y de lo reservado) y las paradas de transporte.
  */
 export function streetLifePlaces(district, collisions, { parks = [], reserved = district.reserved ?? {} } = {}) {
   const lejos = (x, z, d) => Object.values(reserved).every((r) => Math.hypot(x - r.x, z - r.z) >= d);
   const pilas = [];
-  for (const b of parks) {
-    if (pilas.length >= 3) break;
-    const cx = (b.x0 + b.x1) / 2, cz = (b.z0 + b.z1) / 2;
-    const spot = freeSpotNear(district, collisions, cx, cz, { maxR: Math.max(4, Math.min(b.x1 - b.x0, b.z1 - b.z0) / 2), radius: 1, tiles: new Set(['grass', 'plaza', 'dirt']) });
-    if (spot && lejos(spot.x, spot.z, 5) && pilas.every((p) => Math.hypot(p.x - spot.x, p.z - spot.z) > 40)) pilas.push(spot);
+  for (const { tx, tz } of PARK_WASH_BAYS) {
+    const x = tx * T, z = tz * T;
+    const park = parks.find(b => x >= b.x0 && x <= b.x1 && z >= b.z0 && z <= b.z1);
+    if (!park || !lejos(x, z, 5) || !isFreeSpot(district, collisions, x, z, 1)) continue;
+    // Las partidas anteriores pueden tener una ruta activa al antiguo centro de este parque.
+    const previous = { x: (park.x0 + park.x1) / 2, z: (park.z0 + park.z1) / 2 };
+    pilas.push({ x, z, previous });
   }
 
   // Hogar de paso: andén con edificio al lado, entre 45 y 110 m del cambuche, el más cercano al comedor.
@@ -84,4 +87,11 @@ export function streetLifePlaces(district, collisions, { parks = [], reserved = 
     return spot ? [{ ...a, ...spot }] : [];
   });
   return { pilas, hogar, transit };
+}
+
+/** Conserva el destino de una pila trasladada si la partida guardó su marcador histórico exacto. */
+export function restorePilaWaypoint(waypoint, pilas = []) {
+  if (waypoint.name !== 'Pila pública' || waypoint.icon !== '💧') return waypoint;
+  const pila = pilas.find(p => p.previous?.x === waypoint.x && p.previous?.z === waypoint.z);
+  return pila ? { ...waypoint, x: pila.approach.x, z: pila.approach.z } : waypoint;
 }

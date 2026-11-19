@@ -28,7 +28,7 @@ export async function loadTree(root) {
   // El mismo THREE que importan los módulos del árbol (la entrada `import` del paquete).
   const THREE = await import(url('node_modules/three/build/three.module.js'));
   const textures = await import(url('src/world/bogota/textures.js'));
-  const textureSet = () => ({ map: new THREE.Texture(), bumpMap: new THREE.Texture(), emissiveMap: new THREE.Texture() });
+  const textureSet = () => ({ map: new THREE.Texture(), bumpMap: new THREE.Texture(), roughnessMap: null, emissiveMap: new THREE.Texture() });
   const replacements = { ...textures };
   for (const name of ['asphalt', 'sidewalk', 'brick', 'facade', 'roofTiles', 'slab', 'cardboard', 'trashBag', 'dirt', 'concrete']) replacements[name] = textureSet;
   for (const name of ['radialSprite', 'lightbox', 'neon']) replacements[name] = () => new THREE.Texture();

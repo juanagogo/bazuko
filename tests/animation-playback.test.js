@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
-import { preparePlayback, blendAnimationWeights, transitionRate, HipBlend } from '../src/character/AnimationPlayback.js';
+import { preparePlayback, blendAnimationWeights, transitionRate, HipBlend, PedestrianPlayback } from '../src/character/AnimationPlayback.js';
 
 function fixture() {
   const root = new THREE.Object3D();
@@ -53,6 +53,36 @@ test('interrumpir una acción conserva pesos normalizados y la mezcla converge a
   });
   for (const weights of samples) for (const key in weights) assert.ok(Math.abs(weights[key] - samples[0][key]) < .0001);
   assert.ok(transitionRate('buscar', 'idle') < transitionRate('idle', 'lanzar'), 'levantarse lleva más tiempo que entrar en un lanzamiento corto');
+});
+
+test('el peatón retoma la marcha desde la misma transferencia de peso a distintos FPS', () => {
+  const samples = [30, 60, 144].map(fps => {
+    const gait = new PedestrianPlayback(1);
+    const dt = 1 / fps, cadence = 1.15;
+    gait.advance(dt, cadence, true);
+    let release = 0;
+    for (let i = 0; i < fps / 6; i++) {
+      const weight = gait.toward(dt, false, false);
+      assert.ok(weight >= 0 && weight < 1);
+      release += gait.advance(dt, 0, false);
+    }
+    assert.ok(release > .05 && release < .062, `asentó ${release} ciclos`);
+    const stopped = gait.state();
+    const replacement = new PedestrianPlayback();
+    replacement.applyState(stopped);
+    let traveled = 0;
+    for (let i = 0; i < fps / 6; i++) {
+      const weight = replacement.toward(dt, true, false);
+      assert.ok(weight > 0 && weight < 1);
+      traveled += replacement.advance(dt, cadence, true);
+    }
+    assert.ok(Math.abs(traveled - cadence / 6) < 1e-9);
+    return { weight: replacement.state().x, release };
+  });
+  for (const sample of samples) {
+    assert.ok(Math.abs(sample.weight - samples[0].weight) < 1e-9);
+    assert.ok(Math.abs(sample.release - samples[0].release) < 1e-9);
+  }
 });
 
 test('interrumpir, retomar y liberar el reloj dirigido no deja acciones pausadas ni afecta al fallback compartido', () => {

@@ -4,6 +4,9 @@
 // reposo, así que siguen a la superficie al animar, y los programas se comparten entre personas.
 import * as THREE from 'three';
 import { SKIN_ALBEDO } from './look.js';
+import { CIVIL_FABRIC, CIVIL_FABRIC_SHADE, CIVIL_SHOES, CIVIL_SKIN } from './civilianFinish.js';
+import { WORKWEAR } from './workwear.js';
+import { RECYCLER_VEST_CLOTH, RECYCLER_VEST_FIT } from './recyclerVest.js';
 
 export { SKIN_ALBEDO };
 
@@ -210,6 +213,7 @@ uniform float uStreetSeed;
 uniform float uStreetWet;
 uniform float uStreetStubble;
 uniform float uStreetCurl;
+uniform float uStreetCurlRelief;
 uniform vec3 uStreetFaceTint;
 uniform vec4 uStreetBrows;
 uniform vec4 uStreetEyes;
@@ -226,6 +230,11 @@ uniform vec3 uStreetTop;
 uniform vec3 uStreetBottom;
 uniform vec3 uStreetPatternColor;
 uniform vec2 uStreetLight;
+uniform float uStreetCivil;
+uniform vec3 uStreetUpperCloth;
+uniform vec3 uStreetLowerCloth;
+uniform vec2 uStreetShoeFinish;
+uniform vec3 uStreetRubber;
 varying vec3 vStreetRest;
 float streetHash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
 float streetNoise(vec2 p) {
@@ -308,10 +317,20 @@ const SURFACES = {
     diffuseColor.rgb *= mix(vec3(1.03, .965, .95), vec3(.985, 1.015, 1.02), blotch);
     float shine = max(nose, forehead * .5) * (1. - uStreetWear * .35);
     streetRoughness = clamp(.8 + (surfaceNoise - .5) * .07 + (mottle - .5) * .22 + hands * .05 - shine * .09 + dirt * .08, .62, .94);
+    ${CIVIL_SKIN}
     diffuseColor.rgb *= 1. - uStreetWet * .06;
     streetRoughness = mix(streetRoughness, streetRoughness * .66, uStreetWet);
   `,
   fabric: /* glsl */ `
+    #ifdef USE_MAP
+    if (uStreetClothUniform > .5) {
+      // El uniforme ya lleva su color en diffuse. El atlas aporta luz RELATIVA por pieza:
+      // multiplicar dos colores oscuros volvía idénticos el buzo, los puños y el jean.
+      float meanLight = mix(uStreetLight.x, uStreetLight.y, step(.5, vStreetZone));
+      float clothLight = dot(sampledDiffuseColor.rgb, vec3(.2126, .7152, .0722)) / meanLight;
+      diffuseColor.rgb = diffuse * clamp(2. * clothLight / (1. + clothLight), .36, 1.6);
+    }
+    #endif
     if (uStreetTint > .5) {
       // Recoloreado por luminancia: la textura aporta pliegues, costuras y grano; el color es de la persona.
       float below = step(.5, vStreetZone);
@@ -340,7 +359,9 @@ const SURFACES = {
           tone = mix(tone, tone * .55 + .3, thin * .4);
         }
       }
-      diffuseColor.rgb = tone * mix(1., clamp(shade, .42, 1.55), .82);
+      float fabricShade = mix(1., clamp(shade, .42, 1.55), .82);
+      ${CIVIL_FABRIC_SHADE}
+      diffuseColor.rgb = tone * fabricShade;
     }
     float cuffs = streetPair(p, uStreetLeftHand, uStreetRightHand, .075);
     float elbows = streetPair(p, uStreetLeftElbow, uStreetRightElbow, .08);
@@ -365,6 +386,9 @@ const SURFACES = {
       diffuseColor.rgb = mix(diffuseColor.rgb, dirty, stains * .72);
     }
     streetRoughness = clamp(.88 + abrasion * .07 + dust * .06 + stains * .05 + (surfaceNoise - .5) * .035, .84, .99);
+    ${CIVIL_FABRIC}
+    ${WORKWEAR}
+    ${RECYCLER_VEST_CLOTH}
     diffuseColor.rgb *= 1. - uStreetWet * .4;
     streetRoughness = mix(streetRoughness, streetRoughness * .84, uStreetWet);
   `,
@@ -387,6 +411,7 @@ const SURFACES = {
     float underside = smoothstep(.7, .9, -normalize(cross(dFdx(p), dFdy(p))).y);
     diffuseColor.rgb = mix(diffuseColor.rgb, vec3(dot(diffuseColor.rgb, vec3(.2126, .7152, .0722))) * vec3(.34, .32, .3), underside);
     streetRoughness = clamp(.82 + use * .12 + surfaceNoise * .035, .80, .98);
+    ${CIVIL_SHOES}
     diffuseColor.rgb *= 1. - uStreetWet * .3;
     streetRoughness = mix(streetRoughness, streetRoughness * .72, uStreetWet);
   `,
@@ -403,6 +428,13 @@ const SURFACES = {
       float curls = streetNoise(q.xy + q.z * .7) * .6 + streetNoise(q.yz * 2.1 + 9.) * .4;
       diffuseColor.rgb *= .5 + mix(curls, .5, clamp(pixel * 340. - .4, 0., 1.));
       streetRoughness = .92;
+      if (uStreetCurlRelief > .5) {
+        // Variación de brillo a escala de grupos de rizos, más amplia que el grano que se filtra de lejos.
+        float crown = smoothstep(uStreetEyes.y + .017, uStreetEyes.y + .064, p.y);
+        float groups = smoothstep(.24, .76, surfaceNoise);
+        diffuseColor.rgb *= mix(1., .66 + groups * .91, crown);
+        streetRoughness = mix(.92, .72 + groups * .08, crown);
+      }
     }
     diffuseColor.rgb *= 1. - uStreetWet * .28;
     streetRoughness = mix(streetRoughness, streetRoughness * .8, uStreetWet);
@@ -427,18 +459,53 @@ const SURFACES = {
 // Tono del zapato de cuero cuando la persona no trae el suyo, y luminancia media de su textura sobre el cuero.
 const PLAIN_SHOE = '#33261d', SHOE_LIGHT = .11;
 const BLACK = new THREE.Color(0);
+const NO_CLOTH_FINISH = new THREE.Vector3();
+const NO_SHOE_FINISH = new THREE.Vector2();
 const NO_BROWS = new THREE.Vector4(0, 0, 0, 0);
 const toneColor = hex => hex ? new THREE.Color(hex) : BLACK;
+
+const FABRIC_VERTEX_DECLARATIONS = /* glsl */ `
+attribute float streetZone;
+varying float vStreetZone;
+uniform float uStreetMargin;
+uniform vec3 uStreetWaist;
+uniform float uStreetRecyclerVest;
+uniform vec4 uStreetArm;
+${RECYCLER_VEST_FIT}
+`;
+
+const FABRIC_VERTEX = /* glsl */ `
+vStreetZone = streetZone;
+transformed += normal * (uStreetMargin - uStreetWaist.z * smoothstep(uStreetWaist.x - uStreetWaist.y, uStreetWaist.x, position.y));
+transformed.y = min(transformed.y, uStreetWaist.x);
+if (uStreetRecyclerVest > .5) {
+  float edge = recyclerVestEdge(vStreetRest, uStreetArm.xy);
+  float fold = 1. - smoothstep(-.019, .001, edge);
+  transformed += normal * fold * mix(.006, .011, step(1.5, uStreetRecyclerVest));
+}
+`;
+
+const FABRIC_FRAGMENT_DECLARATIONS = /* glsl */ `
+varying float vStreetZone;
+uniform float uStreetClothUniform;
+uniform float uStreetWorkwear;
+uniform float uStreetRecyclerVest;
+${RECYCLER_VEST_FIT}
+`;
 
 /**
  * Aplica sobre un material de instancia. Mapas/UV/alpha/geometría permanecen compartidos.
  * `stubble`, `faceTint` y `brows` son de la piel; `curl`, del pelo; `tonos` y `garment`, de la ropa que los recibe;
  * `leather` y `shoeTone`, del zapato de cuero, que nadie lleva del naranja de su textura.
  */
-export function applyStreetMaterial(material, mesh, { kind, frame, wear = 2, seed = 0, detailTexture = null, stubble = 0, faceTint = null, brows = null, curl = 0, tonos = null, garment = null, leather = false, shoeTone = null } = {}) {
+export function applyStreetMaterial(material, mesh, {
+  kind, frame, wear = 2, seed = 0, detailTexture = null, stubble = 0, faceTint = null, brows = null, curl = 0, curlRelief = 0,
+  tonos = null, garment = null, clothUniform = false, leather = false, shoeTone = null, civilian = false, textiles = null, shoeFinish = null, workwear = 0, recyclerVest = 0
+} = {}) {
   if (!KINDS.has(kind)) throw new Error(`Superficie de personaje desconocida: ${kind}`);
   material.metalness = 0;
   material.userData.streetSurface = kind;
+  if (recyclerVest && kind === 'fabric') material.userData.chalecoReciclador = recyclerVest;
   if (kind === 'eyes') {
     material.roughness = .22;
     return;
@@ -453,6 +520,7 @@ export function applyStreetMaterial(material, mesh, { kind, frame, wear = 2, see
   const restMatrix = frame.worldToNormalized.clone().multiply(mesh.matrixWorld);
   const tinted = kind === 'fabric' && !!tonos && !!garment;
   const shoeColor = kind === 'shoes' && leather ? shoeTone ?? PLAIN_SHOE : null;
+  const civilSurface = civilian && (kind === 'skin' || (kind === 'fabric' && textiles) || (kind === 'shoes' && shoeFinish));
   if (garment) markGarmentZones(mesh.geometry, restMatrix, garment);
   const scale = restMatrix.getMaxScaleOnAxis();
   const underLayer = garment && UNDER_LAYER.test(mesh.name);
@@ -472,6 +540,7 @@ export function applyStreetMaterial(material, mesh, { kind, frame, wear = 2, see
       uStreetWet: streetWetness,
       uStreetStubble: { value: stubble },
       uStreetCurl: { value: curl },
+      uStreetCurlRelief: { value: curlRelief },
       uStreetFaceTint: { value: faceTint ?? new THREE.Vector3(1, 1, 1) },
       uStreetBrows: { value: brows ?? NO_BROWS },
       uStreetEyes: { value: frame.eyes },
@@ -482,6 +551,14 @@ export function applyStreetMaterial(material, mesh, { kind, frame, wear = 2, see
       uStreetBottom: { value: toneColor(tinted && tonos.abajo) },
       uStreetPatternColor: { value: toneColor(tinted && tonos.patronColor) },
       uStreetLight: { value: new THREE.Vector2(...(garment?.luz ?? [shoeColor ? SHOE_LIGHT : 1, 1])) },
+      uStreetCivil: { value: civilSurface ? 1 : 0 },
+      uStreetClothUniform: { value: clothUniform && garment ? 1 : 0 },
+      uStreetWorkwear: { value: workwear },
+      uStreetRecyclerVest: { value: recyclerVest },
+      uStreetUpperCloth: { value: textiles ? new THREE.Vector3(...textiles[0]) : NO_CLOTH_FINISH },
+      uStreetLowerCloth: { value: textiles ? new THREE.Vector3(...textiles[1]) : NO_CLOTH_FINISH },
+      uStreetShoeFinish: { value: shoeFinish ? new THREE.Vector2(shoeFinish.height, shoeFinish.roughness) : NO_SHOE_FINISH },
+      uStreetRubber: { value: toneColor(shoeFinish?.rubber) },
       uStreetMargin: { value: margin },
       uStreetWaist: { value: waist },
       ...Object.fromEntries(['leftHand', 'rightHand', 'leftElbow', 'rightElbow', 'leftKnee', 'rightKnee']
@@ -489,10 +566,10 @@ export function applyStreetMaterial(material, mesh, { kind, frame, wear = 2, see
     });
     const cloth = kind === 'fabric';
     shader.vertexShader = shader.vertexShader
-      .replace('#include <common>', `#include <common>\nuniform mat4 uStreetRestMatrix;\nvarying vec3 vStreetRest;\n${cloth ? 'attribute float streetZone;\nvarying float vStreetZone;\nuniform float uStreetMargin;\nuniform vec3 uStreetWaist;\n' : ''}`)
-      .replace('#include <begin_vertex>', `#include <begin_vertex>\nvStreetRest = (uStreetRestMatrix * vec4(position, 1.0)).xyz;\n${cloth ? 'vStreetZone = streetZone;\ntransformed += normal * (uStreetMargin - uStreetWaist.z * smoothstep(uStreetWaist.x - uStreetWaist.y, uStreetWaist.x, position.y));\ntransformed.y = min(transformed.y, uStreetWaist.x);' : ''}`);
+      .replace('#include <common>', `#include <common>\nuniform mat4 uStreetRestMatrix;\nvarying vec3 vStreetRest;\n${cloth ? FABRIC_VERTEX_DECLARATIONS : ''}`)
+      .replace('#include <begin_vertex>', `#include <begin_vertex>\nvStreetRest = (uStreetRestMatrix * vec4(position, 1.0)).xyz;\n${cloth ? FABRIC_VERTEX : ''}`);
     shader.fragmentShader = shader.fragmentShader
-      .replace('#include <common>', `#include <common>\n${COMMON}${cloth ? 'varying float vStreetZone;\n' : ''}`)
+      .replace('#include <common>', `#include <common>\n${COMMON}${cloth ? FABRIC_FRAGMENT_DECLARATIONS : ''}`)
       .replace('#include <color_fragment>', `#include <color_fragment>\nfloat streetRoughness = roughness;\n{
         vec3 p = vStreetRest; float surfaceNoise = streetPatch(p);\n${SURFACES[kind]}\n}`)
       .replace('#include <roughnessmap_fragment>', '#include <roughnessmap_fragment>\nroughnessFactor *= streetRoughness / max(roughness, .001);');
@@ -501,6 +578,6 @@ export function applyStreetMaterial(material, mesh, { kind, frame, wear = 2, see
     if (kind === 'hair' || kind === 'beard') shader.fragmentShader = shader.fragmentShader
       .replace('#include <normal_fragment_begin>', '#include <normal_fragment_begin>\nnormal = normalize(vNormal);');
   };
-  material.customProgramCacheKey = () => `${previousKey}|street:v2:${kind}`;
+  material.customProgramCacheKey = () => `${previousKey}|street:v7:${kind}`;
   material.needsUpdate = true;
 }

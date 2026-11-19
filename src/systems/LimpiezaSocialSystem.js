@@ -1,8 +1,7 @@
 // src/systems/LimpiezaSocialSystem.js
 // «Limpieza social»: de noche, a veces, una camioneta 4x4 negra llega por la calle, frena junto al
 // jugador y se bajan tres hombres de negro con pasamontañas y pistola. El jefe se queda señalando y
-// dando la orden; los otros dos lo persiguen y lo cascan. Si lo alcanzan, los cachazos siguen aunque
-// esté tambaleando: casi siempre lo matan. Si se les escapa, vuelven, se suben y la camioneta se va.
+// dando la orden y los otros dos persiguen. Si cae el jefe o dejan de poder perseguir, la camioneta se retira.
 import * as THREE from 'three';
 import { SquadMember, SQUAD } from '../entities/SquadMember.js';
 import { makeSuv, rollWheels } from '../world/bogota/suv.js';
@@ -53,6 +52,8 @@ export class LimpiezaSocialSystem {
     this.audio = audio;
     this.random = random;
     this.members = [];
+    this.outcome = null;     // victoria | escape | derrota
+    this._pendingSave = null;
     this.routes = [];
     this.suv = null;
     this.state = 'idle';     // idle | arriving | stopped | out | leaving
@@ -62,10 +63,14 @@ export class LimpiezaSocialSystem {
     this.speed = 0;
     this.timer = 0;
     this.checkTimer = 0;
+    this._attackInterval = 0;
+    this._lastAttacker = null;
     this.cooldown = LIMPIEZA.cooldown * .5;
     this.onPlayerHurt = null;
     this._people = null;
     this._ground = () => 0;
+    this._frustum = new THREE.Frustum();
+    this._projection = new THREE.Matrix4();
   }
 
   /**
@@ -74,6 +79,7 @@ export class LimpiezaSocialSystem {
    * @param {object[]} people lista de peatones que los carros respetan
    */
   setup(district, routes, people = null, { collisions = null } = {}) {
+    const saved = this.members.length ? this.getSaveData() : this._pendingSave;
     this.reset();
     this._disposeActors();
     this.routes = routes ?? [];
@@ -86,23 +92,69 @@ export class LimpiezaSocialSystem {
       isWalkable: (x, z) => district?.isWalkableAt?.(x, z) ?? true,
       groundHeight: this._ground, getWaterInfo: this.getWaterInfo, collisions
     };
-    this.members = [
-      new SquadMember(this.scene, { ...opts, role: 'jefe' }),
-      new SquadMember(this.scene, { ...opts, role: 'maton' }),
-      new SquadMember(this.scene, { ...opts, role: 'maton' })
-    ];
+    this.members = ['jefe', 'maton-1', 'maton-2'].map((id, i) => new SquadMember(this.scene, {
+      ...opts, role: i === 0 ? 'jefe' : 'maton', stableId: 'limpieza:' + id, random: this.random
+    }));
     this.suv = makeSuv();
     this.suv.group.visible = false;
     this.scene.add(this.suv.group);
+    this._pendingSave = null;
+    this.loadSaveData(saved);
   }
 
   get active() { return this.state !== 'idle'; }
   get leader() { return this.members[0]; }
   get thugs() { return this.members.slice(1); }
 
+  _defeated() {
+    return this.leader?.isDead || (this.members.some(m => m.isDead) && this.thugs.every(m => !m.isAttacking));
+  }
+
+  getSaveData() {
+    if (!this.members.length && this._pendingSave) return this._pendingSave;
+    let outcome = this.outcome;
+    if (!outcome && this.state === 'out') {
+      if (this.stats?.salud <= 0) outcome = 'derrota';
+      else if (this._defeated()) outcome = 'victoria';
+    }
+    return {
+      outcome,
+      health: Object.fromEntries(this.members.filter(m => !m.isDead).map(m => [m.stableId, m.health])),
+      fallen: this.members.filter(m => m.isDead).map(m => ({
+        id: m.stableId, position: m.position.toArray(), yaw: m._fallYaw, plan: m._koPlan, from: m._koFrom, bodyReleased: m.bodyReleased,
+        emergencyReported: !!m.emergencyReported, emergencyAided: !!m.emergencyAided
+      }))
+    };
+  }
+
+  loadSaveData(data) {
+    if (!data || typeof data !== 'object') return;
+    if (!this.members.length) { this._pendingSave = data; return; }
+    const fallen = Array.isArray(data.fallen) ? data.fallen : [];
+    for (const m of this.members) {
+      if (m.isDead) continue;
+      const saved = fallen.find(entry => entry?.id === m.stableId);
+      if (!saved) {
+        const health = data.health?.[m.stableId];
+        if (Number.isFinite(health) && health > 0) m.health = Math.min(health, m.maxHealth);
+        continue;
+      }
+      const hasPosition = Array.isArray(saved.position) && saved.position.length === 3 && saved.position.every(Number.isFinite);
+      if (hasPosition) m.position.fromArray(saved.position);
+      m.restoreDeath({ facing: saved.yaw, plan: saved.plan, from: saved.from });
+      m.emergencyReported = saved.emergencyReported === true;
+      m.emergencyAided = saved.emergencyAided === true;
+      if (!hasPosition || saved.bodyReleased === true) m.dispose();
+    }
+    this.outcome = ['victoria', 'derrota', 'escape'].includes(data.outcome) ? data.outcome : null;
+    // Puede guardarse desde el propio impacto, antes del siguiente paso de la camioneta.
+    if (!this.outcome && (this.leader.isDead || this.thugs.every(m => m.isDead))) this.outcome = 'victoria';
+  }
+
   /** Busca un tramo de calle cerca del jugador y manda la camioneta. Devuelve true si viene. */
   trigger() {
-    if (this.active || !this.suv || !this.members.length) return false;
+    if (this.active || !this.suv || !this.members.length || this.outcome === 'victoria'
+      || this.members.some(m => m.state === 'surrendered')) return false;
     const target = this.player.position;
     let best = null;
     for (const route of this.routes) {
@@ -121,6 +173,7 @@ export class LimpiezaSocialSystem {
     this.distance = route.loop === false ? Math.max(0, d - LIMPIEZA.approach) : d - LIMPIEZA.approach;
     this.speed = LIMPIEZA.cruise;
     this.state = 'arriving';
+    this.outcome = null;
     this.timer = 0;
     this.cooldown = LIMPIEZA.cooldown;
     this.suv.group.visible = true;
@@ -147,9 +200,13 @@ export class LimpiezaSocialSystem {
     return target;
   }
 
-  /** Recuperación tras morir o recargar: todos arriba y la camioneta desaparece. */
+  /** La recuperación hace volver a los sobrevivientes. Las bajas conservan su lugar en la calle. */
   reset() {
-    for (const m of this.members) if (m.active) m.enterCar();
+    for (const m of this.members) if (m.active || m.state === 'surrendered') m.enterCar();
+    this._park();
+  }
+
+  _park() {
     this._removePeople();
     if (this.suv) this.suv.group.visible = false;
     this.state = 'idle';
@@ -170,10 +227,12 @@ export class LimpiezaSocialSystem {
    * @param {{ canChase?: boolean, isNight?: boolean, allowSpawn?: boolean, camera?: THREE.Camera }} ctx
    *   canChase = false durante la muerte o el sueño; camera ubica los globos de lo que gritan
    */
-  update(dt, { canChase = true, isNight = false, allowSpawn = true, camera = null } = {}) {
+  update(dt, { canChase = true, isNight = false, allowSpawn = true, camera = null, drawDistance } = {}) {
     // en pausa no se anima: el mezclador no reescribe huesos quietos y las poses sumadas se acumularían
     if (dt <= 0) return;
     if (!this.active) {
+      this._updateMembers(dt, camera, drawDistance);
+      if (this.outcome === 'victoria') return;
       this.cooldown = Math.max(0, this.cooldown - dt);
       if (!isNight || !allowSpawn || this.cooldown > 0) return;
       this.checkTimer += dt;
@@ -188,7 +247,20 @@ export class LimpiezaSocialSystem {
       if (this.timer >= LIMPIEZA.dropDelay) this._dropOff();
     } else if (this.state === 'out') this._hunt(dt, canChase);
     else if (this.state === 'leaving') this._leave(dt);
-    for (const m of this.members) if (m.active) m.update(dt, { player: this.player.position, camera });
+    this._updateMembers(dt, camera, drawDistance);
+  }
+
+  _updateMembers(dt, camera, drawDistance) {
+    let frustum;
+    for (const m of this.members) {
+      if (m._disposed || (!m.active && !m.isDead && m.state !== 'surrendered')) continue;
+      if (camera?.projectionMatrix && !frustum) {
+        frustum = this._frustum.setFromProjectionMatrix(this._projection.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse));
+      }
+      m.update(dt, { player: this.player.position, camera, frustum, drawDistance, releaseDeadBody: true });
+      if (m.state === 'surrendered' && m.position.distanceTo(this.player.position) > 20
+        && (frustum ? !m.root.visible : m.position.distanceTo(this.player.position) > 40)) m.enterCar();
+    }
   }
 
   _arrive(dt) {
@@ -219,7 +291,10 @@ export class LimpiezaSocialSystem {
   }
 
   _dropOff() {
+    this._attackInterval = 0;
+    this._lastAttacker = null;
     this.members.forEach((m, i) => {
+      if (m.isDead) return;
       m.exitCar(this._doorPoint(i, _door), this.player.position);
       if (this._people && !this._people.includes(m)) this._people.push(m);
     });
@@ -231,25 +306,41 @@ export class LimpiezaSocialSystem {
 
   _hunt(dt, canChase) {
     const player = this.player.position;
-    const thugsBack = this.thugs.every((m) => !m.active);
-    for (const m of this.thugs) {
+    const thugs = this.thugs;
+    if (this.stats?.salud <= 0) this._resolve('derrota');
+    else if (this._defeated()) this._resolve('victoria');
+    else if (!canChase) this._resolve('escape', false);
+    this._attackInterval = Math.max(0, this._attackInterval - dt);
+    if (this._lastAttacker === thugs[0]) thugs.reverse();
+    let canSwing = this._attackInterval <= 0 && !thugs.some(m => m.state === 'windup' || m.state === 'strike');
+    for (const m of thugs) {
       if (!m.active) continue;
-      const result = m.think(dt, { player, canChase });
-      if (result === 'swing') this.audio?.playWhoosh?.();
-      else if (result === 'hit') this._hitPlayer(m);
-      else if (result === 'giveup' && !this._gaveUp) {
-        this._gaveUp = true;
-        toast(canChase ? 'Se cansaron de perseguirte y vuelven a la camioneta.' : 'Se devuelven a la camioneta.', 'info');
+      const result = m.think(dt, { player, canChase, canSwing });
+      if (result === 'swing') {
+        canSwing = false;
+        this._lastAttacker = m;
+        this._attackInterval = SQUAD.groupInterval;
+        this.audio?.playWhoosh?.();
       }
+      else if (result === 'hit') this._hitPlayer(m);
     }
-    // el jefe se sube cuando sus muchachos ya volvieron
-    const result = this.leader.think(dt, { player, canChase, recall: thugsBack });
-    if (result === 'home' || !this.leader.active) {
+    if (thugs.every(m => !m.isAttacking)) this._resolve(thugs.some(m => m.isDead) ? 'victoria' : 'escape', canChase);
+    if (this.leader.active) this.leader.think(dt, { player, canChase });
+    if (this.members.every(m => !m.active)) {
       this._removePeople();
       this.state = 'leaving';
       this.timer = 0;
-      this._gaveUp = false;
     }
+  }
+
+  _resolve(outcome, canChase = true) {
+    if (this.outcome || this.state !== 'out') return;
+    this.outcome = outcome;
+    // Cancela incluso un ataque que se encontraba ya en el cuadro de contacto.
+    for (const member of this.members) member.retreat();
+    if (outcome === 'victoria') toast('Vencí a los de la camioneta. Se acabó la persecución.', 'info');
+    else if (outcome === 'escape') toast(canChase ? 'Se cansaron de perseguirte y vuelven a la camioneta.' : 'Se devuelven a la camioneta.', 'info');
+    globalThis.window?.dispatchEvent?.(new CustomEvent('limpieza-outcome', { detail: { system: this, outcome } }));
   }
 
   _leave(dt) {
@@ -259,27 +350,32 @@ export class LimpiezaSocialSystem {
     rollWheels(this.suv, step);
     this.suv.setBraking(false);
     this._place();
-    if (this.distance - this.stopAt > LIMPIEZA.leave || (this.route.loop === false && this.distance >= this.route.length)) this.reset();
+    if (this.distance - this.stopAt > LIMPIEZA.leave || (this.route.loop === false && this.distance >= this.route.length)) this._park();
   }
 
   _hitPlayer(member) {
-    if (!this.stats || this.stats.salud <= 0) return;
+    if (!this.stats || this.stats.salud <= 0 || this.outcome) return;
     if (this.player.isRagdollActive) return; // ya está en el piso: el siguiente golpe es cuando se pare
-    if (!member?.active || !canReachCombatTarget({ from: member.position, to: this.player.position,
+    if (!member?.active || member.isAttacking === false || !canReachCombatTarget({ from: member.position, to: this.player.position,
       maxDistance: SQUAD.attackRange + .4, collisions: this.collisions, getWaterInfo: this.getWaterInfo,
       toInWater: !!this.player.isSwimming })) return;
     const [min, max] = SQUAD.damage;
-    const damage = Math.round(min + this.random() * (max - min));
-    this.stats.salud = Math.max(0, this.stats.salud - damage);
+    const previousHealth = this.stats.salud;
+    const damage = Math.min(previousHealth, Math.round(min + this.random() * (max - min)));
+    this.stats.salud = previousHealth - damage;
     this.audio?.playThud?.();
     // a diferencia del conductor, siguen pegando aunque esté tambaleando
     this.player.receiveHit?.(this.player.position.clone().sub(member.position), 1.6, { salud: this.stats.salud });
     this.onPlayerHurt?.(damage);
+    const { x, y, z } = this.player.position;
+    globalThis.window?.dispatchEvent?.(new CustomEvent('npc-player-hit', { detail: { attacker: member, victim: this.player,
+      previousHealth, health: this.stats.salud, damage, weapon: 'pistola', position: { x, y, z } } }));
     toast(`Me dieron un cachazo: −${damage} de salud.`, 'death');
+    if (this.stats.salud <= 0) this._resolve('derrota');
   }
 
   /** Personajes para precargar junto con los demás NPC. */
-  get preloadables() { return this.members; }
+  get preloadables() { return this.members.filter(m => !m._disposed); }
 
   _disposeActors() {
     for (const m of this.members) m.dispose();

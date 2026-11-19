@@ -146,7 +146,7 @@ test('Bocina de carro y sonido de carreta en AudioSystem', () => {
 
 test('Carreta de balineras: estructura 3D, acople al jugador, bonificación de carga y rodamiento', () => {
   const scene = new THREE.Scene();
-  const cart = new Cart(scene, new THREE.Vector3(15, 0, 20));
+  const cart = new Cart(scene, new THREE.Vector3(10, 0, 11.4));
 
   assert.equal(cart.kind, 'cart');
   assert.equal(cart.isAttached, false);
@@ -171,10 +171,12 @@ test('Carreta de balineras: estructura 3D, acople al jugador, bonificación de c
   assert.equal(inventory.maxWeight, 140, 'Aumenta 120 kg la capacidad de carga');
 
   // 2. Movimiento: la carreta sigue al jugador al frente
+  for (let i = 0; i < 5; i++) cart.update(0.1, player, { playCartRumble() {} });
+  player.position.z += .25;
   cart.update(0.1, player, { playCartRumble() {} });
   assert.equal(cart.position.x, 10);
   assert.ok(cart.position.z > 10, 'La carreta se ubica frente al rumbo del jugador');
-  assert.ok(cart._wheelRotation > 0, 'Las balineras ruedan con el avance');
+  assert.ok(Math.abs(cart.leftWheel.rotation.x - .25 / .32) < .001, 'Las balineras ruedan según el avance real y su radio');
 
   // 3. Persistencia de estado
   const saved = cart.saveState();

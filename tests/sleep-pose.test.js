@@ -80,3 +80,20 @@ test('dormir no acumula offsets ni cambia otro cuerpo, tampoco al cancelar', asy
   pose.reset(); assert.equal(pose.weight, 0); assert.deepEqual(snapshot(bones), before);
   pose.apply(0, false); assert.deepEqual(snapshot(bones), before);
 });
+
+test('el colchón corto recoge ambos talones y la pose de suelo se recupera al salir del cambuche', async () => {
+  const { scene, bones } = await bodyRig('hombre-adulto');
+  const pose = new SleepPose(bones, scene);
+  const feet = [...bones.values()].filter(bone => /(?:left|right)foot$/i.test(bone.name));
+  const settle = surface => {
+    for (let i = 0; i < 60; i++) pose.apply(1 / 30, true, surface);
+    assert.ok(bounds(scene).min.y > -.0001);
+    return feet.map(bone => bone.getWorldPosition(new THREE.Vector3()).z);
+  };
+  const suelo = settle(undefined);
+  pose.reset();
+  const colchon = settle('colchonCorto');
+  assert.ok(colchon.every((z, i) => z < suelo[i] - .23));
+  pose.reset();
+  assert.deepEqual(settle(undefined), suelo);
+});

@@ -144,14 +144,14 @@ beforeEach(() => {
 });
 afterEach(() => { delete globalThis.document; delete globalThis.window; });
 
-test('un golpe suelto no muestra el cartón, estar en el suelo sí, y se va solo', () => {
+test('varios impactos de pie conservan la vista y una caída al suelo muestra el cartón hasta recuperarse', () => {
   const m = new Momentos();
   const cascado = globalThis.document._n.cascado;
   const stats = { salud: 80 };
-  for (let i = 0; i < 3; i++) m.update(.1, { isStunned: true }, stats, null);
-  assert.equal(cascado.hidden, true, 'lo que dura un tambaleo no cuenta');
+  for (let i = 0; i < 8; i++) m.update(.1, { isStunned: true, isKnockedDown: false }, stats, null);
+  assert.equal(cascado.hidden, true, 'los impactos seguidos tampoco son una caída');
   m.update(.1, { isStunned: false }, stats, null);
-  for (let i = 0; i < 5; i++) m.update(.1, { isStunned: true }, stats, null);
+  for (let i = 0; i < 5; i++) m.update(.1, { isStunned: true, isKnockedDown: true }, stats, null);
   assert.equal(cascado.hidden, false, 'está noqueado');
   m.update(.5, { isStunned: false }, stats, null);
   assert.equal(cascado.hidden, false, 'se deja leer');

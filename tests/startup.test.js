@@ -6,6 +6,7 @@ import { Renderer } from '../src/core/Renderer.js';
 import { FrameMetrics } from '../src/core/FrameMetrics.js';
 import { loadInBatches, loadTaskGroups, withLoadTimeout } from '../src/core/Startup.js';
 import { Clock } from '../src/core/Clock.js';
+import { Cart } from '../src/entities/Cart.js';
 import { WeatherSystem } from '../src/world/WeatherSystem.js';
 
 const deferred = () => {
@@ -30,7 +31,15 @@ function fixture(t, { fresh = false, lightweight = false } = {}) {
     },
     player: {
       position: new THREE.Vector3(), root: new THREE.Group(),
-      async setModel() { events.push('player'); await models.promise; }
+      async setModel() { events.push('player'); await models.promise; },
+      updateCartPose(cart) {
+        assert.equal(cart, game.cart);
+        if (cart?.isAttached) {
+          assert.equal(cart.gripWeight, 1);
+          assert.ok(Math.abs(cart.position.distanceTo(this.position) - 1.4) < 1e-6);
+        }
+        events.push('cart-pose');
+      }
     },
     cameraRig: { mode: 'third-person', yaw: 0, camera: new THREE.PerspectiveCamera(), follow() {} },
     sceneMgr: { scene: new THREE.Scene(), setTimeOfDay() {}, followTarget() {} },
@@ -74,9 +83,13 @@ test('el inicio espera modelos, shaders y GPU antes de mostrar, medir o simular;
   f.game.weather = new WeatherSystem(f.game.sceneMgr.scene);
   f.game.world.active.reserved = { spawn: { x: 112.98, z: 97.84 } };
   f.game.world.active.getGroundHeight = () => .08;
+  f.game.cart = new Cart(f.game.sceneMgr.scene);
+  const inventory = { maxWeight: 20 };
   // Una partida guardada conserva su hora y su clima; solo una nueva empieza al amanecer.
   f.game._loadIfSave = () => {
     f.game.player.position.set(40, 0, 26);
+    f.game.cart.loadState({ x: 40, y: 0, z: 24.6, isAttached: true }, f.game.player, inventory);
+    f.events.push('restore');
     f.game.clock.deserialize({ day: 5, hour: 9 });
     f.game.weather.setWeather('llovizna', false);
     return true;
@@ -112,7 +125,11 @@ test('el inicio espera modelos, shaders y GPU antes de mostrar, medir o simular;
   assert.equal(f.game.weather.rainParticles.position.z, 97.84);
   assert.deepEqual(f.game.player.position.toArray(), [112.98, .08, 97.84]);
   assert.deepEqual(f.game.player.root.position, f.game.player.position);
+  assert.equal(f.game.player.hasCart, true);
+  assert.equal(inventory.maxWeight, 140);
   assert.equal(f.events.filter(e => e === 'map').length, 1);
+  assert.ok(f.events.indexOf('restore') < f.events.indexOf('cart-pose'));
+  assert.ok(f.events.indexOf('cart-pose') < f.events.indexOf('render'));
   assert.ok(f.events.indexOf('show-game') < f.events.indexOf('schedule-loop'));
   f.metrics.sample(20000); f.metrics.sample(20020);
   assert.equal(f.metrics.min, 50); // la espera no contamina mínimo ni promedio
