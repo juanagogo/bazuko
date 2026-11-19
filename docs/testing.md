@@ -292,6 +292,7 @@ La prueba larga de tráfico monta el tráfico como una partida: ciudad completa,
 
 `luz-hora.test.js` cuida la luz de cada hora sin navegador: de noche lo más oscuro sube al menos la mitad frente a la curva anterior sin tocar el pozo del farol, y la curva sigue creciendo a toda exposición; una mañana nublada y una tarde con llovizna no llevan el color de la noche y las 22:00 sí; al atardecer despejado el sol es rosado y el relleno malva, a mediodía y nublado no, y el relleno sube y baja sin saltos; a igual altura del sol el amanecer es más frío y pálido que la tarde con la misma cantidad de luz, y a medianoche nada salta; el cielo nublado es gris claro y solo el medio nublado deja sombra de nubes.
 
+`motos-domicilio.test.js` cuida las motos de reparto (`motos.js`): con cajón gastan del azar del juego lo mismo que antes de tenerlo; la mitad de los grupos del juego es de domicilio y cada cajón va sobre su moto, y la moto con su cajón cabe en la huella que choca y no pasa de su tope de triángulos; la llanta va marcada como caucho y con poco polvo, la placa lleva trazos finos y el casco es gris con borde.
 
 ## Gente de la calle
 

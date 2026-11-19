@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { makeVehicle } from '../src/world/bogota/vehicles.js';
 import { LAMP } from '../src/world/bogota/carModels.js';
+import { PLACAS_MOTO, makeParkedMotos } from '../src/world/bogota/motos.js';
 import * as THREE from 'three';
 import { ATLAS_HEIGHT, ATLAS_SIZE, PRIVATE_PLATES, PUBLIC_PLATES, RECT, plateCell } from '../src/world/bogota/carAtlas.js';
 
@@ -81,6 +82,19 @@ function gruposDelJuego() {
   return motos;
 }
 
+test('las motos siguen con un lote por grupo, la misma geometría y el mismo azar', () => {
+  const [root, veces] = contarTiradas(() => makeParkedMotos(gruposDelJuego()));
+  assert.equal(veces, 204, 'la primera vez arma el modelo y el material');
+  assert.equal(root.children.length, 10);
+  assert.deepEqual(root.children.map(lote => lote.count), [2, 3, 1, 2, 3, 1, 2, 3, 1, 2]);
+  assert.equal(mallas(root), 15, 'diez lotes y cinco de cajones: ningún pedido de dibujo nuevo');
+  const [primero] = root.children;
+  for (const lote of root.children) {
+    assert.equal(lote.geometry, primero.geometry, 'geometría compartida');
+    assert.equal(lote.material, primero.material, 'material compartido');
+  }
+  root.dispose();
+});
 
 /** La placa que lleva un vehículo, leída del desplazamiento que su material aplica a la celda de placa. */
 function placaDe(vehiculo) {
@@ -169,3 +183,31 @@ test('con más vehículos que placas la vuelta empieza de nuevo, sin dos iguales
   for (let i = 16; i < publicos.length; i++) assert.equal(publicos[i], publicos[i - 16]);
 });
 
+test('las motos llevan placas distintas: cada una de un lote con la suya y en la ciudad dan la vuelta', () => {
+  assert.ok(PLACAS_MOTO.length >= 6);
+  assert.equal(new Set(PLACAS_MOTO).size, PLACAS_MOTO.length);
+  for (const placa of PLACAS_MOTO) assert.match(placa, /^[A-Z]{3} \d\d[A-Z]$/, placa);
+  const root = makeParkedMotos(gruposDelJuego());
+  const placaDeMoto = (lote, i) => Math.floor((lote.instanceColor.array[i * 3] * 4096 % 1) * PLACAS_MOTO.length);
+  const vistas = [];
+  for (const lote of root.children) {
+    const placas = Array.from({ length: lote.count }, (_, i) => placaDeMoto(lote, i));
+    assert.equal(new Set(placas).size, placas.length, 'en una fila no se repite la placa');
+    vistas.push(...placas);
+  }
+  assert.equal(new Set(vistas).size, PLACAS_MOTO.length, 'en la ciudad salen todas');
+  for (let i = 1; i < vistas.length; i++) assert.notEqual(vistas[i], vistas[i - 1]);
+  // El sombreador conoce los trazos de cada placa y esconde los que no van.
+  const shader = { uniforms: {}, vertexShader: THREE.ShaderLib.standard.vertexShader, fragmentShader: THREE.ShaderLib.standard.fragmentShader };
+  root.children[0].material.onBeforeCompile(shader, {});
+  const tabla = shader.vertexShader.match(/const int MOTO_PLACAS\[(\d+)\] = int\[\]\(([^)]*)\)/);
+  assert.ok(tabla, 'tabla de trazos en el sombreador');
+  assert.equal(Number(tabla[1]), PLACAS_MOTO.length * 6);
+  const mascaras = tabla[2].split(',').map(Number);
+  assert.ok(mascaras.every(m => Number.isInteger(m) && m > 0 && m < 32), 'cada carácter tiene trazos');
+  assert.equal(new Set(PLACAS_MOTO.map((_, p) => mascaras.slice(p * 6, p * 6 + 6).join())).size, PLACAS_MOTO.length, 'ninguna placa se dibuja igual a otra');
+  // Una fila de tres, como la de la vitrina: tres placas distintas.
+  const fila = makeParkedMotos([0, 1, 2].map(i => ({ x: i * .95, z: 0, rot: .22, seed: i })));
+  assert.equal(new Set([0, 1, 2].map(i => placaDeMoto(fila.children[0], i))).size, 3);
+  root.dispose(); fila.dispose();
+});
