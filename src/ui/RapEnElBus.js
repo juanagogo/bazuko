@@ -13,14 +13,15 @@ import { icon } from './icons.js';
 import { cop } from '../utils/money.js';
 import { conSigno } from '../utils/numeros.js';
 import { modoEntrada, teclaVisible } from '../core/modoEntrada.js';
-import { RITMO, armarCancion, posicion, juzgar, marcarPerdidos, flowDe, nivelDe, trabada } from '../systems/rap/ritmo.js';
-import { elegirPasajeros, gestoDurante, interes, cobrar, EFECTOS_RAP } from '../systems/rap/pago.js';
+import { RITMO, armarCancion, posicion, juzgar, marcarPerdidos, flowDe, nivelDe, trabada, rachaDe } from '../systems/rap/ritmo.js';
+import { elegirPasajeros, gestoDurante, interes, cobrar, videoDelEstudiante, EFECTOS_RAP } from '../systems/rap/pago.js';
 import { RapAudio } from '../systems/rap/RapAudio.js';
-import { VEREDICTOS, CON_MAL_OLOR } from '../data/rapLetras.js';
+import { VEREDICTOS, CON_MAL_OLOR, GRITOS_RACHA, SILENCIOS, REPETIDO } from '../data/rapLetras.js';
 
 const FUNDIDO_MS = 500;
 const CUENTA_QUIETA_MS = 700; // quien venía machacando Espacio no se salta la cuenta sin leerla
 const CORTES = ['corte-b', 'corte-c', 'corte-d'];
+const SILENCIO_CADA = 3; // golpes perdidos seguidos para que el vagón se quede callado
 
 export class RapEnElBus {
   /**
@@ -49,15 +50,17 @@ export class RapEnElBus {
 
   /**
    * Empieza el rap. `hacia` es la parada de llegada; `onTermina(resultado)` corre cuando el jugador se baja.
-   * El resultado: { nivel, flow, total, pagaron, filas, malOlor }.
+   * El resultado: { nivel, flow, total, pagaron, filas, malOlor, repetido, video, estrofas }.
+   * `repetido` es que ya rapeé hace poco (dan menos); `evitar`, las estrofas del rap anterior.
    */
-  empezar({ hacia, sistema = 'TransMilenio', hora = 12, malOlor = false, onTermina = () => {} }) {
+  empezar({ hacia, sistema = 'TransMilenio', hora = 12, malOlor = false, repetido = false, evitar = [], onTermina = () => {} }) {
     if (this.activo) return false;
     this.hacia = hacia;
     this.sistema = sistema;
     this.malOlor = malOlor;
+    this.repetido = repetido;
     this.onTermina = onTermina;
-    this.cancion = armarCancion({ random: this.random, hora });
+    this.cancion = armarCancion({ random: this.random, hora, evitar });
     this.pasajeros = elegirPasajeros(this.random);
     this.resultados = [];
     this.extras = 0;
@@ -65,6 +68,10 @@ export class RapEnElBus {
     this.resultado = null;
     this._compas = null;
     this._ultimaTrabada = null;
+    this._ultimoSilencio = null;
+    this._rachaVista = 0;
+    this._rachaJuzgados = 0;
+    this._rachaCompas = null;
     this._esperandoHasta = -Infinity;
     this._pausado = false;
     this.estado = 'fundiendo';
@@ -120,6 +127,7 @@ export class RapEnElBus {
     this.resultados[r.indice] = r.calidad;
     this._pintarPedazo(r.indice);
     this._pintarZona(r.indice);
+    this._revisarRacha();
     return r;
   }
 
@@ -178,11 +186,13 @@ export class RapEnElBus {
     this._raf = this.doc?.defaultView?.requestAnimationFrame(() => this._cuadro());
     if (this._pausado) return;
     const t = this.tiempo();
-    for (const i of marcarPerdidos(this.cancion, this.resultados, t)) {
+    const perdidos = marcarPerdidos(this.cancion, this.resultados, t);
+    for (const i of perdidos) {
       this.audio?.fallo?.();
       this._pintarPedazo(i);
       this._pintarZona(i);
     }
+    if (perdidos.length) this._revisarRacha();
     const { compas, fraccion } = posicion(this.cancion, t);
     if (compas !== this._compas) this._entrarCompas(compas);
     if (this._marca) {
@@ -196,6 +206,8 @@ export class RapEnElBus {
     this._compas = compas;
     this._pintarLineas(compas);
     this._pintarBarra(compas);
+    // Lo que gritó el vagón dura el compás en que salió y el siguiente.
+    if (this._rachaCompas !== null && compas > this._rachaCompas + 1) this._pintarRacha(null);
     // La gente reacciona al empezar cada compás, no a cada golpe: lo que se escribe en la página cambia poco.
     if (compas >= 3) this._pintarGente(flowDe(this.cancion, this.resultados, this.extras, { soloJuzgados: true }));
   }
@@ -219,6 +231,9 @@ export class RapEnElBus {
       this._esperandoHasta = inicioCompas;
       if (this._conAudio) this.audio.empezar(this.cancion, this.audio.ahora() + RITMO.previa - inicioCompas, { desde, puertas: false });
       this._compas = null;
+      this._rachaVista = 0;
+      this._rachaJuzgados = -1;
+      this._pintarRacha(null);
       this._pausado = false;
     }
   }
@@ -231,8 +246,12 @@ export class RapEnElBus {
     this.audio?.parar?.();
     const flow = cancelado ? 0 : flowDe(this.cancion, this.resultados, this.extras);
     const nivel = cancelado ? 'cancelado' : nivelDe(flow);
-    const cobro = cancelado ? { filas: [], total: 0, pagaron: 0 } : cobrar({ pasajeros: this.pasajeros, nivel, malOlor: this.malOlor, random: this.random });
-    this.resultado = { nivel, flow, malOlor: this.malOlor, ...cobro };
+    const cobro = cancelado
+      ? { filas: [], total: 0, pagaron: 0 }
+      : cobrar({ pasajeros: this.pasajeros, nivel, malOlor: this.malOlor, repetido: this.repetido, random: this.random });
+    const video = cancelado ? null : videoDelEstudiante(this.pasajeros, nivel, this.random);
+    const estrofas = [...new Set(this.cancion.compases.map((c) => c.estrofa).filter(Boolean))];
+    this.resultado = { nivel, flow, malOlor: this.malOlor, repetido: this.repetido && !cancelado, video, estrofas, ...cobro };
     this._cuentaDesde = globalThis.performance?.now?.() ?? 0;
     if (cobro.total > 0) this.game?.audio?.play?.('sell');
     this._pintarCuenta();
@@ -266,13 +285,14 @@ export class RapEnElBus {
     this._ayuda = el('p', { class: 'rap__ayuda' });
     this._linea = el('p', { class: 'rap__linea' });
     this._siguiente = el('p', { class: 'rap__siguiente' });
+    this._racha = el('p', { class: 'retazo rap__racha', hidden: true, 'aria-live': 'polite' });
     this._ruta = el('p', { id: 'rap-ruta', class: 'rap__ruta carton corte-b' });
     this._gente = el('ul', { class: 'rap__gente', 'aria-label': 'La gente del vagón' });
     this._cuenta = el('div', { class: 'rap__cuenta', hidden: true, 'aria-live': 'polite' });
     this._escena = el('div', { class: 'rap__escena carton corte-c' }, this._linea, el('hr', { class: 'regla rap__regla' }), this._siguiente);
     this._barra = el('div', { class: 'rap__barra carton corte-d' }, this._pista, this._ayuda);
     this.root = el('section', { id: 'rap-bus', class: 'rap', hidden: true, role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': 'rap-ruta' },
-      el('header', { class: 'rap__cabeza' }, this._ruta),
+      el('header', { class: 'rap__cabeza' }, this._ruta, this._racha),
       this._escena, this._barra, this._gente, this._cuenta);
     // Con el dedo, toda la escena es la tecla: un toque es un golpe.
     this.root.addEventListener('pointerdown', (e) => {
@@ -292,6 +312,7 @@ export class RapEnElBus {
     this._gente.hidden = false;
     this._cuenta.hidden = true;
     this._cuenta.replaceChildren();
+    this._pintarRacha(null);
     this._pintarAyuda();
     this._fichas = new Map();
     this._gente.replaceChildren(...this.pasajeros.map((p, i) => {
@@ -391,6 +412,37 @@ export class RapEnElBus {
     }
   }
 
+  /**
+   * Cuando la racha llega a una de las cuentas de GRITOS_RACHA, el vagón grita; cuando me trabo SILENCIO_CADA veces
+   * seguidas, se queda callado. Cada grito sale una vez por rap.
+   */
+  _revisarRacha() {
+    // Una vez por cada golpe nuevo juzgado: varios perdidos de un solo cuadro no repiten el silencio.
+    const juzgados = this.resultados.filter(Boolean).length;
+    if (juzgados === this._rachaJuzgados) return;
+    this._rachaJuzgados = juzgados;
+    const { buenos, malos } = rachaDe(this.cancion, this.resultados);
+    if (buenos > this._rachaVista && GRITOS_RACHA[buenos]) {
+      this._rachaVista = buenos;
+      this._pintarRacha(GRITOS_RACHA[buenos], 'grito');
+      this.audio?.grito?.();
+    } else if (malos > 0 && malos % SILENCIO_CADA === 0) {
+      let texto = SILENCIOS[Math.floor(this.random() * SILENCIOS.length) % SILENCIOS.length];
+      if (texto === this._ultimoSilencio) texto = SILENCIOS[(SILENCIOS.indexOf(texto) + 1) % SILENCIOS.length];
+      this._ultimoSilencio = texto;
+      this._pintarRacha(texto, 'silencio');
+    }
+  }
+
+  _pintarRacha(texto, tipo = 'grito') {
+    // Se cuenta desde el compás que suena ahora, no desde el último que se pintó.
+    this._rachaCompas = texto ? Math.max(this._compas ?? 0, posicion(this.cancion, this.tiempo()).compas) : null;
+    if (!this._racha) return;
+    this._racha.hidden = !texto;
+    this._racha.textContent = texto ?? '';
+    this._racha.className = `retazo rap__racha${tipo === 'silencio' ? ' is-silencio' : ''}`;
+  }
+
   _pintarCuenta() {
     if (!this.root) return;
     const r = this.resultado;
@@ -419,7 +471,9 @@ export class RapEnElBus {
     this._cuenta.replaceChildren(...[
       el('p', { class: 'retazo rap__grito', text: v.grito }),
       el('p', { class: 'rap__veredicto', text: v.linea }),
-      r.malOlor && r.nivel !== 'cancelado' ? el('p', { class: 'rap__olor', text: CON_MAL_OLOR }) : null,
+      r.malOlor && r.nivel !== 'cancelado' ? el('p', { class: 'rap__nota', text: CON_MAL_OLOR }) : null,
+      r.repetido ? el('p', { class: 'rap__nota', text: REPETIDO }) : null,
+      r.video ? el('p', { class: 'rap__nota', text: r.video }) : null,
       filas.length ? el('ul', { class: 'rap__filas' }, ...filas) : null,
       el('div', { class: 'rap__total carton corte-c' },
         el('span', { class: 'rap__total-texto', text: r.total > 0 ? 'Me hice' : 'No me hice nada' }),

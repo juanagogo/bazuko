@@ -4,10 +4,14 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   RITMO, POSICIONES, armarCancion, duracionCompas, elegirEstrofas, flowDe, juzgar, marcarPerdidos, nivelDe,
-  partirPedazo, posicion, saludoPara, trabada,
+  partirPedazo, posicion, rachaDe, saludoPara, trabada,
 } from '../src/systems/rap/ritmo.js';
-import { PAGO, EFECTOS_RAP, avisoDelRap, cobrar, elegirPasajeros, gestoDurante, interes } from '../src/systems/rap/pago.js';
-import { ESTROFAS, PASAJEROS, SALUDOS, TRABADAS, VEREDICTOS, CIERRE } from '../src/data/rapLetras.js';
+import {
+  PAGO, EFECTOS_RAP, avisoDelRap, cobrar, elegirPasajeros, esRepetido, gestoDurante, interes, videoDelEstudiante,
+} from '../src/systems/rap/pago.js';
+import {
+  ESTROFAS, PASAJEROS, SALUDOS, TRABADAS, VEREDICTOS, CIERRE, GRITOS_RACHA, SILENCIOS, REPETIDO,
+} from '../src/data/rapLetras.js';
 import { hasIcon } from '../src/ui/icons.js';
 import { RapEnElBus } from '../src/ui/RapEnElBus.js';
 import { StreetLife } from '../src/systems/StreetLife.js';
@@ -72,6 +76,33 @@ test('las dos estrofas siempre son distintas, con cualquier azar', () => {
   const r = semilla(11);
   for (let i = 0; i < 300; i++) for (const e of elegirEstrofas(r)) vistas.add(e.id);
   assert.equal(vistas.size, ESTROFAS.length, 'todas salen alguna vez');
+});
+
+test('rapear otra vez: no repito las estrofas del rap anterior mientras queden otras', () => {
+  const r = semilla(4);
+  for (let i = 0; i < 200; i++) {
+    const [a, b] = elegirEstrofas(r, ESTROFAS, ['cambuche', 'chato']);
+    assert.ok(!['cambuche', 'chato'].includes(a.id) && !['cambuche', 'chato'].includes(b.id), `${a.id} ${b.id}`);
+    assert.notEqual(a.id, b.id);
+  }
+  // Si evitar deja menos de dos, se elige entre todas.
+  const todasMenosUna = ESTROFAS.slice(1).map((e) => e.id);
+  const [a, b] = elegirEstrofas(fija(0.5), ESTROFAS, todasMenosUna);
+  assert.notEqual(a.id, b.id);
+  const c = armarCancion({ random: semilla(9), evitar: ['fama', 'clima'] });
+  assert.ok(!c.compases.some((x) => x.estrofa === 'fama' || x.estrofa === 'clima'));
+});
+
+test('la racha: cuenta desde el último golpe juzgado hacia atrás, buenos o malos', () => {
+  const c = armarCancion({ random: semilla() });
+  assert.deepEqual(rachaDe(c, []), { buenos: 0, malos: 0 });
+  assert.deepEqual(rachaDe(c, ['justo', 'bien', 'justo']), { buenos: 3, malos: 0 });
+  assert.deepEqual(rachaDe(c, ['justo', 'fuera', 'justo', 'bien']), { buenos: 2, malos: 0 });
+  assert.deepEqual(rachaDe(c, ['justo', 'fuera', 'fuera', 'fuera']), { buenos: 0, malos: 3 });
+  // Los gritos caben en una canción: el último sale antes del cierre.
+  const cuentas = Object.keys(GRITOS_RACHA).map(Number);
+  assert.ok(Math.max(...cuentas) <= c.golpes.length - 2, 'el último grito alcanza a salir');
+  assert.ok(SILENCIOS.length >= 2);
 });
 
 // ---------- el juicio ----------
@@ -230,17 +261,40 @@ test('el aviso al llegar dice lo que me hice, o que me bajaron, o que me callé'
   assert.match(avisoDelRap({ nivel: 'cancelado', total: 0, destino: 'X', minutos: 9 }), /no rapeé/);
 });
 
+test('si ya rapeé hace poco, dan menos; a las tres horas se les olvida', () => {
+  assert.equal(esRepetido(undefined, 10), false);
+  assert.equal(esRepetido(10, 10.5), true);
+  assert.equal(esRepetido(10, 10 + PAGO.repetirHoras), false);
+  assert.equal(esRepetido(12, 10), false, 'una hora vieja de otra partida no cuenta');
+  const total = (repetido) => {
+    const r = semilla(21);
+    let suma = 0;
+    for (let i = 0; i < 400; i++) suma += cobrar({ pasajeros: elegirPasajeros(r), nivel: 'bien', repetido, random: r }).total;
+    return suma;
+  };
+  assert.ok(total(true) < total(false) * 0.8, 'la segunda vez la gente se sabe la canción');
+});
+
+test('el video del estudiante: solo si va en el vagón, y si me lucí o hice el oso', () => {
+  const con = PASAJEROS.filter((p) => p.id === 'estudiante');
+  const sin = PASAJEROS.filter((p) => p.id !== 'estudiante').slice(0, 5);
+  assert.equal(videoDelEstudiante(sin, 'durisimo', fija(0.5)), null);
+  assert.equal(videoDelEstudiante(con, 'bien', fija(0.5)), null);
+  assert.match(videoDelEstudiante(con, 'durisimo', fija(0)), /^El estudiante ya lo subió: 300 vistas/);
+  assert.match(videoDelEstudiante(con, 'mal', fija(0.999)), /memes: 8\.99\d vistas\.$/, 'con punto de miles');
+});
+
 // ---------- la sesión, sin página ----------
 
 /** Una sesión sin página, con el reloj en la mano y sin audio. */
-function sesion({ random = semilla(5), malOlor = false } = {}) {
+function sesion({ random = semilla(5), malOlor = false, repetido = false } = {}) {
   let ahora = 100;
   const sonidos = [];
   const game = { audio: { play: (n) => sonidos.push(n) } };
-  const audio = { listo: () => false, parar() {}, fallo() { sonidos.push('fallo'); }, dispose() {} };
+  const audio = { listo: () => false, parar() {}, fallo() { sonidos.push('fallo'); }, grito() { sonidos.push('grito'); }, dispose() {} };
   const rap = new RapEnElBus(game, { audio, random, doc: null, ahora: () => ahora });
   let terminado = null;
-  rap.empezar({ hacia: { name: 'Portal del Centro' }, sistema: 'TransMilenio', hora: 9, malOlor, onTermina: (r) => { terminado = r; } });
+  rap.empezar({ hacia: { name: 'Portal del Centro' }, sistema: 'TransMilenio', hora: 9, malOlor, repetido, onTermina: (r) => { terminado = r; } });
   return {
     rap, game, sonidos, get terminado() { return terminado; },
     reloj: (t) => { ahora = t; }, enCancion: (t) => { ahora = rap._inicio + t; },
@@ -274,6 +328,42 @@ test('la sesión entera: quieto el juego, pegando cada golpe me luzco, y al baja
   assert.equal(s.rap.estado, 'apagado');
   assert.equal(s.terminado.nivel, 'durisimo');
   if (s.terminado.total > 0) assert.ok(s.sonidos.includes('sell'));
+});
+
+test('la racha en la sesión: el vagón grita cada cuenta una vez, y se queda callado si me trabo tres veces', async () => {
+  const s = sesion();
+  await s.arrancar();
+  const gritos = [];
+  const pintar = s.rap._pintarRacha.bind(s.rap);
+  s.rap._pintarRacha = (texto, tipo) => { if (texto) gritos.push([texto, tipo]); pintar(texto, tipo); };
+  const golpes = s.rap.cancion.golpes;
+  for (const g of golpes.slice(0, 8)) { s.enCancion(g.t); s.rap.golpe(); }
+  assert.deepEqual(gritos, [[GRITOS_RACHA[4], 'grito'], [GRITOS_RACHA[8], 'grito']]);
+  assert.equal(s.sonidos.filter((x) => x === 'grito').length, 2, 'con su corneta');
+  // Tres perdidos seguidos: silencio.
+  s.enCancion(golpes[10].t + 0.5);
+  s.rap._cuadro();
+  assert.equal(gritos.length, 3, JSON.stringify(gritos));
+  assert.equal(gritos[2][1], 'silencio');
+  assert.ok(SILENCIOS.includes(gritos[2][0]));
+  // Vuelvo a pegar cuatro: el ¡Eso! ya salió y no se repite.
+  for (const g of golpes.slice(11, 15)) { s.enCancion(g.t); s.rap.golpe(); }
+  assert.equal(gritos.length, 3, JSON.stringify(gritos));
+});
+
+test('el resultado trae las estrofas que canté, si me conocían y el video', async () => {
+  const s = sesion({ repetido: true, random: semilla(8) });
+  await s.arrancar();
+  for (const g of s.rap.cancion.golpes) { s.enCancion(g.t); s.rap.golpe(); }
+  s.enCancion(s.rap.cancion.fin + 0.5);
+  s.rap._cuadro();
+  const r = s.rap.resultado;
+  assert.equal(r.repetido, true);
+  assert.equal(r.estrofas.length, 2);
+  assert.deepEqual(r.estrofas, [s.rap.cancion.compases[2].estrofa, s.rap.cancion.compases[6].estrofa]);
+  const conEstudiante = s.rap.pasajeros.some((p) => p.id === 'estudiante');
+  assert.equal(Boolean(r.video), conEstudiante);
+  assert.ok(REPETIDO.length > 0);
 });
 
 test('sin oprimir nada: cada golpe se pierde, suena el fallo y me bajan del bus', async () => {
@@ -382,6 +472,24 @@ test('si me bajan llego a pie y más tarde; si me callo no gasto la voz', () => 
   b.terminar();
   assert.deepEqual([b.game.stats.energia, b.game.stats.sed], [100, 80], 'callado no cansa ni da sed');
   b.fin();
+});
+
+test('el vagón se acuerda: rapear otra vez al rato da menos y cambia las estrofas; callarme no cuenta', () => {
+  const v = viaje();
+  v.game.totalGameHours = 30;
+  v.street.travel(v.from, v.to, { modo: 'pagar', rapear: true });
+  assert.equal(v.empezo.repetido, false, 'la primera vez nadie me conoce');
+  assert.deepEqual(v.empezo.evitar, []);
+  v.terminar({ nivel: 'bien', total: 1000, pagaron: 1, flow: 0.7, estrofas: ['chato', 'clima'] });
+  v.game.totalGameHours = 31;
+  v.street.travel(v.to, v.from, { modo: 'pagar', rapear: true });
+  assert.equal(v.empezo.repetido, true);
+  assert.deepEqual(v.empezo.evitar, ['chato', 'clima']);
+  v.terminar({ nivel: 'cancelado', total: 0, pagaron: 0, flow: 0 });
+  v.game.totalGameHours = 30 + PAGO.repetirHoras + 0.5;
+  v.street.travel(v.from, v.to, { modo: 'pagar', rapear: true });
+  assert.equal(v.empezo.repetido, false, 'a las tres horas se les olvidó; el rap callado no renovó nada');
+  v.fin();
 });
 
 test('sin energía no se rapea: el viaje sale normal y lo dice', () => {

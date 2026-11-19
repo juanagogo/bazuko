@@ -2,8 +2,10 @@
 // Quién va en el vagón, cómo reacciona cada uno y cuánto da al final, según cómo me fue. Sin DOM ni audio.
 // Un rap bueno deja en promedio unos $ 5.000, más que el pasaje; uno regular no alcanza ni para la mitad.
 
-import { PASAJEROS } from '../../data/rapLetras.js';
+import { PASAJEROS, VIRAL } from '../../data/rapLetras.js';
 import { cop } from '../../utils/money.js';
+
+const miles = new Intl.NumberFormat('es-CO');
 
 export const PAGO = {
   porNivel: {
@@ -16,6 +18,8 @@ export const PAGO = {
   billete: 5000,       // el de corbata o la turista, si me luzco
   billeteProb: 0.35,
   malOlor: 0.5,        // con mal olor, la mitad de las ganas de dar
+  repetido: 0.6,       // si ya rapeé hace poco, la gente ya se sabe la canción
+  repetirHoras: 3,     // horas de juego en que el vagón todavía se acuerda de mí
   maxProb: 0.97,
   pasajeros: 5,
 };
@@ -61,10 +65,11 @@ export function reaccion(pasajero, nivel, dio = false, random = Math.random) {
  * Cobra el rap: cada pasajero decide por su cuenta. Todo en múltiplos de $ 100.
  * Devuelve { filas: [{ pasajero, dicho, pesos, billete }], total, pagaron }.
  */
-export function cobrar({ pasajeros, nivel, malOlor = false, random = Math.random }) {
+export function cobrar({ pasajeros, nivel, malOlor = false, repetido = false, random = Math.random }) {
   const regla = PAGO.porNivel[nivel] ?? PAGO.porNivel.bajado;
+  const ganas = (malOlor ? PAGO.malOlor : 1) * (repetido ? PAGO.repetido : 1);
   const filas = pasajeros.map((pasajero) => {
-    const prob = Math.min(PAGO.maxProb, regla.prob * pasajero.gusto * (malOlor ? PAGO.malOlor : 1));
+    const prob = Math.min(PAGO.maxProb, regla.prob * pasajero.gusto * ganas);
     let pesos = 0, billete = false;
     if (random() < prob) {
       if (pasajero.billete && nivel === 'durisimo' && random() < PAGO.billeteProb) {
@@ -81,6 +86,21 @@ export function cobrar({ pasajeros, nivel, malOlor = false, random = Math.random
   const total = filas.reduce((s, f) => s + f.pesos, 0);
   return { filas, total, pagaron: filas.filter((f) => f.pesos > 0).length };
 }
+
+/**
+ * El video del estudiante: sale si él va en el vagón y me lucí o hice el oso (los memes pagan mejor).
+ * Devuelve el texto con las vistas ya escritas, o null.
+ */
+export function videoDelEstudiante(pasajeros, nivel, random = Math.random) {
+  const texto = VIRAL[nivel];
+  if (!texto || !pasajeros.some((p) => p.id === 'estudiante')) return null;
+  const [min, max] = nivel === 'mal' ? [2000, 9000] : [300, 2500];
+  return texto(miles.format(Math.round(min + random() * (max - min))));
+}
+
+/** ¿Me acuerdo de este vagón? Si rapeé hace menos de `PAGO.repetirHoras`, sí. */
+export const esRepetido = (ultimaHora, ahora) =>
+  Number.isFinite(ultimaHora) && Number.isFinite(ahora) && ahora >= ultimaHora && ahora - ultimaHora < PAGO.repetirHoras;
 
 /** El texto del aviso que queda al llegar: lo que me hice, y una sola cosa más. */
 export function avisoDelRap({ nivel, total, destino, minutos }) {

@@ -41,8 +41,13 @@ export function partirPedazo(texto) {
   return mejor < 0 ? [texto] : [texto.slice(0, mejor), texto.slice(mejor + 1)];
 }
 
-/** Dos estrofas distintas al azar. */
-export function elegirEstrofas(random = Math.random, estrofas = ESTROFAS) {
+/**
+ * Dos estrofas distintas al azar. `evitar` son ids que no deberían salir (las del rap anterior): se dejan por fuera
+ * mientras queden por lo menos dos.
+ */
+export function elegirEstrofas(random = Math.random, estrofas = ESTROFAS, evitar = []) {
+  const frescas = estrofas.filter((e) => !evitar.includes(e.id));
+  if (frescas.length >= 2) estrofas = frescas;
   const a = Math.floor(random() * estrofas.length) % estrofas.length;
   let b = Math.floor(random() * (estrofas.length - 1)) % (estrofas.length - 1);
   if (b >= a) b++;
@@ -54,8 +59,8 @@ export function elegirEstrofas(random = Math.random, estrofas = ESTROFAS) {
  * La segunda estrofa pide un golpe más en la primera y la tercera línea: parte su segundo pedazo.
  * Devuelve { bpm, compas, compases: [{ tipo, texto?, pedazos?, golpes }], golpes: [{ t, compas, pedazo }], fin }.
  */
-export function armarCancion({ random = Math.random, hora = 12, bpm = RITMO.bpm, estrofas = null } = {}) {
-  const [primera, segunda] = estrofas ?? elegirEstrofas(random);
+export function armarCancion({ random = Math.random, hora = 12, bpm = RITMO.bpm, estrofas = null, evitar = [] } = {}) {
+  const [primera, segunda] = estrofas ?? elegirEstrofas(random, ESTROFAS, evitar);
   const compases = [
     { tipo: 'intro', texto: saludoPara(hora), pedazos: [] },
     { tipo: 'intro', texto: PRESENTACION, pedazos: [] },
@@ -123,6 +128,20 @@ export function flowDe(cancion, resultados, extras = 0, { soloJuzgados = false }
 export function nivelDe(flow) {
   for (const [nivel, desde] of NIVELES) if (flow + 1e-9 >= desde) return nivel;
   return 'bajado';
+}
+
+/**
+ * La racha del final: cuántos golpes seguidos, contando desde el último juzgado hacia atrás, pegaron (`buenos`)
+ * o se perdieron (`malos`). Una de las dos es cero.
+ */
+export function rachaDe(cancion, resultados) {
+  let ultimo = -1;
+  cancion.golpes.forEach((_, i) => { if (resultados[i]) ultimo = i; });
+  if (ultimo < 0) return { buenos: 0, malos: 0 };
+  const fallo = resultados[ultimo] === 'fuera';
+  let n = 0;
+  for (let i = ultimo; i >= 0 && resultados[i] && (resultados[i] === 'fuera') === fallo; i--) n++;
+  return fallo ? { buenos: 0, malos: n } : { buenos: n, malos: 0 };
 }
 
 /** Lo que se dice cuando un pedazo no pegó: no se repite el mismo dos veces seguidas. */

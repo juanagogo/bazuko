@@ -17,7 +17,7 @@ export const PRESENTACION = 'disculpen la molestia: no vengo a robarles, vengo a
 /** El último compás: dos golpes, como cualquier línea. */
 export const CIERRE = ['Gracias, señores pasajeros,', '¡que Dios les pague!'];
 
-/** Siete estrofas de cuatro líneas; cada rap usa dos, distintas. */
+/** Diez estrofas de cuatro líneas; cada rap usa dos, distintas. */
 export const ESTROFAS = [
   {
     id: 'cambuche',
@@ -82,7 +82,62 @@ export const ESTROFAS = [
       ['y si me dan un billete,', 'me bajo y no les lloro.'],
     ],
   },
+  {
+    id: 'colado',
+    lineas: [
+      ['Salté el torniquete', 'como en las olimpiadas,'],
+      ['el vigilante ni me vio,', 'tenía la vista cansada.'],
+      ['No pagué el pasaje,', 'pero se los compenso:'],
+      ['un rap de primera', 'y un olor que ya es intenso.'],
+    ],
+  },
+  {
+    id: 'estrellas',
+    lineas: [
+      ['Me tomé un tinto', 'de esos de termo,'],
+      ['tan cargado y tan dulce', 'que hace tres días no duermo.'],
+      ['Me la paso de noche', 'contando las estrellas,'],
+      ['y como en Bogotá no sale ninguna,', 'me invento unas más bellas.'],
+    ],
+  },
+  {
+    id: 'reciclaje',
+    lineas: [
+      ['Reciclo botellas,', 'cartón y periódico:'],
+      ['soy el ingeniero', 'del sistema ecológico.'],
+      ['Si tiene una lata,', 'no la bote a la caneca:'],
+      ['démela a mí, señor,', 'que con eso me compro la arepa.'],
+    ],
+  },
 ];
+
+/**
+ * Lo que grita el vagón cuando llevo una racha de golpes sin trabarme, por cuántos van seguidos.
+ * Lo dice la gente, no el cartón: va en usted o sin persona.
+ */
+export const GRITOS_RACHA = {
+  4: '¡Eso!',
+  8: '¡Uy, qué flow!',
+  12: '¡Se prendió el vagón!',
+  16: '¡Que alguien lo grabe!',
+};
+
+/** Lo que pasa cuando me trabo tres veces seguidas: el vagón se queda callado. */
+export const SILENCIOS = [
+  'Silencio incómodo.',
+  'Alguien tosió.',
+  'Solo suena el motor.',
+  'Un señor miró el reloj.',
+];
+
+/** Si vuelvo a rapear al rato, en la misma ruta ya me conocen: dan menos y alguno lo dice. */
+export const REPETIDO = 'Ya me habían oído hoy: más de uno se sabía la letra.';
+
+/** Si el estudiante va en el vagón y me luzco (o hago el oso), sale el video. `vistas` ya viene escrito. */
+export const VIRAL = {
+  durisimo: (vistas) => `El estudiante ya lo subió: ${vistas} vistas y subiendo.`,
+  mal: (vistas) => `El estudiante lo subió a los memes: ${vistas} vistas.`,
+};
 
 /** Lo que sale en lugar del pedazo que no pegó con la caja. */
 export const TRABADAS = [
@@ -219,6 +274,26 @@ export const PASAJEROS = [
       bien: { da: [{ dice: 'Qué bonito. Le voy a dar algo.' }], nada: [{ dice: 'Qué bonito. Me lo voy a acordar en el turno.' }] },
       regular: { da: [{ hace: 'Sonrió y me dio una moneda.' }], nada: [{ hace: 'Sonrió, pero no tenía sencillo.' }] },
       mal: { da: [{ hace: 'Me dio una moneda y me recomendó tomar agua.' }], nada: [{ hace: 'Me miró como a un paciente difícil.' }] },
+    },
+  },
+  {
+    id: 'pastor', nombre: 'El pastor que también iba a predicar', dibujo: 'vela', gusto: 0.9,
+    durante: { bueno: 'Dice amén a cada rima.', malo: 'Ya sacó la Biblia para pedir el turno.' },
+    dichos: {
+      durisimo: { da: [{ dice: '¡Amén! Eso también es palabra. Tome.' }], nada: [{ dice: '¡Amén! Le cedo el vagón, hermano.' }] },
+      bien: { da: [{ dice: 'Bendiciones, hermano. Tome, que Dios multiplica.' }], nada: [{ dice: 'Bendiciones, hermano. Ahora me toca a mí.' }] },
+      regular: { da: [{ dice: 'Tome, hermano, y ore por la rima.' }], nada: [{ hace: 'Se puso a predicar antes de que yo terminara.' }] },
+      mal: { da: [{ dice: 'Tome, hermano: hay que tener fe.' }], nada: [{ hace: 'Pidió un aplauso para mí. Nadie aplaudió.' }] },
+    },
+  },
+  {
+    id: 'domiciliario', nombre: 'El domiciliario', dibujo: 'carton', gusto: 1.1,
+    durante: { bueno: 'Marca el ritmo en la maleta.', malo: 'Le escribe al cliente que va tarde.' },
+    dichos: {
+      durisimo: { da: [{ dice: 'Cinco estrellas, parcero. Tome la propina.' }], nada: [{ dice: 'Cinco estrellas, pero la propina me la deben a mí.' }] },
+      bien: { da: [{ dice: 'Buena esa. Tome, que hoy me dieron propina.' }], nada: [{ dice: 'Buena esa. Le daría, pero hoy no he visto ni una propina.' }] },
+      regular: { da: [{ dice: 'Tres estrellas. Tome.' }], nada: [{ dice: 'Tres estrellas. Le falta llegar a tiempo.' }] },
+      mal: { da: [{ dice: 'Tome, pero eso llegó frío.' }], nada: [{ dice: 'Una estrella. Eso llegó frío.' }] },
     },
   },
 ];

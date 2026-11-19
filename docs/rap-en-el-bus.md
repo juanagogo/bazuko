@@ -6,11 +6,12 @@ En el torniquete del Portal del Centro o de las estaciones del Metro, la ventana
 
 1. La calle funde a negro, suenan los tres pitos de las puertas y arranca el ronroneo del bus.
 2. Dos compases de saludo, según la hora del juego: «Buenas noches, señores pasajeros, disculpen la molestia: no vengo a robarles, vengo a rimarles.» La marca roja ya cruza la barra, sin golpes, para mostrar cómo va.
-3. Dos estrofas al azar entre siete (el cambuche, el bus lleno, la carreta, El Chato, el clima, el trancón y la fama) y el cierre, «Gracias, señores pasajeros, ¡que Dios les pague!».
+3. Dos estrofas al azar entre diez (el cambuche, el bus lleno, la carreta, El Chato, el clima, el trancón, la fama, el colado, las estrellas y el reciclaje) y el cierre, «Gracias, señores pasajeros, ¡que Dios les pague!».
 4. En cada compás la marca cruza la barra una vez, de izquierda a derecha. Cada trazo negro es un golpe de la caja (el 2 y el 4): se oprime **Espacio** (A con mando, un toque en cualquier parte de la pantalla con el dedo) cuando la marca pasa por él. La segunda estrofa pide un golpe más en dos de sus líneas.
 5. El pedazo que pega se escribe en grueso y su trazo queda con chulo. El que no, sale tachado y al lado lo que dijo el personaje al trabarse («eh… eh… ¿cómo era?», «se me olvidó la letra»).
-6. Abajo va la gente del vagón: cinco al azar entre diez (la señora del mercado, el estudiante, el celador que sale de turno, el de corbata, la abuela de la camándula, el parcero de gorra, el de los dulces, la turista, el maestro de obra y la enfermera del turno de noche). Cada uno tiene sus ganas, en masa rayada, y lo que hace mientras tanto («Ya está grabando», «Subió el volumen»).
-7. Al final, la cuenta: cómo me fue, lo que dijo o hizo cada uno, lo que dio y el total. «Bajarme del bus» (o del vagón) lleva a la estación de llegada.
+6. Las rachas: a los 4, 8, 12 y 16 golpes seguidos sin trabarse, el vagón grita («¡Eso!», «¡Uy, qué flow!», «¡Se prendió el vagón!», «¡Que alguien lo grabe!») en un retazo pegado a la esquina de la letra, con una corneta. Cada grito sale una vez por rap. Si el personaje se traba tres veces seguidas, el retazo dice lo que pasa en el vagón: «Silencio incómodo.», «Alguien tosió.»
+7. Abajo va la gente del vagón: cinco al azar entre doce (la señora del mercado, el estudiante, el celador que sale de turno, el de corbata, la abuela de la camándula, el parcero de gorra, el de los dulces, la turista, el maestro de obra, la enfermera del turno de noche, el pastor que también iba a predicar y el domiciliario). Cada uno tiene sus ganas, en masa rayada, y lo que hace mientras tanto («Ya está grabando», «Subió el volumen»).
+8. Al final, la cuenta: cómo me fue, lo que dijo o hizo cada uno, lo que dio y el total. «Bajarme del bus» (o del vagón) lleva a la estación de llegada.
 
 Esc (B con mando) calla al personaje a mitad del rap: no cobra y llega igual. Machacar la tecla no sirve: cada pulsación sin golpe cerca resta. Si se cambia de pestaña, el rap espera y retoma desde el principio del compás en que iba.
 
@@ -25,6 +26,10 @@ Esc (B con mando) calla al personaje a mitad del rap: no cobra y llega igual. Ma
 | Me bajaron | Menos de 15 % | Nadie da; en la siguiente estación me piden que me baje y llego a pie, 12 minutos más tarde |
 
 Un golpe justo (a 80 ms o menos) vale 1; uno bien (a 160 ms o menos), 0,6; uno perdido, 0. Cada pasajero tiene su gusto: a la abuela y al parcero les gusta más, al de los dulces casi nada, porque le quitaron el turno. Lo que dice cuadra con lo que dio: «Tome» solo sale si dio algo. Con mal olor las ganas de dar bajan a la mitad, y la cuenta lo dice. Todo va en múltiplos de $ 100.
+
+Si el personaje vuelve a rapear antes de tres horas de juego, el vagón ya lo conoce: las ganas de dar bajan al 60 % y la cuenta dice «Ya me habían oído hoy: más de uno se sabía la letra.». Tampoco repite las estrofas del rap anterior. Callarse no cuenta, y el recuerdo no se guarda en la partida.
+
+Si el estudiante va en el vagón y el rap sale durísimo, la cuenta dice cuántas vistas lleva su video; si sale mal, lo subió a los memes, y con más vistas.
 
 Rapear cuesta 6 de energía y 6 de sed, y deja el ánimo entre +8 (lucirse) y −6 (que lo bajen); callarse quita 2 y no cansa. Con menos de 10 de energía la opción sale tachada: «Estoy muy cansado para rapear». El pasaje se paga al subir, como siempre, y colarse tiene el riesgo de siempre: si lo pillan no hay rap.
 
@@ -41,9 +46,9 @@ Sobre marcador, como la pausa: arriba la ruta («En el articulado, rumbo a…» 
 ## Dónde está
 
 - `src/data/rapLetras.js`: saludo, estrofas, trabadas, veredictos y la gente del vagón. Solo datos.
-- `src/systems/rap/ritmo.js`: la canción, el juicio de cada golpe, el flow y el nivel.
-- `src/systems/rap/pago.js`: quién va, sus ganas y cuánto da; lo que cuesta rapear.
-- `src/systems/rap/RapAudio.js`: el beat.
+- `src/systems/rap/ritmo.js`: la canción, el juicio de cada golpe, la racha, el flow y el nivel.
+- `src/systems/rap/pago.js`: quién va, sus ganas y cuánto da, el video del estudiante y si el vagón ya me conoce; lo que cuesta rapear.
+- `src/systems/rap/RapAudio.js`: el beat y la corneta.
 - `src/ui/RapEnElBus.js`: la escena, el reloj y la entrada (teclado, mando y dedo).
 - `src/systems/StreetLife.js` (`travel`, `_llegarRapeando`) y `src/ui/streetMenus.js`: el viaje y la ventana.
 - `tests/rap.test.js` y `tests/e2e/rap.spec.js`.

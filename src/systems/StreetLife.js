@@ -10,7 +10,7 @@ import { CarGuarding } from './CarGuarding.js';
 import { FreshnessSystem } from './Freshness.js';
 import { wearWeapon } from './WeaponWear.js';
 import { resolveTrip, travelMinutes, PASAJE } from './Transit.js';
-import { EFECTOS_RAP, avisoDelRap } from './rap/pago.js';
+import { EFECTOS_RAP, avisoDelRap, esRepetido } from './rap/pago.js';
 import { HOGAR, checkIn, checkOut, hasRoom, isOpen, nightEffects } from './Shelter.js';
 import { isFreeSpot } from '../world/bogota/streetLifePlaces.js';
 
@@ -285,9 +285,12 @@ export class StreetLife {
     const minutos = travelMinutes(from, to);
     this.guard.cancel();
     if (rapear) {
+      const antes = this._ultimoRap;
       g.rapBus.empezar({
         // Se sube en la estación de salida: del Portal sale en articulado, de la 72 en el Metro.
         hacia: to, sistema: from.sistema ?? to.sistema, hora: g.clock?.hour ?? 12, malOlor,
+        // Si rapeé hace poco, el vagón se acuerda: dan menos, y no repito las mismas estrofas.
+        repetido: esRepetido(antes?.hora, g.totalGameHours), evitar: antes?.estrofas ?? [],
         onTermina: (rap) => this._llegarRapeando(from, to, { modo, minutos, rap }),
       });
       return { ...result, rapeando: true };
@@ -314,6 +317,8 @@ export class StreetLife {
     const g = this.game, st = g.stats;
     const total = rap?.total ?? 0;
     const nivel = rap?.nivel ?? 'cancelado';
+    // Callarme no cuenta: nadie se acuerda de uno que no dijo nada.
+    if (nivel !== 'cancelado') this._ultimoRap = { hora: g.totalGameHours, estrofas: rap?.estrofas ?? [] };
     st.dinero += total;
     if (nivel !== 'cancelado') {
       st.energia = Math.max(0, st.energia - EFECTOS_RAP.energia);

@@ -139,6 +139,14 @@ export class RapAudio {
     this._golpeDeRuido(t, 'lowpass', 600, 0.12, 0.2);
   }
 
+  /** La corneta cuando el vagón grita por una racha: corto, corto y largo, con dos voces un poco desafinadas. */
+  grito(t = this.ahora()) {
+    if (!this.listo()) return;
+    [[0, 0.1], [0.16, 0.1], [0.32, 0.38]].forEach(([d, largo]) => {
+      for (const f of [466, 471]) this._tono(t + d, 'sawtooth', f, 0.07, largo, 2400);
+    });
+  }
+
   /** El rayón del disco al empezar las estrofas. */
   rayon(t = this.ahora()) {
     if (!this.listo()) return;

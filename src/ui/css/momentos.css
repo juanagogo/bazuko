@@ -273,7 +273,13 @@ body.night-mode .cinematic-vignette { background: radial-gradient(circle at 50% 
 }
 #rap-bus[hidden], #rap-bus [hidden] { display: none !important; }
 body:has(#rap-bus:not([hidden])) > .loot-toast { display: none; }
-.rap__cabeza { width: 100%; display: flex; justify-content: center; }
+.rap__cabeza { position: relative; width: 100%; display: flex; justify-content: center; }
+/* Lo que grita el vagón: un retazo pegado en la esquina del cartón de la letra, sin correr nada de lugar. */
+.rap__racha {
+  position: absolute; top: 100%; right: max(0px, calc(50% - 550px)); z-index: 2; margin: 0;
+  transform: translateY(-30%) rotate(-3deg); font-size: 24px; white-space: nowrap; pointer-events: none;
+}
+.rap__racha.is-silencio { font-weight: 400; transform: translateY(-30%) rotate(2deg); }
 .rap__ruta { margin: 0; padding: 6px 16px 8px; font-weight: 800; font-size: 18px; line-height: 1.1; text-align: center; }
 
 /* El cartón con la letra: la línea del compás arriba, la que viene abajo. */
@@ -324,7 +330,7 @@ body:has(#rap-bus:not([hidden])) > .loot-toast { display: none; }
 }
 .rap__grito { margin: 4px 0 0; text-align: center; }
 .rap__veredicto { margin: 0; font-weight: 800; font-size: 22px; line-height: 1.15; text-align: center; }
-.rap__olor { margin: 0; font-size: 17px; line-height: 1.15; text-align: center; }
+.rap__nota { margin: 0; font-size: 17px; line-height: 1.15; text-align: center; }
 .rap__filas { list-style: none; margin: 0; padding: 0; width: 100%; display: grid; gap: 8px; }
 .rap__fila { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 10px; padding: 8px 14px 9px; }
 .rap__fila-texto { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
@@ -344,6 +350,7 @@ body:has(#rap-bus:not([hidden])) > .loot-toast { display: none; }
 @media (max-width: 760px) {
   #rap-bus { gap: 10px; padding-left: calc(10px + var(--safe-l, 0px)); padding-right: calc(10px + var(--safe-r, 0px)); }
   .rap__ruta { font-size: 16px; }
+  .rap__racha { font-size: 18px; }
   .rap__escena { padding: 14px 14px 12px; }
   .rap__gente { gap: 6px; }
   .rap__pasajero { grid-template-columns: minmax(0, 1fr); grid-template-areas: "dibujo" "medidor"; justify-items: center; padding: 6px 6px 7px; }
