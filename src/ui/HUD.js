@@ -551,7 +551,8 @@ export class HUD {
     window.addEventListener('sleep-end', (e) => this._toast(`Dormí ${e.detail?.hours ?? ''} h. Partida guardada`, 'info'));
     window.addEventListener('sleep-fail', (e) => this._toast(
       e.detail.reason === 'nobase' ? 'Primero toca armar el cambuche (8 cartones)'
-        : e.detail.reason === 'descansado' ? textoSinSiesta(e.detail) : 'Aquí no puedo dormir',
+        : e.detail.reason === 'descansado' ? textoSinSiesta(e.detail)
+        : e.detail.reason === 'persecucion' ? 'Con la tomba encima no puedo dormir' : 'Aquí no puedo dormir',
       'warn'
     ));
   }
@@ -853,10 +854,12 @@ export class HUD {
     this.moneyEl?.classList?.toggle('plata--larguisima', dinero >= PLATA_LARGUISIMA);
   }
 
-  /** La tecla de contexto y, después, el aviso del rebusque del semáforo. Con la pausa abierta, nada. */
+  /** La tecla de contexto, al lado la del robo de carros y, después, el aviso del rebusque del semáforo. Con la pausa abierta, nada. */
   _pintarContexto(interaction, inventory) {
     if (window.__game?.paused) { this._pintarPrompt('', interaction); return; }
-    this._pintarPrompt(textoDelPrompt(interaction, inventory), interaction, interaction?.rebusquePrompt ?? '');
+    // El robo de carros pone su tecla al lado de la de contexto.
+    const texto = [textoDelPrompt(interaction, inventory), interaction?.carjackPrompt].filter(Boolean).join(' · ');
+    this._pintarPrompt(texto, interaction, interaction?.rebusquePrompt ?? '');
   }
 
   /** La tecla de contexto se reescribe solo si cambia el texto; mantener Q muestra su progreso de verdad. */

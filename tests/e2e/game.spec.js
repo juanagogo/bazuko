@@ -224,7 +224,9 @@ test('mapa con M, destino por clic y por la lista, ruta en el radar y pestañas 
   // Q/E recorren las pestañas; M desde otra pestaña vuelve al mapa y desde el mapa cierra.
   await page.keyboard.press('e');
   await expect(page.getByRole('tab', { name: /Estado/ })).toHaveAttribute('aria-selected', 'true');
-  await expect(page.locator('.pause-needs')).toBeVisible();
+  const necesidades = page.locator('.pause-needs').filter({ has: page.getByText('Salud', { exact: true }) });
+  await expect(necesidades.getByText('Hambre', { exact: true })).toBeVisible();
+  await expect(page.locator('.pause-gps-summary')).toContainText('Recicladora El Progreso');
   if (process.env.GPS_SHOTS) await page.screenshot({ path: `${process.env.GPS_SHOTS}/estado.png` });
   await page.keyboard.press('e');
   await expect(page.locator('.pause-settings')).toBeVisible();
@@ -251,10 +253,13 @@ test('mapa con M, destino por clic y por la lista, ruta en el radar y pestañas 
 
 test('radar y mapa señalan lo que necesitas: M + Enter traza la ruta a la fogata gratis', async ({ page }) => {
   await startNewGame(page);
-  // Cada sesión empieza a las 22:00 con llovizna: sin plata ni comida, lo que queda es la fogata.
+  // La noche y la llovizna activan el frío en el bucle real de necesidades.
   await page.evaluate(() => {
-    const { stats, inventory } = window.__game;
-    stats.dinero = 0; stats.calor = 0;
+    const { stats, inventory, clock, weather } = window.__game;
+    clock.hour = 22;
+    weather.setWeather('llovizna', false);
+    stats.dinero = 0;
+    stats.calor = 0;
     inventory.items.length = 0;
   });
   await expect(page.locator('#minimap-info')).toContainText('Fogata de caneca');
@@ -278,10 +283,15 @@ test('radar y mapa señalan lo que necesitas: M + Enter traza la ruta a la fogat
   await page.keyboard.press('Enter');
   await expect(page.locator('.map-view__dest strong')).toContainText('Fogata de caneca');
 
-  // Los filtros dejan solo lo que sirve y explican por qué no hay opción.
+  // Sin plata hay agua gratis en el comedor, pero la fritanga cobra.
   await page.locator('.map-view__filter', { hasText: 'Agua' }).click();
-  await expect(page.locator('.map-view__no-option')).toContainText('No alcanza: agua desde');
+  await expect(nearest).toHaveText('Ir al agua más cercana');
+  await expect(page.locator('.map-view__place', { hasText: 'Comedor Comunitario' })).toContainText('gratis');
   await expect(page.locator('.map-view__place', { hasText: 'Fritanga La Mona' })).toContainText('sin plata');
+  await expect(page.locator('.map-view__place', { hasText: 'Fogata de caneca' })).toHaveCount(0);
+  // Al vender con el costal vacío sí se explica por qué no hay opción.
+  await page.locator('.map-view__filter', { hasText: 'Vender' }).click();
+  await expect(page.locator('.map-view__no-option')).toHaveText('No llevo nada que me compren.');
   await page.locator('.map-view__filter', { hasText: 'Todo' }).click();
   await expect(page.locator('.map-view__no-option')).toHaveCount(0);
 
@@ -300,11 +310,12 @@ test('radar y mapa señalan lo que necesitas: M + Enter traza la ruta a la fogat
 
   // Marcar un lugar no mueve el panel, que a esta altura se desplaza entero.
   const side = page.locator('.map-view__side');
-  const fire = page.locator('.map-view__place', { hasText: 'Fogata de caneca' });
-  await fire.scrollIntoViewIfNeeded();
+  const fire = side.locator('.map-view__place', { hasText: 'Fogata de caneca' });
+  await fire.evaluate(button => button.scrollIntoView({ block: 'center' }));
   const scrolled = await side.evaluate(node => node.scrollTop);
   expect(scrolled).toBeGreaterThan(0);
   await fire.click();
+  await expect(fire).toHaveAttribute('aria-current', 'true');
   expect(await side.evaluate(node => node.scrollTop)).toBe(scrolled);
 
   // En teclado español, «+» es la tecla física de «]»: acerca el mapa y no cambia de pestaña.

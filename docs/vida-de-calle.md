@@ -40,6 +40,7 @@ Dos valores de 0 a 100 que empiezan en 50:
 
 Cada cambio de nivel sale como aviso y la pestaña Estado explica qué significa el nivel actual. La Tienda La Esquinita no usa esta fama: es un local, no una chaza.
 
+
 ## Cuidar carros
 
 Junto a un carro parqueado, Q empieza el turno. Un cartón encima de la tecla de contexto muestra el avance y cuánto falta. El dueño vuelve entre 40 y 75 s después y deja entre $ 1.500 y $ 4.500 (a veces nada). Pasados los 9 m avisa; si el jugador sigue lejos 6 s o pasa de 14 m, pierde el turno. Robarle el espejo al carro que se cuida acaba el turno y baja la fama con las chazas. El mismo carro no se puede volver a cuidar en 5 minutos. A los carros en circulación Q les sigue limpiando el parabrisas.

@@ -15,7 +15,7 @@ Casas de uno y dos pisos con paredes encaladas o de colores (ocre, añil, almagr
 Ladrillo rojo, casas de estilo inglés con hastiales y ventanas en saliente, antejardín con reja y seto, árboles más grandes y andenes de tres tiles (seis metros).
 
 - **Calle 7 comercial.** Locales con cortina metálica, toldo y avisos inventados, y un puesto de fritanga.
-- **Plaza de mercado.** Seis puestos con toldos de lona o a franjas, canastas de fruta y verdura, y costales. Bloquea el paso solo por donde hay mesas.
+- **Plaza de mercado.** Seis puestos con toldos remendados, guacales de cítricos y hortalizas, racimos de plátano y costales. Al girar por el pasillo, la cámara se recoge delante de las lonas. Las mesas delimitan los pasos y el marcador del mapa lleva al centro del mercado.
 - **Parque de Teusaquillo y torres de ladrillo.** Tres arcos curvos de ladrillo, escalonados, inspirados en los conjuntos de ladrillo bogotanos. Sólidos en su curva real: la colisión son tiras de medio metro que siguen la planta (`towerColliderBoxes`). Se ven desde todo el barrio: su bruma tiene tope y ni la cámara ni el descarte las cortan en el plano lejano. Cerca del horizonte, torres, cerros y ciudad de fondo se hunden en una bruma que depende del ángulo de la mirada: con neblina, lluvia, al atardecer o de noche sube más y con el día despejado queda abajo, para que la ciudad real, que a esa distancia ya es solo niebla, no se recorte contra ellos.
 
 ## El borde
@@ -32,7 +32,7 @@ El carril del bus queda sin barreras, conos ni franja: el articulado arranca con
 
 Detrás de todo está `CityBackdrop.js`: **de tres a siete llamadas de dibujo** por vista, sin colisiones y excluidas de los sectores. El cerro siempre se dibuja; de los bloques, solo los costados que caben en cuadro.
 
-- **Suelo y cerros.** Una sola malla en anillo, con las calles que siguen detrás de los cierres.
+- **Suelo y cerros.** Una sola malla en anillo, con las calles que siguen detrás de los cierres, en dos grupos: el suelo plano, que no escribe profundidad, y los cerros. Todo el fondo se pinta antes que la ciudad: el cielo en el −1000; los bloques en el −999,5; suelo y cerros en el −999 (el suelo, a la profundidad del cielo y con su propio programa). Cuando el terreno termina sus dos grupos se borra la profundidad, así que la ciudad, desde lo primero (−1), queda siempre encima del fondo y una torre real cerca del plano lejano ya no sale partida.
 - **Bloques.** Unos 3.000 ejemplares de una caja de cinco caras, entre edificios, cuartos de azotea y casitas. Pisos, ventanas, alféizares y luces de noche salen del sombreador, según la escala de cada ejemplar, sin texturas.
 - **Más allá de la Candelaria,** hacia +X, un cerro alto con iglesia blanca en la cumbre, torres de teleférico y cabinas.
 - **Al sur,** un barrio de ladrillo trepando la ladera, con casitas que se encienden de noche.

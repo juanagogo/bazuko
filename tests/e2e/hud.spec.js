@@ -150,6 +150,50 @@ test('la ayuda de los controles no pisa el radar', async ({ page }) => {
   await page.locator('#needs-toggle').click({ timeout: 3000 });
 });
 
+test('en PC la interacción deja libres los accesos y los avisos del mapa dejan leer la cabecera', async ({ page }) => {
+  await page.setViewportSize({ width: 1024, height: 768 });
+  await readyGame(page);
+  await page.evaluate(() => {
+    // El Chato da un verbo y una segunda línea de ayuda. Se queda al lado durante las mediciones.
+    const g = window.__game;
+    g.interaction.update = () => {};
+    g.interaction.currentTarget = g.dog;
+    g.interaction.currentTargetType = 'dog';
+  });
+  await expect(page.locator('#interaction-prompt')).toContainText('El Chato');
+  const pantallas = [[1024, 768], [1280, 720], [1366, 768], [1920, 1080]];
+  for (const [width, height] of pantallas) {
+    await page.setViewportSize({ width, height });
+    await expect.poll(() => page.evaluate(() => {
+      const controles = [...document.querySelectorAll('#panel-dock button, #camera-toggle, #controls-help-toggle, #hud-dock')];
+      const piezas = [...document.querySelectorAll('#interaction-prompt .cx')].map(el => el.getBoundingClientRect());
+      return controles.filter(el => {
+        const r = el.getBoundingClientRect();
+        return piezas.some(p => p.left < r.right && p.right > r.left && p.top < r.bottom && p.bottom > r.top);
+      }).map(el => el.id);
+    }), { message: `Accesos a ${width} × ${height}` }).toEqual([]);
+  }
+
+  await page.keyboard.press('m');
+  const torre = page.locator('.map-view__place').filter({ hasText: 'Torre Colpatria' });
+  for (const [width, height] of pantallas) {
+    await page.setViewportSize({ width, height });
+    await sinAvisos(page);
+    await torre.click();
+    await expect(page.locator('.loot-toast', { hasText: 'Torre Colpatria' })).toBeVisible();
+    await avisar(page, ['Se despeja el cielo: sale el sol sobre Monserrate.'], 'info');
+    const franjaLibre = await page.evaluate(() => {
+      const solapas = document.querySelector('.pause-tabs').getBoundingClientRect();
+      const titulo = document.getElementById('menu-title').getBoundingClientRect();
+      const avisos = [...document.querySelectorAll('.loot-toast')].map(el => el.getBoundingClientRect());
+      return avisos.length >= 2 && avisos.every(r => r.top >= solapas.bottom && r.bottom < titulo.top);
+    });
+    expect(franjaLibre, `Avisos a ${width} × ${height}`).toBe(true);
+  }
+  await page.getByRole('button', { name: 'Continuar jugando', exact: true }).click();
+  await expect(page.locator('#menu')).toBeHidden();
+});
+
 /** Las cajas de «Ayuda», el ojo de la cámara y la barra de paneles: enteras en pantalla y sin montarse. */
 const choquesAbajo = () => {
   const cajas = { ayuda: 'controls-help-toggle', ojo: 'camera-toggle', barra: 'panel-dock' };

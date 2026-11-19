@@ -64,6 +64,7 @@ Frena bajando el ritmo; ni con alguien encima se para en seco (llega a quieto en
 - **Avisador**: grita que llamen a la policía cuando ve al jugador hacer algo malo (una vez cada 30 s, y nadie en la calle en los 5 s siguientes) y emite `npc-police-report` (ver Integraciones pendientes). Si es una pelea que va a mirar, primero mira de 3 a 5 s desde su puesto y avisa desde ahí; si no va a mirarla (no le dan ganas, no tiene puesto, le queda encima), avisa de una, y si se acaba antes, avisa al acabarse.
 - **Mirada**: gira la cabeza hacia lo que le llama la atención (lo que vio, la pelea que mira, el carro que espera que pase, lo que deja atrás al huir) con un resorte amortiguado, hasta 70° a cada lado; más atrás sigue de frente. Lejos de la cámara Npc la pide cada 0,1 a 0,3 s y la cabeza va al mismo ritmo que de cerca. Solo gira en horizontal: la pose no tiene inclinación de cabeza.
 
+## Qué recuerda la partida
 ## Capa 4: memoria
 
 `memory.js`. Cada peatón recuerda hasta tres hechos malos del jugador: tipo, cuándo y qué tan fuerte. El recuerdo se borra en línea recta: unos 3 minutos si lo vio, 5 si se lo hicieron a él. No se guarda en la partida. Los tiempos son segundos de simulación, no horas del reloj del juego; dormir sí cuenta: al despertar (`sleep-end`) los recuerdos envejecen lo que avanza el reloj del mundo en esas horas (`DAY_CYCLE_SECONDS / 24` por hora, de `core/Clock.js`), sin mover los turnos de pensar.

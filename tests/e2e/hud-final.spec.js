@@ -356,22 +356,50 @@ test('la plana: se ve la persona, con cámara propia, y la del juego queda igual
   expect(celda).toEqual([4.5, 5]);
 });
 
-for (const [causa, titulo] of [['carro', 'Me llevó un carro'], ['golpe', 'TE CASCARON']]) {
-  test(`tirado por ${causa}: «${titulo}», sin salirse a 320`, async ({ page }) => {
-    await page.setViewportSize({ width: 320, height: 568 });
-    await readyGame(page);
-    await page.evaluate((causa) => {
-      const g = window.__game, d = g.player.position.clone().set(1, 0, .4);
-      if (causa === 'carro') g.player.receiveVehicleImpact(d, 10);
-      else { g.stats.salud = 30; g.player.receiveHit(d, 2, { salud: 30 }); }
-    }, causa);
-    await expect(page.locator('#cascado')).toBeVisible();
-    await expect(page.locator('#cascado strong')).toHaveText(titulo);
-    const c = await caja(page, '#cascado strong');
-    expect(c.left).toBeGreaterThanOrEqual(0);
-    expect(c.right).toBeLessThanOrEqual(320);
+test('un atropello muestra «Me llevó un carro» dentro de la ventana a 320', async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 568 });
+  await readyGame(page);
+  await page.evaluate(() => {
+    const { player } = window.__game;
+    player.receiveVehicleImpact(player.position.clone().set(1, 0, .4), 10);
   });
-}
+  await expect(page.locator('#cascado')).toBeVisible();
+  await expect(page.locator('#cascado strong')).toHaveText('Me llevó un carro');
+  const c = await caja(page, '#cascado strong');
+  expect(c.left).toBeGreaterThanOrEqual(0);
+  expect(c.right).toBeLessThanOrEqual(320);
+});
+
+test('con 30 de salud el jugador acusa el golpe de pie y responde a G', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await readyGame(page);
+  await page.evaluate(() => {
+    // El impacto coincide con la pulsación real, incluso si la máquina dibuja pocos cuadros.
+    window.__golpeRecibido = new Promise(resolve => {
+      window.addEventListener('keydown', () => {
+        const g = window.__game, p = g.player, inicio = p.time;
+        g.stats.salud = 30;
+        p.receiveHit(p.position.clone().set(1, 0, .4), 2);
+        const r = { reaccion: p.isStunned && p.hitLean.active, cayo: p.isKnockedDown, cartel: false, menu: false, ataqueEn: null };
+        const observar = () => {
+          const segundos = p.time - inicio;
+          r.cayo ||= p.isKnockedDown;
+          r.cartel ||= !document.getElementById('cascado').hidden;
+          r.menu ||= !document.getElementById('menu').hidden;
+          if (r.ataqueEn === null && p.attack?.weapon === 'punos') r.ataqueEn = segundos;
+          if (segundos >= 1 || g.paused) resolve(r);
+          else requestAnimationFrame(observar);
+        };
+        observar();
+      }, { capture: true, once: true });
+    });
+  });
+  await page.keyboard.press('g');
+  const r = await page.evaluate(() => window.__golpeRecibido);
+  expect(r).toMatchObject({ reaccion: true, cayo: false, cartel: false, menu: false });
+  expect(r.ataqueEn).toBeGreaterThan(0);
+  expect(r.ataqueEn).toBeLessThanOrEqual(.4);
+});
 
 test('la plata se mueve de verdad: vender sube, comprar baja, armar gasta', async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 800 });
